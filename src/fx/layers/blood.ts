@@ -65,12 +65,13 @@ float bK = bAge / aV.w;
 float bOpacity = abs(aC.w);
 if (bMist) {
   // Spreads as it thins. Gone before it can sit on the player's face, where it would cost a full screen.
-  bHalf *= 1.0 + 1.6 * bK;
+  // At range the strands fall under a pixel, so the puff grows to carry the hit on its own.
+  bHalf *= (1.0 + 1.6 * bK) * (1.0 + clamp((bDepth - 5.0) * 0.14, 0.0, 2.0));
   bOpacity *= (1.0 - bK) * (1.0 - bK) * clamp((bDepth - 0.7) / 1.3, 0.0, 1.0);
 }
 // Thinner than the pixel floor it gets paler, not fatter: a far spurt stays fine instead of turning to confetti.
 float bWidth = max(bHalf, bFloor);
-bOpacity *= bHalf / bWidth;
+bOpacity *= sqrt(bHalf / bWidth);
 
 vec3 objectNormal = bToEye;
 `;

@@ -444,6 +444,11 @@ export class AudioEngine implements AudioSystem {
     return (wantHrtf ? pool.freeHrtf.pop() : undefined) ?? pool.free.pop() ?? pool.freeHrtf.pop() ?? null;
   }
 
+  /** 2D sounds are the player's own, so the world gets what they leave of the budget. */
+  private limit3d(): number {
+    return Math.max(MIN_VOICES_3D, this.governor.budget - this.active2d);
+  }
+
   /** Whether a crowded mix can do without this. Critical sounds never reach here. */
   private thin(def: SoundDef, level: number, now: number): boolean {
     const pressure = this.active / this.governor.budget;
@@ -521,7 +526,7 @@ export class AudioEngine implements AudioSystem {
 
     const ui = def.bus === 'ui';
     const pool = ui ? this.poolUi : position ? this.pool3d : this.pool2d;
-    const limit = ui || !position ? pool.all.length : Math.max(MIN_VOICES_3D, this.governor.budget - this.active2d);
+    const limit = ui || !position ? pool.all.length : this.limit3d();
     const wantHrtf = def.hrtf && distance < HRTF_RANGE && this.governor.step === 0;
     const voice = this.claim(def, pool, limit, wantHrtf);
     if (!voice) return null;
@@ -604,7 +609,7 @@ export class AudioEngine implements AudioSystem {
     }
     this.active2d = active2d;
     this.active = active3d + active2d;
-    if (this.active > this.governor.budget) this.shed();
+    if (active3d > this.limit3d()) this.shed();
 
     this.sweepClock -= realDt;
     if (this.sweepClock <= 0) {
