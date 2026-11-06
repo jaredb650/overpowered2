@@ -18,7 +18,7 @@ SoundBible's own statement on commercial use, from https://soundbible.com/about.
 read first, and the script refused any other value. These are the uploaders' claims as the site records them. Nobody here can check who
 really recorded each one.
 
-Kenney's page was read directly. Its server refuses scripted downloads, so the files came from a CC0 mirror of the same pack:
+Kenney's page was read directly. Its server answered a plain scripted request with 403, so the files came from a third party's CC0 port of the same pack:
 `Boyquotes/kenney-impact-sounds-for-godot` at commit `999dd1684873f8b020a3aa5b26e713da21688924`
 (https://github.com/Boyquotes/kenney-impact-sounds-for-godot, `addons/kenney impact sounds/`).
 
@@ -98,6 +98,6 @@ All in `public/audio/sfx/gore/`.
 | Freesound | Downloads need a login, so it was skipped as instructed. The public preview files were not used either |
 | Sonniss GDC bundles | The licence allows use in games with no credit, but forbids redistributing the raw sounds, and loose files served from `public/` come close. The bundles are also 7 GB or more, with no way to take one file |
 | itch.io packs ("The Designer's Choice - GORE", "Free Gore Foley Sound Pack", FilmCow volumes) | Not paid, and may well suit. But itch.io's robots.txt disallows the download paths, so they need a person to fetch them and read each licence |
-| Kenney, direct | The site refuses scripted downloads. The mirror above is the same CC0 pack |
+| Kenney, direct | The site answered a plain scripted request with 403, and no way round that was tried. The port above carries the same CC0 pack |
 | Wikimedia Commons | Searched slowly through its API. Nearly every hit for these words is a spoken pronunciation, so nothing was taken |
 | Better gunshots, explosions, ricochets | Nobody here can hear whether one clearly beats what exists, so none were added. The first game's samples are untouched |

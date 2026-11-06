@@ -60,11 +60,11 @@ export function bloodJet(core: FxCore, position: THREE.Vector3, dir: THREE.Vecto
   const beats = intensity < 0.75 ? 2 : 3;
   for (let beat = 0; beat < beats; beat++) {
     const v = 8.5 * pressure * (1 - beat * 0.3);
-    stream(core, x, y, z, dir.x, dir.y, dir.z, beat === 0 ? 4 : 3, v, v / 5.5, 0.0105, 0.1, 1.5, beat * 0.13, 2);
+    stream(core, x, y, z, dir.x, dir.y, dir.z, beat === 0 ? 4 : 3, v, v / 5.5, 0.014, 0.15, 1.5, beat * 0.13, 2);
   }
   b.setTone(BLOOD_TONE.venous);
   drops(core, x, y, z, dir.x, dir.y, dir.z, 2, 2.8 * pressure, beats * 0.13);
-  b.mist(x, y, z, dir.x * 6, dir.y * 6, dir.z * 6, 0.12 * pressure, 0.24, 7, 0.5);
+  b.mist(x, y, z, dir.x * 6, dir.y * 6, dir.z * 6, 0.15 * pressure, 0.26, 7, 0.9);
 }
 
 /**
@@ -75,10 +75,10 @@ export function bloodHit(core: FxCore, position: THREE.Vector3, dir: THREE.Vecto
   const { x, y, z } = position;
   const p = Math.sqrt(clamp(intensity, 0.25, 3));
   const b = core.blood.begin(core.bloodNow, core.floorAt(x, y, z), core.wallAlong(x, y, z, dir.x, dir.y, dir.z), BLOOD_TONE.wound);
-  stream(core, x, y, z, dir.x, dir.y, dir.z, 3, 6.5 * p, 1.2, 0.0085, 0.07, 2.2, 0, 2);
-  stream(core, x, y, z, -dir.x, 0.45 - dir.y, -dir.z, 3, 3.4 * p, 1.7, 0.0062, 0.06, 2.4, 0, 0);
+  stream(core, x, y, z, dir.x, dir.y, dir.z, 3, 6.5 * p, 1.2, 0.012, 0.09, 2.2, 0, 2);
+  stream(core, x, y, z, -dir.x, 0.45 - dir.y, -dir.z, 3, 3.6 * p, 1.7, 0.0095, 0.08, 2.2, 0, 0);
   drops(core, x, y, z, dir.x, dir.y, dir.z, 2, 2.4 * p, 0.03);
-  b.mist(x, y, z, -dir.x * 2.2, 0.4 - dir.y * 2.2, -dir.z * 2.2, 0.1 * p, 0.18, 8, 0.45);
+  b.mist(x, y, z, -dir.x * 2.2, 0.4 - dir.y * 2.2, -dir.z * 2.2, 0.13 * p, 0.2, 8, 0.85);
 }
 
 /** A faint breath of fine drops. It is gone in half a second: blood mist that hangs is a video game effect. */
@@ -87,7 +87,7 @@ export function bloodMist(core: FxCore, position: THREE.Vector3, size = 1): void
   const b = core.blood.begin(core.bloodNow, -1e6, null, BLOOD_TONE.wound);
   for (let i = 0; i < 3; i++) {
     _v.set(rand(-1, 1), rand(-0.3, 0.6), rand(-1, 1)).normalize().multiplyScalar(rand(0.8, 2));
-    b.mist(x, y, z, _v.x, _v.y, _v.z, 0.15 * size, rand(0.35, 0.55), 6, 0.3);
+    b.mist(x, y, z, _v.x, _v.y, _v.z, 0.15 * size, rand(0.35, 0.55), 6, 0.5);
   }
 }
 
@@ -109,7 +109,7 @@ export function gibBurst(core: FxCore, position: THREE.Vector3, dir: THREE.Vecto
     _v.set(dir.x + rand(-0.8, 0.8), dir.y + rand(0, 0.9), dir.z + rand(-0.8, 0.8)).normalize();
     drops(core, x, y, z, _v.x, _v.y, _v.z, 1, rand(4, 8) * f, i * 0.02);
   }
-  for (let i = 0; i < 2; i++) b.mist(x, y, z, dir.x * 5 + rand(-1, 1), dir.y * 5 + rand(0, 2), dir.z * 5 + rand(-1, 1), 0.2, 0.3, 7, 0.45);
+  for (let i = 0; i < 2; i++) b.mist(x, y, z, dir.x * 5 + rand(-1, 1), dir.y * 5 + rand(0, 2), dir.z * 5 + rand(-1, 1), 0.22, 0.3, 7, 0.8);
   spatter(core, position, 1);
 }
 

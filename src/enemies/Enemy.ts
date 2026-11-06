@@ -195,8 +195,6 @@ export class Enemy implements EnemyInstance {
   /** Set after the killing blow while the body plays out a death, such as a headless stumble. */
   dying = 0;
   dyingKind: 'none' | 'stumble' | 'crash' | 'boss' = 'none';
-  /** The mesh sits this far below the feet position, for a Titan down on its stumps. */
-  rootDrop = 0;
   /** Distance tier for animation and think rates. */
   lod = 0;
   boss: BossController | null = null;
@@ -269,7 +267,6 @@ export class Enemy implements EnemyInstance {
     this.shield = false;
     this.dying = 0;
     this.dyingKind = 'none';
-    this.rootDrop = 0;
     this.lod = 0;
     this.boss = null;
     this.tankBlown = false;

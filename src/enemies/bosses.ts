@@ -1,7 +1,7 @@
 /**
  * Bosses. Both are normal enemies driven by the same brain, plus a controller that owns phases, damage rules and
  * the death. The Juggernaut's phases are its armour stages. The Titan's phases are its limbs: each one shot off
- * removes the attacks it carried, and losing both legs drops it to its knees with its core exposed.
+ * removes the attacks it carried, and losing both legs brings it down onto the floor with its core exposed.
  */
 import * as THREE from 'three';
 import { HumanoidBone as B, type GoreRegion } from '../characters/rig';
@@ -459,8 +459,8 @@ const titanWalk: Behaviour = {
   },
 };
 
-const titanKneel: Behaviour = {
-  name: 'titanKneel',
+const titanDown: Behaviour = {
+  name: 'titanDown',
   score: e => (e.maim.legs === 0 ? 6 : 0),
   enter(e) {
     e.mode = 'hold';
@@ -468,11 +468,9 @@ const titanKneel: Behaviour = {
   },
 };
 
-export const TITAN_BEHAVIOURS: Behaviour[] = [titanWalk, titanKneel];
+export const TITAN_BEHAVIOURS: Behaviour[] = [titanWalk, titanDown];
 export const TITAN_ATTACKS: AttackDef[] = [stomp, sweep, barrage, beam, groundPound];
 
-/** Kneeling on shin stumps drops the body by the height of the lost shins. */
-const KNEEL_DROP = 1.75;
 
 class Titan implements BossController {
   phase = 0;
@@ -482,7 +480,7 @@ class Titan implements BossController {
   private fallDir = 1;
 
   filter(e: Enemy, _w: AiWorld, amount: number, _d: DamageInfo, region: GoreRegion): number {
-    // On its knees the reactor in its chest is open. That is the reward for taking the legs.
+    // Down on the floor the reactor in its chest is open. That is the reward for taking the legs.
     const exposed = e.maim.legs === 0 && (region === 'chest' || region === 'abdomen' || region === 'head') ? 1.8 : 1;
     return Math.min(amount * exposed, e.maxHealth * MAX_HIT_SHARE);
   }
@@ -506,7 +504,6 @@ class Titan implements BossController {
     if (e.maim.legs === 0) {
       // Both legs gone: it comes down hard, and everything near it feels the landing.
       e.stagger = 3.2;
-      e.rootDrop = KNEEL_DROP;
       shockwave(w, e.position, 12, 12, 'titan', 12, 'titan_fall');
       e.char.anim.play('stagger', 0.4);
       if (e.attack) e.attackClock = 99;
@@ -539,7 +536,7 @@ class Titan implements BossController {
     // Topples slowly at first, then all at once.
     const root = e.char.root;
     root.rotation.z = this.fallDir * t * t * t * 1.25;
-    root.position.y = e.position.y - e.rootDrop - t * t * 1.5;
+    root.position.y = e.position.y - t * t * 1.5;
     this.clock -= dt;
     if (this.clock > 0) return;
     this.clock = 0.16 + Math.random() * 0.1;

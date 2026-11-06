@@ -75,6 +75,16 @@ node tools/shot.mjs --url "/?map=killhouse&autostart=1" --dpr 2 --w 1440 --h 900
 | Pickups | 27, one or two in every space, 3 mega health spots on the deck corners, none stranded |
 | Random hands, 4 seeds of 300 s | 0 frames inside geometry, 0 falls, 0 trapped, up to 6.7 m high |
 
+Real game, waves 1 and 2. The bot holds a station for 30 s, then moves on. Far means over 30 m by path, counted among bodies at least
+20 s old. `KH_PASSIVE=1` holds fire, because a bot that shoots kills nearly everything before it can be counted.
+
+| Run | Result |
+|---|---|
+| Passive, 1280x720, 52 enemies | 0 seen at spawn, spawn path 29 m minimum and 53 m mean. Far at 20 s: 0, 3, 0, 0. Far at 30 s: 1, 1, 0, 0. Over 50 m: 0 |
+
+One far body was a trooper holding at range in a gate bay. The other stalled for at least 8 s against a door jamb, then recovered. No
+body stood on a wall top or left the map. Before the `groundHeight` change a husk got stuck on a wall top.
+
 Boot, back to back on the same loaded machine (load average about 15), real game, 1280x720:
 
 | | Crucible | Kill House |
@@ -103,6 +113,8 @@ Timings swing widely with load: the same Kill House bake took 0.6 s on one quiet
 - **Sightlines overshoot the brief in places.** 13% of the long ones are over 30 m. They are slim lines through three doors, up to 46 m.
 - **Enemies can leap onto a ramp from its open side.** 12 of about 300 tested routes use that vault. Everything else is a plain walk.
 - **Players can stand on wall tops and cover.** Enemies path to the nearest real floor under them instead.
+- **Enemies clip door jambs.** They have no collider and only check the floor every 0.3 m, so a crowd can push one a little way into a
+  wall end, where it can stall until its unstick logic moves it. Doors flush with the shell have no stub to clip on that side.
 - **The perimeter is invisible from 7.5 m to 26 m,** to contain rocket jumps. Rounds fired at that part of the sky hit nothing you can see.
 - **Spawner path bands (40 to 80 m) were tuned for The Crucible.** They work here, but they are not this map's numbers. They belong to `src/enemies`.
 - **`setReactorState` does nothing here,** because the map has no reactor.

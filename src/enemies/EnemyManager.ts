@@ -603,7 +603,6 @@ export class EnemyManager implements EnemySystem {
   private place(e: Enemy): void {
     const root = e.char.root;
     root.position.copy(e.position);
-    if (e.rootDrop > 0) root.position.y -= e.rootDrop;
     root.rotation.y = e.yaw;
     e.center.copy(e.position);
     e.center.y += e.maim.legs === 0 ? e.def.chest * 0.4 : e.def.chest;

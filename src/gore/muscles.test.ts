@@ -129,6 +129,36 @@ function whipKnee(muscles: boolean, dt: number): { peak: number; deepest: number
   return out;
 }
 
+/** Total angular momentum of a chain about its centre of mass, from Rapier's own inertia. */
+function angularMomentum(rag: Rag): number {
+  const centre = new THREE.Vector3();
+  let mass = 0;
+  for (const p of rag.parts) {
+    const c = p.body.worldCom();
+    centre.x += c.x * p.body.mass();
+    centre.y += c.y * p.body.mass();
+    centre.z += c.z * p.body.mass();
+    mass += p.body.mass();
+  }
+  centre.divideScalar(mass);
+  const total = new THREE.Vector3();
+  const q = new THREE.Quaternion();
+  const frame = new THREE.Quaternion();
+  for (const p of rag.parts) {
+    const c = p.body.worldCom();
+    const l = p.body.linvel();
+    const a = p.body.angvel();
+    const r = p.body.rotation();
+    const f = p.body.principalInertiaLocalFrame();
+    const inertia = p.body.principalInertia();
+    q.set(r.x, r.y, r.z, r.w).multiply(frame.set(f.x, f.y, f.z, f.w));
+    const spin = v(a.x, a.y, a.z).applyQuaternion(q.clone().conjugate());
+    total.add(v(spin.x * inertia.x, spin.y * inertia.y, spin.z * inertia.z).applyQuaternion(q));
+    total.add(v(c.x, c.y, c.z).sub(centre).cross(v(l.x, l.y, l.z)).multiplyScalar(p.body.mass()));
+  }
+  return total.length();
+}
+
 /** Angle of a limb away from straight down its parent, forward positive, in the parent's frame. */
 function swingForward(c: TestDummy, parent: number, from: number, to: number): number {
   const q = new THREE.Quaternion().setFromRotationMatrix(c.bones[parent]!.matrixWorld).conjugate();
@@ -173,7 +203,7 @@ describe('soft limits', () => {
 });
 
 describe('neutral posture', () => {
-  it('a weightless body drifts into its resting pose, and does not spin itself up', () => {
+  it('a weightless body drifts into its resting pose', () => {
     gore.clear();
     weightless(() => {
       const c = spawn(0, 0, 2.5);
@@ -194,9 +224,29 @@ describe('neutral posture', () => {
       run(60 * 6.5);
       expect(start).toBeGreaterThan(0.6);
       expect(error()).toBeLessThan(0.12);
-      expect(rag.parts[0]!.w.length()).toBeLessThan(0.6);
     });
     gore.clear();
+  }, 30000);
+
+  it('reshapes a body without spinning it up', () => {
+    // Against hard limits, not zero: a body starts with what its bones were doing. Ligaments add a little, through
+    // the linear half of `resist`, which has nothing to push against. About 5% is what they measure.
+    const peak = (muscles: boolean): number => {
+      gore.clear();
+      const c = spawn(0, 0, 2.5);
+      gore.ragdoll(c, { muscles });
+      const rag = ragOf(c);
+      let most = 0;
+      for (let i = 0; i < 60 * 6.5 && rag.active; i++) {
+        frame();
+        most = Math.max(most, angularMomentum(rag));
+      }
+      gore.clear();
+      return most;
+    };
+    weightless(() => {
+      expect(peak(true)).toBeLessThan(peak(false) * 1.15);
+    });
   }, 30000);
 
   it('no two bodies rest alike', () => {
@@ -440,15 +490,23 @@ describe('twitching', () => {
   });
 
   it('never leaves a stale speed on a sleeping body, which would keep it from settling', () => {
-    // Rapier reports a velocity given to a sleeping body for good. Half of these used to hit the time limit.
-    for (let i = 0; i < 8; i++) {
+    // Rapier reports a velocity given to a sleeping body for good. Legs cut off at the waist sleep early, and 2 in 14
+    // of them used to sit there reading 0.49 m/s until the time limit.
+    for (let i = 0; i < 14; i++) {
       gore.clear();
       const c = spawn();
-      gore.ragdoll(c, { twitch: 1 });
-      expect(settle(), `trial ${i}`).toBeLessThan(60 * 6);
+      gore.sever(c, 'abdomen', damage(at(c, B.spine)))!.torso!.kill();
+      gore.ragdoll(c);
+      const rag = ragOf(c);
+      let frames = 0;
+      while (rag.active && frames < 60 * 8) {
+        frame();
+        frames++;
+      }
+      expect(frames, `trial ${i}`).toBeLessThan(60 * 6);
     }
     gore.clear();
-  }, 60000);
+  }, 90000);
 });
 
 describe('every chain', () => {
