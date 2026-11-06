@@ -112,7 +112,10 @@ export const MARKS: Readonly<Record<string, Mark>> = {
   tankEastStop: at(48, 0, 34),
   tankWestStop: at(-48, 0, 34),
   gateInside: at(0, 0, -2),
-  gateHold: at(0, 0, 12),
+  // Backed in, then turned across the opening: 8.2 m of tank in the 8.4 m the leaves leave at 60%, which is what its wreck has to plug.
+  gateHold: at(0, 0, 12, Math.PI / 2),
+  // In the yard for the door gun to find out about. The same tank comes back as Bulwark.
+  yardTank: at(20, 0, -6, 0.4),
 
   // The air
   skyNorth: at(0, 42, -130),
@@ -129,7 +132,7 @@ export const MARKS: Readonly<Record<string, Mark>> = {
   fly5: hold(60, 38, -104, 18),
   fly6: at(-60, 38, -104),
   fly7: hold(-98, 34, -40, 18),
-  fly8: at(-92, 30, 40),
+  fly8: { ...at(-92, 30, 40), hit: true },
   fly9: at(-52, 18, 80),
   fly10: at(-32, 2, 86),
 };

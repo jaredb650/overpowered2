@@ -889,6 +889,7 @@ export class EnemyManager implements EnemySystem {
       const t = this.statusDamage(e, source, 'true', e.health * 2 + 1);
       this.model.kill(e, t, 'chest', null);
     }
+    this.vehicles?.killAll(source);
   }
 
   /** The Titan's death takes the field with it. */

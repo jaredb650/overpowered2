@@ -11,7 +11,7 @@ import {
 } from './plan';
 import type { Site } from './site';
 
-const { x0: SX0, x1: SX1, north: SN, south: SS, well, shaft, stairW, flight } = STACK;
+const { x0: SX0, x1: SX1, north: SN, south: SS, well, shaft, stairW } = STACK;
 const ALARM: Rgb = [0.95, 0.16, 0.12];
 
 /** Slits look into the Stack from the rooms around it, so the player keeps catching sight of the thing they are circling. */
@@ -23,16 +23,16 @@ function shell(s: Site): void {
   s.wall({ x0: SX0, z0: SN - 2, x1: SX1, z1: SN, y1: WAR.floor });
 }
 
-const slots = (level: number): Rect[] => {
-  const [a, b] = level === LEVEL.upper ? [SS - 18, SS - 8] : [SS - 16, SS - 6];
-  const [c, d] = level === LEVEL.upper ? [SS - 28, SS - 18] : [SS - 30, SS - 20];
-  return [rect(SX1 - stairW, Math.min(a, b), SX1, Math.max(a, b)), rect(SX0, Math.min(c, d), SX0 + stairW, Math.max(c, d))];
+/** Where each level's floor is cut for the flight rising through it. */
+const SLOTS: Readonly<Record<number, readonly Rect[]>> = {
+  [LEVEL.upper]: [rect(SX0, -46, SX0 + stairW, -36), rect(SX1 - stairW, -56, SX1, -46)],
+  [LEVEL.command]: [rect(SX0, -58, SX0 + stairW, -48), rect(SX1 - stairW, -44, SX1, -34)],
 };
 
 /** A grated floor round the well at `y`. Nothing under it blocks the light, so each level is lit by the one below as well. */
 function gallery(s: Site, y: number): void {
   const k = s.k, g = k.geo;
-  const holes = [well, shaft, ...slots(y)];
+  const holes = [well, shaft, ...SLOTS[y]!];
   const floor = carveAll(rect(SX0, SN, SX1, SS), holes);
   for (const r of floor) {
     g.use('grate').slab((r.x0 + r.x1) / 2, y - 0.04, (r.z0 + r.z1) / 2, (r.x1 - r.x0) / 2, 0.04, (r.z1 - r.z0) / 2, 3, FACE.py | FACE.ny);
@@ -43,15 +43,6 @@ function gallery(s: Site, y: number): void {
   for (const z of [well.z0 - 0.1, well.z1 + 0.1]) g.bevel(0, y - 0.16, z, (well.x1 - well.x0) / 2 + 0.1, 0.14, 0.1, 0.02);
   for (const x of [well.x0 - 0.1, well.x1 + 0.1]) g.bevel(x, y - 0.16, (well.z0 + well.z1) / 2, 0.1, 0.14, (well.z1 - well.z0) / 2, 0.02);
   k.rail([well.x0, y, well.z0, well.x1, y, well.z0, well.x1, y, well.z1, well.x0, y, well.z1, well.x0, y, well.z0]);
-}
-
-/** One flight up the wall, with a crate under its low end so the wedge beneath it cannot catch a body. */
-function flightUp(s: Site, x: number, z0: number, y: number, dir: 1 | -1): void {
-  const k = s.k;
-  const z1 = z0 + dir * flight;
-  k.stairs(x, z0, y, x, z1, y + 5, stairW);
-  const lo = Math.min(z0, z0 + dir * 3.8), hi = Math.max(z0, z0 + dir * 3.8);
-  s.crate(x - stairW / 2 + 0.04, lo, x + stairW / 2 - 0.04, hi, 1.7, [0.4, 0.42, 0.44], y);
 }
 
 function floors(s: Site): void {
@@ -78,10 +69,10 @@ function floors(s: Site): void {
   gallery(s, LEVEL.upper);
   gallery(s, LEVEL.command);
   const west = SX0 + stairW / 2, east = SX1 - stairW / 2;
-  flightUp(s, west, SS - 8, 0, -1);
-  flightUp(s, west, SS - 20, LEVEL.upper, -1);
-  flightUp(s, east, SN + 8, 0, 1);
-  flightUp(s, east, SN + 20, LEVEL.upper, 1);
+  s.k.stairs(west, -36, 0, west, -46, LEVEL.upper, stairW);
+  s.k.stairs(west, -48, LEVEL.upper, west, -58, LEVEL.command, stairW);
+  s.k.stairs(east, -56, 0, east, -46, LEVEL.upper, stairW);
+  s.k.stairs(east, -44, LEVEL.upper, east, -34, LEVEL.command, stairW);
 }
 
 /** Two pairs of walls, 5 m apart, with nothing else on them. A kick from one reaches the next all the way to the top landing. */

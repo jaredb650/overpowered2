@@ -928,7 +928,6 @@ export class Outpost {
     s.alertUntil = w.now + 6;
     s.hitAt = w.now;
     s.squad.fired();
-    if (s.surrendered && s.captive !== 'held') this.captives.refuse(s);
     if (res.dealt > 0 && !res.blocked) this.scare(s, (res.dealt / e.maxHealth) * FEAR.wound);
     if (s.fighting && !s.sees && d.source in ROLE_OF === false) {
       // Rounds have a direction. He knows roughly where that came from even if he never saw it.

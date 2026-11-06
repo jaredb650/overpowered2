@@ -196,6 +196,9 @@ export class OutpostSquad implements Squad {
   /** What it wants, and the drill it is on, for anyone reading the fight. */
   goal: GoalId = 'destroy';
   drill: ActionId | null = null;
+  /** The last drill it started, and when, because a short one can be over between two looks. */
+  lastDrill: ActionId | null = null;
+  lastDrillAt = -99;
   /** Where silent men point their guns. */
   readonly watch = new THREE.Vector3();
 
@@ -596,8 +599,8 @@ export class OutpostSquad implements Squad {
   }
 
   private enter(id: ActionId, now: number): void {
-    this.drill = id;
-    this.drillAt = now;
+    this.drill = this.lastDrill = id;
+    this.drillAt = this.lastDrillAt = now;
     this.stage = 0;
     this.stepUntil = 0;
     switch (id) {

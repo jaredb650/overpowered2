@@ -130,21 +130,18 @@ function kneel(e: any): void {
 
 const CASES: Record<string, () => void> = {
   oneshot() {
-    // A whole healthy squad, each man shot once in the chest, in a fight they are winning.
+    // One man in a healthy squad shot once in the chest, in a fight they are winning.
     let gaveUp = 0, shot = 0;
     for (let t = 0; t < 60; t++) {
       fresh();
       const men = squad(['trooper', 'trooper', 'gunner', 'trooper'], t % 2 ? 'conscript' : 'regular', near(14, 0));
       run(1);
-      for (const e of men) {
-        if (!e.alive) continue;
-        hit(e, 20);
-        shot++;
-      }
+      hit(men[t % 4], 20);
+      shot++;
       run(6);
       for (const e of men) if (soldierOf(e)?.surrendered) gaveUp++;
     }
-    tally.oneshot = `${gaveUp} of ${shot} men shot once gave up`;
+    tally.oneshot = `${gaveUp} men gave up across ${shot} squads with one man shot once`;
   },
   ranks() {
     // The last man of a squad wiped out, alone and badly hurt, with the field lost. It is the same situation for each grade.
@@ -346,18 +343,20 @@ const CASES: Record<string, () => void> = {
     const t0 = ctx.time.elapsed;
     const off = ctx.events.on('comms:line', (l: any) => log.push(`${(ctx.time.elapsed - t0).toFixed(1)} ${l.speaker}: ${l.text}`));
     // Walks towards them. Nothing happens until it does.
-    let sprungAt = -1, range = 0;
+    let sprungAt = -1, range = 0, minD = 99;
     for (let i = 0; i < 40 * 60 && sprungAt < 0; i++) {
       const to = men[0].position;
       const d = new THREE.Vector3(to.x - player.position.x, 0, to.z - player.position.z);
       const len = d.length();
       if (len > 1) player.teleport(player.position.clone().addScaledVector(d.normalize(), Math.min(len, 4 / 60)), Math.atan2(-d.x, -d.z));
       run(1 / 60);
+      minD = Math.min(minD, len);
       if (men.some(e => !soldierOf(e)!.silent)) {
         sprungAt = ctx.time.elapsed - t0;
         range = len;
       }
     }
+    tally.ambushDebug = { minDist: minD, sees: men.map(e => soldierOf(e)!.sees), notice: men.map(e => +soldierOf(e)!.notice.toFixed(2)), los: men.map(e => e.hasLos), behaviours: men.map(e => e.behaviour?.name), stage: men.map(e => soldierOf(e)!.stage), goal: q.goal, known: +(ctx.time.elapsed - q.knownAt).toFixed(1) };
     const afterFired = () => men.filter((e, i) => soldierOf(e)!.firedAt > beforeFired[i]!).length;
     run(2);
     off();

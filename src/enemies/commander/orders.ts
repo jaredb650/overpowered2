@@ -66,7 +66,7 @@ export class RadioOrders {
   private watch(now: number): void {
     const q = this.squad;
     if (!q) return;
-    if (q.drill === this.drill) {
+    if (q.lastDrill === this.drill && q.lastDrillAt >= this.givenAt) {
       this.obeyed++;
       this.squad = null;
       if (q.leader) this.c.o.comms.say('obey', q.leader);

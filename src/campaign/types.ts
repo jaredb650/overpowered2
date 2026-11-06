@@ -16,6 +16,8 @@ export interface Mark {
   yaw?: number;
   /** On a route: seconds to hover or wait here. */
   hold?: number;
+  /** On a ride: the aircraft takes a hit here, and flies the rest of the way on fire. */
+  hit?: boolean;
 }
 
 /** A box the player can be in. */

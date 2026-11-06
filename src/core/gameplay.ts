@@ -9,6 +9,7 @@ import type * as THREE from 'three';
 import type RAPIER from '@dimforge/rapier3d-compat';
 import type { GoreRegion } from '../characters/rig';
 import type { ContractDef } from '../contracts/data';
+import type { Flight } from '../vehicles/flight';
 import type { CharacterInstance, DamageInfo, DamageType, ExplosionKind, GameSystem, MuzzleKind, TracerKind } from './contracts';
 
 // ---------------------------------------------------------------------------------------------
@@ -358,8 +359,10 @@ export interface ProgressionSystem extends GameSystem {
   /** Forces a perk on, for tests and debug. */
   grant(id: PerkId | PowerupId): void;
   grantCallIn(id: CallInId): void;
-  /** Straight into a gunner's seat, with no key and nothing earned. A mission's insertion. */
+  /** Straight into a gunner's seat, with no key and nothing earned. */
   boardCallIn(id: CallInId): void;
+  /** Into the Packmule's door on a fixed flight, with no way out and no clock. A mission's insertion. */
+  boardFlight(flight: Flight): void;
   /** Points for something that is not a kill: a vehicle, say. */
   award(points: number, reason: string, position?: THREE.Vector3): void;
   /** Carries a mission's tally across a restart, which a new run would otherwise zero. */
@@ -421,6 +424,8 @@ export interface HudSystem extends GameSystem {
   showScreen(screen: 'splash' | 'menu' | 'pause' | 'gameover' | 'guide' | 'settings' | 'none'): void;
   /** Puts up a seat's panel. Null brings the on-foot HUD back. */
   seat(panel: SeatPanel | null): void;
+  /** 0 clear to 1 gone: the eyes have stopped working, and a readable minimap would say otherwise. */
+  dazzle?(amount: number): void;
 }
 
 // ---------------------------------------------------------------------------------------------

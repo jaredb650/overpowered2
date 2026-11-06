@@ -35,7 +35,8 @@ export const GATE = { half: 7, h: 6, pylon: 3, pylonH: 8 } as const;
 export const YARD = { x: 30, north: -12, south: 10.8, wallHalf: 1, h: 6 } as const;
 
 /** Wing roof, and the top of every wall in a wing. */
-export const WING = 5;
+/** Off the list of nav levels on purpose: nobody walks the wing roofs, and a height that is not a level is not a floor. */
+export const WING = 5.1;
 export const ROOF = LEVEL.roof;
 /** Underside of the Comms Roof slab, which is the War Room's ceiling. */
 export const WAR_CEIL = 13.5;
@@ -82,7 +83,6 @@ export const STACK = {
   /** The north-east shaft: two pairs of facing walls, 5 m apart, for kicking up. */
   shaft: rect(5, -64, 10, -59),
   stairW: 2.5,
-  flight: 10,
 } as const;
 
 export const WAR = { x0: -16, x1: 16, north: -78, south: -66, floor: LEVEL.command, bayEdge: -11 } as const;

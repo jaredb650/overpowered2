@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import type { Action, Ctx, GradeName } from '../../core/contracts';
 import type { CallInId } from '../../core/gameplay';
 import { ATTACK_AIRFRAME, type AttackMount } from '../../vehicles/attackModel';
+import type { Flight } from '../../vehicles/flight';
 import { CHIN_CANNON, Gun, M134 } from '../../vehicles/guns';
 import { SeatRig } from '../../vehicles/seat';
 import { UTILITY_AIRFRAME, type UtilityMount } from '../../vehicles/utilityModel';
@@ -283,6 +284,20 @@ export class CallInManager {
     this.strikes.push(strike);
     this.flying.set(strike, id);
     events.emit('callin:used', { id, position: player.position });
+  }
+
+  /** Onto a mission's fixed flight in the Packmule. Nothing on the ground can hold this one up. */
+  boardFlight(flight: Flight): void {
+    const { audio, weapons } = this.ctx;
+    if (this.targeting.id) this.targeting.exit();
+    audio.play('callin_confirm');
+    if (!this.holstered) {
+      this.holstered = true;
+      weapons.setHolstered(true);
+    }
+    const strike = new DoorGunner(this.kit, this.seats, this.packmule, flight);
+    this.strikes.push(strike);
+    this.flying.set(strike, 'doorGunner');
   }
 
   private leaveTargeting(sound: string | null): void {

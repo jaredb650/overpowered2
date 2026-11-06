@@ -240,9 +240,18 @@ export class GameHost implements MissionHost {
     this.film.play(scene, done);
   }
 
-  ride(seat: CallInId, _route: readonly Mark[], done: () => void): void {
-    this.ctx.progression.boardCallIn(seat);
+  /** A route is flown as written, and calls its marks as `ride:<mark>`. With no route it is the ordinary call-in, circling for its time. */
+  ride(seat: CallInId, route: readonly Mark[], done: () => void): void {
     this.rideDone = done;
+    if (route.length < 2 || seat !== 'doorGunner') {
+      this.ctx.progression.boardCallIn(seat);
+      return;
+    }
+    const names = new Map(Object.entries(this.runner.mission.marks).map(([name, mark]) => [mark, name]));
+    this.ctx.progression.boardFlight({
+      marks: route.map(m => ({ x: m.at[0], y: m.at[1], z: m.at[2], hold: m.hold ?? 0, name: names.get(m) ?? '', hit: m.hit ?? false })),
+      reached: name => this.runner.signal(`ride:${name}`),
+    });
   }
 
   adapt(): void {

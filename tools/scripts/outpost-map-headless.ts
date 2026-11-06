@@ -24,4 +24,5 @@ await world.build();
 const out: Record<string, unknown> = {};
 if (sections.has('build')) out.build = world.report;
 if (sections.has('static')) out.static = proof.verifyOutpost(world, game.ctx.physics);
+if (sections.has('parkour')) out.parkour = proof.provePark(world, game.ctx.physics, proof.rigOf(game));
 console.log(JSON.stringify(out, null, 1));

@@ -223,6 +223,10 @@ export class Hud implements HudSystem {
     applyQuality(this.ctx, this.settings);
   }
 
+  dazzle(amount: number): void {
+    this.hud.style.opacity = amount > 0 ? String(1 - amount) : '';
+  }
+
   seat(panel: SeatPanel | null): void {
     this.seatPanel?.el.remove();
     this.seatPanel = panel;

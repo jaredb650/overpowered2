@@ -19,6 +19,8 @@ import type { Strike, StrikeKit } from './shared';
 /** How a gun sits with nobody on it: on the middle of its arc, drooped. */
 const STOWED_PITCH = -0.3;
 const BINGO_AT = 10;
+/** Seconds a fixed flight's rotors take to stop once it is down. */
+const WIND_DOWN = 5;
 /** The crew says so once for this many bursts that land, and no more. */
 const HITS_PER_CALL = 5;
 
@@ -40,6 +42,8 @@ export abstract class GunnerStrike<M extends string> implements Strike {
   /** The middle of the thickest knot of enemies, or the player's body when there is nobody. */
   protected readonly fight = new THREE.Vector3();
   protected clock = 0;
+  /** A fixed flight: no way out, no clock, and nothing runs out. It ends where it ends, and the aircraft stays there. */
+  protected scripted = false;
   private readonly engines: EngineSound;
   private readonly stopListening: () => void;
   private scanIn = 0;
@@ -102,17 +106,18 @@ export abstract class GunnerStrike<M extends string> implements Strike {
     if (this.scanIn <= 0) this.scan();
 
     this.fly(dt);
-    frame.update(dt);
+    const running = this.scripted ? Math.max(0, 1 - this.departed / WIND_DOWN) : 1;
+    frame.update(dt * running);
     frame.mount(gunMount, _pivot);
     const { position } = frame.root;
-    this.engines.update(position, 1, dt, kit.ctx.render.camera.position);
+    this.engines.update(position, running, dt, kit.ctx.render.camera.position);
     seat.altitude = position.y - this.rig.skyline.ground(position.x, position.z);
 
     if (seat.stage === 'left') {
       if (!this.homebound) this.headHome();
       this.stow(dt);
       this.departed += dt;
-      return this.departed >= this.plan.departSeconds;
+      return !this.scripted && this.departed >= this.plan.departSeconds;
     }
     if (seat.stage === 'boarding') this.boarding();
     seat.update(dt, frame.root.quaternion, _pivot);
@@ -145,6 +150,11 @@ export abstract class GunnerStrike<M extends string> implements Strike {
     this.praiseIn -= dt;
     if (this.killWindow <= 0) this.recentKills = 0;
 
+    if (this.scripted) {
+      seat.left = plan.seat.seconds;
+      this.shoot(dt);
+      return;
+    }
     if (kit.ctx.input.pressed('interact') || seat.left <= 0) {
       seat.leave();
       return;

@@ -159,6 +159,7 @@ export class GunnerSeat {
   readonly weapons: GunnerWeapon[] = [];
   readonly view: SeatView = { position: new THREE.Vector3(), yaw: 0, pitch: 0, roll: 0, shake: 1 };
 
+  private parkAt: THREE.Vector3 | null = null;
   /** True while `point` is on something, and the sight has a place on the ground to hold. */
   private locked = false;
   private readonly hit: RayHit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, surface: 'concrete', collider: null };
@@ -170,10 +171,15 @@ export class GunnerSeat {
     this.view.shake = plan.shake;
   }
 
+  /** For a flight that ends somewhere else: the body waits there, so the player gets out where the aircraft does. */
+  parkNear(point: THREE.Vector3): void {
+    this.parkAt = point.clone();
+  }
+
   /** The view leaves the body. The player is safe from this frame on. */
   board(): void {
-    const { camera, hud, player, render } = this.ctx;
-    restingPlace(this.ctx, _spot);
+    const { camera, hud, player, render, world } = this.ctx;
+    if (!this.parkAt || !world.nav.nearest(this.parkAt, PARK_SEARCH, _spot)) restingPlace(this.ctx, _spot);
     player.park(_spot);
     this.rig.seat = this;
     this.rig.shell.show(_spot);

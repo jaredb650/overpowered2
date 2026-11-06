@@ -48,6 +48,7 @@ export class Suppression {
   private quietAt = 0;
   private pulseAt = 0;
   private blindUntil = 0;
+  private blindSeconds = 1;
 
   constructor(private readonly w: AiWorld) {}
 
@@ -59,6 +60,7 @@ export class Suppression {
     this.level = this.blind = this.cracks = 0;
     this.quietAt = this.pulseAt = this.blindUntil = 0;
     this.ctx.render.post.setSuppression?.(0);
+    this.ctx.hud.dazzle?.(0);
   }
 
   /** One round went somewhere near. `line` is whether it had a clear run at the player. */
@@ -100,6 +102,7 @@ export class Suppression {
     audio.play('ear_ring', { volume: strength, duration: seconds, unaffectedByTime: true });
     this.blind = Math.max(this.blind, strength);
     this.blindUntil = w.now + seconds;
+    this.blindSeconds = seconds;
     this.level = Math.max(this.level, strength);
     this.quietAt = w.now + seconds * 0.6;
     return true;
@@ -112,7 +115,12 @@ export class Suppression {
   update(dt: number): void {
     const { ctx, w } = this;
     if (w.now >= this.quietAt) this.level = Math.max(0, this.level - FADE * dt);
-    if (this.blind > 0 && w.now >= this.blindUntil) this.blind = 0;
+    if (this.blind > 0) {
+      // Comes back slowly and all at the end, the way the white on the screen does.
+      const left = (this.blindUntil - w.now) / this.blindSeconds;
+      if (left <= 0) this.blind = 0;
+      ctx.hud.dazzle?.(left <= 0 ? 0 : clamp(left * 2.2) * this.blind);
+    }
     const { level } = this;
     ctx.render.post.setSuppression?.(level * level * BLUR);
     if (level < 0.05) return;

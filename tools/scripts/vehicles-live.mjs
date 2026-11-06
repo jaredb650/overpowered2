@@ -18,7 +18,7 @@ export default async function vehiclesLive(page, h) {
     const v = enemies.vehicles.spawnGround(kind, { x, y: 0, z, route: [], tag: null, crew: [], crewTag: null, holds: false, holdYaw: NaN, parked: true });
     v.drive.yaw = yaw;
   }, [kind, x, z, yaw]);
-  await page.waitForFunction(() => window.__op2?.ctx?.enemies?.vehicles && window.__op2.game.state === 'playing', null, { timeout: 60000 });
+  await page.waitForFunction(() => window.__op2?.ctx?.enemies?.vehicles && window.__op2.game.state === 'playing', null, { timeout: 100000 });
   await page.evaluate(() => { const b = window.__op2.ctx.world.bounds; window.__b = [b.min.x, b.min.z, b.max.x, b.max.z]; });
   log.bounds = await page.evaluate(() => window.__b);
   log.spawn = await page.evaluate(() => window.__op2.ctx.player.position.toArray());
@@ -238,6 +238,50 @@ export default async function vehiclesLive(page, h) {
       for (let i = 0; i < 30; i++) ctx.enemies.vehicles.shot(body.collider, v.position, 13, 'door_gun');
       return { before, mid, after: v.health };
     });
+  }
+
+  const describe = () => page.evaluate(() => ({ run: window.__op2.campaign?.runner.describe(), v: window.__op2.ctx.enemies.vehicles.describe(), men: window.__op2.ctx.enemies.alive.length, hp: window.__op2.ctx.player.health }));
+  const face = (px, py, pz, tx, ty, tz) => look(px, py, pz, tx, ty, tz);
+
+  // The real map: ?mission=outpost&contract=outpost&map=outpost&autostart=1&beat=soft
+  if (step === 'soft') {
+    await page.evaluate(() => { window.__op2.ctx.player.modifiers.invulnerable = true; });
+    await face(30, 0, 30, 50, 1.5, 34);
+    await h.sleep(5000);
+    log.t5 = await describe();
+    await h.shot('soft-5');
+    await h.sleep(5000);
+    log.t10 = await describe();
+    await h.shot('soft-10');
+    await h.sleep(6000);
+    log.t16 = await describe();
+    await face(14, 0, 28, 26, 1.5, 34);
+    await h.sleep(400);
+    await h.shot('soft-16');
+  }
+  if (step === 'heavy') {
+    await page.evaluate(() => { window.__op2.ctx.player.modifiers.invulnerable = true; });
+    await face(30, 0, 44, 60, 1.5, 34);
+    await h.sleep(9000);
+    log.t9 = await describe();
+    await h.shot('heavy-9');
+    await h.sleep(9000);
+    log.t18 = await describe();
+    await h.shot('heavy-18');
+    await h.sleep(9000);
+    log.t27 = await describe();
+    await h.shot('heavy-27');
+  }
+  if (step === 'insertion') {
+    await h.sleep(12000);
+    log.t12 = await describe();
+    await h.shot('in-12');
+    await h.sleep(22000);
+    log.t34 = await describe();
+    await h.shot('in-34');
+    await h.sleep(30000);
+    log.t64 = await describe();
+    await h.shot('in-64');
   }
 
   log.vehicles = await read();

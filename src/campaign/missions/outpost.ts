@@ -51,6 +51,7 @@ const BEATS: readonly Beat[] = [
       { do: 'threat', level: 1 },
       { do: 'objective', id: 'mission', text: 'Remove the Commander' },
       pilot('in.wire'),
+      { do: 'vehicle', tag: 'in.parked', kind: 'tank', at: 'yardTank', state: 'parked' },
       { do: 'squad', tag: 'in.wall', men: ['trooper', 'trooper', 'brute', 'trooper'], at: 'wallWest', orders: 'hold' },
       { do: 'squad', tag: 'in.apron', men: ['trooper', 'gunner', 'trooper', 'gunner', 'trooper', 'trooper'], at: 'apronEast' },
       { do: 'ride', seat: 'doorGunner', route: 'insertion' },
@@ -252,6 +253,8 @@ const BEATS: readonly Beat[] = [
     checkpoint: { at: 'gateMouth', loadout: KIT.launcher },
     start: [
       { do: 'done', id: 'bulwark' },
+      // Already there if the player just made it. A restart from here has to put it back, or the gate has nothing jamming it.
+      { do: 'vehicle', tag: 'turn.bulwark', kind: 'tank', at: 'gateHold', state: 'wrecked' },
       commander('turn.jammed'),
       council('turn.fine'),
       { do: 'threat', level: 5 },

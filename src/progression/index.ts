@@ -14,6 +14,7 @@ import type { DamageInfo } from '../core/contracts';
 import type {
   ActiveEffect, CallInId, DamageResult, EnemyInstance, KillEvent, PerkId, PickupKind, PowerupId, ProgressionSystem,
 } from '../core/gameplay';
+import type { Flight } from '../vehicles/flight';
 import { CallInManager } from './callins/manager';
 import { aboveFloor } from './callins/shared';
 import { ChainEffects } from './chains';
@@ -152,6 +153,10 @@ class Progression implements ProgressionSystem {
 
   boardCallIn(id: CallInId): void {
     this.callInsManager.board(id);
+  }
+
+  boardFlight(flight: Flight): void {
+    this.callInsManager.boardFlight(flight);
   }
 
   award(points: number, reason: string, position?: THREE.Vector3): void {

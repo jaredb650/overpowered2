@@ -40,6 +40,8 @@ const STARED_DOWN = 4;
 /** Seconds unwatched, and metres from the player, before he starts to feel safe. */
 const SAFE_SECONDS = 6;
 const SAFE_RANGE = 12;
+/** Seconds before a man who decided against it looks again. */
+const SAFE_LOOK_AGAIN = 15;
 /** A prisoner left alone this long gets up and walks out. */
 const PRISONER_SECONDS = 45;
 
@@ -155,10 +157,13 @@ export class Prisoners {
       else this.bolt(s);
       return;
     }
-    if (now - s.watchedAt > SAFE_SECONDS && e.dist > SAFE_RANGE && chance(s.rankDef.rearms)) {
-      if (s.droppedAt) this.rearm(s);
-      else this.bolt(s);
-      return;
+    if (now - s.watchedAt > SAFE_SECONDS && e.dist > SAFE_RANGE) {
+      if (chance(s.rankDef.rearms)) {
+        if (s.droppedAt) this.rearm(s);
+        else this.bolt(s);
+        return;
+      }
+      s.judgeAt = now + SAFE_LOOK_AGAIN;
     }
     if (now - s.surrenderedAt > PRISONER_SECONDS) this.o.release(s);
   }
@@ -206,10 +211,12 @@ export class Prisoners {
     w.ctx.events.emit('prisoner:rearmed', { enemy: s.e });
   }
 
-  /** Shot on his knees and still breathing. He has his answer. */
-  refuse(s: Soldier): void {
+  /**
+   * Shot on his knees and still breathing. He has his answer. This is read a frame after the hit, because a shotgun shell is eight hits
+   * and every one of them has to land on a man with his hands up.
+   */
+  private refuse(s: Soldier): void {
     const { o, w } = this;
-    if (!s.surrendered) return;
     this.free(s);
     s.fate = 'flee';
     s.refused = true;
@@ -340,18 +347,22 @@ export class Prisoners {
     const { o, w } = this;
     const { ctx } = w;
     let told = '';
+    let most = 0;
     let n = 0;
     for (const q of o.squads) {
       const men = q.fighters();
       if (men === 0 || n >= MAX_MARKS) continue;
       const lead = q.leader?.e ?? q.members[0]!.e;
-      const place = ctx.world.zoneAt(lead.position)?.name ?? 'the yard';
-      const label = `${q.name} ${men}`;
-      this.marks.push(ctx.hud.marker(lead.center.clone(), label, PROMPT_COLOR));
-      if (n === 0) told = q.goal === 'waylay' ? `${q.name}, ${men} men, waiting on the door by ${place}!` : `${q.name}, ${men} men, ${place}!`;
+      this.marks.push(ctx.hud.marker(lead.center.clone(), `${q.name} ${men}`, PROMPT_COLOR));
       n++;
+      // He gives up what he thinks will save him: the biggest thing out there, and an ambush above anything.
+      const worth = men + (q.goal === 'waylay' ? 10 : 0);
+      if (worth <= most) continue;
+      most = worth;
+      const place = (ctx.world.zoneAt(lead.position)?.name ?? 'the yard').toLowerCase();
+      told = q.goal === 'waylay' ? `${q.name}, ${men} men, waiting on the door by the ${place}!` : `${q.name}, ${men} men, by the ${place}!`;
     }
-    o.comms.relay(n > 0 ? `${told} Please. That's all of them.` : 'There\'s nobody left! It\'s just me!', s, null);
+    o.comms.relay(n > 0 ? `${told} Please. That's all I know.` : 'There\'s nobody left! It\'s just me!', s, null);
     this.revealUntil = w.now + REVEAL_SECONDS;
     this.marksUntil = w.now + REVEAL_SECONDS;
   }
@@ -374,10 +385,10 @@ export class Prisoners {
       }
     }
     if (at) {
-      const place = ctx.world.zoneAt(at)?.name ?? 'the yard';
+      const place = (ctx.world.zoneAt(at)?.name ?? 'yard').toLowerCase();
       this.marks.push(ctx.hud.marker(_a.copy(at).setY(at.y + 1.2).clone(), 'SQUAD?', LIE_COLOR));
       this.marksUntil = w.now + REVEAL_SECONDS;
-      o.comms.relay(`They all pulled back to ${place}! I swear!`, s, null);
+      o.comms.relay(`They all pulled back to the ${place}! I swear!`, s, null);
     } else o.comms.relay('I don\'t know anything! I swear!', s, null);
   }
 
@@ -462,6 +473,10 @@ export class Prisoners {
     const { ctx, now } = w;
     this.carry(dt);
     if (o.prisoners > 0 || this.held) {
+      for (let i = o.soldiers.length - 1; i >= 0; i--) {
+        const s = o.soldiers[i]!;
+        if (s.surrendered && s.captive !== 'held' && s.hitAt >= s.surrenderedAt) this.refuse(s);
+      }
       this.focus = this.held ? null : this.nearest();
       this.prompt(this.held ?? this.focus);
       this.keys(dt);

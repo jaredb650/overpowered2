@@ -95,6 +95,8 @@ export class GroundVehicle extends Vehicle {
   private readonly crew: Crew;
   private readonly engine: EngineSound;
   private y: number;
+  /** The way it came along its road, which is the way it looks when it backs in to hold a place. */
+  private readonly outward: number;
   private rider: Enemy | null = null;
   private driverHealth = DRIVER_HEALTH;
   private travelled = 0;
@@ -132,6 +134,7 @@ export class GroundVehicle extends Vehicle {
     const first = order.route[0] ?? { x: order.x, z: order.z + 1 };
     const second = order.route.find(p => Math.hypot(p.x - order.x, p.z - order.z) > 1) ?? first;
     const heading = Math.atan2(second.x - order.x, second.z - order.z);
+    this.outward = heading;
     this.drive.begin(order.x, order.z, order.holds ? heading + Math.PI : heading, order.route);
     if (order.holds) {
       this.drive.reversing = true;
@@ -311,8 +314,8 @@ export class GroundVehicle extends Vehicle {
       const flat = Math.hypot(this.layAt.x - _pivot.x, this.layAt.z - _pivot.z);
       const lift = clamp(Math.atan2(this.layAt.y - _pivot.y - TRUNNION[1], flat), GUN_MIN, GUN_MAX);
       this.gunPitch += clamp(lift - this.gunPitch, -c.elevate * dt, c.elevate * dt);
-    } else if (this.order.holds && !Number.isNaN(this.order.holdYaw)) {
-      this.turretYaw = dampAngle(this.turretYaw, wrapAngle(this.order.holdYaw + Math.PI - drive.yaw), 0.5, dt);
+    } else if (this.order.holds) {
+      this.turretYaw = dampAngle(this.turretYaw, wrapAngle(this.outward - drive.yaw), 0.5, dt);
     }
     turret.rotation.y = this.turretYaw;
     this.gunRecoil = damp(this.gunRecoil, 0, RECOIL_RETURN, dt);

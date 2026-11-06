@@ -9,7 +9,7 @@ import { surfaceOf } from '../../kit/kit';
 import { wallLamp } from '../../kit/props';
 import { floorStencil, stencil, type StencilName } from '../../kit/stencil';
 import type { MapPlan, MapSpec } from '../spec';
-import { type Face, type Rect, type Rgb, type Room, roomAt, SKIN } from './plan';
+import { type Face, type Rect, type Rgb, type Room, roomAt, SKIN, WING } from './plan';
 
 const MODULE = 2.4;
 const SEAM = 0.016;
@@ -105,7 +105,7 @@ export class Site {
   dressRoom(r: Room, ceiling = true): void {
     this.plan.fills.push({ x0: r.x0, z0: r.z0, x1: r.x1, z1: r.z1, rgb: r.paint, label: '' });
     this.paintFloor(r.floor, r, r.y, r.floorTint);
-    if (ceiling) this.mass('concreteDark', r.x0, r.ceil, r.z0, r.x1, Math.max(r.ceil + 1, 5), r.z1, 0.7, 3, FACE.ny);
+    if (ceiling) this.mass('concreteDark', r.x0, r.ceil, r.z0, r.x1, Math.max(r.ceil + 1, WING), r.z1, 0.7, 3, FACE.ny);
   }
 
   private panel(face: Face, axisX: boolean, side: number, c: number, t: number, a: number, b: number, lo: number, hi: number): void {

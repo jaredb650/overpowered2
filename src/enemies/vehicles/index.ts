@@ -484,6 +484,11 @@ export class VehicleSystem implements VehicleTargets {
     }
   }
 
+  /** Every machine up in flames at once, for the lab and for bots. */
+  killAll(source: string): void {
+    for (const v of this.live) v.take(Infinity, null, source, v.position);
+  }
+
   /** The fight has moved on. Everything still running goes with it, and nothing is scored. */
   private sweep(): void {
     for (const w of this.waiting) {
