@@ -12,7 +12,7 @@
 //   passes     Renderer.measurePasses().
 //   variants   Whole-frame throughput with one thing changed at a time. Uses GB_VARIANTS, or all of them.
 //   shots      Screenshot of each spot into tools/out/shot-<GB_TAG>-<spot>.png, with the HUD hidden.
-//   live       The real controller for 7 s, listing every change it makes. Needs ?drs=1 only for the page's own default.
+//   live       The real controller for 7 s, listing every change it makes.
 //   drsshot    One picture of the last spot at the 0.7 step, into tools/out/shot-<GB_TAG>-drs70.png.
 //   steps      Forces every dynamic resolution step in the real game loop and reports each step frame against
 //              the frames around it.
@@ -20,8 +20,11 @@
 //   fight      Live fight with the real game loop: holds GB_ENEMIES (14) alive around the player and fires for
 //              GB_SECONDS (14), then reports the frame interval distribution. It then freezes the fight as it
 //              stands and times it, because intervals on a loaded machine say more about the CPU than the GPU.
-// Env: GB_DRS=1 leaves dynamic resolution running through the fight, GB_SPOTS (comma list, default all for the map), GB_TAG (shot name prefix, default "gb"), GB_N (frames per
-// round, default 6), GB_ROUNDS (default 6), GB_CROWD (static enemies in view for stages and variants, default 8).
+// Env: GB_DRS=1 leaves dynamic resolution running through the fight. GB_FIGHT_VARIANTS runs variants on the frozen
+// fight. GB_SPOTS (comma list, default all for the map), GB_TAG (shot name prefix, default "gb"), GB_N (frames per
+// round, default 6), GB_ROUNDS (default 6), GB_CROWD (static enemies in view at each spot, default 8).
+//
+// Frame intervals mean nothing on battery: see "The frame rate drops to 30 Hz on low battery" in docs/notes/render.md.
 const PHASES = (process.env.GB_PHASES ?? 'stages,passes,variants').split(',');
 const TAG = process.env.GB_TAG ?? 'gb';
 const N = Number(process.env.GB_N ?? 6);

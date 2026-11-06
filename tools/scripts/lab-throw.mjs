@@ -96,7 +96,12 @@ export default async function throwTest(page, h) {
         ctx.input.simulate('fire', false);
       }
       if (e.alive) return { note: 'survived', hp: e.health };
-      return (await track([e.char], [start]))[0];
+      // Measured from where it died too: a dummy that takes several shots has already been knocked back by the rest.
+      const died = lab.overlay.from.clone();
+      const row = (await track([e.char], [start]))[0];
+      const hips = hipsOf(e.char, new V());
+      row.fromDeath = +Math.hypot(hips.x - died.x, hips.z - died.z).toFixed(2);
+      return row;
     };
 
     const near = async (kind, radius, damage, dist, corpse) => {
@@ -208,7 +213,7 @@ export default async function throwTest(page, h) {
       try {
         const runs = [];
         for (let i = 0; i < reps; i++) runs.push(await run());
-        out[name] = reps === 1 ? runs[0] : { dist: runs.map(r => r.dist ?? r.moved ?? r.note), peak: Math.max(...runs.map(r => r.peak ?? 0)), up: Math.max(...runs.map(r => r.up ?? 0)), survived: runs.reduce((a, r) => a + (r.survived ?? 0), 0) };
+        out[name] = reps === 1 ? runs[0] : { dist: runs.map(r => r.dist ?? r.moved ?? r.note), fromDeath: runs.map(r => r.fromDeath), peak: Math.max(...runs.map(r => r.peak ?? 0)), up: Math.max(...runs.map(r => r.up ?? 0)), survived: runs.reduce((a, r) => a + (r.survived ?? 0), 0) };
       } catch (err) {
         out[name] = { error: String(err) };
       }

@@ -183,6 +183,12 @@ function overlayMaterial(fragmentShader: string, extra: Record<string, THREE.IUn
   });
 }
 
+const ringMaterial = (): THREE.ShaderMaterial => overlayMaterial(RING_FRAG, { uRadius: { value: 1 }, uInner: { value: 0 } });
+const stripMaterial = (): THREE.ShaderMaterial => overlayMaterial(STRIP_FRAG, {
+  uHeading: { value: new THREE.Vector2(1, 0) }, uSize: { value: new THREE.Vector2(1, 1) }, uCore: { value: 0.3 },
+});
+export const groundMaterials = (): THREE.ShaderMaterial[] => [ringMaterial(), stripMaterial()];
+
 /** Shared by every overlay, so a strike's ring costs one material and no geometry. */
 const RING_VOLUME = new THREE.CylinderGeometry(1.04, 1.04, 1, 40);
 const STRIP_VOLUME = new THREE.BoxGeometry(1, 1, 1);
@@ -241,7 +247,7 @@ abstract class GroundPatch {
 /** `radius` is the true blast radius. */
 export class GroundRing extends GroundPatch {
   constructor(ctx: Ctx) {
-    super(ctx, RING_VOLUME, overlayMaterial(RING_FRAG, { uRadius: { value: 1 }, uInner: { value: 0 } }));
+    super(ctx, RING_VOLUME, ringMaterial());
   }
 
   /** `inner` draws a second ring, e.g. the rocket scatter inside the finale's radius. */
@@ -256,9 +262,7 @@ export class GroundRing extends GroundPatch {
 /** A corridor with a direction. */
 export class GroundStrip extends GroundPatch {
   constructor(ctx: Ctx) {
-    super(ctx, STRIP_VOLUME, overlayMaterial(STRIP_FRAG, {
-      uHeading: { value: new THREE.Vector2(1, 0) }, uSize: { value: new THREE.Vector2(1, 1) }, uCore: { value: 0.3 },
-    }));
+    super(ctx, STRIP_VOLUME, stripMaterial());
   }
 
   /** `core` is the fraction of the width the shells fall in. The rest is blast. */

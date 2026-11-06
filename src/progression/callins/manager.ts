@@ -11,7 +11,7 @@ import { ModelMaterials } from '../modelkit';
 import { CALLIN_ORDER, CALLINS } from '../data';
 import { Airstrike } from './airstrike';
 import { BlackSun, blackSunMaterials } from './blacksun';
-import { GroundProbe } from './ground';
+import { GroundProbe, groundMaterials } from './ground';
 import { Nuke, NukeAftermath, nukeFrontMaterial } from './nuke';
 import { Orbital, orbitalMaterials } from './orbital';
 import { Ordnance } from './ordnance';
@@ -53,16 +53,19 @@ export class CallInManager {
     this.kit = { ctx, probe, materials, ordnance, jet };
     this.targeting = new Targeting(ctx);
     this.aftermath = new NukeAftermath(ctx);
-    this.warmShaders();
+    this.warmShaders(materials);
   }
 
   /**
    * Strikes build their materials on launch, and a program compiled then stalls the frame of the biggest moment in the
    * game. The renderer's compile pass at load only walks visible objects, so these stand on a layer no camera draws.
    */
-  private warmShaders(): void {
+  private warmShaders(models: ModelMaterials): void {
     const nothing = new THREE.BufferGeometry();
-    const all = [...Object.values(orbitalMaterials()), ...Object.values(blackSunMaterials()), nukeFrontMaterial()];
+    const all = [
+      models.solid, models.glow, ...groundMaterials(), ...Object.values(orbitalMaterials()), ...Object.values(blackSunMaterials()),
+      nukeFrontMaterial(), ...this.aftermath.materials,
+    ];
     for (const material of all) {
       const stand = new THREE.Mesh(nothing, material);
       stand.layers.set(UNDRAWN_LAYER);

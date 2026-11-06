@@ -9,17 +9,23 @@ One `render()` call runs these in order.
 | Step | Target | Notes |
 |---|---|---|
 | Moon shadows | depth maps | Static map only when dirty. Dynamic map every frame, moving casters only |
-| Viewmodel opaque | scene, MSAA | Drawn first, squeezed into depth range 0..0.02 |
-| World opaque + sky | scene, MSAA | Same target and depth buffer. One resolve for both |
+| Viewmodel opaque | scene | Drawn first, squeezed into depth range 0..0.02 |
+| World opaque + sky | scene | Same target and depth buffer. One resolve for both when the preset has MSAA |
 | Depth copy | `depthTexture` | Published here, so soft particles and decals can read this frame's depth |
 | Decals | resolved scene colour | Before AO and fog, so both apply to them |
 | Half-res depth, GTAO, fog march + temporal, SSR | half-res targets | All driven by depth |
 | Combine | HDR | AO multiply, SSR, fog, with depth-aware upsample |
 | World transparent, viewmodel transparent | HDR | Single-sampled, against the world depth. FX sit on top of the fog |
 | Bloom | R11G11B10 pyramid | Threshold 1.1, soft knee |
-| Composite | canvas | Radial blur, CA, Khronos PBR Neutral, grade, low health, damage, speed lines, vignette, grain, dither |
+| Composite | canvas | Edge AA and sharpen when the preset has no MSAA, radial blur, CA, Khronos PBR Neutral, grade, low health, damage, speed lines, vignette, grain, dither |
 
 Opaque and transparent are split by wrapping `sort()` on three's cached render list (`Renderer.hookRenderList`). Any object with `material.transparent` lands in the right pass with no opt-in. `material.transmission` is drawn as plain alpha, because a transmission pass would need the opaque list.
+
+**Resolution.** The canvas is the preset's pixel budget, not the screen. `maxPixels` is a ceiling: the canvas takes the largest stretch of the screen from 1, 1.5, 2, 3 or 4 device pixels per canvas pixel that fits, and the page compositor does the stretch. Only those ratios are allowed. At 1.8x the bilinear stretch sharpens and softens in a repeating pattern that grain and wet floors show as a faint grid.
+
+**Dynamic resolution** renders into the bottom-left corner of targets allocated at full size. The viewport of each target is the area in use, and `readArea()` in `fullscreen.ts` gives a pass the uv scale for it and the last uv a bilinear tap can use without reading stale pixels. A step only sets viewports and uniforms. Fog history and SSR read last frame's image with last frame's area, so a step does not restart them. `gl_FragCoord`-based reads, including the fx layers' `gl_FragCoord / uDepthRes`, work unchanged because the area starts at texel zero.
+
+**Edge AA** runs inside Composite from one set of five taps: FXAA across real edges, luma sharpen everywhere else. It folds HDR into 0..1 first, because a raw blend of a 9x emissive strip and a dark wall still tone-maps to white. With no MSAA a neon strip thinner than a pixel breaks into dashes, so `EmissiveLines` draws each emissive mesh's edges in its own colour as GL lines, which rasterise unbroken.
 
 The viewmodel shares the world's depth buffer instead of clearing it. Depth under 0.02 means viewmodel, and AO, fog and SSR skip those pixels. To keep the multisampled colour alive between the two `render()` calls, the target's `samples` is set to 0 for the first call. Both this and the list hook depend on three r187 internals, so re-check them when upgrading three.
 
@@ -60,14 +66,14 @@ On `LightVolumeBakeInput` in `contracts.ts`: `voxelSize?`. The rest live on the 
 | `passes` | `{ ao, fog, bloom, shadows, decals, ssr }` booleans |
 | `moon` | The world's directional light. Colour changes also need `opMoonColor` |
 | `volume` | `LightVolume`: `stats`, `skyZenith`, `skyHorizon`, `bounce` |
-| `dynamicResolution` | `.enabled`, `.scale` |
+| `dynamicResolution` | `.enabled`, `.scale`. `?drs=1` forces it on under automation, `?drs=0` off |
 | `measurePasses()` | Isolated GPU cost of each post pass |
 | `refreshStaticShadows()` | Re-render the static map once |
 | `renderSize()` | Internal size after quality and dynamic resolution |
 
 ## Tuning
 
-- `quality.ts`: one row per preset: MSAA, resolution, AO, fog steps, bloom levels, shadow sizes, SSR steps, light count.
+- `quality.ts`: one row per preset: MSAA, pixel budget, AO, fog steps, bloom levels, shadow sizes, SSR steps, light count. Index 2 is the default, and saved settings point at it, so retune that row rather than moving the default.
 - `post/grades.ts`: every grade as plain numbers.
 - `materials/surfaces.glsl.ts`: every material. `MaterialLibrary.ts` holds tile size, bump, wetness and macro variation.
 - `materials/decalAtlas.glsl.ts`: every decal.
@@ -77,31 +83,63 @@ On `LightVolumeBakeInput` in `contracts.ts`: `voxelSize?`. The rest live on the 
 
 ## Measured cost
 
-`measurePasses()` at 1920x1080, quality 2, on the real map. Other agents kept the machine loaded the whole time (load average 25-35), so each figure is the best of six rounds, and the two final runs still disagree by up to 0.5 ms.
+`tools/scripts/gpu-bench.mjs` measures all of this in the real game at `--dpr 2 --w 1440 --h 900`: frame throughput with one thing changed at a time, run round-robin, and each stage on its own between GPU syncs.
 
-| Pass | Run 1 | Run 2 |
+Whole frame at a fixed spot with eight enemies on screen, in ms. Before was 1920x1200 with 4x MSAA. After is the default on this display: 1440x900, no MSAA. The before figures were taken at load average 15 to 30 and the after figures at 3 to 9, so read it as about 3x, not as exact.
+
+| | Kill House | Crucible |
 |---|---|---|
-| Fog march + temporal | 1.54 | 2.09 |
-| Combine | 1.36 | 1.25 |
-| Bloom | 1.10 | 0.84 |
-| AO + blur | 0.96 | 0.80 |
-| SSR | 0.65 | 0.59 |
-| Composite | 0.24 | 0.24 |
-| Half-res depth | 0.19 | 0.15 |
-| **Total** | **6.04** | **5.95** |
+| Before, best / median | 28.9 / 34 | not taken |
+| After, best / median | 7.5 to 7.8 / 8.0 to 8.3 | 9.5 to 9.9 / 9.7 to 9.9 |
 
-**That is about 1 ms over the 5 ms budget as measured.** The best figure per pass sums to 5.4 ms. I could not get an uncontended number, so I do not know the true cost on an idle M1. The MSAA resolve and the depth copy are not in this table. If the budget has to be met for certain, quality 1 removes SSR and drops AO to one slice.
+What the before frame was made of, at the Kill House:
 
-The sandbox hall measures 3.8 ms at 1280x720.
+| Change | Saved |
+|---|---|
+| 4x MSAA off | 8 to 10, of which the resolve is 5 to 6 |
+| World shaders replaced by one colour, MSAA off | 8.5 to 11 |
+| Internal size to 49% of the pixels, MSAA off | 8 to 9 |
+| AO, fog, SSR and bloom all off, MSAA off | 5 to 6.5 |
+
+Inside the world shader: shadow lookups 2.7 to 4, the three extra light volume fetches and their evaluation 1.8 to 3.4, and eight unrolled point lights up to 2.9 with no light lit. Wetness, macro variation, the sky reflection, the dominant-light specular and anisotropy measured nothing, so texture fetches are not the cost.
+
+`measurePasses()` at the default, best of six, with the 2.3 megapixel figures from before:
+
+| Pass | Before | After |
+|---|---|---|
+| Fog march + temporal | 1.37 | 0.67 to 1.03 |
+| Combine | 1.45 | 0.67 to 0.70 |
+| Bloom | 1.10 | 0.68 to 0.77 |
+| AO + blur | 0.97 | 0.70 to 0.93 |
+| SSR | 0.72 | 0.28 to 0.33 |
+| Composite | 0.27 | 0.25 to 0.32 |
+| Half-res depth | 0.22 | 0.12 to 0.13 |
+| **Total** | **6.09** | **3.7 to 3.9** |
+
+Composite now holds edge AA, which is why it did not fall. Whole-frame toggles at the default show each of AO, SSR, fog and bloom worth 0.1 to 0.5 ms, shadows 0.5 to 0.9, and world shading 3.3 to 4.8, so the post stack has nothing large left in it.
+
+**A fight.** Eighteen husks at 5 to 14 m, firing, about 2.7M triangles and 350 to 460 draws, frozen and timed the same way: 12.3 to 13.7 ms at the Kill House, 13.6 to 15.6 at the Crucible. At 1600x1000 the Crucible was 16.6 to 17, which is why the default is not that size. Dynamic shadows cost about 1 ms of that frame, and drawing them from LOD 1 or 2 changed nothing measurable, so a shadow LOD is not worth building.
+
+Live frame intervals in the same fight, dynamic resolution off, measured at low priority under other agents' load:
+
+| | p50 | p90 | p99 | Frames over 20 ms |
+|---|---|---|---|---|
+| Kill House | 16.7 | 16.7 | 16.8 to 33.4 | 0.7% to 5.8% |
+| Crucible | 16.7 | 16.8 to 33.3 | 33.4 | 8% to 15% |
+| Crucible, dynamic resolution on | 16.7 | 16.7 | 33.4 | 5.7% |
+
+**The misses left at the Crucible are on the main thread, not the GPU.** There the JS frame is 16.2 ms at the median on frames that made it and 18.2 ms on frames that did not, with `render()` itself about 8.5 ms of that. Dynamic resolution went all the way to 0.62 in that fight without fixing it, then gave up, which agrees. This is at `nice 19`, so a normal-priority browser should do better, but I could not measure one. The budget in DESIGN.md is 12 ms.
 
 Light bake on the real map, measured at 200 x 40 x 200 cells with 272 lights: about 5 s in a worker while nav builds on the main thread, plus 0.6 s of sliced `isSolid` sampling. The cap has since gone to 48 cells high, which should add about 20%. That larger size has not been timed separately.
 
-GPU memory at 1080p quality 2 is about 430 MB. That is calculated, not measured: scene and depth MSAA 100 MB, other full-res targets 50 MB, half-res targets and bloom 30 MB, material sets 140 MB, decal atlas 44 MB, light volume 60 MB, shadows 60 MB.
+GPU memory at the default is about 350 MB. That is calculated, not measured: full-res targets 32 MB, half-res targets and bloom 12 MB, material sets 140 MB, decal atlas 44 MB, light volume 60 MB, shadows 60 MB. It was about 430 MB at 1080p with MSAA.
 
 ## Known limitations
 
-- **Timer queries are useless here.** Under ANGLE on Metal each one read about 6 ms whatever the pass did. That is why `measurePasses()` syncs instead, and why dynamic resolution follows the frame interval. As a result a CPU-bound frame also drops resolution, which does not help it.
-- **Dynamic resolution is off under automation** (`navigator.webdriver`) so screenshots stay stable. I forced it on with artificial 26 ms frames: it stepped down to 0.62 and began climbing back to 0.70 once the load stopped, with no errors. It has not been tried in a real play session. Each step reallocates the render targets and will hitch briefly.
+- **Timer queries are useless here.** Under ANGLE on Metal each one read about 6 ms whatever the pass did. That is why `measurePasses()` syncs instead, and why dynamic resolution follows the frame interval. As a result a CPU-bound frame also drops resolution. If the whole range does not beat the interval it started from, it returns to full size and rests for 30 s.
+- **Dynamic resolution steps are free.** Ten forced steps in the real game loop: `render()` 1.9 to 2.5 ms on the step frame against 2.1 at the median and 2.7 at p99 around it, and the next interval 15.6 to 16.9 ms. The old reallocating step measured up to 28 ms against 9, on battery and under load, so only the direction of that comparison is safe. It has not been tried by a person in a real play session. With MSAA the resolve still covers the whole target, so a step saves less on Ultra.
+- **The frame rate drops to 30 Hz on low battery.** With the laptop at 4% and discharging, a plain page with no canvas ran rAF at 33.3 ms in `tools/shot.mjs`. On AC the same runs went to 16.7 ms, and `render()` in a calm scene fell from 8.8 to 2 ms of CPU. The cause is probably the browser's energy saver, which I did not confirm. Any frame interval taken on battery says nothing about the game, and a player on battery is held at 30 fps whatever the GPU does.
+- **Thin geometry at range is not antialiased on High.** Rails and cables break into dashes, gratings are noisier and small print on the viewmodel is softer. Emissive strips stay whole but read a little brighter at range and show small ticks at their ends. Ultra keeps 4x MSAA. Only stills were compared, so the shimmer of all this in motion has not been judged.
 - **Light volume leaks.** Cells on the real map are about 1.75 m wide and 1.9 m tall. Thin walls can bleed light, and small rooms get soft light rather than crisp pools.
 - **Only moon shafts are sharp,** because they use the shadow map. Coloured lights make soft haze at this cell size, not hard shafts. Close to a lamp the haze can show as a fuzzy ball.
 - **Bounce light is a diffusion approximation,** not a real gather. It stays out of walls but is not energy-correct.

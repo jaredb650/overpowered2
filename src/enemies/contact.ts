@@ -23,6 +23,7 @@
  * apart.
  */
 import * as THREE from 'three';
+import { MOVE } from '../player/tuning';
 import type { Enemy } from './Enemy';
 import type { AiWorld } from './aiWorld';
 
@@ -59,6 +60,35 @@ function canNudge(w: AiWorld): boolean {
   return s === 'ground' || s === 'crouch' || s === 'air';
 }
 
+/**
+ * Feet on the ground grip along the keys and scrub off everything else, so held against a round body they would stick
+ * to it instead of sliding round. Against a wall the player's own sweep sorts this out. Here it is given back: the part
+ * of the keys that runs along the body, at running speed, as it would along a wall.
+ */
+function slideRound(w: AiWorld, nx: number, nz: number): void {
+  const { input, player } = w.ctx;
+  const fwd = (input.isDown('forward') ? 1 : 0) - (input.isDown('back') ? 1 : 0);
+  const side = (input.isDown('right') ? 1 : 0) - (input.isDown('left') ? 1 : 0);
+  if (fwd === 0 && side === 0) return;
+  const s = Math.sin(player.yaw);
+  const c = Math.cos(player.yaw);
+  const length = Math.hypot(fwd, side);
+  const wx = (side * c - fwd * s) / length;
+  const wz = (-side * s - fwd * c) / length;
+  const into = -(wx * nx + wz * nz);
+  if (into <= 0) return;
+  const tx = wx + into * nx;
+  const tz = wz + into * nz;
+  const along = Math.hypot(tx, tz);
+  if (along < 1e-3) return;
+  const v = player.velocity;
+  const want = MOVE.runSpeed * player.modifiers.speed * along;
+  const have = (v.x * tx + v.z * tz) / along;
+  if (have >= want) return;
+  v.x += (tx / along) * (want - have);
+  v.z += (tz / along) * (want - have);
+}
+
 /** Keeps the player out of a solid body. `gap` is the room left between them, negative once they overlap. */
 function holdOff(e: Enemy, w: AiWorld, nx: number, nz: number, gap: number, step: number): void {
   const p = w.player;
@@ -83,6 +113,7 @@ function holdOff(e: Enemy, w: AiWorld, nx: number, nz: number, gap: number, step
   v.z += nz * (least - away);
   // These two write their own velocity every tick, so they have to be ended, or they would carry on through it.
   if (player.dashing || player.wallRunning) player.push(_v.set(0, 0, 0));
+  else if (player.grounded && !player.sliding) slideRound(w, nx, nz);
 }
 
 export function updateContact(e: Enemy, w: AiWorld): void {

@@ -243,6 +243,10 @@ export class NukeAftermath {
     }
   }
 
+  get materials(): THREE.ShaderMaterial[] {
+    return [this.cloudMat, this.skyMat, this.ashMat];
+  }
+
   /** The blast. Everything starts at full heat, on this frame. */
   begin(zero: THREE.Vector3): void {
     this.age = 0;

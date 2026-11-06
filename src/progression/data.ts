@@ -335,8 +335,8 @@ export const NUKE = {
   skyFade: 25,
   cloudLife: 70,
   /** m/s bodies leave at, from ground zero out to `throwFalloff` metres. */
-  throwNear: 34,
-  throwFar: 11,
+  throwNear: 46,
+  throwFar: 20,
   throwFalloff: 220,
   /** How far ahead of the front resting corpses are stirred, so they are simulated by the time it arrives. */
   wakeAhead: 12,

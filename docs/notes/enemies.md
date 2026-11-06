@@ -57,8 +57,9 @@ changes what is available on the next think.
   nothing can be thrown. It looks a frame ahead, or a dash at 20 fps steps most of the way through a Brute. Dash and wall run write
   their own velocity every tick, so those two are ended with `player.push`. A slide is stopped like a run.
 - **Nothing traps the player.** Deeper than `WEDGE_DEPTH` for `WEDGE_SECONDS`, which only a body and a wall closing together can
-  do, solid bodies let go for `WEDGE_RELEASE`. Keep `WEDGE_DEPTH` above what holding a key can reach at low frame rates: the
-  player's `groundGrip` is 240 m/s², which sits 0.09 m in at 30 fps. Below 0.09 m, `OUT_RATE` needs raising first.
+  do, solid bodies let go for `WEDGE_RELEASE`. Keep `WEDGE_DEPTH` above what holding a key can reach at low frame rates, or leaning
+  on a Brute reads as wedged and the player walks through it. With `groundGrip` at 240 m/s² that is about 0.09 m at 30 fps and 0.14 m
+  at 20 fps, at the present `OUT_RATE`.
 - **Pads throw enemies with the pad's real velocity**, the arc the map was tuned for. Gravity is the same -28. An enemy that
   misses the pad's radius at the link's start leaps for the far end instead.
 - **Stranded enemies come back as reinforcements.** A body in flow mode with no route gain of `PATH_GAIN` for `STRANDED_BLIND`
