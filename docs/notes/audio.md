@@ -42,7 +42,7 @@ Audio reads `ctx.player`, `ctx.time`, `ctx.world` and listens to events, so nobo
 | `enemy:hit` from the player | `hit_marker`, `hit_marker_head`, `hit_marker_armor`. Skips fire ticks |
 | `enemy:killed` from the player | `hit_marker_kill` |
 | `enemy:severed` on flesh | `bone_snap`, `flesh_tear` and `blood_spurt` under the enemies system's `limb_sever` |
-| `enemy:killed` | `blood_splatter` on a gib, `head_pop` and `vox_gurgle` on a head kill |
+| `enemy:killed` | `blood_splatter` and `blood_spill` on a gib, `head_pop` and `vox_gurgle` on a head kill |
 | `gore:impact` | See "Landings" below |
 | Burning enemies, nearest 4 in 50 m | `flame_burn_loop`, following the body |
 | `combo:changed` to 0 from 3 or more | `combo_break` |
@@ -60,7 +60,7 @@ One call, all layers start on the same audio frame.
 | `headshot` | `enemy_headshot` + `enemy_headshot2` + `enemy_headshot3`, at the original 0.75 / 0.5625 / 0.75 ratio. See "Headshot" below |
 | `autocannon_shot` | `autocannon_fire` cut at 500 ms + `autocannon_fire2` in full, as in the first game |
 | `hellfire_rocket_blast` | `rocket_explosion` + `hellfirerocket_explode` |
-| `sword_contact` | `sword_hit1` + `sword_hit2` + `enemy_hit` |
+| `sword_contact` | `sword_flesh` |
 | `perk_berserk` | `perk_berserk1` + `perk_berserk2` + `perk_berserk3` all at once, 0.4 / 0.6 / 0.4 as in the first game |
 
 `ctx.audio.layer([{ id, volume, pitch, offset, delay, duration }, ...], options)` builds your own stack.
@@ -132,6 +132,9 @@ to the synth gore at load.
 | `blood_drip` | 4 | `blood_spurt` |
 | `blood_splatter` | 4 | `blood_splat` |
 | `body_drag` | 3 | `body_scrape` |
+| `bullet_body` | 6 | `blood_splat` |
+| `sword_flesh` | 3 | `limb_sever` |
+| `blood_spill` | 3 | `blood_spurt` |
 
 ## Synthesized catalogue
 

@@ -149,6 +149,10 @@ const packs: SoundDef[] = [
   pack('blood_drip', 4, 'blood_spurt', 0.2, { near: 3, far: 25 }),
   pack('blood_splatter', 4, 'blood_splat', 0.36, { priority: 4 }),
   pack('body_drag', 3, 'body_scrape', 0.24, { maxVoices: 2, near: 3, far: 30 }),
+  pack('bullet_body', 6, 'blood_splat', 0.42, { maxVoices: 4, priority: 4 }),
+  pack('sword_flesh', 3, 'limb_sever', 0.6, { priority: 6, family: 'gore', familyMax: 10, near: 6, far: 70 }),
+  // These run up to 2 s, so a pile of bodies must not stack them.
+  pack('blood_spill', 3, 'blood_spurt', 0.4, { maxVoices: 2, priority: 4 }),
 ];
 
 function group(id: string, members: readonly string[]): SoundDef {
@@ -177,7 +181,7 @@ const stacks: SoundDef[] = [
     { id: 'autocannon_fire2' },
   ]),
   stack('hellfire_rocket_blast', [{ id: 'rocket_explosion' }, { id: 'hellfirerocket_explode' }]),
-  stack('sword_contact', [{ id: 'sword_hit1' }, { id: 'sword_hit2' }, { id: 'enemy_hit' }]),
+  stack('sword_contact', [{ id: 'sword_flesh' }]),
   stack('perk_berserk', [{ id: 'perk_berserk1' }, { id: 'perk_berserk2' }, { id: 'perk_berserk3' }]),
 ];
 

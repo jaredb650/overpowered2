@@ -135,13 +135,16 @@ export class Reactions {
     if (isMachine(enemy) || enemy.id === 'titan') return;
     this.play('bone_snap', damage.point, 0.9, 1, 0.015);
     this.play('flesh_tear', damage.point, 0.7, 1, 0.02);
-    this.play('blood_spurt', damage.point, 0.8, 1, 0.07);
+    this.play('blood_spill', damage.point, 0.8, 1, 0.07);
   }
 
   private onKilled({ enemy, damage, gibbed, headshot }: GameEvents['enemy:killed']): void {
     if (!ENEMY_SOURCES.has(damage.source)) this.play('hit_marker_kill');
     if (isMachine(enemy)) return;
-    if (gibbed) this.play('blood_splatter', enemy.center, 1, 1, 0.03);
+    if (gibbed) {
+      this.play('blood_splatter', enemy.center, 1, 1, 0.03);
+      this.play('blood_spill', enemy.center, 1, 1, 0.05);
+    }
     else if (headshot) {
       this.play('head_pop', enemy.center);
       this.play('vox_gurgle', enemy.center, 0.8, rand(0.9, 1.1), 0.18);

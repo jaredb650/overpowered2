@@ -1076,8 +1076,8 @@ export class Gore implements GoreSystem {
   slice(char: CharacterInstance, point: THREE.Vector3, normal: THREE.Vector3, damage: DamageInfo): void {
     const body = this.owned.get(char);
     this.sliced.cut(char, point, normal, damage);
-    this.ctx.audio.playOneOf(['sword_hit1', 'sword_hit2'], { position: point, volume: 0.7 });
-    this.ctx.audio.play('enemy_hit', { position: point, volume: 0.5 });
+    this.ctx.audio.play('sword_flesh', { position: point, pitchJitter: 0.04 });
+    this.ctx.audio.play('blood_spill', { position: point, volume: 0.8 });
     if (body) this.dropBody(body);
     char.release();
   }
@@ -1122,7 +1122,7 @@ export class Gore implements GoreSystem {
       // Still on its feet, the animation it is following flinches too, and the muscles carry that as well.
       muscle?.collapse?.flinch(hit.bone, damage.dir, MuscleTuning.collapseFlinch * jolt);
       this.wounds.onBody(char, damage, damage.amount / CORPSE_HEALTH, hit.bone, hit.point);
-      audio.play('enemy_hit', { position: hit.point, volume: 0.4, pitchJitter: 0.1 });
+      audio.play('bullet_body', { position: hit.point, volume: 0.4, pitchJitter: 0.1 });
       target.damage[hit.bone] = target.damage[hit.bone]! + damage.amount * (damage.severMult ?? 1);
       // Damage on a bone counts toward the nearest severable joint at or above it.
       const defs = char.rig.bones;
@@ -1140,7 +1140,7 @@ export class Gore implements GoreSystem {
       target.crawler?.kill();
       this.wounds.onLimb(target.piece, target.info, damage, hit.bone, hit.point);
       target.health -= damage.amount * (damage.severMult ?? 1);
-      audio.play('enemy_hit', { position: hit.point, volume: 0.3, pitchJitter: 0.12 });
+      audio.play('bullet_body', { position: hit.point, volume: 0.3, pitchJitter: 0.12 });
       if (target.health <= 0 && DevFlags.gibbing) this.burstLimb(target, damage);
     } else {
       this.sliced.damage(target, hit.point, _v.copy(damage.dir).multiplyScalar(forceOf(damage)));

@@ -309,7 +309,7 @@ export class Combat implements CombatSystem {
         this.feel.stop(result.killed ? HIT_STOP.headshotKill : HIT_STOP.headshot);
       } else {
         c.fx.bloodHit(point, dir, 1);
-        this.play('enemy_hit', point, 0.8, 0.06);
+        this.play('bullet_body', point, 0.8, 0.06);
         c.hud.hitMarker(result.killed ? 'kill' : 'body');
       }
       if (result.killed && killStop > 0) this.feel.stop(killStop);

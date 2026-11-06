@@ -101,3 +101,22 @@ All in `public/audio/sfx/gore/`.
 | Kenney, direct | The site answered a plain scripted request with 403, and no way round that was tried. The port above carries the same CC0 pack |
 | Wikimedia Commons | Searched slowly through its API. Nearly every hit for these words is a spoken pronunciation, so nothing was taken |
 | Better gunshots, explosions, ricochets | Nobody here can hear whether one clearly beats what exists, so none were added. The first game's samples are untouched |
+
+## Owner-supplied sounds
+
+Approved and supplied by the owner from their own library. The source and licence are not recorded yet, so confirm them before publishing these files.
+
+| File | Source file | Author | Licence |
+|---|---|---|---|
+| `bullet_body_1.mp3` | Object_Break_Into_Body_02 | Supplied by the owner | Licence to be confirmed |
+| `bullet_body_2.mp3` | Projectile_Hit_On_Body_01 | Supplied by the owner | Licence to be confirmed |
+| `bullet_body_3.mp3` | Projectile_Hit_On_Body_02 | Supplied by the owner | Licence to be confirmed |
+| `bullet_body_4.mp3` | Projectile_Hit_On_Body_03 | Supplied by the owner | Licence to be confirmed |
+| `bullet_body_5.mp3` | Projectile_Hit_On_Body_04 | Supplied by the owner | Licence to be confirmed |
+| `bullet_body_6.mp3` | Projectile_Hit_On_Body_05 | Supplied by the owner | Licence to be confirmed |
+| `sword_flesh_1.mp3` | Knife_Stab_With_Flesh_03 | Supplied by the owner | Licence to be confirmed |
+| `sword_flesh_2.mp3` | Knife_Stab_With_Flesh_04 | Supplied by the owner | Licence to be confirmed |
+| `sword_flesh_3.mp3` | Knife_Stab_With_Flesh_05 | Supplied by the owner | Licence to be confirmed |
+| `blood_spill_1.mp3` | Organ_Broken_01 | Supplied by the owner | Licence to be confirmed |
+| `blood_spill_2.mp3` | Organ_Broken_02 | Supplied by the owner | Licence to be confirmed |
+| `blood_spill_3.mp3` | Organ_Broken_03 | Supplied by the owner | Licence to be confirmed |
