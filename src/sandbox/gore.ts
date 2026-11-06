@@ -3,7 +3,8 @@
  *
  *   scenario   headshot | limbs | crawl | explosion | slice | ragdoll | shootcorpse | stairs | stress | rigs | idle
  *              side by side, hard limits on the left and muscles on the right, under identical input:
- *              limit | zerog | fall | stairsab | blast | lineup | collapse | twitch
+ *              limit | zerog | fall | stairsab | blast | lineup
+ *              collapse: dropped, collapsing, collapsing on the move. twitch: still on the left, twitching on the right
  *   arch       archetype to spawn, default husk. dummy=1 uses the capsule TestDummy instead.
  *   cam        x,y,z,tx,ty,tz camera override.
  *   q          render quality preset.
@@ -408,7 +409,7 @@ const scenarios: Record<string, Scenario> = {
     },
   },
   stairsab: {
-    camera: [-12, 3.1, 3.4, -12, 1, -1.8],
+    camera: [-12, 4.3, 5.6, -12, 0.8, -0.6],
     compare: true,
     setup(s) {
       s.place(-13.4, -3.5, 0, 3.25);
@@ -481,10 +482,9 @@ const scenarios: Record<string, Scenario> = {
       }
     },
   },
-  /** Both dropped dead, only the one on the right twitching. */
+  /** Both dropped dead on muscles, only the one on the right twitching. */
   twitch: {
     camera: [0, 1.2, 2.1, 0, 0.1, 0],
-    compare: true,
     setup(s) {
       placePair(s, -1, 1);
     },

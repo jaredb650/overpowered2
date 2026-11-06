@@ -7,7 +7,8 @@ archetype, `dummy=1` for the capsule TestDummy, `cam=x,y,z,tx,ty,tz` for the cam
 `window.__gore` has `hold()`, `step(n)` and `sheet(frames, columns)`, which draws a contact sheet over the page.
 
 Side by side, hard limits on the left and muscles on the right under identical input: `limit` (slow motion, with a plot
-of the knee), `zerog`, `fall`, `stairsab`, `blast`, `lineup` (ten each way, hard row at the back), `collapse`, `twitch`.
+of the knee), `zerog`, `fall`, `stairsab`, `blast`, `lineup` (ten each way, hard row at the back). Then `collapse` (dropped,
+collapsing, collapsing on the move) and `twitch` (both on muscles, still on the left, twitching on the right).
 Add `hold=1` to start paused at frame 0, so a sheet is exact however long the page took to load. `muscles=0` turns the
 layer off everywhere, in any scenario and in the game itself.
 

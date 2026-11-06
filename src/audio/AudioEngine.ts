@@ -34,8 +34,8 @@ const HRTF_RANGE = 14;
 const MIN_VOICES_3D = 8;
 /** Voices past the budget are let go at this rate, so a lower budget does not cut a dozen sounds on one frame. */
 const SHED_FADE = 0.06;
-/** Seconds between load measurements. Long enough that timer jitter cannot read as a late clock. */
-const LOAD_WINDOW = 1;
+/** Seconds between load measurements. Long enough that one slow frame cannot read as a late clock. */
+const LOAD_WINDOW = 2;
 /** Distance is rewritten for a voice every this many frames, in turn: at 60 fps that is still 15 times a second. */
 const DISTANCE_STRIDE = 4;
 /** Seconds between looks for voices whose end never came, and between tries at waking a stopped context. */
@@ -140,6 +140,8 @@ export class AudioEngine implements AudioSystem {
   private loadAudio = 0;
   private loadUnderrun = 0;
   private loadTotal = 0;
+  /** The current window ran through a stop, so it says nothing about the render thread. */
+  private loadStale = false;
 
   private readonly listener = new THREE.Vector3();
   private listenerFrame = -1;
@@ -670,24 +672,25 @@ export class AudioEngine implements AudioSystem {
     }
   }
 
-  /** Compares the audio clock with the wall clock, which is the one measure that works in every browser. */
+  /** Reads underruns where the browser reports them, and otherwise compares the audio clock with the wall clock. */
   private measureLoad(ac: AudioContext): void {
     const wallNow = performance.now();
     const wall = (wallNow - this.loadWall) / 1000;
     const audio = ac.currentTime - this.loadAudio;
     this.loadWall = wallNow;
     this.loadAudio = ac.currentTime;
-    // A stopped context or a stalled tab says nothing about the render thread.
-    if (ac.state !== 'running' || document.hidden || wall > LOAD_WINDOW * 3) return;
     const stats = (ac as AudioContext & { playbackStats?: { underrunDuration: number; totalDuration: number } }).playbackStats;
     let share: number | null = null;
     if (stats) {
       const total = stats.totalDuration - this.loadTotal;
-      if (total > 0) share = (stats.underrunDuration - this.loadUnderrun) / total;
+      share = total > 0 ? (stats.underrunDuration - this.loadUnderrun) / total : 0;
       this.loadTotal = stats.totalDuration;
       this.loadUnderrun = stats.underrunDuration;
     }
-    this.governor.sample(audio, wall, share);
+    // A stopped context, a hidden tab or a stalled page says nothing about the render thread.
+    const stopped = ac.state !== 'running' || document.hidden || wall > LOAD_WINDOW * 3;
+    if (!stopped && !this.loadStale) this.governor.sample(audio, wall, share);
+    this.loadStale = stopped;
   }
 
   /** Runs the room and its bed from where the player is. */

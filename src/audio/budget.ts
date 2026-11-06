@@ -34,8 +34,8 @@ export function repeatGap(pressure: number): number {
   return FULL_REPEAT_GAP * crowding(pressure);
 }
 
-/** Below this share of real time the render thread is not keeping up. Rounding and timer jitter stay well above it. */
-const CLOCK_FLOOR = 0.97;
+/** Below this share of real time the render thread is not keeping up, for browsers that cannot report underruns. */
+const CLOCK_FLOOR = 0.95;
 /** Share of a window's audio that may be lost to underruns before it counts as overload. */
 const UNDERRUN_CEILING = 0.03;
 /** Clean windows in a row before a step comes back, so the budget does not hunt. */
@@ -57,7 +57,9 @@ export class LoadGovernor {
     if (wallSeconds <= 0) return;
     this.clockRate = audioSeconds / wallSeconds;
     this.underrunShare = underrunShare ?? 0;
-    if (this.clockRate < CLOCK_FLOOR || this.underrunShare > UNDERRUN_CEILING) {
+    // Underruns are counted, where the clock is only compared, and a long frame can make a healthy one read late.
+    const overloaded = underrunShare === null ? this.clockRate < CLOCK_FLOOR : underrunShare > UNDERRUN_CEILING;
+    if (overloaded) {
       this.calm = 0;
       if (this.step < VOICE_BUDGETS.length - 1) this.step++;
     } else if (this.step > 0 && ++this.calm >= CALM_WINDOWS) {

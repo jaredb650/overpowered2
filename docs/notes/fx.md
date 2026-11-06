@@ -153,6 +153,34 @@ Emitting all of it on one frame cost 4.2 ms. GPU time was not measured directly:
 
 Cap behaviour, from a browser run: 12,000 chips in one call clamps to 9,000 live, then drains to 0. 90 Hellfires on one frame leaves 18,500 live with no errors. Pause freezes particles. All 92 gallery entries fire clean.
 
+## Measured: blood and dropped frames
+
+`tools/scripts/blood-bench.mjs` in the real game at `--dpr 2 --w 1440 --h 900`, which `MAX_PIXELS` caps to 1920x1200 at quality 2. Other agents held the load average at 20 to 50 and the browser runs at nice 19, so these are upper bounds, and runs disagree by more than most of the differences. Dynamic resolution is off under automation, so none of this includes it.
+
+| Suspect | What the timeline showed | Verdict |
+|---|---|---|
+| GPU with no blood at all | 20-24 ms a frame on the quietest run, GPU-synced. Frame interval 33 ms or worse before any event | No headroom at 60 Hz. Anything extra misses a frame |
+| First draw of a program | three's `getProgramInfoLog` blocks on a full GPU queue drain, even for a program linked at load: 320 ms on the first hit, 70-130 ms later ones. Each new kind of blood finds new programs, so it keeps happening for the first minutes | Real. Fixed for everything compiled at load |
+| Programs not compiled at load | `ChunkField.ensure()` builds its materials on the first gib or headshot: 2-3 links in the frame, 190-650 ms | Real, gore's |
+| Hit-stop | World clock at 3-5% for 28-50 ms on headshots, severs and heavy kills. That is 2-3 frames at 60 Hz, on exactly the frames a spurt starts | Looks identical to dropped frames. Blood now flies through it. The world still stops |
+| Gore on the event frame | Sever 3-7 ms, gib 6-13 ms in gore, physics step up from 2 ms to 8-17 ms for about ten frames, 230-630 rays over the next 40 frames | Real, gore's |
+| Emission and uploads | 0.2-1.3 ms an event before, 0.1-2.2 after, under heavier load. About 50 KB uploaded | Not the cause |
+| Overdraw, decals, lens | At 1.2 m the GPU frame rose 0-2 ms. Hiding smoke, chips, decals, or all of it, changed nothing beyond noise | Not the cause |
+| GC | 94 scavenges in 50 s, 458 ms in all, longest 19 ms. Up to 25 ms in the half second after a sever, 0 after most events | Minor |
+
+| Same scenario, 1.5 m | Before | After |
+|---|---|---|
+| First bullet hit: render on that frame | 203 ms | 10 ms |
+| First bullet hit: worst frame interval | 217 ms | 100 ms |
+| FX and decal programs first used in play | 3 or more | 0 |
+| Programs still first used in play | | 2 at the first husk (characters), 2 at the first headshot (gore) |
+| Steady interval around any blood event | 33-67 ms | 33-67 ms, no measurable change |
+| Particles in a full gib | 407-411 | 62 |
+
+`FxCore.warm` asks about every program the renderer has on the first frame after load, then draws each empty layer once, so the stall lands on the menu.
+
+**For gore:** call `ChunkField.ensure()` at init and do the same for `sliced.ts`, so the chunk programs exist before `bakeLightVolume`. Send stains through `decals.splat(point, normal, size, velocity)`: on droplets in `updateDroplets`, and in the queue with `q.dx`, `q.dy`, `q.dz` as the direction. `atan2(vx, vz)` is only right on floors, and the queue's rotation is random.
+
 ## Known limitations
 
 - **Floor only.** Particles collide with one floor height sampled at the burst origin. They pass through walls, where depth hides them, and a chip that flies off a ledge stops in mid-air at the origin's floor height, or sinks into a ramp that rises away from the origin.
@@ -168,3 +196,4 @@ Cap behaviour, from a browser run: 12,000 chips in one call clamps to 9,000 live
 - **A strand can stop in mid-air** when the wall ahead of a jet is narrower than the jet, because the landing test uses that wall's plane. The stain then fails the decal depth test and nothing is left behind. Rare, and it was never worth a second ray.
 - **Blood in near-total darkness is hard to see,** on purpose. So is everything else there.
 - **Gore's stains are not directional yet.** They use `decals.add`. Only drops that come through FX are elongated. See the gore change in Measured.
+- **Not verified on the owner's screen.** Everything here ran headless on a loaded machine with dynamic resolution off. Blood flying through hit-stop is correct by construction but has not been judged in motion.

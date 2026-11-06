@@ -174,9 +174,9 @@ describe('budget', () => {
     const g = new LoadGovernor();
     g.sample(1, 1, 0);
     expect(g.budget).toBe(VOICE_BUDGETS[0]);
-    g.sample(0.9, 1, 0);
+    g.sample(0.9, 1, 0.5);
     expect(g.budget).toBe(VOICE_BUDGETS[1]);
-    g.sample(1, 1, 0.5);
+    g.sample(0.9, 1, null);
     expect(g.budget).toBe(VOICE_BUDGETS[2]);
     g.sample(0.5, 1, 0.9);
     expect(g.budget).toBe(VOICE_BUDGETS[2]);
@@ -185,6 +185,12 @@ describe('budget', () => {
     for (let i = 0; i < 5; i++) g.sample(1, 1, 0);
     expect(g.step).toBe(1);
     for (let i = 0; i < 6; i++) g.sample(1, 1, 0);
+    expect(g.step).toBe(0);
+  });
+
+  it('believes counted underruns over a clock read across one long frame', () => {
+    const g = new LoadGovernor();
+    g.sample(0.9, 1, 0);
     expect(g.step).toBe(0);
   });
 

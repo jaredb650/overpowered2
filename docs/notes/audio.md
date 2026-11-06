@@ -228,7 +228,7 @@ the load step, then what the mix gave up. `debug.ts` shows only the fields it na
 | Mix over 60% of the budget | Non-critical sounds below a rising level floor (`thinnedQuiet`), then repeats within a family (`thinnedRepeat`) |
 | Budget spent | The weakest voice is cut for a stronger sound, or the weaker sound is refused (`droppedBudget`) |
 | A family or id at its cap | Its weakest or oldest voice is retriggered, or the sound is refused (`droppedFamily`) |
-| The render thread falling behind | The load governor drops from 40 voices to 28, then 18, and takes HRTF away. Voices past the budget fade out, one a frame. Six clean seconds give one step back |
+| The render thread falling behind | The load governor drops from 40 voices to 28, then 18, and takes HRTF away. Voices past the budget fade out, one a frame. Six clean measurements, 12 s, give one step back |
 
 **Critical** sounds skip every row above. They are the player's guns and gun loops, hit markers and other reward blips, headshot layers and `head_pop`, stingers,
 the player's own hurt, and UI. A critical sound is never refused and never thinned, and only another critical sound can take its voice.

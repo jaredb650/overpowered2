@@ -102,6 +102,39 @@ Averages over 300 rolls of `composeWave`. Wave size is `(10 + 2 x wave) x COUNT_
 | 14 | 76 | burner | 2.10 | 1.65 | 10,863 |
 | 15 | 36 | warden, 2 Juggernauts | 2.19 | 1.70 | 5,663 + bosses |
 
+## Measured
+
+The machine was shared the whole time, with load average 15 to 45. Treat every time and frame rate here as noisy.
+
+**Fairness.** Real game at `/?autostart=1`, no god mode, bot never shoots. Moving means running a 75 m arc at about 12 m/s,
+turning at each end, inside the fight.
+
+| Wave | Standing: dead at | First hit | Damage per second | Moving: outcome | Gun hit rate standing / moving | Damage per second |
+|---|---|---|---|---|---|---|
+| 1 | 24.4 s | 16.3 s | 12.4 | alive at 55 s, 23 taken | about 1.0 / 0.11 | 0.7 |
+| 3 | 19.6 s | 13.7 s | 17.0 | alive at 55 s, 21 taken | 0.61 / 0.10 | 0.7 |
+| 5 | 15.5 s | 8.5 s | 14.4 | dead at 37.8 s | 0.88 / 0.11 | 6.1 |
+
+The wave 5 moving death is 131 of 142 damage from the Juggernaut's melee, which speed does not dodge by itself. Standing hit
+rates below 1 are bomber blasts and flames sharing the count. One run per cell, so expect several seconds of spread.
+
+## Known limitations
+
+- **The Titan does not kneel.** Once both shins are gone the animator's body plan is `crawl` or `writhe`, which puts the hips on
+  the floor. It reads as brought down, torso upright on its stumps. A real kneel needs a new plan in `HumanoidAnimator`.
+- **Severed limbs stay white** if the body was flashing when they came off, which under rapid fire is nearly always. `SeveredPart`
+  copies the flash texel in `copySurfaceTo` and nothing fades it. It is one line in `src/characters/Character.ts`.
+- **Spawns can be seen.** About 1% were in view when the queue was drained at an artificial rate, and 1 of 115 at the real rate.
+  A spawn needs the fallback when every hidden point is cold. Air spawns skip the sight test.
+- **Many spawns land past `PATH_MAX`.** Points inside the band run out or are in view, and the fallback prefers far to near.
+- **Bodies clip big geometry.** Enemies are points on the nav graph, so a Titan in a tunnel goes through the ceiling. Landing
+  sites need open sky, but the walk after that does not check.
+- **Enemies do not avoid hazards.** Routes cross crushers and electric floors, so a wave loses the odd body on the way. Lava
+  has only 90 nav nodes, all in one channel.
+- **Pad and jump flights have no collision.** Pad arcs were swept for the player. Leaps are short, but one can clip a corner.
+- **Not played by a human.** All of this comes from bots and scripted runs.
+- **60 fps at 48 alive is not verified.** See below.
+
 ## Sandbox
 
 `/?sandbox=arena&spawn=husk,brute&count=10&dist=25`, or `&waves=1&wave=5` for the real director. `&god=1` keeps the player alive.
