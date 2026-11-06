@@ -487,7 +487,7 @@ const scenarios: Record<string, Scenario> = {
       placePair(s, -1, 1);
     },
     frame(s, f) {
-      if (f === 10) s.row.forEach((c, i) => s.gore.ragdoll(c, { twitch: i }));
+      if (f === 10) s.row.forEach((c, i) => s.gore.ragdoll(c, { muscles: i === 1, twitch: i }));
     },
   },
   stress: {

@@ -214,7 +214,9 @@ function scenario({ events, reps, rotate, dist }) {
       await raf(20);
       bb.fire('hit', () => {
         const dir = e.center.clone().sub(P.eye).normalize();
-        ctx.combat.fireRay(P.eye, dir, { damage: 1, source: 'smg', team: 'player', maxDistance: 80, tracer: 'bullet' });
+        const r = ctx.combat.fireRay(P.eye, dir, { damage: 1, source: 'smg', team: 'player', maxDistance: 80, tracer: 'bullet' });
+        // A husk mid-lunge can leave the ray. The event is the blood, so it still happens.
+        if (!r?.hitEnemy) ctx.fx.bloodHit(e.center, dir, 1);
       });
     },
     async jet() {

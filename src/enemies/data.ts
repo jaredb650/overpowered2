@@ -104,7 +104,7 @@ export interface EnemyDef {
   boss?: (e: Enemy, w: AiWorld) => BossController;
   /** Forearm and shin hits count toward the whole limb. */
   wholeLimbs?: boolean;
-  /** Cut lower than the pool that emptied, such as at the knee so a Titan is left kneeling. */
+  /** Cut lower than the pool that emptied, such as at the knee so a Titan keeps its thighs. */
   severAt?: Partial<Record<GoreRegion, GoreRegion>>;
   onLimbLost?(e: Enemy, w: AiWorld, region: GoreRegion): void;
 }

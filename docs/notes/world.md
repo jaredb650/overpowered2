@@ -69,11 +69,10 @@ node tools/shot.mjs --url "/?map=killhouse&autostart=1" --dpr 2 --w 1440 --h 900
 | Runs along every wall and block face, leaning 6 degrees in | 101, 0 catches, 0.83 of top speed made good |
 | Runs out of each gate bay | 12 of 12 |
 | Ramps foot to pier, deck ring end to end across its seams | 8 of 8, 0.89 of top speed at worst |
-| Random hands, 300 s | 0 frames inside geometry, 0 falls, 0 trapped |
 | Holes in the floor, rays out of the perimeter below 24 m | 0, 0 |
 | Sightlines between standing eyes at least 18 m apart | 95% within 34 m, 13% over 30 m, longest 46 m. The long ones are slim lines through three doors |
 | Pickups | 27, one or two in every space, 3 mega health spots on the deck corners, none stranded |
-| Random hands, 4 seeds of 300 s | 0 frames inside geometry, 0 falls, 0 trapped, up to 6.7 m high |
+| Random hands, 6 seeds of 300 s | 0 frames inside geometry, 0 falls, 0 trapped, up to 7.7 m high |
 
 Real game, waves 1 and 2. The bot holds a station for 30 s, then moves on. Far means over 30 m by path, counted among bodies at least
 20 s old. `KH_PASSIVE=1` holds fire, because a bot that shoots kills nearly everything before it can be counted.
@@ -81,6 +80,10 @@ Real game, waves 1 and 2. The bot holds a station for 30 s, then moves on. Far m
 | Run | Result |
 |---|---|
 | Passive, 1280x720, 52 enemies | 0 seen at spawn, spawn path 29 m minimum and 53 m mean. Far at 20 s: 0, 3, 0, 0. Far at 30 s: 1, 1, 0, 0. Over 50 m: 0 |
+| Shooting, 1440x900 at 2x, 61 enemies | Waves 1 and 2 cleared, wave 3 at 124 s. 0 stuck, 0 off the graph, 0 page errors. Spawn path 33 m minimum, 57 m mean |
+
+Seen at spawn counts a clear line to the player's eye, whichever way they face. The shooting run scored 6 of 61, about one pack, and the
+spawner allows entrances behind the camera, so that is not proof of a spawn in plain view. Earlier runs scored 0 of 84 and 0 of 52.
 
 One far body was a trooper holding at range in a gate bay. The other stalled for at least 8 s against a door jamb, then recovered. No
 body stood on a wall top or left the map. Before the `groundHeight` change a husk got stuck on a wall top.
@@ -109,6 +112,8 @@ Timings swing widely with load: the same Kill House bake took 0.6 s on one quiet
 ## Known limitations
 
 - **Feel has not been played by a human.** Every number here comes from bots. Whether it reads as weighty needs the owner's hands.
+- **Frame rate is unproven.** Every run shared the machine with other agents. One 1x run held a 16.7 ms median, a 2x run under heavy load
+  showed 50 ms. Neither says what an idle M1 does.
 - **Bosses are untested here.** Only waves 1 to 3 have been run. A Juggernaut is 2.3 m wide and a Titan nearly 5 m, against 4 m lanes.
 - **Sightlines overshoot the brief in places.** 13% of the long ones are over 30 m. They are slim lines through three doors, up to 46 m.
 - **Enemies can leap onto a ramp from its open side.** 12 of about 300 tested routes use that vault. Everything else is a plain walk.

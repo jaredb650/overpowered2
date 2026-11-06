@@ -7,7 +7,9 @@
  *
  * Every torque here is written into RagPart.tau, which Rag already sends to Rapier once per body, so a muscle adds
  * no calls across the WASM boundary. Only a ligament at work adds one, for the linear impulse in RagPart.push. Each
- * torque goes on the child with its reaction on the parent, so a body can reshape itself but never spin itself up.
+ * torque goes on the child with its reaction on the parent, so a body can reshape itself without spinning itself up.
+ * That push is the exception: it has no reaction, so a ligament adds a little momentum of its own. Weightless, it was
+ * about 5% more spin than hard limits at worst, and a drift of around 0.1 m/s.
  */
 import * as THREE from 'three';
 import type { CharacterAnimation, CharacterInstance } from '../core/contracts';
