@@ -621,14 +621,18 @@ export class HumanoidAnimator implements CharacterAnimation {
     if (this.hidden(H.spine)) this.plan = 'biped';
   }
 
-  update(dt: number, lod: number): void {
+  /**
+   * `probing` is gore stepping ahead to read how fast the body is moving. A limb gone a moment ago is not movement, so the plan
+   * waits for the next real frame: read across a change of plan, a few centimetres over 1/90 s seed a ragdoll at 12 m/s.
+   */
+  update(dt: number, lod: number, probing = false): void {
     this.acc += dt;
     const every = lod <= 0 ? 1 : lod === 1 ? 2 : 4;
     if (++this.tickCount % every !== 0) return;
     const step = this.acc;
     this.acc = 0;
     if (step <= 0) return;
-    this.refreshPlan();
+    if (!probing) this.refreshPlan();
     this.time += step;
     this.integrateRoot(step);
     this.stepSprings(step);
@@ -1012,14 +1016,6 @@ export class HumanoidAnimator implements CharacterAnimation {
       qEuler(qA, (0.16 + this.hopHeight * 0.5) * this.hopBlend, 0, -good * 0.14 * this.hopBlend);
       this.pelvisQ.multiply(qA);
     }
-    if (this.headGone) {
-      // No head: a slow blind drunken circle, with the legs losing the argument.
-      const w = Math.sin(this.time * 2.1 + this.seed), u = Math.sin(this.time * 3.3 + this.seed * 2);
-      qEuler(qA, 0.1 + 0.16 * w, 0.2 * u, 0.2 * Math.sin(this.time * 2.7));
-      this.pelvisQ.multiply(qA);
-      this.pelvisPos.x += 0.05 * L * u;
-      this.pelvisPos.y -= 0.04 * L * (1 + w);
-    }
     const hips = this.bones[H.hips]!;
     hips.position.copy(this.pelvisPos);
     hips.quaternion.copy(this.pelvisQ);
@@ -1290,11 +1286,6 @@ export class HumanoidAnimator implements CharacterAnimation {
     if (st.twitch > 0) {
       h.target.x += noise1(this.time * 5 + side * 9 + this.seed) * 0.02 * s * st.twitch;
       h.target.z += noise1(this.time * 4 + side * 5 + this.seed) * 0.03 * s * st.twitch;
-    }
-    if (this.headGone) {
-      h.target.x += Math.sin(this.time * 7 + side) * 0.2 * s;
-      h.target.y += (0.3 + 0.2 * Math.sin(this.time * 5 + side * 2)) * s;
-      h.target.z += Math.cos(this.time * 6 + side * 3) * 0.25 * s;
     }
     if (this.plan === 'hop') {
       h.target.x += side * 0.14 * s;

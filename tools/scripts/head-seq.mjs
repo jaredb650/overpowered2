@@ -83,7 +83,7 @@ export default async function headSeq(page, h) {
         const c = r.target.char;
         const y = b => +c.bones[b].matrixWorld.elements[13].toFixed(2);
         const s = ctx.gore.stats();
-        return { hips: y(0), chest: y(2), ragdolls: s.ragdolls, collapses: s.collapses };
+        return { t: ctx.time.elapsed, hips: y(0), chest: y(2), ragdolls: s.ragdolls, collapses: s.collapses };
       },
     };
     window.__r = r;
@@ -106,7 +106,7 @@ export default async function headSeq(page, h) {
       tiles.push((await page.screenshot({ type: 'jpeg', quality: 72, clip })).toString('base64'));
       notes.push(await page.evaluate(() => window.__r.probe()));
     }
-    results[name] = { shot, notes: notes.map((n, i) => `f${STEPS[i]} hips ${n.hips} chest ${n.chest} rag ${n.ragdolls} col ${n.collapses}`) };
+    results[name] = { shot, notes: notes.map((n, i) => `f${STEPS[i]} +${(n.t - notes[0].t).toFixed(3)}s hips ${n.hips} chest ${n.chest} rag ${n.ragdolls} col ${n.collapses}`) };
     const context = await page.context().browser().newContext();
     const sheet = await context.newPage();
     await sheet.setViewportSize({ width: TILE_W * COLUMNS, height: TILE_H * Math.ceil(tiles.length / COLUMNS) });

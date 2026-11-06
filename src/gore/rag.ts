@@ -177,7 +177,7 @@ function readPose(src: RagSource, count: number, chainMask: Uint8Array | null): 
  * death, and it captures whatever the animation is doing: stride, flinch, recoil.
  */
 export function measureAnimVelocity(
-  src: RagSource, anim: { update(dt: number, lod: number): void }, velocity: THREE.Vector3 | null | undefined, out: Float32Array,
+  src: RagSource, anim: { update(dt: number, lod: number, probing?: boolean): void }, velocity: THREE.Vector3 | null | undefined, out: Float32Array,
 ): void {
   const n = src.rig.bones.length;
   const h = 1 / 90;
@@ -194,7 +194,7 @@ export function measureAnimVelocity(
     out[i * SEED_STRIDE + 1] = _pos[i]!.y;
     out[i * SEED_STRIDE + 2] = _pos[i]!.z;
   }
-  anim.update(h, 0);
+  anim.update(h, 0, true);
   readPose(src, n, null);
   const vx = velocity?.x ?? 0;
   const vy = velocity?.y ?? 0;
