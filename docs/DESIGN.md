@@ -428,3 +428,25 @@ The owner says ragdolls now feel much better, and wants to see them. Decisions m
 
 - **Streak triggers changed from section 9 after tuning:** Butcher is 5 different bodies in 4 s, direct hits only. Skyfall is 4 kills in 6 s. Chain Reaction is 4 kills from one blast. Overdrive needs speed above 18 m/s. Style perks are limited to one per 20 s.
 - **Ladder additions still to place:** AC-130, Door Gunner and Attack Chopper slot into the combo ladder between Warthog (12) and Black Sun (40). Pick thresholds so each feels earned.
+
+
+## 22. Campaign: The Outpost mission (overrides section 15 for the Outpost)
+
+The Outpost stops being an endless contract and becomes a **fixed, start-to-end campaign mission** that also teaches the game. All human work ships as part of it: smarter AI, surrender, bosses, vehicles, a new map.
+
+**Structure.**
+1. **Council briefing:** a short opening cutscene. The Council gives the order, dry and bureaucratic.
+2. **Insertion:** you fly in on the helicopter as door gunner, mowing down the defenders.
+3. **Locked out:** you land and get locked outside the outpost. They call in reinforcements.
+4. **Reinforcements:** soft-skin vehicles (Humvees and similar) bring men in.
+5. **Heavy assault:** those plus tanks and choppers. You find an explosive weapon, and that is how you kill them.
+6. **The raid:** inside the outpost: close corridors, full of soldiers, some parkour.
+7. **The Commander:** kill him. Mission complete.
+
+**It teaches as it plays.** Each stage introduces mechanics through the level itself: parkour needed to cross a gap that cannot be crossed otherwise, explosives against armour, the rest of the movement set. No separate tutorial.
+
+**Unlocks.** The first time, the Outpost map is campaign only, fixed start to end, with no endless. Beating it unlocks **Endless humans on the Kill House**.
+
+**Endless humans.** The Commander is always there, even though he dies in the campaign: he directs the soldiers, the player hears him, and they obey. That is what makes human survival unique.
+
+**Human AI requirements from playtest.** Scarier on their own, smarter, trickier. See docs/NEXT.md: F.E.A.R. lessons, surrender by rank and circumstance, prisoners who run, rejoin or re-arm, more human bosses. The new map is built for them: watchtowers, machine-gun lanes, ambush rooms, loops for flanking.

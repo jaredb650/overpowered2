@@ -1,6 +1,6 @@
 # Owner brain dump, playtest round 3
 
-Not started. The owner wants to think this through and then run bigger, all-in-one changes. Nothing here goes to agents until they say so.
+Owner's decision: **Euphoria is dropped for now.** One small batch runs first: headshot fix, spawn menu, blast rings and armour. All the human work then ships together as the campaign mission in docs/DESIGN.md section 22.
 
 Things they like: muscle-driven ragdolls ("look really good"), blood decals ("really awesome"), the core system.
 
