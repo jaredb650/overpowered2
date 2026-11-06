@@ -28,6 +28,9 @@ const SNIPER_PATIENCE = 11;
 const SELF_DEFENCE = 13;
 const SPOTTER_RANGE: readonly [number, number] = [16, 48];
 const SNIPER_RANGE: readonly [number, number] = [22, 62];
+/** The shortest line an observer will settle for, and how long before he looks for one again if there is nothing at all. */
+const CLOSEST_LINE = 10;
+const LOOK_AGAIN = 2;
 /** Hiders hold their fire until the player is this close, or has walked past them. */
 const AMBUSH_RANGE = 7.5;
 /** A radio click, just loud enough to warn someone listening. */
@@ -177,7 +180,9 @@ export class Units {
     const { c } = this;
     const now = c.w.now;
     for (let i = this.list.length - 1; i >= 0; i--) {
-      const u = this.list[i]!;
+      // An ambush going off takes several men off this list at once, so the slot may already be empty.
+      const u = this.list[i];
+      if (!u) continue;
       if (u.laser >= 0) this.holdLaser(u);
       if (now < u.tickAt) continue;
       u.tickAt = now + TICK;
@@ -195,13 +200,9 @@ export class Units {
     const { c } = this;
     this.released = true;
     c.radio('radio.posts.abandon', null);
-    for (let i = this.list.length - 1; i >= 0; i--) {
-      const u = this.list[i]!;
-      if (u.kind === 'casualty') {
-        this.detonate(u);
-        continue;
-      }
-      this.stand(u);
+    for (const u of [...this.list]) {
+      if (u.kind === 'casualty') this.detonate(u);
+      else this.stand(u);
     }
   }
 
@@ -268,12 +269,13 @@ export class Units {
     if (u.kind === 'spotter') s.e.attacks = close ? soldierAttacks(s.e.id) : [];
     if (close) return;
     if (!u.placed || (u.arrived && !s.sees && now - u.sawAt > patience)) {
-      if (c.posts.overwatch(c.w.player.position, range[0], range[1], c.highGround, _a)) {
+      // A close line beats none. The far band is what he wants, and the near one is what a room full of walls may leave him.
+      if (c.posts.overwatch(c.w.player.position, range[0], range[1], c.highGround, _a) || c.posts.overwatch(c.w.player.position, CLOSEST_LINE, range[0], true, _a)) {
         u.post.copy(_a);
         u.placed = true;
         u.arrived = false;
         u.sawAt = now;
-      }
+      } else u.tickAt = now + LOOK_AGAIN;
     }
     if (u.placed) this.goTo(u, 2);
   }
@@ -336,8 +338,7 @@ export class Units {
   private spring(squad: Soldier['squad']): void {
     const { c } = this;
     c.radio('radio.ambush.spring', squad.members[0] ?? null);
-    for (let i = this.list.length - 1; i >= 0; i--) {
-      const u = this.list[i]!;
+    for (const u of [...this.list]) {
       if (u.s.squad === squad && u.kind === 'hider') {
         c.props.remove(u.s.e.char, 'foil');
         this.stand(u);
@@ -476,19 +477,25 @@ export class Units {
         u.until = now + PIN_SECONDS;
         c.w.ctx.audio.play('grenade_pin', { position: s.e.center, volume: 1.2 });
         c.w.telegraphs.glint(s.e.center, 0xff2010, 0.55, PIN_SECONDS);
-      } else if (now >= u.until) {
-        // Nobody came. He has been shot at by experts and is not waiting any longer.
-        c.props.remove(s.e.char, 'grenade');
-        this.stand(u);
-      }
+      } else if (now >= u.until) this.leaveFeign(u);
       return;
     }
     if (now >= u.until) {
-      c.props.remove(s.e.char, 'grenade');
+      s.grenades = Math.max(s.grenades, 1);
       c.o.dropLiveGrenade(s);
       c.tracker.trapped('falseSurrender', 0);
-      this.stand(u);
+      this.leaveFeign(u);
     }
+  }
+
+  /** It worked or nobody came, and either way he has left his squad. He runs for a gate like any other broken man. */
+  private leaveFeign(u: Unit): void {
+    const s = u.s;
+    this.c.props.remove(s.e.char, 'grenade');
+    this.drop(s);
+    s.fate = 'flee';
+    s.e.thinkAt = 0;
+    s.e.behaviourUntil = 0;
   }
 
   /** The body the Commander put on the floor before the wave began. */

@@ -4,6 +4,7 @@
  */
 import * as THREE from 'three';
 import { rand, TAU } from '../../core/math';
+import type { CoverSpot } from '../outpost/cover';
 import type { Door } from '../outpost/squad';
 import type { Commander } from './index';
 
@@ -16,6 +17,8 @@ const _to = new THREE.Vector3();
 const _d = new THREE.Vector3();
 
 export class Posts {
+  private readonly candidates: CoverSpot[] = [];
+
   constructor(private readonly c: Commander) {}
 
   /**
@@ -23,20 +26,15 @@ export class Posts {
    * height, which on this map is what sees into a roofless room.
    */
   overwatch(target: THREE.Vector3, near: number, far: number, high: boolean, out: THREE.Vector3): boolean {
-    const { w, o } = this.c;
-    const spots = o.cover.spots;
-    if (spots.length === 0) return false;
+    const { w } = this.c;
+    const n = this.sample(target, near, far);
     _to.copy(target);
     _to.y += 1.4;
     const fwd = w.player.forward;
     let best = -Infinity;
     let found = false;
-    for (let i = 0; i < TRIES; i++) {
-      const spot = spots[Math.floor(Math.random() * spots.length)]!;
-      if (spot.claimedBy !== 0) continue;
-      const p = spot.position;
-      const dist = p.distanceTo(target);
-      if (dist < near || dist > far) continue;
+    for (let i = 0; i < n; i++) {
+      const p = this.candidates[i]!.position;
       _eye.copy(p);
       _eye.y += EYE;
       if (!w.director.clearLine(_eye, _to)) continue;
@@ -50,6 +48,26 @@ export class Posts {
       }
     }
     return found;
+  }
+
+  /** Fills `candidates` with an even pick of free spots in the band. Arithmetic over the list, so only the picks cost a ray. */
+  private sample(target: THREE.Vector3, near: number, far: number): number {
+    const { spots } = this.c.o.cover;
+    const near2 = near * near;
+    const far2 = far * far;
+    let seen = 0;
+    for (const spot of spots) {
+      if (spot.claimedBy !== 0) continue;
+      const d2 = spot.position.distanceToSquared(target);
+      if (d2 < near2 || d2 > far2) continue;
+      seen++;
+      if (seen <= TRIES) this.candidates[seen - 1] = spot;
+      else {
+        const slot = Math.floor(Math.random() * seen);
+        if (slot < TRIES) this.candidates[slot] = spot;
+      }
+    }
+    return Math.min(seen, TRIES);
   }
 
   /** The cover spot nearest `min` metres from the player and past it, inside the walls. */

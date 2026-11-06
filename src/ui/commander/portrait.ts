@@ -11,6 +11,9 @@ import type { Speaker } from '../../enemies/commander/lines';
 const SIZE = 96;
 /** Frames a second while talking. Low, because a low frame rate is what sells the video link. */
 const FPS = 9;
+const ZOOM = 1.32;
+/** What the zoom centres on. */
+const FACE_Y = 44;
 
 const SKIN: Record<Tone, string> = { smug: '#c79a7b', irritated: '#cc8469', rattled: '#c2a98f', cracked: '#b9a27f' };
 const SHADE: Record<Tone, string> = { smug: '#8e6a52', irritated: '#94503f', rattled: '#8c7a66', cracked: '#7d6a4d' };
@@ -53,8 +56,16 @@ export class Portrait {
 
   private draw(talking: boolean): void {
     const { g } = this;
-    if (this.speaker === 'commander') this.commander(talking);
-    else if (this.speaker === 'council') this.seal(talking);
+    if (this.speaker === 'commander') {
+      // Framed tight: at the size this is shown, the eyes and brows are the performance.
+      this.rect(0, 0, SIZE, SIZE, WALL[this.tone]);
+      g.save();
+      g.translate(SIZE / 2, SIZE / 2);
+      g.scale(ZOOM, ZOOM);
+      g.translate(-SIZE / 2, -FACE_Y);
+      this.commander(talking);
+      g.restore();
+    } else if (this.speaker === 'council') this.seal(talking);
     else this.signal();
     this.scan();
     g.globalAlpha = 1;

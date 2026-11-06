@@ -199,6 +199,10 @@ export class CommanderHud {
     if (this.clock <= 0) this.next(false);
   }
 
+  setPaused(paused: boolean): void {
+    this.voice.setPaused(paused);
+  }
+
   /** The minimap's view of the enemy, once the Commander has lied to it. */
   radar(real: readonly EnemyInstance[]): readonly EnemyInstance[] {
     return (this.ctx.enemies as unknown as Radar).outpost?.commander.jam.radar(real) ?? real;

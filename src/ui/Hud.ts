@@ -238,6 +238,7 @@ export class Hud implements HudSystem {
     const view = this.ctx.render.viewScene;
     if (view instanceof THREE.Object3D) view.visible = to === 'playing' || to === 'paused';
     this.flythrough.active = to === 'menu';
+    this.commander?.setPaused(to !== 'playing');
     if (to === 'playing') {
       this.screens.show('none');
       this.minimap.measure();

@@ -62,6 +62,13 @@ export class Voice {
     return this.current !== null;
   }
 
+  /** A paused game has nobody talking over it. */
+  setPaused(paused: boolean): void {
+    if (!this.current) return;
+    if (paused) this.current.pause();
+    else this.current.play().catch(() => this.next());
+  }
+
   stop(): void {
     this.queue = [];
     if (!this.current) return;

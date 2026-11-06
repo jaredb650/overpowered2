@@ -94,8 +94,9 @@ player.modifiers.invulnerable = true;
 
 const HOME: [number, number, number] = [0, 0.1, -19];
 const LOOP: [number, number, number][] = [[-7.4, 0.1, -19], [-7.4, 0.1, -12], [7.4, 0.1, -12], [7.4, 0.1, -19]];
-const TOUR: [number, number, number][] = [[6.6, 0.1, 3], [11.7, 0.1, -11.7], [0, 0.1, -19], [-19, 0.1, -19], [-20, 0.1, 31], [19, 0.1, 19]];
-const stations = bot === 'route' ? LOOP : bot === 'sonar' ? TOUR : [HOME];
+/** Up and down one hall, through no doors, so the only habit it shows is the one on the key. */
+const PACE: [number, number, number][] = [[-7.4, 0.1, -19], [7.4, 0.1, -19]];
+const stations = bot === 'route' ? LOOP : bot === 'sonar' ? PACE : [HOME];
 player.teleport(new THREE.Vector3(...stations[0]!), 0);
 manager.reset();
 waves.start();

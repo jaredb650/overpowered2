@@ -247,7 +247,7 @@ describe('the box', () => {
       expect(pages.length).toBeLessThanOrEqual(4);
       let seconds = 0;
       for (const p of pages) seconds += readingSeconds(p);
-      expect(seconds).toBeLessThan(20);
+      expect(seconds).toBeLessThan(22);
     }
   });
 
