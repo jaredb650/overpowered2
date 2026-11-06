@@ -129,8 +129,8 @@ export class AudioEngine implements AudioSystem {
   private readonly poolUi = emptyPool();
   private readonly pools: readonly Pool[] = [this.pool3d, this.pool2d, this.poolUi];
   private readonly governor = new LoadGovernor();
-  /** When each family last started, on the audio clock. */
-  private readonly familyStart = new Map<string, number>();
+  /** When each family last started, on the audio clock and by frame. */
+  private readonly familyStart = new Map<string, { at: number; frame: number }>();
   /** Voices sounding in the 3D and 2D pools: refreshed each frame and counted up on every start. */
   private active = 0;
   private active2d = 0;
@@ -458,12 +458,19 @@ export class AudioEngine implements AudioSystem {
     }
     const family = def.family;
     if (family === undefined) return false;
-    const gap = repeatGap(pressure);
-    if (gap > 0 && now - (this.familyStart.get(family) ?? -1) < gap) {
+    let last = this.familyStart.get(family);
+    if (!last) {
+      last = { at: -1, frame: -1 };
+      this.familyStart.set(family, last);
+    }
+    // Sounds on one frame are the layers of one event, and a sever without its crack is not a thinner mix but a wrong one.
+    const frame = this.ctx.time.frame;
+    if (frame !== last.frame && now - last.at < repeatGap(pressure)) {
       this.counts.thinnedRepeat++;
       return true;
     }
-    this.familyStart.set(family, now);
+    last.at = now;
+    last.frame = frame;
     return false;
   }
 

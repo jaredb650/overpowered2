@@ -5,7 +5,7 @@
 //
 // Env:
 //   AS_LABEL=before     Names the log: tools/out/audio-stress-<label>.json
-//   AS_PLAN=a:20,b:30   Phases and seconds. Default runs them all in 118 s. See PHASES.
+//   AS_PLAN=a:20,b:30   Phases and seconds. Default runs them all in 102 s. See PHASES.
 //   AS_METER=0          Skips the output tap.
 //   AS_CDP=0            Skips CDP's WebAudio domain. It reports every node and param, which is real main-thread work,
 //                       so the cleanest numbers for frame rate come from a run without it. Loses render capacity.
@@ -25,7 +25,7 @@ const CDP = process.env.AS_CDP !== '0';
 const DEADLINE_MS = 135000;
 /** Ids that must never drop out, and whose requests the summary lists one by one. */
 const MUST_PLAY = /^(smg_fire|shotgun_fire|rocket_fire|minigun_|hit_marker|enemy_headshot|perk_|bloodthirsty_shot|berserk_shot|hellfire_shot)/;
-const PLAN = (process.env.AS_PLAN ?? 'idle:6,smg:30,buzzsaw:25,rockets:12,slowmo:12,everything:15,pause:4,hidden:4,after:10')
+const PLAN = (process.env.AS_PLAN ?? 'idle:4,smg:25,buzzsaw:20,rockets:10,slowmo:10,everything:15,pause:4,hidden:4,after:10')
   .split(',').map(s => { const [name, seconds] = s.split(':'); return { name, seconds: Number(seconds) }; });
 
 /** Runs in the page. Everything it keeps is plain data, so the log can be read back at any time. */

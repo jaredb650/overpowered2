@@ -225,7 +225,6 @@ export class FxCore {
       u.uDepthRes.value.set(image.width, image.height);
       this.smoke.enableSoftDepth();
       this.shimmer.enableSoftDepth();
-      if (!this.warmed) this.warm();
     }
 
     this.chips.sync(now);
@@ -245,6 +244,8 @@ export class FxCore {
     this.muzzle.sync(pn);
     this.muzzleView?.sync(pn);
     this.lens?.sync(this.ctx.time.realDt, w / h);
+    // After the syncs, or they would hide the empty rings again before anything draws them.
+    if (depth && !this.warmed) this.warm();
   }
 
   /** Fires every booked hit that came due this frame. */

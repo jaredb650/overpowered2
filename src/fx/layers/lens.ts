@@ -107,8 +107,8 @@ export class LensLayer {
 
   /** Draws one dead record, so the first splatter does not pay for the program. See FxCore.warm. */
   warm(): void {
-    this.dirty = true;
-    this.high = 1;
+    this.geometry.instanceCount = 1;
+    this.mesh.visible = true;
   }
 
   /** `amount` 0..1 sets how many drops land. */

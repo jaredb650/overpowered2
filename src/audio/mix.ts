@@ -84,7 +84,8 @@ export const MIX = {
   ui: { ...base, bus: 'ui' as BusName, volume: 0.42, priority: 10, critical: true, maxVoices: 3, exempt: true, send: 0 },
   loop2d: { ...base, volume: 0.5, priority: 7, critical: true, maxVoices: 2, send: 0.1, fadeIn: 0.06, fadeOut: 0.15 },
   loop3d: { ...base, volume: 0.5, priority: 5, maxVoices: 6, near: 6, far: 70, send: 0.14, fadeIn: 0.08, fadeOut: 0.2 },
-  ambience: { ...base, volume: 0.3, priority: 6, maxVoices: 2, send: 0, exempt: false, fadeIn: 2.5, fadeOut: 2.5 },
+  /** Critical only so a one-shot can never cut the room out from under the player. There are at most two. */
+  ambience: { ...base, volume: 0.3, priority: 6, critical: true, maxVoices: 2, send: 0, exempt: false, fadeIn: 2.5, fadeOut: 2.5 },
 } as const satisfies Record<string, MixProfile>;
 
 export type MixClass = keyof typeof MIX;

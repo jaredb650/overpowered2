@@ -10,9 +10,11 @@
 //   BS_SPOT=name       A view preset from the map spec. Comma list for several.
 //   BS_TAG=before      Prefix of the sheets.
 //   BS_DIST=3,15       Meters from the eye to the target.
-//   BS_EFFECTS=a,b     Rows: hit, jet, sever, head, gib, mist, lens.
+//   BS_EFFECTS=a,b     Rows: hit, jet, sever, head, gib, mist, lens, wall, floor. Wall and floor turn the
+//                      camera on a nearby surface and fire at it head on and at a glancing angle.
 //   BS_FRAMES=1,3,..   Columns.
 //   BS_DIR=path        Where the sheets go.
+//   BS_CROP=px         Width of the crop out of the frame. Default 1280 near, 520 far.
 //   BS_PREVIEW=1       One frame per spot with its mean luminance, to find dark and bright places.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -24,11 +26,12 @@ const EFFECTS = (process.env.BS_EFFECTS ?? 'hit,jet,sever,head,gib').split(',');
 const FRAMES = (process.env.BS_FRAMES ?? '1,3,6,12,24,60,120').split(',').map(Number);
 const PREVIEW = process.env.BS_PREVIEW === '1';
 const DIR = process.env.BS_DIR ?? 'tools/out/blood';
+const CROP = Number(process.env.BS_CROP ?? 0);
 const CELL_W = 400;
 const CELL_H = 250;
 
 /** Runs in the page. */
-function install({ cellW, cellH }) {
+function install({ cellW, cellH, crop }) {
   const { ctx, game } = window.__op2;
   const glCanvas = ctx.render.renderer.domElement;
   ctx.waves.update = () => {};
@@ -96,6 +99,47 @@ function install({ cellW, cellH }) {
     jet: e => ctx.fx.bloodJet(e.center.clone(), new V(0.75, 0.45, 0.2).normalize(), 1),
     mist: e => ctx.fx.bloodMist(e.center.clone(), 1),
     lens: () => ctx.fx.lensBlood(1),
+    wall: e => {
+      const { point, normal } = surface;
+      const up = new V(0, 1, 0);
+      const side = new V().crossVectors(normal, up).normalize();
+      const from = point.clone().addScaledVector(normal, 1.1);
+      ctx.fx.bloodJet(from.clone().addScaledVector(side, -0.7), normal.clone().negate().addScaledVector(up, 0.12).normalize(), 1);
+      ctx.fx.bloodJet(from.clone().addScaledVector(side, 1.3), normal.clone().multiplyScalar(-0.5).addScaledVector(side, -1).addScaledVector(up, 0.25).normalize(), 1.4);
+      ctx.fx.bloodHit(from.clone().addScaledVector(up, 0.7), normal.clone().negate(), 1.2);
+    },
+    floor: e => {
+      const f = ctx.player.forward;
+      const flat = new V(f.x, 0, f.z).normalize();
+      const at = floorBelow(ctx.player.eye).addScaledVector(flat, 2.2);
+      at.y += 1.2;
+      ctx.fx.bloodJet(at, flat.clone().multiplyScalar(0.9).add(new V(0, -0.2, 0)).normalize(), 1);
+      ctx.fx.bloodJet(at.clone().addScaledVector(new V(flat.z, 0, -flat.x), 1), new V(flat.z, -0.9, -flat.x).normalize(), 0.6);
+      ctx.fx.bloodHit(at.clone().addScaledVector(new V(flat.z, 0, -flat.x), -1), new V(0, -1, 0), 1.2);
+    },
+  };
+
+  /** Faces the nearest wall in reach, for the wall row. */
+  const surface = { point: new V(), normal: new V() };
+  const faceWall = () => {
+    const eye = ctx.player.eye;
+    const hit = { point: new V(), normal: new V(), distance: 0, surface: 'concrete', collider: null };
+    let best = Infinity;
+    for (let i = 0; i < 24; i++) {
+      const a = (i / 24) * Math.PI * 2;
+      const d = new V(Math.sin(a), 0, Math.cos(a));
+      if (!ctx.physics.raycastInto(eye, d, 12, 1, hit)) continue;
+      if (hit.distance > 2.6 && hit.distance < best && Math.abs(hit.normal.y) < 0.2) {
+        best = hit.distance;
+        surface.point.copy(hit.point);
+        surface.normal.copy(hit.normal);
+      }
+    }
+    if (best === Infinity) return false;
+    const to = surface.point.clone().sub(eye);
+    ctx.player.yaw = Math.atan2(-to.x, -to.z);
+    ctx.player.pitch = -0.05;
+    return true;
   };
   const damageTo = (e, extra) => ({
     amount: 1, type: 'bullet', point: e.center.clone(), dir: e.center.clone().sub(ctx.player.eye).normalize(), force: 0, source: 'smg', ...extra,
@@ -130,21 +174,27 @@ function install({ cellW, cellH }) {
       g.fillRect(0, 0, sheet.width, sheet.height);
       g.font = '14px monospace';
       // Far effects are small, so the crop tightens with distance.
-      const cw = dist >= 10 ? 520 : 1280;
+      const cw = crop || (dist >= 10 ? 520 : 1280);
       const ch = cw * (cellH / cellW);
       for (let row = 0; row < effects.length; row++) {
         const name = effects[row];
         await clearAll();
         place(view, dist);
         await step(4);
+        if (name === 'wall') faceWall();
+        if (name === 'floor') ctx.player.pitch = -0.85;
+        if (name === 'wall' || name === 'floor') await step(2);
         const f = ctx.player.forward;
         const eye = ctx.player.eye;
         const at = floorBelow(new V(eye.x + f.x * dist, eye.y, eye.z + f.z * dist));
-        const e = ctx.enemies.spawn('husk', at);
-        // Stands there. A lunge would put the husk between the camera and the effect.
-        e.speedMul = 0;
-        e.attacks = [];
-        e.behaviours = [];
+        const bare = name === 'wall' || name === 'floor';
+        const e = bare ? null : ctx.enemies.spawn('husk', at);
+        if (e) {
+          // Stands there. A lunge would put the husk between the camera and the effect.
+          e.speedMul = 0;
+          e.attacks = [];
+          e.behaviours = [];
+        }
         await step(2);
         fire[name](e);
         let done = 0;
@@ -171,7 +221,7 @@ export default async function shots(page, h) {
     if (await page.evaluate(() => window.__op2?.game?.state === 'playing')) break;
     await h.sleep(1000);
   }
-  await page.evaluate(install, { cellW: CELL_W, cellH: CELL_H });
+  await page.evaluate(install, { cellW: CELL_W, cellH: CELL_H, crop: CROP });
   mkdirSync(DIR, { recursive: true });
 
   if (PREVIEW) {

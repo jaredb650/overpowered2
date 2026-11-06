@@ -57,6 +57,8 @@ node tools/shot.mjs --url "/?map=killhouse&autostart=1" --dpr 2 --w 1440 --h 900
 `src/world/verify-killhouse.ts` holds the checks. `window.__op2.verify()`, `.sweep()` and `.fuzz(seconds)` run them in the sandbox.
 `killhouse-read.mjs` stands enemies in the dark spots and `killhouse-boot.mjs` compares boot times between maps.
 
+The table comes from the headless run. The same checks in real Chrome on the final build gave identical numbers.
+
 | Check, real Rapier and the real Player at 12.5 m/s | Result |
 |---|---|
 | Colliders | 158, every one a box |
