@@ -2,7 +2,6 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { HumanoidBone as B } from '../../characters/rig';
-import { FACTIONS } from '../../contracts/data';
 import type { DamageInfo } from '../../core/contracts';
 import { Injuries } from './injuries';
 import { bursts, WoundTuning, ZONES, type ZoneId } from './rules';
@@ -219,41 +218,19 @@ describe('what bursts a body', () => {
   const d = (over: Partial<DamageInfo>): DamageInfo => ({
     amount: 100, type: 'explosive', point: v(0, 0, 0), dir: v(0, 1, 0), force: 0, source: 'test', ...over,
   });
-  const { humans, swarm } = FACTIONS;
 
-  it('the swarm bursts exactly as it always has', () => {
-    const old = (x: DamageInfo, max: number, overkill: boolean) => x.gib === true || (x.type === 'explosive' && (overkill || x.amount >= max));
-    for (const type of ['explosive', 'bullet', 'pellet', 'slash', 'fire'] as const) {
-      for (const gib of [undefined, true]) {
-        for (const bone of [undefined, 2]) {
-          for (const amount of [10, 50, 100, 400]) {
-            for (const overkill of [false, true]) {
-              const x = d({ type, gib, bone, amount });
-              expect(bursts(swarm, x, 70, overkill)).toBe(old(x, 70, overkill));
-            }
-          }
-        }
-      }
-    }
+  it('a direct rocket or cannon round bursts anyone', () => {
+    expect(bursts(d({ gib: true, bone: 2 }))).toBe(true);
+    expect(bursts(d({ bone: 2 }))).toBe(true);
+    expect(bursts(d({ type: 'bullet', gib: true, bone: 2, amount: 99999 }))).toBe(true);
   });
 
-  it('a direct rocket or cannon round bursts a man', () => {
-    expect(bursts(humans, d({ gib: true, bone: 2 }), 70, false)).toBe(true);
-    expect(bursts(humans, d({ type: 'bullet', gib: true, bone: 2, amount: 99999 }), 70, false)).toBe(true);
-  });
-
-  it('a blast beside him does not, however much it hurts', () => {
-    expect(bursts(humans, d({ amount: 100 }), 70, true)).toBe(false);
-    expect(bursts(humans, d({ gib: true, amount: 90 }), 70, false)).toBe(false);
-    expect(bursts(humans, d({ gib: true, amount: 150 }), 70, false)).toBe(false);
-  });
-
-  it('point-blank explosives do', () => {
-    expect(bursts(humans, d({ gib: true, amount: 180 }), 70, false)).toBe(true);
-    expect(bursts(humans, d({ gib: true, amount: 99999 }), 70, false)).toBe(true);
+  it('a blast beside him does not, however much it hurts: the rings say what that does', () => {
+    expect(bursts(d({ amount: 100 }))).toBe(false);
+    expect(bursts(d({ amount: 99999, reach: 0.1 }))).toBe(false);
   });
 
   it('a bullet never does', () => {
-    expect(bursts(humans, d({ type: 'bullet', amount: 500 }), 70, true)).toBe(false);
+    expect(bursts(d({ type: 'bullet', amount: 500 }))).toBe(false);
   });
 });

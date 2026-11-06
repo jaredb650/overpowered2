@@ -575,6 +575,80 @@ describe('collapse', () => {
   });
 });
 
+describe('a lethal headshot', () => {
+  const shot = (c: TestDummy): DamageInfo => ({ ...damage(at(c, B.head)), amount: 80, bone: B.head, region: 'head' });
+
+  /** A body on the real animator, doing what it was doing when the round arrived. */
+  function caught(speed: number, crouched: boolean): TestDummy {
+    const c = spawnLiving();
+    const anim = c.anim as HumanoidAnimator;
+    if (crouched) anim.setPosture('crouch');
+    for (let i = 0; i < 40; i++) {
+      anim.setLocomotion({ speed, moveX: 0, moveZ: 1, aimYaw: 0, aimPitch: 0, grounded: true });
+      anim.update(1 / 60, 0);
+    }
+    c.root.updateMatrixWorld(true);
+    return c;
+  }
+
+  it('is limp on the frame it lands, standing, running or crouched, and on the floor in about a third of a second', () => {
+    for (const [speed, crouched] of [[0, false], [3.8, false], [0, true]] as const) {
+      gore.clear();
+      const c = caught(speed, crouched);
+      gore.headshot(c, shot(c), v(0, 0, speed));
+      const rag = ragOf(c);
+      expect(gore.stats().ragdolls).toBe(1);
+      expect(gore.stats().collapses).toBe(0);
+      expect(rag.slack).toBe(true);
+      run(24);
+      // Free fall from the hips is 16 frames, and the hit-stop takes two of them.
+      expect(at(c, B.chest).y).toBeLessThan(0.6);
+      expect((rag.muscle as unknown as { tone: number }).tone).toBe(0);
+    }
+    gore.clear();
+  });
+
+  it('keeps the momentum it had, and no more', () => {
+    gore.clear();
+    const c = caught(3.8, false);
+    const from = at(c, B.hips);
+    gore.headshot(c, shot(c), v(0, 0, 3.8));
+    run(90);
+    const travelled = at(c, B.hips).z - from.z;
+    gore.clear();
+    expect(travelled).toBeGreaterThan(0.8);
+    expect(travelled).toBeLessThan(3);
+  });
+
+  it('twitches only once it has landed', () => {
+    gore.clear();
+    const c = caught(0, false);
+    gore.headshot(c, shot(c));
+    const muscle = ragOf(c).muscle as unknown as { twitch: number; burstLeft: number; onFloor: boolean };
+    expect(muscle.twitch).toBeGreaterThan(0);
+    let burstAt = -1;
+    for (let f = 0; f < 120 && burstAt < 0; f++) {
+      frame();
+      if (muscle.burstLeft > 0) burstAt = f;
+    }
+    expect(burstAt).toBeGreaterThan(18);
+    expect(at(c, B.chest).y).toBeLessThan(0.4);
+    gore.clear();
+  });
+
+  it('ends whatever a body on the floor was doing, on the spot', () => {
+    gore.clear();
+    const c = caught(0, false);
+    gore.knockdown(c, { lie: 3, rise: 1.5 });
+    run(30);
+    gore.headshot(c, shot(c));
+    const rag = ragOf(c);
+    expect(rag.slack).toBe(true);
+    expect(rag.muscle!.reflex).toBeNull();
+    gore.clear();
+  });
+});
+
 describe('twitching', () => {
   it('keeps a limb moving after the body has landed, then fades out and settles', () => {
     gore.clear();

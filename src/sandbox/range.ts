@@ -39,7 +39,7 @@ function makeDummy(uid: number, x: number, y: number, z: number, health: number)
   bones[HEAD_BONE]!.updateMatrixWorld(true);
   return {
     uid, id: 'husk', position, center, velocity: new THREE.Vector3(), yaw: 0, health, maxHealth: health, armor: 0, alive: true,
-    score: 100, isBoss: false, frozen: 0, burning: 0, hits: [],
+    score: 100, isBoss: false, frozen: 0, burning: 0, machine: false, hits: [],
     char: { rig: RIG, bones, severed: new Set(), anim: noop('anim') } as unknown as EnemyInstance['char'],
   };
 }

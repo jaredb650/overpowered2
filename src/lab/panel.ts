@@ -1,7 +1,8 @@
 /** The dev panel: plain DOM on top of the game, in the HUD's colours. It holds no state of its own. */
 import { ON_RANGE } from '../core/devflags';
-import type { EnemyId } from '../core/gameplay';
+import type { CallInId, EnemyId, PerkId, PowerupId } from '../core/gameplay';
 import { ENEMIES } from '../enemies/data';
+import { CALLIN_ORDER, CALLINS, EFFECTS, POWERUPS } from '../progression/data';
 import type { AiMode, LabSettings } from './settings';
 
 const ORDER: readonly EnemyId[] = [
@@ -10,6 +11,9 @@ const ORDER: readonly EnemyId[] = [
 ];
 const AI_MODES: readonly (readonly [AiMode, string])[] = [['off', 'AI off'], ['patrol', 'Walking'], ['on', 'AI on']];
 const SPEEDS = [1, 0.5, 0.25, 0.1, 0.05] as const;
+const PERKS = (Object.keys(EFFECTS) as (PerkId | PowerupId)[]).filter(id => !POWERUPS.includes(id as PowerupId));
+/** Where the ladder pays out, so a tester can stand on any rung. */
+const COMBOS = [5, 15, 20, 30, 50] as const;
 
 const CSS = `
 .lab-panel { position: fixed; top: 12px; right: 12px; bottom: 12px; width: 344px; box-sizing: border-box; overflow-y: auto;
@@ -21,6 +25,7 @@ const CSS = `
 .lab-status { color: var(--steel, #9db0bd); min-height: 2.8em; white-space: pre-wrap; }
 .lab-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; }
 .lab-grid button { font-size: 11px; }
+.lab-grid.wide { grid-template-columns: repeat(2, 1fr); }
 .lab-row { display: flex; gap: 3px; margin-top: 3px; }
 .lab-row > * { flex: 1; }
 .lab-panel button { padding: 5px 2px; background: #161f27; color: inherit; border: 1px solid #2b3945; font: inherit; cursor: pointer;
@@ -46,6 +51,9 @@ export interface PanelActions {
   spawn(count: number): void;
   killAll(): void;
   clearBodies(): void;
+  grant(id: PerkId | PowerupId): void;
+  grantCallIn(id: CallInId): void;
+  setCombo(combo: number): void;
   togglePause(): void;
   step(frames: number): void;
   setSpeed(speed: number): void;
@@ -76,6 +84,7 @@ export class LabPanel {
     this.el.append(el('h1', '', ON_RANGE ? 'TEST RANGE' : 'DEV PANEL'), this.status);
     this.spawnSection();
     this.playerSection();
+    this.grantSection();
     this.timeSection();
     this.bodySection();
     this.el.append(el('div', 'lab-keys', 'F1 or ` panel   P pause   . step\n[ ] slower, faster   O spawn\nK kill all   L clear bodies'));
@@ -162,6 +171,23 @@ export class LabPanel {
     this.el.append(el('h2', '', 'PLAYER'));
     this.check(this.el, 'Every weapon, infinite ammo', 'arsenal');
     this.check(this.el, 'God mode', 'god');
+  }
+
+  private grantSection(): void {
+    this.el.append(el('h2', '', 'CALL-INS TO INVENTORY'));
+    const calls = el('div', 'lab-grid wide');
+    for (const id of CALLIN_ORDER) this.button(calls, CALLINS[id].name, () => this.on.grantCallIn(id));
+    this.el.append(calls, el('h2', '', 'PERKS'));
+    const perks = el('div', 'lab-grid wide');
+    for (const id of PERKS) this.button(perks, EFFECTS[id].label, () => this.on.grant(id));
+    this.el.append(perks, el('h2', '', 'POWERUPS'));
+    const powerups = el('div', 'lab-grid wide');
+    for (const id of POWERUPS) this.button(powerups, EFFECTS[id].label, () => this.on.grant(id));
+    this.el.append(powerups, el('h2', '', 'COMBO'));
+    const combo = el('div', 'lab-row');
+    for (const value of COMBOS) this.button(combo, String(value), () => this.on.setCombo(value));
+    this.button(combo, 'Clear', () => this.on.setCombo(0));
+    this.el.append(combo);
   }
 
   private timeSection(): void {

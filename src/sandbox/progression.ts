@@ -160,7 +160,7 @@ async function headless(): Promise<void> {
   const enemy = (): EnemyInstance => ({
     uid: ++enemyUid, id: 'husk', char: { rig: { height: 1.85 } } as unknown as EnemyInstance['char'],
     position: new THREE.Vector3(10, 0, 0), velocity: new THREE.Vector3(), yaw: 0, health: 0, maxHealth: 50, armor: 0, alive: false,
-    score: 100, center: new THREE.Vector3(10, 1, 0), isBoss: false, frozen: 0, burning: 0,
+    score: 100, center: new THREE.Vector3(10, 1, 0), isBoss: false, frozen: 0, burning: 0, machine: false,
   });
 
   const kill = (over: Partial<KillEvent> & { source?: string } = {}): void => {

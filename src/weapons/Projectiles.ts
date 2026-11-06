@@ -8,7 +8,7 @@ import type { DamageResult, EnemyInstance, ProjectileSpec, ProjectileTrail, Team
 import { clamp, rand } from '../core/math';
 import type { GoreRegion } from '../characters/rig';
 import type { Combat } from './Combat';
-import { SURFACE_SOUND, TUNING } from './data';
+import { SHAPED_CHARGE, SURFACE_SOUND, TUNING } from './data';
 import { closestSegmentPoints } from './geometry';
 import { ProjectileVisuals } from './ProjectileVisuals';
 
@@ -323,6 +323,7 @@ export class Projectiles {
     o.headshotMult = p.headshotMult;
     o.gib = p.gib;
     o.killStop = p.killStop;
+    o.charge = p.explosive ? SHAPED_CHARGE[p.blastKind] : undefined;
     const res = combat.strike(enemy, point, normal, dir, bone, region, p.damage, o);
 
     if (p.kind === 'stake') {

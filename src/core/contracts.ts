@@ -46,10 +46,15 @@ export interface DamageInfo {
   bone?: number;
   /** Sword only: the plane of the cut, used for slice kills. */
   slicePlaneNormal?: THREE.Vector3;
-  /** Forces a full gib on a lethal hit (hellfire, rockets at point-blank, etc). */
+  /** Forces a full gib on a lethal hit (a rocket's own contact, a crusher, and the like). */
   gib?: boolean;
   /** Multiplier on limb sever damage. Shotguns and swords are > 1. */
   severMult?: number;
+  /** A blast's splash: how far out the body stood, as a share of the radius. Rings in src/enemies/blast.ts read it. */
+  reach?: number;
+  blastKind?: ExplosionKind;
+  /** Goes through armour plates as if they were not there. A shaped charge's direct hit. */
+  pierces?: boolean;
 }
 
 export interface RayHit {

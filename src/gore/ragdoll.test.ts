@@ -266,7 +266,7 @@ describe('deaths', () => {
     expect(gore.stats().ragdolls).toBe(1);
   });
 
-  it('a burst headshot holds the body up for a beat, then drops it by itself', () => {
+  it('a burst headshot drops the body on the same frame, with no collapse to sell it', () => {
     gore.clear();
     const c = spawn();
     const stop: number[] = [];
@@ -279,11 +279,10 @@ describe('deaths', () => {
     ctx.time.hitStop = hitStop;
     expect(stop.length).toBe(1);
     expect(c.severed.has('head')).toBe(true);
-    expect(gore.stats().ragdolls).toBe(0);
-    run(4);
-    expect(gore.stats().ragdolls).toBe(0);
-    run(40);
     expect(gore.stats().ragdolls).toBe(1);
+    expect(gore.stats().collapses).toBe(0);
+    run(40);
+    expect(gore.stats().collapses).toBe(0);
   });
 
   it('a low damage headshot pops the head off whole', () => {

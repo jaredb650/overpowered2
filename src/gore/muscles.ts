@@ -162,7 +162,7 @@ export const MuscleTuning = {
   impactFull: 4,
   impactCurve: 1.5,
   /** Per-body radial blast strength that counts as full strength. */
-  blastFull: 66,
+  blastFull: 113,
   /** How far a blast is shared out by mass, not equally between bodies, 0..1. */
   blastEvenness: 0.9,
   /** A hit on a body already lying there moves less than one that catches it on its feet. */

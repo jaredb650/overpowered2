@@ -2,19 +2,14 @@
  * Section 14.6 as data: what each part of a man does when it is hit, and how weapons differ. Nothing here touches the game, so
  * the table can be read, tuned and tested on its own. Bleed rates are shares of max health per second.
  */
-import type { FactionRules } from '../../contracts/data';
 import type { DamageInfo, DamageType } from '../../core/contracts';
 
-/** Section 14.1 for humans, sections 8 and 15 for the swarm: whether a killing hit bursts the body or leaves one. */
-export function bursts(rules: FactionRules, d: DamageInfo, maxHealth: number, overkill: boolean): boolean {
-  const explosive = d.type === 'explosive';
-  const flagged = d.gib === true;
-  // Struck by the thing itself, not just near it. Combat flags a rocket's own impact and every blast round it the same way.
-  if (flagged && (!explosive || d.bone !== undefined)) return true;
-  if (flagged && !rules.pointBlankOnly) return true;
-  if (!explosive) return false;
-  if (rules.pointBlankOnly) return flagged && d.amount >= maxHealth * rules.blastBurst;
-  return overkill || d.amount >= maxHealth * rules.blastBurst;
+/**
+ * Whether a killing hit bursts the body, for every faction. Struck by the thing itself, or by anything that says so: a blast's
+ * splash has no say here, because the rings in src/enemies/blast.ts decide what that does.
+ */
+export function bursts(d: DamageInfo): boolean {
+  return d.gib === true || (d.type === 'explosive' && d.bone !== undefined);
 }
 
 /** Section 14.1. */

@@ -86,8 +86,9 @@ export const RagTuning = {
   maxBlastSpeed: 10,
   /** A body already moving this fast takes no more from a shove, or six pellets in a row would add up to a rocket. */
   maxShoveSpeed: 5,
-  /** Metres added to a blast's height when aiming a throw. Thrown flat, feet and friction stop a body inside a metre. */
+  /** Metres added to a blast's height when aiming a throw, and the least a throw climbs per metre it goes out. Thrown flat, feet and friction stop a body inside a metre. */
   blastLift: 1.2,
+  blastClimb: 0.75,
   maxSeedSpeed: 14,
   maxSeedSpin: 18,
 };
@@ -673,7 +674,11 @@ export class Rag {
   radialImpulse(center: THREE.Vector3, radius: number, strength: number): void {
     const muscle = this.muscle;
     // One direction for the whole chain: pushed along their own lines, the limbs shoot out sideways from the joints.
-    if (muscle) _b.set(this.center.x - center.x, this.center.y - center.y + RagTuning.blastLift, this.center.z - center.z).normalize();
+    if (muscle) {
+      _b.set(this.center.x - center.x, this.center.y - center.y + RagTuning.blastLift, this.center.z - center.z);
+      _b.y = Math.max(_b.y, Math.hypot(_b.x, _b.z) * RagTuning.blastClimb);
+      _b.normalize();
+    }
     const top = RagTuning.maxBlastSpeed * Math.max(DevFlags.force, 1);
     // A chain shares one ceiling: capped part by part, the light ones would stop short and the body would tear along them.
     let total = 0;

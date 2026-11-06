@@ -5,7 +5,7 @@
  * a frame cap, sight on the director's ray budget, and animation at a distance-based LOD.
  */
 import * as THREE from 'three';
-import type { GoreRegion } from '../characters/rig';
+import { HumanoidBone as B, type GoreRegion } from '../characters/rig';
 import type { CharacterInstance, Ctx, DamageInfo, LocomotionInput, RagdollOptions } from '../core/contracts';
 import type { CollapseOptions, KnockdownOptions } from '../gore/muscles';
 import type { DamageResult, EnemyId, EnemyInstance, EnemyRayHit, EnemySystem } from '../core/gameplay';
@@ -549,7 +549,9 @@ export class EnemyManager implements EnemySystem {
       return;
     }
     if (!e.burnEmitter) {
-      e.burnEmitter = ctx.fx.attachEmitter(e.char.root, 'burning', _a.set(0, e.def.chest, 0));
+      // On the chest and not over the root, which a body thrown by a blast leaves lying 1.2 m under the flames.
+      const chest = e.char.rig.bones[B.chest]?.name === 'chest';
+      e.burnEmitter = chest ? ctx.fx.attachEmitter(e.char.bones[B.chest]!, 'burning') : ctx.fx.attachEmitter(e.char.root, 'burning', _a.set(0, e.def.chest, 0));
       ctx.audio.play('char_sizzle', { position: e.center });
     }
     if (!e.def.fireproof) {
@@ -889,6 +891,7 @@ export class EnemyManager implements EnemySystem {
       if (!e || e === keep) continue;
       const t = this.statusDamage(e, source, 'explosive', e.health * 2 + 1);
       t.force = 500;
+      t.gib = true;
       this.model.kill(e, t, 'chest', null);
     }
   }

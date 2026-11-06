@@ -242,6 +242,8 @@ export interface EnemyInstance {
   frozen: number;
   /** Seconds left of burning. */
   burning: number;
+  /** Sparks where anything else would bleed. */
+  readonly machine: boolean;
 }
 
 export interface EnemyRayHit {
@@ -330,6 +332,8 @@ export interface ProgressionSystem extends GameSystem {
   /** Forces a perk on, for tests and debug. */
   grant(id: PerkId | PowerupId): void;
   grantCallIn(id: CallInId): void;
+  /** Puts the combo here with a fresh window, for tests and debug. What it would have paid on the way up waits for the next kill. */
+  setCombo(combo: number): void;
   /** Drops a pickup in the world. */
   spawnPickup(kind: PickupKind, position: THREE.Vector3): void;
   /** Seconds until a call-in can be earned again. */

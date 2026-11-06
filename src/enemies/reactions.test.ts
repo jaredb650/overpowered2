@@ -29,7 +29,7 @@ const hit = (type: DamageType): DamageInfo => ({
 function hits(e: Enemy, n: number, region: GoreRegion, amount: number, force: number, type: DamageType = 'bullet'): Reaction {
   const profile = profileOf(e)!;
   let r: Reaction | null = null;
-  for (let i = 0; i < n; i++) r = chooseReaction(e, hit(type), profile, region, amount, force, 0);
+  for (let i = 0; i < n; i++) r = chooseReaction(e, { ...hit(type), amount }, profile, region, amount, force, 0);
   return r!;
 }
 
@@ -89,6 +89,29 @@ describe('reactions', () => {
 
   it('a head hit that does not kill always rattles them', () => {
     expect(hits(body('brute'), 1, 'head', 10, 5).level).toBe('stagger');
+  });
+
+  it('a shotgun or a heavy round to the head that it lives through puts it on the floor, cooldown or not', () => {
+    expect(hits(body('brute'), 1, 'head', 20, 18, 'pellet').level).toBe('felled');
+    expect(hits(body('husk'), 1, 'head', 20, 18, 'pellet').level).toBe('felled');
+    expect(hits(body('trooper'), 1, 'head', 120, 40).level).toBe('felled');
+    const e = body('brute');
+    e.reactAt = 1;
+    expect(hits(e, 1, 'head', 20, 18, 'pellet').level).toBe('felled');
+  });
+
+  it('a light round to the head keeps the stun, and a shotgun to the chest is not a knockdown', () => {
+    expect(hits(body('brute'), 1, 'head', 25, 5).level).toBe('stagger');
+    expect(hits(body('brute'), 1, 'chest', 20, 18, 'pellet').level).not.toBe('felled');
+  });
+
+  it('a heavy hit to the head floors a body on its way up too, but nothing floors a body with no legs', () => {
+    const rising = body('trooper');
+    rising.rising = 1;
+    expect(hits(rising, 1, 'head', 20, 18, 'pellet').level).toBe('felled');
+    const legless = body('trooper');
+    legless.maim.legs = 0;
+    expect(hits(legless, 1, 'head', 20, 18, 'pellet').level).toBe('flinch');
   });
 
   it('waits out its cooldown, so an SMG cannot hold a body in place', () => {

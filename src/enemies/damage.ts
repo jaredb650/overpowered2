@@ -16,6 +16,7 @@ import { chance, clamp, lerp, pick, rand } from '../core/math';
 import { FACTIONS, type FactionRules } from '../contracts/data';
 import { ACTIVE } from '../contracts/select';
 import { bursts, HEAVY_ROUND } from './wounds/rules';
+import { BLAST, OUTCOME_COUNT, OUTCOMES, rollBlast, tearsWaist, type BlastBody, type BlastRoll, type OutcomeRule } from './blast';
 import { ENEMIES, LIMB_SIZE, REGION_DAMAGE } from './data';
 import { say } from './attacks';
 import { finishAttack } from './brain';
@@ -64,6 +65,10 @@ const AREA_TYPES: ReadonlySet<DamageType> = new Set<DamageType>(['explosive', 'f
 
 /** Limbs that can come off, for blasts that have no struck region. */
 const BLAST_LIMBS: readonly GoreRegion[] = ['armL', 'armR', 'legL', 'legR', 'forearmL', 'forearmR', 'shinL', 'shinR'];
+const BLAST_ARMS: readonly GoreRegion[] = ['armL', 'armR', 'forearmL', 'forearmR'];
+const BLAST_LEGS: readonly GoreRegion[] = ['legL', 'legR', 'shinL', 'shinR'];
+/** How far round the body a second opening goes, for a blast that opened it up. */
+const FLESH_TURN = 1.1;
 
 const REGION_BONE: Record<GoreRegion, number> = {
   head: B.head, chest: B.chest, abdomen: B.spine,
@@ -73,7 +78,7 @@ const REGION_BONE: Record<GoreRegion, number> = {
 
 const WHOLE_LIMB: Partial<Record<GoreRegion, GoreRegion>> = { forearmL: 'armL', forearmR: 'armR', shinL: 'legL', shinR: 'legR' };
 
-/** Gore bursts the head at this much damage and only holds the body briefly; below it the head pops off whole. */
+/** Gore bursts the head at this much damage. Below it the head pops off whole, and a man keeps his. */
 const HEAD_BURST_DAMAGE = 40;
 const RESULT_RING = 16;
 /** Seconds between cries of pain. Under an SMG every hit would otherwise be one. */
@@ -86,6 +91,7 @@ export const STRAY_TANK_RADIUS = 0.8;
 const TANK_SELF_DAMAGE = 0.35;
 const _v = new THREE.Vector3();
 const _n = new THREE.Vector3();
+const UP = new THREE.Vector3(0, 1, 0);
 
 function newResult(): DamageResult {
   return { dealt: 0, killed: false, headshot: false, severed: [], blocked: false };
@@ -94,6 +100,12 @@ function newResult(): DamageResult {
 export class DamageModel {
   private readonly results: DamageResult[] = Array.from({ length: RESULT_RING }, newResult);
   private head = 0;
+  private readonly blastBody: BlastBody = { health: 0, maxHealth: 0, machine: false, fireproof: false };
+  private readonly blastRoll: BlastRoll = { outcome: 'thrown', amount: 0, fatal: false };
+  /** What has come up so far in the blast `seenIn`, so that one crowd does not all go the same way. */
+  private readonly seen = new Uint8Array(OUTCOME_COUNT);
+  private seenIn = -1;
+  private readonly seam: DamageInfo = { amount: 0, type: 'explosive', point: new THREE.Vector3(), dir: new THREE.Vector3(), force: 0, source: '' };
 
   constructor(private readonly w: AiWorld, private readonly m: EnemyManager) {}
 
@@ -142,7 +154,7 @@ export class DamageModel {
     res.headshot = region === 'head' && !area && (placed === null || (placed.zone === 'head' && !placed.glancing));
 
     // A plate does nothing about a fire, or about blood that is already leaving.
-    const round = !body || d.type === 'explosive' || !area;
+    const round = (!body || d.type === 'explosive' || !area) && !d.pierces;
     const plate = !round ? null : area ? this.blastPlate(e) : this.plateFor(e, region, d);
     if (plate) {
       // Section 14.6: a plate stops small arms outright, the round that breaks it included. Only a heavy round carries on through.
@@ -167,22 +179,89 @@ export class DamageModel {
     if (e.frozen > 0 && amount >= 4) amount *= 3;
     if (e.boss) amount = e.boss.filter(e, this.w, amount, d, region);
 
+    const blast = this.rolled(e, d, amount);
+    if (blast) amount = blast.amount;
+
     e.health -= amount;
     // Before the death is picked, so a killing shot leaves its mark on the body too.
-    if (this.w.ctx.gore.wound(e.char, d, amount / e.maxHealth)) this.updateMaim(e);
+    if (this.w.ctx.gore.wound(e.char, d, blast?.outcome === 'flesh' ? 1 : amount / e.maxHealth)) this.updateMaim(e);
     res.dealt = amount;
 
     const headPool = region === 'head' ? this.spendPool(e, 'head', amount) : Infinity;
     const spent = e.health <= 0 || headPool <= 0;
-    if (body ? wounds!.take(e, body, placed, d, amount, spent) : spent) return this.lethal(e, d, res, region, true);
+    if (blast?.fatal || (body ? wounds!.take(e, body, placed, d, amount, spent) : spent)) return this.lethal(e, d, res, region, true, blast);
 
-    if (area) this.blastLimb(e, d, res);
+    if (blast) this.blastWound(e, d, res, blast);
+    else if (area) this.blastLimb(e, d, res);
     else this.spendLimb(e, region, d, res);
 
     if (!e.alive) return res;
-    this.react(e, d, region, amount, res);
+    this.react(e, d, region, amount, res, blast !== null && !OUTCOMES[blast.outcome].stands);
     this.m.emitHit(e, d, res);
     return res;
+  }
+
+  /** The ring this body stood in has its say, or null for anything but a blast's splash. Bosses only take the damage. */
+  private rolled(e: Enemy, d: DamageInfo, amount: number): BlastRoll | null {
+    if (d.reach === undefined || d.blastKind === undefined || e.isBoss) return null;
+    if (d.explosionId !== this.seenIn) {
+      this.seenIn = d.explosionId ?? -1;
+      this.seen.fill(0);
+    }
+    const body = this.blastBody;
+    body.health = e.health;
+    body.maxHealth = e.maxHealth;
+    body.machine = e.def.machine === true;
+    body.fireproof = e.def.fireproof === true;
+    return rollBlast(body, d.blastKind, d.reach, amount, this.seen, this.blastRoll);
+  }
+
+  /** What the ring did to a body that lives. */
+  private blastWound(e: Enemy, d: DamageInfo, res: DamageResult, blast: BlastRoll): void {
+    const rule = OUTCOMES[blast.outcome];
+    this.tear(e, d, res, rule);
+    if (!e.alive) return;
+    if (blast.outcome === 'flesh') this.open(e, d);
+    if (rule.fire !== undefined) this.ignite(e, rule.fire);
+    if (rule.stands) {
+      e.char.anim.daze?.(BLAST.dazed);
+      this.stagger(e, BLAST.dazed);
+    }
+  }
+
+  /** Takes the limbs a roll asked for, skipping any already gone. */
+  private tear(e: Enemy, d: DamageInfo, res: DamageResult | null, rule: OutcomeRule): void {
+    if (!DevFlags.gibbing) return;
+    if (rule.arms) this.takeLimbs(e, d, res, BLAST_ARMS, rule.arms);
+    if (rule.legs) this.takeLimbs(e, d, res, BLAST_LEGS, rule.legs);
+    if (rule.any) this.takeLimbs(e, d, res, BLAST_LIMBS, rule.any);
+  }
+
+  private takeLimbs(e: Enemy, d: DamageInfo, res: DamageResult | null, from: readonly GoreRegion[], count: number): void {
+    const start = Math.floor(rand(0, from.length));
+    for (let i = 0; i < from.length && count > 0; i++) {
+      const region = from[(start + i) % from.length]!;
+      if (!e.limbHp.has(region) || e.char.severed.has(region)) continue;
+      this.sever(e, region, d, res);
+      if (e.char.severed.has(region)) count--;
+    }
+  }
+
+  /** A second opening round the side of the first, so that it reads as a body laid open and not as one big hole. */
+  private open(e: Enemy, d: DamageInfo): void {
+    const seam = this.seam;
+    seam.amount = d.amount;
+    seam.source = d.source;
+    seam.point.copy(d.point);
+    seam.dir.copy(d.dir).applyAxisAngle(UP, chance(0.5) ? FLESH_TURN : -FLESH_TURN);
+    this.w.ctx.gore.wound(e.char, seam, 1);
+    e.blood = 1;
+    e.char.setBloodiness(1);
+  }
+
+  private ignite(e: Enemy, seconds: number): void {
+    e.burning = Math.max(e.burning, seconds);
+    this.m.outpost?.wounds.caughtFire(e);
   }
 
   private blocked(e: Enemy, d: DamageInfo, res: DamageResult): DamageResult {
@@ -204,7 +283,7 @@ export class DamageModel {
     if (this.spendPool(e, region, hit) <= 0) this.sever(e, region, d, res);
   }
 
-  /** A blast that does not kill still takes something with it, so survivors of a rocket come out maimed. */
+  /** An explosive hit with no ring to answer to, a rocket's own contact or a boss in a blast, works the limb pools. */
   private blastLimb(e: Enemy, d: DamageInfo, res: DamageResult): void {
     const rules = this.rules(e);
     if (d.type !== 'explosive' || e.def.machine || !chance(rules.blastLimb)) return;
@@ -358,22 +437,21 @@ export class DamageModel {
     });
   }
 
-  private lethal(e: Enemy, d: DamageInfo, res: DamageResult, region: GoreRegion, severNow: boolean): DamageResult {
+  private lethal(e: Enemy, d: DamageInfo, res: DamageResult, region: GoreRegion, severNow: boolean, blast: BlastRoll | null = null): DamageResult {
     res.killed = true;
     if (severNow && region !== 'head' && e.limbHp.has(region)) {
       const left = (e.limbHp.get(region) ?? 0) - d.amount * (d.severMult ?? 1) * SEVER_FACTOR[d.type] * this.rules(e).limbWear;
       if (left <= 0) this.sever(e, region, d, res);
     }
-    this.kill(e, d, region, res);
+    this.kill(e, d, region, res, blast);
     this.m.emitHit(e, d, res);
     return res;
   }
 
   /** The single kill flow. Picks one death, tells everyone once. */
-  kill(e: Enemy, d: DamageInfo, region: GoreRegion, res: DamageResult | null): void {
+  kill(e: Enemy, d: DamageInfo, region: GoreRegion, res: DamageResult | null, blast: BlastRoll | null = null): void {
     if (!e.alive) return;
     const { ctx, player } = this.w;
-    const overkill = -e.health > e.maxHealth;
     e.alive = false;
     e.health = 0;
     this.m.detach(e);
@@ -386,7 +464,7 @@ export class DamageModel {
     const slowly = wounds?.isBleedOut(d) ?? false;
     const headshot = region === 'head' && !AREA_TYPES.has(d.type);
     const shatter = e.frozen > 0;
-    const blownUp = e.tankBlown || bursts(this.rules(e), d, e.maxHealth, overkill);
+    const blownUp = e.tankBlown || blast?.outcome === 'gib' || bursts(d);
     let gibbed = false;
     let sliced = false;
 
@@ -405,22 +483,21 @@ export class DamageModel {
       sliced = true;
       ctx.gore.slice(e.char, d.point, d.slicePlaneNormal, d);
     } else if (headshot && !e.def.machine && (e.rising > 0 || body?.floored)) {
-      // Half up, or lying down, there is nothing for it to stand there on.
-      this.ragdoll(e, d, force, body ? SUDDEN_TWITCH : undefined);
+      // Half up, or lying down, there is no head to burst from standing height.
+      this.ragdoll(e, d, force, body ? SUDDEN_TWITCH : undefined, true);
       if (!body || d.amount >= HEAD_BURST_DAMAGE) ctx.gore.sever(e.char, 'head', d);
     } else if (headshot && body && d.amount < HEAD_BURST_DAMAGE) {
       // A light round kills a man and leaves him his head. Popping it off every time is what "like clay" meant.
-      this.ragdoll(e, d, force, SUDDEN_TWITCH);
+      this.ragdoll(e, d, force, SUDDEN_TWITCH, true);
     } else if (headshot && !e.def.machine) {
-      // Gore owns the body from here and drops it after its hold. Until then the feet keep carrying it forward.
       ctx.gore.headshot(e.char, d, e.velocity);
       if (d.amount < HEAD_BURST_DAMAGE) ctx.audio.play('vox_choke', { position: e.center, pitch: e.def.voice.pitch });
-      if (e.maim.legs > 0 && !e.downed) {
-        e.dyingKind = 'stumble';
-        e.dying = d.amount >= HEAD_BURST_DAMAGE ? 0.28 : 1.05;
-      }
+    } else if (blast?.outcome === 'head' && DevFlags.gibbing) {
+      ctx.gore.headshot(e.char, d, e.velocity);
     } else {
       if (blownUp && !DevFlags.explosiveDeaths) this.blastMaim(e, d);
+      if (blast) this.blastDeath(e, d, res, blast);
+      else if (DevFlags.gibbing && !e.def.machine && tearsWaist(d, region, force)) this.sever(e, 'abdomen', d, res);
       const twitch = body ? (slowly ? SLOW_TWITCH : SUDDEN_TWITCH) : undefined;
       // Section 14.1: what kills a man all at once drops him where he is. Only a clock gives him time to go.
       if (!blownUp && this.diesOnFeet(e, d, force) && (!body || slowly)) this.collapse(e, d, region, force, slowly, twitch);
@@ -447,6 +524,15 @@ export class DamageModel {
     ctx.events.emit('enemy:killed', ev);
     if (e.dyingKind === 'none') this.m.retire(e);
     else this.m.holdForDeath(e);
+  }
+
+  /** What the ring left of a body it killed. The ragdoll takes whatever comes after this. */
+  private blastDeath(e: Enemy, d: DamageInfo, res: DamageResult | null, blast: BlastRoll): void {
+    const rule = OUTCOMES[blast.outcome];
+    if (blast.outcome === 'waist' && DevFlags.gibbing) this.sever(e, 'abdomen', d, res);
+    this.tear(e, d, res, rule);
+    if (blast.outcome === 'flesh') this.open(e, d);
+    if (rule.fire !== undefined) (e.char as unknown as { setBurn(amount: number): void }).setBurn(1);
   }
 
   /** With explosive deaths off, what would have been a gib leaves a thrown body short of a limb or two. */
@@ -482,7 +568,7 @@ export class DamageModel {
     this.w.ctx.gore.collapse(e.char, o);
   }
 
-  ragdoll(e: Enemy, d: DamageInfo | null, force: number, twitch?: number): void {
+  ragdoll(e: Enemy, d: DamageInfo | null, force: number, twitch?: number, limp = false): void {
     const { ctx } = this.w;
     if (d) {
       const bone = d.bone ?? REGION_BONE[d.region ?? 'chest'] ?? 0;
@@ -496,11 +582,12 @@ export class DamageModel {
     }
     this.m.ragdollOptions.velocity!.copy(e.velocity);
     this.m.ragdollOptions.twitch = twitch;
+    this.m.ragdollOptions.limp = limp;
     ctx.gore.ragdoll(e.char, this.m.ragdollOptions);
   }
 
   /** Non-lethal hits always answer, on the same frame. This is the first game's biggest missing feel. */
-  private react(e: Enemy, d: DamageInfo, region: GoreRegion, amount: number, res: DamageResult): void {
+  private react(e: Enemy, d: DamageInfo, region: GoreRegion, amount: number, res: DamageResult, throws = false): void {
     const char = e.char;
     const frac = clamp(amount / e.maxHealth, 0, 1);
     const bone = d.bone ?? (e.def.machine ? DroneBone.body : REGION_BONE[region] ?? 0);
@@ -508,7 +595,7 @@ export class DamageModel {
 
     char.anim.flinch(bone, d.dir, clamp(0.35 + frac * 3, 0.35, 1.6));
     char.hitFlash(armoured ? 0.35 : clamp(0.55 + frac * 2, 0.55, 1));
-    if (!armoured && d.type !== 'fire' && d.type !== 'shock') {
+    if (!armoured && d.type !== 'fire' && d.type !== 'shock' && !e.def.machine) {
       e.blood = Math.min(1, e.blood + 0.08 + frac * 1.1);
       char.setBloodiness(e.blood);
     }
@@ -528,7 +615,7 @@ export class DamageModel {
 
     const profile = profileOf(e);
     if (profile) {
-      this.respond(e, d, profile, region, amount, pushForce, bone, armoured);
+      this.respond(e, d, profile, region, amount, pushForce, bone, armoured, throws);
       return;
     }
     e.poise += amount;
@@ -545,10 +632,10 @@ export class DamageModel {
   }
 
   /** The rule in reactions.ts, carried out. */
-  private respond(e: Enemy, d: DamageInfo, profile: ReactionProfile, region: GoreRegion, amount: number, force: number, bone: number, armoured: boolean): void {
+  private respond(e: Enemy, d: DamageInfo, profile: ReactionProfile, region: GoreRegion, amount: number, force: number, bone: number, armoured: boolean, throws: boolean): void {
     const anim = e.char.anim;
     const r = chooseReaction(e, d, profile, region, amount, force, this.w.now);
-    if (this.m.outpost?.wounds.mustFall(e)) mustFall(r, d);
+    if (this.m.outpost?.wounds.mustFall(e) || (throws && e.maim.legs > 0)) mustFall(r, d);
     // Ice cannot stumble, and a body still arriving is on somebody else's clock.
     if (e.frozen > 0 || e.entrance !== 'none') return;
     const felt = profile.pain > 0;
@@ -563,8 +650,9 @@ export class DamageModel {
     }
     if (felt && !armoured) say(e, this.w, e.def.voice.pain, 0.7);
     e.reactAt = this.w.now + profile.cooldown;
-    if (r.level === 'thrown') {
-      this.knockDown(e, d.dir, r.strength, bone, profile, true);
+    if (r.level === 'thrown' || r.level === 'felled') {
+      // Past gore's budget. Staggering is what it would have done with one more foot under it.
+      if (!this.knockDown(e, d.dir, r.strength, bone, profile, r.level === 'thrown')) this.stagger(e, STAGGER_MAX, d.dir, r.strength, bone, profile.reel);
       e.shock = 0;
       return;
     }
@@ -615,7 +703,8 @@ export class DamageModel {
     this.knockDown(e, _v.normalize(), e.fallStrength, e.fallBone, profile, false);
   }
 
-  private knockDown(e: Enemy, dir: THREE.Vector3, strength: number, bone: number, profile: ReactionProfile, thrown: boolean): void {
+  /** False if gore has no room for another body on the floor. */
+  private knockDown(e: Enemy, dir: THREE.Vector3, strength: number, bone: number, profile: ReactionProfile, thrown: boolean): boolean {
     const { ctx } = this.w;
     const m = this.m;
     const o = m.knockOptions;
@@ -640,10 +729,8 @@ export class DamageModel {
     wound.point.setFromMatrixPosition(e.char.bones[bone]!.matrixWorld);
     o.wound = wound;
     if (!ctx.gore.knockdown(e.char, o)) {
-      // Past the budget. Staggering is what it would have done with one more foot under it.
       e.fallIn = 0;
-      if (thrown) this.stagger(e, STAGGER_MAX, dir, strength, bone, profile.reel);
-      return;
+      return false;
     }
     if (e.attack) finishAttack(e, this.w, true);
     if (e.pinned) dropOff(e);
@@ -655,6 +742,7 @@ export class DamageModel {
     e.reel.set(0, 0, 0);
     e.push.set(0, 0, 0);
     e.velocity.set(0, 0, 0);
+    return true;
   }
 
   /** It keeps taking hits on the floor, and every one lands on the body as it lies. */

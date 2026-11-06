@@ -3,14 +3,14 @@
  * numbers, feedback and kill credit have one code path instead of the first game's seven.
  */
 import * as THREE from 'three';
-import { CG, type CorpseHit, type Ctx, type DamageInfo, type DamageType, type ExplosionOptions, type SurfaceKind } from '../core/contracts';
+import { CG, type CorpseHit, type Ctx, type DamageInfo, type DamageType, type ExplosionKind, type ExplosionOptions, type SurfaceKind } from '../core/contracts';
 import type {
   CombatSystem, DamageResult, EnemyInstance, ExplosionSpec, ProjectileSpec, ShotResult, ShotSpec,
 } from '../core/gameplay';
 import type { GoreRegion } from '../characters/rig';
 import type { MuzzleKind } from '../core/contracts';
 import { clamp, rand } from '../core/math';
-import { EXPLOSIONS, HIT_STOP, SURFACE_SOUND, SWORD, TUNING, type SoundLayer } from './data';
+import { EXPLOSIONS, HIT_STOP, SHAPED_CHARGE, SURFACE_SOUND, SWORD, TUNING, type ShapedCharge, type SoundLayer } from './data';
 import { Feel } from './Feel';
 import { Flames } from './Flames';
 import { closestOnSegment, closestSegmentPoints } from './geometry';
@@ -80,6 +80,11 @@ export interface StrikeOptions {
   killStop: number;
   /** Per-hit sound, marker and blood stay off. The caller summarises instead. */
   quiet: boolean;
+  /** A blast's splash: how far out the body stood, as a share of the radius, and what went off. */
+  reach: number | undefined;
+  blastKind: ExplosionKind | undefined;
+  /** A shaped charge landing on the body itself. */
+  charge: ShapedCharge | undefined;
 }
 
 interface QueuedBlast {
@@ -120,7 +125,7 @@ export class Combat implements CombatSystem {
 
   private readonly opts: StrikeOptions = {
     type: 'bullet', source: '', force: 0, severMult: 1, headshotMult: 2, gib: false,
-    slicePlaneNormal: undefined, explosionId: undefined, killStop: 0, quiet: false,
+    slicePlaneNormal: undefined, explosionId: undefined, killStop: 0, quiet: false, reach: undefined, blastKind: undefined, charge: undefined,
   };
 
   // Scratch. Each is used within one function and never held across a call that could re-enter it.
@@ -207,6 +212,9 @@ export class Combat implements CombatSystem {
     d.severMult = undefined;
     d.explosionId = undefined;
     d.headshotMult = undefined;
+    d.reach = undefined;
+    d.blastKind = undefined;
+    d.pierces = undefined;
     return d;
   }
 
@@ -245,6 +253,9 @@ export class Combat implements CombatSystem {
     o.explosionId = undefined;
     o.killStop = 0;
     o.quiet = false;
+    o.reach = undefined;
+    o.blastKind = undefined;
+    o.charge = undefined;
     return o;
   }
 
@@ -269,6 +280,12 @@ export class Combat implements CombatSystem {
     d.gib = o.gib || undefined;
     d.slicePlaneNormal = o.slicePlaneNormal;
     d.explosionId = o.explosionId;
+    d.reach = o.reach;
+    d.blastKind = o.blastKind;
+    if (o.charge && enemy.armor > 0) {
+      d.amount *= o.charge.direct;
+      d.pierces = true;
+    }
     const killStop = o.killStop;
     const quiet = o.quiet;
     const result = c.enemies.applyDamage(enemy, d);
@@ -870,6 +887,8 @@ export class Combat implements CombatSystem {
       const falloff = 1 - (dist / radius) * (1 - def.edgeDamage);
       let amount = spec.instakill ? 99999 : spec.damage * falloff;
       if (spec.team === 'enemy') amount *= def.friendlyFire;
+      const charge = SHAPED_CHARGE[spec.kind];
+      if (charge && e.armor > 0) amount = Math.min(amount, charge.most) * charge.splash;
 
       dir.subVectors(e.center, center);
       dir.y += 0.6;
@@ -877,13 +896,15 @@ export class Combat implements CombatSystem {
       const o = this.strikeOptions('explosive', spec.source);
       o.force = TUNING.blastForce * def.impulse * radius * falloff;
       o.severMult = spec.team === 'player' && c.weapons.modifiers.alwaysSever ? 1000 : 1.5;
-      o.gib = dist < radius * def.gibZone;
+      o.reach = dist / radius;
+      o.blastKind = spec.kind;
       o.explosionId = id;
       o.quiet = true;
       const res = this.strike(e, e.center, UP, dir, undefined, undefined, amount, o);
       tally.count++;
       if (res.blocked) continue;
-      c.fx.bloodHit(e.center, dir, 0.8);
+      if (e.machine) c.fx.sparks(e.center, dir, 24);
+      else c.fx.bloodHit(e.center, dir, 0.8);
       if (res.killed) {
         tally.kills++;
         if (Math.random() < 0.5) this.play('enemy_explode', e.center);

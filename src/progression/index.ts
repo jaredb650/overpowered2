@@ -150,6 +150,11 @@ class Progression implements ProgressionSystem {
     this.callInsManager.grant(id);
   }
 
+  setCombo(combo: number): void {
+    this.comboCounter.set(combo);
+    this.ctx.events.emit('combo:changed', { combo });
+  }
+
   spawnPickup(kind: PickupKind, position: THREE.Vector3): void {
     if (kind === 'weaponCache') this.pods.call(position);
     else this.pickupsManager.drop(kind, position);

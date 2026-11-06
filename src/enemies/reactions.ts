@@ -12,6 +12,7 @@ import type { DamageInfo } from '../core/contracts';
 import type { EnemyId } from '../core/gameplay';
 import { chance, clamp, smoothstep } from '../core/math';
 import type { Enemy } from './Enemy';
+import { HEAVY_ROUND } from './wounds/rules';
 
 export interface ReactionProfile {
   /** Shock at which it staggers, and at which a stagger is a fall. Chance rises either side of these. */
@@ -69,7 +70,8 @@ const TRIP_SPEED = 2.2;
 /** Share of a leg's pool gone before it starts to give way under a body that is only standing on it. */
 const LEG_FAILS_FROM = 0.45;
 
-export type ReactionLevel = 'flinch' | 'stagger' | 'fall' | 'thrown';
+/** `felled` goes over on this frame with no steps to catch itself, where `fall` staggers first. */
+export type ReactionLevel = 'flinch' | 'stagger' | 'fall' | 'felled' | 'thrown';
 
 export interface Reaction {
   level: ReactionLevel;
@@ -81,10 +83,18 @@ export interface Reaction {
 
 const _out: Reaction = { level: 'flinch', strength: 0, tripped: false };
 
+/** How hard a head hit that puts a body down plays, at the least. */
+const HEAD_KNOCK = 0.7;
+
 /** A wound decided it: he is going over, cooldown or no cooldown, and a blast throws him there. */
 export function mustFall(r: Reaction, d: DamageInfo): void {
-  if (r.level !== 'thrown') r.level = d.type === 'explosive' ? 'thrown' : 'fall';
+  if (r.level !== 'thrown' && r.level !== 'felled') r.level = d.type === 'explosive' ? 'thrown' : 'fall';
   r.strength = Math.max(r.strength, 0.6);
+}
+
+/** A shotgun or a heavy round to the head that it lives through. A helmet stops the metal and none of the rest. */
+function knocksOut(d: DamageInfo, region: GoreRegion): boolean {
+  return region === 'head' && (d.type === 'pellet' || (d.amount >= HEAVY_ROUND && d.type !== 'explosive'));
 }
 
 function isLeg(region: GoreRegion): boolean {
@@ -112,7 +122,13 @@ export function chooseReaction(e: Enemy, d: DamageInfo, profile: ReactionProfile
   out.strength = clamp(e.shock / profile.fall);
   out.tripped = false;
   // A body with no legs has nothing left to fall off. It flinches and keeps crawling.
-  if (e.maim.legs === 0 || e.rising > 0 && !area) return out;
+  if (e.maim.legs === 0) return out;
+  if (knocksOut(d, region)) {
+    out.level = 'felled';
+    out.strength = Math.max(out.strength, HEAD_KNOCK);
+    return out;
+  }
+  if (e.rising > 0 && !area) return out;
   if (area && e.shock >= profile.thrown) {
     out.level = 'thrown';
     return out;

@@ -167,7 +167,7 @@ export const STARTING_WEAPONS: readonly WeaponId[] = ['smg', 'shotgun', 'rocket'
 /** Per-weapon behaviour that does not fit every row of the table. */
 export const TUNING = {
   /** Newton-seconds on the struck bone per point of a blast's radial strength. Most of the throw is the radial itself. */
-  blastForce: 1.5,
+  blastForce: 0.875,
   /** A press stays live this long, so semi-auto weapons fire on the first legal frame. */
   pressBuffer: 0.14,
   /** Delay before an empty magazine starts reloading by itself. */
@@ -327,8 +327,6 @@ export interface ExplosionDef {
   impulse: number;
   /** Damage dealt to enemies by an enemy-team blast of this kind. */
   friendlyFire: number;
-  /** Fraction of the radius in which a lethal hit gibs instead of ragdolling. */
-  gibZone: number;
   /** Skips line-of-sight checks. */
   ignoresCover: boolean;
   /** Near-player post effects. */
@@ -338,43 +336,58 @@ export interface ExplosionDef {
 
 const BLAST: ExplosionDef = {
   shake: 0.06, shakeRange: 34, sounds: [{ id: 'rocket_explosion', pitchJitter: 0.05 }],
-  edgeDamage: 0.5, selfDamage: 0.5, selfCap: 60, playerPush: 12, impulse: 7, friendlyFire: 0.5, gibZone: 0.45, ignoresCover: false, flash: 0.16, fovPunch: 2.4,
+  edgeDamage: 0.5, selfDamage: 0.5, selfCap: 60, playerPush: 12, impulse: 12, friendlyFire: 0.5, ignoresCover: false, flash: 0.16, fovPunch: 2.4,
+};
+
+/** How a shaped charge treats armour. Only a body with a plate left is armoured, and anything else takes the blast as written. */
+export interface ShapedCharge {
+  /** Multiplies a direct hit on armour, which also goes through the plates as if they were not there. */
+  direct: number;
+  /** Multiplies its splash on armour. A jet punches through what it strikes, and has little left for what stands beside it. */
+  splash: number;
+  /** Most its splash can count for on armour before that, so the autocannon's instakill is a number there. */
+  most: number;
+}
+
+export const SHAPED_CHARGE: Partial<Record<ExplosionKind, ShapedCharge>> = {
+  rocket: { direct: 2, splash: 0.4, most: 300 },
+  shell: { direct: 2, splash: 0.35, most: 300 },
 };
 
 export const EXPLOSIONS: Record<ExplosionKind, ExplosionDef> = {
   rocket: { ...BLAST, selfDamage: TUNING.rocket.selfDamage, selfCap: 16, playerPush: TUNING.rocket.playerPush },
   grenade: {
-    ...BLAST, shake: 0.07, selfDamage: 0.45, selfCap: 70, playerPush: 18, gibZone: 0.4,
+    ...BLAST, shake: 0.07, selfDamage: 0.45, selfCap: 70, playerPush: 18,
     sounds: [{ id: 'grenade_explode', pitchJitter: 0.05 }],
   },
   hellfire: {
-    ...BLAST, shake: 0.24, shakeRange: 70, gibZone: 0.8, selfDamage: 0.14, selfCap: 20, playerPush: 34, impulse: 9,
+    ...BLAST, shake: 0.24, shakeRange: 70, selfDamage: 0.14, selfCap: 20, playerPush: 34, impulse: 15,
     sounds: [{ id: 'hellfire_rocket_blast' }], flash: 0.4, fovPunch: 7,
   },
   hellfireBullet: {
-    ...BLAST, shake: 0.012, shakeRange: 16, gibZone: 0.3, selfDamage: 0, selfCap: 0, playerPush: 0, impulse: 5,
+    ...BLAST, shake: 0.012, shakeRange: 16, selfDamage: 0, selfCap: 0, playerPush: 0, impulse: 5,
     sounds: [{ id: 'hellfirebullet_explode', volume: 0.6, pitchJitter: 0.08 }], flash: 0, fovPunch: 0,
   },
   shell: {
-    ...BLAST, shake: 0.03, shakeRange: 30, selfDamage: 0, selfCap: 0, playerPush: 8, impulse: 5, gibZone: 0.5,
+    ...BLAST, shake: 0.03, shakeRange: 30, selfDamage: 0, selfCap: 0, playerPush: 8, impulse: 9,
     sounds: [{ id: '30mmshell_explode', pitchJitter: 0.04 }], flash: 0.1, fovPunch: 1.2,
   },
   plasma: {
-    ...BLAST, shake: 0.03, shakeRange: 22, selfDamage: 0.3, selfCap: 30, playerPush: 10, impulse: 5,
+    ...BLAST, shake: 0.03, shakeRange: 22, selfDamage: 0.3, selfCap: 30, playerPush: 10, impulse: 9,
     sounds: [{ id: 'explosion_small', pitch: 1.2 }], flash: 0.08, fovPunch: 1,
   },
   enemy: { ...BLAST, selfDamage: 1, selfCap: 999, playerPush: 16, flash: 0.2 },
   barrel: {
-    ...BLAST, shake: 0.09, shakeRange: 40, selfDamage: 0.6, selfCap: 80, playerPush: 22, gibZone: 0.5,
+    ...BLAST, shake: 0.09, shakeRange: 40, selfDamage: 0.6, selfCap: 80, playerPush: 22,
     sounds: [{ id: 'explosion_barrel', pitchJitter: 0.06 }, { id: 'explosion_debris' }],
   },
   finisher: {
-    ...BLAST, shake: 0.15, shakeRange: 30, selfDamage: 0, selfCap: 0, playerPush: 0, gibZone: 0.55, impulse: 8,
+    ...BLAST, shake: 0.15, shakeRange: 30, selfDamage: 0, selfCap: 0, playerPush: 0, impulse: 14,
     sounds: [{ id: 'rocket_explosion' }], flash: 0, fovPunch: 3.5,
   },
   nuke: {
-    ...BLAST, shake: 0.5, shakeRange: 400, edgeDamage: 1, selfDamage: 0, selfCap: 0, playerPush: 0, gibZone: 1,
-    impulse: 12, sounds: [{ id: 'nuke_blast' }], ignoresCover: true, flash: 1, fovPunch: 12,
+    ...BLAST, shake: 0.5, shakeRange: 400, edgeDamage: 1, selfDamage: 0, selfCap: 0, playerPush: 0,
+    impulse: 20, sounds: [{ id: 'nuke_blast' }], ignoresCover: true, flash: 1, fovPunch: 12,
   },
 };
 

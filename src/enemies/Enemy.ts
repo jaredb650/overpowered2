@@ -36,6 +36,10 @@ export interface MaimState {
 export type EntranceKind = 'none' | 'drop' | 'gate' | 'fly' | 'boss';
 
 export class Enemy implements EnemyInstance {
+  get machine(): boolean {
+    return this.def.machine === true;
+  }
+
   uid = 0;
   id: EnemyId = 'husk';
   def!: EnemyDef;

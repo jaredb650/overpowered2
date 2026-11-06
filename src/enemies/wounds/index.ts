@@ -218,16 +218,11 @@ export class WoundSystem {
     const e = s.e;
     const share = amount / e.maxHealth;
     if (d.type === 'fire') {
-      b.cauterise();
-      if (b.condition === 'healthy') {
-        b.condition = 'wounded';
-        this.announce(e, 'wounded');
-      }
-      if (b.rollAt === 0) b.rollAt = this.w.now + rand(T.fireRoll[0], T.fireRoll[1]);
+      this.burn(s, b);
       return fatal;
     }
     if (d.type !== 'explosive') return fatal;
-    if (bursts(FACTIONS[ACTIVE.def.faction], d, e.maxHealth, false) || share >= T.blastKills) return true;
+    if (bursts(d) || share >= T.blastKills) return true;
     if ((b.condition === 'mortal' || b.floored) && (fatal || b.piledOn(share, this.w.now))) return true;
     if (share >= T.concussionFrom) this.concuss(s, b);
     if (share >= SHRAPNEL_FROM) {
@@ -236,6 +231,21 @@ export class WoundSystem {
     }
     if (fatal) this.floor(s, b);
     return false;
+  }
+
+  private burn(s: Soldier, b: Injuries): void {
+    b.cauterise();
+    if (b.condition === 'healthy') {
+      b.condition = 'wounded';
+      this.announce(s.e, 'wounded');
+    }
+    if (b.rollAt === 0) b.rollAt = this.w.now + rand(T.fireRoll[0], T.fireRoll[1]);
+  }
+
+  /** Set alight by something that was not a flame: a blast. He panics the same. */
+  caughtFire(e: Enemy): void {
+    const b = this.bodyOf(e);
+    if (b) this.burn(soldierOf(e)!, b);
   }
 
   /** Writes a wound down, with where on the bone it is. */

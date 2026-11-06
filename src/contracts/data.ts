@@ -25,20 +25,15 @@ export type WoundRules = 'limbs' | 'anatomy';
 export interface FactionRules {
   /** Bleeds, panics, crawls and dies in stages. The rest die the moment their health is gone. */
   anatomy: boolean;
-  /** Only a direct hit, or a blast inside Combat's gib zone that also reaches `blastBurst`, bursts this body. */
-  pointBlankOnly: boolean;
-  /** Share of max health a blast has to do to burst a body. */
-  blastBurst: number;
-  /** Chance a blast that does not kill takes a limb. */
+  /** Chance an explosive hit outside the rings in src/enemies/blast.ts works a limb pool: a rocket's contact, a boss in a blast. */
   blastLimb: number;
   /** Multiplies what a hit takes from a limb pool. Under 1, a limb needs sustained fire or a heavy weapon. */
   limbWear: number;
 }
 
 export const FACTIONS: Record<FactionId, FactionRules> = {
-  swarm: { anatomy: false, pointBlankOnly: false, blastBurst: 1, blastLimb: 0.65, limbWear: 1 },
-  // A grenade lands 175 on a man of 70 from a metre off, and a rocket's splash never reaches 2.5: that takes a direct hit.
-  humans: { anatomy: true, pointBlankOnly: true, blastBurst: 2.5, blastLimb: 0.22, limbWear: 0.3 },
+  swarm: { anatomy: false, blastLimb: 0.65, limbWear: 1 },
+  humans: { anatomy: true, blastLimb: 0.22, limbWear: 0.3 },
 };
 
 export interface Briefing {

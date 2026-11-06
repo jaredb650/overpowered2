@@ -450,3 +450,10 @@ The Outpost stops being an endless contract and becomes a **fixed, start-to-end 
 **Endless humans.** The Commander is always there, even though he dies in the campaign: he directs the soldiers, the player hears him, and they obey. That is what makes human survival unique.
 
 **Human AI requirements from playtest.** Scarier on their own, smarter, trickier. See docs/NEXT.md: F.E.A.R. lessons, surrender by rank and circumstance, prisoners who run, rejoin or re-arm, more human bosses. The new map is built for them: watchtowers, machine-gun lanes, ambush rooms, loops for flanking.
+
+**Owner decisions for the campaign:**
+- About 20-30 minutes long.
+- The player starts with few weapons and finds the rest. Finding the explosive weapon must matter.
+- The opening cutscene is in-engine, with camera moves and the Council's voice.
+- The Crucible stays available from the start as the swarm game.
+- Humans are the scary enemies. They must be frightening on their own, more than the swarm.
