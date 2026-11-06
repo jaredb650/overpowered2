@@ -117,21 +117,6 @@ export default async function map(params: URLSearchParams): Promise<void> {
     return result;
   };
   op2.sweep = () => sweeping(() => sweepPlayer(world, physics, sweepRig()));
-  op2.debugRun = (x: number, z: number, dx: number, dz: number, seconds: number) => sweeping(() => {
-    const rig = sweepRig();
-    input.simulate('forward', false);
-    player.reset();
-    player.teleport(new THREE.Vector3(x, 0.05, z), Math.atan2(-dx, -dz));
-    rig.step();
-    input.simulate('forward', true);
-    const log: unknown[] = [];
-    for (let i = 0; i < seconds * 60; i++) {
-      rig.step();
-      if (i % 6 === 0) log.push([+(i / 60).toFixed(2), +player.position.x.toFixed(2), +player.position.y.toFixed(2), +player.position.z.toFixed(2), +player.speed.toFixed(1), player.state]);
-    }
-    input.simulate('forward', false);
-    return log;
-  });
   op2.fuzz = (seconds = 120, seed = 7) => sweeping(() => fuzzPlayer(world, physics, sweepRig(), seconds, seed));
   /** Exercises explosives and timed hazards through the public API. */
   op2.testObjects = () => {

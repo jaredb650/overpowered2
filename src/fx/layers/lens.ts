@@ -9,7 +9,7 @@ import { rand } from '../../core/math';
  * of the view on purpose: this is a seasoning, and it must never block the crosshair. It runs on real
  * time so SLOWMO does not leave the screen dirty for four times as long.
  */
-const CAP = 48;
+const CAP = 32;
 const STRIDE = 8;
 
 const VERT = /* glsl */ `
@@ -55,8 +55,8 @@ void main() {
   vec2 slope = (t.gb - 0.5) * 2.0;
   // A wet bead: darker body, a sharp highlight where the surface tilts toward the light.
   float spec = smoothstep(0.42, 0.62, slope.y - slope.x * 0.4);
-  vec3 col = vec3(0.3, 0.0, 0.004) + vec3(0.9, 0.16, 0.16) * spec;
-  float alpha = a * 0.62;
+  vec3 col = vec3(0.075, 0.0, 0.002) + vec3(0.3, 0.06, 0.06) * spec;
+  float alpha = a * 0.72;
   gl_FragColor = vec4(col * alpha, alpha);
   ${OUTPUT_FRAG}
 }
@@ -105,10 +105,16 @@ export class LensLayer {
     viewScene.add(this.mesh);
   }
 
+  /** Draws one dead record, so the first splatter does not pay for the program. See FxCore.warm. */
+  warm(): void {
+    this.dirty = true;
+    this.high = 1;
+  }
+
   /** `amount` 0..1 sets how many drops land. */
   splatter(amount: number): void {
     // Mostly fine spray with the odd heavy drop: a thrown pattern rather than a few big blots.
-    const n = Math.round(10 + amount * 26);
+    const n = Math.round(4 + amount * 12);
     for (let i = 0; i < n; i++) {
       const slot = this.head;
       this.head = (slot + 1) % CAP;

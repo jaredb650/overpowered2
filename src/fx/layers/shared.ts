@@ -2,12 +2,14 @@ import * as THREE from 'three';
 
 /**
  * Uniform objects shared by every FX material, so one write per frame reaches them all.
- * `uTime` follows the world clock and `uTimePlayer` the player clock. Both restart from zero on every
- * clear(), so float32 birth times keep sub-millisecond precision however long the page stays open.
+ * `uTime` follows the world clock, `uTimePlayer` the player clock and `uTimeBlood` the blood clock. All
+ * restart from zero on every clear(), so float32 birth times keep sub-millisecond precision however long
+ * the page stays open.
  */
 export interface FxUniforms {
   uTime: { value: number };
   uTimePlayer: { value: number };
+  uTimeBlood: { value: number };
   uRes: { value: THREE.Vector2 };
   uPixelWorld: { value: number };
   uFogDensity: { value: number };
@@ -22,6 +24,7 @@ export function makeUniforms(): FxUniforms {
   return {
     uTime: { value: 0 },
     uTimePlayer: { value: 0 },
+    uTimeBlood: { value: 0 },
     uRes: { value: new THREE.Vector2(1280, 720) },
     uPixelWorld: { value: 0.002 },
     uFogDensity: { value: 0.0045 },

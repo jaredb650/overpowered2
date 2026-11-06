@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { CG, type Ctx, type RayHit } from '../core/contracts';
 import { buildPuffAtlas } from './gpu/atlas';
 import { ArcLayer } from './layers/arcs';
-import { ChipLayer } from './layers/chips';
+import { BloodLayer, type BloodWall } from './layers/blood';
+import { ChipLayer, type ChipShape } from './layers/chips';
 import { FlashLayer } from './layers/flashes';
 import { LensLayer } from './layers/lens';
 import { LineLayer } from './layers/lines';
@@ -14,6 +15,7 @@ import { ShockLayer } from './layers/shock';
 import { SlashLayer } from './layers/slashes';
 import { SmokeLayer } from './layers/smoke';
 import { StreakLayer } from './layers/streaks';
+import { StainQueue } from './stains';
 
 /**
  * One frame of pre-roll. The first game's particles got a physics step before their first render, so
@@ -23,6 +25,8 @@ const PRE_ROLL = 1 / 60;
 
 const NO_FLOOR = -1e6;
 const FLOOR_SEARCH = 60;
+/** Past this a jet has lost its pressure, so it can only fall short of a wall. */
+const WALL_SEARCH = 6;
 
 const EVENT_CAP = 256;
 
@@ -41,6 +45,8 @@ interface Tinkle {
 export class FxCore {
   readonly uniforms: FxUniforms;
   readonly chips: ChipLayer;
+  readonly blood: BloodLayer;
+  readonly stains = new StainQueue();
   readonly streaks: StreakLayer;
   readonly smoke: SmokeLayer;
   readonly puffs: PuffLayer;
@@ -68,7 +74,15 @@ export class FxCore {
 
   private readonly down = new THREE.Vector3(0, -1, 0);
   private readonly probe = new THREE.Vector3();
+  private readonly along = new THREE.Vector3();
   private readonly hit: RayHit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, surface: 'concrete', collider: null };
+  private readonly wall: BloodWall = { x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: 0 };
+  private warmed = false;
+  /**
+   * Blood flies through hit-stop. Everything else freezes for those two or three frames, and a spurt that
+   * starts, stops dead and starts again is exactly what a dropped frame looks like. Slow-mo still applies.
+   */
+  bloodNow = 0;
   private epoch = 0;
   private playerEpoch = 0;
   private readonly events: Tinkle[] = [];
@@ -76,12 +90,13 @@ export class FxCore {
   private booked = 0;
 
   constructor(readonly ctx: Ctx) {
-    const { scene, viewScene } = ctx.render;
+    const { scene, viewScene, materials } = ctx.render;
     for (let i = 0; i < EVENT_CAP; i++) this.events.push({ at: 0, live: false, x: 0, y: 0, z: 0, value: 0 });
     const u = (this.uniforms = makeUniforms());
     const atlas = buildPuffAtlas();
 
     this.chips = new ChipLayer(scene, u);
+    this.blood = new BloodLayer(scene, { ...u, uTime: u.uTimeBlood }, materials);
     this.streaks = new StreakLayer(scene, u);
     this.smoke = new SmokeLayer(scene, u, atlas);
     this.puffs = new PuffLayer(scene, u);
@@ -135,11 +150,64 @@ export class FxCore {
     return this.ctx.physics.raycastInto(this.probe, this.down, FLOOR_SEARCH, CG.World, this.hit) ? this.hit.point.y : NO_FLOOR;
   }
 
+  /** The surface straight ahead of a jet, if it is a wall close enough to reach. One ray per burst. */
+  wallAlong(x: number, y: number, z: number, dx: number, dy: number, dz: number): BloodWall | null {
+    this.probe.set(x, y, z);
+    this.along.set(dx, dy, dz);
+    if (!this.ctx.physics.raycastInto(this.probe, this.along, WALL_SEARCH, CG.World, this.hit)) return null;
+    const { point, normal } = this.hit;
+    if (normal.y > 0.7) return null;
+    const w = this.wall;
+    w.x = point.x;
+    w.y = point.y;
+    w.z = point.z;
+    w.nx = normal.x;
+    w.ny = normal.y;
+    w.nz = normal.z;
+    return w;
+  }
+
+  /**
+   * First use of a material stalls the frame twice over. three asks the browser about the program on its
+   * first draw, and that question waits for the whole GPU queue to drain, even for a program linked long
+   * ago. Then the driver builds a pipeline for that exact blend and target. Left alone this lands on the
+   * first blood of a run and every new kind of blood after it, 70 to 300 ms each. So the questions all get
+   * asked now, for every program the renderer has, and every layer draws once, empty.
+   */
+  private warm(): void {
+    this.warmed = true;
+    for (const program of this.ctx.render.renderer.info.programs ?? []) {
+      program.getUniforms();
+      program.getAttributes();
+    }
+    for (const k in this.chips.rings) this.chips.rings[k as ChipShape].warm();
+    this.blood.ring.warm();
+    this.streaks.ring.warm();
+    this.smoke.ring.warm();
+    this.puffs.ring.warm();
+    this.flashes.ring.warm();
+    this.muzzle.ring.warm();
+    this.muzzleView?.ring.warm();
+    this.trailRings.ring.warm();
+    this.waves.ring.warm();
+    this.shock.ring.warm();
+    this.lines.ring.warm();
+    this.arcs.ring.warm();
+    this.slashes.ring.warm();
+    this.shimmer.ring.warm();
+    this.lens?.warm();
+    // A decal of no size: there is nothing to see, but the pass and its program run.
+    this.ctx.render.decals.add('blood', this.probe.set(0, -1e4, 0), this.down, 0);
+  }
+
   syncFrame(): void {
     const now = this.now;
     const u = this.uniforms;
     u.uTime.value = now;
     u.uTimePlayer.value = this.playerNow;
+    const { paused, realDt, slowmo } = this.ctx.time;
+    if (!paused) this.bloodNow += realDt * slowmo;
+    u.uTimeBlood.value = this.bloodNow;
 
     const r = this.ctx.render;
     const cam = r.camera;
@@ -157,9 +225,11 @@ export class FxCore {
       u.uDepthRes.value.set(image.width, image.height);
       this.smoke.enableSoftDepth();
       this.shimmer.enableSoftDepth();
+      if (!this.warmed) this.warm();
     }
 
     this.chips.sync(now);
+    this.blood.sync(this.bloodNow);
     this.streaks.sync(now);
     this.smoke.sync(now);
     this.puffs.sync(now);
@@ -191,17 +261,24 @@ export class FxCore {
     }
   }
 
+  /** Puts down every stain whose drop arrived this frame. */
+  runStains(): void {
+    this.stains.run(this.bloodNow, this.ctx.render.decals);
+  }
+
   /** Live particle count. Scans the rings, so debug use only. */
   countParticles(): number {
     const now = this.now;
     return (
-      this.chips.countLive(now) + this.streaks.ring.countLive(now) +
+      this.chips.countLive(now) + this.blood.ring.countLive(this.bloodNow) + this.streaks.ring.countLive(now) +
       this.smoke.ring.countLive(now) + this.puffs.ring.countLive(now)
     );
   }
 
   clear(): void {
     this.chips.clear();
+    this.blood.ring.clear();
+    this.stains.clear();
     this.streaks.ring.clear();
     this.smoke.ring.clear();
     this.puffs.ring.clear();
@@ -221,5 +298,6 @@ export class FxCore {
     // Nothing is alive now, so float32 can start fresh.
     this.epoch = this.ctx.time.elapsed;
     this.playerEpoch = this.ctx.time.playerElapsed;
+    this.bloodNow = 0;
   }
 }

@@ -1,9 +1,8 @@
 import * as THREE from 'three';
-import { chance, clamp, rand } from '../../core/math';
+import { clamp, rand } from '../../core/math';
 import type { FxCore } from '../core';
-import { SmokeMode } from '../layers/smoke';
-import type { ChipShape } from '../layers/chips';
-import { BLOOD, CHIP } from '../palette';
+import { BLOOD_TONE, CHIP } from '../palette';
+import { STAIN_SCALE } from '../stains';
 import { chipBurst } from './bursts';
 
 const _v = new THREE.Vector3();
@@ -18,176 +17,114 @@ function spatter(core: FxCore, position: THREE.Vector3, amount: number): void {
 }
 
 /**
- * The tight, pressurised stream. Base speed against jitter stays near the 5:1 of the original: that
- * ratio is what makes it a jet and not a puff. Fixing the first game's crash means the side mist now
- * exists, so it is deliberately brief to keep the droplets as the read.
+ * A fan of strands leaving one point. Speed varies along the axis and little across it, which is what
+ * keeps it a jet: base speed against sideways jitter stays near the first game's 5:1. Strands leave a
+ * few milliseconds apart, so they trail each other as a stream instead of arriving as a wall.
+ */
+function stream(
+  core: FxCore, x: number, y: number, z: number, dx: number, dy: number, dz: number, count: number,
+  speed: number, jitter: number, half: number, trail: number, drag: number, delay: number, stains: number,
+): void {
+  const b = core.blood;
+  for (let i = 0; i < count; i++) {
+    const v = speed * rand(0.72, 1.12);
+    const w = half * rand(0.6, 1.3);
+    const wait = delay + i * 0.014;
+    const l = b.add(
+      x, y, z, dx * v + rand(-jitter, jitter), dy * v + rand(-jitter, jitter), dz * v + rand(-jitter, jitter),
+      w, trail * rand(0.8, 1.2), drag * rand(0.8, 1.3), wait,
+    );
+    if (i < stains) core.stains.book(core.bloodNow + wait + l.time, l, w * STAIN_SCALE);
+  }
+}
+
+/** A few fat drops that barely leave the wound. They are what falls last and lands closest. */
+function drops(
+  core: FxCore, x: number, y: number, z: number, dx: number, dy: number, dz: number, count: number,
+  speed: number, delay: number,
+): void {
+  stream(core, x, y, z, dx, dy, dz, count, speed, speed * 0.3, 0.012, 0.022, 0.55, delay, count);
+}
+
+/**
+ * The tight pressurised stream: one push of the heart. A hard front, then two weaker pulses that do not
+ * reach as far, then what is left falling out. `intensity` is pressure, not count, because a gib fires
+ * this three times over and its detail has to come from reach and from stains.
  */
 export function bloodJet(core: FxCore, position: THREE.Vector3, dir: THREE.Vector3, intensity = 1): void {
   const { x, y, z } = position;
-  const floor = core.floorAt(x, y, z);
-  const n = Math.round(30 * intensity);
-  const c = core.chips.begin('droplet', BLOOD.deep, core.birth, 1, -15, floor, 0, 0);
-  for (let i = 0; i < n; i++) {
-    const life = rand(0.8, 1.2);
-    c.setLife(life);
-    const size = rand(0.08, 0.2) * (life / 1.2) * 0.42;
-    // Spread along the axis, not across it: one burst then reads as a stream from the wound.
-    const speed = rand(6, 17);
-    const vx = dir.x * speed + rand(-1.5, 1.5);
-    const vy = dir.y * speed + rand(0, 3.5);
-    const vz = dir.z * speed + rand(-1.5, 1.5);
-    c.add(x, y, z, vx, vy, vz, size);
+  const pressure = Math.sqrt(clamp(intensity, 0.25, 4));
+  const b = core.blood.begin(core.bloodNow, core.floorAt(x, y, z), core.wallAlong(x, y, z, dir.x, dir.y, dir.z), BLOOD_TONE.arterial);
+  const beats = intensity < 0.75 ? 2 : 3;
+  for (let beat = 0; beat < beats; beat++) {
+    const v = 11.5 * pressure * (1 - beat * 0.3);
+    stream(core, x, y, z, dir.x, dir.y, dir.z, beat === 0 ? 4 : 3, v, v / 5.5, 0.0062, 0.1, 1.5, beat * 0.13, 2);
   }
-  const m = Math.round(5 * intensity);
-  core.smoke.begin(BLOOD.mist, 0.34, core.birth, 0.34, 0.1, 0.26, 2, -2, 0.2, SmokeMode.Flat);
-  for (let i = 0; i < m; i++) {
-    core.smoke.add(x, y, z, dir.x * 7.5 + rand(-2.5, 2.5), dir.y * 7.5 + rand(0, 3), dir.z * 7.5 + rand(-2.5, 2.5), rand(-1, 1));
-  }
+  b.setTone(BLOOD_TONE.venous);
+  drops(core, x, y, z, dir.x, dir.y, dir.z, 2, 2.8 * pressure, beats * 0.13);
+  b.mist(x, y, z, dir.x * 6, dir.y * 6, dir.z * 6, 0.1 * pressure, 0.2, 7, 0.14);
 }
 
-/** A bullet going in: the original's 15-chip dome plus a short directional spit out along the shot. */
+/**
+ * A bullet going in. Most of it leaves with the bullet, but the player stands on the side the bullet came
+ * from, so a finer back-spatter is what reads. No chips, no flash: a wound does not light up.
+ */
 export function bloodHit(core: FxCore, position: THREE.Vector3, dir: THREE.Vector3, intensity = 1): void {
   const { x, y, z } = position;
-  const floor = core.floorAt(x, y, z);
-  chipBurst(core, x, y, z, BLOOD.hit, Math.round(15 * intensity), floor, 0.9, 1);
-  const n = Math.round(12 * intensity);
-  const c = core.chips.begin('droplet', BLOOD.bright, core.birth, 0.6, -15, floor, 0, 0);
-  for (let i = 0; i < n; i++) {
-    const v = rand(7, 12);
-    c.add(x, y, z, dir.x * v + rand(-1.6, 1.6), dir.y * v + rand(-0.4, 2.2), dir.z * v + rand(-1.6, 1.6), rand(0.03, 0.08));
-  }
-  core.smoke.begin(BLOOD.mist, 0.5, core.birth, 0.28, 0.14, 0.38, 6, 0, 0.16, SmokeMode.Flat);
-  core.smoke.add(x, y, z, dir.x * 2.5, dir.y * 2.5 + 0.5, dir.z * 2.5, rand(-1, 1));
-  core.flashes.star(x, y, z, BLOOD.bright, 0.17, core.now, 0.034, 5, 0.3, 0.8, 0, 1);
+  const p = Math.sqrt(clamp(intensity, 0.25, 3));
+  const b = core.blood.begin(core.bloodNow, core.floorAt(x, y, z), core.wallAlong(x, y, z, dir.x, dir.y, dir.z), BLOOD_TONE.wound);
+  stream(core, x, y, z, dir.x, dir.y, dir.z, 3, 8.5 * p, 1.3, 0.0048, 0.06, 2.2, 0, 2);
+  stream(core, x, y, z, -dir.x, 0.25 - dir.y, -dir.z, 2, 4.2 * p, 1, 0.0032, 0.05, 3, 0, 0);
+  drops(core, x, y, z, dir.x, dir.y, dir.z, 2, 2.4 * p, 0.03);
+  b.mist(x, y, z, -dir.x * 2.2, 0.4 - dir.y * 2.2, -dir.z * 2.2, 0.08 * p, 0.15, 8, 0.15);
 }
 
-/**
- * Hanging red mist, the effect the first game wrote and then disabled because it had no soft texture
- * and its opacity curve was broken. It keeps red saturated here and thins by erosion, never to brown.
- */
+/** A faint breath of fine drops. It is gone in half a second: blood mist that hangs is a video game effect. */
 export function bloodMist(core: FxCore, position: THREE.Vector3, size = 1): void {
   const { x, y, z } = position;
-  const s = core.smoke;
-  const b = core.birth;
-  for (let i = 0; i < 8; i++) {
-    const life = rand(1.5, 3);
-    s.begin(chance(0.7) ? BLOOD.mist : BLOOD.mistDark, 0.13, b, life, 0.5 * size, 1.3 * size, 2, 0.04, 0.6, SmokeMode.Flat);
-    _v.set(rand(-0.5, 0.5), rand(-0.25, 0.25) + 0.2, rand(-0.5, 0.5)).normalize().multiplyScalar(rand(1.5, 3));
-    s.add(x + rand(-0.25, 0.25), y + rand(-0.25, 0.25), z + rand(-0.25, 0.25), _v.x, _v.y, _v.z, rand(-0.4, 0.4));
+  const b = core.blood.begin(core.bloodNow, -1e6, null, BLOOD_TONE.wound);
+  for (let i = 0; i < 3; i++) {
+    _v.set(rand(-1, 1), rand(-0.3, 0.6), rand(-1, 1)).normalize().multiplyScalar(rand(0.8, 2));
+    b.mist(x, y, z, _v.x, _v.y, _v.z, 0.15 * size, rand(0.35, 0.55), 6, 0.1);
   }
 }
 
 /**
- * Massive blood spurt: 40 pieces streaming away from the blast, so direction tells you where the
- * force came from. The first five are bright, faster, and overtake the rest for a leading edge.
- */
-function spurt(core: FxCore, x: number, y: number, z: number, dx: number, dy: number, dz: number, floor: number, count: number): void {
-  const b = core.birth;
-  const lead = Math.min(5, count);
-  const c = core.chips.begin('droplet', BLOOD.bright, b, 1.5, -20, floor, 0, 0);
-  for (let i = 0; i < count; i++) {
-    if (i === lead) c.setColor(BLOOD.deep);
-    const k = i < lead ? 1.5 : 1;
-    c.setLife(rand(1, 2));
-    const size = i < 10 ? rand(0.15, 0.3) : rand(0.08, 0.16);
-    c.add(
-      x + rand(-0.15, 0.15), y + rand(-0.15, 0.15), z + rand(-0.15, 0.15),
-      (dx * 20 + rand(-4, 4)) * k, (dy * 20 + rand(0, 10)) * k, (dz * 20 + rand(-4, 4)) * k,
-      size * 0.34,
-    );
-  }
-}
-
-const GIB_SHAPES: readonly ChipShape[] = ['cube', 'gem', 'rod', 'plate'];
-
-/** Heavy tumbling lumps that hold their size, bounce, then shrink late: the only FX with any weight. */
-function giblets(
-  core: FxCore, x: number, y: number, z: number, dx: number, dy: number, dz: number, count: number, force: number, floor: number,
-): void {
-  for (let i = 0; i < count; i++) {
-    const r = Math.random();
-    const shape = GIB_SHAPES[r < 0.3 ? 0 : r < 0.6 ? 1 : r < 0.85 ? 2 : 3]!;
-    const color = chance(0.55) ? BLOOD.dark : BLOOD.deep;
-    const life = rand(2.5, 4);
-    const c = core.chips.begin(shape, color, core.birth, life, -30, floor, 0.42, 0.65, 0.72);
-    const push = force * rand(20, 30);
-    const scale = rand(0.8, 1.2);
-    const size = (shape === 'rod' ? 0.12 : shape === 'plate' ? 0.15 : 0.1) * scale;
-    c.add(
-      x + rand(-0.25, 0.25), y + rand(0, 0.5), z + rand(-0.25, 0.25),
-      rand(-12.5, 12.5) + dx * push, rand(8, 22) + dy * push, rand(-12.5, 12.5) + dz * push,
-      size, rand(-7.5, 7.5), rand(-7.5, 7.5), rand(-7.5, 7.5),
-    );
-  }
-}
-
-/**
- * Whole-body burst: the commented-out giblet design from the first game, stacked on the 120-particle
- * spurts that explosive kills really showed. `force` is roughly 0..20, the blast force on the body.
+ * Whole-body burst. The meat, bone and viscera are real bodies in gore, and gore fires three jets on top
+ * of this, so what is left to do here is the sheet of blood thrown off by the blast. `force` is roughly
+ * 0..20, the blast force on the body.
  */
 export function gibBurst(core: FxCore, position: THREE.Vector3, dir: THREE.Vector3, force: number): void {
   const { x, y, z } = position;
-  const floor = core.floorAt(x, y, z);
-  const f = clamp(force / 10, 0.4, 1.6);
-
-  chipBurst(core, x, y, z, BLOOD.deep, 25, floor, 1.1, 1.3);
-  chipBurst(core, x, y, z, BLOOD.dark, 15, floor, 1.1, 1.3);
-
+  const f = Math.sqrt(clamp(force / 10, 0.4, 1.6));
+  const b = core.blood.begin(core.bloodNow, core.floorAt(x, y, z), core.wallAlong(x, y, z, dir.x, dir.y, dir.z), BLOOD_TONE.arterial);
   for (let i = 0; i < 3; i++) {
-    _v.set(dir.x + rand(-0.15, 0.15), dir.y + rand(0, 0.3), dir.z + rand(-0.15, 0.15)).normalize();
-    spurt(core, x, y, z, _v.x, _v.y, _v.z, floor, 40);
+    _v.set(dir.x + rand(-0.3, 0.3), dir.y + rand(0, 0.35), dir.z + rand(-0.3, 0.3)).normalize();
+    stream(core, x, y, z, _v.x, _v.y, _v.z, 5, 15 * f, 2.7, 0.0075, 0.09, 1.5, i * 0.02, 3);
   }
-  giblets(core, x, y, z, dir.x, dir.y, dir.z, Math.round(rand(10, 14)), f * 0.6, floor);
-
-  const n = 20;
-  const s = core.chips.begin('droplet', BLOOD.splat, core.birth, 2, -20, floor, 0, 0);
-  for (let i = 0; i < n; i++) {
-    s.setLife(rand(1.5, 2.5));
-    const push = f * 15;
-    const vx = rand(-12.5, 12.5) + dir.x * push;
-    const vy = rand(0, 20) + dir.y * push;
-    const vz = rand(-12.5, 12.5) + dir.z * push;
-    s.add(x, y, z, vx, vy, vz, rand(0.05, 0.2) * 0.45);
+  b.setTone(BLOOD_TONE.venous);
+  for (let i = 0; i < 6; i++) {
+    _v.set(dir.x + rand(-0.8, 0.8), dir.y + rand(0, 0.9), dir.z + rand(-0.8, 0.8)).normalize();
+    drops(core, x, y, z, _v.x, _v.y, _v.z, 1, rand(4, 8) * f, i * 0.02);
   }
-
-  const m = core.smoke;
-  const b = core.birth;
-  for (let i = 0; i < 7; i++) {
-    m.begin(BLOOD.mist, 0.15, b, 0.8, rand(0.3, 0.6), rand(0.8, 1.2), 3, 0.1, 0.4, SmokeMode.Flat);
-    m.add(x, y, z, rand(-4, 4), rand(0, 5), rand(-4, 4), rand(-1, 1));
-  }
-  core.flashes.star(x, y, z, BLOOD.bright, 0.9, core.now, 0.05, 7, 0.22, 0.7, 0.35, 3);
+  for (let i = 0; i < 2; i++) b.mist(x, y, z, dir.x * 5 + rand(-1, 1), dir.y * 5 + rand(0, 2), dir.z * 5 + rand(-1, 1), 0.16, 0.26, 7, 0.14);
   spatter(core, position, 1);
 }
 
 /**
- * The signature: 20 yellow chips, three chunks that visibly come apart (one skin-toned), dark shards
- * and a geyser. All on the same frame as the triple-layered sound.
+ * The signature: 20 yellow chips on the same frame as the triple-layered sound. The chips and the flash
+ * are the game's language and they stay exactly as they were. The blood around them is a geyser and a
+ * crown of thin strands, and the skull itself is gore's.
  */
 export function headBurst(core: FxCore, position: THREE.Vector3, dir: THREE.Vector3): void {
   const { x, y, z } = position;
-  const floor = core.floorAt(x, y, z);
-  chipBurst(core, x, y, z, CHIP.yellow, 20, floor);
-  chipBurst(core, x, y, z, BLOOD.deep, 15, floor, 0.9, 1.1);
-
-  const chunk = (shape: ChipShape, color: typeof BLOOD.deep, size: number) => {
-    const c = core.chips.begin(shape, color, core.birth, 3, -30, floor, 0.4, 0.7, 0.75);
-    c.add(
-      x, y, z,
-      rand(-3, 3) + dir.x * 5, rand(2, 6) + dir.y * 5, rand(-3, 3) + dir.z * 5,
-      size, rand(-5, 5), rand(-5, 5), rand(-5, 5),
-    );
-  };
-  chunk('gem', BLOOD.skin, rand(0.13, 0.2));
-  chunk('cube', BLOOD.brain, rand(0.09, 0.14));
-  chunk('gem', BLOOD.deep, rand(0.11, 0.17));
-
-  const m = core.chips.begin('shard', BLOOD.shard, core.birth, 0.6, -20, floor);
-  for (let i = 0; i < 5; i++) {
-    m.add(x, y, z, rand(-1.5, 1.5), rand(1, 3), rand(-1.5, 1.5), rand(0.1, 0.2), rand(-6, 6), rand(-6, 6), rand(-6, 6));
+  chipBurst(core, x, y, z, CHIP.yellow, 20, core.floorAt(x, y, z));
+  bloodJet(core, position, UP, 1.3);
+  core.blood.setTone(BLOOD_TONE.arterial);
+  for (let i = 0; i < 6; i++) {
+    _v.set(dir.x * 0.7 + rand(-0.7, 0.7), rand(0.35, 1), dir.z * 0.7 + rand(-0.7, 0.7)).normalize();
+    stream(core, x, y, z, _v.x, _v.y, _v.z, 1, rand(6, 11), 0.8, 0.0045, 0.08, 1.8, 0, 1);
   }
-
-  bloodJet(core, position, UP, 1);
   core.flashes.star(x, y, z, CHIP.yellow, 0.42, core.now, 0.05, 6, 0.24, 0.7, 0.4, 5);
   spatter(core, position, 0.7);
 }

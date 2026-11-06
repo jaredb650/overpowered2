@@ -48,6 +48,9 @@ const ARRIVED_PATH = 7;
 const STRAGGLER_PATH = 110;
 const RESCUE_MIN_PATH = 25;
 const RESCUE_MAX_PATH = 60;
+/** Player speed in m/s where aim starts to suffer, and how much more it takes to reach the worst of it. */
+const EVASION_FROM = 3;
+const EVASION_SPAN = 8.5;
 /** Below this a falling wreck has missed the map. */
 const CRASH_FLOOR = -40;
 /** A player outrunning the tide strands a lot of it at once. It comes back in a trickle, not all on one frame. */
@@ -358,8 +361,8 @@ export class EnemyManager implements EnemySystem {
     p.speed = Math.hypot(src.velocity.x, src.velocity.y * 0.5, src.velocity.z);
     p.grounded = src.grounded;
     p.alive = src.alive;
-    // Crossing the crosshair matters more than closing on it, but any real speed starts to count.
-    p.evasion = clamp((p.speed - 4) / 16);
+    // Full at 11.5 m/s, just under the player's 12.5 run, so simply running gets all of it. Tricks earn score.
+    p.evasion = clamp((p.speed - EVASION_FROM) / EVASION_SPAN);
     p.ghost = this.ctx.progression.isActive?.('ghost') ?? false;
   }
 

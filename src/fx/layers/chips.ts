@@ -5,7 +5,7 @@ import * as shapes from '../gpu/shapes';
 import { ORDER, type FxUniforms, type Rgb } from './shared';
 
 /**
- * Opaque faceted chips and stretched droplets: the first game's whole visual identity.
+ * Opaque faceted chips: the first game's whole visual identity.
  *
  * Each shape is one draw call with its own ring. Records are five vec4s:
  *   aP  origin xyz, birth      aV  velocity xyz, life
@@ -52,39 +52,18 @@ void main() {
   // Keeps a chip from sub-pixel flicker at range. Scaled by sh so it still shrinks away on time.
   float s = max(aC.w, uPixelWorld * depth * uMinPx) * sh;
 
-  #ifdef DROPLET
-    float speed = length(vel);
-    vec3 axis = speed > 0.01 ? vel / speed : vec3(0.0, 1.0, 0.0);
-    vec3 ref = abs(axis.y) > 0.9 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
-    vec3 side = normalize(cross(ref, axis));
-    vec3 fwd = cross(axis, side);
-    float stretch = clamp(1.0 + speed * 0.2, 1.0, 4.5);
-    vec3 local = position * s;
-    local.y *= stretch;
-    if (rest > 0.5) {
-      // A landed drop flattens into a bead on the floor.
-      axis = vec3(0.0, 1.0, 0.0);
-      side = vec3(1.0, 0.0, 0.0);
-      fwd = vec3(0.0, 0.0, 1.0);
-      local = position * s * vec3(1.9, 0.12, 1.9);
-    }
-    vec3 world = pos + side * local.x + axis * local.y + fwd * local.z;
-    vec3 n = normalize(side * normal.x + axis * normal.y + fwd * normal.z);
-    world.y = max(world.y, aF.y + 0.012);
-  #else
-    vec3 local = position * s;
-    vec3 n = normal;
-    float rate = length(aR.xyz);
-    if (rate > 0.0) {
-      vec3 axis = aR.xyz / rate;
-      float phase = hash21(aP.xz + aP.w + float(gl_InstanceID) * 0.37) * 6.2831853;
-      float angle = phase + rate * moved;
-      local = rotateAxis(local, axis, angle);
-      n = rotateAxis(n, axis, angle);
-    }
-    vec3 world = pos + local;
-    world.y = max(world.y, aF.y + s * 0.15);
-  #endif
+  vec3 local = position * s;
+  vec3 n = normal;
+  float rate = length(aR.xyz);
+  if (rate > 0.0) {
+    vec3 axis = aR.xyz / rate;
+    float phase = hash21(aP.xz + aP.w + float(gl_InstanceID) * 0.37) * 6.2831853;
+    float angle = phase + rate * moved;
+    local = rotateAxis(local, axis, angle);
+    n = rotateAxis(n, axis, angle);
+  }
+  vec3 world = pos + local;
+  world.y = max(world.y, aF.y + s * 0.15);
 
   // One flat value per face: facets read, but there is still no gradient inside any of them.
   float shade = 1.0 + uFacet * dot(n, vec3(0.267, 0.802, 0.535));
@@ -109,7 +88,7 @@ void main() {
 }
 `;
 
-export type ChipShape = 'gem' | 'cube' | 'shard' | 'plate' | 'rod' | 'casing' | 'droplet';
+export type ChipShape = 'gem' | 'cube' | 'shard' | 'plate' | 'rod' | 'casing';
 
 /** Sum with the other particle classes must stay at or below the 30k budget. */
 const CAPS: Record<ChipShape, number> = {
@@ -119,7 +98,6 @@ const CAPS: Record<ChipShape, number> = {
   plate: 800,
   rod: 200,
   casing: 500,
-  droplet: 6000,
 };
 
 export class ChipLayer {
@@ -151,13 +129,13 @@ export class ChipLayer {
     };
     // Opaque output, but drawn in the transparent pass: fire sprites do not write depth, so this
     // puts chips on top of the fireball they burst out of, and after the fog so heat stays legible.
-    const base = { vertexShader: VERT, fragmentShader: FRAG, transparent: true, depthWrite: true, blending: THREE.NoBlending };
-    const material = new THREE.ShaderMaterial({ ...base, uniforms: shared });
-    const dropMaterial = new THREE.ShaderMaterial({ ...base, uniforms: { ...shared, uFacet: { value: 0.3 }, uEject: { value: 0 } }, defines: { DROPLET: 1 } });
+    const material = new THREE.ShaderMaterial({
+      vertexShader: VERT, fragmentShader: FRAG, uniforms: shared, transparent: true, depthWrite: true, blending: THREE.NoBlending,
+    });
 
     const make = (shape: ChipShape, geometry: THREE.BufferGeometry) => {
       const ring = new InstanceRing(geometry, CAPS[shape], ATTRS);
-      const mesh = new THREE.Mesh(ring.geometry, shape === 'droplet' ? dropMaterial : material);
+      const mesh = new THREE.Mesh(ring.geometry, material);
       mesh.frustumCulled = false;
       mesh.visible = false;
       mesh.renderOrder = ORDER.chips;
@@ -174,7 +152,6 @@ export class ChipLayer {
       plate: make('plate', shapes.plate()),
       rod: make('rod', shapes.rod()),
       casing: make('casing', shapes.casing()),
-      droplet: make('droplet', shapes.droplet()),
     };
   }
 
@@ -251,7 +228,6 @@ export class ChipLayer {
     r.plate.sync(now);
     r.rod.sync(now);
     r.casing.sync(now);
-    r.droplet.sync(now);
   }
 
   clear(): void {

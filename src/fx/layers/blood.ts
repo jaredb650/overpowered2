@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { MaterialLibrary } from '../../core/contracts';
 import { COMMON_VERT } from '../gpu/glsl';
 import { InstanceRing } from '../gpu/ring';
+import { BLOOD } from '../palette';
 import { ORDER, type FxUniforms } from './shared';
 
 /**
@@ -92,8 +93,8 @@ varying vec4 vStrand;
 varying vec4 vLook;
 varying vec3 vSide;
 
-const vec3 BLOOD_VENOUS = vec3(0.075, 0.0018, 0.0026);
-const vec3 BLOOD_ARTERIAL = vec3(0.21, 0.0045, 0.0055);
+uniform vec3 uVenous;
+uniform vec3 uArterial;
 
 float bloodSpeck(vec2 p) { return fract(sin(dot(floor(p), vec2(127.1, 311.7))) * 43758.5453); }
 `;
@@ -125,7 +126,7 @@ if (vStrand.z < 0.0) {
 }
 bAlpha *= vLook.y;
 if (bAlpha < 0.006) discard;
-diffuseColor = vec4(mix(BLOOD_VENOUS, BLOOD_ARTERIAL, vLook.x), bAlpha);
+diffuseColor = vec4(mix(uVenous, uArterial, vLook.x), bAlpha);
 `;
 
 /** A strand is a thin cylinder seen side on, so the normal rolls across its width and the highlight is a line. */
@@ -218,9 +219,13 @@ export class BloodLayer {
     const material = new THREE.MeshStandardMaterial({
       name: 'fx.blood', roughness: 0.16, metalness: 0, transparent: true, depthWrite: false, side: THREE.DoubleSide,
     });
-    const minPx = { value: 1.1 };
+    const own = {
+      uMinPx: { value: 1.1 },
+      uVenous: { value: new THREE.Vector3(BLOOD.venous.r, BLOOD.venous.g, BLOOD.venous.b) },
+      uArterial: { value: new THREE.Vector3(BLOOD.arterial.r, BLOOD.arterial.g, BLOOD.arterial.b) },
+    };
     material.onBeforeCompile = shader => {
-      Object.assign(shader.uniforms, uniforms, { uMinPx: minPx });
+      Object.assign(shader.uniforms, uniforms, own);
       shader.vertexShader = shader.vertexShader
         .replace('#include <common>', `#include <common>\n${VERT_PARS}`)
         .replace('#include <beginnormal_vertex>', VERT_NORMAL)

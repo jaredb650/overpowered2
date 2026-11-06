@@ -3,8 +3,8 @@
 //   node tools/shot.mjs --url "/?map=killhouse&autostart=1" --dpr 2 --w 1440 --h 900 --script tools/scripts/killhouse-playtest.mjs --out tools/out/kh-play.png --wait 500 --timeout 230
 //
 // The slowest walkers cover about 76 m in 20 s and the longest route an enemy has is under 90 m, so anything older than that
-// and still far away by path at the end of a station is lost or stuck, not just late. Env: KH_SECONDS (default 170).
-const seconds = Number(process.env.KH_SECONDS ?? 170);
+// and still far away by path at the end of a station is lost or stuck, not just late. Env: KH_SECONDS (default 130).
+const seconds = Number(process.env.KH_SECONDS ?? 130);
 
 export default async function playtest(page, h) {
   // On a busy machine a Retina screenshot can time out. The numbers are the point, so a lost picture must not lose them.
@@ -116,12 +116,13 @@ export default async function playtest(page, h) {
     requestAnimationFrame(tick);
   });
 
-  const shots = Math.floor(seconds / 30);
-  for (let i = 1; i <= shots; i++) {
-    await h.sleep(30000);
-    await shot(`t${i * 30}`);
+  // Paced off a clock, because one Retina screenshot can take 30 s on a busy machine and the report must make it out.
+  const end = Date.now() + seconds * 1000;
+  for (const share of [0.4, 0.8]) {
+    await h.sleep(Math.max(0, end - (1 - share) * seconds * 1000 - Date.now()));
+    await shot(`t${Math.round(share * seconds)}`);
   }
-  await h.sleep(Math.max(0, seconds - shots * 30) * 1000);
+  await h.sleep(Math.max(0, end - Date.now()));
 
   return page.evaluate(boot => {
     const k = window.__kh;

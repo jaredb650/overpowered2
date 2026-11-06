@@ -1,7 +1,7 @@
 /** The map as a system: runs the build pipeline for the selected map, then ticks objects and the nav flow field. */
 import * as THREE from 'three';
 import type {
-  Ctx, MapZone, MinimapData, NavQuery, SpawnPoint, WorldMaterialName, WorldObjects, WorldSystem,
+  Ctx, MapZone, MinimapData, NavQuery, SpawnPoint, WorldMaterialName, WorldSystem,
 } from '../core/contracts';
 import { Kit } from './kit/kit';
 import type { Mat } from './kit/geo';

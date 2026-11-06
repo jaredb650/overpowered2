@@ -212,13 +212,17 @@ function buildSallyPort(k: Kit, spec: MapSpec, gate: GateDef): void {
   const g = k.geo;
   const { w } = gate;
   k.push(gate.x, 0, gate.z, gate.yaw);
+  // Wall panels stand 5 cm proud and the collider 6, so the whole shutter lives in the last centimeter.
   g.use('panel').tint(0.44, 0.48, 0.54);
-  for (let y = 0.2; y < 3.3; y += 0.34) g.bevel(-0.025, y, 0, 0.022, 0.15, w / 2, 0.012);
+  for (let y = 0.2; y < 3.3; y += 0.34) g.bevel(-0.052, y, 0, 0.006, 0.15, w / 2, 0.003);
   g.tint(1).use('steelDark');
-  for (const s of [1, -1]) g.bevel(-0.03, 1.8, s * (w / 2 + 0.14), 0.024, 1.8, 0.14, 0.012);
-  g.bevel(-0.03, 3.5, 0, 0.024, 0.14, w / 2 + 0.28, 0.012);
+  for (const s of [1, -1]) g.bevel(-0.053, 1.8, s * (w / 2 + 0.14), 0.006, 1.8, 0.14, 0.003);
+  g.bevel(-0.053, 3.5, 0, 0.006, 0.14, w / 2 + 0.28, 0.003);
   g.use('emissiveRed');
-  g.box(-0.04, 4.1, 0, 0.012, 0.09, w / 2 - 0.3, FACE.nx | FACE.py | FACE.ny);
+  g.box(-0.055, 4.1, 0, 0.004, 0.09, w / 2 - 0.3, FACE.nx | FACE.py | FACE.ny);
+  k.push(-0.059, 0, 0, -Math.PI / 2);
+  stencil(k, 'NO ENTRY', 0, 1.75, 0, 0.8, [0.84, 0.18, 0.14]);
+  k.pop();
   k.light(-1.6, 3.6, 0, 'red', 14, 8);
   k.light(-2.4, 4.6, 0, 'white', 26, 13);
   k.pop();

@@ -70,11 +70,33 @@ changes what is available on the next think.
 | `waves.ts` | `ROSTER` (first wave, weight, pack, cap, escort), `COUNT_SCALE`, `BOSS_WAVE_ESCORT`, intermissions |
 | `waves.ts` `rosterWeight` | How fast fodder gives way to older types |
 | `director.ts` `setWave` | Simultaneous attackers and the gaps between them. This drives lethality more than raw damage |
-| `EnemyManager.ts` `sensePlayer` | Speed to `evasion`, which every aimed attack reads |
+| `EnemyManager.ts` `EVASION_FROM`, `EVASION_SPAN` | Speed to `evasion`, which every aimed attack reads. Full at 11.5 m/s, just under the player's 12.5 m/s run. Retune if `runSpeed` moves |
 | `attacks.ts` `aimAtPlayer`, `grazed` | Miss radius and the damage cut at speed |
 | `spawner.ts` | `PATH_MIN`, `PATH_MAX`, `REUSE_SECONDS`, `DROP_HEIGHT` |
 | `contact.ts` | `SHOVE_SPEED`, `SHOVE_FORCE`, `SHOVE_STAGGER`, `EASE_OUT` |
 | `EnemyManager.ts` | `PATH_GAIN`, `STRANDED_*`, `STRAGGLER_PATH`, `RESCUE_*`, `CHAR_SECONDS`, `BUFF_SECONDS`, `HAZARD_TICK` |
+
+## Difficulty curve
+
+Averages over 300 rolls of `composeWave`. Wave size is `(10 + 2 x wave) x COUNT_SCALE`, cut by `BOSS_WAVE_ESCORT` on boss waves.
+
+| Wave | Size | New type | HP x | Damage x | Total HP |
+|---|---|---|---|---|---|
+| 1 | 24 | husk, trooper | 1.00 | 1.00 | 1,272 |
+| 2 | 28 | gunner | 1.08 | 1.05 | 1,829 |
+| 3 | 32 | bomber | 1.17 | 1.10 | 2,086 |
+| 4 | 36 | brute | 1.25 | 1.15 | 2,950 |
+| 5 | 18 | **Juggernaut** | 1.34 | 1.20 | 1,478 + boss |
+| 6 | 44 | stalker | 1.43 | 1.25 | 4,082 |
+| 7 | 48 | rocketeer | 1.51 | 1.30 | 4,742 |
+| 8 | 52 | skitter | 1.60 | 1.35 | 4,440 |
+| 9 | 56 | leaper | 1.68 | 1.40 | 5,830 |
+| 10 | 27 | **Titan** | 1.77 | 1.45 | 2,974 + boss |
+| 11 | 64 | riot | 1.85 | 1.50 | 7,983 |
+| 12 | 68 | sniper | 1.94 | 1.55 | 8,456 |
+| 13 | 72 | drone | 2.02 | 1.60 | 9,658 |
+| 14 | 76 | burner | 2.10 | 1.65 | 10,863 |
+| 15 | 36 | warden, 2 Juggernauts | 2.19 | 1.70 | 5,663 + bosses |
 
 ## Sandbox
 

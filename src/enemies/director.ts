@@ -28,7 +28,7 @@ export interface Squad {
 }
 
 export class Director {
-  rangedLimit = 2;
+  rangedLimit = 1;
   meleeLimit = 2;
   /** Multiplies wind-up time for attacks the player cannot see. */
   offscreenWindup = 1.35;
@@ -55,7 +55,7 @@ export class Director {
 
   /** Later waves get more simultaneous attackers. This, more than raw damage, is what makes them lethal. */
   setWave(wave: number): void {
-    this.rangedLimit = clamp(2 + Math.floor(wave / 2), 2, 9);
+    this.rangedLimit = clamp(1 + Math.floor(wave / 2), 1, 9);
     this.meleeLimit = clamp(2 + Math.floor(wave / 2), 2, 7);
     this.volleyGap = clamp(0.55 - wave * 0.025, 0.14, 0.55);
     this.swingGap = clamp(1.02 - wave * 0.07, 0.22, 0.95);

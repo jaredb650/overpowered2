@@ -78,6 +78,16 @@ export class InstanceRing<O extends THREE.Mesh | THREE.LineSegments = THREE.Mesh
     }
   }
 
+  /**
+   * Draws the empty ring for one frame, so its program and GPU pipeline exist before anything needs them.
+   * Record zero has no life, so the vertex shader throws it away and nothing shows.
+   */
+  warm(): void {
+    if (this.high > 0) return;
+    this.geometry.instanceCount = 1;
+    this.object.visible = true;
+  }
+
   /** Kills everything without a data upload: instanceCount 0 skips the draw and the next write starts over. */
   clear(): void {
     this.object.visible = false;

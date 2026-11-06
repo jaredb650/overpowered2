@@ -15,11 +15,11 @@ const WORD_W = 1024;
 const WORD_H = 128;
 const WORD_TOP = CELL * 2;
 
-const SYMBOLS = ['ARROW', 'CHEVRON', 'BULLSEYE', 'TARGET', 'CROSS', 'DOT'] as const;
+const SYMBOLS = ['ARROW', 'CHEVRON', 'BULLSEYE', 'TARGET'] as const;
 const GLYPHS = [...'0123456789', ...SYMBOLS] as const;
 const WORDS = [
-  'TYRES', 'LANES', 'CRATES', 'STREET', 'SANDBAGS', 'PLYWOOD', 'TILES', 'PLANT', 'COURT', 'RING', 'YARD', 'GATE',
-  'LIVE FIRE', 'CLEAR LEFT', 'CLEAR RIGHT', 'KEEP MOVING', 'EYES UP', 'HOT RANGE', 'STACK HERE', 'WATCH MUZZLE', 'ENTRY', 'CATWALK', 'LANE', 'NO ENTRY',
+  'TYRES', 'LANES', 'CRATES', 'STREET', 'SANDBAGS', 'PLYWOOD', 'TILES', 'PLANT', 'COURT', 'GATE',
+  'LIVE FIRE', 'CLEAR LEFT', 'CLEAR RIGHT', 'KEEP MOVING', 'EYES UP', 'WATCH MUZZLE', 'CATWALK', 'NO ENTRY',
 ] as const;
 
 export type StencilName = (typeof GLYPHS)[number] | (typeof WORDS)[number];
@@ -75,15 +75,6 @@ function drawSymbol(c: CanvasRenderingContext2D, name: (typeof SYMBOLS)[number],
         c.stroke();
       }
       c.globalCompositeOperation = 'source-over';
-      break;
-    case 'CROSS':
-      c.lineWidth = 30;
-      c.moveTo(-90, -90); c.lineTo(90, 90); c.moveTo(90, -90); c.lineTo(-90, 90);
-      c.stroke();
-      break;
-    case 'DOT':
-      c.arc(0, 0, 70, 0, Math.PI * 2);
-      c.fill();
       break;
   }
   c.restore();

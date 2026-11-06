@@ -114,6 +114,12 @@ function install({ sync, glslow, dr }) {
     };
   };
   hookGl('linkProgram', () => { cur.link++; });
+  // three calls this on a program's first draw, and it blocks. Naming the program says who to talk to.
+  const firstUse = [];
+  hookGl('getProgramInfoLog', (ms, a) => {
+    const p = renderer.info.programs.find(q => q.program === a[0]);
+    firstUse.push({ frame: n, name: p?.name ?? '?', type: p?.type ?? '?', ms: Math.round(ms * 10) / 10 });
+  });
   hookGl('bufferSubData', (ms, a) => {
     cur.bufMs += ms;
     cur.bufBytes += a.length >= 5 ? a[4] * (a[2].BYTES_PER_ELEMENT ?? 1) : a[2].byteLength;
@@ -170,7 +176,7 @@ function install({ sync, glslow, dr }) {
   ctx.player.modifiers.invulnerable = true;
 
   window.__bb = {
-    col, COLS, marks, slow, setOff, frames: () => n,
+    col, COLS, marks, slow, firstUse, setOff, frames: () => n,
     fire(name, fn) {
       performance.mark(`bb:${name}:${marks.length}`);
       queue.push(fn);
@@ -325,11 +331,12 @@ export default async function bench(page, h) {
     cdp.on('Tracing.dataCollected', e => {
       for (const t of e.value) {
         if (/GC|Scavenge|MarkCompact/.test(t.name) || (t.cat?.includes('user_timing') && t.name?.startsWith('bb:'))) trace.push(t);
+        else if (t.ph === 'X' && t.dur >= 8000) trace.push(t);
       }
     });
     await cdp.send('Tracing.start', {
       transferMode: 'ReportEvents',
-      traceConfig: { includedCategories: ['v8', 'disabled-by-default-v8.gc', 'blink.user_timing', 'devtools.timeline'] },
+      traceConfig: { includedCategories: ['toplevel', 'v8', 'disabled-by-default-v8.gc', 'blink.user_timing', 'devtools.timeline', 'gpu'] },
     });
   }
 
@@ -357,6 +364,13 @@ export default async function bench(page, h) {
       longest: r2(Math.max(0, ...gcs.filter(g => g.ts >= m.ts - 50e3 && g.ts < m.ts + 500e3).map(g => g.dur / 1000))),
     }));
     gc = { total: gcs.length, totalMs: r2(gcs.reduce((s, g) => s + g.dur / 1000, 0)), longest: r2(Math.max(0, ...gcs.map(g => g.dur / 1000))), near };
+    // What held any thread for 8 ms or more in the half second after each event, by thread and name.
+    const tasks = trace.filter(t => t.ph === 'X' && t.dur >= 8000 && !gcs.includes(t));
+    gc.tasks = marks.map(m => ({
+      event: m.name,
+      list: tasks.filter(t => t.ts >= m.ts && t.ts < m.ts + 700e3)
+        .map(t => `${Math.round((t.ts - m.ts) / 1000)}ms ${t.name} ${r2(t.dur / 1000)} tid${t.tid % 1000}`),
+    }));
   }
 
   const data = await page.evaluate(() => {
@@ -364,7 +378,7 @@ export default async function bench(page, h) {
     const n = bb.frames();
     const out = {};
     for (const k of bb.COLS) out[k] = Array.from(bb.col[k].subarray(0, n));
-    return { cols: out, marks: bb.marks, n, slow: bb.slow };
+    return { cols: out, marks: bb.marks, n, slow: bb.slow, firstUse: bb.firstUse };
   });
   if (DUMP) writeFileSync(DUMP, JSON.stringify({ ...data, profile, gc }));
 

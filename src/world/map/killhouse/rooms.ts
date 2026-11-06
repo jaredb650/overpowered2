@@ -13,7 +13,7 @@ import type { Kit, LampColor } from '../../kit/kit';
 import { barrier, cable, machine, pipe, truck, tyres, wallLamp } from '../../kit/props';
 import { floorStencil, stencil, type StencilName } from '../../kit/stencil';
 import type { MapSpec } from '../spec';
-import { FACES, KH, ROOMS, type Rgb, rot, rotRect, SKIN, YARD_IN, YARD_OUT } from './plan';
+import { FACES, KH, RAMP, ROOMS, type Rgb, rot, rotRect, SKIN, YARD_IN, YARD_OUT } from './plan';
 import { floorLine } from './shell';
 
 const { out: OUT, ringOut: RO, ringIn: RI, courtOut: CO } = FACES;
@@ -27,7 +27,7 @@ const NOOK = -22.7;
 const MID = -19.3, MID_HALF = 1.2;
 const PAINT = 0.056;
 /** Yaw of a lamp mounted on the wall on that side, looking into the room. */
-const N = 0, S = Math.PI, E = -Math.PI / 2, W = Math.PI / 2;
+const N = 0, S = Math.PI, W = Math.PI / 2;
 const WORD_Y = 3.2;
 
 class Dresser {
@@ -189,7 +189,13 @@ class Dresser {
 
 /** Corner rooms read their name off the east wall, past the door flush with the shell. */
 const cornerLabel = (d: Dresser, room: number, name: StencilName) => d.label(room, name, -RO - PAINT, -18.2, -1, -22.6, -17.3);
-const hallLabel = (d: Dresser, room: number, name: StencilName) => d.label(room, name, -RI + PAINT, -18.2, 1, 9, -18.4);
+/** A hall reads its name off the west wall, and the way up is marked from the door at the foot of the ramp. */
+const hallLabel = (d: Dresser, room: number, name: StencilName) => {
+  const paint = ROOMS[room - 1]!.paint;
+  d.label(room, name, -RI + PAINT, -18.2, 1, 9, -18.4);
+  d.wallWords('CATWALK', 4, -OUT + PAINT, 0.8, 1, paint, 3.7);
+  floorStencil(d.k, 'ARROW', 12, RAMP.z, Math.PI / 2, 2.2, paint);
+};
 /** On the way between doors, never tucked behind cover. */
 const cornerPickups = (d: Dresser) => { d.pickup(-17, -23.2); d.pickup(-23.2, -17.6); };
 
@@ -253,9 +259,11 @@ function room4Street(d: Dresser): void {
   hallLabel(d, 4, 'STREET');
   d.pickup(-11, -17);
   d.pickup(6.8, -19);
-  d.fill(-9.5, -21.5, 34, 14, 0xb8c8ff);
-  d.fill(0, -19.6, 34, 14, 0xb8c8ff);
-  d.fill(10, -18.6, 34, 14, 0xb8c8ff);
+  // Asphalt drinks light and this side of the map faces away from the moon, so it needs the most help of any room.
+  d.fill(-9.5, -21.5, 46, 14, 0xb8c8ff);
+  d.fill(-9.5, -16.4, 36, 12, 0xb8c8ff);
+  d.fill(0, -19.6, 50, 14, 0xb8c8ff);
+  d.fill(10, -18.6, 46, 14, 0xb8c8ff);
   d.lamp(-11.8, -RO - 0.06, S);
   d.lamp(12, -RO - 0.06, S);
 }
@@ -284,6 +292,7 @@ function room6Plywood(d: Dresser): void {
   d.target(-9, -16.4, 0);
   d.target(-12.8, -24.4, Math.PI / 2);
   hallLabel(d, 6, 'PLYWOOD');
+  d.wallWords('WATCH MUZZLE', 1, -RO - PAINT, 0.8, -1, ROOMS[5]!.paint);
   d.barrel(-5.56, -24.9);
   d.barrel(-5.56, -23.9);
   d.pickup(-10, -22);
@@ -369,7 +378,7 @@ function corridor(d: Dresser, word: StencilName): void {
   const c = (RI + CO) / 2;
   const blue: Rgb = [0.34, 0.8, 1];
   for (const x of [-12, 0, 12]) floorStencil(d.k, 'CHEVRON', x, -c, -Math.PI / 2, 1.5, blue);
-  d.wallWords(word, -4.2, -CO - PAINT, 0.7, -1, blue);
+  d.wallWords(word, 4.2, -CO - PAINT, 0.7, -1, blue);
   for (const x of [-12, 0, 12]) d.lamp(x, -RI + 0.06, N, 'cyan', 3.5);
   d.fill(0, -c, 16, 10, 'cyan');
   d.fill(c, -c, 22, 10);
@@ -395,7 +404,9 @@ function yard(d: Dresser): void {
   // A straight line can thread two T-walls but never three, which caps how far you see down a side.
   d.block('concrete', -t, -B - reach, t, -B, H, concrete);
   d.wallWords('GATE', 0, -B - reach - 0.03, 0.42, -1, [0.84, 0.18, 0.14], 2.4);
-  for (const x of [-20, 20]) flood(k, x, -KH.perimeter, 88, 22);
+  for (const x of [-20, 20]) flood(k, x, -KH.perimeter, 110, 22);
+  // The floods reach the corners. The T-walls shade the lanes between them, and that is where the gates let out.
+  for (const x of [-8, 8]) d.fill(x, -32.6, 38, 13, 0xd4e4ff);
   d.fill(0, -31, 26, 12, 0xd4e4ff, 3.2);
   d.fill(28, -28, 34, 13, 0xd4e4ff, 4.6);
   d.pickup(-6, -28.6);

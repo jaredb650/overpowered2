@@ -164,7 +164,7 @@ export const MuscleTuning = {
   twitchLenMin: 0.1,
   twitchLenMax: 0.28,
   /** Peak torque of a burst as a share of the limb's weight on the joint. */
-  twitchTorque: 1.6,
+  twitchTorque: 1.3,
   /** Chance that a burst is instead an agonal spasm: the whole body straining against its resting pose. */
   spasmChance: 0.2,
   spasmLenMin: 0.45,
@@ -949,7 +949,8 @@ export class MuscleState {
     const u = 1 - this.burstLeft / this.burstLength;
     // Sine-squared ends at zero torque and zero slope, which is what separates a spasm from jitter.
     const wave = Math.sin(Math.PI * clamp(u));
-    const size = this.burstTorque * this.twitch * life * Math.sqrt(life) * wave * wave * dt;
+    // The gaps stretch as well, so this fades slowly: much below the limb's own weight it cannot move it at all.
+    const size = this.burstTorque * this.twitch * Math.sqrt(life) * wave * wave * dt;
     for (let i = 0; i < this.burstCount; i++) {
       const c = this.burstParts[i]!;
       const p = c.parent!;
@@ -958,7 +959,7 @@ export class MuscleState {
       c.tau.addScaledVector(axis, impulse);
       p.tau.addScaledVector(axis, -impulse);
     }
-    if (this.burstLeft <= 0) this.burstWait = lerp(t.twitchGapMin, t.twitchGapMax, this.rng()) / Math.max(life, 0.3);
+    if (this.burstLeft <= 0) this.burstWait = lerp(t.twitchGapMin, t.twitchGapMax, this.rng()) / Math.max(life, 0.6);
   }
 
   private startBurst(life: number): void {

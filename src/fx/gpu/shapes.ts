@@ -54,12 +54,6 @@ export function casing(): THREE.BufferGeometry {
   return faceted(g);
 }
 
-/** Double cone along Y with a fat leading half. Drops are stretched along their velocity in the shader. */
-export function droplet(): THREE.BufferGeometry {
-  const pts = [new THREE.Vector2(0, -1.0), new THREE.Vector2(1, 0.3), new THREE.Vector2(0, 1.0)];
-  return faceted(new THREE.LatheGeometry(pts, 5));
-}
-
 /** Corners of a centred quad, for anything that computes its own orientation. */
 export function quad(): THREE.BufferGeometry {
   const g = new THREE.BufferGeometry();

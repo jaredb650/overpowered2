@@ -5,8 +5,10 @@
 //
 // Env:
 //   AS_LABEL=before     Names the log: tools/out/audio-stress-<label>.json
-//   AS_PLAN=a:20,b:30   Phases and seconds. Default runs them all in 130 s. See PHASES.
+//   AS_PLAN=a:20,b:30   Phases and seconds. Default runs them all in 118 s. See PHASES.
 //   AS_METER=0          Skips the output tap, for runs that want no extra node on the audio thread.
+//   AS_CDP=0            Skips CDP's WebAudio domain. It reports every node and param, which is real main-thread work,
+//                       so the cleanest numbers for frame rate come from a run without it. Loses render capacity.
 //
 // What it reads: engine stats, every request by id and outcome (it wraps startVoice), the AudioContext's state and
 // latency, a worklet tap on the final output (level, NaN, gaps between render calls), and Chrome's own render
@@ -16,7 +18,10 @@ import { join } from 'node:path';
 
 const LABEL = process.env.AS_LABEL ?? 'run';
 const METER = process.env.AS_METER !== '0';
-const PLAN = (process.env.AS_PLAN ?? 'smg:30,buzzsaw:25,rockets:15,slowmo:15,everything:20,pause:5,hidden:5,after:15')
+const CDP = process.env.AS_CDP !== '0';
+/** Ids that must never drop out, and whose requests the summary lists one by one. */
+const MUST_PLAY = /^(smg_fire|shotgun_fire|rocket_fire|minigun_|hit_marker|enemy_headshot|perk_|bloodthirsty_shot|berserk_shot|hellfire_shot)/;
+const PLAN = (process.env.AS_PLAN ?? 'idle:6,smg:30,buzzsaw:25,rockets:12,slowmo:12,everything:15,pause:4,hidden:4,after:10')
   .split(',').map(s => { const [name, seconds] = s.split(':'); return { name, seconds: Number(seconds) }; });
 
 /** Runs in the page. Everything it keeps is plain data, so the log can be read back at any time. */
@@ -193,7 +198,7 @@ async function install({ meter }) {
       duck: s.duck,
       limiterDb: mixer.filters.gainReduction,
       heapMb: Math.round((performance.memory?.usedJSHeapSize ?? 0) / 1048576),
-      playback: ac.playbackStats ? { ...ac.playbackStats.toJSON?.() } : undefined,
+      playback: ac.playbackStats?.toJSON?.(),
       loopIds: [...engine.voices3d, ...engine.voices2d].filter(v => v.loop && !v.releasing).map(v => v.soundId).sort().join(' '),
       live: s,
     };
@@ -233,7 +238,7 @@ export default async function stress(page, h) {
     nodes.byType[e.node.nodeType] = (nodes.byType[e.node.nodeType] ?? 0) + 1;
   });
   cdp.on('WebAudio.audioNodeWillBeDestroyed', () => { nodes.destroyed++; });
-  await cdp.send('WebAudio.enable');
+  if (CDP) await cdp.send('WebAudio.enable');
 
   await page.evaluate(install, { meter: METER });
   say('probe installed');
@@ -265,11 +270,21 @@ export default async function stress(page, h) {
     }
     s.nodesLive = nodes.created - nodes.destroyed;
     s.nodesCreated = nodes.created;
+    const prev = rows.at(-1);
+    if (prev) {
+      const wall = s.t - prev.t;
+      // The audio clock only advances as fast as the render thread keeps up, so below 1 is audio falling behind.
+      s.clockRate = wall > 0 ? (s.currentTime - prev.currentTime) / wall : 1;
+      if (s.playback && prev.playback) {
+        s.underrunShare = (s.playback.underrunDuration - prev.playback.underrunDuration) / Math.max(0.001, s.playback.totalDuration - prev.playback.totalDuration);
+        s.underruns = s.playback.underrunEvents - prev.playback.underrunEvents;
+      }
+    }
     rows.push(s);
     // A run that hits the harness timeout must still leave its log behind.
     if (rows.length % 5 === 0) writeFileSync(file, JSON.stringify({ plan: PLAN, rows, nodes, partial: true }, null, 1));
     const voices = s.voices3d + s.voices2d;
-    console.error(`[${String(Math.round((Date.now() - started) / 1000)).padStart(3)}s ${s.phase.padEnd(10)}] v=${String(voices).padStart(2)} hrtf=${s.hrtf} loops=${s.loops} played=${s.played} drop=${s.dropped} stolen=${s.stolen} cap=${(s.renderCapacity ?? 0).toFixed(3)} lim=${s.limiterDb.toFixed(1)}dB ${s.state} fps=${s.fps} en=${s.enemies} nodes=${s.nodesLive}`);
+    console.error(`[${String(Math.round((Date.now() - started) / 1000)).padStart(3)}s ${s.phase.padEnd(10)}] v=${String(voices).padStart(2)} hrtf=${s.hrtf} loops=${s.loops} played=${s.played} drop=${s.dropped} stolen=${s.stolen} cap=${(s.renderCapacity ?? 0).toFixed(3)} clock=${(s.clockRate ?? 1).toFixed(2)} under=${((s.underrunShare ?? 0) * 100).toFixed(0)}% lim=${s.limiterDb.toFixed(1)}dB ${s.state} fps=${s.fps} en=${s.enemies} nodes=${s.nodesLive}`);
   };
 
   const run = async (name, seconds) => {
@@ -279,7 +294,9 @@ export default async function stress(page, h) {
     } else if (name === 'hidden') {
       await page.evaluate(() => { window.__op2.game.setState('playing'); window.__as.setHidden(true); });
     }
-    for (let i = 0; i < seconds; i++) {
+    // By the clock, not by counting samples: a slow sample must not stretch the run past the harness timeout.
+    const end = Date.now() + seconds * 1000;
+    while (Date.now() < end) {
       await h.sleep(1000);
       await every();
     }
@@ -295,11 +312,14 @@ export default async function stress(page, h) {
   });
   writeFileSync(file, JSON.stringify({ plan: PLAN, rows, nodes, ...tail }, null, 1));
 
+  const lost = Object.entries(tail.ids).filter(([id, r]) => MUST_PLAY.test(id) && r.asked !== r.got).map(([id, r]) => `${id} ${r.got}/${r.asked}`);
+  const asked = Object.values(tail.ids).reduce((n, r) => n + r.asked, 0);
+  const got = Object.values(tail.ids).reduce((n, r) => n + r.got, 0);
   const worstBy = key => rows.reduce((m, r) => Math.max(m, r[key] ?? 0), 0);
   const mean = (list, key) => list.reduce((n, r) => n + (r[key] ?? 0), 0) / Math.max(1, list.length);
   const byPhase = PLAN.map(({ name }) => {
     const list = rows.filter(r => r.phase === name);
-    return `${name}: cap ${mean(list, 'renderCapacity').toFixed(3)} max ${list.reduce((m, r) => Math.max(m, r.renderCapacity ?? 0), 0).toFixed(3)}, voices ${mean(list, 'voices3d').toFixed(0)}+${mean(list, 'voices2d').toFixed(0)}, fps ${mean(list, 'fps').toFixed(0)}, dropped/s ${mean(list, 'dropped').toFixed(1)}, played/s ${mean(list, 'played').toFixed(0)}`;
+    return `${name}: cap ${mean(list, 'renderCapacity').toFixed(3)}, clock ${mean(list, 'clockRate').toFixed(3)}, underrun ${(mean(list, 'underrunShare') * 100).toFixed(1)}%, voices ${mean(list, 'voices3d').toFixed(0)}+${mean(list, 'voices2d').toFixed(0)}, hrtf ${mean(list, 'hrtf').toFixed(1)}, limiter ${mean(list, 'limiterDb').toFixed(1)} dB, played/sample ${mean(list, 'played').toFixed(0)}, dropped ${mean(list, 'dropped').toFixed(1)}`;
   });
   const quiet = tail.meters.filter(m => m.rms < 0.0005).length;
   return {
@@ -307,6 +327,8 @@ export default async function stress(page, h) {
     capabilities: tail.capabilities,
     byPhase,
     nodesByType: nodes.byType,
+    requests: `${got} of ${asked} got a voice`,
+    mustPlayLost: lost,
     worst: { capacity: worstBy('renderCapacity'), loops: worstBy('loops'), hrtf: worstBy('hrtf'), limiterDb: rows.reduce((m, r) => Math.min(m, r.limiterDb), 0) },
     quietQuarters: `${quiet} of ${tail.meters.length}`,
     nan: tail.meters.reduce((n, m) => n + m.nan, 0),

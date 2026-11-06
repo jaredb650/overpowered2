@@ -28,7 +28,7 @@ const SHOVE_FORCE = 0.55;
 /** Metres per second a player standing inside a body drifts out at. */
 const EASE_OUT = 3.5;
 /** The player's ground friction, which eats whatever is added before it can move them. */
-const GROUND_STOP = 110;
+const GROUND_STOP = 100;
 
 const _v = new THREE.Vector3();
 

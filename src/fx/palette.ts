@@ -1,7 +1,7 @@
 import { hot } from './layers/shared';
 
 /**
- * Every colour here is a spec hex from the first game, in linear space.
+ * Every colour here but blood is a spec hex from the first game, in linear space.
  *
  * Khronos Neutral mixes toward white as peak rises, and after the sRGB curve even a 10% mix turns a
  * saturated red into salmon. So flat bodies stay near 1.1, which lands on screen as the original hex,
@@ -42,19 +42,18 @@ export const SPARK = {
   ember: hot(0xff5a10, 2.6),
 };
 
-/** Saturated, and always red. Only a small gain so blood reads as wet colour rather than as light. */
+/**
+ * Albedo, not light: the blood layer is lit by the scene, so these are what the surface reflects and what
+ * reaches the screen depends on where it is. Deep and dark, and a long way under the bloom. Arterial is
+ * oxygenated and brighter, venous nearly black.
+ */
 export const BLOOD = {
-  deep: hot(0xcc0000, 1.05),
-  bright: hot(0xff0000, 1.08),
-  hit: hot(0xff4444, 1.0),
-  dark: hot(0x880000, 1.1),
-  mist: hot(0xe00808, 1.0),
-  mistDark: hot(0x990000, 1.0),
-  splat: hot(0xaa0000, 1.1),
-  shard: hot(0x660000, 1.2),
-  skin: hot(0xffaa88, 0.62),
-  brain: hot(0x992222, 1.1),
+  venous: { r: 0.06, g: 0.0014, b: 0.002 },
+  arterial: { r: 0.2, g: 0.0042, b: 0.0052 },
 };
+
+/** Where a burst sits between the two. */
+export const BLOOD_TONE = { venous: 0.1, wound: 0.55, arterial: 1 };
 
 /** Flat layers of a fireball, coolest outside. Only the heart and the core may clip to white. */
 export const FIRE = {

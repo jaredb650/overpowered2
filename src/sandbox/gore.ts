@@ -335,7 +335,7 @@ const scenarios: Record<string, Scenario> = {
   },
   /** A foot kicked hard so the knee slams straight, at a quarter of a sixtieth of a second per frame. */
   limit: {
-    camera: [0, 1.25, 4.4, 0, 1.15, 0],
+    camera: [-0.15, 1.15, 2.7, -0.15, 1.15, 0],
     dt: 1 / 240,
     compare: true,
     setup(s) {
@@ -381,7 +381,7 @@ const scenarios: Record<string, Scenario> = {
   },
   /** With nothing to fall toward, muscles alone decide the pose. It should be the one NASA measured. */
   zerog: {
-    camera: [0, 1.9, 5.6, 0, 1.75, 0],
+    camera: [-0.1, 1.75, 2.9, -0.1, 1.75, 0],
     compare: true,
     setup(s) {
       s.ctx.physics.world.gravity = { x: 0, y: 0, z: 0 };
@@ -392,7 +392,7 @@ const scenarios: Record<string, Scenario> = {
     },
   },
   fall: {
-    camera: [0, 1.1, 5, 0, 0.75, 0],
+    camera: [-0.15, 0.95, 3.1, -0.15, 0.8, 0],
     compare: true,
     setup(s) {
       placePair(s, -1.5, 1.2);
@@ -402,7 +402,7 @@ const scenarios: Record<string, Scenario> = {
     },
   },
   stairsab: {
-    camera: [-12, 3.6, 5.4, -12, 1.2, -1.4],
+    camera: [-12, 3.1, 3.4, -12, 1, -1.8],
     compare: true,
     setup(s) {
       s.place(-13.4, -3.5, 0, 3.25);
@@ -421,7 +421,7 @@ const scenarios: Record<string, Scenario> = {
   },
   /** A blast in front of each body, far enough apart that neither reaches the other. Arms back, legs forward. */
   blast: {
-    camera: [0.25, 1.5, 11.5, 0.25, 1.2, 0],
+    camera: [0.25, 1.3, 6.4, 0.25, 1.15, 0],
     compare: true,
     setup(s) {
       placePair(s, -2.6, 3.1);
@@ -436,8 +436,7 @@ const scenarios: Record<string, Scenario> = {
   },
   /** Ten bodies each way, dropped in turn so that the cap on live ragdolls never freezes one early. */
   lineup: {
-    camera: [0, 8.6, 7, 0, 0, 1.2],
-    compare: false,
+    camera: [0, 6.2, 4.6, 0, 0, 1.2],
     setup(s) {
       for (let row = 0; row < 2; row++) {
         for (let i = 0; i < 10; i++) s.place(-9 + i * 2, row === 0 ? -1.2 : 3.6, i * 1.7);
@@ -457,7 +456,7 @@ const scenarios: Record<string, Scenario> = {
   },
   /** Dropped dead, collapsing on the spot, and collapsing on the move. */
   collapse: {
-    camera: [0.2, 1.25, 7.4, 0.2, 0.85, 0],
+    camera: [0.3, 1.05, 4.5, 0.3, 0.8, 0],
     setup(s) {
       s.place(-3.2, 0, PROFILE);
       s.place(-0.6, 0, PROFILE);
@@ -478,7 +477,7 @@ const scenarios: Record<string, Scenario> = {
   },
   /** Both dropped dead, only the one on the right twitching. */
   twitch: {
-    camera: [0, 1.5, 3.4, 0, 0.1, 0],
+    camera: [0, 1.2, 2.1, 0, 0.1, 0],
     compare: true,
     setup(s) {
       placePair(s, -1, 1);

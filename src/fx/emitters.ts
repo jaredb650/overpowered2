@@ -2,9 +2,10 @@ import * as THREE from 'three';
 import { rand } from '../core/math';
 import type { EmitterHandle, EmitterPreset } from '../core/contracts';
 import type { FxCore } from './core';
-import { BLOOD, SMOKE, SPARK } from './palette';
+import { BLOOD_TONE, SMOKE, SPARK } from './palette';
 import { hot } from './layers/shared';
 import { burnPuff } from './recipes/misc';
+import { STAIN_SCALE } from './stains';
 
 /** Hard cap. Attaching past it recycles the oldest emitter. */
 const CAP = 64;
@@ -222,33 +223,28 @@ export class EmitterPool {
     }
   }
 
-  /** Dotted droplets off a flying part: spaced by speed, thrown slightly backward. */
+  /** One thin drop at a time off a flying part, thrown slightly backward and spaced by speed. */
   private bloodTrail(s: Slot, dt: number): void {
     if (dt <= 0) return;
     this.travel(dt);
     const speed = _vel.length();
     if (speed <= 1) return;
     const core = this.core;
-    const interval = Math.max(0.03, 0.1 - speed * 0.01);
     s.acc += dt;
-    if (s.acc < interval) return;
+    if (s.acc < Math.max(0.05, 0.14 - speed * 0.012)) return;
     s.acc = 0;
-    const n = speed > 5 ? 3 : 2;
-    const floor = core.floorAt(_p.x, _p.y, _p.z);
-    const c = core.chips.begin('droplet', BLOOD.deep, core.birth, 2, -12, floor, 0, 0);
-    for (let i = 0; i < n; i++) {
-      const back = rand(-0.2, -0.1);
-      c.setLife(rand(1.5, 2));
-      c.setColor(Math.random() < 0.3 ? BLOOD.bright : BLOOD.deep);
-      c.add(_p.x + rand(-0.1, 0.1), _p.y + rand(-0.1, 0.1), _p.z + rand(-0.1, 0.1),
-        _vel.x * back, _vel.y * back, _vel.z * back, rand(0.05, 0.11));
-    }
+    const back = rand(-0.2, -0.1);
+    const b = core.blood.begin(core.bloodNow, core.floorAt(_p.x, _p.y, _p.z), null, BLOOD_TONE.venous);
+    const half = rand(0.0035, 0.0075);
+    const l = b.add(_p.x, _p.y, _p.z, _vel.x * back, _vel.y * back, _vel.z * back, half, 0.04, 1.2);
+    if (Math.random() < 0.4) core.stains.book(core.bloodNow + l.time, l, half * STAIN_SCALE);
   }
 
   /**
    * A heart pumping through a severed artery: hard spurts at 5:1 speed to jitter, with a weak dribble
-   * between beats. Pressure drops and the beat slows as the body bleeds out. Sprays along the offset
-   * when one is given, otherwise along the target's local +Y.
+   * between beats. Pressure drops and the beat slows as the body bleeds out, so the arcs shorten and sag
+   * until it is only dripping. Sprays along the offset when one is given, otherwise along the target's
+   * local +Y.
    */
   private stump(s: Slot, dt: number): void {
     if (dt <= 0) return;
@@ -261,25 +257,31 @@ export class EmitterPool {
     const span = s.duration > 0 ? s.duration : 4;
     const pressure = Math.max(0.2, 1 - s.age / span);
     const period = 0.42 + (1 - pressure) * 0.4;
+    const now = core.bloodNow;
     s.beat -= dt;
     if (s.beat <= 0) {
       s.beat = period;
       s.floor = core.floorAt(_p.x, _p.y, _p.z);
-      const v = 11 * pressure + 3;
+      const wall = core.wallAlong(_p.x, _p.y, _p.z, _dir.x, _dir.y, _dir.z);
+      const b = core.blood.begin(core.bloodNow, s.floor, wall, BLOOD_TONE.arterial * (0.5 + 0.5 * pressure));
+      const v = 10.5 * pressure + 2.5;
       const j = v / 5;
-      const n = Math.round(8 + 12 * pressure);
-      const c = core.chips.begin('droplet', BLOOD.bright, core.birth, 0.9, -15, s.floor, 0, 0);
+      const n = Math.round(2 + 3 * pressure);
       for (let i = 0; i < n; i++) {
-        if (i === 3) c.setColor(BLOOD.deep);
         const k = rand(0.75, 1.15);
-        c.add(_p.x, _p.y, _p.z, _dir.x * v * k + rand(-j, j), _dir.y * v * k + rand(-j, j), _dir.z * v * k + rand(-j, j), rand(0.05, 0.12));
+        const half = rand(0.004, 0.0085);
+        const wait = i * 0.03;
+        const l = b.add(_p.x, _p.y, _p.z, _dir.x * v * k + rand(-j, j), _dir.y * v * k + rand(-j, j), _dir.z * v * k + rand(-j, j), half, 0.09, 1.5, wait);
+        if (i < 2) core.stains.book(now + wait + l.time, l, half * STAIN_SCALE);
       }
     }
     s.acc2 -= dt;
     if (s.acc2 <= 0) {
-      s.acc2 = 0.06;
-      const c = core.chips.begin('droplet', BLOOD.deep, core.birth, 0.6, -15, s.floor, 0, 0);
-      c.add(_p.x, _p.y, _p.z, _dir.x * 2.2 + rand(-0.4, 0.4), _dir.y * 2.2 + rand(-0.4, 0.4), _dir.z * 2.2 + rand(-0.4, 0.4), rand(0.03, 0.06));
+      s.acc2 = 0.16;
+      const b = core.blood.begin(core.bloodNow, s.floor, null, BLOOD_TONE.venous);
+      const half = rand(0.003, 0.0055);
+      const l = b.add(_p.x, _p.y, _p.z, _dir.x * 1.6 + rand(-0.3, 0.3), _dir.y * 1.6 + rand(-0.3, 0.3), _dir.z * 1.6 + rand(-0.3, 0.3), half, 0.05, 0.8);
+      if (Math.random() < 0.3) core.stains.book(now + l.time, l, half * STAIN_SCALE);
     }
   }
 

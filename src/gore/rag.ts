@@ -605,6 +605,8 @@ export class Rag {
   }
 
   applyImpulse(bone: number, point: THREE.Vector3, impulse: THREE.Vector3): void {
+    // A frozen chain has handed its bodies back, and pushing one of those panics Rapier for the rest of the run.
+    if (this.parts.length === 0) return;
     const part = this.partFor(bone);
     const cap = RagTuning.maxImpulseSpeed * part.mass;
     const len = impulse.length();

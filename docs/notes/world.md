@@ -18,7 +18,7 @@ A roofless concrete shoot house in a walled yard, 71 x 71 m inside the perimeter
 ```
  yard, 8.4 m wide: 4 bay gates on the sides, 4 sally ports on the cut corners, 3 T-walls per side
  |  1 TYRES   2 LANES      3 CRATES |     corners 10.5 m square, 4 exits each
- |  8 PLANT   ring/COURT   4 STREET |     halls 28 x 10.5 m, 5 to 6 exits each, a ramp along the shell
+ |  8 PLANT   ring/COURT   4 STREET |     halls 28 x 10.5 m, 6 exits each, a ramp along the shell
  |  7 TILES   6 PLYWOOD    5 SANDBAGS|    ring corridor 4.6 m wide, court 17 m square under the floodlight tower
  catwalk ring at 4.5 m on the ring walls, 4 ramps, each with a pier and a bridge
 ```
@@ -30,9 +30,13 @@ Why the plan looks the way it does:
 - **Ring doors stop at the court's corner.** Any further out and a line runs through two of them down the length of the corridor.
 - **Divider doors are flush with the shell and in line with the ramp.** Sprint through one and you go straight up.
 - **Corner rooms have centre cover above eye height.** The hall doors around a corner share one 45 degree line through that spot.
-- **Corner gates are flush sally ports, not bays.** Opposite corners set the longest walk. A bay behind each added about 8 m.
-- **Three T-walls per side.** A straight line can thread two but never three. Two more per side near the corners cut the worst yard
-  line from 43 to 37 m, but they made a wedge around every shell corner, so they went.
+- **Corner gates are flush sally ports, not bays.** Opposite corners are the two farthest places on the map, 82 m apart in a
+  straight line, so a bay behind each only made the longest walk longer.
+- **Corner rooms have a yard door on both outer walls and halls have one either side of the gate.** One door per hall put the
+  longest walk at 98 m. Two brought it to 90.
+- **Three T-walls per side.** A straight line can thread two but never three. Two more per side near the corners took the 95th
+  percentile sightline from 35 m to 32 m, but they made a wedge around every shell corner, so they went.
+- **The catwalk is a ring, with no arms out to the shell.** The arms were the far end of a 108 m walk to nowhere.
 - **Cover is flush against a wall or at least 3 m clear of everything.** Nothing in between, because that gap is a nook.
 - **Colliders are all boxes.** Panels, paint, plinths, target stands, pipes and rails have none. A wall's collider sits 6 cm proud of
   its core and everything visible fits inside that skin.
@@ -51,6 +55,24 @@ node tools/shot.mjs --url "/?map=killhouse&autostart=1" --dpr 2 --w 1440 --h 900
 ```
 
 `src/world/verify-killhouse.ts` holds the checks. `window.__op2.verify()`, `.sweep()` and `.fuzz(seconds)` run them in the sandbox.
+`killhouse-read.mjs` stands enemies in the dark spots and `killhouse-boot.mjs` compares boot times between maps.
+
+| Check, real Rapier and the real Player at 12.5 m/s | Result |
+|---|---|
+| Colliders | 158, every one a box |
+| Longest walk anywhere | 89 m walked, 94 m along the nav grid. Opposite yard corners, 82 m apart in a straight line |
+| Longest route from any spawn to 19 spots on both levels | 87 m, 0 flow failures |
+| Nav | 4507 nodes, floor 3604, deck 724, ramps 179. Nothing else counts as floor |
+| Doors | 36. 24 at 4.00 m, 8 at 3.94 m (flush with the shell), 4 at 5.00 m |
+| Narrowest gap anywhere on the floor | 3.04 m, none under 3 m. Gate bays and spots beside barrels are not counted |
+| Runs through doors, both ways, 3 offsets, 5 angles to 40 degrees, with and without a dash | 1338 of 1338 got through, worst 0.06 s lost |
+| Runs along every wall and block face, leaning 6 degrees in | 101, 0 catches, 0.83 of top speed made good |
+| Runs out of each gate bay | 12 of 12 |
+| Ramps foot to pier, deck ring end to end across its seams | 8 of 8, 0.89 of top speed at worst |
+| Random hands, 300 s | 0 frames inside geometry, 0 falls, 0 trapped |
+| Holes in the floor, rays out of the perimeter below 24 m | 0, 0 |
+| Sightlines between standing eyes at least 18 m apart | 95% within 34 m, 13% over 30 m, longest 46 m. The long ones are slim lines through three doors |
+| Pickups | 27, one or two in every space, 3 mega health spots on the deck corners, none stranded |
 
 # The Crucible
 

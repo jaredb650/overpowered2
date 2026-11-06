@@ -52,6 +52,7 @@ class Fx implements FxSystem {
   update(): void {
     this.emitters.update();
     this.core.runTinkles(this.onTinkle);
+    this.core.runStains();
     this.core.syncFrame();
   }
 

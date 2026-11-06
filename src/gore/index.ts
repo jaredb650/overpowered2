@@ -428,13 +428,14 @@ export class Gore implements GoreSystem {
     this.blood.spray(at, dir, count, 8, 0.5, size * 0.26);
   }
 
-  private enforceBudget(): void {
+  /** `keep` has just been woken and is about to be used, so it is the one chain that may not freeze here. */
+  private enforceBudget(keep?: PinTarget): void {
     let live = 0;
     for (const b of this.bodies) if (b.rag?.active && b.sinking < 0) live++;
     for (let i = 0; i < this.bodies.length && live > GoreTuning.maxRagdolls; i++) {
       const b = this.bodies[i]!;
       // Frozen mid-collapse, a body would stand there for good.
-      if (b.rag?.active && b.stakes.length === 0 && !b.rag.muscle?.collapse) {
+      if (b !== keep && b.rag?.active && b.stakes.length === 0 && !b.rag.muscle?.collapse) {
         this.freezeBody(b);
         live--;
       }
@@ -458,7 +459,7 @@ export class Gore implements GoreSystem {
       const l = this.limbs[i]!;
       if (l.sinking >= 0) continue;
       if (l.rag.active) {
-        if (liveLimbs > GoreTuning.maxLiveLimbs) {
+        if (liveLimbs > GoreTuning.maxLiveLimbs && l !== keep) {
           this.freezeLimb(l);
           liveLimbs--;
         }
@@ -1001,7 +1002,7 @@ export class Gore implements GoreSystem {
     if (!rag || rag.active) return;
     rag.wake();
     for (const stake of target.stakes) this.nail(rag, stake);
-    this.enforceBudget();
+    this.enforceBudget(target);
   }
 
   /** Ties the struck bone to the wall. The point it hangs from is wherever the bone is right now. */

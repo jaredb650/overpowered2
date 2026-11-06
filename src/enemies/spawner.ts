@@ -79,8 +79,9 @@ export class Spawner {
         this.coldUntil.set(s, now + REUSE_SECONDS);
         return s;
       }
-      // Being seen is the worst thing a spawn can do, then being close. A long walk is the cheapest compromise.
-      const score = off + (seen ? 200 : 0) + (path < minPath ? 50 : 0);
+      // Being seen is the worst thing a spawn can do, then being close. A long walk is the cheapest compromise, so a
+      // point just inside the band must still lose to one a long way past it.
+      const score = off + (seen ? 400 : 0) + (path < minPath ? 200 : 0);
       if (score < fallbackScore) {
         fallbackScore = score;
         fallback = s;

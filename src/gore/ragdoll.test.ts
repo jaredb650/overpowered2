@@ -440,6 +440,44 @@ describe('corpses', () => {
     }
   });
 
+  /** One frozen corpse, older than a full budget of simulated bodies. */
+  const atTheCap = (): TestDummy => {
+    gore.clear();
+    const old = spawn(0, 0);
+    gore.ragdoll(old);
+    run(300);
+    expect(gore.stats().ragdolls).toBe(0);
+    for (let i = 0; i < GoreTuning.maxRagdolls; i++) gore.ragdoll(spawn((i % 5) * 1.5, 3 + Math.floor(i / 5) * 1.5));
+    run(1);
+    expect(gore.stats().ragdolls).toBe(GoreTuning.maxRagdolls);
+    return old;
+  };
+
+  it('a corpse shot at the ragdoll budget wakes and stays awake', () => {
+    const old = atTheCap();
+    const at = v(0, -0.2, 0).applyMatrix4(old.bones[B.thighL]!.matrixWorld);
+    const from = at.clone().add(v(0.3, 3, 0.2));
+    const dir = at.clone().sub(from).normalize();
+    const hit = gore.raycastCorpses(from, dir, 10)!;
+    expect(hit).not.toBeNull();
+    // Freezing it again here would leave the shot pushing a body Rapier no longer has, which panics the whole world.
+    gore.damageCorpse(hit, { ...damage(hit.point), dir, amount: 5 });
+    run(2);
+    expect(gore.stats().ragdolls).toBe(GoreTuning.maxRagdolls);
+    const y0 = old.bones[B.hips]!.matrixWorld.elements[13]!;
+    run(1);
+    expect(old.bones[B.hips]!.matrixWorld.elements[13]!).not.toBe(y0);
+  });
+
+  it('a blast at the ragdoll budget leaves frozen corpses frozen', () => {
+    const old = atTheCap();
+    const y0 = old.bones[B.hips]!.matrixWorld.elements[13]!;
+    physics.radialImpulse(v(0, 0.5, 1), 12, 160);
+    run(5);
+    expect(gore.stats().ragdolls).toBe(GoreTuning.maxRagdolls);
+    expect(old.bones[B.hips]!.matrixWorld.elements[13]!).toBe(y0);
+  });
+
   it('wakes frozen corpses caught in a blast', () => {
     gore.clear();
     const c = spawn(0, 0);

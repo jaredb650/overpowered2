@@ -60,9 +60,9 @@ function drawPlan(plan: MapPlan, extent: number): MinimapData {
   };
 }
 
-export function drawMinimap(nav: NavGraph, spec: MapSpec, kit: Kit, EXTENT: number): MinimapData {
-  if (spec.plan) return drawPlan(spec.plan, EXTENT);
-  const scale = SIZE / (EXTENT * 2);
+export function drawMinimap(nav: NavGraph, spec: MapSpec, kit: Kit, extent: number): MinimapData {
+  if (spec.plan) return drawPlan(spec.plan, extent);
+  const scale = SIZE / (extent * 2);
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = SIZE;
   const c = canvas.getContext('2d', { willReadFrequently: true })!;
@@ -73,9 +73,9 @@ export function drawMinimap(nav: NavGraph, spec: MapSpec, kit: Kit, EXTENT: numb
   const img = c.getImageData(0, 0, SIZE, SIZE);
   const px = img.data;
   for (let j = 0; j < SIZE; j++) {
-    const z = (j + 0.5) / scale - EXTENT;
+    const z = (j + 0.5) / scale - extent;
     for (let i = 0; i < SIZE; i++) {
-      const x = (i + 0.5) / scale - EXTENT;
+      const x = (i + 0.5) / scale - extent;
       if (kit.vox.isSolid(x, 4, z) || kit.vox.isSolid(x, 12, z)) {
         const o = (j * SIZE + i) * 4;
         px[o] = 22; px[o + 1] = 34; px[o + 2] = 46; px[o + 3] = 255;
@@ -84,7 +84,7 @@ export function drawMinimap(nav: NavGraph, spec: MapSpec, kit: Kit, EXTENT: numb
   }
   // Floor colour by height, painted lowest first so upper levels sit on top.
   const put = (x: number, z: number, r: number, g: number, b: number) => {
-    const i0 = Math.floor((x - 0.5 + EXTENT) * scale), j0 = Math.floor((z - 0.5 + EXTENT) * scale);
+    const i0 = Math.floor((x - 0.5 + extent) * scale), j0 = Math.floor((z - 0.5 + extent) * scale);
     const span = Math.ceil(scale) + 1;
     for (let j = j0; j < j0 + span; j++) for (let i = i0; i < i0 + span; i++) {
       if (i < 0 || j < 0 || i >= SIZE || j >= SIZE) continue;
@@ -104,12 +104,12 @@ export function drawMinimap(nav: NavGraph, spec: MapSpec, kit: Kit, EXTENT: numb
   // Lava and pads are the two things worth reading at a glance.
   c.fillStyle = '#ff6420';
   for (const b of spec.lava) {
-    c.fillRect((b.min.x + EXTENT) * scale, (b.min.z + EXTENT) * scale, (b.max.x - b.min.x) * scale, (b.max.z - b.min.z) * scale);
+    c.fillRect((b.min.x + extent) * scale, (b.min.z + extent) * scale, (b.max.x - b.min.x) * scale, (b.max.z - b.min.z) * scale);
   }
   c.fillStyle = '#7fe6ff';
   for (const p of spec.pads) {
     c.beginPath();
-    c.arc((p.pos.x + EXTENT) * scale, (p.pos.z + EXTENT) * scale, 4, 0, Math.PI * 2);
+    c.arc((p.pos.x + extent) * scale, (p.pos.z + extent) * scale, 4, 0, Math.PI * 2);
     c.fill();
   }
   c.font = '600 19px ui-monospace, Menlo, monospace';
@@ -118,10 +118,10 @@ export function drawMinimap(nav: NavGraph, spec: MapSpec, kit: Kit, EXTENT: numb
   for (const z of spec.zones) {
     if (z.id === 'ring') continue;
     const m = z.bounds.getCenter(new THREE.Vector3());
-    c.fillText(z.name.toUpperCase(), (m.x + EXTENT) * scale, (m.z + EXTENT) * scale);
+    c.fillText(z.name.toUpperCase(), (m.x + extent) * scale, (m.z + extent) * scale);
   }
   return {
     image: canvas,
-    bounds: new THREE.Box3(new THREE.Vector3(-EXTENT, -20, -EXTENT), new THREE.Vector3(EXTENT, 120, EXTENT)),
+    bounds: new THREE.Box3(new THREE.Vector3(-extent, -20, -extent), new THREE.Vector3(extent, 120, extent)),
   };
 }

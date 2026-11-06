@@ -305,7 +305,8 @@ export function shotgun(t: ShotgunTuning): AttackDef {
     },
     fire(e, w) {
       muzzleOf(e, _muzzle);
-      aimAtPlayer(w, _muzzle, _a, t.speed, 0.35, 0.2, 2.2);
+      // Barely led and wide at speed: the pump is the warning, so anyone already moving should catch only the edge.
+      aimAtPlayer(w, _muzzle, _a, t.speed, 0.15, 0.2, 4.2);
       for (let i = 0; i < t.pellets; i++) {
         _dir.copy(_a);
         _dir.x += rand(-0.07, 0.07);
