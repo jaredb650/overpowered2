@@ -43,7 +43,8 @@ function spawn(x = 0, z = 0, y = 0, source: RigDef = rig): TestDummy {
 /** A body on the real animator, which is what a collapse follows. */
 function spawnLiving(x = 0, z = 0): TestDummy {
   const c = spawn(x, z, 0, trooperRig);
-  const anim = new HumanoidAnimator(c.bones, trooperRig, trooper, c.root, c.severed, () => false);
+  // What the game passes. Hard-wired to false, the animator never learned a limb had gone, and that hid a ragdoll seeded at 12 m/s.
+  const anim = new HumanoidAnimator(c.bones, trooperRig, trooper, c.root, c.severed, b => (c as unknown as { hidden: Uint8Array }).hidden[b] === 1);
   (c as { anim: unknown }).anim = anim;
   for (let i = 0; i < 20; i++) {
     anim.setLocomotion({ speed: 0, moveX: 0, moveZ: 1, aimYaw: 0, aimPitch: 0, grounded: true });
@@ -591,18 +592,21 @@ describe('a lethal headshot', () => {
     return c;
   }
 
-  it('is limp on the frame it lands, standing, running or crouched, and on the floor in about a third of a second', () => {
+  it('is limp on the frame it lands, standing, running or crouched, and falls at the speed of gravity to the floor', () => {
     for (const [speed, crouched] of [[0, false], [3.8, false], [0, true]] as const) {
       gore.clear();
       const c = caught(speed, crouched);
+      const chest = at(c, B.chest).y;
       gore.headshot(c, shot(c), v(0, 0, speed));
       const rag = ragOf(c);
       expect(gore.stats().ragdolls).toBe(1);
       expect(gore.stats().collapses).toBe(0);
       expect(rag.slack).toBe(true);
+      run(12);
+      // Twelve frames of free fall at this game's gravity is 0.38 m. Anything further was thrown at the floor.
+      expect(at(c, B.chest).y).toBeGreaterThan(chest - 0.4);
       run(24);
-      // Free fall from the hips is 16 frames, and the hit-stop takes two of them.
-      expect(at(c, B.chest).y).toBeLessThan(0.6);
+      expect(at(c, B.chest).y).toBeLessThan(0.3);
       expect((rag.muscle as unknown as { tone: number }).tone).toBe(0);
     }
     gore.clear();
@@ -618,6 +622,33 @@ describe('a lethal headshot', () => {
     gore.clear();
     expect(travelled).toBeGreaterThan(0.8);
     expect(travelled).toBeLessThan(3);
+  });
+
+  it('starts at the speed it had, whatever it lost in the same frame', () => {
+    const speed = (rag: Rag): number => {
+      const p = new THREE.Vector3();
+      let mass = 0;
+      for (const part of rag.parts) {
+        const lin = part.body.linvel();
+        p.x += lin.x * part.mass;
+        p.y += lin.y * part.mass;
+        p.z += lin.z * part.mass;
+        mass += part.mass;
+      }
+      return p.length() / mass;
+    };
+    gore.clear();
+    const headless = caught(0, false);
+    gore.headshot(headless, shot(headless));
+    expect(speed(ragOf(headless))).toBeLessThan(1);
+
+    gore.clear();
+    const armless = caught(0, false);
+    gore.sever(armless, 'armL', shot(armless));
+    gore.sever(armless, 'armR', shot(armless));
+    gore.ragdoll(armless);
+    expect(speed(ragOf(armless))).toBeLessThan(1);
+    gore.clear();
   });
 
   it('twitches only once it has landed', () => {
