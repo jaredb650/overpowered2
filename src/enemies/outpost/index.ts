@@ -14,8 +14,11 @@
  *   waves.ts      how they arrive
  *   comms.ts      what they say
  *   events.ts     what the rest of the game can listen to
+ *
+ * What a hit does to one of them is ../wounds, which this owns and calls ahead of every man's frame.
  */
 import * as THREE from 'three';
+import { HumanoidBone as B } from '../../characters/rig';
 import type { DamageInfo } from '../../core/contracts';
 import type { DamageResult, EnemyId, EnemyInstance, KillEvent } from '../../core/gameplay';
 import { chance, rand, TAU } from '../../core/math';
@@ -36,8 +39,10 @@ import { hear, Intel, sense, SENSE_INTERVAL } from './perception';
 import { RouteFinder, type NavGrid } from './routes';
 import { discharge, enlist, Soldier, soldierOf, type Urgency } from './soldier';
 import { OutpostSquad, type Door } from './squad';
-import { soldierAttacks } from './weapons';
-import { OutpostWaves, replaceWaves } from './waves';
+import { dropGrenade, soldierAttacks } from './weapons';
+import { OutpostWaves } from './waves';
+import { WoundSystem } from '../wounds';
+import { WoundTuning } from '../wounds/rules';
 
 export { soldierOf } from './soldier';
 
@@ -73,6 +78,8 @@ const GATE_MIN_PATH = 24;
 const GATE_REST = 14;
 /** Cosine of the half angle behind a man that counts as in the back: 60 degrees. */
 const BACK_ARC = 0.5;
+/** Seconds a man's last call for help still brings people. */
+const CALLED_FOR = 7;
 
 const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
@@ -80,6 +87,8 @@ const _heard = new THREE.Vector3();
 
 interface PostureHost {
   disarm?(): void;
+  rearm?(): void;
+  setShield?(rot: THREE.Quaternion | null): void;
 }
 
 interface Planned {
@@ -104,6 +113,7 @@ export class Outpost {
   readonly squads: OutpostSquad[] = [];
   readonly soldiers: Soldier[] = [];
   readonly waves: OutpostWaves;
+  readonly wounds: WoundSystem;
   /** Men kneeling. They stay in `alive`, because they can still be shot, but they no longer count. */
   prisoners = 0;
   /** For anyone holding `ctx.enemies.outpost`: the soldier on a body, if it has one. */
@@ -138,11 +148,12 @@ export class Outpost {
     this.comms = new Comms(w);
     this.dropped = new DroppedWeapons(w.ctx);
     this.waves = new OutpostWaves(w.ctx, this, manager);
+    this.wounds = new WoundSystem(w, this, manager);
   }
 
   init(): void {
     const { ctx } = this.w;
-    replaceWaves(ctx.waves, this.waves);
+    this.wounds.init();
     const { events } = ctx;
     events.on('enemy:killed', k => this.onKilled(k));
     events.on('enemy:hit', h => this.onHit(h.enemy, h.damage, h.result));
@@ -279,7 +290,9 @@ export class Outpost {
     e.barkAt = Infinity;
     // Routes are checked against the graph when they are made, so soldiers never need the swarm's wall probe.
     e.probeAt = Infinity;
+    e.footbound = true;
     e.yaw = Math.atan2(-e.position.x, -e.position.z);
+    this.wounds.onSpawn(s);
   }
 
   // -------------------------------------------------------------------------------------------
@@ -297,13 +310,13 @@ export class Outpost {
       // Movement falls back on the flow field when a point move stalls. That leads to the player, and a man falling back
       // must not be walked into him, so soldiers handle their own stalls.
       s.e.flowUntil = 0;
-      this.stayGrounded(s.e);
       if (s.fighting && now >= s.senseAt) {
         s.senseAt = now + SENSE_INTERVAL;
         sense(s, w, SENSE_INTERVAL);
       }
       if (s.hasOrder && now >= s.orderAt && this.routesLeft > 0) this.depart(s);
     }
+    this.wounds.update();
     this.updateRadio(now);
     if (this.intel.at >= 0) {
       this.intel.refreshFan(now);
@@ -319,20 +332,6 @@ export class Outpost {
     if (now >= this.noiseAt) this.listenToFeet(now);
     this.updateBangs(now);
     this.dropped.update(dt);
-  }
-
-  /**
-   * Movement leaps a body stopped by a wall onto any ledge in reach. That keeps the swarm flowing, and it puts a man in kit
-   * on a catwalk 4.5 m up from a standing start. A leap has a flight time, so this catches it on its first frame and leaves
-   * falls alone. Wanting to leap means he is against something, so he is put back on the floor as well.
-   */
-  private stayGrounded(e: Enemy): void {
-    if (!e.airborne || e.flightLeft <= 0) return;
-    e.airborne = e.ballistic = false;
-    e.flightLeft = e.verticalSpeed = 0;
-    e.position.y = e.groundY;
-    e.velocity.set(0, 0, 0);
-    this.unstick(e);
   }
 
   /**
@@ -378,6 +377,8 @@ export class Outpost {
   // -------------------------------------------------------------------------------------------
 
   order(s: Soldier, dest: THREE.Vector3, spot: CoverSpot | null, urgency: Urgency, delay: number): void {
+    // Dazed by a blast, he does not know he was told anything.
+    if (s.injuries.concussed(this.w.now)) return;
     if (s.spot && s.spot !== spot) s.spot.claimedBy = 0;
     s.spot = spot;
     if (spot) spot.claimedBy = s.e.uid;
@@ -395,6 +396,13 @@ export class Outpost {
     if (!spot) return;
     const lean = reading.side < 0 ? spot.leanLeft : reading.side > 0 ? spot.leanRight : null;
     s.firePoint.copy(lean ?? spot.position);
+  }
+
+  /** A route out of this frame's allowance. False once it is gone: whoever asked waits a frame. */
+  takeRoute(): boolean {
+    if (this.routesLeft <= 0) return false;
+    this.routesLeft--;
+    return true;
   }
 
   private depart(s: Soldier): void {
@@ -513,7 +521,7 @@ export class Outpost {
   noise(at: THREE.Vector3, radius: number): void {
     const r2 = radius * radius;
     for (const s of this.soldiers) {
-      if (!s.fighting) continue;
+      if (!s.fighting || s.injuries.concussed(this.w.now)) continue;
       const d2 = s.e.position.distanceToSquared(at);
       if (d2 < r2) hear(s, this.w, at, Math.sqrt(d2), _heard);
     }
@@ -613,8 +621,7 @@ export class Outpost {
     s.throwKind = null;
     if (s.patient) s.patient.rescuer = null;
     s.patient = null;
-    this.dropped.drop(e);
-    (e.char.anim as unknown as PostureHost).disarm?.();
+    this.dropWeapon(s, false);
     e.attacks = [];
     e.shield = false;
     const cornered = e.dist < SURRENDER_RANGE;
@@ -623,6 +630,49 @@ export class Outpost {
     e.thinkAt = 0;
     e.behaviourUntil = 0;
     w.ctx.events.emit('enemy:broken', { enemy: e, fate: s.fate });
+  }
+
+  /** Empty hands. With `goBack`, he means to go after what he dropped. */
+  dropWeapon(s: Soldier, goBack: boolean): void {
+    const e = s.e;
+    if (e.attack) finishAttack(e, this.w, true);
+    const gun = this.dropped.drop(e);
+    (e.char.anim as unknown as PostureHost).disarm?.();
+    s.weapon = 'none';
+    s.scramble = goBack ? gun : null;
+    s.sidearmLeft = false;
+    e.thinkAt = 0;
+    e.behaviourUntil = 0;
+  }
+
+  /** The arm behind it went. His other hand is still his. */
+  dropShield(s: Soldier): void {
+    this.dropped.drop(s.e, B.handL);
+    (s.e.char.anim as unknown as PostureHost).setShield?.(null);
+  }
+
+  /** He got his hands on it, and however bad the hand is he is going to try. */
+  pickUpWeapon(s: Soldier): void {
+    const gun = s.scramble;
+    s.scramble = null;
+    if (!gun || !this.dropped.reclaim(gun, s.e)) return;
+    (s.e.char.anim as unknown as PostureHost).rearm?.();
+    s.weapon = 'primary';
+    s.e.thinkAt = 0;
+    s.e.behaviourUntil = 0;
+  }
+
+  /** Nothing left to fight with. The next morale tick takes him out of the squad. */
+  breakNerve(s: Soldier): void {
+    s.morale = Math.min(s.morale, 0);
+    s.scaredAt = this.w.now;
+  }
+
+  /** The last thing he does. */
+  dropLiveGrenade(s: Soldier): void {
+    s.grenades--;
+    this.comms.say('lastStand', s);
+    dropGrenade(s.e, this.w);
   }
 
   onSurrender(s: Soldier): void {
@@ -672,6 +722,7 @@ export class Outpost {
     const severed = k.severedCount;
     dread.onKill({ gibbed: k.gibbed, sliced: k.sliced, headshot: k.headshot, severed }, w.now);
     const brutal = k.gibbed || k.sliced || k.headshot || severed > 0;
+    this.wounds.onDeath(s);
     const fear = s.surrendered ? FEAR.execution : FEAR.allyDown + (brutal ? FEAR.brutal : 0);
     const r2 = WITNESS_RANGE * WITNESS_RANGE;
     for (const o of this.soldiers) {
@@ -714,13 +765,7 @@ export class Outpost {
 
   private onSevered(enemy: EnemyInstance): void {
     const s = soldierOf(enemy);
-    if (!s || !s.fighting) return;
-    this.scare(s, FEAR.limbLost);
-    // No gun arm and nothing in the other hand: there is nothing left for him to fight with.
-    if (!s.e.maim.gunArm && !s.e.def.sidearm) {
-      s.morale = Math.min(s.morale, 0);
-      s.scaredAt = this.w.now;
-    }
+    if (s?.fighting) this.scare(s, FEAR.limbLost);
   }
 
   // -------------------------------------------------------------------------------------------
@@ -728,9 +773,9 @@ export class Outpost {
   // -------------------------------------------------------------------------------------------
 
   /**
-   * The hook for the wound conditions: a man is on the floor, or back on his feet. The wounds work owns when that happens,
-   * how long he lasts and what he does down there. This owns who comes for him: `Outpost.assignAid` sends the nearest
-   * medic or squadmate, who drags him out of the open if he has to, and revives him.
+   * A man is on the floor, or back on his feet. The wounds own when that happens, how long he lasts and what he does down
+   * there. This owns who comes for him: `assignAid` sends the nearest medic or squadmate, who drags him out of the open if he
+   * has to, and works on him.
    */
   setDowned(e: EnemyInstance, down: boolean): void {
     const s = soldierOf(e);
@@ -748,6 +793,7 @@ export class Outpost {
       this.comms.say('medic', s);
     } else {
       s.rescuer = null;
+      s.crawling = false;
       if (s.squad.members.indexOf(s) < 0) s.squad.join(s);
     }
     body.thinkAt = 0;
@@ -758,10 +804,12 @@ export class Outpost {
     this.aidAt = now + AID_TICK;
     const p = this.w.player.position;
     for (const hurt of this.soldiers) {
-      if (!hurt.downed || hurt.rescuer) continue;
+      if (!hurt.downed || hurt.rescuer || hurt.injuries.stabilised) continue;
       if (hurt.e.position.distanceToSquared(p) < AID_DANGER * AID_DANGER) continue;
+      // A man calling out is heard further than a man lying quiet, and that is the whole of the bait.
+      const reach = now - hurt.calledAt < CALLED_FOR ? WoundTuning.baitRange : AID_REACH;
       let best: Soldier | null = null;
-      let bestD = AID_REACH * AID_REACH;
+      let bestD = reach * reach;
       for (const s of this.soldiers) {
         if (!s.fighting || s.patient || s.state === 'panicked' || s.e.maim.legs < 2) continue;
         // A medic comes from further away than anybody else.
@@ -771,10 +819,22 @@ export class Outpost {
           best = s;
         }
       }
-      if (best) {
-        best.patient = hurt;
-        hurt.rescuer = best;
-      }
+      if (!best) continue;
+      best.patient = hurt;
+      hurt.rescuer = best;
+      this.comms.say('rescue', best);
+      if (now - hurt.calledAt < CALLED_FOR) this.sendEscort(best, hurt);
+    }
+  }
+
+  /** Nobody lets him go in alone. Which is how one man left alive brings a squad out of cover. */
+  private sendEscort(rescuer: Soldier, hurt: Soldier): void {
+    let sent = 0;
+    for (const s of rescuer.squad.members) {
+      if (sent >= WoundTuning.baitEscort) return;
+      if (s === rescuer || !s.fighting || s.patient || s.state === 'panicked' || s.e.maim.legs < 2) continue;
+      this.order(s, hurt.e.position, null, 2, sent * 0.4);
+      sent++;
     }
   }
 

@@ -10,6 +10,7 @@
 - `banner(text, sub, color)`: text starting `WAVE` takes the full-width band, anything else a stamp. Stamps stack three deep, and a
   repeat of the same text is dropped while it is up.
 - `marker(pos, label, color)` returns a remover. Pool of 24, oldest out. A remover held past a reuse does nothing.
+- `seat(panel)` puts up a `SeatPanel` and sets `.seated` on the HUD, which hides the on-foot widgets (the rule is in `src/vehicles/gunner.css`). Score, feeds, combo, banners, minimap and hit markers stay. `panel.update()` runs after the camera, so its brackets sit on this frame's picture. Null brings the HUD back. The panel lives inside the HUD, so pause hides it too.
 - `Hud` adds `startRun()`, `resume()`, `pause()`, `quitToMenu()`, and reads the game through `window.__op2.game` (`GameHost`).
 
 The HUD reads the game once a frame in `state.ts`, the only file that knows field names. It listens for `game:state`, `run:start`,

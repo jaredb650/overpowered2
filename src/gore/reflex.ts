@@ -307,7 +307,7 @@ export class Reflex {
 
   /** Face up or face down, read off the chest. Also where a legless body stops. */
   private pickGetUp(): GetUpKind {
-    if (this.legs.length === 0) return 'crawl';
+    if (this.legs.length === 0 || this.anim.prone) return 'crawl';
     const chest = this.spine ?? this.rag.parts[0]!;
     _front.set(0, 0, 1).applyQuaternion(chest.q);
     return _front.y > 0 ? 'supine' : 'prone';

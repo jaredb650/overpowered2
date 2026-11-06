@@ -2,7 +2,20 @@
  * Section 14.6 as data: what each part of a man does when it is hit, and how weapons differ. Nothing here touches the game, so
  * the table can be read, tuned and tested on its own. Bleed rates are shares of max health per second.
  */
-import type { DamageType } from '../../core/contracts';
+import type { FactionRules } from '../../contracts/data';
+import type { DamageInfo, DamageType } from '../../core/contracts';
+
+/** Section 14.1 for humans, sections 8 and 15 for the swarm: whether a killing hit bursts the body or leaves one. */
+export function bursts(rules: FactionRules, d: DamageInfo, maxHealth: number, overkill: boolean): boolean {
+  const explosive = d.type === 'explosive';
+  const flagged = d.gib === true;
+  // Struck by the thing itself, not just near it. Combat flags a rocket's own impact and every blast round it the same way.
+  if (flagged && (!explosive || d.bone !== undefined)) return true;
+  if (flagged && !rules.pointBlankOnly) return true;
+  if (!explosive) return false;
+  if (rules.pointBlankOnly) return flagged && d.amount >= maxHealth * rules.blastBurst;
+  return overkill || d.amount >= maxHealth * rules.blastBurst;
+}
 
 /** Section 14.1. */
 export type Condition = 'healthy' | 'wounded' | 'mortal' | 'downed' | 'dead';
@@ -46,7 +59,7 @@ export interface ZoneRule {
 
 export const ZONES: Record<ZoneId, ZoneRule> = {
   thigh: { label: 'KNEECAPPED', bonus: 40, bleed: 0.004, speed: 0.62, aim: 1.25, limps: true, screams: 8 },
-  innerThigh: { label: 'FEMORAL', bonus: 90, bleed: 0.085, speed: 0.5, aim: 1.5, limps: true, screams: 6 },
+  innerThigh: { label: 'FEMORAL', bonus: 90, bleed: 0.14, speed: 0.5, aim: 1.5, limps: true, screams: 6 },
   hand: { label: 'DISARMED', bonus: 75, bleed: 0.003, speed: 1, aim: 1.3, disables: 'hand' },
   arm: { label: 'ARM SHOT', bonus: 50, bleed: 0.006, speed: 0.95, aim: 1.7, disables: 'arm' },
   shoulder: { label: 'ARM SHOT', bonus: 50, bleed: 0.01, speed: 0.9, aim: 1.7, disables: 'arm' },
@@ -70,7 +83,7 @@ export const WoundTuning = {
   /** Chance a mortal wound ends with him dead on his feet rather than down and crawling. */
   mortalDropsDead: 0.4,
   /** Mortal hits add their share of max health to this, which fades, and at 1 he drops dead. Three SMG rounds at wave 1. */
-  rapidLimit: 1,
+  rapidLimit: 0.95,
   rapidFade: 0.9,
   /** Share of max health in one hit that kills through the trunk, whatever it strikes. */
   overwhelming: 1.6,
@@ -114,6 +127,9 @@ export const WoundTuning = {
   /** Men who go along with the one sent to fetch him. */
   baitEscort: 2,
 } as const;
+
+/** Rounds in a pistol. */
+export const SIDEARM_MAG = 9;
 
 /** Section 14.6, weapon character: what each kind of hit does to the channel it leaves. */
 export interface WeaponCharacter {

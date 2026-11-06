@@ -169,5 +169,7 @@ declare module '../../core/contracts' {
     getUp?(kind: GetUpKind, seconds: number, hurt: number): number;
     /** Writes the first frame of a get-up onto the bones, and where its hips sit relative to the root into `hips`. */
     poseGetUpStart?(kind: GetUpKind, hips: THREE.Vector3): void;
+    /** On the floor to stay. A body handed back to this animator takes up its crawl and does not get up. */
+    readonly prone?: boolean;
   }
 }

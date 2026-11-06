@@ -19,7 +19,7 @@ import { aboveFloor } from './callins/shared';
 import { ChainEffects } from './chains';
 import { Combo, TimeWindow } from './counters';
 import {
-  ASSIST_COMBO_EVERY, ASSIST_SOURCES, CHAIN_REACTION_KILLS, COMBO_PERKS, COMBO_WINDOW, EFFECTS, OVERDRIVE_MIN_SPEED, REGEN, SKYFALL,
+  AIMED_ASSISTS, ASSIST_COMBO_EVERY, ASSIST_SOURCES, CHAIN_REACTION_KILLS, COMBO_PERKS, COMBO_WINDOW, EFFECTS, OVERDRIVE_MIN_SPEED, REGEN, SKYFALL,
   SLOWMO_SAME_HEAD_GAP, STYLE_GATE, STYLE_PERKS, VAMPIRE_HEAL, WINDOWS, type EffectId, type StylePerk,
 } from './data';
 import { FrostNova } from './frost';
@@ -101,7 +101,8 @@ class Progression implements ProgressionSystem {
     events.on('enemy:killed', e => { if (DevFlags.progression) this.onKill(e); });
     events.on('enemy:hit', e => { if (DevFlags.progression) this.onHit(e.enemy, e.damage, e.result); });
     events.on('enemy:severed', e => { if (DevFlags.progression) this.onSevered(e.enemy, e.damage); });
-    events.on('enemy:executed', e => { if (DevFlags.progression) this.onExecuted(e.kill.enemy); });
+    // A prisoner caught in a strike's splash is not the player's choice, so it earns nothing.
+    events.on('enemy:executed', e => { if (DevFlags.progression && !ASSIST_SOURCES.test(e.kill.damage.source)) this.onExecuted(e.kill.enemy); });
     events.on('wave:clear', e => {
       if (e.bonus > 0) this.scoreKeeper.add(e.bonus, 'wave');
       this.scoreKeeper.persist();
@@ -162,7 +163,9 @@ class Progression implements ProgressionSystem {
     const now = this.ctx.time.realElapsed;
     const assist = ASSIST_SOURCES.test(e.damage.source);
     const previousTier = this.scoreKeeper.comboTier(this.combo);
-    const combo = assist ? this.comboCounter.assist(ASSIST_COMBO_EVERY) : this.comboCounter.hit();
+    const combo = !assist
+      ? this.comboCounter.hit()
+      : AIMED_ASSISTS.test(e.damage.source) ? this.comboCounter.assist(ASSIST_COMBO_EVERY) : this.comboCounter.keep();
     this.ctx.events.emit('combo:changed', { combo });
     if (this.scoreKeeper.comboTier(combo) > previousTier) this.ctx.audio.play('combo_tier');
     else this.ctx.audio.play('combo_tick', { pitch: 1 + Math.min(combo, 50) * COMBO_PITCH_STEP });

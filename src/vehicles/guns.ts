@@ -25,8 +25,6 @@ export interface GunSpec {
   scale?: number;
 }
 
-const _muzzle = new THREE.Vector3();
-
 export class Gun {
   /** The pivot. Parent to the scene only, like `Airframe.root`. */
   readonly root = new THREE.Group();

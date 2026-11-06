@@ -105,6 +105,8 @@ export class Enemy implements EnemyInstance {
   pinned = false;
   /** Test Range: stands where it was put. Knockback still moves it, and nothing else does. */
   dummy = false;
+  /** Never leaps up a ledge it runs into. The swarm flows that way, and a man in kit does not clear 4.5 m from a stand. */
+  footbound = false;
   /** How long progress has been too slow while trying to move. */
   stuck = 0;
   /** After getting stuck in point mode, follow flow until this time. */
@@ -247,7 +249,7 @@ export class Enemy implements EnemyInstance {
     this.desired.set(0, 0, 0);
     this.push.set(0, 0, 0);
     this.groundY = 0;
-    this.airborne = this.ballistic = this.pinned = this.dummy = false;
+    this.airborne = this.ballistic = this.pinned = this.dummy = this.footbound = false;
     this.verticalSpeed = this.flightLeft = 0;
     this.leapTarget.set(0, 0, 0);
     this.stuck = this.flowUntil = this.probeAt = 0;

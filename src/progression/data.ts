@@ -182,11 +182,13 @@ export const STYLE_GATE = {
 } as const;
 
 /**
- * Kills the player ordered but did not make. They pay score and drops and keep the combo alive, but they climb it at
- * this rate and never feed a perk window. A strike that killed 30 used to be worth 30 rungs, so one Airstrike reached
- * Sentinels and a Black Sun reached the nuke, and a nuke's own bodies fired Berserk, Hellfire and Overdrive at once.
+ * Kills the player ordered but did not make. They pay score and drops and keep the combo alive, but never
+ * feed a perk window. Only kills the player aimed from a gunner seat climb the ladder, at the rate below:
+ * a long siege used to carry someone who never fired to combo 70, and to the nuke.
  */
 export const ASSIST_COMBO_EVERY = 2;
+/** Assist sources where the player does the aiming. */
+export const AIMED_ASSISTS = /^(chopper|door_gun)/;
 export const ASSIST_SOURCES = /^(airstrike|warthog|chopper|door_gun|orbital|ac130|black_sun|nuke|sentinel|chain_storm|chain_reaction|drop_pod)/;
 
 /**

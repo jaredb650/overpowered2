@@ -24,6 +24,9 @@ interface Drop {
   velocity: THREE.Vector3;
   spin: THREE.Vector3;
   resting: boolean;
+  /** Who dropped it, and the mesh in his hand it came from, for as long as he might come back for it. */
+  owner: Enemy | null;
+  prop: THREE.Object3D | null;
 }
 
 const _p = new THREE.Vector3();
@@ -38,18 +41,31 @@ export class DroppedWeapons {
 
   constructor(private readonly ctx: Ctx) {}
 
-  /** Lets go of everything in his hands. */
-  drop(e: Enemy): void {
+  /** Lets go of everything in his hands, or in one of them. Returns where the last of it is, so he can go after it. */
+  drop(e: Enemy, hand?: number): THREE.Vector3 | null {
     const props = (e.char as unknown as Holding).props;
-    if (!props) return;
+    if (!props) return null;
+    let last: THREE.Vector3 | null = null;
     for (const p of props) {
+      if (hand !== undefined && p.bone !== hand) continue;
       if ((p.bone !== B.handR && p.bone !== B.handL) || !p.object.visible || !(p.object instanceof THREE.Mesh)) continue;
-      this.release(p.object, e);
+      last = this.release(p.object, e);
       p.object.visible = false;
     }
+    return last;
   }
 
-  private release(from: THREE.Mesh, e: Enemy): void {
+  /** He got back to it. It leaves the floor and goes back in his hand. False if the slot went to a newer drop while he crawled for it. */
+  reclaim(at: THREE.Vector3, e: Enemy): boolean {
+    const d = this.drops.find(x => x.mesh.position === at);
+    if (!d || d.owner !== e || !d.prop) return false;
+    d.mesh.visible = false;
+    d.prop.visible = true;
+    d.owner = d.prop = null;
+    return true;
+  }
+
+  private release(from: THREE.Mesh, e: Enemy): THREE.Vector3 {
     const d = this.slot(from);
     from.getWorldPosition(_p);
     from.getWorldQuaternion(_q);
@@ -61,6 +77,9 @@ export class DroppedWeapons {
     d.resting = false;
     d.velocity.set(e.velocity.x * 0.5 + rand(-0.8, 0.8), rand(0.6, 1.6), e.velocity.z * 0.5 + rand(-0.8, 0.8));
     d.spin.set(rand(-5, 5), rand(-3, 3), rand(-5, 5));
+    d.owner = e;
+    d.prop = from;
+    return d.mesh.position;
   }
 
   /** Oldest out once the cap is reached. */
@@ -69,7 +88,7 @@ export class DroppedWeapons {
       const mesh = new THREE.Mesh(from.geometry, from.material);
       mesh.castShadow = true;
       this.ctx.render.scene.add(mesh);
-      const d: Drop = { mesh, velocity: new THREE.Vector3(), spin: new THREE.Vector3(), resting: false };
+      const d: Drop = { mesh, velocity: new THREE.Vector3(), spin: new THREE.Vector3(), resting: false, owner: null, prop: null };
       this.drops.push(d);
       return d;
     }

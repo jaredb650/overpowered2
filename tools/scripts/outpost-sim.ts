@@ -6,7 +6,8 @@
 // Scenarios: camp (player stands still, silent), hold (stands still, fires at what it sees), hunter (walks at them and
 // fires), spree (kills fast, so squads break), rescue (a man goes down in the open), tour (walks the map, silent), berserk (the
 // perk fires mid-fight), late (starts on wave 7, with every role in play), roles (one sniper squad and one riot squad, with the
-// player out in the yard where the long lines are).
+// player out in the yard where the long lines are), wounds (one man in the open takes a hit in each zone in turn, and the log
+// shows what became of him).
 // Writes tools/out/outpost-<scenario>.json. tools/scripts/outpost-plot.py turns that into a top-down picture and numbers.
 import { writeFileSync } from 'node:fs';
 import * as THREE from 'three';
@@ -29,7 +30,6 @@ Math.random = mulberry32(seed);
 const { createHeadlessGame } = await import('../../src/player/testkit/headless');
 const { World } = await import('../../src/world/World');
 const { EnemyManager } = await import('../../src/enemies/EnemyManager');
-const { Waves } = await import('../../src/enemies/waves');
 const { noop } = await import('../../src/core/stubs');
 const { soldierOf } = await import('../../src/enemies/outpost');
 
@@ -44,6 +44,7 @@ function fakeCharacter(id: string): unknown {
   return {
     archetype: id, rig: { height: 1.85, bones: [] }, root, bones, mesh: root, anim, severed: new Set(), props: [], muzzle: null,
     hideLimb() {}, addWound() {}, setBloodiness() {}, hitFlash() {}, attachProp() {}, setBurn() {}, setFrost() {}, setLod() {}, release() { root.removeFromParent(); },
+    fracture() { return true; }, isFractured() { return false; },
   };
 }
 
@@ -51,6 +52,7 @@ const game = await createHeadlessGame(() => {});
 const ctx = game.ctx as unknown as Record<string, any>;
 ctx.render.scene = new THREE.Scene();
 ctx.render.materials = { patch: (m: unknown) => m };
+ctx.render.decals = noop('decals');
 ctx.characters = { spawn: fakeCharacter };
 ctx.hud = noop('hud');
 ctx.progression = noop('progression');
@@ -72,16 +74,15 @@ await world.build();
 ctx.physics.flushQueries?.();
 const manager = new EnemyManager(game.ctx);
 ctx.enemies = manager;
-const waves = new Waves();
+const waves = manager.outpost!.waves;
 ctx.waves = waves;
 manager.init(game.ctx);
-waves.init(game.ctx);
 const player = game.player;
 player.modifiers.invulnerable = true;
 const outpost = manager.outpost!;
 
 const stations: Record<string, [number, number, number][]> = {
-  camp: [[0, 0.1, -19]], hold: [[0, 0.1, -19]], rescue: [[0, 0.1, -19]], berserk: [[0, 0.1, -19]], late: [[0, 0.1, -19]], roles: [[-30, 0.1, 6]],
+  camp: [[0, 0.1, -19]], hold: [[0, 0.1, -19]], rescue: [[0, 0.1, -19]], wounds: [[0, 0.1, -19]], berserk: [[0, 0.1, -19]], late: [[0, 0.1, -19]], roles: [[-30, 0.1, 6]],
   hunter: [[0, 0.1, -19], [19, 0.1, -19], [19, 0.1, 8], [-6, 0.1, 3], [-19, 0.1, 19]],
   spree: [[0, 0.1, 3]],
   tour: [[6.6, 0.1, 3], [11.7, 0.1, -11.7], [0, 0.1, -19], [-19, 0.1, -19], [-20, 0.1, 31], [19, 0.1, 19]],
@@ -107,6 +108,9 @@ const on = (type: string, fn: (e: any) => unknown) => ctx.events.on(type, (e: un
 on('comms:line', e => ({ kind: e.kind, text: e.text, who: e.speaker ?? e.squad }));
 on('enemy:broken', e => ({ uid: e.enemy.uid, fate: e.fate }));
 on('enemy:surrendered', e => ({ uid: e.enemy.uid }));
+on('enemy:wounded', e => ({ uid: e.enemy.uid, zone: e.zone, label: e.label }));
+on('enemy:condition', e => ({ uid: e.enemy.uid, condition: e.condition }));
+on('enemy:killed', e => ({ uid: e.enemy.uid, source: e.damage.source }));
 on('enemy:escaped', e => ({ uid: e.enemy.uid }));
 on('enemy:executed', e => ({ uid: e.kill.enemy.uid }));
 on('squad:broken', e => e);
@@ -124,6 +128,11 @@ const samples: unknown[] = [];
 const fireGap = scenario === 'spree' ? 0.14 : 0.32;
 const hitChance = scenario === 'spree' ? 0.9 : 0.5;
 let sampleClock = 0, fireClock = 0, stationClock = 0, stationIndex = 0, rescued = false, perked = false;
+/** Bone, then where on it the round goes in, travelling -Z, so through his front. Thigh, femoral, hand, arm, gut, carotid, lung. */
+const WOUND_CASES: readonly (readonly [number, number, number, number])[] = [
+  [11, 0.06, -0.2, 0.08], [14, 0.038, -0.1, 0.09], [10, 0, -0.05, 0.05], [8, 0, -0.2, 0.06], [1, 0, 0.08, 0.13], [3, 0.05, 0.04, 0.05], [2, -0.15, 0.1, 0.15],
+];
+let woundAt = 26, woundCase = 0;
 let maxAlive = 0, airborne = 0, offGraph = 0, leaps = 0;
 const wasAirborne = new Set<number>();
 const walkDir = new THREE.Vector3();
@@ -180,7 +189,20 @@ for (let f = 0; f < seconds * 60; f++) {
     if (victim) {
       rescued = true;
       log.push({ t: +t.toFixed(2), type: 'downed', uid: victim.uid });
-      outpost.setDowned(victim, true);
+      // A blast that does not quite kill him: on the floor, on the clock, and able to stand if somebody gets to him.
+      manager.applyDamage(victim, { ...damage(victim, victim.health + 1), type: 'explosive', region: undefined, bone: undefined } as never);
+    }
+  }
+
+  // One zone at a time, on whoever is fighting and in the open, spaced so each plays out.
+  if (scenario === 'wounds' && t > woundAt && woundCase < WOUND_CASES.length) {
+    const victim = manager.alive.find(e => soldierOf(e)?.fighting && soldierOf(e)!.injuries.condition === 'healthy' && e.dist > 6 && e.hasLos);
+    if (victim) {
+      const c = WOUND_CASES[woundCase++]!;
+      woundAt = t + 7;
+      const [bone, x, y, z] = c;
+      log.push({ t: +t.toFixed(2), type: 'wound', uid: victim.uid, id: victim.id, bone, at: [x, y, z] });
+      manager.applyDamage(victim, { ...damage(victim, 30), point: new THREE.Vector3(x, y, z), dir: new THREE.Vector3(0, 0, -1), bone, region: 'chest' } as never);
     }
   }
 
@@ -208,6 +230,7 @@ for (let f = 0; f < seconds * 60; f++) {
         ms: s.state, mo: Math.round(s.morale), see: s.sees ? 1 : 0, ex: s.exposed ? 1 : 0, sp: s.spot ? 1 : 0, sh: s.canShoot ? 1 : 0, mt: s.squad.movingTeam, a: e.attack?.name ?? '',
         x: +e.position.x.toFixed(2), y: +e.position.y.toFixed(2), z: +e.position.z.toFixed(2), v: +Math.hypot(e.velocity.x, e.velocity.z).toFixed(2),
         pose: (e.char.anim as unknown as { posture: string }).posture, sec: s.squad.sector, fl: s.squad.filing ? 1 : 0,
+        c: s.injuries.condition, wp: s.weapon,
       } : { u: e.uid, id: e.id, x: e.position.x, z: e.position.z };
     });
     samples.push({

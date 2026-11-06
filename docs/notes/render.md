@@ -64,6 +64,8 @@ Hidden pixels get a near-opaque fill and a bright edge, and pixels in plain sigh
 
 ## API additions
 
+`thermal` is a grade for the gunner's seat, held over the perks by `PerkRunner.holdGrade`. It drains the world to grey and uses `isolate` to keep orange, so fire stays hot and everything else goes cold. Silhouettes from `highlight` land before the grade, so they are coloured to survive it.
+
 On `LightVolumeBakeInput` in `contracts.ts`: `voxelSize?`. The rest live on the `Renderer` class, not on `RenderSystem`, so cast to reach them:
 
 | Member | Use |

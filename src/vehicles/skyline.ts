@@ -22,24 +22,21 @@ export class Skyline {
   private nz = 0;
   private minX = 0;
   private minZ = 0;
-  private readonly start: number;
-  private readonly drop: number;
 
-  constructor(ctx: Ctx, private readonly probe: GroundProbe, private readonly bounds = ctx.world.bounds) {
-    this.start = bounds.max.y - 1;
-    this.drop = this.start - bounds.min.y;
-  }
+  constructor(private readonly ctx: Ctx, private readonly probe: GroundProbe) {}
 
   /** The surface straight below, or 0 over nothing. */
   ground(x: number, z: number): number {
-    const h = this.probe.heightAt(x, this.start, z, this.drop);
+    const { max, min } = this.ctx.world.bounds;
+    const from = max.y - 1;
+    const h = this.probe.heightAt(x, from, z, from - min.y);
     // A ray that starts inside the invisible walls past the map's edge reports a hit at once.
-    return Number.isNaN(h) || h >= this.start - 0.5 ? 0 : h;
+    return Number.isNaN(h) || h >= from - 0.5 ? 0 : h;
   }
 
   build(): void {
     if (this.cells) return;
-    const { bounds } = this;
+    const { bounds } = this.ctx.world;
     this.minX = bounds.min.x;
     this.minZ = bounds.min.z;
     this.nx = Math.ceil((bounds.max.x - bounds.min.x) / CELL) + 1;

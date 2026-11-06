@@ -19,15 +19,14 @@ import { chance, clamp, pick, rand } from '../../core/math';
 import { FACTIONS } from '../../contracts/data';
 import type { AiWorld } from '../aiWorld';
 import { say } from '../attacks';
-import { finishAttack } from '../brain';
 import type { Enemy } from '../Enemy';
 import type { EnemyManager } from '../EnemyManager';
 import { FEAR } from '../outpost/morale';
 import type { Outpost } from '../outpost';
 import { pose, soldierOf, type Soldier } from '../outpost/soldier';
 import { crawlOn } from './crawl';
-import { Injuries, type Wound } from './injuries';
-import { CHARACTER, RINGING, WoundTuning as T, ZONES, type Condition, type ZoneId } from './rules';
+import { Injuries } from './injuries';
+import { bursts, CHARACTER, RINGING, SIDEARM_MAG, WoundTuning as T, ZONES, type Condition, type ZoneId } from './rules';
 import { Sidearms } from './sidearm';
 import { dripTrail } from './trail';
 import { resolveZone, type ZoneHit } from './zones';
@@ -52,7 +51,7 @@ const SPURT_FROM = 0.05;
 const SPURT_SECONDS = 0.5;
 /** Metres at which a man on the floor starts talking to the thing standing over him. */
 const BEG_RANGE = 7;
-/** Bones that take a hold: where a hand lands for an arm or hand wound is the other arm's business. */
+/** Where the metal from a blast ends up. */
 const SHRAPNEL: readonly ZoneId[] = ['thigh', 'gut', 'arm', 'shoulder'];
 /** Share of health a blast must do to leave metal in him. */
 const SHRAPNEL_FROM = 0.2;
@@ -60,6 +59,17 @@ const SHRAPNEL_FROM = 0.2;
 const FLOORED_LIE: readonly [number, number] = [1.1, 2.3];
 /** Long enough for the clock to run out where he lies. */
 const NO_CRAWL_LIE = 8;
+/** Chance a second wound takes the good leg out from under a limping man. He gets up from this one. */
+const LIMP_THEN_FALL = 0.6;
+
+const SIDEARM_DRAW = 0.9;
+/** Chance a man who loses his gun to a hand wound goes after it instead of drawing. */
+const SCRAMBLE = 0.5;
+const LAST_STAND_RANGE = 18;
+/** Seconds between calls from a man on the floor with no worse reason of his own. */
+const FLOORED_SCREAM = 6;
+/** The same as the swarm's open stump, for a man who lost a limb and is still going. */
+const STUMP_BLEED = 0.022;
 
 const _v = new THREE.Vector3();
 const _n = new THREE.Vector3();
@@ -131,14 +141,13 @@ export class WoundSystem {
   }
 
   /** Read once after the hit, by the reaction: the wound has decided this man is going over. */
-  mustFall(): boolean {
-    const due = this.fallDue;
+  mustFall(e: Enemy): boolean {
+    const due = this.fallDue && this.bodyOf(e) !== null;
     this.fallDue = false;
     return due;
   }
 
   private takePlaced(s: Soldier, b: Injuries, hit: ZoneHit, d: DamageInfo, share: number, fatal: boolean, amount: number): boolean {
-    const e = s.e;
     const zone = hit.zone;
     if (zone === 'head' && hit.glancing) {
       this.ring(s, b, d);
@@ -163,15 +172,15 @@ export class WoundSystem {
     const rule = ZONES[zone];
     if (rule.disables) this.loseLimb(s, b, hit.side, rule.disables);
     if (legs) {
+      this.manager.model.updateMaim(s.e);
       if (b.legDestroyed) {
         b.legGone = true;
         this.floor(s, b);
-      } else this.fallDue = b.count > 1 && chance(0.6);
+      } else this.fallDue = b.count > 1 && chance(LIMP_THEN_FALL);
     }
     if (rule.floors) this.floor(s, b);
     else if (rule.mortal || fatal) this.goMortal(s, b);
     if (!b.floored) this.cry(s, b);
-    void e;
     return false;
   }
 
@@ -185,9 +194,7 @@ export class WoundSystem {
       return fatal;
     }
     if (d.type !== 'explosive') return fatal;
-    const rules = FACTIONS.humans;
-    if (d.gib && (d.bone !== undefined || amount >= e.maxHealth * rules.blastBurst)) return true;
-    if (share >= T.blastKills) return true;
+    if (bursts(FACTIONS.humans, d, e.maxHealth, false) || share >= T.blastKills) return true;
     if ((b.condition === 'mortal' || b.floored) && (fatal || b.piledOn(share, this.w.now))) return true;
     if (share >= T.concussionFrom) this.concuss(s, b);
     if (share >= SHRAPNEL_FROM) {
@@ -272,17 +279,19 @@ export class WoundSystem {
       else b.armR = true;
       e.char.fracture(left ? B.upperArmL : B.upperArmR, 'limp');
     }
+    const shielded = left && e.shield;
     this.manager.model.updateMaim(e);
+    if (shielded) this.o.dropShield(s);
     if (b.armless) {
-      this.o.dropWeapon(s, null);
+      this.o.dropWeapon(s, false);
       this.o.breakNerve(s);
       return;
     }
     // The right hand holds everything he owns, and the left is only needed for what takes two.
     const holding = !left || (s.def.twoHanded && s.weapon === 'primary');
     if (!holding || s.weapon === 'none') return;
-    const scramble = kind === 'hand' && s.weapon === 'primary' && chance(0.5);
-    this.o.dropWeapon(s, scramble ? e.position : null);
+    const scramble = kind === 'hand' && s.weapon === 'primary' && chance(SCRAMBLE);
+    this.o.dropWeapon(s, scramble);
     if (scramble) return;
     if (s.def.sidearm && !s.spentSidearm) this.drawSidearm(s, b);
     else this.o.breakNerve(s);
@@ -383,7 +392,6 @@ export class WoundSystem {
   onDeath(s: Soldier): void {
     const b = s.injuries;
     if (b.lastStand === 'grenade' && s.grenades > 0) this.o.dropLiveGrenade(s);
-    this.sidearms.letGo(s.e);
   }
 
   /** Back on his feet, with a medic's work on him. Only ever called on a man who can stand. */
@@ -402,6 +410,7 @@ export class WoundSystem {
     e.health = Math.max(e.health, health);
     this.o.setDowned(e, false);
     this.manager.model.updateMaim(e);
+    pose(e, 'stand');
     this.manager.model.standUp(e);
     this.syncBody(s, b);
     this.announce(e, 'wounded');
@@ -506,7 +515,10 @@ export class WoundSystem {
       this.drawSidearm(s, b);
       this.o.comms.say('lastStand', s);
     }
-    if (s.weapon === 'sidearm') s.sees = e.hasLos;
+    if (s.weapon === 'sidearm') {
+      s.sees = e.hasLos;
+      if (s.reloadUntil > 0 && now >= s.reloadUntil) s.reloadUntil = 0;
+    }
   }
 
   private holdWorst(s: Soldier, b: Injuries, now: number): void {
@@ -600,14 +612,6 @@ export class WoundSystem {
   }
 }
 
-const SIDEARM_MAG = 9;
-const SIDEARM_DRAW = 0.9;
-const LAST_STAND_RANGE = 18;
-/** Seconds between calls from a man on the floor with no worse reason of his own. */
-const FLOORED_SCREAM = 6;
-/** Same as the swarm's open stump, for a man who lost a limb and is still going. */
-const STUMP_BLEED = 0.022;
-
 /** Where a wound with no bone of its own goes. Blasts have no struck bone. */
 const BONE_FOR: Record<ZoneId, (side: 1 | -1 | 0) => number> = {
   thigh: s => (s > 0 ? B.thighL : B.thighR),
@@ -623,6 +627,3 @@ const BONE_FOR: Record<ZoneId, (side: 1 | -1 | 0) => number> = {
   pelvis: () => B.hips,
   head: () => B.head,
 };
-
-export type { Wound };
-export { finishAttack };

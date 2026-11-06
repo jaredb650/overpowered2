@@ -16,6 +16,8 @@ const GROUND_NORMAL = 0.35;
 /** Drag this far from the pin before the heading follows the mouse. */
 const DRAG_DEADZONE = 4;
 const DANGER = '#ff2020';
+/** Call-ins that cannot hurt the player, so standing in the zone earns no warning. */
+const HARMLESS: ReadonlySet<string> = new Set(['nuke', 'ac130']);
 
 const _below = new THREE.Vector3(0, -1, 0);
 const _from = new THREE.Vector3();
@@ -135,7 +137,7 @@ export class Targeting {
       return;
     }
     const def = CALLINS[id];
-    const inside = this.ctx.player.position.distanceTo(this.point) < def.radius && id !== 'nuke';
+    const inside = !HARMLESS.has(id) && this.ctx.player.position.distanceTo(this.point) < def.radius;
     const color = inside ? DANGER : def.color;
     const opacity = 0.8 + Math.sin(this.clock * 7) * 0.15;
     if (id === 'warthog') {
@@ -154,6 +156,6 @@ export class Targeting {
 
   /** True when the blast would catch the player. The HUD hint warns on it. */
   get dangerClose(): boolean {
-    return !!this.id && this.valid && this.id !== 'nuke' && this.ctx.player.position.distanceTo(this.point) < CALLINS[this.id].radius;
+    return !!this.id && this.valid && !HARMLESS.has(this.id) && this.ctx.player.position.distanceTo(this.point) < CALLINS[this.id].radius;
   }
 }

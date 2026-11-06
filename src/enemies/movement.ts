@@ -226,7 +226,7 @@ function integrateAir(e: Enemy, w: AiWorld, dt: number): void {
 
 /** Runs the flow into a ledge: look for a landing above it. This is how drops and jump links read from the field. */
 function tryJumpUp(e: Enemy, w: AiWorld, dir: THREE.Vector3): boolean {
-  if (e.maim.legs < 2 || !w.director.spendRay()) return false;
+  if (e.footbound || e.maim.legs < 2 || !w.director.spendRay()) return false;
   const nav = w.ctx.world.nav;
   const x = e.position.x + dir.x * JUMP_REACH;
   const z = e.position.z + dir.z * JUMP_REACH;

@@ -30,6 +30,8 @@ export class Injuries {
   count = 0;
   /** The wound a hand is on. */
   held: Wound | null = null;
+  /** Which way his bad leg last went, so a limp beats once a step. */
+  limpBeat = false;
 
   /** Limbs that no longer answer. A leg's number is how far it is to giving way. */
   armL = false;
@@ -96,6 +98,7 @@ export class Injuries {
     this.condition = 'healthy';
     this.count = 0;
     this.held = null;
+    this.limpBeat = false;
     this.armL = this.armR = this.handL = this.handR = false;
     this.legL = this.legR = 0;
     this.legGone = this.paralysed = this.floored = this.nonAmbulant = false;

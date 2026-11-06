@@ -24,6 +24,8 @@ const FEMORAL_END = -0.3;
 const PELVIS_TOP = 0.045;
 /** Up the upper arm from here is the shoulder. */
 const SHOULDER_END = -0.1;
+/** The head's capsule hangs over the neck's and takes most rounds at the throat. Under this on the head bone is throat, not skull. */
+const JAW = 0.03;
 /** Centre of the head's capsule axis. */
 const SKULL_BASE = 0.04;
 const SKULL_TOP = 0.14;
@@ -87,7 +89,9 @@ export function zoneOf(bone: number, p: THREE.Vector3, d: THREE.Vector3, out: Zo
   out.side = 0;
   switch (bone) {
     case B.head:
-      return skull(p, d, out);
+      if (p.y >= JAW) return skull(p, d, out);
+      out.zone = behind && Math.abs(p.x) < SPINE_RADIUS ? 'spine' : 'carotid';
+      return out;
     case B.neck:
       out.zone = behind && Math.abs(p.x) < SPINE_RADIUS ? 'spine' : 'carotid';
       return out;

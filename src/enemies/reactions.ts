@@ -3,8 +3,8 @@
  * damage, where it landed, and how hard the weapon pushes. Hits add up in `Enemy.shock`, which fades in about a second,
  * so sustained fire topples what one round would not.
  *
- * This only decides. `DamageModel` carries it out. The wound states of section 14 belong in front of `chooseReaction`:
- * a wound changes what a body does on its own time, and it still reaches for the same `anim.holdWound` and `gore.knockdown`.
+ * This only decides. `DamageModel` carries it out. Section 14's wounds sit on top: a wound that puts a man down overrules
+ * this answer through `mustFall`, and everything else a wound does happens on his own time, in src/enemies/wounds.
  */
 import { rigInfo } from '../gore/rigInfo';
 import type { GoreRegion } from '../characters/rig';
@@ -80,6 +80,12 @@ export interface Reaction {
 }
 
 const _out: Reaction = { level: 'flinch', strength: 0, tripped: false };
+
+/** A wound decided it: he is going over, cooldown or no cooldown, and a blast throws him there. */
+export function mustFall(r: Reaction, d: DamageInfo): void {
+  if (r.level !== 'thrown') r.level = d.type === 'explosive' ? 'thrown' : 'fall';
+  r.strength = Math.max(r.strength, 0.6);
+}
 
 function isLeg(region: GoreRegion): boolean {
   return region.startsWith('leg') || region.startsWith('shin');

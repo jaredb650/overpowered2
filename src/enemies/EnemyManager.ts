@@ -122,7 +122,7 @@ export class EnemyManager implements EnemySystem {
   readonly outpost: Outpost | null;
 
   private readonly w: AiWorld;
-  private readonly model: DamageModel;
+  readonly model: DamageModel;
   private readonly director: Director;
   private readonly telegraphs: Telegraphs;
   private readonly player = new PlayerSense();

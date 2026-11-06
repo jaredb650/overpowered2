@@ -1,8 +1,11 @@
 /**
  * The damage model: the only code that takes health off an enemy, and the only code that kills one.
  *
- * Order of a hit: ward, riot shield, tank, region multiplier, armour plate, boss filter, health, limb pool.
+ * Order of a hit: ward, riot shield, tank, region multiplier, armour plate, boss filter, health, wounds, limb pool.
  * Everything a kill should do happens in `kill`, once, so the first game's seven drifting kill paths cannot return.
+ *
+ * A body with anatomy (FACTIONS, src/contracts/data.ts) does not simply die when its health is gone. `WoundSystem.take` says
+ * whether this hit is the end of him. Bodies without it never reach that line, which is what keeps the swarm as it was.
  */
 import * as THREE from 'three';
 import { DroneBone, HumanoidBone as B, type GoreRegion } from '../characters/rig';
@@ -10,10 +13,12 @@ import { DEFAULT_FORCE, type DamageInfo, type DamageType } from '../core/contrac
 import { DevFlags } from '../core/devflags';
 import type { DamageResult, KillEvent } from '../core/gameplay';
 import { chance, clamp, lerp, pick, rand } from '../core/math';
+import { FACTIONS, type FactionRules } from '../contracts/data';
+import { bursts } from './wounds/rules';
 import { ENEMIES, LIMB_SIZE, REGION_DAMAGE } from './data';
 import { say } from './attacks';
 import { finishAttack } from './brain';
-import { chooseReaction, profileOf, type ReactionProfile } from './reactions';
+import { chooseReaction, mustFall, profileOf, type ReactionProfile } from './reactions';
 import { dropOff } from './roles';
 import type { Enemy } from './Enemy';
 import type { Plate } from './armor';
@@ -41,6 +46,12 @@ const DIES_ON_FEET: ReadonlySet<DamageType> = new Set<DamageType>(['bullet', 'fi
 const DIES_ON_FEET_FORCE = 30;
 const COLLAPSE_MIN = 0.85;
 const COLLAPSE_MAX = 1.4;
+/** A man who bled out on his feet takes longer about it than one who was shot dead on them. */
+const BLEED_COLLAPSE_MIN = 1.6;
+const BLEED_COLLAPSE_MAX = 2.6;
+/** How hard a body with anatomy twitches after a death that took it all at once, and one that came as a relief. */
+const SUDDEN_TWITCH = 1;
+const SLOW_TWITCH = 0.45;
 
 /** How hard each damage type works a limb pool, on top of the weapon's severMult. */
 const SEVER_FACTOR: Record<DamageType, number> = {
@@ -85,6 +96,11 @@ export class DamageModel {
 
   constructor(private readonly w: AiWorld, private readonly m: EnemyManager) {}
 
+  /** What can break this body. A husk on the Outpost is still a husk. */
+  private rules(e: Enemy): FactionRules {
+    return this.m.outpost?.wounds.bodyOf(e) ? FACTIONS.humans : FACTIONS.swarm;
+  }
+
   private result(): DamageResult {
     const r = this.results[this.head]!;
     this.head = (this.head + 1) % RESULT_RING;
@@ -116,9 +132,13 @@ export class DamageModel {
       return this.lethal(e, d, res, region, false);
     }
 
+    const wounds = this.m.outpost?.wounds ?? null;
+    const body = wounds?.bodyOf(e) ?? null;
+    const placed = body ? wounds!.read(e, d, region) : null;
     const headMul = d.headshotMult ?? REGION_DAMAGE.head;
     let amount = d.amount * (area ? 1 : region === 'head' ? headMul : REGION_DAMAGE[region]);
-    res.headshot = region === 'head' && !area;
+    if (body) amount = wounds!.priced(placed, d, amount, region);
+    res.headshot = region === 'head' && !area && (placed === null || (placed.zone === 'head' && !placed.glancing));
 
     const plate = area ? this.blastPlate(e) : this.plateFor(e, region, d);
     if (plate) {
@@ -148,7 +168,8 @@ export class DamageModel {
     res.dealt = amount;
 
     const headPool = region === 'head' ? this.spendPool(e, 'head', amount) : Infinity;
-    if (e.health <= 0 || headPool <= 0) return this.lethal(e, d, res, region, true);
+    const spent = e.health <= 0 || headPool <= 0;
+    if (body ? wounds!.take(e, body, placed, d, amount, spent) : spent) return this.lethal(e, d, res, region, true);
 
     if (area) this.blastLimb(e, d, res);
     else this.spendLimb(e, region, d, res);
@@ -173,17 +194,18 @@ export class DamageModel {
 
   private spendLimb(e: Enemy, region: GoreRegion, d: DamageInfo, res: DamageResult): void {
     if (!e.limbHp.has(region) || region === 'head' || e.char.severed.has(region)) return;
-    const hit = d.amount * (d.severMult ?? 1) * SEVER_FACTOR[d.type];
+    const hit = d.amount * (d.severMult ?? 1) * SEVER_FACTOR[d.type] * this.rules(e).limbWear;
     if (hit <= 0) return;
     if (this.spendPool(e, region, hit) <= 0) this.sever(e, region, d, res);
   }
 
   /** A blast that does not kill still takes something with it, so survivors of a rocket come out maimed. */
   private blastLimb(e: Enemy, d: DamageInfo, res: DamageResult): void {
-    if (d.type !== 'explosive' || e.def.machine || !chance(0.65)) return;
+    const rules = this.rules(e);
+    if (d.type !== 'explosive' || e.def.machine || !chance(rules.blastLimb)) return;
     const region = pick(BLAST_LIMBS);
     if (e.limbHp.has(region) && !e.char.severed.has(region)) {
-      const hit = d.amount * (d.severMult ?? 1) * SEVER_FACTOR.explosive;
+      const hit = d.amount * (d.severMult ?? 1) * SEVER_FACTOR.explosive * rules.limbWear;
       if (this.spendPool(e, region, hit) <= 0) this.sever(e, region, d, res);
     }
   }
@@ -200,6 +222,7 @@ export class DamageModel {
       ctx.events.emit('enemy:severed', { enemy: e, region: r, damage: d });
     }
     this.updateMaim(e);
+    this.m.outpost?.wounds.onSevered(e, region);
     e.def.onLimbLost?.(e, this.w, region);
     e.boss?.onLimbLost(e, this.w, region);
   }
@@ -212,17 +235,22 @@ export class DamageModel {
     const legL = s.has('legL') || s.has('shinL');
     const legR = s.has('legR') || s.has('shinR');
     const c = e.char;
-    const armL = s.has('armL') || s.has('forearmL') || c.isFractured(B.upperArmL) || c.isFractured(B.foreArmL);
-    const armR = s.has('armR') || s.has('forearmR') || c.isFractured(B.upperArmR) || c.isFractured(B.foreArmR);
+    const body = this.m.outpost?.wounds.bodyOf(e) ?? null;
+    const armL = s.has('armL') || s.has('forearmL') || c.isFractured(B.upperArmL) || c.isFractured(B.foreArmL) || (body?.armL ?? false) || (body?.handL ?? false);
+    const armR = s.has('armR') || s.has('forearmR') || c.isFractured(B.upperArmR) || c.isFractured(B.foreArmR) || (body?.armR ?? false) || (body?.handR ?? false);
     m.legs = (legL ? 0 : 1) + (legR ? 0 : 1);
     // A broken leg still drags along. Crawling is for a body that has lost the legs, which the animator can see.
     if (m.legs > 1 && (c.isFractured(B.thighL) || c.isFractured(B.shinL) || c.isFractured(B.thighR) || c.isFractured(B.shinR))) m.legs = 1;
+    // A wound takes the legs without taking them off. Everything that reads `legs` already knows what a man on the floor can do.
+    if (body?.floored) m.legs = 0;
+    else if (body && m.legs > 1 && body.limp !== 0) m.legs = 1;
     m.arms = (armL ? 0 : 1) + (armR ? 0 : 1);
     m.gunArm = !armR;
     m.offArm = !armL;
     m.head = !s.has('head');
     const open = 4 - m.legs - m.arms;
-    e.bleed = e.isBoss ? 0 : open * e.maxHealth * 0.022;
+    // Wounds keep their own account of blood. See `WoundSystem.syncBody`.
+    if (!body) e.bleed = e.isBoss ? 0 : open * e.maxHealth * 0.022;
 
     if (armL && e.shield) {
       // The shield went with the arm. It stops guarding and comes at you.
@@ -348,9 +376,12 @@ export class DamageModel {
     if (e.def.tank && !e.tankBlown && chance(e.def.tank.onDeath)) this.blowTank(e, d);
 
     const force = d.force || DEFAULT_FORCE[d.type];
+    const wounds = this.m.outpost?.wounds ?? null;
+    const body = wounds?.bodyOf(e) ?? null;
+    const slowly = wounds?.isBleedOut(d) ?? false;
     const headshot = region === 'head' && !AREA_TYPES.has(d.type);
     const shatter = e.frozen > 0;
-    const blownUp = d.gib || e.tankBlown || (d.type === 'explosive' && (overkill || d.amount >= e.maxHealth));
+    const blownUp = e.tankBlown || bursts(this.rules(e), d, e.maxHealth, overkill);
     let gibbed = false;
     let sliced = false;
 
@@ -368,10 +399,13 @@ export class DamageModel {
     } else if (d.slicePlaneNormal) {
       sliced = true;
       ctx.gore.slice(e.char, d.point, d.slicePlaneNormal, d);
-    } else if (headshot && !e.def.machine && e.rising > 0) {
-      // Half up, there is nothing for it to stand there on.
-      this.ragdoll(e, d, force);
-      ctx.gore.sever(e.char, 'head', d);
+    } else if (headshot && !e.def.machine && (e.rising > 0 || body?.floored)) {
+      // Half up, or lying down, there is nothing for it to stand there on.
+      this.ragdoll(e, d, force, body ? SUDDEN_TWITCH : undefined);
+      if (!body || d.amount >= HEAD_BURST_DAMAGE) ctx.gore.sever(e.char, 'head', d);
+    } else if (headshot && body && d.amount < HEAD_BURST_DAMAGE) {
+      // A light round kills a man and leaves him his head. Popping it off every time is what "like clay" meant.
+      this.ragdoll(e, d, force, SUDDEN_TWITCH);
     } else if (headshot && !e.def.machine) {
       // Gore owns the body from here and drops it after its hold. Until then the feet keep carrying it forward.
       ctx.gore.headshot(e.char, d, e.velocity);
@@ -382,8 +416,10 @@ export class DamageModel {
       }
     } else {
       if (blownUp && !DevFlags.explosiveDeaths) this.blastMaim(e, d);
-      if (!blownUp && this.diesOnFeet(e, d, force)) this.collapse(e, d, region, force);
-      else this.ragdoll(e, d, force);
+      const twitch = body ? (slowly ? SLOW_TWITCH : SUDDEN_TWITCH) : undefined;
+      // Section 14.1: what kills a man all at once drops him where he is. Only a clock gives him time to go.
+      if (!blownUp && this.diesOnFeet(e, d, force) && (!body || slowly)) this.collapse(e, d, region, force, slowly, twitch);
+      else this.ragdoll(e, d, force, twitch);
     }
 
     if (res) res.headshot = headshot;
@@ -424,9 +460,10 @@ export class DamageModel {
   }
 
   /** Shot dead standing up: it takes a moment to go, and goes on taking rounds on the way. */
-  private collapse(e: Enemy, d: DamageInfo, region: GoreRegion, force: number): void {
+  private collapse(e: Enemy, d: DamageInfo, region: GoreRegion, force: number, slowly: boolean, twitch: number | undefined): void {
     const o = this.m.collapseOptions;
-    o.duration = rand(COLLAPSE_MIN, COLLAPSE_MAX);
+    o.duration = slowly ? rand(BLEED_COLLAPSE_MIN, BLEED_COLLAPSE_MAX) : rand(COLLAPSE_MIN, COLLAPSE_MAX);
+    o.twitch = twitch;
     o.velocity.copy(e.velocity);
     if (AREA_TYPES.has(d.type)) o.hit = undefined;
     else {
@@ -440,7 +477,7 @@ export class DamageModel {
     this.w.ctx.gore.collapse(e.char, o);
   }
 
-  ragdoll(e: Enemy, d: DamageInfo | null, force: number): void {
+  ragdoll(e: Enemy, d: DamageInfo | null, force: number, twitch?: number): void {
     const { ctx } = this.w;
     if (d) {
       const bone = d.bone ?? REGION_BONE[d.region ?? 'chest'] ?? 0;
@@ -453,6 +490,7 @@ export class DamageModel {
       this.m.ragdollOptions.impulses![0]!.impulse.set(0, 0, 0);
     }
     this.m.ragdollOptions.velocity!.copy(e.velocity);
+    this.m.ragdollOptions.twitch = twitch;
     ctx.gore.ragdoll(e.char, this.m.ragdollOptions);
   }
 
@@ -505,6 +543,7 @@ export class DamageModel {
   private respond(e: Enemy, d: DamageInfo, profile: ReactionProfile, region: GoreRegion, amount: number, force: number, bone: number, armoured: boolean): void {
     const anim = e.char.anim;
     const r = chooseReaction(e, d, profile, region, amount, force, this.w.now);
+    if (this.m.outpost?.wounds.mustFall(e)) mustFall(r, d);
     // Ice cannot stumble, and a body still arriving is on somebody else's clock.
     if (e.frozen > 0 || e.entrance !== 'none') return;
     const felt = profile.pain > 0;
@@ -542,6 +581,26 @@ export class DamageModel {
     }
   }
 
+  /** Wounds: nothing hit him, he has simply stopped being able to stand. He goes over the way he was facing. */
+  drop(e: Enemy, strength: number, bone: number): void {
+    if (e.downed || e.fallIn > 0 || !e.alive) return;
+    _n.set(Math.sin(e.yaw), 0, Math.cos(e.yaw));
+    this.stagger(e, STAGGER_MIN, _n, strength, bone, 0.5);
+    e.fallIn = rand(FALL_LEAD_MIN, FALL_LEAD_MAX);
+    e.fallStrength = strength;
+    e.fallBone = bone;
+  }
+
+  /** Wounds: patched up and helped to his feet, from the crawl he was in. */
+  standUp(e: Enemy): void {
+    const profile = profileOf(e);
+    if (!profile) return;
+    e.char.anim.getUp?.('prone', profile.rise * 1.3, 0.9);
+    e.rising = profile.rise * 1.3;
+    e.stagger = e.rising + profile.daze;
+    e.char.anim.daze?.(e.stagger);
+  }
+
   /** Staggering did not save it. */
   fall(e: Enemy): void {
     const profile = profileOf(e);
@@ -562,10 +621,12 @@ export class DamageModel {
     // A blast throws it by itself, once this returns and the blast reaches Physics.
     o.topple = thrown ? undefined : m.knockTopple.copy(dir).multiplyScalar(lerp(TOPPLE_MIN, TOPPLE_MAX, strength));
     o.impulses = undefined;
-    o.hurt = profile.pain * (0.5 + strength * 0.5);
-    o.lie = rand(profile.lie[0], profile.lie[1]) * (0.7 + strength * 0.6);
-    e.riseSeconds = profile.rise * (0.85 + strength * 0.4);
-    e.dazeSeconds = profile.daze * (thrown ? 1 : strength);
+    const wounds = m.outpost?.wounds ?? null;
+    const floored = wounds?.bodyOf(e)?.floored ?? false;
+    o.hurt = floored ? 1 : profile.pain * (0.5 + strength * 0.5);
+    o.lie = floored ? wounds!.lieSeconds(wounds!.bodyOf(e)!) : rand(profile.lie[0], profile.lie[1]) * (0.7 + strength * 0.6);
+    e.riseSeconds = floored ? 0 : profile.rise * (0.85 + strength * 0.4);
+    e.dazeSeconds = floored ? 0 : profile.daze * (thrown ? 1 : strength);
     o.rise = e.riseSeconds;
     const wound = m.knockWound;
     wound.bone = bone;

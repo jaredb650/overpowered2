@@ -4,15 +4,15 @@
  * happened to him.
  */
 import * as THREE from 'three';
-import type { PostureName } from '../../characters/animation/postures';
 import { chance, dampAngle, rand } from '../../core/math';
 import type { AiWorld } from '../aiWorld';
-import { crawl, panic, wriggle } from '../behaviours';
+import { panic } from '../behaviours';
 import { finishAttack, type Behaviour } from '../brain';
 import type { Enemy } from '../Enemy';
+import { SIDEARM_MAG, WoundTuning } from '../wounds/rules';
 import type { SpotReading } from './cover';
 import { PEEK_WAIT_BY_STATE } from './morale';
-import { soldierOf, SPRINT_SECONDS, type Soldier } from './soldier';
+import { pose, soldierOf, SPRINT_SECONDS, type Soldier } from './soldier';
 
 /** Near top speed for a man in kit. */
 const SPRINT_SPEED = 6;
@@ -39,16 +39,14 @@ const REACH_PATIENT = 1.6;
 const TREAT_SECONDS = 4.5;
 const MEDIC_TREAT_SECONDS = 2.6;
 const REVIVE_HEALTH = 0.4;
+/** Close enough to get a hand on a gun on the floor. */
+const REACH_GUN = 0.9;
+/** Rounds this close and nobody stops to tie a tourniquet. */
+const AID_PRESSURE = 0.3;
 /** The furthest a man will haul a casualty to get him behind something. */
 const DRAG_REACH = 14;
 
 const _reading: SpotReading = { hidden: false, canShoot: false, side: 0 };
-
-interface Posed {
-  setPosture?(posture: PostureName): void;
-}
-
-const pose = (e: Enemy, posture: PostureName): void => (e.char.anim as unknown as Posed).setPosture?.(posture);
 
 const lookAt = (e: Enemy, at: THREE.Vector3, dt: number): void => {
   e.yaw = dampAngle(e.yaw, Math.atan2(at.x - e.position.x, at.z - e.position.z), e.def.turn, dt);
@@ -140,7 +138,7 @@ const hold: Behaviour = {
     if (s.reloadUntil > 0) {
       if (now >= s.reloadUntil) {
         s.reloadUntil = 0;
-        s.mag = s.def.mag;
+        s.mag = s.weapon === 'sidearm' ? SIDEARM_MAG : s.def.mag;
       } else return;
     } else if (s.mag <= 0) {
       startReload(e, w, s);
@@ -183,7 +181,7 @@ const move: Behaviour = {
   },
   frame(e, w, dt) {
     const s = soldierOf(e)!;
-    const sprinting = s.urgency === 2 && s.sprintLeft > 0;
+    const sprinting = s.urgency === 2 && s.sprintLeft > 0 && !s.injuries.breathless;
     if (sprinting) s.sprintLeft -= dt;
     else s.sprintLeft = Math.min(SPRINT_SECONDS, s.sprintLeft + dt * SPRINT_RECOVERY);
     e.pace = sprinting ? paceFor(e, SPRINT_SPEED) : s.urgency === 0 ? WALK_SHARE : 1;
@@ -195,16 +193,67 @@ const move: Behaviour = {
   },
 };
 
-/** On the floor. This is the hook the wound conditions will drive: see Outpost.setDowned. */
+/** On the floor. It only keeps every other behaviour out: the wounds drive him from here, and own getting him back up. */
 const downed: Behaviour = {
   name: 'downed',
   score: e => (soldierOf(e)?.downed ? 9 : 0),
+};
+
+/** He dropped it and it is right there. Going for it beats a pistol, and it is a good moment to shoot him. */
+const scramble: Behaviour = {
+  name: 'scramble',
+  score: e => (soldierOf(e)?.scramble ? 3.4 : 0),
   enter(e) {
-    e.mode = 'hold';
-    e.face = 'lock';
-    pose(e, 'downed');
+    e.mode = 'point';
+    e.face = 'move';
+    e.pace = paceFor(e, SPRINT_SPEED);
+    pose(e, 'crouch');
+  },
+  frame(e, w) {
+    const s = soldierOf(e)!;
+    const gun = s.scramble;
+    if (!gun) return;
+    e.moveTarget.copy(gun);
+    if (Math.hypot(gun.x - e.position.x, gun.z - e.position.z) <= REACH_GUN) w.enemies.outpost!.pickUpWeapon(s);
   },
   exit(e) {
+    pose(e, 'stand');
+  },
+};
+
+/** A tourniquet, a chest seal, a stim, with nobody shooting at him. Being found doing it is the chance to finish him. */
+const selfAid: Behaviour = {
+  name: 'selfAid',
+  score(e, w) {
+    const s = soldierOf(e);
+    if (!s || !s.fighting || s.sees || e.pressure > AID_PRESSURE || e.maim.arms === 0) return 0;
+    const b = s.injuries;
+    if (b.aidUntil > 0) return 3.2;
+    return w.now >= b.aidReadyAt && b.bleed >= WoundTuning.selfAidFrom ? 3.2 : 0;
+  },
+  enter(e, w) {
+    const b = soldierOf(e)!.injuries;
+    e.mode = 'hold';
+    e.face = 'lock';
+    b.aidUntil = w.now + rand(WoundTuning.selfAid[0], WoundTuning.selfAid[1]);
+    pose(e, 'kneel');
+    w.ctx.audio.play('reload_mag_out', { position: e.center, volume: 0.5, pitch: 0.7 });
+  },
+  frame(e, w) {
+    const s = soldierOf(e)!;
+    const b = s.injuries;
+    if (b.aidUntil > 0 && w.now >= b.aidUntil) {
+      b.aidUntil = 0;
+      b.aidReadyAt = w.now + WoundTuning.selfAidRest;
+      b.dressWorst();
+    }
+  },
+  exit(e, w) {
+    const b = soldierOf(e)?.injuries;
+    if (!b) return;
+    // Cut short, he has to start again, and he is slower to try.
+    if (b.aidUntil > 0) b.aidReadyAt = w.now + WoundTuning.selfAidRest;
+    b.aidUntil = 0;
     pose(e, 'stand');
   },
 };
@@ -293,7 +342,8 @@ const aid: Behaviour = {
     const o = w.enemies.outpost!;
     if (s.aidStage === 'reach') {
       walkRoute(e, s, w);
-      if (e.position.distanceTo(patient.e.position) > REACH_PATIENT) return;
+      // Gore has him until he stops falling, and there is no dragging a body the physics owns.
+      if (e.position.distanceTo(patient.e.position) > REACH_PATIENT || patient.e.downed) return;
       if (o.routeToShelter(s, patient, DRAG_REACH)) {
         s.aidStage = 'drag';
         e.face = 'lock';
@@ -305,8 +355,8 @@ const aid: Behaviour = {
       haul(e, patient.e);
       if (walkRoute(e, s, w)) beginTreatment(e, w, s);
     } else if (w.now >= s.aidUntil) {
-      patient.e.health = Math.max(patient.e.health, patient.e.maxHealth * REVIVE_HEALTH);
-      o.setDowned(patient.e, false);
+      o.wounds.revive(patient, patient.e.maxHealth * REVIVE_HEALTH);
+      patient.rescuer = null;
       s.patient = null;
     } else lookAt(e, patient.e.position, dt);
   },
@@ -321,7 +371,7 @@ const aid: Behaviour = {
 };
 
 /**
- * Burning and legless are the only maimed rules a soldier keeps from the swarm. Headbutts and disarmed rushes are out: a man
- * who loses his gun arm runs or gives up, which is a morale question and not a behaviour.
+ * Burning is the only maimed rule a soldier keeps from the swarm. Crawling is the wounds' business, and always away. Headbutts and
+ * disarmed rushes are out: a man who loses his gun arm reaches for a sidearm, or runs, or gives up.
  */
-export const SOLDIER_BEHAVIOURS: Behaviour[] = [crawl(), wriggle(), panic(), downed, surrender, flee, aid, move, hold];
+export const SOLDIER_BEHAVIOURS: Behaviour[] = [panic(), downed, surrender, flee, aid, scramble, selfAid, move, hold];

@@ -1,5 +1,7 @@
 /** One man's state. The Enemy is the body; this is what he knows, what he has been told and how he feels. */
 import * as THREE from 'three';
+import type { PostureName } from '../../characters/animation/postures';
+import { Injuries } from '../wounds/injuries';
 import type { Enemy } from '../Enemy';
 import type { CoverSpot } from './cover';
 import { ROLES, type Role, type RoleDef } from './doctrine';
@@ -12,6 +14,8 @@ export type HoldStage = 'hide' | 'peek';
 export type Fate = 'none' | 'flee' | 'surrender';
 export type AidStage = 'none' | 'reach' | 'drag' | 'treat';
 export type Grenade = 'frag' | 'flash';
+/** What is in his hands. */
+export type Weapon = 'primary' | 'sidearm' | 'none';
 /** 0 walks, 1 jogs, 2 sprints while the sprint lasts. */
 export type Urgency = 0 | 1 | 2;
 
@@ -91,6 +95,23 @@ export class Soldier {
   /** Led the squad at the moment he left it. Read once, after the body is gone. */
   wasLeader = false;
 
+  /** What he has wrong with him. See src/enemies/wounds. */
+  readonly injuries = new Injuries();
+  /** His speed before any wound. */
+  baseSpeed = 1;
+  weapon: Weapon = 'primary';
+  /** Already used up the pistol. A man has one. */
+  spentSidearm = false;
+  /** Holding it in his left, because his right is gone. */
+  sidearmLeft = false;
+  /** Going for the gun he dropped. Null when he is not. */
+  scramble: THREE.Vector3 | null = null;
+  /** Dragging himself somewhere, and when he next thinks again about where. */
+  crawling = false;
+  crawlPlanAt = 0;
+  /** Last time he called out, which is what brings people. */
+  calledAt = -99;
+
   /** On the ground, unable to act. Set through Outpost.setDowned. */
   downed = false;
   rescuer: Soldier | null = null;
@@ -139,6 +160,13 @@ export class Soldier {
     this.rescuer = this.patient = null;
     this.aidStage = 'none';
     this.aidUntil = 0;
+    this.injuries.clear();
+    this.baseSpeed = 1;
+    this.weapon = 'primary';
+    this.spentSidearm = this.sidearmLeft = this.crawling = false;
+    this.scramble = null;
+    this.crawlPlanAt = 0;
+    this.calledAt = -99;
   }
 
   get callsign(): string {
@@ -161,3 +189,23 @@ const ENLISTED = new WeakMap<object, Soldier>();
 export const soldierOf = (e: object): Soldier | undefined => ENLISTED.get(e);
 export const enlist = (e: Enemy, s: Soldier): void => void ENLISTED.set(e, s);
 export const discharge = (e: Enemy): void => void ENLISTED.delete(e);
+
+interface Posed {
+  setPosture?(posture: PostureName): void;
+}
+
+/** Postures a man holds a pistol out in, when the hand with the grip is gone. */
+const AIMING: ReadonlySet<PostureName> = new Set<PostureName>(['stand', 'peek', 'leanLeft', 'leanRight']);
+
+/**
+ * Every posture goes through here, so a wound can overrule whatever his orders want from his body. A man on the floor stays on it
+ * whatever behaviour last finished, and a gut-shot man does not stand up straight because he has been told to walk.
+ */
+export function pose(e: Enemy, posture: PostureName): void {
+  const s = soldierOf(e);
+  let wanted = posture;
+  if (s?.injuries.floored) wanted = 'downed';
+  else if (s?.sidearmLeft && s.weapon === 'sidearm' && AIMING.has(posture)) wanted = 'pistol';
+  else if (s?.injuries.hunched && posture === 'stand') wanted = 'hunched';
+  (e.char.anim as unknown as Posed).setPosture?.(wanted);
+}

@@ -15,7 +15,7 @@ const TICK_SECONDS = 3;
 const MAN_GAP = 0.55;
 const SQUAD_GAP = 3.5;
 
-export class OutpostWaves {
+export class OutpostWaves implements WaveSystem {
   wave = 0;
   phase: WavePhase = 'intermission';
   nextWaveIn = 0;
@@ -121,24 +121,5 @@ export class OutpostWaves {
     ctx.events.emit('wave:clear', { wave: this.wave, bonus });
     this.phase = 'intermission';
     this.nextWaveIn = INTERMISSION;
-  }
-}
-
-interface Replaceable {
-  jumpTo?(wave: number): void;
-}
-
-/**
- * Game holds one wave system from boot, in `ctx.waves` and in its frame order, and it is the swarm's. The Outpost's loop goes
- * in behind that same object. Picking the right class in `createWaves` from `ACTIVE.def.waves` would make this unnecessary.
- */
-export function replaceWaves(system: WaveSystem, waves: OutpostWaves): void {
-  const target = system as WaveSystem & Replaceable;
-  target.start = () => waves.start();
-  target.update = () => waves.update();
-  target.reset = () => waves.reset();
-  target.jumpTo = wave => waves.jumpTo(wave);
-  for (const key of ['wave', 'phase', 'nextWaveIn'] as const) {
-    Object.defineProperty(target, key, { get: () => waves[key], configurable: true });
   }
 }

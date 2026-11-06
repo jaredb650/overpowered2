@@ -25,7 +25,7 @@ export class Stragglers {
   }
 
   update(s: HudState): void {
-    const reveal = s.phase !== 'intermission' && s.remaining <= REVEAL_AT && s.enemies.length === s.remaining;
+    const reveal = s.phase !== 'intermission' && s.remaining <= REVEAL_AT && s.enemies.length >= s.remaining;
     for (const slot of this.slots) {
       if (slot.enemy && (!reveal || !slot.enemy.alive)) this.clear(slot);
     }

@@ -17,6 +17,11 @@
 | `callins/airstrike.ts`, `warthog.ts`, `orbital.ts`, `blacksun.ts`, `nuke.ts` | The strikes. `ordnance.ts` is the hero missiles |
 | `callins/ac130.ts`, `ac130Guns.ts`, `ac130Rounds.ts`, `ac130Model.ts`, `ac130Data.ts` | The gunship: stages and impacts, fire control, what is in the air, the airframe, its numbers |
 | `callins/airframe.ts`, `radio.ts` | Shared by aircraft call-ins. See "Building another aircraft" |
+| `callins/gunnerStrike.ts`, `attackChopper.ts`, `doorGunner.ts`, `heliData.ts` | The two helicopters: the flight they share, each one's flying and guns, their numbers |
+| `src/vehicles/seat.ts` | The gunner's seat: the view, the parked body, aiming, marking enemies, always handing control back |
+| `src/vehicles/pilot.ts`, `skyline.ts`, `targets.ts` | The Harrow's autopilot, the height of the map, finding the fight |
+| `src/vehicles/hud.ts`, `gunner.css` | The overlay that replaces the on-foot HUD in a seat |
+| `src/vehicles/attackModel.ts`, `utilityModel.ts`, `guns.ts`, `loft.ts` | Both airframes, the M134 and the chin cannon, the hull lofter |
 | `pickups/pickups.ts`, `pods.ts`, `models.ts` | Drops, map items, capsules, drop pods |
 
 ## Public API
@@ -125,12 +130,44 @@ frame.update(dt);                                     // spins rotors, blinks th
 frame.mount('door', out);                             // a named mount in world space
 const path = new OrbitPath(plan);                     // pure function of time: path.at(t), path.heading(t), path.roll(t)
 path.begin(center, arriveAtAngle);
-const engines = new EngineSound(ctx, plan);           // start(fade), update(position, swell, dt), stop(fade)
+const engines = new EngineSound(ctx, plan);           // start(fade), update(position, swell, dt, listener?), stop(fade)
 soundPoint(source, listener, range, out);             // one-shots from beyond the distance model, returns the true distance
 new Radio(ctx, 'CALLSIGN', color).say('LINE');        // call radio.update(dt) each frame
 ```
 
 `RotorSpec.axis` is `'y'` for a main rotor and `'x'` for a tail rotor. The Door Gunner's circle is an `OrbitPlan`. `Airframe.root` must stay parented to the scene, because `mount` reads its transform directly.
+
+## The gunner's seats
+
+Keys H and J, no mark to choose. Door Gunner at combo 18, Attack Chopper at 22: past Berserk, because a seat takes the player out of the fight for up to a minute, and the chopper higher because it has a second weapon and a pilot who goes to the fight. Both credit at the strike rate through `ASSIST_SOURCES`.
+
+| | Attack Chopper (Harrow) | Door Gunner (Packmule) |
+|---|---|---|
+| Time, cooldown | 60 s, 150 s | 45 s, 120 s |
+| Flight | `Autopilot`: runs in, circles the thickest knot, reverses every 13 to 26 s | `OrbitPath`, left-hand, centre sliding after the fight |
+| Guns | LMB 30mm, 320 rounds at 10 a second. RMB rockets, 38. Both at once | LMB M134, 1800 rounds at 60 a second, 0.42 s spin-up, 1 in 4 a tracer |
+| Zoom | Wheel, x2.5 | RMB, x1.8 |
+| Arc | 112 degrees either side of the nose | 69 degrees either side of the door |
+| Picture | `thermal` grade: cold grey, only fire keeps colour | The normal grade, hot tracers on the cold map |
+
+**The flight.** Key, 3 s watching it fly in from a chase camera, cut to the seat, fight, cut back, and the aircraft leaves over the next 10 s. E bails out. `GunnerStrike` outlives the seat, so `seat.leave` hands control back at once and the strike carries on until the aircraft has gone. `leave` is the one way out and undoes everything, so every exit is safe: rounds, time, E, death, a new run.
+
+**The body** is parked by `player.park`, on the nearest honest floor if the player was in the air or on a hazard. Nothing can touch it. Enemies keep coming and claw at the wire shell, which is also what the `YOU` tag finds from the air. The player gets 2.5 s of grace on return, because that crowd is still standing there.
+
+**The aim** is yaw and pitch in the world, read from `input.frameLook`. `lock` takes out most of the aircraft's own motion from the line of sight, so the reticle stays on a spot on the ground with the mouse still. Eye and gun both turn about the mount, so the gun holds its place on screen. The horizon takes a share of the bank from the aircraft's up vector, which is why a bank tips the view when looking ahead and pitches it when looking out of a door.
+
+**Guns are world objects,** not viewmodels: they are seen from the ground too, and a tracer leaves the real muzzle. The aircraft flies over the top of the light volume, so they use `materials.nearby`, which has a little emissive. Without it the M134 was a black hole in the picture.
+
+Traps found the hard way:
+
+- **Anything flying needs `Skyline`.** A ray down and one ahead let the Harrow fly 22 m into the Crucible. The height grid is widened by a rotor's reach, and the Harrow reads it along its path and the Packmule around its whole circle, so a lap stays level. Measured clearance is now 18 m and 14 m at worst.
+- **The strike runs before `CameraRig`.** A muzzle flash inside 3 m reads the camera's matrix, which was a frame old on a moving aircraft and put the flash metres off the barrel. `seat.update` ends with `camera.syncSeat()`.
+- **Blasts near the body are not near the player.** `Combat.blast` shook and flashed the gunner's screen for every shell landing by the parked body, and every kill there splashed lens blood and paid POINT BLANK. `player.parked` now turns all of that off.
+- **`clearance` on the Kill House is 5.** The Skyline reads the top of the invisible walls, 26 m, and at any more the pilot climbs to clear them every time he nears the edge.
+
+### Adding a seat
+
+Extend `GunnerStrike` with `fly`, `shoot` and `spent`. Give it a `HeliPlan` and a `Ride`, add a key, and add its source prefix to `ASSIST_SOURCES`. Air-to-air from DESIGN section 17 goes in `GunnerStrike.scan`: while an enemy chopper is up, write it into `fight`.
 
 ## Pickups
 
@@ -146,6 +183,7 @@ Drops 30% per kill, weighted toward what the player lacks, capped at 24, expire 
 | Which grade wins | `GRADE_RANK` |
 | Screen punch per perk | `MINOR`, `MAJOR`, `HUGE` and the `moment` per effect |
 | Strikes | `AIRSTRIKE`, `WARTHOG`, `ORBITAL`, `BLACK_SUN`, `NUKE`. The gunship is `AC130` in `callins/ac130Data.ts` |
+| The helicopters | `ATTACK` and `DOOR` in `callins/heliData.ts`. Aim hold is `seat.lock`, the thermal picture is `thermal` in `render/post/grades.ts` |
 | Score | `SCORE`, `STYLE`, `MULTI_KILLS`. Speed tiers follow the 12.5 run speed |
 | Pickups | `PICKUP`, `CAPSULE`, `DROP_POD`, `MEGA`, `REGEN`, `FROST` |
 
@@ -170,12 +208,22 @@ Drops 30% per kill, weighted toward what the player lacks, capped at 24, expire 
 | AC-130 on the Crucible (`AC_MODE=roof`) | Under a 4 m Transit roof, final build: 96 kills in 100 s, with rounds arriving inside it. Scrapyard: 96 kills. The ship set off no barrels in either run, while Sentinels set off 3 nearby in an earlier one |
 | AC-130 reset (`AC_MODE=reset`) | New run with six rounds in the air: airframe and rounds gone on the reset frame, no explosion or radio line in the next 12 s, cooldown 0, no strike left |
 | AC-130 frame cost | All of progression during the siege: median 0.1 ms, p99 0.9 ms, worst 3 ms |
+| Seats, full flights (`tools/scripts/seat-live.mjs`, a bot holding the sight on enemies) | Door Gunner, Kill House: 1800 rounds, WINCHESTER, control back, 16 kills. Attack Chopper, Crucible: 37 kills, combo to 19. Both maps and the Range, no console errors |
+| Seat flying | Harrow on the Crucible: 56 m from the fight on average, bank to 27 degrees, clearance at worst 18 m. Packmule: 44 m, 17 degrees, 14 m |
+| Seat safety (`SEAT_MODE=safe`) | Mortal player, husks on the body, every round fired: no damage event, health 100, then 18 m walked and 22 rounds fired on the real gun. Any later hit logs as `parked=false grace=0` |
+| Seat exits (`SEAT_MODE=exits`), final build | E, death, new run and quit to menu all leave the body free, the panel gone and the gun drawn. Pause froze the clock and the seat carried on after resume |
+| Seat frame cost, Crucible, Retina | Strike 0.2 ms, panel 0.07 ms, the x-ray pass 0.6 ms. Whole frame 7.6 ms CPU, not firing. Held fire measured 24.6 ms at 30 fps, against 12.9 on foot with nothing happening: that is explosions and ragdolls, and it is not a like-for-like comparison. Kill House, firing the M134: 16.7 ms frames at the median, 33 at p95 |
 
 ## Known limitations
 
 - **The Hellfire grade is too strong for this map, and only the render owner can fix it.** `gain [1.34, 0.86, 0.46]` multiplies a world lit cyan, which has no red to lift, so lit floors go teal and pale areas tan. That is the wash from `playtest-t15.png`. Ranking SLOWMO above it fixes the pair, but Hellfire alone still looks like that. Suggested: pull `gain` toward neutral and use `isolate` to keep orange, as Berserk does. Blood Thirst turns blue into pink for its whole 10 s in the same way, milder.
 - **The HUD hint during steering** is the one in `CALLINS.orbital`, which covers both stages.
-- **The Attack Chopper and Door Gunner from `DESIGN.md` section 13 are not built.** `airframe.ts` and `radio.ts` are ready for them.
+- **Air-to-air from `DESIGN.md` section 17 is not built,** because no enemy chopper exists to fight. See "Adding a seat". Nothing can shoot the helicopters down either.
+- **Nobody has flown a seat with hands.** Aim hold, sensitivity at zoom, pacing and how the bail key sits are all unjudged. The kill counts are a bot that cannot miss by aiming, and they say little about a person.
+- **Neither helicopter has a sound of its own.** Rotors are `drone_rotor_loop` pitched down, the M134 is the Buzzsaw's loops, the cannon is the autocannon pitched up. None of it has been listened to.
+- **Rounds aimed outward over a near wall still burst on the invisible containment.** The -0.36 rad pitch stop covers the map itself. Nothing tells a ray an invisible wall from a real one, and the fix is a flag from the world owner.
+- **The sonar key still works in a seat.** It pings from the parked body and does nothing useful. One test of `player.parked` in `contracts/sonar.ts` would stop it.
+- **The parked body still collects pickups** that land on it.
 - **The nuke ring shows 90 m,** but the front reaches the whole map. There is no truthful ring for that.
 - **Only 14 ragdolls simulate at once,** so a big pile feeds the Black Sun a few bodies at a time. Corpses past the budget stay down.
 - **A swarm siege can carry the combo a long way by itself.** The half rate is the same as every strike, but it was built for strikes that last seconds. On the Crucible, with extra spawns and Sentinels and Chain Storm also running, a player who never fired reached combo 70 and earned Black Sun and the nuke. If that feels cheap, the place to change it is `ASSIST_COMBO_EVERY` or a rate for this source.

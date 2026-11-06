@@ -376,15 +376,28 @@ export class HumanoidAnimator implements CharacterAnimation {
 
   /** See postures.ts. */
   setPosture(name: PostureName): void {
+    const prone = this.posture.prone;
     this.posture.set(name);
+    // On the floor he is a crawler with his legs along for the ride, however many he has.
+    if (prone !== this.posture.prone) this.severedCount = -1;
   }
 
-  /** Empty hands: the weapon is on the floor. They stay empty until the pool resets him. */
+  /** Staying on the floor. Gore reads this to know that what it hands back is not getting up. */
+  get prone(): boolean {
+    return this.posture.prone;
+  }
+
+  /** Empty hands: the weapon is on the floor. They stay empty until he picks it back up or the pool resets him. */
   disarm(): void {
     this.droppedGrip ??= this.grip;
     this.droppedShield ??= this.shieldRot;
     this.grip = null;
     this.shieldRot = null;
+  }
+
+  rearm(): void {
+    this.grip = this.droppedGrip ?? this.grip;
+    this.droppedGrip = null;
   }
 
   setLocomotion(input: LocomotionInput): void {
@@ -602,7 +615,7 @@ export class HumanoidAnimator implements CharacterAnimation {
     this.armGoneR = this.hidden(H.upperArmR) || this.hidden(H.foreArmR);
     this.headGone = this.hidden(H.neck) || this.hidden(H.head);
     const armless = this.armGoneL && this.armGoneR;
-    this.plan = legL && legR ? (armless ? 'writhe' : 'crawl') : legL || legR ? 'hop' : 'biped';
+    this.plan = (legL && legR) || this.posture.prone ? (armless ? 'writhe' : 'crawl') : legL || legR ? 'hop' : 'biped';
     this.feet[0]!.limb = this.hidden(H.thighL) || this.hidden(H.shinL) ? null : this.feet[0]!.limb;
     this.feet[1]!.limb = this.hidden(H.thighR) || this.hidden(H.shinR) ? null : this.feet[1]!.limb;
     if (this.hidden(H.spine)) this.plan = 'biped';
@@ -1130,6 +1143,7 @@ export class HumanoidAnimator implements CharacterAnimation {
       this.armTarget(h, dt, armed, shoulder);
       this.posture.hand(h.side, h.limb.l1 + h.limb.l2, this.chestQ, shoulder, h.target, h.pole);
       if (this.planBlend <= 0.5) this.protect(h, armed, shoulder);
+      else this.clutch(h);
       const spring = h.side > 0 ? this.armLS : this.armRS;
       h.target.x += spring.x * 0.05 * this.L;
       h.target.z += spring.z * 0.05 * this.L;
@@ -1174,16 +1188,21 @@ export class HumanoidAnimator implements CharacterAnimation {
       h.target.lerp(vB, this.dazeW);
       h.pole.set(side * 0.9, -0.5, -0.2);
     }
-    if (this.clutchW > 0.01 && side === this.clutchHand && this.clutchBone >= 0 && !this.hidden(this.clutchBone)) {
-      // Last frame's world pose: legs are posed after arms, and a hand a frame behind a wound still reads as holding it.
-      vB.copy(this.clutchAt).applyMatrix4(this.bones[this.clutchBone]!.matrixWorld);
-      const yaw = this.root.rotation.y;
-      const c = Math.cos(yaw), sn = Math.sin(yaw);
-      const dx = vB.x - this.root.position.x, dz = vB.z - this.root.position.z;
-      vB.set(dx * c - dz * sn, vB.y - this.root.position.y, dx * sn + dz * c);
-      h.target.lerp(vB, this.clutchW);
-      h.pole.set(side * 0.8, -0.3, -0.7);
-    }
+    this.clutch(h);
+  }
+
+  /** A hand on a wound. Crawling keeps this and nothing else from `protect`: the other hand does the hauling. */
+  private clutch(h: Hand): void {
+    const side = h.side;
+    if (this.clutchW <= 0.01 || side !== this.clutchHand || this.clutchBone < 0 || this.hidden(this.clutchBone)) return;
+    // Last frame's world pose: legs are posed after arms, and a hand a frame behind a wound still reads as holding it.
+    vB.copy(this.clutchAt).applyMatrix4(this.bones[this.clutchBone]!.matrixWorld);
+    const yaw = this.root.rotation.y;
+    const c = Math.cos(yaw), sn = Math.sin(yaw);
+    const dx = vB.x - this.root.position.x, dz = vB.z - this.root.position.z;
+    vB.set(dx * c - dz * sn, vB.y - this.root.position.y, dx * sn + dz * c);
+    h.target.lerp(vB, this.clutchW);
+    h.pole.set(side * 0.8, -0.3, -0.7);
   }
 
   /** Weapon pose in character space, for the current stance. */

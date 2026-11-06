@@ -56,6 +56,12 @@ export class Combo {
   }
 
   /** A kill the player only ordered. Keeps the chain alive and adds one for every `every` of them. */
+  /** Keeps the combo alive without climbing it. */
+  keep(): number {
+    if (this.count > 0) this.left = this.window;
+    return this.count;
+  }
+
   assist(every: number): number {
     if (this.assists++ % every === 0) this.count++;
     this.left = this.window;

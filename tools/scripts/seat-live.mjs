@@ -4,14 +4,16 @@
 //   SEAT_MODE=chopper node tools/shot.mjs --url "/?map=killhouse&autostart=1" --script tools/scripts/seat-live.mjs --dpr 2 --w 1440 --h 900 --wait 500 --out tools/out/seat-chopper.png
 //   SEAT_MODE=door    node tools/shot.mjs --url "/?map=killhouse&autostart=1" --script tools/scripts/seat-live.mjs --dpr 2 --w 1440 --h 900 --wait 500 --out tools/out/seat-door.png
 //
-// Add `autostart=1` without `map=` for the Crucible. SEAT_MAP=crucible only changes the names of what is reported.
+// Use `/?autostart=1` for the Crucible.
 //
 // model    both airframes and guns parked in front of the camera, from several sides
 // chopper  the Attack Chopper call-in: key, the flight in, the seat, both weapons
 // door     the Door Gunner call-in: key, the flight in, the door, the gun
 // safe     a mortal player, enemies on the body, out of ammo and back: nothing reaches the body, control comes back
 // exits    every way out of a seat: bail key, death, new run, quit to menu, and pause and resume in the middle
-// full     a whole flight of each with a held trigger: rounds, kills by source, what the combo did
+// full     a whole flight with a held trigger and the sight on the enemies: rounds, kills, what the combo did, and how
+//          the aircraft flew (SEAT_ID=attackChopper or doorGunner)
+// perf     frame times on foot against firing from a seat, in one run, then zoom
 const mode = process.env.SEAT_MODE ?? 'chopper';
 
 /** Runs in the page. */
@@ -349,7 +351,54 @@ async function full(page, h) {
   return { seen, flight, end: await state(page), log: await page.evaluate(() => window.__seat) };
 }
 
-const MODES = { model, chopper, door, safe, exits, full };
+/** Frame times on foot and then in a seat with the gun firing, in one run, so the machine's load cancels out. */
+async function perf(page, h) {
+  await page.evaluate(prelude);
+  const id = process.env.SEAT_ID ?? 'doorGunner';
+  const at = await page.evaluate(() => window.__op2.ctx.player.position.toArray());
+  await spawn(page, 12, 'trooper', 16, at[0], at[2] - 22);
+  const sample = seconds => page.evaluate(async ms => {
+    const { ctx, game } = window.__op2;
+    const gaps = [];
+    const cpu = [];
+    let last = performance.now();
+    const end = last + ms;
+    await new Promise(done => {
+      const tick = t => {
+        gaps.push(t - last);
+        last = t;
+        cpu.push(game.cpuMs);
+        if (t < end) requestAnimationFrame(tick);
+        else done();
+      };
+      requestAnimationFrame(tick);
+    });
+    const q = (a, p) => [...a].sort((x, y) => x - y)[Math.floor(a.length * p)];
+    return {
+      frames: gaps.length, gapMedian: Number(q(gaps, 0.5).toFixed(1)), gapP95: Number(q(gaps, 0.95).toFixed(1)), cpuMedian: Number(q(cpu, 0.5).toFixed(1)), cpuP95: Number(q(cpu, 0.95).toFixed(1)),
+      drawCalls: ctx.render.drawCalls(), triangles: ctx.render.triangles(),
+    };
+  }, seconds * 1000);
+  const foot = await sample(5);
+  await seatUp(page, h, id, id === 'doorGunner' ? 'KeyJ' : 'KeyH');
+  const fov = await page.evaluate(() => window.__op2.ctx.camera.fov);
+  await page.evaluate(aimBot);
+  await page.mouse.down();
+  await h.sleep(600);
+  const seat = await sample(7);
+  await page.mouse.up();
+  // Zoom, by each seat's own control.
+  await page.evaluate(() => cancelAnimationFrame(window.__aiming));
+  if (id === 'doorGunner') await page.mouse.down({ button: 'right' });
+  else await page.evaluate(() => window.__op2.ctx.input.simulate('weaponNext', true));
+  await h.sleep(700);
+  const zoomed = await page.evaluate(() => Math.round(window.__op2.ctx.camera.fov));
+  await h.shot('zoom');
+  if (id === 'doorGunner') await page.mouse.up({ button: 'right' });
+  return { foot, seat, fov: Math.round(fov), zoomed, end: await state(page) };
+}
+
+const MODES = { model, chopper, door, safe, exits, full, perf };
 
 export default async function run(page, h) {
   // __op2 appears early in boot, and the run's first reset would wipe anything set before it.

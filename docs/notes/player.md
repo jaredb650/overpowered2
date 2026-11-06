@@ -17,7 +17,7 @@ import { createPlayer, createCameraRig, MOVE, VIEW, FEEDBACK } from '../player';
 - `simulate(action, down)` and `simulateLook(dx, dy)` drive everything without pointer lock. Simulated state survives blur.
 - `consumeLook()` belongs to the player. Everything else reads `input.frameLook` (this frame's motion, consumes nothing).
 - Rebinding: `bindingsFor`, `labelFor`, `rebind`, `conflicts`, `resetBindings`, `captureNext`. Stored in `localStorage`.
-- Added actions: `callinWarthog`, `callinOrbital`, `callinBlackSun`, `callinNuke`. `streak` is the airstrike key (X).
+- Added actions: `callinWarthog`, `callinDoorGunner` (J), `callinChopper` (H), `callinOrbital`, `callinBlackSun`, `callinNuke`. `streak` is the airstrike key (X).
 - Losing pointer lock fires `pressed('pause')`, because Chrome swallows the Esc keydown that ended the lock.
 
 **Player** (`PlayerSystem`). `position` and `eye` are interpolated for display, `velocity` is the simulated velocity.
@@ -36,6 +36,8 @@ import { createPlayer, createCameraRig, MOVE, VIEW, FEEDBACK } from '../player';
 - `kick(pitch, yaw, roll)`, `fovPunch(degrees, seconds)`, `setZoom(fov | null)`, `setBaseFov(degrees)`, `fov`.
 - Listens to player events itself: landing dip, slam, dash, slide, mantle and hit shake need no calls.
 - Every term on top of the look decays to exactly 0 (`settle`, and a rest threshold in `springStep`), so a level view is level.
+
+**Seats.** `player.park(feet)` holds the body for a vehicle seat: no input, no motion, and `takeDamage`, `launch` and `push` all do nothing. The view it was left with is kept, and it reads as grounded. `player.unpark(grace)` gives it back, untouchable for `grace` seconds. Look is still consumed while parked, because `input.frameLook` is what the seat aims with. `camera.setSeat(view)` hands the camera to a `SeatView`, with kicks and shake on top scaled by `view.shake`, and null gives it back. `camera.syncSeat()` places it at once, for shots fired before the rig's turn in the frame. Both `reset()`s clear all of this. Tests: `park.test.ts`.
 
 **Events.** `player:jumped` now has `wall` and `bounce` flags. `player:slam` is `{ impact, position, radius }`, where `impact`
 is meters fallen. New: `player:slamstart`, `player:mantle { height }`.

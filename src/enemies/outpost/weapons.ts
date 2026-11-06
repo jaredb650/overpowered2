@@ -9,7 +9,6 @@ import type { EnemyId } from '../../core/gameplay';
 import { randomUnit } from '../../core/math';
 import { aimAtPlayer, grazed, hasGun, melee, muzzleOf, rocket, shotgun, sniperShot } from '../attacks';
 import type { AttackDef, AttackToken } from '../brain';
-import { maimedAttacks, offhandPistol } from '../data';
 import type { Enemy } from '../Enemy';
 import type { AiWorld } from '../aiWorld';
 import { AIM_BY_STATE } from './morale';
@@ -24,6 +23,11 @@ const FRAG_DAMAGE = 34;
 /** Seconds after landing. Long enough to see it and go. */
 const FRAG_FUSE = 1.25;
 const FLASH_FUSE = 0.7;
+/** Metres the aim point wanders per step past steady, for guns that aim through the swarm's own attacks. */
+const WOUND_DRIFT = 0.8;
+/** Seconds on a grenade a dying man let go of, and the push it gets from his hand. */
+const LAST_FUSE = 1.9;
+const LAST_ROLL = 1.6;
 
 const _muzzle = new THREE.Vector3();
 const _dir = new THREE.Vector3();
@@ -34,13 +38,20 @@ const _rand = new THREE.Vector3();
 /** Weapon up, rounds left, nerve holding, and something to shoot at: the player, or a position the squad wants kept down. */
 const canFire = (e: Enemy): boolean => {
   const s = soldierOf(e);
-  return !!s && s.fighting && s.exposed && s.mag > 0 && s.reloadUntil === 0 && hasGun(e) && (s.sees || s.suppressing || s.blind);
+  return !!s && s.fighting && s.weapon === 'primary' && s.exposed && s.mag > 0 && s.reloadUntil === 0 && hasGun(e) && (s.sees || s.suppressing || s.blind);
 };
 
 /** The same, but only on a target he can see. Rockets and sniper rounds are too few to spend on a guess. */
 const canAim = (e: Enemy): boolean => {
   const s = soldierOf(e);
-  return !!s && s.fighting && s.exposed && s.sees && s.mag > 0 && s.reloadUntil === 0 && hasGun(e);
+  return !!s && s.fighting && s.weapon === 'primary' && s.exposed && s.sees && s.mag > 0 && s.reloadUntil === 0 && hasGun(e);
+};
+
+/** One hand and a pistol: on his feet with a target, or from the floor if it comes close enough. */
+const canFireSidearm = (e: Enemy): boolean => {
+  const s = soldierOf(e);
+  if (!s || s.weapon !== 'sidearm' || s.mag <= 0 || s.reloadUntil > 0) return false;
+  return s.downed ? !e.downed && s.sees : s.fighting && s.exposed && s.sees;
 };
 
 interface GunSpec {
@@ -64,6 +75,8 @@ interface GunSpec {
   pitch?: number;
   /** A sound that lasts as long as the burst. */
   loop?: string;
+  /** Who may fire it. Every long gun is `canFire`. */
+  requires?: (e: Enemy) => boolean;
 }
 
 function soldierGun(t: GunSpec): AttackDef {
@@ -78,7 +91,7 @@ function soldierGun(t: GunSpec): AttackDef {
     shots: t.shots,
     recover: 0.3,
     moveMul: t.moveMul,
-    requires: canFire,
+    requires: t.requires ?? canFire,
     begin(e, w) {
       e.face = soldierOf(e)!.sees ? 'player' : 'lock';
       muzzleOf(e, _muzzle);
@@ -89,7 +102,7 @@ function soldierGun(t: GunSpec): AttackDef {
       if (!s || s.mag <= 0) return;
       s.mag--;
       muzzleOf(e, _muzzle);
-      const nerve = AIM_BY_STATE[s.state];
+      const nerve = AIM_BY_STATE[s.state] * s.injuries.aimNow(w.now);
       if (s.sees && !s.blind) aimAtPlayer(w, _muzzle, _dir, t.speed, t.lead, t.missStill * nerve, t.missFast * nerve);
       else {
         randomUnit(_rand);
@@ -118,7 +131,14 @@ function drilled(a: AttackDef): AttackDef {
     fire(e, w, index) {
       const s = soldierOf(e);
       if (s) s.mag--;
+      // The swarm's attacks aim at the player's chest, so a shaking hand is a chest that is not quite there.
+      const shake = s ? (s.injuries.aimNow(w.now) - 1) * WOUND_DRIFT : 0;
+      if (shake > 0) {
+        randomUnit(_rand);
+        w.player.chest.addScaledVector(_rand, shake);
+      }
       a.fire(e, w, index);
+      if (shake > 0) w.player.chest.addScaledVector(_rand, -shake);
     },
   };
 }
@@ -136,6 +156,12 @@ const machineGun = soldierGun({
 const sidearm = soldierGun({
   name: 'pistol', range: [2, 28], shots: 2, gap: 0.22, damage: 5, speed: 46, windup: 0.42, cooldown: [1.4, 2.4], lead: 0.4,
   missStill: 0.4, missFast: 4.5, sound: 'enemy_pistol', muzzle: 'enemy', moveMul: 0.8, token: 'ranged',
+});
+
+/** The backup. Slow to come up, single shots, and a good hand's worth of wandering on top of whatever is wrong with him. */
+const backup = soldierGun({
+  name: 'backup', range: [1.5, 22], shots: 1, gap: 0.2, damage: 4, speed: 44, windup: 0.6, cooldown: [1, 1.9], lead: 0.2,
+  missStill: 1.1, missFast: 5.5, sound: 'enemy_pistol', muzzle: 'enemy', moveMul: 0.5, token: null, requires: canFireSidearm,
 });
 
 const carbine = soldierGun({
@@ -191,6 +217,19 @@ const grenade: AttackDef = {
   },
 };
 
+/** It rolls free of his hand. Everyone near has about two seconds, him included. */
+export function dropGrenade(e: Enemy, w: AiWorld): void {
+  randomUnit(_rand);
+  _muzzle.copy(e.center);
+  _vel.set(_rand.x * LAST_ROLL, 1, _rand.z * LAST_ROLL);
+  w.ctx.combat.spawnProjectile({
+    origin: _muzzle, velocity: _vel, kind: 'grenade', team: 'enemy', damage: 0, source: 'frag', gravity: -GRAVITY, fuse: LAST_FUSE, lifetime: LAST_FUSE + 1, trail: 'none',
+    explosion: { radius: FRAG_RADIUS, damage: FRAG_DAMAGE * e.damageMul, kind: 'grenade', selfDamage: 1 },
+  });
+  w.ctx.audio.play('grenade_pin', { position: e.center, volume: 0.8 });
+  w.telegraphs.zone(_muzzle, FRAG_RADIUS, LAST_FUSE);
+}
+
 /** Riot officers still bash. It is the one melee a soldier does on purpose, and it needs the shield. */
 const shieldBash = melee({
   name: 'bash', reach: 2.7, damage: 12, windup: 0.5, knock: 11, anim: 'attackHeavy', cooldown: [1.8, 2.8], requires: e => e.shield,
@@ -210,15 +249,13 @@ const LOADOUT: Partial<Record<EnemyId, readonly AttackDef[]>> = {
   warden: [carbine],
 };
 
-const FIST_DAMAGE = 7;
-
 /** One shared list per type: attacks hold no per-enemy state. */
 const lists = new Map<EnemyId, AttackDef[]>();
 
 export function soldierAttacks(id: EnemyId): AttackDef[] {
   let list = lists.get(id);
   if (!list) {
-    list = [...(LOADOUT[id] ?? []), grenade, offhandPistol(3), ...maimedAttacks(FIST_DAMAGE)];
+    list = [...(LOADOUT[id] ?? []), grenade, backup];
     lists.set(id, list);
   }
   return list;

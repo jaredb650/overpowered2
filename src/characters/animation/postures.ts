@@ -9,7 +9,8 @@
 import * as THREE from 'three';
 
 export type PostureName =
-  | 'stand' | 'crouch' | 'cover' | 'peek' | 'leanLeft' | 'leanRight' | 'handsUp' | 'kneel' | 'cower' | 'flee' | 'drag' | 'revive' | 'downed';
+  | 'stand' | 'crouch' | 'cover' | 'peek' | 'leanLeft' | 'leanRight' | 'handsUp' | 'kneel' | 'cower' | 'flee' | 'drag' | 'revive' | 'downed'
+  | 'hunched' | 'pistol';
 
 interface Shape {
   /** Hips lowered. */
@@ -35,10 +36,12 @@ interface Shape {
   /** Hands working: chest compressions, or shaking with fear. */
   pump: number;
   tremble: number;
+  /** 1 leaves the right hand out of `hands`. */
+  leftOnly: number;
 }
 
 const FLAT: Shape = {
-  drop: 0, shift: 0, sway: 0, bend: 0, roll: 0, head: 0, brace: 0, kneel: 0, hands: 0, x: 0, y: 0, z: 0, flare: 0, pump: 0, tremble: 0,
+  drop: 0, shift: 0, sway: 0, bend: 0, roll: 0, head: 0, brace: 0, kneel: 0, hands: 0, x: 0, y: 0, z: 0, flare: 0, pump: 0, tremble: 0, leftOnly: 0,
 };
 
 const SHAPES: Record<PostureName, Shape> = {
@@ -57,6 +60,10 @@ const SHAPES: Record<PostureName, Shape> = {
   revive: { ...FLAT, drop: 0.26, bend: 0.5, head: 0.22, kneel: 0.8, hands: 1, x: 0.08, y: -0.52, z: 0.62, pump: 1 },
   // Its own object: a posture of exactly FLAT counts as being finished with, and this one is not.
   downed: { ...FLAT },
+  // Folded over a hole in the belly. Hips back and low, because that is what takes the pull off it.
+  hunched: { ...FLAT, drop: 0.09, shift: -0.03, bend: 0.82, head: -0.5, brace: 0.3 },
+  // One arm out in front with a pistol at the end of it, with the other hand gone and hanging.
+  pistol: { ...FLAT, drop: 0.03, bend: 0.1, roll: -0.08, hands: 1, x: 0.04, y: 0.1, z: 0.84, leftOnly: 1 },
 };
 
 const KEYS = Object.keys(FLAT) as (keyof Shape)[];
@@ -155,7 +162,7 @@ export class Postures {
   /** Moves a wrist target, in body space. */
   hand(side: 1 | -1, arm: number, chest: THREE.Quaternion, shoulder: THREE.Vector3, target: THREE.Vector3, pole: THREE.Vector3): void {
     const n = this.now;
-    if (n.hands < 0.01) return;
+    if (n.hands < 0.01 || (side < 0 && n.leftOnly > 0.5)) return;
     const shake = Math.sin(this.clock * TREMBLE_RATE + side) * TREMBLE_SIZE * n.tremble;
     const pump = Math.abs(Math.sin(this.clock * PUMP_RATE)) * PUMP_SIZE * n.pump;
     _at.set(side * n.x + shake, n.y + shake - pump, n.z).multiplyScalar(arm).applyQuaternion(chest).add(shoulder);
