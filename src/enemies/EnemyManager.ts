@@ -555,7 +555,7 @@ export class EnemyManager implements EnemySystem {
   }
 
   /** Comes back through a spawn point like a reinforcement, out of sight, so it never reads as a teleport. */
-  private rescue(e: Enemy): void {
+  rescue(e: Enemy): void {
     if (this.w.now < this.nextRescueAt) return;
     this.nextRescueAt = this.w.now + RESCUE_GAP;
     const point = this.spawner.pick(['ground', 'gate'], RESCUE_MIN_PATH, RESCUE_MAX_PATH);
@@ -566,7 +566,8 @@ export class EnemyManager implements EnemySystem {
     e.groundY = point.position.y;
     e.velocity.set(0, 0, 0);
     e.push.set(0, 0, 0);
-    e.pinned = false;
+    e.pinned = e.airborne = e.ballistic = false;
+    e.verticalSpeed = e.flightLeft = 0;
     e.groundSampleAt.set(e.position.x, e.position.z);
     e.bestPath = Infinity;
     e.windowStart.copy(e.position);

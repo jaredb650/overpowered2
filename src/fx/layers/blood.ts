@@ -237,7 +237,7 @@ export class BloodLayer {
     });
     const own = {
       uMinPx: { value: 1.3 },
-      uLift: { value: 2.4 },
+      uLift: { value: 3.2 },
       uVenous: { value: new THREE.Vector3(BLOOD.venous.r, BLOOD.venous.g, BLOOD.venous.b) },
       uArterial: { value: new THREE.Vector3(BLOOD.arterial.r, BLOOD.arterial.g, BLOOD.arterial.b) },
     };

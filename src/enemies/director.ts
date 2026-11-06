@@ -37,7 +37,7 @@ export class Director {
   private nextVolleyAt = 0;
   private nextSwingAt = 0;
   private nextBarkAt = 0;
-  private volleyGap = 0.55;
+  private volleyGap = 1.7;
   private swingGap = 0.95;
   private losLeft = LOS_PER_FRAME;
   private losCursor = 0;
@@ -57,7 +57,9 @@ export class Director {
   setWave(wave: number): void {
     this.rangedLimit = clamp(1 + Math.floor(wave / 2), 1, 9);
     this.meleeLimit = clamp(2 + Math.floor(wave / 2), 2, 7);
-    this.volleyGap = clamp(0.55 - wave * 0.025, 0.14, 0.55);
+    // Measured from the start of one burst to the next, so this, not the token count, is what limits early fire: a
+    // token frees the moment a burst ends and another shooter takes it at once.
+    this.volleyGap = clamp(1.95 - wave * 0.26, 0.14, 1.7);
     this.swingGap = clamp(1.02 - wave * 0.07, 0.22, 0.95);
   }
 

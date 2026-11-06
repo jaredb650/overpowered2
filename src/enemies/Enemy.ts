@@ -98,6 +98,9 @@ export class Enemy implements EnemyInstance {
   verticalSpeed = 0;
   /** While jumping on a set arc the horizontal velocity is not steered. */
   ballistic = false;
+  /** Seconds until a leap reaches the point it was aimed at. Zero for a fall or a pad flight, which have no aim. */
+  flightLeft = 0;
+  readonly leapTarget = new THREE.Vector3();
   /** Held off the ground by its own behaviour: clinging to a wall, or hovering. */
   pinned = false;
   /** How long progress has been too slow while trying to move. */
@@ -228,7 +231,8 @@ export class Enemy implements EnemyInstance {
     this.push.set(0, 0, 0);
     this.groundY = 0;
     this.airborne = this.ballistic = this.pinned = false;
-    this.verticalSpeed = 0;
+    this.verticalSpeed = this.flightLeft = 0;
+    this.leapTarget.set(0, 0, 0);
     this.stuck = this.flowUntil = this.probeAt = 0;
     this.gaitPhase = 0;
     this.bestPath = Infinity;

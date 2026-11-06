@@ -55,6 +55,9 @@ changes what is available on the next think.
   seconds without sight, or `STRANDED_SIGHTED` with it for melee, re-enters through a spawn point if it also stayed put, or if it
   is more than `STRAGGLER_PATH` behind. Route gain alone is not enough: a player moving away lengthens the route of a body
   walking straight at them. Ranged enemies with sight, anything not in flow mode, and crawlers are exempt. `enemies.rescues` counts these.
+- **A leap ends where it was aimed.** `leapTo` records the target, and when the flight time runs out the body stops over that
+  spot and falls. Otherwise a long leap in a slow frame steps over a narrow landing and flies off the map. A body that falls
+  past `FELL_OUT_Y` with no ground in reach is rescued, because nothing else would ever end it.
 - **A tank the player did not set off is small** (`STRAY_TANK_*`). A chain of full tanks at the player's feet was a one-frame
   death for a kill they had no part in.
 - **Bosses ignore hazards**, and an enemy in the air is above them. Lava and crushers kill through `DamageModel.kill` with the
@@ -71,7 +74,7 @@ changes what is available on the next think.
 | `waves.ts` `rosterWeight` | How fast fodder gives way to older types |
 | `director.ts` `setWave` | Simultaneous attackers and the gaps between them. This drives lethality more than raw damage |
 | `EnemyManager.ts` `EVASION_FROM`, `EVASION_SPAN` | Speed to `evasion`, which every aimed attack reads. Full at 11.5 m/s, just under the player's 12.5 m/s run. Retune if `runSpeed` moves |
-| `attacks.ts` `aimAtPlayer`, `grazed` | Miss radius and the damage cut at speed |
+| `attacks.ts` `aimAtPlayer`, `SPEED_MISS`, `grazed` | Miss radius and the damage cut at speed |
 | `spawner.ts` | `PATH_MIN`, `PATH_MAX`, `REUSE_SECONDS`, `DROP_HEIGHT` |
 | `contact.ts` | `SHOVE_SPEED`, `SHOVE_FORCE`, `SHOVE_STAGGER`, `EASE_OUT` |
 | `EnemyManager.ts` | `PATH_GAIN`, `STRANDED_*`, `STRAGGLER_PATH`, `RESCUE_*`, `CHAR_SECONDS`, `BUFF_SECONDS`, `HAZARD_TICK` |

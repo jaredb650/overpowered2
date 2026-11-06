@@ -18,6 +18,9 @@ const _target = new THREE.Vector3();
 const _rand = new THREE.Vector3();
 const _a = new THREE.Vector3();
 
+/** Share of an attack's `missFast` it reaches at full speed. Speed should graze, not make the player untouchable. */
+const SPEED_MISS = 0.65;
+
 /** The contract leaves this off; the library sets it on anything carrying a gun. */
 interface Armed {
   readonly muzzle: THREE.Object3D | null;
@@ -51,7 +54,7 @@ export function aimAtPlayer(
   const p = w.player;
   const flight = from.distanceTo(p.chest) / projectileSpeed;
   _target.copy(p.chest).addScaledVector(p.velocity, flight * lead);
-  const miss = (missStill + (missFast - missStill) * p.evasion) * Math.sqrt(Math.random());
+  const miss = (missStill + (missFast * SPEED_MISS - missStill) * p.evasion) * Math.sqrt(Math.random());
   randomUnit(_rand);
   _target.addScaledVector(_rand, miss);
   return out.subVectors(_target, from).normalize();

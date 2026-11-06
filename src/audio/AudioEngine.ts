@@ -127,6 +127,7 @@ export class AudioEngine implements AudioSystem {
   private readonly pool3d = emptyPool();
   private readonly pool2d = emptyPool();
   private readonly poolUi = emptyPool();
+  private readonly pools: readonly Pool[] = [this.pool3d, this.pool2d, this.poolUi];
   private readonly governor = new LoadGovernor();
   /** When each family last started, on the audio clock. */
   private readonly familyStart = new Map<string, number>();
@@ -647,7 +648,7 @@ export class AudioEngine implements AudioSystem {
       return;
     }
     const now = ac.currentTime;
-    for (const pool of [this.pool3d, this.pool2d, this.poolUi]) {
+    for (const pool of this.pools) {
       for (const v of pool.all) {
         if (v.soundId !== null && v.overdue(now)) {
           v.reclaim();

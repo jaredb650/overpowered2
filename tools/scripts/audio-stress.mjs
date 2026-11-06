@@ -22,6 +22,7 @@ import { join } from 'node:path';
 const LABEL = process.env.AS_LABEL ?? 'run';
 const METER = process.env.AS_METER !== '0';
 const CDP = process.env.AS_CDP !== '0';
+const DEADLINE_MS = 135000;
 /** Ids that must never drop out, and whose requests the summary lists one by one. */
 const MUST_PLAY = /^(smg_fire|shotgun_fire|rocket_fire|minigun_|hit_marker|enemy_headshot|perk_|bloodthirsty_shot|berserk_shot|hellfire_shot)/;
 const PLAN = (process.env.AS_PLAN ?? 'idle:6,smg:30,buzzsaw:25,rockets:12,slowmo:12,everything:15,pause:4,hidden:4,after:10')
@@ -303,7 +304,10 @@ export default async function stress(page, h) {
     if (name === 'hidden') await page.evaluate(() => window.__as.setHidden(false));
   };
 
-  for (const phase of PLAN) await run(phase.name, phase.seconds);
+  // The log is written from the page at the end, so a run must leave itself time before the harness closes it.
+  for (const phase of PLAN) {
+    if (Date.now() - began < DEADLINE_MS) await run(phase.name, phase.seconds);
+  }
 
   const tail = await page.evaluate(() => {
     const { errors, ids, meters, capabilities, phases } = window.__as;

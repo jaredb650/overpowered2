@@ -356,22 +356,26 @@ const scenarios: Record<string, Scenario> = {
     },
     overlay(s, c, x, y, w, h) {
       const [hard, soft] = s.knees;
-      const top = y + h * 0.72;
-      const height = h * 0.24;
-      c.strokeStyle = '#ffffff40';
+      const top = y + h * 0.5;
+      const height = h * 0.42;
+      const toY = (angle: number) => top + height - ((Math.max(-0.2, Math.min(0.9, angle)) + 0.2) / 1.1) * height;
+      c.fillStyle = '#00000080';
+      c.fillRect(x + 4, top - 4, w - 8, height + 8);
+      c.strokeStyle = '#ffffff50';
+      c.lineWidth = 1;
       c.beginPath();
-      c.moveTo(x + 6, top + height);
-      c.lineTo(x + w - 6, top + height);
+      c.moveTo(x + 8, toY(0));
+      c.lineTo(x + w - 8, toY(0));
       c.stroke();
       const plot = (line: number[], color: string) => {
         c.strokeStyle = color;
-        c.lineWidth = 2;
+        c.lineWidth = 3;
         c.beginPath();
         line.forEach((a, i) => {
-          const px = x + 6 + (i / 120) * (w - 12);
-          const py = top + height - Math.max(-0.2, Math.min(1.1, a)) * (height / 1.1);
-          if (i === 0) c.moveTo(px, py);
-          else c.lineTo(px, py);
+          if (i < 6 || i > 70) return;
+          const px = x + 8 + ((i - 6) / 64) * (w - 16);
+          if (i === 6) c.moveTo(px, toY(a));
+          else c.lineTo(px, toY(a));
         });
         c.stroke();
       };
@@ -421,16 +425,16 @@ const scenarios: Record<string, Scenario> = {
   },
   /** A blast in front of each body, far enough apart that neither reaches the other. Arms back, legs forward. */
   blast: {
-    camera: [0.25, 1.3, 6.4, 0.25, 1.15, 0],
+    camera: [1.1, 1.25, 4.3, 1.1, 1.05, 0],
     compare: true,
     setup(s) {
-      placePair(s, -2.6, 3.1);
+      placePair(s, -0.5, 5.5);
     },
     frame(s, f) {
       if (f !== 20) return;
       s.row.forEach((c, i) => {
         s.gore.ragdoll(c, { muscles: i === 1 });
-        s.ctx.physics.radialImpulse(new THREE.Vector3(c.root.position.x + 1.3, 1, 0), 3.2, 230);
+        s.ctx.physics.radialImpulse(new THREE.Vector3(c.root.position.x + 1.3, 1, 0), 3.2, 125);
       });
     },
   },
@@ -456,7 +460,7 @@ const scenarios: Record<string, Scenario> = {
   },
   /** Dropped dead, collapsing on the spot, and collapsing on the move. */
   collapse: {
-    camera: [0.3, 1.05, 4.5, 0.3, 0.8, 0],
+    camera: [0.2, 1.05, 3.3, 0.2, 0.75, 0],
     setup(s) {
       s.place(-3.2, 0, PROFILE);
       s.place(-0.6, 0, PROFILE);
@@ -594,6 +598,8 @@ export default async function goreSandbox(params: URLSearchParams): Promise<void
     out.style.cssText = `position:fixed;left:0;top:0;z-index:9;background:#000;width:${out.width / dpr}px`;
     const c2 = out.getContext('2d')!;
     c2.font = `${13 * dpr}px monospace`;
+    // A page held from the start has never drawn, and the post stack's first frames come out dark.
+    for (let i = 0; i < 3; i++) render.render();
     frameList.forEach((f, i) => {
       // Only the frame being kept needs drawing, which is most of what a long sheet costs.
       while (stage.frame < f) tick(stage.frame + 1 >= f);
@@ -611,6 +617,7 @@ export default async function goreSandbox(params: URLSearchParams): Promise<void
       scenario.overlay?.(stage, c2, x, y, w, h);
     });
     document.body.appendChild(out);
+    canvas.style.visibility = 'hidden';
   };
 
   const pub = {

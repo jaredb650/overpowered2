@@ -264,7 +264,7 @@ export class EmitterPool {
       s.floor = core.floorAt(_p.x, _p.y, _p.z);
       const wall = core.wallAlong(_p.x, _p.y, _p.z, _dir.x, _dir.y, _dir.z);
       const b = core.blood.begin(core.bloodNow, s.floor, wall, BLOOD_TONE.arterial * (0.5 + 0.5 * pressure));
-      const v = 10.5 * pressure + 2.5;
+      const v = 7.5 * pressure + 2;
       const j = v / 5;
       const n = Math.round(2 + 3 * pressure);
       for (let i = 0; i < n; i++) {

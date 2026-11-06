@@ -23,6 +23,8 @@ const SEPARATION_GAP = 0.55;
 const SEPARATION_PACE = 3.5;
 const WALL_PROBE_SECONDS = 0.25;
 const WALL_PROBE_REACH = 1.3;
+/** Below every floor on any map. A body under this has fallen out of the world. */
+const FELL_OUT_Y = -40;
 /** How far from a pad's own node an enemy walks before it just leaps for the far end. */
 const PAD_MISS_HOPS = 1;
 
@@ -42,6 +44,8 @@ export function leapTo(e: Enemy, target: THREE.Vector3, seconds: number, apex = 
   e.verticalSpeed = (target.y - e.position.y) / t - 0.5 * GRAVITY * t + (apex > 0 ? apex * 0.5 : 0);
   e.airborne = true;
   e.ballistic = true;
+  e.flightLeft = t;
+  e.leapTarget.copy(target);
 }
 
 function flowInto(e: Enemy, w: AiWorld, out: THREE.Vector3): void {
@@ -187,11 +191,23 @@ function integrateAir(e: Enemy, w: AiWorld, dt: number): void {
   e.position.x += e.velocity.x * dt;
   e.position.z += e.velocity.z * dt;
   e.position.y += e.verticalSpeed * dt;
+  if (e.flightLeft > 0) {
+    e.flightLeft -= dt;
+    // A leap ends over the spot it was aimed at. A long one moves far enough in a slow frame to step over a narrow
+    // landing, and with nothing to stop it, it would carry on off the edge of the map.
+    if (e.flightLeft <= 0) {
+      e.position.x = e.leapTarget.x;
+      e.position.z = e.leapTarget.z;
+      e.velocity.x = e.velocity.z = 0;
+    }
+  }
   if (e.verticalSpeed > 0) return;
   const ground = w.ctx.world.nav.groundHeight(e.position.x, e.position.y + 1, e.position.z);
   if (Number.isNaN(ground)) {
-    // Over a hole with no floor below: put the enemy back on the nearest ground rather than lose it forever.
-    if (e.position.y < -40 && w.ctx.world.nav.nearest(e.position, 60, _p)) e.position.copy(_p);
+    // Over a hole with no floor below. Nearest ground if there is any, or a body that can never land stalls the wave.
+    if (e.position.y >= FELL_OUT_Y) return;
+    if (w.ctx.world.nav.nearest(e.position, 60, _p)) e.position.copy(_p);
+    else w.enemies.rescue(e);
     return;
   }
   if (e.position.y <= ground) {
@@ -200,7 +216,7 @@ function integrateAir(e: Enemy, w: AiWorld, dt: number): void {
     const impact = -e.verticalSpeed;
     e.airborne = false;
     e.ballistic = false;
-    e.verticalSpeed = 0;
+    e.verticalSpeed = e.flightLeft = 0;
     e.groundSampleAt.set(e.position.x, e.position.z);
     if (impact > 7) e.char.anim.play('land', 1.3);
   }
@@ -291,6 +307,7 @@ function takePad(e: Enemy, w: AiWorld): boolean {
     e.velocity.x = _pad.x;
     e.velocity.z = _pad.z;
     e.verticalSpeed = _pad.y;
+    e.flightLeft = 0;
     e.airborne = e.ballistic = true;
     w.enemies.linksTaken++;
     fx.jumpPad(e.position, UP);

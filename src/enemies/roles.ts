@@ -99,7 +99,7 @@ export function dropOff(e: Enemy): void {
   if (!e.pinned) return;
   e.pinned = false;
   e.airborne = true;
-  e.verticalSpeed = 0;
+  e.verticalSpeed = e.flightLeft = 0;
   e.velocity.set(0, 0, 0);
   e.stage = 0;
 }
