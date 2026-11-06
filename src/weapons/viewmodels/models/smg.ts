@@ -8,8 +8,8 @@ import { F } from '../kit/finishes';
 import type { Mesher } from '../kit/mesher';
 import { curve, honeycomb, poly, rect, slot, type V2 } from '../kit/shapes';
 import { coil, knurl, rail, screwX } from '../kit/details';
-import { clamp } from '../../../core/math';
 import { bump, hold, inOut, inQuad, outCubic, seg, thud } from '../curves';
+import { drawCount, fill, pullTrigger } from './common';
 import type { Anim, ViewDef } from '../def';
 import { HANDS } from '../poses';
 
@@ -295,29 +295,6 @@ function buildSmg(kit: Kit): Model {
   return model;
 }
 
-function drawReadout(a: Anim): void {
-  const s = a.model!.screens.ammo;
-  if (!s) return;
-  const { g, canvas, texture } = s;
-  const w = canvas.width;
-  const h = canvas.height;
-  const low = a.mag <= a.magSize * 0.25;
-  g.fillStyle = '#031014';
-  g.fillRect(0, 0, w, h);
-  g.fillStyle = low ? '#ff3a2a' : '#35e8ff';
-  g.font = '800 60px "Courier New", monospace';
-  g.textBaseline = 'middle';
-  g.fillText(String(a.mag).padStart(2, '0'), 10, h / 2 + 2);
-  // Segmented bar: one tick per six rounds left.
-  const bars = Math.ceil((a.mag / Math.max(a.magSize, 1)) * 5);
-  for (let i = 0; i < 5; i++) {
-    g.globalAlpha = i < bars ? 1 : 0.16;
-    g.fillRect(96 + i * 18, 12, 13, h - 24);
-  }
-  g.globalAlpha = 1;
-  texture.needsUpdate = true;
-}
-
 function clip(a: Anim, left: boolean): void {
   const parts = a.parts;
   const cycle = 0.05;
@@ -325,10 +302,8 @@ function clip(a: Anim, left: boolean): void {
   const boltTravel = Math.sin(c * Math.PI) * 0.042;
   parts.bolt!.position.z += boltTravel;
   parts.charge!.position.z += boltTravel * 0.25;
-  const pull = a.sinceFire < 0.07 ? 1 : 0;
-  parts.trigger!.rotation.x -= pull * 0.32;
-  a.right.trigger = pull;
-  parts.follower!.position.y += (1 - clamp(a.mag / Math.max(a.magSize, 1))) * 0.098;
+  pullTrigger(a);
+  parts.follower!.position.y += (1 - fill(a)) * 0.098;
   a.glow('sight', 0.9 + 0.1 * Math.sin(a.time * 17));
 
   // Draw flair: the off hand slaps the charging handle on the way up.
@@ -390,7 +365,7 @@ export function smgDefs(kit: Kit): { right: ViewDef; left: ViewDef } {
     left: { socket: 'gripL', pose: HANDS.support },
     heatPerShot: 0.007,
     animate: a => clip(a, false),
-    readout: drawReadout,
+    readout: a => drawCount(a, 'ammo', 2, 5),
   };
   const left: ViewDef = {
     id: 'smgLeft',
@@ -401,7 +376,7 @@ export function smgDefs(kit: Kit): { right: ViewDef; left: ViewDef } {
     right: null,
     left: { socket: 'gripAk', pose: HANDS.grip },
     animate: a => clip(a, true),
-    readout: drawReadout,
+    readout: a => drawCount(a, 'ammo', 2, 5),
   };
   return { right, left };
 }

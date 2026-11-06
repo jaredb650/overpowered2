@@ -109,7 +109,7 @@ export class Warthog implements Strike {
 
     if (!this.roared && this.t >= W.flybyAt) {
       this.roared = true;
-      // Pinned to the corridor and not the jet, so the sound arrives from where the violence was.
+      // Not placed in the world: the first game's roar filled the room, and a strike called from far off must too.
       audio.play('warthog_flyby', { volume: 1.6 });
       this.kit.ctx.camera.addTrauma(0.35);
     }

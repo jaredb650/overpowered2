@@ -9,7 +9,7 @@ import { HumanoidAnimator } from '../characters/animation/HumanoidAnimator';
 import { droneRig, humanoidRig, HumanoidBone as B, skitterRig, type RigDef } from '../characters/rig';
 import { GRAVITY, Physics } from '../physics/Physics';
 import { makeCtx } from '../sandbox/harness';
-import type { Ctx, DamageInfo } from '../core/contracts';
+import { DEFAULT_FORCE, type Ctx, type DamageInfo } from '../core/contracts';
 import { createGoreSystem, GoreTuning, type Gore } from './index';
 import { impactStrength, MuscleTuning } from './muscles';
 import { BodyFilter, Rag } from './rag';
@@ -394,7 +394,7 @@ describe('rotational impact', () => {
   });
 
   it('is small for a bullet and full for a blast', () => {
-    expect(impactStrength(170, 85)).toBeLessThan(0.2);
+    expect(impactStrength(DEFAULT_FORCE.bullet, 85)).toBeLessThan(0.05);
     expect(impactStrength(560, 85)).toBeGreaterThan(0.95);
   });
 

@@ -34,10 +34,15 @@ export class ScoreKeeper {
   private lastHeadFrame = -1;
   private floatFrame = -1;
   private floats = 0;
+  /** The kill being priced. Fields, so a nuke's dozens of kills build no closures. */
+  private bonus = 0;
+  private label = '';
 
   constructor(private readonly ctx: Ctx) {
     this.storedHighScore = readHighScore();
     this.highScore = this.storedHighScore;
+    // Closing the tab mid-wave is the last chance to keep a record set since the last wave clear.
+    window.addEventListener('pagehide', () => this.persist());
   }
 
   comboTier(combo: number): number {
@@ -72,42 +77,43 @@ export class ScoreKeeper {
     this.float(enemy, `+${pts} HEADSHOT`, HEADSHOT_COLOR);
   }
 
+  /** The first style names the kill; the rest are in the number. */
+  private style(s: { label: string; bonus: number }): void {
+    this.bonus += s.bonus;
+    if (!this.label) this.label = s.label;
+  }
+
   onKill(e: KillEvent, combo: number): number {
     this.kills++;
     const multiCount = this.multi.hit();
     let base = e.enemy.score;
     if (FINISHER.test(e.damage.source)) base *= SCORE.finisherMultiplier;
-    let bonus = 0;
-    let label = '';
+    this.bonus = 0;
+    this.label = '';
     let color: string | undefined;
 
-    const style = (s: { label: string; bonus: number }) => {
-      bonus += s.bonus;
-      // The first style names the kill; the rest are in the number.
-      if (!label) label = s.label;
-    };
-
     if (e.headshot) {
-      bonus += SCORE.headshot;
-      label = 'HEADSHOT';
+      this.bonus += SCORE.headshot;
+      this.label = 'HEADSHOT';
       color = HEADSHOT_COLOR;
     }
-    if (e.enemy.frozen > 0) style(STYLE.shatter);
-    if (e.sliced) style(STYLE.sliced);
-    if (ENVIRONMENT.test(e.damage.source)) style(STYLE.environment);
-    if (e.playerWallRunning) style(STYLE.wallRun);
-    if (e.playerSliding) style(STYLE.slide);
-    if (e.playerAirborne && !e.playerWallRunning) style(STYLE.airborne);
-    if (e.distance <= SCORE.pointBlank) style(STYLE.pointBlank);
-    if (e.distance >= SCORE.longShot) style(STYLE.longShot);
-    if (e.playerSpeed >= SCORE.blurSpeed) style(STYLE.blur);
-    if (e.severedCount > 0) style(STYLE.dismember);
-    if (e.gibbed) style(STYLE.gibbed);
-    if (this.ctx.player.health <= SCORE.closeCallHealth) style(STYLE.closeCall);
+    if (e.enemy.frozen > 0) this.style(STYLE.shatter);
+    if (e.sliced) this.style(STYLE.sliced);
+    if (ENVIRONMENT.test(e.damage.source)) this.style(STYLE.environment);
+    if (e.playerWallRunning) this.style(STYLE.wallRun);
+    if (e.playerSliding) this.style(STYLE.slide);
+    if (e.playerAirborne && !e.playerWallRunning) this.style(STYLE.airborne);
+    if (e.distance <= SCORE.pointBlank) this.style(STYLE.pointBlank);
+    if (e.distance >= SCORE.longShot) this.style(STYLE.longShot);
+    if (e.playerSpeed >= SCORE.blurSpeed) this.style(STYLE.blur);
+    if (e.severedCount > 0) this.style(STYLE.dismember);
+    if (e.gibbed) this.style(STYLE.gibbed);
+    if (this.ctx.player.health <= SCORE.closeCallHealth) this.style(STYLE.closeCall);
 
     // Each rung pays once. Past the top one a call-in would otherwise print money for every body in the blast.
     const multi = multiCount < MULTI_KILLS.length ? MULTI_KILLS[multiCount]! : MULTI_KILLS[0]!;
-    bonus += multi.bonus;
+    this.bonus += multi.bonus;
+    const { bonus, label } = this;
 
     const mult = this.comboTier(combo) * this.speedTier();
     const points = Math.round((base + bonus) * mult);

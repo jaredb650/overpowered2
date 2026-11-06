@@ -118,7 +118,7 @@ export const MuscleTuning = {
   /** Spin on a loose limb, which has no body to be thrown from. */
   limbSpin: 9,
   /** Change in body speed, in m/s, that counts as full strength, and the curve that keeps bullets small. */
-  impactFull: 6.6,
+  impactFull: 4,
   impactCurve: 1.5,
   /** Per-body radial blast strength that counts as full strength. */
   blastFull: 66,

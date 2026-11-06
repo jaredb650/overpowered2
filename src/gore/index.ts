@@ -68,11 +68,18 @@ export const GoreTuning = {
   hitStopSeconds: 0.025,
   hitStopScale: 0.03,
   /**
-   * Fraction of a hit that moves the whole body, not only the bone it struck. Rapier's four solver iterations cannot
-   * carry a hard impulse down a chain in one step, so all of it on a bone leaves the feet planted and the body folds on
-   * the spot, however hard the hit was.
+   * Fraction of a hard hit that moves the whole body, not only the bone it struck. All of it on a bone just folds a
+   * standing body at the knees, on the spot, however hard the hit was. A light hit keeps all of it on the bone, because
+   * rocking a limb is what a bullet is for. The share grows between these two forces.
    */
-  bodyShare: 0.5,
+  bodyShare: 0.85,
+  bodyShareFrom: 20,
+  bodyShareFull: 90,
+  /**
+   * Upward push on that share, as a fraction of it. Under doubled gravity a standing body's feet stop it within 0.3 m
+   * of anything short of a rocket, so a hard hit has to take the weight off them before it can carry a body back.
+   */
+  bodyLift: 0.6,
   /** Fraction of DamageInfo.force that a severed limb takes. The rest went into the wound. */
   limbForceShare: 0.45,
   /** A gib flies at its force over this, between these speeds in m/s. Lighter than a body, so it goes further than one. */
@@ -376,9 +383,13 @@ export class Gore implements GoreSystem {
 
   /** A hit on a body: some of it at the bone it struck, which is what turns it, and the rest on the whole body. */
   private push(rag: Rag, bone: number, point: THREE.Vector3, impulse: THREE.Vector3): void {
-    const share = GoreTuning.bodyShare;
+    const t = GoreTuning;
+    const share = t.bodyShare * clamp((impulse.length() - t.bodyShareFrom) / (t.bodyShareFull - t.bodyShareFrom));
     rag.applyImpulse(bone, point, _v5.copy(impulse).multiplyScalar(1 - share));
-    rag.shove(_v5.copy(impulse).multiplyScalar(share));
+    if (share <= 0) return;
+    _v5.copy(impulse).multiplyScalar(share);
+    _v5.y += _v5.length() * t.bodyLift;
+    rag.shove(_v5);
   }
 
   /** The limbs' share of a hit, from what the caller said or else from the impulses themselves. */

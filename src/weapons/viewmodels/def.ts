@@ -59,7 +59,7 @@ export class HandCtl {
   readonly weights = new Float32Array(MAX_STEPS);
   steps = 0;
   readonly pose = new Float32Array(POSE_SIZE);
-  /** Extra offset applied after resolving, gun space is not implied: view space. */
+  /** Extra offset applied after resolving, in view space. */
   readonly nudge = new THREE.Vector3();
   /** Multiplies the finger-blend speed. Fast snaps for grabs. */
   fingerRate = 28;
@@ -126,8 +126,6 @@ export class Anim {
   swingSeconds = 0.25;
   /** Seconds a finished move takes to ease back to guard. */
   recover = 0.16;
-  /** 0..1 guard weight, for the Sword's own bookkeeping. */
-  guard = 0;
   /** 0..1 through a parry reaction, or -1. */
   parry = -1;
   parrySeconds = 0.16;
@@ -140,13 +138,8 @@ export class Anim {
   readonly right = new HandCtl();
   parts: Record<string, THREE.Group> = {};
   model: Model | null = null;
-  /** View-model state the clips may want to react to. */
+  /** Horizontal player speed. */
   speed = 0;
-  grounded = true;
-
-  part(name: string): THREE.Group {
-    return this.parts[name]!;
-  }
 
   /** The weapon's glow material. */
   glow(name: string, level: number): void {

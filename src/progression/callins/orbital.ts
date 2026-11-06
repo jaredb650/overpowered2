@@ -77,6 +77,13 @@ const HOT = new THREE.Color('#ff2fb0').multiplyScalar(3.2);
 const WHITE = new THREE.Color('#fff2f8').multiplyScalar(7);
 const FIRE = '#ff5a10';
 
+export const orbitalMaterials = (): { column: THREE.ShaderMaterial; pool: THREE.ShaderMaterial } => ({
+  column: additive(BEAM_VERT, BEAM_FRAG, { uCore: { value: WHITE }, uRim: { value: HOT }, uTime: { value: 0 }, uPower: { value: 0 } }),
+  pool: additive(POOL_VERT, POOL_FRAG, {
+    uColor: { value: new THREE.Color(FIRE).multiplyScalar(2.6) }, uTime: { value: 0 }, uPower: { value: 0 },
+  }),
+});
+
 const _up = new THREE.Vector3(0, 1, 0);
 const _aim = new THREE.Vector3();
 const _step = new THREE.Vector3();
@@ -113,12 +120,9 @@ export class Orbital implements Strike {
     this.ring = new GroundRing(ctx);
     this.ring.setColor(CALLINS.orbital.color, 2);
 
-    this.columnMat = additive(BEAM_VERT, BEAM_FRAG, {
-      uCore: { value: WHITE }, uRim: { value: HOT }, uTime: { value: 0 }, uPower: { value: 0 },
-    });
-    this.poolMat = additive(POOL_VERT, POOL_FRAG, {
-      uColor: { value: new THREE.Color(FIRE).multiplyScalar(2.6) }, uTime: { value: 0 }, uPower: { value: 0 },
-    });
+    const materials = orbitalMaterials();
+    this.columnMat = materials.column;
+    this.poolMat = materials.pool;
     const beam = new THREE.CylinderGeometry(1, 1, O.height, 24, 1, true);
     beam.translate(0, O.height / 2, 0);
     this.column = new THREE.Mesh(beam, this.columnMat);

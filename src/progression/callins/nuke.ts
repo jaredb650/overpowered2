@@ -107,6 +107,11 @@ void main() {
   gl_FragColor = vec4(c * uPower, 1.0);
 }`;
 
+export const nukeFrontMaterial = (): THREE.ShaderMaterial => new THREE.ShaderMaterial({
+  vertexShader: FRONT_VERT, fragmentShader: FRONT_FRAG, uniforms: { uPower: { value: 1 } },
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, toneMapped: false, fog: false,
+});
+
 const SKY_VERT = /* glsl */ `
 varying vec3 vDir;
 void main() {
@@ -326,10 +331,7 @@ export class Nuke implements Strike {
     this.zero.copy(order.point);
     this.ring = new GroundRing(ctx);
     this.ring.setColor('#ff3020', 1.8);
-    this.frontMat = new THREE.ShaderMaterial({
-      vertexShader: FRONT_VERT, fragmentShader: FRONT_FRAG, uniforms: { uPower: { value: 1 } },
-      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, toneMapped: false, fog: false,
-    });
+    this.frontMat = nukeFrontMaterial();
     this.front = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 16, 0, TAU, 0, Math.PI / 2), this.frontMat);
     this.front.frustumCulled = false;
     this.front.visible = false;

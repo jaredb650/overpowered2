@@ -86,10 +86,6 @@ export class Sentinels {
     }
   }
 
-  get onStation(): number {
-    return this.drones.reduce((n, d) => n + (d.group.visible ? 1 : 0), 0);
-  }
-
   stop(): void {
     this.active = false;
     this.hum?.stop(0.2);

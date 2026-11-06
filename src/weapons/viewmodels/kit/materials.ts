@@ -401,11 +401,11 @@ if (vmKindId > 0.5 && vmKindId < 1.5) {
 } else if (vmKindId > 5.5 && vmKindId < 6.5) {
   // Cordura: a visible over-under weave, with grime in the threads.
   vec2 wp = (vmW.x > vmW.y && vmW.x > vmW.z) ? vOP.zy : ((vmW.y > vmW.z) ? vOP.xz : vOP.xy);
-  wp *= 900.0;
+  wp *= 1900.0;
   // The weave fades out before it can alias: a moire on a sleeve looks like a rendering bug.
   float vmWeaveFade = 1.0 - smoothstep(0.5, 1.4, length(fwidth(wp)));
   float warp = sin(wp.x) * sin(wp.y);
-  vmAlb *= 1.0 + vmWeaveFade * 0.28 * (smoothstep(-0.7, 0.7, warp) - 0.5);
+  vmAlb *= 1.0 + vmWeaveFade * 0.2 * (smoothstep(-0.7, 0.7, warp) - 0.5);
   vmRough += 0.1;
   vmBump = 0.42;
   vmBumpScale = 42.0;
@@ -462,7 +462,8 @@ vmRough = mix(vmRough, 0.42 + vmFine.a * 0.25, vmFrost);
 
 vec3 vmEmis = vec3(0.03, 0.1, 0.18) * vmFrost * vmFine.a;
 float vmHeatMask = vSurf.w;
-float vmHot = max(uGunHeat * vmHeatMask * vmHeatShape * (0.72 + vmFine.a * 0.4), uPerkHeat * vmHeatMask * 0.2);
+// Squared, so one shot leaves a barrel dark and it takes sustained fire to bring up a glow.
+float vmHot = max(uGunHeat * uGunHeat * vmHeatMask * vmHeatShape * (0.72 + vmFine.a * 0.4), uPerkHeat * vmHeatMask * 0.2);
 vmEmis += vmHeatRamp(vmHot);
 vmAlb *= 1.0 - clamp(vmHot * 0.5, 0.0, 0.5);
 vmEmis += vec3(1.9, 0.52, 0.1) * uPerkHeat * (vmVein * (0.8 + 0.3 * sin(uClock * 3.1 + vmBig.a * 9.0)) + vmEdgeLine * 0.35);
@@ -490,9 +491,9 @@ const LIGHT_BAND = /* glsl */`
 {
   float vmPeak = max(max(iblIrradiance.r, iblIrradiance.g), iblIrradiance.b);
   vec3 vmHue = (iblIrradiance + 0.012) / (vmPeak + 0.012);
-  iblIrradiance = iblIrradiance / (1.0 + vmPeak * 0.5) + vmHue * 0.2;
+  iblIrradiance = iblIrradiance / (1.0 + vmPeak * 0.5) + vmHue * 0.26;
   float vmPeakR = max(max(radiance.r, radiance.g), radiance.b);
-  radiance = radiance / (1.0 + vmPeakR * 0.5) + vmHue * 0.07;
+  radiance = radiance / (1.0 + vmPeakR * 0.5) + vmHue * 0.09;
 }
 `;
 

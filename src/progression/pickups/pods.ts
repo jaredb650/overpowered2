@@ -8,7 +8,7 @@ import type { WeaponId } from '../../core/gameplay';
 import { lerp, pick, rand, smoothstep, TAU } from '../../core/math';
 import { GroundProbe, GroundRing } from '../callins/ground';
 import { aboveFloor } from '../callins/shared';
-import { CACHE_ORDER, DROP_POD as D, PICKUP, PICKUP_LOOK, WEAPON_NAMES } from '../data';
+import { CACHE_ORDER, DROP_POD as D, PICKUP, PICKUP_LOOK } from '../data';
 import { ModelBuilder, type ModelMaterials } from '../modelkit';
 
 const COLOR = '#39e0ff';
@@ -239,9 +239,9 @@ export class DropPods {
     render.post.chromatic(0.5, 0.3);
     const id = pod.weapon;
     if (id) {
+      // The HUD stamps the unlock itself, off the event this fires.
       weapons.give(id);
       weapons.switchTo(id);
-      hud.banner(WEAPON_NAMES[id], 'UNLOCKED', COLOR);
     } else {
       // Arsenal complete: a pod still pays out.
       weapons.addAmmo(REFILL_FRACTION);

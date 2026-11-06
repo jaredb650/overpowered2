@@ -219,7 +219,7 @@ export const CALLINS: Readonly<Record<CallInId, CallInDef>> = {
   },
   orbital: {
     id: 'orbital', combo: 25, cooldown: 60, name: 'ORBITAL LANCE', key: 'V', color: '#ff2fb0', radius: 6,
-    hint: 'CLICK TO FIRE, THEN STEER THE BEAM // RMB CANCEL',
+    hint: 'CLICK TO FIRE, THEN STEER THE BEAM // RMB LETS GO',
   },
   blackSun: {
     id: 'blackSun', combo: 40, cooldown: 90, name: 'BLACK SUN', key: 'B', color: '#a56bff', radius: 36,
@@ -450,11 +450,6 @@ export const DROP_POD = {
 
 /** Unlock order for caches. */
 export const CACHE_ORDER: readonly WeaponId[] = ['judge', 'lance', 'buzzsaw', 'kiln', 'stakegun'];
-
-export const WEAPON_NAMES: Readonly<Record<WeaponId, string>> = {
-  smg: 'SMG', shotgun: 'SHOTGUN', rocket: 'ROCKET LAUNCHER', autocannon: 'AUTOCANNON', sword: 'SWORD',
-  judge: 'THE JUDGE', lance: 'THE LANCE', buzzsaw: 'THE BUZZSAW', kiln: 'THE KILN', stakegun: 'STAKEGUN',
-};
 
 export const PICKUP_LOOK: Readonly<Record<PickupKind, { label: string; color: string }>> = {
   health: { label: 'HEALTH', color: '#33ff66' },

@@ -77,13 +77,6 @@ export class ModelBuilder {
     return this.solid(new THREE.CylinderGeometry(rTop, rBottom, h, seg), color, p);
   }
 
-  /** Mirrors a placement across X, for the left and right halves of a symmetric model. */
-  static mirrorX(p: Placement): Placement {
-    const a = p.at ?? [0, 0, 0];
-    const r = p.rot ?? [0, 0, 0];
-    return { ...p, at: [-a[0], a[1], a[2]], rot: [r[0], -r[1], -r[2]] };
-  }
-
   solidGeometry(): THREE.BufferGeometry | null {
     return this.solidParts.length ? mergeGeometries(this.solidParts, false) : null;
   }

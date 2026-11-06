@@ -10,10 +10,10 @@ import type { CallInId } from '../../core/gameplay';
 import { ModelMaterials } from '../modelkit';
 import { CALLIN_ORDER, CALLINS } from '../data';
 import { Airstrike } from './airstrike';
-import { BlackSun } from './blacksun';
+import { BlackSun, blackSunMaterials } from './blacksun';
 import { GroundProbe } from './ground';
-import { Nuke, NukeAftermath } from './nuke';
-import { Orbital } from './orbital';
+import { Nuke, NukeAftermath, nukeFrontMaterial } from './nuke';
+import { Orbital, orbitalMaterials } from './orbital';
 import { Ordnance } from './ordnance';
 import type { Strike, StrikeKit, StrikeOrder } from './shared';
 import { Targeting } from './targeting';
@@ -27,6 +27,7 @@ const KEYS: Readonly<Record<CallInId, Action>> = {
   nuke: 'callinNuke',
 };
 
+const UNDRAWN_LAYER = 31;
 /** Seconds between the device leaving and the gun being drawn. */
 const GUN_BACK_DELAY = 0.16;
 
@@ -52,6 +53,21 @@ export class CallInManager {
     this.kit = { ctx, probe, materials, ordnance, jet };
     this.targeting = new Targeting(ctx);
     this.aftermath = new NukeAftermath(ctx);
+    this.warmShaders();
+  }
+
+  /**
+   * Strikes build their materials on launch, and a program compiled then stalls the frame of the biggest moment in the
+   * game. The renderer's compile pass at load only walks visible objects, so these stand on a layer no camera draws.
+   */
+  private warmShaders(): void {
+    const nothing = new THREE.BufferGeometry();
+    const all = [...Object.values(orbitalMaterials()), ...Object.values(blackSunMaterials()), nukeFrontMaterial()];
+    for (const material of all) {
+      const stand = new THREE.Mesh(nothing, material);
+      stand.layers.set(UNDRAWN_LAYER);
+      this.ctx.render.scene.add(stand);
+    }
   }
 
   cooldown(id: CallInId): number {

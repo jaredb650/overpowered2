@@ -4,7 +4,7 @@ import { Model } from '../kit/model';
 import { F } from '../kit/finishes';
 import type { V3 } from '../kit/mesher';
 import { poly, rect } from '../kit/shapes';
-import { knurl, screw, screwX } from '../kit/details';
+import { knurl, screwX } from '../kit/details';
 
 export function buildGrenade(kit: Kit): Model {
   const m = kit.mesher();
@@ -78,7 +78,6 @@ export function buildWalkie(kit: Kit): Model {
     m.box(0.004, 0.03, 0.018, 0.0012, 0.003);
   });
   m.glow('lamp', () => m.at([0.002, 0.0732, 0], [Math.PI / 2, 0, 0], () => m.cyl(0.0024, 0.0028, 10)));
-  m.at([0, -0.0015, 0.0192], null, () => { m.use(F.steelDark); void screw; });
   const model = new Model(m, kit.mats, { glows: { lamp: [0xff3324, 6] }, screens: { lcd: [168, 108] } });
   model.hand('hold', [0.033, -0.012, -0.01], [0.15, -0.95, 0.3], [-0.45, 0.0, -0.9]);
   return model;

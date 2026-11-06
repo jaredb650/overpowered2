@@ -13,17 +13,20 @@ export const RANGE = { halfX: 32, halfZ: 26, wall: 11, deck: 3, thick: 2 } as co
 /** High enough that nothing thrown leaves the room, without having to draw a wall that tall. */
 const CONTAINMENT = 34;
 const LINE_Y = 0.006;
+const LINE = 0.03;
+/** Half length of a metre tick. Full lines every metre shimmer into bands down the length of the room. */
+const TICK = 0.14;
 
 function rule(k: Kit): void {
   const { halfX: x, halfZ: z } = RANGE;
-  const g = k.geo.use('paintWhite');
+  const g = k.geo.use('paintWhite').tint(0.7);
+  for (let i = -30; i <= 30; i += 5) g.box(i, LINE_Y, 0, LINE, 0.002, z, FACE.py);
+  for (let i = -25; i <= 25; i += 5) g.box(0, LINE_Y, i, x, 0.002, LINE, FACE.py);
   for (let i = -x; i <= x; i++) {
-    const heavy = i % 5 === 0;
-    g.tint(heavy ? 0.9 : 0.42).box(i, LINE_Y, 0, heavy ? 0.03 : 0.012, 0.002, z, FACE.py);
+    for (let j = -25; j <= 25; j += 5) if (i % 5 !== 0) g.box(i, LINE_Y, j, LINE / 2, 0.002, TICK, FACE.py);
   }
-  for (let i = -z; i <= z; i++) {
-    const heavy = i % 5 === 0;
-    g.tint(heavy ? 0.9 : 0.42).box(0, LINE_Y, i, x, 0.002, heavy ? 0.03 : 0.012, FACE.py);
+  for (let j = -z; j <= z; j++) {
+    for (let i = -30; i <= 30; i += 5) if (j % 5 !== 0) g.box(i, LINE_Y, j, TICK, 0.002, LINE / 2, FACE.py);
   }
   g.tint(1);
 }
@@ -68,7 +71,7 @@ function cover(k: Kit): void {
 function lights(k: Kit): void {
   const { halfX: x, halfZ: z } = RANGE;
   for (let i = -2; i <= 2; i++) {
-    for (let j = -1; j <= 2; j++) k.light(i * (x / 2.5), 8.4, j * (z / 2.2), 'white', 240, 30);
+    for (let j = -1; j <= 2; j++) k.light(i * (x / 2.5), 8.4, j * (z / 2.2), 'white', 120, 24);
   }
 }
 

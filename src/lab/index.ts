@@ -9,6 +9,7 @@
 import type { Ctx } from '../core/contracts';
 import { DevFlags, ON_RANGE } from '../core/devflags';
 import type { Game } from '../core/Game';
+import type { WeaponId } from '../core/gameplay';
 import { WEAPON_ORDER } from '../weapons/data';
 import { AimOverlay } from './overlay';
 import { LabPanel } from './panel';
@@ -21,6 +22,8 @@ const STEP_SECONDS = 1 / 60;
 const STATUS_REFRESH = 0.25;
 /** Enough grenades to throw without counting, and well under the carry limit. */
 const GRENADE_FLOOR = 3;
+/** Extinction per metre on the range. The game's haze suits a city and hides a body at the far wall. */
+const RANGE_FOG = 0.0012;
 
 const isField = (t: EventTarget | null): boolean => t instanceof HTMLElement && /^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName);
 
@@ -38,6 +41,7 @@ export class Lab {
 
   constructor(private readonly ctx: Ctx, private readonly game: Game) {
     applyFlags(this.settings);
+    if (ON_RANGE) (ctx.render as unknown as { fog: { density: number } }).fog.density = RANGE_FOG;
     this.spawner = new LabSpawner(ctx);
     this.overlay = new AimOverlay(ctx);
     this.panel = new LabPanel(this.settings, {
@@ -83,7 +87,8 @@ export class Lab {
     const { player, weapons } = this.ctx;
     player.modifiers.invulnerable = this.settings.god;
     if (!this.settings.arsenal) return;
-    for (const id of WEAPON_ORDER) if (!weapons.owned.has(id)) weapons.give(id);
+    // Straight into the set: `give` would raise an unlock banner for each one, on every boot.
+    for (const id of WEAPON_ORDER) (weapons.owned as Set<WeaponId>).add(id);
   }
 
   get open(): boolean {

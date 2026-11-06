@@ -46,6 +46,8 @@ export class AimOverlay {
   private readonly from = new THREE.Vector3();
   private readonly prev = new THREE.Vector3();
   private floor = 0;
+  /** No speed can be read until there is a first position to measure from. */
+  private fresh = false;
 
   constructor(private readonly ctx: Ctx) {
     this.el.className = 'lab-aim';
@@ -66,8 +68,7 @@ export class AimOverlay {
       const char = e.enemy.char;
       this.char = e.gibbed || e.sliced ? null : char;
       this.from.copy(e.enemy.position);
-      this.prev.copy(e.enemy.position);
-      this.prev.y += e.enemy.char.rig.height * 0.5;
+      this.fresh = true;
       this.floor = e.enemy.position.y;
       this.lastThrow = {
         name: (e.enemy as Enemy).def.name, source: e.damage.source, force: (e.damage.force || DEFAULT_FORCE[e.damage.type]) * DevFlags.force,
@@ -90,7 +91,8 @@ export class AimOverlay {
     _v.setFromMatrixPosition(char.bones[0]!.matrixWorld);
     t.distance = Math.max(t.distance, Math.hypot(_v.x - this.from.x, _v.z - this.from.z));
     t.peakHeight = Math.max(t.peakHeight, _v.y - this.floor);
-    t.peakSpeed = Math.max(t.peakSpeed, _v.distanceTo(this.prev) / dt);
+    if (!this.fresh) t.peakSpeed = Math.max(t.peakSpeed, _v.distanceTo(this.prev) / dt);
+    this.fresh = false;
     this.prev.copy(_v);
   }
 

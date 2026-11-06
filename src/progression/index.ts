@@ -160,9 +160,9 @@ class Progression implements ProgressionSystem {
   private onKill(e: KillEvent): void {
     const now = this.ctx.time.realElapsed;
     const assist = ASSIST_SOURCES.test(e.damage.source);
+    const previousTier = this.scoreKeeper.comboTier(this.combo);
     const combo = assist ? this.comboCounter.assist(ASSIST_COMBO_EVERY) : this.comboCounter.hit();
     this.ctx.events.emit('combo:changed', { combo });
-    const previousTier = this.scoreKeeper.comboTier(combo - 1);
     if (this.scoreKeeper.comboTier(combo) > previousTier) this.ctx.audio.play('combo_tier');
     else this.ctx.audio.play('combo_tick', { pitch: 1 + Math.min(combo, 50) * COMBO_PITCH_STEP });
 

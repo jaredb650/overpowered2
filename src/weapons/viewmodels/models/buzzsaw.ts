@@ -49,6 +49,19 @@ function housing(m: Mesher): void {
     m.at([0, 0, 0.0012], null, () => m.prism(rect(-0.0178, -0.032, 0.0178, 0.032, 0.0012), 0.001, { bevel: 0 }));
     m.at([0, 0, 0.0021], [0, 0, Math.PI / 2], () => m.screen('ammo', 0.06, 0.033));
   });
+  // Top deck: a finned heat sink over the drive, and the conduit that feeds it. The camera sees this face most.
+  m.use(F.anodized);
+  m.at([0, 0.1315, -0.055], null, () => m.box(0.074, 0.005, 0.17, 0.0012, 0.003));
+  m.use(F.steelDark);
+  for (let i = 0; i < 9; i++) m.at([0, 0.1395, -0.126 + i * 0.0175], null, () => m.box(0.066, 0.012, 0.0062, 0.0012, 0.0016));
+  m.use(F.copper);
+  for (const x of [-0.04, -0.0325]) m.tube([[x, 0.1275, 0.06], [x, 0.133, 0.04], [x, 0.1355, -0.02], [x, 0.1355, -0.11], [x, 0.128, -0.14]], 0.0021, { seg: 6, samples: 18 });
+  m.use(F.polymerGrey);
+  m.at([0.0255, 0.1275, 0.128], null, () => m.box(0.022, 0.006, 0.05, 0.0014, 0.003));
+  m.use(F.red);
+  m.at([0.0255, 0.1315, 0.144], null, () => m.box(0.012, 0.003, 0.0085, 0.0008));
+  m.glow('status', () => m.at([0.0255, 0.131, 0.118], [Math.PI / 2, 0, 0], () => m.cyl(0.002, 0.0018, 8, 0)));
+
   // Carry handle over the top, the outline's second hump.
   m.use(F.steelDark);
   m.tube([[0.02, 0.13, -0.11], [0.02, 0.17, -0.09], [0.02, 0.18, -0.03], [0.02, 0.172, 0.02], [0.02, 0.13, 0.04]], 0.0052, { seg: 10, samples: 26, tension: 0.4 });
@@ -202,7 +215,7 @@ function buildBuzzsaw(kit: Kit): Model {
     m.use(F.steelDark);
     m.side(poly([[-0.0035, 0.002], [0.0035, 0.002], [0.002, -0.009, 0.002], [0.0038, -0.0205, 0.0015], [0.0005, -0.0215, 0.001], [-0.0035, -0.0095, 0.003]], 0.001), 0.0065, { bevel: 0.0007 });
   });
-  const model = new Model(m, kit.mats, { screens: { ammo: [176, 96] } });
+  const model = new Model(m, kit.mats, { glows: { status: [0xffb43a, 5] }, screens: { ammo: [176, 96] } });
   model.socket('muzzle', [0, AXIS + R_BARREL, -0.17 - 0.5]);
   model.socket('eject', [0.05, 0.04, -0.09]);
   model.hand('gripR', [0.018, -0.056, 0.07], [0, -0.96, 0.27], [-0.3, -0.25, -0.92]);

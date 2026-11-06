@@ -143,7 +143,48 @@ export default async function throwTest(page, h) {
       return { moved: +Math.hypot(hips.x - start.x, hips.z - start.z).toFixed(2), peak: +peak.toFixed(1) };
     };
 
+    /** How far and how fast the pieces of a gibbed body go. Gibbing is on for this one. */
+    const gibs = async () => {
+      await fresh();
+      lab.flags.gibbing = true;
+      const e = place('trooper', 0, home.z - 10);
+      await until(() => false, 0.1);
+      const from = e.position.clone();
+      ctx.weapons.switchTo('rocket');
+      await until(() => false, 0.5);
+      look(new V(0, 1.15, from.z));
+      ctx.input.simulate('fire', true);
+      await until(() => !e.alive, 2);
+      ctx.input.simulate('fire', false);
+      let limbSpeed = 0;
+      let chunkSpeed = 0;
+      const end = ctx.time.elapsed + 3;
+      while (ctx.time.elapsed < end) {
+        await frame();
+        limbSpeed = Math.max(limbSpeed, ctx.gore.stats().limbSpeed);
+        chunkSpeed = Math.max(chunkSpeed, ctx.gore.chunks.fastest);
+      }
+      const far = Math.max(0, ...ctx.gore.limbs.map(l => Math.hypot(l.rag.center.x - from.x, l.rag.center.z - from.z)));
+      const limbs = ctx.gore.limbs.length;
+      // A rocket beside what is left, to see that resting limbs take the blast without leaving the map.
+      const at = new V(from.x + 1, 0.3, from.z);
+      const before = ctx.gore.limbs.map(l => l.rag.center.clone());
+      ctx.combat.explode(at, { radius: 8, damage: 100, kind: 'rocket', source: 'test', team: 'player' });
+      let second = 0;
+      let secondChunk = 0;
+      const stop = ctx.time.elapsed + 2.5;
+      while (ctx.time.elapsed < stop) {
+        await frame();
+        second = Math.max(second, ctx.gore.stats().limbSpeed);
+        secondChunk = Math.max(secondChunk, ctx.gore.chunks.fastest);
+      }
+      const moved = Math.max(0, ...ctx.gore.limbs.map((l, i) => (before[i] ? l.rag.center.distanceTo(before[i]) : 0)));
+      lab.flags.gibbing = false;
+      return { limbs, farthestLimb: +far.toFixed(1), limbSpeed: +limbSpeed.toFixed(1), chunkSpeed: +chunkSpeed.toFixed(1), secondBlastLimbSpeed: +second.toFixed(1), secondBlastChunk: +secondChunk.toFixed(1), secondBlastMoved: +moved.toFixed(1) };
+    };
+
     const cases = {
+      'gibs from a rocket': gibs,
       'smg kill at 8 m': () => gun('smg', 8),
       'shotgun point blank 2 m': () => gun('shotgun', 2),
       'shotgun at 8 m': () => gun('shotgun', 8),

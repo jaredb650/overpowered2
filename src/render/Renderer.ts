@@ -19,6 +19,7 @@ import { Ssr } from './post/Ssr';
 import { LightVolume } from './lightvolume/LightVolume';
 import { FullscreenPass } from './fullscreen';
 import { DynamicResolution } from './DynamicResolution';
+import { EmissiveLines } from './EmissiveLines';
 
 type ListMode = 'all' | 'opaque' | 'decals' | 'transparent' | 'shadowStatic' | 'shadowDynamic';
 
@@ -31,6 +32,9 @@ interface RenderList {
   transparent: RenderItem[];
   sort(a: unknown, b: unknown): void;
 }
+
+/** Device pixels per canvas pixel that stretch without a visible beat, cheapest last. */
+const STRETCHES = [1, 1.5, 2, 3, 4] as const;
 
 /** Sizes stay even so half-resolution targets line up exactly with the area they cover. */
 const even = (v: number): number => Math.max(2, Math.round(v / 2) * 2);
@@ -62,6 +66,7 @@ export class Renderer implements RenderSystem {
   private readonly fogPass: Fog;
   private readonly combine = new Combine();
   private readonly ssr = new Ssr();
+  private readonly emissiveLines = new EmissiveLines();
   readonly volume: LightVolume;
   /** Live fog tuning. The world can change this per zone. */
   readonly fog: FogSettings;
@@ -233,9 +238,12 @@ export class Renderer implements RenderSystem {
     const cssW = Math.max(innerWidth, 1);
     const cssH = Math.max(innerHeight, 1);
     // The canvas is the preset's pixel budget, not the screen: Retina would otherwise ask an M1 for 5 megapixels.
-    // The page compositor stretches it to the display in one step, which is cheaper and cleaner than a stretch
-    // in the final pass, and leaves every pixel of that pass lined up with the image it reads.
-    const density = Math.max(Math.min(devicePixelRatio || 1, Math.sqrt(this.quality.maxPixels / (cssW * cssH))), 0.5);
+    // The page compositor stretches it to the display in one step, and each pixel of the final pass stays lined up
+    // with the image it reads. Only whole ratios are allowed. At 1.8x, say, the bilinear stretch sharpens and
+    // softens in a repeating pattern, which grain and wet floors show as a faint grid.
+    const dpr = devicePixelRatio || 1;
+    const fits = (d: number) => cssW * cssH * (dpr / d) ** 2 <= this.quality.maxPixels;
+    const density = dpr / (STRETCHES.find(fits) ?? STRETCHES[STRETCHES.length - 1]!);
     this.renderer.setDrawingBufferSize(even(cssW * density), even(cssH * density), 1);
     const aspect = cssW / cssH;
     this.camera.aspect = aspect;
@@ -311,6 +319,7 @@ export class Renderer implements RenderSystem {
       }
     });
     this.shadows.setBounds(input.bounds);
+    this.emissiveLines.attach(this.scene, this.quality.msaa === 0);
     // Program linking runs on the driver's threads, so it overlaps the bake worker for free and the
     // first frame does not hitch on twenty big shaders.
     await Promise.all([this.volume.bake(input), this.renderer.compileAsync(this.scene, this.camera)]);
@@ -327,6 +336,7 @@ export class Renderer implements RenderSystem {
     this.gtao.configure(next.aoSlices, next.aoSteps);
     this.ssr.configure(next.ssrSteps);
     this.fogPass.configure(next.fogSteps, this.pool.fogPosition, this.pool.fogColor);
+    this.emissiveLines.setVisible(next.msaa === 0);
     this.resize();
   }
 

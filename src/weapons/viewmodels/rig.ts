@@ -9,7 +9,7 @@ import { clamp, damp, lerp, smoothstep, wrapAngle } from '../../core/math';
 import { CG, type Ctx, type RayHit } from '../../core/contracts';
 import type { CallInId, PerkId, PowerupId, SwordMove, ViewmodelRig, WeaponId } from '../../core/gameplay';
 import { Arm } from './arms';
-import { inCubic, inQuad, outBack, outCubic, seg } from './curves';
+import { inQuad, outBack, outCubic } from './curves';
 import { Anim, type HandCtl, type ViewDef } from './def';
 import { Kit } from './kit/kit';
 import { VmMaterials } from './kit/materials';
@@ -138,7 +138,7 @@ export class Rig implements ViewmodelRig {
   private viewMoon: THREE.DirectionalLight | null = null;
   private moonIntensity = 0;
   private readonly moonDir = new THREE.Vector3();
-  private readonly fill = new THREE.DirectionalLight(0xb4c8f0, FILL_DARK);
+  private readonly fill = new THREE.DirectionalLight(0xc6d0e2, FILL_DARK);
   private moonVis = 1;
   private moonOpen = 1;
   private moonProbe = 0;
@@ -279,7 +279,6 @@ export class Rig implements ViewmodelRig {
     a.model = def.model;
     a.reload = -1;
     a.swing = null;
-    a.guard = 0;
     a.parry = -1;
     a.bladeHeat = 0;
     a.spinRate = 0;
@@ -493,7 +492,7 @@ export class Rig implements ViewmodelRig {
       }
     }
 
-    this.offhand.update(dt, this);
+    this.offhand.update(dt);
     this.solveArms(def, dl, akimboOn, dt);
     this.updateLooks(dt);
     this.updateMoon(dt);
@@ -536,7 +535,6 @@ export class Rig implements ViewmodelRig {
     const vf = -v.x * sy - v.z * cy;
     const speed = Math.hypot(v.x, v.z);
     a.speed = speed;
-    a.grounded = p.grounded;
 
     const slideOn = p.sliding ? 1 : 0;
     const wallOn = p.wallRunning ? 1 : 0;
@@ -895,11 +893,6 @@ export class Rig implements ViewmodelRig {
     texture.needsUpdate = true;
   }
 
-  /** Scratch accessors for the off-hand and tests. */
-  get recoilMagnitude(): number {
-    return Math.abs(this.recoilP.z.x) + Math.abs(this.recoilR.x.x);
-  }
-
   get currentDef(): ViewDef | null {
     return this.def;
   }
@@ -907,10 +900,4 @@ export class Rig implements ViewmodelRig {
   get allDefs(): Record<string, ViewDef> {
     return this.defs;
   }
-
-  get leftWeightHint(): number {
-    return lerp(0, 1, this.offhand.leftWeight);
-  }
 }
-
-export { inCubic, seg };

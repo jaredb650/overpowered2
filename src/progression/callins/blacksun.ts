@@ -100,10 +100,22 @@ const additive = {
   transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, toneMapped: false, fog: false,
 } as const;
 
+export const blackSunMaterials = (): { disc: THREE.ShaderMaterial; rim: THREE.ShaderMaterial; streaks: THREE.ShaderMaterial } => ({
+  disc: new THREE.ShaderMaterial({
+    vertexShader: DISC_VERT, fragmentShader: DISC_FRAG, uniforms: { uTime: { value: 0 }, uPower: { value: 0 } }, ...additive,
+  }),
+  rim: new THREE.ShaderMaterial({ vertexShader: RIM_VERT, fragmentShader: RIM_FRAG, uniforms: { uPower: { value: 0 } }, ...additive }),
+  streaks: new THREE.ShaderMaterial({
+    vertexShader: STREAK_VERT, fragmentShader: STREAK_FRAG,
+    uniforms: { uTime: { value: 0 }, uPower: { value: 0 }, uRadius: { value: B.pullRadius } }, ...additive,
+  }),
+});
+
 const _pull = new THREE.Vector3();
 const _swirl = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
 const _pos = new THREE.Vector3();
+const _push = { x: 0, y: 0, z: 0 };
 
 export class BlackSun implements Strike {
   private t = 0;
@@ -141,12 +153,11 @@ export class BlackSun implements Strike {
     this.ring.setColor('#a56bff', 1.6);
 
     this.core = new THREE.Mesh(new THREE.SphereGeometry(1, 40, 24), new THREE.MeshBasicMaterial({ color: 0x000000, toneMapped: false, fog: false }));
-    this.rimMat = new THREE.ShaderMaterial({ vertexShader: RIM_VERT, fragmentShader: RIM_FRAG, uniforms: { uPower: { value: 0 } }, ...additive });
+    const materials = blackSunMaterials();
+    this.rimMat = materials.rim;
     this.rim = new THREE.Mesh(this.core.geometry, this.rimMat);
     this.rim.scale.setScalar(1.12);
-    this.discMat = new THREE.ShaderMaterial({
-      vertexShader: DISC_VERT, fragmentShader: DISC_FRAG, uniforms: { uTime: { value: 0 }, uPower: { value: 0 } }, ...additive,
-    });
+    this.discMat = materials.disc;
     this.disc = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.discMat);
     this.disc.rotation.set(-Math.PI / 2 + 0.34, 0, 0.2);
 
@@ -163,10 +174,7 @@ export class BlackSun implements Strike {
     geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(STREAKS * 2 * 3), 3));
     geo.setAttribute('aSeed', new THREE.BufferAttribute(seeds, 3));
     geo.setAttribute('aTail', new THREE.BufferAttribute(tails, 1));
-    this.streakMat = new THREE.ShaderMaterial({
-      vertexShader: STREAK_VERT, fragmentShader: STREAK_FRAG,
-      uniforms: { uTime: { value: 0 }, uPower: { value: 0 }, uRadius: { value: B.pullRadius } }, ...additive,
-    });
+    this.streakMat = materials.streaks;
     this.streaks = new THREE.LineSegments(geo, this.streakMat);
 
     for (const m of [this.core, this.rim, this.disc, this.streaks]) m.frustumCulled = false;
@@ -292,12 +300,16 @@ export class BlackSun implements Strike {
         inward = clamp((d - B.orbitRadius) / (B.captureRadius - B.orbitRadius), -1, 1);
         const v = body.linvel();
         const keep = Math.exp(-B.captureDrag * world);
-        body.setLinvel({ x: v.x * keep, y: v.y * keep, z: v.z * keep }, true);
+        _push.x = v.x * keep;
+        _push.y = v.y * keep;
+        _push.z = v.z * keep;
+        body.setLinvel(_push, true);
       }
       const round = k * (d < B.captureRadius ? 0.9 : 0.45);
-      body.applyImpulse({
-        x: _pull.x * k * inward + _swirl.x * round, y: _pull.y * k + 0.2 * k, z: _pull.z * k * inward + _swirl.z * round,
-      }, true);
+      _push.x = _pull.x * k * inward + _swirl.x * round;
+      _push.y = _pull.y * k + 0.2 * k;
+      _push.z = _pull.z * k * inward + _swirl.z * round;
+      body.applyImpulse(_push, true);
     }
   }
 

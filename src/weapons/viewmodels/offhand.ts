@@ -4,12 +4,12 @@
  */
 import * as THREE from 'three';
 import { clamp, damp } from '../../core/math';
+import { TUNING } from '../data';
 import { inOut, inQuad, outBack, outCubic, seg } from './curves';
 import { HandCtl } from './def';
 import type { Model } from './kit/model';
 import type { OffhandSet } from './models';
 import { HANDS } from './poses';
-import type { Rig } from './rig';
 
 type State = 'none' | 'cook' | 'throw';
 type Device = 'walkie' | 'designator';
@@ -77,9 +77,11 @@ export class Offhand {
     this.press = 1;
   }
 
-  update(dt: number, _rig: Rig): void {
+  update(dt: number): void {
     this.t += dt;
     this.press = Math.max(0, this.press - dt * 1.6);
+    // Held past the fuse it went off in the hand, and there is nothing left to throw.
+    if (this.state === 'cook' && this.t > TUNING.grenade.fuse) this.state = 'none';
     if (this.state !== 'none') this.updateGrenade();
     else this.set.grenade.root.visible = false;
     this.updateDevice(dt);
@@ -159,6 +161,7 @@ export class Offhand {
     }
     if (this.state !== 'none') return;
     this.hand = m.sockets.hold!;
+    m.resetParts();
     this.ctl.begin(null);
     this.ctl.base = 'offhand';
     this.ctl.fingerRate = 22;
@@ -170,7 +173,6 @@ export class Offhand {
       this.ctl.pose.set(HANDS.radio);
       p.set(-0.2, -0.155, -0.38);
       r.set(0.1, 0.42, -0.12);
-      m.parts.ptt!.position.x = m.parts.ptt!.userData.x ?? (m.parts.ptt!.userData.x = m.parts.ptt!.position.x);
       m.parts.ptt!.position.x += this.press > 0 ? 0.0016 : 0;
       this.ctl.pose[1] = this.ctl.pose[1]! + (this.press > 0 ? 0.3 : 0);
       const lamp = m.glows.lamp;

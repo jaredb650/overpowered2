@@ -11,7 +11,7 @@ const AI_MODES: readonly (readonly [AiMode, string])[] = [['off', 'AI off'], ['p
 const SPEEDS = [1, 0.5, 0.25, 0.1, 0.05] as const;
 
 const CSS = `
-.lab-panel { position: fixed; top: 12px; right: 12px; bottom: 12px; width: 312px; box-sizing: border-box; overflow-y: auto;
+.lab-panel { position: fixed; top: 12px; right: 12px; bottom: 12px; width: 344px; box-sizing: border-box; overflow-y: auto;
   padding: 14px; background: var(--plate-solid, #0b1118); color: var(--ink, #eef4f7); border: 1px solid #24303a;
   font: 12px/1.4 var(--mono, ui-monospace, Menlo, monospace); pointer-events: auto; z-index: 9000; display: none; }
 .lab-panel.open { display: block; }
@@ -31,7 +31,7 @@ const CSS = `
 .lab-slider { display: grid; grid-template-columns: 1fr auto; column-gap: 8px; margin-top: 6px; }
 .lab-slider input { grid-column: 1 / -1; width: 100%; margin: 2px 0 0; accent-color: var(--cold, #39e0ff); }
 .lab-keys { margin-top: 16px; color: var(--dim, #5b6b77); white-space: pre-wrap; }
-.lab-aim { position: fixed; left: calc(50% + 44px); top: calc(50% + 44px); margin: 0; padding: 6px 8px; max-width: 46vw;
+.lab-aim { position: fixed; right: calc(50% + 44px); top: calc(50% + 44px); margin: 0; padding: 6px 8px; max-width: 42vw;
   background: rgba(7, 10, 14, 0.74); color: var(--ink, #eef4f7); font: 11px/1.4 var(--mono, ui-monospace, Menlo, monospace);
   white-space: pre-wrap; pointer-events: none; z-index: 8000; display: none; }
 .lab-aim:empty { visibility: hidden; }
