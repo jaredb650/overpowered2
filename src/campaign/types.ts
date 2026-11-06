@@ -127,8 +127,8 @@ export type Step =
   /** Hands over a weapon on the spot. */
   | { do: 'give'; weapon: WeaponId }
   | { do: 'grenades'; count: number }
-  /** A weapon lying on the map, to be walked over. Raises `took:<weapon>`. */
-  | { do: 'rack'; weapon: WeaponId; at: string }
+  /** A weapon lying on the map, to be walked over. Raises `took:<weapon>`. `optional` is off the path: no checkpoint has to promise it. */
+  | { do: 'rack'; weapon: WeaponId; at: string; optional?: boolean }
   | { do: 'drop'; item: PickupKind; at: string }
   | { do: 'wait'; seconds: number }
   | { do: 'until'; when: Trigger }
@@ -152,10 +152,11 @@ export type Step =
 
 export type Script = readonly Step[];
 
-/** A reaction while its beat lasts. Fires once. */
+/** A reaction while its beat lasts. Fires once, or with `repeat` whenever its trigger comes true again. */
 export interface Cue {
   when: Trigger;
   run: Script;
+  repeat?: boolean;
 }
 
 export interface Beat {

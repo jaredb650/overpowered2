@@ -20,6 +20,8 @@ const GRENADE_RADIUS = 0.11;
 const SHOOTABLE_RADIUS = 0.42;
 /** Rockets go off this close to a body, so a skimming hit still reads as a hit. */
 const PROXIMITY = 0.75;
+/** Metres past this frame's move a rocket looks for a body it is on course to hit. Past anything the fuse can reach from. */
+const ON_COURSE = PROXIMITY + 1;
 /** Rings and puffs hold this spacing during a hit-stop, when the clock runs but the shell barely moves. */
 const MIN_TRAIL_SPACING = 0.5;
 const MAX_PENDING_PINS = 8;
@@ -297,6 +299,9 @@ export class Projectiles {
       return true;
     }
     if (p.kind !== 'rocket') return false;
+    // The fuse is for a near miss. It reaches further than a frame's flight, so on a straight shot it always went first and no
+    // rocket ever touched anyone, which is the one thing a shaped charge needs.
+    if (c.enemies.raycast(p.position, dir, limit + ON_COURSE)) return false;
     const end = this.end.copy(p.position).addScaledVector(dir, limit);
     const n = c.enemies.query(end, PROXIMITY + 1, this.nearby) || 0;
     for (let i = 0; i < n; i++) {

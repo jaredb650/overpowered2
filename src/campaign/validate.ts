@@ -95,7 +95,7 @@ export function validateMission(m: Mission): string[] {
       eachStep(script, step => {
         checkStep(where, step);
         if ('when' in step) checkTags(where, step.when);
-        if (step.do === 'give' || step.do === 'rack') given.add(step.weapon);
+        if (step.do === 'give' || (step.do === 'rack' && !step.optional)) given.add(step.weapon);
       });
     }
     for (const cue of beat.cues ?? []) {

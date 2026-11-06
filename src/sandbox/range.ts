@@ -619,7 +619,7 @@ const tests: Record<string, (r: Rig) => void> = {
     clean(r);
     const iron = r.enemies.add(2, -30, 1e7);
     iron.armor = 50;
-    const flesh = r.enemies.add(-2, -30, 1e7);
+    const flesh = r.enemies.add(-2, -30, 5000);
     r.combat.explode(at, { radius: 5, damage: 99999, kind: 'shell', source: 'autocannon', team: 'player', instakill: true, selfDamage: 0 });
     check('shell splash: a number on armour', iron.alive && near(iron.hits[0]!.amount, SHAPED_CHARGE.shell!.most * SHAPED_CHARGE.shell!.splash, 0.01), iron.hits[0]?.amount);
     check('shell splash: still the end of a bare body', !flesh.alive, flesh.health);

@@ -12,7 +12,7 @@
 import type { WeaponId } from '../core/gameplay';
 import type { Line } from '../enemies/commander/lines';
 import { arm, type Watch, type WatchFacts } from './watch';
-import type { Beat, Mark, Mission, MissionHost, ObjectiveState, Script, Step, Zone } from './types';
+import type { Beat, Cue, Mark, Mission, MissionHost, ObjectiveState, Script, Step, Zone } from './types';
 
 export type RunnerState = 'idle' | 'running' | 'down' | 'won';
 
@@ -30,7 +30,7 @@ class ScriptRun {
 
 interface LiveCue {
   watch: Watch;
-  run: Script;
+  cue: Cue;
 }
 
 interface TagBook {
@@ -190,8 +190,10 @@ export class MissionRunner implements WatchFacts {
           continue;
         }
         cue.watch.close();
-        this.cues.splice(i, 1);
-        this.begin(cue.run);
+        if (cue.cue.repeat) cue.watch = arm(cue.cue.when, this);
+        else this.cues.splice(i, 1);
+        this.begin(cue.cue.run);
+        if (cue.cue.repeat) i++;
       }
     }
     if (this.pending === null && this.until?.test(dt)) this.pending = this.index + 1;
@@ -262,7 +264,7 @@ export class MissionRunner implements WatchFacts {
     this.index = index;
     const beat = this.mission.beats[index]!;
     if (beat.checkpoint || !this.save) this.save = { index, doors: new Map(this.doors), objectives: this.objectiveList.map(o => ({ ...o })) };
-    for (const cue of beat.cues ?? []) this.cues.push({ watch: arm(cue.when, this), run: cue.run });
+    for (const cue of beat.cues ?? []) this.cues.push({ watch: arm(cue.when, this), cue });
     this.until = beat.until ? arm(beat.until, this) : null;
     if (beat.start) this.begin(beat.start);
   }
