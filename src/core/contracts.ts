@@ -256,8 +256,19 @@ export interface CharacterInstance {
   readonly severed: ReadonlySet<GoreRegion>;
   /** Hides a bone and all its children and shows the stump cap. Pure visual; GoreSystem does the rest. */
   hideLimb(boneIndex: number): void;
-  /** Paints a wound at a world point on a bone. It sticks to the skin. */
+  /** Paints blood and bruising at a world point on a bone. It sticks to the skin and takes nothing away. */
   addWound(boneIndex: number, worldPoint: THREE.Vector3, radius: number): void;
+  /** Damages the body itself. Near wounds merge into one bigger wound. Survives into ragdolls, corpses and limbs. */
+  wound(hit: WoundHit): void;
+  /** Snaps the limb at this bone's joint. It stays broken in animation, and as a ragdoll. False if already broken. */
+  fracture(boneIndex: number, style: 'hyper' | 'limp', skew?: number): boolean;
+  isFractured(boneIndex: number): boolean;
+  /** What a world-space copy of this body should be drawn with. */
+  readonly skinMaterial: THREE.Material;
+  /** Geometry and material detail, 0 to 3. */
+  setLod?(level: number): void;
+  /** Hits per bone that broke nothing yet. Gore's to read and write. Reset with the instance. */
+  readonly stress: Float32Array;
   /** 0..1 overall blood coverage on the skin. */
   setBloodiness(amount: number): void;
   /** Emissive flash on hit. */
@@ -280,7 +291,27 @@ export interface SeveredLimb {
   readonly mesh: THREE.SkinnedMesh;
   /** Same indexing as the source rig. Only the severed chain is meaningful. */
   readonly bones: readonly THREE.Bone[];
+  /** A loose limb keeps taking wounds. */
+  wound(hit: WoundHit): void;
+  isFractured(boneIndex: number): boolean;
   release(): void;
+}
+
+/** One wound, in world space. `WoundKind` in `characters/anatomy/wounds.ts` lists the kinds. */
+export interface WoundHit {
+  kind: number;
+  bone: number;
+  point: THREE.Vector3;
+  /** Into the body. A wound is a slot along this line. */
+  dir: THREE.Vector3;
+  radius: number;
+  /** How far under the skin it goes. */
+  depth: number;
+  /** 0 a clean edge, 1 torn. */
+  ragged: number;
+  /** A gash: which way it runs, and half its length. */
+  along?: THREE.Vector3;
+  length?: number;
 }
 
 export interface CharacterLibrary extends GameSystem {
@@ -349,6 +380,11 @@ export interface GoreSystem extends GameSystem {
   raycastCorpses(origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number): CorpseHit | null;
   /** Pushes, wounds and possibly cuts up a dead body. */
   damageCorpse(hit: CorpseHit, damage: DamageInfo): void;
+  /**
+   * Leaves the mark of a hit on the body: holes, craters, gashes, burns, broken limbs. `severity` is the share of the
+   * body's health this hit took. Call it for lethal hits too, before the body is handed over.
+   */
+  wound(char: CharacterInstance, damage: DamageInfo, severity: number): void;
   /** Pins a corpse or limb to the world at a point, for the Stakegun. */
   pin(hit: CorpseHit, anchor: THREE.Vector3): void;
   clear(): void;

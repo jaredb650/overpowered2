@@ -23,7 +23,7 @@ The contract is `ProgressionSystem` in `core/gameplay.ts`. Nothing was added to 
 
 One meaning widened: `targeting` also stays set to `'orbital'` while the beam is being steered. The viewmodel polls it to hold the designator up and the HUD keeps its reticle.
 
-Events out: `perk:start`, `perk:end`, `callin:ready`, `callin:used`, `combo:changed`, `score:gain`, `pickup:collected`. Events in: `enemy:killed`, `enemy:hit`, `enemy:severed`, `wave:clear`, `player:slam`, `player:died`, `run:end`.
+Events out: `perk:start`, `perk:end`, `callin:ready`, `callin:used`, `combo:changed`, `score:gain`, `pickup:collected`. Events in: `enemy:killed`, `enemy:hit`, `enemy:severed`, `enemy:executed`, `wave:clear`, `player:slam`, `player:died`, `run:end`.
 
 ## The rules, all in `data.ts`
 
@@ -115,14 +115,13 @@ Drops 30% per kill, weighted toward what the player lacks, capped at 24, expire 
 | Caches | Wave 2 and wave 4 clears each sent a pod. `weapons.give` unlocked Judge then Lance |
 | Perks | Sentinels killed 10 of 10, Chain Storm 10 of 12 by arc, Chain Reaction 9 of 10 by blast, Butcher severed, Skyfall slam, Overdrive follows speed, Adrenaline 1.45x at 3 stacks |
 | Reset | Nuke sky, four strikes, ten effects, a pod and a capsule, then death, then a new run: every modifier neutral, time scale 1, grade neutral, moon restored, no extra scene objects, and nothing landed in the next 9 s |
-| High score | 7725 in localStorage, read back after a reload |
+| High score | 7725 in localStorage, read back after a reload. Now one per contract: see `docs/notes/contracts.md`. `op2_highscore` is The Crucible's |
 
 ## Known limitations
 
 - **The Hellfire grade is too strong for this map, and only the render owner can fix it.** `gain [1.34, 0.86, 0.46]` multiplies a world lit cyan, which has no red to lift, so lit floors go teal and pale areas tan. That is the wash from `playtest-t15.png`. Ranking SLOWMO above it fixes the pair, but Hellfire alone still looks like that. Suggested: pull `gain` toward neutral and use `isolate` to keep orange, as Berserk does. Blood Thirst turns blue into pink for its whole 10 s in the same way, milder.
-- **`src/ui/data.ts` shows the old trigger text** for Butcher, Skyfall, Chain Reaction and Overdrive. Its owner should copy the table above.
 - **The HUD hint during steering** is the one in `CALLINS.orbital`, which covers both stages.
-- **`DESIGN.md` section 13's AC-130, Attack Chopper and Door Gunner are not built.** They were not in this brief, and `CallInId` has no entries for them. Per-contract high scores (section 15) are not built either: there is one `op2_highscore`.
+- **`DESIGN.md` section 13's AC-130, Attack Chopper and Door Gunner are not built.** They were not in this brief, and `CallInId` has no entries for them.
 - **The nuke ring shows 90 m,** but the front reaches the whole map. There is no truthful ring for that.
 - **Only 14 ragdolls simulate at once,** so a big pile feeds the Black Sun a few bodies at a time. Corpses past the budget stay down.
 - **Nobody has played this with hands.** Every result is a script or a bot, and nothing here has been listened to. The pacing numbers are one run each. Frame time on the first strike of a run was not measured.

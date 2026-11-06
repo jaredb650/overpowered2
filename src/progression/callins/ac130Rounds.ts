@@ -48,6 +48,8 @@ interface Spark {
   life: number;
   /** World collisions only start this close to the aim. See FireControl.armRange. */
   armRange: number;
+  /** Seconds before landing that it starts to whistle. 0 once it has, or if it never does. */
+  whistle: number;
   width: number;
   length: number;
   minPx: number;
@@ -67,6 +69,7 @@ interface Missile {
   uid: number;
   age: number;
   armRange: number;
+  whistled: boolean;
   smoke: EmitterHandle | null;
 }
 
@@ -128,14 +131,14 @@ export class Ac130Rounds {
     for (let i = 0; i < MAX_SPARKS; i++) {
       this.sparks.push({
         live: false, kind: 'flash', origin: new THREE.Vector3(), velocity: new THREE.Vector3(), position: new THREE.Vector3(), aim: new THREE.Vector3(),
-        gravity: 0, age: 0, life: 0, armRange: Infinity, width: 0, length: 0, minPx: 0, r: 0, g: 0, b: 0, trail: 0, trailIn: 0,
+        gravity: 0, age: 0, life: 0, armRange: Infinity, whistle: 0, width: 0, length: 0, minPx: 0, r: 0, g: 0, b: 0, trail: 0, trailIn: 0,
       });
     }
     for (let i = 0; i < MISSILES; i++) {
       const group = missileModel(materials);
       group.visible = false;
       ctx.render.scene.add(group);
-      this.missiles.push({ live: false, group, velocity: new THREE.Vector3(), aim: new THREE.Vector3(), target: null, uid: -1, age: 0, armRange: Infinity, smoke: null });
+      this.missiles.push({ live: false, group, velocity: new THREE.Vector3(), aim: new THREE.Vector3(), target: null, uid: -1, age: 0, armRange: Infinity, whistled: false, smoke: null });
     }
   }
 
@@ -147,6 +150,7 @@ export class Ac130Rounds {
     s.kind = kind;
     s.age = 0;
     s.armRange = Infinity;
+    s.whistle = 0;
     if (look) {
       s.width = look.width;
       s.length = look.length;
@@ -169,6 +173,7 @@ export class Ac130Rounds {
     s.life = seconds;
     s.gravity = gravity;
     s.armRange = armRange;
+    s.whistle = kind === 'g105' ? A.howitzer.whistle : 0;
     s.velocity.subVectors(aim, from).divideScalar(seconds);
     s.velocity.y += 0.5 * gravity * seconds;
   }
@@ -203,6 +208,7 @@ export class Ac130Rounds {
     m.aim.copy(aim);
     m.age = 0;
     m.armRange = armRange;
+    m.whistled = false;
     m.velocity.copy(velocity);
     m.group.position.copy(from);
     m.group.quaternion.setFromUnitVectors(NOSE, _dir.copy(velocity).normalize());
@@ -261,6 +267,11 @@ export class Ac130Rounds {
     s.position.copy(s.origin).addScaledVector(s.velocity, t);
     s.position.y -= drop;
     this.puff(s, dt, 1.5, 1.7);
+    // On the round's own clock, not the audio clock, so it keeps time through SLOWMO and dies with the round on a reset.
+    if (s.whistle > 0 && s.life - s.age <= s.whistle) {
+      s.whistle = 0;
+      this.ctx.audio.play('missile_incoming', { position: s.aim, pitch: 0.82 });
+    }
 
     _dir.subVectors(s.position, _prev);
     const step = _dir.length();
@@ -310,7 +321,12 @@ export class Ac130Rounds {
     _dir.copy(m.velocity).divideScalar(speed);
     body.quaternion.setFromUnitVectors(NOSE, _dir);
     const step = speed * dt;
-    if (body.position.distanceToSquared(m.aim) < m.armRange * m.armRange && physics.raycastInto(body.position, _dir, step + 0.5, CG.World, this.hit)) {
+    const left = body.position.distanceTo(m.aim);
+    if (!m.whistled && left < H.speed * H.whistle) {
+      m.whistled = true;
+      this.ctx.audio.play('missile_incoming', { position: m.aim, pitch: 1.15 });
+    }
+    if (left < m.armRange && physics.raycastInto(body.position, _dir, step + 0.5, CG.World, this.hit)) {
       this.retire(m);
       this.onImpact('hellfire', this.hit.point, this.hit.normal);
       return;

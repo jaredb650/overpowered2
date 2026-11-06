@@ -27,6 +27,8 @@ const WALL_PROBE_REACH = 1.3;
 const FELL_OUT_Y = -40;
 /** How far from a pad's own node an enemy walks before it just leaps for the far end. */
 const PAD_MISS_HOPS = 1;
+/** Rate catch steps run out of speed, in 1/s. A second of steps, not a slide. */
+const REEL_DECAY = 2.6;
 
 const _d = new THREE.Vector3();
 const _sep = new THREE.Vector3();
@@ -251,7 +253,8 @@ export function updateMovement(e: Enemy, w: AiWorld, dt: number, alive: readonly
   const stunned = e.stagger > 0;
   const throttle = stunned ? 0 : desiredDirection(e, w, dt);
   if (throttle > 0 && e.mode !== 'flow') probeWall(e, w);
-  if (e.dummy) _sep.set(0, 0, 0);
+  // Getting up is keyed to the root, so nothing may jostle it, or its feet slide on the floor.
+  if (e.dummy || e.rising > 0) _sep.set(0, 0, 0);
   else separate(e, w, alive);
 
   let speed = e.def.speed * e.speedMul * e.pace * throttle * (1 + e.buff * 0.12);
@@ -277,9 +280,10 @@ export function updateMovement(e: Enemy, w: AiWorld, dt: number, alive: readonly
   const rate = Math.exp(-7 * dt);
   e.push.x *= rate;
   e.push.z *= rate;
+  e.reel.multiplyScalar(Math.exp(-REEL_DECAY * dt));
 
-  const stepX = (e.velocity.x + e.push.x) * dt;
-  const stepZ = (e.velocity.z + e.push.z) * dt;
+  const stepX = (e.velocity.x + e.push.x + e.reel.x) * dt;
+  const stepZ = (e.velocity.z + e.push.z + e.reel.z) * dt;
   moveOnGround(e, w, stepX, stepZ, dt, speed);
   updateFacing(e, w, dt);
 }

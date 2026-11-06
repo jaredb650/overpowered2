@@ -63,6 +63,12 @@ export class Director {
     this.swingGap = clamp(1.02 - wave * 0.07, 0.22, 0.95);
   }
 
+  /** A faction with its own rhythm of fire. Call after `setWave`, which sets the swarm's. */
+  setFireRules(rangedLimit: number, volleyGap: number): void {
+    this.rangedLimit = rangedLimit;
+    this.volleyGap = volleyGap;
+  }
+
   acquire(e: Enemy, token: AttackToken): boolean {
     if (token === 'ranged') {
       if (e.holdsRanged) return true;

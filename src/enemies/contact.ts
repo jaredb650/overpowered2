@@ -164,5 +164,5 @@ export function updateContact(e: Enemy, w: AiWorld): void {
   e.char.anim.flinch(0, _v.set(vx / speed, 0, vz / speed), 1);
   w.ctx.audio.play('body_thud', { position: e.center, pitchJitter: 0.1 });
   w.ctx.camera.addTrauma(0.06 + e.def.mass * 0.1);
-  if (e.def.mass < 0.5) w.enemies.stagger(e, SHOVE_STAGGER);
+  if (e.def.mass < 0.5) w.enemies.stagger(e, SHOVE_STAGGER, _v, 0.6);
 }

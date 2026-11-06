@@ -54,7 +54,13 @@ render.render();                      // once per frame, after the camera is pla
 
 **Post.** All `PostFx` methods run on real time, so effects decay through hit-stop and pause. `chromatic()` saturates, so anything from 0.01 to over 1 is safe.
 
-**Reset.** The renderer listens for `run:start` and clears decals, flashes and post state itself.
+**Reset.** The renderer listens for `run:start` and clears decals, flashes, post state and the x-ray itself.
+
+**X-ray.** `render.highlight(meshes, color, strength)` draws meshes as flat silhouettes through whatever is in front of them. It is immediate: a call lasts one rendered frame, so call it every frame the meshes should show. That is what makes it safe around pooled characters, because nothing can stay lit after a body is released, and a frame with no call costs one branch. Pass `char.mesh`, or any mesh: skinned, plain and instanced all work. Up to four calls a frame, one extra walk of the scene each. Calling with different colours is fine. Helicopter gunners should just call it from their update with the enemy meshes.
+
+Hidden pixels get the fill and a bright edge, and pixels in plain sight only an edge, so wounds stay readable. The pass blends by max, so overlapping limbs stay one flat shape in any draw order. It tests against `depthCopy` by hand rather than with the depth buffer, because hidden means behind the world but not behind the gun, and the fixed depth test can say one of those at most.
+
+`render.sweep(origin, color, speed, reach)` is one ring at a time, running over every surface in view from depth. Only the world's surfaces show it, so open sky does not. Both run after the transparent pass and before bloom.
 
 ## API additions
 
@@ -75,6 +81,7 @@ On `LightVolumeBakeInput` in `contracts.ts`: `voxelSize?`. The rest live on the 
 
 - `quality.ts`: one row per preset: MSAA, pixel budget, AO, fog steps, bloom levels, shadow sizes, SSR steps, light count. Index 2 is the default, and saved settings point at it, so retune that row rather than moving the default.
 - `post/grades.ts`: every grade as plain numbers.
+- `XRay.ts`: silhouette and ring shaders. `HIDDEN_BIAS` is how far behind the depth buffer a body must be to count as hidden.
 - `materials/surfaces.glsl.ts`: every material. `MaterialLibrary.ts` holds tile size, bump, wetness and macro variation.
 - `materials/decalAtlas.glsl.ts`: every decal.
 - `Sky.ts`: sky shader. `LightVolume.skyZenith` and `skyHorizon` should follow it if the sky is regraded, because the bake does not read the shader.

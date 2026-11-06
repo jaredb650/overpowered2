@@ -57,9 +57,17 @@ export const ReflexTuning = {
   /** Hip and knee in radians, in the air. */
   tuckHip: 0.55,
   tuckKnee: 0.9,
-  /** Spine and head curl in radians while falling, and lying. */
-  fallCurl: 0.26,
-  fallChin: 0.34,
+  /** Leg strength while a body tips over its feet, and how long that lasts. Slack, it folds at the knees and rolls over its head. */
+  plankLeg: 0.8,
+  plankSpine: 0.85,
+  plankSeconds: 0.42,
+  /** How much stronger than holding themselves up the arms are when they take a body's weight. */
+  braceGain: 5,
+  /** Spine and head in radians as a body goes down: curled going backward, chin up going forward. */
+  fallCurl: 0.3,
+  fallArch: -0.1,
+  fallChin: 0.42,
+  fallChinUp: -0.5,
   lyingCurl: 0.16,
   /** How much of a leg draws up while lying, and how fast it stirs, in rad/s. */
   writheHip: 0.5,
@@ -119,6 +127,8 @@ export class Reflex {
   /** 0 feels nothing, 1 is badly hurt. */
   hurt: number;
   groundY: number;
+  /** Tipped over its feet rather than thrown off them. */
+  readonly plank: boolean;
   kind: GetUpKind = 'prone';
   /** Where the hips sit at the start of the chosen get-up, relative to where it will stand. */
   readonly startHips = new THREE.Vector3();
@@ -141,8 +151,9 @@ export class Reflex {
     private readonly rag: Rag,
     private readonly muscle: MuscleState,
     private readonly anim: CharacterAnimation,
-    options: { lie: number; hurt: number; groundY: number; dir: THREE.Vector3 | null },
+    options: { lie: number; hurt: number; groundY: number; dir: THREE.Vector3 | null; plank: boolean },
   ) {
+    this.plank = options.plank;
     this.lie = options.lie;
     this.hurt = options.hurt;
     this.groundY = options.groundY;
@@ -151,6 +162,20 @@ export class Reflex {
     this.standHips = bind[1]!;
     if (options.dir) this.fallDir.set(options.dir.x, 0, options.dir.z);
     this.bind();
+    if (this.plank) this.lockTrunk();
+  }
+
+  /** Legs and spine hold the shape they were hit in, from the first step, so the body goes over in one piece. */
+  private lockTrunk(): void {
+    const t = ReflexTuning;
+    const parts = this.rag.parts;
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i]!;
+      const m = part.muscle!;
+      if (!part.parent || (m.role !== 'leg' && m.role !== 'spine')) continue;
+      m.pose.copy(part.parent.q).conjugate().multiply(part.q);
+      m.drive = m.role === 'leg' ? t.plankLeg : t.plankSpine;
+    }
   }
 
   /** Finds the limbs. Call when the chain changes. */
@@ -238,7 +263,7 @@ export class Reflex {
     if (this.dying >= 0) this.dying = Math.max(0, this.dying - dt);
     const hips = rag.parts[0]!;
     const chest = this.spine ?? hips;
-    this.look(chest);
+    this.look(chest, dt);
     this.stun = Math.max(0, this.stun - ReflexTuning.stunFade * dt);
     if (rag.thud / rag.mass > ReflexTuning.stunThud) this.stun = 1;
     this.advance(hips, dt);
@@ -251,8 +276,8 @@ export class Reflex {
     this.setStrengths(dt);
   }
 
-  private look(chest: RagPart): void {
-    this.groundIn -= this.age > 0 ? 1 / 60 : 0;
+  private look(chest: RagPart, dt: number): void {
+    this.groundIn -= dt;
     if (this.groundIn > 0) return;
     this.groundIn = ReflexTuning.groundEvery;
     _origin.copy(chest.p);
@@ -316,6 +341,7 @@ export class Reflex {
     const tipped = 1 - clamp(_up.y);
     const brace = clamp(Math.max(1 - smoothstep(t.braceLow, t.braceHigh, height), tipped * 0.8));
     const w = this.age * t.flailRate + this.seed;
+    const forward = clamp(facing * 0.5 + 0.5);
     for (let i = 0; i < this.arms.length; i++) {
       const arm = this.arms[i]!;
       const a = Math.sin(w + arm.phase);
@@ -325,18 +351,31 @@ export class Reflex {
       _dir.addScaledVector(_up, a * t.flailSize + 0.1).addScaledVector(_front, 0.35 + b * t.flailSize);
       _dir.normalize();
       // Out toward the floor it is falling at. Backward there is little reach behind a shoulder, so it goes out to the side.
-      _a.copy(_fall).multiplyScalar(lerp(0.5, 0.95, clamp(facing * 0.5 + 0.5)));
-      _a.addScaledVector(DOWN, 0.7).addScaledVector(_left, arm.side * lerp(0.6, 0.22, clamp(facing * 0.5 + 0.5)));
+      _a.copy(_fall).multiplyScalar(lerp(0.5, 0.95, forward));
+      _a.addScaledVector(DOWN, 0.7).addScaledVector(_left, arm.side * lerp(0.6, 0.22, forward));
       _a.normalize();
       _dir.lerp(_a, brace).normalize();
       this.aim(arm, _dir, lerp(t.flailElbow + a * 0.3, t.braceElbow, brace));
+      const gain = lerp(1, t.braceGain, brace);
+      arm.shoulder.muscle!.gain = gain;
+      if (arm.elbow) arm.elbow.muscle!.gain = gain;
+    }
+    const chin = lerp(t.fallChin, t.fallChinUp, forward);
+    if (this.plankLeft > 0.5) {
+      this.head?.muscle!.pose.setFromAxisAngle(X_AXIS, chin);
+      return;
     }
     for (let i = 0; i < this.legs.length; i++) {
       const leg = this.legs[i]!;
       const pedal = Math.sin(w * 0.55 + leg.phase) * (1 - brace);
       this.pose(leg, t.tuckHip * (0.7 + pedal * 0.5), t.tuckKnee * (0.75 - pedal * 0.4));
     }
-    this.curl(t.fallCurl, t.fallChin);
+    this.curl(lerp(t.fallCurl, t.fallArch, forward), chin);
+  }
+
+  /** 1 while legs are locked for a body tipping over its feet, fading to nothing. */
+  private get plankLeft(): number {
+    return this.plank ? 1 - smoothstep(ReflexTuning.plankSeconds * 0.6, ReflexTuning.plankSeconds, this.age) : 0;
   }
 
   private poseLying(chest: RagPart): void {
@@ -405,7 +444,7 @@ export class Reflex {
     _b.addScaledVector(_dir, -_b.dot(_dir));
     if (_b.lengthSq() > 1e-6) _b.normalize();
     _a.copy(_dir).multiplyScalar(Math.cos(lean)).addScaledVector(_b, Math.sin(lean));
-    this.aim(arm, _a.clone(), bend);
+    this.aim(arm, _a, bend);
   }
 
   private setStrengths(dt: number): void {
@@ -415,14 +454,19 @@ export class Reflex {
     const stunned = 1 - t.stunLoss * this.stun;
     const fading = this.dying >= 0 ? this.dying / t.dieSeconds : 1;
     const awake = smoothstep(0, t.reaction * 2, this.age - t.reaction);
-    const scale = stunned * fading * awake;
+    const scale = stunned * fading * (this.plank ? 1 : awake);
     const parts = this.rag.parts;
     for (let i = 0; i < parts.length; i++) {
       const part = parts[i]!;
       const m = part.muscle!;
       if (!part.parent || m.role === null) continue;
-      const want = table[m.role] * scale;
+      let want = table[m.role] * scale;
+      if (this.phase === 'fall') {
+        if (m.role === 'leg') want = lerp(want, t.plankLeg, this.plankLeft);
+        else if (m.role === 'spine') want = lerp(want, t.plankSpine, this.plankLeft);
+      }
       m.drive = damp(m.drive, want, t.driveRate, dt);
+      if (this.phase !== 'fall') m.gain = 1;
     }
   }
 }

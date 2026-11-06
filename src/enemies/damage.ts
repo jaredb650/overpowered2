@@ -9,10 +9,11 @@ import { DroneBone, HumanoidBone as B, type GoreRegion } from '../characters/rig
 import { DEFAULT_FORCE, type DamageInfo, type DamageType } from '../core/contracts';
 import { DevFlags } from '../core/devflags';
 import type { DamageResult, KillEvent } from '../core/gameplay';
-import { chance, clamp, pick, rand } from '../core/math';
+import { chance, clamp, lerp, pick, rand } from '../core/math';
 import { ENEMIES, LIMB_SIZE, REGION_DAMAGE } from './data';
 import { say } from './attacks';
 import { finishAttack } from './brain';
+import { chooseReaction, profileOf, type ReactionProfile } from './reactions';
 import { dropOff } from './roles';
 import type { Enemy } from './Enemy';
 import type { Plate } from './armor';
@@ -22,6 +23,24 @@ import type { EnemyManager } from './EnemyManager';
 /** Metres per second of knockback on the living, per newton-second per point of health, and the most one hit gives. */
 const SHOVE_GAIN = 1.35;
 const SHOVE_MAX = 4;
+/** Seconds a stagger lasts, at no strength and at full. */
+const STAGGER_MIN = 0.45;
+const STAGGER_MAX = 1.05;
+/** Seconds of failing to catch itself before a fall, least and most. */
+const FALL_LEAD_MIN = 0.16;
+const FALL_LEAD_MAX = 0.42;
+/** What full strength adds to a catch step. */
+const REEL_GAIN = 1.4;
+/** Metres per second tipping the upper body over the feet, at no strength and at full. Less is a body that folds up. */
+const TOPPLE_MIN = 1.2;
+const TOPPLE_MAX = 2.2;
+/** Share of a body's shock left after each kind of reaction, so one burst does not fell it twice. */
+const SHOCK_AFTER_STAGGER = 0.5;
+/** Weapons light enough that a body takes a moment to die of them, on its feet. Anything harder drops it. */
+const DIES_ON_FEET: ReadonlySet<DamageType> = new Set<DamageType>(['bullet', 'fire', 'shock', 'true']);
+const DIES_ON_FEET_FORCE = 30;
+const COLLAPSE_MIN = 0.85;
+const COLLAPSE_MAX = 1.4;
 
 /** How hard each damage type works a limb pool, on top of the weapon's severMult. */
 const SEVER_FACTOR: Record<DamageType, number> = {
@@ -124,6 +143,8 @@ export class DamageModel {
     if (e.boss) amount = e.boss.filter(e, this.w, amount, d, region);
 
     e.health -= amount;
+    // Before the death is picked, so a killing shot leaves its mark on the body too.
+    this.w.ctx.gore.wound(e.char, d, amount / e.maxHealth);
     res.dealt = amount;
 
     const headPool = region === 'head' ? this.spendPool(e, 'head', amount) : Infinity;
@@ -348,13 +369,14 @@ export class DamageModel {
       // Gore owns the body from here and drops it after its hold. Until then the feet keep carrying it forward.
       ctx.gore.headshot(e.char, d, e.velocity);
       if (d.amount < HEAD_BURST_DAMAGE) ctx.audio.play('vox_choke', { position: e.center, pitch: e.def.voice.pitch });
-      if (e.maim.legs > 0) {
+      if (e.maim.legs > 0 && !e.downed) {
         e.dyingKind = 'stumble';
         e.dying = d.amount >= HEAD_BURST_DAMAGE ? 0.28 : 1.05;
       }
     } else {
       if (blownUp && !DevFlags.explosiveDeaths) this.blastMaim(e, d);
-      this.ragdoll(e, d, force);
+      if (!blownUp && this.diesOnFeet(e, d, force)) this.collapse(e, d, region, force);
+      else this.ragdoll(e, d, force);
     }
 
     if (res) res.headshot = headshot;
@@ -388,6 +410,29 @@ export class DamageModel {
     }
   }
 
+  /** It needs its legs under it and a hit too light to knock them away. */
+  private diesOnFeet(e: Enemy, d: DamageInfo, force: number): boolean {
+    return DIES_ON_FEET.has(d.type) && force <= DIES_ON_FEET_FORCE && e.maim.legs === 2 && !e.downed && e.rising <= 0
+      && !e.airborne && !e.pinned && !e.def.machine;
+  }
+
+  /** Shot dead standing up: it takes a moment to go, and goes on taking rounds on the way. */
+  private collapse(e: Enemy, d: DamageInfo, region: GoreRegion, force: number): void {
+    const o = this.m.collapseOptions;
+    o.duration = rand(COLLAPSE_MIN, COLLAPSE_MAX);
+    o.velocity.copy(e.velocity);
+    if (AREA_TYPES.has(d.type)) o.hit = undefined;
+    else {
+      const hit = this.m.collapseHit;
+      hit.bone = d.bone ?? REGION_BONE[region] ?? 0;
+      hit.point.copy(d.point);
+      hit.dir.copy(d.dir);
+      hit.force = force;
+      o.hit = hit;
+    }
+    this.w.ctx.gore.collapse(e.char, o);
+  }
+
   ragdoll(e: Enemy, d: DamageInfo | null, force: number): void {
     const { ctx } = this.w;
     if (d) {
@@ -414,38 +459,159 @@ export class DamageModel {
     char.anim.flinch(bone, d.dir, clamp(0.35 + frac * 3, 0.35, 1.6));
     char.hitFlash(armoured ? 0.35 : clamp(0.55 + frac * 2, 0.55, 1));
     if (!armoured && d.type !== 'fire' && d.type !== 'shock') {
-      char.addWound(bone, d.point, clamp(0.05 + frac * 0.3, 0.05, 0.16));
       e.blood = Math.min(1, e.blood + 0.08 + frac * 1.1);
       char.setBloodiness(e.blood);
     }
 
     const pushForce = d.force || DEFAULT_FORCE[d.type];
-    const shove = clamp((pushForce / e.def.hp) * SHOVE_GAIN, 0, SHOVE_MAX) * (e.isBoss ? 0.1 : 1);
+    e.pressure = Math.min(1, e.pressure + 0.22 + frac);
+    if (e.downed) {
+      this.hitWhileDown(e, d, bone, pushForce);
+      return;
+    }
+    // Getting up runs on keys from the root. Moved under it, the feet would slide.
+    const shove = e.rising > 0 ? 0 : clamp((pushForce / e.def.hp) * SHOVE_GAIN, 0, SHOVE_MAX) * (e.isBoss ? 0.1 : 1);
     e.push.x += d.dir.x * shove;
     e.push.z += d.dir.z * shove;
-    e.pressure = Math.min(1, e.pressure + 0.22 + frac);
 
     if (e.pinned) dropOff(e);
 
-    if (res.headshot && !e.isBoss && !e.def.machine) {
-      // Whiplash, then a real beat of stagger. A head hit that does not kill should still rattle them.
-      this.stagger(e, 0.3);
+    const profile = profileOf(e);
+    if (profile) {
+      this.respond(e, d, profile, region, amount, pushForce, bone, armoured);
       return;
     }
     e.poise += amount;
     if (e.poise >= e.def.poise * e.maxHealth) {
       e.poise = 0;
       this.stagger(e, d.type === 'explosive' ? 0.75 : 0.5);
-    } else if (!armoured && this.w.now >= e.painAt) {
-      e.painAt = this.w.now + (e.isBoss ? BOSS_PAIN_GAP : rand(PAIN_GAP, PAIN_GAP * 2));
-      say(e, this.w, e.def.voice.pain, 0.6);
+    } else if (!armoured) this.cryOut(e);
+  }
+
+  private cryOut(e: Enemy): void {
+    if (this.w.now < e.painAt) return;
+    e.painAt = this.w.now + (e.isBoss ? BOSS_PAIN_GAP : rand(PAIN_GAP, PAIN_GAP * 2));
+    say(e, this.w, e.def.voice.pain, 0.6);
+  }
+
+  /** The rule in reactions.ts, carried out. */
+  private respond(e: Enemy, d: DamageInfo, profile: ReactionProfile, region: GoreRegion, amount: number, force: number, bone: number, armoured: boolean): void {
+    const anim = e.char.anim;
+    const r = chooseReaction(e, d, profile, region, amount, force, this.w.now);
+    const felt = profile.pain > 0;
+    const blast = d.type === 'explosive';
+    if (r.level === 'flinch') {
+      if (!armoured) this.cryOut(e);
+      return;
+    }
+    if (felt) {
+      if (blast || region === 'head') anim.guard?.(0.5 + r.strength * 0.5);
+      else if (!armoured) anim.holdWound?.(bone, d.point, 0.7 + r.strength);
+    }
+    if (felt && !armoured) say(e, this.w, e.def.voice.pain, 0.7);
+    e.reactAt = this.w.now + profile.cooldown;
+    if (r.level === 'thrown') {
+      this.knockDown(e, d.dir, r.strength, bone, profile, true);
+      e.shock = 0;
+      return;
+    }
+    const seconds = lerp(STAGGER_MIN, STAGGER_MAX, r.strength);
+    if (r.tripped) {
+      // Stopped short by its own leg, with the rest of the body still going.
+      _v.copy(e.velocity);
+      e.reel.copy(_v);
+      e.velocity.set(0, 0, 0);
+      this.stagger(e, seconds, _v.normalize(), r.strength, bone, 0);
+    } else {
+      this.stagger(e, seconds, d.dir, r.strength, bone, profile.reel);
+    }
+    e.shock *= SHOCK_AFTER_STAGGER;
+    if (r.level === 'fall') {
+      e.fallIn = rand(FALL_LEAD_MIN, FALL_LEAD_MAX);
+      e.fallStrength = r.strength;
+      e.fallBone = bone;
     }
   }
 
-  stagger(e: Enemy, seconds: number): void {
+  /** Staggering did not save it. */
+  fall(e: Enemy): void {
+    const profile = profileOf(e);
+    if (!profile || !e.alive || e.downed) return;
+    _v.copy(e.reel).setY(0);
+    if (_v.lengthSq() < 1e-4) _v.set(Math.sin(e.yaw), 0, Math.cos(e.yaw)).negate();
+    this.knockDown(e, _v.normalize(), e.fallStrength, e.fallBone, profile, false);
+  }
+
+  private knockDown(e: Enemy, dir: THREE.Vector3, strength: number, bone: number, profile: ReactionProfile, thrown: boolean): void {
+    const { ctx } = this.w;
+    const m = this.m;
+    const o = m.knockOptions;
+    o.velocity.set(e.velocity.x + e.reel.x + e.push.x, e.airborne ? e.verticalSpeed : 0, e.velocity.z + e.reel.z + e.push.z);
+    m.knockImpact.dir.copy(dir);
+    m.knockImpact.strength = strength * 0.4;
+    o.impact = m.knockImpact;
+    // A blast throws it by itself, once this returns and the blast reaches Physics.
+    o.topple = thrown ? undefined : m.knockTopple.copy(dir).multiplyScalar(lerp(TOPPLE_MIN, TOPPLE_MAX, strength));
+    o.impulses = undefined;
+    o.hurt = profile.pain * (0.5 + strength * 0.5);
+    o.lie = rand(profile.lie[0], profile.lie[1]) * (0.7 + strength * 0.6);
+    e.riseSeconds = profile.rise * (0.85 + strength * 0.4);
+    e.dazeSeconds = profile.daze * (thrown ? 1 : strength);
+    o.rise = e.riseSeconds;
+    const wound = m.knockWound;
+    wound.bone = bone;
+    wound.point.setFromMatrixPosition(e.char.bones[bone]!.matrixWorld);
+    o.wound = wound;
+    if (!ctx.gore.knockdown(e.char, o)) {
+      // Past the budget. Staggering is what it would have done with one more foot under it.
+      e.fallIn = 0;
+      if (thrown) this.stagger(e, STAGGER_MAX, dir, strength, bone, profile.reel);
+      return;
+    }
+    if (e.attack) finishAttack(e, this.w, true);
+    if (e.pinned) dropOff(e);
+    e.downed = true;
+    e.airborne = true;
+    e.ballistic = false;
+    e.fallIn = e.stagger = 0;
+    e.verticalSpeed = e.flightLeft = 0;
+    e.reel.set(0, 0, 0);
+    e.push.set(0, 0, 0);
+    e.velocity.set(0, 0, 0);
+  }
+
+  /** It keeps taking hits on the floor, and every one lands on the body as it lies. */
+  private hitWhileDown(e: Enemy, d: DamageInfo, bone: number, force: number): void {
+    const m = this.m;
+    const o = m.knockOptions;
+    const i = m.knockImpulses[0]!;
+    i.bone = bone;
+    i.point.copy(d.point);
+    i.impulse.copy(d.dir).multiplyScalar(force);
+    o.impulses = m.knockImpulses;
+    o.impact = undefined;
+    o.topple = undefined;
+    const wound = m.knockWound;
+    wound.bone = bone;
+    wound.point.copy(d.point);
+    o.wound = wound;
+    this.w.ctx.gore.knockdown(e.char, o);
+    this.cryOut(e);
+  }
+
+  /** A hit that took its balance. With `dir` it takes real steps that way, `reel` metres per second at the start. */
+  stagger(e: Enemy, seconds: number, dir?: THREE.Vector3, strength = 0.5, bone = REGION_BONE.chest, reel = 1.5): void {
     if (e.isBoss) return;
     e.stagger = Math.max(e.stagger, seconds);
-    e.char.anim.play('stagger', 1);
+    const anim = e.char.anim;
+    if (dir && anim.stumble) {
+      anim.stumble(dir, strength, bone);
+      const speed = reel * (1 + strength * REEL_GAIN);
+      e.reel.x += dir.x * speed;
+      e.reel.z += dir.z * speed;
+    } else {
+      anim.play('stagger', 1);
+    }
     if (e.attackPhase === 'windup') finishAttack(e, this.w, true);
   }
 }

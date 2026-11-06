@@ -230,7 +230,7 @@ export const CALLINS: Readonly<Record<CallInId, CallInDef>> = {
   // to outlast the flight, as there is one airframe.
   ac130: {
     id: 'ac130', combo: 28, cooldown: 180, name: 'AC-130', key: 'M', color: '#ffb52e', radius: 34,
-    hint: 'CLICK TO MARK THE BOX, THEN GET BACK TO WORK // RMB CANCEL',
+    hint: 'CLICK TO MARK THE BOX // RMB CANCEL',
   },
   blackSun: {
     id: 'blackSun', combo: 40, cooldown: 90, name: 'BLACK SUN', key: 'B', color: '#a56bff', radius: 36,

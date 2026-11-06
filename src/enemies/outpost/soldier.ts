@@ -69,6 +69,8 @@ export class Soldier {
   exposed = false;
   /** Firing round the corner without looking. */
   blind = false;
+  /** Told to keep a position under fire while the other team moves. */
+  suppressing = false;
   /** Where the gun points when he cannot see the player. */
   readonly aim = new THREE.Vector3();
   mag = 0;
@@ -85,6 +87,9 @@ export class Soldier {
   surrenderedAt = 0;
   /** Finished kneeling: led off the map, or left to walk. */
   released = false;
+
+  /** Led the squad at the moment he left it. Read once, after the body is gone. */
+  wasLeader = false;
 
   /** On the ground, unable to act. Set through Outpost.setDowned. */
   downed = false;
@@ -121,7 +126,7 @@ export class Soldier {
     this.canShoot = false;
     this.noShotSince = 0;
     this.nextPeekAt = this.peekUntil = 0;
-    this.exposed = this.blind = false;
+    this.exposed = this.blind = this.suppressing = false;
     this.mag = 0;
     this.reloadUntil = 0;
     this.grenades = 0;
@@ -129,6 +134,7 @@ export class Soldier {
     this.fate = 'none';
     this.surrendered = this.released = false;
     this.surrenderedAt = 0;
+    this.wasLeader = false;
     this.downed = false;
     this.rescuer = this.patient = null;
     this.aidStage = 'none';

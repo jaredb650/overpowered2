@@ -12,6 +12,7 @@ import { HumanoidBone as H, type GoreRegion, type RigDef } from '../rig';
 import type { ArchetypeDef } from '../archetypes';
 import { GetUpPose, sampleGetUp, type GetUpKind } from './getUp';
 import { Limb } from './ik';
+import { Postures, type PostureName } from './postures';
 import { Spring3 } from './springs';
 import { STYLES, type MoveStyle } from './styles';
 
@@ -290,6 +291,10 @@ export class HumanoidAnimator implements CharacterAnimation {
 
   private grip: WeaponGrip | null = null;
   private shieldRot: THREE.Quaternion | null = null;
+  private readonly posture = new Postures();
+  /** What `disarm` took out of his hands, for the next body the pool makes of him. */
+  private droppedGrip: WeaponGrip | null = null;
+  private droppedShield: THREE.Quaternion | null = null;
   private readonly spine = new Spring3(170, 13);
   private readonly chest = new Spring3(210, 15);
   private readonly head = new Spring3(240, 13);
@@ -346,6 +351,19 @@ export class HumanoidAnimator implements CharacterAnimation {
   /** Socket rotation of a shield held in the left hand. */
   setShield(rot: THREE.Quaternion | null): void {
     this.shieldRot = rot;
+  }
+
+  /** See postures.ts. */
+  setPosture(name: PostureName): void {
+    this.posture.set(name);
+  }
+
+  /** Empty hands: the weapon is on the floor. They stay empty until the pool resets him. */
+  disarm(): void {
+    this.droppedGrip ??= this.grip;
+    this.droppedShield ??= this.shieldRot;
+    this.grip = null;
+    this.shieldRot = null;
   }
 
   setLocomotion(input: LocomotionInput): void {
@@ -533,6 +551,10 @@ export class HumanoidAnimator implements CharacterAnimation {
     this.clutchFor = this.clutchW = 0;
     this.clipKind = null;
     this.snapLeft = 0;
+    this.posture.reset();
+    this.grip = this.droppedGrip ?? this.grip;
+    this.shieldRot = this.droppedShield ?? this.shieldRot;
+    this.droppedGrip = this.droppedShield = null;
     this.needsHome = true;
   }
 
@@ -575,8 +597,9 @@ export class HumanoidAnimator implements CharacterAnimation {
     this.integrateRoot(step);
     this.stepSprings(step);
     this.stepAction(step);
+    this.posture.step(step);
 
-    this.planBlend = damp(this.planBlend, this.plan === 'crawl' || this.plan === 'writhe' ? 1 : 0, 6, step);
+    this.planBlend = damp(this.planBlend, this.plan === 'crawl' || this.plan === 'writhe' || this.posture.prone ? 1 : 0, 6, step);
 
     if (this.plan === 'biped') this.stepGait(step, lod);
     else if (this.plan === 'hop') this.stepHop(step);
@@ -926,6 +949,9 @@ export class HumanoidAnimator implements CharacterAnimation {
           break;
       }
     }
+    x += this.posture.sway * L;
+    y -= this.posture.drop * L;
+    z += this.posture.shift * L;
     this.pelvisPos.set(x + this.pelvis.x * 0.08 * L, y + this.pelvis.y * 0.05 * L, z + this.pelvis.z * 0.08 * L);
 
     const yawP = Math.sin(ph) * lerp(0.1, 0.2, run) * mv * bounce * 0.8;
@@ -969,8 +995,10 @@ export class HumanoidAnimator implements CharacterAnimation {
     let twist = -Math.sin(ph) * lerp(0.14, 0.34, run) * mv;
     let bend = st.hunch + this.leanFwd * 0.9 + run * 0.1 * mv;
     let roll = this.leanSide * 0.6 + Math.cos(ph) * 0.03 * mv;
-    let headPitch = 0;
+    let headPitch = this.posture.head;
     let headYaw = 0;
+    bend += this.posture.bend;
+    roll += this.posture.roll;
     if (this.dazeW > 0.01) {
       // Head down and rolling, with the body a beat behind it.
       bend += 0.22 * this.dazeW;
@@ -1067,6 +1095,7 @@ export class HumanoidAnimator implements CharacterAnimation {
       vA.copy(h.shoulderOffset).applyQuaternion(this.chestQ).add(this.chestPos);
       const shoulder = vA;
       this.armTarget(h, dt, armed, shoulder);
+      this.posture.hand(h.side, h.limb.l1 + h.limb.l2, this.chestQ, shoulder, h.target, h.pole);
       if (this.planBlend <= 0.5) this.protect(h, armed, shoulder);
       const spring = h.side > 0 ? this.armLS : this.armRS;
       h.target.x += spring.x * 0.05 * this.L;
@@ -1344,6 +1373,7 @@ export class HumanoidAnimator implements CharacterAnimation {
       vA.copy(f.hipOffset).applyQuaternion(this.pelvisQ).add(this.pelvisPos);
       const dx = f.pos.x - this.frame.x, dz = f.pos.z - this.frame.z;
       vB.set(dx * c - dz * s, f.pos.y - this.frame.y, dx * s + dz * c);
+      this.posture.foot(f.side, this.L, this.moveBlend, vB);
       if (lod === 0 && f.roll > 0.01) {
         // Pivot the ankle around the ball of the foot.
         const toe = this.L * 0.075;
@@ -1358,7 +1388,7 @@ export class HumanoidAnimator implements CharacterAnimation {
       // Knees point where the foot points, splayed outward a touch.
       vC.set(Math.sin(footYaw) + f.side * 0.14, 0.16, Math.cos(footYaw));
       limb.solve(vA, this.pelvisQ, vB, vC);
-      const pitch = f.planted ? f.roll : f.pitch;
+      const pitch = (f.planted ? f.roll : f.pitch) + this.posture.toe(f.side, this.moveBlend);
       qEuler(qD, pitch, footYaw, 0);
       limb.setEnd(qD);
     }

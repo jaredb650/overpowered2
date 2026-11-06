@@ -1,9 +1,11 @@
 /** One pooled skinned character, and the severed limbs it sheds. */
 import * as THREE from 'three';
-import type { CharacterInstance, SeveredLimb } from '../core/contracts';
-import type { GoreRegion, RigDef } from './rig';
+import type { CharacterInstance, SeveredLimb, WoundHit } from '../core/contracts';
+import { HumanoidBone as H, type GoreRegion, type RigDef } from './rig';
 import type { LoadedModel } from './model';
-import { EXTRA_INFO, EXTRA_PARAMS, EXTRA_TEXELS, EXTRA_WOUNDS, MAX_WOUNDS } from './material';
+import { EXTRA_INFO, EXTRA_PARAMS, EXTRA_TEXELS, EXTRA_WOUNDS } from './anatomy/glsl';
+import { FracturePose, type FractureStyle } from './anatomy/fracture';
+import { newWoundSpec, WoundBook, WoundKind, WoundRegion, type WoundKindId } from './anatomy/wounds';
 import { createAnimator, type PooledAnimation } from './animation/index';
 import type { ArchetypeDef } from './archetypes';
 
@@ -18,8 +20,13 @@ export interface ArchetypeData {
   rig: RigDef;
   model: LoadedModel;
   material: THREE.Material;
+  /** The same skin with holes in it. Only for bodies that have some, because `discard` costs the whole draw. */
+  woundMaterial: THREE.Material;
   /** Vertex-colour material for the far LOD. */
   farMaterial: THREE.Material;
+  /** What is under the skin, shared by every body of this archetype. Null for machines, which get dents. */
+  interior: THREE.BufferGeometry | null;
+  interiorMaterial: THREE.Material | null;
   /** World clock, read lazily so hit flash fades on corpses that nothing ticks any more. */
   time: { elapsed: number };
   /** Skeleton bone count, rig bones plus cap bones. */
@@ -64,10 +71,75 @@ const v = new THREE.Vector3();
 const q = new THREE.Quaternion();
 const s = new THREE.Vector3();
 const m = new THREE.Matrix4();
+const n = new THREE.Vector3();
+const u = new THREE.Vector3();
+const spec = newWoundSpec();
+
+/** Which parts of the rig a wound on `bone` can touch. A wound at a shoulder or a hip reaches across the joint. */
+function woundRegions(a: ArchetypeData, bone: number, radius: number): number {
+  if (a.def.rig !== 'humanoid') return WoundRegion.all;
+  const near = (joint: number) => v.distanceTo(a.bindPositions[joint]!) < radius + 0.07 * a.def.proportions.scale;
+  if (bone <= H.head) {
+    let bits: number = WoundRegion.trunk;
+    if (near(H.upperArmL)) bits |= WoundRegion.armL;
+    if (near(H.upperArmR)) bits |= WoundRegion.armR;
+    if (near(H.thighL)) bits |= WoundRegion.legL;
+    if (near(H.thighR)) bits |= WoundRegion.legR;
+    return bits;
+  }
+  const own = bone <= H.handL ? WoundRegion.armL : bone <= H.handR ? WoundRegion.armR : bone <= H.footL ? WoundRegion.legL : WoundRegion.legR;
+  const root = bone <= H.handL ? H.upperArmL : bone <= H.handR ? H.upperArmR : bone <= H.footL ? H.thighL : H.thighR;
+  return near(root) ? own | WoundRegion.trunk : own;
+}
+
+/** Puts a wound given in world space into a body's bind space. `v` is left on its centre. */
+function placeWound(a: ArchetypeData, book: WoundBook, bone: THREE.Bone, boneIndex: number, hit: WoundHit): void {
+  // World to bone local, then bone local to bind space: bind rotations are identity, so that is one add.
+  bone.updateWorldMatrix(true, false);
+  m.copy(bone.matrixWorld).invert();
+  v.copy(hit.point).applyMatrix4(m).add(a.bindPositions[boneIndex]!);
+  n.copy(hit.dir).transformDirection(m);
+  spec.kind = (!a.interior && hit.kind !== WoundKind.burn && hit.kind !== WoundKind.graze ? WoundKind.dent : hit.kind) as WoundKindId;
+  spec.nx = n.x; spec.ny = n.y; spec.nz = n.z;
+  spec.radius = hit.radius;
+  spec.depth = hit.depth;
+  spec.ragged = hit.ragged;
+  spec.regions = woundRegions(a, boneIndex, hit.radius);
+  const def = a.rig.bones[boneIndex]!;
+  spec.limit = (def.hit?.radius ?? 0.06) * (boneIndex === H.head ? 0.8 : 1.5);
+  if (hit.along && hit.length) {
+    // Square to the axis, so the slot's two ends lie in one plane across the body.
+    u.copy(hit.along).transformDirection(m).addScaledVector(n, -u.dot(n)).normalize().multiplyScalar(hit.length);
+    spec.ax = v.x - u.x; spec.ay = v.y - u.y; spec.az = v.z - u.z;
+    spec.bx = v.x + u.x; spec.by = v.y + u.y; spec.bz = v.z + u.z;
+  } else {
+    spec.ax = spec.bx = v.x;
+    spec.ay = spec.by = v.y;
+    spec.az = spec.bz = v.z;
+  }
+  book.add(spec);
+}
 
 interface AttachedProp {
   bone: number;
   object: THREE.Object3D;
+}
+
+/** A wound that takes nothing away, for callers that only know where it is. */
+const paintDir = new THREE.Vector3();
+const paint: WoundHit = { kind: WoundKind.graze, bone: 0, point: paintDir, dir: paintDir, radius: 0.05, depth: 0.03, ragged: 0.5 };
+
+/** Past this LOD a body is too far off for anything but paint. */
+const FAR_LOD = 2;
+
+function makeInside(a: ArchetypeData, skeleton: THREE.Skeleton): THREE.SkinnedMesh {
+  const inside = new THREE.SkinnedMesh(a.interior!, a.interiorMaterial!);
+  // After the skin, so the depth test throws away almost every pixel of it before any shading runs.
+  inside.renderOrder = 1;
+  inside.castShadow = false;
+  inside.receiveShadow = true;
+  inside.bind(skeleton, new THREE.Matrix4());
+  return inside;
 }
 
 export class Character implements CharacterInstance {
@@ -96,8 +168,13 @@ export class Character implements CharacterInstance {
   private readonly activeCaps = new Set<THREE.Bone>();
   private flash = 0;
   private flashAt = 0;
-  private woundCount = 0;
-  private woundCursor = 0;
+  private readonly book: WoundBook;
+  private readonly breaks: FracturePose;
+  /** Null until a wound opens this body. */
+  private inside: THREE.SkinnedMesh | null = null;
+  private readonly cullSphere: PropertyDescriptor;
+  /** Hits taken per bone that did not break it on their own, so sustained fire gets there too. */
+  readonly stress: Float32Array;
 
   constructor(readonly a: ArchetypeData) {
     this.archetype = a.id;
@@ -131,7 +208,7 @@ export class Character implements CharacterInstance {
     const sphere = new THREE.Sphere(new THREE.Vector3(), a.rig.height * 1.15);
     const hips = this.bones[0]!;
     const mesh = this.mesh;
-    Object.defineProperty(mesh, 'boundingSphere', {
+    this.cullSphere = {
       configurable: true,
       get: () => {
         const h = hips.matrixWorld.elements, w = mesh.matrixWorld.elements;
@@ -140,10 +217,22 @@ export class Character implements CharacterInstance {
         sphere.center.set(dx * w[0]! + dy * w[1]! + dz * w[2]!, dx * w[4]! + dy * w[5]! + dz * w[6]!, dx * w[8]! + dy * w[9]! + dz * w[10]!);
         return sphere;
       },
-    });
+    };
+    Object.defineProperty(mesh, 'boundingSphere', this.cullSphere);
     this.hidden = new Uint8Array(this.allBones.length);
+    this.stress = new Float32Array(rigCount);
     this.data[this.extras + EXTRA_INFO * 4 + 1] = Math.random() * 64;
+    this.book = new WoundBook(this.data, this.extras + EXTRA_WOUNDS * 4, count => {
+      this.data[this.extras + EXTRA_INFO * 4] = count;
+    });
     this.anim = createAnimator(a.def, this);
+    this.breaks = new FracturePose(a.rig, this.bones, this.root);
+    // Wrapped here so a break holds through every animator, whatever it writes and however often it runs.
+    const pose = this.anim.update.bind(this.anim);
+    this.anim.update = (dt, lod) => {
+      pose(dt, lod);
+      this.breaks.apply(dt);
+    };
     // The fade runs where the draw happens, so it needs no per-frame update from whoever owns the body now.
     this.mesh.onBeforeRender = () => {
       if (this.flash <= 0) return;
@@ -189,14 +278,59 @@ export class Character implements CharacterInstance {
   addWound(boneIndex: number, worldPoint: THREE.Vector3, radius: number): void {
     const bone = this.bones[boneIndex];
     if (!bone) return;
-    // World to bone local, then bone local to bind space: bind rotations are identity, so that is one add.
-    bone.updateWorldMatrix(true, false);
-    v.copy(worldPoint).applyMatrix4(m.copy(bone.matrixWorld).invert()).add(this.a.bindPositions[boneIndex]!);
-    const o = this.extras + (EXTRA_WOUNDS + this.woundCursor) * 4;
-    this.data[o] = v.x; this.data[o + 1] = v.y; this.data[o + 2] = v.z; this.data[o + 3] = radius;
-    this.woundCursor = (this.woundCursor + 1) % MAX_WOUNDS;
-    this.woundCount = Math.min(MAX_WOUNDS, this.woundCount + 1);
-    this.data[this.extras + EXTRA_INFO * 4] = this.woundCount;
+    bone.getWorldPosition(paintDir).sub(worldPoint);
+    if (paintDir.lengthSq() < 1e-6) paintDir.set(0, 0, -1);
+    paint.bone = boneIndex;
+    paint.point = worldPoint;
+    paint.dir = paintDir.normalize();
+    paint.radius = radius;
+    this.wound(paint);
+  }
+
+  wound(hit: WoundHit): void {
+    const bone = this.bones[hit.bone];
+    if (!bone || this.hidden[hit.bone]) return;
+    placeWound(this.a, this.book, bone, hit.bone, hit);
+    this.showWounds();
+  }
+
+  /** Puts the body on the wounded program, with its inside if it has been opened. */
+  private showWounds(): void {
+    if (this.book.count === 0) return;
+    if (this.mesh.material === this.a.material) this.mesh.material = this.a.woundMaterial;
+    if (this.book.open === 0 || !this.a.interior) return;
+    if (!this.inside) {
+      this.inside = makeInside(this.a, this.skeleton);
+      Object.defineProperty(this.inside, 'boundingSphere', this.cullSphere);
+      this.inside.frustumCulled = true;
+      this.root.add(this.inside);
+    }
+    this.inside.visible = this.lod < FAR_LOD;
+  }
+
+  /**
+   * Snaps a limb at `bone`, the joint at its top. Holds in animation, and a ragdoll made from this body gets that joint
+   * with its limits open. Returns false if it was already broken.
+   */
+  fracture(bone: number, style: FractureStyle, skew = 0): boolean {
+    if (this.hidden[bone] || this.isFractured(bone)) return false;
+    this.data[this.extras + EXTRA_INFO * 4 + 2] += 2 ** bone;
+    this.breaks.add(bone, style, skew);
+    return true;
+  }
+
+  isFractured(bone: number): boolean {
+    return (this.data[this.extras + EXTRA_INFO * 4 + 2]! / 2 ** bone) % 2 >= 1;
+  }
+
+  /** Whether anything has been opened, for callers that want to know what a hit left. */
+  get woundCount(): number {
+    return this.book.count;
+  }
+
+  /** The material to give a world-space copy of this body. The wounded one only works on a skeleton. */
+  get skinMaterial(): THREE.Material {
+    return this.a.material;
   }
 
   setBloodiness(amount: number): void {
@@ -233,7 +367,8 @@ export class Character implements CharacterInstance {
     const i = Math.min(level, set.length - 1);
     this.mesh.geometry = set[i]!;
     // The last LOD indexes welded vertices, so its UVs are meaningless and it paints from vertex colour.
-    this.mesh.material = i >= 2 ? this.a.farMaterial : this.a.material;
+    this.mesh.material = i >= FAR_LOD ? this.a.farMaterial : this.book.count > 0 ? this.a.woundMaterial : this.a.material;
+    if (this.inside) this.inside.visible = i < FAR_LOD && this.book.open > 0;
   }
 
   spawnSevered(boneIndex: number): SeveredLimb {
@@ -244,8 +379,9 @@ export class Character implements CharacterInstance {
   }
 
   /** Copies this instance's surface state onto a severed part, so wounds and burn follow the limb. */
-  copySurfaceTo(dst: Float32Array, dstOffset: number): void {
+  copySurfaceTo(dst: Float32Array, dstOffset: number, book: WoundBook): void {
     dst.set(this.data.subarray(this.extras, this.extras + EXTRA_TEXELS * 4), dstOffset);
+    book.adopt(this.book);
   }
 
   bakePose(): THREE.BufferGeometry {
@@ -334,8 +470,10 @@ export class Character implements CharacterInstance {
     this.hidden.fill(0);
     this.severed.clear();
     this.flash = 0;
-    this.woundCount = 0;
-    this.woundCursor = 0;
+    this.book.clear();
+    this.breaks.reset();
+    this.stress.fill(0);
+    if (this.inside) this.inside.visible = false;
     this.data.fill(0, this.extras, this.extras + EXTRA_TEXELS * 4);
     this.data[this.extras + EXTRA_INFO * 4 + 1] = Math.random() * 64;
     for (const p of this.props) p.object.visible = true;
@@ -368,6 +506,8 @@ export class SeveredPart implements SeveredLimb {
 
   private readonly extras: number;
   private readonly data: Float32Array;
+  private readonly book: WoundBook;
+  private inside: THREE.SkinnedMesh | null = null;
   private clones: THREE.Object3D[] = [];
 
   constructor(private readonly a: ArchetypeData) {
@@ -383,6 +523,32 @@ export class SeveredPart implements SeveredLimb {
     this.mesh.frustumCulled = false;
     this.root.add(this.mesh);
     this.mesh.bind(skeleton, new THREE.Matrix4());
+    this.book = new WoundBook(this.data, this.extras + EXTRA_WOUNDS * 4, count => {
+      this.data[this.extras + EXTRA_INFO * 4] = count;
+    });
+  }
+
+  wound(hit: WoundHit): void {
+    const bone = this.bones[hit.bone];
+    if (!bone) return;
+    placeWound(this.a, this.book, bone, hit.bone, hit);
+    this.showWounds();
+  }
+
+  isFractured(bone: number): boolean {
+    return (this.data[this.extras + EXTRA_INFO * 4 + 2]! / 2 ** bone) % 2 >= 1;
+  }
+
+  private showWounds(): void {
+    if (this.book.count === 0) return;
+    this.mesh.material = this.a.woundMaterial;
+    if (this.book.open === 0 || !this.a.interior) return;
+    if (!this.inside) {
+      this.inside = makeInside(this.a, this.skeleton);
+      this.inside.frustumCulled = false;
+      this.root.add(this.inside);
+    }
+    this.inside.visible = true;
   }
 
   /** Takes the pose of `src`'s chain from `boneIndex` down. */
@@ -442,9 +608,10 @@ export class SeveredPart implements SeveredLimb {
       this.mesh.geometry = a.model.lods[0]!;
     }
 
-    src.copySurfaceTo(this.data, this.extras);
+    src.copySurfaceTo(this.data, this.extras, this.book);
     // A limb has nothing fading its flash, so a value copied mid-hit would stay lit for good.
     this.data[this.extras + EXTRA_PARAMS * 4 + 1] = 0;
+    this.showWounds();
     for (const p of src.props) {
       if (!chain[p.bone]) continue;
       // A clone, because the limb can outlive the instance that shed it.
@@ -463,6 +630,9 @@ export class SeveredPart implements SeveredLimb {
   release(): void {
     for (const c of this.clones) c.removeFromParent();
     this.clones.length = 0;
+    this.book.clear();
+    this.mesh.material = this.a.material;
+    if (this.inside) this.inside.visible = false;
     this.root.removeFromParent();
     this.releaseHook?.(this);
   }

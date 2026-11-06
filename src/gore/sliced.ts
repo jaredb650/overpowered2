@@ -156,7 +156,7 @@ export class SliceField {
     slide.normalize();
     const aboveIsUpper = result.above[0]!.origin.y >= result.below[0]!.origin.y;
 
-    const skin = char.mesh.material as THREE.Material;
+    const skin = char.skinMaterial;
     result.above.forEach((side, i) => this.spawn(side, skin, slide, n, 1, damage, aboveIsUpper && i === 0));
     result.below.forEach((side, i) => this.spawn(side, skin, slide, n, -1, damage, !aboveIsUpper && i === 0));
 

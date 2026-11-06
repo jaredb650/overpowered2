@@ -316,6 +316,10 @@ export class JointMuscle {
   readonly pose = new THREE.Quaternion();
   /** How much of the joint is still under the body's control, 0..1. */
   drive = 0;
+  /** Stiffness over what it takes to hold this limb up, for a limb taking more than its own weight. */
+  gain = 1;
+  /** Snapped: no ligament, no tone, and no drive. Whatever hangs off it swings free. */
+  broken = false;
 }
 
 /** A body that is still trying to stand. Runs the animator against a ghost root and hands joints their targets. */
@@ -648,6 +652,7 @@ export class MuscleState {
       const p = c.parent;
       if (!p) continue;
       const m = c.muscle!;
+      if (m.broken) continue;
       const q = _q.copy(p.q).conjugate().multiply(c.q);
       const rel = _rel.copy(c.w).sub(p.w);
       const free = 1 - m.drive;
@@ -754,7 +759,7 @@ export class MuscleState {
   }
 
   private stiffness(m: JointMuscle): number {
-    return (m.drive * m.stand) / MuscleTuning.driveDroop;
+    return (m.drive * m.gain * m.stand) / MuscleTuning.driveDroop;
   }
 
   /** Once a frame. Tone and ligaments change slowly, and jointless bones have no physics to keep up with. */
@@ -927,7 +932,10 @@ export class MuscleState {
     r.sample(dt);
     if (r.dying !== 0) return;
     this.reflex = null;
-    for (const part of this.rag.parts) part.muscle!.drive = 0;
+    for (const part of this.rag.parts) {
+      part.muscle!.drive = 0;
+      part.muscle!.gain = 1;
+    }
     // Already at full tone: it must not dip and rise again as the drive lets go.
     this.limp = MuscleTuning.toneRise;
   }

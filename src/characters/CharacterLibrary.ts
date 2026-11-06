@@ -3,6 +3,8 @@ import * as THREE from 'three';
 import type { CharacterInstance, CharacterLibrary, Ctx } from '../core/contracts';
 import { ARCHETYPES, archetypeById, rigFor } from './archetypes';
 import { Character, SeveredPart, type ArchetypeData } from './Character';
+import { buildInterior } from './anatomy/build';
+import { createInteriorMaterial } from './anatomy/interior';
 import { createCharacterMaterial, createDetailTexture } from './material';
 import { parseModel, type LoadedModel } from './model';
 import type { HumanoidAnimator } from './animation/index';
@@ -16,6 +18,7 @@ const MAX_LIMBS_PER_ARCHETYPE = 24;
 interface Loaded {
   model: LoadedModel;
   material: THREE.Material;
+  woundMaterial: THREE.Material;
   farMaterial: THREE.Material;
 }
 
@@ -72,8 +75,10 @@ export class CharacterLibraryImpl implements CharacterLibrary {
           : [null, null];
         const surface = { detail: this.detail, atlasA, atlasB, extraBase: model.meta.skeleton.length * 4 };
         const material = createCharacterMaterial(this.ctx, surface);
-        const farMaterial = model.meta.kind === 'character' ? createCharacterMaterial(this.ctx, { ...surface, far: true }) : material;
-        return { model, material, farMaterial };
+        const character = model.meta.kind === 'character';
+        const farMaterial = character ? createCharacterMaterial(this.ctx, { ...surface, far: true }) : material;
+        const woundMaterial = character ? createCharacterMaterial(this.ctx, { ...surface, wounds: true }) : material;
+        return { model, material, woundMaterial, farMaterial };
       })();
       this.models.set(id, p);
     }
@@ -94,7 +99,7 @@ export class CharacterLibraryImpl implements CharacterLibrary {
 
   private async loadOne(id: string): Promise<void> {
     const def = archetypeById(id);
-    const { model, material, farMaterial } = await this.loadModel(id);
+    const { model, material, woundMaterial, farMaterial } = await this.loadModel(id);
     await Promise.all(def.props.map(async p => {
       this.propCache.set(p.model, await this.loadModel(p.model));
     }));
@@ -105,8 +110,13 @@ export class CharacterLibraryImpl implements CharacterLibrary {
     model.meta.skeleton.forEach((b, i) => {
       if (b.parent >= 0 && i < model.meta.rigBoneCount) children[b.parent]!.push(i);
     });
+    const rig = rigFor(def);
+    // Flesh on a person's skeleton. Anything else takes dents, not holes.
+    const fleshy = def.rig === 'humanoid' && def.stumps === 'flesh';
+    const interior = fleshy ? buildInterior(model, rig, bindPositions, id.length * 977 + n) : null;
+    const interiorMaterial = fleshy ? createInteriorMaterial(this.ctx, this.detail!, n * 4) : null;
     const entry: Entry = {
-      id, def, rig: rigFor(def), model, material, farMaterial, time: this.ctx.time, boneCount: n, bindInverses, bindPositions, children,
+      id, def, rig, model, material, woundMaterial, farMaterial, interior, interiorMaterial, time: this.ctx.time, boneCount: n, bindInverses, bindPositions, children,
       free: [], active: new Set(), freeLimbs: [], activeLimbs: [],
       acquireLimb: () => this.acquireLimb(entry),
     };

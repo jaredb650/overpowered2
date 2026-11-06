@@ -21,6 +21,8 @@ export interface RagSource {
   readonly rig: RigDef;
   readonly root: THREE.Object3D;
   readonly bones: readonly THREE.Bone[];
+  /** Joints snapped before this ragdoll existed. */
+  isFractured?(bone: number): boolean;
 }
 
 /** Six floats per bone: linear then angular velocity, world space. */
@@ -48,6 +50,9 @@ export interface RagBuild {
 export const RagTuning = {
   /** Base relative damping across a joint. High enough that nothing flutters. */
   jointDamping: 7,
+  /** Radians past each limit a snapped hinge opens to, and how far a snapped ball joint swings. */
+  brokenHinge: 1.5,
+  brokenCone: Math.PI,
   /**
    * Extra damping just after death, fading over `toneFade` seconds, so a body sags instead of snapping. It
    * comes in over `toneRise` rather than at once, or it would eat the motion the animation handed over.
@@ -452,12 +457,29 @@ export class Rag {
     }
 
     this.muscle?.bind();
+    for (const part of this.parts) if (part.parent && source.isFractured?.(part.bone)) this.breakJoint(part.bone);
     this.bindDrive();
     this.momentum = 0;
     this.active = true;
     this.calm = 0;
     this.quiet = 0;
     this.age = 0;
+  }
+
+  /** Opens a joint for good: it hangs by its own weight, past where it should stop. Nothing is left to hold it. */
+  breakJoint(bone: number): void {
+    const part = this.partOf[bone];
+    if (!part?.parent) return;
+    if (part.hinge) {
+      const joint = this.source.rig.bones[bone]!.joint!;
+      const open = RagTuning.brokenHinge;
+      (part.joint as RAPIER.RevoluteImpulseJoint).setLimits(-(joint.max ?? 0) - open, -(joint.min ?? 0) + open);
+    } else {
+      part.cone = RagTuning.brokenCone;
+      part.twist = RagTuning.brokenCone;
+      part.shape = null;
+    }
+    if (part.muscle) part.muscle.broken = true;
   }
 
   /** Works out how to pose the chain root from its body, and moves the source root onto it. */

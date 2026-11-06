@@ -190,6 +190,20 @@ export class TestDummy implements CharacterInstance {
   }
 
   addWound(): void {}
+  wound(): void {}
+  readonly stress = new Float32Array(MAX_BONES);
+  private readonly broken = new Set<number>();
+  fracture(bone: number): boolean {
+    if (this.broken.has(bone)) return false;
+    this.broken.add(bone);
+    return true;
+  }
+  isFractured(bone: number): boolean {
+    return this.broken.has(bone);
+  }
+  get skinMaterial(): THREE.Material {
+    return this.mesh.material as THREE.Material;
+  }
   setBloodiness(): void {}
   hitFlash(): void {}
 
@@ -234,6 +248,8 @@ export class TestDummy implements CharacterInstance {
       root,
       mesh,
       bones,
+      wound: () => {},
+      isFractured: () => false,
       release: () => {
         root.removeFromParent();
         skeleton.dispose();

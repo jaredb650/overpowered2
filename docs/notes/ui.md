@@ -14,7 +14,7 @@
 
 The HUD reads the game once a frame in `state.ts`, the only file that knows field names. It listens for `game:state`, `run:start`,
 `player:damaged`, `player:died`, `weapon:fired`, `weapon:unlocked`, `wave:start`, `wave:clear`, `callin:ready`, `score:gain`,
-`enemy:hit`, `enemy:killed`, `enemy:severed`, `perk:start`, `callin:used`, `combo:changed`.
+`enemy:hit`, `enemy:killed`, `enemy:severed`, `perk:start`, `callin:used`, `combo:changed`, `comms:line`.
 
 ## Flow
 
@@ -25,7 +25,8 @@ The HUD reads the game once a frame in `state.ts`, the only file that knows fiel
 | page load | | loading | `ui/boot.ts`, before anything heavy is fetched |
 | loading | boot done | splash | The click is the audio gesture |
 | splash | click, Enter, Space | menu | |
-| menu | Play | playing | `startRun`: run starts at once, the lock lands a moment later. Edges from the press are dropped, so it cannot jump or fire on frame one |
+| menu | Play, on the page's contract | playing | `startRun`: run starts at once, the lock lands a moment later. Edges from the press are dropped, so it cannot jump or fire on frame one |
+| menu | Play, on another contract | page load, then splash | The splash reads `Click to deploy` and that click goes straight into the run. See `docs/notes/contracts.md` |
 | playing | Esc, or the lock going for any reason | paused | `updateLock` watches `input.locked`, so Alt-Tab and anything else counts, not only `pressed('pause')` |
 | paused | Resume, Enter | playing | Stays paused until the lock is really back. Retries for 1.7 s to get past Chrome's refusal right after Esc |
 | paused | Esc | playing, or a hint | Esc is not a gesture to Chrome. With no live gesture the hint says to click; with a recent click it resumes |
@@ -60,6 +61,8 @@ are a compositor animation and survive a blocked main thread. `performance.mark(
 | Combo heat | `HEAT` in `hud/combo.ts` |
 | Perk motion | One keyframe per id in `css/perks.css`. Slowmo is still on purpose |
 | Enemy reveal | `REVEAL_AT` in `hud/stragglers.ts`, 3 |
+| Comms feed | `CommsFeed` in `hud/feed.ts`: line cap and life. `COMMS_FEAR` in `Hud.ts` |
+| Contract notice | Copy in `contracts/data.ts`, layout `.mm-brief` and `.nt-*` in `css/screens.css`. It has to end above the wordmark |
 | Minimap | `NEAR_RANGE`, `FAR_RANGE`, `FAR_SPEED`, `REDRAW` in `hud/minimap.ts` |
 | Gore levels | `GORE_TABLE` in `settings.ts` |
 | Guide copy | `data.ts`. Numbers come from `MOVE`, `WEAPONS`, `TUNING`, `EFFECTS`, `WINDOWS`, `STACK`, `SCORE`, so a retune updates the guide. Enemy first waves are copied from `ROSTER`, which is not exported |
@@ -90,7 +93,6 @@ Stored in `op2.settings.v1`, sanitized on load. They apply and save the moment t
   happen headless, so the retry loop has only run with immediate success.
 - **Hit markers fire on the frame of the call,** and the 0.15 to 0.36 s life is too short for a screenshot in the real game. Their look was checked in the
   sandbox with the decay stopped, and the calls were counted in the real game.
-- **Contract select is not built.** DESIGN section 15 adds it to the menu, with per-contract high scores. There is no contract data yet.
 - **The flythrough's cuts are hand-framed for The Crucible** and will need another look if the map moves. The Kill House uses the zone fallback.
 - **Fog is temporal,** so a hard cut may smear for a frame or two. Not seen in stills, not checked in motion.
 - **A perk's grade fades out over a second or two after quitting to the menu.** `PerkRunner.clear` starts a timed release, which the renderer's

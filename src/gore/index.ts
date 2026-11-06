@@ -24,6 +24,7 @@ import { Reflex } from './reflex';
 import { Crawler } from './crawl';
 import { markSevered, markSubtree, MAX_BONES, rigInfo, type RigInfo } from './rigInfo';
 import { SliceField } from './sliced';
+import { WoundPlanner } from './wounds';
 
 export const GoreTuning = {
   /** Simulated ragdolls. Past this the oldest freezes. */
@@ -92,6 +93,9 @@ export const GoreTuning = {
   gibForcePerSpeed: 30,
   gibSpeedMin: 6,
   gibSpeedMax: 15,
+  /** Metres to a body at which it drops to the next level of detail. These match the living. */
+  bodyLodNear: 26,
+  bodyLodFar: 60,
   /** Damage a corpse limb takes before it comes off. */
   corpseLimbHealth: 60,
   /** Damage a loose limb takes before it bursts into chunks. */
@@ -105,6 +109,8 @@ const forceOf = (d: DamageInfo): number => (d.force > 0 ? d.force : DEFAULT_FORC
 const joltOf = (force: number): number => clamp((force * DevFlags.force) / MuscleTuning.joltFull) ** MuscleTuning.joltCurve;
 
 const MAX_STAKES = 3;
+/** What a dead body counts as having, for how big a wound one hit makes. */
+const CORPSE_HEALTH = 100;
 
 const machines = new Set(ARCHETYPES.filter(a => a.stumps === 'machine').map(a => a.id));
 /** Drones and skitters spark where everything else bleeds. */
@@ -247,6 +253,9 @@ export class Gore implements GoreSystem {
   readonly chunks: ChunkField;
   readonly sliced: SliceField;
   private readonly impacts: ImpactEvents;
+  private readonly wounds: WoundPlanner;
+  /** Next body to look at for its level of detail. One a frame is plenty for things that lie still. */
+  private lodAt = 0;
   private ready = false;
   private readonly onPreStep = (dt: number): void => this.preStep(dt);
   private readonly onRadial = (center: THREE.Vector3, radius: number, strength: number): void =>
@@ -257,6 +266,7 @@ export class Gore implements GoreSystem {
     this.impacts = new ImpactEvents(ctx);
     this.chunks = new ChunkField(ctx, this.blood, this.impacts);
     this.chunks.ensure();
+    this.wounds = new WoundPlanner(ctx, isMachine, (char, bone) => this.owned.get(char)?.rag?.breakJoint(bone));
     this.sliced = new SliceField(ctx, this.blood, this.impacts);
   }
 
@@ -428,7 +438,8 @@ export class Gore implements GoreSystem {
     const rag = body.rag!;
     const muscle = rag.muscle!;
     const dir = options?.impact?.dir ?? options?.topple ?? null;
-    muscle.startReflex(new Reflex(rag, muscle, char.anim, { lie: options?.lie ?? t.knockdownLie, hurt, groundY: ground, dir }));
+    const plank = options?.topple !== undefined;
+    muscle.startReflex(new Reflex(rag, muscle, char.anim, { lie: options?.lie ?? t.knockdownLie, hurt, groundY: ground, dir, plank }));
     this.strikeDown(body, rag, options);
     if (options?.topple) muscle.tip(options.topple);
     body.down.center.copy(rag.center);
@@ -765,7 +776,7 @@ export class Gore implements GoreSystem {
 
   private addLimb(char: CharacterInstance, piece: SeveredLimb, bone: number, mask: Uint8Array, seeds: Float32Array): LooseLimb {
     const info = rigInfo(char.rig);
-    const rag = new Rag(this.ctx.physics, { rig: char.rig, root: piece.root, bones: piece.bones }, {
+    const rag = new Rag(this.ctx.physics, { rig: char.rig, root: piece.root, bones: piece.bones, isFractured: b => piece.isFractured(b) }, {
       chainRoot: bone,
       mask,
       seeds,
@@ -786,6 +797,10 @@ export class Gore implements GoreSystem {
     }
     this.limbs.push(limb);
     return limb;
+  }
+
+  wound(char: CharacterInstance, damage: DamageInfo, severity: number): void {
+    this.wounds.onBody(char, damage, severity);
   }
 
   private woundEffects(char: CharacterInstance, bone: number, at: THREE.Vector3, damage: DamageInfo): void {
@@ -1116,7 +1131,7 @@ export class Gore implements GoreSystem {
       muscle?.jolt(hit.bone, hit.point, damage.dir, jolt);
       // Still on its feet, the animation it is following flinches too, and the muscles carry that as well.
       muscle?.collapse?.flinch(hit.bone, damage.dir, 0.6 + jolt);
-      char.addWound(hit.bone, hit.point, 0.05);
+      this.wounds.onBody(char, damage, damage.amount / CORPSE_HEALTH, hit.bone, hit.point);
       audio.play('enemy_hit', { position: hit.point, volume: 0.4, pitchJitter: 0.1 });
       target.damage[hit.bone] = target.damage[hit.bone]! + damage.amount * (damage.severMult ?? 1);
       // Damage on a bone counts toward the nearest severable joint at or above it.
@@ -1132,6 +1147,7 @@ export class Gore implements GoreSystem {
       target.rag.applyImpulse(hit.bone, hit.point, _v.copy(damage.dir).multiplyScalar(forceOf(damage) * 0.4));
       target.rag.muscle?.kick(damage.dir, impactStrength(forceOf(damage), target.info.mass) * MuscleTuning.corpseImpact);
       target.crawler?.kill();
+      this.wounds.onLimb(target.piece, target.info, damage, hit.bone, hit.point);
       target.health -= damage.amount * (damage.severMult ?? 1);
       audio.play('enemy_hit', { position: hit.point, volume: 0.3, pitchJitter: 0.12 });
       if (target.health <= 0 && DevFlags.gibbing) this.burstLimb(target, damage);
@@ -1348,10 +1364,21 @@ export class Gore implements GoreSystem {
       this.updateLimb(l, dt);
     }
 
+    this.updateBodyLod();
     this.updateStumps();
     this.blood.update(dt);
     this.chunks.update(dt);
     this.sliced.update(dt);
+  }
+
+  /** Nobody else sets a body's detail once it is dead, and one that died at a distance can be walked up to. */
+  private updateBodyLod(): void {
+    const n = this.bodies.length;
+    if (n === 0) return;
+    this.lodAt = (this.lodAt + 1) % n;
+    const { char } = this.bodies[this.lodAt]!;
+    const d = char.bones[0]!.getWorldPosition(_v).distanceTo(this.ctx.player.position);
+    char.setLod?.(d < GoreTuning.bodyLodNear ? 0 : d < GoreTuning.bodyLodFar ? 1 : 2);
   }
 
   private updateLimb(l: LooseLimb, dt: number): void {

@@ -112,7 +112,7 @@ export interface EnemyDef {
 const maimedBehaviours = (): Behaviour[] => [crawl(), wriggle(), headbuttCharge(), rushWhenDisarmed(), panic(), lost()];
 
 /** Attacks every body falls back on once limbs are missing. */
-const maimedAttacks = (damage: number): AttackDef[] => [
+export const maimedAttacks = (damage: number): AttackDef[] => [
   melee({ name: 'bite', reach: 1.5, damage: damage * 0.8, windup: 0.5, moveMul: 0, requires: e => e.maim.legs === 0 }),
   melee({ name: 'headbutt', reach: 1.9, damage: damage * 1.2, windup: 0.45, requires: e => e.maim.arms === 0 && e.maim.legs > 0 }),
   melee({
@@ -122,7 +122,7 @@ const maimedAttacks = (damage: number): AttackDef[] => [
 ];
 
 /** Fired left-handed and worse once the gun arm is gone. */
-const offhandPistol = (damage: number): AttackDef => gun({
+export const offhandPistol = (damage: number): AttackDef => gun({
   name: 'sidearm', range: [1.5, 18], shots: 1, gap: 0.1, damage, speed: 42, windup: 0.5, cooldown: [1.2, 1.9],
   lead: 0.3, missStill: 0.6, missFast: 5, sound: 'enemy_pistol', muzzle: 'enemy',
   requires: e => !e.maim.gunArm && e.maim.offArm,

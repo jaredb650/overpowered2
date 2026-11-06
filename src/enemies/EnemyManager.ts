@@ -7,6 +7,7 @@
 import * as THREE from 'three';
 import type { GoreRegion } from '../characters/rig';
 import type { CharacterInstance, Ctx, DamageInfo, LocomotionInput, RagdollOptions } from '../core/contracts';
+import type { CollapseOptions, KnockdownOptions } from '../gore/muscles';
 import type { DamageResult, EnemyId, EnemyInstance, EnemyRayHit, EnemySystem } from '../core/gameplay';
 import { clamp, rand, TAU } from '../core/math';
 import { Pool } from '../core/pool';
@@ -20,6 +21,7 @@ import { DamageModel, STRAY_TANK_DAMAGE, STRAY_TANK_RADIUS } from './damage';
 import { Director } from './director';
 import { Enemy } from './Enemy';
 import { updateMovement } from './movement';
+import { Outpost, outpostActive } from './outpost';
 import { Spawner } from './spawner';
 import { Telegraphs } from './telegraph';
 import { MAX_ALIVE } from './waves';
@@ -37,6 +39,8 @@ const CHAR_SECONDS = 3.5;
 /** Seconds of a Warden's speed boost after the aura last touched it. */
 const BUFF_SECONDS = 2.5;
 const HAZARD_TICK = 0.3;
+/** Rate shock fades, in 1/s. */
+const SHOCK_FADE = 1.3;
 /** Metres the route must shorten by to count as getting anywhere. */
 const PATH_GAIN = 3;
 /** Seconds with no gain before an enemy is moved: one that cannot see the player, and a melee one that can. */
@@ -91,7 +95,7 @@ export class EnemyManager implements EnemySystem {
   /** Enemies waiting in the wave queue. */
   queued = 0;
   get remaining(): number {
-    return this.alive.length + this.queued;
+    return this.alive.length + this.queued - (this.outpost?.prisoners ?? 0);
   }
 
   readonly debris: PlateDebris;
@@ -105,6 +109,17 @@ export class EnemyManager implements EnemySystem {
     impulses: [{ bone: 0, point: new THREE.Vector3(), impulse: new THREE.Vector3() }],
     velocity: new THREE.Vector3(),
   };
+  /** The same for a body dying on its feet, and one knocked off them. */
+  readonly collapseOptions: CollapseOptions & { velocity: THREE.Vector3 } = { velocity: new THREE.Vector3() };
+  readonly collapseHit = { bone: 0, point: new THREE.Vector3(), dir: new THREE.Vector3(), force: 0 };
+  readonly knockOptions: KnockdownOptions & { velocity: THREE.Vector3 } = { velocity: new THREE.Vector3() };
+  readonly knockImpact = { dir: new THREE.Vector3(), strength: 0 };
+  readonly knockTopple = new THREE.Vector3();
+  readonly knockImpulses = [{ bone: 0, point: new THREE.Vector3(), impulse: new THREE.Vector3() }];
+  readonly knockWound = { bone: 0, point: new THREE.Vector3() };
+
+  /** The human faction's rules. Null on every other contract, which is what keeps the swarm game as it is. */
+  readonly outpost: Outpost | null;
 
   private readonly w: AiWorld;
   private readonly model: DamageModel;
@@ -149,6 +164,7 @@ export class EnemyManager implements EnemySystem {
     this.debris = new PlateDebris(ctx);
     this.spawner = new Spawner(this.w, this);
     this.model = new DamageModel(this.w, this);
+    this.outpost = outpostActive() ? new Outpost(this.w, this) : null;
     for (let i = 0; i < MAX_STRIKES; i++) {
       this.strikes.push({ at: 0, position: new THREE.Vector3(), radius: 0, damage: 0, source: '', live: false });
     }
@@ -157,6 +173,7 @@ export class EnemyManager implements EnemySystem {
   init(ctx: Ctx): void {
     this.telegraphs.init();
     ctx.events.on('weapon:fired', e => this.onShot(e.origin, e.dir));
+    this.outpost?.init();
   }
 
   reset(): void {
@@ -183,11 +200,13 @@ export class EnemyManager implements EnemySystem {
     this.telegraphs.clear();
     this.debris.clear();
     this.spawner.reset();
+    this.outpost?.reset();
   }
 
   setWave(wave: number): void {
     this.wave = wave;
     this.director.setWave(wave);
+    this.outpost?.setWave(wave);
   }
 
   /** True while a boss is still playing out its death. The wave must not clear over the top of it. */
@@ -247,6 +266,7 @@ export class EnemyManager implements EnemySystem {
 
     e.alive = true;
     this.alive.push(e);
+    this.outpost?.onSpawn(e);
     this.place(e);
     ctx.events.emit('enemy:spawned', { enemy: e });
     return e;
@@ -333,6 +353,7 @@ export class EnemyManager implements EnemySystem {
     this.sensePlayer();
     director.beginFrame();
     director.updateSight(this.alive);
+    this.outpost?.update(dt);
     this.thinks = 0;
 
     const list = this.frameList;
@@ -372,6 +393,11 @@ export class EnemyManager implements EnemySystem {
     this.updateStatus(e, dt);
     if (!e.alive) return;
     e.bodyLoop?.setPosition(e.center);
+    e.shock *= Math.exp(-SHOCK_FADE * dt);
+    if (e.downed) {
+      this.updateDowned(e);
+      if (e.downed || !e.alive) return;
+    }
 
     if (e.frozen > 0) {
       updateContact(e, w);
@@ -379,6 +405,12 @@ export class EnemyManager implements EnemySystem {
       return;
     }
     if (e.stagger > 0) e.stagger -= dt;
+    if (e.rising > 0) e.rising -= dt;
+    if (e.fallIn > 0) {
+      e.fallIn -= dt;
+      if (e.fallIn <= 0) this.model.fall(e);
+      if (e.downed) return;
+    }
     e.pressure = Math.max(0, e.pressure - PRESSURE_DECAY * dt);
     e.buff = Math.max(0, e.buff - dt / BUFF_SECONDS);
 
@@ -402,6 +434,34 @@ export class EnemyManager implements EnemySystem {
     }
     this.place(e);
     this.animate(e, dt);
+  }
+
+  /** Gore has the body and tells us where it got to. When it stops telling us, the body is ours again and getting up. */
+  private updateDowned(e: Enemy): void {
+    const { ctx } = this;
+    const down = ctx.gore.downed(e.char);
+    if (down) {
+      const c = down.center;
+      if (c.y < CRASH_FLOOR) {
+        this.applyDamage(e, this.statusDamage(e, 'fell', 'true', e.health + 1));
+        return;
+      }
+      e.position.set(c.x, Math.max(c.y - e.def.chest, e.groundY), c.z);
+      e.center.copy(c);
+      return;
+    }
+    const root = e.char.root;
+    e.downed = e.airborne = false;
+    e.position.copy(root.position);
+    e.yaw = root.rotation.y;
+    e.groundY = root.position.y;
+    e.groundSampleAt.set(root.position.x, root.position.z);
+    e.lastProgress.copy(root.position);
+    e.thinkAt = 0;
+    const rise = e.maim.legs === 0 ? 0 : e.riseSeconds;
+    e.rising = rise;
+    e.stagger = rise + e.dazeSeconds;
+    if (e.dazeSeconds > 0) e.char.anim.daze?.(rise + e.dazeSeconds);
   }
 
   /**
@@ -948,11 +1008,20 @@ export class EnemyManager implements EnemySystem {
   /** Takes a dying enemy out of the live list, leaving it in `dying` if it still has a death to play out. */
   detach(e: Enemy): void {
     this.stopEffects(e);
+    this.outpost?.onDetach(e);
     const i = this.alive.indexOf(e);
     if (i >= 0) {
       const last = this.alive.pop()!;
       if (last !== e) this.alive[i] = last;
     }
+  }
+
+  /** Leaves the round alive: no kill, no score, no body. A broken man who made it to a gate. */
+  withdraw(e: Enemy): void {
+    e.alive = false;
+    this.detach(e);
+    e.char.release();
+    this.retire(e);
   }
 
   /** Queues recycling. Listeners may still read the enemy until the frame ends. */
@@ -970,9 +1039,9 @@ export class EnemyManager implements EnemySystem {
     this.recycle.length = 0;
   }
 
-  /** For the sandbox and contact: staggers by the same rule as a hit. */
-  stagger(e: Enemy, seconds: number): void {
-    this.model.stagger(e, seconds);
+  /** For the sandbox and contact: staggers by the same rule as a hit. `dir` sends it stepping that way. */
+  stagger(e: Enemy, seconds: number, dir?: THREE.Vector3, strength = 0.5): void {
+    this.model.stagger(e, seconds, dir, strength);
   }
 
   describe(e: Enemy): string {

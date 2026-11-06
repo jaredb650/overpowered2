@@ -70,7 +70,7 @@ export const AC130 = {
     whistle: 2,
     retry: 1.5,
   },
-  hellfire: { drop: 0.7, speed: 130, turn: 3.4, damage: 1100, radius: 7, life: 9, retry: 2 },
+  hellfire: { drop: 0.7, speed: 130, turn: 3.4, damage: 1100, radius: 7, life: 9, whistle: 1.4, retry: 2 },
   flares: { pairs: 8, gap: 0.16, speed: 15, gravity: 9, drag: 0.55, life: 3.4, every: 27 },
   /** Enemies within this of each other count as one target for the heavy guns. */
   clusterRadius: 8,

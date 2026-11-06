@@ -118,6 +118,9 @@ vec4 op2Tri(vec3 p, vec3 w) {
 }
 // Thin connected lines, from where noise crosses its middle value: the shape of mud drying out.
 float op2Crack(vec4 macro, vec4 micro) {
+  #ifdef OP2_FAR
+  return 0.0;
+  #endif
   float a = 1.0 - abs(macro.a * 2.0 - 1.0) * 5.0;
   float b = 1.0 - abs(macro.r * 2.0 - 1.0) * 6.0;
   return smoothstep(0.35, 0.8, max(a, b) + (micro.r - 0.5) * 0.3);

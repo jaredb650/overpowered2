@@ -7,7 +7,7 @@ First-person weapons, arms and off-hand items. `src/weapons/viewmodels/**`, sand
 | `rig.ts` | The frame: motion sampling, springs, the gun's pose layers, arm solve, light on the gun, wrist readout, `muzzle()`, `ejectPort()` |
 | `def.ts` | `ViewDef` (one per weapon), `Anim` (per-frame state a clip reads), `HandCtl` (where a hand wants to be) |
 | `arms.ts` | One skinned mesh per arm: sleeve, bracer, glove, 19 bones, two-bone IK |
-| `offhand.ts` | Left hand's own life: grenade, walkie, designator |
+| `offhand.ts` | Left hand's own life: grenade, walkie, designator, sonar tap |
 | `poses.ts`, `curves.ts`, `spring.ts` | Finger poses, timing curves, exact closed-form springs |
 | `kit/mesher.ts` | Procedural hard-surface builder. A part's whole surface is one buffer |
 | `kit/materials.ts` | The one shader for every opaque surface, the decal atlas, perk looks, light band |
@@ -25,6 +25,8 @@ viewmodel.reload(seconds);           // the clip stretches to whatever it is giv
 viewmodel.swing('light2', seconds);  // 'block' is an overlay on the guard, not a move
 viewmodel.setCharge(0..1);           // Lance capacitors, Buzzsaw spin, sword wind-up
 ```
+
+The `sonar:tap` event raises the left hand to the helmet. Its fingers land `SONAR.tapLead` later, when the ping goes out.
 
 Inputs the rig polls rather than being told, all public state: `weapons.grenades` falling starts a cook and `input.isDown('grenade')` going false throws it. `progression.targeting` picks the device, and the `callin:used` event presses its key. `weapons.ammo(id)`, `weapons.reloading`. `perk:start` and `perk:end` for `hellfire`, `berserk`, `frostNova`.
 
@@ -122,4 +124,5 @@ VM_STEPS=perks,callins node tools/shot.mjs --url "/?sandbox=range&live=1&load=hu
 - **The Lance's rails are hard to see from the eye.** They glow, but the capacitors on the near flank carry most of the charge read.
 - **Parry and guard share a pose family.** `Sword.ts` has one state for wind-up and guard, so held guard looks like the wind-up, and only a blocked shot snaps across the body.
 - **The Buzzsaw's spin rate is tuned for 60 fps.** At 30 rad/s it advances about half a barrel a frame. At other refresh rates it can stroboscope.
+- **A hand target's palm is its +Y, and +X is the little finger side.** The comment on `Model.hand` reads the other way round. The sonar tap first came out backwards on that.
 - Grenade and call-in models live on the left hand only. Throwing during a reload borrows the hand and the clip keeps running.

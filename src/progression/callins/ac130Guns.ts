@@ -349,7 +349,7 @@ export class FireControl {
     _d.divideScalar(reach);
     this.rounds.fire('g40', _from, _aim, reach / B.speed, 0, this.armRange(_aim, _d.x, _d.y, _d.z, reach));
     this.rounds.flash(_from, 2.4, 0.08, 9, 10, 5, 1.4);
-    this.report('autocannon_fire', _from, 0.75, 0.72);
+    this.report('autocannon_fire', _from, 1.6, 0.72);
   }
 
   // --- 105mm --------------------------------------------------------------------------------------------------------
@@ -392,15 +392,9 @@ export class FireControl {
     this.rounds.fire('g105', _from, _aim, H.flight, H.gravity, this.armRange(_aim, _d.x, _d.y, _d.z, 160));
     this.rounds.flash(_from, 6, 0.12, 22, 12, 8, 3);
     this.ctx.fx.smoke(_from, 0xb4bcc4, 3.2, 2.2);
-    this.report('rocket_fire', _from, 1.1, 0.5);
+    this.report('rocket_fire', _from, 2, 0.5);
     this.report('explosion_distant', _from, 0.5, 1.2);
 
-    const { audio } = this.ctx;
-    _play.position = _aim;
-    _play.volume = 1;
-    _play.pitch = 0.82;
-    _play.delay = H.flight - H.whistle;
-    audio.play('missile_incoming', _play);
     if (g.splashIn <= 0) {
       this.radio.say('SHOT, OVER.');
       g.splashIn = H.flight - 1.6;
@@ -435,7 +429,7 @@ export class FireControl {
     const reach = _d.length();
     _d.divideScalar(reach);
     this.rounds.launch(_from, _vel, target, target.center, this.armRange(target.center, _d.x, _d.y, _d.z, reach));
-    this.report('rocket_fire', _from, 0.9, 0.85);
+    this.report('rocket_fire', _from, 1.4, 0.85);
     this.radio.say('RIFLE.');
   }
 
