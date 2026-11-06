@@ -78,8 +78,8 @@ export abstract class GunnerStrike<M extends string> implements Strike {
   protected abstract shoot(dt: number): void;
   /** Nothing left to fire. */
   protected abstract get spent(): boolean;
-  /** Stops whatever the guns have running. */
-  protected abstract silence(): void;
+  /** Stops whatever the guns have running. Guns that only play one-shots have nothing to stop. */
+  protected silence(): void {}
   /** The seat is empty: head for home. */
   protected abstract depart(): void;
 
@@ -99,7 +99,9 @@ export abstract class GunnerStrike<M extends string> implements Strike {
     this.fly(dt);
     frame.update(dt);
     frame.mount(gunMount, _pivot);
-    this.engines.update(frame.root.position, 1, dt, kit.ctx.render.camera.position);
+    const { position } = frame.root;
+    this.engines.update(position, 1, dt, kit.ctx.render.camera.position);
+    seat.altitude = position.y - this.rig.skyline.ground(position.x, position.z);
 
     if (seat.stage === 'left') {
       if (!this.homebound) this.headHome();

@@ -18,6 +18,31 @@ export type AiRules = 'swarm' | 'outpost';
 /** What a hit does short of killing. 'limbs' is the swarm's limb pools, 'anatomy' is section 14's wounds. */
 export type WoundRules = 'limbs' | 'anatomy';
 
+/**
+ * How hard a faction's bodies are to break (section 15). Read through `FACTIONS`, and per body rather than per contract, because
+ * the Test Range and a late wave can put a husk on the Outpost: what bursts a man is decided by what he is.
+ */
+export interface FactionRules {
+  /** Bleeds, panics, crawls and dies in stages. The rest die the moment their health is gone. */
+  anatomy: boolean;
+  /** Combat's `gib` flag alone bursts a body. Off, it only counts for a direct hit or a blast of `blastBurst` or more. */
+  gibOnFlag: boolean;
+  /** Share of max health a blast has to do to burst a body. */
+  blastBurst: number;
+  /** A blast that overkills by more than the body's own health bursts it, wherever it stood. */
+  gibOnOverkill: boolean;
+  /** Chance a blast that does not kill takes a limb. */
+  blastLimb: number;
+  /** Multiplies what a hit takes from a limb pool. Under 1, a limb needs sustained fire or a heavy weapon. */
+  limbWear: number;
+}
+
+export const FACTIONS: Record<FactionId, FactionRules> = {
+  swarm: { anatomy: false, gibOnFlag: true, blastBurst: 1, gibOnOverkill: true, blastLimb: 0.65, limbWear: 1 },
+  // A grenade lands 175 on a man of 70 from a metre off, and a rocket's splash never reaches 2.5: that takes a direct hit.
+  humans: { anatomy: true, gibOnFlag: false, blastBurst: 2.5, gibOnOverkill: false, blastLimb: 0.22, limbWear: 0.3 },
+};
+
 export interface Briefing {
   /** Form number, printed in the header. */
   ref: string;

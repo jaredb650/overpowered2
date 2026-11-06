@@ -32,16 +32,25 @@ const LINES: Record<CommsKind, readonly string[]> = {
   surrender: ['Don\'t shoot!', 'I give up! I give up!', 'Please, please!', 'I have a family!', 'I\'m unarmed!'],
   fix: ['All units, Command has a fix. Sending it now.', 'Thermal has a rough position. Move.'],
   squadGone: ['We\'ve lost a whole squad!', 'They\'re all dead! All of them!', 'Nobody\'s left out there!'],
+  hit: ['I\'m hit!', 'I\'m hit, I\'m hit!', 'Agh! My leg!', 'It got me!', 'Ah, Christ!'],
+  dying: ['I can\'t feel my legs!', 'Don\'t leave me!', 'Tell them I tried.', 'Oh God, there\'s so much blood.', 'I don\'t want to die here.'],
+  beg: ['Please. Please, no.', 'Don\'t. I\'m done, I\'m done.', 'I have kids!', 'Just leave me.'],
+  scream: ['Help me! Somebody!', 'Medic! MEDIC!', 'Oh God, it hurts!', 'Don\'t leave me out here!', 'Get me out of here!'],
+  rescue: ['I\'m going for him!', 'Cover me, I\'ll get him!', 'Hold on, I\'m coming!', 'We don\'t leave him!'],
+  lastStand: ['Come on then!', 'You\'re coming with me!', 'Taking you with me!'],
 };
 
 /** Seconds before the same kind of line can come again. */
 const KIND_GAP: Partial<Record<CommsKind, number>> = {
   contact: 4, lost: 8, noise: 10, moving: 5, covering: 6, reloading: 4, flanking: 8, fear: 7, panic: 5, surrender: 6, regroup: 6, fallback: 6,
+  hit: 3, dying: 6, beg: 5, scream: 4, rescue: 6, lastStand: 5,
 };
 const DEFAULT_KIND_GAP = 2.5;
 /** Spacing between any two lines, so the feed stays readable. A casualty cuts in regardless. */
 const LINE_GAP = 1.3;
-const URGENT: ReadonlySet<CommsKind> = new Set<CommsKind>(['manDown', 'leaderDown', 'takingCommand', 'squadGone', 'frag', 'flash', 'surrender']);
+const URGENT: ReadonlySet<CommsKind> = new Set<CommsKind>(['manDown', 'leaderDown', 'takingCommand', 'squadGone', 'frag', 'flash', 'surrender', 'lastStand']);
+/** Lines that come out as a scream, not a voice on the radio. */
+const SCREAMED: ReadonlySet<CommsKind> = new Set<CommsKind>(['panic', 'surrender', 'scream', 'dying', 'beg', 'lastStand']);
 
 export class Comms {
   private nextLineAt = 0;
@@ -70,6 +79,8 @@ export class Comms {
   say(kind: CommsKind, s: Soldier | null): void {
     const { w, line } = this;
     const now = w.now;
+    // A hole in the lung or the throat takes the voice with it.
+    if (s?.injuries.mute) return;
     if (now < (this.kindAt.get(kind) ?? 0)) return;
     if (now < this.nextLineAt && !URGENT.has(kind)) return;
     this.kindAt.set(kind, now + (KIND_GAP[kind] ?? DEFAULT_KIND_GAP));
@@ -82,6 +93,6 @@ export class Comms {
     if (s) line.position.copy(s.e.center);
     else line.position.copy(w.player.position);
     w.ctx.events.emit('comms:line', line);
-    if (s) say(s.e, w, kind === 'panic' || kind === 'surrender' ? 'vox_scream' : s.e.def.voice.attack, 0.45);
+    if (s) say(s.e, w, SCREAMED.has(kind) ? 'vox_scream' : s.e.def.voice.attack, 0.45);
   }
 }

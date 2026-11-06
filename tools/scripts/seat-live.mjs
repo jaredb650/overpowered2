@@ -32,7 +32,7 @@ function prelude() {
   };
   ctx.events.on('enemy:killed', e => { log.kills[e.damage.source] = (log.kills[e.damage.source] ?? 0) + 1; });
   ctx.events.on('enemy:hit', e => { log.hits[e.damage.source] = (log.hits[e.damage.source] ?? 0) + 1; });
-  ctx.events.on('player:damaged', e => log.touched.push(e.type));
+  ctx.events.on('player:damaged', e => log.touched.push(`${e.type} parked=${ctx.player.parked} grace=${Number(ctx.player.parkGrace.toFixed(2))} seat=${ctx.progression.callInsManager.seats.occupied}`));
   window.__seatState = () => {
     const m = ctx.progression.callInsManager;
     const s = m.seats.seat;
@@ -297,7 +297,7 @@ function flightLog() {
   const m = ctx.progression.callInsManager;
   const probe = m.kit.probe;
   const top = ctx.world.bounds.max.y - 1;
-  const log = { n: 0, minClear: Infinity, maxBank: 0, gapSum: 0, gapMin: Infinity, gapMax: 0, speedMax: 0, last: null, overWall: 0 };
+  const log = { n: 0, minClear: Infinity, maxBank: 0, gapSum: 0, gapMin: Infinity, gapMax: 0 };
   window.__flight = log;
   const tick = () => {
     window.__flightTick = requestAnimationFrame(tick);
@@ -315,8 +315,6 @@ function flightLog() {
     log.gapSum += gap;
     log.gapMin = Math.min(log.gapMin, gap);
     log.gapMax = Math.max(log.gapMax, gap);
-    if (log.last) log.speedMax = Math.max(log.speedMax, p.distanceTo(log.last) / Math.max(ctx.time.realDt, 1e-3));
-    log.last = p.clone();
   };
   tick();
 }
@@ -346,7 +344,7 @@ async function full(page, h) {
   await page.mouse.up({ button: 'right' });
   const flight = await page.evaluate(() => {
     const f = window.__flight;
-    return { samples: f.n, clearMin: Math.round(f.minClear), bankMaxDeg: Math.round(f.maxBank * 57.3), gapAvg: Math.round(f.gapSum / f.n), gapMin: Math.round(f.gapMin), gapMax: Math.round(f.gapMax), speedMax: Math.round(f.speedMax) };
+    return { samples: f.n, clearMin: Math.round(f.minClear), bankMaxDeg: Math.round(f.maxBank * 57.3), gapAvg: Math.round(f.gapSum / f.n), gapMin: Math.round(f.gapMin), gapMax: Math.round(f.gapMax) };
   });
   return { seen, flight, end: await state(page), log: await page.evaluate(() => window.__seat) };
 }

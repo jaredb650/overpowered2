@@ -12,7 +12,9 @@ import * as THREE from 'three';
 import { CG, type Ctx, type GradeName, type RayHit, type SeatView } from '../core/contracts';
 import { clamp, wrapAngle } from '../core/math';
 import type { Point } from '../progression/callins/airframe';
+import type { GroundProbe } from '../progression/callins/ground';
 import { GunnerHud, type GunnerTone, type GunnerWeapon } from './hud';
+import { Skyline } from './skyline';
 
 export interface SeatPlan {
   /** Top of the screen. */
@@ -108,15 +110,20 @@ class BodyShell {
 export class SeatRig {
   readonly hud: GunnerHud;
   readonly shell: BodyShell;
+  readonly skyline: Skyline;
   /** By uid. Kept here because some will have surrendered before the aircraft was called. */
   readonly prisoners = new Set<number>();
   seat: GunnerSeat | null = null;
 
-  constructor(ctx: Ctx, readonly holdGrade: (grade: GradeName | null) => void) {
+  constructor(ctx: Ctx, probe: GroundProbe, readonly holdGrade: (grade: GradeName | null) => void) {
     this.hud = new GunnerHud(ctx, this);
     this.shell = new BodyShell(ctx);
+    this.skyline = new Skyline(ctx, probe);
     ctx.events.on('enemy:surrendered', e => this.prisoners.add(e.enemy.uid));
-    ctx.events.on('run:start', () => this.prisoners.clear());
+    ctx.events.on('run:start', () => {
+      this.prisoners.clear();
+      this.skyline.build();
+    });
   }
 
   get occupied(): boolean {

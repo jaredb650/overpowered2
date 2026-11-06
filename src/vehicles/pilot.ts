@@ -22,7 +22,7 @@ export interface PilotPlan {
   dash: number;
   /** How fast velocity follows what it wants, as a rate. */
   response: number;
-  /** How fast height follows what it wants, as a rate. */
+  /** How fast height falls to what it wants, as a rate. It climbs `CLIMB_BOOST` times faster. */
   climb: number;
   /** How fast the nose comes round, as a rate. */
   turn: number;
@@ -40,6 +40,8 @@ export interface PilotPlan {
 const NOSE_ON_WITHIN = 1.6;
 /** How much of the speed is kept along the circle at the widest error, so it never stops dead to change its mind. */
 const CIRCLE_KEPT = 0.3;
+/** Going up is urgent and coming down is not, so it clears a tower in time and does not dive off the far side. */
+const CLIMB_BOOST = 3;
 const BOB = 0.7;
 const BOB_RATE = 0.9;
 /** A push back toward the map, as m/s per metre past the limit. */
@@ -106,7 +108,7 @@ export class Autopilot {
   private hold(dt: number, floor: number): void {
     const p = this.plan;
     const target = Math.max(floor + p.clearance, p.altitude) + Math.sin(this.clock * BOB_RATE) * BOB;
-    const y = damp(this.position.y, target, p.climb, dt);
+    const y = damp(this.position.y, target, target > this.position.y ? p.climb * CLIMB_BOOST : p.climb, dt);
     this.velocity.y = dt > 0 ? (y - this.position.y) / dt : 0;
     this.position.y = y;
   }

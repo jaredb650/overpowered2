@@ -21,16 +21,20 @@ export interface RoleDef {
   firesOnTheMove: boolean;
   /** Never goes on a flank: it is the base of fire. */
   base: boolean;
+  /** Takes both hands. One bad arm and it is on the floor. */
+  twoHanded: boolean;
+  /** Carries a pistol to fall back on. */
+  sidearm: boolean;
 }
 
 export const ROLES: Record<Role, RoleDef> = {
-  rifle: { near: 11, far: 26, mag: 18, reload: 2.3, morale: 100, firesOnTheMove: true, base: false },
-  shotgun: { near: 5, far: 12, mag: 5, reload: 2.8, morale: 100, firesOnTheMove: true, base: false },
-  machinegun: { near: 14, far: 32, mag: 66, reload: 4.2, morale: 125, firesOnTheMove: false, base: true },
-  rocket: { near: 14, far: 34, mag: 2, reload: 4, morale: 105, firesOnTheMove: false, base: true },
-  marksman: { near: 20, far: 46, mag: 4, reload: 3, morale: 105, firesOnTheMove: false, base: true },
-  shield: { near: 6, far: 16, mag: 8, reload: 2.2, morale: 120, firesOnTheMove: true, base: false },
-  medic: { near: 12, far: 26, mag: 6, reload: 2.4, morale: 110, firesOnTheMove: false, base: true },
+  rifle: { near: 11, far: 26, mag: 18, reload: 2.3, morale: 100, firesOnTheMove: true, base: false, twoHanded: true, sidearm: true },
+  shotgun: { near: 5, far: 12, mag: 5, reload: 2.8, morale: 100, firesOnTheMove: true, base: false, twoHanded: true, sidearm: true },
+  machinegun: { near: 14, far: 32, mag: 66, reload: 4.2, morale: 125, firesOnTheMove: false, base: true, twoHanded: true, sidearm: false },
+  rocket: { near: 14, far: 34, mag: 2, reload: 4, morale: 105, firesOnTheMove: false, base: true, twoHanded: true, sidearm: true },
+  marksman: { near: 20, far: 46, mag: 4, reload: 3, morale: 105, firesOnTheMove: false, base: true, twoHanded: true, sidearm: true },
+  shield: { near: 6, far: 16, mag: 8, reload: 2.2, morale: 120, firesOnTheMove: true, base: false, twoHanded: false, sidearm: false },
+  medic: { near: 12, far: 26, mag: 6, reload: 2.4, morale: 110, firesOnTheMove: false, base: true, twoHanded: true, sidearm: true },
 };
 
 export const ROLE_OF: Partial<Record<EnemyId, Role>> = {

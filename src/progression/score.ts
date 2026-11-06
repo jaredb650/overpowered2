@@ -114,8 +114,11 @@ export class ScoreKeeper {
     if (e.playerWallRunning) this.style(STYLE.wallRun);
     if (e.playerSliding) this.style(STYLE.slide);
     if (e.playerAirborne && !e.playerWallRunning) this.style(STYLE.airborne);
-    if (e.distance <= SCORE.pointBlank) this.style(STYLE.pointBlank);
-    if (e.distance >= SCORE.longShot) this.style(STYLE.longShot);
+    // Both are measured from the body, which is not where the player is while seated.
+    if (!this.ctx.player.parked) {
+      if (e.distance <= SCORE.pointBlank) this.style(STYLE.pointBlank);
+      if (e.distance >= SCORE.longShot) this.style(STYLE.longShot);
+    }
     if (e.playerSpeed >= SCORE.blurSpeed) this.style(STYLE.blur);
     if (e.severedCount > 0) this.style(STYLE.dismember);
     if (e.gibbed) this.style(STYLE.gibbed);

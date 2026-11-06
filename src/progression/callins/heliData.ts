@@ -12,6 +12,12 @@ import type { SeatPlan } from '../../vehicles/seat';
 
 export const SMALL_MAP = 80;
 
+/**
+ * Highest either gun can point. From 31 m this still reaches the far wall of the Kill House, and any flatter the sight
+ * would land on the invisible walls above it, with rounds bursting in the air over the perimeter.
+ */
+const PITCH_STOP = -0.36;
+
 export interface HeliPlan {
   callsign: string;
   color: string;
@@ -48,7 +54,7 @@ export const ATTACK = {
     arcCenter: 0,
     arcHalf: 1.95,
     pitchMin: -1.4,
-    pitchMax: -0.06,
+    pitchMax: PITCH_STOP,
     lock: 0.92,
     roll: 0.35,
     eye: [0, 0.5, -0.6],
@@ -71,19 +77,18 @@ export const ATTACK = {
   /** How long the pilot takes to change his mind about where the fight is, as a rate. */
   focusRate: 0.9,
   scanEvery: 0.5,
-  floorEvery: 0.15,
-  /** Seconds ahead along the flight that the ground is read, so it climbs before the wall and not at it. */
-  floorAhead: 1.8,
+  /** Seconds ahead along the flight that the map is read, so it climbs before the wall and not at it. */
+  floorAhead: 2.4,
   /** How far outside the map it starts, and how far it is told to go when leaving. */
   entryReach: 110,
   exitReach: 700,
   exitClimb: 70,
   small: {
-    standoff: 25, altitude: 31, clearance: 14, cruise: 13, dash: 46, response: 1.3, climb: 1.1, turn: 2.2,
+    standoff: 25, altitude: 31, clearance: 5, cruise: 13, dash: 46, response: 1.3, climb: 0.9, turn: 2.2,
     lean: 0.024, maxRoll: 0.5, maxPitch: 0.32, reverse: [13, 22], limit: 31,
   } as PilotPlan,
   large: {
-    standoff: 46, altitude: 34, clearance: 26, cruise: 20, dash: 62, response: 1.1, climb: 1, turn: 1.8,
+    standoff: 46, altitude: 40, clearance: 14, cruise: 20, dash: 62, response: 1.1, climb: 0.8, turn: 1.8,
     lean: 0.019, maxRoll: 0.55, maxPitch: 0.34, reverse: [15, 26], limit: 132,
   } as PilotPlan,
   cannon: {
@@ -107,7 +112,7 @@ export const DOOR = {
     arcCenter: Math.PI / 2,
     arcHalf: 1.2,
     pitchMin: -1.25,
-    pitchMax: -0.04,
+    pitchMax: PITCH_STOP,
     lock: 0.9,
     roll: 0.55,
     eye: [0, 0.34, 0.8],
@@ -130,19 +135,20 @@ export const DOOR = {
   /** How fast the circle slides toward the fight, as a rate. Slow, so the lap stays a lap. */
   focusRate: 0.22,
   scanEvery: 0.5,
-  floorEvery: 0.2,
   small: {
     radius: 27, altitude: 31, rate: -0.42, bank: 0.24,
     entrySeconds: 4, entryReach: 170, holdSeconds: 60, exitSeconds: 10, exitReach: 420, exitClimb: 55,
   } as OrbitPlan,
   large: {
-    radius: 56, altitude: 44, rate: -0.3, bank: 0.3,
+    radius: 46, altitude: 40, rate: -0.34, bank: 0.3,
     entrySeconds: 4, entryReach: 230, holdSeconds: 60, exitSeconds: 10, exitReach: 480, exitClimb: 55,
   } as OrbitPlan,
   /** The circle's edge stays this far inside the map, on the small plan's numbers. See the note at the top. */
   limit: { small: 3, large: 70 },
-  /** Metres above whatever it is over. */
-  clearance: 22,
+  /** Metres above the tallest thing on the circle. The Kill House's figure is what clears its invisible walls at 31 m. */
+  clearance: { small: 5, large: 14 },
+  /** How fast the circle rises for something tall, as a rate. It settles back at a quarter of this. */
+  liftRate: 2,
   gun: {
     rounds: 1800,
     roundsPerSecond: 60,

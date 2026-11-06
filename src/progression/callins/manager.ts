@@ -74,7 +74,7 @@ export class CallInManager {
     this.aftermath = new NukeAftermath(ctx);
     this.gunship = new Ac130Rig(ctx, materials);
     const { scene } = ctx.render;
-    this.seats = new SeatRig(ctx, holdGrade);
+    this.seats = new SeatRig(ctx, probe, holdGrade);
     this.harrow = { frame: new Airframe(materials, scene, ATTACK_AIRFRAME), gun: new Gun(materials, scene, CHIN_CANNON) };
     this.packmule = { frame: new Airframe(materials, scene, UTILITY_AIRFRAME), gun: new Gun(materials, scene, M134) };
     this.warmShaders(materials);

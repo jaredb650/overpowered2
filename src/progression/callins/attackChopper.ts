@@ -25,7 +25,6 @@ const _from = new THREE.Vector3();
 const _dir = new THREE.Vector3();
 const _aim = new THREE.Vector3();
 const _vel = new THREE.Vector3();
-const _ahead = new THREE.Vector3();
 const _play: PlayOptions = { unaffectedByTime: true };
 
 const SHELL: ProjectileSpec = {
@@ -45,12 +44,6 @@ export class AttackChopper extends GunnerStrike<AttackMount> {
   private readonly focus = new THREE.Vector3();
   private readonly away = new THREE.Vector3();
   private leaving = false;
-  /** Top of whatever is under or just ahead of it, and of what is straight below. */
-  private floor = 0;
-  private below = 0;
-  private floorIn = 0;
-  private readonly ceiling: number;
-  private readonly drop: number;
   private cannonIn = 0;
   private rocketIn = 0;
   private leftPod = false;
@@ -63,8 +56,6 @@ export class AttackChopper extends GunnerStrike<AttackMount> {
     const { bounds } = kit.ctx.world;
     const span = (bounds.max.x - bounds.min.x) / 2;
     const plan = span < SMALL_MAP ? A.small : A.large;
-    this.ceiling = bounds.max.y - 1;
-    this.drop = this.ceiling - bounds.min.y;
     this.pilot = new Autopilot(plan);
     this.focus.copy(this.fight);
     this.seat.weapons.push(this.cannon, this.rockets);
@@ -74,37 +65,20 @@ export class AttackChopper extends GunnerStrike<AttackMount> {
     if (_dir.lengthSq() < 1) _dir.set(1, 0, 0);
     _dir.normalize();
     _from.copy(this.fight).addScaledVector(_dir, plan.dash * A.boardSeconds + plan.standoff * 1.4);
-    _from.y = Math.max(this.topAt(_from.x, _from.z) + plan.clearance, plan.altitude);
+    _from.y = Math.max(rig.skyline.at(_from.x, _from.z) + plan.clearance, plan.altitude);
     this.pilot.begin(_from, _aim.copy(_dir).negate());
-    this.readFloor(0);
     this.fly(0);
     this.begin();
   }
 
-  private topAt(x: number, z: number): number {
-    const h = this.kit.probe.heightAt(x, this.ceiling, z, this.drop);
-    return Number.isNaN(h) ? 0 : h;
-  }
-
-  private readFloor(dt: number): void {
-    this.floorIn -= dt;
-    if (this.floorIn > 0) return;
-    this.floorIn = A.floorEvery;
-    const { position, velocity } = this.pilot;
-    _ahead.copy(position).addScaledVector(velocity, A.floorAhead);
-    this.below = this.topAt(position.x, position.z);
-    this.floor = Math.max(this.below, this.topAt(_ahead.x, _ahead.z));
-  }
-
   protected fly(dt: number): void {
-    const { pilot, frame, seat } = this;
+    const { pilot, frame } = this;
     this.focus.x = damp(this.focus.x, this.fight.x, A.focusRate, dt);
     this.focus.z = damp(this.focus.z, this.fight.z, A.focusRate, dt);
-    this.readFloor(dt);
-    if (this.leaving) pilot.update(dt, this.away, this.floor + A.exitClimb);
-    else pilot.update(dt, this.focus, this.floor);
+    const floor = this.rig.skyline.along(pilot.position, pilot.velocity, A.floorAhead);
+    if (this.leaving) pilot.update(dt, this.away, floor + A.exitClimb);
+    else pilot.update(dt, this.focus, floor);
     frame.fly(pilot.position, pilot.forward, pilot.roll);
-    seat.altitude = pilot.position.y - this.below;
   }
 
   protected shoot(dt: number): void {
@@ -130,7 +104,8 @@ export class AttackChopper extends GunnerStrike<AttackMount> {
     gun.muzzle(_from);
     this.lay(C.spread, C.speed);
     combat.spawnProjectile(SHELL);
-    fx.muzzleFlash(_from, _dir, 'autocannon');
+    // The barrel is right under the sight, and the autocannon's own flash would cover what it is shooting at.
+    fx.muzzleFlash(_from, _dir, 'rifle');
     gun.recoil(C.recoil);
     camera.kick(C.kick, rand(-C.kick, C.kick) * 0.5);
     camera.addTrauma(C.trauma);
@@ -156,10 +131,6 @@ export class AttackChopper extends GunnerStrike<AttackMount> {
 
   protected get spent(): boolean {
     return this.cannon.ammo <= 0 && this.rockets.ammo <= 0;
-  }
-
-  protected silence(): void {
-    // Everything here is a one-shot.
   }
 
   protected depart(): void {

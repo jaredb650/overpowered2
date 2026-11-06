@@ -5,13 +5,18 @@
  *   enemy:backshot                      back-shot rewards. Emitted after the damage, for score and feedback
  *   comms:line                          the on-screen feed and, later, the recorded voices
  *   enemy:broken, enemy:escaped, squad:broken, dread:spike   style scoring, the HUD and The Commander
+ *   enemy:wounded                       section 14.6's style labels, once per man per zone, with what it pays
+ *   enemy:condition                     a man moved between section 14.1's conditions
  */
 import type * as THREE from 'three';
+import type { DamageInfo } from '../../core/contracts';
 import type { DamageResult, EnemyInstance, KillEvent } from '../../core/gameplay';
+import type { Condition, ZoneId } from '../wounds/rules';
 
 export type CommsKind =
   | 'contact' | 'lost' | 'noise' | 'manDown' | 'leaderDown' | 'takingCommand' | 'medic' | 'reloading' | 'moving' | 'covering'
-  | 'flanking' | 'frag' | 'flash' | 'breach' | 'fallback' | 'regroup' | 'fear' | 'panic' | 'surrender' | 'fix' | 'squadGone';
+  | 'flanking' | 'frag' | 'flash' | 'breach' | 'fallback' | 'regroup' | 'fear' | 'panic' | 'surrender' | 'fix' | 'squadGone'
+  | 'hit' | 'dying' | 'beg' | 'scream' | 'rescue' | 'lastStand';
 
 export interface CommsLine {
   kind: CommsKind;
@@ -40,6 +45,10 @@ declare module '../../core/contracts' {
     'enemy:escaped': { enemy: EnemyInstance };
     /** A squad was cut down so fast that its survivors broke. */
     'squad:broken': { squad: string; survivors: number };
+    /** A hit found a part of a man worth naming. `damage` is only good for this call. */
+    'enemy:wounded': { enemy: EnemyInstance; zone: ZoneId; label: string; bonus: number; damage: DamageInfo };
+    /** Healthy, wounded, mortal, downed or dead: section 14.1. Not sent for 'dead', which is `enemy:killed`. */
+    'enemy:condition': { enemy: EnemyInstance; condition: Condition };
     /** Dread jumped. `cause` is a perk id, a call-in id, or 'squad'. */
     'dread:spike': { dread: number; cause: string };
   }

@@ -34,6 +34,8 @@ export const FEAR = {
   limbLost: 30,
   /** Per second at full pressure from rounds going past. */
   underFire: 5,
+  /** Hearing a man scream close by. */
+  scream: 3.5,
   /** Per second with the monster inside MONSTER_RANGE. */
   monsterClose: 7,
   /** On every survivor of a squad that lost RAPID_SHARE of its men inside RAPID_SECONDS. */
