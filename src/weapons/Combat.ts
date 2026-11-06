@@ -523,18 +523,6 @@ export class Combat implements CombatSystem {
     return hit && hit.distance > 0.001 ? hit.point : null;
   }
 
-  /** Ends a headshot's stand-up hold, so the next frame has a ragdoll to work with. Costs the body nothing. */
-  wakeCorpse(hit: CorpseHit, dir: THREE.Vector3): void {
-    const d = this.nextDamage();
-    d.amount = 0;
-    d.type = 'bullet';
-    d.point.copy(hit.point);
-    d.dir.copy(dir);
-    d.force = 1;
-    d.source = 'wake';
-    this.ctx.gore.damageCorpse(hit, d);
-  }
-
   private hitCorpses(st: RayState, limit: number, damage: number, spec: ShotSpec): void {
     const c = this.ctx;
     const tries = spec.pierce ? 3 : 1;

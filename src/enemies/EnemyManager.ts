@@ -185,8 +185,7 @@ export class EnemyManager implements EnemySystem {
     }
     this.alive.length = 0;
     for (const e of this.dying) {
-      // A headless stumbler already belongs to gore. Crashes and bosses are ours until their last frame.
-      if (e.dyingKind !== 'stumble') e.char.release();
+      e.char.release();
       this.pool.release(e);
     }
     this.dying.length = 0;
@@ -702,17 +701,7 @@ export class EnemyManager implements EnemySystem {
     for (let i = this.dying.length - 1; i >= 0; i--) {
       const e = this.dying[i]!;
       e.dying -= dt;
-      if (e.dyingKind === 'stumble') {
-        // Gore holds the body; the legs just keep going for a moment, slowing as there is nothing left to steer them.
-        const fade = Math.exp(-2.2 * dt);
-        e.velocity.x *= fade;
-        e.velocity.z *= fade;
-        e.position.x += e.velocity.x * dt;
-        e.position.z += e.velocity.z * dt;
-        const ground = ctx.world.nav.groundHeight(e.position.x, e.position.y + 1, e.position.z);
-        if (!Number.isNaN(ground) && Math.abs(ground - e.position.y) < 1.2) e.position.y = ground;
-        e.char.root.position.copy(e.position);
-      } else if (e.dyingKind === 'crash') {
+      if (e.dyingKind === 'crash') {
         e.dying = this.updateCrash(e, dt) ? 0 : 1;
       } else if (e.dyingKind === 'boss') {
         e.boss!.dying(e, w, dt);

@@ -67,6 +67,8 @@ declare module '../core/contracts' {
     twitch?: number;
     /** False runs this one body on hard limits, for comparison. Defaults to `MuscleTuning.enabled`. */
     muscles?: boolean;
+    /** Every muscle gone on this frame: no tone arrives and nothing eases the fall. A lethal headshot. */
+    limp?: boolean;
   }
   interface GoreSystem {
     /**
@@ -235,6 +237,9 @@ export const MuscleTuning = {
 
   /** Seconds that twitching lasts after the body goes limp. */
   twitchSeconds: 4.5,
+  /** Nerves firing in mid-air read as a body still trying, so a twitch waits this long, then for the body to slow to this speed in m/s. */
+  twitchAfter: 0.3,
+  twitchLanded: 1.5,
   /** Seconds between bursts while fresh. The gaps stretch as twitching fades. */
   twitchGapMin: 0.28,
   twitchGapMax: 0.95,
@@ -471,6 +476,8 @@ export class MuscleState {
   limp = 0;
   /** Strength of death twitching, 0 once it is over. */
   twitch = 0;
+  /** It has come to rest once, so it may twitch. Twitching throws it about too, and that must not stop it. */
+  private onFloor = false;
   collapse: CollapseDrive | null = null;
   /** Alive and off its feet. See `reflex.ts`. */
   reflex: Reflex | null = null;
@@ -786,10 +793,10 @@ export class MuscleState {
     this.elastic = smoothstep(t.limitElasticLow, t.limitElasticHigh, rag.speed);
     if (this.collapse || this.reflex?.dying === -1) return;
     if (!this.weightless || this.limp < t.toneHold) this.limp += dt;
-    const tone = smoothstep(0, t.toneRise, this.limp) * (1 - smoothstep(t.toneHold, t.toneHold + t.toneFade, this.limp));
-    this.tone = tone;
-    if (tone <= 0) return;
-    const k = 1 - Math.exp(-t.mergedRate * tone * dt);
+    const fade = smoothstep(0, t.toneRise, this.limp) * (1 - smoothstep(t.toneHold, t.toneHold + t.toneFade, this.limp));
+    this.tone = rag.slack ? 0 : fade;
+    if (fade <= 0) return;
+    const k = 1 - Math.exp(-t.mergedRate * fade * dt);
     for (let i = 0; i < this.merged.length; i++) {
       const j = this.merged[i]!;
       bones[j.bone]!.quaternion.slerp(j.rest, k);
@@ -946,14 +953,20 @@ export class MuscleState {
     if (!r) return;
     r.sample(dt);
     if (r.dying !== 0) return;
+    this.letGo();
+    // Already at full tone: it must not dip and rise again as the drive lets go.
+    this.limp = MuscleTuning.toneRise;
+  }
+
+  /** A body down and alive stops being one. What it was doing with its limbs ends here. */
+  letGo(): void {
+    if (!this.reflex) return;
     this.reflex = null;
     for (const part of this.rag.parts) {
       part.muscle!.drive = 0;
       part.muscle!.gain = 1;
       part.body.setGravityScale(1, true);
     }
-    // Already at full tone: it must not dip and rise again as the drive lets go.
-    this.limp = MuscleTuning.toneRise;
   }
 
   /** Tips the upper body by this speed, in m/s. Internal to nothing: this is momentum, and it is meant to be. */
@@ -1202,7 +1215,7 @@ export class MuscleState {
       this.twitch = 0;
       return;
     }
-    if (this.collapse) return;
+    if (this.collapse || !this.landed()) return;
     if (this.burstLeft <= 0) {
       this.burstWait -= dt;
       if (this.burstWait <= 0) this.startBurst(life);
@@ -1222,6 +1235,12 @@ export class MuscleState {
       p.tau.addScaledVector(axis, -impulse);
     }
     if (this.burstLeft <= 0) this.burstWait = lerp(t.twitchGapMin, t.twitchGapMax, this.rng()) / Math.max(life, 0.6);
+  }
+
+  private landed(): boolean {
+    const t = MuscleTuning;
+    this.onFloor ||= this.rag.age >= t.twitchAfter && this.rag.speed < t.twitchLanded;
+    return this.onFloor;
   }
 
   private startBurst(life: number): void {

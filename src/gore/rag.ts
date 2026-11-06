@@ -249,6 +249,8 @@ export class Rag {
   private readonly parentPos = new THREE.Vector3();
   private readonly parentRotInv = new THREE.Quaternion();
   age = 0;
+  /** All tone went at once: a lethal headshot. Only joints and ligaments are left, and nothing eases the drop. */
+  slack = false;
   /** Seconds spent below the settle speed. */
   calm = 0;
   /** Seconds with almost no linear motion, however much anything is spinning. */
@@ -575,7 +577,7 @@ export class Rag {
     }
     const t = RagTuning;
     const muscle = this.muscle;
-    const tone = t.toneDamping * Math.min(1, this.age / t.toneRise) * Math.exp(-this.age / t.toneFade);
+    const tone = this.slack ? 0 : t.toneDamping * Math.min(1, this.age / t.toneRise) * Math.exp(-this.age / t.toneFade);
     const rate = t.jointDamping * Math.min(1, this.age / t.toneRise) + tone + (this.calm > 0 ? t.restDamping : 0);
     const damp = 1 - Math.exp(-rate * dt);
     const hush = this.quiet > t.quietTime ? 1 - Math.exp(-t.quietDamping * dt) : 0;
@@ -631,6 +633,12 @@ export class Rag {
       if (twist < 0) _c.negate();
       correct(c, p, _c, rel, twistExcess, dt);
     }
+  }
+
+  /** Every muscle gone on this frame, whatever it was doing. */
+  goLimp(): void {
+    this.slack = true;
+    this.muscle?.letGo();
   }
 
   applyImpulse(bone: number, point: THREE.Vector3, impulse: THREE.Vector3): void {

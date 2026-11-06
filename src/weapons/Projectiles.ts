@@ -347,7 +347,7 @@ export class Projectiles {
       const line = res.headshot ? this.v.setFromMatrixPosition(enemy.char.bones[0]!.matrixWorld).sub(back).normalize() : dir;
       const corpse = this.ctx.gore.raycastCorpses(back, line, 2.6);
       if (corpse) {
-        this.nail(p, corpse, point, dir, res.killed && res.headshot);
+        this.nail(p, corpse, point, dir);
         return;
       }
     }
@@ -358,22 +358,17 @@ export class Projectiles {
   private sweepCorpses(p: Projectile, dir: THREE.Vector3, limit: number): void {
     if (p.pinned) return;
     const hit = this.ctx.gore.raycastCorpses(p.position, dir, limit);
-    if (hit) this.nail(p, hit, hit.point, dir, false);
+    if (hit) this.nail(p, hit, hit.point, dir);
   }
 
-  /**
-   * gore.pin needs a ragdoll, and a body killed through the head stands in a scripted hold without one. So the hold is
-   * ended here and the pin itself goes in next frame, by when gore has the ragdoll. Everything takes that one-frame
-   * path, which also keeps a freshly made corpse from being pinned before its first physics step.
-   */
-  private nail(p: Projectile, corpse: CorpseHit, from: THREE.Vector3, dir: THREE.Vector3, standing: boolean): void {
+  /** The pin itself goes in next frame, which keeps a freshly made corpse from being pinned before its first physics step. */
+  private nail(p: Projectile, corpse: CorpseHit, from: THREE.Vector3, dir: THREE.Vector3): void {
     const c = this.ctx;
     const wall = c.physics.raycast(from, dir, TUNING.stake.pinReach, CG.World);
     c.audio.play('stake_hit_flesh', { position: from });
     // Set either way: with no wall in reach the stake flies on, and it must not re-nail the same body next frame.
     p.pinned = true;
     if (!wall) return;
-    if (standing) this.combat.wakeCorpse(corpse, dir);
     if (this.pendingCount >= MAX_PENDING_PINS) return;
     const pin = this.pendingPins[this.pendingCount++]!;
     pin.hit.distance = corpse.distance;

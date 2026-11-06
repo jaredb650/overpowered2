@@ -374,8 +374,8 @@ export interface GoreSystem extends GameSystem {
   /** Bisects the character along a world plane into two physics halves. Releases the instance. */
   slice(char: CharacterInstance, point: THREE.Vector3, normal: THREE.Vector3, damage: DamageInfo): void;
   /**
-   * The signature head kill. Takes ownership of the character, like ragdoll: the body holds for a beat, then
-   * collapses by itself. Bursts at high damage, pops the head off whole at low damage.
+   * The signature head kill. Takes ownership of the character, like ragdoll, and the body goes limp on this frame.
+   * Bursts at high damage, pops the head off whole at low damage.
    */
   headshot(char: CharacterInstance, damage: DamageInfo, velocity?: THREE.Vector3): void;
   /** Nearest ragdoll, corpse or severed limb along a ray. Bodies stay shootable after death. */

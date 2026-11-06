@@ -215,7 +215,7 @@ export class Enemy implements EnemyInstance {
 
   /** Set after the killing blow while the body plays out a death, such as a headless stumble. */
   dying = 0;
-  dyingKind: 'none' | 'stumble' | 'crash' | 'boss' = 'none';
+  dyingKind: 'none' | 'crash' | 'boss' = 'none';
   /** Distance tier for animation and think rates. */
   lod = 0;
   boss: BossController | null = null;

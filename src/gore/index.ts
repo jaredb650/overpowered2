@@ -63,12 +63,6 @@ export const GoreTuning = {
   stumpSeconds: 4.5,
   /** Damage at or above this bursts the head. Below it the head pops off whole. */
   headBurstDamage: 40,
-  /** The beat a headless body stands there before anything gives. */
-  headHoldSeconds: 0.32,
-  /** How long a headless body stumbles when the head pops off whole, and there are no muscles to do it with. */
-  headStumbleSeconds: 1.1,
-  /** How long a headless body takes to go down once it starts to. */
-  headCollapseSeconds: 1.15,
   /** Even a clean cut sets a limb tumbling, whatever the strength of the hit. */
   limbImpactFloor: 0.3,
   /** Hit strength of losing a limb, to a body going down. */
@@ -129,12 +123,6 @@ const GIB_LOWER: Partial<Record<GoreRegion, GoreRegion>> = {
 /** A character that has died and is in our care. */
 class DeadBody {
   rag: Rag | null = null;
-  /** World time the collapse starts, while a headless body is still on its feet. */
-  holdUntil = -1;
-  holdAnim = false;
-  /** Shot during the hold: it just drops. */
-  holdBroken = false;
-  holdVelocity = new THREE.Vector3();
   readonly stakes: Stake[] = [];
   sinking = -1;
   sinkFrom = 0;
@@ -374,12 +362,11 @@ export class Gore implements GoreSystem {
       if (existing.rag?.active) {
         // Rapid further hits kill outright, and a repeat death call on a body going down is exactly that.
         existing.rag.muscle?.dropNow();
+        if (options?.limp) existing.rag.goLimp();
         if (options?.impulses) {
           for (const i of options.impulses) this.push(existing.rag, i.bone, i.point, i.impulse);
         }
         this.strike(existing.rag, options, MuscleTuning.corpseImpact);
-      } else if (existing.rag === null && options?.velocity) {
-        existing.holdVelocity.copy(options.velocity);
       }
       return;
     }
@@ -577,6 +564,7 @@ export class Gore implements GoreSystem {
       friction: 0.72,
       muscles: options?.muscles ?? MuscleTuning.enabled,
     });
+    if (options?.limp) body.rag.goLimp();
     body.smearAt.copy(body.rag.center);
     if (options?.impulses) {
       for (const i of options.impulses) {
@@ -890,14 +878,14 @@ export class Gore implements GoreSystem {
     const neck = info.severBone.get('head');
     const down = this.owned.get(char);
     if (down?.down && neck !== undefined && !char.severed.has('head')) {
-      // The hold is for a body on its feet. On the floor it only has to lose the head.
       this.endDown(down);
+      down.rag?.goLimp();
       this.sever(char, 'head', damage);
       if (damage.amount >= GoreTuning.headBurstDamage) this.ctx.fx.headBurst(damage.point, damage.dir);
       return;
     }
     if (neck === undefined || this.owned.has(char) || char.severed.has('head')) {
-      if (!this.owned.has(char) || down?.down) this.ragdoll(char, { velocity });
+      if (!this.owned.has(char) || down?.down) this.ragdoll(char, { velocity, limp: true });
       return;
     }
     const { fx, audio, time } = this.ctx;
@@ -927,13 +915,8 @@ export class Gore implements GoreSystem {
       fx.bloodHit(at, damage.dir, 1.2);
     }
 
-    const body = this.adopt(char);
-    // With muscles the stumble is the collapse. Without them the animation has to play it out alone.
-    const stumble = MuscleTuning.enabled ? 0 : GoreTuning.headStumbleSeconds;
-    body.holdUntil = time.elapsed + (burst ? GoreTuning.headHoldSeconds : stumble);
-    body.holdAnim = !burst;
-    if (velocity) body.holdVelocity.copy(velocity);
-    if (!burst && !MuscleTuning.enabled) char.anim.play('deathStumble');
+    // Nothing is left to sell it with. The body goes on this frame, with whatever momentum it had.
+    this.startRag(this.adopt(char), { velocity, limp: true });
     audio.play('enemy_die', { position: at, volume: 0.5 });
   }
 
@@ -1119,11 +1102,7 @@ export class Gore implements GoreSystem {
         this.gib(char, hit.point, forceOf(damage));
         return;
       }
-      if (target.rag === null) {
-        // Shot while still on its feet: that ends the hold at once.
-        target.holdUntil = this.ctx.time.elapsed;
-        target.holdBroken = true;
-      } else if (!target.rag.active) {
+      if (target.rag && !target.rag.active) {
         this.wake(target);
         target.pooled = false;
         target.smearLeft = 3;
@@ -1327,17 +1306,8 @@ export class Gore implements GoreSystem {
         b.char.root.position.y = b.sinkFrom - t.sinkDepth * k * k;
         continue;
       }
-      if (b.rag === null) {
-        if (now >= b.holdUntil) {
-          if (b.holdBroken || !MuscleTuning.enabled) this.startRag(b, { velocity: b.holdVelocity });
-          else this.beginCollapse(b, GoreTuning.headCollapseSeconds, b.holdVelocity);
-        } else if (b.holdAnim) {
-          b.char.anim.update(dt, 0);
-        }
-        continue;
-      }
       const rag = b.rag;
-      if (!rag.active) continue;
+      if (!rag?.active) continue;
       rag.muscle?.sampleCollapse(dt);
       rag.drive();
       rag.measure(dt, t.calmSpeed, t.calmSpin);
