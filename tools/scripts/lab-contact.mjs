@@ -17,7 +17,7 @@ export default async function contactTest(page, h) {
     };
     P.modifiers.invulnerable = true;
     const clear = async () => {
-      ctx.enemies.killAll('lab');
+      ctx.enemies.reset();
       lab.spawner.clearBodies();
       for (const a of ['forward', 'back', 'left', 'right', 'dash', 'slide', 'jump']) ctx.input.simulate(a, false);
       await until(() => false, 0.05);
@@ -126,18 +126,20 @@ export default async function contactTest(page, h) {
 
     await clear();
     {
-      // A Titan walking at a player who stands with their back to a wall.
-      const e = place('titan', 0, 12, 'patrol');
-      e.behaviours = [];
-      e.mode = 'point';
-      e.moveTarget.set(0, 0, 26);
-      e.pace = 1;
-      e.dummy = true;
-      start(0, 24.8, Math.PI);
-      const r = await watch(6, e);
+      // A Titan walking at a player who stands with their back to a wall, then the player sidestepping out. Moved by
+      // hand, because the nav graph stops a body short of the wall.
+      const e = place('titan', 0, 14);
+      start(0, 22, Math.PI);
+      const walk = () => {
+        if (e.position.z > 24.8) return e.velocity.set(0, 0, 0);
+        e.velocity.set(0, 0, 3.6);
+        e.position.z += 3.6 * Math.max(ctx.time.dt, 0);
+      };
+      const r = await watch(4.5, e, walk);
+      r.playerZ = +P.position.z.toFixed(2);
       ctx.input.simulate('left', true);
-      const after = await watch(2.5, e);
-      r.escapeMoved = +Math.abs(P.position.x).toFixed(2);
+      const after = await watch(2.2, e);
+      r.freedTo = +P.position.x.toFixed(2);
       r.afterTopSpeed = after.topSpeed;
       out['titan walks player into wall'] = r;
     }

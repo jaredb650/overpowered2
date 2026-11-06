@@ -35,6 +35,7 @@ const COMBO_BREAK_MIN = 5;
 const SWORD = /sword/;
 /** Damage that counts as the player taking a limb off by hand, for Butcher. */
 const BY_HAND: ReadonlySet<DamageInfo['type']> = new Set(['bullet', 'pellet', 'melee', 'slash']);
+const MAX_SEVER_MEMORY = 64;
 
 const _up = new THREE.Vector3(0, 1, 0);
 const _toPlayer = new THREE.Vector3();
@@ -67,6 +68,8 @@ class Progression implements ProgressionSystem {
   private hang = 0;
   private lastHeadUid = -1;
   private lastHeadAt = -Infinity;
+  /** When each enemy last lost a limb to the player, so one body only counts once toward Butcher. */
+  private readonly severedAt = new Map<number, number>();
   /** realElapsed before which no style perk may start. */
   private styleOpenAt = 0;
   private readonly styleRearmAt = new Map<StylePerk, number>();
@@ -97,7 +100,7 @@ class Progression implements ProgressionSystem {
     const { events } = ctx;
     events.on('enemy:killed', e => { if (DevFlags.progression) this.onKill(e); });
     events.on('enemy:hit', e => { if (DevFlags.progression) this.onHit(e.enemy, e.damage, e.result); });
-    events.on('enemy:severed', e => { if (DevFlags.progression) this.onSevered(e.damage); });
+    events.on('enemy:severed', e => { if (DevFlags.progression) this.onSevered(e.enemy, e.damage); });
     events.on('wave:clear', e => {
       if (e.bonus > 0) this.scoreKeeper.add(e.bonus, 'wave');
       this.scoreKeeper.persist();
@@ -236,8 +239,14 @@ class Progression implements ProgressionSystem {
     if (!sameHead) this.tripWindow('slowmo', now);
   }
 
-  private onSevered(damage: DamageInfo): void {
-    if (BY_HAND.has(damage.type) && !ASSIST_SOURCES.test(damage.source)) this.tripStyle('butcher', this.ctx.time.realElapsed);
+  private onSevered(enemy: EnemyInstance, damage: DamageInfo): void {
+    if (!BY_HAND.has(damage.type) || ASSIST_SOURCES.test(damage.source)) return;
+    const now = this.ctx.time.realElapsed;
+    const last = this.severedAt.get(enemy.uid);
+    if (last !== undefined && now - last < WINDOWS.butcher.span) return;
+    this.severedAt.set(enemy.uid, now);
+    this.tripStyle('butcher', now);
+    if (this.severedAt.size > MAX_SEVER_MEMORY) this.severedAt.clear();
   }
 
   private drain(e: KillEvent): void {
@@ -369,6 +378,7 @@ class Progression implements ProgressionSystem {
     this.hang = 0;
     this.lastHeadUid = -1;
     this.lastHeadAt = -Infinity;
+    this.severedAt.clear();
     this.callInsManager.clear();
     this.sentinels.clear();
     this.chains.clear();

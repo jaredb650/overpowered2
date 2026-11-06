@@ -18,8 +18,13 @@ import { buildDefs, buildOffhand, type OffhandSet } from './models';
 import { Offhand } from './offhand';
 import { Spring, Spring3 } from './spring';
 
-const SHOULDER_R = new THREE.Vector3(0.25, -0.34, 0.2);
-const SHOULDER_L = new THREE.Vector3(-0.27, -0.36, 0.18);
+/**
+ * Shoulders sit well under the frustum and out to the sides, not where a body would put them. The arms are shorter
+ * than the reach most poses ask for, and a true shoulder would slide the whole limb up past the eye as a huge sleeve.
+ * From down here an arm always enters from a bottom corner of the screen.
+ */
+const SHOULDER_R = new THREE.Vector3(0.42, -0.62, -0.02);
+const SHOULDER_L = new THREE.Vector3(-0.44, -0.62, -0.02);
 const POLE_R = new THREE.Vector3(0.75, -0.7, 0.1);
 const POLE_L = new THREE.Vector3(-0.55, -0.85, 0.1);
 
@@ -38,8 +43,11 @@ const MOON_REACH = 240;
 const MOON_FLOOR = 0.03;
 /** Ray origins around the eye, so the gun fades through a doorway instead of switching. */
 const MOON_PROBES: readonly (readonly [number, number, number])[] = [[0, 0, 0], [0.5, 0.1, -0.4], [-0.5, 0.1, -0.4], [0, 0.35, 0.3]];
-/** A dim light fixed to the view, so a dark gun keeps its shape in the darkest corridor. Stronger out of the moon. */
-const FILL_MOONLIT = 0.45;
+/**
+ * A dim light fixed to the view, so a dark gun keeps its shape in the darkest corridor. It stays on in the moon too: the
+ * moon is often in front of the player, and then it lights only the faces of the gun that nobody can see.
+ */
+const FILL_MOONLIT = 1.0;
 const FILL_DARK = 1.5;
 
 /** Call-ins and the device that goes with them; progression's targeting state drives this. */
@@ -150,7 +158,6 @@ export class Rig implements ViewmodelRig {
   private lastWrist = '';
   private wristClock = 0;
   private lastGrenades = -1;
-  private deviceWanted: 'walkie' | 'designator' | null = null;
   private unsub: (() => void)[] = [];
 
   async init(ctx: Ctx): Promise<void> {
@@ -251,7 +258,6 @@ export class Rig implements ViewmodelRig {
     this.lastMag = -1;
     this.lastBucket = -1;
     this.lastGrenades = -1;
-    this.deviceWanted = null;
     this.offhand.reset();
     if (this.hasPlayer) {
       this.lastYaw = this.ctx.player.yaw;
@@ -851,24 +857,8 @@ export class Rig implements ViewmodelRig {
       this.lastGrenades = g;
       if (this.offhand.cooking && input.isDown('grenade') === false) this.offhand.release();
     }
-    const holding = this.stillHolding();
     const t = (progression as { targeting?: unknown } | undefined)?.targeting;
-    if (typeof t === 'string') this.deviceWanted = DEVICE[t as CallInId] ?? null;
-    else if (!holding) this.deviceWanted = null;
-    this.offhand.device(this.deviceWanted);
-  }
-
-  /**
-   * Progression still builds its own stand-in device for targeting. Its timing is what brings the gun back, so it keeps
-   * running, but its boxes must not be seen next to the real model. Its `want` also tells a steered Orbital Lance from
-   * a finished call, which `targeting` alone cannot.
-   */
-  private stillHolding(): boolean {
-    const held = (this.ctx.progression as unknown as { callInsManager?: { device?: { want: number; root: THREE.Object3D } } } | undefined)?.callInsManager?.device;
-    if (!held) return false;
-    const models = held.root.children;
-    for (let i = 0; i < models.length; i++) models[i]!.visible = false;
-    return held.want > 0;
+    this.offhand.device(typeof t === 'string' ? DEVICE[t as CallInId] ?? null : null);
   }
 
   private updateWrist(dt: number): void {

@@ -328,18 +328,27 @@ async function headless(): Promise<void> {
   check('Dying in SLOWMO clears the time scale', near(ctx.time.slowmo, 1, 0.001) && prog.effects.length === 0, ctx.time.slowmo);
 
   // --- Style perks -----------------------------------------------------------------------------
-  const sever = (type: DamageInfo['type'], source = 'shotgun'): void => ctx.events.emit('enemy:severed', {
-    enemy: enemy(), region: 'armL',
+  const sever = (type: DamageInfo['type'], source = 'shotgun', who = enemy()): void => ctx.events.emit('enemy:severed', {
+    enemy: who, region: 'armL',
     damage: { amount: 50, type, point: new THREE.Vector3(), dir: new THREE.Vector3(), force: 0, source },
   });
+  const butcher = (): void => {
+    for (let i = 0; i < 5; i++) sever('pellet');
+  };
 
   fresh();
-  for (let i = 0; i < 3; i++) sever('pellet');
+  for (let i = 0; i < 4; i++) sever('pellet');
   step(0.05);
-  check('Three limbs are not Butcher yet', !prog.isActive('butcher'));
+  check('Four limbs are not Butcher yet', !prog.isActive('butcher'));
   sever('pellet');
   step(0.05);
-  check('Butcher on 4 limbs in 3 s', prog.isActive('butcher') && weaponMods.alwaysSever);
+  check('Butcher on 5 bodies in 4 s', prog.isActive('butcher') && weaponMods.alwaysSever);
+
+  fresh();
+  const victim = enemy();
+  for (let i = 0; i < 6; i++) sever('pellet', 'shotgun', victim);
+  step(0.05);
+  check('All the limbs of one body are one for Butcher', !prog.isActive('butcher'));
 
   fresh();
   for (let i = 0; i < 6; i++) sever('explosive', 'rocket');
@@ -410,7 +419,7 @@ async function headless(): Promise<void> {
 
   // --- Style gate ------------------------------------------------------------------------------
   fresh();
-  for (let i = 0; i < 4; i++) sever('pellet');
+  butcher();
   step(0.05);
   for (let i = 0; i < 4; i++) kill({ explosionId: 3 });
   step(0.05);
@@ -421,13 +430,13 @@ async function headless(): Promise<void> {
   check('The gate opens again', prog.isActive('chainReaction'));
 
   fresh();
-  for (let i = 0; i < 4; i++) sever('pellet');
+  butcher();
   step(8.1);
-  for (let i = 0; i < 4; i++) sever('pellet');
+  butcher();
   step(0.05);
   check('A style perk does not restart straight after it ends', !prog.isActive('butcher'));
   step(STYLE_GATE.rearm + 0.1);
-  for (let i = 0; i < 4; i++) sever('pellet');
+  butcher();
   step(0.05);
   check('It re-arms in the end', prog.isActive('butcher'));
 

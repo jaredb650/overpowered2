@@ -13,6 +13,10 @@ const DOWN_AFTER_S = 0.25;
 const UP_AFTER_S = 4;
 /** Long enough for the smoothed interval to show what the last step did. */
 const COOLDOWN_S = 0.45;
+/** The floor has to beat the interval the descent started from by this much, or resolution was not the problem. */
+const FLOOR_GAIN_MS = 1;
+/** Rest after a fruitless descent. The cause, such as a browser capping rAF on battery, rarely clears sooner. */
+const GIVE_UP_S = 30;
 
 function drsFlag(): boolean | null {
   const flag = new URLSearchParams(location.search).get('drs');
@@ -35,6 +39,8 @@ export class DynamicResolution {
   private cooldown = 0;
   private climbWait = UP_AFTER_S;
   private sinceClimb = Infinity;
+  private descentFrom = 0;
+  private giveUp = 0;
 
   get scale(): number {
     return STEPS[this.index]!;
@@ -45,11 +51,20 @@ export class DynamicResolution {
     if (!this.enabled || realDt <= 0) return false;
     this.smoothed += (realDt * 1000 - this.smoothed) * (1 - Math.exp(-realDt * 6));
     this.cooldown -= realDt;
+    this.giveUp -= realDt;
     this.sinceClimb += realDt;
     this.overFor = this.smoothed > MISS_MS ? this.overFor + realDt : 0;
     this.underFor = this.smoothed < HOLD_MS ? this.underFor + realDt : 0;
-    if (this.cooldown > 0) return false;
-    if (this.overFor > DOWN_AFTER_S && this.index < STEPS.length - 1) {
+    if (this.cooldown > 0 || this.giveUp > 0) return false;
+    if (this.overFor > DOWN_AFTER_S && this.index === STEPS.length - 1) {
+      if (this.smoothed < this.descentFrom - FLOOR_GAIN_MS) return false;
+      // A CPU-bound frame or a capped frame rate looks like a slow GPU until the whole range has been tried.
+      this.index = 0;
+      this.giveUp = GIVE_UP_S;
+      return true;
+    }
+    if (this.overFor > DOWN_AFTER_S) {
+      if (this.index === 0) this.descentFrom = this.smoothed;
       if (this.sinceClimb < 3) this.climbWait = Math.min(this.climbWait * 2, 60);
       this.index = Math.min(this.index + (this.smoothed > HALF_RATE_MS ? 2 : 1), STEPS.length - 1);
       this.overFor = this.underFor = 0;

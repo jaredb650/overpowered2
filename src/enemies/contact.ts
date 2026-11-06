@@ -41,8 +41,8 @@ const NUDGE_GAP = 0.35;
 /** `mass` from here up cannot be walked through. A Brute is 0.8, a Riot 0.35. */
 const SOLID_MASS = 0.5;
 /** Metres per second back out of a solid body, per metre of overlap, and the most it ever is. */
-const OUT_RATE = 14;
-const OUT_MAX = 5;
+const OUT_RATE = 30;
+const OUT_MAX = 6;
 /** Fastest a solid body walking into the player carries them along. */
 const CARRY_MAX = 9;
 /** Overlap past what holding a key into a body can reach, even at 20 fps. Deeper than this, something has closed on the player. */

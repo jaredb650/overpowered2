@@ -1,8 +1,9 @@
 // Measures how far every weapon throws a body, in the real game on the Test Range.
 //   node tools/shot.mjs --url "/?map=range" --script tools/scripts/lab-throw.mjs --wait 500 --timeout 280 --out tools/out/throw.png
-// THROW_CASES=shotgun,rocket reruns cases whose name contains one of those words. Distances are hips at rest from
+// THROW_CASES=shotgun,rocket reruns cases whose name contains one of those words, THROW_REPS=5 repeats each. Distances are hips at rest from
 // where the enemy stood, so a body that falls where it was measures about 1 m: its own length.
 const only = (process.env.THROW_CASES ?? '').split(',').filter(Boolean);
+const reps = Number(process.env.THROW_REPS ?? 1);
 
 export default async function throwTest(page, h) {
   for (let i = 0; i < 180; i++) {
@@ -10,7 +11,7 @@ export default async function throwTest(page, h) {
     await h.sleep(500);
   }
   const boot = await page.evaluate(() => Math.round(performance.now()));
-  const results = await page.evaluate(async only => {
+  const results = await page.evaluate(async ({ only, reps }) => {
     const lab = window.__lab;
     const { ctx } = window.__op2;
     const V = ctx.player.position.constructor;
@@ -163,12 +164,14 @@ export default async function throwTest(page, h) {
     for (const [name, run] of Object.entries(cases)) {
       if (only.length && !only.some(o => name.includes(o))) continue;
       try {
-        out[name] = await run();
+        const runs = [];
+        for (let i = 0; i < reps; i++) runs.push(await run());
+        out[name] = reps === 1 ? runs[0] : { dist: runs.map(r => r.dist ?? r.moved ?? r.note), peak: Math.max(...runs.map(r => r.peak ?? 0)) };
       } catch (err) {
         out[name] = { error: String(err) };
       }
     }
     return out;
-  }, only);
+  }, { only, reps });
   return { boot, results };
 }

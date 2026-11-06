@@ -197,7 +197,7 @@ export const TUNING = {
   hellfireRounds: { radius: 2, damageMult: 1.25 },
   shotgun: {
     /** Under this range pellets count as point-blank: more sever, more push. */
-    pointBlank: 6, pointBlankSever: 3, pointBlankForce: 2.2,
+    pointBlank: 6, pointBlankSever: 3, pointBlankForce: 3.2,
   },
   judge: { ricochetRange: 28, ricochets: 2, ricochetDamage: 0.8 },
   lance: {

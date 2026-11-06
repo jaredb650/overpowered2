@@ -144,7 +144,7 @@ export const WINDOWS = {
   hellfire: { need: 10, span: 10, clears: false },
   adrenaline: { need: 3, span: 3, clears: true },
   slowmo: { need: 3, span: 3, clears: true },
-  butcher: { need: 4, span: 3, clears: true },
+  butcher: { need: 5, span: 4, clears: true },
   skyfall: { need: 4, span: 6, clears: true },
   overdrive: { need: 5, span: 10, clears: true },
 } as const;
@@ -162,8 +162,9 @@ export const OVERDRIVE_MIN_SPEED = 18;
  * The style perks reward how the player moves and fights, so they must not stack up behind the ladder. With a good aim
  * and no rules, five perks fired inside 15 s of wave 1 and the rewards at combo 20 and up stopped being a change.
  *
- * Each trigger also has to be the player's own work: Butcher counts direct hits, Skyfall needs real hang time, Chain
- * Reaction ignores Hellfire's free explosions, Overdrive ignores perk speed.
+ * Each trigger also has to be the player's own work: Butcher counts direct hits on different enemies, because husk limbs
+ * come off so easily that it fired before the first kill; Skyfall needs real hang time; Chain Reaction ignores
+ * Hellfire's free explosions; Overdrive ignores perk speed.
  */
 export const STYLE_PERKS = ['butcher', 'skyfall', 'chainReaction', 'overdrive'] as const;
 export type StylePerk = (typeof STYLE_PERKS)[number];
@@ -394,7 +395,7 @@ export const POWERUPS: readonly PowerupId[] = [
 export const VAMPIRE_HEAL = 12;
 export const REGEN = { healthPerSecond: 14, ammoPerSecond: 0.04, tick: 0.25 } as const;
 export const FROST = { radius: 34, freezeSeconds: 7, frontSpeed: 60 } as const;
-export const MEGA = { heal: 100, overhealFactor: 2, decayPerSecond: 2 } as const;
+export const MEGA = { heal: 100, decayPerSecond: 2 } as const;
 
 export const PICKUP = {
   dropChance: 0.3,

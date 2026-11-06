@@ -295,7 +295,7 @@ function sleeve(m: Mesher): void {
     }
     rings.push(ring);
   }
-  m.loft(rings, { capStart: true });
+  m.loft(rings, { capStart: true, capEnd: true });
   // Elastic cuff.
   m.use(F.fabricDark);
   const cuff: V3[][] = [];
@@ -375,6 +375,7 @@ const _z = new THREE.Vector3();
 const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
 const _e = new THREE.Vector3();
+const _sh = new THREE.Vector3();
 const _m = new THREE.Matrix4();
 const _axis = new THREE.Vector3();
 const _t = new THREE.Vector3();
@@ -514,7 +515,7 @@ export class Arm {
     _a.subVectors(wrist, shoulder);
     let d = _a.length();
     const reach = (UPPER_LEN + FORE_LEN) * 0.985;
-    const s = _b.copy(shoulder);
+    const s = _sh.copy(shoulder);
     if (d > reach) {
       s.addScaledVector(_a, 1 - reach / d);
       _a.subVectors(wrist, s);

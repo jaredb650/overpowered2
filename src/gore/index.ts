@@ -67,6 +67,12 @@ export const GoreTuning = {
   /** The first game's accidental frame drop, on purpose. */
   hitStopSeconds: 0.025,
   hitStopScale: 0.03,
+  /**
+   * Fraction of a hit that moves the whole body, not only the bone it struck. Rapier's four solver iterations cannot
+   * carry a hard impulse down a chain in one step, so all of it on a bone leaves the feet planted and the body folds on
+   * the spot, however hard the hit was.
+   */
+  bodyShare: 0.5,
   /** Fraction of DamageInfo.force that a severed limb takes. The rest went into the wound. */
   limbForceShare: 0.45,
   /** A gib flies at its force over this, between these speeds in m/s. Lighter than a body, so it goes further than one. */
@@ -193,6 +199,7 @@ const _v = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
 const _v3 = new THREE.Vector3();
 const _v4 = new THREE.Vector3();
+const _v5 = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _seeds = new Float32Array(MAX_BONES * SEED_STRIDE);
 const _mask = new Uint8Array(MAX_BONES);
@@ -327,7 +334,7 @@ export class Gore implements GoreSystem {
         // Rapid further hits kill outright, and a repeat death call on a body going down is exactly that.
         existing.rag.muscle?.dropNow();
         if (options?.impulses) {
-          for (const i of options.impulses) existing.rag.applyImpulse(i.bone, i.point, i.impulse);
+          for (const i of options.impulses) this.push(existing.rag, i.bone, i.point, i.impulse);
         }
         this.strike(existing.rag, options, MuscleTuning.corpseImpact);
       } else if (existing.rag === null && options?.velocity) {
@@ -365,6 +372,13 @@ export class Gore implements GoreSystem {
     let n = 0;
     for (const b of this.bodies) if (b.rag?.muscle?.collapse) n++;
     return n;
+  }
+
+  /** A hit on a body: some of it at the bone it struck, which is what turns it, and the rest on the whole body. */
+  private push(rag: Rag, bone: number, point: THREE.Vector3, impulse: THREE.Vector3): void {
+    const share = GoreTuning.bodyShare;
+    rag.applyImpulse(bone, point, _v5.copy(impulse).multiplyScalar(1 - share));
+    rag.shove(_v5.copy(impulse).multiplyScalar(share));
   }
 
   /** The limbs' share of a hit, from what the caller said or else from the impulses themselves. */
@@ -407,7 +421,7 @@ export class Gore implements GoreSystem {
     body.smearAt.copy(body.rag.center);
     if (options?.impulses) {
       for (const i of options.impulses) {
-        body.rag.applyImpulse(i.bone, i.point, i.impulse);
+        this.push(body.rag, i.bone, i.point, i.impulse);
         // The wall behind the shot takes what came through.
         const force = i.impulse.length();
         if (force < 1 || !Number.isFinite(force)) continue;
@@ -942,7 +956,7 @@ export class Gore implements GoreSystem {
         target.smearLeft = 3;
         target.smearAt.copy(target.rag.center);
       }
-      target.rag?.applyImpulse(hit.bone, hit.point, _v.copy(damage.dir).multiplyScalar(forceOf(damage)));
+      if (target.rag) this.push(target.rag, hit.bone, hit.point, _v.copy(damage.dir).multiplyScalar(forceOf(damage)));
       target.rag?.muscle?.dropNow();
       target.rag?.muscle?.kick(damage.dir, impactStrength(forceOf(damage), target.info.mass) * MuscleTuning.corpseImpact);
       char.addWound(hit.bone, hit.point, 0.05);

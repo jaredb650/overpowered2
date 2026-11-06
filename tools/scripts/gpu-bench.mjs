@@ -12,6 +12,8 @@
 //   passes     Renderer.measurePasses().
 //   variants   Whole-frame throughput with one thing changed at a time. Uses GB_VARIANTS, or all of them.
 //   shots      Screenshot of each spot into tools/out/shot-<GB_TAG>-<spot>.png, with the HUD hidden.
+//   live       The real controller for 7 s, listing every change it makes. Needs ?drs=1 only for the page's own default.
+//   drsshot    One picture of the last spot at the 0.7 step, into tools/out/shot-<GB_TAG>-drs70.png.
 //   steps      Forces every dynamic resolution step in the real game loop and reports each step frame against
 //              the frames around it.
 //   calm       Frame intervals with nothing on screen, which shows what the harness itself can reach.
@@ -243,35 +245,30 @@ function install({ n, rounds }) {
     px1344: realloc({ maxPixels: 1344 * 840 }),
   };
 
-  const eachLit = fn => {
-    const seen = new Set();
-    for (const scene of [r.scene, r.viewScene]) {
-      scene.traverse(o => {
-        const m = o.material;
-        if (m && !Array.isArray(m) && m.isMeshStandardMaterial && !seen.has(m)) { seen.add(m); fn(m); }
-      });
-    }
+  allVariants.shadow1024 = {
+    on() { this.q = r.quality; r.shadows.setSizes(this.q.shadowStatic, 1024); },
+    off() { r.shadows.setSizes(this.q.shadowStatic, this.q.shadowDynamic); },
   };
-  const define = name => ({
-    on() { eachLit(m => { m.defines = { ...m.defines, [name]: 1 }; m.needsUpdate = true; }); },
-    off() { eachLit(m => { delete m.defines[name]; m.needsUpdate = true; }); },
-  });
-  for (const x of ['X_NOWET', 'X_NOMACRO', 'X_NOSHADOW', 'X_NOSH', 'X_NODOM', 'X_NOENV', 'X_NOPOINT']) allVariants[x] = define(x);
-  const anisotropy = value => {
-    const ext = gl.getExtension('EXT_texture_filter_anisotropic');
-    const state = renderer.state;
-    const set = v => {
-      for (const s of r.worldMaterials.sets.values()) {
-        for (const t of [s.albedo, s.surface]) {
-          state.bindTexture(gl.TEXTURE_2D, renderer.properties.get(t).__webglTexture);
-          gl.texParameterf(gl.TEXTURE_2D, ext.TEXTURE_MAX_ANISOTROPY_EXT, v);
-        }
-      }
+  // Enemies drawn into the shadow map from a cheaper LOD. Needs a change in src/characters to ship, so it is only a
+  // measurement: swaps the geometry on the render item, which reaches this one pass and no other.
+  const lodCasters = lod => {
+    const filter = r.filterList;
+    return {
+      on() {
+        r.filterList = function (list) {
+          filter.call(this, list);
+          if (this.listMode !== 'shadowDynamic') return;
+          for (const item of list.opaque) {
+            const lods = item.object.isSkinnedMesh && ctx.enemies.alive.find(e => e.char.mesh === item.object)?.char.a.model.lods;
+            if (lods) item.geometry = lods[Math.min(lod, lods.length - 1)];
+          }
+        };
+      },
+      off() { delete r.filterList; },
     };
-    return { on() { set(value); }, off() { set(8); } };
   };
-  allVariants.aniso1 = anisotropy(1);
-  allVariants.aniso4 = anisotropy(4);
+  allVariants.shadowLod1 = lodCasters(1);
+  allVariants.shadowLod2 = lodCasters(2);
 
   /** Names join with + to stack changes, as in msaa0+res70. */
   const variants = names => {
@@ -325,7 +322,7 @@ function install({ n, rounds }) {
   };
 
   /** Keeps a crowd alive around the player and fires at it through the real game loop. */
-  const fight = async (enemies, seconds) => {
+  const fight = async (enemies, seconds, list) => {
     thaw();
     const intervals = [];
     const renderMs = [];
@@ -371,6 +368,7 @@ function install({ n, rounds }) {
     const frozen = [];
     for (let i = 0; i < 14; i++) frozen.push(frameCost(3));
     const stageCost = stages();
+    const fightVariants = list ? variants(list) : null;
     thaw();
     ctx.input.simulate('fire', false);
     delete r.render;
@@ -383,7 +381,7 @@ function install({ n, rounds }) {
       over20: s.filter(x => x > 20).length, over34: s.filter(x => x > 34).length,
       seconds: s.reduce((a, b) => a + b, 0) / 1000, renderCpuP50: rs[rs.length >> 1],
       drs: r.dynamicResolution.scale, renderSize: r.renderSize(), load,
-      frozenBest: Math.min(...frozen), frozenMedian: median(frozen), stageCost: stageCost.best, stageLoad: stageCost.load, casters: casterKinds(),
+      frozenBest: Math.min(...frozen), frozenMedian: median(frozen), fightVariants, stageCost: stageCost.best, stageLoad: stageCost.load, casters: casterKinds(),
     };
   };
 
@@ -433,7 +431,39 @@ function install({ n, rounds }) {
     };
   };
 
+  /** The real controller in the real loop, with every change it makes and the frames around it. */
+  const liveDrs = async seconds => {
+    thaw();
+    const dyn = r.dynamicResolution;
+    dyn.enabled = true;
+    const log = [];
+    const render = r.render;
+    r.render = function () {
+      const before = dyn.scale;
+      const t = performance.now();
+      render.call(this);
+      log.push({ at: t, render: performance.now() - t, from: before, to: dyn.scale });
+    };
+    await new Promise(res => setTimeout(res, seconds * 1000));
+    delete r.render;
+    dyn.enabled = false;
+    const med = [...log.map(e => e.render)].sort((a, b) => a - b)[log.length >> 1];
+    const changes = log.map((e, i) => ({ e, i })).filter(({ e }) => e.from !== e.to);
+    return {
+      frames: log.length, renderP50: med, worstRender: Math.max(...log.map(e => e.render)),
+      changes: changes.map(({ e, i }) => ({ t: Math.round(e.at - log[0].at), from: e.from, to: e.to, render: e.render, next: log[i + 1]?.render, interval: log[i + 1] ? log[i + 1].at - e.at : 0 })),
+    };
+  };
+
+  /** Pins a dynamic resolution step for a picture. */
+  const pinStep = index => {
+    r.dynamicResolution.index = index;
+    r.applyResolution();
+    return r.renderSize();
+  };
+
   window.__gb = {
+    liveDrs, pinStep,
     goTo, stages, variants, calm, fight, steps, frameCost, sync, spotNames: Object.keys(spots[map]), freeze, thaw, raf, allVariants: Object.keys(allVariants),
     passes: () => r.measurePasses(6, 6),
     drawing: () => { const v = renderer.getDrawingBufferSize(new (r.tanHalf.constructor)()); return { canvas: [v.x, v.y], ...r.renderSize(), dpr: devicePixelRatio }; },
@@ -468,8 +498,15 @@ export default async function bench(page, h) {
       await h.shot(`${TAG}-${spot}`).catch(e => console.error(`shot failed: ${e.message.split('\n')[0]}`));
     }
   }
+  if (PHASES.includes('drsshot')) {
+    out.drsShot = await page.evaluate(() => window.__gb.pinStep(4));
+    await page.evaluate(() => new Promise(res => requestAnimationFrame(() => { window.__op2.ctx.render.render(); requestAnimationFrame(res); })));
+    await h.shot(`${TAG}-drs70`).catch(e => console.error(`shot failed: ${e.message.split('\n')[0]}`));
+    await page.evaluate(() => window.__gb.pinStep(0));
+  }
+  if (PHASES.includes('live')) out.live = await page.evaluate(() => window.__gb.liveDrs(7));
   if (PHASES.includes('steps')) out.steps = await page.evaluate(() => window.__gb.steps([1, 2, 3, 4, 5, 4, 3, 2, 1, 0], 900));
   if (PHASES.includes('calm')) out.calm = await page.evaluate(() => window.__gb.calm(4));
-  if (PHASES.includes('fight')) out.fight = await page.evaluate(([e, s]) => window.__gb.fight(e, s), [ENEMIES, SECONDS]);
+  if (PHASES.includes('fight')) out.fight = await page.evaluate(([e, s, v]) => window.__gb.fight(e, s, v), [ENEMIES, SECONDS, process.env.GB_FIGHT_VARIANTS?.split(',') ?? null]);
   return out;
 }

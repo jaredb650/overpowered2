@@ -93,6 +93,11 @@ Stored in `op2.settings.v1`, sanitized on load. They apply and save the moment t
 - **Contract select is not built.** DESIGN section 15 adds it to the menu, with per-contract high scores. There is no contract data yet.
 - **The flythrough's cuts are hand-framed for The Crucible** and will need another look if the map moves. The Kill House uses the zone fallback.
 - **Fog is temporal,** so a hard cut may smear for a frame or two. Not seen in stills, not checked in motion.
+- **A perk's grade fades out over a second or two after quitting to the menu.** `PerkRunner.clear` starts a timed release, which the renderer's
+  instant reset does not cut short, and post runs on render calls, so at the menu's half rate it fades at half speed. Quit during Berserk and the first cut
+  starts red.
+- **Audio aborts show as `requestfailed` in the harness.** `audio/music/*.mp3 net::ERR_ABORTED` appears whenever a track is swapped while still
+  streaming. It is the player dropping an element, not a console error.
 
 ## Testing
 
@@ -102,3 +107,21 @@ Stored in `op2.settings.v1`, sanitized on load. They apply and save the moment t
 ```
 
 Screen sizes tried: 1920x1080 and 1280x720.
+
+## Verified
+
+All in real headless Chrome through `tools/shot.mjs`, zero console errors. Runs under battery saver held Chrome at 30 Hz, so frame numbers are not
+meaningful here. The scripts lived in the session scratchpad, not in the repo.
+
+| Thing | How | Result |
+|---|---|---|
+| Boot | Real load at 1920x1080 | First contentful paint 96 ms, down from 1740. 9 s to splash. Bar and number track within 3 points, 32% at 3 s, 85% at 8.6 s |
+| Menu path | `page.mouse`, `page.keyboard`: splash, Play, Esc, Resume, Enter, death, Run again by Space and by click, Quit to menu, third run, Restart run | Every state, lock and screen as in the table above |
+| Lock | Headless Chrome grants it | `pointerLockElement` is the canvas after a real click. `exitPointerLock` pauses. Mouse moved the view and W moved the player, 9.6 m in 0.8 s |
+| Death mash | Space and a click in the first 0.3 s of game over | Ignored. Space after 0.8 s restarts |
+| Real death | Stood at 1 HP in wave 1 | Killed by husk, report shown, Menu clears the map, 0 enemies alive |
+| Dirty death | Scoped, in slow-mo, with perks, call-ins and a capsule | Second run: FOV back, scale 1, no perks, chips, markers, scope or feed, score 0, easy music playing |
+| Settings | Slider drag, arrow keys, row clicks, the arrow glyph, key capture, then a page reload | Every value reached its system and came back after reload. Defaults and Reset keys restore. LMB capture no longer re-enters capture |
+| Rebinding | Reload to T | Guide and Settings show T. Real fire then T reloads |
+| HUD against state | Bot plus grants at both sizes, DOM read against ctx | Wave, left, score, health, ammo, combo, multiplier, perks with times, chips, boss, tach all agree |
+| Reveal | 2 husks left in the real game | Tracked markers with distance, pulse on the minimap |

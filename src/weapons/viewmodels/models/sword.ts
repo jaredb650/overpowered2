@@ -96,7 +96,7 @@ function hilt(m: Mesher): void {
           const lift = 0.0009 + 0.0009 * Math.sin(u * Math.PI);
           const rise = dir > 0 ? v : 1 - v;
           o.set(Math.cos(ang) * (a + lift), Math.sin(ang) * (b + lift), z0 + rise * pitch + (u - 0.5) * band * 2);
-        }, { flip: false });
+        }, { flip: true });
       }
     }
   }
@@ -163,19 +163,22 @@ const REST: Pose = [0.2, -0.205, -0.43, 0.88, 0.14, -0.72];
 const COCK: Pose = [0.3, -0.13, -0.4, 0.5, -0.5, -0.95];
 const PARRY: Pose = [0.08, -0.14, -0.44, 0.72, 0.42, -1.25];
 
-/** Each arc: where it starts, where the middle is pulled to, where it ends. */
+/**
+ * Each arc: where it starts, the pose at its midpoint, where it ends. The blade has to stay on screen for the whole
+ * cut, so the hilt stays near the bottom edge and it is the blade that crosses the view.
+ */
 const ARCS: Record<'light1' | 'light2' | 'light3', readonly [Pose, Pose, Pose]> = {
-  // Down and a little left, from over the right shoulder.
-  light1: [[0.27, 0.02, -0.4, 1.7, -0.32, 0.1], [0.08, -0.08, -0.72, 0.2, 0.08, 0.12], [-0.13, -0.36, -0.46, -0.95, 0.42, 0.16]],
-  // Rising to the right, edge leading, picked up where the first cut ended.
-  light2: [[-0.14, -0.32, -0.46, -0.72, 0.5, 2.5], [0.08, -0.12, -0.74, 0.32, 0.05, 2.45], [0.34, 0.04, -0.46, 1.32, -0.62, 2.3]],
-  // Flat, right to left, the widest of the three.
-  light3: [[0.38, -0.06, -0.38, 0.08, -1.22, -1.57], [0.05, -0.1, -0.8, 0.12, 0, -1.57], [-0.32, -0.16, -0.42, 0.12, 1.3, -1.57]],
+  // Down and a little left, from over the right shoulder. Sweep (-0.3, -1).
+  light1: [[0.25, 0.04, -0.45, 1.35, -0.25, -0.1], [0.1, -0.1, -0.56, 0.42, 0.2, -0.3], [-0.06, -0.27, -0.48, -0.45, 1.0, -0.5]],
+  // Rising to the right, edge leading, picked up where the first cut ended. Sweep (0.8, 0.6).
+  light2: [[-0.08, -0.27, -0.48, -0.4, 0.9, 2.2], [0.1, -0.16, -0.56, 0.55, 0.05, 2.2], [0.3, -0.03, -0.46, 0.95, -0.85, 2.2]],
+  // Flat, right to left, the widest of the three. The blade leans up so it crosses the screen as a long line. Sweep (-1, 0.06).
+  light3: [[0.34, -0.12, -0.42, 0.36, -1.2, -1.57], [0.04, -0.18, -0.58, 0.5, 0, -1.57], [-0.26, -0.18, -0.46, 0.36, 1.2, -1.57]],
 };
 
-const AREA: readonly [Pose, Pose, Pose] = [[0.4, -0.12, -0.34, 0.08, -1.5, -1.57], [0.02, -0.1, -0.86, 0.1, 0.1, -1.57], [-0.46, -0.2, -0.38, 0.12, 2.25, -1.57]];
-const SLAM_TOP: Pose = [0.14, 0.17, -0.3, 2.05, -0.1, 0.08];
-const SLAM_END: Pose = [0.03, -0.37, -0.64, -1.05, 0.02, 0];
+const AREA: readonly [Pose, Pose, Pose] = [[0.38, -0.12, -0.36, 0.3, -1.45, -1.57], [0.02, -0.18, -0.62, 0.42, 0.1, -1.57], [-0.42, -0.22, -0.38, 0.3, 1.9, -1.57]];
+const SLAM_TOP: Pose = [0.12, 0.2, -0.32, 2.0, -0.1, -0.1];
+const SLAM_END: Pose = [0.1, -0.11, -0.42, -0.6, 0.15, -0.35];
 
 const cur = new Float64Array(6);
 const from = new Float64Array(6);
@@ -189,9 +192,13 @@ function mix(out: Float64Array, a: ArrayLike<number>, b: ArrayLike<number>, t: n
   for (let i = 0; i < 6; i++) out[i] = a[i]! + (b[i]! - a[i]!) * t;
 }
 
-function bezier(out: Float64Array, c: readonly [Pose, Pose, Pose], t: number): void {
+/** The quadratic through all three poses, so the middle one is a pose the blade actually reaches. */
+function arc(out: Float64Array, c: readonly [Pose, Pose, Pose], t: number): void {
   const u = 1 - t;
-  for (let i = 0; i < 6; i++) out[i] = u * u * c[0][i]! + 2 * u * t * c[1][i]! + t * t * c[2][i]!;
+  for (let i = 0; i < 6; i++) {
+    const mid = 2 * c[1][i]! - (c[0][i]! + c[2][i]!) / 2;
+    out[i] = u * u * c[0][i]! + 2 * u * t * mid + t * t * c[2][i]!;
+  }
 }
 
 function clip(a: Anim): void {
@@ -208,9 +215,8 @@ function clip(a: Anim): void {
   let heat = 0;
 
   if (move === 'light1' || move === 'light2' || move === 'light3') {
-    const arc = ARCS[move];
     // Fastest at the start: the hit lands on the frame of the click, so the blade cannot be seen winding up.
-    bezier(cur, arc, outQuad(Math.min(p, 1)));
+    arc(cur, ARCS[move], outQuad(Math.min(p, 1)));
     if (p < 0.14) mix(cur, from, cur, inOut(p / 0.14));
     if (back > 0) mix(cur, cur, REST, inOut(back));
   } else if (move === 'windup') {
@@ -225,7 +231,7 @@ function clip(a: Anim): void {
     heat = w * w * 0.16;
   } else if (move === 'area') {
     // 80 ms into line, then one flat sweep. It leaves the screen on the left, and comes home from below.
-    bezier(cur, AREA, inOut(seg(p, 0.2, 1) * 0.5 + seg(p, 0.2, 1) ** 2 * 0.5));
+    arc(cur, AREA, inOut(seg(p, 0.2, 1) * 0.5 + seg(p, 0.2, 1) ** 2 * 0.5));
     if (p < 0.2) mix(cur, from, cur, outCubic(p / 0.2));
     if (back > 0) {
       mix(cur, cur, REST, inOut(back));

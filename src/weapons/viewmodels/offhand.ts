@@ -103,7 +103,7 @@ export class Offhand {
     if (this.state === 'cook') {
       const k = outBack(seg(t, 0, 0.2), 1.1);
       this.leftWeight = outCubic(seg(t, 0, 0.14));
-      p.set(-0.22, -0.2, -0.36).lerp(REST_LOW, 1 - k);
+      p.set(-0.2, -0.125, -0.36).lerp(REST_LOW, 1 - k);
       r.set(0.55, 0.3, 0.2);
       // Pin rips out on the way up, and a small tremble says the fuse is live.
       const pin = g.parts.pin!;
@@ -123,7 +123,7 @@ export class Offhand {
     const back = inOut(seg(t, 0, 0.05));
     const whip = inQuad(seg(t, 0.05, 0.14));
     const low = outCubic(seg(t, 0.14, 0.4));
-    p.set(-0.22, -0.2, -0.36);
+    p.set(-0.2, -0.125, -0.36);
     p.x += back * -0.05 + whip * 0.1;
     p.y += back * 0.1 - whip * 0.1 - low * 0.3;
     p.z += back * 0.08 - whip * 0.32 + low * 0.2;
@@ -143,7 +143,8 @@ export class Offhand {
   }
 
   private updateDevice(dt: number): void {
-    const want = this.device_;
+    // A confirmed call ends targeting on that frame. The thumb still has to be seen landing on the key.
+    const want = this.device_ ?? (this.press > 0.75 ? this.shownDevice : null);
     if (want && this.shownDevice !== want && this.deviceW < 0.05) this.shownDevice = want;
     this.deviceW = damp(this.deviceW, want && want === this.shownDevice ? 1 : 0, want ? 11 : 15, dt);
     const dev = this.shownDevice;
@@ -167,7 +168,7 @@ export class Offhand {
     const p = m.root.position;
     if (dev === 'walkie') {
       this.ctl.pose.set(HANDS.radio);
-      p.set(-0.155, -0.115, -0.33);
+      p.set(-0.2, -0.155, -0.38);
       r.set(0.1, 0.42, -0.12);
       m.parts.ptt!.position.x = m.parts.ptt!.userData.x ?? (m.parts.ptt!.userData.x = m.parts.ptt!.position.x);
       m.parts.ptt!.position.x += this.press > 0 ? 0.0016 : 0;
@@ -177,7 +178,7 @@ export class Offhand {
       this.drawLcd(m, dt);
     } else {
       this.ctl.pose.set(HANDS.grip);
-      p.set(-0.14, -0.13, -0.32);
+      p.set(-0.13, -0.1, -0.36);
       r.set(0.06, 0.2, 0);
       const laser = m.glows.laser;
       if (laser) laser.color.copy(laser.userData.base as THREE.Color).multiplyScalar(0.7 + this.press * 2 + 0.2 * Math.sin(this.t * 31));

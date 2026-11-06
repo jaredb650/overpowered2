@@ -152,6 +152,8 @@ export class Pickups {
   private readonly free: Pickup[] = [];
   private readonly slots: MapSlot[] = [];
   private readonly meshes = new Map<ModelKind, KindMeshes>();
+  /** Parsed once: Color.set on a string runs a regex, and this is read for every pickup on every frame. */
+  private readonly tints = new Map<ModelKind, THREE.Color>();
   private readonly halos: THREE.InstancedMesh;
   private readonly columns: THREE.InstancedMesh;
   private readonly probe: GroundProbe;
@@ -164,7 +166,9 @@ export class Pickups {
   constructor(private readonly ctx: Ctx, materials: ModelMaterials) {
     this.probe = new GroundProbe(ctx);
     for (const kind of Object.keys(PICKUP_LOOK) as PickupKind[]) {
-      if (kind !== 'weaponCache') this.meshes.set(kind, new KindMeshes(ctx, kind, materials, INSTANCE_CAP[kind] ?? POWERUP_CAP));
+      if (kind === 'weaponCache') continue;
+      this.meshes.set(kind, new KindMeshes(ctx, kind, materials, INSTANCE_CAP[kind] ?? POWERUP_CAP));
+      this.tints.set(kind, new THREE.Color(PICKUP_LOOK[kind].color));
     }
 
     const billboard = (vertexShader: string, fragmentShader: string, geometry: THREE.BufferGeometry, cap: number) => {
@@ -408,7 +412,7 @@ export class Pickups {
         hud.feed('Ammo collected', look.color);
         break;
       case 'megaHealth':
-        player.health = Math.min(player.health + MEGA.heal, player.maxHealth * MEGA.overhealFactor);
+        player.heal(MEGA.heal, true);
         hud.feed(`MEGA HEALTH +${MEGA.heal}`, look.color);
         break;
       case 'heavyArmor':
@@ -491,7 +495,7 @@ export class Pickups {
       this.meshes.get(p.kind)!.push(_m);
 
       if (halos < MAX_LIVE) {
-        _c.set(PICKUP_LOOK[p.kind].color).multiplyScalar(p.source === 'capsule' ? 1.5 : 0.8);
+        _c.copy(this.tints.get(p.kind)!).multiplyScalar(p.source === 'capsule' ? 1.5 : 0.8);
         _s.setScalar(p.source === 'capsule' ? 3.4 : p.source === 'map' ? 3 : 1.9);
         _q.identity();
         _m.compose(_p, _q, _s);
@@ -501,7 +505,7 @@ export class Pickups {
       }
       if (p.source !== 'drop' && p.source !== 'supply' && columns < 16) {
         // The column of light that says "go get that" from across a zone.
-        _c.set(PICKUP_LOOK[p.kind].color).multiplyScalar(1.1);
+        _c.copy(this.tints.get(p.kind)!).multiplyScalar(1.1);
         _s.set(1.1, 22, 1);
         _m.compose(p.position, _q.identity(), _s);
         this.columns.setMatrixAt(columns, _m);

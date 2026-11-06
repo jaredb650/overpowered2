@@ -424,7 +424,7 @@ if (vmKindId > 0.5 && vmKindId < 1.5) {
   float temper = smoothstep(-0.018, 0.03, across - line);
   float mist = 1.0 - smoothstep(0.0, 0.05, abs(across - line));
   vmAlb = mix(vec3(0.34, 0.35, 0.38), vec3(0.8, 0.82, 0.85), temper) * (0.92 + grainAlong * 0.16) + mist * 0.18;
-  vmRough = mix(0.36, 0.13, temper) + (grainAlong - 0.5) * 0.12;
+  vmRough = mix(0.4, 0.22, temper) + (grainAlong - 0.5) * 0.12;
   vmMetal = 1.0;
   vmBump = 0.03;
   vmHeatShape = across * across;
@@ -450,8 +450,10 @@ vmRough = mix(min(vmRough + 0.35, 1.0), vmRough, vmAo);
 // Perk looks. A buffed gun has to stay a detailed gun, so none of these replace the surface: emission lives in thin
 // veins and broken edge lines, and everything between them keeps its own albedo, wear and reflections.
 float vmVeinN = vmFine.a * 0.72 + vmBig.a * 0.28;
-float vmVein = 1.0 - smoothstep(0.0, 0.016, abs(vmVeinN - 0.5 - 0.05 * sin(uClock * 0.8 + vmBig.r * 6.0)));
-float vmEdgeLine = smoothstep(0.35, 0.7, vmEdge) * smoothstep(0.46, 0.6, vmVeinN);
+// Hard surfaces only, and only in patches: cracks everywhere read as a marble texture, not as a hot gun.
+float vmVeinMask = step(vmKindId, 4.5) * smoothstep(0.5, 0.64, vmBig.r);
+float vmVein = vmVeinMask * (1.0 - smoothstep(0.0, 0.011, abs(vmVeinN - 0.5 - 0.05 * sin(uClock * 0.8 + vmBig.r * 6.0))));
+float vmEdgeLine = step(vmKindId, 4.5) * smoothstep(0.35, 0.7, vmEdge) * smoothstep(0.5, 0.62, vmVeinN);
 
 float vmFrost = uFrost * smoothstep(0.46, 0.66, vmBig.r * 0.5 + vmFine.a * 0.3 + max(vmN.y, 0.0) * 0.18 + vmEdge * 0.2 + (uFrost - 0.5) * 0.35);
 vmAlb = mix(vmAlb, vec3(0.62, 0.76, 0.9) * (0.75 + 0.5 * vmFine.b), vmFrost * 0.8);
@@ -494,8 +496,18 @@ const LIGHT_BAND = /* glsl */`
 }
 `;
 
+/**
+ * A muzzle flash sits centimetres from the barrel, so its inverse-square light would burn the whole gun to one flat
+ * colour on every shot. Limiting the light before it meets the surface keeps albedo and wear readable under the flash.
+ */
+const POINT_ATTENUATION = 'light.color *= getDistanceAttenuation( lightDistance, pointLight.distance, pointLight.decay );';
+const POINT_LIMITED = THREE.ShaderChunk.lights_pars_begin.replace(POINT_ATTENUATION, `${POINT_ATTENUATION}
+\tlight.color /= 1.0 + max( max( light.color.r, light.color.g ), light.color.b ) * 0.4;`);
+
 function lightBand(shader: THREE.WebGLProgramParametersWithUniforms): void {
-  shader.fragmentShader = shader.fragmentShader.replace('#include <lights_fragment_end>', `${LIGHT_BAND}\n#include <lights_fragment_end>`);
+  shader.fragmentShader = shader.fragmentShader
+    .replace('#include <lights_pars_begin>', POINT_LIMITED)
+    .replace('#include <lights_fragment_end>', `${LIGHT_BAND}\n#include <lights_fragment_end>`);
 }
 
 function inject(shader: THREE.WebGLProgramParametersWithUniforms, uniforms: Record<string, THREE.IUniform>): void {

@@ -620,6 +620,18 @@ export class Rag {
     part.body.applyImpulseAtPoint(_d, point, true);
   }
 
+  /** Moves the whole chain as one mass, shared out by weight. Nothing here turns it, however hard the push. */
+  shove(impulse: THREE.Vector3): void {
+    if (this.parts.length === 0 || !Number.isFinite(impulse.x + impulse.y + impulse.z)) return;
+    let mass = 0;
+    for (const part of this.parts) mass += part.mass;
+    const force = DevFlags.force;
+    const top = RagTuning.maxBlastSpeed * Math.max(force, 1);
+    const speed = (impulse.length() * force) / mass;
+    const scale = (speed > top ? (force * top) / speed : force) / mass;
+    for (const part of this.parts) part.body.applyImpulse(_d.copy(impulse).multiplyScalar(part.mass * scale), true);
+  }
+
   /** Same falloff as Physics.radialImpulse, for bodies too new for it to find. */
   radialImpulse(center: THREE.Vector3, radius: number, strength: number): void {
     const muscle = this.muscle;
