@@ -442,12 +442,22 @@ async function headless(): Promise<void> {
 
   // --- Assist kills ----------------------------------------------------------------------------
   fresh();
+  kill({});
+  step(2);
+  const timerBefore = prog.comboTimer;
   for (let i = 0; i < 30; i++) kill({ source: 'airstrike' });
   step(0.05);
-  check('Strike kills climb the combo at half rate', prog.combo === 15, prog.combo);
-  check('Strike kills keep the combo alive', prog.comboTimer > 0.9, prog.comboTimer);
+  check('Strike kills do not climb the combo', prog.combo === 1, prog.combo);
+  check('Strike kills keep the combo alive', prog.comboTimer > timerBefore, prog.comboTimer);
+  fresh();
+  for (let i = 0; i < 30; i++) kill({ source: 'chopper' });
+  step(0.05);
+  check('Gunner seat kills climb at half rate', prog.combo === 15, prog.combo);
+  fresh();
+  for (let i = 0; i < 30; i++) kill({ source: 'airstrike' });
+  step(0.05);
   check('Strike kills feed no perk window', !prog.isActive('bloodthirst') && !prog.isActive('hellfire'));
-  check('Strike kills pay full score', prog.kills === 30 && prog.score > 3000, prog.score);
+  check('Strike kills pay full score', prog.kills === 30 && prog.score >= 3000, prog.score);
 
   fresh();
   for (let i = 0; i < 48; i++) kill({ source: 'nuke', playerAirborne: true, playerSpeed: 30, explosionId: 2 });

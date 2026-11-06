@@ -196,6 +196,8 @@ interface Posed {
 
 /** Postures a man holds a pistol out in, when the hand with the grip is gone. */
 const AIMING: ReadonlySet<PostureName> = new Set<PostureName>(['stand', 'peek', 'leanLeft', 'leanRight']);
+/** Postures a gut wound will not let him straighten up into. */
+const UPRIGHT: ReadonlySet<PostureName> = new Set<PostureName>(['stand', 'crouch', 'peek', 'flee']);
 
 /**
  * Every posture goes through here, so a wound can overrule whatever his orders want from his body. A man on the floor stays on it
@@ -206,6 +208,6 @@ export function pose(e: Enemy, posture: PostureName): void {
   let wanted = posture;
   if (s?.injuries.floored) wanted = 'downed';
   else if (s?.sidearmLeft && s.weapon === 'sidearm' && AIMING.has(posture)) wanted = 'pistol';
-  else if (s?.injuries.hunched && posture === 'stand') wanted = 'hunched';
+  else if (s?.injuries.hunched && UPRIGHT.has(posture)) wanted = 'hunched';
   (e.char.anim as unknown as Posed).setPosture?.(wanted);
 }

@@ -170,6 +170,7 @@ export class WoundSystem {
     this.record(s, b, zone, hit.side, d, share, amount);
     this.mark(s, b, zone, d);
     const rule = ZONES[zone];
+    if (rule.hunches) pose(s.e, 'stand');
     if (rule.disables) this.loseLimb(s, b, hit.side, rule.disables);
     if (legs) {
       this.manager.model.updateMaim(s.e);
