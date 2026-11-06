@@ -230,7 +230,7 @@ player.modifiers.invulnerable = true;
 const input = game.input;
 const route = new Route();
 const STATIONS: [number, number, number][] = [[6.6, 0.1, 3], [11.7, 0.1, -11.7], [0, 0.1, -19], [-19, 0.1, -19], [-30, 0.1, 6], [-20, 0.1, 31], [19, 0.1, 19], [30, 0.1, -4]];
-let station = 0, turnClock = 0, side = 1, fireClock = 0, sense = 0;
+let station = 0, turnClock = 0, side = 1, fireClock = 0, stuck = 0;
 const goal = new THREE.Vector3();
 
 function steer(to: THREE.Vector3): void {
@@ -240,7 +240,10 @@ function steer(to: THREE.Vector3): void {
 function drive(dt: number): void {
   turnClock -= dt;
   if (bot === 'runner' || bot === 'fighter') {
-    if (route.count === 0 || route.done) {
+    // A bot that runs into a corner picks the next station, because a player would not stand there pushing on the wall.
+    stuck = player.speed < 3 ? stuck + dt : 0;
+    if (route.count === 0 || route.done || stuck > 0.5) {
+      stuck = 0;
       station = (station + 1) % STATIONS.length;
       goal.set(...STATIONS[station]!);
       outpost.routes.find(player.position, goal, route, null);

@@ -14,6 +14,8 @@ export interface RoleDef {
   far: number;
   /** Rounds, bursts or rockets before a reload, counted in shots. */
   mag: number;
+  /** Spare magazines. A man who runs through them is out of the fight, and knows it. */
+  mags: number;
   reload: number;
   /** Starting morale. Heavier kit means a harder man. */
   morale: number;
@@ -28,13 +30,13 @@ export interface RoleDef {
 }
 
 export const ROLES: Record<Role, RoleDef> = {
-  rifle: { near: 11, far: 26, mag: 18, reload: 2.3, morale: 100, firesOnTheMove: true, base: false, twoHanded: true, sidearm: true },
-  shotgun: { near: 5, far: 12, mag: 5, reload: 2.8, morale: 100, firesOnTheMove: true, base: false, twoHanded: true, sidearm: true },
-  machinegun: { near: 14, far: 32, mag: 66, reload: 4.2, morale: 125, firesOnTheMove: false, base: true, twoHanded: true, sidearm: false },
-  rocket: { near: 14, far: 34, mag: 2, reload: 4, morale: 105, firesOnTheMove: false, base: true, twoHanded: true, sidearm: true },
-  marksman: { near: 20, far: 46, mag: 4, reload: 3, morale: 105, firesOnTheMove: false, base: true, twoHanded: true, sidearm: true },
-  shield: { near: 6, far: 16, mag: 8, reload: 2.2, morale: 120, firesOnTheMove: true, base: false, twoHanded: false, sidearm: false },
-  medic: { near: 12, far: 26, mag: 6, reload: 2.4, morale: 110, firesOnTheMove: false, base: true, twoHanded: true, sidearm: true },
+  rifle: { near: 9, far: 24, mag: 30, mags: 6, reload: 2, morale: 100, firesOnTheMove: true, base: false, twoHanded: true, sidearm: true },
+  shotgun: { near: 3, far: 10, mag: 6, mags: 6, reload: 2.5, morale: 100, firesOnTheMove: true, base: false, twoHanded: true, sidearm: true },
+  machinegun: { near: 14, far: 36, mag: 100, mags: 3, reload: 3.4, morale: 125, firesOnTheMove: false, base: true, twoHanded: true, sidearm: false },
+  rocket: { near: 14, far: 34, mag: 2, mags: 3, reload: 3.4, morale: 105, firesOnTheMove: false, base: true, twoHanded: true, sidearm: true },
+  marksman: { near: 20, far: 46, mag: 5, mags: 5, reload: 2.6, morale: 105, firesOnTheMove: false, base: true, twoHanded: true, sidearm: true },
+  shield: { near: 4, far: 14, mag: 12, mags: 4, reload: 2, morale: 120, firesOnTheMove: true, base: false, twoHanded: false, sidearm: false },
+  medic: { near: 12, far: 26, mag: 12, mags: 3, reload: 2.2, morale: 110, firesOnTheMove: false, base: true, twoHanded: true, sidearm: true },
 };
 
 export const ROLE_OF: Partial<Record<EnemyId, Role>> = {
@@ -114,8 +116,6 @@ export function composeOutpostWave(wave: number, roll: () => number = Math.rando
 export interface Doctrine {
   /** Anyone may give up. The Commander turns this off once the player starts executing prisoners. */
   surrender: boolean;
-  /** Chance a broken man gives up rather than runs, with the player out of reach. Close by he has no choice. */
-  surrenderChance: number;
   /** Metres between men when choosing cover. Raised against explosives. */
   spacing: number;
   /** Fragmentation grenades a soldier carries. */
@@ -136,18 +136,17 @@ export interface Doctrine {
 
 export const defaultDoctrine = (): Doctrine => ({
   surrender: true,
-  surrenderChance: 0.35,
   spacing: 2.2,
-  grenades: 1,
+  grenades: 2,
   flankAngle: 95,
-  fixAfter: 12,
-  fixError: 7,
+  fixAfter: 6,
+  fixError: 5,
   stacks: true,
   keepOut: 0,
   radioSilence: false,
 });
 
-/** Simultaneous shooters and the gap between bursts. Fewer men than the swarm, so each one gets to matter. */
+/** Simultaneous shooters and the gap between bursts. Fewer men than the swarm, so nearly every one of them gets to fire. */
 export function fireRules(wave: number): { limit: number; gap: number } {
-  return { limit: Math.min(3 + Math.floor(wave / 2), 7), gap: Math.max(0.5 - wave * 0.03, 0.2) };
+  return { limit: Math.min(5 + Math.floor(wave / 2), 10), gap: Math.max(0.26 - wave * 0.015, 0.1) };
 }

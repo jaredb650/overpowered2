@@ -6,12 +6,15 @@ import type { Enemy } from '../Enemy';
 import type { CoverSpot } from './cover';
 import { ROLES, type Role, type RoleDef } from './doctrine';
 import type { MoraleState } from './morale';
+import { RANKS, type Rank, type RankDef } from './rank';
 import { Route } from './routes';
 import type { OutpostSquad } from './squad';
 
 export type Task = 'hold' | 'move';
 export type HoldStage = 'hide' | 'peek';
 export type Fate = 'none' | 'flee' | 'surrender';
+/** Where a prisoner stands with the player. See prisoners.ts. */
+export type Captive = 'none' | 'kneeling' | 'held' | 'leaving';
 export type AidStage = 'none' | 'reach' | 'drag' | 'treat';
 export type Grenade = 'frag' | 'flash';
 /** What is in his hands. */
@@ -20,13 +23,15 @@ export type Weapon = 'primary' | 'sidearm' | 'none';
 export type Urgency = 0 | 1 | 2;
 
 /** A man can sprint this long before dropping back to a jog. */
-export const SPRINT_SECONDS = 3;
+export const SPRINT_SECONDS = 5;
 
 export class Soldier {
   e!: Enemy;
   squad!: OutpostSquad;
   role: Role = 'rifle';
   def: RoleDef = ROLES.rifle;
+  rank: Rank = 'regular';
+  rankDef: RankDef = RANKS.regular;
   /** Number in the squad, for 'Alpha-2'. */
   seat = 0;
   /** Which of the squad's two fire teams. One moves while the other covers. */
@@ -78,9 +83,18 @@ export class Soldier {
   /** Where the gun points when he cannot see the player. */
   readonly aim = new THREE.Vector3();
   mag = 0;
+  /** Spare magazines left. */
+  reserve = 0;
   reloadUntil = 0;
+  /** Last round he sent, which is how the squad knows it has fire on the threat. */
+  firedAt = -99;
+  /** Holding fire and keeping quiet until the squad springs. */
+  silent = false;
+  /** When he next gets a fresh place to run to in a rush. */
+  rushAt = 0;
 
   grenades = 0;
+  flashes = 0;
   /** A throw the squad has ordered. */
   throwKind: Grenade | null = null;
   readonly throwAt = new THREE.Vector3();
@@ -91,6 +105,15 @@ export class Soldier {
   surrenderedAt = 0;
   /** Finished kneeling: led off the map, or left to walk. */
   released = false;
+  captive: Captive = 'none';
+  /** Already questioned. A man has one chance to talk. */
+  questioned = false;
+  /** Last time a round hit him, so that the shot itself can never be what makes him give up. */
+  hitAt = -99;
+  /** Next look at whether the fight has turned, or for a prisoner, at what he can get away with. */
+  judgeAt = 0;
+  /** Last moment the player could see this prisoner. */
+  watchedAt = 0;
 
   /** Led the squad at the moment he left it. Read once, after the body is gone. */
   wasLeader = false;
@@ -124,6 +147,8 @@ export class Soldier {
   clear(): void {
     this.role = 'rifle';
     this.def = ROLES.rifle;
+    this.rank = 'regular';
+    this.rankDef = RANKS.regular;
     this.seat = 0;
     this.team = 0;
     this.morale = this.baseMorale = 100;
@@ -149,13 +174,20 @@ export class Soldier {
     this.noShotSince = 0;
     this.nextPeekAt = this.peekUntil = 0;
     this.exposed = this.blind = this.suppressing = false;
-    this.mag = 0;
+    this.mag = this.reserve = 0;
     this.reloadUntil = 0;
-    this.grenades = 0;
+    this.firedAt = -99;
+    this.silent = false;
+    this.rushAt = 0;
+    this.grenades = this.flashes = 0;
     this.throwKind = null;
     this.fate = 'none';
     this.surrendered = this.released = false;
     this.surrenderedAt = 0;
+    this.captive = 'none';
+    this.questioned = false;
+    this.hitAt = -99;
+    this.judgeAt = this.watchedAt = 0;
     this.wasLeader = false;
     this.downed = false;
     this.rescuer = this.patient = null;
