@@ -55,7 +55,7 @@ void main() {
   vec2 slope = (t.gb - 0.5) * 2.0;
   // A wet bead: darker body, a sharp highlight where the surface tilts toward the light.
   float spec = smoothstep(0.42, 0.62, slope.y - slope.x * 0.4);
-  vec3 col = vec3(0.075, 0.0, 0.002) + vec3(0.3, 0.06, 0.06) * spec;
+  vec3 col = vec3(0.14, 0.002, 0.005) + vec3(0.34, 0.07, 0.07) * spec;
   float alpha = a * 0.72;
   gl_FragColor = vec4(col * alpha, alpha);
   ${OUTPUT_FRAG}

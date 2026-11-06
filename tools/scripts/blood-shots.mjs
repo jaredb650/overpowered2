@@ -14,6 +14,7 @@
 //                      camera on a nearby surface and fire at it head on and at a glancing angle.
 //   BS_FRAMES=1,3,..   Columns.
 //   BS_DIR=path        Where the sheets go.
+//   BS_CELL=px         Width of one cell in the sheet.
 //   BS_CROP=px         Width of the crop out of the frame. Default 1280 near, 520 far.
 //   BS_PREVIEW=1       One frame per spot with its mean luminance, to find dark and bright places.
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -27,8 +28,8 @@ const FRAMES = (process.env.BS_FRAMES ?? '1,3,6,12,24,60,120').split(',').map(Nu
 const PREVIEW = process.env.BS_PREVIEW === '1';
 const DIR = process.env.BS_DIR ?? 'tools/out/blood';
 const CROP = Number(process.env.BS_CROP ?? 0);
-const CELL_W = 400;
-const CELL_H = 250;
+const CELL_W = Number(process.env.BS_CELL ?? 400);
+const CELL_H = CELL_W * 0.625;
 
 /** Runs in the page. */
 function install({ cellW, cellH, crop }) {

@@ -1076,8 +1076,8 @@ export class Gore implements GoreSystem {
     if (distance > radius) return;
     // With no room a wake only swaps places with a chain already moving, and that one comes back at rest.
     if (!rag.active && !this.hasRoom(target)) return;
-    // A chain that has already stepped is in the query structures, and Physics will reach it by itself. Except on
-    // the muscle layer, which throws each body along one line and so is always ours.
+    // A chain that has already stepped is in the query structures, so Physics finds it, but what it applies from
+    // inside that query is lost (see "Known bug" in docs/notes/gore.md). The muscle layer throws its own, along one line.
     if (!rag.active || rag.age <= 0 || rag.muscle) {
       this.wake(target);
       rag.radialImpulse(center, radius, strength);

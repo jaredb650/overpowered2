@@ -64,7 +64,7 @@ export function bloodJet(core: FxCore, position: THREE.Vector3, dir: THREE.Vecto
   }
   b.setTone(BLOOD_TONE.venous);
   drops(core, x, y, z, dir.x, dir.y, dir.z, 2, 2.8 * pressure, beats * 0.13);
-  b.mist(x, y, z, dir.x * 6, dir.y * 6, dir.z * 6, 0.15 * pressure, 0.26, 7, 0.9);
+  b.mist(x, y, z, dir.x * 6, dir.y * 6, dir.z * 6, 0.15 * pressure, 0.26, 7, 0.6);
 }
 
 /**
@@ -78,7 +78,7 @@ export function bloodHit(core: FxCore, position: THREE.Vector3, dir: THREE.Vecto
   stream(core, x, y, z, dir.x, dir.y, dir.z, 3, 6.5 * p, 1.2, 0.012, 0.09, 2.2, 0, 2);
   stream(core, x, y, z, dir.x * -0.7, 0.75 - dir.y * 0.7, dir.z * -0.7, 3, 4.6 * p, 1.1, 0.0095, 0.08, 1.8, 0, 3);
   drops(core, x, y, z, dir.x, dir.y, dir.z, 2, 2.4 * p, 0.03);
-  b.mist(x, y, z, -dir.x * 2.2, 0.4 - dir.y * 2.2, -dir.z * 2.2, 0.13 * p, 0.2, 8, 0.85);
+  b.mist(x, y, z, -dir.x * 2.2, 0.4 - dir.y * 2.2, -dir.z * 2.2, 0.13 * p, 0.2, 8, 0.55);
 }
 
 /** A faint breath of fine drops. It is gone in half a second: blood mist that hangs is a video game effect. */
@@ -87,7 +87,7 @@ export function bloodMist(core: FxCore, position: THREE.Vector3, size = 1): void
   const b = core.blood.begin(core.bloodNow, -1e6, null, BLOOD_TONE.wound);
   for (let i = 0; i < 3; i++) {
     _v.set(rand(-1, 1), rand(-0.3, 0.6), rand(-1, 1)).normalize().multiplyScalar(rand(0.8, 2));
-    b.mist(x, y, z, _v.x, _v.y, _v.z, 0.15 * size, rand(0.35, 0.55), 6, 0.5);
+    b.mist(x, y, z, _v.x, _v.y, _v.z, 0.15 * size, rand(0.35, 0.55), 6, 0.4);
   }
 }
 
@@ -109,7 +109,7 @@ export function gibBurst(core: FxCore, position: THREE.Vector3, dir: THREE.Vecto
     _v.set(dir.x + rand(-0.8, 0.8), dir.y + rand(0, 0.9), dir.z + rand(-0.8, 0.8)).normalize();
     drops(core, x, y, z, _v.x, _v.y, _v.z, 1, rand(4, 8) * f, i * 0.02);
   }
-  for (let i = 0; i < 2; i++) b.mist(x, y, z, dir.x * 5 + rand(-1, 1), dir.y * 5 + rand(0, 2), dir.z * 5 + rand(-1, 1), 0.22, 0.3, 7, 0.8);
+  for (let i = 0; i < 2; i++) b.mist(x, y, z, dir.x * 5 + rand(-1, 1), dir.y * 5 + rand(0, 2), dir.z * 5 + rand(-1, 1), 0.22, 0.3, 7, 0.55);
   spatter(core, position, 1);
 }
 

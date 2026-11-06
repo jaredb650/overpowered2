@@ -317,7 +317,8 @@ export default async function stress(page, h) {
   });
   writeFileSync(file, JSON.stringify({ plan: PLAN, rows, nodes, ...tail }, null, 1));
 
-  const losses = r => (r.dropped ?? 0) + (r.droppedBudget ?? 0) + (r.droppedFamily ?? 0) + (r.thinnedQuiet ?? 0) + (r.thinnedRepeat ?? 0) + (r.notRunning ?? 0) + (r.missed ?? 0) + (r.invalid ?? 0);
+  // Not `notRunning`: the hidden phase suspends the context with the game still firing, which a really hidden tab cannot do.
+  const losses = r => (r.dropped ?? 0) + (r.droppedBudget ?? 0) + (r.droppedFamily ?? 0) + (r.thinnedQuiet ?? 0) + (r.thinnedRepeat ?? 0) + (r.missed ?? 0) + (r.invalid ?? 0);
   const lost = Object.entries(tail.ids).filter(([id, r]) => MUST_PLAY.test(id) && losses(r) > 0).map(([id, r]) => `${id} lost ${losses(r)} of ${r.asked}`);
   const firing = tail.meters.filter(m => !['idle', 'pause', 'hidden'].includes(m.phase));
   const asked = Object.values(tail.ids).reduce((n, r) => n + r.asked, 0);

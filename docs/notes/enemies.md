@@ -46,8 +46,8 @@ changes what is available on the next think.
 ## Decisions worth knowing
 
 - **Contact deals no damage.** Every hit the player takes is a telegraphed attack. A running player shoulders light bodies
-  aside and staggers them. Heavies (`mass`, `contactRadius`) cancel the inward part of the player's motion, so they are slid
-  around. A player standing in a body is bumped out. `player.push` cancels a slide, dash or wall run, so it is only used on feet
+  aside and staggers them. Heavies (`mass`, `contactRadius`) cancel the inward part of the player's motion in a bump, which stops
+  a run dead, but they are not walls: keep pushing and the player gets through. A player standing in a body is bumped out. `player.push` cancels a slide, dash or wall run, so it is only used on feet
   or in free flight, and those moves pass through everything. It also lifts the player off the floor, so called every frame it
   stacks into a throw: it is one bump, `NUDGE_GAP` apart, shared by all bodies.
 - **Pads throw enemies with the pad's real velocity**, the arc the map was tuned for. Gravity is the same -28. An enemy that
@@ -115,8 +115,27 @@ turning at each end, inside the fight.
 | 3 | 19.6 s | 13.7 s | 17.0 | alive at 55 s, 21 taken | 0.61 / 0.10 | 0.7 |
 | 5 | 15.5 s | 8.5 s | 14.4 | dead at 37.8 s | 0.88 / 0.11 | 6.1 |
 
-The wave 5 moving death is 131 of 142 damage from the Juggernaut's melee, which speed does not dodge by itself. Standing hit
-rates below 1 are bomber blasts and flames sharing the count. One run per cell, so expect several seconds of spread.
+The wave 5 moving death is 131 of 142 damage from the Juggernaut's melee, which speed does not dodge by itself. One run per
+cell, so expect several seconds of spread.
+
+**Reach.** Real waves at `/?autostart=1` against a passive player, 42 s of wall time per case. Game time is clamped at low frame
+rates, so a loaded run covers less. A failure is a body with no route gain and no movement over its last 10 s.
+
+| Player at | Run | Spawned | Engaged | Still walking | Stalled | Links crossed (pad flights) | Rescues |
+|---|---|---|---|---|---|---|---|
+| Ground, wave 4 | before leap-end change | 36 | 35 | 1 | 0 | 35 (22) | 0 |
+| Ring Road, wave 4 | before | 36 | 29 | 7 | 0 | 14 (0) | 4 |
+| Crown, wave 9 | before | 43 | 25 | 18 | 0 | 70 (66) | 9 |
+| Ground, wave 4 | final code, slow window | 36 | 4 | 32 | 0 | 20 (16) | 0 |
+| Ring Road, wave 4 | final code, slow window | 36 | 9 | 27 | 0 | 13 (1) | 0 |
+| Crown, wave 9 | final code, slow window | 56 | 36 | 11 | 0 | 44 (25) | 2 |
+
+The final-code window covered only 13 to 26 game seconds, so its engaged counts are low because time ran out, not because bodies
+failed. Rescues there are the straggler rule moving bodies more than 110 m behind, not stuck ones: a group rescued from
+(73, 0, -139) was followed alone and walked its 169 m route normally, pad flight included.
+
+**Contact**, player at 12.5 m/s into still bodies: five husks, 4 staggered and thrown up to 2 m. Brute and Juggernaut: run stopped
+to 0 by a bump. Standing inside a Brute: bumped 0.89 m at 2.6 m/s.
 
 ## Known limitations
 
@@ -133,7 +152,8 @@ rates below 1 are bomber blasts and flames sharing the count. One run per cell, 
   has only 90 nav nodes, all in one channel.
 - **Pad and jump flights have no collision.** Pad arcs were swept for the player. Leaps are short, but one can clip a corner.
 - **Not played by a human.** All of this comes from bots and scripted runs.
-- **60 fps at 48 alive is not verified.** See below.
+- **60 fps at 48 alive is not verified.** The most tested was 42 alive, under load average 30: 67 ms frames, 519 draw calls and
+  1.54M triangles, just over both budgets. Enemy CPU was 1.9 ms median, 6.4 ms p95, so the frame time is not the AI.
 
 ## Sandbox
 

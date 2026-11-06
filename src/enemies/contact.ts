@@ -3,8 +3,9 @@
  *
  * Momentum is the game, so a crowd must never pin or stop a fast player: a hard capsule against 48 bodies would turn
  * a swarm into a cage. So bodies give way, and speed is rewarded for it. A running player shoulders the light ones
- * aside and knocks them off their feet, which turns a charge through a pack into a way out. Heavies do not move, and
- * the player slides around them like a pillar. Standing still inside someone eases the player out, so the camera
+ * aside and knocks them off their feet, which turns a charge through a pack into a way out. Heavies bump a run to a
+ * stop, and a glancing run slides off with its speed. They are not walls: lean on one and the player gets through,
+ * because a hard block is how a crowd becomes a cage. Standing inside someone bumps the player out, so the camera
  * never sits in a skull.
  *
  * Contact itself never hurts. Every hit the player takes is a telegraphed attack; damage for touching would be

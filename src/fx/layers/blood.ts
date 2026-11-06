@@ -112,7 +112,7 @@ if (vStrand.z < 0.0) {
   vec2 q = vec2(bAcross / ${PAD.toFixed(2)}, bU * 2.0 - 1.0);
   float body = 1.0 - smoothstep(0.1, 1.0, length(q));
   float grain = bloodSpeck(q * 26.0 + bSeed * 91.0);
-  bAlpha = body * body * (0.3 + 0.7 * step(0.62, grain));
+  bAlpha = body * (0.45 + 0.55 * step(0.6, grain));
 } else {
   float beads = max(vStrand.z, 1.0);
   // The head is a round cap about as long as the strand is wide.
@@ -130,7 +130,7 @@ bAlpha *= vLook.y;
 if (bAlpha < 0.006) discard;
 vec3 bTint = mix(uVenous, uArterial, vLook.x);
 // A fine spray scatters what a solid drop absorbs, so it reads paler than the blood it came from.
-if (vStrand.z < 0.0) bTint *= 2.2;
+if (vStrand.z < 0.0) bTint *= 4.0;
 diffuseColor = vec4(vec3(1.0), bAlpha);
 `;
 

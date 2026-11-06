@@ -46,8 +46,9 @@ Rules for callers:
   not hold one past the frame.
 - `raycastCharacter` reads `bone.matrixWorld`, so it hits what was last rendered. It skips severed bones.
 - `force` is newton-seconds everywhere. 0 takes a default for the damage type. `gib` launch speed is `force / 34`, clamped to 9-24 m/s.
-- `physics.radialImpulse` is enough for blasts. Gore listens to it, wakes corpses in range and throws them, including bodies
-  killed earlier in the same frame, which Rapier's queries cannot see yet.
+- `physics.radialImpulse` is enough for blasts on bodies. Gore listens to it, wakes corpses in range and throws them,
+  including bodies killed earlier in the same frame, which Rapier's queries cannot see yet. See Known limitations for
+  everything else.
 - **Waist cut:** `sever(char, 'abdomen', ...)` on a living character returns `result.torso`, a `TorsoHalf`. The instance becomes
   the legs: ragdoll it. The top half drags itself at the player for about 7 s. `setTarget`, `kill`, `position`, `alive`.
 - Headshot damage of 40 or more bursts the head, less pops it off whole. Both are kills. A non-lethal head removal is
@@ -141,10 +142,10 @@ breaking each one on purpose in a copy and seeing the test fail.
   settles the same. It is the only muscle that crosses into Rapier by itself, and only while a joint is in its zone.
 - **Throw a limb as one piece.** Spinning only the upper arm leaves the forearm behind: the elbow whips round, hits its
   stop and drags the arm back the way it came. `spinLimb` turns the whole limb about the shoulder.
-- **Throw a body along one line.** `Physics.radialImpulse` gives every body the same impulse along its own line, which
-  gives a forearm ten times the speed of the hips and fires shoulders out sideways. Muscle chains set `OWN_BLAST`, so Physics
-  skips them and `Rag.radialImpulse` throws them, shared out by mass. This is what lets legs go forward at all. Hard-limit
-  bodies keep the old behaviour, so `muscles=0` is a fair comparison.
+- **Throw a body along one line.** An equal impulse on every body along its own line gives a forearm ten times the speed
+  of the hips and fires shoulders out sideways. So on muscle chains `Rag.radialImpulse` uses one direction, shared out by
+  mass, and they set `OWN_BLAST` so that `Gore.blast` throws them whatever their age. This is what lets legs go forward at
+  all. Hard-limit bodies keep the old formula, so `muscles=0` is a fair comparison.
 - **Never give a sleeping body a velocity.** Rapier keeps it and reports it for good without moving the body, which then
   never settles. `Rag.preStep` skips a sleeping chain, and anything that means to move it wakes it.
 - **A spring on a light limb against the floor bounces for as long as it is allowed**, and the bouncing resets the quiet
@@ -192,6 +193,12 @@ Shared 8 GB M1 under load average around 18, so treat these as upper bounds.
   back when it runs out. Gore detects that and lets go, but 48 live enemies plus 40 corpses of one archetype is 88, so a
   husk-heavy wave will lose corpses early. Raising the pool to 96 fixes it.
 - Pools grow as stacked decals, since `DecalSystem` has no resize. 5 per corpse.
+- **`Physics.radialImpulse` moves nothing it finds.** An impulse applied from inside Rapier's query callback is silently
+  lost: a ball at 0 m/s stays at 0, and the same impulse applied after the query returns gives it 6 m/s. So only what
+  `Gore.blast` throws itself moves: muscle chains, and anything frozen or new. Debris, chunks, and a hard-limit chain that has
+  already stepped are not thrown. The fix is to collect bodies in the callback and apply afterward, but not by itself:
+  the impulse is not scaled by mass, so a 0.15 kg chunk would leave at 466 m/s. Left as it is, because six other systems call
+  this and turning blasts on for all of them is a decision, not a bug fix.
 - **The enemy agent has not called `collapse` yet.** In the sandbox it runs on husks and in Node on the real animator. The
   mortal bleed-out path does not exist yet, so nothing has been tried against a real AI handing a body over.
 - **A collapse assumes level ground.** The hips are held at the height they started, so one begun on stairs or at a ledge

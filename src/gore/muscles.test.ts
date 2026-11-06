@@ -365,6 +365,20 @@ describe('rotational impact', () => {
     expect(legs).toBeLessThan(0);
   });
 
+  it('reaches a body already in the air', () => {
+    // Through `throwFromBlast`, not Physics, whose own impulses are lost. See "Known bug" in docs/notes/gore.md.
+    gore.clear();
+    const c = spawn();
+    gore.ragdoll(c);
+    run(6);
+    const hips = at(c, B.hips);
+    physics.radialImpulse(v(0, 1, 1.3), 7, 140);
+    run(60);
+    const moved = at(c, B.hips).distanceTo(hips);
+    gore.clear();
+    expect(moved).toBeGreaterThan(5);
+  });
+
   it('no two limbs move alike', () => {
     gore.clear();
     const c = spawn();
@@ -394,7 +408,7 @@ describe('rotational impact', () => {
     expect(Math.abs(arm.x)).toBeLessThan(0.2);
   });
 
-  it('throws a body already moving as one mass, which Physics on its own would not', () => {
+  it('throws a body already moving, as one mass, which Physics on its own would not', () => {
     gore.clear();
     const c = spawn();
     gore.ragdoll(c);
@@ -405,7 +419,8 @@ describe('rotational impact', () => {
     const forearm = rag.partFor(B.foreArmL).v.length();
     const hips = rag.partFor(B.hips).v.length();
     gore.clear();
-    // An equal impulse on every body sends a forearm about nine times as fast as the hips.
+    // Left to Physics.radialImpulse the hips stay where they are: see Known limitations in docs/notes/gore.md.
+    expect(hips).toBeGreaterThan(5);
     expect(forearm).toBeLessThan(hips * 2.5);
   });
 

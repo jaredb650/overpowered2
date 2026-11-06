@@ -163,7 +163,7 @@ Cap behaviour, from a browser run: 12,000 chips in one call clamps to 9,000 live
 | First draw of a program | three's `getProgramInfoLog` blocks on a full GPU queue drain, even for a program linked at load: 320 ms on the first hit, 70-130 ms later ones. Each new kind of blood finds new programs, so it keeps happening for the first minutes | Real. Fixed for everything compiled at load |
 | Programs not compiled at load | `ChunkField.ensure()` builds its materials on the first gib or headshot: 2-3 links in the frame, 190-650 ms | Real, gore's |
 | Hit-stop | World clock at 3-5% for 28-50 ms on headshots, severs and heavy kills. That is 2-3 frames at 60 Hz, on exactly the frames a spurt starts | Looks identical to dropped frames. Blood now flies through it. The world still stops |
-| Gore on the event frame | Sever 3-7 ms, gib 6-13 ms in gore, physics step up from 2 ms to 8-17 ms for about ten frames, 230-630 rays over the next 40 frames | Real, gore's |
+| Gore on the event frame | Sever 3-7 ms, gib 6-13 ms in gore. The physics step spikes to 10-20 ms on a frame or two and sits 1-5 ms higher for a while after a gib. 230-630 rays over the next 40 frames | Real, gore's |
 | Emission and uploads | 0.2-1.3 ms an event before, 0.1-2.2 after, under heavier load. About 50 KB uploaded | Not the cause |
 | Overdraw, decals, lens | At 1.2 m the GPU frame rose 0-2 ms. Hiding smoke, chips, decals, or all of it, changed nothing beyond noise | Not the cause |
 | GC | 94 scavenges in 50 s, 458 ms in all, longest 19 ms. Up to 25 ms in the half second after a sever, 0 after most events | Minor |
