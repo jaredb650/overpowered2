@@ -28,6 +28,7 @@ ctx.weapons.modifiers.damage = 2;   // progression rewrites all of these every f
 Rules for callers:
 
 - **`explode` may be deferred.** Called from inside a blast (a kill setting off a tank) it queues for 70 ms, so a stack ripples and the blast in progress keeps its scratch. Queue is capped at 48.
+- **A blast damages first, then throws.** `blast` calls `physics.radialImpulse` after `blastEnemies`, so what it kills is thrown with what was already dead.
 - `team` on a blast decides self-damage rules. `team: 'player'` caps damage to the player at the table's `selfCap`. Enemy blasts are not capped.
 - `ShotResult` and `ExplosionSpec` objects are reused. Read them straight away.
 - Enemy shots go through the sword's guard automatically, in `fireRay` and in projectile sweeps.
@@ -91,6 +92,7 @@ Measured over 80 s of the real game, with the bot holding the trigger on the SMG
 | Rocket jump | `TUNING.rocket.playerPush`, `selfDamage`. `EXPLOSIONS.rocket.selfCap` |
 | Sword | `SWORD.chain[]`, `.area`, `.finisher`, `.lunge`, `.windup` |
 | Blast feel | `EXPLOSIONS[kind]`: `shake`, `shakeRange`, `edgeDamage`, `gibZone`, `impulse`, `selfCap` |
+| Push on bodies | `force` in each `WEAPONS` row, `TUNING.shotgun.pointBlankForce`, `TUNING.blastForce`, `EXPLOSIONS[kind].impulse`. Bands are in `src/gore/forces.test.ts`, the measured table in `docs/notes/lab.md` |
 | Impact | `HIT_STOP`. 30 ms reads as a punch, 100 ms as a stumble |
 
 ## Testing

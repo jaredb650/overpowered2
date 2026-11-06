@@ -57,8 +57,13 @@ export default async function contactTest(page, h) {
       const e = place(id, 0, 0);
       start(0, 14, 0);
       ctx.input.simulate('forward', true);
-      out[`walk into ${id}`] = await watch(3, e);
+      out[`walk into ${id}`] = await watch(2, e);
       out[`walk into ${id}`].through = P.position.z < e.position.z;
+      // Leaning on it: the view must sit still, not buzz.
+      const zs = [];
+      await watch(1, null, () => zs.push(P.position.z));
+      const mean = zs.reduce((a, z) => a + z, 0) / zs.length;
+      out[`walk into ${id}`].shakeMm = +(Math.sqrt(zs.reduce((a, z) => a + (z - mean) ** 2, 0) / zs.length) * 1000).toFixed(1);
     }
 
     await clear();

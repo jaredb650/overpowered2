@@ -3,7 +3,7 @@
  *   ?weapon=<id>                 smg shotgun rocket autocannon sword judge lance buzzsaw kiln stakegun walkie designator grenade
  *   ?view=inspect                model on its own at inspection scale. &yaw= &pitch= &dist= &fx= &fy= &fz= aim the camera at a point
  *   ?view=fp (default)           real first-person rig. &pose=idle|fire|reload|draw
- * window.__vm exposes the rig, the model and a manual clock so scripts can capture exact animation frames.
+ *   &engine=1 real renderer and baked hall, &manual=1 stepped clock. window.__vm exposes the rig and that clock.
  */
 import * as THREE from 'three';
 import { createRenderSystem, type Renderer } from '../render';

@@ -24,9 +24,11 @@ export function drawCount(a: Anim, name: string, digits: number, segments: numbe
   g.fillStyle = '#031014';
   g.fillRect(0, 0, w, h);
   g.fillStyle = a.mag <= a.magSize * 0.25 ? '#ff3a2a' : color;
-  g.font = `800 ${Math.round(h * 0.82)}px "Courier New", monospace`;
-  g.textBaseline = 'middle';
-  g.fillText(String(a.mag).padStart(digits, '0'), h * 0.14, h / 2 + 2);
+  if (digits > 0) {
+    g.font = `800 ${Math.round(h * 0.82)}px "Courier New", monospace`;
+    g.textBaseline = 'middle';
+    g.fillText(String(a.mag).padStart(digits, '0'), h * 0.14, h / 2 + 2);
+  }
   const x0 = h * 0.14 + digits * h * 0.54;
   const lit = Math.ceil(fill(a) * segments);
   const step = (w - x0 - 4) / segments;

@@ -46,10 +46,19 @@ changes what is available on the next think.
 ## Decisions worth knowing
 
 - **Contact deals no damage.** Every hit the player takes is a telegraphed attack. A running player shoulders light bodies
-  aside and staggers them. Heavies (`mass`, `contactRadius`) cancel the inward part of the player's motion in a bump, which stops
-  a run dead, but they are not walls: keep pushing and the player gets through. A player standing in a body is bumped out. `player.push` cancels a slide, dash or wall run, so it is only used on feet
-  or in free flight, and those moves pass through everything. It also lifts the player off the floor, so called every frame it
+  aside and staggers them. Middling ones (Riot, Burner) cancel the inward part of the player's motion in a bump, and can be leaned
+  through. A player standing in a body is bumped out. `player.push` cancels a slide, dash or wall run, so a bump is only used on feet
+  or in free flight, and those moves pass through light bodies. It also lifts the player off the floor, so called every frame it
   stacks into a throw: it is one bump, `NUDGE_GAP` apart, shared by all bodies.
+- **Brutes, Juggernauts and Titans are solid** (`mass` of `SOLID_MASS` or more). Enemies are points on the nav graph and the
+  player's capsule only sees the world, so `contact.ts` works on `player.velocity` and never on position: it removes what would
+  carry the player in during the next frame, keeps the sideways part so a glancing run slides round, and walks any overlap back
+  out. The move itself stays with the player's own sweep, so nothing can be pushed through a wall, and no height is added, so
+  nothing can be thrown. It looks a frame ahead, or a dash at 20 fps steps most of the way through a Brute. Dash and wall run write
+  their own velocity every tick, so those two are ended with `player.push`. A slide is stopped like a run.
+- **Nothing traps the player.** Deeper than `WEDGE_DEPTH` for `WEDGE_SECONDS`, which only a body and a wall closing together can
+  do, solid bodies let go for `WEDGE_RELEASE`. Keep `WEDGE_DEPTH` above what holding a key can reach at low frame rates: the
+  player's `groundGrip` is 240 m/s², which sits 0.09 m in at 30 fps. Below 0.09 m, `OUT_RATE` needs raising first.
 - **Pads throw enemies with the pad's real velocity**, the arc the map was tuned for. Gravity is the same -28. An enemy that
   misses the pad's radius at the link's start leaps for the far end instead.
 - **Stranded enemies come back as reinforcements.** A body in flow mode with no route gain of `PATH_GAIN` for `STRANDED_BLIND`
@@ -77,7 +86,8 @@ changes what is available on the next think.
 | `EnemyManager.ts` `EVASION_FROM`, `EVASION_SPAN` | Speed to `evasion`, which every aimed attack reads. Full at 11.5 m/s, just under the player's 12.5 m/s run. Retune if `runSpeed` moves |
 | `attacks.ts` `aimAtPlayer`, `SPEED_MISS`, `grazed` | Miss radius and the damage cut at speed |
 | `spawner.ts` | `PATH_MIN`, `PATH_MAX`, `REUSE_SECONDS`, `DROP_HEIGHT` |
-| `contact.ts` | `SHOVE_SPEED`, `SHOVE_FORCE`, `SHOVE_STAGGER`, `EASE_OUT`, `NUDGE_GAP` |
+| `contact.ts` | `SOLID_MASS`, `OUT_RATE`, `OUT_MAX`, `CARRY_MAX`, `WEDGE_*`, `SHOVE_SPEED`, `SHOVE_FORCE`, `SHOVE_STAGGER`, `EASE_OUT`, `NUDGE_GAP` |
+| `damage.ts` | `SHOVE_GAIN`, `SHOVE_MAX`: knockback on the living, from a hit's `force` over the body's health |
 | `EnemyManager.ts` | `PATH_GAIN`, `STRANDED_*`, `STRAGGLER_PATH`, `RESCUE_*`, `CHAR_SECONDS`, `BUFF_SECONDS`, `HAZARD_TICK` |
 
 ## Difficulty curve
@@ -135,8 +145,7 @@ The final-code window covered only 13 to 26 game seconds, so its engaged counts 
 failed. Rescues there are the straggler rule moving bodies more than 110 m behind, not stuck ones: a group rescued from
 (73, 0, -139) was followed alone and walked its 169 m route normally, pad flight included.
 
-**Contact**, player at 12.5 m/s into still bodies: five husks, 4 staggered and thrown up to 2 m. Brute and Juggernaut: run stopped
-to 0 by a bump. Standing inside a Brute: bumped 0.89 m at 2.6 m/s.
+**Contact**, player at 12.5 m/s into still bodies: five husks, 4 staggered and thrown up to 2 m. Heavies: see `docs/notes/lab.md`.
 
 **Maimed and bosses.** On the final code all nine maimed cases and the head pop chose the right behaviour and attack, and the
 Juggernaut ran from landing to `wave:clear` with 69 footfalls and no console errors. The Titan's full fight (50 footfalls, four

@@ -9,6 +9,8 @@ import type { EnemyManager } from '../enemies/EnemyManager';
 import type { AiMode } from './settings';
 
 const REACH = 40;
+/** Where a spawn goes when the crosshair is on open sky. */
+const SKY_DROP = 14;
 /** Nothing is placed on top of the player, however close the crosshair is. */
 const CLEARANCE = 2.2;
 const DRONE_HEIGHT = 2.4;
@@ -60,7 +62,7 @@ export class LabSpawner {
     const { physics, player, world } = this.ctx;
     const hit = physics.raycast(player.eye, player.forward, REACH, CG.World);
     if (hit) out.copy(hit.point).addScaledVector(hit.normal, radius + 0.3);
-    else out.copy(player.eye).addScaledVector(player.forward, REACH);
+    else out.set(player.forward.x, 0, player.forward.z).setLength(SKY_DROP).add(player.eye);
     _flat.subVectors(out, player.position).setY(0);
     const away = _flat.length();
     const least = radius + CLEARANCE;

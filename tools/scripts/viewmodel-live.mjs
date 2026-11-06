@@ -193,12 +193,12 @@ export default async function live(page, h) {
           const s = [...a].sort((x, y) => x - y);
           return [Number((s[Math.floor(s.length / 2)] ?? 0).toFixed(1)), Number((s[s.length - 1] ?? 0).toFixed(1))];
         };
-        const out = { n: S.muzzle.length, muzzle: st(S.muzzle), eject: st(S.eject) };
+        const out = { n: S.muzzle.length, speed: Number(window.__range.ctx.player.speed.toFixed(1)), muzzle: st(S.muzzle), eject: st(S.eject) };
         S.muzzle.length = S.eject.length = 0;
         return out;
       });
       log.align = {};
-      for (const id of ['smg', 'shotgun', 'rocket', 'autocannon', 'judge', 'lance', 'buzzsaw', 'kiln', 'stakegun']) {
+      for (const id of (process.env.VM_IDS ?? 'smg,shotgun,rocket,autocannon,judge,lance,buzzsaw,kiln,stakegun').split(',')) {
         await equip(id);
         await take();
         const row = {};
@@ -211,7 +211,7 @@ export default async function live(page, h) {
         row.run = await take();
         await up('forward');
         await down('left');
-        await down('fire');
+        if (!process.env.VM_NOFIRE) await down('fire');
         await ev(() => {
           const { ctx } = window.__range;
           window.__flick = setInterval(() => ctx.input.simulateLook(Math.sin(ctx.time.realElapsed * 9) * 70, 0), 16);

@@ -17,7 +17,7 @@ node tools/shot.mjs --url "/?sandbox=gore&scenario=blast&hold=1" --wait 9000 --o
   --eval "window.__gore.sheet([20,26,35,52,90,180],3)"
 ```
 
-Tests: `npx vitest run src/gore`. `muscles.test.ts` and `ragdoll.test.ts` drive real Rapier ragdolls headless. Under
+Tests: `npx vitest run src/gore`. `muscles.test.ts`, `ragdoll.test.ts` and `forces.test.ts` drive real Rapier ragdolls headless. `forces.test.ts` reads the weapon tables, so a retune must stay inside its bands. Under
 heavy load add `--testTimeout=60000`: the first test to touch WebAssembly can pass 5 s at low priority.
 
 ## How to use it
@@ -45,7 +45,7 @@ Rules for callers:
 - **Hits come from rings** (64 capsule, 16 corpse), so a shot loop can keep its best hit while it tests the next enemy. Do
   not hold one past the frame.
 - `raycastCharacter` reads `bone.matrixWorld`, so it hits what was last rendered. It skips severed bones.
-- `force` is newton-seconds everywhere. 0 takes a default for the damage type. `gib` launch speed is `force / 34`, clamped to 9-24 m/s.
+- `force` is newton-seconds everywhere. 0 takes `DEFAULT_FORCE` in `contracts.ts`, one table for the living and the dead. `gib` launch speed is `force / 30`, clamped to 6-15 m/s. See Forces below.
 - `physics.radialImpulse` is enough for blasts on bodies. Gore listens to it, wakes corpses in range and throws them,
   including bodies killed earlier in the same frame, which Rapier's queries cannot see yet. See Known limitations for
   everything else.
@@ -88,15 +88,27 @@ The rest are additive, in `contracts.ts`. `PhysicsSystem`: `preStep`, `radialLis
 
 | Knob | File | What it does |
 |---|---|---|
-| `GoreTuning` | `index.ts` | Caps, settle speed and time, sink, heartbeat, headshot hold and hit-stop, limb share of force, corpse limb health, crawl time |
+| `GoreTuning` | `index.ts` | Caps, settle speed and time, sink, heartbeat, headshot hold and hit-stop, whole-body share and lift of a hit, limb share of force, gib launch, corpse limb health, crawl time |
 | `MuscleTuning` | `muscles.ts` | Everything in the muscle layer: ligaments, resting pose, impact spin, collapse timing, twitching |
 | `relax`, `role` | `rig.ts` | Resting pose per joint, and what each joint is for |
-| `RagTuning` | `rag.ts` | Joint damping, death tone, hard limit strength and fade-in, rest damping, collider slimming, speed clamps |
+| `RagTuning` | `rag.ts` | Joint damping, death tone, hard limit strength and fade-in, rest damping, collider slimming, speed clamps, blast lift |
 | `swingShape()` | `rag.ts` | Asymmetric hip and shoulder reach |
 | `BloodTuning` | `blood.ts` | Rays per frame (24), droplet and pool caps, smear spacing |
 | `ChunkTuning` | `chunks.ts` | Slots per kind, live bodies (72), linger, bounce |
 | `SliceTuning` | `sliced.ts` | Hold before the halves part, slide speed, half cap |
 | `CrawlTuning` | `crawl.ts` | Stroke time, reach, haul, lift |
+
+## Forces
+
+Measured throws per weapon are in `docs/notes/lab.md`. A body is 85 kg, and gravity is 19, twice the real thing, which is the fact everything below comes back to.
+
+- **A hit** is `force` newton-seconds. `Gore.push` puts it on the struck bone, except that from 20 N·s to 90 N·s a growing share, up to `bodyShare`, moves the whole body through `Rag.shove`. Rocking a limb is what a bullet is for, so a bullet stays on the bone. All of a hard hit on one bone only folds a standing body at the knees: 288 N·s to the chest moved the hips 0.2 m.
+- **Feet stop a standing body within 0.3 m** at under 3 m/s. Friction with all the weight on them is 13.7 m/s². That is why hard hits have `bodyLift`, and why blasts aim `blastLift` metres high. Without them, more force only shows as limbs.
+- **Shove has a ceiling**, `maxShoveSpeed`, so six pellets in one frame cannot add up to a rocket.
+- **A blast** throws through `Rag.radialImpulse`, in one line and under one ceiling for the chain, `maxBlastSpeed`. `Combat.blast` calls `radialImpulse` after the damage, so a body the blast kills is thrown like any other. Before, a corpse took four times the throw of the body killed by the same blast.
+- **`Physics.radialImpulse`** sets a light piece's speed from what is left of the blast, not from its mass: `DEBRIS_SPEED` per point, up to 16 m/s. On a 0.2 kg chunk any strength at all ran into a mass-based cap, so a Juggernaut's footstep fired chunks at the same speed as a rocket. Negative strength, which is how Black Sun pulls, works the same way.
+- **A limb cut by a blast is not thrown by it again.** `Gore.blast` skips anything younger than one frame. Otherwise a rocket's direct hit gave five limbs their launch speed and then about 30 m/s on top.
+- `DevFlags.force` scales all of this, the ceilings included.
 
 ## How it works
 
@@ -145,9 +157,8 @@ breaking each one on purpose in a copy and seeing the test fail.
 - **Throw a body along one line.** An equal impulse on every body along its own line gives a forearm ten times the speed
   of the hips and fires shoulders out sideways. So on muscle chains `Rag.radialImpulse` uses one direction, shared out by
   mass, and they set `OWN_BLAST` so that `Gore.blast` throws them whatever their age. `kick` is what sends the legs forward,
-  not this. Hard-limit bodies keep the old formula, and they match muscles when hit on the frame they die (12.8 m/s against
-  12.5) or at rest (7.7 against 7.4). In the air, before the fix to `Physics.radialImpulse`, they did not: a hard-limit body
-  moves 0.96 m where a muscle chain moves 9.7 m. Compare `muscles=0` on those two cases only.
+  not this. Hard-limit bodies keep the old formula, each body along its own line, so compare `muscles=0` with care. The
+  figures once here, 12.8 m/s and 9.7 m, were before the forces came down.
 - **Never give a sleeping body a velocity.** Rapier keeps it and reports it for good without moving the body, which then
   never settles. `Rag.preStep` skips a sleeping chain, and anything that means to move it wakes it.
 - **A spring on a light limb against the floor bounces for as long as it is allowed**, and the bouncing resets the quiet
@@ -196,15 +207,16 @@ Shared 8 GB M1 under load average around 18, so treat these as upper bounds.
   back when it runs out. Gore detects that and lets go, but 48 live enemies plus 40 corpses of one archetype is 88, so a
   husk-heavy wave will lose corpses early. Raising the pool to 96 fixes it.
 - Pools grow as stacked decals, since `DecalSystem` has no resize. 5 per corpse.
-- **`Physics.radialImpulse` now moves what it finds.** It collects bodies inside Rapier's query and applies the impulses afterwards, capped at 22 m/s so light chunks do not leave at hundreds of m/s.
+- **`Physics.radialImpulse` moves what it finds.** It collects bodies inside Rapier's query and applies the impulses afterwards. A chunk at rest has given back its body, so a blast only reaches chunks in flight.
 - **The enemy agent has not called `collapse` yet.** In the sandbox it runs on husks and in Node on the real animator. The
   mortal bleed-out path does not exist yet, so nothing has been tried against a real AI handing a body over.
 - **A collapse assumes level ground.** The hips are held at the height they started, so one begun on stairs or at a ledge
   hovers until support fades, then drops. Not tried on stairs. Airborne, call `ragdoll`.
 - **A very fast joint still reaches the hard stop.** Past about 30 rad/s the zone is used up in a step or two and the
   stop does the work: peak deceleration 1842 against 2161. Hits that hard are rare, and there the stop is what saves it.
-- **The straight end of a hinge has a narrow stop:** 0.18 rad past the limit, not the wide margin of the folded end, because
-  `knees and elbows only fold the way they fold` allows 0.25.
+- **The straight end of a hinge has a narrow stop:** 0.14 rad past the limit, not the wide margin of the folded end, because
+  `knees and elbows only fold the way they fold` allows 0.25. It was 0.18, and that test sat on the edge of its noise: over
+  10 headings the worst knee was 0.36 at 0.18, 0.31 at 0.14 and 0.25 at 0.12, but 0.12 fails the ordinary whip test.
 - **Arms can run past their reach** in a full blast, by 0.1 to 1 rad, before ligaments catch them.
 - **Twitching varies a lot from body to body.** A burst can move a hand a few centimeters or, rarely, flop a limb 30 to
   40 cm. Judged from numbers and stills, not in motion, so it needs someone to watch it.

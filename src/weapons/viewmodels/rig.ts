@@ -118,7 +118,6 @@ export class Rig implements ViewmodelRig {
   private readonly settle = new Spring(26, 0.42);
 
   // Motion samples.
-  private hasPlayer = false;
   private lastYaw = 0;
   private lastPitch = 0;
   private bobW = 0;
@@ -175,6 +174,10 @@ export class Rig implements ViewmodelRig {
       (def.id === 'smgLeft' ? this.gunL : this.gun).add(def.model.root);
     }
     this.defLeft = defs.smgLeft ?? null;
+    if (this.defLeft) {
+      this.recoilLP.tune(this.defLeft.recoil.omega, this.defLeft.recoil.zeta);
+      this.recoilLR.tune(this.defLeft.recoil.omega, this.defLeft.recoil.zeta);
+    }
 
     this.armR = new Arm(kit, 1);
     this.armL = new Arm(kit, -1);
@@ -189,7 +192,6 @@ export class Rig implements ViewmodelRig {
     this.root.add(this.offhand.root);
 
     render.viewScene.add(this.root);
-    this.hasPlayer = typeof ctx.player.velocity?.x === 'number';
 
     // Over the left shoulder, so the top and the camera-side bevels of every gun catch it.
     this.fill.position.set(-0.55, 0.85, 0.6);
@@ -259,10 +261,8 @@ export class Rig implements ViewmodelRig {
     this.lastBucket = -1;
     this.lastGrenades = -1;
     this.offhand.reset();
-    if (this.hasPlayer) {
-      this.lastYaw = this.ctx.player.yaw;
-      this.lastPitch = this.ctx.player.pitch;
-    }
+    this.lastYaw = this.ctx.player.yaw;
+    this.lastPitch = this.ctx.player.pitch;
   }
 
   // --- ViewmodelRig ------------------------------------------------------------------------------
@@ -392,17 +392,14 @@ export class Rig implements ViewmodelRig {
     const k = Math.tan((camera.fov * Math.PI) / 360) / Math.tan((viewCamera.fov * Math.PI) / 360);
     _b.x *= k;
     _b.y *= k;
-    if (this.hasPlayer) {
-      const p = this.ctx.player;
-      _eu.set(
-        p.pitch + camera.rotation.x - this.pitchAtUpdate,
-        p.yaw + wrapAngle(camera.rotation.y - this.yawAtUpdate),
-        camera.rotation.z,
-      );
-      _b.applyQuaternion(_q.setFromEuler(_eu));
-      return out.copy(_b).add(p.eye).add(camera.position).sub(this.eyeAtUpdate);
-    }
-    return out.copy(_b).applyMatrix4(camera.matrixWorld);
+    const p = this.ctx.player;
+    _eu.set(
+      p.pitch + camera.rotation.x - this.pitchAtUpdate,
+      p.yaw + wrapAngle(camera.rotation.y - this.yawAtUpdate),
+      camera.rotation.z,
+    );
+    _b.applyQuaternion(_q.setFromEuler(_eu));
+    return out.copy(_b).add(p.eye).add(camera.position).sub(this.eyeAtUpdate);
   }
 
   // --- Events ------------------------------------------------------------------------------------
@@ -519,7 +516,6 @@ export class Rig implements ViewmodelRig {
   }
 
   private sampleMotion(dt: number): void {
-    if (!this.hasPlayer) return;
     const p = this.ctx.player;
     const yaw = p.yaw;
     const pitch = p.pitch;
@@ -546,9 +542,8 @@ export class Rig implements ViewmodelRig {
     this.runW = damp(this.runW, smoothstep(9, 16, speed) * (p.grounded ? 1 : 0.4) * moved, 8, dt);
     this.fastW = damp(this.fastW, smoothstep(22, 42, speed) * moved, 5, dt);
     this.bobW = damp(this.bobW, p.grounded || p.wallRunning ? smoothstep(0.6, 7, speed) : 0, 10, dt);
-    const side = (p as unknown as { wallSide?: number }).wallSide ?? 0;
-    if (side !== 0) this.wallSide = side;
-    this.slamW = damp(this.slamW, (p as unknown as { state?: string }).state === 'slam' ? 1 : 0, 14, dt);
+    if (p.wallSide !== 0) this.wallSide = p.wallSide;
+    this.slamW = damp(this.slamW, p.state === 'slam' ? 1 : 0, 14, dt);
 
     if (dt > 0) {
       const yawRate = soft(wrapAngle(yaw - this.lastYaw) / dt, 9);
@@ -584,8 +579,7 @@ export class Rig implements ViewmodelRig {
       a.reload = clamp(1 - this.reloadLeft / a.reloadSeconds);
       if (this.reloadLeft <= 0) a.reload = -1;
       // A reload cancelled by the weapon system ends here; a clip alone would keep playing to the end.
-      const w = this.ctx.weapons as { reloading?: unknown } | undefined;
-      if (typeof w?.reloading === 'boolean' && !w.reloading && a.reload > 0.02) a.reload = -1;
+      if (!this.ctx.weapons.reloading && a.reload > 0.02) a.reload = -1;
     }
     if (a.swing) {
       a.swingP += dt / a.swingSeconds;
@@ -616,13 +610,10 @@ export class Rig implements ViewmodelRig {
 
   private readAmmo(def: ViewDef): void {
     const a = this.a;
-    const w = this.ctx.weapons as { ammo?: (id?: WeaponId) => { mag: number; magSize: number; reserve: number } | undefined } | undefined;
-    const am = typeof w?.ammo === 'function' ? w.ammo(def.id as WeaponId) : undefined;
-    if (am && typeof am.mag === 'number') {
-      a.mag = am.mag;
-      a.magSize = am.magSize;
-      a.reserve = am.reserve;
-    }
+    const am = this.ctx.weapons.ammo(def.id as WeaponId);
+    a.mag = am.mag;
+    a.magSize = am.magSize;
+    a.reserve = am.reserve;
     const bucket = Math.round(a.charge * 20);
     if (a.mag !== this.lastMag || bucket !== this.lastBucket) {
       this.lastMag = a.mag;
@@ -649,17 +640,12 @@ export class Rig implements ViewmodelRig {
     r.x += Math.sin(t * 1.35 + 0.6) * 0.0028 * idle;
     r.z += Math.sin(t * 0.61) * 0.0022 * idle;
 
-    if (this.hasPlayer) {
-      const player = this.ctx.player as unknown as { stridePhase?: number };
-      const phase = (player.stridePhase ?? 0) * Math.PI;
-      // Synced to the footfalls CameraRig bobs to: side sway once per stride pair, drop on every footfall.
-      const bx = Math.cos(phase) * 0.0062 * this.bobW;
-      const by = -Math.abs(Math.sin(phase)) * 0.0078 * this.bobW;
-      p.x += bx;
-      p.y += by + 0.0039 * this.bobW;
-      r.z += Math.cos(phase) * 0.012 * this.bobW;
-      r.x += (Math.abs(Math.sin(phase)) - 0.5) * 0.008 * this.bobW;
-    }
+    // Synced to the footfalls CameraRig bobs to: side sway once per stride pair, drop on every footfall.
+    const phase = this.ctx.player.stridePhase * Math.PI;
+    p.x += Math.cos(phase) * 0.0062 * this.bobW;
+    p.y += (0.0039 - Math.abs(Math.sin(phase)) * 0.0078) * this.bobW;
+    r.z += Math.cos(phase) * 0.012 * this.bobW;
+    r.x += (Math.abs(Math.sin(phase)) - 0.5) * 0.008 * this.bobW;
 
     // Pose layers.
     const run = this.runW;
@@ -743,11 +729,19 @@ export class Rig implements ViewmodelRig {
     r.x += this.lookR.x.x + this.moveR.x.x + this.recoilLR.x.x + b.gunR.x - rise * 0.8;
     r.y += this.lookR.y.x + this.moveR.y.x + this.recoilLR.y.x + b.gunR.y;
     r.z += this.lookR.z.x + this.moveR.z.x + this.recoilLR.z.x + b.gunR.z;
-    if (this.hasPlayer) {
-      const phase = ((this.ctx.player as unknown as { stridePhase?: number }).stridePhase ?? 0) * Math.PI;
-      p.x -= Math.cos(phase) * 0.0062 * this.bobW;
-      p.y -= Math.abs(Math.cos(phase)) * 0.0078 * this.bobW;
-    }
+    const phase = this.ctx.player.stridePhase * Math.PI;
+    p.x -= Math.cos(phase) * 0.0062 * this.bobW;
+    p.y -= Math.abs(Math.cos(phase)) * 0.0078 * this.bobW;
+    // The same run, sprint and slide layers as the main gun, mirrored, or Berserk's speed leaves the left gun standing still.
+    const run = this.runW;
+    const fast = this.fastW;
+    const slide = this.slideW;
+    p.x -= run * 0.006 + fast * 0.018 - slide * 0.014;
+    p.y -= run * 0.014 + fast * 0.02 - slide * 0.012;
+    p.z += run * 0.012 + fast * 0.03 + slide * 0.008;
+    r.x -= run * 0.05 + fast * 0.14 - slide * 0.04;
+    r.y -= run * 0.09 + fast * 0.14;
+    r.z += run * 0.07 + fast * 0.13 + slide * 0.2;
     this.gunL.position.copy(p);
     _gunEuler.set(r.x, r.y, r.z);
     this.gunL.quaternion.setFromEuler(_gunEuler);
@@ -849,14 +843,12 @@ export class Rig implements ViewmodelRig {
   /** Grenades and call-ins have no rig calls; their public state is enough to drive the off-hand. */
   private pollDevices(): void {
     const { weapons, progression, input } = this.ctx;
-    const g = (weapons as { grenades?: unknown } | undefined)?.grenades;
-    if (typeof g === 'number') {
-      if (this.lastGrenades >= 0 && g < this.lastGrenades) this.offhand.cook();
-      this.lastGrenades = g;
-      if (this.offhand.cooking && input.isDown('grenade') === false) this.offhand.release();
-    }
-    const t = (progression as { targeting?: unknown } | undefined)?.targeting;
-    this.offhand.device(typeof t === 'string' ? DEVICE[t as CallInId] ?? null : null);
+    const g = weapons.grenades;
+    if (this.lastGrenades >= 0 && g < this.lastGrenades) this.offhand.cook();
+    this.lastGrenades = g;
+    if (this.offhand.cooking && !input.isDown('grenade')) this.offhand.release();
+    const t = progression.targeting;
+    this.offhand.device(t ? DEVICE[t] : null);
   }
 
   private updateWrist(dt: number): void {
@@ -866,9 +858,9 @@ export class Rig implements ViewmodelRig {
     if (this.wristClock > 0) return;
     this.wristClock = 0.1;
     const { player } = this.ctx;
-    const hp = typeof player.health === 'number' ? Math.ceil(player.health) : 100;
-    const ar = typeof player.armor === 'number' ? Math.ceil(player.armor) : 0;
-    const mx = typeof player.maxHealth === 'number' ? player.maxHealth : 100;
+    const hp = Math.ceil(player.health);
+    const ar = Math.ceil(player.armor);
+    const mx = player.maxHealth;
     const key = `${hp}|${ar}|${Math.round(this.a.speed)}`;
     if (key === this.lastWrist) return;
     this.lastWrist = key;

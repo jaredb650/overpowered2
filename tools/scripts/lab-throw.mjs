@@ -115,7 +115,8 @@ export default async function throwTest(page, h) {
         ctx.combat.explode(new V(starts[i].x, 0.3, starts[i].z + dist), { radius, damage, kind, source: 'test', team: 'player' });
       }
       const out = await track(chars, starts);
-      return { dist: +(out.reduce((a, r) => a + r.dist, 0) / 3).toFixed(2), most: Math.max(...out.map(r => r.dist)), peak: Math.max(...out.map(r => r.peak)), up: Math.max(...out.map(r => r.up)) };
+      const left = bodies.filter(e => e.alive).length;
+      return { dist: +(out.reduce((a, r) => a + r.dist, 0) / 3).toFixed(2), most: Math.max(...out.map(r => r.dist)), peak: Math.max(...out.map(r => r.peak)), up: Math.max(...out.map(r => r.up)), survived: left };
     };
 
     const corpseSpray = async (weapon, seconds) => {
@@ -207,7 +208,7 @@ export default async function throwTest(page, h) {
       try {
         const runs = [];
         for (let i = 0; i < reps; i++) runs.push(await run());
-        out[name] = reps === 1 ? runs[0] : { dist: runs.map(r => r.dist ?? r.moved ?? r.note), peak: Math.max(...runs.map(r => r.peak ?? 0)) };
+        out[name] = reps === 1 ? runs[0] : { dist: runs.map(r => r.dist ?? r.moved ?? r.note), peak: Math.max(...runs.map(r => r.peak ?? 0)), up: Math.max(...runs.map(r => r.up ?? 0)), survived: runs.reduce((a, r) => a + (r.survived ?? 0), 0) };
       } catch (err) {
         out[name] = { error: String(err) };
       }

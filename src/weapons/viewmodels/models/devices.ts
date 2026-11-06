@@ -6,27 +6,46 @@ import type { V3 } from '../kit/mesher';
 import { poly, rect } from '../kit/shapes';
 import { knurl, screwX } from '../kit/details';
 
+const BODY_R = 0.0305;
+const BODY_H = 0.037;
+
 export function buildGrenade(kit: Kit): Model {
   const m = kit.mesher();
-  // A ribbed egg body with the classic segmented grip, then the fuze stack on top.
+  // Cast iron pineapple: an egg cut by a grid of grooves, so it reads as a grenade from any angle and in any light.
+  m.use({ color: 0x4a5a3c, rough: 0.58, metal: 0.15, wear: 1 });
+  m.surface(56, 34, (u, v, o) => {
+    const a = u * Math.PI * 2;
+    const t = (v - 0.5) * Math.PI;
+    const gu = Math.abs(Math.sin(a * 4)) ** 0.5;
+    const gv = Math.abs(Math.sin(t * 3.5 + 0.4)) ** 0.5;
+    const cut = 1 - 0.09 * (1 - Math.min(gu, gv));
+    const r = Math.cos(t) * BODY_R * cut;
+    o.set(Math.cos(a) * r, -Math.sin(t) * BODY_H * cut, Math.sin(a) * r);
+  }, { wrapU: true, flip: false, edge: (u, v) => (Math.abs(Math.sin(u * Math.PI * 8)) > 0.5 && Math.abs(Math.sin((v - 0.5) * Math.PI * 3.5 + 0.4)) > 0.5 ? 0.5 : 0) });
+  // Fuze well, and the body of the fuze standing proud of it.
   m.at([0, 0, 0], [Math.PI / 2, 0, 0], () => {
-    m.use({ color: 0x3f4a35, rough: 0.52, metal: 0.1, wear: 1 });
-    const prof: (readonly [number, number, number?])[] = [];
-    for (let i = 0; i <= 18; i++) {
-      const t = i / 18;
-      const a = (t - 0.5) * Math.PI;
-      const groove = Math.abs(Math.sin(t * Math.PI * 6)) ** 6 * 0.0016;
-      prof.push([Math.cos(a) * 0.0295 - groove, -Math.sin(a) * 0.036, 0]);
-    }
-    m.lathe(prof.reverse(), 24, { chamfer: 0 });
     m.use(F.steelDark);
-    m.lathe([[0.0115, -0.033, 0], [0.0115, -0.044], [0.0095, -0.046], [0, -0.046, 0]].reverse() as never, 14);
+    m.lathe([[0.0, -0.05, 0], [0.0088, -0.05], [0.0102, -0.0475], [0.0102, -0.039], [0.0125, -0.0375], [0.0125, -0.033, 0]], 16);
+    m.use(F.yellow);
+    m.lathe([[0.0126, -0.0345, 0], [0.0132, -0.0345], [0.0132, -0.0365], [0.0126, -0.0365, 0]], 16, { chamfer: 0 });
   });
-  m.part('spoon', [0.012, 0.044, 0], () => {
+  m.part('spoon', [0, 0.046, 0], () => {
+    // A strap that follows the body down its back, the way the real lever hugs the casing.
     m.use(F.steel);
-    m.side(poly([[-0.004, 0.0], [0.004, 0.0], [0.006, -0.003], [0.024, -0.07], [0.02, -0.073], [-0.001, -0.006]], 0.0015), 0.011, { bevel: 0.0005 });
+    const out: [number, number][] = [[-0.0085, 0.0015], [-0.0085, 0.0052], [0.006, 0.0052]];
+    const inner: [number, number][] = [];
+    for (let i = 0; i <= 12; i++) {
+      const a = 0.28 + (i / 12) * 1.32;
+      const z = Math.sin(a);
+      const y = Math.cos(a);
+      out.push([z * 0.0352, y * 0.0422 - 0.046]);
+      inner.unshift([z * 0.0332, y * 0.0402 - 0.046]);
+    }
+    m.side([...out, ...inner], 0.0115, { bevel: 0.0005, smooth: 30 });
+    m.use(F.steelDark);
+    m.at([0, 0.0032, -0.0055], [0, Math.PI / 2, 0], () => m.cyl(0.0022, 0.0135, 8));
   });
-  m.part('pin', [-0.011, 0.04, 0], () => {
+  m.part('pin', [-0.0105, 0.0435, 0], () => {
     m.use(F.steel);
     m.at([0, 0, 0], [0, Math.PI / 2, 0], () => m.cyl(0.0012, 0.02, 6));
     const ring: V3[] = [];
@@ -36,7 +55,6 @@ export function buildGrenade(kit: Kit): Model {
     }
     m.tube(ring, 0.0011, { seg: 6, closed: true, samples: 28 });
   });
-  m.at([0.0305, 0.0, 0], [0, Math.PI / 2, 0], () => m.decal('he', 0.02, 0.0075, 0xd8c35a));
   const model = new Model(m, kit.mats);
   model.hand('hold', [0.018, -0.012, 0.008], [0.1, -0.96, 0.25], [-0.55, -0.1, -0.85]);
   return model;

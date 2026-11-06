@@ -20,7 +20,7 @@
 //   fight      Live fight with the real game loop: holds GB_ENEMIES (14) alive around the player and fires for
 //              GB_SECONDS (14), then reports the frame interval distribution. It then freezes the fight as it
 //              stands and times it, because intervals on a loaded machine say more about the CPU than the GPU.
-// Env: GB_SPOTS (comma list, default all for the map), GB_TAG (shot name prefix, default "gb"), GB_N (frames per
+// Env: GB_DRS=1 leaves dynamic resolution running through the fight, GB_SPOTS (comma list, default all for the map), GB_TAG (shot name prefix, default "gb"), GB_N (frames per
 // round, default 6), GB_ROUNDS (default 6), GB_CROWD (static enemies in view for stages and variants, default 8).
 const PHASES = (process.env.GB_PHASES ?? 'stages,passes,variants').split(',');
 const TAG = process.env.GB_TAG ?? 'gb';
@@ -322,9 +322,12 @@ function install({ n, rounds }) {
   };
 
   /** Keeps a crowd alive around the player and fires at it through the real game loop. */
-  const fight = async (enemies, seconds, list) => {
+  const fight = async (enemies, seconds, list, drs) => {
     thaw();
+    r.dynamicResolution.enabled = drs;
+    let lowest = 1;
     const intervals = [];
+    const cpu = [];
     const renderMs = [];
     const render = r.render;
     r.render = function () {
@@ -339,7 +342,9 @@ function install({ n, rounds }) {
       if (!live) return;
       requestAnimationFrame(tick);
       intervals.push(now - last);
+      cpu.push(game.cpuMs);
       last = now;
+      lowest = Math.min(lowest, r.dynamicResolution.scale);
       const alive = ctx.enemies.alive.filter(e => e.dying === 0);
       if (alive.length < enemies) crowd(Math.min(3, enemies - alive.length));
       let best = null, bestD = Infinity;
@@ -362,7 +367,8 @@ function install({ n, rounds }) {
     requestAnimationFrame(tick);
     await new Promise(res => setTimeout(res, seconds * 1000));
     live = false;
-    const load = { calls: r.drawCalls(), tris: r.triangles(), cpuMs: window.__op2.stats().cpuMs };
+    const load = { calls: r.drawCalls(), tris: r.triangles(), cpuMs: window.__op2.stats().cpuMs, lowest };
+    r.dynamicResolution.enabled = false;
     freeze();
     // The fight as it stood, flashes and particles included, timed with the same method as the static views.
     const frozen = [];
@@ -376,7 +382,12 @@ function install({ n, rounds }) {
     const sorted = [...s].sort((a, b) => a - b);
     const q = p => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))];
     const rs = [...renderMs].sort((a, b) => a - b);
+    // game.cpuMs at each tick is the frame before it, so a slow frame shows up on the interval it stretched.
+    const missed = cpu.slice(30).filter((c, i) => s[i] > 20);
+    const kept = cpu.slice(30).filter((c, i) => s[i] <= 20);
+    const cpuSplit = { missedP50: missed.length ? median(missed) : 0, keptP50: kept.length ? median(kept) : 0, keptP90: [...kept].sort((a, b) => a - b)[Math.floor(kept.length * 0.9)] };
     return {
+      cpuSplit,
       frames: s.length, p50: q(0.5), p90: q(0.9), p99: q(0.99), worst: sorted[sorted.length - 1],
       over20: s.filter(x => x > 20).length, over34: s.filter(x => x > 34).length,
       seconds: s.reduce((a, b) => a + b, 0) / 1000, renderCpuP50: rs[rs.length >> 1],
@@ -507,6 +518,6 @@ export default async function bench(page, h) {
   if (PHASES.includes('live')) out.live = await page.evaluate(() => window.__gb.liveDrs(7));
   if (PHASES.includes('steps')) out.steps = await page.evaluate(() => window.__gb.steps([1, 2, 3, 4, 5, 4, 3, 2, 1, 0], 900));
   if (PHASES.includes('calm')) out.calm = await page.evaluate(() => window.__gb.calm(4));
-  if (PHASES.includes('fight')) out.fight = await page.evaluate(([e, s, v]) => window.__gb.fight(e, s, v), [ENEMIES, SECONDS, process.env.GB_FIGHT_VARIANTS?.split(',') ?? null]);
+  if (PHASES.includes('fight')) out.fight = await page.evaluate(([e, s, v, d]) => window.__gb.fight(e, s, v, d), [ENEMIES, SECONDS, process.env.GB_FIGHT_VARIANTS?.split(',') ?? null, process.env.GB_DRS === '1']);
   return out;
 }

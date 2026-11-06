@@ -988,7 +988,7 @@ export class Gore implements GoreSystem {
       target.crawler?.kill();
       target.health -= damage.amount * (damage.severMult ?? 1);
       audio.play('enemy_hit', { position: hit.point, volume: 0.3, pitchJitter: 0.12 });
-      if (target.health <= 0) this.burstLimb(target, damage);
+      if (target.health <= 0 && DevFlags.gibbing) this.burstLimb(target, damage);
     } else {
       this.sliced.damage(target, hit.point, _v.copy(damage.dir).multiplyScalar(forceOf(damage)));
     }

@@ -79,6 +79,10 @@ export const RagTuning = {
   maxImpulseSpeed: 9,
   /** Fastest a blast can throw a whole chain, in m/s. At this speed a body lands about 5 m out. */
   maxBlastSpeed: 10,
+  /** A body already moving this fast takes no more from a shove, or six pellets in a row would add up to a rocket. */
+  maxShoveSpeed: 5,
+  /** Metres added to a blast's height when aiming a throw. Thrown flat, feet and friction stop a body inside a metre. */
+  blastLift: 1.2,
   maxSeedSpeed: 14,
   maxSeedSpin: 18,
 };
@@ -623,20 +627,23 @@ export class Rag {
   /** Moves the whole chain as one mass, shared out by weight. Nothing here turns it, however hard the push. */
   shove(impulse: THREE.Vector3): void {
     if (this.parts.length === 0 || !Number.isFinite(impulse.x + impulse.y + impulse.z)) return;
+    const length = impulse.length();
+    if (length < 1e-6) return;
     let mass = 0;
     for (const part of this.parts) mass += part.mass;
     const force = DevFlags.force;
-    const top = RagTuning.maxBlastSpeed * Math.max(force, 1);
-    const speed = (impulse.length() * force) / mass;
-    const scale = (speed > top ? (force * top) / speed : force) / mass;
-    for (const part of this.parts) part.body.applyImpulse(_d.copy(impulse).multiplyScalar(part.mass * scale), true);
+    const first = this.parts[0]!;
+    first.body.linvel(first.v);
+    const room = Math.max(0, RagTuning.maxShoveSpeed * Math.max(force, 1) - first.v.dot(impulse) / length);
+    const speed = Math.min((length * force) / mass, room);
+    for (const part of this.parts) part.body.applyImpulse(_d.copy(impulse).multiplyScalar((speed * part.mass) / length), true);
   }
 
   /** Same falloff as Physics.radialImpulse, for bodies too new for it to find. */
   radialImpulse(center: THREE.Vector3, radius: number, strength: number): void {
     const muscle = this.muscle;
     // One direction for the whole chain: pushed along their own lines, the limbs shoot out sideways from the joints.
-    if (muscle) _b.set(this.center.x - center.x, this.center.y - center.y + 0.5, this.center.z - center.z).normalize();
+    if (muscle) _b.set(this.center.x - center.x, this.center.y - center.y + RagTuning.blastLift, this.center.z - center.z).normalize();
     const top = RagTuning.maxBlastSpeed * Math.max(DevFlags.force, 1);
     // A chain shares one ceiling: capped part by part, the light ones would stop short and the body would tear along them.
     let total = 0;

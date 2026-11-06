@@ -1,4 +1,5 @@
 /** The dev panel: plain DOM on top of the game, in the HUD's colours. It holds no state of its own. */
+import { ON_RANGE } from '../core/devflags';
 import type { EnemyId } from '../core/gameplay';
 import { ENEMIES } from '../enemies/data';
 import type { AiMode, LabSettings } from './settings';
@@ -19,6 +20,7 @@ const CSS = `
 .lab-panel h2 { margin: 16px 0 6px; font-size: 11px; font-weight: 600; color: var(--steel, #9db0bd); }
 .lab-status { color: var(--steel, #9db0bd); min-height: 2.8em; white-space: pre-wrap; }
 .lab-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; }
+.lab-grid button { font-size: 11px; }
 .lab-row { display: flex; gap: 3px; margin-top: 3px; }
 .lab-row > * { flex: 1; }
 .lab-panel button { padding: 5px 2px; background: #161f27; color: inherit; border: 1px solid #2b3945; font: inherit; cursor: pointer;
@@ -71,7 +73,7 @@ export class LabPanel {
     style.textContent = CSS;
     document.head.appendChild(style);
     this.el.setAttribute('aria-label', 'Dev panel');
-    this.el.append(el('h1', '', 'TEST RANGE'), this.status);
+    this.el.append(el('h1', '', ON_RANGE ? 'TEST RANGE' : 'DEV PANEL'), this.status);
     this.spawnSection();
     this.playerSection();
     this.timeSection();

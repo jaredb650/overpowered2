@@ -80,7 +80,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
   shotgun: {
     ...BASE, id: 'shotgun', name: 'SHOTGUN', slot: 2, mode: 'semi',
     magSize: 6, reserve: 36, maxReserve: 72, reloadTime: 1.25, drawTime: 0.2,
-    interval: 0.3, damage: 20, pellets: 6, spread: 0.05, severMult: 2.4, force: 30,
+    interval: 0.3, damage: 20, pellets: 6, spread: 0.05, severMult: 2.4, force: 18,
     muzzle: 'shotgun', tracer: 'bullet', casing: 'shotgun',
     sounds: [{ id: 'shotgun_fire', pitchJitter: 0.04 }],
     reloadFoley: [[0.1, 'reload_shell_in'], [0.32, 'reload_shell_in'], [0.54, 'reload_shell_in'], [0.86, 'reload_pump']],
@@ -197,7 +197,7 @@ export const TUNING = {
   hellfireRounds: { radius: 2, damageMult: 1.25 },
   shotgun: {
     /** Under this range pellets count as point-blank: more sever, more push. */
-    pointBlank: 6, pointBlankSever: 3, pointBlankForce: 3.2,
+    pointBlank: 6, pointBlankSever: 3, pointBlankForce: 6.6,
   },
   judge: { ricochetRange: 28, ricochets: 2, ricochetDamage: 0.8 },
   lance: {
