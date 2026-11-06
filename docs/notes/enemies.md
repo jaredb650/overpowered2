@@ -55,7 +55,9 @@ changes what is available on the next think.
   carry the player in during the next frame, keeps the sideways part so a glancing run slides round, and walks any overlap back
   out. The move itself stays with the player's own sweep, so nothing can be pushed through a wall, and no height is added, so
   nothing can be thrown. It looks a frame ahead, or a dash at 20 fps steps most of the way through a Brute. Dash and wall run write
-  their own velocity every tick, so those two are ended with `player.push`. A slide is stopped like a run.
+  their own velocity every tick, so those two are ended with `player.push`. A slide is stopped like a run. `slideRound` gives back
+  the part of the keys that runs along the body, because `groundGrip` scrubs anything off the keys, and at 60 fps a run stuck fast
+  to a round body. The player's own sweep does this for walls.
 - **Nothing traps the player.** Deeper than `WEDGE_DEPTH` for `WEDGE_SECONDS`, which only a body and a wall closing together can
   do, solid bodies let go for `WEDGE_RELEASE`. Keep `WEDGE_DEPTH` above what holding a key can reach at low frame rates, or leaning
   on a Brute reads as wedged and the player walks through it. With `groundGrip` at 240 m/s² that is about 0.09 m at 30 fps and 0.14 m

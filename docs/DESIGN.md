@@ -422,3 +422,9 @@ The owner says ragdolls now feel much better, and wants to see them. Decisions m
 - Bullets take chunks out of bodies.
 - A shotgun or blast can open a rib cage without gibbing.
 - Arms and legs can snap and stay hyperextended.
+
+
+## 21. Current build notes
+
+- **Streak triggers changed from section 9 after tuning:** Butcher is 5 different bodies in 4 s, direct hits only. Skyfall is 4 kills in 6 s. Chain Reaction is 4 kills from one blast. Overdrive needs speed above 18 m/s. Style perks are limited to one per 20 s.
+- **Ladder additions still to place:** AC-130, Door Gunner and Attack Chopper slot into the combo ladder between Warthog (12) and Black Sun (40). Pick thresholds so each feels earned.
