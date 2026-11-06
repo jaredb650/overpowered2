@@ -67,6 +67,7 @@ function install() {
     const at = window.__wgBody.char.root.position;
     return [x + at.x, y, z + at.z];
   };
+  ctx.gore.knockdown = () => false;
   window.__wg = { ctx, lab, V, raf, freeze, thaw, place, shoot, look, frame, clear, settle, front };
 }
 
@@ -82,12 +83,25 @@ async function scene(page, h, name, type, build, views) {
     await (0, eval)(`(${src})`)(w, e);
     await w.settle();
   }, [type, build.toString()]);
+  const list = await page.evaluate(() => {
+    const c = window.__wgBody.char;
+    const b = c.book;
+    const K = ['hole', 'exit', 'crater', 'gash', 'burn', 'graze', 'dent'];
+    const rows = [];
+    for (let i = 0; i < b.count; i++) rows.push(`${K[b.kind(i)]} r=${b.radius(i).toFixed(3)} d=${b.depth(i).toFixed(3)}`);
+    return { wounds: rows, open: b.open, health: window.__wgBody.health, alive: window.__wgBody.alive, severed: [...c.severed], down: window.__wgBody.downed };
+  });
+  console.error(name, JSON.stringify(list));
   for (const [view, pos, target, fov] of views) {
     await page.evaluate(([pos, target, fov]) => {
       const w = window.__wg;
       // Knockback moves a body while the hit flash fades, so every view goes from where it ended up.
-      const at = window.__wgBody.char.root.position;
-      w.look([pos[0] + at.x, pos[1], pos[2] + at.z], [target[0] + at.x, target[1], target[2] + at.z], fov);
+      const at = window.__wgBody.char.bones[2].getWorldPosition(new w.V());
+      // A hit can put a body on the floor, and then the views look down at it from above.
+      const down = at.y < 0.8;
+      const y = at.y - 1.25;
+      if (down) w.look([at.x + pos[0] * 0.5, at.y + pos[2], at.z + pos[0]], [at.x, at.y, at.z], fov);
+      else w.look([pos[0] + at.x, pos[1] + y, pos[2] + at.z], [target[0] + at.x, target[1] + y, target[2] + at.z], fov);
       return w.frame();
     }, [pos, target, fov]);
     await h.shot(`${name}-${view}`);
@@ -97,6 +111,8 @@ async function scene(page, h, name, type, build, views) {
 const NEAR = [['1m5', [0.25, 1.35, 1.5], [0, 1.2, 0], 34], ['close', [0.2, 1.3, 0.6], [0, 1.2, 0], 34], ['10m', [0.5, 1.5, 10], [0, 1.1, 0], 34]];
 const BACK = ['back', [-0.3, 1.35, -1.4], [0, 1.2, 0], 34];
 const SCENE = {
+  // Standing bodies only: with this the blast scenes stay on their feet for the camera.
+  healthy: (p, h, t) => scene(p, h, 'healthy', t, async () => {}, [['neck', [0.3, 1.55, 1.1], [0, 1.45, 0], 34]]),
   bullets: (p, h, t) => scene(p, h, 'bullets', t, async (w, e) => {
     const F = w.front(0.2, 1.4, 3);
     for (const [bone, off] of [[2, [0.06, 0.1, 0.1]], [2, [-0.09, 0.16, 0.1]], [1, [0.05, 0.05, 0.1]], [11, [0, -0.22, 0.05]], [2, [-0.12, 0.02, 0.1]]]) w.shoot(e, 'smg', 'bullet', 12, F, bone, off);

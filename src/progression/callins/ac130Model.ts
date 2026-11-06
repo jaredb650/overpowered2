@@ -1,6 +1,6 @@
 /**
  * The gunship, built to the real aircraft's proportions: 30 m long, 40 m across, a high wing with four turboprops, the
- * tall swept fin and the upswept tail. It is then drawn half as large again, and the guns are thicker than life, because
+ * tall swept fin and the upswept tail. It is then drawn nearly twice as large, and the guns are thicker than life, because
  * the left side is what the player sees from inside the circle and a true 25mm barrel is under a pixel from there.
  *
  * Gun line, nose to tail, as on the real ship: 25mm Gatling, 40mm Bofors, 105mm howitzer.
@@ -182,7 +182,7 @@ const ROTORS: readonly RotorSpec[] = ENGINES.map(x => ({ at: [x, ENGINE_Y, HUB_Z
 
 export const AC130_AIRFRAME: AirframeSpec<Ac130Mount> = {
   name: 'ac130',
-  scale: 1.5,
+  scale: 1.8,
   build(b) {
     fuselage(b);
     wings(b);

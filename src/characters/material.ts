@@ -217,7 +217,12 @@ float sWoundH = 0.0;
     int wounds = int(info.x);
     // Metres outside the nearest cut, and how much of each kind of damage this pixel is in.
     float edge = 1.0, rimWidth = 0.01, bruise = 0.0, stain = 0.0, scorch = 0.0, pit = 0.0, torn = 0.0;
-    float tear = (macro.a - 0.5) * 2.2 + (macro.r - 0.5) * 1.3 + (micro.r - 0.5) * 0.9;
+    // Skin tears along a few long lines, not at every grain of it. Big wounds wander on a big noise, and only the finest
+    // grain reaches the very edge, in millimetres, or the edge breaks up into islands.
+    vec4 coarse = op2Tri(vBind * 0.31 + 0.11, tw);
+    float tear = (macro.a - 0.5) * 2.0;
+    float tearBig = (coarse.a - 0.5) * 2.6;
+    float tearFine = (micro.r - 0.5) * 0.0075;
     for (int i = 0; i < OP2_MAX_WOUNDS; i++) {
       if (i >= wounds) break;
       int base = OP2_WOUND_BASE + i * OP2_WOUND_TEXELS;
@@ -230,12 +235,13 @@ float sWoundH = 0.0;
       float along, radius;
       vec3 off;
       float dist = op2Slot(vBind, t0, t1, axis, along, off, radius);
-      float past = op2SlotEnds(along, 0.14, depth + 0.08, t0.w);
+      float past = op2SlotEnds(along, OP2_SKIN_ABOVE, op2SkinBelow(t0.w));
       if (past > t0.w * 3.0 + 0.06) continue;
       // Stretched below the wound, because blood runs down. Bind space keeps that on a corpse too, as a stain it had.
       float run = length(off - vec3(0.0, min(off.y, 0.0) * 0.68, 0.0)) + past * 2.0;
       float spread = t0.w * 2.6 + 0.03;
-      if (kind != OP2_DENT) stain = max(stain, smoothstep(1.0, 0.25, run / spread + tear * 0.28));
+      // Fire seals what it burns.
+      if (kind != OP2_DENT && kind != OP2_BURN) stain = max(stain, smoothstep(1.0, 0.25, run / spread + (tear + tearBig) * 0.2));
       if (kind == OP2_BURN) {
         scorch = max(scorch, smoothstep(1.15, 0.55, (dist + past * 2.0) / t0.w + tear * 0.35));
       } else if (kind == OP2_GRAZE) {
@@ -245,8 +251,8 @@ float sWoundH = 0.0;
         pit = max(pit, smoothstep(0.003, -0.002, m));
         torn = max(torn, smoothstep(radius * 0.5, 0.0, abs(m)));
       } else {
-        // Skin tears along weak lines, so a ragged wound wanders much further than a clean one.
-        float m = dist + past * 2.0 - radius * (1.0 + tear * mix(0.1, 0.62, t1.w));
+        float wander = mix(tear, tearBig, smoothstep(0.02, 0.06, t0.w));
+        float m = dist + past * 2.0 - radius * (1.0 + wander * mix(0.08, 0.5, t1.w)) + tearFine * mix(0.3, 1.0, t1.w);
         if (m < edge) {
           edge = m;
           rimWidth = kind == OP2_GASH ? 0.004 : clamp(radius * 0.4, 0.0045, 0.028);
@@ -268,8 +274,10 @@ float sWoundH = 0.0;
       // Dark where it is thick. Bright paint is what made the old wounds look drawn on.
       float wet = stain * (0.8 + grain * 0.2);
       sAlb = mix(sAlb, mix(vec3(0.17, 0.006, 0.007), vec3(0.075, 0.002, 0.003), stain * stain), wet * 0.94);
-      sRough = mix(sRough, 0.17, wet);
+      sRough = mix(sRough, 0.2, wet);
       sMetal *= 1.0 - wet;
+      // Blood fills the weave. A glossy surface over fine bumps just sparkles.
+      sH *= 1.0 - wet * 0.85;
     }
     if (bruise > 0.0) {
       sAlb = mix(sAlb, vec3(0.05, 0.012, 0.03), bruise * 0.8 * bare);
@@ -278,12 +286,11 @@ float sWoundH = 0.0;
     float ring = 1.0 - smoothstep(0.0, rimWidth * 3.0, edge);
     float rim = 1.0 - smoothstep(0.0, rimWidth, edge);
     if (ring > 0.0) {
-      // Bruised, then torn. Fat shows in a thin line where the skin parted, only on bare skin.
+      // Bruised, then torn.
       sAlb = mix(sAlb, vec3(0.035, 0.004, 0.008), ring * 0.8);
       vec3 raw = mix(vec3(0.19, 0.02, 0.016), vec3(0.042, 0.003, 0.003), smoothstep(0.35, 1.0, rim + (micro.g - 0.5) * 0.5));
       sAlb = mix(sAlb, raw, rim);
-      sAlb = mix(sAlb, vec3(0.42, 0.28, 0.17), smoothstep(0.82, 0.98, rim) * vDetailW.x * 0.65);
-      sRough = mix(sRough, 0.2, ring);
+      sRough = mix(sRough, 0.26, ring);
       sMetal *= 1.0 - rim;
       sWoundH -= rim * rim * rimWidth * 0.7;
     }

@@ -209,18 +209,29 @@ export const MuscleTuning = {
   dropFrom: 0.15,
   dropFull: 0.7,
 
+  /** How hard the animation under a dying body flinches at a hit. Rounds all lean it the same way, and they add up fast. */
+  collapseFlinch: 0.55,
+  /** Share of a hit on a dying body that its feet carry, and how many times its real speed it gets. */
+  carryShare: 0.75,
+  carryGain: 0.7,
   /** Force in newton-seconds that jolts a living or dying body as hard as one can be, and the curve under it. */
   joltFull: 70,
   joltCurve: 0.6,
   /** Spin a jolt gives the struck limb, the joints up the chain from it, and the rest of the body, in rad/s. */
-  joltSpin: 9,
+  joltSpin: 11,
   joltChain: 4.5,
-  joltSpread: 3.2,
+  joltSpread: 5,
+  /** Chance a joint up the chain kicks back the way the shot came. All one way, a stream of rounds just bends a body in half. */
+  joltRebound: 0.4,
   /** Seconds the pulse lasts. A real flinch is over in the time it takes to see it. */
   joltLenMin: 0.07,
   joltLenMax: 0.15,
-  /** Share of a jolt a body still gives once its tone has gone. Nerves, not muscles. */
-  joltSpent: 0.3,
+  /**
+   * Share of a jolt left once the body has let go, and once its tone has gone as well. Flat on the floor the same torque
+   * walks a body along it: at full strength an SMG moved one 5 m in 3 s.
+   */
+  joltLimp: 0.35,
+  joltSpent: 0.15,
 
   /** Seconds that twitching lasts after the body goes limp. */
   twitchSeconds: 4.5,
@@ -356,6 +367,13 @@ export class CollapseDrive {
     if (velocity) this.drift.set(velocity.x, 0, velocity.z);
     this.hipsLocal.copy(bones[0]!.position);
     this.local = bones.map(b => b.quaternion.clone());
+  }
+
+  /** A hit, in m/s on the whole body, taken by the feet. */
+  carry(dir: THREE.Vector3, speed: number): void {
+    const gain = speed * MuscleTuning.carryShare * MuscleTuning.carryGain;
+    this.drift.x += dir.x * gain;
+    this.drift.z += dir.z * gain;
   }
 
   /** A flinch reads the character's yaw, and while the ragdoll has the root that is gone. */
@@ -967,7 +985,7 @@ export class MuscleState {
     const parts = rag.parts;
     // Spent, or on a limb with nothing above it, there is no joint for this to work across.
     if (parts.length < 2 || strength <= 0 || !Number.isFinite(strength + dir.x + dir.y + dir.z)) return;
-    const size = this.tone > 0 || this.collapse || this.reflex ? strength : strength * t.joltSpent;
+    const size = strength * (this.collapse || this.reflex ? 1 : this.tone > 0 ? t.joltLimp : t.joltSpent);
     let part: RagPart | null = rag.partFor(bone);
     part.body.translation(part.p);
     // The struck limb turns about its joint, away from the shot.
@@ -977,7 +995,9 @@ export class MuscleState {
     _axis.normalize();
     if (part.parent) this.addJolt(part, _axis, t.joltSpin * size);
     // And it travels up the chain, so a shot in the arm is felt in the shoulder and a shot in the belly doubles the body.
-    for (let up = part.parent ?? this.firstJoint(); up?.parent; up = up.parent) this.addJolt(up, _axis, t.joltChain * size);
+    for (let up = part.parent ?? this.firstJoint(); up?.parent; up = up.parent) {
+      this.addJolt(up, _axis, t.joltChain * size * (rng() < t.joltRebound ? -1 : 1));
+    }
     // The rest of the body flinches with it, and which part does is what keeps it from looking like a machine.
     for (let i = 0; i < 2; i++) {
       part = parts[Math.floor(rng() * parts.length)]!;

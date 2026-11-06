@@ -28,6 +28,8 @@ const M = A.hellfire;
 const REPORT_RANGE = 30;
 /** Most targets to test a line to in one go. */
 const LINE_TESTS = 6;
+/** Metres short of a wall that a round goes live, so it is sure to strike it. */
+const WALL_MARGIN = 3;
 
 const _from = new THREE.Vector3();
 const _aim = new THREE.Vector3();
@@ -122,12 +124,14 @@ export class FireControl {
   /**
    * How close to its aim a round starts to collide with the world, for a shot arriving along a unit direction that
    * points back up its path. A wall in the way stops a round, as it should. A roof would stop every round for two
-   * minutes, so one that high is left out of it, as the Warthog's shells do: this also covers the invisible walls that
-   * stand above both maps' perimeters.
+   * minutes, so one that high is left out of it, as the Warthog's shells do. A round is never armed further out than
+   * this line was tested: the ship flies outside both maps' invisible walls, and a round live from the muzzle would burst
+   * on their outer faces in mid-air.
    */
   private armRange(aim: THREE.Vector3, dx: number, dy: number, dz: number, reach: number): number {
     const open = this.probe.clearance(aim.x, aim.y + 0.3, aim.z, dx, dy, dz, reach);
-    return open < reach && open * dy > A.roofHeight ? open : Infinity;
+    if (open >= reach) return reach;
+    return open * dy > A.roofHeight ? open : open + WALL_MARGIN;
   }
 
   private hasLine(e: EnemyInstance): boolean {
@@ -426,10 +430,8 @@ export class FireControl {
     this.airframe.mount(this.rail ? 'railLeft' : 'railRight', _from);
     this.airframe.root.getWorldDirection(_vel).multiplyScalar(40);
     _vel.y -= 6;
-    _d.subVectors(_from, target.center);
-    const reach = _d.length();
-    _d.divideScalar(reach);
-    this.rounds.launch(_from, _vel, target, target.center, this.armRange(target.center, _d.x, _d.y, _d.z, reach));
+    // It arrives from almost straight above, so that is the line to test, not the one back to the rail.
+    this.rounds.launch(_from, _vel, target, target.center, this.armRange(target.center, 0, 1, 0, M.armWithin));
     this.report('rocket_fire', _from, 1.4, 0.85);
     this.radio.say('RIFLE.');
   }

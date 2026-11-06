@@ -96,7 +96,7 @@ for (int i = 0; i < OP2_MAX_WOUNDS; i++) {
   vec3 off;
   float dist = op2Slot(vBind, t0, t1, axis, along, off, radius);
   float under = max(along, 0.0);
-  float past = op2SlotEnds(along, 0.14, depth, t0.w);
+  float past = op2SlotEnds(along, OP2_SKIN_ABOVE, depth + t0.w);
   float open = smoothstep(radius * 1.15, radius * 0.45, dist);
   sLight = max(sLight, open * exp(-under / (radius * 1.5 + 0.015)));
   // Layers go by how far the wound reached. A gash only opens what it passes through.
@@ -111,27 +111,29 @@ for (int i = 0; i < OP2_MAX_WOUNDS; i++) {
 }
 if (sCore < 0.0 || (sHole > 0.0 && vPart != ${Part.shard})) discard;
 
+// Channel g of the detail texture is cloth weave, and shows up on anything it is used for as a bandage.
 vec3 sAlb = vTint;
 float sRough = 0.34;
 float sHeight = 0.0;
 if (vPart == ${Part.muscle}) {
-  float grainF = fibre.r * 0.7 + fibre.a * 0.3;
-  sAlb = mix(vec3(0.34, 0.05, 0.045), vec3(0.075, 0.006, 0.01), smoothstep(0.32, 0.68, grainF));
-  // Yellow fat in clumps between the fibres, thin here and thick there.
-  sAlb = mix(sAlb, vec3(0.46, 0.32, 0.16), smoothstep(0.62, 0.72, macro.r * 0.6 + micro.a * 0.4) * 0.3);
-  sRough = mix(0.2, 0.42, grainF);
-  sHeight = (grainF - 0.5) * 0.004;
+  float streak = fibre.a * 0.65 + fibre.r * 0.35;
+  sAlb = mix(vec3(0.3, 0.04, 0.04), vec3(0.06, 0.004, 0.009), smoothstep(0.36, 0.64, streak));
+  // Fat in clumps between the fibres, thin here and thick there.
+  sAlb = mix(sAlb, vec3(0.4, 0.27, 0.13), smoothstep(0.6, 0.7, macro.a * 0.7 + micro.a * 0.3) * 0.28);
+  sRough = mix(0.22, 0.42, streak);
+  sHeight = (streak - 0.5) * 0.005;
 } else if (vPart == ${Part.bone} || vPart == ${Part.shard}) {
-  float stainB = smoothstep(0.34, 0.66, macro.a * 0.5 + micro.g * 0.5);
-  sAlb = mix(vTint * (0.82 + micro.r * 0.36), vec3(0.17, 0.018, 0.012), stainB * 0.75);
-  sRough = mix(0.45, 0.2, stainB);
-  sHeight = (micro.g - 0.5) * 0.0015;
+  // Never clean. Blood sits on it in a film, and the bone shows through where it has run off.
+  float film = smoothstep(0.34, 0.62, macro.a * 0.55 + micro.a * 0.45);
+  sAlb = mix(vTint * (0.5 + micro.r * 0.32), vec3(0.11, 0.011, 0.009), film * 0.82);
+  sRough = mix(0.42, 0.2, film);
+  sHeight = (micro.a - 0.5) * 0.0016;
 } else {
-  float veins = smoothstep(0.42, 0.5, 1.0 - abs(fibre.g * 2.0 - 1.0));
-  sAlb = vTint * (0.62 + macro.a * 0.8);
-  sAlb = mix(sAlb, sAlb * vec3(0.5, 0.22, 0.32), veins * 0.6);
-  sRough = 0.16 + micro.b * 0.14;
-  sHeight = (macro.r - 0.5) * 0.006 + (micro.b - 0.5) * 0.0012;
+  float veins = smoothstep(0.86, 0.97, 1.0 - abs(fibre.a * 2.0 - 1.0));
+  sAlb = vTint * (0.5 + macro.a * 0.8);
+  sAlb = mix(sAlb, sAlb * vec3(0.42, 0.2, 0.32), veins * 0.7);
+  sRough = 0.15 + micro.a * 0.14;
+  sHeight = (macro.a - 0.5) * 0.008 + (micro.a - 0.5) * 0.0012;
 }
 // Everything near a wound has blood on it.
 sAlb = mix(sAlb, vec3(0.11, 0.005, 0.006), sGore * 0.4 * (vPart == ${Part.bone} ? 0.5 : 1.0));
@@ -152,8 +154,11 @@ const FRAG_AO = /* glsl */ `
   reflectedLight.indirectSpecular *= sLight;
   reflectedLight.directDiffuse *= sLight;
   reflectedLight.directSpecular *= sLight;
-  // A floor under the baked light. A hole in a body must not go flat black where the map itself does.
-  reflectedLight.indirectDiffuse += material.diffuseColor * vec3(0.5, 0.62, 0.8) * (uFill * RECIPROCAL_PI * sLight);
+  // A warm light from the viewer's side. This map lights everything blue and dim, which turns red to black, and a wound
+  // has to read as flesh wherever it is. Coming from the eye, it shapes what it falls on and gives wet things a shine.
+  float op2Facing = saturate(dot(normal, normalize(vViewPosition)));
+  reflectedLight.indirectDiffuse += material.diffuseColor * vec3(1.0, 0.8, 0.78) * (uFill * sLight * (0.2 + op2Facing * 0.8));
+  reflectedLight.directSpecular += vec3(1.0, 0.86, 0.8) * (pow(op2Facing, 42.0) * (1.0 - sRough) * 0.3 * sLight);
 }
 `;
 
@@ -162,7 +167,7 @@ export function createInteriorMaterial(ctx: Ctx, detail: THREE.Texture, extraBas
   material.onBeforeCompile = shader => {
     shader.uniforms.tDetail = { value: detail };
     shader.uniforms.uExtraBase = { value: extraBase };
-    shader.uniforms.uFill = { value: 0.75 };
+    shader.uniforms.uFill = { value: 0.6 };
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>\n${VERT_PARS}`)
       .replace('#include <skinning_pars_vertex>', `#include <skinning_pars_vertex>\n${VERT_SKIN_PARS}`)

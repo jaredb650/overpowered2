@@ -258,6 +258,9 @@ function spike(g: Builder, base: V3, tip: V3, r: number, bone: number, joint: nu
   g.tube(path, (t, i) => (i === rings ? 0 : r * (1 - t * t) * (0.75 + rnd() * 0.5)), 5, () => [bone, bone, 0], code as PartId, BONE_RGB);
 }
 
+/** Where the spine runs: well back in the trunk, but not against the skin. */
+const spineZ = (s: Slice): number => mix(s.back, s.front, 0.24);
+
 function addCage(g: Builder, slices: readonly Slice[], y0: number, y1: number, chest: V3, neck: V3, scale: number): void {
   const top = neck[1] - 0.05 * scale;
   const bottom = chest[1] - 0.08 * scale;
@@ -269,11 +272,13 @@ function addCage(g: Builder, slices: readonly Slice[], y0: number, y1: number, c
     const floating = i >= ribs - 2;
     const end = floating ? 0.35 - (i - (ribs - 2)) * 0.5 : Math.PI / 2 - mix(0.1, 0.34, t);
     for (const side of [1, -1]) {
-      const path: V3[] = [];
+      const back = sliceAt(slices, y0, y1, yBack);
+      // Every rib starts from the spine, and swings out and round from there.
+      const path: V3[] = [[side * 0.014 * scale, yBack, spineZ(back)]];
       const steps = 11;
       for (let k = 0; k <= steps; k++) {
         const u = k / steps;
-        const angle = mix(-Math.PI / 2 + 0.1, end, u);
+        const angle = mix(-Math.PI / 2 + 0.28, end, u);
         const y = yBack - drop * u * u - 0.015 * scale * Math.sin(u * Math.PI);
         const s = sliceAt(slices, y0, y1, y);
         const rz = (s.front - s.back) * 0.5 * CAGE_FIT;
@@ -282,14 +287,14 @@ function addCage(g: Builder, slices: readonly Slice[], y0: number, y1: number, c
         const taper = mix(0.68, 1, Math.min(1, (t + 0.1) * 2));
         path.push([side * s.halfX * CAGE_FIT * taper * Math.cos(angle), y, cz + rz * Math.sin(angle)]);
       }
-      g.tube(path, (_t, k) => (k === 0 || k === steps ? 0 : 0.0088 * scale), 5, () => [B.chest, B.chest, 0], Part.bone, BONE_RGB, 0.62);
+      g.tube(path, (_t, k) => (k === 0 ? 0.006 * scale : k === steps + 1 ? 0 : 0.0075 * scale), 5, () => [B.chest, B.chest, 0], Part.bone, BONE_RGB, 0.7);
     }
   }
   const s = sliceAt(slices, y0, y1, mix(top, bottom, 0.4));
   const front = (s.front + s.back) * 0.5 + (s.front - s.back) * 0.5 * CAGE_FIT;
   g.tube(
     [[0, top - 0.02 * scale, front - 0.01 * scale], [0, mix(top, bottom, 0.25), front], [0, mix(top, bottom, 0.5), front + 0.004 * scale], [0, mix(top, bottom, 0.75) - 0.02 * scale, front]],
-    (t, i) => (i === 3 ? 0 : (i === 0 ? 0.022 : 0.016 + t * 0.006) * scale), 6, () => [B.chest, B.chest, 0], Part.bone, BONE_RGB, 1.2, [0, 0, 1],
+    (t, i) => (i === 3 ? 0 : (i === 0 ? 0.016 : 0.011 + t * 0.004) * scale), 6, () => [B.chest, B.chest, 0], Part.bone, BONE_RGB, 1.2, [0, 0, 1],
   );
 }
 
@@ -301,7 +306,7 @@ function addSpine(g: Builder, hips: V3, chest: V3, neck: V3, head: V3, slices: r
   for (let i = 0; i <= steps; i++) {
     const y = mix(bottom, top, i / steps);
     const s = sliceAt(slices, y0, y1, Math.min(y, neck[1]));
-    const z = y > neck[1] ? mix(neck[2], head[2], (y - neck[1]) / Math.max(top - neck[1], 1e-3)) - 0.03 * scale : mix(s.back, s.front, 0.24);
+    const z = y > neck[1] ? mix(neck[2], head[2], (y - neck[1]) / Math.max(top - neck[1], 1e-3)) - 0.03 * scale : spineZ(s);
     path.push([0, y, z]);
   }
   const vertebrae = (t: number) => (0.5 + 0.5 * Math.cos(t * Math.PI * 2 * 13)) * 0.006 * scale;

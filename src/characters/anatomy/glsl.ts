@@ -44,10 +44,16 @@ float op2Slot(vec3 p, vec4 t0, vec4 t1, vec3 axis, out float along, out vec3 off
   radius = ab2 > 1e-8 ? t0.w * sqrt(max(4.0 * t * (1.0 - t), 0.0)) + 0.0015 : t0.w;
   return length(off);
 }
-// A slot is only meant to reach the near side of the body. Past either end of its depth, the wound fades out as if
-// the point had moved away from the line, which rounds the bottom off.
-float op2SlotEnds(float along, float reach, float depth, float radius) {
-  return max(max(-along - reach, along - depth - radius), 0.0);
+// How far a point lies past either end of a slot. The ends of a slot are what keep a wound on the near side of a body.
+float op2SlotEnds(float along, float front, float back) {
+  return max(max(-along - front, along - back), 0.0);
+}
+// Where the skin can be, measured from a hit point on a capsule: gear stands well proud of the capsule, and thin parts
+// lie a little inside it. It has nothing to do with how deep the wound goes, or a big exit would cut the skin on the far
+// side, where the round went in.
+#define OP2_SKIN_ABOVE 0.14
+float op2SkinBelow(float radius) {
+  return max(0.07, radius * 0.6);
 }
 `;
 
@@ -87,7 +93,7 @@ export const WOUND_VERTEX_LOOP = /* glsl */ `
     // The blood reaches further down the body than it does across it.
     float drop = min(off.y, 0.0) * 0.68;
     float reach = t0.w * 3.2 + 0.07;
-    float past = op2SlotEnds(along, 0.14, depth + 0.08, t0.w);
+    float past = op2SlotEnds(along, OP2_SKIN_ABOVE, op2SkinBelow(t0.w));
     op2Near = max(op2Near, reach - length(off - vec3(0.0, drop, 0.0)) - past);
     if (kind == OP2_CRATER || kind == OP2_DENT || kind == OP2_EXIT) {
       // Wider than the hole, so the surface is already falling away where the tear begins.

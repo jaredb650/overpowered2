@@ -27,8 +27,8 @@ const UP = new THREE.Vector3(0, 1, 0);
 /** Metres a blast stands off a wall, so its line-of-sight rays do not start inside it. */
 const WALL_STANDOFF = 0.5;
 /** How far the ring is lifted over its resting glow by a new stage of the siege, and how fast that dies away. */
-const RING_REST = 0.14;
-const RING_PULSE = 0.5;
+const RING_REST = 0.34;
+const RING_PULSE = 0.45;
 const RING_DECAY = 1.6;
 
 const _pos = new THREE.Vector3();
@@ -283,7 +283,7 @@ export class Ac130 implements Strike {
     render.decals.add('crack', point, normal ?? UP, R * 0.8, rand(0, TAU));
     audio.layer([{ id: 'hellfirerocket_explode' }, { id: 'explosion_tank', volume: 0.8 }], { position: point });
     const near = clamp(1 - player.position.distanceTo(point) / 70);
-    if (near > 0) render.post.flash('#ffc890', 0.55 * near * near, 0.22);
+    if (near > 0) render.post.flash('#ffc890', 0.4 * near * near, 0.2);
   }
 
   private hitHellfire(point: THREE.Vector3, normal: THREE.Vector3 | null): void {

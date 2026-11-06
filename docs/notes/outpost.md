@@ -139,6 +139,10 @@ with no spot at all and used pistol and bash, and the gunner closed in.
 frames, 177 draw calls, 612k triangles, 4.3 to 8.8 ms CPU. Wave 3 in 73 s. Surrender, flight and execution all fired, and the Geneva
 Suggestion and comms feed answered.
 
+The same with the bot holding fire, so that fights last, on one run: flanks to 170 and 158 degrees, crossfire to 143, 80% of holding men
+with a spot, top speed 6.3 m/s, 0 console errors, 60 fps. That matches the headless numbers. It took 256 damage standing still in a hall, about
+7 per second across the fight, though the script moves the camera to take its pictures, so treat that as rough.
+
 **The swarm.** `/?autostart=1`: `enemies.outpost` null, `Waves` untouched, wave 1 at 24 husks and troopers on their usual behaviours, 0 console errors.
 
 ## Known limitations
@@ -157,5 +161,6 @@ Suggestion and comms feed answered.
   than his bullets.
 - **No smoke.** Section 16.1 lists it, this task did not. Flashbangs blind by screen flash only.
 - **Sniper lines are few on the Kill House.** He fires from the yard, and often never gets a line at a player inside a room.
+- **The cover shot shows nothing.** The man is behind the wall, which is the point. Crouched cover is proved by the pose sheet and the trails, and leaning by `outpost-live-peek.png`.
 - **Drag and revive have only been seen as stills and numbers.** A rescuer and casualty jostle a little, because crowd separation still
   pushes them apart at 1.1 m.

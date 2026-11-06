@@ -370,25 +370,37 @@ async function roof(page, h) {
 }
 
 async function reset(page, h) {
-  await page.evaluate(n => window.__spawn(n, 14), 8);
+  await page.evaluate(n => window.__spawn(n, 14), 12);
   const ci = await callIn(page);
-  await page.evaluate(() => window.__skip(70));
-  await h.shot('live');
+  // Forward to the guns, then on a frame at a time until something is provably in the air.
   const before = await page.evaluate(() => {
     const { ctx } = window.__op2;
+    window.__skip(70);
+    window.__spawn(12, 16);
     const rounds = ctx.render.scene.getObjectByName('ac130.rounds');
-    return { plane: ctx.render.scene.getObjectByName('ac130').visible, rounds: rounds.count, kids: ctx.render.scene.children.length };
+    for (let i = 0; i < 900 && rounds.count < 6; i++) window.__skip(1 / 30);
+    const rig = ctx.progression.callInsManager.gunship;
+    return { plane: ctx.render.scene.getObjectByName('ac130').visible, drawn: rounds.count, idle: rig.rounds.idle };
   });
-  const after = await page.evaluate(async () => {
+  const after = await page.evaluate(() => {
     const { ctx, game } = window.__op2;
+    const rig = ctx.progression.callInsManager.gunship;
+    const count = o => Object.values(o).reduce((a, b) => a + b, 0);
+    const scene = ctx.render.scene;
+    const log = window.__ac;
+    const explosions = count(log.fx);
+    const lines = log.radio.length;
     game.newRun();
+    const atReset = { plane: scene.getObjectByName('ac130').visible, drawn: scene.getObjectByName('ac130.rounds').count, idle: rig.rounds.idle };
     window.__skip(12);
-    await new Promise(r => setTimeout(r, 300));
-    const rounds = ctx.render.scene.getObjectByName('ac130.rounds');
-    return { plane: ctx.render.scene.getObjectByName('ac130').visible, rounds: rounds.count, kids: ctx.render.scene.children.length, cooldown: ctx.progression.callInCooldown('ac130'), held: [...ctx.progression.callIns], radio: window.__ac.radio.length };
+    return {
+      atReset, plane: scene.getObjectByName('ac130').visible, drawn: scene.getObjectByName('ac130.rounds').count,
+      newExplosions: count(log.fx) - explosions, newRadio: log.radio.length - lines,
+      cooldown: ctx.progression.callInCooldown('ac130'), held: [...ctx.progression.callIns], strikes: ctx.progression.callInsManager.strikes.length,
+    };
   });
   await h.shot('after');
-  return { ci, before, after, sounds: await page.evaluate(() => window.__op2.audio?.loops ?? null) };
+  return { ci, before, after, loops: await page.evaluate(() => window.__op2.audio?.loops ?? null) };
 }
 
 export default async function ac130(page, h) {

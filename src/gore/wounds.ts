@@ -187,12 +187,14 @@ export class WoundPlanner {
   private blast(char: CharacterInstance, info: RigInfo, d: DamageInfo, severity: number, size: number, machine: boolean): void {
     const o = _from.copy(d.point).addScaledVector(d.dir, -3);
     markSevered(info, char.severed, _skip);
+    // A blast is as wide as the body, so an arm held across the chest does not take it all for the chest.
+    if (!machine) _skip.fill(1, B.upperArmL, B.footR + 1);
     if (!rayBones(info, char.bones, _skip, o.x, o.y, o.z, d.dir.x, d.dir.y, d.dir.z, 6)) return;
     const bone = boneRay.bone;
     boneRayContact(o.x, o.y, o.z, d.dir.x, d.dir.y, d.dir.z, _p, _n);
+    markSevered(info, char.severed, _skip);
     const s = clamp(severity, 0, 1);
-    const limb = isArmBone(bone) || isLegBone(bone);
-    const radius = lerp(0.045, limb ? 0.085 : 0.185, s) * size;
+    const radius = lerp(0.045, 0.185, s) * size;
     _along.copy(d.dir);
     if (s > 0.16) this.cut(char, WoundKind.crater, bone, _p, _along, radius, lerp(0.045, 0.15, s), 1);
     if (!machine) this.cut(char, WoundKind.burn, bone, _p, _along, radius * 1.8 + 0.04, 0.05, 1);

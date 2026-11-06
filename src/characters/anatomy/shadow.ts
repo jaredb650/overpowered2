@@ -59,7 +59,7 @@ if (vWoundNear > 0.0) {
     float along, radius;
     vec3 off;
     float dist = op2Slot(vBind, t0, t1, axis, along, off, radius);
-    if (dist + op2SlotEnds(along, 0.14, depth + 0.08, t0.w) * 2.0 < radius) discard;
+    if (dist + op2SlotEnds(along, OP2_SKIN_ABOVE, op2SkinBelow(t0.w)) * 2.0 < radius) discard;
   }
 }
 `;

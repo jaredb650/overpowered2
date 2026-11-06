@@ -48,6 +48,8 @@ const REEL = {
   /** How fast flailing arms and a buckled knee recover, in 1/s. */
   flailFade: 1.9,
   buckleFade: 2.6,
+  /** How fast they get there, in 1/s. */
+  takeUp: 16,
   /** Fraction of body height a buckled knee drops the hips, and the roll toward it. */
   buckleDrop: 0.075,
   buckleRoll: 0.34,
@@ -274,8 +276,14 @@ export class HumanoidAnimator implements CharacterAnimation {
 
   /** Seconds of catch steps left. */
   private reel = 0;
+  /**
+   * What a hit asks of the arms and the knee, and how far they have got. A stumble must never move a joint in one frame:
+   * it pops, and if the same burst kills, gore reads the jump as speed and the body leaves at 14 m/s.
+   */
   private flail = 0;
+  private flailW = 0;
   private buckle = 0;
+  private buckleW = 0;
   private buckleSide = 1;
   private guardFor = 0;
   private guardW = 0;
@@ -439,7 +447,8 @@ export class HumanoidAnimator implements CharacterAnimation {
       this.buckle = Math.max(this.buckle, 0.35 + s * 0.65);
       this.buckleSide = region.endsWith('L') ? 1 : -1;
     }
-    if (this.plan !== 'biped') return;
+    // Already walking, its feet are on their way. Jumping the gait would jump every limb that follows it.
+    if (this.plan !== 'biped' || this.moveBlend > 0.3) return;
     // The foot that lets the body fall past it is the one that has to move, so it goes first and at once.
     const yaw = this.root.rotation.y;
     const side = worldDir.x * Math.cos(yaw) - worldDir.z * Math.sin(yaw);
@@ -487,7 +496,7 @@ export class HumanoidAnimator implements CharacterAnimation {
 
   getUp(kind: GetUpKind, seconds: number, hurt: number): number {
     this.refreshPlan();
-    this.reel = this.flail = this.buckle = 0;
+    this.reel = this.flail = this.flailW = this.buckle = this.buckleW = 0;
     this.action = null;
     this.stepAside = 0;
     this.needsHome = true;
@@ -559,7 +568,7 @@ export class HumanoidAnimator implements CharacterAnimation {
     this.armLS.clear(); this.armRS.clear(); this.recoil.clear(); this.landing.clear();
     this.hands[0]!.planted.set(0, 0, 0);
     this.hands[1]!.planted.set(0, 0, 0);
-    this.reel = this.flail = this.buckle = 0;
+    this.reel = this.flail = this.flailW = this.buckle = this.buckleW = 0;
     this.guardFor = this.guardW = this.dazeFor = this.dazeW = 0;
     this.clutchBone = -1;
     this.clutchFor = this.clutchW = 0;
@@ -682,6 +691,8 @@ export class HumanoidAnimator implements CharacterAnimation {
     this.reel = Math.max(0, this.reel - dt);
     this.flail *= Math.exp(-REEL.flailFade * dt);
     this.buckle *= Math.exp(-REEL.buckleFade * dt);
+    this.flailW = damp(this.flailW, this.flail, REEL.takeUp, dt);
+    this.buckleW = damp(this.buckleW, this.buckle, REEL.takeUp, dt);
     this.guardFor = Math.max(0, this.guardFor - dt);
     this.guardW = damp(this.guardW, this.guardFor > 0 ? 1 : 0, GUARD_RATE, dt);
     this.dazeFor = Math.max(0, this.dazeFor - dt);
@@ -903,7 +914,7 @@ export class HumanoidAnimator implements CharacterAnimation {
     // Walks peak mid-stance, runs dip there. The phase shift swaps which.
     y += lerp(-1, 1, run) * twoPhase * L * lerp(0.012, 0.02, run) * bounce * mv;
     y += this.landing.y * 0.05 * (L / 1.85);
-    y -= this.buckle * REEL.buckleDrop * L;
+    y -= this.buckleW * REEL.buckleDrop * L;
 
     let swayX = 0, x = 0, z = 0;
     if (this.plan === 'biped') swayX = Math.sin(ph) * L * lerp(0.018, 0.008, run) * bounce * mv;
@@ -977,7 +988,7 @@ export class HumanoidAnimator implements CharacterAnimation {
     const dazed = this.dazeW * DAZE_SWAY;
     const sway = Math.sin(this.time * 1.9 + this.seed);
     x += sway * dazed * 0.25 * L;
-    qEuler(this.pelvisQ, pitchP, yawP + actYaw, rollP + this.leanSide * 0.5 - this.buckleSide * this.buckle * REEL.buckleRoll + sway * dazed * 0.5);
+    qEuler(this.pelvisQ, pitchP, yawP + actYaw, rollP + this.leanSide * 0.5 - this.buckleSide * this.buckleW * REEL.buckleRoll + sway * dazed * 0.5);
     if (this.planBlend > 0.001) {
       // Prone: the spine lies along the direction of travel.
       qEuler(qA, 1.42, Math.sin(this.crawlPhase * TAU) * 0.16 * this.moveBlend, Math.sin(this.crawlPhase * TAU) * 0.1 * this.moveBlend);
@@ -1145,12 +1156,12 @@ export class HumanoidAnimator implements CharacterAnimation {
     const side = h.side;
     const reach = ((h.limb!.l1 + h.limb!.l2) / 0.56) * s;
     const gun = armed && side < 0;
-    if (this.flail > 0.02) {
+    if (this.flailW > 0.02) {
       const n = this.time * 11 + side * 2.1 + this.seed;
       const a = noise1(n);
       const b = noise1(n * 0.7 + 4);
       // Out and up from the shoulder, in the chest's axes: an arm thrown wide is what catches a body.
-      this.reachTo(h, shoulder, reach, side * (0.62 + 0.2 * a), -0.18 + 0.42 * b, 0.22 + 0.3 * a * b, smooth(clamp(this.flail * 1.5)) * (gun ? REEL.gunHand : 1));
+      this.reachTo(h, shoulder, reach, side * (0.62 + 0.2 * a), -0.18 + 0.42 * b, 0.22 + 0.3 * a * b, smooth(clamp(this.flailW * 1.5)) * (gun ? REEL.gunHand : 1));
       h.pole.set(side * 0.8, -0.5, -0.5);
     }
     if (this.guardW > 0.01) {

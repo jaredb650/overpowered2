@@ -78,9 +78,13 @@ export const AC130 = {
     retry: 1.5,
   },
   hellfire: {
-    drop: 0.7, speed: 130, turn: 3.4, damage: 1100, radius: 7, life: 9, whistle: 1.4, retry: 2,
+    /** Seconds falling off the rail before the motor lights, and how hard it falls and then accelerates. */
+    drop: 0.7, fall: 14, thrust: 208,
+    speed: 130, turn: 3.4, damage: 1100, radius: 7, life: 9, whistle: 1.4, retry: 2,
     /** It steers for a point this many times its ground distance above the target, which folds the end of the flight into a dive. */
     topAttack: 2.2,
+    /** It only meets the world this close to the target, by which point it is in the dive. */
+    armWithin: 60,
   },
   flares: { pairs: 8, gap: 0.16, speed: 15, gravity: 9, drag: 0.55, life: 3.4, every: 27 },
   /** Enemies within this of each other count as one target for the heavy guns. */

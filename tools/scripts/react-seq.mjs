@@ -22,9 +22,9 @@ const CASES = {
   riseback: { id: 'trooper', flip: true, lead: 110, steps: [0, 16, 32, 48, 64, 80, 96, 112, 128, 144, 160, 190], act: r => r.hit('chest', 18, 60, r.shock(9)) },
   // A rocket that does not kill.
   thrown: { id: 'trooper', steps: [0, 3, 6, 10, 15, 20, 26, 34, 44, 56, 72, 90], act: r => r.blast(3.2) },
-  thrownup: { id: 'trooper', lead: 120, steps: [0, 20, 40, 60, 80, 100, 120, 140, 160, 180, 210, 240], act: r => r.blast(3.2) },
+  thrownup: { id: 'gunner', lead: 60, steps: [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330], act: r => r.blast(3.2) },
   // Twenty rounds a second into a body that dies on the third.
-  dance: { id: 'trooper', steps: [0, 3, 6, 9, 12, 15, 18, 24, 30, 36, 48, 60], act: r => r.stream(3, 72) },
+  dance: { id: 'trooper', steps: [0, 6, 12, 18, 24, 30, 36, 42, 50, 58, 66, 78], act: r => r.stream(3, 72) },
   husk: { id: 'husk', steps: [0, 8, 16, 24, 32, 40, 50, 60, 75, 90, 110, 130], act: r => r.hit('chest', 12, 60, r.shock(9)) },
   maimed: { id: 'trooper', maim: ['armL'], steps: [0, 12, 24, 36, 48, 60, 80, 100, 120, 140, 170, 200], act: r => r.hit('chest', 10, 60, r.shock(9)) },
   oneleg: { id: 'trooper', maim: ['shinR'], steps: [0, 12, 24, 36, 48, 60, 80, 100, 120, 140, 170, 200], act: r => r.hit('chest', 10, 60, r.shock(9)) },
@@ -148,9 +148,10 @@ export default async function reactSeq(page, h) {
         const e = r.target;
         const c = e.char;
         const y = c.bones.map(b => b.matrixWorld.elements[13]);
+        const seen = y.filter((_, i) => !c.isHidden(i));
         return {
           e: { x: +e.position.x.toFixed(2), z: +e.position.z.toFixed(2), down: e.downed, rise: +e.rising.toFixed(2), stag: +e.stagger.toFixed(2), alive: e.alive },
-          hips: +y[0].toFixed(2), head: +y[4].toFixed(2), low: +Math.min(...y).toFixed(3),
+          hips: +y[0].toFixed(2), head: +y[4].toFixed(2), low: +Math.min(...seen).toFixed(3),
         };
       },
     };

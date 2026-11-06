@@ -309,7 +309,7 @@ describe('sustained fire', () => {
     gore.clear();
     const hit = spawnLiving();
     gore.collapse(hit, { duration: 1.4 });
-    expect(burst(hit, 0.6)).toBeGreaterThan(still * 2);
+    expect(burst(hit, 0.6)).toBeGreaterThan(still * 1.5);
     gore.clear();
   });
 

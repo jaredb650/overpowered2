@@ -1129,14 +1129,19 @@ export class Gore implements GoreSystem {
         target.smearLeft = 3;
         target.smearAt.copy(target.rag.center);
       }
-      if (target.rag) this.push(target.rag, hit.bone, hit.point, _v.copy(damage.dir).multiplyScalar(forceOf(damage)));
       const muscle = target.rag?.muscle;
+      const drive = muscle?.collapse;
+      // On its feet the hips are held, so all of a round on the chest only bends it backward over them. Most of it goes
+      // into where the feet are heading instead, and under sustained fire the body is walked back by it.
+      const onBone = drive ? 1 - MuscleTuning.carryShare : 1;
+      if (target.rag) this.push(target.rag, hit.bone, hit.point, _v.copy(damage.dir).multiplyScalar(forceOf(damage) * onBone));
+      if (drive) drive.carry(damage.dir, (forceOf(damage) * DevFlags.force) / target.info.mass);
       const jolt = joltOf(forceOf(damage));
       muscle?.struck(impactStrength(forceOf(damage), target.info.mass));
       muscle?.kick(damage.dir, impactStrength(forceOf(damage), target.info.mass) * MuscleTuning.corpseImpact);
       muscle?.jolt(hit.bone, hit.point, damage.dir, jolt);
       // Still on its feet, the animation it is following flinches too, and the muscles carry that as well.
-      muscle?.collapse?.flinch(hit.bone, damage.dir, 0.6 + jolt);
+      muscle?.collapse?.flinch(hit.bone, damage.dir, MuscleTuning.collapseFlinch * jolt);
       this.wounds.onBody(char, damage, damage.amount / CORPSE_HEALTH, hit.bone, hit.point);
       audio.play('enemy_hit', { position: hit.point, volume: 0.4, pitchJitter: 0.1 });
       target.damage[hit.bone] = target.damage[hit.bone]! + damage.amount * (damage.severMult ?? 1);

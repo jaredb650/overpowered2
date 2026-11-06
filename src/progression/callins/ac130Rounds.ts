@@ -310,7 +310,7 @@ export class Ac130Rounds {
     if (m.target && m.target.alive && m.target.uid === m.uid) m.aim.copy(m.target.center);
 
     if (m.age < H.drop) {
-      m.velocity.y -= 14 * dt;
+      m.velocity.y -= H.fall * dt;
     } else {
       m.smoke ??= fx.attachEmitter(body, 'airstrikeTrail', TAIL);
       // Top attack, as the real missile flies: from above, the walls round a target are not in the way.
@@ -318,7 +318,7 @@ export class Ac130Rounds {
       _want.y += Math.hypot(_want.x, _want.z) * H.topAttack;
       _want.setLength(H.speed);
       m.velocity.lerp(_want, 1 - Math.exp(-H.turn * dt));
-      m.velocity.setLength(Math.min(H.speed, m.velocity.length() + H.speed * 1.6 * dt));
+      m.velocity.setLength(Math.min(H.speed, m.velocity.length() + H.thrust * dt));
     }
 
     const speed = m.velocity.length();
