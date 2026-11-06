@@ -27,7 +27,9 @@ const hit = ctx.gore.raycastCharacter(char, origin, dir, maxDist);  // CapsuleHi
 
 ctx.gore.sever(char, 'armL', damage, velocity);   // alive or dead. null if already gone or not severable
 ctx.gore.ragdoll(char, { impulses, velocity });   // death. Gore owns the instance from here
-ctx.gore.collapse(char, { duration, velocity });  // death with time in it. Muscles fade out, then it drops
+ctx.gore.collapse(char, { duration, velocity, hit });  // death with time in it. Muscles fade out, then it drops
+ctx.gore.knockdown(char, options);                // ragdoll without dying. False if it cannot: stagger it instead
+ctx.gore.downed(char);                            // that body, while gore has it. Null once it is yours again
 ctx.gore.headshot(char, damage, velocity);        // death. Holds a beat, then collapses by itself
 ctx.gore.gib(char, center, force);                // death. Releases the instance
 ctx.gore.slice(char, point, normal, damage);      // death. Releases the instance
@@ -68,16 +70,56 @@ at the moment the enemy stops being an enemy, and stop driving it.
 
 - It needs legs on the ground. Airborne, call `ragdoll`: it holds the hips where the animation had them, so it would hang.
 - Past `GoreTuning.maxCollapses` (4), on a body with no legs, on a drone, or with `?muscles=0`, it is a plain ragdoll.
-- A hit, a blast, a pin, a cut or a repeat `ragdoll` makes it give up, four times faster.
+- A blast, a pin or a repeat `ragdoll` makes it give up, four times faster. A hit does by its strength, from no faster for a bullet to the same for a heavy one, and a lost limb about halfway. See Taking rounds below.
+- `hit: { bone, point, dir, force }` is the shot that did it: it lands on the bone, the body staggers on along `dir`, a hand goes to the wound, and a shot leg gives way first. `damage.ts` calls this for bullets of 30 N·s or less, fire, shock and bleeding out, on a body with both legs under it.
 
 `ragdoll` takes three more options. `twitch` is 0..1, and is 1 by itself on a body with no head, so a headshot or a
 decapitation needs nothing. `impact: { dir, strength }` throws the limbs: left out, it is worked out from `impulses`, so
 existing calls already get it, scaled down for bullets. Pass it for a knockdown with no impulses. `muscles: false` puts one
 body on hard limits, for comparison.
 
+### Knockdown and getting up
+
+`knockdown(char, options)` is a ragdoll that comes back. Gore has the bones until the limbs are gathered, then hands the character back on the floor, already getting up, with `root` where it will stand. The caller keeps the character and reads `downed(char)` each frame: while it answers, `center` is where the hips are. Any death call ends it, and the body goes on falling from where it was.
+
+| Option | | |
+|---|---|---|
+| `topple` | m/s on the upper body | Tips it over its feet. Legs and spine lock for 0.42 s, or a standing body folds at the knees and rolls over its own head. Leave it out for a blast, which throws by itself once `Physics.radialImpulse` finds the body |
+| `impulses`, `impact`, `velocity` | as `ragdoll` | |
+| `lie`, `rise` | seconds | On the floor, and to get up |
+| `hurt` | 0..1 | Below `painFrom` it never clutches a wound. Above it the get-up strains and shakes |
+| `wound` | `{ bone, point }` | Where a hand goes |
+
+A further `knockdown` on a body that is down is a further hit: impulses land, a jolt goes in, the wait to get up lengthens, and a body that had begun to rise goes back to lying. Nothing starts over.
+
+- Past `GoreTuning.maxKnockdowns` (6), on a rig whose animator has no `getUp`, or with muscles off, it returns false. `DamageModel` staggers instead.
+- A knockdown is never frozen by the ragdoll budget, never sunk by the corpse budget, and `raycastCorpses` skips it, because it is still an enemy and enemies have their own ray test.
+- `gore.clear()` does not release the living. They come back standing where they lay.
+
+`reflex.ts` is what the body does in there, from joint roles, so a missing limb is a limb nobody moves. It writes poses into the muscle layer and touches no rigid body, so it cannot throw anything.
+
+| Phase | Arms | Legs and spine |
+|---|---|---|
+| Fall | Hands to the face for 0.2 s if thrown. Wide and wheeling, then out and down toward the floor as it comes up, five times as strong as they need to hold themselves | Tucked and pedalling. Chin up going forward, tucked going back |
+| Lying | One hand to the wound, the other curls on the belly | Knees draw up and stir, slowly |
+| Gather | The first frame of the get-up | The same |
+
+The handover: `Reflex` asks the animator to pose the first frame of the chosen clip, reads joint targets out of it, puts the bones back, and has 0.55 s to reach them physically. Then `handBack` works out yaw from how the body lies, puts the root so that the clip's hips land on the real hips, re-expresses the hips in the new frame, and the animator blends 0.42 s from that pose into the clip. Worst bone speed over the handover is under 0.14 m in a frame in the tests, and usually 0.02.
+
+### Taking rounds
+
+A body that is falling or dying answers every round, and nothing restarts.
+
+- `MuscleState.jolt` is all torque across joints with its reaction on the parent, so it can jerk limbs against each other and cannot move the body as a whole. The struck limb turns away from the shot, joints up the chain follow with 40% kicking back the other way, and two random joints flinch. All one way, a stream of rounds just folds a body in half.
+- Sized from each joint's own inertia and a target spin, so it cannot overshoot. Twelve pulses run at once, oldest out.
+- On its feet, three quarters of a round goes into `CollapseDrive.drift`, so the feet carry it, and a body under fire is walked back. All of it on the chest bent the body 80 degrees backward over its held hips.
+- The animation under a collapse flinches too, and the muscles carry that as well.
+- Once it has let go a jolt is 35%, and 15% once tone has gone. At full strength an SMG walked a body 5 m along the floor in 3 s.
+- A waist takes `corpseTrunkHealth` (420), not `corpseLimbHealth` (60). An SMG cut every body in two with its third round, because the chest counts toward the waist. It is also why a point blank shotgun's throw went up: see `docs/notes/lab.md`.
+
 ## Contract additions
 
-Muscles add `collapse`, and `impact`, `twitch` and `muscles` on `RagdollOptions`, from `muscles.ts` by module augmentation.
+Muscles add `collapse`, `knockdown`, `downed`, and `impact`, `twitch` and `muscles` on `RagdollOptions`, from `muscles.ts` by module augmentation. `getUp.ts` adds the optional reaction members to `CharacterAnimation`.
 The rig gains `JointDef.role` and `BoneDef.relax`. `Physics` gains `OWN_BLAST`.
 
 The rest are additive, in `contracts.ts`. `PhysicsSystem`: `preStep`, `radialListeners`, `raycastInto`, `anchorBody`, `stepMs`.
@@ -89,7 +131,8 @@ The rest are additive, in `contracts.ts`. `PhysicsSystem`: `preStep`, `radialLis
 | Knob | File | What it does |
 |---|---|---|
 | `GoreTuning` | `index.ts` | Caps, settle speed and time, sink, heartbeat, headshot hold and hit-stop, whole-body share and lift of a hit, limb share of force, gib launch, corpse limb health, crawl time |
-| `MuscleTuning` | `muscles.ts` | Everything in the muscle layer: ligaments, resting pose, impact spin, collapse timing, twitching |
+| `MuscleTuning` | `muscles.ts` | Everything in the muscle layer: ligaments, resting pose, impact spin, collapse timing, twitching, jolts |
+| `ReflexTuning` | `reflex.ts` | A living body off its feet: strength by phase, when it counts as landed, how it braces |
 | `relax`, `role` | `rig.ts` | Resting pose per joint, and what each joint is for |
 | `RagTuning` | `rag.ts` | Joint damping, death tone, hard limit strength and fade-in, rest damping, collider slimming, speed clamps, blast lift |
 | `swingShape()` | `rag.ts` | Asymmetric hip and shoulder reach |
@@ -163,6 +206,8 @@ breaking each one on purpose in a copy and seeing the test fail.
   never settles. `Rag.preStep` skips a sleeping chain, and anything that means to move it wakes it.
 - **A spring on a light limb against the floor bounces for as long as it is allowed**, and the bouncing resets the quiet
   timer that would have let it go. That is why ligaments only spring back above `limitElasticLow`.
+- **A working muscle carries its own weight** (`knockdown.test.ts`, by the hand reaching a wound). The drive's implicit step is sized for one light body, so its held torque is far under what lifts an arm. Collapses and reflexes both turn gravity down on a driven limb. It was why a body lay perfectly still.
+- **Nothing a hit does to the animation may land in one frame** (no test). If the same burst kills, `measureAnimVelocity` reads the jump as speed. Arms snapping to a flail seeded 14 m/s. The hop gait snapping in put the hips 9 cm sideways, read as 8 m/s, which threw a body with a blown-off leg 2.8 m across the blast. That one is the owner's "ridiculous" throw, and it was there on kills too. Everything in `stumble` and the hop now eases in.
 - **In a collapse, the hold takes the reaction.** With every joint's reaction landing on the hips they thrash. While
   support lasts each body answers to one controller, and as it fades the reaction moves onto the parent, so what is left at
   the end are true joint torques with real weight on them.
@@ -187,6 +232,8 @@ Shared 8 GB M1 under load average around 18, so treat these as upper bounds.
 | `cutMesh`, husk, about 9-12k triangles | best 2.9 ms in Chrome. Target was about 2 ms: **missed**. Best 1.8 ms in Node on a plain 12k mesh |
 | `bakePose` (characters system) | best 1.3-2 ms, on top of the cut |
 | Pose jump at death, real animator | 0 |
+| Crowd under fire: 24 bodies, AI on, a blast every 0.45 s, `react-chaos` at Retina size | 10 knockdowns, peak 5 down and 7 ragdolls at once, physics step peak 6.7 ms, CPU 4.7 ms a frame, every survivor back on its feet, no console errors |
+| Bone movement in one frame across a handover | 0.003 to 0.026 m in Node, over four headings |
 | Falls that settle by themselves | all 36 in the test, usually about 2 s |
 
 ## Known limitations
@@ -208,8 +255,9 @@ Shared 8 GB M1 under load average around 18, so treat these as upper bounds.
   husk-heavy wave will lose corpses early. Raising the pool to 96 fixes it.
 - Pools grow as stacked decals, since `DecalSystem` has no resize. 5 per corpse.
 - **`Physics.radialImpulse` moves what it finds.** It collects bodies inside Rapier's query and applies the impulses afterwards. A chunk at rest has given back its body, so a blast only reaches chunks in flight.
-- **The enemy agent has not called `collapse` yet.** In the sandbox it runs on husks and in Node on the real animator. The
-  mortal bleed-out path does not exist yet, so nothing has been tried against a real AI handing a body over.
+- **Get-ups assume flat ground.** Feet and hands are keyed relative to the root, and the root sits on the floor under the chest. On a ramp or stairs a foot will sink or float a little. Not tried. A body beside a wall can stand with the wall inside its stand point, and `trackProgress` walks it out.
+- **A burn emitter sits on the root**, so on a burning body that is down the flames ride 1.2 m above it.
+- **Knocked-down bodies have no collision with the player.** They are walked through, like crawlers.
 - **A collapse assumes level ground.** The hips are held at the height they started, so one begun on stairs or at a ledge
   hovers until support fades, then drops. Not tried on stairs. Airborne, call `ragdoll`.
 - **A very fast joint still reaches the hard stop.** Past about 30 rad/s the zone is used up in a step or two and the

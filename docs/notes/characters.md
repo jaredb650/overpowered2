@@ -17,6 +17,10 @@ c.setLod(lod);                                // geometry and material, 0..3
 
 c.anim.play('attackMelee');                   // returns duration in seconds
 c.anim.flinch(bone, worldDir, 0.5);           // additive, stacks
+c.anim.stumble?.(worldDir, 0.7, bone);        // balance gone: quick steps, arms out, a shot leg buckles
+c.anim.holdWound?.(bone, worldPoint, 1.2);    // a hand goes to it, and the body bends if it is low
+c.anim.guard?.(0.6);                          // hands up to the face
+c.anim.daze?.(1.5);                           // swaying, a hand to the head
 c.addWound(bone, worldPoint, 0.04);           // sticks to the skin, 16 per body, oldest out
 c.setBloodiness(0.4); c.hitFlash(1);
 c.setBurn(0.7); c.setFrost(1);
@@ -49,6 +53,23 @@ The animator measures velocity from `root.position`, so feet stay planted howeve
 `SeveredLimb` follows the gore dummy's contract: `root` sits at identity in the scene, `bones[bone]` holds the world
 pose. Everything outside the chain is parented to that bone at near-zero scale, so skin blended into the parent closes
 over the child cap. Props on the chain are cloned onto the limb, because a limb can outlive the instance that shed it.
+
+### Reactions
+
+`stumble` only poses. The root is the caller's: move it and the feet follow, at twice the cadence for that speed, with the body leaning ahead of them. From a stand the foot that has to catch goes at once. Walking, the gait is left alone, because jumping its phase jumps every limb on it.
+
+`holdWound` is the wound hold section 14.6 asks for. Pass a long `seconds` and refresh it. It picks the free hand: never the arm that was hit, and the left if there is a gun.
+
+None of these exist on skitters and drones, which is how gore and the enemies know not to ask.
+
+### Getting up
+
+`getUp.ts` is two clips, keys on a 1.85 m body: hips, spine, ankles, wrists. IK does the rest, so one clip fits every humanoid and a missing limb just is not solved. Lead side is mirrored at random.
+
+- Face down: the head lies toward +Z. Press up, hands and knees, lead foot through, stand. Face up: the feet lie toward +Z. Sit up, hand behind, rock forward over the feet, stand. So the yaw comes from how the body lies, and nothing turns on the way up.
+- `getUp(kind, seconds, hurt)` takes over from whatever is on the bones and blends out of it over 0.42 s. The last 16% fades into ordinary standing, which has been posed underneath all along. A body with no legs has no clip: it blends 0.7 s into its crawl.
+- `keepAboveFloor` lifts the hips if a blend or an odd body shape would put a low joint through the floor. It is there because a blend knows nothing about the floor, and the keys were made on a Trooper.
+- A gun hand hugs the weapon in and the other arm does the pushing.
 
 ## Rendering
 

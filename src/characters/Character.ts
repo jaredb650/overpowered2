@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import type { CharacterInstance, SeveredLimb, WoundHit } from '../core/contracts';
 import { HumanoidBone as H, type GoreRegion, type RigDef } from './rig';
 import type { LoadedModel } from './model';
-import { EXTRA_INFO, EXTRA_PARAMS, EXTRA_TEXELS, EXTRA_WOUNDS } from './anatomy/glsl';
+import { BONE_TEXTURE_SIZE, EXTRA_INFO, EXTRA_PARAMS, EXTRA_TEXELS, EXTRA_WOUNDS } from './anatomy/glsl';
 import { FracturePose, type FractureStyle } from './anatomy/fracture';
 import { newWoundSpec, WoundBook, WoundKind, WoundRegion, type WoundKindId } from './anatomy/wounds';
 import { createAnimator, type PooledAnimation } from './animation/index';
@@ -58,8 +58,8 @@ function makeBones(a: ArchetypeData): THREE.Bone[] {
 /** Replaces three's texture with one that has room for per-instance surface state after the matrices. */
 function makeSkeleton(bones: THREE.Bone[], inverses: THREE.Matrix4[]): { skeleton: THREE.Skeleton; extras: number } {
   const skeleton = new THREE.Skeleton(bones, inverses);
-  const texels = bones.length * 4 + EXTRA_TEXELS;
-  const size = Math.max(4, Math.ceil(Math.sqrt(texels) / 4) * 4);
+  const size = BONE_TEXTURE_SIZE;
+  if (bones.length * 4 + EXTRA_TEXELS > size * size) throw new Error(`${bones.length} bones leave no room for the wounds`);
   const data = new Float32Array(size * size * 4);
   data.set(skeleton.boneMatrices!);
   const tex = new THREE.DataTexture(data, size, size, THREE.RGBAFormat, THREE.FloatType);
@@ -106,19 +106,18 @@ function placeWound(a: ArchetypeData, book: WoundBook, bone: THREE.Bone, boneInd
   spec.radius = hit.radius;
   spec.depth = hit.depth;
   spec.ragged = hit.ragged;
+  spec.reach = hit.reach ?? 0;
   spec.regions = woundRegions(a, boneIndex, hit.radius);
   const def = a.rig.bones[boneIndex]!;
   spec.limit = (def.hit?.radius ?? 0.06) * (boneIndex === H.head ? 0.8 : 1.5);
   if (hit.along && hit.length) {
     // Square to the axis, so the slot's two ends lie in one plane across the body.
     u.copy(hit.along).transformDirection(m).addScaledVector(n, -u.dot(n)).normalize().multiplyScalar(hit.length);
-    spec.ax = v.x - u.x; spec.ay = v.y - u.y; spec.az = v.z - u.z;
-    spec.bx = v.x + u.x; spec.by = v.y + u.y; spec.bz = v.z + u.z;
+    spec.hx = u.x; spec.hy = u.y; spec.hz = u.z;
   } else {
-    spec.ax = spec.bx = v.x;
-    spec.ay = spec.by = v.y;
-    spec.az = spec.bz = v.z;
+    spec.hx = spec.hy = spec.hz = 0;
   }
+  spec.cx = v.x; spec.cy = v.y; spec.cz = v.z;
   book.add(spec);
 }
 
@@ -312,7 +311,7 @@ export class Character implements CharacterInstance {
     if (this.book.open === 0 || !this.a.interior) return;
     if (!this.inside) {
       this.inside = makeInside(this.a, this.skeleton);
-      this.caster = makeCaster(this.a, this.a.model.lods[1]!, this.skeleton);
+      this.caster = makeCaster(this.a, this.a.model.lods[this.a.model.lods.length - 1]!, this.skeleton);
       Object.defineProperty(this.inside, 'boundingSphere', this.cullSphere);
       Object.defineProperty(this.caster, 'boundingSphere', this.cullSphere);
       this.root.add(this.inside, this.caster);

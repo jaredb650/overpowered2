@@ -9,9 +9,9 @@ function book() {
 
 const at = (x: number, y: number, z: number, o: Partial<WoundSpec> = {}): WoundSpec => {
   const w = newWoundSpec();
-  w.ax = w.bx = x;
-  w.ay = w.by = y;
-  w.az = w.bz = z;
+  w.cx = x;
+  w.cy = y;
+  w.cz = z;
   return Object.assign(w, o);
 };
 
@@ -56,7 +56,7 @@ describe('WoundBook', () => {
 
   it('leaves a gash its own wound, and does not let paint open a body', () => {
     const { book: b } = book();
-    b.add(at(0, 0, 0, { kind: WoundKind.gash, bx: 0.1, by: 0, bz: 0 }));
+    b.add(at(0, 0, 0, { kind: WoundKind.gash, hx: 0.1 }));
     b.add(at(0.01, 0, 0));
     b.add(at(0.2, 0, 0, { kind: WoundKind.graze }));
     b.add(at(0.4, 0, 0, { kind: WoundKind.burn }));

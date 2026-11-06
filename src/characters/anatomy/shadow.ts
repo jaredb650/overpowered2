@@ -50,16 +50,19 @@ if (vWoundNear > 0.0) {
   for (int i = 0; i < OP2_MAX_WOUNDS; i++) {
     if (i >= count) break;
     int base = OP2_WOUND_BASE + i * OP2_WOUND_TEXELS;
-    vec4 t0 = op2Extra(base), t1 = op2Extra(base + 1), t2 = op2Extra(base + 2);
+    vec4 t0 = op2Extra(base);
+    if (op2Run(vBind - t0.xyz) > t0.w) continue;
+    vec4 t2 = op2Extra(base + 2);
     int code = int(t2.w);
     int kind = code & 7;
     if (((code >> 3) & vRegion) == 0 || kind > OP2_GASH) continue;
+    vec4 t1 = op2Extra(base + 1);
     float depth = length(t2.xyz);
     vec3 axis = t2.xyz / max(depth, 1e-4);
     float along, radius;
     vec3 off;
     float dist = op2Slot(vBind, t0, t1, axis, along, off, radius);
-    if (dist + op2SlotEnds(along, OP2_SKIN_ABOVE, op2SkinBelow(t0.w)) * 2.0 < radius) discard;
+    if (dist + op2SlotEnds(along, OP2_SKIN_ABOVE, op2SkinBelow(t1.w)) * 2.0 < radius) discard;
   }
 }
 `;

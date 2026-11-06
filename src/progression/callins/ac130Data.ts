@@ -72,8 +72,11 @@ export const AC130 = {
     spread: 5,
     damage: 620,
     radius: 12,
-    /** It never fires this close to the player. Nothing would hurt, but nobody could see through it either. */
-    noFire: 14,
+    /**
+     * It never fires this close to the player: nothing would hurt, but nobody could see through it. Kept tight, because
+     * enemies close on the player, and at 14 m the biggest gun was left shooting at stragglers.
+     */
+    noFire: 9,
     whistle: 2,
     retry: 1.5,
   },

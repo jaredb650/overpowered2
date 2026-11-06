@@ -21,6 +21,8 @@ export const WoundTuning = {
   /** Pellets take a real bite under this range and are plain holes past that one. */
   pelletNear: 1.5,
   pelletFar: 10,
+  /** Metres apart that pellets still make one crater, at point blank. It falls to nothing halfway out. */
+  pelletMerge: 0.11,
 };
 
 /** One weapon's bite. */
@@ -150,7 +152,7 @@ export class WoundPlanner {
 
   private bullet(on: Flesh, info: RigInfo, bite: Bite, bone: number, point: THREE.Vector3, dir: THREE.Vector3, size: number, machine: boolean): void {
     const limb = isArmBone(bone) || isLegBone(bone);
-    this.cut(on, bite.entry >= 0.03 ? WoundKind.crater : WoundKind.hole, bone, point, dir, bite.entry * size, bite.depth, bite.ragged * 0.4);
+    this.cut(on, bite.entry >= 0.03 ? WoundKind.crater : WoundKind.hole, bone, point, dir, bite.entry * size, bite.depth, Math.max(0.35, bite.ragged * 0.6));
     const exit = limb ? bite.limbExit : bite.exit;
     if (exit <= 0 || !this.exitOf(info, on.bones, bone, point, dir, _q)) return;
     // Inward from the far side, so the slot starts at the skin it comes out of.
@@ -163,7 +165,9 @@ export class WoundPlanner {
     const t = WoundTuning;
     const range = clamp((point.distanceTo(this.ctx.player.eye) - t.pelletNear) / (t.pelletFar - t.pelletNear), 0, 1);
     const radius = lerp(0.047, 0.0115, Math.sqrt(range)) * size;
+    _hit.reach = lerp(t.pelletMerge, 0, Math.min(1, range * 2));
     this.cut(on, radius > 0.024 ? WoundKind.crater : WoundKind.hole, bone, point, dir, radius, lerp(0.09, 0.04, range), lerp(1, 0.35, range));
+    _hit.reach = 0;
     return lerp(1.3, 0.3, range);
   }
 

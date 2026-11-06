@@ -109,14 +109,14 @@ flat varying int vRegion;
 vec4 op2Tri(vec3 p, vec3 w) {
   return texture2D(tDetail, p.zy) * w.x + texture2D(tDetail, p.xz) * w.y + texture2D(tDetail, p.xy) * w.z;
 }
-// Thin connected lines, from where noise crosses its middle value: the shape of mud drying out.
+// Thin connected lines, from where noise crosses its middle value: the shape of mud drying out. That noise sits close
+// to its middle almost everywhere, so the band has to be narrow to come out as a line at all.
 float op2Crack(vec4 macro, vec4 micro) {
   #ifdef OP2_FAR
   return 0.0;
+  #else
+  return 1.0 - smoothstep(0.006, 0.02, abs(macro.a - 0.5 + (micro.a - 0.5) * 0.05));
   #endif
-  float a = 1.0 - abs(macro.a * 2.0 - 1.0) * 5.0;
-  float b = 1.0 - abs(macro.r * 2.0 - 1.0) * 6.0;
-  return smoothstep(0.35, 0.8, max(a, b) + (micro.r - 0.5) * 0.3);
 }
 // Height in meters to a bent normal. Unnormalized screen derivatives keep the strength independent of distance.
 vec3 op2Bump(vec3 pos, vec3 n, float h, float face) {
@@ -199,14 +199,14 @@ float sWoundH = 0.0;
     // The char splits as it shrinks, and what shows in the splits is raw.
     sAlb = mix(sAlb, vec3(0.13, 0.01, 0.006), crack);
     sRough = mix(sRough, 0.34, crack);
-    sGlow += vec3(1.0, 0.24, 0.03) * (ember * 3.5 + crack * burn * (1.0 - burn) * 3.0);
+    sGlow += vec3(1.0, 0.24, 0.03) * (ember * 3.5 + crack * burn * (1.0 - burn) * 1.2);
   }
 
   if (blood > 0.001) {
     // Coverage grows out of the creases: the threshold walks down through the noise as blood rises.
     // It stops well short of the whole body: past a point, a figure in blotches reads as camouflage, not as blood.
-    float t = mix(0.85, 0.6, blood);
-    float m = smoothstep(t, t + 0.2, grain * 0.6 + macro.g * 0.24 + micro.r * 0.16 + (1.0 - vColorAO.a) * 0.3);
+    float t = mix(0.9, 0.7, blood);
+    float m = smoothstep(t, t + 0.2, grain * 0.7 + macro.a * 0.14 + micro.r * 0.16 + (1.0 - vColorAO.a) * 0.3);
     sAlb = mix(sAlb, mix(vec3(0.15, 0.004, 0.005), vec3(0.07, 0.002, 0.004), macro.a), m * 0.9);
     sRough = mix(sRough, 0.2, m);
     sMetal *= 1.0 - m;
@@ -218,44 +218,49 @@ float sWoundH = 0.0;
     // Metres outside the nearest cut, and how much of each kind of damage this pixel is in.
     float edge = 1.0, rimWidth = 0.01, bruise = 0.0, stain = 0.0, scorch = 0.0, pit = 0.0, torn = 0.0;
     // Skin tears along a few long lines, not at every grain of it. Big wounds wander on a big noise, and only the finest
-    // grain reaches the very edge, in millimetres, or the edge breaks up into islands.
-    vec4 coarse = op2Tri(vBind * 0.31 + 0.11, tw);
+    // grain reaches the very edge, in millimetres, or the edge breaks up into islands. One tap, skewed so that no face of
+    // the body lies flat to it, because this is only ever the wobble in an edge.
+    float tearBig = (texture2D(tDetail, vBind.xy * 0.31 + vBind.z * 0.23 + 0.11).a - 0.5) * 2.6;
     float tear = (macro.a - 0.5) * 2.0;
-    float tearBig = (coarse.a - 0.5) * 2.6;
     float tearFine = (micro.r - 0.5) * 0.0075;
     for (int i = 0; i < OP2_MAX_WOUNDS; i++) {
       if (i >= wounds) break;
       int base = OP2_WOUND_BASE + i * OP2_WOUND_TEXELS;
-      vec4 t0 = op2Extra(base), t1 = op2Extra(base + 1), t2 = op2Extra(base + 2);
-      int code = int(t2.w);
+      vec4 t0 = op2Extra(base);
+      float run = op2Run(vBind - t0.xyz);
+      if (run > t0.w) continue;
+      vec4 t2 = op2Extra(base + 2);
+      float coded = t2.w;
+      int code = int(coded);
       if (((code >> 3) & vRegion) == 0) continue;
+      float ragged = fract(coded);
       int kind = code & 7;
+      vec4 t1 = op2Extra(base + 1);
       float depth = length(t2.xyz);
       vec3 axis = t2.xyz / max(depth, 1e-4);
       float along, radius;
       vec3 off;
       float dist = op2Slot(vBind, t0, t1, axis, along, off, radius);
-      float past = op2SlotEnds(along, OP2_SKIN_ABOVE, op2SkinBelow(t0.w));
-      if (past > t0.w * 3.0 + 0.06) continue;
-      // Stretched below the wound, because blood runs down. Bind space keeps that on a corpse too, as a stain it had.
-      float run = length(off - vec3(0.0, min(off.y, 0.0) * 0.68, 0.0)) + past * 2.0;
-      float spread = t0.w * 2.6 + 0.03;
+      float past = op2SlotEnds(along, OP2_SKIN_ABOVE, op2SkinBelow(t1.w));
+      if (past > t0.w) continue;
       // Fire seals what it burns.
-      if (kind != OP2_DENT && kind != OP2_BURN) stain = max(stain, smoothstep(1.0, 0.25, run / spread + (tear + tearBig) * 0.2));
+      if (kind != OP2_DENT && kind != OP2_BURN) {
+        stain = max(stain, smoothstep(1.0, 0.25, (op2Run(off) + past * 2.0) / (t1.w * OP2_STAIN_RADII + OP2_STAIN_MARGIN) + (tear + tearBig) * 0.2));
+      }
       if (kind == OP2_BURN) {
-        scorch = max(scorch, smoothstep(1.15, 0.55, (dist + past * 2.0) / t0.w + tear * 0.35));
+        scorch = max(scorch, smoothstep(1.15, 0.55, (dist + past * 2.0) / t1.w + tear * 0.35));
       } else if (kind == OP2_GRAZE) {
-        bruise = max(bruise, smoothstep(1.2, 0.3, (dist + past * 2.0) / t0.w + tear * 0.4));
+        bruise = max(bruise, smoothstep(1.2, 0.3, (dist + past * 2.0) / t1.w + tear * 0.4));
       } else if (kind == OP2_DENT) {
         float m = dist + past * 2.0 - radius * (1.0 + tear * 0.3);
         pit = max(pit, smoothstep(0.003, -0.002, m));
         torn = max(torn, smoothstep(radius * 0.5, 0.0, abs(m)));
       } else {
-        float wander = mix(tear, tearBig, smoothstep(0.02, 0.06, t0.w));
-        float m = dist + past * 2.0 - radius * (1.0 + wander * mix(0.08, 0.5, t1.w)) + tearFine * mix(0.3, 1.0, t1.w);
+        float wander = mix(tear, tearBig, smoothstep(0.02, 0.06, t1.w));
+        float m = dist + past * 2.0 - radius * (1.0 + wander * mix(0.1, 0.55, ragged)) + tearFine * mix(0.3, 1.0, ragged);
         if (m < edge) {
           edge = m;
-          rimWidth = kind == OP2_GASH ? 0.004 : clamp(radius * 0.4, 0.0045, 0.028);
+          rimWidth = kind == OP2_GASH ? 0.007 : clamp(radius * 0.45, 0.006, 0.03);
         }
       }
     }

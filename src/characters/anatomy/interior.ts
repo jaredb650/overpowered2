@@ -72,8 +72,8 @@ tw /= tw.x + tw.y + tw.z;
 vec4 micro = op2Tri(vBind * 9.0, tw);
 vec4 macro = op2Tri(vBind * 1.6 + 0.23, tw);
 // Long along the body, the way muscle and blood vessels run.
-vec4 fibre = op2Tri(vBind * vec3(26.0, 5.0, 26.0), tw);
-float tear = (macro.a - 0.5) * 2.0 + (micro.r - 0.5) * 1.2;
+vec4 fibre = op2Tri(vBind * vec3(13.0, 2.4, 13.0), tw);
+float tear = (macro.a - 0.5) * 2.0;
 // How much light gets down here, from the open wound it has the best view of. Anything no wound opens onto is seen
 // past an edge, from deep inside, and stays dark.
 float sLight = 0.04;
@@ -88,6 +88,7 @@ for (int i = 0; i < OP2_MAX_WOUNDS; i++) {
   int base = OP2_WOUND_BASE + i * OP2_WOUND_TEXELS;
   vec4 t0 = op2Extra(base), t1 = op2Extra(base + 1), t2 = op2Extra(base + 2);
   int code = int(t2.w);
+  float ragged = fract(t2.w);
   int kind = code & 7;
   if (kind == OP2_BURN || kind == OP2_GRAZE || kind == OP2_DENT) continue;
   float depth = length(t2.xyz);
@@ -96,20 +97,23 @@ for (int i = 0; i < OP2_MAX_WOUNDS; i++) {
   vec3 off;
   float dist = op2Slot(vBind, t0, t1, axis, along, off, radius);
   float under = max(along, 0.0);
-  float past = op2SlotEnds(along, OP2_SKIN_ABOVE, depth + t0.w);
+  float past = op2SlotEnds(along, OP2_SKIN_ABOVE, depth + t1.w);
   float open = smoothstep(radius * 1.15, radius * 0.45, dist);
-  sLight = max(sLight, open * exp(-under / (radius * 1.5 + 0.015)));
+  // Never all the way down to nothing, or a small hole shows as a black dot with no flesh in it.
+  sLight = max(sLight, open * (0.4 + 0.6 * exp(-under / (radius * 1.5 + 0.015))));
   // Layers go by how far the wound reached. A gash only opens what it passes through.
-  float reachShare = vPart == ${Part.muscle} ? 0.72 : vPart == ${Part.bone} ? 0.3 : 0.0;
-  float enough = vPart == ${Part.muscle} ? step(0.03, depth) : vPart == ${Part.bone} && kind == OP2_CRATER ? step(0.075, depth) : 0.0;
+  float reachShare = vPart == ${Part.bone} ? 0.3 : kind == OP2_CRATER || kind == OP2_EXIT ? 0.72 : 0.4;
+  float enough = vPart == ${Part.muscle} && kind != OP2_GASH ? step(0.03, depth) : vPart == ${Part.bone} && kind == OP2_CRATER ? step(0.075, depth) : 0.0;
   if (((code >> 3) & vRegion) != 0 && enough > 0.5) {
-    float m = dist + past * 3.0 - radius * reachShare * (1.0 + tear * mix(0.15, 0.45, t1.w));
+    float m = dist + past * 3.0 - radius * reachShare * (1.0 + tear * mix(0.15, 0.45, ragged));
     sCore = min(sCore, m);
   }
   sGore = max(sGore, smoothstep(radius * 2.2, radius * 0.6, dist + past));
   if (((code >> 3) & vRegion) != 0) sHole = min(sHole, dist + past * 2.0 - radius * 1.5);
 }
 if (sCore < 0.0 || (sHole > 0.0 && vPart != ${Part.shard})) discard;
+// Bone that has come out through the skin is in the open air.
+if (vPart == ${Part.shard}) sLight = max(sLight, 0.85);
 
 // Channel g of the detail texture is cloth weave, and shows up on anything it is used for as a bandage.
 vec3 sAlb = vTint;

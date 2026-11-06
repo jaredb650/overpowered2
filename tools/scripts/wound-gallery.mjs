@@ -29,6 +29,7 @@ function install() {
     e.yaw = yaw;
     // Health only stops the hit killing: the size of a wound reads maxHealth.
     e.health = 1e6;
+    for (const k of [...e.limbHp.keys()]) e.limbHp.set(k, 1e6);
     return e;
   };
   /** A real ray at a real bone: from `from`, through a point in that bone's frame. */
@@ -140,8 +141,8 @@ const SCENE = {
   }, [...NEAR, BACK]),
   sword: (p, h, t) => scene(p, h, 'sword', t, async (w, e) => {
     const { V } = w;
-    w.shoot(e, 'sword', 'slash', 40, w.front(0, 1.4, 2), 2, [-0.02, 0.1, 0.1], { slicePlaneNormal: new V(0.5, 0.86, 0).normalize() });
-    w.shoot(e, 'sword', 'slash', 25, w.front(0.3, 1.4, 2), 11, [0, -0.2, 0.05], { slicePlaneNormal: new V(0.2, 0.98, 0).normalize() });
+    w.shoot(e, 'sword', 'slash', 40, w.front(0.1, 1.1, 2), 1, [0.02, 0.06, 0.1], { slicePlaneNormal: new V(0.5, 0.86, 0).normalize() });
+    w.shoot(e, 'sword', 'slash', 25, w.front(0.3, 0.9, 2), 11, [0, -0.2, 0.05], { slicePlaneNormal: new V(0.2, 0.98, 0).normalize() });
   }, NEAR),
   burn: (p, h, t) => scene(p, h, 'burn', t, async (w, e) => {
     e.char.setBurn(0.85);
@@ -152,9 +153,9 @@ const SCENE = {
     w.shoot(e, 'kiln', 'fire', 9, w.front(0.1, 1.4, 2), 11, [0, -0.15, 0.08]);
   }, NEAR),
   fracture: (p, h, t) => scene(p, h, 'fracture', t, async (w, e) => {
-    w.shoot(e, 'judge', 'bullet', 30, w.front(0.6, 0.6, 3), 12, [0, -0.15, 0.06]);
-    w.shoot(e, 'judge', 'bullet', 30, w.front(0.6, 1.2, 3), 9, [-0.04, -0.12, 0.05]);
-    w.shoot(e, 'judge', 'bullet', 30, w.front(-0.8, 1.3, 3), 5, [0.05, -0.14, 0.05]);
+    w.shoot(e, 'judge', 'bullet', 50, w.front(0.6, 0.6, 3), 12, [0, -0.15, 0.06]);
+    w.shoot(e, 'judge', 'bullet', 50, w.front(0.6, 1.2, 3), 9, [-0.04, -0.12, 0.05]);
+    w.shoot(e, 'judge', 'bullet', 50, w.front(-0.8, 1.3, 3), 5, [0.05, -0.14, 0.05]);
   }, [['full', [0.8, 1.0, 3.2], [0, 0.95, 0], 36], ['side', [3.2, 1.0, 0.3], [0, 0.95, 0], 36], ['knee', [0.15, 0.6, 1], [0, 0.5, 0], 36], ['arm', [-0.7, 1.3, 1.1], [0.2, 1.15, 0.1], 36]]),
 };
 
@@ -169,7 +170,7 @@ SCENE.corpse = async (page, h, type) => {
     w.freeze();
     const F = w.front(0.1, 1.35, 2);
     for (let i = 0; i < 6; i++) w.shoot(e, 'shotgun', 'pellet', 20, F, 2, [0.05 + (Math.random() - 0.5) * 0.12, 0.05 + (Math.random() - 0.5) * 0.12, 0.1]);
-    w.shoot(e, 'judge', 'bullet', 30, w.front(0.6, 0.6, 3), 12, [0, -0.15, 0.06]);
+    w.shoot(e, 'judge', 'bullet', 50, w.front(0.6, 0.6, 3), 12, [0, -0.15, 0.06]);
     e.health = 1;
     w.shoot(e, 'smg', 'bullet', 20, F, 1, [0, 0.05, 0.1]);
     w.thaw();

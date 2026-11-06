@@ -62,6 +62,8 @@ Real game on the range, `tools/scripts/lab-throw.mjs`, Trooper, gibbing off so t
 | Grenade, floor 2 m away | 1.1 | 2.1 |
 | Rocket 2 m from a corpse | 3.1 | 1.9 |
 
+**After active ragdoll**, one to three runs each. Most rows held. These moved: SMG kill 0.8 to 1.0, because a body now takes about a second to die and is walked back by the rest of the burst, and SMG 1.5 s on a corpse 0.1 to 0.9 (was 0.15), from the jolts. Shotgun 2 m is 1.5 to 2.3 (was 1.06). That is not more force. It is that six pellets no longer cut a corpse in two at the waist, so the hips now travel with the rest of the body. Before, the number was measuring a pair of legs left behind. Rocket 4 m survivors are thrown up to 2 m (was 0.75), then get up.
+
 Gibs, new only: from a rocket, the furthest limb lay 4.6 m out. Limbs peaked at 11.5 m/s and chunks at 13. A second rocket beside the limbs moved them up to 5.9 m at 12.2 m/s, and left chunks at rest alone. The old speeds were not measured.
 
 Sword kills slice, so they have no throw to measure. The Kiln is 1 N·s.
@@ -90,6 +92,13 @@ node tools/shot.mjs --url "/?map=range" --script tools/scripts/lab-contact.mjs -
 THROW_REPS=3 node tools/shot.mjs --url "/?map=range" --script tools/scripts/lab-throw.mjs --wait 500 --timeout 290 --out tools/out/throw.png
 node tools/shot.mjs --url "/?map=range" --script tools/scripts/lab-seq.mjs --dpr 2 --w 1440 --h 900 --wait 500 --timeout 120 --out tools/out/seq.png
 ```
+
+```
+REACT=stagger,fall,trip node tools/shot.mjs --url "/?map=range" --script tools/scripts/react-seq.mjs --dpr 2 --w 1440 --h 900 --wait 500 --timeout 200 --out tools/out/react.png
+node tools/shot.mjs --url "/?map=range" --script tools/scripts/react-chaos.mjs --wait 500 --timeout 120 --out tools/out/chaos.png
+```
+
+`react-seq` steps world frames and writes one contact sheet per reaction, `tools/out/react-<case>.png`. Cases: `stagger stagleg trip fall fallback rise riseback thrown thrownup dance husk maimed oneleg noleg`. `react-chaos` runs 24 bodies with AI on under blasts and fire, and reports bodies that never get up.
 
 `lab-check` drives everything with real keys, real pointer lock and all 16 types. Its reload for the settings check can cancel a music fetch, which shows up as one `requestfailed`.
 

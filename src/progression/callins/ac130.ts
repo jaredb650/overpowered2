@@ -27,7 +27,7 @@ const UP = new THREE.Vector3(0, 1, 0);
 /** Metres a blast stands off a wall, so its line-of-sight rays do not start inside it. */
 const WALL_STANDOFF = 0.5;
 /** How far the ring is lifted over its resting glow by a new stage of the siege, and how fast that dies away. */
-const RING_REST = 0.34;
+const RING_REST = 0.22;
 const RING_PULSE = 0.45;
 const RING_DECAY = 1.6;
 

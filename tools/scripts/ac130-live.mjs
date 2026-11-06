@@ -6,6 +6,7 @@
 //   AC_MODE=reset node tools/shot.mjs --url "/?map=range" --script tools/scripts/ac130-live.mjs --wait 500 --out tools/out/ac-reset.png
 //   AC_MODE=safe  node tools/shot.mjs --url "/?map=range" --script tools/scripts/ac130-live.mjs --wait 500 --out tools/out/ac-safe.png --timeout 200
 //   AC_MODE=roof  node tools/shot.mjs --url "/?autostart=1" --script tools/scripts/ac130-live.mjs --wait 500 --out tools/out/ac-roof.png --timeout 200
+//   AC_MODE=ring  node tools/shot.mjs --url "/?map=range" --script tools/scripts/ac130-live.mjs --wait 500 --out tools/out/ac-ring.png
 //
 // model  the airframe parked in front of the camera, from several sides
 // sky    a real call-in, then the siege seen from the ground in real time at each stage, jumping between them
@@ -13,6 +14,7 @@
 // reset  a new run during a live siege leaves nothing behind
 // safe   a mortal player stands in the box among enemies with no AI, so anything that touches them came from the ship
 // roof   the Crucible, marked under a roof beside its barrels: rounds still arrive and no barrel goes off
+// ring   the marked box at rest, after the opening pulse has died away
 const mode = process.env.AC_MODE ?? 'full';
 const SPAWNS = Number(process.env.AC_SPAWNS ?? 14);
 const SPOT = process.env.AC_SPOT ?? 'roofed';
@@ -369,6 +371,17 @@ async function roof(page, h) {
   return { where, ci, ...result, log: await page.evaluate(() => window.__ac) };
 }
 
+async function ring(page, h) {
+  const ci = await callIn(page);
+  await page.evaluate(() => {
+    window.__skip(16);
+    window.__op2.ctx.player.pitch = -0.3;
+  });
+  await h.sleep(700);
+  await h.shot('rest');
+  return { ci };
+}
+
 async function reset(page, h) {
   await page.evaluate(n => window.__spawn(n, 14), 12);
   const ci = await callIn(page);
@@ -406,6 +419,6 @@ async function reset(page, h) {
 export default async function ac130(page, h) {
   if (!(await booted(page, h))) return { booted: false };
   await page.evaluate(prelude);
-  const run = { model, sky, full, reset, safe, roof }[mode];
+  const run = { model, sky, full, reset, safe, roof, ring }[mode];
   return run(page, h);
 }

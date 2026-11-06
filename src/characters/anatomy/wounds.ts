@@ -7,7 +7,10 @@
  * sideways, which the shot's own line is, and it needs nothing on the CPU to find the skin.
  */
 
-/** Three texels each: `a` and radius; `b` and raggedness; axis times depth, and a code. */
+/**
+ * Three texels each: the centre and how far any trace of the wound reaches; half the length of a gash, and the radius;
+ * axis times depth, and a code. The reach comes first, so most of the body can skip a wound on a single fetch.
+ */
 export const WOUND_TEXELS = 3;
 /** With 37 bones a 16 x 16 bone texture has room for 35 of these. Going past that makes every skeleton's upload bigger. */
 export const MAX_WOUNDS = 32;
@@ -36,9 +39,9 @@ export const WoundRegion = { trunk: 1, armL: 2, armR: 4, legL: 8, legR: 16, all:
 /** One wound on its way in. All in bind space, and `axis` is a unit vector pointing into the body. */
 export interface WoundSpec {
   kind: WoundKindId;
-  ax: number; ay: number; az: number;
-  /** The far end of a gash. Equal to `a` for anything round. */
-  bx: number; by: number; bz: number;
+  cx: number; cy: number; cz: number;
+  /** From the centre to the end of a gash. Zero for anything round. */
+  hx: number; hy: number; hz: number;
   nx: number; ny: number; nz: number;
   radius: number;
   depth: number;
@@ -47,10 +50,12 @@ export interface WoundSpec {
   regions: number;
   /** The largest this may grow to by merging. */
   limit: number;
+  /** How much further than touching this reaches for a wound to merge with. A shot's pellets arrive as one wound. */
+  reach: number;
 }
 
 export const newWoundSpec = (): WoundSpec => ({
-  kind: WoundKind.hole, ax: 0, ay: 0, az: 0, bx: 0, by: 0, bz: 0, nx: 0, ny: 0, nz: 1, radius: 0.02, depth: 0.05, ragged: 0, regions: WoundRegion.all, limit: 0.2,
+  kind: WoundKind.hole, cx: 0, cy: 0, cz: 0, hx: 0, hy: 0, hz: 0, nx: 0, ny: 0, nz: 1, radius: 0.02, depth: 0.05, ragged: 0, regions: WoundRegion.all, limit: 0.2, reach: 0,
 });
 
 /** Radius a merged hole has to reach before it counts as tissue gone. */
@@ -65,6 +70,13 @@ const MERGE_FACING = -0.15;
 /** Each merge digs deeper by this share of what it added. */
 const MERGE_DIG = 0.3;
 const MAX_DEPTH = 0.2;
+/** Blood spreads this many radii from a wound, and a little more. The shaders stop looking past it. */
+export const STAIN_RADII = 2.2;
+export const STAIN_MARGIN = 0.04;
+/** Ragged lives in the fraction of the code, and must never round the whole number up. */
+const RAGGED_SCALE = 0.99;
+
+const reachOf = (radius: number, length: number): number => radius * STAIN_RADII + STAIN_MARGIN + length;
 
 const cuts = (kind: number): boolean => kind <= WoundKind.crater;
 
@@ -90,7 +102,7 @@ export class WoundBook {
   }
 
   radius(i: number): number {
-    return this.data[this.at(i) + 3]!;
+    return this.data[this.at(i) + 7]!;
   }
 
   depth(i: number): number {
@@ -129,10 +141,10 @@ export class WoundBook {
   private write(i: number, w: WoundSpec): void {
     const d = this.data;
     const o = this.at(i);
-    d[o] = w.ax; d[o + 1] = w.ay; d[o + 2] = w.az; d[o + 3] = w.radius;
-    d[o + 4] = w.bx; d[o + 5] = w.by; d[o + 6] = w.bz; d[o + 7] = w.ragged;
+    d[o] = w.cx; d[o + 1] = w.cy; d[o + 2] = w.cz; d[o + 3] = reachOf(w.radius, Math.hypot(w.hx, w.hy, w.hz));
+    d[o + 4] = w.hx; d[o + 5] = w.hy; d[o + 6] = w.hz; d[o + 7] = w.radius;
     d[o + 8] = w.nx * w.depth; d[o + 9] = w.ny * w.depth; d[o + 10] = w.nz * w.depth;
-    d[o + 11] = w.kind + w.regions * 8;
+    d[o + 11] = w.kind + w.regions * 8 + w.ragged * RAGGED_SCALE;
   }
 
   /** Whether wound `i` takes `kind` into itself. */
@@ -149,12 +161,12 @@ export class WoundBook {
       if (!this.accepts(i, w.kind)) continue;
       const o = this.at(i);
       if ((Math.floor(d[o + 11]!) >> 3 & w.regions) === 0) continue;
-      const r = d[o + 3]!;
-      const dist = Math.hypot(d[o]! - w.ax, d[o + 1]! - w.ay, d[o + 2]! - w.az);
-      if (dist > (r + w.radius) * MERGE_REACH + MERGE_SLACK) continue;
+      const r = d[o + 7]!;
+      const dist = Math.hypot(d[o]! - w.cx, d[o + 1]! - w.cy, d[o + 2]! - w.cz);
+      if (dist > (r + w.radius) * MERGE_REACH + MERGE_SLACK + w.reach) continue;
       const depth = Math.hypot(d[o + 8]!, d[o + 9]!, d[o + 10]!) || 1;
       if ((d[o + 8]! * w.nx + d[o + 9]! * w.ny + d[o + 10]! * w.nz) / depth < MERGE_FACING) continue;
-      this.merge(i, w.ax, w.ay, w.az, w.radius, w.depth, w.ragged, w.nx, w.ny, w.nz, w.kind, w.regions);
+      this.merge(i, w.cx, w.cy, w.cz, w.radius, w.depth, w.ragged, w.nx, w.ny, w.nz, w.kind, w.regions);
       this.recount();
       return true;
     }
@@ -165,7 +177,7 @@ export class WoundBook {
   private merge(i: number, x: number, y: number, z: number, r2: number, depth2: number, ragged2: number, nx: number, ny: number, nz: number, kind2: number, regions2: number): void {
     const d = this.data;
     const o = this.at(i);
-    const r1 = d[o + 3]!;
+    const r1 = d[o + 7]!;
     const limit = this.limits[i]!;
     const w1 = r1 * r1;
     const w2 = r2 * r2;
@@ -185,14 +197,14 @@ export class WoundBook {
     const l = 1 / (Math.hypot(ax, ay, az) || 1);
     ax *= l; ay *= l; az *= l;
     const code = Math.floor(d[o + 11]!);
+    const ragged = Math.max(d[o + 11]! - code, ragged2 * RAGGED_SCALE);
     let kind = code & 7;
-    if (cuts(kind) && (radius >= CRATER_FROM || cuts(kind2) && kind2 === WoundKind.crater)) kind = WoundKind.crater;
+    if (cuts(kind) && (radius >= CRATER_FROM || kind2 === WoundKind.crater)) kind = WoundKind.crater;
     const regions = (code >> 3) | regions2;
-    d[o] = cx; d[o + 1] = cy; d[o + 2] = cz; d[o + 3] = radius;
-    d[o + 4] = cx; d[o + 5] = cy; d[o + 6] = cz;
-    d[o + 7] = Math.max(d[o + 7]!, ragged2);
+    d[o] = cx; d[o + 1] = cy; d[o + 2] = cz; d[o + 3] = reachOf(radius, 0);
+    d[o + 7] = radius;
     d[o + 8] = ax * depth; d[o + 9] = ay * depth; d[o + 10] = az * depth;
-    d[o + 11] = kind + regions * 8;
+    d[o + 11] = kind + regions * 8 + ragged;
   }
 
   /** Full, with nothing near enough to merge. The faintest paint goes, or else the two closest wounds become one. */
@@ -219,7 +231,7 @@ export class WoundBook {
         if (!this.accepts(i, this.kind(j))) continue;
         const a = this.at(i);
         const b = this.at(j);
-        const gap = Math.hypot(d[a]! - d[b]!, d[a + 1]! - d[b + 1]!, d[a + 2]! - d[b + 2]!) - d[a + 3]! - d[b + 3]!;
+        const gap = Math.hypot(d[a]! - d[b]!, d[a + 1]! - d[b + 1]!, d[a + 2]! - d[b + 2]!) - d[a + 7]! - d[b + 7]!;
         if (gap < best) {
           best = gap;
           keep = this.radius(i) >= this.radius(j) ? i : j;
@@ -238,7 +250,7 @@ export class WoundBook {
     const depth = Math.hypot(d[o + 8]!, d[o + 9]!, d[o + 10]!);
     const l = 1 / (depth || 1);
     const code = Math.floor(d[o + 11]!);
-    this.merge(keep, d[o]!, d[o + 1]!, d[o + 2]!, d[o + 3]!, depth, d[o + 7]!, d[o + 8]! * l, d[o + 9]! * l, d[o + 10]! * l, code & 7, code >> 3);
+    this.merge(keep, d[o]!, d[o + 1]!, d[o + 2]!, d[o + 7]!, depth, (d[o + 11]! - code) / RAGGED_SCALE, d[o + 8]! * l, d[o + 9]! * l, d[o + 10]! * l, code & 7, code >> 3);
     this.remove(drop);
   }
 

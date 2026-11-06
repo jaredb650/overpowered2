@@ -36,6 +36,7 @@ Reads from other systems: `world.nav`, `world.objects` (`hazardAt`, `padAt`, `se
 | `behaviours.ts`, `roles.ts`, `attacks.ts` | The parts a row is built from. `roles.ts` is what only one enemy does |
 | `bosses.ts` | Juggernaut and Titan: phases, damage rules, deaths. Same brain, plus a `BossController` |
 | `damage.ts` | Order of a hit: ward, shield, tank, region, plate, boss filter, health, limb pool |
+| `reactions.ts` | What a hit that does not kill does to a body: flinch, stagger, fall or thrown |
 | `movement.ts` | Flow field steering, separation, ground following, jump links, pads |
 | `contact.ts` | The player running into a body |
 | `director.ts` | Attack tokens and gaps, ray budget, squads, barks |
@@ -79,6 +80,32 @@ changes what is available on the next think.
   hazard as `source`, so progression's environment bonus applies. Electric floors jolt in 0.3 s ticks.
 - **Body removal comes before a death's last act** in `updateDying`, so an exception in that blast cannot replay every frame.
 
+## Hit reactions
+
+One rule, in `reactions.ts`: `power = (force / body mass + damage / health) x region`, added to `Enemy.shock`, which fades at 1.3/s. Chance rises either side of each threshold, so sustained fire topples what one round would not. A blast ignores region. `DamageModel.respond` carries the answer out.
+
+| Level | What happens |
+|---|---|
+| Flinch | The old spring flinch and a cry |
+| Stagger | `e.reel` carries the body the way it was hit, the feet step after it, a hand goes to the wound or up to the face. No thinking while `e.stagger` lasts |
+| Fall | A stagger, then 0.16 to 0.42 s later `gore.knockdown`, so it visibly fails to catch itself |
+| Thrown | `gore.knockdown` at once, for a blast, and the blast does the throwing |
+
+A shot leg at 2.2 m/s or more trips a body by `profile.trip`: it keeps its speed and falls forward. So does a leg more than 45% gone, at a stand. A head hit that does not kill always staggers. Getting up can only be interrupted by a blast.
+
+| Profile | Stagger | Fall | Thrown | Lie, s | Rise, s | Cooldown |
+|---|---|---|---|---|---|---|
+| Flesh | 0.75 | 1.7 | 1 | 0.7 to 1.9 | 2.5 | 0.9 |
+| Undead: Husk, Leaper, Bomber | 1.15 | 2.6 | 1.25 | 0.1 to 0.35 | 1.05 | 1.3 |
+| Nimble: Stalker | 0.75 | 1.7 | 1 | 0.2 to 0.6 | 1.15 | 1.2 |
+| Heavy: Brute | 0.8 | 2 | 1.1 | 0.8 to 1.6 | 3 | 1.6 |
+
+Bosses and machines have no profile and stagger by `poise`, the old way. For scale, one SMG round in a Trooper's chest is about 0.66, so the second on its heels staggers it, and it dies on the third.
+
+**While `e.downed`** gore has the body. `updateDowned` copies where it is into `e.position` and `e.center`, and nothing else runs but status: it can bleed, burn and be shot. `e.airborne` is set so crowds and contact ignore it. When `gore.downed` answers null, the root is where it stands, `e.rising` counts the clip down, and `e.stagger` covers the clip and the daze after it. Knockback and crowd separation stay off while rising, because the clip is keyed to the root.
+
+**For section 14's wound states:** put them in front of `chooseReaction`. A wound changes what a body does on its own time. `anim.holdWound`, `anim.daze`, `gore.knockdown` and `gore.collapse` are what it should call. `kill` already sends bullets, fire, shock and bleeding out through `gore.collapse`.
+
 ## Tuning knobs
 
 | Where | What |
@@ -92,7 +119,8 @@ changes what is available on the next think.
 | `attacks.ts` `aimAtPlayer`, `SPEED_MISS`, `grazed` | Miss radius and the damage cut at speed |
 | `spawner.ts` | `PATH_MIN`, `PATH_MAX`, `REUSE_SECONDS`, `DROP_HEIGHT` |
 | `contact.ts` | `SOLID_MASS`, `OUT_RATE`, `OUT_MAX`, `CARRY_MAX`, `WEDGE_*`, `SHOVE_SPEED`, `SHOVE_FORCE`, `SHOVE_STAGGER`, `EASE_OUT`, `NUDGE_GAP` |
-| `damage.ts` | `SHOVE_GAIN`, `SHOVE_MAX`: knockback on the living, from a hit's `force` over the body's health |
+| `damage.ts` | `SHOVE_GAIN`, `SHOVE_MAX`: knockback on the living, from a hit's `force` over the body's health. `STAGGER_*`, `FALL_LEAD_*`, `REEL_GAIN`, `TOPPLE_*`, `DIES_ON_FEET*`, `COLLAPSE_*` |
+| `reactions.ts` | `ReactionProfile` rows, `BODIES`, `REGION_SHOCK`, `SHOCK_PER_*`, `TRIP_SPEED`, `LEG_FAILS_FROM` |
 | `EnemyManager.ts` | `PATH_GAIN`, `STRANDED_*`, `STRAGGLER_PATH`, `RESCUE_*`, `CHAR_SECONDS`, `BUFF_SECONDS`, `HAZARD_TICK` |
 
 ## Difficulty curve

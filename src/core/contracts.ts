@@ -312,6 +312,8 @@ export interface WoundHit {
   /** A gash: which way it runs, and half its length. */
   along?: THREE.Vector3;
   length?: number;
+  /** Metres past touching at which this merges with a wound already there. */
+  reach?: number;
 }
 
 export interface CharacterLibrary extends GameSystem {

@@ -354,7 +354,7 @@ function addOrgans(g: Builder, slices: readonly Slice[], y0: number, y1: number,
   const high = spine[1] + 0.03 * scale;
   const path: V3[] = [];
   const rows = 4;
-  const steps = 15;
+  const steps = 24;
   for (let r = 0; r < rows; r++) {
     for (let k = 0; k <= steps; k++) {
       const u = k / steps;
@@ -364,7 +364,7 @@ function addOrgans(g: Builder, slices: readonly Slice[], y0: number, y1: number,
       path.push([across * f.rx * 0.8, y, f.cz + f.rz * (0.5 + 0.28 * Math.sin(u * 17 + r * 2.1))]);
     }
   }
-  g.tube(path, (_t, i) => (i === 0 || i === path.length - 1 ? 0 : 0.019 * scale), 5, (t): Bind => [B.spine, B.hips, 0.2 + t * 0.6], Part.gut, BOWEL);
+  g.tube(path, (_t, i) => (i === 0 || i === path.length - 1 ? 0 : 0.019 * scale), 7, (t): Bind => [B.spine, B.hips, 0.2 + t * 0.6], Part.gut, BOWEL);
 }
 
 /**

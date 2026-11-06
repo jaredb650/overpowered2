@@ -92,6 +92,30 @@ function install({ n, rounds, type }) {
     }
   };
 
+  /** Real cuts, where the build has them: holes, one crater and one exit each. */
+  const addCuts = (holes, deep) => {
+    if (!bodies[0].char.wound) return false;
+    const dir = new V();
+    for (const e of bodies) {
+      const cut = (kind, bone, x, y, z, radius, depth, ragged) => {
+        const b = e.char.bones[bone];
+        b.updateWorldMatrix(true, false);
+        p.set(x, y, z).applyMatrix4(b.matrixWorld);
+        dir.set(0, 0, -1).transformDirection(b.matrixWorld);
+        e.char.wound({ kind, bone, point: p, dir, radius, depth, ragged });
+      };
+      for (let i = 0; i < holes; i++) {
+        const [bone, x, y, z] = sites[i % sites.length];
+        cut(0, bone, x, y, z, 0.0125, 0.05, 0.4);
+      }
+      if (deep) {
+        cut(2, 2, 0, 0.1, 0.16, 0.12, 0.13, 1);
+        cut(2, 1, 0.02, 0.08, 0.13, 0.08, 0.1, 1);
+      }
+    }
+    return true;
+  };
+
   const measure = cases => {
     const out = Object.fromEntries(cases.map(c => [c.name, []]));
     for (const c of cases) { c.on?.(); frameCost(2); c.off?.(); }
@@ -111,7 +135,7 @@ function install({ n, rounds, type }) {
     on() { for (const e of bodies) e.char.root.visible = false; },
     off() { for (const e of bodies) e.char.root.visible = true; },
   };
-  window.__wb = { setup, addWounds, measure, hide, bodies, r, raf };
+  window.__wb = { setup, addWounds, addCuts, measure, hide, bodies, r, raf };
 }
 
 export default async function bench(page, h) {
@@ -136,6 +160,19 @@ export default async function bench(page, h) {
     const w = window.__wb;
     return w.measure([w.hide, { name: '16 wounds' }]);
   });
+  if (await page.evaluate(() => window.__wb.addCuts(8, false))) {
+    out.holes8 = await page.evaluate(() => {
+      const w = window.__wb;
+      return w.measure([w.hide, { name: '16 paint + 8 holes' }]);
+    });
+    await page.evaluate(() => window.__wb.addCuts(0, true));
+    out.deep = await page.evaluate(() => {
+      const w = window.__wb;
+      return w.measure([w.hide, { name: '+ chest and belly open' }]);
+    });
+    out.load2 = await page.evaluate(() => ({ calls: window.__wb.r.drawCalls(), tris: window.__wb.r.triangles() }));
+  }
+  await page.evaluate(() => new Promise(res => requestAnimationFrame(() => { window.__op2.ctx.render.render(); requestAnimationFrame(res); })));
   await h.shot('bench');
   return out;
 }

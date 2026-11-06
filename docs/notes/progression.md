@@ -15,11 +15,13 @@
 | `callins/ground.ts` | `GroundRing`, `GroundStrip` and `GroundProbe` |
 | `callins/bodies.ts` | `BodyQuery`: bodies in a ball, and waking resting corpses |
 | `callins/airstrike.ts`, `warthog.ts`, `orbital.ts`, `blacksun.ts`, `nuke.ts` | The strikes. `ordnance.ts` is the hero missiles |
+| `callins/ac130.ts`, `ac130Guns.ts`, `ac130Rounds.ts`, `ac130Model.ts`, `ac130Data.ts` | The gunship: stages and impacts, fire control, what is in the air, the airframe, its numbers |
+| `callins/airframe.ts`, `radio.ts` | Shared by aircraft call-ins. See "Building another aircraft" |
 | `pickups/pickups.ts`, `pods.ts`, `models.ts` | Drops, map items, capsules, drop pods |
 
 ## Public API
 
-The contract is `ProgressionSystem` in `core/gameplay.ts`. Nothing was added to `gameplay.ts`.
+The contract is `ProgressionSystem` in `core/gameplay.ts`.
 
 One meaning widened: `targeting` also stays set to `'orbital'` while the beam is being steered. The viewmodel polls it to hold the designator up and the HUD keeps its reticle.
 
@@ -73,6 +75,7 @@ The walkie and designator are the viewmodel's `Offhand`, driven by `progression.
 | Airstrike | Radio 0, cue 3, 15 rockets 4 to 5.4, finale fired 6.5, lands about 7.1 | Finale radius 20, instakill, only throws the player. Rockets start under any roof above their own landing point |
 | Warthog | Cue 2, 50 shells 4 to 6.45, roar 6.5, jet overhead 6 | 60 m corridor, 1.2 m spacing. Each shell gets a clear line to its own impact, so an overhang cannot eat part of the run |
 | Orbital | Pilot laser 0.9 s, beam 6 s | Steers at 34 m/s, 420 damage a second in 6 m. RMB lets go: the beam parks, burns out, and the gun comes back |
+| AC-130 | Inbound 0 to 9, on station to 129, gone by 141 | Two minutes of escalating fire. See below |
 | Black Sun | Grows 1 s, pulls to 6.2, collapses, implodes at 6.75 | Dragged by the feet, walls hold them, crush within 3.5 m from T+2.6. Corpses orbit at 10 m. Implosion radius 28, bodies leave at about 55 m/s. Uses `finisher`, so the nuke keeps its own recipe |
 | Nuke | Siren 6 s, missile for the last 2.8 s, white, front at 105 m/s | Kills every enemy it reaches, bosses within a few frames despite their per-hit cap. Sky, ash, cloud and moonlight stay for 45 s, gone by 70 s |
 
@@ -84,6 +87,50 @@ Two traps, both fixed here, that any new blast or pull should know:
 A ragdoll inherits `enemy.velocity` at death, so the nuke sets that just before the killing blow. It is the only throw that moves a whole body evenly.
 
 Strike, overlay and aftermath shaders are compiled at load by unrendered stand-ins on layer 31. three's compile pass only walks visible objects, hence a layer and not `visible = false`. In the last measured run no custom shader compiled during a strike. Standard-material programs still appear on the first bodies of a run: at least some of those are gore's, which `docs/notes/fx.md` already flags.
+
+## The AC-130
+
+Key M, combo 28, cooldown 180 s, ring 34 m. Above the Orbital Lance because it outlasts everything on the ladder, below Chain Storm because two minutes of assist kills are what put Black Sun and the nuke in reach. That leaves 18 and 22 for the helicopters. The cooldown must outlast the 141 s flight, as there is one airframe.
+
+Radius 160, altitude 185, a 33 s lap, drawn at 1.8x. All of it runs on the strike clock except the rounds, which fly on `dt`, so they pile up in SLOWMO like the airstrike's.
+
+| Seconds on station | Line | Firing |
+|---|---|---|
+| 0 | TWO-FIVE TRACKING | 25mm bursts |
+| 24 | FOUR-ZERO ONLINE | Plus 40mm strings of 5 |
+| 54 | ONE-OH-FIVE UP | Plus 105mm salvos of 3, Hellfire, 40mm strings of 6 |
+| 92 | ALL GUNS | Everything faster, 40mm strings of 8, 105mm salvos of 4 |
+
+| Gun | Target | Rhythm |
+|---|---|---|
+| 25mm | Nearest with a clear line | 12 rounds a second in bursts. The aim is dragged at 11 m/s and never set, so the stream is seen to walk on and between targets |
+| 40mm | Thickest knot | A string laid across the line of fire, 0.3 s apart |
+| 105mm | Thickest knot over 9 m from the player | 2.7 s apart, 4.6 s in the air on a real arc, whistle for the last 2 s, bursts 5 m up so a wall does not save the room behind it |
+| Hellfire | Most health and armour, bosses first | Drops, lights, dives from above |
+
+Flares every 27 s and on arrival and departure. With nobody in the box for 7 s the 25mm rakes it anyway, so the siege never goes dead. The crew holds fire on anyone who has surrendered: killing a prisoner pays a perk, and that is the player's decision.
+
+**Never harms the player.** Every blast is `selfDamage: 0, playerPush: 0`, and goes through `combat.explode` as a `worldObject`, because that is the only way to stop a shell setting off a map barrel, and a barrel's own blast does hurt. The flag leaves the look and sound to the caller, which is why each gun has its own and no `ExplosionKind` was added. So gunship fire never sets off barrels, on purpose.
+
+**Keep the 49 degrees.** At 33 degrees a 4.2 m wall shadowed most of a 10 m room: 70% of the 25mm and every Hellfire hit a wall. A parabola's mean slope is its chord's, so curving the rounds cannot fix a shallow orbit: the launch would have to point up.
+
+**Arming.** The ship flies outside both maps' invisible walls, so a round live from the muzzle bursts in mid-air on their outer faces. `FireControl.armRange` casts from the aim back up the path and returns how close to the aim the round goes live: just short of a low wall so it strikes, just under anything over 8 m so a roof cannot eat two minutes of fire, and otherwise only as far as the line was tested. It is measured from the start of each step: from the end, the first live step sweeps back through the roof it was meant to skip.
+
+### Building another aircraft
+
+```ts
+const frame = new Airframe(materials, scene, SPEC);   // AirframeSpec: build(), rotors, mounts, optional strobe and scale
+frame.fly(position, forward, roll);                   // call each frame. Negative roll dips the left wing
+frame.update(dt);                                     // spins rotors, blinks the strobe
+frame.mount('door', out);                             // a named mount in world space
+const path = new OrbitPath(plan);                     // pure function of time: path.at(t), path.heading(t), path.roll(t)
+path.begin(center, arriveAtAngle);
+const engines = new EngineSound(ctx, plan);           // start(fade), update(position, swell, dt), stop(fade)
+soundPoint(source, listener, range, out);             // one-shots from beyond the distance model, returns the true distance
+new Radio(ctx, 'CALLSIGN', color).say('LINE');        // call radio.update(dt) each frame
+```
+
+`RotorSpec.axis` is `'y'` for a main rotor and `'x'` for a tail rotor. The Door Gunner's circle is an `OrbitPlan`. `Airframe.root` must stay parented to the scene, because `mount` reads its transform directly.
 
 ## Pickups
 
@@ -98,7 +145,7 @@ Drops 30% per kill, weighted toward what the player lacks, capped at 24, expire 
 | How far strikes lift the combo | `ASSIST_COMBO_EVERY`, `ASSIST_SOURCES` |
 | Which grade wins | `GRADE_RANK` |
 | Screen punch per perk | `MINOR`, `MAJOR`, `HUGE` and the `moment` per effect |
-| Strikes | `AIRSTRIKE`, `WARTHOG`, `ORBITAL`, `BLACK_SUN`, `NUKE` |
+| Strikes | `AIRSTRIKE`, `WARTHOG`, `ORBITAL`, `BLACK_SUN`, `NUKE`. The gunship is `AC130` in `callins/ac130Data.ts` |
 | Score | `SCORE`, `STYLE`, `MULTI_KILLS`. Speed tiers follow the 12.5 run speed |
 | Pickups | `PICKUP`, `CAPSULE`, `DROP_POD`, `MEGA`, `REGEN`, `FROST` |
 
@@ -118,13 +165,23 @@ Drops 30% per kill, weighted toward what the player lacks, capped at 24, expire 
 | Perks | Sentinels killed 10 of 10, Chain Storm 10 of 12 by arc, Chain Reaction 9 of 10 by blast, Butcher severed, Skyfall slam, Overdrive follows speed, Adrenaline 1.45x at 3 stacks |
 | Reset | Nuke sky, four strikes, ten effects, a pod and a capsule, then death, then a new run: every modifier neutral, time scale 1, grade neutral, moon restored, no extra scene objects, and nothing landed in the next 9 s |
 | High score | 7725 in localStorage, read back after a reload. Now one per contract: see `docs/notes/contracts.md`. `op2_highscore` is The Crucible's |
+| AC-130, Kill House, real AI, stationary player, 6 extra enemies every 12 s (`tools/scripts/ac130-live.mjs`, `AC_MODE=full`) | 75 kills: 25mm 34, 40mm 24, 105mm 9, Hellfire 8. Wall hits: 25mm 52 of 653, 40mm 8 of 82, Hellfire 0 of 7, 105mm 5 of 11. All 37 radio lines in order. Airframe hidden at the end, cooldown still running |
+| AC-130 never harms (`AC_MODE=safe`, Range) | Mortal player, husks only, in the box for 145 s: 106 kills, health 100 to 100, nothing from the ship reached `takeDamage`, all 13 pushes were husk melee. Run before the 105 bubble went from 14 m to 9 m, which does not touch the blast spec |
+| AC-130 on the Crucible (`AC_MODE=roof`) | Under a 4 m Transit roof, final build: 96 kills in 100 s, with rounds arriving inside it. Scrapyard: 96 kills. The ship set off no barrels in either run, while Sentinels set off 3 nearby in an earlier one |
+| AC-130 reset (`AC_MODE=reset`) | New run with six rounds in the air: airframe and rounds gone on the reset frame, no explosion or radio line in the next 12 s, cooldown 0, no strike left |
+| AC-130 frame cost | All of progression during the siege: median 0.1 ms, p99 0.9 ms, worst 3 ms |
 
 ## Known limitations
 
 - **The Hellfire grade is too strong for this map, and only the render owner can fix it.** `gain [1.34, 0.86, 0.46]` multiplies a world lit cyan, which has no red to lift, so lit floors go teal and pale areas tan. That is the wash from `playtest-t15.png`. Ranking SLOWMO above it fixes the pair, but Hellfire alone still looks like that. Suggested: pull `gain` toward neutral and use `isolate` to keep orange, as Berserk does. Blood Thirst turns blue into pink for its whole 10 s in the same way, milder.
 - **The HUD hint during steering** is the one in `CALLINS.orbital`, which covers both stages.
-- **`DESIGN.md` section 13's AC-130, Attack Chopper and Door Gunner are not built.** They were not in this brief, and `CallInId` has no entries for them.
+- **The Attack Chopper and Door Gunner from `DESIGN.md` section 13 are not built.** `airframe.ts` and `radio.ts` are ready for them.
 - **The nuke ring shows 90 m,** but the front reaches the whole map. There is no truthful ring for that.
 - **Only 14 ragdolls simulate at once,** so a big pile feeds the Black Sun a few bodies at a time. Corpses past the budget stay down.
+- **A swarm siege can carry the combo a long way by itself.** The half rate is the same as every strike, but it was built for strikes that last seconds. On the Crucible, with extra spawns and Sentinels and Chain Storm also running, a player who never fired reached combo 70 and earned Black Sun and the nuke. If that feels cheap, the place to change it is `ASSIST_COMBO_EVERY` or a rate for this source.
+- **Gunship splash can still execute a prisoner,** which pays Geneva Suggestion: 4 to 8 grants a run with nobody else shooting. The crew only avoids aiming at them. `onExecuted` in `index.ts` has no `ASSIST_SOURCES` test, and one would close it.
+- **Gunship hits tick the player's hit marker** for the whole two minutes, because `Combat.blast` and `audio/reactions.ts` do that for every player-team source. Harmless for a 3 s strike. Over a siege it may blur the player's own hit feedback.
+- **The targeting HUD says DANGER CLOSE and turns the ring red** when the player stands in the box, though the ship cannot hurt them. On the Kill House that is nearly always. `Targeting.drawPreview` and `dangerClose` exclude the nuke the same way, a one-line change each.
+- **The gunship has no sound of its own.** The engines are `drone_rotor_loop` at two low pitches, the 25mm is `enemy_minigun_loop` pitched down, and the rest are existing ids. A real turboprop drone and gun reports need recipes in `src/audio`.
 - **Nobody has played this with hands.** Every result is a script or a bot, and nothing here has been listened to. The pacing numbers are one run each. Frame time on the first strike of a run was not measured.
 - **Skyfall and the speed tiers depend on `player.grounded` and `player.speed`** as the player system reports them. `wallRunning` counts as airborne for Skyfall.
