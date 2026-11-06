@@ -17,7 +17,7 @@ export interface ActiveContract {
 }
 
 /** A record, not a list, so a new map that is missing here fails the typecheck. The real table imports three.js. */
-const MAP_IDS: Record<MapId, true> = { crucible: true, killhouse: true, range: true };
+const MAP_IDS: Record<MapId, true> = { crucible: true, killhouse: true, outpost: true, range: true };
 
 export function pickContract(contract: string | null, map: string | null): ActiveContract {
   const namedMap = map !== null && map in MAP_IDS ? (map as MapId) : null;

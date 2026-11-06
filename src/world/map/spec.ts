@@ -68,6 +68,13 @@ export interface ViewSpec {
   look: [number, number, number];
 }
 
+/** Where vehicles may drive: a centre line and how wide the road is. Marks and routes run on these. */
+export interface RoadSpec {
+  id: string;
+  points: readonly (readonly [number, number])[];
+  width: number;
+}
+
 /** A vector plan of the map for the minimap, and the list of what to test. Maps without one are charted from the nav graph. */
 export interface MapPlan {
   fills: { x0: number; z0: number; x1: number; z1: number; rgb: readonly [number, number, number]; label: string }[];
@@ -97,6 +104,8 @@ export class MapSpec {
   readonly gantries: GantrySpec[] = [];
   readonly jumpLinks: DesignatedLink[] = [];
   readonly views: Record<string, ViewSpec> = {};
+  /** Empty on maps with no vehicles. */
+  roads: readonly RoadSpec[] = [];
   /** Null on maps without one. */
   reactor: ReactorSpec | null = { floorY: 0, topY: 90 };
   plan: MapPlan | null = null;

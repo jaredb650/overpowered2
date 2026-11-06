@@ -61,7 +61,7 @@ export function rollGrade(level: number, roll: () => number = Math.random): Rank
   let r = roll();
   for (let i = 0; i < odds.length; i++) {
     r -= odds[i]!;
-    if (r <= 0) return RANK_ORDER[i]!;
+    if (r <= 0 && odds[i]! > 0) return RANK_ORDER[i]!;
   }
   return 'regular';
 }

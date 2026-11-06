@@ -161,8 +161,8 @@ export class Site {
     if (axisX) this.k.collide(mid, y, c, h, hy, t + SKIN, 'concrete');
     else this.k.collide(c, y, mid, t + SKIN, hy, h, 'concrete');
     g.use('concreteDark').tint(w.tone ?? 0.72);
-    if (axisX) g.slab(mid, y, c, h, hy, t, 1.8);
-    else g.slab(c, y, mid, t, hy, h, 1.8);
+    if (axisX) g.slab(mid, y, c, h, hy, t, 3.2);
+    else g.slab(c, y, mid, t, hy, h, 3.2);
     g.tint(1);
     for (const side of [1, -1]) this.dressSide(axisX, side, c, t, u0, u1, v0, v1, w.outside);
   }
@@ -325,7 +325,7 @@ export class Site {
           const inX = px + Math.sign((x0 + x1) / 2 - px) * (yaw === 0 ? 0 : bagW / 2), inZ = pz + Math.sign((z0 + z1) / 2 - pz) * (yaw === 0 ? bagW / 2 : 0);
           k.push(inX, cy, inZ, yaw + k.rand(-0.04, 0.04));
           g.use('dirt').tint(s, s * 0.94, s * 0.8);
-          g.bevel(0, 0, 0, bagL * 0.5, (h / courses) * 0.56, bagW / 2, 0.07);
+          g.box(0, 0, 0, bagL * 0.5, (h / courses) * 0.56, bagW / 2, FACE.noBottom);
           k.pop();
         }
       }

@@ -30,7 +30,8 @@ export const MOVE = {
   snapMaxSeparation: 2.5,
   /** Eye smoothing after step-ups and snaps. */
   stepSmoothRate: 18,
-  collisionMask: 1,
+  /** CG.World and CG.Barrier. */
+  collisionMask: 1 | (1 << 8),
   /** Meters under the world's bounds at which a falling player is brought back to a spawn. */
   lostBelowWorld: 25,
 

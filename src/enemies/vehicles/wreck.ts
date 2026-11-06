@@ -17,6 +17,10 @@ const FIRE_TICK = 0.25;
 const FIRE_RISE = 3.2;
 /** Share of the spin it keeps through a landing. Heavy things do not bounce much. */
 const BOUNCE = 0.22;
+const SMOKE_EVERY = 0.45;
+const SMOKE_HEIGHT = 11;
+/** The column stands this many times as long as the fire. */
+const SMOKE_OUTLASTS = 2;
 
 const _up = new THREE.Vector3(0, 1, 0);
 const _p = new THREE.Vector3();
@@ -42,6 +46,7 @@ export class Wreck {
   private cookOff: number;
   private clock = 0;
   private fireTick = 0;
+  private smokeIn = 0;
   private velocityY: number;
   private readonly tumble = new THREE.Vector3();
   private readonly rest: THREE.Euler;
@@ -52,7 +57,7 @@ export class Wreck {
     private readonly sys: VehicleSystem, root: THREE.Object3D, readonly colliders: RAPIER.Collider[], private readonly def: WreckDef,
     private readonly halfWidth: number, private readonly halfLength: number, readonly tag: string | null,
     /** Dead before the beat began: no blast, no flames. */
-    cold = false,
+    private readonly cold = false,
   ) {
     this.root = root;
     this.burnLeft = cold ? 0 : def.burnSeconds;
@@ -64,7 +69,7 @@ export class Wreck {
     if (cold) return;
     const { fx, audio } = sys.ctx;
     _p.set(0, 1.4, 0);
-    this.emitters.push(fx.attachEmitter(root, 'burning', _p, def.burnSeconds), fx.attachEmitter(root, 'smokeTrail', _p.set(0, 2.2, 0), def.burnSeconds * 2));
+    this.emitters.push(fx.attachEmitter(root, 'burning', _p, def.burnSeconds));
     this.emitters.push(fx.attachEmitter(root, 'burning', _p.set(0, 1.2, halfLength * 0.5), def.burnSeconds), fx.attachEmitter(root, 'burning', _p.set(0, 1.2, -halfLength * 0.5), def.burnSeconds));
     this.flames = audio.startLoop('flame_burn_loop', { position: root.position, volume: 0.8 });
   }
@@ -147,11 +152,27 @@ export class Wreck {
     player.takeDamage({ amount: FIRE_DPS * FIRE_TICK, from: root.position, type: 'fire', source: 'wreck_fire' });
   }
 
+  /** The column it sends up: black while it burns, thinning for as long again. The one thing that shows where the fight has been. */
+  private smoke(dt: number): void {
+    this.smokeIn -= dt;
+    if (this.smokeIn > 0 || this.clock > this.def.burnSeconds * SMOKE_OUTLASTS) return;
+    this.smokeIn = SMOKE_EVERY;
+    const hot = this.burnLeft > 0;
+    const rise = rand(2, SMOKE_HEIGHT);
+    _p.copy(this.root.position);
+    _p.x += rand(-1, 1);
+    _p.z += rand(-1, 1);
+    _p.y += rise;
+    // Thin at the wreck, where the player has to see past it, and wide up where it only has to be seen.
+    this.sys.ctx.fx.smoke(_p, hot ? '#36322d' : '#4a4743', 1.2 + rise * 0.3, rand(3, 4.5));
+  }
+
   update(dt: number): void {
     this.clock += dt;
     this.fall(dt);
     if (this.flung.length > 0) this.flight(dt);
     this.cook();
+    if (!this.cold) this.smoke(dt);
     if (this.burnLeft <= 0) return;
     this.burnLeft -= dt;
     if (this.burnLeft <= 0) {

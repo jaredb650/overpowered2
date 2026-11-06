@@ -4,6 +4,7 @@ import type { Kit } from '../kit/kit';
 import type { NavBuildOptions } from '../nav';
 import { authorMap, MAP_STAGES, type MapStage } from './crucible';
 import { authorKillHouse, KILLHOUSE_EXTENT, KILLHOUSE_STAGES } from './killhouse';
+import { authorOutpost, OUTPOST_EXTENT, OUTPOST_STAGES } from './outpost';
 import { authorRange, RANGE, RANGE_STAGES } from '../../lab/range';
 import { KH } from './killhouse/plan';
 import { LEVEL, RING } from './layout';
@@ -11,7 +12,7 @@ import type { MapSpec } from './spec';
 import type { MapZone } from '../../core/contracts';
 import { ACTIVE } from '../../contracts/select';
 
-export type MapId = 'crucible' | 'killhouse' | 'range';
+export type MapId = 'crucible' | 'killhouse' | 'outpost' | 'range';
 
 export interface MapDef {
   id: MapId;
@@ -70,6 +71,23 @@ const killhouse: MapDef = {
   readyLabel: 'Lighting the floods',
 };
 
+const O = OUTPOST_EXTENT;
+const outpost: MapDef = {
+  id: 'outpost',
+  bounds: box(-O, -14, -O, O, 70, O),
+  // The volume caps at 200 cells a side, so a site this wide cannot have the Kill House's 1 m cell.
+  lightBounds: box(-O + 4, -13, -O + 4, O - 4, 34, O - 4),
+  lightCell: 1.2,
+  minimapExtent: O,
+  navHub: new THREE.Vector3(0, 0, 50),
+  // Every flat height a man can stand on. Tops of cover, roofs and the wreck's deck are no floor, so a player up on one seeds the field
+  // at the nearest real floor, and nobody tries to path to them.
+  nav: { mutual: true, levels: [-12, -6, -5, -3, 0, 5, 9, 10, 14] },
+  stages: OUTPOST_STAGES,
+  author: authorOutpost,
+  readyLabel: 'Lighting the wire',
+};
+
 const range: MapDef = {
   id: 'range',
   bounds: box(-RANGE.halfX - 2, -4, -RANGE.halfZ - 2, RANGE.halfX + 2, 34, RANGE.halfZ + 2),
@@ -81,7 +99,7 @@ const range: MapDef = {
   readyLabel: 'Switching on the lights',
 };
 
-const MAPS: Record<MapId, MapDef> = { crucible, killhouse, range };
+const MAPS: Record<MapId, MapDef> = { crucible, killhouse, outpost, range };
 
 /** The map of the page's contract, or whatever `?map=` names. contracts/select.ts has the rules. */
 export function selectMap(): MapDef {

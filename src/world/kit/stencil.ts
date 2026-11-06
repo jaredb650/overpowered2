@@ -20,6 +20,7 @@ const GLYPHS = [...'0123456789', ...SYMBOLS] as const;
 const WORDS = [
   'TYRES', 'LANES', 'CRATES', 'STREET', 'SANDBAGS', 'PLYWOOD', 'TILES', 'PLANT', 'COURT', 'GATE',
   'LIVE FIRE', 'CLEAR LEFT', 'CLEAR RIGHT', 'KEEP MOVING', 'EYES UP', 'WATCH MUZZLE', 'CATWALK', 'NO ENTRY',
+  'SALLY', 'GALLERY', 'MESS', 'ARMOURY', 'STACK', 'WAR ROOM',
 ] as const;
 
 export type StencilName = (typeof GLYPHS)[number] | (typeof WORDS)[number];

@@ -32,7 +32,7 @@ export interface RoleDef {
 export const ROLES: Record<Role, RoleDef> = {
   rifle: { near: 9, far: 24, mag: 30, mags: 6, reload: 2, morale: 100, firesOnTheMove: true, base: false, twoHanded: true, sidearm: true },
   shotgun: { near: 3, far: 10, mag: 6, mags: 6, reload: 2.5, morale: 100, firesOnTheMove: true, base: false, twoHanded: true, sidearm: true },
-  machinegun: { near: 14, far: 36, mag: 100, mags: 3, reload: 3.4, morale: 125, firesOnTheMove: false, base: true, twoHanded: true, sidearm: false },
+  machinegun: { near: 14, far: 36, mag: 100, mags: 6, reload: 3.4, morale: 125, firesOnTheMove: false, base: true, twoHanded: true, sidearm: false },
   rocket: { near: 14, far: 34, mag: 2, mags: 3, reload: 3.4, morale: 105, firesOnTheMove: false, base: true, twoHanded: true, sidearm: true },
   marksman: { near: 20, far: 46, mag: 5, mags: 5, reload: 2.6, morale: 105, firesOnTheMove: false, base: true, twoHanded: true, sidearm: true },
   shield: { near: 4, far: 14, mag: 12, mags: 4, reload: 2, morale: 120, firesOnTheMove: true, base: false, twoHanded: false, sidearm: false },

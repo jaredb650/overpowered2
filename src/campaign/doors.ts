@@ -94,7 +94,6 @@ class Door {
 
 export class Doors {
   private readonly doors = new Map<string, Door>();
-  private material: THREE.Material | null = null;
   private moving = 0;
 
   constructor(private readonly ctx: Ctx) {}
@@ -102,10 +101,9 @@ export class Doors {
   /** `seconds` of 0 puts it there now. */
   set(id: string, def: DoorDef, open: number, seconds: number, done: () => void): void {
     const { ctx } = this;
-    this.material ??= ctx.render.materials.world('hazard');
     let door = this.doors.get(id);
     if (!door) {
-      door = new Door(def, ctx, this.material);
+      door = new Door(def, ctx, ctx.render.materials.world(def.look ?? 'hazard'));
       this.doors.set(id, door);
     }
     door.target = clamp(open);

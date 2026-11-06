@@ -49,6 +49,8 @@ const BELLY = 1.3;
 const MAX_SPIN = 7;
 /** Rockets leave a pod this much ahead of the aim, so a salvo arrives as a walk and not one spot. */
 const SALVO_WALK = 3.5;
+/** Seconds between the puffs of the smoke it falls in. */
+const SMOKE_EVERY = 0.09;
 
 const _pos = new THREE.Vector3();
 const _fwd = new THREE.Vector3();
@@ -91,6 +93,7 @@ export class EnemyChopper extends Vehicle {
   private yaw = 0;
   private dropRoll = 0;
   private rotorRate = 1;
+  private smokeIn = 0;
   private readonly drift = new THREE.Vector3();
   private readonly fires: EmitterHandle[] = [];
 
@@ -270,7 +273,7 @@ export class EnemyChopper extends Vehicle {
     this.mount.idle(0, _pivot);
     this.rotorRate = fate === 'spinning' ? 1 : ROTOR_RUNDOWN;
     _p.set(0, 1.6, -2);
-    this.fires.push(fx.attachEmitter(rig.frame.root, 'fireTrail', _p, 12), fx.attachEmitter(rig.frame.root, 'smokeTrail', _p, 14));
+    this.fires.push(fx.attachEmitter(rig.frame.root, 'fireTrail', _p, 12));
     audio.play('gunship_stricken', { position: this.position });
   }
 
@@ -286,6 +289,11 @@ export class EnemyChopper extends Vehicle {
     this.rotorRate = damp(this.rotorRate, this.fate === 'spinning' ? 0.7 : 0.2, 0.8, dt);
     this.drift.x = damp(this.drift.x, 0, 0.5, dt);
     this.drift.z = damp(this.drift.z, 0, 0.5, dt);
+    this.smokeIn -= dt;
+    if (this.smokeIn <= 0) {
+      this.smokeIn = SMOKE_EVERY;
+      sys.ctx.fx.smoke(root.position, '#141210', rand(2.2, 3.4), rand(2, 3.4));
+    }
     _pos.copy(root.position);
     _pos.x += this.drift.x * dt;
     _pos.z += this.drift.z * dt;

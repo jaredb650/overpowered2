@@ -19,6 +19,13 @@ const STANDS_FOR = 12;
 const START_WITHIN = 10;
 const RUN_SPEED = 7.5;
 const CAMP_SECONDS = 4;
+/** What he reaches for, and what he settles for. */
+const BY_SHIELD: readonly OrderDrill[] = ['flank', 'rush'];
+const BY_CAMPING: readonly OrderDrill[] = ['frag', 'flash', 'flank', 'rush'];
+const BY_RUNNING: readonly OrderDrill[] = ['cutOff', 'flank', 'rush'];
+const BY_LOSING: readonly OrderDrill[] = ['rush', 'flank'];
+const BY_PINNED: readonly OrderDrill[] = ['flank', 'frag', 'rush'];
+const BY_DEFAULT: readonly OrderDrill[] = ['baseOfFire', 'flank', 'rush'];
 
 export class RadioOrders {
   /** For anyone measuring whether the men do as they are told. */
@@ -48,7 +55,11 @@ export class RadioOrders {
       return;
     }
     this.nextAt = now + rand(EVERY[0], EVERY[1]);
-    this.give(q, this.decide(q), now);
+    for (const drill of this.wanted(q, now)) {
+      if (!q.obey(drill, STANDS_FOR)) continue;
+      this.give(q, drill, now);
+      return;
+    }
   }
 
   /** Whether the squad he spoke to has started. It answers when it does, so that the words and the move land together. */
@@ -78,14 +89,14 @@ export class RadioOrders {
     return best;
   }
 
-  /** What he would do with them, from what the player is doing. */
-  private decide(q: OutpostSquad): OrderDrill {
+  /** What he would do with them, best first, from what the player is doing. */
+  private wanted(q: OutpostSquad, now: number): readonly OrderDrill[] {
     const { o } = this.c;
-    if (o.captives.held) return 'flank';
-    if (o.stillFor >= CAMP_SECONDS) return q.leader && q.leader.flashes > 0 ? 'flash' : 'frag';
-    if (o.track.speed >= RUN_SPEED) return 'cutOff';
-    if (o.hostile <= 4 && q.inContact) return 'rush';
-    return q.inContact && !q.flanking ? 'baseOfFire' : 'flank';
+    if (o.captives.held) return BY_SHIELD;
+    if (o.stillFor >= CAMP_SECONDS) return BY_CAMPING;
+    if (o.track.speed >= RUN_SPEED) return BY_RUNNING;
+    if (o.hostile <= 4 && q.inContact) return BY_LOSING;
+    return q.layingFire(now) ? BY_PINNED : BY_DEFAULT;
   }
 
   private give(q: OutpostSquad, drill: OrderDrill, now: number): void {
@@ -94,7 +105,6 @@ export class RadioOrders {
     this.squad = q;
     this.drill = drill;
     this.givenAt = now;
-    q.obey(drill, STANDS_FOR);
     w.ctx.events.emit('commander:bark', { id: orderLine(drill).id, vars: { squad: q.name } });
     w.ctx.events.emit('commander:order', { squad: q.name, drill });
   }

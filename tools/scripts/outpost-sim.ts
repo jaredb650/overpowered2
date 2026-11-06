@@ -57,6 +57,7 @@ ctx.characters = { spawn: fakeCharacter };
 ctx.hud = noop('hud');
 ctx.progression = noop('progression');
 ctx.weapons = noop('weapons');
+ctx.campaign = noop('campaign');
 
 const counts = { rounds: 0, grenades: 0, flash: 0, rockets: 0 };
 ctx.combat = {

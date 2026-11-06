@@ -75,6 +75,8 @@ const AID_DANGER = 5;
 /** Prisoners kept kneeling at once. Past that the longest held is let go. */
 const MAX_PRISONERS = 8;
 const REACHED_GATE = 2.2;
+/** Seconds before a man who gave up starts looking for a way out of it. */
+const SECOND_THOUGHTS = 4;
 /** Metres from the bang that a man in the room is blinded too. It is a real grenade, and it does not know whose side it is on. */
 const FLASH_FRIENDLY = 5;
 /** Seconds of a look at the player reloading or hurt that the whole side treats as a chance. */
@@ -675,6 +677,12 @@ export class Outpost {
     if (p.grounded && p.speed > QUIET_SPEED) this.noise(p.position, p.speed * STEP_NOISE);
   }
 
+  /** Somebody else has it pinned, which is all a flank needs. */
+  pinnedByAnother(asking: OutpostSquad, now: number): boolean {
+    for (const q of this.squads) if (q !== asking && q.layingFire(now)) return true;
+    return false;
+  }
+
   /** Two squads on one door is a queue. The second has to find another way in. */
   doorTaken(door: Door, asking: OutpostSquad): boolean {
     for (const q of this.squads) if (q !== asking && q.stackedOn === door) return true;
@@ -842,6 +850,8 @@ export class Outpost {
     if (s.surrendered) return;
     s.surrendered = true;
     s.surrenderedAt = this.w.now;
+    // He has just made up his mind, and a man does not change it in the same breath.
+    s.judgeAt = this.w.now + SECOND_THOUGHTS;
     this.prisoners++;
     this.w.ctx.events.emit('enemy:surrendered', { enemy: s.e });
     if (this.prisoners > MAX_PRISONERS) this.releaseOldest();

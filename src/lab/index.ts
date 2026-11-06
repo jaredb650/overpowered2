@@ -47,6 +47,7 @@ export class Lab {
     this.panel = new LabPanel(this.settings, {
       changed: () => this.changed(),
       spawn: n => this.spawn(n),
+      vehicle: kind => this.spawner.vehicle(kind, this.settings.ai),
       killAll: () => this.spawner.killAll(),
       clearBodies: () => this.spawner.clearBodies(),
       grant: id => ctx.progression.grant(id),

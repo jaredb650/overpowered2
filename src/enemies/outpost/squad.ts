@@ -92,7 +92,7 @@ const GRENADE_COOLDOWN = 8;
 /** Seconds a throw may take before the squad stops waiting for it. */
 const THROW_PATIENCE = 2.6;
 /** The furthest a man will walk for one manoeuvre. Past this a flank is a lap of the building, and the fight is over before he arrives. */
-const MAX_MANOEUVRE = 42;
+const MAX_MANOEUVRE = 56;
 /** A firing line lost for this long is not coming back. */
 const NO_SHOT_PATIENCE = 1.6;
 const PANIC_RETREAT = 12;
@@ -104,9 +104,9 @@ const REAIM_SECONDS = 2.6;
 const FLANK_SUCCESS = 0.8;
 /** Seconds an opening stays open. */
 const OPENING_SECONDS = 6;
-const RUSH_SECONDS = 8;
+const RUSH_SECONDS = 6;
 /** Metres from the threat a man in a rush stops at. */
-const RUSH_STAND = 6.5;
+const RUSH_STAND = 9;
 const RUSH_STAND_CLOSE = 3.2;
 const RUSH_REAIM: readonly [number, number] = [0.9, 1.5];
 /** Seconds a drill that failed stays off the table. */
@@ -115,6 +115,8 @@ const BLOCK_SECONDS = 9;
 const PLAN_LIFE = 16;
 /** After losing sight of it, a man keeps firing on the place for this long. */
 const LAST_SEEN_FIRE = 3;
+/** Seconds since anyone saw it that covering fire stops being covering anything. */
+const COVER_FIRE_STALE = 7;
 /** How wide and how fast a gun works its lane when it cannot see. */
 const LANE_WIDTH = 3.4;
 const LANE_RATE = 1.7;
@@ -145,6 +147,10 @@ const RUN_SPEED = 7.5;
 /** Seconds ahead of a runner that a cut-off aims for, and how far from there a door still counts as its exit. */
 const CUT_SECONDS = 2.2;
 const CUT_DOOR_REACH = 11;
+/** Further off than this and it will be gone before anyone arrives. */
+const CUT_REACH = 32;
+/** A price that loses to any plan at all. */
+const NEVER = 99;
 /** Seconds a base of fire counts as laid once it has been. */
 const PINNED_MEMORY = 5;
 /** What a change in the facts has to be for the squad to drop what it is doing and think again. */
@@ -401,11 +407,23 @@ export class OutpostSquad implements Squad {
     this.firedOn = true;
   }
 
-  /** The Commander says so. Prices the drill at nothing for a while, and the planner does the rest. */
-  obey(drill: ActionId, seconds: number): void {
+  /**
+   * The Commander says so. Prices the drill at nothing for a while and the planner does the rest. False if the squad has no way to do it,
+   * and then nothing has changed: he must never be heard giving an order his men cannot carry out.
+   */
+  obey(drill: ActionId, seconds: number): boolean {
+    const now = this.outpost.w.now;
+    const facts = this.readFacts(now);
     this.ordered = drill;
-    this.orderedUntil = this.outpost.w.now + seconds;
+    this.orderedUntil = now + seconds;
+    const kept = this.goal;
+    this.replan(now, 'destroy', facts);
+    const index = actionIndex(drill);
+    for (let i = 0; i < this.planLength; i++) if (this.plan[i] === index) return true;
+    this.ordered = null;
+    this.goal = kept;
     this.planLength = 0;
+    return false;
   }
 
   /** A mission's 'hold': quiet, on this mark, until somebody comes close or starts shooting. */
@@ -453,7 +471,7 @@ export class OutpostSquad implements Squad {
     let f = 0;
     if (now - this.knownAt < LOCATED_MEMORY) f |= LOCATED;
     if (this.inContact) f |= CONTACT;
-    if (now < this.pinnedUntil) f |= PINNED;
+    if (now < this.pinnedUntil || o.pinnedByAnother(this, now)) f |= PINNED;
     if (now < this.openUntil) f |= OPENING;
     if (o.stillFor >= CAMP_SECONDS) f |= CAMPING;
     if (o.track.speed >= RUN_SPEED) f |= RUNNING;
@@ -462,12 +480,9 @@ export class OutpostSquad implements Squad {
     if (this.formed) f |= FORMED;
     if (o.captives.held) f |= SHIELDED;
     if (o.doctrine.stacks && now >= this.stackReadyAt && now - this.seenAt > STACK_AFTER && this.fighters() >= 3 && this.findDoor()) f |= DOOR;
-    if (now >= this.grenadeReadyAt) {
-      for (const m of this.members) {
-        if (!m.fighting || m.e.maim.arms === 0) continue;
-        if (m.grenades > 0) f |= HAS_FRAG;
-        if (m.flashes > 0) f |= HAS_FLASH;
-      }
+    if (now >= this.grenadeReadyAt && f & LOCATED) {
+      if (this.thrower('frag')) f |= HAS_FRAG;
+      if (this.thrower('flash')) f |= HAS_FLASH;
     }
     return f;
   }
@@ -535,6 +550,8 @@ export class OutpostSquad implements Squad {
       prices[actionIndex('flash')] = 1.6;
     }
     if (facts & RUNNING) prices[actionIndex('cutOff')] = 1.2;
+    this.centroid(_c);
+    if (_c.distanceTo(this.threat) > CUT_REACH) prices[actionIndex('cutOff')] = NEVER;
     // Somebody is holding one of ours. The way past that is round the side.
     if (facts & SHIELDED) prices[actionIndex('flank')] = 0.5;
     if (this.fighters() < 3) prices[actionIndex('flank')]! *= 1.6;
@@ -727,9 +744,10 @@ export class OutpostSquad implements Squad {
     out.z += (dx / d) * sway;
   }
 
-  /** Whether a man should keep firing on the place he last saw it. */
-  firesOnThePlace(now: number): boolean {
-    return now - this.seenAt < LAST_SEEN_FIRE;
+  /** Whether a man with no view should be firing at all. A belt spent on a place nobody has looked at for a while is a belt thrown away. */
+  firesBlind(now: number): boolean {
+    const quiet = now - this.seenAt;
+    return quiet < LAST_SEEN_FIRE || (now < this.coverFireUntil && quiet < COVER_FIRE_STALE);
   }
 
   // -------------------------------------------------------------------------------------------
@@ -799,6 +817,9 @@ export class OutpostSquad implements Squad {
     const { outpost: o } = this;
     this.mode = 'engage';
     this.movingTeam = 1;
+    // Wherever the base is now, which is not always where it was when the drill was planned.
+    this.teamCentre(_p, 0);
+    this.sector = Math.atan2(_p.x - this.threat.x, _p.z - this.threat.z);
     this.chooseFlankSide();
     this.coverFireUntil = now + COVER_FIRE_SECONDS;
     const moved = this.sendFlankers();
@@ -924,11 +945,8 @@ export class OutpostSquad implements Squad {
     this.coverFireUntil = now + 2;
     let eyes = false;
     for (const m of this.members) if (m.fighting && m.team === 1 && m.sees) eyes = true;
-    if (eyes || !this.moverBusy() || now >= this.stepUntil) {
-      this.opening(OPENING_SECONDS * 0.6);
-      return DONE;
-    }
-    return GOING;
+    if (eyes) this.opening(OPENING_SECONDS * 0.6);
+    return eyes || !this.moverBusy() || now >= this.stepUntil ? DONE : GOING;
   }
 
   // -------------------------------------------------------------------------------------------
@@ -1076,6 +1094,11 @@ export class OutpostSquad implements Squad {
     s.throwAt.set(door.x + door.dx * this.doorInto * 4, s.e.position.y + 0.3, door.z + door.dz * this.doorInto * 4);
   }
 
+  /** Its rounds are going onto the threat right now, so that another squad can use them. */
+  layingFire(now: number): boolean {
+    return now < this.pinnedUntil && this.inContact;
+  }
+
   /** Men are on their way round right now. */
   get flanking(): boolean {
     return this.drill === 'flank';
@@ -1101,7 +1124,7 @@ export class OutpostSquad implements Squad {
 
   private stepRush(now: number): StepResult {
     const { outpost: o } = this;
-    if (now >= this.stepUntil) {
+    if (now >= this.stepUntil || !this.anyoneInTheOpen()) {
       this.openUntil = 0;
       return DONE;
     }
@@ -1121,6 +1144,16 @@ export class OutpostSquad implements Squad {
       if (nav.nearest(_anchor, 5, _anchor)) o.order(s, _anchor, null, 2, i++ * 0.15);
     }
     return GOING;
+  }
+
+  /** A rush is over once there is nobody left who has to get closer. */
+  private anyoneInTheOpen(): boolean {
+    const now = this.outpost.w.now;
+    if (now - this.drillAt < 1) return true;
+    for (const s of this.members) {
+      if (s.fighting && (s.task === 'move' || s.hasOrder || s.e.dist > RUSH_STAND + 3)) return true;
+    }
+    return false;
   }
 
   // -------------------------------------------------------------------------------------------

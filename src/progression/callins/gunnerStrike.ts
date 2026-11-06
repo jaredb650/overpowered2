@@ -7,7 +7,7 @@
  * also be emptied from outside, on death, so the strike notices that it is empty and never assumes it did it.
  */
 import * as THREE from 'three';
-import type { KillEvent } from '../../core/gameplay';
+import type { FriendlyAircraft, KillEvent } from '../../core/gameplay';
 import type { Gun } from '../../vehicles/guns';
 import { GunnerSeat, type SeatRig } from '../../vehicles/seat';
 import { thickestKnot } from '../../vehicles/targets';
@@ -19,6 +19,8 @@ import type { Strike, StrikeKit } from './shared';
 /** How a gun sits with nobody on it: on the middle of its arc, drooped. */
 const STOWED_PITCH = -0.3;
 const BINGO_AT = 10;
+/** The crew says so once for this many bursts that land, and no more. */
+const HITS_PER_CALL = 5;
 
 const _pivot = new THREE.Vector3();
 const _chase = new THREE.Vector3();
@@ -50,6 +52,7 @@ export abstract class GunnerStrike<M extends string> implements Strike {
   private homebound = false;
   private departed = 0;
   private bingoCalled = false;
+  private hitCalls = 0;
 
   constructor(
     protected readonly kit: StrikeKit,
@@ -70,6 +73,8 @@ export abstract class GunnerStrike<M extends string> implements Strike {
     this.scan();
     this.engines.start(1.2);
     ctx.audio.play('walkietalkie_fire');
+    const aircraft: FriendlyAircraft = { position: this.frame.root.position, hit: seconds => this.struck(seconds) };
+    ctx.enemies.vehicles?.setFriendly(aircraft);
   }
 
   /** Moves the airframe for this frame. */
@@ -176,7 +181,20 @@ export abstract class GunnerStrike<M extends string> implements Strike {
     const { enemies, player } = this.kit.ctx;
     const { knotRadius, scanEvery } = this.plan;
     this.scanIn = scanEvery;
+    // The one thing in the sky that can shoot back outranks any number of men on the ground.
+    if (enemies.vehicles?.chopperAt(this.fight)) return;
     if (thickestKnot(enemies.alive, knotRadius, this.rig.prisoners, this.fight) === 0) this.fight.copy(player.position);
+  }
+
+  /** A burst from an enemy chopper landed. It comes off the time left in the seat. */
+  private struck(seconds: number): void {
+    const { seat, kit, radio } = this;
+    if (seat.stage !== 'seated') return;
+    seat.left = Math.max(0, seat.left - seconds);
+    kit.ctx.camera.addTrauma(0.3);
+    kit.ctx.audio.play('impact_metal', { volume: 0.9 });
+    this.hitCalls++;
+    if (this.hitCalls % HITS_PER_CALL === 1) radio.say('TAKING FIRE. KILL THAT GUNSHIP.');
   }
 
   private onKill(e: KillEvent): void {
@@ -197,5 +215,6 @@ export abstract class GunnerStrike<M extends string> implements Strike {
     this.stopListening();
     this.frame.hide();
     this.gun.hide();
+    this.kit.ctx.enemies.vehicles?.setFriendly(null);
   }
 }

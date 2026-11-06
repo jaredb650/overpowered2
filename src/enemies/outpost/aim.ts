@@ -13,9 +13,9 @@ import type { RankDef } from './rank';
 
 /** Metres of miss radius at the muzzle, and per metre of range, for a steady regular. */
 const MISS_BASE = 0.34;
-const MISS_PER_METRE = 0.031;
+const MISS_PER_METRE = 0.027;
 /** What full speed adds to his error. A tax, and no longer a shield. */
-const SPEED_TAX = 0.28;
+const SPEED_TAX = 0.3;
 /** A target that has stopped moving is easy. */
 const STILL_SHARE = 0.62;
 /** The first round of a burst is a snap shot. The rest walk on. */

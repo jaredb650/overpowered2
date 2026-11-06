@@ -146,7 +146,7 @@ const hold: Behaviour = {
     }
     if (s.sees) s.aim.copy(w.player.chest);
     else q.fireOnLane(s, s.aim, now);
-    s.suppressing = now < q.coverFireUntil || q.firesOnThePlace(now);
+    s.suppressing = q.firesBlind(now);
     e.face = s.sees ? 'player' : 'lock';
     if (s.reloadUntil > 0) {
       if (now >= s.reloadUntil) {

@@ -191,17 +191,28 @@ export class Driver {
     const { route, leg } = this;
     const next = route[leg];
     if (!next || this.done) return;
-    if (Math.hypot(next.x - this.x, next.z - this.z) > Math.max(ARRIVED, Math.abs(this.speed) * h * 2) && !this.passed(next)) return;
+    if (Math.hypot(next.x - this.x, next.z - this.z) > Math.max(ARRIVED, Math.abs(this.speed) * h * 2) && !this.passed(next) && !this.beyond(next)) return;
     if (next.hold > 0) this.holdLeft = next.hold;
     this.leg++;
     if (this.leg >= route.length) this.done = true;
   }
 
-  /** Over the line through a mark, square to the leg. A mark inside the turning circle would otherwise be circled for ever. */
+  /** Over the line through a mark, square to the leg. */
   private passed(next: RoutePoint): boolean {
     const from = this.route[this.leg - 1];
     if (!from) return false;
     return (next.x - this.x) * (next.x - from.x) + (next.z - this.z) * (next.z - from.z) < 0;
+  }
+
+  /** The mark is inside the turning circle. It would be orbited for ever, and it is close enough. */
+  private beyond(next: RoutePoint): boolean {
+    const { plan } = this;
+    if (plan.wheelbase === 0) return false;
+    const dx = next.x - this.x;
+    const dz = next.z - this.z;
+    const facing = this.reversing ? this.yaw + Math.PI : this.yaw;
+    const off = Math.min(Math.abs(wrapAngle(Math.atan2(dx, dz) - facing)), Math.PI / 2);
+    return Math.hypot(dx, dz) < (2 * plan.wheelbase * Math.sin(off)) / Math.tan(plan.steer);
   }
 
   /** A new road from where it stands, keeping its speed and its springs. */

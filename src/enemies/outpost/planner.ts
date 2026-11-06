@@ -39,7 +39,7 @@ export interface PlanAction {
 
 export const ACTIONS: readonly PlanAction[] = [
   { id: 'search', needs: 0, forbids: CONTACT, gives: LOCATED | CONTACT, clears: 0, cost: 2 },
-  { id: 'baseOfFire', needs: LOCATED, forbids: PINNED, gives: PINNED, clears: 0, cost: 1 },
+  { id: 'baseOfFire', needs: LOCATED | CONTACT, forbids: PINNED, gives: PINNED, clears: 0, cost: 1 },
   { id: 'flank', needs: PINNED, forbids: 0, gives: OPENING, clears: 0, cost: 3 },
   { id: 'cutOff', needs: LOCATED | RUNNING, forbids: 0, gives: OPENING, clears: 0, cost: 2.5 },
   { id: 'frag', needs: LOCATED | HAS_FRAG, forbids: SHIELDED, gives: OPENING, clears: CAMPING, cost: 3.6 },

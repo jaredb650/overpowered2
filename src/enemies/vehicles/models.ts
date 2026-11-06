@@ -163,9 +163,7 @@ function trackGear(b: ModelBuilder, side: number): void {
   const x = side * 1.56;
   b.box(0.66, 0.1, 7.4, TYRE, { at: [x, 1.42, 0] });
   b.box(0.66, 0.1, 7.1, TYRE, { at: [x, 0.05, 0] });
-  for (const z of [3.75, -3.75]) b.cyl(0.42, 0.42, 0.68, 12, TYRE, { at: [x, 0.78, z], rot: ALONG_X });
-  b.box(0.66, 1.1, 0.5, TYRE, { at: [x, 0.74, 3.84] });
-  b.box(0.66, 1.1, 0.5, TYRE, { at: [x, 0.74, -3.84] });
+  for (const z of [3.42, -3.42]) b.cyl(0.72, 0.72, 0.66, 14, TYRE, { at: [x, 0.73, z], rot: ALONG_X });
 }
 
 function roadWheels(b: ModelBuilder, side: number): void {
@@ -556,7 +554,7 @@ export class Fleet {
 
   constructor(private readonly materials: ModelMaterials, private readonly scene: THREE.Scene) {
     this.burnt = materials.solid.clone();
-    this.burnt.color.set('#3a3430');
+    this.burnt.color.set('#7a726a');
     this.burnt.metalness = 0.25;
     this.burnt.roughness = 0.95;
   }

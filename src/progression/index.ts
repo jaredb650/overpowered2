@@ -154,6 +154,10 @@ class Progression implements ProgressionSystem {
     this.callInsManager.board(id);
   }
 
+  award(points: number, reason: string, position?: THREE.Vector3): void {
+    if (DevFlags.progression) this.scoreKeeper.add(points, reason, position);
+  }
+
   resume(score: number, kills: number, headshots: number): void {
     this.scoreKeeper.score = score;
     this.scoreKeeper.kills = kills;

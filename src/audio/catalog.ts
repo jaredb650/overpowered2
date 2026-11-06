@@ -12,6 +12,7 @@ import { bodies, impacts } from './synth/recipes/impacts';
 import { player } from './synth/recipes/player';
 import { enemyGear, voices } from './synth/recipes/enemies';
 import { callIns, perks, pickups, powerups, progress, ui } from './synth/recipes/rewards';
+import { vehicles } from './synth/recipes/vehicles';
 import { world } from './synth/recipes/world';
 
 export type SoundKind = 'sample' | 'synth' | 'group' | 'stack';
@@ -187,7 +188,7 @@ const stacks: SoundDef[] = [
 
 const recipes: Recipe[] = [
   ...weapons, ...impacts, ...bodies, ...player, ...voices, ...enemyGear, ...perks, ...callIns, ...powerups,
-  ...pickups, ...progress, ...ui, ...world,
+  ...pickups, ...progress, ...ui, ...world, ...vehicles,
 ];
 
 function synth(recipe: Recipe): SoundDef {

@@ -1,11 +1,13 @@
 /** Puts test bodies in the world and takes them away. Dev only, so it reaches into the concrete enemy classes. */
 import * as THREE from 'three';
+import type { VehicleKind } from '../campaign/types';
 import { CG, type Ctx } from '../core/contracts';
 import type { EnemyId } from '../core/gameplay';
 import type { Behaviour } from '../enemies/brain';
 import { ENEMIES } from '../enemies/data';
 import type { Enemy } from '../enemies/Enemy';
 import type { EnemyManager } from '../enemies/EnemyManager';
+import { VEHICLES } from '../enemies/vehicles';
 import type { AiMode } from './settings';
 
 const REACH = 40;
@@ -17,6 +19,9 @@ const DRONE_HEIGHT = 2.4;
 const PATROL_HALF = 5;
 const PATROL_PACE = 0.75;
 const TURN_AT = 0.8;
+/** A lab vehicle stops this short of where it was spawned, and a chopper comes in at this height. */
+const DRIVE_IN = 24;
+const CHOPPER_HEIGHT = 20;
 
 interface Route {
   a: THREE.Vector3;
@@ -123,6 +128,26 @@ export class LabSpawner {
       e.position.y += DRONE_HEIGHT;
     }
     return e;
+  }
+
+  /** Off, it sits parked at the crosshair to be shot at. On, it comes from behind the crosshair and drives past the player. */
+  vehicle(kind: VehicleKind, ai: AiMode): void {
+    const vehicles = this.enemies.vehicles;
+    if (!vehicles) return;
+    const { player } = this.ctx;
+    this.aimPoint(VEHICLES[kind].halfLength, _at);
+    if (kind === 'chopper') {
+      _p.copy(_at).setY(VEHICLES.chopper.roof + CHOPPER_HEIGHT);
+      vehicles.spawnChopper(_p, [_at.clone().setY(CHOPPER_HEIGHT)], null);
+      return;
+    }
+    _flat.subVectors(_at, player.position).setY(0).normalize();
+    const parked = ai !== 'on';
+    const stop = _at.clone().addScaledVector(_flat, -DRIVE_IN);
+    vehicles.spawnGround(kind, {
+      x: _at.x, y: _at.y, z: _at.z, route: parked ? [] : [{ x: stop.x, z: stop.z, hold: 0 }], tag: null,
+      crew: parked ? [] : ['trooper', 'gunner', 'trooper'], crewTag: null, holds: false, holdYaw: NaN, parked,
+    });
   }
 
   killAll(): void {

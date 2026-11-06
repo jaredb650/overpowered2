@@ -9,6 +9,7 @@
 //   strafe   holds a yard at 25 m from the men and sidesteps at full speed, turning every second. The good player
 //   camper   stands in one room
 //   fighter  runs the map and shoots what it sees, about as well as a decent player
+//   duelist  holds ground in the Kill House, sidesteps, fights back and moves on when a man gets close. A player in a real fight
 //
 // Damage is counted, not applied, so a run lasts its full length: `deaths` is how often the same damage would have killed a player with
 // the real 100 health and regen. Writes tools/out/bench-<bot>-<seed>.json.
@@ -68,6 +69,7 @@ ctx.characters = { spawn: fakeCharacter };
 ctx.hud = noop('hud');
 ctx.progression = noop('progression');
 ctx.weapons = noop('weapons');
+ctx.campaign = noop('campaign');
 
 const PLAYER_RADIUS = 0.45;
 const WHIZZ_RADIUS = 3;
@@ -219,7 +221,7 @@ const waves = outpost.waves;
 ctx.waves = waves;
 manager.init(game.ctx);
 
-const SPAWN: Record<string, [number, number, number]> = { runner: [0, 0.1, -19], strafe: [-30, 0.1, 6], camper: [0, 0.1, -19], fighter: [0, 0.1, -19] };
+const SPAWN: Record<string, [number, number, number]> = { runner: [0, 0.1, -19], strafe: [-30, 0.1, 6], camper: [0, 0.1, -19], fighter: [0, 0.1, -19], duelist: [-30, 0.1, 6] };
 player.teleport(new THREE.Vector3(...SPAWN[bot]!), 0);
 manager.reset();
 waves.start();
@@ -239,6 +241,37 @@ function steer(to: THREE.Vector3): void {
 
 function drive(dt: number): void {
   turnClock -= dt;
+  if (bot === 'duelist') {
+    // Stands and fights until someone is on top of it, then runs to the next ground and turns round.
+    let near: any = null, nearD = 60;
+    for (const e of manager.alive) if (e.dist < nearD && soldierOf(e)?.fighting) { near = e; nearD = e.dist; }
+    const moving = route.count > 0 && !route.done;
+    if (!moving && nearD < 8) {
+      station = (station + 3) % STATIONS.length;
+      goal.set(...STATIONS[station]!);
+      outpost.routes.find(player.position, goal, route, null);
+      route.next = 0;
+    }
+    if (route.count > 0 && !route.done) {
+      input.simulate('left', false);
+      input.simulate('right', false);
+      if (Math.hypot(route.x[route.next]! - player.position.x, route.z[route.next]! - player.position.z) < 1.6) route.next++;
+      if (!route.done) {
+        steer(eye.set(route.x[route.next]!, 0, route.z[route.next]!));
+        input.simulate('forward', true);
+        return;
+      }
+    }
+    input.simulate('forward', false);
+    if (turnClock <= 0) {
+      turnClock = 0.5 + Math.random() * 0.7;
+      side = -side;
+      input.simulate('left', side < 0);
+      input.simulate('right', side > 0);
+    }
+    if (near) steer(near.position);
+    return;
+  }
   if (bot === 'runner' || bot === 'fighter') {
     // A bot that runs into a corner picks the next station, because a player would not stand there pushing on the wall.
     stuck = player.speed < 3 ? stuck + dt : 0;
@@ -278,7 +311,7 @@ const damage = (e: any, amount: number) => ({
 });
 
 function shoot(dt: number): void {
-  if (bot !== 'fighter') return;
+  if (bot !== 'fighter' && bot !== 'duelist') return;
   fireClock -= dt;
   if (fireClock > 0) return;
   let best: any = null, bestD = 34;

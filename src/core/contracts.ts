@@ -75,6 +75,8 @@ export const CG = {
   Debris: 1 << 5,
   Projectile: 1 << 6,
   Trigger: 1 << 7,
+  /** Stops the player and nothing else. Bullets, bodies, nav and light pass through: see Site.barrier in world/map/outpost. */
+  Barrier: 1 << 8,
 } as const;
 
 /** Lifecycle shared by all systems. `update` is called by Game once per frame. */

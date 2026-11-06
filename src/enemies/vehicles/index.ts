@@ -42,6 +42,13 @@ import { Wreck } from './wreck';
 
 export { VEHICLES } from './data';
 
+declare module '../../core/contracts' {
+  interface GameEvents {
+    /** A vehicle is dead. Its wreck is on the map. */
+    'vehicle:destroyed': { kind: VehicleKind; source: string; position: THREE.Vector3 };
+  }
+}
+
 /** True on a page that can have vehicles. On the swarm there are none, and none of this is built. */
 export const vehiclesActive = (outpost: boolean): boolean => outpost || ON_RANGE || !!MISSION_ID;
 

@@ -4,7 +4,7 @@
  *
  * Coordinates are the map's: x east, y up, z south. A yaw of 0 looks north, along -z, as `player.teleport` takes it.
  */
-import type { GameEvents, MusicState } from '../core/contracts';
+import type { GameEvents, MusicState, WorldMaterialName } from '../core/contracts';
 import type { CallInId, EnemyId, PickupKind, WeaponId } from '../core/gameplay';
 import type { AdaptationId } from '../enemies/commander/adaptations';
 import type { Line } from '../enemies/commander/lines';
@@ -40,6 +40,8 @@ export interface DoorDef {
   seconds: number;
   /** How open it stands when the mission starts. */
   start: number;
+  /** What the leaf is made of. Hazard paint unless it says otherwise. */
+  look?: WorldMaterialName;
 }
 
 /** How a squad behaves when it arrives. Everyone drops what they were told the moment they are shot at. */

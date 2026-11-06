@@ -155,6 +155,8 @@ export const DOORS: Readonly<Record<string, DoorDef>> = {
   sallyEast: { at: [12, 0, -20], yaw: Math.PI / 2, width: 3, height: 3, kind: 'shutter', seconds: 1.2, start: 0 },
   /** The Armoury's door to the Plate Hall, which opens once the player has had their breath. */
   armourySouth: { at: [44, 0, -32.5], yaw: 0, width: 3, height: 3, kind: 'shutter', seconds: 1, start: 0 },
-  /** War Room to the roof stairs. He opens it himself when he runs. */
-  warRoomStairs: { at: [0, LEVEL.command, -67], yaw: 0, width: 3, height: 3, kind: 'shutter', seconds: 1, start: 0 },
+  /** War Room to the roof stairs, in the partition across its west end. He opens it himself when he runs. */
+  warRoomStairs: { at: [-11.2, LEVEL.command, -76.4], yaw: Math.PI / 2, width: 3, height: 3, kind: 'shutter', seconds: 1, start: 0 },
+  /** The middle pane of the War Room's glass: how the player gets at him. It goes when the fight starts. */
+  warGlass: { at: [0, LEVEL.command, -66], yaw: 0, width: 6, height: 3.2, kind: 'shutter', seconds: 0.25, start: 0, look: 'glass' },
 };

@@ -402,7 +402,7 @@ export class Prisoners {
       if (this.unprompt) this.clearPrompt();
       return;
     }
-    const key = input.labelFor('interact');
+    const key = input.labelFor?.('interact') ?? 'E';
     const text = s === this.held ? `${key} LET GO` : s.questioned ? `${key} LET GO   HOLD ${key} GRAB` : `${key} QUESTION   HOLD ${key} GRAB`;
     if (text === this.prompted) return;
     this.clearPrompt();

@@ -58,7 +58,7 @@ const LINES: Record<CommsKind, readonly string[]> = {
 
 /** Seconds before the same kind of line can come again. */
 const KIND_GAP: Partial<Record<CommsKind, number>> = {
-  contact: 4, lost: 8, noise: 10, moving: 5, covering: 6, reloading: 4, flanking: 8, fear: 7, panic: 5, surrender: 6, regroup: 6, fallback: 6,
+  fix: 24, contact: 4, lost: 8, noise: 10, moving: 5, covering: 6, reloading: 4, flanking: 8, fear: 7, panic: 5, surrender: 6, regroup: 6, fallback: 6,
   hit: 3, dying: 6, beg: 5, scream: 4, rescue: 6, lastStand: 5, pinning: 7, flushing: 6, rushing: 5, cutoff: 6, opening: 8, wounded: 7, dry: 5, hostage: 5, clearShot: 5,
 };
 const DEFAULT_KIND_GAP = 2.5;

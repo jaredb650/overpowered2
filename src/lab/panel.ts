@@ -1,9 +1,12 @@
 /** The dev panel: plain DOM on top of the game, in the HUD's colours. It holds no state of its own. */
+import type { VehicleKind } from '../campaign/types';
 import { ON_RANGE } from '../core/devflags';
 import type { CallInId, EnemyId, PerkId, PowerupId } from '../core/gameplay';
 import { ENEMIES } from '../enemies/data';
 import { CALLIN_ORDER, CALLINS, EFFECTS, POWERUPS } from '../progression/data';
 import type { AiMode, LabSettings } from './settings';
+
+const VEHICLE_ORDER: readonly VehicleKind[] = ['humvee', 'truck', 'tank', 'chopper'];
 
 const ORDER: readonly EnemyId[] = [
   'husk', 'trooper', 'gunner', 'brute', 'stalker', 'rocketeer', 'sniper', 'riot',
@@ -49,6 +52,7 @@ const CSS = `
 export interface PanelActions {
   changed(): void;
   spawn(count: number): void;
+  vehicle(kind: VehicleKind): void;
   killAll(): void;
   clearBodies(): void;
   grant(id: PerkId | PowerupId): void;
@@ -161,6 +165,9 @@ export class LabPanel {
       this.on.changed();
     });
     sync();
+    const vehicles = el('div', 'lab-row');
+    for (const kind of VEHICLE_ORDER) this.button(vehicles, kind.toUpperCase(), () => this.on.vehicle(kind));
+    this.el.appendChild(vehicles);
     const clear = el('div', 'lab-row');
     this.button(clear, 'Kill all', () => this.on.killAll());
     this.button(clear, 'Clear bodies', () => this.on.clearBodies());

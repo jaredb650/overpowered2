@@ -449,6 +449,7 @@ const BEATS: readonly Beat[] = [
       { do: 'done', id: 'climb' },
       commander('boss.stores'),
       { do: 'boss', tag: 'commander', at: 'warRoom' },
+      { do: 'door', door: 'warGlass', open: 1 },
       { do: 'drop', item: 'ammo', at: 'roofAmmo' },
       { do: 'drop', item: 'health', at: 'roofHealth' },
     ],

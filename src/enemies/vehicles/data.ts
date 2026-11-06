@@ -249,9 +249,9 @@ export const CHOPPER: ChopperDef = {
   rockets: { damage: 42, radius: 5.5, speed: 62, salvo: 4, gap: 0.22, every: [7, 10], spread: 0.022, range: 95 },
   seatHit: 1.2,
   spinRate: 3.2,
-  spinFall: 7,
+  spinFall: 3,
   dropFall: 13,
-  diveFall: 10,
+  diveFall: 7,
 };
 
 export const VEHICLES: Readonly<Record<VehicleKind, VehicleDef>> = { humvee: HUMVEE, truck: TRUCK, tank: TANK, chopper: CHOPPER };
