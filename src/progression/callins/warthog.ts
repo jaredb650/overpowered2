@@ -4,7 +4,7 @@
  */
 import * as THREE from 'three';
 import type { EmitterHandle } from '../../core/contracts';
-import { clamp, rand, smoothstep } from '../../core/math';
+import { rand, smoothstep } from '../../core/math';
 import { ModelBuilder, type ModelMaterials } from '../modelkit';
 import { CALLINS, WARTHOG as W } from '../data';
 import { GroundStrip } from './ground';
@@ -82,15 +82,13 @@ export class Warthog implements Strike {
   private readonly strip: GroundStrip;
   private readonly jet: THREE.Group;
   private readonly trails: EmitterHandle[] = [];
-  private readonly ceiling: number;
 
   constructor(private readonly kit: StrikeKit, order: StrikeOrder) {
-    const { ctx, probe } = kit;
+    const { ctx } = kit;
     this.center.copy(order.point);
     this.heading.copy(order.heading);
     this.strip = new GroundStrip(ctx);
     this.strip.setColor(CALLINS.warthog.color, 2);
-    this.ceiling = probe.headroom(this.center.x, this.center.y + 0.5, this.center.z, W.spawnHeight + 2) - 1.5;
     this.jet = kit.jet;
     this.jet.visible = false;
     ctx.audio.play('walkietalkie_fire');
@@ -171,9 +169,14 @@ export class Warthog implements Strike {
     const h = this.kit.probe.heightAt(_aim.x, this.center.y + 12, _aim.z, 40);
     if (!Number.isNaN(h)) _aim.y = h;
 
-    const height = clamp(W.spawnHeight, 4, this.ceiling);
-    _from.copy(_aim).addScaledVector(this.heading, -W.spawnBack).setY(_aim.y + height);
-    _vel.subVectors(_aim, _from).normalize().multiplyScalar(W.shellSpeed);
+    // Each shell starts inside the open air above its own impact, so an overhang cannot eat a stretch of the run.
+    _from.copy(_aim).addScaledVector(this.heading, -W.spawnBack).setY(_aim.y + W.spawnHeight);
+    _vel.subVectors(_from, _aim);
+    const reach = _vel.length();
+    _vel.divideScalar(reach);
+    const open = this.kit.probe.clearance(_aim.x, _aim.y + 0.3, _aim.z, _vel.x, _vel.y, _vel.z, reach);
+    _from.copy(_aim).addScaledVector(_vel, Math.max(open - 1.5, 2));
+    _vel.multiplyScalar(-W.shellSpeed);
     combat.spawnProjectile({
       origin: _from, velocity: _vel, kind: 'shell', team: 'player', damage: W.shellDamage, source: 'warthog',
       gravity: 0, lifetime: 1.5, tracer: 'heavy',

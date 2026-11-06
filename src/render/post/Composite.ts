@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FullscreenPass } from '../fullscreen';
+import { FullscreenPass, readArea } from '../fullscreen';
 import { MAX_DAMAGE_MARKS, type PostState } from './PostState';
 
 const FRAG = /* glsl */ `
@@ -28,6 +28,13 @@ uniform float uVignette;
 uniform vec3 uVignetteTint;
 uniform float uEdgeGlow;
 uniform float uGrain;
+uniform vec2 uHdrScale;
+uniform vec2 uHdrEdge;
+uniform vec2 uHdrTexel;
+uniform vec2 uBloomScale;
+uniform vec2 uBloomEdge;
+uniform float uEdgeAa;
+uniform float uSharpen;
 
 in vec2 vUv;
 out vec4 outColor;
@@ -61,8 +68,47 @@ vec3 srgb(vec3 c) {
   return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c));
 }
 
+vec3 bloomFetch(vec2 uv) {
+  return texture(tBloom, min(uv * uBloomScale, uBloomEdge)).rgb * uBloomStrength;
+}
+
 vec3 hdrFetch(vec2 uv) {
-  return texture(tHdr, uv).rgb + texture(tBloom, uv).rgb * uBloomStrength;
+  return texture(tHdr, min(uv * uHdrScale, uHdrEdge)).rgb + bloomFetch(uv);
+}
+
+// Folds HDR into 0..1. Blended raw, the mean of a 9x emissive strip and a dark wall still tone-maps to white
+// and the stairs stay, so edges blend the way they will be seen.
+vec3 fold(vec3 c) { return c / (1.0 + max(c.r, max(c.g, c.b))); }
+vec3 unfold(vec3 c) { return c / max(1.0 - max(c.r, max(c.g, c.b)), 1e-3); }
+float foldedLuma(vec3 c) { return sqrt(dot(c, LUMA)); }
+vec3 foldedTap(vec2 t) { return fold(texture(tHdr, min(t, uHdrEdge)).rgb); }
+
+// Scene colour with the two jobs that replace 4x MSAA and a full-size image, from one set of five taps. Across
+// a real edge it blends along the edge (FXAA, Lottes 2009). Everywhere else it sharpens luma, which gives back the
+// crispness the upscale takes. Grain lands after this, so it never counts as an edge.
+vec3 sceneFetch(vec2 uv) {
+  vec2 t = uv * uHdrScale;
+  vec3 raw = texture(tHdr, min(t, uHdrEdge)).rgb;
+  if (uEdgeAa < 0.5) return raw;
+  vec3 m = fold(raw);
+  float lm = foldedLuma(m);
+  float nw = foldedLuma(foldedTap(t + vec2(-uHdrTexel.x, uHdrTexel.y)));
+  float ne = foldedLuma(foldedTap(t + uHdrTexel));
+  float sw = foldedLuma(foldedTap(t - uHdrTexel));
+  float se = foldedLuma(foldedTap(t + vec2(uHdrTexel.x, -uHdrTexel.y)));
+  float lo = min(lm, min(min(nw, ne), min(sw, se)));
+  float hi = max(lm, max(max(nw, ne), max(sw, se)));
+  if (hi - lo < max(0.045, hi * 0.16)) {
+    float gain = clamp(1.0 + uSharpen * (lm - (nw + ne + sw + se) * 0.25) / max(lm, 0.03), 0.75, 1.3);
+    return raw * (gain * gain);
+  }
+  vec2 dir = vec2((sw + se) - (nw + ne), (nw + sw) - (ne + se));
+  float shrink = max((nw + ne + sw + se) * 0.03125, 0.0078125);
+  dir = clamp(dir / (min(abs(dir.x), abs(dir.y)) + shrink), -8.0, 8.0) * uHdrTexel;
+  vec3 inner = 0.5 * (foldedTap(t - dir * 0.16667) + foldedTap(t + dir * 0.16667));
+  vec3 outer = inner * 0.5 + 0.25 * (foldedTap(t - dir * 0.5) + foldedTap(t + dir * 0.5));
+  float lb = foldedLuma(outer);
+  return unfold(lb < lo || lb > hi ? inner : outer);
 }
 
 void main() {
@@ -88,7 +134,7 @@ void main() {
     }
     color = sum / total;
   } else {
-    color = hdrFetch(uv);
+    color = sceneFetch(uv) + bloomFetch(uv);
   }
 
   // Lens fringing grows toward the corners and the pulse adds to it.
@@ -180,6 +226,9 @@ void main() {
   outColor = vec4(display, 1.0);
 }`;
 
+const SHARPEN_PER_UPSCALE = 1.25;
+const MAX_SHARPEN = 0.7;
+
 export class Composite {
   private readonly pass = new FullscreenPass(FRAG, {
     tHdr: { value: null },
@@ -206,6 +255,13 @@ export class Composite {
     uVignetteTint: { value: new THREE.Vector3() },
     uEdgeGlow: { value: 0 },
     uGrain: { value: 0 },
+    uHdrScale: { value: new THREE.Vector2(1, 1) },
+    uHdrEdge: { value: new THREE.Vector2(1, 1) },
+    uHdrTexel: { value: new THREE.Vector2(1, 1) },
+    uBloomScale: { value: new THREE.Vector2(1, 1) },
+    uBloomEdge: { value: new THREE.Vector2(1, 1) },
+    uEdgeAa: { value: 0 },
+    uSharpen: { value: 0 },
   });
 
   /** Base scene exposure before the grade. The world's luminance targets in DESIGN.md are met at this value. */
@@ -213,6 +269,17 @@ export class Composite {
   /** Base bloom add. Multiplied by the grade's bloom. */
   bloomStrength = 0.1;
   grainEnabled = true;
+
+  /** `edgeAa` is for targets without MSAA. `upscale` is canvas width over internal width. */
+  setArea(hdr: THREE.WebGLRenderTarget, bloom: THREE.WebGLRenderTarget, edgeAa: boolean, upscale: number): void {
+    const u = this.pass.uniforms;
+    readArea(hdr, u.uHdrScale!.value as THREE.Vector2, u.uHdrEdge!.value as THREE.Vector2);
+    readArea(bloom, u.uBloomScale!.value as THREE.Vector2, u.uBloomEdge!.value as THREE.Vector2);
+    (u.uHdrTexel!.value as THREE.Vector2).set(1 / hdr.width, 1 / hdr.height);
+    u.uEdgeAa!.value = edgeAa ? 1 : 0;
+    // Grows with the stretch, so a dynamic resolution step down does not read as a focus pull.
+    u.uSharpen!.value = Math.min((upscale - 1) * SHARPEN_PER_UPSCALE, MAX_SHARPEN);
+  }
 
   render(renderer: THREE.WebGLRenderer, hdr: THREE.Texture, bloom: THREE.Texture, width: number, height: number, time: number, state: PostState): void {
     const u = this.pass.uniforms;

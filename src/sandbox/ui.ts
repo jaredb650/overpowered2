@@ -10,6 +10,7 @@ import { createHud, type Hud } from '../ui';
 import type { ActiveEffect, CallInId, EnemyId, EnemyInstance, PerkId, PowerupId, WeaponId } from '../core/gameplay';
 import { EFFECTS } from '../progression/data';
 import type { Action, Ctx, GameState } from '../core/contracts';
+import { DEFAULT_BINDINGS } from '../input/bindings';
 
 function paintScene(): void {
   const canvas = document.getElementById('game') as HTMLCanvasElement;
@@ -134,7 +135,7 @@ export default async function ui(params: URLSearchParams): Promise<void> {
       labelFor: (a: Action) => ({ streak: 'X', callinWarthog: 'Z', callinOrbital: 'V', callinBlackSun: 'B', callinNuke: 'N' } as Record<string, string>)[a] ?? a,
       requestLock: () => { fake.locked = true; },
       releaseLock: () => { fake.locked = false; },
-      bindingsFor: () => [],
+      bindingsFor: (a: Action) => DEFAULT_BINDINGS[a],
       conflicts: () => [],
     } as unknown as Ctx['input'],
     player: fake.player as unknown as Ctx['player'],

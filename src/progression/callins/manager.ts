@@ -11,7 +11,6 @@ import { ModelMaterials } from '../modelkit';
 import { CALLIN_ORDER, CALLINS } from '../data';
 import { Airstrike } from './airstrike';
 import { BlackSun } from './blacksun';
-import { HeldDevice } from './device';
 import { GroundProbe } from './ground';
 import { Nuke, NukeAftermath } from './nuke';
 import { Orbital } from './orbital';
@@ -28,18 +27,21 @@ const KEYS: Readonly<Record<CallInId, Action>> = {
   nuke: 'callinNuke',
 };
 
+/** Seconds between the device leaving and the gun being drawn. */
+const GUN_BACK_DELAY = 0.16;
+
 export class CallInManager {
   readonly held = new Set<CallInId>();
   readonly targeting: Targeting;
   private readonly kit: StrikeKit;
   private readonly cooldowns: Record<CallInId, number> = { airstrike: 0, warthog: 0, orbital: 0, blackSun: 0, nuke: 0 };
   private readonly strikes: Strike[] = [];
-  private readonly device: HeldDevice;
   private readonly aftermath: NukeAftermath;
   private readonly order: StrikeOrder = { point: new THREE.Vector3(), heading: new THREE.Vector3(1, 0, 0) };
-  /** The Orbital Lance keeps the designator up and the gun away until it finishes. */
+  /** The Orbital Lance keeps the designator up and the gun away until it finishes or the player lets go. */
   private steering: Orbital | null = null;
   private holstered = false;
+  private gunBackIn = 0;
 
   constructor(private readonly ctx: Ctx, materials: ModelMaterials) {
     const probe = new GroundProbe(ctx);
@@ -48,13 +50,17 @@ export class CallInManager {
     jet.visible = false;
     ctx.render.scene.add(jet);
     this.kit = { ctx, probe, materials, ordnance, jet };
-    this.targeting = new Targeting(ctx, probe);
-    this.device = new HeldDevice(ctx, materials);
+    this.targeting = new Targeting(ctx);
     this.aftermath = new NukeAftermath(ctx);
   }
 
   cooldown(id: CallInId): number {
     return this.cooldowns[id];
+  }
+
+  /** What the off hand should be holding. The viewmodel reads this through `progression.targeting`. */
+  get aiming(): CallInId | null {
+    return this.targeting.id ?? (this.steering ? 'orbital' : null);
   }
 
   /** Called on every kill with the combo after it. */
@@ -88,28 +94,28 @@ export class CallInManager {
       if (strike.update(dt)) {
         strike.dispose();
         this.strikes.splice(i, 1);
-        if (strike === this.steering) {
-          this.steering = null;
-          this.lowerDevice();
-        }
+        if (strike === this.steering) this.lowerDevice();
       }
     }
-    if (this.steering && this.ctx.input.pressed('aim')) this.lowerDevice();
+    if (this.steering && this.ctx.input.pressed('aim')) {
+      this.steering.release();
+      this.lowerDevice();
+    }
 
-    this.device.update(this.ctx.time.realDt);
-    if (this.holstered && !this.targeting.id && !this.steering && this.device.lowered) {
-      this.holstered = false;
-      this.ctx.weapons.setHolstered(false);
+    if (this.holstered && !this.aiming) {
+      this.gunBackIn -= dt;
+      if (this.gunBackIn <= 0) this.drawGun();
     }
     this.aftermath.update(dt);
   }
 
   private readKeys(): void {
     const { input } = this.ctx;
+    if (this.steering) return;
     for (const id of CALLIN_ORDER) {
       if (!input.pressed(KEYS[id])) continue;
       if (this.targeting.id === id) this.leaveTargeting('callin_cancel');
-      else if (this.held.has(id) && !this.steering) this.enter(id);
+      else if (this.held.has(id)) this.enter(id);
       else this.deny(id);
       return;
     }
@@ -126,13 +132,11 @@ export class CallInManager {
 
   private enter(id: CallInId): void {
     const { audio, weapons } = this.ctx;
-    const def = CALLINS[id];
     audio.play('callin_confirm', { pitch: 1.3, volume: 0.6 });
     if (!this.holstered) {
       this.holstered = true;
       weapons.setHolstered(true);
     }
-    this.device.show(def.device, def.color);
     this.targeting.enter(id);
   }
 
@@ -142,9 +146,15 @@ export class CallInManager {
     this.lowerDevice();
   }
 
+  /** The hand comes down, and the gun follows it up once it is out of the way. */
   private lowerDevice(): void {
     this.steering = null;
-    this.device.hide();
+    this.gunBackIn = GUN_BACK_DELAY;
+  }
+
+  private drawGun(): void {
+    this.holstered = false;
+    this.ctx.weapons.setHolstered(false);
   }
 
   private confirm(): void {
@@ -160,7 +170,7 @@ export class CallInManager {
     const strike = this.launch(id);
     this.strikes.push(strike);
     if (strike instanceof Orbital) this.steering = strike;
-    else this.device.hide();
+    else this.lowerDevice();
     events.emit('callin:used', { id, position: this.order.point });
   }
 
@@ -177,12 +187,9 @@ export class CallInManager {
   /** The player died: nothing is left half-open, but strikes already called in still land. */
   onDeath(): void {
     if (this.targeting.id) this.leaveTargeting(null);
-    this.lowerDevice();
-    this.device.clear();
-    if (this.holstered) {
-      this.holstered = false;
-      this.ctx.weapons.setHolstered(false);
-    }
+    this.steering?.release();
+    this.steering = null;
+    if (this.holstered) this.drawGun();
   }
 
   clear(): void {
@@ -192,12 +199,8 @@ export class CallInManager {
     this.strikes.length = 0;
     this.kit.ordnance.clear();
     this.aftermath.clear();
-    this.device.clear();
     this.held.clear();
     for (const id of CALLIN_ORDER) this.cooldowns[id] = 0;
-    if (this.holstered) {
-      this.holstered = false;
-      this.ctx.weapons.setHolstered(false);
-    }
+    if (this.holstered) this.drawGun();
   }
 }

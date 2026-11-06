@@ -103,6 +103,8 @@ export class Enemy implements EnemyInstance {
   readonly leapTarget = new THREE.Vector3();
   /** Held off the ground by its own behaviour: clinging to a wall, or hovering. */
   pinned = false;
+  /** Test Range: stands where it was put. Knockback still moves it, and nothing else does. */
+  dummy = false;
   /** How long progress has been too slow while trying to move. */
   stuck = 0;
   /** After getting stuck in point mode, follow flow until this time. */
@@ -228,7 +230,7 @@ export class Enemy implements EnemyInstance {
     this.desired.set(0, 0, 0);
     this.push.set(0, 0, 0);
     this.groundY = 0;
-    this.airborne = this.ballistic = this.pinned = false;
+    this.airborne = this.ballistic = this.pinned = this.dummy = false;
     this.verticalSpeed = this.flightLeft = 0;
     this.leapTarget.set(0, 0, 0);
     this.stuck = this.flowUntil = this.probeAt = 0;

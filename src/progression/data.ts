@@ -46,36 +46,50 @@ export interface EffectDef {
   retrigger: Retrigger;
   maxStacks: number;
   grade: GradeName | null;
-  /** Higher wins when several effects want the screen. */
+  /** Higher wins when several effects want the screen. See GRADE_RANK. */
   gradeRank: number;
   sound: string;
   moment: Moment;
 }
 
+/**
+ * Which effect owns the screen, highest first. Only one grade ever shows.
+ *
+ * Berserk leads because it says the player cannot die. SLOWMO sits above Hellfire on purpose: Hellfire's warm gain on
+ * this cold map lands as pale teal and tan, while the cold, drained SLOWMO grade leaves the world dark and lets the
+ * fire of explosive rounds carry the warmth, which is the game's first pillar. Everything below is a passing tint.
+ */
+const GRADE_RANK: Readonly<Partial<Record<EffectId, number>>> = {
+  berserk: 100, slowmo: 90, timeWarp: 85, hellfire: 80, overdrive: 70, chainStorm: 60, bloodthirst: 50, butcher: 45,
+  chainReaction: 40, skyfall: 35, adrenaline: 30,
+};
+
 const perk = (
   id: PerkId, label: string, banner: string, tagline: string, color: string, seconds: number,
-  retrigger: Retrigger, grade: GradeName | null, gradeRank: number, moment: Moment, maxStacks = 1,
-): EffectDef => ({ id, label, banner, tagline, color, seconds, retrigger, maxStacks, grade, gradeRank, moment, sound: `perk_${id}` });
+  retrigger: Retrigger, grade: GradeName | null, moment: Moment, maxStacks = 1,
+): EffectDef => ({
+  id, label, banner, tagline, color, seconds, retrigger, maxStacks, grade, gradeRank: GRADE_RANK[id] ?? 0, moment, sound: `perk_${id}`,
+});
 
 const power = (
-  id: PowerupId, label: string, tagline: string, color: string, seconds: number,
-  grade: GradeName | null = null, gradeRank = 0,
+  id: PowerupId, label: string, tagline: string, color: string, seconds: number, grade: GradeName | null = null,
 ): EffectDef => ({
-  id, label, banner: label, tagline, color, seconds, retrigger: 'refresh', maxStacks: 1, grade, gradeRank, moment: CAPSULE_MOMENT, sound: `powerup_${id}`,
+  id, label, banner: label, tagline, color, seconds, retrigger: 'refresh', maxStacks: 1, grade, gradeRank: GRADE_RANK[id] ?? 0,
+  moment: CAPSULE_MOMENT, sound: `powerup_${id}`,
 });
 
 export const EFFECTS: Readonly<Record<EffectId, EffectDef>> = {
-  bloodthirst: perk('bloodthirst', 'BLOOD THIRST', 'BLOOD THIRST', '2X DAMAGE // BOTTOMLESS', '#ff0000', 10, 'ignore', 'bloodthirst', 50, MINOR),
-  hellfire: perk('hellfire', 'HELLFIRE', 'HELLFIRE', 'EVERYTHING EXPLODES', '#ff6600', 5, 'ignore', 'hellfire', 80, MAJOR),
-  adrenaline: perk('adrenaline', 'ADRENALINE', 'ADRENALINE', 'FASTER', '#00ff00', 5, 'stack', 'adrenaline', 30, MINOR, 3),
-  berserk: perk('berserk', 'BERSERK!', 'BERSERK', 'YOU CANNOT DIE', '#ff0000', 10, 'ignore', 'berserk', 90, HUGE),
-  slowmo: perk('slowmo', 'SLOWMO', 'SLOWMO', 'THE WORLD CRAWLS', '#00ffff', 5, 'ignore', 'slowmo', 70, MAJOR),
-  sentinels: perk('sentinels', 'SENTINELS', 'SENTINELS', 'THREE GUNS ON YOUR SIDE', '#7fd4ff', 20, 'refresh', null, 0, MAJOR),
-  chainStorm: perk('chainStorm', 'CHAIN STORM', 'CHAIN STORM', 'EVERY KILL ARCS', '#8a7dff', 12, 'refresh', 'slowmo', 40, MAJOR),
-  butcher: perk('butcher', 'BUTCHER', 'BUTCHER', 'EVERY HIT SEVERS', '#ff2f55', 8, 'refresh', 'bloodthirst', 45, MINOR),
-  skyfall: perk('skyfall', 'SKYFALL', 'SKYFALL', 'UNLIMITED AIR DASH // SLAM DETONATES', '#49b6ff', 8, 'refresh', 'adrenaline', 35, MINOR),
-  chainReaction: perk('chainReaction', 'CHAIN REACTION', 'CHAIN REACTION', 'THE DEAD DETONATE', '#ffb000', 6, 'refresh', 'hellfire', 55, MAJOR),
-  overdrive: perk('overdrive', 'OVERDRIVE', 'OVERDRIVE', 'SPEED IS DAMAGE', '#ffe500', 10, 'refresh', 'overdrive', 60, HUGE),
+  bloodthirst: perk('bloodthirst', 'BLOOD THIRST', 'BLOOD THIRST', '2X DAMAGE // BOTTOMLESS', '#ff0000', 10, 'ignore', 'bloodthirst', MINOR),
+  hellfire: perk('hellfire', 'HELLFIRE', 'HELLFIRE', 'EVERYTHING EXPLODES', '#ff6600', 5, 'ignore', 'hellfire', MAJOR),
+  adrenaline: perk('adrenaline', 'ADRENALINE', 'ADRENALINE', 'FASTER', '#00ff00', 5, 'stack', 'adrenaline', MINOR, 3),
+  berserk: perk('berserk', 'BERSERK!', 'BERSERK', 'YOU CANNOT DIE', '#ff0000', 10, 'ignore', 'berserk', HUGE),
+  slowmo: perk('slowmo', 'SLOWMO', 'SLOWMO', 'THE WORLD CRAWLS', '#00ffff', 5, 'ignore', 'slowmo', MAJOR),
+  sentinels: perk('sentinels', 'SENTINELS', 'SENTINELS', 'THREE GUNS ON YOUR SIDE', '#7fd4ff', 20, 'refresh', null, HUGE),
+  chainStorm: perk('chainStorm', 'CHAIN STORM', 'CHAIN STORM', 'EVERY KILL ARCS', '#8a7dff', 12, 'refresh', 'slowmo', HUGE),
+  butcher: perk('butcher', 'BUTCHER', 'BUTCHER', 'EVERY HIT SEVERS', '#ff2f55', 8, 'ignore', 'bloodthirst', MINOR),
+  skyfall: perk('skyfall', 'SKYFALL', 'SKYFALL', 'UNLIMITED AIR DASH // SLAM DETONATES', '#49b6ff', 8, 'ignore', 'overdrive', MINOR),
+  chainReaction: perk('chainReaction', 'CHAIN REACTION', 'CHAIN REACTION', 'THE DEAD DETONATE', '#ffb000', 6, 'ignore', 'hellfire', MINOR),
+  overdrive: perk('overdrive', 'OVERDRIVE', 'OVERDRIVE', 'SPEED IS DAMAGE', '#ffe500', 10, 'ignore', 'overdrive', MAJOR),
 
   quad: power('quad', 'QUAD DAMAGE', '4X DAMAGE', '#4a7dff', 15),
   haste: power('haste', 'HASTE', '1.5X SPEED AND FIRE RATE', '#ffd400', 15),
@@ -86,7 +100,7 @@ export const EFFECTS: Readonly<Record<EffectId, EffectDef>> = {
   magnet: power('magnet', 'MAGNET', 'PICKUPS COME TO YOU', '#ff7ad9', 15),
   regen: power('regen', 'REGEN', 'HEALTH AND AMMO FLOOD BACK', '#58ff7a', 15),
   frostNova: power('frostNova', 'FROST NOVA', 'THE FROZEN SHATTER', '#9fe8ff', 0),
-  timeWarp: power('timeWarp', 'TIME WARP', 'THE WORLD CRAWLS', '#e0b3ff', 5, 'slowmo', 65),
+  timeWarp: power('timeWarp', 'TIME WARP', 'THE WORLD CRAWLS', '#e0b3ff', 5, 'slowmo'),
 };
 
 /** Stacking, in one place. Damage and speed multiply across effects, which is what lets a good run feel like cheating. */
@@ -103,10 +117,10 @@ export const STACK = {
   /** Hellfire rockets: 8 x 2.5 = 20 m, instakill. */
   hellfireBlast: 2.5,
   ricochetBounces: 3,
-  /** Overdrive damage climbs from 1x at ground top speed to this at the air speed target. */
+  /** Overdrive damage climbs from 1x at run speed to this near the strafe ceiling. */
   overdriveMaxDamage: 3,
-  overdriveFloorSpeed: 17,
-  overdriveTopSpeed: 45,
+  overdriveFloorSpeed: 12.5,
+  overdriveTopSpeed: 27,
 } as const;
 
 /** Tracer override priority while a perk runs. */
@@ -130,13 +144,45 @@ export const WINDOWS = {
   hellfire: { need: 10, span: 10, clears: false },
   adrenaline: { need: 3, span: 3, clears: true },
   slowmo: { need: 3, span: 3, clears: true },
-  butcher: { need: 3, span: 2, clears: true },
-  skyfall: { need: 3, span: 4, clears: true },
+  butcher: { need: 4, span: 3, clears: true },
+  skyfall: { need: 4, span: 6, clears: true },
   overdrive: { need: 5, span: 10, clears: true },
 } as const;
 
-export const OVERDRIVE_MIN_SPEED = 25;
-export const CHAIN_REACTION_KILLS = 3;
+/** Hits on one head inside this gap are one headshot to SLOWMO. At 20 rounds a second a burst is not three good shots. */
+export const SLOWMO_SAME_HEAD_GAP = 0.35;
+
+/** Kills needed from a single explosion. Rockets into a swarm reach 3 with no aiming to speak of. */
+export const CHAIN_REACTION_KILLS = 4;
+
+/** Twice the run speed would be Berserk doing the work, so this is measured against the player's own speed modifier. */
+export const OVERDRIVE_MIN_SPEED = 18;
+
+/**
+ * The style perks reward how the player moves and fights, so they must not stack up behind the ladder. With a good aim
+ * and no rules, five perks fired inside 15 s of wave 1 and the rewards at combo 20 and up stopped being a change.
+ *
+ * Each trigger also has to be the player's own work: Butcher counts direct hits, Skyfall needs real hang time, Chain
+ * Reaction ignores Hellfire's free explosions, Overdrive ignores perk speed.
+ */
+export const STYLE_PERKS = ['butcher', 'skyfall', 'chainReaction', 'overdrive'] as const;
+export type StylePerk = (typeof STYLE_PERKS)[number];
+export const STYLE_GATE = {
+  /** Seconds after one style perk starts before any other may. */
+  spacing: 20,
+  /** Seconds after a style perk ends before it may start again. */
+  rearm: 30,
+  /** Seconds off the ground before a kill counts for Skyfall. A plain hop lasts 0.57 s and peaks at 0.28. */
+  hangTime: 0.35,
+} as const;
+
+/**
+ * Kills the player ordered but did not make. They pay score and drops and keep the combo alive, but they climb it at
+ * this rate and never feed a perk window. A strike that killed 30 used to be worth 30 rungs, so one Airstrike reached
+ * Sentinels and a Black Sun reached the nuke, and a nuke's own bodies fired Berserk, Hellfire and Overdrive at once.
+ */
+export const ASSIST_COMBO_EVERY = 2;
+export const ASSIST_SOURCES = /^(airstrike|warthog|orbital|black_sun|nuke|sentinel|chain_storm|chain_reaction|drop_pod)/;
 
 /**
  * Combo perks. Berserk no longer resets the combo, so each rung climbs by `rearm` after firing.
@@ -159,30 +205,28 @@ export interface CallInDef {
   /** True blast radius, shown by the targeting preview. */
   radius: number;
   hint: string;
-  /** Viewmodel device while targeting. */
-  device: 'walkie' | 'designator';
 }
 
 export const CALLINS: Readonly<Record<CallInId, CallInDef>> = {
   airstrike: {
     id: 'airstrike', combo: 8, cooldown: 30, name: 'AIRSTRIKE', key: 'X', color: '#ff6600', radius: 20,
-    hint: 'CLICK TO CALL AIRSTRIKE // RMB CANCEL', device: 'walkie',
+    hint: 'CLICK TO CALL AIRSTRIKE // RMB CANCEL',
   },
   warthog: {
     id: 'warthog', combo: 12, cooldown: 45, name: 'WARTHOG', key: 'Z', color: '#00ff00', radius: 5,
-    hint: 'CLICK FOR A GUN RUN, DRAG TO SET THE HEADING // RMB CANCEL', device: 'walkie',
+    hint: 'CLICK FOR A GUN RUN, DRAG TO SET THE HEADING // RMB CANCEL',
   },
   orbital: {
     id: 'orbital', combo: 25, cooldown: 60, name: 'ORBITAL LANCE', key: 'V', color: '#ff2fb0', radius: 6,
-    hint: 'CLICK TO FIRE, THEN STEER THE BEAM // RMB CANCEL', device: 'designator',
+    hint: 'CLICK TO FIRE, THEN STEER THE BEAM // RMB CANCEL',
   },
   blackSun: {
     id: 'blackSun', combo: 40, cooldown: 90, name: 'BLACK SUN', key: 'B', color: '#a56bff', radius: 36,
-    hint: 'CLICK TO OPEN THE SINGULARITY // RMB CANCEL', device: 'designator',
+    hint: 'CLICK TO OPEN THE SINGULARITY // RMB CANCEL',
   },
   nuke: {
     id: 'nuke', combo: 50, cooldown: 180, name: 'TACTICAL NUKE', key: 'N', color: '#ffffff', radius: 90,
-    hint: 'CLICK TO MARK GROUND ZERO // RMB CANCEL', device: 'designator',
+    hint: 'CLICK TO MARK GROUND ZERO // RMB CANCEL',
   },
 };
 
@@ -249,7 +293,9 @@ export const ORBITAL = {
 } as const;
 
 export const BLACK_SUN = {
-  height: 7,
+  height: 9,
+  /** Radius of the hole once open. */
+  size: 4.6,
   growTime: 1,
   pullTime: 5.2,
   collapseTime: 0.55,
@@ -259,23 +305,36 @@ export const BLACK_SUN = {
   pullMax: 30,
   /** m/s^2 on corpses and limbs. */
   bodyAccel: 75,
+  /** Where bodies stop gaining speed and start to circle. */
+  captureRadius: 9,
+  captureDrag: 3.5,
   crushRadius: 4.5,
-  crushDamagePerSecond: 220,
+  crushDamagePerSecond: 660,
+  crushTick: 0.15,
   implodeRadius: 28,
   implodeImpulse: 260,
+  /** m/s handed to everything that was circling, near the hole. */
+  implodeSpeed: 34,
+  wakeImpulse: 30,
   playerTug: 16,
 } as const;
 
 export const NUKE = {
   sirenTime: 6,
-  /** Metres per second of the shock front, so it crosses the Crucible in about three seconds. */
-  frontSpeed: 150,
+  /** Metres per second of the shock front. Slow enough to outlast the white, so it is seen coming across the map. */
+  frontSpeed: 105,
   maxRadius: 420,
-  whiteoutSeconds: 3.2,
+  whiteout: 6,
+  whiteoutSeconds: 2.3,
   skyHold: 45,
   skyFade: 25,
   cloudLife: 70,
-  ragdollImpulse: 150,
+  /** m/s bodies leave at, from ground zero out to `throwFalloff` metres. */
+  throwNear: 34,
+  throwFar: 11,
+  throwFalloff: 220,
+  /** How far ahead of the front resting corpses are stirred, so they are simulated by the time it arrives. */
+  wakeAhead: 12,
   /** Everything ragdolls, but the crater keeps its heart. Inside this radius bodies are gibbed. */
   gibRadius: 40,
 } as const;
@@ -420,12 +479,12 @@ export const SCORE = {
   finisherMultiplier: 2,
   /** Combo at which the score multiplier steps up. */
   comboTiers: [[0, 1], [5, 1.5], [10, 2], [15, 3], [25, 4], [40, 5]] as readonly (readonly [number, number])[],
-  /** Horizontal m/s at which the speed multiplier steps up. Ground top speed earns nothing extra. */
-  speedTiers: [[0, 1], [20, 1.25], [30, 1.5], [40, 2], [50, 3]] as readonly (readonly [number, number])[],
+  /** Horizontal m/s at which the speed multiplier steps up. A plain run at 12.5 earns nothing; strafing tops out near 27. */
+  speedTiers: [[0, 1], [15, 1.25], [20, 1.5], [25, 2], [32, 3]] as readonly (readonly [number, number])[],
   multiKillGap: 1.2,
   pointBlank: 3,
-  longShot: 45,
-  blurSpeed: 30,
+  longShot: 35,
+  blurSpeed: 20,
   closeCallHealth: 25,
   storageKey: 'op2_highscore',
 } as const;

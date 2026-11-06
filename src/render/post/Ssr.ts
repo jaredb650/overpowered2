@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FullscreenPass } from '../fullscreen';
+import { FullscreenPass, readArea } from '../fullscreen';
 
 /**
  * Screen-space reflections at half resolution. The scene target's alpha is a free G-buffer channel:
@@ -14,17 +14,21 @@ uniform vec2 uTexel;
 uniform vec2 uTanHalf;
 uniform mat4 uCurToPrev;
 uniform float uViewCut;
+uniform vec2 uScale;
+uniform vec2 uEdge;
+uniform vec2 uPrevScale;
+uniform vec2 uPrevEdge;
 in vec2 vUv;
 out vec4 outColor;
 
 vec3 viewPos(vec2 uv, float z) { return vec3((uv * 2.0 - 1.0) * uTanHalf * z, -z); }
-float depthAt(vec2 uv) { return textureLod(tDepth, uv, 0.0).r; }
+float depthAt(vec2 uv) { return textureLod(tDepth, min(uv * uScale, uEdge), 0.0).r; }
 vec3 posAt(vec2 uv) { return viewPos(uv, depthAt(uv)); }
 vec2 project(vec3 p) { return vec2(p.x / (-p.z * uTanHalf.x), p.y / (-p.z * uTanHalf.y)) * 0.5 + 0.5; }
 
 void main() {
   outColor = vec4(0.0);
-  float refl = 1.0 - textureLod(tScene, vUv, 0.0).a;
+  float refl = 1.0 - textureLod(tScene, vUv * uScale, 0.0).a;
   if (refl < 0.02) return;
   float z = depthAt(vUv);
   if (z > 2e4 || z < uViewCut) return;
@@ -92,7 +96,7 @@ void main() {
   float fade = smoothstep(0.0, 0.07, min(edge.x, edge.y));
   fade *= smoothstep(0.45, 0.05, R.z);
   fade *= 1.0 - smoothstep(0.75, 1.0, hit / max(tMax, 1e-3));
-  outColor = vec4(min(texture(tPrev, uvPrev).rgb, vec3(24.0)), fade);
+  outColor = vec4(min(texture(tPrev, min(uvPrev * uPrevScale, uPrevEdge)).rgb, vec3(24.0)), fade);
 }`;
 
 export class Ssr {
@@ -101,6 +105,11 @@ export class Ssr {
   private width = 1;
   private height = 1;
   private readonly prevViewProj = new THREE.Matrix4();
+  private readonly scale = new THREE.Vector2(1, 1);
+  private readonly edge = new THREE.Vector2(1, 1);
+  /** The area of last frame's image, which a resolution step leaves different from this frame's. */
+  private readonly prevScale = new THREE.Vector2(1, 1);
+  private readonly prevEdge = new THREE.Vector2(1, 1);
 
   get texture(): THREE.Texture {
     return this.target.texture;
@@ -112,17 +121,24 @@ export class Ssr {
       tDepth: { value: null }, tScene: { value: null }, tPrev: { value: null },
       uTexel: { value: new THREE.Vector2() }, uTanHalf: { value: new THREE.Vector2() },
       uCurToPrev: { value: new THREE.Matrix4() }, uViewCut: { value: 0.16 },
+      uScale: { value: this.scale }, uEdge: { value: this.edge }, uPrevScale: { value: this.prevScale }, uPrevEdge: { value: this.prevEdge },
     }, { STEPS: steps });
   }
 
   resize(fullWidth: number, fullHeight: number): void {
     this.target?.dispose();
-    this.width = Math.ceil(fullWidth / 2);
-    this.height = Math.ceil(fullHeight / 2);
-    this.target = new THREE.WebGLRenderTarget(this.width, this.height, {
+    this.target = new THREE.WebGLRenderTarget(fullWidth / 2, fullHeight / 2, {
       type: THREE.HalfFloatType, format: THREE.RGBAFormat, depthBuffer: false, generateMipmaps: false,
       minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
     });
+  }
+
+  /** `width` and `height` are the full-resolution area, always even. */
+  setArea(width: number, height: number): void {
+    this.width = width / 2;
+    this.height = height / 2;
+    this.target.viewport.set(0, 0, this.width, this.height);
+    readArea(this.target, this.scale, this.edge);
   }
 
   render(renderer: THREE.WebGLRenderer, depth: THREE.Texture, scene: THREE.Texture, previous: THREE.Texture, camera: THREE.PerspectiveCamera, tanHalf: THREE.Vector2): void {
@@ -136,9 +152,10 @@ export class Ssr {
     this.pass!.render(renderer, this.target);
   }
 
-  /** Call after the frame's image is finished, so next frame can reproject into it. */
-  endFrame(camera: THREE.PerspectiveCamera): void {
+  /** Call after the frame's image is finished, so next frame can reproject into it. `image` is that frame's target. */
+  endFrame(camera: THREE.PerspectiveCamera, image: THREE.WebGLRenderTarget): void {
     this.prevViewProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    readArea(image, this.prevScale, this.prevEdge);
   }
 
   dispose(): void {

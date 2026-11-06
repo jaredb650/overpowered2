@@ -71,6 +71,7 @@ export class HandCtl {
     this.steps = 0;
     this.nudge.set(0, 0, 0);
     this.trigger = 0;
+    this.fingerRate = 28;
     if (bind) this.pose.set(bind.pose);
   }
 

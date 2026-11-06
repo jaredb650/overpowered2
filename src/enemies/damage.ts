@@ -7,6 +7,7 @@
 import * as THREE from 'three';
 import { DroneBone, HumanoidBone as B, type GoreRegion } from '../characters/rig';
 import type { DamageInfo, DamageType } from '../core/contracts';
+import { DevFlags } from '../core/devflags';
 import type { DamageResult, KillEvent } from '../core/gameplay';
 import { chance, clamp, pick, rand } from '../core/math';
 import { ENEMIES, LIMB_SIZE, REGION_DAMAGE } from './data';
@@ -326,7 +327,7 @@ export class DamageModel {
     const force = d.force || DEFAULT_FORCE[d.type];
     const headshot = region === 'head' && !AREA_TYPES.has(d.type);
     const shatter = e.frozen > 0;
-    const explosive = d.type === 'explosive' && (overkill || d.amount >= e.maxHealth);
+    const blownUp = d.gib || e.tankBlown || (d.type === 'explosive' && (overkill || d.amount >= e.maxHealth));
     let gibbed = false;
     let sliced = false;
 
@@ -336,7 +337,7 @@ export class DamageModel {
       e.boss.onDeath(e, this.w, d);
     } else if (e.def.id === 'drone') {
       this.m.startCrash(e);
-    } else if (shatter || d.gib || explosive || e.tankBlown) {
+    } else if (DevFlags.gibbing && (shatter || (blownUp && DevFlags.explosiveDeaths))) {
       gibbed = true;
       if (shatter) ctx.fx.sparks(e.center, _n.set(0, 1, 0), 40, 0xa0e8ff);
       else if (!e.def.machine) ctx.audio.play('gib_squelch', { position: e.center, pitchJitter: 0.1 });
@@ -353,6 +354,7 @@ export class DamageModel {
         e.dying = d.amount >= HEAD_BURST_DAMAGE ? 0.28 : 1.05;
       }
     } else {
+      if (blownUp && !DevFlags.explosiveDeaths) this.blastMaim(e, d);
       this.ragdoll(e, d, force);
     }
 
@@ -376,6 +378,15 @@ export class DamageModel {
     ctx.events.emit('enemy:killed', ev);
     if (e.dyingKind === 'none') this.m.retire(e);
     else this.m.holdForDeath(e);
+  }
+
+  /** With explosive deaths off, what would have been a gib leaves a thrown body short of a limb or two. */
+  private blastMaim(e: Enemy, d: DamageInfo): void {
+    if (e.def.machine) return;
+    for (let i = 0; i < 2; i++) {
+      const region = pick(BLAST_LIMBS);
+      if (e.limbHp.has(region) && !e.char.severed.has(region)) this.sever(e, region, d, null);
+    }
   }
 
   ragdoll(e: Enemy, d: DamageInfo | null, force: number): void {

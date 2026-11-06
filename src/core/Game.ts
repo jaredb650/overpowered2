@@ -5,6 +5,8 @@
  * no-op stub, so the game boots with whatever has been built so far.
  */
 import { loadingScreen, showLoading } from '../ui/boot';
+import type { Crawl } from '../ui/screens/loading';
+import { DEV_TOOLS, ON_RANGE } from './devflags';
 import { EventBus } from './events';
 import { GameTime } from './time';
 import { noop } from './stubs';
@@ -12,7 +14,7 @@ import type { Ctx, GameEvents, GameState, GameSystem } from './contracts';
 import './gameplay';
 
 type Factory = (...args: never[]) => unknown;
-type Progress = (fraction: number, label: string) => void;
+type Progress = (fraction: number, label: string, crawl?: Crawl) => void;
 
 /**
  * Lets the loading screen paint between boot steps that would otherwise run back to back. A hidden tab never fires
@@ -70,7 +72,11 @@ export class Game {
     for (const sys of [c.render, c.physics, c.input, ...this.ordered]) await sys.init?.(c);
     onProgress(BOOT.world, 'Building the Crucible');
     await breathe();
-    await c.world.build?.((f, label) => onProgress(BOOT.world + f * (BOOT.army - BOOT.world), label));
+    await c.world.build?.((f, label) => {
+      // World's fractions follow its steps, not the clock, and its last step takes two thirds of the whole boot.
+      if (f < WORLD_LIGHT_STEP) onProgress(BOOT.world + (f / WORLD_LIGHT_STEP) * (BOOT.light - BOOT.world), label);
+      else if (f < 1) onProgress(BOOT.light, label, { to: BOOT.army, seconds: LIGHT_SECONDS });
+    });
     onProgress(BOOT.army, 'Waking the army');
     await breathe();
     await c.characters.load?.();
@@ -156,8 +162,11 @@ export class Game {
   }
 }
 
-/** Where each boot stage starts on the loading bar, from measured timings. Sized so the bar moves at a steady rate. */
-const BOOT = { physics: 0.02, render: 0.05, audio: 0.16, gameplay: 0.2, systems: 0.3, world: 0.38, army: 0.93 };
+/** Where each boot stage starts on the loading bar, sized from measured timings so the bar moves at a steady rate. */
+const BOOT = { physics: 0.01, render: 0.03, audio: 0.06, gameplay: 0.09, systems: 0.1, world: 0.13, light: 0.32, army: 0.97 };
+/** World's progress value for its light bake, and how long that took on an idle machine. Under load the bar waits at the end. */
+const WORLD_LIGHT_STEP = 0.87;
+const LIGHT_SECONDS = 7;
 
 export async function createCtx(canvas: HTMLCanvasElement, onProgress: Progress = () => {}): Promise<Ctx> {
   const step = async (fraction: number, label: string) => {
@@ -194,21 +203,19 @@ export async function createCtx(canvas: HTMLCanvasElement, onProgress: Progress 
 }
 
 /**
- * URL flags: ?autostart=1 skips the menus. Bots read window.__op2.
+ * URL flags: ?autostart=1 skips the menus, ?dev=1 adds the dev panel, ?map=range is the Test Range. Bots read window.__op2.
  */
 export async function startGame(params: URLSearchParams): Promise<void> {
   showLoading();
-  const report: Progress = (f, label) => {
-    loadingScreen.set(f, label);
-    performance.mark(`boot:${label}`);
-  };
+  const report: Progress = (f, label, crawl) => loadingScreen.set(f, label, crawl);
   const canvas = document.getElementById('game') as HTMLCanvasElement;
   const ctx = await createCtx(canvas, report);
   const game = new Game(ctx);
   (window as unknown as { __op2: unknown }).__op2 = { ctx, game, stats: () => game.stats() };
   await game.init(report);
   game.run();
-  if (params.get('autostart')) game.newRun();
+  if (DEV_TOOLS) await build('lab', 'createLab', 'lab', ctx, game);
+  if (params.get('autostart') || ON_RANGE) game.newRun();
   else {
     game.setState('menu');
     ctx.hud.showScreen?.('splash');

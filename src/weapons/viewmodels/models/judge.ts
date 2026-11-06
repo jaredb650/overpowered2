@@ -81,7 +81,7 @@ function barrel(m: Mesher): void {
   m.side(rib, 0.012, { bevel: 0.0009, holes: slotRow(zf - 0.028, 0.0635, zm + 0.03, 0.0635, 7, 0.018, 0.0065, 0) });
   m.at([0, 0.0732, (zf + zm) / 2], null, () => {
     m.use(STAINLESS_DARK);
-    m.box(0.0115, 0.0012, -zf + zm - 0.0, 0.0002);
+    m.box(0.0115, 0.0012, zf - zm, 0.0002);
   });
   // Front sight with a glowing insert.
   m.use(F.blued);
@@ -158,6 +158,7 @@ function cylinder(m: Mesher): void {
         }
       });
     });
+    loader(m, cx, cy, 0.05 + CYL_BACK);
   });
 }
 
@@ -171,9 +172,9 @@ function starPlate(): V2[] {
   return out;
 }
 
-function loader(m: Mesher): void {
-  // Speedloader: a knurled hub holding six fresh rounds.
-  m.part('loader', [0, 0, 0], () => {
+/** Speedloader: a knurled hub holding six fresh rounds. Rides the crane, with its origin on the back of the cylinder. */
+function loader(m: Mesher, x: number, y: number, z: number): void {
+  m.part('loader', [x, y, z], () => {
     m.at([0, 0, 0.011], null, () => knurl(m, 0.012, 0.016, F.steelDark, 22, 0.0006));
     m.use(F.anodized);
     m.at([0, 0, 0.002], null, () => m.cyl(0.0255, 0.004, 26, 0.0008));
@@ -193,7 +194,6 @@ function buildJudge(kit: Kit): Model {
   barrel(m);
   grip(m);
   cylinder(m);
-  loader(m);
   m.part('hammer', [0, 0.04, 0.05], () => {
     m.use(STAINLESS_DARK);
     m.side(poly([[-0.008, -0.004], [0.0, -0.008], [0.004, 0.004], [0.006, 0.02, 0.002], [0.016, 0.03, 0.003], [0.02, 0.026, 0.002], [0.01, 0.014, 0.002], [-0.002, 0.014]], 0.001), 0.0075, { bevel: 0.0007 });
@@ -249,22 +249,17 @@ function clip(a: Anim): void {
   const eject = seg(p, 0.15, 0.2);
   const cases = P.cases!;
   cases.position.z += inQuad(eject) * 0.024;
-  if (p >= 0.2 && p < 0.42) cases.visible = false;
-  if (p >= 0.2 && p < 0.42) P.cyl!.rotation.z += (p - 0.2) * 3;
+  if (p >= 0.2 && p < 0.34) cases.visible = false;
+  // The cylinder is thumbed round two chambers while it hangs open. Six-way symmetry keeps it lined up for the loader.
+  P.cyl!.rotation.z += inOut(seg(p, 0.2, 0.3)) * STEP * 2;
 
   // Speedloader from the belt, home at the foley's 0.34, a twist, and away.
   const go = hold(p, 0.2, 0.34, 0.42, 0.52);
-  const ld = P.loader!;
   if (p > 0.2 && p < 0.52) {
+    const ld = P.loader!;
     ld.visible = true;
-    // Rides the cylinder's own axis once it arrives, so it cannot miss the chambers.
-    P.cyl!.getWorldPosition(ld.position);
-    ld.parent!.worldToLocal(ld.position);
-    P.cyl!.getWorldQuaternion(ld.quaternion);
-    const q = ld.parent!.getWorldQuaternion(ld.quaternion.clone());
-    void q;
-    ld.position.z += (1 - go) * 0.05;
-    ld.position.x += (1 - go) * -0.24;
+    ld.position.z += (1 - go) * 0.06;
+    ld.position.x += (1 - go) * -0.22;
     ld.position.y += (1 - go) * -0.3;
     ld.rotation.x += (1 - go) * 1.1;
     ld.rotation.z += seg(p, 0.35, 0.42) * 0.5;

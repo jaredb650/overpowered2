@@ -51,10 +51,11 @@
 .tg-cross { position: absolute; background: var(--c); box-shadow: 0 0 0 0.08rem #000; }
 .tg-ch { left: -2rem; top: -0.08rem; width: 4rem; height: 0.16rem; }
 .tg-cv { left: -0.08rem; top: -2rem; width: 0.16rem; height: 4rem; }
+/* Low in the frame, because the announcement lane owns the top of the screen and keeps firing while you aim. */
 .tg-plate {
   position: absolute;
   left: 50%;
-  top: 9rem;
+  bottom: 18.6rem;
   display: flex;
   align-items: center;
   gap: 0.6rem;
@@ -67,7 +68,7 @@
   white-space: nowrap;
 }
 .tg-icon .ico { width: 2.5rem; height: 2.5rem; }
-.tg-danger { display: none; position: absolute; left: 50%; top: 13.6rem; padding: 0 0.9rem; background: var(--blood); color: #000; font: 2.4rem/1.16 var(--display); transform: translateX(-50%); white-space: nowrap; animation: op-blink 0.3s steps(1) infinite; }
+.tg-danger { display: none; position: absolute; left: 50%; bottom: 23.2rem; padding: 0 0.9rem; background: #000; color: #fff; font: 2.4rem/1.16 var(--display); transform: translateX(-50%); white-space: nowrap; animation: op-blink 0.3s steps(1) infinite; }
 .targeting.danger .tg-danger { display: block; }
 .targeting.danger .tg-ring { border-color: var(--blood); }
 .tg-readout { position: absolute; left: calc(50% + 7.4rem); top: calc(50% - 2.7rem); display: flex; flex-direction: column; gap: 0.15rem; }

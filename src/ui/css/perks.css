@@ -23,7 +23,8 @@
 .pk-clip { position: absolute; inset: 0; overflow: hidden; }
 .pk-front { background: var(--c); color: #000; }
 .pk-s { font: 800 1.05rem/1 var(--mono); }
-.pk-t { margin-left: auto; font: 800 1.1rem/1 var(--mono); }
+.pk-t { margin-left: auto; font: 800 1.1rem/1 var(--mono); color: var(--ink); }
+.pk-front .pk-t { color: #000; }
 
 .pk.expiring .pk-clip { animation: op-pk-blink 0.26s steps(1) infinite; }
 @keyframes op-pk-blink { 0% { opacity: 1; } 50% { opacity: 0.25; } }

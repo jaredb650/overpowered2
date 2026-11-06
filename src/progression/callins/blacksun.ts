@@ -3,16 +3,17 @@
  * corpses and severed limbs as rigid bodies by impulses. Then it collapses and everything it swallowed comes back out.
  */
 import * as THREE from 'three';
-import { CG, type DamageInfo, type LoopHandle } from '../../core/contracts';
+import type { DamageInfo, LoopHandle } from '../../core/contracts';
 import type { EnemyInstance } from '../../core/gameplay';
 import { lerp, smoothstep } from '../../core/math';
 import { BLACK_SUN as B } from '../data';
+import { BodyQuery } from './bodies';
 import { GroundRing } from './ground';
 import type { Strike, StrikeKit, StrikeOrder } from './shared';
 
-const BODY_MASK = CG.Ragdoll | CG.Gib | CG.Debris;
-const BODY_FILTER = (0xffff << 16) | BODY_MASK;
 const STREAKS = 260;
+/** Seconds between stirring the corpses at rest, so the pull keeps finding new ones as room frees up. */
+const WAKE_EVERY = 0.4;
 
 const DISC_VERT = /* glsl */ `
 varying vec2 vPolar;
@@ -109,6 +110,7 @@ export class BlackSun implements Strike {
   private detonated = false;
   private opened = false;
   private crushIn = 0;
+  private wakeIn = 0;
   private readonly center = new THREE.Vector3();
   private readonly ground = new THREE.Vector3();
   private readonly group = new THREE.Group();
@@ -120,16 +122,13 @@ export class BlackSun implements Strike {
   private readonly rimMat: THREE.ShaderMaterial;
   private readonly streakMat: THREE.ShaderMaterial;
   private readonly ring: GroundRing;
-  private readonly ball: InstanceType<StrikeKit['ctx']['physics']['R']['Ball']>;
-  private readonly identity = { x: 0, y: 0, z: 0, w: 1 };
+  private readonly bodies: BodyQuery;
   private readonly near: EnemyInstance[] = [];
   private loop: LoopHandle | null = null;
   private strength = 0;
-  private bodyDt = 0;
   private readonly crush: DamageInfo = {
     amount: 0, type: 'true', point: new THREE.Vector3(), dir: new THREE.Vector3(), force: 10, source: 'black_sun', severMult: 6,
   };
-  private readonly pullBody: (collider: Parameters<Parameters<StrikeKit['ctx']['physics']['world']['intersectionsWithShape']>[3]>[0]) => boolean;
 
   constructor(private readonly kit: StrikeKit, order: StrikeOrder) {
     const { ctx, probe } = kit;
@@ -137,7 +136,7 @@ export class BlackSun implements Strike {
     this.center.copy(order.point);
     const room = probe.headroom(order.point.x, order.point.y + 0.5, order.point.z, B.height + 3);
     this.center.y += Math.min(B.height, room - 3);
-    this.ball = new ctx.physics.R.Ball(B.pullRadius);
+    this.bodies = new BodyQuery(ctx);
     this.ring = new GroundRing(ctx);
     this.ring.setColor('#a56bff', 1.6);
 
@@ -176,20 +175,6 @@ export class BlackSun implements Strike {
     this.group.scale.setScalar(0.001);
     ctx.render.scene.add(this.group);
 
-    this.pullBody = collider => {
-      const body = collider.parent();
-      if (!body || !body.isDynamic()) return true;
-      const p = body.translation();
-      _pull.set(this.center.x - p.x, this.center.y - p.y, this.center.z - p.z);
-      const d = Math.max(_pull.length(), 0.5);
-      _pull.divideScalar(d);
-      // Rises toward the centre and keeps a tangent, so the debris forms a disc instead of a clot.
-      const k = this.strength * B.bodyAccel * (0.35 + 0.65 * (1 - d / B.pullRadius)) * body.mass() * this.bodyDt;
-      _swirl.crossVectors(_up, _pull);
-      body.applyImpulse({ x: _pull.x * k + _swirl.x * k * 0.45, y: _pull.y * k + 0.2 * k, z: _pull.z * k + _swirl.z * k * 0.45 }, true);
-      return true;
-    };
-
     ctx.audio.play('walkietalkie_fire');
     ctx.audio.play('blacksun_open', { position: this.center });
     ctx.render.post.chromatic(0.8, 0.5);
@@ -202,9 +187,9 @@ export class BlackSun implements Strike {
     const endAt = collapseAt + B.collapseTime;
 
     let size = 0;
-    if (this.t < B.growTime) size = smoothstep(0, B.growTime, this.t) * 3.4;
-    else if (this.t < collapseAt) size = 3.4 + Math.sin(this.t * 12) * 0.08 + (this.t - B.growTime) * 0.14;
-    else size = lerp(4.1, 0.05, smoothstep(collapseAt, endAt, this.t));
+    if (this.t < B.growTime) size = smoothstep(0, B.growTime, this.t) * B.size;
+    else if (this.t < collapseAt) size = B.size + Math.sin(this.t * 12) * 0.1 + (this.t - B.growTime) * 0.18;
+    else size = lerp(B.size + B.pullTime * 0.18, 0.05, smoothstep(collapseAt, endAt, this.t));
 
     this.core.scale.setScalar(size);
     this.rim.scale.setScalar(size * 1.14);
@@ -237,15 +222,20 @@ export class BlackSun implements Strike {
   }
 
   private drag(dt: number): void {
-    const { camera, enemies, player, physics, render } = this.kit.ctx;
-    const world = this.kit.ctx.time.dt;
+    const { camera, enemies, player, render, time } = this.kit.ctx;
+    const world = time.dt;
+    this.pullBodies(world);
 
-    this.bodyDt = world;
-    physics.world.intersectionsWithShape(this.center, this.identity, this.ball, this.pullBody, undefined, BODY_FILTER);
+    this.wakeIn -= dt;
+    if (this.wakeIn <= 0) {
+      this.wakeIn = WAKE_EVERY;
+      this.bodies.wake(this.center, B.pullRadius, -B.wakeImpulse);
+    }
 
     this.crushIn -= dt;
-    const crushing = this.crushIn <= 0;
-    if (crushing) this.crushIn = 0.15;
+    // Nothing dies until the hole has opened: the show is the walk in, and a crush at the rim would end it in a second.
+    const crushing = this.crushIn <= 0 && this.t >= B.growTime;
+    if (crushing) this.crushIn = B.crushTick;
 
     const count = enemies.query(this.center, B.pullRadius, this.near);
     for (let i = 0; i < count; i++) {
@@ -255,14 +245,9 @@ export class BlackSun implements Strike {
       const d = _pull.length();
       if (d < 1e-3) continue;
       _pull.divideScalar(d);
-      const closeness = 1 - d / B.pullRadius;
-      const speed = lerp(B.pullMin, B.pullMax, closeness * closeness) * this.strength;
-      if (!e.isBoss) {
-        _swirl.crossVectors(_up, _pull);
-        e.position.addScaledVector(_pull, speed * world).addScaledVector(_swirl, speed * world * 0.3);
-      }
-      if (crushing && d < B.crushRadius * 2.2) {
-        this.crush.amount = B.crushDamagePerSecond * 0.15 * (d < B.crushRadius ? 3 : 1);
+      if (!e.isBoss) this.dragEnemy(e, d, world);
+      if (crushing && d < B.crushRadius) {
+        this.crush.amount = B.crushDamagePerSecond * B.crushTick;
         this.crush.point.copy(e.center);
         this.crush.dir.copy(_pull);
         enemies.applyDamage(e, this.crush);
@@ -280,6 +265,38 @@ export class BlackSun implements Strike {
     }
   }
 
+  /** Feet first along the floor. Walls hold them back, so nobody is dragged out of the map. */
+  private dragEnemy(e: EnemyInstance, d: number, world: number): void {
+    const closeness = 1 - d / B.pullRadius;
+    const step = lerp(B.pullMin, B.pullMax, closeness * closeness) * this.strength * world;
+    _swirl.crossVectors(_up, _pull).multiplyScalar(0.3).add(_pull);
+    const len = _swirl.length();
+    _swirl.divideScalar(len);
+    const move = step * len;
+    const open = this.kit.probe.clearance(e.position.x, e.position.y + 0.9, e.position.z, _swirl.x, 0, _swirl.z, move + 0.6);
+    if (open > move + 0.5) e.position.addScaledVector(_swirl, move);
+  }
+
+  /** Rises toward the centre and keeps a tangent, so the debris forms a disc instead of a clot. */
+  private pullBodies(world: number): void {
+    const found = this.bodies.run(this.center, B.pullRadius);
+    for (const body of found) {
+      const p = body.translation();
+      _pull.set(this.center.x - p.x, this.center.y - p.y, this.center.z - p.z);
+      const d = Math.max(_pull.length(), 0.5);
+      _pull.divideScalar(d);
+      const k = this.strength * B.bodyAccel * (0.35 + 0.65 * (1 - d / B.pullRadius)) * body.mass() * world;
+      _swirl.crossVectors(_up, _pull);
+      if (d < B.captureRadius) {
+        // Bleeds off speed near the hole, or a body falls straight through it and out the far side.
+        const v = body.linvel();
+        const keep = Math.exp(-B.captureDrag * world);
+        body.setLinvel({ x: v.x * keep, y: v.y * keep, z: v.z * keep }, true);
+      }
+      body.applyImpulse({ x: _pull.x * k + _swirl.x * k * 0.45, y: _pull.y * k + 0.2 * k, z: _pull.z * k + _swirl.z * k * 0.45 }, true);
+    }
+  }
+
   private implode(): void {
     const { audio, camera, combat, fx, physics, render, time, player } = this.kit.ctx;
     this.detonated = true;
@@ -288,10 +305,12 @@ export class BlackSun implements Strike {
     this.loop = null;
     this.ring.hide();
     audio.play('blacksun_implode', { position: this.center });
+    // White fire rather than the nuke's recipe: the top of the ladder keeps its own fireball and its own sound.
     combat.explode(this.center, {
-      radius: B.implodeRadius, damage: 99999, kind: 'nuke', source: 'black_sun', team: 'player',
-      instakill: true, selfDamage: 0, playerPush: 30,
+      radius: B.implodeRadius, damage: 99999, kind: 'finisher', source: 'black_sun', team: 'player',
+      instakill: true, selfDamage: 0, playerPush: 30, shake: 0.6, scale: 2,
     });
+    this.throwOut();
     physics.radialImpulse(this.center, B.pullRadius * 1.4, B.implodeImpulse);
     fx.ring(this.center, _up, '#c9a8ff', B.implodeRadius * 2);
     fx.ring(this.center, _pos.set(0.4, 1, 0.2).normalize(), '#ffffff', B.implodeRadius * 1.3);
@@ -307,6 +326,17 @@ export class BlackSun implements Strike {
     time.hitStop(0.14, 0.02);
     const d = player.position.distanceTo(this.center);
     if (d < B.pullRadius) camera.kick(0.05, 0, 0.04);
+  }
+
+  /** Everything it swallowed comes back out, at a speed set here and not by each body's mass. */
+  private throwOut(): void {
+    for (const body of this.bodies.run(this.center, B.pullRadius * 1.2)) {
+      const p = body.translation();
+      _pull.set(p.x - this.center.x, p.y - this.center.y + 1.5, p.z - this.center.z);
+      const d = Math.max(_pull.length(), 0.5);
+      const k = (B.implodeSpeed * (1 - Math.min(d / (B.pullRadius * 1.2), 0.8)) * body.mass()) / d;
+      body.applyImpulse({ x: _pull.x * k, y: _pull.y * k, z: _pull.z * k }, true);
+    }
   }
 
   dispose(): void {

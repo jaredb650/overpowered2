@@ -19,14 +19,11 @@ export class Airstrike implements Strike {
   private landed = false;
   private readonly point = new THREE.Vector3();
   private readonly ring: GroundRing;
-  /** Cover over the target. Under a roof, rockets start below it instead of bursting on top. */
-  private readonly ceiling: number;
 
   constructor(private readonly kit: StrikeKit, order: StrikeOrder) {
     this.point.copy(order.point);
     this.ring = new GroundRing(kit.ctx);
     this.ring.setColor(CALLINS.airstrike.color, 2.2);
-    this.ceiling = kit.probe.headroom(this.point.x, this.point.y + 0.5, this.point.z, A.finaleHeight + 2) - 1.5;
     kit.ctx.audio.play('walkietalkie_fire');
   }
 
@@ -56,8 +53,8 @@ export class Airstrike implements Strike {
     // Radius straight from random() biases to the centre, which is the shape the first game had.
     const r = Math.random() * A.scatter;
     const a = rand(0, TAU);
-    const height = Math.min(rand(A.rocketHeight[0], A.rocketHeight[1]), this.ceiling);
-    _from.set(this.point.x + Math.cos(a) * r, this.point.y + height, this.point.z + Math.sin(a) * r);
+    _from.set(this.point.x + Math.cos(a) * r, 0, this.point.z + Math.sin(a) * r);
+    _from.y = this.point.y + this.startHeight(_from.x, _from.z, rand(A.rocketHeight[0], A.rocketHeight[1]));
     _vel.set(rand(-A.rocketDrift, A.rocketDrift), -1, rand(-A.rocketDrift, A.rocketDrift)).normalize().multiplyScalar(A.rocketSpeed);
     this.kit.ctx.combat.spawnProjectile({
       origin: _from, velocity: _vel, kind: 'rocket', team: 'player', damage: A.rocketDamage, source: 'airstrike',
@@ -66,10 +63,14 @@ export class Airstrike implements Strike {
     });
   }
 
+  /** Under a roof a rocket starts below it, so it lands on the marked floor and not on top of the building. */
+  private startHeight(x: number, z: number, want: number): number {
+    return Math.max(this.kit.probe.headroom(x, this.point.y + 0.5, z, want) - 1, 2);
+  }
+
   private launchFinale(): void {
     this.finaleLaunched = true;
-    const height = Math.min(A.finaleHeight, this.ceiling);
-    _from.copy(this.point).setY(this.point.y + height);
+    _from.copy(this.point).setY(this.point.y + this.startHeight(this.point.x, this.point.z, A.finaleHeight));
     _vel.set(0, -A.finaleSpeed, 0);
     this.kit.ctx.audio.play('missile_incoming', { position: this.point });
     this.kit.ordnance.launch('finale', _from, _vel, p => this.impact(p));

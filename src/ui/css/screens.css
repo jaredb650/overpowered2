@@ -106,6 +106,7 @@
 .gd-erow { grid-template-columns: 5.4rem 10rem 11rem 1fr; padding: 0.24rem 0; }
 .gd-prow { grid-template-columns: 13rem 15rem 1fr; padding: 0.62rem 0; }
 .gd-crow { grid-template-columns: 2.6rem 11rem 5.4rem 1fr; padding: 0.3rem 0; }
+.gd-crow .gd-key { max-width: 2.6rem; overflow: hidden; text-overflow: ellipsis; }
 .gd-crow .gd-body { font-size: 1rem; line-height: 1.25; }
 .gd-pw { grid-template-columns: 11rem 1fr; padding: 0.22rem 0; }
 .gd-pw .gd-body { font-size: 1rem; line-height: 1.25; }

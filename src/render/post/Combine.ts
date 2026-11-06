@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FullscreenPass } from '../fullscreen';
+import { FullscreenPass, readArea } from '../fullscreen';
 import { VIEW_DEPTH_MAX } from '../engine';
 
 const FRAG = /* glsl */ `
@@ -13,6 +13,9 @@ uniform vec2 uProj;
 uniform float uAo;
 uniform float uFog;
 uniform float uSsr;
+uniform vec2 uHalfScale;
+uniform vec2 uHalfEdge;
+uniform vec2 uHalfSize;
 in vec2 vUv;
 out vec4 outColor;
 
@@ -30,7 +33,7 @@ void main() {
   // bilinear tap per texture is exact, and that is nearly every pixel. On a silhouette it takes the
   // single neighbour closest in depth, so fog and AO stop exactly at the edge.
   ivec2 h = (p - 1) >> 1;
-  ivec2 hiBound = textureSize(tHalfDepth, 0) - 1;
+  ivec2 hiBound = ivec2(uHalfSize) - 1;
   ivec2 q0 = clamp(h, ivec2(0), hiBound);
   ivec2 q1 = clamp(h + ivec2(1, 0), ivec2(0), hiBound);
   ivec2 q2 = clamp(h + ivec2(0, 1), ivec2(0), hiBound);
@@ -40,11 +43,13 @@ void main() {
   float e2 = abs(texelFetch(tHalfDepth, q2, 0).r - z);
   float e3 = abs(texelFetch(tHalfDepth, q3, 0).r - z);
   float ao;
-  vec4 fog, ssr;
+  vec4 fog;
+  vec4 ssr = vec4(0.0);
   if (max(max(e0, e1), max(e2, e3)) < z * 0.025) {
-    ao = texture(tAo, vUv).r;
-    fog = texture(tFog, vUv);
-    ssr = texture(tSsr, vUv);
+    vec2 uv = min(vUv * uHalfScale, uHalfEdge);
+    ao = texture(tAo, uv).r;
+    fog = texture(tFog, uv);
+    if (uSsr > 0.0) ssr = texture(tSsr, uv);
   } else {
     ivec2 q = q0;
     float best = e0;
@@ -53,7 +58,7 @@ void main() {
     if (e3 < best) { q = q3; }
     ao = texelFetch(tAo, q, 0).r;
     fog = texelFetch(tFog, q, 0);
-    ssr = texelFetch(tSsr, q, 0);
+    if (uSsr > 0.0) ssr = texelFetch(tSsr, q, 0);
   }
   float hot = smoothstep(1.0, 3.5, max(c.r, max(c.g, c.b)));
   c *= mix(1.0, ao, uAo * (1.0 - hot));
@@ -69,7 +74,15 @@ export class Combine {
   private readonly pass = new FullscreenPass(FRAG, {
     tScene: { value: null }, tDepth: { value: null }, tHalfDepth: { value: null }, tAo: { value: null }, tFog: { value: null }, tSsr: { value: null },
     uProj: { value: new THREE.Vector2() }, uAo: { value: 1 }, uFog: { value: 1 }, uSsr: { value: 0 },
+    uHalfScale: { value: new THREE.Vector2(1, 1) }, uHalfEdge: { value: new THREE.Vector2(1, 1) }, uHalfSize: { value: new THREE.Vector2(1, 1) },
   });
+
+  /** Takes any half-resolution target, because they all share an area. */
+  setArea(half: THREE.WebGLRenderTarget): void {
+    const u = this.pass.uniforms;
+    readArea(half, u.uHalfScale!.value as THREE.Vector2, u.uHalfEdge!.value as THREE.Vector2);
+    (u.uHalfSize!.value as THREE.Vector2).set(half.viewport.z, half.viewport.w);
+  }
 
   render(
     renderer: THREE.WebGLRenderer, target: THREE.WebGLRenderTarget, scene: THREE.Texture, depth: THREE.Texture, halfDepth: THREE.Texture,

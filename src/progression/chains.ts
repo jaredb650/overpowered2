@@ -81,7 +81,7 @@ export class ChainEffects {
   private arcFrom(link: Link): void {
     const { audio, enemies, fx } = this.ctx;
     const from = link.position;
-    const found = enemies.query(from, CHAIN_STORM.range, this.near);
+    let found = enemies.query(from, CHAIN_STORM.range, this.near);
     let arcs = 0;
     // Nearest first without a sort: `found` is short, and most kills only ever reach three.
     while (arcs < CHAIN_STORM.arcs) {
@@ -105,7 +105,7 @@ export class ChainEffects {
       const result = enemies.applyDamage(best, this.hit);
       this.resolvingHop = 0;
       // A survivor must not soak all three arcs.
-      if (!result.killed) this.near[this.near.indexOf(best)] = this.near[found - 1]!;
+      if (!result.killed) this.near[this.near.indexOf(best)] = this.near[--found]!;
       arcs++;
     }
     if (arcs > 0) audio.play('lightning_arc', { position: from, pitch: 1 + link.hop * 0.08 });

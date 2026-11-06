@@ -13,6 +13,7 @@
  */
 import * as THREE from 'three';
 import type { CharacterAnimation, CharacterInstance } from '../core/contracts';
+import { DevFlags } from '../core/devflags';
 import { clamp, lerp, mulberry32, smoothstep } from '../core/math';
 import type { JointRole } from '../characters/rig';
 import { GRAVITY, OWN_BLAST } from '../physics/Physics';
@@ -51,7 +52,9 @@ const flag = typeof location === 'undefined' ? null : new URLSearchParams(locati
 
 export const MuscleTuning = {
   /** ?muscles=0 turns the whole layer off, for comparison: hard limits, instant ragdolls, no reactions. */
-  enabled: flag !== '0',
+  get enabled(): boolean {
+    return flag !== '0' && DevFlags.muscles;
+  },
 
   /** Radians inside a limit where the ligament starts to take up. Never more than `limitZoneShare` of the range. */
   limitZone: 0.45,

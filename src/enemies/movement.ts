@@ -251,7 +251,8 @@ export function updateMovement(e: Enemy, w: AiWorld, dt: number, alive: readonly
   const stunned = e.stagger > 0;
   const throttle = stunned ? 0 : desiredDirection(e, w, dt);
   if (throttle > 0 && e.mode !== 'flow') probeWall(e, w);
-  separate(e, w, alive);
+  if (e.dummy) _sep.set(0, 0, 0);
+  else separate(e, w, alive);
 
   let speed = e.def.speed * e.speedMul * e.pace * throttle * (1 + e.buff * 0.12);
   if (e.attack) speed *= e.attack.moveMul;

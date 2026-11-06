@@ -226,8 +226,10 @@ function install({ n, rounds }) {
     noDepthResolve: { on() { r.sceneTarget.resolveDepthBuffer = false; }, off() { r.sceneTarget.resolveDepthBuffer = true; } },
     msaa2: realloc({ msaa: 2 }),
     msaa0: realloc({ msaa: 0 }),
-    res85: realloc({ resolution: 0.85 }),
-    res70: realloc({ resolution: 0.7 }),
+    full: realloc({ maxPixels: 1920 * 1200 }),
+    px1600: realloc({ maxPixels: 1600 * 1000 }),
+    px1440: realloc({ maxPixels: 1440 * 900 }),
+    px1344: realloc({ maxPixels: 1344 * 840 }),
   };
 
   const eachLit = fn => {

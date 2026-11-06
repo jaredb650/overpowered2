@@ -9,14 +9,14 @@ import { Flag, Label, Num, div, markup, span } from '../dom';
 import { DASH_ICON } from '../icons';
 import type { HudState } from '../state';
 
-/** Strafing tops out near 27 m/s. Past that is pads, blasts and Berserk, and the score's top speed tier sits here. */
-const MAX_SPEED = 50;
+/** Past the top score tier the needle sits on the stop. Pads, blasts and Berserk get there; strafing tops out near 27. */
+const MAX_SPEED = 40;
 const SWEEP_START = -118;
 const SWEEP = 236;
-/** Speed marks that mean something: a flat-out run, the Overdrive floor, and the first speed that earns a style bonus. */
+/** Marks that mean something: a flat-out run, the Overdrive floor, and the redline at the top score tier. */
 const GROUND_TOP = MOVE.runSpeed;
 const OVERDRIVE_FLOOR = OVERDRIVE_MIN_SPEED;
-const REDLINE = SCORE.blurSpeed;
+const REDLINE = SCORE.speedTiers[SCORE.speedTiers.length - 1]![0];
 const PEAK_HOLD = 2.2;
 
 const angleOf = (speed: number) => SWEEP_START + (clamp(speed, 0, MAX_SPEED) / MAX_SPEED) * SWEEP;

@@ -86,16 +86,14 @@ float opHeight = opA.w;
 vec3 opAlbedo = opA.rgb;
 
 // Macro variation at scales the tile cannot repeat: broad stains, plus vertical runs on walls.
-#ifndef X_NOMACRO
 vec4 opMacro = texture(opNoise, opPos.xz * 0.019 + opPos.y * 0.011);
 float opWall = 1.0 - abs(opGeoN.y);
 float opRun = texture(opNoise, vec2(dot(opPos.xz, vec2(0.13, 0.11)), opPos.y * 0.008)).g;
 float opVar = (opMacro.r - 0.5) * opSurf.w;
 opAlbedo *= 1.0 + opVar - opWall * smoothstep(0.42, 0.7, opRun) * opSurf.w * 0.8;
 opRough = clamp(opRough * (1.0 - opVar * 0.55), 0.04, 1.0);
-#endif
 
-#if defined(OP_WET) && !defined(X_NOWET)
+#ifdef OP_WET
 {
   // Water collects in dips at three scales. The broad term makes whole areas dry or wet, so puddles
   // cluster like they do on a real slab instead of covering it in an even camouflage.

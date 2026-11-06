@@ -6,10 +6,11 @@
  * The aftermath outlives the strike, so it belongs to NukeAftermath, which the manager keeps across strikes.
  */
 import * as THREE from 'three';
-import { CG, type Ctx, type DamageInfo, type LoopHandle } from '../../core/contracts';
+import type { Ctx, DamageInfo, LoopHandle } from '../../core/contracts';
 import type { EnemyInstance } from '../../core/gameplay';
-import { clamp, rand, smoothstep, TAU } from '../../core/math';
+import { clamp, lerp, rand, smoothstep, TAU } from '../../core/math';
 import { NUKE as N } from '../data';
+import { BodyQuery } from './bodies';
 import { GroundRing } from './ground';
 import type { Strike, StrikeKit, StrikeOrder } from './shared';
 
@@ -163,6 +164,8 @@ void main() {
   gl_FragColor = vec4(c, uAmount);
 }`;
 
+const EMBER_LIGHT = new THREE.Color(1, 0.3, 0.09);
+
 function cloudGeometry(): THREE.BufferGeometry {
   const profile: [number, number][] = [
     [66, 0], [44, 3], [26, 8], [17, 18], [14, 36], [13, 60], [14, 82], [20, 100], [36, 112], [58, 118], [76, 128],
@@ -183,6 +186,10 @@ export class NukeAftermath {
   private readonly skyMat: THREE.ShaderMaterial;
   private readonly ash: THREE.Points;
   private readonly ashMat: THREE.ShaderMaterial;
+  /** The world's directional light, on the renderer but not in its contract. Absent in headless sandboxes. */
+  private readonly moon: THREE.DirectionalLight | undefined;
+  private readonly moonColor = new THREE.Color();
+  private moonIntensity = 1;
   private age = -1;
 
   constructor(private readonly ctx: Ctx) {
@@ -222,6 +229,12 @@ export class NukeAftermath {
     this.ash.frustumCulled = false;
     this.ash.visible = false;
     ctx.render.scene.add(this.ash);
+
+    this.moon = (ctx.render as unknown as { moon?: THREE.DirectionalLight }).moon;
+    if (this.moon) {
+      this.moonColor.copy(this.moon.color);
+      this.moonIntensity = this.moon.intensity;
+    }
   }
 
   /** The blast. Everything starts at full heat, on this frame. */
@@ -256,12 +269,21 @@ export class NukeAftermath {
     this.ashMat.uniforms.uTime!.value = t;
     this.ashMat.uniforms.uAmount!.value = smoothstep(2, 6, t) * sky;
     (this.ashMat.uniforms.uCenter!.value as THREE.Vector3).copy(this.ctx.player.position);
+    this.burnMoon(smoothstep(0, 1.5, t) * sky);
 
     if (t >= N.cloudLife && sky <= 0) this.clear();
   }
 
+  /** The moonlight turns the colour of the sky, so the map itself looks burnt and not just the air above it. */
+  private burnMoon(amount: number): void {
+    if (!this.moon) return;
+    this.moon.color.copy(this.moonColor).lerp(EMBER_LIGHT, amount);
+    this.moon.intensity = this.moonIntensity * (1 + amount * 0.5);
+  }
+
   clear(): void {
     this.age = -1;
+    this.burnMoon(0);
     this.cloud.visible = false;
     this.sky.visible = false;
     this.ash.visible = false;
@@ -274,7 +296,6 @@ const _vel = new THREE.Vector3();
 const _dir = new THREE.Vector3();
 const _p = new THREE.Vector3();
 
-const BODY_FILTER = (0xffff << 16) | (CG.Ragdoll | CG.Gib | CG.Debris);
 /** How long the visible streak is in the sky before impact. */
 const MISSILE_SECONDS = 2.8;
 const MISSILE_SPEED = 170;
@@ -296,10 +317,8 @@ export class Nuke implements Strike {
   private readonly blast: DamageInfo = {
     amount: 999999, type: 'true', point: new THREE.Vector3(), dir: new THREE.Vector3(), force: 90, source: 'nuke',
   };
-  private readonly ball: InstanceType<StrikeKit['ctx']['physics']['R']['Ball']>;
-  private readonly identity = { x: 0, y: 0, z: 0, w: 1 };
-  private readonly launchBody: (c: Parameters<Parameters<StrikeKit['ctx']['physics']['world']['intersectionsWithShape']>[3]>[0]) => boolean;
-  private bodyBand = 0;
+  private readonly bodies: BodyQuery;
+  private wakeIn = 0;
 
   constructor(private readonly kit: StrikeKit, order: StrikeOrder, private readonly aftermath: NukeAftermath) {
     const { ctx, probe } = kit;
@@ -314,20 +333,7 @@ export class Nuke implements Strike {
     this.front.frustumCulled = false;
     this.front.visible = false;
     ctx.render.scene.add(this.front);
-    this.ball = new ctx.physics.R.Ball(1);
-    this.launchBody = collider => {
-      const body = collider.parent();
-      if (!body || !body.isDynamic()) return true;
-      const p = body.translation();
-      _dir.set(p.x - this.zero.x, 0, p.z - this.zero.z);
-      const d = _dir.length();
-      // Only what the front is passing right now. The ball query returns the whole disc.
-      if (d < this.bodyBand) return true;
-      _dir.divideScalar(Math.max(d, 0.1));
-      const k = N.ragdollImpulse * body.mass() * 0.09;
-      body.applyImpulse({ x: _dir.x * k, y: k * 0.75, z: _dir.z * k }, true);
-      return true;
-    };
+    this.bodies = new BodyQuery(ctx);
 
     ctx.audio.play('walkietalkie_fire');
     this.siren = ctx.audio.startLoop('siren_loop', { unaffectedByTime: true });
@@ -378,7 +384,7 @@ export class Nuke implements Strike {
 
     audio.play('nuke_blast', { unaffectedByTime: true });
     audio.play('nuke_tail', { unaffectedByTime: true, delay: 0.4 });
-    render.post.flash('#ffffff', 8, N.whiteoutSeconds);
+    render.post.flash('#ffffff', N.whiteout, N.whiteoutSeconds);
     render.post.chromatic(2, 1.6);
     render.post.radialBlur(1, 1.1);
     render.lights.flash(p, '#ffe8c0', 400, 260, 1.4);
@@ -397,7 +403,7 @@ export class Nuke implements Strike {
 
   /** Drives the shock front. Everything dies as it arrives, not on the same frame. */
   private expand(dt: number): boolean {
-    const { enemies, fx, physics, player, render } = this.kit.ctx;
+    const { enemies, fx, player, render } = this.kit.ctx;
     const prev = this.frontRadius;
     this.frontRadius = Math.min(N.maxRadius, this.frontRadius + N.frontSpeed * dt);
     const r = this.frontRadius;
@@ -412,13 +418,11 @@ export class Nuke implements Strike {
       this.blast.point.copy(e.center);
       this.blast.dir.subVectors(e.center, this.zero).setY(0).normalize().setY(0.55).normalize();
       this.blast.gib = d < N.gibRadius;
+      // A ragdoll inherits the feet's velocity, which is the one throw that moves the whole body as a body.
+      e.velocity.copy(this.blast.dir).multiplyScalar(lerp(N.throwNear, N.throwFar, clamp(d / N.throwFalloff)));
       enemies.applyDamage(e, this.blast);
     }
-
-    // Bodies get their shove from a band that travels with the front.
-    this.bodyBand = prev;
-    this.ball.radius = r;
-    physics.world.intersectionsWithShape(this.zero, this.identity, this.ball, this.launchBody, undefined, BODY_FILTER);
+    this.launchBodies(prev, r, dt);
 
     if (!this.playerHit && player.position.distanceTo(this.zero) <= r) {
       this.playerHit = true;
@@ -441,6 +445,25 @@ export class Nuke implements Strike {
       this.done = true;
     }
     return this.done;
+  }
+
+  /** Corpses and limbs take their shove from a band that travels with the front. */
+  private launchBodies(prev: number, r: number, dt: number): void {
+    this.wakeIn -= dt;
+    if (this.wakeIn <= 0) {
+      this.wakeIn = 0.1;
+      this.bodies.wake(this.zero, r + N.wakeAhead, 1);
+    }
+    for (const body of this.bodies.run(this.zero, r)) {
+      const p = body.translation();
+      _dir.set(p.x - this.zero.x, 0, p.z - this.zero.z);
+      const d = _dir.length();
+      // Only what the front is passing right now. The ball query returns the whole disc.
+      if (d < prev) continue;
+      _dir.divideScalar(Math.max(d, 0.1));
+      const k = lerp(N.throwNear, N.throwFar, clamp(d / N.throwFalloff)) * body.mass();
+      body.applyImpulse({ x: _dir.x * k, y: k * 0.6, z: _dir.z * k }, true);
+    }
   }
 
   private hitPlayer(): void {

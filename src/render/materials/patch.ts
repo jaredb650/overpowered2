@@ -33,6 +33,7 @@ uniform vec4 opShadowInfo;
 uniform int opShadowTaps;
 uniform float opShadowAmount;
 uniform vec3 opAmbientFloor;
+uniform vec3 opMoonDir;
 
 const vec2 OP_PCF[8] = vec2[8](
   vec2(-0.326, -0.406), vec2(0.422, -0.312), vec2(-0.840, 0.074), vec2(0.962, 0.195),
@@ -53,8 +54,11 @@ float opMoonVisibility(vec3 wp, vec3 wn) {
   float vis = 1.0;
   vec3 s = (opShadowMatS * vec4(wp + wn * (opShadowInfo.z * 1.6), 1.0)).xyz;
   if (s.x > 0.0 && s.x < 1.0 && s.y > 0.0 && s.y < 1.0 && s.z < 1.0) vis = opPcf(opShadowS, s, opShadowInfo.x * 1.6);
-  vec3 d = (opShadowMatD * vec4(wp + wn * (opShadowInfo.w * 1.6), 1.0)).xyz;
-  if (d.x > 0.0 && d.x < 1.0 && d.y > 0.0 && d.y < 1.0 && d.z < 1.0) vis = min(vis, opPcf(opShadowD, d, opShadowInfo.y * 1.6));
+  // Already in full shadow, so nothing the dynamic map holds could change the answer.
+  if (vis > 0.0) {
+    vec3 d = (opShadowMatD * vec4(wp + wn * (opShadowInfo.w * 1.6), 1.0)).xyz;
+    if (d.x > 0.0 && d.x < 1.0 && d.y > 0.0 && d.y < 1.0 && d.z < 1.0) vis = min(vis, opPcf(opShadowD, d, opShadowInfo.y * 1.6));
+  }
   return mix(1.0, vis, opShadowAmount);
 }
 
@@ -79,22 +83,15 @@ vec3 opShIrradiance(vec3 c0, vec3 cr, vec3 cg, vec3 cb, vec3 n) {
 const WORLD_POSITION = /* glsl */ `
 vec3 opWP = (opCamToWorld * vec4(-vViewPosition, 1.0)).xyz;
 vec3 opWN = mat3(opCamToWorld) * normal;
-#ifdef X_NOSHADOW
-float opMoonVis = 1.0;
-#else
-float opMoonVis = receiveShadow ? opMoonVisibility(opWP, opWN) : 1.0;
-#endif
+// A surface turned away from the moon gets none of its light, so the answer cannot matter. That is a third of
+// the pixels on most views, and shadow lookups are the dearest thing here.
+float opMoonVis = receiveShadow && dot(opWN, opMoonDir) > 0.0 ? opMoonVisibility(opWP, opWN) : 1.0;
 `;
 
 const VOLUME_LIGHTING = /* glsl */ `
 {
   vec3 opUvw = (opWP + opWN * opVolInfo.y - opVolOrigin) * opVolInvSize;
   vec4 opV0 = texture(opVol0, opUvw);
-#ifdef X_NOSH
-  iblIrradiance = max(opV0.rgb, opAmbientFloor);
-  radiance *= smoothstep(0.02, 0.7, opV0.a);
-  radiance += opV0.rgb * RECIPROCAL_PI;
-#else
   vec3 opCr = texture(opVol1, opUvw).xyz;
   vec3 opCg = texture(opVol2, opUvw).xyz;
   vec3 opCb = texture(opVol3, opUvw).xyz;
@@ -112,7 +109,6 @@ const VOLUME_LIGHTING = /* glsl */ `
   radiance *= smoothstep(0.02, 0.7, opSkyVis) * mix(0.42, 1.0, smoothstep(0.05, 0.3, material.roughness));
   radiance += opShIrradiance(opV0.rgb, opCr, opCg, opCb, opR) * RECIPROCAL_PI;
 
-#ifndef X_NODOM
   // Treats the volume's dominant direction as one soft light, which gives wet floors a real sheen
   // toward whatever lights the room.
   const vec3 opLuma = vec3(0.2126, 0.7152, 0.0722);
@@ -128,8 +124,6 @@ const VOLUME_LIGHTING = /* glsl */ `
     opSoft.roughness = max(material.roughness, 0.22);
     reflectedLight.directSpecular += opDomCol * opNdL * BRDF_GGX(opDomView, geometryViewDir, geometryNormal, opSoft);
   }
-#endif
-#endif
 }
 `;
 
@@ -169,19 +163,30 @@ function replaceRequired(source: string, anchor: string, replacement: string, la
   return source.replace(anchor, replacement);
 }
 
-/** three's light loops with the moon shadow and a skip for lights that contribute nothing. */
+/**
+ * The pool keeps a constant light count so shaders never recompile, and most slots are idle at zero colour.
+ * three unrolls this loop, which puts eight copies of the BRDF in every lit shader. Kept as a real loop, a uniform
+ * test skips idle slots before any per-pixel work and the program stays small enough to run with useful occupancy.
+ */
+const POINT_LIGHT_LOOP = /* glsl */ `
+#if ( NUM_POINT_LIGHTS > 0 ) && defined( RE_Direct )
+for ( int i = 0; i < NUM_POINT_LIGHTS; i ++ ) {
+  if ( pointLights[ i ].color == vec3( 0.0 ) ) continue;
+  getPointLightInfo( pointLights[ i ], geometryPosition, directLight );
+  if ( directLight.visible ) RE_Direct( directLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight );
+}
+#endif
+`;
+
+/** three's light loops with the moon shadow, and the point loop above in place of its own. */
 function lightLoopChunk(): string {
-  let chunk = THREE.ShaderChunk.lights_fragment_begin;
-  chunk = chunk.replace(
+  const chunk = THREE.ShaderChunk.lights_fragment_begin.replace(
     'getDirectionalLightInfo( directionalLight, directLight );',
     'getDirectionalLightInfo( directionalLight, directLight );\n\t\tdirectLight.color *= opMoonVis;',
   );
-  // The pool keeps a constant light count so shaders never recompile. Idle slots have zero colour
-  // and this uniform branch makes them nearly free.
-  const pointStart = chunk.indexOf('getPointLightInfo( pointLight, geometryPosition, directLight );');
-  const reDirect = 'RE_Direct( directLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight );';
-  const reIndex = chunk.indexOf(reDirect, pointStart);
-  return `${chunk.slice(0, reIndex)}if ( directLight.visible ) ${chunk.slice(reIndex)}`;
+  const start = chunk.indexOf('#if ( NUM_POINT_LIGHTS > 0 ) && defined( RE_Direct )');
+  const end = chunk.indexOf('#endif', chunk.indexOf('#pragma unroll_loop_end', start)) + '#endif'.length;
+  return `${chunk.slice(0, start)}${POINT_LIGHT_LOOP}${chunk.slice(end)}`;
 }
 
 function envChunk(): string {
@@ -208,8 +213,8 @@ export class MaterialPatcher {
     f = replaceRequired(f, '#include <common>', `#include <common>\n${PARS_COMMON}`, label);
     f = replaceRequired(f, '#include <envmap_physical_pars_fragment>', this.envPars, label);
     f = replaceRequired(f, '#include <lights_physical_pars_fragment>', `#include <lights_physical_pars_fragment>\n${PARS_LIGHTING}`, label);
-    f = replaceRequired(f, '#include <lights_fragment_begin>', `${WORLD_POSITION}\n${this.loopChunk.replace('#if ( NUM_POINT_LIGHTS > 0 ) && defined( RE_Direct )', '#if ( NUM_POINT_LIGHTS > 0 ) && defined( RE_Direct ) && !defined( X_NOPOINT )')}`, label);
-    f = replaceRequired(f, '#include <lights_fragment_maps>', `${THREE.ShaderChunk.lights_fragment_maps.replace('radiance += getIBLRadiance( geometryViewDir, geometryNormal, material.roughness );', '#ifndef X_NOENV\nradiance += getIBLRadiance( geometryViewDir, geometryNormal, material.roughness );\n#endif')}\n${VOLUME_LIGHTING}`, label);
+    f = replaceRequired(f, '#include <lights_fragment_begin>', `${WORLD_POSITION}\n${this.loopChunk}`, label);
+    f = replaceRequired(f, '#include <lights_fragment_maps>', `#include <lights_fragment_maps>\n${VOLUME_LIGHTING}`, label);
     f = replaceRequired(f, '#include <opaque_fragment>', `#include <opaque_fragment>\n${REFLECTIVITY}\n${TRANSPARENT_FOG}`, label);
     shader.fragmentShader = f;
   }

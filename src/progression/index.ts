@@ -9,6 +9,8 @@
  */
 import * as THREE from 'three';
 import type { Ctx } from '../core/contracts';
+import { DevFlags } from '../core/devflags';
+import type { DamageInfo } from '../core/contracts';
 import type {
   ActiveEffect, CallInId, DamageResult, EnemyInstance, KillEvent, PerkId, PickupKind, PowerupId, ProgressionSystem,
 } from '../core/gameplay';
@@ -16,7 +18,8 @@ import { CallInManager } from './callins/manager';
 import { ChainEffects } from './chains';
 import { Combo, TimeWindow } from './counters';
 import {
-  CHAIN_REACTION_KILLS, COMBO_PERKS, COMBO_WINDOW, EFFECTS, OVERDRIVE_MIN_SPEED, REGEN, SKYFALL, VAMPIRE_HEAL, WINDOWS, type EffectId,
+  ASSIST_COMBO_EVERY, ASSIST_SOURCES, CHAIN_REACTION_KILLS, COMBO_PERKS, COMBO_WINDOW, EFFECTS, OVERDRIVE_MIN_SPEED, REGEN, SKYFALL,
+  SLOWMO_SAME_HEAD_GAP, STYLE_GATE, STYLE_PERKS, VAMPIRE_HEAL, WINDOWS, type EffectId, type StylePerk,
 } from './data';
 import { FrostNova } from './frost';
 import { ModelMaterials } from './modelkit';
@@ -29,8 +32,8 @@ import { Sentinels } from './sentinels';
 const COMBO_PITCH_STEP = 0.015;
 const COMBO_BREAK_MIN = 5;
 const SWORD = /sword/;
-/** Sources that may not re-arm Chain Reaction, or one explosion would extend itself for ever. */
-const CHAIN_SOURCE = 'chain_reaction';
+/** Damage that counts as the player taking a limb off by hand, for Butcher. */
+const BY_HAND: ReadonlySet<DamageInfo['type']> = new Set(['bullet', 'pellet', 'melee', 'slash']);
 
 const _up = new THREE.Vector3(0, 1, 0);
 const _toPlayer = new THREE.Vector3();
@@ -59,6 +62,13 @@ class Progression implements ProgressionSystem {
   private explosionId: number | null = null;
   private explosionKills = 0;
   private regenTick = 0;
+  /** Seconds off the ground, for Skyfall. */
+  private hang = 0;
+  private lastHeadUid = -1;
+  private lastHeadAt = -Infinity;
+  /** realElapsed before which no style perk may start. */
+  private styleOpenAt = 0;
+  private readonly styleRearmAt = new Map<StylePerk, number>();
   /** Scratch for the HUD's combined pickup list. */
   private readonly listed: { kind: PickupKind; position: THREE.Vector3; active: boolean }[] = [];
 
@@ -81,11 +91,12 @@ class Progression implements ProgressionSystem {
       onEffectEnd: id => this.effectEnded(id),
     });
     this.resetComboRungs();
+    this.resetStyleGate();
 
     const { events } = ctx;
-    events.on('enemy:killed', e => this.onKill(e));
-    events.on('enemy:hit', e => this.onHit(e.enemy, e.result));
-    events.on('enemy:severed', () => this.onSevered());
+    events.on('enemy:killed', e => { if (DevFlags.progression) this.onKill(e); });
+    events.on('enemy:hit', e => { if (DevFlags.progression) this.onHit(e.enemy, e.damage, e.result); });
+    events.on('enemy:severed', e => { if (DevFlags.progression) this.onSevered(e.damage); });
     events.on('wave:clear', e => {
       if (e.bonus > 0) this.scoreKeeper.add(e.bonus, 'wave');
       this.scoreKeeper.persist();
@@ -107,7 +118,7 @@ class Progression implements ProgressionSystem {
   get multiplier(): number { return this.scoreKeeper.comboTier(this.combo) * this.scoreKeeper.speedTier(); }
   get effects(): readonly ActiveEffect[] { return this.perks.effects; }
   get callIns(): ReadonlySet<CallInId> { return this.callInsManager.held; }
-  get targeting(): CallInId | null { return this.callInsManager.targeting.id; }
+  get targeting(): CallInId | null { return this.callInsManager.aiming; }
   /** True while the aim would put the player inside the blast. */
   get dangerClose(): boolean { return this.callInsManager.targeting.dangerClose; }
   /** Everything worth a dot on the minimap. Rebuilt per read; the HUD reads a few times a second. */
@@ -144,13 +155,14 @@ class Progression implements ProgressionSystem {
 
   private onKill(e: KillEvent): void {
     const now = this.ctx.time.realElapsed;
-    const combo = this.comboCounter.hit();
+    const assist = ASSIST_SOURCES.test(e.damage.source);
+    const combo = assist ? this.comboCounter.assist(ASSIST_COMBO_EVERY) : this.comboCounter.hit();
     this.ctx.events.emit('combo:changed', { combo });
     const previousTier = this.scoreKeeper.comboTier(combo - 1);
     if (this.scoreKeeper.comboTier(combo) > previousTier) this.ctx.audio.play('combo_tier');
     else this.ctx.audio.play('combo_tick', { pitch: 1 + Math.min(combo, 50) * COMBO_PITCH_STEP });
 
-    if (e.headshot) this.noteHeadshot(e.enemy, now);
+    if (e.headshot && !assist) this.noteHeadshot(e.enemy, now);
     this.scoreKeeper.onKill(e, combo);
 
     // Check order from the first game, with the new rungs folded in behind each original.
@@ -161,13 +173,7 @@ class Progression implements ProgressionSystem {
         this.perks.grant(rung.perk);
       }
     }
-    if (this.windows.bloodthirst.push(now) >= WINDOWS.bloodthirst.need) this.perks.grant('bloodthirst');
-    if (this.windows.hellfire.push(now) >= WINDOWS.hellfire.need) this.perks.grant('hellfire');
-
-    if (SWORD.test(e.damage.source)) this.tripWindow('adrenaline', now);
-    if (e.playerAirborne) this.tripWindow('skyfall', now);
-    if (e.playerSpeed > OVERDRIVE_MIN_SPEED) this.tripWindow('overdrive', now);
-    this.countExplosion(e);
+    if (!assist) this.feedWindows(e, now);
 
     if (this.perks.isActive('vampire')) this.drain(e);
     this.frost.onKill(e);
@@ -175,34 +181,62 @@ class Progression implements ProgressionSystem {
     this.pickupsManager.onKill(e);
   }
 
-  private tripWindow(id: keyof typeof WINDOWS & EffectId, now: number): void {
+  /** Everything a kill does for the perk windows. Only the player's own kills come here. */
+  private feedWindows(e: KillEvent, now: number): void {
+    if (this.windows.bloodthirst.push(now) >= WINDOWS.bloodthirst.need) this.perks.grant('bloodthirst');
+    if (this.windows.hellfire.push(now) >= WINDOWS.hellfire.need) this.perks.grant('hellfire');
+    if (SWORD.test(e.damage.source)) this.tripWindow('adrenaline', now);
+    if (e.playerAirborne && this.hang >= STYLE_GATE.hangTime) this.tripStyle('skyfall', now);
+    if (e.playerSpeed / Math.max(this.ctx.player.modifiers.speed, 1) > OVERDRIVE_MIN_SPEED) this.tripStyle('overdrive', now);
+    this.countExplosion(e, now);
+  }
+
+  private tripWindow(id: 'adrenaline' | 'slowmo', now: number): void {
     const rule = WINDOWS[id];
     if (this.windows[id].push(now) < rule.need) return;
     if (rule.clears) this.windows[id].clear();
     this.perks.grant(id);
   }
 
-  private countExplosion(e: KillEvent): void {
-    if (e.explosionId === null || e.damage.source === CHAIN_SOURCE) return;
+  private tripStyle(id: Exclude<StylePerk, 'chainReaction'>, now: number): void {
+    // The window keeps its kills while the gate is shut, so the perk lands on the first good kill after it opens.
+    if (this.windows[id].push(now) >= WINDOWS[id].need && this.grantStyle(id, now)) this.windows[id].clear();
+  }
+
+  /** Starts a style perk if the gate allows it. See STYLE_GATE. */
+  private grantStyle(id: StylePerk, now: number): boolean {
+    if (now < this.styleOpenAt || now < this.styleRearmAt.get(id)! || this.perks.isActive(id)) return false;
+    this.styleOpenAt = now + STYLE_GATE.spacing;
+    this.perks.grant(id);
+    return true;
+  }
+
+  private countExplosion(e: KillEvent, now: number): void {
+    // Under Hellfire every round is an explosion and every rocket an instakill, so nothing here is earned.
+    if (e.explosionId === null || this.perks.isActive('hellfire')) return;
     if (e.explosionId !== this.explosionId) {
       this.explosionId = e.explosionId;
       this.explosionKills = 0;
     }
-    if (++this.explosionKills >= CHAIN_REACTION_KILLS) this.perks.grant('chainReaction');
+    if (++this.explosionKills >= CHAIN_REACTION_KILLS) this.grantStyle('chainReaction', now);
   }
 
-  private onHit(enemy: EnemyInstance, result: DamageResult): void {
-    if (!result.headshot || result.killed) return;
+  private onHit(enemy: EnemyInstance, damage: DamageInfo, result: DamageResult): void {
+    if (!result.headshot || result.killed || ASSIST_SOURCES.test(damage.source)) return;
     this.noteHeadshot(enemy, this.ctx.time.realElapsed);
     this.scoreKeeper.onHeadshotHit(enemy, this.combo, result);
   }
 
   private noteHeadshot(enemy: EnemyInstance, now: number): void {
-    if (this.scoreKeeper.noteHeadshot(enemy)) this.tripWindow('slowmo', now);
+    if (!this.scoreKeeper.noteHeadshot(enemy)) return;
+    const sameHead = enemy.uid === this.lastHeadUid && now - this.lastHeadAt < SLOWMO_SAME_HEAD_GAP;
+    this.lastHeadUid = enemy.uid;
+    this.lastHeadAt = now;
+    if (!sameHead) this.tripWindow('slowmo', now);
   }
 
-  private onSevered(): void {
-    this.tripWindow('butcher', this.ctx.time.realElapsed);
+  private onSevered(damage: DamageInfo): void {
+    if (BY_HAND.has(damage.type) && !ASSIST_SOURCES.test(damage.source)) this.tripStyle('butcher', this.ctx.time.realElapsed);
   }
 
   private drain(e: KillEvent): void {
@@ -225,6 +259,7 @@ class Progression implements ProgressionSystem {
   private onDeath(): void {
     this.scoreKeeper.persist();
     this.perks.clear();
+    this.perks.showDeath();
     this.sentinels.stop();
     this.callInsManager.onDeath();
     this.ctx.time.popScale('slowmo');
@@ -261,6 +296,7 @@ class Progression implements ProgressionSystem {
 
   private effectEnded(id: EffectId): void {
     const { audio, player, time } = this.ctx;
+    if (this.styleRearmAt.has(id as StylePerk)) this.styleRearmAt.set(id as StylePerk, time.realElapsed + STYLE_GATE.rearm);
     switch (id) {
       case 'slowmo':
         time.popScale('slowmo');
@@ -282,11 +318,17 @@ class Progression implements ProgressionSystem {
     for (const rung of COMBO_PERKS) this.comboAt.set(rung.perk, rung.at);
   }
 
+  private resetStyleGate(): void {
+    this.styleOpenAt = 0;
+    for (const id of STYLE_PERKS) this.styleRearmAt.set(id, 0);
+  }
+
   // --- Frame -----------------------------------------------------------------------------------
 
   update(): void {
-    const { time, waves } = this.ctx;
+    const { player, time, waves } = this.ctx;
     const real = time.realDt;
+    this.hang = player.grounded ? 0 : this.hang + real;
 
     // Wave breaks pause the gap timer: the first game's wave breaks always killed the combo.
     if (waves.phase !== 'intermission' && this.comboCounter.tick(real)) {
@@ -319,9 +361,13 @@ class Progression implements ProgressionSystem {
     this.comboCounter.clear();
     for (const w of Object.values(this.windows)) w.clear();
     this.resetComboRungs();
+    this.resetStyleGate();
     this.explosionId = null;
     this.explosionKills = 0;
     this.regenTick = 0;
+    this.hang = 0;
+    this.lastHeadUid = -1;
+    this.lastHeadAt = -Infinity;
     this.callInsManager.clear();
     this.sentinels.clear();
     this.chains.clear();

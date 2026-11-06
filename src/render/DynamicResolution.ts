@@ -1,12 +1,23 @@
-/** Resolution steps. Discrete, because every change reallocates the render targets. */
+/**
+ * Resolution steps. A step only moves the viewport inside targets allocated at full size, so it is free. They
+ * stay discrete because the frame interval is too coarse a signal to steer anything finer.
+ */
 const STEPS = [1, 0.92, 0.85, 0.78, 0.7, 0.62] as const;
 /** Smoothed frame interval, in milliseconds, that counts as missing 60 fps. */
 const MISS_MS = 18.4;
 /** Interval that counts as holding it. Vsync pins a healthy frame near 16.7 with no way to see the slack. */
 const HOLD_MS = 17.4;
-const DOWN_AFTER_S = 0.6;
+/** Interval of a game fallen to half rate. One step will not get it back, so this takes two. */
+const HALF_RATE_MS = 24;
+const DOWN_AFTER_S = 0.25;
 const UP_AFTER_S = 4;
-const COOLDOWN_S = 1.5;
+/** Long enough for the smoothed interval to show what the last step did. */
+const COOLDOWN_S = 0.45;
+
+function drsFlag(): boolean | null {
+  const flag = new URLSearchParams(location.search).get('drs');
+  return flag === null ? null : flag === '1';
+}
 
 /**
  * Follows the frame interval and steps internal resolution. It drops quickly and climbs slowly, and
@@ -15,8 +26,8 @@ const COOLDOWN_S = 1.5;
  * because those are not trustworthy under ANGLE on Metal.
  */
 export class DynamicResolution {
-  /** Off under automation: screenshots should not depend on how busy the machine was. */
-  enabled = !navigator.webdriver;
+  /** Off under automation, so screenshots do not depend on how busy the machine was. `?drs=1` forces it on, `?drs=0` off. */
+  enabled = drsFlag() ?? !navigator.webdriver;
   private index = 0;
   private smoothed = 16.7;
   private overFor = 0;
@@ -40,7 +51,7 @@ export class DynamicResolution {
     if (this.cooldown > 0) return false;
     if (this.overFor > DOWN_AFTER_S && this.index < STEPS.length - 1) {
       if (this.sinceClimb < 3) this.climbWait = Math.min(this.climbWait * 2, 60);
-      this.index++;
+      this.index = Math.min(this.index + (this.smoothed > HALF_RATE_MS ? 2 : 1), STEPS.length - 1);
       this.overFor = this.underFor = 0;
       this.cooldown = COOLDOWN_S;
       return true;

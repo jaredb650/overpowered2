@@ -35,6 +35,9 @@ interface RenderList {
 /** Target pixels of the drawing buffer. Retina screens would otherwise ask an M1 for 5 megapixels. */
 const MAX_PIXELS = 1920 * 1200;
 
+/** Sizes stay even so half-resolution targets line up exactly with the area they cover. */
+const even = (v: number): number => Math.max(2, Math.round(v / 2) * 2);
+
 export class Renderer implements RenderSystem {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
@@ -80,8 +83,13 @@ export class Renderer implements RenderSystem {
   private depthCopy!: THREE.WebGLRenderTarget;
   /** Writes into the resolved scene colour, so decals get AO and fog like the surface under them. */
   private decalTarget!: THREE.WebGLRenderTarget;
-  private width = 1;
-  private height = 1;
+  /** Allocated size of the full-resolution targets. */
+  private fullWidth = 2;
+  private fullHeight = 2;
+  /** The part of them in use, which dynamic resolution moves. */
+  private width = 2;
+  private height = 2;
+  private readonly depthRegion = new THREE.Box2(new THREE.Vector2(), new THREE.Vector2());
   private quality: QualityPreset = QUALITY[DEFAULT_QUALITY]!;
   private listMode: ListMode = 'all';
   private frames = 0;
@@ -240,11 +248,11 @@ export class Renderer implements RenderSystem {
 
   private allocateTargets(): void {
     const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
-    const scale = this.quality.resolution * this.dynamicResolution.scale;
-    const w = Math.max(2, Math.round(size.x * scale));
-    const h = Math.max(2, Math.round(size.y * scale));
-    this.width = w;
-    this.height = h;
+    const fit = Math.min(1, Math.sqrt(this.quality.maxPixels / (size.x * size.y)));
+    const w = even(size.x * fit);
+    const h = even(size.y * fit);
+    this.fullWidth = w;
+    this.fullHeight = h;
     this.engine.opTargetSize.value.set(w, h);
     this.sceneTarget?.dispose();
     this.hdrTarget?.dispose();
@@ -275,6 +283,25 @@ export class Renderer implements RenderSystem {
     this.renderer.initRenderTarget(this.sceneTarget);
     this.renderer.initRenderTarget(this.hdrTarget);
     this.renderer.initRenderTarget(this.depthCopy);
+    this.applyResolution();
+  }
+
+  /** Moves every pass to the current dynamic scale. Nothing here touches a GPU resource, so a step cannot hitch. */
+  private applyResolution(): void {
+    const scale = this.dynamicResolution.scale;
+    const w = even(this.fullWidth * scale);
+    const h = even(this.fullHeight * scale);
+    this.width = w;
+    this.height = h;
+    for (const t of [this.sceneTarget, this.hdrTarget, this.decalTarget]) t.viewport.set(0, 0, w, h);
+    this.depthRegion.max.set(w, h);
+    this.bloom.setArea(w, h);
+    this.gtao.setArea(w, h);
+    this.fogPass.setArea(w, h);
+    this.ssr.setArea(w, h);
+    this.combine.setArea(this.gtao.depth);
+    const canvas = this.renderer.domElement;
+    this.composite.setArea(this.hdrTarget, this.bloom.outputTarget, this.quality.msaa === 0, canvas.width / w);
   }
 
   get depthTexture(): THREE.DepthTexture | null {
@@ -355,7 +382,7 @@ export class Renderer implements RenderSystem {
       fog: time(() => this.fogPass.render(renderer, half, camera, this.tanHalf, this.engine.opTime.value)),
       ssr: time(() => this.ssr.render(renderer, half, this.sceneTarget.texture, this.bloom.output, camera, this.tanHalf)),
       combine: time(() => this.combine.render(renderer, this.hdrTarget, this.sceneTarget.texture, depth, half, this.gtao.texture, this.fogPass.texture, this.ssr.texture, camera, 1, 1, 1)),
-      bloom: time(() => this.bloom.render(renderer, this.hdrTarget.texture, this.width, this.height)),
+      bloom: time(() => this.bloom.render(renderer, this.hdrTarget)),
       composite: time(() => this.composite.render(renderer, this.hdrTarget.texture, this.bloom.output, this.width, this.height, 1, this.postState)),
     };
     let post = 0;
@@ -388,7 +415,7 @@ export class Renderer implements RenderSystem {
     const worldDt = this.ctx ? this.ctx.time.dt : realDt;
     const time = this.ctx ? this.ctx.time.realElapsed : this.fallbackClock.getElapsed();
 
-    if (this.dynamicResolution.update(realDt)) this.allocateTargets();
+    if (this.dynamicResolution.update(realDt)) this.applyResolution();
 
     renderer.info.reset();
     if (camera.parent === null) camera.updateMatrixWorld();
@@ -430,7 +457,7 @@ export class Renderer implements RenderSystem {
     target.samples = samples;
     renderer.render(scene, camera);
 
-    renderer.copyTextureToTexture(this.sceneTarget.depthTexture!, this.depthCopy.depthTexture!);
+    renderer.copyTextureToTexture(this.sceneTarget.depthTexture!, this.depthCopy.depthTexture!, this.depthRegion);
 
     this.decalSystem.update(this.ctx ? this.ctx.time.elapsed : time, this.depthCopy.depthTexture!, camera);
     if (this.passes.decals && this.decalSystem.mesh.count > 0) {
@@ -465,10 +492,10 @@ export class Renderer implements RenderSystem {
     gl.depthRange(0, 1);
     this.listMode = 'all';
 
-    if (this.passes.bloom) this.bloom.render(renderer, this.hdrTarget.texture, this.width, this.height);
+    if (this.passes.bloom) this.bloom.render(renderer, this.hdrTarget);
     this.composite.render(renderer, this.hdrTarget.texture, this.bloom.output, this.width, this.height, time, this.postState);
 
-    this.ssr.endFrame(camera);
+    this.ssr.endFrame(camera, this.hdrTarget);
     this.frames++;
     this.lastCalls = renderer.info.render.calls;
     this.lastTriangles = renderer.info.render.triangles;

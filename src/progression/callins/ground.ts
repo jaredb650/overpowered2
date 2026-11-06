@@ -8,6 +8,7 @@
 import * as THREE from 'three';
 import type RAPIER from '@dimforge/rapier3d-compat';
 import { CG, type Ctx } from '../../core/contracts';
+import { clamp } from '../../core/math';
 
 /** Rapier filter word that hits only `mask`. Same layout as Physics.groups. */
 const queryWord = (mask: number): number => ((0xffff & 0xffff) << 16) | (mask & 0xffff);
@@ -88,7 +89,7 @@ vec4 surface() {
 // Fades out above and below the target, so a blast on the ground does not paint the roof over it.
 float band(float y) {
   float rise = y - uCenter.y;
-  return smoothstep(uBand.x, uBand.x * 0.55, rise) * smoothstep(-uBand.y, -uBand.y * 0.55, rise);
+  return (1.0 - smoothstep(uBand.x * 0.55, uBand.x, rise)) * smoothstep(-uBand.y, -uBand.y * 0.55, rise);
 }
 
 // Crisp line of half-width metres around m. Depth edges make the derivative jump, so it is capped.
@@ -242,7 +243,7 @@ export class GroundRing extends GroundPatch {
 
   /** `inner` draws a second ring, e.g. the rocket scatter inside the finale's radius. */
   show(center: THREE.Vector3, radius: number, inner = 0): void {
-    this.place(center, Math.max(7, radius * 0.3), Math.max(14, radius * 0.6));
+    this.place(center, clamp(radius * 0.3, 7, 12), clamp(radius * 0.6, 14, 30));
     this.mesh.scale.x = this.mesh.scale.z = radius;
     this.material.uniforms.uRadius!.value = radius;
     this.material.uniforms.uInner!.value = inner;

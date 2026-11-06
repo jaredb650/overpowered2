@@ -4,12 +4,13 @@ import type { Kit } from '../kit/kit';
 import type { NavBuildOptions } from '../nav';
 import { authorMap, MAP_STAGES, type MapStage } from './crucible';
 import { authorKillHouse, KILLHOUSE_EXTENT, KILLHOUSE_STAGES } from './killhouse';
+import { authorRange, RANGE, RANGE_STAGES } from '../../lab/range';
 import { KH } from './killhouse/plan';
 import { LEVEL, RING } from './layout';
 import type { MapSpec } from './spec';
 import type { MapZone } from '../../core/contracts';
 
-export type MapId = 'crucible' | 'killhouse';
+export type MapId = 'crucible' | 'killhouse' | 'range';
 
 export interface MapDef {
   id: MapId;
@@ -68,11 +69,22 @@ const killhouse: MapDef = {
   readyLabel: 'Lighting the floods',
 };
 
-const MAPS: Record<MapId, MapDef> = { crucible, killhouse };
+const range: MapDef = {
+  id: 'range',
+  bounds: box(-RANGE.halfX - 2, -4, -RANGE.halfZ - 2, RANGE.halfX + 2, 34, RANGE.halfZ + 2),
+  lightBounds: box(-RANGE.halfX - 1, -1, -RANGE.halfZ - 1, RANGE.halfX + 1, 14, RANGE.halfZ + 1),
+  minimapExtent: RANGE.halfX + 2,
+  navHub: new THREE.Vector3(0, 0, 8),
+  stages: RANGE_STAGES,
+  author: authorRange,
+  readyLabel: 'Switching on the lights',
+};
+
+const MAPS: Record<MapId, MapDef> = { crucible, killhouse, range };
 /** The swarm game. The Kill House is a separate game mode, reached by URL until the menu can pick it. */
 const DEFAULT_MAP: MapId = 'crucible';
 
-/** `?map=killhouse` or `?map=crucible`. Anything else, including the movement sandbox's `?map=1`, is the default. */
+/** `?map=killhouse`, `?map=range` or `?map=crucible`. Anything else, including the movement sandbox's `?map=1`, is the default. */
 export function selectMap(): MapDef {
   const name = typeof location === 'undefined' ? null : new URLSearchParams(location.search).get('map');
   return MAPS[name as MapId] ?? MAPS[DEFAULT_MAP];

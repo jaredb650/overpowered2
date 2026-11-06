@@ -15,6 +15,18 @@ void main() {
 
 export type Uniforms = Record<string, THREE.IUniform>;
 
+/**
+ * Dynamic resolution renders into the corner of a target allocated at full size, so changing resolution
+ * allocates nothing. Reading such a target takes two numbers: `scale` turns 0..1 across the used area into
+ * texture uv, and `edge` is the last uv a bilinear tap can use without pulling in stale pixels from past the
+ * area. The viewport is the area.
+ */
+export function readArea(target: THREE.WebGLRenderTarget, scale: THREE.Vector2, edge: THREE.Vector2): void {
+  const { z, w } = target.viewport;
+  scale.set(z / target.width, w / target.height);
+  edge.set((z - 0.5) / target.width, (w - 0.5) / target.height);
+}
+
 /** One full-screen triangle with a raw GLSL3 fragment shader. Writes straight to whatever target it is given. */
 export class FullscreenPass {
   readonly material: THREE.RawShaderMaterial;

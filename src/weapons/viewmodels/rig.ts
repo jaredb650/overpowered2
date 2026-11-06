@@ -6,7 +6,7 @@
  */
 import * as THREE from 'three';
 import { clamp, damp, lerp, smoothstep, wrapAngle } from '../../core/math';
-import type { Ctx } from '../../core/contracts';
+import { CG, type Ctx, type RayHit } from '../../core/contracts';
 import type { CallInId, PerkId, PowerupId, SwordMove, ViewmodelRig, WeaponId } from '../../core/gameplay';
 import { Arm } from './arms';
 import { inCubic, inQuad, outBack, outCubic, seg } from './curves';
@@ -29,6 +29,19 @@ const DRAW_Z = 0.08;
 const DRAW_PITCH = -1.0;
 const DRAW_ROLL = 0.35;
 
+/**
+ * The view scene has no shadow receivers: PCF on a quarter of the screen would cost more than it shows. Instead the eye
+ * itself samples the sky: a few rays toward the moon each second decide how much of the moon reaches the gun.
+ */
+const MOON_RAY_INTERVAL = 1 / 20;
+const MOON_REACH = 240;
+const MOON_FLOOR = 0.03;
+/** Ray origins around the eye, so the gun fades through a doorway instead of switching. */
+const MOON_PROBES: readonly (readonly [number, number, number])[] = [[0, 0, 0], [0.5, 0.1, -0.4], [-0.5, 0.1, -0.4], [0, 0.35, 0.3]];
+/** A dim light fixed to the view, so a dark gun keeps its shape in the darkest corridor. Stronger out of the moon. */
+const FILL_MOONLIT = 0.28;
+const FILL_DARK = 0.62;
+
 /** Call-ins and the device that goes with them; progression's targeting state drives this. */
 const DEVICE: Record<CallInId, 'walkie' | 'designator'> = {
   airstrike: 'walkie', warthog: 'walkie', orbital: 'designator', blackSun: 'designator', nuke: 'designator',
@@ -45,6 +58,8 @@ const _pos = new THREE.Vector3();
 const _rot = new THREE.Vector3();
 const _eu = new THREE.Euler(0, 0, 0, 'YXZ');
 const _gunEuler = new THREE.Euler();
+const _moonFrom = new THREE.Vector3();
+const _moonHit: RayHit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, surface: 'concrete', collider: null };
 
 /** Soft limit: linear near zero, flattening toward `limit`. */
 const soft = (v: number, limit: number) => limit * Math.tanh(v / limit);
@@ -111,6 +126,16 @@ export class Rig implements ViewmodelRig {
   private yawAtUpdate = 0;
   private pitchAtUpdate = 0;
 
+  // Light on the gun.
+  private viewMoon: THREE.DirectionalLight | null = null;
+  private moonIntensity = 0;
+  private readonly moonDir = new THREE.Vector3();
+  private readonly fill = new THREE.DirectionalLight(0xb4c8f0, FILL_DARK);
+  private moonVis = 1;
+  private moonOpen = 1;
+  private moonProbe = 0;
+  private moonClock = 0;
+
   // Perk looks.
   private perkHeat = 0;
   private perkHeatOn = false;
@@ -120,10 +145,12 @@ export class Rig implements ViewmodelRig {
   private frostLeft = 0;
 
   private lastMag = -1;
+  private lastMagLeft = -1;
   private lastBucket = -1;
   private lastWrist = '';
   private wristClock = 0;
   private lastGrenades = -1;
+  private deviceWanted: 'walkie' | 'designator' | null = null;
   private unsub: (() => void)[] = [];
 
   async init(ctx: Ctx): Promise<void> {
@@ -156,6 +183,16 @@ export class Rig implements ViewmodelRig {
 
     render.viewScene.add(this.root);
     this.hasPlayer = typeof ctx.player.velocity?.x === 'number';
+
+    // Over the left shoulder, so the top and the camera-side bevels of every gun catch it.
+    this.fill.position.set(-0.55, 0.85, 0.6);
+    render.viewScene.add(this.fill);
+    const moon = (render as unknown as { moon?: THREE.DirectionalLight }).moon;
+    if (moon) {
+      this.moonDir.copy(moon.position).normalize();
+      this.viewMoon = render.viewScene.children.find(o => (o as THREE.DirectionalLight).isDirectionalLight && o !== this.fill) as THREE.DirectionalLight ?? null;
+      this.moonIntensity = this.viewMoon?.intensity ?? 0;
+    }
 
     const on = ctx.events.on.bind(ctx.events);
     this.unsub.push(
@@ -214,6 +251,7 @@ export class Rig implements ViewmodelRig {
     this.lastMag = -1;
     this.lastBucket = -1;
     this.lastGrenades = -1;
+    this.deviceWanted = null;
     this.offhand.reset();
     if (this.hasPlayer) {
       this.lastYaw = this.ctx.player.yaw;
@@ -236,6 +274,8 @@ export class Rig implements ViewmodelRig {
     a.reload = -1;
     a.swing = null;
     a.guard = 0;
+    a.parry = -1;
+    a.bladeHeat = 0;
     a.spinRate = 0;
     this.holstered = false;
     this.holsterRate = 0;
@@ -243,6 +283,7 @@ export class Rig implements ViewmodelRig {
     this.recoilP.tune(def.recoil.omega, def.recoil.zeta);
     this.recoilR.tune(def.recoil.omega, def.recoil.zeta);
     this.lastMag = -1;
+    this.lastMagLeft = -1;
     this.lastBucket = -1;
     if (seconds <= 0.03) {
       this.drawLeft = 0;
@@ -431,6 +472,10 @@ export class Rig implements ViewmodelRig {
         b.model = dl.model;
         b.reload = a.reload;
         b.draw = 1;
+        if (b.mag !== this.lastMagLeft) {
+          this.lastMagLeft = b.mag;
+          dl.readout?.(b);
+        }
         b.gunP.set(0, 0, 0);
         b.gunR.set(0, 0, 0);
         dl.model.resetParts();
@@ -445,7 +490,27 @@ export class Rig implements ViewmodelRig {
     this.offhand.update(dt, this);
     this.solveArms(def, dl, akimboOn, dt);
     this.updateLooks(dt);
+    this.updateMoon(dt);
     this.updateWrist(dt);
+  }
+
+  private updateMoon(dt: number): void {
+    if (!this.viewMoon) return;
+    this.moonClock -= dt;
+    if (this.moonClock <= 0) {
+      this.moonClock = MOON_RAY_INTERVAL;
+      const o = MOON_PROBES[this.moonProbe]!;
+      this.moonProbe = (this.moonProbe + 1) % MOON_PROBES.length;
+      _moonFrom.copy(this.ctx.player.eye);
+      _moonFrom.x += o[0];
+      _moonFrom.y += o[1];
+      _moonFrom.z += o[2];
+      const blocked = this.ctx.physics.raycastInto(_moonFrom, this.moonDir, MOON_REACH, CG.World, _moonHit);
+      this.moonOpen = damp(this.moonOpen, blocked ? 0 : 1, 1 / (MOON_RAY_INTERVAL * MOON_PROBES.length), MOON_RAY_INTERVAL);
+    }
+    this.moonVis = damp(this.moonVis, this.moonOpen, 9, dt);
+    this.viewMoon.intensity = this.moonIntensity * lerp(MOON_FLOOR, 1, this.moonVis);
+    this.fill.intensity = lerp(FILL_DARK, FILL_MOONLIT, this.moonVis);
   }
 
   private sampleMotion(dt: number): void {
@@ -469,7 +534,7 @@ export class Rig implements ViewmodelRig {
 
     const slideOn = p.sliding ? 1 : 0;
     const wallOn = p.wallRunning ? 1 : 0;
-    const moved = a.sinceFire > 0.45 && a.reload < 0 ? 1 : 0;
+    const moved = a.sinceFire > 0.45 && a.reload < 0 && a.swing === null ? 1 : 0;
     this.slideW = damp(this.slideW, slideOn, 12, dt);
     this.wallW = damp(this.wallW, wallOn, 10, dt);
     this.airW = damp(this.airW, p.grounded ? 0 : 1, 7, dt);
@@ -786,8 +851,24 @@ export class Rig implements ViewmodelRig {
       this.lastGrenades = g;
       if (this.offhand.cooking && input.isDown('grenade') === false) this.offhand.release();
     }
+    const holding = this.stillHolding();
     const t = (progression as { targeting?: unknown } | undefined)?.targeting;
-    this.offhand.device(typeof t === 'string' ? DEVICE[t as CallInId] ?? null : null);
+    if (typeof t === 'string') this.deviceWanted = DEVICE[t as CallInId] ?? null;
+    else if (!holding) this.deviceWanted = null;
+    this.offhand.device(this.deviceWanted);
+  }
+
+  /**
+   * Progression still builds its own stand-in device for targeting. Its timing is what brings the gun back, so it keeps
+   * running, but its boxes must not be seen next to the real model. Its `want` also tells a steered Orbital Lance from
+   * a finished call, which `targeting` alone cannot.
+   */
+  private stillHolding(): boolean {
+    const held = (this.ctx.progression as unknown as { callInsManager?: { device?: { want: number; root: THREE.Object3D } } } | undefined)?.callInsManager?.device;
+    if (!held) return false;
+    const models = held.root.children;
+    for (let i = 0; i < models.length; i++) models[i]!.visible = false;
+    return held.want > 0;
   }
 
   private updateWrist(dt: number): void {

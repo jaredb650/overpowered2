@@ -19,6 +19,8 @@ export interface EffectListener {
 }
 
 const GRADE_BLEND = 0.25;
+/** Slower back to neutral than into a perk, so an ending grade reads as a release and not a cut. */
+const GRADE_RELEASE = 0.6;
 
 export class PerkRunner {
   /** Live list in activation order. The HUD reads it directly. */
@@ -119,6 +121,12 @@ export class PerkRunner {
     this.applyGrade();
   }
 
+  /** Drains the screen for the death sequence. A new run's clear() brings the neutral grade back. */
+  showDeath(): void {
+    this.grade = 'death';
+    this.ctx.render.post.setGrade('death', GRADE_RELEASE);
+  }
+
   private applyModifiers(): void {
     const { player, weapons } = this.ctx;
     const w = weapons.modifiers;
@@ -183,6 +191,6 @@ export class PerkRunner {
     const grade = best?.grade ?? 'default';
     if (grade === this.grade) return;
     this.grade = grade;
-    this.ctx.render.post.setGrade(grade, GRADE_BLEND);
+    this.ctx.render.post.setGrade(grade, grade === 'default' ? GRADE_RELEASE : GRADE_BLEND);
   }
 }

@@ -44,6 +44,7 @@ export class TimeWindow {
 export class Combo {
   count = 0;
   left = 0;
+  private assists = 0;
 
   constructor(readonly window: number) {}
 
@@ -54,18 +55,25 @@ export class Combo {
     return this.count;
   }
 
+  /** A kill the player only ordered. Keeps the chain alive and adds one for every `every` of them. */
+  assist(every: number): number {
+    if (this.assists++ % every === 0) this.count++;
+    this.left = this.window;
+    return this.count;
+  }
+
   /** Runs the gap timer. Returns true on the frame the combo dies. */
   tick(dt: number): boolean {
     if (this.left <= 0) return false;
     this.left -= dt;
     if (this.left > 0) return false;
-    this.left = 0;
-    this.count = 0;
+    this.clear();
     return true;
   }
 
   clear(): void {
     this.count = 0;
     this.left = 0;
+    this.assists = 0;
   }
 }

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FullscreenPass } from '../fullscreen';
+import { FullscreenPass, readArea } from '../fullscreen';
 
 /** Half-resolution linear depth from the full-resolution hardware depth. */
 const PREP = /* glsl */ `
@@ -31,11 +31,13 @@ uniform vec2 uTexel;
 uniform vec2 uTanHalf;
 uniform float uRadius;
 uniform float uViewCut;
+uniform vec2 uScale;
+uniform vec2 uEdge;
 in vec2 vUv;
 out vec4 outColor;
 
 vec3 viewPos(vec2 uv, float z) { return vec3((uv * 2.0 - 1.0) * uTanHalf * z, -z); }
-float depthAt(vec2 uv) { return textureLod(tDepth, uv, 0.0).r; }
+float depthAt(vec2 uv) { return textureLod(tDepth, min(uv * uScale, uEdge), 0.0).r; }
 vec3 posAt(vec2 uv) { return viewPos(uv, depthAt(uv)); }
 
 void main() {
@@ -97,16 +99,18 @@ void main() {
 
 const BLUR = /* glsl */ `
 uniform sampler2D tAo;
+uniform vec2 uLast;
 in vec2 vUv;
 out vec4 outColor;
 void main() {
   ivec2 p = ivec2(gl_FragCoord.xy);
+  ivec2 last = ivec2(uLast);
   float z = texelFetch(tAo, p, 0).g;
   float sum = 0.0, wsum = 0.0;
   float invRange = 1.0 / max(z * 0.02, 0.02);
   for (int y = -2; y <= 1; y++) {
     for (int x = -2; x <= 1; x++) {
-      vec2 s = texelFetch(tAo, p + ivec2(x, y), 0).rg;
+      vec2 s = texelFetch(tAo, clamp(p + ivec2(x, y), ivec2(0), last), 0).rg;
       float w = exp(-abs(s.y - z) * invRange);
       sum += s.x * w;
       wsum += w;
@@ -121,10 +125,12 @@ export class Gtao {
   private blurred!: THREE.WebGLRenderTarget;
   private readonly prep = new FullscreenPass(PREP, { tDepth: { value: null }, uProj: { value: new THREE.Vector2() }, uFullSize: { value: new THREE.Vector2() } });
   private ao: FullscreenPass | null = null;
-  private readonly blur = new FullscreenPass(BLUR, { tAo: { value: null } });
+  private readonly blur = new FullscreenPass(BLUR, { tAo: { value: null }, uLast: { value: new THREE.Vector2() } });
   radius = 1.6;
   private width = 1;
   private height = 1;
+  private readonly scale = new THREE.Vector2(1, 1);
+  private readonly edge = new THREE.Vector2(1, 1);
 
   get texture(): THREE.Texture {
     return this.blurred.texture;
@@ -134,6 +140,7 @@ export class Gtao {
     this.ao?.dispose();
     this.ao = new FullscreenPass(AO, {
       tDepth: { value: null }, uTexel: { value: new THREE.Vector2() }, uTanHalf: { value: new THREE.Vector2() }, uRadius: { value: 1 }, uViewCut: { value: 0.16 },
+      uScale: { value: this.scale }, uEdge: { value: this.edge },
     }, { SLICES: slices, STEPS: steps });
   }
 
@@ -141,17 +148,24 @@ export class Gtao {
     this.depth?.dispose();
     this.raw?.dispose();
     this.blurred?.dispose();
-    const w = Math.ceil(fullWidth / 2);
-    const h = Math.ceil(fullHeight / 2);
-    this.width = w;
-    this.height = h;
+    const w = fullWidth / 2;
+    const h = fullHeight / 2;
     const base = { depthBuffer: false, generateMipmaps: false, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter };
     this.depth = new THREE.WebGLRenderTarget(w, h, { ...base, type: THREE.FloatType, format: THREE.RedFormat });
     this.raw = new THREE.WebGLRenderTarget(w, h, { ...base, type: THREE.HalfFloatType, format: THREE.RGFormat });
     this.blurred = new THREE.WebGLRenderTarget(w, h, {
       ...base, type: THREE.UnsignedByteType, format: THREE.RedFormat, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
     });
-    (this.prep.uniforms.uFullSize!.value as THREE.Vector2).set(fullWidth, fullHeight);
+  }
+
+  /** `width` and `height` are the full-resolution area, always even. */
+  setArea(width: number, height: number): void {
+    this.width = width / 2;
+    this.height = height / 2;
+    for (const t of [this.depth, this.raw, this.blurred]) t.viewport.set(0, 0, this.width, this.height);
+    readArea(this.depth, this.scale, this.edge);
+    (this.prep.uniforms.uFullSize!.value as THREE.Vector2).set(width, height);
+    (this.blur.uniforms.uLast!.value as THREE.Vector2).set(this.width - 1, this.height - 1);
   }
 
   renderDepth(renderer: THREE.WebGLRenderer, depth: THREE.Texture, camera: THREE.PerspectiveCamera): void {

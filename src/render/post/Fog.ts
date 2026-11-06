@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FullscreenPass } from '../fullscreen';
+import { FullscreenPass, readArea } from '../fullscreen';
 import type { EngineUniforms } from '../engine';
 import { MAX_LIVE_LIGHTS } from '../DynamicLightPool';
 
@@ -21,6 +21,7 @@ uniform float uFrame;
 uniform float uMaxDist;
 uniform vec4 uMedium; // density, height falloff, base height, noise amount
 uniform vec3 uScatter; // baked gain, moon gain, phase g
+uniform vec2 uScale;
 uniform vec4 uLightPos[${MAX_LIVE_LIGHTS}];
 uniform vec3 uLightCol[${MAX_LIVE_LIGHTS}];
 in vec2 vUv;
@@ -36,7 +37,7 @@ float density(vec3 p) {
 }
 
 void main() {
-  float z = texture(tDepth, vUv).r;
+  float z = texture(tDepth, vUv * uScale).r;
   vec3 eye = normalize(vec3((vUv * 2.0 - 1.0) * uTanHalf, -1.0));
   // The sky has no surface to stop at. Past this distance the dome's own horizon haze takes over.
   float dist = min(z / -eye.z, z > 2e4 ? uMaxDist * 0.45 : uMaxDist);
@@ -109,10 +110,14 @@ uniform mat4 uPrevViewProj;
 uniform mat4 uCamToWorld;
 uniform vec2 uTanHalf;
 uniform float uBlend;
+uniform vec2 uLast;
+uniform vec2 uHistoryScale;
+uniform vec2 uHistoryEdge;
 in vec2 vUv;
 out vec4 outColor;
 void main() {
   ivec2 p = ivec2(gl_FragCoord.xy);
+  ivec2 last = ivec2(uLast);
   vec4 cur = texelFetch(tCurrent, p, 0);
   float z = min(texelFetch(tDepth, p, 0).r, 400.0);
   vec3 eye = vec3((vUv * 2.0 - 1.0) * uTanHalf * z, -z);
@@ -122,12 +127,12 @@ void main() {
 
   // Clamp history to the local range of this frame. That rejects stale fog after fast motion
   // while keeping the temporal average in smooth areas.
-  vec4 a = texelFetch(tCurrent, p + ivec2(1, 0), 0), b = texelFetch(tCurrent, p - ivec2(1, 0), 0);
-  vec4 c = texelFetch(tCurrent, p + ivec2(0, 1), 0), d = texelFetch(tCurrent, p - ivec2(0, 1), 0);
+  vec4 a = texelFetch(tCurrent, min(p + ivec2(1, 0), last), 0), b = texelFetch(tCurrent, max(p - ivec2(1, 0), ivec2(0)), 0);
+  vec4 c = texelFetch(tCurrent, min(p + ivec2(0, 1), last), 0), d = texelFetch(tCurrent, max(p - ivec2(0, 1), ivec2(0)), 0);
   vec4 lo = min(min(min(a, b), min(c, d)), cur);
   vec4 hi = max(max(max(a, b), max(c, d)), cur);
   vec4 pad = (hi - lo) * 0.3 + 1e-4;
-  vec4 hist = clamp(texture(tHistory, uv), lo - pad, hi + pad);
+  vec4 hist = clamp(texture(tHistory, min(uv * uHistoryScale, uHistoryEdge)), lo - pad, hi + pad);
   float inside = step(0.0, uv.x) * step(uv.x, 1.0) * step(0.0, uv.y) * step(uv.y, 1.0);
   outColor = mix(cur, hist, uBlend * inside);
 }`;
@@ -200,6 +205,7 @@ export class Fog {
   private readonly resolve = new FullscreenPass(RESOLVE, {
     tCurrent: { value: null }, tHistory: { value: null }, tDepth: { value: null }, uPrevViewProj: { value: new THREE.Matrix4() },
     uCamToWorld: { value: new THREE.Matrix4() }, uTanHalf: { value: new THREE.Vector2() }, uBlend: { value: 0.9 },
+    uLast: { value: new THREE.Vector2() }, uHistoryScale: { value: new THREE.Vector2(1, 1) }, uHistoryEdge: { value: new THREE.Vector2(1, 1) },
   });
   private raw!: THREE.WebGLRenderTarget;
   private history: THREE.WebGLRenderTarget[] = [];
@@ -208,6 +214,8 @@ export class Fog {
   private readonly noise = noiseVolume();
   private readonly prevViewProj = new THREE.Matrix4();
   private hasHistory = false;
+  private readonly scale = new THREE.Vector2(1, 1);
+  private readonly edge = new THREE.Vector2(1, 1);
 
   constructor(private readonly engine: EngineUniforms) {}
 
@@ -235,6 +243,7 @@ export class Fog {
       uMaxDist: { value: 200 },
       uMedium: { value: new THREE.Vector4() },
       uScatter: { value: new THREE.Vector3() },
+      uScale: { value: this.scale },
       uLightPos: { value: lightPositions },
       uLightCol: { value: lightColors },
     }, { STEPS: steps });
@@ -243,12 +252,24 @@ export class Fog {
   resize(fullWidth: number, fullHeight: number): void {
     this.raw?.dispose();
     for (const t of this.history) t.dispose();
-    const w = Math.ceil(fullWidth / 2);
-    const h = Math.ceil(fullHeight / 2);
+    const w = fullWidth / 2;
+    const h = fullHeight / 2;
     const options = { type: THREE.HalfFloatType, format: THREE.RGBAFormat, depthBuffer: false, generateMipmaps: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter };
     this.raw = new THREE.WebGLRenderTarget(w, h, { ...options, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter });
     this.history = [new THREE.WebGLRenderTarget(w, h, options), new THREE.WebGLRenderTarget(w, h, options)];
     this.hasHistory = false;
+  }
+
+  /**
+   * `width` and `height` are the full-resolution area, always even. History survives a change: it is read with
+   * the area it was written at, which the render below carries forward, so a step does not restart the average.
+   */
+  setArea(width: number, height: number): void {
+    const w = width / 2;
+    const h = height / 2;
+    for (const t of [this.raw, ...this.history]) t.viewport.set(0, 0, w, h);
+    readArea(this.raw, this.scale, this.edge);
+    (this.resolve.uniforms.uLast!.value as THREE.Vector2).set(w - 1, h - 1);
   }
 
   render(renderer: THREE.WebGLRenderer, depth: THREE.Texture, camera: THREE.PerspectiveCamera, tanHalf: THREE.Vector2, time: number): void {
@@ -275,6 +296,8 @@ export class Fog {
     (r.uPrevViewProj!.value as THREE.Matrix4).copy(this.prevViewProj);
     r.uBlend!.value = this.hasHistory ? 0.9 : 0;
     this.resolve.render(renderer, this.history[this.flip]!);
+    (r.uHistoryScale!.value as THREE.Vector2).copy(this.scale);
+    (r.uHistoryEdge!.value as THREE.Vector2).copy(this.edge);
     this.hasHistory = true;
     this.prevViewProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
   }

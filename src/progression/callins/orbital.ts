@@ -87,6 +87,7 @@ export class Orbital implements Strike {
   private t = 0;
   private ignited = false;
   private finished = false;
+  private steered = true;
   private tickIn = 0;
   private scorched = 0;
   private readonly point = new THREE.Vector3();
@@ -179,9 +180,14 @@ export class Orbital implements Strike {
     return this.finished;
   }
 
+  /** The player lets go: the beam stays where it stands and burns out on its own. */
+  release(): void {
+    this.steered = false;
+  }
+
   private steer(dt: number): void {
     // Never slower than the player can run, so a moving target can always be reached.
-    if (!this.targeting.solve(_aim)) return;
+    if (!this.steered || !this.targeting.solve(_aim)) return;
     _step.subVectors(_aim, this.point);
     const d = _step.length();
     if (d < 1e-3) return;

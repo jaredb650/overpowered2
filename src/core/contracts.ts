@@ -20,6 +20,14 @@ export type SurfaceKind = 'concrete' | 'metal' | 'grate' | 'dirt' | 'glass' | 'f
 export type DamageType =
   | 'bullet' | 'pellet' | 'explosive' | 'melee' | 'slash' | 'fire' | 'shock' | 'crush' | 'true';
 
+/**
+ * Newton-seconds a hit pushes with when its `force` is 0. One table, because the living and the dead reading different
+ * numbers is how a corpse came to fly further from a bullet than the body it had been.
+ */
+export const DEFAULT_FORCE: Record<DamageType, number> = {
+  bullet: 60, pellet: 45, explosive: 260, melee: 160, slash: 90, fire: 10, shock: 40, crush: 300, true: 120,
+};
+
 /** A single application of damage to an enemy. */
 export interface DamageInfo {
   amount: number;

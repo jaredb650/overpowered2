@@ -66,9 +66,13 @@ function localStudio(canvas: HTMLCanvasElement) {
   panel(0x202830, 1, 0, -8, 0, 40, 40);
   const pm = new THREE.PMREMGenerator(renderer);
   viewScene.environment = pm.fromScene(env, 0.02).texture;
-  const key = new THREE.DirectionalLight(0xe4ecff, 2.2);
+  const key = new THREE.DirectionalLight(0xe4ecff, 3.4);
   key.position.set(-2, 3, 2);
   viewScene.add(key);
+  const rim = new THREE.DirectionalLight(0xbcd4ff, 1.6);
+  rim.position.set(3, 1, -2);
+  viewScene.add(rim);
+  viewScene.add(new THREE.AmbientLight(0x9fb4cc, 1.1));
   const viewCamera = new THREE.PerspectiveCamera(58, innerWidth / innerHeight, 0.01, 12);
   return {
     renderer, viewScene, viewCamera,
