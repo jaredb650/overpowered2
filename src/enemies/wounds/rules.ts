@@ -108,7 +108,7 @@ export const WoundTuning = {
   /** Below this bleed he does not bother. */
   selfAidFrom: 0.006,
   /** Downed men who get help and still cannot stand: seconds added to the clock. */
-  stabilised: 18,
+  stabilised: 12,
   /** Health a downed man has once he is mortally hurt. Anything lands on him now. */
   lastBlood: 0.05,
   /** Chance a mortal or downed man goes for a last act, and that it is a grenade if he has one. */

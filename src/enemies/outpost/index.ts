@@ -42,6 +42,7 @@ import { OutpostSquad, type Door } from './squad';
 import { dropGrenade, soldierAttacks } from './weapons';
 import { OutpostWaves } from './waves';
 import { WoundSystem } from '../wounds';
+import { ARMOUR } from '../wounds/armour';
 import { WoundTuning } from '../wounds/rules';
 
 export { soldierOf } from './soldier';
@@ -292,6 +293,7 @@ export class Outpost {
     e.probeAt = Infinity;
     e.footbound = true;
     e.yaw = Math.atan2(-e.position.x, -e.position.z);
+    if (!e.def.plates && ARMOUR[role].length > 0) this.manager.fitPlates(e, ARMOUR[role]);
     this.wounds.onSpawn(s);
   }
 

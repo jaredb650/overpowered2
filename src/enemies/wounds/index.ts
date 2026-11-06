@@ -8,6 +8,7 @@
  *   crawl.ts     a man on the floor dragging himself away
  *   trail.ts     what he leaves behind
  *   sidearm.ts   the pistol he falls back on
+ *   armour.ts    the plates he wears
  *
  * `DamageModel` asks this one question per hit, `take`, and carries out a fall if `mustFall` says so. Everything else runs on
  * the man's own time, from `update`, ahead of his brain and his legs.
@@ -18,12 +19,14 @@ import type { DamageInfo, DamageType } from '../../core/contracts';
 import { chance, clamp, pick, rand } from '../../core/math';
 import { FACTIONS } from '../../contracts/data';
 import type { AiWorld } from '../aiWorld';
+import type { Plate } from '../armor';
 import { say } from '../attacks';
 import type { Enemy } from '../Enemy';
 import type { EnemyManager } from '../EnemyManager';
 import { FEAR } from '../outpost/morale';
 import type { Outpost } from '../outpost';
 import { pose, soldierOf, type Soldier } from '../outpost/soldier';
+import { CRACK_DROP, CRACK_TIP, CRACKED } from './armour';
 import { crawlOn } from './crawl';
 import { Injuries } from './injuries';
 import { bursts, CHARACTER, RINGING, SIDEARM_MAG, WoundTuning as T, ZONES, type Condition, type ZoneId } from './rules';
@@ -63,6 +66,10 @@ const NO_CRAWL_LIE = 8;
 const LIMP_THEN_FALL = 0.6;
 
 const SIDEARM_DRAW = 0.9;
+/** A round stopped by a plate still lands like a punch. */
+const BLUNT_SECONDS = 0.4;
+const BLUNT_STRENGTH = 0.3;
+const BLUNT_REEL = 1.2;
 /** Chance a man who loses his gun to a hand wound goes after it instead of drawing. */
 const SCRAMBLE = 0.5;
 const LAST_STAND_RANGE = 18;
@@ -138,6 +145,19 @@ export class WoundSystem {
     if (fatal) e.health = Math.max(e.health, e.maxHealth * T.lastBlood);
     this.syncBody(s, b);
     return false;
+  }
+
+  /** A plate took it. He felt it, and it shows on the plate. */
+  onPlate(e: Enemy, plate: Plate, d: DamageInfo, region: GoreRegion): void {
+    const s = soldierOf(e);
+    if (!s) return;
+    if (plate.hp > 0 && plate.hp < plate.spec.hp * e.maxHealth * CRACKED) {
+      // Still on him, hanging by what is left of the straps.
+      plate.mesh.position.y = plate.spec.offset[1] - CRACK_DROP;
+      plate.mesh.rotation.x = (plate.spec.tilt?.[0] ?? 0) + CRACK_TIP;
+    }
+    if (region === 'head') this.ring(s, s.injuries, d);
+    else if (PLACED.has(d.type)) this.manager.model.stagger(e, BLUNT_SECONDS, d.dir, BLUNT_STRENGTH, B.chest, BLUNT_REEL);
   }
 
   /** Read once after the hit, by the reaction: the wound has decided this man is going over. */

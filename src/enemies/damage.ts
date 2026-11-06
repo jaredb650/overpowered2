@@ -14,7 +14,7 @@ import { DevFlags } from '../core/devflags';
 import type { DamageResult, KillEvent } from '../core/gameplay';
 import { chance, clamp, lerp, pick, rand } from '../core/math';
 import { FACTIONS, type FactionRules } from '../contracts/data';
-import { bursts } from './wounds/rules';
+import { bursts, HEAVY_ROUND } from './wounds/rules';
 import { ENEMIES, LIMB_SIZE, REGION_DAMAGE } from './data';
 import { say } from './attacks';
 import { finishAttack } from './brain';
@@ -140,13 +140,17 @@ export class DamageModel {
     if (body) amount = wounds!.priced(placed, d, amount, region);
     res.headshot = region === 'head' && !area && (placed === null || (placed.zone === 'head' && !placed.glancing));
 
-    const plate = area ? this.blastPlate(e) : this.plateFor(e, region, d);
+    // Blood is lost from the inside. No plate stands between a man and that.
+    const inside = body !== null && d.source === 'bleed';
+    const plate = inside ? null : area ? this.blastPlate(e) : this.plateFor(e, region, d);
     if (plate) {
-      const absorbed = Math.min(plate.hp, amount);
+      // Section 14.6: a plate stops small arms outright, the round that breaks it included. Only a heavy round carries on through.
+      const absorbed = placed && d.amount < HEAVY_ROUND ? amount : Math.min(plate.hp, amount);
       plate.hp -= absorbed;
       e.armor = Math.max(0, e.armor - absorbed);
       amount -= absorbed;
       if (plate.hp <= 0) this.shootOff(e, plate, d);
+      if (body) wounds!.onPlate(e, plate, d, region);
       if (amount <= 0) {
         res.blocked = true;
         res.headshot = false;

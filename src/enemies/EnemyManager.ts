@@ -273,7 +273,7 @@ export class EnemyManager implements EnemySystem {
   }
 
   /** Plates live on the pooled character for good, so a respawn re-seats them instead of building new ones. */
-  private fitPlates(e: Enemy, specs: readonly PlateSpec[]): void {
+  fitPlates(e: Enemy, specs: readonly PlateSpec[]): void {
     let meshes = this.plateMeshes.get(e.char);
     if (!meshes) {
       meshes = specs.map(spec => {

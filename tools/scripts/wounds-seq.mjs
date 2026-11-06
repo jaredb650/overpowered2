@@ -18,7 +18,7 @@ const CASES = {
   arm: { shots: [{ at: [6, 0.04, -0.12, 0.05], from: 'front' }], steps: LONG },
   shoulder: { shots: [{ at: [8, -0.02, -0.04, 0.06], from: 'front' }], steps: LONG },
   botharms: { shots: [{ at: [8, -0.05, -0.2, 0.06], from: 'front' }, { at: [5, 0.05, -0.2, 0.06], from: 'front', wait: 10 }], steps: LONG },
-  lung: { shots: [{ at: [2, 0.2, 0.1, 0.02], from: 'left' }], steps: [0, 10, 30, 60, 100, 150, 220, 300, 360, 420, 500, 620] },
+  lung: { shots: [{ at: [2, -0.16, 0.22, -0.13], from: 'back' }], steps: [0, 10, 30, 60, 100, 150, 220, 300, 360, 420, 500, 620] },
   heart: { shots: [{ at: [2, 0.035, 0.11, -0.16], from: 'back' }], steps: LONG },
   gut: { shots: [{ at: [1, 0.05, 0.1, 0.13], from: 'front' }], steps: LONG },
   gutwalk: { shots: [{ at: [1, 0.05, 0.1, 0.13], from: 'front' }], walk: true, steps: LONG },
@@ -31,6 +31,7 @@ const CASES = {
   rocket: { blast: 0.5, damage: 200, steps: LONG },
   burst: { burst: 8, steps: [0, 4, 8, 12, 18, 24, 34, 50, 80, 120, 180, 260] },
   fire: { fire: true, steps: LONG },
+  plate: { burst: 5, steps: [0, 4, 8, 12, 18, 24, 34, 50, 80, 120, 180, 260], plain: true },
   crawl: { id: 'trooper', shots: [{ at: [0, 0, -0.06, 0.12], from: 'front' }], steps: [0, 40, 80, 120, 160, 200, 240, 300, 360, 420, 480, 560] },
 };
 
@@ -90,6 +91,7 @@ export default async function woundsSeq(page, h) {
       },
       shoot(s) {
         const e = r.target;
+        if (!e.alive) return;
         const [bone, x, y, z] = s.at;
         const b = e.char.bones[bone];
         b.updateWorldMatrix(true, false);
@@ -137,7 +139,9 @@ export default async function woundsSeq(page, h) {
   }, process.env.WOUND_AI ?? 'off');
 
   const size = page.viewportSize();
-  const clip = { x: size.width * 0.28, y: size.height * 0.26, width: size.width * 0.44, height: size.height * 0.48 };
+  // Tighter for a good look at hands and wounds.
+  const zoom = Number(process.env.WOUND_ZOOM ?? 1);
+  const clip = { x: size.width * (0.5 - 0.22 / zoom), y: size.height * (0.5 - 0.24 / zoom), width: size.width * 0.44 / zoom, height: size.height * 0.48 / zoom };
   const results = {};
   for (const [name, c] of Object.entries(CASES)) {
     if (only.length > 0 && !only.includes(name)) continue;
@@ -152,7 +156,7 @@ export default async function woundsSeq(page, h) {
       for (let i = 0; i < c.burst; i++) {
         await page.evaluate(() => {
           const e = window.__r.target;
-          if (e.alive) window.__r.shoot({ at: [2, (Math.random() - 0.5) * 0.3, 0.1, 0.15], from: 'front' });
+          if (e.alive) window.__r.shoot({ at: [2, 0.02, 0.1, 0.16], from: 'front' });
         });
         await page.evaluate(() => window.__r.walk(3));
       }

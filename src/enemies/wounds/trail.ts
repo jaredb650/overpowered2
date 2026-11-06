@@ -18,6 +18,8 @@ const POOLING = 1.3;
 const DROP_SIZE = 0.13;
 const POOL_SIZE = 0.26;
 const SMEAR_SIZE = 0.5;
+/** What he leaves lying still. Pools grow by themselves. */
+const LYING_POOL = 0.6;
 /** Clear of the floor, so a decal does not fight it. */
 const LIFT = 0.02;
 
@@ -34,7 +36,9 @@ export function dripTrail(e: Enemy, b: Injuries, w: AiWorld, now: number): void 
   if (moved < spacing && !still) return;
   const decals = w.ctx.render.decals;
   _at.set(e.position.x, e.position.y + LIFT, e.position.z);
-  if (b.floored && !still) {
+  if (b.floored && still) {
+    decals.add('bloodPool', _at, UP, LYING_POOL);
+  } else if (b.floored) {
     decals.add('bloodSmear', _at, UP, SMEAR_SIZE, Math.atan2(e.position.x - b.dripX, e.position.z - b.dripZ));
   } else {
     // Off the centre line: drops fall from a wound, and a wound is on one side of a man.
