@@ -21,8 +21,18 @@ export class Nav {
   left: (() => void) | null = null;
   /** Right on an item that does not take it. */
   right: (() => void) | null = null;
+  /** Seconds left of ignoring every press, for a screen that can open under a player who is mid-button. */
+  private held = 0;
 
   constructor(private readonly ctx: Ctx) {}
+
+  hold(seconds: number): void {
+    this.held = seconds;
+  }
+
+  update(dt: number): void {
+    if (this.held > 0) this.held -= dt;
+  }
 
   set(items: NavItem[], index = 0): void {
     for (const old of this.items) old.el.classList.remove('focus');
@@ -39,10 +49,10 @@ export class Nav {
     // pointermove, not pointerenter: a mouse resting under the keyboard's focus should not steal it back.
     el.addEventListener('pointermove', () => {
       const i = this.items.indexOf(item);
-      if (i >= 0 && i !== this.index && !this.suspended) this.focus(i);
+      if (i >= 0 && i !== this.index && !this.suspended) this.focus(i, false, true);
     });
     el.addEventListener('click', () => {
-      if (this.suspended || !this.items.includes(item)) return;
+      if (this.suspended || this.held > 0 || !this.items.includes(item)) return;
       this.activate(item);
     });
   }
@@ -53,12 +63,13 @@ export class Nav {
     item.activate();
   }
 
-  focus(i: number, silent = false): void {
+  /** `pointer` skips `focused`: a tab should open on a click, not on the mouse passing over it. */
+  focus(i: number, silent = false, pointer = false): void {
     if (i === this.index && !silent) return;
     this.index = i;
     this.paint();
     if (!silent) this.ctx.audio.play?.('ui_hover');
-    this.items[i]?.focused?.();
+    if (!pointer) this.items[i]?.focused?.();
   }
 
   private paint(): void {
@@ -74,7 +85,7 @@ export class Nav {
 
   /** Returns true when the key was used. */
   key(e: KeyboardEvent): boolean {
-    if (this.suspended) return false;
+    if (this.suspended || this.held > 0) return false;
     const item = this.items[this.index];
     switch (e.code) {
       case 'ArrowUp': case 'KeyW': this.move(-1); return true;

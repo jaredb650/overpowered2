@@ -12,6 +12,8 @@
 //   passes     Renderer.measurePasses().
 //   variants   Whole-frame throughput with one thing changed at a time. Uses GB_VARIANTS, or all of them.
 //   shots      Screenshot of each spot into tools/out/shot-<GB_TAG>-<spot>.png, with the HUD hidden.
+//   steps      Forces every dynamic resolution step in the real game loop and reports each step frame against
+//              the frames around it.
 //   fight      Live fight with the real game loop: holds GB_ENEMIES (14) alive around the player and fires for
 //              GB_SECONDS (14), then reports the frame interval distribution.
 // Env: GB_SPOTS (comma list, default all for the map), GB_TAG (shot name prefix, default "gb"), GB_N (frames per
@@ -271,9 +273,9 @@ function install({ n, rounds }) {
       }
     }
     const best = Object.fromEntries(names.map(v => [v, Math.min(...samples[v])]));
+    const low = Object.fromEntries(names.map(v => [v, [...samples[v]].sort((a, b) => a - b)[samples[v].length >> 2]]));
     const med = Object.fromEntries(names.map(v => [v, median(samples[v])]));
-    const saved = Object.fromEntries(names.map(v => [v, med.base - med[v]]));
-    return { best: rounded(best), median: rounded(med), savedByMedian: rounded(saved) };
+    return { best: rounded(best), p25: rounded(low), median: rounded(med) };
   };
 
   /** Keeps a crowd alive around the player and fires at it through the real game loop. */
@@ -331,8 +333,54 @@ function install({ n, rounds }) {
     };
   };
 
+  /**
+   * Walks every resolution step through the real game loop and reports each step frame against the frames around
+   * it. Works from update() returning true, so the same run measures any way of applying a step.
+   */
+  const steps = async (sequence, gapMs) => {
+    thaw();
+    const dyn = r.dynamicResolution;
+    const update = dyn.update;
+    let pending = null;
+    dyn.enabled = true;
+    dyn.update = function () {
+      if (pending === null) return false;
+      this.index = pending;
+      pending = null;
+      return true;
+    };
+    const log = [];
+    const render = r.render;
+    r.render = function () {
+      const stepped = pending !== null;
+      const t = performance.now();
+      render.call(this);
+      log.push({ at: t, render: performance.now() - t, stepped });
+    };
+    await raf(40);
+    for (const index of sequence) {
+      pending = index;
+      await new Promise(res => setTimeout(res, gapMs));
+    }
+    await raf(10);
+    delete r.render;
+    delete dyn.update;
+    dyn.enabled = false;
+    const intervals = log.map((e, i) => (i ? e.at - log[i - 1].at : 0));
+    const calm = log.map((e, i) => i).filter(i => i > 2 && !log.slice(Math.max(0, i - 3), i + 1).some(e => e.stepped));
+    const sorted = key => [...calm.map(key)].sort((a, b) => a - b);
+    const med = a => a[a.length >> 1];
+    const hits = log.map((e, i) => (e.stepped ? i : -1)).filter(i => i >= 0);
+    return {
+      frames: log.length,
+      calmRender: { p50: med(sorted(i => log[i].render)), p99: sorted(i => log[i].render)[Math.floor(calm.length * 0.99)] },
+      calmInterval: { p50: med(sorted(i => intervals[i])), p99: sorted(i => intervals[i])[Math.floor(calm.length * 0.99)] },
+      steps: hits.map(i => ({ render: log[i].render, next: log[i + 1]?.render, interval: intervals[i + 1], interval2: intervals[i + 2] })),
+    };
+  };
+
   window.__gb = {
-    goTo, stages, variants, fight, frameCost, sync, spotNames: Object.keys(spots[map]), freeze, thaw, raf, allVariants: Object.keys(allVariants),
+    goTo, stages, variants, fight, steps, frameCost, sync, spotNames: Object.keys(spots[map]), freeze, thaw, raf, allVariants: Object.keys(allVariants),
     passes: () => r.measurePasses(6, 6),
     drawing: () => { const v = renderer.getDrawingBufferSize(new (r.tanHalf.constructor)()); return { canvas: [v.x, v.y], ...r.renderSize(), dpr: devicePixelRatio }; },
   };
@@ -352,8 +400,7 @@ export default async function bench(page, h) {
   const out = { drawing: await page.evaluate(() => window.__gb.drawing()), spots: {} };
   const names = (process.env.GB_SPOTS ?? (await page.evaluate(() => window.__gb.spotNames.join(',')))).split(',');
   for (const spot of names) {
-    const crowded = PHASES.some(p => p === 'stages' || p === 'variants' || p === 'passes') ? CROWD : 0;
-    const row = out.spots[spot] = await page.evaluate(([s, c]) => window.__gb.goTo(s, c), [spot, crowded]);
+    const row = out.spots[spot] = await page.evaluate(([s, c]) => window.__gb.goTo(s, c), [spot, CROWD]);
     console.error(`[gb] at ${spot} after ${Date.now()}`);
     if (PHASES.includes('stages')) row.stages = await page.evaluate(() => window.__gb.stages());
     if (PHASES.includes('passes')) row.passes = await page.evaluate(() => window.__gb.passes());
@@ -366,6 +413,7 @@ export default async function bench(page, h) {
       await h.shot(`${TAG}-${spot}`).catch(e => console.error(`shot failed: ${e.message.split('\n')[0]}`));
     }
   }
+  if (PHASES.includes('steps')) out.steps = await page.evaluate(() => window.__gb.steps([1, 2, 3, 4, 5, 4, 3, 2, 1, 0], 900));
   if (PHASES.includes('fight')) out.fight = await page.evaluate(([e, s]) => window.__gb.fight(e, s), [ENEMIES, SECONDS]);
   return out;
 }

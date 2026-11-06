@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { CG, type Ctx, type LoopHandle } from '../../core/contracts';
 import type { CallInId } from '../../core/gameplay';
 import { AIRSTRIKE, BLACK_SUN, CALLINS, WARTHOG } from '../data';
-import { GroundRing, GroundStrip, type GroundProbe } from './ground';
+import { GroundRing, GroundStrip } from './ground';
 
 const MAX_RANGE = 420;
 /** Surfaces flatter than this count as ground. Anything steeper drops the aim to the floor below it. */
@@ -39,9 +39,9 @@ export class Targeting {
   private hum: LoopHandle | null = null;
   private clock = 0;
 
-  constructor(private readonly ctx: Ctx, probe: GroundProbe) {
-    this.ring = new GroundRing(ctx, probe);
-    this.strip = new GroundStrip(ctx, probe);
+  constructor(private readonly ctx: Ctx) {
+    this.ring = new GroundRing(ctx);
+    this.strip = new GroundStrip(ctx);
   }
 
   enter(id: CallInId): void {

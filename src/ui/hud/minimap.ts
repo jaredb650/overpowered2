@@ -7,8 +7,10 @@
  */
 import type { Ctx } from '../../core/contracts';
 import { clamp, damp } from '../../core/math';
+import { MOVE } from '../../player/tuning';
 import { div, h } from '../dom';
 import type { HudState } from '../state';
+import { REVEAL_AT } from './stragglers';
 import type { WorldLayer } from './worldlayer';
 
 const REDRAW = 1 / 30;
@@ -17,9 +19,14 @@ const TRAIL_LEN = 3;
 const MAX_TRACKED = 48;
 const NEAR_RANGE = 62;
 const FAR_RANGE = 120;
+/** Speed at which the map has opened all the way, about the strafing ceiling. */
+const FAR_SPEED = 27;
+/** Seconds per sweep of the ring around a revealed straggler. */
+const PING_PERIOD = 1.1;
 
 const ENEMY = '#ff3b3b';
 const ELITE = '#ff9a2e';
+const NORTH = '#eef4f7';
 
 export interface MinimapPoint {
   x: number;
@@ -41,10 +48,11 @@ export class Minimap {
   private trailHead = 0;
   private trailCount = 0;
   private trackIds = new Int32Array(MAX_TRACKED).fill(-1);
+  private ping = 0;
 
   constructor(private readonly ctx: Ctx, private readonly world: WorldLayer) {
     this.canvas = h('canvas', 'mm-canvas');
-    this.el = div('minimap', this.canvas, div('mm-north'));
+    this.el = div('minimap', this.canvas);
     this.g = this.canvas.getContext('2d', { alpha: true })!;
     this.measure();
   }
@@ -77,7 +85,9 @@ export class Minimap {
   }
 
   update(s: HudState, dt: number, pickups: readonly MinimapPoint[]): void {
-    this.range = damp(this.range, NEAR_RANGE + clamp((s.speed - 17) / 28) * (FAR_RANGE - NEAR_RANGE), 2.2, dt);
+    const open = clamp((s.speed - MOVE.runSpeed) / (FAR_SPEED - MOVE.runSpeed));
+    this.range = damp(this.range, NEAR_RANGE + open * (FAR_RANGE - NEAR_RANGE), 2.2, dt);
+    this.ping = (this.ping + dt / PING_PERIOD) % 1;
     this.trailClock -= dt;
     if (this.trailClock <= 0) {
       this.trailClock = TRAIL_SAMPLE;
@@ -132,7 +142,7 @@ export class Minimap {
     }
 
     for (const m of this.world.markers) {
-      if (!m.live) continue;
+      if (!m.live || m.target) continue;
       const x = clamp(sx(m.pos.x, m.pos.z), 8 * u, size - 8 * u);
       const y = clamp(sy(m.pos.x, m.pos.z), 8 * u, size - 8 * u);
       g.fillStyle = m.color;
@@ -146,6 +156,7 @@ export class Minimap {
     }
 
     const n = Math.min(s.enemies.length, MAX_TRACKED);
+    const reveal = s.phase !== 'intermission' && s.remaining <= REVEAL_AT;
     if (this.trailCount > 1) {
       g.fillStyle = ENEMY;
       for (let k = 1; k < this.trailCount; k++) {
@@ -184,7 +195,25 @@ export class Minimap {
       } else {
         g.fillRect(cx - r, cy - r, r * 2, r * 2);
       }
+      if (reveal) {
+        g.strokeStyle = ENEMY;
+        g.globalAlpha = 1 - this.ping;
+        g.lineWidth = 2 * u;
+        g.strokeRect(cx - r - this.ping * 14 * u, cy - r - this.ping * 14 * u, (r + this.ping * 14 * u) * 2, (r + this.ping * 14 * u) * 2);
+        g.globalAlpha = 1;
+      }
     }
+
+    // North rides the rim, so a player-up map still gives a fixed bearing to call out.
+    const nx = half + Math.sin(-heading) * (half - 9 * u);
+    const ny = half - Math.cos(-heading) * (half - 9 * u);
+    g.fillStyle = '#000000';
+    g.fillRect(nx - 7 * u, ny - 7 * u, 14 * u, 14 * u);
+    g.fillStyle = NORTH;
+    g.font = `800 ${Math.round(12 * u)}px ui-monospace, Menlo, monospace`;
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillText('N', nx, ny + u);
 
     // Player: fixed at the centre, always pointing up.
     g.fillStyle = '#ffffff';

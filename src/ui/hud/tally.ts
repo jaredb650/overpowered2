@@ -1,4 +1,8 @@
-/** Wave plate and the score, which is a real odometer: digit wheels that move by transform, with carry. */
+/**
+ * Wave plate and the score. The score counts up on digit strips that move by transform, and a strip only ever rests on
+ * a whole digit. A wheel caught between two digits is a real odometer's look, but at this size, and with the low
+ * wheels always mid-turn while points pour in, it read as corrupted text. Motion comes from the digits changing.
+ */
 import { damp } from '../../core/math';
 import { Flag, Label, Num, Shown, div, span } from '../dom';
 import type { HudState } from '../state';
@@ -10,7 +14,7 @@ export class Odometer {
   readonly el: HTMLElement;
   private wheels: HTMLElement[] = [];
   private cells: Flag[] = [];
-  private q: number[] = [];
+  private shown: number[] = [];
   private value = 0;
   private target = 0;
   private lit = 0;
@@ -20,12 +24,12 @@ export class Odometer {
     this.el = div(`odo ${cls}`);
     for (let i = WHEELS - 1; i >= 0; i--) {
       const strip = div('odo-strip');
-      for (let d = 0; d <= 10; d++) strip.append(span('', String(d % 10)));
+      for (let d = 0; d < 10; d++) strip.append(span('', String(d)));
       const cell = div(i % 3 === 0 && i > 0 ? 'odo-cell sep' : 'odo-cell', strip);
       this.el.append(cell);
       this.wheels[i] = strip;
       this.cells[i] = new Flag(cell, 'dim');
-      this.q[i] = -1;
+      this.shown[i] = -1;
     }
     this.rolling = new Flag(this.el, 'rolling');
   }
@@ -51,19 +55,14 @@ export class Odometer {
   }
 
   private write(): void {
-    const v = this.value;
+    const v = Math.floor(this.value);
     let place = 1;
     let significant = 1;
     for (let i = 0; i < WHEELS; i++) {
       const digit = Math.floor(v / place) % 10;
-      // Odometers only turn a wheel during the last tenth of the wheel below it.
-      const below = (v % place) / place;
-      const carry = i === 0 ? v - Math.floor(v) : below > 0.9 ? (below - 0.9) * 10 : 0;
-      const pos = digit + carry;
-      const q = Math.round(pos * 50);
-      if (q !== this.q[i]) {
-        this.q[i] = q;
-        this.wheels[i]!.style.transform = `translate3d(0,${-(q / 50) * (100 / 11)}%,0)`;
+      if (digit !== this.shown[i]) {
+        this.shown[i] = digit;
+        this.wheels[i]!.style.transform = `translate3d(0,${-digit * 10}%,0)`;
       }
       if (v >= place) significant = i + 1;
       place *= 10;
@@ -83,7 +82,6 @@ export class Tally {
   private beat: Flag;
   private leftRow: Shown;
   private intermission: Flag;
-  private tick = -1;
 
   constructor() {
     const wave = span('tl-wave-n');
@@ -110,15 +108,15 @@ export class Tally {
   }
 
   update(s: HudState, dt: number): void {
-    this.wave.set(s.wave);
     const between = s.phase === 'intermission';
+    // Between waves the plate turns cold and shows what is coming, which also means no run ever reads wave 0.
+    this.wave.set(between ? s.wave + 1 : s.wave);
     this.intermission.set(between);
     if (between) {
       const secs = Math.ceil(s.nextWaveIn);
       this.left.set(secs);
-      this.leftTag.set('next wave');
+      this.leftTag.set('seconds');
       this.leftRow.set(secs > 0);
-      this.tick = secs;
     } else {
       this.left.set(s.remaining);
       this.leftTag.set('left');

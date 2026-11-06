@@ -31,6 +31,8 @@ export interface MapMarker {
   pos: THREE.Vector3;
   color: string;
   live: boolean;
+  /** Set on a marker riding something that moves. The minimap already draws those. */
+  target: THREE.Vector3 | null;
 }
 
 interface Marker extends MapMarker {
@@ -40,6 +42,8 @@ interface Marker extends MapMarker {
   dist: Num;
   clock: number;
   offscreen: boolean | null;
+  /** Bumped on each reuse, so a remover held for an old marker cannot take down its replacement. */
+  use: number;
 }
 
 export class WorldLayer {
@@ -67,7 +71,9 @@ export class WorldLayer {
       const el = div('mk', div('mk-pin'), arrow, div('mk-text', label, dist));
       el.style.display = 'none';
       this.el.append(el);
-      this.markers.push({ el, arrow, label, dist: new Num(dist), pos: new THREE.Vector3(), color: '', live: false, clock: 0, offscreen: null });
+      this.markers.push({
+        el, arrow, label, dist: new Num(dist), pos: new THREE.Vector3(), color: '', live: false, target: null, clock: 0, offscreen: null, use: 0,
+      });
     }
     this.measure();
   }
@@ -91,8 +97,19 @@ export class WorldLayer {
   }
 
   marker(position: THREE.Vector3, label: string, color?: string): () => void {
+    return this.place(position, null, label, color);
+  }
+
+  /** A marker that tracks `target`, which must stay valid until the returned remover is called. */
+  follow(target: THREE.Vector3, label: string, color?: string): () => void {
+    return this.place(target, target, label, color);
+  }
+
+  private place(position: THREE.Vector3, target: THREE.Vector3 | null, label: string, color?: string): () => void {
     const m = this.markers.find(x => !x.live) ?? this.markers[0]!;
+    const use = ++m.use;
     m.pos.copy(position);
+    m.target = target;
     m.color = color ?? '#39e0ff';
     m.live = true;
     m.offscreen = null;
@@ -101,6 +118,7 @@ export class WorldLayer {
     m.el.style.setProperty('--c', m.color);
     m.el.style.display = '';
     return () => {
+      if (m.use !== use) return;
       m.live = false;
       m.el.style.display = 'none';
     };
@@ -139,6 +157,7 @@ export class WorldLayer {
     const eye = this.ctx.player.eye;
     for (const m of this.markers) {
       if (!m.live) continue;
+      if (m.target) m.pos.copy(m.target);
       _view.copy(m.pos).applyMatrix4(camera.matrixWorldInverse);
       _v.copy(_view).applyMatrix4(camera.projectionMatrix);
       const behind = _view.z > -0.1;

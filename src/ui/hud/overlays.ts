@@ -1,9 +1,11 @@
 /** Full-screen modes: the autocannon scope, call-in targeting and the low-health frame. */
 import type { Ctx } from '../../core/contracts';
 import type { CallInId } from '../../core/gameplay';
+import { CALLINS as CALLIN_DEFS } from '../../progression/data';
 import { Flag, Label, Num, Shown, div, markup, span } from '../dom';
 import { CALLINS } from '../data';
 import { callInIcon } from '../icons';
+import type { Settings } from '../settings';
 import type { HudState } from '../state';
 
 const RANGE_RATE = 1 / 10;
@@ -22,11 +24,13 @@ export class Scope {
   private range: Num;
   private mag: Num;
   private rangeShown: Shown;
+  private zoom: Label;
   private clock = 0;
 
-  constructor(private readonly ctx: Ctx) {
+  constructor(private readonly ctx: Ctx, private readonly settings: Settings) {
     const range = span('sc-val');
     const mag = span('sc-val');
+    const zoom = span('sc-tag');
     const rangeRow = div('sc-read sc-range', span('sc-tag', 'range'), range, span('sc-tag', 'm'));
     this.el = div('scope',
       div('sc-mask'),
@@ -37,12 +41,13 @@ export class Scope {
       div('sc-mils sc-mils-v'),
       rangeRow,
       div('sc-read sc-mag', span('sc-tag', 'shells'), mag),
-      div('sc-read sc-zoom', span('sc-tag', 'x2.9')),
+      div('sc-read sc-zoom', zoom),
     );
     this.shown = new Shown(this.el, 'block');
     this.range = new Num(range);
     this.mag = new Num(mag);
     this.rangeShown = new Shown(rangeRow, 'flex');
+    this.zoom = new Label(zoom);
     this.shown.set(false);
   }
 
@@ -53,6 +58,9 @@ export class Scope {
     this.clock -= dt;
     if (this.clock > 0) return;
     this.clock = RANGE_RATE;
+    const half = (deg: number) => Math.tan((deg * Math.PI) / 360);
+    const fov = this.ctx.camera.fov;
+    if (typeof fov === 'number') this.zoom.set(`x${(half(this.settings.fov) / half(fov)).toFixed(1)}`);
     const d = rangeTo(this.ctx, 500);
     this.rangeShown.set(d > 0);
     this.range.set(Math.round(d));
@@ -68,6 +76,7 @@ export class Targeting {
   private radius: Num;
   private iconHost: HTMLElement;
   private rangeShown: Shown;
+  private danger: Flag;
   private current: CallInId | null = null;
   private clock = 0;
 
@@ -88,6 +97,7 @@ export class Targeting {
         this.iconHost,
         name,
       ),
+      div('tg-danger', 'DANGER CLOSE'),
       div('tg-readout',
         rangeRow,
         div('tg-read', span('tg-tag', 'blast'), radius, span('tg-tag', 'm')),
@@ -100,11 +110,13 @@ export class Targeting {
     this.range = new Num(range);
     this.radius = new Num(radius);
     this.rangeShown = new Shown(rangeRow, 'flex');
+    this.danger = new Flag(this.el, 'danger');
     this.shown.set(false);
   }
 
   update(s: HudState, dt: number): void {
     this.shown.set(s.targeting !== null);
+    this.danger.set(s.dangerClose);
     if (s.targeting === null) {
       this.current = null;
       return;
@@ -116,7 +128,7 @@ export class Targeting {
       this.iconHost.replaceChildren(markup(callInIcon(s.targeting)));
       this.name.set(info.name);
       this.radius.set(info.radius);
-      this.hint.set('click to confirm, right click to cancel');
+      this.hint.set(CALLIN_DEFS[s.targeting].hint);
     }
     this.clock -= dt;
     if (this.clock > 0) return;

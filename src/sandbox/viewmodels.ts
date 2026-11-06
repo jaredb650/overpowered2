@@ -144,39 +144,42 @@ export default async function viewmodelSandbox(params: URLSearchParams): Promise
   await rig.init(ctx);
   console.log(`[vm] rig built in ${(performance.now() - t0).toFixed(0)} ms`);
 
-  let triangles = 0;
-  let draws = 0;
   if (view === 'inspect') {
     const kit = new Kit(rig.mats);
     const off = buildOffhand(kit);
     const devices: Record<string, Model> = { walkie: off.walkie, designator: off.designator, grenade: off.grenade };
     const pivot = new THREE.Group();
-    const yaw = Number(params.get('yaw') ?? 150) * Math.PI / 180;
-    const pitch = Number(params.get('pitch') ?? 10) * Math.PI / 180;
-    const dist = Number(params.get('dist') ?? 0.75);
-    const focus = new THREE.Vector3(Number(params.get('fx') ?? 0), Number(params.get('fy') ?? 0.02), Number(params.get('fz') ?? -0.08));
-    pivot.position.set(0, 0, -dist);
-    pivot.rotation.set(pitch, yaw, 0, 'XYZ');
     rig.root.visible = false;
     render.viewScene.add(pivot);
-    const model = devices[weapon] ?? rig.allDefs[weapon]?.model;
-    if (!model) throw new Error(`no model ${weapon}`);
-    model.root.visible = true;
-    model.root.position.copy(focus).negate();
-    model.root.parent?.remove(model.root);
-    pivot.add(model.root);
-    for (const k of ['walkie', 'designator', 'grenade']) if (k !== weapon) devices[k]!.root.visible = false;
-    triangles = model.triangles;
-    draws = model.draws;
-    const def = rig.allDefs[weapon];
-    if (def?.readout) {
-      rig.a.model = model;
-      rig.a.mag = ammo.mag;
-      rig.a.magSize = ammo.magSize;
-      def.readout(rig.a);
-    }
-    (window as unknown as { __vm: unknown }).__vm = { rig, model, pivot };
-    runLoop(ctx, () => render.render(), () => ({ calls: render.drawCalls(), tris: render.triangles(), triangles, draws }));
+    let shown: Model | null = null;
+    /** Puts one model on the turntable. A script can walk the whole arsenal without reloading the page. */
+    const show = (id: string): { triangles: number; draws: number } => {
+      const model = devices[id] ?? rig.allDefs[id]?.model;
+      if (!model) throw new Error(`no model ${id}`);
+      if (shown) pivot.remove(shown.root);
+      shown = model;
+      model.root.visible = true;
+      model.root.parent?.remove(model.root);
+      pivot.add(model.root);
+      const def = rig.allDefs[id];
+      if (def?.readout) {
+        rig.a.model = model;
+        rig.a.mag = ammo.mag;
+        rig.a.magSize = ammo.magSize;
+        def.readout(rig.a);
+      }
+      return { triangles: model.triangles, draws: model.draws };
+    };
+    const aim = (yawDeg: number, pitchDeg: number, dist: number, fx: number, fy: number, fz: number) => {
+      pivot.position.set(0, 0, -dist);
+      pivot.rotation.set(pitchDeg * Math.PI / 180, yawDeg * Math.PI / 180, 0, 'XYZ');
+      shown?.root.position.set(-fx, -fy, -fz);
+    };
+    const info = show(weapon);
+    aim(Number(params.get('yaw') ?? 150), Number(params.get('pitch') ?? 10), Number(params.get('dist') ?? 0.75),
+      Number(params.get('fx') ?? 0), Number(params.get('fy') ?? 0.02), Number(params.get('fz') ?? -0.08));
+    (window as unknown as { __vm: unknown }).__vm = { rig, pivot, show, aim, ids: () => [...Object.keys(rig.allDefs), ...Object.keys(devices)] };
+    runLoop(ctx, () => render.render(), () => ({ calls: render.drawCalls(), tris: render.triangles(), ...info }));
     return;
   }
 

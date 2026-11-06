@@ -1,0 +1,50 @@
+/* What the page needs before the HUD exists: the screen layer, the wordmark and the loading screen. */
+
+.screens { display: none; position: absolute; inset: 0; }
+.screens.live { display: block; pointer-events: auto; }
+.scr {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Cpath d='M1 1L19 8L12 12L8 19Z' fill='%23eef4f7' stroke='%23000' stroke-width='1.5'/%3E%3C/svg%3E") 1 1, default;
+}
+
+/* --- Wordmark: one line of Anton with the 2 cast in hot metal --- */
+
+.wm { display: flex; align-items: stretch; font-family: var(--display); line-height: 1.02; color: var(--ink); white-space: nowrap; }
+.wm-t { display: block; text-shadow: 0.022em 0.022em 0 #000; }
+.wm-2 { display: block; margin-left: 0.09em; padding: 0 0.13em; background: var(--hot); color: #000; }
+
+/* --- Loading --- */
+
+.scr-loading { background: #070b10; display: flex; flex-direction: column; justify-content: center; padding: 0 6rem; }
+.scr-loading .wm { font-size: 12rem; }
+.ld-pour { position: relative; width: 100%; height: 1.1rem; margin-top: 2.4rem; background: #18222c; overflow: hidden; }
+/* A translated block rather than a scaled one, so the stripes inside keep their shape at every fill. */
+.ld-fill {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: var(--hot);
+  transform: translate3d(-100%, 0, 0);
+  transition: transform 6s cubic-bezier(.08, .72, .25, 1);
+  will-change: transform;
+}
+.ld-run {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -4.14rem;
+  right: 0;
+  background: repeating-linear-gradient(105deg, transparent 0 1.5rem, rgba(0, 0, 0, 0.3) 1.5rem 2rem);
+  animation: op-ld-run 0.55s linear infinite;
+  will-change: transform;
+}
+/* One stripe period measured along the bar: 2rem over sin(105deg). */
+@keyframes op-ld-run { to { transform: translate3d(2.07rem, 0, 0); } }
+.ld-row { display: flex; justify-content: space-between; align-items: baseline; margin-top: 0.8rem; }
+.ld-label { color: var(--ink); font-size: 1.3rem; }
+.ld-pct { font: 3rem/1 var(--display); }
+.ld-log { display: flex; flex-direction: column; gap: 0.1rem; height: 7.2rem; margin-top: 0.3rem; }
+.ld-done { color: var(--dim); font-size: 1rem; font-weight: 500; }
+.ld-done::after { content: ' ok'; color: var(--steel); }

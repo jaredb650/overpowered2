@@ -105,7 +105,7 @@ export class Vitals {
     // Pickups jump by 25 or more in one frame, so a small rise can only be the regen tick.
     const rise = s.health - this.lastHealth;
     this.lastHealth = s.health;
-    if (s.regenerating || (rise > 0 && rise < 2)) this.regenHold = 0.35;
+    if (rise > 0 && rise < 2) this.regenHold = 0.35;
     else this.regenHold -= dt;
     this.regen.set(this.regenHold > 0 && frac < 1);
 

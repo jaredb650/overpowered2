@@ -3,17 +3,20 @@
  * The dial never repaints. Motion is two transforms, and the readout only writes when the integer changes.
  */
 import { clamp, damp } from '../../core/math';
+import { MOVE } from '../../player/tuning';
+import { OVERDRIVE_MIN_SPEED, SCORE } from '../../progression/data';
 import { Flag, Label, Num, div, markup, span } from '../dom';
 import { DASH_ICON } from '../icons';
 import type { HudState } from '../state';
 
-const MAX_SPEED = 60;
+/** Strafing tops out near 27 m/s. Past that is pads, blasts and Berserk, and the score's top speed tier sits here. */
+const MAX_SPEED = 50;
 const SWEEP_START = -118;
 const SWEEP = 236;
-/** Speed marks that mean something: ground top speed, the Overdrive floor, the soft-drag line. */
-const GROUND_TOP = 17;
-const OVERDRIVE_FLOOR = 25;
-const REDLINE = 45;
+/** Speed marks that mean something: a flat-out run, the Overdrive floor, and the first speed that earns a style bonus. */
+const GROUND_TOP = MOVE.runSpeed;
+const OVERDRIVE_FLOOR = OVERDRIVE_MIN_SPEED;
+const REDLINE = SCORE.blurSpeed;
 const PEAK_HOLD = 2.2;
 
 const angleOf = (speed: number) => SWEEP_START + (clamp(speed, 0, MAX_SPEED) / MAX_SPEED) * SWEEP;
@@ -36,7 +39,7 @@ function dialSvg(): string {
     const size = major ? ' tk-big' : '';
     keys += `<line class="tk-key${size}" ${line}/>`;
     ticks += `<line class="tk${size}${v >= REDLINE ? ' tk-red' : ''}" ${line}/>`;
-    if (v % 20 === 0) {
+    if (major) {
       const [tx, ty] = polar(65, a);
       labels += `<text class="tn${v >= REDLINE ? ' tn-red' : ''}" x="${tx.toFixed(2)}" y="${(ty + 5).toFixed(2)}">${v}</text>`;
     }

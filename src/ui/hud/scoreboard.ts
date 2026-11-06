@@ -9,7 +9,7 @@ export class Scoreboard {
   readonly el: HTMLElement;
   private body: HTMLElement;
   private held = false;
-  private frames = 0;
+  private clock = 0;
 
   constructor(private readonly report: RunReport) {
     this.body = div('stats');
@@ -22,19 +22,18 @@ export class Scoreboard {
     this.held = on;
     this.el.style.display = on ? '' : 'none';
     if (on) {
-      this.frames = 0;
+      this.clock = REFRESH;
       this.refresh();
     }
   }
 
-  update(held: boolean): void {
+  update(held: boolean, dt: number): void {
     this.setHeld(held);
     if (!held) return;
-    // Roughly twice a second; this only runs while the key is down and is not worth a clock.
-    if (++this.frames > REFRESH * 60) {
-      this.frames = 0;
-      this.refresh();
-    }
+    this.clock -= dt;
+    if (this.clock > 0) return;
+    this.clock = REFRESH;
+    this.refresh();
   }
 
   private refresh(): void {

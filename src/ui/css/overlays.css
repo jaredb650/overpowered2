@@ -67,6 +67,9 @@
   white-space: nowrap;
 }
 .tg-icon .ico { width: 2.5rem; height: 2.5rem; }
+.tg-danger { display: none; position: absolute; left: 50%; top: 13.6rem; padding: 0 0.9rem; background: var(--blood); color: #000; font: 2.4rem/1.16 var(--display); transform: translateX(-50%); white-space: nowrap; animation: op-blink 0.3s steps(1) infinite; }
+.targeting.danger .tg-danger { display: block; }
+.targeting.danger .tg-ring { border-color: var(--blood); }
 .tg-readout { position: absolute; left: calc(50% + 7.4rem); top: calc(50% - 2.7rem); display: flex; flex-direction: column; gap: 0.15rem; }
 .tg-read { display: flex; align-items: baseline; gap: 0.4rem; padding: 0.1rem 0.5rem; background: var(--plate); }
 .tg-tag { color: var(--steel); }

@@ -12,7 +12,7 @@ import { div } from './dom';
 import { HudState } from './state';
 import { RunReport } from './runreport';
 import { applyQuality, applySettings, loadSettings, type Settings } from './settings';
-import { CALLINS, ENEMY_NAMES, WEAPONS } from './data';
+import { CALLINS, WEAPONS, sourceName } from './data';
 import { pickupColor } from './icons';
 import { Vitals } from './hud/vitals';
 import { Arms } from './hud/arms';
@@ -30,14 +30,17 @@ import { LowFrame, Scope, Targeting } from './hud/overlays';
 import { DebugOverlays } from './hud/debug';
 import { Minimap, type MinimapPoint } from './hud/minimap';
 import { Scoreboard } from './hud/scoreboard';
+import { Stragglers } from './hud/stragglers';
 import { Screens, type ScreenName } from './screens/Screens';
 import { Flythrough } from './screens/flythrough';
+import { isTitanWave } from '../enemies/waves';
 
 /** What the HUD needs from core/Game.ts. Read lazily, because Game publishes itself after systems are built. */
 export interface GameHost {
   state: GameState;
   setState(to: GameState): void;
   newRun(): void;
+  clearRun(): void;
 }
 
 interface PickupSource {
@@ -49,6 +52,8 @@ const DEATH_BEAT = 1.5;
 /** Chrome refuses a lock for about 1.25 s after Esc, so a resume keeps asking for a little longer than that. */
 const LOCK_RETRY_FOR = 1.7;
 const LOCK_RETRY_EVERY = 0.3;
+/** A burst of fire or a jump press at the moment of death must not land on Run again before the report is read. */
+const GAME_OVER_HOLD = 0.8;
 
 export class Hud implements HudSystem {
   readonly state = new HudState();
@@ -77,6 +82,7 @@ export class Hud implements HudSystem {
   private debug: DebugOverlays;
   private minimap: Minimap;
   private scoreboard: Scoreboard;
+  private stragglers: Stragglers;
   private flythrough: Flythrough;
 
   private pickupPoints: MinimapPoint[] = [];
@@ -85,6 +91,8 @@ export class Hud implements HudSystem {
   private lockClock = 0;
   private lockRetry = 0;
   private lockAfter: 'run' | 'resume' | null = null;
+  /** True while the last frame saw the lock, so any way of losing it can be noticed. */
+  private lockHeld = false;
   private lockEverHeld = false;
 
   constructor(private readonly ctx: Ctx) {
@@ -93,6 +101,7 @@ export class Hud implements HudSystem {
     this.root.classList.add('op');
 
     this.worldLayer = new WorldLayer(ctx);
+    this.stragglers = new Stragglers(this.worldLayer);
     this.vitals = new Vitals();
     this.arms = new Arms(ctx);
     this.tach = new Tach();
@@ -105,7 +114,7 @@ export class Hud implements HudSystem {
     this.crosshair = new Crosshair(ctx);
     this.boss = new BossBar();
     this.bannerLanes = new Banner();
-    this.scope = new Scope(ctx);
+    this.scope = new Scope(ctx, this.settings);
     this.targeting = new Targeting(ctx);
     this.lowFrame = new LowFrame();
     this.debug = new DebugOverlays(ctx);
@@ -196,21 +205,16 @@ export class Hud implements HudSystem {
   }
 
   private onState(_from: GameState, to: GameState): void {
-    const inRun = to === 'playing' || to === 'paused';
     // The HUD hides for pause too: the stats table must not fight a dimmed copy of itself.
     this.hud.style.display = to === 'playing' ? '' : 'none';
-    this.setWorldView(inRun);
+    // The gun must not hang in the flythrough, or over the body on the game over screen.
+    const view = this.ctx.render.viewScene;
+    if (view instanceof THREE.Object3D) view.visible = to === 'playing' || to === 'paused';
+    this.flythrough.active = to === 'menu';
     if (to === 'playing') {
       this.screens.show('none');
       this.minimap.measure();
     }
-  }
-
-  /** The gun must not hang in the middle of the menu flythrough. */
-  private setWorldView(inRun: boolean): void {
-    const view = this.ctx.render.viewScene;
-    if (view instanceof THREE.Object3D) view.visible = inRun;
-    this.flythrough.active = !inRun;
   }
 
   private onRunStart(): void {
@@ -229,14 +233,16 @@ export class Hud implements HudSystem {
     this.boss.reset();
     this.bannerLanes.reset();
     this.minimap.reset();
+    this.stragglers.reset();
     this.arms.invalidate();
-    this.callIns.refreshKeys();
+    this.callIns.reset();
     this.scoreboard.setHeld(false);
   }
 
   private onWaveStart(wave: number, total: number, boss: boolean): void {
     const hard = wave >= 10;
-    this.bannerLanes.showBand(boss ? 'boss' : hard ? 'hard' : 'wave', boss ? `WAVE ${wave}` : `WAVE ${wave}`, boss ? 'titan inbound' : `${total} hostile`);
+    const sub = boss ? `${isTitanWave(wave) ? 'titan' : 'juggernaut'} inbound` : `${total} hostile`;
+    this.bannerLanes.showBand(boss ? 'boss' : hard ? 'hard' : 'wave', `WAVE ${wave}`, sub);
   }
 
   private onWaveClear(wave: number, bonus: number): void {
@@ -251,8 +257,7 @@ export class Hud implements HudSystem {
   }
 
   killerName(source: string): string {
-    const known = ENEMY_NAMES[source as keyof typeof ENEMY_NAMES];
-    return (known ?? source).toLowerCase();
+    return sourceName(source).toLowerCase();
   }
 
   // --- Flow ----------------------------------------------------------------------------------------------------
@@ -262,18 +267,21 @@ export class Hud implements HudSystem {
     const game = this.game;
     if (!game) return;
     this.ctx.audio.unlock?.();
+    // The press that chose this button must not also jump or fire on the first frame of the run.
+    this.ctx.input.endFrame?.();
     this.requestLock('run');
     game.newRun();
     this.pauseGuard = 2;
   }
 
-  /** From Resume. The game stays paused until the mouse is really back, unless this run never had a lock. */
+  /** From Resume. The game stays paused until the mouse is really back, unless this browser has never given it. */
   resume(): void {
     const game = this.game;
     if (!game || game.state !== 'paused') return;
     this.pauseGuard = 2;
-    if (!this.lockEverHeld) {
-      game.setState('playing');
+    // Chrome does not count Esc as a gesture, so a request from it can only fail. Say so now rather than after the retries.
+    if (this.lockEverHeld && navigator.userActivation?.isActive === false) {
+      this.screens.pauseHint('The browser wants a click. Click Resume or press Enter.');
       return;
     }
     this.requestLock('resume');
@@ -281,7 +289,9 @@ export class Hud implements HudSystem {
 
   pause(): void {
     const game = this.game;
-    if (!game || game.state !== 'playing') return;
+    // The death beat is already on its way to the game over screen.
+    if (!game || game.state !== 'playing' || this.deathClock > 0) return;
+    this.lockAfter = null;
     game.setState('paused');
     this.ctx.input.releaseLock?.();
     this.scoreboard.setHeld(false);
@@ -289,8 +299,9 @@ export class Hud implements HudSystem {
   }
 
   quitToMenu(): void {
-    this.ctx.time.clearScales();
+    this.lockAfter = null;
     this.ctx.input.releaseLock?.();
+    this.game?.clearRun();
     this.game?.setState('menu');
     this.screens.show('menu');
   }
@@ -303,12 +314,20 @@ export class Hud implements HudSystem {
   }
 
   private updateLock(dt: number): void {
+    const { input } = this.ctx;
     const game = this.game;
-    if (this.ctx.input.locked === true) {
-      this.lockEverHeld = true;
+    if (input.locked === true) {
+      this.lockHeld = this.lockEverHeld = true;
       if (this.lockAfter === 'resume') game?.setState('playing');
       this.lockAfter = null;
+      // A request still in flight when the player paused lands here, and a pause screen with no cursor is a trap.
+      if (game && game.state !== 'playing') input.releaseLock?.();
       return;
+    }
+    if (this.lockHeld) {
+      // Esc, Alt-Tab, a closed laptop: however the mouse went, the run stops.
+      this.lockHeld = false;
+      this.pause();
     }
     if (!this.lockAfter) return;
     this.lockClock -= dt;
@@ -316,12 +335,17 @@ export class Hud implements HudSystem {
     if (this.lockClock <= 0) {
       const after = this.lockAfter;
       this.lockAfter = null;
-      if (after === 'resume') this.screens.pauseHint('Click Resume to take the mouse back.');
+      // A browser that will not hand over the mouse at all still gets a game on the second ask.
+      if (after === 'resume' && !this.lockEverHeld) game?.setState('playing');
+      else {
+        this.pause();
+        this.screens.pauseHint('Click Resume to take the mouse back.');
+      }
       return;
     }
     if (this.lockRetry <= 0) {
       this.lockRetry = LOCK_RETRY_EVERY;
-      this.ctx.input.requestLock?.();
+      input.requestLock?.();
     }
   }
 
@@ -331,10 +355,12 @@ export class Hud implements HudSystem {
     if (this.deathClock > 0) return;
     const game = this.game;
     this.ctx.time.popScale('hud-death');
+    this.lockAfter = null;
     this.ctx.input.releaseLock?.();
     this.ctx.events.emit('run:end', { score: this.report.score, wave: this.report.wave, kills: this.report.kills });
     game?.setState('gameover');
     this.screens.show('gameover');
+    this.screens.holdInput(GAME_OVER_HOLD);
   }
 
   // --- Frame ---------------------------------------------------------------------------------------------------
@@ -354,7 +380,7 @@ export class Hud implements HudSystem {
     if (input.pressed?.('debugOverlay') === true) this.debug.toggleInfo();
 
     if (this.pauseGuard > 0) this.pauseGuard--;
-    else if (playing && this.deathClock <= 0 && input.pressed?.('pause') === true) this.pause();
+    else if (playing && input.pressed?.('pause') === true) this.pause();
 
     if (game && game.state !== 'playing' && game.state !== 'paused') return;
 
@@ -385,7 +411,8 @@ export class Hud implements HudSystem {
     this.lowFrame.update(s);
     this.debug.update(s, dt);
     this.minimap.update(s, dt, this.readPickups());
-    this.scoreboard.update(input.isDown?.('scoreboard') === true && playing === true);
+    this.stragglers.update(s);
+    this.scoreboard.update(input.isDown?.('scoreboard') === true && playing === true, dt);
     this.updateDeath(dt);
   }
 

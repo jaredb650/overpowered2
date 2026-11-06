@@ -138,7 +138,7 @@ export class BlackSun implements Strike {
     const room = probe.headroom(order.point.x, order.point.y + 0.5, order.point.z, B.height + 3);
     this.center.y += Math.min(B.height, room - 3);
     this.ball = new ctx.physics.R.Ball(B.pullRadius);
-    this.ring = new GroundRing(ctx, probe);
+    this.ring = new GroundRing(ctx);
     this.ring.setColor('#a56bff', 1.6);
 
     this.core = new THREE.Mesh(new THREE.SphereGeometry(1, 40, 24), new THREE.MeshBasicMaterial({ color: 0x000000, toneMapped: false, fog: false }));

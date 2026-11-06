@@ -88,7 +88,7 @@ export class Warthog implements Strike {
     const { ctx, probe } = kit;
     this.center.copy(order.point);
     this.heading.copy(order.heading);
-    this.strip = new GroundStrip(ctx, probe);
+    this.strip = new GroundStrip(ctx);
     this.strip.setColor(CALLINS.warthog.color, 2);
     this.ceiling = probe.headroom(this.center.x, this.center.y + 0.5, this.center.z, W.spawnHeight + 2) - 1.5;
     this.jet = kit.jet;

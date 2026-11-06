@@ -1,12 +1,13 @@
 /** Screen stack: one visible at a time, hard cuts between them, and a return path for guide and settings. */
 import type { Ctx } from '../../core/contracts';
+import { adoptLoading } from '../boot';
 import { div } from '../dom';
 import type { Hud } from '../Hud';
 import type { Settings } from '../settings';
 import { Nav } from './nav';
 import { GameOverScreen } from './gameover';
 import { GuideScreen } from './guide';
-import { LoadingScreen } from './loading';
+import type { LoadingScreen } from './loading';
 import { MainMenu } from './mainmenu';
 import { PauseScreen } from './pause';
 import { SettingsScreen } from './settingsScreen';
@@ -32,7 +33,7 @@ export class Screens {
 
   constructor(ctx: Ctx, hud: Hud, settings: Settings) {
     this.nav = new Nav(ctx);
-    this.loadingScreen = new LoadingScreen();
+    this.loadingScreen = adoptLoading();
     this.pauseScreen = new PauseScreen(hud);
     this.screens = {
       loading: this.loadingScreen,
@@ -84,8 +85,13 @@ export class Screens {
     this.pauseScreen.hint(text);
   }
 
+  holdInput(seconds: number): void {
+    this.nav.hold(seconds);
+  }
+
   update(dt: number): void {
     if (this.current === 'none') return;
+    this.nav.update(dt);
     this.screens[this.current].update?.(dt);
   }
 }

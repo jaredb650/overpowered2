@@ -1,9 +1,13 @@
 /** Settings: one general page and one for keys. Values apply and save the moment they change. */
 import type { Action, Ctx } from '../../core/contracts';
 import { clamp } from '../../core/math';
+import { labelForCode } from '../../input/bindings';
+import { KEY_GROUPS } from '../data';
 import { Label, Meter, div, h, span } from '../dom';
 import type { Hud } from '../Hud';
-import { DEFAULTS, GORE_LEVELS, QUALITY_LEVELS, applyQuality, applySettings, saveSettings, type Settings } from '../settings';
+import {
+  DEFAULTS, FOV_RANGE, GORE_LEVELS, QUALITY_LEVELS, SENSITIVITY_RANGE, applyQuality, applySettings, saveSettings, type Settings,
+} from '../settings';
 import type { Nav, NavItem } from './nav';
 import { menuButton } from './parts';
 import type { Screen } from './Screens';
@@ -16,30 +20,6 @@ interface Rebinder {
   resetBindings?: () => void;
   captureNext?: (cb: (code: string | null) => void) => void;
 }
-
-const KEY_GROUPS: readonly { title: string; rows: readonly [Action, string][] }[] = [
-  {
-    title: 'Move',
-    rows: [
-      ['forward', 'Forward'], ['back', 'Back'], ['left', 'Left'], ['right', 'Right'],
-      ['jump', 'Jump'], ['dash', 'Dash'], ['slide', 'Slide and slam'],
-    ],
-  },
-  {
-    title: 'Fight',
-    rows: [
-      ['fire', 'Fire'], ['aim', 'Aim and alt fire'], ['reload', 'Reload'], ['melee', 'Quick melee'],
-      ['grenade', 'Grenade'], ['interact', 'Interact'], ['weaponLast', 'Last weapon'],
-    ],
-  },
-  {
-    title: 'Call in',
-    rows: [
-      ['streak', 'Airstrike'], ['callinWarthog', 'Warthog'], ['callinOrbital', 'Orbital Lance'],
-      ['callinBlackSun', 'Black Sun'], ['callinNuke', 'Tactical Nuke'], ['scoreboard', 'Run stats'],
-    ],
-  },
-];
 
 const ACTION_NAMES = new Map<Action, string>(KEY_GROUPS.flatMap(g => g.rows));
 
@@ -116,8 +96,13 @@ class Stepper implements NavItem {
     private readonly tick: () => void,
   ) {
     const value = span('st-val');
-    this.el = div('row', span('row-k', label), div('stepper', span('st-arrow', '<'), value, span('st-arrow', '>')));
+    const back = span('st-arrow', '<');
+    this.el = div('row', span('row-k', label), div('stepper', back, value, span('st-arrow', '>')));
     this.text = new Label(value);
+    back.addEventListener('click', e => {
+      e.stopPropagation();
+      this.adjust(-1);
+    });
     this.refresh();
   }
 
@@ -165,17 +150,17 @@ export class SettingsScreen implements Screen {
     };
     const s = settings;
     const pct = (v: number) => `${Math.round(v * 100)}`;
-    const sensitivity = new Slider('Mouse sensitivity', 0.1, 4, 0.05, () => s.sensitivity, v => { s.sensitivity = v; }, v => v.toFixed(2), tick);
-    const fov = new Slider('Field of view', 70, 120, 1, () => s.fov, v => { s.fov = v; }, v => `${v}`, tick);
+    const sensitivity = new Slider('Mouse sensitivity', ...SENSITIVITY_RANGE, 0.05, () => s.sensitivity, v => { s.sensitivity = v; }, v => v.toFixed(2), tick);
+    const fov = new Slider('Field of view', ...FOV_RANGE, 1, () => s.fov, v => { s.fov = v; }, v => `${v}`, tick);
     const invert = new Stepper('Invert mouse', ['Off', 'On'], () => (s.invertY ? 1 : 0), v => { s.invertY = v === 1; }, tick);
+    const hop = new Stepper('Hold jump to hop', ['Off', 'On'], () => (s.holdToHop ? 1 : 0), v => { s.holdToHop = v === 1; }, tick);
     const master = new Slider('Master volume', 0, 1, 0.05, () => s.master, v => { s.master = v; }, pct, tick);
     const sfx = new Slider('Effects volume', 0, 1, 0.05, () => s.sfx, v => { s.sfx = v; }, pct, tick);
     const music = new Slider('Music volume', 0, 1, 0.05, () => s.music, v => { s.music = v; }, pct, tick);
     const quality = new Stepper('Graphics quality', QUALITY_LEVELS, () => s.quality, v => { s.quality = v; }, qualityTick);
     const gore = new Stepper('Gore', GORE_LEVELS, () => s.gore, v => { s.gore = v; }, tick);
-    this.refreshers = [sensitivity, fov, invert, master, sfx, music, quality, gore].map(r => () => r.refresh());
-
-    const general = [sensitivity, fov, invert, master, sfx, music, quality, gore];
+    const general = [sensitivity, fov, invert, hop, master, sfx, music, quality, gore];
+    this.refreshers = general.map(r => () => r.refresh());
     const keys = this.keyRows();
     const resetKeys = menuButton('Reset keys', () => this.resetKeys());
     resetKeys.el.classList.add('mi-small');
@@ -183,7 +168,7 @@ export class SettingsScreen implements Screen {
     this.panels = [
       {
         el: div('gd-panel', div('set-list',
-          span('gd-h', 'Mouse and view'), sensitivity.el, fov.el, invert.el,
+          span('gd-h', 'Controls and view'), sensitivity.el, fov.el, invert.el, hop.el,
           span('gd-h', 'Audio'), master.el, sfx.el, music.el,
           span('gd-h', 'Video'), quality.el, gore.el,
         )),
@@ -223,8 +208,8 @@ export class SettingsScreen implements Screen {
 
   private keyLabel(action: Action): string {
     const r = this.ctx.input as unknown as Rebinder;
-    const label = typeof r.labelFor === 'function' ? r.labelFor(action) : undefined;
-    return typeof label === 'string' && label ? label : 'Unbound';
+    const codes = typeof r.bindingsFor === 'function' ? r.bindingsFor(action) : undefined;
+    return Array.isArray(codes) && codes.length ? codes.map(labelForCode).join(' / ') : 'Unbound';
   }
 
   private keyRows(): { el: HTMLElement; rows: NavItem[] } {
@@ -258,8 +243,11 @@ export class SettingsScreen implements Screen {
     this.note.set('Esc cancels.');
     r.captureNext(code => {
       label.el.classList.remove('wait');
-      // The same keydown that ended the capture must not also move the menu.
-      requestAnimationFrame(() => { nav.suspended = false; });
+      // The input that ended the capture must not also drive the menu. A key is done with next frame, but a mouse
+      // button still has a release and a click to come, and that click lands on the row that started all this.
+      const free = () => requestAnimationFrame(() => { nav.suspended = false; });
+      if (code?.startsWith('Mouse')) addEventListener('mouseup', free, { once: true });
+      else free();
       if (code !== null) {
         const clashes = r.conflicts?.(code, action) ?? [];
         r.rebind?.(action, [code]);

@@ -1,6 +1,7 @@
 /** Everything the game-over screen and Tab overlay show. Fed by events, so nothing in gameplay knows it exists. */
 import type { Ctx } from '../core/contracts';
-import type { PerkId, PowerupId } from '../core/gameplay';
+import type { PerkId, PowerupId, WeaponId } from '../core/gameplay';
+import { WEAPONS } from './data';
 
 export class RunReport {
   score = 0;
@@ -20,15 +21,22 @@ export class RunReport {
   damageTaken = 0;
   callIns = 0;
   killedBy = '';
+  private hitFrame = -1;
   readonly weaponKills = new Map<string, number>();
   readonly perks = new Map<PerkId | PowerupId, number>();
 
   constructor(private readonly ctx: Ctx) {
     const on = ctx.events;
     on.on('weapon:fired', () => { this.shots++; });
-    on.on('enemy:hit', () => { this.hits++; });
+    on.on('enemy:hit', e => {
+      // Accuracy is shots that landed. Six pellets are one shot, and a call-in was never a shot at all.
+      if (!WEAPONS[e.damage.source as WeaponId] || this.hitFrame === this.ctx.time.frame) return;
+      this.hitFrame = this.ctx.time.frame;
+      this.hits++;
+    });
     on.on('enemy:killed', e => {
-      const source = e.damage?.source ?? 'unknown';
+      // Every sword move is the sword, in a table of what did the killing.
+      const source = e.damage.source.startsWith('sword') ? 'sword' : e.damage.source;
       this.weaponKills.set(source, (this.weaponKills.get(source) ?? 0) + 1);
       if (e.gibbed) this.gibs++;
       if (e.sliced) this.slices++;
@@ -47,6 +55,7 @@ export class RunReport {
     this.limbs = this.gibs = this.slices = this.damageTaken = this.callIns = 0;
     this.bestMultiplier = 1;
     this.killedBy = '';
+    this.hitFrame = -1;
     this.highAtStart = highScore;
     this.weaponKills.clear();
     this.perks.clear();

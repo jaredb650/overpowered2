@@ -6,6 +6,7 @@
  * That keeps the HUD alive at every stage of the build, and it makes this the only file that knows field names.
  */
 import { MOVE } from '../player/tuning';
+import { WEAPONS } from '../weapons/data';
 import type { Ctx } from '../core/contracts';
 import type {
   ActiveEffect, CallInId, EnemyInstance, WavePhase, WeaponId,
@@ -30,7 +31,6 @@ export class HudState {
   wallRunning = false;
   dashing = false;
   alive = true;
-  regenerating = false;
   dashCharges = MOVE.dashCharges;
   /** 0..1 progress of the charge currently refilling. */
   dashRefill = 0;
@@ -47,7 +47,7 @@ export class HudState {
   grenades = 0;
   /** 0..1 charge of the Lance or spin of the Buzzsaw. */
   charge = 0;
-  /** Live cone half-angle in radians, when the weapon system publishes one. */
+  /** Cone half-angle in radians. Weapons publish a 0..1 openness, but the shotgun's reticle draws the true cone. */
   spread = 0;
   /** Which swing of the sword chain comes next, 0 when idle. */
   swordStep = 0;
@@ -60,6 +60,8 @@ export class HudState {
   multiplier = 1;
   effects: readonly ActiveEffect[] = NO_EFFECTS;
   targeting: CallInId | null = null;
+  /** True while a strike aimed here would catch the player. */
+  dangerClose = false;
 
   wave = 0;
   phase: WavePhase = 'intermission';
@@ -78,7 +80,6 @@ export class HudState {
     this.wallRunning = bool(p.wallRunning);
     this.dashing = bool(p.dashing);
     this.alive = p.alive !== false;
-    this.regenerating = bool(p.regenerating);
     // The player stores charges as one float that climbs while recharging.
     const charges = num(p.dashCharges, MOVE.dashCharges);
     this.dashCharges = Math.floor(charges);
@@ -101,7 +102,7 @@ export class HudState {
     this.scoped = bool(w.scoped);
     this.grenades = num(w.grenades, 0);
     this.charge = num(w.charge, 0);
-    this.spread = num(w.spread, 0);
+    this.spread = WEAPONS[this.weapon].spread;
     this.swordStep = num(w.swordStep, 0);
 
     const g = ctx.progression as unknown as Record<string, unknown>;
@@ -113,6 +114,7 @@ export class HudState {
     this.multiplier = num(g.multiplier, 1);
     this.effects = Array.isArray(g.effects) ? (g.effects as ActiveEffect[]) : NO_EFFECTS;
     this.targeting = str<CallInId | ''>(g.targeting, '') || null;
+    this.dangerClose = bool(g.dangerClose);
 
     const waves = ctx.waves as unknown as Record<string, unknown>;
     this.wave = num(waves.wave, 0);

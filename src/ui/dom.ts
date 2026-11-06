@@ -1,9 +1,9 @@
 /**
  * DOM helpers for the HUD. Every helper here exists to keep per-frame updates cheap: a widget holds
  * one of these per value and calls set() each frame, and the DOM is touched only when the value changes.
+ *
+ * The loading screen uses this file, so it must stay free of imports that reach three.js.
  */
-import { clamp } from '../core/math';
-
 export type Kid = Node | string | null | undefined | false;
 
 export function h<K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', ...kids: Kid[]): HTMLElementTagNameMap[K] {
@@ -72,7 +72,7 @@ export class Meter {
   private q = -1;
   constructor(readonly el: HTMLElement, private readonly axis: 'X' | 'Y' = 'X') {}
   set(v: number): void {
-    const q = Math.round(clamp(v) * 1000);
+    const q = Math.round(Math.min(1, Math.max(0, v)) * 1000);
     if (q === this.q) return;
     this.q = q;
     this.el.style.transform = `scale${this.axis}(${q / 1000})`;

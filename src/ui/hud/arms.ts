@@ -5,8 +5,9 @@ import { Flag, Label, Meter, Shown, SLAM, div, markup, span } from '../dom';
 import { WEAPON_ORDER, WEAPONS } from '../data';
 import { GRENADE_ICON, weaponIcon } from '../icons';
 import type { HudState } from '../state';
+import { TUNING } from '../../weapons/data';
 
-const MAX_GRENADE_PIPS = 5;
+const MAX_GRENADE_PIPS = TUNING.grenade.max;
 
 class Slot {
   readonly el: HTMLElement;

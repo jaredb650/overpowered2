@@ -4,14 +4,27 @@
  * Systems are found by convention: src/<dir>/index.ts exports a factory. A missing module becomes a
  * no-op stub, so the game boots with whatever has been built so far.
  */
+import { loadingScreen, showLoading } from '../ui/boot';
 import { EventBus } from './events';
 import { GameTime } from './time';
 import { noop } from './stubs';
-import { Physics } from '../physics/Physics';
 import type { Ctx, GameEvents, GameState, GameSystem } from './contracts';
 import './gameplay';
 
 type Factory = (...args: never[]) => unknown;
+type Progress = (fraction: number, label: string) => void;
+
+/**
+ * Lets the loading screen paint between boot steps that would otherwise run back to back. A hidden tab never fires
+ * animation frames, so a timer backs it up.
+ */
+const breathe = () => new Promise<void>(done => {
+  const timer = setTimeout(done, 40);
+  requestAnimationFrame(() => {
+    clearTimeout(timer);
+    setTimeout(done, 0);
+  });
+});
 const modules = import.meta.glob<Record<string, Factory>>(['../*/index.ts', '../*/*/index.ts']);
 
 async function factory(dir: string, name: string): Promise<Factory | null> {
@@ -49,15 +62,20 @@ export class Game {
     ];
   }
 
-  async init(onProgress: (fraction: number, label: string) => void): Promise<void> {
+  async init(onProgress: Progress): Promise<void> {
     const c = this.ctx;
     this.ordered = this.frameOrder();
+    onProgress(BOOT.systems, 'Wiring the systems');
+    await breathe();
     for (const sys of [c.render, c.physics, c.input, ...this.ordered]) await sys.init?.(c);
-    onProgress(0.1, 'Building the Crucible');
-    await c.world.build?.((f, label) => onProgress(0.1 + f * 0.7, label));
-    onProgress(0.85, 'Waking the army');
+    onProgress(BOOT.world, 'Building the Crucible');
+    await breathe();
+    await c.world.build?.((f, label) => onProgress(BOOT.world + f * (BOOT.army - BOOT.world), label));
+    onProgress(BOOT.army, 'Waking the army');
+    await breathe();
     await c.characters.load?.();
     onProgress(1, 'Ready');
+    await breathe();
   }
 
   setState(to: GameState): void {
@@ -66,6 +84,14 @@ export class Game {
     this.state = to;
     this.ctx.time.paused = to !== 'playing';
     this.ctx.events.emit('game:state', { from, to });
+  }
+
+  /** Empties the map, so nothing a run left behind stands frozen in the menu's flythrough. */
+  clearRun(): void {
+    const c = this.ctx;
+    c.time.clearScales();
+    for (const sys of this.ordered) sys.reset?.();
+    c.render.reset?.();
   }
 
   /** Starts a fresh run. */
@@ -91,7 +117,8 @@ export class Game {
       c.audio.update?.();
       c.hud.update?.();
     }
-    c.render.render();
+    // Behind a screen nothing moves but a slow dolly, so a laptop sitting on the menu should not pay for full rate.
+    if (this.state === 'playing' || c.time.frame % (this.state === 'menu' ? 2 : 4) === 0) c.render.render();
     c.input.endFrame?.();
   }
 
@@ -129,19 +156,31 @@ export class Game {
   }
 }
 
-export async function createCtx(canvas: HTMLCanvasElement): Promise<Ctx> {
+/** Where each boot stage starts on the loading bar, from measured timings. Sized so the bar moves at a steady rate. */
+const BOOT = { physics: 0.02, render: 0.05, audio: 0.16, gameplay: 0.2, systems: 0.3, world: 0.38, army: 0.93 };
+
+export async function createCtx(canvas: HTMLCanvasElement, onProgress: Progress = () => {}): Promise<Ctx> {
+  const step = async (fraction: number, label: string) => {
+    onProgress(fraction, label);
+    await breathe();
+  };
+  await step(BOOT.physics, 'Loading the engine');
+  const { Physics } = await import('../physics/Physics');
   const ctx = {
     time: new GameTime(),
     events: new EventBus<GameEvents>(),
     physics: await Physics.create(),
   } as unknown as Ctx;
+  await step(BOOT.render, 'Mixing materials');
   ctx.render = await build('render', 'createRenderSystem', 'render', canvas);
   ctx.input = await build('input', 'createInput', 'input', canvas);
+  await step(BOOT.audio, 'Tuning the mix');
   ctx.audio = await build('audio', 'createAudio', 'audio', ctx);
   ctx.fx = await build('fx', 'createFx', 'fx', ctx);
   ctx.world = await build('world', 'createWorld', 'world', ctx);
   ctx.characters = await build('characters', 'createCharacterLibrary', 'characters', ctx);
   ctx.gore = await build('gore', 'createGoreSystem', 'gore', ctx);
+  await step(BOOT.gameplay, 'Loading the armoury');
   ctx.player = await build('player', 'createPlayer', 'player', ctx);
   ctx.camera = await build('player', 'createCameraRig', 'camera', ctx);
   ctx.combat = await build('weapons', 'createCombat', 'combat', ctx);
@@ -158,11 +197,16 @@ export async function createCtx(canvas: HTMLCanvasElement): Promise<Ctx> {
  * URL flags: ?autostart=1 skips the menus. Bots read window.__op2.
  */
 export async function startGame(params: URLSearchParams): Promise<void> {
+  showLoading();
+  const report: Progress = (f, label) => {
+    loadingScreen.set(f, label);
+    performance.mark(`boot:${label}`);
+  };
   const canvas = document.getElementById('game') as HTMLCanvasElement;
-  const ctx = await createCtx(canvas);
+  const ctx = await createCtx(canvas, report);
   const game = new Game(ctx);
   (window as unknown as { __op2: unknown }).__op2 = { ctx, game, stats: () => game.stats() };
-  await game.init((f, label) => ctx.hud.loading?.(f, label));
+  await game.init(report);
   game.run();
   if (params.get('autostart')) game.newRun();
   else {

@@ -1,9 +1,11 @@
-/** Guide: movement, weapons, perks and enemies. Tabs cut instantly, and every panel fits without scrolling. */
-import type { Ctx } from '../../core/contracts';
+/** Guide: controls, movement, weapons, perks, call-ins and enemies. Tabs cut instantly, and every panel fits without scrolling. */
+import type { Action, Ctx } from '../../core/contracts';
 import type { CallInId, PerkId, PowerupId } from '../../core/gameplay';
+import { labelForCode } from '../../input/bindings';
 import { div, h, markup, span } from '../dom';
 import {
-  CALLIN_ORDER, CALLINS, CONTROLS_NOTE, ENEMY_GUIDE, ENEMY_NAMES, MOVEMENT_GUIDE, PERKS, POWERUPS, WEAPON_ORDER, WEAPONS,
+  CALLIN_NOTE, CALLIN_ORDER, CALLINS, CONTROLS_NOTE, ENEMY_GUIDE, ENEMY_NAMES, ENEMY_NOTE, GRENADE_NOTE, KEY_GROUPS, MOVEMENT_GUIDE, PERKS,
+  PICKUP_GUIDE, POWERUP_NOTE, POWERUPS, SLIDE_NOTE, WEAPON_ORDER, WEAPONS, WEAPONS_NOTE,
 } from '../data';
 import type { Hud } from '../Hud';
 import { GRENADE_ICON, weaponIcon } from '../icons';
@@ -11,10 +13,35 @@ import type { Nav, NavItem } from './nav';
 import { menuButton } from './parts';
 import type { Screen } from './Screens';
 
-function movementPanel(): HTMLElement {
+/** Keys that are not in the rebinding table, for the end of the controls panel. */
+const FIXED_KEYS: readonly [string, string][] = [
+  ['1 to 0', 'Pick a weapon'], ['Esc', 'Pause'], ['F3', 'Frame rate'], ['F4', 'Debug readout'],
+];
+
+/** Every key on an action, so the guide can never tell a player about a binding they changed. */
+function keysFor(ctx: Ctx, action: Action): string {
+  const codes = ctx.input.bindingsFor?.(action);
+  return Array.isArray(codes) && codes.length ? codes.map(labelForCode).join(' / ') : 'Unbound';
+}
+
+function controlsPanel(ctx: Ctx): HTMLElement {
+  const row = (key: string, name: string) => div('gd-krow', span('gd-key', key), span('gd-body', name));
+  return div('gd-panel',
+    div('gd-keys',
+      ...KEY_GROUPS.map(group => div('gd-kcol',
+        span('gd-h', group.title),
+        ...group.rows.map(([action, name]) => row(keysFor(ctx, action), name)),
+      )),
+      div('gd-kcol', span('gd-h', 'Fixed'), ...FIXED_KEYS.map(([key, name]) => row(key, name))),
+    ),
+    span('gd-note', SLIDE_NOTE),
+  );
+}
+
+function movementPanel(ctx: Ctx): HTMLElement {
   return div('gd-panel',
     div('gd-list gd-move', ...MOVEMENT_GUIDE.map(m =>
-      div('gd-row', span('gd-key', m.keys), span('gd-name', m.name), span('gd-body', m.body)),
+      div('gd-row', span('gd-key', m.action ? keysFor(ctx, m.action) : m.keys), span('gd-name', m.name), span('gd-body', m.body)),
     )),
     span('gd-note', CONTROLS_NOTE),
   );
@@ -27,9 +54,9 @@ function weaponsPanel(): HTMLElement {
         const w = WEAPONS[id];
         return div('gd-wrow', span('gd-key', w.key), markup(weaponIcon(id)), span('gd-name', w.name), span('gd-body', `${w.role}. ${w.note}`));
       }),
-      div('gd-wrow', span('gd-key', 'G'), div('gd-gren', markup(GRENADE_ICON)), span('gd-name', 'Frag'), span('gd-body', 'Three grenades, restocked by ammo pickups. Hold to cook. They can be shot out of the air.')),
+      div('gd-wrow', span('gd-key', 'G'), div('gd-gren', markup(GRENADE_ICON)), span('gd-name', 'Frag'), span('gd-body', GRENADE_NOTE)),
     ),
-    span('gd-note', 'Five weapons from the start. The other five arrive in weapon caches, marked on your HUD every second wave.'),
+    span('gd-note', WEAPONS_NOTE),
   );
 }
 
@@ -41,17 +68,27 @@ const chip = (color: string, text: string) => {
 
 function perksPanel(): HTMLElement {
   const perkIds = Object.keys(PERKS) as PerkId[];
+  return div('gd-panel',
+    div('gd-list', ...perkIds.map(id => div('gd-prow', chip(PERKS[id].color, PERKS[id].name), span('gd-trigger', PERKS[id].trigger), span('gd-body', PERKS[id].reward)))),
+  );
+}
+
+function callInsPanel(ctx: Ctx): HTMLElement {
   const powerIds = Object.keys(POWERUPS) as PowerupId[];
   return div('gd-panel gd-cols',
     div('gd-col',
-      span('gd-h', 'Perks'),
-      ...perkIds.map(id => div('gd-prow', chip(PERKS[id].color, PERKS[id].name), span('gd-trigger', PERKS[id].trigger), span('gd-body', PERKS[id].reward))),
+      span('gd-h', 'Call-ins'),
+      ...CALLIN_ORDER.map((id: CallInId) => div('gd-crow',
+        span('gd-key', keysFor(ctx, CALLINS[id].action)), chip(CALLINS[id].color, CALLINS[id].name), span('gd-trigger', `Combo ${CALLINS[id].combo}`), span('gd-body', CALLINS[id].note),
+      )),
+      span('gd-note', CALLIN_NOTE),
+      span('gd-h', 'Pickups'),
+      ...PICKUP_GUIDE.map(p => div('gd-prow gd-pw', span('gd-trigger', p.name), span('gd-body', p.note))),
     ),
     div('gd-col',
-      span('gd-h', 'Call-ins'),
-      ...CALLIN_ORDER.map((id: CallInId) => div('gd-prow gd-short', chip(CALLINS[id].color, CALLINS[id].name), span('gd-trigger', `Combo ${CALLINS[id].combo}`), span('gd-body', CALLINS[id].note))),
       span('gd-h', 'Powerups'),
-      div('gd-powers', ...powerIds.map(id => div('gd-prow gd-pw', chip(POWERUPS[id].color, POWERUPS[id].name), span('gd-body', POWERUPS[id].note)))),
+      ...powerIds.map(id => div('gd-prow gd-pw', chip(POWERUPS[id].color, POWERUPS[id].name), span('gd-body', POWERUPS[id].note))),
+      span('gd-note', POWERUP_NOTE),
     ),
   );
 }
@@ -59,8 +96,9 @@ function perksPanel(): HTMLElement {
 function enemiesPanel(): HTMLElement {
   return div('gd-panel',
     div('gd-list gd-enemies', ...ENEMY_GUIDE.map(e =>
-      div('gd-erow', span('gd-name', ENEMY_NAMES[e.id]), span('gd-trigger', e.role), span('gd-body', e.tip)),
+      div('gd-erow', span('gd-key', `Wave ${e.wave}`), span('gd-name', ENEMY_NAMES[e.id]), span('gd-trigger', e.role), span('gd-body', e.tip)),
     )),
+    span('gd-note', ENEMY_NOTE),
   );
 }
 
@@ -68,13 +106,13 @@ export class GuideScreen implements Screen {
   readonly el: HTMLElement;
   private tabs: NavItem[];
   private backItem: NavItem;
-  private panels: HTMLElement[];
+  private panels: (() => HTMLElement)[];
   private host: HTMLElement;
-  private active = 0;
 
   constructor(private readonly ctx: Ctx, private readonly hud: Hud) {
-    this.panels = [movementPanel(), weaponsPanel(), perksPanel(), enemiesPanel()];
-    const names = ['Movement', 'Weapons', 'Perks', 'Enemies'];
+    // Built on selection, because three of them show the player's current key bindings.
+    this.panels = [() => controlsPanel(ctx), () => movementPanel(ctx), weaponsPanel, perksPanel, () => callInsPanel(ctx), enemiesPanel];
+    const names = ['Controls', 'Movement', 'Weapons', 'Perks', 'Call-ins', 'Enemies'];
     this.tabs = names.map((label, i) => {
       const el = h('button', 'tab', label);
       el.type = 'button';
@@ -96,8 +134,7 @@ export class GuideScreen implements Screen {
   }
 
   private select(i: number): void {
-    this.active = i;
-    this.host.replaceChildren(this.panels[i]!);
+    this.host.replaceChildren(this.panels[i]!());
     this.tabs.forEach((t, k) => t.el.classList.toggle('on', k === i));
   }
 

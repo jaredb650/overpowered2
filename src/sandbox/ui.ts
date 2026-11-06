@@ -167,6 +167,7 @@ export default async function ui(params: URLSearchParams): Promise<void> {
       ctx.events.emit('run:start', {} as Record<string, never>);
       game.setState('playing');
     },
+    clearRun() {},
   };
 
   runLoop(ctx, () => {

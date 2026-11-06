@@ -94,7 +94,7 @@ export class DropPods {
       ctx.render.scene.add(group);
       const entry = { kind: 'weaponCache' as const, position: new THREE.Vector3(), active: false };
       this.pods.push({
-        phase: 'spent', weapon: null, entry, group, doors, ring: new GroundRing(ctx, this.probe, 32, 3), timer: 0, trail: null, marker: null,
+        phase: 'spent', weapon: null, entry, group, doors, ring: new GroundRing(ctx), timer: 0, trail: null, marker: null,
       });
       this.entries.push(entry);
     }

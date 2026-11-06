@@ -1,5 +1,4 @@
 /** Small hard-surface details: the screws, rails and knurling that sell the scale of the big shapes. */
-import * as THREE from 'three';
 import { Kind, type Finish, type Mesher, type V3 } from './mesher';
 import { poly, type V2 } from './shapes';
 import { F } from './finishes';
@@ -20,6 +19,24 @@ export function screwX(m: Mesher, x: number, y: number, z: number, sign: 1 | -1,
 
 export function screwY(m: Mesher, x: number, y: number, z: number, r?: number, finish?: Finish): void {
   m.at([x, y, z], [-Math.PI / 2, 0, 0], () => screw(m, r, finish));
+}
+
+/** Hex bolt head with a washer, axis +Z. */
+export function hexBolt(m: Mesher, r = 0.0042, finish: Finish = F.steelDark): void {
+  m.use(finish);
+  m.lathe([[r * 1.35, r * 0.18, 0], [r * 1.35, 0, 0]], 12, { chamfer: 0 });
+  m.at([0, 0, r * 0.18], null, () => m.prism(ngonLoop(r, 6), r * 0.8, { bevel: r * 0.14 }));
+}
+
+function ngonLoop(r: number, n: number): V2[] {
+  const out: [number, number][] = [];
+  for (let i = 0; i < n; i++) out.push([Math.cos((i / n) * Math.PI * 2) * r, Math.sin((i / n) * Math.PI * 2) * r]);
+  return out;
+}
+
+/** Hex bolt on a surface facing +X or -X. */
+export function hexX(m: Mesher, x: number, y: number, z: number, sign: 1 | -1, r?: number, finish?: Finish): void {
+  m.at([x, y, z], [0, (sign * Math.PI) / 2, 0], () => hexBolt(m, r, finish));
 }
 
 /** Dome rivet, axis +Z. */
@@ -53,8 +70,6 @@ export function knurl(m: Mesher, r: number, length: number, finish: Finish, teet
   m.use(finish);
   const n = teeth * 2;
   const h = length / 2;
-  const v = new THREE.Vector3();
-  void v;
   m.surface(n, 6, (u, t, out) => {
     const i = Math.round(u * n);
     const j = Math.round(t * 6);

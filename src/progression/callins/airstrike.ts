@@ -24,7 +24,7 @@ export class Airstrike implements Strike {
 
   constructor(private readonly kit: StrikeKit, order: StrikeOrder) {
     this.point.copy(order.point);
-    this.ring = new GroundRing(kit.ctx, kit.probe);
+    this.ring = new GroundRing(kit.ctx);
     this.ring.setColor(CALLINS.airstrike.color, 2.2);
     this.ceiling = kit.probe.headroom(this.point.x, this.point.y + 0.5, this.point.z, A.finaleHeight + 2) - 1.5;
     kit.ctx.audio.play('walkietalkie_fire');

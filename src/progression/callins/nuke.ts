@@ -304,7 +304,7 @@ export class Nuke implements Strike {
   constructor(private readonly kit: StrikeKit, order: StrikeOrder, private readonly aftermath: NukeAftermath) {
     const { ctx, probe } = kit;
     this.zero.copy(order.point);
-    this.ring = new GroundRing(ctx, probe, 72, 3);
+    this.ring = new GroundRing(ctx);
     this.ring.setColor('#ff3020', 1.8);
     this.frontMat = new THREE.ShaderMaterial({
       vertexShader: FRONT_VERT, fragmentShader: FRONT_FRAG, uniforms: { uPower: { value: 1 } },

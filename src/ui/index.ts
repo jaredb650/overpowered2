@@ -2,6 +2,7 @@
 import '@fontsource/anton/latin-400.css';
 import '@fontsource-variable/jetbrains-mono/wght.css';
 import './css/base.css';
+import './css/boot.css';
 import './css/hud.css';
 import './css/perks.css';
 import './css/overlays.css';

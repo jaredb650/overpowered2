@@ -24,7 +24,7 @@ interface Reticle {
   gap: number;
   /** Added per shot, then decays. */
   kick: number;
-  /** Extra offset at 45 m/s, so the reticle breathes with speed without lying about accuracy. */
+  /** Extra offset at SPEED_FULL, so the reticle breathes with speed without lying about accuracy. */
   speedGap: number;
   /** Arms spin with the charge value. */
   spins?: boolean;
@@ -85,6 +85,9 @@ const RETICLES: Record<WeaponId, Reticle> = {
     gap: 0, kick: 5, speedGap: 1,
   },
 };
+
+/** About the strafing ceiling. */
+const SPEED_FULL = 30;
 
 const svgWrap = (inner: string) => `<svg class="xh-svg" viewBox="-80 -80 160 160" aria-hidden="true">${inner}</svg>`;
 
@@ -287,9 +290,15 @@ export class Crosshair {
     this.aimClock -= dt;
     if (this.aimClock > 0) return;
     this.aimClock = 1 / 12;
-    const { player, enemies } = this.ctx;
+    const { physics, player, enemies } = this.ctx;
     const hit = typeof enemies.raycast === 'function' ? enemies.raycast(player.eye, player.forward, 250) : null;
-    this.hostile.set(!!hit && hit.enemy?.alive === true);
+    if (!hit || hit.enemy?.alive !== true) {
+      this.hostile.set(false);
+      return;
+    }
+    // A reticle that reddens through a wall would be a wallhack.
+    const wall = typeof physics.raycast === 'function' ? physics.raycast(player.eye, player.forward, hit.distance) : null;
+    this.hostile.set(!wall);
   }
 
   update(s: HudState, dt: number, heat: number): void {
@@ -302,7 +311,7 @@ export class Crosshair {
     this.bloom = damp(this.bloom, 0, 13, dt);
     const d = this.def;
     const cone = d.trueCone ? this.coneUnits(s) : 0;
-    const gap = d.gap + cone + this.bloom + (Math.min(s.speed, 45) / 45) * d.speedGap;
+    const gap = d.gap + cone + this.bloom + (Math.min(s.speed, SPEED_FULL) / SPEED_FULL) * d.speedGap;
     const q = Math.round(gap * 4);
     if (q !== this.gapQ) {
       this.gapQ = q;

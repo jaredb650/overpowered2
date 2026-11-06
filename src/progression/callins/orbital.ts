@@ -109,7 +109,7 @@ export class Orbital implements Strike {
     const { ctx, probe } = kit;
     this.point.copy(order.point);
     this.lastScorch.copy(order.point);
-    this.ring = new GroundRing(ctx, probe, 40, 3);
+    this.ring = new GroundRing(ctx);
     this.ring.setColor(CALLINS.orbital.color, 2);
 
     this.columnMat = additive(BEAM_VERT, BEAM_FRAG, {

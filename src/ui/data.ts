@@ -1,7 +1,14 @@
-/** Display names, colours, and the copy behind the guide. Numbers here are design values from docs/DESIGN.md. */
+/**
+ * Display names, colours, and the copy behind the guide. Anything a tuning table already knows is read from that table,
+ * so the guide cannot drift from the game.
+ */
 import type { Action } from '../core/contracts';
 import type { CallInId, EnemyId, PerkId, PowerupId, WeaponId } from '../core/gameplay';
-import { CALLINS as CALLIN_DEFS, EFFECTS } from '../progression/data';
+import { MOVE } from '../player/tuning';
+import {
+  CACHE_ORDER, CALLINS as CALLIN_DEFS, CHAIN_REACTION_KILLS, COMBO_PERKS, DROP_POD, EFFECTS, MEGA, OVERDRIVE_MIN_SPEED, PICKUP, SCORE, STACK, WINDOWS,
+} from '../progression/data';
+import { SWORD, TUNING, WEAPONS as WEAPON_DEFS } from '../weapons/data';
 
 export const WEAPON_ORDER: readonly WeaponId[] = [
   'smg', 'shotgun', 'rocket', 'autocannon', 'sword', 'judge', 'lance', 'buzzsaw', 'kiln', 'stakegun',
@@ -14,18 +21,66 @@ export interface WeaponInfo {
   note: string;
 }
 
+const def = WEAPON_DEFS;
+
 export const WEAPONS: Record<WeaponId, WeaponInfo> = {
-  smg: { name: 'SMG', key: '1', role: 'Pixel-accurate, 20 rounds a second', note: 'Akimbo in Berserk: both guns fire.' },
-  shotgun: { name: 'Shotgun', key: '2', role: 'Six pellets, semi-auto', note: 'Point blank, pellets take limbs off.' },
-  rocket: { name: 'Rocket', key: '3', role: '100 damage, 8 m blast, one in the tube', note: 'Fire at your feet to rocket jump. Direct hits gib.' },
-  autocannon: { name: 'Autocannon', key: '4', role: '30 mm, instakill blast, 5 m radius', note: 'Right click to scope.' },
-  sword: { name: 'Sword', key: '5', role: 'Three-swing chain', note: 'Right click sweeps, hold to block bullets, then finish heavy.' },
-  judge: { name: 'Judge', key: '6', role: 'Revolver, 120 damage, six shots', note: 'A headshot ricochets to the next head.' },
-  lance: { name: 'Lance', key: '7', role: 'Railgun, charge and release', note: 'Pierces everything in line.' },
-  buzzsaw: { name: 'Buzzsaw', key: '8', role: 'Minigun, spins up to 50 rounds a second', note: 'Slows you down. Shreds limbs one by one.' },
-  kiln: { name: 'Kiln', key: '9', role: 'Flamethrower, short range', note: 'Burning enemies panic and spread fire.' },
-  stakegun: { name: 'Stakegun', key: '0', role: 'Rebar stakes', note: 'Pins bodies and limbs to walls.' },
+  smg: {
+    name: 'SMG', key: '1',
+    role: `${def.smg.damage} damage, ${def.smg.magSize} rounds, ${Math.round(1 / def.smg.interval)} a second, dead accurate`,
+    note: 'Akimbo during Berserk: both guns fire.',
+  },
+  shotgun: {
+    name: 'Shotgun', key: '2',
+    role: `${def.shotgun.pellets} pellets of ${def.shotgun.damage}, semi-auto`,
+    note: `Inside ${TUNING.shotgun.pointBlank} m the pellets take limbs off.`,
+  },
+  rocket: {
+    name: 'Rocket', key: '3',
+    role: `${def.rocket.damage} damage, ${TUNING.rocket.radius} m blast, one in the tube`,
+    note: 'Direct hits gib. Fire at your feet to rocket jump, for very little health.',
+  },
+  autocannon: {
+    name: 'Autocannon', key: '4',
+    role: `30 mm shell kills everything within ${TUNING.autocannon.radius} m, ${def.autocannon.magSize} a magazine`,
+    note: `Right click scopes. Bosses take ${TUNING.autocannon.bossDamage} a shell.`,
+  },
+  sword: {
+    name: 'Sword', key: '5',
+    role: `Hold left click for a three-swing chain that lunges up to ${SWORD.lunge.range} m`,
+    note: 'Hold right click to block bullets, release to sweep. Right click on swing 2 or 3 is the finisher blast.',
+  },
+  judge: {
+    name: 'Judge', key: '6',
+    role: `Revolver, ${def.judge.damage} damage, ${def.judge.magSize} shots`,
+    note: `A headshot jumps to the next ${TUNING.judge.ricochets} heads.`,
+  },
+  lance: {
+    name: 'Lance', key: '7',
+    role: 'Railgun. Hold to charge, release to fire',
+    note: 'Pierces everything in line and severs what it touches.',
+  },
+  buzzsaw: {
+    name: 'Buzzsaw', key: '8',
+    role: `Minigun, spins up to ${Math.round(1 / def.buzzsaw.interval)} rounds a second`,
+    note: 'Slows you while it fires. Shreds limbs one by one.',
+  },
+  kiln: {
+    name: 'Kiln', key: '9',
+    role: 'Flamethrower, short range',
+    note: 'Burning enemies panic and spread fire.',
+  },
+  stakegun: {
+    name: 'Stakegun', key: '0',
+    role: `Rebar stakes, ${def.stakegun.damage} damage`,
+    note: 'Pins bodies and limbs to walls.',
+  },
 };
+
+export const GRENADE_NOTE = `${TUNING.grenade.start} frags, up to ${TUNING.grenade.max}. Ammo pickups restock them. Hold to cook. Shoot one out of the air to set it off.`;
+
+export const WEAPONS_NOTE =
+  `Five weapons from the start. A weapon cache drops every ${DROP_POD.everyWaves === 2 ? 'second' : `${DROP_POD.everyWaves}th`} wave, marked on your HUD, ` +
+  `with the next of ${CACHE_ORDER.map(id => WEAPONS[id].name).join(', ')}. A gun that runs dry hands over to the next one with ammo, and sword kills refill your last gun.`;
 
 export interface CallInInfo {
   name: string;
@@ -44,12 +99,14 @@ const callIn = (id: CallInId, name: string, action: Action, note: string): CallI
 });
 
 export const CALLINS: Record<CallInId, CallInInfo> = {
-  airstrike: callIn('airstrike', 'Airstrike', 'streak', '15 rockets, then a finale.'),
-  warthog: callIn('warthog', 'Warthog', 'callinWarthog', '50 shells along the line you choose.'),
-  orbital: callIn('orbital', 'Orbital Lance', 'callinOrbital', 'Steer a burning beam for 6 seconds.'),
+  airstrike: callIn('airstrike', 'Airstrike', 'streak', '15 rockets across the mark, then a finale.'),
+  warthog: callIn('warthog', 'Warthog', 'callinWarthog', '50 shells along a line. Hold the click and drag to set its heading.'),
+  orbital: callIn('orbital', 'Orbital Lance', 'callinOrbital', 'A burning beam you steer for 6 seconds.'),
   blackSun: callIn('blackSun', 'Black Sun', 'callinBlackSun', 'Drags enemies and corpses in, then implodes.'),
-  nuke: callIn('nuke', 'Tactical Nuke', 'callinNuke', 'Whites out the map.'),
+  nuke: callIn('nuke', 'Tactical Nuke', 'callinNuke', 'Six seconds of siren, then it whites out the map.'),
 };
+
+export const CALLIN_NOTE = 'Your combo earns each one and is not spent. Press its key to aim, click to confirm, right click to cancel. The ring on the floor is the true blast.';
 
 export interface PerkInfo {
   name: string;
@@ -59,36 +116,49 @@ export interface PerkInfo {
 }
 
 const perk = (id: PerkId, name: string, trigger: string, reward: string): PerkInfo =>
-  ({ name, trigger, reward, color: EFFECTS[id].color });
+  ({ name, trigger, reward: `${EFFECTS[id].seconds} s. ${reward}`, color: EFFECTS[id].color });
+
+const within = (w: { need: number; span: number }, what: string) => `${w.need} ${what} in ${w.span} s`;
+const comboAt = (id: PerkId) => `Combo ${COMBO_PERKS.find(p => p.perk === id)!.at}`;
 
 export const PERKS: Record<PerkId, PerkInfo> = {
-  bloodthirst: perk('bloodthirst', 'Blood Thirst', '4 kills in 5 s', '10 s of 2x damage, bottomless mags, double pellets'),
-  hellfire: perk('hellfire', 'Hellfire', '10 kills in 10 s', '5 s of explosive rounds and huge instakill rockets'),
-  berserk: perk('berserk', 'Berserk', 'Combo 15', '10 s of 5x damage, 3x fire rate, 2x speed, akimbo, no damage taken'),
-  adrenaline: perk('adrenaline', 'Adrenaline', '3 sword kills in 3 s', 'Speed boost, stacks to 3'),
-  slowmo: perk('slowmo', 'Slowmo', '3 headshots in 3 s', '5 s with the world at quarter speed, you at full speed'),
-  sentinels: perk('sentinels', 'Sentinels', 'Combo 20', '20 s of three orbiting gun drones'),
-  chainStorm: perk('chainStorm', 'Chain Storm', 'Combo 30', '12 s of every kill arcing lightning'),
-  butcher: perk('butcher', 'Butcher', '3 limbs severed in 2 s', '8 s where every hit severs'),
-  skyfall: perk('skyfall', 'Skyfall', '3 airborne kills in 4 s', '8 s of unlimited air dashes and an explosive slam'),
-  chainReaction: perk('chainReaction', 'Chain Reaction', '3 kills from one explosion', '6 s of enemies exploding on death'),
-  overdrive: perk('overdrive', 'Overdrive', '5 kills above 25 m/s', '10 s of damage that scales with your speed'),
+  bloodthirst: perk('bloodthirst', 'Blood Thirst', within(WINDOWS.bloodthirst, 'kills'), `${STACK.damage.bloodthirst}x damage, bottomless mags, double pellets`),
+  hellfire: perk('hellfire', 'Hellfire', within(WINDOWS.hellfire, 'kills'), 'Explosive rounds, huge instakill rockets'),
+  berserk: perk('berserk', 'Berserk', comboAt('berserk'), `${STACK.damage.berserk}x damage, ${STACK.fireRate.berserk}x fire rate, ${STACK.speed.berserk}x speed, akimbo, no damage taken`),
+  sentinels: perk('sentinels', 'Sentinels', comboAt('sentinels'), 'Three gun drones orbit you'),
+  chainStorm: perk('chainStorm', 'Chain Storm', comboAt('chainStorm'), 'Every kill arcs lightning'),
+  adrenaline: perk('adrenaline', 'Adrenaline', within(WINDOWS.adrenaline, 'sword kills'), `+${STACK.adrenalinePerStack * 100}% speed, stacks to 3`),
+  slowmo: perk('slowmo', 'Slowmo', within(WINDOWS.slowmo, 'headshots'), 'The world at quarter speed, you at full speed'),
+  butcher: perk('butcher', 'Butcher', within(WINDOWS.butcher, 'limbs severed'), 'Every hit severs'),
+  skyfall: perk('skyfall', 'Skyfall', within(WINDOWS.skyfall, 'airborne kills'), 'Unlimited air dashes, explosive slam'),
+  chainReaction: perk('chainReaction', 'Chain Reaction', `${CHAIN_REACTION_KILLS} kills from one blast`, 'Enemies explode when they die'),
+  overdrive: perk('overdrive', 'Overdrive', `${WINDOWS.overdrive.need} kills above ${OVERDRIVE_MIN_SPEED} m/s`, `Damage rises with speed, up to ${STACK.overdriveMaxDamage}x`),
 };
 
 const power = (id: PowerupId, name: string, note: string) => ({ name, note, color: EFFECTS[id].color });
 
 export const POWERUPS: Record<PowerupId, { name: string; color: string; note: string }> = {
-  quad: power('quad', 'Quad', '4x damage'),
-  haste: power('haste', 'Haste', '1.5x speed and fire rate'),
+  quad: power('quad', 'Quad', `${STACK.damage.quad}x damage`),
+  haste: power('haste', 'Haste', `${STACK.speed.haste}x speed and fire rate`),
   vampire: power('vampire', 'Vampire', 'Kills heal you'),
   ricochet: power('ricochet', 'Ricochet', 'Bullets bounce'),
   shock: power('shock', 'Shock Rounds', 'Hits arc between enemies'),
   ghost: power('ghost', 'Ghost', 'Enemies lose you past 15 m'),
   magnet: power('magnet', 'Magnet', 'Pickups fly to you'),
   regen: power('regen', 'Regen', 'Fast health and ammo'),
-  frostNova: power('frostNova', 'Frost Nova', 'One use. Freezes enemies, frozen bodies shatter'),
-  timeWarp: power('timeWarp', 'Time Warp', 'One use. 5 s of slow-mo'),
+  frostNova: power('frostNova', 'Frost Nova', 'One use. Freezes enemies, and frozen bodies shatter'),
+  timeWarp: power('timeWarp', 'Time Warp', `One use. ${EFFECTS.timeWarp.seconds} s of slow-mo`),
 };
+
+export const POWERUP_NOTE = 'Capsules appear on a schedule, marked on your HUD, and last 15 s once taken.';
+
+export const PICKUP_GUIDE: readonly { name: string; note: string }[] = [
+  { name: 'Health', note: `+${PICKUP.health}. Kills drop these, and health also regenerates after ${MOVE.regenDelay} s without a hit` },
+  { name: 'Armor', note: `+${PICKUP.armor}. Takes two thirds of every hit` },
+  { name: 'Ammo', note: `${PICKUP.ammo * 100}% of every reserve and a grenade` },
+  { name: 'Mega Health', note: `+${MEGA.heal}, past your maximum. Respawns on the map` },
+  { name: 'Heavy Armor', note: `+${PICKUP.heavyArmor}. Respawns on the map` },
+];
 
 /** Combo rewards in ladder order, for the "next" line under the combo counter. */
 export const LADDER: readonly { combo: number; name: string; color: string }[] = [
@@ -108,35 +178,81 @@ export const ENEMY_NAMES: Record<EnemyId, string> = {
   skitter: 'Skitter', drone: 'Drone', juggernaut: 'Juggernaut', titan: 'Titan',
 };
 
-export const ENEMY_GUIDE: readonly { id: EnemyId; role: string; tip: string }[] = [
-  { id: 'husk', role: 'Melee swarm', tip: 'Runs straight at you and lunges. Keep moving.' },
-  { id: 'trooper', role: 'Ranged', tip: 'Shoots inside 30 m, backs off under 13 m. Close the gap.' },
-  { id: 'gunner', role: 'Close ranged', tip: 'Pushes in with a shotgun. Kill it before it arrives.' },
-  { id: 'brute', role: 'Heavy', tip: 'Minigun and armour plates. Shoot the plates off.' },
-  { id: 'stalker', role: 'Elite', tip: 'Dodges sideways when aimed at. Lead it or use blast.' },
-  { id: 'rocketeer', role: 'Area denial', tip: 'Shoot the backpack.' },
-  { id: 'sniper', role: 'Long range', tip: 'The laser shows the shot charging. Break the line.' },
-  { id: 'riot', role: 'Frontal shield', tip: 'Flank it, or shoot off the shield arm.' },
-  { id: 'leaper', role: 'Ambush', tip: 'Clings to walls and pounces. Look up.' },
-  { id: 'bomber', role: 'Suicide', tip: 'Shoot the tank and it takes the pack with it.' },
-  { id: 'burner', role: 'Zone', tip: 'Flamethrower. The tank explodes.' },
-  { id: 'warden', role: 'Support', tip: 'Shields and buffs its neighbours. Kill it first.' },
-  { id: 'skitter', role: 'Machine swarm', tip: 'Fast spider mine. Pop it at range.' },
-  { id: 'drone', role: 'Flyer', tip: 'Hovering gun. It falls and crashes when shot.' },
-  { id: 'juggernaut', role: 'Mini-boss', tip: 'Charges and slams. Armour comes off in stages.' },
-  { id: 'titan', role: 'Boss, every 10 waves', tip: 'Shoot off arms to stop attacks, legs to drop it.' },
+/** In order of arrival. `wave` is the first wave each one appears in, from ROSTER in enemies/waves.ts. */
+export const ENEMY_GUIDE: readonly { id: EnemyId; wave: number; role: string; tip: string }[] = [
+  { id: 'husk', wave: 1, role: 'Melee swarm', tip: 'Slow. The danger is the crowd. Herd them into a line and blow them up.' },
+  { id: 'trooper', wave: 1, role: 'Ranged', tip: 'Bursts inside 30 m and backs away under 13. Keep moving and it misses.' },
+  { id: 'gunner', wave: 2, role: 'Close ranged', tip: 'Shotgun inside 13 m. Kill it on the way in.' },
+  { id: 'bomber', wave: 3, role: 'Suicide', tip: 'Runs at you with a fuel tank. Shoot the tank and it takes the pack with it.' },
+  { id: 'brute', wave: 4, role: 'Heavy', tip: 'Minigun and armour plates. Shoot the plates off. Running into one stops you dead.' },
+  { id: 'juggernaut', wave: 5, role: 'Mini-boss', tip: 'Charges and slams. Armour comes off in stages. Dodge the charge.' },
+  { id: 'stalker', wave: 6, role: 'Elite', tip: 'The one fast enemy. Dodges sideways when aimed at. Use blast or the sword.' },
+  { id: 'rocketeer', wave: 7, role: 'Area denial', tip: 'Rockets from 56 m. Shoot the backpack.' },
+  { id: 'skitter', wave: 8, role: 'Machine swarm', tip: 'Spider mine. Pop it at range.' },
+  { id: 'leaper', wave: 9, role: 'Ambush', tip: 'Clings to walls and pounces. Look up.' },
+  { id: 'titan', wave: 10, role: 'Boss', tip: 'Every 10 waves. Shoot off the arms to stop attacks, the legs to drop it.' },
+  { id: 'riot', wave: 11, role: 'Frontal shield', tip: 'Flank it, or shoot off the shield arm.' },
+  { id: 'sniper', wave: 12, role: 'Long range', tip: 'The laser shows the shot charging. Break the line.' },
+  { id: 'drone', wave: 13, role: 'Flyer', tip: 'Hovering gun. It falls and crashes when shot.' },
+  { id: 'burner', wave: 14, role: 'Zone', tip: 'Flamethrower inside 10 m. Its tank explodes.' },
+  { id: 'warden', wave: 15, role: 'Support', tip: 'Shields and buffs its neighbours. Kill it first.' },
 ];
 
-export const MOVEMENT_GUIDE: readonly { keys: string; name: string; body: string }[] = [
-  { keys: 'WASD', name: 'Run', body: 'There is no sprint key. You reach 17 m/s in a fifth of a second.' },
-  { keys: 'Space', name: 'Bunny hop', body: 'Hold Space through a landing and you lose nothing. Strafe in the air to gain speed with no cap.' },
-  { keys: 'Space', name: 'Double jump', body: 'Jump again in the air. Your speed swings toward the keys you hold.' },
-  { keys: 'Shift', name: 'Dash', body: 'Two charges, 1.4 s each. Keeps your momentum and cancels a fall.' },
-  { keys: 'Ctrl / C', name: 'Slide', body: 'Keeps your speed and boosts on entry. Faster downhill. Jump out and keep all of it.' },
-  { keys: 'Ctrl / C', name: 'Ground slam', body: 'In the air: drop hard. The shockwave grows with fall height. Press Space on impact to bounce.' },
-  { keys: 'Hit a wall', name: 'Wall run', body: 'Any near-vertical wall at speed. 1.2 s with no gravity, then jump off for a boost.' },
-  { keys: 'Space', name: 'Wall kick', body: 'Jump near a wall while airborne, once per wall.' },
-  { keys: 'W', name: 'Mantle', body: 'Keep moving forward at a ledge and you climb it without losing speed.' },
+export const ENEMY_NOTE = 'Bumping a body costs nothing: every hit you take is a telegraphed attack. Maimed enemies keep coming, so finish them. With three left in a wave they all show on your HUD.';
+
+/** `action` shows the player's own key. `keys` is for anything that is not one key. */
+export const MOVEMENT_GUIDE: readonly { action?: Action; keys?: string; name: string; body: string }[] = [
+  { keys: 'WASD', name: 'Run', body: `No sprint key. You run at ${MOVE.runSpeed} m/s, planted and precise.` },
+  { action: 'jump', name: 'Bunny hop', body: 'Time a jump to the landing and you keep your speed. Miss it and you stumble. Settings has a hold-to-hop option.' },
+  { keys: 'W + A or D', name: 'Air strafe', body: 'In the air, strafe and turn the mouse the same way to gain speed, up to about 27 m/s.' },
+  { action: 'jump', name: 'Double jump', body: 'Jump again in the air. Your speed swings toward the keys you hold.' },
+  { action: 'dash', name: 'Dash', body: `${MOVE.dashCharges} charges, ${MOVE.dashRecharge} s each. A burst in the direction of your keys that also stops a fall. Jump out of it to keep more speed.` },
+  { action: 'slide', name: 'Slide', body: 'Boosts on entry and runs faster downhill. Jump out and keep the speed.' },
+  { action: 'slide', name: 'Ground slam', body: 'In the air: drop hard. The shockwave grows with the fall. Press jump on impact to bounce.' },
+  { keys: 'Jump + W', name: 'Wall run', body: 'Jump at a long wall at an angle, hold W and steer into it. About a second, then jump off for a boost.' },
+  { action: 'jump', name: 'Wall kick', body: 'Jump toward a wall while airborne. Once per wall.' },
+  { keys: 'Jump + W', name: 'Mantle', body: 'Jump at a ledge while holding W and you climb it without losing speed.' },
 ];
 
-export const CONTROLS_NOTE = 'Speed pays. Kills above 25 m/s feed Overdrive, and your speed tier multiplies your score.';
+/** Readable names for damage sources that are not a weapon or an enemy. */
+const SOURCE_NAMES: Readonly<Record<string, string>> = {
+  airstrike: 'Airstrike', warthog: 'Warthog', orbital: 'Orbital Lance', black_sun: 'Black Sun', nuke: 'Tactical Nuke',
+  sentinel: 'Sentinels', chain_storm: 'Chain Storm', chain_reaction: 'Chain Reaction', skyfall: 'Skyfall', slam: 'Ground slam',
+  grenade: 'Frag', sword_finisher: 'Sword finisher', sword_deflect: 'Deflected shot', drop_pod: 'Drop pod',
+  barrel: 'Barrel', tank: 'Tank', lava: 'Lava', crusher: 'Crusher', electric: 'Electric floor',
+};
+
+export function sourceName(source: string): string {
+  return WEAPONS[source as WeaponId]?.name ?? ENEMY_NAMES[source as EnemyId] ?? SOURCE_NAMES[source] ?? source.replace(/_/g, ' ');
+}
+
+export const CONTROLS_NOTE =
+  `Speed pays: your score multiplier steps up at ${SCORE.speedTiers.slice(1).map(t => t[0]).join(', ')} m/s, ` +
+  `and ${WINDOWS.overdrive.need} kills above ${OVERDRIVE_MIN_SPEED} m/s set off Overdrive.`;
+
+export const SLIDE_NOTE = 'Use C to slide. On Windows and Linux Ctrl+W closes the tab and no page can stop it, so Ctrl is risky while you hold W.';
+
+/** Rebindable actions, in the groups the settings screen and the guide show them. */
+export const KEY_GROUPS: readonly { title: string; rows: readonly [Action, string][] }[] = [
+  {
+    title: 'Move',
+    rows: [
+      ['forward', 'Forward'], ['back', 'Back'], ['left', 'Left'], ['right', 'Right'],
+      ['jump', 'Jump'], ['dash', 'Dash'], ['slide', 'Slide and slam'],
+    ],
+  },
+  {
+    title: 'Fight',
+    rows: [
+      ['fire', 'Fire'], ['aim', 'Aim and alt fire'], ['reload', 'Reload'], ['melee', 'Quick melee'],
+      ['grenade', 'Grenade'], ['weaponLast', 'Last weapon'], ['weaponNext', 'Next weapon'], ['weaponPrev', 'Previous weapon'],
+    ],
+  },
+  {
+    title: 'Call in',
+    rows: [
+      ['streak', 'Airstrike'], ['callinWarthog', 'Warthog'], ['callinOrbital', 'Orbital Lance'],
+      ['callinBlackSun', 'Black Sun'], ['callinNuke', 'Tactical Nuke'], ['scoreboard', 'Run stats'],
+    ],
+  },
+];

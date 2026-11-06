@@ -1,7 +1,7 @@
 /** Game over: the full run report. Space runs it back and Esc leaves, as in the first game. */
 import { Label, Shown, div, markup, span } from '../dom';
 import type { WeaponId } from '../../core/gameplay';
-import { PERKS, POWERUPS, WEAPONS } from '../data';
+import { PERKS, POWERUPS, WEAPONS, sourceName } from '../data';
 import type { Hud } from '../Hud';
 import { weaponIcon } from '../icons';
 import { Odometer } from '../hud/tally';
@@ -74,7 +74,7 @@ export class GameOverScreen implements Screen {
       bar.style.transform = `scaleX(${kills / max})`;
       return div('go-wrow',
         weapon ? markup(weaponIcon(source as WeaponId)) : div('go-noicon'),
-        span('go-wname', weapon?.name ?? source),
+        span('go-wname', sourceName(source)),
         span('go-wn', String(kills)),
         div('go-wtrack', bar),
       );
