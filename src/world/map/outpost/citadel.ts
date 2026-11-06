@@ -55,7 +55,7 @@ function westWing(s: Site): void {
   s.wall({ x0: -56, z0: -46, x1: -14, z1: -44, y1: HALL_TOP, openings: [{ at: -34, ...WIDE }] });
   s.solid(-56, COOLANT.pit - 1, -46, COOLANT.platform.x0, 0, -44);
   s.solid(COOLANT.platform.x1, COOLANT.pit - 1, -46, -14, 0, -44);
-  s.wall({ x0: -14, z0: -66, x1: -12, z1: -44, y0: COOLANT.pit - 1, y1: HALL_ROOF });
+  s.wall({ x0: -14, z0: COOLANT.farLip, x1: -12, z1: -44, y0: COOLANT.pit - 1, y1: HALL_ROOF });
   s.wall({ x0: -12, z0: -26, x1: -10, z1: -16, y1: WING, openings: [scripted('sallyWest', 2)] });
 }
 

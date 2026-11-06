@@ -4,11 +4,12 @@
 //
 //   nice -n 19 npx tsx tools/scripts/human-cases.ts [case,case] [seed]
 //
-// Cases: oneshot ranks execute refuse rescue rearm question grab orders ambush
+// Cases: oneshot ranks execute refuse rescue rearm question grab orders ambush, and with HUMAN_MAP=outpost: tower lane
 import * as THREE from 'three';
 
 const globals = globalThis as unknown as Record<string, unknown>;
-globals.location = { search: '?contract=outpost&map=killhouse' };
+const MAP = process.env.HUMAN_MAP ?? 'killhouse';
+globals.location = { search: `?contract=outpost&map=${MAP}` };
 const gradient = { addColorStop() {} };
 const paint: unknown = new Proxy({}, {
   get: (_, key) => (key === 'measureText' ? () => ({ width: 100 }) : String(key).endsWith('Gradient') ? () => gradient : () => undefined),
@@ -55,7 +56,7 @@ let highlit = 0;
 ctx.render.highlight = (meshes: unknown[]) => { highlit = Math.max(highlit, meshes.length); };
 ctx.characters = { spawn: fakeCharacter };
 const marks: string[] = [];
-ctx.hud = new Proxy(noop('hud') as object, { get: (t, k) => (k === 'marker' ? (_: unknown, label: string) => { marks.push(label); return () => {}; } : (t as any)[k]) });
+ctx.hud = new Proxy(noop('hud') as object, { get: (t, k) => (k === 'marker' || k === 'follow' ? (_: unknown, label: string) => { marks.push(label); return () => {}; } : (t as any)[k]) });
 ctx.progression = noop('progression');
 ctx.weapons = noop('weapons');
 ctx.campaign = noop('campaign');
@@ -328,6 +329,38 @@ const CASES: Record<string, () => void> = {
     run(70);
     const { issued, obeyed: done } = outpost.commander.orders;
     tally.orders = { issued, done, seen: seen.slice(0, 5), obeyed: obeyed.slice(0, 5) };
+  },
+  tower() {
+    // A gun and a marksman on Tower Two's platform, the player out on the apron 50 m down the East lane. Measures whether they stay up there.
+    fresh();
+    const top = new THREE.Vector3(40, 9.1, 12);
+    if (!world.nav.nearest(top, 4, top)) throw new Error('no floor on the tower');
+    player.teleport(new THREE.Vector3(40, 0.3, 62), 0);
+    run(0.2);
+    const men = squad(['brute', 'sniper'], 'veteran', top);
+    let shots = 0, rounds = 0;
+    ctx.combat.spawnProjectile = () => { rounds++; };
+    ctx.combat.fireRay = () => { shots++; return null; };
+    const y0 = men[0].position.y;
+    run(25);
+    tally.tower = { top: top.toArray().map(v => +v.toFixed(1)), stayedUp: men.map(e => +(e.position.y - y0).toFixed(1)), rounds, snipes: shots, sees: men.map(e => soldierOf(e)!.sees), range: +men[0].dist.toFixed(1), task: men.map(e => soldierOf(e)!.task), drill: soldierOf(men[0])!.squad.drill };
+  },
+  climb() {
+    // A belt at the foot of the wall. Does he go up onto something?
+    fresh();
+    player.teleport(new THREE.Vector3(30, 0.3, 50), 0);
+    run(0.2);
+    const foot = new THREE.Vector3(36, 0.3, 18);
+    world.nav.nearest(foot, 5, foot);
+    const men = squad(['brute', 'trooper', 'trooper'], 'veteran', foot);
+    const y0 = men[0].position.y;
+    const trail: string[] = [];
+    for (let i = 0; i < 12; i++) {
+      run(5);
+      const s = soldierOf(men[0])!;
+      trail.push(`${men[0].position.toArray().map((v: number) => v.toFixed(0)).join(',')} ${s.task} ${s.squad.drill}`);
+    }
+    tally.climb = { trail, y0: +y0.toFixed(1), y: +men[0].position.y.toFixed(1), route: soldierOf(men[0])!.route.count, stalls: soldierOf(men[0])!.stalls, spot: soldierOf(men[0])!.spot?.position.toArray().map(v => +v.toFixed(1)), high: outpost.cover.spots.filter(s => s.position.y > 4).length, spots: outpost.cover.spots.length };
   },
   ambush() {
     fresh();

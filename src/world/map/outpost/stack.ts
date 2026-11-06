@@ -83,7 +83,7 @@ function kickShaft(s: Site): void {
   s.wall({ x0: x0 - 0.4, z0: SN, x1: x0, z1: z1 + 0.4, y1: LEVEL.command });
   s.wall({ x0, z0: z1, x1: SX1, z1: z1 + 0.4, y1: LEVEL.command, openings: [{ at: (x0 + SX1) / 2, w: 3, y1: 3 }] });
   for (const y of [2, 4.5, 7]) k.geo.use('emissiveCyan').box(x0 + 0.03, y, (SN + z1) / 2, 0.012, 0.03, 2, FACE.px);
-  k.light((x0 + SX1) / 2, 5, (SN + z1) / 2, 'cyan', 14, 10);
+  k.light((x0 + SX1) / 2, 5, (SN + z1) / 2, 'cyan', 30, 11);
   s.words('EYES UP', (x0 + SX1) / 2, 3.4, z1 + 0.41, 0.5, 1, [0.14, 0.82, 0.9]);
 }
 
@@ -96,14 +96,14 @@ function dress(s: Site): void {
   s.words('STACK', 0, 3.2, SS - SKIN, 1.6, -1, ALARM);
   s.floorWords('ARROW', 0, 0, -31, Math.PI, 2, ALARM);
   // White at the bottom, red at the top: the climb is toward him.
-  s.fill(0, -2.2, -46, 22, 12, 'orange');
-  s.fill(-7, 3.4, -32, 18, 12, 'white');
-  s.fill(7, 3.4, -46, 16, 11, 'white');
-  s.fill(-7, 3.4, -56, 14, 11, 'white');
-  s.fill(7, 8.2, -38, 18, 12, 'orange');
-  s.fill(-7, 8.2, -50, 18, 12, 'orange');
-  s.fill(0, 12, -36, 22, 13, 'red');
-  s.fill(0, 12, -56, 30, 14, 'red');
+  s.fill(0, -2.2, -46, 46, 13, 'orange');
+  s.fill(-7, 3.4, -32, 40, 13, 'white');
+  s.fill(7, 3.4, -46, 36, 12, 'white');
+  s.fill(-7, 3.4, -56, 36, 12, 'white');
+  s.fill(7, 8.2, -38, 40, 13, 'orange');
+  s.fill(-7, 8.2, -50, 40, 13, 'orange');
+  s.fill(0, 12, -36, 44, 14, 'red');
+  s.fill(0, 12, -56, 54, 15, 'red');
   for (const [x, z] of [[-9.9, -34], [9.9, -40], [-9.9, -56]] as const) {
     s.lamp(x, 3.4, z, x > 0 ? -Math.PI / 2 : Math.PI / 2, 'white', 0);
     s.lamp(x, 8.4, z, x > 0 ? -Math.PI / 2 : Math.PI / 2, 'orange', 0);
@@ -157,12 +157,12 @@ function warRoom(s: Site): void {
   }
   // The wall map: the only big light in the room, and what the player sees through the glass from the bottom of the Stack.
   g.use('emissiveRed').box(2, r.y + 2.7, -78 + 0.02, 7, 0.6, 0.01, FACE.pz);
-  for (const x of [-6, 2, 10]) s.bar(x, WAR_CEIL, -72, 0, 4, 'red', 26, 13);
-  s.fill(0, 12, -68, 26, 12, 'red');
+  for (const x of [-6, 2, 10]) s.bar(x, WAR_CEIL, -72, 0, 4, 'red', 44, 14);
+  s.fill(0, 12, -68, 40, 13, 'red');
   // The way to the roof.
   const { x, w, foot, top } = ROOF_STAIR;
   s.stairs(x, foot, r.y, x, top, ROOF, w, 'concrete');
-  s.fill(x, 12, -76.2, 10, 8, 'white');
+  s.fill(x, 12, -76.2, 20, 9, 'white');
 }
 
 /** The end of the climb: open sky, the whole apron burning to the south, and the mast he calls his mortars from. */
@@ -204,8 +204,8 @@ function roof(s: Site): void {
   }
   machine(k, 18, ROOF, -74, 0.3, 2.6, 1.4, 1.6);
   for (const [cx, cz, yaw] of [[-18, -74, 0.6], [19, -30, -2.2]] as const) dish(s, cx, cz, yaw);
-  s.fill(0, ROOF + 2.2, -62, 16, 14, 'red');
-  s.fill(0, ROOF + 2.2, -38, 14, 14, 'white');
+  s.fill(0, ROOF + 2.6, -62, 44, 18, 'red');
+  s.fill(0, ROOF + 2.6, -38, 40, 18, 'white');
 }
 
 function dish(s: Site, x: number, z: number, yaw: number): void {

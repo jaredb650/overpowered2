@@ -67,9 +67,6 @@ const STOPPED = 0.25;
 const RAM_FROM = 2.5;
 const RAM_COOLDOWN = 0.9;
 const PLAYER_RADIUS = 0.45;
-/** How far ahead it looks for anything parked in the road, and how wide a thing has to be to count. */
-const ROAD_LOOK = 22;
-const SIDESTEP = 3.1;
 /** Chance a tank's men live to climb out of it. */
 const TANK_SURVIVOR = 0.35;
 
@@ -218,7 +215,7 @@ export class GroundVehicle extends Vehicle {
     if (this.engineFire) this.take(ENGINE_FIRE_BLEED * dt, null, this.source, this.position);
     if (!this.alive) return;
     this.look(dt);
-    if (!drive.done || this.clear < ROAD_LOOK) drive.sidestep(this.dodge, dt);
+    drive.sidestep(this.dodge, dt);
     drive.update(dt, this.clear);
     this.pose(dt);
     this.moved();

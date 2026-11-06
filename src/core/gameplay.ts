@@ -419,6 +419,8 @@ export interface HudSystem extends GameSystem {
   floatText(position: THREE.Vector3, text: string, color?: string): void;
   /** A world position marker, e.g. a weapon cache or powerup. Returns a remover. */
   marker(position: THREE.Vector3, label: string, color?: string): () => void;
+  /** The same, on something that moves. `target` must stay valid until the remover is called. */
+  follow(target: THREE.Vector3, label: string, color?: string): () => void;
   /** Loading screen progress. */
   loading(fraction: number, label: string): void;
   showScreen(screen: 'splash' | 'menu' | 'pause' | 'gameover' | 'guide' | 'settings' | 'none'): void;

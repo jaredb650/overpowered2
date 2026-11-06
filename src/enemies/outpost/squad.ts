@@ -115,6 +115,9 @@ const BLOCK_SECONDS = 9;
 const PLAN_LIFE = 16;
 /** After losing sight of it, a man keeps firing on the place for this long. */
 const LAST_SEEN_FIRE = 3;
+/** Metres above the threat that count as a commanding position, and how far a gunner will go to find one. */
+const HIGH_GROUND = 2.5;
+const CLIMB_REACH = 24;
 /** Seconds since anyone saw it that covering fire stops being covering anything. */
 const COVER_FIRE_STALE = 7;
 /** How wide and how fast a gun works its lane when it cannot see. */
@@ -163,7 +166,7 @@ const _p = new THREE.Vector3();
 const _q = new THREE.Vector3();
 const _reading: SpotReading = { hidden: false, canShoot: false, side: 0 };
 const _query: SpotQuery = {
-  anchor: _anchor, radius: 8, threat: new THREE.Vector3(), near: 0, far: 60, bearing: NaN, bearingSlack: 0.4, needShot: false, spacing: 2, uid: 0, from: new THREE.Vector3(), height: 0,
+  anchor: _anchor, radius: 8, threat: new THREE.Vector3(), near: 0, far: 60, bearing: NaN, bearingSlack: 0.4, needShot: false, spacing: 2, uid: 0, from: new THREE.Vector3(), height: 0, anyFloor: false,
 };
 
 export class OutpostSquad implements Squad {
@@ -442,6 +445,7 @@ export class OutpostSquad implements Squad {
   stopLying(): void {
     if (!this.lying) return;
     this.lying = false;
+    this.ambushUntil = 0;
     this.spring();
   }
 
@@ -541,8 +545,9 @@ export class OutpostSquad implements Squad {
   }
 
   private replan(now: number, goal: GoalId, facts: number): void {
-    if (this.drill) this.leaveDrill();
+    // The new goal first: what a drill leaves behind depends on whether the squad still means to lie in wait.
     this.goal = goal;
+    if (this.drill) this.leaveDrill();
     this.evenTeams();
     const { prices } = this;
     basePrices(prices);
@@ -668,19 +673,26 @@ export class OutpostSquad implements Squad {
   }
 
   private seek(s: Soldier, radius: number, near: number, far: number, bearing: number, needShot: boolean, target: THREE.Vector3 = this.threat): CoverSpot | null {
+    const q = this.queryFor(s, radius, near, far, target);
+    q.bearing = bearing;
+    q.needShot = needShot;
+    return this.outpost.cover.pick(q, _reading);
+  }
+
+  private queryFor(s: Soldier, radius: number, near: number, far: number, target: THREE.Vector3 = this.threat): SpotQuery {
     const q = _query;
     q.radius = radius;
     q.threat.copy(target);
     q.near = near;
     q.far = far;
-    q.bearing = bearing;
-    q.needShot = needShot;
+    q.bearing = NaN;
+    q.needShot = true;
     q.spacing = this.outpost.doctrine.spacing;
     q.uid = s.e.uid;
     q.from.copy(s.e.position);
-    // A belt or a long rifle wants height, and any tower on the map is worth a walk.
+    // A belt or a long rifle wants height.
     q.height = s.def.base ? 1 : 0;
-    return this.outpost.cover.pick(q, _reading);
+    return q;
   }
 
   private send(s: Soldier, spot: CoverSpot, urgency: Urgency, delay: number): void {
@@ -783,7 +795,7 @@ export class OutpostSquad implements Squad {
     this.axis.pointAt(this.filing ? COLUMN_LEG : BOUND_LENGTH, _anchor);
     const pace: Urgency = fresh ? 2 : 1;
     let i = 0;
-    for (const s of this.members) if (s.fighting && this.moveUp(s, pace, i * ORDER_STAGGER + s.team * 0.8, 7)) i++;
+    for (const s of this.members) if (s.fighting && !this.holdsHeight(s) && this.moveUp(s, pace, i * ORDER_STAGGER + s.team * 0.8, 7)) i++;
     if (i > 0 && !this.filing && this.leader) o.comms.say('moving', this.leader);
     this.stepUntil = now + STEP_TIMEOUT;
     return GOING;
@@ -799,8 +811,32 @@ export class OutpostSquad implements Squad {
     this.sector = this.bearingFromThreat();
     this.flankSide = this.id % 2 === 0 ? 1 : -1;
     this.coverFireUntil = now + COVER_FIRE_SECONDS;
+    this.climb();
     const gun = this.pick(0);
     if (gun) o.comms.say('pinning', gun);
+  }
+
+  /** A gun on a tower owns a lane the whole way down. A man with a belt who can get up onto something goes and does it. */
+  private climb(): void {
+    for (const s of this.members) {
+      if (!s.fighting || !s.def.base || s.task !== 'hold' || this.holdsHeight(s)) continue;
+      _anchor.copy(s.e.position);
+      _query.anyFloor = true;
+      const spot = this.outpost.cover.pick(this.queryFor(s, CLIMB_REACH, s.def.near, s.def.far * 2), _reading);
+      _query.anyFloor = false;
+      if (spot && spot !== s.spot && spot.position.y - s.e.position.y >= HIGH_GROUND && this.walksTo(s, spot)) this.send(s, spot, 2, 0);
+    }
+  }
+
+  /** A route to the foot of a tower is not a route up it. */
+  private walksTo(s: Soldier, spot: CoverSpot): boolean {
+    const { axis } = this;
+    return this.withinReach(s, spot.position) && Math.abs(axis.y[axis.count - 1]! - spot.position.y) < 1;
+  }
+
+  /** On height with a gun: he has what he came for, and nobody walks him down off it to go looking. */
+  private holdsHeight(s: Soldier): boolean {
+    return s.def.base && s.e.position.y - this.threat.y >= HIGH_GROUND;
   }
 
   private stepBaseOfFire(now: number): StepResult {

@@ -13,8 +13,6 @@ import type { OutpostSquad } from './squad';
 export type Task = 'hold' | 'move';
 export type HoldStage = 'hide' | 'peek';
 export type Fate = 'none' | 'flee' | 'surrender';
-/** Where a prisoner stands with the player. See prisoners.ts. */
-export type Captive = 'none' | 'kneeling' | 'held' | 'leaving';
 export type AidStage = 'none' | 'reach' | 'drag' | 'treat';
 export type Grenade = 'frag' | 'flash';
 /** What is in his hands. */
@@ -105,7 +103,8 @@ export class Soldier {
   surrenderedAt = 0;
   /** Finished kneeling: led off the map, or left to walk. */
   released = false;
-  captive: Captive = 'none';
+  /** The player has him by the collar. See prisoners.ts. */
+  collared = false;
   /** Already questioned. A man has one chance to talk. */
   questioned = false;
   /** He has been shot on his knees. Nothing makes him give up a second time. */
@@ -186,7 +185,7 @@ export class Soldier {
     this.fate = 'none';
     this.surrendered = this.released = false;
     this.surrenderedAt = 0;
-    this.captive = 'none';
+    this.collared = false;
     this.questioned = this.refused = false;
     this.hitAt = -99;
     this.judgeAt = this.watchedAt = 0;

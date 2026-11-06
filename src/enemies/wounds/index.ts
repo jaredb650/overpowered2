@@ -132,7 +132,7 @@ export class WoundSystem {
   /** Hands up on his knees: no plate is in the way and there is nothing to take the hit but him. */
   kneeling(e: Enemy): boolean {
     const s = soldierOf(e);
-    return s !== undefined && s.surrendered && s.captive !== 'held';
+    return s !== undefined && s.surrendered && !s.collared;
   }
 
   /** The damage model priced a neck or a skid as a head hit, which neither is. A man also lasts longer alight than a husk does. */

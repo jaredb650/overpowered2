@@ -324,13 +324,13 @@ export class Site {
           // Pulled in from the box edge, so the wobble cannot put a bag outside the collider.
           const inX = px + Math.sign((x0 + x1) / 2 - px) * (yaw === 0 ? 0 : bagW / 2), inZ = pz + Math.sign((z0 + z1) / 2 - pz) * (yaw === 0 ? bagW / 2 : 0);
           k.push(inX, cy, inZ, yaw + k.rand(-0.04, 0.04));
-          g.use('dirt').tint(s, s * 0.94, s * 0.8);
+          g.use('paintWhite').tint(0.46 * s, 0.42 * s, 0.32 * s);
           g.box(0, 0, 0, bagL * 0.5, (h / courses) * 0.56, bagW / 2, FACE.noBottom);
           k.pop();
         }
       }
     }
-    g.use('dirt').tint(0.8, 0.75, 0.62);
+    g.use('paintWhite').tint(0.36, 0.33, 0.26);
     g.slab((x0 + x1) / 2, y + h - 0.02, (z0 + z1) / 2, (x1 - x0) / 2 - 0.02, 0.02, (z1 - z0) / 2 - 0.02, 1, FACE.py);
     g.tint(1);
     this.cover(x0, z0, x1, z1, h, y);

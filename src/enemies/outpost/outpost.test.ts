@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import type { PhysicsSystem, RayHit } from '../../core/contracts';
 import { mulberry32 } from '../../core/math';
-import { CoverMap, type SpotQuery, type SpotReading } from './cover';
+import { CoverMap, type CoverSpot, type SpotQuery, type SpotReading } from './cover';
 import { composeOutpostWave, MAX_SQUAD, MIN_SQUAD, ROLE_OF, waveStrength } from './doctrine';
 import { Dread, killDread, moraleCeiling, moraleState } from './morale';
 import { Route, RouteFinder, type NavGrid } from './routes';
@@ -34,6 +34,9 @@ function grid(size: number, solid: (x: number, z: number) => boolean): NavGrid {
 }
 
 const v = (x: number, z: number) => new THREE.Vector3(x, 0, z);
+
+/** Open air: every ray runs clear. */
+const physicsWithNothing = (): PhysicsSystem => ({ raycastInto: () => false } as unknown as PhysicsSystem);
 
 describe('morale', () => {
   it('walks down through the states', () => {
@@ -167,7 +170,7 @@ describe('cover', () => {
   };
 
   const query = (threat: THREE.Vector3, anchor: THREE.Vector3): SpotQuery => ({
-    anchor, radius: 8, threat, near: 0, far: 60, bearing: NaN, bearingSlack: 0.4, needShot: false, spacing: 1, uid: 1, from: anchor, height: 0,
+    anchor, radius: 8, threat, near: 0, far: 60, bearing: NaN, bearingSlack: 0.4, needShot: false, spacing: 1, uid: 1, from: anchor, height: 0, anyFloor: false,
   });
 
   it('finds spots against the wall and tells low from tall', () => {
@@ -194,6 +197,17 @@ describe('cover', () => {
     expect(reading.hidden).toBe(true);
     expect(reading.canShoot).toBe(true);
     expect(reading.side).toBe(0);
+  });
+
+  it('gives a man who wants height the higher spot, and only looks on another floor when told to', () => {
+    const high: CoverSpot = { id: 1, position: new THREE.Vector3(10, 5, 10), low: 0, tall: 0, leanLeft: null, leanRight: null, claimedBy: 0 };
+    const floor: CoverSpot = { id: 2, position: new THREE.Vector3(11, 0, 10), low: 0, tall: 0, leanLeft: null, leanRight: null, claimedBy: 0 };
+    const map = new CoverMap(physicsWithNothing());
+    map.place([high, floor]);
+    const reading: SpotReading = { hidden: false, canShoot: false, side: 0 };
+    const q = { ...query(new THREE.Vector3(40, 0, 10), new THREE.Vector3(10, 0, 10)), height: 1 };
+    expect(map.pick(q, reading)).toBe(floor);
+    expect(map.pick({ ...q, anyFloor: true }, reading)).toBe(high);
   });
 
   it('never gives one spot to two men', () => {

@@ -57,8 +57,8 @@ function gunTower(s: Site, x: number, n: 1 | 2): void {
   // The searchlight points down the lane the tower owns.
   g.use('steelDark').bevel(x, deck + 1.75, z1 - 1, 0.42, 0.34, 0.42, 0.05);
   g.use('emissiveWhite').box(x, deck + 1.72, z1 - 0.56, 0.28, 0.24, 0.02, FACE.pz);
-  s.fill(x, deck - 1, z1 + 5, 44, 26, 'white');
-  s.fill(x, WALL.walk + 1.5, WALL.south, 4, 6, 'orange');
+  s.fill(x, deck - 1, z1 + 5, 130, 30, 'white');
+  s.fill(x, WALL.walk + 1.5, WALL.south, 10, 7, 'orange');
   s.plan.blocks.push({ x0, z0, x1, z1 });
 }
 
@@ -80,7 +80,7 @@ function mainGate(s: Site): void {
     s.mass('concreteDark', x0, 0, Z0 - 0.5, x1, H, Z1 + 0.5, 0.74, 1.6);
     g.use('hazard').box(n * a, GATE.h / 2, WALL.south, 0.002, GATE.h / 2, WALL.half + 0.5, n > 0 ? FACE.nx : FACE.px);
     g.use('emissiveRed').box((x0 + x1) / 2, GATE.h + 0.7, Z1 + 0.52, 1, 0.09, 0.02, FACE.pz);
-    k.light(n * (a + 1.5), GATE.h + 0.4, Z1 + 3, 'red', 16, 10);
+    k.light(n * (a + 1.5), GATE.h + 0.4, Z1 + 3, 'red', 30, 12);
     s.lamp(n * (a + 1.5), 4.6, Z1 + 0.5, 0, 'white', 0);
   }
   // Over the leaves: the lintel, and the name of the place.
@@ -89,8 +89,8 @@ function mainGate(s: Site): void {
   s.words('NO ENTRY', 0, 7.05, Z0 - 0.012, 1.2, -1, RED);
   // The track the leaves ride, which also marks the line the mission turns on.
   for (const z of [WALL.south - 0.22, WALL.south + 0.22]) s.line(-a, z - 0.05, a, z + 0.05, [0.3, 0.32, 0.36], 0.016);
-  s.fill(0, 5, Z1 + 6, 36, 20, 'white');
-  s.fill(0, 4.6, Z0 - 6, 22, 16, 'white');
+  s.fill(0, 5, Z1 + 6, 90, 24, 'white');
+  s.fill(0, 4.6, Z0 - 6, 60, 18, 'white');
   s.plan.gates.push({ x: 0, z: WALL.south, yaw: Math.PI / 2, w: GATE.half * 2, bay: true });
 }
 
@@ -115,7 +115,7 @@ function southWall(s: Site): void {
     s.barrier(c - 0.2, WALL.walk, Z0, c + 0.2, SKY, Z1);
     fence(s.k, [c, Z0, c, WALK_S], WALL.walk, 2.2, false);
   }
-  for (const lx of [-62, -22, 22, 62]) s.lamp(lx, 4.4, Z1 + 0.06, 0, 'orange', 22, 16);
+  for (const lx of [-62, -22, 22, 62]) s.lamp(lx, 4.4, Z1 + 0.06, 0, 'orange', 44, 18);
   signPanel(s.k, -20, 3.4, Z1 + 0.08, 0, 5, 1.25, signId('NO ENTRY'), true);
   signPanel(s.k, 20, 3.4, Z1 + 0.08, 0, 5, 1.25, signId('NO ENTRY'), true);
 }
@@ -164,9 +164,10 @@ function gateYard(s: Site): void {
     s.sandbags(m + 3, -6.4, m + 3.6, -3.7, 1.2);
     s.crate(n * 24 - 1.2, -8, n * 24 + 1.2, -6, 1.3, [0.46, 0.48, 0.42]);
     s.crate(n * 22 - 1, 1, n * 22 + 1, 3.4, 1.3, [0.5, 0.46, 0.42]);
-    s.fill(n * 18, 5, -4, 22, 16, 'white');
-    s.fill(n * 20, 3.6, 7, 12, 12, 'orange');
+    s.fill(n * 18, 4.6, -5, 70, 20, 'white');
+    s.fill(n * 20, 3.6, 7, 26, 14, 'orange');
   }
+  s.fill(0, 4.4, -7, 44, 14, 'white');
   // Painted down the middle to the door: a run in a straight line is what the place wants of you.
   for (let z = -8; z < 8; z += 4) s.floorWords('CHEVRON', 0, 0, z, 0, 2.2, [0.86, 0.72, 0.16]);
   for (const sx of [-1, 1]) s.line(sx * 3 - 0.09, -12, sx * 3 + 0.09, 10, [0.86, 0.72, 0.16], 0.016);

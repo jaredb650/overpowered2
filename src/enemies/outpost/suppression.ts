@@ -13,7 +13,7 @@ import type { AiWorld } from '../aiWorld';
 /** Metres from a round to the player at which it starts to tell. */
 const CRACK_RANGE = 3.4;
 /** What one round adds at the closest and what a round on the far side of a wall adds. */
-const PER_ROUND = 0.085;
+const PER_ROUND = 0.05;
 const THROUGH_COVER = 0.4;
 /** Seconds of quiet before it starts to lift, and how fast it lifts per second. */
 const LINGER = 0.35;

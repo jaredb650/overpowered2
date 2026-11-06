@@ -303,7 +303,7 @@ const surrender: Behaviour = {
 /** The player has him by the collar. Everything about where he is belongs to prisoners.ts. */
 const held: Behaviour = {
   name: 'held',
-  score: e => (soldierOf(e)?.captive === 'held' ? 7.5 : 0),
+  score: e => (soldierOf(e)?.collared ? 7.5 : 0),
   enter(e) {
     e.mode = 'hold';
     e.face = 'lock';

@@ -72,7 +72,7 @@ export const GALLERY = {
 } as const;
 
 /** Down from the far platform to the near deck. It arrives side-on at the lip end, so the deck is the whole run-up: see PARKOUR's note on strafing. */
-export const GALLERY_STAIR = { top: -24, foot: -14, north: -71.4, south: -68.4, landing: -11 } as const;
+export const GALLERY_STAIR = { top: -24, foot: -14, north: -70.7, south: -68.3, landing: -11 } as const;
 /** Up from the far deck into the kitchen. */
 export const KITCHEN_STAIR = { foot: 24, top: 34, north: -76, south: -73 } as const;
 

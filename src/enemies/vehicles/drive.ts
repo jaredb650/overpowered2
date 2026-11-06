@@ -76,7 +76,7 @@ export class Driver {
   }
 
   /** Metres of road left to the end of the route. */
-  private get remaining(): number {
+  get roadLeft(): number {
     const { route, leg } = this;
     const next = route[leg];
     if (!next) return 0;
@@ -89,7 +89,7 @@ export class Driver {
     const { route, leg } = this;
     const next = route[leg];
     if (!next) return 0;
-    return next.hold > 0 ? Math.hypot(next.x - this.x, next.z - this.z) : this.remaining;
+    return next.hold > 0 ? Math.hypot(next.x - this.x, next.z - this.z) : this.roadLeft;
   }
 
   /** `clear` is metres of free road ahead, for whatever is parked or driving there. */

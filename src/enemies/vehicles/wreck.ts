@@ -55,7 +55,7 @@ export class Wreck {
 
   constructor(
     private readonly sys: VehicleSystem, root: THREE.Object3D, readonly colliders: RAPIER.Collider[], private readonly def: WreckDef,
-    private readonly halfWidth: number, private readonly halfLength: number, readonly tag: string | null,
+    readonly halfWidth: number, readonly halfLength: number, readonly tag: string | null,
     /** Dead before the beat began: no blast, no flames. */
     private readonly cold = false,
   ) {

@@ -3,7 +3,7 @@
  * Bare ground from the cut to the gate, with towers looking down it, is what makes the first walk north feel as bad as it should.
  */
 import { FACE } from '../../kit/geo';
-import { barrier, container, fence, rubble, signPanel, truck, tyres } from '../../kit/props';
+import { barrier, container, rubble, signPanel, truck, tyres } from '../../kit/props';
 import { signId } from '../../kit/signs';
 import {
   carveAll, CITADEL, COVER_A, COVER_B, COVER_C, EDGE, LZ, LZ_RAMP, rect, type Rgb, SITE, SKY, WALL, WRECK,
@@ -86,8 +86,8 @@ function hesco(s: Site, x0: number, x1: number, z: number, h: number): void {
   for (let i = 0; i < n; i++) {
     const a = x0 + ((x1 - x0) * i) / n, b = x0 + ((x1 - x0) * (i + 1)) / n, m = (a + b) / 2;
     const t = k.rand(0.72, 0.98);
-    g.use('dirt').tint(t, t * 0.94, t * 0.82).bevel(m, h / 2, z, (b - a) / 2 - 0.02, h / 2 - 0.01, half - 0.02, 0.05);
-    g.use('dirt').tint(t * 0.6, t * 0.58, t * 0.52).box(m, h, z, (b - a) / 2 - 0.1, 0.012, half - 0.1, FACE.py);
+    g.use('paintWhite').tint(0.5 * t, 0.46 * t, 0.36 * t).bevel(m, h / 2, z, (b - a) / 2 - 0.02, h / 2 - 0.01, half - 0.02, 0.05);
+    g.use('dirt').tint(t, t * 0.94, t * 0.86).box(m, h, z, (b - a) / 2 - 0.1, 0.012, half - 0.1, FACE.py);
     g.tint(1).use('steelDark');
     for (const sz of [1, -1]) g.box(a, h / 2, z + sz * half, 0.03, h / 2, 0.03, FACE.sides);
     g.box(m, h * 0.34, z + half, (b - a) / 2, 0.016, 0.012, FACE.pz | FACE.py);
@@ -120,9 +120,9 @@ function lzCut(s: Site): void {
   s.frameFloor(LZ, y, 1, 0.22, [0.82, 0.74, 0.22]);
   // The pad. Paint, because anything raised would be a step toward the wall.
   const cx = (LZ.x0 + LZ.x1) / 2, cz = (LZ.z0 + LZ.z1) / 2;
-  s.line(cx - 5.4, cz - 5, cx - 3.6, cz + 5, [0.74, 0.76, 0.8], y + 0.014);
-  s.line(cx + 3.6, cz - 5, cx + 5.4, cz + 5, [0.74, 0.76, 0.8], y + 0.014);
-  s.line(cx - 3.6, cz - 0.8, cx + 3.6, cz + 0.8, [0.74, 0.76, 0.8], y + 0.014);
+  s.line(cx - 5.4, cz - 5, cx - 3.6, cz + 5, [0.36, 0.38, 0.42], y + 0.014);
+  s.line(cx + 3.6, cz - 5, cx + 5.4, cz + 5, [0.36, 0.38, 0.42], y + 0.014);
+  s.line(cx - 3.6, cz - 0.8, cx + 3.6, cz + 0.8, [0.36, 0.38, 0.42], y + 0.014);
   // Revetment: flush with the collider, because this face is what a player climbs.
   const face = (x0: number, z0: number, x1: number, z1: number, n: number) => {
     g.use('concrete').tint(0.74, 0.76, 0.8);
@@ -160,12 +160,12 @@ function lzCut(s: Site): void {
   s.spec.jump(-18, y, 96, -12, 0, 96);
 
   for (const [x, z, c] of [[LZ.x0 + 1.5, LZ.z0 + 1.5, 'cyan'], [LZ.x1 - 1.5, LZ.z0 + 1.5, 'cyan'], [LZ.x0 + 1.5, LZ.z1 - 1.5, 'red'], [LZ.x1 - 1.5, LZ.z1 - 1.5, 'red']] as const) {
-    s.fill(x, y + 2.2, z, 12, 12, c);
+    s.fill(x, y + 2.2, z, 26, 13, c);
   }
   for (const x of [LZ.x0, LZ.x1]) for (const z of [LZ.z0 + 6, LZ.z1 - 6]) {
     g.use(x < -40 ? 'emissiveCyan' : 'emissiveRed').box(x + (x < -40 ? 0.02 : -0.02), y + 0.1, z, 0.02, 0.08, 1.4, FACE.all);
   }
-  s.fill(cx, y + 3.8, cz, 22, 18, 'white');
+  s.fill(cx, y + 4.4, cz, 80, 24, 'white');
 }
 
 /** A guard hut with three doors, so it is a loop as well as cover, and the first thing worth running for. */
@@ -176,14 +176,15 @@ function guardhouse(s: Site): void {
   s.wall({ x0, z0: z1 - t, x1, z1, y1: top - slab, outside: 'poured', openings: [{ at: 26, ...door }] });
   s.wall({ x0, z0: z0 + t, x1: x0 + t, z1: z1 - t, y1: top - slab, outside: 'poured', openings: [{ at: 24, ...door }] });
   s.wall({ x0: x1 - t, z0: z0 + t, x1, z1: z1 - t, y1: top - slab, outside: 'poured', openings: [{ at: 24, ...door }] });
-  s.mass('concreteDark', x0 - 0.3, top - slab, z0 - 0.3, x1 + 0.3, top, z1 + 0.3, 0.8, 3);
+  // Flush with the walls: an overhang would stop the mantle this roof is for.
+  s.mass('concreteDark', x0, top - slab, z0, x1, top, z1, 0.8, 3);
   s.paintFloor('concreteDark', rect(x0 + t, z0 + t, x1 - t, z1 - t), 0.01, [0.8, 0.8, 0.84]);
   // Shelf along the north wall, flush, with a lamp over the one thing worth stopping for.
   s.crate(x0 + 0.5, z0 + t + 0.06, x0 + 3.1, z0 + t + 0.9, 1, [0.5, 0.54, 0.6]);
   s.crate(x1 - 3.1, z0 + t + 0.06, x1 - 0.5, z0 + t + 0.9, 1, [0.5, 0.54, 0.6]);
-  s.bar(24, top - slab, 24, 0, 3, 'white', 12, 7);
+  s.bar(24, top - slab, 24, 0, 3, 'white', 24, 8);
   g.use('emissiveRed').box(26, 2.8, z1 + 0.06, 0.8, 0.05, 0.02, FACE.pz);
-  s.lamp(24, 2.6, z1 + 0.05, 0, 'orange', 10, 8);
+  s.lamp(24, 2.6, z1 + 0.05, 0, 'orange', 24, 10);
   s.plan.fills.push({ x0, z0, x1, z1, rgb: [0.86, 0.8, 0.3], label: '' });
 }
 
@@ -206,11 +207,11 @@ function pumpHouse(s: Site): void {
     g.use('steel').cyl(x1 + 0.3, 0.8, z, x1 + 3.2, 0.8, z, 0.28, 0.28, 8);
     g.use('steel').cyl(x1 + 3.2, 0, z, x1 + 3.2, 0.8, z, 0.28, 0.28, 8);
   }
-  s.lamp(-60, 2.7, z1 + 0.02, 0, 'orange', 12, 9);
-  s.lamp(-60, 2.7, z0 - 0.02, Math.PI, 'orange', 10, 9);
+  s.lamp(-60, 2.7, z1 + 0.02, 0, 'orange', 26, 11);
+  s.lamp(-60, 2.7, z0 - 0.02, Math.PI, 'orange', 26, 11);
   signPanel(k, -60, 2.2, z1 + 0.04, 0, 3, 0.75, signId('COOLANT'), false);
   // A lamp on the roof, so it is worth a look from the ground.
-  s.fill(-60, 5.4, 50, 10, 8, 'orange');
+  s.fill(-60, 5.4, 50, 20, 9, 'orange');
   g.use('emissiveOrange').box(-60, 3.9, 47.4, 0.3, 0.3, 0.05, FACE.all);
 }
 
@@ -245,9 +246,8 @@ function fuelFarm(s: Site): void {
   s.spec.tank(52.5, 0, 47);
   s.spec.tank(70, 0, 48);
   for (const [x, z] of [[55, 42], [60, 41.5], [65, 42.5]] as const) s.spec.barrels(x, 0, z, 4, 1.05);
-  fence(k, [50, 66, 72, 66, 72, 49], 0, 2.4, true);
   g.use('emissiveRed').box(57, 7.9, 58, 0.14, 0.1, 0.14, FACE.all);
-  s.fill(61, 3.2, 49, 18, 14, 'orange');
+  s.fill(61, 3.2, 49, 44, 16, 'orange');
   s.plan.fills.push({ x0: 50, z0: 44, x1: 72, z1: 66, rgb: [0.86, 0.5, 0.2], label: '' });
 }
 
@@ -330,7 +330,8 @@ function wreck(s: Site): void {
   s.floorWords('BULLSEYE', mx, deck, mz + 2.6, 0.3, 2.2, [0.26, 0.22, 0.2]);
   contractor(s, 87.6, deck, 85, 2.5);
   // The only warm light for a hundred metres, so the eye finds it from the far side of the apron.
-  s.fill(84, deck + 2.6, 84, 26, 15, 'orange');
+  s.fill(84, deck + 2.6, 84, 70, 18, 'orange');
+  s.fill(70, 3.4, 76, 30, 14, 'orange');
   g.use('emissiveOrange').box(x1 - 3.5, deck + 0.06, mz + 1.5, 1, 0.05, 0.7, FACE.py);
   g.use('emissiveOrange').box(x1 - 6.5, deck + 0.05, mz - 2, 0.7, 0.04, 0.5, FACE.py);
   s.plan.fills.push({ x0, z0, x1, z1, rgb: [0.95, 0.5, 0.15], label: '' });
@@ -366,7 +367,7 @@ function scatter(s: Site): void {
   truck(k, 36, 0, 84, -1.1, 0);
   for (const [x, z] of [[-74, 78], [6, 88], [58, 88], [30, 72], [84, 66]] as const) tyres(k, x, 0, z, 4);
   for (const [x, z, yaw] of [[-8, 84, 0.4], [-70, 34 + 12, 0.3], [78, 74, 0.8], [46, 96, 0.2]] as const) hedgehog(s, x, z, yaw);
-  for (const [x, z, yaw] of [[-30, 46, 0], [30, 46, Math.PI], [-96, 46, 0.4], [96, 46, 2.7]] as const) k.mast(x, z, 0, 9, yaw, 'white', 56, 26);
+  for (const [x, z, yaw] of [[-30, 46, 0], [30, 46, Math.PI], [-96, 46, 0.4], [96, 46, 2.7], [-10, 76, 0.2], [34, 76, -0.2], [-74, 62, 0.5], [76, 62, -0.5]] as const) k.mast(x, z, 0, 9, yaw, 'white', 130, 28);
 }
 
 /** Crossed steel beams: too low to hide behind, high enough to break a line. */

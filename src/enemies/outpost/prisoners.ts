@@ -148,7 +148,7 @@ export class Prisoners {
   /** What a kneeling man makes of things. Runs on his think tick. */
   look(s: Soldier, now: number): void {
     const e = s.e;
-    if (s.captive === 'held') return;
+    if (s.collared) return;
     if (e.hasLos && e.dist < 40) s.watchedAt = now;
     if (now < s.judgeAt) return;
     s.judgeAt = now + JUDGE_EVERY;
@@ -184,7 +184,6 @@ export class Prisoners {
       this.o.prisoners--;
     }
     s.released = false;
-    s.captive = 'none';
     s.e.thinkAt = 0;
     s.e.behaviourUntil = 0;
   }
@@ -237,7 +236,7 @@ export class Prisoners {
     this.held = s;
     this.heldAt = w.now;
     this.keyHeld = -1;
-    s.captive = 'held';
+    s.collared = true;
     e.carried = true;
     e.thinkAt = 0;
     e.behaviourUntil = 0;
@@ -266,7 +265,7 @@ export class Prisoners {
     this.held = null;
     if (!s) return;
     s.e.carried = false;
-    if (s.captive === 'held') s.captive = 'none';
+    s.collared = false;
   }
 
   /** He is in the way of a round coming from the front. It hits him and it does not hit the player. */
@@ -303,7 +302,7 @@ export class Prisoners {
     if (!h) return;
     const { w } = this;
     const { player } = w.ctx;
-    if (!h.e.alive || !player.alive || w.now - this.heldAt > HOLD_SECONDS) {
+    if (!h.e.alive || !player.alive || player.parked || w.now - this.heldAt > HOLD_SECONDS) {
       const s = h;
       this.drop();
       if (s.e.alive) this.bolt(s);
@@ -418,9 +417,7 @@ export class Prisoners {
     if (text === this.prompted) return;
     this.clearPrompt();
     this.prompted = text;
-    _a.copy(s.e.center);
-    _a.y += 0.75;
-    this.unprompt = hud.marker(_a.clone(), text, PROMPT_COLOR);
+    this.unprompt = hud.follow(s.e.center, text, PROMPT_COLOR);
   }
 
   private nearest(): Soldier | null {
@@ -428,7 +425,7 @@ export class Prisoners {
     let best: Soldier | null = null;
     let bestD = REACH;
     for (const s of this.o.soldiers) {
-      if (!s.surrendered || s.released || s.captive === 'held' || s.fate !== 'surrender') continue;
+      if (!s.surrendered || s.released || s.collared || s.fate !== 'surrender') continue;
       const d = s.e.position.distanceTo(p.position);
       if (d >= bestD) continue;
       _a.subVectors(s.e.center, p.eye).normalize();
@@ -462,7 +459,6 @@ export class Prisoners {
   private letGo(s: Soldier): void {
     const { o, w } = this;
     if (this.held === s) this.drop();
-    s.captive = 'leaving';
     o.release(s);
     this.freed++;
     w.ctx.events.emit('prisoner:freed', { enemy: s.e });
@@ -475,7 +471,7 @@ export class Prisoners {
     if (o.prisoners > 0 || this.held) {
       for (let i = o.soldiers.length - 1; i >= 0; i--) {
         const s = o.soldiers[i]!;
-        if (s.surrendered && s.captive !== 'held' && s.hitAt >= s.surrenderedAt) this.refuse(s);
+        if (s.surrendered && !s.collared && s.hitAt >= s.surrenderedAt) this.refuse(s);
       }
       this.focus = this.held ? null : this.nearest();
       this.prompt(this.held ?? this.focus);

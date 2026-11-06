@@ -272,16 +272,77 @@ export default async function vehiclesLive(page, h) {
     log.t27 = await describe();
     await h.shot('heavy-27');
   }
+  if (step === 'turn') {
+    await page.evaluate(() => { window.__op2.ctx.player.modifiers.invulnerable = true; });
+    const kill = kind => page.evaluate(k => {
+      const v = window.__op2.ctx.enemies.vehicles;
+      const x = v.live.find(x => x.def.kind === k);
+      if (x) x.take(1e6, null, 'rocket', x.position);
+      return !!x;
+    }, kind);
+    await h.sleep(6000);
+    log.opening = await describe();
+    await kill('tank');
+    await h.sleep(9000);
+    log.bird = await describe();
+    const air = (await read()).live.find(v => v.kind === 'chopper');
+    if (air) { await face(0, 0, 30, air.x, air.y, air.z); await h.sleep(400); await h.shot('turn-bird'); }
+    await kill('tank');
+    await h.sleep(700);
+    await page.evaluate(() => {
+      const v = window.__op2.ctx.enemies.vehicles;
+      const x = v.live.find(x => x.def.kind === 'chopper');
+      const part = x?.parts.find(p => p.def.id === 'rotor');
+      if (part) { v.direct(part.collider, x.position, 100, 'rocket', 'rocket'); v.direct(part.collider, x.position, 100, 'rocket', 'rocket'); }
+    });
+    await h.sleep(5000);
+    log.afterBird = await describe();
+    await face(4, 0, 34, 0, 2, 10);
+    await h.sleep(6000);
+    log.bulwarkIn = await describe();
+    await h.shot('turn-bulwark');
+    await h.sleep(9000);
+    log.bulwarkHeld = await page.evaluate(() => {
+      const v = window.__op2.ctx.enemies.vehicles.live.find(x => x.def.kind === 'tank');
+      return v ? { x: v.drive.x, z: v.drive.z, yaw: v.drive.yaw, done: v.drive.done } : null;
+    });
+    await h.shot('turn-bulwark-held');
+    await kill('tank');
+    await h.sleep(3000);
+    await h.shot('turn-wreck');
+    log.end = await describe();
+    // Dies at the next checkpoint: the wreck has to be back in the gate afterwards.
+    await page.evaluate(() => { const { player } = window.__op2.ctx; player.modifiers.invulnerable = false; player.takeDamage({ amount: 9999, type: 'true', source: 'test' }); });
+    await h.sleep(7000);
+    log.redeployed = await describe();
+    log.wreckAfter = await page.evaluate(() => window.__op2.ctx.enemies.vehicles.wrecks.map(w => [w.tag, w.root.position.toArray().map(n => Math.round(n)), w.keep]));
+  }
   if (step === 'insertion') {
-    await h.sleep(12000);
-    log.t12 = await describe();
-    await h.shot('in-12');
-    await h.sleep(22000);
-    log.t34 = await describe();
-    await h.shot('in-34');
-    await h.sleep(30000);
-    log.t64 = await describe();
-    await h.shot('in-64');
+    const strike = () => page.evaluate(() => {
+      const s = window.__op2.ctx.progression.callInsManager.strikes.at(-1);
+      return s ? { clock: Math.round(s.clock), stage: s.seat.stage, at: s.frame.root.position.toArray().map(n => Math.round(n)), ends: Math.round(s.path.ends), next: s.nextMark } : null;
+    });
+    await h.sleep(8000);
+    log.s8 = await strike();
+    await h.shot('in-8');
+    await h.sleep(14000);
+    log.s22 = await strike();
+    log.d22 = await describe();
+    await h.shot('in-22');
+    // Skips to the last few marks, to see the ending without sitting through the lap.
+    await page.evaluate(() => {
+      const s = window.__op2.ctx.progression.callInsManager.strikes.at(-1);
+      s.clock = s.path.arrival(7) + 12;
+    });
+    await h.sleep(5000);
+    log.s30 = await strike();
+    await h.shot('in-hit');
+    await page.waitForFunction(() => window.__op2.campaign.runner.describe().beat === 'lockout', null, { timeout: 40000 });
+    await h.sleep(1500);
+    log.landed = await strike();
+    log.body = await page.evaluate(() => window.__op2.ctx.player.position.toArray().map(n => Math.round(n * 10) / 10));
+    log.after = await describe();
+    await h.shot('in-landed');
   }
 
   log.vehicles = await read();

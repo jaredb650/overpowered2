@@ -39,9 +39,9 @@ function sally(s: Site): void {
   s.crate(-9.4, -25.9, -6.8, -24.2, 1.3, [0.5, 0.48, 0.34]);
   s.crate(6.8, -25.9, 9.4, -24.2, 1.3, [0.5, 0.48, 0.34]);
   s.sandbags(-4.2, -20.4, 4.2, -19.6, 1.1);
-  for (const x of [-5.6, 5.6]) s.bar(x, r.ceil, -20, Math.PI / 2, 4, 'white', 22, 12);
-  s.lamp(-8.5, 3.2, -14 - SKIN, Math.PI, 'red', 8, 7);
-  s.lamp(8.5, 3.2, -14 - SKIN, Math.PI, 'red', 8, 7);
+  for (const x of [-5.6, 5.6]) s.bar(x, r.ceil, -20, Math.PI / 2, 4, 'white', 46, 15);
+  s.lamp(-8.5, 3.2, -14 - SKIN, Math.PI, 'red', 18, 9);
+  s.lamp(8.5, 3.2, -14 - SKIN, Math.PI, 'red', 18, 9);
   s.spec.pickup(-7, 0.3, -17);
 }
 
@@ -50,10 +50,10 @@ function southCorridor(s: Site): void {
   const r = SOUTH_CORRIDOR;
   s.dressRoom(r);
   s.line(r.x0, -17.56, r.x1, -17.44, r.paint, 0.012);
-  for (let x = -50; x < -12; x += 8.4) s.bar(x, r.ceil, -17.5, 0, 2.4, 'white', 9, 7);
+  for (let x = -50; x < -12; x += 8.4) s.bar(x, r.ceil, -17.5, 0, 2.4, 'white', 20, 8);
   // Half the corridor, so the gunner can get out of the nest and everybody else can get in.
   s.sandbags(-52.6, -19 + SKIN, -51.8, -17.7, 1.15);
-  s.lamp(-55.9, 2.4, -17.5, -Math.PI / 2, 'red', 9, 8);
+  s.lamp(-55.9, 2.4, -17.5, -Math.PI / 2, 'red', 22, 10);
   pipe(s.k, [-56, 2.95, -18.7, -12, 2.95, -18.7], 0.08, 'steelDark', 6, 6);
   pipe(s.k, [-56, 2.8, -18.7, -12, 2.8, -18.7], 0.05, 'steel', 9, 6);
 }
@@ -62,11 +62,11 @@ function northCorridor(s: Site): void {
   const r = NORTH_CORRIDOR;
   s.dressRoom(r);
   s.line(r.x0, -42.56, r.x1, -42.44, r.paint, 0.012);
-  for (let x = -52; x < -14; x += 9.5) s.bar(x, r.ceil, -42.5, 0, 2.4, 'white', 9, 7);
+  for (let x = -52; x < -14; x += 9.5) s.bar(x, r.ceil, -42.5, 0, 2.4, 'white', 20, 8);
   pipe(s.k, [-56, 2.95, -43.7, -12, 2.95, -43.7], 0.08, 'steelDark', 6, 6);
   s.sideWords('KEEP MOVING', -12 - SKIN, 2.2, -42.5, 0.7, -1, r.paint);
   // Where the cold air comes from: the way on, lit from the far side of the door.
-  s.lamp(-29.6, 3, -44 + SKIN, 0, 'cyan', 10, 8);
+  s.lamp(-29.6, 2.7, -44 + SKIN, 0, 'cyan', 18, 9);
 }
 
 /** A run of beds along a wall: one box, with frames and mattresses inside it. */
@@ -109,9 +109,9 @@ function bunks(s: Site): void {
   for (const r of BUNKS) {
     s.dressRoom(r);
     s.frameFloor(r, 0, 0.4, 0.12, r.paint);
-    s.bar((r.x0 + r.x1) / 2, r.ceil, -30, Math.PI / 2, 3, 'white', 14, 10);
-    s.fill((r.x0 + r.x1) / 2, 2.2, -24, 5, 7, 'white');
-    s.fill((r.x0 + r.x1) / 2, 2.2, -36, 5, 7, 'white');
+    s.bar((r.x0 + r.x1) / 2, r.ceil, -30, Math.PI / 2, 3, 'white', 34, 12);
+    s.fill((r.x0 + r.x1) / 2, 2.2, -24, 14, 9, 'white');
+    s.fill((r.x0 + r.x1) / 2, 2.2, -36, 14, 9, 'white');
     s.spec.pickup((r.x0 + r.x1) / 2, 0.3, -30);
   }
   const SHEET: Rgb = [0.5, 0.52, 0.46], WOOL: Rgb = [0.36, 0.4, 0.3];
@@ -174,8 +174,8 @@ function mess(s: Site): void {
     [20, -65, 0.2], [32, -66, -0.1], [40, -60, 0.5], [52, -64, 0], [18, -58, 1.4], [33, -56, -0.3], [39, -51, 0.15], [50, -57, 1.2], [22, -49, 0.3], [32, -49.6, -0.4], [52, -49, 0.6],
   ] as const) tableOver(s, x, z, yaw);
   for (const [x, z] of [[36, -63.6], [43.6, -55.6], [28, -56.8]] as const) tableUp(s, x, z);
-  for (const x of [20, 36, 50]) s.bar(x, r.ceil, -63, 0, 5, 'orange', 18, 13);
-  for (const x of [20, 36, 50]) s.bar(x, r.ceil, -51, 0, 5, 'orange', 18, 13);
+  for (const x of [20, 36, 50]) s.bar(x, r.ceil, -63, 0, 5, 'orange', 40, 15);
+  for (const x of [20, 36, 50]) s.bar(x, r.ceil, -51, 0, 5, 'orange', 40, 15);
   s.words('MESS', 36, 3.6, -69 + 0.08, 1.1, 1, r.paint);
   s.spec.pickup(16, 0.3, -48);
   s.spec.pickup(54, 0.3, -67);
@@ -195,7 +195,7 @@ function kitchen(s: Site): void {
   counter(14 + SKIN, -78 + SKIN, 16, -71);
   counter(38, -74.8, 45, -73.2);
   machine(k, 54, 0, -76.8, Math.PI, 3, 1.7, 1.4);
-  for (const x of [20, 40, 52]) s.bar(x, r.ceil, -74, 0, 3, 'white', 12, 9);
+  for (const x of [20, 40, 52]) s.bar(x, r.ceil, -74, 0, 3, 'white', 26, 10);
   // A rail round the stairs up from the gallery, so the hole in the floor is not a surprise.
   const { foot, top, north, south } = KITCHEN_STAIR;
   k.rail([foot, 0, north, top, 0, north]);
@@ -207,7 +207,7 @@ function eastCorridor(s: Site): void {
   const r = EAST_CORRIDOR;
   s.dressRoom(r);
   s.line(r.x0, -42.56, r.x1, -42.44, r.paint, 0.012);
-  for (let x = 16; x < 54; x += 9.5) s.bar(x, r.ceil, -42.5, 0, 2.4, 'white', 9, 7);
+  for (let x = 16; x < 54; x += 9.5) s.bar(x, r.ceil, -42.5, 0, 2.4, 'white', 20, 8);
   pipe(s.k, [12, 2.95, -43.7, 56, 2.95, -43.7], 0.08, 'steelDark', 6, 6);
   s.words('ARMOURY', 44, 3, -41 - SKIN, 0.6, -1, ARMOURY.paint);
 }
@@ -229,9 +229,9 @@ function armoury(s: Site): void {
   s.solid(46.6, 0, -40 + SKIN, 56 - SKIN, 2.4, -39.46, 'metal');
   s.crate(30.2, -34.8, 33, -33 - SKIN, 1.3, [0.3, 0.42, 0.34]);
   s.crate(53.2, -34.8, 55.9, -33 - SKIN, 1.3, [0.3, 0.42, 0.34]);
-  s.bar(37, r.ceil, -36.5, 0, 4, 'cyan', 12, 9);
-  s.bar(51, r.ceil, -36.5, 0, 4, 'cyan', 12, 9);
-  s.fill(44, 2.6, -36.5, 18, 9, 0x8cffc0);
+  s.bar(37, r.ceil, -36.5, 0, 4, 'cyan', 26, 10);
+  s.bar(51, r.ceil, -36.5, 0, 4, 'cyan', 26, 10);
+  s.fill(44, 2.6, -36.5, 34, 10, 0x8cffc0);
   g.use('emissiveCyan').box(44, 2.8, -40 + SKIN + 0.01, 1.8, 0.03, 0.01, FACE.pz);
   s.words('ARMOURY', 36, 2.7, -33 - SKIN, 0.7, -1, r.paint);
   doorHead(s, DOORS.armourySouth!.at[0], 3, -33 - SKIN, Math.PI, 3);
@@ -244,7 +244,7 @@ function guardRoom(s: Site): void {
   s.crate(12.2, -39.9, 15, -38.6, 1.15, DARK);
   s.crate(25.6, -34.2, 28.9, -33 - SKIN, 1.15, DARK);
   lockers(s, 24.4, -40 + SKIN, 28.9, -39.4, 2.1, [0.4, 0.42, 0.34]);
-  s.bar(20.5, r.ceil, -36.5, 0, 3, 'white', 12, 9);
+  s.bar(20.5, r.ceil, -36.5, 0, 3, 'white', 28, 11);
   s.spec.pickup(16, 0.3, -35);
 }
 
@@ -257,7 +257,7 @@ function plateHall(s: Site): void {
     for (const z of [r.z0 + 0.03, r.z1 - 0.03]) g.box(x, r.ceil / 2, z, 0.3, r.ceil / 2, 0.028, z < -20 ? FACE.pz : FACE.nz);
     g.box(x, r.ceil - 0.14, (r.z0 + r.z1) / 2, 0.2, 0.14, (r.z1 - r.z0) / 2, FACE.ny | FACE.px | FACE.nx);
     g.tint(1);
-    if (x < 54) s.bar(x + 4, r.ceil, -24, Math.PI / 2, 9, 'white', 26, 14);
+    if (x < 54) s.bar(x + 4, r.ceil, -24, Math.PI / 2, 9, 'white', 50, 16);
   }
   s.line(13, -24.1, 55, -23.9, r.paint, 0.012);
   s.line(13, -30.2, 55, -30.08, [0.5, 0.52, 0.56], 0.012);

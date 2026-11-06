@@ -50,7 +50,7 @@ function coolantHall(s: Site): void {
   // Cold light from below, so the gap reads as depth and the far side as a place to land.
   for (let x = x0 + 5; x < x1; x += 7.5) {
     g.use('emissiveCyan').box(x, pit + 0.04, -59, 2.6, 0.04, 6, FACE.py);
-    k.light(x, pit + 1.6, -59, 'cyan', 18, 12);
+    k.light(x, pit + 1.6, -59, 'cyan', 34, 14);
   }
   for (const [x, z] of [[-50, -62], [-40, -55], [-22, -63], [-18, -54], [-32, -60]] as const) machine(k, x, pit, z, k.rand(0, 3), 3.4, 2.2, 2.2);
   pipe(k, [-56, pit + 3, -66, -14, pit + 3, -66], 0.5, 'steelDark', 6, 10);
@@ -61,10 +61,9 @@ function coolantHall(s: Site): void {
 
   stump(s, -34, nearLip, -1);
   stump(s, -34, farLip, 1);
-  s.fill(-34, 3.2, -47.4, 26, 12, 'white');
-  s.bar(-34, 4.2, -44.5, 0, 3, 'white', 0, 0);
-  s.fill(-34, 3.6, -73, 34, 16, 'white');
-  s.fill(-48, 3, -73, 14, 12, 'cyan');
+  s.fill(-34, 3.4, -47.6, 60, 14, 'white');
+  s.fill(-34, 4, -73, 80, 20, 'white');
+  s.fill(-48, 3, -73, 30, 14, 'cyan');
   s.lamp(-34, 3.6, -78 + SKIN, 0, 'white', 0);
   signPanel(k, -44.6, 2.5, -46 + SKIN + 0.05, 0, 5, 1.25, signId('COOLANT'), true);
   signPanel(k, -23.4, 2.5, -46 + SKIN + 0.05, 0, 4, 1, signId('GAP AHEAD'), true);
@@ -74,7 +73,7 @@ function coolantHall(s: Site): void {
   s.floorWords('ARROW', -28, 0, -69.9, -Math.PI / 2, 2.2, CABLE_GALLERY.paint);
   k.rail([GALLERY_STAIR.top, 0, GALLERY_STAIR.north, -14, 0, GALLERY_STAIR.north]);
   k.rail([GALLERY_STAIR.top, 0, GALLERY_STAIR.south, -14, 0, GALLERY_STAIR.south]);
-  s.fill(-19, -1, -69.9, 12, 9, 'cyan');
+  s.fill(-19, -1, -69.5, 24, 10, 'cyan');
   s.spec.jump(-34, 0, nearLip + 0.6, -34, 0, farLip - 0.6);
 }
 
@@ -109,9 +108,9 @@ function gallery(s: Site): void {
     s.words('CHEVRON', 0, floor + 2.25, 0, 0.72, 1, COLD);
     k.pop();
   }
-  for (let x = -20; x <= 20; x += 8) k.light(x, floor + 1.6, north + 1.5, 'cyan', 12, 8);
+  for (let x = -20; x <= 20; x += 8) k.light(x, floor + 1.6, north + 1.5, 'cyan', 22, 9);
   // The south wall stays dark, so the eye has one thing to do. A little red in the trench says how far down it goes.
-  for (const x of [-7, 7]) k.light(x, trench + 1.4, -74.5, 'red', 10, 9);
+  for (const x of [-7, 7]) k.light(x, trench + 1.4, -74.5, 'red', 20, 10);
   // Cable trays on the south wall, tight against it, which is all this room was ever for.
   for (const y of [floor + 2.5, floor + 2.1, floor + 1.7]) {
     g.use('rubber').tint(0.8).box(0, y, south - 0.02, 21, 0.03, 0.018, FACE.nz | FACE.py);
@@ -132,9 +131,8 @@ function gallery(s: Site): void {
   s.paintFloor('concreteDark', rect(foot, sn, landing, ss), floor, r.floorTint);
   s.mass('concreteDark', landing, floor - 1, sn, landing + 1, ceil, ss, 0.5, 2);
   s.mass('concreteDark', foot, floor - 1, ss, landing + 1, ceil, ss + 1, 0.5, 2);
-  s.mass('concreteDark', top - 1, floor - 1, sn - 0.4, foot, 0, sn, 0.5, 2, FACE.pz);
-  s.mass('concreteDark', top - 1, floor - 1, ss, foot, 0, ss + 0.4, 0.5, 2, FACE.nz);
-  k.light((foot + landing) / 2, floor + 1.8, zc, 'cyan', 6, 6);
+  s.mass('concreteDark', top - 1, floor - 1, south, foot, 0, sn, 0.5, 2, FACE.pz);
+  k.light((foot + landing) / 2, floor + 1.8, zc, 'cyan', 12, 7);
 
   // Back up out of the trench, onto the near deck only.
   s.stairs(3, -72.5, trench, nearLip, -72.5, floor, 3, 'concrete', true);
@@ -144,7 +142,7 @@ function gallery(s: Site): void {
   s.stairs(ks.foot, kz, floor, ks.top, kz, 0, ks.south - ks.north);
   s.mass('concreteDark', ks.foot, floor - 1, ks.north - 0.6, ks.top + 0.6, 0, ks.north, 0.5, 2, FACE.pz);
   s.mass('concreteDark', ks.foot, floor - 1, ks.south, ks.top + 0.6, 0, ks.south + 0.6, 0.5, 2, FACE.nz);
-  k.light(ks.foot + 3, -1.4, kz, 'orange', 8, 8);
+  k.light(ks.foot + 3, -1.4, kz, 'orange', 18, 9);
   s.spec.jump(nearLip - 0.6, floor, -74.5, farLip + 0.6, floor, -74.5);
 }
 

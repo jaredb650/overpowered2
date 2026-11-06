@@ -55,6 +55,8 @@ export const vehiclesActive = (outpost: boolean): boolean => outpost || ON_RANGE
 /** Metres apart two vehicles need to be at a road entry before the next is let on. */
 const ENTRY_GAP = 14;
 const TRAFFIC_EVERY = 0.2;
+/** How far ahead anyone looks, and the room it wants either side of whatever is there. */
+const ROAD_LOOK = 26;
 const TRAFFIC_HALF = 1.6;
 const STOP_SHORT = 3;
 const SIDESTEP = 3.3;
@@ -430,21 +432,23 @@ export class VehicleSystem implements VehicleTargets {
       const fz = Math.cos(drive.yaw) * way;
       let clear = Infinity;
       let dodge = 0;
-      const check = (x: number, z: number, half: number, length: number, solid: boolean): void => {
+      const left = drive.roadLeft;
+      // Round something stopped in the road, and in behind anything else: a moving one, or one parked where this one was going anyway.
+      const check = (x: number, z: number, half: number, length: number, stopped: boolean): void => {
         const dx = x - drive.x;
         const dz = z - drive.z;
         const ahead = dx * fx + dz * fz;
         const across = dx * fz - dz * fx;
         const room = def.halfWidth + half + TRAFFIC_HALF;
-        if (ahead < 0 || ahead > 26 + def.halfLength || Math.abs(across) > room) return;
-        if (solid) dodge = across >= 0 ? -SIDESTEP : SIDESTEP;
+        if (ahead < 0 || ahead > ROAD_LOOK + def.halfLength || Math.abs(across) > room) return;
+        if (stopped && left > ahead + length + def.halfLength + STOP_SHORT) dodge = across >= 0 ? -SIDESTEP : SIDESTEP;
         else clear = Math.min(clear, ahead - def.halfLength - length - STOP_SHORT);
       };
       for (const o of this.live) {
         if (o === v || !o.alive || !(o instanceof GroundVehicle)) continue;
         check(o.position.x, o.position.z, o.def.halfWidth, o.def.halfLength, o.settled);
       }
-      for (const w of this.wrecks) check(w.root.position.x, w.root.position.z, 1.6, 3, true);
+      for (const w of this.wrecks) check(w.root.position.x, w.root.position.z, w.halfWidth, w.halfLength, true);
       v.setTraffic(Math.max(clear, 0), dodge);
     }
   }
@@ -455,7 +459,7 @@ export class VehicleSystem implements VehicleTargets {
     if (this.shoveIn > 0) return;
     this.shoveIn = SHOVE_EVERY;
     for (const v of this.live) if (v instanceof GroundVehicle) this.shoveFrom(v.position, v.drive.yaw, v.def.halfWidth, v.def.halfLength);
-    for (const w of this.wrecks) this.shoveFrom(w.root.position, w.root.rotation.y, 1.2, 3);
+    for (const w of this.wrecks) this.shoveFrom(w.root.position, w.root.rotation.y, w.halfWidth, w.halfLength);
   }
 
   private shoveFrom(at: THREE.Vector3, yaw: number, halfWidth: number, halfLength: number): void {

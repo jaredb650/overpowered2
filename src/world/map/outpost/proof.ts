@@ -574,7 +574,7 @@ function walkRoute(b: Bot, world: World, stages: readonly (readonly [string, str
     const last = p.position.clone();
     b.hold('forward');
     for (; t < 30 && i < pts.length; t += DT) {
-      while (i < pts.length && Math.hypot(pts[i]! - p.position.x, pts[i + 2]! - p.position.z) < 1.2) i += 3;
+      while (i < pts.length && Math.hypot(pts[i]! - p.position.x, pts[i + 2]! - p.position.z) < 1.2 && Math.abs(pts[i + 1]! - p.position.y) < 1.2) i += 3;
       if (i >= pts.length) break;
       p.yaw = Math.atan2(-(pts[i]! - p.position.x), -(pts[i + 2]! - p.position.z));
       b.frame();
@@ -624,6 +624,138 @@ function containment(physics: PhysicsSystem) {
     }
   }
   return { leaks: leaks.length, sample: leaks.slice(0, 12) };
+}
+
+/** Straight lines at a full run across every seam the floors make. A snag shows as a low share of top speed. */
+const RUNS: readonly (readonly [string, number, number, number, number, number])[] = [
+  ['West Lane', 0, -51, 96, -51, 56], ['Gate Lane', 0, 3, 100, 3, 16], ['East Lane', 0, 34, 100, 34, 62], ['past the cut', 0, -60, 72, 0, 72],
+  ['south of the cut', 0, -60, 101, 20, 101], ['the road', 0, -100, 34, 100, 34], ['yard', 0, -26, 6, 26, 6], ['the lane to the door', 0, 0, 9, 0, -10],
+  ['through the door', 0, 0, -9, 0, -20], ['south corridor', 0, -12, -17.5, -50, -17.5], ['north corridor', 0, -54, -42.5, -14, -42.5],
+  ['east corridor', 0, 14, -42.5, 54, -42.5], ['plate hall', 0, 14, -24, 54, -24], ['far platform', 0, -54, -72, -26, -72], ['near deck', -5, -23, -74.5, -12, -74.5],
+  ['mess', 0, 16, -60, 54, -60], ['top landing', 10, -6, -60, 1, -60], ['y 5 gallery', 5, -6, -38, -6, -56], ['roof', 14, -20, -56, 20, -56], ['roof north', 14, -22, -30, -22, -76],
+];
+
+/** Runs through every doorway, both ways, at three offsets and three angles, and along every run of floor. */
+export function sweepOutpost(world: World, physics: PhysicsSystem, rig: Rig) {
+  const b = new Bot(rig), p = b.p;
+  let tried = 0, stopped = 0, worstLoss = 0;
+  const caught: string[] = [];
+  for (const d of world.spec.plan!.doors) {
+    const half = d.w / 2 - 0.65;
+    for (const dir of [1, -1]) for (const off of [-half, 0, half]) for (const angle of [-0.26, 0, 0.26]) {
+      const ux = d.dx * dir, uz = d.dz * dir;
+      const rx = -uz, rz = ux;
+      const c = Math.cos(angle), s = Math.sin(angle);
+      const hx = ux * c - rx * s, hz = uz * c - rz * s;
+      // As far back as the room allows, and on past the door by as much: a door off a corridor has 3 m of run-up, not 5.
+      let back = 0, y = NaN, sx = 0, sz = 0;
+      for (const m of [5, 3.4, 2.4]) {
+        sx = d.x + rx * off - hx * m;
+        sz = d.z + rz * off - hz * m;
+        y = floorAt(physics, sx, sz, d.x, d.z);
+        if (Number.isNaN(y)) continue;
+        _o.set(sx, y + 0.9, sz);
+        if (physics.sweepCapsule(_o, 0.45, 0.42, _d.set(hx * m * 2, 0, hz * m * 2), CG.World)) continue;
+        back = m;
+        break;
+      }
+      if (back === 0) continue;
+      tried++;
+      b.place(sx, y, sz, Math.atan2(-hx, -hz));
+      b.hold('forward');
+      const start = _o.set(sx, y, sz).clone();
+      const t0 = (back * 2) / 12.5 + 0.2;
+      let t = 0;
+      const through = b.until(() => { t += DT; return p.position.distanceTo(start) > back * 2 - 0.3; }, t0 + 0.6);
+      b.hold('forward', false);
+      if (!through) { stopped++; caught.push(`door ${r2(d.x)},${r2(d.z)} dir ${dir} off ${r2(off)} angle ${angle}`); } else worstLoss = Math.max(worstLoss, t - t0);
+    }
+  }
+  const runs: Record<string, number> = {};
+  for (const [name, y, ax, az, bx, bz] of RUNS) {
+    const len = Math.hypot(bx - ax, bz - az);
+    b.place(ax, y, az, Math.atan2(-(bx - ax), -(bz - az)));
+    b.hold('forward');
+    b.frames(30);
+    let slowest = Infinity, went = 0;
+    const from = p.position.clone();
+    b.until(() => {
+      slowest = Math.min(slowest, p.speed);
+      went = p.position.distanceTo(from);
+      return went > len - 8;
+    }, len / 8);
+    b.hold('forward', false);
+    runs[name] = went > len - 9 ? r2(slowest / 12.5) : -r2(went);
+  }
+  return { doors: { tried, stopped, worstLoss: r2(worstLoss), caught: caught.slice(0, 16) }, runs };
+}
+
+function floorAt(physics: PhysicsSystem, x: number, z: number, dx: number, dz: number): number {
+  // From just above the level the door stands on: the room under it is not the room in question.
+  for (const y of [0, -5, 5, 10, 14]) {
+    const hit = physics.raycast(_o.set(dx, y + 1.5, dz), DOWN, 2, CG.World);
+    if (hit && physics.raycast(_o.set(x, y + 1.5, z), DOWN, 2.2, CG.World)) return hit.point.y;
+  }
+  return NaN;
+}
+
+/** Random hands from a spread of places. Anything that ends a run here would end a playtest. */
+export function fuzzOutpost(rig: Rig, secondsEach: number, seed = 7) {
+  const b = new Bot(rig), p = b.p;
+  let s = seed >>> 0;
+  const rnd = () => {
+    s = (s + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const starts = ['apronRally', 'lz', 'wreckFoot', 'gateInside', 'sallyHall', 'corridorMg', 'bunkFour', 'coolantNear', 'coolantFar', 'galleryNear', 'galleryFar', 'messFloor', 'armoury', 'plateWest', 'stackFloor', 'stackUpper', 'warRoom', 'roofMast'];
+  let inside = 0, escapes = 0, frames = 0, lost = 0, top = -Infinity;
+  const wedged: string[] = [], where: string[] = [];
+  const actions = ['forward', 'left', 'right', 'jump', 'dash', 'slide'] as const;
+  for (const id of starts) {
+    const m = MARKS[id]!.at;
+    b.place(m[0], m[1], m[2], rnd() * 6.28);
+    let next = 0, sample = 0;
+    const last = p.position.clone();
+    for (let t = 0; t < secondsEach; t += DT) {
+      if (t >= next) {
+        next = t + 0.15 + rnd() * 0.9;
+        b.hold('forward', rnd() < 0.85);
+        b.hold('left', rnd() < 0.25);
+        b.hold('right', rnd() < 0.25);
+        b.hold('jump', rnd() < 0.3);
+        b.hold('dash', rnd() < 0.15);
+        b.hold('slide', rnd() < 0.15);
+        p.yaw += (rnd() - 0.5) * 2.2;
+      }
+      b.frame();
+      frames++;
+      const q = p.position;
+      if (p.isPenetrating()) { if (inside++ % 8 === 0) where.push(`inside ${q.toArray().map(r2)} from ${id}`); }
+      if (Math.abs(q.x) > 112 || Math.abs(q.z) > 112) escapes++;
+      if (q.y < -14) { if (lost++ % 8 === 0) where.push(`lost ${q.toArray().map(r2)} from ${id}`); }
+      top = Math.max(top, q.y);
+      if (t >= sample) {
+        if (sample > 0 && q.distanceTo(last) < 0.25) {
+          const from = q.clone();
+          for (const a of actions) b.hold(a, false);
+          let free = false;
+          for (let turn = 0; turn < 8 && !free; turn++) {
+            p.yaw = (turn * Math.PI) / 4;
+            b.hold('forward');
+            b.frames(30);
+            free = p.position.distanceTo(from) > 1;
+          }
+          if (!free) wedged.push(`${from.toArray().map(r2)} after ${id}`);
+        }
+        last.copy(q);
+        sample = t + 3;
+      }
+    }
+    for (const a of actions) b.hold(a, false);
+  }
+  return { seconds: Math.round(frames * DT), inside, escapes, lost, wedged: wedged.slice(0, 12), where: where.slice(0, 16), top: r2(top) };
 }
 
 /** The whole way through, in the order the mission takes it, with a teleport across each gap only a jump can cross. */

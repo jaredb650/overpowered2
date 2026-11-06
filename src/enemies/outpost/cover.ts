@@ -69,6 +69,8 @@ export interface SpotQuery {
   from: THREE.Vector3;
   /** How much height is worth to him. 0 for a rifleman, 1 for a man who wants a tower. */
   height: number;
+  /** Looks on other floors too. The asker has to prove he can walk there: a column of the map holds every floor, and a route does not. */
+  anyFloor: boolean;
 }
 
 export interface SpotReading {
@@ -273,8 +275,7 @@ export class CoverMap {
           const s = list[i]!;
           if (s.claimedBy !== 0 && s.claimedBy !== q.uid) continue;
           const px = s.position.x - q.anchor.x, pz = s.position.z - q.anchor.z;
-          // A rifleman stays on his own floor. A man who wants height will climb to get it.
-          if (px * px + pz * pz > r2 || (q.height === 0 && Math.abs(s.position.y - q.anchor.y) > 2.5)) continue;
+          if (px * px + pz * pz > r2 || (!q.anyFloor && Math.abs(s.position.y - q.anchor.y) > 2.5)) continue;
           const score = this.rate(s, q);
           if (best.length === VERIFY_TOP && score <= bestScore[VERIFY_TOP - 1]!) continue;
           if (!this.spaced(s, q)) continue;

@@ -29,6 +29,7 @@ import type { DamageResult, EnemyId, EnemyInstance, KillEvent } from '../../core
 import { clamp, rand, TAU } from '../../core/math';
 import { Pool } from '../../core/pool';
 import { ACTIVE } from '../../contracts/select';
+import { GIFT_SOURCES } from '../../progression/data';
 import type { AiWorld } from '../aiWorld';
 import { finishAttack } from '../brain';
 import { Commander } from '../commander';
@@ -285,6 +286,8 @@ export class Outpost {
     this.forming = squad;
     this.gate = at ?? this.pickGate();
     this.gateUsedAt.set(this.gate, this.w.now);
+    // A mission opens with no wave to start, and a squad with nothing to go on would stand there.
+    if (this.intel.at < 0) this.fix(true);
     squad.adopt(this.intel.position, this.intel.at);
   }
 
@@ -901,8 +904,9 @@ export class Outpost {
     for (const o of this.soldiers) {
       if (o.fighting && (o.squad === s.squad || o.e.position.distanceToSquared(k.enemy.position) < r2)) this.scare(o, fear);
     }
-    // His own side's rounds, through the player's shield, are not an execution.
-    if (s.surrendered && !(k.damage.source in ROLE_OF)) w.ctx.events.emit('enemy:executed', { kill: k });
+    // His own side's rounds and grenades are not an execution, whoever he was held in front of.
+    const source = k.damage.source;
+    if (s.surrendered && !(source in ROLE_OF) && source !== 'frag' && !GIFT_SOURCES.test(source)) w.ctx.events.emit('enemy:executed', { kill: k });
     else if (!s.surrendered) s.squad.onLoss(k, s.wasLeader);
     this.adoptOrphans(s.squad);
   }
