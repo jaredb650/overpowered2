@@ -1,0 +1,108 @@
+{
+  "menu": [
+    {
+      "file": "audio/music/menu/15-the-acolyte-neurotoxin.mp3",
+      "title": "15. The Acolyte — Neurotoxin"
+    }
+  ],
+  "easy": [
+    {
+      "file": "audio/music/easy/01-bad-boy-pete-who-is-better.mp3",
+      "title": "01-bad_boy_pete-who_is_better"
+    },
+    {
+      "file": "audio/music/easy/01-grady-g-turn-the-bass-up-original-mix.mp3",
+      "title": "01-grady_g-turn_the_bass_up_(original_mix)"
+    },
+    {
+      "file": "audio/music/easy/01-minor-dott-and-metal-ed-enter-the-darkness-d-a-v-e-the-dr.mp3",
+      "title": "01-minor_dott_and_metal_ed-enter_the_darkness__d.a.v.e._the_drummers_acid_remix"
+    },
+    {
+      "file": "audio/music/easy/03-bad-boy-pete-hard-roller-darkness.mp3",
+      "title": "03-bad_boy_pete-hard_roller_darkness"
+    },
+    {
+      "file": "audio/music/easy/bad-boy-pete-tougher-than-tough-original-mix.mp3",
+      "title": "Bad Boy Pete - Tougher Than Tough (Original Mix)"
+    },
+    {
+      "file": "audio/music/easy/dogma-uk-geordie-stomp-original-mix.mp3",
+      "title": "DOGMA ( UK ) - Geordie Stomp (Original Mix)"
+    },
+    {
+      "file": "audio/music/easy/mortal-sins-banshee-original-mix.mp3",
+      "title": "Mortal Sins - Banshee (Original Mix)"
+    },
+    {
+      "file": "audio/music/easy/mortal-sins-gunfight-original-mix.mp3",
+      "title": "Mortal Sins - Gunfight (Original Mix)"
+    },
+    {
+      "file": "audio/music/easy/mortal-sins-i-will-find-u-original-mix.mp3",
+      "title": "Mortal Sins - I Will Find U (Original Mix)"
+    },
+    {
+      "file": "audio/music/easy/mortal-sins-nightshift-original-mix.mp3",
+      "title": "Mortal Sins - Nightshift (Original Mix)"
+    },
+    {
+      "file": "audio/music/easy/mortal-sins-pandemonium-original-mix.mp3",
+      "title": "Mortal Sins - Pandemonium (Original Mix)"
+    },
+    {
+      "file": "audio/music/easy/mortal-sins-poltergeist-original-mix.mp3",
+      "title": "Mortal Sins - Poltergeist (Original Mix)"
+    },
+    {
+      "file": "audio/music/easy/various-tense-trax-02-02-bad-boy-pete-my-pain-is-forever.mp3",
+      "title": "Various - Tense Trax #02 - 02 - Bad Boy Pete - My Pain Is Forever"
+    }
+  ],
+  "hard": [
+    {
+      "file": "audio/music/hard/09-some-more.mp3",
+      "title": "09. Some More"
+    },
+    {
+      "file": "audio/music/hard/alek-szahala-balag-lamara.mp3",
+      "title": "Alek Szahala - Balag Lamarà"
+    },
+    {
+      "file": "audio/music/hard/alek-szahala-caballo.mp3",
+      "title": "Alek Szahala - Caballo"
+    },
+    {
+      "file": "audio/music/hard/alek-szahala-invitation.mp3",
+      "title": "Alek Szahala - Invitation"
+    },
+    {
+      "file": "audio/music/hard/alek-szahala-unicorn-grove.mp3",
+      "title": "Alek Szahala - Unicorn Grove"
+    },
+    {
+      "file": "audio/music/hard/alek-szahala-freezing-clouds.mp3",
+      "title": "Alek_Szahala_-_Freezing_Clouds"
+    },
+    {
+      "file": "audio/music/hard/are-am-eye-kronos-remix.mp3",
+      "title": "Are Am Eye Kronos Remix"
+    },
+    {
+      "file": "audio/music/hard/hdize1043-2009-06-23-hybridize-substanced-freeform-mercury-m.mp3",
+      "title": "HDIZE1043_2009_06_23_Hybridize_Substanced_-_Freeform_Mercury_Mastered_320k_44k_mp3"
+    },
+    {
+      "file": "audio/music/hard/hollow-meka-remaster.mp3",
+      "title": "Hollow (Meka Remaster)"
+    },
+    {
+      "file": "audio/music/hard/mirage-meka-remaster.mp3",
+      "title": "Mirage(Meka Remaster)"
+    },
+    {
+      "file": "audio/music/hard/mortality-meka-remaster.mp3",
+      "title": "Mortality(Meka Remaster)"
+    }
+  ]
+}

@@ -1,0 +1,402 @@
+.hud { position: absolute; inset: 0; overflow: hidden; }
+
+.col-left, .col-right {
+  position: absolute;
+  top: 2rem;
+  bottom: 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  contain: layout style;
+}
+.col-left { left: 2rem; width: 30rem; align-items: flex-start; }
+.col-right { right: 2rem; width: 36rem; align-items: flex-end; }
+
+/* --- Tally: wave, remaining, score --- */
+
+.tally { display: flex; flex-direction: column; gap: 0.3rem; align-items: flex-start; }
+.tl-top { display: flex; align-items: stretch; gap: 0.7rem; }
+.tl-wave {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0 0.7rem 0 0.55rem;
+  background: var(--ink);
+  color: #000;
+}
+.tl-wave-t { font-size: 1rem; font-weight: 700; }
+.tl-wave-n { font: 2.7rem/1.16 var(--display); }
+.tl-left { display: flex; align-items: baseline; gap: 0.45rem; }
+.tl-left-n { font: 2.7rem/1.16 var(--display); text-shadow: var(--edge-big); }
+.tl-left-t { padding: 0 0.35rem; background: var(--plate); color: var(--steel); }
+.tally.intermission .tl-wave { background: var(--cold); }
+.tally.intermission .tl-left-n { color: var(--cold); }
+.tl-high { padding: 0 0.35rem; background: var(--plate); color: var(--steel); font-size: 1rem; }
+.tally.beat .tl-high { color: var(--amber); }
+
+.odo { display: flex; gap: 0.06rem; font: 2.5rem/2.7rem var(--display); height: 2.7rem; color: var(--ink); }
+.odo-cell { width: 1.34rem; height: 2.7rem; overflow: hidden; text-align: center; background: var(--plate); }
+.odo-cell.sep { margin-right: 0.38rem; }
+.odo-strip { will-change: transform; }
+.odo-strip span { display: block; height: 2.7rem; }
+.odo-cell.dim { color: var(--dim); }
+.odo.rolling .odo-cell:not(.dim) { color: var(--amber); }
+
+/* --- Vitals --- */
+
+.vitals { display: flex; flex-direction: column; gap: 0.35rem; width: 29rem; }
+.vit-armor { display: flex; align-items: center; gap: 0.8rem; }
+.vit-ap { font: 1.7rem/1 var(--display); color: var(--cold); width: 8.6rem; text-align: right; text-shadow: var(--edge); }
+.vit-health { display: flex; align-items: flex-end; gap: 0.8rem; transform-origin: 0 100%; }
+.vit-hp {
+  font: 5.6rem/0.94 var(--display);
+  width: 8.6rem;
+  flex: none;
+  text-align: right;
+  text-shadow: var(--edge-big);
+  transform-origin: 100% 100%;
+}
+.vit-col { flex: 1; display: flex; flex-direction: column; gap: 0.3rem; padding-bottom: 0.55rem; }
+.vit-sub { height: 1.25rem; }
+.vit-regen { display: none; padding: 0 0.4rem; background: var(--ink); color: #000; font-weight: 800; }
+.vitals.regen .vit-regen { display: inline-block; animation: op-blink 0.5s steps(1) infinite; }
+
+/* Ingots: a static slanted mask over plain fills, so the bar moves by transform alone. */
+.bar {
+  position: relative;
+  flex: 1;
+  height: 1.55rem;
+  overflow: hidden;
+  -webkit-mask-image: repeating-linear-gradient(105deg, #000 0 0.98rem, transparent 0.98rem 1.2rem);
+  mask-image: repeating-linear-gradient(105deg, #000 0 0.98rem, transparent 0.98rem 1.2rem);
+}
+.vit-col .bar { flex: none; }
+.bar-ap { height: 0.85rem; }
+.bar-back, .bar-fill, .bar-lag, .bar-over { position: absolute; inset: 0; transform-origin: 0 50%; }
+.bar-back { background: var(--plate); }
+.bar-fill { background: var(--ink); }
+.bar-lag { background: var(--blood); }
+.bar-over { background: var(--amber); transform: scaleX(0); }
+.bar-ap .bar-fill { background: var(--cold); }
+.bar-ap .bar-lag { background: #fff; }
+
+.vitals.low .vit-hp { color: var(--blood); }
+.vitals.low .bar-hp .bar-fill { background: var(--blood); }
+.vitals.low .bar-hp .bar-lag { background: #fff; }
+.vitals.critical .vit-health { animation: op-heartbeat 0.62s cubic-bezier(.2,.9,.3,1) infinite; }
+.vitals.overheal .vit-hp { color: var(--amber); }
+
+@keyframes op-heartbeat {
+  0% { transform: scale(1.09); }
+  28% { transform: scale(1); }
+  42% { transform: scale(1.05); }
+  70%, 100% { transform: scale(1); }
+}
+@keyframes op-blink { 0% { opacity: 1; } 50% { opacity: 0.35; } }
+
+/* --- Call-ins --- */
+
+.callins { display: flex; flex-wrap: wrap; gap: 0.3rem; width: 29rem; }
+.ci { display: flex; align-items: center; height: 2.1rem; background: var(--c); color: #000; font: 1.3rem/1 var(--display); padding-right: 0.55rem; }
+.ci-key {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.1rem;
+  height: 100%;
+  padding: 0 0.4rem;
+  background: #000;
+  color: var(--c);
+  font: 800 1.1rem/1 var(--mono);
+}
+.ci .ico { width: 1.25rem; height: 1.25rem; margin: 0 0.3rem 0 0.4rem; }
+
+/* --- Arms --- */
+
+.arms { display: flex; flex-direction: column; align-items: flex-end; gap: 0.55rem; }
+.arm-strip { display: flex; gap: 0.18rem; }
+.slot {
+  position: relative;
+  width: 3.3rem;
+  height: 2.2rem;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 0.2rem;
+  color: var(--dim);
+  /* Locked slots read as blanked-off plate, with the silhouette still visible as something to want. */
+  background: repeating-linear-gradient(135deg, rgba(7, 10, 14, 0.8) 0 0.3rem, rgba(46, 58, 68, 0.8) 0.3rem 0.42rem);
+}
+.slot .ico { width: 2.75rem; height: 0.92rem; }
+.slot-key { position: absolute; left: 0.22rem; top: 0.04rem; font-size: 0.82rem; font-weight: 800; line-height: 1; color: inherit; }
+.slot.owned { color: var(--ink); background: var(--plate); }
+.slot.active { color: #000; background: var(--ink); }
+.slot.dry::after { content: ''; position: absolute; right: 0.2rem; top: 0.2rem; width: 0.42rem; height: 0.42rem; background: var(--blood); }
+
+.arm-main { display: flex; align-items: flex-end; gap: 1.1rem; }
+.arm-gren { display: flex; gap: 0.18rem; }
+.arm-gren .ico { width: 1.1rem; height: 1.38rem; color: var(--ink); stroke: #000; stroke-width: 1; paint-order: stroke; display: none; }
+.arm-gren .ico.full { display: block; }
+.arm-tag { display: flex; align-items: center; gap: 0.8rem; }
+.arm-who { display: flex; flex-direction: column; align-items: flex-end; gap: 0.15rem; padding-bottom: 0.2rem; }
+.arm-icon .ico { width: 13.5rem; height: 4.5rem; color: var(--ink); stroke: #000; stroke-width: 1.1; paint-order: stroke; }
+.arm-name { font: 1.65rem/1.1 var(--display); text-shadow: var(--edge); }
+
+.arm-ammo { position: relative; display: flex; flex-direction: column; align-items: stretch; gap: 0.3rem; min-width: 11.4rem; }
+.arm-count { display: flex; align-items: baseline; justify-content: flex-end; gap: 0.55rem; }
+.arm-mag { font: 6rem/0.96 var(--display); text-shadow: var(--edge-big); }
+.arm-reserve { font: 2.5rem/1 var(--display); color: var(--steel); text-shadow: var(--edge); min-width: 3.4rem; text-align: right; }
+.arm-magbar { height: 0.42rem; background: var(--plate); }
+.arm-magfill { height: 100%; background: var(--ink); transform-origin: 100% 50%; }
+.arm-ammo.low .arm-mag { color: var(--amber); }
+.arm-ammo.low .arm-magfill { background: var(--amber); }
+.arm-ammo.empty .arm-mag { color: var(--blood); }
+.arm-ammo.infinite .arm-mag, .arm-ammo.infinite .arm-reserve { color: var(--blood); }
+.arm-reload { position: absolute; left: 0; right: 0; bottom: 0; height: 0.42rem; background: var(--plate); }
+.arm-reloadfill { position: absolute; inset: 0; background: var(--amber); transform-origin: 0 50%; }
+.arm-reload-t {
+  position: absolute;
+  right: 0;
+  bottom: 0.55rem;
+  padding: 0 0.4rem;
+  background: var(--amber);
+  color: #000;
+  font-weight: 800;
+}
+
+/* --- Tach --- */
+
+.tach { position: absolute; left: 50%; bottom: 0.4rem; width: 17rem; height: 12.6rem; margin-left: -8.5rem; contain: layout style; }
+.tach-face { position: absolute; left: 0; top: 0; width: 17rem; height: 17rem; overflow: visible; }
+.tk-key { stroke: #000; stroke-width: 4.2; }
+.tk-key.tk-big { stroke-width: 6; }
+.tk { stroke: var(--ink); stroke-width: 2; }
+.tk.tk-big { stroke-width: 3.6; }
+.tk-red { stroke: var(--blood); }
+.tk-arc { fill: none; stroke: var(--blood); stroke-width: 5; }
+.tk-arc-key { fill: none; stroke: #000; stroke-width: 8; }
+.tn { font: 800 14px var(--mono); fill: var(--ink); text-anchor: middle; stroke: #000; stroke-width: 3.5; paint-order: stroke; }
+.tn-red { fill: var(--blood); }
+.tk-ground { fill: var(--cold); stroke: #000; stroke-width: 1.2; paint-order: stroke; }
+.tk-od { fill: var(--amber); stroke: #000; stroke-width: 1.2; paint-order: stroke; }
+.tach-needle {
+  position: absolute;
+  left: 8.37rem;
+  top: 0.3rem;
+  width: 0.26rem;
+  height: 4.1rem;
+  background: var(--ink);
+  box-shadow: 0 0 0 0.09rem #000;
+  transform-origin: 50% 8.2rem;
+  will-change: transform;
+}
+.tach-peak {
+  position: absolute;
+  left: 8.2rem;
+  top: -0.32rem;
+  width: 0.6rem;
+  height: 0.55rem;
+  background: var(--amber);
+  clip-path: polygon(50% 100%, 0 0, 100% 0);
+  transform-origin: 50% 8.82rem;
+  will-change: transform;
+}
+.tach-hub { position: absolute; left: 0; right: 0; top: 4.2rem; display: flex; flex-direction: column; align-items: center; }
+.tach-state { height: 1.35rem; font: 1.25rem/1.1 var(--display); color: var(--cold); text-transform: uppercase; text-shadow: var(--edge); }
+.tach-val { font: 4.7rem/0.98 var(--display); text-shadow: var(--edge-big); }
+.tach-unit { padding: 0 0.3rem; background: var(--plate); font-size: 0.95rem; color: var(--steel); }
+.tach.over .tach-val { color: var(--amber); }
+.tach.over .tach-needle { background: var(--amber); }
+.tach.red .tach-val { color: var(--blood); }
+.tach.red .tach-needle { background: var(--blood); }
+.tach-dash { position: absolute; left: 50%; bottom: 0; display: flex; gap: 0.3rem; transform: translateX(-50%); }
+.dash-pip { position: relative; width: 2.3rem; height: 0.95rem; background: var(--plate); overflow: hidden; }
+.dash-pip .ico { position: absolute; left: 0.6rem; top: 0.12rem; width: 1.1rem; height: 0.72rem; color: var(--ink); z-index: 1; }
+.dash-fill { position: absolute; inset: 0; background: var(--dim); transform: scaleX(0); transform-origin: 0 50%; }
+.dash-pip.full { background: var(--cold); }
+.dash-pip.full .ico { color: #000; }
+.dash-pip.full .dash-fill { display: none; }
+
+/* --- Minimap --- */
+
+.minimap { position: relative; width: 15rem; height: 15rem; background: var(--plate); box-shadow: 0 0 0 0.12rem #000, inset 0 0 0 0.09rem var(--steel); }
+.mm-canvas { display: block; width: 100%; height: 100%; }
+
+/* --- Feed and style lanes --- */
+
+.feed, .style { display: flex; flex-direction: column; align-items: flex-end; overflow: hidden; }
+.feed { gap: 0.14rem; height: 10.3rem; justify-content: flex-start; width: 26rem; }
+.feed-ln {
+  max-width: 26rem;
+  padding: 0.1rem 0.5rem;
+  background: var(--plate);
+  border-right: 0.25rem solid var(--c);
+  color: var(--c);
+  font-size: 1rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: none;
+}
+.style { gap: 0.1rem; height: 8.4rem; width: 26rem; }
+.style-ln { flex: none; font: 1.45rem/1.12 var(--display); color: var(--c); text-transform: uppercase; text-shadow: var(--edge); white-space: nowrap; }
+
+/* --- Combo: the one loud block --- */
+
+.combo { display: none; width: 24rem; }
+.cb-top { display: flex; align-items: flex-end; justify-content: flex-end; gap: 0.5rem; }
+.cb-tag { margin-bottom: 0.55rem; padding: 0 0.35rem; background: var(--plate); color: var(--heat); }
+.cb-num {
+  font: 6.6rem/0.96 var(--display);
+  color: var(--heat);
+  text-shadow: var(--edge-big);
+  transform-origin: 100% 100%;
+  padding: 0 0.1rem;
+}
+.cb-mult { background: var(--heat); color: #000; font: 2.8rem/1.08 var(--display); padding: 0 0.4rem; }
+.cb-bar { height: 0.6rem; margin-top: 0.3rem; background: var(--plate); }
+.cb-fill { height: 100%; background: var(--heat); transform-origin: 100% 50%; }
+.cb-next { text-align: right; margin-top: 0.15rem; }
+.cb-next-t { padding: 0 0.35rem; background: var(--plate); color: var(--steel); }
+/* From molten upward the number stops being ink on the scene and becomes a block of hot metal. */
+.combo.heat-3 .cb-num, .combo.heat-4 .cb-num, .combo.heat-5 .cb-num { background: var(--heat); color: #000; text-shadow: none; padding: 0 0.45rem; }
+.combo.heat-3 .cb-mult, .combo.heat-4 .cb-mult, .combo.heat-5 .cb-mult { background: #000; color: var(--heat); }
+.combo.heat-5 .cb-num { box-shadow: 0.3rem 0.3rem 0 var(--blood); }
+.combo.urgent .cb-fill { animation: op-blink 0.22s steps(1) infinite; }
+
+/* --- Boss --- */
+
+.boss { display: none; position: absolute; top: 1.6rem; left: 50%; width: 54rem; margin-left: -27rem; }
+.bs-head { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 0.2rem; }
+.bs-name { font: 2.4rem/1 var(--display); text-transform: uppercase; text-shadow: var(--edge-big); }
+.bs-limbs { display: flex; gap: 0.25rem; }
+.bs-limb { padding: 0 0.4rem; background: var(--blood); color: #000; font-weight: 800; }
+.bs-limb.gone { background: var(--plate); color: var(--dim); text-decoration: line-through; }
+.bs-bar { position: relative; height: 1.5rem; overflow: hidden; box-shadow: 0 0 0 0.09rem #000; }
+.bs-back, .bs-fill, .bs-lag, .bs-armor { position: absolute; left: 0; top: 0; bottom: 0; width: 100%; transform-origin: 0 50%; }
+.bs-back { background: var(--plate); }
+.bs-lag { background: #fff; }
+.bs-fill { background: var(--blood); }
+.bs-armor { top: auto; height: 0.4rem; background: var(--cold); }
+
+/* --- Banners --- */
+
+.banners {
+  position: absolute;
+  left: 26rem;
+  right: 26rem;
+  top: 7.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.45rem;
+}
+.band {
+  position: relative;
+  width: 100%;
+  background: var(--c, var(--hot));
+  color: #000;
+  clip-path: polygon(1.6rem 0, 100% 0, calc(100% - 1.6rem) 100%, 0 100%);
+}
+.band-in { display: flex; align-items: baseline; justify-content: center; gap: 1.4rem; padding: 0.15rem 2rem 0.1rem; }
+.band-t { font: 6.4rem/1.04 var(--display); white-space: nowrap; }
+.band-s { font-size: 1.35rem; font-weight: 800; white-space: nowrap; }
+.band-flash { position: absolute; inset: 0; background: #fff; opacity: 0; }
+.band-hard { --c: var(--blood); }
+.band-clear { --c: var(--cold); }
+.band-boss { --c: var(--blood); background: repeating-linear-gradient(110deg, var(--blood) 0 2.4rem, #000 2.4rem 3.2rem); }
+.band-boss .band-in { background: var(--blood); margin: 0.5rem 0; }
+.band-dead { --c: var(--ink); }
+.stamps { display: flex; flex-direction: column; align-items: center; gap: 0.3rem; }
+.stamp { display: flex; align-items: baseline; gap: 0.8rem; padding: 0 0.85rem; background: var(--c); color: #000; }
+.st-t { font: 2.7rem/1.16 var(--display); white-space: nowrap; }
+.st-s { font-size: 1rem; font-weight: 800; white-space: nowrap; }
+
+/* --- Crosshair --- */
+
+.xh { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
+.xh-reticle.hidden { display: none; }
+.xh-arm, .xh-core, .hm { position: absolute; left: -5rem; top: -5rem; width: 10rem; height: 10rem; }
+.xh-arms { position: absolute; left: 0; top: 0; width: 0; height: 0; }
+.xh-svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.xh-arm .xh-svg *, .xh-core .xh-svg * { fill: #fff; stroke: #000; stroke-width: 1.1; paint-order: stroke; }
+.xh-arm .xh-svg g, .xh-core .xh-svg g { stroke: none; }
+.xh-reticle.hostile .xh-svg * { fill: var(--blood); }
+.hm .xh-svg * { stroke: #000; stroke-width: 1.2; paint-order: stroke; }
+.hm-body .xh-svg * { fill: #fff; }
+.hm-armor .xh-svg * { fill: var(--cold); }
+.hm-head .xh-svg * { fill: #ffe500; }
+.hm-kill .xh-svg * { fill: var(--blood); }
+
+.xh-tick { position: absolute; top: -1.9rem; width: 0.26rem; height: 3.8rem; background: var(--plate); }
+.xh-tick-combo { left: 5rem; }
+.xh-tick-mag { left: -5.26rem; }
+.xh-tick-fill { width: 100%; height: 100%; background: var(--heat, var(--amber)); transform-origin: 50% 100%; }
+.xh-prompt { position: absolute; left: -10rem; top: 4.2rem; width: 20rem; text-align: center; }
+.xh-prompt-t { display: inline-block; padding: 0 0.5rem; background: var(--amber); color: #000; font-weight: 800; }
+.xh-charge { position: absolute; left: -4rem; top: 3.2rem; width: 8rem; height: 0.32rem; background: var(--plate); }
+.xh-charge-fill { width: 100%; height: 100%; background: var(--cold); transform-origin: 0 50%; }
+
+.arc { position: absolute; left: -6.5rem; top: -1rem; width: 13rem; height: 2rem; transform-origin: 50% 50%; will-change: transform, opacity; }
+.arc svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.arc path { fill: var(--blood); stroke: #000; stroke-width: 2; paint-order: stroke; }
+
+/* --- World-anchored --- */
+
+.wl { position: absolute; inset: 0; overflow: hidden; }
+.ft { position: absolute; left: 0; top: 0; will-change: transform; }
+.ft-t {
+  display: block;
+  transform: translate(-50%, -50%);
+  font: 1.6rem/1 var(--display);
+  color: var(--c);
+  white-space: nowrap;
+  text-shadow: var(--edge), -0.05rem -0.05rem 0 #000;
+}
+.mk { position: absolute; left: 0; top: 0; width: 0; height: 0; will-change: transform; }
+.mk-pin {
+  position: absolute;
+  left: -0.62rem;
+  top: -0.62rem;
+  width: 1.24rem;
+  height: 1.24rem;
+  background: var(--c);
+  transform: rotate(45deg);
+  box-shadow: 0 0 0 0.13rem #000;
+}
+.mk-arrow {
+  display: none;
+  position: absolute;
+  left: -0.75rem;
+  top: -2.2rem;
+  width: 1.5rem;
+  height: 1.1rem;
+  background: var(--c);
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+  transform-origin: 50% 2.2rem;
+}
+.mk.off .mk-arrow { display: block; }
+.mk-text {
+  position: absolute;
+  left: 0;
+  top: 1rem;
+  display: flex;
+  gap: 0.35rem;
+  padding: 0 0.35rem;
+  background: var(--plate);
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: 1rem;
+}
+.mk-label { color: var(--c); }
+.mk-dist::after { content: 'm'; color: var(--steel); }
+
+/* --- Tab overlay --- */
+
+.scoreboard { position: absolute; left: 50%; top: 50%; width: 36rem; padding: 1.2rem 1.6rem; margin-left: -18rem; transform: translateY(-50%); background: rgba(7, 10, 14, 0.9); }
+
+/* --- Debug --- */
+
+.dbg { position: absolute; left: 34rem; top: 1rem; }
+.dbg-fps { padding: 0 0.4rem; background: var(--plate); color: var(--cold); }
+.dbg-info { margin: 0.3rem 0 0; padding: 0.4rem 0.6rem; background: rgba(7, 10, 14, 0.86); color: var(--ink); font: 600 0.95rem/1.3 var(--mono); }

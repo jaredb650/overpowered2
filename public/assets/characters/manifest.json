@@ -1,0 +1,179 @@
+{
+ "version": 3,
+ "models": {
+  "husk": {
+   "file": "husk.bin",
+   "bytes": 635580,
+   "triangles": 11998,
+   "kind": "character"
+  },
+  "trooper": {
+   "file": "trooper.bin",
+   "bytes": 733204,
+   "triangles": 12948,
+   "kind": "character"
+  },
+  "smg": {
+   "file": "smg.bin",
+   "bytes": 73104,
+   "triangles": 2600,
+   "kind": "prop"
+  },
+  "leaper": {
+   "file": "leaper.bin",
+   "bytes": 631808,
+   "triangles": 12000,
+   "kind": "character"
+  },
+  "bomber": {
+   "file": "bomber.bin",
+   "bytes": 619608,
+   "triangles": 11862,
+   "kind": "character"
+  },
+  "gunner": {
+   "file": "gunner.bin",
+   "bytes": 662384,
+   "triangles": 12952,
+   "kind": "character"
+  },
+  "burner": {
+   "file": "burner.bin",
+   "bytes": 660612,
+   "triangles": 12978,
+   "kind": "character"
+  },
+  "brute": {
+   "file": "brute.bin",
+   "bytes": 748972,
+   "triangles": 13900,
+   "kind": "character"
+  },
+  "warden": {
+   "file": "warden.bin",
+   "bytes": 681300,
+   "triangles": 13964,
+   "kind": "character"
+  },
+  "stalker": {
+   "file": "stalker.bin",
+   "bytes": 629644,
+   "triangles": 11878,
+   "kind": "character"
+  },
+  "juggernaut": {
+   "file": "juggernaut.bin",
+   "bytes": 1089668,
+   "triangles": 21988,
+   "kind": "character"
+  },
+  "rocketeer": {
+   "file": "rocketeer.bin",
+   "bytes": 705480,
+   "triangles": 12958,
+   "kind": "character"
+  },
+  "titan": {
+   "file": "titan.bin",
+   "bytes": 1481184,
+   "triangles": 29994,
+   "kind": "character"
+  },
+  "skitter": {
+   "file": "skitter.bin",
+   "bytes": 308948,
+   "triangles": 6000,
+   "kind": "character"
+  },
+  "drone": {
+   "file": "drone.bin",
+   "bytes": 291848,
+   "triangles": 6000,
+   "kind": "character"
+  },
+  "blade": {
+   "file": "blade.bin",
+   "bytes": 38708,
+   "triangles": 1400,
+   "kind": "prop"
+  },
+  "flamer": {
+   "file": "flamer.bin",
+   "bytes": 81440,
+   "triangles": 3000,
+   "kind": "prop"
+  },
+  "wardenStaff": {
+   "file": "wardenStaff.bin",
+   "bytes": 90324,
+   "triangles": 3000,
+   "kind": "prop"
+  },
+  "sniper": {
+   "file": "sniper.bin",
+   "bytes": 687952,
+   "triangles": 11846,
+   "kind": "character"
+  },
+  "fuelTank": {
+   "file": "fuelTank.bin",
+   "bytes": 65916,
+   "triangles": 2600,
+   "kind": "prop"
+  },
+  "twinTanks": {
+   "file": "twinTanks.bin",
+   "bytes": 72212,
+   "triangles": 2800,
+   "kind": "prop"
+  },
+  "rocketPack": {
+   "file": "rocketPack.bin",
+   "bytes": 83288,
+   "triangles": 3200,
+   "kind": "prop"
+  },
+  "riot": {
+   "file": "riot.bin",
+   "bytes": 711132,
+   "triangles": 12860,
+   "kind": "character"
+  },
+  "pistol": {
+   "file": "pistol.bin",
+   "bytes": 36088,
+   "triangles": 1400,
+   "kind": "prop"
+  },
+  "shotgun": {
+   "file": "shotgun.bin",
+   "bytes": 83068,
+   "triangles": 3000,
+   "kind": "prop"
+  },
+  "minigun": {
+   "file": "minigun.bin",
+   "bytes": 154060,
+   "triangles": 5200,
+   "kind": "prop"
+  },
+  "launcher": {
+   "file": "launcher.bin",
+   "bytes": 97856,
+   "triangles": 3600,
+   "kind": "prop"
+  },
+  "sniperRifle": {
+   "file": "sniperRifle.bin",
+   "bytes": 94932,
+   "triangles": 3400,
+   "kind": "prop"
+  },
+  "riotShield": {
+   "file": "riotShield.bin",
+   "bytes": 71440,
+   "triangles": 2600,
+   "kind": "prop"
+  }
+ }
+}

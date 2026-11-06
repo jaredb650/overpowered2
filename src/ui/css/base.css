@@ -1,0 +1,48 @@
+/*
+ * One unit drives everything: 1rem is 16px at 1920x1080 and tracks the smaller of width and height, so the layout
+ * is identical from 1280x720 to 4K with no breakpoints, and text stays sharp because nothing is scale-transformed.
+ */
+html { font-size: min(calc(100vw / 120), calc(100vh / 67.5)); }
+
+.op {
+  --ink: #eef4f7;
+  --steel: #9db0bd;
+  --dim: #5b6b77;
+  --plate: rgba(7, 10, 14, 0.76);
+  --plate-solid: #0b1118;
+  --cold: #39e0ff;
+  --amber: #ffb400;
+  --hot: #ff5a14;
+  --blood: #ff1c2b;
+  --whitehot: #fff1c4;
+  --display: 'Anton', Impact, 'Arial Narrow', sans-serif;
+  --mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, Menlo, monospace;
+  /* Legibility comes from a hard offset edge, never a blur: it holds up in front of an explosion. */
+  --edge: 0.08rem 0.08rem 0 #000, -0.04rem -0.04rem 0 rgba(0, 0, 0, 0.7);
+  --edge-big: 0.2rem 0.2rem 0 #000;
+
+  font-family: var(--mono);
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--ink);
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+  line-height: 1.2;
+}
+
+.op *, .op *::before, .op *::after { box-sizing: border-box; }
+
+.op .ico { display: block; fill: currentColor; }
+
+.fill { flex: 1 1 0; min-height: 0; }
+
+.heat-0 { --heat: var(--steel); }
+.heat-1 { --heat: var(--ink); }
+.heat-2 { --heat: var(--amber); }
+.heat-3 { --heat: var(--hot); }
+.heat-4 { --heat: var(--blood); }
+.heat-5 { --heat: var(--whitehot); }
+
+@media (prefers-reduced-motion: reduce) {
+  .op *, .op *::before, .op *::after { animation-duration: 0.001s !important; animation-iteration-count: 1 !important; }
+}

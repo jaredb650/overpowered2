@@ -1,0 +1,100 @@
+/*
+ * Perk rows. Each plate is its own countdown, and each perk keeps the character its label had in the first game:
+ * Blood Thirst pulses, Hellfire flickers, Adrenaline rocks, Berserk thumps larger than everything, and Slowmo alone
+ * holds perfectly still, which is what makes it feel slow. New perks get motions in the same spirit.
+ * Names are prefixed so a later @keyframes can never replace one, which is how the first game's feed broke.
+ */
+
+.perks { display: flex; flex-direction: column; align-items: flex-start; gap: 0.26rem; margin-top: 0.3rem; width: 26rem; }
+
+.pk { position: relative; width: 19rem; height: 2.05rem; flex: none; transform-origin: 0 50%; }
+.pk-face {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 0.6rem;
+  background: var(--plate);
+  color: var(--c);
+  font: 1.42rem/1 var(--display);
+  white-space: nowrap;
+}
+.pk-clip { position: absolute; inset: 0; overflow: hidden; }
+.pk-front { background: var(--c); color: #000; }
+.pk-s { font: 800 1.05rem/1 var(--mono); }
+.pk-t { margin-left: auto; font: 800 1.1rem/1 var(--mono); }
+
+.pk.expiring .pk-clip { animation: op-pk-blink 0.26s steps(1) infinite; }
+@keyframes op-pk-blink { 0% { opacity: 1; } 50% { opacity: 0.25; } }
+
+.pk[data-id='bloodthirst'] { animation: op-pk-pulse 0.5s ease-in-out infinite alternate; }
+@keyframes op-pk-pulse { from { transform: scale(1); } to { transform: scale(1.1); } }
+
+.pk[data-id='hellfire'] { animation: op-pk-flicker 0.3s ease-in-out infinite alternate; }
+.pk[data-id='hellfire'] .pk-front { animation: op-pk-flicker-glow 0.17s steps(2) infinite alternate; }
+@keyframes op-pk-flicker { from { transform: scale(1); } to { transform: scale(1.05); } }
+@keyframes op-pk-flicker-glow { from { opacity: 1; } to { opacity: 0.72; } }
+
+.pk[data-id='adrenaline'] { animation: op-pk-rock 0.3s ease-in-out infinite alternate; }
+@keyframes op-pk-rock { from { transform: scale(1) rotate(-2deg); } to { transform: scale(1.05) rotate(2deg); } }
+
+.pk[data-id='berserk'] { width: 23.5rem; height: 2.9rem; animation: op-pk-thump 0.5s infinite; }
+.pk[data-id='berserk'] .pk-face { font-size: 2.1rem; }
+@keyframes op-pk-thump { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.1); } }
+
+/* Slowmo is the still one. It had no animation in the first game, and that is the joke. */
+
+.pk[data-id='sentinels'] { animation: op-pk-orbit 1.2s linear infinite; }
+@keyframes op-pk-orbit {
+  0% { transform: translate(0.14rem, 0); }
+  25% { transform: translate(0, 0.14rem); }
+  50% { transform: translate(-0.14rem, 0); }
+  75% { transform: translate(0, -0.14rem); }
+  100% { transform: translate(0.14rem, 0); }
+}
+
+.pk[data-id='chainStorm'], .pk[data-id='shock'] { animation: op-pk-arc 0.42s steps(1) infinite; }
+@keyframes op-pk-arc {
+  0% { transform: translate(0, 0); }
+  20% { transform: translate(0.22rem, -0.08rem); }
+  45% { transform: translate(-0.16rem, 0.1rem); }
+  60% { transform: translate(0.08rem, 0.05rem); }
+  85% { transform: translate(-0.1rem, -0.1rem); }
+}
+
+.pk[data-id='butcher'] { animation: op-pk-chop 0.46s cubic-bezier(.8,0,.2,1) infinite; }
+@keyframes op-pk-chop { 0%, 55% { transform: translateY(-0.12rem) rotate(-0.8deg); } 70% { transform: translateY(0.26rem) rotate(1deg); } 100% { transform: translateY(-0.12rem) rotate(-0.8deg); } }
+
+.pk[data-id='skyfall'] { animation: op-pk-fall 0.9s cubic-bezier(.6,0,1,.5) infinite; }
+@keyframes op-pk-fall { 0% { transform: translateY(-0.2rem); } 86% { transform: translateY(0.26rem); } 100% { transform: translateY(-0.2rem); } }
+
+.pk[data-id='chainReaction'] { animation: op-pk-burst 0.6s steps(1) infinite; }
+@keyframes op-pk-burst { 0%, 40% { transform: scale(1); } 45% { transform: scale(1.08); } 62% { transform: scale(1); } 67% { transform: scale(1.06); } 84% { transform: scale(1); } }
+
+.pk[data-id='overdrive'] { animation: op-pk-lean 0.24s ease-in-out infinite alternate; }
+@keyframes op-pk-lean { from { transform: skewX(-6deg) translateX(0); } to { transform: skewX(-14deg) translateX(0.3rem); } }
+
+.pk[data-id='quad'] { animation: op-pk-quad 0.8s cubic-bezier(.2,.9,.3,1) infinite; }
+@keyframes op-pk-quad { 0% { transform: scale(1.08); } 34%, 100% { transform: scale(1); } }
+
+.pk[data-id='haste'] { animation: op-pk-haste 0.12s linear infinite alternate; }
+@keyframes op-pk-haste { from { transform: translateX(-0.08rem); } to { transform: translateX(0.12rem); } }
+
+.pk[data-id='vampire'] { animation: op-pk-vamp 1.1s ease-in-out infinite; }
+@keyframes op-pk-vamp { 0%, 100% { transform: scale(1); } 12% { transform: scale(1.06); } 24% { transform: scale(1); } 36% { transform: scale(1.04); } }
+
+.pk[data-id='ricochet'] { animation: op-pk-bounce 0.5s linear infinite alternate; }
+@keyframes op-pk-bounce { from { transform: translateX(0); } to { transform: translateX(0.5rem); } }
+
+.pk[data-id='ghost'] { animation: op-pk-ghost 1.4s ease-in-out infinite alternate; }
+@keyframes op-pk-ghost { from { opacity: 1; } to { opacity: 0.5; } }
+
+.pk[data-id='magnet'] { animation: op-pk-mag 0.7s ease-in infinite; }
+@keyframes op-pk-mag { 0% { transform: scaleX(1.03); } 100% { transform: scaleX(0.97); } }
+
+.pk[data-id='regen'] { animation: op-pk-breathe 1.2s ease-in-out infinite alternate; }
+@keyframes op-pk-breathe { from { transform: scale(1); } to { transform: scale(1.03); } }
+
+.pk[data-id='timeWarp'] { animation: op-pk-warp 2.4s ease-in-out infinite alternate; }
+@keyframes op-pk-warp { from { transform: skewX(-3deg); } to { transform: skewX(3deg); } }

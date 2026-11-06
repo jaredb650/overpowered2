@@ -1,0 +1,87 @@
+/* --- Autocannon scope: an octagonal port, with the first game's red cross kept as its heritage --- */
+
+.scope { display: none; position: absolute; inset: 0; }
+.sc-mask {
+  position: absolute;
+  inset: 0;
+  background: #05080c;
+  clip-path: polygon(evenodd,
+    0 0, 100% 0, 100% 100%, 0 100%, 0 0,
+    calc(50% - 21rem) calc(50% - 30rem), calc(50% + 21rem) calc(50% - 30rem),
+    calc(50% + 30rem) calc(50% - 21rem), calc(50% + 30rem) calc(50% + 21rem),
+    calc(50% + 21rem) calc(50% + 30rem), calc(50% - 21rem) calc(50% + 30rem),
+    calc(50% - 30rem) calc(50% + 21rem), calc(50% - 30rem) calc(50% - 21rem),
+    calc(50% - 21rem) calc(50% - 30rem));
+}
+.sc-line { position: absolute; background: rgba(255, 0, 0, 0.78); }
+.sc-h { left: calc(50% - 30rem); right: calc(50% - 30rem); top: 50%; height: 0.125rem; margin-top: -0.0625rem; }
+.sc-v { top: calc(50% - 30rem); bottom: calc(50% - 30rem); left: 50%; width: 0.125rem; margin-left: -0.0625rem; }
+.sc-dot { position: absolute; left: 50%; top: 50%; width: 0.4rem; height: 0.4rem; margin: -0.2rem 0 0 -0.2rem; background: #ff0000; box-shadow: 0 0 0 0.08rem #000; }
+.sc-mils { position: absolute; left: 50%; top: 50%; }
+.sc-mils-h {
+  width: 40rem;
+  height: 0.7rem;
+  margin: -0.35rem 0 0 -20rem;
+  background: repeating-linear-gradient(90deg, rgba(255, 0, 0, 0.78) 0 0.125rem, transparent 0.125rem 2.5rem);
+}
+.sc-mils-v {
+  width: 0.7rem;
+  height: 40rem;
+  margin: -20rem 0 0 -0.35rem;
+  background: repeating-linear-gradient(180deg, rgba(255, 0, 0, 0.78) 0 0.125rem, transparent 0.125rem 2.5rem);
+}
+.sc-read { position: absolute; display: flex; align-items: baseline; gap: 0.45rem; }
+.sc-tag { color: var(--steel); }
+.sc-val { font: 2.6rem/1 var(--display); }
+.sc-range { left: calc(50% + 32rem); top: calc(50% - 8rem); }
+.sc-mag { left: calc(50% + 32rem); top: calc(50% + 5rem); }
+.sc-zoom { right: calc(50% + 32rem); top: calc(50% - 1rem); }
+
+/* --- Call-in targeting --- */
+
+.targeting { display: none; position: absolute; inset: 0; }
+.tg-frame { position: absolute; width: 7rem; height: 7rem; border: 0 solid var(--c); }
+.tg-tl { left: 32rem; top: 8rem; border-width: 0.4rem 0 0 0.4rem; }
+.tg-tr { right: 32rem; top: 8rem; border-width: 0.4rem 0.4rem 0 0; }
+.tg-bl { left: 32rem; bottom: 15rem; border-width: 0 0 0.4rem 0.4rem; }
+.tg-br { right: 32rem; bottom: 15rem; border-width: 0 0.4rem 0.4rem 0; }
+.tg-reticle { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
+.tg-ring { position: absolute; left: -4.5rem; top: -4.5rem; width: 9rem; height: 9rem; border: 0.2rem solid var(--c); transform: rotate(45deg); box-shadow: 0 0 0 0.08rem #000; animation: op-tg-lock 0.9s steps(3) infinite alternate; }
+@keyframes op-tg-lock { from { transform: rotate(45deg) scale(1); } to { transform: rotate(45deg) scale(0.78); } }
+.tg-cross { position: absolute; background: var(--c); box-shadow: 0 0 0 0.08rem #000; }
+.tg-ch { left: -2rem; top: -0.08rem; width: 4rem; height: 0.16rem; }
+.tg-cv { left: -0.08rem; top: -2rem; width: 0.16rem; height: 4rem; }
+.tg-plate {
+  position: absolute;
+  left: 50%;
+  top: 9rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0 1.1rem;
+  background: var(--c);
+  color: #000;
+  font: 3.4rem/1.14 var(--display);
+  text-transform: uppercase;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+.tg-icon .ico { width: 2.5rem; height: 2.5rem; }
+.tg-readout { position: absolute; left: calc(50% + 7.4rem); top: calc(50% - 2.7rem); display: flex; flex-direction: column; gap: 0.15rem; }
+.tg-read { display: flex; align-items: baseline; gap: 0.4rem; padding: 0.1rem 0.5rem; background: var(--plate); }
+.tg-tag { color: var(--steel); }
+.tg-val { font: 2.1rem/1 var(--display); color: var(--ink); }
+.tg-keys { position: absolute; left: 50%; bottom: 15.6rem; transform: translateX(-50%); white-space: nowrap; }
+.tg-keys span { padding: 0.1rem 0.6rem; background: var(--plate); color: var(--c); }
+
+/* --- Low health frame --- */
+
+.lowframe { display: none; position: absolute; inset: 0; }
+.lowframe.on { display: block; animation: op-low 1s steps(2) infinite; }
+.lowframe.critical { animation-duration: 0.62s; }
+@keyframes op-low { 0% { opacity: 1; } 50% { opacity: 0.45; } }
+.lf { position: absolute; width: 11rem; height: 11rem; border: 0 solid var(--blood); }
+.lf-tl { left: 0.7rem; top: 0.7rem; border-width: 0.55rem 0 0 0.55rem; }
+.lf-tr { right: 0.7rem; top: 0.7rem; border-width: 0.55rem 0.55rem 0 0; }
+.lf-bl { left: 0.7rem; bottom: 0.7rem; border-width: 0 0 0.55rem 0.55rem; }
+.lf-br { right: 0.7rem; bottom: 0.7rem; border-width: 0 0.55rem 0.55rem 0; }

@@ -1,0 +1,11 @@
+node_modules
+dist
+.vite
+*.log
+tools/out
+tools/out-vite.log
+.DS_Store
+.env*
+# Commercial tracks and large masters. Rebuild with tools/import-music.mjs from the original repo.
+public/audio/music/*
+!public/audio/music/manifest.json
