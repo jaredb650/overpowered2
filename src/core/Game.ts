@@ -61,7 +61,7 @@ export class Game {
   private frameOrder(): GameSystem[] {
     const c = this.ctx;
     return [
-      c.player, c.weapons, c.viewmodel, c.enemies, c.waves, c.combat, c.world, c.gore, c.progression, c.contracts, c.camera, c.fx, c.audio, c.hud,
+      c.player, c.weapons, c.viewmodel, c.enemies, c.waves, c.combat, c.world, c.gore, c.progression, c.contracts, c.campaign, c.camera, c.fx, c.audio, c.hud,
     ];
   }
 
@@ -201,6 +201,7 @@ export async function createCtx(canvas: HTMLCanvasElement, onProgress: Progress 
   ctx.progression = await build('progression', 'createProgression', 'progression', ctx);
   ctx.contracts = await build('contracts', 'createContracts', 'contracts', ctx);
   ctx.hud = await build('ui', 'createHud', 'hud', ctx);
+  ctx.campaign = await build('campaign', 'createCampaign', 'campaign', ctx);
   return ctx;
 }
 

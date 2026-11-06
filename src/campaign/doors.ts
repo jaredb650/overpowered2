@@ -12,8 +12,10 @@ import { MOVE } from '../player/tuning';
 import type { DoorDef } from './types';
 
 const THICK = 0.3;
-/** The player's half width, and a little. */
-const CLEAR = 0.6;
+/** Metres either side of the leaf that count as under it. Tighter than a body pressed against it, which must not hold a door up. */
+const UNDER = 0.5;
+/** Past the end of a door's width, the player is beside it. */
+const BESIDE = 0.6;
 /** Shut enough that nobody can be routed through it. */
 const ROUTE_SHUT = 0.5;
 
@@ -115,9 +117,11 @@ export class Doors {
       done();
       return;
     }
-    if (!door.done) this.moving++;
+    const interrupted = door.done;
+    if (!interrupted) this.moving++;
     door.rate = Math.abs(door.target - door.open) / seconds;
     door.done = done;
+    interrupted?.();
     _v.set(...def.at);
     ctx.audio.play('crusher_rise', { position: _v });
   }
@@ -148,7 +152,7 @@ export class Doors {
     const { player } = this.ctx;
     const { def, through, across } = door;
     _v.copy(player.position).sub(_c.set(...def.at));
-    if (Math.abs(_v.dot(through)) > CLEAR + THICK || Math.abs(_v.dot(across)) > def.width / 2 + CLEAR) return 0;
+    if (Math.abs(_v.dot(through)) > UNDER || Math.abs(_v.dot(across)) > def.width / 2 + BESIDE) return 0;
     const body = player.sliding || player.crouched ? MOVE.crouchHeight : MOVE.standHeight;
     return _v.y + body + 0.08;
   }
@@ -162,7 +166,7 @@ export class Doors {
       let next = closing ? Math.max(door.target, door.open - step) : Math.min(door.target, door.open + step);
       if (closing) {
         const clearance = this.headroom(door);
-        if (clearance > 0) next = Math.max(next, door.def.kind === 'shutter' ? clearance / door.def.height : door.open);
+        if (clearance > 0) next = Math.max(next, door.def.kind === 'shutter' ? Math.min(door.open, clearance / door.def.height) : door.open);
       }
       door.open = next;
       door.place();

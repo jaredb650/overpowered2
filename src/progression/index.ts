@@ -150,6 +150,16 @@ class Progression implements ProgressionSystem {
     this.callInsManager.grant(id);
   }
 
+  boardCallIn(id: CallInId): void {
+    this.callInsManager.board(id);
+  }
+
+  resume(score: number, kills: number, headshots: number): void {
+    this.scoreKeeper.score = score;
+    this.scoreKeeper.kills = kills;
+    this.scoreKeeper.headshots = headshots;
+  }
+
   setCombo(combo: number): void {
     this.comboCounter.set(combo);
     this.ctx.events.emit('combo:changed', { combo });

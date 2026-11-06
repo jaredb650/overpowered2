@@ -9,6 +9,7 @@
  * replays the saved beat from its top with the doors and objectives it was saved with. Restarting from a clean run is the point:
  * every system already knows how to clear itself, and nothing has to be undone by hand.
  */
+import type { WeaponId } from '../core/gameplay';
 import type { Line } from '../enemies/commander/lines';
 import { arm, type Watch, type WatchFacts } from './watch';
 import type { Beat, Mark, Mission, MissionHost, ObjectiveState, Script, Step, Zone } from './types';
@@ -67,6 +68,8 @@ export class MissionRunner implements WatchFacts {
   private readonly doors = new Map<string, number>();
   private objectiveList: ObjectiveState[] = [];
   private readonly heard = new Set<string>();
+  /** Taken from racks, kept through every restart, so a gun found off the path is not lost to a checkpoint that never promised it. */
+  private readonly taken = new Set<WeaponId>();
   private readonly lines = new Map<string, Line>();
   private readonly radio: Spoken[] = [];
   private speaking = false;
@@ -125,6 +128,7 @@ export class MissionRunner implements WatchFacts {
     this.closeBeat();
     this.tags.clear();
     this.heard.clear();
+    this.taken.clear();
     this.hush();
     this.objectiveList = [];
     this.elapsed = 0;
@@ -137,8 +141,7 @@ export class MissionRunner implements WatchFacts {
     this.doors.clear();
     for (const id in mission.doors) this.setDoor(id, this.doorAt(id, index), 0, noop);
     this.host.objectives(this.objectiveList);
-    const from = this.checkpointFor(index);
-    this.host.deploy(from.at, from.loadout);
+    this.deploy(index);
     this.pending = index;
     this.flush();
   }
@@ -162,8 +165,7 @@ export class MissionRunner implements WatchFacts {
     for (const [id, open] of save.doors) this.setDoor(id, open, 0, noop);
     this.objectiveList = save.objectives.map(o => ({ ...o }));
     this.host.objectives(this.objectiveList);
-    const from = this.checkpointFor(save.index);
-    this.host.deploy(from.at, from.loadout);
+    this.deploy(save.index);
     this.pending = save.index;
     this.flush();
     const lines = mission.redeployLines;
@@ -265,14 +267,21 @@ export class MissionRunner implements WatchFacts {
     if (beat.start) this.begin(beat.start);
   }
 
-  /** The last checkpoint at or before this beat. Before the first one, the mission's opening kit. */
-  private checkpointFor(index: number): { at: Mark | null; loadout: Mission['loadout'] } {
+  /** The last checkpoint at or before this beat, or the mission's opening kit before the first one, plus anything found on the way. */
+  private deploy(index: number): void {
     const { beats, marks, loadout } = this.mission;
+    let at: Mark | null = null;
+    let kit = loadout;
     for (let i = index; i >= 0; i--) {
       const c = beats[i]!.checkpoint;
-      if (c) return { at: marks[c.at] ?? null, loadout: c.loadout };
+      if (!c) continue;
+      at = marks[c.at] ?? null;
+      kit = c.loadout;
+      break;
     }
-    return { at: null, loadout };
+    const weapons = [...kit.weapons];
+    for (const w of this.taken) if (!weapons.includes(w)) weapons.push(w);
+    this.host.deploy(at, { weapons, grenades: kit.grenades });
   }
 
   /** What a door would be doing by this beat, from every step that came before. */
@@ -404,9 +413,16 @@ export class MissionRunner implements WatchFacts {
       case 'grenades':
         host.grenades(step.count);
         return;
-      case 'rack':
-        host.rack(step.weapon, this.mark(step.at), () => this.signal(`took:${step.weapon}`));
+      case 'rack': {
+        const { weapon } = step;
+        const took = (): void => {
+          this.taken.add(weapon);
+          this.signal(`took:${weapon}`);
+        };
+        if (this.taken.has(weapon)) took();
+        else host.rack(weapon, this.mark(step.at), took);
         return;
+      }
       case 'drop':
         host.drop(step.item, this.mark(step.at));
         return;

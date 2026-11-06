@@ -80,6 +80,8 @@ export const BLAST = {
   tossHurt: [0.25, 0.55] as const,
   /** Seconds a body that stayed on its feet stands dazed. */
   dazed: 1.6,
+  /** Limbs one blast may take, at 3 to 5 ms of mesh cutting each, all in one frame. A crowd of 12 comes in under it. Past it, bodies go whole. */
+  cuts: 12,
   /** A pellet this hard is a point-blank shotgun, and a kill from one in the trunk tears the body in two this often. */
   pointBlankForce: 100,
   pointBlankWaist: 0.35,

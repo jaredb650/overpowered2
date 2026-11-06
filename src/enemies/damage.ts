@@ -105,6 +105,8 @@ export class DamageModel {
   /** What has come up so far in the blast `seenIn`, so that one crowd does not all go the same way. */
   private readonly seen = new Uint8Array(OUTCOME_COUNT);
   private seenIn = -1;
+  /** Limbs the blast `seenIn` has taken so far. */
+  private cuts = 0;
   private readonly seam: DamageInfo = { amount: 0, type: 'explosive', point: new THREE.Vector3(), dir: new THREE.Vector3(), force: 0, source: '' };
 
   constructor(private readonly w: AiWorld, private readonly m: EnemyManager) {}
@@ -207,6 +209,7 @@ export class DamageModel {
     if (d.explosionId !== this.seenIn) {
       this.seenIn = d.explosionId ?? -1;
       this.seen.fill(0);
+      this.cuts = 0;
     }
     const body = this.blastBody;
     body.health = e.health;
@@ -239,11 +242,14 @@ export class DamageModel {
 
   private takeLimbs(e: Enemy, d: DamageInfo, res: DamageResult | null, from: readonly GoreRegion[], count: number): void {
     const start = Math.floor(rand(0, from.length));
-    for (let i = 0; i < from.length && count > 0; i++) {
+    for (let i = 0; i < from.length && count > 0 && this.cuts < BLAST.cuts; i++) {
       const region = from[(start + i) % from.length]!;
       if (!e.limbHp.has(region) || e.char.severed.has(region)) continue;
       this.sever(e, region, d, res);
-      if (e.char.severed.has(region)) count--;
+      if (e.char.severed.has(region)) {
+        count--;
+        this.cuts++;
+      }
     }
   }
 
@@ -529,7 +535,10 @@ export class DamageModel {
   /** What the ring left of a body it killed. The ragdoll takes whatever comes after this. */
   private blastDeath(e: Enemy, d: DamageInfo, res: DamageResult | null, blast: BlastRoll): void {
     const rule = OUTCOMES[blast.outcome];
-    if (blast.outcome === 'waist' && DevFlags.gibbing) this.sever(e, 'abdomen', d, res);
+    if (blast.outcome === 'waist' && DevFlags.gibbing && this.cuts < BLAST.cuts) {
+      this.cuts++;
+      this.sever(e, 'abdomen', d, res);
+    }
     this.tear(e, d, res, rule);
     if (blast.outcome === 'flesh') this.open(e, d);
     if (rule.fire !== undefined) (e.char as unknown as { setBurn(amount: number): void }).setBurn(1);

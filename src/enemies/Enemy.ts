@@ -217,7 +217,7 @@ export class Enemy implements EnemyInstance {
   /** Riot shield is still up. */
   shield = false;
 
-  /** Set after the killing blow while the body plays out a death, such as a headless stumble. */
+  /** Set after the killing blow while the body plays out a death: a drone's crash, a boss's last act. */
   dying = 0;
   dyingKind: 'none' | 'crash' | 'boss' = 'none';
   /** Distance tier for animation and think rates. */

@@ -31,11 +31,12 @@ export class CutscenePlayer {
   }
 
   play(scene: Cutscene, done: (skipped: boolean) => void): void {
-    const { camera, hud, player } = this.ctx;
+    const { camera, hud, player, weapons } = this.ctx;
     this.shots = scene.shots;
     this.index = this.clock = this.total = 0;
     this.done = done;
     player.park(player.position);
+    weapons.setHolstered(true);
     camera.setSeat(this.view);
     hud.seat(this.panel);
     this.frame();
@@ -72,13 +73,14 @@ export class CutscenePlayer {
   }
 
   private stop(skipped: boolean): void {
-    const { camera, hud, player } = this.ctx;
+    const { camera, hud, player, weapons } = this.ctx;
     const done = this.done;
     this.shots = null;
     this.done = null;
     camera.setSeat(null);
     hud.seat(null);
     player.unpark(0);
+    weapons.setHolstered(false);
     done?.(skipped);
   }
 

@@ -14,6 +14,8 @@ export type Vec3 = readonly [x: number, y: number, z: number];
 export interface Mark {
   at: Vec3;
   yaw?: number;
+  /** On a route: seconds to hover or wait here. */
+  hold?: number;
 }
 
 /** A box the player can be in. */
@@ -133,7 +135,7 @@ export type Step =
   | { do: 'signal'; name: string }
   /** Holds the script until the shots run out or the player skips. A skip clears the radio queue. */
   | { do: 'cutscene'; id: string }
-  /** Into a gunner's seat, holding the script until the player is back in their body. `route` is a flight path. */
+  /** Into a gunner's seat, holding the script until the player is back in their body. `route` is a flight path, and a ride raises `ride:<mark>` as it reaches each one. */
   | { do: 'ride'; seat: CallInId; route?: string }
   /** The Commander answers the way the player has been fighting: the box between rounds, with the next answer fielded. */
   | { do: 'adapt' }

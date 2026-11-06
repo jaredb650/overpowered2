@@ -212,6 +212,19 @@ export class Weapons implements WeaponSystem, Guard {
     this.ctx.events.emit('weapon:unlocked', { weapon: id });
   }
 
+  setLoadout(weapons: readonly WeaponId[], grenades: number): void {
+    this.stopEverything();
+    this.owned.clear();
+    for (const id of weapons) this.owned.add(id);
+    this.grenades = grenades;
+    const first = weapons[0]!;
+    const gun = weapons.find(id => id !== 'sword') ?? first;
+    this.current = first;
+    this.lastWeapon = weapons[1] ?? first;
+    this.lastGun = gun;
+    this.ctx.viewmodel.equip?.(first, 0.01);
+  }
+
   private addReserve(s: Slot, fraction: number): void {
     s.ammo.reserve = Math.min(s.ammo.maxReserve, s.ammo.reserve + Math.ceil(s.ammo.maxReserve * fraction));
   }

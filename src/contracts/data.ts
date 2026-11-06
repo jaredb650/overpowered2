@@ -62,6 +62,8 @@ export interface ContractDef {
   wounds: WoundRules;
   rewards: ContractRewards;
   briefing: Briefing;
+  /** A row of MISSIONS in src/campaign/missions. Set, the contract plays that from start to end and has no waves. */
+  mission?: string;
   /** localStorage key of this contract's high score. */
   scoreKey: string;
 }

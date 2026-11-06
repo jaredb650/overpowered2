@@ -5,6 +5,7 @@
  * if there is one. E moves it along. It never takes the mouse or stops the game, because a player who wants to reload through a
  * speech should be able to.
  */
+import { MISSION_ID } from '../../campaign/select';
 import type { Ctx } from '../../core/contracts';
 import type { EnemyInstance } from '../../core/gameplay';
 import { TONE_OF, type Tone } from '../../enemies/commander/adaptations';
@@ -100,7 +101,8 @@ export class CommanderHud {
   reset(): void {
     this.close();
     this.script.reset();
-    this.firstIn = FIRST_WORDS_AT;
+    // A mission writes his opening itself.
+    this.firstIn = MISSION_ID ? -1 : FIRST_WORDS_AT;
     this.afterLast = null;
     this.person = false;
     for (const flag of this.chips.values()) flag.set(false);

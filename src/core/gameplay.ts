@@ -78,6 +78,8 @@ export interface WeaponSystem extends GameSystem {
   switchTo(id: WeaponId): void;
   /** Hides the gun and blocks firing, for call-in targeting. */
   setHolstered(holstered: boolean): void;
+  /** A mission's kit: these guns and no others, with the first drawn. */
+  setLoadout(weapons: readonly WeaponId[], grenades: number): void;
 }
 
 export type SwordMove = 'light1' | 'light2' | 'light3' | 'windup' | 'area' | 'finisher' | 'block';
@@ -332,6 +334,10 @@ export interface ProgressionSystem extends GameSystem {
   /** Forces a perk on, for tests and debug. */
   grant(id: PerkId | PowerupId): void;
   grantCallIn(id: CallInId): void;
+  /** Straight into a gunner's seat, with no key and nothing earned. A mission's insertion. */
+  boardCallIn(id: CallInId): void;
+  /** Carries a mission's tally across a restart, which a new run would otherwise zero. */
+  resume(score: number, kills: number, headshots: number): void;
   /** Puts the combo here with a fresh window, for tests and debug. What it would have paid on the way up waits for the next kill. */
   setCombo(combo: number): void;
   /** Drops a pickup in the world. */

@@ -199,6 +199,7 @@ export class Hud implements HudSystem {
       this.crosshair.damaged(e.amount, e.from);
     });
     events.on('player:died', () => this.onDeath());
+    events.on('campaign:complete', () => this.fulfilled());
     events.on('weapon:fired', () => this.crosshair.fired());
     events.on('weapon:unlocked', e => {
       this.arms.unlocked(e.weapon);
@@ -396,6 +397,8 @@ export class Hud implements HudSystem {
     if (this.deathClock > 0) return;
     const game = this.game;
     this.ctx.time.popScale('hud-death');
+    // A mission brings the player back at a checkpoint, and the mouse stays where it was.
+    if (this.ctx.campaign?.redeploy()) return;
     this.lockAfter = null;
     this.ctx.input.releaseLock?.();
     this.ctx.events.emit('run:end', { score: this.report.score, wave: this.report.wave, kills: this.report.kills });

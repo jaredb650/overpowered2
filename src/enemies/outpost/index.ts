@@ -230,15 +230,15 @@ export class Outpost {
     this.commander.onWaveStart();
   }
 
-  /** Opens a new squad at a gate of its own, out of the player's sight and a walk away. */
-  formSquad(size: number): void {
+  /** Opens a new squad at a gate of its own, out of the player's sight and a walk away. A mission names the spot with `at`. */
+  formSquad(size: number, at?: THREE.Vector3): void {
     const name = CALLSIGNS[this.squadSerial % CALLSIGNS.length]!;
     const squad = new OutpostSquad(++this.squadSerial, name, this);
     squad.size = size;
     squad.thinkAt = this.w.now + 1.5;
     this.squads.push(squad);
     this.forming = squad;
-    this.gate = this.pickGate();
+    this.gate = at ?? this.pickGate();
     this.gateUsedAt.set(this.gate, this.w.now);
     squad.adopt(this.intel.position, this.intel.at);
   }

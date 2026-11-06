@@ -1,0 +1,27 @@
+/*
+ * The mission's lines on the HUD. The radio is the Commander's box, one step below where his own barks land, so two voices can
+ * stack without covering each other.
+ */
+.ms { position: absolute; inset: 0; pointer-events: none; }
+
+.ms-objs { display: flex; flex-direction: column; align-items: flex-start; gap: 0.25rem; margin-top: 0.5rem; }
+.ms-obj { display: flex; align-items: center; gap: 0.55rem; padding: 0.24rem 0.7rem 0.2rem; background: var(--plate); box-shadow: 0.14rem 0.14rem 0 #000; font-size: 1rem; font-weight: 600; letter-spacing: 0.02em; color: var(--ink); }
+.ms-obj-box { flex: none; width: 0.72rem; height: 0.72rem; box-shadow: inset 0 0 0 0.12rem var(--amber); }
+.ms-obj.done { color: var(--dim); }
+.ms-obj.done .ms-obj-box { background: var(--amber); }
+
+.cmd-box.ms-radio.bark { top: 18rem; }
+
+.ms-hint { display: none; position: absolute; left: 50%; bottom: 20rem; width: 46rem; margin-left: -23rem; text-align: center; font-size: 1.14rem; font-weight: 600; line-height: 1.3; color: #000; }
+.ms-hint.on { display: block; }
+.ms-hint { background: var(--amber); padding: 0.36rem 0.8rem 0.28rem; box-shadow: 0.16rem 0.16rem 0 #000; }
+
+.ms-cinema { position: absolute; inset: 0; pointer-events: none; }
+.ms-bar { position: absolute; left: 0; right: 0; height: 9%; background: #000; }
+.ms-bar.top { top: 0; }
+.ms-bar.bottom { bottom: 0; display: flex; align-items: center; justify-content: flex-end; padding-right: 2rem; }
+.ms-skip { font-size: 0.9rem; color: var(--dim); }
+.ms-skip b { padding: 0 0.34rem; background: var(--steel); color: #000; font-weight: 800; }
+
+/* A cutscene has no use for any of this. */
+.hud:has(.ms-cinema) .col-left, .hud:has(.ms-cinema) .col-right, .hud:has(.ms-cinema) .xh-reticle, .hud:has(.ms-cinema) .ms-objs, .hud:has(.ms-cinema) .ms-hint { display: none; }

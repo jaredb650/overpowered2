@@ -21,6 +21,7 @@ import { Physics } from '../physics/Physics';
 import { MOVE } from '../player/tuning';
 import type { Combat } from '../weapons/Combat';
 import { createCombat, createWeapons, SWORD, TUNING, WEAPONS } from '../weapons';
+import { SHAPED_CHARGE } from '../weapons/data';
 import type { Weapons } from '../weapons/Weapons';
 import { makeCtx, runLoop } from './harness';
 
@@ -584,6 +585,51 @@ const tests: Record<string, (r: Rig) => void> = {
     run(r, 0.3, 60);
     r.input.simulate('fire', false);
     check('shell kills', !d.alive, d.health);
+  },
+  'shaped charges: a direct hit goes through armour, and its splash does little to it'(r) {
+    for (const [weapon, kind] of [['rocket', 'rocket'], ['autocannon', 'shell']] as const) {
+      const charge = SHAPED_CHARGE[kind]!;
+      const direct = (armor: number): DamageInfo | undefined => {
+        clean(r, weapon);
+        const d = r.enemies.add(0, -12, 1e7);
+        d.armor = armor;
+        r.player.eye.y = 1;
+        r.input.simulate('fire', true);
+        run(r, 0.5, 60);
+        r.input.simulate('fire', false);
+        return d.hits[0];
+      };
+      const plated = direct(50);
+      check(`${weapon}: through the plates`, plated?.pierces === true, plated?.pierces);
+      check(`${weapon}: harder on armour`, plated?.amount === WEAPONS[weapon].damage * charge.direct, plated?.amount);
+      const bare = direct(0);
+      check(`${weapon}: as written on a bare body`, bare?.amount === WEAPONS[weapon].damage && !bare.pierces, bare?.amount);
+    }
+
+    clean(r);
+    const at = new THREE.Vector3(0, 1, -30);
+    const plated = r.enemies.add(3, -30, 1e7);
+    plated.armor = 50;
+    const bare = r.enemies.add(-3, -30, 1e7);
+    r.combat.explode(at, { radius: 8, damage: 100, kind: 'rocket', source: 'test', team: 'player' });
+    const splash = bare.hits[0]!.amount * SHAPED_CHARGE.rocket!.splash;
+    check('rocket splash: less on armour', near(plated.hits[0]!.amount, splash, 0.01), plated.hits[0]?.amount);
+    check('rocket splash: never pierces', !plated.hits[0]!.pierces, plated.hits[0]?.pierces);
+
+    clean(r);
+    const iron = r.enemies.add(2, -30, 1e7);
+    iron.armor = 50;
+    const flesh = r.enemies.add(-2, -30, 1e7);
+    r.combat.explode(at, { radius: 5, damage: 99999, kind: 'shell', source: 'autocannon', team: 'player', instakill: true, selfDamage: 0 });
+    check('shell splash: a number on armour', iron.alive && near(iron.hits[0]!.amount, SHAPED_CHARGE.shell!.most * SHAPED_CHARGE.shell!.splash, 0.01), iron.hits[0]?.amount);
+    check('shell splash: still the end of a bare body', !flesh.alive, flesh.health);
+
+    clean(r);
+    const grenaded = r.enemies.add(2, -30, 1e7);
+    grenaded.armor = 50;
+    const beside = r.enemies.add(-2, -30, 1e7);
+    r.combat.explode(at, { radius: 7, damage: 190, kind: 'grenade', source: 'test', team: 'player' });
+    check('a grenade is no shaped charge', near(grenaded.hits[0]!.amount, beside.hits[0]!.amount, 0.01), grenaded.hits[0]?.amount);
   },
   'tunnelling: nothing passes a 4 cm wall at any frame rate'(r) {
     for (const fps of [20, 30, 60, 144]) {

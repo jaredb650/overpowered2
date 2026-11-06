@@ -264,7 +264,7 @@ export class CallInManager {
     return false;
   }
 
-  private board(id: CallInId): void {
+  board(id: CallInId): void {
     const { audio, events, player, weapons } = this.ctx;
     if (this.targeting.id) this.targeting.exit();
     this.held.delete(id);

@@ -31,8 +31,11 @@ export const GoreTuning = {
   maxRagdolls: 14,
   /** Bodies still holding themselves up. Past this a collapse is just a ragdoll. */
   maxCollapses: 4,
-  /** Living bodies on physics at once. Past this a knockdown is refused and the caller staggers it instead. */
-  maxKnockdowns: 6,
+  /**
+   * Living bodies on physics at once. Past this a knockdown is refused and the caller staggers it instead. Sized for a grenade in
+   * a crowd of 12: at 6, every survivor after the sixth stood still in the blast that threw his neighbours.
+   */
+  maxKnockdowns: 12,
   /** Seconds on the floor and seconds to rise, for a knockdown that does not say. */
   knockdownLie: 1.2,
   knockdownRise: 2.4,
