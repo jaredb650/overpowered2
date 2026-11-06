@@ -15,7 +15,7 @@ const SPAWNS = Number(process.env.AC_SPAWNS ?? 14);
 /** Runs in the page. */
 function prelude() {
   const { ctx, game } = window.__op2;
-  const log = { radio: [], banners: [], kills: {}, killers: 0, playerHits: [], sounds: {}, fx: {}, shots: {}, peak: 0 };
+  const log = { radio: [], banners: [], kills: {}, sounds: {}, fx: {} };
   window.__ac = log;
   const hud = ctx.hud;
   const feed = hud.feed.bind(hud);
@@ -29,7 +29,20 @@ function prelude() {
     return banner(text, sub, color);
   };
   ctx.events.on('enemy:killed', e => { log.kills[e.damage.source] = (log.kills[e.damage.source] ?? 0) + 1; });
-  ctx.events.on('player:damaged', e => log.playerHits.push({ amount: e.amount, type: e.type }));
+  // The source lives on the call, not on the event, and an invulnerable player must still show up here.
+  log.hurtBy = {};
+  log.pushes = 0;
+  const takeDamage = ctx.player.takeDamage.bind(ctx.player);
+  ctx.player.takeDamage = d => {
+    log.hurtBy[d.source] = (log.hurtBy[d.source] ?? 0) + 1;
+    return takeDamage(d);
+  };
+  const launch = ctx.player.launch.bind(ctx.player);
+  ctx.player.launch = v => {
+    log.pushes++;
+    return launch(v);
+  };
+  ctx.player.modifiers.invulnerable = true;
   const play = ctx.audio.play.bind(ctx.audio);
   ctx.audio.play = (id, o) => {
     log.sounds[id] = (log.sounds[id] ?? 0) + 1;
@@ -128,10 +141,19 @@ async function model(page, h) {
 }
 
 async function sky(page, h) {
+  // The catwalk: open sky, and a view down into the rooms.
   await page.evaluate(n => {
     const { ctx } = window.__op2;
-    ctx.player.modifiers.invulnerable = false;
+    const p = ctx.player.position.clone();
+    ctx.player.teleport(p.set(14.5, 4.7, 14.5), Math.PI * 0.75);
     window.__spawn(n, 16);
+    // A 105 starts to whistle two seconds out, which is the moment to look at where it is going.
+    window.__incoming = null;
+    const play = ctx.audio.play;
+    ctx.audio.play = (id, o) => {
+      if (id === 'missile_incoming' && o?.pitch < 1) window.__incoming = o.position.clone();
+      return play(id, o);
+    };
   }, SPAWNS);
   const ci = await callIn(page);
   await h.sleep(1200);
@@ -153,14 +175,46 @@ async function sky(page, h) {
     });
     await h.sleep(1600);
     await h.shot(name);
-    await h.sleep(900);
-    await h.shot(`${name}b`);
+    // Then the ground: the nearest enemy, or the middle of the box.
+    await page.evaluate(() => {
+      const { ctx } = window.__op2;
+      const e = ctx.player.eye;
+      let best = null, bestD = Infinity;
+      for (const x of ctx.enemies.alive) {
+        const d = x.position.distanceTo(e);
+        if (d > 8 && d < bestD) { bestD = d; best = x; }
+      }
+      if (!best) return;
+      ctx.player.yaw = Math.atan2(-(best.position.x - e.x), -(best.position.z - e.z));
+      ctx.player.pitch = 0.12;
+    });
+    await h.sleep(1400);
+    await h.shot(`${name}g`);
     stats.push({ name, ...(await page.evaluate(() => window.__op2.game.stats())) });
   };
   await stage('t12', 10);
   await stage('t40', 26);
   await stage('t75', 32);
   await stage('t112', 32);
+  // Catch one 105: in the air, then landing.
+  await page.evaluate(() => { window.__incoming = null; });
+  for (let i = 0; i < 60; i++) {
+    const seen = await page.evaluate(() => {
+      const { ctx } = window.__op2;
+      const a = window.__incoming;
+      if (!a) return false;
+      const e = ctx.player.eye;
+      const dx = a.x - e.x, dy = a.y + 14 - e.y, dz = a.z - e.z;
+      ctx.player.yaw = Math.atan2(-dx, -dz);
+      ctx.player.pitch = Math.atan2(dy, Math.hypot(dx, dz));
+      return true;
+    });
+    if (seen) break;
+    await h.sleep(200);
+  }
+  await h.shot('falling');
+  await h.sleep(500);
+  await h.shot('landing');
   return { ci, stats, log: await page.evaluate(() => window.__ac) };
 }
 
@@ -181,7 +235,6 @@ async function full(page, h) {
       window.__skip(1);
       t = i + 1;
       if (i % 12 === 0) window.__spawn(n, 15 + (i % 3) * 4);
-      ctx.player.health = Math.max(ctx.player.health, ctx.player.maxHealth);
       if (i % 10 === 0) {
         const dx = g.position.x - ctx.player.position.x, dz = g.position.z - ctx.player.position.z;
         track.push([t, Math.round(Math.hypot(dx, dz)), Math.round(g.position.y), g.visible ? 1 : 0]);

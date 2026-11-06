@@ -55,10 +55,17 @@ const BLASTS: Readonly<Record<ImpactKind, ExplosionSpec>> = {
 export class Ac130Rig {
   readonly airframe: Airframe<Ac130Mount>;
   readonly rounds: Ac130Rounds;
+  /**
+   * Men with their hands up, by uid. The crew holds fire on them: killing a prisoner pays the player a perk, and that
+   * has to stay the player's own decision. Kept here because some will have surrendered before the ship was called.
+   */
+  readonly prisoners = new Set<number>();
 
   constructor(ctx: Ctx, materials: ModelMaterials) {
     this.airframe = new Airframe(materials, ctx.render.scene, AC130_AIRFRAME);
     this.rounds = new Ac130Rounds(ctx, materials);
+    ctx.events.on('enemy:surrendered', e => this.prisoners.add(e.enemy.uid));
+    ctx.events.on('run:start', () => this.prisoners.clear());
   }
 
   get shaders(): readonly THREE.Material[] {
@@ -98,7 +105,7 @@ export class Ac130 implements Strike {
     this.ring.setColor(this.color, 1.6);
     this.radio = new Radio(ctx, A.callsign, this.color);
     this.engines = new EngineSound(ctx, A.engine);
-    this.guns = new FireControl(ctx, kit.probe, rig.airframe, rig.rounds, this.path.center, this.radius, this.radio);
+    this.guns = new FireControl(ctx, kit.probe, rig.airframe, rig.rounds, this.path.center, this.radius, this.radio, rig.prisoners);
     rig.rounds.onImpact = (kind, point, normal) => this.impact(kind, point, normal);
     this.stopListening = ctx.events.on('enemy:killed', e => this.onKill(e));
     this.engines.start(3);

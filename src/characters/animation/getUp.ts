@@ -44,12 +44,12 @@ const PRONE: readonly Key[] = [
     leadHand: [0.3, 0.05, 0.1], trailHand: [-0.3, 0.05, 0.05], leadGrip: 1, trailGrip: 1,
   },
   {
-    t: 0.24, hips: [0, 0.3, -0.38], pitch: 1.1, roll: 0.05, bend: -0.05, head: -0.7,
-    lead: [0.14, 0.1, -0.94], trail: [-0.13, 0.12, -1.16], leadToe: 1.3, trailToe: 1.4,
+    t: 0.24, hips: [0, 0.34, -0.38], pitch: 1.1, roll: 0.05, bend: -0.05, head: -0.7,
+    lead: [0.14, 0.1, -1.18], trail: [-0.13, 0.12, -1.2], leadToe: 1.3, trailToe: 1.4,
     leadHand: [0.3, 0.05, 0.1], trailHand: [-0.3, 0.05, 0.05], leadGrip: 1, trailGrip: 1,
   },
   {
-    t: 0.46, hips: [0, 0.5, -0.44], pitch: 1.28, roll: 0.03, bend: 0.05, head: -0.65,
+    t: 0.46, hips: [0, 0.53, -0.44], pitch: 1.28, roll: 0.03, bend: 0.05, head: -0.65,
     lead: [0.14, 0.1, -0.86], trail: [-0.13, 0.1, -0.86], leadToe: 1.2, trailToe: 1.2,
     leadHand: [0.3, 0.05, 0.08], trailHand: [-0.3, 0.05, 0.05], leadGrip: 1, trailGrip: 1,
   },

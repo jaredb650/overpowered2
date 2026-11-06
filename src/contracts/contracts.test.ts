@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CONTRACTS, DEFAULT_CONTRACT, SONAR } from './data';
+import { isPlayerWeapon } from './rewards';
 import { contractSearch, pickContract } from './select';
 import { sonarCooldown } from './sonar';
 
@@ -64,6 +65,13 @@ describe('moving between contracts', () => {
     expect(next.get('dev')).toBe('1');
     expect(next.has('map')).toBe(false);
     expect(next.has('autostart')).toBe(false);
+  });
+});
+
+describe('back shots', () => {
+  it('pay for the player\'s own weapons only', () => {
+    for (const source of ['smg', 'judge', 'sword', 'sword_finisher']) expect(isPlayerWeapon(source)).toBe(true);
+    for (const source of ['trooper', 'sentinel', 'airstrike', 'burn']) expect(isPlayerWeapon(source)).toBe(false);
   });
 });
 

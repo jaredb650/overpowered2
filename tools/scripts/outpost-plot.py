@@ -121,7 +121,7 @@ def team_motion(modes):
         moving = defaultdict(lambda: [0, 0])
         count = defaultdict(lambda: [0, 0])
         for m in s['men']:
-            if 'q' not in m or m['m'] not in modes or m['f'] != 'none':
+            if 'q' not in m or m['m'] not in modes or m['f'] != 'none' or m.get('fl'):
                 continue
             count[m['q']][m['tm']] += 1
             if m['v'] > 1:
@@ -144,7 +144,7 @@ for name, modes in (('bounding (advance)', ('advance',)), ('fire and manoeuvre (
     for q, (a, b, both) in stats.items():
         total = a + b + both
         if total:
-            print(f"{name} {q}: one team moving {100*(a+b)/total:.0f}% of moving time, both {100*both/total:.0f}%, handovers {max(0, len(order[q])-1)}")
+            print(f"{name} {q}: one team moving {100*(a+b)/total:.0f}% of moving time, both {100*both/total:.0f}%, handovers {max(0, len(order[q])-1)}, {total * .25:.0f} s of movement")
 
 # Flanking: how far round the player do a squad's two teams get from each other, and two squads from each other?
 def bearing(x, z, s):

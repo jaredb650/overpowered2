@@ -35,8 +35,9 @@ export const ReflexTuning = {
   maxFall: 3.2,
   /** Seconds to reach the first frame of the get-up. */
   gatherSeconds: 0.55,
-  /** Slowest a body has to be before it can try. */
+  /** Slowest a body has to be before it can try, and how long past its time it waits for that. */
   gatherSpeed: 1.6,
+  gatherPatience: 1.5,
   /** Metres per second a landing has to cost to knock the strength out of the arms, and how fast it comes back. */
   stunThud: 1.4,
   stunFade: 4.5,
@@ -54,6 +55,9 @@ export const ReflexTuning = {
   /** Elbow in radians as an arm wheels, and as it braces. */
   flailElbow: 0.85,
   braceElbow: 0.3,
+  /** Seconds the hands stay up at the face when a blast takes a body, and how they let go. */
+  guardHold: 0.2,
+  guardFade: 0.45,
   /** Hip and knee in radians, in the air. */
   tuckHip: 0.55,
   tuckKnee: 0.9,
@@ -146,6 +150,7 @@ export class Reflex {
   private readonly fallDir = new THREE.Vector3();
   private readonly seed: number;
   private readonly standHips: number;
+  private readonly keep: THREE.Quaternion[];
 
   constructor(
     private readonly rag: Rag,
@@ -158,6 +163,7 @@ export class Reflex {
     this.hurt = options.hurt;
     this.groundY = options.groundY;
     this.seed = muscle.random() * 100;
+    this.keep = rag.source.bones.map(() => new THREE.Quaternion());
     const bind = rag.info.bind;
     this.standHips = bind[1]!;
     if (options.dir) this.fallDir.set(options.dir.x, 0, options.dir.z);
@@ -292,7 +298,8 @@ export class Reflex {
       this.landed = low ? this.landed + dt : 0;
       if (this.landed > t.landHold || this.time > t.maxFall) this.enter('lying');
     } else if (this.phase === 'lying') {
-      if (this.dying < 0 && this.time > this.lie && hips.v.length() < t.gatherSpeed) this.enter('gather');
+      const calm = hips.v.length() < t.gatherSpeed || this.time > this.lie + t.gatherPatience;
+      if (this.dying < 0 && this.time > this.lie && calm) this.enter('gather');
     } else if (this.time > t.gatherSeconds) {
       this.ready = true;
     }
@@ -311,7 +318,7 @@ export class Reflex {
     const bones = rag.source.bones;
     const defs = rag.source.rig.bones;
     this.kind = this.pickGetUp();
-    const keep = this.muscle.boneScratch;
+    const keep = this.keep;
     for (let i = 0; i < bones.length; i++) keep[i]!.copy(bones[i]!.quaternion);
     _a.copy(bones[0]!.position);
     anim.poseGetUpStart!(this.kind, this.startHips);
@@ -342,6 +349,8 @@ export class Reflex {
     const brace = clamp(Math.max(1 - smoothstep(t.braceLow, t.braceHigh, height), tipped * 0.8));
     const w = this.age * t.flailRate + this.seed;
     const forward = clamp(facing * 0.5 + 0.5);
+    // Thrown, the first thing anybody does is cover their face.
+    const guard = this.plank ? 0 : 1 - smoothstep(t.guardHold, t.guardFade, this.age);
     for (let i = 0; i < this.arms.length; i++) {
       const arm = this.arms[i]!;
       const a = Math.sin(w + arm.phase);
@@ -356,6 +365,10 @@ export class Reflex {
       _a.normalize();
       _dir.lerp(_a, brace).normalize();
       this.aim(arm, _dir, lerp(t.flailElbow + a * 0.3, t.braceElbow, brace));
+      if (guard > 0.5 && this.head) {
+        _b.copy(_front).multiplyScalar(0.14).addScaledVector(_left, arm.side * 0.07).add(this.head.p);
+        this.reach(arm, _b);
+      }
       const gain = lerp(1, t.braceGain, brace);
       arm.shoulder.muscle!.gain = gain;
       if (arm.elbow) arm.elbow.muscle!.gain = gain;

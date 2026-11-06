@@ -36,7 +36,7 @@ export const FEAR = {
   underFire: 5,
   /** Per second with the monster inside MONSTER_RANGE. */
   monsterClose: 7,
-  /** On every survivor of a squad that lost half its men inside RAPID_SECONDS. */
+  /** On every survivor of a squad that lost RAPID_SHARE of its men inside RAPID_SECONDS. */
   rapidLosses: 55,
   /** On everyone who can hear it when a perk spikes Dread, per point of spike. */
   spike: 0.45,
@@ -46,8 +46,11 @@ export const FEAR = {
 export const WITNESS_RANGE = 14;
 export const MONSTER_RANGE = 6;
 export const RAPID_SECONDS = 7;
-/** Share of a squad's strength that must fall inside RAPID_SECONDS. */
-export const RAPID_SHARE = 0.5;
+/**
+ * Share of a squad's strength that must fall inside RAPID_SECONDS. Section 14.3's "one or two survivors": this is 3 of 4, 3 of
+ * 5 and 4 of 6. Half would be 2 of 4, which any player with an SMG manages on first contact, and no squad would ever fight.
+ */
+export const RAPID_SHARE = 0.6;
 
 /** Morale back per second when nothing bad has happened for RECOVER_AFTER seconds. */
 const RECOVER_RATE = 2;

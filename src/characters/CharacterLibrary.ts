@@ -5,6 +5,8 @@ import { ARCHETYPES, archetypeById, rigFor } from './archetypes';
 import { Character, SeveredPart, type ArchetypeData } from './Character';
 import { buildInterior } from './anatomy/build';
 import { createInteriorMaterial } from './anatomy/interior';
+import { createShadowMaterial } from './anatomy/shadow';
+import { WoundKind } from './anatomy/wounds';
 import { createCharacterMaterial, createDetailTexture } from './material';
 import { parseModel, type LoadedModel } from './model';
 import type { HumanoidAnimator } from './animation/index';
@@ -14,6 +16,8 @@ const BASE = 'assets/characters/';
 /** Enough for the 48 live enemies with room for corpses held by gore. */
 const MAX_INSTANCES_PER_ARCHETYPE = 96;
 const MAX_LIMBS_PER_ARCHETYPE = 24;
+/** Far enough under the world that nothing can see it. */
+const WARM_DEPTH = -2000;
 
 interface Loaded {
   model: LoadedModel;
@@ -51,6 +55,7 @@ export class CharacterLibraryImpl implements CharacterLibrary {
   private readonly models = new Map<string, Promise<Loaded>>();
   private detail: THREE.Texture | null = null;
   private manifest: Promise<Manifest> | null = null;
+  private warmed = false;
 
   constructor(private readonly ctx: Ctx) {}
 
@@ -95,6 +100,33 @@ export class CharacterLibraryImpl implements CharacterLibrary {
       }
       return p;
     }));
+    this.warmWounds();
+  }
+
+  /**
+   * Compiles the wound programs before anyone is shot. Left to first use, the stall lands on the first hit of the game.
+   * It needs a real draw, because a program depends on the target and the lights of the pass it runs in, so a wounded
+   * body is put out of sight for the first frame the renderer draws.
+   */
+  private warmWounds(): void {
+    if (this.warmed) return;
+    const entry = [...this.entries.values()].find(e => e.interior);
+    const scene = this.ctx.render.scene as THREE.Scene | undefined;
+    if (!entry || !scene?.isScene) return;
+    this.warmed = true;
+    const body = this.spawn(entry.id) as Character;
+    const hit = { kind: WoundKind.crater, bone: 0, point: new THREE.Vector3(0, 1, 0.1), dir: new THREE.Vector3(0, 0, -1), radius: 0.05, depth: 0.05, ragged: 1 };
+    body.wound(hit);
+    body.root.position.y = WARM_DEPTH;
+    body.root.traverse(o => { o.frustumCulled = false; });
+    scene.add(body.root);
+    body.inside!.onAfterRender = () => {
+      body.inside!.onAfterRender = () => {};
+      queueMicrotask(() => {
+        body.root.traverse(o => { o.frustumCulled = true; });
+        body.release();
+      });
+    };
   }
 
   private async loadOne(id: string): Promise<void> {
@@ -115,8 +147,9 @@ export class CharacterLibraryImpl implements CharacterLibrary {
     const fleshy = def.rig === 'humanoid' && def.stumps === 'flesh';
     const interior = fleshy ? buildInterior(model, rig, bindPositions, id.length * 977 + n) : null;
     const interiorMaterial = fleshy ? createInteriorMaterial(this.ctx, this.detail!, n * 4) : null;
+    const shadowMaterial = fleshy ? createShadowMaterial(n * 4) : null;
     const entry: Entry = {
-      id, def, rig, model, material, woundMaterial, farMaterial, interior, interiorMaterial, time: this.ctx.time, boneCount: n, bindInverses, bindPositions, children,
+      id, def, rig, model, material, woundMaterial, farMaterial, interior, interiorMaterial, shadowMaterial, time: this.ctx.time, boneCount: n, bindInverses, bindPositions, children,
       free: [], active: new Set(), freeLimbs: [], activeLimbs: [],
       acquireLimb: () => this.acquireLimb(entry),
     };

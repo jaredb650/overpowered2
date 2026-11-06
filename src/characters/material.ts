@@ -77,13 +77,6 @@ const VERT_MAIN = /* glsl */ `
 }
 `;
 
-/** The shared depth pass offsets polygons. This program does not go through it, so it has to do the same by hand. */
-const VERT_SHADOW_BIAS = /* glsl */ `
-#ifdef OP2_WOUNDS
-if (isOrthographic) gl_Position.z += 6e-5 * gl_Position.w;
-#endif
-`;
-
 const FRAG_PARS = /* glsl */ `
 varying vec4 vColorAO;
 varying vec4 vMatV;
@@ -202,9 +195,10 @@ float sWoundH = 0.0;
 
   if (blood > 0.001) {
     // Coverage grows out of the creases: the threshold walks down through the noise as blood rises.
-    float t = mix(0.8, 0.22, blood);
+    // It stops short of the whole body: a figure painted red reads as a colour, not as blood.
+    float t = mix(0.8, 0.46, blood);
     float m = smoothstep(t, t + 0.11, grain * 0.6 + macro.g * 0.24 + micro.r * 0.16 + (1.0 - vColorAO.a) * 0.22);
-    sAlb = mix(sAlb, vec3(0.34, 0.0, 0.004), m * 0.92);
+    sAlb = mix(sAlb, mix(vec3(0.2, 0.005, 0.006), vec3(0.09, 0.002, 0.004), macro.a), m * 0.92);
     sRough = mix(sRough, 0.2, m);
     sMetal *= 1.0 - m;
   }
@@ -309,12 +303,6 @@ float sWoundH = 0.0;
 }
 #endif
 #ifdef OP2_WOUNDS
-// The moon's depth pass runs this same program, because only this program knows where the holes are. The map is the
-// one orthographic camera a body ever sees, and everything from here on is lighting it has no use for.
-if (isOrthographic) {
-  gl_FragColor = vec4(0.0);
-  return;
-}
 sN = normalize(sN + vWoundTilt);
 #endif
 diffuseColor.rgb = sAlb;
@@ -425,11 +413,7 @@ export function createCharacterMaterial(ctx: Ctx, o: SurfaceOptions): THREE.Mesh
   const atlas = o.atlasA !== null && !o.far;
   if (atlas) material.defines = { ...material.defines, OP2_ATLAS: 1 };
   if (o.far) material.defines = { ...material.defines, OP2_FAR: 1 };
-  if (o.wounds) {
-    material.defines = { ...material.defines, OP2_WOUNDS: 1 };
-    // Keeps its own program in the moon's depth pass, so holes reach the shadow map.
-    material.allowOverride = false;
-  }
+  if (o.wounds) material.defines = { ...material.defines, OP2_WOUNDS: 1 };
   material.onBeforeCompile = shader => {
     shader.uniforms.tDetail = { value: o.detail };
     shader.uniforms.uExtraBase = { value: o.extraBase };
@@ -443,8 +427,7 @@ export function createCharacterMaterial(ctx: Ctx, o: SurfaceOptions): THREE.Mesh
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>\n${VERT_PARS}`)
       .replace('#include <skinning_pars_vertex>', `#include <skinning_pars_vertex>\n${VERT_WOUND_PARS}`)
-      .replace('#include <begin_vertex>', `#include <begin_vertex>\n${VERT_MAIN}`)
-      .replace('#include <project_vertex>', `#include <project_vertex>\n${VERT_SHADOW_BIAS}`);
+      .replace('#include <begin_vertex>', `#include <begin_vertex>\n${VERT_MAIN}`);
     // three only defines USE_SKINNING for the vertex stage.
     const skinned = (shader as unknown as { skinning: boolean }).skinning;
     shader.fragmentShader = shader.fragmentShader

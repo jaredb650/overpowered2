@@ -71,6 +71,8 @@ export const GoreTuning = {
   headCollapseSeconds: 1.15,
   /** Even a clean cut sets a limb tumbling, whatever the strength of the hit. */
   limbImpactFloor: 0.3,
+  /** Hit strength of losing a limb, to a body going down. */
+  limbLossShock: 0.35,
   /** The first game's accidental frame drop, on purpose. */
   hitStopSeconds: 0.025,
   hitStopScale: 0.03,
@@ -98,6 +100,8 @@ export const GoreTuning = {
   bodyLodFar: 60,
   /** Damage a corpse limb takes before it comes off. */
   corpseLimbHealth: 60,
+  /** The same for the waist. It is where most rounds land, and at limb strength an SMG cut a body in two with its third. */
+  corpseTrunkHealth: 420,
   /** Damage a loose limb takes before it bursts into chunks. */
   limbBurstHealth: 90,
   /** How long a top half keeps dragging itself along. */
@@ -742,7 +746,8 @@ export class Gore implements GoreSystem {
     limb.rag.applyImpulse(damage.bone !== undefined && _mask[damage.bone] === 1 ? damage.bone : bone, damage.point, _v);
     const impact = impactStrength(forceOf(damage), info.mass);
     limb.rag.muscle?.kick(damage.dir, Math.max(impact, GoreTuning.limbImpactFloor));
-    body?.rag?.muscle?.dropNow();
+    // A body that is losing limbs to gunfire is being shot, and that is no reason to stop showing it.
+    body?.rag?.muscle?.struck(Math.max(impact, GoreTuning.limbLossShock));
     body?.rag?.muscle?.kick(damage.dir, impact * MuscleTuning.corpseImpact);
 
     this.startStump(char, bone, 1);
@@ -799,8 +804,9 @@ export class Gore implements GoreSystem {
     return limb;
   }
 
-  wound(char: CharacterInstance, damage: DamageInfo, severity: number): void {
+  wound(char: CharacterInstance, damage: DamageInfo, severity: number): boolean {
     this.wounds.onBody(char, damage, severity);
+    return this.wounds.broke;
   }
 
   private woundEffects(char: CharacterInstance, bone: number, at: THREE.Vector3, damage: DamageInfo): void {
@@ -1138,7 +1144,8 @@ export class Gore implements GoreSystem {
       const defs = char.rig.bones;
       let b = hit.bone;
       while (b >= 0 && !defs[b]!.severable) b = defs[b]!.parent;
-      if (b >= 0 && target.damage[hit.bone]! >= GoreTuning.corpseLimbHealth) {
+      const lasts = b >= 0 && defs[b]!.region === 'abdomen' ? GoreTuning.corpseTrunkHealth : GoreTuning.corpseLimbHealth;
+      if (b >= 0 && target.damage[hit.bone]! >= lasts) {
         target.damage[hit.bone] = 0;
         this.sever(char, defs[b]!.region, damage);
       }
@@ -1444,10 +1451,14 @@ export class Gore implements GoreSystem {
 
   clear(): void {
     for (const b of this.bodies) {
+      const ground = b.rag?.muscle?.reflex?.groundY ?? 0;
       b.rag?.destroy();
-      // The living are not ours to release. Whoever owns it finds it back on its feet, or has released it already.
-      if (b.down) b.char.anim.getUp?.('prone', 0, 0);
-      else b.char.release();
+      if (!b.down) b.char.release();
+      else if (b.char.root.parent) {
+        // The living are not ours to release. Whoever owns it finds it getting up.
+        b.char.root.position.y = ground;
+        b.char.anim.getUp?.('prone', 0, 0);
+      }
     }
     this.bodies = [];
     this.owned.clear();

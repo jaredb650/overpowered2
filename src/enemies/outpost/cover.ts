@@ -27,6 +27,7 @@ const VERIFY_TOP = 4;
 
 const _dir = new THREE.Vector3();
 const _from = new THREE.Vector3();
+const _to = new THREE.Vector3();
 const _hit: RayHit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, surface: 'concrete', collider: null };
 
 export interface CoverSpot {
@@ -61,6 +62,8 @@ export interface SpotQuery {
   spacing: number;
   /** Who is asking, so a man can keep the spot he has. */
   uid: number;
+  /** Where he is now. A spot a short walk away beats a slightly better one across the map. */
+  from: THREE.Vector3;
 }
 
 export interface SpotReading {
@@ -177,8 +180,11 @@ export class CoverMap {
     // Right of the direction facing the blocker.
     const p = new THREE.Vector3(at.x + (sz / len) * LEAN * side, at.y, at.z - (sx / len) * LEAN * side);
     const n = nav.locate(p, 1);
-    if (n < 0 || Math.abs(nav.py[n]! - at.y) > 0.3) return null;
-    return Math.hypot(nav.px[n]! - p.x, nav.pz[n]! - p.z) < 1 ? p.set(nav.px[n]!, nav.py[n]!, nav.pz[n]!) : null;
+    if (n < 0 || Math.abs(nav.py[n]! - at.y) > 0.3 || Math.hypot(nav.px[n]! - p.x, nav.pz[n]! - p.z) > 1) return null;
+    p.set(nav.px[n]!, nav.py[n]!, nav.pz[n]!);
+    // Near a wall end the floor a sidestep away can be the far side of the wall. He walks there in a straight line.
+    _to.set(p.x, p.y + CROUCH_Y, p.z);
+    return this.clear(at.x, at.y + CROUCH_Y, at.z, _to) ? p : null;
   }
 
   /** Sheltered on the bearing to `threat`, going by the rings alone. */
@@ -221,7 +227,7 @@ export class CoverMap {
     const p = s.position;
     const toThreat = Math.hypot(p.x - q.threat.x, p.z - q.threat.z);
     const fromAnchor = Math.hypot(p.x - q.anchor.x, p.z - q.anchor.z);
-    let score = -fromAnchor * 0.45;
+    let score = -fromAnchor * 0.45 - Math.hypot(p.x - q.from.x, p.z - q.from.z) * 0.12;
     if (toThreat < q.near) score -= (q.near - toThreat) * 1.3;
     else if (toThreat > q.far) score -= (toThreat - q.far) * 0.8;
     if (this.sheltered(s, q.threat)) score += 5;

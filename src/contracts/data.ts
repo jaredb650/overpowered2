@@ -123,10 +123,10 @@ export const SONAR = {
   lastEnemies: 3,
   /** Seconds from the key to the fingers reaching the helmet. The ping goes out on contact. */
   tapLead: 0.14,
-  /** Metres per second of the ring. Enemies light up as it reaches them. */
-  sweepSpeed: 150,
-  /** Metres the ring is drawn out to. */
-  sweepReach: 200,
+  /** Seconds the ring takes to cross the map, whatever its size. Enemies light up as it reaches them. */
+  sweepSeconds: 1.6,
+  /** How far it goes, as a share of the map's diagonal. From a corner that still reaches nearly all of it. */
+  sweepShare: 0.75,
   /** Seconds the silhouettes take to go out, at the end of the reveal. */
   fade: 0.7,
   /** Heat on a cold map. Hunters see warm bodies. */

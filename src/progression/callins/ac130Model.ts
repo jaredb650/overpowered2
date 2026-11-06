@@ -1,7 +1,7 @@
 /**
  * The gunship, built to the real aircraft's proportions: 30 m long, 40 m across, a high wing with four turboprops, the
- * tall swept fin and the upswept tail. The guns are thicker than life, because the left side is what the player sees
- * from inside the circle and a true 25mm barrel is under a pixel from there.
+ * tall swept fin and the upswept tail. It is then drawn half as large again, and the guns are thicker than life, because
+ * the left side is what the player sees from inside the circle and a true 25mm barrel is under a pixel from there.
  *
  * Gun line, nose to tail, as on the real ship: 25mm Gatling, 40mm Bofors, 105mm howitzer.
  */
@@ -22,7 +22,7 @@ const GLASS = '#0d1216';
  * Below the wing line, in the aircraft's own frame. The rest of the angle down to the target comes from the bank, so
  * the barrels look as if they are pointing where the rounds go.
  */
-const DEPRESSION = 0.2;
+const DEPRESSION = 0.1;
 const COS_D = Math.cos(DEPRESSION);
 const SIN_D = Math.sin(DEPRESSION);
 
@@ -121,9 +121,9 @@ function gunPort(b: ModelBuilder, x: number, y: number, z: number, h: number, w:
   b.box(0.54, h, w, GLASS, { at: [x - 0.08, y, z] });
 }
 
-const MUZZLE_25: Point = [5.14, -0.96, 6.9];
-const MUZZLE_40: Point = [5.73, -1.17, -2.6];
-const MUZZLE_105: Point = [6.26, -1.45, -6.5];
+const MUZZLE_25: Point = [5.19, -0.67, 6.9];
+const MUZZLE_40: Point = [5.78, -0.81, -2.6];
+const MUZZLE_105: Point = [6.34, -1.04, -6.5];
 
 function gunLine(b: ModelBuilder): void {
   // 25mm: five barrels in a blister forward of the wing.
@@ -133,19 +133,19 @@ function gunLine(b: ModelBuilder): void {
     const a = (i / 5) * Math.PI * 2;
     barrel(b, 2.3, -0.38 + Math.sin(a) * 0.17, 6.9, 2.9, 0.075, STEEL, Math.cos(a) * 0.17);
   }
-  b.cyl(0.27, 0.27, 0.12, 10, DARK, { at: [4.85, -0.9, 6.9], rot: [0, 0, -(Math.PI / 2 + DEPRESSION)] });
+  b.cyl(0.27, 0.27, 0.12, 10, DARK, { at: [4.9, -0.64, 6.9], rot: [0, 0, -(Math.PI / 2 + DEPRESSION)] });
 
   // 40mm: one long barrel behind the gear, with its flash hider.
   gunPort(b, 2.05, -0.42, -2.6, 1.2, 1.5);
   b.cyl(0.26, 0.3, 1, 10, STEEL, { at: [2.4, -0.52, -2.6], rot: [0, 0, -(Math.PI / 2 + DEPRESSION)] });
   barrel(b, 2.2, -0.45, -2.6, 3.6, 0.13, STEEL);
-  barrel(b, 5, -1.02, -2.6, 0.75, 0.21, DARK);
+  barrel(b, 5.04, -0.74, -2.6, 0.75, 0.21, DARK);
 
   // 105mm: the reason the ship exists. Recoil sleeve, tube and muzzle brake.
   gunPort(b, 1.8, -0.5, -6.5, 1.6, 1.9);
   barrel(b, 1.8, -0.55, -6.5, 1.9, 0.34, STEEL);
   barrel(b, 2.2, -0.63, -6.5, 4.1, 0.2, STEEL);
-  barrel(b, 5.55, -1.31, -6.5, 0.72, 0.33, DARK);
+  barrel(b, 5.62, -0.97, -6.5, 0.72, 0.33, DARK);
 }
 
 const RAIL_X = 15.6;
@@ -179,6 +179,7 @@ const ROTORS: readonly RotorSpec[] = ENGINES.map(x => ({ at: [x, ENGINE_Y, HUB_Z
 
 export const AC130_AIRFRAME: AirframeSpec<Ac130Mount> = {
   name: 'ac130',
+  scale: 1.5,
   build(b) {
     fuselage(b);
     wings(b);

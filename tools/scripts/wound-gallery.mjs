@@ -16,6 +16,7 @@ function install() {
   r.viewScene.visible = false;
   lab.flags.gibbing = false;
   lab.flags.explosiveDeaths = false;
+  lab.settings.overlay = false;
   const V = ctx.player.position.constructor;
   const raf = k => new Promise(res => {
     const step = () => (--k <= 0 ? res() : requestAnimationFrame(step));
@@ -55,31 +56,128 @@ function install() {
     lab.spawner.clearBodies();
     await raf(4);
   };
-  window.__wg = { ctx, lab, V, raf, freeze, thaw, place, shoot, look, frame, clear };
+  /** Long enough for hit flashes to fade, which they do on the world clock. */
+  const settle = async () => {
+    thaw();
+    await raf(30);
+    freeze();
+  };
+  window.__wg = { ctx, lab, V, raf, freeze, thaw, place, shoot, look, frame, clear, settle };
 }
 
+/** Runs `build` on a fresh body, then takes a picture from each named view. */
+async function scene(page, h, name, type, build, views) {
+  await page.evaluate(async ([type, src]) => {
+    const w = window.__wg;
+    await w.clear();
+    const e = w.place(type, 0, 0, 0);
+    await w.raf(30);
+    w.freeze();
+    window.__wgBody = e;
+    await (0, eval)(`(${src})`)(w, e);
+    await w.settle();
+  }, [type, build.toString()]);
+  for (const [view, pos, target, fov] of views) {
+    await page.evaluate(([pos, target, fov]) => { window.__wg.look(pos, target, fov); return window.__wg.frame(); }, [pos, target, fov]);
+    await h.shot(`${name}-${view}`);
+  }
+}
+
+const NEAR = [['1m5', [0.25, 1.35, 1.5], [0, 1.2, 0], 34], ['close', [0.2, 1.3, 0.6], [0, 1.2, 0], 34], ['10m', [0.5, 1.5, 10], [0, 1.1, 0], 34]];
+const BACK = ['back', [-0.3, 1.35, -1.4], [0, 1.2, 0], 34];
+const F = [0.2, 1.4, 3];
+
 const SCENE = {
-  async bullets(page, h, type) {
-    await page.evaluate(async type => {
-      const w = window.__wg;
-      await w.clear();
-      const e = w.place(type, 0, 0, 0);
-      await w.raf(30);
-      w.freeze();
-      const F = [0.2, 1.4, 3];
-      for (const [bone, off] of [[2, [0.06, 0.1, 0.1]], [2, [-0.09, 0.16, 0.1]], [1, [0.05, 0.05, 0.1]], [11, [0, -0.22, 0.05]], [2, [-0.12, 0.02, 0.1]]]) w.shoot(e, 'smg', 'bullet', 12, F, bone, off);
-      w.shoot(e, 'judge', 'bullet', 60, F, 1, [-0.07, 0.1, 0.1]);
-      await w.frame();
-    }, type);
-    await page.evaluate(() => { window.__wg.look([0.25, 1.35, 1.5], [0, 1.2, 0], 34); return window.__wg.frame(); });
-    await h.shot('bullets-1m5');
-    await page.evaluate(() => { window.__wg.look([0.2, 1.3, 0.55], [0, 1.2, 0], 34); return window.__wg.frame(); });
-    await h.shot('bullets-close');
-    await page.evaluate(() => { window.__wg.look([-0.3, 1.35, -1.4], [0, 1.2, 0], 34); return window.__wg.frame(); });
-    await h.shot('bullets-back');
-    await page.evaluate(() => { window.__wg.look([0.5, 1.5, 10], [0, 1.1, 0], 40); return window.__wg.frame(); });
-    await h.shot('bullets-10m');
-  },
+  bullets: (p, h, t) => scene(p, h, 'bullets', t, async (w, e) => {
+    const F = [0.2, 1.4, 3];
+    for (const [bone, off] of [[2, [0.06, 0.1, 0.1]], [2, [-0.09, 0.16, 0.1]], [1, [0.05, 0.05, 0.1]], [11, [0, -0.22, 0.05]], [2, [-0.12, 0.02, 0.1]]]) w.shoot(e, 'smg', 'bullet', 12, F, bone, off);
+    w.shoot(e, 'judge', 'bullet', 40, F, 1, [-0.07, 0.1, 0.1]);
+  }, [...NEAR, BACK]),
+  shotgun: (p, h, t) => scene(p, h, 'shotgun', t, async (w, e) => {
+    const F = [0.1, 1.35, 2];
+    for (let i = 0; i < 6; i++) w.shoot(e, 'shotgun', 'pellet', 20, F, 2, [0.05 + (Math.random() - 0.5) * 0.16, 0.02 + (Math.random() - 0.5) * 0.16, 0.1]);
+  }, NEAR),
+  blast: (p, h, t) => scene(p, h, 'blast', t, async (w, e) => {
+    const { V, ctx } = w;
+    const c = e.char.bones[2].getWorldPosition(new V());
+    c.y += 0.12;
+    const dir = new V(0.1, -0.05, -1).normalize();
+    ctx.enemies.applyDamage(e, { amount: 60, type: 'explosive', point: c, dir, force: 0, source: 'rocket' });
+  }, NEAR),
+  belly: (p, h, t) => scene(p, h, 'belly', t, async (w, e) => {
+    const { V, ctx } = w;
+    const c = e.char.bones[1].getWorldPosition(new V());
+    const dir = new V(-0.1, 0.05, -1).normalize();
+    ctx.enemies.applyDamage(e, { amount: 55, type: 'explosive', point: c, dir, force: 0, source: 'rocket' });
+  }, [['1m5', [0.2, 1.1, 1.5], [0, 1.05, 0], 34], ['close', [0.15, 1.1, 0.65], [0, 1.05, 0], 34]]),
+  cannon: (p, h, t) => scene(p, h, 'cannon', t, async (w, e) => {
+    w.shoot(e, 'autocannon', 'bullet', 90, [0.3, 1.4, 6], 2, [0.04, 0.08, 0.1]);
+  }, [...NEAR, BACK]),
+  sword: (p, h, t) => scene(p, h, 'sword', t, async (w, e) => {
+    const { V } = w;
+    w.shoot(e, 'sword', 'slash', 40, [0, 1.4, 2], 2, [-0.02, 0.1, 0.1], { slicePlaneNormal: new V(0.5, 0.86, 0).normalize() });
+    w.shoot(e, 'sword', 'slash', 25, [0.3, 1.4, 2], 11, [0, -0.2, 0.05], { slicePlaneNormal: new V(0.2, 0.98, 0).normalize() });
+  }, NEAR),
+  burn: (p, h, t) => scene(p, h, 'burn', t, async (w, e) => {
+    e.char.setBurn(0.85);
+  }, NEAR),
+  scorch: (p, h, t) => scene(p, h, 'scorch', t, async (w, e) => {
+    w.shoot(e, 'kiln', 'fire', 9, [0.1, 1.4, 2], 2, [0.05, 0.1, 0.1]);
+    w.shoot(e, 'kiln', 'fire', 9, [0.1, 1.4, 2], 1, [-0.05, 0.1, 0.1]);
+    w.shoot(e, 'kiln', 'fire', 9, [0.1, 1.4, 2], 11, [0, -0.15, 0.08]);
+  }, NEAR),
+  fracture: (p, h, t) => scene(p, h, 'fracture', t, async (w, e) => {
+    w.shoot(e, 'judge', 'bullet', 30, [0.6, 0.6, 3], 12, [0, -0.15, 0.06]);
+    w.shoot(e, 'judge', 'bullet', 30, [0.6, 1.2, 3], 9, [-0.04, -0.12, 0.05]);
+    w.shoot(e, 'judge', 'bullet', 30, [-0.8, 1.3, 3], 5, [0.05, -0.14, 0.05]);
+  }, [['full', [0.8, 1.0, 3.2], [0, 0.95, 0], 36], ['side', [3.2, 1.0, 0.3], [0, 0.95, 0], 36], ['knee', [0.15, 0.6, 1], [0, 0.5, 0], 36], ['arm', [-0.7, 1.3, 1.1], [0.2, 1.15, 0.1], 36]]),
+};
+
+/** A body with damage on it, then dead, then shot again where it lies. */
+SCENE.corpse = async (page, h, type) => {
+  await page.evaluate(async type => {
+    const w = window.__wg;
+    await w.clear();
+    const e = w.place(type, 0, 0, 0);
+    await w.raf(30);
+    w.freeze();
+    const F = [0.1, 1.35, 2];
+    for (let i = 0; i < 6; i++) w.shoot(e, 'shotgun', 'pellet', 20, F, 2, [0.05 + (Math.random() - 0.5) * 0.12, 0.05 + (Math.random() - 0.5) * 0.12, 0.1]);
+    w.shoot(e, 'judge', 'bullet', 30, [0.6, 0.6, 3], 12, [0, -0.15, 0.06]);
+    e.health = 1;
+    w.shoot(e, 'smg', 'bullet', 20, F, 1, [0, 0.05, 0.1]);
+    w.thaw();
+    await w.raf(150);
+    w.freeze();
+    window.__wgStats = { corpses: w.ctx.gore.stats().corpses, ragdolls: w.ctx.gore.stats().ragdolls };
+    const hips = e.char.bones[0].getWorldPosition(new w.V());
+    w.look([hips.x + 1.2, 1.0, hips.z + 1.6], [hips.x, 0.25, hips.z], 40);
+    await w.frame();
+  }, type);
+  await h.shot('corpse-down');
+  const after = await page.evaluate(async () => {
+    const w = window.__wg;
+    const { ctx, V } = w;
+    const e = ctx.gore.bodies?.[0]?.char ?? null;
+    const c = ctx.gore.bodies[0].char;
+    const hips = c.bones[2].getWorldPosition(new V());
+    const from = new V(hips.x + 0.8, hips.y + 1.2, hips.z + 0.9);
+    const dir = hips.clone().sub(from).normalize();
+    w.thaw();
+    await w.raf(2);
+    for (let i = 0; i < 4; i++) {
+      const hit = ctx.gore.raycastCorpses(from, dir, 4);
+      if (hit) ctx.gore.damageCorpse(hit, { amount: 20, type: 'pellet', point: hit.point, dir, force: 5, source: 'shotgun', severMult: 0 });
+    }
+    await w.raf(40);
+    w.freeze();
+    const p = c.bones[2].getWorldPosition(new V());
+    w.look([p.x + 0.9, p.y + 0.9, p.z + 1.1], [p.x, p.y, p.z], 40);
+    await w.frame();
+    return { body: !!e, corpses: ctx.gore.stats().corpses };
+  });
+  await h.shot('corpse-shot');
+  return after;
 };
 
 export default async function gallery(page, h) {

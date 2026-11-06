@@ -32,6 +32,8 @@ export interface Door {
   w: number;
 }
 
+/** Seconds a team that has arrived holds and fires before the other team goes. */
+const MANOEUVRE_REST = 4;
 /** Seconds a sighting counts as contact. */
 const CONTACT_MEMORY = 5;
 /** Quiet this long and the next sighting is called out as new. */
@@ -52,7 +54,8 @@ const REGROUP_NERVE = 15;
 /** Seconds a squad stands stunned after its leader goes down. */
 const LEADERLESS_SECONDS = 2.2;
 const ORDER_STAGGER = 0.28;
-const STEP_TIMEOUT = 7.5;
+/** A team that has not arrived by now is not going to. Long enough that a bound normally finishes before the next begins. */
+const STEP_TIMEOUT = 11;
 const COVER_FIRE_SECONDS = 5.5;
 /** How far a door may be from the squad, and the threat from the door. */
 const STACK_REACH = 16;
@@ -69,6 +72,8 @@ const GRENADE_MAX = 24;
 const GRENADE_QUIET_FROM = 2;
 const GRENADE_QUIET_TO = 7;
 const GRENADE_COOLDOWN = 12;
+/** The furthest a man will walk for one manoeuvre. Past this a flank is a lap of the building, and the fight is over before he arrives. */
+const MAX_MANOEUVRE = 30;
 /** A firing line lost for this long is not coming back. */
 const NO_SHOT_PATIENCE = 4;
 const PANIC_RETREAT = 12;
@@ -79,7 +84,7 @@ const _anchor = new THREE.Vector3();
 const _p = new THREE.Vector3();
 const _reading: SpotReading = { hidden: false, canShoot: false, side: 0 };
 const _query: SpotQuery = {
-  anchor: _anchor, radius: 8, threat: new THREE.Vector3(), near: 0, far: 60, bearing: NaN, bearingSlack: 0.4, needShot: false, spacing: 2, uid: 0,
+  anchor: _anchor, radius: 8, threat: new THREE.Vector3(), near: 0, far: 60, bearing: NaN, bearingSlack: 0.4, needShot: false, spacing: 2, uid: 0, from: new THREE.Vector3(),
 };
 
 export class OutpostSquad implements Squad {
@@ -105,6 +110,8 @@ export class OutpostSquad implements Squad {
   cycle = 0;
   coverFireUntil = 0;
   thinkAt = 0;
+  /** A long way off: moving in file, not by bounds. */
+  filing = false;
 
   private stunnedUntil = 0;
   private readonly axis = new Route();
@@ -276,20 +283,23 @@ export class OutpostSquad implements Squad {
       this.startFallback(now);
       return;
     }
-    if (this.mode === 'advance' && this.inContact) {
-      this.mode = 'engage';
-      this.cycle = 0;
-      this.stepUntil = 0;
-      this.centroid(_c);
-      if (Number.isNaN(this.sector)) this.sector = Math.atan2(_c.x - this.threat.x, _c.z - this.threat.z);
-      this.flankSide = this.id % 2 === 0 ? 1 : -1;
-    } else if (this.mode === 'engage' && !this.inContact) {
+    if (this.mode === 'advance' && this.inContact) this.startEngage();
+    // Flankers are out of sight by design, so a quiet moment mid-manoeuvre is no reason to call them back.
+    else if (this.mode === 'engage' && !this.inContact && !this.teamBusy()) {
       this.mode = 'advance';
       this.sector = NaN;
       this.stepUntil = 0;
       if (this.leader) o.comms.say('lost', this.leader);
     }
     if ((this.mode === 'advance' || this.mode === 'engage') && now >= this.stackReadyAt && now - this.seenAt > STACK_AFTER) this.tryStack(now);
+  }
+
+  private startEngage(): void {
+    this.mode = 'engage';
+    this.cycle = 0;
+    this.stepUntil = 0;
+    this.sector = this.bearingFromThreat();
+    this.flankSide = this.id % 2 === 0 ? 1 : -1;
   }
 
   private shouldFallBack(): boolean {
@@ -326,6 +336,7 @@ export class OutpostSquad implements Squad {
     q.needShot = needShot;
     q.spacing = this.o.doctrine.spacing;
     q.uid = s.e.uid;
+    q.from.copy(s.e.position);
     return this.o.cover.pick(q, _reading);
   }
 
@@ -349,12 +360,13 @@ export class OutpostSquad implements Squad {
     this.centroid(_c);
     if (!o.routes.find(_c, this.threat, this.axis)) return;
     const left = this.axis.length;
+    this.filing = left > BOUND_RANGE;
     if (left < ARRIVED) {
       // Nothing here. Only Command can say where to look next.
       o.lostTheTrail();
       return;
     }
-    if (left > BOUND_RANGE) {
+    if (this.filing) {
       this.axis.pointAt(COLUMN_LEG, _anchor);
       let i = 0;
       for (const s of this.members) if (s.fighting) this.moveUp(s, 1, i++ * ORDER_STAGGER, 7);
@@ -391,9 +403,10 @@ export class OutpostSquad implements Squad {
   private engage(now: number): void {
     const { o } = this;
     const nav = o.w.ctx.world.nav;
-    this.fixFiringLines(now);
+    this.takeCover();
     this.considerGrenade(now);
-    if (now < this.stepUntil) return;
+    if (this.teamBusy() ? now < this.stepUntil : now < this.stepUntil - MANOEUVRE_REST) return;
+    this.fixFiringLines(now);
     this.movingTeam = this.movingTeam === 0 ? 1 : 0;
     this.cycle++;
     const flanking = this.movingTeam === 1;
@@ -408,7 +421,7 @@ export class OutpostSquad implements Squad {
       _anchor.set(this.threat.x + Math.sin(bearing) * range, s.e.position.y, this.threat.z + Math.cos(bearing) * range);
       if (!nav.nearest(_anchor, 7, _anchor)) continue;
       const spot = this.seek(s, 9, s.def.near, s.def.far, bearing, false);
-      if (!spot || spot === s.spot) continue;
+      if (!spot || spot === s.spot || !this.withinReach(s, spot)) continue;
       this.send(s, spot, 2, moved * ORDER_STAGGER);
       moved++;
     }
@@ -422,16 +435,30 @@ export class OutpostSquad implements Squad {
     this.stepUntil = now + rand(5.5, 8.5);
   }
 
-  /** A man who cannot see the fight from where he is should go somewhere he can. */
+  private withinReach(s: Soldier, spot: CoverSpot): boolean {
+    return this.o.routes.find(s.e.position, spot.position, this.axis, this.o.intel) && this.axis.length <= MAX_MANOEUVRE;
+  }
+
+  /** Nobody stays in the open by choice. A shield is its own cover. */
+  private takeCover(): void {
+    for (const s of this.members) {
+      if (!s.fighting || s.task !== 'hold' || s.hasOrder || s.spot || s.role === 'shield') continue;
+      _anchor.copy(s.e.position);
+      const spot = this.seek(s, 9, s.def.near * 0.6, s.def.far, NaN, true);
+      if (spot) this.send(s, spot, 2, 0);
+    }
+  }
+
+  /** Between manoeuvres: a man who cannot see the fight from where he is should go somewhere he can. */
   private fixFiringLines(now: number): void {
     const { o } = this;
     for (const s of this.members) {
-      if (!s.fighting || s.task !== 'hold' || s.hasOrder || s.team === this.movingTeam) continue;
+      if (!s.fighting || s.task !== 'hold' || s.hasOrder) continue;
       if (s.canShoot || s.noShotSince === 0 || now - s.noShotSince < NO_SHOT_PATIENCE) continue;
       _anchor.copy(s.e.position);
       s.noShotSince = now;
       const spot = this.seek(s, 11, s.def.near, s.def.far, NaN, true);
-      if (spot && spot !== s.spot) this.send(s, spot, 1, 0);
+      if (spot && spot !== s.spot && this.withinReach(s, spot)) this.send(s, spot, 1, 0);
       else o.fireFrom(s, s.spot, _reading);
     }
   }
@@ -462,6 +489,7 @@ export class OutpostSquad implements Squad {
     let bestD = Infinity;
     let into = 1;
     for (const d of o.doors) {
+      if (o.doorTaken(d, this)) continue;
       const ours = (_c.x - d.x) * d.dx + (_c.z - d.z) * d.dz;
       const theirs = (this.threat.x - d.x) * d.dx + (this.threat.z - d.z) * d.dz;
       if (ours * theirs >= 0) continue;
@@ -537,8 +565,16 @@ export class OutpostSquad implements Squad {
   private endStack(now: number): void {
     this.door = null;
     this.stackReadyAt = now + STACK_COOLDOWN;
-    this.mode = this.inContact ? 'engage' : 'advance';
-    this.stepUntil = 0;
+    if (this.inContact) this.startEngage();
+    else {
+      this.mode = 'advance';
+      this.stepUntil = 0;
+    }
+  }
+
+  /** The door this squad is stacked on, if any. */
+  get stackedOn(): Door | null {
+    return this.door;
   }
 
   // -------------------------------------------------------------------------------------------

@@ -22,9 +22,12 @@ export interface SiegePhase {
 
 export const AC130 = {
   callsign: 'SPECTRE',
-  /** A 36 s lap at about 41 m/s. Low for a gunship, so that it is a shape in the sky and not a dot. */
+  /**
+   * A 33 s lap at about 39 m/s. Far lower and closer than the real thing: at a true slant range the ship is under a
+   * hundred pixels on a Retina screen, and this keeps it about 33 degrees up, where it crosses the top of a level view.
+   */
   orbit: {
-    radius: 235, altitude: 190, rate: -0.175, bank: 0.5,
+    radius: 205, altitude: 135, rate: -0.19, bank: 0.5,
     entrySeconds: 9, entryReach: 480, holdSeconds: 120, exitSeconds: 12, exitReach: 620, exitClimb: 150,
   },
   engine: {
@@ -43,7 +46,7 @@ export const AC130 = {
   /** Anything in the way above this height over the target is a roof, not a wall, and rounds go in under it. */
   roofHeight: 8,
   gatling: {
-    speed: 235,
+    speed: 190,
     roundsPerSecond: 12,
     burst: [1.6, 2.8] as const,
     /** m/s the aim walks. It starts short of the target, on the aircraft's side, so the stream is seen to walk on. */
@@ -56,11 +59,12 @@ export const AC130 = {
     reconAfter: 7,
     retry: 0.8,
   },
-  bofors: { speed: 165, gap: 0.3, spacing: 3.4, scatter: 0.8, damage: 170, radius: 5, retry: 1 },
+  bofors: { speed: 130, gap: 0.3, spacing: 3.4, scatter: 0.8, damage: 170, radius: 5, retry: 1 },
   howitzer: {
     /** Seconds in the air. Slow enough to watch one fall, and to get a whistle in. */
     flight: 4.6,
-    gravity: 22,
+    /** Close to level out of the barrel and steep at the end. Any stronger and it would lob up out of a gun pointing down. */
+    gravity: 11,
     gap: 2.7,
     spread: 5,
     damage: 620,

@@ -30,10 +30,10 @@ interface Look {
 }
 
 const LOOKS: Readonly<Record<RoundKind | 'flare', Look>> = {
-  g25: { width: 0.2, length: 8, minPx: 1.8, r: 7, g: 4.6, b: 1.5, trail: 0 },
+  g25: { width: 0.2, length: 9, minPx: 1.8, r: 7, g: 4.6, b: 1.5, trail: 0 },
   g40: { width: 0.42, length: 8, minPx: 2.8, r: 9, g: 3.4, b: 0.8, trail: 0 },
   g105: { width: 0.8, length: 4.6, minPx: 4.5, r: 10, g: 7.5, b: 4.5, trail: 0.07 },
-  flare: { width: 1.15, length: 2.3, minPx: 4, r: 12, g: 10, b: 7, trail: 0.11 },
+  flare: { width: 1.15, length: 2.3, minPx: 4, r: 15, g: 14, b: 12, trail: 0.11 },
 };
 
 interface Spark {

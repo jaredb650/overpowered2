@@ -144,7 +144,7 @@ export class DamageModel {
 
     e.health -= amount;
     // Before the death is picked, so a killing shot leaves its mark on the body too.
-    this.w.ctx.gore.wound(e.char, d, amount / e.maxHealth);
+    if (this.w.ctx.gore.wound(e.char, d, amount / e.maxHealth)) this.updateMaim(e);
     res.dealt = amount;
 
     const headPool = region === 'head' ? this.spendPool(e, 'head', amount) : Infinity;
@@ -211,9 +211,12 @@ export class DamageModel {
     const m = e.maim;
     const legL = s.has('legL') || s.has('shinL');
     const legR = s.has('legR') || s.has('shinR');
-    const armL = s.has('armL') || s.has('forearmL');
-    const armR = s.has('armR') || s.has('forearmR');
+    const c = e.char;
+    const armL = s.has('armL') || s.has('forearmL') || c.isFractured(B.upperArmL) || c.isFractured(B.foreArmL);
+    const armR = s.has('armR') || s.has('forearmR') || c.isFractured(B.upperArmR) || c.isFractured(B.foreArmR);
     m.legs = (legL ? 0 : 1) + (legR ? 0 : 1);
+    // A broken leg still drags along. Crawling is for a body that has lost the legs, which the animator can see.
+    if (m.legs > 1 && (c.isFractured(B.thighL) || c.isFractured(B.shinL) || c.isFractured(B.thighR) || c.isFractured(B.shinR))) m.legs = 1;
     m.arms = (armL ? 0 : 1) + (armR ? 0 : 1);
     m.gunArm = !armR;
     m.offArm = !armL;
@@ -365,6 +368,10 @@ export class DamageModel {
     } else if (d.slicePlaneNormal) {
       sliced = true;
       ctx.gore.slice(e.char, d.point, d.slicePlaneNormal, d);
+    } else if (headshot && !e.def.machine && e.rising > 0) {
+      // Half up, there is nothing for it to stand there on.
+      this.ragdoll(e, d, force);
+      ctx.gore.sever(e.char, 'head', d);
     } else if (headshot && !e.def.machine) {
       // Gore owns the body from here and drops it after its hold. Until then the feet keep carrying it forward.
       ctx.gore.headshot(e.char, d, e.velocity);
@@ -498,6 +505,8 @@ export class DamageModel {
   private respond(e: Enemy, d: DamageInfo, profile: ReactionProfile, region: GoreRegion, amount: number, force: number, bone: number, armoured: boolean): void {
     const anim = e.char.anim;
     const r = chooseReaction(e, d, profile, region, amount, force, this.w.now);
+    // Ice cannot stumble, and a body still arriving is on somebody else's clock.
+    if (e.frozen > 0 || e.entrance !== 'none') return;
     const felt = profile.pain > 0;
     const blast = d.type === 'explosive';
     if (r.level === 'flinch') {

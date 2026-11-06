@@ -18,8 +18,9 @@ const MAX_EXPANSIONS = 7000;
 const EXPOSED_COST = 5;
 /** Walls cost a little, so a route runs down the middle of a corridor. */
 const WALL_COST = 0.12;
-/** Sampling step along a straight cut across open floor. */
+/** Sampling step along a straight cut across open floor, and how far each side of the line has to be floor as well. */
 const CUT_STEP = 0.5;
+const BODY_HALF = 0.45;
 
 /** The parts of the nav graph a route needs. `ctx.world.nav` is one of these on every real map. */
 export interface NavGrid {
@@ -240,13 +241,13 @@ export class RouteFinder {
       }
     }
     if (!found) return false;
-    this.smooth(a, b, out);
+    this.smooth(a, b, out, avoid);
     if (out.count > 0 && out.count < MAX_POINTS) out.push(to.x, to.y, to.z);
     return out.count > 0;
   }
 
   /** Grid paths zigzag. Drops every node a straight walk can skip, so men cut across open floor as people do. */
-  private smooth(a: number, b: number, out: Route): void {
+  private smooth(a: number, b: number, out: Route, avoid: Exposure | null): void {
     const { trail, cameFrom } = this;
     const nav = this.nav!;
     let n = 0;
@@ -257,22 +258,31 @@ export class RouteFinder {
     let anchor = n - 1;
     out.push(nav.px[trail[anchor]!]!, nav.py[trail[anchor]!]!, nav.pz[trail[anchor]!]!);
     for (let i = n - 2; i >= 0; i--) {
-      if (i > 0 && this.straight(trail[anchor]!, trail[i - 1]!)) continue;
+      if (i > 0 && this.straight(trail[anchor]!, trail[i - 1]!, avoid)) continue;
       const v = trail[i]!;
       if (!out.push(nav.px[v]!, nav.py[v]!, nav.pz[v]!)) return;
       anchor = i;
     }
   }
 
-  /** True when a walk from node to node stays over walkable columns the whole way. */
-  private straight(a: number, b: number): boolean {
+  /**
+   * True when a walk from node to node stays over walkable columns the whole way. With `avoid`, a cut may not step out into
+   * view from cover either: straightening the route must not undo the detour the search just paid for.
+   */
+  private straight(a: number, b: number, avoid: Exposure | null): boolean {
     const nav = this.nav!;
     const ax = nav.px[a]!, ay = nav.py[a]!, az = nav.pz[a]!;
     const dx = nav.px[b]! - ax, dy = nav.py[b]! - ay, dz = nav.pz[b]! - az;
-    const steps = Math.ceil(Math.hypot(dx, dz) / CUT_STEP);
+    const length = Math.hypot(dx, dz);
+    const steps = Math.ceil(length / CUT_STEP);
+    // Shoulders count. A line that only just clears a wall end has a man's arm through it.
+    const sx = (-dz / length) * BODY_HALF, sz = (dx / length) * BODY_HALF;
+    const open = avoid !== null && (avoid.exposed(ax, az) || avoid.exposed(ax + dx, az + dz));
     for (let i = 1; i < steps; i++) {
       const t = i / steps;
-      if (!this.overFloor(ax + dx * t, ay + dy * t, az + dz * t)) return false;
+      const x = ax + dx * t, y = ay + dy * t, z = az + dz * t;
+      if (!this.overFloor(x, y, z) || !this.overFloor(x + sx, y, z + sz) || !this.overFloor(x - sx, y, z - sz)) return false;
+      if (avoid && !open && avoid.exposed(x, z)) return false;
     }
     return true;
   }

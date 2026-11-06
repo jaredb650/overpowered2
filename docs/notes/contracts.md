@@ -49,7 +49,7 @@ Pointer lock and audio both need a fresh gesture after a load, so the click cann
 
 Key T, action `sonar`, rebindable. `SONAR` in `data.ts` has every number.
 
-Press, then `sonar:tap` raises the left hand. `tapLead` later the fingers land, the sound plays, the ring leaves and `sonar:ping` goes out. Enemies are lit as the ring reaches them, at 150 m/s, for the rest of 4 s, and fade over the last 0.7 s. The cooldown runs from the key press: 8 s, or 3 s at 3 or fewer `enemies.remaining`, and it shortens the moment the count falls. A press on cooldown plays `ui_error`.
+Press, then `sonar:tap` raises the left hand. `tapLead` later the fingers land, the sound plays, the ring leaves and `sonar:ping` goes out. The ring crosses any map in 1.6 s, so it runs at about 60 m/s in the Kill House and 230 m/s at The Crucible. Enemies are lit as it reaches them, for the rest of 4 s, and fade over the last 0.7 s. The cooldown runs from the key press: 8 s, or 3 s at 3 or fewer `enemies.remaining`, and it shortens the moment the count falls. A press on cooldown plays `ui_error`.
 
 It runs on `playerDt`: SLOWMO does not stretch it, a hit-stop does.
 

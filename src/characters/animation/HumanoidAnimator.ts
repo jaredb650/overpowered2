@@ -63,6 +63,12 @@ const POSE_MATCH = 0.42;
 const POSE_MATCH_CRAWL = 0.7;
 /** Seconds a wound hold takes to arrive and to let go. */
 const CLUTCH_RATE = 9;
+/** The joints that reach the floor first, and how far above it their bones ride, which is about a limb's radius. */
+const LOW_BONES = [H.foreArmL, H.handL, H.foreArmR, H.handR, H.shinL, H.footL, H.shinR, H.footR];
+const FLOOR_CLEARANCE = 0.04;
+/** Radians a body folds and leans to get a hand down a leg. */
+const CLUTCH_BEND = 0.7;
+const CLUTCH_ROLL = 0.2;
 const GUARD_RATE = 12;
 /** Radians of sway at full daze, and how fast it goes. */
 const DAZE_SWAY = 0.2;
@@ -274,6 +280,8 @@ export class HumanoidAnimator implements CharacterAnimation {
   private clutchFor = 0;
   private clutchW = 0;
   private clutchHand: 1 | -1 = 1;
+  /** A wound below the reach of a hand on a straight back, so the body has to bend to it. */
+  private clutchLow = false;
   private readonly clutchAt = new THREE.Vector3();
   private clipKind: GetUpKind | null = null;
   private clipU = 0;
@@ -446,6 +454,7 @@ export class HumanoidAnimator implements CharacterAnimation {
     this.clutchBone = bone;
     this.clutchFor = seconds;
     const region = this.rig.bones[bone]?.region ?? 'chest';
+    this.clutchLow = region.startsWith('leg') || region.startsWith('shin');
     // Never the hand on the arm that was hit, and with a gun in the right hand the left is the one that is free.
     let hand: 1 | -1 = this.clutchAt.x >= 0 ? 1 : -1;
     if (region.endsWith('L') && (region.startsWith('arm') || region.startsWith('forearm'))) hand = -1;
@@ -608,8 +617,10 @@ export class HumanoidAnimator implements CharacterAnimation {
     this.poseBody();
     this.poseUpperBody(step, lod);
     this.poseLegs(lod);
+    const rising = this.clipKind !== null || this.snapLeft > 0;
     if (this.clipKind) this.stepClip(step);
     if (this.snapLeft > 0) this.blendSnapshot(step);
+    if (rising) this.keepAboveFloor();
   }
 
   private integrateRoot(dt: number): void {
@@ -1005,6 +1016,11 @@ export class HumanoidAnimator implements CharacterAnimation {
       roll += Math.sin(this.time * 1.9 + this.seed + 0.7) * DAZE_SWAY * this.dazeW;
       headPitch += (0.28 + 0.14 * Math.sin(this.time * 2.7)) * this.dazeW;
       headYaw += Math.sin(this.time * 1.3 + this.seed) * 0.3 * this.dazeW;
+    }
+    if (this.clutchLow) {
+      bend += CLUTCH_BEND * this.clutchW;
+      roll += this.clutchHand * CLUTCH_ROLL * this.clutchW;
+      headPitch -= CLUTCH_BEND * 0.4 * this.clutchW;
     }
 
     const aimW = this.grip !== null && !this.armGoneR ? 1 : 0;
@@ -1488,6 +1504,23 @@ export class HumanoidAnimator implements CharacterAnimation {
     const bones = this.bones;
     for (let i = 0; i < bones.length; i++) bones[i]!.quaternion.slerp(this.snapQ[i]!, keep);
     bones[H.hips]!.position.lerp(this.snapHips, keep);
+  }
+
+  /**
+   * A blend moves joint angles and knows nothing about the floor, so an arm swinging from where it lay to where it goes
+   * can pass through it, and on a shorter or bulkier body than the keys were made on, so can a knee. The hips ride up
+   * by however much that would be.
+   */
+  private keepAboveFloor(): void {
+    const { bones, root } = this;
+    root.updateMatrixWorld(true);
+    let low = Infinity;
+    for (let i = 0; i < LOW_BONES.length; i++) {
+      const b = LOW_BONES[i]!;
+      if (!this.hidden(b)) low = Math.min(low, bones[b]!.matrixWorld.elements[13]!);
+    }
+    const under = root.position.y + FLOOR_CLEARANCE * (this.L / 1.85) - low;
+    if (under > 0) bones[H.hips]!.position.y += under;
   }
 
   private trailLeg(f: Foot): void {

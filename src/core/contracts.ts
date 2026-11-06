@@ -382,9 +382,9 @@ export interface GoreSystem extends GameSystem {
   damageCorpse(hit: CorpseHit, damage: DamageInfo): void;
   /**
    * Leaves the mark of a hit on the body: holes, craters, gashes, burns, broken limbs. `severity` is the share of the
-   * body's health this hit took. Call it for lethal hits too, before the body is handed over.
+   * body's health this hit took. Call it for lethal hits too, before the body is handed over. True if a limb broke.
    */
-  wound(char: CharacterInstance, damage: DamageInfo, severity: number): void;
+  wound(char: CharacterInstance, damage: DamageInfo, severity: number): boolean;
   /** Pins a corpse or limb to the world at a point, for the Stakegun. */
   pin(hit: CorpseHit, anchor: THREE.Vector3): void;
   clear(): void;

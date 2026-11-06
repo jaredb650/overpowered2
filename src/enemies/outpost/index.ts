@@ -107,6 +107,8 @@ export class Outpost {
   readonly waves: OutpostWaves;
   /** Men kneeling. They stay in `alive`, because they can still be shot, but they no longer count. */
   prisoners = 0;
+  /** For anyone holding `ctx.enemies.outpost`: the soldier on a body, if it has one. */
+  readonly soldierOf = soldierOf;
 
   private readonly dropped: DroppedWeapons;
   private readonly pool = new Pool<Soldier>(() => new Soldier(), s => s.clear());
@@ -296,6 +298,7 @@ export class Outpost {
       // Movement falls back on the flow field when a point move stalls. That leads to the player, and a man falling back
       // must not be walked into him, so soldiers handle their own stalls.
       s.e.flowUntil = 0;
+      this.stayGrounded(s.e);
       if (s.fighting && now >= s.senseAt) {
         s.senseAt = now + SENSE_INTERVAL;
         sense(s, w, SENSE_INTERVAL);
@@ -317,6 +320,31 @@ export class Outpost {
     if (now >= this.noiseAt) this.listenToFeet(now);
     this.updateBangs(now);
     this.dropped.update(dt);
+  }
+
+  /**
+   * Movement leaps a body stopped by a wall onto any ledge in reach. That keeps the swarm flowing, and it puts a man in kit
+   * on a catwalk 4.5 m up from a standing start. A leap has a flight time, so this catches it on its first frame and leaves
+   * falls alone. Wanting to leap means he is against something, so he is put back on the floor as well.
+   */
+  private stayGrounded(e: Enemy): void {
+    if (!e.airborne || e.flightLeft <= 0) return;
+    e.airborne = e.ballistic = false;
+    e.flightLeft = e.verticalSpeed = 0;
+    e.position.y = e.groundY;
+    e.velocity.set(0, 0, 0);
+    this.unstick(e);
+  }
+
+  /**
+   * Knockback and a crowd can put a body inside a door jamb, where every step reads as blocked. The swarm gets out through
+   * the flow field. Soldiers do not use it, so this does the same job: back to the nearest floor.
+   */
+  private unstick(e: Enemy): void {
+    if (!this.w.ctx.world.nav.nearest(e.position, 3, _a)) return;
+    e.position.copy(_a);
+    e.groundY = _a.y;
+    e.groundSampleAt.set(_a.x, _a.z);
   }
 
   /** Soldiers leave the roster a frame late, because `enemy:killed` still reads them after the body has gone. */
@@ -372,25 +400,27 @@ export class Outpost {
   private depart(s: Soldier): void {
     this.routesLeft--;
     s.hasOrder = false;
+    s.stalls = 0;
     if (this.walkTo(s, s.dest, this.intel)) s.task = 'move';
   }
 
   private walkTo(s: Soldier, to: THREE.Vector3, avoid: Intel | null): boolean {
     if (!this.routes.find(s.e.position, to, s.route, avoid)) return false;
-    s.route.next = Math.min(1, s.route.count - 1);
+    s.route.next = 0;
     s.progressAt = this.w.now + 1.3;
     s.progressFrom.copy(s.e.position);
-    s.stalls = 0;
     return true;
   }
 
-  /** Stuck on something. Same destination, fresh route from where he actually is. */
+  /** Stuck on something. Same destination, fresh route from where he actually is. `stalls` carries on counting. */
   reroute(s: Soldier): void {
+    this.unstick(s.e);
     this.walkTo(s, s.dest, null);
   }
 
   routeTo(s: Soldier, to: THREE.Vector3): boolean {
     s.dest.copy(to);
+    s.stalls = 0;
     return this.walkTo(s, to, null);
   }
 
@@ -498,6 +528,12 @@ export class Outpost {
     this.noiseAt = now + NOISE_TICK;
     const p = this.w.player;
     if (p.grounded && p.speed > QUIET_SPEED) this.noise(p.position, p.speed * STEP_NOISE);
+  }
+
+  /** Two squads on one door is a queue. The second has to find another way in. */
+  doorTaken(door: Door, asking: OutpostSquad): boolean {
+    for (const q of this.squads) if (q !== asking && q.stackedOn === door) return true;
+    return false;
   }
 
   /** Gives squads in the same fight different sides of the threat, so their fire crosses. */

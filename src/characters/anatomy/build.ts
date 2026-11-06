@@ -4,8 +4,8 @@
  * that read through a hole: a rib cage, long bones, wet masses. There are no small parts.
  *
  * One geometry and one draw for the lot:
- *  - shell: the skin's lowest LOD pulled in a little. Whatever a hole reveals, there is a surface under it, and from
- *    inside its back faces are the far wall of the body.
+ *  - shell: the skin at its middle LOD, pulled in a little. Whatever a hole reveals, there is a surface under it, and
+ *    from inside its back faces are the far wall of the body. The lowest LOD cuts too many corners to stay under the skin.
  *  - muscle round the limbs, with the long bones through it.
  *  - rib cage, spine, pelvis, skull.
  *  - organs, and bowel.
@@ -20,7 +20,7 @@ export const Part = { shell: 0, muscle: 1, bone: 2, organ: 3, gut: 4, shard: 5 }
 type PartId = (typeof Part)[keyof typeof Part];
 
 /** How far under the skin the shell sits, at human size. */
-const SHELL_DEPTH = 0.016;
+const SHELL_DEPTH = 0.02;
 /** Inside the skin, measured at the widest gear, with room left for what is on top of the ribs. */
 const CAGE_FIT = 0.8;
 
@@ -201,11 +201,11 @@ function addShell(g: Builder, model: LoadedModel, scale: number): void {
   const nor = A.normal.array as Int8Array;
   const si = A.skinIndex!.array as Uint8Array;
   const sw = A.skinWeight!.array as Uint8Array;
-  const lowest = model.lods[model.lods.length - 1]!.index!.array;
+  const source = model.lods[1]!.index!.array;
   const remap = new Map<number, number>();
   const shrink = SHELL_DEPTH * scale;
-  for (let i = 0; i < lowest.length; i++) {
-    const v = lowest[i]!;
+  for (let i = 0; i < source.length; i++) {
+    const v = source[i]!;
     let to = remap.get(v);
     if (to === undefined) {
       const n: V3 = unit([nor[v * 4]!, nor[v * 4 + 1]!, nor[v * 4 + 2]!]);

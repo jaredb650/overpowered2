@@ -456,8 +456,6 @@ export class MuscleState {
   collapse: CollapseDrive | null = null;
   /** Alive and off its feet. See `reflex.ts`. */
   reflex: Reflex | null = null;
-  /** Bone-sized scratch for anything that has to pose the skeleton and put it back. */
-  readonly boneScratch: THREE.Quaternion[];
   private readonly jolts = Array.from({ length: MAX_JOLTS }, () => new Jolt());
   private joltAt = 0;
   /** Seconds until the last pulse ends. */
@@ -488,7 +486,6 @@ export class MuscleState {
   constructor(private readonly rag: Rag) {
     this.rng = mulberry32(nextSeed++ * 2654435761);
     this.slump = lerp(MuscleTuning.slumpMin, MuscleTuning.slumpMax, this.rng());
-    this.boneScratch = rag.source.bones.map(() => new THREE.Quaternion());
   }
 
   /** Each body has its own stream, so runs repeat. */

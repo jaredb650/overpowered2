@@ -58,6 +58,9 @@ const SHAPES: Record<PostureName, Shape> = {
   downed: FLAT,
 };
 
+const KEYS = Object.keys(FLAT) as (keyof Shape)[];
+/** How close to flat counts as flat. */
+const SETTLED = 0.002;
 const EASE = 9;
 const TREMBLE_RATE = 23;
 const TREMBLE_SIZE = 0.012;
@@ -71,6 +74,8 @@ export class Postures {
   private target: Shape = FLAT;
   private readonly now: Shape = { ...FLAT };
   private clock = 0;
+  /** False for anyone just standing, which on the swarm's contract is everyone, so they pay nothing for any of this. */
+  private active = false;
 
   /** Crawl's prone plan fits a man lying on the floor, so `downed` asks for it rather than repeating it. */
   get prone(): boolean {
@@ -104,20 +109,28 @@ export class Postures {
   set(name: PostureName): void {
     this.name = name;
     this.target = SHAPES[name];
+    this.active = true;
   }
 
   reset(): void {
     this.name = 'stand';
     this.target = FLAT;
+    this.active = false;
     Object.assign(this.now, FLAT);
   }
 
   step(dt: number): void {
+    if (!this.active) return;
     this.clock += dt;
     const k = 1 - Math.exp(-EASE * dt);
-    const n = this.now as unknown as Record<string, number>;
-    const t = this.target as unknown as Record<string, number>;
-    for (const key in n) n[key]! += (t[key]! - n[key]!) * k;
+    const { now, target } = this;
+    let left = 0;
+    for (let i = 0; i < KEYS.length; i++) {
+      const key = KEYS[i]!;
+      now[key] += (target[key] - now[key]) * k;
+      left = Math.max(left, Math.abs(now[key]));
+    }
+    if (target === FLAT && left < SETTLED) this.reset();
   }
 
   /** Moves an ankle, in body space. Standing feet only: a man walking crouched keeps his stride. */

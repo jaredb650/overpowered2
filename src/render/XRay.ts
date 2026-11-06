@@ -34,7 +34,7 @@ void main() {
 
 /**
  * Hidden pixels get the full silhouette. Pixels in plain sight only get an edge, so the wounds on a body in the open stay
- * readable. The pass blends by max, so overlapping limbs stay one flat shape and draw order does not matter.
+ * readable. Output is premultiplied, and the fill is near opaque, so a body reads the same over a dark wall and a lit one.
  */
 const SILHOUETTE_FRAG = /* glsl */ `
 uniform highp sampler2D tDepth;
@@ -54,9 +54,9 @@ void main() {
   float hidden = step(eyeDepth(scene) + ${HIDDEN_BIAS.toFixed(2)}, eyeDepth(gl_FragCoord.z));
   float facing = abs(dot(normalize(vNormalView), normalize(vToEye)));
   float rim = pow(1.0 - facing, 2.5);
-  vec3 fill = uColor * hidden * 0.75;
-  vec3 edge = uColor * rim * mix(1.1, 5.0, hidden);
-  gl_FragColor = vec4((max(fill, edge) + rim * hidden * 0.3) * uStrength, 0.0);
+  float cover = mix(rim * 0.6, 0.85, hidden);
+  vec3 edge = uColor * rim * mix(1.1, 5.0, hidden) + rim * hidden * 0.3;
+  gl_FragColor = vec4((uColor * cover * 0.8 + edge) * uStrength, cover * uStrength);
 }`;
 
 /** A hard crest with a wake behind it. Sky and the viewmodel are skipped: the ring runs over the world's surfaces only. */
@@ -77,8 +77,8 @@ void main() {
   vec4 w = uClipToWorld * vec4(vUv * 2.0 - 1.0, d * 2.0 - 1.0, 1.0);
   float behind = uRadius - distance(w.xyz / w.w, uOrigin);
   if (behind < 0.0) return;
-  float crest = smoothstep(0.0, 0.3, behind) * exp(-behind * 0.9) * 5.0;
-  float wake = exp(-behind * 0.07) * 0.16;
+  float crest = smoothstep(0.0, 0.08, behind) * exp(-behind * 4.0) * 4.0;
+  float wake = exp(-behind * 0.3) * 0.05;
   outColor = vec4(uColor * (crest + wake) * uFade, 0.0);
 }`;
 
@@ -115,9 +115,10 @@ export class XRay {
       depthTest: false,
       depthWrite: false,
       blending: THREE.CustomBlending,
-      blendEquation: THREE.MaxEquation,
       blendSrc: THREE.OneFactor,
-      blendDst: THREE.OneFactor,
+      blendDst: THREE.OneMinusSrcAlphaFactor,
+      blendSrcAlpha: THREE.ZeroFactor,
+      blendDstAlpha: THREE.OneFactor,
       toneMapped: false,
     });
     this.sweepPass = new FullscreenPass(SWEEP_FRAG, {
@@ -132,6 +133,8 @@ export class XRay {
     material.blending = THREE.CustomBlending;
     material.blendSrc = THREE.OneFactor;
     material.blendDst = THREE.OneFactor;
+    material.blendSrcAlpha = THREE.ZeroFactor;
+    material.blendDstAlpha = THREE.OneFactor;
   }
 
   /** True when this frame has anything to draw. */

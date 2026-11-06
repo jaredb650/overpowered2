@@ -159,7 +159,7 @@ for (let f = 0; f < seconds * 60; f++) {
   }
 
   if (scenario === 'rescue' && !rescued && t > 28) {
-    const victim = manager.alive.find(e => soldierOf(e)?.squad.mode === 'engage' || soldierOf(e)?.squad.inContact);
+    const victim = manager.alive.find(e => outpost.intel.exposed(e.position.x, e.position.z) && e.dist > 8 && soldierOf(e)?.fighting);
     if (victim) {
       rescued = true;
       log.push({ t: +t.toFixed(2), type: 'downed', uid: victim.uid });
@@ -174,6 +174,7 @@ for (let f = 0; f < seconds * 60; f++) {
       if (!wasAirborne.has(e.uid)) {
         wasAirborne.add(e.uid);
         leaps++;
+        log.push({ t: +t.toFixed(2), type: 'airborne', uid: e.uid, id: e.id, at: e.position.toArray().map(v => +v.toFixed(2)), ground: e.groundY, flight: e.flightLeft, vy: e.verticalSpeed, mode: e.mode, task: soldierOf(e)?.task, b: e.behaviour?.name });
       }
     } else wasAirborne.delete(e.uid);
   }
@@ -189,7 +190,7 @@ for (let f = 0; f < seconds * 60; f++) {
         u: e.uid, id: e.id, q: s.squad.name, tm: s.team, r: s.role, l: s.isLeader ? 1 : 0, m: s.squad.mode, k: s.task, st: s.stage, f: s.fate, b: e.behaviour?.name ?? '-',
         ms: s.state, mo: Math.round(s.morale), see: s.sees ? 1 : 0, ex: s.exposed ? 1 : 0, sp: s.spot ? 1 : 0, sh: s.canShoot ? 1 : 0, mt: s.squad.movingTeam, a: e.attack?.name ?? '',
         x: +e.position.x.toFixed(2), y: +e.position.y.toFixed(2), z: +e.position.z.toFixed(2), v: +Math.hypot(e.velocity.x, e.velocity.z).toFixed(2),
-        pose: (e.char.anim as unknown as { posture: string }).posture, sec: s.squad.sector,
+        pose: (e.char.anim as unknown as { posture: string }).posture, sec: s.squad.sector, fl: s.squad.filing ? 1 : 0,
       } : { u: e.uid, id: e.id, x: e.position.x, z: e.position.z };
     });
     samples.push({

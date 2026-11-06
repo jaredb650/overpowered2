@@ -3,6 +3,7 @@ import type { Ctx } from '../core/contracts';
 import { GoreTuning } from '../gore';
 import { BloodTuning } from '../gore/blood';
 import { ChunkTuning } from '../gore/chunks';
+import { WoundTuning } from '../gore/wounds';
 import { clamp } from '../core/math';
 
 const STORAGE_KEY = 'op2.settings.v1';
@@ -98,6 +99,7 @@ const GORE_TABLE: readonly (typeof FULL)[] = [
 
 function applyGore(level: number): void {
   const g = GORE_TABLE[level] ?? FULL;
+  WoundTuning.level = level;
   GoreTuning.maxCorpses = g.corpses;
   GoreTuning.maxLimbs = g.limbs;
   GoreTuning.maxLiveLimbs = g.liveLimbs;

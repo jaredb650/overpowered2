@@ -4,7 +4,7 @@
  */
 import * as THREE from 'three';
 import type {
-  AnimAction, CharacterAnimation, CharacterInstance, LocomotionInput, SeveredLimb,
+  AnimAction, CharacterAnimation, CharacterInstance, LocomotionInput, SeveredLimb, WoundHit,
 } from '../core/contracts';
 import type { GoreRegion, RigDef } from '../characters/rig';
 import { rigInfo, markSubtree, MAX_BONES } from './rigInfo';
@@ -190,10 +190,10 @@ export class TestDummy implements CharacterInstance {
   }
 
   addWound(): void {}
-  wound(): void {}
+  wound(_hit: WoundHit): void {}
   readonly stress = new Float32Array(MAX_BONES);
   private readonly broken = new Set<number>();
-  fracture(bone: number): boolean {
+  fracture(bone: number, _style?: 'hyper' | 'limp', _skew?: number): boolean {
     if (this.broken.has(bone)) return false;
     this.broken.add(bone);
     return true;

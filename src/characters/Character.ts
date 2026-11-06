@@ -27,6 +27,8 @@ export interface ArchetypeData {
   /** What is under the skin, shared by every body of this archetype. Null for machines, which get dents. */
   interior: THREE.BufferGeometry | null;
   interiorMaterial: THREE.Material | null;
+  /** What an opened body casts its shadow with. */
+  shadowMaterial: THREE.Material | null;
   /** World clock, read lazily so hit flash fades on corpses that nothing ticks any more. */
   time: { elapsed: number };
   /** Skeleton bone count, rig bones plus cap bones. */
@@ -142,6 +144,14 @@ function makeInside(a: ArchetypeData, skeleton: THREE.Skeleton): THREE.SkinnedMe
   return inside;
 }
 
+function makeCaster(a: ArchetypeData, geometry: THREE.BufferGeometry, skeleton: THREE.Skeleton): THREE.SkinnedMesh {
+  const caster = new THREE.SkinnedMesh(geometry, a.shadowMaterial!);
+  caster.castShadow = true;
+  caster.receiveShadow = false;
+  caster.bind(skeleton, new THREE.Matrix4());
+  return caster;
+}
+
 export class Character implements CharacterInstance {
   readonly archetype: string;
   readonly rig: RigDef;
@@ -171,7 +181,8 @@ export class Character implements CharacterInstance {
   private readonly book: WoundBook;
   private readonly breaks: FracturePose;
   /** Null until a wound opens this body. */
-  private inside: THREE.SkinnedMesh | null = null;
+  inside: THREE.SkinnedMesh | null = null;
+  private caster: THREE.SkinnedMesh | null = null;
   private readonly cullSphere: PropertyDescriptor;
   /** Hits taken per bone that did not break it on their own, so sustained fire gets there too. */
   readonly stress: Float32Array;
@@ -226,7 +237,7 @@ export class Character implements CharacterInstance {
       this.data[this.extras + EXTRA_INFO * 4] = count;
     });
     this.anim = createAnimator(a.def, this);
-    this.breaks = new FracturePose(a.rig, this.bones, this.root);
+    this.breaks = new FracturePose(a.rig, this.bones);
     // Wrapped here so a break holds through every animator, whatever it writes and however often it runs.
     const pose = this.anim.update.bind(this.anim);
     this.anim.update = (dt, lod) => {
@@ -301,11 +312,18 @@ export class Character implements CharacterInstance {
     if (this.book.open === 0 || !this.a.interior) return;
     if (!this.inside) {
       this.inside = makeInside(this.a, this.skeleton);
+      this.caster = makeCaster(this.a, this.a.model.lods[1]!, this.skeleton);
       Object.defineProperty(this.inside, 'boundingSphere', this.cullSphere);
-      this.inside.frustumCulled = true;
-      this.root.add(this.inside);
+      Object.defineProperty(this.caster, 'boundingSphere', this.cullSphere);
+      this.root.add(this.inside, this.caster);
     }
-    this.inside.visible = this.lod < FAR_LOD;
+    this.showInside(this.lod < FAR_LOD);
+  }
+
+  private showInside(on: boolean): void {
+    this.inside!.visible = on;
+    this.caster!.visible = on;
+    this.mesh.castShadow = !on;
   }
 
   /**
@@ -368,7 +386,7 @@ export class Character implements CharacterInstance {
     this.mesh.geometry = set[i]!;
     // The last LOD indexes welded vertices, so its UVs are meaningless and it paints from vertex colour.
     this.mesh.material = i >= FAR_LOD ? this.a.farMaterial : this.book.count > 0 ? this.a.woundMaterial : this.a.material;
-    if (this.inside) this.inside.visible = i < FAR_LOD && this.book.open > 0;
+    if (this.inside) this.showInside(i < FAR_LOD && this.book.open > 0);
   }
 
   spawnSevered(boneIndex: number): SeveredLimb {
@@ -473,7 +491,7 @@ export class Character implements CharacterInstance {
     this.book.clear();
     this.breaks.reset();
     this.stress.fill(0);
-    if (this.inside) this.inside.visible = false;
+    if (this.inside) this.showInside(false);
     this.data.fill(0, this.extras, this.extras + EXTRA_TEXELS * 4);
     this.data[this.extras + EXTRA_INFO * 4 + 1] = Math.random() * 64;
     for (const p of this.props) p.object.visible = true;
@@ -508,6 +526,7 @@ export class SeveredPart implements SeveredLimb {
   private readonly data: Float32Array;
   private readonly book: WoundBook;
   private inside: THREE.SkinnedMesh | null = null;
+  private caster: THREE.SkinnedMesh | null = null;
   private clones: THREE.Object3D[] = [];
 
   constructor(private readonly a: ArchetypeData) {
@@ -545,10 +564,19 @@ export class SeveredPart implements SeveredLimb {
     if (this.book.open === 0 || !this.a.interior) return;
     if (!this.inside) {
       this.inside = makeInside(this.a, this.skeleton);
+      this.caster = makeCaster(this.a, this.mesh.geometry, this.skeleton);
       this.inside.frustumCulled = false;
-      this.root.add(this.inside);
+      this.caster.frustumCulled = false;
+      this.root.add(this.inside, this.caster);
     }
-    this.inside.visible = true;
+    this.caster!.geometry = this.mesh.geometry;
+    this.showInside(true);
+  }
+
+  private showInside(on: boolean): void {
+    this.inside!.visible = on;
+    this.caster!.visible = on;
+    this.mesh.castShadow = !on;
   }
 
   /** Takes the pose of `src`'s chain from `boneIndex` down. */
@@ -632,7 +660,7 @@ export class SeveredPart implements SeveredLimb {
     this.clones.length = 0;
     this.book.clear();
     this.mesh.material = this.a.material;
-    if (this.inside) this.inside.visible = false;
+    if (this.inside) this.showInside(false);
     this.root.removeFromParent();
     this.releaseHook?.(this);
   }

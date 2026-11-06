@@ -90,6 +90,8 @@ float sLight = 0.04;
 // Nearest distance to the clean middle of a wound, which is where the layers have been taken away.
 float sCore = 1.0;
 float sGore = 0.0;
+// Whether this is under a hole at all. Nothing here is fitted so closely that it never comes through the skin.
+float sHole = 1.0;
 int count = int(op2Extra(OP2_INFO).x);
 for (int i = 0; i < OP2_MAX_WOUNDS; i++) {
   if (i >= count) break;
@@ -115,9 +117,10 @@ for (int i = 0; i < OP2_MAX_WOUNDS; i++) {
     sCore = min(sCore, m);
   }
   sGore = max(sGore, smoothstep(radius * 2.2, radius * 0.6, dist + past));
+  if (((code >> 3) & vRegion) != 0) sHole = min(sHole, dist + past * 2.0 - radius * 1.5);
 }
 // A hole at the wound's core, except from behind: the far wall stays whole whatever happened to the near side.
-if (sCore < 0.0 && !sBack) discard;
+if (!sBack && (sCore < 0.0 || (sHole > 0.0 && vPart != ${Part.shard}))) discard;
 
 vec3 sAlb = vTint;
 float sRough = 0.34;

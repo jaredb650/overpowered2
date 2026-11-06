@@ -31,6 +31,8 @@ export interface RotorSpec {
 
 export interface AirframeSpec<M extends string> {
   name: string;
+  /** Drawn this much larger than the numbers in the model. Mounts follow. Defaults to 1. */
+  scale?: number;
   build(b: ModelBuilder): void;
   rotors: readonly RotorSpec[];
   /** Muzzles, rails, doors, anywhere something leaves the aircraft. In model space. */
@@ -62,6 +64,7 @@ export class Airframe<M extends string> {
     const body = new ModelBuilder();
     spec.build(body);
     this.root.name = spec.name;
+    this.root.scale.setScalar(spec.scale ?? 1);
     this.root.add(materials.group(body));
     for (const rotor of spec.rotors) this.addRotor(materials, rotor);
     if (spec.strobe) {
@@ -115,7 +118,7 @@ export class Airframe<M extends string> {
   /** A named mount in world space, valid from the last `fly`. */
   mount(name: M, out: THREE.Vector3): THREE.Vector3 {
     const m = this.spec.mounts[name];
-    return out.set(m[0], m[1], m[2]).applyQuaternion(this.root.quaternion).add(this.root.position);
+    return out.set(m[0], m[1], m[2]).multiply(this.root.scale).applyQuaternion(this.root.quaternion).add(this.root.position);
   }
 
   hide(): void {

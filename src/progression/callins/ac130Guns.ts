@@ -61,6 +61,7 @@ export class FireControl {
     private readonly center: THREE.Vector3,
     private readonly radius: number,
     private readonly radio: Radio,
+    private readonly prisoners: ReadonlySet<number>,
   ) {
     this.g25.aim.copy(center);
   }
@@ -98,7 +99,7 @@ export class FireControl {
     let kept = 0;
     for (let i = 0; i < n; i++) {
       const e = list[i]!;
-      if (e.alive) list[kept++] = e;
+      if (e.alive && !this.prisoners.has(e.uid)) list[kept++] = e;
     }
     this.count = kept;
   }

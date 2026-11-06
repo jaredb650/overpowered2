@@ -9,6 +9,8 @@ import type { Ctx } from '../core/contracts';
 import type { SonarState } from '../core/gameplay';
 import { SONAR } from './data';
 
+const _size = new THREE.Vector3();
+
 export function sonarCooldown(remaining: number): number {
   return remaining <= SONAR.lastEnemies ? SONAR.lastCooldown : SONAR.cooldown;
 }
@@ -20,6 +22,8 @@ export class Sonar implements SonarState {
   private since = Infinity;
   /** Seconds left of the hand reaching the helmet. */
   private lead = 0;
+  /** Metres per second of this ping's ring. */
+  private speed = 1;
   private readonly origin = new THREE.Vector3();
   private readonly lit: THREE.Object3D[] = [];
 
@@ -58,17 +62,20 @@ export class Sonar implements SonarState {
   }
 
   private ping(): void {
-    const { audio, events, player, render } = this.ctx;
+    const { audio, events, player, render, world } = this.ctx;
     this.origin.copy(player.eye);
     this.live = SONAR.reveal;
+    world.bounds.getSize(_size);
+    const reach = Math.hypot(_size.x, _size.z) * SONAR.sweepShare;
+    this.speed = reach / SONAR.sweepSeconds;
     audio.play('sonar_ping', { unaffectedByTime: true });
-    render.sweep(this.origin, SONAR.ringColor, SONAR.sweepSpeed, SONAR.sweepReach);
+    render.sweep(this.origin, SONAR.ringColor, this.speed, reach);
     events.emit('sonar:ping', { origin: this.origin });
   }
 
   private reveal(): void {
     const { enemies, render } = this.ctx;
-    const reached = (SONAR.reveal - this.live) * SONAR.sweepSpeed;
+    const reached = (SONAR.reveal - this.live) * this.speed;
     const reach2 = reached * reached;
     const { lit } = this;
     lit.length = 0;

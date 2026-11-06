@@ -78,6 +78,9 @@ function jointFor(bone: number): number {
 }
 
 export class WoundPlanner {
+  /** Whether the last hit on a body broke a limb. */
+  broke = false;
+
   constructor(
     private readonly ctx: Ctx,
     /** Machines take dents, and their joints do not snap. */
@@ -215,6 +218,7 @@ export class WoundPlanner {
     if (char.stress[joint]! < limit) return;
     const hinge = char.rig.bones[joint]!.joint?.kind === 'hinge';
     if (!char.fracture(joint, hinge ? 'hyper' : 'limp', rand(-0.3, 0.3))) return;
+    this.broke = true;
     this.onBreak(char, joint);
     this.boneOut(char, info, joint);
     this.ctx.audio.play('bone_snap', { position: char.bones[joint]!.getWorldPosition(_q), pitchJitter: 0.1 });
@@ -249,6 +253,7 @@ export class WoundPlanner {
 
   /** A hit on a body, alive or dead. `bone` and `point` default to the ones in the damage. */
   onBody(char: CharacterInstance, d: DamageInfo, severity: number, bone = d.bone ?? -1, point = d.point): void {
+    this.broke = false;
     const info = rigInfo(char.rig);
     const size = (char.rig.height / 1.85) ** 0.7;
     const machine = this.isMachine(char);

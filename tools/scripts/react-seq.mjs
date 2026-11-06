@@ -45,6 +45,10 @@ export default async function reactSeq(page, h) {
     lab.flags.gibbing = false;
     lab.settings.overlay = false;
     ctx.player.modifiers.invulnerable = true;
+    ctx.render.viewScene.visible = false;
+    const canvas = document.querySelector('canvas');
+    for (const el of document.body.children) if (!el.contains(canvas)) el.style.visibility = 'hidden';
+    for (const el of canvas.parentElement.children) if (el !== canvas) el.style.visibility = 'hidden';
     const frame = () => new Promise(r => requestAnimationFrame(r));
     const look = t => {
       const d = new V().subVectors(t, ctx.player.eye);
@@ -64,7 +68,7 @@ export default async function reactSeq(page, h) {
         ctx.enemies.reset();
         lab.spawner.clearBodies();
         if (lab.paused) lab.togglePause();
-        ctx.player.teleport(new V(0, 0.1, 9), 0);
+        ctx.player.teleport(new V(0, 0.1, 7.2), 0);
         await frame();
         const e = lab.spawner.place(c.id, new V(0, 0, 3), c.ai ?? 'off');
         e.yaw = c.flip ? Math.PI / 2 : -Math.PI / 2;
@@ -135,6 +139,12 @@ export default async function reactSeq(page, h) {
         }
         if (!s) await r.walk(n);
       },
+      /** Keeps the body in frame, about chest height at rest and lower when it is down. */
+      aim() {
+        const hips = new V().setFromMatrixPosition(r.target.char.bones[0].matrixWorld);
+        hips.y = Math.max(0.5, hips.y * 0.9);
+        look(hips);
+      },
       probe() {
         const e = r.target;
         const c = e.char;
@@ -150,8 +160,10 @@ export default async function reactSeq(page, h) {
 
   const clip = { x: 0, y: 0, width: 0, height: 0 };
   const size = page.viewportSize();
-  clip.width = size.width;
-  clip.height = size.height;
+  clip.x = size.width * 0.16;
+  clip.y = size.height * 0.16;
+  clip.width = size.width * 0.68;
+  clip.height = size.height * 0.68;
   const results = {};
   for (const [name, c] of Object.entries(CASES)) {
     if (only.length > 0 && !only.includes(name)) continue;
@@ -164,7 +176,8 @@ export default async function reactSeq(page, h) {
     for (const f of c.steps) {
       if (f > at) await page.evaluate(n => window.__r.advance(n), f - at);
       at = f;
-      await h.sleep(40);
+      await page.evaluate(() => window.__r.aim());
+      await h.sleep(60);
       const buf = await page.screenshot({ type: 'jpeg', quality: 72, clip });
       tiles.push(buf.toString('base64'));
       notes.push(await page.evaluate(() => window.__r.probe()));
