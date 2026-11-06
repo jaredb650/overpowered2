@@ -57,7 +57,7 @@ export class Person {
     const { w } = c;
     const now = w.now;
     // He does not wait for the last man to die. He has that much pride left.
-    if (this.dueAt >= 0 && (now >= this.dueAt || c.o.hostile <= HOLD_OUT)) this.arrive();
+    if (this.dueAt >= 0 && (now >= this.dueAt || (c.o.waves.phase === 'clearing' && c.o.hostile <= HOLD_OUT))) this.arrive();
     const e = this.body;
     if (!e) return;
     if (!e.alive) {
@@ -72,7 +72,7 @@ export class Person {
     if (now >= this.shellAt) {
       this.shellAt = now + SHELL_EVERY;
       // On the player, with the suit standing in it. He has stopped caring which of them it hits.
-      if (c.mortars.call(w.player.position, 'mortar', SHELLS)) c.bark(pick(IN_PERSON).id);
+      if (c.mortars.call(w.player.position, 'mortar', SHELLS)) c.bark(pick(IN_PERSON.slice(1)).id);
     }
   }
 

@@ -57,7 +57,7 @@ const RUN_OVER = 60;
 const AFTER_SKIP = 3;
 /** Men over the wave's strength a Commander may field. Past this, ordinary squads stay home. */
 const OVER_STRENGTH = 2;
-/** How the three share a spot. The first man through the door of a squad carries the name, if there is one left. */
+/** The player heard a voice. Seconds later, metres closer and within this of it: they went to look. */
 const FOLLOW_WINDOW = 7;
 const FOLLOW_MOVED = 5;
 const FOLLOW_REACH = 14;
@@ -70,7 +70,7 @@ const BACK_OFF = 9;
 const BACK_OFF_REST = 2.4;
 /** Blasts below this are footsteps. */
 const BLAST_FLOOR = 18;
-/** Share of the head plate a heavier helmet multiplies by. */
+/** What a heavier helmet multiplies the head plate by. */
 const HELMET_MULT = 3;
 
 const _a = new THREE.Vector3();
@@ -525,7 +525,7 @@ export class Commander {
     const line = radioLine(id);
     if (!line) return;
     let text = line.text;
-    if (vars) for (const key in vars) text = text.replace(`{${key}}`, vars[key]!);
+    if (vars) for (const key in vars) text = text.replaceAll(`{${key}}`, vars[key]!);
     this.o.comms.relay(text, s, null);
   }
 
@@ -560,7 +560,7 @@ export class Commander {
     return found;
   }
 
-  /** For tests: lets the Commander's own clock see what is out there, in one read. */
+  /** Everything in play right now, in one read, for bots and tests. */
   describe(): Record<string, unknown> {
     const count: Record<string, number> = {};
     for (const u of this.units.list) count[u.kind] = (count[u.kind] ?? 0) + 1;

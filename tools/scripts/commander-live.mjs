@@ -120,6 +120,124 @@ const reset = async (page, h) => {
 };
 
 const CASES = {
+  /** Three tricks that only count if a body does what it should: a rigged pickup, a man who gets up, a man the sonar cannot find. */
+  async tricks(page, h, shot) {
+    const info = {};
+    await page.evaluate(() => {
+      const c = window.__c;
+      const ctx = window.__ctx;
+      window.__hurt = [];
+      ctx.events.on('player:damaged', e => window.__hurt.push(Math.round(e.amount)));
+      c.adopt('riggedPickups');
+      window.__look(window.__floor(0, 0), [0, 0, 20]);
+      c.traps.layout(1);
+    });
+    await h.sleep(300);
+    info.rigged = await page.evaluate(() => window.__c.devices.count('charge'));
+    await page.evaluate(() => {
+      const c = window.__c;
+      const d = c.devices.live.find(x => x.kind === 'charge');
+      window.__frame([d.position.x, d.position.y, d.position.z], 3.4, 0, -0.4);
+    });
+    await h.sleep(900);
+    await shot('pickup-rigged');
+    await page.evaluate(() => {
+      const c = window.__c;
+      const d = c.devices.live.find(x => x.kind === 'charge');
+      window.__look([d.position.x - 0.55, d.position.y + 0.1, d.position.z - 0.3], [0, 1, 0]);
+    });
+    await h.sleep(200);
+    info.lit = await page.evaluate(() => window.__c.devices.live.filter(d => d.lit).length);
+    await h.sleep(900);
+    info.charges = await page.evaluate(() => window.__c.devices.count('charge'));
+    info.hurt = await page.evaluate(() => [...window.__hurt]);
+    await reset(page, h);
+
+    const body = await page.evaluate(() => {
+      const c = window.__c;
+      const ctx = window.__ctx;
+      const at = window.__floor(0, -19);
+      const e = c.units.placeBody('possum', ctx.player.position.clone().set(...at));
+      window.__possum = e;
+      window.__frame(at, 5.2, 0.2);
+      return e.uid;
+    });
+    info.body = body;
+    await h.sleep(900);
+    await shot('possum-lying');
+    info.lying = await page.evaluate(() => [window.__c.units.count('possum'), window.__c.jam.radar(window.__ctx.enemies.alive).length]);
+    // Walk past: he is behind the player now.
+    await page.evaluate(() => {
+      const p = window.__ctx.player;
+      const e = window.__possum;
+      p.yaw = Math.atan2(-(p.position.x - e.position.x), -(p.position.z - e.position.z));
+    });
+    let attack = '';
+    for (let i = 0; i < 28 && !attack; i++) {
+      await h.sleep(250);
+      attack = await page.evaluate(() => window.__possum.attack?.name ?? '');
+    }
+    info.possum = await page.evaluate(([attack]) => ({ attack, up: window.__c.units.count('possum') === 0, hurt: window.__hurt.length }), [attack]);
+    await reset(page, h);
+
+    info.foil = await page.evaluate(() => {
+      const c = window.__c;
+      const ctx = window.__ctx;
+      const at = window.__floor(0, -19);
+      // Far side of the map first: a man who is sprung on arrival proves nothing.
+      window.__look(window.__floor(19, 19), [0, 1, 0]);
+      window.__man('guard', 'trooper', window.__floor(19, -19));
+      const e = window.__man('hider', 'trooper', at);
+      const u = c.units.list.find(x => x.kind === 'hider');
+      u.step = 1;
+      u.pose = 'cover';
+      u.until = ctx.time.elapsed + 60;
+      window.__hider = e;
+      return Math.round(ctx.player.position.distanceTo(e.position));
+    });
+    await h.sleep(800);
+    info.farRadar = await page.evaluate(() => [window.__c.jam.radar(window.__ctx.enemies.alive).length, window.__ctx.enemies.alive.length]);
+    await page.evaluate(() => {
+      const e = window.__hider.position;
+      window.__look(window.__floor(e.x + 8.8, e.z), [e.x, e.y + 1, e.z]);
+    });
+    await h.sleep(800);
+    info.nearRadar = await page.evaluate(() => [window.__c.jam.radar(window.__ctx.enemies.alive).length, window.__ctx.enemies.alive.length, window.__c.units.count('hider'), Math.round(window.__hider.dist * 10) / 10]);
+    await shot('hider-near');
+    await page.evaluate(() => {
+      const e = window.__hider.position;
+      window.__look(window.__floor(e.x + 6, e.z), [e.x, e.y + 1, e.z]);
+    });
+    await h.sleep(900);
+    info.sprung = await page.evaluate(() => window.__c.units.count('hider'));
+    await shot('hider-sprung');
+    await reset(page, h);
+    return info;
+  },
+
+  /** A late wave with a lot in play, on real waves, reading the frame numbers. Start it with `cmd=` and `cmdwave=` on the URL. */
+  async stress(page, h, shot) {
+    await page.evaluate(() => {
+      const ctx = window.__ctx;
+      ctx.waves.update = Object.getPrototypeOf(ctx.waves).update.bind(ctx.waves);
+      window.__look(window.__floor(0, -19), [0, 1, 0]);
+    });
+    const samples = [];
+    for (let i = 0; i < 16; i++) {
+      await h.sleep(2500);
+      samples.push(await page.evaluate(() => {
+        const s = window.__op2.stats();
+        return [s.fps, s.cpuMs, s.drawCalls, s.triangles, s.enemies];
+      }));
+      if (i === 8) await shot('stress');
+    }
+    const col = k => samples.map(s => s[k]);
+    return {
+      fpsMin: Math.min(...col(0)), fpsMedian: col(0).sort((a, b) => a - b)[8], cpuMax: Math.max(...col(1)), drawMax: Math.max(...col(2)), triMax: Math.max(...col(3)), menMax: Math.max(...col(4)),
+      describe: await page.evaluate(() => window.__c.describe()),
+    };
+  },
+
   /** The swarm's game, which none of this may touch. */
   async swarm(page, h, shot) {
     await h.sleep(9000);

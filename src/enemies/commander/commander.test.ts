@@ -1,6 +1,8 @@
+import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { mulberry32 } from '../../core/math';
 import { readingSeconds, Script, spoken } from '../../ui/commander/pick';
+import { Route, RouteFinder, type NavGrid } from '../outpost/routes';
 import { ADAPTATIONS, FINAL_WAVE, phaseOf, TONE_OF, TRICKS, type AdaptationId, type HabitId } from './adaptations';
 import { pickAdaptation, plansFor, refit, tricksFrom } from './director';
 import type { Briefing } from './events';
@@ -101,6 +103,52 @@ describe('the director', () => {
     const squads: ('trooper' | 'gunner')[][] = [['trooper', 'trooper', 'trooper']];
     refit(squads, new Set(['shotguns']), 3);
     expect(squads[0]).toEqual(['gunner', 'gunner', 'trooper']);
+  });
+});
+
+describe('a shutter on the route graph', () => {
+  /** Two rooms joined by two doors, as a 1 m grid. */
+  const SIZE = 21;
+  const wall = (x: number, z: number): boolean => x < 0 || z < 0 || x >= SIZE || z >= SIZE || (z === 10 && x !== 3 && x !== 17);
+  const nav = (): NavGrid => {
+    const px: number[] = [], pz: number[] = [], clearance: number[] = [];
+    const colStart = new Int32Array(SIZE * SIZE + 1);
+    for (let z = 0; z < SIZE; z++) {
+      for (let x = 0; x < SIZE; x++) {
+        const c = z * SIZE + x;
+        colStart[c + 1] = colStart[c]!;
+        if (wall(x, z)) continue;
+        px.push(x + 0.5);
+        pz.push(z + 0.5);
+        clearance.push(3);
+        colStart[c + 1]!++;
+      }
+    }
+    const n = px.length;
+    return {
+      nodeCount: n, px: Float32Array.from(px), py: new Float32Array(n), pz: Float32Array.from(pz), slopeX: new Float32Array(n), slopeZ: new Float32Array(n),
+      clearance: Uint8Array.from(clearance), minX: 0, minZ: 0, nx: SIZE, nz: SIZE, colStart,
+      locate(p) {
+        const c = Math.floor(p.z) * SIZE + Math.floor(p.x);
+        return colStart[c] !== colStart[c + 1] ? colStart[c]! : -1;
+      },
+    };
+  };
+
+  it('sends men round by the other door, and back once it is blown', () => {
+    const routes = new RouteFinder();
+    routes.build(nav());
+    const from = new THREE.Vector3(3.5, 0, 6.5);
+    const to = new THREE.Vector3(3.5, 0, 14.5);
+    const way = new Route();
+    expect(routes.find(from, to, way)).toBe(true);
+    const short = way.length;
+    routes.setClosed(3.5, 10.5, 0, 1, 1, true);
+    expect(routes.find(from, to, way)).toBe(true);
+    expect(way.length).toBeGreaterThan(short + 20);
+    routes.setClosed(3.5, 10.5, 0, 1, 1, false);
+    expect(routes.find(from, to, way)).toBe(true);
+    expect(way.length).toBeCloseTo(short, 1);
   });
 });
 

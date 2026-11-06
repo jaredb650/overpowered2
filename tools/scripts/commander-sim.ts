@@ -102,12 +102,13 @@ manager.reset();
 waves.start();
 
 const log: unknown[] = [];
-const benches: Record<string, () => void> = {};
 const bench = opts.bench as string | undefined;
 const say = (text: string) => { log.push(`${ctx.time.elapsed.toFixed(1)} ${text}`); };
 ctx.events.on('wave:start', (e: { wave: number; total: number }) => say(`wave ${e.wave} starts, ${e.total} men, ${JSON.stringify(commander.describe())}`));
 ctx.events.on('wave:clear', (e: { wave: number }) => say(`wave ${e.wave} clear`));
 ctx.events.on('commander:briefing', (b: any) => say(`briefing after wave ${b.wave}: answer ${b.adaptation}, tricks ${b.tricks}, habits ${JSON.stringify(habitsNow())}`));
+ctx.events.on('commander:person', (e: { arrived: boolean }) => say(`the Commander ${e.arrived ? 'has arrived' : 'is dead'}`));
+ctx.events.on('commander:bark', (e: { id: string }) => say(`bark ${e.id}`));
 ctx.events.on('commander:status', (e: { flag: string; on: boolean }) => say(`status ${e.flag} ${e.on}`));
 ctx.events.on('comms:line', (l: { kind: string; speaker: string | null; text: string }) => { if (l.kind === 'order') say(`radio ${l.speaker}: ${l.text}`); });
 

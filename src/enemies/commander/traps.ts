@@ -350,6 +350,6 @@ export class Traps {
     if (!room || !ROOM_WORDS.includes(room)) return;
     const line = pick(FALSE_CHATTER);
     const who = `${CALLSIGNS[randInt(0, CALLSIGNS.length - 1)]}-7`;
-    c.o.comms.relay(line.text.replace('{room}', room), null, who);
+    c.o.comms.relay(line.text.replaceAll('{room}', room), null, who);
   }
 }
