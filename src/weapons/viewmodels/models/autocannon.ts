@@ -102,12 +102,12 @@ function buffers(m: Mesher): void {
 }
 
 function scope(m: Mesher): void {
-  m.at([0, 0.204, -0.13], null, () => {
+  m.at([0, 0.191, -0.205], null, () => {
     // Rings.
     m.use(F.anodized);
     for (const z of [-0.075, 0.07]) {
       m.at([0, 0, z], null, () => {
-        m.at([0, -0.024, 0], null, () => m.box(0.03, 0.03, 0.022, 0.0016, 0.003));
+        m.at([0, -0.021, 0], null, () => m.box(0.03, 0.022, 0.022, 0.0016, 0.003));
         m.lathe([[0.0252, 0.0115, 0], [0.0298, 0.0115], [0.0298, -0.0115], [0.0252, -0.0115, 0]], 26);
       });
     }
@@ -121,8 +121,8 @@ function scope(m: Mesher): void {
     m.glass(() => m.at([0, 0, -0.169], null, () => m.cyl(0.0338, 0.0006, 24, 0)));
     m.glow('scope', () => {
       m.at([0, 0, 0.1695], null, () => {
-        m.prism(rect(-0.019, -0.0005, 0.019, 0.0005, 0), 0.0002, { bevel: 0 });
-        m.prism(rect(-0.0005, -0.019, 0.0005, 0.019, 0), 0.0002, { bevel: 0 });
+        m.prism(rect(-0.017, -0.0003, 0.017, 0.0003, 0), 0.0002, { bevel: 0 });
+        m.prism(rect(-0.0003, -0.017, 0.0003, 0.017, 0), 0.0002, { bevel: 0 });
       });
     });
     // Turrets with knurled caps.
@@ -205,35 +205,37 @@ function belt(m: Mesher): void {
 }
 
 function feed(m: Mesher): void {
-  // The hood the belt climbs into, and the channel that keeps it from flapping.
-  m.use(F.anodized);
-  m.at([-0.0735, 0.118, BELT_Z], null, () => {
-    m.front(poly([[-0.026, -0.02], [0.022, -0.02], [0.022, 0.024, 0.004], [-0.01, 0.024, 0.008], [-0.026, 0.008, 0.008]], 0.003), 0.15, { bevel: 0.0022 });
-    m.use(F.anodizedGrey);
-    for (const z of [-0.058, 0.058]) m.at([0, 0, z], null, () => m.front(poly([[-0.0275, -0.022], [0.023, -0.022], [0.023, 0.026, 0.004], [-0.01, 0.026, 0.008], [-0.0275, 0.009, 0.008]], 0.003), 0.012, { bevel: 0.0014 }));
-    screwX(m, -0.0268, 0.0, 0.0, -1, 0.0028);
-  });
+  // Guide posts that keep the belt from flapping.
   m.use(F.steelDark);
   for (const z of [BELT_Z - 0.084, BELT_Z + 0.106]) {
     m.at([-0.0625, 0.0, z], null, () => m.box(0.022, 0.17, 0.008, 0.0012, 0.002));
     m.at([-0.0875, -0.082, z], null, () => m.box(0.04, 0.008, 0.008, 0.0012, 0.002));
   }
+  // Rear top plate: an access panel with a slotted grille.
+  m.at([0, 0.1445, 0.11], null, () => {
+    m.use(F.anodizedGrey);
+    m.top(poly([[-0.05, -0.0855], [0.05, -0.0855], [0.05, 0.085], [-0.05, 0.085]], 0.005), 0.012, { bevel: 0.002 });
+    m.use(F.anodized);
+    m.at([0, 0.008, 0], null, () => m.top(poly([[-0.04, -0.07], [0.04, -0.07], [0.04, 0.07], [-0.04, 0.07]], 0.006), 0.006, { bevel: 0.0016, holes: slotRow(-0.024, 0, 0.024, 0, 4, 0.1, 0.0065, Math.PI / 2) }));
+    m.use(F.black);
+    m.at([0, 0.0065, 0], null, () => m.box(0.07, 0.0015, 0.13, 0));
+  });
 }
 
+/** The hood the belt climbs into. It hinges along the receiver's top edge, and is the door a new belt goes in through. */
 function cover(m: Mesher): void {
-  m.part('cover', [0.05, 0.1445, 0.11], () => {
-    m.use(F.anodizedGrey);
-    m.at([-0.05, 0.0, 0], null, () => {
-      m.top(poly([[-0.05, -0.0855], [0.05, -0.0855], [0.05, 0.085], [-0.05, 0.085]], 0.005), 0.012, { bevel: 0.002 });
-      m.use(F.anodized);
-      m.at([0, 0.008, 0], null, () => m.top(poly([[-0.04, -0.07], [0.04, -0.07], [0.04, 0.07], [-0.04, 0.07]], 0.006), 0.006, { bevel: 0.0016, holes: slotRow(-0.024, 0, 0.024, 0, 4, 0.1, 0.0065, Math.PI / 2) }));
-      m.use(F.black);
-      m.at([0, 0.0065, 0], null, () => m.box(0.07, 0.0015, 0.13, 0));
+  m.part('cover', [-0.05, 0.142, BELT_Z], () => {
+    m.use(F.anodized);
+    m.at([-0.0235, -0.024, 0], null, () => {
+      m.front(poly([[-0.026, -0.02], [0.022, -0.02], [0.022, 0.024, 0.004], [-0.01, 0.024, 0.008], [-0.026, 0.008, 0.008]], 0.003), 0.15, { bevel: 0.0022 });
+      m.use(F.anodizedGrey);
+      for (const z of [-0.058, 0.058]) m.at([0, 0, z], null, () => m.front(poly([[-0.0275, -0.022], [0.023, -0.022], [0.023, 0.026, 0.004], [-0.01, 0.026, 0.008], [-0.0275, 0.009, 0.008]], 0.003), 0.012, { bevel: 0.0014 }));
+      screwX(m, -0.0268, 0.0, 0.0, -1, 0.0028);
       m.use(F.red);
-      m.at([-0.0525, 0.004, 0], null, () => m.box(0.008, 0.012, 0.036, 0.0014, 0.002));
+      m.at([-0.0285, -0.006, 0], null, () => m.box(0.0055, 0.012, 0.04, 0.0014, 0.002));
     });
     m.use(F.steel);
-    m.cyl(0.0042, 0.17, 12);
+    m.cyl(0.0038, 0.16, 12);
   });
 }
 
@@ -266,14 +268,14 @@ function buildCannon(kit: Kit): Model {
     m.side(poly([[-0.0035, 0.002], [0.0035, 0.002], [0.002, -0.009, 0.002], [0.0038, -0.0205, 0.0015], [0.0005, -0.0215, 0.001], [-0.0035, -0.0095, 0.003]], 0.001), 0.0065, { bevel: 0.0007 });
   });
   const model = new Model(m, kit.mats, {
-    glows: { scope: [0xff3a22, 6] },
+    glows: { scope: [0xff3a22, 2.4] },
     screens: { ammo: [176, 88] },
   });
   model.socket('muzzle', [0, BORE, -0.268 - 0.79]);
   model.socket('eject', [0.056, 0.08, 0.02]);
   model.hand('gripR', [0.018, -0.056, 0.07], [0, -0.96, 0.27], [-0.3, -0.25, -0.92]);
   model.hand('gripL', [-0.018, -0.082, -0.24], [0.02, -0.98, 0.2], [0.34, -0.18, -0.92]);
-  model.hand('coverHold', [-0.102, 0.0, 0], [-0.1, 0.1, -0.98], [0.75, -0.6, -0.1], 'cover');
+  model.hand('coverHold', [-0.06, -0.03, 0], [-0.1, 0.1, -0.98], [0.75, 0.6, -0.1], 'cover');
   model.hand('beltHold', [-0.022, -0.1, 0.02], [-0.1, 0.1, -0.98], [0.9, 0.1, -0.2], 'belt');
   model.hand('chargeHold', [-0.03, 0, 0.012], [-0.5, -0.2, -0.8], [0.8, -0.3, -0.5], 'charge');
   return model;
@@ -304,7 +306,7 @@ function clip(a: Anim): void {
   if (p >= 0) {
     const coverUp = inOut(seg(p, 0.1, 0.2)) * (1 - inQuad(seg(p, 0.6, 0.66)));
     const slam = p >= 0.66 ? thud(seg(p, 0.66, 0.78)) : 0;
-    P.cover!.rotation.z -= coverUp * 1.35 + slam * 0.05;
+    P.cover!.rotation.z -= coverUp * 1.2 + slam * 0.05;
     if (p < 0.32) lift -= inQuad(seg(p, 0.14, 0.3)) * 0.5;
     else lift = -(1 - outCubic(seg(p, 0.32, 0.56))) * 0.5;
 
@@ -323,11 +325,11 @@ function clip(a: Anim): void {
     const h = a.left;
     h.fingerRate = 36;
     h.to('coverHold', inOut(seg(p, 0.01, 0.09)));
-    h.to('beltHold', inOut(seg(p, 0.24, 0.34)));
+    h.to('beltHold', inOut(seg(p, 0.14, 0.34)));
     h.to('coverHold', inOut(seg(p, 0.52, 0.59)));
     h.to('chargeHold', inOut(seg(p, 0.67, 0.74)));
     h.to('gripL', inOut(seg(p, 0.9, 1)));
-    h.shape(HANDS.pinch, hold(p, 0.02, 0.08, 0.17, 0.22));
+    h.shape(HANDS.pinch, hold(p, 0.02, 0.08, 0.12, 0.17));
     h.shape(HANDS.cup, hold(p, 0.26, 0.34, 0.5, 0.55));
     h.shape(HANDS.foregrip, hold(p, 0.68, 0.74, 0.9, 0.95));
   }
@@ -338,7 +340,7 @@ export function autocannonDef(kit: Kit): ViewDef {
   return {
     id: 'autocannon',
     model: buildCannon(kit),
-    pos: [0.215, -0.235, -0.44],
+    pos: [0.235, -0.27, -0.46],
     rot: [0.012, 0.05, 0],
     recoil: { back: 0.1, lift: 0.024, pitch: 0.12, yaw: 0.016, roll: 0.05, omega: 28, zeta: 0.5 },
     right: { socket: 'gripR', pose: HANDS.grip },

@@ -25,7 +25,7 @@ export interface QualityPreset {
 export const QUALITY: readonly QualityPreset[] = [
   { msaa: 0, maxPixels: 1152 * 720, ao: false, aoSlices: 1, aoSteps: 3, fog: true, fogSteps: 9, bloomLevels: 4, shadowStatic: 2048, shadowDynamic: 0, shadowTaps: 1, dynamicLights: 4, ssrSteps: 0 },
   { msaa: 0, maxPixels: 1344 * 840, ao: true, aoSlices: 1, aoSteps: 4, fog: true, fogSteps: 10, bloomLevels: 5, shadowStatic: 2048, shadowDynamic: 1024, shadowTaps: 2, dynamicLights: 6, ssrSteps: 0 },
-  { msaa: 0, maxPixels: 1600 * 1000, ao: true, aoSlices: 1, aoSteps: 4, fog: true, fogSteps: 12, bloomLevels: 6, shadowStatic: 4096, shadowDynamic: 2048, shadowTaps: 4, dynamicLights: 8, ssrSteps: 16 },
+  { msaa: 0, maxPixels: 1600 * 1000, ao: true, aoSlices: 1, aoSteps: 4, fog: true, fogSteps: 12, bloomLevels: 6, shadowStatic: 4096, shadowDynamic: 2048, shadowTaps: 4, dynamicLights: 8, ssrSteps: 24 },
   { msaa: 4, maxPixels: 1920 * 1200, ao: true, aoSlices: 3, aoSteps: 5, fog: true, fogSteps: 22, bloomLevels: 7, shadowStatic: 4096, shadowDynamic: 2048, shadowTaps: 8, dynamicLights: 8, ssrSteps: 40 },
 ];
 

@@ -39,8 +39,8 @@ const MOON_FLOOR = 0.03;
 /** Ray origins around the eye, so the gun fades through a doorway instead of switching. */
 const MOON_PROBES: readonly (readonly [number, number, number])[] = [[0, 0, 0], [0.5, 0.1, -0.4], [-0.5, 0.1, -0.4], [0, 0.35, 0.3]];
 /** A dim light fixed to the view, so a dark gun keeps its shape in the darkest corridor. Stronger out of the moon. */
-const FILL_MOONLIT = 0.28;
-const FILL_DARK = 0.62;
+const FILL_MOONLIT = 0.45;
+const FILL_DARK = 1.5;
 
 /** Call-ins and the device that goes with them; progression's targeting state drives this. */
 const DEVICE: Record<CallInId, 'walkie' | 'designator'> = {

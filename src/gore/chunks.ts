@@ -257,6 +257,13 @@ export class ChunkField {
     return this.live.length;
   }
 
+  /** Speed of the fastest piece in flight. For checks. */
+  get fastest(): number {
+    let top = 0;
+    for (let i = 0; i < this.live.length; i++) top = Math.max(top, this.live[i]!.speed);
+    return top;
+  }
+
   clear(): void {
     if (!this.ready) return;
     for (const c of this.all) if (c.alive) this.retire(c);

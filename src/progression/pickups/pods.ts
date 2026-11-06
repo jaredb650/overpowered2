@@ -7,6 +7,7 @@ import type { Ctx, EmitterHandle } from '../../core/contracts';
 import type { WeaponId } from '../../core/gameplay';
 import { lerp, pick, rand, smoothstep, TAU } from '../../core/math';
 import { GroundProbe, GroundRing } from '../callins/ground';
+import { aboveFloor } from '../callins/shared';
 import { CACHE_ORDER, DROP_POD as D, PICKUP, PICKUP_LOOK, WEAPON_NAMES } from '../data';
 import { ModelBuilder, type ModelMaterials } from '../modelkit';
 
@@ -217,7 +218,7 @@ export class DropPods {
     pod.ring.hide();
     pod.trail?.stop();
     pod.trail = null;
-    combat.explode(p, {
+    combat.explode(aboveFloor(p), {
       radius: D.impactRadius, damage: D.impactDamage, kind: 'rocket', source: 'drop_pod', team: 'player', selfDamage: 0, playerPush: 10,
     });
     audio.play('cache_land', { position: p });

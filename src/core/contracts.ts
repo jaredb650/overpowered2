@@ -25,7 +25,7 @@ export type DamageType =
  * numbers is how a corpse came to fly further from a bullet than the body it had been.
  */
 export const DEFAULT_FORCE: Record<DamageType, number> = {
-  bullet: 60, pellet: 45, explosive: 260, melee: 160, slash: 90, fire: 10, shock: 40, crush: 300, true: 120,
+  bullet: 20, pellet: 30, explosive: 130, melee: 90, slash: 60, fire: 5, shock: 15, crush: 200, true: 10,
 };
 
 /** A single application of damage to an enemy. */

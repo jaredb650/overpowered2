@@ -68,7 +68,7 @@ function cover(k: Kit): void {
 function lights(k: Kit): void {
   const { halfX: x, halfZ: z } = RANGE;
   for (let i = -2; i <= 2; i++) {
-    for (let j = -1; j <= 2; j++) k.light(i * (x / 2.5), 8.4, j * (z / 2.2), 'white', 74, 26);
+    for (let j = -1; j <= 2; j++) k.light(i * (x / 2.5), 8.4, j * (z / 2.2), 'white', 240, 30);
   }
 }
 

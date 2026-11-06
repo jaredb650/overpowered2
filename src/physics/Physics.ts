@@ -7,6 +7,7 @@
 import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
 import { CG, type Ctx, type PhysicsSystem, type RayHit, type SurfaceKind } from '../core/contracts';
+import { DevFlags } from '../core/devflags';
 
 /** Rapier group word: memberships in the high 16 bits, filter in the low 16 bits. */
 export const groups = (membership: number, filter: number): number => ((membership & 0xffff) << 16) | (filter & 0xffff);
@@ -21,7 +22,13 @@ const MIN_STEP = 1 / 240;
 const MAX_SUBSTEPS = 4;
 export const GRAVITY = -19;
 /** Fastest a blast can throw any dynamic body, in m/s. */
-const MAX_BLAST_SPEED = 22;
+const MAX_BLAST_SPEED = 16;
+/**
+ * Speed a light piece takes per unit of strength left after falloff. Speed has to follow the blast and not the piece's
+ * mass: on a 0.2 kg chunk a Juggernaut's footstep is already past any sensible cap, and every chunk nearby would leave
+ * as fast as if a rocket had hit it.
+ */
+const DEBRIS_SPEED = 0.2;
 
 export class Physics implements PhysicsSystem {
   readonly R = RAPIER;
@@ -168,7 +175,8 @@ export class Physics implements PhysicsSystem {
     this.world.step();
   }
 
-  radialImpulse(center: THREE.Vector3, radius: number, strength: number): void {
+  radialImpulse(center: THREE.Vector3, radius: number, force: number): void {
+    const strength = force * DevFlags.force;
     for (const listener of this.radialListeners) listener(center, radius, strength);
     const ball = new RAPIER.Ball(radius);
     const seen = this.radialSeen;
@@ -191,9 +199,9 @@ export class Physics implements PhysicsSystem {
       impulse.set(t.x - center.x, t.y - center.y + 0.5, t.z - center.z);
       const d = impulse.length();
       const falloff = Math.max(0, 1 - d / radius);
-      // Capped as a speed, because the same strength would fire a light chunk off at hundreds of m/s.
-      const mass = body.mass();
-      const push = Math.min(strength * falloff, MAX_BLAST_SPEED * mass);
+      // Black Sun pulls with a negative strength, so the ceiling works on the size of the push.
+      const left = Math.abs(strength) * falloff;
+      const push = Math.sign(strength) * Math.min(left, Math.min(MAX_BLAST_SPEED, left * DEBRIS_SPEED) * body.mass());
       impulse.multiplyScalar(push / Math.max(d, 0.2));
       body.applyImpulse(impulse, true);
     }

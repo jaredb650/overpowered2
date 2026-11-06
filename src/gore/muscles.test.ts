@@ -378,7 +378,8 @@ describe('rotational impact', () => {
     run(60);
     const moved = at(c, B.hips).distanceTo(hips);
     gore.clear();
-    expect(moved).toBeGreaterThan(5);
+    // Hard limits, which Physics throws alone, moved 0.96 m from here. This is held to RagTuning.maxBlastSpeed.
+    expect(moved).toBeGreaterThan(3);
   });
 
   it('no two limbs move alike', () => {

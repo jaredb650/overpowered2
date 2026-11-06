@@ -1,9 +1,19 @@
 /** What every call-in shares. */
-import type * as THREE from 'three';
+import * as THREE from 'three';
 import type { Ctx } from '../../core/contracts';
 import type { ModelMaterials } from '../modelkit';
 import type { GroundProbe } from './ground';
 import type { Ordnance } from './ordnance';
+
+const _lifted = new THREE.Vector3();
+
+/**
+ * A blast point standing clear of the floor. combat.explode tests each victim with a ray from the blast, and a ray
+ * that starts on the floor stops there, so a blast on the exact impact point reaches nobody at all.
+ */
+export function aboveFloor(p: THREE.Vector3): THREE.Vector3 {
+  return _lifted.copy(p).setY(p.y + 0.7);
+}
 
 export interface StrikeKit {
   ctx: Ctx;

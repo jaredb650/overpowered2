@@ -374,6 +374,7 @@ export class EnemyManager implements EnemySystem {
     e.bodyLoop?.setPosition(e.center);
 
     if (e.frozen > 0) {
+      updateContact(e, w);
       this.place(e);
       return;
     }

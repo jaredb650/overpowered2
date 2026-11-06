@@ -30,8 +30,6 @@ const PLAYER_RADIUS = 0.45;
 const WHIZZ_RADIUS = 3;
 const SHOCK = { range: 9, targets: 3, damage: 0.4 };
 const INSTAKILL = 9999;
-/** Ragdoll push per point of the table's radial impulse. */
-const BLAST_FORCE = 3.2;
 /** Kills closer than this put blood on the lens, scaled up as the range closes. */
 const LENS_BLOOD_RANGE = 3.5;
 
@@ -833,9 +831,9 @@ export class Combat implements CombatSystem {
       c.fx.explosion(center, look);
       for (let i = 0; i < def.sounds.length; i++) this.sound(def.sounds[i]!, center);
     }
-    c.physics.radialImpulse(center, radius * 1.35, def.impulse * radius);
-
     const hit = this.blastEnemies(center, spec, id);
+    // After the damage, so a body this blast kills is thrown by it like any other, and not only the bodies already dead.
+    c.physics.radialImpulse(center, radius * 1.35, def.impulse * radius);
     this.blastPlayer(center, spec);
     this.projectiles.caughtInBlast(center, radius);
     if (!spec.worldObject) c.world.objects?.damageExplosivesInRadius(center, radius, spec.damage, spec.source);
@@ -888,7 +886,7 @@ export class Combat implements CombatSystem {
       dir.y += 0.6;
       dir.normalize();
       const o = this.strikeOptions('explosive', spec.source);
-      o.force = BLAST_FORCE * def.impulse * radius * falloff;
+      o.force = TUNING.blastForce * def.impulse * radius * falloff;
       o.severMult = spec.team === 'player' && c.weapons.modifiers.alwaysSever ? 1000 : 1.5;
       o.gib = dist < radius * def.gibZone;
       o.explosionId = id;

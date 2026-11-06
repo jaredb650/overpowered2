@@ -22,6 +22,11 @@ export class PlayerSense {
   ghost = false;
   /** Earliest time a body may bump the player again. */
   nudgeAt = 0;
+  /** Player clock. Solid bodies let the player through until this time, after finding them wedged. */
+  solidFreeAt = 0;
+  /** Player clock: when the current spell deep inside a solid body began, and when it was last seen. */
+  wedgeSince = 0;
+  wedgeSeen = -1;
 }
 
 export interface AiWorld {

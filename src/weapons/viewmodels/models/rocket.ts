@@ -77,7 +77,7 @@ function tube(m: Mesher): void {
 }
 
 function optic(m: Mesher): void {
-  m.at([-0.066, AXIS + 0.042, -0.08], null, () => {
+  m.at([-0.062, AXIS + 0.036, -0.2], null, () => {
     // Bracket reaching out from the tube.
     m.use(F.anodized);
     m.at([0.02, -0.03, 0.0], null, () => m.side(poly([[0.05, 0], [-0.05, 0], [-0.04, 0.02, 0.006], [0.04, 0.02, 0.006]], 0.002), 0.03, { bevel: 0.0014 }));
@@ -106,8 +106,8 @@ function optic(m: Mesher): void {
       m.at([0, 0, 0.004], null, () => m.cyl(0.0172, 0.001, 18, 0));
       // A lit reticle in the eyepiece reads from the shooter's seat.
       m.glow('reticle', () => m.at([0, 0, 0.0052], null, () => {
-        m.prism(rect(-0.0085, -0.0006, 0.0085, 0.0006, 0), 0.0002, { bevel: 0 });
-        m.prism(rect(-0.0006, -0.0085, 0.0006, 0.0085, 0), 0.0002, { bevel: 0 });
+        m.prism(rect(-0.0075, -0.00035, 0.0075, 0.00035, 0), 0.0002, { bevel: 0 });
+        m.prism(rect(-0.00035, -0.0075, 0.00035, 0.0075, 0), 0.0002, { bevel: 0 });
       }));
     });
     // Range readout on the left flank, and a turret on top.
@@ -122,7 +122,7 @@ function optic(m: Mesher): void {
   });
   // Armoured cable down to the grip.
   m.use(F.rubber);
-  m.tube([[-0.05, AXIS + 0.02, 0.0], [-0.056, AXIS - 0.018, 0.02], [-0.05, AXIS - 0.06, 0.04], [-0.022, -0.002, 0.045], [-0.016, 0.002, 0.06]], 0.0024, { seg: 7, samples: 26 });
+  m.tube([[-0.046, AXIS + 0.018, -0.13], [-0.056, AXIS - 0.018, -0.06], [-0.05, AXIS - 0.06, 0.02], [-0.022, -0.002, 0.045], [-0.016, 0.002, 0.06]], 0.0024, { seg: 7, samples: 26 });
   m.use(F.steelDark);
   m.at([-0.016, 0.0, 0.06], [0.9, 0, 0], () => m.cyl(0.0042, 0.012, 10));
 }
@@ -227,18 +227,19 @@ function rocket(m: Mesher): void {
       });
     }
     m.use(F.polymerGrey);
-    m.lathe([[0.042, -0.232, 0], [0.042, -0.26], [0.0442, -0.264], [0.0442, -0.5], [0.0418, -0.52], [0.04, -0.62, 0]], 28);
-    m.use({ ...F.olive, color: 0x565a3a });
-    const nose: [number, number, number?][] = [[0.04, -0.62, 0]];
-    for (let i = 1; i <= 12; i++) {
-      const t = i / 12;
-      nose.push([0.04 * Math.sqrt(1 - t * t * 0.985), -0.62 - t * 0.14, 0]);
+    m.lathe([[0.042, -0.232, 0], [0.042, -0.26], [0.0442, -0.264], [0.0442, -0.5], [0.0418, -0.52], [0.0345, -0.56], [0.0345, -0.6, 0]], 28);
+    // A long pointed ogive: only the last hand's width of it shows past the muzzle.
+    m.use({ ...F.olive, color: 0x6a6b47 });
+    const nose: [number, number, number?][] = [[0.0345, -0.6, 0]];
+    for (let i = 1; i <= 14; i++) {
+      const t = i / 14;
+      nose.push([0.0345 * (1 - t ** 1.7) + 0.0034, -0.6 - t * 0.19, 0]);
     }
-    m.lathe(nose, 28, { chamfer: 0, smooth: 40 });
+    m.lathe(nose, 26, { chamfer: 0, smooth: 40 });
     m.use(F.yellow);
-    m.lathe([[0.0442, -0.45, 0], [0.0447, -0.45], [0.0447, -0.466], [0.0442, -0.466, 0]], 28, { chamfer: 0 });
+    m.lathe([[0.0348, -0.66, 0], [0.0312, -0.665], [0.0291, -0.685], [0.0288, -0.685, 0]], 26, { chamfer: 0 });
     m.use(F.steelDark);
-    m.lathe([[0.0042, -0.76, 0], [0.0042, -0.783], [0.003, -0.785], [0, -0.785, 0]], 12);
+    m.lathe([[0.0034, -0.79, 0], [0.0034, -0.822], [0.0022, -0.825], [0, -0.825, 0]], 10);
   });
 }
 
@@ -256,7 +257,7 @@ function buildRocket(kit: Kit): Model {
     m.side(poly([[-0.0035, 0.002], [0.0035, 0.002], [0.002, -0.009, 0.002], [0.0038, -0.0205, 0.0015], [0.0005, -0.0215, 0.001], [-0.0035, -0.0095, 0.003]], 0.001), 0.0065, { bevel: 0.0007 });
   });
   const model = new Model(m, kit.mats, {
-    glows: { reticle: [0xff3a22, 5] },
+    glows: { reticle: [0xff3a22, 2.6] },
     screens: { lock: [168, 76] },
   });
   model.socket('muzzle', [0, AXIS, -0.71]);
@@ -314,7 +315,7 @@ function clip(a: Anim): void {
   }
   if (p < 0) return;
 
-  const open = inOut(seg(p, 0.05, 0.17)) * (1 - inQuad(seg(p, 0.72, 0.79)));
+  const open = outCubic(seg(p, 0.06, 0.16)) * (1 - inQuad(seg(p, 0.72, 0.79)));
   const slam = p >= 0.79 ? thud(seg(p, 0.79, 0.9)) : 0;
   P.breech!.rotation.z -= (open + slam * 0.03) * BREECH_OPEN;
 
@@ -325,7 +326,7 @@ function clip(a: Anim): void {
   const rk = P.rocket!;
   rk.position.y += (1 - rise) * -0.42 + (1 - shove) * 0.065;
   rk.position.x += (1 - rise) * -0.2;
-  rk.position.z += (1 - shove) * 0.33 + (1 - rise) * 0.05;
+  rk.position.z += (1 - shove) * 0.22 + (1 - rise) * 0.05;
   rk.rotation.x += (1 - rise) * 0.7;
   rk.rotation.z += (1 - rise) * 0.8;
 
@@ -342,13 +343,14 @@ function clip(a: Anim): void {
 
   const h = a.left;
   h.fingerRate = 36;
+  // The hand only cracks the latch: the sprung cover swings itself, and riding it would drag the arm across the eye.
   h.to('latch', inOut(seg(p, 0.0, 0.07)));
-  h.to('rocketHold', inOut(seg(p, 0.19, 0.27)));
+  h.to('rocketHold', inOut(seg(p, 0.09, 0.26)));
   h.to('latch', inOut(seg(p, 0.69, 0.74)));
   h.to('leverHold', inOut(seg(p, 0.8, 0.85)));
   h.to('gripL', inOut(seg(p, 0.92, 1)));
   h.shape(HANDS.cup, hold(p, 0.2, 0.27, 0.66, 0.7));
-  h.shape(HANDS.foregrip, hold(p, 0.02, 0.07, 0.14, 0.2));
+  h.shape(HANDS.foregrip, hold(p, 0.02, 0.06, 0.08, 0.12));
   h.shape(HANDS.foregrip, hold(p, 0.7, 0.74, 0.92, 0.97));
 }
 
@@ -356,8 +358,8 @@ export function rocketDef(kit: Kit): ViewDef {
   return {
     id: 'rocket',
     model: buildRocket(kit),
-    pos: [0.205, -0.205, -0.32],
-    rot: [0.012, 0.065, 0],
+    pos: [0.255, -0.215, -0.36],
+    rot: [0.012, 0.075, 0],
     recoil: { back: 0.085, lift: 0.018, pitch: 0.075, yaw: 0.012, roll: 0.03, omega: 22, zeta: 0.56 },
     right: { socket: 'gripR', pose: HANDS.grip },
     left: { socket: 'gripL', pose: HANDS.foregrip },

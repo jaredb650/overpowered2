@@ -14,8 +14,10 @@
 //   shots      Screenshot of each spot into tools/out/shot-<GB_TAG>-<spot>.png, with the HUD hidden.
 //   steps      Forces every dynamic resolution step in the real game loop and reports each step frame against
 //              the frames around it.
+//   calm       Frame intervals with nothing on screen, which shows what the harness itself can reach.
 //   fight      Live fight with the real game loop: holds GB_ENEMIES (14) alive around the player and fires for
-//              GB_SECONDS (14), then reports the frame interval distribution.
+//              GB_SECONDS (14), then reports the frame interval distribution. It then freezes the fight as it
+//              stands and times it, because intervals on a loaded machine say more about the CPU than the GPU.
 // Env: GB_SPOTS (comma list, default all for the map), GB_TAG (shot name prefix, default "gb"), GB_N (frames per
 // round, default 6), GB_ROUNDS (default 6), GB_CROWD (static enemies in view for stages and variants, default 8).
 const PHASES = (process.env.GB_PHASES ?? 'stages,passes,variants').split(',');
@@ -129,13 +131,20 @@ function install({ n, rounds }) {
   const stages = () => {
     const best = {};
     const all = {};
+    const load = {};
     let t = 0;
+    let calls = 0;
+    let tris = 0;
     const mark = name => {
       sync();
       const now = performance.now();
       all[name] ??= [];
       all[name].push(now - t);
       t = now;
+      const info = renderer.info.render;
+      load[name] = [info.calls - calls, info.triangles - tris];
+      calls = info.calls;
+      tris = info.triangles;
     };
     const wraps = [];
     const after = (obj, key, name) => {
@@ -160,19 +169,20 @@ function install({ n, rounds }) {
     for (let i = 0; i < n * 2; i++) {
       sync();
       t = performance.now();
+      calls = tris = 0;
       r.render();
     }
     for (const [o, k, f, own] of wraps) { if (own) o[k] = f; else delete o[k]; }
     for (const k in all) best[k] = Math.min(...all[k].slice(2));
     const med = Object.fromEntries(Object.entries(all).map(([k, v]) => [k, median(v.slice(2))]));
-    return { best: rounded(best), median: rounded(med) };
+    return { best: rounded(best), median: rounded(med), load };
   };
 
   const engine = r.engine;
   const realloc = change => {
     return {
-      on() { this.q = r.quality; r.quality = { ...this.q, ...change }; r.allocateTargets(); },
-      off() { r.quality = this.q; r.allocateTargets(); },
+      on() { this.q = r.quality; r.quality = { ...this.q, ...change }; r.resize(); },
+      off() { r.quality = this.q; r.resize(); },
     };
   };
   const toggle = key => ({ on() { r.passes[key] = false; }, off() { r.passes[key] = true; } });
@@ -227,6 +237,7 @@ function install({ n, rounds }) {
     msaa2: realloc({ msaa: 2 }),
     msaa0: realloc({ msaa: 0 }),
     full: realloc({ maxPixels: 1920 * 1200 }),
+    px1760: realloc({ maxPixels: 1760 * 1100 }),
     px1600: realloc({ maxPixels: 1600 * 1000 }),
     px1440: realloc({ maxPixels: 1440 * 900 }),
     px1344: realloc({ maxPixels: 1344 * 840 }),
@@ -280,6 +291,39 @@ function install({ n, rounds }) {
     return { best: rounded(best), p25: rounded(low), median: rounded(med) };
   };
 
+  /** What actually draws into the dynamic shadow map, by kind, with triangle counts. */
+  const casterKinds = () => {
+    const out = {};
+    r.scene.traverse(o => {
+      if (!o.isMesh || !o.castShadow || o.userData.staticShadow || !o.visible) return;
+      const k = `${o.type}:${o.material?.name || o.name || ''}`.slice(0, 40);
+      const g = o.geometry;
+      const tris = (g.index ? g.index.count : g.attributes.position.count) / 3;
+      out[k] ??= { n: 0, tris: 0 };
+      out[k].n++;
+      out[k].tris += tris * (o.count ?? 1);
+    });
+    return out;
+  };
+
+  /** Frame intervals with nothing happening: what the harness itself can reach. */
+  const calm = async seconds => {
+    thaw();
+    ctx.enemies.killAll?.('bench');
+    await raf(30);
+    const list = [];
+    let last = performance.now();
+    const end = last + seconds * 1000;
+    while (last < end) {
+      await raf(1);
+      const now = performance.now();
+      list.push(now - last);
+      last = now;
+    }
+    const s = list.sort((a, b) => a - b);
+    return { frames: s.length, p50: s[s.length >> 1], p90: s[Math.floor(s.length * 0.9)], cpuMs: window.__op2.stats().cpuMs };
+  };
+
   /** Keeps a crowd alive around the player and fires at it through the real game loop. */
   const fight = async (enemies, seconds) => {
     thaw();
@@ -321,6 +365,13 @@ function install({ n, rounds }) {
     requestAnimationFrame(tick);
     await new Promise(res => setTimeout(res, seconds * 1000));
     live = false;
+    const load = { calls: r.drawCalls(), tris: r.triangles(), cpuMs: window.__op2.stats().cpuMs };
+    freeze();
+    // The fight as it stood, flashes and particles included, timed with the same method as the static views.
+    const frozen = [];
+    for (let i = 0; i < 14; i++) frozen.push(frameCost(3));
+    const stageCost = stages();
+    thaw();
     ctx.input.simulate('fire', false);
     delete r.render;
     const s = intervals.slice(30);
@@ -331,7 +382,8 @@ function install({ n, rounds }) {
       frames: s.length, p50: q(0.5), p90: q(0.9), p99: q(0.99), worst: sorted[sorted.length - 1],
       over20: s.filter(x => x > 20).length, over34: s.filter(x => x > 34).length,
       seconds: s.reduce((a, b) => a + b, 0) / 1000, renderCpuP50: rs[rs.length >> 1],
-      drs: r.dynamicResolution.scale, renderSize: r.renderSize(), stats: window.__op2.stats(),
+      drs: r.dynamicResolution.scale, renderSize: r.renderSize(), load,
+      frozenBest: Math.min(...frozen), frozenMedian: median(frozen), stageCost: stageCost.best, stageLoad: stageCost.load, casters: casterKinds(),
     };
   };
 
@@ -382,7 +434,7 @@ function install({ n, rounds }) {
   };
 
   window.__gb = {
-    goTo, stages, variants, fight, steps, frameCost, sync, spotNames: Object.keys(spots[map]), freeze, thaw, raf, allVariants: Object.keys(allVariants),
+    goTo, stages, variants, calm, fight, steps, frameCost, sync, spotNames: Object.keys(spots[map]), freeze, thaw, raf, allVariants: Object.keys(allVariants),
     passes: () => r.measurePasses(6, 6),
     drawing: () => { const v = renderer.getDrawingBufferSize(new (r.tanHalf.constructor)()); return { canvas: [v.x, v.y], ...r.renderSize(), dpr: devicePixelRatio }; },
   };
@@ -411,11 +463,13 @@ export default async function bench(page, h) {
       row.variants = await page.evaluate(v => window.__gb.variants(v), list);
     }
     if (PHASES.includes('shots')) {
-      await page.evaluate(() => window.__gb.raf(2));
+      // Bench frames run outside animation frames, and a resize clears the canvas, so present one for the picture.
+      await page.evaluate(() => new Promise(res => requestAnimationFrame(() => { window.__op2.ctx.render.render(); requestAnimationFrame(res); })));
       await h.shot(`${TAG}-${spot}`).catch(e => console.error(`shot failed: ${e.message.split('\n')[0]}`));
     }
   }
   if (PHASES.includes('steps')) out.steps = await page.evaluate(() => window.__gb.steps([1, 2, 3, 4, 5, 4, 3, 2, 1, 0], 900));
+  if (PHASES.includes('calm')) out.calm = await page.evaluate(() => window.__gb.calm(4));
   if (PHASES.includes('fight')) out.fight = await page.evaluate(([e, s]) => window.__gb.fight(e, s), [ENEMIES, SECONDS]);
   return out;
 }

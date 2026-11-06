@@ -11,6 +11,7 @@
 import * as THREE from 'three';
 import type RAPIER from '@dimforge/rapier3d-compat';
 import { CG, type PhysicsSystem } from '../core/contracts';
+import { DevFlags } from '../core/devflags';
 import { groups } from '../physics/Physics';
 import type { BoneDef, RigDef } from '../characters/rig';
 import { invInertia, JointMuscle, MuscleState, MuscleTuning, splitSwing, swingReach, swingTwist } from './muscles';
@@ -74,8 +75,10 @@ export const RagTuning = {
   angularDamping: 0.75,
   /** Hit capsules are generous for gunplay. Colliders are slimmer so limbs rest on the mesh surface. */
   colliderScale: 0.88,
-  /** Hard ceiling on any single body's speed change from one impulse. */
-  maxImpulseSpeed: 26,
+  /** Hard ceiling on any single body's speed change from one impulse. A forearm is a few kilos, so this is what keeps it on. */
+  maxImpulseSpeed: 9,
+  /** Fastest a blast can throw a whole chain, in m/s. At this speed a body lands about 5 m out. */
+  maxBlastSpeed: 10,
   maxSeedSpeed: 14,
   maxSeedSpin: 18,
 };
@@ -608,12 +611,12 @@ export class Rag {
     // A frozen chain has handed its bodies back, and pushing one of those panics Rapier for the rest of the run.
     if (this.parts.length === 0) return;
     const part = this.partFor(bone);
-    const cap = RagTuning.maxImpulseSpeed * part.mass;
-    const len = impulse.length();
+    const force = DevFlags.force;
+    const cap = RagTuning.maxImpulseSpeed * part.mass * Math.max(force, 1);
+    const len = impulse.length() * force;
     // Rapier takes a NaN without complaint and the body then hangs frozen in mid-air for good.
     if (!Number.isFinite(len + point.x + point.y + point.z)) return;
-    if (len > cap) _d.copy(impulse).multiplyScalar(cap / len);
-    else _d.copy(impulse);
+    _d.copy(impulse).multiplyScalar(len > cap ? (force * cap) / len : force);
     part.body.applyImpulseAtPoint(_d, point, true);
   }
 
@@ -622,13 +625,23 @@ export class Rag {
     const muscle = this.muscle;
     // One direction for the whole chain: pushed along their own lines, the limbs shoot out sideways from the joints.
     if (muscle) _b.set(this.center.x - center.x, this.center.y - center.y + 0.5, this.center.z - center.z).normalize();
+    const top = RagTuning.maxBlastSpeed * Math.max(DevFlags.force, 1);
+    // A chain shares one ceiling: capped part by part, the light ones would stop short and the body would tear along them.
+    let total = 0;
+    let mass = 0;
     for (const part of this.parts) {
       part.body.translation(part.p);
       _a.set(part.p.x - center.x, part.p.y - center.y + 0.5, part.p.z - center.z);
+      total += strength * Math.max(0, 1 - _a.length() / radius) * (muscle ? muscle.blastShare(part) : 1);
+      mass += part.mass;
+    }
+    const limit = Math.abs(total) > top * mass ? (top * mass) / Math.abs(total) : 1;
+    for (const part of this.parts) {
+      _a.set(part.p.x - center.x, part.p.y - center.y + 0.5, part.p.z - center.z);
       const d = _a.length();
-      const falloff = Math.max(0, 1 - d / radius);
-      if (muscle) _a.copy(_b).multiplyScalar(strength * falloff * muscle.blastShare(part));
-      else _a.multiplyScalar((strength * falloff) / Math.max(d, 0.2));
+      const push = strength * Math.max(0, 1 - d / radius) * limit;
+      if (muscle) _a.copy(_b).multiplyScalar(push * muscle.blastShare(part));
+      else _a.multiplyScalar(push / Math.max(d, 0.2));
       part.body.applyImpulse(_a, true);
     }
   }

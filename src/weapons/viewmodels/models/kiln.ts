@@ -261,7 +261,7 @@ export function kilnDef(kit: Kit): ViewDef {
   return {
     id: 'kiln',
     model: buildKiln(kit),
-    pos: [0.185, -0.17, -0.4],
+    pos: [0.205, -0.19, -0.44],
     rot: [0.02, 0.07, 0],
     recoil: { back: 0.016, lift: 0.002, pitch: 0.009, yaw: 0.004, roll: 0.006, omega: 42, zeta: 0.6 },
     right: { socket: 'gripR', pose: HANDS.grip },

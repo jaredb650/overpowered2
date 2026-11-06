@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { rand, TAU } from '../../core/math';
 import { AIRSTRIKE as A, CALLINS } from '../data';
 import { GroundRing } from './ground';
-import type { Strike, StrikeKit, StrikeOrder } from './shared';
+import { aboveFloor, type Strike, type StrikeKit, type StrikeOrder } from './shared';
 
 const _from = new THREE.Vector3();
 const _vel = new THREE.Vector3();
@@ -78,7 +78,7 @@ export class Airstrike implements Strike {
 
   private impact(p: THREE.Vector3): void {
     const { camera, combat, fx, render, time } = this.kit.ctx;
-    combat.explode(p, {
+    combat.explode(aboveFloor(p), {
       radius: A.finaleRadius, damage: 99999, kind: 'hellfire', source: 'airstrike', team: 'player',
       instakill: true, selfDamage: 0, playerPush: A.finalePlayerPush,
     });

@@ -6,7 +6,7 @@
  */
 import * as THREE from 'three';
 import { DroneBone, HumanoidBone as B, type GoreRegion } from '../characters/rig';
-import type { DamageInfo, DamageType } from '../core/contracts';
+import { DEFAULT_FORCE, type DamageInfo, type DamageType } from '../core/contracts';
 import { DevFlags } from '../core/devflags';
 import type { DamageResult, KillEvent } from '../core/gameplay';
 import { chance, clamp, pick, rand } from '../core/math';
@@ -19,10 +19,9 @@ import type { Plate } from './armor';
 import type { AiWorld } from './aiWorld';
 import type { EnemyManager } from './EnemyManager';
 
-/** Newton-seconds on a ragdoll when the caller leaves `force` at zero. */
-const DEFAULT_FORCE: Record<DamageType, number> = {
-  bullet: 60, pellet: 45, explosive: 260, melee: 160, slash: 90, fire: 10, shock: 40, crush: 300, true: 120,
-};
+/** Metres per second of knockback on the living, per newton-second per point of health, and the most one hit gives. */
+const SHOVE_GAIN = 1.35;
+const SHOVE_MAX = 4;
 
 /** How hard each damage type works a limb pool, on top of the weapon's severMult. */
 const SEVER_FACTOR: Record<DamageType, number> = {
@@ -421,7 +420,7 @@ export class DamageModel {
     }
 
     const pushForce = d.force || DEFAULT_FORCE[d.type];
-    const shove = clamp((pushForce / e.def.hp) * 0.45, 0, 7) * (e.isBoss ? 0.1 : 1);
+    const shove = clamp((pushForce / e.def.hp) * SHOVE_GAIN, 0, SHOVE_MAX) * (e.isBoss ? 0.1 : 1);
     e.push.x += d.dir.x * shove;
     e.push.z += d.dir.z * shove;
     e.pressure = Math.min(1, e.pressure + 0.22 + frac);

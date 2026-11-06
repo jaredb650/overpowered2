@@ -50,7 +50,7 @@ export interface Footfall {
   sound: string;
   pitch: number;
   volume: number;
-  /** Radial shove on loose bodies around each plant, in newton-seconds. Zero for none. */
+  /** Radial shove on loose bodies around each plant. Zero for none. A corpse takes about 0.13 m/s per point. */
   impulse: number;
 }
 
@@ -348,7 +348,7 @@ const juggernaut: EnemyDef = {
   poise: 0.22, limbFrac: 0.2, headPool: Infinity, ranged: false, sidearm: false, crawlPace: 0.45,
   muzzleBone: B.chest, muzzleForward: 0.6, wholeLimbs: true,
   voice: { bark: 'vox_juggernaut_roar', attack: 'vox_juggernaut_roar', pain: 'vox_pain', die: 'vox_death', pitch: 0.85 },
-  mass: 1, contactRadius: 1, footfall: { sound: 'juggernaut_step', pitch: 1, volume: 1, impulse: 12 },
+  mass: 1, contactRadius: 1, footfall: { sound: 'juggernaut_step', pitch: 1, volume: 1, impulse: 3 },
   behaviours: JUGGERNAUT_BEHAVIOURS,
   attacks: JUGGERNAUT_ATTACKS,
   boss: juggernautController,
@@ -369,7 +369,7 @@ const titan: EnemyDef = {
   poise: Infinity, limbFrac: 0.14, headPool: Infinity, ranged: false, sidearm: false, crawlPace: 0.4,
   muzzleBone: B.handR, muzzleForward: 0.8, wholeLimbs: true, severAt: { legL: 'shinL', legR: 'shinR' },
   voice: { bark: 'titan_roar', attack: 'titan_roar', pain: 'titan_roar', die: 'titan_fall', pitch: 1 },
-  mass: 1, contactRadius: 1.3, footfall: { sound: 'titan_step', pitch: 1, volume: 1, impulse: 45 },
+  mass: 1, contactRadius: 1.3, footfall: { sound: 'titan_step', pitch: 1, volume: 1, impulse: 8 },
   behaviours: TITAN_BEHAVIOURS,
   attacks: TITAN_ATTACKS,
   boss: titanController,

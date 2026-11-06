@@ -235,7 +235,7 @@ export function stakegunDef(kit: Kit): ViewDef {
   return {
     id: 'stakegun',
     model: buildStakegun(kit),
-    pos: [0.165, -0.19, -0.4],
+    pos: [0.2, -0.205, -0.43],
     rot: [0.02, 0.07, 0],
     recoil: { back: 0.07, lift: 0.012, pitch: 0.095, yaw: 0.012, roll: 0.03, omega: 32, zeta: 0.5 },
     right: { socket: 'gripR', pose: HANDS.grip },

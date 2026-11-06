@@ -89,7 +89,7 @@ vec4 surface() {
 // Fades out above and below the target, so a blast on the ground does not paint the roof over it.
 float band(float y) {
   float rise = y - uCenter.y;
-  return (1.0 - smoothstep(uBand.x * 0.55, uBand.x, rise)) * smoothstep(-uBand.y, -uBand.y * 0.55, rise);
+  return (1.0 - smoothstep(uBand.x * 0.8, uBand.x, rise)) * smoothstep(-uBand.y, -uBand.y * 0.8, rise);
 }
 
 // Crisp line of half-width metres around m. Depth edges make the derivative jump, so it is capped.
@@ -127,7 +127,8 @@ void main() {
   float scan = fract(uTime * 0.5);
   float sweep = line(r - scan, 0.012) * (1.0 - scan) * 0.5;
 
-  float a = rim + tick * 0.55 + inner * 0.6 + cross * 0.9 + sweep + 0.04;
+  float fill = 0.06 * clamp(24.0 / uRadius, 0.35, 1.0);
+  float a = rim + tick * 0.55 + inner * 0.6 + cross * 0.9 + sweep + fill;
   a *= step(r, 1.0) * s.w * band(s.y);
   gl_FragColor = vec4(uColor * a * uOpacity, 1.0);
 }`;
@@ -150,7 +151,7 @@ void main() {
   float core = 1.0 - smoothstep(uCore * 0.92, uCore, across);
   float chevron = step(0.72, fract(along * uSize.x * 0.14 - uTime * 2.4 + across * 0.9)) * core;
   float ends = 1.0 - smoothstep(0.0, 0.01, min(along, 1.0 - along));
-  float a = edge * 0.55 + core * 0.09 + chevron * 0.6 + ends * 0.8 + 0.03;
+  float a = edge * 0.8 + core * 0.16 + chevron * 0.75 + ends * 0.9 + 0.05;
   a *= inside * s.w * band(s.y);
   gl_FragColor = vec4(uColor * a * uOpacity, 1.0);
 }`;
@@ -243,7 +244,7 @@ export class GroundRing extends GroundPatch {
 
   /** `inner` draws a second ring, e.g. the rocket scatter inside the finale's radius. */
   show(center: THREE.Vector3, radius: number, inner = 0): void {
-    this.place(center, clamp(radius * 0.3, 7, 12), clamp(radius * 0.6, 14, 30));
+    this.place(center, clamp(radius * 0.7, 9, 14), clamp(radius * 0.6, 14, 30));
     this.mesh.scale.x = this.mesh.scale.z = radius;
     this.material.uniforms.uRadius!.value = radius;
     this.material.uniforms.uInner!.value = inner;

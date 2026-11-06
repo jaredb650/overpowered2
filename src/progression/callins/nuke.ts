@@ -196,7 +196,8 @@ export class NukeAftermath {
     this.cloudMat = new THREE.ShaderMaterial({
       vertexShader: CLOUD_VERT, fragmentShader: CLOUD_FRAG,
       uniforms: { uTime: { value: 0 }, uHeat: { value: 1 }, uFade: { value: 1 }, uScale: { value: 1 } },
-      toneMapped: false, fog: false, side: THREE.DoubleSide,
+      // Drawn after the volumetric fog, which would otherwise bleach a dark cloud to tan at this distance.
+      transparent: true, depthWrite: true, toneMapped: false, fog: false, side: THREE.DoubleSide,
     });
     this.cloud = new THREE.Mesh(cloudGeometry(), this.cloudMat);
     this.cloud.frustumCulled = false;

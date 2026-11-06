@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import type { DamageInfo, LoopHandle } from '../../core/contracts';
 import type { EnemyInstance } from '../../core/gameplay';
-import { lerp, smoothstep } from '../../core/math';
+import { clamp, lerp, smoothstep } from '../../core/math';
 import { BLACK_SUN as B } from '../data';
 import { BodyQuery } from './bodies';
 import { GroundRing } from './ground';
@@ -233,8 +233,7 @@ export class BlackSun implements Strike {
     }
 
     this.crushIn -= dt;
-    // Nothing dies until the hole has opened: the show is the walk in, and a crush at the rim would end it in a second.
-    const crushing = this.crushIn <= 0 && this.t >= B.growTime;
+    const crushing = this.crushIn <= 0 && this.t >= B.crushFrom;
     if (crushing) this.crushIn = B.crushTick;
 
     const count = enemies.query(this.center, B.pullRadius, this.near);
@@ -277,7 +276,7 @@ export class BlackSun implements Strike {
     if (open > move + 0.5) e.position.addScaledVector(_swirl, move);
   }
 
-  /** Rises toward the centre and keeps a tangent, so the debris forms a disc instead of a clot. */
+  /** Falls toward the hole, then circles it: the debris forms a disc around the dark instead of a clot inside it. */
   private pullBodies(world: number): void {
     const found = this.bodies.run(this.center, B.pullRadius);
     for (const body of found) {
@@ -287,13 +286,18 @@ export class BlackSun implements Strike {
       _pull.divideScalar(d);
       const k = this.strength * B.bodyAccel * (0.35 + 0.65 * (1 - d / B.pullRadius)) * body.mass() * world;
       _swirl.crossVectors(_up, _pull);
+      let inward = 1;
       if (d < B.captureRadius) {
-        // Bleeds off speed near the hole, or a body falls straight through it and out the far side.
+        // Below the orbit the pull turns to a push. Speed bleeds off too, or bodies sling straight through.
+        inward = clamp((d - B.orbitRadius) / (B.captureRadius - B.orbitRadius), -1, 1);
         const v = body.linvel();
         const keep = Math.exp(-B.captureDrag * world);
         body.setLinvel({ x: v.x * keep, y: v.y * keep, z: v.z * keep }, true);
       }
-      body.applyImpulse({ x: _pull.x * k + _swirl.x * k * 0.45, y: _pull.y * k + 0.2 * k, z: _pull.z * k + _swirl.z * k * 0.45 }, true);
+      const round = k * (d < B.captureRadius ? 0.9 : 0.45);
+      body.applyImpulse({
+        x: _pull.x * k * inward + _swirl.x * round, y: _pull.y * k + 0.2 * k, z: _pull.z * k * inward + _swirl.z * round,
+      }, true);
     }
   }
 

@@ -32,9 +32,6 @@ interface RenderList {
   sort(a: unknown, b: unknown): void;
 }
 
-/** Target pixels of the drawing buffer. Retina screens would otherwise ask an M1 for 5 megapixels. */
-const MAX_PIXELS = 1920 * 1200;
-
 /** Sizes stay even so half-resolution targets line up exactly with the area they cover. */
 const even = (v: number): number => Math.max(2, Math.round(v / 2) * 2);
 
@@ -235,9 +232,11 @@ export class Renderer implements RenderSystem {
   private readonly resize = (): void => {
     const cssW = Math.max(innerWidth, 1);
     const cssH = Math.max(innerHeight, 1);
-    const dpr = Math.min(devicePixelRatio || 1, Math.sqrt(MAX_PIXELS / (cssW * cssH)));
-    this.renderer.setPixelRatio(Math.max(dpr, 0.5));
-    this.renderer.setSize(cssW, cssH, false);
+    // The canvas is the preset's pixel budget, not the screen: Retina would otherwise ask an M1 for 5 megapixels.
+    // The page compositor stretches it to the display in one step, which is cheaper and cleaner than a stretch
+    // in the final pass, and leaves every pixel of that pass lined up with the image it reads.
+    const density = Math.max(Math.min(devicePixelRatio || 1, Math.sqrt(this.quality.maxPixels / (cssW * cssH))), 0.5);
+    this.renderer.setDrawingBufferSize(even(cssW * density), even(cssH * density), 1);
     const aspect = cssW / cssH;
     this.camera.aspect = aspect;
     this.camera.updateProjectionMatrix();
@@ -247,10 +246,7 @@ export class Renderer implements RenderSystem {
   };
 
   private allocateTargets(): void {
-    const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
-    const fit = Math.min(1, Math.sqrt(this.quality.maxPixels / (size.x * size.y)));
-    const w = even(size.x * fit);
-    const h = even(size.y * fit);
+    const { width: w, height: h } = this.renderer.domElement;
     this.fullWidth = w;
     this.fullHeight = h;
     this.engine.opTargetSize.value.set(w, h);
@@ -300,8 +296,7 @@ export class Renderer implements RenderSystem {
     this.fogPass.setArea(w, h);
     this.ssr.setArea(w, h);
     this.combine.setArea(this.gtao.depth);
-    const canvas = this.renderer.domElement;
-    this.composite.setArea(this.hdrTarget, this.bloom.outputTarget, this.quality.msaa === 0, canvas.width / w);
+    this.composite.setArea(this.hdrTarget, this.bloom.outputTarget, this.quality.msaa === 0);
   }
 
   get depthTexture(): THREE.DepthTexture | null {
@@ -332,7 +327,7 @@ export class Renderer implements RenderSystem {
     this.gtao.configure(next.aoSlices, next.aoSteps);
     this.ssr.configure(next.ssrSteps);
     this.fogPass.configure(next.fogSteps, this.pool.fogPosition, this.pool.fogColor);
-    this.allocateTargets();
+    this.resize();
   }
 
   /** Internal render size after quality and dynamic resolution. */

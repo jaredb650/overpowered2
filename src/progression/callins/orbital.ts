@@ -8,7 +8,7 @@ import type { EnemyInstance } from '../../core/gameplay';
 import { rand, TAU } from '../../core/math';
 import { CALLINS, ORBITAL as O } from '../data';
 import { GroundRing } from './ground';
-import type { Strike, StrikeKit, StrikeOrder } from './shared';
+import { aboveFloor, type Strike, type StrikeKit, type StrikeOrder } from './shared';
 import type { Targeting } from './targeting';
 
 const BEAM_VERT = /* glsl */ `
@@ -209,7 +209,7 @@ export class Orbital implements Strike {
     camera.addTrauma(0.7);
     time.hitStop(0.06);
     fx.ring(this.point, _up, CALLINS.orbital.color, 22);
-    combat.explode(this.point, {
+    combat.explode(aboveFloor(this.point), {
       radius: CALLINS.orbital.radius * 1.5, damage: 260, kind: 'plasma', source: 'orbital', team: 'player', selfDamage: 0,
     });
   }

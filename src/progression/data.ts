@@ -300,15 +300,19 @@ export const BLACK_SUN = {
   pullTime: 5.2,
   collapseTime: 0.55,
   pullRadius: 36,
-  /** m/s of drag on the living at the rim, rising to `pullMax` at the centre. */
-  pullMin: 3,
-  pullMax: 30,
+  /** m/s of drag on the living at the rim, rising to `pullMax` at the centre. They walk at 4, so the rim only slows them. */
+  pullMin: 2.5,
+  pullMax: 15,
   /** m/s^2 on corpses and limbs. */
   bodyAccel: 75,
-  /** Where bodies stop gaining speed and start to circle. */
-  captureRadius: 9,
-  captureDrag: 3.5,
-  crushRadius: 4.5,
+  /** Corpses settle into a ring this far out, so they can be seen circling and not lost behind the hole. */
+  orbitRadius: 10,
+  /** Where bodies stop falling and start to circle. */
+  captureRadius: 15,
+  captureDrag: 2.5,
+  crushRadius: 3.5,
+  /** Nothing is crushed before this, so the walk in gets its time on screen. */
+  crushFrom: 2.6,
   crushDamagePerSecond: 660,
   crushTick: 0.15,
   implodeRadius: 28,

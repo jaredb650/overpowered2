@@ -6,17 +6,16 @@
  *   /?sandbox=progression&mode=game           the real game, plus the grants below
  *     &perk=hellfire,berserk                  grants perks or powerups once the run starts
  *     &callin=airstrike,nuke                  grants call-ins
- *     &autostart=1                            (added automatically)
  *
- * window.__op2.results holds the assertion report. window.__prog drives the live game from a script.
+ * window.__op2.results holds the assertion report. In game mode, window.__prog grants from a script and reports what ran.
  */
 import * as THREE from 'three';
 import { Physics } from '../physics/Physics';
 import { makeCtx } from './harness';
 import { noop } from '../core/stubs';
 import { createProgression } from '../progression';
-import { COMBO_WINDOW } from '../progression/data';
-import type { Action, Ctx, GradeName, InputSystem, PlayerModifiers } from '../core/contracts';
+import { COMBO_WINDOW, STYLE_GATE } from '../progression/data';
+import type { Action, Ctx, DamageInfo, GradeName, InputSystem, PlayerModifiers } from '../core/contracts';
 import type {
   CallInId, EnemyInstance, ExplosionSpec, KillEvent, PerkId, PowerupId, ProjectileSpec, WeaponModifiers,
 } from '../core/gameplay';
@@ -98,8 +97,10 @@ async function headless(): Promise<void> {
   });
   const c = ctx as unknown as Record<string, unknown>;
   const health = { value: 100 };
+  const body = { grounded: true };
   c.player = {
     position, eye, velocity, forward, modifiers: playerMods, maxHealth: 100, armor: 0, alive: true,
+    get grounded() { return body.grounded; },
     get health() { return health.value; },
     set health(v: number) { health.value = v; },
     heal(n: number) { health.value = Math.min(100, health.value + n); },
@@ -178,6 +179,7 @@ async function headless(): Promise<void> {
     ctx.time.clearScales();
     velocity.set(0, 0, 0);
     health.value = 100;
+    body.grounded = true;
     explosions.length = 0;
     projectiles.length = 0;
     grades.length = 0;
@@ -261,10 +263,24 @@ async function headless(): Promise<void> {
   check('Three layers while buffed', weaponMods.shotLayers.length === 2, weaponMods.shotLayers);
   check('Berserk tracer wins', weaponMods.tracer === 'berserk', weaponMods.tracer);
   check('Grade: Berserk outranks Blood Thirst', grades[grades.length - 1] === 'berserk', grades.join());
-  step(10.1);
+  prog.grant('slowmo');
+  prog.grant('hellfire');
+  step(0.05);
+  check('Grade: Berserk outranks SLOWMO and Hellfire', grades[grades.length - 1] === 'berserk', grades.join());
+  step(5.1);
+  ctx.time.clearScales();
+  step(5.1);
   check('Grade falls to the remaining effect', grades[grades.length - 1] !== 'berserk', grades.join());
   step(5.1);
   check('Grade clears when all end', grades[grades.length - 1] === 'default', grades.join());
+
+  fresh();
+  prog.grant('hellfire');
+  prog.grant('slowmo');
+  step(0.05);
+  check('Grade: SLOWMO outranks Hellfire', grades[grades.length - 1] === 'slowmo', grades.join());
+  step(5.1);
+  check('Grade back to neutral after both', grades[grades.length - 1] === 'default', grades.join());
   check('All modifiers neutral at the end', weaponMods.damage === 1 && weaponMods.fireRate === 1 && playerMods.speed === 1 && !playerMods.invulnerable);
 
   fresh();
@@ -311,39 +327,67 @@ async function headless(): Promise<void> {
   step(0.6);
   check('Dying in SLOWMO clears the time scale', near(ctx.time.slowmo, 1, 0.001) && prog.effects.length === 0, ctx.time.slowmo);
 
-  // --- Other triggers --------------------------------------------------------------------------
-  fresh();
-  for (let i = 0; i < 3; i++) ctx.events.emit('enemy:severed', { enemy: enemy(), region: 'armL', damage: {} as never });
-  step(0.05);
-  check('Butcher on 3 limbs in 2 s', prog.isActive('butcher') && weaponMods.alwaysSever);
+  // --- Style perks -----------------------------------------------------------------------------
+  const sever = (type: DamageInfo['type'], source = 'shotgun'): void => ctx.events.emit('enemy:severed', {
+    enemy: enemy(), region: 'armL',
+    damage: { amount: 50, type, point: new THREE.Vector3(), dir: new THREE.Vector3(), force: 0, source },
+  });
 
   fresh();
-  for (let i = 0; i < 3; i++) kill({ playerAirborne: true });
+  for (let i = 0; i < 3; i++) sever('pellet');
   step(0.05);
-  check('Skyfall on 3 airborne kills', prog.isActive('skyfall') && playerMods.infiniteDash);
+  check('Three limbs are not Butcher yet', !prog.isActive('butcher'));
+  sever('pellet');
+  step(0.05);
+  check('Butcher on 4 limbs in 3 s', prog.isActive('butcher') && weaponMods.alwaysSever);
+
+  fresh();
+  for (let i = 0; i < 6; i++) sever('explosive', 'rocket');
+  step(0.05);
+  check('Limbs lost to a blast do not count for Butcher', !prog.isActive('butcher'));
+
+  fresh();
+  body.grounded = false;
+  for (let i = 0; i < 4; i++) kill({ playerAirborne: true });
+  step(0.05);
+  check('A kill on the way up a hop is not Skyfall', !prog.isActive('skyfall'));
+  step(0.4);
+  for (let i = 0; i < 4; i++) kill({ playerAirborne: true });
+  step(0.05);
+  check('Skyfall on 4 kills with real hang time', prog.isActive('skyfall') && playerMods.infiniteDash);
   explosions.length = 0;
   ctx.events.emit('player:slam', { impact: 20, position: new THREE.Vector3(), radius: 8 } as never);
   check('Skyfall slam detonates', explosions.length === 1 && explosions[0]!.spec.source === 'skyfall');
+  check('The slam blast stands clear of the floor', explosions[0]!.position.y > 0.3, explosions[0]!.position.y);
   step(8.1);
   check('Skyfall ends and returns dash charges', !playerMods.infiniteDash);
 
   fresh();
   for (let i = 0; i < 5; i++) {
-    kill({ playerSpeed: 30 });
+    kill({ playerSpeed: 20 });
     step(1.7);
   }
-  check('Overdrive on 5 kills above 25 m/s', prog.isActive('overdrive'));
-  velocity.set(45, 0, 0);
+  check('Overdrive on 5 kills above 18 m/s', prog.isActive('overdrive'));
+  velocity.set(27, 0, 0);
   step(0.05);
   check('Overdrive damage follows speed', near(weaponMods.damage, 3, 1e-6), weaponMods.damage);
-  velocity.set(17, 0, 0);
+  velocity.set(12.5, 0, 0);
   step(0.05);
-  check('Overdrive neutral at ground speed', near(weaponMods.damage, 1, 1e-6), weaponMods.damage);
+  check('Overdrive neutral at run speed', near(weaponMods.damage, 1, 1e-6), weaponMods.damage);
 
   fresh();
-  for (let i = 0; i < 3; i++) kill({ explosionId: 7 });
+  prog.grant('berserk');
+  step(0.05);
+  for (let i = 0; i < 5; i++) {
+    kill({ playerSpeed: 24 });
+    step(0.1);
+  }
+  check('Berserk speed does not earn Overdrive', !prog.isActive('overdrive'));
+
+  fresh();
+  for (let i = 0; i < 4; i++) kill({ explosionId: 7 });
   step(0.2);
-  check('Chain Reaction on 3 kills from one explosion', prog.isActive('chainReaction'));
+  check('Chain Reaction on 4 kills from one explosion', prog.isActive('chainReaction'));
   explosions.length = 0;
   kill();
   step(0.2);
@@ -353,8 +397,66 @@ async function headless(): Promise<void> {
   kill({ explosionId: 1 });
   kill({ explosionId: 2 });
   kill({ explosionId: 3 });
+  kill({ explosionId: 4 });
   step(0.05);
   check('Separate explosions do not count', !prog.isActive('chainReaction'));
+
+  fresh();
+  prog.grant('hellfire');
+  step(0.05);
+  for (let i = 0; i < 6; i++) kill({ explosionId: 9 });
+  step(0.05);
+  check('Hellfire blasts do not earn Chain Reaction', !prog.isActive('chainReaction'));
+
+  // --- Style gate ------------------------------------------------------------------------------
+  fresh();
+  for (let i = 0; i < 4; i++) sever('pellet');
+  step(0.05);
+  for (let i = 0; i < 4; i++) kill({ explosionId: 3 });
+  step(0.05);
+  check('A second style perk waits out the gate', prog.isActive('butcher') && !prog.isActive('chainReaction'));
+  step(STYLE_GATE.spacing + 0.1);
+  for (let i = 0; i < 4; i++) kill({ explosionId: 4 });
+  step(0.05);
+  check('The gate opens again', prog.isActive('chainReaction'));
+
+  fresh();
+  for (let i = 0; i < 4; i++) sever('pellet');
+  step(8.1);
+  for (let i = 0; i < 4; i++) sever('pellet');
+  step(0.05);
+  check('A style perk does not restart straight after it ends', !prog.isActive('butcher'));
+  step(STYLE_GATE.rearm + 0.1);
+  for (let i = 0; i < 4; i++) sever('pellet');
+  step(0.05);
+  check('It re-arms in the end', prog.isActive('butcher'));
+
+  // --- Assist kills ----------------------------------------------------------------------------
+  fresh();
+  for (let i = 0; i < 30; i++) kill({ source: 'airstrike' });
+  step(0.05);
+  check('Strike kills climb the combo at half rate', prog.combo === 15, prog.combo);
+  check('Strike kills keep the combo alive', prog.comboTimer > 0.9, prog.comboTimer);
+  check('Strike kills feed no perk window', !prog.isActive('bloodthirst') && !prog.isActive('hellfire'));
+  check('Strike kills pay full score', prog.kills === 30 && prog.score > 3000, prog.score);
+
+  fresh();
+  for (let i = 0; i < 48; i++) kill({ source: 'nuke', playerAirborne: true, playerSpeed: 30, explosionId: 2 });
+  step(0.05);
+  check('A nuke starts no style perk', prog.effects.every(e => e.id === 'berserk' || e.id === 'sentinels'), prog.effects.map(e => e.id).join());
+
+  // --- SLOWMO counts heads, not rounds ---------------------------------------------------------
+  fresh();
+  const same = enemy();
+  for (let i = 0; i < 3; i++) {
+    ctx.events.emit('enemy:hit', {
+      enemy: same,
+      damage: { amount: 25, type: 'bullet', point: new THREE.Vector3(), dir: new THREE.Vector3(), force: 0, source: 'smg' },
+      result: { dealt: 25, killed: false, headshot: true, severed: [], blocked: false },
+    });
+    step(0.1);
+  }
+  check('A burst into one head is one headshot to SLOWMO', !prog.isActive('slowmo'));
 
   // --- Score -----------------------------------------------------------------------------------
   fresh();
@@ -364,9 +466,9 @@ async function headless(): Promise<void> {
   kill({ headshot: true });
   check('Headshot +50', prog.score === 150, prog.score);
   fresh();
-  velocity.set(35, 0, 0);
+  velocity.set(22, 0, 0);
   kill();
-  check('Speed tier 1.5x at 30+ m/s', prog.score === 150, prog.score);
+  check('Speed tier 1.5x at 20+ m/s', prog.score === 150, prog.score);
   fresh();
   for (let i = 0; i < 5; i++) {
     kill();
@@ -530,10 +632,21 @@ async function live(params: URLSearchParams): Promise<void> {
   const { startGame } = await import('../core/Game');
   params.set('autostart', '1');
   await startGame(params);
-  const g = window as unknown as { __op2: { ctx: Ctx } };
-  const ctx = g.__op2.ctx;
-  for (const id of (params.get('perk') ?? '').split(',')) if (id) ctx.progression.grant(id as PerkId | PowerupId);
-  for (const id of (params.get('callin') ?? '').split(',')) if (id) ctx.progression.grantCallIn(id as CallInId);
+  const g = window as unknown as { __op2: { ctx: Ctx }; __prog: unknown };
+  const { progression } = g.__op2.ctx;
+  const grant = (id: string): void => progression.grant(id as PerkId | PowerupId);
+  const callIn = (id: string): void => progression.grantCallIn(id as CallInId);
+  g.__prog = {
+    grant,
+    callIn,
+    pickup: progression.spawnPickup.bind(progression),
+    report: () => ({
+      score: progression.score, combo: progression.combo, effects: progression.effects.map(e => e.id), held: [...progression.callIns],
+      targeting: progression.targeting, pickups: progression.pickups.length,
+    }),
+  };
+  (params.get('perk') ?? '').split(',').filter(Boolean).forEach(grant);
+  (params.get('callin') ?? '').split(',').filter(Boolean).forEach(callIn);
 }
 
 export default async function progression(params: URLSearchParams): Promise<void> {

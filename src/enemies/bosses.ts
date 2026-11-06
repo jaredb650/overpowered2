@@ -46,7 +46,7 @@ export function shockwave(w: AiWorld, at: THREE.Vector3, radius: number, damage:
   ctx.fx.sparks(at, _up, 30, 0xffd0a0);
   ctx.fx.smoke(at, 0x8899aa, radius * 0.5, 0.9);
   ctx.render.decals.add('crack', at, _up, radius * 0.7, rand(0, 6.28));
-  ctx.physics.radialImpulse(at, radius * 1.2, 60);
+  ctx.physics.radialImpulse(at, radius * 1.2, 30);
   ctx.audio.play(sound, { position: at });
   const p = w.player;
   const dist = Math.hypot(p.position.x - at.x, p.position.z - at.z);

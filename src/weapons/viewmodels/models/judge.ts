@@ -296,7 +296,7 @@ export function judgeDef(kit: Kit): ViewDef {
   return {
     id: 'judge',
     model: buildJudge(kit),
-    pos: [0.105, -0.118, -0.40],
+    pos: [0.135, -0.138, -0.42],
     rot: [0.02, 0.06, 0],
     recoil: { back: 0.05, lift: 0.03, pitch: 0.27, yaw: 0.02, roll: 0.05, omega: 19, zeta: 0.56 },
     right: { socket: 'gripR', pose: HANDS.grip },

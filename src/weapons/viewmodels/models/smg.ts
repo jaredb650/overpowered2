@@ -291,7 +291,7 @@ function buildSmg(kit: Kit): Model {
   model.hand('gripL', [-0.001, 0.0095, -0.19], [-0.55, 0.15, -0.8], [0.8, 0.05, -0.55]);
   model.hand('gripAk', [-0.018, -0.052, 0.07], [0, 0.96, -0.27], [0.3, -0.25, -0.92]);
   model.hand('magHold', [-0.018, -0.06, -0.006], [-0.3, 0.1, -0.95], [0.9, -0.1, -0.35], 'mag');
-  model.hand('chargeHold', [-0.03, 0.05, 0.085], [-0.5, -0.2, -0.8], [0.8, -0.3, -0.5], 'charge');
+  model.hand('chargeHold', [-0.016, 0.0, 0.004], [-0.5, -0.2, -0.8], [0.8, -0.3, -0.5], 'charge');
   return model;
 }
 
@@ -358,16 +358,16 @@ function clip(a: Anim, left: boolean): void {
   parts.charge!.position.z += rack * 0.062;
   parts.bolt!.position.z += rack * 0.062;
 
-  // The gun rolls left to present the magwell, kicks up as the mag seats, then rocks with the rack.
+  // The gun rolls over to bring the magwell to the off hand, kicks up as the mag seats, then rocks with the rack.
   const present = hold(p, 0.0, 0.14, 0.86, 1);
-  a.gunR.z += present * 0.42 + seated * 0.03;
-  a.gunR.x += present * 0.2 + seated * 0.05 - rack * 0.05;
-  a.gunR.y -= present * 0.18;
-  a.gunP.x -= present * 0.05;
+  a.gunR.z -= present * 0.46 + seated * 0.03;
+  a.gunR.x += present * 0.12 + seated * 0.05 - rack * 0.05;
+  a.gunR.y += present * 0.04;
+  a.gunP.x -= present * 0.035;
   a.gunP.y += present * 0.03 + seated * 0.012;
-  a.gunP.z += present * 0.04 + rack * 0.012;
+  a.gunP.z += present * 0.05 + rack * 0.012;
 
-  const hand = left ? a.left : a.left;
+  const hand = a.left;
   hand.fingerRate = 40;
   hand.to('magHold', inOut(seg(p, 0.02, 0.12)));
   hand.to('pouchL', inOut(seg(p, 0.22, 0.36)));

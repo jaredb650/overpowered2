@@ -15,6 +15,7 @@ import type {
   ActiveEffect, CallInId, DamageResult, EnemyInstance, KillEvent, PerkId, PickupKind, PowerupId, ProgressionSystem,
 } from '../core/gameplay';
 import { CallInManager } from './callins/manager';
+import { aboveFloor } from './callins/shared';
 import { ChainEffects } from './chains';
 import { Combo, TimeWindow } from './counters';
 import {
@@ -250,7 +251,7 @@ class Progression implements ProgressionSystem {
   private onSlam(impact: number, position: THREE.Vector3): void {
     if (!this.perks.isActive('skyfall')) return;
     const radius = Math.min(SKYFALL.maxRadius, SKYFALL.baseRadius + impact * SKYFALL.radiusPerImpact);
-    this.ctx.combat.explode(position, {
+    this.ctx.combat.explode(aboveFloor(position), {
       radius, damage: SKYFALL.damage, kind: 'rocket', source: 'skyfall', team: 'player', selfDamage: 0,
     });
     this.ctx.fx.ring(position, _up, EFFECTS.skyfall.color, radius * 2);

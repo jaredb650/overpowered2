@@ -246,8 +246,8 @@ function clip(a: Anim): void {
   // The chute lifts clear of the can while it is out.
   P.chute!.rotation.z += hold(p, 0.05, 0.14, 0.56, 0.66) * 0.5;
   const seat = p >= 0.575 ? thud(seg(p, 0.575, 0.7)) : 0;
-  const wind = seg(p, 0.72, 0.92);
-  P.crank!.rotation.x -= inOut(wind) * Math.PI * 4;
+  // One hard throw of the feed lever. Winding it round would drag the wrist through a full circle.
+  P.crank!.rotation.x += hold(p, 0.74, 0.84, 0.86, 0.92) * 0.85;
 
   const present = hold(p, 0, 0.12, 0.88, 1);
   a.gunR.z -= present * 0.28;
@@ -271,7 +271,7 @@ export function buzzsawDef(kit: Kit): ViewDef {
   return {
     id: 'buzzsaw',
     model: buildBuzzsaw(kit),
-    pos: [0.215, -0.24, -0.42],
+    pos: [0.21, -0.222, -0.44],
     rot: [0.04, 0.06, 0],
     recoil: { back: 0.0075, lift: 0.0012, pitch: 0.0055, yaw: 0.0016, roll: 0.0016, omega: 74, zeta: 0.55 },
     right: { socket: 'gripR', pose: HANDS.grip },

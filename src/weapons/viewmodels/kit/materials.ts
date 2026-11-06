@@ -479,8 +479,28 @@ const FRAG_NORMAL = /* glsl */`
 }
 `;
 
+/**
+ * The baked light runs from nothing to a trapped-corridor glare, and the gun fills a quarter of the screen through all
+ * of it. So its ambient is squeezed into a band where forms always read: a soft ceiling, and a floor that keeps the
+ * local hue, so a gun in the dark of the foundry is dim and orange rather than a black cut-out.
+ */
+const LIGHT_BAND = /* glsl */`
+{
+  float vmPeak = max(max(iblIrradiance.r, iblIrradiance.g), iblIrradiance.b);
+  vec3 vmHue = (iblIrradiance + 0.012) / (vmPeak + 0.012);
+  iblIrradiance = iblIrradiance / (1.0 + vmPeak * 0.5) + vmHue * 0.2;
+  float vmPeakR = max(max(radiance.r, radiance.g), radiance.b);
+  radiance = radiance / (1.0 + vmPeakR * 0.5) + vmHue * 0.07;
+}
+`;
+
+function lightBand(shader: THREE.WebGLProgramParametersWithUniforms): void {
+  shader.fragmentShader = shader.fragmentShader.replace('#include <lights_fragment_end>', `${LIGHT_BAND}\n#include <lights_fragment_end>`);
+}
+
 function inject(shader: THREE.WebGLProgramParametersWithUniforms, uniforms: Record<string, THREE.IUniform>): void {
   Object.assign(shader.uniforms, uniforms);
+  lightBand(shader);
   shader.vertexShader = shader.vertexShader
     .replace('#include <common>', `#include <common>\n${VERT_DECL}`)
     .replace('#include <begin_vertex>', `#include <begin_vertex>\n${VERT_BODY}`);
@@ -527,14 +547,20 @@ export class VmMaterials {
     hard.customProgramCacheKey = () => 'vm-hard';
     this.hard = this.patched(hard);
 
-    this.glass = this.patched(new THREE.MeshStandardMaterial({
+    const glass = new THREE.MeshStandardMaterial({
       color: 0x8fb4c8, roughness: 0.06, metalness: 0.85, transparent: true, opacity: 0.22, depthWrite: false, name: 'vm-glass',
-    }));
+    });
+    glass.onBeforeCompile = lightBand;
+    glass.customProgramCacheKey = () => 'vm-glass';
+    this.glass = this.patched(glass);
 
-    this.decal = this.patched(new THREE.MeshStandardMaterial({
+    const decal = new THREE.MeshStandardMaterial({
       map: texture, transparent: true, depthWrite: false, roughness: 0.65, metalness: 0, vertexColors: true,
       polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, name: 'vm-decal',
-    }));
+    });
+    decal.onBeforeCompile = lightBand;
+    decal.customProgramCacheKey = () => 'vm-decal';
+    this.decal = this.patched(decal);
   }
 
   private patched<T extends THREE.MeshStandardMaterial>(m: T): T {

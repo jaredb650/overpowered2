@@ -159,7 +159,7 @@ function buildSword(kit: Kit): Model {
 /** Pose of the sword in view space: position, then Euler X, Y, Z. */
 type Pose = readonly [number, number, number, number, number, number];
 
-const REST: Pose = [0.215, -0.235, -0.43, 0.82, 0.16, 0];
+const REST: Pose = [0.2, -0.205, -0.43, 0.88, 0.14, -0.72];
 const COCK: Pose = [0.3, -0.13, -0.4, 0.5, -0.5, -0.95];
 const PARRY: Pose = [0.08, -0.14, -0.44, 0.72, 0.42, -1.25];
 

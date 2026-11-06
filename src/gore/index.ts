@@ -8,10 +8,11 @@
 import * as THREE from 'three';
 import { ARCHETYPES } from '../characters/archetypes';
 import type { GoreRegion } from '../characters/rig';
-import type {
-  CapsuleHit, CharacterInstance, CorpseHit, Ctx, DamageInfo, DamageType, EmitterHandle, GoreSystem, RagdollOptions,
-  SeveredLimb, SeverResult,
+import {
+  DEFAULT_FORCE, type CapsuleHit, type CharacterInstance, type CorpseHit, type Ctx, type DamageInfo, type EmitterHandle,
+  type GoreSystem, type RagdollOptions, type SeveredLimb, type SeverResult,
 } from '../core/contracts';
+import { DevFlags } from '../core/devflags';
 import { clamp, rand, randomInCone, randomUnit } from '../core/math';
 import { BloodField, BloodTuning } from './blood';
 import { ChunkField, scatter } from './chunks';
@@ -68,16 +69,16 @@ export const GoreTuning = {
   hitStopScale: 0.03,
   /** Fraction of DamageInfo.force that a severed limb takes. The rest went into the wound. */
   limbForceShare: 0.45,
+  /** A gib flies at its force over this, between these speeds in m/s. Lighter than a body, so it goes further than one. */
+  gibForcePerSpeed: 30,
+  gibSpeedMin: 6,
+  gibSpeedMax: 15,
   /** Damage a corpse limb takes before it comes off. */
   corpseLimbHealth: 60,
   /** Damage a loose limb takes before it bursts into chunks. */
   limbBurstHealth: 90,
   /** How long a top half keeps dragging itself along. */
   crawlSeconds: 7,
-};
-
-const DEFAULT_FORCE: Record<DamageType, number> = {
-  bullet: 170, pellet: 120, explosive: 560, melee: 280, slash: 220, fire: 15, shock: 50, crush: 320, true: 150,
 };
 
 const forceOf = (d: DamageInfo): number => (d.force > 0 ? d.force : DEFAULT_FORCE[d.type]);
@@ -771,6 +772,10 @@ export class Gore implements GoreSystem {
   // -------------------------------------------------------------------------------------------
 
   gib(char: CharacterInstance, center: THREE.Vector3, force: number): void {
+    if (!DevFlags.gibbing) {
+      this.ragdoll(char);
+      return;
+    }
     const body = this.owned.get(char);
     if (body?.sinking !== undefined && body.sinking >= 0) return;
     const info = rigInfo(char.rig);
@@ -789,7 +794,8 @@ export class Gore implements GoreSystem {
     const blastDir = new THREE.Vector3().copy(away);
 
     // Speed comes from impulse over a body's mass, with a floor so a gib never looks like a stumble.
-    const launch = clamp(push / 34, 9, 24);
+    const t = GoreTuning;
+    const launch = clamp(push / t.gibForcePerSpeed, t.gibSpeedMin, t.gibSpeedMax) * DevFlags.force;
     const damage: DamageInfo = {
       amount: 999, type: 'explosive', point: chest.clone(), dir: blastDir.clone(), force: 1, source: 'gib',
     };
@@ -1067,7 +1073,8 @@ export class Gore implements GoreSystem {
     }
     for (let i = 0; i < this.limbs.length; i++) {
       const l = this.limbs[i]!;
-      if (l.sinking < 0) this.throwFromBlast(l, l.rag, center, radius, strength);
+      // A limb cut off by this same blast already left with its own speed. Thrown again it crossed the map.
+      if (l.sinking < 0 && l.rag.age > 0) this.throwFromBlast(l, l.rag, center, radius, strength);
     }
     this.enforceBudget();
   }
@@ -1264,7 +1271,7 @@ export class Gore implements GoreSystem {
   }
 
   /** Counts for the debug overlay and budget checks. */
-  stats(): { ragdolls: number; corpses: number; limbs: number; liveLimbs: number; chunkBodies: number; rays: number; halves: number; jointGap: number; collapses: number } {
+  stats(): { ragdolls: number; corpses: number; limbs: number; liveLimbs: number; limbSpeed: number; chunkBodies: number; rays: number; halves: number; jointGap: number; collapses: number } {
     let ragdolls = 0;
     let corpses = 0;
     let jointGap = 0;
@@ -1277,9 +1284,14 @@ export class Gore implements GoreSystem {
       }
     }
     let liveLimbs = 0;
-    for (const l of this.limbs) if (l.rag.active) liveLimbs++;
+    let limbSpeed = 0;
+    for (const l of this.limbs) {
+      if (!l.rag.active) continue;
+      liveLimbs++;
+      limbSpeed = Math.max(limbSpeed, l.rag.speed);
+    }
     return {
-      ragdolls, corpses, limbs: this.limbs.length, liveLimbs, chunkBodies: this.chunks.bodies,
+      ragdolls, corpses, limbs: this.limbs.length, liveLimbs, limbSpeed, chunkBodies: this.chunks.bodies,
       rays: this.blood.raysUsed, halves: this.sliced.count, jointGap, collapses: this.collapsing(),
     };
   }

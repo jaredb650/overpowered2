@@ -104,7 +104,7 @@ vec3 sceneFetch(vec2 uv) {
   }
   vec2 dir = vec2((sw + se) - (nw + ne), (nw + sw) - (ne + se));
   float shrink = max((nw + ne + sw + se) * 0.03125, 0.0078125);
-  dir = clamp(dir / (min(abs(dir.x), abs(dir.y)) + shrink), -8.0, 8.0) * uHdrTexel;
+  dir = clamp(dir / (min(abs(dir.x), abs(dir.y)) + shrink), -4.0, 4.0) * uHdrTexel;
   vec3 inner = 0.5 * (foldedTap(t - dir * 0.16667) + foldedTap(t + dir * 0.16667));
   vec3 outer = inner * 0.5 + 0.25 * (foldedTap(t - dir * 0.5) + foldedTap(t + dir * 0.5));
   float lb = foldedLuma(outer);
@@ -226,9 +226,6 @@ void main() {
   outColor = vec4(display, 1.0);
 }`;
 
-const SHARPEN_PER_UPSCALE = 1.25;
-const MAX_SHARPEN = 0.7;
-
 export class Composite {
   private readonly pass = new FullscreenPass(FRAG, {
     tHdr: { value: null },
@@ -261,7 +258,7 @@ export class Composite {
     uBloomScale: { value: new THREE.Vector2(1, 1) },
     uBloomEdge: { value: new THREE.Vector2(1, 1) },
     uEdgeAa: { value: 0 },
-    uSharpen: { value: 0 },
+    uSharpen: { value: 0.3 },
   });
 
   /** Base scene exposure before the grade. The world's luminance targets in DESIGN.md are met at this value. */
@@ -270,15 +267,13 @@ export class Composite {
   bloomStrength = 0.1;
   grainEnabled = true;
 
-  /** `edgeAa` is for targets without MSAA. `upscale` is canvas width over internal width. */
-  setArea(hdr: THREE.WebGLRenderTarget, bloom: THREE.WebGLRenderTarget, edgeAa: boolean, upscale: number): void {
+  /** `edgeAa` is for targets without MSAA. */
+  setArea(hdr: THREE.WebGLRenderTarget, bloom: THREE.WebGLRenderTarget, edgeAa: boolean): void {
     const u = this.pass.uniforms;
     readArea(hdr, u.uHdrScale!.value as THREE.Vector2, u.uHdrEdge!.value as THREE.Vector2);
     readArea(bloom, u.uBloomScale!.value as THREE.Vector2, u.uBloomEdge!.value as THREE.Vector2);
     (u.uHdrTexel!.value as THREE.Vector2).set(1 / hdr.width, 1 / hdr.height);
     u.uEdgeAa!.value = edgeAa ? 1 : 0;
-    // Grows with the stretch, so a dynamic resolution step down does not read as a focus pull.
-    u.uSharpen!.value = Math.min((upscale - 1) * SHARPEN_PER_UPSCALE, MAX_SHARPEN);
   }
 
   render(renderer: THREE.WebGLRenderer, hdr: THREE.Texture, bloom: THREE.Texture, width: number, height: number, time: number, state: PostState): void {

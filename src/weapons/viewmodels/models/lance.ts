@@ -57,8 +57,8 @@ function body(m: Mesher): void {
 
   // Rail on the shoulder for the optic, and a low collimator with its own charge arc.
   m.use(F.anodized);
-  m.at([0, 0.1315, 0.16], null, () => rail(m, 0.075, -0.075, 0.0212, F.anodized));
-  m.at([0, 0.139, 0.19], null, () => {
+  m.at([0, 0.1315, 0.09], null, () => rail(m, 0.075, -0.075, 0.0212, F.anodized));
+  m.at([0, 0.139, 0.09], null, () => {
     m.use(CERAMIC_DARK);
     m.at([0, 0.006, 0], null, () => m.box(0.032, 0.012, 0.05, 0.0014, 0.003));
     const frameO = poly([[-0.021, 0.0], [0.021, 0.0], [0.024, 0.03, 0.008], [0.012, 0.042, 0.005], [-0.012, 0.042, 0.005], [-0.024, 0.03, 0.008]], 0.002);
@@ -71,7 +71,7 @@ function body(m: Mesher): void {
     }));
   });
   // Charge screen tilted to the eye.
-  m.at([0.0, 0.1215, 0.02], [-Math.PI / 2 + 0.2, 0, 0], () => {
+  m.at([0.0, 0.1255, 0.215], [-Math.PI / 2 + 0.2, 0, 0], () => {
     m.use(CERAMIC_DARK);
     m.prism(rect(-0.022, -0.036, 0.022, 0.036, 0.003), 0.003, { bevel: 0.0009 });
     m.use(F.black);
@@ -316,7 +316,7 @@ export function lanceDef(kit: Kit): ViewDef {
   return {
     id: 'lance',
     model: buildLance(kit),
-    pos: [0.175, -0.2, -0.42],
+    pos: [0.205, -0.225, -0.47],
     rot: [0.012, 0.06, 0],
     recoil: { back: 0.1, lift: 0.016, pitch: 0.1, yaw: 0.012, roll: 0.04, omega: 26, zeta: 0.5 },
     right: { socket: 'gripR', pose: HANDS.grip },

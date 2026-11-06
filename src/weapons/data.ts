@@ -42,7 +42,7 @@ export interface WeaponDef {
   spread: number;
   /** Multiplier on limb damage. */
   severMult: number;
-  /** Push on ragdolls and severed parts. */
+  /** Push on ragdolls and severed parts, in newton-seconds per hit. 0 takes the default for bullets. A body is about 85 kg. */
   force: number;
   headshotMult: number;
   muzzle: MuzzleKind;
@@ -80,7 +80,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
   shotgun: {
     ...BASE, id: 'shotgun', name: 'SHOTGUN', slot: 2, mode: 'semi',
     magSize: 6, reserve: 36, maxReserve: 72, reloadTime: 1.25, drawTime: 0.2,
-    interval: 0.3, damage: 20, pellets: 6, spread: 0.05, severMult: 2.4, force: 34,
+    interval: 0.3, damage: 20, pellets: 6, spread: 0.05, severMult: 2.4, force: 30,
     muzzle: 'shotgun', tracer: 'bullet', casing: 'shotgun',
     sounds: [{ id: 'shotgun_fire', pitchJitter: 0.04 }],
     reloadFoley: [[0.1, 'reload_shell_in'], [0.32, 'reload_shell_in'], [0.54, 'reload_shell_in'], [0.86, 'reload_pump']],
@@ -89,7 +89,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
   rocket: {
     ...BASE, id: 'rocket', name: 'ROCKET', slot: 3, mode: 'semi',
     magSize: 1, reserve: 10, maxReserve: 20, reloadTime: 1.5, drawTime: 0.26,
-    interval: 0.5, damage: 100, force: 120,
+    interval: 0.5, damage: 100, force: 90,
     muzzle: 'rocket', tracer: 'heavy',
     sounds: [{ id: 'rocket_fire', pitchJitter: 0.03 }],
     reloadFoley: [[0.15, 'reload_rocket'], [0.8, 'reload_bolt']], drawSound: 'weapon_draw_heavy',
@@ -107,7 +107,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
   sword: {
     ...BASE, id: 'sword', name: 'SWORD', slot: 5, mode: 'melee',
     magSize: 0, reserve: 0, maxReserve: 0, reloadTime: 0, drawTime: 0.14,
-    interval: 0.25, damage: 75, severMult: 3.5, force: 90,
+    interval: 0.25, damage: 75, severMult: 3.5, force: 60,
     muzzle: 'smg', tracer: 'bullet',
     sounds: [], reloadFoley: [], drawSound: 'weapon_draw_blade',
     recoil: 0, kick: 0, shake: 0.01,
@@ -115,7 +115,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
   judge: {
     ...BASE, id: 'judge', name: 'JUDGE', slot: 6, mode: 'semi',
     magSize: 6, reserve: 30, maxReserve: 60, reloadTime: 1.5, drawTime: 0.22,
-    interval: 0.42, damage: 120, severMult: 1.6, force: 60, headshotMult: 2.5,
+    interval: 0.42, damage: 120, severMult: 1.6, force: 40, headshotMult: 2.5,
     muzzle: 'revolver', tracer: 'heavy', casing: null,
     sounds: [{ id: 'revolver_fire', pitchJitter: 0.02 }],
     reloadFoley: [[0.04, 'revolver_open'], [0.34, 'revolver_load'], [0.74, 'revolver_close'], [0.9, 'revolver_cock']],
@@ -124,7 +124,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
   lance: {
     ...BASE, id: 'lance', name: 'LANCE', slot: 7, mode: 'charge',
     magSize: 4, reserve: 16, maxReserve: 32, reloadTime: 1.7, drawTime: 0.3,
-    interval: 0.35, damage: 420, severMult: 1000, force: 160, headshotMult: 2,
+    interval: 0.35, damage: 420, severMult: 1000, force: 120, headshotMult: 2,
     muzzle: 'railgun', tracer: 'rail',
     sounds: [{ id: 'railgun_fire' }, { id: 'railgun_beam' }],
     reloadFoley: [[0.12, 'reload_cell'], [0.78, 'reload_bolt']], drawSound: 'weapon_draw_heavy',
@@ -133,7 +133,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
   buzzsaw: {
     ...BASE, id: 'buzzsaw', name: 'BUZZSAW', slot: 8, mode: 'spin',
     magSize: 200, reserve: 400, maxReserve: 800, reloadTime: 2.2, drawTime: 0.34,
-    interval: 0.02, damage: 13, spread: 0.008, severMult: 2.2, force: 14,
+    interval: 0.02, damage: 13, spread: 0.008, severMult: 2.2, force: 6,
     muzzle: 'minigun', tracer: 'bullet', casing: 'rifle',
     sounds: [],
     drawSound: 'weapon_draw_heavy',
@@ -151,7 +151,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
   stakegun: {
     ...BASE, id: 'stakegun', name: 'STAKEGUN', slot: 0, mode: 'semi',
     magSize: 5, reserve: 20, maxReserve: 40, reloadTime: 1.6, drawTime: 0.24,
-    interval: 0.55, damage: 140, severMult: 2.6, force: 150,
+    interval: 0.55, damage: 140, severMult: 2.6, force: 110,
     muzzle: 'rifle', tracer: 'heavy',
     sounds: [{ id: 'stake_fire', pitchJitter: 0.03 }],
     reloadFoley: [[0.1, 'stake_reload'], [0.84, 'reload_bolt']],
@@ -166,6 +166,8 @@ export const STARTING_WEAPONS: readonly WeaponId[] = ['smg', 'shotgun', 'rocket'
 
 /** Per-weapon behaviour that does not fit every row of the table. */
 export const TUNING = {
+  /** Newton-seconds on the struck bone per point of a blast's radial strength. Most of the throw is the radial itself. */
+  blastForce: 1.5,
   /** A press stays live this long, so semi-auto weapons fire on the first legal frame. */
   pressBuffer: 0.14,
   /** Delay before an empty magazine starts reloading by itself. */
@@ -295,10 +297,10 @@ export const SWORD = {
   },
   area: {
     seconds: 0.4, damage: 100, reach: 8, halfArc: (80 * Math.PI) / 180, shake: 0.15,
-    hitStop: 0.07, killStop: 0.1, force: 170,
+    hitStop: 0.07, killStop: 0.1, force: 110,
   },
   finisher: {
-    seconds: 0.35, delay: 0.2, damage: 250, radius: 8, ahead: 3, shake: 0.15, hitStop: 0.12, force: 240,
+    seconds: 0.35, delay: 0.2, damage: 250, radius: 8, ahead: 3, shake: 0.15, hitStop: 0.12, force: 150,
   },
   quickMelee: { recover: 0.1 },
 } as const;
@@ -321,7 +323,7 @@ export interface ExplosionDef {
   selfCap: number;
   /** Player launch speed at the centre, when the spec does not set one. */
   playerPush: number;
-  /** Radial impulse on ragdolls and gibs, per metre of radius. */
+  /** Radial strength per metre of radius. Newton-seconds on each body of a chain: about 0.13 m/s on a whole body per point. */
   impulse: number;
   /** Damage dealt to enemies by an enemy-team blast of this kind. */
   friendlyFire: number;
@@ -336,7 +338,7 @@ export interface ExplosionDef {
 
 const BLAST: ExplosionDef = {
   shake: 0.06, shakeRange: 34, sounds: [{ id: 'rocket_explosion', pitchJitter: 0.05 }],
-  edgeDamage: 0.5, selfDamage: 0.5, selfCap: 60, playerPush: 12, impulse: 10, friendlyFire: 0.5, gibZone: 0.45, ignoresCover: false, flash: 0.16, fovPunch: 2.4,
+  edgeDamage: 0.5, selfDamage: 0.5, selfCap: 60, playerPush: 12, impulse: 7, friendlyFire: 0.5, gibZone: 0.45, ignoresCover: false, flash: 0.16, fovPunch: 2.4,
 };
 
 export const EXPLOSIONS: Record<ExplosionKind, ExplosionDef> = {
@@ -346,19 +348,19 @@ export const EXPLOSIONS: Record<ExplosionKind, ExplosionDef> = {
     sounds: [{ id: 'grenade_explode', pitchJitter: 0.05 }],
   },
   hellfire: {
-    ...BLAST, shake: 0.24, shakeRange: 70, gibZone: 0.8, selfDamage: 0.14, selfCap: 20, playerPush: 34, impulse: 14,
+    ...BLAST, shake: 0.24, shakeRange: 70, gibZone: 0.8, selfDamage: 0.14, selfCap: 20, playerPush: 34, impulse: 9,
     sounds: [{ id: 'hellfire_rocket_blast' }], flash: 0.4, fovPunch: 7,
   },
   hellfireBullet: {
-    ...BLAST, shake: 0.012, shakeRange: 16, gibZone: 0.3, selfDamage: 0, selfCap: 0, playerPush: 0, impulse: 7,
+    ...BLAST, shake: 0.012, shakeRange: 16, gibZone: 0.3, selfDamage: 0, selfCap: 0, playerPush: 0, impulse: 5,
     sounds: [{ id: 'hellfirebullet_explode', volume: 0.6, pitchJitter: 0.08 }], flash: 0, fovPunch: 0,
   },
   shell: {
-    ...BLAST, shake: 0.03, shakeRange: 30, selfDamage: 0, selfCap: 0, playerPush: 8, impulse: 6, gibZone: 0.5,
+    ...BLAST, shake: 0.03, shakeRange: 30, selfDamage: 0, selfCap: 0, playerPush: 8, impulse: 5, gibZone: 0.5,
     sounds: [{ id: '30mmshell_explode', pitchJitter: 0.04 }], flash: 0.1, fovPunch: 1.2,
   },
   plasma: {
-    ...BLAST, shake: 0.03, shakeRange: 22, selfDamage: 0.3, selfCap: 30, playerPush: 10, impulse: 7,
+    ...BLAST, shake: 0.03, shakeRange: 22, selfDamage: 0.3, selfCap: 30, playerPush: 10, impulse: 5,
     sounds: [{ id: 'explosion_small', pitch: 1.2 }], flash: 0.08, fovPunch: 1,
   },
   enemy: { ...BLAST, selfDamage: 1, selfCap: 999, playerPush: 16, flash: 0.2 },
@@ -367,12 +369,12 @@ export const EXPLOSIONS: Record<ExplosionKind, ExplosionDef> = {
     sounds: [{ id: 'explosion_barrel', pitchJitter: 0.06 }, { id: 'explosion_debris' }],
   },
   finisher: {
-    ...BLAST, shake: 0.15, shakeRange: 30, selfDamage: 0, selfCap: 0, playerPush: 0, gibZone: 0.55, impulse: 13,
+    ...BLAST, shake: 0.15, shakeRange: 30, selfDamage: 0, selfCap: 0, playerPush: 0, gibZone: 0.55, impulse: 8,
     sounds: [{ id: 'rocket_explosion' }], flash: 0, fovPunch: 3.5,
   },
   nuke: {
     ...BLAST, shake: 0.5, shakeRange: 400, edgeDamage: 1, selfDamage: 0, selfCap: 0, playerPush: 0, gibZone: 1,
-    impulse: 20, sounds: [{ id: 'nuke_blast' }], ignoresCover: true, flash: 1, fovPunch: 12,
+    impulse: 12, sounds: [{ id: 'nuke_blast' }], ignoresCover: true, flash: 1, fovPunch: 12,
   },
 };
 

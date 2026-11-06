@@ -83,7 +83,7 @@ export const MuscleTuning = {
   twistFadeStart: 1.2,
   twistFadeEnd: 2.2,
   /** Rapier's own hinge stop sits this far past the rig limit: at the straight end, and at the folded end. */
-  hardMarginStraight: 0.18,
+  hardMarginStraight: 0.14,
   hardMarginFolded: 0.5,
 
   /** Speed of the pull toward the resting pose, in rad/s of natural frequency. */
@@ -121,7 +121,7 @@ export const MuscleTuning = {
   impactFull: 6.6,
   impactCurve: 1.5,
   /** Per-body radial blast strength that counts as full strength. */
-  blastFull: 95,
+  blastFull: 66,
   /** How far a blast is shared out by mass, not equally between bodies, 0..1. */
   blastEvenness: 0.9,
   /** A hit on a body already lying there moves less than one that catches it on its feet. */
@@ -196,7 +196,7 @@ export const MuscleTuning = {
 /** Scales an impulse in newton-seconds to the 0..1 strength of a rotational impact. */
 export function impactStrength(force: number, mass: number): number {
   const t = MuscleTuning;
-  return clamp(force / mass / t.impactFull) ** t.impactCurve;
+  return clamp((force * DevFlags.force) / mass / t.impactFull) ** t.impactCurve;
 }
 
 /** Scratch result of splitSwing. Swing axis is in the parent's frame. */

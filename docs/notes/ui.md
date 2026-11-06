@@ -1,0 +1,104 @@
+# HUD and menus
+
+`src/ui/**`, sandbox at `/?sandbox=ui`. `createHud(ctx)` from `src/ui/index.ts`. Everything is DOM and CSS except the minimap canvas.
+`1rem` is 16 px at 1920x1080 and follows the smaller of width and height (`css/base.css`), so one layout serves 1280x720 to 4K.
+
+## Public API
+
+`HudSystem` from `core/gameplay.ts`: `banner`, `feed`, `hitMarker`, `floatText`, `marker`, `loading`, `showScreen`.
+
+- `banner(text, sub, color)`: text starting `WAVE` takes the full-width band, anything else a stamp. Stamps stack three deep, and a
+  repeat of the same text is dropped while it is up.
+- `marker(pos, label, color)` returns a remover. Pool of 24, oldest out. A remover held past a reuse does nothing.
+- `Hud` adds `startRun()`, `resume()`, `pause()`, `quitToMenu()`, and reads the game through `window.__op2.game` (`GameHost`).
+
+The HUD reads the game once a frame in `state.ts`, the only file that knows field names. It listens for `game:state`, `run:start`,
+`player:damaged`, `player:died`, `weapon:fired`, `weapon:unlocked`, `wave:start`, `wave:clear`, `callin:ready`, `score:gain`,
+`enemy:hit`, `enemy:killed`, `enemy:severed`, `perk:start`, `callin:used`, `combo:changed`.
+
+## Flow
+
+`core/Game.ts` knows states. `Hud.ts` owns the moves between them.
+
+| From | Trigger | To | Notes |
+|---|---|---|---|
+| page load | | loading | `ui/boot.ts`, before anything heavy is fetched |
+| loading | boot done | splash | The click is the audio gesture |
+| splash | click, Enter, Space | menu | |
+| menu | Play | playing | `startRun`: run starts at once, the lock lands a moment later. Edges from the press are dropped, so it cannot jump or fire on frame one |
+| playing | Esc, or the lock going for any reason | paused | `updateLock` watches `input.locked`, so Alt-Tab and anything else counts, not only `pressed('pause')` |
+| paused | Resume, Enter | playing | Stays paused until the lock is really back. Retries for 1.7 s to get past Chrome's refusal right after Esc |
+| paused | Esc | playing, or a hint | Esc is not a gesture to Chrome. With no live gesture the hint says to click; with a recent click it resumes |
+| playing | death | gameover | 1.5 s beat at 0.3x, `run:end`, then the report. Input is ignored for 0.8 s so a jump or a burst at the moment of death cannot hit Run again |
+| gameover | Run again, Space | playing | Requests the lock, unlike the first game |
+| gameover, paused | Menu, Esc, Quit | menu | `Game.clearRun` empties the map and resets post, so no frozen enemy or red vignette stands in the flythrough |
+
+If the first lock never lands, the run pauses with a hint. If a browser has never granted one, the second Resume plays on without it.
+A lock that lands after the player paused is released at once, so a pause screen can never swallow the cursor.
+
+## Loading
+
+`Game.ts` imports `ui/boot.ts` first and keeps Physics and every system behind dynamic imports, so the screen's graph is a few small
+files. `dom.ts` must stay free of anything that reaches three.js for that reason. First label at about 90 ms on a warm server.
+
+`createCtx` and `Game.init` report through `BOOT` in `Game.ts`, sized from measured time so the bar moves steadily. The light bake
+is two thirds of a boot and reports nothing, so it is a `Crawl`: a linear compositor transition toward the next checkpoint over
+`LIGHT_SECONDS`, and the bar cannot pass it. Under load the bar reaches the limit and waits. The stripes never stop, because they
+are a compositor animation and survive a blocked main thread. `performance.mark('boot:<label>')` gives the timeline in DevTools.
+
+## Tuning knobs
+
+| Want | Where |
+|---|---|
+| Boot bar pacing | `BOOT`, `LIGHT_SECONDS` in `core/Game.ts`. `CREEP` in `screens/loading.ts` |
+| Flythrough | `CUTS` in `screens/flythrough.ts`, keyed by map id. `SHOT_SECONDS`, `FLY_FOV`. A map with no entry gets one dolly per zone |
+| Menu render rate | One line in `Game.frame`: half rate on the menu, quarter behind pause and game over |
+| Death beat, Run again guard | `DEATH_BEAT`, `GAME_OVER_HOLD` in `Hud.ts` |
+| Lock retries | `LOCK_RETRY_FOR`, `LOCK_RETRY_EVERY` in `Hud.ts` |
+| Score roll | `ROLL_RATE` in `hud/tally.ts` |
+| Tach | `MAX_SPEED` in `hud/tach.ts`. Its marks read `MOVE.runSpeed`, `OVERDRIVE_MIN_SPEED` and the top of `SCORE.speedTiers` |
+| Combo heat | `HEAT` in `hud/combo.ts` |
+| Perk motion | One keyframe per id in `css/perks.css`. Slowmo is still on purpose |
+| Enemy reveal | `REVEAL_AT` in `hud/stragglers.ts`, 3 |
+| Minimap | `NEAR_RANGE`, `FAR_RANGE`, `FAR_SPEED`, `REDRAW` in `hud/minimap.ts` |
+| Gore levels | `GORE_TABLE` in `settings.ts` |
+| Guide copy | `data.ts`. Numbers come from `MOVE`, `WEAPONS`, `TUNING`, `EFFECTS`, `WINDOWS`, `STACK`, `SCORE`, so a retune updates the guide. Enemy first waves are copied from `ROSTER`, which is not exported |
+
+## Settings
+
+Stored in `op2.settings.v1`, sanitized on load. They apply and save the moment they change. Bindings live in `op2.bindings.v1`, owned by input.
+
+| Setting | Goes to |
+|---|---|
+| Sensitivity | `player.sensitivity`, 0.002 x the slider |
+| Field of view | `camera.setBaseFov`. Speed and zoom compose on top |
+| Invert mouse, hold jump to hop | `player.invertY`, `player.holdToHop` |
+| Volumes | `audio.setVolumes` |
+| Quality | `render.setQuality`, 0 to 3. Recompiles shaders when the light count changes, so it hitches once |
+| Gore | `GoreTuning`, `BloodTuning`, `ChunkTuning`, written live. See the limitation below |
+| Keys | `input.rebind`, `captureNext`. Rows show every key on an action |
+
+## Known limitations
+
+- **Gore level changes what stays, not the spray.** It sets corpse and limb caps, stump time, blood reaching the floor and chunk linger.
+  The blood a hit sprays is a fixed recipe in fx, with no scale to set. Excessive cannot raise the caps, which are the design's hard limits,
+  so it buys time and makes corpses come apart sooner. A blood scale in fx would finish this.
+- **Weapon keys 1 to 0 and the wheel's bindings are not all on the Keys page.** Next and previous are. Slots are listed as fixed in the guide.
+- **Esc in real Chrome is unproven.** Headless Chrome does grant pointer lock, and everything else in the table ran on real clicks and keys, but
+  headless delivers the Esc keydown to the page, where desktop Chrome swallows it and ends the lock itself. That path was exercised by
+  `document.exitPointerLock()`, which goes through the same `pointerlockchange`. Chrome's cooldown of about 1.25 s after a real Esc does not
+  happen headless, so the retry loop has only run with immediate success.
+- **Hit markers fire on the frame of the call,** and the 0.15 to 0.36 s life is too short for a screenshot in the real game. Their look was checked in the
+  sandbox with the decay stopped, and the calls were counted in the real game.
+- **Contract select is not built.** DESIGN section 15 adds it to the menu, with per-contract high scores. There is no contract data yet.
+- **The flythrough's cuts are hand-framed for The Crucible** and will need another look if the map moves. The Kill House uses the zone fallback.
+- **Fog is temporal,** so a hard cut may smear for a frame or two. Not seen in stills, not checked in motion.
+
+## Testing
+
+```
+/?sandbox=ui&state=full|lowhealth|perks|boss|targeting|danger|scope|stragglers|long|clean
+/?sandbox=ui&screen=loading|splash|menu|guide|settings|pause|gameover
+```
+
+Screen sizes tried: 1920x1080 and 1280x720.

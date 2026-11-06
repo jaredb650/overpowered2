@@ -1,6 +1,6 @@
 /**
  * HUD and menu sandbox. /?sandbox=ui&state=<state> or &screen=<screen>.
- * States: full, lowhealth, perks, boss, targeting, scope, long, clean. Screens: loading, splash, menu, guide, settings,
+ * States: full, lowhealth, perks, boss, targeting, danger, scope, stragglers, long, clean. Screens: loading, splash, menu, guide, settings,
  * pause, gameover. A fake game drives the real HUD through the same ctx fields it reads in a run, over a painted
  * cold-and-hot scene so legibility gets tested against both a dark floor and a bright explosion.
  */
@@ -250,6 +250,15 @@ export default async function ui(params: URLSearchParams): Promise<void> {
       break;
     case 'targeting':
       p.targeting = (params.get('callin') as CallInId) ?? 'airstrike';
+      break;
+    case 'danger':
+      p.targeting = 'airstrike';
+      (p as unknown as { dangerClose: boolean }).dangerClose = true;
+      break;
+    case 'stragglers':
+      fake.enemies.alive = [enemy('husk', 30, -44), enemy('trooper', -60, 10)];
+      fake.enemies.remaining = 2;
+      p.combo = 0;
       break;
     case 'scope':
       w.current = 'autocannon';

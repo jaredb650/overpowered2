@@ -16,6 +16,8 @@ import './gameplay';
 type Factory = (...args: never[]) => unknown;
 type Progress = (fraction: number, label: string, crawl?: Crawl) => void;
 
+const modules = import.meta.glob<Record<string, Factory>>(['../*/index.ts', '../*/*/index.ts']);
+
 /**
  * Lets the loading screen paint between boot steps that would otherwise run back to back. A hidden tab never fires
  * animation frames, so a timer backs it up.
@@ -27,7 +29,6 @@ const breathe = () => new Promise<void>(done => {
     setTimeout(done, 0);
   });
 });
-const modules = import.meta.glob<Record<string, Factory>>(['../*/index.ts', '../*/*/index.ts']);
 
 async function factory(dir: string, name: string): Promise<Factory | null> {
   const load = modules[`../${dir}/index.ts`];
