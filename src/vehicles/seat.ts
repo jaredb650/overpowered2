@@ -34,7 +34,7 @@ export interface SeatPlan {
   lock: number;
   /** Share of the aircraft's bank that reaches the horizon. */
   roll: number;
-  /** Eye relative to the gun's pivot, along the aim: right, up, back. */
+  /** Eye relative to the gun's pivot, along the aim: right, up, back. Negative back puts it ahead of the pivot. */
   eye: Point;
   /** How far the sight reads. */
   reach: number;
@@ -210,6 +210,7 @@ export class GunnerSeat {
     this.placeEye(pivot);
     this.horizon(frame);
     this.sight();
+    this.ctx.camera.syncSeat();
   }
 
   /** Takes out what the aircraft's own motion did to the line of sight since last frame. */

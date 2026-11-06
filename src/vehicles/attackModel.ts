@@ -99,7 +99,8 @@ function mainRotor(b: ModelBuilder): void {
 
 function tailRotor(b: ModelBuilder): void {
   b.cyl(0.11, 0.11, 0.2, 8, DARK, { rot: [0, 0, Math.PI / 2] });
-  for (let i = 0; i < 4; i++) b.box(0.03, 2.5, 0.17, STEEL, { rot: [(i * Math.PI) / 4, 0, 0] });
+  // Each box is a pair of blades through the hub.
+  for (let i = 0; i < 2; i++) b.box(0.03, 2.5, 0.17, STEEL, { rot: [(i * Math.PI) / 2, 0, 0] });
 }
 
 const ROTORS: readonly RotorSpec[] = [

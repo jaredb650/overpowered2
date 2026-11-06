@@ -174,7 +174,7 @@ export class Combat implements CombatSystem {
       this.explode(e.position, blast);
     });
     ctx.events.on('enemy:killed', e => {
-      if (e.distance >= LENS_BLOOD_RANGE || e.enemy.id === 'skitter' || e.enemy.id === 'drone') return;
+      if (e.distance >= LENS_BLOOD_RANGE || e.enemy.id === 'skitter' || e.enemy.id === 'drone' || ctx.player.parked) return;
       const close = 1 - e.distance / LENS_BLOOD_RANGE;
       ctx.fx.lensBlood(close * close);
     });
@@ -838,7 +838,8 @@ export class Combat implements CombatSystem {
     this.projectiles.caughtInBlast(center, radius);
     if (!spec.worldObject) c.world.objects?.damageExplosivesInRadius(center, radius, spec.damage, spec.source);
 
-    const eyeDist = c.player.eye.distanceTo(center);
+    // A parked body feels nothing, and the player's eyes are up in a seat, not beside it.
+    const eyeDist = c.player.parked ? Infinity : c.player.eye.distanceTo(center);
     const reach = clamp(1 - Math.max(0, eyeDist - radius) / def.shakeRange);
     const closeness = reach * reach;
     this.feel.shake((spec.shake ?? def.shake) * closeness);

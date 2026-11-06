@@ -44,7 +44,7 @@ export const GRADES: Record<GradeName, Grade> = {
   // A gunner's sensor. The world drains to cold grey and only fire keeps its colour, so what is hot is what the player did.
   thermal: {
     ...base,
-    exposure: 1.5, contrast: 1.3, saturation: 0.08,
+    exposure: 1.32, contrast: 1.3, saturation: 0.08,
     lift: [0.012, 0.014, 0.014], gain: [0.98, 1.02, 1],
     shadowTint: [0.5, 0.5, 0.5], highlightTint: [0.5, 0.5, 0.5],
     isolate: 0.85, keepHue: [1, 0.55, 0.12],

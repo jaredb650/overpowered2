@@ -90,20 +90,28 @@ export class ModelBuilder {
 export class ModelMaterials {
   readonly solid: THREE.MeshStandardMaterial;
   readonly glow: THREE.MeshBasicMaterial;
+  /**
+   * For hardware the player looks at from arm's length up in the air. Aircraft fly over the top of the light volume, where
+   * nothing but the moon reaches them, and a gun that close has to read as a gun and not as a hole in the picture.
+   */
+  readonly nearby: THREE.MeshStandardMaterial;
 
   constructor(ctx: Ctx) {
     this.solid = ctx.render.materials.patch(
       new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, metalness: 0.75, roughness: 0.42 }),
     );
     this.glow = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false, fog: false });
+    this.nearby = ctx.render.materials.patch(
+      new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, metalness: 0.35, roughness: 0.5, emissive: '#39434d' }),
+    );
   }
 
   /** Builds a Group of the merged meshes. */
-  group(b: ModelBuilder): THREE.Group {
+  group(b: ModelBuilder, material: THREE.Material = this.solid): THREE.Group {
     const g = new THREE.Group();
     const solid = b.solidGeometry();
     const glow = b.glowGeometry();
-    if (solid) g.add(new THREE.Mesh(solid, this.solid));
+    if (solid) g.add(new THREE.Mesh(solid, material));
     if (glow) g.add(new THREE.Mesh(glow, this.glow));
     return g;
   }

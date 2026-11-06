@@ -14,8 +14,6 @@
 // full     a whole flight of each with a held trigger: rounds, kills by source, what the combo did
 const mode = process.env.SEAT_MODE ?? 'chopper';
 
-const op2 = () => window.__op2;
-
 /** Runs in the page. */
 function prelude() {
   const { ctx } = window.__op2;
@@ -150,9 +148,213 @@ async function door(page, h) {
   return { before, after: await state(page), log: await page.evaluate(() => window.__seat) };
 }
 
-const MODES = { model, chopper, door };
+/** Holds the sight on the nearest enemy to it, as a steady hand would. Written before each frame. */
+function aimBot() {
+  const { ctx } = window.__op2;
+  const tick = () => {
+    window.__aiming = requestAnimationFrame(tick);
+    const seat = ctx.progression.callInsManager.seats.seat;
+    if (seat?.stage !== 'seated') return;
+    let best = null;
+    let d = Infinity;
+    for (const e of ctx.enemies.alive) {
+      const v = e.center.distanceToSquared(seat.point);
+      if (v < d) { d = v; best = e; }
+    }
+    if (!best) return;
+    const eye = seat.view.position;
+    const dx = best.center.x - eye.x, dy = best.center.y - eye.y, dz = best.center.z - eye.z;
+    seat.yaw = Math.atan2(-dx, -dz);
+    seat.pitch = Math.atan2(dy, Math.hypot(dx, dz));
+  };
+  tick();
+}
+
+/** Boards, and returns once seated. */
+async function seatUp(page, h, id, key) {
+  await page.evaluate(g => window.__op2.ctx.progression.grantCallIn(g), id);
+  await h.sleep(250);
+  await h.press(key);
+  await page.waitForFunction(() => window.__seatState().stage === 'seated', null, { timeout: 40000 });
+}
+
+/** Mortal, with husks on the body, firing everything until the guns run dry, and then walking again. */
+async function safe(page, h) {
+  await page.evaluate(prelude);
+  await page.evaluate(() => {
+    const { ctx } = window.__op2;
+    window.__lab?.settings && (window.__lab.settings.god = false);
+    ctx.player.modifiers.invulnerable = false;
+    ctx.player.health = 100;
+    window.__seat.pos0 = ctx.player.position.toArray();
+  });
+  const id = process.env.SEAT_ID ?? 'doorGunner';
+  const key = id === 'doorGunner' ? 'KeyJ' : 'KeyH';
+  const p = await page.evaluate(() => window.__op2.ctx.player.position.toArray());
+  await spawn(page, 6, 'husk', 3, p[0], p[2]);
+  await seatUp(page, h, id, key);
+  await page.evaluate(aimBot);
+  await page.mouse.down();
+  if (id === 'attackChopper') await page.mouse.down({ button: 'right' });
+  const seen = [];
+  for (let i = 0; i < 60; i++) {
+    await h.sleep(1000);
+    const s = await state(page);
+    seen.push([s.stage, s.weapons?.join('/'), Math.round(s.health)].join(' '));
+    if (!s.parked) break;
+    // Spend the belt fast, since this is about what happens when it runs out.
+    await page.evaluate(() => { const w = window.__op2.ctx.progression.callInsManager.seats.seat?.weapons; if (w) for (const x of w) x.ammo = Math.min(x.ammo, 30); });
+  }
+  await page.mouse.up();
+  await page.mouse.up({ button: 'right' });
+  const back = await state(page);
+  await h.sleep(600);
+  await h.shot('back');
+  // Control really is back: the keys move the body and the gun fires.
+  const moved = await page.evaluate(async () => {
+    const { ctx } = window.__op2;
+    const before = ctx.player.position.clone();
+    const ammo = ctx.weapons.ammo().mag;
+    ctx.input.simulate('forward', true);
+    ctx.input.simulate('fire', true);
+    await new Promise(r => setTimeout(r, 1500));
+    ctx.input.simulate('forward', false);
+    ctx.input.simulate('fire', false);
+    return { walked: Number(ctx.player.position.distanceTo(before).toFixed(1)), fired: ammo - ctx.weapons.ammo().mag };
+  });
+  return { seen, back, moved, log: await page.evaluate(() => window.__seat) };
+}
+
+/** Everything that must hand the player back, each from a live seat. */
+async function exits(page, h) {
+  await page.evaluate(prelude);
+  const out = {};
+  const clear = () => page.evaluate(() => {
+    const { ctx } = window.__op2;
+    const m = ctx.progression.callInsManager;
+    for (const id of ['doorGunner', 'attackChopper']) m.cooldowns[id] = 0;
+  });
+  const after = () => page.evaluate(() => {
+    const { ctx } = window.__op2;
+    const s = window.__seatState();
+    return {
+      parked: s.parked, occupied: s.occupied, state: s.state, seatedClass: document.querySelector('.hud').classList.contains('seated'),
+      panel: !!document.querySelector('.gn'), camAtBody: ctx.render.camera.position.distanceTo(ctx.player.eye) < 1.5, fov: Math.round(ctx.camera.fov),
+      holstered: ctx.weapons.holstered, airframes: [ctx.progression.callInsManager.harrow.frame.root.visible, ctx.progression.callInsManager.packmule.frame.root.visible],
+    };
+  });
+
+  // Bail key.
+  await seatUp(page, h, 'attackChopper', 'KeyH');
+  await h.press('KeyE');
+  await h.sleep(900);
+  out.bail = await after();
+
+  // Pause in the seat, hold, resume, then still in it.
+  await clear();
+  await seatUp(page, h, 'doorGunner', 'KeyJ');
+  const left0 = (await state(page)).left;
+  await page.evaluate(() => window.__op2.ctx.hud.pause());
+  await h.sleep(1500);
+  const paused = await page.evaluate(() => ({ state: window.__op2.game.state, left: window.__seatState().left, hudShown: document.querySelector('.hud').style.display !== 'none' }));
+  await page.evaluate(() => window.__op2.game.setState('playing'));
+  await h.sleep(700);
+  const resumed = await state(page);
+  out.pause = { left0, paused, resumed: { stage: resumed.stage, left: resumed.left, state: resumed.state } };
+
+  // Death, from a seat. Nothing can reach a parked body, so this takes it off the hook first.
+  await page.evaluate(() => {
+    const { ctx } = window.__op2;
+    ctx.player.modifiers.invulnerable = false;
+    ctx.player.unpark(0);
+    ctx.player.takeDamage({ amount: 99999, type: 'true', source: 'test' });
+  });
+  await h.sleep(300);
+  out.death = await after();
+  out.deathGrade = await page.evaluate(() => window.__op2.ctx.progression.perks.grade);
+  await h.sleep(3200);
+
+  // A new run with a live seat.
+  await page.evaluate(() => { window.__op2.game.newRun(); });
+  await h.sleep(600);
+  await seatUp(page, h, 'attackChopper', 'KeyH');
+  await page.evaluate(() => window.__op2.game.newRun());
+  await h.sleep(500);
+  out.newRun = await after();
+
+  // Quit to the menu with a live seat.
+  await seatUp(page, h, 'doorGunner', 'KeyJ');
+  await page.evaluate(() => window.__op2.ctx.hud.quitToMenu());
+  await h.sleep(500);
+  out.quit = await after();
+  out.grade = await page.evaluate(() => window.__op2.ctx.progression.perks.grade);
+  return out;
+}
+
+/** Samples the flight: how far off the fight it stays, what it clears, and how hard it leans. */
+function flightLog() {
+  const { ctx } = window.__op2;
+  const m = ctx.progression.callInsManager;
+  const probe = m.kit.probe;
+  const top = ctx.world.bounds.max.y - 1;
+  const log = { n: 0, minClear: Infinity, maxBank: 0, gapSum: 0, gapMin: Infinity, gapMax: 0, speedMax: 0, last: null, overWall: 0 };
+  window.__flight = log;
+  const tick = () => {
+    window.__flightTick = requestAnimationFrame(tick);
+    const seat = m.seats.seat;
+    if (seat?.stage !== 'seated') return;
+    const strike = m.strikes.find(s => s.seat === seat);
+    const root = strike.frame.root;
+    const p = root.position;
+    const h = probe.heightAt(p.x, top, p.z, top + 20);
+    log.minClear = Math.min(log.minClear, p.y - (Number.isNaN(h) ? 0 : h));
+    const up = root.up.clone().applyQuaternion(root.quaternion);
+    log.maxBank = Math.max(log.maxBank, Math.acos(Math.min(1, up.y)));
+    const gap = Math.hypot(p.x - strike.fight.x, p.z - strike.fight.z);
+    log.n++;
+    log.gapSum += gap;
+    log.gapMin = Math.min(log.gapMin, gap);
+    log.gapMax = Math.max(log.gapMax, gap);
+    if (log.last) log.speedMax = Math.max(log.speedMax, p.distanceTo(log.last) / Math.max(ctx.time.realDt, 1e-3));
+    log.last = p.clone();
+  };
+  tick();
+}
+
+/** A whole flight of one aircraft with the trigger held and the sight on the enemies. */
+async function full(page, h) {
+  await page.evaluate(prelude);
+  await page.evaluate(flightLog);
+  const id = process.env.SEAT_ID ?? 'doorGunner';
+  const at = await page.evaluate(() => window.__op2.ctx.player.position.toArray());
+  await spawn(page, 12, process.env.SEAT_ENEMY ?? 'trooper', 16, at[0], at[2] - 22);
+  await seatUp(page, h, id, id === 'doorGunner' ? 'KeyJ' : 'KeyH');
+  await page.evaluate(aimBot);
+  await page.mouse.down();
+  if (id === 'attackChopper') await page.mouse.down({ button: 'right' });
+  const seen = [];
+  const t0 = Date.now();
+  for (let i = 0; i < 40; i++) {
+    await h.sleep(2500);
+    const s = await state(page);
+    seen.push(`${Math.round((Date.now() - t0) / 1000)}s ${s.stage} ${s.weapons?.join('/')} left ${Math.round(s.left ?? 0)} combo ${s.combo} alive ${s.enemies}`);
+    if (i % 4 === 1) await h.shot(`t${i}`);
+    if (s.enemies < 6) await spawn(page, 8, process.env.SEAT_ENEMY ?? 'trooper', 16, at[0], at[2] - 22);
+    if (!s.parked) break;
+  }
+  await page.mouse.up();
+  await page.mouse.up({ button: 'right' });
+  const flight = await page.evaluate(() => {
+    const f = window.__flight;
+    return { samples: f.n, clearMin: Math.round(f.minClear), bankMaxDeg: Math.round(f.maxBank * 57.3), gapAvg: Math.round(f.gapSum / f.n), gapMin: Math.round(f.gapMin), gapMax: Math.round(f.gapMax), speedMax: Math.round(f.speedMax) };
+  });
+  return { seen, flight, end: await state(page), log: await page.evaluate(() => window.__seat) };
+}
+
+const MODES = { model, chopper, door, safe, exits, full };
 
 export default async function run(page, h) {
-  void op2;
+  // __op2 appears early in boot, and the run's first reset would wipe anything set before it.
+  await page.waitForFunction(() => window.__op2?.game?.state === 'playing' && window.__op2.ctx.time.frame > 40, null, { timeout: 90000 });
   return MODES[mode](page, h);
 }

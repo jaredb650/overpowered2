@@ -36,7 +36,7 @@
 .gn.warning .gn-tfill { background: var(--blood); }
 .gn.warning .gn-sec { color: var(--blood); }
 
-.gn-arms { position: absolute; left: 5rem; bottom: 5rem; width: 24rem; display: flex; flex-direction: column; gap: 0.8rem; }
+.gn-arms { position: absolute; left: 5rem; bottom: 13rem; width: 24rem; display: flex; flex-direction: column; gap: 0.8rem; }
 .gn-weapon { display: grid; grid-template-columns: 1fr auto; align-items: baseline; row-gap: 0.25rem; }
 .gn-wname { font-size: 1.1rem; }
 .gn-wammo { font: 2.8rem/1 var(--display); }

@@ -40,11 +40,11 @@ export class Gun {
     spec.build(fixed);
     const moving = new ModelBuilder();
     spec.moving(moving);
-    this.moving = materials.group(moving);
+    this.moving = materials.group(moving, materials.nearby);
     this.root.name = spec.name;
     this.root.rotation.order = 'YXZ';
     this.root.scale.setScalar(spec.scale ?? 1);
-    this.root.add(materials.group(fixed), this.moving);
+    this.root.add(materials.group(fixed, materials.nearby), this.moving);
     this.root.visible = false;
     scene.add(this.root);
   }
@@ -92,11 +92,11 @@ export class Gun {
   }
 }
 
-const IRON = '#23282d';
-const GUNMETAL = '#31383f';
-const WORN = '#49525a';
-const GRIP = '#15181c';
-const BRASS = '#8f7440';
+const IRON = '#3a4148';
+const GUNMETAL = '#4d565f';
+const WORN = '#6a747d';
+const GRIP = '#22262b';
+const BRASS = '#a4874c';
 
 const ALONG_Z: readonly [number, number, number] = [Math.PI / 2, 0, 0];
 
@@ -143,7 +143,6 @@ export const M134: GunSpec = {
   muzzle: [0, 0, -1],
   follow: 26,
   return: 30,
-  scale: 1.25,
 };
 
 function cannonBody(b: ModelBuilder): void {

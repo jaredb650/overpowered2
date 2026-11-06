@@ -120,6 +120,19 @@ export class CameraRigSystem implements CameraRig {
     this.seat = view;
   }
 
+  syncSeat(): void {
+    if (!this.seat) return;
+    this.placeOnSeat(this.seat);
+    this.ctx.render.camera.updateMatrixWorld();
+  }
+
+  private placeOnSeat(seat: SeatView): void {
+    const cam = this.ctx.render.camera;
+    cam.rotation.order = 'YXZ';
+    cam.position.copy(seat.position);
+    cam.rotation.set(seat.pitch + this.kickP.x + this.shakeP, seat.yaw + this.kickY.x + this.shakeY, seat.roll + this.kickR.x + this.shakeR);
+  }
+
   private onLanded(impact: number): void {
     const k = Math.min(impact, VIEW.dipMaxImpact);
     this.dip.v -= k * VIEW.dipPerImpact;
@@ -169,8 +182,7 @@ export class CameraRigSystem implements CameraRig {
     cam.rotation.order = 'YXZ';
     const seat = this.seat;
     if (seat) {
-      cam.position.copy(seat.position);
-      cam.rotation.set(seat.pitch + this.kickP.x + this.shakeP, seat.yaw + this.kickY.x + this.shakeY, seat.roll + this.kickR.x + this.shakeR);
+      this.placeOnSeat(seat);
     } else {
       cam.position.copy(player.eye);
       cam.position.x += cosY * bobX;

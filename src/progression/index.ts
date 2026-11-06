@@ -274,7 +274,7 @@ class Progression implements ProgressionSystem {
 
   private onDeath(): void {
     this.scoreKeeper.persist();
-    // First, because leaving a seat releases its grade, and the death grade has to be the last word on the screen.
+    // Before the death grade goes on, because leaving a seat releases the seat's own.
     this.callInsManager.onDeath();
     this.perks.clear();
     this.perks.showDeath();

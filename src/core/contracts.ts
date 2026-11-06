@@ -636,6 +636,11 @@ export interface CameraRig extends GameSystem {
   setBaseFov(degrees: number): void;
   /** Hands the view to a seat. Null gives it back to the player, exactly as it was left. */
   setSeat(view: SeatView | null): void;
+  /**
+   * Puts the camera on the seat now. A seat moves fast and fires before the rig's turn in the frame, and anything that
+   * reads the camera for a shot, as a muzzle flash does, would otherwise get last frame's.
+   */
+  syncSeat(): void;
 }
 
 export interface PlayerDamage {
