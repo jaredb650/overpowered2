@@ -108,6 +108,8 @@ export class Soldier {
   captive: Captive = 'none';
   /** Already questioned. A man has one chance to talk. */
   questioned = false;
+  /** He has been shot on his knees. Nothing makes him give up a second time. */
+  refused = false;
   /** Last time a round hit him, so that the shot itself can never be what makes him give up. */
   hitAt = -99;
   /** Next look at whether the fight has turned, or for a prisoner, at what he can get away with. */
@@ -185,7 +187,7 @@ export class Soldier {
     this.surrendered = this.released = false;
     this.surrenderedAt = 0;
     this.captive = 'none';
-    this.questioned = false;
+    this.questioned = this.refused = false;
     this.hitAt = -99;
     this.judgeAt = this.watchedAt = 0;
     this.wasLeader = false;
@@ -204,6 +206,11 @@ export class Soldier {
 
   get callsign(): string {
     return `${this.squad.name}-${this.seat}`;
+  }
+
+  /** How he comes up on the feed. A voice with a rank is a man the player can picture. */
+  get titled(): string {
+    return `${this.rankDef.label} ${this.callsign}`;
   }
 
   /** Still takes orders. */

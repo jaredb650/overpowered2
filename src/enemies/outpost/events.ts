@@ -7,6 +7,7 @@
  *   enemy:broken, enemy:escaped, squad:broken, dread:spike   style scoring, the HUD and The Commander
  *   enemy:wounded                       section 14.6's style labels, once per man per zone, with what it pays
  *   enemy:condition                     a man moved between section 14.1's conditions
+ *   prisoner:grabbed, questioned, freed, refused, rearmed   what became of a man who gave up
  */
 import type * as THREE from 'three';
 import type { DamageInfo } from '../../core/contracts';
@@ -16,7 +17,8 @@ import type { Condition, ZoneId } from '../wounds/rules';
 export type CommsKind =
   | 'contact' | 'lost' | 'noise' | 'manDown' | 'leaderDown' | 'takingCommand' | 'medic' | 'reloading' | 'moving' | 'covering'
   | 'flanking' | 'frag' | 'flash' | 'breach' | 'fallback' | 'regroup' | 'fear' | 'panic' | 'surrender' | 'fix' | 'squadGone'
-  | 'hit' | 'dying' | 'beg' | 'scream' | 'rescue' | 'lastStand' | 'order';
+  | 'hit' | 'dying' | 'beg' | 'scream' | 'rescue' | 'lastStand' | 'order'
+  | 'pinning' | 'flushing' | 'rushing' | 'cutoff' | 'ambushSet' | 'spring' | 'opening' | 'wounded' | 'dry' | 'refused' | 'hostage' | 'clearShot' | 'obey' | 'behindUs';
 
 export interface CommsLine {
   kind: CommsKind;
@@ -51,5 +53,15 @@ declare module '../../core/contracts' {
     'enemy:condition': { enemy: EnemyInstance; condition: Condition };
     /** Dread jumped. `cause` is a perk id, a call-in id, or 'squad'. */
     'dread:spike': { dread: number; cause: string };
+    /** The player took a prisoner by the collar. */
+    'prisoner:grabbed': { enemy: EnemyInstance };
+    /** He talked. `truthful` is false when what he said was a lie. */
+    'prisoner:questioned': { enemy: EnemyInstance; truthful: boolean };
+    /** The player let him go. */
+    'prisoner:freed': { enemy: EnemyInstance };
+    /** He was shot on his knees and lived, so he has stopped being a prisoner. */
+    'prisoner:refused': { enemy: EnemyInstance };
+    /** He got hold of a gun and is back in the fight. */
+    'prisoner:rearmed': { enemy: EnemyInstance };
   }
 }

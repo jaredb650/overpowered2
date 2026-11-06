@@ -88,11 +88,11 @@ export function sense(s: Soldier, w: AiWorld, dt: number): void {
   const dx = p.position.x - e.position.x, dz = p.position.z - e.position.z;
   const flat = Math.hypot(dx, dz) || 1;
   const facing = (dx * Math.sin(e.yaw) + dz * Math.cos(e.yaw)) / flat;
-  // A man with his head down behind a wall sees nothing, however good his line would be.
-  const looking = s.stage === 'peek' || s.task === 'move' || !s.spot;
+  // A man with his head down behind a wall sees nothing, however good his line would be. One in an ambush is doing nothing but look.
+  const looking = s.stage === 'peek' || s.task === 'move' || !s.spot || s.silent;
   const visible = e.hasLos && p.alive && (flat < TOUCH || (looking && facing > VIEW_COS && !w.enemies.outpost!.commander.smoke.blocks(e.position, p.position)));
   if (visible) {
-    const seconds = NOTICE_BASE + flat * NOTICE_PER_METRE;
+    const seconds = (NOTICE_BASE + flat * NOTICE_PER_METRE) / s.rankDef.eyes;
     const gain = (p.speed > 6 ? MOVING_GAIN : 1) * (w.now < s.alertUntil ? ALERT_GAIN : 1);
     s.notice = clamp(s.notice + (dt / seconds) * gain);
   } else {

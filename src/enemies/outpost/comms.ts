@@ -40,22 +40,37 @@ const LINES: Record<CommsKind, readonly string[]> = {
   lastStand: ['Come on then!', 'You\'re coming with me!', 'Taking you with me!'],
   // The Commander's men speak from src/enemies/commander/lines.ts, through `relay`.
   order: [],
+  pinning: ['Keep it pinned!', 'Hold it there! Don\'t let it up!', 'Rounds on that corner, keep them on it!', 'Nobody stops firing!'],
+  flushing: ['Flush it out!', 'It\'s dug in! Frag it!', 'Grenade on that position, move it!', 'Get it out of there!'],
+  rushing: ['Everyone in! Now!', 'Go, go, go! Push!', 'All of you, on it, now!', 'Close it down!'],
+  cutoff: ['It\'s running! Cut it off!', 'Get ahead of it!', 'Block that exit!', 'It\'s heading for the door! Beat it there!'],
+  ambushSet: ['On the door. Not a sound.', 'Set up here. Wait for it.', 'Weapons on the frame. Nobody fires till I say.', 'Quiet. Let it come to us.'],
+  spring: ['Now! Now! Now!', 'Light it up!', 'Open fire!', 'Take it! Take it!'],
+  opening: ['It\'s reloading! Push!', 'It\'s dry! Move, move!', 'Now, while it\'s changing mags!'],
+  wounded: ['It\'s hurt! Stay on it!', 'That hit it! Finish it!', 'It\'s bleeding! Don\'t let up!'],
+  dry: ['I\'m out! I\'m out!', 'That\'s my last mag!', 'Nothing left! Anyone got a mag?'],
+  refused: ['It shot me! It shot me!', 'It doesn\'t take prisoners! Run!', 'It doesn\'t care! Run!'],
+  hostage: ['Hold fire! It\'s got one of ours!', 'Check fire, check fire!', 'Don\'t hit him! Get round the side!'],
+  clearShot: ['He\'s gone anyway. Take the shot.', 'Sorry, son. Fire.', 'Shoot through him. That\'s an order.'],
+  obey: ['Copy.', 'Copy that, moving.', 'Understood, sir.', 'On it.', 'Doing it now.'],
+  behindUs: ['It\'s behind us!', 'Rear! Rear! Turn around!', 'It came round the back!'],
 };
 
 /** Seconds before the same kind of line can come again. */
 const KIND_GAP: Partial<Record<CommsKind, number>> = {
   contact: 4, lost: 8, noise: 10, moving: 5, covering: 6, reloading: 4, flanking: 8, fear: 7, panic: 5, surrender: 6, regroup: 6, fallback: 6,
-  hit: 3, dying: 6, beg: 5, scream: 4, rescue: 6, lastStand: 5,
+  hit: 3, dying: 6, beg: 5, scream: 4, rescue: 6, lastStand: 5, pinning: 7, flushing: 6, rushing: 5, cutoff: 6, opening: 8, wounded: 7, dry: 5, hostage: 5, clearShot: 5,
 };
 const DEFAULT_KIND_GAP = 2.5;
 /** Spacing between any two lines, so the feed stays readable. A casualty cuts in regardless. */
 const LINE_GAP = 1.3;
-const URGENT: ReadonlySet<CommsKind> = new Set<CommsKind>(['manDown', 'leaderDown', 'takingCommand', 'squadGone', 'frag', 'flash', 'surrender', 'lastStand']);
+const URGENT: ReadonlySet<CommsKind> = new Set<CommsKind>(['manDown', 'leaderDown', 'takingCommand', 'squadGone', 'frag', 'flash', 'surrender', 'lastStand', 'spring', 'refused', 'hostage']);
 /** Lines that come out as a scream, not a voice on the radio. */
-const SCREAMED: ReadonlySet<CommsKind> = new Set<CommsKind>(['panic', 'surrender', 'scream', 'dying', 'beg', 'lastStand']);
+const SCREAMED: ReadonlySet<CommsKind> = new Set<CommsKind>(['panic', 'surrender', 'scream', 'dying', 'beg', 'lastStand', 'refused']);
 /** What radio silence takes off the air. A man on fire does not keep radio discipline. */
 const DISCIPLINED: ReadonlySet<CommsKind> = new Set<CommsKind>([
   'contact', 'lost', 'noise', 'moving', 'covering', 'flanking', 'breach', 'fallback', 'regroup', 'fix', 'reloading', 'takingCommand', 'frag', 'flash',
+  'pinning', 'flushing', 'rushing', 'cutoff', 'ambushSet', 'opening', 'wounded', 'dry', 'obey', 'behindUs',
 ]);
 
 export class Comms {
@@ -85,8 +100,8 @@ export class Comms {
   say(kind: CommsKind, s: Soldier | null): void {
     const { w, line } = this;
     const now = w.now;
-    // A hole in the lung or the throat takes the voice with it.
-    if (s?.injuries.mute) return;
+    // A hole in the lung or the throat takes the voice with it, and a man in an ambush is not going to give it away.
+    if (s?.injuries.mute || s?.silent) return;
     if (DISCIPLINED.has(kind) && w.enemies.outpost!.doctrine.radioSilence) return;
     if (now < (this.kindAt.get(kind) ?? 0)) return;
     if (now < this.nextLineAt && !URGENT.has(kind)) return;
@@ -95,7 +110,7 @@ export class Comms {
     line.kind = kind;
     line.text = this.next(kind);
     line.squad = s ? s.squad.name : 'Command';
-    line.speaker = s ? s.callsign : null;
+    line.speaker = s ? s.titled : null;
     line.enemy = s ? s.e : null;
     if (s) line.position.copy(s.e.center);
     else line.position.copy(w.player.position);
@@ -111,7 +126,7 @@ export class Comms {
     line.kind = 'order';
     line.text = text;
     line.squad = s ? s.squad.name : 'Command';
-    line.speaker = who ?? (s ? s.callsign : null);
+    line.speaker = who ?? (s ? s.titled : null);
     line.enemy = s ? s.e : null;
     if (s) line.position.copy(s.e.center);
     else line.position.copy(w.player.position);

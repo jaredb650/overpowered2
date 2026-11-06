@@ -118,7 +118,7 @@ function holdOff(e: Enemy, w: AiWorld, nx: number, nz: number, gap: number, step
 
 export function updateContact(e: Enemy, w: AiWorld): void {
   const p = w.player;
-  if (!p.alive || e.airborne || e.pinned) return;
+  if (!p.alive || e.airborne || e.pinned || e.carried) return;
   const dx = p.position.x - e.position.x;
   const dz = p.position.z - e.position.z;
   const solid = e.def.mass >= SOLID_MASS;
