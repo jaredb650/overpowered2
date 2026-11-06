@@ -224,6 +224,7 @@ export class Gore implements GoreSystem {
     this.blood = new BloodField(ctx);
     this.impacts = new ImpactEvents(ctx);
     this.chunks = new ChunkField(ctx, this.blood, this.impacts);
+    this.chunks.ensure();
     this.sliced = new SliceField(ctx, this.blood, this.impacts);
   }
 

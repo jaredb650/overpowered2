@@ -20,6 +20,8 @@ const MAX_STEP = 1 / 60;
 const MIN_STEP = 1 / 240;
 const MAX_SUBSTEPS = 4;
 export const GRAVITY = -19;
+/** Fastest a blast can throw any dynamic body, in m/s. */
+const MAX_BLAST_SPEED = 22;
 
 export class Physics implements PhysicsSystem {
   readonly R = RAPIER;
@@ -40,6 +42,7 @@ export class Physics implements PhysicsSystem {
   private readonly hitPoint = new THREE.Vector3();
   private readonly radialSeen = new Set<number>();
   private readonly radialVec = new THREE.Vector3();
+  private readonly radialBodies: RAPIER.RigidBody[] = [];
   private readonly radialT = { x: 0, y: 0, z: 0 };
   private anchor: RAPIER.RigidBody | null = null;
 
@@ -173,17 +176,27 @@ export class Physics implements PhysicsSystem {
     const mask = CG.Ragdoll | CG.Gib | CG.Debris;
     const impulse = this.radialVec;
     const scratch = this.radialT;
+    const bodies = this.radialBodies;
+    bodies.length = 0;
     this.world.intersectionsWithShape(center, this.identity, ball, collider => {
       const body = collider.parent();
       if (!body || seen.has(body.handle) || !body.isDynamic() || body.userData === OWN_BLAST) return true;
       seen.add(body.handle);
+      bodies.push(body);
+      return true;
+    }, undefined, queryGroups(mask));
+    // Rapier loses impulses applied from inside its own query, so they go on once it has returned.
+    for (const body of bodies) {
       const t = body.translation(scratch);
       impulse.set(t.x - center.x, t.y - center.y + 0.5, t.z - center.z);
       const d = impulse.length();
       const falloff = Math.max(0, 1 - d / radius);
-      impulse.multiplyScalar((strength * falloff) / Math.max(d, 0.2));
+      // Capped as a speed, because the same strength would fire a light chunk off at hundreds of m/s.
+      const mass = body.mass();
+      const push = Math.min(strength * falloff, MAX_BLAST_SPEED * mass);
+      impulse.multiplyScalar(push / Math.max(d, 0.2));
       body.applyImpulse(impulse, true);
-      return true;
-    }, undefined, queryGroups(mask));
+    }
+    bodies.length = 0;
   }
 }

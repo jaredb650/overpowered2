@@ -101,7 +101,8 @@ export class ChunkField {
 
   constructor(private readonly ctx: Ctx, private readonly blood: BloodField, private readonly impacts: ImpactEvents) {}
 
-  private ensure(): void {
+  /** Builds the instanced meshes. Called at load, because doing it on the first gib stalls that frame. */
+  ensure(): void {
     if (this.ready) return;
     this.ready = true;
     const { render } = this.ctx;

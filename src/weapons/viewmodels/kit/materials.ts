@@ -346,7 +346,7 @@ vec4 vmTri(sampler2D t, vec3 p, vec3 w, float s) {
 }
 vec3 vmHeatRamp(float t) {
   t = clamp(t, 0.0, 1.0);
-  return vec3(t * 2.6, t * t * 1.15, t * t * t * t * 0.55) * (0.6 + t * 5.0);
+  return vec3(t * 2.6, t * t * 1.15, t * t * t * t * 0.55) * (0.5 + t * 2.6);
 }
 `;
 
@@ -366,6 +366,7 @@ float vmEdge = vSurf.z;
 float vmAo = vAlb.a;
 float vmBump = 0.16;
 float vmBumpScale = 9.0;
+float vmHeatShape = 1.0;
 
 if (vmKindId > 0.5 && vmKindId < 1.5) {
   // Wood: long grain along the stock with a warped ring pattern.
@@ -408,18 +409,32 @@ if (vmKindId > 0.5 && vmKindId < 1.5) {
   vmRough += 0.1;
   vmBump = 0.42;
   vmBumpScale = 42.0;
-} else if (vmKindId > 6.5) {
+} else if (vmKindId > 6.5 && vmKindId < 7.5) {
   // Glove leather: a fine pebbled grain.
   vmBump = 0.3;
   vmBumpScale = 26.0;
   vmAlb *= 0.92 + 0.2 * vmBig.r;
+} else if (vmKindId > 7.5) {
+  // Polished blade. The wear tag carries position across the blade here, 0 at the spine and 1 on the edge, so the
+  // temper line can follow the curve of the sword. Mist above the line, mirror below it.
+  float across = vSurf.z;
+  vmEdge = 0.0;
+  float grainAlong = vmTri(tDetail, vOP * vec3(26.0, 26.0, 0.9), vmW, 3.0).b;
+  float line = 0.6 + 0.055 * sin(vOP.z * 46.0 + vmBig.a * 5.0) + (vmFine.a - 0.5) * 0.1;
+  float temper = smoothstep(-0.018, 0.03, across - line);
+  float mist = 1.0 - smoothstep(0.0, 0.05, abs(across - line));
+  vmAlb = mix(vec3(0.34, 0.35, 0.38), vec3(0.8, 0.82, 0.85), temper) * (0.92 + grainAlong * 0.16) + mist * 0.18;
+  vmRough = mix(0.36, 0.13, temper) + (grainAlong - 0.5) * 0.12;
+  vmMetal = 1.0;
+  vmBump = 0.03;
+  vmHeatShape = across * across;
 }
 
 // Paint chips where the edge tag and the noise agree, and only there.
 float vmChipNoise = vmFine.a * 0.62 + vmBig.a * 0.55 + vmFine.g * 0.2;
 float vmChip = smoothstep(0.86, 0.93, vmEdge * 0.55 + vmChipNoise) * step(0.004, vmEdge);
 float vmScuff = smoothstep(0.55, 0.9, vmBig.a) * smoothstep(0.25, 0.7, vmFine.g);
-float vmPaint = 1.0 - vmMetal;
+float vmPaint = (1.0 - vmMetal) * step(vmKindId, 4.5);
 vmAlb = mix(vmAlb, vmAlb * 1.7 + 0.03, vmScuff * vmPaint * 0.5);
 vec3 vmBare = vec3(0.46, 0.47, 0.49) * (0.8 + 0.4 * vmFine.b);
 vmAlb = mix(vmAlb, vmBare, vmChip);
@@ -432,22 +447,24 @@ vmRough += (vmBig.r - 0.5) * 0.26 + (vmFine.b - 0.5) * 0.12 - vmFine.g * 0.08 * 
 vmAlb *= mix(0.42, 1.0, vmAo);
 vmRough = mix(min(vmRough + 0.35, 1.0), vmRough, vmAo);
 
-// Perk looks.
-float vmFrost = uFrost * smoothstep(0.42, 0.72, vmBig.r * 0.62 + max(vmN.y, 0.0) * 0.16 + vmEdge * 0.28 + vmFine.b * 0.22 + (uFrost - 0.5) * 0.5);
-vmAlb = mix(vmAlb, vec3(0.70, 0.86, 1.0), vmFrost);
-vmMetal *= 1.0 - vmFrost;
-vmRough = mix(vmRough, 0.34 + vmFine.a * 0.3, vmFrost);
+// Perk looks. A buffed gun has to stay a detailed gun, so none of these replace the surface: emission lives in thin
+// veins and broken edge lines, and everything between them keeps its own albedo, wear and reflections.
+float vmVeinN = vmFine.a * 0.72 + vmBig.a * 0.28;
+float vmVein = 1.0 - smoothstep(0.0, 0.016, abs(vmVeinN - 0.5 - 0.05 * sin(uClock * 0.8 + vmBig.r * 6.0)));
+float vmEdgeLine = smoothstep(0.35, 0.7, vmEdge) * smoothstep(0.46, 0.6, vmVeinN);
 
-vec3 vmEmis = vec3(0.0);
+float vmFrost = uFrost * smoothstep(0.46, 0.66, vmBig.r * 0.5 + vmFine.a * 0.3 + max(vmN.y, 0.0) * 0.18 + vmEdge * 0.2 + (uFrost - 0.5) * 0.35);
+vmAlb = mix(vmAlb, vec3(0.62, 0.76, 0.9) * (0.75 + 0.5 * vmFine.b), vmFrost * 0.8);
+vmMetal *= 1.0 - vmFrost * 0.8;
+vmRough = mix(vmRough, 0.42 + vmFine.a * 0.25, vmFrost);
+
+vec3 vmEmis = vec3(0.03, 0.1, 0.18) * vmFrost * vmFine.a;
 float vmHeatMask = vSurf.w;
-float vmCrawl = texture2D(tDetail, vOP.zy * 2.2 + vec2(uClock * 0.11, -uClock * 0.07)).a;
-float vmHot = uGunHeat * vmHeatMask * (0.72 + vmFine.a * 0.4);
-float vmPerk = uPerkHeat * (vmHeatMask * 0.8 + vmEdge * 0.75 + smoothstep(0.58, 0.8, vmCrawl) * 0.42);
-vmEmis += vmHeatRamp(max(vmHot, vmPerk * (0.7 + 0.3 * vmCrawl)));
-vmAlb *= 1.0 - clamp(max(vmHot, vmPerk) * 0.6, 0.0, 0.6);
-float vmRage = uBerserk * (smoothstep(0.42, 0.9, vmEdge + vmCrawl * 0.5) + smoothstep(0.64, 0.74, vmCrawl) * 0.45);
-vmEmis += vec3(4.2, 0.12, 0.08) * vmRage;
-vmEmis += vec3(0.05, 0.16, 0.3) * vmFrost * vmFine.a;
+float vmHot = max(uGunHeat * vmHeatMask * vmHeatShape * (0.72 + vmFine.a * 0.4), uPerkHeat * vmHeatMask * 0.2);
+vmEmis += vmHeatRamp(vmHot);
+vmAlb *= 1.0 - clamp(vmHot * 0.5, 0.0, 0.5);
+vmEmis += vec3(1.9, 0.52, 0.1) * uPerkHeat * (vmVein * (0.8 + 0.3 * sin(uClock * 3.1 + vmBig.a * 9.0)) + vmEdgeLine * 0.35);
+vmEmis += vec3(2.4, 0.07, 0.05) * uBerserk * (vmVein * 0.9 + vmEdgeLine * 0.4);
 
 diffuseColor.rgb = vmAlb;
 `;

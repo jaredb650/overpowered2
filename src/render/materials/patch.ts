@@ -79,13 +79,22 @@ vec3 opShIrradiance(vec3 c0, vec3 cr, vec3 cg, vec3 cb, vec3 n) {
 const WORLD_POSITION = /* glsl */ `
 vec3 opWP = (opCamToWorld * vec4(-vViewPosition, 1.0)).xyz;
 vec3 opWN = mat3(opCamToWorld) * normal;
+#ifdef X_NOSHADOW
+float opMoonVis = 1.0;
+#else
 float opMoonVis = receiveShadow ? opMoonVisibility(opWP, opWN) : 1.0;
+#endif
 `;
 
 const VOLUME_LIGHTING = /* glsl */ `
 {
   vec3 opUvw = (opWP + opWN * opVolInfo.y - opVolOrigin) * opVolInvSize;
   vec4 opV0 = texture(opVol0, opUvw);
+#ifdef X_NOSH
+  iblIrradiance = max(opV0.rgb, opAmbientFloor);
+  radiance *= smoothstep(0.02, 0.7, opV0.a);
+  radiance += opV0.rgb * RECIPROCAL_PI;
+#else
   vec3 opCr = texture(opVol1, opUvw).xyz;
   vec3 opCg = texture(opVol2, opUvw).xyz;
   vec3 opCb = texture(opVol3, opUvw).xyz;
@@ -103,6 +112,7 @@ const VOLUME_LIGHTING = /* glsl */ `
   radiance *= smoothstep(0.02, 0.7, opSkyVis) * mix(0.42, 1.0, smoothstep(0.05, 0.3, material.roughness));
   radiance += opShIrradiance(opV0.rgb, opCr, opCg, opCb, opR) * RECIPROCAL_PI;
 
+#ifndef X_NODOM
   // Treats the volume's dominant direction as one soft light, which gives wet floors a real sheen
   // toward whatever lights the room.
   const vec3 opLuma = vec3(0.2126, 0.7152, 0.0722);
@@ -118,6 +128,8 @@ const VOLUME_LIGHTING = /* glsl */ `
     opSoft.roughness = max(material.roughness, 0.22);
     reflectedLight.directSpecular += opDomCol * opNdL * BRDF_GGX(opDomView, geometryViewDir, geometryNormal, opSoft);
   }
+#endif
+#endif
 }
 `;
 
@@ -196,8 +208,8 @@ export class MaterialPatcher {
     f = replaceRequired(f, '#include <common>', `#include <common>\n${PARS_COMMON}`, label);
     f = replaceRequired(f, '#include <envmap_physical_pars_fragment>', this.envPars, label);
     f = replaceRequired(f, '#include <lights_physical_pars_fragment>', `#include <lights_physical_pars_fragment>\n${PARS_LIGHTING}`, label);
-    f = replaceRequired(f, '#include <lights_fragment_begin>', `${WORLD_POSITION}\n${this.loopChunk}`, label);
-    f = replaceRequired(f, '#include <lights_fragment_maps>', `#include <lights_fragment_maps>\n${VOLUME_LIGHTING}`, label);
+    f = replaceRequired(f, '#include <lights_fragment_begin>', `${WORLD_POSITION}\n${this.loopChunk.replace('#if ( NUM_POINT_LIGHTS > 0 ) && defined( RE_Direct )', '#if ( NUM_POINT_LIGHTS > 0 ) && defined( RE_Direct ) && !defined( X_NOPOINT )')}`, label);
+    f = replaceRequired(f, '#include <lights_fragment_maps>', `${THREE.ShaderChunk.lights_fragment_maps.replace('radiance += getIBLRadiance( geometryViewDir, geometryNormal, material.roughness );', '#ifndef X_NOENV\nradiance += getIBLRadiance( geometryViewDir, geometryNormal, material.roughness );\n#endif')}\n${VOLUME_LIGHTING}`, label);
     f = replaceRequired(f, '#include <opaque_fragment>', `#include <opaque_fragment>\n${REFLECTIVITY}\n${TRANSPARENT_FOG}`, label);
     shader.fragmentShader = f;
   }

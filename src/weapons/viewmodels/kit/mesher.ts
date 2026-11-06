@@ -15,7 +15,7 @@ import type { V2 } from './shapes';
 export type V3 = readonly [number, number, number];
 
 /** Surface kinds with a procedural pattern in the shader. */
-export const Kind = { plain: 0, wood: 1, stipple: 2, brushed: 3, carbon: 4, rubber: 5, fabric: 6, leather: 7 } as const;
+export const Kind = { plain: 0, wood: 1, stipple: 2, brushed: 3, carbon: 4, rubber: 5, fabric: 6, leather: 7, blade: 8 } as const;
 
 export interface Finish {
   /** sRGB hex. */

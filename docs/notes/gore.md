@@ -146,7 +146,7 @@ breaking each one on purpose in a copy and seeing the test fail.
   of the hips and fires shoulders out sideways. So on muscle chains `Rag.radialImpulse` uses one direction, shared out by
   mass, and they set `OWN_BLAST` so that `Gore.blast` throws them whatever their age. `kick` is what sends the legs forward,
   not this. Hard-limit bodies keep the old formula, and they match muscles when hit on the frame they die (12.8 m/s against
-  12.5) or at rest (7.7 against 7.4). In the air they do not: `Physics.radialImpulse` loses the impulse, so a hard-limit body
+  12.5) or at rest (7.7 against 7.4). In the air, before the fix to `Physics.radialImpulse`, they did not: a hard-limit body
   moves 0.96 m where a muscle chain moves 9.7 m. Compare `muscles=0` on those two cases only.
 - **Never give a sleeping body a velocity.** Rapier keeps it and reports it for good without moving the body, which then
   never settles. `Rag.preStep` skips a sleeping chain, and anything that means to move it wakes it.
@@ -196,12 +196,7 @@ Shared 8 GB M1 under load average around 18, so treat these as upper bounds.
   back when it runs out. Gore detects that and lets go, but 48 live enemies plus 40 corpses of one archetype is 88, so a
   husk-heavy wave will lose corpses early. Raising the pool to 96 fixes it.
 - Pools grow as stacked decals, since `DecalSystem` has no resize. 5 per corpse.
-- **`Physics.radialImpulse` moves nothing it finds.** An impulse applied from inside Rapier's query callback is silently
-  lost: a ball at 0 m/s stays at 0, and the same impulse applied after the query returns gives it 6 m/s. So only what
-  `Gore.blast` throws itself moves: muscle chains, and anything frozen or new. Debris, chunks, and a hard-limit chain that has
-  already stepped are not thrown. The fix is to collect bodies in the callback and apply afterward, but not by itself:
-  the impulse is not scaled by mass, so a 0.15 kg chunk would leave at 466 m/s. Left as it is, because six other systems call
-  this and turning blasts on for all of them is a decision, not a bug fix.
+- **`Physics.radialImpulse` now moves what it finds.** It collects bodies inside Rapier's query and applies the impulses afterwards, capped at 22 m/s so light chunks do not leave at hundreds of m/s.
 - **The enemy agent has not called `collapse` yet.** In the sandbox it runs on husks and in Node on the real animator. The
   mortal bleed-out path does not exist yet, so nothing has been tried against a real AI handing a body over.
 - **A collapse assumes level ground.** The hips are held at the height they started, so one begun on stairs or at a ledge

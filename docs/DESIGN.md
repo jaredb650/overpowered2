@@ -405,3 +405,20 @@ Spoken lines are generated offline with the owner's ElevenLabs account and shipp
 - **The Council:** the owner's "shodan" ElevenLabs voice.
 - **The Commander:** the owner's "the void" voice. Every line carries the `[EVIL]` emotion tag, plus whatever emotion fits the line, e.g. `[EVIL][rattled]`. The emotion follows the arc in section 18: smug, irritated, rattled, cracked.
 - Lines are written with variables for stats, so reactive lines need a small set of recorded variants rather than arbitrary text. Anything too dynamic to record stays as text in the dialogue box.
+
+## 20. Owner playtest round 2: bodies
+
+The owner says ragdolls now feel much better, and wants to see them. Decisions made:
+
+- **Big enemies are solid.** The player cannot walk through them.
+- **No Titan kneel.** The Titan dragging itself along the floor feels right.
+- **Forces are too strong.** Ragdolls are thrown ridiculously hard. Bodies must feel heavy.
+
+**Test Range.** A sandbox map to spawn enemies with no AI and try every weapon on them, plus dev toggles to turn off gibbing, explosive deaths, combos and perks. Gore cannot be judged when everything explodes.
+
+**Active ragdoll (GTA and Red Dead style).** Ragdoll without dying. Enemies stumble, catch their balance, get knocked down and get back up. Under sustained fire a body keeps reacting to every further bullet. It should feel cinematic.
+
+**Visible damage short of losing a limb, in varying degrees.**
+- Bullets take chunks out of bodies.
+- A shotgun or blast can open a rib cage without gibbing.
+- Arms and legs can snap and stay hyperextended.

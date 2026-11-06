@@ -46,6 +46,8 @@ interface QueuedRay {
 
 const POOL_STAGES = 5;
 
+const _splat = new THREE.Vector3();
+
 export class BloodField {
   private readonly px = new Float32Array(BloodTuning.maxDroplets);
   private readonly py = new Float32Array(BloodTuning.maxDroplets);
@@ -238,7 +240,7 @@ export class BloodField {
         // A drop arriving at a shallow angle or high speed spreads out further.
         const speed = Math.hypot(vx[i]!, vy[i]!, vz[i]!);
         const s = size[i]! * (1 + Math.min(1.2, speed * 0.05));
-        this.ctx.render.decals.add('blood', hit.point, hit.normal, s, Math.atan2(vx[i]!, vz[i]!));
+        this.ctx.render.decals.splat(hit.point, hit.normal, s, _splat.set(vx[i]!, vy[i]!, vz[i]!));
         life[i] = 0;
         continue;
       }

@@ -175,7 +175,7 @@ beforeAll(async () => {
   physics = await Physics.create();
   ctx = makeCtx({
     physics,
-    render: { scene, decals: { add() {}, clear() {} } } as unknown as Ctx['render'],
+    render: { scene, decals: { add() {}, splat() {}, clear() {} } } as unknown as Ctx['render'],
   });
   gore = createGoreSystem(ctx);
   gore.init();
@@ -354,19 +354,21 @@ describe('rotational impact', () => {
     expect(legs / 8).toBeGreaterThan(0.1);
   });
 
-  it('without muscles the legs go the other way, which is the difference being shown', () => {
+  it('a blast throws a body with muscles off as well', () => {
     gore.clear();
     const c = spawn();
     gore.ragdoll(c, { muscles: false });
+    run(4);
+    const before = at(c, B.hips);
     physics.radialImpulse(v(0, 1, 1.3), 7, 140);
     run(14);
-    const legs = swingForward(c, B.hips, B.thighL, B.shinL);
+    const moved = at(c, B.hips).distanceTo(before);
     gore.clear();
-    expect(legs).toBeLessThan(0);
+    expect(moved).toBeGreaterThan(0.2);
   });
 
   it('reaches a body already in the air', () => {
-    // Through `throwFromBlast`, not Physics, whose own impulses are lost. See `docs/notes/gore.md`.
+    // Through `throwFromBlast`, which throws muscle bodies along one line.
     gore.clear();
     const c = spawn();
     gore.ragdoll(c);

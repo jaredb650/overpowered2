@@ -60,7 +60,7 @@ beforeAll(async () => {
   physics = await Physics.create();
   ctx = makeCtx({
     physics,
-    render: { scene, decals: { add() {}, clear() {} } } as unknown as Ctx['render'],
+    render: { scene, decals: { add() {}, splat() {}, clear() {} } } as unknown as Ctx['render'],
   });
   gore = createGoreSystem(ctx);
   gore.init();
