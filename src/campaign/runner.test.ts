@@ -1,112 +1,10 @@
 /** The runner against a pretend game. Everything a mission can do, with no renderer, physics or DOM. */
 import { describe, expect, it } from 'vitest';
-import { EventBus } from '../core/events';
-import type { GameEvents } from '../core/contracts';
 import { MISSIONS } from './missions';
 import { MissionRunner } from './runner';
-import type { Beat, Mission, MissionHost, ObjectiveState } from './types';
+import { FakeHost } from './testkit';
+import type { Beat, Mission } from './types';
 import { validateMission } from './validate';
-
-class FakeHost implements MissionHost {
-  feet = { x: 0, y: 0, z: 0 };
-  log: string[] = [];
-  bus = new EventBus<GameEvents>();
-  said: string[] = [];
-  speaking: (() => void) | null = null;
-  objectiveText: string[] = [];
-  doorStates: Record<string, number> = {};
-  doorDone: (() => void) | null = null;
-  bodies = 1;
-  deployed: { at: string | null; weapons: string } | null = null;
-  finishedCount = 0;
-  cutsceneDone: ((skipped: boolean) => void) | null = null;
-  rideDone: (() => void) | null = null;
-  took: (() => void) | null = null;
-  autoSpeak = true;
-
-  playerAt(out: { x: number; y: number; z: number }): void {
-    Object.assign(out, this.feet);
-  }
-  listen(name: keyof GameEvents, fn: (payload: unknown) => void): () => void {
-    return this.bus.on(name, fn);
-  }
-  speak(line: { id: string }, done: () => void): void {
-    this.said.push(line.id);
-    if (this.autoSpeak) done();
-    else this.speaking = done;
-  }
-  hush(): void {
-    this.speaking = null;
-  }
-  objectives(list: readonly ObjectiveState[]): void {
-    this.objectiveText = list.filter(o => !o.done).map(o => o.text);
-  }
-  hint(text: string): void {
-    this.log.push(`hint ${text}`);
-  }
-  banner(text: string): void {
-    this.log.push(`banner ${text}`);
-  }
-  door(id: string, _def: unknown, open: number, seconds: number, done: () => void): void {
-    this.doorStates[id] = open;
-    if (seconds <= 0) done();
-    else this.doorDone = done;
-  }
-  squad(order: { tag: string; men: readonly unknown[] }): void {
-    this.log.push(`squad ${order.tag} ${order.men.length}`);
-  }
-  release(tag: string): void {
-    this.log.push(`release ${tag}`);
-  }
-  vehicle(order: { tag: string }): void {
-    this.log.push(`vehicle ${order.tag}`);
-  }
-  boss(tag: string): void {
-    this.log.push(`boss ${tag}`);
-  }
-  health(): number {
-    return this.bodies;
-  }
-  give(weapon: string): void {
-    this.log.push(`give ${weapon}`);
-  }
-  grenades(count: number): void {
-    this.log.push(`grenades ${count}`);
-  }
-  rack(_weapon: string, _at: unknown, took: () => void): void {
-    this.took = took;
-  }
-  drop(item: string): void {
-    this.log.push(`drop ${item}`);
-  }
-  cutscene(_id: string, _scene: unknown, done: (skipped: boolean) => void): void {
-    this.cutsceneDone = done;
-  }
-  ride(_seat: string, _route: unknown, done: () => void): void {
-    this.rideDone = done;
-  }
-  adapt(): void {
-    this.log.push('adapt');
-  }
-  field(answer: string): void {
-    this.log.push(`field ${answer}`);
-  }
-  threat(level: number): void {
-    this.log.push(`threat ${level}`);
-  }
-  music(state: string): void {
-    this.log.push(`music ${state}`);
-  }
-  call(name: string): void {
-    this.log.push(`call ${name}`);
-  }
-  deploy(at: { at: readonly number[] } | null, loadout: { weapons: readonly string[] }): void {
-    this.deployed = { at: at ? at.at.join(',') : null, weapons: loadout.weapons.join(',') };
-  }
-  finished(): void {
-    this.finishedCount++;
-  }
-}
 
 const mission = (beats: Beat[], extra: Partial<Mission> = {}): Mission => ({
   id: 'test',
@@ -434,7 +332,7 @@ describe('checkpoints', () => {
       checkpoint: { at: 'a', loadout: { weapons: ['smg', 'shotgun'], grenades: 2 } },
       start: [
         { do: 'say', line: 'one' },
-        { do: 'door', door: 'gate', open: 0 , seconds: 0 },
+        { do: 'door', door: 'gate', open: 0, seconds: 0 },
         { do: 'objective', id: 'x', text: 'Kill them' },
         { do: 'squad', tag: 'alpha', men: ['trooper', 'trooper'], at: 'b' },
       ],
@@ -508,6 +406,66 @@ describe('checkpoints', () => {
   });
 });
 
+describe('what survives a restart', () => {
+  it('brings back a tag that was alive at the save with `ensure`, and leaves one already dead alone', () => {
+    const { host, run, step } = play(mission([
+      {
+        id: 'a',
+        title: 'A',
+        start: [{ do: 'squad', tag: 'dead', men: ['trooper'], at: 'a' }, { do: 'vehicle', tag: 'tank', kind: 'tank', at: 'a' }],
+        until: { signal: 'go' },
+      },
+      {
+        id: 'b',
+        title: 'B',
+        checkpoint: { at: 'a', loadout: { weapons: ['smg'], grenades: 0 } },
+        start: [{ do: 'squad', tag: 'dead', men: ['trooper'], at: 'a', ensure: true }, { do: 'vehicle', tag: 'tank', kind: 'tank', at: 'a', ensure: true }],
+        until: { cleared: ['dead', 'tank'] },
+      },
+    ]));
+    run.unitGone('dead', true, 'smg');
+    run.signal('go');
+    step();
+    expect(host.log.filter(l => l.startsWith('vehicle'))).toHaveLength(1);
+    run.down();
+    run.redeploy();
+    expect(host.log.filter(l => l.startsWith('vehicle'))).toHaveLength(2);
+    expect(host.log.filter(l => l.startsWith('squad'))).toHaveLength(1);
+    run.unitGone('tank', true, 'rocket');
+    step();
+    expect(run.state).toBe('won');
+  });
+
+  it('keeps a weapon taken from a rack, and does not lay it out twice', () => {
+    const { host, run, step } = play(mission([
+      {
+        id: 'a',
+        title: 'A',
+        checkpoint: { at: 'a', loadout: { weapons: ['smg'], grenades: 0 } },
+        start: [{ do: 'rack', weapon: 'kiln', at: 'a', optional: true }],
+        until: { after: 99 },
+      },
+    ]));
+    host.racks[0]!();
+    step();
+    run.down();
+    run.redeploy();
+    expect(host.deployed?.weapons).toBe('smg,kiln');
+    expect(host.racks).toHaveLength(1);
+  });
+
+  it('repeats a cue that asks to, every time its trigger comes true', () => {
+    const { host, step } = play(mission([{
+      id: 'a',
+      title: 'A',
+      cues: [{ when: { after: 1 }, repeat: true, run: [{ do: 'banner', text: 'again' }] }],
+      until: { after: 99 },
+    }]));
+    step(3.2);
+    expect(host.log).toEqual(['banner again', 'banner again', 'banner again']);
+  });
+});
+
 describe('starting from a beat', () => {
   const beats: Beat[] = [
     { id: 'a', title: 'A', start: [{ do: 'door', door: 'gate', open: 0, seconds: 0 }], until: { after: 1 } },
@@ -551,6 +509,14 @@ describe('validateMission', () => {
     expect(problems.join('\n')).toMatch(/under ghosts/);
     expect(problems.join('\n')).toMatch(/takes away the rocket/);
     expect(problems.join('\n')).toMatch(/nothing ever ends/);
+  });
+
+  it('catches a trigger a restart could never satisfy', () => {
+    const problems = validateMission(mission([
+      { id: 'a', title: 'A', start: [{ do: 'squad', tag: 'x', men: ['trooper'], at: 'a' }], until: { after: 1 } },
+      { id: 'b', title: 'B', checkpoint: { at: 'a', loadout: { weapons: ['smg'], grenades: 0 } }, until: { cleared: 'x' } },
+    ]));
+    expect(problems.join()).toMatch(/never brings back x/);
   });
 
   it('refuses a beat that spins', () => {

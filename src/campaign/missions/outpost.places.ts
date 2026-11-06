@@ -15,12 +15,9 @@ export const LEVEL = { gallery: -5, ground: 0, upper: 5, command: 10, roof: 14 }
 export const ZONES: Readonly<Record<string, Zone>> = {
   // Outside
   lzCut: box(-49, -4, 73, -15, -0.5, 99),
-  apron: box(-78, -1, 14, 78, 30, 110),
-  gateApproach: box(-14, -1, 14, 14, 12, 32),
-  guardhouse: box(18, -1, 20, 30, 5, 28),
+  gateApproach: box(-40, -1, 14, 40, 12, 34),
   easternApron: box(44, -1, 40, 110, 30, 110),
   wreckDeck: box(74, PARKOUR.doubleJump.ledge - 0.4, 80, 94, 9, 88),
-  gateMouth: box(-8, -1, 8, 8, 8, 18),
 
   // The gate yard and the door
   gateYard: box(-30, -1, -12, 30, 12, 10),
@@ -36,12 +33,7 @@ export const ZONES: Readonly<Record<string, Zone>> = {
   galleryNear: box(-24, -7, -78, -11, -1, -71),
   galleryFar: box(11, -7, -78, 24, -1, -71),
   messHall: box(14, -1, -78, 56, 6, -46),
-  armoury: box(30, -1, -40, 56, 5, -33),
-  plateHall: box(12, -1, -32, 56, 6, -16),
-  stackFloor: box(-10, -7, -64, 10, 2, -28),
   stackTop: box(-10, 9, -64, 10, 13, -28),
-  warRoom: box(-16, 9, -78, 16, 14, -66),
-  roof: box(-24, 13, -78, 24, 30, -28),
 };
 
 export const MARKS: Readonly<Record<string, Mark>> = {
@@ -173,8 +165,6 @@ export const DOORS: Readonly<Record<string, DoorDef>> = {
   sallyWest: { at: [-10, 0, -17.5], yaw: Math.PI / 2, width: 3, height: 3, kind: 'shutter', seconds: 1.2, start: 0 },
   /** From Sally Hall into the Plate Hall's west end. Shut until the Commander sends men through it behind the player. */
   sallyEast: { at: [12, 0, -20], yaw: Math.PI / 2, width: 3, height: 3, kind: 'shutter', seconds: 1.2, start: 0 },
-  /** From Sally Hall straight into the Stack. Shut until the end, when it is the way back out. */
-  sallyNorth: { at: [0, 0, -27], yaw: 0, width: 4, height: 3.4, kind: 'shutter', seconds: 1.2, start: 0 },
   /** The Armoury's door to the Plate Hall, which opens once the player has had their breath. */
   armourySouth: { at: [44, 0, -32.5], yaw: 0, width: 3, height: 3, kind: 'shutter', seconds: 1, start: 0 },
   /** War Room to the roof stairs. He opens it himself when he runs. */

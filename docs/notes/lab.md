@@ -20,6 +20,8 @@
 | O | Spawn the selected type at the crosshair |
 | K, L | Kill all. Clear corpses, limbs, chunks, blood and plates |
 
+**Grants.** The panel has buttons for all 8 call-ins, straight to the inventory, every perk and powerup, and the combo. Each call-in is used with its usual key. Combos and perks start off on the range, so a combo set there shows but pays nothing until that box is ticked. Under `?dev=1` it is on: set 15, make a kill, and Airstrike, Warthog and Berserk arrive. A perk with `retrigger: 'ignore'` does nothing on a second press while it runs.
+
 Settings live in localStorage, one copy for the range and one for `?dev=1`, so a test never leaks into a run.
 
 ## How it fits together
@@ -68,6 +70,22 @@ Gibs, new only: from a rocket, the furthest limb lay 4.6 m out. Limbs peaked at 
 
 Sword kills slice, so they have no throw to measure. The Kiln is 1 N·s.
 
+**After the blast rings.** `impulse` 12 and `maxBlastSpeed` 10, up from the table above. Bullets did not change. Metres from where it stood to the hips at their furthest, three to eight samples each, real game.
+
+| Case | Old | New |
+|---|---|---|
+| Rocket, floor 2 m away | 2.8 | 5.8 to 6.9, hips up to 2.3 m |
+| Rocket, floor 4 m away, survivor | up to 2 | 3.2 to 4.2 |
+| Rocket, floor 5.5 m away, survivor | not measured | 2.9 to 3.4 |
+| Grenade, floor 2 m away | 2.1 | 4.8 |
+| Grenade, floor 5 m away, survivor | not measured | 2.7 |
+| Rocket 2 m from a corpse | 1.9 | 5.2 to 5.7 |
+| Shotgun, 2 m | 1.5 to 2.3 | 1.2 to 2.4, one of ten at 4.8 |
+| Shotgun, 8 m | 0.6 | 0.6 |
+| SMG, kill at 8 m | 0.8 to 1.0 | 0.7 |
+
+**`lab-throw` under-reports survivors.** It measures at rest, and by then a body with AI off has got up and gone back to its post: the same rocket at 4 m reads 1.5 m there. Trust the table above for anyone who lived.
+
 ## Contact, measured
 
 `tools/scripts/lab-contact.mjs`, about 60 fps, bot holding forward.
@@ -97,6 +115,15 @@ node tools/shot.mjs --url "/?map=range" --script tools/scripts/lab-seq.mjs --dpr
 REACT=stagger,fall,trip node tools/shot.mjs --url "/?map=range" --script tools/scripts/react-seq.mjs --dpr 2 --w 1440 --h 900 --wait 500 --timeout 200 --out tools/out/react.png
 node tools/shot.mjs --url "/?map=range" --script tools/scripts/react-chaos.mjs --wait 500 --timeout 120 --out tools/out/chaos.png
 ```
+
+```
+HEAD=stand,run,crouch node tools/shot.mjs --url "/?map=range&contract=outpost" --script tools/scripts/head-seq.mjs --dpr 2 --w 1440 --h 900 --wait 500 --timeout 170 --out tools/out/head.png
+BLAST_TRIES=4 node tools/shot.mjs --url "/?map=range&contract=outpost" --script tools/scripts/blast-seq.mjs --dpr 2 --w 1440 --h 900 --wait 500 --timeout 170 --out tools/out/blast.png
+node tools/shot.mjs --url "/?map=range" --script tools/scripts/batch-check.mjs --dpr 2 --w 1440 --h 900 --wait 500 --timeout 150 --out tools/out/batch.png
+node tools/shot.mjs --url "/?autostart=1" --script tools/scripts/batch-fight.mjs --dpr 2 --w 1440 --h 900 --wait 500 --timeout 120 --out tools/out/fight-swarm.png
+```
+
+`head-seq` is a lethal headshot on world frames, with world time beside each row. `blast-seq` is a grenade into a crowd of 12, a row per try. `batch-check` is the panel by real clicks, head knockdowns, shaped charges, the waist tear, machines and a big crowd, picked with `BATCH=`. `batch-fight` is a bot with real weapons and real input.
 
 `react-seq` steps world frames and writes one contact sheet per reaction, `tools/out/react-<case>.png`. Cases: `stagger stagleg trip fall fallback rise riseback thrown thrownup dance husk maimed oneleg noleg`. `react-chaos` runs 24 bodies with AI on under blasts and fire, and reports bodies that never get up.
 

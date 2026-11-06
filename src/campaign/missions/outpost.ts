@@ -20,6 +20,12 @@ const KIT = {
   full: { weapons: ['smg', 'shotgun', 'rocket', 'autocannon', 'sword'], grenades: 3 },
 } as const satisfies Record<string, Loadout>;
 
+/** The armour that is on the apron from the heavy assault on. `ensure` brings it back after a restart, and leaves it alone otherwise. */
+const ARMOUR: readonly Step[] = [
+  { do: 'vehicle', tag: 'heavy.tank1', kind: 'tank', at: 'eastEdge', route: 'tankEast', ensure: true },
+  { do: 'vehicle', tag: 'heavy.tank2', kind: 'tank', at: 'westEdge', route: 'tankWest', ensure: true },
+];
+
 const BEATS: readonly Beat[] = [
   {
     id: 'briefing',
@@ -48,6 +54,8 @@ const BEATS: readonly Beat[] = [
       { do: 'squad', tag: 'in.wall', men: ['trooper', 'trooper', 'brute', 'trooper'], at: 'wallWest', orders: 'hold' },
       { do: 'squad', tag: 'in.apron', men: ['trooper', 'gunner', 'trooper', 'gunner', 'trooper', 'trooper'], at: 'apronEast' },
       { do: 'ride', seat: 'doorGunner', route: 'insertion' },
+      // The men the door gun did not reach have gone to ground. On foot, the player starts against four, not a garrison.
+      { do: 'sweep' },
       { do: 'signal', name: 'landed' },
     ],
     cues: [
@@ -86,11 +94,14 @@ const BEATS: readonly Beat[] = [
     ],
     cues: [
       { when: { zone: 'lzCut', outside: true }, run: [commander('lz.file')] },
+      // Only a strafe-jump at the top of its speed beats the gate. The story needs them outside it.
+      { when: { zone: 'gateYard' }, run: [{ do: 'place', at: 'gateMouth' }] },
       {
         when: { zone: 'gateApproach' },
         run: [
           commander('lz.gate'),
-          { do: 'door', door: 'mainGate', open: 0, wait: true },
+          // Timed from the trigger: shut before a run with both dashes gets there.
+          { do: 'door', door: 'mainGate', open: 0, seconds: 1, wait: true },
           commander('lz.hours', true),
           { do: 'done', id: 'gate' },
           commander('lz.trucks'),
@@ -138,6 +149,7 @@ const BEATS: readonly Beat[] = [
   {
     id: 'breather',
     title: 'Breather',
+    checkpoint: { at: 'apronRally', loadout: KIT.shotgun },
     start: [
       { do: 'done', id: 'trucks' },
       { do: 'music', state: 'easy' },
@@ -185,8 +197,9 @@ const BEATS: readonly Beat[] = [
     title: 'The wreck',
     checkpoint: { at: 'wreckFoot', loadout: KIT.shotgun },
     start: [
+      ...ARMOUR,
       { do: 'squad', tag: 'wreck.guard', men: ['trooper', 'gunner', 'trooper'], at: 'apronEast' },
-      { do: 'hint', text: 'Too high for one jump. Press {jump} again in the air, and hold {forward} to catch the edge.', seconds: 10 },
+      { do: 'hint', text: 'Too high for one jump. Stand close, press {jump} twice, and hold {forward} to catch the edge.', seconds: 10 },
       { do: 'rack', weapon: 'rocket', at: 'rocketRack' },
       { do: 'drop', item: 'ammo', at: 'wreckAmmo' },
     ],
@@ -200,6 +213,7 @@ const BEATS: readonly Beat[] = [
     title: 'Turning it round',
     checkpoint: { at: 'wreckDeck', loadout: KIT.launcher },
     start: [
+      ...ARMOUR,
       { do: 'objective', id: 'armour', text: 'Destroy the armour' },
       commander('wreck.changes'),
       council('wreck.balance'),
@@ -272,6 +286,7 @@ const BEATS: readonly Beat[] = [
     start: [
       { do: 'done', id: 'citadel' },
       { do: 'door', door: 'blastDoor', open: 0, seconds: 0.2 },
+      { do: 'sweep' },
       commander('breach.under'),
       commander('breach.locked', true),
       { do: 'call', name: 'lights', arg: 'emergency' },
@@ -333,7 +348,7 @@ const BEATS: readonly Beat[] = [
       { do: 'objective', id: 'gallery', text: 'Cross the cable gallery' },
       commander('gal.walkway', true),
       council('gal.walls'),
-      { do: 'hint', text: 'Jump at the lit wall on a shallow line and keep {forward} held. Jump off before it ends.', seconds: 12 },
+      { do: 'hint', text: 'Jump at the lit wall on a shallow line and keep {forward} held. Press {jump} to leave it, then {jump} again.', seconds: 12 },
     ],
     until: { zone: 'galleryFar' },
   },
@@ -453,12 +468,13 @@ const BEATS: readonly Beat[] = [
     start: [
       { do: 'done', id: 'mission' },
       { do: 'music', state: 'menu' },
-      { do: 'door', door: 'sallyNorth', open: 1, seconds: 0 },
+      // His last words and the Council's receipt have the box to themselves.
+      { do: 'wait', seconds: 8 },
+      council('end.complete'),
+      council('end.fee'),
+      pilot('end.walk'),
+      council('end.retained'),
       { do: 'cutscene', id: 'ending' },
-      council('end.complete', true),
-      council('end.fee', true),
-      pilot('end.walk', true),
-      council('end.retained', true),
       { do: 'finish' },
     ],
   },
@@ -486,6 +502,7 @@ export const OUTPOST: Mission = {
     ending: {
       shots: [
         { from: [0, 18, -34], to: [0, 30, -10], lookFrom: [0, 4, 30], lookTo: [0, 0, 50], seconds: 12 },
+        { from: [0, 30, -10], to: [0, 70, 30], lookFrom: [0, 0, 50], lookTo: [0, 0, 20], seconds: 12 },
       ],
     },
   },

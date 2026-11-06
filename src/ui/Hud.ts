@@ -36,6 +36,7 @@ import { Screens, type ScreenName } from './screens/Screens';
 import { Flythrough } from './screens/flythrough';
 import { isTitanWave } from '../enemies/waves';
 import type { CommsKind } from '../enemies/outpost/events';
+import { MISSION_ID } from '../campaign/select';
 import { ACTIVE } from '../contracts/select';
 import { CommanderHud } from './commander';
 
@@ -137,7 +138,8 @@ export class Hud implements HudSystem {
     this.minimap = new Minimap(ctx, this.worldLayer);
     this.scoreboard = new Scoreboard(this.report);
     this.commander = ACTIVE.def.ai === 'outpost' ? new CommanderHud(ctx, this.settings) : null;
-    if (this.commander) this.commander.onFulfilled = () => this.fulfilled();
+    // A mission has an ending of its own to get through after he falls.
+    if (this.commander) this.commander.onFulfilled = () => { if (!MISSION_ID) this.fulfilled(); };
 
     this.hud = div('hud',
       this.lowFrame.el,

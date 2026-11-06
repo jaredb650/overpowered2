@@ -8,6 +8,7 @@ import type { Ctx, GameEvents, MusicState } from '../core/contracts';
 import type { CallInId, EnemyId, EnemyInstance, PickupKind, WeaponId } from '../core/gameplay';
 import type { AdaptationId } from '../enemies/commander/adaptations';
 import type { Line } from '../enemies/commander/lines';
+import type { Enemy } from '../enemies/Enemy';
 import type { EnemyManager } from '../enemies/EnemyManager';
 import { MAX_HOSTILE } from '../enemies/outpost/doctrine';
 import type { OutpostSquad } from '../enemies/outpost/squad';
@@ -144,6 +145,21 @@ export class GameHost implements MissionHost {
     if (!squads) return;
     for (const squad of squads) squad.directed = false;
     this.held.delete(tag);
+  }
+
+  sweep(): void {
+    for (const a of this.arrivals) for (let i = a.seat; i < a.men.length; i++) this.runner.unitGone(a.tag, false, '');
+    this.arrivals.length = 0;
+    const { events } = this.ctx;
+    const { manager } = this;
+    for (const e of [...manager.alive]) {
+      events.emit('enemy:escaped', { enemy: e });
+      manager.withdraw(e as Enemy);
+    }
+  }
+
+  place(at: Mark): void {
+    this.ctx.player.teleport(_v.set(...at.at), at.yaw);
   }
 
   private spawnNext(dt: number): void {

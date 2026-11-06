@@ -117,11 +117,19 @@ export type Step =
   | { do: 'banner'; text: string; sub?: string }
   /** `open` is a share of fully open. `wait` holds the script until it stops moving. */
   | { do: 'door'; door: string; open: number; seconds?: number; wait?: boolean }
-  | { do: 'squad'; tag: string; men: readonly EnemyId[]; at: string; orders?: SquadOrders }
+  | { do: 'squad'; tag: string; men: readonly EnemyId[]; at: string; orders?: SquadOrders; ensure?: boolean }
   /** Lets a holding squad go. */
   | { do: 'release'; tag: string }
-  /** `route` is what it drives or flies. `crew` get out at the end of it, under `crewTag`, or the vehicle's tag if unset. */
-  | { do: 'vehicle'; tag: string; kind: VehicleKind; at: string; route?: string; crew?: readonly EnemyId[]; crewTag?: string; holds?: string }
+  /** Takes everyone still on the map off it, unseen and unscored: the fight has moved on and they cannot follow. */
+  | { do: 'sweep' }
+  /** Puts the player on a mark. For the rare player fast enough to get somewhere the story says they cannot be. */
+  | { do: 'place'; at: string }
+  /**
+   * `route` is what it drives or flies. `crew` get out at the end of it, under `crewTag`, or the vehicle's tag if unset. `holds` is a
+   * mark it stays on once there. On this and `squad`, `ensure` only spawns if the tag has nothing on the books, which is how a beat
+   * says "these should be here by now" and still has them after a restart.
+   */
+  | { do: 'vehicle'; tag: string; kind: VehicleKind; at: string; route?: string; crew?: readonly EnemyId[]; crewTag?: string; holds?: string; ensure?: boolean }
   /** The Commander, in person. */
   | { do: 'boss'; tag: string; at: string }
   /** Hands over a weapon on the spot. */
@@ -221,6 +229,9 @@ export interface MissionHost {
   /** Sends these men to the map. The runner has already counted them. */
   squad(order: SquadOrder, at: Mark): void;
   release(tag: string): void;
+  /** Each body taken off still ends in `unitGone`. */
+  sweep(): void;
+  place(at: Mark): void;
   /** One body for the vehicle's tag, plus one per man of crew under the crew's. */
   vehicle(order: VehicleOrder, at: Mark, route: readonly Mark[]): void;
   boss(tag: string, at: Mark): void;

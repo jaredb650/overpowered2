@@ -1,6 +1,6 @@
 // A grenade into a crowd on the Test Range, several tries on one sheet: a row per try, a column per moment. AI off, real rings, real gore.
 //   BLAST_TRIES=4 node tools/shot.mjs --url "/?map=range" --script tools/scripts/blast-seq.mjs --dpr 2 --w 1440 --h 900 --wait 500 --timeout 170 --out tools/out/blast.png
-// BLAST_ID picks the body, BLAST_KIND the blast, BLAST_THROWN=1 throws a real grenade in the last try. The sheet is <out>-sheet.png. On the Outpost add &contract=outpost.
+// BLAST_ID picks the body, BLAST_KIND the blast, BLAST_NAME the sheet, which lands at <name>-sheet.png next to --out. On the Outpost add &contract=outpost.
 const tries = Number(process.env.BLAST_TRIES ?? 4);
 const id = process.env.BLAST_ID ?? 'trooper';
 const kind = process.env.BLAST_KIND ?? 'grenade';

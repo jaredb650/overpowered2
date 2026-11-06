@@ -42,6 +42,8 @@ interface Save {
   index: number;
   doors: Map<string, number>;
   objectives: ObjectiveState[];
+  /** Tags already dealt with. They stay dealt with. Anything still alive at the save comes back through `ensure`. */
+  gone: Map<string, number>;
 }
 
 interface Spoken {
@@ -160,6 +162,7 @@ export class MissionRunner implements WatchFacts {
     const { save, mission } = this;
     this.closeBeat();
     this.tags.clear();
+    for (const [tag, spawned] of save.gone) this.tags.set(tag, { spawned, left: 0 });
     this.state = 'running';
     this.doors.clear();
     for (const [id, open] of save.doors) this.setDoor(id, open, 0, noop);
@@ -263,10 +266,16 @@ export class MissionRunner implements WatchFacts {
     this.closeBeat();
     this.index = index;
     const beat = this.mission.beats[index]!;
-    if (beat.checkpoint || !this.save) this.save = { index, doors: new Map(this.doors), objectives: this.objectiveList.map(o => ({ ...o })) };
+    if (beat.checkpoint || !this.save) this.saveHere(index);
     for (const cue of beat.cues ?? []) this.cues.push({ watch: arm(cue.when, this), cue });
     this.until = beat.until ? arm(beat.until, this) : null;
     if (beat.start) this.begin(beat.start);
+  }
+
+  private saveHere(index: number): void {
+    const gone = new Map<string, number>();
+    for (const [tag, book] of this.tags) if (book.left === 0) gone.set(tag, book.spawned);
+    this.save = { index, doors: new Map(this.doors), objectives: this.objectiveList.map(o => ({ ...o })), gone };
   }
 
   /** The last checkpoint at or before this beat, or the mission's opening kit before the first one, plus anything found on the way. */
@@ -394,13 +403,21 @@ export class MissionRunner implements WatchFacts {
         return;
       }
       case 'squad':
+        if (step.ensure && this.spawned(step.tag) > 0) return;
         this.book(step.tag, step.men.length);
         host.squad(step, this.mark(step.at));
         return;
       case 'release':
         host.release(step.tag);
         return;
+      case 'sweep':
+        host.sweep();
+        return;
+      case 'place':
+        host.place(this.mark(step.at));
+        return;
       case 'vehicle':
+        if (step.ensure && this.spawned(step.tag) > 0) return;
         this.book(step.tag, 1);
         if (step.crew && step.crew.length > 0) this.book(step.crewTag ?? step.tag, step.crew.length);
         host.vehicle(step, this.mark(step.at), this.route(step.route));

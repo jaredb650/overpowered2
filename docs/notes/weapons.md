@@ -41,7 +41,7 @@ All additive, in `src/core/gameplay.ts`.
 - `ShotSpec.cleave`, kills split along the line of the shot, up to this many.
 - `ExplosionSpec.worldObject`, set by combat's own `world:explosion` handler. Skips FX, sound and neighbour damage, because the world did those.
 
-Also `Combat.wakeCorpse(hit, dir)` on the concrete class, for projectiles.
+- `DamageInfo.reach` and `blastKind`, a blast's splash, which is what `src/enemies/blast.ts` rolls on. `DamageInfo.pierces`, a shaped charge's direct hit.
 
 One change outside this system: `Player.rideGround` in `src/player/Player.ts` adds `world.objects.platformVelocity` to position while grounded, swept so a wall stops it. Added to position rather than velocity, so the deck's speed never reads as the player's own. `docs/notes/player.md` and `world.md` still say moving geometry does not carry the player; their owners should drop that line. `Weapons.ts` also imports the plain `MOVE` table from `src/player/tuning.ts`.
 
@@ -65,6 +65,10 @@ Pixels from the gun at 1280x720, median / max, from `RL_GROUP=view`. Old is the 
 
 **Slash crescents.** The cut runs on the true swing plane, which is what `gore.slice` gets. But that plane contains the eye, so a crescent drawn on it is an invisible hairline from first person. `Sword.crescent` turns the drawn plane about the blade's direction, with its apex crossing the view. The trail you see is therefore not exactly where the cut is.
 
+**Rocket fuse.** `PROXIMITY` goes off 1.25 m from a body's centre, for a skimming hit. That reaches further than a frame's flight plus the contact ray, so at 60 fps every straight shot went off short and no rocket ever touched anyone. `sweepEnemies` now looks `ON_COURSE` metres on, and a rocket that will land flies on and lands. A direct kill gibs, through `bursts`.
+
+**Shaped charges.** `SHAPED_CHARGE` is the one table. On a body with armour left, `strike` multiplies a direct hit and sets `pierces`, so the plates are not touched, and `blastEnemies` cuts the splash. Everything else takes the blast as written. Measured with real rockets on a Brute: direct 200 through intact plates against 100 bare, splash at 3 m 32.5 against 81.3. An autocannon shell already kills what it hits, so on armour what matters is that it goes through, and that a boss takes 1800 instead of 900. Its splash is 105 on armour and the end of anything bare.
+
 **Hit-stop.** `Feel.stop` drops any stop within `HIT_STOP.minGap` of the last, unless forced, so automatic fire does not stutter. `time.hitStop` takes the longest, so stops do not add up.
 
 **Ammo.** The guns can run dry, the player cannot. In order:
@@ -73,7 +77,7 @@ Pixels from the gun at 1280x720, median / max, from `RL_GROUP=view`. Old is the 
 2. Every sword kill pays half a magazine into the last gun you held, or the gun in hand for a quick melee.
 3. Every wave clear lifts each owned gun to 20% of max reserve. It is a floor, so a stocked gun gets nothing.
 
-**Stake pins.** `gore.pin` needs a ragdoll, and a body killed through the head stands in a scripted hold without one. So `Projectiles.nail` ends the hold with `combat.wakeCorpse` and the pin goes in a frame later, for every stake. `pinReach` is 7.5 m because gore drags a bone at 26 m/s for 0.3 s; past that the bone stops short and the body hangs off the wall on nothing.
+**Stake pins.** `gore.pin` needs a ragdoll that has stepped once, so `Projectiles.nail` queues the pin and it goes in a frame later, for every stake. `pinReach` is 7.5 m because gore drags a bone at 26 m/s for 0.3 s; past that the bone stops short and the body hangs off the wall on nothing.
 
 **Buzzsaw slowdown** is written to velocity, because progression rewrites `modifiers.speed` every frame, after weapons run. The player re-accelerates at 120 Hz between our once-a-frame clamps, so the clamp sits half a frame's regain below the target. It reads `MOVE.runSpeed` and `MOVE.groundAccel` directly, because a copy of those went stale when DESIGN section 13 retuned the ground.
 
@@ -91,7 +95,9 @@ Measured over 80 s of the real game, with the bot holding the trigger on the SMG
 | Ammo pressure | `reserve`, `maxReserve` per weapon, `TUNING.ammo` |
 | Rocket jump | `TUNING.rocket.playerPush`, `selfDamage`. `EXPLOSIONS.rocket.selfCap` |
 | Sword | `SWORD.chain[]`, `.area`, `.finisher`, `.lunge`, `.windup` |
-| Blast feel | `EXPLOSIONS[kind]`: `shake`, `shakeRange`, `edgeDamage`, `gibZone`, `impulse`, `selfCap` |
+| Blast feel | `EXPLOSIONS[kind]`: `shake`, `shakeRange`, `edgeDamage`, `impulse`, `selfCap` |
+| What a blast does to a body | `BLAST` and `OUTCOMES` in `src/enemies/blast.ts` |
+| Armour against rockets and shells | `SHAPED_CHARGE` |
 | Push on bodies | `force` in each `WEAPONS` row, `TUNING.shotgun.pointBlankForce`, `TUNING.blastForce`, `EXPLOSIONS[kind].impulse`. Bands are in `src/gore/forces.test.ts`, the measured table in `docs/notes/lab.md` |
 | Impact | `HIT_STOP`. 30 ms reads as a punch, 100 ms as a stumble |
 
@@ -109,7 +115,7 @@ RL_GROUP=guns node tools/shot.mjs --url "/?sandbox=range&live=1&load=husk,troope
 
 ## Verified
 
-In the real game against real enemies, with `range-live.mjs`, zero console errors in every run. `/?sandbox=range` passes 167 of 167.
+In the real game against real enemies, with `range-live.mjs`, zero console errors in every run. `/?sandbox=range` passes 180 of 180.
 
 | Thing | Result |
 |---|---|
@@ -147,6 +153,6 @@ In the real game against real enemies, with `range-live.mjs`, zero console error
 - **Buzzsaw slowdown lives on velocity.** A `moveScale` read by progression when it writes `modifiers.speed` would be cleaner, but that is not this system's file.
 - **The crane does not pass its speed on.** Jump off a moving deck and you lose its 4 m/s. Riding drifted 11 cm over 6.4 m of travel.
 - **The slash crescent is a stand-in for the cut**, tilted so it can be seen. See above.
-- **Rockets hit twice on a direct hit**: the contact strike, then the blast. That is deliberate and only shows on targets that survive 100.
+- **Rockets hit twice on a direct hit**: the contact strike, then the blast. That is deliberate and only shows on targets that survive 100. Before the fuse was fixed, that meant nothing: see Rocket fuse.
 - **`fx.chips` on a headshot and gore's own headshot stack both run**, so a head kill has chips, sound and stops from both systems. It reads well, but it is two owners for one moment.
 - **A large red disc with a white cross** appears on a brute at 5 m in `rl-heavy-stake-limb.png`. It is not weapons code. `telegraph.glint` in `src/enemies/telegraph.ts` is the likely source, but I did not trace this one. It may be worth a size check at point-blank.

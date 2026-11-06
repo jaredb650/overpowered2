@@ -20,9 +20,11 @@ const RUN_UP = 28;
 const START_Z = 24;
 /** Metres short of a wall to jump from, for the lanes that end in one. */
 const WALL_TAKEOFF = 2;
+/** Frames between leaving a wall and the second jump: about a quarter of a second. */
+const SECOND_JUMP_FRAMES = 15;
 
 /** Lanes run north along -z from a lip at z = 0, each with its own x. */
-const LANE = { mantle: 0, double: 40, dash: 80, wall: 120, slide: 160, walk: 200 } as const;
+const LANE = { mantle: 0, double: 40, dash: 80, wall: 120, slide: 160 } as const;
 
 function box(ph: PhysicsSystem, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number): void {
   ph.addStaticBox(V((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2), V((x1 - x0) / 2, (y1 - y0) / 2, (z1 - z0) / 2), null, 'concrete');
@@ -45,16 +47,15 @@ function build(ph: PhysicsSystem): void {
   deck(ph, LANE.dash);
   box(ph, LANE.dash - HALF_WIDTH, -2, -PARKOUR.dash.gap - 20, LANE.dash + HALF_WIDTH, 0, -PARKOUR.dash.gap);
 
-  // The gallery: a low ceiling over the whole gap, and a run wall that starts at the lip.
+  // The gallery: a low ceiling over all of it, and one long wall down the east side.
   const { gap, headroom, wallPast, width } = PARKOUR.wallRun;
   const x = LANE.wall;
   const half = width / 2;
-  box(ph, x - half - 2, -2, 0, x + half + 2, 0, RUN_UP + 4);
+  box(ph, x - half, -2, 0, x + half, 0, RUN_UP + 4);
   box(ph, x - half, -2, -gap - 20, x + half, 0, -gap);
-  box(ph, x + half, -2, -gap - wallPast, x + half + 1, headroom + 1, 0);
+  box(ph, x + half, -2, -gap - wallPast, x + half + 1, headroom + 1, RUN_UP + 4);
   box(ph, x - half - 1, -2, -gap - 20, x - half, headroom + 1, RUN_UP + 4);
-  box(ph, x + half + 1.5, -2, 0, x + half + 2.5, headroom + 1, RUN_UP + 4);
-  box(ph, x - half - 2, headroom, -gap - 20, x + half + 3, headroom + 1, RUN_UP + 4);
+  box(ph, x - half - 1, headroom, -gap - 20, x + half + 1, headroom + 1, RUN_UP + 4);
 
   // The yard before the blast door, with a wall either side so nobody goes round.
   const s = LANE.slide;
@@ -164,8 +165,24 @@ describe('double jump, the wreck', () => {
     }
   });
 
-  it('is reached with a second jump and forward held', () => {
-    expect(anyTiming(() => onTop(PARKOUR.doubleJump.ledge), LANE.double, doubles, WALL_TAKEOFF)).toBe(true);
+  it('is reached from a stand at the hull', () => {
+    for (const wait of [0.1, 0.2, 0.3, 0.4]) {
+      place(LANE.double, 1);
+      tap('jump');
+      for (let t = 0; t < wait; t += DT) frame();
+      game.input.simulate('forward', true);
+      tap('jump');
+      for (let i = 0; i < 90; i++) frame();
+      expect(onTop(PARKOUR.doubleJump.ledge)).toBe(true);
+    }
+  });
+
+  it('is reached from a run, with the second press well short of the hull', () => {
+    for (const takeoff of [6, 7, 8]) expect(anyTiming(() => onTop(PARKOUR.doubleJump.ledge), LANE.double, doubles, takeoff)).toBe(true);
+  });
+
+  it('kicks a runner off the hull if the second press comes at it', () => {
+    expect(anyTiming(() => onTop(PARKOUR.doubleJump.ledge), LANE.double, doubles, 3)).toBe(false);
   });
 });
 
@@ -191,7 +208,7 @@ describe('wall run, the cable gallery', () => {
   });
 
   /** Runs in a little off the wall, turns into it, and jumps `from` metres before the lip. Forward stays held. */
-  function run(from: number, turn: number, kickAfter: number | null): boolean {
+  function run(from: number, turn: number, kickAfter: number | null, thenJump = false): boolean {
     const p = game.player;
     place(LANE.wall + width / 2 - 2.2, START_Z);
     game.input.simulate('forward', true);
@@ -212,6 +229,10 @@ describe('wall run, the cable gallery', () => {
         frame();
         tap('jump');
         kicked = true;
+        if (thenJump) {
+          for (let i = 0; i < SECOND_JUMP_FRAMES; i++) frame();
+          tap('jump');
+        }
       }
       frame();
     }
@@ -219,16 +240,19 @@ describe('wall run, the cable gallery', () => {
     return across(gap);
   }
 
-  it('is crossed by a wall run from anywhere near the lip, at a range of angles', () => {
-    const made: string[] = [];
-    const missed: string[] = [];
-    for (const from of [0.5, 2, 4]) for (const turn of [0.22, 0.3, 0.4]) (run(from, turn, null) ? made : missed).push(`${from} m, ${turn} rad`);
-    expect(missed).toEqual([]);
-    expect(made.length).toBeGreaterThan(0);
+  it('is crossed by a wall run alone only from the very lip', () => {
+    for (const turn of [0.22, 0.3, 0.4]) expect(run(0.5, turn, null)).toBe(true);
+    expect(run(4, 0.3, null)).toBe(false);
   });
 
-  it('is also crossed by jumping off the wall late', () => {
-    expect(run(2, 0.3, 1.2)).toBe(true);
+  it('is crossed by leaving the wall with a jump and jumping again, from anywhere in the last 8 m', () => {
+    for (const from of [0.5, 2, 4, 6, 8]) for (const turn of [0.3, 0.4]) expect(run(from, turn, 1.3, true)).toBe(true);
+  });
+
+  it('forgives the moment of leaving by about half a second', () => {
+    let made = 0;
+    for (const leave of [0.9, 1.1, 1.3, 1.5]) if (run(4, 0.3, leave, true)) made++;
+    expect(made).toBeGreaterThanOrEqual(3);
   });
 });
 

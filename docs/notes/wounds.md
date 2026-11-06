@@ -66,7 +66,7 @@ Position alone cannot find a heart from behind, so `zones.ts` tests the round's 
 | Carotid | 30% | | | CAROTID. Down at once, jets, no voice, gone in 3 s |
 | Spine | 1.2% | | | SPINED. From behind only. Legs fail, arms only, never stands |
 | Pelvis | 2% | | | PELVIS. Legs fail, drags, never stands |
-| Head | | | | Dead. A glancing hit (the outer fifth) is RINGING: 2.4 s stunned, no orders |
+| Head | | | | Dead. A glancing hit (the outer fifth) is RINGING: 2.4 s stunned, no orders. A shotgun or a heavy round he lives through knocks him down, helmet or not |
 
 Wounds stack: `Injuries.add` deepens a wound in the same place and adds a new one anywhere else. Speed takes the worst, aim multiplies, bleed sums.
 
@@ -93,6 +93,7 @@ Wounds stack: `Injuries.add` deepens a wound in the same place and adds a new on
 - **`Reflex.pickGetUp` asks `anim.prone`.** That is how a man lands and stays down whichever way up. The posture has to be set before gore starts, which is `stayDown`. Get this wrong and he jerks up to his knees as gore hands him back.
 - **Crawling drives the body, not a behaviour,** so a body with its AI off crawls like one in a fight. `downed` in `behaviours.ts` only keeps other behaviours out.
 - **`pose()` in `soldier.ts` is the one way to set a posture.** It lets a wound overrule whatever a behaviour asks for.
+- **A blast's ring goes before `take`.** `rollBlast` settles what comes off his health, so `takeArea` only sees what is left, and a ring that spared him stays spared. A plate is taken off first, then the roll, so a plated man in the middle ring ends up nearly dead instead of dead: over 54 bodies, 17 died, 37 were left on 35% of their health or less, and none were healthier.
 - **Plates are real, and the front only.** Round to the back and there is nothing there. That is what makes flanking and spine shots worth it.
 - **The rifle drops when he goes down.** Nobody crawls with one. If he is stood back up he goes for it, or draws, or runs.
 - **Humans keep their heads to light rounds.** `gore.headshot` pops a head off under 40 damage, which on every SMG headshot was exactly "like clay". They get a ragdoll with twitch instead.
@@ -109,7 +110,8 @@ Needed for the crawl, and all additive. `HumanoidAnimator.ts`: `prone` forces th
 | `rules.ts` `ZONES` | Label, bonus, bleed, speed, aim, and the flags per zone |
 | `rules.ts` `WoundTuning` | Every clock, chance and threshold above |
 | `rules.ts` `CHARACTER` | Weapon character |
-| `contracts/data.ts` `FACTIONS` | `pointBlankOnly`, `blastBurst`, `blastLimb`, `limbWear` |
+| `contracts/data.ts` `FACTIONS` | `blastLimb`, `limbWear` |
+| `enemies/blast.ts` | What a blast does to any body, by ring. See `docs/notes/enemies.md` |
 | `armour.ts` | Who wears what, plate strength, `CRACKED` |
 | `crawl.ts` | `CRAWL_SPEED`, reach, `RESCUER_CLOSE` |
 | `doctrine.ts` `ROLES` | `twoHanded`, `sidearm` |

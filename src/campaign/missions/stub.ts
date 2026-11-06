@@ -10,6 +10,8 @@ const LINES: readonly Line[] = [
   { id: 'stub.commander.gate', speaker: 'commander', emotion: 'smug', text: 'Door\'s shut. Come in when you have an appointment.' },
   { id: 'stub.commander.contact', speaker: 'commander', emotion: 'smug', text: 'Two squads. Try not to enjoy it.' },
   { id: 'stub.commander.again', speaker: 'commander', emotion: 'smug', text: 'You again. We kept your seat warm.' },
+  { id: 'stub.commander.person', speaker: 'commander', emotion: 'cracked', text: 'Fine. I will do it myself.' },
+  { id: 'stub.commander.half', speaker: 'commander', emotion: 'cracked', text: 'That hurt. I am writing that down.' },
   { id: 'stub.radio.end', speaker: 'radio', emotion: 'urgent', text: 'That is the whole test. Stand by for paperwork.' },
 ];
 
@@ -109,14 +111,30 @@ export const STUB: Mission = {
         { do: 'door', door: 'north', open: 1 },
         { do: 'objective', id: 'rocket', text: 'Take the launcher', at: 'rack' },
         { do: 'rack', weapon: 'rocket', at: 'rack' },
+        { do: 'adapt' },
+        { do: 'field', answer: 'spread' },
       ],
       until: { signal: 'took:rocket' },
+    },
+    {
+      id: 'boss',
+      title: 'The man himself',
+      checkpoint: { at: 'court', loadout: { weapons: ['rocket', 'smg', 'sword'], grenades: 1 } },
+      start: [
+        { do: 'done', id: 'rocket' },
+        { do: 'say', line: 'stub.commander.person' },
+        { do: 'objective', id: 'boss', text: 'Kill the Commander' },
+        { do: 'boss', tag: 'him', at: 'court' },
+      ],
+      cues: [{ when: { below: 0.5, tag: 'him' }, run: [{ do: 'say', line: 'stub.commander.half' }] }],
+      until: { cleared: 'him' },
     },
     {
       id: 'done',
       title: 'Paperwork',
       start: [
-        { do: 'done', id: 'rocket' },
+        { do: 'done', id: 'boss' },
+        { do: 'sweep' },
         { do: 'say', line: 'stub.radio.end', wait: true },
         { do: 'finish' },
       ],

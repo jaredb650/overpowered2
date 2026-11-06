@@ -586,6 +586,21 @@ const tests: Record<string, (r: Rig) => void> = {
     r.input.simulate('fire', false);
     check('shell kills', !d.alive, d.health);
   },
+  'rockets: a straight shot lands on the body, and a near miss goes off beside it'(r) {
+    const fire = (x: number): Dummy => {
+      clean(r, 'rocket');
+      const d = r.enemies.add(x, -12, 1e7);
+      r.player.eye.y = 1;
+      r.input.simulate('fire', true);
+      run(r, 0.5, 60);
+      r.input.simulate('fire', false);
+      return d;
+    };
+    const straight = fire(0);
+    check('touches what it was aimed at', straight.hits.length > 0 && straight.hits[0]!.reach === undefined, straight.hits[0]?.reach);
+    const skimmed = fire(0.9);
+    check('a skimming shot still goes off', skimmed.hits.length > 0 && skimmed.hits[0]!.reach !== undefined, skimmed.hits[0]?.reach);
+  },
   'shaped charges: a direct hit goes through armour, and its splash does little to it'(r) {
     for (const [weapon, kind] of [['rocket', 'rocket'], ['autocannon', 'shell']] as const) {
       const charge = SHAPED_CHARGE[kind]!;

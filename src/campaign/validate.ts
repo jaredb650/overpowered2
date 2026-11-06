@@ -22,7 +22,8 @@ export function validateMission(m: Mission): string[] {
   const problems: string[] = [];
   const lineIds = new Set(m.lines.map(l => l.id));
   const beatIds = m.beats.map(b => b.id);
-  const spawned = new Set<string>();
+  /** Tag to the beats that spawn it. */
+  const spawned = new Map<string, number[]>();
 
   if (lineIds.size !== m.lines.length) problems.push('two lines share an id');
   if (new Set(beatIds).size !== beatIds.length) problems.push('two beats share an id');
@@ -41,6 +42,7 @@ export function validateMission(m: Mission): string[] {
       case 'boss':
       case 'rack':
       case 'drop':
+      case 'place':
         need(m.marks[step.at], `mark ${step.at}`);
         break;
       case 'vehicle':
@@ -62,28 +64,71 @@ export function validateMission(m: Mission): string[] {
     });
   };
 
-  const noteSpawns = (step: Step): void => {
-    if (step.do === 'squad' || step.do === 'boss') spawned.add(step.tag);
+  const noteSpawns = (index: number) => (step: Step): void => {
+    const note = (tag: string): void => {
+      const beats = spawned.get(tag);
+      if (beats) beats.push(index);
+      else spawned.set(tag, [index]);
+    };
+    if (step.do === 'squad' || step.do === 'boss') note(step.tag);
     if (step.do === 'vehicle') {
-      spawned.add(step.tag);
-      if (step.crew?.length) spawned.add(step.crewTag ?? step.tag);
+      note(step.tag);
+      if (step.crew?.length) note(step.crewTag ?? step.tag);
     }
   };
 
   // Every tag anywhere, so a cue may wait on a squad its own beat brings in later.
-  for (const beat of m.beats) {
-    eachStep(beat.start, noteSpawns);
-    for (const cue of beat.cues ?? []) eachStep(cue.run, noteSpawns);
-  }
+  m.beats.forEach((beat, index) => {
+    eachStep(beat.start, noteSpawns(index));
+    for (const cue of beat.cues ?? []) eachStep(cue.run, noteSpawns(index));
+  });
 
-  const checkTags = (where: string, trigger: Trigger): void => {
+  /** The beat a death here goes back to. */
+  const savedAt = (index: number): number => {
+    for (let i = index; i > 0; i--) if (m.beats[i]!.checkpoint) return i;
+    return 0;
+  };
+
+  const checkTags = (where: string, index: number, trigger: Trigger): void => {
     eachTrigger(trigger, t => {
       const tags = 'cleared' in t ? (typeof t.cleared === 'string' ? [t.cleared] : t.cleared) : 'left' in t || 'below' in t ? [t.tag] : 'kills' in t && t.tag ? [t.tag] : [];
-      for (const tag of tags) if (!spawned.has(tag)) problems.push(`${where}: nothing spawns under ${tag}`);
+      for (const tag of tags) {
+        const beats = spawned.get(tag);
+        if (!beats) problems.push(`${where}: nothing spawns under ${tag}`);
+        else if (!beats.some(b => b >= savedAt(index) && b <= index)) problems.push(`${where}: a restart here never brings back ${tag}`);
+      }
     });
   };
 
   const given = new Set(m.loadout.weapons);
+  const named = { zones: new Set<string>(), marks: new Set<string>(), doors: new Set<string>() };
+  for (const route of Object.values(m.routes)) for (const mark of route) named.marks.add(mark);
+  const noteName = (step: Step): void => {
+    if ('at' in step && step.at) named.marks.add(step.at);
+    if (step.do === 'door') named.doors.add(step.door);
+    if (step.do === 'vehicle' && step.holds) {
+      named.marks.add(step.holds);
+      if (!m.marks[step.holds]) problems.push(`vehicle ${step.tag}: no mark ${step.holds}`);
+    }
+    if (step.do === 'until') eachTrigger(step.when, t => noteZone(t));
+  };
+  const noteZone = (t: Trigger): void => {
+    if ('zone' in t) named.zones.add(t.zone);
+  };
+  for (const beat of m.beats) {
+    if (beat.checkpoint) named.marks.add(beat.checkpoint.at);
+    eachStep(beat.start, noteName);
+    for (const cue of beat.cues ?? []) {
+      eachTrigger(cue.when, noteZone);
+      eachStep(cue.run, noteName);
+    }
+    if (beat.until) eachTrigger(beat.until, noteZone);
+  }
+  for (const [kind, table] of [['zone', m.zones], ['mark', m.marks], ['door', m.doors]] as const) {
+    const used = kind === 'zone' ? named.zones : kind === 'mark' ? named.marks : named.doors;
+    for (const id of Object.keys(table)) if (!used.has(id)) problems.push(`${kind} ${id} is never used`);
+  }
+
   m.beats.forEach((beat, index) => {
     const where = `beat ${beat.id}`;
     if (beat.checkpoint) {
@@ -94,17 +139,17 @@ export function validateMission(m: Mission): string[] {
     for (const script of scripts) {
       eachStep(script, step => {
         checkStep(where, step);
-        if ('when' in step) checkTags(where, step.when);
+        if ('when' in step) checkTags(where, index, step.when);
         if (step.do === 'give' || (step.do === 'rack' && !step.optional)) given.add(step.weapon);
       });
     }
     for (const cue of beat.cues ?? []) {
       checkTrigger(where, cue.when);
-      checkTags(where, cue.when);
+      checkTags(where, index, cue.when);
     }
     if (beat.until) {
       checkTrigger(where, beat.until);
-      checkTags(where, beat.until);
+      checkTags(where, index, beat.until);
     }
     if (!beat.until && !scripts.some(s => s?.some(step => step.do === 'goto' || step.do === 'finish'))) problems.push(`${where}: nothing ever ends it`);
     for (const step of beat.start ?? []) {

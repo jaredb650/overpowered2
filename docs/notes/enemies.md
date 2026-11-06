@@ -24,6 +24,18 @@ ctx.enemies.killAll(source);
 Events out: `enemy:spawned`, `enemy:hit`, `enemy:killed`, `enemy:severed`, `wave:start`, `wave:clear`. There is one kill path,
 `DamageModel.kill`, and it picks one death: gib, slice, headshot, crash, boss death or ragdoll.
 
+**Blast rings.** `blast.ts`, one table for every contract, read through `d.reach` and `d.blastKind`. How far out a body stood picks the ring, and how much of its health the blast took shapes the roll inside it.
+
+| Ring | Grenade, share of radius | What happens |
+|---|---|---|
+| Fireball | under 0.22 | Gib, if the blast kills it |
+| Maim | 0.22 to 0.62 | One roll per body: waist, head, limbs, arm and leg, arm, burn, flesh. Usually fatal or nearly so |
+| Toss | 0.62 to 1 | Thrown, limb, scorch, dazed. Capped at 55% of max health, so a healthy body lives and gets up |
+
+Machines roll `parts` and `sparks`, and nothing else. Bosses skip the rings. Each outcome rolled in a blast divides its own weight by 1 plus `repeat`, so a crowd cannot all go one way. `BLAST.cuts` caps limbs per blast at 12, because each costs 3 to 5 ms of mesh cutting in one frame. A kill from a shotgun pellet of 100 N·s or more in the trunk tears the waist 35% of the time.
+
+Over 100 simulated blasts on a crowd of 12, 1200 bodies: thrown 14%, burn 9%, scorch 9%, flesh 9%, head 8%, arm and leg 8%, arm 8%, dazed 8%, limb 7%, gib 7%, limbs 7%, waist 5%. No blast had under 6 kinds or over 4 of one kind.
+
 Reads from other systems: `world.nav`, `world.objects` (`hazardAt`, `padAt`, `setReactorState`), `gore`, `combat`, `characters`,
 `progression.isActive('ghost')`. No change to `src/core/gameplay.ts` was needed.
 
