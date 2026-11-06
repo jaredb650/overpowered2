@@ -1,7 +1,13 @@
 /**
- * Holes in a body's shadow. The moon's depth pass draws every caster with one plain material, which knows nothing of
- * wounds, and the skin's own program cannot stand in for it because it samples the very map being drawn. So an opened
- * body stops casting from its skin and casts from this: a cheap copy of itself that clips away in every other pass.
+ * The skin seen from inside, in one cheap draw that does two jobs for an opened body.
+ *
+ * In the main pass its back faces are the far wall of the body: what a hole looks onto past the flesh. The skin itself
+ * cannot do that, because going double-sided costs a body a third of its shading. Drawn after the skin, this loses the
+ * depth test everywhere but in the holes.
+ *
+ * In the moon's depth pass it is the shadow, holes and all. That pass draws every caster with one plain material, which
+ * knows nothing of wounds, and the skin's own program cannot stand in because it samples the map being drawn. The moon is
+ * the only orthographic camera a body ever sees, so `isOrthographic` tells the two apart.
  */
 import * as THREE from 'three';
 import { WOUND_COMMON, WOUND_REGION, WOUND_VERTEX_LOOP } from './glsl';
@@ -9,6 +15,7 @@ import { WOUND_COMMON, WOUND_REGION, WOUND_VERTEX_LOOP } from './glsl';
 const VERT_PARS = /* glsl */ `
 varying vec3 vBind;
 varying float vWoundNear;
+varying float vFacing;
 flat varying int vRegion;
 `;
 
@@ -19,25 +26,26 @@ ${WOUND_REGION}
 `;
 
 const VERT_MAIN = /* glsl */ `
-{
+vBind = position;
+vWoundNear = -1.0;
+vRegion = op2Region();
+if (isOrthographic) {
   vec3 op2Push = vec3(0.0), op2Tilt = vec3(0.0);
   float op2Near = -1.0;
   ${WOUND_VERTEX_LOOP}
-  vBind = position;
   vWoundNear = op2Near;
-  vRegion = op2Region();
   transformed += op2Push;
 }
 `;
 
-// The moon is the only orthographic camera a body ever sees. Anywhere else, all of this lands outside the clip volume.
-const VERT_CLIP = /* glsl */ `
-if (!isOrthographic) gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
+const VERT_FACING = /* glsl */ `
+vFacing = dot(transformedNormal, -mvPosition.xyz);
 `;
 
 const FRAG_PARS = /* glsl */ `
 varying vec3 vBind;
 varying float vWoundNear;
+varying float vFacing;
 flat varying int vRegion;
 uniform highp sampler2D boneTexture;
 uniform int uExtraBase;
@@ -45,6 +53,8 @@ ${WOUND_COMMON}
 `;
 
 const FRAG_MAIN = /* glsl */ `
+// The bake leaves the odd triangle wound backwards. Its normals still face out, and it is not the far wall of anything.
+if (!isOrthographic && vFacing > 0.0) discard;
 if (vWoundNear > 0.0) {
   int count = int(op2Extra(OP2_INFO).x);
   for (int i = 0; i < OP2_MAX_WOUNDS; i++) {
@@ -67,9 +77,11 @@ if (vWoundNear > 0.0) {
 }
 `;
 
-export function createShadowMaterial(extraBase: number): THREE.MeshBasicMaterial {
+export function createBackingMaterial(extraBase: number): THREE.MeshBasicMaterial {
   // Offset as the shared depth pass offsets, or a wounded body would shadow itself differently from a healthy one.
-  const material = new THREE.MeshBasicMaterial({ colorWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1.5, polygonOffsetUnits: 2 });
+  const material = new THREE.MeshBasicMaterial({ side: THREE.BackSide, polygonOffset: true, polygonOffsetFactor: 1.5, polygonOffsetUnits: 2 });
+  // Nothing in there has any light to speak of.
+  material.color.setRGB(0.012, 0.001, 0.001);
   material.allowOverride = false;
   material.onBeforeCompile = shader => {
     shader.uniforms.uExtraBase = { value: extraBase };
@@ -77,11 +89,11 @@ export function createShadowMaterial(extraBase: number): THREE.MeshBasicMaterial
       .replace('#include <common>', `#include <common>\n${VERT_PARS}`)
       .replace('#include <skinning_pars_vertex>', `#include <skinning_pars_vertex>\n${VERT_SKIN_PARS}`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>\n${VERT_MAIN}`)
-      .replace('#include <project_vertex>', `#include <project_vertex>\n${VERT_CLIP}`);
+      .replace('#include <project_vertex>', `#include <project_vertex>\n${VERT_FACING}`);
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>\n${FRAG_PARS}`)
       .replace('#include <color_fragment>', FRAG_MAIN);
   };
-  material.customProgramCacheKey = () => 'op2woundshadow';
+  material.customProgramCacheKey = () => 'op2backing';
   return material;
 }

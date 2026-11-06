@@ -109,6 +109,15 @@ describe('what each weapon leaves', () => {
     planner.onBody(body, damage({ type: 'fire', source: 'kiln', amount: 9 }), 0.1);
     expect(body.hits.map(h => h.kind)).toEqual([WoundKind.burn]);
   });
+
+  it('flame with no bone finds the side of the body it reached, and a burn tick with no direction leaves nothing', () => {
+    const { body, planner } = setup();
+    planner.onBody(body, damage({ type: 'fire', source: 'kiln', amount: 9, bone: undefined, point: place(body, B.chest, 0, 0.1, 0) }), 0.1);
+    expect(body.hits.map(h => h.kind)).toEqual([WoundKind.burn]);
+    expect(body.hits[0]!.point.z).toBeGreaterThan(0.1);
+    planner.onBody(body, damage({ type: 'fire', source: 'burn', amount: 3, bone: undefined, dir: new THREE.Vector3() }), 0.05);
+    expect(body.hits.length).toBe(1);
+  });
 });
 
 describe('breaking limbs', () => {

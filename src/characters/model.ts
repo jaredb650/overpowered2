@@ -30,6 +30,28 @@ function view<T extends ArrayBufferView>(buf: ArrayBuffer, base: number, meta: M
   return s ? new ctor(buf, base + s.offset, s.bytes / size) : null;
 }
 
+/**
+ * Per vertex, the longest edge touching it in any LOD, in centimetres. Whether a wound is near is worked out per vertex
+ * and interpolated, and on a big flat plate all three corners of a triangle can be far from a hole in its middle. A vertex
+ * that adds this much to its reach can never miss one.
+ */
+function longestEdges(pos: Float32Array, lods: readonly (Uint16Array | Uint32Array)[]): Uint8Array {
+  const out = new Uint8Array(pos.length / 3);
+  const edge = (a: number, b: number) => {
+    const cm = Math.min(255, Math.ceil(Math.hypot(pos[a * 3]! - pos[b * 3]!, pos[a * 3 + 1]! - pos[b * 3 + 1]!, pos[a * 3 + 2]! - pos[b * 3 + 2]!) * 100));
+    if (cm > out[a]!) out[a] = cm;
+    if (cm > out[b]!) out[b] = cm;
+  };
+  for (const index of lods) {
+    for (let i = 0; i < index.length; i += 3) {
+      edge(index[i]!, index[i + 1]!);
+      edge(index[i + 1]!, index[i + 2]!);
+      edge(index[i + 2]!, index[i]!);
+    }
+  }
+  return out;
+}
+
 export function parseModel(buf: ArrayBuffer): LoadedModel {
   const dv = new DataView(buf);
   if (dv.getUint32(0, true) !== MODEL_MAGIC) throw new Error('Not a character model file');
@@ -58,6 +80,7 @@ export function parseModel(buf: ArrayBuffer): LoadedModel {
   };
   const bounds = new THREE.Box3(new THREE.Vector3(...meta.bounds.min), new THREE.Vector3(...meta.bounds.max));
   const sphere = bounds.getBoundingSphere(new THREE.Sphere());
+  let edge: THREE.BufferAttribute;
   const make = (index: Uint16Array | Uint32Array) => {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', position);
@@ -68,6 +91,7 @@ export function parseModel(buf: ArrayBuffer): LoadedModel {
     if (skinIndex) g.setAttribute('skinIndex', skinIndex);
     if (skinWeight) g.setAttribute('skinWeight', skinWeight);
     g.setIndex(new THREE.BufferAttribute(index, 1));
+    g.setAttribute('aEdge', edge);
     g.boundingBox = bounds;
     g.boundingSphere = sphere;
     return g;
@@ -79,6 +103,7 @@ export function parseModel(buf: ArrayBuffer): LoadedModel {
     const l = idx(name);
     if (l) lodData.push(l);
   }
+  edge = new THREE.BufferAttribute(longestEdges(position.array as Float32Array, lodData), 1);
   const lods = lodData.map(l => make(l));
   const capIndices = idx('caps');
   const lodsWithCaps = capIndices?.length

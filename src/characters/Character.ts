@@ -27,8 +27,8 @@ export interface ArchetypeData {
   /** What is under the skin, shared by every body of this archetype. Null for machines, which get dents. */
   interior: THREE.BufferGeometry | null;
   interiorMaterial: THREE.Material | null;
-  /** What an opened body casts its shadow with. */
-  shadowMaterial: THREE.Material | null;
+  /** The inside of an opened body's skin, which is also what it casts its shadow with. */
+  backingMaterial: THREE.Material | null;
   /** World clock, read lazily so hit flash fades on corpses that nothing ticks any more. */
   time: { elapsed: number };
   /** Skeleton bone count, rig bones plus cap bones. */
@@ -132,6 +132,8 @@ const paint: WoundHit = { kind: WoundKind.graze, bone: 0, point: paintDir, dir: 
 
 /** Past this LOD a body is too far off for anything but paint. */
 const FAR_LOD = 2;
+/** From this LOD on, nothing under the skin is drawn. */
+const INSIDE_LOD = 1;
 
 function makeInside(a: ArchetypeData, skeleton: THREE.Skeleton): THREE.SkinnedMesh {
   const inside = new THREE.SkinnedMesh(a.interior!, a.interiorMaterial!);
@@ -143,12 +145,13 @@ function makeInside(a: ArchetypeData, skeleton: THREE.Skeleton): THREE.SkinnedMe
   return inside;
 }
 
-function makeCaster(a: ArchetypeData, geometry: THREE.BufferGeometry, skeleton: THREE.Skeleton): THREE.SkinnedMesh {
-  const caster = new THREE.SkinnedMesh(geometry, a.shadowMaterial!);
-  caster.castShadow = true;
-  caster.receiveShadow = false;
-  caster.bind(skeleton, new THREE.Matrix4());
-  return caster;
+function makeBacking(a: ArchetypeData, geometry: THREE.BufferGeometry, skeleton: THREE.Skeleton): THREE.SkinnedMesh {
+  const backing = new THREE.SkinnedMesh(geometry, a.backingMaterial!);
+  backing.renderOrder = 1;
+  backing.castShadow = true;
+  backing.receiveShadow = false;
+  backing.bind(skeleton, new THREE.Matrix4());
+  return backing;
 }
 
 export class Character implements CharacterInstance {
@@ -181,7 +184,7 @@ export class Character implements CharacterInstance {
   private readonly breaks: FracturePose;
   /** Null until a wound opens this body. */
   inside: THREE.SkinnedMesh | null = null;
-  private caster: THREE.SkinnedMesh | null = null;
+  private backing: THREE.SkinnedMesh | null = null;
   private readonly cullSphere: PropertyDescriptor;
   /** Hits taken per bone that did not break it on their own, so sustained fire gets there too. */
   readonly stress: Float32Array;
@@ -311,18 +314,21 @@ export class Character implements CharacterInstance {
     if (this.book.open === 0 || !this.a.interior) return;
     if (!this.inside) {
       this.inside = makeInside(this.a, this.skeleton);
-      this.caster = makeCaster(this.a, this.a.model.lods[this.a.model.lods.length - 1]!, this.skeleton);
+      this.backing = makeBacking(this.a, this.mesh.geometry, this.skeleton);
       Object.defineProperty(this.inside, 'boundingSphere', this.cullSphere);
-      Object.defineProperty(this.caster, 'boundingSphere', this.cullSphere);
-      this.root.add(this.inside, this.caster);
+      Object.defineProperty(this.backing, 'boundingSphere', this.cullSphere);
+      this.root.add(this.inside, this.backing);
     }
-    this.showInside(this.lod < FAR_LOD);
+    this.showInside(this.lod);
   }
 
-  private showInside(on: boolean): void {
-    this.inside!.visible = on;
-    this.caster!.visible = on;
-    this.mesh.castShadow = !on;
+  /** Past `INSIDE_LOD` a hole is a few pixels of dark, which the backing alone gives it. */
+  private showInside(lod: number): void {
+    const open = lod < FAR_LOD;
+    this.inside!.visible = lod < INSIDE_LOD;
+    this.backing!.visible = open;
+    this.backing!.geometry = this.mesh.geometry;
+    this.mesh.castShadow = !open;
   }
 
   /**
@@ -351,7 +357,8 @@ export class Character implements CharacterInstance {
   }
 
   setBloodiness(amount: number): void {
-    this.data[this.extras + EXTRA_PARAMS * 4] = amount;
+    // Machines do not bleed, whoever asks.
+    this.data[this.extras + EXTRA_PARAMS * 4] = this.a.interior ? amount : 0;
   }
 
   hitFlash(intensity: number): void {
@@ -385,7 +392,7 @@ export class Character implements CharacterInstance {
     this.mesh.geometry = set[i]!;
     // The last LOD indexes welded vertices, so its UVs are meaningless and it paints from vertex colour.
     this.mesh.material = i >= FAR_LOD ? this.a.farMaterial : this.book.count > 0 ? this.a.woundMaterial : this.a.material;
-    if (this.inside) this.showInside(i < FAR_LOD && this.book.open > 0);
+    if (this.inside) this.showInside(this.book.open > 0 ? i : FAR_LOD);
   }
 
   spawnSevered(boneIndex: number): SeveredLimb {
@@ -490,7 +497,7 @@ export class Character implements CharacterInstance {
     this.book.clear();
     this.breaks.reset();
     this.stress.fill(0);
-    if (this.inside) this.showInside(false);
+    if (this.inside) this.showInside(FAR_LOD);
     this.data.fill(0, this.extras, this.extras + EXTRA_TEXELS * 4);
     this.data[this.extras + EXTRA_INFO * 4 + 1] = Math.random() * 64;
     for (const p of this.props) p.object.visible = true;
@@ -525,7 +532,7 @@ export class SeveredPart implements SeveredLimb {
   private readonly data: Float32Array;
   private readonly book: WoundBook;
   private inside: THREE.SkinnedMesh | null = null;
-  private caster: THREE.SkinnedMesh | null = null;
+  private backing: THREE.SkinnedMesh | null = null;
   private clones: THREE.Object3D[] = [];
 
   constructor(private readonly a: ArchetypeData) {
@@ -563,18 +570,18 @@ export class SeveredPart implements SeveredLimb {
     if (this.book.open === 0 || !this.a.interior) return;
     if (!this.inside) {
       this.inside = makeInside(this.a, this.skeleton);
-      this.caster = makeCaster(this.a, this.mesh.geometry, this.skeleton);
+      this.backing = makeBacking(this.a, this.mesh.geometry, this.skeleton);
       this.inside.frustumCulled = false;
-      this.caster.frustumCulled = false;
-      this.root.add(this.inside, this.caster);
+      this.backing.frustumCulled = false;
+      this.root.add(this.inside, this.backing);
     }
-    this.caster!.geometry = this.mesh.geometry;
     this.showInside(true);
   }
 
   private showInside(on: boolean): void {
     this.inside!.visible = on;
-    this.caster!.visible = on;
+    this.backing!.visible = on;
+    this.backing!.geometry = this.mesh.geometry;
     this.mesh.castShadow = !on;
   }
 

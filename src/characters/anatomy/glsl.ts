@@ -67,6 +67,7 @@ float op2SkinBelow(float radius) {
 
 /** Which part of the body a vertex belongs to, as a WoundRegion bit, from its heaviest bone. */
 export const WOUND_REGION = /* glsl */ `
+attribute float aEdge;
 int op2Region() {
   float bone = skinIndex.x, weight = skinWeight.x;
   if (skinWeight.y > weight) { bone = skinIndex.y; weight = skinWeight.y; }
@@ -90,8 +91,9 @@ export const WOUND_VERTEX_LOOP = /* glsl */ `
     if (i >= op2Count) break;
     int base = OP2_WOUND_BASE + i * OP2_WOUND_TEXELS;
     vec4 t0 = op2Extra(base);
-    float reach = t0.w - op2Run(transformed - t0.xyz);
+    float reach = t0.w + aEdge * 0.01 - op2Run(transformed - t0.xyz);
     if (reach <= 0.0) continue;
+    op2Near = max(op2Near, reach);
     vec4 t2 = op2Extra(base + 2);
     int code = int(t2.w);
     if (((code >> 3) & op2Bit) == 0) continue;
@@ -103,7 +105,6 @@ export const WOUND_VERTEX_LOOP = /* glsl */ `
     vec3 off;
     float dist = op2Slot(transformed, t0, t1, axis, along, off, radius);
     float past = op2SlotEnds(along, OP2_SKIN_ABOVE, op2SkinBelow(t1.w));
-    op2Near = max(op2Near, reach - past);
     if (kind == OP2_CRATER || kind == OP2_DENT || kind == OP2_EXIT) {
       // Wider than the hole, so the surface is already falling away where the tear begins.
       float span = t1.w * 1.7;

@@ -5,7 +5,7 @@ import { ARCHETYPES, archetypeById, rigFor } from './archetypes';
 import { Character, SeveredPart, type ArchetypeData } from './Character';
 import { buildInterior } from './anatomy/build';
 import { createInteriorMaterial } from './anatomy/interior';
-import { createShadowMaterial } from './anatomy/shadow';
+import { createBackingMaterial } from './anatomy/backing';
 import { WoundKind } from './anatomy/wounds';
 import { createCharacterMaterial, createDetailTexture } from './material';
 import { parseModel, type LoadedModel } from './model';
@@ -147,9 +147,9 @@ export class CharacterLibraryImpl implements CharacterLibrary {
     const fleshy = def.rig === 'humanoid' && def.stumps === 'flesh';
     const interior = fleshy ? buildInterior(model, rig, bindPositions, id.length * 977 + n) : null;
     const interiorMaterial = fleshy ? createInteriorMaterial(this.ctx, this.detail!, n * 4) : null;
-    const shadowMaterial = fleshy ? createShadowMaterial(n * 4) : null;
+    const backingMaterial = fleshy ? createBackingMaterial(n * 4) : null;
     const entry: Entry = {
-      id, def, rig, model, material, woundMaterial, farMaterial, interior, interiorMaterial, shadowMaterial, time: this.ctx.time, boneCount: n, bindInverses, bindPositions, children,
+      id, def, rig, model, material, woundMaterial, farMaterial, interior, interiorMaterial, backingMaterial, time: this.ctx.time, boneCount: n, bindInverses, bindPositions, children,
       free: [], active: new Set(), freeLimbs: [], activeLimbs: [],
       acquireLimb: () => this.acquireLimb(entry),
     };

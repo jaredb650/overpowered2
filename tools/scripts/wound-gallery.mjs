@@ -5,7 +5,7 @@
 //     --quiet --script tools/scripts/wound-gallery.mjs --out tools/out/wounds.png
 //
 // Env: WG_SCENES (comma list, default all), WG_TYPE (archetype, default trooper).
-const SCENES = (process.env.WG_SCENES ?? 'bullets,shotgun,blast,cannon,sword,burn,fracture,corpse').split(',');
+const SCENES = (process.env.WG_SCENES ?? 'warm,bullets,shotgun,blast,belly,cannon,sword,burn,scorch,fracture,limb,corpse').split(',');
 const TYPE = process.env.WG_TYPE ?? 'trooper';
 
 function install() {
@@ -36,6 +36,8 @@ function install() {
   const shoot = (e, source, type, amount, from, bone, off = [0, 0, 0], extra = {}) => {
     e.char.root.updateMatrixWorld(true);
     const o = new V(...from);
+    // Pellets read the range from the player.
+    ctx.player.eye.copy(o);
     const aim = new V(...off).applyMatrix4(e.char.bones[bone].matrixWorld);
     const dir = aim.clone().sub(o).normalize();
     const hit = ctx.gore.raycastCharacter(e.char, o, dir, 30);
@@ -158,6 +160,96 @@ const SCENE = {
     w.shoot(e, 'judge', 'bullet', 50, w.front(-0.8, 1.3, 3), 5, [0.05, -0.14, 0.05]);
   }, [['full', [0.8, 1.0, 3.2], [0, 0.95, 0], 36], ['side', [3.2, 1.0, 0.3], [0, 0.95, 0], 36], ['knee', [0.15, 0.6, 1], [0, 0.5, 0], 36], ['arm', [-0.7, 1.3, 1.1], [0.2, 1.15, 0.1], 36]]),
 };
+
+/** The same damage across the cast, so a fit that fails on one body shape shows up. */
+SCENE.types = async (page, h) => {
+  for (const type of (process.env.WG_TYPES ?? 'brute,gunner,juggernaut,leaper').split(',')) {
+    await scene(page, h, `type-${type}`, type, async (w, e) => {
+      const { V, ctx } = w;
+      const s = e.char.rig.height / 1.85;
+      const F = w.front(0.1 * s, 1.35 * s, 2);
+      for (let i = 0; i < 6; i++) w.shoot(e, 'shotgun', 'pellet', 20, F, 1, [(Math.random() - 0.5) * 0.14 * s, (0.1 + (Math.random() - 0.5) * 0.14) * s, 0.1 * s]);
+      const c = e.char.bones[2].getWorldPosition(new V());
+      c.y += 0.12 * s;
+      ctx.enemies.applyDamage(e, { amount: e.maxHealth * 0.8, type: 'explosive', point: c, dir: new V(0.1, -0.05, -1).normalize(), force: 1, source: 'rocket' });
+      w.shoot(e, 'judge', 'bullet', 0.9 * e.maxHealth, w.front(0.4 * s, 0.6 * s, 3), 12, [0, -0.15 * s, 0.06 * s]);
+    }, [['1m5', [0.3, 1.35, 1.7], [0, 1.25, 0], 44]]);
+  }
+};
+
+/** Machines take dents, and nothing behind them. */
+SCENE.machines = async (page, h) => {
+  for (const [type, bone, y, reach] of [['skitter', 0, 0.5, 1.4], ['drone', 0, 2.4, 1.6], ['titan', 2, 4.6, 5]]) {
+    await scene(page, h, `machine-${type}`, type, async (w, e) => {
+      const at = e.char.bones[0].getWorldPosition(new w.V());
+      for (let i = 0; i < 4; i++) w.shoot(e, 'smg', 'bullet', 15, [at.x + 0.3, at.y + 0.3, at.z + 3], 0, [(i - 1.5) * 0.06, 0.02, 0]);
+      w.shoot(e, 'autocannon', 'bullet', 50, [at.x, at.y + 0.3, at.z + 4], 0, [0.02, 0.03, 0]);
+    }, [['view', [0.3 * reach, y + 0.2 - 1.25 + 1.25, reach], [0, y, 0], 34]]);
+  }
+};
+
+/** Wounds leave with a limb. Then the limb is shot again where it lies. */
+SCENE.limb = async (page, h, type) => {
+  await scene(page, h, 'limb', type, async (w, e) => {
+    const { V, ctx } = w;
+    const F = w.front(1.2, 1.1, 2);
+    w.shoot(e, 'judge', 'bullet', 40, F, 8, [-0.05, -0.14, 0.05]);
+    w.shoot(e, 'judge', 'bullet', 40, F, 9, [-0.04, -0.1, 0.05]);
+    const b = e.char.bones[8].getWorldPosition(new V());
+    ctx.gore.sever(e.char, 'armR', { amount: 100, type: 'bullet', point: b, dir: new V(1, 0, 0), force: 20, source: 'test' });
+  }, []);
+  const out = await page.evaluate(async () => {
+    const w = window.__wg;
+    const { ctx, V } = w;
+    w.thaw();
+    await w.raf(60);
+    w.freeze();
+    const c = ctx.gore.limbCenter(0, new V());
+    w.look([c.x + 0.5, c.y + 0.55, c.z + 0.5], [c.x, c.y, c.z], 36);
+    await w.frame();
+    return { limbs: ctx.gore.stats().limbs, at: c.toArray() };
+  });
+  await h.shot('limb-down');
+  await page.evaluate(async () => {
+    const w = window.__wg;
+    const { ctx, V } = w;
+    const c = ctx.gore.limbCenter(0, new V());
+    const from = c.clone().add(new V(0.2, 0.7, 0.3));
+    const dir = c.clone().sub(from).normalize();
+    w.thaw();
+    await w.raf(2);
+    for (let i = 0; i < 3; i++) {
+      const hit = ctx.gore.raycastCorpses(from, dir, 3);
+      if (hit) ctx.gore.damageCorpse(hit, { amount: 5, type: 'bullet', point: hit.point, dir, force: 1, source: 'judge', severMult: 0 });
+    }
+    await w.raf(50);
+    w.freeze();
+    const p = ctx.gore.limbCenter(0, new V());
+    w.look([p.x + 0.45, p.y + 0.5, p.z + 0.45], [p.x, p.y, p.z], 36);
+    await w.frame();
+  });
+  await h.shot('limb-shot');
+  return out;
+};
+
+/** Whether the first wound of a run stalls on a shader. Run this first, on a fresh page. */
+SCENE.warm = async page => page.evaluate(async () => {
+  const w = window.__wg;
+  const { ctx } = w;
+  const r = ctx.render.renderer;
+  const before = r.info.programs.length;
+  const e = w.place('trooper', 8, -6, 0);
+  window.__wgBody = e;
+  await w.raf(30);
+  const mid = r.info.programs.length;
+  w.shoot(e, 'judge', 'bullet', 30, w.front(0.2, 1.1, 3), 1, [0, 0.05, 0.1]);
+  const t0 = performance.now();
+  ctx.render.render();
+  const first = performance.now() - t0;
+  const t1 = performance.now();
+  ctx.render.render();
+  return { programsAtStart: before, afterSpawn: mid, afterWound: r.info.programs.length, firstFrameMs: +first.toFixed(1), nextFrameMs: +(performance.now() - t1).toFixed(1) };
+});
 
 /** A body with damage on it, then dead, then shot again where it lies. */
 SCENE.corpse = async (page, h, type) => {

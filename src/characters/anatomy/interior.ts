@@ -121,7 +121,7 @@ float sRough = 0.34;
 float sHeight = 0.0;
 if (vPart == ${Part.muscle}) {
   float streak = fibre.a * 0.65 + fibre.r * 0.35;
-  sAlb = mix(vec3(0.3, 0.04, 0.04), vec3(0.06, 0.004, 0.009), smoothstep(0.36, 0.64, streak));
+  sAlb = mix(vec3(0.24, 0.03, 0.03), vec3(0.07, 0.005, 0.01), smoothstep(0.3, 0.7, streak));
   // Fat in clumps between the fibres, thin here and thick there.
   sAlb = mix(sAlb, vec3(0.4, 0.27, 0.13), smoothstep(0.6, 0.7, macro.a * 0.7 + micro.a * 0.3) * 0.28);
   sRough = mix(0.22, 0.42, streak);

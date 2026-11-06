@@ -214,6 +214,20 @@ export class WoundPlanner {
     if (!machine) this.strain(char, info, bone, d.amount * 2, size);
   }
 
+  /** Flame arrives at a point near the body with no bone of its own, so it finds what it was licking at. */
+  private burn(char: CharacterInstance, info: RigInfo, d: DamageInfo, bone: number, point: THREE.Vector3, size: number): void {
+    if (bone < 0) {
+      if (d.dir.lengthSq() < 0.5) return;
+      const o = _from.copy(point).addScaledVector(d.dir, -2);
+      markSevered(info, char.severed, _skip);
+      if (!rayBones(info, char.bones, _skip, o.x, o.y, o.z, d.dir.x, d.dir.y, d.dir.z, 4)) return;
+      bone = boneRay.bone;
+      boneRayContact(o.x, o.y, o.z, d.dir.x, d.dir.y, d.dir.z, _p, _n);
+      point = _p;
+    }
+    this.cut(char, WoundKind.burn, bone, point, this.inward(info, char.bones, bone, point, _n), rand(0.05, 0.09) * size, 0.04, 1);
+  }
+
   /** Works a limb toward breaking, and breaks it. */
   private strain(char: CharacterInstance, info: RigInfo, bone: number, load: number, size: number): void {
     if (WoundTuning.level === 0 || !(isArmBone(bone) || isLegBone(bone))) return;
@@ -271,7 +285,7 @@ export class WoundPlanner {
         this.blast(char, info, d, severity, size, machine);
         return;
       case 'fire':
-        if (bone >= 0) this.cut(char, WoundKind.burn, bone, point, this.inward(info, char.bones, bone, point, _n), rand(0.05, 0.09) * size, 0.04, 1);
+        this.burn(char, info, d, bone, point, size);
         return;
       default:
         break;

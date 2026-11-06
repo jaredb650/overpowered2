@@ -4,8 +4,7 @@
  * which is already bound and uploaded per skeleton. That keeps a crowd on one program and one material with
  * no per-object uniform traffic.
  *
- * Wounded bodies swap to a second program. `discard` turns off hidden surface removal on Apple's GPUs for everything
- * in the draw, so it must not be anywhere near a healthy crowd.
+ * Wounded bodies swap to a second program, so a healthy crowd never pays for any of it.
  */
 import * as THREE from 'three';
 import type { Ctx } from '../core/contracts';
@@ -129,15 +128,6 @@ vec3 op2Bump(vec3 pos, vec3 n, float h, float face) {
 `;
 
 const FRAG_SURFACE = /* glsl */ `
-#ifdef OP2_WOUNDS
-// The inside of the far wall, seen through a hole. It closes the body off exactly where the skin does, and nothing in
-// there has any light to speak of, so none of the lighting below is worth running. The bake leaves the odd triangle
-// wound backwards. Those still have normals facing out, and stay skin.
-if (!gl_FrontFacing && dot(normalMatrix * (mat3(vSk0, vSk1, vSk2) * vBindN), vViewPosition) < 0.0) {
-  gl_FragColor = vec4(0.012, 0.001, 0.001, 1.0);
-  return;
-}
-#endif
 vec3 sAlb = vColorAO.rgb;
 float sRough = vMatV.x;
 float sMetal = vMatV.y;
@@ -267,7 +257,8 @@ float sWoundH = 0.0;
     if (edge < 0.0) discard;
 
     if (scorch > 0.0) {
-      float split = op2Crack(macro, micro) * scorch;
+      // Only flesh and cloth split. Plate just blackens.
+      float split = op2Crack(macro, micro) * scorch * (1.0 - sMetal);
       sAlb = mix(sAlb, vec3(0.012, 0.009, 0.008), scorch);
       sRough = mix(sRough, 0.9, scorch);
       sMetal *= 1.0 - scorch;
@@ -434,10 +425,7 @@ export function createCharacterMaterial(ctx: Ctx, o: SurfaceOptions): THREE.Mesh
   const atlas = o.atlasA !== null && !o.far;
   if (atlas) material.defines = { ...material.defines, OP2_ATLAS: 1 };
   if (o.far) material.defines = { ...material.defines, OP2_FAR: 1 };
-  if (o.wounds) {
-    material.defines = { ...material.defines, OP2_WOUNDS: 1 };
-    material.side = THREE.DoubleSide;
-  }
+  if (o.wounds) material.defines = { ...material.defines, OP2_WOUNDS: 1 };
   material.onBeforeCompile = shader => {
     shader.uniforms.tDetail = { value: o.detail };
     shader.uniforms.uExtraBase = { value: o.extraBase };
