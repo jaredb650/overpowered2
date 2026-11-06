@@ -11,7 +11,8 @@
  * exactly the unreadable drizzle the director exists to prevent.
  *
  * `player.push` cancels a slide, a dash and a wall run, so it is only used on feet or in free flight. Those moves go
- * through everything, which is what makes them an escape.
+ * through everything, which is what makes them an escape. It also lifts the player off the floor, where nothing
+ * bleeds the speed away, so repeated every frame it adds up to a throw. It is a single bump, `NUDGE_GAP` apart.
  */
 import * as THREE from 'three';
 import type { Enemy } from './Enemy';
@@ -25,10 +26,10 @@ const SHOVE_COOLDOWN = 0.7;
 const SHOVE_STAGGER = 0.4;
 /** Knockback per metre per second of the player's speed. */
 const SHOVE_FORCE = 0.55;
-/** Metres per second a player standing inside a body drifts out at. */
+/** Metres per second of the bump out of a body, at full overlap. That clears about half a metre. */
 const EASE_OUT = 3.5;
-/** The player's ground friction, which eats whatever is added before it can move them. */
-const GROUND_STOP = 100;
+/** Seconds between bumps, shared by every body, so a crowd cannot stack them. */
+const NUDGE_GAP = 0.35;
 
 const _v = new THREE.Vector3();
 
@@ -37,7 +38,7 @@ function canNudge(w: AiWorld): boolean {
   return s === 'ground' || s === 'crouch' || s === 'air';
 }
 
-export function updateContact(e: Enemy, w: AiWorld, dt: number): void {
+export function updateContact(e: Enemy, w: AiWorld): void {
   const p = w.player;
   if (!p.alive || e.airborne || e.pinned) return;
   const dx = p.position.x - e.position.x;
@@ -57,14 +58,12 @@ export function updateContact(e: Enemy, w: AiWorld, dt: number): void {
   const speed = Math.hypot(vx, vz);
   const closing = -(vx * nx + vz * nz);
 
-  if (e.def.mass > 0 && canNudge(w)) {
+  const heavy = e.def.mass > 0;
+  if ((heavy || (speed < SHOVE_SPEED && p.grounded)) && w.now >= p.nudgeAt && canNudge(w)) {
+    p.nudgeAt = w.now + NUDGE_GAP;
     // The inward part of the motion goes, the sideways part stays: a glancing run slides off and keeps its speed.
-    const stop = Math.max(0, closing) * e.def.mass;
-    const ease = (EASE_OUT + GROUND_STOP * dt * 0.5) * (1 - d / reach);
-    w.ctx.player.push(_v.set(nx * (stop + ease), 0, nz * (stop + ease)));
-  } else if (speed < SHOVE_SPEED && canNudge(w) && p.grounded) {
-    const ease = (EASE_OUT + GROUND_STOP * dt * 0.5) * (1 - d / reach);
-    w.ctx.player.push(_v.set(nx * ease, 0, nz * ease));
+    const bump = Math.max(0, closing) * e.def.mass + EASE_OUT * (1 - d / reach);
+    w.ctx.player.push(_v.set(nx * bump, 0, nz * bump));
   }
 
   if (speed < SHOVE_SPEED || w.now < e.lastBumpAt + SHOVE_COOLDOWN || e.isBoss) return;

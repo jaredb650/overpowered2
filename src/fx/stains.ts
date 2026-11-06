@@ -5,7 +5,7 @@ import type { Landing } from './layers/blood';
 const CAP = 192;
 
 /** Decal size against a strand's half width. The blot fills about a third of its quad. */
-export const STAIN_SCALE = 13;
+export const STAIN_SCALE = 22;
 
 interface Stain {
   at: number;

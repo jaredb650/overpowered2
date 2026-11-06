@@ -37,6 +37,8 @@ async function install({ meter }) {
   window.__as = log;
   // What a player's first click does. Without it there is no music, and hiding the tab does not suspend the context.
   engine.unlock();
+  // A slow boot can leave the unguarded player dead before the bot takes over.
+  if (game.state !== 'playing') game.newRun();
   window.addEventListener('error', e => log.errors.push(String(e.message)));
   window.addEventListener('unhandledrejection', e => log.errors.push(String(e.reason)));
 

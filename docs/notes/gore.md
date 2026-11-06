@@ -128,14 +128,16 @@ body has to come to rest. A corpse shot awake moves, but has no tone left.
 
 ### What has to stay true
 
-Each of these was found the hard way, and each has a test.
+Each of these was found the hard way. All but the two marked are guarded by a test in `muscles.test.ts`, checked by
+breaking each one on purpose in a copy and seeing the test fail.
 
 - **A pre-step impulse has a gain limit.** Four solver iterations cannot pass a torque down a chain inside one step. A
   torque sized for a whole limb overshoots, reverses and pumps energy in: speeds of 30 m/s that never settled. So torques
   are sized from the free bodies either side of the joint.
-- **Ligaments turn the child about its joint.** A pure torque cannot stop an arm, because most of its momentum is its
-  centre of mass travelling. So `resist` gives the child the linear impulse too, in `RagPart.push`, and then the true pinned
-  inertia is safe to use. That is the only muscle that crosses into Rapier by itself, and only while a joint is in its zone.
+- **Ligaments turn the child about its joint** (no test, and not essential). Most of a swinging limb's momentum is its
+  centre of mass travelling, so `resist` gives the child a linear impulse too, in `RagPart.push`. Measured, that takes a
+  quarter off how far an arm runs past its reach, 0.54 to 0.39 rad, and changes nothing else: a pure torque is as stable and
+  settles the same. It is the only muscle that crosses into Rapier by itself, and only while a joint is in its zone.
 - **Throw a limb as one piece.** Spinning only the upper arm leaves the forearm behind: the elbow whips round, hits its
   stop and drags the arm back the way it came. `spinLimb` turns the whole limb about the shoulder.
 - **Throw a body along one line.** `Physics.radialImpulse` gives every body the same impulse along its own line, which
@@ -148,7 +150,9 @@ Each of these was found the hard way, and each has a test.
   timer that would have let it go. That is why ligaments only spring back above `limitElasticLow`.
 - **In a collapse, the hold takes the reaction.** With every joint's reaction landing on the hips they thrash. While
   support lasts each body answers to one controller, and as it fades the reaction moves onto the parent, so what is left at
-  the end are true joint torques with real weight on them. Legs keep their gravity throughout, or the feet have no friction.
+  the end are true joint torques with real weight on them.
+- **Legs keep their gravity during a collapse** (no test). Feet need weight on the floor for friction. This mattered
+  before the line above existed. With it in place, removing this no longer shows in foot slide, so it may be redundant.
 
 ## Measured
 

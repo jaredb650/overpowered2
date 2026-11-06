@@ -397,7 +397,7 @@ export class EnemyManager implements EnemySystem {
       tickAttack(e, w, dt);
       if (!e.alive) return;
       updateMovement(e, w, dt, this.alive);
-      updateContact(e, w, dt);
+      updateContact(e, w);
     }
     this.place(e);
     this.animate(e, dt);

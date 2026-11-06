@@ -20,6 +20,8 @@ export class PlayerSense {
   evasion = 0;
   /** The Ghost powerup: past this range enemies cannot tell where the player is. */
   ghost = false;
+  /** Earliest time a body may bump the player again. */
+  nudgeAt = 0;
 }
 
 export interface AiWorld {

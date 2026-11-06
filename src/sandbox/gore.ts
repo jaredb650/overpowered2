@@ -146,6 +146,8 @@ class Stage {
 }
 
 const EYE = v(0, 1.6, 9);
+/** Frames drawn before each cell of a contact sheet. */
+const SHEET_RUN_UP = 12;
 /** Faces +X, so a camera looking down -Z sees every character in profile. */
 const PROFILE = Math.PI / 2;
 
@@ -348,7 +350,7 @@ const scenarios: Record<string, Scenario> = {
           s.gore.ragdoll(c, {
             muscles: i === 1,
             impact: { dir: v(1, 0, 0), strength: 0 },
-            impulses: [{ bone: B.shinL, point: bonePos(c, B.footL), impulse: v(60, 0, 0) }],
+            impulses: [{ bone: B.shinL, point: bonePos(c, B.footL), impulse: v(28, 0, 0) }],
           });
         });
       }
@@ -372,8 +374,8 @@ const scenarios: Record<string, Scenario> = {
         c.lineWidth = 3;
         c.beginPath();
         line.forEach((a, i) => {
-          if (i < 6 || i > 70) return;
-          const px = x + 8 + ((i - 6) / 64) * (w - 16);
+          if (i < 6 || i > 120) return;
+          const px = x + 8 + ((i - 6) / 114) * (w - 16);
           if (i === 6) c.moveTo(px, toY(a));
           else c.lineTo(px, toY(a));
         });
@@ -425,10 +427,10 @@ const scenarios: Record<string, Scenario> = {
   },
   /** A blast in front of each body, far enough apart that neither reaches the other. Arms back, legs forward. */
   blast: {
-    camera: [1.1, 1.25, 4.3, 1.1, 1.05, 0],
+    camera: [2.6, 1.3, 5, 2.6, 1.05, 0],
     compare: true,
     setup(s) {
-      placePair(s, -0.5, 5.5);
+      placePair(s, 1.6, 7.6);
     },
     frame(s, f) {
       if (f !== 20) return;
@@ -598,11 +600,10 @@ export default async function goreSandbox(params: URLSearchParams): Promise<void
     out.style.cssText = `position:fixed;left:0;top:0;z-index:9;background:#000;width:${out.width / dpr}px`;
     const c2 = out.getContext('2d')!;
     c2.font = `${13 * dpr}px monospace`;
-    // A page held from the start has never drawn, and the post stack's first frames come out dark.
-    for (let i = 0; i < 3; i++) render.render();
     frameList.forEach((f, i) => {
-      // Only the frame being kept needs drawing, which is most of what a long sheet costs.
-      while (stage.frame < f) tick(stage.frame + 1 >= f);
+      // Undrawn frames are most of what a long sheet saves, but the post stack comes out dark and dithered until it
+      // has drawn a few in a row, so every cell gets a run-up.
+      while (stage.frame < f) tick(stage.frame + SHEET_RUN_UP >= f);
       const x = (i % columns) * w;
       const y = Math.floor(i / columns) * h;
       c2.drawImage(canvas, x, y, w, h);

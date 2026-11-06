@@ -19,6 +19,11 @@ import { TestDummy } from './testDummy';
 const rig = humanoidRig('test');
 const trooper = archetypeById('trooper');
 const trooperRig = rigFor(trooper);
+/** Measured limits, with room over a healthy run and under the bug each one guards against. See the tests. */
+const ARM_STOP = 2.7;
+const HIP_SPIN = 6;
+const HIP_ERROR = 1;
+
 const v = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
 const at = (c: TestDummy, bone: number) => new THREE.Vector3().setFromMatrixPosition(c.bones[bone]!.matrixWorld);
 
@@ -249,6 +254,40 @@ describe('neutral posture', () => {
     });
   }, 30000);
 
+  it('gives every torque its reaction, so a body cannot turn itself', () => {
+    // Ligaments are the exception, through the linear half of `resist`, so they are off here. Total momentum cannot
+    // show this: a body starts with more than a lost reaction would add.
+    gore.clear();
+    const { limitDamping, limitSpring } = MuscleTuning;
+    MuscleTuning.limitDamping = 0;
+    MuscleTuning.limitSpring = 0;
+    try {
+      const c = spawn();
+      gore.ragdoll(c, { twitch: 1 });
+      const rag = ragOf(c);
+      const sum = new THREE.Vector3();
+      let worst = 0;
+      let most = 0;
+      for (let i = 0; i < 150; i++) {
+        frame();
+        for (const p of rag.parts) p.tau.set(0, 0, 0);
+        rag.muscle!.step(1 / 60);
+        sum.set(0, 0, 0);
+        for (const p of rag.parts) {
+          sum.add(p.tau);
+          most = Math.max(most, p.tau.length());
+        }
+        worst = Math.max(worst, sum.length());
+      }
+      expect(most).toBeGreaterThan(0.01);
+      expect(worst).toBeLessThan(most * 1e-6);
+    } finally {
+      MuscleTuning.limitDamping = limitDamping;
+      MuscleTuning.limitSpring = limitSpring;
+      gore.clear();
+    }
+  });
+
   it('no two bodies rest alike', () => {
     gore.clear();
     const a = spawn(-1);
@@ -355,6 +394,40 @@ describe('rotational impact', () => {
     expect(Math.abs(arm.x)).toBeLessThan(0.2);
   });
 
+  it('throws a body already moving as one mass, which Physics on its own would not', () => {
+    gore.clear();
+    const c = spawn();
+    gore.ragdoll(c);
+    run(3);
+    physics.radialImpulse(v(0, 1, 1.3), 7, 140);
+    run(1);
+    const rag = ragOf(c);
+    const forearm = rag.partFor(B.foreArmL).v.length();
+    const hips = rag.partFor(B.hips).v.length();
+    gore.clear();
+    // An equal impulse on every body sends a forearm about nine times as fast as the hips.
+    expect(forearm).toBeLessThan(hips * 2.5);
+  });
+
+  it('a ligament stops a swinging arm before it comes right round', () => {
+    gore.clear();
+    weightless(() => {
+      const c = spawn(0, 0, 2.5);
+      gore.ragdoll(c, { impact: { dir: v(0, 0, -1), strength: 1 } });
+      const rag = ragOf(c);
+      const arm = rag.partFor(B.upperArmL);
+      const q = new THREE.Quaternion();
+      let deepest = 0;
+      for (let i = 0; i < 30; i++) {
+        frame();
+        q.copy(arm.parent!.q).conjugate().multiply(arm.q);
+        deepest = Math.max(deepest, 2 * Math.acos(Math.min(1, Math.abs(q.w))));
+      }
+      expect(deepest).toBeLessThan(ARM_STOP);
+    });
+    gore.clear();
+  });
+
   it('ignores garbage', () => {
     gore.clear();
     const c = spawn();
@@ -390,6 +463,32 @@ describe('collapse', () => {
     expect(at(c, B.hips).y).toBeLessThan(0.45);
     expect(gore.stats().collapses).toBe(0);
     gore.clear();
+  });
+
+  it('tracks the animation steadily: no thrashing hips, and feet that stay planted', () => {
+    gore.clear();
+    const c = spawnLiving();
+    const foot = at(c, B.footL);
+    gore.collapse(c, { duration: 1.7 });
+    const rag = ragOf(c);
+    const hips = rag.parts[0]!;
+    const q = new THREE.Quaternion();
+    let spin = 0;
+    let error = 0;
+    let slide = 0;
+    for (let i = 0; i < 30; i++) {
+      frame();
+      spin = Math.max(spin, hips.w.length());
+      q.copy(rag.muscle!.collapse!.hipsRot);
+      error = Math.max(error, 2 * Math.acos(Math.min(1, Math.abs(q.dot(hips.q)))));
+      const now = at(c, B.footL);
+      slide = Math.max(slide, Math.hypot(now.x - foot.x, now.z - foot.z));
+    }
+    gore.clear();
+    // Reactions landing on the hips give 11 rad/s here, and torques sized for a whole limb give 39.
+    expect(spin).toBeLessThan(HIP_SPIN);
+    expect(error).toBeLessThan(HIP_ERROR);
+    expect(slide).toBeLessThan(0.25);
   });
 
   it('stops at the cap and drops the rest as plain ragdolls', () => {

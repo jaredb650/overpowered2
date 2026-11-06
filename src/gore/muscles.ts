@@ -324,10 +324,11 @@ export function invInertia(part: RagPart, axis: THREE.Vector3): number {
 /**
  * A ligament reaching full stretch: damping and stiffness that grow together the deeper it goes.
  *
- * The child turns about the joint it hangs from, so it takes a linear impulse along with the torque. Most of the
- * momentum in a swinging limb is its centre of mass travelling, which a pure couple only reaches through the
- * solver, and four iterations cannot do that within a step: sized to stop the limb it overshoots and pumps energy
- * in, sized for the free body it is too weak to stop an arm. The parent stays a free body, which errs soft.
+ * Sized from the two bodies either side of the joint, never from all the limb hanging off it: four solver iterations
+ * cannot pass a torque down a chain within one step, so anything larger overshoots and pumps energy in. The child
+ * turns about the joint it hangs from, taking a linear impulse with the torque, because most of the momentum in a
+ * swinging limb is its centre of mass travelling. That is a refinement: it takes a quarter off how far an arm runs
+ * past its reach, and a pure torque here is stable and settles the same.
  */
 function resist(
   c: RagPart, p: RagPart, axis: THREE.Vector3, sign: number, speed: number, depth: number, zone: number, dt: number, weight: number, hold: number, elastic: number,
@@ -879,7 +880,7 @@ export class MuscleState {
         m.drive = fade(m.role === 'head' ? t.headFade : m.role === 'arm' ? t.armFade : t.spineFade, u, 0);
       }
       // A muscle that still works carries its own weight, which the solver then does not have to fight for it. Not
-      // the legs: weightless feet have no friction, and they slide out from under the body.
+      // the legs, whose feet need their weight on the floor for friction.
       part.body.setGravityScale(m.role === 'leg' ? 1 : 1 - m.drive, false);
     }
   }

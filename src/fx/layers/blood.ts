@@ -14,7 +14,7 @@ import { ORDER, type FxUniforms } from './shared';
  * One record is a whole strand, not a droplet. The vertex shader walks the strand down its own path,
  * head at `age` and tail `trail` seconds behind it, so a single instance is a curved arc that bends under
  * gravity. The fragment shader rounds the head, tapers the tail and pinches it into beads, the way a real
- * stream breaks up. That is why a spurt needs ten of these where it used to need sixty chips.
+ * stream breaks up. That is why a jet needs thirteen of these where it used to need thirty-five chips and puffs.
  *
  * Motion is linear drag, so fine strands stall and drop while heavy drops carry. `stop` is the landing
  * time worked out at emission: the head sticks there and the rest of the strand runs into it.
@@ -129,6 +129,8 @@ if (vStrand.z < 0.0) {
 bAlpha *= vLook.y;
 if (bAlpha < 0.006) discard;
 vec3 bTint = mix(uVenous, uArterial, vLook.x);
+// A fine spray scatters what a solid drop absorbs, so it reads paler than the blood it came from.
+if (vStrand.z < 0.0) bTint *= 2.2;
 diffuseColor = vec4(vec3(1.0), bAlpha);
 `;
 
@@ -183,6 +185,8 @@ function height(h: number, hv: number, ha: number, k: number, t: number): number
 }
 
 const SCAN_STEP = 0.07;
+/** Seconds. Anything still in the air by then is over a drop, and no stain is owed. */
+const MAX_FLIGHT = 1.6;
 
 /**
  * First time a dragged path crosses a plane, or `limit` if it never does. `h` is the start height above
@@ -286,14 +290,14 @@ export class BloodLayer {
    */
   add(
     x: number, y: number, z: number, vx: number, vy: number, vz: number,
-    half: number, trail: number, drag: number, delay = 0, opacity = 1, maxFlight = 1.6,
+    half: number, trail: number, drag: number, delay = 0,
   ): Landing {
     const l = this.landing;
     const g = this.gravity;
     const k = Math.max(drag, 0.001);
-    let stop = crossing(y - this.floor, vy, g, k, maxFlight);
+    let stop = crossing(y - this.floor, vy, g, k, MAX_FLIGHT);
     l.nx = 0;
-    l.ny = stop < maxFlight ? 1 : 0;
+    l.ny = stop < MAX_FLIGHT ? 1 : 0;
     l.nz = 0;
     const w = this.wall;
     if (w) {
@@ -323,7 +327,7 @@ export class BloodLayer {
     d[o + 8] = this.tone;
     d[o + 9] = half;
     d[o + 10] = trail;
-    d[o + 11] = opacity;
+    d[o + 11] = 1;
     d[o + 12] = g;
     d[o + 13] = k;
     d[o + 14] = stop;

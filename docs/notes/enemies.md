@@ -47,8 +47,9 @@ changes what is available on the next think.
 
 - **Contact deals no damage.** Every hit the player takes is a telegraphed attack. A running player shoulders light bodies
   aside and staggers them. Heavies (`mass`, `contactRadius`) cancel the inward part of the player's motion, so they are slid
-  around. A player standing in a body is eased out. `player.push` cancels a slide, dash or wall run, so it is only used on feet
-  or in free flight, and those moves pass through everything.
+  around. A player standing in a body is bumped out. `player.push` cancels a slide, dash or wall run, so it is only used on feet
+  or in free flight, and those moves pass through everything. It also lifts the player off the floor, so called every frame it
+  stacks into a throw: it is one bump, `NUDGE_GAP` apart, shared by all bodies.
 - **Pads throw enemies with the pad's real velocity**, the arc the map was tuned for. Gravity is the same -28. An enemy that
   misses the pad's radius at the link's start leaps for the far end instead.
 - **Stranded enemies come back as reinforcements.** A body in flow mode with no route gain of `PATH_GAIN` for `STRANDED_BLIND`
@@ -76,7 +77,7 @@ changes what is available on the next think.
 | `EnemyManager.ts` `EVASION_FROM`, `EVASION_SPAN` | Speed to `evasion`, which every aimed attack reads. Full at 11.5 m/s, just under the player's 12.5 m/s run. Retune if `runSpeed` moves |
 | `attacks.ts` `aimAtPlayer`, `SPEED_MISS`, `grazed` | Miss radius and the damage cut at speed |
 | `spawner.ts` | `PATH_MIN`, `PATH_MAX`, `REUSE_SECONDS`, `DROP_HEIGHT` |
-| `contact.ts` | `SHOVE_SPEED`, `SHOVE_FORCE`, `SHOVE_STAGGER`, `EASE_OUT` |
+| `contact.ts` | `SHOVE_SPEED`, `SHOVE_FORCE`, `SHOVE_STAGGER`, `EASE_OUT`, `NUDGE_GAP` |
 | `EnemyManager.ts` | `PATH_GAIN`, `STRANDED_*`, `STRAGGLER_PATH`, `RESCUE_*`, `CHAR_SECONDS`, `BUFF_SECONDS`, `HAZARD_TICK` |
 
 ## Difficulty curve

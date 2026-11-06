@@ -76,7 +76,7 @@ export function bloodHit(core: FxCore, position: THREE.Vector3, dir: THREE.Vecto
   const p = Math.sqrt(clamp(intensity, 0.25, 3));
   const b = core.blood.begin(core.bloodNow, core.floorAt(x, y, z), core.wallAlong(x, y, z, dir.x, dir.y, dir.z), BLOOD_TONE.wound);
   stream(core, x, y, z, dir.x, dir.y, dir.z, 3, 6.5 * p, 1.2, 0.012, 0.09, 2.2, 0, 2);
-  stream(core, x, y, z, -dir.x, 0.45 - dir.y, -dir.z, 3, 3.6 * p, 1.7, 0.0095, 0.08, 2.2, 0, 0);
+  stream(core, x, y, z, dir.x * -0.7, 0.75 - dir.y * 0.7, dir.z * -0.7, 3, 4.6 * p, 1.1, 0.0095, 0.08, 1.8, 0, 3);
   drops(core, x, y, z, dir.x, dir.y, dir.z, 2, 2.4 * p, 0.03);
   b.mist(x, y, z, -dir.x * 2.2, 0.4 - dir.y * 2.2, -dir.z * 2.2, 0.13 * p, 0.2, 8, 0.85);
 }
