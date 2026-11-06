@@ -17,21 +17,23 @@ const CASES = {
   hand: { shots: [{ at: [10, 0, -0.06, 0.05], from: 'front' }], steps: LONG },
   arm: { shots: [{ at: [6, 0.04, -0.12, 0.05], from: 'front' }], steps: LONG },
   shoulder: { shots: [{ at: [8, -0.02, -0.04, 0.06], from: 'front' }], steps: LONG },
-  botharms: { shots: [{ at: [8, -0.05, -0.2, 0.06], from: 'front' }, { at: [5, 0.05, -0.2, 0.06], from: 'front', wait: 10 }], steps: LONG },
-  lung: { shots: [{ at: [2, -0.16, 0.22, -0.13], from: 'back' }], steps: [0, 10, 30, 60, 100, 150, 220, 300, 360, 420, 500, 620] },
+  botharms: { shots: [{ at: [8, -0.05, -0.2, 0.06], from: 'front' }, { at: [5, 0.04, -0.2, 0.06], from: 'left', wait: 10 }], steps: LONG },
+  lung: { shots: [{ at: [2, 0.13, 0.2, -0.14], from: 'back' }], steps: [0, 10, 30, 60, 100, 150, 220, 300, 360, 420, 500, 620] },
   heart: { shots: [{ at: [2, 0.035, 0.11, -0.16], from: 'back' }], steps: LONG },
   gut: { shots: [{ at: [1, 0.05, 0.1, 0.13], from: 'front' }], steps: LONG },
   gutwalk: { shots: [{ at: [1, 0.05, 0.1, 0.13], from: 'front' }], walk: true, steps: LONG },
   carotid: { shots: [{ at: [3, 0.05, 0.04, 0.05], from: 'front' }], steps: [0, 8, 16, 26, 40, 60, 90, 120, 150, 180, 210, 260] },
   spine: { shots: [{ at: [1, 0, 0.1, -0.13], from: 'back' }], steps: LONG },
   pelvis: { shots: [{ at: [0, 0, -0.06, 0.12], from: 'front' }], steps: LONG },
-  head: { shots: [{ at: [4, 0, 0.09, 0.12], from: 'front' }], steps: LONG },
+  head: { shots: [{ at: [4, 0, 0.09, 0.12], from: 'front' }, { at: [4, 0, 0.09, 0.12], from: 'front', wait: 40 }], steps: LONG },
   glance: { shots: [{ at: [4, 0.104, 0.09, 0.03], from: 'front' }], steps: LONG },
   blast: { blast: 3.5, steps: LONG },
   rocket: { blast: 0.5, damage: 200, steps: LONG },
   burst: { burst: 8, steps: [0, 4, 8, 12, 18, 24, 34, 50, 80, 120, 180, 260] },
   fire: { fire: true, steps: LONG },
   plate: { burst: 5, steps: [0, 4, 8, 12, 18, 24, 34, 50, 80, 120, 180, 260], plain: true },
+  // The dice loaded, so a mortal wound ends in the other of its two ways.
+  collapse: { rig: 0.38, shots: [{ at: [2, 0.13, 0.2, -0.14], from: 'back' }], steps: [0, 30, 100, 180, 240, 270, 300, 330, 360, 400, 460, 540] },
   crawl: { id: 'trooper', shots: [{ at: [0, 0, -0.06, 0.12], from: 'front' }], steps: [0, 40, 80, 120, 160, 200, 240, 300, 360, 420, 480, 560] },
 };
 
@@ -146,6 +148,7 @@ export default async function woundsSeq(page, h) {
   for (const [name, c] of Object.entries(CASES)) {
     if (only.length > 0 && !only.includes(name)) continue;
     await page.evaluate(async c => { await window.__r.start(c); }, { id: c.id, walk: c.walk });
+    if (c.rig) await page.evaluate(v => { const r = window.__random = Math.random; Math.random = () => r() * v; }, c.rig);
     for (const s of c.shots ?? []) {
       if (s.wait) await page.evaluate(n => window.__r.walk(n), s.wait);
       await page.evaluate(x => window.__r.shoot(x), s);
@@ -172,6 +175,7 @@ export default async function woundsSeq(page, h) {
       tiles.push((await page.screenshot({ type: 'jpeg', quality: 72, clip })).toString('base64'));
       notes.push(await page.evaluate(() => window.__r.probe()));
     }
+    if (c.rig) await page.evaluate(() => { Math.random = window.__random; });
     results[name] = { log: await page.evaluate(() => window.__r.log.splice(0)), notes: notes.map((n, i) => ({ f: c.steps[i], ...n })) };
     const context = await page.context().browser().newContext();
     const sheet = await context.newPage();

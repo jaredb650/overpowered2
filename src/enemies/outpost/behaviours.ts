@@ -341,7 +341,8 @@ const aid: Behaviour = {
     if (!patient) return;
     const o = w.enemies.outpost!;
     if (s.aidStage === 'reach') {
-      walkRoute(e, s, w);
+      // He may have crawled from where he was when this man set out.
+      if (walkRoute(e, s, w)) o.routeTo(s, patient.e.position);
       // Gore has him until he stops falling, and there is no dragging a body the physics owns.
       if (e.position.distanceTo(patient.e.position) > REACH_PATIENT || patient.e.downed) return;
       if (o.routeToShelter(s, patient, DRAG_REACH)) {

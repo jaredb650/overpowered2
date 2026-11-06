@@ -29,7 +29,7 @@ import { pose, soldierOf, type Soldier } from '../outpost/soldier';
 import { CRACK_DROP, CRACK_TIP, CRACKED } from './armour';
 import { crawlOn } from './crawl';
 import { Injuries } from './injuries';
-import { bursts, CHARACTER, RINGING, SIDEARM_MAG, WoundTuning as T, ZONES, type Condition, type ZoneId } from './rules';
+import { bursts, RINGING, SIDEARM_MAG, WoundTuning as T, ZONES, type Condition, type ZoneId } from './rules';
 import { Sidearms } from './sidearm';
 import { dripTrail } from './trail';
 import { resolveZone, type ZoneHit } from './zones';
@@ -42,6 +42,8 @@ const PLACED: ReadonlySet<DamageType> = new Set<DamageType>(['bullet', 'pellet',
 /** Multiplies a hit to the neck, which the rig counts as head. */
 const NECK_DAMAGE = 1.2;
 const GLANCE_DAMAGE = 0.4;
+/** Share of a burn tick that lands on a man, so that he has time to panic and to throw himself down. */
+const BURN_DAMAGE = 0.45;
 /** Seconds of hand on a wound at a time. Refreshed well before it runs out. */
 const HOLD_SECONDS = 1.6;
 const HOLD_REFRESH = 0.8;
@@ -124,8 +126,9 @@ export class WoundSystem {
     return resolveZone(bone, d.bone, region, d.point, d.dir, e.char.rig.height / 1.85, this.hit);
   }
 
-  /** The damage model priced a neck or a skid as a head hit, which neither is. */
+  /** The damage model priced a neck or a skid as a head hit, which neither is. A man also lasts longer alight than a husk does. */
   priced(hit: ZoneHit | null, d: DamageInfo, amount: number, region: GoreRegion): number {
+    if (d.source === 'burn') return amount * BURN_DAMAGE;
     if (!hit) return amount;
     if (hit.glancing) return d.amount * GLANCE_DAMAGE;
     return region === 'head' && hit.zone !== 'head' ? d.amount * NECK_DAMAGE : amount;
@@ -209,8 +212,11 @@ export class WoundSystem {
     const e = s.e;
     const share = amount / e.maxHealth;
     if (d.type === 'fire') {
-      if (CHARACTER.fire.cauterises) b.cauterise();
-      if (b.condition === 'healthy') b.condition = 'wounded';
+      b.cauterise();
+      if (b.condition === 'healthy') {
+        b.condition = 'wounded';
+        this.announce(e, 'wounded');
+      }
       if (b.rollAt === 0) b.rollAt = this.w.now + rand(T.fireRoll[0], T.fireRoll[1]);
       return fatal;
     }
@@ -327,6 +333,7 @@ export class WoundSystem {
     s.mag = SIDEARM_MAG;
     s.reloadUntil = this.w.now + SIDEARM_DRAW;
     this.sidearms.draw(s.e, right);
+    pose(s.e, 'stand');
   }
 
   // -------------------------------------------------------------------------------------------
@@ -371,6 +378,8 @@ export class WoundSystem {
     }
     b.bleedsOutAt = now + clock;
     this.rollLastStand(s, b);
+    // Nobody crawls with a rifle. It goes down with him, and it is there if someone gets him back up.
+    if (s.weapon === 'primary') this.o.dropWeapon(s, false);
     this.o.setDowned(e, true);
     this.manager.model.updateMaim(e);
     this.fallDue = true;
@@ -433,8 +442,18 @@ export class WoundSystem {
     this.manager.model.updateMaim(e);
     pose(e, 'stand');
     this.manager.model.standUp(e);
+    this.rearm(s, b);
     this.syncBody(s, b);
     this.announce(e, 'wounded');
+  }
+
+  /** Back up with empty hands: the gun where he dropped it if he can still use one, or the pistol, or nothing and he runs. */
+  private rearm(s: Soldier, b: Injuries): void {
+    if (s.weapon !== 'none') return;
+    const usable = !b.armless && (!s.def.twoHanded || (!b.armL && !b.armR && !b.handL && !b.handR));
+    if (usable && s.droppedAt) s.scramble = s.droppedAt;
+    else if (s.def.sidearm && !s.spentSidearm) this.drawSidearm(s, b);
+    else this.o.breakNerve(s);
   }
 
   // -------------------------------------------------------------------------------------------
@@ -532,7 +551,7 @@ export class WoundSystem {
       e.mode = 'hold';
       e.face = 'lock';
     }
-    if (b.lastStand === 'sidearm' && s.weapon !== 'sidearm' && !b.armless && e.hasLos && e.dist < LAST_STAND_RANGE) {
+    if (b.lastStand === 'sidearm' && s.weapon === 'none' && !s.spentSidearm && !b.armless && e.hasLos && e.dist < LAST_STAND_RANGE) {
       this.drawSidearm(s, b);
       this.o.comms.say('lastStand', s);
     }

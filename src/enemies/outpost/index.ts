@@ -641,6 +641,7 @@ export class Outpost {
     const gun = this.dropped.drop(e);
     (e.char.anim as unknown as PostureHost).disarm?.();
     s.weapon = 'none';
+    s.droppedAt = gun;
     s.scramble = goBack ? gun : null;
     s.sidearmLeft = false;
     e.thinkAt = 0;
@@ -813,7 +814,7 @@ export class Outpost {
       let best: Soldier | null = null;
       let bestD = reach * reach;
       for (const s of this.soldiers) {
-        if (!s.fighting || s.patient || s.state === 'panicked' || s.e.maim.legs < 2) continue;
+        if (!this.canHelp(s)) continue;
         // A medic comes from further away than anybody else.
         const d = s.e.position.distanceToSquared(hurt.e.position) * (s.role === 'medic' ? 0.25 : 1);
         if (d < bestD) {
@@ -829,12 +830,16 @@ export class Outpost {
     }
   }
 
+  private canHelp(s: Soldier): boolean {
+    return s.fighting && !s.patient && s.state !== 'panicked' && s.e.maim.legs === 2 && s.injuries.condition !== 'mortal';
+  }
+
   /** Nobody lets him go in alone. Which is how one man left alive brings a squad out of cover. */
   private sendEscort(rescuer: Soldier, hurt: Soldier): void {
     let sent = 0;
     for (const s of rescuer.squad.members) {
       if (sent >= WoundTuning.baitEscort) return;
-      if (s === rescuer || !s.fighting || s.patient || s.state === 'panicked' || s.e.maim.legs < 2) continue;
+      if (s === rescuer || !this.canHelp(s)) continue;
       this.order(s, hurt.e.position, null, 2, sent * 0.4);
       sent++;
     }

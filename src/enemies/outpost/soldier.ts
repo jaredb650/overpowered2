@@ -104,7 +104,8 @@ export class Soldier {
   spentSidearm = false;
   /** Holding it in his left, because his right is gone. */
   sidearmLeft = false;
-  /** Going for the gun he dropped. Null when he is not. */
+  /** Where the gun he dropped is, and the same again when he is going for it. */
+  droppedAt: THREE.Vector3 | null = null;
   scramble: THREE.Vector3 | null = null;
   /** Dragging himself somewhere, and when he next thinks again about where. */
   crawling = false;
@@ -164,7 +165,7 @@ export class Soldier {
     this.baseSpeed = 1;
     this.weapon = 'primary';
     this.spentSidearm = this.sidearmLeft = this.crawling = false;
-    this.scramble = null;
+    this.droppedAt = this.scramble = null;
     this.crawlPlanAt = 0;
     this.calledAt = -99;
   }

@@ -20,8 +20,6 @@ const POOL_SIZE = 0.26;
 const SMEAR_SIZE = 0.5;
 /** What he leaves lying still. Pools grow by themselves. */
 const LYING_POOL = 0.6;
-/** Clear of the floor, so a decal does not fight it. */
-const LIFT = 0.02;
 
 const UP = new THREE.Vector3(0, 1, 0);
 const _at = new THREE.Vector3();
@@ -35,7 +33,9 @@ export function dripTrail(e: Enemy, b: Injuries, w: AiWorld, now: number): void 
   const still = moved < 0.08 && now >= b.nextDrip;
   if (moved < spacing && !still) return;
   const decals = w.ctx.render.decals;
-  _at.set(e.position.x, e.position.y + LIFT, e.position.z);
+  // On the floor itself. The stain is drawn against the depth of what is there, and anything off it does not show.
+  const ground = w.ctx.world.nav.groundHeight(e.position.x, e.position.y + 0.5, e.position.z);
+  _at.set(e.position.x, Number.isNaN(ground) ? e.position.y : ground, e.position.z);
   if (b.floored && still) {
     decals.add('bloodPool', _at, UP, LYING_POOL);
   } else if (b.floored) {

@@ -11,7 +11,7 @@ import type { Soldier } from '../outpost/soldier';
 import type { Injuries } from './injuries';
 
 /** Metres per second on two good arms. A real wounded crawl, not the swarm's. */
-const CRAWL_SPEED = 0.8;
+const CRAWL_SPEED = 1.15;
 const ONE_ARM = 0.6;
 /** Nothing left to haul with: heels and shoulders. */
 const NO_ARMS = 0.25;
@@ -26,6 +26,7 @@ const COVER_REACH = 12;
 const CLOSER_LIMIT = 1.5;
 /** With nowhere to go, he just goes away. */
 const AWAY_METRES = 7;
+const RESCUER_CLOSE = 3.5;
 
 const _to = new THREE.Vector3();
 const _away = new THREE.Vector3();
@@ -71,8 +72,9 @@ function planCrawl(e: Enemy, s: Soldier, w: AiWorld, o: Outpost): void {
 /** Sets where the body wants to go this frame. Runs ahead of movement. */
 export function crawlOn(s: Soldier, b: Injuries, w: AiWorld, o: Outpost): void {
   const e = s.e;
-  const hauled = s.rescuer !== null && s.rescuer.aidStage !== 'none' && s.rescuer.aidStage !== 'reach';
-  if (hauled || e.attack !== null) {
+  // Help is here, or nearly: he stops, or he would crawl out from under the man come to fetch him.
+  const helped = s.rescuer !== null && s.rescuer.e.position.distanceToSquared(e.position) < RESCUER_CLOSE * RESCUER_CLOSE;
+  if (helped || e.attack !== null) {
     e.mode = 'hold';
     e.face = e.attack ? 'player' : 'lock';
     return;

@@ -140,9 +140,9 @@ export class DamageModel {
     if (body) amount = wounds!.priced(placed, d, amount, region);
     res.headshot = region === 'head' && !area && (placed === null || (placed.zone === 'head' && !placed.glancing));
 
-    // Blood is lost from the inside. No plate stands between a man and that.
-    const inside = body !== null && d.source === 'bleed';
-    const plate = inside ? null : area ? this.blastPlate(e) : this.plateFor(e, region, d);
+    // A plate does nothing about a fire, or about blood that is already leaving.
+    const round = !body || d.type === 'explosive' || !area;
+    const plate = !round ? null : area ? this.blastPlate(e) : this.plateFor(e, region, d);
     if (plate) {
       // Section 14.6: a plate stops small arms outright, the round that breaks it included. Only a heavy round carries on through.
       const absorbed = placed && d.amount < HEAVY_ROUND ? amount : Math.min(plate.hp, amount);
@@ -360,7 +360,7 @@ export class DamageModel {
   private lethal(e: Enemy, d: DamageInfo, res: DamageResult, region: GoreRegion, severNow: boolean): DamageResult {
     res.killed = true;
     if (severNow && region !== 'head' && e.limbHp.has(region)) {
-      const left = (e.limbHp.get(region) ?? 0) - d.amount * (d.severMult ?? 1) * SEVER_FACTOR[d.type];
+      const left = (e.limbHp.get(region) ?? 0) - d.amount * (d.severMult ?? 1) * SEVER_FACTOR[d.type] * this.rules(e).limbWear;
       if (left <= 0) this.sever(e, region, d, res);
     }
     this.kill(e, d, region, res);
