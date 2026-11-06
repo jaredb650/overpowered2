@@ -127,9 +127,10 @@ export type Step =
   /**
    * `route` is what it drives or flies. `crew` get out at the end of it, under `crewTag`, or the vehicle's tag if unset. `holds` is a
    * mark it stays on once there. On this and `squad`, `ensure` only spawns if the tag has nothing on the books, which is how a beat
-   * says "these should be here by now" and still has them after a restart.
+   * says "these should be here by now" and still has them after a restart. `state` is scenery and goes on nobody's books: `parked` has
+   * nobody in it, and `wrecked` is one that died before this beat, which a restart has to put back.
    */
-  | { do: 'vehicle'; tag: string; kind: VehicleKind; at: string; route?: string; crew?: readonly EnemyId[]; crewTag?: string; holds?: string; ensure?: boolean }
+  | { do: 'vehicle'; tag: string; kind: VehicleKind; at: string; route?: string; crew?: readonly EnemyId[]; crewTag?: string; holds?: string; ensure?: boolean; state?: 'parked' | 'wrecked' }
   /** The Commander, in person. */
   | { do: 'boss'; tag: string; at: string }
   /** Hands over a weapon on the spot. */

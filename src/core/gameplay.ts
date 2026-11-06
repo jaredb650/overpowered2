@@ -6,6 +6,7 @@
  * means updating every caller.
  */
 import type * as THREE from 'three';
+import type RAPIER from '@dimforge/rapier3d-compat';
 import type { GoreRegion } from '../characters/rig';
 import type { ContractDef } from '../contracts/data';
 import type { CharacterInstance, DamageInfo, DamageType, ExplosionKind, GameSystem, MuzzleKind, TracerKind } from './contracts';
@@ -266,8 +267,31 @@ export interface DamageResult {
   blocked: boolean;
 }
 
+/** The player's aircraft, as an enemy chopper sees it. */
+export interface FriendlyAircraft {
+  readonly position: THREE.Vector3;
+  /** Rounds landed: it loses this many seconds on station. */
+  hit(seconds: number): void;
+}
+
+/** Enemy vehicles, for whatever resolves a hit. A collider that is not a live vehicle's answers false, and the caller carries on as for any wall. */
+export interface VehicleTargets {
+  /** Anything with no blast behind it. */
+  shot(collider: RAPIER.Collider | null, point: THREE.Vector3, amount: number, source: string): boolean;
+  /** A rocket or a shell landing on it. Its blast then comes through `blast` like anyone else's. */
+  direct(collider: RAPIER.Collider | null, point: THREE.Vector3, amount: number, kind: ExplosionKind, source: string): boolean;
+  /** Returns how many were caught. */
+  blast(center: THREE.Vector3, spec: ExplosionSpec): number;
+  /** Writes where the enemy chopper is. False when none is up. */
+  chopperAt(out: THREE.Vector3): boolean;
+  /** The player's aircraft has come on station, or with null, left. */
+  setFriendly(aircraft: FriendlyAircraft | null): void;
+}
+
 export interface EnemySystem extends GameSystem {
   readonly alive: readonly EnemyInstance[];
+  /** Null on any page with no vehicles, which is every page of the swarm. */
+  readonly vehicles?: VehicleTargets | null;
   /** Spawned enemies not yet killed in this wave, including those queued. */
   readonly remaining: number;
   spawn(id: EnemyId, position: THREE.Vector3): EnemyInstance | null;
@@ -336,6 +360,8 @@ export interface ProgressionSystem extends GameSystem {
   grantCallIn(id: CallInId): void;
   /** Straight into a gunner's seat, with no key and nothing earned. A mission's insertion. */
   boardCallIn(id: CallInId): void;
+  /** Points for something that is not a kill: a vehicle, say. */
+  award(points: number, reason: string, position?: THREE.Vector3): void;
   /** Carries a mission's tally across a restart, which a new run would otherwise zero. */
   resume(score: number, kills: number, headshots: number): void;
   /** Puts the combo here with a fresh window, for tests and debug. What it would have paid on the way up waits for the next kill. */

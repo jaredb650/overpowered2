@@ -303,7 +303,19 @@ const speedSum = { sum: 0, n: 0 };
 const log: unknown[] = [];
 ctx.events.on('comms:line', (l: any) => log.push({ t: +now.toFixed(1), who: l.speaker ?? l.squad, kind: l.kind, text: l.text }));
 ctx.events.on('enemy:broken', (e: any) => log.push({ t: +now.toFixed(1), type: 'broken', fate: e.fate }));
-ctx.events.on('enemy:surrendered', () => log.push({ t: +now.toFixed(1), type: 'surrendered' }));
+ctx.events.on('enemy:surrendered', (e: any) => {
+  const s = soldierOf(e.enemy)!;
+  log.push({ t: +now.toFixed(1), type: 'surrendered', rank: s.rank, signs: outpost.captives.signs(s), sinceHit: +(now - s.hitAt).toFixed(1), hostile: outpost.hostile, peak: +outpost.peakHostile.toFixed(1), hp: +(e.enemy.health / e.enemy.maxHealth).toFixed(2) });
+});
+const drills: Record<string, { done: number; failed: number; seconds: number }> = {};
+ctx.events.on('squad:drill', (d: any) => {
+  const row = drills[d.drill] ??= { done: 0, failed: 0, seconds: 0 };
+  if (d.done) row.done++;
+  else row.failed++;
+  row.seconds += d.seconds;
+});
+const ranks: Record<string, number> = {};
+ctx.events.on('enemy:spawned', (e: any) => { const s = soldierOf(e.enemy); if (s) ranks[s.rank] = (ranks[s.rank] ?? 0) + 1; });
 ctx.events.on('enemy:killed', () => log.push({ t: +now.toFixed(1), type: 'killed' }));
 
 const t0 = performance.now();
@@ -370,6 +382,10 @@ const report = {
   firstContact: +seen.contactAt.toFixed(1),
   manTime: { firing: share(men.firing), moving: share(men.moving), seesNoShot: share(men.noTarget), idle: share(men.idle), sees: share(men.sees) },
   modes,
+  drills: Object.fromEntries(Object.entries(drills).map(([k, v]) => [k, `${v.done}/${v.done + v.failed} ${(v.seconds / Math.max(v.done + v.failed, 1)).toFixed(1)}s`])),
+  ranks,
+  orders: `${outpost.commander.orders.obeyed}/${outpost.commander.orders.issued}`,
+  cracks: outpost.suppression.cracks,
   broken: log.filter((l: any) => l.type === 'broken').length, surrendered: log.filter((l: any) => l.type === 'surrendered').length,
   wall: Math.round(performance.now() - t0),
 };

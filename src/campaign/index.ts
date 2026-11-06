@@ -13,6 +13,7 @@
  * docs/campaign/MISSION.md has the plan, the map and how to use this.
  */
 import type { Ctx } from '../core/contracts';
+import type { EnemyInstance } from '../core/gameplay';
 import type { CampaignSystem } from './events';
 import './events';
 import { GameHost } from './host';
@@ -36,6 +37,7 @@ class Idle implements CampaignSystem {
   provide(): void {}
   signal(): void {}
   unitGone(): void {}
+  enlist(): void {}
   redeploy(): boolean {
     return false;
   }
@@ -82,6 +84,10 @@ class Campaign implements CampaignSystem {
 
   unitGone(tag: string, killed: boolean, source: string): void {
     this.runner.unitGone(tag, killed, source);
+  }
+
+  enlist(body: EnemyInstance, tag: string): void {
+    this.host.enlist(body, tag);
   }
 
   redeploy(): boolean {

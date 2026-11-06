@@ -121,6 +121,8 @@ export const WoundTuning = {
   baitRange: 42,
   /** Men who go along with the one sent to fetch him. */
   baitEscort: 2,
+  /** What a hit does to a man on his knees with his hands up. Nothing about that posture stops a round, and an execution should be decisive. */
+  kneeling: 5,
 } as const;
 
 /** Rounds in a pistol. */

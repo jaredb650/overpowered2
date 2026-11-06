@@ -129,8 +129,15 @@ export class WoundSystem {
     return resolveZone(bone, d.bone, region, d.point, d.dir, e.char.rig.height / 1.85, this.hit);
   }
 
+  /** Hands up on his knees: no plate is in the way and there is nothing to take the hit but him. */
+  kneeling(e: Enemy): boolean {
+    const s = soldierOf(e);
+    return s !== undefined && s.surrendered && s.captive !== 'held';
+  }
+
   /** The damage model priced a neck or a skid as a head hit, which neither is. A man also lasts longer alight than a husk does. */
-  priced(hit: ZoneHit | null, d: DamageInfo, amount: number, region: GoreRegion): number {
+  priced(hit: ZoneHit | null, d: DamageInfo, amount: number, region: GoreRegion, kneeling: boolean): number {
+    if (kneeling) return amount * T.kneeling;
     if (d.source === 'burn') return amount * BURN_DAMAGE;
     if (!hit) return amount;
     if (hit.glancing) return d.amount * GLANCE_DAMAGE;
@@ -146,6 +153,8 @@ export class WoundSystem {
       return false;
     }
     if (d.source !== 'burn') b.source = d.source;
+    // A man with his hands up has no last stand, no crawl and no clock. Whatever took his health took him.
+    if (fatal && s.surrendered) return true;
     const dead = hit ? this.takePlaced(s, b, hit, d, amount / e.maxHealth, fatal, amount) : this.takeArea(s, b, d, amount, fatal);
     if (dead) return true;
     if (fatal) e.health = Math.max(e.health, e.maxHealth * T.lastBlood);

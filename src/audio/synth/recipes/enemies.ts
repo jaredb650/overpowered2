@@ -116,6 +116,11 @@ export const voices = [
 ];
 
 export const enemyGear = [
+  // The bang took the hearing and left this. Two sines just apart, so it beats and never quite settles.
+  r('ear_ring', { dur: 5.5, mix: 'enemyFx', over: { volume: 0.5, priority: 9, exempt: true, family: undefined } }, s => {
+    s.osc('sine', [[0, 3340], [5.5, 3160]], 5.5).env([[0, 0.0001], [0.04, 1], [3, 0.7], [5.5, 0.0001]]).out(0.7);
+    s.osc('sine', [[0, 3352], [5.5, 3171]], 5.5).env([[0, 0.0001], [0.04, 0.5], [3, 0.35], [5.5, 0.0001]]).out(0.4);
+  }),
   r('enemy_pistol', { dur: 0.55, n: 3, mix: 'enemyGun', expect: { attackMs: [0, 6] } }, s => {
     gunshot(s, { crack: 0.9, crackHp: 2100, body: 1050, bodyDecay: 0.07, sub: 0.45, subFreq: 125, subDecay: 0.08, tail: 0.26, tailDecay: 0.42, drive: 3 });
   }),

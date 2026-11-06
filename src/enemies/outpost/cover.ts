@@ -24,6 +24,9 @@ const MAX_CLEARANCE = 1;
 const GRID = 4;
 /** Candidates that get real rays when choosing. */
 const VERIFY_TOP = 4;
+/** What a metre over the threat is worth to a man who wants height, up to a tower's platform. */
+const HEIGHT_SCORE = 1.1;
+const MAX_HEIGHT_WORTH = 10;
 
 const _dir = new THREE.Vector3();
 const _from = new THREE.Vector3();
@@ -64,6 +67,8 @@ export interface SpotQuery {
   uid: number;
   /** Where he is now. A spot a short walk away beats a slightly better one across the map. */
   from: THREE.Vector3;
+  /** How much height is worth to him. 0 for a rifleman, 1 for a man who wants a tower. */
+  height: number;
 }
 
 export interface SpotReading {
@@ -231,6 +236,7 @@ export class CoverMap {
     if (toThreat < q.near) score -= (q.near - toThreat) * 1.3;
     else if (toThreat > q.far) score -= (toThreat - q.far) * 0.8;
     if (this.sheltered(s, q.threat)) score += 5;
+    if (q.height > 0) score += Math.min(Math.max(p.y - q.threat.y, 0), MAX_HEIGHT_WORTH) * HEIGHT_SCORE * q.height;
     if (!Number.isNaN(q.bearing)) {
       const off = Math.abs(wrap(Math.atan2(p.x - q.threat.x, p.z - q.threat.z) - q.bearing));
       score -= Math.max(0, off - q.bearingSlack) * 7;
@@ -267,7 +273,8 @@ export class CoverMap {
           const s = list[i]!;
           if (s.claimedBy !== 0 && s.claimedBy !== q.uid) continue;
           const px = s.position.x - q.anchor.x, pz = s.position.z - q.anchor.z;
-          if (px * px + pz * pz > r2 || Math.abs(s.position.y - q.anchor.y) > 2.5) continue;
+          // A rifleman stays on his own floor. A man who wants height will climb to get it.
+          if (px * px + pz * pz > r2 || (q.height === 0 && Math.abs(s.position.y - q.anchor.y) > 2.5)) continue;
           const score = this.rate(s, q);
           if (best.length === VERIFY_TOP && score <= bestScore[VERIFY_TOP - 1]!) continue;
           if (!this.spaced(s, q)) continue;

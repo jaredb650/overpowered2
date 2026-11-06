@@ -105,6 +105,8 @@ export interface PostFx {
   setSpeed(amount: number): void;
   /** 0..1 continuous low-health effect (red vignette, desaturation, pulse). */
   setLowHealth(amount: number): void;
+  /** 0..1 continuous softening of the whole image, the middle of it included: under fire, or still seeing stars. */
+  setSuppression?(amount: number): void;
   /** Directional hit marker: a red bloom on the screen edge. `angle` is radians, 0 = ahead, clockwise. */
   damageDirection(angle: number, intensity: number): void;
 }
@@ -710,6 +712,8 @@ export interface PlayerSystem extends GameSystem {
   lookScale: number;
   /** True while the body waits on the ground for a seat to end. */
   readonly parked: boolean;
+  /** Asked before every hit. Returning true means something else took it. */
+  interceptor: ((damage: PlayerDamage) => boolean) | null;
   /** Puts the body at `feet` and holds it there: no input, no motion, and nothing can touch it. The view is kept. */
   park(feet: THREE.Vector3): void;
   /** Gives the body back, still untouchable for `grace` seconds, because whatever came for it is standing round it. */

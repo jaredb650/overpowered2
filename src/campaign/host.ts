@@ -81,6 +81,10 @@ export class GameHost implements MissionHost {
     return this.ctx.enemies as EnemyManager;
   }
 
+  enlist(e: EnemyInstance, tag: string): void {
+    this.tagOf.set(e.uid, tag);
+  }
+
   private gone(e: EnemyInstance, killed: boolean, source: string): void {
     const tag = this.tagOf.get(e.uid);
     if (tag === undefined) {
@@ -143,7 +147,7 @@ export class GameHost implements MissionHost {
   release(tag: string): void {
     const squads = this.held.get(tag);
     if (!squads) return;
-    for (const squad of squads) squad.directed = false;
+    for (const squad of squads) squad.stopLying();
     this.held.delete(tag);
   }
 
@@ -156,6 +160,7 @@ export class GameHost implements MissionHost {
       events.emit('enemy:escaped', { enemy: e });
       manager.withdraw(e as Enemy);
     }
+    events.emit('campaign:sweep', {});
   }
 
   place(at: Mark): void {
@@ -174,7 +179,7 @@ export class GameHost implements MissionHost {
       o.formSquad(head.men.length, head.at);
       if (head.hold) {
         const squad = o.squads[o.squads.length - 1]!;
-        squad.directed = true;
+        squad.lieStill();
         const list = this.held.get(head.tag);
         if (list) list.push(squad);
         else this.held.set(head.tag, [squad]);
@@ -196,6 +201,7 @@ export class GameHost implements MissionHost {
 
   /** Until there are vehicles: the crew arrive on foot where it would have stopped, and the vehicle itself is written off. */
   vehicle(order: VehicleOrder, at: Mark, route: readonly Mark[]): void {
+    if (order.state) return;
     if (order.crew && order.crew.length > 0) {
       const stop = route[route.length - 1] ?? at;
       this.squad({ do: 'squad', tag: order.crewTag ?? order.tag, men: order.crew, at: 'unused' }, stop);

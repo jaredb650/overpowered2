@@ -29,6 +29,7 @@ interface Filled {
   weapon?: string;
   room?: string;
   name?: string;
+  squad?: string;
 }
 
 /** Under this a topic is not worth bringing up, and the Commander fills the silence instead. */
@@ -180,7 +181,7 @@ function announce(id: AdaptationId, late: boolean, topic: Topic | null): Line {
   return answer(id, late);
 }
 
-const WORD = /\{(n|weapon|room|name)\}/g;
+const WORD = /\{(n|weapon|room|name|squad)\}/g;
 
 /** Fills the slots. The text keeps the true number; the clip name carries the band a recording was made at. */
 export function spoken(line: Line, fill: Filled, topic: Topic | null): Spoken {
@@ -196,7 +197,7 @@ export function spoken(line: Line, fill: Filled, topic: Topic | null): Spoken {
       key = fill.weapon ?? '';
       return WEAPON_WORDS[key] ?? key;
     }
-    const word = slot === 'room' ? fill.room : fill.name;
+    const word = slot === 'room' ? fill.room : slot === 'squad' ? fill.squad : fill.name;
     key = word ?? '';
     return word ?? '';
   });

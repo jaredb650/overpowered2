@@ -7,7 +7,7 @@
 //
 // Recordings go in public/audio/voice/<file>.mp3, and their names go in public/audio/voice/manifest.json. Playback does the rest.
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { COUNT_BANDS, LINES, NAMES, ROOM_WORDS, slotsOf, textOnly, topicOf, WEAPON_WORDS, type Line, type Speaker } from '../../src/enemies/commander/lines';
+import { COUNT_BANDS, LINES, NAMES, ROOM_WORDS, slotsOf, SQUAD_WORDS, textOnly, topicOf, WEAPON_WORDS, type Line, type Speaker } from '../../src/enemies/commander/lines';
 
 const VOICE: Record<Speaker, string> = { commander: 'the void', intercept: 'the void', council: 'shodan', radio: 'radio crew' };
 
@@ -32,6 +32,7 @@ function takes(line: Line): Take[] {
   if (slot === 'weapon') return Object.keys(WEAPON_WORDS).map(id => ({ file: key(id), line, spoken: fill(WEAPON_WORDS[id]!) }));
   if (slot === 'room') return ROOM_WORDS.map(r => ({ file: key(r), line, spoken: fill(r) }));
   if (slot === 'name') return NAMES.map(n => ({ file: key(n), line, spoken: fill(n) }));
+  if (slot === 'squad') return SQUAD_WORDS.map(n => ({ file: key(n), line, spoken: fill(n) }));
   const topic = topicOf(line.id);
   const bands = topic ? COUNT_BANDS[topic] : undefined;
   if (!bands) throw new Error(`${line.id} has a number and no bands`);

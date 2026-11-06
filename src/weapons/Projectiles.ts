@@ -435,9 +435,13 @@ export class Projectiles {
         c.fx.impact(wall.point, wall.normal, wall.surface, 0.7);
         c.audio.play(SURFACE_SOUND[wall.surface], { position: wall.point, volume: 0.7, pitchJitter: 0.08 });
         c.world.objects?.damageExplosive(wall.collider, p.damage, p.source);
+        if (p.team === 'player') c.enemies.vehicles?.shot(wall.collider, wall.point, p.damage, p.source);
         break;
       default:
-        if (p.explosive) this.explode(p, wall.normal);
+        if (p.explosive) {
+          if (p.team === 'player') c.enemies.vehicles?.direct(wall.collider, wall.point, p.damage, p.blastKind, p.source);
+          this.explode(p, wall.normal);
+        }
     }
     p.live = false;
   }

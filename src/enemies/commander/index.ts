@@ -14,6 +14,7 @@
  *   jam.ts          what the sonar and the minimap may say
  *   smoke.ts, barricades.ts, props.ts, behaviours.ts   the rest of the kit
  *   person.ts       the end of a run
+ *   orders.ts       on the radio mid-fight, directing men who visibly do as they are told
  *   lines.ts        every word, with its id, speaker and emotion
  *
  * The Outpost owns this and calls it at a handful of points. Off the contract none of it exists.
@@ -39,6 +40,7 @@ import type { Briefing, StatusFlag } from './events';
 import { SonarJam } from './jam';
 import { NAMES, radioLine } from './lines';
 import { Mortars } from './mortars';
+import { RadioOrders } from './orders';
 import { Person } from './person';
 import { Posts } from './posts';
 import { Props } from './props';
@@ -93,6 +95,7 @@ export class Commander {
   readonly person: Person;
   readonly props: Props;
   readonly posts: Posts;
+  readonly orders: RadioOrders;
   /** In the order they were fielded. Nothing leaves this list during a run. */
   readonly fielded: AdaptationId[] = [];
   private readonly have = new Set<AdaptationId>();
@@ -129,6 +132,7 @@ export class Commander {
     this.barricades = new Barricades(this);
     this.person = new Person(this);
     this.posts = new Posts(this);
+    this.orders = new RadioOrders(this);
   }
 
   init(): void {
@@ -181,6 +185,7 @@ export class Commander {
     this.traps.reset();
     this.barricades.reset();
     this.person.reset();
+    this.orders.reset();
     this.have.clear();
     this.tricks.clear();
     this.fielded.length = 0;
@@ -342,6 +347,8 @@ export class Commander {
     // Every squad's first man has a name, so that the box has someone to mourn.
     if (s.seat === 1 && !s.squad.directed) this.names.set(s, NAMES[this.nameAt++ % NAMES.length]!);
     if (this.has('helmets')) this.heavyHelmet(s);
+    // Rank has to read at 30 m, and all a man has at 30 m is a silhouette. A visor is a man to take seriously.
+    else if (s.rank === 'elite') this.props.fit(s.e.char, 'visor');
     if (!unitOf(s)) this.traps.arm(s);
   }
 
@@ -485,6 +492,7 @@ export class Commander {
     this.traps.update();
     this.barricades.update(dt);
     this.person.update();
+    this.orders.update(now);
     if (this.lockAt >= 0 && now >= this.lockAt) this.fireManpads();
   }
 

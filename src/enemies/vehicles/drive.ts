@@ -56,6 +56,7 @@ export class Driver {
   private accel = 0;
   private turnRate = 0;
   private route: readonly RoutePoint[] = [];
+  private facing = NaN;
 
   constructor(private readonly plan: DriveDef) {}
 
@@ -69,6 +70,8 @@ export class Driver {
     this.holdLeft = 0;
     this.limit = 1;
     this.coasting = false;
+    this.reversing = false;
+    this.facing = NaN;
     this.done = route.length === 0;
   }
 
@@ -156,14 +159,15 @@ export class Driver {
 
   private steer(h: number): void {
     const { plan } = this;
-    const error = this.coasting || this.done ? 0 : this.heading();
     const tracked = plan.wheelbase === 0;
+    const parked = this.coasting || this.done;
+    const error = !parked ? this.heading() : tracked && !this.coasting && !Number.isNaN(this.facing) ? wrapAngle(this.facing - this.yaw) : 0;
     const aim = Math.abs(error) < STEER_DEADBAND ? 0 : clamp(error / (tracked ? 0.5 : plan.steer), -1, 1);
     this.wheel = damp(this.wheel, aim, plan.steerRate, h);
     const before = this.yaw;
     if (tracked) {
       // Tracks turn at any speed, down to nothing.
-      this.yaw += this.wheel * plan.steer * h * (this.done ? 0 : 1);
+      this.yaw += this.wheel * plan.steer * h;
     } else {
       const flow = Math.abs(this.speed) < 0.05 ? 0 : (this.speed / plan.wheelbase) * Math.tan(this.wheel * plan.steer);
       this.yaw += flow * h * (this.reversing ? -1 : 1);
@@ -187,13 +191,31 @@ export class Driver {
     const { route, leg } = this;
     const next = route[leg];
     if (!next || this.done) return;
-    if (Math.hypot(next.x - this.x, next.z - this.z) > Math.max(ARRIVED, Math.abs(this.speed) * h * 2)) return;
-    if (next.hold > 0 && this.holdLeft <= 0) {
-      this.holdLeft = next.hold;
-      route[leg] && (this.route = route);
-    }
+    if (Math.hypot(next.x - this.x, next.z - this.z) > Math.max(ARRIVED, Math.abs(this.speed) * h * 2) && !this.passed(next)) return;
+    if (next.hold > 0) this.holdLeft = next.hold;
     this.leg++;
     if (this.leg >= route.length) this.done = true;
+  }
+
+  /** Over the line through a mark, square to the leg. A mark inside the turning circle would otherwise be circled for ever. */
+  private passed(next: RoutePoint): boolean {
+    const from = this.route[this.leg - 1];
+    if (!from) return false;
+    return (next.x - this.x) * (next.x - from.x) + (next.z - this.z) * (next.z - from.z) < 0;
+  }
+
+  /** A new road from where it stands, keeping its speed and its springs. */
+  reroute(route: readonly RoutePoint[], reversing: boolean): void {
+    this.route = route;
+    this.leg = 0;
+    this.holdLeft = 0;
+    this.reversing = reversing;
+    this.done = route.length === 0;
+  }
+
+  /** Once stopped, turns on the spot to face this way. Only tracks can. */
+  face(yaw: number): void {
+    this.facing = yaw;
   }
 
   /** Eases the side-step toward `metres`. */

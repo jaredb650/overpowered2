@@ -20,8 +20,6 @@ const SPRINT_SPEED = 6;
 const WALK_SHARE = 0.62;
 const CROUCH_SHARE = 0.5;
 const SPRINT_RECOVERY = 0.5;
-/** Rounds this close keep his head down, whatever his orders. */
-const PINNED = 0.62;
 /** Metres to a route point before he turns for the next one. Tighter at the end, so he really reaches the spot. */
 const WAYPOINT = 0.9;
 const LAST_WAYPOINT = 0.45;
@@ -32,8 +30,6 @@ const MAX_STALLS = 2;
 /** A man with the player this close and in sight gives up instead of running past him. */
 const CORNERED = 5;
 const KNEEL_DELAY = 0.75;
-/** A prisoner left alone this long gets up and walks out. */
-const PRISONER_SECONDS = 45;
 const DRAG_SPEED = 1.7;
 const DRAG_OFFSET = 1.1;
 const REACH_PATIENT = 1.6;
@@ -85,7 +81,7 @@ function hide(e: Enemy, w: AiWorld, s: Soldier): void {
   s.exposed = s.blind = false;
   if (s.spot) e.moveTarget.copy(s.spot.position);
   pose(e, s.state === 'panicked' ? 'cower' : 'cover');
-  s.nextPeekAt = w.now + rand(1.1, 2.4) * PEEK_WAIT_BY_STATE[s.state] * (1 + e.pressure * 1.5);
+  s.nextPeekAt = w.now + rand(0.7, 1.5) * PEEK_WAIT_BY_STATE[s.state] * (1 + e.pressure * 1.5) / s.rankDef.exposure;
 }
 
 function peek(e: Enemy, w: AiWorld, s: Soldier): void {
@@ -106,10 +102,14 @@ function peek(e: Enemy, w: AiWorld, s: Soldier): void {
   s.blind = panicked && chance(0.6);
   e.moveTarget.copy(s.blind ? spot.position : s.firePoint);
   pose(e, s.blind ? 'cower' : s.fireSide < 0 ? 'leanLeft' : s.fireSide > 0 ? 'leanRight' : 'peek');
-  s.peekUntil = w.now + (s.def.base ? rand(4.5, 7) : rand(2.2, 3.8)) * (s.state === 'shaken' ? 0.6 : 1);
+  s.peekUntil = w.now + (s.def.base ? rand(5.5, 8) : rand(2.8, 4.4)) * s.rankDef.exposure * (s.state === 'shaken' ? 0.6 : 1);
 }
 
 function startReload(e: Enemy, w: AiWorld, s: Soldier): void {
+  if (s.weapon === 'primary' && s.reserve <= 0) {
+    w.enemies.outpost!.runDry(s);
+    return;
+  }
   s.reloadUntil = w.now + s.def.reload;
   w.ctx.audio.play('smg_reload', { position: e.center, volume: 0.45 });
   w.enemies.outpost!.comms.say('reloading', s);
@@ -134,13 +134,28 @@ const hold: Behaviour = {
   think(e, w) {
     const s = soldierOf(e)!;
     const now = w.now;
-    s.aim.copy(s.sees ? w.player.chest : s.squad.threat);
-    s.suppressing = now < s.squad.coverFireUntil && s.team !== s.squad.movingTeam;
+    const q = s.squad;
+    if (s.silent) {
+      // On the door, weapon up, not breathing. He looks and he waits.
+      s.aim.copy(q.watch);
+      s.stage = 'peek';
+      s.exposed = false;
+      e.face = 'lock';
+      pose(e, 'crouch');
+      return;
+    }
+    if (s.sees) s.aim.copy(w.player.chest);
+    else q.fireOnLane(s, s.aim, now);
+    s.suppressing = now < q.coverFireUntil || q.firesOnThePlace(now);
     e.face = s.sees ? 'player' : 'lock';
     if (s.reloadUntil > 0) {
       if (now >= s.reloadUntil) {
         s.reloadUntil = 0;
-        s.mag = s.weapon === 'sidearm' ? SIDEARM_MAG : s.def.mag;
+        if (s.weapon === 'sidearm') s.mag = SIDEARM_MAG;
+        else {
+          s.mag = s.def.mag;
+          s.reserve--;
+        }
       } else return;
     } else if (s.mag <= 0) {
       startReload(e, w, s);
@@ -155,7 +170,7 @@ const hold: Behaviour = {
     }
     if (s.stage === 'hide') {
       if (now >= s.nextPeekAt) peek(e, w, s);
-    } else if (now >= s.peekUntil || e.pressure > PINNED) hide(e, w, s);
+    } else if (now >= s.peekUntil || e.pressure > s.rankDef.pinnedAt) hide(e, w, s);
   },
   frame(e, _w, dt) {
     if (e.face === 'lock') lookAt(e, soldierOf(e)!.aim, dt);
@@ -279,8 +294,20 @@ const surrender: Behaviour = {
       e.face = 'lock';
       pose(e, 'kneel');
     }
-    if (e.dist < 9) w.enemies.outpost!.comms.say('surrender', s);
-    if (w.now - s.surrenderedAt > PRISONER_SECONDS) w.enemies.outpost!.release(s);
+    const o = w.enemies.outpost!;
+    if (e.dist < 9) o.comms.say('surrender', s);
+    o.captives.look(s, w.now);
+  },
+};
+
+/** The player has him by the collar. Everything about where he is belongs to prisoners.ts. */
+const held: Behaviour = {
+  name: 'held',
+  score: e => (soldierOf(e)?.captive === 'held' ? 7.5 : 0),
+  enter(e) {
+    e.mode = 'hold';
+    e.face = 'lock';
+    pose(e, 'handsUp');
   },
 };
 
@@ -297,8 +324,9 @@ const flee: Behaviour = {
   },
   think(e, w) {
     const s = soldierOf(e)!;
-    if (!s.released && e.dist < CORNERED && e.hasLos && w.enemies.outpost!.doctrine.surrender) s.fate = 'surrender';
-    else if (!s.released) w.enemies.outpost!.comms.say('panic', s);
+    const o = w.enemies.outpost!;
+    if (!s.released && !s.refused && e.dist < CORNERED && e.hasLos && o.doctrine.surrender) s.fate = 'surrender';
+    else if (!s.released) o.comms.say('panic', s);
   },
   frame(e, w) {
     const s = soldierOf(e)!;
@@ -378,4 +406,4 @@ const aid: Behaviour = {
  * Burning is the only maimed rule a soldier keeps from the swarm. Crawling is the wounds' business, and always away. Headbutts and
  * disarmed rushes are out: a man who loses his gun arm reaches for a sidearm, or runs, or gives up.
  */
-export const SOLDIER_BEHAVIOURS: Behaviour[] = [panic(), downed, surrender, flee, aid, scramble, selfAid, posted, move, hold];
+export const SOLDIER_BEHAVIOURS: Behaviour[] = [panic(), downed, held, surrender, flee, aid, scramble, selfAid, posted, move, hold];

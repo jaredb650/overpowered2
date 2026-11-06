@@ -152,11 +152,12 @@ export class DamageModel {
     const placed = body ? wounds!.read(e, d, region) : null;
     const headMul = d.headshotMult ?? REGION_DAMAGE.head;
     let amount = d.amount * (area ? 1 : region === 'head' ? headMul : REGION_DAMAGE[region]);
-    if (body) amount = wounds!.priced(placed, d, amount, region);
+    const kneeling = body !== null && wounds!.kneeling(e);
+    if (body) amount = wounds!.priced(placed, d, amount, region, kneeling);
     res.headshot = region === 'head' && !area && (placed === null || (placed.zone === 'head' && !placed.glancing));
 
     // A plate does nothing about a fire, or about blood that is already leaving.
-    const round = (!body || d.type === 'explosive' || !area) && !d.pierces;
+    const round = (!body || d.type === 'explosive' || !area) && !d.pierces && !kneeling;
     const plate = !round ? null : area ? this.blastPlate(e) : this.plateFor(e, region, d);
     if (plate) {
       // Section 14.6: a plate stops small arms outright, the round that breaks it included. Only a heavy round carries on through.
@@ -265,7 +266,7 @@ export class DamageModel {
     e.char.setBloodiness(1);
   }
 
-  private ignite(e: Enemy, seconds: number): void {
+  ignite(e: Enemy, seconds: number): void {
     e.burning = Math.max(e.burning, seconds);
     this.m.outpost?.wounds.caughtFire(e);
   }

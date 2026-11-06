@@ -5,11 +5,12 @@
  * An id is built from a key written next to its line, not from where the line sits, so lines can be moved and the recordings stay
  * matched. Change a line's words and it wants recording again. Change its key and it has lost its audio.
  *
- * Slots are `{n}`, `{weapon}`, `{room}` and `{name}`. The box prints the true number; the recording says the nearest band, so 212 shots
+ * Slots are `{n}`, `{weapon}`, `{room}`, `{name}` and `{squad}`. The box prints the true number; the recording says the nearest band, so 212 shots
  * is a take of "two hundred". A line with two different slots would need every pairing recorded, so it stays text in the box.
  *
  * Nothing here imports three.js.
  */
+import { CALLSIGNS } from '../outpost/doctrine';
 import { ADAPTATIONS, TRICKS, type AdaptationId, type Tone, type TrickId } from './adaptations';
 
 export type Speaker = 'commander' | 'council' | 'intercept' | 'radio';
@@ -28,6 +29,9 @@ export interface Line {
 export type Topic =
   | 'door' | 'camp' | 'weapon' | 'headshots' | 'limbs' | 'executions' | 'untouched' | 'hurt' | 'sonar' | 'pickups' | 'callIns' | 'melee'
   | 'speed' | 'highGround' | 'room' | 'accuracy' | 'range' | 'quick' | 'slow' | 'fallen' | 'gift' | 'generic';
+
+/** The drills he gives orders for. */
+export type OrderDrill = 'flank' | 'frag' | 'flash' | 'cutOff' | 'rush' | 'baseOfFire';
 
 export type TrapCause = 'mortar' | 'mine' | 'tripwire' | 'claymore' | 'snare' | 'rigged' | 'deadman' | 'sniper' | 'falseSurrender' | 'manpads';
 
@@ -777,6 +781,35 @@ const PLAYER_DEAD: Keyed = {
 // The radio: heard on the comms feed, by the men, mid-wave
 // -------------------------------------------------------------------------------------------------
 
+/** What he tells a squad to do, mid-fight, on the open channel. The first word is always who it is for. Keyed by drill, so that orders.ts can find them. */
+const ORDERS: Readonly<Record<OrderDrill, Keyed>> = {
+  flank: {
+    round: '{squad}, go round it. I want it looking the wrong way.',
+    side: '{squad}. It is watching the front. Take the side.',
+    wide: '{squad}, wide and quiet. Come up behind it.',
+  },
+  frag: {
+    move: '{squad}, it has stopped moving. Give it a reason.',
+    out: '{squad}, grenades. Get it out of there.',
+  },
+  flash: {
+    bang: '{squad}, bang it and go in behind the bang.',
+    eyes: '{squad}. Take its eyes, then take the rest.',
+  },
+  cutOff: {
+    ahead: '{squad}, it is running. Be there first.',
+    exit: '{squad}, it has one way out of that. Close it.',
+  },
+  rush: {
+    now: '{squad}, it is hurt and it is alone. All of you. Now.',
+    close: '{squad}, stop being polite. Close it down.',
+  },
+  baseOfFire: {
+    pin: '{squad}, keep it pinned. Nobody lifts a finger off that trigger.',
+    lane: '{squad}, own that lane. If it moves, it moves into you.',
+  },
+};
+
 const RADIO: Keyed = {
   'radio.spotter.eyes.a': 'Spotter has eyes on. Lasing.',
   'radio.spotter.eyes.b': 'Target painted. Hold it there.',
@@ -891,6 +924,7 @@ export const LINES: readonly Line[] = [
   ...table('cmd.person', 'commander', 'cracked', IN_PERSON_LINES),
   ...table('cmd.dead', 'commander', 'cracked', DEAD),
   ...table('cmd.playerDead', 'commander', 'smug', PLAYER_DEAD),
+  ...(Object.keys(ORDERS) as OrderDrill[]).flatMap(drill => table(`cmd.order.${drill}`, 'commander', 'smug', ORDERS[drill])),
   ...radioTable(),
 ];
 
@@ -904,6 +938,12 @@ export function radioLine(family: string): Line | null {
   const list = lines(`${family}.`);
   return list.length > 0 ? list[Math.floor(Math.random() * list.length)]! : null;
 }
+
+/** One way of telling a squad to do this. */
+export const orderLine = (drill: OrderDrill): Line => {
+  const list = lines(`cmd.order.${drill}.`);
+  return list[Math.floor(Math.random() * list.length)]!;
+};
 
 export const reactions = (topic: Topic, tone: Tone): Line[] => lines(`cmd.${topic}.${tone}.`);
 export const gloat = (cause: TrapCause, tone: Tone): Line | undefined => lineById(`cmd.gloat.${cause}.${tone}`);
@@ -933,6 +973,9 @@ export const WEAPON_WORDS: Readonly<Record<string, string>> = {
 /** The Kill House's spaces, as `world.zones` names them. */
 export const ROOM_WORDS: readonly string[] = ['TYRES', 'LANES', 'CRATES', 'STREET', 'SANDBAGS', 'PLYWOOD', 'TILES', 'PLANT', 'COURT', 'RING', 'YARD'];
 
+/** The squads, in the order they are raised. */
+export const SQUAD_WORDS: readonly string[] = CALLSIGNS;
+
 /** Squad leaders get these, in turn, so the box can mourn someone. */
 export const NAMES: readonly string[] = ['Dennis', 'Okafor', 'Whitlock', 'Marsh', 'Novak', 'Reyes', 'Big Tom', 'Sully'];
 
@@ -947,7 +990,7 @@ export const COUNT_BANDS: Readonly<Partial<Record<Topic, readonly (readonly [num
   headshots: SMALL, limbs: SMALL, executions: SMALL, sonar: SMALL, pickups: SMALL, callIns: SMALL, melee: SMALL, gift: SMALL,
 };
 
-const SLOT = /\{(n|weapon|room|name)\}/g;
+const SLOT = /\{(n|weapon|room|name|squad)\}/g;
 
 /** The different slots in a line. */
 export const slotsOf = (text: string): string[] => [...new Set([...text.matchAll(SLOT)].map(m => m[1]!))];

@@ -167,7 +167,7 @@ describe('cover', () => {
   };
 
   const query = (threat: THREE.Vector3, anchor: THREE.Vector3): SpotQuery => ({
-    anchor, radius: 8, threat, near: 0, far: 60, bearing: NaN, bearingSlack: 0.4, needShot: false, spacing: 1, uid: 1, from: anchor,
+    anchor, radius: 8, threat, near: 0, far: 60, bearing: NaN, bearingSlack: 0.4, needShot: false, spacing: 1, uid: 1, from: anchor, height: 0,
   });
 
   it('finds spots against the wall and tells low from tall', () => {

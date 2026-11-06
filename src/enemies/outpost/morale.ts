@@ -36,6 +36,8 @@ export const FEAR = {
   underFire: 5,
   /** Hearing a man scream close by. */
   scream: 3.5,
+  /** The last magazine going. */
+  dry: 18,
   /** Per second with the monster inside MONSTER_RANGE. */
   monsterClose: 7,
   /** On every survivor of a squad that lost RAPID_SHARE of its men inside RAPID_SECONDS. */

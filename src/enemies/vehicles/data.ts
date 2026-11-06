@@ -261,7 +261,7 @@ export const ARMOUR_BLAST_SHARE = 0.4;
 /** Most a single blast counts for on armour before that share. Keeps a perk's instakill a number. */
 export const ARMOUR_BLAST_MOST = 600;
 /** A soft-skin takes blasts at this many times their number: a rocket or a grenade ends one, as the mission promises. */
-export const SOFT_BLAST_SCALE = 2.4;
+export const SOFT_BLAST_SCALE = 3.4;
 /** Bullets into the cab go through the door. Hits it takes to reach the driver. */
 export const DRIVER_HEALTH = 75;
 /** At this share of health a soft-skin stops and its crew get out. It burns down from there unless something finishes it. */

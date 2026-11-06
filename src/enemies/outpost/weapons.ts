@@ -63,9 +63,7 @@ const canFireSidearm = (e: Enemy): boolean => {
 };
 
 /** One of his own is in the way. Whether that stops him depends on who he is. */
-const heldBack = (s: Soldier): boolean => s.e.alive && s.squad !== undefined && !!soldierOutpost(s)?.prisoners.stopsFire(s);
-
-const soldierOutpost = (s: Soldier) => s.squad.outpost;
+const heldBack = (s: Soldier): boolean => s.squad.outpost.captives.stopsFire(s);
 
 /** Everything a shot needs that does not depend on the gun. */
 function nerveOf(s: Soldier, w: AiWorld): number {
@@ -170,7 +168,7 @@ function soldierGun(t: GunSpec): AttackDef {
 }
 
 const rifle = soldierGun({
-  name: 'rifle', range: [1.5, 52], shots: 3, gap: 0.1, damage: 7, speed: 88, windup: 0.26, cooldown: [0.5, 1.05], miss: 1,
+  name: 'rifle', range: [1.5, 64], shots: 3, gap: 0.1, damage: 7, speed: 88, windup: 0.26, cooldown: [0.5, 1.05], miss: 1,
   sound: 'enemy_smg', muzzle: 'enemy', moveMul: 0.65, token: 'ranged',
 });
 
@@ -179,7 +177,7 @@ const rifle = soldierGun({
  * does not stop when the player breaks sight: the squad's `laneAt` keeps it working the ground, and that is what denies the space.
  */
 const machineGun = soldierGun({
-  name: 'machinegun', range: [2, 60], shots: 34, gap: 0.085, damage: 5.2, speed: 96, windup: 0.55, cooldown: [0.6, 1.2], miss: 1.15,
+  name: 'machinegun', range: [2, 84], shots: 34, gap: 0.085, damage: 4.2, speed: 96, windup: 0.55, cooldown: [0.6, 1.2], miss: 1.15,
   sound: 'enemy_minigun_loop', muzzle: 'minigun', moveMul: 0.12, token: null, loop: 'enemy_minigun_loop', traverse: 1.15,
 });
 

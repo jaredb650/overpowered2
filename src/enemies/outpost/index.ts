@@ -9,8 +9,13 @@
  *   cover.ts      cover spots derived from the map with physics rays
  *   routes.ts     A* to anywhere, avoiding ground the threat can see
  *   squad.ts      the squad's brain: who goes where
+ *   planner.ts    what a squad decides to do, as a search over its drills
  *   behaviours.ts what a man does with his legs
  *   weapons.ts    what he does with his hands
+ *   aim.ts        how he hits something that moves
+ *   rank.ts       what he is: conscript, regular, veteran, elite
+ *   suppression.ts what being shot at does to the player
+ *   prisoners.ts  giving up, and what the player can do about it
  *   waves.ts      how they arrive
  *   comms.ts      what they say
  *   events.ts     what the rest of the game can listen to
@@ -21,7 +26,7 @@ import * as THREE from 'three';
 import { HumanoidBone as B } from '../../characters/rig';
 import type { DamageInfo } from '../../core/contracts';
 import type { DamageResult, EnemyId, EnemyInstance, KillEvent } from '../../core/gameplay';
-import { chance, rand, TAU } from '../../core/math';
+import { clamp, rand, TAU } from '../../core/math';
 import { Pool } from '../../core/pool';
 import { ACTIVE } from '../../contracts/select';
 import type { AiWorld } from '../aiWorld';
@@ -29,17 +34,21 @@ import { finishAttack } from '../brain';
 import { Commander } from '../commander';
 import type { Enemy } from '../Enemy';
 import type { EnemyManager } from '../EnemyManager';
+import { TargetTrack } from './aim';
 import { SOLDIER_BEHAVIOURS } from './behaviours';
 import { Comms } from './comms';
 import { CoverMap, type CoverSpot, type SpotReading } from './cover';
-import { CALLSIGNS, defaultDoctrine, fireRules, ROLE_OF, ROLES, type Doctrine } from './doctrine';
+import { CALLSIGNS, defaultDoctrine, fireRules, MAX_SQUAD, ROLE_OF, ROLES, type Doctrine } from './doctrine';
 import { DroppedWeapons } from './dropped';
 import './events';
 import { Dread, DREAD_SPIKES, FEAR, moraleCeiling, moraleState, MONSTER_RANGE, RECOVER_AFTER, recoverRate, WITNESS_RANGE } from './morale';
 import { hear, Intel, sense, SENSE_INTERVAL } from './perception';
+import { Prisoners } from './prisoners';
+import { atLeastRegular, promoted, RANKS, rollGrade } from './rank';
 import { RouteFinder, type NavGrid } from './routes';
 import { discharge, enlist, Soldier, soldierOf, type Urgency } from './soldier';
 import { OutpostSquad, type Door } from './squad';
+import { Suppression } from './suppression';
 import { dropGrenade, soldierAttacks } from './weapons';
 import { OutpostWaves } from './waves';
 import { WoundSystem } from '../wounds';
@@ -65,11 +74,22 @@ const AID_REACH = 28;
 const AID_DANGER = 5;
 /** Prisoners kept kneeling at once. Past that the longest held is let go. */
 const MAX_PRISONERS = 8;
-/** Inside this he has no time to run. */
-const SURRENDER_RANGE = 8;
 const REACHED_GATE = 2.2;
-const FLASH_RANGE = 11;
-const FLASH_SECONDS = 1.4;
+/** Metres from the bang that a man in the room is blinded too. It is a real grenade, and it does not know whose side it is on. */
+const FLASH_FRIENDLY = 5;
+/** Seconds of a look at the player reloading or hurt that the whole side treats as a chance. */
+const RELOAD_OPENING = 3.5;
+const HURT_OPENING = 3;
+const BLIND_OPENING = 5;
+/** Share of the player's health a hit has to leave them under before the men smell it. */
+const HURT_AT = 0.4;
+/** Metres the player has to move to stop counting as standing still. */
+const STILL_RADIUS = 1.6;
+/** How far a retreat goes for better ground, and what makes it better. */
+const GROUND_NEAR = 16;
+const GROUND_FAR = 48;
+const GROUND_WALK = 36;
+const GROUND_HEIGHT = 3.5;
 /** Metres a shot is heard, a sword swing, a landing per metre fallen, and footfalls per metre per second. */
 const SHOT_NOISE = 42;
 const BLADE_NOISE = 7;
@@ -120,9 +140,21 @@ export class Outpost {
   readonly commander: Commander;
   /** Men kneeling. They stay in `alive`, because they can still be shot, but they no longer count. */
   prisoners = 0;
+  /** What happens to them, and what the player can do about it. */
+  readonly captives: Prisoners;
+  /** The player's motion as the men read it. */
+  readonly track = new TargetTrack();
+  /** What being shot at is doing to the player. */
+  readonly suppression: Suppression;
+  /** Seconds the player has stayed in about one place. */
+  stillFor = 0;
+  /** The most men on the field lately, which is how a man knows the side is losing. It forgets a beaten fight in a minute or so. */
+  peakHostile = 0;
   /** For anyone holding `ctx.enemies.outpost`: the soldier on a body, if it has one. */
   readonly soldierOf = soldierOf;
 
+  private readonly stillAt = new THREE.Vector3();
+  private level = 1;
   private readonly dropped: DroppedWeapons;
   private readonly pool = new Pool<Soldier>(() => new Soldier(), s => s.clear());
   private readonly leaving: Soldier[] = [];
@@ -154,12 +186,15 @@ export class Outpost {
     this.waves = new OutpostWaves(w.ctx, this, manager);
     this.wounds = new WoundSystem(w, this, manager);
     this.commander = new Commander(w, this, manager);
+    this.captives = new Prisoners(w, this);
+    this.suppression = new Suppression(w);
   }
 
   init(): void {
     const { ctx } = this.w;
     this.wounds.init();
     this.commander.init();
+    this.captives.init();
     const { events } = ctx;
     events.on('enemy:killed', k => this.onKilled(k));
     events.on('enemy:hit', h => this.onHit(h.enemy, h.damage, h.result));
@@ -169,6 +204,8 @@ export class Outpost {
     events.on('weapon:fired', f => this.onFired(f.weapon, f.origin));
     events.on('player:landed', l => this.noise(this.w.player.position, l.impact * LANDING_NOISE));
     events.on('player:slam', s => this.noise(s.position, s.radius * 4));
+    events.on('weapon:reload', r => { if (r.phase === 'start') this.seizeOpening('opening', RELOAD_OPENING); });
+    events.on('player:damaged', () => this.onPlayerHurt());
   }
 
   /** The map does not exist until after every system's init, so all of this waits for the first run. */
@@ -207,6 +244,10 @@ export class Outpost {
     this.radioAt = -1;
     this.doctrine = defaultDoctrine();
     this.commander.reset();
+    this.captives.reset();
+    this.suppression.reset();
+    this.track.reset();
+    this.stillFor = this.peakHostile = 0;
     for (const b of this.bangs) b.live = false;
   }
 
@@ -214,6 +255,7 @@ export class Outpost {
   setWave(wave: number): void {
     const { limit, gap } = fireRules(wave);
     this.w.director.setFireRules(limit, gap);
+    this.level = wave;
   }
 
   /** Enemies still in the fight. */
@@ -235,6 +277,7 @@ export class Outpost {
     const name = CALLSIGNS[this.squadSerial % CALLSIGNS.length]!;
     const squad = new OutpostSquad(++this.squadSerial, name, this);
     squad.size = size;
+    squad.grade = rollGrade(this.level);
     squad.thinkAt = this.w.now + 1.5;
     this.squads.push(squad);
     this.forming = squad;
@@ -263,6 +306,25 @@ export class Outpost {
     return best;
   }
 
+  /** A squad whose men arrive a few at a time, out of the back of something. Nobody else's spawns can fall into it. */
+  muster(size: number, at: THREE.Vector3): OutpostSquad {
+    const waiting = this.forming;
+    this.formSquad(size, at);
+    const squad = this.forming!;
+    this.forming = waiting;
+    return squad;
+  }
+
+  /** One man into a squad from `muster`, which may have been emptied while he waited. */
+  enlistInto(squad: OutpostSquad, id: EnemyId, at: THREE.Vector3): Enemy | null {
+    const waiting = this.forming;
+    this.forming = squad;
+    if (!this.squads.includes(squad)) this.squads.push(squad);
+    const e = this.manager.spawn(id, at);
+    this.forming = waiting;
+    return e;
+  }
+
   /** One man through the gate. */
   sendIn(id: EnemyId): void {
     if (this.gate) this.manager.spawn(id, this.gate);
@@ -279,6 +341,7 @@ export class Outpost {
     s.def = def;
     s.morale = s.baseMorale = def.morale;
     s.mag = def.mag;
+    s.reserve = def.mags;
     s.grenades = this.doctrine.grenades;
     s.senseAt = this.w.now + rand(0, SENSE_INTERVAL);
     s.aim.copy(e.position);
@@ -292,6 +355,7 @@ export class Outpost {
       this.forming = null;
     }
     squad.join(s);
+    this.commission(s, squad);
     e.squad = squad;
     e.behaviours = SOLDIER_BEHAVIOURS;
     e.attacks = soldierAttacks(e.id);
@@ -305,6 +369,19 @@ export class Outpost {
     this.commander.onSpawn(s);
   }
 
+  /** What he is. The leader stands a step above his squad, and nobody is handed a belt on his first day. */
+  private commission(s: Soldier, squad: OutpostSquad): void {
+    const leads = squad.members.length === 1;
+    const base = s.def.base ? atLeastRegular(squad.grade) : squad.grade;
+    s.rank = leads ? promoted(base) : base;
+    s.rankDef = RANKS[s.rank];
+    const e = s.e;
+    e.maxHealth *= s.rankDef.toughness;
+    e.health = e.maxHealth;
+    // A leader carries the banger. Conscripts are not trusted with anything clever.
+    s.flashes = leads && s.rank !== 'conscript' ? 2 : 0;
+  }
+
   // -------------------------------------------------------------------------------------------
   // Frame
   // -------------------------------------------------------------------------------------------
@@ -314,6 +391,10 @@ export class Outpost {
     const now = w.now;
     this.flushLeaving();
     this.dread.update(dt);
+    this.track.update(dt, w.player.velocity);
+    this.watchPlayer(dt);
+    this.suppression.update(dt);
+    this.captives.update(dt);
     this.routesLeft = ROUTES_PER_FRAME;
     for (let i = 0; i < this.soldiers.length; i++) {
       const s = this.soldiers[i]!;
@@ -343,6 +424,31 @@ export class Outpost {
     this.updateBangs(now);
     this.dropped.update(dt);
     this.commander.update(dt);
+  }
+
+  private watchPlayer(dt: number): void {
+    const p = this.w.player.position;
+    if (this.stillAt.distanceToSquared(p) > STILL_RADIUS * STILL_RADIUS) {
+      this.stillAt.copy(p);
+      this.stillFor = 0;
+    } else this.stillFor += dt;
+    this.peakHostile = Math.max(this.hostile, this.peakHostile - dt / 12);
+  }
+
+  /** The whole side hears it at once. The nearest man in the fight says so. */
+  seizeOpening(kind: 'opening' | 'wounded', seconds: number): void {
+    let voice: Soldier | null = null;
+    for (const q of this.squads) {
+      if (!q.inContact || q.directed) continue;
+      q.opening(seconds);
+      if (!voice) voice = q.leader;
+    }
+    if (voice) this.comms.say(kind, voice);
+  }
+
+  private onPlayerHurt(): void {
+    const { player } = this.w.ctx;
+    if (player.health < player.maxHealth * HURT_AT) this.seizeOpening('wounded', HURT_OPENING);
   }
 
   /**
@@ -378,6 +484,7 @@ export class Outpost {
     if (s.spot) s.spot.claimedBy = 0;
     if (s.patient) s.patient.rescuer = null;
     if (s.rescuer) s.rescuer.patient = null;
+    this.captives.gone(s);
     s.wasLeader = s.squad.leader === s;
     s.squad.leave(s);
     this.commander.onDetach(s);
@@ -478,9 +585,25 @@ export class Outpost {
     return best !== null && this.routeTo(s, best.position);
   }
 
-  /** Writes the way out for a squad falling back: a gate on its side of the threat, as far from the threat as it can get. */
-  fallbackPoint(from: THREE.Vector3, threat: THREE.Vector3, out: THREE.Vector3): void {
+  /**
+   * Writes where a squad falling back should make for: ground the threat cannot see, far enough to breathe, and higher if there is any.
+   * A retreat that runs for the gate is a rout, and one that goes up onto a deck or a tower is a new position.
+   */
+  betterGround(from: THREE.Vector3, threat: THREE.Vector3, out: THREE.Vector3): void {
     let bestScore = -Infinity;
+    for (const spot of this.cover.spots) {
+      const p = spot.position;
+      if (spot.claimedBy !== 0) continue;
+      const away = p.distanceTo(threat);
+      const walk = p.distanceTo(from);
+      if (away < GROUND_NEAR || away > GROUND_FAR || walk > GROUND_WALK || this.intel.exposed(p.x, p.z)) continue;
+      const score = away * 0.5 - walk * 0.6 + clamp(p.y - from.y, 0, 8) * GROUND_HEIGHT + rand(0, 4);
+      if (score > bestScore) {
+        bestScore = score;
+        out.copy(p);
+      }
+    }
+    if (bestScore > -Infinity) return;
     for (const g of this.gates) {
       const score = g.distanceTo(threat) - g.distanceTo(from) * 0.8;
       if (score > bestScore) {
@@ -579,7 +702,7 @@ export class Outpost {
   // -------------------------------------------------------------------------------------------
 
   scare(s: Soldier, amount: number): void {
-    s.morale -= amount;
+    s.morale -= amount * s.rankDef.fear;
     s.scaredAt = this.w.now;
   }
 
@@ -600,7 +723,7 @@ export class Outpost {
       const s = this.soldiers[i]!;
       if (!s.fighting) continue;
       const e = s.e;
-      if (e.pressure > 0.25) s.morale -= FEAR.underFire * e.pressure * MORALE_TICK;
+      if (e.pressure > 0.25) s.morale -= FEAR.underFire * e.pressure * MORALE_TICK * s.rankDef.fear;
       if (e.dist < MONSTER_RANGE && e.hasLos) this.scare(s, FEAR.monsterClose * MORALE_TICK * (1 + dread / 50));
       if (now - s.scaredAt > RECOVER_AFTER) {
         const lead = s.squad.leader;
@@ -610,17 +733,18 @@ export class Outpost {
       }
       const was = s.state;
       s.state = moraleState(s.morale, dread);
-      if (s.state === was) continue;
-      if (s.state === 'broken') this.collapse(s);
+      this.captives.judge(s, now);
+      if (s.state === was || !s.fighting) continue;
+      if (s.state === 'broken') this.collapse(s, this.captives.fateOf(s, now));
       else if (s.state === 'panicked') this.comms.say('panic', s);
       else if (s.state === 'shaken' && was === 'steady') this.comms.say('fear', s);
     }
   }
 
-  /** The end of a man's nerve: the gun goes down and he runs, or he gives up. */
-  private collapse(s: Soldier): void {
+  /** He is finished as a soldier: the gun goes down and he runs, or he gives up. */
+  collapse(s: Soldier, fate: 'surrender' | 'flee'): void {
     if (!s.fighting || this.commander.feign(s)) return;
-    const { w, doctrine } = this;
+    const { w } = this;
     const e = s.e;
     if (e.attack) finishAttack(e, w, true);
     s.squad.leave(s);
@@ -636,12 +760,37 @@ export class Outpost {
     this.dropWeapon(s, false);
     e.attacks = [];
     e.shield = false;
-    const cornered = e.dist < SURRENDER_RANGE;
-    s.fate = doctrine.surrender && (cornered || chance(doctrine.surrenderChance)) ? 'surrender' : 'flee';
+    s.fate = fate;
     // Force the change now: a man mid-burst should not finish his think tick first.
     e.thinkAt = 0;
     e.behaviourUntil = 0;
     w.ctx.events.emit('enemy:broken', { enemy: e, fate: s.fate });
+  }
+
+  /** A man who has found a gun again goes back to whoever is nearest. */
+  rejoin(s: Soldier): void {
+    let best: OutpostSquad | null = null;
+    let bestD = Infinity;
+    for (const q of this.squads) {
+      const lead = q.leader;
+      if (!lead?.fighting || q.directed || q.members.length >= MAX_SQUAD) continue;
+      const d = lead.e.position.distanceToSquared(s.e.position);
+      if (d < bestD) {
+        bestD = d;
+        best = q;
+      }
+    }
+    const q = best ?? s.squad;
+    q.join(s);
+    s.e.squad = q;
+    if (this.squads.indexOf(q) < 0) this.squads.push(q);
+  }
+
+  /** The last magazine went. He has a pistol or he has nothing, and either way it is one of the things that makes a man think. */
+  runDry(s: Soldier): void {
+    this.comms.say('dry', s);
+    if (s.def.sidearm && !s.spentSidearm) this.wounds.drawSidearm(s, s.injuries);
+    this.scare(s, FEAR.dry);
   }
 
   /** Empty hands. With `goBack`, he means to go after what he dropped. */
@@ -671,6 +820,7 @@ export class Outpost {
     if (!gun || !this.dropped.reclaim(gun, s.e)) return;
     (s.e.char.anim as unknown as PostureHost).rearm?.();
     s.weapon = 'primary';
+    s.mag = Math.max(s.mag, s.def.mag);
     s.injuries.handL = s.injuries.handR = false;
     this.manager.model.updateMaim(s.e);
   }
@@ -741,8 +891,9 @@ export class Outpost {
     for (const o of this.soldiers) {
       if (o.fighting && (o.squad === s.squad || o.e.position.distanceToSquared(k.enemy.position) < r2)) this.scare(o, fear);
     }
-    if (s.surrendered) w.ctx.events.emit('enemy:executed', { kill: k });
-    else s.squad.onLoss(k, s.wasLeader);
+    // His own side's rounds, through the player's shield, are not an execution.
+    if (s.surrendered && !(k.damage.source in ROLE_OF)) w.ctx.events.emit('enemy:executed', { kill: k });
+    else if (!s.surrendered) s.squad.onLoss(k, s.wasLeader);
     this.adoptOrphans(s.squad);
   }
 
@@ -765,6 +916,9 @@ export class Outpost {
     const { w } = this;
     const e = s.e;
     s.alertUntil = w.now + 6;
+    s.hitAt = w.now;
+    s.squad.fired();
+    if (s.surrendered && s.captive !== 'held') this.captives.refuse(s);
     if (res.dealt > 0 && !res.blocked) this.scare(s, (res.dealt / e.maxHealth) * FEAR.wound);
     if (s.fighting && !s.sees && d.source in ROLE_OF === false) {
       // Rounds have a direction. He knows roughly where that came from even if he never saw it.
@@ -868,7 +1022,7 @@ export class Outpost {
   }
 
   private updateBangs(now: number): void {
-    const { ctx, player, director } = this.w;
+    const { ctx } = this.w;
     for (const b of this.bangs) {
       if (!b.live || now < b.at) continue;
       b.live = false;
@@ -876,13 +1030,10 @@ export class Outpost {
       ctx.render.lights.flash(b.position, 0xffffff, 18, 12, 0.25);
       _b.copy(b.position);
       _b.y += 0.6;
-      const d = player.eye.distanceTo(_b);
-      if (d > FLASH_RANGE || !director.clearLine(_b, player.eye)) continue;
-      // Looking at it costs more than having your back turned. It blinds; it never hurts.
-      _a.subVectors(_b, player.eye).normalize();
-      const facing = 0.45 + 0.55 * Math.max(0, _a.dot(player.forward));
-      ctx.render.post.flash(0xffffff, (1 - d / FLASH_RANGE) * facing * 2.2, FLASH_SECONDS);
+      for (const s of this.soldiers) {
+        if (s.fighting && s.e.position.distanceToSquared(_b) < FLASH_FRIENDLY * FLASH_FRIENDLY) s.injuries.concussedUntil = Math.max(s.injuries.concussedUntil, now + 1.5);
+      }
+      if (this.suppression.flash(_b)) this.seizeOpening('opening', BLIND_OPENING);
     }
   }
 }
-

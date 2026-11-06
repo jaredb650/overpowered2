@@ -418,8 +418,10 @@ export class MissionRunner implements WatchFacts {
         return;
       case 'vehicle':
         if (step.ensure && this.spawned(step.tag) > 0) return;
-        this.book(step.tag, 1);
-        if (step.crew && step.crew.length > 0) this.book(step.crewTag ?? step.tag, step.crew.length);
+        if (!step.state) {
+          this.book(step.tag, 1);
+          if (step.crew && step.crew.length > 0) this.book(step.crewTag ?? step.tag, step.crew.length);
+        }
         host.vehicle(step, this.mark(step.at), this.route(step.route));
         return;
       case 'boss':

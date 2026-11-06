@@ -42,8 +42,8 @@ export const ACTIONS: readonly PlanAction[] = [
   { id: 'baseOfFire', needs: LOCATED, forbids: PINNED, gives: PINNED, clears: 0, cost: 1 },
   { id: 'flank', needs: PINNED, forbids: 0, gives: OPENING, clears: 0, cost: 3 },
   { id: 'cutOff', needs: LOCATED | RUNNING, forbids: 0, gives: OPENING, clears: 0, cost: 2.5 },
-  { id: 'frag', needs: LOCATED | HAS_FRAG, forbids: SHIELDED, gives: OPENING, clears: CAMPING, cost: 5 },
-  { id: 'flash', needs: LOCATED | HAS_FLASH, forbids: 0, gives: OPENING, clears: 0, cost: 4.5 },
+  { id: 'frag', needs: LOCATED | HAS_FRAG, forbids: SHIELDED, gives: OPENING, clears: CAMPING, cost: 3.6 },
+  { id: 'flash', needs: LOCATED | HAS_FLASH, forbids: 0, gives: OPENING, clears: 0, cost: 3.4 },
   { id: 'breach', needs: LOCATED | DOOR, forbids: CONTACT, gives: OPENING | CONTACT, clears: DOOR, cost: 2.5 },
   { id: 'rush', needs: OPENING, forbids: 0, gives: KILLED, clears: 0, cost: 1 },
   { id: 'setAmbush', needs: 0, forbids: CONTACT | WAITING, gives: WAITING, clears: 0, cost: 3 },
@@ -56,7 +56,11 @@ export const ACTION_COUNT = ACTIONS.length;
 const INDEX = new Map<ActionId, number>(ACTIONS.map((a, i) => [a.id, i]));
 export const actionIndex = (id: ActionId): number => INDEX.get(id)!;
 
-export const GOALS: Readonly<Record<GoalId, number>> = { destroy: KILLED, survive: SAFE, recover: FORMED, waylay: WAITING };
+/** A squad wants the same thing in an ambush as in a fight. What differs is which drills it allows itself, and the squad's `blocked` says that. */
+export const GOALS: Readonly<Record<GoalId, number>> = { destroy: KILLED, survive: SAFE, recover: FORMED, waylay: KILLED };
+
+/** Bit per action, for a `blocked` mask. */
+export const actionBit = (id: ActionId): number => 1 << INDEX.get(id)!;
 
 /** Longest chain a squad will think through. Past this the facts will have changed anyway. */
 const MAX_STEPS = 4;

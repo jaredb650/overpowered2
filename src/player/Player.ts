@@ -37,6 +37,7 @@ export class Player implements PlayerSystem {
   maxHealth = T.maxHealth;
   armor = 0;
   modifiers: PlayerModifiers = { ...NEUTRAL_MODIFIERS };
+  interceptor: ((damage: PlayerDamage) => boolean) | null = null;
   /** Radians of look per pixel. */
   sensitivity = T.sensitivity;
   invertY = false;
@@ -1410,6 +1411,7 @@ export class Player implements PlayerSystem {
 
   takeDamage(damage: PlayerDamage): void {
     if (!this.alive || this.modifiers.invulnerable || this.parked || this.parkGrace > 0) return;
+    if (this.interceptor?.(damage)) return;
     const amount = damage.amount * this.modifiers.damageTaken;
     if (amount <= 0) return;
     this.lastDamageT = 0;

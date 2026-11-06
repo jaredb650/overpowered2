@@ -32,6 +32,10 @@ declare module '../../core/contracts' {
     'commander:status': { flag: StatusFlag; on: boolean };
     /** One line from the Commander over the open channel, mid-wave. An id from lines.ts. */
     'commander:bark': { id: string; vars?: Readonly<Record<string, string>> };
+    /** He told a squad what to do, and `drill` is what it will now do. */
+    'commander:order': { squad: string; drill: string };
+    /** That squad has started on it. */
+    'commander:obeyed': { squad: string; drill: string; seconds: number };
     /** He has come down himself, or has gone. */
     'commander:person': { arrived: boolean };
     /** The Commander's own side killed one of its men, and paid the player for it. */

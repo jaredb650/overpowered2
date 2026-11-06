@@ -53,6 +53,8 @@ declare module '../../core/contracts' {
     'enemy:condition': { enemy: EnemyInstance; condition: Condition };
     /** Dread jumped. `cause` is a perk id, a call-in id, or 'squad'. */
     'dread:spike': { dread: number; cause: string };
+    /** A squad finished a drill, well or badly. For the record of how a fight went, and for bots. */
+    'squad:drill': { squad: string; drill: string; done: boolean; seconds: number };
     /** The player took a prisoner by the collar. */
     'prisoner:grabbed': { enemy: EnemyInstance };
     /** He talked. `truthful` is false when what he said was a lie. */

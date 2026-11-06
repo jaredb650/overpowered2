@@ -10,6 +10,7 @@ uniform float uTime;
 uniform float uBloomStrength;
 uniform float uChroma;
 uniform float uRadial;
+uniform float uSoft;
 uniform float uSpeed;
 uniform float uLow;
 uniform vec3 uFlash;
@@ -120,16 +121,20 @@ void main() {
   float edge = smoothstep(0.34, 0.95, r);
 
   // Speed smears only the edges so the crosshair stays sharp; a blast pulse smears everything.
-  float blur = uRadial + uSpeed * uSpeed * edge * 0.09;
+  float blur = uRadial + uSpeed * uSpeed * edge * 0.09 + uSoft * 0.035;
   vec3 color;
-  if (blur > 0.0008) {
+  if (blur > 0.0008 || uSoft > 0.0) {
     float jitter = hash12(gl_FragCoord.xy + fract(uTime) * 61.0) - 0.5;
     vec3 sum = vec3(0.0);
     float total = 0.0;
+    // Radial blur leaves the middle sharp. Under fire the crosshair goes too, so the taps also walk a small spiral.
+    float spin = jitter * 6.2832;
+    vec2 disc = vec2(1.0 / aspect, 1.0) * uSoft * 0.0065;
     for (int i = 0; i < 9; i++) {
       float t = (float(i) + 0.5 + jitter) / 9.0;
       float w = 1.0 - t * 0.6;
-      sum += hdrFetch(uv - fromCentre * blur * t) * w;
+      float a = spin + float(i) * 2.39996;
+      sum += hdrFetch(uv - fromCentre * blur * t + vec2(cos(a), sin(a)) * disc * sqrt(t)) * w;
       total += w;
     }
     color = sum / total;
@@ -235,6 +240,7 @@ export class Composite {
     uBloomStrength: { value: 0.1 },
     uChroma: { value: 0 },
     uRadial: { value: 0 },
+    uSoft: { value: 0 },
     uSpeed: { value: 0 },
     uLow: { value: 0 },
     uFlash: { value: new THREE.Color(0, 0, 0) },
@@ -287,6 +293,7 @@ export class Composite {
     // Callers pass anything from 0.01 to over 1, so the screen offset saturates instead of tearing the image.
     u.uChroma!.value = 0.05 * (1 - Math.exp(-state.chromaNow * 6));
     u.uRadial!.value = state.radialNow;
+    u.uSoft!.value = state.suppression;
     u.uSpeed!.value = state.speed;
     u.uLow!.value = state.lowHealth;
     (u.uFlash!.value as THREE.Color).copy(state.flashColor);

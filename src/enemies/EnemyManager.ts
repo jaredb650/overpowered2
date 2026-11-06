@@ -23,6 +23,7 @@ import { Enemy } from './Enemy';
 import { updateMovement } from './movement';
 import { Outpost, outpostActive } from './outpost';
 import { Spawner } from './spawner';
+import { VehicleSystem, vehiclesActive } from './vehicles';
 import { Telegraphs } from './telegraph';
 import { MAX_ALIVE } from './waves';
 
@@ -120,6 +121,8 @@ export class EnemyManager implements EnemySystem {
 
   /** The human faction's rules. Null on every other contract, which is what keeps the swarm game as it is. */
   readonly outpost: Outpost | null;
+  /** Their machines. Null with no outpost, mission or range, for the same reason. */
+  readonly vehicles: VehicleSystem | null;
 
   private readonly w: AiWorld;
   readonly model: DamageModel;
@@ -165,6 +168,7 @@ export class EnemyManager implements EnemySystem {
     this.spawner = new Spawner(this.w, this);
     this.model = new DamageModel(this.w, this);
     this.outpost = outpostActive() ? new Outpost(this.w, this) : null;
+    this.vehicles = vehiclesActive(this.outpost !== null) ? new VehicleSystem(this.w) : null;
     for (let i = 0; i < MAX_STRIKES; i++) {
       this.strikes.push({ at: 0, position: new THREE.Vector3(), radius: 0, damage: 0, source: '', live: false });
     }
@@ -174,6 +178,7 @@ export class EnemyManager implements EnemySystem {
     this.telegraphs.init();
     ctx.events.on('weapon:fired', e => this.onShot(e.origin, e.dir));
     this.outpost?.init();
+    this.vehicles?.init();
   }
 
   reset(): void {
@@ -200,6 +205,7 @@ export class EnemyManager implements EnemySystem {
     this.debris.clear();
     this.spawner.reset();
     this.outpost?.reset();
+    this.vehicles?.reset();
   }
 
   setWave(wave: number): void {
@@ -353,6 +359,8 @@ export class EnemyManager implements EnemySystem {
     director.beginFrame();
     director.updateSight(this.alive);
     this.outpost?.update(dt);
+    // Ahead of the men, so a gunner stands on this frame's truck and not last frame's.
+    this.vehicles?.update(dt);
     this.thinks = 0;
 
     const list = this.frameList;

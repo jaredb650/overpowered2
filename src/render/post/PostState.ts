@@ -37,6 +37,7 @@ export class PostState implements PostFx {
 
   speed = 0;
   lowHealth = 0;
+  suppression = 0;
   /** x: angle, y: current intensity. Oldest is replaced first. */
   readonly damage = Array.from({ length: MAX_DAMAGE_MARKS }, () => new THREE.Vector2(0, 0));
   private damageCursor = 0;
@@ -85,6 +86,10 @@ export class PostState implements PostFx {
 
   setLowHealth(amount: number): void {
     this.lowHealth = Math.min(Math.max(amount, 0), 1);
+  }
+
+  setSuppression(amount: number): void {
+    this.suppression = Math.min(Math.max(amount, 0), 1);
   }
 
   damageDirection(angle: number, intensity: number): void {

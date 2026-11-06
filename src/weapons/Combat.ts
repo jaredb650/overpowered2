@@ -466,6 +466,7 @@ export class Combat implements CombatSystem {
       if (spec.tracer) c.fx.tracer(st.from, st.end, spec.tracer);
       this.impact(wall.point, wall.normal, wall.surface, spec.impactScale ?? 1);
       c.world.objects?.damageExplosive(wall.collider, damage, spec.source);
+      c.enemies.vehicles?.shot(wall.collider, wall.point, damage, spec.source);
       left -= wall.distance;
 
       if (walls > 0 && spec.penetrate) {
@@ -837,6 +838,7 @@ export class Combat implements CombatSystem {
       for (let i = 0; i < def.sounds.length; i++) this.sound(def.sounds[i]!, center);
     }
     const hit = this.blastEnemies(center, spec, id);
+    c.enemies.vehicles?.blast(center, spec);
     // After the damage, so a body this blast kills is thrown by it like any other, and not only the bodies already dead.
     c.physics.radialImpulse(center, radius * 1.35, def.impulse * radius);
     this.blastPlayer(center, spec);

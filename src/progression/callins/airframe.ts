@@ -49,6 +49,8 @@ const _look = new THREE.Vector3();
 
 interface Spinner {
   part: THREE.Object3D;
+  /** The faint disc that goes with it, when it has one. */
+  disc: THREE.Object3D | null;
   axis: SpinAxis;
   rate: number;
 }
@@ -83,7 +85,8 @@ export class Airframe<M extends string> {
     const part = materials.group(blades);
     part.position.set(rotor.at[0], rotor.at[1], rotor.at[2]);
     this.root.add(part);
-    this.spinners.push({ part, axis: rotor.axis, rate: rotor.rate });
+    const spinner: Spinner = { part, disc: null, axis: rotor.axis, rate: rotor.rate };
+    this.spinners.push(spinner);
     if (rotor.disc <= 0) return;
     const circle = new THREE.CircleGeometry(rotor.disc, 24);
     if (rotor.axis === 'x') circle.rotateY(Math.PI / 2);
@@ -91,6 +94,14 @@ export class Airframe<M extends string> {
     const disc = new THREE.Mesh(circle, discMaterial);
     disc.position.copy(part.position);
     this.root.add(disc);
+    spinner.disc = disc;
+  }
+
+  /** Shows or hides one rotor, by its place in `spec.rotors`. For an airframe that can lose one. */
+  setRotor(index: number, on: boolean): void {
+    const s = this.spinners[index]!;
+    s.part.visible = on;
+    if (s.disc) s.disc.visible = on;
   }
 
   /** Transparent materials this owns, for the shader warm-up. */
@@ -252,8 +263,8 @@ export class EngineSound {
     }
   }
 
-  /** `listener` defaults to the player's ears. A seat in the aircraft hears it from where the camera is. */
-  update(position: THREE.Vector3, swell: number, dt: number, listener: THREE.Vector3 = this.ctx.player.eye): void {
+  /** `listener` defaults to the player's ears. A seat in the aircraft hears it from where the camera is. `rev` multiplies the pitch. */
+  update(position: THREE.Vector3, swell: number, dt: number, listener: THREE.Vector3 = this.ctx.player.eye, rev = 1): void {
     const { near, far, layers } = this.plan;
     const distance = soundPoint(position, listener, ENGINE_RANGE, _point);
     for (const loop of this.loops) loop.setPosition(_point);
@@ -266,7 +277,7 @@ export class EngineSound {
     const shift = 1 + clamp(closing, -MAX_DOPPLER, MAX_DOPPLER);
     for (let i = 0; i < this.loops.length; i++) {
       this.loops[i]!.setVolume(layers[i]!.volume * gain, ENGINE_TICK * 2);
-      this.loops[i]!.setPitch(layers[i]!.pitch * shift, ENGINE_TICK * 3);
+      this.loops[i]!.setPitch(layers[i]!.pitch * shift * rev, ENGINE_TICK * 3);
     }
   }
 
