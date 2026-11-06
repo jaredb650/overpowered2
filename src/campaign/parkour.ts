@@ -6,8 +6,8 @@ export const PARKOUR = {
   /** The LZ cut. One jump with forward held. Running at it does nothing. */
   mantle: { ledge: 3 },
   /**
-   * The wreck's deck. One jump does not reach, and two do, with forward held. From a stand at the hull, or from a run with the second
-   * press made 5 m or more out: pressed any closer on a run, the second jump is a wall kick and throws the player off the hull.
+   * The wreck's deck. One jump does not reach, and two do, with forward held. From a stand at the hull, or from a run that leaves the
+   * ground 5 m or more out. Any closer on a run, the second press lands at the hull as a wall kick and throws the player off it.
    */
   doubleJump: { ledge: 4.2 },
   /** The citadel's blast door. It is low enough to stop a standing body before a run gets there, and a slide goes under. */

@@ -88,12 +88,30 @@ export default async function campaignLive(page, h) {
   await h.shot('8-rack');
   await note('rack');
   await goto(0, 0.1, 5);
-  await until(d => d.state === 'won', 12, 'the end');
+  await until(d => d.beat === 'boss', 12, 'the boss beat');
+  await until(d => d.tags.him === '1/1' && d.beat === 'boss', 6, 'him on the books');
+  await h.sleep(4000);
+  await h.shot('9-commander');
+  await note('commander');
+  log.push({ label: 'he is tagged', ...(await page.evaluate(() => {
+    const c = window.__op2.ctx.enemies.outpost.commander;
+    return { body: c.person.body?.id ?? null, health: c.person.body?.health ?? null, fielded: c.fielded };
+  })) });
+  await page.evaluate(() => {
+    const { enemies } = window.__op2.ctx;
+    const body = enemies.outpost.commander.person.body;
+    body.health = body.maxHealth * 0.4;
+  });
+  await h.sleep(800);
+  await note('below half');
+  await page.evaluate(() => window.__op2.ctx.enemies.killAll('test'));
+  await until(d => d.state === 'won', 16, 'the end');
   await h.sleep(1200);
-  await h.shot('9-won');
+  await h.shot('10-won');
   await note('won');
-  await h.sleep(3000);
+  log.push({ label: 'game state straight after', state: await page.evaluate(() => window.__op2.game.state) });
+  await h.sleep(3500);
   log.push({ label: 'screen', state: await page.evaluate(() => window.__op2.game.state) });
-  await h.shot('10-over');
+  await h.shot('11-over');
   return log;
 }

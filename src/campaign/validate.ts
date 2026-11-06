@@ -106,6 +106,7 @@ export function validateMission(m: Mission): string[] {
   const noteName = (step: Step): void => {
     if ('at' in step && step.at) named.marks.add(step.at);
     if (step.do === 'door') named.doors.add(step.door);
+    if (step.do === 'call' && step.arg) named.marks.add(step.arg);
     if (step.do === 'vehicle' && step.holds) {
       named.marks.add(step.holds);
       if (!m.marks[step.holds]) problems.push(`vehicle ${step.tag}: no mark ${step.holds}`);

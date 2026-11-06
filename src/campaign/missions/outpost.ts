@@ -346,10 +346,15 @@ const BEATS: readonly Beat[] = [
     start: [
       { do: 'done', id: 'across' },
       { do: 'objective', id: 'gallery', text: 'Cross the cable gallery' },
-      commander('gal.walkway', true),
-      council('gal.walls'),
-      { do: 'hint', text: 'Jump at the lit wall on a shallow line and keep {forward} held. Press {jump} to leave it, then {jump} again.', seconds: 12 },
     ],
+    cues: [{
+      when: { zone: 'galleryNear' },
+      run: [
+        commander('gal.walkway', true),
+        council('gal.walls'),
+        { do: 'hint', text: 'Jump at the lit wall on a shallow line and keep {forward} held. Press {jump} to leave it, then {jump} again.', seconds: 12 },
+      ],
+    }],
     until: { zone: 'galleryFar' },
   },
   {

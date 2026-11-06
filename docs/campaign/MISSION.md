@@ -143,7 +143,7 @@ Every size here comes from `src/campaign/parkour.ts`, and `parkour.test.ts` puts
 | Move | Place | Size | What cannot do it | What can | Measured |
 |---|---|---|---|---|---|
 | **Mantle** | LZ Cut walls | Ledge 3.0 m | Running at it. No move lifts a player who did not jump | One jump, forward held | Passes |
-| **Double jump** | The Wreck's hull | Ledge 4.2 m | One jump from any distance | Two jumps from a stand at the hull, or from a run with the second press 5 m or more out | From a run, a second press within 4 m of the hull is a wall kick and throws the player off. The hint says to stand close |
+| **Double jump** | The Wreck's hull | Ledge 4.2 m | One jump | Two jumps from a stand at the hull, or from a run that leaves the ground 5 m or more out | From a run that leaves the ground within 4 m, the second press is a wall kick and throws the player off. The hint says to stand close |
 | **Slide** | Blast door D1 | Door 3.6 m high, shuts in 2.8 s, trigger line 22 m out | A full run, and a run with both dashes: the leaf is below standing height when they arrive | A slide pressed anywhere in the last 9 m | Passes. A closing door never buries a body already under it |
 | **Dash** | Coolant Hall | Gap 18 m | Double jump, at any timing | Double jump and one dash | Passes |
 | **Wall run** | Cable Gallery | Gap 22 m, headroom 3.0 m | Every jump and both dashes at any timing: the longest flights are low and flat, and the ceiling takes their arc away | Wall run, jump off, jump again, from anywhere in the last 8 m of the deck, on a line of 0.3 to 0.4 rad, with about half a second of slack on the moment of leaving. A wall run alone makes it only from the very lip | Passes |
@@ -151,11 +151,11 @@ Every size here comes from `src/campaign/parkour.ts`, and `parkour.test.ts` puts
 
 Three things a map builder must keep:
 
-- **The gallery's height is the lesson.** Raise the ceiling to 3.2 m and a two-dash flight gets to 23 m. Do not add a chain, a light or a pipe that lowers it either.
+- **The gallery's height is the lesson.** Raise the ceiling to 3.2 m and a two-dash flight crosses 24 m. Lower it under 2.8 m and a wall run starts losing its head on the roof. Nothing hangs from that ceiling.
 - **Keep run-ups short of a strafe.** All of these were measured from a run at 12.5 m/s. A long enough approach for strafe-jumping at 24 m/s beats any of them. Fifteen metres of approach is plenty.
 - **A fall is not a death.** Each gap has stairs back up within 10 m of the bottom. The Coolant pit and the gallery floor sting and do not kill. A lesson the player fails should cost seconds.
 
-A rocket jump can beat the double jump and the dash. It costs health and it is earned, so that stays. The gallery's ceiling stops it there.
+A rocket jump will probably beat the Coolant gap. It costs health and it is earned, so that stays. Nobody has measured it. The player has no rockets at the wreck, and the gallery's ceiling should stop one there.
 
 ### Explosives against armour
 
@@ -215,7 +215,7 @@ Each beat's id is what `?beat=` takes. Lengths are for a first-time player. Men 
 - **Player:** mows down the defenders. Infinite belt, no way to die, no way to leave.
 - **Enemies:** 27 over the lap, never all at once. `in.wall` 4 on the south wall, holding. `in.apron` 6. `in.yard` 4 and `in.road` 4 at the gate. `in.ring` 4 with a rocketeer. `in.north` 5.
 - **Next:** the ride ends at the cut.
-- **Teaches:** that these men scatter, drag each other and shoot back; and that bullets do nothing to the tank parked in the yard at (20, -6). The player will remember that spark.
+- **Teaches:** that these men scatter, drag each other and shoot back; and that bullets do nothing to the tank parked in the yard at (20, -6). That tank is Bulwark. The player will remember the spark, and will meet it again in the gate.
 - **Length:** 2:15.
 - **Job:** the power trip, so that losing it hurts. A missile takes it away.
 
@@ -237,11 +237,11 @@ Each beat's id is what `?beat=` takes. Lengths are for a first-time player. Men 
 
 - **Where:** the LZ Cut, then north up the Gate Lane to G1.
 - **Player:** on foot for the first time, with an SMG, in a pit. Climbs out and runs for the open gate.
-- **Enemies:** `lz.rim` 4 on the lip of the cut: trooper, gunner, trooper, brute. Survivors of the insertion are not kept.
-- **Next:** the player reaches 18 m from the gate, it slams shut, and the lines play out.
+- **Enemies:** `lz.rim` 4 on the lip of the cut: trooper, gunner, trooper, brute. Whoever the door gun missed is swept off the map as the ride ends, so the player starts against four and not a garrison.
+- **Next:** the player crosses the road, 22 m from the gate, and it slams in 1 s. A run with both dashes gets there too late. The lines play out and the trucks are called.
 - **Teaches:** **mantle**. The cut's walls are 3 m and the ramp is blocked. Nothing else gets the player out.
 - **Length:** 1:30.
-- **Job:** suddenly small. After the door gun, one man with a small gun at the bottom of a hole. The gate shutting with the player 18 m away is the mission's first punchline.
+- **Job:** suddenly small. After the door gun, one man with a small gun at the bottom of a hole. The gate shutting with the player still running at it is the mission's first punchline.
 
 > **Pilot** *(urgent)*: This is as far as the rental goes. Good luck with the paperwork.
 >
@@ -340,7 +340,7 @@ Each beat's id is what `?beat=` takes. Lengths are for a first-time player. Men 
 - **Where:** G1, past Bulwark's wreck, across the Gate Yard to the blast door.
 - **Player:** breaks the sandbag nests and runs for the door, which starts to close as they cross the line 22 m out. Slides under.
 - **Enemies:** `breach.west` trooper, brute, trooper. `breach.east` gunner, trooper, riot.
-- **Next:** the player reaches Sally Hall. If they miss, the door comes up to 40% (1.4 m) every 9 s, because the Commander still has men outside: never high enough to stand.
+- **Next:** the player reaches Sally Hall, and anyone left in the yard is swept. If they miss, the door comes up to 40% (1.4 m) every 9 s, because the Commander still has men outside: never high enough to stand.
 - **Teaches:** **slide**. Running and dashing both meet a leaf too low to stand under.
 - **Length:** 1:00.
 - **Job:** the sprint. The first time he panics, and the player is getting under the door as it shuts.
@@ -568,6 +568,7 @@ A beat opens by saving its checkpoint, then runs `start`. `cues` fire once each,
 | `banner` | The HUD's stamp |
 | `door` | `open` is a share. 0 shut, 1 open, 0.4 stopped there |
 | `squad`, `release` | Men at a mark, hunting or holding. `release` lets a holding squad go, as being shot at does |
+| `sweep`, `place` | Takes everyone off the map, unseen and unscored. Puts the player on a mark |
 | `vehicle`, `boss` | One body under a tag, crew under theirs |
 | `give`, `grenades`, `rack`, `drop` | Hands over, or leaves on the map. A rack raises `took:<weapon>` |
 | `wait`, `until`, `signal`, `goto`, `finish` | Flow |

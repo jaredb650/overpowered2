@@ -25,7 +25,7 @@ import { validateMission } from './validate';
 
 export type { CampaignSystem } from './events';
 
-/** What the HUD reads to start the next run. Game publishes itself after the systems are built, so it is read when needed. */
+/** Starts the next run. Game publishes itself after the systems are built, so it is read when needed. */
 interface GameHandle {
   newRun(): void;
 }
