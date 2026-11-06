@@ -661,8 +661,8 @@ export class Outpost {
     if (!gun || !this.dropped.reclaim(gun, s.e)) return;
     (s.e.char.anim as unknown as PostureHost).rearm?.();
     s.weapon = 'primary';
-    s.e.thinkAt = 0;
-    s.e.behaviourUntil = 0;
+    s.injuries.handL = s.injuries.handR = false;
+    this.manager.model.updateMaim(s.e);
   }
 
   /** Nothing left to fight with. The next morale tick takes him out of the squad. */

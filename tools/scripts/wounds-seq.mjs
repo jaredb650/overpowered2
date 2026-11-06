@@ -34,7 +34,9 @@ const CASES = {
   plate: { burst: 5, steps: [0, 4, 8, 12, 18, 24, 34, 50, 80, 120, 180, 260], plain: true },
   // The dice loaded, so a mortal wound ends in the other of its two ways.
   collapse: { rig: 0.38, shots: [{ at: [2, 0.13, 0.2, -0.14], from: 'back' }], steps: [0, 30, 100, 180, 240, 270, 300, 330, 360, 400, 460, 540] },
-  crawl: { id: 'trooper', shots: [{ at: [0, 0, -0.06, 0.12], from: 'front' }], steps: [0, 40, 80, 120, 160, 200, 240, 300, 360, 420, 480, 560] },
+  // A squadmate with the brain on comes for a man on the floor, works on him, and stands him up.
+  revive: { ally: true, down: true, steps: [0, 60, 120, 180, 240, 300, 360, 420, 480, 540, 600, 660, 720, 780, 840, 900] },
+  crawl: { id: 'trooper', shots: [{ at: [0, 0, -0.06, 0.12], from: 'front' }], steps: [0, 40, 80, 120, 150, 165, 180, 195, 210, 225, 240, 260, 300, 360, 420, 560] },
 };
 
 export default async function woundsSeq(page, h) {
@@ -73,11 +75,21 @@ export default async function woundsSeq(page, h) {
         ctx.enemies.reset();
         lab.spawner.clearBodies();
         if (lab.paused) lab.togglePause();
-        ctx.player.teleport(new V(0, 0.1, 6.4), 0);
+        ctx.player.teleport(new V(0, 0.1, c.ally ? 11 : 6.4), 0);
         await frame();
         const e = lab.spawner.place(c.id ?? 'trooper', new V(0, 0, 3), c.walk ? 'patrol' : ai);
         e.yaw = -Math.PI / 2;
         r.target = e;
+        if (c.ally) {
+          const friend = lab.spawner.place('trooper', new V(6, 0, -2), 'on');
+          // Both on one squad, as they would be in a fight. Spawned from outside a wave, each started one of his own.
+          const o = ctx.enemies.outpost;
+          const s = o.soldierOf(friend), mine = o.soldierOf(e);
+          s.squad.leave(s);
+          mine.squad.join(s);
+          friend.squad = mine.squad;
+          friend.attacks = [];
+        }
         look(new V(0, 1, 3));
         lab.togglePause();
         await r.walk(c.walk ? 50 : 20);
@@ -114,6 +126,11 @@ export default async function woundsSeq(page, h) {
         const e = r.target;
         ctx.combat.explode(new V(e.position.x - distance, 0.3, e.position.z), { radius: 8, damage: damage ?? 100, kind: 'rocket', source: 'test', team: 'player' });
       },
+      fell() {
+        const e = r.target;
+        for (const plate of e.plates) plate.hp = 0;
+        ctx.enemies.applyDamage(e, { amount: e.health + 1, type: 'explosive', point: e.center.clone(), dir: new V(1, 0.2, 0).normalize(), force: 40, source: 'test' });
+      },
       burn() {
         r.target.burning = 6;
         ctx.enemies.applyDamage(r.target, { amount: 9, type: 'fire', point: r.target.center.clone(), dir: new V(1, 0, 0), force: 1, source: 'kiln' });
@@ -147,7 +164,7 @@ export default async function woundsSeq(page, h) {
   const results = {};
   for (const [name, c] of Object.entries(CASES)) {
     if (only.length > 0 && !only.includes(name)) continue;
-    await page.evaluate(async c => { await window.__r.start(c); }, { id: c.id, walk: c.walk });
+    await page.evaluate(async c => { await window.__r.start(c); }, { id: c.id, walk: c.walk, ally: c.ally });
     if (c.rig) await page.evaluate(v => { const r = window.__random = Math.random; Math.random = () => r() * v; }, c.rig);
     for (const s of c.shots ?? []) {
       if (s.wait) await page.evaluate(n => window.__r.walk(n), s.wait);
@@ -155,6 +172,7 @@ export default async function woundsSeq(page, h) {
     }
     if (c.blast) await page.evaluate(({ d, m }) => window.__r.blast(d, m), { d: c.blast, m: c.damage });
     if (c.fire) await page.evaluate(() => window.__r.burn());
+    if (c.down) await page.evaluate(() => window.__r.fell());
     if (c.burst) {
       for (let i = 0; i < c.burst; i++) {
         await page.evaluate(() => {

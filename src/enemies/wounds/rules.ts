@@ -137,8 +137,6 @@ export interface WeaponCharacter {
   bleed: number;
   /** Multiplies how far this counts toward destroying a limb. */
   tear: number;
-  /** Stops bleeding where it touches, and sets him running. */
-  cauterises?: boolean;
 }
 
 export const CHARACTER: Record<DamageType, WeaponCharacter> = {
@@ -148,7 +146,8 @@ export const CHARACTER: Record<DamageType, WeaponCharacter> = {
   melee: { bleed: 0.3, tear: 0.5 },
   explosive: { bleed: 1.4, tear: 1.4 },
   crush: { bleed: 0.6, tear: 1.2 },
-  fire: { bleed: 0, tear: 0, cauterises: true },
+  // Fire seals what is already there too: see `Injuries.cauterise`.
+  fire: { bleed: 0, tear: 0 },
   shock: { bleed: 0, tear: 0 },
   true: { bleed: 0, tear: 0 },
 };

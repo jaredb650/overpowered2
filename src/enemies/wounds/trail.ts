@@ -12,12 +12,13 @@ const SPACING_HEAVY = 0.45;
 const SPACING_LIGHT = 1.6;
 /** Bleed share that counts as heavy. */
 const HEAVY = 0.05;
-const SMEAR_SPACING = 0.42;
+/** Close enough that the marks run together into one drag. */
+const SMEAR_SPACING = 0.24;
 /** Seconds between drops into the same spot, standing still. */
 const POOLING = 1.3;
 const DROP_SIZE = 0.13;
 const POOL_SIZE = 0.26;
-const SMEAR_SIZE = 0.5;
+const SMEAR_SIZE = 0.42;
 /** What he leaves lying still. Pools grow by themselves. */
 const LYING_POOL = 0.6;
 

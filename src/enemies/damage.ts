@@ -14,6 +14,7 @@ import { DevFlags } from '../core/devflags';
 import type { DamageResult, KillEvent } from '../core/gameplay';
 import { chance, clamp, lerp, pick, rand } from '../core/math';
 import { FACTIONS, type FactionRules } from '../contracts/data';
+import { ACTIVE } from '../contracts/select';
 import { bursts, HEAVY_ROUND } from './wounds/rules';
 import { ENEMIES, LIMB_SIZE, REGION_DAMAGE } from './data';
 import { say } from './attacks';
@@ -98,7 +99,7 @@ export class DamageModel {
 
   /** What can break this body. A husk on the Outpost is still a husk. */
   private rules(e: Enemy): FactionRules {
-    return this.m.outpost?.wounds.bodyOf(e) ? FACTIONS.humans : FACTIONS.swarm;
+    return this.m.outpost?.wounds.bodyOf(e) ? FACTIONS[ACTIVE.def.faction] : FACTIONS.swarm;
   }
 
   private result(): DamageResult {
@@ -627,6 +628,8 @@ export class DamageModel {
     o.impulses = undefined;
     const wounds = m.outpost?.wounds ?? null;
     const floored = wounds?.bodyOf(e)?.floored ?? false;
+    // Before gore has the body: what it hands back at the end depends on this.
+    if (floored) wounds!.stayDown(e);
     o.hurt = floored ? 1 : profile.pain * (0.5 + strength * 0.5);
     o.lie = floored ? wounds!.lieSeconds(wounds!.bodyOf(e)!) : rand(profile.lie[0], profile.lie[1]) * (0.7 + strength * 0.6);
     e.riseSeconds = floored ? 0 : profile.rise * (0.85 + strength * 0.4);

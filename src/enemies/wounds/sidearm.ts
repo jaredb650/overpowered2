@@ -4,8 +4,7 @@
  * the `pistol` posture that holds it out.
  */
 import * as THREE from 'three';
-import type { CharacterInstance } from '../../core/contracts';
-import type { Ctx } from '../../core/contracts';
+import type { CharacterInstance, Ctx } from '../../core/contracts';
 import type { Socket } from '../../characters/format';
 import type { Enemy } from '../Enemy';
 

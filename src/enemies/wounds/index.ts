@@ -18,6 +18,7 @@ import { HumanoidBone as B, type GoreRegion } from '../../characters/rig';
 import type { DamageInfo, DamageType } from '../../core/contracts';
 import { chance, clamp, pick, rand } from '../../core/math';
 import { FACTIONS } from '../../contracts/data';
+import { ACTIVE } from '../../contracts/select';
 import type { AiWorld } from '../aiWorld';
 import type { Plate } from '../armor';
 import { say } from '../attacks';
@@ -94,6 +95,8 @@ export class WoundSystem {
     amount: 0, type: 'true', point: new THREE.Vector3(), dir: new THREE.Vector3(0, -1, 0), force: 0, source: 'bleed',
   };
   private readonly sidearms: Sidearms;
+  /** The contract's rule data can turn all of this off, and then a man dies when his health runs out. */
+  private readonly anatomy = ACTIVE.def.wounds === 'anatomy' && FACTIONS[ACTIVE.def.faction].anatomy;
   private labelAt = -Infinity;
   private fallDue = false;
 
@@ -106,7 +109,7 @@ export class WoundSystem {
   }
 
   bodyOf(e: Enemy): Injuries | null {
-    return soldierOf(e)?.injuries ?? null;
+    return this.anatomy ? soldierOf(e)?.injuries ?? null : null;
   }
 
   /** A man through the gate: a body the pool may have given a pistol in another life. */
@@ -221,7 +224,7 @@ export class WoundSystem {
       return fatal;
     }
     if (d.type !== 'explosive') return fatal;
-    if (bursts(FACTIONS.humans, d, e.maxHealth, false) || share >= T.blastKills) return true;
+    if (bursts(FACTIONS[ACTIVE.def.faction], d, e.maxHealth, false) || share >= T.blastKills) return true;
     if ((b.condition === 'mortal' || b.floored) && (fatal || b.piledOn(share, this.w.now))) return true;
     if (share >= T.concussionFrom) this.concuss(s, b);
     if (share >= SHRAPNEL_FROM) {
@@ -386,6 +389,11 @@ export class WoundSystem {
     if (e.downed) pose(e, 'downed');
     s.crawlPlanAt = now + 0.2;
     this.announce(e, 'downed');
+  }
+
+  /** He is going down for good, so whatever takes him there must not stand him back up. */
+  stayDown(e: Enemy): void {
+    pose(e, 'downed');
   }
 
   /** How long he lies where he fell before he starts to drag himself. */
@@ -565,7 +573,9 @@ export class WoundSystem {
     if (now < b.nextHold) return;
     b.nextHold = now + HOLD_REFRESH;
     const e = s.e;
-    const w = b.armless ? null : b.worst();
+    // One arm gone and a pistol in the other: there is no hand left to put on anything.
+    const busy = s.weapon === 'sidearm' && (b.armL || b.armR || b.handL || b.handR);
+    const w = b.armless || busy ? null : b.worst();
     if (w !== b.held) {
       b.held = w;
       b.refresh();

@@ -90,12 +90,21 @@ export default async function live(page, h) {
             : kind === 'mortal' ? b.condition === 'mortal'
               : kind === 'sidearm' ? s.weapon === 'sidearm' : false;
         if (!yes) continue;
-        const d = e.center.clone().sub(p.eye);
-        p.yaw = Math.atan2(-d.x, -d.z);
-        p.pitch = Math.atan2(d.y, Math.hypot(d.x, d.z));
+        // Close enough to see, and outside the distance that keeps rescuers away.
+        const stand = e.position.clone().sub(p.position).setLength(-7).add(e.position);
+        if (ctx.world.nav.nearest(stand, 4, stand) && stand.distanceTo(e.position) > 5.5) p.teleport(stand.setY(stand.y + 0.1), 0);
+        window.__watching = e;
+        window.__aim();
         return true;
       }
       return false;
+    };
+    window.__aim = () => {
+      const e = window.__watching;
+      if (!e) return;
+      const d = e.center.clone().sub(p.eye);
+      p.yaw = Math.atan2(-d.x, -d.z);
+      p.pitch = Math.atan2(d.y, Math.hypot(d.x, d.z));
     };
   }, { gap });
 
@@ -105,8 +114,12 @@ export default async function live(page, h) {
     await h.sleep(1500);
     for (const kind of wanted) {
       if (await page.evaluate(k => window.__find(k), kind)) {
-        await h.sleep(150);
-        await h.shot(`wounds-live-${kind}`).catch(() => {});
+        for (let i = 0; i < 3; i++) {
+          await h.sleep(450);
+          await page.evaluate(() => window.__aim());
+          await h.sleep(80);
+          await h.shot(`${kind}-${i}`).catch(() => {});
+        }
         wanted.delete(kind);
         break;
       }
