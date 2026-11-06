@@ -144,8 +144,10 @@ breaking each one on purpose in a copy and seeing the test fail.
   stop and drags the arm back the way it came. `spinLimb` turns the whole limb about the shoulder.
 - **Throw a body along one line.** An equal impulse on every body along its own line gives a forearm ten times the speed
   of the hips and fires shoulders out sideways. So on muscle chains `Rag.radialImpulse` uses one direction, shared out by
-  mass, and they set `OWN_BLAST` so that `Gore.blast` throws them whatever their age. This is what lets legs go forward at
-  all. Hard-limit bodies keep the old formula, so `muscles=0` is a fair comparison.
+  mass, and they set `OWN_BLAST` so that `Gore.blast` throws them whatever their age. `kick` is what sends the legs forward,
+  not this. Hard-limit bodies keep the old formula, and they match muscles when hit on the frame they die (12.8 m/s against
+  12.5) or at rest (7.7 against 7.4). In the air they do not: `Physics.radialImpulse` loses the impulse, so a hard-limit body
+  moves 0.96 m where a muscle chain moves 9.7 m. Compare `muscles=0` on those two cases only.
 - **Never give a sleeping body a velocity.** Rapier keeps it and reports it for good without moving the body, which then
   never settles. `Rag.preStep` skips a sleeping chain, and anything that means to move it wakes it.
 - **A spring on a light limb against the floor bounces for as long as it is allowed**, and the bouncing resets the quiet
@@ -153,8 +155,9 @@ breaking each one on purpose in a copy and seeing the test fail.
 - **In a collapse, the hold takes the reaction.** With every joint's reaction landing on the hips they thrash. While
   support lasts each body answers to one controller, and as it fades the reaction moves onto the parent, so what is left at
   the end are true joint torques with real weight on them.
-- **Legs keep their gravity during a collapse** (no test). Feet need weight on the floor for friction. This mattered
-  before the line above existed. With it in place, removing this no longer shows in foot slide, so it may be redundant.
+- **Legs keep their gravity during a collapse** (no test). Feet need weight on the floor for friction. Over three rounds of
+  six bodies at different headings, feet slid 0.09 to 0.16 m in the first 0.6 s with it and 0.34 to 0.47 m without. One body
+  facing one way does not show this, so a test needs several.
 
 ## Measured
 

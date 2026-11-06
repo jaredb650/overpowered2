@@ -409,7 +409,7 @@ const scenarios: Record<string, Scenario> = {
     },
   },
   stairsab: {
-    camera: [-12, 4.3, 5.6, -12, 0.8, -0.6],
+    camera: [-12, 3.5, 4.3, -12, 0.7, 0.3],
     compare: true,
     setup(s) {
       s.place(-13.4, -3.5, 0, 3.25);

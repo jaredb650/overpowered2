@@ -385,10 +385,10 @@ export const SURFACE_SOUND: Record<SurfaceKind, string> = {
 /** Hit-stop by event, seconds of frozen world. Tiny on purpose: 30 ms reads as a punch, 100 ms as a stumble. */
 export const HIT_STOP = {
   /** The accidental one-frame freeze from the first game's non-lethal headshot, now on every headshot. */
-  headshot: 0.028,
-  headshotKill: 0.042,
+  headshot: 0,
+  headshotKill: 0.025,
   /** A limb coming off a target that lives. Buzzsaw shredding leans on minGap to stay a rhythm. */
-  sever: 0.035,
+  sever: 0,
   shotgunKill: 0.03,
   shotgunPointBlank: 0.045,
   heavyKill: 0.05,

@@ -109,14 +109,15 @@ The machine was shared the whole time, with load average 15 to 45. Treat every t
 **Fairness.** Real game at `/?autostart=1`, no god mode, bot never shoots. Moving means running a 75 m arc at about 12 m/s,
 turning at each end, inside the fight.
 
-| Wave | Standing: dead at | First hit | Damage per second | Moving: outcome | Gun hit rate standing / moving | Damage per second |
+| Wave | Standing: dead at | First hit | Damage per second | Moving: outcome | Hits per shot, standing / moving | Damage per second |
 |---|---|---|---|---|---|---|
 | 1 | 24.4 s | 16.3 s | 12.4 | alive at 55 s, 23 taken | about 1.0 / 0.11 | 0.7 |
 | 3 | 19.6 s | 13.7 s | 17.0 | alive at 55 s, 21 taken | 0.61 / 0.10 | 0.7 |
 | 5 | 15.5 s | 8.5 s | 14.4 | dead at 37.8 s | 0.88 / 0.11 | 6.1 |
 
-The wave 5 moving death is 131 of 142 damage from the Juggernaut's melee, which speed does not dodge by itself. One run per
-cell, so expect several seconds of spread.
+The wave 5 moving death is 131 of 142 damage from the Juggernaut, which the bot does not dodge. Hits per shot is rough: hits are
+all damage events, melee and blasts included, while shots are only rays and projectiles, so it can pass 1. One run per cell, so
+expect several seconds of spread.
 
 **Reach.** Real waves at `/?autostart=1` against a passive player, 42 s of wall time per case. Game time is clamped at low frame
 rates, so a loaded run covers less. A failure is a body with no route gain and no movement over its last 10 s.
@@ -137,21 +138,25 @@ failed. Rescues there are the straggler rule moving bodies more than 110 m behin
 **Contact**, player at 12.5 m/s into still bodies: five husks, 4 staggered and thrown up to 2 m. Brute and Juggernaut: run stopped
 to 0 by a bump. Standing inside a Brute: bumped 0.89 m at 2.6 m/s.
 
+**Maimed and bosses.** On the final code all nine maimed cases and the head pop chose the right behaviour and attack, and the
+Juggernaut ran from landing to `wave:clear` with 69 footfalls and no console errors. The Titan's full fight (50 footfalls, four
+attacks, `wave:clear`) ran before its floor-sink fix. Only its pose after losing all four limbs was rechecked after that.
+
 ## Known limitations
 
 - **The Titan does not kneel.** Once both shins are gone the animator's body plan is `crawl` or `writhe`, which puts the hips on
   the floor. It reads as brought down, torso upright on its stumps. A real kneel needs a new plan in `HumanoidAnimator`.
 - **Severed limbs stay white** if the body was flashing when they came off, which under rapid fire is nearly always. `SeveredPart`
   copies the flash texel in `copySurfaceTo` and nothing fades it. It is one line in `src/characters/Character.ts`.
-- **Spawns can be seen.** About 1% were in view when the queue was drained at an artificial rate, and 1 of 115 at the real rate.
-  A spawn needs the fallback when every hidden point is cold. Air spawns skip the sight test.
+- **Spawns can be seen.** 1 of 243 at the real rate. A spawn takes the fallback when every hidden point in range is cold.
 - **Many spawns land past `PATH_MAX`.** Points inside the band run out or are in view, and the fallback prefers far to near.
 - **Bodies clip big geometry.** Enemies are points on the nav graph, so a Titan in a tunnel goes through the ceiling. Landing
   sites need open sky, but the walk after that does not check.
-- **Enemies do not avoid hazards.** Routes cross crushers and electric floors, so a wave loses the odd body on the way. Lava
-  has only 90 nav nodes, all in one channel.
+- **Enemies do not avoid hazards.** Routes cross crushers and electric floors, so a wave loses the odd body on the way.
 - **Pad and jump flights have no collision.** Pad arcs were swept for the player. Leaps are short, but one can clip a corner.
-- **Not played by a human.** All of this comes from bots and scripted runs.
+- **Not played by a human.** All of this comes from bots and scripted runs, and nobody has listened to the audio.
+- **Written but never seen running:** burn panic, the Ghost `lost` behaviour, sniper relocation, a drone surviving a hit, the
+  Warden buff fading, and the falling-body rescue.
 - **60 fps at 48 alive is not verified.** The most tested was 42 alive, under load average 30: 67 ms frames, 519 draw calls and
   1.54M triangles, just over both budgets. Enemy CPU was 1.9 ms median, 6.4 ms p95, so the frame time is not the AI.
 

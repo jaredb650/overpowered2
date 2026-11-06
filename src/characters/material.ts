@@ -197,7 +197,8 @@ vec3 sGlow = vec3(0.0);
     sGlow += vec3(0.1, 0.3, 0.55) * f * 0.25;
   }
 
-  sGlow += vec3(1.0, 0.82, 0.74) * flash * 1.6;
+  // A dull red pulse: a bright full-body flash read as cartoonish. Hit markers carry the confirmation.
+  sGlow += vec3(0.5, 0.05, 0.03) * flash * 0.45;
 }
 #endif
 diffuseColor.rgb = sAlb;

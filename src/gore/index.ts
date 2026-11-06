@@ -64,7 +64,7 @@ export const GoreTuning = {
   /** Even a clean cut sets a limb tumbling, whatever the strength of the hit. */
   limbImpactFloor: 0.3,
   /** The first game's accidental frame drop, on purpose. */
-  hitStopSeconds: 0.05,
+  hitStopSeconds: 0.025,
   hitStopScale: 0.03,
   /** Fraction of DamageInfo.force that a severed limb takes. The rest went into the wound. */
   limbForceShare: 0.45,
@@ -1077,7 +1077,7 @@ export class Gore implements GoreSystem {
     // With no room a wake only swaps places with a chain already moving, and that one comes back at rest.
     if (!rag.active && !this.hasRoom(target)) return;
     // A chain that has already stepped is in the query structures, so Physics finds it, but what it applies from
-    // inside that query is lost (see "Known bug" in docs/notes/gore.md). The muscle layer throws its own, along one line.
+    // inside that query is lost (see `docs/notes/gore.md`). The muscle layer throws its own, along one line.
     if (!rag.active || rag.age <= 0 || rag.muscle) {
       this.wake(target);
       rag.radialImpulse(center, radius, strength);

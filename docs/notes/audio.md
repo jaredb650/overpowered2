@@ -286,20 +286,68 @@ but nobody can hear them.
 The tests read `tools/out/audio-report.json` for the level and envelope of every real render, and skip that part if the file is missing.
 Run the report after changing a recipe.
 
+## What was failing, and how it was found
+
+The owner said the audio gave up in a big fight. It did, and the cause was none of the usual suspects.
+
+**Cause.** Chrome renders a context's whole graph on one thread. Each frame, `update()` wrote `setTargetAtTime` to every moving 3D voice's filter, gain and
+send, and `.value` to the panner and listener positions. All of those params were a-rate, the default. One automation event on an a-rate param puts Chrome on
+its sample-accurate path: the biquad recomputes its coefficients for each of 128 samples and the panner its azimuth for each. A moving listener does that
+to every panner at once. Measured offline, 48 moving voices cost 0.57 of real time, 0.88 with stereo sources, against 0.05 for the same voices standing still and 0.09
+moving at k-rate.
+
+**How it degraded.** Past about 35 voices with a moving player, on a machine with anything else to do, the thread needed more than a buffer's length for each buffer, so every callback came in late.
+`ac.playbackStats` counts that as an underrun, about 170 a second, and a real device plays it as crackle. The audio clock then ran slow, down to 0.38 of real
+time. Sounds lasted longer in real time while the game kept asking at the same rate, so voices rose to 70 and the thread fell further behind. That is the giving up.
+It cleared when the shooting stopped or the machine freed up, so it came and went with the fight.
+
+**Why the old numbers looked clean.** The sandbox's voices stood still with a still listener, so nothing was ever automated and the expensive path was never reached.
+It also counted voices and level, which stay fine. It never read underruns or the clock.
+
+**Ruled out, with logs.** Allocator starvation: 20 refusals in 130 s, and no must-play id was ever refused. Limiter or duck stuck low: both recover to 0 in a pause.
+NaN at the output: 0 reads. Output going silent: 0 of 148 reads while firing. Loop leaks: 2 to 7 loops, stable. Voice leaks: voices fall to 1 in a pause. Context suspended
+or interrupted: it stayed running. The 4x clipper: 0.1% of real time, so it stays. Node growth: `AudioBufferSource` nodes pile up to a few thousand and go at each
+garbage collection, which is how they are meant to work.
+
+**The fix.** Every param a frame writes is now k-rate, including the listener's. 3D voices fold to mono at their first node, with level compensated. HRTF lives on 3 fixed voices rather than being
+switched per play, which rebuilt the panner under the render thread's lock. Distance is rewritten at 15 Hz per voice and only past a 3% change. Pools went from 48+32+10 to 32+18+6, under a budget of 40.
+Impulses stop at 4 s. See "Budget" for what happens when the mix is full anyway.
+
 ## Measured
 
 All in real Chrome at the harness's low priority, on the M1, in the real game unless it says otherwise.
+
+Before and after, from `tools/scripts/audio-stress.mjs`, bot firing the SMG and Buzzsaw with perks, up to 48 enemies. Other agents shared the machine in every run, and it was busier for the
+after runs: load average 29 to 40, against 13 to 27. The after runs also had music playing, and this before run did not.
+
+| Firing, no CDP | Before | After |
+|---|---|---|
+| Seconds with over 3% underrun | 50 of 73 | 1 of 27, and 1 more on resuming from hidden |
+| Underrun events in the run | 8748 | 261 and 631, in two runs |
+| Slowest audio clock | 0.38 | 0.97, and 0.74 for one second on resume |
+| Voices, mean and peak | 45, 69 | 31, 38 |
+| Must-play sounds refused or thinned | 0 | 0 |
+| Limiter, mean and worst | -6.5, -11.6 dB | -4.8, -10.5 dB |
+
+With CDP on and music playing, render capacity fell from a mean of 0.82 and peak of 0.998 to 0.75 and 0.90. That run kept only 12 samples, because CDP's stream of node events delays
+`page.evaluate`. An idle game reads 0.10 and a bare oscillator 0.004. Capacity in a real fight reads far higher here than the offline cost says, because this machine is shared and
+nice 19. Read it as relative. The soak's "smg" phase is deliberately past anything a player reaches: 200 to 300 sound starts a second.
+
+Pause, then a hidden tab, then back: voices drop to a few in a pause, the limiter and duck return to 0, the context goes to `suspended` and back to `running`, and sound continues. Requests made during the forced
+hidden phase count as `notRunning`, and a really hidden tab does not ask.
+
+A soak cannot run past 3 minutes here. Nothing in the logs grows with time, but an hour-long session has not been run.
 
 | What | Result |
 |---|---|
 | First `AudioContext`, cold | 1020 to 1465 ms blocking. After the warm-up, 5 ms |
 | Audio's blocking setup in a real boot | 14 to 17 ms, down from about 1400 ms |
-| Sounds ready when the run starts | 278 of 278 synth ids, 55 of 55 samples, in a 10 to 12 s boot |
+| Sounds ready when the run starts | 279 of 279 synth ids, 68 of 68 sample ids |
 | Main-thread load work | 1.3 to 1.5 s, nearly all in idle gaps. 48 to 139 ms of it was forced during the boot. Longest job 45 to 91 ms |
 | Plays lost to a sound not being ready | 0 |
 | Warnings past Nyquist | 0, from 18 recipes that asked for 22 to 58 kHz |
 | Per frame in a fight | `update` 0.12 ms average, 1.7 ms worst. `play` 0.18 ms average |
-| Buffers in memory | 117 MB, 528 s of audio |
+| Buffers in memory | 121 MB, 553 s of audio |
 | Unknown ids in a fight | 0. Static scan of `src/`: 0 |
 | Casings, 18 s fight | 139 to 192 bounces became 76 to 86 sounds |
 | Slow-mo at 0.25 | `rocket_fire` rate 0.25, `perk_slowmo` rate 1, `amb_core` rate 0.25, music low-pass 420 Hz, all back to 1 and 20 kHz afterwards |
@@ -308,18 +356,24 @@ All in real Chrome at the harness's low priority, on the M1, in the real game un
 | Music | Menu on splash click, easy on Play, hard at wave 10 (0.10 / 0.90 crossfade 0.6 s in), menu on quit and on game over. Pause holds the track at 51.40 s and resumes from there |
 | Rooms | Each of the six zones sets its room and bed. T60 measures 3.7 / 6.7 / 1.7 / 0.8 / 2.7 / 1.0 s for core, foundry, refinery, scrapyard, transit, ring |
 | Beds from real player state | `wallrun_loop` 0.36 on a real wall run. `slide_loop` 0.28. `speed_wind_loop` 0.50 at 42 m/s. `slam_fall_loop` 0.37 at -57 m/s. All stop with the state |
-| Worst-case load, sandbox, 5 s | 78 voices, 3900 plays, 3.7 before the limiter and 0.95 after it, so nothing clips |
+| Output in the soak | Peak 0.97 after the limiter and clipper. No NaN, no silent read while firing |
+| Sample packs | 56 files, 0.38 MB. No clipped sample. First sound within 3 ms of the start. Lengths 0.13 to 1.2 s. Mix level 0.06 to 0.18, against 0.10 to 0.22 for the synth gore around them |
 | `enemy_headshot3` | 0.799 s cut from the live buffer in the real game. Peak 0.71 kept |
 
 ## Known limitations
 
-- **Nobody has heard any of this.** Every result above is a number. The mix and the character of each synthesized sound need ears.
+- **Nobody has heard any of this.** Every result above is a number. The mix and the character of each sound need ears. The packs most of all: none of them was chosen by listening.
+- **`tools/shot.mjs` has no real audio device.** It runs Chrome with `--mute-audio`, so underruns are counted against a fake output. Whether the owner's crackle is gone can only be heard on the owner's machine.
+- **Only Chrome was run.** The owner's browser is not known. Safari and Firefox have no `playbackStats`, so the governor reads the clock there, which is coarser.
+- **`body_drag` is a slowed slug crawl,** because no free recording of a real drag turned up. Gore has no drag event, so it plays after three in ten hard landings.
+- **`blood_drip` is rarely heard in a heavy fight.** It is quiet, so thinning takes it. That is by design.
+- **CC BY 3.0 sounds need credit wherever the game ships.** `public/audio/sfx/gore/CREDITS.txt` goes out with the files, but a line in the game's own credits is better.
 - **`[requestfailed] ... .mp3 net::ERR_ABORTED` appears in `tools/shot.mjs` reports** when a track that is still streaming is replaced. The
   harness counts it as an error. It is not a console error and the crossfade is unaffected.
 - **Music needs a gesture.** With `?autostart=1` and no click, a normal browser stays silent until the first click or key. The harness
   allows autoplay, so the context reports `running` there before any gesture.
 - **Ids no one plays yet:** `jump_pad_idle_loop`, `electric_floor_loop`, `lava_loop`, `barrel_hiss_loop` and `alarm_klaxon` need the world to
-  start them, because `WorldObjects` exposes no positions. `warden_shield_loop`, `warden_buff`, `skitter_step`, `gib_land`, `concrete_crumble`,
+  start them, because `WorldObjects` exposes no positions. `warden_shield_loop`, `warden_buff`, `skitter_step`, `concrete_crumble`,
   `glass_break`, `metal_clang`, `bullet_flyby`, `shield_hit`, `sword_block`, `weapon_holster`, `minigun_fire`, `lightning_strike`,
   `electric_buzz_loop` and `powerup_idle_loop` wait for their owners.
 - **Gore scales the headshot twice.** It passes 0.75 / 0.5625 / 0.75 on top of catalogue levels that already hold that ratio, so whenever

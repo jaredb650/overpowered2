@@ -443,6 +443,8 @@ export class SeveredPart implements SeveredLimb {
     }
 
     src.copySurfaceTo(this.data, this.extras);
+    // A limb has nothing fading its flash, so a value copied mid-hit would stay lit for good.
+    this.data[this.extras + EXTRA_PARAMS * 4 + 1] = 0;
     for (const p of src.props) {
       if (!chain[p.bone]) continue;
       // A clone, because the limb can outlive the instance that shed it.
