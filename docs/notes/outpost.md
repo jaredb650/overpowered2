@@ -10,7 +10,7 @@ and `Postures.step` returning at once.
 
 ```ts
 const o = ctx.enemies.outpost;          // EnemyManager; null off the contract
-o.setDowned(enemy, true);               // the wounds hook, see below
+o.wounds;                               // src/enemies/wounds, see docs/notes/wounds.md
 o.soldierOf(enemy);                     // Soldier: morale, state, fate, squad, role...
 o.doctrine;                             // The Commander's lever, see below
 o.dread.value;                          // 0..100
@@ -39,7 +39,7 @@ Events, typed in `events.ts`: `comms:line`, `enemy:broken`, `enemy:surrendered`,
 | `squad.ts` | The squad's brain: who goes where |
 | `behaviours.ts` | What a man does with his legs: hold, move, flee, surrender, aid, downed |
 | `weapons.ts` | Loadouts, suppressive fire, grenades |
-| `waves.ts` | The wave loop, and `replaceWaves` |
+| `waves.ts` | The wave loop. `createWaves` hands this to the game on a squads contract |
 | `comms.ts`, `dropped.ts`, `soldier.ts` | Radio lines, guns on the floor, one man's state |
 | `src/characters/animation/postures.ts` | Crouch, cover, lean, hands up, kneel, cower, drag, revive |
 
@@ -60,9 +60,8 @@ to send whom. Morale outranks orders: `collapse` takes a man out of the squad.
 - **Command's fix stops hiders winning.** After 12 s of nobody knowing, `Outpost.fix` passes on a position within 7 m. It also gives
   squads their first objective.
 - **`movement.ts` assumes the swarm**, and soldiers work round three things in it. `e.flowUntil` is cleared every frame, or a stalled
-  point move would walk a retreating man to the player. `e.probeAt` is Infinity, because routes are checked when made. `stayGrounded`
-  cancels `tryJumpUp` on its first frame, because a body blocked at a door jamb leapt onto the catwalk 4.5 m up. A one-line flag in
-  `movement.ts` would be cleaner.
+  point move would walk a retreating man to the player. `e.probeAt` is Infinity, because routes are checked when made. `e.footbound`
+  stops `tryJumpUp`, because a body blocked at a door jamb leapt onto the catwalk 4.5 m up.
 - **`Soldier.downed` is not `Enemy.downed`.** The Enemy flag means gore has the body for a knockdown. The Soldier flag is the wounded state.
 - **Prisoners stay in `alive`** because they can still be shot, and `hostile` and `remaining` subtract them. After 45 s, or past 8 held,
   they walk to a gate with their hands up. Killing one on the way is still an execution.
@@ -73,10 +72,8 @@ to send whom. Morale outranks orders: `collapse` takes a man out of the squad.
 
 ## Hooks for later work
 
-**Wounds.** `outpost.setDowned(enemy, true)` puts a man on the floor and `false` stands him up. From there `assignAid` sends the nearest
-medic or squadmate, who drags him out of the threat's view if he is exposed, then revives him at 40% health. The wounds work owns when
-that happens, the bleed clock, crawling and dying. A downed man counts as hostile, so until a bleed clock exists one with nobody left
-to help him holds the wave open. The `downed` pose is the crawl plan held still, a stand-in for whatever wounds builds.
+**Wounds.** Built: see `docs/notes/wounds.md`. `outpost.setDowned` is now the wounds' own call. Calling it from outside puts a man on the floor with no clock, so go through
+damage or `wounds` instead. `assignAid` still sends the nearest medic or squadmate, who drags him out of the threat's view if he is exposed.
 
 **The Commander.** `outpost.doctrine` is the lever: `surrender` for "nobody surrenders any more", `spacing` against explosives,
 `grenades`, `flankAngle`, `fixAfter`, `fixError`. It resets each run. Add a field where an answer needs a new rule. `SQUAD_TEMPLATES` is
@@ -123,7 +120,7 @@ It proves movement and decisions and nothing about looks or feel. `outpost-plot.
 | Speed while moving | Median 3.3 m/s, p95 5.2, top 6.4. That top is the 6 m/s sprint plus the 7% spread between men |
 | Longest stall while under orders to move | 2.25 s |
 | First contact | Median 20.5 s after the run starts |
-| Leaps cancelled by `stayGrounded` | 35 across the 12 runs |
+| Leaps cancelled by the old `stayGrounded`, now stopped at the source by `footbound` | 35 across the 12 runs |
 
 **Waves.** Spree bot, 420 s: six waves, the most alive 13 (cap 18), Dread up to 89, every wave cleared with prisoners still kneeling.
 A forced wave 7 reached exactly 18 alive and held there.
@@ -150,13 +147,7 @@ with a spot, top speed 6.3 m/s, 0 console errors, 60 fps. That matches the headl
 - **Nobody has played this.** Everything above is bots and stills. Whether it feels like hunting frightened soldiers needs the owner.
 - **Bounding needs a fight that lasts.** A bot with perfect aim breaks squads before they get through a cycle, so the live trails show
   far less manoeuvre than the headless ones. A strong player may see more breaking than flanking. That may be right, and it may not.
-- **`replaceWaves` swaps methods on the swarm's `Waves` object** because `src/enemies/index.ts` and `waves.ts` were out of scope. Picking
-  the class in `createWaves` from `ACTIVE.def.waves` is one line and removes it.
-- **A cancelled leap still plays the `leap` animation.** About three times per two minutes, at door jambs. A flag in `movement.ts` fixes it.
-- **`ui/hud/stragglers.ts` wants `enemies.length === remaining`.** With a prisoner on the map that is false, so the last-enemy reveal stays off.
-  `>=` would fix it.
 - **Men step off the open side of a ramp**, a drop of about 1.2 m. Harmless, and it reads as a hop down.
-- **Loss of both legs still uses the swarm's `crawl`,** toward the player. Section 14.1 wants away from the player. That belongs to the wounds work.
 - **A panicked man's aim offset still reads the real player** in `EnemyManager.animate` while he fires blind, so his arms can point truer
   than his bullets.
 - **No smoke.** Section 16.1 lists it, this task did not. Flashbangs blind by screen flash only.

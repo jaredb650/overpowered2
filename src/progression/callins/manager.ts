@@ -43,6 +43,20 @@ const KEYS: Readonly<Record<CallInId, Action>> = {
 const SEATED: ReadonlySet<CallInId> = new Set<CallInId>(['doorGunner', 'attackChopper']);
 
 const UNDRAWN_LAYER = 31;
+/** Seconds a call waits on a jammed uplink before it gets through regardless. Nothing the enemy does may eat a reward for good. */
+const UPLINK_PATIENCE = 22;
+
+/** On the Outpost contract, a man with a mast can hold a call-in back. Everywhere else this reads nothing. */
+interface Uplink {
+  outpost?: { commander: { callInDelay: number } } | null;
+}
+
+interface HeldCall {
+  id: CallInId;
+  age: number;
+  readonly point: THREE.Vector3;
+  readonly heading: THREE.Vector3;
+}
 /** Seconds between the device leaving and the gun being drawn. */
 const GUN_BACK_DELAY = 0.16;
 
@@ -62,6 +76,10 @@ export class CallInManager {
   private steering: Orbital | null = null;
   private holstered = false;
   private gunBackIn = 0;
+  /** Which call-in each running strike is, so anti-air can find it. */
+  private readonly flying = new Map<Strike, CallInId>();
+  private readonly heldCall: HeldCall = { id: 'airstrike', age: 0, point: new THREE.Vector3(), heading: new THREE.Vector3(1, 0, 0) };
+  private calling = false;
 
   constructor(private readonly ctx: Ctx, materials: ModelMaterials, holdGrade: (grade: GradeName | null) => void) {
     const probe = new GroundProbe(ctx);
@@ -126,6 +144,7 @@ export class CallInManager {
     for (const id of CALLIN_ORDER) if (this.cooldowns[id] > 0) this.cooldowns[id] = Math.max(0, this.cooldowns[id] - dt);
 
     if (this.ctx.player.alive) this.readKeys();
+    if (this.calling) this.waitOnUplink(dt);
 
     const result = this.targeting.update(dt);
     if (result === 'cancel') this.leaveTargeting('callin_cancel');
@@ -137,6 +156,7 @@ export class CallInManager {
       if (strike.update(dt)) {
         strike.dispose();
         this.strikes.splice(i, 1);
+        this.flying.delete(strike);
         if (strike === this.steering) this.lowerDevice();
       }
     }
@@ -186,17 +206,82 @@ export class CallInManager {
     this.targeting.enter(id);
   }
 
+  private get uplinkDown(): boolean {
+    return ((this.ctx.enemies as unknown as Uplink).outpost?.commander.callInDelay ?? 0) > 0;
+  }
+
+  /** The call is made and paid for, and it goes the moment the jammer stops or the patience runs out. */
+  private hold(id: CallInId): void {
+    const { audio, hud, player } = this.ctx;
+    this.calling = true;
+    this.heldCall.id = id;
+    this.heldCall.age = 0;
+    this.heldCall.point.copy(SEATED.has(id) ? player.position : this.order.point);
+    this.heldCall.heading.copy(this.order.heading);
+    audio.play('callin_denied');
+    hud.feed(`${CALLINS[id].name} HELD: UPLINK JAMMED`, CALLINS[id].color);
+  }
+
+  private waitOnUplink(dt: number): void {
+    const call = this.heldCall;
+    call.age += dt;
+    if (this.uplinkDown && call.age < UPLINK_PATIENCE) return;
+    if (this.steering || this.seats.occupied || !this.ctx.player.alive) return;
+    this.calling = false;
+    if (SEATED.has(call.id)) {
+      this.board(call.id);
+      return;
+    }
+    this.order.point.copy(call.point);
+    this.order.heading.copy(call.heading);
+    this.ctx.audio.play('callin_confirm');
+    this.fly(call.id);
+  }
+
+  private fly(id: CallInId): void {
+    const strike = this.launch(id);
+    this.strikes.push(strike);
+    this.flying.set(strike, id);
+    if (strike instanceof Orbital) this.steering = strike;
+    else this.lowerDevice();
+    this.ctx.events.emit('callin:used', { id, position: this.order.point });
+  }
+
+  /** Anti-air on the newest of this kind. A seat is emptied and its aircraft leaves. Anything else is simply gone. */
+  shootDown(id: CallInId): boolean {
+    for (let i = this.strikes.length - 1; i >= 0; i--) {
+      const strike = this.strikes[i]!;
+      if (this.flying.get(strike) !== id) continue;
+      if (SEATED.has(id)) {
+        this.seats.eject();
+        return true;
+      }
+      strike.dispose();
+      this.strikes.splice(i, 1);
+      this.flying.delete(strike);
+      return true;
+    }
+    return false;
+  }
+
   private board(id: CallInId): void {
     const { audio, events, player, weapons } = this.ctx;
     if (this.targeting.id) this.targeting.exit();
     this.held.delete(id);
     this.cooldowns[id] = CALLINS[id].cooldown;
+    if (this.uplinkDown && !this.calling && this.heldCall.age === 0) {
+      this.hold(id);
+      return;
+    }
+    this.heldCall.age = 0;
     audio.play('callin_confirm');
     if (!this.holstered) {
       this.holstered = true;
       weapons.setHolstered(true);
     }
-    this.strikes.push(this.launch(id));
+    const strike = this.launch(id);
+    this.strikes.push(strike);
+    this.flying.set(strike, id);
     events.emit('callin:used', { id, position: player.position });
   }
 
@@ -220,18 +305,19 @@ export class CallInManager {
   private confirm(): void {
     const id = this.targeting.id!;
     const def = CALLINS[id];
-    const { audio, events } = this.ctx;
+    const { audio } = this.ctx;
     this.order.point.copy(this.targeting.point);
     this.order.heading.copy(this.targeting.heading);
     this.held.delete(id);
     this.cooldowns[id] = def.cooldown;
     this.targeting.exit();
+    if (this.uplinkDown) {
+      this.hold(id);
+      this.lowerDevice();
+      return;
+    }
     audio.play('callin_confirm');
-    const strike = this.launch(id);
-    this.strikes.push(strike);
-    if (strike instanceof Orbital) this.steering = strike;
-    else this.lowerDevice();
-    events.emit('callin:used', { id, position: this.order.point });
+    this.fly(id);
   }
 
   private launch(id: CallInId): Strike {
@@ -250,6 +336,7 @@ export class CallInManager {
   /** The player died: nothing is left half-open, but strikes already called in still land. */
   onDeath(): void {
     this.seats.eject();
+    this.calling = false;
     if (this.targeting.id) this.leaveTargeting(null);
     this.steering?.release();
     this.steering = null;
@@ -261,6 +348,8 @@ export class CallInManager {
     this.steering = null;
     for (const strike of this.strikes) strike.dispose();
     this.strikes.length = 0;
+    this.flying.clear();
+    this.calling = false;
     this.kit.ordnance.clear();
     this.aftermath.clear();
     this.held.clear();

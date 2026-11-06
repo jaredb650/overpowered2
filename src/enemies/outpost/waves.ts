@@ -5,6 +5,7 @@
 import type { Ctx } from '../../core/contracts';
 import type { EnemyId, WavePhase, WaveSystem } from '../../core/gameplay';
 import type { EnemyManager } from '../EnemyManager';
+import { Commander } from '../commander';
 import { composeOutpostWave, MAX_HOSTILE } from './doctrine';
 import type { Outpost } from './index';
 
@@ -44,6 +45,7 @@ export class OutpostWaves implements WaveSystem {
     this.running = true;
     this.nextWaveIn = FIRST_WAVE_DELAY;
     this.ctx.audio.music('easy');
+    if (Commander.forcedWave() > 1) this.jumpTo(Commander.forcedWave());
   }
 
   /** For tests: straight to a wave. */
@@ -75,7 +77,7 @@ export class OutpostWaves implements WaveSystem {
     const { ctx, manager } = this;
     this.wave = wave;
     manager.setWave(wave);
-    this.queue = composeOutpostWave(wave, Math.random);
+    this.queue = this.o.commander.compose(wave, composeOutpostWave(wave, Math.random));
     this.cursor = this.seat = 0;
     this.clock = 0.4;
     let total = 0;
@@ -100,6 +102,7 @@ export class OutpostWaves implements WaveSystem {
       // The rest of the wave waits outside the wire until there is room in the fight.
       if (this.o.hostile + squad.length > MAX_HOSTILE) return;
       this.o.formSquad(squad.length);
+      this.o.commander.onSquadFormed(this.cursor);
     }
     this.o.sendIn(squad[this.seat]!);
     this.manager.queued--;
@@ -120,6 +123,6 @@ export class OutpostWaves implements WaveSystem {
     ctx.audio.play('wave_clear');
     ctx.events.emit('wave:clear', { wave: this.wave, bonus });
     this.phase = 'intermission';
-    this.nextWaveIn = INTERMISSION;
+    this.nextWaveIn = this.o.commander.intermission(this.wave, INTERMISSION);
   }
 }

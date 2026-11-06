@@ -162,7 +162,10 @@ export class WoundSystem {
       plate.mesh.position.y = plate.spec.offset[1] - CRACK_DROP;
       plate.mesh.rotation.x = (plate.spec.tilt?.[0] ?? 0) + CRACK_TIP;
     }
-    if (region === 'head') this.ring(s, s.injuries, d);
+    if (d.type === 'explosive') {
+      // A plate stops metal. It does nothing about the pressure.
+      if (d.amount / e.maxHealth >= T.concussionFrom) this.concuss(s, s.injuries);
+    } else if (region === 'head') this.ring(s, s.injuries, d);
     else if (PLACED.has(d.type)) this.manager.model.stagger(e, BLUNT_SECONDS, d.dir, BLUNT_STRENGTH, B.chest, BLUNT_REEL);
   }
 

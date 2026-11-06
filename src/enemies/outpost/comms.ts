@@ -38,6 +38,8 @@ const LINES: Record<CommsKind, readonly string[]> = {
   scream: ['Help me! Somebody!', 'Medic! MEDIC!', 'Oh God, it hurts!', 'Don\'t leave me out here!', 'Get me out of here!'],
   rescue: ['I\'m going for him!', 'Cover me, I\'ll get him!', 'Hold on, I\'m coming!', 'We don\'t leave him!'],
   lastStand: ['Come on then!', 'You\'re coming with me!', 'Taking you with me!'],
+  // The Commander's men speak from src/enemies/commander/lines.ts, through `relay`.
+  order: [],
 };
 
 /** Seconds before the same kind of line can come again. */
@@ -51,6 +53,10 @@ const LINE_GAP = 1.3;
 const URGENT: ReadonlySet<CommsKind> = new Set<CommsKind>(['manDown', 'leaderDown', 'takingCommand', 'squadGone', 'frag', 'flash', 'surrender', 'lastStand']);
 /** Lines that come out as a scream, not a voice on the radio. */
 const SCREAMED: ReadonlySet<CommsKind> = new Set<CommsKind>(['panic', 'surrender', 'scream', 'dying', 'beg', 'lastStand']);
+/** What radio silence takes off the air. A man on fire does not keep radio discipline. */
+const DISCIPLINED: ReadonlySet<CommsKind> = new Set<CommsKind>([
+  'contact', 'lost', 'noise', 'moving', 'covering', 'flanking', 'breach', 'fallback', 'regroup', 'fix', 'reloading', 'takingCommand', 'frag', 'flash',
+]);
 
 export class Comms {
   private nextLineAt = 0;
@@ -81,6 +87,7 @@ export class Comms {
     const now = w.now;
     // A hole in the lung or the throat takes the voice with it.
     if (s?.injuries.mute) return;
+    if (DISCIPLINED.has(kind) && w.enemies.outpost!.doctrine.radioSilence) return;
     if (now < (this.kindAt.get(kind) ?? 0)) return;
     if (now < this.nextLineAt && !URGENT.has(kind)) return;
     this.kindAt.set(kind, now + (KIND_GAP[kind] ?? DEFAULT_KIND_GAP));
@@ -94,5 +101,20 @@ export class Comms {
     else line.position.copy(w.player.position);
     w.ctx.events.emit('comms:line', line);
     if (s) say(s.e, w, SCREAMED.has(kind) ? 'vox_scream' : s.e.def.voice.attack, 0.45);
+  }
+
+  /** Words the caller chose, on the same feed. `who` names a voice that belongs to nobody on the map. */
+  relay(text: string, s: Soldier | null, who: string | null): void {
+    const { w, line } = this;
+    if (s?.injuries.mute) return;
+    this.nextLineAt = w.now + LINE_GAP;
+    line.kind = 'order';
+    line.text = text;
+    line.squad = s ? s.squad.name : 'Command';
+    line.speaker = who ?? (s ? s.callsign : null);
+    line.enemy = s ? s.e : null;
+    if (s) line.position.copy(s.e.center);
+    else line.position.copy(w.player.position);
+    w.ctx.events.emit('comms:line', line);
   }
 }

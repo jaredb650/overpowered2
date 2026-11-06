@@ -7,7 +7,7 @@ import { ADAPTATIONS, FINAL_WAVE, phaseOf, TRICKS, type AdaptationId, type Habit
 
 /** Under this a habit is noise, and the Commander falls back on standing orders. */
 const HABIT_FLOOR = 0.18;
-/** A second answer to the same habit has to beat this share of a fresh one, so a run sees variety and not five answers to one thing. */
+/** Each answer already given to a habit costs it this share, so a run sees variety and not five answers to one thing. */
 const REPEAT_HABIT = 0.72;
 const JITTER = 0.06;
 
@@ -21,18 +21,24 @@ const STANDING_ORDERS: readonly AdaptationId[] = ['mortars', 'snipers', 'mines',
 export function pickAdaptation(
   habits: Record<HabitId, number>, taken: ReadonlySet<AdaptationId>, wave: number, roll: () => number = Math.random,
 ): AdaptationId | null {
-  const answered = new Set<HabitId>();
-  for (const a of ADAPTATIONS) if (taken.has(a.id)) answered.add(a.habit);
+  // The habit first, then the next answer to it in table order, so a camper meets the mortars before the sniper.
   let best: AdaptationId | null = null;
   let bestScore = -Infinity;
-  for (const a of ADAPTATIONS) {
-    if (taken.has(a.id) || a.from > wave) continue;
-    const h = habits[a.habit];
-    if (h < HABIT_FLOOR) continue;
-    const score = h * (answered.has(a.habit) ? REPEAT_HABIT : 1) + roll() * JITTER;
+  for (const habit of Object.keys(habits) as HabitId[]) {
+    const strength = habits[habit];
+    if (strength < HABIT_FLOOR) continue;
+    let given = 0;
+    let next: AdaptationId | null = null;
+    for (const a of ADAPTATIONS) {
+      if (a.habit !== habit) continue;
+      if (taken.has(a.id)) given++;
+      else if (!next && a.from <= wave) next = a.id;
+    }
+    if (!next) continue;
+    const score = strength * REPEAT_HABIT ** given + roll() * JITTER;
     if (score > bestScore) {
       bestScore = score;
-      best = a.id;
+      best = next;
     }
   }
   if (best) return best;

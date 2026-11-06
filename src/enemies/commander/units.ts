@@ -497,6 +497,7 @@ export class Units {
     o.formSquad(1);
     const squad = o.squads[o.squads.length - 1]!;
     squad.directed = true;
+    this.forming = null;
     const e = manager.spawn('trooper', at);
     if (!e) return null;
     const s = o.soldierOf(e)!;

@@ -8,6 +8,7 @@ import { chance, dampAngle, rand } from '../../core/math';
 import type { AiWorld } from '../aiWorld';
 import { panic } from '../behaviours';
 import { finishAttack, type Behaviour } from '../brain';
+import { posted } from '../commander/behaviours';
 import type { Enemy } from '../Enemy';
 import { SIDEARM_MAG, WoundTuning } from '../wounds/rules';
 import type { SpotReading } from './cover';
@@ -41,6 +42,7 @@ const MEDIC_TREAT_SECONDS = 2.6;
 const REVIVE_HEALTH = 0.4;
 /** Close enough to get a hand on a gun on the floor. */
 const REACH_GUN = 0.9;
+const GUN_LANDED = 0.2;
 /** Rounds this close and nobody stops to tie a tourniquet. */
 const AID_PRESSURE = 0.3;
 /** The furthest a man will haul a casualty to get him behind something. */
@@ -214,7 +216,8 @@ const scramble: Behaviour = {
     const gun = s.scramble;
     if (!gun) return;
     e.moveTarget.copy(gun);
-    if (Math.hypot(gun.x - e.position.x, gun.z - e.position.z) <= REACH_GUN) w.enemies.outpost!.pickUpWeapon(s);
+    // Once it has landed: it leaves his hand already within reach, and he does not catch it.
+    if (gun.y - e.position.y < GUN_LANDED && Math.hypot(gun.x - e.position.x, gun.z - e.position.z) <= REACH_GUN) w.enemies.outpost!.pickUpWeapon(s);
   },
   exit(e) {
     pose(e, 'stand');
@@ -375,4 +378,4 @@ const aid: Behaviour = {
  * Burning is the only maimed rule a soldier keeps from the swarm. Crawling is the wounds' business, and always away. Headbutts and
  * disarmed rushes are out: a man who loses his gun arm reaches for a sidearm, or runs, or gives up.
  */
-export const SOLDIER_BEHAVIOURS: Behaviour[] = [panic(), downed, surrender, flee, aid, scramble, selfAid, move, hold];
+export const SOLDIER_BEHAVIOURS: Behaviour[] = [panic(), downed, surrender, flee, aid, scramble, selfAid, posted, move, hold];

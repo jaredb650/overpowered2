@@ -1,0 +1,76 @@
+/*
+ * The Commander's box. Sits above the tach, clear of the crosshair, and never takes the mouse: the player can go on walking and
+ * reloading while they read. Three looks for three kinds of voice: a bad video link, a form, a teletype.
+ */
+.cmd-box {
+  display: none;
+  position: absolute;
+  left: 50%;
+  bottom: 14rem;
+  width: 62rem;
+  margin-left: -31rem;
+  min-height: 10.6rem;
+  background: var(--plate-solid);
+  box-shadow: 0 0 0 0.09rem #000, 0.32rem 0.32rem 0 #000;
+  --accent: var(--hot);
+}
+.cmd-box.on { display: flex; }
+.cmd-box::before { content: ''; flex: none; width: 0.42rem; background: var(--accent); }
+
+.cmd-face {
+  flex: none;
+  width: 10.6rem;
+  height: 10.6rem;
+  align-self: flex-start;
+  image-rendering: pixelated;
+  background: #000;
+  border-right: 0.09rem solid #000;
+}
+
+.cmd-body { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; padding: 0.75rem 1.1rem 0.6rem; }
+.cmd-head { display: flex; align-items: baseline; gap: 0.9rem; margin-bottom: 0.45rem; }
+.cmd-name { font: 1.7rem/1 var(--display); color: var(--accent); text-transform: uppercase; letter-spacing: 0.02em; }
+.cmd-tag { font-size: 0.82rem; color: var(--dim); text-transform: uppercase; letter-spacing: 0.08em; }
+.cmd-text { margin: 0; flex: 1 1 auto; font-size: 1.28rem; font-weight: 500; line-height: 1.34; color: var(--ink); white-space: pre-line; user-select: none; }
+.cmd-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 0.5rem; font-size: 0.82rem; color: var(--dim); }
+.cmd-pips { display: flex; gap: 0.3rem; }
+.cmd-pip { width: 1.3rem; height: 0.26rem; background: var(--dim); }
+.cmd-pip.on { background: var(--accent); }
+.cmd-skip b { padding: 0 0.32rem; background: var(--steel); color: #000; font-weight: 800; }
+
+.cmd-box.council { --accent: var(--cold); }
+.cmd-box.council .cmd-text { color: #cfeef7; font-weight: 400; }
+
+/* Paper, not a screen: it is a thing somebody stole. */
+.cmd-box.intercept { --accent: var(--amber); background: #15100a; }
+.cmd-box.intercept .cmd-text { color: var(--amber); font-size: 1.14rem; font-weight: 500; }
+.cmd-box.intercept .cmd-name { color: #000; background: var(--amber); padding: 0.12rem 0.5rem 0.04rem; }
+
+/* What the box does as the Commander comes apart. */
+.cmd-box.rattled .cmd-text { color: #f5e6c8; }
+.cmd-box.cracked { --accent: var(--blood); }
+.cmd-box.cracked .cmd-text { color: #ffd9c9; }
+.cmd-box.cracked .cmd-name { animation: cmd-twitch 2.3s steps(1) infinite; }
+@keyframes cmd-twitch {
+  0%, 91%, 100% { transform: none; }
+  92% { transform: translate(0.2rem, -0.1rem) skewX(-6deg); }
+  95% { transform: translate(-0.2rem, 0.08rem); }
+}
+
+/* A line over the open channel, mid-fight: the same voice, a smaller box. */
+.cmd-box.bark { bottom: auto; top: 12rem; width: 44rem; margin-left: -22rem; min-height: 5.2rem; opacity: 0.94; }
+.cmd-box.bark .cmd-face { width: 5.2rem; height: 5.2rem; }
+.cmd-box.bark .cmd-body { padding: 0.4rem 0.8rem; }
+.cmd-box.bark .cmd-head { margin-bottom: 0.15rem; }
+.cmd-box.bark .cmd-name { font-size: 1.05rem; }
+.cmd-box.bark .cmd-text { font-size: 1rem; }
+.cmd-box.bark .cmd-foot { display: none; }
+
+/* Warnings. Stamped, top centre of the lower half, so a glance at the crosshair takes them in. */
+.cmd-chips { position: absolute; left: 50%; bottom: 25.6rem; width: 40rem; margin-left: -20rem; display: flex; justify-content: center; gap: 0.5rem; pointer-events: none; }
+.cmd-chip { display: none; padding: 0.22rem 0.6rem 0.1rem; font: 1.45rem/1 var(--display); letter-spacing: 0.03em; color: #000; background: var(--c); box-shadow: 0.16rem 0.16rem 0 #000; }
+.cmd-chip.on { display: block; }
+.cmd-chip.painted { --c: var(--blood); animation: op-blink 0.3s steps(1) infinite; }
+.cmd-chip.jammed { --c: var(--cold); }
+.cmd-chip.uplink { --c: var(--amber); }
+.cmd-chip.aaLock { --c: var(--hot); animation: op-blink 0.18s steps(1) infinite; }

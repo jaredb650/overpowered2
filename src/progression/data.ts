@@ -189,7 +189,9 @@ export const STYLE_GATE = {
 export const ASSIST_COMBO_EVERY = 2;
 /** Assist sources where the player does the aiming. */
 export const AIMED_ASSISTS = /^(chopper|door_gun)/;
-export const ASSIST_SOURCES = /^(airstrike|warthog|chopper|door_gun|orbital|ac130|black_sun|nuke|sentinel|chain_storm|chain_reaction|drop_pod)/;
+export const ASSIST_SOURCES = /^(airstrike|warthog|chopper|door_gun|orbital|ac130|black_sun|nuke|sentinel|chain_storm|chain_reaction|drop_pod|mortar|mine|tripwire|claymore|rigged|deadman)/;
+/** The Commander's own ordnance. A man killed by it was a present from the other side. */
+export const GIFT_SOURCES = /^(mortar|mine|tripwire|claymore|rigged|deadman)/;
 
 /**
  * Combo perks. Berserk no longer resets the combo, so each rung climbs by `rearm` after firing.
@@ -540,6 +542,7 @@ export const STYLE = {
   shatter: { label: 'SHATTERED', bonus: 75 },
   closeCall: { label: 'CLOSE CALL', bonus: 100 },
   geneva: { label: 'GENEVA SUGGESTION', bonus: 400 },
+  gift: { label: 'GIFT', bonus: 250 },
 } as const;
 
 export const STYLE_COLOR = '#ffd400';

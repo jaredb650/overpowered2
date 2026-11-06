@@ -36,6 +36,8 @@ import { Screens, type ScreenName } from './screens/Screens';
 import { Flythrough } from './screens/flythrough';
 import { isTitanWave } from '../enemies/waves';
 import type { CommsKind } from '../enemies/outpost/events';
+import { ACTIVE } from '../contracts/select';
+import { CommanderHud } from './commander';
 
 /** What the HUD needs from core/Game.ts. Read lazily, because Game publishes itself after systems are built. */
 export interface GameHost {
@@ -90,10 +92,13 @@ export class Hud implements HudSystem {
   private scoreboard: Scoreboard;
   private stragglers: Stragglers;
   private flythrough: Flythrough;
+  /** The Outpost's enemy has things to say. Null everywhere else. */
+  private commander: CommanderHud | null;
 
   private seatPanel: SeatPanel | null = null;
   private pickupPoints: MinimapPoint[] = [];
   private deathClock = 0;
+  private contractDone = false;
   private pauseGuard = 0;
   private lockClock = 0;
   private lockRetry = 0;
@@ -129,6 +134,8 @@ export class Hud implements HudSystem {
     this.debug = new DebugOverlays(ctx);
     this.minimap = new Minimap(ctx, this.worldLayer);
     this.scoreboard = new Scoreboard(this.report);
+    this.commander = ACTIVE.def.ai === 'outpost' ? new CommanderHud(ctx, this.settings) : null;
+    if (this.commander) this.commander.onFulfilled = () => this.fulfilled();
 
     this.hud = div('hud',
       this.lowFrame.el,
@@ -157,6 +164,7 @@ export class Hud implements HudSystem {
       this.boss.el,
       this.bannerLanes.el,
       this.scoreboard.el,
+      this.commander?.el,
       this.debug.el,
     );
     this.hud.style.display = 'none';
@@ -258,6 +266,7 @@ export class Hud implements HudSystem {
     this.arms.invalidate();
     this.callIns.reset();
     this.scoreboard.setHeld(false);
+    this.commander?.reset();
   }
 
   private onWaveStart(wave: number, total: number, boss: boolean): void {
@@ -275,6 +284,14 @@ export class Hud implements HudSystem {
     this.deathClock = DEATH_BEAT;
     this.ctx.time.pushScale('hud-death', 0.3, 0.08, 0.2);
     this.bannerLanes.showBand('dead', 'DEAD', this.report.killedBy ? `killed by ${this.killerName(this.report.killedBy)}` : '');
+  }
+
+  /** The Commander is dead and the Council has signed it off. The run ends the way a death does, with a better headline. */
+  private fulfilled(): void {
+    if (this.deathClock > 0) return;
+    this.contractDone = true;
+    this.deathClock = 0.01;
+    this.bannerLanes.showBand('clear', 'CONTRACT FULFILLED', '');
   }
 
   killerName(source: string): string {
@@ -382,6 +399,11 @@ export class Hud implements HudSystem {
     game?.setState('gameover');
     this.screens.show('gameover');
     this.screens.holdInput(GAME_OVER_HOLD);
+    if (this.contractDone) {
+      const by = this.screens.el.querySelector('.go-by');
+      if (by) by.textContent = 'Contract fulfilled';
+      this.contractDone = false;
+    }
   }
 
   // --- Frame ---------------------------------------------------------------------------------------------------
@@ -421,6 +443,7 @@ export class Hud implements HudSystem {
     this.combo.update(s, dt);
     this.perks.update(s, dt);
     this.callIns.update(s, dt);
+    if (playing) this.commander?.update(dt);
     this.feedLane.update(dt);
     this.styleLane.update(dt);
     this.comms.update(dt);
@@ -434,7 +457,10 @@ export class Hud implements HudSystem {
     this.targeting.update(s, dt);
     this.lowFrame.update(s);
     this.debug.update(s, dt);
+    const seen = s.enemies;
+    if (this.commander) s.enemies = this.commander.radar(seen);
     this.minimap.update(s, dt, this.readPickups());
+    s.enemies = seen;
     this.stragglers.update(s);
     this.scoreboard.update(input.isDown?.('scoreboard') === true && playing === true, dt);
     this.updateDeath(dt);

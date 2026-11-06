@@ -9,7 +9,7 @@ import type { DamageResult, EnemyInstance, KillEvent } from '../core/gameplay';
 import { readHighScore, writeHighScore } from '../contracts/scores';
 import { ACTIVE } from '../contracts/select';
 import { Combo } from './counters';
-import { HEADSHOT_COLOR, MULTI_KILLS, SCORE, STYLE, STYLE_COLOR } from './data';
+import { GIFT_SOURCES, HEADSHOT_COLOR, MULTI_KILLS, SCORE, STYLE, STYLE_COLOR } from './data';
 
 /** Sources the map owns. A kill from any of them is environmental. */
 const ENVIRONMENT = /^(world|hazard|barrel|tank|lava|crusher|electric|env)/;
@@ -111,6 +111,7 @@ export class ScoreKeeper {
     if (e.enemy.frozen > 0) this.style(STYLE.shatter);
     if (e.sliced) this.style(STYLE.sliced);
     if (ENVIRONMENT.test(e.damage.source)) this.style(STYLE.environment);
+    if (GIFT_SOURCES.test(e.damage.source)) this.style(STYLE.gift);
     if (e.playerWallRunning) this.style(STYLE.wallRun);
     if (e.playerSliding) this.style(STYLE.slide);
     if (e.playerAirborne && !e.playerWallRunning) this.style(STYLE.airborne);

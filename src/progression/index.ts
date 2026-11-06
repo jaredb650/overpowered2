@@ -103,6 +103,9 @@ class Progression implements ProgressionSystem {
     events.on('enemy:severed', e => { if (DevFlags.progression) this.onSevered(e.enemy, e.damage); });
     // A prisoner caught in a strike's splash is not the player's choice, so it earns nothing.
     events.on('enemy:executed', e => { if (DevFlags.progression && !ASSIST_SOURCES.test(e.kill.damage.source)) this.onExecuted(e.kill.enemy); });
+    events.on('enemy:wounded', e => {
+      if (DevFlags.progression && !ASSIST_SOURCES.test(e.damage.source)) this.scoreKeeper.add(e.bonus, e.label, e.enemy.center);
+    });
     events.on('wave:clear', e => {
       if (e.bonus > 0) this.scoreKeeper.add(e.bonus, 'wave');
       this.scoreKeeper.persist();
@@ -155,6 +158,11 @@ class Progression implements ProgressionSystem {
   /** Seconds left on a call-in's cooldown. */
   callInCooldown(id: CallInId): number {
     return this.callInsManager.cooldown(id);
+  }
+
+  /** The Commander's anti-air team got one. True if there was anything up there to hit. */
+  shootDown(id: CallInId): boolean {
+    return this.callInsManager.shootDown(id);
   }
 
   // --- Events ----------------------------------------------------------------------------------

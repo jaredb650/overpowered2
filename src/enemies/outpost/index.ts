@@ -26,6 +26,7 @@ import { Pool } from '../../core/pool';
 import { ACTIVE } from '../../contracts/select';
 import type { AiWorld } from '../aiWorld';
 import { finishAttack } from '../brain';
+import { Commander } from '../commander';
 import type { Enemy } from '../Enemy';
 import type { EnemyManager } from '../EnemyManager';
 import { SOLDIER_BEHAVIOURS } from './behaviours';
@@ -115,6 +116,8 @@ export class Outpost {
   readonly soldiers: Soldier[] = [];
   readonly waves: OutpostWaves;
   readonly wounds: WoundSystem;
+  /** The mind behind them. See src/enemies/commander. */
+  readonly commander: Commander;
   /** Men kneeling. They stay in `alive`, because they can still be shot, but they no longer count. */
   prisoners = 0;
   /** For anyone holding `ctx.enemies.outpost`: the soldier on a body, if it has one. */
@@ -150,11 +153,13 @@ export class Outpost {
     this.dropped = new DroppedWeapons(w.ctx);
     this.waves = new OutpostWaves(w.ctx, this, manager);
     this.wounds = new WoundSystem(w, this, manager);
+    this.commander = new Commander(w, this, manager);
   }
 
   init(): void {
     const { ctx } = this.w;
     this.wounds.init();
+    this.commander.init();
     const { events } = ctx;
     events.on('enemy:killed', k => this.onKilled(k));
     events.on('enemy:hit', h => this.onHit(h.enemy, h.damage, h.result));
@@ -201,6 +206,7 @@ export class Outpost {
     this.nextFixAt = 0;
     this.radioAt = -1;
     this.doctrine = defaultDoctrine();
+    this.commander.reset();
     for (const b of this.bangs) b.live = false;
   }
 
@@ -221,6 +227,7 @@ export class Outpost {
 
   onWaveStart(): void {
     this.fix(true);
+    this.commander.onWaveStart();
   }
 
   /** Opens a new squad at a gate of its own, out of the player's sight and a walk away. */
@@ -295,6 +302,7 @@ export class Outpost {
     e.yaw = Math.atan2(-e.position.x, -e.position.z);
     if (!e.def.plates && ARMOUR[role].length > 0) this.manager.fitPlates(e, ARMOUR[role]);
     this.wounds.onSpawn(s);
+    this.commander.onSpawn(s);
   }
 
   // -------------------------------------------------------------------------------------------
@@ -334,6 +342,7 @@ export class Outpost {
     if (now >= this.noiseAt) this.listenToFeet(now);
     this.updateBangs(now);
     this.dropped.update(dt);
+    this.commander.update(dt);
   }
 
   /**
@@ -371,6 +380,7 @@ export class Outpost {
     if (s.rescuer) s.rescuer.patient = null;
     s.wasLeader = s.squad.leader === s;
     s.squad.leave(s);
+    this.commander.onDetach(s);
     this.leaving.push(s);
   }
 
@@ -609,7 +619,7 @@ export class Outpost {
 
   /** The end of a man's nerve: the gun goes down and he runs, or he gives up. */
   private collapse(s: Soldier): void {
-    if (!s.fighting) return;
+    if (!s.fighting || this.commander.feign(s)) return;
     const { w, doctrine } = this;
     const e = s.e;
     if (e.attack) finishAttack(e, w, true);

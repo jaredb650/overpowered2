@@ -108,6 +108,8 @@ export class RouteFinder {
   private heapSize = 0;
   private trail = new Int32Array(0);
   private pass = 0;
+  /** Nodes a barricade has taken off the graph. */
+  private closed = new Uint8Array(0);
 
   get ready(): boolean {
     return this.nav !== null;
@@ -158,7 +160,27 @@ export class RouteFinder {
     this.heapNode = new Int32Array(to.length + 2);
     this.heapKey = new Float32Array(to.length + 2);
     this.trail = new Int32Array(n);
+    this.closed = new Uint8Array(n);
     this.pass = 0;
+  }
+
+  /** Takes a door off the graph, or puts it back. Only the door's own frame goes: the rooms either side stay as they were. */
+  setClosed(x: number, z: number, dx: number, dz: number, width: number, shut: boolean): void {
+    const nav = this.nav;
+    if (!nav) return;
+    const reach = Math.ceil(width / 2) + 1;
+    const cx = Math.floor(x - nav.minX), cz = Math.floor(z - nav.minZ);
+    for (let az = cz - reach; az <= cz + reach; az++) {
+      for (let ax = cx - reach; ax <= cx + reach; ax++) {
+        if (ax < 0 || az < 0 || ax >= nav.nx || az >= nav.nz) continue;
+        const c = az * nav.nx + ax;
+        for (let i = nav.colStart[c]!; i < nav.colStart[c + 1]!; i++) {
+          const along = Math.abs((nav.px[i]! - x) * dx + (nav.pz[i]! - z) * dz);
+          const across = Math.abs((nav.px[i]! - x) * dz - (nav.pz[i]! - z) * dx);
+          if (along < 1 && across <= width / 2 + 0.5 && nav.py[i]! < 2) this.closed[i] = shut ? 1 : 0;
+        }
+      }
+    }
   }
 
   private sloped(i: number): boolean {
@@ -229,6 +251,7 @@ export class RouteFinder {
       const gu = g[u]!;
       for (let l = start[u]!, end = start[u + 1]!; l < end; l++) {
         const v = links[l]!;
+        if (this.closed[v]) continue;
         let step = cost[l]!;
         if (avoid && avoid.exposed(px[v]!, pz[v]!)) step *= EXPOSED_COST;
         const gv = gu + step;
@@ -293,7 +316,7 @@ export class RouteFinder {
     if (cx < 0 || cz < 0 || cx >= nav.nx || cz >= nav.nz) return false;
     const c = cz * nav.nx + cx;
     for (let i = nav.colStart[c]!, end = nav.colStart[c + 1]!; i < end; i++) {
-      if (Math.abs(nav.py[i]! - y) < SLOPE_STEP) return true;
+      if (Math.abs(nav.py[i]! - y) < SLOPE_STEP) return this.closed[i] === 0;
     }
     return false;
   }

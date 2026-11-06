@@ -126,6 +126,12 @@ export interface Doctrine {
   fixAfter: number;
   /** Metres of error on that fix. */
   fixError: number;
+  /** Squads gather on doors. Off once a stack is what the player's rockets are waiting for. */
+  stacks: boolean;
+  /** Metres a rifleman backs away from the player at. 0 lets him stand. */
+  keepOut: number;
+  /** Orders and sightings stay off the air. Screams do not. */
+  radioSilence: boolean;
 }
 
 export const defaultDoctrine = (): Doctrine => ({
@@ -136,6 +142,9 @@ export const defaultDoctrine = (): Doctrine => ({
   flankAngle: 95,
   fixAfter: 12,
   fixError: 7,
+  stacks: true,
+  keepOut: 0,
+  radioSilence: false,
 });
 
 /** Simultaneous shooters and the gap between bursts. Fewer men than the swarm, so each one gets to matter. */

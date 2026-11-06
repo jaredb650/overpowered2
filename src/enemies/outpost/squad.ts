@@ -112,6 +112,8 @@ export class OutpostSquad implements Squad {
   thinkAt = 0;
   /** A long way off: moving in file, not by bounds. */
   filing = false;
+  /** Answers to the Commander: its men have posts, so this brain stays out of it. */
+  directed = false;
 
   private stunnedUntil = 0;
   private readonly axis = new Route();
@@ -265,7 +267,7 @@ export class OutpostSquad implements Squad {
     const { o } = this;
     const now = o.w.now;
     this.thinkAt = now + rand(0.6, 0.9);
-    if (now < this.stunnedUntil || this.knownAt < 0 || this.fighters() === 0) return;
+    if (this.directed || now < this.stunnedUntil || this.knownAt < 0 || this.fighters() === 0) return;
     this.chooseMode(now);
     this.checkPanic(now);
     switch (this.mode) {
@@ -291,7 +293,7 @@ export class OutpostSquad implements Squad {
       this.stepUntil = 0;
       if (this.leader) o.comms.say('lost', this.leader);
     }
-    if ((this.mode === 'advance' || this.mode === 'engage') && now >= this.stackReadyAt && now - this.seenAt > STACK_AFTER) this.tryStack(now);
+    if (o.doctrine.stacks && (this.mode === 'advance' || this.mode === 'engage') && now >= this.stackReadyAt && now - this.seenAt > STACK_AFTER) this.tryStack(now);
   }
 
   private startEngage(): void {
@@ -654,7 +656,7 @@ export class OutpostSquad implements Squad {
 
   /** Spreads a survivor into a squad with room, so nobody fights on alone when there is someone left to fight beside. */
   absorb(s: Soldier): boolean {
-    if (this.members.length >= MAX_SQUAD || this.fighters() === 0) return false;
+    if (this.directed || s.squad.directed || this.members.length >= MAX_SQUAD || this.fighters() === 0) return false;
     this.join(s);
     return true;
   }

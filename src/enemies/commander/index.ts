@@ -24,6 +24,7 @@ import type { CallInId, EnemyId, KillEvent } from '../../core/gameplay';
 import { clamp, rand } from '../../core/math';
 import type { AiWorld } from '../aiWorld';
 import type { EnemyManager } from '../EnemyManager';
+import { GIFT_SOURCES } from '../../progression/data';
 import { MAX_SQUAD, waveStrength } from '../outpost/doctrine';
 import type { Outpost } from '../outpost';
 import type { Soldier } from '../outpost/soldier';
@@ -66,8 +67,6 @@ const BACK_OFF = 9;
 const BACK_OFF_REST = 2.4;
 /** Blasts below this are footsteps. */
 const BLAST_FLOOR = 18;
-/** Sources that count as the Commander's own men being killed by the Commander. */
-export const GIFT_SOURCES = /^(mortar|mine|tripwire|claymore|rigged|deadman)/;
 /** Share of the head plate a heavier helmet multiplies by. */
 const HELMET_MULT = 3;
 

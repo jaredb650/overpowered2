@@ -104,7 +104,7 @@ Bosses and machines have no profile and stagger by `poise`, the old way. For sca
 
 **While `e.downed`** gore has the body. `updateDowned` copies where it is into `e.position` and `e.center`, and nothing else runs but status: it can bleed, burn and be shot. `e.airborne` is set so crowds and contact ignore it. When `gore.downed` answers null, the root is where it stands, `e.rising` counts the clip down, and `e.stagger` covers the clip and the daze after it. Knockback and crowd separation stay off while rising, because the clip is keyed to the root.
 
-**For section 14's wound states:** put them in front of `chooseReaction`. A wound changes what a body does on its own time. `anim.holdWound`, `anim.daze`, `gore.knockdown` and `gore.collapse` are what it should call. `kill` already sends bullets, fire, shock and bleeding out through `gore.collapse`.
+**Section 14's wound states** are in `src/enemies/wounds`, see `docs/notes/wounds.md`. Only soldiers reach them: `DamageModel.apply` asks `WoundSystem.take` whether a hit kills, and every other body dies when its health is gone, as before.
 
 ## Tuning knobs
 

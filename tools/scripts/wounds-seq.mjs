@@ -29,6 +29,10 @@ const CASES = {
   glance: { shots: [{ at: [4, 0.104, 0.09, 0.03], from: 'front' }], steps: LONG },
   blast: { blast: 3.5, steps: LONG },
   rocket: { blast: 0.5, damage: 200, steps: LONG },
+  // Too far off to throw him: dazed on his feet, and of no use to anyone for a few seconds.
+  concuss: { blast: 5.5, damage: 40, steps: LONG },
+  // Loaded dice again, with WOUND_AI=on: he goes after the gun he dropped.
+  scramble: { rig: 0.45, shots: [{ at: [10, 0, -0.06, 0.05], from: 'front' }], steps: [0, 20, 40, 60, 80, 100, 120, 140, 170, 200, 240, 300] },
   burst: { burst: 8, steps: [0, 4, 8, 12, 18, 24, 34, 50, 80, 120, 180, 260] },
   fire: { fire: true, steps: LONG },
   plate: { burst: 5, steps: [0, 4, 8, 12, 18, 24, 34, 50, 80, 120, 180, 260], plain: true },

@@ -90,7 +90,7 @@ export function sense(s: Soldier, w: AiWorld, dt: number): void {
   const facing = (dx * Math.sin(e.yaw) + dz * Math.cos(e.yaw)) / flat;
   // A man with his head down behind a wall sees nothing, however good his line would be.
   const looking = s.stage === 'peek' || s.task === 'move' || !s.spot;
-  const visible = e.hasLos && p.alive && (flat < TOUCH || (looking && facing > VIEW_COS));
+  const visible = e.hasLos && p.alive && (flat < TOUCH || (looking && facing > VIEW_COS && !w.enemies.outpost!.commander.smoke.blocks(e.position, p.position)));
   if (visible) {
     const seconds = NOTICE_BASE + flat * NOTICE_PER_METRE;
     const gain = (p.speed > 6 ? MOVING_GAIN : 1) * (w.now < s.alertUntil ? ALERT_GAIN : 1);
