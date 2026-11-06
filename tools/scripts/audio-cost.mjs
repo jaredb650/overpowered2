@@ -2,14 +2,15 @@
 //
 //   node tools/shot.mjs --url "/?sandbox=audio&mode=idle" --script tools/scripts/audio-cost.mjs --wait 500 --timeout 170
 //
+// Env: AC_ONLY=a|b keeps rows whose names contain a or b. AC_SECONDS=4 renders less, for a busy machine.
+//
 // Each row builds the voice chain and master bus in an OfflineAudioContext and times 10 s of audio, keeping the
 // fastest of three runs, because this machine is shared and only the minimum is free of other people's work.
 // `load` is the share of real time one render thread would spend: above 1.0 audio cannot keep up at all.
 //
 // Offline rendering runs the convolver's long tail on the render thread, where a live context hands it to a
 // background thread, so the rows with reverb overstate what the live thread pays. Compare them with each other.
-function bench(cases) {
-  const SECONDS = 10;
+function bench({ cases, SECONDS }) {
   const RATE = 44100;
   const noise = (ctx, channels) => {
     const b = ctx.createBuffer(channels, RATE, RATE);
@@ -189,5 +190,13 @@ export default async function cost(page, h) {
   }
   const only = process.env.AC_ONLY?.split('|');
   const cases = only ? Object.fromEntries(Object.entries(CASES).filter(([name]) => only.some(o => name.includes(o)))) : CASES;
-  return page.evaluate(bench, cases);
+  // One case per call, so a busy machine that runs out of time still leaves the rows it finished.
+  const started = Date.now();
+  const rows = [];
+  for (const [name, cfg] of Object.entries(cases)) {
+    if (Date.now() - started > 130000) break;
+    rows.push(...await page.evaluate(bench, { cases: { [name]: cfg }, SECONDS: Number(process.env.AC_SECONDS ?? 10) }));
+    console.error(rows.at(-1).load.toFixed(4), name);
+  }
+  return rows;
 }

@@ -160,7 +160,14 @@ Shared 8 GB M1 under load average around 18, so treat these as upper bounds.
 
 | What | Result |
 |---|---|
-| Physics step, 14 ragdolls + 22 live limbs, real husks | median 1.5 ms, p90 1.8 ms, max 5.1 ms over 114 frames. An earlier run at higher load gave median 2.1, p90 3.4 |
+| Physics step, 14 ragdolls + 22 live limbs, real husks, before muscles | median 1.5 ms, p90 1.8 ms, max 5.1 ms over 114 frames. An earlier run at higher load gave median 2.1, p90 3.4 |
+| The same stress run, muscles against hard limits, same load | Chrome: median 4.6 ms against 4.3 ms, 92 frames each. The machine was far busier than the 1.5 ms above: compare these two with each other, not with that. In Node, interleaved, CPU time per step was 4.4 against 5.7, so inside the noise |
+| `MuscleState.step` | About 8 µs of CPU per body per sub-step. Allocates about 1 byte per call, which is noise |
+| Knee whipped into its limit at 18 rad/s, 1/240 s steps | Peak deceleration 3678 rad/s² hard, 447 with muscles. 892 and 365 at 1/60 s. Rebound 0.4 rad/s |
+| Blast from the front, 14 frames on | Arms back 1.3 to 2.3 rad, against 0.3. Legs forward 0.3 to 0.9 rad, against 0.8 rad backward |
+| Arms ending within 1 rad of straight up, 20 varied deaths | 0 of 20, against 6 of 20 |
+| Frames to settle, same 20 deaths | Mean 113, against 106 |
+| Weightless, mean joint error from resting pose | 0.86 rad down to under 0.12 in 6.5 s |
 | `cutMesh`, husk, about 9-12k triangles | best 2.9 ms in Chrome. Target was about 2 ms: **missed**. Best 1.8 ms in Node on a plain 12k mesh |
 | `bakePose` (characters system) | best 1.3-2 ms, on top of the cut |
 | Pose jump at death, real animator | 0 |
@@ -184,5 +191,20 @@ Shared 8 GB M1 under load average around 18, so treat these as upper bounds.
   back when it runs out. Gore detects that and lets go, but 48 live enemies plus 40 corpses of one archetype is 88, so a
   husk-heavy wave will lose corpses early. Raising the pool to 96 fixes it.
 - Pools grow as stacked decals, since `DecalSystem` has no resize. 5 per corpse.
+- **The enemy agent has not called `collapse` yet.** In the sandbox it runs on husks and in Node on the real animator. The
+  mortal bleed-out path does not exist yet, so nothing has been tried against a real AI handing a body over.
+- **A collapse assumes level ground.** The hips are held at the height they started, so one begun on stairs or at a ledge
+  hovers until support fades, then drops. Not tried on stairs. Airborne, call `ragdoll`.
+- **A very fast joint still reaches the hard stop.** Past about 30 rad/s the zone is used up in a step or two and the
+  stop does the work: peak deceleration 1842 against 2161. Hits that hard are rare, and there the stop is what saves it.
+- **The straight end of a hinge has a narrow stop:** 0.18 rad past the limit, not the wide margin of the folded end, because
+  `knees and elbows only fold the way they fold` allows 0.25.
+- **Arms can run past their reach** in a full blast, by 0.1 to 1 rad, before ligaments catch them.
+- **Twitching varies a lot from body to body.** A burst can move a hand a few centimeters or, rarely, flop a limb 30 to
+  40 cm. Judged from numbers and stills, not in motion, so it needs someone to watch it.
+- **Ankles ease to rest visually only.** The foot's collider stays where it was at death, so a pointed foot can sit a
+  little off the floor. Spine and neck are merged too, and take their curve from the chest and head joints.
+- **Drones occasionally hit the time limit** and freeze at 7 s instead of about 2.3 s. Seen a few times in long sequences,
+  never in 13 isolated runs. On hard limits they always do.
 - Rapier's JS API allocates a little inside some calls. Gore passes target objects everywhere it can, but spawning a chain
   allocates descriptors. That happens per event, never per frame.
