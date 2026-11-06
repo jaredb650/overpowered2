@@ -318,7 +318,10 @@ describe('corpses', () => {
     run(300);
     expect(gore.stats().ragdolls).toBe(0);
     const at = v(0, -0.2, 0).applyMatrix4(c.bones[B.thighL]!.matrixWorld);
-    const from = at.clone().add(v(0.3, 3, 0.2));
+    // From outside the body: straight down, one shot in eight finds the torso lying over the leg, with no limb to lose.
+    const hips = new THREE.Vector3().setFromMatrixPosition(c.bones[B.hips]!.matrixWorld);
+    const away = at.clone().sub(hips).setY(0).normalize();
+    const from = at.clone().addScaledVector(away, 2.5).add(v(0, 1.2, 0));
     const dir = at.clone().sub(from).normalize();
     const hit = gore.raycastCorpses(from, dir, 10)!;
     expect(hit).not.toBeNull();
