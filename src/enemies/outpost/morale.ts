@@ -38,8 +38,11 @@ export const FEAR = {
   monsterClose: 7,
   /** On every survivor of a squad that lost RAPID_SHARE of its men inside RAPID_SECONDS. */
   rapidLosses: 55,
-  /** On everyone who can hear it when a perk spikes Dread, per point of spike. */
-  spike: 0.45,
+  /**
+   * On everyone when a perk spikes Dread, per point of spike. Section 14.3 says Berserk and Hellfire make enemies run, so
+   * Berserk alone takes an ordinary man to panicked, and it takes only a casualty or two to finish him.
+   */
+  spike: 1.25,
 } as const;
 
 /** Metres. */

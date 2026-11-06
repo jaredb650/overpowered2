@@ -81,3 +81,33 @@ It is a second hit and not a multiplier on the first because the first has alrea
 | Council copy | `briefing` rows and `NOTICE_*` in `data.ts` |
 | Geneva | `STYLE.geneva`, `STACK.geneva*`, `EFFECTS.geneva` in `progression/data.ts` |
 | Back shots | `rewards.backShot` on the contract |
+
+## Verified
+
+Real headless Chrome through `tools/shot.mjs` at `--dpr 2 --w 1440 --h 900`, on real clicks and keys unless noted. The machine was shared with other agents throughout, so no frame rate here means anything.
+
+| Thing | How | Result |
+|---|---|---|
+| Contract select | Mouse, arrow keys, Enter | Tabs, notices and focus agree. Guide, Settings and Play all still reachable |
+| High scores | Seeded both keys, read the menu, reloaded | The Outpost's record shows from a Crucible page, and each contract keeps its own key |
+| Switching | Play with The Outpost selected, from `/` | Page load, `Click to deploy: The Outpost`, URL left as `?contract=outpost`, one click: playing, mouse locked, `def.id` outpost, map killhouse |
+| Sonar key | Real T with the mouse locked | Ping fired. A second press during the cooldown changed nothing |
+| Cooldown | Read from `ctx.contracts.sonar` | 8 with 18 left, 3 with 3 or fewer, and it fell the moment the count did |
+| Reveal | 5 to 18 enemies, Kill House and Crucible | Red silhouettes through concrete, behind walls and on a lit wall. Not drawn over the gun |
+| Geneva Suggestion | Raised `enemy:executed` from a script | +400, damage 1.2 then 1.4, fire rate 1.12 then 1.24, 2 stacks, 6 s, banner, feed and row all show |
+| Back shots | `applyDamage` on a live soldier, so the Outpost's own check raised the event | 20 damage took 30 from behind, 20 from the front |
+| Comms | Lines raised by script, and the Outpost's own | Speaker, squad fallback, amber for panic, wrapping |
+| Guide | All seven tabs at 1280x720 | Every panel fits with no scroll |
+| Sandboxes | `/?sandbox=progression`, `/?sandbox=ui` | 116 of 116. The UI sandbox shows the key cell as `sonar`, because its stub has no label for it |
+
+**Cost.** With nothing lit, a frame pays one branch and no draw. With 18 husks lit at The Crucible, the whole frame between GPU syncs went from 8.0 to 8.15 ms, best of six, twice over. `render()` on the first ping peaked at 7 ms against 3 ms on the second, and both 1.4 s windows held 83 or 84 frames, so the first compile did not show up as a hitch here. A slower driver may differ.
+
+## Known limitations
+
+- **Nobody has played this with hands, and nothing here has been listened to.** The ping's level, the tap's timing and whether 4 s and 8 s feel right are all unjudged. The ring has only been seen in stills, held at a chosen radius.
+- **The body only.** `highlight` is given `char.mesh`, so a carried gun or a riot shield does not show in the silhouette.
+- **Far enemies are small.** At The Crucible a body 150 m away is a few red pixels. Nothing scales it up. The minimap pulse covers the distance, and with 3 left the HUD markers do.
+- **Silhouettes leave during pause.** A paused frame runs no `update`, so nothing calls `highlight`. They are back on resume, and the clock has not moved.
+- **SSR can catch a silhouette** on a wet floor, because SSR reads last frame's HDR image.
+- **The ring only runs over surfaces.** Looking straight up in the open Kill House shows none of it.
+- **`faction`, `waves` and `wounds` are read by nothing yet.** The Outpost keys off `ACTIVE.def.ai` for all of it, and swaps its wave loop in behind `ctx.waves`. They are in the table because a contract is defined by them, and the first second-faction contract will need to split them.

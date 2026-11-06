@@ -59,7 +59,11 @@ void main() {
   gl_FragColor = vec4((uColor * cover * 0.8 + edge) * uStrength, cover * uStrength);
 }`;
 
-/** A hard crest with a wake behind it. Sky and the viewmodel are skipped: the ring runs over the world's surfaces only. */
+/**
+ * A hard crest with a wake behind it. Sky and the viewmodel are skipped: the ring runs over the world's surfaces only.
+ * The crest widens with the radius, because a floor seen at a shallow angle squeezes metres into less than a pixel. It
+ * comes from the radius and not from screen derivatives, which jump at every depth edge and outline the whole scene.
+ */
 const SWEEP_FRAG = /* glsl */ `
 in vec2 vUv;
 out vec4 outColor;
@@ -76,10 +80,11 @@ void main() {
   if (d < ${VIEW_DEPTH_MAX.toFixed(4)} || d > 0.99999) return;
   vec4 w = uClipToWorld * vec4(vUv * 2.0 - 1.0, d * 2.0 - 1.0, 1.0);
   float behind = uRadius - distance(w.xyz / w.w, uOrigin);
-  if (behind < 0.0) return;
-  float crest = smoothstep(0.0, 0.08, behind) * exp(-behind * 4.0) * 4.0;
-  float wake = exp(-behind * 0.3) * 0.05;
-  outColor = vec4(uColor * (crest + wake) * uFade, 0.0);
+  float width = clamp(uRadius * uRadius * 0.0024, 0.35, 6.0);
+  float front = smoothstep(-width * 0.25, 0.0, behind);
+  float crest = exp(-max(behind, 0.0) / width) * 4.0;
+  float wake = exp(-max(behind, 0.0) * 0.3) * 0.05;
+  outColor = vec4(uColor * (crest + wake) * front * uFade, 0.0);
 }`;
 
 interface Batch {

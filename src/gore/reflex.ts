@@ -23,7 +23,7 @@ export const ReflexTuning = {
   reaction: 0.07,
   /** Joint strength by role, 0..1, in each phase. Legs stay light: a strong leg on the floor props the body up. */
   fall: { arm: 0.75, leg: 0.32, spine: 0.34, head: 0.6 },
-  lying: { arm: 0.42, leg: 0.2, spine: 0.14, head: 0.34 },
+  lying: { arm: 0.55, leg: 0.3, spine: 0.14, head: 0.4 },
   gather: { arm: 0.8, leg: 0.6, spine: 0.4, head: 0.5 },
   /** How fast joint strength reaches what the phase wants, in 1/s. */
   driveRate: 11,
@@ -480,6 +480,9 @@ export class Reflex {
       }
       m.drive = damp(m.drive, want, t.driveRate, dt);
       if (this.phase !== 'fall') m.gain = 1;
+      // A working muscle carries its own weight, as in a collapse, or an arm on the floor cannot lift itself off it.
+      // Falling, the legs keep theirs: feet need it on the floor to tip over.
+      if (m.role === 'arm' || m.role === 'head' || (m.role === 'leg' && this.phase !== 'fall')) part.body.setGravityScale(1 - m.drive, false);
     }
   }
 }

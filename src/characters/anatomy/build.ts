@@ -4,9 +4,9 @@
  * that read through a hole: a rib cage, long bones, wet masses. There are no small parts.
  *
  * One geometry and one draw for the lot:
- *  - shell: the skin at its middle LOD, pulled in a little. Whatever a hole reveals, there is a surface under it, and
- *    from inside its back faces are the far wall of the body. The lowest LOD cuts too many corners to stay under the skin.
- *  - muscle round the limbs, with the long bones through it.
+ *  - flesh: a smooth inner body round the bones. This is what a hole opens onto. It is cut away everywhere but under
+ *    wounds, so it does not have to fit: it can stand proud of the skin in places and nothing shows. A copy of the skin
+ *    pulled in along its normals fits better but does not work: thin gear turns inside out and comes through the far side.
  *  - rib cage, spine, pelvis, skull.
  *  - organs, and bowel.
  *  - bone ends that stay collapsed until their joint breaks.
@@ -16,13 +16,13 @@ import { mulberry32 } from '../../core/math';
 import type { LoadedModel } from '../model';
 import { HumanoidBone as B, type RigDef } from '../rig';
 
-export const Part = { shell: 0, muscle: 1, bone: 2, organ: 3, gut: 4, shard: 5 } as const;
+export const Part = { muscle: 1, bone: 2, organ: 3, gut: 4, shard: 5 } as const;
 type PartId = (typeof Part)[keyof typeof Part];
 
-/** How far under the skin the shell sits, at human size. */
-const SHELL_DEPTH = 0.02;
 /** Inside the skin, measured at the widest gear, with room left for what is on top of the ribs. */
 const CAGE_FIT = 0.8;
+/** The inner body against that same measure. */
+const FLESH_FIT = 0.9;
 
 type V3 = readonly [number, number, number];
 type Rgb = readonly [number, number, number];
@@ -97,7 +97,7 @@ class Builder {
         const b = rings[i]! + ((s + 1) % sides);
         const c = rings[i + 1]! + s;
         const d = rings[i + 1]! + ((s + 1) % sides);
-        this.index.push(a, c, b, b, c, d);
+        this.index.push(a, b, c, b, d, c);
       }
     }
   }
@@ -195,28 +195,35 @@ function sliceAt(slices: readonly Slice[], y0: number, y1: number, y: number): S
   return { halfX: mix(a.halfX, b.halfX, t), front: mix(a.front, b.front, t), back: mix(a.back, b.back, t) };
 }
 
-function addShell(g: Builder, model: LoadedModel, scale: number): void {
-  const A = model.attributes;
-  const pos = A.position.array as Float32Array;
-  const nor = A.normal.array as Int8Array;
-  const si = A.skinIndex!.array as Uint8Array;
-  const sw = A.skinWeight!.array as Uint8Array;
-  const source = model.lods[1]!.index!.array;
-  const remap = new Map<number, number>();
-  const shrink = SHELL_DEPTH * scale;
-  for (let i = 0; i < source.length; i++) {
-    const v = source[i]!;
-    let to = remap.get(v);
-    if (to === undefined) {
-      const n: V3 = unit([nor[v * 4]!, nor[v * 4 + 1]!, nor[v * 4 + 2]!]);
-      to = g.vertex([pos[v * 3]! - n[0] * shrink, pos[v * 3 + 1]! - n[1] * shrink, pos[v * 3 + 2]! - n[2] * shrink], n, [0, 0, 0], Part.shell, RED_MEAT);
-      for (let k = 0; k < 4; k++) {
-        g.skin[to * 4 + k] = si[v * 4 + k]!;
-        g.weight[to * 4 + k] = sw[v * 4 + k]! / 255;
-      }
-      remap.set(v, to);
+/** The trunk's flesh, lofted through the cross-sections of the skin. */
+function addTrunk(g: Builder, slices: readonly Slice[], y0: number, y1: number, hips: V3, spine: V3, chest: V3, neck: V3, scale: number): void {
+  const rings = 13;
+  const sides = 16;
+  const first = g.count;
+  const low = hips[1] - 0.09 * scale;
+  const high = neck[1] + 0.02 * scale;
+  for (let r = 0; r < rings; r++) {
+    const y = mix(low, high, r / (rings - 1));
+    const s = sliceAt(slices, y0, y1, y);
+    const rx = s.halfX * FLESH_FIT * (r === 0 || r === rings - 1 ? 0.6 : 1);
+    const rz = (s.front - s.back) * 0.5 * FLESH_FIT * (r === 0 || r === rings - 1 ? 0.6 : 1);
+    const cz = (s.front + s.back) * 0.5;
+    const bind: Bind = y < spine[1] ? [B.hips, B.spine, Math.max(0, (y - hips[1]) / (spine[1] - hips[1]))] : y < chest[1] ? [B.spine, B.chest, (y - spine[1]) / (chest[1] - spine[1]) * 0.7] : [B.chest, B.chest, 0];
+    for (let k = 0; k < sides; k++) {
+      const a = (k / sides) * Math.PI * 2;
+      const c = Math.cos(a);
+      const d = Math.sin(a);
+      g.vertex([c * rx, y, cz + d * rz], unit([c / rx, 0, d / rz]), bind, Part.muscle, RED_MEAT);
     }
-    g.index.push(to);
+  }
+  for (let r = 0; r + 1 < rings; r++) {
+    for (let k = 0; k < sides; k++) {
+      const a = first + r * sides + k;
+      const b = first + r * sides + ((k + 1) % sides);
+      const c = a + sides;
+      const d = b + sides;
+      g.index.push(a, c, b, b, c, d);
+    }
   }
 }
 
@@ -235,7 +242,7 @@ function muscleSleeve(g: Builder, a: V3, b: V3, r: number, bone: number, rnd: ()
   const rings = 8;
   for (let i = 0; i <= rings; i++) path.push(add(a, sub(b, a), i / rings));
   const belly = 0.82 + rnd() * 0.16;
-  g.tube(path, (t, i) => (i === 0 || i === rings ? 0 : r * (0.72 + 0.28 * Math.sin(t * Math.PI) * belly)), 8, () => [bone, bone, 0], Part.muscle, RED_MEAT);
+  g.tube(path, (t, i) => (i === 0 || i === rings ? 0 : r * (0.8 + 0.2 * Math.sin(t * Math.PI) * belly)), 9, () => [bone, bone, 0], Part.muscle, RED_MEAT);
 }
 
 /** A jagged spike of bone, dormant until `joint` breaks. */
@@ -367,8 +374,6 @@ export function buildInterior(model: LoadedModel, rig: RigDef, bind: readonly TH
   const at = (b: number): V3 => [bind[b]!.x, bind[b]!.y, bind[b]!.z];
   const scale = rig.height / 1.85;
 
-  addShell(g, model, scale);
-
   const hips = at(B.hips);
   const spine = at(B.spine);
   const chest = at(B.chest);
@@ -377,6 +382,7 @@ export function buildInterior(model: LoadedModel, rig: RigDef, bind: readonly TH
   const y0 = hips[1] - 0.12 * scale;
   const y1 = neck[1] + 0.02 * scale;
   const slices = torsoSlices(pos, owner, y0, y1, 12);
+  addTrunk(g, slices, y0, y1, hips, spine, chest, neck, scale);
   addCage(g, slices, y0, y1, chest, neck, scale);
   addSpine(g, hips, chest, neck, head, slices, y0, y1, scale);
   addPelvis(g, hips, sliceAt(slices, y0, y1, hips[1]), rnd, scale);
@@ -384,6 +390,9 @@ export function buildInterior(model: LoadedModel, rig: RigDef, bind: readonly TH
 
   // Skull: what a glancing head wound opens onto. The jaw does not move, so it is one piece with it.
   const skull = add(head, [0, 0.09 * scale, 0.015 * scale]);
+  const headBind: Bind = [B.head, B.head, 0];
+  g.blob(skull, [0.09 * scale, 0.11 * scale, 0.104 * scale], 8, 10, headBind, Part.muscle, RED_MEAT, 0.02, rnd);
+  muscleSleeve(g, neck, add(head, [0, 0.06 * scale, 0]), 0.055 * scale, B.neck, rnd);
   g.blob(skull, [0.078 * scale, 0.098 * scale, 0.092 * scale], 8, 10, [B.head, B.head, 0], Part.bone, BONE_RGB, 0.02, rnd);
   g.blob(add(skull, [0, -0.08 * scale, 0.03 * scale]), [0.058 * scale, 0.04 * scale, 0.06 * scale], 5, 7, [B.head, B.head, 0], Part.bone, BONE_RGB, 0.03, rnd);
 
@@ -406,10 +415,15 @@ export function buildInterior(model: LoadedModel, rig: RigDef, bind: readonly TH
     const thighR = limbRadius(pos, owner, thigh, hip, knee) || 0.08 * scale;
     const shinR = limbRadius(pos, owner, shin, knee, ankle) || 0.055 * scale;
 
-    muscleSleeve(g, shoulder, elbow, armR * 0.78, upper, rnd);
-    muscleSleeve(g, elbow, wrist, foreR * 0.78, fore, rnd);
-    muscleSleeve(g, hip, knee, thighR * 0.78, thigh, rnd);
-    muscleSleeve(g, knee, ankle, shinR * 0.78, shin, rnd);
+    muscleSleeve(g, shoulder, elbow, armR * 0.98, upper, rnd);
+    muscleSleeve(g, elbow, wrist, foreR * 0.98, fore, rnd);
+    muscleSleeve(g, hip, knee, thighR * 0.98, thigh, rnd);
+    muscleSleeve(g, knee, ankle, shinR * 0.98, shin, rnd);
+    // The sleeves taper to nothing at their ends, so each joint gets a mass of its own.
+    g.blob(shoulder, [armR * 1.1, armR * 1.1, armR * 1.1], 5, 7, [upper, B.chest, 0.3], Part.muscle, RED_MEAT, 0.05, rnd);
+    g.blob(elbow, [foreR * 0.95, foreR * 0.95, foreR * 0.95], 5, 7, [fore, upper, 0.5], Part.muscle, RED_MEAT, 0.05, rnd);
+    g.blob(hip, [thighR * 1.1, thighR * 1.1, thighR * 1.1], 5, 7, [thigh, B.hips, 0.3], Part.muscle, RED_MEAT, 0.05, rnd);
+    g.blob(knee, [shinR * 0.98, shinR * 0.98, shinR * 0.98], 5, 7, [shin, thigh, 0.5], Part.muscle, RED_MEAT, 0.05, rnd);
 
     longBone(g, shoulder, elbow, armR * 0.22, upper);
     const across: V3 = [0, 0, foreR * 0.2];

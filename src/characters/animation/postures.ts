@@ -55,7 +55,8 @@ const SHAPES: Record<PostureName, Shape> = {
   flee: { ...FLAT, bend: 0.22, head: -0.1 },
   drag: { ...FLAT, drop: 0.14, shift: -0.05, bend: 0.72, head: -0.42, hands: 1, x: 0.12, y: -0.62, z: 0.72 },
   revive: { ...FLAT, drop: 0.26, bend: 0.5, head: 0.22, kneel: 0.8, hands: 1, x: 0.08, y: -0.52, z: 0.62, pump: 1 },
-  downed: FLAT,
+  // Its own object: a posture of exactly FLAT counts as being finished with, and this one is not.
+  downed: { ...FLAT },
 };
 
 const KEYS = Object.keys(FLAT) as (keyof Shape)[];

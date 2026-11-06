@@ -260,6 +260,11 @@ export class HumanoidAnimator implements CharacterAnimation {
   private stepAside = 0;
   private plan: Plan = 'biped';
   private planBlend = 0;
+  /**
+   * How far into a hop the body has got. All at once the hips jump 9 cm the moment a leg goes, and in the one frame gore
+   * samples an animation to seed a ragdoll that reads as 8 m/s sideways: limb and body thrown in opposite directions.
+   */
+  private hopBlend = 0;
   private severedCount = -1;
   private headGone = false;
   private armGoneL = false;
@@ -539,7 +544,7 @@ export class HumanoidAnimator implements CharacterAnimation {
     this.feet[0]!.limb = this.limbL;
     this.feet[1]!.limb = this.limbR;
     this.plan = 'biped';
-    this.planBlend = 0;
+    this.planBlend = this.hopBlend = 0;
     this.severedCount = -1;
     this.headGone = this.armGoneL = this.armGoneR = false;
     this.action = null;
@@ -609,6 +614,7 @@ export class HumanoidAnimator implements CharacterAnimation {
     this.posture.step(step);
 
     this.planBlend = damp(this.planBlend, this.plan === 'crawl' || this.plan === 'writhe' || this.posture.prone ? 1 : 0, 6, step);
+    this.hopBlend = damp(this.hopBlend, this.plan === 'hop' ? 1 : 0, 7, step);
 
     if (this.plan === 'biped') this.stepGait(step, lod);
     else if (this.plan === 'hop') this.stepHop(step);
@@ -905,8 +911,8 @@ export class HumanoidAnimator implements CharacterAnimation {
     z += this.leanFwd * L * 0.08;
     if (this.plan === 'hop') {
       const good = this.feet[0]!.limb ? 1 : -1;
-      x += good * L * 0.05;
-      y = this.hipY * st.crouch * 0.96 + this.hopHeight;
+      x += good * L * 0.05 * this.hopBlend;
+      y = lerp(y, this.hipY * st.crouch * 0.96 + this.hopHeight, this.hopBlend);
     }
     if (this.plan === 'crawl' || this.plan === 'writhe') {
       const surge = Math.sin(this.crawlPhase * TAU) * 0.018 * L * this.moveBlend;
@@ -979,7 +985,7 @@ export class HumanoidAnimator implements CharacterAnimation {
     }
     if (this.plan === 'hop') {
       const good = this.feet[0]!.limb ? 1 : -1;
-      qEuler(qA, 0.16 + this.hopHeight * 0.5, 0, -good * 0.14);
+      qEuler(qA, (0.16 + this.hopHeight * 0.5) * this.hopBlend, 0, -good * 0.14 * this.hopBlend);
       this.pelvisQ.multiply(qA);
     }
     if (this.headGone) {

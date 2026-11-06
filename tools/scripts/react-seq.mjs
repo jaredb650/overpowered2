@@ -4,7 +4,7 @@
 // Sheets land next to --out as react-<case>.png. REACT_DPR=2 is set with --dpr 2 --w 1440 --h 900.
 const only = (process.env.REACT ?? '').split(',').filter(Boolean);
 const TILE_W = 480;
-const TILE_H = 270;
+const TILE_H = 300;
 const COLUMNS = 4;
 
 const CASES = {
@@ -58,9 +58,8 @@ export default async function reactSeq(page, h) {
     const r = {
       V, target: null, dir: new V(1, 0, 0), log: [],
       async walk(frames) {
-        const end = ctx.time.elapsed + frames / 60;
         lab.step(frames);
-        for (let i = 0; i < 2000 && ctx.time.elapsed < end - 1e-4; i++) await frame();
+        while (lab.steps > 0) await frame();
         await frame();
       },
       async start(c) {
@@ -68,7 +67,7 @@ export default async function reactSeq(page, h) {
         ctx.enemies.reset();
         lab.spawner.clearBodies();
         if (lab.paused) lab.togglePause();
-        ctx.player.teleport(new V(0, 0.1, 7.2), 0);
+        ctx.player.teleport(new V(0, 0.1, 6.4), 0);
         await frame();
         const e = lab.spawner.place(c.id, new V(0, 0, 3), c.ai ?? 'off');
         e.yaw = c.flip ? Math.PI / 2 : -Math.PI / 2;
@@ -160,10 +159,10 @@ export default async function reactSeq(page, h) {
 
   const clip = { x: 0, y: 0, width: 0, height: 0 };
   const size = page.viewportSize();
-  clip.x = size.width * 0.16;
-  clip.y = size.height * 0.16;
-  clip.width = size.width * 0.68;
-  clip.height = size.height * 0.68;
+  clip.x = size.width * 0.28;
+  clip.y = size.height * 0.26;
+  clip.width = size.width * 0.44;
+  clip.height = size.height * 0.48;
   const results = {};
   for (const [name, c] of Object.entries(CASES)) {
     if (only.length > 0 && !only.includes(name)) continue;
@@ -183,14 +182,15 @@ export default async function reactSeq(page, h) {
       notes.push(await page.evaluate(() => window.__r.probe()));
     }
     results[name] = { log: await page.evaluate(() => window.__r.log.splice(0)), notes: notes.map((n, i) => ({ f: c.steps[i], ...n })) };
-    const sheet = await page.context().newPage();
+    const context = await page.context().browser().newContext();
+    const sheet = await context.newPage();
     const rows = Math.ceil(tiles.length / COLUMNS);
     await sheet.setViewportSize({ width: TILE_W * COLUMNS, height: TILE_H * rows });
     await sheet.setContent(`<body style="margin:0;background:#000;display:grid;grid-template-columns:repeat(${COLUMNS},${TILE_W}px);font:bold 18px sans-serif;color:#ff0">${tiles.map((t, i) =>
       `<div style="position:relative;width:${TILE_W}px;height:${TILE_H}px;overflow:hidden"><img src="data:image/jpeg;base64,${t}" style="width:100%;height:100%;object-fit:cover"><span style="position:absolute;left:6px;top:4px">${c.steps[i]}</span></div>`).join('')}</body>`);
     await sheet.waitForTimeout(150);
     await sheet.screenshot({ path: `${h.outDir}/react-${name}.png` });
-    await sheet.close();
+    await context.close();
   }
   return results;
 }

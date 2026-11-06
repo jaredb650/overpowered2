@@ -65,7 +65,7 @@ const REGION_SHOCK: Record<GoreRegion, number> = {
 const SHOCK_PER_SPEED = 1;
 const SHOCK_PER_HEALTH = 1.1;
 /** Slowest a body can be going and still trip over a shot leg. */
-const TRIP_SPEED = 2.6;
+const TRIP_SPEED = 2.2;
 /** Share of a leg's pool gone before it starts to give way under a body that is only standing on it. */
 const LEG_FAILS_FROM = 0.45;
 

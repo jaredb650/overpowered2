@@ -127,3 +127,4 @@ meaningful here. The scripts lived in the session scratchpad, not in the repo.
 | Rebinding | Reload to T | Guide and Settings show T. Real fire then T reloads |
 | HUD against state | Bot plus grants at both sizes, DOM read against ctx | Wave, left, score, health, ammo, combo, multiplier, perks with times, chips, boss, tach all agree |
 | Reveal | 2 husks left in the real game | Tracked markers with distance, pulse on the minimap |
+| Contract select, sonar chip, comms feed | See `docs/notes/contracts.md` | |

@@ -386,3 +386,40 @@ describe('balance', () => {
     expect(at(c, B.handL).distanceTo(wound)).toBeGreaterThan(0.2);
   });
 });
+
+describe('a blast', () => {
+  /** How far off the line of a blast a body lands, with or without a leg the same blast took. */
+  function drift(cut: boolean): number {
+    gore.clear();
+    const c = spawnLiving(0, 3);
+    c.root.rotation.y = -Math.PI / 2;
+    for (let i = 0; i < 20; i++) stand(c);
+    c.root.updateMatrixWorld(true);
+    if (cut) gore.sever(c, 'shinL', { amount: 50, type: 'explosive', point: at(c, B.chest), dir: v(1, 0.2, 0), force: 60, source: 'test' }, v(0, 0, 0));
+    gore.knockdown(c, { velocity: v(3, 0, 0), impact: { dir: v(1, 0, 0), strength: 0.2 }, hurt: 0.5 });
+    physics.radialImpulse(v(-3.2, 0.3, 3), 8, 42);
+    run(c, 19);
+    const off = Math.abs(at(c, B.hips).z - 3);
+    gore.clear();
+    return off;
+  }
+
+  it('throws along its own line, even when it took a leg', () => {
+    expect(drift(false)).toBeLessThan(0.4);
+    // The hop gait snapping in put 8 m/s across the blast into the ragdoll's seed, and it landed 2.8 m off the line.
+    expect(drift(true)).toBeLessThan(0.6);
+  });
+
+  it('is thrown, lands and gets up, on any number of limbs', () => {
+    gore.clear();
+    const c = spawnLiving(0, 3);
+    gore.knockdown(c, { hurt: 0.9, lie: 0.3, rise: 1.5 });
+    physics.radialImpulse(v(-2.5, 0.3, 3), 8, 42);
+    const r = watch(c);
+    expect(r.back).toBeGreaterThan(0);
+    expect(at(c, B.hips).x).toBeGreaterThan(1);
+    expect(at(c, B.head).y).toBeGreaterThan(1.4);
+    expect(r.floor).toBeGreaterThan(-0.05);
+    gore.clear();
+  });
+});

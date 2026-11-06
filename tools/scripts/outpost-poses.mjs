@@ -27,10 +27,11 @@ export default async function poses(page, h) {
       const { ctx } = window.__op2;
       const em = ctx.enemies;
       for (const e of [...em.alive]) em.withdraw(e);
+      ctx.hud.showScreen?.('none');
       const at = ctx.player.position.clone();
       row.forEach((posture, i) => {
         const id = i % 3 === 2 ? 'brute' : i % 3 === 1 ? 'gunner' : 'trooper';
-        at.set(-6 + i * (12 / (row.length - 1)), 0.05, -21);
+        at.set(-5 + i * (10 / (row.length - 1)), 0.05, -20.6);
         const e = em.spawn(id, at);
         e.behaviours = [];
         e.attacks = [];
@@ -44,19 +45,19 @@ export default async function poses(page, h) {
           for (const p of e.char.props) if (p.bone === 7 || p.bone === 10) p.object.visible = false;
         }
       });
-      at.set(0, 0.1, -14.8);
+      at.set(0, 0.1, -15.6);
       ctx.player.teleport(at, 0);
-      ctx.player.yaw = Math.PI;
-      ctx.player.pitch = -0.1;
+      ctx.player.yaw = 0;
+      ctx.player.pitch = -0.16;
     }, { row, unarmed: [...UNARMED] });
     await h.sleep(1400);
     await h.shot(`${name}-front`);
     await page.evaluate(() => {
       const { ctx } = window.__op2;
-      const at = ctx.player.position.clone().set(-11, 0.1, -19);
+      const at = ctx.player.position.clone().set(-7.5, 0.1, -17.2);
       ctx.player.teleport(at, 0);
-      ctx.player.yaw = -Math.PI / 2 - 0.15;
-      ctx.player.pitch = -0.12;
+      ctx.player.yaw = -Math.PI / 2 - 0.42;
+      ctx.player.pitch = -0.14;
     });
     await h.sleep(600);
     await h.shot(`${name}-side`);

@@ -2,6 +2,7 @@
  * Display names, colours, and the copy behind the guide. Anything a tuning table already knows is read from that table,
  * so the guide cannot drift from the game.
  */
+import { SONAR } from '../contracts/data';
 import type { Action } from '../core/contracts';
 import type { CallInId, EnemyId, PerkId, PowerupId, WeaponId } from '../core/gameplay';
 import { MOVE } from '../player/tuning';
@@ -203,7 +204,8 @@ export const ENEMY_GUIDE: readonly { id: EnemyId; wave: number; role: string; ti
   { id: 'warden', wave: 15, role: 'Support', tip: 'Shields and buffs its neighbours. Kill it first.' },
 ];
 
-export const ENEMY_NOTE = 'Bumping a body costs nothing: every hit you take is a telegraphed attack. Maimed enemies keep coming, so finish them. With three left in a wave they all show on your HUD.';
+export const ENEMY_NOTE = 'Bumping a body costs nothing: every hit you take is a telegraphed attack. Maimed enemies keep coming, so finish them. With three left in a wave they all show on your HUD. ' +
+  `The sonar ping shows every enemy through walls for ${SONAR.reveal} s, every ${SONAR.cooldown} s, or every ${SONAR.lastCooldown} s with ${SONAR.lastEnemies} or fewer left.`;
 
 /** `action` shows the player's own key. `keys` is for anything that is not one key. */
 export const MOVEMENT_GUIDE: readonly { action?: Action; keys?: string; name: string; body: string }[] = [

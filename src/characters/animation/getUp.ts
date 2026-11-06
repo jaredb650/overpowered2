@@ -77,17 +77,17 @@ const SUPINE: readonly Key[] = [
     leadHand: [0.36, 0.06, -0.95], trailHand: [-0.36, 0.06, -0.95], leadGrip: 1, trailGrip: 1,
   },
   {
-    t: 0.24, hips: [0, 0.15, -0.68], pitch: -0.78, roll: 0, bend: 0.78, head: 0.2,
+    t: 0.3, hips: [0, 0.15, -0.68], pitch: -0.78, roll: 0, bend: 0.78, head: 0.2,
     lead: [0.13, 0.07, -0.24], trail: [-0.16, 0.09, 0.02], leadToe: 0, trailToe: -0.5,
     leadHand: [0.34, 0.05, -0.96], trailHand: [-0.34, 0.05, -0.96], leadGrip: 1, trailGrip: 1,
   },
   {
-    t: 0.48, hips: [0.05, 0.21, -0.56], pitch: -0.22, roll: -0.22, bend: 0.82, head: 0.1,
+    t: 0.52, hips: [0.05, 0.21, -0.56], pitch: -0.22, roll: -0.22, bend: 0.82, head: 0.1,
     lead: [0.14, 0.06, -0.2], trail: [-0.14, 0.07, -0.14], leadToe: 0, trailToe: 0,
     leadHand: [0.22, 0.56, -0.12], trailHand: [-0.4, 0.05, -0.72], leadGrip: 0.8, trailGrip: 1,
   },
   {
-    t: 0.7, hips: [0, 0.43, -0.3], pitch: 0.26, roll: -0.05, bend: 0.74, head: -0.2,
+    t: 0.72, hips: [0, 0.43, -0.3], pitch: 0.26, roll: -0.05, bend: 0.74, head: -0.2,
     lead: [0.15, 0.06, -0.08], trail: [-0.15, 0.06, -0.12], leadToe: 0, trailToe: 0,
     leadHand: [0.2, 0.6, -0.04], trailHand: [-0.4, 0.05, -0.5], leadGrip: 0.5, trailGrip: 0.3,
   },

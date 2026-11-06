@@ -932,6 +932,7 @@ export class MuscleState {
     for (const part of this.rag.parts) {
       part.muscle!.drive = 0;
       part.muscle!.gain = 1;
+      part.body.setGravityScale(1, true);
     }
     // Already at full tone: it must not dip and rise again as the drive lets go.
     this.limp = MuscleTuning.toneRise;

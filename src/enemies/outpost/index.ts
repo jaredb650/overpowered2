@@ -77,7 +77,6 @@ const BACK_ARC = 0.5;
 const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
 const _heard = new THREE.Vector3();
-const _reading: SpotReading = { hidden: false, canShoot: false, side: 0 };
 
 interface PostureHost {
   disarm?(): void;
@@ -124,6 +123,7 @@ export class Outpost {
   private aidAt = 0;
   private crossfireAt = 0;
   private noiseAt = 0;
+  private shotHeardAt = 0;
   private nextFixAt = 0;
   private radioAt = -1;
   private radioSeen = false;
@@ -262,7 +262,6 @@ export class Outpost {
     s.mag = def.mag;
     s.grenades = this.doctrine.grenades;
     s.senseAt = this.w.now + rand(0, SENSE_INTERVAL);
-    s.known.copy(e.position);
     s.aim.copy(e.position);
     enlist(e, s);
     this.soldiers.push(s);
@@ -308,7 +307,7 @@ export class Outpost {
     this.updateRadio(now);
     if (this.intel.at >= 0) {
       this.intel.refreshFan(now);
-      if (this.soldiers.length > 0 && now - this.intel.at > this.doctrine.fixAfter) this.fix(false);
+      if (this.hostile > 0 && now - this.intel.at > this.doctrine.fixAfter) this.fix(false);
     }
     for (let i = 0; i < this.squads.length; i++) {
       const q = this.squads[i]!;
@@ -350,7 +349,8 @@ export class Outpost {
   /** Soldiers leave the roster a frame late, because `enemy:killed` still reads them after the body has gone. */
   private flushLeaving(): void {
     for (const s of this.leaving) {
-      discharge(s.e);
+      // The pool can hand his body to a new man before this runs, and that man keeps his place.
+      if (soldierOf(s.e) === s) discharge(s.e);
       this.pool.release(s);
     }
     this.leaving.length = 0;
@@ -519,8 +519,10 @@ export class Outpost {
     }
   }
 
+  /** A 20 round-a-second gun is one noise, not twenty. */
   private onFired(weapon: string, origin: THREE.Vector3): void {
-    if (this.w.now < this.noiseAt - NOISE_TICK * 0.5) return;
+    if (this.w.now < this.shotHeardAt) return;
+    this.shotHeardAt = this.w.now + NOISE_TICK;
     this.noise(origin, weapon === 'sword' ? BLADE_NOISE : SHOT_NOISE);
   }
 
@@ -647,12 +649,13 @@ export class Outpost {
     if (oldest) this.release(oldest);
   }
 
-  /** He got out. No kill, no score. */
-  escape(s: Soldier): void {
+  /** He got out: no kill, no score. False if he has not actually reached the gate. */
+  escape(s: Soldier): boolean {
     const e = s.e;
-    if (!e.alive || e.position.distanceTo(s.dest) > REACHED_GATE) return;
+    if (e.position.distanceTo(s.dest) > REACHED_GATE) return false;
     this.w.ctx.events.emit('enemy:escaped', { enemy: e });
     this.manager.withdraw(e);
+    return true;
   }
 
   squadShattered(squad: OutpostSquad, kill: KillEvent): void {
@@ -675,7 +678,7 @@ export class Outpost {
       if (o.fighting && (o.squad === s.squad || o.e.position.distanceToSquared(k.enemy.position) < r2)) this.scare(o, fear);
     }
     if (s.surrendered) w.ctx.events.emit('enemy:executed', { kill: k });
-    else s.squad.onLoss(s, k, s.wasLeader);
+    else s.squad.onLoss(k, s.wasLeader);
     this.adoptOrphans(s.squad);
   }
 

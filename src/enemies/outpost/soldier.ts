@@ -39,7 +39,7 @@ export class Soldier {
   sees = false;
   /** Heard something, or was shot at. He looks harder. */
   alertUntil = 0;
-  readonly known = new THREE.Vector3();
+  /** Last time he had a fix of his own. */
   knownAt = -99;
   senseAt = 0;
 

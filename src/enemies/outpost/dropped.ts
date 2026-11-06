@@ -97,7 +97,7 @@ export class DroppedWeapons {
         d.velocity.x *= 0.5;
         d.velocity.z *= 0.5;
         d.spin.multiplyScalar(0.4);
-        this.ctx.audio.play('casing_rifle', { position: d.mesh.position, volume: 0.7, pitch: 0.6 });
+        this.ctx.audio.play('casing_heavy', { position: d.mesh.position, volume: 0.7, pitch: 0.6 });
         continue;
       }
       d.resting = true;

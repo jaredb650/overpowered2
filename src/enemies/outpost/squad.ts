@@ -171,7 +171,7 @@ export class OutpostSquad implements Squad {
   }
 
   /** A death in this squad. It frightens them, and the leader's frightens them more. */
-  onLoss(s: Soldier, kill: KillEvent, wasLeader: boolean): void {
+  onLoss(kill: KillEvent, wasLeader: boolean): void {
     const { o } = this;
     const now = o.w.now;
     this.lossTimes.push(now);
@@ -280,7 +280,7 @@ export class OutpostSquad implements Squad {
   private chooseMode(now: number): void {
     const { o } = this;
     if (this.mode !== 'fallback' && this.mode !== 'regroup' && now >= this.fallbackReadyAt && this.shouldFallBack()) {
-      this.startFallback(now);
+      this.startFallback();
       return;
     }
     if (this.mode === 'advance' && this.inContact) this.startEngage();
@@ -347,7 +347,7 @@ export class OutpostSquad implements Squad {
 
   /** Near `_anchor`, or at it when no cover is to be had: nobody stays where he was just because there is no wall. */
   private moveUp(s: Soldier, urgency: Urgency, delay: number, radius: number): boolean {
-    const spot = this.seek(s, radius, s.def.near, s.def.far, NaN, false);
+    const spot = s.role === 'shield' ? null : this.seek(s, radius, s.def.near, s.def.far, NaN, false);
     if (spot === s.spot && spot !== null) return false;
     if (spot) this.send(s, spot, urgency, delay);
     else this.o.order(s, _anchor, null, urgency, delay);
@@ -420,6 +420,11 @@ export class OutpostSquad implements Squad {
       const range = lerp(s.def.near, s.def.far, press * 0.7);
       _anchor.set(this.threat.x + Math.sin(bearing) * range, s.e.position.y, this.threat.z + Math.cos(bearing) * range);
       if (!nav.nearest(_anchor, 7, _anchor)) continue;
+      if (s.role === 'shield') {
+        // He is the cover. He walks to the ground the team wants, and the others can use him.
+        o.order(s, _anchor, null, 1, moved++ * ORDER_STAGGER);
+        continue;
+      }
       const spot = this.seek(s, 9, s.def.near, s.def.far, bearing, false);
       if (!spot || spot === s.spot || !this.withinReach(s, spot)) continue;
       this.send(s, spot, 2, moved * ORDER_STAGGER);
@@ -581,7 +586,7 @@ export class OutpostSquad implements Squad {
   // Falling back
   // -------------------------------------------------------------------------------------------
 
-  private startFallback(now: number): void {
+  private startFallback(): void {
     const { o } = this;
     this.mode = 'fallback';
     this.bounds = 0;

@@ -235,6 +235,7 @@ export class Ac130 implements Strike {
     const { combat } = this.kit.ctx;
     _at.copy(point);
     if (normal) _at.addScaledVector(normal, WALL_STANDOFF);
+    if (kind === 'g105') _at.y += A.howitzer.burstHeight;
     combat.explode(_at, BLASTS[kind]);
     switch (kind) {
       case 'g25': this.hit25(point, normal); break;

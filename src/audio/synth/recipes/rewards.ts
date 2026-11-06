@@ -319,7 +319,7 @@ export const progress = [
   // Two knuckles on a helmet, then the ping leaves and comes back thinner. Not on the ui bus: it is a world event.
   r('sonar_ping', { dur: 1.7, mix: 'reward', over: { volume: 0.5, send: 0.3 }, expect: { attackMs: [0, 12] } }, s => {
     click(s, 1400, 0.7, 0.008);
-    s.at(0.012, () => {
+    s.at(0.003, () => {
       bell(s, 1568, 1.1, 0.6);
       s.osc('sine', [[0, 1568], [0.5, 1320]], 0.7).env(perc(0.6, 0.3, 0.002)).out();
     });

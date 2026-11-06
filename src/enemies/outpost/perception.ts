@@ -100,7 +100,6 @@ export function sense(s: Soldier, w: AiWorld, dt: number): void {
   }
   if (visible && s.notice >= 1) {
     s.sees = true;
-    s.known.copy(p.chest);
     s.knownAt = w.now;
     s.squad.report(s, p.chest, true);
   } else if (s.sees && w.now - s.knownAt > TRACK_MEMORY) {
@@ -115,7 +114,6 @@ export function hear(s: Soldier, w: AiWorld, at: THREE.Vector3, distance: number
   const err = distance * HEARING_ERROR;
   const a = wrapAngle(Math.random() * TAU);
   out.set(at.x + Math.sin(a) * err, at.y, at.z + Math.cos(a) * err);
-  s.known.copy(out);
   s.knownAt = w.now;
   s.squad.report(s, out, false);
 }

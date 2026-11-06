@@ -5,7 +5,6 @@
  * The lines are written to be stacked: the same kind comes up many times in a run, so each stays short and plain.
  */
 import * as THREE from 'three';
-import { pick } from '../../core/math';
 import type { AiWorld } from '../aiWorld';
 import { say } from '../attacks';
 import type { CommsKind, CommsLine } from './events';
@@ -37,16 +36,17 @@ const LINES: Record<CommsKind, readonly string[]> = {
 
 /** Seconds before the same kind of line can come again. */
 const KIND_GAP: Partial<Record<CommsKind, number>> = {
-  contact: 4, lost: 8, noise: 10, moving: 5, covering: 6, reloading: 4, flanking: 8, fear: 7, panic: 5, surrender: 3, regroup: 6, fallback: 6,
+  contact: 4, lost: 8, noise: 10, moving: 5, covering: 6, reloading: 4, flanking: 8, fear: 7, panic: 5, surrender: 6, regroup: 6, fallback: 6,
 };
 const DEFAULT_KIND_GAP = 2.5;
 /** Spacing between any two lines, so the feed stays readable. A casualty cuts in regardless. */
 const LINE_GAP = 1.3;
-const URGENT: ReadonlySet<CommsKind> = new Set<CommsKind>(['manDown', 'leaderDown', 'squadGone', 'frag', 'flash', 'surrender']);
+const URGENT: ReadonlySet<CommsKind> = new Set<CommsKind>(['manDown', 'leaderDown', 'takingCommand', 'squadGone', 'frag', 'flash', 'surrender']);
 
 export class Comms {
   private nextLineAt = 0;
   private readonly kindAt = new Map<CommsKind, number>();
+  private readonly lastLine = new Map<CommsKind, number>();
   private readonly line: CommsLine = { kind: 'contact', text: '', squad: '', speaker: null, enemy: null, position: new THREE.Vector3() };
 
   constructor(private readonly w: AiWorld) {}
@@ -54,6 +54,16 @@ export class Comms {
   reset(): void {
     this.nextLineAt = 0;
     this.kindAt.clear();
+    this.lastLine.clear();
+  }
+
+  /** Never the same line twice running: a man repeating himself reads as a bug, not as panic. */
+  private next(kind: CommsKind): string {
+    const lines = LINES[kind];
+    const last = this.lastLine.get(kind) ?? -1;
+    const i = (last + 1 + Math.floor(Math.random() * (lines.length - 1))) % lines.length;
+    this.lastLine.set(kind, i);
+    return lines[i]!;
   }
 
   /** `s` is who says it. Null is Command on the radio, heard everywhere. */
@@ -65,7 +75,7 @@ export class Comms {
     this.kindAt.set(kind, now + (KIND_GAP[kind] ?? DEFAULT_KIND_GAP));
     this.nextLineAt = now + LINE_GAP;
     line.kind = kind;
-    line.text = pick(LINES[kind]);
+    line.text = this.next(kind);
     line.squad = s ? s.squad.name : 'Command';
     line.speaker = s ? s.callsign : null;
     line.enemy = s ? s.e : null;

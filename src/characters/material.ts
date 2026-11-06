@@ -129,6 +129,15 @@ vec3 op2Bump(vec3 pos, vec3 n, float h, float face) {
 `;
 
 const FRAG_SURFACE = /* glsl */ `
+#ifdef OP2_WOUNDS
+// The inside of the far wall, seen through a hole. It closes the body off exactly where the skin does, and nothing in
+// there has any light to speak of, so none of the lighting below is worth running. The bake leaves the odd triangle
+// wound backwards. Those still have normals facing out, and stay skin.
+if (!gl_FrontFacing && dot(normalMatrix * (mat3(vSk0, vSk1, vSk2) * vBindN), vViewPosition) < 0.0) {
+  gl_FragColor = vec4(0.012, 0.001, 0.001, 1.0);
+  return;
+}
+#endif
 vec3 sAlb = vColorAO.rgb;
 float sRough = vMatV.x;
 float sMetal = vMatV.y;
@@ -195,10 +204,10 @@ float sWoundH = 0.0;
 
   if (blood > 0.001) {
     // Coverage grows out of the creases: the threshold walks down through the noise as blood rises.
-    // It stops short of the whole body: a figure painted red reads as a colour, not as blood.
-    float t = mix(0.8, 0.46, blood);
-    float m = smoothstep(t, t + 0.11, grain * 0.6 + macro.g * 0.24 + micro.r * 0.16 + (1.0 - vColorAO.a) * 0.22);
-    sAlb = mix(sAlb, mix(vec3(0.2, 0.005, 0.006), vec3(0.09, 0.002, 0.004), macro.a), m * 0.92);
+    // It stops well short of the whole body: past a point, a figure in blotches reads as camouflage, not as blood.
+    float t = mix(0.85, 0.6, blood);
+    float m = smoothstep(t, t + 0.2, grain * 0.6 + macro.g * 0.24 + micro.r * 0.16 + (1.0 - vColorAO.a) * 0.3);
+    sAlb = mix(sAlb, mix(vec3(0.15, 0.004, 0.005), vec3(0.07, 0.002, 0.004), macro.a), m * 0.9);
     sRough = mix(sRough, 0.2, m);
     sMetal *= 1.0 - m;
   }
@@ -413,7 +422,10 @@ export function createCharacterMaterial(ctx: Ctx, o: SurfaceOptions): THREE.Mesh
   const atlas = o.atlasA !== null && !o.far;
   if (atlas) material.defines = { ...material.defines, OP2_ATLAS: 1 };
   if (o.far) material.defines = { ...material.defines, OP2_FAR: 1 };
-  if (o.wounds) material.defines = { ...material.defines, OP2_WOUNDS: 1 };
+  if (o.wounds) {
+    material.defines = { ...material.defines, OP2_WOUNDS: 1 };
+    material.side = THREE.DoubleSide;
+  }
   material.onBeforeCompile = shader => {
     shader.uniforms.tDetail = { value: o.detail };
     shader.uniforms.uExtraBase = { value: o.extraBase };

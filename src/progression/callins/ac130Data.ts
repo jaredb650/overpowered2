@@ -23,11 +23,12 @@ export interface SiegePhase {
 export const AC130 = {
   callsign: 'SPECTRE',
   /**
-   * A 33 s lap at about 39 m/s. Far lower and closer than the real thing: at a true slant range the ship is under a
-   * hundred pixels on a Retina screen, and this keeps it about 33 degrees up, where it crosses the top of a level view.
+   * A 33 s lap at about 31 m/s, far lower and closer than the real thing: at a true slant range the ship is under a
+   * hundred pixels on a Retina screen. The 49 degree angle down is the number to protect. At 33 degrees a 4.2 m Kill
+   * House wall shadowed most of a 10 m room, and 70% of the 25mm and every Hellfire hit a wall.
    */
   orbit: {
-    radius: 205, altitude: 135, rate: -0.19, bank: 0.5,
+    radius: 160, altitude: 185, rate: -0.19, bank: 0.6,
     entrySeconds: 9, entryReach: 480, holdSeconds: 120, exitSeconds: 12, exitReach: 620, exitClimb: 150,
   },
   engine: {
@@ -51,7 +52,7 @@ export const AC130 = {
     burst: [1.6, 2.8] as const,
     /** m/s the aim walks. It starts short of the target, on the aircraft's side, so the stream is seen to walk on. */
     walkSpeed: 11,
-    walkIn: 13,
+    walkIn: 9,
     scatter: 1.1,
     damage: 55,
     radius: 2.6,
@@ -63,8 +64,10 @@ export const AC130 = {
   howitzer: {
     /** Seconds in the air. Slow enough to watch one fall, and to get a whistle in. */
     flight: 4.6,
-    /** Close to level out of the barrel and steep at the end. Any stronger and it would lob up out of a gun pointing down. */
-    gravity: 11,
+    /** Gently down out of the barrel and steep at the end. Any stronger and it would lob up out of a gun pointing down. */
+    gravity: 14,
+    /** It bursts this far over where it lands, so a wall beside the impact does not save the whole room behind it. */
+    burstHeight: 5,
     gap: 2.7,
     spread: 5,
     damage: 620,
@@ -74,7 +77,11 @@ export const AC130 = {
     whistle: 2,
     retry: 1.5,
   },
-  hellfire: { drop: 0.7, speed: 130, turn: 3.4, damage: 1100, radius: 7, life: 9, whistle: 1.4, retry: 2 },
+  hellfire: {
+    drop: 0.7, speed: 130, turn: 3.4, damage: 1100, radius: 7, life: 9, whistle: 1.4, retry: 2,
+    /** It steers for a point this many times its ground distance above the target, which folds the end of the flight into a dive. */
+    topAttack: 2.2,
+  },
   flares: { pairs: 8, gap: 0.16, speed: 15, gravity: 9, drag: 0.55, life: 3.4, every: 27 },
   /** Enemies within this of each other count as one target for the heavy guns. */
   clusterRadius: 8,

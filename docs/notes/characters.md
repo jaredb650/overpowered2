@@ -44,6 +44,7 @@ The animator measures velocity from `root.position`, so feet stay planted howeve
 | `anim.treadmill` | Previews: drive feet from input speed instead of root motion |
 | `library.prop(id)` | A loose baked prop: `smg`, `shotgun`, `fuelTank`... For dropped weapons |
 | `library.sockets(id)` | Named mount points of a model |
+| `anim.setPosture(name)`, `anim.disarm()` | Soldier postures from `animation/postures.ts`: crouch, cover, lean, hands up, kneel, cower, flee, drag, revive, downed. `disarm` empties the hands until the pool resets the body |
 
 `SeveredLimb` follows the gore dummy's contract: `root` sits at identity in the scene, `bones[bone]` holds the world
 pose. Everything outside the chain is parented to that bone at near-zero scale, so skin blended into the parent closes

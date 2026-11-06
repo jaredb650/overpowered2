@@ -4,7 +4,9 @@
 //   nice -n 19 npx tsx tools/scripts/outpost-sim.ts <scenario> [seconds] [seed]
 //
 // Scenarios: camp (player stands still, silent), hold (stands still, fires at what it sees), hunter (walks at them and
-// fires), spree (kills fast, so squads break), rescue (a man goes down in the open), tour (walks the map, silent).
+// fires), spree (kills fast, so squads break), rescue (a man goes down in the open), tour (walks the map, silent), berserk (the
+// perk fires mid-fight), late (starts on wave 7, with every role in play), roles (one sniper squad and one riot squad, with the
+// player out in the yard where the long lines are).
 // Writes tools/out/outpost-<scenario>.json. tools/scripts/outpost-plot.py turns that into a top-down picture and numbers.
 import { writeFileSync } from 'node:fs';
 import * as THREE from 'three';
@@ -79,7 +81,7 @@ player.modifiers.invulnerable = true;
 const outpost = manager.outpost!;
 
 const stations: Record<string, [number, number, number][]> = {
-  camp: [[0, 0.1, -19]], hold: [[0, 0.1, -19]], rescue: [[0, 0.1, -19]],
+  camp: [[0, 0.1, -19]], hold: [[0, 0.1, -19]], rescue: [[0, 0.1, -19]], berserk: [[0, 0.1, -19]], late: [[0, 0.1, -19]], roles: [[-30, 0.1, 6]],
   hunter: [[0, 0.1, -19], [19, 0.1, -19], [19, 0.1, 8], [-6, 0.1, 3], [-19, 0.1, 19]],
   spree: [[0, 0.1, 3]],
   tour: [[6.6, 0.1, 3], [11.7, 0.1, -11.7], [0, 0.1, -19], [-19, 0.1, -19], [-20, 0.1, 31], [19, 0.1, 19]],
@@ -88,6 +90,17 @@ const route = stations[scenario] ?? stations.hold!;
 player.teleport(new THREE.Vector3(...route[0]!), 0);
 manager.reset();
 waves.start();
+if (scenario === 'late') outpost.waves.jumpTo(7);
+if (scenario === 'roles') {
+  ctx.waves.update = () => {};
+  player.update();
+  manager.update();
+  outpost.onWaveStart();
+  for (const squad of [['sniper', 'trooper', 'trooper'], ['riot', 'riot', 'gunner', 'trooper']] as const) {
+    outpost.formSquad(squad.length);
+    for (const id of squad) outpost.sendIn(id);
+  }
+}
 
 const log: unknown[] = [];
 const on = (type: string, fn: (e: any) => unknown) => ctx.events.on(type, (e: unknown) => log.push({ t: +ctx.time.elapsed.toFixed(2), type, ...(fn(e) as object) }));
@@ -110,7 +123,7 @@ const dt = 1 / 60;
 const samples: unknown[] = [];
 const fireGap = scenario === 'spree' ? 0.14 : 0.32;
 const hitChance = scenario === 'spree' ? 0.9 : 0.5;
-let sampleClock = 0, fireClock = 0, stationClock = 0, stationIndex = 0, rescued = false;
+let sampleClock = 0, fireClock = 0, stationClock = 0, stationIndex = 0, rescued = false, perked = false;
 let maxAlive = 0, airborne = 0, offGraph = 0, leaps = 0;
 const wasAirborne = new Set<number>();
 const walkDir = new THREE.Vector3();
@@ -140,7 +153,11 @@ for (let f = 0; f < seconds * 60; f++) {
     player.teleport(here, Math.atan2(-walkDir.x, -walkDir.z));
   }
 
-  if (scenario === 'hold' || scenario === 'hunter' || scenario === 'spree') {
+  if (scenario === 'berserk' && !perked && t > 30) {
+    perked = true;
+    ctx.events.emit('perk:start', { id: 'berserk', seconds: 10, label: 'BERSERK', color: '#f00' });
+  }
+  if (scenario === 'hold' || scenario === 'hunter' || scenario === 'spree' || scenario === 'late') {
     fireClock -= dt;
     if (fireClock <= 0) {
       let best: any = null, bestD = 40;

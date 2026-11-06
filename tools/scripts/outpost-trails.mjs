@@ -22,7 +22,8 @@ export default async function trails(page, h) {
     const { ctx } = window.__op2;
     const o = ctx.enemies.outpost;
     const p = ctx.player;
-    p.modifiers.invulnerable = true;
+    // A deep pool, not invulnerability, so that incoming damage still gets counted.
+    p.maxHealth = p.health = 1e6;
     ctx.weapons.modifiers.bottomlessMag = true;
     const at = p.position.clone().set(0, 0.1, -19);
     p.teleport(at, 0);
@@ -121,10 +122,11 @@ export default async function trails(page, h) {
     if (!holdingFire) await fire();
     await h.sleep(350);
     if (left < seconds * 0.6) {
-      await moment('cover', "s.stage === 'hide' && s.spot && s.fate === 'none' && s.task === 'hold'", 5);
-      await moment('peek', "s.stage === 'peek' && s.spot && s.fate === 'none' && s.task === 'hold'", 7);
+      // Low cover only, with a man who has been there a moment, or the shot is of someone arriving at a gate.
+      await moment('cover', "s.stage === 'hide' && s.spot && (s.spot.low & ~s.spot.tall) !== 0 && s.fate === 'none' && s.task === 'hold' && s.squad.mode === 'engage'", 4.5);
+      await moment('peek', "s.stage === 'peek' && s.spot && s.fireSide !== 0 && s.fate === 'none' && s.task === 'hold' && s.squad.mode === 'engage'", 7);
     }
-    if (left < seconds * 0.35 && !holdingFire) {
+    if (left < seconds * 0.3 && !holdingFire) {
       // From here on the point is the breaking: scare whoever is left and photograph what they do.
       holdingFire = true;
       await ceaseFire();

@@ -250,7 +250,9 @@ const flee: Behaviour = {
   },
   frame(e, w) {
     const s = soldierOf(e)!;
-    if (walkRoute(e, s, w)) w.enemies.outpost!.escape(s);
+    const o = w.enemies.outpost!;
+    // A man who stalled short of the gate must get there or give up: stood still, he would hold the wave open for ever.
+    if (walkRoute(e, s, w) && !o.escape(s) && !o.routeToGate(s)) s.fate = 'surrender';
   },
 };
 

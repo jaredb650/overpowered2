@@ -7,7 +7,6 @@
  *   enemy:broken, enemy:escaped, squad:broken, dread:spike   style scoring, the HUD and The Commander
  */
 import type * as THREE from 'three';
-import type { DamageInfo } from '../../core/contracts';
 import type { DamageResult, EnemyInstance, KillEvent } from '../../core/gameplay';
 
 export type CommsKind =

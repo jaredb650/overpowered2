@@ -56,6 +56,8 @@ SLOWMO: hits on one head inside 0.35 s count once. At 20 rounds a second a burst
 | Perfect aim, now | 3 | 51 s | 17 |
 | Human-like, now | 2 | 30 s | 16 |
 
+**Geneva Suggestion.** `enemy:executed` pays `STYLE.geneva` on top of the kill, through the usual multipliers, and starts the `geneva` effect, which stacks to 5 and scales damage and fire rate per stack (`STACK.geneva*`). It has no grade and borrows `style_bonus` for its sound. See `docs/notes/contracts.md`.
+
 **Grades.** One grade shows at a time, the highest in `GRADE_RANK`: Berserk, SLOWMO, Time Warp, Hellfire, Overdrive, Chain Storm, Blood Thirst, Butcher, Chain Reaction, Skyfall, Adrenaline. Sentinels and the other capsules have no grade. SLOWMO outranks Hellfire on purpose: see Known limitations. Death sets the `death` grade, which nothing else did.
 
 ## Call-ins

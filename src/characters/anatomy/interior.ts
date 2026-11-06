@@ -4,7 +4,7 @@
  */
 import * as THREE from 'three';
 import type { Ctx } from '../../core/contracts';
-import { WOUND_COMMON, WOUND_REGION, WOUND_VERTEX_LOOP } from './glsl';
+import { WOUND_COMMON, WOUND_REGION } from './glsl';
 import { Part } from './build';
 
 const VERT_PARS = /* glsl */ `
@@ -34,16 +34,8 @@ const VERT_MAIN = /* glsl */ `
   vRegion = op2Region();
   int code = int(aTint.a + 0.5);
   vPart = code & 7;
-  if (vPart == ${Part.shard}) {
-    // Collapsed to one point until the joint it belongs to has gone.
-    if (((int(op2Extra(OP2_INFO).z) >> (code >> 3)) & 1) == 0) transformed = vec3(0.0);
-  } else if (vPart == ${Part.shell}) {
-    // The shell follows the skin down into a crater, or it would stand proud of the floor of it.
-    vec3 op2Push = vec3(0.0), op2Tilt = vec3(0.0);
-    float op2Near = -1.0;
-    ${WOUND_VERTEX_LOOP}
-    transformed += op2Push;
-  }
+  // Collapsed to one point until the joint it belongs to has gone.
+  if (vPart == ${Part.shard} && ((int(op2Extra(OP2_INFO).z) >> (code >> 3)) & 1) == 0) transformed = vec3(0.0);
 }
 `;
 
@@ -82,8 +74,6 @@ vec4 macro = op2Tri(vBind * 1.6 + 0.23, tw);
 // Long along the body, the way muscle and blood vessels run.
 vec4 fibre = op2Tri(vBind * vec3(26.0, 5.0, 26.0), tw);
 float tear = (macro.a - 0.5) * 2.0 + (micro.r - 0.5) * 1.2;
-bool sBack = !gl_FrontFacing;
-
 // How much light gets down here, from the open wound it has the best view of. Anything no wound opens onto is seen
 // past an edge, from deep inside, and stays dark.
 float sLight = 0.04;
@@ -110,8 +100,8 @@ for (int i = 0; i < OP2_MAX_WOUNDS; i++) {
   float open = smoothstep(radius * 1.15, radius * 0.45, dist);
   sLight = max(sLight, open * exp(-under / (radius * 1.5 + 0.015)));
   // Layers go by how far the wound reached. A gash only opens what it passes through.
-  float reachShare = vPart == ${Part.shell} ? 0.78 : vPart == ${Part.muscle} ? 0.62 : vPart == ${Part.bone} ? 0.3 : 0.0;
-  float enough = vPart == ${Part.shell} ? step(0.018, depth) : vPart == ${Part.muscle} ? step(0.03, depth) : vPart == ${Part.bone} ? step(0.075, depth) * step(float(OP2_CRATER), float(kind)) * step(float(kind), float(OP2_CRATER)) : 0.0;
+  float reachShare = vPart == ${Part.muscle} ? 0.72 : vPart == ${Part.bone} ? 0.3 : 0.0;
+  float enough = vPart == ${Part.muscle} ? step(0.03, depth) : vPart == ${Part.bone} && kind == OP2_CRATER ? step(0.075, depth) : 0.0;
   if (((code >> 3) & vRegion) != 0 && enough > 0.5) {
     float m = dist + past * 3.0 - radius * reachShare * (1.0 + tear * mix(0.15, 0.45, t1.w));
     sCore = min(sCore, m);
@@ -119,17 +109,16 @@ for (int i = 0; i < OP2_MAX_WOUNDS; i++) {
   sGore = max(sGore, smoothstep(radius * 2.2, radius * 0.6, dist + past));
   if (((code >> 3) & vRegion) != 0) sHole = min(sHole, dist + past * 2.0 - radius * 1.5);
 }
-// A hole at the wound's core, except from behind: the far wall stays whole whatever happened to the near side.
-if (!sBack && (sCore < 0.0 || (sHole > 0.0 && vPart != ${Part.shard}))) discard;
+if (sCore < 0.0 || (sHole > 0.0 && vPart != ${Part.shard})) discard;
 
 vec3 sAlb = vTint;
 float sRough = 0.34;
 float sHeight = 0.0;
-if (vPart == ${Part.shell} || vPart == ${Part.muscle}) {
+if (vPart == ${Part.muscle}) {
   float grainF = fibre.r * 0.7 + fibre.a * 0.3;
   sAlb = mix(vec3(0.34, 0.05, 0.045), vec3(0.075, 0.006, 0.01), smoothstep(0.32, 0.68, grainF));
   // Yellow fat in clumps between the fibres, thin here and thick there.
-  sAlb = mix(sAlb, vec3(0.46, 0.32, 0.16), smoothstep(0.62, 0.72, macro.r * 0.6 + micro.a * 0.4) * (vPart == ${Part.shell} ? 0.55 : 0.2));
+  sAlb = mix(sAlb, vec3(0.46, 0.32, 0.16), smoothstep(0.62, 0.72, macro.r * 0.6 + micro.a * 0.4) * 0.3);
   sRough = mix(0.2, 0.42, grainF);
   sHeight = (grainF - 0.5) * 0.004;
 } else if (vPart == ${Part.bone} || vPart == ${Part.shard}) {
@@ -143,11 +132,6 @@ if (vPart == ${Part.shell} || vPart == ${Part.muscle}) {
   sAlb = mix(sAlb, sAlb * vec3(0.5, 0.22, 0.32), veins * 0.6);
   sRough = 0.16 + micro.b * 0.14;
   sHeight = (macro.r - 0.5) * 0.006 + (micro.b - 0.5) * 0.0012;
-}
-if (sBack) {
-  // The inside of the far wall: nothing is lit from in here, and it should not hold the eye.
-  sAlb = vec3(0.06, 0.004, 0.006);
-  sRough = 0.3;
 }
 // Everything near a wound has blood on it.
 sAlb = mix(sAlb, vec3(0.11, 0.005, 0.006), sGore * 0.4 * (vPart == ${Part.bone} ? 0.5 : 1.0));
@@ -174,7 +158,7 @@ const FRAG_AO = /* glsl */ `
 `;
 
 export function createInteriorMaterial(ctx: Ctx, detail: THREE.Texture, extraBase: number): THREE.MeshStandardMaterial {
-  const material = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, metalness: 0, side: THREE.DoubleSide });
+  const material = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, metalness: 0 });
   material.onBeforeCompile = shader => {
     shader.uniforms.tDetail = { value: detail };
     shader.uniforms.uExtraBase = { value: extraBase };

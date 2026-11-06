@@ -6,8 +6,8 @@ Then call `world.update()` once per frame in the world slot, and `world.reset()`
 ## Maps
 
 `src/world/map/maps.ts` holds one `MapDef` row per map, and `World` only reads that row. `?map=crucible` or `?map=killhouse` picks one.
-The default is `crucible`, the swarm game. The owner keeps both: the Kill House becomes the map of a tactical contract, picked from
-the menu later. To pick it from code, change `selectMap()`. Add `&map=killhouse` to any sandbox that builds a world.
+The default is `crucible`, the swarm game. The Kill House is the map of The Outpost contract, picked from the menu. `selectMap()` takes
+the map from `ACTIVE` in `contracts/select.ts`: `docs/notes/contracts.md` has the URL rules. Add `&map=killhouse` to any sandbox that builds a world.
 
 # The Kill House
 

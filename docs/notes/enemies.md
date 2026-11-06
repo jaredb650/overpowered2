@@ -2,6 +2,8 @@
 
 `src/enemies/`. `createEnemies(ctx)` and `createWaves(ctx)` come from `index.ts`. Sandbox: `/?sandbox=arena`.
 
+The human faction of the Outpost contract lives in `src/enemies/outpost/`, with its own notes in `docs/notes/outpost.md`.
+
 ## Public API
 
 `ctx.enemies` (`EnemySystem`, concrete class `EnemyManager`):

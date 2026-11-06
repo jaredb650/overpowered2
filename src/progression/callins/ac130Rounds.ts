@@ -275,7 +275,8 @@ export class Ac130Rounds {
 
     _dir.subVectors(s.position, _prev);
     const step = _dir.length();
-    if (step > 1e-4 && s.position.distanceToSquared(s.aim) < s.armRange * s.armRange) {
+    // From where the step starts: testing where it ends would sweep straight back through the roof being skipped.
+    if (step > 1e-4 && _prev.distanceToSquared(s.aim) < s.armRange * s.armRange) {
       _dir.divideScalar(step);
       if (this.ctx.physics.raycastInto(_prev, _dir, step, CG.World, this.hit)) {
         s.live = false;
@@ -312,7 +313,10 @@ export class Ac130Rounds {
       m.velocity.y -= 14 * dt;
     } else {
       m.smoke ??= fx.attachEmitter(body, 'airstrikeTrail', TAIL);
-      _want.subVectors(m.aim, body.position).setLength(H.speed);
+      // Top attack, as the real missile flies: from above, the walls round a target are not in the way.
+      _want.subVectors(m.aim, body.position);
+      _want.y += Math.hypot(_want.x, _want.z) * H.topAttack;
+      _want.setLength(H.speed);
       m.velocity.lerp(_want, 1 - Math.exp(-H.turn * dt));
       m.velocity.setLength(Math.min(H.speed, m.velocity.length() + H.speed * 1.6 * dt));
     }
