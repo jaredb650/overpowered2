@@ -90,6 +90,7 @@ export const EFFECTS: Readonly<Record<EffectId, EffectDef>> = {
   skyfall: perk('skyfall', 'SKYFALL', 'SKYFALL', 'UNLIMITED AIR DASH // SLAM DETONATES', '#49b6ff', 8, 'ignore', 'overdrive', MINOR),
   chainReaction: perk('chainReaction', 'CHAIN REACTION', 'CHAIN REACTION', 'THE DEAD DETONATE', '#ffb000', 6, 'ignore', 'hellfire', MINOR),
   overdrive: perk('overdrive', 'OVERDRIVE', 'OVERDRIVE', 'SPEED IS DAMAGE', '#ffe500', 10, 'ignore', 'overdrive', MAJOR),
+  geneva: { ...perk('geneva', 'GENEVA SUGGESTION', 'GENEVA SUGGESTION', 'ADVISORY ONLY', '#e8e2c8', 6, 'stack', null, MINOR, 5), sound: 'style_bonus' },
 
   quad: power('quad', 'QUAD DAMAGE', '4X DAMAGE', '#4a7dff', 15),
   haste: power('haste', 'HASTE', '1.5X SPEED AND FIRE RATE', '#ffd400', 15),
@@ -117,6 +118,9 @@ export const STACK = {
   /** Hellfire rockets: 8 x 2.5 = 20 m, instakill. */
   hellfireBlast: 2.5,
   ricochetBounces: 3,
+  /** Geneva Suggestion, added per stack on top of 1. */
+  genevaDamagePerStack: 0.2,
+  genevaFireRatePerStack: 0.12,
   /** Overdrive damage climbs from 1x at run speed to this near the strafe ceiling. */
   overdriveMaxDamage: 3,
   overdriveFloorSpeed: 12.5,
@@ -183,7 +187,7 @@ export const STYLE_GATE = {
  * Sentinels and a Black Sun reached the nuke, and a nuke's own bodies fired Berserk, Hellfire and Overdrive at once.
  */
 export const ASSIST_COMBO_EVERY = 2;
-export const ASSIST_SOURCES = /^(airstrike|warthog|orbital|black_sun|nuke|sentinel|chain_storm|chain_reaction|drop_pod)/;
+export const ASSIST_SOURCES = /^(airstrike|warthog|orbital|ac130|black_sun|nuke|sentinel|chain_storm|chain_reaction|drop_pod)/;
 
 /**
  * Combo perks. Berserk no longer resets the combo, so each rung climbs by `rearm` after firing.
@@ -221,6 +225,13 @@ export const CALLINS: Readonly<Record<CallInId, CallInDef>> = {
     id: 'orbital', combo: 25, cooldown: 60, name: 'ORBITAL LANCE', key: 'V', color: '#ff2fb0', radius: 6,
     hint: 'CLICK TO FIRE, THEN STEER THE BEAM // RMB LETS GO',
   },
+  // Above the Orbital Lance because it outlasts everything else on the ladder, and below Chain Storm because its
+  // assist kills hold a combo up for two minutes, which is what puts Black Sun and the nuke in reach. The cooldown has
+  // to outlast the flight, as there is one airframe.
+  ac130: {
+    id: 'ac130', combo: 28, cooldown: 180, name: 'AC-130', key: 'M', color: '#ffb52e', radius: 34,
+    hint: 'CLICK TO MARK THE BOX, THEN GET BACK TO WORK // RMB CANCEL',
+  },
   blackSun: {
     id: 'blackSun', combo: 40, cooldown: 90, name: 'BLACK SUN', key: 'B', color: '#a56bff', radius: 36,
     hint: 'CLICK TO OPEN THE SINGULARITY // RMB CANCEL',
@@ -232,7 +243,7 @@ export const CALLINS: Readonly<Record<CallInId, CallInDef>> = {
 };
 
 /** Original check order on one kill, extended upward. */
-export const CALLIN_ORDER: readonly CallInId[] = ['airstrike', 'warthog', 'orbital', 'blackSun', 'nuke'];
+export const CALLIN_ORDER: readonly CallInId[] = ['airstrike', 'warthog', 'orbital', 'ac130', 'blackSun', 'nuke'];
 
 // ---------------------------------------------------------------------------------------------
 // Call-in timelines (seconds after the confirming click)
@@ -486,7 +497,6 @@ export const SCORE = {
   longShot: 35,
   blurSpeed: 20,
   closeCallHealth: 25,
-  storageKey: 'op2_highscore',
 } as const;
 
 /** Index is the multi-kill count, capped at the last entry. */
@@ -515,6 +525,7 @@ export const STYLE = {
   environment: { label: 'ENVIRONMENTAL', bonus: 100 },
   shatter: { label: 'SHATTERED', bonus: 75 },
   closeCall: { label: 'CLOSE CALL', bonus: 100 },
+  geneva: { label: 'GENEVA SUGGESTION', bonus: 400 },
 } as const;
 
 export const STYLE_COLOR = '#ffd400';

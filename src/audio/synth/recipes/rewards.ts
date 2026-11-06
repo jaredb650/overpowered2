@@ -316,6 +316,16 @@ export const progress = [
     [62, 69, 74, 81].forEach((n, i) => s.at(i * 0.12, () => bell(s, hz(n), 1.3, 0.42, (i - 1.5) * 0.3)));
     brass(s, [50, 57, 62, 66], 1.6, 0.8, 2600);
   }),
+  // Two knuckles on a helmet, then the ping leaves and comes back thinner. Not on the ui bus: it is a world event.
+  r('sonar_ping', { dur: 1.7, mix: 'reward', over: { volume: 0.5, send: 0.3 }, expect: { attackMs: [0, 12] } }, s => {
+    click(s, 1400, 0.7, 0.008);
+    s.at(0.012, () => {
+      bell(s, 1568, 1.1, 0.6);
+      s.osc('sine', [[0, 1568], [0.5, 1320]], 0.7).env(perc(0.6, 0.3, 0.002)).out();
+    });
+    s.at(0.5, () => bell(s, 1568, 0.8, 0.14));
+    s.at(0.95, () => bell(s, 1568, 0.6, 0.05));
+  }),
   r('wave_tick', { dur: 0.14, mix: 'reward', over: { volume: 0.34 }, expect: { centroid: [600, 5000] } }, s => {
     s.osc('square', 1046, 0.06).lp(3400).env(perc(0.05, 0.7, 0.001)).out();
   }),

@@ -38,6 +38,10 @@ export const HANDS = {
   radio: pose({
     thumb: [0.7, 0.25, 0.2, 0.1], index: [0.85, 1.1, 0.7, 0.02], middle: [0.95, 1.2, 0.75, 0], ring: [1.0, 1.22, 0.78, 0], pinky: [1.05, 1.22, 0.8, -0.02],
   }),
+  /** Two fingers out, the rest folded: a tap on the helmet. */
+  tap: pose({
+    thumb: [0.9, 0.5, 0.45, 0.3], index: [0.08, 0.14, 0.1, 0.05], middle: [0.1, 0.16, 0.12, -0.02], ring: [1.15, 1.4, 0.9, 0], pinky: [1.2, 1.4, 0.9, -0.02],
+  }),
   /** Around a sphere the size of a fist. */
   ball: pose({
     thumb: [0.95, 0.5, 0.35, 0.3], index: [0.7, 0.85, 0.5, 0.1], middle: [0.75, 0.9, 0.55, 0.02], ring: [0.8, 0.92, 0.55, -0.05], pinky: [0.85, 0.95, 0.58, -0.1],

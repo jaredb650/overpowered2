@@ -3,17 +3,14 @@
  * (wounds, blood, burn, frost, hit flash) rides in spare texels at the end of the instance's bone texture,
  * which is already bound and uploaded per skeleton. That keeps a crowd on one program and one material with
  * no per-object uniform traffic.
+ *
+ * Wounded bodies swap to a second program. `discard` turns off hidden surface removal on Apple's GPUs for everything
+ * in the draw, so it must not be anywhere near a healthy crowd.
  */
 import * as THREE from 'three';
 import type { Ctx } from '../core/contracts';
 import { mulberry32 } from '../core/math';
-
-/** Extra texels after the bone matrices. */
-export const EXTRA_PARAMS = 0;
-export const EXTRA_INFO = 1;
-export const EXTRA_WOUNDS = 2;
-export const MAX_WOUNDS = 16;
-export const EXTRA_TEXELS = EXTRA_WOUNDS + MAX_WOUNDS;
+import { EXTRA_INFO, EXTRA_PARAMS, WOUND_COMMON, WOUND_REGION, WOUND_VERTEX_LOOP } from './anatomy/glsl';
 
 const VERT_PARS = /* glsl */ `
 attribute vec4 aColor;
@@ -30,9 +27,34 @@ varying vec3 vSk2;
 #ifdef OP2_ATLAS
 varying vec2 vAtlasUv;
 #endif
+#ifdef OP2_WOUNDS
+varying vec3 vWoundTilt;
+varying float vWoundNear;
+flat varying int vRegion;
+#endif
+`;
+
+/** Goes after three's skinning declarations, which it reads. */
+const VERT_WOUND_PARS = /* glsl */ `
+#ifdef OP2_WOUNDS
+uniform int uExtraBase;
+${WOUND_COMMON}
+${WOUND_REGION}
+#endif
 `;
 
 const VERT_MAIN = /* glsl */ `
+#ifdef OP2_WOUNDS
+{
+  vec3 op2Push = vec3(0.0), op2Tilt = vec3(0.0);
+  float op2Near = -1.0;
+  ${WOUND_VERTEX_LOOP}
+  vWoundNear = op2Near;
+  vWoundTilt = op2Tilt;
+  vRegion = op2Region();
+  transformed += op2Push;
+}
+#endif
 {
   vColorAO = vec4(pow(aColor.rgb, vec3(2.2)), aColor.a);
   float code = floor(aMat.a * 255.0 + 0.5);
@@ -53,6 +75,13 @@ const VERT_MAIN = /* glsl */ `
   vSk2 = vec3(2.0 * (q.x * q.z + q.y * q.w), 2.0 * (q.y * q.z - q.x * q.w), 1.0 - 2.0 * (q.x * q.x + q.y * q.y));
   #endif
 }
+`;
+
+/** The shared depth pass offsets polygons. This program does not go through it, so it has to do the same by hand. */
+const VERT_SHADOW_BIAS = /* glsl */ `
+#ifdef OP2_WOUNDS
+if (isOrthographic) gl_Position.z += 6e-5 * gl_Position.w;
+#endif
 `;
 
 const FRAG_PARS = /* glsl */ `
@@ -77,14 +106,21 @@ uniform sampler2D tAtlasB;
 #ifdef OP2_SKINNED
 uniform highp sampler2D boneTexture;
 uniform int uExtraBase;
-vec4 op2Extra(int i) {
-  int size = textureSize(boneTexture, 0).x;
-  int t = uExtraBase + i;
-  return texelFetch(boneTexture, ivec2(t % size, t / size), 0);
-}
+${WOUND_COMMON}
+#endif
+#ifdef OP2_WOUNDS
+varying vec3 vWoundTilt;
+varying float vWoundNear;
+flat varying int vRegion;
 #endif
 vec4 op2Tri(vec3 p, vec3 w) {
   return texture2D(tDetail, p.zy) * w.x + texture2D(tDetail, p.xz) * w.y + texture2D(tDetail, p.xy) * w.z;
+}
+// Thin connected lines, from where noise crosses its middle value: the shape of mud drying out.
+float op2Crack(vec4 macro, vec4 micro) {
+  float a = 1.0 - abs(macro.a * 2.0 - 1.0) * 5.0;
+  float b = 1.0 - abs(macro.r * 2.0 - 1.0) * 6.0;
+  return smoothstep(0.35, 0.8, max(a, b) + (micro.r - 0.5) * 0.3);
 }
 // Height in meters to a bent normal. Unnormalized screen derivatives keep the strength independent of distance.
 vec3 op2Bump(vec3 pos, vec3 n, float h, float face) {
@@ -135,8 +171,8 @@ sAlb *= 1.0 + sH * 0.22;
 sRough = clamp(sRough + sH * 0.26, 0.05, 1.0);
 #endif
 float sBumpScale = dot(vDetailW, vec4(0.00035, 0.0005, 0.00011, 0.0004));
-float sAddEmis = 0.0;
 vec3 sGlow = vec3(0.0);
+float sWoundH = 0.0;
 
 #ifdef OP2_SKINNED
 {
@@ -151,10 +187,13 @@ vec3 sGlow = vec3(0.0);
     float edge = burn * 1.45 - 0.2;
     float charred = smoothstep(edge + 0.1, edge - 0.08, n);
     float ember = smoothstep(0.035, 0.0, abs(n - edge)) * step(burn, 0.995);
-    float crack = smoothstep(0.42, 0.5, micro.g * 0.5 + macro.b * 0.5) * charred;
+    float crack = op2Crack(macro, micro) * charred;
     sAlb = mix(sAlb, vec3(0.012, 0.009, 0.008), charred);
     sRough = mix(sRough, 0.92, charred);
     sMetal *= 1.0 - charred;
+    // The char splits as it shrinks, and what shows in the splits is raw.
+    sAlb = mix(sAlb, vec3(0.13, 0.01, 0.006), crack);
+    sRough = mix(sRough, 0.34, crack);
     sGlow += vec3(1.0, 0.24, 0.03) * (ember * 3.5 + crack * burn * (1.0 - burn) * 3.0);
   }
 
@@ -167,27 +206,92 @@ vec3 sGlow = vec3(0.0);
     sMetal *= 1.0 - m;
   }
 
-  int wounds = int(info.x);
-  if (wounds > 0) {
-    float hole = 0.0, stain = 0.0;
-    for (int i = 0; i < ${MAX_WOUNDS}; i++) {
+  #ifdef OP2_WOUNDS
+  if (vWoundNear > 0.0) {
+    int wounds = int(info.x);
+    // Metres outside the nearest cut, and how much of each kind of damage this pixel is in.
+    float edge = 1.0, rimWidth = 0.01, bruise = 0.0, stain = 0.0, scorch = 0.0, pit = 0.0, torn = 0.0;
+    float tear = (macro.a - 0.5) * 2.2 + (macro.r - 0.5) * 1.3 + (micro.r - 0.5) * 0.9;
+    for (int i = 0; i < OP2_MAX_WOUNDS; i++) {
       if (i >= wounds) break;
-      vec4 w = op2Extra(${EXTRA_WOUNDS} + i);
-      vec3 d = vBind - w.xyz;
-      float rr = length(d) / w.w;
-      // Blood runs down the body, so the stain stretches below the wound.
-      float dripY = d.y < 0.0 ? d.y * 0.32 : d.y;
-      float wob = (macro.a - 0.5) * 1.1 + (micro.r - 0.5) * 0.5;
-      float rs = length(vec3(d.x, dripY, d.z)) / (w.w * 1.0);
-      hole = max(hole, smoothstep(0.42, 0.26, rr + wob * 0.25));
-      stain = max(stain, smoothstep(1.45, 0.62, rs + wob * 0.6));
+      int base = OP2_WOUND_BASE + i * OP2_WOUND_TEXELS;
+      vec4 t0 = op2Extra(base), t1 = op2Extra(base + 1), t2 = op2Extra(base + 2);
+      int code = int(t2.w);
+      if (((code >> 3) & vRegion) == 0) continue;
+      int kind = code & 7;
+      float depth = length(t2.xyz);
+      vec3 axis = t2.xyz / max(depth, 1e-4);
+      float along, radius;
+      vec3 off;
+      float dist = op2Slot(vBind, t0, t1, axis, along, off, radius);
+      float past = op2SlotEnds(along, 0.14, depth + 0.08, t0.w);
+      if (past > t0.w * 3.0 + 0.06) continue;
+      // Stretched below the wound, because blood runs down. Bind space keeps that on a corpse too, as a stain it had.
+      float run = length(off - vec3(0.0, min(off.y, 0.0) * 0.68, 0.0)) + past * 2.0;
+      float spread = t0.w * 2.6 + 0.03;
+      if (kind != OP2_DENT) stain = max(stain, smoothstep(1.0, 0.25, run / spread + tear * 0.28));
+      if (kind == OP2_BURN) {
+        scorch = max(scorch, smoothstep(1.15, 0.55, (dist + past * 2.0) / t0.w + tear * 0.35));
+      } else if (kind == OP2_GRAZE) {
+        bruise = max(bruise, smoothstep(1.2, 0.3, (dist + past * 2.0) / t0.w + tear * 0.4));
+      } else if (kind == OP2_DENT) {
+        float m = dist + past * 2.0 - radius * (1.0 + tear * 0.3);
+        pit = max(pit, smoothstep(0.003, -0.002, m));
+        torn = max(torn, smoothstep(radius * 0.5, 0.0, abs(m)));
+      } else {
+        // Skin tears along weak lines, so a ragged wound wanders much further than a clean one.
+        float m = dist + past * 2.0 - radius * (1.0 + tear * mix(0.1, 0.62, t1.w));
+        if (m < edge) {
+          edge = m;
+          rimWidth = kind == OP2_GASH ? 0.004 : clamp(radius * 0.4, 0.0045, 0.028);
+        }
+      }
     }
-    sAlb = mix(sAlb, vec3(0.36, 0.0, 0.004), stain * 0.94);
-    sRough = mix(sRough, 0.16, stain);
-    sMetal *= 1.0 - stain;
-    sAlb = mix(sAlb, vec3(0.03, 0.0, 0.0), hole);
-    sH -= hole * 3.0;
+    if (edge < 0.0) discard;
+
+    if (scorch > 0.0) {
+      float split = op2Crack(macro, micro) * scorch;
+      sAlb = mix(sAlb, vec3(0.012, 0.009, 0.008), scorch);
+      sRough = mix(sRough, 0.9, scorch);
+      sMetal *= 1.0 - scorch;
+      sAlb = mix(sAlb, vec3(0.13, 0.01, 0.006), split);
+      sRough = mix(sRough, 0.34, split);
+    }
+    float bare = 1.0 - sMetal;
+    if (stain > 0.0) {
+      // Dark where it is thick. Bright paint is what made the old wounds look drawn on.
+      float wet = stain * (0.8 + grain * 0.2);
+      sAlb = mix(sAlb, mix(vec3(0.17, 0.006, 0.007), vec3(0.075, 0.002, 0.003), stain * stain), wet * 0.94);
+      sRough = mix(sRough, 0.17, wet);
+      sMetal *= 1.0 - wet;
+    }
+    if (bruise > 0.0) {
+      sAlb = mix(sAlb, vec3(0.05, 0.012, 0.03), bruise * 0.8 * bare);
+      sRough = mix(sRough, 0.3, bruise);
+    }
+    float ring = 1.0 - smoothstep(0.0, rimWidth * 3.0, edge);
+    float rim = 1.0 - smoothstep(0.0, rimWidth, edge);
+    if (ring > 0.0) {
+      // Bruised, then torn. Fat shows in a thin line where the skin parted, only on bare skin.
+      sAlb = mix(sAlb, vec3(0.035, 0.004, 0.008), ring * 0.8);
+      vec3 raw = mix(vec3(0.19, 0.02, 0.016), vec3(0.042, 0.003, 0.003), smoothstep(0.35, 1.0, rim + (micro.g - 0.5) * 0.5));
+      sAlb = mix(sAlb, raw, rim);
+      sAlb = mix(sAlb, vec3(0.42, 0.28, 0.17), smoothstep(0.82, 0.98, rim) * vDetailW.x * 0.65);
+      sRough = mix(sRough, 0.2, ring);
+      sMetal *= 1.0 - rim;
+      sWoundH -= rim * rim * rimWidth * 0.7;
+    }
+    if (pit > 0.0 || torn > 0.0) {
+      sAlb = mix(sAlb, vec3(0.3, 0.3, 0.32), torn);
+      sMetal = mix(sMetal, 1.0, torn);
+      sRough = mix(sRough, 0.3, torn);
+      sAlb = mix(sAlb, vec3(0.006), pit);
+      sMetal *= 1.0 - pit;
+      sRough = mix(sRough, 0.8, pit);
+      sWoundH -= pit * 0.012;
+    }
   }
+  #endif
 
   if (frost > 0.001) {
     float f = smoothstep(1.0 - frost * 1.1, 1.05 - frost * 0.9, grain + 0.25);
@@ -201,6 +305,15 @@ vec3 sGlow = vec3(0.0);
   sGlow += vec3(0.5, 0.05, 0.03) * flash * 0.45;
 }
 #endif
+#ifdef OP2_WOUNDS
+// The moon's depth pass runs this same program, because only this program knows where the holes are. The map is the
+// one orthographic camera a body ever sees, and everything from here on is lighting it has no use for.
+if (isOrthographic) {
+  gl_FragColor = vec4(0.0);
+  return;
+}
+sN = normalize(sN + vWoundTilt);
+#endif
 diffuseColor.rgb = sAlb;
 `;
 
@@ -209,7 +322,7 @@ const FRAG_NORMAL = /* glsl */ `
   vec3 op2Obj = mat3(vSk0, vSk1, vSk2) * sN;
   normal = normalize(normalMatrix * op2Obj);
   #ifndef OP2_FAR
-  normal = op2Bump(-vViewPosition, normal, sH * sBumpScale, faceDirection);
+  normal = op2Bump(-vViewPosition, normal, sH * sBumpScale + sWoundH, faceDirection);
   #endif
 }
 `;
@@ -300,6 +413,8 @@ export interface SurfaceOptions {
   emissive?: number;
   /** Distant variant: vertex colours only, no micro detail. */
   far?: boolean;
+  /** For bodies with wounds: cut-outs, craters and torn edges. Skinned meshes only. */
+  wounds?: boolean;
 }
 
 export function createCharacterMaterial(ctx: Ctx, o: SurfaceOptions): THREE.MeshStandardMaterial {
@@ -307,6 +422,11 @@ export function createCharacterMaterial(ctx: Ctx, o: SurfaceOptions): THREE.Mesh
   const atlas = o.atlasA !== null && !o.far;
   if (atlas) material.defines = { ...material.defines, OP2_ATLAS: 1 };
   if (o.far) material.defines = { ...material.defines, OP2_FAR: 1 };
+  if (o.wounds) {
+    material.defines = { ...material.defines, OP2_WOUNDS: 1 };
+    // Keeps its own program in the moon's depth pass, so holes reach the shadow map.
+    material.allowOverride = false;
+  }
   material.onBeforeCompile = shader => {
     shader.uniforms.tDetail = { value: o.detail };
     shader.uniforms.uExtraBase = { value: o.extraBase };
@@ -319,7 +439,9 @@ export function createCharacterMaterial(ctx: Ctx, o: SurfaceOptions): THREE.Mesh
     }
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>\n${VERT_PARS}`)
-      .replace('#include <begin_vertex>', `#include <begin_vertex>\n${VERT_MAIN}`);
+      .replace('#include <skinning_pars_vertex>', `#include <skinning_pars_vertex>\n${VERT_WOUND_PARS}`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>\n${VERT_MAIN}`)
+      .replace('#include <project_vertex>', `#include <project_vertex>\n${VERT_SHADOW_BIAS}`);
     // three only defines USE_SKINNING for the vertex stage.
     const skinned = (shader as unknown as { skinning: boolean }).skinning;
     shader.fragmentShader = shader.fragmentShader
@@ -332,7 +454,7 @@ export function createCharacterMaterial(ctx: Ctx, o: SurfaceOptions): THREE.Mesh
       .replace('#include <aomap_fragment>', FRAG_AO);
   };
   // The bone count is a uniform, so every archetype shares these few programs.
-  material.customProgramCacheKey = () => `op2char:${atlas ? 1 : 0}:${o.far ? 1 : 0}`;
+  material.customProgramCacheKey = () => `op2char:${atlas ? 1 : 0}:${o.far ? 1 : 0}:${o.wounds ? 1 : 0}`;
   // A stub render system returns undefined here, and the sandbox then lights the material itself.
   const patched = ctx.render.materials?.patch?.(material);
   return patched ?? material;

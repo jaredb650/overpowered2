@@ -142,9 +142,10 @@ export class PerkRunner {
     if (berserk) damage *= STACK.damage.berserk;
     if (on('quad')) damage *= STACK.damage.quad;
     if (on('overdrive')) damage *= this.overdriveDamage();
-    w.damage = damage;
+    const geneva = this.pool.get('geneva')!.stacks;
+    w.damage = damage * (1 + geneva * STACK.genevaDamagePerStack);
 
-    w.fireRate = (berserk ? STACK.fireRate.berserk : 1) * (haste ? STACK.fireRate.haste : 1);
+    w.fireRate = (berserk ? STACK.fireRate.berserk : 1) * (haste ? STACK.fireRate.haste : 1) * (1 + geneva * STACK.genevaFireRatePerStack);
     w.bottomlessMag = bloodthirst || berserk;
     w.pellets = (bloodthirst ? STACK.pellets.bloodthirst : 1) * (berserk ? STACK.pellets.berserk : 1);
     w.explosiveRounds = hellfire;

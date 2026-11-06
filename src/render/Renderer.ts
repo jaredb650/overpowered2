@@ -20,8 +20,9 @@ import { LightVolume } from './lightvolume/LightVolume';
 import { FullscreenPass } from './fullscreen';
 import { DynamicResolution } from './DynamicResolution';
 import { EmissiveLines } from './EmissiveLines';
+import { XRay } from './XRay';
 
-type ListMode = 'all' | 'opaque' | 'decals' | 'transparent' | 'shadowStatic' | 'shadowDynamic';
+type ListMode = 'all' | 'opaque' | 'decals' | 'transparent' | 'shadowStatic' | 'shadowDynamic' | 'xray';
 
 interface RenderItem {
   object: THREE.Object3D;
@@ -67,6 +68,7 @@ export class Renderer implements RenderSystem {
   private readonly combine = new Combine();
   private readonly ssr = new Ssr();
   private readonly emissiveLines = new EmissiveLines();
+  private readonly xray = new XRay();
   readonly volume: LightVolume;
   /** Live fog tuning. The world can change this per zone. */
   readonly fog: FogSettings;
@@ -174,6 +176,15 @@ export class Renderer implements RenderSystem {
     this.postState.setGrade('default', 0);
     this.postState.setSpeed(0);
     this.postState.setLowHealth(0);
+    this.xray.clear();
+  }
+
+  highlight(meshes: readonly THREE.Object3D[], color: THREE.ColorRepresentation, strength = 1): void {
+    this.xray.add(meshes, color, strength);
+  }
+
+  sweep(origin: THREE.Vector3, color: THREE.ColorRepresentation, speed: number, reach: number): void {
+    this.xray.sweep(origin, color, speed, reach);
   }
 
   /**
@@ -214,6 +225,16 @@ export class Renderer implements RenderSystem {
         let n = 0;
         for (const item of list.transparent) if (item.object !== mesh) list.transparent[n++] = item;
         list.transparent.length = n;
+        break;
+      }
+      case 'xray': {
+        const lit = this.xray.current!;
+        let n = 0;
+        for (const item of list.opaque) if (lit.has(item.object)) list.opaque[n++] = item;
+        list.opaque.length = n;
+        for (const item of list.transparent) if (lit.has(item.object)) list.opaque.push(item);
+        list.transparent.length = 0;
+        list.transmissive.length = 0;
         break;
       }
       case 'shadowStatic':
@@ -406,6 +427,18 @@ export class Renderer implements RenderSystem {
     return this.lastTriangles;
   }
 
+  private drawXRay(realDt: number): void {
+    const { renderer, scene, camera, xray } = this;
+    const depth = this.depthCopy.depthTexture!;
+    xray.drawSweep(renderer, this.hdrTarget, depth, camera, realDt);
+    renderer.setRenderTarget(this.hdrTarget);
+    scene.overrideMaterial = xray.material;
+    this.listMode = 'xray';
+    while (xray.next(depth, camera)) renderer.render(scene, camera);
+    this.listMode = 'all';
+    scene.overrideMaterial = null;
+  }
+
   private drawShadow = (kind: ShadowPassKind, camera: THREE.Camera): void => {
     this.listMode = kind === 'static' ? 'shadowStatic' : 'shadowDynamic';
     this.renderer.render(this.scene, camera);
@@ -496,6 +529,8 @@ export class Renderer implements RenderSystem {
     engine.opViewPass.value = 0;
     gl.depthRange(0, 1);
     this.listMode = 'all';
+
+    if (this.xray.busy) this.drawXRay(realDt);
 
     if (this.passes.bloom) this.bloom.render(renderer, this.hdrTarget);
     this.composite.render(renderer, this.hdrTarget.texture, this.bloom.output, this.width, this.height, time, this.postState);

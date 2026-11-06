@@ -6,6 +6,8 @@
  */
 import type { Ctx } from '../core/contracts';
 import type { DamageResult, EnemyInstance, KillEvent } from '../core/gameplay';
+import { readHighScore, writeHighScore } from '../contracts/scores';
+import { ACTIVE } from '../contracts/select';
 import { Combo } from './counters';
 import { HEADSHOT_COLOR, MULTI_KILLS, SCORE, STYLE, STYLE_COLOR } from './data';
 
@@ -39,7 +41,7 @@ export class ScoreKeeper {
   private label = '';
 
   constructor(private readonly ctx: Ctx) {
-    this.storedHighScore = readHighScore();
+    this.storedHighScore = ACTIVE.ranked ? readHighScore(ACTIVE.def) : 0;
     this.highScore = this.storedHighScore;
     // Closing the tab mid-wave is the last chance to keep a record set since the last wave clear.
     window.addEventListener('pagehide', () => this.persist());
@@ -75,6 +77,15 @@ export class ScoreKeeper {
     this.add(pts, 'headshot', enemy.center);
     this.ctx.hud.feed(`HEADSHOT! +${pts}`, HEADSHOT_COLOR);
     this.float(enemy, `+${pts} HEADSHOT`, HEADSHOT_COLOR);
+  }
+
+  /** A prisoner shot: paid on top of the kill itself, which 'enemy:killed' has already priced. */
+  onExecution(enemy: EnemyInstance, combo: number): void {
+    const { bonus, label } = STYLE.geneva;
+    const pts = Math.round(bonus * this.comboTier(combo) * this.speedTier());
+    this.add(pts, label, enemy.center);
+    this.ctx.hud.feed(`${label} +${pts}`, STYLE_COLOR);
+    this.float(enemy, `+${pts} ${label}`, STYLE_COLOR);
   }
 
   /** The first style names the kill; the rest are in the number. */
@@ -159,11 +170,7 @@ export class ScoreKeeper {
   persist(): void {
     if (this.highScore <= this.storedHighScore) return;
     this.storedHighScore = this.highScore;
-    try {
-      localStorage.setItem(SCORE.storageKey, String(this.highScore));
-    } catch {
-      // Storage blocked: the record lives for this session only.
-    }
+    if (ACTIVE.ranked) writeHighScore(ACTIVE.def, this.highScore);
   }
 
   reset(): void {
@@ -175,14 +182,5 @@ export class ScoreKeeper {
     this.beatHighScore = false;
     this.lastHeadUid = -1;
     this.lastHeadFrame = -1;
-  }
-}
-
-function readHighScore(): number {
-  try {
-    const value = Number(localStorage.getItem(SCORE.storageKey));
-    return Number.isFinite(value) ? value : 0;
-  } catch {
-    return 0;
   }
 }

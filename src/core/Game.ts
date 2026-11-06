@@ -61,7 +61,7 @@ export class Game {
   private frameOrder(): GameSystem[] {
     const c = this.ctx;
     return [
-      c.player, c.weapons, c.viewmodel, c.enemies, c.waves, c.combat, c.world, c.gore, c.progression, c.camera, c.fx, c.audio, c.hud,
+      c.player, c.weapons, c.viewmodel, c.enemies, c.waves, c.combat, c.world, c.gore, c.progression, c.contracts, c.camera, c.fx, c.audio, c.hud,
     ];
   }
 
@@ -71,7 +71,7 @@ export class Game {
     onProgress(BOOT.systems, 'Wiring the systems');
     await breathe();
     for (const sys of [c.render, c.physics, c.input, ...this.ordered]) await sys.init?.(c);
-    onProgress(BOOT.world, 'Building the Crucible');
+    onProgress(BOOT.world, 'Surveying the site');
     await breathe();
     await c.world.build?.((f, label) => {
       // World's fractions follow its steps, not the clock, and its last step takes two thirds of the whole boot.
@@ -199,12 +199,14 @@ export async function createCtx(canvas: HTMLCanvasElement, onProgress: Progress 
   ctx.enemies = await build('enemies', 'createEnemies', 'enemies', ctx);
   ctx.waves = await build('enemies', 'createWaves', 'waves', ctx);
   ctx.progression = await build('progression', 'createProgression', 'progression', ctx);
+  ctx.contracts = await build('contracts', 'createContracts', 'contracts', ctx);
   ctx.hud = await build('ui', 'createHud', 'hud', ctx);
   return ctx;
 }
 
 /**
- * URL flags: ?autostart=1 skips the menus, ?dev=1 adds the dev panel, ?map=range is the Test Range. Bots read window.__op2.
+ * URL flags: ?contract=<id> and ?map=<id> pick the game (contracts/select.ts), ?autostart=1 skips the menus, ?dev=1 adds the
+ * dev panel, ?map=range is the Test Range. Bots read window.__op2.
  */
 export async function startGame(params: URLSearchParams): Promise<void> {
   showLoading();

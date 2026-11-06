@@ -37,9 +37,40 @@
 .mi.focus { background: var(--hot); color: #000; text-shadow: none; }
 .mi.mi-small { font-size: 2.1rem; padding: 0 1.4rem 0 3rem; text-shadow: var(--edge); }
 .mi.mi-small.focus { text-shadow: none; }
-.mm-high { position: absolute; right: 3.4rem; top: 3rem; display: none; align-items: baseline; gap: 0.7rem; text-shadow: var(--edge); }
-.mm-high-k { color: var(--steel); font-size: 1.1rem; }
-.mm-high-v { font: 2.6rem/1 var(--display); text-shadow: var(--edge-big); }
+
+/* The contract select, and the notice each one comes with. It has to clear the wordmark along the bottom. */
+.mm-brief { position: absolute; right: 3.4rem; top: 3rem; width: 50rem; }
+.mm-tabs { display: flex; gap: 0.2rem; }
+.mm-tab {
+  appearance: none;
+  border: 0;
+  margin: 0;
+  flex: 1 1 0;
+  padding: 0.25rem 1rem;
+  background: var(--plate);
+  color: var(--steel);
+  font: 2.2rem/1.2 var(--display);
+  text-align: left;
+  cursor: inherit;
+}
+.mm-tab.on { background: var(--amber); color: #000; }
+.mm-tab.focus { background: var(--hot); color: #000; }
+
+.nt { padding: 1.1rem 1.4rem 1rem; background: rgba(7, 10, 14, 0.88); border-top: 0.2rem solid var(--amber); }
+.nt-office { display: block; color: var(--steel); font-size: 1rem; }
+.nt-head { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin: 0.1rem 0 0.7rem; }
+.nt-title { font: 2.9rem/1.1 var(--display); color: var(--amber); }
+.nt-ref { color: var(--steel); font-size: 1.05rem; white-space: nowrap; }
+.nt-subject { margin-bottom: 0.7rem; font-size: 1.15rem; }
+.nt-p { margin: 0 0 0.55rem; color: var(--ink); font-size: 1.1rem; font-weight: 500; line-height: 1.38; }
+.nt-terms { display: grid; grid-template-columns: 8rem 1fr; gap: 0.1rem 1rem; margin: 0.8rem 0; padding: 0.5rem 0; border-top: 0.0625rem solid rgba(157, 176, 189, 0.28); border-bottom: 0.0625rem solid rgba(157, 176, 189, 0.28); }
+.nt-k { color: var(--steel); font-size: 1rem; }
+.nt-v { font-size: 1rem; }
+.nt-foot { color: var(--amber); font-size: 1rem; }
+.nt-high { display: flex; align-items: baseline; justify-content: space-between; margin-top: 0.7rem; }
+.nt-high-k { color: var(--steel); font-size: 1.1rem; }
+.nt-high-v { font: 2.6rem/1 var(--display); }
+.nt-move { margin-top: 0.3rem; color: var(--steel); font-size: 1rem; }
 
 /* --- Pause --- */
 
@@ -109,6 +140,7 @@
 .gd-crow .gd-key { max-width: 2.6rem; overflow: hidden; text-overflow: ellipsis; }
 .gd-crow .gd-body { font-size: 1rem; line-height: 1.25; }
 .gd-pw { grid-template-columns: 11rem 1fr; padding: 0.22rem 0; }
+.gd-credit { grid-template-columns: 26rem 1fr 11rem; }
 .gd-pw .gd-body { font-size: 1rem; line-height: 1.25; }
 .gd-keys { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0 2.2rem; }
 .gd-kcol { display: flex; flex-direction: column; gap: 0.3rem; min-width: 0; }

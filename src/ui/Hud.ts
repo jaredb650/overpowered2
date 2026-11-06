@@ -21,7 +21,7 @@ import { Tally } from './hud/tally';
 import { Combo } from './hud/combo';
 import { Perks } from './hud/perks';
 import { CallIns } from './hud/callins';
-import { KillFeed, StyleLane } from './hud/feed';
+import { CommsFeed, KillFeed, StyleLane } from './hud/feed';
 import { Crosshair, type HitKind } from './hud/crosshair';
 import { WorldLayer } from './hud/worldlayer';
 import { BossBar } from './hud/boss';
@@ -30,10 +30,12 @@ import { LowFrame, Scope, Targeting } from './hud/overlays';
 import { DebugOverlays } from './hud/debug';
 import { Minimap, type MinimapPoint } from './hud/minimap';
 import { Scoreboard } from './hud/scoreboard';
+import { SonarChip } from './hud/sonar';
 import { Stragglers } from './hud/stragglers';
 import { Screens, type ScreenName } from './screens/Screens';
 import { Flythrough } from './screens/flythrough';
 import { isTitanWave } from '../enemies/waves';
+import type { CommsKind } from '../enemies/outpost/events';
 
 /** What the HUD needs from core/Game.ts. Read lazily, because Game publishes itself after systems are built. */
 export interface GameHost {
@@ -54,6 +56,8 @@ const LOCK_RETRY_FOR = 1.7;
 const LOCK_RETRY_EVERY = 0.3;
 /** A burst of fire or a jump press at the moment of death must not land on Run again before the report is read. */
 const GAME_OVER_HOLD = 0.8;
+/** Radio that has stopped being professional reads warm, so a breaking squad shows on the feed before anyone counts it. */
+const COMMS_FEAR: ReadonlySet<CommsKind> = new Set<CommsKind>(['fear', 'panic', 'surrender', 'squadGone']);
 
 export class Hud implements HudSystem {
   readonly state = new HudState();
@@ -72,6 +76,8 @@ export class Hud implements HudSystem {
   private callIns: CallIns;
   private feedLane: KillFeed;
   private styleLane: StyleLane;
+  private comms: CommsFeed;
+  private sonar: SonarChip;
   private crosshair: Crosshair;
   private worldLayer: WorldLayer;
   private boss: BossBar;
@@ -111,6 +117,8 @@ export class Hud implements HudSystem {
     this.callIns = new CallIns(ctx);
     this.feedLane = new KillFeed();
     this.styleLane = new StyleLane();
+    this.comms = new CommsFeed();
+    this.sonar = new SonarChip(ctx);
     this.crosshair = new Crosshair(ctx);
     this.boss = new BossBar();
     this.bannerLanes = new Banner();
@@ -131,6 +139,8 @@ export class Hud implements HudSystem {
         this.tally.el,
         this.perks.el,
         div('fill'),
+        this.comms.el,
+        this.sonar.el,
         this.callIns.el,
         this.vitals.el,
       ),
@@ -194,6 +204,7 @@ export class Hud implements HudSystem {
       if (e.reason === 'kill' || e.reason === 'wave') return;
       this.styleLane.push(`+${e.points.toLocaleString('en-US')} ${e.reason}`, undefined);
     });
+    events.on('comms:line', e => this.comms.push(e.text, COMMS_FEAR.has(e.kind) ? 'var(--amber)' : 'var(--cold)', e.speaker ?? e.squad));
     applySettings(this.ctx, this.settings);
     applyQuality(this.ctx, this.settings);
   }
@@ -228,6 +239,8 @@ export class Hud implements HudSystem {
     this.perks.reset();
     this.feedLane.clear();
     this.styleLane.clear();
+    this.comms.clear();
+    this.sonar.reset();
     this.crosshair.reset();
     this.worldLayer.reset();
     this.boss.reset();
@@ -402,6 +415,8 @@ export class Hud implements HudSystem {
     this.callIns.update(s, dt);
     this.feedLane.update(dt);
     this.styleLane.update(dt);
+    this.comms.update(dt);
+    this.sonar.update(s);
     this.crosshair.update(s, dt, this.combo.tier);
     this.worldLayer.update(dt);
     this.boss.update(s, dt);

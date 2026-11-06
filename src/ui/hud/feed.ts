@@ -1,8 +1,9 @@
-/** Kill feed under the minimap, and the style lane under the combo. Both are small capped pools, oldest out. */
+/** Kill feed under the minimap, the style lane under the combo and the radio above the call-ins. All small capped pools, oldest out. */
 import { COLLAPSE, div, span } from '../dom';
 
 interface Line {
   el: HTMLElement;
+  speaker: HTMLElement;
   text: HTMLElement;
   life: number;
   leaving: boolean;
@@ -18,17 +19,19 @@ class Lane {
   constructor(cls: string, private readonly lineCls: string, private readonly cap: number, private readonly life: number) {
     this.el = div(cls);
     for (let i = 0; i < cap + 2; i++) {
+      const speaker = span('ln-k');
       const text = span('ln-t');
-      const el = div(lineCls, text);
+      const el = div(lineCls, speaker, text);
       el.style.display = 'none';
-      this.free.push({ el, text, life: 0, leaving: false });
+      this.free.push({ el, speaker, text, life: 0, leaving: false });
     }
   }
 
-  push(text: string, color: string | undefined): void {
+  push(text: string, color: string | undefined, speaker = ''): void {
     if (this.live.length >= this.cap) this.drop(this.live.shift()!);
     const line = this.free.pop();
     if (!line) return;
+    line.speaker.textContent = speaker;
     line.text.textContent = text;
     line.life = this.life;
     line.leaving = false;
@@ -77,5 +80,12 @@ export class KillFeed extends Lane {
 export class StyleLane extends Lane {
   constructor() {
     super('style', 'style-ln', 5, 1.5);
+  }
+}
+
+/** Enemy radio. Long enough to read in a fight, short enough that a quiet room goes quiet. */
+export class CommsFeed extends Lane {
+  constructor() {
+    super('comms', 'comms-ln', 4, 6);
   }
 }

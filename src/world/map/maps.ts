@@ -9,6 +9,7 @@ import { KH } from './killhouse/plan';
 import { LEVEL, RING } from './layout';
 import type { MapSpec } from './spec';
 import type { MapZone } from '../../core/contracts';
+import { ACTIVE } from '../../contracts/select';
 
 export type MapId = 'crucible' | 'killhouse' | 'range';
 
@@ -81,11 +82,8 @@ const range: MapDef = {
 };
 
 const MAPS: Record<MapId, MapDef> = { crucible, killhouse, range };
-/** The swarm game. The Kill House is a separate game mode, reached by URL until the menu can pick it. */
-const DEFAULT_MAP: MapId = 'crucible';
 
-/** `?map=killhouse`, `?map=range` or `?map=crucible`. Anything else, including the movement sandbox's `?map=1`, is the default. */
+/** The map of the page's contract, or whatever `?map=` names. contracts/select.ts has the rules. */
 export function selectMap(): MapDef {
-  const name = typeof location === 'undefined' ? null : new URLSearchParams(location.search).get('map');
-  return MAPS[name as MapId] ?? MAPS[DEFAULT_MAP];
+  return MAPS[ACTIVE.map];
 }

@@ -9,6 +9,7 @@ import type { Action, Ctx } from '../../core/contracts';
 import type { CallInId } from '../../core/gameplay';
 import { ModelMaterials } from '../modelkit';
 import { CALLIN_ORDER, CALLINS } from '../data';
+import { Ac130, Ac130Rig } from './ac130';
 import { Airstrike } from './airstrike';
 import { BlackSun, blackSunMaterials } from './blacksun';
 import { GroundProbe, groundMaterials } from './ground';
@@ -23,6 +24,7 @@ const KEYS: Readonly<Record<CallInId, Action>> = {
   airstrike: 'streak',
   warthog: 'callinWarthog',
   orbital: 'callinOrbital',
+  ac130: 'callinAc130',
   blackSun: 'callinBlackSun',
   nuke: 'callinNuke',
 };
@@ -35,9 +37,10 @@ export class CallInManager {
   readonly held = new Set<CallInId>();
   readonly targeting: Targeting;
   private readonly kit: StrikeKit;
-  private readonly cooldowns: Record<CallInId, number> = { airstrike: 0, warthog: 0, orbital: 0, blackSun: 0, nuke: 0 };
+  private readonly cooldowns: Record<CallInId, number> = { airstrike: 0, warthog: 0, orbital: 0, ac130: 0, blackSun: 0, nuke: 0 };
   private readonly strikes: Strike[] = [];
   private readonly aftermath: NukeAftermath;
+  private readonly gunship: Ac130Rig;
   private readonly order: StrikeOrder = { point: new THREE.Vector3(), heading: new THREE.Vector3(1, 0, 0) };
   /** The Orbital Lance keeps the designator up and the gun away until it finishes or the player lets go. */
   private steering: Orbital | null = null;
@@ -53,6 +56,7 @@ export class CallInManager {
     this.kit = { ctx, probe, materials, ordnance, jet };
     this.targeting = new Targeting(ctx);
     this.aftermath = new NukeAftermath(ctx);
+    this.gunship = new Ac130Rig(ctx, materials);
     this.warmShaders(materials);
   }
 
@@ -64,7 +68,7 @@ export class CallInManager {
     const nothing = new THREE.BufferGeometry();
     const all = [
       models.solid, models.glow, ...groundMaterials(), ...Object.values(orbitalMaterials()), ...Object.values(blackSunMaterials()),
-      nukeFrontMaterial(), ...this.aftermath.materials,
+      nukeFrontMaterial(), ...this.aftermath.materials, ...this.gunship.shaders,
     ];
     for (const material of all) {
       const stand = new THREE.Mesh(nothing, material);
@@ -198,6 +202,7 @@ export class CallInManager {
       case 'airstrike': return new Airstrike(this.kit, this.order);
       case 'warthog': return new Warthog(this.kit, this.order);
       case 'orbital': return new Orbital(this.kit, this.order, this.targeting);
+      case 'ac130': return new Ac130(this.kit, this.order, this.gunship);
       case 'blackSun': return new BlackSun(this.kit, this.order);
       case 'nuke': return new Nuke(this.kit, this.order, this.aftermath);
     }

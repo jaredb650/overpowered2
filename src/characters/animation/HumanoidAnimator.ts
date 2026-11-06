@@ -10,6 +10,7 @@ import * as THREE from 'three';
 import type { AnimAction, CharacterAnimation, LocomotionInput } from '../../core/contracts';
 import { HumanoidBone as H, type GoreRegion, type RigDef } from '../rig';
 import type { ArchetypeDef } from '../archetypes';
+import { GetUpPose, sampleGetUp, type GetUpKind } from './getUp';
 import { Limb } from './ik';
 import { Spring3 } from './springs';
 import { STYLES, type MoveStyle } from './styles';
@@ -32,6 +33,38 @@ const vC = new THREE.Vector3();
 const euler = new THREE.Euler(0, 0, 0, 'YXZ');
 
 const qEuler = (out: THREE.Quaternion, x: number, y: number, z: number) => out.setFromEuler(euler.set(x, y, z, 'YXZ'));
+const clipPose = new GetUpPose();
+
+/** How a body takes a hit that upsets its balance. */
+const REEL = {
+  /** Seconds of quick steps at full strength. */
+  seconds: 1.15,
+  /** Step rate while reeling, as a multiple of the walk at that speed. A catch step is fast or it is a fall. */
+  cadence: 2,
+  /** Lean per metre per second of reel, and the most of it. */
+  lean: 0.09,
+  leanMax: 0.5,
+  /** How fast flailing arms and a buckled knee recover, in 1/s. */
+  flailFade: 1.9,
+  buckleFade: 2.6,
+  /** Fraction of body height a buckled knee drops the hips, and the roll toward it. */
+  buckleDrop: 0.075,
+  buckleRoll: 0.34,
+  /** How much of a flail takes a hand holding a gun with it. */
+  gunHand: 0.55,
+};
+
+/** Clip length that is the cross-fade back into ordinary standing. */
+const GETUP_RELEASE = 0.16;
+/** Seconds to blend from a ragdoll's pose into the first frame of a clip. */
+const POSE_MATCH = 0.42;
+/** Longer for a body with no clip, whose whole change of pose is this blend. */
+const POSE_MATCH_CRAWL = 0.7;
+/** Seconds a wound hold takes to arrive and to let go. */
+const CLUTCH_RATE = 9;
+const GUARD_RATE = 12;
+/** Radians of sway at full daze, and how fast it goes. */
+const DAZE_SWAY = 0.2;
 
 export interface WeaponGrip {
   /** Prop-to-hand rotation from the hand socket, and its position on the hand. */
@@ -227,6 +260,34 @@ export class HumanoidAnimator implements CharacterAnimation {
   private crawlPhase = 0;
   private hopHeight = 0;
 
+  /** Seconds of catch steps left. */
+  private reel = 0;
+  private flail = 0;
+  private buckle = 0;
+  private buckleSide = 1;
+  private guardFor = 0;
+  private guardW = 0;
+  private dazeFor = 0;
+  private dazeW = 0;
+  private clutchBone = -1;
+  private clutchFor = 0;
+  private clutchW = 0;
+  private clutchHand: 1 | -1 = 1;
+  private readonly clutchAt = new THREE.Vector3();
+  private clipKind: GetUpKind | null = null;
+  private clipU = 0;
+  private clipSeconds = 1;
+  private clipHurt = 0;
+  /** Which side leads. Mirrored at random, so a crowd does not all get up the same way. */
+  private clipFlip = 1;
+  /** The pose a body came back from physics in, and how much of it is left to blend out. */
+  private readonly snapQ: THREE.Quaternion[];
+  private readonly snapHips = new THREE.Vector3();
+  private snapLeft = 0;
+  private snapSeconds = 1;
+  private readonly restQ: THREE.Quaternion[];
+  private readonly restHips = new THREE.Vector3();
+
   private grip: WeaponGrip | null = null;
   private shieldRot: THREE.Quaternion | null = null;
   private readonly spine = new Spring3(170, 13);
@@ -272,6 +333,8 @@ export class HumanoidAnimator implements CharacterAnimation {
     this.hands = [arm(1, H.upperArmL, H.foreArmL, H.handL), arm(-1, H.upperArmR, H.foreArmR, H.handR)];
     this.limbL = this.feet[0]!.limb;
     this.limbR = this.feet[1]!.limb;
+    this.snapQ = bones.map(() => new THREE.Quaternion());
+    this.restQ = bones.map(() => new THREE.Quaternion());
   }
 
   private readonly stance: ArchetypeDef['stance'];
@@ -335,6 +398,92 @@ export class HumanoidAnimator implements CharacterAnimation {
     if (name.endsWith('R') && (name.startsWith('arm') || name.startsWith('forearm'))) this.armRS.kick(dx * m * 4, 0, dz * m * 4);
   }
 
+  stumble(worldDir: THREE.Vector3, strength: number, bone: number): void {
+    const s = clamp(strength);
+    this.reel = Math.max(this.reel, REEL.seconds * (0.45 + s * 0.55));
+    this.flail = Math.max(this.flail, s);
+    this.stepAside = 0;
+    const region = this.rig.bones[bone]?.region ?? 'chest';
+    if (region.startsWith('leg') || region.startsWith('shin')) {
+      this.buckle = Math.max(this.buckle, 0.35 + s * 0.65);
+      this.buckleSide = region.endsWith('L') ? 1 : -1;
+    }
+    if (this.plan !== 'biped') return;
+    // The foot that lets the body fall past it is the one that has to move, so it goes first and at once.
+    const yaw = this.root.rotation.y;
+    const side = worldDir.x * Math.cos(yaw) - worldDir.z * Math.sin(yaw);
+    const catcher = this.buckle > 0.05 ? (this.buckleSide > 0 ? 1 : 0) : side >= 0 ? 0 : 1;
+    const f = this.feet[catcher]!;
+    const duty = lerp(0.62, 0.27, this.runBlend);
+    this.phase = (duty - 0.01 - f.phaseOffset + 2) % 1;
+    for (const g of this.feet) g.lastPsi = (this.phase + g.phaseOffset) % 1;
+  }
+
+  holdWound(bone: number, worldPoint: THREE.Vector3, seconds: number): void {
+    if (this.hidden(bone)) return;
+    const b = this.bones[bone]!;
+    b.updateWorldMatrix(true, false);
+    this.clutchAt.copy(worldPoint);
+    b.worldToLocal(this.clutchAt);
+    this.clutchBone = bone;
+    this.clutchFor = seconds;
+    const region = this.rig.bones[bone]?.region ?? 'chest';
+    // Never the hand on the arm that was hit, and with a gun in the right hand the left is the one that is free.
+    let hand: 1 | -1 = this.clutchAt.x >= 0 ? 1 : -1;
+    if (region.endsWith('L') && (region.startsWith('arm') || region.startsWith('forearm'))) hand = -1;
+    else if (region.endsWith('R') && (region.startsWith('arm') || region.startsWith('forearm'))) hand = 1;
+    else if (this.grip) hand = 1;
+    if (hand > 0 ? this.armGoneL : this.armGoneR) hand = hand > 0 ? -1 : 1;
+    this.clutchHand = hand;
+  }
+
+  guard(seconds: number): void {
+    this.guardFor = Math.max(this.guardFor, seconds);
+  }
+
+  daze(seconds: number): void {
+    this.dazeFor = Math.max(this.dazeFor, seconds);
+  }
+
+  /** The ragdoll's pose, kept so it can be blended out. Bones hold it right now. */
+  private matchPose(seconds: number): void {
+    const bones = this.bones;
+    for (let i = 0; i < bones.length; i++) this.snapQ[i]!.copy(bones[i]!.quaternion);
+    this.snapHips.copy(bones[H.hips]!.position);
+    this.snapLeft = this.snapSeconds = seconds;
+  }
+
+  getUp(kind: GetUpKind, seconds: number, hurt: number): number {
+    this.refreshPlan();
+    this.reel = this.flail = this.buckle = 0;
+    this.action = null;
+    this.stepAside = 0;
+    this.needsHome = true;
+    this.moveBlend = this.runBlend = 0;
+    this.vel.set(0, 0, 0);
+    this.speed = 0;
+    if (this.plan === 'crawl' || this.plan === 'writhe' || kind === 'crawl') {
+      this.planBlend = 1;
+      this.clipKind = null;
+      this.matchPose(POSE_MATCH_CRAWL);
+      return 0;
+    }
+    this.planBlend = 0;
+    this.clipKind = kind;
+    this.clipU = 0;
+    this.clipSeconds = Math.max(seconds, 0.4);
+    this.clipHurt = clamp(hurt);
+    this.matchPose(POSE_MATCH);
+    return this.clipSeconds;
+  }
+
+  poseGetUpStart(kind: GetUpKind, hips: THREE.Vector3): void {
+    this.refreshPlan();
+    this.clipFlip = Math.random() < 0.5 ? 1 : -1;
+    this.poseClip(kind, 0, this.clipFlip, 0);
+    hips.copy(this.pelvisPos);
+  }
+
   /** Forget planted feet. Happens by itself on a large jump in root position. */
   resetFeet(): void {
     this.needsHome = true;
@@ -378,6 +527,12 @@ export class HumanoidAnimator implements CharacterAnimation {
     this.armLS.clear(); this.armRS.clear(); this.recoil.clear(); this.landing.clear();
     this.hands[0]!.planted.set(0, 0, 0);
     this.hands[1]!.planted.set(0, 0, 0);
+    this.reel = this.flail = this.buckle = 0;
+    this.guardFor = this.guardW = this.dazeFor = this.dazeW = 0;
+    this.clutchBone = -1;
+    this.clutchFor = this.clutchW = 0;
+    this.clipKind = null;
+    this.snapLeft = 0;
     this.needsHome = true;
   }
 
@@ -430,6 +585,8 @@ export class HumanoidAnimator implements CharacterAnimation {
     this.poseBody();
     this.poseUpperBody(step, lod);
     this.poseLegs(lod);
+    if (this.clipKind) this.stepClip(step);
+    if (this.snapLeft > 0) this.blendSnapshot(step);
   }
 
   private integrateRoot(dt: number): void {
@@ -460,9 +617,13 @@ export class HumanoidAnimator implements CharacterAnimation {
     const side = this.vel.x * c - this.vel.z * s;
     this.fwdAccel = damp(this.fwdAccel, (fwd - this.lastFwd) / dt, 10, dt);
     this.lastFwd = fwd;
-    const leanTarget = clamp(0.015 * fwd + this.fwdAccel * 0.02, -0.25, 0.55) * (1 - this.weight * 0.35);
+    // Reeling, the body runs ahead of its feet in whatever direction it was sent, so it leans that way hard.
+    const reeling = clamp(this.reel * 3);
+    const leanTarget = clamp(0.015 * fwd + this.fwdAccel * 0.02, -0.25, 0.55) * (1 - this.weight * 0.35)
+      + clamp(fwd * REEL.lean, -REEL.leanMax, REEL.leanMax) * reeling;
     this.leanFwd = damp(this.leanFwd, leanTarget, 8, dt);
-    const turn = clamp(-this.yawRate * this.speed * 0.022 + side * 0.012, -0.32, 0.32);
+    const turn = clamp(-this.yawRate * this.speed * 0.022 + side * 0.012, -0.32, 0.32)
+      + clamp(-side * REEL.lean, -REEL.leanMax, REEL.leanMax) * reeling;
     this.leanSide = damp(this.leanSide, turn, 8, dt);
   }
 
@@ -478,13 +639,22 @@ export class HumanoidAnimator implements CharacterAnimation {
       if (a.t >= 1) this.action = null;
     }
     this.blockHold = Math.max(0, this.blockHold - dt * 1.5);
+    this.reel = Math.max(0, this.reel - dt);
+    this.flail *= Math.exp(-REEL.flailFade * dt);
+    this.buckle *= Math.exp(-REEL.buckleFade * dt);
+    this.guardFor = Math.max(0, this.guardFor - dt);
+    this.guardW = damp(this.guardW, this.guardFor > 0 ? 1 : 0, GUARD_RATE, dt);
+    this.dazeFor = Math.max(0, this.dazeFor - dt);
+    this.dazeW = damp(this.dazeW, this.dazeFor > 0 ? 1 : 0, 4, dt);
+    this.clutchFor = Math.max(0, this.clutchFor - dt);
+    this.clutchW = damp(this.clutchW, this.clutchFor > 0 ? 1 : 0, CLUTCH_RATE, dt);
   }
 
   private cycleTime(): number {
     // Longer legs swing slower, as a pendulum does.
     const scale = Math.sqrt(0.9 / this.legLength);
     const f = (0.82 + 0.17 * Math.min(this.speed, 12)) * scale * this.style.cadence;
-    return 1 / f;
+    return 1 / (f * lerp(1, REEL.cadence, clamp(this.reel * 4)));
   }
 
   private stepGait(dt: number, lod: number): void {
@@ -693,6 +863,7 @@ export class HumanoidAnimator implements CharacterAnimation {
     // Walks peak mid-stance, runs dip there. The phase shift swaps which.
     y += lerp(-1, 1, run) * twoPhase * L * lerp(0.012, 0.02, run) * bounce * mv;
     y += this.landing.y * 0.05 * (L / 1.85);
+    y -= this.buckle * REEL.buckleDrop * L;
 
     let swayX = 0, x = 0, z = 0;
     if (this.plan === 'biped') swayX = Math.sin(ph) * L * lerp(0.018, 0.008, run) * bounce * mv;
@@ -760,7 +931,10 @@ export class HumanoidAnimator implements CharacterAnimation {
     const yawP = Math.sin(ph) * lerp(0.1, 0.2, run) * mv * bounce * 0.8;
     const rollP = Math.cos(ph) * lerp(0.05, 0.03, run) * mv * bounce;
     const pitchP = 0.035 * mv + run * 0.08 + this.leanFwd * 0.5;
-    qEuler(this.pelvisQ, pitchP, yawP + actYaw, rollP + this.leanSide * 0.5);
+    const dazed = this.dazeW * DAZE_SWAY;
+    const sway = Math.sin(this.time * 1.9 + this.seed);
+    x += sway * dazed * 0.25 * L;
+    qEuler(this.pelvisQ, pitchP, yawP + actYaw, rollP + this.leanSide * 0.5 - this.buckleSide * this.buckle * REEL.buckleRoll + sway * dazed * 0.5);
     if (this.planBlend > 0.001) {
       // Prone: the spine lies along the direction of travel.
       qEuler(qA, 1.42, Math.sin(this.crawlPhase * TAU) * 0.16 * this.moveBlend, Math.sin(this.crawlPhase * TAU) * 0.1 * this.moveBlend);
@@ -797,6 +971,13 @@ export class HumanoidAnimator implements CharacterAnimation {
     let roll = this.leanSide * 0.6 + Math.cos(ph) * 0.03 * mv;
     let headPitch = 0;
     let headYaw = 0;
+    if (this.dazeW > 0.01) {
+      // Head down and rolling, with the body a beat behind it.
+      bend += 0.22 * this.dazeW;
+      roll += Math.sin(this.time * 1.9 + this.seed + 0.7) * DAZE_SWAY * this.dazeW;
+      headPitch += (0.28 + 0.14 * Math.sin(this.time * 2.7)) * this.dazeW;
+      headYaw += Math.sin(this.time * 1.3 + this.seed) * 0.3 * this.dazeW;
+    }
 
     const aimW = this.grip !== null && !this.armGoneR ? 1 : 0;
     twist += this.aimYaw * 0.6;
@@ -886,6 +1067,7 @@ export class HumanoidAnimator implements CharacterAnimation {
       vA.copy(h.shoulderOffset).applyQuaternion(this.chestQ).add(this.chestPos);
       const shoulder = vA;
       this.armTarget(h, dt, armed, shoulder);
+      if (this.planBlend <= 0.5) this.protect(h, armed, shoulder);
       const spring = h.side > 0 ? this.armLS : this.armRS;
       h.target.x += spring.x * 0.05 * this.L;
       h.target.z += spring.z * 0.05 * this.L;
@@ -903,6 +1085,42 @@ export class HumanoidAnimator implements CharacterAnimation {
       } else if (lod <= 1) {
         h.limb.relaxEnd();
       }
+    }
+  }
+
+  /** What a hand does for the body's sake, over whatever it was doing: out for balance, to a wound, up to the face. */
+  private protect(h: Hand, armed: boolean, shoulder: THREE.Vector3): void {
+    const s = this.L / 1.85;
+    const side = h.side;
+    const reach = ((h.limb!.l1 + h.limb!.l2) / 0.56) * s;
+    const gun = armed && side < 0;
+    if (this.flail > 0.02) {
+      const n = this.time * 11 + side * 2.1 + this.seed;
+      const a = noise1(n);
+      const b = noise1(n * 0.7 + 4);
+      // Out and up from the shoulder, in the chest's axes: an arm thrown wide is what catches a body.
+      this.reachTo(h, shoulder, reach, side * (0.62 + 0.2 * a), -0.18 + 0.42 * b, 0.22 + 0.3 * a * b, smooth(clamp(this.flail * 1.5)) * (gun ? REEL.gunHand : 1));
+      h.pole.set(side * 0.8, -0.5, -0.5);
+    }
+    if (this.guardW > 0.01) {
+      vB.set(side * 0.09 * s, 0.5 * s, 0.24 * s).applyQuaternion(this.chestQ).add(this.chestPos);
+      h.target.lerp(vB, this.guardW * (gun ? REEL.gunHand : 1));
+      h.pole.set(side * 0.9, -0.7, -0.3);
+    }
+    if (this.dazeW > 0.01 && side === (this.grip ? 1 : -1)) {
+      vB.set(side * 0.1 * s, 0.56 * s, 0.13 * s).applyQuaternion(this.chestQ).add(this.chestPos);
+      h.target.lerp(vB, this.dazeW);
+      h.pole.set(side * 0.9, -0.5, -0.2);
+    }
+    if (this.clutchW > 0.01 && side === this.clutchHand && this.clutchBone >= 0 && !this.hidden(this.clutchBone)) {
+      // Last frame's world pose: legs are posed after arms, and a hand a frame behind a wound still reads as holding it.
+      vB.copy(this.clutchAt).applyMatrix4(this.bones[this.clutchBone]!.matrixWorld);
+      const yaw = this.root.rotation.y;
+      const c = Math.cos(yaw), sn = Math.sin(yaw);
+      const dx = vB.x - this.root.position.x, dz = vB.z - this.root.position.z;
+      vB.set(dx * c - dz * sn, vB.y - this.root.position.y, dx * sn + dz * c);
+      h.target.lerp(vB, this.clutchW);
+      h.pole.set(side * 0.8, -0.3, -0.7);
     }
   }
 
@@ -1150,6 +1368,96 @@ export class HumanoidAnimator implements CharacterAnimation {
       const thigh = stump.side > 0 ? H.thighL : H.thighR;
       if (!this.hidden(thigh)) qEuler(this.bones[thigh]!.quaternion, -0.35 + Math.sin(this.phase * TAU) * 0.3, 0, stump.side * 0.08);
     }
+  }
+
+  private stepClip(dt: number): void {
+    const kind = this.clipKind!;
+    this.clipU = Math.min(1, this.clipU + dt / this.clipSeconds);
+    const u = this.clipU;
+    // Standing has already been posed. The last stretch of a clip fades into it, feet and all.
+    const out = smooth(clamp((u - (1 - GETUP_RELEASE)) / GETUP_RELEASE));
+    const bones = this.bones;
+    if (out > 0) {
+      for (let i = 0; i < bones.length; i++) this.restQ[i]!.copy(bones[i]!.quaternion);
+      this.restHips.copy(bones[H.hips]!.position);
+    }
+    this.poseClip(kind, u, this.clipFlip, this.clipHurt);
+    if (out > 0) {
+      for (let i = 0; i < bones.length; i++) bones[i]!.quaternion.slerp(this.restQ[i]!, out);
+      bones[H.hips]!.position.lerp(this.restHips, out);
+    }
+    if (u >= 1) this.clipKind = null;
+  }
+
+  /** Writes one frame of a get-up onto the bones. Works in the same character space as the rest of the animator. */
+  private poseClip(kind: GetUpKind, u: number, flip: number, hurt: number): void {
+    const p = clipPose;
+    sampleGetUp(kind, u, p);
+    const s = this.L / 1.85;
+    // Effort shows as a body that shakes and sags under its own weight, most of all halfway up.
+    const strain = hurt * Math.sin(Math.PI * u);
+    const shake = Math.sin(this.time * 17 + this.seed) * Math.sin(this.time * 5.3) * strain;
+    this.pelvisPos.set((p.hips.x + shake * 0.012) * flip * s, (p.hips.y - strain * 0.03) * s, p.hips.z * s);
+    qEuler(this.pelvisQ, p.pitch, 0, (p.roll + shake * 0.05) * flip);
+    const hips = this.bones[H.hips]!;
+    hips.position.copy(this.pelvisPos);
+    hips.quaternion.copy(this.pelvisQ);
+
+    const ch = this.chest, hd = this.head;
+    const bend = p.bend + strain * 0.1;
+    const spineQ = this.bones[H.spine]!.quaternion;
+    const chestQ = this.bones[H.chest]!.quaternion;
+    qEuler(spineQ, bend * 0.45, 0, 0);
+    qEuler(chestQ, bend * 0.55 + ch.x * 0.6, ch.y * 0.6, ch.z * 0.6);
+    this.chestQ.copy(this.pelvisQ).multiply(spineQ).multiply(chestQ);
+    this.chestPos.copy(this.bones[H.spine]!.position).applyQuaternion(this.pelvisQ).add(this.pelvisPos);
+    qA.copy(this.pelvisQ).multiply(spineQ);
+    this.chestPos.add(vA.copy(this.bones[H.chest]!.position).applyQuaternion(qA));
+    if (!this.headGone) {
+      qEuler(this.bones[H.neck]!.quaternion, p.head * 0.45 + hd.x * 0.4, hd.y * 0.4, hd.z * 0.4);
+      qEuler(this.bones[H.head]!.quaternion, p.head * 0.55 + hd.x * 0.7, hd.y * 0.7, hd.z * 0.7);
+    }
+
+    const armed = this.grip !== null && !this.armGoneR;
+    for (const h of this.hands) {
+      if (!h.limb || this.hidden(h.side > 0 ? H.upperArmL : H.upperArmR)) continue;
+      const leading = h.side === flip;
+      vA.copy(h.shoulderOffset).applyQuaternion(this.chestQ).add(this.chestPos);
+      const armLen = h.limb.l1 + h.limb.l2;
+      // A hand with a gun in it cannot push on anything, so it hugs the weapon in and the other arm does the work.
+      if (armed && h.side < 0) h.target.set(-0.1 * s, 0.1 * s, 0.26 * s).applyQuaternion(this.chestQ).add(this.chestPos);
+      else h.target.set(vA.x + h.side * 0.1 * s, vA.y - armLen * 0.92, vA.z + 0.05 * s);
+      if (!(armed && h.side < 0)) {
+        const key = leading ? p.leadHand : p.trailHand;
+        vB.set(key.x * flip * s, key.y * s, key.z * s);
+        h.target.lerp(vB, leading ? p.leadGrip : p.trailGrip);
+      }
+      h.pole.set(h.side * 0.7, 0.55, -0.4);
+      if (this.clutchW > 0.01 && h.side === this.clutchHand) this.protect(h, armed, vA);
+      h.limb.solve(vA, this.chestQ, h.target, h.pole);
+      h.limb.relaxEnd();
+    }
+
+    for (const f of this.feet) {
+      const limb = f.limb;
+      if (!limb) continue;
+      const leading = f.side === flip;
+      const key = leading ? p.lead : p.trail;
+      vA.copy(f.hipOffset).applyQuaternion(this.pelvisQ).add(this.pelvisPos);
+      vB.set(key.x * flip * s, key.y * s, key.z * s);
+      vC.set(f.side * 0.14, 0.16, 1).applyQuaternion(this.pelvisQ);
+      limb.solve(vA, this.pelvisQ, vB, vC);
+      qEuler(qD, leading ? p.leadToe : p.trailToe, 0, 0);
+      limb.setEnd(qD);
+    }
+  }
+
+  private blendSnapshot(dt: number): void {
+    this.snapLeft = Math.max(0, this.snapLeft - dt);
+    const keep = smooth(this.snapLeft / this.snapSeconds);
+    const bones = this.bones;
+    for (let i = 0; i < bones.length; i++) bones[i]!.quaternion.slerp(this.snapQ[i]!, keep);
+    bones[H.hips]!.position.lerp(this.snapHips, keep);
   }
 
   private trailLeg(f: Foot): void {

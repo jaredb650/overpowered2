@@ -114,6 +114,11 @@
 .ci.cooling { background: var(--plate); color: var(--c); }
 .ci-wait { margin-left: 0.4rem; font: 800 1.1rem/1 var(--mono); }
 
+/* --- Sonar --- */
+
+.sn { position: relative; flex: none; }
+.sn-fill { position: absolute; left: 0; right: 0; bottom: 0; height: 0.2rem; background: var(--c); transform: scaleX(0); transform-origin: 0 50%; }
+
 /* --- Arms --- */
 
 .arms { display: flex; flex-direction: column; align-items: flex-end; gap: 0.55rem; }
@@ -243,6 +248,13 @@
 }
 .style { gap: 0.1rem; height: 8.4rem; width: 26rem; }
 .style-ln { flex: none; font: 1.45rem/1.12 var(--display); color: var(--c); text-transform: uppercase; text-shadow: var(--edge); white-space: nowrap; }
+
+/* --- Comms: enemy radio. Quieter than the feeds, because it is overheard and not earned --- */
+
+.comms { display: flex; flex-direction: column; align-items: flex-start; gap: 0.14rem; width: 29rem; overflow: hidden; flex: none; }
+.comms-ln { flex: none; max-width: 29rem; padding: 0.12rem 0.5rem; background: var(--plate); border-left: 0.25rem solid var(--c); color: var(--ink); font-size: 1rem; font-weight: 500; line-height: 1.25; }
+.ln-k:empty { display: none; }
+.comms-ln .ln-k { margin-right: 0.6rem; color: var(--c); font-weight: 800; }
 
 /* --- Combo: the one loud block --- */
 

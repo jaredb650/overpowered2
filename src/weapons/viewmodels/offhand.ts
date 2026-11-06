@@ -1,8 +1,9 @@
 /**
- * The left hand's own life: frag grenades and call-in devices. It sits on top of whatever the main gun is doing, so
- * throwing a grenade mid-reload or from a two-handed hold just borrows the hand for a moment.
+ * The left hand's own life: frag grenades, call-in devices and the sonar tap. It sits on top of whatever the main gun is
+ * doing, so throwing a grenade mid-reload or from a two-handed hold just borrows the hand for a moment.
  */
 import * as THREE from 'three';
+import { SONAR } from '../../contracts/data';
 import { clamp, damp } from '../../core/math';
 import { TUNING } from '../data';
 import { inOut, inQuad, outBack, outCubic, seg } from './curves';
@@ -15,6 +16,13 @@ type State = 'none' | 'cook' | 'throw';
 type Device = 'walkie' | 'designator';
 
 const REST_LOW = new THREE.Vector3(-0.24, -0.5, -0.32);
+/** Where the wrist goes for a sonar tap, at the left edge of the visor. */
+const TAP_AT = new THREE.Vector3(-0.2, 0.0, -0.22);
+const TAP_FINGERS = new THREE.Vector3(0.35, 0.85, 0.35).normalize();
+const TAP_SIDE = new THREE.Vector3(-0.55, -0.07, 0.72);
+/** The fingers land at SONAR.tapLead, stay for the press, and the hand is gone by the end. */
+const TAP_PRESS = 0.1;
+const TAP_SECONDS = 0.56;
 
 export class Offhand {
   readonly root = new THREE.Group();
@@ -31,6 +39,9 @@ export class Offhand {
   private deviceW = 0;
   private press = 0;
   private lcdClock = 0;
+  /** Seconds into a sonar tap, or negative when there is none. */
+  private tapT = -1;
+  private readonly tapHand = new THREE.Object3D();
   private readonly restOffset = new THREE.Vector3();
 
   constructor(private readonly set: OffhandSet) {
@@ -40,6 +51,10 @@ export class Offhand {
     }
     this.hand = set.grenade.sockets.hold!;
     this.ctl.base = 'offhand';
+    this.root.add(this.tapHand);
+    const z = TAP_FINGERS.clone().negate();
+    const x = TAP_SIDE.clone().addScaledVector(z, -TAP_SIDE.dot(z)).normalize();
+    this.tapHand.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, new THREE.Vector3().crossVectors(z, x), z));
   }
 
   get cooking(): boolean {
@@ -54,6 +69,7 @@ export class Offhand {
     this.deviceW = 0;
     this.leftWeight = 0;
     this.press = 0;
+    this.tapT = -1;
     for (const m of [this.set.grenade, this.set.walkie, this.set.designator]) m.root.visible = false;
   }
 
@@ -72,6 +88,11 @@ export class Offhand {
     this.device_ = d;
   }
 
+  /** Two fingers to the helmet. A hand already holding a grenade or a device stays on it, and the ping goes out anyway. */
+  tap(): void {
+    if (this.state === 'none' && this.deviceW < 0.05) this.tapT = 0;
+  }
+
   /** Target confirmed: thumb on the talk key, or the laser burns. */
   confirm(): void {
     this.press = 1;
@@ -86,7 +107,31 @@ export class Offhand {
     else this.set.grenade.root.visible = false;
     this.updateDevice(dt);
     if (this.state === 'none' && this.deviceW < 0.002) this.leftWeight = 0;
+    this.updateTap(dt);
     this.root.updateMatrixWorld(true);
+  }
+
+  private updateTap(dt: number): void {
+    if (this.tapT < 0) return;
+    // A device called up mid-tap takes the hand, as a cooked grenade would.
+    if (this.tapT >= TAP_SECONDS || this.state !== 'none' || this.device_) {
+      this.tapT = -1;
+      return;
+    }
+    const t = (this.tapT += dt);
+    const lead = SONAR.tapLead;
+    this.hand = this.tapHand;
+    this.ctl.begin(null);
+    this.ctl.base = 'offhand';
+    this.ctl.fingerRate = 40;
+    this.ctl.pose.set(HANDS.tap);
+    const away = inOut(seg(t, lead + TAP_PRESS, TAP_SECONDS));
+    const p = this.tapHand.position;
+    p.lerpVectors(REST_LOW, TAP_AT, outCubic(seg(t, 0, lead)) * (1 - away));
+    // The knuckles give against the helmet and spring off it.
+    const press = seg(t, lead, lead + TAP_PRESS);
+    p.addScaledVector(TAP_FINGERS, Math.sin(press * Math.PI) * 0.012);
+    this.leftWeight = outCubic(seg(t, 0, 0.07)) * (1 - seg(t, lead + TAP_PRESS * 2, TAP_SECONDS));
   }
 
   private updateGrenade(): void {

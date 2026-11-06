@@ -1,0 +1,47 @@
+/**
+ * What the Outpost tells the rest of the game. Other systems listen; nothing here knows who.
+ *
+ *   enemy:surrendered, enemy:executed   the Geneva Suggestion
+ *   enemy:backshot                      back-shot rewards. Emitted after the damage, for score and feedback
+ *   comms:line                          the on-screen feed and, later, the recorded voices
+ *   enemy:broken, enemy:escaped, squad:broken, dread:spike   style scoring, the HUD and The Commander
+ */
+import type * as THREE from 'three';
+import type { DamageInfo } from '../../core/contracts';
+import type { DamageResult, EnemyInstance, KillEvent } from '../../core/gameplay';
+
+export type CommsKind =
+  | 'contact' | 'lost' | 'noise' | 'manDown' | 'leaderDown' | 'takingCommand' | 'medic' | 'reloading' | 'moving' | 'covering'
+  | 'flanking' | 'frag' | 'flash' | 'breach' | 'fallback' | 'regroup' | 'fear' | 'panic' | 'surrender' | 'fix' | 'squadGone';
+
+export interface CommsLine {
+  kind: CommsKind;
+  text: string;
+  /** 'Alpha', 'Bravo'. */
+  squad: string;
+  /** 'Alpha-2'. Null for Command itself. */
+  speaker: string | null;
+  enemy: EnemyInstance | null;
+  /** Where it was said from. Shared and reused: copy it to keep it. */
+  position: THREE.Vector3;
+}
+
+declare module '../../core/contracts' {
+  interface GameEvents {
+    'comms:line': CommsLine;
+    /** Morale ran out. The weapon is on the floor and `fate` says what happens next. */
+    'enemy:broken': { enemy: EnemyInstance; fate: 'flee' | 'surrender' };
+    /** Hands up, on the knees. No longer a threat, and no longer counted for the wave. */
+    'enemy:surrendered': { enemy: EnemyInstance };
+    /** A surrendered enemy was killed. Sent after `enemy:killed`, with the same event. */
+    'enemy:executed': { kill: KillEvent };
+    /** A hit from behind. `fleeing` is true while it is running for a gate. */
+    'enemy:backshot': { enemy: EnemyInstance; damage: DamageInfo; result: DamageResult; fleeing: boolean };
+    /** A broken enemy reached a gate and left the round. */
+    'enemy:escaped': { enemy: EnemyInstance };
+    /** A squad was cut down so fast that its survivors broke. */
+    'squad:broken': { squad: string; survivors: number };
+    /** Dread jumped. `cause` is a perk id, a call-in id, or 'squad'. */
+    'dread:spike': { dread: number; cause: string };
+  }
+}

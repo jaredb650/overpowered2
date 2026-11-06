@@ -6,7 +6,7 @@ import type { Action } from '../core/contracts';
 import type { CallInId, EnemyId, PerkId, PowerupId, WeaponId } from '../core/gameplay';
 import { MOVE } from '../player/tuning';
 import {
-  CACHE_ORDER, CALLINS as CALLIN_DEFS, CHAIN_REACTION_KILLS, COMBO_PERKS, DROP_POD, EFFECTS, MEGA, OVERDRIVE_MIN_SPEED, PICKUP, SCORE, STACK, WINDOWS,
+  CACHE_ORDER, CALLINS as CALLIN_DEFS, CHAIN_REACTION_KILLS, COMBO_PERKS, DROP_POD, EFFECTS, MEGA, OVERDRIVE_MIN_SPEED, PICKUP, SCORE, STACK, STYLE_GATE, WINDOWS,
 } from '../progression/data';
 import { SWORD, TUNING, WEAPONS as WEAPON_DEFS } from '../weapons/data';
 
@@ -92,7 +92,7 @@ export interface CallInInfo {
   note: string;
 }
 
-export const CALLIN_ORDER: readonly CallInId[] = ['airstrike', 'warthog', 'orbital', 'blackSun', 'nuke'];
+export const CALLIN_ORDER: readonly CallInId[] = ['airstrike', 'warthog', 'orbital', 'ac130', 'blackSun', 'nuke'];
 
 const callIn = (id: CallInId, name: string, action: Action, note: string): CallInInfo => ({
   name, action, note, combo: CALLIN_DEFS[id].combo, color: CALLIN_DEFS[id].color, radius: CALLIN_DEFS[id].radius,
@@ -102,6 +102,7 @@ export const CALLINS: Record<CallInId, CallInInfo> = {
   airstrike: callIn('airstrike', 'Airstrike', 'streak', '15 rockets across the mark, then a finale.'),
   warthog: callIn('warthog', 'Warthog', 'callinWarthog', '50 shells along a line. Hold the click and drag to set its heading.'),
   orbital: callIn('orbital', 'Orbital Lance', 'callinOrbital', 'A burning beam you steer for 6 seconds.'),
+  ac130: callIn('ac130', 'AC-130', 'callinAc130', 'A gunship circles the mark for two minutes and shells it while you fight.'),
   blackSun: callIn('blackSun', 'Black Sun', 'callinBlackSun', 'Drags enemies and corpses in, then implodes.'),
   nuke: callIn('nuke', 'Tactical Nuke', 'callinNuke', 'Six seconds of siren, then it whites out the map.'),
 };
@@ -129,11 +130,14 @@ export const PERKS: Record<PerkId, PerkInfo> = {
   chainStorm: perk('chainStorm', 'Chain Storm', comboAt('chainStorm'), 'Every kill arcs lightning'),
   adrenaline: perk('adrenaline', 'Adrenaline', within(WINDOWS.adrenaline, 'sword kills'), `+${STACK.adrenalinePerStack * 100}% speed, stacks to 3`),
   slowmo: perk('slowmo', 'Slowmo', within(WINDOWS.slowmo, 'headshots'), 'The world at quarter speed, you at full speed'),
-  butcher: perk('butcher', 'Butcher', within(WINDOWS.butcher, 'limbs severed'), 'Every hit severs'),
-  skyfall: perk('skyfall', 'Skyfall', within(WINDOWS.skyfall, 'airborne kills'), 'Unlimited air dashes, explosive slam'),
-  chainReaction: perk('chainReaction', 'Chain Reaction', `${CHAIN_REACTION_KILLS} kills from one blast`, 'Enemies explode when they die'),
-  overdrive: perk('overdrive', 'Overdrive', `${WINDOWS.overdrive.need} kills above ${OVERDRIVE_MIN_SPEED} m/s`, `Damage rises with speed, up to ${STACK.overdriveMaxDamage}x`),
+  butcher: perk('butcher', 'Butcher', `A limb off ${WINDOWS.butcher.need} different bodies in ${WINDOWS.butcher.span} s, direct hits only`, 'Every hit severs'),
+  skyfall: perk('skyfall', 'Skyfall', `${within(WINDOWS.skyfall, 'kills')}, off the ground for ${STYLE_GATE.hangTime} s or more`, 'Unlimited air dashes, explosive slam'),
+  chainReaction: perk('chainReaction', 'Chain Reaction', `${CHAIN_REACTION_KILLS} kills from one blast, not under Hellfire`, 'Enemies explode when they die'),
+  overdrive: perk('overdrive', 'Overdrive', `${within(WINDOWS.overdrive, 'kills')} above ${OVERDRIVE_MIN_SPEED} m/s`, `Damage rises with speed, up to ${STACK.overdriveMaxDamage}x`),
+  geneva: perk('geneva', 'Geneva Suggestion', 'The Outpost: kill someone who surrendered', `+${STACK.genevaDamagePerStack * 100}% damage and +${STACK.genevaFireRatePerStack * 100}% fire rate a stack, up to ${EFFECTS.geneva.maxStacks}`),
 };
+
+export const PERK_NOTE = `Butcher, Skyfall, Chain Reaction and Overdrive are style perks. One can start every ${STYLE_GATE.spacing} s at most, and each waits ${STYLE_GATE.rearm} s after it ends.`;
 
 const power = (id: PowerupId, name: string, note: string) => ({ name, note, color: EFFECTS[id].color });
 
@@ -167,6 +171,7 @@ export const LADDER: readonly { combo: number; name: string; color: string }[] =
   { combo: 15, name: 'Berserk', color: PERKS.berserk.color },
   { combo: 20, name: 'Sentinels', color: PERKS.sentinels.color },
   { combo: 25, name: 'Orbital Lance', color: CALLINS.orbital.color },
+  { combo: 28, name: 'AC-130', color: CALLINS.ac130.color },
   { combo: 30, name: 'Chain Storm', color: PERKS.chainStorm.color },
   { combo: 40, name: 'Black Sun', color: CALLINS.blackSun.color },
   { combo: 50, name: 'Tactical Nuke', color: CALLINS.nuke.color },
@@ -217,6 +222,7 @@ export const MOVEMENT_GUIDE: readonly { action?: Action; keys?: string; name: st
 /** Readable names for damage sources that are not a weapon or an enemy. */
 const SOURCE_NAMES: Readonly<Record<string, string>> = {
   airstrike: 'Airstrike', warthog: 'Warthog', orbital: 'Orbital Lance', black_sun: 'Black Sun', nuke: 'Tactical Nuke',
+  ac130_25mm: 'AC-130 25mm', ac130_40mm: 'AC-130 40mm', ac130_105mm: 'AC-130 105mm', ac130_hellfire: 'AC-130 Hellfire',
   sentinel: 'Sentinels', chain_storm: 'Chain Storm', chain_reaction: 'Chain Reaction', skyfall: 'Skyfall', slam: 'Ground slam',
   grenade: 'Frag', sword_finisher: 'Sword finisher', sword_deflect: 'Deflected shot', drop_pod: 'Drop pod',
   barrel: 'Barrel', tank: 'Tank', lava: 'Lava', crusher: 'Crusher', electric: 'Electric floor',
@@ -228,7 +234,7 @@ export function sourceName(source: string): string {
 
 export const CONTROLS_NOTE =
   `Speed pays: your score multiplier steps up at ${SCORE.speedTiers.slice(1).map(t => t[0]).join(', ')} m/s, ` +
-  `and ${WINDOWS.overdrive.need} kills above ${OVERDRIVE_MIN_SPEED} m/s set off Overdrive.`;
+  `and ${WINDOWS.overdrive.need} kills in ${WINDOWS.overdrive.span} s above ${OVERDRIVE_MIN_SPEED} m/s set off Overdrive.`;
 
 export const SLIDE_NOTE = 'Use C to slide. On Windows and Linux Ctrl+W closes the tab and no page can stop it, so Ctrl is risky while you hold W.';
 
@@ -245,14 +251,23 @@ export const KEY_GROUPS: readonly { title: string; rows: readonly [Action, strin
     title: 'Fight',
     rows: [
       ['fire', 'Fire'], ['aim', 'Aim and alt fire'], ['reload', 'Reload'], ['melee', 'Quick melee'],
-      ['grenade', 'Grenade'], ['weaponLast', 'Last weapon'], ['weaponNext', 'Next weapon'], ['weaponPrev', 'Previous weapon'],
+      ['grenade', 'Grenade'], ['sonar', 'Sonar ping'], ['weaponLast', 'Last weapon'], ['weaponNext', 'Next weapon'], ['weaponPrev', 'Previous weapon'],
     ],
   },
   {
     title: 'Call in',
     rows: [
       ['streak', 'Airstrike'], ['callinWarthog', 'Warthog'], ['callinOrbital', 'Orbital Lance'],
-      ['callinBlackSun', 'Black Sun'], ['callinNuke', 'Tactical Nuke'], ['scoreboard', 'Run stats'],
+      ['callinAc130', 'AC-130'], ['callinBlackSun', 'Black Sun'], ['callinNuke', 'Tactical Nuke'], ['scoreboard', 'Run stats'],
     ],
   },
 ];
+
+/** From docs/CREDITS.md. CC BY 3.0 asks for the author, the licence and word of the changes wherever the game goes. */
+export const CREDITS: readonly { who: string; what: string; licence: string }[] = [
+  { who: 'Mike Koenig', what: 'Gore, blood and body sounds, through SoundBible', licence: 'CC BY 3.0' },
+  { who: 'Kenney', what: 'Impact Sounds: footsteps and impacts', licence: 'CC0 1.0' },
+  { who: 'AngryFlash, Ploor, SoundMaster13, Vladimir', what: 'Further sounds, through SoundBible', licence: 'Public domain' },
+];
+
+export const CREDITS_NOTE = 'All of these sounds were changed: cut, pitched, layered, filtered and re-encoded. CC BY 3.0 is at creativecommons.org/licenses/by/3.0. Everything else is original to the game or synthesized at load.';

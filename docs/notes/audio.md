@@ -192,6 +192,7 @@ Rendered at load. x4 means four rendered variants behind one id.
 
 - **Waves:** `wave_start`, `wave_start_hard`, `wave_clear`, `wave_tick`, `boss_alarm`, `boss_intro`, `boss_death`
 - **Score:** `combo_tick` (pass `pitch` for rising combos), `combo_tier`, `combo_break`, `multikill`, `style_bonus`, `score_tick`, `highscore`, `game_over`
+- **Sonar:** `sonar_ping`
 - **Hit markers:** `hit_marker`, `hit_marker_head`, `hit_marker_kill`, `hit_marker_armor`
 - **UI (ui bus, never slowed):** `ui_hover`, `ui_click`, `ui_back`, `ui_tick`, `ui_toggle`, `ui_slider`, `ui_error`, `ui_open`, `ui_close`, `ui_type`, `ui_confirm`
 

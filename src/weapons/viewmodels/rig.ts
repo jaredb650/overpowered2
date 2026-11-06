@@ -52,7 +52,7 @@ const FILL_DARK = 1.5;
 
 /** Call-ins and the device that goes with them; progression's targeting state drives this. */
 const DEVICE: Record<CallInId, 'walkie' | 'designator'> = {
-  airstrike: 'walkie', warthog: 'walkie', orbital: 'designator', blackSun: 'designator', nuke: 'designator',
+  airstrike: 'walkie', warthog: 'walkie', orbital: 'designator', ac130: 'walkie', blackSun: 'designator', nuke: 'designator',
 };
 
 const _p = new THREE.Vector3();
@@ -213,6 +213,7 @@ export class Rig implements ViewmodelRig {
       on('perk:end', e => this.onPerk(e.id, false)),
       on('player:damaged', e => this.onHurt(e.amount)),
       on('callin:used', () => this.offhand.confirm()),
+      on('sonar:tap', () => this.offhand.tap()),
     );
     this.reset();
   }

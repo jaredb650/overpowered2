@@ -156,7 +156,7 @@ export class Minimap {
     }
 
     const n = Math.min(s.enemies.length, MAX_TRACKED);
-    const reveal = s.phase !== 'intermission' && s.remaining <= REVEAL_AT;
+    const reveal = s.sonarLive > 0 || (s.phase !== 'intermission' && s.remaining <= REVEAL_AT);
     if (this.trailCount > 1) {
       g.fillStyle = ENEMY;
       for (let k = 1; k < this.trailCount; k++) {

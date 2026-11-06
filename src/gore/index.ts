@@ -17,9 +17,10 @@ import { clamp, rand, randomInCone, randomUnit } from '../core/math';
 import { BloodField, BloodTuning } from './blood';
 import { ChunkField, scatter } from './chunks';
 import { ImpactEvents, impactKind, ImpactTuning } from './impacts';
-import { CollapseDrive, impactStrength, MuscleTuning, type CollapseOptions } from './muscles';
+import { CollapseDrive, impactStrength, MuscleTuning, type CollapseOptions, type DownedBody, type KnockdownOptions } from './muscles';
 import { BodyFilter, fillVelocity, LimbFilter, measureAnimVelocity, Rag, SEED_STRIDE } from './rag';
 import { boneRay, boneRayContact, nextCapsuleHit, rayBones, rayNearSphere } from './raycast';
+import { Reflex } from './reflex';
 import { Crawler } from './crawl';
 import { markSevered, markSubtree, MAX_BONES, rigInfo, type RigInfo } from './rigInfo';
 import { SliceField } from './sliced';
@@ -29,6 +30,11 @@ export const GoreTuning = {
   maxRagdolls: 14,
   /** Bodies still holding themselves up. Past this a collapse is just a ragdoll. */
   maxCollapses: 4,
+  /** Living bodies on physics at once. Past this a knockdown is refused and the caller staggers it instead. */
+  maxKnockdowns: 6,
+  /** Seconds on the floor and seconds to rise, for a knockdown that does not say. */
+  knockdownLie: 1.2,
+  knockdownRise: 2.4,
   /** Frozen and simulated bodies together. Past this the oldest sinks away. */
   maxCorpses: 40,
   /** Loose limbs in the world, and how many of them may be simulating. */
@@ -95,6 +101,8 @@ export const GoreTuning = {
 };
 
 const forceOf = (d: DamageInfo): number => (d.force > 0 ? d.force : DEFAULT_FORCE[d.type]);
+/** How hard a hit of this force jolts a body, 0..1. Bullets have to count, so this is not `impactStrength`. */
+const joltOf = (force: number): number => clamp((force * DevFlags.force) / MuscleTuning.joltFull) ** MuscleTuning.joltCurve;
 
 const MAX_STAKES = 3;
 
@@ -126,7 +134,15 @@ class DeadBody {
   /** Bones gone from this body. */
   readonly skip = new Uint8Array(MAX_BONES);
   readonly damage = new Float32Array(MAX_BONES);
+  /** Set while it is alive and only here for a while. Its character is still somebody else's. */
+  down: Knockdown | null = null;
   constructor(readonly char: CharacterInstance, readonly info: RigInfo) {}
+}
+
+/** What a character on the floor is waiting to do. */
+class Knockdown implements DownedBody {
+  readonly center = new THREE.Vector3();
+  constructor(readonly rise: number, readonly hurt: number) {}
 }
 
 /**
@@ -208,6 +224,7 @@ const _v3 = new THREE.Vector3();
 const _v4 = new THREE.Vector3();
 const _v5 = new THREE.Vector3();
 const _q = new THREE.Quaternion();
+const _q2 = new THREE.Quaternion();
 const _seeds = new Float32Array(MAX_BONES * SEED_STRIDE);
 const _mask = new Uint8Array(MAX_BONES);
 const _skip = new Uint8Array(MAX_BONES);
@@ -256,7 +273,8 @@ export class Gore implements GoreSystem {
 
   /** True once a character has died into this system. Its animation must no longer be updated. */
   owns(char: CharacterInstance): boolean {
-    return this.owned.has(char);
+    const body = this.owned.get(char);
+    return body !== undefined && body.down === null;
   }
 
   raycastCharacter(char: CharacterInstance, origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number): CapsuleHit | null {
@@ -292,7 +310,8 @@ export class Gore implements GoreSystem {
     const out = corpseRing[corpseAt = (corpseAt + 1) % corpseRing.length]!;
     for (let i = 0; i < this.bodies.length; i++) {
       const b = this.bodies[i]!;
-      if (b.sinking >= 0) continue;
+      // A body that is only down is still an enemy, and enemies have their own ray test.
+      if (b.sinking >= 0 || b.down) continue;
       const hips = b.char.bones[0]!.matrixWorld.elements;
       if (!rayNearSphere(ox, oy, oz, dx, dy, dz, hips[12]!, hips[13]!, hips[14]!, b.info.reach[0]!, best)) continue;
       if (rayBones(b.info, b.char.bones, b.skip, ox, oy, oz, dx, dy, dz, best)) {
@@ -337,6 +356,7 @@ export class Gore implements GoreSystem {
   ragdoll(char: CharacterInstance, options?: RagdollOptions): void {
     const existing = this.owned.get(char);
     if (existing) {
+      if (existing.down) this.endDown(existing);
       if (existing.rag?.active) {
         // Rapid further hits kill outright, and a repeat death call on a body going down is exactly that.
         existing.rag.muscle?.dropNow();
@@ -354,13 +374,17 @@ export class Gore implements GoreSystem {
   }
 
   collapse(char: CharacterInstance, options?: CollapseOptions): void {
-    if (this.owned.has(char)) return;
+    const existing = this.owned.get(char);
+    if (existing) {
+      if (existing.down) this.endDown(existing);
+      return;
+    }
     const body = this.adopt(char);
-    this.beginCollapse(body, options?.duration ?? MuscleTuning.collapseSeconds, options?.velocity, options?.twitch);
+    this.beginCollapse(body, options?.duration ?? MuscleTuning.collapseSeconds, options?.velocity, options?.twitch, options?.hit);
   }
 
-  private beginCollapse(body: DeadBody, duration: number, velocity?: THREE.Vector3, twitch?: number): void {
-    const { char } = body;
+  private beginCollapse(body: DeadBody, duration: number, velocity?: THREE.Vector3, twitch?: number, hit?: CollapseOptions['hit']): void {
+    const { char, info } = body;
     // Short of GoreTuning.maxSimTime, with time left over to land.
     const seconds = clamp(duration, 0.3, 5);
     let drive: CollapseDrive | null = null;
@@ -371,8 +395,117 @@ export class Gore implements GoreSystem {
       drive = new CollapseDrive(char.anim, char.root, char.bones, seconds, velocity);
     }
     this.startRag(body, { velocity, twitch });
-    const muscle = body.rag!.muscle;
-    if (drive && muscle?.canStand()) muscle.startCollapse(drive);
+    const rag = body.rag!;
+    if (hit) rag.applyImpulse(hit.bone, hit.point, _v.copy(hit.dir).multiplyScalar(hit.force));
+    const muscle = rag.muscle;
+    if (!muscle) return;
+    if (drive && muscle.canStand()) {
+      if (hit) {
+        drive.away.set(hit.dir.x, 0, hit.dir.z).normalize();
+        const region = info.rig.bones[hit.bone]!.region;
+        if (region.startsWith('leg') || region.startsWith('shin')) drive.shotLeg = region.endsWith('L') ? 1 : -1;
+        char.anim.holdWound?.(hit.bone, hit.point, seconds);
+      }
+      muscle.startCollapse(drive);
+    }
+    if (hit) muscle.jolt(hit.bone, hit.point, hit.dir, joltOf(hit.force));
+  }
+
+  knockdown(char: CharacterInstance, options?: KnockdownOptions): boolean {
+    const existing = this.owned.get(char);
+    if (existing) {
+      if (!existing.down || !existing.rag) return false;
+      this.strikeDown(existing, existing.rag, options);
+      return true;
+    }
+    if (!MuscleTuning.enabled || !char.anim.getUp || this.knockedDown() >= GoreTuning.maxKnockdowns) return false;
+    const t = GoreTuning;
+    const hurt = options?.hurt ?? 0.6;
+    const ground = char.root.position.y;
+    const body = this.adopt(char);
+    body.down = new Knockdown(options?.rise ?? t.knockdownRise, hurt);
+    this.startRag(body, { velocity: options?.velocity, impact: options?.impact });
+    const rag = body.rag!;
+    const muscle = rag.muscle!;
+    const dir = options?.impact?.dir ?? options?.topple ?? null;
+    muscle.startReflex(new Reflex(rag, muscle, char.anim, { lie: options?.lie ?? t.knockdownLie, hurt, groundY: ground, dir }));
+    this.strikeDown(body, rag, options);
+    if (options?.topple) muscle.tip(options.topple);
+    body.down.center.copy(rag.center);
+    return true;
+  }
+
+  /** A hit on a body that is down and alive. It is added to whatever the body was doing. */
+  private strikeDown(body: DeadBody, rag: Rag, options: KnockdownOptions | undefined): void {
+    const muscle = rag.muscle;
+    if (options?.impulses) {
+      for (const i of options.impulses) {
+        this.push(rag, i.bone, i.point, i.impulse);
+        const force = i.impulse.length();
+        if (force > 0) muscle?.jolt(i.bone, i.point, _v.copy(i.impulse).divideScalar(force), joltOf(force));
+        muscle?.reflex?.struck(joltOf(force));
+      }
+    }
+    if (rag.age > 0) this.strike(rag, options, MuscleTuning.corpseImpact);
+    const wound = options?.wound;
+    if (wound && body.skip[wound.bone] !== 1) muscle?.reflex?.wound(wound.bone, wound.point);
+  }
+
+  downed(char: CharacterInstance): DownedBody | null {
+    return this.owned.get(char)?.down ?? null;
+  }
+
+  private knockedDown(): number {
+    let n = 0;
+    for (const b of this.bodies) if (b.down) n++;
+    return n;
+  }
+
+  /** It died down there. The fall goes on from where it had got to, and this is a corpse from now on. */
+  private endDown(b: DeadBody): void {
+    b.down = null;
+    const rag = b.rag;
+    if (!rag) return;
+    rag.muscle?.reflex?.die();
+    // Time it spent alive does not count against time to settle.
+    rag.age = Math.min(rag.age, 1);
+  }
+
+  /** Limbs are gathered. The animation takes over from exactly this pose, and the ragdoll goes. */
+  private handBack(b: DeadBody): void {
+    const { char } = b;
+    const rag = b.rag!;
+    const reflex = rag.muscle!.reflex!;
+    const chest = rag.parts[Math.min(1, rag.parts.length - 1)]!;
+    const hips = rag.parts[0]!;
+    // Lying on its back the feet lie toward +Z, on its front the head does. See getUp.ts.
+    _v.copy(chest.p).sub(hips.p).setY(0);
+    if (_v.lengthSq() < 1e-3) _v.set(0, 1, 0).applyQuaternion(hips.q).setY(0);
+    const away = reflex.kind === 'supine' ? -1 : 1;
+    const yaw = Math.atan2(_v.x * away, _v.z * away);
+    _v2.copy(hips.p);
+    _q.copy(hips.q);
+    rag.destroy();
+    this.release(b);
+
+    const c = Math.cos(yaw);
+    const s = Math.sin(yaw);
+    const start = reflex.startHips;
+    const root = char.root;
+    root.position.set(_v2.x - (start.x * c + start.z * s), reflex.groundY, _v2.z - (-start.x * s + start.z * c));
+    root.rotation.set(0, yaw, 0);
+    _v3.copy(_v2).sub(root.position).applyAxisAngle(_up, -yaw);
+    char.bones[0]!.position.copy(_v3);
+    char.bones[0]!.quaternion.copy(_q).premultiply(_q2.setFromAxisAngle(_up, -yaw));
+    root.updateMatrixWorld(true);
+    char.anim.getUp?.(reflex.kind, b.down!.rise, b.down!.hurt);
+  }
+
+  /** Out of this system, with the instance left as it is. */
+  private release(b: DeadBody): void {
+    this.owned.delete(b.char);
+    const at = this.bodies.indexOf(b);
+    if (at >= 0) this.bodies.splice(at, 1);
   }
 
   private collapsing(): number {
@@ -462,8 +595,8 @@ export class Gore implements GoreSystem {
     for (const b of this.bodies) if (b.rag?.active && b.sinking < 0) live++;
     for (let i = 0; i < this.bodies.length && live > GoreTuning.maxRagdolls; i++) {
       const b = this.bodies[i]!;
-      // Frozen mid-collapse, a body would stand there for good.
-      if (b !== keep && b.rag?.active && b.stakes.length === 0 && !b.rag.muscle?.collapse) {
+      // Frozen mid-collapse, a body would stand there for good. Frozen alive, it would never get up.
+      if (b !== keep && b.rag?.active && b.stakes.length === 0 && !b.rag.muscle?.collapse && !b.down) {
         this.freezeBody(b);
         live--;
       }
@@ -472,7 +605,7 @@ export class Gore implements GoreSystem {
     for (const b of this.bodies) if (b.sinking < 0) corpses++;
     for (let i = 0; i < this.bodies.length && corpses > GoreTuning.maxCorpses; i++) {
       const b = this.bodies[i]!;
-      if (b.sinking >= 0) continue;
+      if (b.sinking >= 0 || b.down) continue;
       this.sinkBody(b);
       corpses--;
     }
@@ -734,8 +867,16 @@ export class Gore implements GoreSystem {
   headshot(char: CharacterInstance, damage: DamageInfo, velocity?: THREE.Vector3): void {
     const info = rigInfo(char.rig);
     const neck = info.severBone.get('head');
+    const down = this.owned.get(char);
+    if (down?.down && neck !== undefined && !char.severed.has('head')) {
+      // The hold is for a body on its feet. On the floor it only has to lose the head.
+      this.endDown(down);
+      this.sever(char, 'head', damage);
+      if (damage.amount >= GoreTuning.headBurstDamage) this.ctx.fx.headBurst(damage.point, damage.dir);
+      return;
+    }
     if (neck === undefined || this.owned.has(char) || char.severed.has('head')) {
-      if (!this.owned.has(char)) this.ragdoll(char, { velocity });
+      if (!this.owned.has(char) || down?.down) this.ragdoll(char, { velocity });
       return;
     }
     const { fx, audio, time } = this.ctx;
@@ -968,8 +1109,13 @@ export class Gore implements GoreSystem {
         target.smearAt.copy(target.rag.center);
       }
       if (target.rag) this.push(target.rag, hit.bone, hit.point, _v.copy(damage.dir).multiplyScalar(forceOf(damage)));
-      target.rag?.muscle?.dropNow();
-      target.rag?.muscle?.kick(damage.dir, impactStrength(forceOf(damage), target.info.mass) * MuscleTuning.corpseImpact);
+      const muscle = target.rag?.muscle;
+      const jolt = joltOf(forceOf(damage));
+      muscle?.struck(impactStrength(forceOf(damage), target.info.mass));
+      muscle?.kick(damage.dir, impactStrength(forceOf(damage), target.info.mass) * MuscleTuning.corpseImpact);
+      muscle?.jolt(hit.bone, hit.point, damage.dir, jolt);
+      // Still on its feet, the animation it is following flinches too, and the muscles carry that as well.
+      muscle?.collapse?.flinch(hit.bone, damage.dir, 0.6 + jolt);
       char.addWound(hit.bone, hit.point, 0.05);
       audio.play('enemy_hit', { position: hit.point, volume: 0.4, pitchJitter: 0.1 });
       target.damage[hit.bone] = target.damage[hit.bone]! + damage.amount * (damage.severMult ?? 1);
@@ -1116,6 +1262,7 @@ export class Gore implements GoreSystem {
       rag.radialImpulse(center, radius, strength);
     }
     rag.muscle?.dropNow();
+    rag.muscle?.reflex?.thrown();
     const reach = strength * (1 - distance / radius);
     rag.muscle?.kick(_v.copy(rag.center).sub(center), clamp(reach / MuscleTuning.blastFull));
   }
@@ -1166,6 +1313,7 @@ export class Gore implements GoreSystem {
       rag.muscle?.sampleCollapse(dt);
       rag.drive();
       rag.measure(dt, t.calmSpeed, t.calmSpin);
+      rag.muscle?.sampleReflex(dt);
       if (!isMachine(b.char)) this.hear(rag);
       if (rag.speed > 1.2 && b.smearLeft > 0) {
         const moved = _v.copy(rag.center).sub(b.smearAt);
@@ -1175,6 +1323,11 @@ export class Gore implements GoreSystem {
           b.smearLeft--;
           this.blood.smear(rag.center, moved.x, moved.z, rand(0.5, 0.8));
         }
+      }
+      if (b.down) {
+        b.down.center.copy(rag.center);
+        if (rag.muscle?.reflex?.ready) this.handBack(b);
+        continue;
       }
       if (rag.calm > t.settleTime || rag.age > (b.stakes.length > 0 ? t.maxPinnedSimTime : t.maxSimTime)) this.freezeBody(b);
     }
@@ -1265,7 +1418,9 @@ export class Gore implements GoreSystem {
   clear(): void {
     for (const b of this.bodies) {
       b.rag?.destroy();
-      b.char.release();
+      // The living are not ours to release. Whoever owns it finds it back on its feet, or has released it already.
+      if (b.down) b.char.anim.getUp?.('prone', 0, 0);
+      else b.char.release();
     }
     this.bodies = [];
     this.owned.clear();
@@ -1296,7 +1451,7 @@ export class Gore implements GoreSystem {
   }
 
   /** Counts for the debug overlay and budget checks. */
-  stats(): { ragdolls: number; corpses: number; limbs: number; liveLimbs: number; limbSpeed: number; chunkBodies: number; rays: number; halves: number; jointGap: number; collapses: number } {
+  stats(): { ragdolls: number; corpses: number; limbs: number; liveLimbs: number; limbSpeed: number; chunkBodies: number; rays: number; halves: number; jointGap: number; collapses: number; knockdowns: number } {
     let ragdolls = 0;
     let corpses = 0;
     let jointGap = 0;
@@ -1317,7 +1472,7 @@ export class Gore implements GoreSystem {
     }
     return {
       ragdolls, corpses, limbs: this.limbs.length, liveLimbs, limbSpeed, chunkBodies: this.chunks.bodies,
-      rays: this.blood.raysUsed, halves: this.sliced.count, jointGap, collapses: this.collapsing(),
+      rays: this.blood.raysUsed, halves: this.sliced.count, jointGap, collapses: this.collapsing(), knockdowns: this.knockedDown(),
     };
   }
 }

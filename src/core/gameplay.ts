@@ -7,6 +7,7 @@
  */
 import type * as THREE from 'three';
 import type { GoreRegion } from '../characters/rig';
+import type { ContractDef } from '../contracts/data';
 import type { CharacterInstance, DamageInfo, DamageType, ExplosionKind, GameSystem, MuzzleKind, TracerKind } from './contracts';
 
 // ---------------------------------------------------------------------------------------------
@@ -292,9 +293,9 @@ export interface WaveSystem extends GameSystem {
 
 export type PerkId =
   | 'bloodthirst' | 'hellfire' | 'berserk' | 'adrenaline' | 'slowmo'
-  | 'sentinels' | 'chainStorm' | 'butcher' | 'skyfall' | 'chainReaction' | 'overdrive';
+  | 'sentinels' | 'chainStorm' | 'butcher' | 'skyfall' | 'chainReaction' | 'overdrive' | 'geneva';
 
-export type CallInId = 'airstrike' | 'warthog' | 'orbital' | 'blackSun' | 'nuke';
+export type CallInId = 'airstrike' | 'warthog' | 'orbital' | 'ac130' | 'blackSun' | 'nuke';
 
 export type PowerupId =
   | 'quad' | 'haste' | 'vampire' | 'ricochet' | 'shock' | 'ghost' | 'magnet' | 'regen' | 'frostNova' | 'timeWarp';
@@ -337,6 +338,25 @@ export interface ProgressionSystem extends GameSystem {
   readonly dangerClose: boolean;
   /** Everything worth a dot on the minimap, including weapon caches. */
   readonly pickups: readonly { kind: PickupKind; position: THREE.Vector3; active: boolean }[];
+}
+
+// ---------------------------------------------------------------------------------------------
+// Contracts
+// ---------------------------------------------------------------------------------------------
+
+export interface SonarState {
+  /** Seconds until the next ping. */
+  readonly wait: number;
+  /** The whole cooldown as it stands. It shortens when few enemies are left. */
+  readonly limit: number;
+  /** Seconds the enemies stay lit. */
+  readonly live: number;
+}
+
+/** The page's contract. Code that runs before systems exist reads `ACTIVE` from contracts/select.ts instead. */
+export interface ContractSystem extends GameSystem {
+  readonly def: ContractDef;
+  readonly sonar: SonarState;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -396,6 +416,7 @@ declare module './contracts' {
     enemies: EnemySystem;
     waves: WaveSystem;
     progression: ProgressionSystem;
+    contracts: ContractSystem;
     hud: HudSystem;
   }
 
@@ -424,5 +445,10 @@ declare module './contracts' {
     'combo:changed': { combo: number };
     'score:gain': { points: number; reason: string; position?: THREE.Vector3 };
     'pickup:collected': { kind: PickupKind; position: THREE.Vector3 };
+
+    /** The left hand has started for the helmet. */
+    'sonar:tap': Record<string, never>;
+    /** The ring went out. `origin` is reused, so copy it to keep it. */
+    'sonar:ping': { origin: THREE.Vector3 };
   }
 }

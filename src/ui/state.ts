@@ -69,6 +69,12 @@ export class HudState {
   remaining = 0;
   enemies: readonly EnemyInstance[] = NO_ENEMIES;
 
+  /** Seconds until the next ping, out of `sonarLimit`. */
+  sonarWait = 0;
+  sonarLimit = 1;
+  /** Seconds the enemies stay lit. */
+  sonarLive = 0;
+
   read(ctx: Ctx): void {
     const p = ctx.player as unknown as Record<string, unknown>;
     this.health = num(p.health, 100);
@@ -124,6 +130,11 @@ export class HudState {
     const e = ctx.enemies as unknown as Record<string, unknown>;
     this.remaining = num(e.remaining, 0);
     this.enemies = Array.isArray(e.alive) ? (e.alive as EnemyInstance[]) : NO_ENEMIES;
+
+    const sonar = ctx.contracts?.sonar as unknown as Record<string, unknown> | undefined;
+    this.sonarWait = num(sonar?.wait, 0);
+    this.sonarLimit = Math.max(num(sonar?.limit, 1), 0.001);
+    this.sonarLive = num(sonar?.live, 0);
   }
 
   hasCallIn(ctx: Ctx, id: CallInId): boolean {

@@ -18,6 +18,7 @@ import { clamp, lerp, mulberry32, smoothstep } from '../core/math';
 import type { JointRole } from '../characters/rig';
 import { GRAVITY, OWN_BLAST } from '../physics/Physics';
 import type { Rag, RagPart } from './rag';
+import type { Reflex } from './reflex';
 
 /** How a body goes down when it is not dropped outright. */
 export interface CollapseOptions {
@@ -27,6 +28,34 @@ export interface CollapseOptions {
   velocity?: THREE.Vector3;
   /** Death twitching once it is down, 0..1. */
   twitch?: number;
+  /** The shot that did it: where it goes in, and which way it was going. The body staggers on along it. */
+  hit?: { bone: number; point: THREE.Vector3; dir: THREE.Vector3; force: number };
+}
+
+/** Knocked off its feet and alive. Everything here is about how it lands and how long it stays there. */
+export interface KnockdownOptions {
+  /** World-space impulses, as on a ragdoll. A blast needs none: `Physics.radialImpulse` finds the body by itself. */
+  impulses?: { bone: number; point: THREE.Vector3; impulse: THREE.Vector3 }[];
+  /** What the character was already moving at. */
+  velocity?: THREE.Vector3;
+  /** Limbs thrown by the hit. Left out, it is worked out from `impulses`. */
+  impact?: { dir: THREE.Vector3; strength: number };
+  /** Metres per second put on the upper body, to tip it over its own feet. This is what makes a body fall and not fold. */
+  topple?: THREE.Vector3;
+  /** Seconds on the floor before it tries to get up. */
+  lie?: number;
+  /** Seconds the get-up takes. */
+  rise?: number;
+  /** 0 feels nothing and gets straight up, 1 is badly hurt. */
+  hurt?: number;
+  /** Where a hand should go. */
+  wound?: { bone: number; point: THREE.Vector3 };
+}
+
+/** What the owner of a knocked-down character reads each frame. */
+export interface DownedBody {
+  /** The hips, in the world. */
+  readonly center: THREE.Vector3;
 }
 
 // Added the way core/gameplay.ts adds to the contracts, so the shared file stays out of this system's changes.
@@ -45,6 +74,16 @@ declare module '../core/contracts' {
      * upper body first, then the legs give way. Falls back to a plain ragdoll past `GoreTuning.maxCollapses`.
      */
     collapse(char: CharacterInstance, options?: CollapseOptions): void;
+    /**
+     * Ragdoll without dying. The character stays the caller's: gore has its bones until it has got its limbs under it,
+     * then hands it back on the floor, already getting up, with `root` where it will stand. Read `downed` each frame
+     * to see where it is, and when that comes back null the character is yours again. Further calls on a body that is
+     * down are further hits. Any death call ends it, and the body goes on falling from where it was. False if the rig
+     * cannot get up, or past `GoreTuning.maxKnockdowns`: stagger it instead.
+     */
+    knockdown(char: CharacterInstance, options?: KnockdownOptions): boolean;
+    /** The knocked-down body, or null if gore does not have it. */
+    downed(char: CharacterInstance): DownedBody | null;
   }
 }
 
@@ -166,6 +205,22 @@ export const MuscleTuning = {
   toppleSpeed: 1.6,
   /** A hit during a collapse brings the end this much closer: time runs this many times faster from then on. */
   dropPace: 4,
+  /** Hit strength between which a collapse starts to give up. Below it a bullet jolts the body, and it goes on dying. */
+  dropFrom: 0.15,
+  dropFull: 0.7,
+
+  /** Force in newton-seconds that jolts a living or dying body as hard as one can be, and the curve under it. */
+  joltFull: 70,
+  joltCurve: 0.6,
+  /** Spin a jolt gives the struck limb, the joints up the chain from it, and the rest of the body, in rad/s. */
+  joltSpin: 9,
+  joltChain: 4.5,
+  joltSpread: 3.2,
+  /** Seconds the pulse lasts. A real flinch is over in the time it takes to see it. */
+  joltLenMin: 0.07,
+  joltLenMax: 0.15,
+  /** Share of a jolt a body still gives once its tone has gone. Nerves, not muscles. */
+  joltSpent: 0.3,
 
   /** Seconds that twitching lasts after the body goes limp. */
   twitchSeconds: 4.5,
@@ -281,6 +336,8 @@ export class CollapseDrive {
   /** Which way the body staggers, chosen when it does. */
   readonly away = new THREE.Vector3();
   weakLeg = 1;
+  /** The leg that was shot goes first. Zero if it does not matter. */
+  shotLeg = 0;
 
   /** Reads the pose and the root, so build this before the Rag takes them over. */
   constructor(
@@ -295,6 +352,13 @@ export class CollapseDrive {
     if (velocity) this.drift.set(velocity.x, 0, velocity.z);
     this.hipsLocal.copy(bones[0]!.position);
     this.local = bones.map(b => b.quaternion.clone());
+  }
+
+  /** A flinch reads the character's yaw, and while the ragdoll has the root that is gone. */
+  flinch(bone: number, dir: THREE.Vector3, magnitude: number): void {
+    this.root.quaternion.copy(this.facing);
+    this.anim.flinch(bone, dir, magnitude);
+    this.root.quaternion.identity();
   }
 }
 
@@ -313,6 +377,8 @@ const _vec = { x: 0, y: 0, z: 0 };
 
 /** Enough for a spasm to reach every joint of a person. */
 const MAX_BURST = 12;
+/** Pulses running at once. An SMG lands a round every 0.05 s, and each one sets off about three. */
+const MAX_JOLTS = 12;
 const WEIGHT = -GRAVITY;
 
 let nextSeed = 1;
@@ -367,6 +433,16 @@ function rotationBetween(from: THREE.Quaternion, to: THREE.Quaternion, out: THRE
   return out.set(e.x * k, e.y * k, e.z * k);
 }
 
+/** One short pulse across one joint. */
+class Jolt {
+  part: RagPart | null = null;
+  readonly axis = new THREE.Vector3();
+  /** Peak angular impulse per second. */
+  size = 0;
+  left = 0;
+  length = 1;
+}
+
 /** Muscle state of one Rag. */
 export class MuscleState {
   /** Seconds since the body let go of itself. Infinite on a corpse that was shot awake: it has no tone left. */
@@ -374,6 +450,14 @@ export class MuscleState {
   /** Strength of death twitching, 0 once it is over. */
   twitch = 0;
   collapse: CollapseDrive | null = null;
+  /** Alive and off its feet. See `reflex.ts`. */
+  reflex: Reflex | null = null;
+  /** Bone-sized scratch for anything that has to pose the skeleton and put it back. */
+  readonly boneScratch: THREE.Quaternion[];
+  private readonly jolts = Array.from({ length: MAX_JOLTS }, () => new Jolt());
+  private joltAt = 0;
+  /** Seconds until the last pulse ends. */
+  private jolting = 0;
   private readonly rng: () => number;
   private readonly slump: number;
   private totalMass = 1;
@@ -400,6 +484,12 @@ export class MuscleState {
   constructor(private readonly rag: Rag) {
     this.rng = mulberry32(nextSeed++ * 2654435761);
     this.slump = lerp(MuscleTuning.slumpMin, MuscleTuning.slumpMax, this.rng());
+    this.boneScratch = rag.source.bones.map(() => new THREE.Quaternion());
+  }
+
+  /** Each body has its own stream, so runs repeat. */
+  random(): number {
+    return this.rng();
   }
 
   /**
@@ -412,12 +502,17 @@ export class MuscleState {
 
   /** True while the body must not count as settled. */
   get busy(): boolean {
-    return this.collapse !== null || this.twitch > 0 || this.weightless;
+    return this.collapse !== null || this.reflex !== null || this.twitch > 0 || this.jolting > 0 || this.weightless;
   }
 
   /** True while muscles are moving the body themselves, so a sleeping one has to wake for them. */
   get driving(): boolean {
-    return this.collapse !== null || this.burstLeft > 0 || this.weightless;
+    return this.collapse !== null || this.reflex !== null || this.burstLeft > 0 || this.jolting > 0 || this.weightless;
+  }
+
+  /** How much of a joint's reaction the hold on the hips takes, which is none once nothing is holding them. */
+  private get support(): number {
+    return this.collapse?.support ?? 0;
   }
 
   /** Nothing presses a weightless body to rest, so stillness there says nothing about being finished. */
@@ -438,6 +533,8 @@ export class MuscleState {
     const t = MuscleTuning;
     this.burstLeft = 0;
     this.burstCount = 0;
+    for (const j of this.jolts) j.left = 0;
+    this.reflex?.bind();
 
     let total = 0;
     let legs = 0;
@@ -558,6 +655,7 @@ export class MuscleState {
       else this.ball(c, p, m, q, rel, ligament * free, tone * free, dt);
     }
     if (this.twitch > 0) this.stepTwitch(dt);
+    if (this.jolting > 0) this.stepJolts(dt);
     if (drive) this.holdHips(drive, dt);
   }
 
@@ -588,7 +686,7 @@ export class MuscleState {
       else if (target < -Math.PI) target += Math.PI * 2;
       const k = this.stiffness(m);
       const d = 2 * t.driveDamping * Math.sqrt(k * m.inertia);
-      const back = 1 - this.collapse!.support;
+      const back = 1 - this.support;
       const free = invInertia(c, axis) + back * invInertia(p, axis);
       const impulse = (t.driveRelax * (k * (target - angle) - d * speed) * dt) / (1 + (d * dt + k * dt * dt) * free);
       c.tau.addScaledVector(axis, impulse);
@@ -638,7 +736,7 @@ export class MuscleState {
       const d = 2 * t.driveDamping * Math.sqrt(k * m.inertia);
       // While the hips are held the hold takes the reaction, so every body answers to one controller. As support
       // fades the reaction lands on the parent, and what is left are true joint torques carrying real weight.
-      const back = 1 - this.collapse!.support;
+      const back = 1 - this.support;
       // Along the error, since a body offers far less inertia about some axes than others.
       const size = e.length();
       const free = size > 1e-5 ? invInertia(c, _a.copy(e).divideScalar(size)) + back * invInertia(p, _a) : 1 / m.inertia;
@@ -666,7 +764,7 @@ export class MuscleState {
     this.hold = Math.min(1, rag.age / t.limitRise);
     this.ligament = 1 - smoothstep(t.limitLetGoStart, t.limitLetGoEnd, rag.quiet);
     this.elastic = smoothstep(t.limitElasticLow, t.limitElasticHigh, rag.speed);
-    if (this.collapse) return;
+    if (this.collapse || this.reflex?.dying === -1) return;
     if (!this.weightless || this.limp < t.toneHold) this.limp += dt;
     const tone = smoothstep(0, t.toneRise, this.limp) * (1 - smoothstep(t.toneHold, t.toneHold + t.toneFade, this.limp));
     this.tone = tone;
@@ -691,7 +789,10 @@ export class MuscleState {
   /** The chain has left the world. */
   stop(): void {
     this.collapse = null;
+    this.reflex = null;
     this.twitch = 0;
+    this.jolting = 0;
+    for (const j of this.jolts) j.left = 0;
   }
 
   // -------------------------------------------------------------------------------------------
@@ -789,7 +890,7 @@ export class MuscleState {
   }
 
   startCollapse(drive: CollapseDrive): void {
-    drive.weakLeg = this.rng() < 0.5 ? 1 : -1;
+    drive.weakLeg = drive.shotLeg || (this.rng() < 0.5 ? 1 : -1);
     this.collapse = drive;
     this.limp = 0;
     this.tone = 1;
@@ -800,6 +901,117 @@ export class MuscleState {
   /** Something hit a body that was going down anyway. It stops trying. */
   dropNow(): void {
     if (this.collapse) this.collapse.pace = MuscleTuning.dropPace;
+  }
+
+  /**
+   * The same for a hit of this strength, 0..1. Bullets must not end a collapse, or a body under fire goes down faster the
+   * more it is shot, and there is nothing left to see. They jolt it, and it goes on dying at the rate it was.
+   */
+  struck(strength: number): void {
+    const t = MuscleTuning;
+    const c = this.collapse;
+    if (c) c.pace = Math.max(c.pace, lerp(1, t.dropPace, smoothstep(t.dropFrom, t.dropFull, strength)));
+  }
+
+  /** Alive, and from now on working out its own pose. */
+  startReflex(reflex: Reflex): void {
+    this.reflex = reflex;
+    this.limp = 0;
+    this.tone = 1;
+  }
+
+  /** Runs once a frame, after Rag.measure. */
+  sampleReflex(dt: number): void {
+    const r = this.reflex;
+    if (!r) return;
+    r.sample(dt);
+    if (r.dying !== 0) return;
+    this.reflex = null;
+    for (const part of this.rag.parts) part.muscle!.drive = 0;
+    // Already at full tone: it must not dip and rise again as the drive lets go.
+    this.limp = MuscleTuning.toneRise;
+  }
+
+  /** Tips the upper body by this speed, in m/s. Internal to nothing: this is momentum, and it is meant to be. */
+  tip(speed: THREE.Vector3): void {
+    const parts = this.rag.parts;
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i]!;
+      const role = part.muscle!.role;
+      if (role === 'leg' || !part.parent) continue;
+      _vec.x = speed.x * part.mass;
+      _vec.y = speed.y * part.mass;
+      _vec.z = speed.z * part.mass;
+      part.body.applyImpulse(_vec, true);
+    }
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // Jolts
+  // -------------------------------------------------------------------------------------------
+
+  /**
+   * A round going into a body with something still alive in it. All of this is torque across joints, each with its
+   * reaction on the parent, so it moves the limbs against each other and cannot move the body as a whole. That is what
+   * lets twenty rounds a second make it dance without throwing it across the room.
+   */
+  jolt(bone: number, point: THREE.Vector3, dir: THREE.Vector3, strength: number): void {
+    const { rag, rng } = this;
+    const t = MuscleTuning;
+    const parts = rag.parts;
+    // Spent, or on a limb with nothing above it, there is no joint for this to work across.
+    if (parts.length < 2 || strength <= 0 || !Number.isFinite(strength + dir.x + dir.y + dir.z)) return;
+    const size = this.tone > 0 || this.collapse || this.reflex ? strength : strength * t.joltSpent;
+    let part: RagPart | null = rag.partFor(bone);
+    part.body.translation(part.p);
+    // The struck limb turns about its joint, away from the shot.
+    _lever.copy(point).sub(part.p);
+    _axis.crossVectors(_lever, dir);
+    if (_axis.lengthSq() < 1e-6) _axis.set(rng() - 0.5, rng() - 0.5, rng() - 0.5);
+    _axis.normalize();
+    if (part.parent) this.addJolt(part, _axis, t.joltSpin * size);
+    // And it travels up the chain, so a shot in the arm is felt in the shoulder and a shot in the belly doubles the body.
+    for (let up = part.parent ?? this.firstJoint(); up?.parent; up = up.parent) this.addJolt(up, _axis, t.joltChain * size);
+    // The rest of the body flinches with it, and which part does is what keeps it from looking like a machine.
+    for (let i = 0; i < 2; i++) {
+      part = parts[Math.floor(rng() * parts.length)]!;
+      if (!part.parent) continue;
+      _a.set(rng() - 0.5, rng() - 0.5, rng() - 0.5).normalize();
+      this.addJolt(part, _a, t.joltSpread * size);
+    }
+  }
+
+  private firstJoint(): RagPart | null {
+    const parts = this.rag.parts;
+    for (let i = 0; i < parts.length; i++) if (parts[i]!.muscle!.role === 'spine') return parts[i]!;
+    return null;
+  }
+
+  private addJolt(part: RagPart, axis: THREE.Vector3, spin: number): void {
+    const t = MuscleTuning;
+    const j = this.jolts[this.joltAt = (this.joltAt + 1) % MAX_JOLTS]!;
+    j.part = part;
+    j.axis.copy(axis);
+    j.length = j.left = lerp(t.joltLenMin, t.joltLenMax, this.rng());
+    // A sine squared carries half its peak over its length, and the joint's own inertia sizes it, so it cannot overshoot.
+    j.size = (part.muscle!.inertia * spin * 2) / j.length;
+    this.jolting = Math.max(this.jolting, j.length);
+  }
+
+  private stepJolts(dt: number): void {
+    this.jolting -= dt;
+    for (let i = 0; i < MAX_JOLTS; i++) {
+      const j = this.jolts[i]!;
+      if (j.left <= 0) continue;
+      j.left -= dt;
+      const c = j.part!;
+      const p = c.parent;
+      if (!p) continue;
+      const wave = Math.sin(Math.PI * clamp(1 - j.left / j.length));
+      const impulse = j.size * wave * wave * dt;
+      c.tau.addScaledVector(j.axis, impulse);
+      p.tau.addScaledVector(j.axis, -impulse);
+    }
   }
 
   /** Runs once a frame, before Rag.drive. Moves the ghost, runs the animator, reads the joint targets. */
@@ -837,10 +1049,10 @@ export class MuscleState {
   private stumble(drive: CollapseDrive): void {
     const { rng } = this;
     drive.stumbled = true;
-    // Onward if it was moving, somewhere random if it was not. The animator takes real steps to keep up.
+    // Onward if it was moving, along the shot if it was shot, somewhere random if neither. The animator takes real steps to keep up.
     const speed = Math.hypot(drive.drift.x, drive.drift.z);
     if (speed > MuscleTuning.stumbleOnward) drive.away.set(drive.drift.x / speed, 0, drive.drift.z / speed);
-    else {
+    else if (drive.away.lengthSq() < 1e-6) {
       const a = rng() * Math.PI * 2;
       drive.away.set(Math.cos(a), 0, Math.sin(a));
     }

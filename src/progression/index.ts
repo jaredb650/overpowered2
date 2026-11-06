@@ -101,6 +101,7 @@ class Progression implements ProgressionSystem {
     events.on('enemy:killed', e => { if (DevFlags.progression) this.onKill(e); });
     events.on('enemy:hit', e => { if (DevFlags.progression) this.onHit(e.enemy, e.damage, e.result); });
     events.on('enemy:severed', e => { if (DevFlags.progression) this.onSevered(e.enemy, e.damage); });
+    events.on('enemy:executed', e => { if (DevFlags.progression) this.onExecuted(e.kill.enemy); });
     events.on('wave:clear', e => {
       if (e.bonus > 0) this.scoreKeeper.add(e.bonus, 'wave');
       this.scoreKeeper.persist();
@@ -247,6 +248,11 @@ class Progression implements ProgressionSystem {
     this.severedAt.set(enemy.uid, now);
     this.tripStyle('butcher', now);
     if (this.severedAt.size > MAX_SEVER_MEMORY) this.severedAt.clear();
+  }
+
+  private onExecuted(enemy: EnemyInstance): void {
+    this.scoreKeeper.onExecution(enemy, this.combo);
+    this.perks.grant('geneva');
   }
 
   private drain(e: KillEvent): void {

@@ -162,6 +162,13 @@ export interface RenderSystem extends GameSystem {
   readonly depthTexture: THREE.DepthTexture | null;
   /** Render one frame. Reads the camera as left by CameraRig. */
   render(): void;
+  /**
+   * X-ray: draws these meshes as silhouettes through anything in front of them, for the next rendered frame only.
+   * Call it every frame they should show, so a pooled character can never stay lit. `strength` 0..1 fades them.
+   */
+  highlight(meshes: readonly THREE.Object3D[], color: THREE.ColorRepresentation, strength?: number): void;
+  /** A ring that sweeps out from `origin` at `speed` m/s over every surface in view, and dies out at `reach` metres. */
+  sweep(origin: THREE.Vector3, color: THREE.ColorRepresentation, speed: number, reach: number): void;
   /** Quality preset 0 (low) to 3 (ultra). */
   setQuality(level: number): void;
   drawCalls(): number;
@@ -524,7 +531,7 @@ export type Action =
   | 'forward' | 'back' | 'left' | 'right' | 'jump' | 'dash' | 'slide' | 'fire' | 'aim' | 'reload'
   | 'melee' | 'grenade' | 'interact' | 'weaponNext' | 'weaponPrev' | 'weaponLast'
   | 'weapon1' | 'weapon2' | 'weapon3' | 'weapon4' | 'weapon5' | 'weapon6' | 'weapon7' | 'weapon8' | 'weapon9' | 'weapon0'
-  | 'streak' | 'callinWarthog' | 'callinOrbital' | 'callinBlackSun' | 'callinNuke'
+  | 'streak' | 'callinWarthog' | 'callinOrbital' | 'callinAc130' | 'callinBlackSun' | 'callinNuke' | 'sonar'
   | 'pause' | 'scoreboard' | 'debugFps' | 'debugOverlay';
 
 export interface InputSystem extends GameSystem {

@@ -1,11 +1,11 @@
-/** Guide: controls, movement, weapons, perks, call-ins and enemies. Tabs cut instantly, and every panel fits without scrolling. */
+/** Guide: controls, movement, weapons, perks, call-ins, enemies and credits. Tabs cut instantly, and every panel fits without scrolling. */
 import type { Action, Ctx } from '../../core/contracts';
 import type { CallInId, PerkId, PowerupId } from '../../core/gameplay';
 import { labelForCode } from '../../input/bindings';
 import { div, h, markup, span } from '../dom';
 import {
-  CALLIN_NOTE, CALLIN_ORDER, CALLINS, CONTROLS_NOTE, ENEMY_GUIDE, ENEMY_NAMES, ENEMY_NOTE, GRENADE_NOTE, KEY_GROUPS, MOVEMENT_GUIDE, PERKS,
-  PICKUP_GUIDE, POWERUP_NOTE, POWERUPS, SLIDE_NOTE, WEAPON_ORDER, WEAPONS, WEAPONS_NOTE,
+  CALLIN_NOTE, CALLIN_ORDER, CALLINS, CONTROLS_NOTE, CREDITS, CREDITS_NOTE, ENEMY_GUIDE, ENEMY_NAMES, ENEMY_NOTE, GRENADE_NOTE, KEY_GROUPS, MOVEMENT_GUIDE,
+  PERK_NOTE, PERKS, PICKUP_GUIDE, POWERUP_NOTE, POWERUPS, SLIDE_NOTE, WEAPON_ORDER, WEAPONS, WEAPONS_NOTE,
 } from '../data';
 import type { Hud } from '../Hud';
 import { GRENADE_ICON, weaponIcon } from '../icons';
@@ -70,6 +70,7 @@ function perksPanel(): HTMLElement {
   const perkIds = Object.keys(PERKS) as PerkId[];
   return div('gd-panel',
     div('gd-list', ...perkIds.map(id => div('gd-prow', chip(PERKS[id].color, PERKS[id].name), span('gd-trigger', PERKS[id].trigger), span('gd-body', PERKS[id].reward)))),
+    span('gd-note', PERK_NOTE),
   );
 }
 
@@ -102,6 +103,13 @@ function enemiesPanel(): HTMLElement {
   );
 }
 
+function creditsPanel(): HTMLElement {
+  return div('gd-panel',
+    div('gd-list', ...CREDITS.map(c => div('gd-row gd-credit', span('gd-name', c.who), span('gd-body', c.what), span('gd-trigger', c.licence)))),
+    span('gd-note', CREDITS_NOTE),
+  );
+}
+
 export class GuideScreen implements Screen {
   readonly el: HTMLElement;
   private tabs: NavItem[];
@@ -111,8 +119,8 @@ export class GuideScreen implements Screen {
 
   constructor(private readonly ctx: Ctx, private readonly hud: Hud) {
     // Built on selection, because three of them show the player's current key bindings.
-    this.panels = [() => controlsPanel(ctx), () => movementPanel(ctx), weaponsPanel, perksPanel, () => callInsPanel(ctx), enemiesPanel];
-    const names = ['Controls', 'Movement', 'Weapons', 'Perks', 'Call-ins', 'Enemies'];
+    this.panels = [() => controlsPanel(ctx), () => movementPanel(ctx), weaponsPanel, perksPanel, () => callInsPanel(ctx), enemiesPanel, creditsPanel];
+    const names = ['Controls', 'Movement', 'Weapons', 'Perks', 'Call-ins', 'Enemies', 'Credits'];
     this.tabs = names.map((label, i) => {
       const el = h('button', 'tab', label);
       el.type = 'button';
