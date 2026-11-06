@@ -29,6 +29,7 @@ import { MAX_SQUAD, waveStrength } from '../outpost/doctrine';
 import type { Outpost } from '../outpost';
 import type { Soldier } from '../outpost/soldier';
 import { soldierOf } from '../outpost/soldier';
+import type { Door } from '../outpost/squad';
 import { ADAPTATIONS, FINAL_WAVE, phaseOf, TRICKS, type AdaptationId, type Phase, type TrickId } from './adaptations';
 import { Barricades } from './barricades';
 import { Devices } from './devices';
@@ -42,7 +43,7 @@ import { Person } from './person';
 import { Posts } from './posts';
 import { Props } from './props';
 import { Smoke } from './smoke';
-import { StyleTracker, type DoorMark } from './tracker';
+import { StyleTracker } from './tracker';
 import { Traps } from './traps';
 import { unitOf, Units } from './units';
 
@@ -50,6 +51,8 @@ import { unitOf, Units } from './units';
 const WATCH_EVERY = 0.25;
 /** Seconds the box may hold the next wave for, at the most. */
 const BRIEFING_SECONDS = 14;
+/** Long enough for his last words and the Council's receipt, and never reached. */
+const RUN_OVER = 60;
 /** Skipped, this is what is left of the break. */
 const AFTER_SKIP = 3;
 /** Men over the wave's strength a Commander may field. Past this, ordinary squads stay home. */
@@ -112,6 +115,8 @@ export class Commander {
   private lockFor: CallInId | null = null;
   /** The room the player spent the last wave in. */
   lastRoom = '';
+  /** Every door on the map, shut or not. What the tracker's numbers index. */
+  doorList: readonly Door[] = [];
 
   constructor(readonly w: AiWorld, readonly o: Outpost, readonly manager: EnemyManager) {
     this.props = new Props(w.ctx);
@@ -164,7 +169,8 @@ export class Commander {
   reset(): void {
     if (!this.mapReady && this.o.doors.length > 0) {
       this.mapReady = true;
-      this.tracker.setDoors(this.o.doors as readonly DoorMark[]);
+      this.doorList = this.o.doors;
+      this.tracker.setDoors(this.doorList);
     }
     this.tracker.reset();
     this.units.reset();
@@ -264,6 +270,8 @@ export class Commander {
 
   /** The wave is clear. Writes up the round, picks the answer and returns how long the break is. */
   intermission(wave: number, base: number): number {
+    // Nothing comes after the last wave. The box is already saying goodbye.
+    if (this.person.dead) return RUN_OVER;
     const report = this.tracker.closeRound(wave);
     this.lastRoom = report.room;
     const next = wave + 1;

@@ -27,7 +27,7 @@ export interface Line {
 /** What a reaction can be about. Each is a row in `pick.ts` that says when it applies. */
 export type Topic =
   | 'door' | 'camp' | 'weapon' | 'headshots' | 'limbs' | 'executions' | 'untouched' | 'hurt' | 'sonar' | 'pickups' | 'callIns' | 'melee'
-  | 'speed' | 'highGround' | 'room' | 'accuracy' | 'quick' | 'slow' | 'fallen' | 'gift' | 'generic';
+  | 'speed' | 'highGround' | 'room' | 'accuracy' | 'range' | 'quick' | 'slow' | 'fallen' | 'gift' | 'generic';
 
 export type TrapCause = 'mortar' | 'mine' | 'tripwire' | 'claymore' | 'snare' | 'rigged' | 'deadman' | 'sniper' | 'falseSurrender' | 'manpads';
 
@@ -324,6 +324,22 @@ const REACTIONS: Record<Topic, Record<Tone, Keyed>> = {
     },
     cracked: {
       casings: '{n} rounds. I\'ve been collecting the casings. I\'m building something. Don\'t worry about it.',
+    },
+  },
+  range: {
+    smug: {
+      inside: 'Your longest kill was {n} metres. You could come inside, you know. We\'d put the kettle on.',
+      shy: '{n} metres. That\'s very far away, for something so confident.',
+    },
+    irritated: {
+      postcode: '{n} metres. He was in a different postcode. He was on his break.',
+      ranges: 'We have a firing range. It\'s {n} metres. You\'ve been using it from the wrong end.',
+    },
+    rattled: {
+      where: '{n} metres. They didn\'t even hear it. They just fell over mid-sentence.',
+    },
+    cracked: {
+      telescope: '{n} metres. I\'ve bought a telescope. I look at you, and you look at me.',
     },
   },
   quick: {
@@ -927,7 +943,7 @@ const SECONDS: readonly (readonly [number, string])[] = [[10, 'ten'], [30, 'thir
 const DAMAGE: readonly (readonly [number, string])[] = [[50, 'fifty'], [100, 'a hundred'], [200, 'two hundred']];
 
 export const COUNT_BANDS: Readonly<Partial<Record<Topic, readonly (readonly [number, string])[]>>> = {
-  door: SHOTS, accuracy: SHOTS, camp: SECONDS, quick: SECONDS, slow: [[120, 'a hundred and twenty'], [180, 'a hundred and eighty'], [300, 'three hundred']], hurt: DAMAGE,
+  door: SHOTS, accuracy: SHOTS, range: [[20, 'twenty'], [30, 'thirty'], [40, 'forty'], [60, 'sixty']], camp: SECONDS, quick: SECONDS, slow: [[120, 'a hundred and twenty'], [180, 'a hundred and eighty'], [300, 'three hundred']], hurt: DAMAGE,
   headshots: SMALL, limbs: SMALL, executions: SMALL, sonar: SMALL, pickups: SMALL, callIns: SMALL, melee: SMALL, gift: SMALL,
 };
 

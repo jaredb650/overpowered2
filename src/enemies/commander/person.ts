@@ -15,6 +15,8 @@ const ENTRY_DELAY = 26;
 const BARK_AT = [0.8, 0.6, 0.4, 0.2];
 const SHELL_EVERY = 16;
 const SHELLS = 5;
+/** Men left standing when he stops waiting. */
+const HOLD_OUT = 2;
 
 
 export class Person {
@@ -54,7 +56,8 @@ export class Person {
     const { c } = this;
     const { w } = c;
     const now = w.now;
-    if (this.dueAt >= 0 && now >= this.dueAt) this.arrive();
+    // He does not wait for the last man to die. He has that much pride left.
+    if (this.dueAt >= 0 && (now >= this.dueAt || c.o.hostile <= HOLD_OUT)) this.arrive();
     const e = this.body;
     if (!e) return;
     if (!e.alive) {

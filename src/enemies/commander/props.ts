@@ -22,6 +22,7 @@ interface Fit {
   bone: number;
   at: readonly [number, number, number];
   rot?: readonly [number, number, number];
+  scale?: number;
   build(b: ModelBuilder): void;
 }
 
@@ -61,8 +62,9 @@ const FITS: Record<PropKind, Fit> = {
     bone: B.handR, at: [0, 0.08, 0.02],
     build: b => b.box(0.05, 0.11, 0.05, 0xb79c3a).glow(new THREE.SphereGeometry(0.024, 8, 6), RED, 7, { at: [0, 0.07, 0] }),
   },
+  // Only the suit wears this, and the suit's head is twice a man's. It sits high and large or the helmet swallows it.
   cap: {
-    bone: B.head, at: [0, 0.21, 0.01],
+    bone: B.head, at: [0, 0.42, 0.02], scale: 2.1,
     build: b => b.cyl(0.17, 0.14, 0.08, 12, 0x1b2230).cyl(0.13, 0.13, 0.02, 12, 0xb79c3a, { at: [0, -0.03, 0] }).box(0.2, 0.015, 0.1, 0x0d1016, { at: [0, -0.05, 0.13], rot: [0.25, 0, 0] }).glow(new THREE.BoxGeometry(0.05, 0.05, 0.015), 0xffd070, 2, { at: [0, 0.01, 0.15] }),
   },
 };
@@ -83,6 +85,7 @@ export class Props {
     const model = this.materials.group(b, this.materials.nearby);
     model.position.set(fit.at[0], fit.at[1], fit.at[2]);
     if (fit.rot) model.rotation.set(fit.rot[0], fit.rot[1], fit.rot[2]);
+    if (fit.scale) model.scale.setScalar(fit.scale);
     return model;
   }
 

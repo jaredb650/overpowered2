@@ -65,6 +65,7 @@ const RULES: readonly { topic: Topic; score(r: RoundReport): number; fill?(r: Ro
   { topic: 'speed', score: r => (r.fastSeconds >= 15 ? Math.min(0.3 + r.fastSeconds / 90, 0.7) : 0) },
   { topic: 'room', score: r => (r.room && r.roomShare > 0.6 ? 0.42 : 0), fill: r => ({ room: r.room }) },
   { topic: 'accuracy', score: r => (r.shots >= 120 && r.kills / r.shots < 0.05 ? 0.5 : 0), fill: r => ({ n: r.shots }) },
+  { topic: 'range', score: r => (r.longestKill >= 30 ? Math.min(r.longestKill / 80, 0.65) : 0), fill: r => ({ n: Math.round(r.longestKill) }) },
   { topic: 'quick', score: r => (r.seconds < QUICK_ROUND && r.kills > 0 ? 0.48 : 0), fill: r => ({ n: Math.round(r.seconds) }) },
   { topic: 'slow', score: r => (r.seconds > SLOW_ROUND ? 0.4 : 0), fill: r => ({ n: Math.round(r.seconds) }) },
 ];

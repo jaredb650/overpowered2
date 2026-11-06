@@ -93,9 +93,9 @@ export class Posts {
 
   /** A hot door, and a place beside it on the far side. `seat` spreads a squad either side of the frame. */
   ambush(seat: number, out: THREE.Vector3): boolean {
-    const { o, tracker, w } = this.c;
+    const { doorList, tracker, w } = this.c;
     const hot = tracker.hotDoors(3);
-    const door = o.doors[hot[Math.min(hot.length - 1, seat % Math.max(hot.length, 1))] ?? Math.floor(Math.random() * o.doors.length)];
+    const door = doorList[hot[Math.min(hot.length - 1, seat % Math.max(hot.length, 1))] ?? Math.floor(Math.random() * doorList.length)];
     if (!door) return false;
     // Whichever side of it the player is not on.
     const side = (w.player.position.x - door.x) * door.dx + (w.player.position.z - door.z) * door.dz > 0 ? -1 : 1;
@@ -107,9 +107,9 @@ export class Posts {
 
   /** Somewhere to watch a door from, and the point on it to watch. */
   lane(seat: number, watch: THREE.Vector3, out: THREE.Vector3): boolean {
-    const { o, tracker, w } = this.c;
+    const { doorList, o, tracker, w } = this.c;
     const hot = tracker.hotDoors(1);
-    const door = o.doors[hot[0] ?? 0];
+    const door = doorList[hot[0] ?? 0];
     if (!door) return false;
     watch.set(door.x, 1.2, door.z);
     const spots = o.cover.spots;

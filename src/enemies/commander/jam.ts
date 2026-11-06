@@ -53,6 +53,8 @@ export class SonarJam {
   /** Wraps the sonar's only way of drawing. Once, for the life of the page. */
   init(): void {
     const { render } = this.c.w.ctx;
+    // A headless run has no picture to protect.
+    if (typeof render.highlight !== 'function') return;
     const base: Highlight = render.highlight.bind(render);
     render.highlight = (meshes, color, strength) => {
       if (this.hidden.size === 0) {
@@ -77,7 +79,8 @@ export class SonarJam {
     const { w, units, devices } = this.c;
     const now = w.now;
     if (now >= this.refreshAt) this.refresh(now);
-    const live = w.ctx.contracts.sonar.live;
+    // Headless runs of the Outpost have no contract system.
+    const live = w.ctx.contracts?.sonar.live ?? 0;
     if (live <= 0) return;
     const fade = Math.min(1, live / SONAR.fade);
     const ghosts = this.ghosts;

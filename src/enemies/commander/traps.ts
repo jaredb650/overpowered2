@@ -78,11 +78,11 @@ export class Traps {
 
   /** The doors to work on, busiest first, topped up with any door when the player has not shown a route yet. */
   private doors(count: number): Door[] {
-    const { o, tracker } = this.c;
+    const { doorList, o, tracker } = this.c;
     const out: Door[] = [];
     const seen = new Set<Door>();
     for (const i of tracker.hotDoors(count)) {
-      const d = o.doors[i];
+      const d = doorList[i];
       if (d) {
         out.push(d);
         seen.add(d);
@@ -113,8 +113,6 @@ export class Traps {
     if (c.hasTrick('riggedRooms') || c.has('falseChatter')) this.rigRoom();
     if (c.hasTrick('barricades') && c.barricades.drop(1) > 0) c.radio('radio.barricade.down', null);
     this.chatterAt = c.w.now + rand(10, 18);
-    c.w.ctx.audio.play('metal_groan', { volume: 0.4 });
-
   }
 
   private layMines(target: number): void {
@@ -200,6 +198,7 @@ export class Traps {
   private rigPickups(): void {
     const { c } = this;
     const list = c.w.ctx.progression.pickups;
+    if (!Array.isArray(list)) return;
     let rigged = 0;
     for (let i = this.rigged.length - 1; i >= 0; i--) if (this.rigged[i]!.live) rigged++;
     for (const p of list) {

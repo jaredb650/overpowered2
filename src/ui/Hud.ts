@@ -53,6 +53,8 @@ interface PickupSource {
 
 /** Long enough to see what killed you, short enough to still be angry about it. */
 const DEATH_BEAT = 1.5;
+/** Long enough to read the band. */
+const FULFILLED_BEAT = 2.6;
 /** Chrome refuses a lock for about 1.25 s after Esc, so a resume keeps asking for a little longer than that. */
 const LOCK_RETRY_FOR = 1.7;
 const LOCK_RETRY_EVERY = 0.3;
@@ -291,7 +293,7 @@ export class Hud implements HudSystem {
   private fulfilled(): void {
     if (this.deathClock > 0) return;
     this.contractDone = true;
-    this.deathClock = 0.01;
+    this.deathClock = FULFILLED_BEAT;
     this.bannerLanes.showBand('clear', 'CONTRACT FULFILLED', '');
   }
 
@@ -453,6 +455,7 @@ export class Hud implements HudSystem {
     this.seatPanel?.update();
     this.worldLayer.update(dt);
     this.boss.update(s, dt);
+    this.commander?.nameBoss(this.boss.el);
     this.bannerLanes.update(dt);
     this.scope.update(s, dt);
     this.targeting.update(s, dt);

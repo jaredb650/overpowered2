@@ -2,7 +2,8 @@
 //
 //   CMD_CASES=box,mortar node tools/shot.mjs --url "/?map=killhouse&autostart=1&dev=1" --w 1920 --h 1080 --script tools/scripts/commander-live.mjs --out tools/out/cmd.png --wait 500 --timeout 170
 //
-// Cases: box mortar sniper jammer mines surrender pickups barricade smoke person swarm. Each writes tools/out/cmd-<case>.png.
+// Cases: box campBot mortar sniper jammer mines surrender bodies rest lanes air gift voice person finale swarm. Each writes tools/out/<out>-<case>.png.
+// `swarm` wants a plain "/?autostart=1", and needs no Commander. Every other case wants the Outpost.
 const cases = (process.env.CMD_CASES ?? 'box,mortar,jammer,mines,surrender').split(',');
 
 export default async function live(page, h) {
@@ -14,6 +15,8 @@ export default async function live(page, h) {
     await h.sleep(1000);
   }
   out.boot = Math.round((Date.now() - started) / 1000);
+
+  if (cases[0] === 'swarm') return { ...out, swarm: await CASES.swarm(page, h, shot) };
 
   await page.evaluate(() => {
     const { ctx } = window.__op2;
@@ -117,6 +120,240 @@ const reset = async (page, h) => {
 };
 
 const CASES = {
+  /** The swarm's game, which none of this may touch. */
+  async swarm(page, h, shot) {
+    await h.sleep(9000);
+    await shot('swarm');
+    return page.evaluate(() => {
+      const { ctx } = window.__op2;
+      const ids = {};
+      for (const e of ctx.enemies.alive) ids[e.id] = (ids[e.id] ?? 0) + 1;
+      return {
+        contract: ctx.contracts.def.id, outpost: ctx.enemies.outpost, wave: ctx.waves.wave, remaining: ctx.enemies.remaining, alive: ids,
+        wavesClass: ctx.waves.constructor.name, box: document.querySelectorAll('.cmd-box').length, commanderHud: ctx.hud.commander,
+        behaviours: [...new Set(ctx.enemies.alive.map(e => e.behaviour?.name))],
+      };
+    });
+  },
+
+  /** A close look at the suit, and a shell on one of his own men, which should pay as a gift. */
+  async gift(page, h, shot) {
+    const info = await page.evaluate(() => {
+      const c = window.__c;
+      const at = window.__floor(0, -19);
+      const e = window.__man(null, 'juggernaut', at);
+      e.behaviours = [];
+      e.attacks = [];
+      c.props.fit(e.char, 'cap');
+      window.__frame(at, 8.5, 3);
+      const man = window.__man(null, 'trooper', window.__floor(0, -11));
+      window.__gift = man;
+      window.__score = window.__ctx.progression.score;
+      return { hp: e.health };
+    });
+    await h.sleep(900);
+    await shot('cap');
+    await reset(page, h);
+    await page.evaluate(() => {
+      const at = window.__floor(0, -19);
+      const man = window.__man(null, 'trooper', at);
+      man.health = 5;
+      window.__gift = man;
+      window.__frame(at, 11, 1);
+      window.__score = window.__ctx.progression.score;
+      window.__c.boom(man.position, 6, 90, 'mortar');
+    });
+    // A blast rarely kills a man outright now: he goes down and bleeds, so the gift may take a while to arrive.
+    for (let i = 0; i < 24; i++) {
+      await h.sleep(500);
+      if (await page.evaluate(() => window.__c.tracker.round.gifts > 0)) break;
+      await page.evaluate(() => { if (window.__gift.alive) window.__c.boom(window.__gift.position, 6, 90, 'mortar'); });
+    }
+    await h.sleep(150);
+    await shot('gift');
+    info.score = await page.evaluate(() => [window.__ctx.progression.score - window.__score, window.__c.tracker.round.gifts]);
+    await reset(page, h);
+    return info;
+  },
+
+  /** Playback with a real clip: a recording exists for one line, and only that line speaks. */
+  async voice(page, h, shot) {
+    const rate = 8000;
+    const samples = rate;
+    const wav = Buffer.alloc(44 + samples);
+    wav.write('RIFF', 0); wav.writeUInt32LE(36 + samples, 4); wav.write('WAVEfmt ', 8); wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22);
+    wav.writeUInt32LE(rate, 24); wav.writeUInt32LE(rate, 28); wav.writeUInt16LE(1, 32); wav.writeUInt16LE(8, 34); wav.write('data', 36); wav.writeUInt32LE(samples, 40);
+    for (let i = 0; i < samples; i++) wav[44 + i] = 128 + Math.round(40 * Math.sin(i * 0.2));
+    const asked = [];
+    await page.route('**/audio/voice/*.mp3', route => {
+      asked.push(route.request().url().split('/').pop());
+      route.fulfill({ status: 200, contentType: 'audio/wav', body: wav });
+    });
+    const info = await page.evaluate(() => {
+      const v = window.__ctx.hud.commander.voice;
+      v.known = new Set(['cmd.door.smug.office~200', 'cmd.door.smug.mat~200', 'cmd.door.smug.commit~200']);
+      return { known: v.has('cmd.door.smug.office~200'), other: v.has('cmd.door.smug.office~100') };
+    });
+    await brief(page, { phase: 'contact', report: { doorShots: 212 }, wave: 1 });
+    await h.sleep(500);
+    info.speaking = await page.evaluate(() => window.__ctx.hud.commander.voice.speaking);
+    await h.sleep(1500);
+    info.asked = asked;
+    info.done = await page.evaluate(() => window.__ctx.hud.commander.voice.speaking);
+    await page.unroute('**/audio/voice/*.mp3');
+    return info;
+  },
+
+  /** The last fight, to the end of the run. */
+  async finale(page, h, shot) {
+    const info = {};
+    await page.evaluate(() => {
+      window.__look(window.__floor(0, 0), [0, 0, 20]);
+      window.__c.person.summon();
+    });
+    await h.sleep(2600);
+    await page.evaluate(() => {
+      const c = window.__c;
+      const p = c.person.body.position;
+      window.__frame([p.x, p.y, p.z], 5.5, 2.4);
+    });
+    await h.sleep(700);
+    await shot('finale-cap');
+    await page.evaluate(() => {
+      const c = window.__c;
+      const e = c.person.body;
+      e.armor = 0;
+      e.plates.length = 0;
+      e.health = 5;
+      window.__ctx.enemies.applyDamage(e, { amount: 9999, type: 'bullet', point: e.center.clone(), dir: e.center.clone().setY(0).normalize(), force: 0, source: 'smg', region: 'chest' });
+    });
+    await h.sleep(1200);
+    await shot('finale-words');
+    info.dead = await page.evaluate(() => window.__c.person.dead);
+    await h.sleep(5200);
+    await shot('finale-council');
+    for (let i = 0; i < 24; i++) {
+      await h.sleep(500);
+      if (await page.evaluate(() => window.__op2.game.state === 'gameover')) break;
+    }
+    info.state = await page.evaluate(() => [window.__op2.game.state, document.querySelector('.go-by')?.textContent]);
+    await h.sleep(600);
+    await shot('finale-end');
+    return info;
+  },
+
+  /** Lanes, wire, a claymore and a bait pickup, up close. */
+  async lanes(page, h, shot) {
+    const info = await page.evaluate(() => {
+      const c = window.__c;
+      const ctx = window.__ctx;
+      const o = window.__o;
+      const door = o.doors[6];
+      c.adopt('crossfire');
+      c.adopt('baitPickups');
+      const v = ctx.player.position.clone();
+      c.posts.doorFloor(door, v);
+      for (let i = 0; i < 40; i++) c.tracker.sample(0.25, door.x + (i % 2 ? 1 : -1) * door.dx * 2, 0.1, door.z + (i % 2 ? 1 : -1) * door.dz * 2, 6, true, null);
+      const made = [];
+      for (const seat of [1, 2]) {
+        const post = v.clone();
+        const watch = v.clone();
+        c.posts.lane(seat, watch, post);
+        const e = window.__man(null, 'trooper', [post.x, post.y, post.z]);
+        const s = o.soldierOf(e);
+        s.seat = seat;
+        const u = c.units.enrol(s, 'lane');
+        u.placed = true;
+        u.watch.copy(watch);
+        u.post.copy(post);
+        made.push(post.toArray().map(Math.round));
+      }
+      ctx.progression.spawnPickup('megaHealth', v);
+      window.__door = { f: [v.x, v.y, v.z], door };
+      const framed = window.__frame([v.x, v.y, v.z], 12, 1);
+      return { made, framed };
+    });
+    await h.sleep(1800);
+    await shot('lanes');
+    await reset(page, h);
+    await page.evaluate(() => {
+      const c = window.__c;
+      const ctx = window.__ctx;
+      const { f, door } = window.__door;
+      const V = ctx.player.position.constructor;
+      const a = new V(f[0] - door.dz * 1.85, f[1], f[2] + door.dx * 1.85);
+      const b = new V(f[0] + door.dz * 1.85, f[1], f[2] - door.dx * 1.85);
+      c.devices.tripwire(a, b);
+      const back = new V(f[0] + door.dx * 3, f[1], f[2] + door.dz * 3);
+      ctx.world.nav.nearest(back, 2, back);
+      c.devices.claymore(back, new V(-door.dx, 0, -door.dz));
+      const front = new V(f[0] - door.dx * 4.2, f[1], f[2] - door.dz * 4.2);
+      ctx.world.nav.nearest(front, 2, front);
+      window.__look([front.x, front.y, front.z], [f[0], f[1] + 0.6, f[2]], -0.16);
+    });
+    await h.sleep(1100);
+    await shot('wire');
+    await reset(page, h);
+    return info;
+  },
+
+  /** Anti-air and the uplink, through the real call-in keys. */
+  async air(page, h, shot) {
+    const callIn = async () => {
+      await page.evaluate(() => {
+        const ctx = window.__ctx;
+        ctx.progression.grantCallIn('warthog');
+        ctx.input.simulate('callinWarthog', true);
+      });
+      await h.sleep(120);
+      await page.evaluate(() => {
+        window.__ctx.input.simulate('callinWarthog', false);
+        window.__ctx.input.simulate('fire', true);
+      });
+      await h.sleep(120);
+      await page.evaluate(() => window.__ctx.input.simulate('fire', false));
+    };
+    const info = {};
+    await page.evaluate(() => {
+      const c = window.__c;
+      window.__look(window.__floor(0, 0), [0, 0, 20]);
+      c.adopt('radioJammer');
+      window.__radio = window.__man('radio', 'trooper', window.__floor(19, 19));
+      window.__used = [];
+      window.__ctx.events.on('callin:used', e => window.__used.push(e.id));
+    });
+    await h.sleep(600);
+    await callIn();
+    await h.sleep(1500);
+    info.whileJammed = await page.evaluate(() => ({ used: [...window.__used], uplink: window.__c.callInDelay }));
+    await shot('uplink');
+    await page.evaluate(() => {
+      const e = window.__radio;
+      window.__ctx.enemies.applyDamage(e, { amount: 9999, type: 'bullet', point: e.center.clone(), dir: e.center.clone().setY(0).normalize(), force: 0, source: 'smg', region: 'chest' });
+    });
+    await h.sleep(900);
+    info.afterKill = await page.evaluate(() => ({ used: [...window.__used], uplink: window.__c.callInDelay }));
+    await h.sleep(1200);
+    await reset(page, h);
+    // Now the tube. A fresh call with a team alive: lock, three seconds, and the run is cut short.
+    await page.evaluate(() => {
+      const c = window.__c;
+      c.adopt('manpads');
+      window.__pads = window.__man('manpads', 'rocketeer', window.__floor(19, 19));
+      window.__ctx.progression.callInsManager.clear();
+    });
+    await h.sleep(300);
+    await callIn();
+    await h.sleep(900);
+    await shot('aa-lock');
+    info.locked = await page.evaluate(() => window.__c.units.count('manpads'));
+    const before = await page.evaluate(() => window.__ctx.progression.callInsManager.flying.size);
+    await h.sleep(3000);
+    info.strikes = [before, await page.evaluate(() => window.__ctx.progression.callInsManager.flying.size)];
+    await reset(page, h);
+    return info;
+  },
+
   /** The real thing: real waves, a camper who clears them, and the box and the mortars that follow. Leaves the wave loop running. */
   async campBot(page, h, shot) {
     await page.evaluate(() => {
@@ -147,8 +384,20 @@ const CASES = {
     const text = await page.evaluate(() => document.querySelector('.cmd-text')?.textContent);
     await page.evaluate(() => { window.__hold = true; });
     const started = await until(() => window.__ctx.waves.wave >= 2, 18000);
-    const painted = await until(() => window.__c.mortars.stage === 'lasing' || window.__c.mortars.missions > 0, 45000);
+    const trace = [];
+    let painted = false;
+    for (let i = 0; i < 18 && !painted; i++) {
+      await h.sleep(4000);
+      trace.push(await page.evaluate(() => {
+        const u = window.__c.units.first('spotter');
+        if (!u) return 'no spotter';
+        const e = u.s.e;
+        return [Math.round(e.dist), u.placed, u.arrived, u.s.task, u.s.sees, e.hasLos, u.post.toArray().map(Math.round), e.position.toArray().map(Math.round), e.behaviour?.name];
+      }));
+      painted = await page.evaluate(() => window.__c.mortars.stage === 'lasing' || window.__c.mortars.missions > 0);
+    }
     await shot('bot-wave2');
+    console.error(JSON.stringify(trace));
     return page.evaluate(([cleared, text, started, painted]) => ({ cleared, text, started, painted, describe: window.__c.describe(), log: window.__log.slice(-10) }), [cleared, text, started, painted]);
   },
 
@@ -159,6 +408,7 @@ const CASES = {
       window.__look(window.__floor(-30, 6), [-30, 0, 30]);
       c.adopt('mortars');
       c.mortars.chooseSite();
+      window.__crewAt = c.mortars.site.toArray();
       window.__crew = [window.__man('mortar', 'trooper', [c.mortars.site.x + 1.4, c.mortars.site.y, c.mortars.site.z]), window.__man('mortar', 'trooper', [c.mortars.site.x - 1.4, c.mortars.site.y, c.mortars.site.z])];
       const v = p.position.clone();
       c.posts.overwatch(p.position, 16, 40, true, v);
@@ -211,7 +461,7 @@ const CASES = {
       const p = window.__ctx.player;
       window.__look(window.__floor(0, 3), [0, 0, 30]);
       const v = p.position.clone();
-      const found = c.posts.overwatch(p.position, 14, 50, true, v);
+      const found = c.posts.overwatch(p.position, 22, 62, true, v) || c.posts.overwatch(p.position, 10, 22, true, v);
       window.__sniper = window.__man('sniper', 'sniper', [v.x, v.y, v.z]);
       const e = window.__sniper;
       window.__look([p.position.x, p.position.y, p.position.z], [e.position.x, e.position.y + 1, e.position.z]);

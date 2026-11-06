@@ -24,6 +24,7 @@ const BARK_SECONDS = 4.2;
 /** Seconds between the run starting and his first words. */
 const FIRST_WORDS_AT = 3.5;
 
+const BOSS_NAME = 'The Commander';
 const NAMES: Record<Speaker, string> = { commander: 'The Commander', council: 'The Council', intercept: 'Intercepted transmission', radio: 'Radio' };
 const TAGS: Record<Speaker, string> = {
   commander: 'Outpost command / open channel',
@@ -52,6 +53,7 @@ export class CommanderHud {
 
   private pages: Page[] = [];
   private page = -1;
+  private person = false;
   private full = '';
   private shown = 0;
   private clock = 0;
@@ -91,6 +93,7 @@ export class CommanderHud {
     events.on('commander:status', e => this.chips.get(e.flag)?.set(e.on));
     events.on('commander:bark', e => this.onBark(e.id, e.vars));
     events.on('commander:fulfilled', () => this.onFulfil());
+    events.on('commander:person', e => { this.person = e.arrived; });
     events.on('player:died', () => this.onBark(PLAYER_DOWN[0]!.id));
   }
 
@@ -99,6 +102,7 @@ export class CommanderHud {
     this.script.reset();
     this.firstIn = FIRST_WORDS_AT;
     this.afterLast = null;
+    this.person = false;
     for (const flag of this.chips.values()) flag.set(false);
     const label = this.ctx.input.labelFor?.('interact');
     this.skipKey.set(typeof label === 'string' ? label : 'E');
@@ -197,6 +201,13 @@ export class CommanderHud {
     }
     if (!typing && !this.voice.speaking) this.clock -= dt;
     if (this.clock <= 0) this.next(false);
+  }
+
+  /** He wears a Juggernaut's armour, and he would like that understood. */
+  nameBoss(bar: HTMLElement): void {
+    if (!this.person) return;
+    const name = bar.querySelector('.bs-name');
+    if (name && name.textContent !== BOSS_NAME) name.textContent = BOSS_NAME;
   }
 
   setPaused(paused: boolean): void {

@@ -35,7 +35,6 @@ interface Shutter {
 export class Barricades {
   private readonly shutters: Shutter[] = [];
   private material: THREE.Material | null = null;
-  private allDoors: readonly Door[] | null = null;
 
   constructor(private readonly c: Commander) {}
 
@@ -59,9 +58,8 @@ export class Barricades {
   drop(count: number): number {
     const { c } = this;
     const { o, tracker, w } = c;
-    this.allDoors ??= o.doors;
     let sealed = 0;
-    const all = this.allDoors;
+    const all = c.doorList;
     for (const i of tracker.hotDoors(6)) {
       if (sealed >= count || this.shutters.length >= MAX_SHUTTERS) break;
       const door = all[i];
@@ -111,7 +109,7 @@ export class Barricades {
     ctx.audio.play('metal_groan', { position: _a });
     this.remove(s);
     this.shutters.splice(index, 1);
-    o.doors = (this.allDoors ?? o.doors).filter(d => !this.shutters.some(x => x.door === d));
+    o.doors = this.c.doorList.filter(d => !this.shutters.some(x => x.door === d));
   }
 
   private remove(s: Shutter): void {
@@ -125,7 +123,7 @@ export class Barricades {
   reset(): void {
     for (const s of this.shutters) this.remove(s);
     this.shutters.length = 0;
-    if (this.allDoors) this.c.o.doors = this.allDoors;
+    this.c.o.doors = this.c.doorList;
   }
 
   get count(): number {

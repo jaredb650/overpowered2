@@ -102,6 +102,8 @@ manager.reset();
 waves.start();
 
 const log: unknown[] = [];
+const benches: Record<string, () => void> = {};
+const bench = opts.bench as string | undefined;
 const say = (text: string) => { log.push(`${ctx.time.elapsed.toFixed(1)} ${text}`); };
 ctx.events.on('wave:start', (e: { wave: number; total: number }) => say(`wave ${e.wave} starts, ${e.total} men, ${JSON.stringify(commander.describe())}`));
 ctx.events.on('wave:clear', (e: { wave: number }) => say(`wave ${e.wave} clear`));
@@ -120,6 +122,22 @@ const walk = new THREE.Vector3();
 const here = new THREE.Vector3();
 const t0 = performance.now();
 let sawSpotter = 0;
+
+const near = (dx: number, dz: number) => {
+  const v = player.position.clone();
+  v.x += dx;
+  v.z += dz;
+  ctx.world.nav.nearest(v, 4, v);
+  return v;
+};
+const spawnHere = (dx: number, dz: number, id = 'trooper') => {
+  outpost.formSquad(1);
+  return manager.spawn(id as never, near(dx, dz))!;
+};
+const shoot = (e: any, amount = 9999) => manager.applyDamage(e, { amount, type: 'bullet', point: e.center.clone(), dir: new THREE.Vector3(0, 0, 1), force: 0, source: 'smg', region: 'chest' } as never);
+let benchAt = 8;
+let benchStep = 0;
+const look = () => say(`bench ${bench} step ${benchStep}: blasts ${JSON.stringify(blasts)}, ${JSON.stringify(commander.describe())}`);
 
 for (let f = 0; f < seconds * 60; f++) {
   ctx.time.tick(dt);
@@ -145,6 +163,103 @@ for (let f = 0; f < seconds * 60; f++) {
   if (t >= fireAt && bot !== 'idle') {
     fireAt = t + 0.25;
     ctx.events.emit('weapon:fired', { weapon: 'smg', origin: player.eye, dir: player.forward });
+  }
+  if (bench && t >= benchAt) {
+    benchAt = t + 4;
+    benchStep++;
+    if (bench === 'dangerClose') {
+      if (benchStep === 1) {
+        commander.adopt('mortars');
+        commander.mortars.chooseSite();
+        const crew = commander.units.enrol(outpost.soldierOf(spawnHere(30, 0))!, 'mortar');
+        crew.placed = crew.arrived = true;
+        (commander as any).tricks.add('dangerClose');
+        for (const [x, z] of [[3, 0], [-3, 0], [0, 3], [0, -3]] as const) spawnHere(x, z);
+      }
+    } else if (bench === 'deadMan') {
+      if (benchStep === 1) {
+        (commander as any).tricks.add('deadMan');
+        const e = spawnHere(5, 0);
+        (commander.traps as any).switches.add(outpost.soldierOf(e));
+        shoot(e);
+      }
+    } else if (bench === 'possum') {
+      if (benchStep === 1) commander.units.placeBody('possum', near(5, 0));
+      if (benchStep === 2) say(`possum lying: ${commander.units.count('possum')}, men up: ${manager.alive.length}`);
+    } else if (bench === 'room') {
+      if (benchStep === 1) {
+        (commander as any).tricks.add('riggedRooms');
+        commander.lastRoom = 'TYRES';
+        player.teleport(new THREE.Vector3(0, 0.1, -19), 0);
+        (commander.traps as any).rigRoom();
+      }
+      if (benchStep === 2) {
+        stations[0] = [-19, 0.1, -19];
+        player.teleport(new THREE.Vector3(-19, 0.1, -19), 0);
+      }
+    } else if (bench === 'bait') {
+      if (benchStep === 1) {
+        commander.adopt('mortars');
+        commander.mortars.chooseSite();
+        const crew = commander.units.enrol(outpost.soldierOf(spawnHere(30, 0))!, 'mortar');
+        crew.placed = crew.arrived = true;
+        const e = spawnHere(12, 0);
+        const u = commander.units.enrol(outpost.soldierOf(e)!, 'bait');
+        u.placed = u.arrived = true;
+        u.post.copy(e.position);
+      }
+    } else if (bench === 'kit') {
+      // Everything a shot, a blast and a pair of feet should do to a device, on the real map.
+      if (benchStep === 1) {
+        const d = commander.devices;
+        const beacon = d.beacon(near(4, 0));
+        const from = player.eye.clone();
+        const dir = beacon.position.clone().setY(beacon.position.y + 0.15).sub(from).normalize();
+        ctx.events.emit('weapon:fired', { weapon: 'smg', origin: from, dir });
+        say(`beacon after a clean shot: ${d.count('beacon')}`);
+        const mine = d.mine(near(4, 0));
+        ctx.events.emit('weapon:fired', { weapon: 'sword', origin: from, dir });
+        say(`mine after a sword swing at range: ${d.count('mine')} lit ${mine.lit}`);
+        ctx.events.emit('weapon:fired', { weapon: 'smg', origin: from, dir: mine.position.clone().setY(mine.position.y + 0.15).sub(from).normalize() });
+        say(`mine after a clean shot: ${d.count('mine')}, blasts ${JSON.stringify(blasts)}`);
+        commander.mortars.chooseSite();
+        say(`tube up: ${d.count('tube')}, manned needs crew`);
+        d.onBlast(commander.mortars.site, 3);
+        say(`tube after a blast: ${d.count('tube')}`);
+        const a = near(-1.5, 3), b = near(1.5, 3);
+        d.tripwire(a, b);
+        player.teleport(near(0, 6), 0);
+        stations[0] = [a.x, 0.1, (a.z + b.z) / 2];
+      }
+      if (benchStep === 3) {
+        say(`tripwire after walking through it: ${commander.devices.count('tripwire')}, blasts ${JSON.stringify(blasts)}`);
+        const a = near(-1.5, 3), b = near(1.5, 3);
+        commander.devices.snare(a, b);
+        player.teleport(near(0, 6), 0);
+        stations[0] = [a.x, 0.1, (a.z + b.z) / 2];
+      }
+      if (benchStep === 5) say(`snare at a walk: ${commander.devices.count('snare')} (gone, and it rang the alarm rather than stopped anyone)`);
+    } else if (bench === 'shutter') {
+      if (benchStep === 1) {
+        const door = commander.doorList[3]!;
+        for (let i = 0; i < 40; i++) commander.tracker.sample(0.25, door.x + (i % 2 ? 2 : -2) * door.dx, 0.1, door.z + (i % 2 ? 2 : -2) * door.dz, 6, true, null);
+        const from = new THREE.Vector3(door.x - door.dx * 3, 1.2, door.z - door.dz * 3);
+        const dir = new THREE.Vector3(door.dx, 0, door.dz);
+        const before = ctx.physics.raycast(from, dir, 8)?.distance ?? 'clear';
+        say(`shutters dropped ${commander.barricades.drop(1)} of ${commander.barricades.count}, doors ${outpost.doors.length}`);
+        ctx.physics.step(dt);
+        ctx.physics.flushQueries?.();
+        say(`ray through the door: before ${before}, after ${ctx.physics.raycast(from, dir, 8)?.distance ?? 'clear'}`);
+      }
+      if (benchStep === 3) {
+        const door = commander.doorList[3]!;
+        const at = new THREE.Vector3(door.x, 1, door.z);
+        commander.barricades.onBlast(at, 6);
+        commander.barricades.onBlast(at, 6);
+        say(`after two blasts: ${commander.barricades.count}, doors ${outpost.doors.length}`);
+      }
+    }
+    look();
   }
   const spotter = commander.units.first('spotter');
   if (spotter?.s.sees) sawSpotter += dt;

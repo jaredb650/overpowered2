@@ -118,7 +118,7 @@ export class OutpostWaves implements WaveSystem {
 
   private checkClear(): void {
     const { ctx, manager } = this;
-    if (this.cursor < this.queue.length || manager.queued > 0 || this.o.hostile > 0) return;
+    if (this.cursor < this.queue.length || manager.queued > 0 || this.o.hostile > 0 || this.o.commander.person.pending) return;
     const bonus = 500 + 150 * this.wave;
     ctx.audio.play('wave_clear');
     ctx.events.emit('wave:clear', { wave: this.wave, bonus });

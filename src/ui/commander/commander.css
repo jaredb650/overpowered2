@@ -47,10 +47,10 @@
 .cmd-box.intercept .cmd-name { color: #000; background: var(--amber); padding: 0.12rem 0.5rem 0.04rem; }
 
 /* What the box does as the Commander comes apart. */
-.cmd-box.rattled .cmd-text { color: #f5e6c8; }
-.cmd-box.cracked { --accent: var(--blood); }
-.cmd-box.cracked .cmd-text { color: #ffd9c9; }
-.cmd-box.cracked .cmd-name { animation: cmd-twitch 2.3s steps(1) infinite; }
+.cmd-box.commander.rattled .cmd-text { color: #f5e6c8; }
+.cmd-box.commander.cracked { --accent: var(--blood); }
+.cmd-box.commander.cracked .cmd-text { color: #ffd9c9; }
+.cmd-box.commander.cracked .cmd-name { animation: cmd-twitch 2.3s steps(1) infinite; }
 @keyframes cmd-twitch {
   0%, 91%, 100% { transform: none; }
   92% { transform: translate(0.2rem, -0.1rem) skewX(-6deg); }

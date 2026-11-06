@@ -10,6 +10,7 @@ const HABIT_FLOOR = 0.18;
 /** Each answer already given to a habit costs it this share, so a run sees variety and not five answers to one thing. */
 const REPEAT_HABIT = 0.72;
 const JITTER = 0.06;
+const SHARPSHOOTER = 0.8;
 
 /**
  * What a Commander with nothing to go on does. Doctrine, not a read of this player, so it is never the same as being answered, and
@@ -25,7 +26,8 @@ export function pickAdaptation(
   let best: AdaptationId | null = null;
   let bestScore = -Infinity;
   for (const habit of Object.keys(habits) as HabitId[]) {
-    const strength = habits[habit];
+    // Killing from a long way off is camping with better aim, and it gets the same answer.
+    const strength = habit === 'camping' ? Math.max(habits.camping, habits.range * SHARPSHOOTER) : habits[habit];
     if (strength < HABIT_FLOOR) continue;
     let given = 0;
     let next: AdaptationId | null = null;
