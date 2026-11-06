@@ -1,27 +1,44 @@
 /**
- * A squad's brain. It runs about once a second, looks at what the squad knows and gives each man one order. The men then
- * carry it out on their own, so all the tactics live here as a choice of where to send whom.
+ * A squad's brain. It runs about twice a second, reads what it believes into facts, picks a goal and asks the planner for the cheapest
+ * drills that get there. The men then carry out one order each, so all the tactics live here as a choice of where to send whom.
  *
- * The doctrine is base of fire and manoeuvre (section 16.1). A squad has two fire teams, and only one ever moves:
+ * The doctrine is base of fire and manoeuvre (section 16.1), and only ever one fire team moves at a time. Drills, from planner.ts:
  *
- *   advance    Nothing in view. A long way off the squad jogs in file; inside BOUND_RANGE it goes by bounds, one team covering.
- *   engage     Team 0 is the base of fire. Team 1 swings round the threat. They swap, closing a little each cycle.
- *   stack      The threat went through a door. Men stack on both sides, a banger goes in, then they enter.
- *   fallback   Too hurt or too frightened to stay. The same bounds, going backwards, away from the threat.
- *   regroup    What is left gathers on the leader, gets its nerve back, and goes again.
+ *   search      Nothing in view. Both teams go, a beat apart, with the pace set by how fresh the trail is.
+ *   baseOfFire  Men with a line lay rounds on the threat and the guns work its lane, whether or not they can see it.
+ *   flank       Team 1 goes round on a hidden route, re-aiming as the threat moves, while team 0 keeps it busy.
+ *   cutOff      The threat is running. Men go to the exit it is heading for, not to where it was.
+ *   frag, flash The threat has dug in or the squad wants a way in. It gets a grenade, and the squad goes in behind it.
+ *   breach      The threat went through a door. Men stack on both sides, a banger goes in, then they enter.
+ *   rush        There is an opening. Everyone goes in, firing, and the guns cover it.
+ *   setAmbush, lieInWait  Men cover a door in silence, holding fire, until it comes through.
+ *   retreat, regroup      Too hurt to stay: bounds backwards to better ground, then form up and go again.
+ *
+ * A squad says what it is doing, out loud, because a player gives credit only for what he hears announced.
  */
 import * as THREE from 'three';
 import type { KillEvent } from '../../core/gameplay';
-import { clamp, lerp, rand, wrapAngle } from '../../core/math';
+import { lerp, rand, wrapAngle } from '../../core/math';
 import type { Squad } from '../director';
 import type { CoverSpot, SpotQuery, SpotReading } from './cover';
 import { MAX_SQUAD, SUCCESSION, type Role } from './doctrine';
 import { FEAR, RAPID_SECONDS, RAPID_SHARE } from './morale';
 import type { Outpost } from './index';
+import {
+  ACTION_COUNT, ACTIONS, actionIndex, basePrices, CAMPING, CONTACT, DOOR, FORMED, GOALS, HAS_FLASH, HAS_FRAG, LOCATED, makePlan, MAX_PLAN, OPENING, PINNED, RUNNING, SAFE, SHIELDED, WAITING,
+  type ActionId, type GoalId,
+} from './planner';
+import type { Rank } from './rank';
 import { Route } from './routes';
 import type { Soldier, Urgency } from './soldier';
 
-export type SquadMode = 'advance' | 'engage' | 'stack' | 'fallback' | 'regroup';
+export type SquadMode = 'advance' | 'engage' | 'stack' | 'fallback' | 'regroup' | 'rush' | 'flush' | 'cutoff' | 'ambush';
+
+/** What one drill did on this tick. */
+const GOING = 0;
+const DONE = 1;
+const FAILED = 2;
+type StepResult = typeof GOING | typeof DONE | typeof FAILED;
 
 export interface Door {
   x: number;
@@ -32,56 +49,88 @@ export interface Door {
   w: number;
 }
 
-/** Seconds a team that has arrived holds and fires before the other team goes. */
-const MANOEUVRE_REST = 4;
-/** Seconds a sighting counts as contact. */
-const CONTACT_MEMORY = 5;
+/** Seconds a sighting counts as contact, and a position as worth acting on. */
+const CONTACT_MEMORY = 3;
+const LOCATED_MEMORY = 14;
 /** Quiet this long and the next sighting is called out as new. */
 const CALLOUT_GAP = 8;
-/** Beyond this the squad moves in file. Inside it, one team always covers. */
+/** Beyond this the squad moves in file. */
 const BOUND_RANGE = 34;
-const COLUMN_LEG = 20;
-const BOUND_LENGTH = 11;
+const COLUMN_LEG = 22;
+const BOUND_LENGTH = 15;
 /** Reached the place and found nothing. */
-const ARRIVED = 9;
+const ARRIVED = 7;
 const FALLBACK_LENGTH = 13;
 const FALLBACK_BOUNDS = 4;
 /** Far enough away to stop and think. */
 const CLEAR_OF_THREAT = 30;
-const REGROUP_SECONDS = 9;
+const REGROUP_SECONDS = 7;
 const REGROUP_RADIUS = 8;
 const REGROUP_NERVE = 15;
 /** Seconds a squad stands stunned after its leader goes down. */
-const LEADERLESS_SECONDS = 2.2;
-const ORDER_STAGGER = 0.28;
-/** A team that has not arrived by now is not going to. Long enough that a bound normally finishes before the next begins. */
-const STEP_TIMEOUT = 11;
-const COVER_FIRE_SECONDS = 5.5;
+const LEADERLESS_SECONDS = 1.4;
+const ORDER_STAGGER = 0.22;
+/** A team that has not arrived by now is not going to. */
+const STEP_TIMEOUT = 7;
+const FLANK_TIMEOUT = 13;
+const COVER_FIRE_SECONDS = 5;
+/** Seconds of drill before a base of fire counts as laid, whoever has fired. */
+const BASE_SETTLE = 2;
 /** How far a door may be from the squad, and the threat from the door. */
 const STACK_REACH = 16;
 const STACK_DEPTH = 13;
 /** Quiet this long before the squad assumes the threat has gone to ground behind the door. */
 const STACK_AFTER = 2.5;
-const STACK_GATHER_SECONDS = 8;
-const STACK_FUSE_SECONDS = 1.9;
+const STACK_GATHER_SECONDS = 6;
+const STACK_FUSE_SECONDS = 1.6;
 const STACK_ENTRY_SECONDS = 3;
-const STACK_COOLDOWN = 18;
-const GRENADE_MIN = 8;
-const GRENADE_MAX = 24;
-/** Lost sight of it this recently: it is probably still behind that corner. */
-const GRENADE_QUIET_FROM = 2;
-const GRENADE_QUIET_TO = 7;
-const GRENADE_COOLDOWN = 12;
+const STACK_COOLDOWN = 14;
+const GRENADE_MIN = 6;
+const GRENADE_MAX = 28;
+/** Seconds a throw may take before the squad stops waiting for it. */
+const THROW_PATIENCE = 2.6;
 /** The furthest a man will walk for one manoeuvre. Past this a flank is a lap of the building, and the fight is over before he arrives. */
-const MAX_MANOEUVRE = 30;
+const MAX_MANOEUVRE = 42;
 /** A firing line lost for this long is not coming back. */
-const NO_SHOT_PATIENCE = 4;
+const NO_SHOT_PATIENCE = 1.6;
 const PANIC_RETREAT = 12;
 const PANIC_COOLDOWN = 6;
+/** The threat moved this far and flankers re-aim, no more often than this. */
+const REAIM_METRES = 7;
+const REAIM_SECONDS = 2.6;
+/** Radians between the two teams, seen from the threat, before a flank counts. */
+const FLANK_SUCCESS = 0.8;
+/** Seconds an opening stays open. */
+const OPENING_SECONDS = 6;
+const RUSH_SECONDS = 8;
+/** Metres from the threat a man in a rush stops at. */
+const RUSH_STAND = 6.5;
+const RUSH_STAND_CLOSE = 3.2;
+const RUSH_REAIM: readonly [number, number] = [0.9, 1.5];
+/** Seconds a drill that failed stays off the table. */
+const BLOCK_SECONDS = 9;
+/** A plan is thrown away and thought through again this often even if nothing went wrong. */
+const PLAN_LIFE = 16;
+/** After losing sight of it, a man keeps firing on the place for this long. */
+const LAST_SEEN_FIRE = 3;
+/** How wide and how fast a gun works its lane when it cannot see. */
+const LANE_WIDTH = 3.4;
+const LANE_RATE = 1.7;
+/** Metres the squad looks past a runner's last position, along its heading. */
+const LEAD_THE_TRAIL = 7;
+/** An ambush: how long the men wait, how close it gets before they open up, and how long a man can stare at it before he fires anyway. */
+const AMBUSH_SECONDS = 22;
+const AMBUSH_RANGE = 15;
+const AMBUSH_STARE = 2.2;
+const AMBUSH_NEAR = 6;
+const AMBUSH_FAR = 19;
+/** Men on a held post with a gun stay on it when the fight starts. */
+const HELD_RANGE = 24;
 
 const _c = new THREE.Vector3();
 const _anchor = new THREE.Vector3();
 const _p = new THREE.Vector3();
+const _q = new THREE.Vector3();
 const _reading: SpotReading = { hidden: false, canShoot: false, side: 0 };
 const _query: SpotQuery = {
   anchor: _anchor, radius: 8, threat: new THREE.Vector3(), near: 0, far: 60, bearing: NaN, bearingSlack: 0.4, needShot: false, spacing: 2, uid: 0, from: new THREE.Vector3(),
