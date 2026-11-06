@@ -187,7 +187,7 @@ export const STYLE_GATE = {
  * Sentinels and a Black Sun reached the nuke, and a nuke's own bodies fired Berserk, Hellfire and Overdrive at once.
  */
 export const ASSIST_COMBO_EVERY = 2;
-export const ASSIST_SOURCES = /^(airstrike|warthog|orbital|ac130|black_sun|nuke|sentinel|chain_storm|chain_reaction|drop_pod)/;
+export const ASSIST_SOURCES = /^(airstrike|warthog|chopper|door_gun|orbital|ac130|black_sun|nuke|sentinel|chain_storm|chain_reaction|drop_pod)/;
 
 /**
  * Combo perks. Berserk no longer resets the combo, so each rung climbs by `rearm` after firing.
@@ -221,6 +221,18 @@ export const CALLINS: Readonly<Record<CallInId, CallInDef>> = {
     id: 'warthog', combo: 12, cooldown: 45, name: 'WARTHOG', key: 'Z', color: '#00ff00', radius: 5,
     hint: 'CLICK FOR A GUN RUN, DRAG TO SET THE HEADING // RMB CANCEL',
   },
+  // Past Berserk, so the first seat comes after the first perk that says the run has turned. A seat takes the player out
+  // of the fight for up to a minute, which is why these two sit above the strikes that leave them on the ground, and the
+  // chopper above the door because it has a second weapon and a pilot who goes to the fight. Cooldowns outlast the flight,
+  // as there is one of each airframe.
+  doorGunner: {
+    id: 'doorGunner', combo: 18, cooldown: 120, name: 'DOOR GUNNER', key: 'J', color: '#ffc14a', radius: 0,
+    hint: 'PACKMULE INBOUND',
+  },
+  attackChopper: {
+    id: 'attackChopper', combo: 22, cooldown: 150, name: 'ATTACK CHOPPER', key: 'H', color: '#ff5a3c', radius: 0,
+    hint: 'HARROW INBOUND',
+  },
   orbital: {
     id: 'orbital', combo: 25, cooldown: 60, name: 'ORBITAL LANCE', key: 'V', color: '#ff2fb0', radius: 6,
     hint: 'CLICK TO FIRE, THEN STEER THE BEAM // RMB LETS GO',
@@ -243,7 +255,7 @@ export const CALLINS: Readonly<Record<CallInId, CallInDef>> = {
 };
 
 /** Original check order on one kill, extended upward. */
-export const CALLIN_ORDER: readonly CallInId[] = ['airstrike', 'warthog', 'orbital', 'ac130', 'blackSun', 'nuke'];
+export const CALLIN_ORDER: readonly CallInId[] = ['airstrike', 'warthog', 'doorGunner', 'attackChopper', 'orbital', 'ac130', 'blackSun', 'nuke'];
 
 // ---------------------------------------------------------------------------------------------
 // Call-in timelines (seconds after the confirming click)

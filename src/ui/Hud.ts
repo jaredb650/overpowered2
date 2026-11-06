@@ -7,7 +7,7 @@
  */
 import * as THREE from 'three';
 import type { Ctx, GameState } from '../core/contracts';
-import type { HudSystem, PickupKind } from '../core/gameplay';
+import type { HudSystem, PickupKind, SeatPanel } from '../core/gameplay';
 import { div } from './dom';
 import { HudState } from './state';
 import { RunReport } from './runreport';
@@ -91,6 +91,7 @@ export class Hud implements HudSystem {
   private stragglers: Stragglers;
   private flythrough: Flythrough;
 
+  private seatPanel: SeatPanel | null = null;
   private pickupPoints: MinimapPoint[] = [];
   private deathClock = 0;
   private pauseGuard = 0;
@@ -207,6 +208,13 @@ export class Hud implements HudSystem {
     events.on('comms:line', e => this.comms.push(e.text, COMMS_FEAR.has(e.kind) ? 'var(--amber)' : 'var(--cold)', e.speaker ?? e.squad));
     applySettings(this.ctx, this.settings);
     applyQuality(this.ctx, this.settings);
+  }
+
+  seat(panel: SeatPanel | null): void {
+    this.seatPanel?.el.remove();
+    this.seatPanel = panel;
+    this.hud.classList.toggle('seated', panel !== null);
+    if (panel) this.hud.append(panel.el);
   }
 
   private keyLabel(action: Parameters<Ctx['input']['isDown']>[0]): string {
@@ -418,6 +426,7 @@ export class Hud implements HudSystem {
     this.comms.update(dt);
     this.sonar.update(s);
     this.crosshair.update(s, dt, this.combo.tier);
+    this.seatPanel?.update();
     this.worldLayer.update(dt);
     this.boss.update(s, dt);
     this.bannerLanes.update(dt);

@@ -17,7 +17,6 @@ import type { LoadedModel } from '../model';
 import { HumanoidBone as B, type RigDef } from '../rig';
 
 export const Part = { muscle: 1, bone: 2, organ: 3, gut: 4, shard: 5 } as const;
-type PartId = (typeof Part)[keyof typeof Part];
 
 /** Inside the skin, measured at the widest gear, with room left for what is on top of the ribs. */
 const CAGE_FIT = 0.8;
@@ -254,8 +253,7 @@ function spike(g: Builder, base: V3, tip: V3, r: number, bone: number, joint: nu
     const wander = (1 - t) * t * r * 2;
     path.push(add(add(base, sub(tip, base), t), [(rnd() - 0.5) * wander, (rnd() - 0.5) * wander, (rnd() - 0.5) * wander]));
   }
-  const code = Part.shard + joint * 8;
-  g.tube(path, (t, i) => (i === rings ? 0 : r * (1 - t * t) * (0.75 + rnd() * 0.5)), 5, () => [bone, bone, 0], code as PartId, BONE_RGB);
+  g.tube(path, (t, i) => (i === rings ? 0 : r * (1 - t * t) * (0.75 + rnd() * 0.5)), 5, () => [bone, bone, 0], Part.shard + joint * 8, BONE_RGB);
 }
 
 /** Where the spine runs: well back in the trunk, but not against the skin. */
@@ -368,7 +366,7 @@ function addOrgans(g: Builder, slices: readonly Slice[], y0: number, y1: number,
 }
 
 /**
- * The inside of a humanoid, or null for anything else. Machines have no flesh, and a Titan's stumps spark.
+ * The inside of a humanoid.
  * @param bind Bind position of every bone, from the model, so this matches the skin exactly.
  */
 export function buildInterior(model: LoadedModel, rig: RigDef, bind: readonly THREE.Vector3[], seed: number): THREE.BufferGeometry {

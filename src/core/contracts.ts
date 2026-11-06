@@ -85,7 +85,7 @@ export interface GameSystem {
 // Rendering
 // ---------------------------------------------------------------------------------------------
 
-export type GradeName = 'default' | 'bloodthirst' | 'hellfire' | 'berserk' | 'slowmo' | 'adrenaline' | 'overdrive' | 'death';
+export type GradeName = 'default' | 'bloodthirst' | 'hellfire' | 'berserk' | 'slowmo' | 'adrenaline' | 'overdrive' | 'death' | 'thermal';
 
 export interface PostFx {
   /** Crossfades the colour grade. */
@@ -569,7 +569,7 @@ export type Action =
   | 'forward' | 'back' | 'left' | 'right' | 'jump' | 'dash' | 'slide' | 'fire' | 'aim' | 'reload'
   | 'melee' | 'grenade' | 'interact' | 'weaponNext' | 'weaponPrev' | 'weaponLast'
   | 'weapon1' | 'weapon2' | 'weapon3' | 'weapon4' | 'weapon5' | 'weapon6' | 'weapon7' | 'weapon8' | 'weapon9' | 'weapon0'
-  | 'streak' | 'callinWarthog' | 'callinOrbital' | 'callinAc130' | 'callinBlackSun' | 'callinNuke' | 'sonar'
+  | 'streak' | 'callinWarthog' | 'callinDoorGunner' | 'callinChopper' | 'callinOrbital' | 'callinAc130' | 'callinBlackSun' | 'callinNuke' | 'sonar'
   | 'pause' | 'scoreboard' | 'debugFps' | 'debugOverlay';
 
 export interface InputSystem extends GameSystem {
@@ -611,6 +611,16 @@ export interface InputSystem extends GameSystem {
 // Player
 // ---------------------------------------------------------------------------------------------
 
+/** A view that is not the player's: a gunner's seat. The owner rewrites it every frame, and the rig adds shake and kicks. */
+export interface SeatView {
+  position: THREE.Vector3;
+  yaw: number;
+  pitch: number;
+  roll: number;
+  /** Multiplies every shake that arrives while this view is up. */
+  shake: number;
+}
+
 export interface CameraRig extends GameSystem {
   /** Adds shake. Trauma is squared into amplitude and decays over time. */
   addTrauma(amount: number): void;
@@ -624,6 +634,8 @@ export interface CameraRig extends GameSystem {
   readonly fov: number;
   /** Player-facing FOV setting. Speed, punches and zoom are composed on top of it. */
   setBaseFov(degrees: number): void;
+  /** Hands the view to a seat. Null gives it back to the player, exactly as it was left. */
+  setSeat(view: SeatView | null): void;
 }
 
 export interface PlayerDamage {
@@ -686,6 +698,12 @@ export interface PlayerSystem extends GameSystem {
   invertY: boolean;
   /** Multiplier on mouse look. CameraRig writes it so scoped aim keeps the same on-screen speed. */
   lookScale: number;
+  /** True while the body waits on the ground for a seat to end. */
+  readonly parked: boolean;
+  /** Puts the body at `feet` and holds it there: no input, no motion, and nothing can touch it. The view is kept. */
+  park(feet: THREE.Vector3): void;
+  /** Gives the body back, still untouchable for `grace` seconds, because whatever came for it is standing round it. */
+  unpark(grace: number): void;
 }
 
 export interface PlayerModifiers {

@@ -252,9 +252,10 @@ export class EngineSound {
     }
   }
 
-  update(position: THREE.Vector3, swell: number, dt: number): void {
+  /** `listener` defaults to the player's ears. A seat in the aircraft hears it from where the camera is. */
+  update(position: THREE.Vector3, swell: number, dt: number, listener: THREE.Vector3 = this.ctx.player.eye): void {
     const { near, far, layers } = this.plan;
-    const distance = soundPoint(position, this.ctx.player.eye, ENGINE_RANGE, _point);
+    const distance = soundPoint(position, listener, ENGINE_RANGE, _point);
     for (const loop of this.loops) loop.setPosition(_point);
     this.clock -= dt;
     if (this.clock > 0) return;

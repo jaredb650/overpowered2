@@ -83,7 +83,7 @@ class Progression implements ProgressionSystem {
     const materials = new ModelMaterials(ctx);
     this.perks = new PerkRunner(ctx);
     this.scoreKeeper = new ScoreKeeper(ctx);
-    this.callInsManager = new CallInManager(ctx, materials);
+    this.callInsManager = new CallInManager(ctx, materials, grade => this.perks.holdGrade(grade));
     this.sentinels = new Sentinels(ctx, materials);
     this.chains = new ChainEffects(ctx);
     this.frost = new FrostNova(ctx);
@@ -274,10 +274,11 @@ class Progression implements ProgressionSystem {
 
   private onDeath(): void {
     this.scoreKeeper.persist();
+    // First, because leaving a seat releases its grade, and the death grade has to be the last word on the screen.
+    this.callInsManager.onDeath();
     this.perks.clear();
     this.perks.showDeath();
     this.sentinels.stop();
-    this.callInsManager.onDeath();
     this.ctx.time.popScale('slowmo');
     this.ctx.time.popScale('timeWarp');
   }

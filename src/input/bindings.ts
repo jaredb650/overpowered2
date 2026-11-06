@@ -41,6 +41,8 @@ export const DEFAULT_BINDINGS: Readonly<Bindings> = {
   weapon0: ['Digit0'],
   streak: ['KeyX'],
   callinWarthog: ['KeyZ'],
+  callinDoorGunner: ['KeyJ'],
+  callinChopper: ['KeyH'],
   callinOrbital: ['KeyV'],
   callinAc130: ['KeyM'],
   callinBlackSun: ['KeyB'],

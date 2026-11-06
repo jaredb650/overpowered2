@@ -10,7 +10,7 @@
  * Shake and kicks run on real time so a hit-stop freeze still jolts. Bob and speed FOV follow player time.
  */
 import * as THREE from 'three';
-import type { CameraRig, Ctx } from '../core/contracts';
+import type { CameraRig, Ctx, SeatView } from '../core/contracts';
 import { clamp, damp, lerp, rand, smoothstep } from '../core/math';
 import { settle, springStep, type SpringState } from './moveMath';
 import { FEEDBACK, VIEW } from './tuning';
@@ -52,6 +52,7 @@ export class CameraRigSystem implements CameraRig {
   private roll = 0;
   private wallRoll = 0;
   private unsub: (() => void)[] = [];
+  private seat: SeatView | null = null;
 
   constructor(private readonly ctx: Ctx) {}
 
@@ -78,9 +79,10 @@ export class CameraRigSystem implements CameraRig {
   }
 
   addTrauma(amount: number): void {
+    const felt = amount * (this.seat?.shake ?? 1);
     // Max, not sum: repeated SMG shots stay small, and a small shake never cancels a big one.
-    if (amount <= this.trauma) return;
-    this.trauma = Math.min(1, amount);
+    if (felt <= this.trauma) return;
+    this.trauma = Math.min(1, felt);
     // A new peak snaps on the very next frame, which is the point of the original's two-frame shake.
     this.shakeHold = 0;
   }
@@ -112,6 +114,10 @@ export class CameraRigSystem implements CameraRig {
 
   setBaseFov(degrees: number): void {
     this.baseFov = degrees;
+  }
+
+  setSeat(view: SeatView | null): void {
+    this.seat = view;
   }
 
   private onLanded(impact: number): void {
@@ -161,15 +167,21 @@ export class CameraRigSystem implements CameraRig {
 
     const cam = render.camera;
     cam.rotation.order = 'YXZ';
-    cam.position.copy(player.eye);
-    cam.position.x += cosY * bobX;
-    cam.position.z -= sinY * bobX;
-    cam.position.y += bobY + this.dip.x;
-    cam.rotation.set(
-      player.pitch + this.kickP.x + this.shakeP,
-      yaw + this.kickY.x + this.shakeY,
-      this.roll + this.wallRoll + this.kickR.x + this.shakeR,
-    );
+    const seat = this.seat;
+    if (seat) {
+      cam.position.copy(seat.position);
+      cam.rotation.set(seat.pitch + this.kickP.x + this.shakeP, seat.yaw + this.kickY.x + this.shakeY, seat.roll + this.kickR.x + this.shakeR);
+    } else {
+      cam.position.copy(player.eye);
+      cam.position.x += cosY * bobX;
+      cam.position.z -= sinY * bobX;
+      cam.position.y += bobY + this.dip.x;
+      cam.rotation.set(
+        player.pitch + this.kickP.x + this.shakeP,
+        yaw + this.kickY.x + this.shakeY,
+        this.roll + this.wallRoll + this.kickR.x + this.shakeR,
+      );
+    }
     if (Math.abs(this.fov - cam.fov) > 0.01) {
       cam.fov = this.fov;
       cam.updateProjectionMatrix();
@@ -226,6 +238,7 @@ export class CameraRigSystem implements CameraRig {
   }
 
   reset(): void {
+    this.seat = null;
     this.trauma = 0;
     this.shakeP = this.shakeR = this.shakeY = 0;
     this.kickP.x = this.kickP.v = this.kickY.x = this.kickY.v = this.kickR.x = this.kickR.v = 0;

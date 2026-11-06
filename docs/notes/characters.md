@@ -21,7 +21,9 @@ c.anim.stumble?.(worldDir, 0.7, bone);        // balance gone: quick steps, arms
 c.anim.holdWound?.(bone, worldPoint, 1.2);    // a hand goes to it, and the body bends if it is low
 c.anim.guard?.(0.6);                          // hands up to the face
 c.anim.daze?.(1.5);                           // swaying, a hand to the head
-c.addWound(bone, worldPoint, 0.04);           // sticks to the skin, 16 per body, oldest out
+c.wound({ kind, bone, point, dir, radius, depth, ragged });  // cuts the body itself. See Wounds below
+c.addWound(bone, worldPoint, 0.04);           // paint only: blood and bruising
+c.fracture(bone, 'hyper');                    // snaps the joint at the top of this bone. 'limp' for a shoulder or hip
 c.setBloodiness(0.4); c.hitFlash(1);
 c.setBurn(0.7); c.setFrost(1);
 
@@ -48,6 +50,10 @@ The animator measures velocity from `root.position`, so feet stay planted howeve
 | `anim.treadmill` | Previews: drive feet from input speed instead of root motion |
 | `library.prop(id)` | A loose baked prop: `smg`, `shotgun`, `fuelTank`... For dropped weapons |
 | `library.sockets(id)` | Named mount points of a model |
+| `Character.wound(hit)`, `SeveredLimb.wound(hit)` | Damages the body. Most callers want `ctx.gore.wound`, which picks the wounds for a hit |
+| `Character.fracture(bone, style, skew?)`, `isFractured(bone)` | Broken limbs. See Wounds below |
+| `Character.skinMaterial` | What a world-space copy of the body is drawn with. `bakePose` output cannot use the wounded program |
+| `Character.stress` | Per bone, hits that broke nothing yet. Gore reads and writes it |
 | `anim.setPosture(name)`, `anim.disarm()` | Soldier postures from `animation/postures.ts`: crouch, cover, lean, hands up, kneel, cower, flee, drag, revive, downed. `disarm` empties the hands until the pool resets the body |
 
 `SeveredLimb` follows the gore dummy's contract: `root` sits at identity in the scene, `bones[bone]` holds the world
@@ -74,8 +80,9 @@ None of these exist on skitters and drones, which is how gore and the enemies kn
 ## Rendering
 
 - One `MeshStandardMaterial` per model plus a far variant. All instances share it. Four programs cover the whole cast.
-- Per-instance state rides in spare texels at the end of the instance's bone texture: 16 wound spheres, blood, burn,
-  frost, flash. No per-object uniforms and no extra draw state.
+- Per-instance state rides in spare texels at the end of the instance's bone texture: 32 wounds, blood, burn,
+  frost, flash. No per-object uniforms and no extra draw state. The texture is 16 x 16 for every rig, which spares each
+  fetch an integer divide. 37 bones and 32 wounds take 246 of its 256 texels.
 - Object-space normal atlas, rotated by the skin matrix in the vertex shader. No tangents, no tangent seams.
 - Atlas A is sRGB albedo with metalness (alpha below 0.5) or emissive (above) packed in alpha. Atlas B is normal plus
   roughness.
@@ -86,6 +93,55 @@ None of these exist on skitters and drones, which is how gore and the enemies kn
 - Hit flash fades in `mesh.onBeforeRender` from `ctx.time.elapsed`, so a corpse nobody updates still fades.
 - Authored albedo goes through a lift curve in the shader, and `uFill` adds a floor under the baked light, because true
   albedo left gear pure black in the map's shadows. Both are readability choices, not physics.
+
+## Wounds
+
+`src/characters/anatomy/`. What is left on a body short of losing a limb. What a hit leaves is decided in `gore/wounds.ts`: see `docs/notes/gore.md`.
+
+| File | Job |
+|---|---|
+| `wounds.ts` | `WoundBook`: the list on one body, in the bone texture. Merging. Pure data, tested in Node |
+| `glsl.ts` | The maths the skin, the inside and the backing share |
+| `build.ts` | `buildInterior`: what is under the skin, fitted to the baked mesh at load |
+| `interior.ts` | Its material |
+| `backing.ts` | The inside of the skin: the far wall of the body, and an opened body's shadow |
+| `fracture.ts` | `FracturePose`: broken joints on a body still being animated |
+
+**A wound is a slot, not a sphere.** Hit capsules only roughly follow the skin. A small sphere at the hit point cuts nothing when the skin lies under it. A slot along the shot's own line is right sideways by construction, and its depth is forgiving, so nothing on the CPU has to find the skin. A gash is the same slot with length. It measures square to its axis, so it follows a curved body when its two ends are a chord across it. Kinds are in `WoundKind`: hole, exit, crater, gash, burn, graze, dent.
+
+**Draws.**
+
+| Body | Skin | Extra |
+|---|---|---|
+| Healthy | `a.material`. No wound code at all | None |
+| Paint only (burn, graze, dent) | `a.woundMaterial` | None |
+| Opened, LOD 0 | `a.woundMaterial`, no longer casts | Interior and backing, one draw each. Backing also replaces the skin in the shadow pass |
+| Opened, LOD 1 | The same | Backing only. The hole is a few pixels of dark |
+| LOD 2 and past | `a.farMaterial`: no wounds drawn | None |
+
+Corpses keep their LOD up to date through `Gore.updateBodyLod`, one body a frame, because nothing else sets it after death.
+
+**Under the skin**, deepest last: inner body (trunk lofted through the skin's own cross-sections, sleeves round the limbs, a mass at each joint), rib cage, spine, pelvis, skull, long bones, lungs, heart, liver, stomach, bowel. About 9k triangles per archetype, shared. Each layer is removed in the middle of a wound by how deep it went, so a bullet shows flesh, a cannon shows ribs and lungs, and only a crater 7.5 cm deep breaks bone.
+
+**What has to stay true.**
+
+- **Everything inside is cut away except under a wound.** It does not fit the skin exactly and does not have to, but take that test out and it pokes through everywhere.
+- **The far wall is not a shrunk copy of the skin.** Pulling a surface in along its normals turns thin gear inside out, and it comes through the far side as black spikes. Backing is the skin's own geometry, back faces only. It also has to be the same LOD as the skin: the lower LODs stick out past it at silhouettes.
+- **Do not make the skin double-sided.** It is what the backing replaced: a third more shading for a whole body, 1.1 ms over 20. `discard` alone measured 0.3 ms.
+- **The skin's own program cannot draw into the moon's map.** It samples that map, and WebGL drops the draw as a feedback loop. Hence `backing.ts`, with `material.allowOverride = false`, which three's scene override respects. `isOrthographic` tells the two passes apart, because the moon is the only orthographic camera a body sees.
+- **`aEdge` is why holes appear on flat plates.** Whether a wound is near is worked out per vertex and interpolated, and on a plate all three corners of a triangle can be far from a hole in its middle. Each vertex adds the longest edge touching it to its reach, which is enough to never miss one. Before it, stains stopped in straight lines along triangles.
+- **Reach comes first.** The first texel of a wound holds its centre and how far any trace of it reaches, so almost every pixel and vertex skips a wound on one fetch.
+- **The skin's slot depth does not follow the wound's depth.** It only says where the skin can be. Tied to depth, a 12 cm exit reached through to the front of the chest.
+- **The wall of a small hole is drawn on the skin.** Flesh lies centimetres behind gear, and through a 2 cm hole most angles see past it to the dark. The last of the skin inside the tear is shaded as meat falling away, and only the middle is discarded.
+- **Channel g of the detail texture is cloth weave.** Used on anything else it looks like a bandage.
+
+**Merging.** A new wound that overlaps one already there grows it, by area, up to a limit for that bone, and digs it deeper. A hole that reaches 3 cm becomes a crater. So sustained fire takes a chunk out with no special case. With all 32 slots in use the faintest paint goes first, then the two closest wounds merge. A new wound always lands. The two sides of a limb lie close in bind space, so wounds facing opposite ways do not merge.
+
+**Regions.** In the A-pose an arm lies inside a chest wound's slot. Each wound carries which parts it may touch, as bits, and each vertex belongs to one part by its heaviest bone. Near a shoulder or hip a wound takes in both.
+
+**Fractures.** `fracture(bone, 'hyper')` bends a hinge past straight, the wrong way: `bone` is the forearm for an elbow, the shin for a knee. `'limp'` kills a ball joint, with the hinge below it hanging slack. A verlet point on the end of the limb swings by its own weight from wherever the joint is carried, after the animator has run, by wrapping `anim.update`, so it holds through every animator. In a ragdoll the joint opens instead: `Rag.breakJoint`, and `JointMuscle.broken` takes the muscles off it. Bone ends are parts of the interior that stay collapsed to a point until the bit for their joint is set.
+
+Warm-up: `CharacterLibraryImpl.warmWounds` draws one wounded body out of sight on the first frame, so the first hit of a game compiles nothing. Measured: program count 95 before and after the first wound, and that frame's `render()` took 2.2 ms.
 
 ## Measured
 
@@ -98,6 +154,20 @@ None of these exist on skitters and drones, which is how gore and the enemies kn
 | Disk | 37 MB for 16 characters and 13 props, about 2.2 MB per character |
 | Atlas density | 2.1 to 2.8 mm per texel at 1024 |
 | Foot slide | Under 2 cm at 2 to 11 m/s and at 30 to 144 Hz, asserted in `animation/gait.test.ts` |
+
+Cost of 20 troopers at 5 to 13 m, all at LOD 0, over the same frame with them hidden. `tools/scripts/wound-bench.mjs`, Test Range, `--dpr 2 --w 1440 --h 900`, frozen frames timed round-robin with a GPU sync at each end, best of 8 rounds. The empty frame is 6.5 ms. It was 7.9 ms for the old build, on a busier machine and before the render agent's latest work, so compare the differences and not the totals.
+
+| 20 bodies, each with | Old build | Now |
+|---|---|---|
+| Nothing | +2.4 ms | +2.25 ms |
+| 8 wounds of paint | +3.0 ms | +3.4 ms |
+| 16 wounds of paint | +3.2 ms | +3.4 ms |
+| 16 paint, 8 real holes | Not possible | +5.5 ms |
+| The same, chest and belly open | Not possible | +6.05 ms |
+
+Every body opened at once at close range is the worst case, about 0.19 ms per opened body. 1.13M triangles against 0.69M, and 172 draws against 132.
+
+Wounds are in the middle of `render()` with the rest of the frame, so these are whole-frame figures. Timer queries read nothing useful here: see `docs/notes/render.md`.
 
 ## Baking
 
@@ -132,6 +202,16 @@ Adding an archetype: an entry in `src/characters/archetypes.ts`, a builder in `t
 | `bake.ts` `Quality` | Voxel size, atlas size, triangle scale |
 | `skin.ts` `BLEND` | Joint blend width per bone |
 
+## Checks
+
+```
+WG_SCENES=bullets,shotgun WG_TYPE=trooper node tools/shot.mjs --url "/?map=range" --dpr 2 --w 1440 --h 900 --wait 500 --timeout 150 \
+  --quiet --script tools/scripts/wound-gallery.mjs --out tools/out/wounds.png
+node tools/shot.mjs --url "/?map=range" --dpr 2 --w 1440 --h 900 --wait 500 --timeout 170 --quiet --script tools/scripts/wound-bench.mjs --out tools/out/wb.png
+```
+
+Gallery scenes: `warm bullets shotgun blast belly cannon sword burn scorch fracture limb corpse`, and on request `healthy types machines live shadow under`. `live` fires real weapons with real keys. `under` hides the skin to show what a wound reaches. `shadow` writes two pictures that differ by a hole's light on the floor.
+
 ## Sandbox
 
 `/?sandbox=models` is the line-up. Add `&archetype=<id>&view=front|three|side|back|close|face|feet`,
@@ -153,5 +233,11 @@ or `&bench=48` for a crowd. `window.__m` gives frame-stepped control.
   close approximation at joints.
 - The animator does not avoid obstacles or other bodies. Arms clip through props in extreme aim angles past about
   70 degrees of yaw.
+- **A sliced half loses its wounds.** `bakePose` is world space and has no bones, so it draws with the plain skin. Slicing a damaged body gives clean halves.
+- **Wounds are at most a slot deep.** There is no real volume: from the side, the far wall of a hole in a thin limb is a dark surface rather than a tunnel.
+- **Bone breaks at a joint.** There are no bones in the middle of a limb, so a forearm snaps at the elbow. A shaft through the side of the arm is a spike, not a bend.
+- **Broken legs still walk.** `maim.legs` drops to 1, which stops jumps and dodges, but the animator's gait comes from the severed set. A body with a snapped knee walks on with the shin swinging free, and there is no hop.
+- **A gun stays in a broken hand.** The prop follows the hand down. The AI stops using it.
+- **Armour plates are separate meshes.** Wounds go on the skin under them, and a plate that is still on hides what is there.
 - `grounded` in `LocomotionInput` is read as "feet on the ground". Its comment in `contracts.ts` talks about crawling,
   which actually happens by itself from the severed set.

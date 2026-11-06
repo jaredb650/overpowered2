@@ -41,6 +41,9 @@ export class Player implements PlayerSystem {
   sensitivity = T.sensitivity;
   invertY = false;
   lookScale = 1;
+  parked = false;
+  /** Seconds left of being untouchable after a seat. */
+  private parkGrace = 0;
   /** A player setting: holding Space hops on every landing instead of needing a fresh press. */
   holdToHop = T.holdToHop;
 
@@ -206,6 +209,13 @@ export class Player implements PlayerSystem {
     const dt = time.playerDt;
     const look = input.consumeLook();
     if (time.paused) return;
+    this.parkGrace = Math.max(0, this.parkGrace - dt);
+    // The look still has to be consumed: `input.frameLook` is what the seat aims with.
+    if (this.parked) {
+      this.updateHealth(dt);
+      this.feedback.update(dt);
+      return;
+    }
 
     if (this.alive) {
       const scale = this.sensitivity * this.lookScale;
@@ -1399,7 +1409,7 @@ export class Player implements PlayerSystem {
   }
 
   takeDamage(damage: PlayerDamage): void {
-    if (!this.alive || this.modifiers.invulnerable) return;
+    if (!this.alive || this.modifiers.invulnerable || this.parked || this.parkGrace > 0) return;
     const amount = damage.amount * this.modifiers.damageTaken;
     if (amount <= 0) return;
     this.lastDamageT = 0;
@@ -1442,6 +1452,7 @@ export class Player implements PlayerSystem {
   // --- External motion -----------------------------------------------------------------------------------------
 
   launch(velocity: THREE.Vector3): void {
+    if (this.parked) return;
     this.interruptForLaunch();
     this.v.x += velocity.x;
     this.v.z += velocity.z;
@@ -1450,6 +1461,7 @@ export class Player implements PlayerSystem {
 
   /** Adds velocity on all axes, for blasts that should stack with a jump. */
   push(velocity: THREE.Vector3): void {
+    if (this.parked) return;
     this.interruptForLaunch();
     this.v.add(velocity);
   }
@@ -1497,7 +1509,24 @@ export class Player implements PlayerSystem {
     this.eye.y += this.eyeHeight;
   }
 
+  park(feet: THREE.Vector3): void {
+    const { pitch } = this;
+    this.teleport(feet, this.yaw);
+    this.pitch = pitch;
+    this.clearInput();
+    // Standing, so a kill from the seat does not score as an airborne one.
+    this.grounded = true;
+    this.parked = true;
+  }
+
+  unpark(grace: number): void {
+    this.parked = false;
+    this.parkGrace = grace;
+  }
+
   reset(): void {
+    this.parked = false;
+    this.parkGrace = 0;
     this.alive = true;
     this.health = this.maxHealth = T.maxHealth;
     this.armor = 0;

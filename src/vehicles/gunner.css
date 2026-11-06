@@ -1,0 +1,94 @@
+/* The gunner's overlay. A sensor's picture, not a soldier's: thin lines, numbers, nothing filled. */
+
+.gn {
+  --gn: #e6f2ec;
+  --gn-dim: rgba(230, 242, 236, 0.55);
+  --gn-hot: var(--amber);
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  color: var(--gn);
+  font: 600 1.2rem/1.2 var(--mono);
+  text-shadow: 0 0 0.3rem rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+}
+.gn.tone-door { --gn: #ffe2b0; --gn-dim: rgba(255, 226, 176, 0.55); }
+
+.gn-corner { position: absolute; width: 7rem; height: 7rem; border: 0 solid var(--gn-dim); }
+.gn-tl { left: 3rem; top: 3rem; border-width: 0.16rem 0 0 0.16rem; }
+.gn-tr { right: 3rem; top: 3rem; border-width: 0.16rem 0.16rem 0 0; }
+.gn-bl { left: 3rem; bottom: 3rem; border-width: 0 0 0.16rem 0.16rem; }
+.gn-br { right: 3rem; bottom: 3rem; border-width: 0 0.16rem 0.16rem 0; }
+
+.gn-reticle { position: absolute; left: 50%; top: 50%; width: 15rem; height: 15rem; margin: -7.5rem 0 0 -7.5rem; }
+.gn-ret { width: 100%; height: 100%; overflow: visible; fill: none; stroke: var(--gn); stroke-width: 1.5; }
+.gn-ret rect { fill: var(--gn); stroke: none; }
+
+.gn-spin { position: absolute; left: 50%; top: calc(50% + 7rem); width: 9rem; height: 0.32rem; margin-left: -4.5rem; background: rgba(0, 0, 0, 0.5); }
+.gn-sfill { height: 100%; background: var(--gn-hot); transform-origin: 0 50%; }
+
+.gn-top { position: absolute; left: 50%; top: 3.2rem; width: 34rem; margin-left: -17rem; text-align: center; }
+.gn-label { display: block; font-size: 1.15rem; color: var(--gn); }
+.gn-time { display: grid; grid-template-columns: 1fr 3.4rem; align-items: center; gap: 0.8rem; margin-top: 0.4rem; }
+.gn-tbar { height: 0.3rem; background: rgba(0, 0, 0, 0.5); }
+.gn-tfill { height: 100%; background: var(--gn); transform-origin: 0 50%; }
+.gn-sec { font: 1.9rem/1 var(--display); text-align: right; }
+.gn.warning .gn-tfill { background: var(--blood); }
+.gn.warning .gn-sec { color: var(--blood); }
+
+.gn-arms { position: absolute; left: 5rem; bottom: 5rem; width: 24rem; display: flex; flex-direction: column; gap: 0.8rem; }
+.gn-weapon { display: grid; grid-template-columns: 1fr auto; align-items: baseline; row-gap: 0.25rem; }
+.gn-wname { font-size: 1.1rem; }
+.gn-wammo { font: 2.8rem/1 var(--display); }
+.gn-wbar { grid-column: 1 / -1; height: 0.34rem; background: rgba(0, 0, 0, 0.5); }
+.gn-wfill { height: 100%; background: var(--gn); transform-origin: 0 50%; }
+.gn-weapon.dry { color: var(--blood); }
+.gn-weapon.dry .gn-wfill { background: var(--blood); }
+
+.gn-read { position: absolute; right: 5rem; bottom: 5rem; width: 12rem; display: flex; flex-direction: column; gap: 0.25rem; }
+.gn-row { display: flex; justify-content: space-between; align-items: baseline; }
+.gn-key { color: var(--gn-dim); font-size: 1.05rem; }
+.gn-val { font: 1.9rem/1.1 var(--display); }
+
+.gn-hint { position: absolute; left: 0; right: 0; bottom: 3.2rem; text-align: center; font-size: 1.05rem; color: var(--gn-dim); }
+
+.gn-tags { position: absolute; left: 0; top: 0; }
+.gn-tag {
+  position: absolute;
+  left: -1rem;
+  top: -1.2rem;
+  width: 2rem;
+  height: 2.4rem;
+  background:
+    linear-gradient(var(--gn-hot) 0 0) 0 0 / 0.6rem 0.14rem,
+    linear-gradient(var(--gn-hot) 0 0) 0 0 / 0.14rem 0.6rem,
+    linear-gradient(var(--gn-hot) 0 0) 100% 0 / 0.6rem 0.14rem,
+    linear-gradient(var(--gn-hot) 0 0) 100% 0 / 0.14rem 0.6rem,
+    linear-gradient(var(--gn-hot) 0 0) 0 100% / 0.6rem 0.14rem,
+    linear-gradient(var(--gn-hot) 0 0) 0 100% / 0.14rem 0.6rem,
+    linear-gradient(var(--gn-hot) 0 0) 100% 100% / 0.6rem 0.14rem,
+    linear-gradient(var(--gn-hot) 0 0) 100% 100% / 0.14rem 0.6rem;
+  background-repeat: no-repeat;
+}
+.gn-tag.boss { left: -2rem; top: -2.4rem; width: 4rem; height: 4.8rem; }
+.gn-tag.held { opacity: 0.45; }
+
+.gn-body { position: absolute; left: 0; top: 0; }
+.gn-body span {
+  position: absolute;
+  left: -1.6rem;
+  top: -0.8rem;
+  width: 3.2rem;
+  text-align: center;
+  font-size: 0.95rem;
+  color: #03161b;
+  background: var(--cold);
+}
+
+.gn-uplink { display: none; position: absolute; left: 50%; bottom: 10rem; width: 20rem; margin-left: -10rem; text-align: center; font: 2rem/1 var(--display); color: var(--gn); }
+.gn.boarding .gn-uplink { display: block; }
+.gn.boarding .gn-reticle, .gn.boarding .gn-spin, .gn.boarding .gn-read, .gn.boarding .gn-arms, .gn.boarding .gn-hint, .gn.boarding .gn-time { display: none; }
+
+/* What the seat replaces. Score, kill feed, combo, banners and hit markers stay: this is still the player's run. */
+.hud.seated .vitals, .hud.seated .arms, .hud.seated .tach, .hud.seated .callins, .hud.seated .ci.sn,
+.hud.seated .lowframe, .hud.seated .xh-reticle, .hud.seated .xh-tick, .hud.seated .xh-prompt, .hud.seated .xh-charge { display: none; }

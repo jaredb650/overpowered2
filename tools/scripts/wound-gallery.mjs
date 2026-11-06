@@ -70,6 +70,7 @@ function install() {
     const at = window.__wgBody.char.root.position;
     return [x + at.x, y, z + at.z];
   };
+  // Bodies stay on their feet for the camera. A hit that would have floored one staggers it.
   ctx.gore.knockdown = () => false;
   window.__wg = { ctx, lab, V, raf, freeze, thaw, place, shoot, look, frame, clear, settle, front };
 }
@@ -114,7 +115,6 @@ async function scene(page, h, name, type, build, views) {
 const NEAR = [['1m5', [0.25, 1.35, 1.5], [0, 1.2, 0], 34], ['close', [0.2, 1.3, 0.6], [0, 1.2, 0], 34], ['10m', [0.5, 1.5, 10], [0, 1.1, 0], 34]];
 const BACK = ['back', [-0.3, 1.35, -1.4], [0, 1.2, 0], 34];
 const SCENE = {
-  // Standing bodies only: with this the blast scenes stay on their feet for the camera.
   healthy: (p, h, t) => scene(p, h, 'healthy', t, async () => {}, [['neck', [0.3, 1.55, 1.1], [0, 1.45, 0], 34]]),
   bullets: (p, h, t) => scene(p, h, 'bullets', t, async (w, e) => {
     const F = w.front(0.2, 1.4, 3);
@@ -159,6 +159,119 @@ const SCENE = {
     w.shoot(e, 'judge', 'bullet', 50, w.front(0.6, 1.2, 3), 9, [-0.04, -0.12, 0.05]);
     w.shoot(e, 'judge', 'bullet', 50, w.front(-0.8, 1.3, 3), 5, [0.05, -0.14, 0.05]);
   }, [['full', [0.8, 1.0, 3.2], [0, 0.95, 0], 36], ['side', [3.2, 1.0, 0.3], [0, 0.95, 0], 36], ['knee', [0.15, 0.6, 1], [0, 0.5, 0], 36], ['arm', [-0.7, 1.3, 1.1], [0.2, 1.15, 0.1], 36]]),
+};
+
+/**
+ * Real weapons, real keys: whatever the hand-built hits above miss between a trigger and a wound. Fires each weapon at a
+ * standing body and reports what it left.
+ */
+SCENE.live = async (page, h) => {
+  const out = {};
+  for (const [weapon, type, range] of [['smg', 'trooper', 7], ['shotgun', 'gunner', 2.5], ['judge', 'husk', 7], ['autocannon', 'brute', 9], ['rocket', 'riot', 12], ['sword', 'husk', 2.2]]) {
+    await page.evaluate(async ([weapon, type, range]) => {
+      const w = window.__wg;
+      const { ctx, V } = w;
+      await w.clear();
+      const e = w.lab.spawner.place(type, new V(8, 0, -6), 'off');
+      window.__wgBody = e;
+      ctx.player.teleport(new V(8, 0.1, -6 + range), 0);
+      ctx.weapons.switchTo(weapon);
+      await w.raf(50);
+      const d = new V(8, 1.1 * (e.char.rig.height / 1.85), -6).sub(ctx.player.eye);
+      ctx.player.yaw = Math.atan2(-d.x, -d.z);
+      ctx.player.pitch = Math.atan2(d.y, Math.hypot(d.x, d.z));
+      ctx.input.simulate('fire', true);
+      await w.raf(weapon === 'smg' ? 24 : 6);
+      ctx.input.simulate('fire', false);
+      await w.raf(50);
+    }, [weapon, type, range]);
+    out[weapon] = await page.evaluate(() => {
+      const e = window.__wgBody;
+      const b = e.char.book;
+      const K = ['hole', 'exit', 'crater', 'gash', 'burn', 'graze', 'dent'];
+      const kinds = {};
+      for (let i = 0; i < b.count; i++) kinds[K[b.kind(i)]] = (kinds[K[b.kind(i)]] ?? 0) + 1;
+      return { alive: e.alive, live: e.char.live, kinds };
+    });
+    await page.evaluate(() => {
+      const w = window.__wg;
+      const at = window.__wgBody.char.bones[2].getWorldPosition(new w.V());
+      w.freeze();
+      w.look([at.x + 0.7, at.y + 0.5, at.z + 1.5], [at.x, at.y - 0.1, at.z], 40);
+      return w.frame();
+    });
+    await h.shot(`live-${weapon}`);
+    await page.evaluate(() => window.__wg.thaw());
+  }
+  return out;
+};
+
+/** Whether a hole reaches the moon's shadow map: a hole straight through along the moon's line, and the floor behind it. */
+SCENE.shadow = async page => {
+  const brightness = () => page.evaluate(async () => {
+    const w = window.__wg;
+    await w.frame();
+    const { ctx, V } = w;
+    const e = window.__wgBody;
+    const chest = e.char.bones[2].getWorldPosition(new V()).add(new V(0, 0.1, 0));
+    const moon = ctx.render.engine.opMoonDir.value.clone().normalize();
+    const floor = chest.clone().addScaledVector(moon, -chest.y / moon.y);
+    const hit = floor.clone().project(ctx.render.camera);
+    return { x: (hit.x + 1) / 2, y: (1 - hit.y) / 2, moon: moon.toArray().map(v => +v.toFixed(2)) };
+  });
+  await page.evaluate(async () => {
+    const w = window.__wg;
+    await w.clear();
+    const e = w.place('trooper', 8, -6, 0);
+    window.__wgBody = e;
+    await w.raf(40);
+    w.freeze();
+    const { ctx, V } = w;
+    const chest = e.char.bones[2].getWorldPosition(new V()).add(new V(0, 0.1, 0));
+    const moon = ctx.render.engine.opMoonDir.value.clone().normalize();
+    const floor = chest.clone().addScaledVector(moon, -chest.y / moon.y);
+    w.look([floor.x + 0.3, 1.6, floor.z + 1.8], [floor.x, 0, floor.z], 40);
+  });
+  const shots = {};
+  const sample = async name => {
+    const at = await brightness();
+    const png = await page.screenshot({ type: 'png' });
+    shots[name] = at;
+    return png;
+  };
+  const { writeFileSync } = await import('node:fs');
+  const dir = process.env.WG_OUT ?? 'tools/out';
+  writeFileSync(`${dir}/shadow-whole.png`, await sample('whole'));
+  await page.evaluate(async () => {
+    const w = window.__wg;
+    const { ctx, V } = w;
+    const c = window.__wgBody.char;
+    const moon = ctx.render.engine.opMoonDir.value.clone().normalize();
+    const chest = c.bones[2].getWorldPosition(new V()).add(new V(0, 0.1, 0));
+    const into = moon.clone().negate();
+    const front = chest.clone().addScaledVector(moon, 0.16);
+    const back = chest.clone().addScaledVector(moon, -0.16);
+    c.wound({ kind: 2, bone: 2, point: front, dir: into, radius: 0.13, depth: 0.1, ragged: 0 });
+    c.wound({ kind: 2, bone: 2, point: back, dir: moon, radius: 0.13, depth: 0.1, ragged: 0 });
+    await w.frame();
+  });
+  writeFileSync(`${dir}/shadow-holed.png`, await sample('holed'));
+  return shots;
+};
+
+/** Takes the skin away and leaves only what lies under the wounds, for when a hole shows the wrong thing. */
+SCENE.under = async (page, h, type) => {
+  await SCENE.bullets(page, h, type);
+  await page.evaluate(async () => {
+    const w = window.__wg;
+    const c = window.__wgBody.char;
+    c.mesh.visible = false;
+    c.backing.visible = false;
+    const at = c.bones[2].getWorldPosition(new w.V());
+    w.look([at.x + 0.2, at.y + 0.05, at.z + 0.6], [at.x, at.y - 0.05, at.z], 34);
+    await w.frame();
+  });
+  await h.shot('under-front');
 };
 
 /** The same damage across the cast, so a fit that fails on one body shape shows up. */

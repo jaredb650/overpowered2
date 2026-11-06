@@ -93,7 +93,7 @@ export interface CallInInfo {
   note: string;
 }
 
-export const CALLIN_ORDER: readonly CallInId[] = ['airstrike', 'warthog', 'orbital', 'ac130', 'blackSun', 'nuke'];
+export const CALLIN_ORDER: readonly CallInId[] = ['airstrike', 'warthog', 'doorGunner', 'attackChopper', 'orbital', 'ac130', 'blackSun', 'nuke'];
 
 const callIn = (id: CallInId, name: string, action: Action, note: string): CallInInfo => ({
   name, action, note, combo: CALLIN_DEFS[id].combo, color: CALLIN_DEFS[id].color, radius: CALLIN_DEFS[id].radius,
@@ -102,6 +102,8 @@ const callIn = (id: CallInId, name: string, action: Action, note: string): CallI
 export const CALLINS: Record<CallInId, CallInInfo> = {
   airstrike: callIn('airstrike', 'Airstrike', 'streak', '15 rockets across the mark, then a finale.'),
   warthog: callIn('warthog', 'Warthog', 'callinWarthog', '50 shells along a line. Hold the click and drag to set its heading.'),
+  doorGunner: callIn('doorGunner', 'Door Gunner', 'callinDoorGunner', 'No mark needed. You take the M134 in the door of a circling helicopter until the belt or the time runs out.'),
+  attackChopper: callIn('attackChopper', 'Attack Chopper', 'callinChopper', 'No mark needed. You take the gunner seat, the pilot finds the fight, and you have a cannon and rockets until they run out.'),
   orbital: callIn('orbital', 'Orbital Lance', 'callinOrbital', 'A burning beam you steer for 6 seconds.'),
   ac130: callIn('ac130', 'AC-130', 'callinAc130', 'A gunship circles the mark for two minutes and shells it while you fight.'),
   blackSun: callIn('blackSun', 'Black Sun', 'callinBlackSun', 'Drags enemies and corpses in, then implodes.'),
@@ -170,7 +172,9 @@ export const LADDER: readonly { combo: number; name: string; color: string }[] =
   { combo: 8, name: 'Airstrike', color: CALLINS.airstrike.color },
   { combo: 12, name: 'Warthog', color: CALLINS.warthog.color },
   { combo: 15, name: 'Berserk', color: PERKS.berserk.color },
+  { combo: 18, name: 'Door Gunner', color: CALLINS.doorGunner.color },
   { combo: 20, name: 'Sentinels', color: PERKS.sentinels.color },
+  { combo: 22, name: 'Attack Chopper', color: CALLINS.attackChopper.color },
   { combo: 25, name: 'Orbital Lance', color: CALLINS.orbital.color },
   { combo: 28, name: 'AC-130', color: CALLINS.ac130.color },
   { combo: 30, name: 'Chain Storm', color: PERKS.chainStorm.color },
@@ -259,7 +263,7 @@ export const KEY_GROUPS: readonly { title: string; rows: readonly [Action, strin
   {
     title: 'Call in',
     rows: [
-      ['streak', 'Airstrike'], ['callinWarthog', 'Warthog'], ['callinOrbital', 'Orbital Lance'],
+      ['streak', 'Airstrike'], ['callinWarthog', 'Warthog'], ['callinDoorGunner', 'Door Gunner'], ['callinChopper', 'Attack Chopper'], ['callinOrbital', 'Orbital Lance'],
       ['callinAc130', 'AC-130'], ['callinBlackSun', 'Black Sun'], ['callinNuke', 'Tactical Nuke'], ['scoreboard', 'Run stats'],
     ],
   },

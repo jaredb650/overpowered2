@@ -206,7 +206,7 @@ float sWoundH = 0.0;
   if (vWoundNear > 0.0) {
     int wounds = int(info.x);
     // Metres outside the nearest cut, and how much of each kind of damage this pixel is in.
-    float edge = 1.0, rimWidth = 0.01, bruise = 0.0, stain = 0.0, scorch = 0.0, pit = 0.0, torn = 0.0;
+    float edge = 1.0, rimWidth = 0.01, funnel = 0.0, bruise = 0.0, stain = 0.0, scorch = 0.0, pit = 0.0, torn = 0.0;
     // Skin tears along a few long lines, not at every grain of it. Big wounds wander on a big noise, and only the finest
     // grain reaches the very edge, in millimetres, or the edge breaks up into islands. One tap, skewed so that no face of
     // the body lies flat to it, because this is only ever the wobble in an edge.
@@ -251,10 +251,13 @@ float sWoundH = 0.0;
         if (m < edge) {
           edge = m;
           rimWidth = kind == OP2_GASH ? 0.007 : clamp(radius * 0.45, 0.006, 0.03);
+          funnel = min(radius * 0.6, 0.022);
         }
       }
     }
-    if (edge < 0.0) discard;
+    // Flesh lies a few centimetres behind gear and a hole is narrow, so from most angles a small hole would look past it
+    // to the dark. The last of the skin inside the tear is drawn as the wall of the wound instead, falling away into it.
+    if (edge < -funnel) discard;
 
     if (scorch > 0.0) {
       // Only flesh and cloth split. Plate just blackens.
@@ -281,7 +284,14 @@ float sWoundH = 0.0;
     }
     float ring = 1.0 - smoothstep(0.0, rimWidth * 3.0, edge);
     float rim = 1.0 - smoothstep(0.0, rimWidth, edge);
-    if (ring > 0.0) {
+    if (edge < 0.0) {
+      float inner = -edge / funnel;
+      float streak = macro.a * 0.5 + micro.a * 0.5;
+      sAlb = mix(mix(vec3(0.3, 0.04, 0.035), vec3(0.12, 0.009, 0.012), smoothstep(0.38, 0.62, streak)), vec3(0.02, 0.0015, 0.002), pow(inner, 1.4));
+      sRough = 0.34;
+      sMetal = 0.0;
+      sWoundH -= rimWidth * 0.5 + inner * funnel * 0.45;
+    } else if (ring > 0.0) {
       // Bruised, then torn.
       sAlb = mix(sAlb, vec3(0.035, 0.004, 0.008), ring * 0.8);
       vec3 raw = mix(vec3(0.19, 0.02, 0.016), vec3(0.042, 0.003, 0.003), smoothstep(0.35, 1.0, rim + (micro.g - 0.5) * 0.5));

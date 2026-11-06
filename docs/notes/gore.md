@@ -25,6 +25,7 @@ heavy load add `--testTimeout=60000`: the first test to touch WebAssembly can pa
 ```ts
 const hit = ctx.gore.raycastCharacter(char, origin, dir, maxDist);  // CapsuleHit | null
 
+ctx.gore.wound(char, damage, severity);           // leaves the mark of a hit. Call it for lethal hits too, before the death. True if a limb broke
 ctx.gore.sever(char, 'armL', damage, velocity);   // alive or dead. null if already gone or not severable
 ctx.gore.ragdoll(char, { impulses, velocity });   // death. Gore owns the instance from here
 ctx.gore.collapse(char, { duration, velocity, hit });  // death with time in it. Muscles fade out, then it drops
@@ -122,19 +123,43 @@ A body that is falling or dying answers every round, and nothing restarts.
 Muscles add `collapse`, `knockdown`, `downed`, and `impact`, `twitch` and `muscles` on `RagdollOptions`, from `muscles.ts` by module augmentation. `getUp.ts` adds the optional reaction members to `CharacterAnimation`.
 The rig gains `JointDef.role` and `BoneDef.relax`. `Physics` gains `OWN_BLAST`.
 
+Wounds add `gore.wound`, and `wound`, `fracture`, `isFractured`, `skinMaterial`, `stress` and an optional `setLod` on `CharacterInstance`, `wound` and `isFractured` on `SeveredLimb`, and `WoundHit`. `RagSource` gains an optional `isFractured`, `Rag` gains `breakJoint`, `JointMuscle` gains `broken`.
+
 The rest are additive, in `contracts.ts`. `PhysicsSystem`: `preStep`, `radialListeners`, `raycastInto`, `anchorBody`, `stepMs`.
 `GoreSystem`: optional `velocity` on `sever` and `headshot`. `CorpseHit`: `bone`, `region`. `SeverResult`: `torso`, plus the
 `TorsoHalf` interface. On the concrete `Gore`: `owns`, `blast`, `stats`, `limbCenter`.
+
+## Wounds
+
+`wounds.ts`, `WoundPlanner`: what a hit leaves on a body. How it is drawn is in `docs/notes/characters.md`. `DamageModel.apply` calls `gore.wound` the moment the health comes off, so a killing shot marks the body too, and `damageCorpse` does the same for the dead. Severity is the share of the body's health the hit took. A corpse counts as 100 health.
+
+| Hit | Leaves |
+|---|---|
+| SMG, Buzzsaw | 1.25 cm hole. Stays in a trunk. Through a limb, a small exit |
+| Judge | 1.45 cm hole, and a torn 5.5 cm exit on the far side of the capsule, as the ray leaves it |
+| Stakegun, Lance | Bigger of the same |
+| Autocannon | 4.5 cm crater, 11.5 cm exit, 13 cm deep |
+| Shotgun | Up to 4.7 cm of crater per pellet close in, 1.15 cm holes by 10 m. Within 11 cm of each other at point blank they merge, so one shell leaves one crater |
+| Rocket, grenade, anything `explosive` | Opens the trunk on the side facing the blast, up to 18.5 cm across and 15 cm deep, with a burn round it and 3 to 9 shrapnel holes. Arms held in front do not stop it. Under 16% of health it only burns and peppers |
+| Sword | A gash 8.5 to 20 cm long along the line where the blade's plane meets the skin, about 1 cm wide |
+| Fire | A burn patch on whatever the flame reached. Nothing removed. Whole-body burning is `setBurn`, unchanged |
+| Melee, crush | Bruising, and a strain on the limb |
+| Anything on a machine | Dents. No interior exists, and a Titan counts |
+
+Breaking: each hit on a limb adds `damage x breaks` to `char.stress` for that joint, and past `breakAt` (60, times size squared) it goes. One Judge round breaks a forearm, a shotgun takes three close pellets, and an SMG about seven rounds. A forearm or shin hit snaps the elbow or knee the wrong way. An upper arm or thigh hit kills the shoulder or hip. Either way a hole opens and a bone end comes out through it. A blast strains whichever limbs its shrapnel found. `updateMaim` counts a broken limb as lost for the AI, except that a broken leg never takes `legs` to 0, because crawling needs a body the animator can see has lost them.
+
+**Gore setting.** Low paints and opens nothing and breaks nothing. Full is as tuned. Excessive cuts 25% wider and limbs go 1.5 times sooner. Written from `applyGore` in `ui/settings.ts`.
 
 ## Tuning
 
 | Knob | File | What it does |
 |---|---|---|
+| `WoundTuning`, `BITES` | `wounds.ts` | Gore level, what breaks a limb, pellet range and merging, each weapon's wound |
 | `GoreTuning` | `index.ts` | Caps, settle speed and time, sink, heartbeat, headshot hold and hit-stop, whole-body share and lift of a hit, limb share of force, gib launch, corpse limb health, crawl time |
 | `MuscleTuning` | `muscles.ts` | Everything in the muscle layer: ligaments, resting pose, impact spin, collapse timing, twitching, jolts |
 | `ReflexTuning` | `reflex.ts` | A living body off its feet: strength by phase, when it counts as landed, how it braces |
 | `relax`, `role` | `rig.ts` | Resting pose per joint, and what each joint is for |
-| `RagTuning` | `rag.ts` | Joint damping, death tone, hard limit strength and fade-in, rest damping, collider slimming, speed clamps, blast lift |
+| `RagTuning` | `rag.ts` | Joint damping, death tone, hard limit strength and fade-in, rest damping, collider slimming, speed clamps, blast lift, how far a broken joint opens |
 | `swingShape()` | `rag.ts` | Asymmetric hip and shoulder reach |
 | `BloodTuning` | `blood.ts` | Rays per frame (24), droplet and pool caps, smear spacing |
 | `ChunkTuning` | `chunks.ts` | Slots per kind, live bodies (72), linger, bounce |

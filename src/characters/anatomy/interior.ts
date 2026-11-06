@@ -97,10 +97,11 @@ for (int i = 0; i < OP2_MAX_WOUNDS; i++) {
   vec3 off;
   float dist = op2Slot(vBind, t0, t1, axis, along, off, radius);
   float under = max(along, 0.0);
-  float past = op2SlotEnds(along, OP2_SKIN_ABOVE, depth + t1.w);
+  // A hit point is on a capsule, and on a thin body the capsule stands well clear of the flesh, so the wound starts late.
+  float past = op2SlotEnds(along, OP2_SKIN_ABOVE, depth + t1.w + 0.1);
   float open = smoothstep(radius * 1.15, radius * 0.45, dist);
   // Never all the way down to nothing, or a small hole shows as a black dot with no flesh in it.
-  sLight = max(sLight, open * (0.4 + 0.6 * exp(-under / (radius * 1.5 + 0.015))));
+  sLight = max(sLight, open * (0.8 + 0.5 * exp(-under / (radius * 1.5 + 0.015))));
   // Layers go by how far the wound reached. A gash only opens what it passes through.
   float reachShare = vPart == ${Part.bone} ? 0.3 : kind == OP2_CRATER || kind == OP2_EXIT ? 0.72 : 0.4;
   float enough = vPart == ${Part.muscle} && kind != OP2_GASH ? step(0.03, depth) : vPart == ${Part.bone} && kind == OP2_CRATER ? step(0.075, depth) : 0.0;

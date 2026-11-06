@@ -8,7 +8,7 @@
  * Timers run on time.realDt as the first game's did: durations stay true in SLOWMO, and the player's clock is the
  * one the player feels. update() only runs while playing, so pause holds them, which the first game got wrong.
  */
-import type { Ctx } from '../core/contracts';
+import type { Ctx, GradeName } from '../core/contracts';
 import type { ActiveEffect, PowerupId } from '../core/gameplay';
 import { clamp, invLerp } from '../core/math';
 import { EFFECTS, POWERUPS, SHOT_LAYERS, STACK, TRACER_ORDER, type EffectDef, type EffectId } from './data';
@@ -28,6 +28,8 @@ export class PerkRunner {
   private readonly pool = new Map<EffectId, ActiveEffect>();
   private readonly listeners: EffectListener[] = [];
   private grade: string = 'default';
+  /** A seat's picture outranks every perk for as long as it is up. */
+  private heldGrade: GradeName | null = null;
   private wasInvulnerable = false;
 
   constructor(private readonly ctx: Ctx) {
@@ -183,13 +185,19 @@ export class PerkRunner {
     return 1 + clamp(t) * (STACK.overdriveMaxDamage - 1);
   }
 
+  /** Null gives the screen back to whichever perk should have it by now. */
+  holdGrade(grade: GradeName | null): void {
+    this.heldGrade = grade;
+    this.applyGrade();
+  }
+
   private applyGrade(): void {
     let best: EffectDef | null = null;
     for (const e of this.effects) {
       const def = EFFECTS[e.id];
       if (def.grade && (!best || def.gradeRank > best.gradeRank)) best = def;
     }
-    const grade = best?.grade ?? 'default';
+    const grade = this.heldGrade ?? best?.grade ?? 'default';
     if (grade === this.grade) return;
     this.grade = grade;
     this.ctx.render.post.setGrade(grade, grade === 'default' ? GRADE_RELEASE : GRADE_BLEND);

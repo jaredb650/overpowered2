@@ -346,11 +346,6 @@ export class Character implements CharacterInstance {
     return (this.data[this.extras + EXTRA_INFO * 4 + 2]! / 2 ** bone) % 2 >= 1;
   }
 
-  /** Whether anything has been opened, for callers that want to know what a hit left. */
-  get woundCount(): number {
-    return this.book.count;
-  }
-
   /** The material to give a world-space copy of this body. The wounded one only works on a skeleton. */
   get skinMaterial(): THREE.Material {
     return this.a.material;

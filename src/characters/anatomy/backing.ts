@@ -53,8 +53,9 @@ ${WOUND_COMMON}
 `;
 
 const FRAG_MAIN = /* glsl */ `
-// The bake leaves the odd triangle wound backwards. Its normals still face out, and it is not the far wall of anything.
-if (!isOrthographic && vFacing > 0.0) discard;
+// The bake leaves the odd triangle wound backwards. It is not the far wall of anything. three flips normals on a material
+// that draws back faces, so here a true far wall faces the eye and that triangle faces away.
+if (!isOrthographic && vFacing < 0.0) discard;
 if (vWoundNear > 0.0) {
   int count = int(op2Extra(OP2_INFO).x);
   for (int i = 0; i < OP2_MAX_WOUNDS; i++) {

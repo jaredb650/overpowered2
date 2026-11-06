@@ -295,7 +295,7 @@ export type PerkId =
   | 'bloodthirst' | 'hellfire' | 'berserk' | 'adrenaline' | 'slowmo'
   | 'sentinels' | 'chainStorm' | 'butcher' | 'skyfall' | 'chainReaction' | 'overdrive' | 'geneva';
 
-export type CallInId = 'airstrike' | 'warthog' | 'orbital' | 'ac130' | 'blackSun' | 'nuke';
+export type CallInId = 'airstrike' | 'warthog' | 'doorGunner' | 'attackChopper' | 'orbital' | 'ac130' | 'blackSun' | 'nuke';
 
 export type PowerupId =
   | 'quad' | 'haste' | 'vampire' | 'ricochet' | 'shock' | 'ghost' | 'magnet' | 'regen' | 'frostNova' | 'timeWarp';
@@ -363,6 +363,12 @@ export interface ContractSystem extends GameSystem {
 // HUD
 // ---------------------------------------------------------------------------------------------
 
+/** A full-screen panel that replaces the on-foot widgets. `update` runs after the camera, once a frame. */
+export interface SeatPanel {
+  readonly el: HTMLElement;
+  update(): void;
+}
+
 export interface HudSystem extends GameSystem {
   /** Top-centre banner, e.g. 'WAVE 5'. */
   banner(text: string, subtext?: string, color?: string): void;
@@ -377,6 +383,8 @@ export interface HudSystem extends GameSystem {
   /** Loading screen progress. */
   loading(fraction: number, label: string): void;
   showScreen(screen: 'splash' | 'menu' | 'pause' | 'gameover' | 'guide' | 'settings' | 'none'): void;
+  /** Puts up a seat's panel. Null brings the on-foot HUD back. */
+  seat(panel: SeatPanel | null): void;
 }
 
 // ---------------------------------------------------------------------------------------------

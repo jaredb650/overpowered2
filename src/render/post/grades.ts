@@ -41,6 +41,15 @@ const base: Grade = {
 
 export const GRADES: Record<GradeName, Grade> = {
   default: base,
+  // A gunner's sensor. The world drains to cold grey and only fire keeps its colour, so what is hot is what the player did.
+  thermal: {
+    ...base,
+    exposure: 1.5, contrast: 1.3, saturation: 0.08,
+    lift: [0.012, 0.014, 0.014], gain: [0.98, 1.02, 1],
+    shadowTint: [0.5, 0.5, 0.5], highlightTint: [0.5, 0.5, 0.5],
+    isolate: 0.85, keepHue: [1, 0.55, 0.12],
+    vignette: 0.44, vignetteTint: [0, 0.006, 0.004], bloom: 1.15, grain: 0.06,
+  },
   // Hot orange: the world goes to embers, shadows stay red rather than black.
   hellfire: {
     ...base,
@@ -102,7 +111,7 @@ export const GRADES: Record<GradeName, Grade> = {
   },
 };
 
-export const GRADE_ORDER: readonly GradeName[] = ['default', 'hellfire', 'berserk', 'slowmo', 'bloodthirst', 'adrenaline', 'overdrive', 'death'];
+export const GRADE_ORDER: readonly GradeName[] = ['default', 'hellfire', 'berserk', 'slowmo', 'bloodthirst', 'adrenaline', 'overdrive', 'death', 'thermal'];
 
 function lerp3(out: [number, number, number], a: readonly number[], b: readonly number[], t: number): void {
   out[0] = a[0]! + (b[0]! - a[0]!) * t;
