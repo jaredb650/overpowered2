@@ -2,9 +2,12 @@
 //
 //   node tools/shot.mjs --url "/?map=killhouse&autostart=1" --dpr 2 --w 1440 --h 900 --script tools/scripts/killhouse-playtest.mjs --out tools/out/kh-play.png --wait 500 --timeout 230
 //
-// The slowest walkers cover about 76 m in 20 s and the longest route an enemy has is under 90 m, so anything older than that
-// and still far away by path at the end of a station is lost or stuck, not just late. Env: KH_SECONDS (default 130).
+// Stations last 30 s. The count is taken at 20 s and again at 30 s: walkers at 3.8 m/s cover 76 m in 20 s and the longest route
+// is 89 m, so a far body at 20 s may only be late, and one still far at 30 s is lost. Env: KH_SECONDS (default 130).
+// KH_PASSIVE=1 holds fire, so every enemy lives long enough to be counted, and clears the field once at 62 s to bring on wave 2.
+// A bot that shoots kills nearly everything inside 20 s, which leaves that count with almost nothing to count.
 const seconds = Number(process.env.KH_SECONDS ?? 130);
+const passive = process.env.KH_PASSIVE === '1';
 
 export default async function playtest(page, h) {
   // On a busy machine a Retina screenshot can time out. The numbers are the point, so a lost picture must not lose them.
@@ -18,26 +21,26 @@ export default async function playtest(page, h) {
   if (!ready) return { booted: false, body: await page.evaluate(() => document.body.innerText.slice(0, 500)) };
   const bootSeconds = Math.round((Date.now() - started) / 1000);
 
-  await page.evaluate(() => {
+  await page.evaluate(holdFire => {
     const { ctx } = window.__op2;
     const p = ctx.player;
-    const STATION_SECONDS = 20, FAR = 30, VERY_FAR = 50, STILL_SECONDS = 8, STILL_PATH = 18;
+    const STATION_SECONDS = 30, FIRST_COUNT = 20, FAR = 30, VERY_FAR = 50, STILL_SECONDS = 8, STILL_PATH = 18;
     p.modifiers.invulnerable = true;
     ctx.weapons.modifiers.bottomlessMag = true;
     const at = (x, y, z) => { const v = p.position.clone(); v.set(x, y, z); return v; };
     const stations = [
-      ['court', at(-6.6, 0.1, 2.6)], ['room1', at(-23, 0.1, -17.6)], ['deck', at(14.5, 4.6, 14.5)], ['room4', at(19, 0.1, 8)],
-      ['yard', at(-20, 0.1, 31)], ['room7', at(-17, 0.1, 17)], ['room2', at(8, 0.1, -19)], ['corridor', at(11.7, 0.1, -11.7)],
+      ['court', at(-6.6, 0.1, 2.6)], ['deck', at(14.5, 4.6, 14.5)], ['room4', at(19, 0.1, 8)], ['yard', at(-20, 0.1, 31)],
+      ['room7', at(-17, 0.1, 17)], ['room1', at(-23, 0.1, -17.6)], ['room2', at(8, 0.1, -19)], ['corridor', at(11.7, 0.1, -11.7)],
     ];
     const log = {
       frames: [], stations: [], waves: [], errors: [], spawned: 0, seenAtSpawn: 0, spawnPathMin: Infinity, spawnPathSum: 0,
-      offGraph: 0, stuck: [], maxAlive: 0, kills: 0,
+      offGraph: 0, offFloor: [], stuck: [], maxAlive: 0, kills: 0,
     };
     window.__kh = log;
     window.addEventListener('error', e => log.errors.push(String(e.message)));
     window.addEventListener('unhandledrejection', e => log.errors.push(String(e.reason)));
     const known = new Map();
-    const eye = p.eye.clone(), dir = p.eye.clone();
+    const eye = p.eye.clone(), dir = p.eye.clone(), spot = p.eye.clone();
     const clearLine = target => {
       eye.copy(p.eye);
       dir.subVectors(target, eye);
@@ -45,7 +48,8 @@ export default async function playtest(page, h) {
       dir.divideScalar(d);
       return ctx.physics.raycast(eye, dir, d) === null;
     };
-    let last = performance.now(), t = 0, stationT = 0, stationIndex = 0, sampleT = 0, lastWave = -1;
+    let last = performance.now(), t = 0, stationT = 0, stationIndex = 0, sampleT = 0, lastWave = -1, cleared = false, first = null;
+    const farCount = list => list.filter(e => t - known.get(e.uid).born >= 20 && ctx.world.nav.pathDistance(e.position) > FAR).length;
     const tick = now => {
       requestAnimationFrame(tick);
       const dt = (now - last) / 1000;
@@ -78,7 +82,11 @@ export default async function playtest(page, h) {
         p.yaw = Math.atan2(-dx, -dz);
         p.pitch = Math.atan2(dy, Math.hypot(dx, dz));
       }
-      ctx.input.simulate('fire', best !== null);
+      ctx.input.simulate('fire', best !== null && !holdFire);
+      if (holdFire && !cleared && t > 62) {
+        cleared = true;
+        ctx.enemies.killAll('test');
+      }
 
       if (sampleT >= 2) {
         sampleT = 0;
@@ -89,6 +97,10 @@ export default async function playtest(page, h) {
           k.stillFor = moved < 0.75 ? k.stillFor + 2 : 0;
           const path = ctx.world.nav.pathDistance(e.position);
           if (!Number.isFinite(path)) log.offGraph++;
+          // Standing somewhere that is not floor, ramp or deck, such as a wall top.
+          if (!e.airborne && !ctx.world.nav.nearest(e.position, 1.2, spot) && log.offFloor.length < 12) {
+            log.offFloor.push(`${e.def.id} ${e.position.x.toFixed(1)},${e.position.y.toFixed(1)},${e.position.z.toFixed(1)} ${e.mode}`);
+          }
           if (k.stillFor >= STILL_SECONDS && path > STILL_PATH && !k.flagged) {
             k.flagged = true;
             log.stuck.push(`${e.def.id} at ${e.position.x.toFixed(1)},${e.position.y.toFixed(1)},${e.position.z.toFixed(1)} path ${path.toFixed(0)} mode ${e.mode}`);
@@ -96,17 +108,19 @@ export default async function playtest(page, h) {
         }
       }
 
+      if (first === null && stationT >= FIRST_COUNT) first = farCount(live);
       if (stationT >= STATION_SECONDS) {
         // The count the brief asks for, taken before moving: bodies old enough to have got here and still far by path.
         const old = live.filter(e => t - known.get(e.uid).born >= 20);
         const paths = old.map(e => ctx.world.nav.pathDistance(e.position));
         log.stations.push({
           at: stations[stationIndex % stations.length][0], t: Math.round(t), wave, alive: live.length, old: old.length,
-          far: paths.filter(d => d > FAR).length, veryFar: paths.filter(d => d > VERY_FAR).length,
+          farAt20: first, far: paths.filter(d => d > FAR).length, veryFar: paths.filter(d => d > VERY_FAR).length,
           worst: paths.length ? Math.round(Math.max(...paths.filter(Number.isFinite), 0)) : 0,
           farList: old.filter(e => ctx.world.nav.pathDistance(e.position) > FAR).slice(0, 4).map(e => `${e.def.id} ${e.position.x.toFixed(0)},${e.position.y.toFixed(0)},${e.position.z.toFixed(0)} ${e.mode}`),
         });
         stationT = 0;
+        first = null;
         stationIndex++;
         const next = stations[stationIndex % stations.length];
         p.teleport(next[1], p.yaw);
@@ -114,7 +128,7 @@ export default async function playtest(page, h) {
       }
     };
     requestAnimationFrame(tick);
-  });
+  }, passive);
 
   // Paced off a clock, because one Retina screenshot can take 30 s on a busy machine and the report must make it out.
   const end = Date.now() + seconds * 1000;
@@ -134,7 +148,7 @@ export default async function playtest(page, h) {
       waves: k.waves, wave: ctx.waves?.wave, phase: ctx.waves?.phase, alive: ctx.enemies.alive.length, maxAlive: k.maxAlive,
       score: ctx.progression?.score, kills: ctx.progression?.kills,
       spawned: k.spawned, seenAtSpawn: k.seenAtSpawn, spawnPath: { min: Math.round(k.spawnPathMin), mean: Math.round(k.spawnPathSum / Math.max(1, k.spawned)) },
-      offGraphSamples: k.offGraph, stuck: k.stuck.slice(0, 16), stations: k.stations, errors: k.errors.slice(0, 12),
+      offGraphSamples: k.offGraph, offFloor: k.offFloor, stuck: k.stuck.slice(0, 16), stations: k.stations, errors: k.errors.slice(0, 12),
     };
   }, bootSeconds);
 }

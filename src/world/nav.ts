@@ -105,6 +105,7 @@ export class NavGraph implements NavQuery {
   private readonly target = new THREE.Vector3();
   private readonly passTarget = new THREE.Vector3();
   private hasTarget = false;
+  private levels: readonly number[] | null = null;
   private dirty = false;
   /** Node expansions per frame. */
   budget = 4500;
@@ -128,6 +129,7 @@ export class NavGraph implements NavQuery {
     this.nz = Math.ceil((bounds.max.z - this.minZ) / CELL);
     const nx = this.nx, nz = this.nz;
     const { mutual = false, levels } = options;
+    this.levels = levels ?? null;
 
     const ray = new R.Ray({ x: 0, y: TOP_Y, z: 0 }, { x: 0, y: -1, z: 0 });
     const capsule = new R.Capsule(BODY_HALF, BODY_RADIUS);
@@ -156,7 +158,7 @@ export class NavGraph implements NavQuery {
         for (let h = 0; h < hitY.length; h++) {
           if (hitNy[h]! < MIN_NORMAL_Y) continue;
           const y = hitY[h]!;
-          if (levels && hitNy[h]! > 0.999 && !levels.some(l => Math.abs(y - l) < 0.05)) continue;
+          if (hitNy[h]! > 0.999 && !this.onLevel(y)) continue;
           pos.x = x; pos.y = y + BODY_LIFT; pos.z = z;
           if (world.intersectionWithShape(pos, rot, capsule, undefined, groups)) continue;
           if (count === capX) {
@@ -617,7 +619,17 @@ export class NavGraph implements NavQuery {
     // Off the graph (a wall top, a tight corner): ask physics.
     _dir.set(x, y + 0.5, z);
     const hit = this.physics.raycast(_dir, DOWN, 200, CG.World);
-    return hit ? hit.point.y : NaN;
+    if (!hit) return NaN;
+    // On a map that lists its floors a wall top is not ground, or anything blocked by a wall would leap up and stand on it.
+    return hit.normal.y > 0.999 && !this.onLevel(hit.point.y) ? NaN : hit.point.y;
+  }
+
+  /** True for any height on a map with no list of floors. */
+  private onLevel(y: number): boolean {
+    const { levels } = this;
+    if (!levels) return true;
+    for (let i = 0; i < levels.length; i++) if (Math.abs(y - levels[i]!) < 0.05) return true;
+    return false;
   }
 
   /** The node with the longest path to the target after `settle()`. For the map verifier. */

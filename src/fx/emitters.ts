@@ -235,7 +235,7 @@ export class EmitterPool {
     s.acc = 0;
     const back = rand(-0.2, -0.1);
     const b = core.blood.begin(core.bloodNow, core.floorAt(_p.x, _p.y, _p.z), null, BLOOD_TONE.venous);
-    const half = rand(0.0035, 0.0075);
+    const half = rand(0.006, 0.011);
     const l = b.add(_p.x, _p.y, _p.z, _vel.x * back, _vel.y * back, _vel.z * back, half, 0.04, 1.2);
     if (Math.random() < 0.4) core.stains.book(core.bloodNow + l.time, l, half * STAIN_SCALE);
   }
@@ -269,7 +269,7 @@ export class EmitterPool {
       const n = Math.round(2 + 3 * pressure);
       for (let i = 0; i < n; i++) {
         const k = rand(0.75, 1.15);
-        const half = rand(0.004, 0.0085);
+        const half = rand(0.007, 0.013);
         const wait = i * 0.03;
         const l = b.add(_p.x, _p.y, _p.z, _dir.x * v * k + rand(-j, j), _dir.y * v * k + rand(-j, j), _dir.z * v * k + rand(-j, j), half, 0.09, 1.5, wait);
         if (i < 2) core.stains.book(now + wait + l.time, l, half * STAIN_SCALE);
@@ -279,7 +279,7 @@ export class EmitterPool {
     if (s.acc2 <= 0) {
       s.acc2 = 0.16;
       const b = core.blood.begin(core.bloodNow, s.floor, null, BLOOD_TONE.venous);
-      const half = rand(0.003, 0.0055);
+      const half = rand(0.005, 0.009);
       const l = b.add(_p.x, _p.y, _p.z, _dir.x * 1.6 + rand(-0.3, 0.3), _dir.y * 1.6 + rand(-0.3, 0.3), _dir.z * 1.6 + rand(-0.3, 0.3), half, 0.05, 0.8);
       if (Math.random() < 0.3) core.stains.book(now + l.time, l, half * STAIN_SCALE);
     }

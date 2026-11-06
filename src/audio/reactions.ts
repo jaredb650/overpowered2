@@ -4,7 +4,7 @@
  * and combo stingers, and fire on burning bodies. Whoever owns the action keeps playing its main sound.
  */
 import { Vector3 } from 'three';
-import type { AudioSystem, Ctx, GameEvents, LoopHandle, PlayOptions } from '../core/contracts';
+import { CG, type AudioSystem, type Ctx, type GameEvents, type LoopHandle, type PlayOptions, type RayHit, type SurfaceKind } from '../core/contracts';
 import type { EnemyId, EnemyInstance } from '../core/gameplay';
 import { rand } from '../core/math';
 import type { RoomId } from './reverb';
@@ -36,6 +36,25 @@ interface FireSlot {
 
 const isMachine = (e: EnemyInstance) => e.id === 'skitter' || e.id === 'drone';
 
+/** Landings past this range are never worth a voice. */
+const LANDING_RANGE = 55;
+/**
+ * Landings heard per second and how many can arrive at once. Gore already spaces each body out, so this is what stands
+ * between a pile of forty bodies and the mixer. A burst of a few reads as a body hitting the floor; more reads as rain.
+ */
+const LANDING_RATE = 9;
+const LANDING_BURST = 5;
+/** How far below a landing to look for what it landed on. */
+const SURFACE_PROBE = 1.6;
+/** Strength past which a landing adds its second, wetter layer. */
+const WET_LAYER_AT = 0.55;
+/** Share of hard body landings that also slide. */
+const DRAG_CHANCE = 0.3;
+const DRAG_AT = 0.7;
+/** Share of organ landings that leave a drip behind. */
+const DRIP_CHANCE = 0.35;
+const HARD_SURFACES: ReadonlySet<SurfaceKind> = new Set<SurfaceKind>(['metal', 'grate', 'armor']);
+
 /** Distant noises, so a quiet moment says the building is alive and failing. The open air zones stay open. */
 const ROOM_NOISES: Partial<Record<RoomId, string>> = {
   foundry: 'metal_groan', refinery: 'steam_burst', transit: 'metal_groan', core: 'metal_groan',
@@ -60,6 +79,10 @@ export class Reactions {
   private lastRegen = -1;
   private lastCombo = 0;
   private armor = 0;
+  private landingTokens = LANDING_BURST;
+  private readonly probeFrom = new Vector3();
+  private readonly probeDown = new Vector3(0, -1, 0);
+  private readonly probeHit: RayHit = { point: new Vector3(), normal: new Vector3(), distance: 0, surface: 'concrete', collider: null };
 
   constructor(private readonly ctx: Ctx, private readonly audio: AudioSystem) {
     const { events } = ctx;
@@ -68,6 +91,7 @@ export class Reactions {
     events.on('enemy:hit', e => this.onHit(e));
     events.on('enemy:severed', e => this.onSevered(e));
     events.on('enemy:killed', e => this.onKilled(e));
+    events.on('gore:impact', e => this.onLanding(e));
     events.on('player:damaged', () => this.onPlayerDamaged());
     events.on('player:healed', e => this.onHealed(e.amount));
     events.on('game:state', ({ from, to }) => {
@@ -109,18 +133,56 @@ export class Reactions {
 
   private onSevered({ enemy, damage }: GameEvents['enemy:severed']): void {
     if (isMachine(enemy) || enemy.id === 'titan') return;
-    this.play('bone_crack', damage.point, 0.9, 1, 0.015);
+    this.play('bone_snap', damage.point, 0.9, 1, 0.015);
+    this.play('flesh_tear', damage.point, 0.7, 1, 0.02);
     this.play('blood_spurt', damage.point, 0.8, 1, 0.07);
   }
 
   private onKilled({ enemy, damage, gibbed, headshot }: GameEvents['enemy:killed']): void {
     if (!ENEMY_SOURCES.has(damage.source)) this.play('hit_marker_kill');
     if (isMachine(enemy)) return;
-    if (gibbed) this.play('blood_splat', enemy.center, 1, 1, 0.03);
+    if (gibbed) this.play('blood_splatter', enemy.center, 1, 1, 0.03);
     else if (headshot) {
       this.play('head_pop', enemy.center);
       this.play('vox_gurgle', enemy.center, 0.8, rand(0.9, 1.1), 0.18);
     }
+  }
+
+  /** What a body, limb, head or chunk sounds like landing. The payload is reused, so nothing here keeps it. */
+  private onLanding({ position, strength, kind }: GameEvents['gore:impact']): void {
+    if (this.landingTokens < 1 || !Number.isFinite(strength)) return;
+    const { player } = this.ctx;
+    if (position.distanceToSquared(player.position) > LANDING_RANGE * LANDING_RANGE) return;
+    this.landingTokens--;
+    const volume = 0.35 + 0.65 * strength;
+    // Hard landings are lower as well as louder: it is the heavy parts that hit hard.
+    const pitch = 1.08 - 0.16 * strength;
+    const wet = strength > WET_LAYER_AT;
+    switch (kind) {
+      case 'body':
+        this.play(this.onMetal(position) ? 'body_fall_metal' : 'body_fall_concrete', position, volume, pitch);
+        if (wet) this.play('flesh_slosh', position, volume * 0.6, pitch, 0.03);
+        if (strength > DRAG_AT && Math.random() < DRAG_CHANCE) this.play('body_drag', position, volume * 0.7, 1, 0.12);
+        break;
+      case 'limb':
+        this.play('limb_thud', position, volume, pitch);
+        if (wet) this.play('wet_slap', position, volume * 0.7, pitch, 0.01);
+        break;
+      case 'head':
+        this.play('head_thud', position, volume, pitch);
+        if (wet) this.play('wet_squelch', position, volume * 0.6, pitch, 0.02);
+        break;
+      case 'organ':
+        this.play(wet ? 'organ_splat' : 'wet_squelch', position, volume, pitch);
+        if (Math.random() < DRIP_CHANCE) this.play('blood_drip', position, volume * 0.8, 1, rand(0.15, 0.4));
+        break;
+    }
+  }
+
+  private onMetal(position: Vector3): boolean {
+    const from = this.probeFrom.copy(position);
+    from.y += 0.3;
+    return this.ctx.physics.raycastInto(from, this.probeDown, SURFACE_PROBE, CG.World, this.probeHit) && HARD_SURFACES.has(this.probeHit.surface);
   }
 
   private onPlayerDamaged(): void {
@@ -140,6 +202,7 @@ export class Reactions {
   update(dt: number, room: RoomId | null): void {
     const { enemies, player } = this.ctx;
     this.armor = player.armor;
+    this.landingTokens = Math.min(LANDING_BURST, this.landingTokens + LANDING_RATE * dt);
     this.noiseClock -= dt;
     if (this.noiseClock <= 0) this.roomNoise(room, player.position);
     const alive = enemies.alive;
@@ -205,5 +268,6 @@ export class Reactions {
     this.noiseClock = NOISE_EVERY[0];
     this.lastCombo = 0;
     this.armor = 0;
+    this.landingTokens = LANDING_BURST;
   }
 }

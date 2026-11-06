@@ -17,6 +17,14 @@ export interface RoomSpec {
   flutter?: readonly [number, number];
 }
 
+/**
+ * The longest impulse, in seconds. Convolution work grows with length, and 8 s of Foundry cost about three times
+ * what this does. Past here the tail is 30 dB down or more, under a game that never stops making noise.
+ */
+const MAX_IMPULSE = 4;
+/** The tail is faded over this long, so the cut is not heard as a cut. */
+const IMPULSE_FADE = 0.4;
+
 /** Keyed by zone id. Missing or unknown zones use `core`. */
 export const ROOMS = {
   /** Sunken concrete drum around the reactor: long, round, a slap from the far wall. */
@@ -50,7 +58,7 @@ export function roomForZone(zoneId: string | null | undefined): RoomId {
  */
 export function generateImpulse(spec: RoomSpec, sampleRate: number, seed: number): [Float32Array<ArrayBuffer>, Float32Array<ArrayBuffer>] {
   const longest = Math.max(...spec.t60);
-  const length = Math.floor((longest * 1.05 + spec.preDelay) * sampleRate);
+  const length = Math.floor(Math.min(longest * 1.05 + spec.preDelay, MAX_IMPULSE) * sampleRate);
   const start = Math.floor(spec.preDelay * sampleRate);
   const channels: [Float32Array<ArrayBuffer>, Float32Array<ArrayBuffer>] = [new Float32Array(length), new Float32Array(length)];
   const lowCoef = 1 - Math.exp((-2 * Math.PI * 350) / sampleRate);
@@ -97,6 +105,11 @@ export function generateImpulse(spec: RoomSpec, sampleRate: number, seed: number
       }
     }
   });
+
+  const fade = Math.floor(IMPULSE_FADE * sampleRate);
+  for (const data of channels) {
+    for (let i = 0; i < fade; i++) data[length - 1 - i] = data[length - 1 - i]! * (i / fade);
+  }
 
   // Equal energy across rooms: the `wet` value then says how loud a room is, not how long.
   let energy = 0;

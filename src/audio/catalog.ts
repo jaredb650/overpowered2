@@ -22,6 +22,10 @@ export interface SoundDef extends MixProfile {
   loop: boolean;
   /** Sample file, relative to public/audio/sfx. */
   file?: string;
+  /** Sample variants behind one id, measured and matched to the mix at load as synth variants are. */
+  files?: readonly string[];
+  /** Played instead if the samples are missing or have not landed. */
+  fallback?: string;
   recipe?: Recipe;
   /** Group: one of these at random. */
   members?: readonly string[];
@@ -45,7 +49,7 @@ function sample(file: string, mix: MixClass, effective: number, over: Partial<Mi
 }
 
 /** Combat and gore both react to a head kill, so `perFrame` is what keeps one kill from stacking twice. */
-const HEADSHOT_LAYER: Partial<MixProfile> = { priority: 8, maxVoices: 3, perFrame: 1, family: undefined, pitchJitter: 0.03, near: 12, far: 160 };
+const HEADSHOT_LAYER: Partial<MixProfile> = { priority: 8, critical: true, maxVoices: 3, perFrame: 1, family: undefined, pitchJitter: 0.03, near: 12, far: 160 };
 
 /** The first game's sounds never varied in pitch. A little jitter is the cheapest fix for machine-gun repetition. */
 const samples: SoundDef[] = [
@@ -57,7 +61,7 @@ const samples: SoundDef[] = [
   sample('autocannon_fire2.wav', 'gun', 0.395, { send: 0.22 }),
   sample('autocannon_zoom.wav', 'foley', 0.35),
   sample('smg_reload.mp3', 'foley', 0.2),
-  sample('sword_swing.mp3', 'player', 0.25, { priority: 7, maxVoices: 4 }),
+  sample('sword_swing.mp3', 'player', 0.25, { priority: 7, critical: true, maxVoices: 4 }),
   sample('sword_hit1.mp3', 'gore', 0.3, { perFrame: 3, family: undefined, near: 6 }),
   sample('sword_hit2.mp3', 'gore', 0.3, { perFrame: 3, family: undefined, near: 6 }),
   sample('sword_slam.mp3', 'gun', 0.35),
@@ -120,6 +124,31 @@ const samples: SoundDef[] = [
   sample('3333.mp3', 'enemyFx', 0.3),
   sample('asdf.mp3', 'enemyFx', 0.3),
   sample('frfff.mp3', 'enemyFx', 0.3),
+];
+
+/** Sample packs from docs/CREDITS.md. Each id is `count` numbered files in sfx/gore. */
+function pack(id: string, count: number, fallback: string, volume: number, over: Partial<MixProfile> = {}): SoundDef {
+  return {
+    ...MIX.flesh, ...over, volume, id, kind: 'sample', loop: false, fallback,
+    files: Array.from({ length: count }, (_, i) => `gore/${id}_${i + 1}.mp3`),
+  };
+}
+
+/** Volumes sit these against the synth gore around them: 0.42 is `body_thud`, 0.72 is `limb_sever`. */
+const packs: SoundDef[] = [
+  pack('body_fall_concrete', 5, 'body_thud', 0.5),
+  pack('body_fall_metal', 5, 'body_thud', 0.5, { send: 0.1 }),
+  pack('limb_thud', 5, 'gib_land', 0.36),
+  pack('head_thud', 4, 'body_thud', 0.42),
+  pack('wet_slap', 5, 'gib_land', 0.38),
+  pack('organ_splat', 5, 'gib_squelch', 0.46),
+  pack('flesh_slosh', 4, 'gib_squelch', 0.3, { maxVoices: 2 }),
+  pack('wet_squelch', 4, 'gib_squelch', 0.34),
+  pack('bone_snap', 4, 'bone_crack', 0.52, { priority: 5, family: 'gore', familyMax: 10, near: 6, far: 70 }),
+  pack('flesh_tear', 4, 'limb_sever', 0.6, { priority: 5, family: 'gore', familyMax: 10, near: 6, far: 70 }),
+  pack('blood_drip', 4, 'blood_spurt', 0.2, { near: 3, far: 25 }),
+  pack('blood_splatter', 4, 'blood_splat', 0.36, { priority: 4 }),
+  pack('body_drag', 3, 'body_scrape', 0.24, { maxVoices: 2, near: 3, far: 30 }),
 ];
 
 function group(id: string, members: readonly string[]): SoundDef {
@@ -186,7 +215,7 @@ const aliases: Record<string, string> = {
 };
 
 export const CATALOG: ReadonlyMap<string, SoundDef> = new Map(
-  [...samples, ...groups, ...stacks, ...recipes.map(synth)].map(def => [def.id, def]),
+  [...samples, ...packs, ...groups, ...stacks, ...recipes.map(synth)].map(def => [def.id, def]),
 );
 
 export const ALIASES: Readonly<Record<string, string>> = aliases;

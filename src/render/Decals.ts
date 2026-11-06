@@ -99,8 +99,21 @@ if (opA.a < 0.004) discard;
 vec4 opS = texture2D(opDecalS, opAtlas);
 // Fresh blood is dark and wet. Over a minute it goes darker still and loses its shine.
 float opDry = opBlood ? smoothstep(5.0, 70.0, opAge) : 0.0;
-vec3 opAlbedo = opBlood ? opA.rgb * vec3(0.42, 0.5, 0.5) * (1.0 - 0.45 * opDry) : opA.rgb;
-diffuseColor = vec4(opAlbedo, opA.a);
+vec3 opTint = opA.rgb * vec3(0.42, 0.5, 0.5) * (1.0 - 0.45 * opDry);
+diffuseColor = vec4(opBlood ? vec3(1.0) : opA.rgb, opA.a);
+`;
+
+/**
+ * Red reflects nothing under cyan light, and this map is lit cyan, so blood would dry to black the moment
+ * it landed. It takes its brightness from the light and keeps its own hue. It adds no light of its own.
+ */
+const LIGHT = /* glsl */ `
+#include <lights_fragment_end>
+if (opBlood) {
+  float opLight = dot(reflectedLight.directDiffuse + reflectedLight.indirectDiffuse, vec3(0.2126, 0.7152, 0.0722));
+  reflectedLight.directDiffuse = vec3(0.0);
+  reflectedLight.indirectDiffuse = opTint * opLight * 2.0;
+}
 `;
 
 const NORMAL = /* glsl */ `
@@ -152,7 +165,8 @@ export class Decals implements DecalSystem {
         .replace('#include <map_fragment>', FRAG_MAIN)
         .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = opS.z + opDry * 0.3;')
         .replace('#include <metalnessmap_fragment>', 'float metalnessFactor = opS.w;')
-        .replace('#include <normal_fragment_maps>', NORMAL);
+        .replace('#include <normal_fragment_maps>', NORMAL)
+        .replace('#include <lights_fragment_end>', LIGHT);
     };
     patcher.apply(material, hook, 'decals');
     this.mesh = new THREE.InstancedMesh(geometry, material, MAX_DECALS);

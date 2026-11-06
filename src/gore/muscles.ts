@@ -18,7 +18,7 @@ import type { Rag, RagPart } from './rag';
 
 /** How a body goes down when it is not dropped outright. */
 export interface CollapseOptions {
-  /** Seconds from the first weakness to a limp body. Default `MuscleTuning.collapseSeconds`, at most 6. */
+  /** Seconds from the first weakness to a limp body. Default `MuscleTuning.collapseSeconds`, at most 5. */
   duration?: number;
   /** What the character was moving at. The legs stumble on with it. */
   velocity?: THREE.Vector3;
@@ -74,6 +74,9 @@ export const MuscleTuning = {
    */
   limitElasticLow: 0.35,
   limitElasticHigh: 1.2,
+  /** Twist stops being meaningful as swing nears a half turn, so its limit fades out between these. */
+  twistFadeStart: 1.2,
+  twistFadeEnd: 2.2,
   /** Rapier's own hinge stop sits this far past the rig limit: at the straight end, and at the folded end. */
   hardMarginStraight: 0.18,
   hardMarginFolded: 0.5,
@@ -138,8 +141,6 @@ export const MuscleTuning = {
   /** Share of a full correction each joint may make per step. Several joints act on each body at once, so they
    *  must not each try to do it all. */
   driveRelax: 0.9,
-  /** Gravity a leg keeps while it is held up. Friction under the feet is what plants them. */
-  legGravity: 1,
   /** Legs carry the body above them, not just themselves, by this share of its weight. */
   standShare: 0.6,
   /** Natural frequency and damping ratio of the hold on the hips. */
@@ -148,6 +149,11 @@ export const MuscleTuning = {
   /** Point in the collapse where the feet stumble, and how fast. */
   stumbleAt: 0.42,
   stumbleSpeed: 1.3,
+  /** Above this speed, in m/s, a body staggers on the way it was going. Below it, anywhere. */
+  stumbleOnward: 0.4,
+  /** Spread on the stagger and the topple, so that no two go down alike. */
+  fallSpreadMin: 0.7,
+  fallSpreadMax: 1.25,
   /** Drift dies away at this rate, in 1/s, with nothing left to steer it. */
   driftDecay: 2.2,
   /** Point where the torso tips the way it staggered, and how hard, in m/s. Folded straight down, a body sits. */
@@ -163,13 +169,21 @@ export const MuscleTuning = {
   twitchGapMax: 0.95,
   twitchLenMin: 0.1,
   twitchLenMax: 0.28,
-  /** Peak torque of a burst as a share of the limb's weight on the joint. */
-  twitchTorque: 1.3,
+  /**
+   * Peak torque of a fresh burst as a share of the limb's weight on the joint, and how much of it is left at the end.
+   * A limb lying on the floor does not stir below 1, so twitching fades by getting rarer and shorter, not weaker.
+   */
+  twitchTorque: 1.55,
+  twitchFade: 0.65,
+  /** Share of its length a burst still has at the very end. */
+  twitchShorten: 0.6,
+  /** Chance that a burst fires two limbs at once. */
+  twitchPairChance: 0.35,
   /** Chance that a burst is instead an agonal spasm: the whole body straining against its resting pose. */
   spasmChance: 0.2,
   spasmLenMin: 0.45,
   spasmLenMax: 0.85,
-  spasmTorque: 0.55,
+  spasmTorque: 1.3,
   /** Spasms stop once twitching has this share of its life left. */
   spasmUntil: 0.4,
 };
@@ -292,7 +306,8 @@ const _lever = new THREE.Vector3();
 const _swing = new THREE.Vector3();
 const _vec = { x: 0, y: 0, z: 0 };
 
-const MAX_BURST = 4;
+/** Enough for a spasm to reach every joint of a person. */
+const MAX_BURST = 12;
 const WEIGHT = -GRAVITY;
 
 let nextSeed = 1;
@@ -367,7 +382,6 @@ export class MuscleState {
   private burstCount = 0;
   private readonly burstParts: (RagPart | null)[] = new Array<RagPart | null>(MAX_BURST).fill(null);
   private readonly burstAxes = Array.from({ length: MAX_BURST }, () => new THREE.Vector3());
-  private spasm = false;
   /** 0..1, how much resting tone is left. */
   private tone = 0;
   /** 0..1, how far ligaments have taken hold since the chain was built. */
@@ -418,8 +432,6 @@ export class MuscleState {
     const t = MuscleTuning;
     this.burstLeft = 0;
     this.burstCount = 0;
-    this.hold = Math.min(1, rag.age / t.limitRise);
-    this.ligament = 1;
 
     let total = 0;
     let legs = 0;
@@ -594,8 +606,7 @@ export class MuscleState {
           resist(c, p, axis, 1, rel.dot(axis), depth, zone, dt, ligament, this.hold, this.elastic);
         }
       }
-      // Twist stops being meaningful as swing nears a half turn.
-      const weight = 1 - smoothstep(1.2, 2.2, angle);
+      const weight = 1 - smoothstep(t.twistFadeStart, t.twistFadeEnd, angle);
       const zone = Math.min(t.limitZone, c.twist * t.limitZoneShare);
       const depth = Math.abs(twist) - c.twist + zone;
       if (depth > 0 && weight > 0) {
@@ -666,6 +677,9 @@ export class MuscleState {
     this.limp = Infinity;
     this.tone = 0;
     this.twitch = 0;
+    // A fresh chain: wherever the corpse lay is where it starts, even past a limit.
+    this.hold = 0;
+    this.ligament = 1;
   }
 
   /** The chain has left the world. */
@@ -819,12 +833,16 @@ export class MuscleState {
     drive.stumbled = true;
     // Onward if it was moving, somewhere random if it was not. The animator takes real steps to keep up.
     const speed = Math.hypot(drive.drift.x, drive.drift.z);
-    if (speed > 0.4) drive.away.set(drive.drift.x / speed, 0, drive.drift.z / speed);
+    if (speed > MuscleTuning.stumbleOnward) drive.away.set(drive.drift.x / speed, 0, drive.drift.z / speed);
     else {
       const a = rng() * Math.PI * 2;
       drive.away.set(Math.cos(a), 0, Math.sin(a));
     }
-    drive.drift.addScaledVector(drive.away, MuscleTuning.stumbleSpeed * lerp(0.7, 1.2, rng()));
+    drive.drift.addScaledVector(drive.away, MuscleTuning.stumbleSpeed * this.spread());
+  }
+
+  private spread(): number {
+    return lerp(MuscleTuning.fallSpreadMin, MuscleTuning.fallSpreadMax, this.rng());
   }
 
   private topple(drive: CollapseDrive): void {
@@ -834,7 +852,7 @@ export class MuscleState {
     for (let i = 0; i < parts.length; i++) {
       const part = parts[i]!;
       if (part.muscle!.role !== 'spine') continue;
-      const push = part.mass * MuscleTuning.toppleSpeed * lerp(0.7, 1.3, this.rng());
+      const push = part.mass * MuscleTuning.toppleSpeed * this.spread();
       _vec.x = drive.away.x * push;
       _vec.y = 0;
       _vec.z = drive.away.z * push;
@@ -858,8 +876,9 @@ export class MuscleState {
       } else {
         m.drive = fade(m.role === 'head' ? t.headFade : m.role === 'arm' ? t.armFade : t.spineFade, u, 0);
       }
-      // A muscle that still works carries its own weight, which the solver does not have to fight for it.
-      part.body.setGravityScale(m.role === 'leg' ? Math.max(1 - m.drive, t.legGravity) : 1 - m.drive, false);
+      // A muscle that still works carries its own weight, which the solver then does not have to fight for it. Not
+      // the legs: weightless feet have no friction, and they slide out from under the body.
+      part.body.setGravityScale(m.role === 'leg' ? 1 : 1 - m.drive, false);
     }
   }
 
@@ -949,8 +968,7 @@ export class MuscleState {
     const u = 1 - this.burstLeft / this.burstLength;
     // Sine-squared ends at zero torque and zero slope, which is what separates a spasm from jitter.
     const wave = Math.sin(Math.PI * clamp(u));
-    // The gaps stretch as well, so this fades slowly: much below the limb's own weight it cannot move it at all.
-    const size = this.burstTorque * this.twitch * Math.sqrt(life) * wave * wave * dt;
+    const size = this.burstTorque * this.twitch * lerp(t.twitchFade, 1, life) * wave * wave * dt;
     for (let i = 0; i < this.burstCount; i++) {
       const c = this.burstParts[i]!;
       const p = c.parent!;
@@ -966,14 +984,13 @@ export class MuscleState {
     const { rng } = this;
     const t = MuscleTuning;
     const parts = this.rag.parts;
-    this.spasm = life > t.spasmUntil && rng() < t.spasmChance;
     this.burstCount = 0;
-    if (this.spasm) {
+    if (life > t.spasmUntil && rng() < t.spasmChance) {
       this.burstTorque = t.spasmTorque;
-      this.burstLength = lerp(t.spasmLenMin, t.spasmLenMax, rng());
+      this.burstLength = lerp(t.spasmLenMin, t.spasmLenMax, rng()) * lerp(t.twitchShorten, 1, life);
       // The whole body strains the wrong way: back arching, limbs straightening against the resting pose.
       for (let i = 0; i < parts.length && this.burstCount < MAX_BURST; i++) {
-        const part = parts[(i * 3 + 1) % parts.length]!;
+        const part = parts[i]!;
         const m = part.muscle!;
         if (!part.parent || !m.hasRelax) continue;
         const axis = this.burstAxes[this.burstCount]!;
@@ -983,8 +1000,8 @@ export class MuscleState {
       }
     } else {
       this.burstTorque = t.twitchTorque;
-      this.burstLength = lerp(t.twitchLenMin, t.twitchLenMax, rng());
-      const want = rng() < 0.35 ? 2 : 1;
+      this.burstLength = lerp(t.twitchLenMin, t.twitchLenMax, rng()) * lerp(t.twitchShorten, 1, life);
+      const want = rng() < t.twitchPairChance ? 2 : 1;
       for (let tries = 0; tries < 8 && this.burstCount < want; tries++) {
         const part = parts[Math.floor(rng() * parts.length)]!;
         const m = part.muscle!;

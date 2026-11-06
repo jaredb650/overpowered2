@@ -1,6 +1,6 @@
 # Audio notes
 
-Owned files: `src/audio/**`, `src/sandbox/audio.ts`. The ids below are stable. `src/audio/audio.test.ts` fails if this list
+Owned files: `src/audio/**`, `src/sandbox/audio.ts`, `public/audio/sfx/**`, `docs/CREDITS.md`. The ids below are stable. `src/audio/audio.test.ts` fails if this list
 falls behind the catalogue, or if any call site in `src/` uses an id that does not resolve.
 
 ## How to call it
@@ -41,8 +41,9 @@ Audio reads `ctx.player`, `ctx.time`, `ctx.world` and listens to events, so nobo
 | `fx:casing` | `casing_brass` (rifle a little lower), `casing_shotgun`, `casing_heavy`. Volume follows strength. Quiet bounces thin out under 50 ms apart |
 | `enemy:hit` from the player | `hit_marker`, `hit_marker_head`, `hit_marker_armor`. Skips fire ticks |
 | `enemy:killed` from the player | `hit_marker_kill` |
-| `enemy:severed` on flesh | `bone_crack` and `blood_spurt` under the enemies system's `limb_sever` |
-| `enemy:killed` | `blood_splat` on a gib, `head_pop` and `vox_gurgle` on a head kill |
+| `enemy:severed` on flesh | `bone_snap`, `flesh_tear` and `blood_spurt` under the enemies system's `limb_sever` |
+| `enemy:killed` | `blood_splatter` on a gib, `head_pop` and `vox_gurgle` on a head kill |
+| `gore:impact` | See "Landings" below |
 | Burning enemies, nearest 4 in 50 m | `flame_burn_loop`, following the body |
 | `combo:changed` to 0 from 3 or more | `combo_break` |
 | `player:damaged` | `armor_hit`, `armor_break` when it runs out |
@@ -72,6 +73,21 @@ first game's, and the part the first game played lands 0.2 s later. Set `offset:
 samples have `perFrame: 1` because Combat plays `headshot` and gore plays the three layers on the same frame, and without it one
 kill stacks twice.
 
+## Landings
+
+`gore:impact` is `{ position, strength, kind }`, declared in `src/gore/impacts.ts`. `reactions.ts` turns it into sound:
+
+| Kind | Sound | Above strength 0.55, also |
+|---|---|---|
+| `body` | `body_fall_metal` on metal, grate or armor, otherwise `body_fall_concrete` | `flesh_slosh`. Above 0.7, three in ten also get `body_drag` |
+| `limb` | `limb_thud` | `wet_slap` |
+| `head` | `head_thud` | `wet_squelch` |
+| `organ` | `wet_squelch`, or `organ_splat` above 0.55. About a third leave a `blood_drip` | |
+
+Volume runs 0.35 to 1 with strength, and pitch falls as strength rises. Only a `body` asks what it landed on, with one ray. A pile of bodies is capped
+four ways: gore allows 6 events a frame, `reactions.ts` hears 9 a second with a burst of 5 and nothing past 55 m, the `flesh` family holds 6
+voices, and thinning takes the rest when the mix is crowded.
+
 ## Original samples
 
 Id is the file name without extension. Aliases in brackets are the first game's keys, so its code reads across.
@@ -94,6 +110,28 @@ Id is the file name without extension. Aliases in brackets are the first game's 
 - **Unnamed in the first game:** `222`, `3333`, `asdf`, `frfff`
 
 Random-pick groups: `bullet_hit` (the four samples), `sword_hit`, `player_footstep`.
+
+## Sample packs
+
+Real recordings from free libraries. Sources, authors and licences for every file are in `docs/CREDITS.md`. One id holds all its variants, and pitch
+jitter sits on top. Each pack names a synthesized fallback, played if its files are missing or have not landed yet. Levels are matched
+to the synth gore at load.
+
+| Id | Variants | Fallback |
+|---|---|---|
+| `body_fall_concrete` | 5 | `body_thud` |
+| `body_fall_metal` | 5 | `body_thud` |
+| `limb_thud` | 5 | `gib_land` |
+| `head_thud` | 4 | `body_thud` |
+| `wet_slap` | 5 | `gib_land` |
+| `organ_splat` | 5 | `gib_squelch` |
+| `flesh_slosh` | 4 | `gib_squelch` |
+| `wet_squelch` | 4 | `gib_squelch` |
+| `bone_snap` | 4 | `bone_crack` |
+| `flesh_tear` | 4 | `limb_sever` |
+| `blood_drip` | 4 | `blood_spurt` |
+| `blood_splatter` | 4 | `blood_splat` |
+| `body_drag` | 3 | `body_scrape` |
 
 ## Synthesized catalogue
 
@@ -123,7 +161,7 @@ Rendered at load. x4 means four rendered variants behind one id.
 ### Bodies
 
 `limb_sever` x4, `bone_crack` x4, `gib_squelch` x4, `blood_splat` x4, `flesh_slice` x3, `head_pop` x3, `body_thud` x4,
-`gib_land` x4, `blood_spurt` x3, `frozen_shatter` x3, `freeze_crackle`, `char_sizzle` x2
+`gib_land` x4, `blood_spurt` x3, `body_scrape`, `frozen_shatter` x3, `freeze_crackle`, `char_sizzle` x2
 
 ### Player
 
@@ -171,6 +209,32 @@ yet, so anything started in the first seconds of a boot should retry on `!handle
 For tests and sandboxes only: `opened` and `ready` promises, `stats()`, `buffersOf(id)`, `levelOf(id)`, `leadTrim`, `setRoom(id)`,
 `mixerForTests`, `musicForTests`.
 
+For the F4 overlay: `window.__op2.audio` is `stats()`, and `window.__op2.stats().audio` is one line:
+
+```
+running clock 1.00 under 0% | voices 31/40 step 0 hrtf 1 loops 3 | thinned 212 refused 4 | duck 0.12 limit -3.8 dB
+```
+
+Read from left to right: the context's state, audio seconds per wall second, share of audio lost to underruns, voices in use against the budget,
+the load step, then what the mix gave up. `debug.ts` shows only the fields it names, so the overlay needs one line added there by its owner:
+`` `audio    ${stats.audio ?? '-'}` ``.
+
+## Budget
+
+`budget.ts` holds the rules. A healthy fight sits under 60% of the budget and none of this happens.
+
+| When | What gives way, in order |
+|---|---|
+| Mix over 60% of the budget | Non-critical sounds below a rising level floor (`thinnedQuiet`), then repeats within a family (`thinnedRepeat`) |
+| Budget spent | The weakest voice is cut for a stronger sound, or the weaker sound is refused (`droppedBudget`) |
+| A family or id at its cap | Its weakest or oldest voice is retriggered, or the sound is refused (`droppedFamily`) |
+| The render thread falling behind | The load governor drops from 40 voices to 28, then 18, and takes HRTF away. Voices past the budget fade out, one a frame. Six clean seconds give one step back |
+
+**Critical** sounds skip every row above. They are the player's guns and gun loops, hit markers and other reward blips, headshot layers and `head_pop`, stingers,
+the player's own hurt, and UI. A critical sound is never refused and never thinned, and only another critical sound can take its voice.
+
+Priorities are in `MIX` in `mix.ts`, with the bands written out there.
+
 ## How it loads
 
 Nothing blocks the boot, and nothing has to wait for a sound.
@@ -179,7 +243,7 @@ Nothing blocks the boot, and nothing has to wait for a sound.
    constructor calls `enumerateDevices()`, which starts that same service without blocking, and the context is made when it answers
    (or after 6 s). The context then takes under 10 ms. Until then every public method is a safe no-op that remembers music state,
    volumes and unlock.
-2. `SoundBank` (`bank.ts`) does the rest as small jobs in `requestIdleCallback`: rooms first, then 55 samples, then 473 recipe variants
+2. `SoundBank` (`bank.ts`) does the rest as small jobs in `requestIdleCallback`: rooms first, then 68 sample ids, then 474 recipe variants
    in `renderRank` order: every id's first variant in a tier before spares, tiers by what a run reaches first.
 3. Jobs that find no idle time run anyway after 250 ms during the boot and 60 ms after it, so loading always finishes.
 4. A sound played before it has rendered is skipped and jumps the queue. `stats().missed` counts these.
@@ -189,10 +253,14 @@ Nothing blocks the boot, and nothing has to wait for a sound.
 | Want | Change |
 |---|---|
 | Balance between kinds of sound | `MIX` in `mix.ts`, then `over` on a recipe or the third argument of `sample()` |
-| Voice budget, HRTF budget | `VOICES_3D`, `VOICES_2D`, `VOICES_UI`, `MAX_HRTF`, `HRTF_RANGE` in `AudioEngine.ts` |
+| Voice budget, what counts as overload | `VOICE_BUDGETS`, `CLOCK_FLOOR`, `UNDERRUN_CEILING`, `CALM_WINDOWS` in `budget.ts` |
+| How early and how hard a crowded mix thins | `THIN_FROM`, `FULL_FLOOR`, `FULL_REPEAT_GAP` in `budget.ts` |
+| Pool sizes, HRTF | `VOICES_3D`, `VOICES_2D`, `VOICES_UI`, `HRTF_VOICES`, `HRTF_RANGE` in `AudioEngine.ts` |
+| What must never drop | `critical` on a class in `mix.ts`, or in `over` on one sound |
+| How many landings are heard | `LANDING_RATE`, `LANDING_BURST`, `LANDING_RANGE` in `reactions.ts`, `flesh` in `mix.ts` |
 | Limiter, music level | `limiter` settings and `MUSIC_TRIM` in `mixer.ts` |
 | Slow-mo filter, duck speed | `Mixer.update` |
-| Room size | `ROOMS` in `reverb.ts`. `t60` is low, mid, high |
+| Room size | `ROOMS` in `reverb.ts`. `t60` is low, mid, high. `MAX_IMPULSE` is the longest tail |
 | Distance | `attenuation`, `airCutoff`, `wetness` in `voices.ts`. Per sound: `near`, `far`, `send` |
 | When health starts to sound bad | `HEALTH_DULL_START`, `HEALTH_DULL_FULL` in `foley.ts` |
 | Crossfades | `FADE_INTO`, `TRACK_FADE` in `music.ts` |
@@ -206,7 +274,14 @@ npx vitest run src/audio
 node tools/shot.mjs --url "/?sandbox=audio&mode=idle" --script tools/scripts/audio-report.mjs --wait 500   # writes tools/out/audio-report.json
 node tools/shot.mjs --url "/?sandbox=audio&mode=idle" --script tools/scripts/audio-sheets.mjs --wait 200 --w 1248 --h 672
 node tools/shot.mjs --url "/?sandbox=audio" --wait 30000                                                     # every id in order, then polyphony load
+AS_LABEL=x node tools/shot.mjs --url "/?autostart=1" --script tools/scripts/audio-stress.mjs --wait 1000 --timeout 178   # the real game under fire, writes tools/out/audio-stress-x.json
+node tools/shot.mjs --url "/?sandbox=audio&mode=idle" --script tools/scripts/audio-cost.mjs --wait 500 --timeout 175     # what each piece of the graph costs
 ```
+
+**The soak is the test that matters.** The sandbox can only show that the rules work. Only the real game, with a moving player, shows what the
+render thread pays. Read `underrunShare` and `clockRate`, not voices. Do not tap the graph with an AudioWorklet to measure it: that moves rendering to a worklet
+thread and read as 99% capacity on an idle game. `tools/shot.mjs` runs Chrome with `--mute-audio`, so output goes to a fake device. Underruns are real there,
+but nobody can hear them.
 
 The tests read `tools/out/audio-report.json` for the level and envelope of every real render, and skip that part if the file is missing.
 Run the report after changing a recipe.

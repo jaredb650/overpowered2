@@ -1,6 +1,11 @@
 /**
  * Pooled voices. Node chains are built once and reused. Only AudioBufferSourceNode is created per
  * play, because the spec makes that node single-use.
+ *
+ * Every param a frame writes is k-rate. At the default a-rate, one automation event moves Chrome onto its
+ * sample-accurate path until the event ends: the biquad works out new coefficients for each of 128 samples and the
+ * panner a new azimuth for each, and a moving listener does this to every panner at once. Measured, that made 48
+ * moving voices cost 6 times what the same voices cost at k-rate, and it is what ran the render thread out of time.
  */
 import type * as THREE from 'three';
 import type { LoopHandle } from '../core/contracts';
@@ -12,6 +17,15 @@ const SPEED_OF_SOUND = 343;
 /** Steals fade this fast. Short enough to keep the first game's retrigger stutter, long enough not to click. */
 const STEAL_FADE = 0.004;
 const AIR_FLOOR_HZ = 500;
+/** Distance writes smaller than this are below hearing, and each one is work for the render thread. */
+const DISTANCE_STEP = 0.03;
+/** An end that has not arrived this long after its time will not arrive, so the voice is taken back. */
+const END_GRACE = 0.75;
+
+/** Firefox has no automationRate, and there the attribute is only an unused expando. */
+export function kRate(...params: AudioParam[]): void {
+  for (const p of params) p.automationRate = 'k-rate';
+}
 
 /** Inverse-distance falloff, shaped to reach true silence at `far`. Inside `near` it is flat. */
 export function attenuation(distance: number, near: number, far: number): number {
@@ -38,6 +52,7 @@ export class Voice implements VoiceSlot {
   soundId: string | null = null;
   family: string | undefined = undefined;
   priority = 0;
+  critical = false;
   order = 0;
   loudness = 0;
   releasing = false;
@@ -65,7 +80,8 @@ export class Voice implements VoiceSlot {
   gain = 0;
 
   spatial = false;
-  hrtf = false;
+  /** When a one-shot should be over on the audio clock. Infinity for loops. */
+  endsAt = Infinity;
   x = 0;
   y = 0;
   z = 0;
@@ -81,6 +97,8 @@ export class Voice implements VoiceSlot {
     output: AudioNode,
     reverb: AudioNode | null,
     spatial: boolean,
+    /** Fixed for the voice's life. Changing a panner's model builds a new panner under the render thread's lock. */
+    readonly hrtf: boolean,
     private readonly onFree: (v: Voice) => void,
   ) {
     this.maxHz = ac.sampleRate / 2;
@@ -89,6 +107,7 @@ export class Voice implements VoiceSlot {
     this.send = reverb ? ac.createGain() : null;
     if (this.send) {
       this.send.gain.value = 0;
+      kRate(this.send.gain);
       this.level.connect(this.send);
       this.send.connect(reverb!);
     }
@@ -97,12 +116,18 @@ export class Voice implements VoiceSlot {
       this.air.type = 'lowpass';
       this.air.frequency.value = 20000;
       this.air.Q.value = 0.5;
+      // A point in the world has no width, and a stereo source would run every node after this twice.
+      this.air.channelCount = 1;
+      this.air.channelCountMode = 'explicit';
       this.dist = ac.createGain();
       this.panner = ac.createPanner();
       // Distance is computed here, once, because the filter, the send and culling all need it too.
       this.panner.distanceModel = 'linear';
       this.panner.rolloffFactor = 0;
-      this.panner.panningModel = 'equalpower';
+      this.panner.panningModel = hrtf ? 'HRTF' : 'equalpower';
+      const a = this.air;
+      const p = this.panner;
+      kRate(a.frequency, a.Q, a.detune, a.gain, this.dist.gain, p.positionX, p.positionY, p.positionZ, p.orientationX, p.orientationY, p.orientationZ);
       this.air.connect(this.level);
       this.level.connect(this.dist);
       this.dist.connect(this.panner);
@@ -133,6 +158,7 @@ export class Voice implements VoiceSlot {
     this.releasing = false;
     this.loop = false;
     this.spatial = false;
+    this.endsAt = Infinity;
     this.onFree(this);
   }
 
@@ -144,7 +170,8 @@ export class Voice implements VoiceSlot {
     const source = ac.createBufferSource();
     source.buffer = buffer;
     source.loop = def.loop;
-    source.playbackRate.value = pitch * (exempt ? 1 : slowmo);
+    const rate = Math.max(0.05, pitch * (exempt ? 1 : slowmo));
+    source.playbackRate.value = rate;
     source.connect(this.input);
     source.onended = this.ended;
 
@@ -153,6 +180,7 @@ export class Voice implements VoiceSlot {
     this.soundId = def.id;
     this.family = def.family;
     this.priority = def.priority;
+    this.critical = def.critical;
     this.order = order;
     this.loop = def.loop;
     this.releasing = false;
@@ -162,33 +190,52 @@ export class Voice implements VoiceSlot {
     this.exempt = exempt;
     this.doppler = 1;
     this.useDoppler = false;
-    this.gain = gain;
-    this.loudness = gain;
+    // Stereo at the panner's centre passes at full level, mono at -3 dB. Folding down must not move the mix.
+    const level = this.panner && buffer.numberOfChannels > 1 ? gain * Math.SQRT2 : gain;
+    this.gain = level;
+    this.loudness = level;
 
     const g = this.level.gain;
     g.cancelScheduledValues(0);
     if (fadeIn > 0) {
       g.setValueAtTime(0, when);
-      g.setTargetAtTime(gain, when, fadeIn / 3);
+      g.setTargetAtTime(level, when, fadeIn / 3);
     } else {
-      g.setValueAtTime(gain, when);
+      g.setValueAtTime(level, when);
     }
 
     const clampedOffset = Math.min(offset, Math.max(0, buffer.duration - 0.01));
     if (duration > 0) {
-      const rate = Math.max(0.05, source.playbackRate.value);
       // Duration is in sample time, so slow-mo stretches the cut instead of shortening what you hear.
       const fadeStart = when + Math.max(0, duration - 0.02) / rate;
       g.setTargetAtTime(0, fadeStart, 0.005);
       source.start(when, clampedOffset);
       source.stop(fadeStart + 0.04);
+      this.endsAt = fadeStart + 0.04;
     } else {
       source.start(when, clampedOffset);
+      this.endsAt = def.loop ? Infinity : when + (buffer.duration - clampedOffset) / rate;
     }
+  }
+
+  /**
+   * True when a one-shot's end event never came. It is delivered by the main thread, which a stall can hold up, and
+   * a voice nobody gives back is a voice lost until the page reloads.
+   */
+  overdue(now: number): boolean {
+    return now > this.endsAt + END_GRACE;
+  }
+
+  /** Takes the voice back without waiting for an event that may never fire. */
+  reclaim(): void {
+    this.cut();
+    this.release();
   }
 
   /** Point sources. Moves the panner and notes the old position for Doppler. */
   place(x: number, y: number, z: number): void {
+    // A body flung to NaN must not take the frame with it: the param setters throw on non-finite values.
+    if (!Number.isFinite(x + y + z)) return;
     this.x = x;
     this.y = y;
     this.z = z;
@@ -206,8 +253,7 @@ export class Voice implements VoiceSlot {
     const w = this.wrote;
     this.loudness = this.gain * attenuated;
     if (smooth > 0) {
-      // Under 1% of level or pitch change is below hearing, and most voices in a fight are not moving.
-      if (Math.abs(attenuated - w.attenuated) <= 0.01 * w.attenuated && Math.abs(hz - w.cutoff) <= 0.01 * w.cutoff) return;
+      if (Math.abs(attenuated - w.attenuated) <= DISTANCE_STEP * w.attenuated && Math.abs(hz - w.cutoff) <= DISTANCE_STEP * w.cutoff) return;
       this.dist!.gain.setTargetAtTime(attenuated, now, smooth);
       this.air!.frequency.setTargetAtTime(hz, now, smooth);
       this.send?.gain.setTargetAtTime(wet, now, smooth);
@@ -226,7 +272,14 @@ export class Voice implements VoiceSlot {
 
   setRate(slowmo: number): void {
     if (!this.source) return;
-    this.source.playbackRate.value = this.pitch * this.doppler * (this.exempt ? 1 : slowmo);
+    const param = this.source.playbackRate;
+    const before = Math.max(0.05, param.value);
+    const after = Math.max(0.05, this.pitch * this.doppler * (this.exempt ? 1 : slowmo));
+    param.value = after;
+    if (this.endsAt !== Infinity) {
+      const now = this.ac.currentTime;
+      this.endsAt = now + Math.max(0, this.endsAt - now) * (before / after);
+    }
   }
 
   /** Advances pitch glides and Doppler for one frame. Returns true when the rate needs rewriting. */
@@ -261,6 +314,7 @@ export class Voice implements VoiceSlot {
   }
 
   setVolume(gain: number, seconds: number): void {
+    if (!Number.isFinite(gain)) return;
     this.gain = gain;
     this.level.gain.setTargetAtTime(gain, this.ac.currentTime, Math.max(0.008, seconds / 3));
   }
@@ -271,7 +325,9 @@ export class Voice implements VoiceSlot {
     this.releasing = true;
     const now = this.ac.currentTime;
     this.level.gain.setTargetAtTime(0, now, Math.max(STEAL_FADE, seconds / 4));
-    this.source.stop(now + Math.max(0.03, seconds * 1.6));
+    const end = now + Math.max(0.03, seconds * 1.6);
+    this.source.stop(end);
+    this.endsAt = end;
   }
 
   /** Quick cut for voice stealing. */

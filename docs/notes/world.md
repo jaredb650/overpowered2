@@ -73,6 +73,42 @@ node tools/shot.mjs --url "/?map=killhouse&autostart=1" --dpr 2 --w 1440 --h 900
 | Holes in the floor, rays out of the perimeter below 24 m | 0, 0 |
 | Sightlines between standing eyes at least 18 m apart | 95% within 34 m, 13% over 30 m, longest 46 m. The long ones are slim lines through three doors |
 | Pickups | 27, one or two in every space, 3 mega health spots on the deck corners, none stranded |
+| Random hands, 4 seeds of 300 s | 0 frames inside geometry, 0 falls, 0 trapped, up to 6.7 m high |
+
+Boot, back to back on the same loaded machine (load average about 15), real game, 1280x720:
+
+| | Crucible | Kill House |
+|---|---|---|
+| Page load to playing | 24.2 s | 11.4 s |
+| World build, all in | 20.6 s | 5.9 s |
+| Light bake | 19.4 s | 5.4 s |
+| Nav | 3.4 s | 0.2 s |
+| Static triangles, colliders, baked lights | 661k, 1712, 281 | 128k, 150, 75 |
+
+Timings swing widely with load: the same Kill House bake took 0.6 s on one quiet run. Compare within a run, not across runs.
+
+## Tuning knobs
+
+| Where | What |
+|---|---|
+| `killhouse/plan.ts` `KH` | Wall lines, heights, door widths, the corner cut. `chamfer` cannot go under 59 without the yard corner lane dropping below 4 m |
+| `killhouse/plan.ts` `quarter` | Door positions. Change one and rerun the proof: the sightlines depend on doors not lining up |
+| `killhouse/rooms.ts` `d.fill` | Room light. Keep it well off the walls, because a light 1.4 m from a wall burns a hot spot into it |
+| `killhouse/index.ts` | Player spawns, drop points, flyer points and the named views |
+
+## Known limitations
+
+- **Feel has not been played by a human.** Every number here comes from bots. Whether it reads as weighty needs the owner's hands.
+- **Bosses are untested here.** Only waves 1 to 3 have been run. A Juggernaut is 2.3 m wide and a Titan nearly 5 m, against 4 m lanes.
+- **Sightlines overshoot the brief in places.** 13% of the long ones are over 30 m. They are slim lines through three doors, up to 46 m.
+- **Enemies can leap onto a ramp from its open side.** 12 of about 300 tested routes use that vault. Everything else is a plain walk.
+- **Players can stand on wall tops and cover.** Enemies path to the nearest real floor under them instead.
+- **The perimeter is invisible from 7.5 m to 26 m,** to contain rocket jumps. Rounds fired at that part of the sky hit nothing you can see.
+- **Spawner path bands (40 to 80 m) were tuned for The Crucible.** They work here, but they are not this map's numbers. They belong to `src/enemies`.
+- **`setReactorState` does nothing here,** because the map has no reactor.
+- **Enemies treat wall tops and cover as no ground.** `groundHeight` returns NaN for a flat surface that is not a listed level, which
+  is what stops anything leaping up to stand on a wall. A body that does come down on one falls through and is put back by the rescue
+  below the floor.
 
 # The Crucible
 

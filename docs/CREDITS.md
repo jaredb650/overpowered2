@@ -1,0 +1,103 @@
+# Credits
+
+Third-party sound in OVERPOWERED 2. Everything not listed here is the owner's own (the first game's samples in
+`public/audio/sfx`, the soundtrack) or is synthesized at load from `src/audio/synth`.
+
+`public/audio/sfx/gore/CREDITS.txt` is a copy of the attributions, so they ship with the files.
+
+## Licences
+
+| Source | Licence | Terms | Read at |
+|---|---|---|---|
+| Kenney, Impact Sounds | CC0 1.0 | None. Credit given anyway | https://kenney.nl/assets/impact-sounds |
+| SoundBible, marked Public Domain | Public domain, as stated by the site | None | The page of each sound, linked below |
+| SoundBible, marked Attribution 3.0 | [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/) | **Credit the author wherever the game is distributed, and say the sound was changed** | The page of each sound, linked below |
+
+SoundBible's own statement on commercial use, from https://soundbible.com/about.php: its free sounds can be used commercially
+"if they are under the Creative Commons Attribution, or Public Domain License". Only those two licences were downloaded. Each page was
+read first, and the script refused any other value. These are the uploaders' claims as the site records them. Nobody here can check who
+really recorded each one.
+
+Kenney's page was read directly. Its server refuses scripted downloads, so the files came from a CC0 mirror of the same pack:
+`Boyquotes/kenney-impact-sounds-for-godot` at commit `999dd1684873f8b020a3aa5b26e713da21688924`
+(https://github.com/Boyquotes/kenney-impact-sounds-for-godot, `addons/kenney impact sounds/`).
+
+## How the files were changed
+
+All of them. Each is cut from its source, resampled to change its pitch, in some cases layered with others as listed, high-passed, faded out,
+levelled against the other variants of its id, trimmed to its transient, folded to mono and encoded at 44.1 kHz, 112 kbps MP3. The game then matches loudness at load.
+
+## Files
+
+All in `public/audio/sfx/gore/`.
+
+| File | Made from | Author | Licence |
+|---|---|---|---|
+| `body_fall_concrete_1.mp3` | impact_soft_heavy_000.ogg + impact_punch_heavy_001.ogg + footstep_concrete_000.ogg | Kenney | CC0 1.0 |
+| `body_fall_concrete_2.mp3` | impact_soft_heavy_001.ogg + impact_punch_heavy_002.ogg + footstep_concrete_001.ogg | Kenney | CC0 1.0 |
+| `body_fall_concrete_3.mp3` | impact_soft_heavy_002.ogg + impact_punch_heavy_003.ogg + footstep_concrete_002.ogg | Kenney | CC0 1.0 |
+| `body_fall_concrete_4.mp3` | impact_soft_heavy_003.ogg + impact_punch_heavy_004.ogg + footstep_concrete_003.ogg | Kenney | CC0 1.0 |
+| `body_fall_concrete_5.mp3` | impact_soft_heavy_004.ogg + impact_punch_heavy_000.ogg + footstep_concrete_004.ogg | Kenney | CC0 1.0 |
+| `body_fall_metal_1.mp3` | impact_soft_heavy_002.ogg + impact_plate_heavy_000.ogg + impact_metal_heavy_001.ogg | Kenney | CC0 1.0 |
+| `body_fall_metal_2.mp3` | impact_soft_heavy_003.ogg + impact_plate_heavy_001.ogg + impact_metal_heavy_002.ogg | Kenney | CC0 1.0 |
+| `body_fall_metal_3.mp3` | impact_soft_heavy_004.ogg + impact_plate_heavy_002.ogg + impact_metal_heavy_003.ogg | Kenney | CC0 1.0 |
+| `body_fall_metal_4.mp3` | impact_soft_heavy_000.ogg + impact_plate_heavy_003.ogg + impact_metal_heavy_004.ogg | Kenney | CC0 1.0 |
+| `body_fall_metal_5.mp3` | impact_soft_heavy_001.ogg + impact_plate_heavy_004.ogg + impact_metal_heavy_000.ogg | Kenney | CC0 1.0 |
+| `limb_thud_1.mp3` | impact_soft_medium_000.ogg + impact_punch_medium_002.ogg | Kenney | CC0 1.0 |
+| `limb_thud_2.mp3` | impact_soft_medium_001.ogg + impact_punch_medium_003.ogg | Kenney | CC0 1.0 |
+| `limb_thud_3.mp3` | impact_soft_medium_002.ogg + impact_punch_medium_004.ogg | Kenney | CC0 1.0 |
+| `limb_thud_4.mp3` | impact_soft_medium_003.ogg + impact_punch_medium_000.ogg | Kenney | CC0 1.0 |
+| `limb_thud_5.mp3` | impact_soft_medium_004.ogg + impact_punch_medium_001.ogg | Kenney | CC0 1.0 |
+| `head_thud_1.mp3` | impact_punch_heavy_002.ogg + impact_wood_heavy_000.ogg | Kenney | CC0 1.0 |
+| `head_thud_2.mp3` | impact_punch_heavy_003.ogg + impact_wood_heavy_001.ogg | Kenney | CC0 1.0 |
+| `head_thud_3.mp3` | impact_punch_heavy_004.ogg + impact_wood_heavy_002.ogg | Kenney | CC0 1.0 |
+| `head_thud_4.mp3` | impact_punch_heavy_000.ogg + impact_wood_heavy_003.ogg | Kenney | CC0 1.0 |
+| `wet_slap_1.mp3` | [1948-Slap](https://soundbible.com/1948-Slap.html) | SoundMaster13 | Public Domain |
+| `wet_slap_2.mp3` | [2047-Banana-Slap](https://soundbible.com/2047-Banana-Slap.html) | AngryFlash | Public Domain |
+| `wet_slap_3.mp3` | [1948-Slap](https://soundbible.com/1948-Slap.html) + [1733-Spit-Splat](https://soundbible.com/1733-Spit-Splat.html) | SoundMaster13, Mike Koenig | Public Domain, CC BY 3.0 |
+| `wet_slap_4.mp3` | [2047-Banana-Slap](https://soundbible.com/2047-Banana-Slap.html) + impact_soft_medium_001.ogg | AngryFlash, Kenney | Public Domain, CC0 1.0 |
+| `wet_slap_5.mp3` | [1079-Bir-Poop-Splat](https://soundbible.com/1079-Bir-Poop-Splat.html) | Mike Koenig | CC BY 3.0 |
+| `organ_splat_1.mp3` | [1081-Splat-And-Squirt](https://soundbible.com/1081-Splat-And-Squirt.html) + impact_soft_medium_002.ogg | Mike Koenig, Kenney | CC BY 3.0, CC0 1.0 |
+| `organ_splat_2.mp3` | [1097-Slime-Splash](https://soundbible.com/1097-Slime-Splash.html) + impact_soft_medium_003.ogg | Mike Koenig, Kenney | CC BY 3.0, CC0 1.0 |
+| `organ_splat_3.mp3` | [1728-Spit-Splat-2](https://soundbible.com/1728-Spit-Splat-2.html) + impact_soft_medium_000.ogg | Mike Koenig, Kenney | CC BY 3.0, CC0 1.0 |
+| `organ_splat_4.mp3` | [1079-Bir-Poop-Splat](https://soundbible.com/1079-Bir-Poop-Splat.html) + impact_soft_medium_004.ogg | Mike Koenig, Kenney | CC BY 3.0, CC0 1.0 |
+| `organ_splat_5.mp3` | [1081-Splat-And-Squirt](https://soundbible.com/1081-Splat-And-Squirt.html) + [1733-Spit-Splat](https://soundbible.com/1733-Spit-Splat.html) | Mike Koenig | CC BY 3.0 |
+| `flesh_slosh_1.mp3` | [1084-Slime](https://soundbible.com/1084-Slime.html) | Mike Koenig | CC BY 3.0 |
+| `flesh_slosh_2.mp3` | [1084-Slime](https://soundbible.com/1084-Slime.html) | Mike Koenig | CC BY 3.0 |
+| `flesh_slosh_3.mp3` | [1083-Slug-Crawling](https://soundbible.com/1083-Slug-Crawling.html) | Mike Koenig | CC BY 3.0 |
+| `flesh_slosh_4.mp3` | [1083-Slug-Crawling](https://soundbible.com/1083-Slug-Crawling.html) | Mike Koenig | CC BY 3.0 |
+| `wet_squelch_1.mp3` | [1097-Slime-Splash](https://soundbible.com/1097-Slime-Splash.html) | Mike Koenig | CC BY 3.0 |
+| `wet_squelch_2.mp3` | [1055-Vampire-Bite](https://soundbible.com/1055-Vampire-Bite.html) | Mike Koenig | CC BY 3.0 |
+| `wet_squelch_3.mp3` | [1081-Splat-And-Squirt](https://soundbible.com/1081-Splat-And-Squirt.html) | Mike Koenig | CC BY 3.0 |
+| `wet_squelch_4.mp3` | [1084-Slime](https://soundbible.com/1084-Slime.html) | Mike Koenig | CC BY 3.0 |
+| `bone_snap_1.mp3` | [1953-Neck-Snap](https://soundbible.com/1953-Neck-Snap.html) | Vladimir | Public Domain |
+| `bone_snap_2.mp3` | [1953-Neck-Snap](https://soundbible.com/1953-Neck-Snap.html) | Vladimir | Public Domain |
+| `bone_snap_3.mp3` | [1953-Neck-Snap](https://soundbible.com/1953-Neck-Snap.html) + [1394-Dragon-Bite](https://soundbible.com/1394-Dragon-Bite.html) | Vladimir, GregoryWeir | Public Domain |
+| `bone_snap_4.mp3` | [1304-Taking-A-Bite](https://soundbible.com/1304-Taking-A-Bite.html) + [1953-Neck-Snap](https://soundbible.com/1953-Neck-Snap.html) | Mike Koenig, Vladimir | CC BY 3.0, Public Domain |
+| `flesh_tear_1.mp3` | [1513-Chopping-Off-Limb](https://soundbible.com/1513-Chopping-Off-Limb.html) | Mike Koenig | CC BY 3.0 |
+| `flesh_tear_2.mp3` | [1008-Decapitation](https://soundbible.com/1008-Decapitation.html) | Mike Koenig | CC BY 3.0 |
+| `flesh_tear_3.mp3` | [1006-Decapitation-Head-Fall-Off](https://soundbible.com/1006-Decapitation-Head-Fall-Off.html) | Mike Koenig | CC BY 3.0 |
+| `flesh_tear_4.mp3` | [1513-Chopping-Off-Limb](https://soundbible.com/1513-Chopping-Off-Limb.html) + [1055-Vampire-Bite](https://soundbible.com/1055-Vampire-Bite.html) | Mike Koenig | CC BY 3.0 |
+| `blood_drip_1.mp3` | [1139-Water-Drop-Low](https://soundbible.com/1139-Water-Drop-Low.html) | Mike Koenig | CC BY 3.0 |
+| `blood_drip_2.mp3` | [1232-Water-Drop-Sound-High](https://soundbible.com/1232-Water-Drop-Sound-High.html) | Mike Koenig | CC BY 3.0 |
+| `blood_drip_3.mp3` | [1126-Water-Drop](https://soundbible.com/1126-Water-Drop.html) | Mike Koenig | CC BY 3.0 |
+| `blood_drip_4.mp3` | [1139-Water-Drop-Low](https://soundbible.com/1139-Water-Drop-Low.html) | Mike Koenig | CC BY 3.0 |
+| `blood_splatter_1.mp3` | [1733-Spit-Splat](https://soundbible.com/1733-Spit-Splat.html) | Mike Koenig | CC BY 3.0 |
+| `blood_splatter_2.mp3` | [1460-Water-Splash](https://soundbible.com/1460-Water-Splash.html) | Mike Koenig | CC BY 3.0 |
+| `blood_splatter_3.mp3` | [2100-Splash-Rock-In-Lake](https://soundbible.com/2100-Splash-Rock-In-Lake.html) | Ploor | Public Domain |
+| `blood_splatter_4.mp3` | [1728-Spit-Splat-2](https://soundbible.com/1728-Spit-Splat-2.html) | Mike Koenig | CC BY 3.0 |
+| `body_drag_1.mp3` | [1083-Slug-Crawling](https://soundbible.com/1083-Slug-Crawling.html) | Mike Koenig | CC BY 3.0 |
+| `body_drag_2.mp3` | [1083-Slug-Crawling](https://soundbible.com/1083-Slug-Crawling.html) | Mike Koenig | CC BY 3.0 |
+| `body_drag_3.mp3` | [1084-Slime](https://soundbible.com/1084-Slime.html) | Mike Koenig | CC BY 3.0 |
+
+## Considered and not used
+
+| Source | Why not |
+|---|---|
+| OpenGameArt | Its robots.txt disallows `Claude-Code` and other AI agents by name, and it refused the fetch tool. Not downloaded, though several CC0 packs there look right, such as "Deep Bone Crack/Break SFX" and "Squishing and Squashing". A person can fetch those by hand |
+| Freesound | Downloads need a login, so it was skipped as instructed. The public preview files were not used either |
+| Sonniss GDC bundles | The licence allows use in games with no credit, but forbids redistributing the raw sounds, and loose files served from `public/` come close. The bundles are also 7 GB or more, with no way to take one file |
+| itch.io packs ("The Designer's Choice - GORE", "Free Gore Foley Sound Pack", FilmCow volumes) | Not paid, and may well suit. But itch.io's robots.txt disallows the download paths, so they need a person to fetch them and read each licence |
+| Kenney, direct | The site refuses scripted downloads. The mirror above is the same CC0 pack |
+| Wikimedia Commons | Searched slowly through its API. Nearly every hit for these words is a spoken pronunciation, so nothing was taken |
+| Better gunshots, explosions, ricochets | Nobody here can hear whether one clearly beats what exists, so none were added. The first game's samples are untouched |

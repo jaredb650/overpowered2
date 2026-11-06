@@ -13,6 +13,8 @@ const NYQUIST_CAP = 20000;
 const ROOM_SEED = 100;
 /** Default music level. The first game's soundtrack sat at twice the SMG's level. */
 const MUSIC_TRIM = 0.42;
+/** Duck changes smaller than this are not worth an automation event on every frame. */
+const DUCK_STEP = 0.002;
 
 /** Maps 0..1 onto a cutoff frequency, exponentially, because hearing is. */
 const cutoff = (amount: number, wide: number, narrow: number) => wide * Math.pow(narrow / wide, clamp(amount));
@@ -40,6 +42,7 @@ export class Mixer {
   private duckAmount = 0;
   private duckHold = 0;
   private duckLevel = 0;
+  private duckWritten = 0;
   private slowAmount = 0;
   private healthAmount = 0;
 
@@ -116,7 +119,7 @@ export class Mixer {
     this.clipper.connect(ac.destination);
   }
 
-  /** Generates a room and wires a convolver for it. Idle convolvers cost nothing: Web Audio skips silent nodes. */
+  /** Generates a room and wires a convolver for it. A room with its send at zero is skipped once its tail has passed. */
   buildRoom(id: RoomId): void {
     const spec = ROOMS[id];
     const [left, right] = generateImpulse(spec, this.ac.sampleRate, ROOM_SEED + ROOM_IDS.indexOf(id));
@@ -177,7 +180,10 @@ export class Mixer {
     const duckTarget = this.duckHold > 0 ? this.duckAmount : 0;
     // Dips in a couple of frames so it beats the transient, returns over about a second.
     this.duckLevel = damp(this.duckLevel, duckTarget, duckTarget > this.duckLevel ? 60 : 1.6, realDt);
-    this.musicDuck.gain.setTargetAtTime(1 - this.duckLevel, now, 0.012);
+    if (Math.abs(this.duckLevel - this.duckWritten) > DUCK_STEP) {
+      this.duckWritten = this.duckLevel;
+      this.musicDuck.gain.setTargetAtTime(1 - this.duckLevel, now, 0.012);
+    }
 
     const slow = clamp((1 - slowmo) / 0.75);
     if (Math.abs(slow - this.slowAmount) > 0.001) {

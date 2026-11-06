@@ -131,7 +131,7 @@ export const bodies = [
     slap(s, 0.7, 1100);
     s.at(0.01, () => wetBurst(s, 12, 0.22, 620, 0.5));
   }),
-  r('head_pop', { dur: 0.45, n: 3, mix: 'gore', over: { volume: 0.76, priority: 7, maxVoices: 3 }, expect: sharp }, s => {
+  r('head_pop', { dur: 0.45, n: 3, mix: 'gore', over: { volume: 0.76, priority: 7, critical: true, maxVoices: 3 }, expect: sharp }, s => {
     s.osc('sine', [[0, 620], [0.02, 170], [0.08, 80]], 0.12).env(perc(0.07, 1, 0.0004)).drive(2).out();
     snap(s, 7, 0.05, 0.9, 2700);
     s.at(0.006, () => { slap(s, 0.8, 1300); wetBurst(s, 18, 0.3, 700, 0.55); });
@@ -140,6 +140,10 @@ export const bodies = [
     thump(s, s.r(66, 92), 0.15, 1, 2.3);
     s.noise('pink', 0.09).lp(900).env(perc(0.05, 0.6)).out();
     s.at(s.r(0.05, 0.1), () => thump(s, s.r(90, 130), 0.07, 0.42, 1.6));
+  }),
+  // Only heard if the body_drag samples are missing.
+  r('body_scrape', { dur: 0.8, mix: 'body', over: { volume: 0.2, maxVoices: 2 } }, s => {
+    s.noise('pink', 0.76).bp(620, 1.2).am(s.wander(9, 0.6)).env(perc(0.7, 0.8, 0.02)).out();
   }),
   r('gib_land', { dur: 0.22, n: 4, mix: 'body', over: { maxVoices: 3, volume: 0.32 } }, s => {
     slap(s, 0.8, s.r(700, 1300));

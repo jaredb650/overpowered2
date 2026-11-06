@@ -1,5 +1,5 @@
 /**
- * The Crucible sandbox. Fly camera, ?view=<name> presets, nav and traversal checks.
+ * Map sandbox. Fly camera, ?view=<name> presets, nav and traversal checks. ?map=killhouse or ?map=crucible picks the map.
  *   window.__op2.view(name)   jump to a preset
  *   window.__op2.views()      list preset names
  *   window.__op2.world        the World

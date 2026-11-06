@@ -27,7 +27,7 @@ export default async function read(page, h) {
     placed.push(await page.evaluate(([x, z, tx, tz]) => {
       const { ctx } = window.__op2;
       const p = ctx.player;
-      ctx.enemies.killAll('test');
+      // Nothing gets killed between spots: a streak would tint the picture with its colour grade and spoil the test.
       p.teleport(p.position.clone().set(x, 0.1, z), Math.atan2(-(tx - x), -(tz - z)));
       p.pitch = 0;
       const at = p.position.clone().set(tx, 0.1, tz);

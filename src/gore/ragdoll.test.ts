@@ -2,7 +2,7 @@
  * Physics behaviour of real ragdolls, headless. These are the failures the brief names: joints that come
  * apart, bodies through the floor, pinwheels, jitter that never settles, and a pop at the moment of death.
  */
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
 import { humanoidRig, HumanoidBone as B } from '../characters/rig';
 import { Physics } from '../physics/Physics';
@@ -469,13 +469,15 @@ describe('corpses', () => {
     expect(old.bones[B.hips]!.matrixWorld.elements[13]!).not.toBe(y0);
   });
 
-  it('a blast at the ragdoll budget leaves frozen corpses frozen', () => {
-    const old = atTheCap();
-    const y0 = old.bones[B.hips]!.matrixWorld.elements[13]!;
+  it('a blast at the ragdoll budget rebuilds nothing', () => {
+    atTheCap();
+    // A wake here would only swap with a body already moving, and that body comes back at rest.
+    const create = vi.spyOn(physics.world, 'createRigidBody');
     physics.radialImpulse(v(0, 0.5, 1), 12, 160);
-    run(5);
+    const rebuilt = create.mock.calls.length;
+    create.mockRestore();
+    expect(rebuilt).toBe(0);
     expect(gore.stats().ragdolls).toBe(GoreTuning.maxRagdolls);
-    expect(old.bones[B.hips]!.matrixWorld.elements[13]!).toBe(y0);
   });
 
   it('wakes frozen corpses caught in a blast', () => {

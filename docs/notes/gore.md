@@ -6,7 +6,18 @@ Scenarios: `ragdoll limbs crawl headshot explosion slice shootcorpse stairs stre
 archetype, `dummy=1` for the capsule TestDummy, `cam=x,y,z,tx,ty,tz` for the camera. Time is fixed at 1/60, so runs repeat.
 `window.__gore` has `hold()`, `step(n)` and `sheet(frames, columns)`, which draws a contact sheet over the page.
 
-Tests: `npx vitest run src/gore`. 50 tests, 26 of them driving real Rapier ragdolls headless (`ragdoll.test.ts`).
+Side by side, hard limits on the left and muscles on the right under identical input: `limit` (slow motion, with a plot
+of the knee), `zerog`, `fall`, `stairsab`, `blast`, `lineup` (ten each way, hard row at the back), `collapse`, `twitch`.
+Add `hold=1` to start paused at frame 0, so a sheet is exact however long the page took to load. `muscles=0` turns the
+layer off everywhere, in any scenario and in the game itself.
+
+```
+node tools/shot.mjs --url "/?sandbox=gore&scenario=blast&hold=1" --wait 9000 --out tools/out/blast.png \
+  --eval "window.__gore.sheet([20,26,35,52,90,180],3)"
+```
+
+Tests: `npx vitest run src/gore`. `muscles.test.ts` and `ragdoll.test.ts` drive real Rapier ragdolls headless. Under
+heavy load add `--testTimeout=60000`: the first test to touch WebAssembly can pass 5 s at low priority.
 
 ## How to use it
 
@@ -15,6 +26,7 @@ const hit = ctx.gore.raycastCharacter(char, origin, dir, maxDist);  // CapsuleHi
 
 ctx.gore.sever(char, 'armL', damage, velocity);   // alive or dead. null if already gone or not severable
 ctx.gore.ragdoll(char, { impulses, velocity });   // death. Gore owns the instance from here
+ctx.gore.collapse(char, { duration, velocity });  // death with time in it. Muscles fade out, then it drops
 ctx.gore.headshot(char, damage, velocity);        // death. Holds a beat, then collapses by itself
 ctx.gore.gib(char, center, force);                // death. Releases the instance
 ctx.gore.slice(char, point, normal, damage);      // death. Releases the instance
@@ -26,8 +38,9 @@ ctx.gore.pin(corpse, wallPoint);                  // drags the struck bone to th
 
 Rules for callers:
 
-- **One death path.** Once a character has gone through `ragdoll`, `headshot`, `gib` or `slice`, gore owns it. Stop calling
-  `anim.update` and never `release()` it. `gore.owns(char)` tells you. Repeat death calls are absorbed.
+- **One death path.** Once a character has gone through `ragdoll`, `collapse`, `headshot`, `gib` or `slice`, gore owns it.
+  Stop calling `anim.update` and never `release()` it. `gore.owns(char)` tells you. Repeat death calls are absorbed, except
+  that `ragdoll` on a body still collapsing makes it drop now.
 - **Hits come from rings** (64 capsule, 16 corpse), so a shot loop can keep its best hit while it tests the next enemy. Do
   not hold one past the frame.
 - `raycastCharacter` reads `bone.matrixWorld`, so it hits what was last rendered. It skips severed bones.
@@ -39,9 +52,33 @@ Rules for callers:
 - Headshot damage of 40 or more bursts the head, less pops it off whole. Both are kills. A non-lethal head removal is
   `sever(char, 'head', ...)`.
 
+### Collapse and twitching
+
+`collapse(char, options)` is for anyone dying on their feet: a mortal enemy at the end of its bleed-out (`docs/DESIGN.md`
+14.1), and the headshot, which uses it by itself. Gore takes ownership at once and runs the animator for you, so call it
+at the moment the enemy stops being an enemy, and stop driving it.
+
+| Option | Default | |
+|---|---|---|
+| `duration` | 1.7 | Seconds from the first weakness to limp, 0.3 to 5. Upper body goes in the first half |
+| `velocity` | none | What it was moving at. Its feet stumble on with it |
+| `twitch` | 0, or 1 if headless | Twitching once it is down, 0..1 |
+
+- It needs legs on the ground. Airborne, call `ragdoll`: it holds the hips where the animation had them, so it would hang.
+- Past `GoreTuning.maxCollapses` (4), on a body with no legs, on a drone, or with `?muscles=0`, it is a plain ragdoll.
+- A hit, a blast, a pin, a cut or a repeat `ragdoll` makes it give up, four times faster.
+
+`ragdoll` takes three more options. `twitch` is 0..1, and is 1 by itself on a body with no head, so a headshot or a
+decapitation needs nothing. `impact: { dir, strength }` throws the limbs: left out, it is worked out from `impulses`, so
+existing calls already get it, scaled down for bullets. Pass it for a knockdown with no impulses. `muscles: false` puts one
+body on hard limits, for comparison.
+
 ## Contract additions
 
-All additive, in `contracts.ts`. `PhysicsSystem`: `preStep`, `radialListeners`, `raycastInto`, `anchorBody`, `stepMs`.
+Muscles add `collapse`, and `impact`, `twitch` and `muscles` on `RagdollOptions`, from `muscles.ts` by module augmentation.
+The rig gains `JointDef.role` and `BoneDef.relax`. `Physics` gains `OWN_BLAST`.
+
+The rest are additive, in `contracts.ts`. `PhysicsSystem`: `preStep`, `radialListeners`, `raycastInto`, `anchorBody`, `stepMs`.
 `GoreSystem`: optional `velocity` on `sever` and `headshot`. `CorpseHit`: `bone`, `region`. `SeverResult`: `torso`, plus the
 `TorsoHalf` interface. On the concrete `Gore`: `owns`, `blast`, `stats`, `limbCenter`.
 
@@ -50,7 +87,9 @@ All additive, in `contracts.ts`. `PhysicsSystem`: `preStep`, `radialListeners`, 
 | Knob | File | What it does |
 |---|---|---|
 | `GoreTuning` | `index.ts` | Caps, settle speed and time, sink, heartbeat, headshot hold and hit-stop, limb share of force, corpse limb health, crawl time |
-| `RagTuning` | `rag.ts` | Joint damping, death tone, limit strength and fade-in, rest damping, collider slimming, speed clamps |
+| `MuscleTuning` | `muscles.ts` | Everything in the muscle layer: ligaments, resting pose, impact spin, collapse timing, twitching |
+| `relax`, `role` | `rig.ts` | Resting pose per joint, and what each joint is for |
+| `RagTuning` | `rag.ts` | Joint damping, death tone, hard limit strength and fade-in, rest damping, collider slimming, speed clamps |
 | `swingShape()` | `rag.ts` | Asymmetric hip and shoulder reach |
 | `BloodTuning` | `blood.ts` | Rays per frame (24), droplet and pool caps, smear spacing |
 | `ChunkTuning` | `chunks.ts` | Slots per kind, live bodies (72), linger, bounce |
@@ -68,6 +107,48 @@ All additive, in `contracts.ts`. `PhysicsSystem`: `preStep`, `radialListeners`, 
 - `Rag.jointGap()` and `stats().jointGap` report joint error, for checks.
 - Self-collision inside one body is off through solver groups. Bodies do collide with each other, so piles work.
 - Blood in the air is FX. `BloodField` flies invisible droplets alongside it and turns landings into decals, from one ray budget.
+
+## Muscles
+
+`muscles.ts`, run from `Rag.preStep`. What makes a ragdoll read as heavy is tension: force in one limb arriving somewhere
+else, and a body with a shape it wants to be. Five things, all on one layer.
+
+- **Soft limits.** Damping and stiffness grow together across a zone inside each limit, and past it. Damping leads, so
+  energy is lost and not given back. Knees and elbows use this too, with Rapier's hinge stop left behind it for what it
+  cannot catch. Shoulders take up from shoulder height, which is most of what keeps arms from ending up overhead.
+- **Neutral posture.** `relax` in the rig is the pose NASA measured in microgravity, varied per body. The pull is capped
+  at 0.3 of the limb's own weight on the joint, so it can never lift it. It only shows in the air and in how bodies settle.
+- **Rotational impact.** `kick` turns arms one way and legs the other about the joints they hang from.
+- **Collapse.** The animator runs against a ghost root, and joints track what it writes. See below.
+- **Twitching.** Sine-squared torque bursts and whole-body spasms, on a schedule. They fade by getting rarer and shorter,
+  because a limb on the floor does not stir at all below its own weight.
+
+Tone lasts about 3 s after death and then nothing is pulling on the body. Below 0.35 m/s a ligament can only brake, so a
+body has to come to rest. A corpse shot awake moves, but has no tone left.
+
+### What has to stay true
+
+Each of these was found the hard way, and each has a test.
+
+- **A pre-step impulse has a gain limit.** Four solver iterations cannot pass a torque down a chain inside one step. A
+  torque sized for a whole limb overshoots, reverses and pumps energy in: speeds of 30 m/s that never settled. So torques
+  are sized from the free bodies either side of the joint.
+- **Ligaments turn the child about its joint.** A pure torque cannot stop an arm, because most of its momentum is its
+  centre of mass travelling. So `resist` gives the child the linear impulse too, in `RagPart.push`, and then the true pinned
+  inertia is safe to use. That is the only muscle that crosses into Rapier by itself, and only while a joint is in its zone.
+- **Throw a limb as one piece.** Spinning only the upper arm leaves the forearm behind: the elbow whips round, hits its
+  stop and drags the arm back the way it came. `spinLimb` turns the whole limb about the shoulder.
+- **Throw a body along one line.** `Physics.radialImpulse` gives every body the same impulse along its own line, which
+  gives a forearm ten times the speed of the hips and fires shoulders out sideways. Muscle chains set `OWN_BLAST`, so Physics
+  skips them and `Rag.radialImpulse` throws them, shared out by mass. This is what lets legs go forward at all. Hard-limit
+  bodies keep the old behaviour, so `muscles=0` is a fair comparison.
+- **Never give a sleeping body a velocity.** Rapier keeps it and reports it for good without moving the body, which then
+  never settles. `Rag.preStep` skips a sleeping chain, and anything that means to move it wakes it.
+- **A spring on a light limb against the floor bounces for as long as it is allowed**, and the bouncing resets the quiet
+  timer that would have let it go. That is why ligaments only spring back above `limitElasticLow`.
+- **In a collapse, the hold takes the reaction.** With every joint's reaction landing on the hips they thrash. While
+  support lasts each body answers to one controller, and as it fades the reaction moves onto the parent, so what is left at
+  the end are true joint torques with real weight on them. Legs keep their gravity throughout, or the feet have no friction.
 
 ## Measured
 

@@ -43,7 +43,7 @@ function drops(
   core: FxCore, x: number, y: number, z: number, dx: number, dy: number, dz: number, count: number,
   speed: number, delay: number,
 ): void {
-  stream(core, x, y, z, dx, dy, dz, count, speed, speed * 0.3, 0.012, 0.022, 0.55, delay, count);
+  stream(core, x, y, z, dx, dy, dz, count, speed, speed * 0.3, 0.02, 0.022, 0.55, delay, count);
 }
 
 /**
@@ -58,11 +58,11 @@ export function bloodJet(core: FxCore, position: THREE.Vector3, dir: THREE.Vecto
   const beats = intensity < 0.75 ? 2 : 3;
   for (let beat = 0; beat < beats; beat++) {
     const v = 11.5 * pressure * (1 - beat * 0.3);
-    stream(core, x, y, z, dir.x, dir.y, dir.z, beat === 0 ? 4 : 3, v, v / 5.5, 0.0062, 0.1, 1.5, beat * 0.13, 2);
+    stream(core, x, y, z, dir.x, dir.y, dir.z, beat === 0 ? 4 : 3, v, v / 5.5, 0.0105, 0.1, 1.5, beat * 0.13, 2);
   }
   b.setTone(BLOOD_TONE.venous);
   drops(core, x, y, z, dir.x, dir.y, dir.z, 2, 2.8 * pressure, beats * 0.13);
-  b.mist(x, y, z, dir.x * 6, dir.y * 6, dir.z * 6, 0.1 * pressure, 0.2, 7, 0.14);
+  b.mist(x, y, z, dir.x * 6, dir.y * 6, dir.z * 6, 0.1 * pressure, 0.2, 7, 0.3);
 }
 
 /**
@@ -73,10 +73,10 @@ export function bloodHit(core: FxCore, position: THREE.Vector3, dir: THREE.Vecto
   const { x, y, z } = position;
   const p = Math.sqrt(clamp(intensity, 0.25, 3));
   const b = core.blood.begin(core.bloodNow, core.floorAt(x, y, z), core.wallAlong(x, y, z, dir.x, dir.y, dir.z), BLOOD_TONE.wound);
-  stream(core, x, y, z, dir.x, dir.y, dir.z, 3, 8.5 * p, 1.3, 0.0048, 0.06, 2.2, 0, 2);
-  stream(core, x, y, z, -dir.x, 0.25 - dir.y, -dir.z, 2, 4.2 * p, 1, 0.0032, 0.05, 3, 0, 0);
+  stream(core, x, y, z, dir.x, dir.y, dir.z, 3, 8.5 * p, 1.3, 0.0085, 0.06, 2.2, 0, 2);
+  stream(core, x, y, z, -dir.x, 0.25 - dir.y, -dir.z, 3, 5 * p, 1.8, 0.0062, 0.05, 2.6, 0, 0);
   drops(core, x, y, z, dir.x, dir.y, dir.z, 2, 2.4 * p, 0.03);
-  b.mist(x, y, z, -dir.x * 2.2, 0.4 - dir.y * 2.2, -dir.z * 2.2, 0.08 * p, 0.15, 8, 0.15);
+  b.mist(x, y, z, -dir.x * 2.2, 0.4 - dir.y * 2.2, -dir.z * 2.2, 0.09 * p, 0.16, 8, 0.28);
 }
 
 /** A faint breath of fine drops. It is gone in half a second: blood mist that hangs is a video game effect. */
@@ -85,7 +85,7 @@ export function bloodMist(core: FxCore, position: THREE.Vector3, size = 1): void
   const b = core.blood.begin(core.bloodNow, -1e6, null, BLOOD_TONE.wound);
   for (let i = 0; i < 3; i++) {
     _v.set(rand(-1, 1), rand(-0.3, 0.6), rand(-1, 1)).normalize().multiplyScalar(rand(0.8, 2));
-    b.mist(x, y, z, _v.x, _v.y, _v.z, 0.15 * size, rand(0.35, 0.55), 6, 0.1);
+    b.mist(x, y, z, _v.x, _v.y, _v.z, 0.15 * size, rand(0.35, 0.55), 6, 0.2);
   }
 }
 
@@ -100,14 +100,14 @@ export function gibBurst(core: FxCore, position: THREE.Vector3, dir: THREE.Vecto
   const b = core.blood.begin(core.bloodNow, core.floorAt(x, y, z), core.wallAlong(x, y, z, dir.x, dir.y, dir.z), BLOOD_TONE.arterial);
   for (let i = 0; i < 3; i++) {
     _v.set(dir.x + rand(-0.3, 0.3), dir.y + rand(0, 0.35), dir.z + rand(-0.3, 0.3)).normalize();
-    stream(core, x, y, z, _v.x, _v.y, _v.z, 5, 15 * f, 2.7, 0.0075, 0.09, 1.5, i * 0.02, 3);
+    stream(core, x, y, z, _v.x, _v.y, _v.z, 5, 15 * f, 2.7, 0.012, 0.09, 1.5, i * 0.02, 3);
   }
   b.setTone(BLOOD_TONE.venous);
   for (let i = 0; i < 6; i++) {
     _v.set(dir.x + rand(-0.8, 0.8), dir.y + rand(0, 0.9), dir.z + rand(-0.8, 0.8)).normalize();
     drops(core, x, y, z, _v.x, _v.y, _v.z, 1, rand(4, 8) * f, i * 0.02);
   }
-  for (let i = 0; i < 2; i++) b.mist(x, y, z, dir.x * 5 + rand(-1, 1), dir.y * 5 + rand(0, 2), dir.z * 5 + rand(-1, 1), 0.16, 0.26, 7, 0.14);
+  for (let i = 0; i < 2; i++) b.mist(x, y, z, dir.x * 5 + rand(-1, 1), dir.y * 5 + rand(0, 2), dir.z * 5 + rand(-1, 1), 0.16, 0.26, 7, 0.28);
   spatter(core, position, 1);
 }
 
@@ -123,7 +123,7 @@ export function headBurst(core: FxCore, position: THREE.Vector3, dir: THREE.Vect
   core.blood.setTone(BLOOD_TONE.arterial);
   for (let i = 0; i < 6; i++) {
     _v.set(dir.x * 0.7 + rand(-0.7, 0.7), rand(0.35, 1), dir.z * 0.7 + rand(-0.7, 0.7)).normalize();
-    stream(core, x, y, z, _v.x, _v.y, _v.z, 1, rand(6, 11), 0.8, 0.0045, 0.08, 1.8, 0, 1);
+    stream(core, x, y, z, _v.x, _v.y, _v.z, 1, rand(6, 11), 0.8, 0.008, 0.08, 1.8, 0, 1);
   }
   core.flashes.star(x, y, z, CHIP.yellow, 0.42, core.now, 0.05, 6, 0.24, 0.7, 0.4, 5);
   spatter(core, position, 0.7);

@@ -11,6 +11,7 @@ import type { SurfaceKind } from '../core/contracts';
 import { arbitrate, type VoiceSlot } from './allocator';
 import { analyze, checkStats, loudness, type AudioStats } from './analyze';
 import { audibleSpan } from './bank';
+import { LoadGovernor, VOICE_BUDGETS, quietFloor, repeatGap } from './budget';
 import { ALIASES, CATALOG, lookup, renderRank } from './catalog';
 import { ROOMS, ROOM_IDS, generateImpulse, measureT60, roomForZone } from './reverb';
 import { airCutoff, attenuation, wetness } from './voices';
@@ -104,10 +105,10 @@ describe('sample trimming', () => {
 
 describe('voice rules', () => {
   const slot = (over: Partial<VoiceSlot>): VoiceSlot => ({
-    soundId: 'a', family: undefined, priority: 5, order: 0, loudness: 0.5, releasing: false, loop: false, ...over,
+    soundId: 'a', family: undefined, priority: 5, critical: false, order: 0, loudness: 0.5, releasing: false, loop: false, ...over,
   });
   const free = () => slot({ soundId: null });
-  const request = { id: 'a', maxVoices: 2, priority: 5 };
+  const request = { id: 'a', maxVoices: 2, priority: 5, critical: false };
 
   it('retriggers the oldest voice at an id cap, which is the first game SMG and shell stutter', () => {
     const voices = [slot({ order: 3 }), slot({ order: 1 }), free(), free()];
@@ -118,15 +119,109 @@ describe('voice rules', () => {
 
   it('never lets a weak sound cut a strong one when the pool is full', () => {
     const voices = [slot({ soundId: 'x', priority: 9 }), slot({ soundId: 'y', priority: 9 })];
-    expect(arbitrate(voices, { id: 'a', maxVoices: 4, priority: 3 }).kind).toBe('drop');
-    expect(arbitrate(voices, { id: 'a', maxVoices: 4, priority: 9 }).kind).toBe('steal');
+    expect(arbitrate(voices, { ...request, maxVoices: 4, priority: 3 }).kind).toBe('drop');
+    expect(arbitrate(voices, { ...request, maxVoices: 4, priority: 9 }).kind).toBe('steal');
+  });
+
+  it('never refuses a critical sound, whatever the mix is full of', () => {
+    const shot = { id: 'gun', maxVoices: 4, priority: 8, critical: true };
+    const blasts = [slot({ soundId: 'x', priority: 10 }), slot({ soundId: 'y', priority: 10 })];
+    expect(arbitrate(blasts, shot).kind).toBe('steal');
+    const allCritical = [slot({ soundId: 'x', priority: 9, critical: true }), slot({ soundId: 'y', priority: 9, critical: true })];
+    expect(arbitrate(allCritical, shot).kind).toBe('steal');
+    const allFading = [slot({ soundId: 'x', releasing: true }), slot({ soundId: 'y', releasing: true })];
+    expect(arbitrate(allFading, shot).kind).toBe('steal');
+    expect(arbitrate(allFading, request).kind).toBe('drop');
+  });
+
+  it('protects critical voices from everything that is not critical', () => {
+    const voices = [slot({ soundId: 'gun', priority: 1, critical: true }), slot({ soundId: 'x', priority: 9 })];
+    const d = arbitrate(voices, { ...request, id: 'b', maxVoices: 4, priority: 9 });
+    expect(d.kind).toBe('steal');
+    if (d.kind === 'steal') expect(d.victim.soundId).toBe('x');
+    const guarded = [slot({ soundId: 'gun', priority: 1, critical: true })];
+    expect(arbitrate(guarded, { ...request, id: 'b', maxVoices: 4, priority: 9 }).kind).toBe('drop');
+  });
+
+  it('treats a spent budget like a full pool, even with free voices left', () => {
+    const voices = [slot({ soundId: 'x', priority: 2 }), slot({ soundId: 'y', priority: 6 }), free(), free()];
+    expect(arbitrate(voices, { ...request, id: 'b', maxVoices: 4 }, 4).kind).toBe('free');
+    const d = arbitrate(voices, { ...request, id: 'b', maxVoices: 4 }, 2);
+    expect(d.kind).toBe('steal');
+    if (d.kind === 'steal') expect(d.victim.soundId).toBe('x');
+    expect(arbitrate(voices, { ...request, id: 'b', maxVoices: 4, priority: 1 }, 2)).toEqual({ kind: 'drop', reason: 'budget' });
   });
 
   it('caps a family, cutting its weakest and sparing better sounds', () => {
     const voices = [slot({ soundId: 'x', family: 'f', priority: 2 }), slot({ soundId: 'y', family: 'f', priority: 6 }), free()];
-    const d = arbitrate(voices, { id: 'a', family: 'f', familyMax: 2, maxVoices: 4, priority: 4 });
+    const d = arbitrate(voices, { ...request, family: 'f', familyMax: 2, maxVoices: 4, priority: 4 });
     expect(d.kind).toBe('steal');
     if (d.kind === 'steal') expect(d.victim.soundId).toBe('x');
+  });
+});
+
+describe('budget', () => {
+  it('leaves a normal fight alone and thins a full one', () => {
+    expect(quietFloor(0.5)).toBe(quietFloor(0));
+    expect(repeatGap(0.5)).toBe(0);
+    expect(quietFloor(1)).toBeGreaterThan(quietFloor(0.8));
+    expect(quietFloor(0.8)).toBeGreaterThan(quietFloor(0.5));
+    expect(repeatGap(1)).toBeGreaterThan(repeatGap(0.8));
+    expect(repeatGap(3)).toBe(repeatGap(1));
+  });
+
+  it('gives voices up when the clock falls behind, and takes them back slowly', () => {
+    const g = new LoadGovernor();
+    g.sample(1, 1, 0);
+    expect(g.budget).toBe(VOICE_BUDGETS[0]);
+    g.sample(0.9, 1, 0);
+    expect(g.budget).toBe(VOICE_BUDGETS[1]);
+    g.sample(1, 1, 0.5);
+    expect(g.budget).toBe(VOICE_BUDGETS[2]);
+    g.sample(0.5, 1, 0.9);
+    expect(g.budget).toBe(VOICE_BUDGETS[2]);
+    g.sample(1, 1, null);
+    expect(g.step).toBe(2);
+    for (let i = 0; i < 5; i++) g.sample(1, 1, 0);
+    expect(g.step).toBe(1);
+    for (let i = 0; i < 6; i++) g.sample(1, 1, 0);
+    expect(g.step).toBe(0);
+  });
+
+  it('ignores a window with no time in it', () => {
+    const g = new LoadGovernor();
+    g.sample(0, 0, null);
+    expect(g.step).toBe(0);
+  });
+});
+
+describe('sample packs', () => {
+  const packs = [...CATALOG.values()].filter(d => d.files);
+  const credits = readFileSync(join(__dirname, '../../docs/CREDITS.md'), 'utf8');
+
+  it('exist on disk, are credited, and have a synthesized way out', () => {
+    expect(packs.length).toBeGreaterThan(10);
+    for (const def of packs) {
+      expect(lookup(def.fallback!)?.kind, `${def.id} fallback`).toBe('synth');
+      expect(def.files!.length, def.id).toBeGreaterThanOrEqual(3);
+      for (const file of def.files!) {
+        expect(statSync(join(__dirname, '../../public/audio/sfx', file)).size, file).toBeGreaterThan(1000);
+        expect(credits, file).toContain(file.split('/').pop()!);
+      }
+    }
+  });
+
+  it('leaves nothing in the folder that the catalogue does not use', () => {
+    const used = new Set(packs.flatMap(d => d.files!.map(f => f.split('/').pop()!)));
+    const onDisk = readdirSync(join(__dirname, '../../public/audio/sfx/gore')).filter(f => f.endsWith('.mp3'));
+    expect(onDisk.filter(f => !used.has(f))).toEqual([]);
+  });
+
+  it('never stand in the way of what must be heard', () => {
+    for (const def of packs) expect(def.critical, def.id).toBe(false);
+    for (const id of ['smg_fire', 'hit_marker', 'hit_marker_head', 'enemy_headshot', 'perk_slowmo', 'perk_overdrive', 'minigun_fire_loop']) {
+      expect(lookup(id)!.critical, id).toBe(true);
+    }
   });
 });
 

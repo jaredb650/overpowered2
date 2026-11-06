@@ -165,7 +165,11 @@ export default async function audioSandbox(params: URLSearchParams): Promise<voi
       return { played: engine.stats().played - before, ids: ids.length };
     },
 
-    /** A worst-case fight: every heavy thing at once, for `seconds`. */
+    /**
+     * A worst-case fight: every heavy thing at once, for `seconds`. The listener moves and every 3D voice gets rewritten,
+     * because a still graph never reaches Chrome's expensive path. This test once reported 78 clean voices while the
+     * same mix in the real game ran the render thread out of time. Only `clockRate` and `underrunShare` can show that.
+     */
     async load(seconds = 6): Promise<Record<string, unknown>> {
       const mixer = engine.mixerForTests!;
       mixer.peakPost = 0;
@@ -180,10 +184,15 @@ export default async function audioSandbox(params: URLSearchParams): Promise<voi
       let blastClock = 0;
       let spamClock = 0;
       const before = engine.stats();
+      let worstClock = 1;
+      let worstUnderrun = 0;
       while (performance.now() < end) {
         const now = performance.now();
         const dt = now - last;
         last = now;
+        here.set(Math.sin(now / 700) * 12, 1, Math.cos(now / 900) * 12);
+        fwd.set(Math.sin(now / 500), 0, -Math.cos(now / 500));
+        engine.setListener(here, fwd, up);
         smgClock += dt;
         shellClock += dt;
         blastClock += dt;
@@ -218,6 +227,8 @@ export default async function audioSandbox(params: URLSearchParams): Promise<voi
         }
         const s = engine.stats();
         peakVoices = Math.max(peakVoices, s.voices2d + s.voices3d);
+        worstClock = Math.min(worstClock, s.clockRate);
+        worstUnderrun = Math.max(worstUnderrun, s.underrunShare);
         await wait(4);
       }
       const after = engine.stats();
@@ -227,6 +238,11 @@ export default async function audioSandbox(params: URLSearchParams): Promise<voi
         stolen: after.stolen - before.stolen,
         dropped: after.dropped - before.dropped,
         collapsed: after.collapsed - before.collapsed,
+        thinned: after.thinnedQuiet + after.thinnedRepeat - before.thinnedQuiet - before.thinnedRepeat,
+        budget: after.budget,
+        loadStep: after.loadStep,
+        worstClock,
+        worstUnderrun,
         peakBeforeLimiter: mixer.peakPre,
         peakAfterLimiter: mixer.peakPost,
         gainReduction: mixer.filters.gainReduction,

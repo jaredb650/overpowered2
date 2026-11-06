@@ -1,0 +1,62 @@
+Sounds in this folder are adapted from these works. All were changed: cut, pitched, layered, filtered and re-encoded.
+
+1006-Decapitation-Head-Fall-Off by Mike Koenig. CC BY 3.0. https://soundbible.com/1006-Decapitation-Head-Fall-Off.html
+1008-Decapitation by Mike Koenig. CC BY 3.0. https://soundbible.com/1008-Decapitation.html
+1055-Vampire-Bite by Mike Koenig. CC BY 3.0. https://soundbible.com/1055-Vampire-Bite.html
+1079-Bir-Poop-Splat by Mike Koenig. CC BY 3.0. https://soundbible.com/1079-Bir-Poop-Splat.html
+1081-Splat-And-Squirt by Mike Koenig. CC BY 3.0. https://soundbible.com/1081-Splat-And-Squirt.html
+1083-Slug-Crawling by Mike Koenig. CC BY 3.0. https://soundbible.com/1083-Slug-Crawling.html
+1084-Slime by Mike Koenig. CC BY 3.0. https://soundbible.com/1084-Slime.html
+1097-Slime-Splash by Mike Koenig. CC BY 3.0. https://soundbible.com/1097-Slime-Splash.html
+1126-Water-Drop by Mike Koenig. CC BY 3.0. https://soundbible.com/1126-Water-Drop.html
+1139-Water-Drop-Low by Mike Koenig. CC BY 3.0. https://soundbible.com/1139-Water-Drop-Low.html
+1232-Water-Drop-Sound-High by Mike Koenig. CC BY 3.0. https://soundbible.com/1232-Water-Drop-Sound-High.html
+1304-Taking-A-Bite by Mike Koenig. CC BY 3.0. https://soundbible.com/1304-Taking-A-Bite.html
+1460-Water-Splash by Mike Koenig. CC BY 3.0. https://soundbible.com/1460-Water-Splash.html
+1513-Chopping-Off-Limb by Mike Koenig. CC BY 3.0. https://soundbible.com/1513-Chopping-Off-Limb.html
+1728-Spit-Splat-2 by Mike Koenig. CC BY 3.0. https://soundbible.com/1728-Spit-Splat-2.html
+1733-Spit-Splat by Mike Koenig. CC BY 3.0. https://soundbible.com/1733-Spit-Splat.html
+footstep_concrete_000 by Kenney. CC0 1.0. https://kenney.nl/assets/impact-sounds
+footstep_concrete_001 by Kenney. CC0 1.0. https://kenney.nl/assets/impact-sounds
+footstep_concrete_002 by Kenney. CC0 1.0. https://kenney.nl/assets/impact-sounds
+footstep_concrete_003 by Kenney. CC0 1.0. https://kenney.nl/assets/impact-sounds
+footstep_concrete_004 by Kenney. CC0 1.0. https://kenney.nl/assets/impact-sounds
+impact_metal_heavy_000 by Kenney. CC0 1.0. https://kenney.nl/assets/impact-sounds
+impact_metal_heavy_001 by Kenney. CC0 1.0. https://kenney.nl/assets/impact-sounds
+impact_metal_heavy_002 by Kenney. CC0 1.0. https://kenney.nl/assets/impact-sounds
+impact_metal_heavy_003 by Kenney. CC0 1.0. https://kenney.nl/assets/impact-sounds
+impact_metal_heavy_004 by Kenney. CC0 1.0. https://kenney.nl/assets/impact-sounds
+impact_plate_heavy_000 by Kenney. CC0 1.0. https://kenney.nl/assets/impact-sounds
+impact_plate_heavy_001 by Kenney. CC0 1.0. https://kenney.nl/assets/impact-sounds
+impact_plate_heavy_002 by Kenney. CC0 1.0. https://kenney.nl/assets/impact-sounds
+impact_plate_heavy_003 by Kenney. CC0 1.0. https://kenney.nl/assets/impact-sounds
+impact_plate_heavy_004 by Kenney. CC0 1.0. https://kenney.nl/assets/impact-sounds
+impact_punch_heavy_000 by Kenney. CC0 1.0. https://kenney.nl/assets/impact-sounds
+impact_punch_heavy_001 by Kenney. CC0 1.0. https://kenney.nl/assets/impact-sounds
+impact_punch_heavy_002 by Kenney. CC0 1.0. https://kenney.nl/assets/impact-sounds
+impact_punch_heavy_003 by Kenney. CC0 1.0. https://kenney.nl/assets/impact-sounds
+impact_punch_heavy_004 by Kenney. CC0 1.0. https://kenney.nl/assets/impact-sounds
+impact_punch_medium_000 by Kenney. CC0 1.0. https://kenney.nl/assets/impact-sounds
+impact_punch_medium_001 by Kenney. CC0 1.0. https://kenney.nl/assets/impact-sounds
+impact_punch_medium_002 by Kenney. CC0 1.0. https://kenney.nl/assets/impact-sounds
+impact_punch_medium_003 by Kenney. CC0 1.0. https://kenney.nl/assets/impact-sounds
+impact_punch_medium_004 by Kenney. CC0 1.0. https://kenney.nl/assets/impact-sounds
+impact_soft_heavy_000 by Kenney. CC0 1.0. https://kenney.nl/assets/impact-sounds
+impact_soft_heavy_001 by Kenney. CC0 1.0. https://kenney.nl/assets/impact-sounds
+impact_soft_heavy_002 by Kenney. CC0 1.0. https://kenney.nl/assets/impact-sounds
+impact_soft_heavy_003 by Kenney. CC0 1.0. https://kenney.nl/assets/impact-sounds
+impact_soft_heavy_004 by Kenney. CC0 1.0. https://kenney.nl/assets/impact-sounds
+impact_soft_medium_000 by Kenney. CC0 1.0. https://kenney.nl/assets/impact-sounds
+impact_soft_medium_001 by Kenney. CC0 1.0. https://kenney.nl/assets/impact-sounds
+impact_soft_medium_002 by Kenney. CC0 1.0. https://kenney.nl/assets/impact-sounds
+impact_soft_medium_003 by Kenney. CC0 1.0. https://kenney.nl/assets/impact-sounds
+impact_soft_medium_004 by Kenney. CC0 1.0. https://kenney.nl/assets/impact-sounds
+impact_wood_heavy_000 by Kenney. CC0 1.0. https://kenney.nl/assets/impact-sounds
+impact_wood_heavy_001 by Kenney. CC0 1.0. https://kenney.nl/assets/impact-sounds
+impact_wood_heavy_002 by Kenney. CC0 1.0. https://kenney.nl/assets/impact-sounds
+impact_wood_heavy_003 by Kenney. CC0 1.0. https://kenney.nl/assets/impact-sounds
+1394-Dragon-Bite by GregoryWeir. Public Domain. https://soundbible.com/1394-Dragon-Bite.html
+1948-Slap by SoundMaster13. Public Domain. https://soundbible.com/1948-Slap.html
+1953-Neck-Snap by Vladimir. Public Domain. https://soundbible.com/1953-Neck-Snap.html
+2047-Banana-Slap by AngryFlash. Public Domain. https://soundbible.com/2047-Banana-Slap.html
+2100-Splash-Rock-In-Lake by Ploor. Public Domain. https://soundbible.com/2100-Splash-Rock-In-Lake.html

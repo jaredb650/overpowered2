@@ -137,21 +137,36 @@ export class SoundBank {
   }
 
   private async decode(def: SoundDef): Promise<void> {
-    try {
-      const response = await fetch(`${this.baseUrl}audio/sfx/${def.file}`);
-      const data = await response.arrayBuffer();
-      const buffer = await this.ac.decodeAudioData(data);
-      this.jobs.push(() => {
-        const trimmed = trimSilence(buffer);
-        this.leadTrim.set(def.id, trimmed.leadSeconds);
-        this.sounds.get(def.id)!.buffers = [trimmed.buffer];
-        this.stats.samples++;
-      });
-    } catch (err) {
-      console.warn(`[audio] sample failed: ${def.file}`, err);
-      this.pending--;
+    const files = def.files ?? [def.file!];
+    const decoded: AudioBuffer[] = [];
+    for (const file of files) {
+      try {
+        const response = await fetch(`${this.baseUrl}audio/sfx/${file}`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        decoded.push(await this.ac.decodeAudioData(await response.arrayBuffer()));
+      } catch (err) {
+        console.warn(`[audio] sample failed: ${file}`, err);
+      }
     }
+    if (decoded.length === 0) this.pending--;
+    else this.jobs.push(() => this.storeSample(def, decoded));
     this.schedule();
+  }
+
+  private storeSample(def: SoundDef, decoded: readonly AudioBuffer[]): void {
+    const sound = this.sounds.get(def.id)!;
+    const buffers = decoded.map(b => {
+      const trimmed = trimSilence(b);
+      this.leadTrim.set(def.id, trimmed.leadSeconds);
+      return trimmed.buffer;
+    });
+    // The first game's samples keep their balance. Packs come from anywhere, so they are matched like synth sounds.
+    if (def.files) {
+      const mean = buffers.reduce((sum, b) => sum + loudness(channelsOf(b), b.sampleRate), 0) / buffers.length;
+      sound.trim = trimFor(mean);
+    }
+    sound.buffers = buffers;
+    this.stats.samples++;
   }
 
   private schedule(patience = this.patience): void {

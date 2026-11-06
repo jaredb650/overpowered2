@@ -113,7 +113,7 @@ function bench(cases) {
         level.connect(sfx);
       }
       if (cfg.krate) {
-        for (const p of [level.gain, send.gain, dist?.gain, air?.frequency, air?.Q, air?.detune, air?.gain, panner?.positionX, panner?.positionY, panner?.positionZ, panner?.orientationX, panner?.orientationY, panner?.orientationZ]) {
+        for (const p of [send.gain, dist?.gain, air?.frequency, air?.Q, air?.detune, air?.gain, panner?.positionX, panner?.positionY, panner?.positionZ, panner?.orientationX, panner?.orientationY, panner?.orientationZ]) {
           if (p) p.automationRate = 'k-rate';
         }
       }
@@ -169,17 +169,17 @@ const CASES = {
   'idle pool 48, listener moving': { active: 0, pool: 48, ir: 0, frameEvents: true },
   '24 voices, still': { active: 24, ir: 0 },
   '48 voices, still': { active: 48, ir: 0 },
-  '48 voices, moving, a-rate (shipped)': { ...POOLS, ir: 0, frameEvents: true },
+  '48 voices, moving, a-rate': { ...POOLS, ir: 0, frameEvents: true },
   '48 voices, moving, a-rate, stereo sources': { ...POOLS, ir: 0, frameEvents: true, stereo: true },
   '48 voices, moving, k-rate': { ...POOLS, ir: 0, frameEvents: true, krate: true },
   '48 voices, listener only moving, a-rate': { ...POOLS, ir: 0, frameEvents: true, distanceEvents: false },
   '48 voices, no biquad, k-rate': { ...POOLS, ir: 0, frameEvents: true, krate: true, biquad: false },
   '48 voices, StereoPanner, k-rate': { ...POOLS, ir: 0, frameEvents: true, krate: true, stereoPanner: true },
-  '6 HRTF of 48, a-rate (shipped)': { ...POOLS, ir: 0, frameEvents: true, hrtf: 6 },
+  '6 HRTF of 48, a-rate': { ...POOLS, ir: 0, frameEvents: true, hrtf: 6 },
   '6 HRTF of 48, k-rate': { ...POOLS, ir: 0, frameEvents: true, krate: true, hrtf: 6 },
   '2 HRTF of 24, k-rate': { active: 24, ir: 0, frameEvents: true, krate: true, hrtf: 2 },
-  'shipped worst case': { ...POOLS, ir: 8, oversample: '4x', frameEvents: true, hrtf: 6 },
-  'budget 24 k-rate, reverb 3 s, no oversample': { active: 24, pool: 24, ir: 3, oversample: 'none', frameEvents: true, krate: true },
+  'old worst case': { ...POOLS, ir: 8, oversample: '4x', frameEvents: true, hrtf: 6, stereo: true },
+  'current worst case': { active: 32, pool: 32, ir: 4, oversample: '4x', frameEvents: true, krate: true, hrtf: 3 },
 };
 
 export default async function cost(page, h) {

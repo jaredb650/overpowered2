@@ -345,7 +345,8 @@ export class Gore implements GoreSystem {
 
   private beginCollapse(body: DeadBody, duration: number, velocity?: THREE.Vector3, twitch?: number): void {
     const { char } = body;
-    const seconds = clamp(duration, 0.3, 6);
+    // Short of GoreTuning.maxSimTime, with time left over to land.
+    const seconds = clamp(duration, 0.3, 5);
     let drive: CollapseDrive | null = null;
     if (MuscleTuning.enabled && this.collapsing() < GoreTuning.maxCollapses) {
       // A first call only asks how long the action runs, so it can be stretched over the whole collapse.
@@ -996,6 +997,17 @@ export class Gore implements GoreSystem {
     this.pins.push({ target, stake, until: this.ctx.time.elapsed + 0.3 });
   }
 
+  /** Whether a frozen chain can wake without another having to freeze for it. */
+  private hasRoom(target: PinTarget): boolean {
+    let live = 0;
+    if (target instanceof DeadBody) {
+      for (const b of this.bodies) if (b.rag?.active && b.sinking < 0) live++;
+      return live < GoreTuning.maxRagdolls;
+    }
+    for (const l of this.limbs) if (l.rag.active && l.sinking < 0) live++;
+    return live < GoreTuning.maxLiveLimbs;
+  }
+
   /** Thaws a frozen chain, stakes and all. */
   private wake(target: PinTarget): void {
     const rag = target.rag;
@@ -1062,6 +1074,8 @@ export class Gore implements GoreSystem {
   private throwFromBlast(target: PinTarget, rag: Rag, center: THREE.Vector3, radius: number, strength: number): void {
     const distance = rag.center.distanceTo(center);
     if (distance > radius) return;
+    // With no room a wake only swaps places with a chain already moving, and that one comes back at rest.
+    if (!rag.active && !this.hasRoom(target)) return;
     // A chain that has already stepped is in the query structures, and Physics will reach it by itself. Except on
     // the muscle layer, which throws each body along one line and so is always ours.
     if (!rag.active || rag.age <= 0 || rag.muscle) {

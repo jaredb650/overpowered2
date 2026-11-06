@@ -86,7 +86,7 @@ export class MapSpec {
   readonly zones: MapZone[] = [];
   readonly playerSpawns: { position: THREE.Vector3; yaw: number }[] = [];
   readonly pickupSpots: THREE.Vector3[] = [];
-  /** Authored entrances. Ground and air spawns are derived from the nav graph. */
+  /** Authored entrances. Ground and air spawns are derived from the nav graph unless `spawns` is set. */
   readonly gates: SpawnPoint[] = [];
   readonly pads: PadSpec[] = [];
   readonly ramps: LaunchRampSpec[] = [];

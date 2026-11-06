@@ -6,13 +6,16 @@
 // Env:
 //   AS_LABEL=before     Names the log: tools/out/audio-stress-<label>.json
 //   AS_PLAN=a:20,b:30   Phases and seconds. Default runs them all in 118 s. See PHASES.
-//   AS_METER=0          Skips the output tap, for runs that want no extra node on the audio thread.
+//   AS_METER=0          Skips the output tap.
 //   AS_CDP=0            Skips CDP's WebAudio domain. It reports every node and param, which is real main-thread work,
 //                       so the cleanest numbers for frame rate come from a run without it. Loses render capacity.
 //
 // What it reads: engine stats, every request by id and outcome (it wraps startVoice), the AudioContext's state and
-// latency, a worklet tap on the final output (level, NaN, gaps between render calls), and Chrome's own render
-// capacity over CDP's WebAudio domain, which is the number the DevTools WebAudio panel shows.
+// latency, underruns from ac.playbackStats, an analyser tap on the final output for level and NaN, and Chrome's own
+// render capacity over CDP's WebAudio domain, which is the number the DevTools WebAudio panel shows.
+//
+// Do not tap with an AudioWorklet. Adding one moves the graph onto a worklet thread, and that alone read as 99%
+// capacity and a late clock on an idle game.
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -31,6 +34,8 @@ async function install({ meter }) {
   const ac = engine.contextForTests;
   const log = { samples: [], errors: [], meters: [], phases: [], ids: {}, phase: 'boot', capabilities: {} };
   window.__as = log;
+  // What a player's first click does. Without it there is no music, and hiding the tab does not suspend the context.
+  engine.unlock();
   window.addEventListener('error', e => log.errors.push(String(e.message)));
   window.addEventListener('unhandledrejection', e => log.errors.push(String(e.reason)));
 
@@ -46,46 +51,38 @@ async function install({ meter }) {
 
   // Every request, with what became of it. Stacks and groups have resolved to real sounds by this point.
   const startVoice = engine.startVoice;
+  const counts = engine.counts;
+  const keys = Object.keys(counts).filter(k => k !== 'played' && k !== 'stolen');
+  const mark = new Array(keys.length).fill(0);
   engine.startVoice = function (sound, ...rest) {
+    for (let i = 0; i < keys.length; i++) mark[i] = counts[keys[i]];
     const voice = startVoice.call(this, sound, ...rest);
     const id = sound.def.id;
     const row = log.ids[id] ?? (log.ids[id] = { asked: 0, got: 0 });
     row.asked++;
     if (voice) row.got++;
+    else for (let i = 0; i < keys.length; i++) if (counts[keys[i]] !== mark[i]) row[keys[i]] = (row[keys[i]] ?? 0) + 1;
     return voice;
   };
 
   if (meter) {
-    const code = `
-      class Tap extends AudioWorkletProcessor {
-        constructor() { super(); this.reset(); this.last = 0; }
-        reset() { this.sum = 0; this.peak = 0; this.n = 0; this.nan = 0; this.gap = 0; }
-        process(inputs) {
-          const now = Date.now();
-          if (this.last && now - this.last > this.gap) this.gap = now - this.last;
-          this.last = now;
-          const ch = inputs[0] && inputs[0][0];
-          if (ch) for (let i = 0; i < ch.length; i++) {
-            const v = ch[i];
-            if (v !== v) { this.nan++; continue; }
-            this.sum += v * v;
-            const a = v < 0 ? -v : v;
-            if (a > this.peak) this.peak = a;
-          }
-          this.n += 128;
-          if (this.n >= sampleRate / 4) {
-            this.port.postMessage({ rms: Math.sqrt(this.sum / this.n), peak: this.peak, nan: this.nan, gap: this.gap });
-            this.reset();
-          }
-          return true;
-        }
+    const tap = ac.createAnalyser();
+    tap.fftSize = 2048;
+    engine.mixerForTests.clipper.connect(tap);
+    const data = new Float32Array(2048);
+    log.readTap = () => {
+      tap.getFloatTimeDomainData(data);
+      let sum = 0;
+      let peak = 0;
+      let nan = 0;
+      for (let i = 0; i < data.length; i++) {
+        const v = data[i];
+        if (v !== v) { nan++; continue; }
+        sum += v * v;
+        if (Math.abs(v) > peak) peak = Math.abs(v);
       }
-      registerProcessor('op2-tap', Tap);`;
-    await ac.audioWorklet.addModule(URL.createObjectURL(new Blob([code], { type: 'text/javascript' })));
-    const tap = new AudioWorkletNode(ac, 'op2-tap', { numberOfOutputs: 0 });
-    const mixer = engine.mixerForTests;
-    mixer.clipper.connect(tap);
-    tap.port.onmessage = e => log.meters.push({ t: performance.now(), ...e.data });
+      log.meters.push({ phase: log.phase, rms: Math.sqrt(sum / data.length), peak, nan });
+    };
   }
 
   const V = ctx.player.position.constructor;
@@ -129,6 +126,7 @@ async function install({ meter }) {
     last = now;
     frames++;
     if (dt > worst) worst = dt;
+    if (frames % 15 === 0) log.readTap?.();
     if (game.state !== 'playing') return;
     t += dt;
     const p = ctx.player;
@@ -187,8 +185,9 @@ async function install({ meter }) {
       voicesUi: s.voicesUi,
       hrtf: s.hrtf,
       loops: s.loops,
-      free3d: engine.free3d?.length,
-      free2d: engine.free2d?.length,
+      budget: s.budget,
+      loadStep: s.loadStep,
+      thinned: s.thinnedQuiet + s.thinnedRepeat - (before.thinnedQuiet + before.thinnedRepeat),
       played: s.played - before.played,
       stolen: s.stolen - before.stolen,
       dropped: s.dropped - before.dropped,
@@ -199,7 +198,7 @@ async function install({ meter }) {
       limiterDb: mixer.filters.gainReduction,
       heapMb: Math.round((performance.memory?.usedJSHeapSize ?? 0) / 1048576),
       playback: ac.playbackStats?.toJSON?.(),
-      loopIds: [...engine.voices3d, ...engine.voices2d].filter(v => v.loop && !v.releasing).map(v => v.soundId).sort().join(' '),
+      loopIds: [...engine.pool3d.all, ...engine.pool2d.all].filter(v => v.loop && !v.releasing).map(v => v.soundId).sort().join(' '),
       live: s,
     };
     before = s;
@@ -284,7 +283,7 @@ export default async function stress(page, h) {
     // A run that hits the harness timeout must still leave its log behind.
     if (rows.length % 5 === 0) writeFileSync(file, JSON.stringify({ plan: PLAN, rows, nodes, partial: true }, null, 1));
     const voices = s.voices3d + s.voices2d;
-    console.error(`[${String(Math.round((Date.now() - started) / 1000)).padStart(3)}s ${s.phase.padEnd(10)}] v=${String(voices).padStart(2)} hrtf=${s.hrtf} loops=${s.loops} played=${s.played} drop=${s.dropped} stolen=${s.stolen} cap=${(s.renderCapacity ?? 0).toFixed(3)} clock=${(s.clockRate ?? 1).toFixed(2)} under=${((s.underrunShare ?? 0) * 100).toFixed(0)}% lim=${s.limiterDb.toFixed(1)}dB ${s.state} fps=${s.fps} en=${s.enemies} nodes=${s.nodesLive}`);
+    console.error(`[${String(Math.round((Date.now() - started) / 1000)).padStart(3)}s ${s.phase.padEnd(10)}] v=${String(voices).padStart(2)} hrtf=${s.hrtf} loops=${s.loops} step=${s.loadStep} played=${s.played} thin=${s.thinned} drop=${s.dropped} stolen=${s.stolen} cap=${(s.renderCapacity ?? 0).toFixed(3)} clock=${(s.clockRate ?? 1).toFixed(2)} under=${((s.underrunShare ?? 0) * 100).toFixed(0)}% lim=${s.limiterDb.toFixed(1)}dB ${s.state} fps=${s.fps} en=${s.enemies} nodes=${s.nodesLive}`);
   };
 
   const run = async (name, seconds) => {
@@ -308,20 +307,22 @@ export default async function stress(page, h) {
 
   const tail = await page.evaluate(() => {
     const { errors, ids, meters, capabilities, phases } = window.__as;
-    return { errors, ids, meters: meters.map(m => ({ ...m, t: Math.round(m.t) })), capabilities, phases };
+    return { errors, ids, meters, capabilities, phases };
   });
   writeFileSync(file, JSON.stringify({ plan: PLAN, rows, nodes, ...tail }, null, 1));
 
-  const lost = Object.entries(tail.ids).filter(([id, r]) => MUST_PLAY.test(id) && r.asked !== r.got).map(([id, r]) => `${id} ${r.got}/${r.asked}`);
+  const losses = r => (r.dropped ?? 0) + (r.droppedBudget ?? 0) + (r.droppedFamily ?? 0) + (r.thinnedQuiet ?? 0) + (r.thinnedRepeat ?? 0) + (r.notRunning ?? 0) + (r.missed ?? 0) + (r.invalid ?? 0);
+  const lost = Object.entries(tail.ids).filter(([id, r]) => MUST_PLAY.test(id) && losses(r) > 0).map(([id, r]) => `${id} lost ${losses(r)} of ${r.asked}`);
+  const firing = tail.meters.filter(m => !['idle', 'pause', 'hidden'].includes(m.phase));
   const asked = Object.values(tail.ids).reduce((n, r) => n + r.asked, 0);
   const got = Object.values(tail.ids).reduce((n, r) => n + r.got, 0);
   const worstBy = key => rows.reduce((m, r) => Math.max(m, r[key] ?? 0), 0);
   const mean = (list, key) => list.reduce((n, r) => n + (r[key] ?? 0), 0) / Math.max(1, list.length);
   const byPhase = PLAN.map(({ name }) => {
     const list = rows.filter(r => r.phase === name);
-    return `${name}: cap ${mean(list, 'renderCapacity').toFixed(3)}, clock ${mean(list, 'clockRate').toFixed(3)}, underrun ${(mean(list, 'underrunShare') * 100).toFixed(1)}%, voices ${mean(list, 'voices3d').toFixed(0)}+${mean(list, 'voices2d').toFixed(0)}, hrtf ${mean(list, 'hrtf').toFixed(1)}, limiter ${mean(list, 'limiterDb').toFixed(1)} dB, played/sample ${mean(list, 'played').toFixed(0)}, dropped ${mean(list, 'dropped').toFixed(1)}`;
+    return `${name}: cap ${mean(list, 'renderCapacity').toFixed(3)}, clock ${mean(list, 'clockRate').toFixed(3)}, underrun ${(mean(list, 'underrunShare') * 100).toFixed(1)}%, voices ${mean(list, 'voices3d').toFixed(0)}+${mean(list, 'voices2d').toFixed(0)}, hrtf ${mean(list, 'hrtf').toFixed(1)}, step ${mean(list, 'loadStep').toFixed(1)}, limiter ${mean(list, 'limiterDb').toFixed(1)} dB, played/sample ${mean(list, 'played').toFixed(0)}, thinned ${mean(list, 'thinned').toFixed(0)}, dropped ${mean(list, 'dropped').toFixed(1)}`;
   });
-  const quiet = tail.meters.filter(m => m.rms < 0.0005).length;
+  const quiet = firing.filter(m => m.rms < 0.0005).length;
   return {
     file,
     capabilities: tail.capabilities,
@@ -330,9 +331,10 @@ export default async function stress(page, h) {
     requests: `${got} of ${asked} got a voice`,
     mustPlayLost: lost,
     worst: { capacity: worstBy('renderCapacity'), loops: worstBy('loops'), hrtf: worstBy('hrtf'), limiterDb: rows.reduce((m, r) => Math.min(m, r.limiterDb), 0) },
-    quietQuarters: `${quiet} of ${tail.meters.length}`,
+    silentReads: `${quiet} of ${firing.length} while firing`,
+    rms: Number((firing.reduce((n, m) => n + m.rms, 0) / Math.max(1, firing.length)).toFixed(3)),
+    outputPeak: Number(tail.meters.reduce((m, r) => Math.max(m, r.peak), 0).toFixed(3)),
     nan: tail.meters.reduce((n, m) => n + m.nan, 0),
-    maxGapMs: tail.meters.reduce((m, r) => Math.max(m, r.gap), 0),
     errors: tail.errors.slice(0, 10),
   };
 }

@@ -95,6 +95,7 @@ varying vec3 vSide;
 
 uniform vec3 uVenous;
 uniform vec3 uArterial;
+uniform float uLift;
 
 float bloodSpeck(vec2 p) { return fract(sin(dot(floor(p), vec2(127.1, 311.7))) * 43758.5453); }
 `;
@@ -126,7 +127,22 @@ if (vStrand.z < 0.0) {
 }
 bAlpha *= vLook.y;
 if (bAlpha < 0.006) discard;
-diffuseColor = vec4(mix(uVenous, uArterial, vLook.x), bAlpha);
+vec3 bTint = mix(uVenous, uArterial, vLook.x);
+diffuseColor = vec4(vec3(1.0), bAlpha);
+`;
+
+/**
+ * Red under this map's cyan light reflects nothing, so the correct answer is black, and black blood reads
+ * as oil. It takes its brightness from the light and keeps its own hue. It still goes dark where the
+ * scene is dark, and it adds no light of its own.
+ */
+const FRAG_LIGHT = /* glsl */ `
+#include <lights_fragment_end>
+{
+  float bLight = dot(reflectedLight.directDiffuse + reflectedLight.indirectDiffuse, vec3(0.2126, 0.7152, 0.0722));
+  reflectedLight.directDiffuse = vec3(0.0);
+  reflectedLight.indirectDiffuse = bTint * bLight * uLift;
+}
 `;
 
 /** A strand is a thin cylinder seen side on, so the normal rolls across its width and the highlight is a line. */
@@ -220,7 +236,8 @@ export class BloodLayer {
       name: 'fx.blood', roughness: 0.16, metalness: 0, transparent: true, depthWrite: false, side: THREE.DoubleSide,
     });
     const own = {
-      uMinPx: { value: 1.1 },
+      uMinPx: { value: 1.3 },
+      uLift: { value: 2.4 },
       uVenous: { value: new THREE.Vector3(BLOOD.venous.r, BLOOD.venous.g, BLOOD.venous.b) },
       uArterial: { value: new THREE.Vector3(BLOOD.arterial.r, BLOOD.arterial.g, BLOOD.arterial.b) },
     };
@@ -235,6 +252,7 @@ export class BloodLayer {
         .replace('#include <map_pars_fragment>', `#include <map_pars_fragment>\n${FRAG_PARS}`)
         .replace('#include <map_fragment>', FRAG_COVER)
         .replace('#include <normal_fragment_maps>', FRAG_NORMAL)
+        .replace('#include <lights_fragment_end>', FRAG_LIGHT)
         .replace('#include <tonemapping_fragment>', FRAG_LIMIT);
     };
     const mesh = new THREE.Mesh(this.ring.geometry, materials.patch(material) ?? material);
