@@ -607,7 +607,7 @@ The one rule: **every body counted under a tag must end in exactly one `unitGone
 | `vehicle` | Real, from `VehicleSystem`. See docs/notes/vehicles.md | Vehicles |
 | `ride` | Real. A route is flown as written. With no route, the ordinary Door Gunner call-in, circling for its 45 s | Vehicles |
 | `boss` | `commander.person.summon()`: he falls from the sky as he does on the Kill House | Bosses |
-| `call` | A console warning | Whoever owns the name: `lights`, `commanderToRoof`, `mark` (a HUD marker rides every vehicle under that tag), `quiet` (the Commander's box closes as a fight opens) |
+| `call` | A console warning | Whoever owns the name: `lights`, `commanderToRoof`, `mark` (a HUD marker rides every vehicle under that tag), `quiet` (the Commander's box closes as a fight opens), `rout` (every man still fighting breaks) |
 
 ### Testing it
 

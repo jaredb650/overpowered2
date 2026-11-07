@@ -210,9 +210,13 @@ function driver() {
       st.points = 0;
       let { x, y, z } = t;
       if (t.kind === 'air') {
+        // Measured over a quarter of a second: over one frame the number is mostly noise.
         const old = trail.get(t.thing);
-        const speed = old ? [(x - old[0]) / Math.max(st.clock - old[3], 0.01), (y - old[1]) / Math.max(st.clock - old[3], 0.01), (z - old[2]) / Math.max(st.clock - old[3], 0.01)] : [0, 0, 0];
-        trail.set(t.thing, [x, y, z, st.clock]);
+        if (!old || st.clock - old.at > 0.25) {
+          const gap = old ? st.clock - old.at : 1;
+          trail.set(t.thing, { at: st.clock, x, y, z, speed: old ? [(x - old.x) / gap, (y - old.y) / gap, (z - old.z) / gap] : [0, 0, 0] });
+        }
+        const { speed } = trail.get(t.thing);
         const fly = t.d / LEAD;
         x += speed[0] * fly; y += speed[1] * fly; z += speed[2] * fly;
       }
@@ -257,6 +261,15 @@ function driver() {
       return plan.length === 0 && st.clock - from > 0.3 && p.grounded ? 'landed' : undefined;
     });
   };
+  /** Runs north at the blast door and holds the slide from 8 m out. */
+  bot.slideUnder = () => bot.run(4, () => {
+    const p = player();
+    p.yaw = 0;
+    p.pitch = 0;
+    hold('forward');
+    if (p.position.z < -4) hold('slide');
+    return p.position.z < -14 ? 'under' : undefined;
+  });
   /** The gallery's lesson, as parkour's own bot does it: in along the wall, onto it, off it with a jump, and a jump again. */
   bot.wallRun = (lip, from, turn, leave) => {
     const EAST = -Math.PI / 2;
@@ -507,8 +520,10 @@ export default async function play(page, h) {
         }
         return 'out of tries';
       };
-      for (const tank of ['heavy.tank1', 'heavy.tank2']) {
-        const out = await shoot([tank], { seconds: 60, reach: 26 });
+      // Along the road, the one line to a stopped tank with no fuel farm or cover in it.
+      for (const [tank, x] of [['heavy.tank1', 74], ['heavy.tank2', -22]]) {
+        await walk(x, 0, 34, { seconds: 20, within: 2.5 });
+        const out = await shoot([tank], { seconds: 40, reach: 45, stay: true });
         log.push({ tank, out, rockets: await rockets(), s: await state() });
         await snap(tank);
         if (out !== 'cleared') { await cheat(`${tank} not killed with rockets: ${out}`); await kill(tank); }
@@ -547,7 +562,7 @@ export default async function play(page, h) {
         await tp(0, 0, 6, 0);
       }
       await snap('yard');
-      const slide = () => page.evaluate(() => window.__bot.runUp(0, 'p.position.z < -4', [[0, 'slide', 'hold']], 4).then(() => window.__bot.run(1.2, () => { window.__op2.ctx.input.simulate('forward', true); })));
+      const slide = () => page.evaluate(() => window.__bot.slideUnder());
       await slide();
       let under = await state();
       log.push({ firstGo: under.at, door: (await read()).doors.blastDoor });

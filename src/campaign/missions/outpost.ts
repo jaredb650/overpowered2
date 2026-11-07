@@ -192,8 +192,9 @@ const BEATS: readonly Beat[] = [
     start: [
       { do: 'done', id: 'trucks' },
       { do: 'done', id: 'guardhouse' },
-      // A breath is not a breath with a machine gun on it.
+      // A breath is not a breath with a machine gun on it, and a roof gunner or a prisoner who found a rifle is on nobody's books.
       { do: 'sweep', tag: 'soft.tower' },
+      { do: 'call', name: 'rout' },
       { do: 'music', state: 'easy' },
       { do: 'drop', item: 'armor', at: 'apronAmmoWest' },
       { do: 'drop', item: 'ammo', at: 'apronAmmoEast' },
