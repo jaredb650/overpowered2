@@ -39,6 +39,8 @@ The order of a hit is in `damage.ts`. `read` finds the zone before the plates, `
 said `if (health <= 0) die`. It returns true for dead. Otherwise he lives, however bad it is. Then limb pools, then `react`, where `mustFall` overrules the reaction if the wound
 put him down. The swarm never reaches `take`, because `bodyOf` is null.
 
+**A man on his knees.** `kneeling(e)` is true for a surrendered man nobody is holding. The damage model then skips his plates and `priced` multiplies the hit by `WoundTuning.kneeling`, and a fatal hit on a surrendered man is death with no clock, crawl or last stand. What survives it is in `docs/notes/outpost.md`.
+
 ## Conditions
 
 | Condition | How he gets there | What happens |

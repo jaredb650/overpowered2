@@ -352,6 +352,40 @@ export default async function vehiclesLive(page, h) {
     log.redeployed = await describe();
     log.wreckAfter = await page.evaluate(() => window.__op2.ctx.enemies.vehicles.wrecks.map(w => [w.tag, w.root.position.toArray().map(n => Math.round(n)), w.keep]));
   }
+  // The real launcher, fired by the real input, at a real tank on the real map, with the frame rate sampled while nothing is screenshotting.
+  if (step === 'perf') {
+    await page.evaluate(() => { const { ctx } = window.__op2; ctx.player.modifiers.invulnerable = true; ctx.weapons.give('rocket'); ctx.weapons.switchTo('rocket'); });
+    const fps = [];
+    for (let i = 0; i < 9; i++) {
+      await h.sleep(2000);
+      fps.push(await page.evaluate(() => { const s = window.__op2.stats(); return [s.fps, s.cpuMs]; }));
+    }
+    log.fps = fps;
+    const shoot = async () => {
+      const tank = (await read()).live.find(v => v.kind === 'tank');
+      if (!tank) return null;
+      await page.evaluate(([x, z]) => {
+        const { ctx } = window.__op2;
+        const p = ctx.player;
+        p.teleport(p.position.clone().set(x - 26, 0, z + 8));
+        const dx = x - p.eye.x, dy = 1.4 - p.eye.y, dz = z - p.eye.z;
+        p.yaw = Math.atan2(-dx, -dz);
+        p.pitch = Math.atan2(dy, Math.hypot(dx, dz));
+        ctx.weapons.addAmmo(1);
+      }, [tank.x, tank.z]);
+      await h.sleep(250);
+      await page.evaluate(() => window.__op2.ctx.input.simulate('fire', true));
+      await h.sleep(120);
+      await page.evaluate(() => window.__op2.ctx.input.simulate('fire', false));
+      await h.sleep(1900);
+      return (await read()).live.find(v => v.kind === 'tank')?.health ?? 0;
+    };
+    log.rockets = [];
+    for (let i = 0; i < 4; i++) log.rockets.push(await shoot());
+    await h.shot('perf-rockets');
+    log.rider = await page.evaluate(() => window.__op2.ctx.enemies.alive.filter(e => e.pinned).map(e => [e.id, Math.round(e.position.x), Math.round(e.position.y * 10) / 10, Math.round(e.position.z)]));
+    log.fpsAfter = await page.evaluate(() => { const s = window.__op2.stats(); return [s.fps, s.cpuMs, s.drawCalls, s.triangles]; });
+  }
   if (step === 'insertion') {
     const strike = () => page.evaluate(() => {
       const s = window.__op2.ctx.progression.callInsManager.strikes.at(-1);

@@ -22,6 +22,7 @@ const LEAP_OUT = 2.2;
 
 const _on = new THREE.Vector3();
 const _land = new THREE.Vector3();
+const _away = new THREE.Vector3();
 const _hit: DamageInfo = { amount: 0, type: 'explosive', point: new THREE.Vector3(), dir: new THREE.Vector3(0, 1, 0), force: 0, source: '' };
 
 export class Crew {
@@ -51,8 +52,8 @@ export class Crew {
     return e;
   }
 
-  /** One man steps out through `exit`, a point in the world, and lands `away` from it, every EXIT_GAP. */
-  dismount(dt: number, exit: (seat: number, out: THREE.Vector3) => THREE.Vector3, ground: number, awayX: number, awayZ: number): void {
+  /** One man out every EXIT_GAP. `exit` writes where he leaves from and which way he goes, and he lands on `ground`. */
+  dismount(dt: number, exit: (seat: number, at: THREE.Vector3, away: THREE.Vector3) => void, ground: number): void {
     if (this.aboard <= 0) return;
     this.exitIn -= dt;
     if (this.exitIn > 0) return;
@@ -60,15 +61,13 @@ export class Crew {
     // The same rule as the waves: they sit tight until there is room in the fight.
     if (o && !this.squad && o.hostile + this.aboard > MAX_HOSTILE) return;
     this.exitIn = EXIT_GAP;
-    exit(this.seat, _on);
+    exit(this.seat, _on, _away);
     const e = this.next(_on);
     if (!e) return;
-    _land.set(_on.x + awayX * LEAP_OUT, ground, _on.z + awayZ * LEAP_OUT);
-    e.yaw = Math.atan2(awayX, awayZ);
-    if (_on.y > ground + 0.3 || Math.abs(awayX) + Math.abs(awayZ) > 0) {
-      e.char.anim.play('leap');
-      leapTo(e, _land, LEAP_SECONDS, 1);
-    }
+    _land.set(_on.x + _away.x * LEAP_OUT, ground, _on.z + _away.z * LEAP_OUT);
+    e.yaw = Math.atan2(_away.x, _away.z);
+    e.char.anim.play('leap');
+    leapTo(e, _land, LEAP_SECONDS, 1);
   }
 
   /** It went up with them inside. */

@@ -8,7 +8,7 @@
 |---|---|---|---|---|
 | `humvee` | Scout car | Count, cab goes through to the driver | About a magazine, one rocket, a grenade or two | Roof gun with a real gunner |
 | `truck` | Troop truck | Count, as above | The same, a little more | Roof gun with a real gunner, men out of the back |
-| `tank` | Main battle tank | Sparks and the armour marker | Direct rockets and shells. About 4 on the hull, fewer on the engine | Laid main gun, roof gun |
+| `tank` | Main battle tank | Sparks and the armour marker | Direct rockets and shells. Five on the hull, measured with the real launcher, and three on the engine | Laid main gun, roof gun |
 | `chopper` | Attack helicopter | Nothing, but the door gun counts on tail, rotor and cockpit | Tail or rotor off, one perfect autocannon round in the cockpit, or enough of anything else that is direct | Chin gun, rocket salvos |
 
 **Locational damage.** Each part in `data.ts` is a box and a real collider, so what the bullet stops on is what took the hit.
@@ -19,7 +19,7 @@
 | Engine | 420 | Top speed 45%, reload 1.6 times longer, burns 14 health a second |
 | Turret | 460 | Ring jammed: 22% traverse, and the roof gun goes |
 | Tail | 200 | Spins and comes down over about 4 s |
-| Rotor | 240 | Drops like a stone |
+| Rotor | 420 | Drops like a stone. Two rockets, because its box is wide and a near miss from below lands on it |
 | Cockpit | none | 1.6 times, and 5 times on top for an aimed shell |
 
 A soft-skin at 28% health stops, its men get out, and it goes up 4.5 s later unless something finishes it first. Shooting the driver through the cab stops it dead with the horn stuck on.

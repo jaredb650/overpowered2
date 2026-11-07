@@ -176,6 +176,7 @@ Rendered at load. x4 means four rendered variants behind one id.
 
 - **Voices (formant synthesis, use `pitch` for size):** `vox_grunt` x4, `vox_pain` x4, `vox_scream` x4, `vox_death` x4, `vox_alert` x4, `vox_gurgle` x3, `vox_husk_growl` x4, `vox_husk_snarl` x3, `vox_brute_grunt` x3, `vox_stalker_hiss` x3, `vox_leaper_shriek` x3, `vox_bomber_cackle` x2, `vox_burner_breath` x2, `vox_warden_chant` x2, `vox_juggernaut_roar` x2, `vox_radio` x4 (trooper chatter), `vox_choke` x2 (headless or gut-shot)
 - **Guns:** `enemy_pistol` x3, `enemy_smg` x3, `enemy_shotgun` x2, `enemy_minigun_loop`, `enemy_rocket_fire`, `sniper_charge`, `sniper_fire`, `sniper_laser_loop`
+- **After a flashbang:** `ear_ring`
 - **Melee:** `enemy_swing` x3, `enemy_lunge` x2, `enemy_blade` x3
 - **Specials:** `riot_shield_hit` x3, `riot_shield_break`, `warden_shield_up`, `warden_shield_loop`, `warden_buff`, `bomber_beep`, `bomber_tank_hiss_loop`, `burner_flame_loop`, `enemy_spawn`, `armor_plate_off` x3, `leaper_pounce`, `leaper_cling`
 - **Machines:** `drone_rotor_loop`, `drone_gun` x3, `drone_alert`, `drone_crash`, `skitter_legs_loop`, `skitter_step` x4, `skitter_chirp` x3, `skitter_explode` x2

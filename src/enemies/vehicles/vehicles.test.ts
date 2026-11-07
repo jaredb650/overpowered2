@@ -68,8 +68,11 @@ describe('armour', () => {
     expect(directDamage(CHOPPER, part(CHOPPER, 'body'), CANNON, 'shell', 'autocannon')).toBeLessThan(CHOPPER.health);
   });
 
-  it('a rocket on the tail or rotor takes it off, and the Harrow has to work for it', () => {
-    expect(directDamage(CHOPPER, part(CHOPPER, 'tail'), ROCKET, 'rocket', 'rocket')).toBeGreaterThanOrEqual(part(CHOPPER, 'tail').pool);
+  it('a rocket on the small tail takes it off, the wide rotor takes two, and the Harrow has to work for it', () => {
+    const rocket = (id: string): number => directDamage(CHOPPER, part(CHOPPER, id), ROCKET, 'rocket', 'rocket') + splashDamage(CHOPPER, ROCKET, 'rocket', 'rocket');
+    expect(rocket('tail')).toBeGreaterThanOrEqual(part(CHOPPER, 'tail').pool);
+    expect(rocket('rotor')).toBeLessThan(part(CHOPPER, 'rotor').pool);
+    expect(rocket('rotor') * 2).toBeGreaterThanOrEqual(part(CHOPPER, 'rotor').pool);
     expect(directDamage(CHOPPER, part(CHOPPER, 'rotor'), 100, 'shell', 'chopper_cannon')).toBeLessThan(part(CHOPPER, 'rotor').pool / 4);
   });
 

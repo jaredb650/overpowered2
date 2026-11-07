@@ -142,6 +142,7 @@ export class EnemyChopper extends Vehicle {
 
   update(dt: number): void {
     const { sys } = this;
+    if (!this.alive) return;
     if (this.fate !== 'flying') {
       this.fall(dt);
       if (!this.retired) this.stepFrame(dt);
@@ -354,6 +355,7 @@ export class EnemyChopper extends Vehicle {
 
   remove(): void {
     const { sys } = this;
+    if (this.retired) return;
     this.alive = false;
     this.retired = true;
     this.teardown();

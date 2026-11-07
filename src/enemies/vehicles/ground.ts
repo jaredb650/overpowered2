@@ -187,11 +187,13 @@ export class GroundVehicle extends Vehicle {
     rider.yaw = mount.yaw + Math.PI;
   }
 
+  /** True while there is a man on the gun. One who has had enough gets off it, and it stops. */
   private get gunnerUp(): boolean {
-    const { rider, def } = this;
+    const { rider, def, sys } = this;
     if (!def.rider) return true;
     if (!rider) return false;
-    if (rider.alive && rider.pinned) return true;
+    if (rider.alive && rider.pinned && sys.steady(rider)) return true;
+    if (rider.alive && rider.pinned) sys.unseat(rider);
     this.rider = null;
     return false;
   }
@@ -208,6 +210,7 @@ export class GroundVehicle extends Vehicle {
 
   update(dt: number): void {
     const { drive, order } = this;
+    if (!this.alive) return;
     if (this.fireLeft >= 0) this.burn(dt);
     if (this.engineFire) this.take(ENGINE_FIRE_BLEED * dt, null, this.source, this.position);
     if (!this.alive) return;
@@ -407,19 +410,20 @@ export class GroundVehicle extends Vehicle {
     return false;
   }
 
-  private readonly exit = (seat: number, out: THREE.Vector3): THREE.Vector3 => {
-    const { exits } = this.def;
-    const e = exits[seat % exits.length]!;
-    return out.set(e[0], e[1], e[2]).applyQuaternion(this.quaternion).add(this.position);
+  /** Straight off the back from a tailgate, and out sideways from a door. */
+  private readonly exit = (seat: number, at: THREE.Vector3, away: THREE.Vector3): void => {
+    const { def, drive } = this;
+    const e = def.exits[seat % def.exits.length]!;
+    at.set(e[0], e[1], e[2]).applyQuaternion(this.quaternion).add(this.position);
+    const c = Math.cos(drive.yaw);
+    const s = Math.sin(drive.yaw);
+    if (e[2] < -def.halfLength * 0.8) away.set(-s, 0, -c);
+    else away.set(c * Math.sign(e[0]), 0, -s * Math.sign(e[0]));
   };
 
   private disembark(dt: number): void {
-    const { crew, drive, def } = this;
-    if (crew.aboard <= 0 || !(this.settled || (drive.coasting && Math.abs(drive.speed) < 1))) return;
-    // Out of the back of a truck and away from it, and off the sides of anything else.
-    const seat = def.kind === 'truck' ? -1 : 0;
-    if (seat) crew.dismount(dt, this.exit, this.y, -Math.sin(drive.yaw), -Math.cos(drive.yaw));
-    else crew.dismount(dt, this.exit, this.y, Math.cos(drive.yaw) * (crew.aboard % 2 ? 1 : -1), -Math.sin(drive.yaw) * (crew.aboard % 2 ? 1 : -1));
+    const { crew, drive } = this;
+    if (crew.aboard > 0 && (this.settled || (drive.coasting && Math.abs(drive.speed) < 1))) crew.dismount(dt, this.exit, this.y);
   }
 
   private shuffle(dt: number): void {
@@ -624,6 +628,7 @@ export class GroundVehicle extends Vehicle {
   /** A mission moved on, or a run ended. Nothing is scored. */
   remove(): void {
     const { sys, model } = this;
+    if (this.retired) return;
     this.alive = false;
     this.retired = true;
     this.teardown(0.3);

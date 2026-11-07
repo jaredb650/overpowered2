@@ -32,6 +32,9 @@ import { EXPLOSIONS } from '../../weapons/data';
 import type { AiWorld } from '../aiWorld';
 import type { Enemy } from '../Enemy';
 import type { EnemyManager } from '../EnemyManager';
+import { soldierOf } from '../outpost';
+import { SOLDIER_BEHAVIOURS } from '../outpost/behaviours';
+import { dropOff } from '../roles';
 import { bulletDamage, directDamage, splashDamage } from './armour';
 import { EnemyChopper, type GunshipRig } from './chopper';
 import { CHOPPER, MAX_LIVE, MAX_WRECKS, VEHICLES, type GroundDef } from './data';
@@ -106,7 +109,6 @@ export class VehicleSystem implements VehicleTargets {
   private dodgeRoad = 0;
   private readonly lit: THREE.Object3D[] = [];
   private shoveIn = 0;
-  private readonly blastSpec: ExplosionSpec = { radius: 0, damage: 0, kind: 'barrel', source: BLAST_SOURCE, team: 'player' };
 
   constructor(readonly world: AiWorld) {
     this.ctx = world.ctx;
@@ -248,6 +250,17 @@ export class VehicleSystem implements VehicleTargets {
     return e;
   }
 
+  /** False once he has broken or given up. */
+  steady(e: Enemy): boolean {
+    return soldierOf(e)?.fighting ?? true;
+  }
+
+  /** Off the gun and back on his own feet, with a soldier's mind again. */
+  unseat(e: Enemy): void {
+    dropOff(e);
+    e.behaviours = this.manager.outpost ? SOLDIER_BEHAVIOURS : e.def.behaviours;
+  }
+
   killMan(e: Enemy, source: string, from: THREE.Vector3): void {
     const d = {
       amount: e.health + 1, type: 'explosive' as const, point: e.center, dir: _dir.subVectors(e.center, from).setY(1).normalize(), force: 0, source, blastKind: 'barrel' as const, reach: 0.3,
@@ -339,12 +352,8 @@ export class VehicleSystem implements VehicleTargets {
 
   /** A blast with this system's name on it, for wrecks going up. */
   detonate(at: THREE.Vector3, radius: number, damage: number, scale: number, source: string): void {
-    const s = this.blastSpec;
-    s.radius = radius;
-    s.damage = damage;
-    s.scale = scale;
-    s.source = source;
-    this.ctx.combat.explode(at, s);
+    // A new object each time: this can be called from inside another blast, which is still reading its own.
+    this.ctx.combat.explode(at, { radius, damage, kind: 'barrel', source, team: 'player', scale });
   }
 
   /** Takes ground off the soldiers' routes, or gives it back. A strip at a time, because that is what a shut door is to them. */
@@ -374,7 +383,6 @@ export class VehicleSystem implements VehicleTargets {
     const w = def.wreck;
     _b.copy(v.position);
     _b.y += 1.2;
-    this.detonate(_b, w.blastRadius, w.blastDamage, w.blastScale, BLAST_SOURCE);
     fx.chips(_b, 0xff9000, 60);
     fx.embers(_b, 40, 4);
     fx.heatShimmer(_b, def.halfLength * 1.4, 6);
@@ -388,6 +396,8 @@ export class VehicleSystem implements VehicleTargets {
     this.keep(wreck);
     if (v.tag !== null) ctx.campaign.unitGone(v.tag, true, source);
     events.emit('vehicle:destroyed', { kind: def.kind, source, position: point });
+    // Last, because it can set off the truck beside this one, and that comes back through here.
+    this.detonate(_b, w.blastRadius, w.blastDamage, w.blastScale, BLAST_SOURCE);
   }
 
   wreckGunship(v: EnemyChopper, withTail: boolean): Wreck {
@@ -516,6 +526,7 @@ export class VehicleSystem implements VehicleTargets {
     }
     this.waiting.length = 0;
     for (const v of this.live) {
+      if (v.retired) continue;
       v.remove();
       if (v.tag !== null) this.ctx.campaign.unitGone(v.tag, false, '');
     }

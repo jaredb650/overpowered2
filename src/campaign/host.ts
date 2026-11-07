@@ -1,7 +1,6 @@
 /**
  * The mission's hands in the real game. Every method here is the plainest thing that works with what the game has today, and any of
- * them can be replaced with `campaign.provide`: the vehicle fallback, for one, sends the crew on foot and counts the vehicle as gone,
- * so a mission plays start to end before anyone has built a tank.
+ * them can be replaced with `campaign.provide`, as `vehicle` is by the system that has the vehicles.
  */
 import * as THREE from 'three';
 import type { Ctx, GameEvents, MusicState } from '../core/contracts';
@@ -17,7 +16,7 @@ import { Doors } from './doors';
 import type { CampaignHud } from './hud';
 import { Racks } from './racks';
 import type { MissionRunner } from './runner';
-import type { Cutscene, DoorDef, Loadout, Mark, MissionHost, ObjectiveState, SquadOrder, VehicleOrder } from './types';
+import type { Cutscene, DoorDef, Loadout, Mark, MissionHost, ObjectiveState, SquadOrder } from './types';
 
 /** Seconds between men coming on, the same walk-in the waves use. */
 const MAN_GAP = 0.55;
@@ -199,15 +198,8 @@ export class GameHost implements MissionHost {
     if (head.seat >= head.men.length) this.arrivals.shift();
   }
 
-  /** Until there are vehicles: the crew arrive on foot where it would have stopped, and the vehicle itself is written off. */
-  vehicle(order: VehicleOrder, at: Mark, route: readonly Mark[]): void {
-    if (order.state) return;
-    if (order.crew && order.crew.length > 0) {
-      const stop = route[route.length - 1] ?? at;
-      this.squad({ do: 'squad', tag: order.crewTag ?? order.tag, men: order.crew, at: 'unused' }, stop);
-    }
-    this.runner.unitGone(order.tag, false, '');
-  }
+  /** `VehicleSystem` provides this on every page with a mission. */
+  vehicle(): void {}
 
   boss(tag: string, _at: Mark): void {
     this.bossTag = tag;

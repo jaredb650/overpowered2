@@ -87,8 +87,8 @@ export const vehicles = [
   }),
   // The driver's head on the wheel.
   r('vehicle_horn', { dur: 2.6, mix: 'enemyFx', over: { volume: 0.5, near: 14, far: 140, send: 0.34 } }, s => {
-    s.osc('sawtooth', 415, 2.5).lp(2400).env(swell(0.02, 2.3, 0.1, 0.32)).out();
-    s.osc('sawtooth', 523, 2.5).lp(2400).env(swell(0.02, 2.3, 0.1, 0.26)).out();
+    s.osc('sawtooth', 415, 2.5).lp(2400).env(swell(0.04, 1.9, 0.55, 0.32)).out();
+    s.osc('sawtooth', 523, 2.5).lp(2400).env(swell(0.04, 1.9, 0.55, 0.26)).out();
   }),
   r('vehicle_fuel_leak', { dur: 1.3, mix: 'enemyFx', over: { volume: 0.56, near: 10, far: 90 } }, s => {
     s.noise('white', 0.9).hp(2600).env(swell(0.05, 0.8, 0.2, 0.3)).out();

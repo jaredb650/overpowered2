@@ -604,8 +604,8 @@ The one rule: **every body counted under a tag must end in exactly one `unitGone
 | `rack` | A glowing bar and a marker | Art |
 | `cutscene` | Real, on `SeatView` keyframes | Extend, do not replace |
 | `speak` | The Commander's box, with a recording if `public/audio/voice/manifest.json` lists the line id | Voices |
-| `vehicle` | No vehicle. The crew arrive on foot at the end of the route, and the vehicle counts as gone | Vehicles |
-| `ride` | The ordinary Door Gunner call-in, circling, for its 45 s | Vehicles |
+| `vehicle` | Real, from `VehicleSystem`. See docs/notes/vehicles.md | Vehicles |
+| `ride` | Real. A route is flown as written. With no route, the ordinary Door Gunner call-in, circling for its 45 s | Vehicles |
 | `boss` | `commander.person.summon()`: he falls from the sky as he does on the Kill House | Bosses |
 | `call` | A console warning | Whoever owns the name: `lights`, `commanderToRoof` |
 
@@ -622,7 +622,7 @@ node tools/shot.mjs --url "/?mission=stub&map=killhouse&autostart=1" --script to
 
 **Map (`src/world/map/outpost/`, a `MapDef` row with id `outpost`).** Section 2, with a floor under every mark in `outpost.places.ts`. Take sizes from `PARKOUR` by import. A row in `MAP_IDS` in `contracts/select.ts`. `nav.levels` of -5, 0, 5, 10 and 14. Box colliders only. Budget from the Kill House and The Crucible: under 300k static triangles, under 600 colliders, and a `lightCell` of about 1.2 m, because the light volume caps at 200 cells a side. Everything north of the Gate Yard and outside the citadel can be low detail: it is seen only from the air. The wall run's lit wall must read as an invitation.
 
-**Vehicles.** `provide({ vehicle, ride })`. Humvee and truck die to bullets, with a mounted gun and a crew who get out. Tank and chopper as section 17. `holds: 'gateHold'` on Bulwark means it stops in the gate and turns its gun outward, and its wreck must block most of G1 and stay. `ride` follows `routes.insertion`, hovers for each mark's `hold`, raises `ride:<mark>`, cannot be left early, has no time limit, and ends parked in the cut. The parked tank at (20, -6) in `insertion` is a prop, or a real tank with nobody in it.
+**Vehicles.** `provide({ vehicle, ride })`. Humvee and truck die to bullets, with a mounted gun and a crew who get out. Tank and chopper as section 17. `holds: 'gateHold'` on Bulwark means it stops in the gate and turns its gun outward, and its wreck must block most of G1 and stay. `ride` follows `routes.insertion`, hovers for each mark's `hold`, raises `ride:<mark>`, cannot be left early, has no time limit, and ends parked in the cut. The parked tank at (20, -6) in `insertion` is a real tank with nobody in it, `state: 'parked'`. `state: 'wrecked'` in `breach` puts Bulwark's wreck back after a restart. A mark with `hit: true` is where the missile finds the Packmule.
 
 **AI.** The mission asks for these, none of which exists yet:
 - **`hold` means hold.** Today it switches off the squad's brain. Men on a post should watch, fire on what they see and stay there until released. A squad released by being shot should act on it at once.

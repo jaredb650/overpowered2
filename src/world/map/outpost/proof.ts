@@ -9,7 +9,7 @@ import { Doors } from '../../../campaign/doors';
 import { DOORS, MARKS, ROUTES, ZONES } from '../../../campaign/missions/outpost.places';
 import { PARKOUR } from '../../../campaign/parkour';
 import { CoverMap } from '../../../enemies/outpost/cover';
-import type { NavGrid } from '../../../enemies/outpost/routes';
+import { Route, RouteFinder, type NavGrid } from '../../../enemies/outpost/routes';
 import type { World } from '../../World';
 import { COOLANT, GALLERY } from './plan';
 
@@ -557,36 +557,46 @@ function gateLesson(b: Bot, doors: Doors) {
   return out;
 }
 
-/** Walks the real Player along the nav route between marks, the way a body would. Stairs and doorways either work or this stops. */
+/**
+ * A man's route is pulled straight over the kerb of a stairwell, because he has no capsule to catch on it. A player has, so the walk
+ * stops at the top of those stairs first.
+ */
+const WAYPOINTS: Readonly<Record<string, readonly [number, number, number]>> = { kitchenTop: [35.5, 0, -74.5] };
+
+/** Walks the real Player down the route a soldier would be given between two marks. A stair or a doorway a man cannot use stops this. */
 function walkRoute(b: Bot, world: World, stages: readonly (readonly [string, string])[]) {
-  const nav = world.navGraph, p = b.p;
+  const finder = new RouteFinder();
+  finder.build(world.navGraph as unknown as NavGrid);
+  const route = new Route();
+  const p = b.p;
   const out: Record<string, string> = {};
-  const target = new THREE.Vector3();
-  for (const [from, to] of stages) {
-    const a = MARKS[from]!.at, c = MARKS[to]!.at;
-    nav.setTarget(target.set(c[0], c[1] + 0.1, c[2]));
-    nav.settle();
+  const at = new THREE.Vector3(), to = new THREE.Vector3();
+  for (const [from, dest] of stages) {
+    const a = (WAYPOINTS[from] ?? MARKS[from]!.at), c = (WAYPOINTS[dest] ?? MARKS[dest]!.at);
     b.place(a[0], a[1], a[2], 0);
-    const route = nav.trace(_o.set(a[0], a[1] + 0.1, a[2]));
-    if (!route.ok) { out[`${from} to ${to}`] = 'no route'; continue; }
-    const pts = route.points;
-    let i = 0, t = 0, stuck = 0;
+    let t = 0, stuck = 0;
     const last = p.position.clone();
-    b.hold('forward');
-    for (; t < 30 && i < pts.length; t += DT) {
-      while (i < pts.length && Math.hypot(pts[i]! - p.position.x, pts[i + 2]! - p.position.z) < 1.2 && Math.abs(pts[i + 1]! - p.position.y) < 1.2) i += 3;
-      if (i >= pts.length) break;
-      p.yaw = Math.atan2(-(pts[i]! - p.position.x), -(pts[i + 2]! - p.position.z));
-      b.frame();
-      if (Math.round(t * 60) % 30 === 0) {
-        stuck = p.position.distanceTo(last) < 0.3 ? stuck + 1 : 0;
-        last.copy(p.position);
-        if (stuck >= 4) break;
+    const arrived = () => Math.hypot(c[0] - p.position.x, c[2] - p.position.z) < 2.5 && Math.abs(c[1] - p.position.y) < 1;
+    let answered = true;
+    // A long route comes back cut short, and the walker asks again on arrival, as a man does.
+    while (t < 40 && !arrived() && stuck < 4 && answered) {
+      answered = finder.find(at.copy(p.position).setY(p.position.y + 0.1), to.set(c[0], c[1] + 0.1, c[2]), route);
+      if (!answered) break;
+      b.hold('forward');
+      for (let i = 1; i < route.count && t < 40 && stuck < 4; t += DT) {
+        while (i < route.count && Math.hypot(route.x[i]! - p.position.x, route.z[i]! - p.position.z) < 1 && Math.abs(route.y[i]! - p.position.y) < 1.2) i++;
+        if (i >= route.count) break;
+        p.yaw = Math.atan2(-(route.x[i]! - p.position.x), -(route.z[i]! - p.position.z));
+        b.frame();
+        if (Math.round(t * 60) % 30 === 0) {
+          stuck = p.position.distanceTo(last) < 0.3 ? stuck + 1 : 0;
+          last.copy(p.position);
+        }
       }
+      b.hold('forward', false);
+      if (route.count < 2) break;
     }
-    b.hold('forward', false);
-    const gotThere = Math.hypot(c[0] - p.position.x, c[2] - p.position.z) < 3 && Math.abs(c[1] - p.position.y) < 1;
-    out[`${from} to ${to}`] = gotThere ? `${r2(t)} s` : `stopped at ${p.position.toArray().map(r2)}`;
+    out[`${from} to ${dest}`] = arrived() ? `${r2(t)} s` : !answered ? 'no route' : `stopped at ${p.position.toArray().map(r2)}`;
   }
   return out;
 }
@@ -762,7 +772,7 @@ export function fuzzOutpost(rig: Rig, secondsEach: number, seed = 7) {
 const ROUTE = [
   ['gateMouth', 'shotgunCrate'], ['shotgunCrate', 'apronEast'], ['apronEast', 'wreckFoot'], ['wreckFoot', 'gateMouth'],
   ['sandbagsEast', 'sallyHall'], ['sallyHall', 'corridorMg'], ['corridorMg', 'bunkFour'], ['bunkFour', 'northCorridorEast'], ['northCorridorEast', 'coolantNear'],
-  ['coolantFar', 'galleryNear'], ['galleryFar', 'messFloor'], ['messFloor', 'kilnRack'], ['messFloor', 'armoury'], ['armoury', 'plateWest'], ['plateWest', 'guardRoom'],
+  ['coolantFar', 'galleryNear'], ['galleryFar', 'kitchenTop'], ['kitchenTop', 'messFloor'], ['messFloor', 'kilnRack'], ['messFloor', 'armoury'], ['armoury', 'plateWest'], ['plateWest', 'guardRoom'],
   ['plateWest', 'stackFloor'], ['stackFloor', 'stackLower'], ['stackLower', 'stackUpper'], ['stackFloor', 'stackBase'], ['stackBase', 'warRoomDoor'], ['warRoomDoor', 'warRoom'], ['warRoom', 'roofMast'], ['roofMast', 'roofWest'],
 ] as const;
 

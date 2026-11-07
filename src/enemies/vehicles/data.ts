@@ -115,7 +115,7 @@ export interface VehicleDef {
 
 export interface GroundDef extends VehicleDef {
   drive: DriveDef;
-  /** Where men leave it, in model space. The first is for the driver. */
+  /** Where men leave it, in model space. Past the tail they go off the back, and anywhere else out of the nearer side. */
   exits: readonly Point[];
   /** Where the mounted gunner's feet go, relative to the gun's pivot. */
   rider?: Point;
@@ -227,7 +227,8 @@ export const CHOPPER: ChopperDef = {
     { id: 'cockpit', at: [0, -0.02, 4.1], half: [0.62, 0.86, 1.55], scale: 1.6, pool: 0 },
     { id: 'body', at: [0, 0.1, 0.7], half: [1.05, 1.1, 2.1], scale: 1, pool: 0 },
     { id: 'tail', at: [0, 0.95, -4.3], half: [0.46, 0.7, 2.75], scale: 1, pool: 200 },
-    { id: 'rotor', at: [0, 2.35, 0.3], half: [3.9, 0.24, 3.9], scale: 1, pool: 240 },
+    // A wide flat box, so a near miss from below lands on it. It takes two, or the first rocket anywhere near would always end the fight.
+    { id: 'rotor', at: [0, 2.35, 0.3], half: [3.9, 0.24, 3.9], scale: 1, pool: 420 },
   ],
   wreck: { blastRadius: 8.5, blastDamage: 130, blastScale: 1.9, burnSeconds: 34, burnReach: 1.6, cookOffs: [1.5, 3.4], hop: 0 },
   ram: { damage: 0, throw: 0 },

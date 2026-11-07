@@ -35,6 +35,7 @@ Need `?dev=1`. `/?map=killhouse&autostart=1&dev=1&cmd=mortars,jammers&cmdwave=6`
 | `jam.ts` | What the sonar and the minimap are allowed to say |
 | `smoke.ts`, `barricades.ts`, `props.ts`, `behaviours.ts` | The rest of the kit |
 | `person.ts` | The end of a run |
+| `orders.ts` | On the radio mid-fight, in endless |
 | `lines.ts` | Every word |
 | `src/ui/commander/pick.ts` | What gets said about a round. No DOM |
 | `src/ui/commander/index.ts` | The box, the chips, the boss name |
@@ -90,9 +91,13 @@ Answers fielded first by bots, 150 s, seeds 3, 11, 23: camper `mortars, snipers`
 - **Lines take their ids from a key beside them**, so moving a line keeps its audio. Changing the words needs a new take.
 - **The box prints the true number and the take says the band.** 212 shots is a take of two hundred. A line with two different slots stays text.
 
+## Orders on the radio
+
+Section 22: in endless he is always there, directing the men, and they obey. Every 12 to 18 s `RadioOrders` picks the squad doing least, chooses from what the player is doing (still: frag, flash; running: cut-off; holding a prisoner: flank; few men left: rush), and asks `squad.obey`. That prices the drill at nothing and replans. If the plan does not contain the drill he tries his next choice, so **he is never heard ordering something his men cannot do.** The line goes through `commander:bark`, the squad's leader answers on the feed when it starts, and `commander:order` and `commander:obeyed` say so. `{squad}` is a new slot, and `cmd.order.<drill>.<key>` the new lines. A mission writes his words itself, so none of this runs under `MISSION_ID`. Radio silence stops it too.
+
 ## Voice
 
-`nice -n 19 npx tsx tools/scripts/voice-script.ts` writes `docs/voice/commander-script.csv` and `.md`. 400 lines, 362 recorded, 820 takes: 746 Commander, 30 intercept, 44 Council. The rest is radio and stays text. Slots multiply a line, and that is where most of the takes come from: cut `NAMES`, `ROOM_WORDS` or a band in `COUNT_BANDS` to shorten the session.
+`nice -n 19 npx tsx tools/scripts/voice-script.ts` writes `docs/voice/commander-script.csv` and `.md`. 413 lines, 375 recorded, 924 takes: 850 Commander, 30 intercept, 44 Council. The rest is radio and stays text. Slots multiply a line, and that is where most of the takes come from: cut `NAMES`, `ROOM_WORDS` or a band in `COUNT_BANDS` to shorten the session.
 
 Audio goes in `public/audio/voice/<file>.mp3`, and its name goes in `public/audio/voice/manifest.json` under `clips`. That file ships empty. A clip not listed stays as text, and a variant never falls back to another variant, because a voice saying the wrong number is worse than no voice.
 

@@ -549,9 +549,14 @@ export class Fleet {
   private readonly templates = new Map<VehicleKind, Template>();
   /** Scorched paint: the wreck's whole look comes from multiplying the model's own colours down. */
   readonly burnt: THREE.MeshStandardMaterial;
-  private tail: THREE.Group | null = null;
+  private readonly gunshipBody: THREE.Group;
+  private readonly gunshipTail: THREE.Group;
 
   constructor(private readonly materials: ModelMaterials, private readonly scene: THREE.Scene) {
+    const b = new ModelBuilder();
+    GUNSHIP_AIRFRAME.build(b);
+    this.gunshipBody = materials.group(b);
+    this.gunshipTail = gunshipTailGroup(materials);
     this.burnt = materials.solid.clone();
     this.burnt.color.set('#7a726a');
     this.burnt.metalness = 0.25;
@@ -594,20 +599,11 @@ export class Fleet {
   /** The gunship's body as it lies on the ground: airframe parts and no rotors. */
   gunshipWreck(withTail: boolean): THREE.Group {
     const root = new THREE.Group();
-    const b = new ModelBuilder();
-    gunshipHull(b);
-    gunshipEngines(b);
-    gunshipWings(b);
-    root.add(this.materials.group(b));
-    if (withTail) root.add(this.tailClone());
+    root.add(this.gunshipBody.clone());
+    if (withTail) root.add(this.gunshipTail.clone());
     shadows(root);
     this.scorch(root);
     this.scene.add(root);
     return root;
-  }
-
-  private tailClone(): THREE.Group {
-    this.tail ??= gunshipTailGroup(this.materials);
-    return this.tail.clone();
   }
 }

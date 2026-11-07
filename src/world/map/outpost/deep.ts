@@ -115,16 +115,23 @@ function gallery(s: Site): void {
   for (let x = -20; x <= 20; x += 8) k.light(x, floor + 1.6, north + 1.5, 'cyan', 22, 9);
   // The south wall stays dark, so the eye has one thing to do. A little red in the trench says how far down it goes.
   for (const x of [-7, 7]) k.light(x, trench + 1.4, -74.5, 'red', 20, 10);
+  // Switch cabinets along the near deck's south wall. The stairs run just behind that wall, and a walk link over it from the stairs
+  // would need the column this fills: nav joins any two floors two cells apart, whatever stands between them.
+  const bank = south - 0.95;
+  g.use('panel').tint(0.3, 0.34, 0.38);
+  for (let x = nearEnd; x < GALLERY_STAIR.foot - 0.1; x += 2) g.bevel(x + 1, (floor + ceil) / 2, (bank + south) / 2, 0.98, (ceil - floor) / 2, (south - bank) / 2, 0.02);
+  g.tint(1);
+  s.solid(nearEnd, floor, bank, GALLERY_STAIR.foot, ceil, south, 'metal');
   // Cable trays on the south wall, tight against it, which is all this room was ever for.
   for (const y of [floor + 2.5, floor + 2.1, floor + 1.7]) {
-    g.use('rubber').tint(0.8).box(0, y, south - 0.02, 21, 0.03, 0.018, FACE.nz | FACE.py);
+    g.use('rubber').tint(0.8).box((GALLERY_STAIR.foot + farEnd) / 2, y, south - 0.02, (farEnd - GALLERY_STAIR.foot) / 2 - 1, 0.03, 0.018, FACE.nz | FACE.py);
     g.tint(1);
   }
   s.line(nearLip - 0.6, north, nearLip, south, [0.86, 0.72, 0.16], floor + 0.012, 'hazard');
   s.line(farLip, north, farLip + 0.6, south, [0.86, 0.72, 0.16], floor + 0.012, 'hazard');
   s.paintFloor('concreteDark', rect(nearEnd, north, nearLip, south), floor, r.floorTint);
   s.paintFloor('concreteDark', rect(farLip, north, farEnd, south), floor, r.floorTint);
-  s.words('GALLERY', -19, floor + 2.4, south - 0.002, 0.7, -1, r.paint);
+  s.words('GALLERY', -19, floor + 2.4, south - 0.952, 0.7, -1, r.paint);
   s.spec.pickup(20, floor + 0.3, -75);
 
   // Stairs down from the far platform. Their foot is side-on to the lip, so the deck's 13 m is the whole run-up.
