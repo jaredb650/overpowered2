@@ -1,4 +1,5 @@
 /** Pause. Esc tries to resume, but only a click or Enter can take the mouse back, so the hint says so when needed. */
+import { MISSION_ID } from '../../campaign/select';
 import { Label, Shown, div, span } from '../dom';
 import type { Hud } from '../Hud';
 import type { Nav } from './nav';
@@ -18,7 +19,8 @@ export class PauseScreen implements Screen {
       menuButton('Resume', () => this.hud.resume()),
       menuButton('Guide', () => this.hud.screens.show('guide')),
       menuButton('Settings', () => this.hud.screens.show('settings')),
-      menuButton('Restart run', () => this.hud.startRun()),
+      ...(MISSION_ID ? [menuButton('Restart from checkpoint', () => this.hud.restartCheckpoint())] : []),
+      menuButton(MISSION_ID ? 'Restart mission' : 'Restart run', () => this.hud.startRun()),
       menuButton('Quit to menu', () => this.hud.quitToMenu()),
     ];
     const hint = span('pz-hint');

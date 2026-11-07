@@ -56,6 +56,7 @@ interface PickupSource {
 const DEATH_BEAT = 1.5;
 /** Long enough to read the band. */
 const FULFILLED_BEAT = 2.6;
+const MISSION_BEAT = 0.5;
 /** Chrome refuses a lock for about 1.25 s after Esc, so a resume keeps asking for a little longer than that. */
 const LOCK_RETRY_FOR = 1.7;
 const LOCK_RETRY_EVERY = 0.3;
@@ -256,7 +257,9 @@ export class Hud implements HudSystem {
 
   private onRunStart(): void {
     this.state.read(this.ctx);
-    this.report.begin(this.state.highScore);
+    // A checkpoint is the same mission going on, and the bill at the end is for all of it.
+    if (this.ctx.campaign?.returning) this.report.killedBy = '';
+    else this.report.begin(this.state.highScore);
     this.deathClock = 0;
     this.vitals.reset(this.state);
     this.tach.reset();
@@ -300,8 +303,9 @@ export class Hud implements HudSystem {
   private fulfilled(): void {
     if (this.deathClock > 0) return;
     this.contractDone = true;
-    this.deathClock = FULFILLED_BEAT;
-    this.bannerLanes.showBand('clear', 'CONTRACT FULFILLED', '');
+    // A mission has already faded out on its own ending, and has a screen of its own to say so.
+    this.deathClock = MISSION_ID ? MISSION_BEAT : FULFILLED_BEAT;
+    if (!MISSION_ID) this.bannerLanes.showBand('clear', 'CONTRACT FULFILLED', '');
   }
 
   killerName(source: string): string {
@@ -319,6 +323,15 @@ export class Hud implements HudSystem {
     this.ctx.input.endFrame?.();
     this.requestLock('run');
     game.newRun();
+    this.pauseGuard = 2;
+  }
+
+  /** From the pause menu in a mission. The mouse comes back the way it does for a new run. */
+  restartCheckpoint(): void {
+    this.ctx.audio.unlock?.();
+    this.ctx.input.endFrame?.();
+    this.requestLock('run');
+    this.ctx.campaign.restart();
     this.pauseGuard = 2;
   }
 
@@ -409,7 +422,7 @@ export class Hud implements HudSystem {
     this.ctx.input.releaseLock?.();
     this.ctx.events.emit('run:end', { score: this.report.score, wave: this.report.wave, kills: this.report.kills });
     game?.setState('gameover');
-    this.screens.show('gameover');
+    this.screens.show(this.contractDone && MISSION_ID ? 'complete' : 'gameover');
     this.screens.holdInput(GAME_OVER_HOLD);
     if (this.contractDone) {
       const by = this.screens.el.querySelector('.go-by');
@@ -447,6 +460,7 @@ export class Hud implements HudSystem {
     const s = this.state;
     s.read(ctx);
     if (playing) this.report.sample(dt, s.speed, s.multiplier, s.score, s.kills, s.wave);
+    if (playing && MISSION_ID) this.report.mission(ctx.campaign.runner?.beat?.title ?? '', ctx.campaign.runner?.deaths ?? 0);
 
     this.vitals.update(s, dt);
     this.arms.update(s, dt);

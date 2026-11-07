@@ -92,7 +92,7 @@ export interface GameSystem {
 // Rendering
 // ---------------------------------------------------------------------------------------------
 
-export type GradeName = 'default' | 'bloodthirst' | 'hellfire' | 'berserk' | 'slowmo' | 'adrenaline' | 'overdrive' | 'death' | 'thermal';
+export type GradeName = 'default' | 'bloodthirst' | 'hellfire' | 'berserk' | 'slowmo' | 'adrenaline' | 'overdrive' | 'death' | 'thermal' | 'blackout';
 
 export interface PostFx {
   /** Crossfades the colour grade. */

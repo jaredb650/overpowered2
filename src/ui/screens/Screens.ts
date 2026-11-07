@@ -9,11 +9,12 @@ import { GameOverScreen } from './gameover';
 import { GuideScreen } from './guide';
 import type { LoadingScreen } from './loading';
 import { MainMenu } from './mainmenu';
+import { MissionComplete } from './complete';
 import { PauseScreen } from './pause';
 import { SettingsScreen } from './settingsScreen';
 import { SplashScreen } from './splash';
 
-export type ScreenName = 'loading' | 'splash' | 'menu' | 'pause' | 'gameover' | 'guide' | 'settings' | 'none';
+export type ScreenName = 'loading' | 'splash' | 'menu' | 'pause' | 'gameover' | 'complete' | 'guide' | 'settings' | 'none';
 
 export interface Screen {
   readonly el: HTMLElement;
@@ -41,6 +42,7 @@ export class Screens {
       menu: new MainMenu(ctx, hud),
       pause: this.pauseScreen,
       gameover: new GameOverScreen(hud),
+      complete: new MissionComplete(ctx, hud),
       guide: new GuideScreen(ctx, hud),
       settings: new SettingsScreen(ctx, hud, settings),
     };

@@ -284,6 +284,11 @@ export class Pickups {
     else this.spawn(kind, position, 'drop');
   }
 
+  /** Left on the map on purpose: no fall, no clock, and it waits there for as long as the run lasts. */
+  place(kind: ModelKind, position: THREE.Vector3): void {
+    this.spawn(kind, position, 'map');
+  }
+
   /** 30% per kill, weighted by what the player is short of. */
   onKill(e: KillEvent): void {
     if (!chance(P.dropChance)) return;

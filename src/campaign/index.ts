@@ -14,7 +14,8 @@
  */
 import type { Ctx } from '../core/contracts';
 import type { EnemyInstance } from '../core/gameplay';
-import type { CampaignSystem } from './events';
+import { recordCampaignBeaten } from '../contracts/unlocks';
+import type { CampaignSystem, MissionResult } from './events';
 import './events';
 import { GameHost } from './host';
 import { CampaignHud } from './hud';
@@ -34,11 +35,16 @@ interface GameHandle {
 class Idle implements CampaignSystem {
   readonly active = false;
   readonly runner = null;
+  readonly returning = false;
+  readonly result = null;
   provide(): void {}
   signal(): void {}
   unitGone(): void {}
   enlist(): void {}
   redeploy(): boolean {
+    return false;
+  }
+  restart(): boolean {
     return false;
   }
 }
@@ -51,6 +57,8 @@ class Campaign implements CampaignSystem {
   /** Set between a run being rebuilt and its first frame, when every other system has finished clearing itself. */
   private opening: 'fresh' | 'redeploy' | null = null;
   private banked: ReturnType<GameHost['bank']> | null = null;
+  private vehicles = 0;
+  result: MissionResult | null = null;
 
   constructor(private readonly ctx: Ctx, id: string) {
     const mission = MISSIONS[id];
@@ -70,6 +78,11 @@ class Campaign implements CampaignSystem {
       this.opening ??= 'fresh';
     });
     events.on('player:died', () => this.runner.down());
+    events.on('vehicle:destroyed', () => {
+      this.vehicles++;
+    });
+    events.on('campaign:complete', () => this.complete());
+    events.on('game:state', e => this.ui.setPaused(e.to !== 'playing'));
     const page = (window as unknown as { __op2?: { campaign?: unknown } }).__op2;
     if (page) page.campaign = this;
   }
@@ -90,6 +103,10 @@ class Campaign implements CampaignSystem {
     this.host.enlist(body, tag);
   }
 
+  get returning(): boolean {
+    return this.opening === 'redeploy';
+  }
+
   redeploy(): boolean {
     if (this.runner.state !== 'down') return false;
     this.banked = this.host.bank();
@@ -98,11 +115,24 @@ class Campaign implements CampaignSystem {
     return true;
   }
 
+  restart(): boolean {
+    this.runner.down();
+    return this.redeploy();
+  }
+
+  /** A test that started halfway has beaten nothing. */
+  private complete(): void {
+    const { runner, vehicles } = this;
+    const { mission, elapsed, deaths } = runner;
+    this.result = { title: mission.title, seconds: elapsed, deaths, vehicles, unlocked: mission.unlocks === true && !START_BEAT && recordCampaignBeaten() };
+  }
+
   update(): void {
     const dt = this.ctx.time.dt;
     if (this.opening) this.open();
     this.host.update(dt);
     this.runner.update(dt);
+    this.ui.beat(this.runner.beat?.title ?? '');
     this.ui.update(this.ctx.time.realDt);
   }
 
@@ -115,11 +145,16 @@ class Campaign implements CampaignSystem {
       const { score, kills, headshots } = this.banked!;
       this.ctx.progression.resume(score, kills, headshots);
       this.runner.redeploy();
-    } else this.runner.start(START_BEAT);
+    } else {
+      this.vehicles = 0;
+      this.result = null;
+      this.runner.start(START_BEAT);
+    }
   }
 
   reset(): void {
     this.host.clear();
+    this.ui.reset();
   }
 }
 

@@ -36,6 +36,7 @@ export function validateMission(m: Mission): string[] {
     };
     switch (step.do) {
       case 'say': need(lineIds.has(step.line), `line ${step.line}`); break;
+      case 'drill': if (step.line) need(lineIds.has(step.line), `line ${step.line}`); break;
       case 'objective': if (step.at) need(m.marks[step.at], `mark ${step.at}`); break;
       case 'door': need(m.doors[step.door], `door ${step.door}`); break;
       case 'squad':

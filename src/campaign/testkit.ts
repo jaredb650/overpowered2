@@ -19,6 +19,8 @@ export class FakeHost implements MissionHost {
   rideDone: (() => void) | null = null;
   racks: (() => void)[] = [];
   autoSpeak = true;
+  drills = true;
+  ammo = Infinity;
 
   playerAt(out: { x: number; y: number; z: number }): void {
     Object.assign(out, this.feet);
@@ -54,8 +56,12 @@ export class FakeHost implements MissionHost {
   release(tag: string): void {
     this.log.push(`release ${tag}`);
   }
-  sweep(): void {
-    this.log.push('sweep');
+  sweep(tag?: string): void {
+    this.log.push(tag ? `sweep ${tag}` : 'sweep');
+  }
+  drill(tag: string, drill: string): boolean {
+    this.log.push(`drill ${tag} ${drill}`);
+    return this.drills;
   }
   place(at: { at: readonly number[] }): void {
     this.log.push(`place ${at.at.join(',')}`);
@@ -68,6 +74,9 @@ export class FakeHost implements MissionHost {
   }
   health(): number {
     return this.bodies;
+  }
+  rounds(): number {
+    return this.ammo;
   }
   give(weapon: string): void {
     this.log.push(`give ${weapon}`);
@@ -104,6 +113,9 @@ export class FakeHost implements MissionHost {
   }
   deploy(at: { at: readonly number[] } | null, loadout: { weapons: readonly string[] }): void {
     this.deployed = { at: at ? at.at.join(',') : null, weapons: loadout.weapons.join(',') };
+  }
+  saved(beat: { id: string }): void {
+    this.log.push(`saved ${beat.id}`);
   }
   finished(): void {
     this.finishedCount++;

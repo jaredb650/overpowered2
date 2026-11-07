@@ -10,6 +10,7 @@ import type { Line } from '../enemies/commander/lines';
 import type { Enemy } from '../enemies/Enemy';
 import type { EnemyManager } from '../enemies/EnemyManager';
 import { MAX_HOSTILE } from '../enemies/outpost/doctrine';
+import type { ActionId } from '../enemies/outpost/planner';
 import type { OutpostSquad } from '../enemies/outpost/squad';
 import { CutscenePlayer } from './cutscene';
 import { Doors } from './doors';
@@ -27,6 +28,13 @@ const INTERMISSION = 8;
 /** Share of the score the Council keeps for each replacement. */
 const REDEPLOY_FEE = 0.1;
 const MARKER_COLOR = '#ffc14a';
+/** Seconds the picture takes to go, and to come back once the player is out of the dark room. */
+const LIGHTS_OUT = 0.12;
+const LIGHTS_BACK = 1.4;
+/** Seconds of black after the Packmule goes in. */
+const CRASH_SECONDS = 2.4;
+/** How long a squad is held to a drill it was told to run. */
+const DRILL_SECONDS = 14;
 
 const _v = new THREE.Vector3();
 
@@ -58,7 +66,7 @@ export class GameHost implements MissionHost {
   constructor(private readonly ctx: Ctx, private readonly ui: CampaignHud) {
     this.doors = new Doors(ctx);
     this.racks = new Racks(ctx);
-    this.film = new CutscenePlayer(ctx, ui.cinema);
+    this.film = new CutscenePlayer(ctx, ui);
     const { events } = ctx;
     events.on('enemy:spawned', e => {
       if (this.tagging) this.tagOf.set(e.enemy.uid, this.tagging);
@@ -150,16 +158,37 @@ export class GameHost implements MissionHost {
     this.held.delete(tag);
   }
 
-  sweep(): void {
-    for (const a of this.arrivals) for (let i = a.seat; i < a.men.length; i++) this.runner.unitGone(a.tag, false, '');
-    this.arrivals.length = 0;
+  sweep(tag?: string): void {
+    for (let n = this.arrivals.length - 1; n >= 0; n--) {
+      const a = this.arrivals[n]!;
+      if (tag !== undefined && a.tag !== tag) continue;
+      for (let i = a.seat; i < a.men.length; i++) this.runner.unitGone(a.tag, false, '');
+      this.arrivals.splice(n, 1);
+    }
     const { events } = this.ctx;
     const { manager } = this;
     for (const e of [...manager.alive]) {
+      if (tag !== undefined && this.tagOf.get(e.uid) !== tag) continue;
       events.emit('enemy:escaped', { enemy: e });
       manager.withdraw(e as Enemy);
     }
-    events.emit('campaign:sweep', {});
+    if (tag === undefined) events.emit('campaign:sweep', {});
+  }
+
+  drill(tag: string, drill: ActionId): boolean {
+    const o = this.manager.outpost;
+    if (!o) return false;
+    this.release(tag);
+    let obeyed = false;
+    const asked = new Set<OutpostSquad>();
+    for (const e of this.manager.alive) {
+      if (this.tagOf.get(e.uid) !== tag) continue;
+      const squad = o.soldierOf(e)?.squad;
+      if (!squad || asked.has(squad)) continue;
+      asked.add(squad);
+      if (squad.obey(drill, DRILL_SECONDS)) obeyed = true;
+    }
+    return obeyed;
   }
 
   place(at: Mark): void {
@@ -201,14 +230,21 @@ export class GameHost implements MissionHost {
   /** `VehicleSystem` provides this on every page with a mission. */
   vehicle(): void {}
 
-  boss(tag: string, _at: Mark): void {
+  boss(tag: string, at: Mark): void {
     this.bossTag = tag;
-    this.manager.outpost?.commander.person.summon();
+    this.manager.outpost?.commander.person.stage(new THREE.Vector3(...at.at));
   }
 
   health(tag: string): number {
     for (const e of this.ctx.enemies.alive) if (this.tagOf.get(e.uid) === tag) return e.health / e.maxHealth;
     return 1;
+  }
+
+  rounds(weapon: WeaponId): number {
+    const { weapons } = this.ctx;
+    if (!weapons.owned.has(weapon)) return Infinity;
+    const { mag, reserve } = weapons.ammo(weapon);
+    return mag + reserve;
   }
 
   give(weapon: WeaponId): void {
@@ -225,7 +261,8 @@ export class GameHost implements MissionHost {
   }
 
   drop(item: PickupKind, at: Mark): void {
-    this.ctx.progression.spawnPickup(item, _v.set(...at.at));
+    if (item === 'weaponCache') this.ctx.progression.spawnPickup(item, _v.set(...at.at));
+    else this.ctx.progression.placePickup(item, _v.set(...at.at));
   }
 
   cutscene(_id: string, scene: Cutscene, done: (skipped: boolean) => void): void {
@@ -263,14 +300,37 @@ export class GameHost implements MissionHost {
     this.ctx.audio.music(state);
   }
 
-  call(name: string): void {
-    console.warn(`[campaign] nothing provides the call "${name}"`);
+  /** The few things a mission does that are nobody's system. Anyone else's goes through `provide`, which replaces this. */
+  call(name: string, arg: string | undefined): void {
+    const { ctx } = this;
+    switch (name) {
+      case 'lights':
+        ctx.render.post.setGrade(arg === 'emergency' ? 'blackout' : 'default', arg === 'emergency' ? LIGHTS_OUT : LIGHTS_BACK);
+        if (arg === 'emergency') ctx.audio.play('lights_out');
+        return;
+      case 'crash':
+        this.ui.curtain(1);
+        this.ui.lift(CRASH_SECONDS);
+        ctx.camera.addTrauma(1);
+        ctx.audio.play('wreck_land', { unaffectedByTime: true });
+        ctx.audio.play('ear_ring', { volume: 0.5, duration: CRASH_SECONDS * 2, unaffectedByTime: true });
+        return;
+      case 'commanderToRoof':
+        if (arg) this.manager.outpost?.commander.person.fallBack(new THREE.Vector3(...this.runner.mission.marks[arg]!.at));
+        return;
+      default:
+        console.warn(`[campaign] nothing provides the call "${name}"`);
+    }
   }
 
   deploy(at: Mark | null, loadout: Loadout): void {
     const { player, weapons } = this.ctx;
     if (at) player.teleport(_v.set(...at.at), at.yaw);
     weapons.setLoadout(loadout.weapons, loadout.grenades);
+  }
+
+  saved(): void {
+    this.ui.saved();
   }
 
   finished(): void {

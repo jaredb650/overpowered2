@@ -3,8 +3,14 @@
  * stack without covering each other.
  */
 .ms { position: absolute; inset: 0; pointer-events: none; }
+.ms-curtain { position: absolute; inset: 0; background: #000; opacity: 0; }
+
+/* A mission has no waves, and what is left to do goes where the count of them was. */
+.hud:has(.ms) .tl-top { display: none; }
 
 .ms-objs { display: flex; flex-direction: column; align-items: flex-start; gap: 0.25rem; margin-top: 0.5rem; }
+.ms-beat { font: 1.5rem/1.1 var(--display); color: var(--amber); text-shadow: var(--edge); }
+.ms-beat:empty { display: none; }
 .ms-obj { display: flex; align-items: center; gap: 0.55rem; padding: 0.24rem 0.7rem 0.2rem; background: var(--plate); box-shadow: 0.14rem 0.14rem 0 #000; font-size: 1rem; font-weight: 600; letter-spacing: 0.02em; color: var(--ink); }
 .ms-obj-box { flex: none; width: 0.72rem; height: 0.72rem; box-shadow: inset 0 0 0 0.12rem var(--amber); }
 .ms-obj.done { color: var(--dim); }
@@ -12,16 +18,31 @@
 
 .cmd-box.ms-radio.bark { top: 18rem; }
 
-.ms-hint { display: none; position: absolute; left: 50%; bottom: 20rem; width: 46rem; margin-left: -23rem; text-align: center; font-size: 1.14rem; font-weight: 600; line-height: 1.3; color: #000; }
-.ms-hint.on { display: block; }
-.ms-hint { background: var(--amber); padding: 0.36rem 0.8rem 0.28rem; box-shadow: 0.16rem 0.16rem 0 #000; }
+/* A teaching prompt reads like a caption, down by the tach, and the key is the only thing in it that asks to be looked at. */
+.ms-hint { position: absolute; left: 50%; bottom: 13.6rem; max-width: 44rem; transform: translateX(-50%); padding: 0.26rem 0.7rem 0.2rem; background: rgba(7, 10, 14, 0.58); color: var(--ink); font-size: 1rem; font-weight: 500; line-height: 1.5; text-align: center; opacity: 0; transition: opacity 0.3s; }
+.ms-hint.on { opacity: 1; }
+.ms-key { display: inline-block; margin: 0 0.14rem; padding: 0 0.36rem; background: var(--steel); color: #000; font-weight: 800; line-height: 1.28; }
+
+.ms-saved { position: absolute; left: 3.2rem; bottom: 15rem; padding: 0.12rem 0.5rem 0.06rem; background: var(--plate); color: var(--steel); font-size: 0.9rem; font-weight: 600; opacity: 0; transition: opacity 0.4s; }
+.ms-saved.on { opacity: 1; }
 
 .ms-cinema { position: absolute; inset: 0; pointer-events: none; }
-.ms-bar { position: absolute; left: 0; right: 0; height: 9%; background: #000; }
-.ms-bar.top { top: 0; }
-.ms-bar.bottom { bottom: 0; display: flex; align-items: center; justify-content: flex-end; padding-right: 2rem; }
-.ms-skip { font-size: 0.9rem; color: var(--dim); }
+.ms-bar { position: absolute; left: 0; right: 0; height: 11%; background: #000; }
+.ms-bar.top { top: 0; animation: ms-bar-top 0.8s ease-out; }
+.ms-bar.bottom { bottom: 0; display: flex; align-items: center; justify-content: space-between; padding: 0 2rem; animation: ms-bar-bottom 0.8s ease-out; }
+@keyframes ms-bar-top { from { transform: translateY(-100%); } }
+@keyframes ms-bar-bottom { from { transform: translateY(100%); } }
+.ms-caption { font: 1.5rem/1 var(--display); color: var(--steel); }
+.ms-skip { margin-left: auto; font-size: 0.9rem; color: var(--dim); }
 .ms-skip b { padding: 0 0.34rem; background: var(--steel); color: #000; font-weight: 800; }
+
+/* In a film the Council is a subtitle, not a call on the player's screen. */
+.hud:has(.ms-cinema) .cmd-box.ms-radio { top: auto; bottom: 12.5%; width: 66rem; margin-left: -33rem; min-height: 0; background: none; box-shadow: none; opacity: 1; }
+.hud:has(.ms-cinema) .cmd-box.ms-radio::before, .hud:has(.ms-cinema) .ms-radio .cmd-face, .hud:has(.ms-cinema) .ms-radio .cmd-tag { display: none; }
+.hud:has(.ms-cinema) .ms-radio .cmd-body { align-items: center; padding: 0; text-align: center; }
+.hud:has(.ms-cinema) .ms-radio .cmd-head { margin: 0; }
+.hud:has(.ms-cinema) .ms-radio .cmd-name { font-size: 1.05rem; text-shadow: var(--edge); }
+.hud:has(.ms-cinema) .ms-radio .cmd-text { font-size: 1.4rem; line-height: 1.3; color: #fff; text-shadow: 0 0 0.4rem #000, 0.09rem 0.09rem 0 #000; }
 
 /* A cutscene has no use for any of this. */
 .hud:has(.ms-cinema) .col-left, .hud:has(.ms-cinema) .col-right, .hud:has(.ms-cinema) .xh-reticle, .hud:has(.ms-cinema) .ms-objs, .hud:has(.ms-cinema) .ms-hint { display: none; }

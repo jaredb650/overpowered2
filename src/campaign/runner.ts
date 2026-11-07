@@ -266,7 +266,11 @@ export class MissionRunner implements WatchFacts {
     this.closeBeat();
     this.index = index;
     const beat = this.mission.beats[index]!;
-    if (beat.checkpoint || !this.save) this.saveHere(index);
+    if (beat.checkpoint || !this.save) {
+      // Opening again after a restart saves nothing new, and neither does a mission's first row.
+      if (beat.checkpoint && this.save && this.save.index !== index) this.host.saved(beat);
+      this.saveHere(index);
+    }
     for (const cue of beat.cues ?? []) this.cues.push({ watch: arm(cue.when, this), cue });
     this.until = beat.until ? arm(beat.until, this) : null;
     if (beat.start) this.begin(beat.start);
@@ -411,7 +415,10 @@ export class MissionRunner implements WatchFacts {
         host.release(step.tag);
         return;
       case 'sweep':
-        host.sweep();
+        host.sweep(step.tag);
+        return;
+      case 'drill':
+        if (host.drill(step.tag, step.drill) && step.line) this.say(step.line, false, null);
         return;
       case 'place':
         host.place(this.mark(step.at));

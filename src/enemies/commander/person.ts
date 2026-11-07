@@ -4,6 +4,7 @@
  * He is a Juggernaut with a cap on: the same armour stages, the same charge, the same boss bar, because section 14's reference for a
  * man who takes a lot of killing is that fight. What he adds is his own trade. He calls shells on himself, and he never stops talking.
  */
+import * as THREE from 'three';
 import { pick } from '../../core/math';
 import type { Enemy } from '../Enemy';
 import type { Commander } from './index';
@@ -17,7 +18,9 @@ const SHELL_EVERY = 16;
 const SHELLS = 5;
 /** Men left standing when he stops waiting. */
 const HOLD_OUT = 2;
-
+/** Seconds from the smoke going up to him being gone from under it. */
+const SMOKE_COVER = 1.4;
+const SMOKE_PUFFS = 7;
 
 export class Person {
   body: Enemy | null = null;
@@ -26,6 +29,10 @@ export class Person {
   private dueAt = -1;
   private barks = 0;
   private shellAt = 0;
+  /** A mission's mark for him. Null drops him from the sky. */
+  private stagedAt: THREE.Vector3 | null = null;
+  private fallTo: THREE.Vector3 | null = null;
+  private fallAt = 0;
 
   constructor(private readonly c: Commander) {}
 
@@ -35,6 +42,8 @@ export class Person {
     this.dueAt = -1;
     this.barks = 0;
     this.shellAt = 0;
+    this.stagedAt = null;
+    this.fallTo = null;
   }
 
   /** Called as the last wave starts. */
@@ -46,6 +55,23 @@ export class Person {
   /** Straight in, for tests. */
   summon(): void {
     this.dueAt = this.c.w.now;
+  }
+
+  /** A mission has him standing there already, behind his own glass. */
+  stage(at: THREE.Vector3): void {
+    this.stagedAt = at;
+    this.summon();
+  }
+
+  /** He walks out of his own fight, under smoke, and the next the player sees of him is up here. */
+  fallBack(to: THREE.Vector3): void {
+    const e = this.body;
+    if (!e) return;
+    const { fx, audio } = this.c.w.ctx;
+    this.fallTo = to;
+    this.fallAt = this.c.w.now + SMOKE_COVER;
+    for (let i = 0; i < SMOKE_PUFFS; i++) fx.smoke(e.center, 0x9aa2aa, 2.6, 2.4);
+    audio.play('steam_burst', { position: e.center });
   }
 
   get pending(): boolean {
@@ -64,6 +90,12 @@ export class Person {
       this.fall();
       return;
     }
+    if (this.fallTo && now >= this.fallAt) {
+      e.position.copy(this.fallTo);
+      e.groundY = this.fallTo.y;
+      e.velocity.set(0, 0, 0);
+      this.fallTo = null;
+    }
     const share = e.health / e.maxHealth;
     if (this.barks < BARK_AT.length && share < BARK_AT[this.barks]!) {
       c.bark(IN_PERSON[Math.min(this.barks + 1, IN_PERSON.length - 1)]!.id);
@@ -80,7 +112,7 @@ export class Person {
     const { c } = this;
     const { manager, w } = c;
     this.dueAt = -1;
-    const e = manager.spawnBoss('juggernaut');
+    const e = this.stagedAt ? manager.spawn('juggernaut', this.stagedAt) : manager.spawnBoss('juggernaut');
     if (!e) {
       this.dueAt = w.now + 2;
       return;

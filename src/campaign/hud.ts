@@ -2,14 +2,14 @@
  * The mission on the HUD: what to do, who is talking, and what the next key does. It sits inside the game's own HUD so it comes and
  * goes with it, and it stays up in a gunner's seat, because the insertion is where the mission starts talking.
  */
-import type { Ctx } from '../core/contracts';
+import type { Action, Ctx } from '../core/contracts';
 import type { SeatPanel } from '../core/gameplay';
 import type { Tone } from '../enemies/commander/adaptations';
 import type { Line, Speaker } from '../enemies/commander/lines';
 import { Flag, Label, div, h, span } from '../ui/dom';
 import { Portrait } from '../ui/commander/portrait';
 import { Voice } from '../ui/commander/voice';
-import { loadSettings } from '../ui/settings';
+import type { Hud } from '../ui/Hud';
 import type { ObjectiveState } from './types';
 import './campaign.css';
 
@@ -20,6 +20,7 @@ const LEAST_SECONDS = 2;
 const GAP_SECONDS = 0.35;
 /** A ticked objective stays up this long. */
 const TICK_SECONDS = 1.6;
+const SAVED_SECONDS = 2.6;
 
 const WHO: Record<Speaker, readonly [name: string, tag: string]> = {
   commander: ['The Commander', 'Outpost command / open channel'],
@@ -59,12 +60,21 @@ export class CampaignHud {
   readonly cinema: SeatPanel;
   private readonly rows = new Map<string, ObjectiveRow>();
   private readonly hintEl = div('ms-hint');
+  private readonly beatEl = span('ms-beat');
+  private readonly beatName = new Label(this.beatEl);
+  private readonly savedEl = span('ms-saved', 'Checkpoint');
+  private readonly curtainEl = div('ms-curtain');
+  private readonly captionEl = span('ms-caption');
+  private readonly captionText = new Label(this.captionEl);
   private readonly box: HTMLElement;
   private readonly name: Label;
   private readonly tag: Label;
   private readonly text: Label;
   private readonly face = new Portrait('cmd-face');
   private readonly voice: Voice;
+  private curtainShare = 0;
+  private curtainRate = 0;
+  private savedLeft = 0;
   private hintLeft = 0;
   private lineLeft = 0;
   private gapLeft = 0;
@@ -72,7 +82,7 @@ export class CampaignHud {
   private lineClip = false;
 
   constructor(private readonly ctx: Ctx) {
-    this.voice = new Voice(ctx, loadSettings());
+    this.voice = new Voice(ctx, (ctx.hud as unknown as Hud).settings);
     const name = span('cmd-name');
     const tag = span('cmd-tag');
     const text = h('p', 'cmd-text');
@@ -80,10 +90,11 @@ export class CampaignHud {
     this.name = new Label(name);
     this.tag = new Label(tag);
     this.text = new Label(text);
-    this.el = div('ms', this.box, this.hintEl);
+    this.el = div('ms', this.curtainEl, this.box, this.hintEl, this.savedEl);
+    this.objectiveList.append(this.beatEl);
     const skip = h('b');
     const skipKey = new Label(skip);
-    const panel = div('ms-cinema', div('ms-bar top'), div('ms-bar bottom', span('ms-skip', skip, ' skip')));
+    const panel = div('ms-cinema', div('ms-bar top'), div('ms-bar bottom', this.captionEl, span('ms-skip', skip, ' skip')));
     this.cinema = {
       el: panel,
       update: () => skipKey.set(ctx.input.labelFor('interact')),
@@ -107,12 +118,49 @@ export class CampaignHud {
     }
   }
 
-  /** `{jump}` and the like become the player's own binding. */
+  /** `{jump}` and the like become a key cap with the player's own binding on it. */
   hint(text: string, seconds: number): void {
     const { input } = this.ctx;
-    this.hintEl.textContent = text.replace(/\{(\w+)\}/g, (_, action) => input.labelFor(action));
+    // A split on a captured group leaves the words at even places and the actions at odd ones.
+    this.hintEl.replaceChildren(...text.split(/\{(\w+)\}/).map((part, i) => (i % 2 === 1 ? span('ms-key', input.labelFor(part as Action)) : part)));
     this.hintEl.classList.add('on');
     this.hintLeft = seconds;
+  }
+
+  /** What the player is in the middle of, over the list of what to do about it. */
+  beat(title: string): void {
+    this.beatName.set(title);
+  }
+
+  saved(): void {
+    this.savedEl.classList.add('on');
+    this.savedLeft = SAVED_SECONDS;
+  }
+
+  /** How much of the picture is black. Stays until told otherwise. */
+  curtain(share: number): void {
+    this.curtainRate = 0;
+    this.setCurtain(share);
+  }
+
+  /** Back up from black over this long. */
+  lift(seconds: number): void {
+    this.curtainRate = 1 / seconds;
+  }
+
+  caption(text: string): void {
+    this.captionText.set(text);
+  }
+
+  private setCurtain(share: number): void {
+    if (share === this.curtainShare) return;
+    this.curtainShare = share;
+    this.curtainEl.style.opacity = String(share);
+  }
+
+  /** A paused game has nobody talking over it, and the voice's clock stops with the game's. */
+  setPaused(paused: boolean): void {
+    this.voice.setPaused(paused);
   }
 
   speak(line: Line, done: () => void): void {
@@ -161,6 +209,14 @@ export class CampaignHud {
       this.hintLeft -= dt;
       if (this.hintLeft <= 0) this.hintEl.classList.remove('on');
     }
+    if (this.savedLeft > 0) {
+      this.savedLeft -= dt;
+      if (this.savedLeft <= 0) this.savedEl.classList.remove('on');
+    }
+    if (this.curtainRate > 0) {
+      this.setCurtain(Math.max(0, this.curtainShare - this.curtainRate * dt));
+      if (this.curtainShare === 0) this.curtainRate = 0;
+    }
     for (const [id, row] of this.rows) {
       if (row.clock < 0) continue;
       row.clock -= dt;
@@ -172,9 +228,12 @@ export class CampaignHud {
 
   reset(): void {
     this.hush();
-    this.hintLeft = 0;
+    this.hintLeft = this.savedLeft = 0;
     this.hintEl.classList.remove('on');
-    this.objectiveList.replaceChildren();
+    this.savedEl.classList.remove('on');
+    this.curtain(0);
+    this.caption('');
+    this.objectiveList.replaceChildren(this.beatEl);
     this.rows.clear();
   }
 }

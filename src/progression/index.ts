@@ -179,6 +179,10 @@ class Progression implements ProgressionSystem {
     else this.pickupsManager.drop(kind, position);
   }
 
+  placePickup(kind: Exclude<PickupKind, 'weaponCache'>, position: THREE.Vector3): void {
+    this.pickupsManager.place(kind, position);
+  }
+
   /** Seconds left on a call-in's cooldown. */
   callInCooldown(id: CallInId): number {
     return this.callInsManager.cooldown(id);

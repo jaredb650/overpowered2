@@ -371,6 +371,8 @@ export interface ProgressionSystem extends GameSystem {
   setCombo(combo: number): void;
   /** Drops a pickup in the world. */
   spawnPickup(kind: PickupKind, position: THREE.Vector3): void;
+  /** One that stays where it is put, for a mission to leave lying about. */
+  placePickup(kind: Exclude<PickupKind, 'weaponCache'>, position: THREE.Vector3): void;
   /** Seconds until a call-in can be earned again. */
   callInCooldown(id: CallInId): number;
   /** True while the aim would put the player inside the blast. */

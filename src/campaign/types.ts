@@ -8,6 +8,7 @@ import type { GameEvents, MusicState, WorldMaterialName } from '../core/contract
 import type { CallInId, EnemyId, PickupKind, WeaponId } from '../core/gameplay';
 import type { AdaptationId } from '../enemies/commander/adaptations';
 import type { Line } from '../enemies/commander/lines';
+import type { ActionId } from '../enemies/outpost/planner';
 
 export type Vec3 = readonly [x: number, y: number, z: number];
 
@@ -68,17 +69,28 @@ export interface Checkpoint {
   loadout: Loadout;
 }
 
-/** One camera move. The camera eases from the first pair to the second over `seconds`. */
+/** One camera move. The camera eases from the first pair to the second over `seconds`, and cuts to the next shot unless it fades. */
 export interface Shot {
   from: Vec3;
   to: Vec3;
   lookFrom: Vec3;
   lookTo: Vec3;
   seconds: number;
+  /** Vertical field of view. A long lens flattens a compound; a wide one sells a drop. */
+  fov?: number;
+  /** Seconds up from black at the start of the shot, and down to it at the end. */
+  fadeIn?: number;
+  fadeOut?: number;
+  /** Words on the film, low on the left: a place, a form number. */
+  caption?: string;
 }
 
 export interface Cutscene {
   shots: readonly Shot[];
+  /** Somebody to look at, standing here for as long as the film runs. */
+  figure?: Mark;
+  /** The picture stays down when it ends, for a film the mission does not come back from. */
+  endsBlack?: boolean;
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -102,6 +114,8 @@ export type Trigger =
   | { signal: string }
   /** A game event. `where` compares fields of the payload. */
   | { event: keyof GameEvents; where?: Readonly<Record<string, string | number | boolean>> }
+  /** The player owns this weapon and has fewer than this many rounds for it. What stops an armour fight running out of rockets. */
+  | { ammo: WeaponId; under: number }
   | { all: readonly Trigger[] }
   | { any: readonly Trigger[] };
 
@@ -124,8 +138,13 @@ export type Step =
   | { do: 'squad'; tag: string; men: readonly EnemyId[]; at: string; orders?: SquadOrders; ensure?: boolean }
   /** Lets a holding squad go. */
   | { do: 'release'; tag: string }
-  /** Takes everyone still on the map off it, unseen and unscored: the fight has moved on and they cannot follow. */
-  | { do: 'sweep' }
+  /** Takes everyone still on the map off it, or everyone under a tag, unseen and unscored: the fight has moved on and they cannot follow. */
+  | { do: 'sweep'; tag?: string }
+  /**
+   * What the Commander said he would do, done: his men under this tag are told to run the drill, and `line` is said only if one of their
+   * squads really can. He must not be heard ordering something that does not then happen.
+   */
+  | { do: 'drill'; tag: string; drill: ActionId; line?: string }
   /** Puts the player on a mark. For the rare player fast enough to get somewhere the story says they cannot be. */
   | { do: 'place'; at: string }
   /**
@@ -186,6 +205,8 @@ export interface Beat {
 export interface Mission {
   id: string;
   title: string;
+  /** Beating it from the top opens what is shut until the campaign is beaten. */
+  unlocks?: boolean;
   /** What the player holds at the start. */
   loadout: Loadout;
   zones: Readonly<Record<string, Zone>>;
@@ -235,13 +256,17 @@ export interface MissionHost {
   squad(order: SquadOrder, at: Mark): void;
   release(tag: string): void;
   /** Each body taken off still ends in `unitGone`. */
-  sweep(): void;
+  sweep(tag?: string): void;
+  /** True if a squad under the tag took the order. */
+  drill(tag: string, drill: ActionId): boolean;
   place(at: Mark): void;
   /** One body for the vehicle's tag, plus one per man of crew under the crew's. */
   vehicle(order: VehicleOrder, at: Mark, route: readonly Mark[]): void;
   boss(tag: string, at: Mark): void;
   /** Share of health of the tag's first living body, or 1 when none has arrived. */
   health(tag: string): number;
+  /** Rounds left for a weapon the player owns. Infinity for one they do not, so nothing is short of a gun nobody has found. */
+  rounds(weapon: WeaponId): number;
 
   give(weapon: WeaponId): void;
   grenades(count: number): void;
@@ -258,6 +283,8 @@ export interface MissionHost {
 
   /** The mission opened here, at the start or after a restart: place the player and hand over the kit. */
   deploy(at: Mark | null, loadout: Loadout): void;
+  /** A checkpoint has just been saved in the course of play. */
+  saved(beat: Beat): void;
   /** The mission is won. */
   finished(): void;
 }

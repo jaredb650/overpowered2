@@ -33,6 +33,9 @@ const query = new URLSearchParams(search);
 /** Fixed for the life of the page. */
 export const ACTIVE: ActiveContract = pickContract(query.get('contract'), query.get('map'));
 
+/** The URL asked for this contract, where a bare one only fell through to the default. */
+export const NAMED: boolean = query.has('contract') || query.has('map');
+
 /** Where to send the browser to run `id`. Dev flags ride along; anything that named the old map or skipped the menu does not. */
 export function contractSearch(id: ContractId, from: string): string {
   const next = new URLSearchParams(from);

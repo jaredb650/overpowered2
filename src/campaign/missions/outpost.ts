@@ -492,6 +492,7 @@ const BEATS: readonly Beat[] = [
 export const OUTPOST: Mission = {
   id: 'outpost',
   title: 'The Outpost',
+  unlocks: true,
   loadout: KIT.issued,
   zones: ZONES,
   marks: MARKS,

@@ -21,6 +21,10 @@ export class RunReport {
   damageTaken = 0;
   callIns = 0;
   killedBy = '';
+  /** The beat of a mission, in place of a wave. Empty on an endless contract. */
+  beat = '';
+  /** Replacement contractors, on a mission. */
+  deaths = 0;
   private hitFrame = -1;
   readonly weaponKills = new Map<string, number>();
   readonly perks = new Map<PerkId | PowerupId, number>();
@@ -54,7 +58,8 @@ export class RunReport {
     this.shots = this.hits = this.bestCombo = this.topSpeed = 0;
     this.limbs = this.gibs = this.slices = this.damageTaken = this.callIns = 0;
     this.bestMultiplier = 1;
-    this.killedBy = '';
+    this.killedBy = this.beat = '';
+    this.deaths = 0;
     this.hitFrame = -1;
     this.highAtStart = highScore;
     this.weaponKills.clear();
@@ -71,6 +76,12 @@ export class RunReport {
     this.wave = wave;
     const headshots = this.ctx.progression.headshots;
     if (typeof headshots === 'number') this.headshots = headshots;
+  }
+
+  /** A mission's place, each frame of one. */
+  mission(beat: string, deaths: number): void {
+    this.beat = beat;
+    this.deaths = deaths;
   }
 
   get accuracy(): number {

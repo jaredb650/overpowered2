@@ -4,11 +4,28 @@ import type { EnemyInstance } from '../core/gameplay';
 import type { MissionRunner } from './runner';
 import type { MissionHost } from './types';
 
+/** What the mission complete screen has to go on that the run report does not. */
+export interface MissionResult {
+  title: string;
+  /** Mission time, across restarts. */
+  seconds: number;
+  /** Replacement contractors. */
+  deaths: number;
+  /** Things that drive or fly, written off. */
+  vehicles: number;
+  /** This win opened something that was shut. */
+  unlocked: boolean;
+}
+
 /** On every page. With no mission it does nothing at all, so the swarm pays for one empty call a frame. */
 export interface CampaignSystem extends GameSystem {
   /** True while the page is running a mission. */
   readonly active: boolean;
   readonly runner: MissionRunner | null;
+  /** True through a run being rebuilt for a checkpoint, when the run report has to keep what it has. */
+  readonly returning: boolean;
+  /** Set once the mission is won. */
+  readonly result: MissionResult | null;
   /**
    * Replaces parts of the host, for a system that has something better than the fallback. Call it from your own `init`, and report
    * every body you spawned with `unitGone`.
@@ -22,6 +39,8 @@ export interface CampaignSystem extends GameSystem {
   enlist(body: EnemyInstance, tag: string): void;
   /** At the end of the death beat. True when the mission has taken the player back to a checkpoint and there is no game over. */
   redeploy(): boolean;
+  /** From the pause menu: back to the checkpoint now. It is a death in everything but the dying, and the Council bills it as one. */
+  restart(): boolean;
 }
 
 declare module '../core/contracts' {

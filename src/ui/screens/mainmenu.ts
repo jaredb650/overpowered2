@@ -1,7 +1,11 @@
-/** Main menu, over the live flythrough, with the contract select and the Council's notice for each contract. */
+/**
+ * Main menu, over the live flythrough, with the contract select and the Council's notice for each contract. A contract that is still
+ * shut can be read and not played. Someone new starts on the Campaign whatever the page behind it is running.
+ */
 import { CONTRACTS, COUNCIL_OFFICE, NOTICE_FOOTER, NOTICE_TITLE, type ContractDef } from '../../contracts/data';
 import { readHighScore } from '../../contracts/scores';
-import { ACTIVE, contractSearch } from '../../contracts/select';
+import { ACTIVE, NAMED, contractSearch } from '../../contracts/select';
+import { campaignBeaten, isLocked } from '../../contracts/unlocks';
 import type { Ctx } from '../../core/contracts';
 import { div, h, span } from '../dom';
 import type { Hud } from '../Hud';
@@ -14,7 +18,7 @@ export class MainMenu implements Screen {
   private items: NavItem[];
   private tabs: NavItem[];
   private notice: HTMLElement;
-  private selected = CONTRACTS.indexOf(ACTIVE.def);
+  private selected = NAMED || campaignBeaten() ? CONTRACTS.indexOf(ACTIVE.def) : 0;
 
   constructor(private readonly ctx: Ctx, private readonly hud: Hud) {
     this.items = [
@@ -24,6 +28,7 @@ export class MainMenu implements Screen {
     ];
     this.tabs = CONTRACTS.map((contract, i) => {
       const el = h('button', 'mm-tab', contract.name);
+      el.classList.toggle('lock', isLocked(contract));
       el.type = 'button';
       el.tabIndex = -1;
       return { el, focused: () => this.select(i), activate: () => this.select(i) };
@@ -55,7 +60,9 @@ export class MainMenu implements Screen {
       div('nt-foot', NOTICE_FOOTER),
     );
     if (high > 0) this.notice.append(div('nt-high', span('nt-high-k', 'High score'), span('nt-high-v', high.toLocaleString('en-US'))));
-    if (contract !== ACTIVE.def) this.notice.append(div('nt-move', 'Play reloads the page to reach this site.'));
+    if (isLocked(contract)) this.notice.append(div('nt-lock', 'Locked. Finish the Campaign to open this account.'));
+    else if (contract !== ACTIVE.def) this.notice.append(div('nt-move', 'Play reloads the page to reach this site.'));
+    this.items[0]!.el.classList.toggle('off', isLocked(contract));
   }
 
   private select(i: number): void {
@@ -73,11 +80,13 @@ export class MainMenu implements Screen {
   /** A contract's map cannot be built under a running world, so another contract means another page load. */
   private play(): void {
     const contract = CONTRACTS[this.selected]!;
-    if (contract === ACTIVE.def) this.hud.startRun();
+    if (isLocked(contract)) this.ctx.audio.play?.('ui_error');
+    else if (contract === ACTIVE.def) this.hud.startRun();
     else location.search = contractSearch(contract.id, location.search);
   }
 
   open(nav: Nav): void {
+    for (let i = 0; i < CONTRACTS.length; i++) this.tabs[i]!.el.classList.toggle('lock', isLocked(CONTRACTS[i]!));
     nav.set([...this.items, ...this.tabs]);
     nav.back = null;
     nav.left = () => this.cycle(-1);

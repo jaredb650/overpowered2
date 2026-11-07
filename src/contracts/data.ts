@@ -93,7 +93,7 @@ export const CONTRACTS: readonly ContractDef[] = [
       subject: 'The commanding officer of The Outpost, and everyone who reports to him',
       body: [
         'The above are in breach of Section 12 (Continued Existence). A notice was displayed on their planet for the statutory 30 days. Their commanding officer declined to sign for it.',
-        'Transport is included one way. You will be issued a sidearm, and you will find the rest. A previous contractor was assigned to this account. That file is closed.',
+        'Transport is included one way. You will be issued a submachine gun, and you will find the rest. A previous contractor was assigned to this account. That file is closed.',
         'Occupants are trained, armed, and may attempt to reason with you. They have been advised that this will not affect the outcome.',
       ],
       terms: [
