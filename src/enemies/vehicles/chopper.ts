@@ -11,6 +11,7 @@
  * gunner's seat cannot look, and the player's pilot brings him round to where it can.
  */
 import * as THREE from 'three';
+import type RAPIER from '@dimforge/rapier3d-compat';
 import type { EmitterHandle } from '../../core/contracts';
 import type { ProjectileSpec } from '../../core/gameplay';
 import { chance, clamp, damp, rand, randomInCone, wrapAngle } from '../../core/math';
@@ -18,6 +19,7 @@ import { Airframe, EngineSound } from '../../progression/callins/airframe';
 import type { Gun } from '../../vehicles/guns';
 import { Autopilot, type PilotPlan } from '../../vehicles/pilot';
 import type { Skyline } from '../../vehicles/skyline';
+import { Crew } from './crew';
 import { CHOPPER } from './data';
 import type { VehicleSystem } from './index';
 import { MAIN_ROTOR, TAIL_ROTOR, type ChopperMount } from './models';
@@ -51,6 +53,8 @@ const MAX_SPIN = 7;
 const SALVO_WALK = 3.5;
 /** Seconds between the puffs of the smoke it falls in. */
 const SMOKE_EVERY = 0.09;
+/** Chance anyone walks away. */
+const SURVIVOR = 0.3;
 
 const _pos = new THREE.Vector3();
 const _fwd = new THREE.Vector3();
@@ -117,6 +121,7 @@ export class EnemyChopper extends Vehicle {
     this.pilot.begin(from, _dir.normalize());
     this.engines.start(1.6);
     this.stepFrame(0);
+    this.collectMeshes(rig.frame.root);
   }
 
   override get center(): THREE.Vector3 {
@@ -332,6 +337,8 @@ export class EnemyChopper extends Vehicle {
     this.retired = true;
     this.teardown();
     const wreck = sys.wreckGunship(this, rig.tail.visible);
+    // One of them gets out of what is left, sometimes.
+    new Crew(sys, chance(SURVIVOR) ? CHOPPER.crew : [], null).spill(this.position, source);
     sys.bury(this, wreck, source, point);
   }
 
@@ -354,11 +361,10 @@ export class EnemyChopper extends Vehicle {
   }
 
   /** The colliders it lies on: everything but what was shot off, and never the rotor. */
-  wreckColliders(): import('@dimforge/rapier3d-compat').Collider[] {
+  wreckColliders(): RAPIER.Collider[] {
     const { sys } = this;
-    const keep: import('@dimforge/rapier3d-compat').Collider[] = [];
     this.placeColliders();
-    for (const c of this.releaseColliders()) keep.push(c);
+    const keep = this.releaseColliders();
     for (let i = this.parts.length - 1; i >= 0; i--) {
       const part = this.parts[i]!;
       if (part.def.id !== 'rotor' && !(part.def.id === 'tail' && part.broken)) continue;

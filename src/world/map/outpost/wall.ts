@@ -55,8 +55,8 @@ function gunTower(s: Site, x: number, n: 1 | 2): void {
   // Big enough to read from the cut, so "Tower Two" means something when he says it.
   s.words(String(n) as '1' | '2', x, 3, z1 + 0.014, 2.6, 1, RED);
   // The searchlight points down the lane the tower owns.
-  g.use('steelDark').bevel(x, deck + 1.75, z1 - 1, 0.42, 0.34, 0.42, 0.05);
-  g.use('emissiveWhite').box(x, deck + 1.72, z1 - 0.56, 0.28, 0.24, 0.02, FACE.pz);
+  g.use('steelDark').bevel(x + 1.8, deck + 1.75, z1 - 0.7, 0.36, 0.3, 0.36, 0.05);
+  g.use('emissiveWhite').box(x + 1.8, deck + 1.72, z1 - 0.32, 0.24, 0.2, 0.02, FACE.pz);
   s.fill(x, deck - 1, z1 + 5, 130, 30, 'white');
   s.fill(x, WALL.walk + 1.5, WALL.south, 10, 7, 'orange');
   s.plan.blocks.push({ x0, z0, x1, z1 });

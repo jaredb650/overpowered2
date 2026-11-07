@@ -190,9 +190,10 @@ export class GunnerHud implements SeatPanel {
       this.reticleHost.replaceChildren(markup(RETICLES[plan.tone]));
     }
     this.label.set(plan.label);
+    const out = seat.noWayOut ? '' : ` // ${this.key('interact')} BAIL OUT`;
     this.hint.set(plan.aimZooms
-      ? `${this.key('fire')} FIRE // ${this.key('aim')} ZOOM // ${this.key('interact')} BAIL OUT`
-      : `${this.key('fire')} CANNON // ${this.key('aim')} ROCKETS // WHEEL ZOOM // ${this.key('interact')} BAIL OUT`);
+      ? `${this.key('fire')} FIRE // ${this.key('aim')} ZOOM${out}`
+      : `${this.key('fire')} CANNON // ${this.key('aim')} ROCKETS // WHEEL ZOOM${out}`);
     this.el.style.setProperty('--gn-hot', plan.enemyColor);
     this.spinShown.set(plan.tone === 'door');
   }

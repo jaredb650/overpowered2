@@ -40,18 +40,15 @@ const AIRBORNE = /^(fly\d+|sky)/;
 
 export function verifyOutpost(world: World, physics: PhysicsSystem) {
   const nav = world.navGraph;
-  const out: Record<string, unknown> = {};
 
   const shapes: Record<string, number> = {};
   physics.world.forEachCollider(c => { const t = c.shapeType() === 1 ? 'box' : `other:${c.shapeType()}`; shapes[t] = (shapes[t] ?? 0) + 1; });
-  out.colliders = shapes;
   const levels: Record<string, number> = {};
   for (let i = 0; i < nav.nodeCount; i++) {
     if (Math.abs(nav.slopeX[i]!) + Math.abs(nav.slopeZ[i]!) > 0.05) { levels.slope = (levels.slope ?? 0) + 1; continue; }
     const key = nav.py[i]!.toFixed(1);
     levels[key] = (levels[key] ?? 0) + 1;
   }
-  out.nav = { nodes: nav.nodeCount, levels };
 
   const noFloor: string[] = [], offNav: string[] = [], buried: string[] = [];
   const near = new THREE.Vector3();
@@ -67,10 +64,9 @@ export function verifyOutpost(world: World, physics: PhysicsSystem) {
     // The wreck's deck and the pump roof are places to find things, not places men walk.
     if (!nav.nearest(_o.set(x, y + 0.1, z), 1.6, near) && !/rack|roof|wreck/i.test(id)) offNav.push(id);
   }
-  out.marks = { noFloor, offNav, buried };
 
   // A door must stand in a real gap, or its collider and its route-graph entry mean nothing.
-  const doors: Record<string, unknown> = {};
+  const doors: Record<string, { width: number; want: number; head: number; wantHead: number; blocked: boolean; navFront: boolean; navBack: boolean }> = {};
   for (const [id, d] of Object.entries(DOORS)) {
     const across = new THREE.Vector3(Math.cos(d.yaw), 0, -Math.sin(d.yaw));
     const through = new THREE.Vector3(-Math.sin(d.yaw), 0, -Math.cos(d.yaw));
@@ -83,7 +79,6 @@ export function verifyOutpost(world: World, physics: PhysicsSystem) {
     const g = physics.raycast(_o, _d.copy(through).negate(), 1.5, CG.World)?.distance ?? null;
     doors[id] = { width: r2(a + b), want: d.width, head: r2(up + 1), wantHead: d.height, blocked: [f, g].some(v => v !== null), navFront: !!nav.nearest(_o.set(x + through.x * 2, y + 0.1, z + through.z * 2), 1.5, near), navBack: !!nav.nearest(_o.set(x - through.x * 2, y + 0.1, z - through.z * 2), 1.5, near) };
   }
-  out.doors = doors;
 
   // Every ground route, swept at a tank's width and height.
   const blocked: string[] = [];
@@ -100,7 +95,6 @@ export function verifyOutpost(world: World, physics: PhysicsSystem) {
       }
     }
   }
-  out.roads = { roads: world.spec.roads.map(r => r.id), blocked };
 
   // Each mark on one graph: the nav keeps a node only if it joins the hub both ways, so a mark on the graph is a mark that connects.
   const hub = new THREE.Vector3(0, 0.1, 50);
@@ -112,7 +106,6 @@ export function verifyOutpost(world: World, physics: PhysicsSystem) {
     const tr = nav.trace(_o.set(m.at[0], m.at[1] + 0.1, m.at[2]));
     if (!tr.ok) noRoute.push(id);
   }
-  out.flow = { noRoute };
 
   // A trigger nobody can stand in never fires.
   const dead: string[] = [];
@@ -125,7 +118,6 @@ export function verifyOutpost(world: World, physics: PhysicsSystem) {
     }
     if (floors === 0) dead.push(id);
   }
-  out.zones = { dead };
 
   // Cover is derived from the map at load, so the census is the same thing the men will use.
   const cover = new CoverMap(physics);
@@ -135,8 +127,16 @@ export function verifyOutpost(world: World, physics: PhysicsSystem) {
     const id = world.zoneAt(spot.position)?.name ?? 'nowhere';
     byZone[id] = (byZone[id] ?? 0) + 1;
   }
-  out.cover = { spots: cover.spots.length, byZone };
-  return out;
+  return {
+    colliders: shapes,
+    nav: { nodes: nav.nodeCount, levels },
+    marks: { noFloor, offNav, buried },
+    doors,
+    roads: { roads: world.spec.roads.map(r => r.id), blocked },
+    flow: { noRoute },
+    zones: { dead },
+    cover: { spots: cover.spots.length, byZone },
+  };
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -771,8 +771,7 @@ function doorsFor(rig: Rig): Doors {
   const render = rig.ctx.render as unknown as Record<string, unknown>;
   render.scene = new THREE.Scene();
   render.materials = { world: () => new THREE.MeshBasicMaterial() };
-  const enemies = { outpost: null };
-  (rig.ctx as unknown as { enemies: unknown }).enemies = enemies;
+  (rig.ctx as unknown as { enemies: unknown }).enemies = { outpost: null, query: () => 0 };
   return new Doors(rig.ctx);
 }
 

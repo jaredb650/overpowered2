@@ -150,7 +150,7 @@ export const DOOR = {
   /** How fast the circle rises for something tall, as a rate. It settles back at a quarter of this. */
   liftRate: 2,
   /** On a mission's fixed flight: m/s, how far above the floor it comes to rest, and how fast it sinks there. */
-  flightSpeed: 14,
+  flightSpeed: 17,
   flightRest: 1.7,
   flightSink: 1.2,
   gun: {

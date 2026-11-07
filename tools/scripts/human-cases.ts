@@ -4,7 +4,7 @@
 //
 //   nice -n 19 npx tsx tools/scripts/human-cases.ts [case,case] [seed]
 //
-// Cases: oneshot ranks execute refuse rescue rearm question grab orders ambush, and with HUMAN_MAP=outpost: tower lane
+// Cases: oneshot ranks execute refuse rescue rearm question grab orders ambush, and with HUMAN_MAP=outpost: tower climb sniper
 import * as THREE from 'three';
 
 const globals = globalThis as unknown as Record<string, unknown>;
@@ -344,6 +344,47 @@ const CASES: Record<string, () => void> = {
     const y0 = men[0].position.y;
     run(25);
     tally.tower = { top: top.toArray().map(v => +v.toFixed(1)), stayedUp: men.map(e => +(e.position.y - y0).toFixed(1)), rounds, snipes: shots, sees: men.map(e => soldierOf(e)!.sees), range: +men[0].dist.toFixed(1), task: men.map(e => soldierOf(e)!.task), drill: soldierOf(men[0])!.squad.drill };
+  },
+  sniper() {
+    // A marksman on Tower Two, the player 50 m down the lane. Standing, running one way, and jinking. How often does the round land?
+    const rows: Record<string, string> = {};
+    const chest = new THREE.Vector3();
+    for (const [name, flip] of [['standing', 0], ['running', 4], ['jinking', 0.45]] as const) {
+      fresh();
+      const top = new THREE.Vector3(40, 9.1, 12);
+      world.nav.nearest(top, 4, top);
+      player.teleport(new THREE.Vector3(40, 0.3, 62), 0);
+      run(0.2);
+      const [e] = squad(['sniper'], 'veteran', top);
+      let fired = 0, hits = 0, damage = 0, side = 1, clock = 0;
+      ctx.combat.fireRay = (from: THREE.Vector3, dir: THREE.Vector3, spec: any) => {
+        fired++;
+        chest.copy(player.position);
+        chest.y += 1;
+        chest.sub(from);
+        const along = chest.dot(dir);
+        if (Math.sqrt(Math.max(chest.lengthSq() - along * along, 0)) < 0.6) {
+          hits++;
+          damage += spec.damage;
+        }
+        return null;
+      };
+      input.simulate('left', false);
+      input.simulate('right', false);
+      run(40, () => {
+        if (flip === 0) return;
+        clock -= 1 / 60;
+        if (clock > 0) return;
+        clock = flip;
+        side = -side;
+        input.simulate('left', side < 0);
+        input.simulate('right', side > 0);
+      });
+      input.simulate('left', false);
+      input.simulate('right', false);
+      rows[name] = `${hits}/${fired} hit, ${Math.round(damage)} damage, ${e.alive ? 'alive' : 'dead'}`;
+    }
+    tally.sniper = rows;
   },
   climb() {
     // A belt at the foot of the wall. Does he go up onto something?

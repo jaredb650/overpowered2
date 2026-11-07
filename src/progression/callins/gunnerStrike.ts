@@ -178,7 +178,7 @@ export abstract class GunnerStrike<M extends string> implements Strike {
     this.homebound = true;
     this.silence();
     this.depart();
-    this.kit.ctx.hud.banner(`${callsign} OFF STATION`, `${this.confirmed} CONFIRMED`, color);
+    if (!this.scripted) this.kit.ctx.hud.banner(`${callsign} OFF STATION`, `${this.confirmed} CONFIRMED`, color);
   }
 
   private stow(dt: number): void {

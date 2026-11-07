@@ -5,7 +5,7 @@
  * Rounds are hitscan through combat like every other enemy gun, so they spark off walls and whiz past the player.
  */
 import * as THREE from 'three';
-import type { Ctx } from '../../core/contracts';
+import type { Ctx, PlayOptions } from '../../core/contracts';
 import type { ShotSpec } from '../../core/gameplay';
 import { clamp, rand, randomInCone, wrapAngle } from '../../core/math';
 import type { Gun } from '../../vehicles/guns';
@@ -19,6 +19,7 @@ const _to = new THREE.Vector3();
 const _muzzle = new THREE.Vector3();
 const _bore = new THREE.Vector3();
 const _dir = new THREE.Vector3();
+const _play: PlayOptions = { position: _muzzle, pitch: 1, pitchJitter: 0.03 };
 
 export class Mount {
   /** World yaw and pitch, as `Gun.point` takes them: barrels along -Z. */
@@ -107,6 +108,7 @@ export class Mount {
     ctx.combat.fireRay(_muzzle, _dir, shot);
     ctx.combat.enemyMuzzle(_muzzle, _bore, 'enemy');
     gun.recoil(0.05);
-    ctx.audio.play(this.sound, { position: _muzzle, pitch: this.pitchShift, pitchJitter: 0.03 });
+    _play.pitch = this.pitchShift;
+    ctx.audio.play(this.sound, _play);
   }
 }

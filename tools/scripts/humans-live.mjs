@@ -2,7 +2,7 @@
 //
 //   HUMAN_CASES=suppress,flash node tools/shot.mjs --url "/?contract=outpost&autostart=1&dev=1" --dpr 2 --w 1440 --h 900 --script tools/scripts/humans-live.mjs --out tools/out/humans.png --wait 500 --timeout 170
 //
-// Cases: suppress flash prompt question grab orders fight swarm. Each writes tools/out/<out>-<case>-*.png. Prefer one to three per run.
+// Cases: suppress flash prompt question grab orders fight perf swarm. `fight` is real bullets from a real wave at a strafing player. Each writes tools/out/<out>-<case>-*.png. Prefer one to three per run.
 const cases = (process.env.HUMAN_CASES ?? 'suppress,flash,prompt').split(',');
 
 export default async function live(page, h) {
@@ -189,6 +189,75 @@ export default async function live(page, h) {
         const o = window.__o;
         return { health: ctx.player.health, his: window.__man.health, alive: window.__man.alive, armor: window.__man.armor, heldNow: o.captives.held !== null };
       })) };
+    },
+    async fight() {
+      // The real thing with nothing stood in for: a wave, flown rounds, the player's own capsule. It strafes and does not fight back.
+      await stand(-30, 6);
+      const start = await page.evaluate(() => {
+        const { ctx } = window.__op2;
+        const o = window.__o;
+        o.setWave(3);
+        window.__squad(['trooper', 'trooper', 'brute', 'trooper'], 'regular', 6, 24);
+        window.__squad(['trooper', 'gunner', 'trooper', 'gunner'], 'regular', -6, -22);
+        o.onWaveStart();
+        window.__hurt = 0;
+        window.__hits = 0;
+        ctx.events.on('player:damaged', e => { window.__hurt += e.amount; window.__hits++; });
+        let side = 1;
+        window.__jink = setInterval(() => {
+          side = -side;
+          ctx.input.simulate('left', side < 0);
+          ctx.input.simulate('right', side > 0);
+          const near = ctx.enemies.alive.reduce((a, e) => (!a || e.position.distanceTo(ctx.player.position) < a.position.distanceTo(ctx.player.position) ? e : a), null);
+          if (near) window.__look(near.center.x, near.center.y, near.center.z);
+        }, 700);
+        return ctx.time.elapsed;
+      });
+      let seconds = 0;
+      const t0 = Date.now();
+      while (Date.now() - t0 < 60000 && seconds < 45) {
+        await h.sleep(1000);
+        seconds = await page.evaluate(s => window.__ctx.time.elapsed - s, start);
+        if (seconds > 18 && seconds < 20) await shot('fight');
+      }
+      return page.evaluate(s => {
+        clearInterval(window.__jink);
+        const { ctx } = window.__op2;
+        ctx.input.simulate('left', false);
+        ctx.input.simulate('right', false);
+        const t = ctx.time.elapsed - s;
+        return { seconds: +t.toFixed(1), damage: Math.round(window.__hurt), perMinute: Math.round((window.__hurt / t) * 60), hits: window.__hits, cracks: window.__o.suppression.cracks, speed: +ctx.player.speed.toFixed(1), squads: window.__o.squads.map(q => `${q.name} ${q.goal} ${q.drill} ${q.fighters()}`) };
+      }, start);
+    },
+    async perf() {
+      // The blur runs for as long as the player is under fire, so it has to be free. Same fight, with it forced off and forced full on.
+      await stand(-30, 6);
+      await page.evaluate(() => {
+        window.__squad(['trooper', 'trooper', 'brute', 'trooper'], 'regular', 6, 24);
+        window.__squad(['trooper', 'gunner', 'trooper', 'gunner'], 'regular', -6, -22);
+        window.__o.onWaveStart();
+        window.__sample = (level, ms) => new Promise(done => {
+          const o = window.__o;
+          const times = [];
+          let last = performance.now();
+          const started = last;
+          const tick = now => {
+            o.suppression.level = level;
+            times.push(now - last);
+            last = now;
+            if (now - started < ms) requestAnimationFrame(tick);
+            else {
+              times.sort((a, b) => a - b);
+              done({ level, frames: times.length, fps: +(times.length / (ms / 1000)).toFixed(1), median: +times[times.length >> 1].toFixed(1), p95: +times[Math.floor(times.length * 0.95)].toFixed(1) });
+            }
+          };
+          requestAnimationFrame(tick);
+        });
+      });
+      await h.sleep(3000);
+      const rows = [];
+      for (const level of [0, 1, 0, 1]) rows.push(await page.evaluate(l => window.__sample(l, 5000), level));
+      return rows;
     },
     async orders() {
       await stand(0, -19);

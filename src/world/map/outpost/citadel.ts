@@ -55,7 +55,8 @@ function westWing(s: Site): void {
   s.wall({ x0: -56, z0: -46, x1: -14, z1: -44, y1: HALL_TOP, openings: [{ at: -34, ...WIDE }] });
   s.solid(-56, COOLANT.pit - 1, -46, COOLANT.platform.x0, 0, -44);
   s.solid(COOLANT.platform.x1, COOLANT.pit - 1, -46, -14, 0, -44);
-  s.wall({ x0: -14, z0: COOLANT.farLip, x1: -12, z1: -44, y0: COOLANT.pit - 1, y1: HALL_ROOF });
+  // Slit into the Stack: its twin is in the Stack's own wall, so a line runs through both.
+  s.wall({ x0: -14, z0: COOLANT.farLip, x1: -12, z1: -44, y0: COOLANT.pit - 1, y1: HALL_ROOF, openings: [{ at: -56, w: 3, y0: 1.5, y1: 1.9 }] });
   s.wall({ x0: -12, z0: -26, x1: -10, z1: -16, y1: WING, openings: [scripted('sallyWest', 2)] });
 }
 
@@ -65,7 +66,7 @@ function eastWing(s: Site): void {
   s.wall({ x0: 29, z0: -40, x1: 30, z1: -33, y1: WING });
   s.wall({ x0: 12, z0: -41, x1: 56, z1: -40, y1: WING, openings: [{ at: 20, ...DOOR }, { at: 44, ...DOOR }] });
   s.wall({ x0: 12, z0: -46, x1: 56, z1: -44, y1: WING, openings: [{ at: 24, ...WIDE }, { at: 46, ...WIDE }] });
-  s.wall({ x0: 12, z0: -80, x1: 14, z1: -46, y1: WING });
+  s.wall({ x0: 12, z0: -80, x1: 14, z1: -46, y1: WING, openings: [{ at: -56, w: 3, y0: 1.5, y1: 1.9 }] });
   // The kitchen's wall. A long serving hatch makes the mess visible before anyone is committed to it.
   s.wall({ x0: 14, z0: -70, x1: 56, z1: -69, y1: WING, openings: [{ at: 22, ...DOOR }, { at: 36, w: 13, y0: 1.1, y1: 2.3 }, { at: 50, ...DOOR }] });
 }

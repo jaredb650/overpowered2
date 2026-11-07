@@ -123,8 +123,6 @@ export interface GroundDef extends VehicleDef {
   cannon?: CannonDef;
 }
 
-export const SOFT_BLAST = { radius: 6.5, damage: 110 };
-
 export const HUMVEE: GroundDef = {
   kind: 'humvee', name: 'SCOUT CAR', armoured: false, health: 520, score: 400,
   halfWidth: 1.15, halfLength: 2.55, roof: 2, surface: 'metal',

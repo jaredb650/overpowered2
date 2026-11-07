@@ -98,7 +98,7 @@ function views(spec: MapSpec): void {
   look('warGlass', 0, LEVEL.command, -62, 0, 11, -72);
   look('roofStairs', -13.7, LEVEL.command, -77, -13.7, 13, -67);
   look('roof', 0, LEVEL.roof, -70, 0, 6, 30);
-  look('roofSouth', 0, LEVEL.roof, -30, 0, 0, 60);
+  look('roofSouth', 0, LEVEL.roof, -27.2, 0, 0, 40);
   spec.view('overview', 150, 90, 160, 0, 0, -10);
   spec.view('north', 0, 60, -170, 0, 6, -30);
   spec.view('west', -170, 50, -30, 0, 6, -30);

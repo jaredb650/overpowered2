@@ -128,6 +128,41 @@ export default async function vehiclesLive(page, h) {
     await h.shot('tank-wreck');
     log.end = await read();
   }
+  // Are they actually dangerous? The player stands in the open with no god mode and the numbers say what landed.
+  if (step === 'threat') {
+    const hp = () => page.evaluate(() => { const p = window.__op2.ctx.player; return Math.round(p.health + p.armor); });
+    await page.evaluate(() => {
+      const { ctx } = window.__op2;
+      ctx.player.modifiers.invulnerable = false;
+      window.__hits = [];
+      ctx.events.on('player:damaged', e => window.__hits.push([e.type, Math.round(e.amount)]));
+      ctx.player.health = ctx.player.maxHealth = 5000;
+    });
+    await look(-20, 0, 0, 18, 1.5, 0);
+    await page.evaluate(() => {
+      window.__op2.ctx.enemies.vehicles.spawnGround('humvee', { x: 26, y: 0, z: 0, route: [{ x: 16, z: 0, hold: 0 }], tag: null, crew: [], crewTag: null, holds: false, holdYaw: NaN, parked: false });
+    });
+    await h.sleep(9000);
+    log.gun = await page.evaluate(() => window.__hits.splice(0));
+    await h.shot('threat-gun');
+    await page.evaluate(() => {
+      const { ctx } = window.__op2;
+      ctx.enemies.vehicles.spawnGround('tank', { x: 24, y: 0, z: 14, route: [{ x: 16, z: 14, hold: 0 }], tag: null, crew: [], crewTag: null, holds: false, holdYaw: NaN, parked: false });
+    });
+    await h.sleep(11000);
+    await h.shot('threat-tank');
+    log.tank = await page.evaluate(() => window.__hits.splice(0));
+    // Ram: stand in the road of a truck.
+    await page.evaluate(() => {
+      const { ctx } = window.__op2;
+      ctx.enemies.killAll('test');
+      ctx.player.teleport(ctx.player.position.clone().set(0, 0, -14));
+      ctx.enemies.vehicles.spawnGround('truck', { x: 26, y: 0, z: -14, route: [{ x: -24, z: -14, hold: 0 }], tag: null, crew: [], crewTag: null, holds: false, holdYaw: NaN, parked: false });
+    });
+    await h.sleep(5000);
+    log.ram = await page.evaluate(() => { const { player } = window.__op2.ctx; return { hits: window.__hits.splice(0), at: player.position.toArray().map(n => Math.round(n)) }; });
+  }
+
   if (step === 'wreck') {
     await park('truck', 8, -6, 0.4);
     await park('humvee', -8, -6, 0.4);

@@ -27,7 +27,6 @@ const CANVAS = '#54523e';
 const CANVAS_DARK = '#3f3e30';
 const STEEL = '#23272a';
 const IRON = '#343a3e';
-const WORN = '#6b7074';
 const TYRE = '#17191b';
 const GLASS = '#0a1014';
 const HAZARD = '#b08a24';
@@ -559,6 +558,11 @@ export class Fleet {
     this.burnt.roughness = 0.95;
   }
 
+  /** Builds every kind now, so the first truck on the road costs a clone and not a merge of two hundred parts. */
+  warm(): void {
+    for (const kind of ['humvee', 'truck', 'tank'] as const) this.template(kind);
+  }
+
   private template(kind: 'humvee' | 'truck' | 'tank'): Template {
     let t = this.templates.get(kind);
     if (!t) {
@@ -605,9 +609,5 @@ export class Fleet {
   private tailClone(): THREE.Group {
     this.tail ??= gunshipTailGroup(this.materials);
     return this.tail.clone();
-  }
-
-  get solidMaterials(): readonly THREE.Material[] {
-    return [this.burnt];
   }
 }

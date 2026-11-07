@@ -5,6 +5,7 @@
 import { FACE } from '../../kit/geo';
 import { machine, pipe, signPanel } from '../../kit/props';
 import { signId } from '../../kit/signs';
+import { stencil } from '../../kit/stencil';
 import {
   CABLE_GALLERY, COOLANT, COOLANT_HALL, GALLERY, GALLERY_STAIR, HALL_TOP, KITCHEN_STAIR, rect, type Rgb, SKIN,
 } from './plan';
@@ -49,8 +50,10 @@ function coolantHall(s: Site): void {
   s.stairs(platform.x0 - 12, -48, pit, platform.x0, -48, 0, 4, 'concrete', true);
   // Cold light from below, so the gap reads as depth and the far side as a place to land.
   for (let x = x0 + 5; x < x1; x += 7.5) {
-    g.use('emissiveCyan').box(x, pit + 0.04, -59, 2.6, 0.04, 6, FACE.py);
-    k.light(x, pit + 1.6, -59, 'cyan', 34, 14);
+    g.use('paintWhite').tint(0.04, 0.3, 0.36).box(x, pit + 0.03, -59, 3, 0.03, 7, FACE.py);
+    g.tint(1).use('emissiveCyan');
+    for (const z of [-66, -52]) g.box(x, pit + 0.06, z, 3, 0.02, 0.03, FACE.py);
+    k.light(x, pit + 1.6, -59, 'cyan', 20, 12);
   }
   for (const [x, z] of [[-50, -62], [-40, -55], [-22, -63], [-18, -54], [-32, -60]] as const) machine(k, x, pit, z, k.rand(0, 3), 3.4, 2.2, 2.2);
   pipe(k, [-56, pit + 3, -66, -14, pit + 3, -66], 0.5, 'steelDark', 6, 10);
@@ -61,9 +64,9 @@ function coolantHall(s: Site): void {
 
   stump(s, -34, nearLip, -1);
   stump(s, -34, farLip, 1);
-  s.fill(-34, 3.4, -47.6, 60, 14, 'white');
-  s.fill(-34, 4, -73, 80, 20, 'white');
-  s.fill(-48, 3, -73, 30, 14, 'cyan');
+  s.fill(-34, 2.6, -47.4, 22, 9, 'white');
+  s.fill(-34, 3, -74, 30, 13, 'white');
+  s.fill(-48, 3, -74, 16, 11, 'cyan');
   s.lamp(-34, 3.6, -78 + SKIN, 0, 'white', 0);
   signPanel(k, -44.6, 2.5, -46 + SKIN + 0.05, 0, 5, 1.25, signId('COOLANT'), true);
   signPanel(k, -23.4, 2.5, -46 + SKIN + 0.05, 0, 4, 1, signId('GAP AHEAD'), true);
@@ -104,8 +107,9 @@ function gallery(s: Site): void {
   g.use('emissiveCyan').box(0, floor + 1.55, wz, farEnd - 0.2, 0.05, 0.002, FACE.pz);
   g.use('emissiveCyan').box(0, floor + 1.2, wz, farEnd - 0.2, 0.012, 0.002, FACE.pz);
   for (let x = nearEnd + 3; x < farEnd - 2; x += 4) {
-    k.push(x, 0, wz + 0.002, 0);
-    s.words('CHEVRON', 0, floor + 2.25, 0, 0.72, 1, COLD);
+    // Turned on its side, so it points along the run.
+    k.push(x, floor + 2.25, wz + 0.002, 0, -Math.PI / 2);
+    stencil(k, 'CHEVRON', 0, 0, 0, 0.72, COLD);
     k.pop();
   }
   for (let x = -20; x <= 20; x += 8) k.light(x, floor + 1.6, north + 1.5, 'cyan', 22, 9);

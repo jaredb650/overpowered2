@@ -22,6 +22,19 @@ function doorHead(s: Site, x: number, y: number, z: number, yaw: number, w: numb
   k.pop();
 }
 
+/**
+ * The barracks are lit for after the Commander says "Lights": nobody sees them before, because the door only opens once he has. The
+ * bar fittings are dead, and all that is left is a red lamp every few metres with the dark between them.
+ */
+function deadBar(s: Site, x: number, ceil: number, z: number, yaw: number, len: number): void {
+  const k = s.k, g = k.geo;
+  k.push(x, ceil - 0.2, z, yaw);
+  g.use('steelDark').tint(0.7).bevel(0, 0.09, 0, len / 2 + 0.1, 0.09, 0.2, 0.03);
+  g.use('paintWhite').tint(0.2).box(0, -0.02, 0, len / 2, 0.03, 0.12, FACE.ny | FACE.pz | FACE.nz);
+  g.tint(1);
+  k.pop();
+}
+
 function sally(s: Site): void {
   const r = SALLY;
   s.dressRoom(r);
@@ -50,7 +63,10 @@ function southCorridor(s: Site): void {
   const r = SOUTH_CORRIDOR;
   s.dressRoom(r);
   s.line(r.x0, -17.56, r.x1, -17.44, r.paint, 0.012);
-  for (let x = -50; x < -12; x += 8.4) s.bar(x, r.ceil, -17.5, 0, 2.4, 'white', 20, 8);
+  for (let x = -50; x < -12; x += 8.4) {
+    deadBar(s, x, r.ceil, -17.5, 0, 2.4);
+    s.lamp(x + 4.2, 2.6, -19 + SKIN, 0, 'red', 12, 8);
+  }
   // Half the corridor, so the gunner can get out of the nest and everybody else can get in.
   s.sandbags(-52.6, -19 + SKIN, -51.8, -17.7, 1.15);
   s.lamp(-55.9, 2.4, -17.5, -Math.PI / 2, 'red', 22, 10);
@@ -62,7 +78,10 @@ function northCorridor(s: Site): void {
   const r = NORTH_CORRIDOR;
   s.dressRoom(r);
   s.line(r.x0, -42.56, r.x1, -42.44, r.paint, 0.012);
-  for (let x = -52; x < -14; x += 9.5) s.bar(x, r.ceil, -42.5, 0, 2.4, 'white', 20, 8);
+  for (let x = -52; x < -14; x += 9.5) {
+    deadBar(s, x, r.ceil, -42.5, 0, 2.4);
+    if (Math.abs(x + 4.7 + 34) > 3) s.lamp(x + 4.7, 2.6, -41 - SKIN, Math.PI, 'red', 12, 8);
+  }
   pipe(s.k, [-56, 2.95, -43.7, -12, 2.95, -43.7], 0.08, 'steelDark', 6, 6);
   s.sideWords('KEEP MOVING', -12 - SKIN, 2.2, -42.5, 0.7, -1, r.paint);
   // Where the cold air comes from: the way on, lit from the far side of the door.
@@ -109,9 +128,10 @@ function bunks(s: Site): void {
   for (const r of BUNKS) {
     s.dressRoom(r);
     s.frameFloor(r, 0, 0.4, 0.12, r.paint);
-    s.bar((r.x0 + r.x1) / 2, r.ceil, -30, Math.PI / 2, 3, 'white', 34, 12);
-    s.fill((r.x0 + r.x1) / 2, 2.2, -24, 14, 9, 'white');
-    s.fill((r.x0 + r.x1) / 2, 2.2, -36, 14, 9, 'white');
+    deadBar(s, (r.x0 + r.x1) / 2, r.ceil, -30, Math.PI / 2, 3);
+    s.lamp(r.x0 + SKIN, 2.5, -30, Math.PI / 2, 'red', 12, 9);
+    s.fill((r.x0 + r.x1) / 2, 2.2, -23, 6, 8, 'red');
+    s.fill((r.x0 + r.x1) / 2, 2.2, -37, 6, 8, 'red');
     s.spec.pickup((r.x0 + r.x1) / 2, 0.3, -30);
   }
   const SHEET: Rgb = [0.5, 0.52, 0.46], WOOL: Rgb = [0.36, 0.4, 0.3];

@@ -66,6 +66,7 @@ export class Wreck {
     this.restY = root.position.y;
     this.rest = root.rotation.clone();
     this.tumble.set(rand(-1, 1), rand(-0.3, 0.3), rand(-1, 1)).multiplyScalar(def.hop * 0.09);
+    sys.closeGround(root.position, root.rotation.y, halfWidth, halfLength, true);
     if (cold) return;
     const { fx, audio } = sys.ctx;
     _p.set(0, 1.4, 0);
@@ -185,6 +186,7 @@ export class Wreck {
 
   dispose(): void {
     const { physics } = this.sys.ctx;
+    this.sys.closeGround(this.root.position, this.rest.y, this.halfWidth, this.halfLength, false);
     for (const e of this.emitters) e.stop();
     this.flames?.stop(0.3);
     this.flames = null;

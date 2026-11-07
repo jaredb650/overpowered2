@@ -64,6 +64,8 @@ const SIDESTEP = 3.3;
 const SHOVE_EVERY = 0.08;
 const SHOVE_REACH = 0.55;
 const CALLOUT = '#ffb347';
+const SEAT_MARK = '#ff5a3a';
+const SEAT_MARK_STRENGTH = 0.6;
 const KILL_COLOR = '#ff7a30';
 const BLAST_SOURCE = 'vehicle_blast';
 const LOS_STEPS = 3;
@@ -100,6 +102,9 @@ export class VehicleSystem implements VehicleTargets {
   private chopper: EnemyChopper | null = null;
   private readonly waiting: Waiting[] = [];
   private trafficIn = 0;
+  private clearRoad = Infinity;
+  private dodgeRoad = 0;
+  private readonly lit: THREE.Object3D[] = [];
   private shoveIn = 0;
   private readonly blastSpec: ExplosionSpec = { radius: 0, damage: 0, kind: 'barrel', source: BLAST_SOURCE, team: 'player' };
 
@@ -121,6 +126,7 @@ export class VehicleSystem implements VehicleTargets {
     const { campaign, events, render } = this.ctx;
     this.materials = new ModelMaterials(this.ctx);
     this.fleet = new Fleet(this.materials, render.scene);
+    this.fleet.warm();
     campaign.provide({ vehicle: (order, at, route) => this.order(order, at, route) });
     events.on('campaign:sweep', () => this.sweep());
   }
@@ -341,6 +347,15 @@ export class VehicleSystem implements VehicleTargets {
     this.ctx.combat.explode(at, s);
   }
 
+  /** Takes ground off the soldiers' routes, or gives it back. A strip at a time, because that is what a shut door is to them. */
+  closeGround(at: THREE.Vector3, yaw: number, halfWidth: number, halfLength: number, shut: boolean): void {
+    const routes = this.manager.outpost?.routes;
+    if (!routes) return;
+    const c = Math.cos(yaw);
+    const s = Math.sin(yaw);
+    for (let across = 1 - halfWidth; across < halfWidth; across += 2) routes.setClosed(at.x + c * across, at.z - s * across, c, -s, halfLength * 2, shut);
+  }
+
   /** It took a killing hit in the air and has a long way to fall. */
   airburst(at: THREE.Vector3): void {
     const { audio, fx, render } = this.ctx;
@@ -413,10 +428,10 @@ export class VehicleSystem implements VehicleTargets {
 
   /** From a gunner's seat a dark machine on a dark road is a guess. They get the same silhouette the men do. */
   private mark(): void {
-    for (const v of this.live) {
-      const root = v instanceof GroundVehicle ? v.body : this.gunship?.frame.root;
-      if (root) this.ctx.render.highlight([root], '#ff5a3a', 0.6);
-    }
+    const { lit } = this;
+    lit.length = 0;
+    for (const v of this.live) for (let i = 0; i < v.meshes.length; i++) lit.push(v.meshes[i]!);
+    this.ctx.render.highlight(lit, SEAT_MARK, SEAT_MARK_STRENGTH);
   }
 
   /** What is in the road, for everything on it. A few times a second: nothing here moves fast enough to need more. */
@@ -426,31 +441,29 @@ export class VehicleSystem implements VehicleTargets {
     this.trafficIn = TRAFFIC_EVERY;
     for (const v of this.live) {
       if (!(v instanceof GroundVehicle)) continue;
-      const { drive, def } = v;
-      const way = drive.reversing ? -1 : 1;
-      const fx = Math.sin(drive.yaw) * way;
-      const fz = Math.cos(drive.yaw) * way;
-      let clear = Infinity;
-      let dodge = 0;
-      const left = drive.roadLeft;
-      // Round something stopped in the road, and in behind anything else: a moving one, or one parked where this one was going anyway.
-      const check = (x: number, z: number, half: number, length: number, stopped: boolean): void => {
-        const dx = x - drive.x;
-        const dz = z - drive.z;
-        const ahead = dx * fx + dz * fz;
-        const across = dx * fz - dz * fx;
-        const room = def.halfWidth + half + TRAFFIC_HALF;
-        if (ahead < 0 || ahead > ROAD_LOOK + def.halfLength || Math.abs(across) > room) return;
-        if (stopped && left > ahead + length + def.halfLength + STOP_SHORT) dodge = across >= 0 ? -SIDESTEP : SIDESTEP;
-        else clear = Math.min(clear, ahead - def.halfLength - length - STOP_SHORT);
-      };
+      this.clearRoad = Infinity;
+      this.dodgeRoad = 0;
       for (const o of this.live) {
-        if (o === v || !o.alive || !(o instanceof GroundVehicle)) continue;
-        check(o.position.x, o.position.z, o.def.halfWidth, o.def.halfLength, o.settled);
+        if (o !== v && o.alive && o instanceof GroundVehicle) this.lookAhead(v, o.position.x, o.position.z, o.def.halfWidth, o.def.halfLength, o.settled);
       }
-      for (const w of this.wrecks) check(w.root.position.x, w.root.position.z, w.halfWidth, w.halfLength, true);
-      v.setTraffic(Math.max(clear, 0), dodge);
+      for (const w of this.wrecks) this.lookAhead(v, w.root.position.x, w.root.position.z, w.halfWidth, w.halfLength, true);
+      v.setTraffic(Math.max(this.clearRoad, 0), this.dodgeRoad);
     }
+  }
+
+  /** Round something stopped in the road, and in behind anything else: a moving one, or one parked where this one was going anyway. */
+  private lookAhead(v: GroundVehicle, x: number, z: number, half: number, length: number, stopped: boolean): void {
+    const { drive, def } = v;
+    const way = drive.reversing ? -1 : 1;
+    const fx = Math.sin(drive.yaw) * way;
+    const fz = Math.cos(drive.yaw) * way;
+    const dx = x - drive.x;
+    const dz = z - drive.z;
+    const ahead = dx * fx + dz * fz;
+    const across = dx * fz - dz * fx;
+    if (ahead < 0 || ahead > ROAD_LOOK + def.halfLength || Math.abs(across) > def.halfWidth + half + TRAFFIC_HALF) return;
+    if (stopped && drive.roadLeft > ahead + length + def.halfLength + STOP_SHORT) this.dodgeRoad = across >= 0 ? -SIDESTEP : SIDESTEP;
+    else this.clearRoad = Math.min(this.clearRoad, ahead - def.halfLength - length - STOP_SHORT);
   }
 
   /** Nobody walks through a truck, moving or burnt out. Soldiers have no bodies, so they are moved aside here. */

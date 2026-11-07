@@ -38,6 +38,8 @@ export abstract class Vehicle {
   retired = false;
   /** Whoever last hurt it, for the kill. */
   source = '';
+  /** What a gunner's sight marks. */
+  readonly meshes: THREE.Object3D[] = [];
   /** Radians the turret stands off the hull. */
   protected turretYaw = 0;
 
@@ -52,6 +54,12 @@ export abstract class Vehicle {
       this.parts.push(state);
       sys.colliders.set(collider.handle, state);
     }
+  }
+
+  protected collectMeshes(root: THREE.Object3D): void {
+    root.traverse(o => {
+      if ((o as THREE.Mesh).isMesh) this.meshes.push(o);
+    });
   }
 
   abstract update(dt: number): void;

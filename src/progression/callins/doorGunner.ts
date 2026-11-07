@@ -64,7 +64,7 @@ export class DoorGunner extends GunnerStrike<UtilityMount> {
       this.orbit = null;
       this.path = new FlightPath(flight.marks, D.flightSpeed);
       const end = flight.marks[flight.marks.length - 1]!;
-      this.seat.parkNear(_pos.set(end.x, end.y, end.z));
+      this.seat.fixed(_pos.set(end.x, end.y, end.z));
     } else {
       // A copy, because the hold is cut short the moment the seat empties.
       this.orbit = this.path = new OrbitPath({ ...(small ? D.small : D.large), holdSeconds: D.seat.seconds + D.boardSeconds });

@@ -152,11 +152,16 @@ function warRoom(s: Site): void {
   }
   for (const x of [-7, 7]) {
     g.use('steelDark').bevel(x, r.y + 0.48, -72, 2.2, 0.48, 1.3, 0.04);
-    g.use('emissiveCyan').box(x, r.y + 0.97, -72, 2, 0.01, 1.1, FACE.py);
+    g.use('paintWhite').tint(0.05, 0.26, 0.34).box(x, r.y + 0.97, -72, 2, 0.01, 1.1, FACE.py);
+    g.tint(1).use('emissiveCyan').box(x, r.y + 0.98, -72, 1.7, 0.004, 0.03, FACE.py);
     s.cover(x - 2.2, -73.3, x + 2.2, -70.7, 0.96, r.y, 'metal');
   }
-  // The wall map: the only big light in the room, and what the player sees through the glass from the bottom of the Stack.
-  g.use('emissiveRed').box(2, r.y + 2.7, -78 + 0.02, 7, 0.6, 0.01, FACE.pz);
+  // The wall map, a plot of the site in lit lines: what the player sees through the glass from the bottom of the Stack.
+  g.use('paintRed').tint(0.26).box(2, r.y + 2.6, -78 + 0.02, 7, 0.76, 0.01, FACE.pz);
+  g.tint(1).use('emissiveRed');
+  for (const [ox, oy, w, h] of [[-3, 0.1, 2.4, 0.03], [2.5, 0.4, 3.4, 0.03], [0, -0.3, 5.6, 0.02], [-1, 0.4, 0.03, 0.34], [4.2, 0, 0.03, 0.5], [-4.6, -0.1, 0.03, 0.5]] as const) {
+    g.box(2 + ox, r.y + 2.6 + oy, -78 + 0.04, w, h, 0.004, FACE.pz);
+  }
   for (const x of [-6, 2, 10]) s.bar(x, WAR_CEIL, -72, 0, 4, 'red', 44, 14);
   s.fill(0, 12, -68, 40, 13, 'red');
   // The way to the roof.

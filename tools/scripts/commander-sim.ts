@@ -64,6 +64,7 @@ ctx.characters = { spawn: fakeCharacter };
 ctx.hud = noop('hud');
 ctx.progression = { pickups: [] as unknown[], spawnPickup() {}, shootDown: () => true };
 ctx.weapons = noop('weapons');
+ctx.campaign = noop('campaign');
 ctx.contracts = { sonar: { live: 0, wait: 0, limit: 8 } };
 
 const blasts: Record<string, number> = {};

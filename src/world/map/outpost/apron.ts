@@ -363,7 +363,7 @@ function scatter(s: Site): void {
   container(k, -86, 0, 94, -0.5);
   container(k, 94, 0, 58, 1.2);
   container(k, 22, 0, 98, 0.1);
-  truck(k, 70, 0, 66, 0.7, 0);
+  truck(k, 52, 0, 76, 0.7, 0);
   truck(k, 36, 0, 84, -1.1, 0);
   for (const [x, z] of [[-74, 78], [6, 88], [58, 88], [30, 72], [84, 66]] as const) tyres(k, x, 0, z, 4);
   for (const [x, z, yaw] of [[-8, 84, 0.4], [-70, 34 + 12, 0.3], [78, 74, 0.8], [46, 96, 0.2]] as const) hedgehog(s, x, z, yaw);

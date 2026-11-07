@@ -146,6 +146,7 @@ export class GroundVehicle extends Vehicle {
     else this.engine.start(1);
     this.pose(0);
     model.root.visible = true;
+    this.collectMeshes(model.root);
     if (def.rider && !order.parked) this.seatRider();
   }
 
@@ -199,10 +200,6 @@ export class GroundVehicle extends Vehicle {
   setTraffic(clear: number, dodge: number): void {
     this.clear = clear;
     this.dodge = dodge;
-  }
-
-  get body(): THREE.Object3D {
-    return this.model.root;
   }
 
   get settled(): boolean {
