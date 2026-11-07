@@ -57,3 +57,17 @@ The feeling to chase: "it could be, there's something missing... not as good as 
 
 - "the zombies should be the scary guys": read as a slip for "the humans". Confirm.
 - Earlier the owner said forces looked ridiculous; now wants forceful explosions. Plan: bullets stay modest, blasts get stronger.
+
+## Playtest round 4: Outpost mission, `softskins`
+
+Owner, after taking the shotgun and first two grenades: shredded instantly by the wave, not enough cover to slide between, and "mortared" inside the houses. Asked whether there is an intended way out.
+
+- The beat's job in MISSION.md is "a hard, fair, even fight". As played, it is not.
+- Up to 13 men at once: the 4 from `lz.rim`, the 8 in `soft.first`, and the tower. MISSION.md counts 17 men in total and leaves out the rim.
+- No armour on offer until `breather`.
+- The "mortars" are probably frags. The planner answers a camper with a frag and a rush, at 62 damage over 6.5 m, so two kill from full health. Real mortars need a wave start to place a tube. Tank shells do 60 over 6 m if the owner had reached `heavy`.
+
+Planned changes, after Assemble and the playtest finish so as not to collide with them:
+
+1. `softskins`: put armour at the Guardhouse, cut how many men are up at once, and hold squad frags for the opening of the fight.
+2. `heavy`: the wreck objective waits 26 s, and a death restarts that clock, so a player who dies quickly is never told to run. Cut the wait, and show it at once after a redeploy.
