@@ -33,10 +33,10 @@ export const AC130 = {
   },
   engine: {
     near: 260, far: 1100,
-    /** Two close pitches of one loop beat against each other, the drone of props never quite in step. */
+    /** A close second pitch beats against the first, the drone of props never quite in step. */
     layers: [
-      { id: 'drone_rotor_loop', volume: 1.5, pitch: 0.42 },
-      { id: 'drone_rotor_loop', volume: 1.1, pitch: 0.467 },
+      { id: 'ac130_prop_loop', volume: 1.5, pitch: 1 },
+      { id: 'ac130_prop_loop', volume: 0.8, pitch: 1.03 },
     ],
     /** The level rises and falls by this much around each lap, as wind and the turn carry the sound about. */
     swell: 0.35,

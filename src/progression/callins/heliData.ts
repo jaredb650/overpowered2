@@ -39,7 +39,8 @@ export interface HeliPlan {
   praise: { kills: number; window: number; every: number };
 }
 
-const ROTOR = 'drone_rotor_loop';
+const ROTOR = 'heli_rotor_loop';
+const TURBINE = 'heli_turbine_loop';
 
 export const ATTACK = {
   callsign: 'HARROW',
@@ -66,7 +67,7 @@ export const ATTACK = {
   },
   engine: {
     near: 70, far: 520,
-    layers: [{ id: ROTOR, volume: 1.5, pitch: 0.34 }, { id: ROTOR, volume: 1.1, pitch: 0.39 }],
+    layers: [{ id: ROTOR, volume: 1.3, pitch: 1 }, { id: TURBINE, volume: 0.7, pitch: 1 }],
   },
   boardSeconds: 2.8,
   chase: [-8, 2.4, -17],
@@ -124,7 +125,7 @@ export const DOOR = {
   },
   engine: {
     near: 70, far: 520,
-    layers: [{ id: ROTOR, volume: 1.5, pitch: 0.3 }, { id: ROTOR, volume: 1.1, pitch: 0.345 }],
+    layers: [{ id: ROTOR, volume: 1.3, pitch: 1.3 }, { id: TURBINE, volume: 0.8, pitch: 1.12 }],
   },
   boardSeconds: 3.2,
   chase: [13, 3.5, -17],

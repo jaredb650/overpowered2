@@ -72,6 +72,52 @@ export const vehicles = [
     s.noise('pink').bp(520, 1.1).am(s.lfo(18, 0.92, 'sawtooth')).out(0.5);
     s.noise('white').hp(2600).am(s.lfo(18, 0.9, 'sawtooth')).out(0.03);
   }),
+  // The player's own helicopters. Two wide blades at eleven slaps a second: each slap is a shock off the tip, so it is low and hard-edged, and the tail rotor buzzes across it at seven to one.
+  r('heli_rotor_loop', { dur: 1, mix: 'loop3d', loop: true, over: { volume: 0.72, maxVoices: 4, near: 6, far: 120, send: 0.16 } }, s => {
+    s.osc('sine', 44).am(s.lfo(11, 0.9)).drive(1.6).out(0.6);
+    s.noise('brown').lp(320).gain(2).am(s.lfo(11, 0.95)).out(0.55);
+    // Laptop speakers stop near 150 Hz, and the slap has to survive them.
+    s.noise('pink').bp(520, 1).am(s.lfo(11, 0.96, 'sawtooth')).out(1);
+    s.noise('pink').bp(1500, 1.4).am(s.lfo(11, 0.94, 'sawtooth')).out(0.3);
+    s.osc('sawtooth', 77).lp(600).am(s.lfo(11, 0.3)).out(0.16);
+    s.noise('white').hp(3000).am(s.lfo(11, 0.9, 'sawtooth')).out(0.02);
+  }),
+  r('heli_turbine_loop', { dur: 1, mix: 'loop3d', loop: true, over: { volume: 0.4, maxVoices: 4, near: 6, far: 120 } }, s => {
+    s.osc('sine', 3300).am(s.wander(2, 0.08)).out(0.07);
+    s.osc('sine', 1650).out(0.04);
+    s.noise('pink').bp(2200, 2.4).out(0.28);
+    s.noise('brown').lp(180).gain(1.2).out(0.3);
+  }),
+  // Four turboprops seen from the ground: a blade note you can hum, two of them never quite in step, and a whine a long way above it.
+  r('ac130_prop_loop', { dur: 2, mix: 'loop3d', loop: true, over: { volume: 0.6, maxVoices: 3, near: 6, far: 120, send: 0.12 } }, s => {
+    s.osc('sawtooth', 68).lp(420).drive(1.3).out(0.5);
+    s.osc('sawtooth', 70.5).lp(420).out(0.4);
+    s.osc('sine', 136).am(s.lfo(2.5, 0.3)).out(0.24);
+    s.noise('brown').lp(300).gain(1.6).am(s.lfo(4, 0.2)).out(0.6);
+    s.noise('pink').bp(1100, 2).out(0.08);
+    s.osc('sine', 2480).am(s.wander(1.5, 0.12)).out(0.03);
+  }),
+  // The sound every soldier learns first. It starts high and thin and falls the whole way, on a fin not quite true, and the last of it is the part you hear coming at you.
+  r('mortar_whistle', { dur: 2.1, n: 3, mix: 'blastSmall', over: { volume: 0.62, near: 14, far: 220, airDelay: false, send: 0.24, duck: undefined, maxVoices: 5 }, expect: { trend: -1 } }, s => {
+    const f = s.r(1650, 2150);
+    const rise = [[0, 0.0001], [1.7, 0.5], [2, 0.8], [2.1, 0.0001]] as const;
+    s.osc('sine', [[0, f], [2, f * 0.3]], 2.1).am(s.lfo(9, 0.1)).env(rise).out();
+    s.osc('sine', [[0, f * 2.01], [2, f * 0.6]], 2.1).env([[0, 0.0001], [1.2, 0.08], [2, 0.14], [2.1, 0.0001]]).out();
+    s.noise('pink', 2.1).bp([[0, f * 1.2], [2, 420]], 1.8).env([[0, 0.0001], [1.9, 0.9], [2.1, 0.0001]]).out();
+  }),
+  // A shell leaving a tube: a hollow knock and the breath behind it, heard from a long way off.
+  r('mortar_tube', { dur: 0.9, n: 2, mix: 'blastSmall', over: { volume: 0.8, near: 20, far: 300, send: 0.4, duck: undefined, maxVoices: 3 }, expect: { attackMs: [0, 10] } }, s => {
+    thump(s, 120, 0.18, 1, 2);
+    clank(s, 500, 0.5, 0.1);
+    s.noise('pink', 0.5).lp(900).env(perc(0.25, 0.6, 0.005)).out();
+  }),
+  // The mains going. A contactor drops out, and everything that was humming runs down.
+  r('lights_out', { dur: 1.6, mix: 'enemyFx', over: { volume: 0.8, priority: 8, exempt: true }, expect: { trend: -1 } }, s => {
+    clank(s, 240, 1, 0.2);
+    thump(s, 58, 0.3, 0.9);
+    s.osc('sawtooth', [[0, 120], [1.3, 30]], 1.5).lp(700).env(perc(0.9, 1.4, 0.01)).out();
+    s.at(0.2, () => clank(s, 400, 0.4, 0.1));
+  }),
   r('gunship_turbine_loop', { dur: 1, mix: 'loop3d', loop: true, over: { volume: 0.42, maxVoices: 3, near: 6, far: 120 } }, s => {
     s.osc('sine', 2100).am(s.wander(2, 0.1)).out(0.09);
     s.osc('sine', 3150).out(0.05);

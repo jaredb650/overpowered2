@@ -8,6 +8,7 @@
  * they expire instead of stacking forever, and a health pack is not eaten at full health.
  */
 import * as THREE from 'three';
+import { MISSION_ID } from '../../campaign/select';
 import type { Ctx } from '../../core/contracts';
 import type { KillEvent, PickupKind, PowerupId } from '../../core/gameplay';
 import { chance, clamp, pick, rand, TAU } from '../../core/math';
@@ -367,7 +368,8 @@ export class Pickups {
         }
       }
     }
-    this.capsuleIn -= dt;
+    // A mission hands out what it means to, where it means to. A marked capsule behind a wall it has not opened yet is a promise it cannot keep.
+    if (!MISSION_ID) this.capsuleIn -= dt;
     if (this.capsuleIn <= 0) {
       this.capsuleIn = rand(CAPSULE.every[0], CAPSULE.every[1]);
       if (this.countCapsules() < CAPSULE.maxLive) {

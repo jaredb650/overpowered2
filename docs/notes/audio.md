@@ -180,7 +180,7 @@ Rendered at load. x4 means four rendered variants behind one id.
 - **Melee:** `enemy_swing` x3, `enemy_lunge` x2, `enemy_blade` x3
 - **Specials:** `riot_shield_hit` x3, `riot_shield_break`, `warden_shield_up`, `warden_shield_loop`, `warden_buff`, `bomber_beep`, `bomber_tank_hiss_loop`, `burner_flame_loop`, `enemy_spawn`, `armor_plate_off` x3, `leaper_pounce`, `leaper_cling`
 - **Machines:** `drone_rotor_loop`, `drone_gun` x3, `drone_alert`, `drone_crash`, `skitter_legs_loop`, `skitter_step` x4, `skitter_chirp` x3, `skitter_explode` x2
-- **Vehicles (`synth/recipes/vehicles.ts`):** `truck_engine_loop`, `tank_engine_loop`, `tank_tracks_loop`, `tank_turret_loop`, `tank_turret_stop`, `tank_lay`, `tank_cannon` x2, `track_snap`, `mounted_gun` x3, `gunship_gun` x3, `gunship_rotor_loop`, `gunship_turbine_loop`, `gunship_stricken`, `vehicle_horn`, `vehicle_fuel_leak`, `vehicle_explode` x2, `wreck_land` x2
+- **Vehicles (`synth/recipes/vehicles.ts`):** `truck_engine_loop`, `tank_engine_loop`, `tank_tracks_loop`, `tank_turret_loop`, `tank_turret_stop`, `tank_lay`, `tank_cannon` x2, `track_snap`, `mounted_gun` x3, `gunship_gun` x3, `gunship_rotor_loop`, `gunship_turbine_loop`, `heli_rotor_loop`, `heli_turbine_loop`, `ac130_prop_loop`, `mortar_whistle` x3, `mortar_tube` x2, `lights_out`, `gunship_stricken`, `vehicle_horn`, `vehicle_fuel_leak`, `vehicle_explode` x2, `wreck_land` x2
 - **Juggernaut:** `juggernaut_step` x3, `juggernaut_charge`, `juggernaut_slam`, `juggernaut_armor_break`
 - **Titan:** `titan_step` x3, `titan_roar` x2, `titan_stomp`, `titan_limb_break`, `titan_fall`, `titan_charge`, `titan_beam_loop`
 

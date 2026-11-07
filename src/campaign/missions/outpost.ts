@@ -1,10 +1,11 @@
 /**
- * The Outpost: docs/campaign/MISSION.md as rows. Beat ids are the ones the plan uses and `?beat=` takes. A beat here is complete for
- * the runner today: what it cannot do yet, such as a tank, falls back in the host and the mission still plays start to end.
+ * The Outpost: docs/campaign/MISSION.md as rows. Beat ids are the ones the plan uses and `?beat=` takes.
+ *
+ * Teaching prompts are short and show keys. Each lesson says its piece once, and says it again only if the player stays stuck.
  */
-import type { Beat, Loadout, Mission, Step } from '../types';
+import type { Beat, Cue, Loadout, Mission, Step } from '../types';
 import { OUTPOST_LINES } from './outpost.lines';
-import { DOORS, MARKS, ROUTES, ZONES } from './outpost.places';
+import { DOORS, LEVEL, MARKS, ROUTES, ZONES } from './outpost.places';
 
 const say = (id: string, wait = false): Step => ({ do: 'say', line: `mission.${id}`, wait });
 const commander = (id: string, wait = false): Step => say(`cmd.${id}`, wait);
@@ -26,6 +27,13 @@ const ARMOUR: readonly Step[] = [
   { do: 'vehicle', tag: 'heavy.tank2', kind: 'tank', at: 'westEdge', route: 'tankWest', ensure: true },
 ];
 
+/** The player has been stuck at this for a while. Re-arms on every firing, so `seconds` is also the gap between reminders. */
+const nudge = (zone: string, seconds: number, text: string): Cue => ({
+  when: { all: [{ zone }, { after: seconds }] },
+  repeat: true,
+  run: [{ do: 'hint', text, seconds: 8 }],
+});
+
 const BEATS: readonly Beat[] = [
   {
     id: 'briefing',
@@ -46,6 +54,8 @@ const BEATS: readonly Beat[] = [
   {
     id: 'insertion',
     title: 'Door gunner',
+    // A restart here is a second go at the ride, not a second sitting through the notice.
+    checkpoint: { at: 'lz', loadout: KIT.issued },
     start: [
       { do: 'music', state: 'easy' },
       { do: 'threat', level: 1 },
@@ -57,6 +67,9 @@ const BEATS: readonly Beat[] = [
       { do: 'ride', seat: 'doorGunner', route: 'insertion' },
       // The men the door gun did not reach have gone to ground. On foot, the player starts against four, not a garrison.
       { do: 'sweep' },
+      { do: 'call', name: 'crash' },
+      // Thrown clear of it, in the dark, which is how the body comes to be somewhere better than inside the airframe.
+      { do: 'place', at: 'lzWake' },
       { do: 'signal', name: 'landed' },
     ],
     cues: [
@@ -89,12 +102,16 @@ const BEATS: readonly Beat[] = [
       { do: 'threat', level: 1 },
       pilot('in.rental'),
       { do: 'objective', id: 'gate', text: 'Get to the main gate', at: 'gateMouth' },
-      { do: 'hint', text: 'Jump at the wall and hold {forward} to climb it.', seconds: 9 },
-      { do: 'squad', tag: 'lz.rim', men: ['trooper', 'gunner', 'trooper', 'brute'], at: 'lzRim' },
+      // They hold their fire until the player is up. Four guns on a man coming round at the bottom of a pit is a death nobody saw.
+      { do: 'squad', tag: 'lz.rim', men: ['trooper', 'gunner', 'trooper', 'brute'], at: 'lzRim', orders: 'hold' },
       { do: 'drop', item: 'health', at: 'lzHealth' },
+      { do: 'wait', seconds: 2.5 },
+      { do: 'hint', text: '{jump} at the wall and hold {forward} to climb out.', seconds: 9 },
     ],
     cues: [
-      { when: { zone: 'lzCut', outside: true }, run: [commander('lz.file')] },
+      nudge('lzCut', 24, '{jump} at the wall and hold {forward} to climb out.'),
+      { when: { zone: 'lzCut', outside: true }, run: [commander('lz.file'), { do: 'release', tag: 'lz.rim' }] },
+      { when: { after: 20 }, run: [{ do: 'release', tag: 'lz.rim' }] },
       // Only a strafe-jump at the top of its speed beats the gate. The story needs them outside it.
       { when: { zone: 'gateYard' }, run: [{ do: 'place', at: 'gateMouth' }] },
       {
@@ -120,6 +137,8 @@ const BEATS: readonly Beat[] = [
     start: [
       { do: 'threat', level: 2 },
       { do: 'objective', id: 'trucks', text: 'Stop the reinforcements' },
+      // Those who were on the rim when the gate shut are still in it. A restart from here has to put them back.
+      { do: 'squad', tag: 'lz.rim', men: ['trooper', 'gunner', 'trooper', 'brute'], at: 'lzRim', ensure: true },
       commander('soft.east'),
       { do: 'rack', weapon: 'shotgun', at: 'shotgunCrate' },
       { do: 'rack', weapon: 'judge', at: 'pumpRoof', optional: true },
@@ -127,13 +146,15 @@ const BEATS: readonly Beat[] = [
       { do: 'vehicle', tag: 'soft.truck1', kind: 'humvee', at: 'eastEdge', route: 'eastRoad', crew: ['trooper', 'gunner', 'trooper'], crewTag: 'soft.first' },
       { do: 'wait', seconds: 4 },
       { do: 'vehicle', tag: 'soft.truck2', kind: 'truck', at: 'eastEdge', route: 'eastRoad', crew: ['trooper', 'trooper', 'brute', 'trooper', 'gunner'], crewTag: 'soft.first' },
-      { do: 'squad', tag: 'soft.tower', men: ['brute'], at: 'towerTwo', orders: 'hold' },
+      // A tower has no way down, so a man sent to hunt from one stays up there and works the lane.
+      { do: 'squad', tag: 'soft.tower', men: ['brute'], at: 'towerTwo' },
+      { do: 'hint', text: 'Trucks die to bullets. Shoot the cab, or the fuel beside the road.', seconds: 8 },
     ],
     cues: [
       { when: { kills: 1, tag: 'soft.first' }, run: [commander('soft.driver')] },
-      { when: { kills: 3, tag: 'soft.first' }, run: [commander('soft.left')] },
-      { when: { after: 22 }, run: [commander('soft.tower')] },
-      { when: { event: 'weapon:unlocked', where: { weapon: 'shotgun' } }, run: [{ do: 'grenades', count: 2 }, { do: 'hint', text: 'Shotguns end arguments at door range. {grenade} throws what you found with it.' }] },
+      { when: { kills: 3, tag: 'soft.first' }, run: [{ do: 'drill', tag: 'soft.first', drill: 'flank', line: 'mission.cmd.soft.left' }] },
+      { when: { after: 22 }, run: [commander('soft.tower'), { do: 'hint', text: 'The tower owns the open lanes. Stay behind cover, and cross in bounds.', seconds: 7 }] },
+      { when: { event: 'weapon:unlocked', where: { weapon: 'shotgun' } }, run: [{ do: 'grenades', count: 2 }, { do: 'hint', text: '{grenade} throws the two you found with it.' }] },
       {
         when: { left: 2, tag: 'soft.first' },
         run: [
@@ -145,7 +166,7 @@ const BEATS: readonly Beat[] = [
         ],
       },
     ],
-    until: { all: [{ signal: 'secondWave' }, { cleared: ['soft.first', 'soft.second'] }] },
+    until: { all: [{ signal: 'secondWave' }, { cleared: ['soft.first', 'soft.second', 'lz.rim'] }] },
   },
   {
     id: 'breather',
@@ -153,6 +174,8 @@ const BEATS: readonly Beat[] = [
     checkpoint: { at: 'apronRally', loadout: KIT.shotgun },
     start: [
       { do: 'done', id: 'trucks' },
+      // A breath is not a breath with a machine gun on it.
+      { do: 'sweep', tag: 'soft.tower' },
       { do: 'music', state: 'easy' },
       commander('soft.names'),
       council('soft.receipts'),
@@ -173,9 +196,10 @@ const BEATS: readonly Beat[] = [
       { do: 'banner', text: 'ARMOUR', sub: 'east road' },
       { do: 'vehicle', tag: 'heavy.tank1', kind: 'tank', at: 'eastEdge', route: 'tankEast' },
       { do: 'vehicle', tag: 'heavy.truck1', kind: 'humvee', at: 'westEdge', route: 'westRoad', crew: ['trooper', 'gunner', 'trooper', 'trooper'], crewTag: 'heavy.men' },
-      { do: 'squad', tag: 'heavy.towers', men: ['brute', 'sniper'], at: 'towerOne', orders: 'hold' },
+      { do: 'squad', tag: 'heavy.towers', men: ['brute', 'sniper'], at: 'towerOne' },
       { do: 'wait', seconds: 6 },
       commander('heavy.look'),
+      { do: 'hint', text: 'Armour. Nothing you carry will touch it. Keep moving.', seconds: 7 },
       { do: 'wait', seconds: 10 },
       { do: 'vehicle', tag: 'heavy.tank2', kind: 'tank', at: 'westEdge', route: 'tankWest' },
     ],
@@ -200,11 +224,12 @@ const BEATS: readonly Beat[] = [
     start: [
       ...ARMOUR,
       { do: 'squad', tag: 'wreck.guard', men: ['trooper', 'gunner', 'trooper'], at: 'apronEast' },
-      { do: 'hint', text: 'Too high for one jump. Stand close, press {jump} twice, and hold {forward} to catch the edge.', seconds: 10 },
+      { do: 'hint', text: 'Too high for one jump. Stand close, press {jump} {jump} and hold {forward}.', seconds: 10 },
       { do: 'rack', weapon: 'rocket', at: 'rocketRack' },
       { do: 'drop', item: 'ammo', at: 'wreckAmmo' },
     ],
     cues: [
+      nudge('hullFoot', 18, 'Stand close to the hull, press {jump} {jump} and hold {forward}.'),
       { when: { zone: 'wreckDeck' }, run: [commander('wreck.boots'), { do: 'done', id: 'wreck' }] },
     ],
     until: { signal: 'took:rocket' },
@@ -218,12 +243,14 @@ const BEATS: readonly Beat[] = [
       { do: 'objective', id: 'armour', text: 'Destroy the armour' },
       commander('wreck.changes'),
       council('wreck.balance'),
-      { do: 'hint', text: 'Rockets go through armour on a direct hit. The blast beside it does little. Hit the tracks or the hull.', seconds: 10 },
+      { do: 'hint', text: 'A direct hit goes through armour. The blast beside it does little. Aim for the tracks or the hull.', seconds: 10 },
       { do: 'field', answer: 'spread' },
       commander('turn.spread'),
     ],
     cues: [
-      { when: { kills: 1, tag: 'heavy.tank1' }, run: [commander('turn.forty')] },
+      { when: { any: [{ kills: 1, tag: 'heavy.tank1' }, { kills: 1, tag: 'heavy.tank2' }] }, run: [commander('turn.forty')] },
+      // Nothing else on this map can hurt a tank, so running out of rockets must never be the end of the mission.
+      { when: { all: [{ ammo: 'rocket', under: 3 }, { after: 12 }] }, repeat: true, run: [{ do: 'drop', item: 'ammo', at: 'apronAmmoEast' }, { do: 'drop', item: 'ammo', at: 'apronAmmoWest' }, { do: 'hint', text: 'Ammunition on the apron.', seconds: 5 }] },
       {
         when: { any: [{ cleared: 'heavy.tank1' }, { cleared: 'heavy.tank2' }] },
         run: [
@@ -277,7 +304,7 @@ const BEATS: readonly Beat[] = [
       {
         when: { all: [{ signal: 'sealing' }, { after: 9 }] },
         repeat: true,
-        run: [{ do: 'door', door: 'blastDoor', open: 0.4, seconds: 1.2 }, { do: 'wait', seconds: 4 }, { do: 'door', door: 'blastDoor', open: 0, seconds: 1.2 }],
+        run: [{ do: 'door', door: 'blastDoor', open: 0.4, seconds: 1.2 }, { do: 'hint', text: 'Too low to stand. Run at it and press {slide}.', seconds: 5 }, { do: 'wait', seconds: 4 }, { do: 'door', door: 'blastDoor', open: 0, seconds: 1.2 }],
       },
     ],
     until: { zone: 'sallyHall' },
@@ -296,22 +323,26 @@ const BEATS: readonly Beat[] = [
       commander('bar.lights', true),
       { do: 'wait', seconds: 2 },
       { do: 'door', door: 'sallyWest', open: 1 },
-      { do: 'objective', id: 'way', text: 'Find a way through the block' },
+      { do: 'objective', id: 'way', text: 'Find a way through the block', at: 'coolantNear' },
       { do: 'field', answer: 'crossfire' },
       { do: 'squad', tag: 'bar.pin', men: ['brute', 'trooper', 'trooper'], at: 'corridorMg', orders: 'hold' },
       { do: 'squad', tag: 'bar.flank', men: ['trooper', 'gunner', 'gunner', 'trooper'], at: 'northCorridorEast', orders: 'hold' },
       { do: 'squad', tag: 'bar.bunks', men: ['gunner', 'riot', 'trooper'], at: 'bunkFour', orders: 'hold' },
       { do: 'drop', item: 'health', at: 'barracksHealth' },
+      { do: 'hint', text: '{sonar} shows you who is waiting in the dark.', seconds: 8 },
     ],
     cues: [
       {
         when: { zone: 'southCorridor' },
         run: [
+          { do: 'call', name: 'lights', arg: 'normal' },
           commander('bar.circle'),
           { do: 'release', tag: 'bar.pin' },
           { do: 'wait', seconds: 3 },
-          commander('bar.pin'),
+          { do: 'drill', tag: 'bar.pin', drill: 'baseOfFire' },
+          { do: 'drill', tag: 'bar.flank', drill: 'flank', line: 'mission.cmd.bar.pin' },
           { do: 'release', tag: 'bar.flank' },
+          { do: 'hint', text: 'A straight corridor is a death trap. Go round through the bunks.', seconds: 7 },
         ],
       },
       { when: { zone: 'bunks' }, run: [{ do: 'release', tag: 'bar.bunks' }] },
@@ -325,7 +356,8 @@ const BEATS: readonly Beat[] = [
     start: [
       commander('bar.tired'),
       { do: 'adapt' },
-      { do: 'objective', id: 'across', text: 'Cross the Coolant Hall' },
+      { do: 'done', id: 'way' },
+      { do: 'objective', id: 'across', text: 'Cross the Coolant Hall', at: 'coolantFar' },
       { do: 'squad', tag: 'cool.sniper', men: ['sniper'], at: 'coolantFar', orders: 'hold' },
       { do: 'drop', item: 'armor', at: 'coolantArmor' },
     ],
@@ -336,9 +368,10 @@ const BEATS: readonly Beat[] = [
           commander('cool.audit', true),
           { do: 'release', tag: 'cool.sniper' },
           council('cool.dash'),
-          { do: 'hint', text: 'Run, jump, jump again, and at the top of it press {dash}.', seconds: 10 },
+          { do: 'hint', text: 'Run, {jump} {jump}, and at the top of it press {dash}.', seconds: 10 },
         ],
       },
+      nudge('coolantPit', 6, 'Too far for two jumps. Run, {jump} {jump}, then {dash} in the air.'),
     ],
     until: { zone: 'coolantFar' },
   },
@@ -348,16 +381,19 @@ const BEATS: readonly Beat[] = [
     checkpoint: { at: 'galleryNear', loadout: KIT.raid },
     start: [
       { do: 'done', id: 'across' },
-      { do: 'objective', id: 'gallery', text: 'Cross the cable gallery' },
+      { do: 'objective', id: 'gallery', text: 'Cross the cable gallery', at: 'galleryFar' },
     ],
-    cues: [{
-      when: { zone: 'galleryNear' },
-      run: [
-        commander('gal.walkway', true),
-        council('gal.walls'),
-        { do: 'hint', text: 'Jump at the lit wall on a shallow line and keep {forward} held. Press {jump} to leave it, then {jump} again.', seconds: 12 },
-      ],
-    }],
+    cues: [
+      {
+        when: { zone: 'galleryNear' },
+        run: [
+          commander('gal.walkway', true),
+          council('gal.walls'),
+          { do: 'hint', text: '{jump} at the lit wall on a shallow line and hold {forward}. {jump} to leave it, then {jump} again.', seconds: 12 },
+        ],
+      },
+      nudge('galleryTrench', 6, 'The ceiling kills a long jump. Run along the lit wall, hold {forward}, {jump} off it, {jump} again.'),
+    ],
     until: { zone: 'galleryFar' },
   },
   {
@@ -369,7 +405,7 @@ const BEATS: readonly Beat[] = [
       commander('gal.what'),
       { do: 'threat', level: 6 },
       { do: 'field', answer: 'hiders' },
-      { do: 'objective', id: 'mess', text: 'Get through the mess hall' },
+      { do: 'objective', id: 'mess', text: 'Get through the mess hall', at: 'armoury' },
       { do: 'squad', tag: 'mess.floor', men: ['trooper', 'gunner', 'trooper', 'gunner'], at: 'messFloor', orders: 'hold' },
       { do: 'squad', tag: 'mess.west', men: ['trooper', 'trooper', 'brute'], at: 'messWest', orders: 'hold' },
       { do: 'squad', tag: 'mess.east', men: ['riot', 'gunner', 'trooper'], at: 'messEast', orders: 'hold' },
@@ -410,9 +446,9 @@ const BEATS: readonly Beat[] = [
       { do: 'door', door: 'armourySouth', open: 1 },
       { do: 'door', door: 'sallyEast', open: 1 },
       { do: 'objective', id: 'plates', text: 'Break Second Platoon' },
-      { do: 'hint', text: 'Plate shrugs off a blast. Put the rocket on the man in plate, and let the blast take the ones beside him.', seconds: 10 },
+      { do: 'hint', text: 'Plate shrugs off a blast. Rocket the plated man direct, and let the blast take the men beside him.', seconds: 10 },
       { do: 'squad', tag: 'plate.front', men: ['brute', 'brute'], at: 'plateWest' },
-      { do: 'squad', tag: 'plate.back', men: ['sniper', 'sniper', 'warden', 'sniper'], at: 'plateWest' },
+      { do: 'squad', tag: 'plate.back', men: ['trooper', 'trooper', 'warden', 'gunner'], at: 'plateWest' },
       { do: 'wait', seconds: 12 },
       { do: 'squad', tag: 'plate.round', men: ['brute', 'trooper', 'gunner'], at: 'guardRoom' },
     ],
@@ -434,6 +470,7 @@ const BEATS: readonly Beat[] = [
       { do: 'squad', tag: 'stack.lower', men: ['trooper', 'brute', 'rocketeer', 'trooper'], at: 'stackLower', orders: 'hold' },
       { do: 'squad', tag: 'stack.upper', men: ['sniper', 'trooper', 'gunner', 'riot'], at: 'stackUpper', orders: 'hold' },
       { do: 'drop', item: 'health', at: 'stackHealth' },
+      { do: 'hint', text: 'Stairs on both walls. Or the shaft in the corner: {jump} from wall to wall.', seconds: 9 },
     ],
     cues: [
       { when: { after: 15 }, run: [commander('stack.posts')] },
@@ -451,6 +488,7 @@ const BEATS: readonly Beat[] = [
       { do: 'threat', level: 9 },
       { do: 'done', id: 'climb' },
       commander('boss.stores'),
+      { do: 'objective', id: 'boss', text: 'Kill the Commander' },
       { do: 'boss', tag: 'commander', at: 'warRoom' },
       { do: 'door', door: 'warGlass', open: 1 },
       { do: 'drop', item: 'ammo', at: 'roofAmmo' },
@@ -463,18 +501,23 @@ const BEATS: readonly Beat[] = [
           { do: 'door', door: 'warRoomStairs', open: 1 },
           { do: 'call', name: 'commanderToRoof', arg: 'roofMast' },
           commander('boss.roof'),
+          { do: 'objective', id: 'boss', text: 'Follow him to the roof', at: 'roofMast' },
           { do: 'squad', tag: 'boss.west', men: ['trooper', 'gunner', 'trooper'], at: 'roofWest' },
           { do: 'squad', tag: 'boss.east', men: ['trooper', 'rocketeer', 'trooper'], at: 'roofEast' },
         ],
       },
       { when: { below: 0.25, tag: 'commander' }, run: [council('boss.hours')] },
+      { when: { all: [{ ammo: 'rocket', under: 3 }, { after: 30 }] }, repeat: true, run: [{ do: 'drop', item: 'ammo', at: 'roofAmmo' }] },
     ],
     until: { cleared: 'commander' },
   },
   {
     id: 'ending',
     title: 'Notice of Completion',
+    // He is dead. Whatever is still landing on the roof must not bring him back.
+    checkpoint: { at: 'roofMast', loadout: KIT.full },
     start: [
+      { do: 'done', id: 'boss' },
       { do: 'done', id: 'mission' },
       { do: 'music', state: 'menu' },
       // His last words and the Council's receipt have the box to themselves.
@@ -502,19 +545,21 @@ export const OUTPOST: Mission = {
     // Down through the cloud to the compound, then along the gate, while the Council reads the notice.
     briefing: {
       shots: [
-        { from: [240, 150, 240], to: [150, 90, 170], lookFrom: [0, 0, -30], lookTo: [0, 4, -30], seconds: 16 },
+        { from: [-120, 96, 210], to: [-60, 62, 150], lookFrom: [0, 0, -20], lookTo: [0, 2, -24], seconds: 16, fov: 42, fadeIn: 3, caption: 'The Outpost' },
         { from: [-90, 34, 58], to: [20, 30, 50], lookFrom: [-20, 6, 12], lookTo: [0, 6, 12], seconds: 14 },
         { from: [0, 40, -100], to: [0, 24, -96], lookFrom: [0, 14, -70], lookTo: [0, 16, -70], seconds: 12 },
         // Up the well of the Stack to the lit glass: the outside of the block shows nothing of the room he is in.
-        { from: [0, 11.8, -36], to: [0, 11.6, -52], lookFrom: [0, 11.8, -70], lookTo: [0, 11.6, -70], seconds: 10 },
+        { from: [0, 11.8, -36], to: [0, 11.6, -54], lookFrom: [0, 11.8, -70], lookTo: [0, 11.8, -70], seconds: 12, fov: 38, fadeOut: 1.6, caption: 'Commanding officer' },
       ],
+      figure: { at: [0, LEVEL.command, -67.4], yaw: 0 },
     },
     // From the roof, over the burning apron and up.
     ending: {
       shots: [
-        { from: [0, 18, -34], to: [0, 30, -10], lookFrom: [0, 4, 30], lookTo: [0, 0, 50], seconds: 12 },
-        { from: [0, 30, -10], to: [0, 70, 30], lookFrom: [0, 0, 50], lookTo: [0, 0, 20], seconds: 12 },
+        { from: [0, 18, -34], to: [0, 30, -10], lookFrom: [0, 4, 30], lookTo: [0, 0, 50], seconds: 14, fadeIn: 1 },
+        { from: [0, 30, -10], to: [0, 70, 30], lookFrom: [0, 0, 50], lookTo: [0, 0, 20], seconds: 16, fadeOut: 3 },
       ],
+      endsBlack: true,
     },
   },
   lines: OUTPOST_LINES,

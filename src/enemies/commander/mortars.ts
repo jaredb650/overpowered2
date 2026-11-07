@@ -26,6 +26,8 @@ const SHELL_GAP = 0.7;
 const SHELLS = 4;
 /** Each shell shows its own ring this long before landing. */
 const RING_LEAD = 1.2;
+/** The whistle's length, so the last of it is the landing. */
+const WHISTLE_LEAD = 2.05;
 const SHELL_RADIUS = 6;
 const SHELL_DAMAGE = 55;
 /** Metres the shells wander from the smoke. */
@@ -208,7 +210,7 @@ export class Mortars {
     _a.y += 1.4;
     ctx.fx.smoke(_a, 0x9aa2aa, 1.2, 1.2);
     ctx.render.lights.flash(_a, 0xffb060, 8, 9, 0.12);
-    ctx.audio.play('explosion_distant', { position: _a, volume: 0.9, pitch: 1.6 });
+    ctx.audio.play('mortar_tube', { position: _a });
   }
 
   private startSmoke(lead: number): void {
@@ -249,7 +251,7 @@ export class Mortars {
       s.point.set(this.target.x + Math.sin(a) * r, this.target.y, this.target.z + Math.cos(a) * r);
       if (nav.nearest(s.point, 4, _a)) s.point.copy(_a);
       s.live = true;
-      s.at = now + RING_LEAD + placed * SHELL_GAP;
+      s.at = now + WHISTLE_LEAD + placed * SHELL_GAP;
       s.ringed = s.whistled = false;
       placed++;
     }
@@ -265,9 +267,9 @@ export class Mortars {
         s.ringed = true;
         w.telegraphs.zone(s.point, SHELL_RADIUS, RING_LEAD);
       }
-      if (!s.whistled && now >= s.at - 1) {
+      if (!s.whistled && now >= s.at - WHISTLE_LEAD) {
         s.whistled = true;
-        w.ctx.audio.play('missile_incoming', { position: s.point, volume: 0.65, pitch: rand(1.2, 1.4) });
+        w.ctx.audio.play('mortar_whistle', { position: s.point, pitch: rand(0.92, 1.08) });
       }
       if (now >= s.at) this.land(s);
     }

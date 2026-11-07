@@ -18,6 +18,7 @@ export const ZONES: Readonly<Record<string, Zone>> = {
   gateApproach: box(-40, -1, 14, 40, 12, 34),
   easternApron: box(44, -1, 40, 110, 30, 110),
   wreckDeck: box(74, PARKOUR.doubleJump.ledge - 0.4, 80, 94, 9, 88),
+  hullFoot: box(68, -1, 72, 100, PARKOUR.doubleJump.ledge - 0.5, 96),
 
   // The gate yard and the door
   gateYard: box(-30, -1, -12, 30, 12, 10),
@@ -30,8 +31,10 @@ export const ZONES: Readonly<Record<string, Zone>> = {
   northCorridor: box(-56, -1, -44, -12, 5, -41),
   coolantNear: box(-40, -1, -50, -28, 12, -46),
   coolantFar: box(-56, -1, -78, -14, 12, -50 - PARKOUR.dash.gap),
+  coolantPit: box(-56, -8, -68, -14, -1.5, -50),
   galleryNear: box(-24, -7, -78, -11, -1, -71),
   galleryFar: box(11, -7, -78, 24, -1, -71),
+  galleryTrench: box(-11, -13, -78, 11, -6, -71),
   messHall: box(14, -1, -78, 56, 6, -46),
   stackTop: box(-10, 9, -64, 10, 13, -28),
 };
@@ -39,6 +42,7 @@ export const ZONES: Readonly<Record<string, Zone>> = {
 export const MARKS: Readonly<Record<string, Mark>> = {
   // Player
   lz: at(-32, -3, 86, 0),
+  lzWake: at(-24, -3, 80, 0.3),
   apronRally: at(-8, 0, 62, 0),
   wreckDeck: at(84, PARKOUR.doubleJump.ledge, 84),
   wreckFoot: at(70, 0, 76, Math.PI / 2),

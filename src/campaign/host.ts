@@ -35,6 +35,7 @@ const LIGHTS_BACK = 1.4;
 const CRASH_SECONDS = 2.4;
 /** How long a squad is held to a drill it was told to run. */
 const DRILL_SECONDS = 14;
+const DEPLOY_GRACE = 2.5;
 
 const _v = new THREE.Vector3();
 
@@ -325,7 +326,12 @@ export class GameHost implements MissionHost {
 
   deploy(at: Mark | null, loadout: Loadout): void {
     const { player, weapons } = this.ctx;
-    if (at) player.teleport(_v.set(...at.at), at.yaw);
+    if (at) {
+      player.teleport(_v.set(...at.at), at.yaw);
+      // Back at a checkpoint with the guns already on it: the first second is the player's, so a death cannot start another.
+      player.park(_v);
+      player.unpark(DEPLOY_GRACE);
+    }
     weapons.setLoadout(loadout.weapons, loadout.grenades);
   }
 
