@@ -3,6 +3,7 @@
  * the deductions are the jokes the mission has been setting up since the briefing.
  */
 import { CONTRACTS, COUNCIL_OFFICE } from '../../contracts/data';
+import { isPlayerWeapon } from '../../contracts/rewards';
 import { contractSearch } from '../../contracts/select';
 import type { Ctx } from '../../core/contracts';
 import { Label, Shown, div, h, span } from '../dom';
@@ -16,6 +17,7 @@ import { clock } from './stats';
 
 const ENDLESS = CONTRACTS.find(c => c.locked)!;
 const n = (v: number): string => Math.round(v).toLocaleString('en-US');
+const ANY_WEAPON = 99;
 
 export class MissionComplete implements Screen {
   readonly el: HTMLElement;
@@ -75,7 +77,8 @@ export class MissionComplete implements Screen {
     const r = hud.report;
     const result = this.ctx.campaign.result;
     const unlocked = result?.unlocked === true;
-    const top = r.topWeapons(1)[0];
+    // The table counts whatever did the killing, and the Council does not bill the player for a rocketeer's aim.
+    const top = r.topWeapons(ANY_WEAPON).find(([source]) => isPlayerWeapon(source));
     this.subject.set(result ? `${result.title}, ${clock(result.seconds)}` : '');
     this.record.set(r.isHighScore);
     this.high.set(r.isHighScore ? `Old best ${n(r.highAtStart)}` : `High score ${n(r.highAtStart)}`);

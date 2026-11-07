@@ -31,13 +31,19 @@ ACTIVE.ranked;                                  // false on a map the contract d
 | URL | Contract | Map | Scores |
 |---|---|---|---|
 | `/` | The Crucible | Crucible | Kept |
-| `/?contract=outpost` | The Outpost | Kill House | Kept |
-| `/?map=killhouse` | The Outpost: the contract that plays there | Kill House | Kept |
+| `/?contract=campaign` | The Campaign: the Outpost mission | Outpost | Kept |
+| `/?map=outpost` | The Campaign: nothing else plays there until it is beaten | Outpost | Kept |
+| `/?contract=outpost` | Endless Humans. The id is older than the campaign | Kill House | Kept |
+| `/?map=killhouse` | Endless Humans: the contract that plays there | Kill House | Kept |
 | `/?map=crucible` | The Crucible | Crucible | Kept |
 | `/?map=range` | The Crucible's rules. No contract owns it | Test Range | Not kept |
 | `/?contract=crucible&map=killhouse` | The Crucible's rules | Kill House | Not kept |
 
 `/` is always the default contract. There is no remembered choice, so the URL is the only state and a sandbox can never open on the wrong map.
+
+## Unlocks
+
+Endless Humans has `locked: true`. `unlocks.ts` holds one flag, `op2_campaign_beaten` in localStorage, set when a mission with `unlocks` is won from its first beat. A win reached through `?beat=` beats nothing. `?unlock=1` opens it for that page and any it moves on to. The menu shows a shut contract and refuses to start it. A URL or `?autostart=1` still reaches it, because every bot and sandbox on the Kill House goes in that way.
 
 ## Changing contract is a page load
 

@@ -4,7 +4,7 @@ The single plan for the campaign mission in docs/DESIGN.md section 22. Everyone 
 
 - **The mission as rows:** `src/campaign/missions/outpost.ts`, `outpost.places.ts`, `outpost.lines.ts`.
 - **The numbers every jump must keep:** `src/campaign/parkour.ts`, proved on the real controller by `parkour.test.ts`.
-- **Play any beat today:** `/?mission=outpost&beat=<id>` once the map exists. `/?mission=stub&map=killhouse&autostart=1` plays the runner now.
+- **Play it:** Campaign on the menu, or `/?contract=campaign&autostart=1`, with `&beat=<id>` for anywhere. `/?mission=stub&map=killhouse&autostart=1` is the smallest mission there is.
 
 ## 1. The shape of it
 
@@ -165,7 +165,7 @@ The rule in `SHAPED_CHARGE`: a rocket's direct hit on a body with a plate left d
 2. **Direct hits, on a big target.** `turn`: two tanks and a chopper. Only a direct hit counts, and a near miss visibly does nothing. Tracks stop a tank, which is the player's first small win.
 3. **Direct on the plate, splash on the rest.** `plates`, the Plate Hall: two heavy machine gunners walk abreast down a 16 m hall, with four unplated men spread behind them. A rocket on the floor near a heavy does almost nothing, and the same blast takes the men behind him apart. A rocket on his chest drops him. The hall is long and clear so the player has time to try both and see the difference, and the third squad coming through the Guard Room ends any idea of standing still to think.
 
-For that third lesson the men behind must have no plate. Today only snipers do not, so the mission uses `sniper` as a stand-in. See section 6.
+For that third lesson the men behind must have no plate, so `plate.back` is a squad with `light: true`: their carriers and helmets come off as they spawn, and a rocket's splash takes them as written. A real rocket fired at the floor by the line left a brute untouched and a light rifleman on 29 of 122.
 
 ## 3. Weapons
 
@@ -356,7 +356,7 @@ Each beat's id is what `?beat=` takes. Lengths are for a first-time player. Men 
 - **Where:** Sally Hall, South Corridor, the bunk rooms, North Corridor.
 - **Player:** gets locked in, and then the lights go. Fights through by torchlight and muzzle flash.
 - **Enemies:** `bar.pin` brute and 2 troopers at the west end of the South Corridor. `bar.flank` 4 in the North Corridor who come through the bunks once the player is pinned. `bar.bunks` gunner, riot, trooper. `crossfire` fielded.
-- **Next:** all clear and the player in the North Corridor.
+- **Next:** all clear and the player in the North Corridor, or the player on the Coolant Hall's near platform with men left behind them.
 - **Teaches:** the loop. A straight corridor is a death trap, the bunks are the way round, and they know it too. Sonar earns its keep in the dark.
 - **Length:** 2:30.
 - **Job:** the mood turns. This is where the humans have to be scarier than anything in the swarm: quiet, dark, and a calm voice telling you the building goes in a circle.
@@ -407,7 +407,7 @@ Each beat's id is what `?beat=` takes. Lengths are for a first-time player. Men 
 
 - **Where:** up the stairs into the kitchen, out onto the Mess Hall floor.
 - **Player:** walks in. Nobody fires. Tables, a meal half eaten. They hear him tell the men to wait.
-- **Enemies:** `mess.floor` 4 lying among the tables, `mess.west` 3, `mess.east` 3, as hiders. Ten men, all holding until "Now."
+- **Enemies:** `mess.floor` 4 lying among the tables, `mess.west` 3, `mess.east` 3, under `orders: 'ambush'`. Ten men, all holding through being seen and walked past until "Now." Only a bullet or a man at arm's length breaks it early.
 - **Next:** all three cleared.
 - **Teaches:** that sonar and patience beat walking in. A ping shows them. A grenade before the word gets a head start. Those who go round by the kitchen find the Kiln and a flank.
 - **Length:** 1:30.
@@ -437,7 +437,7 @@ Each beat's id is what `?beat=` takes. Lengths are for a first-time player. Men 
 
 - **Where:** the Plate Hall. West door and Sally Hall's east door open.
 - **Player:** faces a line of men walking down a long hall, and works out what a rocket does to them.
-- **Enemies:** `plate.front` 2 brutes abreast, walking. `plate.back` 3 snipers and a warden behind them, to be replaced by unplated riflemen. 12 s later `plate.round` brute, trooper, gunner through the Guard Room, on the player's flank.
+- **Enemies:** `plate.front` 2 brutes abreast. `plate.back` 2 riflemen, a medic and a shotgun behind them, all `light`. 12 s later `plate.round` brute, trooper, gunner through the Guard Room, on the player's flank.
 - **Next:** all three cleared.
 - **Teaches:** **explosives against armour**, stage 3. Direct on the plate, splash on the rest.
 - **Length:** 1:45.
@@ -544,7 +544,7 @@ const beat: Beat = {
 
 A beat opens by saving its checkpoint, then runs `start`. `cues` fire once each, or every time with `repeat`. `until` moves on to the next row. A script's steps run back to back, and only `wait`, `until`, a `say` with `wait`, a `door` with `wait`, `cutscene` and `ride` hold it up. Scripts stop with their beat. The radio does not.
 
-**Triggers.** Clocks and counts start when the trigger is armed.
+**Triggers.** Clocks and counts start when the trigger is armed, and a repeating cue is armed afresh each time it fires, so a `signal` it waits on has to be raised again by its own script. `validateMission` says so if it is not.
 
 | Trigger | True when |
 |---|---|
@@ -567,7 +567,7 @@ A beat opens by saving its checkpoint, then runs `start`. `cues` fire once each,
 | `hint` | A teaching prompt. `{jump}` becomes the player's own key |
 | `banner` | The HUD's stamp |
 | `door` | `open` is a share. 0 shut, 1 open, 0.4 stopped there |
-| `squad`, `release` | Men at a mark, hunting or holding. `release` lets a holding squad go, as being shot at does |
+| `squad`, `release` | Men at a mark: `hunt`, `hold` (springs at 15 m, on being stared at, or on a shot) or `ambush` (a shot or arm's length only). `light` takes their plates off. `release` lets a holding squad go, as being shot at does |
 | `sweep`, `place` | Takes everyone off the map, unseen and unscored. Puts the player on a mark |
 | `vehicle`, `boss` | One body under a tag, crew under theirs |
 | `give`, `grenades`, `rack`, `drop` | Hands over, or leaves on the map. A rack raises `took:<weapon>` |
@@ -618,26 +618,20 @@ node tools/shot.mjs --url "/?mission=stub&map=killhouse&autostart=1" --script to
 
 `window.__op2.campaign.runner.describe()` reads everything: beat, deaths, objectives, tags, doors. `?beat=<id>` starts anywhere, with the checkpoint's kit and the doors as earlier beats left them.
 
-## 6. What this needs from everyone else
+## 6. Where it stands
 
-**Map (`src/world/map/outpost/`, a `MapDef` row with id `outpost`). Built: docs/notes/world.md has what was proved.** Section 2, with a floor under every mark in `outpost.places.ts`. Take sizes from `PARKOUR` by import. A row in `MAP_IDS` in `contracts/select.ts`. `nav.levels` of -12, -6, -5, -3, 0, 5, 9, 10 and 14. Box colliders only. Budget from the Kill House and The Crucible: under 300k static triangles, under 600 colliders, and a `lightCell` of about 1.2 m, because the light volume caps at 200 cells a side. Everything north of the Gate Yard and outside the citadel can be low detail: it is seen only from the air. The wall run's lit wall must read as an invitation.
+Everything in sections 1 to 5 is built and has run in real Chrome on the real map, beat by beat, with a bot. `tools/scripts/mission-live.mjs` is that bot: `MISSION_STEP` takes `film`, `ride`, `lockout`, `soft`, `heavy`, `turn`, `breach`, `barracks`, `coolant`, `gallery`, `mess`, `armoury`, `plates`, `stack`, `boss`, `ending`, `pause`, `voice`, `unlock` and `menu`, and the header says how to run one. It teleports between the fights and kills what it has to, so it proves that every beat fires and hands on, not that any of it is any good. Nobody has played the raid.
 
-**Vehicles.** `provide({ vehicle, ride })`. Humvee and truck die to bullets, with a mounted gun and a crew who get out. Tank and chopper as section 17. `holds: 'gateHold'` on Bulwark means it stops in the gate and turns its gun outward, and its wreck must block most of G1 and stay. `ride` follows `routes.insertion`, hovers for each mark's `hold`, raises `ride:<mark>`, cannot be left early, has no time limit, and ends parked in the cut. The parked tank at (20, -6) in `insertion` is a real tank with nobody in it, `state: 'parked'`. `state: 'wrecked'` in `breach` puts Bulwark's wreck back after a restart. A mark with `hit: true` is where the missile finds the Packmule.
+What a player has found that the plan has not caught up with is in docs/NEXT.md.
 
-**AI.** The mission asks for these, none of which exists yet:
-- **`hold` means hold.** Today it switches off the squad's brain. Men on a post should watch, fire on what they see and stay there until released. A squad released by being shot should act on it at once.
-- **Long lanes.** A machine gun's range band tops out at 32 m and a marksman's at 46 m, and the apron's lanes are 70 m. Men on T1 and T2 must fire down them.
-- **An unplated soldier.** `plates` needs men with no carrier. Something like `{ kit: 'light' }` on a squad order. Until then snipers stand in, and they will not walk with the brutes.
-- **Walking, not running,** for `plate.front`.
-- **Hiders on order.** `mess` fields `hiders` as an answer, and the men should lie among the tables until released.
-- **Narration.** The Commander says what will happen. The men must then do it within a few seconds, or the F.E.A.R. trick reads as a lie. `soft.left` and `bar.pin` are the two to watch.
+**How the mission keeps its word.**
+- `adapt` is the Commander's box with his read of the player, and the only answers it can announce are the ones that change men already in the fight (`WORKS_IN_FIGHT` in `commander/index.ts`). Mortars, snipers, mines and the rest are built into a wave, and a mission has no waves, so he does not promise them.
+- His own shells come only on the roof and only on a player under open sky: `person.ts`. The staged fight also takes away the Juggernaut's charge, which runs straight and went over the Stack's rail and the roof's waist-high parapet in testing.
+- The Commander walks after a player who hangs back, so he can come down from the roof again. The objective's marker stays on the mast.
 
-**Bosses.** `boss` must place him in the War Room, behind the glass, with no fall from the sky. `call('commanderToRoof', 'roofMast')` sends him to the roof at 60%.
+**Still placeholder.**
+- Doors are hazard paint. Racks are a glowing bar, and the launcher is not the shape of a launcher.
+- The pilot's voice has not been chosen. `docs/voice/mission-script.md` has every take, and any line with no take stays a subtitle.
+- `plate.front` walks at a brute's pace because a brute is slow. Nothing makes it march abreast.
 
-**Cutscenes.** `cutscenes.briefing` has had one look on the real map: its first three shots stand, and the last now runs up the Stack to the glass. `ending` has not been looked at. The figure at the glass is still to come.
-
-**UI.** The tally still reads `wave 1`, and the end screen still says `Run over` above `Contract fulfilled`. Both want a mission version. The Endless humans unlock (section 22) is not built: `campaign:complete` is the event to hang it on.
-
-**Voices.** `OUTPOST_LINES` has the shape of the Commander's `Line`, and clip names are the line ids. `tools/scripts/voice-script.ts` needs to take them too.
-
-**To switch it on.** Give the Outpost's row in `contracts/data.ts` `map: 'outpost'` and `mission: 'outpost'`. Keep the Kill House for Endless with its own row.
+**To add a take.** A file goes in `public/audio/voice/<line id>.mp3` and its name in `manifest.json`. `tools/scripts/voice-script.ts` rebuilds the script from `outpost.lines.ts`.

@@ -96,6 +96,9 @@ export default async function missionLive(page, h) {
   });
   const errors = [];
   page.on('pageerror', e => errors.push(String(e)));
+  // A low-priority browser on a busy machine can miss a screenshot. That is not the mission failing, so the run goes on without it.
+  const shot = h.shot;
+  h.shot = name => Promise.race([shot(name), h.sleep(9000)]).catch(() => log.push({ noShot: name }));
   const steps = {
     /** The whole ride with a real gun, the crash, the climb out, and the gate in the face. */
     async ride() {

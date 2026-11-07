@@ -6,6 +6,9 @@
  */
 import * as THREE from 'three';
 import { pick } from '../../core/math';
+import type { Behaviour } from '../brain';
+import { JUGGERNAUT_ATTACKS, JUGGERNAUT_BEHAVIOURS } from '../bosses';
+import { ENEMIES } from '../data';
 import type { Enemy } from '../Enemy';
 import type { Commander } from './index';
 import { IN_PERSON } from './lines';
@@ -27,6 +30,14 @@ const ROOF_SHELLS_AFTER = 14;
 const OPEN_SKY = 40;
 
 const UP = new THREE.Vector3(0, 1, 0);
+const STAND: Behaviour = {
+  name: 'stand',
+  score: () => 0.6,
+  enter(e) {
+    e.mode = 'hold';
+    e.face = 'player';
+  },
+};
 
 export class Person {
   body: Enemy | null = null;
@@ -127,14 +138,23 @@ export class Person {
       return;
     }
     this.body = e;
-    // A charge runs straight, and a well, a rail and a waist-high parapet would all end it on ground the player can never reach.
-    if (this.stagedAt) e.attacks = e.attacks.filter(a => a.name !== 'charge');
+    if (this.stagedAt) this.plant(e);
     c.props.fit(e.char, 'cap');
     // A staged fight opens under a roof, and shells cannot reach him until he has gone up to the open.
     this.shellAt = this.stagedAt ? Infinity : w.now + SHELL_EVERY;
     w.ctx.audio.play('boss_alarm');
     w.ctx.events.emit('commander:person', { arrived: true });
     c.bark(IN_PERSON[0]!.id);
+  }
+
+  /**
+   * A staged fight has a room and a roof to happen in. A swarm boss runs a flow field down whatever levels it likes, a charge runs
+   * straight over a rail or a waist-high parapet, and a slam's leap lands on the deck above a four-metre ceiling. So he stands, in a suit
+   * too big for him, and brings the machine gun the men on the wall carry, because all his own reach was in the charge.
+   */
+  private plant(e: Enemy): void {
+    e.behaviours = [STAND, ...JUGGERNAUT_BEHAVIOURS.filter(b => b.name !== 'bossAdvance')];
+    e.attacks = [...JUGGERNAUT_ATTACKS.filter(a => a.name !== 'charge' && a.name !== 'slam'), ...ENEMIES.brute.attacks.filter(a => a.name === 'minigun')];
   }
 
   private fall(): void {
