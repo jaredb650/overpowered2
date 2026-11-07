@@ -450,14 +450,16 @@ export default async function missionLive(page, h) {
       await page.waitForFunction(() => window.__op2.game.state === 'playing', null, { timeout: 6000 });
       await h.sleep(5000);
       log.push({ restartedSeat: await state(), desc: await read() });
-      await h.shot('pause-seat2');
     },
     /** A clean profile: Endless is shut, the win opens it and says so, the menu remembers, and it plays. */
     async unlock() {
       await until(d => d.beat === 'briefing', 60, 'briefing');
       const stored = () => page.evaluate(() => localStorage.getItem('op2_campaign_beaten'));
       log.push({ before: await stored() });
-      await page.evaluate(() => window.__op2.campaign.runner.start('ending'));
+      await page.evaluate(() => {
+        window.__op2.campaign.host.film.reset();
+        window.__op2.campaign.runner.start('ending');
+      });
       await page.waitForFunction(() => window.__op2.campaign.host.film.playing, null, { timeout: 15000 });
       await seek(1, 13);
       await page.waitForFunction(() => document.querySelector('.scr-complete')?.style.display === '', null, { timeout: 30000 });
@@ -478,7 +480,7 @@ export default async function missionLive(page, h) {
       await page.mouse.click(600, 400);
       await page.waitForFunction(() => window.__op2?.game?.state === 'playing', null, { timeout: 8000 });
       await h.sleep(1500);
-      log.push({ endless: await page.evaluate(() => ({ url: location.search, active: window.__op2.campaign.active, waves: window.__op2.ctx.waves.constructor.name, map: window.__op2.ctx.world.map?.id ?? null })) });
+      log.push({ endless: await page.evaluate(() => ({ url: location.search, mission: !!window.__op2.campaign, waves: window.__op2.ctx.waves.constructor.name, men: window.__op2.ctx.enemies.alive.length })) });
     },
     /** What someone new sees: the swarm page's menu, the lock, and the walk from Play into the briefing. */
     async menu() {
@@ -525,6 +527,11 @@ export default async function missionLive(page, h) {
     },
   };
   await god();
-  for (const step of STEP.split(',')) await steps[step]();
+  // What was seen before a failure is the point of a run, so it comes back with the failure.
+  try {
+    for (const step of STEP.split(',')) await steps[step]();
+  } catch (e) {
+    errors.push(String(e));
+  }
   return { step: STEP, log, errors };
 }

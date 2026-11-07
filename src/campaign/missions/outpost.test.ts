@@ -122,6 +122,41 @@ describe('the Outpost', () => {
     }
   });
 
+  it('brings the blast door back up for as long as the player keeps missing it', () => {
+    const host = new FakeHost();
+    const run = new MissionRunner(OUTPOST, host);
+    run.start('breach');
+    const line = OUTPOST.zones.blastLine!;
+    host.feet = { x: 0, y: 0, z: (line.min[2] + line.max[2]) / 2 };
+    let rises = 0;
+    let was = host.doorStates.blastDoor;
+    for (let t = 0; t < 60; t += FRAME) {
+      host.doorDone?.();
+      host.doorDone = null;
+      run.update(FRAME);
+      if (host.doorStates.blastDoor === 0.4 && was !== 0.4) rises++;
+      was = host.doorStates.blastDoor;
+    }
+    expect(rises).toBeGreaterThanOrEqual(3);
+  });
+
+  it('never leaves a player who walked past the barracks fight on a beat they have left behind', () => {
+    const host = new FakeHost();
+    const run = new MissionRunner(OUTPOST, host);
+    run.start('barracks');
+    for (let t = 0; t < 30; t += FRAME) run.update(FRAME);
+    const near = OUTPOST.zones.coolantNear!;
+    host.feet = { x: (near.min[0] + near.max[0]) / 2, y: 0, z: (near.min[2] + near.max[2]) / 2 };
+    run.update(FRAME);
+    expect(run.beat?.id).toBe('coolant');
+  });
+
+  it('puts men with no plate behind the plated line, or a rocket has no lesson to teach', () => {
+    const plates = OUTPOST.beats.find(b => b.id === 'plates')!;
+    const behind = plates.start!.find(s => s.do === 'squad' && s.tag === 'plate.back');
+    expect(behind).toMatchObject({ light: true });
+  });
+
   it('says in the plan exactly what it says in the game', () => {
     const plan = readFileSync('docs/campaign/MISSION.md', 'utf8');
     for (const line of OUTPOST.lines) expect(plan, line.id).toContain(line.text);

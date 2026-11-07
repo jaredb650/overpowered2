@@ -90,7 +90,14 @@ async function record(take, ids) {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ text: `${take.tag} ${take.text}`, model_id: MODEL }),
+    }).catch(e => {
+      if (attempt === TRIES) throw e;
+      return null; // a dropped connection retries like a 5xx
     });
+    if (!r) {
+      await wait(Math.min(60_000, 1000 * 2 ** attempt));
+      continue;
+    }
     if (r.ok) {
       const audio = Buffer.from(await r.arrayBuffer());
       if (audio.length === 0) throw new Error('empty audio');

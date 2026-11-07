@@ -218,7 +218,7 @@
 .go-none { color: var(--dim); }
 
 /* A contract still shut. */
-.mm-tab.lock { color: var(--dim); }
+.mm-tab.lock { color: var(--dim); white-space: nowrap; }
 .mm-tab.lock::before { content: ''; display: inline-block; width: 0.7rem; height: 0.56rem; margin-right: 0.5rem; background: currentColor; box-shadow: 0 -0.3rem 0 -0.12rem currentColor; vertical-align: 0.06rem; }
 .mm-tab.lock.on { color: #000; }
 .nt-lock { margin-top: 0.5rem; padding: 0.3rem 0.6rem 0.22rem; background: rgba(157, 176, 189, 0.14); color: var(--amber); font-size: 1rem; font-weight: 600; }

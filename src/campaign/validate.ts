@@ -148,6 +148,10 @@ export function validateMission(m: Mission): string[] {
     for (const cue of beat.cues ?? []) {
       checkTrigger(where, cue.when);
       checkTags(where, index, cue.when);
+      // A repeating cue is armed afresh each time, so a signal it waits on has to go up again, or it fires once and never comes back.
+      if (cue.repeat) eachTrigger(cue.when, t => {
+        if ('signal' in t && !cue.run.some(step => step.do === 'signal' && step.name === t.signal)) problems.push(`${where}: a repeating cue waits on ${t.signal} and never raises it again`);
+      });
     }
     if (beat.until) {
       checkTrigger(where, beat.until);
