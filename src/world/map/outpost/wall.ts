@@ -41,10 +41,11 @@ function gunTower(s: Site, x: number, n: 1 | 2): void {
   s.wall({ x0, z0: z0 + t, x1: x0 + t, z1: z1 - t, y0: WALL.walk, y1: top, outside: 'poured', tone: 0.66, openings: [walk] });
   s.wall({ x0: x1 - t, z0: z0 + t, x1, z1: z1 - t, y0: WALL.walk, y1: top, outside: 'poured', tone: 0.66, openings: [walk] });
   s.mass('concreteDark', x0, slab, z0, x1, deck, z1, 0.7, 2.5);
-  // Breast-high on the three sides that matter, so he can be shot from the helicopter and from the ground.
-  s.wall({ x0, z0: z1 - 0.4, x1, z1, y0: deck, y1: deck + 1.1, outside: 'poured', tone: 0.7 });
-  s.wall({ x0, z0: z0 + 1.6, x1: x0 + 0.4, z1: z1 - 0.4, y0: deck, y1: deck + 1.1, outside: 'poured', tone: 0.7 });
-  s.wall({ x0: x1 - 0.4, z0: z0 + 1.6, x1, z1: z1 - 0.4, y0: deck, y1: deck + 1.1, outside: 'poured', tone: 0.7 });
+  // Only a kerb and a rail to the south. Anything taller hides the near half of the lane from him, and the lane is why he is there.
+  s.wall({ x0, z0: z1 - 0.3, x1, z1, y0: deck, y1: deck + 0.4, outside: 'poured', tone: 0.7 });
+  s.k.rail([x0, deck + 0.4, z1 - 0.15, x1, deck + 0.4, z1 - 0.15], 0.7);
+  s.wall({ x0, z0: z0 + 1.6, x1: x0 + 0.4, z1: z1 - 0.3, y0: deck, y1: deck + 1.1, outside: 'poured', tone: 0.7 });
+  s.wall({ x0: x1 - 0.4, z0: z0 + 1.6, x1, z1: z1 - 0.3, y0: deck, y1: deck + 1.1, outside: 'poured', tone: 0.7 });
   g.use('steelDark');
   for (const cx of [x0 + 0.2, x1 - 0.2]) for (const cz of [z0 + 0.2, z1 - 0.2]) g.box(cx, (deck + TOWER.cap) / 2, cz, 0.07, (TOWER.cap - deck) / 2, 0.07, FACE.sides);
   s.mass('steelDark', x0 - 0.3, TOWER.cap, z0 - 0.3, x1 + 0.3, TOWER.cap + 0.18, z1 + 0.3, 0.8, 2.5);

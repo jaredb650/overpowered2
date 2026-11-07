@@ -143,6 +143,10 @@ function lzCut(s: Site): void {
   face(LZ.x1, LZ.z0, LZ.x1, LZ_RAMP.z0, -1);
   face(LZ.x1, LZ_RAMP.z1, LZ.x1, LZ.z1, -1);
 
+  // The way out is up, and north is where the objective is. Paint on the face it means.
+  s.words('ARROW', -32, -1.5, LZ.z0 + 0.012, 2, 1, [0.86, 0.72, 0.16]);
+  s.words('EYES UP', -26, -1.4, LZ.z0 + 0.012, 0.6, 1, [0.86, 0.72, 0.16]);
+
   // Low cover on the pad, well off the walls, so it never gives a leg up.
   s.crate(-42, 79, -39.6, 81, 1.15, [0.6, 0.56, 0.42], y);
   s.crate(-26, 90, -23.6, 92, 1.15, [0.42, 0.5, 0.56], y);

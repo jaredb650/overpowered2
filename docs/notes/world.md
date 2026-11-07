@@ -5,7 +5,7 @@ Then call `world.update()` once per frame in the world slot, and `world.reset()`
 
 ## Maps
 
-`src/world/map/maps.ts` holds one `MapDef` row per map, and `World` only reads that row. `?map=crucible` or `?map=killhouse` picks one.
+`src/world/map/maps.ts` holds one `MapDef` row per map, and `World` only reads that row. `?map=crucible`, `?map=killhouse` or `?map=outpost` picks one.
 The default is `crucible`, the swarm game. The Kill House is the map of The Outpost contract, picked from the menu. `selectMap()` takes
 the map from `ACTIVE` in `contracts/select.ts`: `docs/notes/contracts.md` has the URL rules. Add `&map=killhouse` to any sandbox that builds a world.
 
@@ -128,6 +128,96 @@ Timings swing widely with load: the same Kill House bake took 0.6 s on one quiet
 - **Enemies treat wall tops and cover as no ground.** `groundHeight` returns NaN for a flat surface that is not a listed level, which
   is what stops anything leaping up to stand on a wall. A body that does come down on one falls through and is put back by the rescue
   below the floor.
+
+# The Outpost
+
+The mission's map, at `/?map=outpost`. Files: `src/world/map/outpost/`. docs/campaign/MISSION.md section 2 is the plan, `outpost.places.ts` has every mark, and `parkour.ts` has every size. To play it: `/?contract=outpost&map=outpost&mission=outpost&autostart=1`, with `&beat=<id>` for anywhere.
+
+| File | Holds |
+|---|---|
+| `plan.ts` | Every number, the rooms, the roads, `carve` |
+| `site.ts` | `Site`: walls as footprints, stairs, `barrier`, sandbags, crates. Everything below is built with it |
+| `apron.ts`, `wall.ts` | Outside: the cut, the lanes, the wreck, the south wall, the towers, the Gate Yard |
+| `citadel.ts`, `rooms.ts` | Slabs and walls of both wings, then what makes each room itself |
+| `deep.ts` | The Coolant Hall and the gallery, where the lips are |
+| `stack.ts` | The Stack, the War Room, the roof |
+| `proof.ts`, `outpost-map.test.ts` | The proof sheet |
+
+Why it is built the way it is:
+
+- **A wall is a footprint.** `Site.wall` takes the rectangle a wall stands on, so a 1 m partition and the 4 m band beside the Stack are the same call. It breaks round its openings, and each side dresses itself from the room it faces.
+- **Scripted doors take their holes from `DOORS`.** The door's collider comes from `campaign/doors.ts`. The map leaves the hole, with its head and jambs, and nav is sampled before any door exists, so every doorway is on the graph and `routes.setClosed` shuts it for walkers.
+- **`Site.barrier` stops a player and nothing else.** It is `CG.Barrier`: on the player's mask only, off every ray, and it touches no body. The men on the south wall fire out over a line the player must not cross, which an ordinary invisible wall would stop. Bullets, rockets, nav and light all pass.
+- **Everything over a gap hangs below the lip or has no collider.** The bridge stumps are steel you cannot stand on. The wreck is one box, with the wing and fin off it and no collider on them, because anything against the hull is a leg up that kills the lesson.
+- **The gallery's north wall is one box with no skin.** It is what gets run on. Its light is inside its face.
+- **The deck is the whole run-up.** The stairs arrive side-on at the lip end, so a strafe has 13 m and not 23.
+- **Nav joins two floors two cells apart, whatever stands between them.** `nav.ts` makes drop links with no wall test. A thin wall with a lower floor behind it gets one, which is why the near deck has a bank of cabinets along its south wall. Do not take them out without running the walk.
+- **The wing roofs are at y 5.1,** because 5 is a nav level for the wall-walk and the Stack.
+- **The barracks are baked in emergency red.** The door only opens after he says "Lights", so nobody ever sees them lit. Sally Hall stays white: see limitations.
+
+## Proving it
+
+```
+nice -n 19 npx vitest run src/world/map/outpost --testTimeout=60000
+nice -n 19 npx tsx tools/scripts/outpost-map-headless.ts build,static,parkour,sweep,fuzz 30     # the whole sheet as JSON, about a minute
+OP2_SKIP=1 OP2_VIEWS=lanes,yard,coolant node tools/shot.mjs --url "/?sandbox=map&map=outpost" --script tools/scripts/killhouse-verify.mjs --out tools/out/op.png --wait 1500
+OP2_BEAT=breach node tools/shot.mjs --url "/?contract=outpost&map=outpost&mission=outpost&beat=breach&autostart=1" --script tools/scripts/outpost-map-live.mjs --out tools/out/opl.png --wait 500 --dpr 2 --w 1440 --h 900
+```
+
+`index.ts` names 50 views, one or more per place. All of this is real Rapier and the real Player at 12.5 m/s, on the map itself. `parkour.test.ts` proves the numbers on bare boxes; this proves a wall skin or a stair has not broken them.
+
+| Lesson | On the map | What cannot do it |
+|---|---|---|
+| Mantle | All four walls of the cut on one jump | Running at it. The ramp stops at the truck |
+| Double jump | Two sides of the hull from a stand | One jump, from 1.2 to 4 m out on both sides |
+| Mantle, optional | Pump House (3.6 m) and Guardhouse (3.4 m) roofs | |
+| The gate | | A run with both dashes from the trigger reaches it shut |
+| Slide | Pressed in the last 3, 6 and 9 m, real `Doors` on the real door | A run. A run with both dashes |
+| Dash | 19 of 56 timings of a coarse sweep, from three lines through the door | Double jump at any timing, on all three lines. Run-up is 8.4 m, and that is enough |
+| Wall run | 10 of 10 from 0.5 to 8 m before the lip, 3 of 4 on the moment of leaving | Every jump, one dash and two dashes. 168 timings of the last |
+| Kick shaft | Kicks and double jumps reach the top landing | |
+
+| Check | Result |
+|---|---|
+| Static | 257k triangles, 85 meshes, 457 colliders, every one a box, 131 baked lights |
+| In the game | 151 to 196 draw calls and 370k to 505k triangles with men and vehicles on. 60 fps at 1280x720 with the swarm on it. Not a frame rate proof: see limitations |
+| Nav | 37.7k nodes on 9 levels. Every mark on the graph and on a floor, and none buried. Every door has nav both sides, and a real hole at its full width and head |
+| Roads | `spec.roads`. A tank's width swept along every ground route: nothing in the way |
+| Cover | 2415 spots from the real `CoverMap`, at least 19 in every room |
+| Tower lanes | From the mark, share of the lane a round reaches: 33% at 14 to 25 m, 100% at 25 to 40 m, 80% at 40 to 60 m. Past that it is cover |
+| Doorways | 394 of 394 runs through, both ways, 3 offsets, 3 angles, nothing lost |
+| Floors | 20 lines across every seam, 0.86 of top speed at worst, and that is a grazed table |
+| Soldier routes | 26 legs of the raid, each walked by the real Player down `RouteFinder`'s route |
+| No way round | With the doors shut, no walker gets past the gate, the blast door, the dash gap, the gallery, or from the barracks to the mess |
+| Containment | 0 leaks, rays at 8 heights out of the apron, yard and roof |
+| Random hands | 540 s from 18 places: 0 falls, 0 escapes, 0 wedged, 1 frame against a barrier on a berm |
+
+Fuzz found the one real hole so far: a gap in the pit's east wall under the War Room block. It is why that run stays in the test.
+
+Real game, 0 console errors at 1440x900 at 2x on `barracks`, `plates` and `commander`, and at 1280x720 on `breach`. The Crucible still builds 660,636 triangles and 1712 colliders, and the Kill House 127,744 and 150.
+
+## Tuning knobs
+
+| Where | What |
+|---|---|
+| `plan.ts` `ROOMS` | Room boxes, ceilings, floor, wall face and paint |
+| `plan.ts` `GALLERY.trench` | Depth under the gallery. Seven metres, because a best climb reaches about five |
+| `rooms.ts` red `s.lamp` and `s.fill` | How dark the barracks are. These are the first numbers to try if it plays too dark |
+| `apron.ts` `coverLines` | The cover lines. Re-run the lanes after moving one |
+| `wall.ts` `gunTower` | Keep the south kerb low, or the near half of the lane goes |
+
+## Known limitations
+
+- **Nobody has played it.** Every number is a bot. How dark the apron and the barracks are, and whether the lanes feel like lanes, need the owner's hands.
+- **Frame rate is unproven.** Every run shared the machine, and 2x runs in the harness read 1 to 10 fps with 3 ms of CPU, which is the harness and not the map. The 1x run held 60.
+- **An expert can beat the dash.** A chain of kicks and double jumps climbs the north-east corner of the pit to the far platform. It needs a move nothing has taught yet, so it stays, as a rocket jump does. Rocket jumps are not measured, though nothing can leave the route by one. The gallery cannot be climbed this way in the runs tried.
+- **"Lights." has no moment.** Nothing provides `call('lights')`, so it warns in the console and Sally Hall stays white. The barracks are dark because they were baked so.
+- **Men's routes cut stairwell edges.** `RouteFinder` pulls a route straight over a kerb. Men have no capsule, so they clip it. The walk bot has waypoints at two stair tops for that reason.
+- **`setClosed` only closes nodes below y 2,** so the two War Room doors stay open to route-finding.
+- **The flow field still has drop links through the Stack's shaft walls.** Soldiers do not use it. A swarm on this map would stall against them.
+- **Doors are plain boxes.** `DoorDef.look` picks a material, and a leaf stretches its texture over its size. The gate's chevrons look good by luck.
+- **The glass pane just goes.** It lifts in a quarter of a second with no shatter effect.
+- **Everything north of the citadel is plain,** because it is only seen from the air at 30 m and up.
 
 # The Crucible
 

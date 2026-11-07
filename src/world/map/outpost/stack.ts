@@ -94,6 +94,7 @@ function dress(s: Site): void {
   pipe(k, [SX1 - 6, -4.6, SS - 0.6, SX1 - 6, 13, SS - 0.6], 0.22, 'steel', 6, 8);
   for (const y of [1.6, 6.6]) s.k.geo.use('emissiveRed').box(SX0 + 0.02, y + 0.4, -38, 0.012, 0.04, 6, FACE.px);
   s.words('STACK', 0, 3.2, SS - SKIN, 1.6, -1, ALARM);
+  s.words('WAR ROOM', 0, 7.6, SN + SKIN, 1.5, 1, ALARM);
   s.floorWords('ARROW', 0, 0, -31, Math.PI, 2, ALARM);
   // White at the bottom, red at the top: the climb is toward him.
   s.fill(0, -2.2, -46, 46, 13, 'orange');

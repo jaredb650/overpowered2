@@ -107,6 +107,29 @@ export function verifyOutpost(world: World, physics: PhysicsSystem) {
     if (!tr.ok) noRoute.push(id);
   }
 
+  // The apron's lesson is that a man up there can see you. From each tower's mark, the share of its lane he can put a round into, by
+  // how far out: a body at chest height, with cover in the way counted as cover.
+  const lanes: Record<string, Record<string, number>> = {};
+  for (const [name, tower, x0, x1] of [['Tower One, West Lane', 'towerOne', -60, -20], ['Tower Two, East Lane', 'towerTwo', 20, 60]] as const) {
+    const [tx, ty, tz] = MARKS[tower]!.at;
+    const bands: Record<string, number> = {};
+    for (const [lo, hi] of [[14, 25], [25, 40], [40, 60], [60, 80]] as const) {
+      let seen = 0, tried = 0;
+      for (let z = tz + lo; z < tz + hi; z += 2) for (let x = x0; x <= x1; x += 4) {
+        _o.set(tx, ty + 1.6, tz);
+        _d.set(x - tx, 1.2 - _o.y, z - tz);
+        const len = _d.length();
+        _d.divideScalar(len);
+        if (physics.raycast(_o.set(x, 1.2, z), _d.clone().negate(), 0.01, CG.World)) continue;
+        tried++;
+        _o.set(tx, ty + 1.6, tz);
+        if (!physics.raycast(_o, _d, len, CG.World)) seen++;
+      }
+      bands[`${lo}-${hi} m`] = tried ? r2(seen / tried) : 0;
+    }
+    lanes[name] = bands;
+  }
+
   // A trigger nobody can stand in never fires.
   const dead: string[] = [];
   for (const [id, z] of Object.entries(ZONES)) {
@@ -136,6 +159,7 @@ export function verifyOutpost(world: World, physics: PhysicsSystem) {
     flow: { noRoute },
     zones: { dead },
     cover: { spots: cover.spots.length, byZone },
+    lanes,
   };
 }
 
@@ -558,10 +582,10 @@ function gateLesson(b: Bot, doors: Doors) {
 }
 
 /**
- * A man's route is pulled straight over the kerb of a stairwell, because he has no capsule to catch on it. A player has, so the walk
+ * A man's route is pulled straight over the edge of a stairwell, because he has no capsule to catch on it. A player has, so the walk
  * stops at the top of those stairs first.
  */
-const WAYPOINTS: Readonly<Record<string, readonly [number, number, number]>> = { kitchenTop: [35.5, 0, -74.5] };
+const WAYPOINTS: Readonly<Record<string, readonly [number, number, number]>> = { kitchenTop: [35.5, 0, -74.5], westLanding: [-8.75, 5, -47], roofTop: [-13.7, 14, -65.8] };
 
 /** Walks the real Player down the route a soldier would be given between two marks. A stair or a doorway a man cannot use stops this. */
 function walkRoute(b: Bot, world: World, stages: readonly (readonly [string, string])[]) {
@@ -598,6 +622,31 @@ function walkRoute(b: Bot, world: World, stages: readonly (readonly [string, str
     }
     out[`${from} to ${dest}`] = arrived() ? `${r2(t)} s` : !answered ? 'no route' : `stopped at ${p.position.toArray().map(r2)}`;
   }
+  return out;
+}
+
+/** With the doors as each lesson finds them, no walker has a way round it. */
+function noWayRound(world: World) {
+  const finder = new RouteFinder();
+  finder.build(world.navGraph as unknown as NavGrid);
+  const route = new Route();
+  const shut = (id: string, closed: boolean) => {
+    const d = DOORS[id]!;
+    finder.setClosed(d.at[0], d.at[2], -Math.sin(d.yaw), -Math.cos(d.yaw), d.width, closed);
+  };
+  const open = (from: string, to: string) => {
+    const a = MARKS[from]!.at, b = MARKS[to]!.at;
+    return finder.find(_o.set(a[0], a[1] + 0.1, a[2]), _d.set(b[0], b[1] + 0.1, b[2]), route);
+  };
+  for (const id of ['mainGate', 'blastDoor', 'sallyEast', 'armourySouth']) shut(id, true);
+  const out = {
+    'the apron has no way past the shut gate': !open('gateMouth', 'gateInside'),
+    'the yard has no way past the shut blast door': !open('gateInside', 'sallyHall'),
+    'the barracks have no way to the far platform': !open('coolantNear', 'coolantFar'),
+    'the barracks have no way to the mess': !open('sallyHall', 'messFloor'),
+    'the near deck has no way to the far deck': !open('galleryNear', 'galleryFar'),
+  };
+  for (const id of ['mainGate', 'blastDoor', 'sallyEast', 'armourySouth']) shut(id, false);
   return out;
 }
 
@@ -773,7 +822,7 @@ const ROUTE = [
   ['gateMouth', 'shotgunCrate'], ['shotgunCrate', 'apronEast'], ['apronEast', 'wreckFoot'], ['wreckFoot', 'gateMouth'],
   ['sandbagsEast', 'sallyHall'], ['sallyHall', 'corridorMg'], ['corridorMg', 'bunkFour'], ['bunkFour', 'northCorridorEast'], ['northCorridorEast', 'coolantNear'],
   ['coolantFar', 'galleryNear'], ['galleryFar', 'kitchenTop'], ['kitchenTop', 'messFloor'], ['messFloor', 'kilnRack'], ['messFloor', 'armoury'], ['armoury', 'plateWest'], ['plateWest', 'guardRoom'],
-  ['plateWest', 'stackFloor'], ['stackFloor', 'stackLower'], ['stackLower', 'stackUpper'], ['stackFloor', 'stackBase'], ['stackBase', 'warRoomDoor'], ['warRoomDoor', 'warRoom'], ['warRoom', 'roofMast'], ['roofMast', 'roofWest'],
+  ['plateWest', 'stackFloor'], ['stackFloor', 'westLanding'], ['westLanding', 'stackLower'], ['stackLower', 'stackUpper'], ['stackFloor', 'stackBase'], ['stackBase', 'warRoomDoor'], ['warRoomDoor', 'warRoom'], ['warRoom', 'roofTop'], ['roofTop', 'roofMast'], ['roofMast', 'roofWest'],
 ] as const;
 
 /** Shut doors need real colliders, so this stands up what the host would. */
@@ -800,6 +849,7 @@ export function provePark(world: World, physics: PhysicsSystem, rig: Rig) {
     shaft: shaftLesson(b),
     bypasses: bypasses(b, doors),
     containment: containment(physics),
+    noWayRound: noWayRound(world),
     walk: walkRoute(b, world, ROUTE),
   };
 }

@@ -8,7 +8,6 @@
  * The parkour numbers are PARKOUR's. Nothing here may change a gap, a ledge or a headroom by eye.
  */
 import type { Mat } from '../../kit/geo';
-import type { StencilName } from '../../kit/stencil';
 import { LEVEL } from '../../../campaign/missions/outpost.places';
 import { PARKOUR } from '../../../campaign/parkour';
 
@@ -96,8 +95,6 @@ export interface Room extends Rect {
   /** Zone id. Starts with an audio room name, because roomForZone matches by substring. */
   id: string;
   name: string;
-  /** The stencil that names it on its walls, if any. */
-  word?: StencilName;
   y: number;
   ceil: number;
   floor: Mat;
@@ -107,14 +104,14 @@ export interface Room extends Rect {
   paint: Rgb;
 }
 
-const room = (id: string, name: string, r: Rect, y: number, ceil: number, floor: Mat, floorTint: Rgb, face: Face, paint: Rgb, word?: StencilName): Room =>
-  ({ id, name, ...r, y, ceil, floor, floorTint, face, paint, word });
+const room = (id: string, name: string, r: Rect, y: number, ceil: number, floor: Mat, floorTint: Rgb, face: Face, paint: Rgb): Room =>
+  ({ id, name, ...r, y, ceil, floor, floorTint, face, paint });
 
 const STEEL: Rgb = [1, 1, 1];
 const COLD: Rgb = [0.82, 0.85, 0.9];
 
 /** The way the raid runs, clockwise. Each is a different material and a different colour, so a door opening says where it goes. */
-export const SALLY = room('transit-sally', 'SALLY HALL', rect(-10, -26, 10, -14), 0, 4.4, 'concreteDark', STEEL, 'plate', [0.95, 0.72, 0.14], 'SALLY');
+export const SALLY = room('transit-sally', 'SALLY HALL', rect(-10, -26, 10, -14), 0, 4.4, 'concreteDark', STEEL, 'plate', [0.95, 0.72, 0.14]);
 export const SOUTH_CORRIDOR = room('refinery-south', 'SOUTH CORRIDOR', rect(-56, -19, -10, -16), 0, 3.2, 'concreteDark', COLD, 'poured', [0.86, 0.22, 0.16]);
 export const NORTH_CORRIDOR = room('refinery-north', 'NORTH CORRIDOR', rect(-56, -44, -12, -41), 0, 3.2, 'concreteDark', COLD, 'poured', [0.2, 0.42, 0.95]);
 const bunk = (n: number, x0: number, x1: number, floor: Mat, face: Face, paint: Rgb): Room =>
@@ -126,14 +123,14 @@ export const BUNKS: readonly Room[] = [
   bunk(4, -56, -45, 'concreteDark', 'plate', [0.82, 0.5, 0.2]),
 ];
 export const COOLANT_HALL = room('core-coolant', 'COOLANT HALL', rect(COOLANT.x0, COOLANT.north, COOLANT.x1, COOLANT.south), 0, HALL_TOP, 'concreteDark', [0.78, 0.84, 0.9], 'plate', [0.1, 0.78, 0.86]);
-export const CABLE_GALLERY = room('refinery-gallery', 'CABLE GALLERY', rect(GALLERY.nearEnd, GALLERY.north, GALLERY.farEnd, GALLERY.south), GALLERY.floor, GALLERY.ceil, 'concreteDark', [0.7, 0.72, 0.76], 'raw', [0.14, 0.82, 1], 'GALLERY');
+export const CABLE_GALLERY = room('refinery-gallery', 'CABLE GALLERY', rect(GALLERY.nearEnd, GALLERY.north, GALLERY.farEnd, GALLERY.south), GALLERY.floor, GALLERY.ceil, 'concreteDark', [0.7, 0.72, 0.76], 'raw', [0.14, 0.82, 1]);
 export const KITCHEN = room('scrapyard-kitchen', 'KITCHEN', rect(14, -78, 56, -70), 0, 3.4, 'tile', STEEL, 'tile', [0.86, 0.34, 0.2]);
-export const MESS = room('foundry-mess', 'MESS HALL', rect(14, -69, 56, -46), 0, 4.6, 'tile', [0.7, 0.68, 0.64], 'ply', [0.9, 0.52, 0.16], 'MESS');
+export const MESS = room('foundry-mess', 'MESS HALL', rect(14, -69, 56, -46), 0, 4.6, 'tile', [0.7, 0.68, 0.64], 'ply', [0.9, 0.52, 0.16]);
 export const EAST_CORRIDOR = room('refinery-east', 'EAST CORRIDOR', rect(12, -44, 56, -41), 0, 3.2, 'concreteDark', COLD, 'poured', [0.72, 0.3, 0.9]);
-export const ARMOURY = room('scrapyard-armoury', 'ARMOURY', rect(30, -40, 56, -33), 0, 3.4, 'concreteDark', STEEL, 'plate', [0.16, 0.86, 0.5], 'ARMOURY');
+export const ARMOURY = room('scrapyard-armoury', 'ARMOURY', rect(30, -40, 56, -33), 0, 3.4, 'concreteDark', STEEL, 'plate', [0.16, 0.86, 0.5]);
 export const GUARD = room('scrapyard-guard', 'GUARD ROOM', rect(12, -40, 29, -33), 0, 3.2, 'concrete', COLD, 'poured', [0.86, 0.8, 0.3]);
 export const PLATE = room('transit-plate', 'PLATE HALL', rect(12, -32, 56, -16), 0, 4.6, 'concreteDark', [0.86, 0.88, 0.94], 'plate', [0.9, 0.92, 0.98]);
-export const STACK_ROOM = room('core-stack', 'THE STACK', rect(STACK.x0, STACK.north, STACK.x1, STACK.south), LEVEL.gallery, 13.4, 'concreteDark', STEEL, 'poured', [0.95, 0.16, 0.12], 'STACK');
+export const STACK_ROOM = room('core-stack', 'THE STACK', rect(STACK.x0, STACK.north, STACK.x1, STACK.south), LEVEL.gallery, 13.4, 'concreteDark', STEEL, 'poured', [0.95, 0.16, 0.12]);
 export const WAR_ROOM = room('scrapyard-war', 'WAR ROOM', rect(WAR.x0, WAR.north, WAR.x1, WAR.south), WAR.floor, WAR_CEIL, 'concreteDark', [0.6, 0.62, 0.68], 'plate', [0.95, 0.2, 0.14]);
 
 export const ROOMS: readonly Room[] = [

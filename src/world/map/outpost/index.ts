@@ -6,7 +6,7 @@ import type { MapSpec } from '../spec';
 import { authorApron } from './apron';
 import { authorCitadel } from './citadel';
 import { authorDeep } from './deep';
-import { COOLANT, EDGE, GALLERY, LEVEL, ROADS, ROOMS, SITE, WALL, YARD } from './plan';
+import { COOLANT, EDGE, GALLERY, LEVEL, ROADS, ROOMS, WALL, YARD } from './plan';
 import { authorRooms } from './rooms';
 import { Site } from './site';
 import { authorStack } from './stack';
@@ -114,4 +114,3 @@ export function authorOutpost(_k: Kit, spec: MapSpec): void {
 }
 
 export const OUTPOST_EXTENT = EDGE;
-export { SITE };

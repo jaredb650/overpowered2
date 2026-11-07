@@ -328,7 +328,7 @@ export default async function vehiclesLive(page, h) {
       const v = window.__op2.ctx.enemies.vehicles;
       const x = v.live.find(x => x.def.kind === 'chopper');
       const part = x?.parts.find(p => p.def.id === 'rotor');
-      if (part) { v.direct(part.collider, x.position, 100, 'rocket', 'rocket'); v.direct(part.collider, x.position, 100, 'rocket', 'rocket'); }
+      if (part) for (let i = 0; i < 3; i++) v.direct(part.collider, x.position, 100, 'rocket', 'rocket');
     });
     await h.sleep(5000);
     log.afterBird = await describe();

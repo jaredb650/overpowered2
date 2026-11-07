@@ -121,16 +121,16 @@ The route spirals clockwise: south, west, north, east, then the centre and up. S
 | South Corridor | -56..-10, -19..-16 | 0 | 3 m wide, 46 m long, dead straight. A machine gun at the far end owns it |
 | North Corridor | -56..-12, -44..-41 | 0 | Parallel to the south one |
 | Bunk rooms 1 to 4 | x -22..-12, -33..-23, -44..-34, -56..-45; z -41..-19 | 0 | A door onto each corridor. This is the flanking loop, and it works for both sides |
-| Coolant Hall | -56..-14, -78..-46 | 0, open to y 12 | Near platform z -50..-46, far platform north of z -68, an 18 m gap over a pit at y -6. Stairs down to the gallery at (-20, -74) |
-| Cable Gallery | -24..24, -78..-71 | -5, ceiling at -2 | Near deck x -24..-11, far deck x 11..24, a 22 m gap. Headroom exactly 3.0 m. North wall lit along its length |
+| Coolant Hall | -56..-14, -78..-46 | 0, open to y 12 | Near platform x -40..-28, z -50..-46, far platform north of z -68, an 18 m gap over a pit at y -6. The side walls are out of reach of the platform, so they cannot be run. Stairs down to the gallery along the far lip, x -24..-14, arriving side-on at the east end of the near deck |
+| Cable Gallery | -24..24, -78..-71 | -5, ceiling at -2 | Near deck x -24..-11, far deck x 11..24, a 22 m gap. Headroom exactly 3.0 m. North wall lit along its length. The trench goes down to y -12, with stairs back to the near deck only |
 | Mess Hall | 14..56, -78..-46 | 0 | Open floor, overturned tables. Kitchen along the north side is the side route. Stairs up from the gallery arrive in the kitchen |
 | East Corridor | 12..56, -44..-41 | 0 | Links the Mess, the Armoury and the Guard Room |
 | Armoury | 30..56, -40..-33 | 0 | The breather. Autocannon, health, armour. South door opens onto the Plate Hall |
 | Guard Room | 12..29, -40..-33 | 0 | The other way into the Plate Hall, so the room has a loop |
 | Plate Hall | 12..56, -32..-16 | 0 | 44 x 16, one long clear hall, the only room built for rockets |
 | The Stack | -10..10, -64..-28 | -5 to 14 | The vertical section. Switchback stairs on both long walls, catwalk landings at y 0, 5, 10, and a 5 m wide wall-kick shaft in the north-east corner as the fast way up |
-| War Room | -16..16, -78..-66 | 10 | Glass along its south side, looking down the Stack. The player sees him before they can reach him |
-| Comms Roof | -24..24, -78..-28 | 14 | Open sky, for his mortars. Mast at (0, -70). Looks south over the Gate Yard and the whole apron |
+| War Room | -16..16, -78..-66 | 10 | Glass along its south side, looking down the Stack. The player sees him before they can reach him. The middle 6 m pane is the door `warGlass`, which goes as the fight starts. A partition at x -11 hides the stairs to the roof behind `warRoomStairs` |
+| Comms Roof | -24..24, -78..-28 | 14 | Open sky, for his mortars. The mast stands at (0, -74), so `roofMast` at (0, -70) is clear ground in front of it. Looks south over the Gate Yard and the whole apron |
 
 **Loops for flanking.** The apron's three lanes. The Guardhouse. Barracks: two corridors joined by four rooms. Mess Hall and kitchen. East Corridor, Armoury, Plate Hall and Guard Room. The Stack's two stairs. No fight inside happens in a room with one way in, because a loop is what lets a squad do something the player can hear coming.
 
@@ -620,7 +620,7 @@ node tools/shot.mjs --url "/?mission=stub&map=killhouse&autostart=1" --script to
 
 ## 6. What this needs from everyone else
 
-**Map (`src/world/map/outpost/`, a `MapDef` row with id `outpost`).** Section 2, with a floor under every mark in `outpost.places.ts`. Take sizes from `PARKOUR` by import. A row in `MAP_IDS` in `contracts/select.ts`. `nav.levels` of -5, 0, 5, 10 and 14. Box colliders only. Budget from the Kill House and The Crucible: under 300k static triangles, under 600 colliders, and a `lightCell` of about 1.2 m, because the light volume caps at 200 cells a side. Everything north of the Gate Yard and outside the citadel can be low detail: it is seen only from the air. The wall run's lit wall must read as an invitation.
+**Map (`src/world/map/outpost/`, a `MapDef` row with id `outpost`). Built: docs/notes/world.md has what was proved.** Section 2, with a floor under every mark in `outpost.places.ts`. Take sizes from `PARKOUR` by import. A row in `MAP_IDS` in `contracts/select.ts`. `nav.levels` of -12, -6, -5, -3, 0, 5, 9, 10 and 14. Box colliders only. Budget from the Kill House and The Crucible: under 300k static triangles, under 600 colliders, and a `lightCell` of about 1.2 m, because the light volume caps at 200 cells a side. Everything north of the Gate Yard and outside the citadel can be low detail: it is seen only from the air. The wall run's lit wall must read as an invitation.
 
 **Vehicles.** `provide({ vehicle, ride })`. Humvee and truck die to bullets, with a mounted gun and a crew who get out. Tank and chopper as section 17. `holds: 'gateHold'` on Bulwark means it stops in the gate and turns its gun outward, and its wreck must block most of G1 and stay. `ride` follows `routes.insertion`, hovers for each mark's `hold`, raises `ride:<mark>`, cannot be left early, has no time limit, and ends parked in the cut. The parked tank at (20, -6) in `insertion` is a real tank with nobody in it, `state: 'parked'`. `state: 'wrecked'` in `breach` puts Bulwark's wreck back after a restart. A mark with `hit: true` is where the missile finds the Packmule.
 
