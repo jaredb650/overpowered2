@@ -7,7 +7,8 @@
  */
 import type { MapId } from '../world/map/maps';
 
-export type ContractId = 'crucible' | 'outpost';
+/** `outpost` is Endless Humans. The id is older than the campaign, and URLs and score tables are keyed on it. */
+export type ContractId = 'campaign' | 'crucible' | 'outpost';
 
 /** Who lives there. Section 15's faction rules hang off this: pain, fear, bleeding, gib thresholds. */
 export type FactionId = 'swarm' | 'humans';
@@ -64,6 +65,8 @@ export interface ContractDef {
   briefing: Briefing;
   /** A row of MISSIONS in src/campaign/missions. Set, the contract plays that from start to end and has no waves. */
   mission?: string;
+  /** Shut until the campaign has been beaten once. See unlocks.ts. */
+  locked?: boolean;
   /** localStorage key of this contract's high score. */
   scoreKey: string;
 }
@@ -73,8 +76,35 @@ export const COUNCIL_OFFICE = 'Galactic Council / Office of Societal Compliance'
 export const NOTICE_TITLE = 'Notice of Extermination';
 export const NOTICE_FOOTER = 'Failure to exterminate within the permitted period may result in a fine.';
 
-/** First row is the default. */
+/** In menu order. */
 export const CONTRACTS: readonly ContractDef[] = [
+  {
+    id: 'campaign',
+    name: 'Campaign',
+    map: 'outpost',
+    faction: 'humans',
+    waves: 'squads',
+    ai: 'outpost',
+    wounds: 'anatomy',
+    rewards: { backShot: 1.5 },
+    mission: 'outpost',
+    briefing: {
+      ref: 'Form 7742-C',
+      subject: 'The commanding officer of The Outpost, and everyone who reports to him',
+      body: [
+        'The above are in breach of Section 12 (Continued Existence). A notice was displayed on their planet for the statutory 30 days. Their commanding officer declined to sign for it.',
+        'Transport is included one way. You will be issued a sidearm, and you will find the rest. A previous contractor was assigned to this account. That file is closed.',
+        'Occupants are trained, armed, and may attempt to reason with you. They have been advised that this will not affect the outcome.',
+      ],
+      terms: [
+        ['Site', 'The Outpost, from the wire to the roof'],
+        ['Occupants', 'A garrison, with armour'],
+        ['Duration', 'Twenty to thirty minutes, billed'],
+        ['Appeals', 'In writing, to an address now destroyed'],
+      ],
+    },
+    scoreKey: 'op2_highscore.campaign',
+  },
   {
     id: 'crucible',
     name: 'The Crucible',
@@ -104,24 +134,25 @@ export const CONTRACTS: readonly ContractDef[] = [
   },
   {
     id: 'outpost',
-    name: 'The Outpost',
+    name: 'Endless Humans',
     map: 'killhouse',
     faction: 'humans',
     waves: 'squads',
     ai: 'outpost',
     wounds: 'anatomy',
     rewards: { backShot: 1.5 },
+    locked: true,
     briefing: {
-      ref: 'Form 7742-C',
-      subject: 'The human garrison at The Outpost',
+      ref: 'Form 7742-D',
+      subject: 'The human garrison at the Kill House',
       body: [
-        'Following a routine audit, the above are in breach of Section 12 (Continued Existence). A notice was displayed on their planet for the statutory 30 days.',
-        'Occupants are trained, armed, and may attempt to reason with you. They have been advised that this will not affect the outcome.',
+        'The Commander\'s service record has been retained. Deceased personnel remain eligible to serve at the Kill House. He will be directing the men, and they will obey him.',
+        'This account does not close. Occupants are trained, armed, and learning from every man they lose.',
         'Surrender is not a recognised method of payment. The Geneva Suggestion remains advisory. Please do not leave survivors unattended.',
       ],
       terms: [
         ['Site', 'The Kill House, yard and catwalks'],
-        ['Occupants', 'Humans, in squads'],
+        ['Occupants', 'Humans, in squads, for ever'],
         ['Morale', 'Present. Declining'],
         ['Appeals', 'In writing, to an address now destroyed'],
       ],
@@ -130,7 +161,8 @@ export const CONTRACTS: readonly ContractDef[] = [
   },
 ];
 
-export const DEFAULT_CONTRACT: ContractDef = CONTRACTS[0]!;
+/** What `/` runs. The swarm game is what the page has always opened on, and what a bare URL must go on meaning. */
+export const DEFAULT_CONTRACT: ContractDef = CONTRACTS.find(c => c.id === 'crucible')!;
 
 /** Key T. Numbers from DESIGN 14.5. */
 export const SONAR = {

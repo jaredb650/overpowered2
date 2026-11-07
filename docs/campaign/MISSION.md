@@ -634,7 +634,7 @@ node tools/shot.mjs --url "/?mission=stub&map=killhouse&autostart=1" --script to
 
 **Bosses.** `boss` must place him in the War Room, behind the glass, with no fall from the sky. `call('commanderToRoof', 'roofMast')` sends him to the roof at 60%.
 
-**Cutscenes.** `cutscenes.briefing` and `ending` are first drafts of the camera, written blind. They need a real look once the map stands, and the figure at the glass.
+**Cutscenes.** `cutscenes.briefing` has had one look on the real map: its first three shots stand, and the last now runs up the Stack to the glass. `ending` has not been looked at. The figure at the glass is still to come.
 
 **UI.** The tally still reads `wave 1`, and the end screen still says `Run over` above `Contract fulfilled`. Both want a mission version. The Endless humans unlock (section 22) is not built: `campaign:complete` is the event to hang it on.
 

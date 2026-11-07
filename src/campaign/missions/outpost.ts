@@ -504,7 +504,8 @@ export const OUTPOST: Mission = {
         { from: [240, 150, 240], to: [150, 90, 170], lookFrom: [0, 0, -30], lookTo: [0, 4, -30], seconds: 16 },
         { from: [-90, 34, 58], to: [20, 30, 50], lookFrom: [-20, 6, 12], lookTo: [0, 6, 12], seconds: 14 },
         { from: [0, 40, -100], to: [0, 24, -96], lookFrom: [0, 14, -70], lookTo: [0, 16, -70], seconds: 12 },
-        { from: [-12, 22, -74], to: [-4, 18, -72], lookFrom: [0, 12, -70], lookTo: [0, 12, -70], seconds: 10 },
+        // Up the well of the Stack to the lit glass: the outside of the block shows nothing of the room he is in.
+        { from: [0, 11.8, -36], to: [0, 11.6, -52], lookFrom: [0, 11.8, -70], lookTo: [0, 11.6, -70], seconds: 10 },
       ],
     },
     // From the roof, over the burning apron and up.

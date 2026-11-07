@@ -1,7 +1,7 @@
 // The Outpost map under the real mission: doors, racks and marks in the real game. Takes the beats to visit from OP2_BEAT.
 //   OP2_BEAT=breach node tools/shot.mjs --url "/?contract=outpost&map=outpost&mission=outpost&beat=breach&autostart=1" --script tools/scripts/outpost-map-live.mjs --out tools/out/opl.png --wait 500 --timeout 150
 const STOPS = {
-  lockout: [['lz', -32, -3, 92, 0], ['rim', -32, 0, 71, 0.1], ['approach', 2, 0, 36, 0]],
+  lockout: [['lz', -32, -3, 92, 0], ['rim', -32, 0, 71, 0.1], ['approach', 2, 0, 33, 0], ['shut', 2, 0, 24, 0]],
   breach: [['mouth', 0, 0, 24, 0], ['yard', 0, 0, 8, 0], ['closing', 0, 0, 2, 0]],
   barracks: [['sally', 0, 0, -18, 0.6], ['corridor', -14, 0, -17.5, 1.57]],
   plates: [['armoury', 44, 0, -36, 3.14], ['hall', 30, 0, -24, 1.57]],
@@ -18,6 +18,13 @@ export default async function live(page, h) {
     const d = window.__op2.campaign.runner.describe();
     return { beat: d.beat, state: d.state, doors: d.doors, tags: d.tags };
   });
+  // The opening film has no stops: it is watched, on the clock.
+  if (beat === 'briefing') {
+    for (const [i, wait] of [8000, 15000, 13000, 11000].entries()) {
+      await h.sleep(wait);
+      await h.shot(`film-${i + 1}`).catch(e => console.error(e.message.split('\n')[0]));
+    }
+  }
   await h.sleep(3000);
   log.push(await read());
   for (const [name, x, y, z, yaw] of STOPS[beat] ?? []) {

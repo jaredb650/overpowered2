@@ -3,6 +3,7 @@ import { CONTRACTS, DEFAULT_CONTRACT, SONAR } from './data';
 import { isPlayerWeapon } from './rewards';
 import { contractSearch, pickContract } from './select';
 import { sonarCooldown } from './sonar';
+import { campaignBeaten, isLocked, recordCampaignBeaten } from './unlocks';
 
 describe('contract table', () => {
   it('keeps ids and score tables apart', () => {
@@ -54,6 +55,32 @@ describe('picking a contract', () => {
 
   it('ignores what is not a map or a contract, such as the movement sandbox\'s ?map=1', () => {
     expect(pickContract('nonsense', '1')).toEqual({ def: DEFAULT_CONTRACT, map: 'crucible', ranked: true });
+  });
+});
+
+describe('the campaign and what it unlocks', () => {
+  const endless = CONTRACTS.find(c => c.id === 'outpost')!;
+
+  it('leads the menu, and leaves / on the swarm game', () => {
+    expect(CONTRACTS[0]).toMatchObject({ id: 'campaign', map: 'outpost', mission: 'outpost' });
+    expect(pickContract(null, null).def.id).toBe('crucible');
+  });
+
+  it('reads ?map=outpost as the campaign: that map plays nothing else until it is beaten', () => {
+    expect(pickContract(null, 'outpost')).toMatchObject({ map: 'outpost', ranked: true, def: { id: 'campaign' } });
+  });
+
+  it('keeps Endless Humans on the Kill House with the record it already had', () => {
+    expect(endless).toMatchObject({ map: 'killhouse', scoreKey: 'op2_highscore.outpost' });
+    expect(endless.mission).toBeUndefined();
+  });
+
+  it('holds Endless Humans shut until the campaign is beaten, and only that', () => {
+    expect(CONTRACTS.filter(isLocked)).toEqual([endless]);
+    expect(campaignBeaten()).toBe(false);
+    expect(recordCampaignBeaten()).toBe(true);
+    expect(CONTRACTS.filter(isLocked)).toEqual([]);
+    expect(recordCampaignBeaten()).toBe(false);
   });
 });
 

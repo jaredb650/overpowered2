@@ -36,15 +36,15 @@ function coolantHall(s: Site): void {
   s.paintFloor('concreteDark', rect(GALLERY_STAIR.top, north, x1, GALLERY_STAIR.north), 0, r.floorTint);
   s.paintFloor('concreteDark', rect(GALLERY_STAIR.top, GALLERY_STAIR.south, x1, farLip), 0, r.floorTint);
   s.paintFloor('dirt', rect(x0, farLip, x1, south), pit, [0.26, 0.3, 0.34], 2.4);
-  s.line(x0, farLip + 0.0, x1, farLip + 0.02, [0.86, 0.72, 0.16], 0.02);
+  s.line(x0, farLip, x1, farLip + 0.02, [0.86, 0.72, 0.16], 0.02);
 
   // The pit's walls are the slabs' own sides.
-  const g2 = g.use('concrete').tint(0.5, 0.56, 0.62);
-  g2.box((x0 + x1) / 2, pit / 2, farLip + 0.002, (x1 - x0) / 2, -pit / 2, 0.001, FACE.pz);
-  g2.box((platform.x0 + platform.x1) / 2, pit / 2, nearLip - 0.002, (platform.x1 - platform.x0) / 2, -pit / 2, 0.001, FACE.nz);
-  g2.box(platform.x0 - 0.002, pit / 2, (nearLip + south) / 2, 0.001, -pit / 2, 2, FACE.nx);
-  g2.box(platform.x1 + 0.002, pit / 2, (nearLip + south) / 2, 0.001, -pit / 2, 2, FACE.px);
-  g2.tint(1);
+  g.use('concrete').tint(0.5, 0.56, 0.62);
+  g.box((x0 + x1) / 2, pit / 2, farLip + 0.002, (x1 - x0) / 2, -pit / 2, 0.001, FACE.pz);
+  g.box((platform.x0 + platform.x1) / 2, pit / 2, nearLip - 0.002, (platform.x1 - platform.x0) / 2, -pit / 2, 0.001, FACE.nz);
+  g.box(platform.x0 - 0.002, pit / 2, (nearLip + south) / 2, 0.001, -pit / 2, 2, FACE.nx);
+  g.box(platform.x1 + 0.002, pit / 2, (nearLip + south) / 2, 0.001, -pit / 2, 2, FACE.px);
+  g.tint(1);
 
   // The way back up from the pit, onto the near platform: a fall costs a walk, never the mission.
   s.stairs(platform.x0 - 12, -48, pit, platform.x0, -48, 0, 4, 'concrete', true);
@@ -98,7 +98,6 @@ function gallery(s: Site): void {
   s.mass('concreteDark', farLip, trench - 1, north, farEnd, floor, south, 0.74, 1.6);
   s.mass('concreteDark', nearLip, trench - 1, north, farLip, trench, south, 0.5, 2);
   // The ceiling's underside, where the far platform and the kitchen stand over it.
-  s.paintFloor('concreteDark', rect(nearEnd, north, farEnd, south), ceil - 0.002, [0.34, 0.36, 0.4], 2);
   g.use('concreteDark').tint(0.4).slab(0, ceil + 0.002, (north + south) / 2, farEnd, 0.001, (south - north) / 2, 2, FACE.ny);
   g.tint(1);
 

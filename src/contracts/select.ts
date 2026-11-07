@@ -5,6 +5,7 @@
  *   ?contract=outpost               The contract, on its own map
  *   ?map=killhouse                  The contract that plays there, or the default if none does, as on ?map=range
  *   ?contract=crucible&map=killhouse  Those rules on that map. Unranked, so a test cannot set a record
+ *   ?unlock=1                       Every locked contract is open, for this page and any it moves on to
  */
 import type { MapId } from '../world/map/maps';
 import { CONTRACTS, DEFAULT_CONTRACT, type ContractDef, type ContractId } from './data';
