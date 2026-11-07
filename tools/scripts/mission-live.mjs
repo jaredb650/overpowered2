@@ -225,8 +225,9 @@ export default async function missionLive(page, h) {
     async breach() {
       await until(d => d.beat === 'breach', 40, 'breach');
       await h.sleep(1500);
-      await tp(0, 0, 4, 0);
+      // Read before the teleport: the whole yard is past the trigger line, and on a slow frame the door has gone by the first read.
       await until(d => d.doors.blastDoor === 1, 3, 'door open');
+      await tp(0, 0, 4, 0);
       await h.sleep(1200);
       await tp(0, 0, 2, 0);
       await h.sleep(800);

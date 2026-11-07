@@ -62,7 +62,7 @@ export class GameHost implements MissionHost {
   private readonly tagOf = new Map<number, string>();
   private readonly arrivals: Arrival[] = [];
   private readonly held = new Map<string, OutpostSquad[]>();
-  private readonly markers = new Map<string, () => void>();
+  private readonly markers = new Map<string, { at: Mark; off: () => void }>();
   private arrivalClock = 0;
   /** Tag for the next body to appear. */
   private tagging: string | null = null;
@@ -131,14 +131,14 @@ export class GameHost implements MissionHost {
   objectives(list: readonly ObjectiveState[]): void {
     this.ui.objectives(list);
     const { hud } = this.ctx;
-    for (const [id, unmark] of this.markers) {
-      if (list.some(o => o.id === id && !o.done)) continue;
-      unmark();
+    for (const [id, marker] of this.markers) {
+      if (list.some(o => o.id === id && !o.done && o.at === marker.at)) continue;
+      marker.off();
       this.markers.delete(id);
     }
     for (const o of list) {
       if (o.done || !o.at || this.markers.has(o.id)) continue;
-      this.markers.set(o.id, hud.marker(_v.set(...o.at.at).clone(), '', MARKER_COLOR));
+      this.markers.set(o.id, { at: o.at, off: hud.marker(_v.set(...o.at.at).clone(), '', MARKER_COLOR) });
     }
   }
 
@@ -340,6 +340,12 @@ export class GameHost implements MissionHost {
         ctx.audio.play('glass_break', { position: _v.set(...at) });
         return;
       }
+      case 'mark':
+        if (arg) this.manager.vehicles?.target(arg);
+        return;
+      case 'quiet':
+        ctx.events.emit('commander:quiet', {});
+        return;
       case 'commanderToRoof':
         if (arg) this.manager.outpost?.commander.person.fallBack(new THREE.Vector3(...this.runner.mission.marks[arg]!.at));
         return;
@@ -395,7 +401,7 @@ export class GameHost implements MissionHost {
     this.rideDone = null;
     this.arrivalClock = 0;
     this.level = 1;
-    for (const unmark of this.markers.values()) unmark();
+    for (const marker of this.markers.values()) marker.off();
     this.markers.clear();
     this.racks.reset();
     this.film.reset();

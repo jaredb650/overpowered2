@@ -195,11 +195,12 @@ const BEATS: readonly Beat[] = [
       // A breath is not a breath with a machine gun on it.
       { do: 'sweep', tag: 'soft.tower' },
       { do: 'music', state: 'easy' },
-      commander('soft.names'),
-      council('soft.receipts'),
-      { do: 'adapt' },
       { do: 'drop', item: 'armor', at: 'apronAmmoWest' },
       { do: 'drop', item: 'ammo', at: 'apronAmmoEast' },
+      commander('soft.names', true),
+      council('soft.receipts', true),
+      // After the radio, or the same man is talking in two boxes at once.
+      { do: 'adapt' },
     ],
     until: { after: 18 },
   },
@@ -208,6 +209,7 @@ const BEATS: readonly Beat[] = [
     title: 'The heavy assault',
     checkpoint: { at: 'apronRally', loadout: KIT.shotgun },
     start: [
+      { do: 'call', name: 'quiet' },
       { do: 'threat', level: 4, grade: 'conscript' },
       { do: 'music', state: 'hard' },
       commander('heavy.roll'),
@@ -263,6 +265,9 @@ const BEATS: readonly Beat[] = [
       ...ARMOUR,
       { do: 'done', id: 'launcher' },
       { do: 'objective', id: 'armour', text: 'Destroy the armour' },
+      { do: 'call', name: 'mark', arg: 'heavy.tank1' },
+      { do: 'call', name: 'mark', arg: 'heavy.tank2' },
+      { do: 'call', name: 'mark', arg: 'turn.chopper' },
       commander('wreck.changes'),
       council('wreck.balance'),
       { do: 'hint', text: 'A direct hit goes through armour. The blast beside it does little. Aim for the tracks or the hull.', seconds: 10 },
@@ -379,7 +384,6 @@ const BEATS: readonly Beat[] = [
     checkpoint: { at: 'coolantNear', loadout: KIT.raid },
     start: [
       commander('bar.tired'),
-      { do: 'adapt' },
       { do: 'done', id: 'way' },
       { do: 'objective', id: 'across', text: 'Cross the Coolant Hall', at: 'coolantFar' },
       { do: 'squad', tag: 'cool.sniper', men: ['sniper'], at: 'coolantFar', orders: 'hold' },
@@ -392,10 +396,11 @@ const BEATS: readonly Beat[] = [
           commander('cool.audit', true),
           { do: 'release', tag: 'cool.sniper' },
           council('cool.dash'),
-          { do: 'hint', text: 'Run, {jump} {jump}, and at the top of it press {dash}.', seconds: 10 },
+          // Both dashes, because that is the jump a person can make. One only crosses from the last metre of the lip.
+          { do: 'hint', text: 'Run, {jump} {jump}, and at the top of it press {dash} {dash}.', seconds: 10 },
         ],
       },
-      nudge('coolantPit', 6, 'Too far for two jumps. Run, {jump} {jump}, then {dash} in the air.'),
+      nudge('coolantPit', 6, 'Too far for two jumps. Run, {jump} {jump}, then {dash} {dash} in the air.'),
     ],
     until: { zone: 'coolantFar' },
   },
@@ -405,12 +410,14 @@ const BEATS: readonly Beat[] = [
     checkpoint: { at: 'galleryNear', loadout: KIT.raid },
     start: [
       { do: 'done', id: 'across' },
-      { do: 'objective', id: 'gallery', text: 'Cross the cable gallery', at: 'galleryFar' },
+      // The far deck is through a wall from here, so the marker shows the way down first.
+      { do: 'objective', id: 'gallery', text: 'Take the stairs down to the gallery', at: 'galleryStairs' },
     ],
     cues: [
       {
         when: { zone: 'galleryNear' },
         run: [
+          { do: 'objective', id: 'gallery', text: 'Cross the cable gallery', at: 'galleryFar' },
           commander('gal.walkway', true),
           council('gal.walls'),
           { do: 'hint', text: '{jump} at the lit wall on a shallow line and hold {forward}. {jump} to leave it, then {jump} again.', seconds: 12 },
@@ -446,12 +453,12 @@ const BEATS: readonly Beat[] = [
     checkpoint: { at: 'armoury', loadout: KIT.raid },
     start: [
       { do: 'done', id: 'mess' },
-      commander('mess.yesterday'),
       { do: 'music', state: 'easy' },
       { do: 'objective', id: 'arm', text: 'Take the autocannon', at: 'autocannonRack' },
       { do: 'rack', weapon: 'autocannon', at: 'autocannonRack' },
       { do: 'drop', item: 'health', at: 'armouryHealth' },
       { do: 'drop', item: 'armor', at: 'armouryArmor' },
+      commander('mess.yesterday', true),
       { do: 'adapt' },
     ],
     cues: [
@@ -464,6 +471,7 @@ const BEATS: readonly Beat[] = [
     title: 'Second Platoon',
     checkpoint: { at: 'armoury', loadout: KIT.full },
     start: [
+      { do: 'call', name: 'quiet' },
       { do: 'threat', level: 7 },
       { do: 'music', state: 'hard' },
       commander('plate.walk'),
@@ -512,7 +520,7 @@ const BEATS: readonly Beat[] = [
       { do: 'threat', level: 9 },
       { do: 'done', id: 'climb' },
       commander('boss.stores'),
-      { do: 'objective', id: 'boss', text: 'Kill the Commander' },
+      { do: 'objective', id: 'boss', text: 'Kill the Commander', at: 'warRoom' },
       { do: 'boss', tag: 'commander', at: 'warRoom' },
       { do: 'call', name: 'shatter', arg: 'warGlass' },
       { do: 'door', door: 'warGlass', open: 1, seconds: 0 },

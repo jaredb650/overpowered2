@@ -94,6 +94,7 @@ export class CommanderHud {
     events.on('commander:status', e => this.chips.get(e.flag)?.set(e.on));
     events.on('commander:bark', e => this.onBark(e.id, e.vars));
     events.on('commander:fulfilled', () => this.onFulfil());
+    events.on('commander:quiet', () => this.close());
     events.on('commander:person', e => { this.person = e.arrived; });
     events.on('player:died', () => this.onBark(PLAYER_DOWN[0]!.id));
   }

@@ -96,6 +96,7 @@ export const MARKS: Readonly<Record<string, Mark>> = {
   northCorridorEast: at(-14, 0, -42.5),
   bunkFour: at(-50, 0, -30),
   coolantFar: at(-34, 0, -72),
+  galleryStairs: at(-25, 0, -69.5),
   messFloor: at(36, 0, -62),
   messWest: at(20, 0, -52),
   messEast: at(52, 0, -52),

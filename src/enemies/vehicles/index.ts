@@ -67,6 +67,7 @@ const SIDESTEP = 3.3;
 const SHOVE_EVERY = 0.08;
 const SHOVE_REACH = 0.55;
 const CALLOUT = '#ffb347';
+const TARGET_MARK = '#ff3b3b';
 const SEAT_MARK = '#ff5a3a';
 const SEAT_MARK_STRENGTH = 0.6;
 const KILL_COLOR = '#ff7a30';
@@ -108,6 +109,8 @@ export class VehicleSystem implements VehicleTargets {
   private clearRoad = Infinity;
   private dodgeRoad = 0;
   private readonly lit: THREE.Object3D[] = [];
+  /** Tags the mission has told the player to kill. */
+  private readonly marked = new Set<string>();
   private shoveIn = 0;
 
   constructor(readonly world: AiWorld) {
@@ -189,6 +192,7 @@ export class VehicleSystem implements VehicleTargets {
   spawnGround(kind: Exclude<VehicleKind, 'chopper'>, order: GroundOrder): GroundVehicle {
     const v = new GroundVehicle(this, VEHICLES[kind] as GroundDef, this.fleet.ground(kind), order);
     this.live.push(v);
+    this.flag(v);
     return v;
   }
 
@@ -197,6 +201,7 @@ export class VehicleSystem implements VehicleTargets {
     this.chopper?.remove();
     this.chopper = new EnemyChopper(this, this.rig(), this.skyline, from, marks, tag);
     this.live.push(this.chopper);
+    this.flag(this.chopper);
     return this.chopper;
   }
 
@@ -212,6 +217,21 @@ export class VehicleSystem implements VehicleTargets {
 
   chopperGone(): void {
     this.chopper = null;
+  }
+
+  /** The player has been told to kill this. A tank at the far end of the apron is otherwise a shell from nowhere, and nothing shows it on the minimap. */
+  target(tag: string): void {
+    this.marked.add(tag);
+    for (const v of this.live) this.flag(v);
+  }
+
+  private flag(v: Vehicle): void {
+    if (v.alive && v.tag !== null && v.unmark === null && this.marked.has(v.tag)) v.unmark = this.ctx.hud.follow(v.position, v.def.name, TARGET_MARK);
+  }
+
+  private unflag(v: Vehicle): void {
+    v.unmark?.();
+    v.unmark = null;
   }
 
   /** Writes where the enemy chopper is. A dying one is no longer anyone's target. */
@@ -377,6 +397,7 @@ export class VehicleSystem implements VehicleTargets {
   /** The vehicle has gone. Everything that happens once, in one place. */
   bury(v: Vehicle, wreck: Wreck, source: string, point: THREE.Vector3): void {
     if (v.alive) return;
+    this.unflag(v);
     const { ctx } = this;
     const { audio, events, fx, hud, progression, render } = ctx;
     const { def } = v;
@@ -527,6 +548,7 @@ export class VehicleSystem implements VehicleTargets {
     this.waiting.length = 0;
     for (const v of this.live) {
       if (v.retired) continue;
+      this.unflag(v);
       v.remove();
       if (v.tag !== null) this.ctx.campaign.unitGone(v.tag, false, '');
     }
@@ -535,7 +557,11 @@ export class VehicleSystem implements VehicleTargets {
 
   reset(): void {
     this.waiting.length = 0;
-    for (const v of this.live) v.remove();
+    this.marked.clear();
+    for (const v of this.live) {
+      this.unflag(v);
+      v.remove();
+    }
     this.live.length = 0;
     for (const w of this.wrecks) w.dispose();
     this.wrecks.length = 0;

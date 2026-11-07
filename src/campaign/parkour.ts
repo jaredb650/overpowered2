@@ -18,7 +18,7 @@ export const PARKOUR = {
     /** Metres of run from the door to the line that starts it closing. */
     triggerRange: 22,
   },
-  /** The Coolant Hall. Double jump falls short. Double jump and one dash makes it. */
+  /** The Coolant Hall. Double jump falls short. Double jump and one dash makes it from the last metre of the lip, and both dashes from 4 m back. */
   dash: { gap: 18 },
   /**
    * The cable gallery. `headroom` is what does the work: the longest flights on foot are low and flat, and a ceiling this low takes

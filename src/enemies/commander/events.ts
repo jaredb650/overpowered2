@@ -26,6 +26,8 @@ declare module '../../core/contracts' {
   interface GameEvents {
     /** Between waves: the Commander has something to say. */
     'commander:briefing': Briefing;
+    /** A mission's fight has started, and whatever is in the box should not be read out over it. */
+    'commander:quiet': Record<string, never>;
     /** The player pressed through the box. The next wave comes sooner. */
     'commander:skipped': Record<string, never>;
     /** A warning chip goes up or comes down. */

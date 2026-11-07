@@ -38,6 +38,8 @@ export abstract class Vehicle {
   retired = false;
   /** Whoever last hurt it, for the kill. */
   source = '';
+  /** Takes its HUD marker down, if the mission gave it one. */
+  unmark: (() => void) | null = null;
   /** What a gunner's sight marks. */
   readonly meshes: THREE.Object3D[] = [];
   /** Radians the turret stands off the hull. */

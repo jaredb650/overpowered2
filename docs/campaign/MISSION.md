@@ -145,7 +145,7 @@ Every size here comes from `src/campaign/parkour.ts`, and `parkour.test.ts` puts
 | **Mantle** | LZ Cut walls | Ledge 3.0 m | Running at it. No move lifts a player who did not jump | One jump, forward held | Passes |
 | **Double jump** | The Wreck's hull | Ledge 4.2 m | One jump | Two jumps from a stand at the hull, or from a run that leaves the ground 5 m or more out | From a run that leaves the ground within 4 m, the second press is a wall kick and throws the player off. The hint says to stand close |
 | **Slide** | Blast door D1 | Door 3.6 m high, shuts in 2.8 s, trigger line 22 m out | A full run, and a run with both dashes: the leaf is below standing height when they arrive | A slide pressed anywhere in the last 9 m | Passes. A closing door never buries a body already under it |
-| **Dash** | Coolant Hall | Gap 18 m | Double jump, at any timing | Double jump and one dash | Passes |
+| **Dash** | Coolant Hall | Gap 18 m | Double jump, at any timing | Double jump and one dash from the last metre of the lip. Both dashes from 4 m back, which is why the hint says both | Passes |
 | **Wall run** | Cable Gallery | Gap 22 m, headroom 3.0 m | Every jump and both dashes at any timing: the longest flights are low and flat, and the ceiling takes their arc away | Wall run, jump off, jump again, from anywhere in the last 8 m of the deck, on a line of 0.3 to 0.4 rad, with about half a second of slack on the moment of leaving. A wall run alone makes it only from the very lip | Passes |
 | **All of it** | The Stack's shaft | 5 m wide | Nothing: the stairs are always there | Wall kicks up the shaft, the fast way, for those who want it | Zig-zag proved by `wallBot`, not on this geometry |
 
@@ -389,7 +389,7 @@ Each beat's id is what `?beat=` takes. Lengths are for a first-time player. Men 
 
 ### The raid, part three: `gallery`
 
-- **Where:** down the stairs to the Cable Gallery.
+- **Where:** down the stairs to the Cable Gallery. The far deck is through a wall from the platform, so the marker shows the stairs first and moves on when the player reaches the near deck.
 - **Player:** alone in a low concrete duct, a 22 m gap and a lit wall.
 - **Enemies:** none. Nobody comes down here.
 - **Next:** the player reaches the far deck.
@@ -607,7 +607,7 @@ The one rule: **every body counted under a tag must end in exactly one `unitGone
 | `vehicle` | Real, from `VehicleSystem`. See docs/notes/vehicles.md | Vehicles |
 | `ride` | Real. A route is flown as written. With no route, the ordinary Door Gunner call-in, circling for its 45 s | Vehicles |
 | `boss` | `commander.person.summon()`: he falls from the sky as he does on the Kill House | Bosses |
-| `call` | A console warning | Whoever owns the name: `lights`, `commanderToRoof` |
+| `call` | A console warning | Whoever owns the name: `lights`, `commanderToRoof`, `mark` (a HUD marker rides every vehicle under that tag), `quiet` (the Commander's box closes as a fight opens) |
 
 ### Testing it
 
@@ -620,7 +620,7 @@ node tools/shot.mjs --url "/?mission=stub&map=killhouse&autostart=1" --script to
 
 ## 6. Where it stands
 
-Everything in sections 1 to 5 is built and has run in real Chrome on the real map, beat by beat, with a bot. `tools/scripts/mission-live.mjs` is that bot: `MISSION_STEP` takes `film`, `ride`, `lockout`, `soft`, `heavy`, `turn`, `breach`, `barracks`, `coolant`, `gallery`, `mess`, `armoury`, `plates`, `stack`, `boss`, `ending`, `pause`, `voice`, `unlock` and `menu`, and the header says how to run one. It teleports between the fights and kills what it has to, so it proves that every beat fires and hands on, not that any of it is any good. Nobody has played the raid.
+Everything in sections 1 to 5 is built and has run in real Chrome on the real map, with two bots. `tools/scripts/mission-live.mjs` works in stretches: `MISSION_STEP` takes `film`, `ride`, `lockout`, `soft`, `heavy`, `turn`, `breach`, `barracks`, `coolant`, `gallery`, `mess`, `armoury`, `plates`, `stack`, `boss`, `ending`, `pause`, `voice`, `unlock` and `menu`. It teleports and kills what it has to, so it proves that a beat fires and hands on. `tools/scripts/mission-play.mjs` plays the whole thing in one sitting on the real keys: it walks the routes, jumps the gaps and shoots the tanks with the launcher, lists every place it had to cheat, counts frame times and incoming fire per beat, and with `PLAY_DIE=1` dies once in every beat. Neither proves that any of it is any good. `docs/campaign/PLAYTEST.md` says what only a person can judge.
 
 What a player has found that the plan has not caught up with is in docs/NEXT.md.
 

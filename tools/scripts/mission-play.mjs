@@ -9,6 +9,9 @@
 // plates, stack, boss, ending, again. `full` is all of them, and `again` goes through the end screen's Play again and fast-forwards a
 // second mission to its end. Add &beat=<id> to the URL to start a stretch cold. PLAY_DIE=1 kills the player once in every beat and checks
 // what the checkpoint gives back.
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 const FULL = 'film,ride,lockout,soft,heavy,wreck,turn,breach,barracks,coolant,gallery,mess,armoury,plates,stack,boss,ending,again';
 const PLAY = (process.env.PLAY ?? 'full').replace('full', FULL).split(',');
 const DIE = process.env.PLAY_DIE === '1';
@@ -70,6 +73,13 @@ function driver() {
     t.done(out ?? 'timeout');
   };
   requestAnimationFrame(tick(performance.now()));
+  // Who is doing the hurting, per beat. The run rebuilds nothing here: the player is one object for the life of the page.
+  const takeDamage = op.ctx.player.takeDamage;
+  op.ctx.player.takeDamage = function hurt(d) {
+    const s = bot.beats[runner()?.beat?.id ?? 'none'];
+    if (s && bot.god) (s.by ??= {})[d.source ?? d.type] = Math.round(((s.by?.[d.source ?? d.type]) ?? 0) + d.amount);
+    return takeDamage.call(this, d);
+  };
 
   /** One job at a time, on the frame, with a clock so nothing can hold the run for ever. */
   bot.run = (seconds, step) => new Promise(done => {
@@ -342,15 +352,18 @@ export default async function play(page, h) {
   const dieHere = async expect => {
     if (!DIE) return;
     const before = await read();
-    await page.evaluate(() => {
+    await page.evaluate(async () => {
       const b = window.__bot;
       b.god = false;
       b.idle();
       const p = window.__op2.ctx.player;
       p.maxHealth = p.health = 100;
       p.armor = 0;
-      p.modifiers.invulnerable = false;
-      p.takeDamage({ amount: 1e6, from: p.position, type: 'true', source: 'test' });
+      // A body back from a checkpoint cannot be hurt for its first seconds.
+      for (let i = 0; i < 40 && p.alive; i++) {
+        p.takeDamage({ amount: 1e6, from: p.position, type: 'true', source: 'test' });
+        await new Promise(r => setTimeout(r, 150));
+      }
     });
     await until(d => d.deaths === before.deaths + 1 && d.state === 'running', 12, 'redeploy');
     await page.evaluate(() => { window.__bot.god = true; });
@@ -376,7 +389,6 @@ export default async function play(page, h) {
       await beatIs('insertion', 60);
       await h.sleep(3000);
       await snap('ride');
-      await dieHere('the seat again');
       await page.evaluate(() => {
         const { ctx } = window.__op2;
         window.__rideGun = setInterval(() => {
@@ -563,8 +575,14 @@ export default async function play(page, h) {
     },
     async gallery() {
       await beatIs('gallery', 40);
-      await dieHere('the near deck');
+      await h.sleep(500);
+      await snap('far-platform');
+      log.push({ farPlatform: await hud(), s: await state() });
+      await walk(-25, 0, -69.5, { seconds: 8, within: 2 });
+      await walk(-14, -5, -69.5, { seconds: 8, within: 2 });
       await walk(-20, -5, -74.5, { seconds: 15, within: 2 });
+      await h.sleep(600);
+      await dieHere('the near deck');
       await h.sleep(400);
       await snap('gallery');
       log.push({ gallery: await hud(), s: await state() });
@@ -722,20 +740,27 @@ export default async function play(page, h) {
     },
   };
 
+  const report = async () => {
+    const beats = await page.evaluate(() => {
+      const out = {};
+      for (const [id, s] of Object.entries(window.__bot.beats)) out[id] = { seconds: Math.round(s.seconds), fps: Math.round(s.frames / Math.max(s.seconds, 0.1)), slowShare: Math.round((s.slow / s.frames) * 100), worstMs: s.worst, cpuPeak: Math.round(s.cpu), men: s.men, hurt: Math.round(s.hurt), by: s.by };
+      return out;
+    });
+    const out = { play: PLAY, cheats, errors, beats, log };
+    // After every stretch, because a run that goes over its time is closed with nothing printed.
+    writeFileSync(join(h.outDir, 'play-report.json'), JSON.stringify(out, null, 1));
+    return out;
+  };
   try {
     for (const step of PLAY) {
       const t = Date.now();
       await stretches[step]();
       log.push({ stretch: step, seconds: Math.round((Date.now() - t) / 1000) });
+      await report();
     }
   } catch (e) {
     errors.push(String(e));
     await snap('failed');
   }
-  const beats = await page.evaluate(() => {
-    const out = {};
-    for (const [id, s] of Object.entries(window.__bot.beats)) out[id] = { seconds: Math.round(s.seconds), fps: Math.round(s.frames / Math.max(s.seconds, 0.1)), slowShare: Math.round((s.slow / s.frames) * 100), worstMs: s.worst, cpuPeak: Math.round(s.cpu), men: s.men, hurt: Math.round(s.hurt) };
-    return out;
-  });
-  return { play: PLAY, cheats, errors, beats, log };
+  return report();
 }
