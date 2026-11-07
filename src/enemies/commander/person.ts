@@ -23,6 +23,10 @@ const SMOKE_COVER = 1.4;
 const SMOKE_PUFFS = 7;
 /** Seconds from him reaching the roof to the first shells on it, which is about how long the player takes to follow him up. */
 const ROOF_SHELLS_AFTER = 14;
+/** Higher than this over the player's head is sky. */
+const OPEN_SKY = 40;
+
+const UP = new THREE.Vector3(0, 1, 0);
 
 export class Person {
   body: Enemy | null = null;
@@ -106,8 +110,10 @@ export class Person {
     }
     if (now >= this.shellAt) {
       this.shellAt = now + SHELL_EVERY;
-      // On the player, with the suit standing in it. He has stopped caring which of them it hits.
-      if (c.mortars.call(w.player.position, 'mortar', SHELLS, this.stagedAt === null)) c.bark(pick(IN_PERSON.slice(1)).id);
+      // On the player, with the suit standing in it. He has stopped caring which of them it hits. A shell cannot find anyone under a roof.
+      const staged = this.stagedAt !== null;
+      const clear = !staged || !w.ctx.physics.raycast(w.player.eye, UP, OPEN_SKY);
+      if (clear && c.mortars.call(w.player.position, 'mortar', SHELLS, !staged)) c.bark(pick(IN_PERSON.slice(1)).id);
     }
   }
 
@@ -121,6 +127,8 @@ export class Person {
       return;
     }
     this.body = e;
+    // A charge runs straight, and a well, a rail and a waist-high parapet would all end it on ground the player can never reach.
+    if (this.stagedAt) e.attacks = e.attacks.filter(a => a.name !== 'charge');
     c.props.fit(e.char, 'cap');
     // A staged fight opens under a roof, and shells cannot reach him until he has gone up to the open.
     this.shellAt = this.stagedAt ? Infinity : w.now + SHELL_EVERY;

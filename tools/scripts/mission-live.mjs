@@ -388,10 +388,19 @@ export default async function missionLive(page, h) {
       await face(0, 15, -70);
       await h.sleep(600);
       await h.shot('boss-2');
-      await h.sleep(14000);
+      await page.waitForFunction(() => window.__op2.ctx.enemies.outpost.commander.mortars.stage !== 'idle', null, { timeout: 24000 });
+      await h.sleep(1500);
       await h.shot('boss-3');
       log.push({ boss: await at(), hud: await hud(), mortar: await page.evaluate(() => window.__op2.ctx.enemies.outpost.commander.mortars.stage) });
-      await kill('boss.west', 'boss.east', 'commander');
+      // A boss takes only so much from one hit, whatever the hit.
+      await page.evaluate(async () => {
+        const { ctx } = window.__op2;
+        const b = ctx.enemies.outpost.commander.person.body;
+        for (let i = 0; i < 200 && b.alive; i++) {
+          ctx.enemies.applyDamage(b, { amount: 1e6, type: 'true', point: b.center.clone(), dir: b.center.clone().set(0, 0, -1), force: 0, source: 'rocket' });
+          await new Promise(r => setTimeout(r, 30));
+        }
+      });
       await until(d => d.beat === 'ending', 12, 'ending');
     },
     /** His last words, the receipt, the film, the screen with the bill on it, and back round to the top. */
@@ -409,7 +418,45 @@ export default async function missionLive(page, h) {
       await page.waitForFunction(() => document.querySelector('.scr-complete')?.style.display === '', null, { timeout: 20000 });
       await h.sleep(1600);
       await h.shot('end-2');
-      log.push({ result: await page.evaluate(() => window.__op2.campaign.result), screen: await page.evaluate(() => document.querySelector('.scr-complete')?.innerText) });
+      log.push({ result: await page.evaluate(() => window.__op2.campaign.result), screen: await page.evaluate(() => document.querySelector('.scr-complete')?.innerText.replace(/\n\d(?=\n)/g, '')) });
+      await page.locator('.scr-complete').getByText('Play again', { exact: true }).click();
+      await until(d => d.beat === 'briefing', 8, 'the top');
+      await h.sleep(800);
+      log.push({ again: await read(), curtain: await page.evaluate(() => getComputedStyle(document.querySelector('.ms-curtain')).opacity) });
+      await h.shot('end-3');
+    },
+    /** A line with a take: the box waits for the clip, stops with a pause, and the next line follows it. A real recording is not needed for that. */
+    async voice() {
+      await until(d => d.beat === 'briefing', 60, 'briefing');
+      await page.mouse.click(640, 400);
+      const seconds = 3, rate = 8000, n = seconds * rate;
+      const wav = Buffer.alloc(44 + n, 128);
+      wav.write('RIFF', 0); wav.writeUInt32LE(36 + n, 4); wav.write('WAVEfmt ', 8); wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22);
+      wav.writeUInt32LE(rate, 24); wav.writeUInt32LE(rate, 28); wav.writeUInt16LE(1, 32); wav.writeUInt16LE(8, 34); wav.write('data', 36); wav.writeUInt32LE(n, 40);
+      await page.route('**/audio/voice/*.mp3', r => r.fulfill({ contentType: 'audio/wav', body: wav }));
+      const probe = () => page.evaluate(() => {
+        const { ui } = window.__op2.campaign;
+        return { speaking: ui.voice.speaking, audioPaused: ui.voice.current?.paused ?? null, waiting: ui.lineDone !== null, doneYet: window.__said === true, box: document.querySelector('.ms-radio.on')?.textContent ?? null };
+      });
+      log.push({ media: await page.evaluate(() => new Promise(done => {
+        const a = new Audio('audio/voice/mission.test.mp3');
+        a.addEventListener('error', () => done(`error ${a.error?.code} ${a.error?.message}`), { once: true });
+        a.play().then(() => done(`playing ${a.duration}`), e => done(`refused ${e.name}`));
+      })) });
+      await page.evaluate(() => {
+        const { ui } = window.__op2.campaign;
+        ui.voice.known = new Set(['mission.test']);
+        ui.speak({ id: 'mission.test', speaker: 'council', emotion: 'deadpan', text: 'Short.' }, () => { window.__said = true; });
+      });
+      await h.sleep(2600);
+      log.push({ past2sOfText: await probe() });
+      await press('pause');
+      await h.sleep(400);
+      log.push({ paused: await probe() });
+      await page.locator('.scr-pause button.mi').filter({ hasText: 'Resume' }).first().click();
+      await page.waitForFunction(() => window.__op2.game.state === 'playing', null, { timeout: 6000 });
+      await h.sleep(3200);
+      log.push({ after: await probe() });
     },
     /** Pause in the film and in the seat, Restart from checkpoint out of both, with real clicks on the real buttons. */
     async pause() {

@@ -497,7 +497,7 @@ describe('validateMission', () => {
         id: 'a',
         title: 'A',
         start: [{ do: 'say', line: 'nobody' }, { do: 'door', door: 'nothing', open: 0 }, { do: 'squad', tag: 'x', men: ['trooper'], at: 'nowhere' }, { do: 'rack', weapon: 'rocket', at: 'a' }],
-        cues: [{ when: { zone: 'moon' }, run: [] }],
+        cues: [{ when: { zone: 'moon' }, run: [] }, { when: { signal: 'once' }, repeat: true, run: [] }],
         until: { cleared: 'ghosts' },
       },
       { id: 'b', title: 'B', checkpoint: { at: 'a', loadout: { weapons: ['smg'], grenades: 0 } } },
@@ -508,6 +508,7 @@ describe('validateMission', () => {
     expect(problems.join('\n')).toMatch(/zone moon/);
     expect(problems.join('\n')).toMatch(/under ghosts/);
     expect(problems.join('\n')).toMatch(/takes away the rocket/);
+    expect(problems.join('\n')).toMatch(/never raises it again/);
     expect(problems.join('\n')).toMatch(/nothing ever ends/);
   });
 
