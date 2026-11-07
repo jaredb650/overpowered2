@@ -21,6 +21,8 @@ const HOLD_OUT = 2;
 /** Seconds from the smoke going up to him being gone from under it. */
 const SMOKE_COVER = 1.4;
 const SMOKE_PUFFS = 7;
+/** Seconds from him reaching the roof to the first shells on it, which is about how long the player takes to follow him up. */
+const ROOF_SHELLS_AFTER = 14;
 
 export class Person {
   body: Enemy | null = null;
@@ -95,6 +97,7 @@ export class Person {
       e.groundY = this.fallTo.y;
       e.velocity.set(0, 0, 0);
       this.fallTo = null;
+      this.shellAt = now + ROOF_SHELLS_AFTER;
     }
     const share = e.health / e.maxHealth;
     if (this.barks < BARK_AT.length && share < BARK_AT[this.barks]!) {
@@ -104,7 +107,7 @@ export class Person {
     if (now >= this.shellAt) {
       this.shellAt = now + SHELL_EVERY;
       // On the player, with the suit standing in it. He has stopped caring which of them it hits.
-      if (c.mortars.call(w.player.position, 'mortar', SHELLS)) c.bark(pick(IN_PERSON.slice(1)).id);
+      if (c.mortars.call(w.player.position, 'mortar', SHELLS, this.stagedAt === null)) c.bark(pick(IN_PERSON.slice(1)).id);
     }
   }
 
@@ -119,7 +122,8 @@ export class Person {
     }
     this.body = e;
     c.props.fit(e.char, 'cap');
-    this.shellAt = w.now + SHELL_EVERY;
+    // A staged fight opens under a roof, and shells cannot reach him until he has gone up to the open.
+    this.shellAt = this.stagedAt ? Infinity : w.now + SHELL_EVERY;
     w.ctx.audio.play('boss_alarm');
     w.ctx.events.emit('commander:person', { arrived: true });
     c.bark(IN_PERSON[0]!.id);

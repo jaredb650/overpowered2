@@ -41,7 +41,7 @@ export default async function missionLive(page, h) {
     beat: document.querySelector('.ms-beat')?.textContent ?? null,
   }));
   /** Every run rebuilds the player, so this has to go on being true. */
-  const god = () => page.evaluate(() => { setInterval(() => { window.__op2.ctx.player.modifiers.invulnerable = true; }, 100); });
+  const god = () => page.evaluate(() => { setInterval(() => { const p = window.__op2?.ctx?.player; if (p?.modifiers) p.modifiers.invulnerable = true; }, 100); });
   const tp = (x, y, z, yaw) => page.evaluate(([x, y, z, yaw]) => {
     const { player } = window.__op2.ctx;
     player.teleport(player.position.clone().set(x, y, z), yaw);
@@ -63,6 +63,16 @@ export default async function missionLive(page, h) {
     }
     for (const v of [...(ctx.enemies.vehicles?.live ?? [])]) if (!names.length || names.includes(v.tag)) v.take(1e6, null, 'rocket', v.position);
   }, tags);
+  /** Crew get out of a dying truck after the shot that killed it, so one sweep is never enough. */
+  const clear = async (beat, seconds, ...tags) => {
+    for (let t = 0; t < seconds; t++) {
+      const d = await read();
+      if (d.beat === beat) return d;
+      await kill(...tags);
+      await h.sleep(1000);
+    }
+    throw new Error(`never reached ${beat}: ${JSON.stringify(await read())}`);
+  };
   const seat = (on) => page.evaluate(on => window.__op2.ctx.input.simulate('fire', on), on);
   /** Points the door gun at the nearest man it can reach, the way a player would sweep it. */
   const aimGun = () => page.evaluate(() => {
@@ -156,8 +166,7 @@ export default async function missionLive(page, h) {
       await h.sleep(14000);
       await note('second wave');
       await h.shot('soft-3');
-      await kill('soft.second', 'soft.truck3', 'soft.truck4', 'lz.rim');
-      await until(d => d.beat === 'breather', 25, 'breather');
+      await clear('breather', 30, 'soft.first', 'soft.second', 'soft.truck1', 'soft.truck2', 'soft.truck3', 'soft.truck4', 'lz.rim');
       await h.sleep(1500);
       await h.shot('soft-4');
       log.push({ hud: await hud() });
@@ -177,7 +186,7 @@ export default async function missionLive(page, h) {
       await h.sleep(1500);
       await h.shot('wreck-0');
       log.push({ hud: await hud() });
-      await tp(84, 4.3, 82, Math.PI);
+      await tp(84, 4.3, 83, Math.PI);
       await h.sleep(1500);
       await h.shot('wreck-1');
       await until(d => d.beat === 'turn', 12, 'turn');
@@ -208,6 +217,190 @@ export default async function missionLive(page, h) {
       await h.sleep(1000);
       await h.shot('breach-0');
       log.push({ hud: await hud() });
+    },
+    /** The Gate Yard: the men wait, the door drops, a miss brings it up to a crawl again and again. */
+    async breach() {
+      await until(d => d.beat === 'breach', 40, 'breach');
+      await h.sleep(1500);
+      await tp(0, 0, 4, 0);
+      await until(d => d.doors.blastDoor === 1, 3, 'door open');
+      await h.sleep(1200);
+      await tp(0, 0, 2, 0);
+      await h.sleep(800);
+      await h.shot('breach-1');
+      await until(d => d.doors.blastDoor === 0, 8, 'door shutting');
+      log.push({ hud: await hud() });
+      await kill('breach.west', 'breach.east');
+      await until(d => d.doors.blastDoor === 0.4, 14, 'door up, once');
+      await h.sleep(1400);
+      await h.shot('breach-2');
+      await until(d => d.doors.blastDoor === 0, 8, 'door down');
+      await until(d => d.doors.blastDoor === 0.4, 16, 'door up, twice');
+      log.push({ twice: true });
+      await tp(0, 0, -18, Math.PI);
+      await until(d => d.beat === 'barracks', 8, 'barracks');
+    },
+    async barracks() {
+      await until(d => d.beat === 'barracks', 40, 'barracks');
+      await h.sleep(2500);
+      await h.shot('bar-0');
+      log.push({ hud: await hud() });
+      await until(d => d.doors.sallyWest === 1, 40, 'the door west');
+      await h.sleep(2500);
+      await tp(-12, 0, -17.5, Math.PI / 2);
+      await h.sleep(1800);
+      await h.shot('bar-1');
+      log.push({ hud: await hud() });
+      await h.sleep(7000);
+      await h.shot('bar-2');
+      await note('in the corridor');
+      await tp(-28, 0, -30, 0);
+      await h.sleep(3000);
+      await h.shot('bar-3');
+      await tp(-30, 0, -42.5, Math.PI / 2);
+      await clear('coolant', 25, 'bar.pin', 'bar.flank', 'bar.bunks');
+      log.push({ hud: await hud() });
+    },
+    async coolant() {
+      await until(d => d.beat === 'coolant', 40, 'coolant');
+      await tp(-34, 0, -48, 0);
+      await h.sleep(1500);
+      await h.shot('cool-0');
+      await h.sleep(9000);
+      await h.shot('cool-1');
+      log.push({ hud: await hud() });
+      await tp(-34, 0, -72, Math.PI);
+      await until(d => d.beat === 'gallery', 6, 'gallery');
+    },
+    async gallery() {
+      await until(d => d.beat === 'gallery', 40, 'gallery');
+      await tp(-20, -5, -74.5, -Math.PI / 2);
+      await h.sleep(1500);
+      await h.shot('gal-0');
+      await h.sleep(9000);
+      await h.shot('gal-1');
+      log.push({ hud: await hud() });
+      await tp(18, -5, -74.5, -Math.PI / 2);
+      await until(d => d.beat === 'mess', 6, 'mess');
+    },
+    async mess() {
+      await until(d => d.beat === 'mess', 40, 'mess');
+      await h.sleep(4500);
+      await note('waiting');
+      await tp(46, 0, -74, Math.PI);
+      await h.sleep(1000);
+      await h.shot('mess-0');
+      await tp(34, 0, -67, Math.PI);
+      await h.sleep(2500);
+      await h.shot('mess-1');
+      log.push({ hud: await hud(), still: await page.evaluate(() => window.__op2.ctx.enemies.alive.filter(e => e.velocity.length() > 0.2).length) });
+      await h.sleep(7000);
+      await h.shot('mess-2');
+      log.push({ hud: await hud() });
+      await clear('armoury', 25, 'mess.floor', 'mess.west', 'mess.east');
+    },
+    async armoury() {
+      await until(d => d.beat === 'armoury', 40, 'armoury');
+      await tp(40, 0, -37, -Math.PI / 2);
+      await h.sleep(1500);
+      await h.shot('arm-0');
+      log.push({ hud: await hud() });
+      await tp(44, 0, -37, Math.PI);
+      await until(d => d.beat === 'plates', 40, 'plates');
+      await h.sleep(800);
+      await h.shot('arm-1');
+      log.push({ hud: await hud(), owned: await page.evaluate(() => [...window.__op2.ctx.weapons.owned]) });
+    },
+    /** A real rocket on the floor by the line, and a real one on a plated chest, so the lesson is measured and not read off a table. */
+    async plates() {
+      await until(d => d.beat === 'plates', 40, 'plates');
+      await tp(44, 0, -24, Math.PI / 2);
+      await until(d => d.tags['plate.back'] && d.tags['plate.back'] !== '4/4' || d.tags['plate.back'] === '4/4', 10, 'second platoon');
+      await h.sleep(7000);
+      const men = () => page.evaluate(() => {
+        const { ctx, campaign } = window.__op2;
+        return ctx.enemies.alive.map(e => ({ tag: campaign.host.tagOf.get(e.uid), id: e.id, armor: Math.round(e.armor), plates: e.plates.length, hp: Math.round(e.health), max: Math.round(e.maxHealth), at: e.position.toArray().map(Math.round) }));
+      });
+      const before = await men();
+      log.push({ before });
+      await h.shot('plate-0');
+      const front = before.find(m => m.tag === 'plate.front');
+      if (front) {
+        await page.evaluate(() => { window.__op2.ctx.weapons.switchTo('rocket'); });
+        await h.sleep(600);
+        await face(front.at[0], 0, front.at[2] + 2.5);
+        await seat(true);
+        await h.sleep(120);
+        await seat(false);
+        await h.sleep(2200);
+        log.push({ afterFloorShot: await men() });
+        await h.shot('plate-1');
+      }
+      await clear('stack', 30, 'plate.front', 'plate.back', 'plate.round');
+    },
+    async stack() {
+      await until(d => d.beat === 'stack', 40, 'stack');
+      await h.sleep(2500);
+      await h.shot('stack-0');
+      log.push({ hud: await hud() });
+      await tp(-2, 5, -30, 0);
+      await h.sleep(5000);
+      await h.shot('stack-1');
+      await note('landing');
+      await kill('stack.base', 'stack.lower');
+      await h.sleep(2500);
+      await kill('stack.base', 'stack.lower', 'stack.upper');
+      await tp(0, 10, -60, 0);
+      await until(d => d.beat === 'commander', 6, 'top');
+    },
+    /** Into the War Room, a chunk off his health, up to the roof after him, and the shells that come down there. */
+    async boss() {
+      await until(d => d.beat === 'commander', 40, 'commander');
+      await tp(0, 10, -63, 0);
+      await h.sleep(3000);
+      await h.shot('boss-0');
+      const at = () => page.evaluate(() => {
+        const b = window.__op2.ctx.enemies.outpost.commander.person.body;
+        return b ? { at: b.position.toArray().map(Math.round), hp: Math.round(b.health), max: Math.round(b.maxHealth), armor: Math.round(b.armor) } : null;
+      });
+      log.push({ boss: await at(), hud: await hud() });
+      await page.evaluate(() => {
+        const { ctx } = window.__op2;
+        const b = ctx.enemies.outpost.commander.person.body;
+        ctx.enemies.applyDamage(b, { amount: b.health * 0.45, type: 'true', point: b.center.clone(), dir: b.center.clone().set(0, 0, -1), force: 0, source: 'rocket' });
+      });
+      await until(d => d.doors.warRoomStairs === 1, 12, 'he runs');
+      await h.sleep(3000);
+      await h.shot('boss-1');
+      log.push({ boss: await at(), hud: await hud() });
+      await tp(-14, 14, -62, Math.PI);
+      await h.sleep(1500);
+      await face(0, 15, -70);
+      await h.sleep(600);
+      await h.shot('boss-2');
+      await h.sleep(14000);
+      await h.shot('boss-3');
+      log.push({ boss: await at(), hud: await hud(), mortar: await page.evaluate(() => window.__op2.ctx.enemies.outpost.commander.mortars.stage) });
+      await kill('boss.west', 'boss.east', 'commander');
+      await until(d => d.beat === 'ending', 12, 'ending');
+    },
+    /** His last words, the receipt, the film, the screen with the bill on it, and back round to the top. */
+    async ending() {
+      await until(d => d.beat === 'ending', 40, 'ending');
+      await h.sleep(2000);
+      await h.shot('end-0');
+      log.push({ hud: await hud(), box: await page.evaluate(() => document.querySelector('.cmd-box.on:not(.ms-radio)')?.textContent ?? null) });
+      await until(d => d.beat === 'ending' && document !== null, 2, 'still ending').catch(() => {});
+      await page.waitForFunction(() => window.__op2.campaign.host.film.playing, null, { timeout: 15000 });
+      await h.sleep(5000);
+      await h.shot('end-1');
+      log.push({ hud: await hud() });
+      await seek(1, 13);
+      await page.waitForFunction(() => window.__op2.campaign.result !== null, null, { timeout: 30000 });
+      await page.waitForFunction(() => window.__op2.ctx.hud.screens?.name === 'complete' || document.querySelector('.scr-complete')?.style.display !== 'none', null, { timeout: 15000 });
+      await h.sleep(1600);
+      await h.shot('end-2');
+      log.push({ result: await page.evaluate(() => window.__op2.campaign.result), screen: await page.evaluate(() => document.querySelector('.scr-complete')?.innerText) });
     },
     async film() {
       await until(d => d.beat === 'briefing', 60, 'briefing');

@@ -230,7 +230,7 @@ const BEATS: readonly Beat[] = [
     ],
     cues: [
       nudge('hullFoot', 18, 'Stand close to the hull, press {jump} {jump} and hold {forward}.'),
-      { when: { zone: 'wreckDeck' }, run: [commander('wreck.boots'), { do: 'done', id: 'wreck' }] },
+      { when: { zone: 'wreckDeck' }, run: [commander('wreck.boots'), { do: 'done', id: 'wreck' }, { do: 'objective', id: 'launcher', text: 'Take his launcher' }] },
     ],
     until: { signal: 'took:rocket' },
   },
@@ -240,6 +240,7 @@ const BEATS: readonly Beat[] = [
     checkpoint: { at: 'wreckDeck', loadout: KIT.launcher },
     start: [
       ...ARMOUR,
+      { do: 'done', id: 'launcher' },
       { do: 'objective', id: 'armour', text: 'Destroy the armour' },
       commander('wreck.changes'),
       council('wreck.balance'),
@@ -304,7 +305,8 @@ const BEATS: readonly Beat[] = [
       {
         when: { all: [{ signal: 'sealing' }, { after: 9 }] },
         repeat: true,
-        run: [{ do: 'door', door: 'blastDoor', open: 0.4, seconds: 1.2 }, { do: 'hint', text: 'Too low to stand. Run at it and press {slide}.', seconds: 5 }, { do: 'wait', seconds: 4 }, { do: 'door', door: 'blastDoor', open: 0, seconds: 1.2 }],
+        // The signal goes again at the end because a repeating cue is armed afresh, and a miss must never be the last chance.
+        run: [{ do: 'door', door: 'blastDoor', open: 0.4, seconds: 1.2 }, { do: 'hint', text: 'Too low to stand. Run at it and press {slide}.', seconds: 5 }, { do: 'wait', seconds: 4 }, { do: 'door', door: 'blastDoor', open: 0, seconds: 1.2 }, { do: 'signal', name: 'sealing' }],
       },
     ],
     until: { zone: 'sallyHall' },
@@ -347,7 +349,8 @@ const BEATS: readonly Beat[] = [
       },
       { when: { zone: 'bunks' }, run: [{ do: 'release', tag: 'bar.bunks' }] },
     ],
-    until: { all: [{ cleared: ['bar.pin', 'bar.flank', 'bar.bunks'] }, { zone: 'northCorridor' }] },
+    // Whoever leaves men alive behind them still moves on: the rest of the raid is on the far side of that door.
+    until: { any: [{ all: [{ cleared: ['bar.pin', 'bar.flank', 'bar.bunks'] }, { zone: 'northCorridor' }] }, { zone: 'coolantNear' }] },
   },
   {
     id: 'coolant',
@@ -448,7 +451,7 @@ const BEATS: readonly Beat[] = [
       { do: 'objective', id: 'plates', text: 'Break Second Platoon' },
       { do: 'hint', text: 'Plate shrugs off a blast. Rocket the plated man direct, and let the blast take the men beside him.', seconds: 10 },
       { do: 'squad', tag: 'plate.front', men: ['brute', 'brute'], at: 'plateWest' },
-      { do: 'squad', tag: 'plate.back', men: ['trooper', 'trooper', 'warden', 'gunner'], at: 'plateWest' },
+      { do: 'squad', tag: 'plate.back', men: ['trooper', 'trooper', 'warden', 'gunner'], at: 'plateWest', light: true },
       { do: 'wait', seconds: 12 },
       { do: 'squad', tag: 'plate.round', men: ['brute', 'trooper', 'gunner'], at: 'guardRoom' },
     ],
@@ -490,7 +493,8 @@ const BEATS: readonly Beat[] = [
       commander('boss.stores'),
       { do: 'objective', id: 'boss', text: 'Kill the Commander' },
       { do: 'boss', tag: 'commander', at: 'warRoom' },
-      { do: 'door', door: 'warGlass', open: 1 },
+      { do: 'call', name: 'shatter', arg: 'warGlass' },
+      { do: 'door', door: 'warGlass', open: 1, seconds: 0 },
       { do: 'drop', item: 'ammo', at: 'roofAmmo' },
       { do: 'drop', item: 'health', at: 'roofHealth' },
     ],

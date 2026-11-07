@@ -36,6 +36,10 @@ const CRASH_SECONDS = 2.4;
 /** How long a squad is held to a drill it was told to run. */
 const DRILL_SECONDS = 14;
 const DEPLOY_GRACE = 2.5;
+/** Spots across a pane that go at once, so a wide one comes down as a sheet rather than as one hole. */
+const PANE_BURSTS = 5;
+/** Towards the player, who is on the Stack's side of it. */
+const THROUGH_GLASS = new THREE.Vector3(0, 0, 1);
 
 const _v = new THREE.Vector3();
 
@@ -45,6 +49,7 @@ interface Arrival {
   at: THREE.Vector3;
   seat: number;
   hold: boolean;
+  light: boolean;
 }
 
 export class GameHost implements MissionHost {
@@ -149,7 +154,7 @@ export class GameHost implements MissionHost {
   }
 
   squad(order: SquadOrder, at: Mark): void {
-    this.arrivals.push({ tag: order.tag, men: order.men, at: new THREE.Vector3(...at.at), seat: 0, hold: order.orders === 'hold' });
+    this.arrivals.push({ tag: order.tag, men: order.men, at: new THREE.Vector3(...at.at), seat: 0, hold: order.orders === 'hold', light: order.light === true });
   }
 
   release(tag: string): void {
@@ -223,9 +228,17 @@ export class GameHost implements MissionHost {
     this.tagging = null;
     // The pool is full. This man does not exist, and must not hold the mission open.
     if (!body) this.runner.unitGone(head.tag, false, '');
+    else if (head.light) this.strip(body as Enemy);
     head.seat++;
     this.arrivalClock = MAN_GAP;
     if (head.seat >= head.men.length) this.arrivals.shift();
+  }
+
+  /** The pool keeps a man's plates on his body, so they have to be hidden as well as taken off the books. */
+  private strip(e: Enemy): void {
+    for (const plate of e.plates) plate.mesh.visible = false;
+    e.plates = [];
+    e.armor = 0;
   }
 
   /** `VehicleSystem` provides this on every page with a mission. */
@@ -316,6 +329,15 @@ export class GameHost implements MissionHost {
         ctx.audio.play('wreck_land', { unaffectedByTime: true });
         ctx.audio.play('ear_ring', { volume: 0.5, duration: CRASH_SECONDS * 2, unaffectedByTime: true });
         return;
+      case 'shatter': {
+        const { at, width, height } = this.runner.mission.doors[arg!]!;
+        for (let i = 0; i < PANE_BURSTS; i++) {
+          _v.set(at[0] + (i / (PANE_BURSTS - 1) - 0.5) * width, at[1] + height * (0.25 + 0.5 * (i % 2)), at[2]);
+          ctx.fx.impact(_v, THROUGH_GLASS, 'glass', 2);
+        }
+        ctx.audio.play('glass_break', { position: _v.set(...at) });
+        return;
+      }
       case 'commanderToRoof':
         if (arg) this.manager.outpost?.commander.person.fallBack(new THREE.Vector3(...this.runner.mission.marks[arg]!.at));
         return;

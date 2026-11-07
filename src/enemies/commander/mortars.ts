@@ -112,9 +112,12 @@ export class Mortars {
     return this.stage !== 'idle' && this.stage !== 'reload';
   }
 
-  /** A fire mission with no spotter, on ground the men themselves have marked. False if the crew cannot answer. */
-  call(at: THREE.Vector3, cause: string, shells: number): boolean {
-    if (!this.manned || this.busy || (this.stage === 'reload' && this.clock > RELOAD_DESPERATE * 0.5)) return false;
+  /**
+   * A fire mission with no spotter, on ground the men themselves have marked. False if the crew cannot answer. `crewed` false is a
+   * mission's last stand: tubes somewhere in the ring yard that the player will never reach, and a man reading out his own position.
+   */
+  call(at: THREE.Vector3, cause: string, shells: number, crewed = true): boolean {
+    if ((crewed && !this.manned) || this.busy || (this.stage === 'reload' && this.clock > RELOAD_DESPERATE * 0.5)) return false;
     this.endLaser();
     this.target.copy(at);
     this.count = shells;

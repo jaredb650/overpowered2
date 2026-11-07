@@ -135,7 +135,8 @@ export type Step =
   | { do: 'banner'; text: string; sub?: string }
   /** `open` is a share of fully open. `wait` holds the script until it stops moving. */
   | { do: 'door'; door: string; open: number; seconds?: number; wait?: boolean }
-  | { do: 'squad'; tag: string; men: readonly EnemyId[]; at: string; orders?: SquadOrders; ensure?: boolean }
+  /** `light` men go without carrier or helmet, so a shaped charge's splash takes them as written: what the armour lesson needs behind the plate. */
+  | { do: 'squad'; tag: string; men: readonly EnemyId[]; at: string; orders?: SquadOrders; ensure?: boolean; light?: boolean }
   /** Lets a holding squad go. */
   | { do: 'release'; tag: string }
   /** Takes everyone still on the map off it, or everyone under a tag, unseen and unscored: the fight has moved on and they cannot follow. */
