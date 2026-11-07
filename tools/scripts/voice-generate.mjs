@@ -1,20 +1,25 @@
-// Records docs/voice/commander-script.csv into public/audio/voice/ with ElevenLabs. Refresh the CSV first with tools/scripts/voice-script.ts.
+// Records docs/voice/commander-script.csv (the fight's lines) and docs/voice/mission-script.csv (the campaign's, cutscenes included) into
+// public/audio/voice/ with ElevenLabs. Refresh both CSVs first with tools/scripts/voice-script.ts.
 //
 //   node --env-file=<file outside this repo> tools/scripts/voice-generate.mjs --only cmd.door.smug.office~50,council.smug.extinctions
-//   node --env-file=<file outside this repo> tools/scripts/voice-generate.mjs --concurrency 3
+//   node --env-file=<file outside this repo> tools/scripts/voice-generate.mjs --concurrency 3 --radio "<account voice name>"
+//
+// The pilot's lines are the CSVs' "radio crew" voice. They are recorded only when --radio names the account voice to use for him, and
+// otherwise left as subtitles, so a run without it still records everything else.
 //
 // The key comes from ELEVENLABS_API_KEY in the environment only. Takes that already have a non-empty mp3 are skipped, so a rerun resumes and
 // picks up new lines. The manifest is rewritten after every take, so a stopped run still leaves working audio.
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const CSV = 'docs/voice/commander-script.csv';
+const CSVS = ['docs/voice/commander-script.csv', 'docs/voice/mission-script.csv'];
 const OUT = 'public/audio/voice';
 const API = 'https://api.elevenlabs.io';
 const MODEL = 'eleven_v3';
 const FORMAT = 'mp3_44100_128';
 const VOICES = { 'the void': 'VOID', shodan: 'Shodan' }; // CSV voice -> account voice name, confirmed by the user
-const ORDER = ['council', 'intercept', 'commander'];
+const RADIO = 'radio crew';
+const ORDER = ['council', 'intercept', 'commander', 'radio'];
 const TRIES = 6;
 
 const key = process.env.ELEVENLABS_API_KEY;
@@ -25,6 +30,8 @@ const arg = name => {
 };
 const only = arg('--only')?.split(',');
 const concurrency = Number(arg('--concurrency') ?? 3);
+const radio = arg('--radio');
+if (radio) VOICES[RADIO] = radio;
 
 function parseCsv(s) {
   const rows = [];
@@ -40,12 +47,17 @@ function parseCsv(s) {
   return rows;
 }
 
-const [head, ...rows] = parseCsv(readFileSync(CSV, 'utf8'));
-if (head.join() !== 'file,speaker,voice,tag,text') throw new Error(`unexpected CSV columns: ${head}`);
-const takes = rows.map(([file, speaker, voice, tag, text]) => ({ file, speaker, voice, tag, text }));
+const takes = CSVS.flatMap(csv => {
+  const [head, ...rows] = parseCsv(readFileSync(csv, 'utf8'));
+  if (head.join() !== 'file,speaker,voice,tag,text') throw new Error(`unexpected CSV columns in ${csv}: ${head}`);
+  return rows.map(([file, speaker, voice, tag, text]) => ({ file, speaker, voice, tag, text }));
+});
 for (const t of takes) {
-  if (!t.text || !t.tag || !/^[\w.~-]+$/.test(t.file) || !(t.voice in VOICES) || !ORDER.includes(t.speaker)) throw new Error(`bad row: ${JSON.stringify(t)}`);
+  const voiced = t.voice in VOICES || t.voice === RADIO;
+  if (!t.text || !t.tag || !/^[\w.~-]+$/.test(t.file) || !voiced || !ORDER.includes(t.speaker)) throw new Error(`bad row: ${JSON.stringify(t)}`);
 }
+const unvoiced = takes.filter(t => !(t.voice in VOICES));
+if (unvoiced.length) console.log(`${unvoiced.length} pilot lines skipped: pass --radio "<account voice name>" to record them`);
 if (new Set(takes.map(t => t.file)).size !== takes.length) throw new Error('duplicate file names in the CSV');
 
 const mp3 = file => join(OUT, `${file}.mp3`);
@@ -122,7 +134,7 @@ if (only) {
   if (unknown.length) throw new Error(`not in the CSV: ${unknown}`);
 }
 const queue = takes
-  .filter(t => (only ? only.includes(t.file) : true) && !recorded(t.file))
+  .filter(t => (only ? only.includes(t.file) : true) && t.voice in VOICES && !recorded(t.file))
   .sort((a, b) => ORDER.indexOf(a.speaker) - ORDER.indexOf(b.speaker));
 
 const before = await credits();
