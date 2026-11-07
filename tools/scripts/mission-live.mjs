@@ -3,6 +3,7 @@
 //
 //   MISSION_STEP=film node tools/shot.mjs --url "/?contract=campaign&autostart=1" --script tools/scripts/mission-live.mjs --out tools/out/ms.png --wait 500 --timeout 170
 //   add --dpr 2 --w 1440 --h 900 for the owner's screen, and &beat=<id> for anywhere
+//   the unlock and menu steps need &unlock=0, because the dev server opens Endless Humans without a win
 const STEP = process.env.MISSION_STEP ?? 'film';
 
 export default async function missionLive(page, h) {
