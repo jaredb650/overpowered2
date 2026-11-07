@@ -128,6 +128,8 @@ const LEAD_THE_TRAIL = 7;
 /** An ambush: how long the men wait, how close it gets before they open up, and how long a man can stare at it before he fires anyway. */
 const AMBUSH_SECONDS = 15;
 const AMBUSH_RANGE = 15;
+/** The same, for men told to hold their fire until they hear the word. */
+const AMBUSH_ARM_LENGTH = 3;
 const AMBUSH_STARE = 2.2;
 const AMBUSH_NEAR = 6;
 const AMBUSH_FAR = 19;
@@ -230,6 +232,7 @@ export class OutpostSquad implements Squad {
   private waiting = false;
   /** Set by a mission: lie still on this mark until something happens. */
   private lying = false;
+  private patient = false;
   private ambushUntil = 0;
   private ambushReadyAt = 0;
   private sightedSince = 0;
@@ -432,9 +435,10 @@ export class OutpostSquad implements Squad {
     return false;
   }
 
-  /** A mission's 'hold': quiet, on this mark, until somebody comes close or starts shooting. */
-  lieStill(): void {
+  /** A mission's 'hold': quiet, on this mark, until somebody comes close or starts shooting. `patient` lets the player walk right in first. */
+  lieStill(patient = false): void {
     this.lying = true;
+    this.patient = patient;
     this.goal = 'waylay';
     this.planLength = 0;
     this.ambushUntil = Infinity;
@@ -1268,8 +1272,8 @@ export class OutpostSquad implements Squad {
     for (const m of this.members) if (m.fighting && m.sees && m.e.dist < closest) closest = m.e.dist;
     if (closest < Infinity && this.sightedSince === 0) this.sightedSince = now;
     if (closest === Infinity) this.sightedSince = 0;
-    const stared = this.sightedSince > 0 && now - this.sightedSince >= AMBUSH_STARE;
-    if (this.firedOn || closest < AMBUSH_RANGE || stared) {
+    const stared = !this.patient && this.sightedSince > 0 && now - this.sightedSince >= AMBUSH_STARE;
+    if (this.firedOn || closest < (this.patient ? AMBUSH_ARM_LENGTH : AMBUSH_RANGE) || stared) {
       this.spring();
       this.ambushReadyAt = now + AMBUSH_REST;
       this.goal = 'destroy';

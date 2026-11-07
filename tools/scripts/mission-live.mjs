@@ -7,7 +7,7 @@ const STEP = process.env.MISSION_STEP ?? 'film';
 
 export default async function missionLive(page, h) {
   const log = [];
-  const read = () => page.evaluate(() => window.__op2?.campaign?.runner.describe() ?? null);
+  const read = () => page.evaluate(() => window.__op2?.campaign?.runner?.describe() ?? null);
   const note = async label => {
     const d = await read();
     log.push({ label, beat: d?.beat, state: d?.state, deaths: d?.deaths, objectives: d?.objectives, tags: d?.tags });
@@ -287,16 +287,22 @@ export default async function missionLive(page, h) {
       await until(d => d.beat === 'mess', 40, 'mess');
       await h.sleep(4500);
       await note('waiting');
+      const quiet = () => page.evaluate(() => {
+        const o = window.__op2.ctx.enemies.outpost;
+        return { silent: o.soldiers.filter(s => s.silent).length, men: o.soldiers.length };
+      });
       await tp(46, 0, -74, Math.PI);
       await h.sleep(1000);
       await h.shot('mess-0');
       await tp(34, 0, -67, Math.PI);
       await h.sleep(2500);
       await h.shot('mess-1');
-      log.push({ hud: await hud(), still: await page.evaluate(() => window.__op2.ctx.enemies.alive.filter(e => e.velocity.length() > 0.2).length) });
-      await h.sleep(7000);
+      log.push({ hud: await hud(), holding: await quiet() });
+      await page.waitForFunction(() => document.querySelector('.ms-radio.on')?.textContent.includes('Now.'), null, { timeout: 16000 });
+      log.push({ word: await quiet() });
+      await h.sleep(1200);
       await h.shot('mess-2');
-      log.push({ hud: await hud() });
+      log.push({ hud: await hud(), after: await quiet() });
       await clear('armoury', 25, 'mess.floor', 'mess.west', 'mess.east');
     },
     async armoury() {
@@ -364,10 +370,14 @@ export default async function missionLive(page, h) {
         return b ? { at: b.position.toArray().map(Math.round), hp: Math.round(b.health), max: Math.round(b.maxHealth), armor: Math.round(b.armor) } : null;
       });
       log.push({ boss: await at(), hud: await hud() });
-      await page.evaluate(() => {
+      // He is in the heavy suit, so it takes the plates first, as it would a player.
+      await page.evaluate(async () => {
         const { ctx } = window.__op2;
         const b = ctx.enemies.outpost.commander.person.body;
-        ctx.enemies.applyDamage(b, { amount: b.health * 0.45, type: 'true', point: b.center.clone(), dir: b.center.clone().set(0, 0, -1), force: 0, source: 'rocket' });
+        for (let i = 0; i < 120 && b.health / b.maxHealth > 0.56; i++) {
+          ctx.enemies.applyDamage(b, { amount: 120, type: 'true', point: b.center.clone(), dir: b.center.clone().set(0, 0, -1), force: 0, source: 'rocket' });
+          await new Promise(r => setTimeout(r, 30));
+        }
       });
       await until(d => d.doors.warRoomStairs === 1, 12, 'he runs');
       await h.sleep(3000);
@@ -390,17 +400,110 @@ export default async function missionLive(page, h) {
       await h.sleep(2000);
       await h.shot('end-0');
       log.push({ hud: await hud(), box: await page.evaluate(() => document.querySelector('.cmd-box.on:not(.ms-radio)')?.textContent ?? null) });
-      await until(d => d.beat === 'ending' && document !== null, 2, 'still ending').catch(() => {});
       await page.waitForFunction(() => window.__op2.campaign.host.film.playing, null, { timeout: 15000 });
       await h.sleep(5000);
       await h.shot('end-1');
       log.push({ hud: await hud() });
       await seek(1, 13);
       await page.waitForFunction(() => window.__op2.campaign.result !== null, null, { timeout: 30000 });
-      await page.waitForFunction(() => window.__op2.ctx.hud.screens?.name === 'complete' || document.querySelector('.scr-complete')?.style.display !== 'none', null, { timeout: 15000 });
+      await page.waitForFunction(() => document.querySelector('.scr-complete')?.style.display === '', null, { timeout: 20000 });
       await h.sleep(1600);
       await h.shot('end-2');
       log.push({ result: await page.evaluate(() => window.__op2.campaign.result), screen: await page.evaluate(() => document.querySelector('.scr-complete')?.innerText) });
+    },
+    /** Pause in the film and in the seat, Restart from checkpoint out of both, with real clicks on the real buttons. */
+    async pause() {
+      const button = text => page.locator('.scr-pause button, .scr-pause .mm-item, .scr-pause [role=button]').filter({ hasText: text }).first();
+      const state = () => page.evaluate(() => ({
+        game: window.__op2.game.state, film: window.__op2.campaign.host.film.total, playing: window.__op2.campaign.host.film.playing,
+        seat: !!window.__op2.ctx.progression.callInsManager.seats?.seat, parked: window.__op2.ctx.player.parked, beat: window.__op2.campaign.runner.beat?.id, deaths: window.__op2.campaign.runner.deaths,
+      }));
+      const hit = async () => {
+        await press('pause');
+        await page.waitForFunction(() => window.__op2.game.state === 'paused', null, { timeout: 5000 });
+      };
+      await until(d => d.beat === 'briefing', 60, 'briefing');
+      await h.sleep(3000);
+      await hit();
+      const a = await state();
+      await h.sleep(1500);
+      await h.shot('pause-film');
+      const b = await state();
+      log.push({ paused: a, later: b, frozen: a.film === b.film });
+      await button('Resume').click();
+      await page.waitForFunction(() => window.__op2.game.state === 'playing', null, { timeout: 6000 });
+      await h.sleep(1500);
+      log.push({ resumed: await state() });
+      await hit();
+      await button('Restart from checkpoint').click();
+      await page.waitForFunction(() => window.__op2.game.state === 'playing', null, { timeout: 6000 });
+      await h.sleep(800);
+      log.push({ restartedFilm: await state(), hud: await hud() });
+      await h.shot('pause-restart');
+      await press('interact');
+      await until(d => d.beat === 'insertion', 10, 'insertion');
+      await h.sleep(6000);
+      await hit();
+      await h.shot('pause-seat');
+      log.push({ inSeat: await state() });
+      await button('Restart from checkpoint').click();
+      await page.waitForFunction(() => window.__op2.game.state === 'playing', null, { timeout: 6000 });
+      await h.sleep(5000);
+      log.push({ restartedSeat: await state(), desc: await read() });
+      await h.shot('pause-seat2');
+    },
+    /** A clean profile: Endless is shut, the win opens it and says so, the menu remembers, and it plays. */
+    async unlock() {
+      await until(d => d.beat === 'briefing', 60, 'briefing');
+      const stored = () => page.evaluate(() => localStorage.getItem('op2_campaign_beaten'));
+      log.push({ before: await stored() });
+      await page.evaluate(() => window.__op2.campaign.runner.start('ending'));
+      await page.waitForFunction(() => window.__op2.campaign.host.film.playing, null, { timeout: 15000 });
+      await seek(1, 13);
+      await page.waitForFunction(() => document.querySelector('.scr-complete')?.style.display === '', null, { timeout: 30000 });
+      await h.sleep(2500);
+      await h.shot('unlock-0');
+      log.push({ after: await stored(), result: await page.evaluate(() => window.__op2.campaign.result), screen: await page.evaluate(() => document.querySelector('.scr-complete').innerText) });
+      await page.locator('.scr-complete').getByText('Menu', { exact: true }).click();
+      await h.sleep(1200);
+      await h.shot('unlock-1');
+      log.push({ tabs: await page.evaluate(() => [...document.querySelectorAll('.mm-tab')].map(t => `${t.textContent}${t.classList.contains('lock') ? ' [locked]' : ''}`)) });
+      await page.locator('.mm-tab').filter({ hasText: 'Endless Humans' }).click();
+      await h.sleep(500);
+      await h.shot('unlock-2');
+      await page.locator('.scr-menu').getByText('Play', { exact: true }).click();
+      await page.waitForURL(/contract=outpost/, { timeout: 15000 });
+      await page.waitForFunction(() => document.querySelector('.sp-go')?.textContent.includes('Endless') && document.querySelector('.scr-splash')?.style.display === '', null, { timeout: 60000 });
+      await h.shot('unlock-3');
+      await page.mouse.click(600, 400);
+      await page.waitForFunction(() => window.__op2?.game?.state === 'playing', null, { timeout: 8000 });
+      await h.sleep(1500);
+      log.push({ endless: await page.evaluate(() => ({ url: location.search, active: window.__op2.campaign.active, waves: window.__op2.ctx.waves.constructor.name, map: window.__op2.ctx.world.map?.id ?? null })) });
+    },
+    /** What someone new sees: the swarm page's menu, the lock, and the walk from Play into the briefing. */
+    async menu() {
+      await page.waitForFunction(() => document.querySelector('.scr-splash')?.style.display === '', null, { timeout: 60000 });
+      await page.mouse.click(600, 400);
+      await page.waitForFunction(() => document.querySelector('.scr-menu')?.style.display === '', null, { timeout: 8000 });
+      await h.sleep(800);
+      await h.shot('menu-0');
+      log.push({ tabs: await page.evaluate(() => [...document.querySelectorAll('.mm-tab')].map(t => `${t.textContent}${t.classList.contains('on') ? ' [on]' : ''}${t.classList.contains('lock') ? ' [locked]' : ''}`)) });
+      await page.locator('.mm-tab').filter({ hasText: 'Endless Humans' }).click();
+      await h.sleep(500);
+      await h.shot('menu-1');
+      await page.locator('.scr-menu').getByText('Play', { exact: true }).click();
+      await h.sleep(600);
+      log.push({ stayed: await page.evaluate(() => location.search) });
+      await page.locator('.mm-tab').filter({ hasText: 'Campaign' }).click();
+      await page.locator('.scr-menu').getByText('Play', { exact: true }).click();
+      await page.waitForURL(/contract=campaign/, { timeout: 15000 });
+      await page.waitForFunction(() => document.querySelector('.sp-go')?.textContent.includes('Campaign') && document.querySelector('.scr-splash')?.style.display === '', null, { timeout: 90000 });
+      await h.shot('menu-2');
+      await page.mouse.click(600, 400);
+      await until(d => d.beat === 'briefing', 10, 'briefing');
+      await h.sleep(2500);
+      await h.shot('menu-3');
+      log.push({ hud: await hud(), url: await page.evaluate(() => location.search) });
     },
     async film() {
       await until(d => d.beat === 'briefing', 60, 'briefing');

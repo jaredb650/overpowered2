@@ -409,9 +409,9 @@ const BEATS: readonly Beat[] = [
       { do: 'threat', level: 6 },
       { do: 'field', answer: 'hiders' },
       { do: 'objective', id: 'mess', text: 'Get through the mess hall', at: 'armoury' },
-      { do: 'squad', tag: 'mess.floor', men: ['trooper', 'gunner', 'trooper', 'gunner'], at: 'messFloor', orders: 'hold' },
-      { do: 'squad', tag: 'mess.west', men: ['trooper', 'trooper', 'brute'], at: 'messWest', orders: 'hold' },
-      { do: 'squad', tag: 'mess.east', men: ['riot', 'gunner', 'trooper'], at: 'messEast', orders: 'hold' },
+      { do: 'squad', tag: 'mess.floor', men: ['trooper', 'gunner', 'trooper', 'gunner'], at: 'messFloor', orders: 'ambush' },
+      { do: 'squad', tag: 'mess.west', men: ['trooper', 'trooper', 'brute'], at: 'messWest', orders: 'ambush' },
+      { do: 'squad', tag: 'mess.east', men: ['riot', 'gunner', 'trooper'], at: 'messEast', orders: 'ambush' },
       { do: 'rack', weapon: 'kiln', at: 'kilnRack', optional: true },
     ],
     cues: [

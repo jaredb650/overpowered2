@@ -17,7 +17,7 @@ import { Doors } from './doors';
 import type { CampaignHud } from './hud';
 import { Racks } from './racks';
 import type { MissionRunner } from './runner';
-import type { Cutscene, DoorDef, Loadout, Mark, MissionHost, ObjectiveState, SquadOrder } from './types';
+import type { Cutscene, DoorDef, Loadout, Mark, MissionHost, ObjectiveState, SquadOrder, SquadOrders } from './types';
 
 /** Seconds between men coming on, the same walk-in the waves use. */
 const MAN_GAP = 0.55;
@@ -48,7 +48,7 @@ interface Arrival {
   men: readonly EnemyId[];
   at: THREE.Vector3;
   seat: number;
-  hold: boolean;
+  orders: SquadOrders;
   light: boolean;
 }
 
@@ -154,7 +154,7 @@ export class GameHost implements MissionHost {
   }
 
   squad(order: SquadOrder, at: Mark): void {
-    this.arrivals.push({ tag: order.tag, men: order.men, at: new THREE.Vector3(...at.at), seat: 0, hold: order.orders === 'hold', light: order.light === true });
+    this.arrivals.push({ tag: order.tag, men: order.men, at: new THREE.Vector3(...at.at), seat: 0, orders: order.orders ?? 'hunt', light: order.light === true });
   }
 
   release(tag: string): void {
@@ -211,9 +211,9 @@ export class GameHost implements MissionHost {
       // The same rule as the waves: the rest wait outside the wire until there is room in the fight.
       if (o.hostile + head.men.length > MAX_HOSTILE) return;
       o.formSquad(head.men.length, head.at);
-      if (head.hold) {
+      if (head.orders !== 'hunt') {
         const squad = o.squads[o.squads.length - 1]!;
-        squad.lieStill();
+        squad.lieStill(head.orders === 'ambush');
         const list = this.held.get(head.tag);
         if (list) list.push(squad);
         else this.held.set(head.tag, [squad]);
@@ -298,7 +298,7 @@ export class GameHost implements MissionHost {
   }
 
   adapt(): void {
-    this.manager.outpost?.commander.intermission(this.level, INTERMISSION);
+    this.manager.outpost?.commander.intermission(this.level, INTERMISSION, true);
   }
 
   field(answer: AdaptationId): void {

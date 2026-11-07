@@ -51,8 +51,10 @@ export interface DoorDef {
 export type SquadOrders =
   /** Goes to find the player. */
   | 'hunt'
-  /** Stays on its mark until `release`, or until it is shot at. */
-  | 'hold';
+  /** Stays on its mark until `release`, or until it is shot at or the player gets close. */
+  | 'hold'
+  /** A held breath: holds through being seen and walked past, and only a bullet or a man at arm's length breaks it before `release`. */
+  | 'ambush';
 
 export type VehicleKind = 'humvee' | 'truck' | 'tank' | 'chopper';
 

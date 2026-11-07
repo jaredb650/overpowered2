@@ -1,3 +1,10 @@
 {
-  "clips": []
+  "clips": [
+    "cmd.door.cracked.eyes~50",
+    "cmd.door.irritated.rent~50",
+    "cmd.door.rattled.others~50",
+    "cmd.door.smug.office~50",
+    "council.smug.extinctions",
+    "intercept.mortars"
+  ]
 }

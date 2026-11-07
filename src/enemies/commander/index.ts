@@ -74,6 +74,9 @@ const BACK_OFF_REST = 2.4;
 const BLAST_FLOOR = 18;
 /** What a heavier helmet multiplies the head plate by. */
 const HELMET_MULT = 3;
+/** Answers that change how men already in the fight behave. Everything else arrives with a wave built round it. */
+const WORKS_IN_FIGHT: ReadonlySet<AdaptationId> = new Set<AdaptationId>(['spread', 'shotguns', 'smoke', 'helmets', 'noSurrender', 'falseSurrender', 'radioSilence']);
+const NEEDS_A_WAVE: readonly AdaptationId[] = ADAPTATIONS.map(a => a.id).filter(id => !WORKS_IN_FIGHT.has(id));
 
 const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
@@ -273,18 +276,21 @@ export class Commander {
     if (this.has('radioSilence')) o.doctrine.radioSilence = true;
   }
 
-  /** The wave is clear. Writes up the round, picks the answer and returns how long the break is. */
-  intermission(wave: number, base: number): number {
+  /**
+   * The wave is clear. Writes up the round, picks the answer and returns how long the break is. A mission has no wave to build an answer
+   * into, so with `inFight` he promises only what changes for men already out there: nothing he says may fail to happen.
+   */
+  intermission(wave: number, base: number, inFight = false): number {
     // Nothing comes after the last wave. The box is already saying goodbye.
     if (this.person.dead) return RUN_OVER;
     const report = this.tracker.closeRound(wave);
     this.lastRoom = report.room;
     const next = wave + 1;
     let adaptation: AdaptationId | null = null;
-    const tricks = tricksFrom(next);
+    const tricks = inFight ? [] : tricksFrom(next);
     for (const t of tricks) this.tricks.add(t);
     if (next <= FINAL_WAVE) {
-      adaptation = pickAdaptation(this.tracker.habits(), this.have, next);
+      adaptation = pickAdaptation(this.tracker.habits(), inFight ? new Set([...this.have, ...NEEDS_A_WAVE]) : this.have, next);
       if (adaptation) this.adopt(adaptation);
     }
     const seconds = clamp(base + 5, base, BRIEFING_SECONDS);

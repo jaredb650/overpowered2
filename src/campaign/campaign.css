@@ -21,9 +21,11 @@
 /* A teaching prompt reads like a caption, down by the tach, and the key is the only thing in it that asks to be looked at. */
 .ms-hint { position: absolute; left: 50%; bottom: 13.6rem; max-width: 44rem; transform: translateX(-50%); padding: 0.26rem 0.7rem 0.2rem; background: rgba(7, 10, 14, 0.58); color: var(--ink); font-size: 1rem; font-weight: 500; line-height: 1.5; text-align: center; opacity: 0; transition: opacity 0.3s; }
 .ms-hint.on { opacity: 1; }
+/* The Commander's box sits exactly here, and a lesson must not end up behind his opinion of it. */
+.hud:has(.cmd-box.on:not(.bark)) .ms-hint { bottom: 25.6rem; }
 .ms-key { display: inline-block; margin: 0 0.14rem; padding: 0 0.36rem; background: var(--steel); color: #000; font-weight: 800; line-height: 1.28; }
 
-.ms-saved { position: absolute; left: 3.2rem; bottom: 15rem; padding: 0.12rem 0.5rem 0.06rem; background: var(--plate); color: var(--steel); font-size: 0.9rem; font-weight: 600; opacity: 0; transition: opacity 0.4s; }
+.ms-saved { position: absolute; right: 3.2rem; bottom: 15rem; padding: 0.12rem 0.5rem 0.06rem; background: var(--plate); color: var(--steel); font-size: 0.9rem; font-weight: 600; opacity: 0; transition: opacity 0.4s; }
 .ms-saved.on { opacity: 1; }
 
 .ms-cinema { position: absolute; inset: 0; pointer-events: none; }
