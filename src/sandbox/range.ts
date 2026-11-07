@@ -1227,7 +1227,7 @@ async function liveRange(): Promise<void> {
   const canvas = document.getElementById('game') as HTMLCanvasElement;
   const ctx = await createCtx(canvas);
   const game = new Game(ctx);
-  const manifest = await (await fetch('/assets/characters/manifest.json')).json() as { models: Record<string, unknown> };
+  const manifest = await (await fetch(`${import.meta.env.BASE_URL}assets/characters/manifest.json`)).json() as { models: Record<string, unknown> };
   const load = ctx.characters.load.bind(ctx.characters);
   const wanted = new URLSearchParams(location.search).get('load');
   ctx.characters.load = (ids?: string[]) => load((ids ?? ctx.characters.archetypes()).filter(id => id in manifest.models && (!wanted || wanted.split(',').includes(id))));
