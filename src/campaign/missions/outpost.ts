@@ -445,7 +445,8 @@ const BEATS: readonly Beat[] = [
       commander('mess.hold'),
     ],
     cues: [
-      { when: { zone: 'messHall' }, run: [{ do: 'wait', seconds: 5 }, commander('mess.now'), { do: 'release', tag: 'mess.floor' }, { do: 'release', tag: 'mess.west' }, { do: 'release', tag: 'mess.east' }] },
+      // The floor first and the sides a beat later. All ten on one frame is a firing squad with nothing to read and nowhere to go.
+      { when: { zone: 'messHall' }, run: [{ do: 'wait', seconds: 5 }, commander('mess.now'), { do: 'release', tag: 'mess.floor' }, { do: 'wait', seconds: 1.5 }, { do: 'release', tag: 'mess.west' }, { do: 'release', tag: 'mess.east' }] },
     ],
     until: { cleared: ['mess.floor', 'mess.west', 'mess.east'] },
   },

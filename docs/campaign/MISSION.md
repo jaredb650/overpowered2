@@ -407,7 +407,7 @@ Each beat's id is what `?beat=` takes. Lengths are for a first-time player. Men 
 
 - **Where:** up the stairs into the kitchen, out onto the Mess Hall floor.
 - **Player:** walks in. Nobody fires. Tables, a meal half eaten. They hear him tell the men to wait.
-- **Enemies:** `mess.floor` 4 lying among the tables, `mess.west` 3, `mess.east` 3, under `orders: 'ambush'`. Ten men, all holding through being seen and walked past until "Now." Only a bullet or a man at arm's length breaks it early.
+- **Enemies:** `mess.floor` 4 lying among the tables, `mess.west` 3, `mess.east` 3, under `orders: 'ambush'`. Ten men, all holding through being seen and walked past until "Now." Only a bullet or a man at arm's length breaks it early. The floor springs on the word and the sides 1.5 s later. He gives the order to wait as the player leaves the gallery, because a line said in the room is still going when a running player reaches the first man.
 - **Next:** all three cleared.
 - **Teaches:** that sonar and patience beat walking in. A ping shows them. A grenade before the word gets a head start. Those who go round by the kitchen find the Kiln and a flank.
 - **Length:** 1:30.

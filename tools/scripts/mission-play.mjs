@@ -450,6 +450,7 @@ export default async function play(page, h) {
         await skipTo('breather', 40);
       }
       await beatIs('breather', 10);
+      log.push({ leftOver: await page.evaluate(() => { const { ctx } = window.__op2; const o = ctx.enemies.outpost; return ctx.enemies.alive.map(e => { const s = o.soldierOf(e); return { id: e.id, at: e.position.toArray().map(Math.round), fate: s?.fate, surrendered: s?.surrendered, pinned: e.pinned, directed: s?.squad?.directed, weapon: s?.weapon }; }); }) });
       await dieHere('the apron rally');
       await until(d => d.beat === 'heavy', 28, 'heavy');
     },
@@ -489,20 +490,42 @@ export default async function play(page, h) {
     async turn() {
       await beatIs('turn', 40);
       await dieHere('the deck');
-      const out = await fight(['heavy.tank1', 'heavy.tank2'], { seconds: 90, reach: 90 });
-      log.push({ tanks: out, s: await state(), d: await read() });
-      await snap('tanks');
-      if (out !== 'cleared') { await cheat('tanks not killed with rockets'); await kill('heavy.tank1', 'heavy.tank2'); }
-      const air = await fight(['turn.chopper'], { seconds: 60, reach: 120 });
-      log.push({ chopper: air, s: await state() });
-      if (air !== 'cleared') { await cheat('chopper not killed with rockets'); await kill('turn.chopper'); }
+      // Rockets are the whole beat, so this walks to the apron's ammunition when low, the way the hint says to.
+      const rockets = () => page.evaluate(() => { const a = window.__op2.ctx.weapons.ammo('rocket'); return a.mag + a.reserve; });
+      const resupply = async () => {
+        if ((await rockets()) >= 3) return;
+        await until(() => true, 1, 'now');
+        await h.sleep(21000);
+        await walk(30, 0, 60, { seconds: 16, within: 1.2 });
+        log.push({ resupplied: await rockets() });
+      };
+      const shoot = async (tags, opts) => {
+        for (let i = 0; i < 5; i++) {
+          const out = await fight(tags, { ...opts, until: 'op.ctx.weapons.ammo("rocket").mag + op.ctx.weapons.ammo("rocket").reserve === 0' });
+          if (out === 'cleared' || out === 'timeout') return out;
+          await resupply();
+        }
+        return 'out of tries';
+      };
+      for (const tank of ['heavy.tank1', 'heavy.tank2']) {
+        const out = await shoot([tank], { seconds: 60, reach: 26 });
+        log.push({ tank, out, rockets: await rockets(), s: await state() });
+        await snap(tank);
+        if (out !== 'cleared') { await cheat(`${tank} not killed with rockets: ${out}`); await kill(tank); }
+      }
+      await page.evaluate(() => { window.__chopperAt = Date.now(); });
+      const air = await shoot(['turn.chopper'], { seconds: 60, reach: 110 });
+      log.push({ chopper: air, rockets: await rockets(), s: await state() });
+      await snap('chopper');
+      if (air !== 'cleared') { await cheat(`chopper not killed with rockets: ${air}`); await kill('turn.chopper'); }
       await until(d => d.tags['turn.bulwark'], 12, 'Bulwark ordered');
       await walk(6, 0, 40, { seconds: 22, within: 4 });
       await h.sleep(8000);
       await snap('bulwark');
       log.push({ bulwark: await state(), hud: await hud() });
-      const plug = await fight(['turn.bulwark'], { seconds: 50, reach: 80 });
-      log.push({ plug, s: await state() });
+      await walk(16, 0, 18, { seconds: 8, within: 1.2 });
+      const plug = await shoot(['turn.bulwark'], { seconds: 45, reach: 40 });
+      log.push({ plug, rockets: await rockets(), s: await state() });
       if (plug !== 'cleared') { await cheat('Bulwark not killed with rockets'); await kill('turn.bulwark'); }
       await beatIs('breach', 20);
     },
@@ -514,26 +537,31 @@ export default async function play(page, h) {
       log.push({ jam: await state(), hud: await hud(), doors: (await read()).doors });
       // Over the wreck in the gate: nothing else gets a body through it.
       await walk(0, 0, 18, { seconds: 8, within: 1.2 });
-      const over = await runUp(0, 'p.position.z < 15.5', [[0, 'jump']], 5);
-      await h.sleep(700);
-      const on = await state();
-      await page.evaluate(() => window.__bot.run(2.5, st => { const { ctx } = window.__op2; ctx.player.yaw = 0; ctx.input.simulate('forward', true); if (ctx.player.position.z < 7) return 'through'; }));
+      await snap('wreck-close');
+      const over = await page.evaluate(() => window.__bot.keys(0, [[0.1, 'jump']], 5).then(() => window.__bot.state()));
+      await page.evaluate(() => window.__bot.run(3, () => { const { ctx } = window.__op2; ctx.player.yaw = 0; ctx.player.pitch = 0; ctx.input.simulate('forward', true); if (ctx.player.position.z < 8) return 'through'; }));
       const past = await state();
-      log.push({ overWreck: over, on: on.at, past: past.at });
+      log.push({ overWreck: over.at, past: past.at, doors: (await read()).doors });
       if (past.at[2] > 9.5) {
         await cheat('could not get over the wreck in the gate', past);
         await tp(0, 0, 6, 0);
       }
       await snap('yard');
-      await fight(['breach.west', 'breach.east'], { seconds: 20, reach: 26, stay: true });
-      await tp(0, 0, 12, 0).catch(() => {});
-      const slid = await runUp(0, 'p.position.z < -4', [[0, 'slide', 'hold']], 5);
-      await page.evaluate(() => window.__bot.run(1.2, st => { window.__op2.ctx.input.simulate('forward', true); }));
-      const under = await state();
-      log.push({ slide: slid, under: under.at, d: (await read()).doors });
+      const slide = () => page.evaluate(() => window.__bot.runUp(0, 'p.position.z < -4', [[0, 'slide', 'hold']], 4).then(() => window.__bot.run(1.2, () => { window.__op2.ctx.input.simulate('forward', true); })));
+      await slide();
+      let under = await state();
+      log.push({ firstGo: under.at, door: (await read()).doors.blastDoor });
+      for (let i = 0; i < 3 && under.at[2] > -13; i++) {
+        await until(d => d.doors.blastDoor === 0.4, 14, 'door up').catch(() => {});
+        await h.sleep(1400);
+        await tp(0, 0, 4, 0);
+        await h.sleep(150);
+        await slide();
+        under = await state();
+        log.push({ nextGo: under.at });
+      }
       if (under.at[2] > -13) {
         await cheat('never got under the blast door', under);
-        await until(d => d.doors.blastDoor === 0.4, 12, 'door up').catch(() => {});
         await tp(0, 0, -18, Math.PI);
       }
       await beatIs('barracks', 10);
@@ -712,10 +740,7 @@ export default async function play(page, h) {
       const ids = await page.evaluate(() => window.__op2.campaign.runner.mission.beats.map(b => b.id));
       await page.keyboard.press('KeyE');
       await beatIs('insertion', 8);
-      await h.sleep(3000);
-      await page.evaluate(() => window.__op2.ctx.time.pushScale('bot', 6, 0, 0));
-      await beatIs('lockout', 60);
-      await page.evaluate(() => window.__op2.ctx.time.popScale('bot'));
+      await beatIs('lockout', 170);
       log.push({ secondLanding: await state(), d: await read() });
       const marks = { lockout: [0, 0, 30], softskins: [24, 0, 25], heavy: [70, 0, 76], wreck: [84, 4.3, 84], breach: [0, 0, -18], barracks: [-34, 0, -48], coolant: [-34, 0, -72], gallery: [18, -5, -74.5], mess: [34, 0, -66], armoury: [44, 0, -37], stack: [0, 10, -60] };
       for (const id of ids.slice(ids.indexOf('lockout'), ids.indexOf('commander'))) {
