@@ -346,11 +346,6 @@ export class GameHost implements MissionHost {
       case 'quiet':
         ctx.events.emit('commander:quiet', {});
         return;
-      case 'rout': {
-        const o = this.manager.outpost;
-        if (o) for (const s of o.soldiers) if (s.fighting) o.breakNerve(s);
-        return;
-      }
       case 'commanderToRoof':
         if (arg) this.manager.outpost?.commander.person.fallBack(new THREE.Vector3(...this.runner.mission.marks[arg]!.at));
         return;
