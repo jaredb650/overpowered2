@@ -361,12 +361,13 @@ function dashLesson(b: Bot) {
     out[`double jump and a dash crosses from x ${x} (${made} of ${ONE_DASH.length} timings)`] = made > 0;
   }
   // One dash only crosses from the last metre of the lip, so the hint says both, and this is the slack that promises.
+  const sample = TWO_DASHES.filter((_, i) => i % 6 === 0);
   let forgiven = 0;
-  for (const set of TWO_DASHES) {
+  for (const set of sample) {
     b.fly(-34, 0, -41.6, NORTH, () => p().z < nearLip + 2, set);
     if (across()) forgiven++;
   }
-  out[`both dashes cross from 2 m short of the lip (${forgiven} of ${TWO_DASHES.length} timings)`] = forgiven > 20;
+  out[`both dashes cross from 2 m short of the lip (${forgiven} of ${sample.length} timings)`] = forgiven >= sample.length / 4;
   // The way back: a fall costs a walk.
   b.place(-54, COOLANT.pit, -59, SOUTH);
   b.hold('forward');

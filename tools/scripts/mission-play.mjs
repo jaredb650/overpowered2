@@ -7,8 +7,8 @@
 //
 // PLAY takes a comma list of stretches: film, ride, lockout, soft, heavy, wreck, turn, breach, barracks, coolant, gallery, mess, armoury,
 // plates, stack, boss, ending, again. `full` is all of them, and `again` goes through the end screen's Play again and fast-forwards a
-// second mission to its end. Add &beat=<id> to the URL to start a stretch cold. PLAY_DIE=1 kills the player once in every beat and checks
-// what the checkpoint gives back.
+// second mission to its end. `quick,again` wins by dev skip first, for the second mission alone. Add &beat=<id> to the URL to start a
+// stretch cold. PLAY_DIE=1 kills the player once in every beat and checks what the checkpoint gives back.
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -554,7 +554,16 @@ export default async function play(page, h) {
       await walk(0, 0, 18, { seconds: 8, within: 1.2 });
       await snap('wreck-close');
       const over = await page.evaluate(() => window.__bot.keys(0, [[0.1, 'jump']], 5).then(() => window.__bot.state()));
-      await page.evaluate(() => window.__bot.run(3, () => { const { ctx } = window.__op2; ctx.player.yaw = 0; ctx.player.pitch = 0; ctx.input.simulate('forward', true); if (ctx.player.position.z < 8) return 'through'; }));
+      // A wreck from a restart still has its turret on, which is one more jump.
+      await page.evaluate(() => window.__bot.run(4, st => {
+        const { ctx } = window.__op2;
+        ctx.player.yaw = 0;
+        ctx.player.pitch = 0;
+        ctx.input.simulate('forward', true);
+        st.press = (st.press ?? 0) + 1;
+        ctx.input.simulate('jump', st.press % 40 < 3);
+        if (ctx.player.position.z < 8) return 'through';
+      }));
       const past = await state();
       log.push({ overWreck: over.at, past: past.at, doors: (await read()).doors });
       if (past.at[2] > 9.5) {
@@ -744,6 +753,18 @@ export default async function play(page, h) {
       await snap('end-screen');
       log.push({ result: await page.evaluate(() => window.__op2.campaign.result), stored: await page.evaluate(() => localStorage.getItem('op2_campaign_beaten')), bill: await page.evaluate(() => document.querySelector('.scr-complete').innerText) });
     },
+    /** A win by dev skip, for when the mission after it is the thing being tested. */
+    async quick() {
+      await beatIs('briefing', 60);
+      await page.evaluate(() => {
+        window.__op2.campaign.host.film.reset();
+        window.__op2.campaign.runner.start('commander');
+      });
+      await page.waitForFunction(() => window.__op2.ctx.enemies.outpost.commander.person.body, null, { timeout: 10000 });
+      await page.evaluate(async () => { const { ctx } = window.__op2; const b = ctx.enemies.outpost.commander.person.body; for (let i = 0; i < 400 && b.alive; i++) { ctx.enemies.applyDamage(b, { amount: 1e6, type: 'true', point: b.center.clone(), dir: b.center.clone().set(0, 0, -1), force: 0, source: 'rocket' }); await new Promise(r => setTimeout(r, 30)); } });
+      await beatIs('ending', 12);
+      await stretches.ending();
+    },
     /** Play again on the same page, and every beat fast-forwarded: what a first win leaves behind is what breaks a second. */
     async again() {
       await page.locator('.scr-complete').getByText('Play again', { exact: true }).click();
@@ -767,6 +788,8 @@ export default async function play(page, h) {
           if (Date.now() > deadline) { await cheat(`second time, stuck in ${d.beat}`); throw new Error(`second playthrough stuck: ${JSON.stringify(d)}`); }
           if (marks[d.beat]) await tp(...marks[d.beat]);
           await kill();
+          // Skipping a beat a second leaves a queue of speeches no player could build, and a script that waits for its line waits behind them.
+          await page.evaluate(() => window.__op2.campaign.runner.hush());
           await h.sleep(900);
         }
       }

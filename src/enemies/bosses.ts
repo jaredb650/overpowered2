@@ -198,10 +198,12 @@ export const JUGGERNAUT_ATTACKS: AttackDef[] = [
   }),
 ];
 
-class Juggernaut implements BossController {
+export class Juggernaut implements BossController {
   phase = 0;
   readonly deathSeconds = 1.8;
   stunnedUntil = 0;
+  /** Share of his health one hit can take. */
+  maxHit = MAX_HIT_SHARE;
   private fullArmor = 1;
   private clock = 0;
 
@@ -211,7 +213,7 @@ class Juggernaut implements BossController {
 
   filter(e: Enemy, w: AiWorld, amount: number): number {
     const stunned = w.now < this.stunnedUntil ? 1.6 : 1;
-    return Math.min(amount * stunned, e.maxHealth * MAX_HIT_SHARE);
+    return Math.min(amount * stunned, e.maxHealth * this.maxHit);
   }
 
   onLand(e: Enemy, w: AiWorld): void {

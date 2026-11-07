@@ -627,7 +627,7 @@ What a player has found that the plan has not caught up with is in docs/NEXT.md.
 **How the mission keeps its word.**
 - `adapt` is the Commander's box with his read of the player, and the only answers it can announce are the ones that change men already in the fight (`WORKS_IN_FIGHT` in `commander/index.ts`). Mortars, snipers, mines and the rest are built into a wave, and a mission has no waves, so he does not promise them.
 - His own shells come only on the roof and only on a player under open sky: `person.ts`. The staged fight also takes away the Juggernaut's charge, which runs straight and went over the Stack's rail and the roof's waist-high parapet in testing.
-- The Commander walks after a player who hangs back, so he can come down from the roof again. The objective's marker stays on the mast.
+- The Commander stands his ground, so nothing takes him out of his arena, and one hit takes at most 2.5% of him, half the swarm's cap, or the autocannon ends the last fight in seconds. Whether a man who stands still is enough of a last boss is a question for a person: `docs/campaign/PLAYTEST.md`.
 
 **Still placeholder.**
 - Doors are hazard paint. Racks are a glowing bar, and the launcher is not the shape of a launcher.

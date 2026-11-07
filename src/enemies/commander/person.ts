@@ -7,7 +7,7 @@
 import * as THREE from 'three';
 import { pick } from '../../core/math';
 import type { Behaviour } from '../brain';
-import { JUGGERNAUT_ATTACKS, JUGGERNAUT_BEHAVIOURS } from '../bosses';
+import { JUGGERNAUT_ATTACKS, JUGGERNAUT_BEHAVIOURS, type Juggernaut } from '../bosses';
 import { ENEMIES } from '../data';
 import type { Enemy } from '../Enemy';
 import type { Commander } from './index';
@@ -28,6 +28,8 @@ const SMOKE_PUFFS = 7;
 const ROOF_SHELLS_AFTER = 14;
 /** Higher than this over the player's head is sky. */
 const OPEN_SKY = 40;
+/** Share of him one hit can take in a staged fight. The swarm's 5% is 20 autocannon rounds, and a bot with the mission's kit had him dead in 16 s. */
+const STAGED_MAX_HIT = 0.025;
 
 const UP = new THREE.Vector3(0, 1, 0);
 const STAND: Behaviour = {
@@ -153,6 +155,7 @@ export class Person {
    * too big for him, and brings the machine gun the men on the wall carry, because all his own reach was in the charge.
    */
   private plant(e: Enemy): void {
+    (e.boss as Juggernaut).maxHit = STAGED_MAX_HIT;
     e.behaviours = [STAND, ...JUGGERNAUT_BEHAVIOURS.filter(b => b.name !== 'bossAdvance')];
     e.attacks = [...JUGGERNAUT_ATTACKS.filter(a => a.name !== 'charge' && a.name !== 'slam'), ...ENEMIES.brute.attacks.filter(a => a.name === 'minigun')];
   }
