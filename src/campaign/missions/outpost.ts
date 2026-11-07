@@ -11,6 +11,8 @@ const say = (id: string, wait = false): Step => ({ do: 'say', line: `mission.${i
 const commander = (id: string, wait = false): Step => say(`cmd.${id}`, wait);
 const council = (id: string, wait = false): Step => say(`council.${id}`, wait);
 const pilot = (id: string, wait = false): Step => say(`radio.${id}`, wait);
+/** An order given as a door shuts, which cannot wait its turn: it cuts in, and is said again on every try. */
+const order = (id: string): Step => ({ do: 'say', line: `mission.cmd.${id}`, now: true, again: true });
 
 /** The kit a checkpoint promises, as the player gets further. */
 const KIT = {
@@ -90,7 +92,8 @@ const BEATS: readonly Beat[] = [
         when: { any: [{ signal: 'ride:fly5' }, { after: 80 }] },
         run: [{ do: 'squad', tag: 'in.north', men: ['trooper', 'brute', 'trooper', 'gunner', 'trooper'], at: 'ringWest' }],
       },
-      { when: { any: [{ signal: 'ride:fly8' }, { after: 120 }] }, run: [pilot('in.missile'), commander('in.talk')] },
+      // The fallback sits between the hit at fly8 (about 135 s) and the crash (about 140 s). At 120 s the gun was still firing.
+      { when: { any: [{ signal: 'ride:fly8' }, { after: 137 }] }, run: [pilot('in.missile'), commander('in.talk')] },
     ],
     until: { signal: 'landed' },
   },
@@ -100,6 +103,10 @@ const BEATS: readonly Beat[] = [
     checkpoint: { at: 'lz', loadout: KIT.issued },
     start: [
       { do: 'threat', level: 1, grade: 'conscript' },
+      // Straight after "Now we can talk properly", which is still being said as the ride comes down, so that it is over in the pit and
+      // "Close the gate." lands as the gate does. It ends about 9 s after the crash. The pilot's sign-off goes after it: behind the
+      // rental line it ended at about 14 s, and an ordinary run is at the road before that.
+      commander('lz.file'),
       pilot('in.rental'),
       { do: 'objective', id: 'gate', text: 'Get to the main gate', at: 'gateMouth' },
       // They hold their fire until the player is up. Four guns on a man coming round at the bottom of a pit is a death nobody saw.
@@ -110,20 +117,20 @@ const BEATS: readonly Beat[] = [
     ],
     cues: [
       nudge('lzCut', 24, '{jump} at the wall and hold {forward} to climb out.'),
-      { when: { zone: 'lzCut', outside: true }, run: [commander('lz.file'), { do: 'release', tag: 'lz.rim' }] },
+      { when: { zone: 'lzCut', outside: true }, run: [{ do: 'release', tag: 'lz.rim' }] },
       { when: { after: 20 }, run: [{ do: 'release', tag: 'lz.rim' }] },
       // Only a strafe-jump at the top of its speed beats the gate. The story needs them outside it.
       { when: { zone: 'gateYard' }, run: [{ do: 'place', at: 'gateMouth' }] },
       {
         when: { zone: 'gateApproach' },
         run: [
-          commander('lz.gate'),
+          order('lz.gate'),
           // Timed from the trigger: shut before a run with both dashes gets there.
           { do: 'door', door: 'mainGate', open: 0, seconds: 1, wait: true },
           commander('lz.hours', true),
           { do: 'done', id: 'gate' },
-          commander('lz.trucks'),
-          council('lz.account'),
+          // The beat ends here, so the checkpoint at the gate is saved now. A death during the call for the trucks comes back to the
+          // gate, not the pit. The call is said at the top of `softskins`.
           { do: 'signal', name: 'gateShut' },
         ],
       },
@@ -141,30 +148,38 @@ const BEATS: readonly Beat[] = [
       { do: 'objective', id: 'guardhouse', text: 'Reach the Guardhouse for the shotgun', at: 'shotgunCrate' },
       // Those who were on the rim when the gate shut are still in it. A restart from here has to put them back.
       { do: 'squad', tag: 'lz.rim', men: ['trooper', 'gunner', 'trooper'], at: 'lzRim', ensure: true },
-      commander('soft.east'),
       { do: 'rack', weapon: 'shotgun', at: 'shotgunCrate' },
       { do: 'rack', weapon: 'judge', at: 'pumpRoof', optional: true },
       { do: 'drop', item: 'ammo', at: 'guardAmmo' },
       { do: 'drop', item: 'armor', at: 'guardArmour' },
       { do: 'drop', item: 'armor', at: 'guardArmourSouth' },
       { do: 'drop', item: 'health', at: 'guardHealth' },
+      // The first truck comes once he has called for it, or it is on the road while he is still sending for it. After a restart the
+      // call has been heard and holds nothing. A `wait` on a line still queued from `lockout` would not hold, so the call is said here.
+      commander('lz.trucks', true),
+      council('lz.account'),
+      commander('soft.east'),
       { do: 'vehicle', tag: 'soft.truck1', kind: 'humvee', at: 'eastEdge', route: 'eastRoad', crew: ['trooper', 'gunner', 'trooper'], crewTag: 'soft.first' },
+      // The fight's clocks run from the first truck, so however long the call holds it, the trucks are as far apart as they were.
+      { do: 'signal', name: 'rolling' },
       { do: 'hint', text: 'Trucks die to bullets. Shoot the cab, or the fuel beside the road.', seconds: 8 },
     ],
     cues: [
       { when: { kills: 1, tag: 'soft.first' }, run: [commander('soft.driver')] },
       // One truck at a time. Every gun arriving at once on open ground left nothing to do but die.
       {
-        when: { any: [{ kills: 2, tag: 'soft.first' }, { after: 24 }] },
+        when: { signal: 'rolling' },
         run: [
+          { do: 'until', when: { any: [{ kills: 2, tag: 'soft.first' }, { after: 24 }] } },
           { do: 'vehicle', tag: 'soft.truck2', kind: 'truck', at: 'eastEdge', route: 'eastRoad', crew: ['trooper', 'trooper', 'trooper', 'trooper', 'gunner'], crewTag: 'soft.first' },
           { do: 'signal', name: 'secondTruck' },
         ],
       },
       { when: { kills: 3, tag: 'soft.first' }, run: [{ do: 'drill', tag: 'soft.first', drill: 'flank', line: 'mission.cmd.soft.left' }] },
       {
-        when: { after: 45 },
+        when: { signal: 'rolling' },
         run: [
+          { do: 'wait', seconds: 45 },
           // A tower has no way down, so a man sent to hunt from one stays up there and works the lane.
           { do: 'squad', tag: 'soft.tower', men: ['brute'], at: 'towerTwo' },
           commander('soft.tower'),
@@ -202,7 +217,8 @@ const BEATS: readonly Beat[] = [
       // After the radio, or the same man is talking in two boxes at once.
       { do: 'adapt' },
     ],
-    until: { after: 18 },
+    // His box is read to the end, unless it never closes. `heavy` opens by closing it.
+    until: { all: [{ after: 18 }, { any: [{ event: 'commander:done' }, { after: 55 }] }] },
   },
   {
     id: 'heavy',
@@ -224,17 +240,19 @@ const BEATS: readonly Beat[] = [
       { do: 'vehicle', tag: 'heavy.tank2', kind: 'tank', at: 'westEdge', route: 'tankWest' },
     ],
     cues: [
-      { when: { event: 'weapon:fired' }, run: [{ do: 'wait', seconds: 6 }, commander('heavy.knock')] },
       {
         // Soon, because this beat is the one that cannot be won. A player who dies before being told where to run never finds out.
         when: { after: 8 },
         run: [
-          council('heavy.salvage'),
           { do: 'objective', id: 'wreck', text: 'Find the old contractor\'s wreck', at: 'wreckFoot' },
           { do: 'signal', name: 'toldOfWreck' },
+          council('heavy.salvage', true),
+          { do: 'signal', name: 'salvaged' },
         ],
       },
-      { when: { all: [{ signal: 'toldOfWreck' }, { zone: 'easternApron' }] }, run: [commander('heavy.buried')] },
+      // Both wait for the salvage line, which matters more. A player already on the way to the wreck goes without them.
+      { when: { all: [{ event: 'weapon:fired' }, { signal: 'salvaged' }] }, run: [{ do: 'wait', seconds: 2 }, commander('heavy.knock')] },
+      { when: { all: [{ signal: 'salvaged' }, { zone: 'easternApron' }] }, run: [commander('heavy.buried')] },
     ],
     until: { all: [{ signal: 'toldOfWreck' }, { zone: 'easternApron' }] },
   },
@@ -269,15 +287,16 @@ const BEATS: readonly Beat[] = [
       { do: 'call', name: 'mark', arg: 'heavy.tank2' },
       { do: 'call', name: 'mark', arg: 'turn.chopper' },
       commander('wreck.changes'),
-      council('wreck.balance'),
+      // The order goes with the answer it gives, and the Council's receipt can wait. Neither waits so long that it holds up the first
+      // kill: after a fast run to the wreck the boots and the salvage are still being said, and these are dropped. With a quiet radio
+      // the receipt starts about 10 s in, so both limits sit just past that.
+      { do: 'say', line: 'mission.cmd.turn.spread', within: 11 },
+      { do: 'say', line: 'mission.council.wreck.balance', within: 11 },
       { do: 'hint', text: 'A direct hit goes through armour. The blast beside it does little. Aim for the tracks or the hull.', seconds: 10 },
       { do: 'field', answer: 'spread' },
-      commander('turn.spread'),
     ],
     cues: [
-      { when: { any: [{ kills: 1, tag: 'heavy.tank1' }, { kills: 1, tag: 'heavy.tank2' }] }, run: [commander('turn.forty')] },
-      // Nothing else on this map can hurt a tank, so running out of rockets must never be the end of the mission.
-      { when: { all: [{ ammo: 'rocket', under: 3 }, { after: 20 }] }, repeat: true, run: [{ do: 'drop', item: 'ammo', at: 'apronAmmoEast' }, { do: 'drop', item: 'ammo', at: 'apronAmmoWest' }, { do: 'hint', text: 'Rockets on the apron: the yellow squares on your map.', seconds: 6 }] },
+      // Before the kill's own line, which fires on the same frame: the chopper is on its way as he calls it.
       {
         when: { any: [{ cleared: 'heavy.tank1' }, { cleared: 'heavy.tank2' }] },
         run: [
@@ -286,6 +305,9 @@ const BEATS: readonly Beat[] = [
           { do: 'vehicle', tag: 'turn.truck', kind: 'humvee', at: 'eastEdge', route: 'eastRoad', crew: ['trooper', 'trooper', 'gunner', 'warden'], crewTag: 'turn.men' },
         ],
       },
+      { when: { any: [{ kills: 1, tag: 'heavy.tank1' }, { kills: 1, tag: 'heavy.tank2' }] }, run: [commander('turn.forty')] },
+      // Nothing else on this map can hurt a tank, so running out of rockets must never be the end of the mission.
+      { when: { all: [{ ammo: 'rocket', under: 3 }, { after: 20 }] }, repeat: true, run: [{ do: 'drop', item: 'ammo', at: 'apronAmmoEast' }, { do: 'drop', item: 'ammo', at: 'apronAmmoWest' }, { do: 'hint', text: 'Rockets on the apron: the yellow squares on your map.', seconds: 6 }] },
       { when: { kills: 1, tag: 'turn.chopper' }, run: [commander('turn.form')] },
       {
         when: { cleared: ['heavy.tank1', 'heavy.tank2', 'turn.chopper'] },
@@ -321,7 +343,7 @@ const BEATS: readonly Beat[] = [
       {
         when: { zone: 'blastLine' },
         run: [
-          commander('breach.seal'),
+          order('breach.seal'),
           { do: 'hint', text: 'It will not wait. Run at it and press {slide}.', seconds: 6 },
           { do: 'door', door: 'blastDoor', open: 0 },
           { do: 'signal', name: 'sealing' },
@@ -446,7 +468,18 @@ const BEATS: readonly Beat[] = [
     ],
     cues: [
       // The floor first and the sides a beat later. All ten on one frame is a firing squad with nothing to read and nowhere to go.
-      { when: { zone: 'messHall' }, run: [{ do: 'wait', seconds: 5 }, commander('mess.now'), { do: 'release', tag: 'mess.floor' }, { do: 'wait', seconds: 1.5 }, { do: 'release', tag: 'mess.west' }, { do: 'release', tag: 'mess.east' }] },
+      // They go when he has said it, however long the lines before it ran, and on every try.
+      {
+        when: { zone: 'messHall' },
+        run: [
+          { do: 'wait', seconds: 5 },
+          { do: 'say', line: 'mission.cmd.mess.now', wait: true, again: true },
+          { do: 'release', tag: 'mess.floor' },
+          { do: 'wait', seconds: 1.5 },
+          { do: 'release', tag: 'mess.west' },
+          { do: 'release', tag: 'mess.east' },
+        ],
+      },
     ],
     until: { cleared: ['mess.floor', 'mess.west', 'mess.east'] },
   },
@@ -467,7 +500,8 @@ const BEATS: readonly Beat[] = [
     cues: [
       { when: { signal: 'took:autocannon' }, run: [{ do: 'done', id: 'arm' }, commander('arm.mine'), council('arm.take', true), { do: 'wait', seconds: 4 }, { do: 'signal', name: 'armed' }] },
     ],
-    until: { signal: 'armed' },
+    // Taking the gun interrupts his box, which picks up again after. `plates` closes whatever is left of it, so it waits.
+    until: { all: [{ signal: 'armed' }, { any: [{ event: 'commander:done' }, { after: 60 }] }] },
   },
   {
     id: 'plates',
@@ -556,8 +590,8 @@ const BEATS: readonly Beat[] = [
       { do: 'done', id: 'boss' },
       { do: 'done', id: 'mission' },
       { do: 'music', state: 'menu' },
-      // His last words and the Council's receipt have the box to themselves.
-      { do: 'wait', seconds: 8 },
+      // His last words have the box to themselves, and then a moment of quiet.
+      { do: 'until', when: { all: [{ after: 8 }, { any: [{ event: 'commander:done' }, { after: 20 }] }] } },
       council('end.complete'),
       council('end.fee'),
       pilot('end.walk'),
@@ -565,6 +599,8 @@ const BEATS: readonly Beat[] = [
       { do: 'cutscene', id: 'ending' },
       { do: 'finish' },
     ],
+    // He is in no state to greet anyone.
+    redeployLines: ['mission.council.redeploy.fee', 'mission.council.redeploy.keep'],
   },
 ];
 
@@ -578,22 +614,24 @@ export const OUTPOST: Mission = {
   routes: ROUTES,
   doors: DOORS,
   cutscenes: {
-    // Down through the cloud to the compound, then along the gate, while the Council reads the notice.
+    // Down through the cloud to the compound, then along the gate, while the Council reads the notice. Cut to the recordings: the notice
+    // runs 54.6 s, the second and third cuts fall between two lines, and the fade starts after the last word.
     briefing: {
       shots: [
         { from: [-120, 96, 210], to: [-60, 62, 150], lookFrom: [0, 0, -20], lookTo: [0, 2, -24], seconds: 16, fov: 42, fadeIn: 3, caption: 'The Outpost' },
-        { from: [-90, 34, 58], to: [20, 30, 50], lookFrom: [-20, 6, 12], lookTo: [0, 6, 12], seconds: 14 },
-        { from: [0, 40, -100], to: [0, 24, -96], lookFrom: [0, 14, -70], lookTo: [0, 16, -70], seconds: 12 },
+        { from: [-90, 34, 58], to: [20, 30, 50], lookFrom: [-20, 6, 12], lookTo: [0, 6, 12], seconds: 12 },
+        { from: [0, 40, -100], to: [0, 24, -96], lookFrom: [0, 14, -70], lookTo: [0, 16, -70], seconds: 9.5 },
         // Up the well of the Stack to the lit glass: the outside of the block shows nothing of the room he is in.
-        { from: [0, 11.8, -36], to: [0, 11.6, -54], lookFrom: [0, 11.8, -70], lookTo: [0, 11.8, -70], seconds: 12, fov: 38, fadeOut: 1.6, caption: 'Commanding officer' },
+        { from: [0, 11.8, -36], to: [0, 11.6, -54], lookFrom: [0, 11.8, -70], lookTo: [0, 11.8, -70], seconds: 20, fov: 38, fadeOut: 1.6, caption: 'Commanding officer' },
       ],
       figure: { at: [0, LEVEL.command, -67.4], yaw: 0 },
     },
-    // From the roof, over the burning apron and up.
+    // From the roof, over the burning apron and up. The lines run 36.4 s: the cut falls between the fee and the pilot, and the fade
+    // starts after the last word.
     ending: {
       shots: [
-        { from: [0, 18, -34], to: [0, 30, -10], lookFrom: [0, 4, 30], lookTo: [0, 0, 50], seconds: 14, fadeIn: 1 },
-        { from: [0, 30, -10], to: [0, 70, 30], lookFrom: [0, 0, 50], lookTo: [0, 0, 20], seconds: 16, fadeOut: 3 },
+        { from: [0, 18, -34], to: [0, 30, -10], lookFrom: [0, 4, 30], lookTo: [0, 0, 50], seconds: 23, fadeIn: 1 },
+        { from: [0, 30, -10], to: [0, 70, 30], lookFrom: [0, 0, 50], lookTo: [0, 0, 20], seconds: 17.5, fadeOut: 3 },
       ],
       endsBlack: true,
     },

@@ -154,7 +154,8 @@ export default async function missionLive(page, h) {
       await until(d => d.beat === 'softskins', 60, 'softskins');
       await tp(14, 0, 40, 0);
       await face(50, 1.5, 34);
-      await h.sleep(9000);
+      // The first truck waits for "Send the trucks", about 8 s, and is then on the road for about 9.
+      await h.sleep(17000);
       await h.shot('soft-0');
       log.push({ hud: await hud(), v: await page.evaluate(() => window.__op2.ctx.enemies.vehicles.describe()) });
       await tp(24, 0, 25.5, 0);
@@ -440,7 +441,7 @@ export default async function missionLive(page, h) {
       await page.route('**/audio/voice/*.mp3', r => r.fulfill({ contentType: 'audio/wav', body: wav }));
       const probe = () => page.evaluate(() => {
         const { ui } = window.__op2.campaign;
-        return { speaking: ui.voice.speaking, audioPaused: ui.voice.current?.paused ?? null, waiting: ui.lineDone !== null, doneYet: window.__said === true, box: document.querySelector('.ms-radio.on')?.textContent ?? null };
+        return { speaking: ui.voice.speaking, audioPaused: ui.voice.current?.audio.paused ?? null, waiting: ui.talking, doneYet: window.__said === true, box: document.querySelector('.ms-radio.on')?.textContent ?? null };
       });
       log.push({ media: await page.evaluate(() => new Promise(done => {
         const a = new Audio('audio/voice/mission.test.mp3');

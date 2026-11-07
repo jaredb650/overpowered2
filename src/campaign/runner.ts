@@ -3,7 +3,8 @@
  * MissionHost, so a test can drive it with no game at all.
  *
  * A beat opens by saving its checkpoint, if it has one, and starting its script. Cues fire once each while it lasts, and `until`
- * moves on to the next row. Scripts stop with their beat. The radio does not, because a line in the air should finish.
+ * moves on to the next row. Scripts stop with their beat. The radio does not, because a line in the air should finish, and the mission
+ * is not won until the last of them has.
  *
  * A death holds everything until `redeploy`. The game then rebuilds the run from nothing, as it does for any new run, and the runner
  * replays the saved beat from its top with the doors and objectives it was saved with. Restarting from a clean run is the point:
@@ -49,6 +50,9 @@ interface Save {
 interface Spoken {
   line: Line;
   latch: Latch | null;
+  /** Mission seconds when it was asked for, and how long after that it may still start. */
+  asked: number;
+  within: number;
 }
 
 const HINT_SECONDS = 7;
@@ -73,10 +77,13 @@ export class MissionRunner implements WatchFacts {
   /** Taken from racks, kept through every restart, so a gun found off the path is not lost to a checkpoint that never promised it. */
   private readonly taken = new Set<WeaponId>();
   private readonly lines = new Map<string, Line>();
+  /** Lines waiting their turn, and the one being said. */
   private readonly radio: Spoken[] = [];
-  private speaking = false;
+  private onAir: Spoken | null = null;
   /** Bumped by a hush, so a line that was cut off cannot finish anything. */
   private radioEpoch = 0;
+  /** The mission is over but for the radio. */
+  private finishing = false;
   private save: Save | null = null;
   private redeploys = 0;
   /** Where to go once the frame's scripts have finished. A step cannot pull its own beat out from under the loop running it. */
@@ -171,13 +178,17 @@ export class MissionRunner implements WatchFacts {
     this.deploy(save.index);
     this.pending = save.index;
     this.flush();
-    const lines = mission.redeployLines;
+    const lines = mission.beats[save.index]!.redeployLines ?? mission.redeployLines;
     if (lines.length > 0) this.say(lines[this.redeploys++ % lines.length]!, true, null);
   }
 
   update(dt: number): void {
     if (this.state !== 'running') return;
     this.elapsed += dt;
+    if (this.finishing) {
+      if (!this.busy) this.win();
+      return;
+    }
     this.host.playerAt(this.feet);
     for (let i = 0; i < this.scripts.length; i++) {
       const run = this.scripts[i]!;
@@ -228,6 +239,8 @@ export class MissionRunner implements WatchFacts {
       elapsed: Math.round(this.elapsed),
       deaths: this.deaths,
       saved: this.save ? this.mission.beats[this.save.index]?.id : null,
+      radio: this.onAir?.line.id ?? null,
+      waiting: this.radio.map(s => s.line.id),
       objectives: this.objectiveList.map(o => `${o.done ? '[x]' : '[ ]'} ${o.text}`),
       tags: Object.fromEntries([...this.tags].map(([tag, b]) => [tag, `${b.left}/${b.spawned}`])),
       doors: Object.fromEntries(this.doors),
@@ -245,15 +258,23 @@ export class MissionRunner implements WatchFacts {
       this.pending = null;
       if (to === 'finish' || to >= this.mission.beats.length) {
         this.closeBeat();
-        this.state = 'won';
-        this.host.finished();
+        // The complete screen would stop the last line mid-word, so the mission waits for it.
+        if (this.busy) this.finishing = true;
+        else this.win();
         return;
       }
       this.open(to);
     }
   }
 
+  private win(): void {
+    this.finishing = false;
+    this.state = 'won';
+    this.host.finished();
+  }
+
   private closeBeat(): void {
+    this.finishing = false;
     for (const run of this.scripts) run.watch?.close();
     this.scripts.length = 0;
     for (const cue of this.cues) cue.watch.close();
@@ -377,7 +398,7 @@ export class MissionRunner implements WatchFacts {
     const { host } = this;
     switch (step.do) {
       case 'say':
-        this.say(step.line, step.again === true, step.wait ? this.hold(run) : null);
+        this.say(step.line, step.again === true, step.wait ? this.hold(run) : null, step.now === true, step.within);
         return;
       case 'objective':
         this.objectiveList = this.objectiveList.filter(o => o.id !== step.id);
@@ -516,37 +537,50 @@ export class MissionRunner implements WatchFacts {
   // Radio
   // ---------------------------------------------------------------------------------------------
 
-  private say(id: string, again: boolean, latch: Latch | null): void {
+  private get busy(): boolean {
+    return this.onAir !== null || this.radio.length > 0;
+  }
+
+  private say(id: string, again: boolean, latch: Latch | null, now = false, within = Infinity): void {
     const line = this.lines.get(id);
     if (!line) throw new Error(`mission ${this.mission.id}: no line ${id}`);
-    if (this.heard.has(id) && !again) {
+    if (!again && (this.heard.has(id) || this.radio.some(s => s.line.id === id))) {
       if (latch) latch.open = true;
       return;
     }
-    this.heard.add(id);
-    this.radio.push({ line, latch });
+    if (now) this.hush();
+    this.radio.push({ line, latch, asked: this.elapsed, within });
     this.nextLine();
   }
 
   private nextLine(): void {
-    if (this.speaking) return;
-    const next = this.radio.shift();
-    if (!next) return;
-    this.speaking = true;
-    const epoch = this.radioEpoch;
-    this.host.speak(next.line, () => {
+    if (this.onAir) return;
+    let next = this.radio.shift();
+    // A reaction that has waited past its moment is dropped, not said late.
+    while (next && this.elapsed - next.asked > next.within) {
       if (next.latch) next.latch.open = true;
+      next = this.radio.shift();
+    }
+    if (!next) return;
+    const spoken = next;
+    this.onAir = spoken;
+    this.heard.add(spoken.line.id);
+    const epoch = this.radioEpoch;
+    this.host.speak(spoken.line, () => {
       if (epoch !== this.radioEpoch) return;
-      this.speaking = false;
+      this.onAir = null;
+      if (spoken.latch) spoken.latch.open = true;
       this.nextLine();
     });
   }
 
-  private hush(): void {
+  /** Stops the radio, as a death or a skipped film does, or a run thrown away. Nothing that was waiting on a line is left waiting. */
+  hush(): void {
     this.radioEpoch++;
+    if (this.onAir?.latch) this.onAir.latch.open = true;
+    this.onAir = null;
     for (const spoken of this.radio) if (spoken.latch) spoken.latch.open = true;
     this.radio.length = 0;
-    this.speaking = false;
     this.host.hush();
   }
 }

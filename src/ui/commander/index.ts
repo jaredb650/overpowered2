@@ -4,6 +4,10 @@
  * It listens to the Commander's events and owns the box: a few short pages between waves, each on a reading timer, or on the recording
  * if there is one. E moves it along. It never takes the mouse or stops the game, because a player who wants to reload through a
  * speech should be able to.
+ *
+ * In a mission the mission's own radio has the floor, so that one voice is heard at a time. A bark asked for while it talks is
+ * dropped, and one already going is cut off when it starts. A page waits, off the screen with its clock stopped, and starts again from
+ * its first word once the radio has been quiet a moment. The mission says his death and a player's death in its own lines.
  */
 import { MISSION_ID } from '../../campaign/select';
 import type { Ctx } from '../../core/contracts';
@@ -24,6 +28,8 @@ const TYPE_RATE = 70;
 const BARK_SECONDS = 4.2;
 /** Seconds between the run starting and his first words. */
 const FIRST_WORDS_AT = 3.5;
+/** Seconds the mission's radio has to have been quiet before a page it held up starts again. */
+const RADIO_SETTLE = 0.5;
 
 const BOSS_NAME = 'The Commander';
 const NAMES: Record<Speaker, string> = { commander: 'The Commander', council: 'The Council', intercept: 'Intercepted transmission', radio: 'Radio' };
@@ -59,6 +65,9 @@ export class CommanderHud {
   private shown = 0;
   private clock = 0;
   private bark = false;
+  /** A page waiting for the mission's radio. */
+  private held = false;
+  private settle = 0;
   private firstIn = -1;
   private afterLast: (() => void) | null = null;
   /** Called when the last page of the last box has been read. */
@@ -96,7 +105,15 @@ export class CommanderHud {
     events.on('commander:fulfilled', () => this.onFulfil());
     events.on('commander:quiet', () => this.close());
     events.on('commander:person', e => { this.person = e.arrived; });
-    events.on('player:died', () => this.onBark(PLAYER_DOWN[0]!.id));
+    // A mission has its own words for a death, said as the player comes back.
+    events.on('player:died', () => {
+      if (!MISSION_ID) this.onBark(PLAYER_DOWN[0]!.id);
+    });
+  }
+
+  /** Only a mission has a radio to give way to. Off one this is never true, and the box behaves as it always has. */
+  private get radio(): boolean {
+    return this.ctx.campaign?.talking === true;
   }
 
   reset(): void {
@@ -117,6 +134,7 @@ export class CommanderHud {
 
   private onBark(id: string, vars?: Readonly<Record<string, string>>): void {
     if (this.page >= 0 && !this.bark) return;
+    if (this.radio) return;
     const line = lineById(id);
     if (!line) return;
     const part = spoken(line, vars ?? {}, null);
@@ -126,15 +144,13 @@ export class CommanderHud {
     this.show(0);
   }
 
-  /** The Commander is dead. His last words, the Council's receipt, and the run is over. */
+  /** The Commander is dead. His last words, the Council's receipt, and the run is over. A mission reads out a receipt of its own. */
   private onFulfil(): void {
     const tone = TONE_OF.lastStand;
     const last = LAST_WORDS[Math.floor(Math.random() * LAST_WORDS.length)]!;
+    const words: Page = { speaker: 'commander', tone, parts: [spoken(last, {}, null)] };
     this.afterLast = () => this.onFulfilled?.();
-    this.open([
-      { speaker: 'commander', tone, parts: [spoken(last, {}, null)] },
-      { speaker: 'council', tone, parts: FINAL_COUNCIL.map(l => spoken(l, {}, null)) },
-    ]);
+    this.open(MISSION_ID ? [words] : [words, { speaker: 'council', tone, parts: FINAL_COUNCIL.map(l => spoken(l, {}, null)) }]);
   }
 
   private open(pages: Page[]): void {
@@ -147,6 +163,11 @@ export class CommanderHud {
   private show(index: number): void {
     const page = this.pages[index]!;
     this.page = index;
+    // Only a page gets this far while the radio talks: a bark was dropped at the door.
+    if (this.radio) {
+      this.hold();
+      return;
+    }
     this.full = page.parts.map(p => p.text).join(page.speaker === 'intercept' ? '\n' : ' ');
     this.shown = 0;
     this.text.textContent = '';
@@ -159,12 +180,24 @@ export class CommanderHud {
     this.pips.replaceChildren(...this.pages.map((_, i) => div(i <= index ? 'cmd-pip on' : 'cmd-pip')));
   }
 
+  /** Off the screen and silent until the mission's radio is done, then this page again from its first word. */
+  private hold(): void {
+    this.held = true;
+    this.settle = RADIO_SETTLE;
+    this.box.className = 'cmd-box';
+    this.voice.stop();
+  }
+
   private close(): void {
+    const box = this.page >= 0 && !this.bark;
     this.box.className = 'cmd-box';
     this.page = -1;
     this.pages = [];
     this.bark = false;
+    this.held = false;
     this.voice.stop();
+    // Read to the end or cut short. A mission waits on this to keep its own lines off his.
+    if (box) this.ctx.events.emit('commander:done', {});
   }
 
   private next(skipped: boolean): void {
@@ -183,11 +216,25 @@ export class CommanderHud {
   }
 
   update(dt: number): void {
+    this.voice.update(dt);
     if (this.firstIn > 0) {
       this.firstIn -= dt;
       if (this.firstIn <= 0) this.onBark(FIRST[Math.floor(Math.random() * FIRST.length)]!.id);
     }
     if (this.page < 0) return;
+    if (this.radio) {
+      if (this.bark) this.close();
+      else if (!this.held) this.hold();
+      else this.settle = RADIO_SETTLE;
+      return;
+    }
+    if (this.held) {
+      this.settle -= dt;
+      if (this.settle > 0) return;
+      this.held = false;
+      this.show(this.page);
+      return;
+    }
     const typing = this.shown < this.full.length;
     if (typing) {
       this.shown = Math.min(this.full.length, this.shown + TYPE_RATE * dt);
@@ -200,6 +247,12 @@ export class CommanderHud {
         this.shown = this.full.length;
         this.text.textContent = this.full;
       } else this.next(true);
+      return;
+    }
+    if (MISSION_ID) {
+      // Up for its words or for its recording, whichever is longer, the same as a line on the mission's own radio.
+      if (!typing) this.clock -= dt;
+      if (this.clock <= 0 && !this.voice.speaking) this.next(false);
       return;
     }
     if (!typing && !this.voice.speaking) this.clock -= dt;

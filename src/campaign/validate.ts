@@ -28,6 +28,7 @@ export function validateMission(m: Mission): string[] {
   if (lineIds.size !== m.lines.length) problems.push('two lines share an id');
   if (new Set(beatIds).size !== beatIds.length) problems.push('two beats share an id');
   for (const id of m.redeployLines) if (!lineIds.has(id)) problems.push(`redeploy line ${id} does not exist`);
+  for (const beat of m.beats) for (const id of beat.redeployLines ?? []) if (!lineIds.has(id)) problems.push(`beat ${beat.id}: redeploy line ${id} does not exist`);
   for (const [id, route] of Object.entries(m.routes)) for (const mark of route) if (!m.marks[mark]) problems.push(`route ${id} names no mark ${mark}`);
 
   const checkStep = (where: string, step: Step): void => {

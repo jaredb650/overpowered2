@@ -323,6 +323,151 @@ describe('the radio', () => {
   });
 });
 
+describe('the radio, with lines that take their time', () => {
+  const lines: Mission['lines'] = [
+    { id: 'one', speaker: 'commander', emotion: 'smug', text: 'One.' },
+    { id: 'two', speaker: 'council', emotion: 'deadpan', text: 'Two.' },
+    { id: 'three', speaker: 'commander', emotion: 'smug', text: 'Three.' },
+    { id: 'back', speaker: 'commander', emotion: 'smug', text: 'Back.' },
+    { id: 'kind', speaker: 'council', emotion: 'deadpan', text: 'Kind.' },
+  ];
+  const saved = { at: 'a', loadout: { weapons: ['smg'], grenades: 0 } } as const;
+
+  /** Lines are said only when the test says they have been. */
+  function slow(beats: Beat[]) {
+    const host = new FakeHost();
+    host.autoSpeak = false;
+    const run = new MissionRunner(mission(beats, { lines }), host);
+    run.start();
+    return {
+      host,
+      run,
+      step(seconds = 1 / 60) {
+        for (let t = 0; t < seconds; t += 1 / 60) run.update(1 / 60);
+      },
+      /** The line on the radio has been said, breath and all. */
+      said() {
+        const done = host.speaking!;
+        host.speaking = null;
+        done();
+      },
+    };
+  }
+
+  it('counts a line heard once it starts, so one still waiting at a death is said after the restart', () => {
+    const { host, run, said } = slow([{ id: 'a', title: 'A', checkpoint: saved, start: [{ do: 'say', line: 'one' }, { do: 'say', line: 'two' }], until: { after: 99 } }]);
+    expect(host.said).toEqual(['one']);
+    run.down();
+    run.redeploy();
+    expect(host.said).toEqual(['one', 'two']);
+    said();
+    expect(host.said).toEqual(['one', 'two', 'back']);
+  });
+
+  it('never queues a line twice while it waits', () => {
+    const { host, step, said } = slow([{ id: 'a', title: 'A', start: [{ do: 'say', line: 'one' }, { do: 'say', line: 'two' }, { do: 'say', line: 'two' }], until: { after: 99 } }]);
+    said();
+    said();
+    step();
+    expect(host.said).toEqual(['one', 'two']);
+    expect(host.speaking).toBeNull();
+  });
+
+  it('lets an order with `now` cut in: the line on the radio stops, anything waiting is dropped, and nothing waiting on them is left held', () => {
+    const { host, run, step, said } = slow([{
+      id: 'a',
+      title: 'A',
+      start: [{ do: 'say', line: 'one' }, { do: 'say', line: 'two', wait: true }, { do: 'banner', text: 'after two' }],
+      cues: [{ when: { signal: 'shut' }, run: [{ do: 'say', line: 'three', now: true }] }],
+      until: { after: 99 },
+    }]);
+    run.signal('shut');
+    step();
+    expect(host.said).toEqual(['one', 'three']);
+    step();
+    expect(host.log).toEqual(['banner after two']);
+    said();
+    step();
+    expect(host.said).toEqual(['one', 'three']);
+    expect(host.speaking).toBeNull();
+  });
+
+  it('cuts in only with something to say: a heard order without `again` leaves the radio alone', () => {
+    const { host, run, step } = slow([{
+      id: 'a',
+      title: 'A',
+      start: [{ do: 'say', line: 'three' }, { do: 'say', line: 'one' }],
+      cues: [{ when: { signal: 'shut' }, run: [{ do: 'say', line: 'three', now: true }] }],
+      until: { after: 99 },
+    }]);
+    run.signal('shut');
+    step();
+    expect(host.said).toEqual(['three']);
+    expect(host.speaking).not.toBeNull();
+  });
+
+  it('drops a line that has waited past `within`, unsaid, and lets a script waiting on it go on', () => {
+    const { host, step, said } = slow([{
+      id: 'a',
+      title: 'A',
+      start: [{ do: 'say', line: 'one' }, { do: 'say', line: 'three', within: 4 }, { do: 'say', line: 'two', within: 2, wait: true }, { do: 'banner', text: 'on' }],
+      until: { after: 99 },
+    }]);
+    step(3);
+    said();
+    expect(host.said).toEqual(['one', 'three']);
+    said();
+    step();
+    expect(host.said).toEqual(['one', 'three']);
+    expect(host.log).toEqual(['banner on']);
+  });
+
+  it('lets a script waiting on the line being said go on when a skipped film hushes the radio', () => {
+    const { host, run, step } = slow([{
+      id: 'a',
+      title: 'A',
+      start: [{ do: 'say', line: 'one', wait: true }, { do: 'banner', text: 'said' }],
+      cues: [{ when: { signal: 'film' }, run: [{ do: 'cutscene', id: 'open' }] }],
+      until: { after: 99 },
+    }]);
+    run.signal('film');
+    step();
+    host.cutsceneDone!(true);
+    step();
+    expect(host.log).toEqual(['banner said']);
+    expect(host.speaking).toBeNull();
+  });
+
+  it('is not won until the last line has been said, after a finish step or past the last row', () => {
+    for (const end of [[{ do: 'finish' }], []] as Beat['start'][]) {
+      const { host, run, step, said } = slow([{ id: 'a', title: 'A', start: [{ do: 'say', line: 'one' }, { do: 'say', line: 'two' }, ...end!], until: { after: 0.5 } }]);
+      step(1);
+      expect(run.state).toBe('running');
+      said();
+      step();
+      expect(host.finishedCount).toBe(0);
+      said();
+      step();
+      expect(run.state).toBe('won');
+      expect(host.finishedCount).toBe(1);
+    }
+  });
+
+  it('greets a restart with the beat\'s own lines, where it has them', () => {
+    const { host, run, step, said } = slow([
+      { id: 'a', title: 'A', checkpoint: saved, until: { after: 1 } },
+      { id: 'b', title: 'B', checkpoint: saved, redeployLines: ['kind'], until: { after: 99 } },
+    ]);
+    run.down();
+    run.redeploy();
+    said();
+    step(1.1);
+    run.down();
+    run.redeploy();
+    expect(host.said).toEqual(['back', 'kind']);
+  });
+});
+
 describe('checkpoints', () => {
   const beats: Beat[] = [
     { id: 'a', title: 'A', start: [{ do: 'give', weapon: 'shotgun' }], until: { after: 1 } },

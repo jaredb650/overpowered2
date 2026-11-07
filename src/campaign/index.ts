@@ -37,6 +37,7 @@ class Idle implements CampaignSystem {
   readonly runner = null;
   readonly returning = false;
   readonly result = null;
+  readonly talking = false;
   provide(): void {}
   signal(): void {}
   unitGone(): void {}
@@ -107,6 +108,10 @@ class Campaign implements CampaignSystem {
     return this.opening === 'redeploy';
   }
 
+  get talking(): boolean {
+    return this.ui.talking;
+  }
+
   redeploy(): boolean {
     if (this.runner.state !== 'down') return false;
     this.banked = this.host.bank();
@@ -153,6 +158,7 @@ class Campaign implements CampaignSystem {
   }
 
   reset(): void {
+    this.runner.hush();
     this.host.clear();
     this.ui.reset();
   }

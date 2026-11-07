@@ -10,14 +10,10 @@ import { Flag, Label, div, h, span } from '../ui/dom';
 import { Portrait } from '../ui/commander/portrait';
 import { Voice } from '../ui/commander/voice';
 import type { Hud } from '../ui/Hud';
+import { Airtime } from './airtime';
 import type { ObjectiveState } from './types';
 import './campaign.css';
 
-/** Words a second, for a line nobody has recorded. */
-const WORDS_PER_SECOND = 2.6;
-const LEAST_SECONDS = 2;
-/** Between one line and the next, so a speech has breaths in it. */
-const GAP_SECONDS = 0.35;
 /** A ticked objective stays up this long. */
 const TICK_SECONDS = 1.6;
 const SAVED_SECONDS = 2.6;
@@ -72,17 +68,16 @@ export class CampaignHud {
   private readonly text: Label;
   private readonly face = new Portrait('cmd-face');
   private readonly voice: Voice;
+  /** How long the line on the radio holds it: airtime.ts. */
+  private readonly airtime: Airtime;
   private curtainShare = 0;
   private curtainRate = 0;
   private savedLeft = 0;
   private hintLeft = 0;
-  private lineLeft = 0;
-  private gapLeft = 0;
-  private lineDone: (() => void) | null = null;
-  private lineClip = false;
 
   constructor(private readonly ctx: Ctx) {
     this.voice = new Voice(ctx, (ctx.hud as unknown as Hud).settings);
+    this.airtime = new Airtime(this.voice);
     const name = span('cmd-name');
     const tag = span('cmd-tag');
     const text = h('p', 'cmd-text');
@@ -163,6 +158,11 @@ export class CampaignHud {
     this.voice.setPaused(paused);
   }
 
+  /** A mission line has the radio, from its first word to the breath after the last line of a run. The Commander's own box gives way. */
+  get talking(): boolean {
+    return this.airtime.held;
+  }
+
   speak(line: Line, done: () => void): void {
     const [name, tag] = WHO[line.speaker];
     const tone: Tone = TONES.has(line.emotion) ? (line.emotion as Tone) : 'smug';
@@ -171,36 +171,25 @@ export class CampaignHud {
     this.tag.set(tag);
     this.text.set(line.text);
     this.face.set(line.speaker, tone);
-    this.lineClip = this.voice.has(line.id);
     this.voice.say([line.id]);
-    this.lineLeft = Math.max(LEAST_SECONDS, line.text.split(' ').length / WORDS_PER_SECOND);
-    this.lineDone = done;
+    this.airtime.begin(line.text, done);
   }
 
   hush(): void {
     this.voice.stop();
-    this.lineDone = null;
-    this.lineLeft = 0;
-    this.gapLeft = 0;
+    this.airtime.clear();
     this.box.classList.remove('on');
   }
 
   private updateLine(dt: number): void {
-    if (this.gapLeft > 0) {
-      this.gapLeft -= dt;
-      if (this.gapLeft > 0) return;
-      const done = this.lineDone;
-      this.lineDone = null;
-      done?.();
-      return;
-    }
-    if (!this.lineDone) return;
-    const talking = this.lineClip && this.voice.speaking;
-    this.face.update(dt, talking || this.lineLeft > 0);
-    if (!talking) this.lineLeft -= dt;
-    if (talking || this.lineLeft > 0) return;
-    this.box.classList.remove('on');
-    this.gapLeft = GAP_SECONDS;
+    this.voice.update(dt);
+    const { airtime } = this;
+    const was = airtime.up;
+    // This can say the next line, from inside the runner's `done`.
+    airtime.update(dt);
+    if (!was) return;
+    this.face.update(dt, airtime.talking);
+    if (!airtime.up) this.box.classList.remove('on');
   }
 
   update(dt: number): void {

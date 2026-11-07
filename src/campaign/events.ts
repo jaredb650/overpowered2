@@ -26,6 +26,8 @@ export interface CampaignSystem extends GameSystem {
   readonly returning: boolean;
   /** Set once the mission is won. */
   readonly result: MissionResult | null;
+  /** A mission line has the radio, from its first word to the breath after the last line of a run. Anything else that talks waits. */
+  readonly talking: boolean;
   /**
    * Replaces parts of the host, for a system that has something better than the fallback. Call it from your own `init`, and report
    * every body you spawned with `unitGone`.

@@ -127,8 +127,16 @@ export type Trigger =
 // -------------------------------------------------------------------------------------------------
 
 export type Step =
-  /** Queues a line on the radio. Heard once per mission, so a restart does not repeat a speech, unless `again` is set. `wait` holds the script until it has been said. */
-  | { do: 'say'; line: string; wait?: boolean; again?: boolean }
+  /**
+   * Queues a line on the radio, where lines are said one at a time, in turn. Heard once per mission, so a restart does not repeat a
+   * speech, unless `again` is set. A line counts as heard once it starts: one still waiting when the player dies is said after the
+   * restart. `wait` holds the script until it has been said.
+   *
+   * `now` is an order that cannot wait, given as a door shuts: the line on the radio is cut off, anything still waiting is dropped, and
+   * this is said at once. `within` drops the line unsaid if it has not started this many seconds after it was asked for, for a reaction
+   * that would rather not be heard than be heard late.
+   */
+  | { do: 'say'; line: string; wait?: boolean; again?: boolean; now?: boolean; within?: number }
   /** Puts an objective on the HUD. `at` is a mark for a world marker. */
   | { do: 'objective'; id: string; text: string; at?: string }
   /** Ticks one off. */
@@ -183,7 +191,7 @@ export type Step =
   /** Anything else: a system registers `name` with `campaign.provide({ call })`. */
   | { do: 'call'; name: string; arg?: string }
   | { do: 'goto'; beat: string }
-  /** The mission is won. */
+  /** The mission is won, once the radio has finished what it is saying. */
   | { do: 'finish' };
 
 export type Script = readonly Step[];
@@ -204,6 +212,8 @@ export interface Beat {
   cues?: readonly Cue[];
   /** Ends the beat and opens the next row. Without one, only a `goto` or `finish` step leaves it. */
   until?: Trigger;
+  /** Said after a restart here, in turn, in place of the mission's own: for a beat where some of those voices no longer fit. */
+  redeployLines?: readonly string[];
 }
 
 export interface Mission {
@@ -246,7 +256,7 @@ export interface MissionHost {
   /** Calls `fn` for each `name` until the returned function runs. */
   listen(name: keyof GameEvents, fn: (payload: unknown) => void): () => void;
 
-  /** Starts `line` and calls `done` when it has been said. */
+  /** Starts `line` and calls `done` when it has been said and the breath after it taken. The next line may be spoken from inside `done`. */
   speak(line: Line, done: () => void): void;
   /** Stops what is being said. */
   hush(): void;

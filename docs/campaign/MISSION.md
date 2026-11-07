@@ -26,19 +26,19 @@ First-time play, without deaths, is about 28 minutes. Deaths add a few minutes, 
  3:15 lockout               ####                suddenly small
  4:45 softskins             ######              you can do this
  7:45 breather              ##                  breath
- 8:05 heavy                 #########           you cannot do this
- 9:35 wreck                 ######              the run for it
-10:50 turn                  ##########          payback, the peak of the outside
-13:50 breach                #####               the sprint
-14:50 barracks              #######             it got quiet and dark
-17:20 coolant               ###                 breath, a puzzle
-18:05 gallery               ####                alone, a wall
-19:05 mess                  ########            the held breath, then all of it
-20:35 armoury               ##                  breath, a reward
-21:05 plates                ########            the wall of steel
-22:50 stack                 #########           up
-24:35 commander             ##########          the peak of everything
-27:20 ending                #                   the invoice
+ 8:15 heavy                 #########           you cannot do this
+ 9:45 wreck                 ######              the run for it
+11:00 turn                  ##########          payback, the peak of the outside
+14:00 breach                #####               the sprint
+15:00 barracks              #######             it got quiet and dark
+17:30 coolant               ###                 breath, a puzzle
+18:15 gallery               ####                alone, a wall
+19:15 mess                  ########            the held breath, then all of it
+20:45 armoury               ##                  breath, a reward
+21:25 plates                ########            the wall of steel
+23:10 stack                 #########           up
+24:55 commander             ##########          the peak of everything
+27:40 ending                #                   the invoice
 ```
 
 Rule for anyone tuning this: never two 8s without a 4 between them, except the last climb, and the climb is short.
@@ -238,14 +238,14 @@ Each beat's id is what `?beat=` takes. Lengths are for a first-time player. Men 
 - **Where:** the LZ Cut, then north up the Gate Lane to G1.
 - **Player:** on foot for the first time, with an SMG, in a pit. Climbs out and runs for the open gate.
 - **Enemies:** `lz.rim` 3 conscripts on the lip of the cut: trooper, gunner, trooper. Whoever the door gun missed is swept off the map as the ride ends, so the player starts against three and not a garrison.
-- **Next:** the player crosses the road, 22 m from the gate, and it slams in 1 s. A run with both dashes gets there too late. The lines play out and the trucks are called.
+- **Next:** the player crosses the road, 22 m from the gate, and it slams in 1 s. A run with both dashes gets there too late. The beat ends, and the checkpoint at the gate is saved, once he has said the gate is shut. The trucks are called at the top of `softskins`.
 - **Teaches:** **mantle**. The cut's walls are 3 m and the ramp is blocked. Nothing else gets the player out.
 - **Length:** 1:30.
 - **Job:** suddenly small. After the door gun, one man with a small gun at the bottom of a hole. The gate shutting with the player still running at it is the mission's first punchline.
 
-> **Pilot** *(urgent)*: This is as far as the rental goes. Good luck with the paperwork.
->
 > **Commander** *(smug)*: You're on my ground now. I've read your file, contractor. You're not the first.
+>
+> **Pilot** *(urgent)*: This is as far as the rental goes. Good luck with the paperwork.
 >
 > **Commander** *(smug)*: Close the gate.
 >
@@ -259,10 +259,10 @@ Each beat's id is what `?beat=` takes. Lengths are for a first-time player. Men 
 
 - **Where:** the apron, from the gate south to the road. Two trucks from the east, then two from the west.
 - **Player:** fights in the open under Tower Two, takes the Guardhouse and the shotgun, stops the trucks. Trucks die to bullets: shoot the driver, or a barrel at the Fuel Farm.
-- **Enemies:** all conscripts, with one frag per squad, held by its leader. `soft.truck1` humvee with 3. `soft.truck2` truck with 5 after two kills or 24 s. `soft.tower` one machine gun on T2 at 45 s. When two of the first eight are left, `soft.truck3` with 3, then `soft.truck4` with 3 including a rocketeer 14 s later. 15 men and 4 vehicles, plus any left from `lz.rim`. The Guardhouse holds two armour and a health pickup.
-- **Next:** both waves cleared. `breather` then holds for 18 s with pickups on the apron, and the Commander's first between-rounds box (`adapt`).
+- **Enemies:** all conscripts, with one frag per squad, held by its leader. `soft.truck1` humvee with 3, once "Send the trucks" has been said: about 8 s in on the first go, at once after a restart. `soft.truck2` truck with 5 after two kills or 24 s from the first truck. `soft.tower` one machine gun on T2 45 s after the first truck. When two of the first eight are left, `soft.truck3` with 3, then `soft.truck4` with 3 including a rocketeer 14 s later. 15 men and 4 vehicles, plus any left from `lz.rim`. The Guardhouse holds two armour and a health pickup.
+- **Next:** both waves cleared. `breather` then holds with pickups on the apron while the Commander reads his first between-rounds box (`adapt`): at least 18 s, and until the box is done, because `heavy` opens by closing it.
 - **Teaches:** cover, the machine-gun lanes, and being flanked, by telling the player it is about to happen. Crews are people. The shotgun, by arriving as the first rush does.
-- **Length:** 3:00, then 0:20.
+- **Length:** 3:00, then 0:20 to 0:40, as long as his box runs.
 - **Job:** you can do this. This is the easiest fight on the map: the player has the least here, on the longest sightlines, so green troops and one truck at a time. The fear starts indoors.
 
 > **Commander** *(smug)*: Two trucks on the east road. Light work. Try to keep up with them.
@@ -284,7 +284,7 @@ Each beat's id is what `?beat=` takes. Lengths are for a first-time player. Men 
 - **Where:** the whole apron. Tanks stop on the road at x 48 and -48, looking north and south along the lanes. A hit on cover at a lane's end should bring cover down.
 - **Player:** has no answer. Bullets spark off the armour. They survive, and move.
 - **Enemies:** `heavy.tank1` from the east, `heavy.tank2` 16 s later from the west. `heavy.truck1` with 4. `heavy.towers` a brute. Threat 4, conscripts.
-- **Next:** 8 s in the Council mentions the wreck. The beat ends when the player reaches the eastern apron.
+- **Next:** 8 s in the Council mentions the wreck. The beat ends when the player reaches the eastern apron. The knocking and the burial wait for the salvage line, which matters more, and a player already on the way to the wreck goes without them.
 - **Teaches:** that nothing the player owns works on armour. There is no way to win this beat, and the level says so through the hit marker and the Commander, so that **finding the explosive weapon matters**.
 - **Length:** 1:30.
 - **Job:** you cannot do this. The low point of the outside: the Commander stops pretending to be polite, and then the Council, of all people, helps.
@@ -293,9 +293,9 @@ Each beat's id is what `?beat=` takes. Lengths are for a first-time player. Men 
 >
 > **Commander** *(smug)*: That is a tank. I'd like you to look at it. Now look at your little gun.
 >
-> **Commander** *(smug)*: You're knocking. Nobody's home.
->
 > **Council** *(deadpan)*: Contractor. Our records place a previous contractor's equipment in the south-east corner of the site. Retrieval is at your own risk. It is not covered.
+>
+> **Commander** *(smug)*: You're knocking. Nobody's home.
 >
 > **Commander** *(irritated)*: I know where you're going. We buried him. We didn't bury his kit. I have always regretted that.
 
@@ -317,19 +317,20 @@ Each beat's id is what `?beat=` takes. Lengths are for a first-time player. Men 
 - **Player:** kills both tanks, then the chopper, then Bulwark plugging the gate.
 - **Enemies:** the tanks. `turn.chopper` as soon as one tank is dead, one enemy chopper at most. `turn.truck` with 4 including a medic. `turn.bulwark`, the third tank, reversed into G1 once the other armour is gone. Men `spread` out as the Commander's first scripted answer.
 - **Next:** Bulwark dies in the gate mouth. Its wreck jams the leaves open, and that is the only way in.
+- **Radio:** after a fast run to the wreck the boots and the salvage are still being said as the launcher is taken. The spread order and the Council's receipt are then dropped rather than hold up the first kill, whose lines come as it happens: the chopper first, as it is sent.
 - **Teaches:** **explosives against armour**, stages 2 of 3: direct hits, tracks, tail rotor. Ammo at the wreck and at the gate.
 - **Length:** 3:00.
 - **Job:** payback, the outside's peak. The Commander goes from irritated to rattled, one signed-out vehicle at a time.
 
 > **Commander** *(irritated)*: Ah. Well. That does change the conversation.
 >
-> **Council** *(deadpan)*: Item recovered. Its previous owner's balance has been transferred to you.
->
 > **Commander** *(irritated)*: All units, he has a launcher. Spread out. Do not bunch up.
 >
-> **Commander** *(irritated)*: That was forty tonnes. That was signed out in my name.
+> **Council** *(deadpan)*: Item recovered. Its previous owner's balance has been transferred to you.
 >
 > **Commander** *(irritated)*: Get the bird up. Put it on his head.
+>
+> **Commander** *(irritated)*: That was forty tonnes. That was signed out in my name.
 >
 > **Commander** *(rattled)*: Do you know what one of those costs? I do. It's on a form.
 >
@@ -407,7 +408,7 @@ Each beat's id is what `?beat=` takes. Lengths are for a first-time player. Men 
 
 - **Where:** up the stairs into the kitchen, out onto the Mess Hall floor.
 - **Player:** walks in. Nobody fires. Tables, a meal half eaten. They hear him tell the men to wait.
-- **Enemies:** `mess.floor` 4 lying among the tables, `mess.west` 3, `mess.east` 3, under `orders: 'ambush'`. Ten men, all holding through being seen and walked past until "Now." Only a bullet or a man at arm's length breaks it early. The floor springs on the word and the sides 1.5 s later. He gives the order to wait as the player leaves the gallery, because a line said in the room is still going when a running player reaches the first man.
+- **Enemies:** `mess.floor` 4 lying among the tables, `mess.west` 3, `mess.east` 3, under `orders: 'ambush'`. Ten men, all holding through being seen and walked past until "Now." Only a bullet or a man at arm's length breaks it early. The floor springs as he finishes the word, however long the lines before it ran, and the sides 1.5 s later. He gives the order to wait as the player leaves the gallery, because a line said in the room is still going when a running player reaches the first man.
 - **Next:** all three cleared.
 - **Teaches:** that sonar and patience beat walking in. A ping shows them. A grenade before the word gets a head start. Those who go round by the kitchen find the Kiln and a flank.
 - **Length:** 1:30.
@@ -424,9 +425,9 @@ Each beat's id is what `?beat=` takes. Lengths are for a first-time player. Men 
 - **Where:** East Corridor, the Armoury.
 - **Player:** takes the autocannon, heals, reads the Commander's box.
 - **Enemies:** none.
-- **Next:** 4 s after the player takes it. The south door opens.
+- **Next:** 4 s after the player takes it, once the Commander's box is done. Taking it interrupts the box, which picks up again after the two lines. The south door opens.
 - **Teaches:** nothing. It is a reward.
-- **Length:** 0:30.
+- **Length:** 0:30 to 0:50, as long as his box runs.
 - **Job:** the breath before the last push.
 
 > **Commander** *(rattled)*: That's my armoury. Those are signed for. Put those back.
@@ -469,7 +470,7 @@ Each beat's id is what `?beat=` takes. Lengths are for a first-time player. Men 
 
 - **Where:** the War Room, then the Comms Roof.
 - **Player:** breaks through the glass and fights him in the heavy suit. At 60% he goes up to the roof with the last of his men. Mortars come down on both of you.
-- **Enemies:** the Commander in person (section 16.4), who calls shells on himself. At 60%, `boss.west` and `boss.east`, 3 men each, one with a rocket. Reactive lines from `IN_PERSON` play as they do now.
+- **Enemies:** the Commander in person (section 16.4), who calls shells on himself. At 60%, `boss.west` and `boss.east`, 3 men each, one with a rocket. Reactive lines from `IN_PERSON` play when the radio is clear: one that would talk over a mission line is dropped, and one already going stops for it. His arrival line from the Kill House comes as the mission's own is said, so it is never heard here.
 - **Next:** he dies. Every man left breaks.
 - **Teaches:** nothing. The roof shows the player the whole apron, burning: that is the point of having it.
 - **Length:** 2:45.
@@ -484,9 +485,9 @@ Each beat's id is what `?beat=` takes. Lengths are for a first-time player. Men 
 ### The ending: `ending`
 
 - **Where:** the roof, then the camera lifts away.
-- **Player:** watches. His last words and the Council's receipt have the box for 8 s first, as they do today.
-- **Next:** the shots end. Mission complete, the score screen, and **Endless humans on the Kill House** unlocks.
-- **Length:** 0:45.
+- **Player:** watches. His last words have the box to themselves, and at least 8 s pass before the Council speaks. The Kill House's own Council receipt is not read here: the notice below is the receipt.
+- **Next:** the shots end and the last line has been said. Mission complete, the score screen, and **Endless humans on the Kill House** unlocks.
+- **Length:** 0:50.
 - **Job:** the invoice. A man has been removed from a register. The last line is the reason he is still talking to you in Endless.
 
 > **Council** *(deadpan)*: Notice of Completion. Form 7742-C is discharged. The Outpost has been removed from the register.
@@ -499,7 +500,7 @@ Each beat's id is what `?beat=` takes. Lengths are for a first-time player. Men 
 
 ### Dying
 
-A death goes back to the last checkpoint. It is a replacement contractor, so the Council's fee of 10% comes off the score. The beat replays from the top, speeches are not repeated, the kit is the checkpoint's, and whatever was already dead stays dead. One of these plays, in turn:
+A death goes back to the last checkpoint. It is a replacement contractor, so the Council's fee of 10% comes off the score. The beat replays from the top, speeches are not repeated, the kit is the checkpoint's, and whatever was already dead stays dead. A line still waiting its turn when the player died has not been heard, and is said on the replay. One of these plays, in turn, and in `ending` only the Council's two:
 
 > **Council** *(deadpan)*: Replacement contractor issued. The fee has been deducted.
 >
@@ -544,6 +545,8 @@ const beat: Beat = {
 
 A beat opens by saving its checkpoint, then runs `start`. `cues` fire once each, or every time with `repeat`. `until` moves on to the next row. A script's steps run back to back, and only `wait`, `until`, a `say` with `wait`, a `door` with `wait`, `cutscene` and `ride` hold it up. Scripts stop with their beat. The radio does not.
 
+**The radio** says one line at a time, in turn. A line holds it for its recording or for its reading time (2.6 words a second, 2 s at least), whichever is longer, then 0.35 s of breath: `airtime.ts`. A line counts as heard once it has started. The mission is not won until the last line has been said, so the complete screen never cuts one off. In a mission the Commander's own box gives way to it: a bark is dropped, or stopped if it is already going, and a page waits off the screen and starts again from its first word once the radio has been quiet for half a second.
+
 **Triggers.** Clocks and counts start when the trigger is armed, and a repeating cue is armed afresh each time it fires, so a `signal` it waits on has to be raised again by its own script. `validateMission` says so if it is not.
 
 | Trigger | True when |
@@ -562,7 +565,7 @@ A beat opens by saving its checkpoint, then runs `start`. `cues` fire once each,
 
 | Step | Does |
 |---|---|
-| `say` | Queues a line. Heard once a mission, unless `again` |
+| `say` | Queues a line. Heard once a mission, unless `again`. `wait` holds the script until it is said. `now` cuts in: the line being said stops, anything waiting is dropped. `within: 6` drops it unsaid if it has not started 6 s after it was asked for |
 | `objective`, `done` | Puts one up, with an optional marker, and ticks it |
 | `hint` | A teaching prompt. `{jump}` becomes the player's own key |
 | `banner` | The HUD's stamp |

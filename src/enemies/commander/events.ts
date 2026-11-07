@@ -30,6 +30,8 @@ declare module '../../core/contracts' {
     'commander:quiet': Record<string, never>;
     /** The player pressed through the box. The next wave comes sooner. */
     'commander:skipped': Record<string, never>;
+    /** The box between rounds has closed, read to the end or cut short. Never for a bark. */
+    'commander:done': Record<string, never>;
     /** A warning chip goes up or comes down. */
     'commander:status': { flag: StatusFlag; on: boolean };
     /** One line from the Commander over the open channel, mid-wave. An id from lines.ts. */
