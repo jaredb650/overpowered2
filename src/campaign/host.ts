@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import type { Ctx, GameEvents, MusicState } from '../core/contracts';
 import type { CallInId, EnemyId, EnemyInstance, PickupKind, WeaponId } from '../core/gameplay';
 import type { AdaptationId } from '../enemies/commander/adaptations';
+import type { Rank } from '../enemies/outpost/rank';
 import type { Line } from '../enemies/commander/lines';
 import type { Enemy } from '../enemies/Enemy';
 import type { EnemyManager } from '../enemies/EnemyManager';
@@ -305,9 +306,10 @@ export class GameHost implements MissionHost {
     this.manager.outpost?.commander.adopt(answer);
   }
 
-  threat(level: number): void {
+  threat(level: number, grade?: Rank): void {
     this.level = level;
     this.manager.setWave(level);
+    this.manager.outpost?.setGrade(grade ?? null);
   }
 
   music(state: MusicState): void {

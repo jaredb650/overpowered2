@@ -237,7 +237,7 @@ Each beat's id is what `?beat=` takes. Lengths are for a first-time player. Men 
 
 - **Where:** the LZ Cut, then north up the Gate Lane to G1.
 - **Player:** on foot for the first time, with an SMG, in a pit. Climbs out and runs for the open gate.
-- **Enemies:** `lz.rim` 4 on the lip of the cut: trooper, gunner, trooper, brute. Whoever the door gun missed is swept off the map as the ride ends, so the player starts against four and not a garrison.
+- **Enemies:** `lz.rim` 3 conscripts on the lip of the cut: trooper, gunner, trooper. Whoever the door gun missed is swept off the map as the ride ends, so the player starts against three and not a garrison.
 - **Next:** the player crosses the road, 22 m from the gate, and it slams in 1 s. A run with both dashes gets there too late. The lines play out and the trucks are called.
 - **Teaches:** **mantle**. The cut's walls are 3 m and the ramp is blocked. Nothing else gets the player out.
 - **Length:** 1:30.
@@ -259,11 +259,11 @@ Each beat's id is what `?beat=` takes. Lengths are for a first-time player. Men 
 
 - **Where:** the apron, from the gate south to the road. Two trucks from the east, then two from the west.
 - **Player:** fights in the open under Tower Two, takes the Guardhouse and the shotgun, stops the trucks. Trucks die to bullets: shoot the driver, or a barrel at the Fuel Farm.
-- **Enemies:** `soft.truck1` humvee with 3, `soft.truck2` truck with 5, then `soft.tower` one machine gun on T2. When two of the first eight are left, `soft.truck3` with 4 and `soft.truck4` with 4 including a rocketeer. 17 men and 4 vehicles.
+- **Enemies:** all conscripts, with one frag per squad, held by its leader. `soft.truck1` humvee with 3. `soft.truck2` truck with 5 after two kills or 24 s. `soft.tower` one machine gun on T2 at 45 s. When two of the first eight are left, `soft.truck3` with 3, then `soft.truck4` with 3 including a rocketeer 14 s later. 15 men and 4 vehicles, plus any left from `lz.rim`. The Guardhouse holds two armour and a health pickup.
 - **Next:** both waves cleared. `breather` then holds for 18 s with pickups on the apron, and the Commander's first between-rounds box (`adapt`).
 - **Teaches:** cover, the machine-gun lanes, and being flanked, by telling the player it is about to happen. Crews are people. The shotgun, by arriving as the first rush does.
 - **Length:** 3:00, then 0:20.
-- **Job:** you can do this. It should feel like a hard, fair, even fight, so the next beat lands.
+- **Job:** you can do this. This is the easiest fight on the map: the player has the least here, on the longest sightlines, so green troops and one truck at a time. The fear starts indoors.
 
 > **Commander** *(smug)*: Two trucks on the east road. Light work. Try to keep up with them.
 >
@@ -283,8 +283,8 @@ Each beat's id is what `?beat=` takes. Lengths are for a first-time player. Men 
 
 - **Where:** the whole apron. Tanks stop on the road at x 48 and -48, looking north and south along the lanes. A hit on cover at a lane's end should bring cover down.
 - **Player:** has no answer. Bullets spark off the armour. They survive, and move.
-- **Enemies:** `heavy.tank1` from the east, `heavy.tank2` 16 s later from the west. `heavy.truck1` with 4. `heavy.towers` a brute and a sniper. Threat 4.
-- **Next:** 26 s in the Council mentions the wreck. The beat ends when the player reaches the eastern apron.
+- **Enemies:** `heavy.tank1` from the east, `heavy.tank2` 16 s later from the west. `heavy.truck1` with 4. `heavy.towers` a brute. Threat 4, conscripts.
+- **Next:** 8 s in the Council mentions the wreck. The beat ends when the player reaches the eastern apron.
 - **Teaches:** that nothing the player owns works on armour. There is no way to win this beat, and the level says so through the hit marker and the Commander, so that **finding the explosive weapon matters**.
 - **Length:** 1:30.
 - **Job:** you cannot do this. The low point of the outside: the Commander stops pretending to be polite, and then the Council, of all people, helps.

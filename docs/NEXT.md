@@ -69,5 +69,5 @@ Owner, after taking the shotgun and first two grenades: shredded instantly by th
 
 Planned changes, after Assemble and the playtest finish so as not to collide with them:
 
-1. `softskins`: put armour at the Guardhouse, cut how many men are up at once, and hold squad frags for the opening of the fight.
-2. `heavy`: the wreck objective waits 26 s, and a death restarts that clock, so a player who dies quickly is never told to run. Cut the wait, and show it at once after a redeploy.
+1. `softskins`: done. Green troops, one truck at a time, one frag per squad, armour and health in the Guardhouse, more cover on the apron.
+2. `heavy`: done. The wreck objective comes at 8 s, the sniper is gone, and green troops carry through `wreck` and `turn`.

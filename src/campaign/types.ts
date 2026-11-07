@@ -9,6 +9,7 @@ import type { CallInId, EnemyId, PickupKind, WeaponId } from '../core/gameplay';
 import type { AdaptationId } from '../enemies/commander/adaptations';
 import type { Line } from '../enemies/commander/lines';
 import type { ActionId } from '../enemies/outpost/planner';
+import type { Rank } from '../enemies/outpost/rank';
 
 export type Vec3 = readonly [x: number, y: number, z: number];
 
@@ -176,8 +177,8 @@ export type Step =
   | { do: 'adapt' }
   /** One particular answer, for a fight built round it. */
   | { do: 'field'; answer: AdaptationId }
-  /** How hard the humans hit, as the wave number they would have on the endless contract. */
-  | { do: 'threat'; level: number }
+  /** How hard the humans hit, as the wave number they would have on the endless contract. `grade` fixes the rank of squads formed from here on. */
+  | { do: 'threat'; level: number; grade?: Rank }
   | { do: 'music'; state: MusicState }
   /** Anything else: a system registers `name` with `campaign.provide({ call })`. */
   | { do: 'call'; name: string; arg?: string }
@@ -280,7 +281,7 @@ export interface MissionHost {
   ride(seat: CallInId, route: readonly Mark[], done: () => void): void;
   adapt(): void;
   field(answer: AdaptationId): void;
-  threat(level: number): void;
+  threat(level: number, grade?: Rank): void;
   music(state: MusicState): void;
   call(name: string, arg: string | undefined): void;
 

@@ -99,11 +99,11 @@ const BEATS: readonly Beat[] = [
     title: 'Locked out',
     checkpoint: { at: 'lz', loadout: KIT.issued },
     start: [
-      { do: 'threat', level: 1 },
+      { do: 'threat', level: 1, grade: 'conscript' },
       pilot('in.rental'),
       { do: 'objective', id: 'gate', text: 'Get to the main gate', at: 'gateMouth' },
       // They hold their fire until the player is up. Four guns on a man coming round at the bottom of a pit is a death nobody saw.
-      { do: 'squad', tag: 'lz.rim', men: ['trooper', 'gunner', 'trooper', 'brute'], at: 'lzRim', orders: 'hold' },
+      { do: 'squad', tag: 'lz.rim', men: ['trooper', 'gunner', 'trooper'], at: 'lzRim', orders: 'hold' },
       { do: 'drop', item: 'health', at: 'lzHealth' },
       { do: 'wait', seconds: 2.5 },
       { do: 'hint', text: '{jump} at the wall and hold {forward} to climb out.', seconds: 9 },
@@ -135,33 +135,50 @@ const BEATS: readonly Beat[] = [
     title: 'Reinforcements',
     checkpoint: { at: 'gateMouth', loadout: KIT.issued },
     start: [
-      { do: 'threat', level: 2 },
+      // The outside is where the player has the least, so it is the easiest fight on the map. The fear starts indoors.
+      { do: 'threat', level: 2, grade: 'conscript' },
       { do: 'objective', id: 'trucks', text: 'Stop the reinforcements' },
+      { do: 'objective', id: 'guardhouse', text: 'Reach the Guardhouse for the shotgun', at: 'shotgunCrate' },
       // Those who were on the rim when the gate shut are still in it. A restart from here has to put them back.
-      { do: 'squad', tag: 'lz.rim', men: ['trooper', 'gunner', 'trooper', 'brute'], at: 'lzRim', ensure: true },
+      { do: 'squad', tag: 'lz.rim', men: ['trooper', 'gunner', 'trooper'], at: 'lzRim', ensure: true },
       commander('soft.east'),
       { do: 'rack', weapon: 'shotgun', at: 'shotgunCrate' },
       { do: 'rack', weapon: 'judge', at: 'pumpRoof', optional: true },
       { do: 'drop', item: 'ammo', at: 'guardAmmo' },
+      { do: 'drop', item: 'armor', at: 'guardArmour' },
+      { do: 'drop', item: 'armor', at: 'guardArmourSouth' },
+      { do: 'drop', item: 'health', at: 'guardHealth' },
       { do: 'vehicle', tag: 'soft.truck1', kind: 'humvee', at: 'eastEdge', route: 'eastRoad', crew: ['trooper', 'gunner', 'trooper'], crewTag: 'soft.first' },
-      { do: 'wait', seconds: 4 },
-      { do: 'vehicle', tag: 'soft.truck2', kind: 'truck', at: 'eastEdge', route: 'eastRoad', crew: ['trooper', 'trooper', 'brute', 'trooper', 'gunner'], crewTag: 'soft.first' },
-      // A tower has no way down, so a man sent to hunt from one stays up there and works the lane.
-      { do: 'squad', tag: 'soft.tower', men: ['brute'], at: 'towerTwo' },
       { do: 'hint', text: 'Trucks die to bullets. Shoot the cab, or the fuel beside the road.', seconds: 8 },
     ],
     cues: [
       { when: { kills: 1, tag: 'soft.first' }, run: [commander('soft.driver')] },
-      { when: { kills: 3, tag: 'soft.first' }, run: [{ do: 'drill', tag: 'soft.first', drill: 'flank', line: 'mission.cmd.soft.left' }] },
-      { when: { after: 22 }, run: [commander('soft.tower'), { do: 'hint', text: 'The tower owns the open lanes. Stay behind cover, and cross in bounds.', seconds: 7 }] },
-      { when: { event: 'weapon:unlocked', where: { weapon: 'shotgun' } }, run: [{ do: 'grenades', count: 2 }, { do: 'hint', text: '{grenade} throws the two you found with it.' }] },
+      // One truck at a time. Every gun arriving at once on open ground left nothing to do but die.
       {
-        when: { left: 2, tag: 'soft.first' },
+        when: { any: [{ kills: 2, tag: 'soft.first' }, { after: 24 }] },
+        run: [
+          { do: 'vehicle', tag: 'soft.truck2', kind: 'truck', at: 'eastEdge', route: 'eastRoad', crew: ['trooper', 'trooper', 'trooper', 'trooper', 'gunner'], crewTag: 'soft.first' },
+          { do: 'signal', name: 'secondTruck' },
+        ],
+      },
+      { when: { kills: 3, tag: 'soft.first' }, run: [{ do: 'drill', tag: 'soft.first', drill: 'flank', line: 'mission.cmd.soft.left' }] },
+      {
+        when: { after: 45 },
+        run: [
+          // A tower has no way down, so a man sent to hunt from one stays up there and works the lane.
+          { do: 'squad', tag: 'soft.tower', men: ['brute'], at: 'towerTwo' },
+          commander('soft.tower'),
+          { do: 'hint', text: 'The tower owns the open lanes. Stay behind cover, and cross in bounds.', seconds: 7 },
+        ],
+      },
+      { when: { event: 'weapon:unlocked', where: { weapon: 'shotgun' } }, run: [{ do: 'done', id: 'guardhouse' }, { do: 'grenades', count: 2 }, { do: 'hint', text: '{grenade} throws the two you found with it.' }] },
+      {
+        when: { all: [{ signal: 'secondTruck' }, { left: 2, tag: 'soft.first' }] },
         run: [
           commander('soft.west'),
-          { do: 'vehicle', tag: 'soft.truck3', kind: 'humvee', at: 'westEdge', route: 'westRoad', crew: ['trooper', 'gunner', 'trooper', 'trooper'], crewTag: 'soft.second' },
-          { do: 'wait', seconds: 3 },
-          { do: 'vehicle', tag: 'soft.truck4', kind: 'truck', at: 'westEdge', route: 'westRoad', crew: ['trooper', 'gunner', 'rocketeer', 'trooper'], crewTag: 'soft.second' },
+          { do: 'vehicle', tag: 'soft.truck3', kind: 'humvee', at: 'westEdge', route: 'westRoad', crew: ['trooper', 'gunner', 'trooper'], crewTag: 'soft.second' },
+          { do: 'wait', seconds: 14 },
+          { do: 'vehicle', tag: 'soft.truck4', kind: 'truck', at: 'westEdge', route: 'westRoad', crew: ['trooper', 'rocketeer', 'trooper'], crewTag: 'soft.second' },
           { do: 'signal', name: 'secondWave' },
         ],
       },
@@ -174,6 +191,7 @@ const BEATS: readonly Beat[] = [
     checkpoint: { at: 'apronRally', loadout: KIT.shotgun },
     start: [
       { do: 'done', id: 'trucks' },
+      { do: 'done', id: 'guardhouse' },
       // A breath is not a breath with a machine gun on it.
       { do: 'sweep', tag: 'soft.tower' },
       { do: 'music', state: 'easy' },
@@ -190,13 +208,13 @@ const BEATS: readonly Beat[] = [
     title: 'The heavy assault',
     checkpoint: { at: 'apronRally', loadout: KIT.shotgun },
     start: [
-      { do: 'threat', level: 4 },
+      { do: 'threat', level: 4, grade: 'conscript' },
       { do: 'music', state: 'hard' },
       commander('heavy.roll'),
       { do: 'banner', text: 'ARMOUR', sub: 'east road' },
       { do: 'vehicle', tag: 'heavy.tank1', kind: 'tank', at: 'eastEdge', route: 'tankEast' },
       { do: 'vehicle', tag: 'heavy.truck1', kind: 'humvee', at: 'westEdge', route: 'westRoad', crew: ['trooper', 'gunner', 'trooper', 'trooper'], crewTag: 'heavy.men' },
-      { do: 'squad', tag: 'heavy.towers', men: ['brute', 'sniper'], at: 'towerOne' },
+      { do: 'squad', tag: 'heavy.towers', men: ['brute'], at: 'towerOne' },
       { do: 'wait', seconds: 6 },
       commander('heavy.look'),
       { do: 'hint', text: 'Armour. Nothing you carry will touch it. Keep moving.', seconds: 7 },
@@ -206,7 +224,8 @@ const BEATS: readonly Beat[] = [
     cues: [
       { when: { event: 'weapon:fired' }, run: [{ do: 'wait', seconds: 6 }, commander('heavy.knock')] },
       {
-        when: { after: 26 },
+        // Soon, because this beat is the one that cannot be won. A player who dies before being told where to run never finds out.
+        when: { after: 8 },
         run: [
           council('heavy.salvage'),
           { do: 'objective', id: 'wreck', text: 'Find the old contractor\'s wreck', at: 'wreckFoot' },
@@ -222,6 +241,7 @@ const BEATS: readonly Beat[] = [
     title: 'The wreck',
     checkpoint: { at: 'wreckFoot', loadout: KIT.shotgun },
     start: [
+      { do: 'threat', level: 4, grade: 'conscript' },
       ...ARMOUR,
       { do: 'squad', tag: 'wreck.guard', men: ['trooper', 'gunner', 'trooper'], at: 'apronEast' },
       { do: 'hint', text: 'Too high for one jump. Stand close, press {jump} {jump} and hold {forward}.', seconds: 10 },
@@ -239,6 +259,7 @@ const BEATS: readonly Beat[] = [
     title: 'Turning it round',
     checkpoint: { at: 'wreckDeck', loadout: KIT.launcher },
     start: [
+      { do: 'threat', level: 4, grade: 'conscript' },
       ...ARMOUR,
       { do: 'done', id: 'launcher' },
       { do: 'objective', id: 'armour', text: 'Destroy the armour' },

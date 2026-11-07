@@ -487,7 +487,7 @@ export class MissionRunner implements WatchFacts {
         host.field(step.answer);
         return;
       case 'threat':
-        host.threat(step.level);
+        host.threat(step.level, step.grade);
         return;
       case 'music':
         host.music(step.state);

@@ -385,6 +385,11 @@ function hedgehog(s: Site, x: number, z: number, yaw: number): void {
   k.pop();
 }
 
+/** North of the road the Guardhouse stood alone. These give a slide somewhere to end. Authored last, so the rest of the site keeps its random draws. */
+function slideCover(s: Site): void {
+  for (const [a, b, z, h] of [[-46, -40, 26, TALL], [-30, -24, 22, LOW], [-16, -11, 27, TALL], [34, 40, 26, TALL], [46, 51, 20, LOW], [7, 12, 47, LOW]] as const) hesco(s, a, b, z, h);
+}
+
 export function authorApron(s: Site): void {
   ground(s);
   berms(s);
@@ -397,4 +402,5 @@ export function authorApron(s: Site): void {
   wreck(s);
   craters(s);
   scatter(s);
+  slideCover(s);
 }

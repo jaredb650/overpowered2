@@ -42,7 +42,7 @@ export const ZONES: Readonly<Record<string, Zone>> = {
 export const MARKS: Readonly<Record<string, Mark>> = {
   // Player
   lz: at(-32, -3, 86, 0),
-  lzWake: at(-24, -3, 80, 0.3),
+  lzWake: at(-26.5, -3, 81, 0.3),
   apronRally: at(-8, 0, 62, 0),
   wreckDeck: at(84, PARKOUR.doubleJump.ledge, 84),
   wreckFoot: at(70, 0, 76, Math.PI / 2),
@@ -65,6 +65,9 @@ export const MARKS: Readonly<Record<string, Mark>> = {
   // Supplies
   lzHealth: at(-22, -3, 92),
   guardAmmo: at(21, 0, 22),
+  guardArmour: at(27, 0, 22),
+  guardArmourSouth: at(21, 0, 26),
+  guardHealth: at(27, 0, 26),
   wreckAmmo: at(80, PARKOUR.doubleJump.ledge, 84),
   apronAmmoWest: at(-40, 0, 60),
   apronAmmoEast: at(30, 0, 60),

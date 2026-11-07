@@ -45,7 +45,7 @@ import './events';
 import { Dread, DREAD_SPIKES, FEAR, moraleCeiling, moraleState, MONSTER_RANGE, RECOVER_AFTER, recoverRate, WITNESS_RANGE } from './morale';
 import { hear, Intel, sense, SENSE_INTERVAL } from './perception';
 import { Prisoners } from './prisoners';
-import { atLeastRegular, promoted, RANKS, rollGrade } from './rank';
+import { atLeastRegular, promoted, RANKS, rollGrade, type Rank } from './rank';
 import { RouteFinder, type NavGrid } from './routes';
 import { discharge, enlist, Soldier, soldierOf, type Urgency } from './soldier';
 import { OutpostSquad, type Door } from './squad';
@@ -158,6 +158,8 @@ export class Outpost {
 
   private readonly stillAt = new THREE.Vector3();
   private level = 1;
+  /** A mission's rank for every squad formed from here on. Null rolls one from the threat level. */
+  private fixedGrade: Rank | null = null;
   private readonly dropped: DroppedWeapons;
   private readonly pool = new Pool<Soldier>(() => new Soldier(), s => s.clear());
   private readonly leaving: Soldier[] = [];
@@ -227,6 +229,7 @@ export class Outpost {
   }
 
   reset(): void {
+    this.fixedGrade = null;
     this.prepareMap();
     for (const s of this.soldiers) {
       discharge(s.e);
@@ -261,6 +264,11 @@ export class Outpost {
     this.level = wave;
   }
 
+  /** A mission's opening is fought by green troops, whatever the threat level would roll. */
+  setGrade(grade: Rank | null): void {
+    this.fixedGrade = grade;
+  }
+
   /** Enemies still in the fight. */
   get hostile(): number {
     return this.manager.alive.length - this.prisoners;
@@ -280,7 +288,7 @@ export class Outpost {
     const name = CALLSIGNS[this.squadSerial % CALLSIGNS.length]!;
     const squad = new OutpostSquad(++this.squadSerial, name, this);
     squad.size = size;
-    squad.grade = rollGrade(this.level);
+    squad.grade = this.fixedGrade ?? rollGrade(this.level);
     squad.thinkAt = this.w.now + 1.5;
     this.squads.push(squad);
     this.forming = squad;
@@ -385,6 +393,8 @@ export class Outpost {
     e.health = e.maxHealth;
     // A leader carries the banger. Conscripts are not trusted with anything clever.
     s.flashes = leads && s.rank !== 'conscript' ? 2 : 0;
+    // Every man carrying frags turned a hut into a mortar pit. Green troops leave the one grenade to whoever is in charge.
+    if (this.fixedGrade === 'conscript') s.grenades = leads ? 1 : 0;
   }
 
   // -------------------------------------------------------------------------------------------
