@@ -157,6 +157,20 @@ describe('the Outpost', () => {
     expect(behind).toMatchObject({ light: true });
   });
 
+  it('never has him talking in two boxes at once', () => {
+    for (const beat of OUTPOST.beats) {
+      const steps = beat.start ?? [];
+      const box = steps.findIndex(s => s.do === 'adapt');
+      for (const step of steps.slice(0, Math.max(box, 0))) if (step.do === 'say') expect(step.wait, `${beat.id} ${step.line}`).toBe(true);
+    }
+  });
+
+  it('shows the player where the armour is, because nothing on the minimap does', () => {
+    const turn = OUTPOST.beats.find(b => b.id === 'turn')!;
+    const marked = (turn.start ?? []).flatMap(s => (s.do === 'call' && s.name === 'mark' ? [s.arg] : []));
+    expect(marked).toEqual(['heavy.tank1', 'heavy.tank2', 'turn.chopper']);
+  });
+
   it('says in the plan exactly what it says in the game', () => {
     const plan = readFileSync('docs/campaign/MISSION.md', 'utf8');
     for (const line of OUTPOST.lines) expect(plan, line.id).toContain(line.text);

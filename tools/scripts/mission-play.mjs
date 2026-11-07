@@ -477,7 +477,10 @@ export default async function play(page, h) {
       if (up.at[1] < 3.8) {
         await cheat('double jump did not reach the deck', up);
         await tp(84, 4.3, 83, Math.PI);
-      } else await walk(84, 4.2, 84, { seconds: 6, within: 1 }).catch(() => {});
+      } else {
+        // The deck has no nav under it, because no soldier goes there, so this is a straight walk to the launcher.
+        await page.evaluate(() => window.__bot.run(0.5, () => { const { ctx } = window.__op2; ctx.player.yaw = Math.PI; ctx.input.simulate('forward', true); }));
+      }
       await beatIs('turn', 10).catch(async e => { await cheat(`no launcher: ${e.message}`); await tp(84, 4.3, 84, 0); await beatIs('turn', 5); });
       await h.sleep(1500);
       await snap('launcher');

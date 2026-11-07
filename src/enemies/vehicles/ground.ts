@@ -614,9 +614,14 @@ export class GroundVehicle extends Vehicle {
 
   /** Becomes the wreck a beat opens on: the one that died before a restart, which the mission still has to climb over. */
   cold(): void {
-    const { sys, def, model } = this;
+    const { sys, def, model, order, drive } = this;
     this.alive = false;
     this.retired = true;
+    // It never drives, so it never turns to its mark: without this the gate's wreck lies end on, and the gate is not jammed by anything.
+    if (!Number.isNaN(order.holdYaw)) {
+      drive.yaw = order.holdYaw;
+      this.pose(0);
+    }
     this.placeColliders();
     this.teardown(0);
     sys.fleet.scorch(model.root);

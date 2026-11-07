@@ -277,7 +277,7 @@ const BEATS: readonly Beat[] = [
     cues: [
       { when: { any: [{ kills: 1, tag: 'heavy.tank1' }, { kills: 1, tag: 'heavy.tank2' }] }, run: [commander('turn.forty')] },
       // Nothing else on this map can hurt a tank, so running out of rockets must never be the end of the mission.
-      { when: { all: [{ ammo: 'rocket', under: 3 }, { after: 12 }] }, repeat: true, run: [{ do: 'drop', item: 'ammo', at: 'apronAmmoEast' }, { do: 'drop', item: 'ammo', at: 'apronAmmoWest' }, { do: 'hint', text: 'Ammunition on the apron.', seconds: 5 }] },
+      { when: { all: [{ ammo: 'rocket', under: 3 }, { after: 20 }] }, repeat: true, run: [{ do: 'drop', item: 'ammo', at: 'apronAmmoEast' }, { do: 'drop', item: 'ammo', at: 'apronAmmoWest' }, { do: 'hint', text: 'Rockets on the apron: the yellow squares on your map.', seconds: 6 }] },
       {
         when: { any: [{ cleared: 'heavy.tank1' }, { cleared: 'heavy.tank2' }] },
         run: [
@@ -441,9 +441,11 @@ const BEATS: readonly Beat[] = [
       { do: 'squad', tag: 'mess.west', men: ['trooper', 'trooper', 'brute'], at: 'messWest', orders: 'ambush' },
       { do: 'squad', tag: 'mess.east', men: ['riot', 'gunner', 'trooper'], at: 'messEast', orders: 'ambush' },
       { do: 'rack', weapon: 'kiln', at: 'kilnRack', optional: true },
+      // Here and not at the door: anyone running reaches the first of them before a line said in the room has finished.
+      commander('mess.hold'),
     ],
     cues: [
-      { when: { zone: 'messHall' }, run: [commander('mess.hold', true), { do: 'wait', seconds: 5 }, commander('mess.now'), { do: 'release', tag: 'mess.floor' }, { do: 'release', tag: 'mess.west' }, { do: 'release', tag: 'mess.east' }] },
+      { when: { zone: 'messHall' }, run: [{ do: 'wait', seconds: 5 }, commander('mess.now'), { do: 'release', tag: 'mess.floor' }, { do: 'release', tag: 'mess.west' }, { do: 'release', tag: 'mess.east' }] },
     ],
     until: { cleared: ['mess.floor', 'mess.west', 'mess.east'] },
   },
