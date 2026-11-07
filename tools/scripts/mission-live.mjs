@@ -413,10 +413,10 @@ export default async function missionLive(page, h) {
     },
     /** Pause in the film and in the seat, Restart from checkpoint out of both, with real clicks on the real buttons. */
     async pause() {
-      const button = text => page.locator('.scr-pause button, .scr-pause .mm-item, .scr-pause [role=button]').filter({ hasText: text }).first();
+      const button = text => page.locator('.scr-pause button.mi').filter({ hasText: text }).first();
       const state = () => page.evaluate(() => ({
         game: window.__op2.game.state, film: window.__op2.campaign.host.film.total, playing: window.__op2.campaign.host.film.playing,
-        seat: !!window.__op2.ctx.progression.callInsManager.seats?.seat, parked: window.__op2.ctx.player.parked, beat: window.__op2.campaign.runner.beat?.id, deaths: window.__op2.campaign.runner.deaths,
+        seat: window.__op2.ctx.progression.callInsManager.seats?.occupied ?? null, parked: window.__op2.ctx.player.parked, beat: window.__op2.campaign.runner.beat?.id, deaths: window.__op2.campaign.runner.deaths,
       }));
       const hit = async () => {
         await press('pause');

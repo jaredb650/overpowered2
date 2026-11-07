@@ -174,15 +174,20 @@ if (loaded) {
   if (opt.eval) {
     report.eval = await page.evaluate(String(opt.eval));
   }
-  if (opt.shots) {
-    const n = Number(opt.shots);
-    const every = Number(opt.every ?? 500);
-    for (let i = 1; i <= n; i++) {
-      await shot(String(i));
-      if (i < n) await sleep(every);
+  // A screenshot that times out must not take the process down: the browser below would be left running with nobody to close it.
+  try {
+    if (opt.shots) {
+      const n = Number(opt.shots);
+      const every = Number(opt.every ?? 500);
+      for (let i = 1; i <= n; i++) {
+        await shot(String(i));
+        if (i < n) await sleep(every);
+      }
+    } else if (!opt.script || opt.out) {
+      await shot();
     }
-  } else if (!opt.script || opt.out) {
-    await shot();
+  } catch (e) {
+    errors.push(`[shot] ${e.message}`);
   }
 
   report.stats = await page.evaluate(() => {
