@@ -108,6 +108,8 @@ export class MusicPlayer {
   }
 
   private fadeToNext(state: MusicState, seconds: number): void {
+    // A build with no music (the public site) lists no tracks, and plays nothing rather than failing.
+    if (this.manifest![state].length === 0) return;
     const track = this.manifest![state][this.nextIndex(state)]!;
     const now = this.ac.currentTime;
     const outgoing = this.decks[this.active];

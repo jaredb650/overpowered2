@@ -104,19 +104,19 @@ All in `public/audio/sfx/gore/`.
 
 ## Owner-supplied sounds
 
-Approved and supplied by the owner from their own library. The source and licence are not recorded yet, so confirm them before publishing these files.
+Approved and supplied by the owner from their own library. On 2026-11-07 the owner approved publishing them with the game, on its public site and in its public repo. The source and licence are still not recorded here.
 
 | File | Source file | Author | Licence |
 |---|---|---|---|
-| `bullet_body_1.mp3` | Object_Break_Into_Body_02 | Supplied by the owner | Licence to be confirmed |
-| `bullet_body_2.mp3` | Projectile_Hit_On_Body_01 | Supplied by the owner | Licence to be confirmed |
-| `bullet_body_3.mp3` | Projectile_Hit_On_Body_02 | Supplied by the owner | Licence to be confirmed |
-| `bullet_body_4.mp3` | Projectile_Hit_On_Body_03 | Supplied by the owner | Licence to be confirmed |
-| `bullet_body_5.mp3` | Projectile_Hit_On_Body_04 | Supplied by the owner | Licence to be confirmed |
-| `bullet_body_6.mp3` | Projectile_Hit_On_Body_05 | Supplied by the owner | Licence to be confirmed |
-| `sword_flesh_1.mp3` | Knife_Stab_With_Flesh_03 | Supplied by the owner | Licence to be confirmed |
-| `sword_flesh_2.mp3` | Knife_Stab_With_Flesh_04 | Supplied by the owner | Licence to be confirmed |
-| `sword_flesh_3.mp3` | Knife_Stab_With_Flesh_05 | Supplied by the owner | Licence to be confirmed |
-| `blood_spill_1.mp3` | Organ_Broken_01 | Supplied by the owner | Licence to be confirmed |
-| `blood_spill_2.mp3` | Organ_Broken_02 | Supplied by the owner | Licence to be confirmed |
-| `blood_spill_3.mp3` | Organ_Broken_03 | Supplied by the owner | Licence to be confirmed |
+| `bullet_body_1.mp3` | Object_Break_Into_Body_02 | Supplied by the owner | Not recorded; publishing approved by the owner |
+| `bullet_body_2.mp3` | Projectile_Hit_On_Body_01 | Supplied by the owner | Not recorded; publishing approved by the owner |
+| `bullet_body_3.mp3` | Projectile_Hit_On_Body_02 | Supplied by the owner | Not recorded; publishing approved by the owner |
+| `bullet_body_4.mp3` | Projectile_Hit_On_Body_03 | Supplied by the owner | Not recorded; publishing approved by the owner |
+| `bullet_body_5.mp3` | Projectile_Hit_On_Body_04 | Supplied by the owner | Not recorded; publishing approved by the owner |
+| `bullet_body_6.mp3` | Projectile_Hit_On_Body_05 | Supplied by the owner | Not recorded; publishing approved by the owner |
+| `sword_flesh_1.mp3` | Knife_Stab_With_Flesh_03 | Supplied by the owner | Not recorded; publishing approved by the owner |
+| `sword_flesh_2.mp3` | Knife_Stab_With_Flesh_04 | Supplied by the owner | Not recorded; publishing approved by the owner |
+| `sword_flesh_3.mp3` | Knife_Stab_With_Flesh_05 | Supplied by the owner | Not recorded; publishing approved by the owner |
+| `blood_spill_1.mp3` | Organ_Broken_01 | Supplied by the owner | Not recorded; publishing approved by the owner |
+| `blood_spill_2.mp3` | Organ_Broken_02 | Supplied by the owner | Not recorded; publishing approved by the owner |
+| `blood_spill_3.mp3` | Organ_Broken_03 | Supplied by the owner | Not recorded; publishing approved by the owner |
