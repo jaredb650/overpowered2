@@ -153,7 +153,7 @@ export const WINDOWS = {
   overdrive: { need: 5, span: 10, clears: true },
 } as const;
 
-/** Hits on one head inside this gap are one headshot to SLOWMO. At 20 rounds a second a burst is not three good shots. */
+/** Hits on one head inside this gap are one headshot to SLOWMO. At 10 rounds a second a burst is not three good shots. */
 export const SLOWMO_SAME_HEAD_GAP = 0.35;
 
 /** Kills needed from a single explosion. Rockets into a swarm reach 3 with no aiming to speak of. */

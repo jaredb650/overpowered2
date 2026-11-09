@@ -404,7 +404,7 @@ const _vec = { x: 0, y: 0, z: 0 };
 
 /** Enough for a spasm to reach every joint of a person. */
 const MAX_BURST = 12;
-/** Pulses running at once. An SMG lands a round every 0.05 s, and each one sets off about three. */
+/** Pulses running at once. An SMG lands a round every 0.1 s, and each one sets off about three. Sized for faster fire than that. */
 const MAX_JOLTS = 12;
 const WEIGHT = -GRAVITY;
 

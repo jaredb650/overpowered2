@@ -71,7 +71,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
   smg: {
     ...BASE, id: 'smg', name: 'SMG', slot: 1, mode: 'auto',
     magSize: 30, reserve: 360, maxReserve: 720, reloadTime: 1.0, drawTime: 0.16,
-    interval: 0.05, damage: 25,
+    interval: 0.1, damage: 25,
     muzzle: 'smg', tracer: 'bullet', casing: 'pistol',
     sounds: [{ id: 'smg_fire', pitchJitter: 0.03 }],
     reloadFoley: [[0.02, 'smg_reload']],

@@ -51,7 +51,7 @@ Events out: `perk:start`, `perk:end`, `callin:ready`, `callin:used`, `combo:chan
 
 `STYLE_GATE`: one style perk at most every 20 s, and each waits 30 s after it ends. The window keeps its kills while the gate is shut.
 
-SLOWMO: hits on one head inside 0.35 s count once. At 20 rounds a second a burst is not three good shots.
+SLOWMO: hits on one head inside 0.35 s count once. At 10 rounds a second a burst is not three good shots.
 
 **Assist kills.** Kills from `ASSIST_SOURCES` (the five strikes, sentinels, Chain Storm, Chain Reaction, drop pods) pay score and drops and keep the combo alive, but climb it at half rate and feed no perk window. Before this one Airstrike was worth up to 30 rungs, and a nuke's own bodies fired Berserk, Hellfire and Overdrive at once.
 
