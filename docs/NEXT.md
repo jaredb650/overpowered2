@@ -194,6 +194,36 @@ Still open:
 - The Quiver's reload and both guns' draw and fire poses were only checked as stills. Four overlapping blasts show square smoke sprites against the range sky (fx's smoke column, as a rocket's do faintly).
 - No voice lines for the new guns.
 
+## The Lance, rebuilt (committed, not played)
+
+Owner's words: "The rail gun currently really sucks. Just make it more fun. The rail gun should have you charge it up, it should be super powerful. And weak shots should have their own utility, like little plasma balls. You charge it up, maybe it shoots through enemies, but then each enemy it pierces through has a little plasma explosion. So you can shoot a beam through a crowd, and if you hit multiple guys it causes a line of explosions."
+
+What was wrong with it: a tap did nothing but fizzle, a press during the wait after a shot was thrown away, a full charge was 420 damage beside a Sabot that does 600 on a click, and the charge was a bar and a hum. Manual: `docs/notes/weapons.md`, "The Lance".
+
+What the owner gets, on key 7 as before:
+
+- **Tap:** a plasma ball, 80 m/s, four a second. 60 on what it hits and a 2.2 m splash, and it puts things on the floor: a Trooper it does not kill goes down with a limb off, and two of them floor a Brute through its plates.
+- **Hold:** the charge climbs through three stages, each with a tick that is higher than the last, a notch on the bar under the crosshair, a capacitor lighting on the gun and the view drawing in. Let go at the first for a weak beam through one body, at the second for one through four, at full (1.1 s) for the real thing.
+- **The full beam:** 1000 damage through everyone in line, two walls and armour, with a thunderclap, a hard kick, the view thrown wide from the charge's narrowed one, and a freeze on what it struck. Then a plasma burst goes off at every body it passed, one after another down the line, a few hundredths of a second apart: 2.8 m each, and it tears up whoever stood beside the line. Eight in a column with three beside them: all eleven dead in one run.
+- **The cell** holds 12: a ball takes 1, a beam 2, a full beam 3. Right click lets a charge go and costs nothing.
+- Try it: F1, "Lance: draw it, a column of 8 to shoot through", aim level down the column, hold to full, let go. "Column of 20" is the long line. `/?sandbox=fx&effect=plasmaBurst` is one burst on its own.
+- Off-switch: `?lance=old`, the gun as it was.
+
+Waiting on the owner:
+
+- **All the numbers.** How long a tap may be (0.4 s), the stages, 1000 damage, the cost in cells, how big and how fast the bursts are, the kick and the freeze.
+- **The ball does not always kill a Trooper in one.** It leaves it on the floor with a limb off about half the time. Say if a tap should simply kill.
+- **Bosses.** A single hit can take 5% of a boss at most, the game's own rule, so a full beam is 130 on a Juggernaut. The balls are the better use of a cell on it. Say if the Lance should be the exception.
+- **Bursts never gib.** They tear limbs, burn and throw, by the blast table. A gib at every body of a long line would be the heaviest thing a frame could be asked for.
+
+Still open:
+
+- From the gun, a beam down a straight line shows its bursts one behind another. The line of explosions reads best when the beam crosses a crowd at an angle, or from the side.
+- Twenty deaths in one shot still cost a worst frame of 40 ms on a warm page and 67 ms on the first shot of a page (load average 8), against 192 ms for the old gun, because the beam kills three bodies a frame instead of all at once. The bursts themselves are 4 ms at worst. The slow frame is a body cut in two plus a head kill: gore's cost. Fewer cut bodies per beam (`cleave` in `TUNING.lance.stages`, now 3) would take it down; say if that is worth it.
+- Only the beam's first frame strikes corpses already lying in the line, so a corpse beyond the first three bodies is passed over. The later frames used to strike the beam's own fresh kills a second time at 1000 damage.
+- The full beam's view punch is a zoom wider than the view, so for 0.2 s after the shot the look is up to 13% faster.
+- The new sounds (`lance_plasma`, `lance_stage`, `lance_thunder`, `plasma_burst`) have been measured, not heard.
+
 ## Key 5: a katana that only cuts what it reaches, and four more to swing (committed, not played)
 
 Owner's words: "Add more melee weapons, like maybe a crowbar, knife, shovel, baton. Melee weapons that are fun in their own respect. The katana feels a little bit overpowered because I feel like it can slice people from like a mile away."

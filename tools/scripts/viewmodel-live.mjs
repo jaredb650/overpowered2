@@ -50,9 +50,9 @@ export default async function live(page, h) {
     async lance() {
       await equip('lance');
       await down('fire');
-      await h.sleep(350);
+      await h.sleep(450);
       await h.shot('lance-0');
-      await h.sleep(650);
+      await h.sleep(900);
       await h.shot('lance-1');
       await up('fire');
       await h.sleep(40);

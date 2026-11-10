@@ -115,7 +115,7 @@ Five keys are loaded from the start: SMG, Shotgun, Rocket launcher, Sabot and Sw
 | 4 | **Sabot** | The 30mm cannon loaded with darts. 600 dmg, no blast, through armour, walls and everyone in line, 5 mag, RMB scope | Ping the sonar, then shoot what it shows |
 | 5 | **Sword** | Original three-swing chain, RMB area sweep, heavy finisher | Real slice kills along the swing plane. Blocks bullets on RMB hold |
 | 6 | **Judge** (revolver) | 6 shots, 120 dmg, slow | A headshot ricochets to the nearest enemy's head |
-| 7 | **Lance** (railgun) | Charge and release | Pierces everything in line, severs what it touches, leaves a fading beam |
+| 7 | **Lance** (railgun) | Tap for a plasma ball: 60 dmg and a small splash, four a second. Hold to charge through three stages and release a beam, 1000 dmg at full | A full beam pierces everyone in line, two walls and armour, severs what it touches, and sets a plasma burst off at every body it passed, one after another down the line |
 | 8 | **Buzzsaw** (minigun) | Spin-up, then 50 rps | Slows the player. Shreds limbs one by one |
 | 9 | **Kiln** (flamethrower) | Short-range stream | Burning enemies panic, spread fire, char black |
 | 0 | **Stakegun** | Rebar stakes | Pins enemies and severed limbs to walls. Ragdolls hang from the stake |

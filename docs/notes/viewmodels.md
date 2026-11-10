@@ -70,6 +70,8 @@ The Thresher (`models/thresher.ts`) and the Quiver (`models/quiver.ts`) are file
 
 **Scope.** The gun lifts and hides past `scopeW` 0.9. The overlay arrives before that, so the gun can be seen inside it for about 100 ms.
 
+**The Lance's charge** (`models/lance.ts`). `Weapons` sets `a.charge` through `setCharge`, and the clip reads the stages of the beam out of `TUNING.lance.stages` (`docs/notes/weapons.md`, "The Lance"), so the gun shows the charge in steps and not as a ramp. Three of the four capacitors fill on the way to the three stages and burn once theirs is reached; the fourth lights and flickers at full charge. A stage landing flares its capacitor white and jolts the gun for `STAGE_POP` (0.16 s). The hum in the hands steps up with each stage (`HUM`: 0.4, 1.0, 3.4 mm) to a real shake at full, and the arms draw the gun in 18 mm. The screen shows what letting go now fires: `BALL`, then `I`, `II`, `III`, with a notch on its bar at each stage and `MAX` at full. `seenStage` and `stageLanded` are module state, on the grounds that one Lance is ever in the hands. A tap never reaches the clip as a charge: the charge only starts after `TUNING.lance.tapTime`.
+
 ## Tuning
 
 | Want | Change |
@@ -150,6 +152,7 @@ VM_STEPS=perks,callins node tools/shot.mjs --url "/?sandbox=range&live=1&load=hu
 - **Weapon swap has no holster-out.** The old gun disappears and the new one rises. The draw is 0.14 to 0.34 s, so I judged it a snap, but it is one frame of pop.
 - **Left SMG is a plain copy, not a mirror image.** Its readout is on the far side, and its port faces inward. Decals would need flipped UVs to reflect the model.
 - **The Lance's rails are hard to see from the eye.** They glow, but the capacitors on the near flank carry most of the charge read.
+- **The Lance's charge was checked as four stills**, one at each stage in the real game, with the charge held still for each. The capacitors and the screen read; whether the stage jolt and the shake at full read in motion is unjudged. With `?lance=old` the old gun keeps this clip, so its capacitors fill at the new stages' thresholds and not in quarters.
 - **Parry and guard share a pose family.** `Sword.ts` has one state for wind-up and guard, so held guard looks like the wind-up, and only a blocked shot snaps across the body.
 - **The Buzzsaw's spin rate is tuned for 60 fps.** At 30 rad/s it advances about half a barrel a frame. At other refresh rates it can stroboscope.
 - **A hand target's palm is its +Y, and +X is the little finger side.** The comment on `Model.hand` reads the other way round. The sonar tap first came out backwards on that.

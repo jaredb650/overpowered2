@@ -29,6 +29,10 @@ const MIN_TRAIL_SPACING = 0.5;
 const MAX_PENDING_PINS = 8;
 /** Bodies one penetrating round can meet in a single step. */
 const MAX_SWEEP = 12;
+/** The `plasma` trail: metres of path between its sparks and between its rings, and seconds of flight before either. */
+const PLASMA_WAKE = 1.4;
+const PLASMA_RING = 4.2;
+const PLASMA_WAKE_AFTER = 0.05;
 
 interface SweptHit {
   enemy: EnemyInstance;
@@ -777,6 +781,29 @@ export class Projectiles {
           fx.sparks(this.behind(p, 0.2, at), p.velocity, 1, 0x66ccff);
         }
         break;
+      case 'plasma': {
+        // The Lance's ball. Sparks every `PLASMA_WAKE` metres of the path and a ring pulse every `PLASMA_RING`, laid along the
+        // stretch flown since the last and not only where the ball is now, so the wake is as dense at 30 fps as at 144.
+        // Nothing in the first few metres, where a ring would be a frame round the whole view. `ringClock` counts metres here.
+        const gap = p.lastTrail.distanceTo(p.position);
+        const n = Math.min(4, Math.floor(gap / PLASMA_WAKE));
+        if (n === 0) {
+          p.ringClock -= realDt;
+          break;
+        }
+        for (let i = 1; i <= n; i++) {
+          if (p.age < PLASMA_WAKE_AFTER) continue;
+          at.lerpVectors(p.lastTrail, p.position, (i * PLASMA_WAKE) / gap);
+          fx.sparks(at, p.velocity, 3, 0x66ccff);
+          p.ringClock += PLASMA_WAKE;
+          if (p.ringClock < PLASMA_RING) continue;
+          p.ringClock = 0;
+          fx.ring(at, p.velocity, 0x59d0ff, 0.1);
+        }
+        p.ringClock -= realDt;
+        p.lastTrail.lerp(p.position, (n * PLASMA_WAKE) / gap);
+        break;
+      }
     }
   }
 

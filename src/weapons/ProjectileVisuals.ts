@@ -237,7 +237,9 @@ export class ProjectileVisuals {
         break;
       }
       case 'plasma': {
-        const at = this.put(L.plasma, pos, this.quat, 1, 1.6, 1);
+        // The Lance's ball sets its own size. Anything else is 1.
+        const k = p.size;
+        const at = this.put(L.plasma, pos, this.quat, k, 1.6 * k, k);
         if (at >= 0) L.plasma.mesh.setColorAt(at, this.tints.get(p) ?? WHITE);
         break;
       }

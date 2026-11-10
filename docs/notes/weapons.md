@@ -13,6 +13,7 @@
 | `Feel.ts` | Shake units and hit-stop pacing |
 | `families.ts` | Which weapons share a number key, and what the key, the wheel and a base weapon's unlock do about it. No state |
 | `swarm.ts` | The Quiver's mind: painting marks, filling a salvo, a missile's turn, weave and retarget. Pure functions and the `Painter`; no world |
+| `lance.ts` | The Lance: the rules of its charge, the pool its plasma bursts wait in (`PlasmaChain`), and its trigger, beam and sweep (`Lance`). `Weapons` holds one and hands it a few closures (`LanceHost`) |
 | `penetration.ts` | The budget a round spends on walls and bodies, and the probe that measures a wall. Hitscan and projectiles both ask here |
 | `testkit.ts` | A firing range for Vitest: the real `Weapons` and `Combat` on real Rapier, stand-in enemies, a stepped clock |
 
@@ -58,6 +59,7 @@ All additive, in `src/core/gameplay.ts`.
 - `DamageInfo.reach` and `blastKind`, a blast's splash, which is what `src/enemies/blast.ts` rolls on. `DamageInfo.pierces`, a shaped charge's direct hit or an armour-piercing round on a plated body. `DamageInfo.armorPiercing`, an armour-piercing round on any body: `shieldStops` in `src/enemies/damage.ts` reads it and lets the round through a Riot's shield.
 - **Quiver stream.** `MissileTarget` (anything a missile can be painted on: an enemy as it stands, a `Vehicle` through its new `aimLift` and `paintRadius` getters) and `PaintView` (what the HUD draws). `WeaponSystem.paint?`. `ProjectileSpec` gains `target`, `turnRate`, `steerDelay`, `weave`, `accel`, `topSpeed`, `size`; `ProjectileTrail` gains `swarm`; `MuzzleKind` gains `quiver`. `ViewmodelRig.muzzle(out, left, barrel?)` picks a barrel by socket `muzzle1`..`muzzle3`. `VehicleTargets.paintable?(out)` lists live vehicles and the chopper. In `data.ts`: `FireMode` gains `paint`, `WeaponDef` gains `climb`.
 - **Melee stream.** `WeaponId` gains `knife`, `crowbar`, `shovel`, `baton`, after `sword`. `SwordMove` gains `heavy`, the right click of a melee weapon with no guard. Nothing else in the contract changed.
+- **Lance stream.** `ShotSpec.struck`, a `StruckList` the caller owns: the ray adds each body it struck (`points`, `enemies`, `count`) and counts the walls it passed (`walls`), and passes over any body already in the list, so one round can be resolved in several rays. Unset, a ray does nothing new. `ExplosionKind` gains `plasmaBurst`, with rows in `EXPLOSIONS`, in `src/fx/recipes/explosions.ts` and in `BLAST.rings` (`src/enemies/blast.ts`). `ProjectileTrail` gains `plasma`. In `data.ts`: `ExplosionDef.noKillStop`, `LANCE_OLD`, `HIT_STOP.lanceShot`. `Weapons.lance` is public, for tests and the lab.
 - `DecalKind` gains `exit`, the spall crater on the far side of a wall. It took the second bullet-hole cell of the atlas, so `bullet` has one variant now (`src/render/Decals.ts`, `materials/decalAtlas.glsl.ts`).
 
 One change outside this system: `Player.rideGround` in `src/player/Player.ts` adds `world.objects.platformVelocity` to position while grounded, swept so a wall stops it. Added to position rather than velocity, so the deck's speed never reads as the player's own. `docs/notes/player.md` and `world.md` still say moving geometry does not carry the player; their owners should drop that line. `Weapons.ts` also imports the plain `MOVE` table from `src/player/tuning.ts`.
@@ -68,7 +70,14 @@ One change outside this system: `Player.rideGround` in `src/player/Player.ts` ad
 - **One system, two callers.** `Combat.playerRay` and `Projectiles` both hold a `Budget` and call `passBody` and `passWall`. Do not give either its own rule for what a wall costs. The Lance's per-wall rule is a mode of the same `Budget` (`walls`), not a second system.
 - **`severMult` is read through `canSever`.** A gun with `canSever: false` sends 0, whatever its `severMult`. Always Sever overrides both.
 - **A family member is data.** See "Adding a family member". `Weapons.ts` picks the code that fires a gun by its row's `mode` and `round`, never by its id, and `families.ts` names no weapon at all.
-- **The Lance is as it was.** Two walls, each up to 1.6 m, of anything, at no cost in damage, and through a vehicle's hull if it is thin enough. `penetration.test.ts` has five tests that hold it there. `?pierce=0` does not touch it, as it never did.
+- **The Lance's walls are as they were.** A full charge: two walls, each up to 1.6 m, of anything, at no cost in damage, and through a vehicle's hull if it is thin enough. `penetration.test.ts` has five tests that hold it there. `?pierce=0` does not touch it, as it never did. A weaker beam and a plasma ball go through no wall.
+- **A tap is clean.** Nothing of the charge is shown or heard for `TUNING.lance.tapTime`, and a press let go before the first stage is always a ball, never a fizzle. Only right click fizzles.
+- **No length of line is one frame's work.** A full beam strikes `sweep.perFrame` bodies a ray and one ray a frame, from `lance.tick()`; its bursts are booked into a fixed pool and set off `chain.perFrame` a frame. `tick` runs from `Weapons.update` before anything can return early, so a beam and its bursts finish whatever is in hand, holstered and dead included.
+- **The shot every gun shares never keeps the Lance's list.** `step` sets `shot.struck` and `shot.skipCorpses` and clears both in a `finally`. A gun fired next must not add to the list or pass over corpses.
+- **A sweep strikes corpses on its first ray only.** Every later ray sets `skipCorpses`: ahead of it lie the bodies the beam killed a frame before, and the old one-ray gun never struck its own kills twice.
+- **The beam's FOV punch is the Lance's own zoom.** A charge narrows the view through `camera.setZoom`, and the camera's `fovPunch` sits under a zoom, so it would be lost while the zoom lets go. The Lance holds the zoom on the release: wide by the row's `fovPunch` times the stage's `weight` at once, back to where the charge began over `punchTime` on the real clock, then `setZoom(null)`. `cancel()` ends it, so a switch, reload, pause or death lets go of the view at once.
+- **A plasma burst is quiet and never gibs.** `EXPLOSIONS.plasmaBurst` has no flash, no FOV punch and `noKillStop`, and its row in `BLAST.rings` has no fireball. Twenty go off in under a second.
+- **The Lance's gore and reactions are data.** `force` on the ball, the beam's `severMult` and `cleave`, and the blast table's row for `plasmaBurst`. Nothing in `src/gore`, and one table row in `src/enemies/blast.ts`.
 - **A Hellfire round bursts on the body it hits.** On every body it goes through, and where it stops. Not on a wall it passes.
 - **An exit mark lies on the far face.** `exitWall` takes the face's normal from the probe, not the line of the shot. The decal pass cuts away anything that stands off the surface, so a mark laid along a slanted shot is a sliver.
 
@@ -111,6 +120,28 @@ Weapon ids still written in `Weapons.ts`, each for a reason: `smg` for akimbo, b
 
 **The Thresher.** `mode: 'auto'` with `pellets` 4, so it is a scatter gun with the point-blank rule and the pellet perks like the pump. `climb` moves the aim itself, up 0.011 rad and up to 0.0035 to a side a shell, and does not spring back, so a held burst walks up for the player to pull down; `kick` springs back on top as for every gun. `?climb=0` takes the climb out. Its `force` is 16, the least that clears `BLAST.pointBlankForce` (100) once the point-blank rule has multiplied it, so a trunk kill up close can tear a body in two as the pump's can. Its gore and reactions are the pump's through the pellet type, with nothing added in `src/gore` or `src/enemies`.
 
+**The Lance.** `mode: 'charge'`; the rules are `lance.ts` and the numbers `TUNING.lance`. `?lance=old` brings back the gun from before, fired by `Weapons.updateCharge` as it was, with its old row.
+
+*What was wrong with it.* A tap did nothing: under 22% charge the release was a fizzle, so the gun had no quick shot at all. A press made during the wait after a shot was thrown away, held or not. A full charge was 420 damage for 0.85 s of hold, beside a Sabot that does 600 on a click, through armour, 2.2 times a second. The cell held four shots and a weak shot cost the same as a full one. The charge was a bar and a hum: its rising sound was 1.6 s long under a 0.85 s charge and was never stopped, nothing changed in steps, the view did not move. At the far end there was a thin line and, with two kills or more, a hit-stop.
+
+| Let go | Fires | Of the cell's 12 | Damage | Goes through | A burst at each body |
+|---|---|---|---|---|---|
+| before 0.4 s | a plasma ball, 80 m/s | 1 | 60 on what it hits, 40 over 2.2 m | nothing | its own splash |
+| from 0.4 s (30%) | beam I | 2 | 200 | 1 body | 1.8 m, 60 |
+| from 0.75 s (65%) | beam II | 2 | 450 | 4 bodies | 2.2 m, 100 |
+| from 1.1 s (full) | beam III | 3 | 1000 | 31 bodies, 2 walls of 1.6 m, plates and shields | 2.8 m, 160 |
+
+- *The trigger.* The press comes from the same buffer the semi-autos use (`takePress`), and only once the wait after the last shot is over. So a click up to 0.14 s early fires when the gun is ready, and a press held through the wait, a reload or a draw starts charging the moment it can. The charge is nothing for `tapTime` (0.1 s), then a line to full over `chargeTime` (1 s). Letting go fires the last stage reached, or a ball under the first; a press and release inside one frame is a ball. Right click lets a charge go with `railgun_fizzle` and spends nothing, and the trigger has to be pressed again. Anything that ends a loop ends a charge without a shot: `Weapons.endContinuous` calls `lance.cancel()`, which covers a switch, a reload, a quick melee, a pause, a holster and death.
+- *The cell.* Twelve: a ball takes 1, a beam 2, a full beam 3, so a cell is still four full shots, or twelve balls. The charge climbs only as far as the cell can pay for (`chargeCap`): with two left it stops at the second stage, with one left it does not start and the release is a ball. A bottomless magazine charges to full on nothing. 48 in reserve, 96 at most.
+- *The ball.* A `plasma` projectile with the `plasma` trail, 60 direct as a bullet with `force` 95, and a `plasmaBurst` of 40 over 2.2 m where it stops. Its job is to put things off their feet: the direct hit is about 1.75 of shock on a Trooper, past its fall line, and the splash goes through the blast rings like any blast, which throws or dazes whoever stood beside. Plates stop it (a Brute's take both the hit and the splash) and it still goes over. 4.2 a second at most (`interval` 0.24).
+- *The beam.* A hitscan ray with the stage's `pierce`, drawn as `fx.beam('rail')` at the stage's `width` for its `linger`. The full one is armour-piercing, splits up to 3 of its kills (`cleave`), and adds a wide sheath for 0.12 s and a bolt along metres 2.5 to 11 of it.
+- *The sweep.* A full beam is not one ray. It strikes `sweep.perFrame` (3) bodies and stops on the last; the next frame `tick` fires on from that body's point with what is left of its bodies, walls and range, and so on down the line, one split kill a frame. The `StruckList` it hands every ray is what keeps a body that lived (a boss, a warded man) from being struck by the next ray too, and `skipCorpses` on every ray after the first keeps it off the bodies it has just killed; corpses that were already lying in the line are struck by the first ray only, so one lying beyond the first three bodies is passed over. A line of twenty is seven frames, inside the hit-stop the first ray starts. A weaker beam is one ray, and so is a full one under Hellfire Rounds or a ricochet perk, which would otherwise burst or bounce at the end of every piece.
+- *The bursts.* Each ray books a burst for every body it struck, at `chain.first` (0.04 s) plus `chain.gap` (0.035 s) for each body before it, on the world clock from the moment of the shot. `tick` sets off those that are due, earliest first, `chain.perFrame` (2) a frame at most. Each is a real `combat.explode` of kind `plasmaBurst` with no damage to the player, a bolt to it from the body before, and a ring round the line of the beam. The world clock is what the hit-stop slows, so the line holds for the freeze and then ripples.
+- *What a burst does to a body.* The existing blast table, on its `plasmaBurst` row: no fireball, so nobody is gibbed, a ring that maims out to 62% of the radius and a ring that throws past it. Live, the three bystanders of a column of eight all died, with four limbs off between them and one burned to death.
+- *How it reads.* While charging: `railgun_charge_loop` started at 0.42 of its pitch and bent up to 1 with the charge, `lance_stage` at each stage, 0.26 higher each time, and `railgun_ready` at the last; the view narrows by up to 7 degrees (`fovPull`, through `camera.setZoom`, which also slows the look by up to 11%); the bar under the crosshair steps colour at each stage (`docs/notes/ui.md`); the capacitors and the shake are `docs/notes/viewmodels.md`. The full shot: `railgun_fire` and `railgun_beam` with `lance_thunder` over them, kick 0.075 rad, shake 0.14, an FOV punch of 7 thrown from the charged view (83 to 97 degrees in the frame of the shot, back to 90 over `punchTime`, 0.2 s; a weaker beam by its `weight`; for those 0.2 s the look is up to 13% faster, as the zoom sets it), chromatic and radial blur, a pale flash, and a forced hit-stop of 0.06 s plus 0.018 a kill up to 0.14 whenever it struck a body. It also takes 2.5 m/s off the player's velocity along the ground, which the feet cancel within a frame when standing and which only shows in the air.
+- *Bosses.* No single hit takes more than 5% of a boss (`src/enemies/bosses.ts`), so a full beam is worth 130 on a Juggernaut and its burst goes into the plates. Against a boss the balls are the better use of a cell; the beam is for the crowd round it.
+- *Pooling.* The bursts are a pool of 32 links, the struck list 32 points, the sweep one object, the ball's blast one spec the projectile pool copies from, and the ball is the projectile pool. Every FX layer a burst touches is a GPU ring. Nothing is allocated by a shot.
+
 **Penetration.** A budget is meters of concrete, on `WeaponDef.penetration` for the guns and on the spec for anything else. A wall costs its measured thickness times `PENETRATION.surface` (steel 1.5, glass 0.2, a shield never). A body costs `PENETRATION.body`, 0.4, or the round's own `bodyCost`, and twice that if its armour or shield blocked the round. Damage falls in a line from all of it with the budget untouched to `keep`, 0.55, with it spent. Range and falloff are measured through the wall.
 
 **An armour-piercing round and a shield.** `armorPiercing` on the row sets `DamageInfo.armorPiercing` on every body and `pierces` on a plated one. Plates do not stop it, and neither does a Riot's shield: before, the shield blocked the Sabot's dart outright and the dart went on to kill everyone behind the one man it could not hurt. A ward still takes the hit for its owner and the dart goes on, at twice the body cost.
@@ -125,7 +156,7 @@ Projectiles do the same through `sweepThrough` and `goThrough`. A round with a b
 
 Normal walls in the maps are 0.6 to 1 m, outer walls 1.6. The Sabot goes through the range gallery's 0.3, 0.6, 1.0 and 1.6 m walls and a steel sheet in one shot, 3.65 m of budget, and still kills. `PENETRATION.maxWall`, 3 m, is the most any single wall can be.
 
-**The Lance's rule.** A full charge is on the per-wall rule it had before budgets: `penetrateWalls: 2` with `penetrate: 1.6`. In `passWall` that means any wall up to 1.6 m thick is passed, whatever it is made of, an energy surface included, and costs one of the two walls and nothing else. No surface factor, no total, no damage lost (`penetrateKeep: 1`), and a vehicle's hull is a wall like any other to it. Bodies are its `pierce`, 24 of them, free (`bodyCost: Infinity` keeps the budget out of it). `?pierce=0` does not reach it. An earlier version of this work put the Lance on the metered budget, which stopped it in any steel wall over 1.07 m and made its 1.6 m a total across walls; that is gone.
+**The Lance's rule.** A full charge is on the per-wall rule it had before budgets: `penetrateWalls: 2` with `penetrate: 1.6`. In `passWall` that means any wall up to 1.6 m thick is passed, whatever it is made of, an energy surface included, and costs one of the two walls and nothing else. No surface factor, no total, no damage lost (`penetrateKeep: 1`), and a vehicle's hull is a wall like any other to it. Bodies are its `pierce`, 31 of them at full charge (24 for the old gun), free (`bodyCost: Infinity` keeps the budget out of it). The two walls are counted across the rays of its sweep (`StruckList.walls`). `?pierce=0` does not reach it. An earlier version of this work put the Lance on the metered budget, which stopped it in any steel wall over 1.07 m and made its 1.6 m a total across walls; that is gone.
 
 What is still not the old Lance, all three in its favour or for show:
 
@@ -204,7 +235,7 @@ How each gets there, all through the data a hit carries and the systems that alr
 
 **Lunge** (`?blade=old` only). A dash at 30 m/s for 0.16 s toward the target, renewed every frame and homing on it. A single shove is worth about a meter once ground friction has had it (`15^2 / (2 * stopDecel)`).
 
-**Slices cost about 5 ms each.** A sweep slices 3 kills per frame and the rest ragdoll. A full Lance shot splits the first 3.
+**Slices cost about 5 ms each.** A sweep slices 3 kills per frame and the rest ragdoll. A full Lance shot splits 3, one a frame of its sweep.
 
 Measured over 80 s of the real game, with the bot holding the trigger on the SMG and only collecting what it runs over: reserve fell from 360 to 180 by wave 2, then 5 ammo pickups took it to the 720 cap, across 59 kills and 3 waves. It never went dry. The old wave-2 dry-out came from a 240 reserve running out before the first pickup, with a bot that does not chase drops, so the fix there was the bigger SMG reserve and the fallbacks, not more drops. One pickup is 180 SMG rounds and the economy now leans generous. If that turns out too loose, cut `PICKUP.ammo` in progression before touching the reserves.
 
@@ -221,7 +252,14 @@ Measured over 80 s of the real game, with the bot holding the trigger on the SMG
 | The Thresher's climb | `climb` in its row. `?climb=0` takes it out |
 | Key 4 as it was | `?slot4=old`: the autocannon first and from the start, the Sabot with it, no autocannon in a cache |
 | What fires a gun | `mode` and `round` in its row |
-| The Lance through walls | `TUNING.lance.penetration` (thickest wall) and `walls` (how many) |
+| The Lance through walls | `TUNING.lance.penetration` (thickest wall), and `walls` on the stage (how many; the old gun reads `TUNING.lance.walls`) |
+| The Lance's charge | `TUNING.lance`: `tapTime`, `chargeTime`, and `at` on each of `stages` |
+| What each stage fires | `stages[]`: `cost`, `damage` (a share of the row's), `pierce`, `walls`, `cleave`, `pierces`, `burst`, `burstDamage`, `weight`, `width`, `linger` |
+| The plasma ball | `TUNING.lance.ball`: speed, damage, `force` (what floors a body), splash, size. Rate: `interval` in the row |
+| The chain of bursts | `TUNING.lance.chain`: `first`, `gap`, `perFrame`. What a burst is: `EXPLOSIONS.plasmaBurst`, its look in `src/fx/recipes/explosions.ts`, what it does to a body in `BLAST.rings` |
+| How many bodies a full beam strikes a frame | `TUNING.lance.sweep.perFrame`, and `cleave` for split kills a frame |
+| The full shot's weight | The row's `kick`, `shake`, `fovPunch`, `recoil`; `HIT_STOP.lanceShot`, `lancePerExtraKill`, `lanceMax`; `TUNING.lance.fovPull`, `punchTime`, `push`, `recover` |
+| The Lance as it was | `?lance=old` |
 | The exit crater | `EXIT_CRATER` and `EXIT_FLASH_SCALE` in `Combat.ts`. Its look: `exitHole` in `src/render/materials/decalAtlas.glsl.ts` |
 | Ammo pressure | `reserve`, `maxReserve` per weapon, `TUNING.ammo` |
 | Rocket jump | `TUNING.rocket.playerPush`, `selfDamage`. `EXPLOSIONS.rocket.selfCap` |
@@ -241,6 +279,7 @@ nice npx vitest run src/weapons/swarm.test.ts --testTimeout=60000        # 26: p
 nice npx vitest run src/weapons/penetration.test.ts --testTimeout=60000   # 48: budget, the per-wall rule, wall probe, hitscan, bursts, every gun, the Lance, projectiles at 30/60/144
 nice npx vitest run src/weapons/melee/sweep.test.ts --testTimeout=60000   # 24: reach, arc, slab, thrust, point blank, nothing behind, every swing of key 5 held to its reach, reaching down
 nice npx vitest run src/weapons/melee/melee.test.ts --testTimeout=60000   # 18: the katana's reach, step, wall, dash and sweep on real Rapier; the four's damage, type, bonus (back, reeling, down), plate, chain, key 5, a Skitter at the feet, Butcher
+nice npx vitest run src/weapons/lance.test.ts --testTimeout=60000         # 52: the charge and the cell, the chain's pool, a tap, each stage, the sweep and its corpses, the bursts at 30/60/144, walls, armour, the FOV punch, what cancels it
 
 node tools/shot.mjs --url "/?map=range" --script tools/scripts/families-live.mjs --wait 500 --timeout 280 \
   --dpr 2 --w 1440 --h 900 --out tools/out/fam/live.png      # real keys and real enemies on the range's piercing gallery.
@@ -251,9 +290,13 @@ node tools/shot.mjs --url "/?map=range" --script tools/scripts/melee-live.mjs --
 node tools/shot.mjs --url "/?map=range" --script tools/scripts/swarm-live.mjs --wait 500 --timeout 300 \
   --dpr 2 --w 1440 --h 900 --out tools/out/swarm/live.png    # keys, a five-man arc painted and killed, a Juggernaut, a tank, a tap, the Thresher
                                                              # SWARM_ONLY=keys,paint,stack,heavy,tank,tap,thresher
+LANCE_ONLY=chain,partial node tools/shot.mjs --url "/?map=range" --script tools/scripts/lance-live.mjs --wait 500 --timeout 285 \
+  --dpr 2 --w 1440 --h 900 --out tools/out/lance/live.png --quiet   # LANCE_ONLY=tap,stages,chain,partial,twenty,walls,heavy: two or three
+                                                             # steps a run. Results in tools/out/lance/live.json, stills beside it.
+                                                             # The same with "/?map=range&lance=old" drives the old gun (old-*.jpg)
 ```
 
-`/?sandbox=range&only=quiver` and `&only=thresher` run their checks at 30, 60 and 144 fps.
+`/?sandbox=range&only=quiver` and `&only=thresher` run their checks at 30, 60 and 144 fps. `&only=lance` runs the Lance's (38), and `&only=lance&lance=old` the old gun's (8).
 
 ```
 /?sandbox=range                 # stepped clock, stand-in enemies, every number exact at 30/60/144 fps
@@ -344,6 +387,49 @@ Families and penetration, with `families-live.mjs` on the Test Range, real keys 
 | Thresher | 10 shells in 2 s at 30, 60 and 144 fps; climb 0.106 to 0.112 rad over the 2 s; 20 shells then the drum reload. Live: a Trooper at 9 m dead with two limbs off |
 | Hitch | Worst frame across a salvo, Test Range at dpr 2 on a machine at load average 11 to 15: 23 to 62 ms on later salvos, 46 to 131 ms on the first of a page. A ROCKET's first blast of a page measured 78 to 204 ms the same way. Not separable from the machine's load; no repeatable spike of the Quiver's own |
 
+**The Lance**, measured. `lance.test.ts` (48, 52 after review) and the range sandbox (38 of 38, and the old gun's 8 of 8 with `&lance=old`) on a stepped clock; `lance-live.mjs` in the real game on the Test Range, the trigger through `input.simulate` so a tap is a tap at any frame rate, Troopers with their AI off, on a machine at load average 7 to 35. Stills in `tools/out/lance/`.
+
+| Thing | Result |
+|---|---|
+| A tap | One ball at 80 m/s for 1 of the cell, no charge shown. On a Trooper at 14 m: from 70 to 7, a limb off and on the floor. In two earlier runs it died, once gibbed, which the burst can no longer do. The Trooper 1.5 m beside it: 70 to 47. The one 5 m off: untouched |
+| Eight taps, 0.25 s apart | Eight balls. Seven in a run at about 20 fps, where the two frames a tap takes push one past the 0.14 s buffer |
+| A Brute, two balls | Plates 322 to 244, health 260 to 251, on the floor |
+| The charge, held still at four levels | Bar grey at 22%, cyan at 47% (`s1`) and 85% (`s1 s2`), white in its frame at full. FOV 90, then 89.7, 88.5, 84.9, 83. Look scale 1 to 0.885. Both back the moment it fires |
+| Full beam down eight Troopers, three more beside the line | All eight dead by the beam, over three frames. Bursts gone off 0.07, 0.14, 0.24 and 0.38 s after the shot: 2, 4, 7, 8. Beside the line, three runs: 3 dead with 4 limbs off, one of them burned; 2 dead and 1 on the floor with 5 limbs off; 3 dead with 9 limbs off. Each burst left one 1.4 m scorch on the floor, which is hard to make out under the bodies on the range's pale concrete. The old gun: eight dead, nobody beside touched |
+| First stage, same column | 2 of the line dead, 2 bursts, 1 bystander hurt, cell 12 to 10 |
+| Second stage | 5 of the line dead, 5 bursts, 2 bystanders hurt, cell 12 to 10 |
+| Piercing gallery, full beam | The bays behind the 0.3 and 0.6 m walls dead with a burst in each, the third wall stopped it |
+| A Brute and a Riot, one full beam each | Dead. The Brute had 260 health behind 322 of plates |
+| A Juggernaut, one full beam | 2600 to 2470, which is the 5% a boss allows a single hit, and its plates took the burst |
+
+What twenty cost. Twenty Troopers in line from 8 to 29.5 m and seven beside them, one full beam, the second volley of a page, frame p50 17 ms before the shot. Worst frame, and the ray or rays that did the killing:
+
+| | Old gun, `?lance=old` | The sweep |
+|---|---|---|
+| Worst frame | 192 ms, the frame of the shot | 86 ms, the third of seven |
+| The rays | one, 142 ms | seven: 11, 6, 67, 9, 8, 15 and 6 ms |
+| Frames over 50 ms in the 2.4 s after | 3 | 2 |
+| Frame p50 and p95 over those 2.4 s | 20.6, 40.7 ms | 24.7, 39.1 ms |
+| The bursts | none | 20 over 20 frames: 50.7 ms in all, 5.4 ms the worst, never 2 in a frame here |
+| Dead | 20, nobody beside | 20, and 6 of the 7 beside |
+| The first volley of the page | 490 ms | 318 ms: rays 43, 24, 176, 19, 21, 15, 14 |
+
+Before the sweep the new gun killed all twenty in one ray like the old: 362 ms against the old gun's 357 in the same hour, at load average 30. So the cost was never the bursts. It is what a death costs in `enemies` and `gore`, about 6 to 15 ms each here, and the sweep spreads it.
+
+After review, two things changed: the later rays of the sweep no longer strike corpses (they had been striking the beam's own kills of a frame before, two or three at 1000 damage a ray), and the slow third ray was profiled. Same setup, load average about 8 (`tools/out/railgun-final/`):
+
+| | First volley of the page | Second volley |
+|---|---|---|
+| Worst frame | 67 ms | 40 ms |
+| Frames over 50 ms in the 2.4 s after | 1 | 0 |
+| Frame p50 and p95 | 16.7, 25.3 ms | 16.6, 19.5 ms |
+| The rays | 11.7, 7.3, 40.7, 5.3, 3.1, 2.8, 1.7 ms | 3.7, 6.1, 29.8, 2.5, 1.7, 2.0, 1.2 ms |
+| Corpse hits by the beam, per ray | 0 in every ray | 0 in every ray |
+| The bursts | 20, 33.4 ms in all, 4.4 worst | 20, 21.1 ms in all, 2.5 worst |
+| Dead | 20 of 20 | 20 of 20 |
+
+A sampled profile of a third run (rays 4.9, 3.5, 26.1, 2.3, 2.0, 1.8, 1.6 ms) put half the time inside the Lance's rays in `gore` cutting a body in two (`slice`, `cutMesh`), and most of the rest in the deaths themselves: a head kill, ragdolls being made, Rapier colliders. The third ray is the one with a cut and a head kill in it. All of that is gore and enemy code this work must not change; the Lance's lever on it is how many kills it cuts (`cleave`, 3).
+
 ## Known limitations
 
 - **Nobody has played key 5's new reach or the four new weapons.** Every number is a first guess and every result is a test, a script or a still. The katana's reach, its step and the dash's speed and trigger, and each new weapon's timing, push and damage are the feel questions. Held, the katana steps again on every swing, so a held chain walks forward through a line; whether that reads as pressing an attack or as being dragged is unjudged.
@@ -353,6 +439,20 @@ Families and penetration, with `families-live.mjs` on the Test Range, real keys 
 - **The side a flat club swing lands on** was measured on Troopers holding rifles. On a body with its arms elsewhere the side rays can pass it and the middle ray is used, which at a walking look is the neck.
 - **The fling throws everything within 1.8 m** of a point just behind the body: another corpse, a downed body, debris.
 - **Melee kills do not slice on a cut from the Shiv** and a knife never takes a limb (`canSever: false`). That is a choice, not a limit of the system.
+
+- **Nobody has played the Lance.** Every number is a first guess: the 0.4 s a tap may last, the three stages and their timing, 1000 damage, what each costs the cell, the bursts' size and pace, the kick and the hit-stop. Whether it is fun is the owner's to say.
+- **From the gun, a line of bursts is seen end on.** They go off one behind another down the crosshair, so the ripple reads as a growing flash with rings round it; the line shows from the side (`live-chain-side-*.jpg`) and from the gun only when the beam crosses a crowd at an angle. The 'rail' beam's own rings are large on screen for the first metres, as they were.
+- **Twenty deaths still cost what they cost.** The worst frame of a twenty-man beam was 40 ms on a warm page and 67 ms on the first volley, at load average 8 (86 and 318 before corpse hits were taken out of the later rays, at a heavier load). It lands inside the hit-stop. The slow ray is a body cut in two and a head kill in the same frame: gore's cost, not the Lance's. Fewer cuts (`cleave`) is the only lever here.
+- **A corpse lying in the line beyond the first three bodies is not struck.** Only the sweep's first ray strikes corpses. The old gun struck up to three anywhere in the line.
+- **The beam's FOV punch speeds up the look for 0.2 s.** It is a zoom wider than the view, and the camera scales the look with the zoom: up to 13% faster in the frame of the shot.
+- **A beam under Hellfire Rounds or a ricochet perk is one ray**, so it kills the whole line in one frame, as the old gun did.
+- **One ball does not always kill a Trooper.** 60 leaves it 10, and the splash then rolls on the blast table's ring that maims, which spares about half. It is on the floor either way.
+- **The beam's shove is not felt on the ground.** The feet cancel 2.5 m/s inside a frame: measured 0. It is there in the air.
+- **A full beam is worth 5% of a boss**, like every single hit. See "The Lance".
+- **A weaker beam stops on plates**, as any round that is not armour-piercing. Only the full one goes through them.
+- **`?lance=old` is the old gun's rules and numbers, not all of its look.** The gun in the hands keeps the new capacitor clip. The rules, the row, the guide text, the plain charge bar and the sounds are the old ones.
+- **The Lance's new sounds have been measured, not heard.** `lance_plasma`, `lance_stage`, `lance_thunder` and `plasma_burst` are in the audio report; the charge is the old loop bent in pitch.
+- **The ball's wake was not caught in a still.** The ball was (`live-ball-flight.jpg`, at the target); its sparks and ring pulses are read from the code.
 
 - **Nobody has played the Quiver or the Thresher, or the new key 4.** Every number is a first guess and every result above is a test, a script or a still. The Quiver's mark rate, cone, turn rate and weave, the Thresher's climb and its damage a second against the pump's are the feel questions.
 - **The Quiver's cone is 9 degrees either side of the crosshair.** Targets wider apart than that need the crosshair swept across them while held. The lab's "Quiver" button stands its five inside it.

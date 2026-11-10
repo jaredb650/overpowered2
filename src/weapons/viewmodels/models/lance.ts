@@ -10,10 +10,18 @@ import type { Finish, Mesher } from '../kit/mesher';
 import { curve, poly, rect, slotRow } from '../kit/shapes';
 import { coil, rail, screwX } from '../kit/details';
 import { clamp, lerp } from '../../../core/math';
+import { TUNING } from '../../data';
 import { hold, inOut, inQuad, outCubic, seg, thud } from '../curves';
 import type { Anim, ViewDef } from '../def';
 import { HANDS } from '../poses';
 import { pullTrigger } from './common';
+
+/** The charge each stage of the beam is reached at (src/weapons/lance.ts). A capacitor fills on the way to each. */
+const STAGE_AT: readonly number[] = TUNING.lance.stages.map(s => s.at);
+/** Seconds a capacitor flares white, and the gun jolts, as its stage lands. */
+const STAGE_POP = 0.16;
+/** Hum in the hands by stage reached: none, first, second, full. Metres. */
+const HUM = [0, 0.0004, 0.001, 0.0034] as const;
 
 const BORE = 0.074;
 const RAIL_Z0 = -0.17;
@@ -225,20 +233,38 @@ function drawScreen(a: Anim): void {
   const w = canvas.width;
   const h = canvas.height;
   const full = a.charge >= 0.999;
+  const stage = stageOf(a.charge);
   g.fillStyle = '#03090d';
   g.fillRect(0, 0, w, h);
   g.fillStyle = full ? '#ffffff' : '#35e8ff';
   g.font = '800 44px "Courier New", monospace';
   g.textBaseline = 'top';
-  g.fillText(`${String(Math.round(a.charge * 100)).padStart(3, '0')}%`, 8, 6);
+  g.fillText(full ? 'MAX' : `${String(Math.round(a.charge * 100)).padStart(3, '0')}%`, 8, 6);
+  // What letting go now fires: a ball under the first stage, then the beam by its stage.
+  g.font = '800 26px "Courier New", monospace';
+  g.fillText(stage === 0 ? 'BALL' : 'I'.repeat(stage), 128, 14);
   g.font = '700 20px "Courier New", monospace';
   g.fillText(`CELL ${a.mag}/${a.magSize}`, 8, 54);
   g.fillStyle = '#123';
   g.fillRect(8, 84, w - 16, 18);
   g.fillStyle = full ? '#ffffff' : '#35e8ff';
   g.fillRect(8, 84, (w - 16) * a.charge, 18);
+  // A notch at each stage short of full.
+  g.fillStyle = '#03090d';
+  for (let i = 0; i < STAGE_AT.length - 1; i++) g.fillRect(8 + (w - 16) * STAGE_AT[i]! - 2, 84, 4, 18);
   texture.needsUpdate = true;
 }
+
+/** Stages the charge has reached: 0 under the first, up to the number there are. */
+function stageOf(charge: number): number {
+  let n = 0;
+  for (let i = 0; i < STAGE_AT.length; i++) if (charge >= STAGE_AT[i]! - 1e-6) n = i + 1;
+  return n;
+}
+
+/** The stage seen last frame and when it landed, for the flare. One Lance is ever in the hands. */
+let seenStage = 0;
+let stageLanded = -99;
 
 function clip(a: Anim): void {
   const P = a.parts;
@@ -248,22 +274,39 @@ function clip(a: Anim): void {
   // The bank discharges in a flash, then bleeds down over the half-second after a shot.
   const burst = t < 0.5 ? (1 - t / 0.5) ** 2 * a.strength : 0;
 
+  // A stage landing flares its capacitor white and jolts the gun, so the charge is read in steps and not as a ramp.
+  const stage = stageOf(c);
+  if (stage > seenStage) stageLanded = a.time;
+  seenStage = stage;
+  const pop = clamp(1 - (a.time - stageLanded) / STAGE_POP);
+
+  // Three capacitors fill on the way to the three stages and burn once theirs is reached. The fourth is the full charge.
   for (let i = 0; i < CAPS.length; i++) {
-    const on = clamp(c * 4 - i);
-    a.glow(CAPS[i]!, 0.3 + on * 5 + burst * 3);
+    let level = 0.3 + burst * 3;
+    if (i < STAGE_AT.length) {
+      const from = i === 0 ? 0 : STAGE_AT[i - 1]!;
+      const reached = stage > i;
+      level += clamp((c - from) / (STAGE_AT[i]! - from)) * 2 + (reached ? 6 : 0) + (stage === i + 1 ? pop * 10 : 0);
+    } else if (stage >= STAGE_AT.length) {
+      level += 8 + 3 * Math.sin(a.time * 44) + pop * 10;
+    }
+    a.glow(CAPS[i]!, level);
   }
   const full = c >= 0.999 ? 1 + 0.25 * Math.sin(a.time * 44) : 0;
-  a.glow('rail', 0.06 + c * c * 6 + full * 3 + burst * 16);
+  a.glow('rail', 0.06 + c * c * 5 + stage * 2 + pop * 6 + full * 5 + burst * 16);
   a.glow('sight', 0.9 + c * 0.8);
   a.glow('cell', 0.7 + c * 1.1);
 
-  // Hum in the hands: small and fast, rising to a shake at full charge.
-  const hum = c * c * 0.0012 + (c >= 0.999 ? 0.0009 : 0);
+  // Hum in the hands: small and fast, stepping up with each stage to a real shake at full charge.
+  const hum = c * c * 0.0006 + HUM[Math.min(stage, HUM.length - 1)]!;
   a.gunP.x += Math.sin(a.time * 91) * hum;
   a.gunP.y += Math.sin(a.time * 107 + 1) * hum;
-  a.gunR.z += Math.sin(a.time * 83) * hum * 1.8;
-  // The arms brace as it charges.
-  a.gunP.z += c * 0.012;
+  a.gunR.z += Math.sin(a.time * 83) * hum * 2.2;
+  a.gunR.x += Math.sin(a.time * 97 + 2) * hum * 0.9;
+  // The arms brace as it charges, and take the jolt of each stage.
+  a.gunP.z += c * 0.018 + pop * 0.006;
+  a.gunP.y -= c * 0.004;
+  a.gunR.x += pop * 0.012;
 
   const vent = Math.max(seg(c, 0.3, 1), t < 0.8 ? 1 - seg(t, 0.25, 0.8) : 0);
   P.vent0!.rotation.x -= vent * 0.75;

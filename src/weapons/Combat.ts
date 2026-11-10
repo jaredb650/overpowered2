@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { CG, type CorpseHit, type Ctx, type DamageInfo, type DamageType, type ExplosionKind, type ExplosionOptions, type SurfaceKind } from '../core/contracts';
 import type {
-  CombatSystem, DamageResult, EnemyInstance, ExplosionSpec, ProjectileSpec, ShotResult, ShotSpec,
+  CombatSystem, DamageResult, EnemyInstance, ExplosionSpec, ProjectileSpec, ShotResult, ShotSpec, StruckList,
 } from '../core/gameplay';
 import type { GoreRegion } from '../characters/rig';
 import type { MuzzleKind } from '../core/contracts';
@@ -373,16 +373,22 @@ export class Combat implements CombatSystem {
     return r;
   }
 
-  private collectHits(st: RayState, limit: number, pierce: number): number {
+  /**
+   * `skip` is the list of a round that is resolved in more than one ray (the Lance's beam, a few bodies a frame): a body
+   * already in it is not met again, so a later ray can start where the last one stopped without striking a survivor twice.
+   */
+  private collectHits(st: RayState, limit: number, pierce: number, skip?: StruckList): number {
     const c = this.ctx;
     const hits = st.hits;
-    if (pierce > 0) {
-      const list = c.enemies.raycastAll(st.origin, st.dir, limit, Math.min(pierce + 1, MAX_PIERCE_SLOTS));
+    if (pierce > 0 || skip) {
+      const want = Math.min(pierce + 1, MAX_PIERCE_SLOTS);
+      const list = c.enemies.raycastAll(st.origin, st.dir, limit, skip ? MAX_PIERCE_SLOTS : want);
       if (!list) return 0;
-      const n = Math.min(list.length, MAX_PIERCE_SLOTS);
-      for (let i = 0; i < n; i++) {
+      let n = 0;
+      for (let i = 0; i < list.length && n < want; i++) {
         const h = list[i]!;
-        const s = hits[i]!;
+        if (skip && wasStruck(skip, h.enemy)) continue;
+        const s = hits[n++]!;
         s.enemy = h.enemy;
         s.distance = h.distance;
         s.point.copy(h.point);
@@ -426,7 +432,7 @@ export class Combat implements CombatSystem {
       // Bodies this round could still go through: the free ones, plus what its budget buys.
       let through = pierce;
       if (budget.left > 0) through += budget.body > 0 ? Math.floor(budget.left / budget.body + 1e-6) : MAX_PIERCE_SLOTS;
-      const count = this.collectHits(st, limit, Math.min(through, MAX_PIERCE_SLOTS - 1));
+      const count = this.collectHits(st, limit, Math.min(through, MAX_PIERCE_SLOTS - 1), spec.struck);
       const stopsOnEnemy = count > 0 && count > through;
       const firstStop = stopsOnEnemy ? st.hits[count - 1]!.distance : limit;
 
@@ -438,7 +444,7 @@ export class Combat implements CombatSystem {
         return;
       }
 
-      this.hitCorpses(st, firstStop, damage * damageKept(budget), spec);
+      if (!spec.skipCorpses) this.hitCorpses(st, firstStop, damage * damageKept(budget), spec);
 
       let stopped = false;
       let hopFrom: HitSlot | null = null;
@@ -459,6 +465,12 @@ export class Combat implements CombatSystem {
         if (splits) o.slicePlaneNormal = this.vE.crossVectors(st.dir, UP).normalize();
         const res = this.strike(h.enemy, h.point, h.normal, st.dir, h.bone, h.region, dealt, o);
         r.hitEnemy = true;
+        // For a weapon that does something at every body its round struck: the Lance sets a plasma burst off at each.
+        const list = spec.struck;
+        if (list && list.count < list.points.length) {
+          list.points[list.count]!.copy(h.point);
+          list.enemies[list.count++] = h.enemy;
+        }
         if (res.headshot) r.headshot = true;
         if (res.killed) {
           r.killed = true;
@@ -522,6 +534,7 @@ export class Combat implements CombatSystem {
       // is older than that and keeps what it did.
       if (budget.left > 0 && (!vehicle || perWall(budget)) && passWall(c.physics, budget, wall, st.dir, st.exit, st.exitNormal)) {
         const thickness = st.exit.distanceTo(wall.point);
+        if (spec.struck) spec.struck.walls++;
         this.exitWall(st.exit, st.dir, st.exitNormal, wall.surface, scale);
         left -= thickness;
         flown += thickness;
@@ -926,7 +939,7 @@ export class Combat implements CombatSystem {
     if (hit.count > 0) c.hud.hitMarker(hit.kills > 0 ? 'kill' : 'body');
     const near = closeness > 0.5 && def.fovPunch > 0 ? HIT_STOP.explosionNear : 0;
     const stop = Math.min(HIT_STOP.explosionMax, near + hit.kills * HIT_STOP.explosionKills);
-    if (stop > 0 && spec.team === 'player') this.feel.stop(stop);
+    if (stop > 0 && spec.team === 'player' && !def.noKillStop) this.feel.stop(stop);
   }
 
   private readonly blastTally = { count: 0, kills: 0 };
@@ -1039,6 +1052,12 @@ export class Combat implements CombatSystem {
     v.y += Math.max(player.velocity.y, 0);
     player.launch(v);
   }
+}
+
+/** True for a body the round that owns `list` has already struck. */
+function wasStruck(list: StruckList, enemy: EnemyInstance): boolean {
+  for (let i = 0; i < list.count; i++) if (list.enemies[i] === enemy) return true;
+  return false;
 }
 
 /** Damage a round keeps at `distance`, by its falloff: all of it to `from`, `floor` of it from `to` on. */

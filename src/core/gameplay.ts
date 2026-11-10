@@ -191,6 +191,30 @@ export interface ShotSpec {
   falloff?: { readonly from: number; readonly to: number; readonly floor: number };
   /** This many kills are split in two along the line of the shot. Head kills keep their own death. */
   cleave?: number;
+  /**
+   * The caller's own list. The ray adds each body it struck to it, nearest first, and passes over any body already in it:
+   * for a weapon that does something at every body (the Lance's plasma bursts), and for a round resolved in more than one
+   * ray, each starting where the last stopped (the Lance's beam, a few bodies a frame). Unset costs nothing.
+   */
+  struck?: StruckList;
+  /**
+   * The ray passes over corpses. For the later rays of a round resolved in more than one (the Lance's beam): the corpses
+   * ahead of them are mostly its own kills of a frame before, and must not be struck again at full damage.
+   */
+  skipCorpses?: boolean;
+}
+
+/**
+ * The bodies a round has struck, in the order it met them, and the walls it has gone through. The caller makes it, as long
+ * as it likes, clears it between rounds, and may hand the same one to several rays of one round: bodies past its length
+ * are struck and not listed.
+ */
+export interface StruckList {
+  count: number;
+  /** Walls passed, by the penetration rule in force. */
+  walls: number;
+  readonly points: THREE.Vector3[];
+  readonly enemies: (EnemyInstance | null)[];
 }
 
 export interface ShotResult {
@@ -225,8 +249,11 @@ export interface ExplosionSpec {
   worldObject?: boolean;
 }
 
-/** Dotted smoke, Hellfire smoke, the heavy strike smoke, 30mm rings, a plasma spark line, or a missile's thin quick smoke. */
-export type ProjectileTrail = 'none' | 'smoke' | 'big' | 'hellfire' | 'rings' | 'sparks' | 'swarm';
+/**
+ * Dotted smoke, Hellfire smoke, the heavy strike smoke, 30mm rings, a plasma spark line, a missile's thin quick smoke, or
+ * the wake of the Lance's plasma ball: sparks with a ring pulse every few metres.
+ */
+export type ProjectileTrail = 'none' | 'smoke' | 'big' | 'hellfire' | 'rings' | 'sparks' | 'swarm' | 'plasma';
 
 export interface ProjectileSpec {
   origin: THREE.Vector3;

@@ -410,9 +410,10 @@ describe('the guns', () => {
       r.weapons.give('lance');
       draw('weapon7');
       r.input.simulate('fire', true);
-      r.run(TUNING.lance.chargeTime + 0.1);
+      r.run(TUNING.lance.tapTime + TUNING.lance.chargeTime + 0.1);
       r.input.simulate('fire', false);
-      r.run(0.05);
+      // Long enough for the beam, and over before the first of its plasma bursts: those are lance.test.ts's.
+      r.run(0.03);
     };
 
     it('bodies are free, and a wall takes nothing off its damage', () => {
@@ -420,7 +421,7 @@ describe('the guns', () => {
       const line = [-4, -6, -14, -16].map(z => r.enemies.add(0, z));
       full();
       expect(line.map(d => d.hits.length)).toEqual([1, 1, 1, 1]);
-      expect(line.map(d => d.hits[0]!.amount)).toEqual([420, 420, 420, 420]);
+      expect(line.map(d => d.hits[0]!.amount)).toEqual(line.map(() => WEAPONS.lance.damage));
     });
 
     it('two walls, each up to 1.6 m, and not a third', () => {
@@ -455,9 +456,11 @@ describe('the guns', () => {
       r.wall(-10, 0.3);
       const behind = r.enemies.add(0, -15);
       r.input.simulate('fire', true);
-      r.run(TUNING.lance.chargeTime * 0.6);
+      // The stage under full, the strongest beam that is not a full one.
+      r.run(TUNING.lance.tapTime + TUNING.lance.chargeTime * 0.8);
       r.input.simulate('fire', false);
       r.run(0.05);
+      expect(r.weapons.lance.fired.beams).toEqual([0, 1, 0]);
       expect(behind.hits.length).toBe(0);
     });
   });

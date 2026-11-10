@@ -427,7 +427,8 @@ const GROUPS = {
       await T.equip('lance');
       await T.clear();
       T.input.simulate('fire', true);
-      await T.wait(0.95);
+      // A tenth of a second of tap, then a second of charge (TUNING.lance), and a margin.
+      await T.wait(1.3);
       out.charge = Number(W.charge.toFixed(2));
       const row = [R.spawn('husk', 7), R.spawn('husk', 10), R.spawn('trooper', 13), R.spawn('husk', 16)];
       await T.frames(2);

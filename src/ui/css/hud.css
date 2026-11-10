@@ -373,6 +373,14 @@
 .xh-prompt-t { display: inline-block; padding: 0 0.5rem; background: var(--amber); color: #000; font-weight: 800; }
 .xh-charge { position: absolute; left: -4rem; top: 3.2rem; width: 8rem; height: 0.32rem; background: var(--plate); }
 .xh-charge-fill { width: 100%; height: 100%; background: var(--cold); transform-origin: 0 50%; }
+/* The Lance: a notch at each stage short of full. The bar is dim while letting go is only a plasma ball, cyan once it is a
+   beam, and white in an amber frame at full charge. */
+.xh-charge-mark { display: none; position: absolute; top: -0.16rem; width: 0.14rem; height: 0.64rem; margin-left: -0.07rem; background: var(--ink); }
+.xh-charge.staged .xh-charge-mark { display: block; }
+.xh-charge.staged .xh-charge-fill { background: var(--steel); }
+.xh-charge.staged.s1 .xh-charge-fill { background: var(--cold); }
+.xh-charge.staged.full { outline: 0.1rem solid var(--amber); }
+.xh-charge.staged.full .xh-charge-fill { background: var(--ink); }
 
 .arc { position: absolute; left: -6.5rem; top: -1rem; width: 13rem; height: 2rem; transform-origin: 50% 50%; will-change: transform, opacity; }
 .arc svg { display: block; width: 100%; height: 100%; overflow: visible; }

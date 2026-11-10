@@ -10,7 +10,11 @@ import type { WeaponId } from '../../core/gameplay';
 import { clamp, damp, wrapAngle } from '../../core/math';
 import { Flag, Label, Meter, Shown, div, markup, span } from '../dom';
 import type { HudState } from '../state';
+import { LANCE_OLD, TUNING, WEAPONS } from '../../weapons/data';
 import { LockMarkers } from './locks';
+
+/** The Lance's stages as shares of its charge: a notch on the bar at each short of full, and the bar steps colour as each is reached. */
+const CHARGE_STAGES: readonly number[] = LANCE_OLD ? [] : TUNING.lance.stages.map(s => s.at);
 
 const poly = (pts: string) => `<polygon points="${pts}"/>`;
 /** Rotates one arm around the centre so a shape is only drawn once. */
@@ -218,6 +222,9 @@ export class Crosshair {
   private promptShown: Shown;
   private charge: Meter;
   private chargeShown: Shown;
+  /** The Lance's bar: notches shown, and one flag a stage reached. */
+  private chargeStaged: Flag;
+  private chargeSteps: Flag[] = [];
   private comboHost: HTMLElement;
   private heat = -1;
   private aimClock = 0;
@@ -239,6 +246,15 @@ export class Crosshair {
     const promptHost = div('xh-prompt', prompt);
     const chargeFill = div('xh-charge-fill');
     const chargeHost = div('xh-charge', chargeFill);
+    for (let i = 0; i < CHARGE_STAGES.length; i++) {
+      if (i < CHARGE_STAGES.length - 1) {
+        const mark = div('xh-charge-mark');
+        mark.style.left = `${CHARGE_STAGES[i]! * 100}%`;
+        chargeHost.append(mark);
+      }
+      this.chargeSteps.push(new Flag(chargeHost, i === CHARGE_STAGES.length - 1 ? 'full' : `s${i + 1}`));
+    }
+    this.chargeStaged = new Flag(chargeHost, 'staged');
 
     this.hits = {
       body: new HitMarker('body'),
@@ -389,7 +405,12 @@ export class Crosshair {
 
     const charging = s.charge > 0.01 && !hidden;
     this.chargeShown.set(charging);
-    if (charging) this.charge.set(s.charge);
+    if (charging) {
+      this.charge.set(s.charge);
+      const staged = WEAPONS[s.weapon].mode === 'charge';
+      this.chargeStaged.set(staged && CHARGE_STAGES.length > 0);
+      for (let i = 0; i < this.chargeSteps.length; i++) this.chargeSteps[i]!.set(staged && s.charge >= CHARGE_STAGES[i]! - 1e-6);
+    }
 
     this.hits.body.update(dt);
     this.hits.armor.update(dt);

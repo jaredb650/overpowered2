@@ -43,6 +43,8 @@ interface Effect {
 
 const RADIUS: Partial<Record<ExplosionKind, number>> = {
   rocket: 8, grenade: 6, hellfire: 20, hellfireBullet: 2, shell: 5, plasma: 6, enemy: 5, barrel: 7, finisher: 8, nuke: 60,
+  // One link of the chain a full Lance beam leaves.
+  plasmaBurst: 2.8,
 };
 
 const UP = new THREE.Vector3(0, 1, 0);

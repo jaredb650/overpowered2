@@ -32,6 +32,8 @@ Events out: `enemy:spawned`, `enemy:hit`, `enemy:killed`, `enemy:severed`, `wave
 | Maim | 0.22 to 0.62 | One roll per body: waist, head, limbs, arm and leg, arm, burn, flesh. Usually fatal or nearly so |
 | Toss | 0.62 to 1 | Thrown, limb, scorch, dazed. Capped at 55% of max health, so a healthy body lives and gets up |
 
+The Lance's plasma burst (`plasmaBurst`, a ball's splash or one link of a beam's chain) has a row in `BLAST.rings` with no fireball at all, `[0, 0.62]`: it never gibs, and a body it kills is rolled on the ring that maims. It is the one change the Lance made here, a table row, and every other kind's row is as it was.
+
 Machines roll `parts` and `sparks`, and nothing else. Bosses skip the rings. Each outcome rolled in a blast divides its own weight by 1 plus `repeat`, so a crowd cannot all go one way. `BLAST.cuts` caps limbs per blast at 12, because each costs 3 to 5 ms of mesh cutting in one frame. A kill from a shotgun pellet of 100 N·s or more in the trunk tears the waist 35% of the time.
 
 Over 100 simulated blasts on a crowd of 12, 1200 bodies: thrown 14%, burn 9%, scorch 9%, flesh 9%, head 8%, arm and leg 8%, arm 8%, dazed 8%, limb 7%, gib 7%, limbs 7%, waist 5%. No blast had under 6 kinds or over 4 of one kind.

@@ -136,6 +136,27 @@ const RECIPES: Record<ExplosionKind, Recipe> = {
     lightGain: 0.9,
     flash: hot(0xdff4ff, 24),
   },
+  // The Lance's burst: a plasma ball landing, or one link of the chain a beam leaves. Small and all light: a white-blue
+  // core, a short fireball, a shock sphere and a floor ring, a scorch, and few enough pieces that twenty in a second are
+  // about what one rocket puts out.
+  plasmaBurst: {
+    ...ROCKET,
+    base: 2.8,
+    chips: [[CHIP.cyan, 12], [CHIP.blueWhite, 8]],
+    shockReach: 0.85,
+    sparks: 12,
+    sparkColor: SPARK.cyan,
+    fire: PLASMA_FIRE,
+    fireScale: 0.5,
+    smoke: 0,
+    debris: 0,
+    dust: false,
+    scorch: 0.5,
+    embers: 0,
+    light: 0x66ccff,
+    lightGain: 0.75,
+    flash: hot(0xdff4ff, 26),
+  },
   enemy: {
     ...ROCKET,
     base: 5,

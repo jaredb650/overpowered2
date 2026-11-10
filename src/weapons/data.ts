@@ -115,6 +115,12 @@ export const SLOT4_OLD = typeof location !== 'undefined' && (() => {
   return q.get('slot4') === 'old' || q.get('families') === '0';
 })();
 
+/**
+ * `?lance=old` puts the Lance back as it was: one charge with a fizzle on a tap, four cells, 420 damage, no plasma ball and
+ * no bursts. The code that fires it is src/weapons/lance.ts when this is off, and `Weapons.updateCharge` when it is on.
+ */
+export const LANCE_OLD = typeof location !== 'undefined' && new URLSearchParams(location.search).get('lance') === 'old';
+
 export const WEAPONS: Record<WeaponId, WeaponDef> = {
   smg: {
     ...BASE, id: 'smg', name: 'SMG', slot: 1, mode: 'auto',
@@ -266,14 +272,17 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     reloadFoley: [[0.05, 'reload_mag_out'], [0.5, 'reload_mag_in'], [0.82, 'reload_bolt']],
     recoil: 1, kick: 0.0062, shake: 0.006, fovPunch: 0.3,
   },
+  // A tap is a plasma ball, a hold is a beam: how it charges, what each stage fires and the bursts a beam leaves are
+  // TUNING.lance. The cell holds twelve: a ball takes one, a beam two, a full beam three. `interval` is between balls,
+  // and `damage`, `kick`, `shake` and `fovPunch` are the full beam's.
   lance: {
     ...BASE, id: 'lance', name: 'LANCE', slot: 7, mode: 'charge',
-    magSize: 4, reserve: 16, maxReserve: 32, reloadTime: 1.7, drawTime: 0.3,
-    interval: 0.35, damage: 420, severMult: 1000, force: 120, headshotMult: 2,
+    magSize: 12, reserve: 48, maxReserve: 96, reloadTime: 1.7, drawTime: 0.3,
+    interval: 0.24, damage: 1000, severMult: 1000, force: 120, headshotMult: 2,
     muzzle: 'railgun', tracer: 'rail',
     sounds: [{ id: 'railgun_fire' }, { id: 'railgun_beam' }],
     reloadFoley: [[0.12, 'reload_cell'], [0.78, 'reload_bolt']], drawSound: 'weapon_draw_heavy',
-    recoil: 1, kick: 0.05, shake: 0.06, fovPunch: 5,
+    recoil: 1.3, kick: 0.075, shake: 0.14, fovPunch: 7,
   },
   buzzsaw: {
     ...BASE, id: 'buzzsaw', name: 'BUZZSAW', slot: 8, mode: 'spin',
@@ -305,6 +314,11 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
 };
 
 if (SLOT4_OLD) WEAPONS.sabot.base = 'autocannon';
+if (LANCE_OLD) {
+  Object.assign(WEAPONS.lance, {
+    magSize: 4, reserve: 16, maxReserve: 32, interval: 0.35, damage: 420, recoil: 1, kick: 0.05, shake: 0.06, fovPunch: 5,
+  });
+}
 
 /**
  * Slot order, and inside a slot the order its key steps through: the order of the rows above, so a new family member is
@@ -395,8 +409,15 @@ export const TUNING = {
   },
   /** How many heads it hops to is `headHops` in its row. */
   judge: { ricochetRange: 28, ricochetDamage: 0.8 },
+  /**
+   * The Lance. A press let go before the first stage is a plasma ball. Held, the charge climbs through `stages`, and
+   * letting go fires the beam of the last one reached. Every body a beam strikes sets off a plasma burst, one after
+   * another down the line. The rules are src/weapons/lance.ts. `minCharge`, `minDamage`, `maxTargets` and `cleave` are the
+   * old gun's, which `?lance=old` brings back.
+   */
   lance: {
-    chargeTime: 0.85,
+    /** Seconds from the start of the charge to the last stage. */
+    chargeTime: LANCE_OLD ? 0.85 : 1,
     /** Below this the trigger release is a fizzle, not a shot. */
     minCharge: 0.22,
     minDamage: 90,
@@ -407,6 +428,53 @@ export const TUNING = {
     maxTargets: 24,
     /** A full charge splits this many bodies along the beam. Each costs about 5 ms, so a long line ends in ragdolls. */
     cleave: 3,
+    /** A press this short shows and sounds no charge at all, so a tap is clean. The charge starts after it. */
+    tapTime: 0.1,
+    /** Seconds after a full beam before the next press counts. A weaker beam waits by its `weight`, a ball `interval`. */
+    recover: 0.5,
+    /** Degrees the view narrows by at full charge. */
+    fovPull: 7,
+    /**
+     * Seconds a beam's FOV punch (the row's `fovPunch` by the stage's `weight`) takes to fall back, on the real clock. It is
+     * thrown from the charge's narrowed view, so a full beam opens the view from 83 to 97 degrees in a frame.
+     */
+    punchTime: 0.2,
+    /** Metres a second a full beam shoves the player back along the shot. */
+    push: 2.5,
+    /**
+     * The tap: a concussion shot. `force` on the body it hits and the blast rings on those beside it floor light bodies
+     * and stagger heavy ones (src/enemies/reactions.ts, blast.ts). `radius` and `splash` are its burst, `size` how big it is
+     * drawn against the 0.2 m plasma body.
+     */
+    ball: {
+      cost: 1, speed: 80, life: 2, damage: 60, force: 95, severMult: 1, killStop: 0.03,
+      radius: 2.2, splash: 40, scale: 0.6, size: 1.3,
+      recoil: 0.4, kick: 0.008, shake: 0.008, fovPunch: 0.7,
+    },
+    /**
+     * `at` is the charge a stage is reached at and `cost` what its beam takes from the cell. `damage` is a share of the
+     * row's. `pierce` is how many bodies it goes on through after the first, `walls` how many walls of `penetration`
+     * thickness, `cleave` how many kills it splits. `burst` is the radius of the plasma burst at each body it strikes and
+     * `burstDamage` its centre. `weight` scales kick, shake, recoil and the wait after; `width` and `linger` are the beam.
+     * `pierces` is armour: plates and a carried shield do not stop it, as they do not stop the Sabot's dart.
+     */
+    stages: [
+      { at: 0.3, cost: 2, damage: 0.2, pierce: 1, walls: 0, cleave: 0, pierces: false, burst: 1.8, burstDamage: 60, weight: 0.4, width: 0.05, linger: 0.4 },
+      { at: 0.65, cost: 2, damage: 0.45, pierce: 4, walls: 0, cleave: 1, pierces: false, burst: 2.2, burstDamage: 100, weight: 0.65, width: 0.08, linger: 0.55 },
+      { at: 1, cost: 3, damage: 1, pierce: 31, walls: 2, cleave: 3, pierces: true, burst: 2.8, burstDamage: 160, weight: 1, width: 0.13, linger: 0.95 },
+    ],
+    /** A full beam's first flash is this many times its width, for a tenth of a second. */
+    sheath: 3.5,
+    /**
+     * A full beam strikes this many bodies a frame and carries on from the last of them the next, and splits `cleave` of
+     * its kills a frame, so a line of twenty dies over seven frames inside the hit-stop and not in one long frame.
+     */
+    sweep: { perFrame: 3, cleave: 1 },
+    /**
+     * The bursts go off `first` after the shot and `gap` apart, nearest first, on the world clock, and no more than
+     * `perFrame` in one frame, so a long line is a ripple and never one frame's work. `max` is the pool.
+     */
+    chain: { first: 0.04, gap: 0.035, perFrame: 2, max: 32, scale: 0.8, shake: 0.014 },
   },
   buzzsaw: {
     spinUp: 0.55, spinDown: 0.85,
@@ -529,6 +597,8 @@ export interface ExplosionDef {
   /** Near-player post effects. */
   flash: number;
   fovPunch: number;
+  /** Its kills do not stop the clock: for a burst that comes in a chain, where a stop a burst would read as a stutter. */
+  noKillStop?: boolean;
 }
 
 const BLAST: ExplosionDef = {
@@ -572,6 +642,13 @@ export const EXPLOSIONS: Record<ExplosionKind, ExplosionDef> = {
   plasma: {
     ...BLAST, shake: 0.03, shakeRange: 22, selfDamage: 0.3, selfCap: 30, playerPush: 10, impulse: 9,
     sounds: [{ id: 'explosion_small', pitch: 1.2 }], flash: 0.08, fovPunch: 1,
+  },
+  // The Lance's: a plasma ball's splash, and the burst a beam leaves at every body it strikes. Twenty can go off inside a
+  // second, so it is quiet on the camera: no flash, no FOV punch, no hit-stop of its own. Its size is on the spec. A ball
+  // let off at arm's length stings and does not throw the player; a beam's bursts set their own share to nothing.
+  plasmaBurst: {
+    ...BLAST, shake: 0.02, shakeRange: 18, selfDamage: 0.15, selfCap: 6, playerPush: 0, impulse: 10,
+    sounds: [{ id: 'plasma_burst', pitchJitter: 0.1 }], flash: 0, fovPunch: 0, noKillStop: true,
   },
   enemy: { ...BLAST, selfDamage: 1, selfCap: 999, playerPush: 16, flash: 0.2 },
   barrel: {
@@ -636,6 +713,8 @@ export const HIT_STOP = {
   lanceKill: 0.05,
   lancePerExtraKill: 0.018,
   lanceMax: 0.14,
+  /** A full beam that struck any body at all. Each kill adds `lancePerExtraKill`, up to `lanceMax`. */
+  lanceShot: 0.06,
   explosionNear: 0.04,
   explosionKills: 0.012,
   explosionMax: 0.09,

@@ -68,7 +68,7 @@ export const BLAST = {
   /** Small enough that the fireball only takes a body or two out of a crowd. Most of a grenade's work is the ring round it. */
   rings: {
     rocket: [0.25, 0.65], grenade: [0.22, 0.62], hellfire: [0.3, 0.7], hellfireBullet: [0.3, 0.7], shell: [0.3, 0.7],
-    plasma: [0.25, 0.65], enemy: [0.25, 0.65], barrel: [0.28, 0.68], finisher: [0.25, 0.65], nuke: [1, 1],
+    plasma: [0.25, 0.65], plasmaBurst: [0, 0.62], enemy: [0.25, 0.65], barrel: [0.28, 0.68], finisher: [0.25, 0.65], nuke: [1, 1],
   } as Readonly<Record<ExplosionKind, Rings>>,
   /** Each time an outcome comes up in one blast its weight is divided by 1 plus this, so a crowd never all goes the same way. */
   repeat: 1.6,

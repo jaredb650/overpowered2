@@ -19,6 +19,7 @@ import { PIERCE_ON } from './penetration';
 import { Painter, angleOff, type PaintCandidate } from './swarm';
 import { isMelee } from './melee/data';
 import { Melee } from './melee/Melee';
+import { LANCE_ON, Lance } from './lance';
 
 interface Slot {
   def: WeaponDef;
@@ -53,6 +54,8 @@ export class Weapons implements WeaponSystem, Guard {
   private readonly slots: Record<WeaponId, Slot>;
   /** Every weapon on key 5, the katana and its family: src/weapons/melee. */
   private readonly sword: Melee;
+  /** Slot 7's gun: tap for a plasma ball, hold for a beam. `?lance=old` leaves it idle and `updateCharge` fires instead. */
+  readonly lance: Lance;
   private lastWeapon: WeaponId = 'shotgun';
   /** The gun a sword kill feeds: whatever was in hand before the blade came out. */
   private lastGun: WeaponId = 'smg';
@@ -135,6 +138,23 @@ export class Weapons implements WeaponSystem, Guard {
     }
     this.slots = slots;
     this.sword = new Melee(ctx, this.combat, this.modifiers);
+    // The Lance's trigger, its beams and its bursts are lance.ts. This is all it needs of the arsenal.
+    this.lance = new Lance(ctx, {
+      modifiers: this.modifiers,
+      muzzleAt: this.muzzleAt,
+      canShoot: s => this.canShoot(s),
+      consume: (s, rounds) => this.consume(s, rounds),
+      takePress: () => {
+        if (this.pressBuffer <= 0) return false;
+        this.pressBuffer = 0;
+        return true;
+      },
+      dry: () => this.dryFire(),
+      feedback: (def, strength) => this.shotFeedback(def, false, strength),
+      shot: (def, damage) => this.fillShot(def, damage),
+      projectile: (kind, def, speed, damage, trail) => this.fillProjectile(kind, def, speed, damage, trail),
+      interval: def => this.interval(def),
+    });
     for (const id of STARTING_WEAPONS) this.own(id);
   }
 
@@ -213,6 +233,7 @@ export class Weapons implements WeaponSystem, Guard {
     this.pendingSwitch = null;
     this.holstered = false;
     this.sword.reset();
+    this.lance.reset();
     this.drawLeft = 0;
     this.ctx.viewmodel.equip?.(this.current, 0.01);
   }
@@ -234,7 +255,8 @@ export class Weapons implements WeaponSystem, Guard {
   }
 
   get charge(): number {
-    return WEAPONS[this.current].mode === 'spin' ? this.spin : this.chargeLevel;
+    const mode = WEAPONS[this.current].mode;
+    return mode === 'spin' ? this.spin : mode === 'charge' && LANCE_ON ? this.lance.level : this.chargeLevel;
   }
 
   /** The blade is out: the weapon in hand is swung, not fired. */
@@ -375,6 +397,8 @@ export class Weapons implements WeaponSystem, Guard {
   // -------------------------------------------------------------------------------------------
 
   update(): void {
+    // The bursts a Lance beam booked go off whatever is in hand now, dead or holstered included.
+    this.lance.tick();
     this.frame();
     const p = this.ctx.player;
     this.rigEye.copy(p.eye);
@@ -606,7 +630,10 @@ export class Weapons implements WeaponSystem, Guard {
     switch (def.mode) {
       case 'auto': this.updateAuto(s, held); break;
       case 'semi': this.updateSemi(s); break;
-      case 'charge': this.updateCharge(s, dt, held); break;
+      case 'charge':
+        if (LANCE_ON) this.lance.update(s, dt, held);
+        else this.updateCharge(s, dt, held);
+        break;
       case 'spin': this.updateSpin(s, dt, held); break;
       case 'stream': this.updateStream(s, dt, held); break;
       case 'paint': this.updatePaint(s, dt, held); break;
@@ -830,6 +857,8 @@ export class Weapons implements WeaponSystem, Guard {
   }
 
   private endContinuous(): void {
+    // Everything that ends a loop ends a Lance charge too: a switch, a reload, a melee, a pause, a death.
+    this.lance.cancel();
     this.loop?.stop(0.1);
     this.loop = null;
     this.loopKind = '';

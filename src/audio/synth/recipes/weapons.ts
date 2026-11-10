@@ -149,6 +149,36 @@ export const weapons = [
     s.osc('sine', [[0, 1900], [1.5, 620]], 1.6).am(s.lfo(30, 0.4)).env(perc(1.4, 0.5)).out();
     s.grains(1.5, t => 90 * (1 - t / 1.5) + 4, 0.0015).hp(3000).out(0.5);
   }),
+  // The Lance's tap: a plasma ball leaving. A short falling chirp over a soft thump, small enough for four a second.
+  r('lance_plasma', { dur: 0.42, n: 3, mix: 'gun', over: { volume: 0.5 }, expect: { attackMs: [0, 8] } }, s => {
+    laser(s, s.r(1500, 1800), s.r(240, 300), 0.2, 0.8);
+    thump(s, 96, 0.11, 0.8, 2.6);
+    s.noise('white', 0.04).hp(2400).env(perc(0.02, 0.7, 0.0004)).drive(3).out(0.6);
+    s.noise('pink', 0.3).bp([[0, 2200], [0.25, 700]], 1.2).env(perc(0.22, 0.35, 0.004)).out(0.5);
+  }),
+  // One tick as the charge reaches a stage, played higher for each, so the charge can be counted by ear through a fight.
+  r('lance_stage', { dur: 0.2, mix: 'reward', over: { volume: 0.34 }, expect: { centroid: [900, 7000] } }, s => {
+    s.osc('square', 1320, 0.1).lp(3800).env(perc(0.09, 0.8, 0.002)).out(0.55);
+    s.osc('sine', 2640, 0.07).env(perc(0.06, 0.4, 0.001)).out(0.6);
+    click(s, 2400, 0.3, 0.005);
+  }),
+  // The clap over a full beam: one hard crack, then thunder rolling away under the report for two seconds.
+  r('lance_thunder', { dur: 2.8, n: 2, mix: 'gunHeavy', over: { volume: 0.9, send: 0.45 }, expect: { attackMs: [0, 12], minSub: 0.08 } }, s => {
+    s.noise('white', 0.08).hp(1800).env(perc(0.02, 1, 0.0002)).drive(7, 'hard').out(0.9);
+    s.noise('brown', 2.6).lp([[0, 2400], [0.3, 700], [2.4, 110]]).am(s.wander(7, 0.6)).env(perc(2.2, 1, 0.004)).gain(2).drive(2).out(1);
+    s.osc('sine', [[0, 130], [0.08, 58], [1.8, 26]], 2).env(perc(1.6, 1, 0.001)).drive(2.4).out(1);
+    s.at(0.09, () => s.noise('pink', 0.5).bp([[0, 900], [0.4, 300]], 0.7).env(perc(0.4, 0.6, 0.004)).drive(3).out(0.7));
+    s.at(0.02, () => zap(s, 0.5, 0.35, 70));
+  }),
+  // A plasma burst: a ball landing, or one link of the chain a beam leaves. A snap, a low thump and a sizzle, short enough
+  // that a line of them a few hundredths apart is a ripple and not a roar.
+  r('plasma_burst', { dur: 0.7, n: 3, mix: 'blastSmall', over: { volume: 0.55, maxVoices: 6, near: 8, far: 160 }, expect: { attackMs: [0, 8], minSub: 0.03 } }, s => {
+    s.noise('white', 0.05).hp(2000).env(perc(0.014, 1, 0.0002)).drive(5, 'hard').out(0.8);
+    thump(s, s.r(70, 84), 0.2, 1, 3);
+    s.osc('sawtooth', [[0, s.r(1500, 1900)], [0.07, 420], [0.3, 120]], 0.34).drive(3, 'fold').lp(5200).env(perc(0.28, 0.7, 0.0005)).out(0.5);
+    s.at(0.01, () => zap(s, 0.35, 0.4, s.r(90, 130)));
+    s.noise('pink', 0.5).bp([[0, 2600], [0.4, 500]], 0.9).env(perc(0.4, 0.4, 0.003)).out(0.5);
+  }),
 
   // Buzzsaw. Everything is built on a 50 Hz firing grid so spin and barrage share a pulse.
   r('minigun_spinup', { dur: 1, mix: 'loop2d', expect: { trend: 1 } }, s => {

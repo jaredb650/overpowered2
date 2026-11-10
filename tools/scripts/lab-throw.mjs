@@ -88,7 +88,7 @@ export default async function throwTest(page, h) {
       ctx.input.simulate('fire', true);
       if (weapon === 'lance') {
         // A charge weapon fires on release.
-        await until(() => false, 1.1);
+        await until(() => false, 1.3);
         ctx.input.simulate('fire', false);
         await until(() => !e.alive, 0.4);
       } else {

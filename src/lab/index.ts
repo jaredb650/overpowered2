@@ -80,6 +80,7 @@ export class Lab {
       gallery: () => this.gallery(),
       swarm: () => this.swarm(),
       melee: backs => this.melee(backs),
+      lance: n => this.lance(n),
       parkour: () => this.parkour(),
       move: (key, on) => this.moveSwitch(key, on),
     }, (ctx.enemies as unknown as { vehicles?: unknown }).vehicles != null);
@@ -145,6 +146,16 @@ export class Lab {
   swarm(): number {
     this.draw('quiver');
     return this.spawner.spread(this.settings.spawn, this.settings.ai, 5);
+  }
+
+  /**
+   * The Lance in hand with a full cell, and `count` of the selected enemy one behind another down the crosshair with a few
+   * bystanders beside the line, for a beam and its bursts. Returns how many stood.
+   */
+  lance(count = 8): number {
+    this.draw('lance');
+    this.ctx.weapons.refillMagazines();
+    return this.spawner.column(this.settings.spawn, this.settings.ai, count);
   }
 
   /**

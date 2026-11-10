@@ -9,7 +9,7 @@ import { MOVE } from '../player/tuning';
 import {
   CACHE_ORDER, CALLINS as CALLIN_DEFS, CHAIN_REACTION_KILLS, COMBO_PERKS, DROP_POD, EFFECTS, MEGA, OVERDRIVE_MIN_SPEED, PICKUP, SCORE, STACK, STYLE_GATE, WINDOWS,
 } from '../progression/data';
-import { PENETRATION, SLOT4_OLD, SWORD, TUNING, WEAPONS as WEAPON_DEFS, WEAPON_ORDER as WEAPON_SEQUENCE } from '../weapons/data';
+import { LANCE_OLD, PENETRATION, SLOT4_OLD, SWORD, TUNING, WEAPONS as WEAPON_DEFS, WEAPON_ORDER as WEAPON_SEQUENCE } from '../weapons/data';
 import { BLADE_OLD, KATANA, MELEE, type MeleeId } from '../weapons/melee/data';
 
 /** The game's own order: number keys, and inside a key the order it steps through its family. */
@@ -111,8 +111,10 @@ export const WEAPONS: Record<WeaponId, WeaponInfo> = {
   },
   lance: {
     name: 'Lance', key: '7',
-    role: 'Railgun. Hold to charge, release to fire',
-    note: 'Pierces everything in line and severs what it touches.',
+    role: LANCE_OLD ? 'Railgun. Hold to charge, release to fire' : 'Railgun. Tap for a plasma ball, hold to charge a beam',
+    note: LANCE_OLD
+      ? 'Pierces everything in line and severs what it touches.'
+      : `A full charge goes through everyone in line and ${TUNING.lance.walls} walls, and a plasma burst goes off at each body it passes. Right click lets a charge go.`,
   },
   buzzsaw: {
     name: 'Buzzsaw', key: '8',

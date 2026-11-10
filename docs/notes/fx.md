@@ -126,7 +126,7 @@ Camera shake and hit-stop are not done here. Callers own those. Explosions do fi
 | `recipes/blood.ts` | Strand counts, speed, width, trail, drag per effect. `emitters.ts` for stumps and trails |
 | `layers/blood.ts` | `uLift` (how bright blood reads), `uMinPx` (thinnest strand before it pales), the 0.5 cap |
 | `stains.ts` `STAIN_SCALE` | Stain size against strand width |
-| `recipes/explosions.ts` `RECIPES` | Counts, reach, shock, smoke, light per kind |
+| `recipes/explosions.ts` `RECIPES` | Counts, reach, shock, smoke, light per kind. `plasmaBurst` is the Lance's (`docs/notes/weapons.md`, "The Lance"): a white-blue star, a short plasma fireball at half the radius, a shock sphere, a floor ring and a scorch, 20 chips and 12 sparks, 53 particles in all against a shell's 115, because a full beam sets one off at every body it struck, a few hundredths of a second apart. `/?sandbox=fx&effect=plasmaBurst` |
 | `recipes/impacts.ts` `SURFACES` | Per-surface chips, dust, sparks, pop |
 | `recipes/muzzle.ts` `MUZZLES`, `TRACERS` | Star shape, size, life, light. Tracer width, speed, length. `carbine`, `pistol` and `sabot` are the Harrow, Rivet and Sabot's own (`docs/notes/weapons.md`), and `quiver` one tube of the Quiver lighting, smaller than the rocket's and over in 40 ms so four in 0.3 s read as four (the Thresher uses `shotgun`): the sabot tracer is 0.11 m wide at 1400 m/s, so the pieces of it either side of a wall are on screen together |
 | `recipes/misc.ts` `BEAMS`, `SLASHES` | Beam and slash looks |

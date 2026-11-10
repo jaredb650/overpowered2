@@ -21,6 +21,9 @@ const PATROL_PACE = 0.75;
 const TURN_AT = 0.8;
 /** A lab vehicle stops this short of where it was spawned, and a chopper comes in at this height. */
 const DRIVE_IN = 24;
+/** The Lance's column starts this far ahead of the player, and looks this far for the wall that ends it. */
+const COLUMN_FROM = 8;
+const COLUMN_REACH = 70;
 const CHOPPER_HEIGHT = 20;
 
 interface Route {
@@ -120,6 +123,37 @@ export class LabSpawner {
       if (Number.isNaN(ground)) continue;
       _p.y = ground;
       if (this.place(id, _p, ai)) placed++;
+    }
+    return placed;
+  }
+
+  /**
+   * Targets for the Lance: `count` of `id` one behind another straight down the crosshair, from 8 m out and `gap` apart, for
+   * a beam to go through. With `beside`, every third has a bystander 1.7 m to one side, off the line, for the bursts to
+   * reach. The column is closed up to fit the clear floor ahead, and nobody is stood on a step or a block, where a level
+   * beam would pass over the rest. Returns how many stood, bystanders included.
+   */
+  column(id: EnemyId, ai: AiMode, count: number, gap = 1.8, beside = true): number {
+    const { physics, player, world } = this.ctx;
+    _flat.set(player.forward.x, 0, player.forward.z).normalize();
+    _right.set(-_flat.z, 0, _flat.x);
+    // Chest height, level: what a beam down the column has to clear.
+    _at.copy(player.position);
+    _at.y += 1.1;
+    const wall = physics.raycast(_at, _flat, COLUMN_REACH, CG.World);
+    const room = (wall ? wall.distance : COLUMN_REACH) - COLUMN_FROM - 1.5;
+    const step = count > 1 ? Math.min(gap, Math.max(room, 0) / (count - 1)) : 0;
+    let placed = 0;
+    for (let i = 0; i < count; i++) {
+      const sides = beside && i % 3 === 1 ? 2 : 1;
+      for (let k = 0; k < sides; k++) {
+        _p.copy(player.position).addScaledVector(_flat, COLUMN_FROM + i * step);
+        if (k === 1) _p.addScaledVector(_right, i % 2 ? 1.7 : -1.7);
+        const ground = world.nav.groundHeight(_p.x, _p.y + 1.5, _p.z);
+        if (Number.isNaN(ground) || Math.abs(ground - player.position.y) > 0.4) continue;
+        _p.y = ground;
+        if (this.place(id, _p, ai)) placed++;
+      }
     }
     return placed;
   }

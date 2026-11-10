@@ -74,6 +74,8 @@ export interface PanelActions {
   swarm(): void;
   /** Stands the selected enemy at 1.5, 2.5, 3.5, 5 and 8 m ahead, for a melee weapon's reach; `backs` turns them away. */
   melee(backs: boolean): void;
+  /** Draws the Lance with a full cell and stands `count` of the selected enemy in a column down the crosshair. */
+  lance(count: number): void;
   /** Stands the selected enemy in every bay of the range's piercing gallery, and the player at its near end. */
   gallery(): void;
   /** Stands the player at the start of the range's parkour strip. */
@@ -213,6 +215,10 @@ export class LabPanel {
     this.button(melee, 'Melee reach: five at 1.5 to 8 m', () => this.on.melee(false));
     this.button(melee, 'Backs turned', () => this.on.melee(true));
     this.el.append(melee);
+    const lance = el('div', 'lab-row');
+    this.button(lance, 'Lance: draw it, a column of 8 to shoot through', () => this.on.lance(8));
+    this.button(lance, 'Column of 20', () => this.on.lance(20));
+    this.el.append(lance);
     if (ON_RANGE) {
       const row = el('div', 'lab-row');
       this.button(row, 'Piercing gallery: stand me there, fill the bays', () => this.on.gallery());
