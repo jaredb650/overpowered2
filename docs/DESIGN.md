@@ -93,6 +93,7 @@ The first game was only fast in the air: 13.6 m/s sprinting on the ground, 45.6 
 | Wall run | Any near-vertical wall at speed. No gravity for 1.2 s, then falls off slowly. Jump kicks off the wall with a speed boost. Camera rolls toward the wall |
 | Wall kick | Jump near a wall while airborne, once per wall |
 | Mantle | Auto-climb ledges up to 1.5 m above reach while moving forward. Keeps speed |
+| Vault | Jump while running at waist-high cover with floor behind it: over on one hand, at the speed you arrived with. See docs/notes/player.md |
 | Jump pads, launch ramps | Part of the map, tuned for chaining |
 | Gravity | -28 |
 

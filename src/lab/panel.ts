@@ -6,6 +6,12 @@ import { ENEMIES } from '../enemies/data';
 import { CALLIN_ORDER, CALLINS, EFFECTS, POWERUPS } from '../progression/data';
 import type { AiMode, LabSettings } from './settings';
 
+/** Body animation for moves, its camera part, first-person legs, and vaulting cover with no key. */
+export type MoveSwitch = 'anim' | 'camera' | 'legs' | 'autoVault';
+const MOVE_SWITCHES: readonly (readonly [MoveSwitch, string])[] = [
+  ['anim', 'Move animations'], ['camera', 'Camera roll and settle on moves'], ['legs', 'Legs in a slide and a vault'], ['autoVault', 'Vault cover without a key, from a run'],
+];
+
 const VEHICLE_ORDER: readonly VehicleKind[] = ['humvee', 'truck', 'tank', 'chopper'];
 
 const ORDER: readonly EnemyId[] = [
@@ -61,6 +67,10 @@ export interface PanelActions {
   togglePause(): void;
   step(frames: number): void;
   setSpeed(speed: number): void;
+  /** Stands the player at the start of the range's parkour strip. */
+  parkour(): void;
+  /** Reads and writes one of the movement switches, which live with the player and not in the lab's settings. */
+  move(key: MoveSwitch, on?: boolean): boolean;
 }
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, className = '', text = ''): HTMLElementTagNameMap[K] {
@@ -89,6 +99,7 @@ export class LabPanel {
     this.el.append(el('h1', '', ON_RANGE ? 'TEST RANGE' : 'DEV PANEL'), this.status);
     this.spawnSection();
     this.playerSection();
+    this.moveSection();
     this.grantSection();
     this.timeSection();
     this.bodySection();
@@ -181,6 +192,24 @@ export class LabPanel {
     this.el.append(el('h2', '', 'PLAYER'));
     this.check(this.el, 'Every weapon, infinite ammo', 'arsenal');
     this.check(this.el, 'God mode', 'god');
+  }
+
+  private moveSection(): void {
+    this.el.append(el('h2', '', 'MOVEMENT'));
+    for (const [key, label] of MOVE_SWITCHES) {
+      const row = el('label', 'lab-check');
+      const box = el('input');
+      box.type = 'checkbox';
+      box.checked = this.on.move(key);
+      box.addEventListener('change', () => { this.on.move(key, box.checked); });
+      row.append(box, label);
+      this.el.appendChild(row);
+    }
+    if (ON_RANGE) {
+      const row = el('div', 'lab-row');
+      this.button(row, 'Parkour strip: stand me at the start', () => this.on.parkour());
+      this.el.append(row);
+    }
   }
 
   private grantSection(): void {

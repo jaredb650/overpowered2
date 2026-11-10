@@ -14,6 +14,7 @@ import type {
 import { clamp, damp, lerp } from '../core/math';
 import { CapsuleWorld, newSweepHit } from './collide';
 import { MovementFeedback } from './feedback';
+import { MoveAnim } from './moveAnim';
 import {
   airSteer, approachVector, clipVelocity, moveToward, quakeAccelerate, redirectOntoPlane, rotateToward, slamBounceSpeed,
   softLimit,
@@ -55,6 +56,8 @@ export class Player implements PlayerSystem {
   wallRunning = false;
   slamming = false;
   mantling = false;
+  /** Going over waist-high cover on one hand. Scripted like a mantle: `pos` is moved along a path and nothing collides. */
+  vaulting = false;
   alive = true;
   dashCharges = T.dashCharges;
   /** -1 wall on the left of the view, +1 on the right, 0 none. */
@@ -67,6 +70,11 @@ export class Player implements PlayerSystem {
   airTime = 0;
   /** Highest horizontal speed reached since reset, for tests and the speedometer. */
   peakSpeed = 0;
+
+  /** What the camera, the weapon, the free hand and the legs do for each move. Read by CameraRig and the viewmodel rig. */
+  readonly moveAnim = new MoveAnim();
+  /** Which side of the view the last wall kicked from was on: -1 left, +1 right. */
+  kickSide = 0;
 
   private ctx: Ctx;
   private body!: CapsuleWorld;
@@ -151,6 +159,38 @@ export class Player implements PlayerSystem {
   private mantleDuration = 0;
   private mantleDirX = 0;
   private mantleDirZ = 0;
+  private mantleFromX = 0;
+  private mantleFromZ = 0;
+  /** How far the climb carries the body in over the lip, when `mantleCarry` asks for it. */
+  private mantleInX = 0;
+  private mantleInZ = 0;
+
+  private vaultFromX = 0;
+  private vaultFromY = 0;
+  private vaultFromZ = 0;
+  private vaultDirX = 0;
+  private vaultDirZ = 0;
+  private vaultDist = 0;
+  private vaultSpeed = 0;
+  /** Feet height while over the cover, and on the far side. */
+  private vaultOverY = 0;
+  private vaultLandY = 0;
+  /** Progress at which the feet are up, and at which they start down. */
+  private vaultUp = 0;
+  private vaultDown = 1;
+  private vaultTime = 0;
+  private vaultDuration = 1;
+  private vaultEyeFrom = 0;
+  private vaultEyeTo = 0;
+  private vaultEyeLift = 0;
+  private vaultEyeY = 0;
+  private vaultEyeHeld = false;
+  /** The far side is lower, so this vault ends in the air and the player falls from there. */
+  private vaultFalls = false;
+  /** A jump pressed on the way over cover or up a ledge. It is for the far side and the top, so it waits for them. */
+  private heldJump = false;
+  /** Seconds the wall has been missing under a wall run. */
+  private wallLostT = 0;
 
   // Scratch
   private readonly hit = newSweepHit();
@@ -185,6 +225,7 @@ export class Player implements PlayerSystem {
   get state(): PlayerMoveState {
     if (!this.alive) return 'dead';
     if (this.mantling) return 'mantle';
+    if (this.vaulting) return 'vault';
     if (this.dashT > 0) return 'dash';
     if (this.slamming) return 'slam';
     if (this.wallRunning) return 'wallrun';
@@ -193,9 +234,34 @@ export class Player implements PlayerSystem {
     return 'air';
   }
 
+  /** 0..1 through the climb. */
+  get mantleProgress(): number {
+    return this.mantling ? clamp(this.mantleTime / this.mantleDuration) : 0;
+  }
+
+  /** World height of the ledge being climbed. Stale when not mantling. */
+  get mantleTopY(): number {
+    return this.mantleTo;
+  }
+
+  /** 0..1 through the vault, in step with the frame rather than the tick. */
+  get vaultProgress(): number {
+    return this.vaulting ? clamp((this.vaultTime + this.accumulator) / this.vaultDuration) : 0;
+  }
+
   init(): void {
     this.ensureBody();
     this.feedback.init();
+    const { events } = this.ctx;
+    const anim = this.moveAnim;
+    events.on('player:jumped', e => anim.jumped(e.wall ? 'wall' : e.double ? 'double' : e.bounce ? 'bounce' : 'ground', this.kickSide));
+    events.on('player:landed', e => anim.landed(e.impact));
+    events.on('player:slam', e => anim.slammed(e.impact));
+    events.on('player:dashed', e => {
+      const c = Math.cos(this.yaw);
+      const sn = Math.sin(this.yaw);
+      anim.dashed(e.dir.x * c - e.dir.z * sn, -e.dir.x * sn - e.dir.z * c);
+    });
   }
 
   private ensureBody(): void {
@@ -250,8 +316,24 @@ export class Player implements PlayerSystem {
     const eyeTarget = this.alive ? (this.sliding ? T.eyeSlide : this.crouched ? T.eyeCrouch : T.eyeStand) : 0.35;
     this.eyeHeight = damp(this.eyeHeight, eyeTarget, T.eyeRate, dt);
     this.stepSmooth = damp(this.stepSmooth, 0, T.stepSmoothRate, dt);
+    if (this.vaulting) {
+      // The head does not follow the feet over the cover. It crosses nearly level and comes down into the landing.
+      this.vaultEyeY = this.vaultEye(this.vaultProgress);
+      this.vaultEyeHeld = true;
+    }
     this.eye.copy(this.position);
-    this.eye.y += this.eyeHeight + this.stepSmooth;
+    if (this.vaultEyeHeld) {
+      // Also for the one frame after the vault ends, so the eye carries on from where the path left it. On that frame
+      // the feet on show are still a tick short of the path's end, and they come down late and fast: measured from them,
+      // the eye would step by that tick's worth on the next frame. So the height is taken from where the path ended.
+      this.eyeHeight = this.vaultEyeY - (this.vaulting ? this.position.y : this.pos.y);
+      this.stepSmooth = 0;
+      this.eye.y = this.vaultEyeY;
+      this.vaultEyeHeld = this.vaulting;
+    } else {
+      this.eye.y += this.eyeHeight + this.stepSmooth;
+    }
+    this.moveAnim.update(dt, this);
 
     this.updateHealth(dt);
     this.feedback.update(dt);
@@ -283,7 +365,7 @@ export class Player implements PlayerSystem {
 
   private clearInput(): void {
     this.fwd = this.side = 0;
-    this.jumpHeld = this.slideHeld = this.jumpFresh = this.slideLatch = this.slideQueued = false;
+    this.jumpHeld = this.slideHeld = this.jumpFresh = this.heldJump = this.slideLatch = this.slideQueued = false;
     this.jumpBufferT = this.dashBufferT = 0;
   }
 
@@ -296,7 +378,13 @@ export class Player implements PlayerSystem {
     this.preStepVy = this.v.y;
 
     if (this.mantling) {
+      if (T.mantleTopJump > 0) this.holdJump();
       this.mantleTick(h);
+      return;
+    }
+    if (this.vaulting) {
+      this.holdJump();
+      this.vaultTick(h);
       return;
     }
     if (!this.alive) {
@@ -306,6 +394,11 @@ export class Player implements PlayerSystem {
 
     this.updateCrouch();
     this.handleJump();
+    if (this.vaulting) {
+      // The tick that starts a vault is also its first step, or every vault would begin by standing still for one.
+      this.vaultTick(h);
+      return;
+    }
     this.handleDash();
     this.handleSlideKey();
 
@@ -320,7 +413,7 @@ export class Player implements PlayerSystem {
     this.applySoftCap(h);
     this.rideGround(h);
     this.moveAndCollide(h);
-    if (this.mantling) return;
+    if (this.mantling || this.vaulting) return;
 
     this.categorize();
     if (this.wallRunning) this.wallStick();
@@ -389,7 +482,10 @@ export class Player implements PlayerSystem {
   private handleJump(): void {
     const wants = this.jumpBufferT > 0 || (this.holdToHop && this.jumpHeld);
     if (this.grounded || this.coyoteT > 0) {
-      if (wants) this.groundJump();
+      if (!wants) return;
+      // A press at cover is a vault. The jump it would have been clears the same cover higher, slower and with no hand on it.
+      if (this.grounded && this.tryVault(false)) return;
+      this.groundJump();
       return;
     }
     if (!this.jumpFresh) return;
@@ -409,6 +505,26 @@ export class Player implements PlayerSystem {
     } else if (this.hasDoubleJump && !this.willLandInBuffer()) {
       this.doubleJump();
     }
+  }
+
+  /**
+   * A press while the body is on a scripted path. Left latched it would be judged as a press in the air on the tick the
+   * path ends, and spend the double jump with the feet on the floor.
+   */
+  private holdJump(): void {
+    if (!this.jumpFresh) return;
+    this.jumpFresh = false;
+    this.heldJump = true;
+  }
+
+  /**
+   * The end of a vault or a climb counts as ground for a moment, so a jump there is a jump and the double jump is kept.
+   * A press made on the way is spent now.
+   */
+  private releaseJump(window: number): void {
+    this.coyoteT = Math.max(this.coyoteT, window);
+    if (this.heldJump && window > 0) this.jumpBufferT = T.jumpBuffer;
+    this.heldJump = false;
   }
 
   private groundJump(): void {
@@ -971,6 +1087,7 @@ export class Player implements PlayerSystem {
     this.v.z = this.wallT.z * speed;
     this.v.y = clamp(this.v.y, T.wallRunEntryMinVy, T.wallRunEntryMaxVy);
     this.wallRunT = 0;
+    this.wallLostT = 0;
     this.wallRunning = true;
     this.hasDoubleJump = true;
     this.dashT = 0;
@@ -1035,14 +1152,31 @@ export class Player implements PlayerSystem {
       return;
     }
     this.motion.copy(this.wallN).multiplyScalar(-T.wallProbe);
-    if (!this.body.sweep(this.pos, this.height, this.motion, this.hit) || Math.abs(this.hit.normal.y) > T.wallMaxNormalY) {
-      this.endWallRun();
-      return;
+    let n = this.hit.normal;
+    let gap = 0;
+    if (this.body.sweep(this.pos, this.height, this.motion, this.hit) && Math.abs(n.y) <= T.wallMaxNormalY) {
+      gap = this.hit.toi * T.wallProbe - T.skin;
+    } else {
+      // The seam between two panels and the lip along the top of a wall both answer a capsule with an edge normal, or
+      // with nothing. A ray at the waist says whether the wall is really there, and a short grace covers a tick where
+      // even that misses. Without both, a run ended at every joint in a wall for no reason the player could see.
+      if (T.wallRunGrace <= 0) {
+        this.endWallRun();
+        return;
+      }
+      this.tmp2.set(this.pos.x, this.pos.y + this.height / 2, this.pos.z);
+      this.dir.copy(this.wallN).negate();
+      n = this.hit3.normal;
+      if (!this.body.castRay(this.tmp2, this.dir, T.radius + T.wallProbe, this.hit3) || Math.abs(n.y) > T.wallMaxNormalY || n.dot(this.wallN) < 0.8) {
+        this.wallLostT += this.fixedDt;
+        if (this.wallLostT > T.wallRunGrace) this.endWallRun();
+        return;
+      }
+      gap = this.hit3.toi - T.radius - T.skin;
     }
-    const n = this.hit.normal;
+    this.wallLostT = 0;
     const nl = Math.hypot(n.x, n.z);
     // Close the gap from a scan attach over a few ticks: a snap would show as a sideways jerk.
-    const gap = this.hit.toi * T.wallProbe - T.skin;
     if (gap > 0) this.pos.addScaledVector(this.wallN, -Math.min(gap, T.wallPull * this.fixedDt));
     this.wallN.set(n.x / nl, 0, n.z / nl);
     this.setWallTangent(this.v.x, this.v.z);
@@ -1088,6 +1222,8 @@ export class Player implements PlayerSystem {
     v.z += nz * T.wallKickOut;
     if (this.hasWish && this.wishX * nx + this.wishZ * nz > -0.2) rotateToward(v, this.wishX, this.wishZ, 1, T.wallKickSteer);
     v.y = Math.max(v.y, T.wallKickUp * this.modifiers.jump);
+    // A normal pointing to the view's right means the wall is on the left.
+    this.kickSide = nx * Math.cos(this.simYaw) - nz * Math.sin(this.simYaw) > 0 ? -1 : 1;
     this.tmp2.set(nx, 0, nz);
     this.rememberWall(this.tmp2);
     this.hasDoubleJump = true;
@@ -1112,7 +1248,13 @@ export class Player implements PlayerSystem {
     const reach = T.mantleReach;
     const offset = T.radius + 0.3;
     this.tmp.set(this.pos.x + fx * offset, this.pos.y + reach + 0.05, this.pos.z + fz * offset);
-    if (!this.body.castRay(this.tmp, DOWN, reach + 0.05, this.hit3)) return false;
+    if (!this.body.castRay(this.tmp, DOWN, reach + 0.05, this.hit3)) {
+      // Nothing 30 cm in: a rail or the top of a thin wall. Look again just behind its face before calling it a miss.
+      if (T.mantleThin <= 0) return false;
+      const near = T.radius + T.mantleThin;
+      this.tmp.set(this.pos.x + fx * near, this.pos.y + reach + 0.05, this.pos.z + fz * near);
+      if (!this.body.castRay(this.tmp, DOWN, reach + 0.05, this.hit3)) return false;
+    }
     // A ray starting inside solid reports distance 0: the ledge is too tall.
     if (this.hit3.toi < 0.02 || this.hit3.normal.y < this.minWalkY) return false;
     const top = this.hit3.point.y + T.skin * 2;
@@ -1124,7 +1266,19 @@ export class Player implements PlayerSystem {
     this.tmp.copy(this.pos);
     this.tmp.y = top;
     this.motion.set(fx * offset, 0, fz * offset);
-    if (this.body.sweep(this.tmp, this.height, this.motion, this.hit3) && this.hit3.toi * offset < 0.25) return false;
+    let room = offset;
+    if (this.body.sweep(this.tmp, this.height, this.motion, this.hit3)) {
+      room = this.hit3.toi * offset;
+      if (room < 0.25) return false;
+    }
+    // With `mantleCarry` set, the last part of the climb goes in over the lip. Ending beside the ledge leaves the body in
+    // the air for six ticks, dropping a centimetre before the step logic bumps it up, and a jump pressed in that time
+    // spends the double jump. It is off by default: see the tuning table.
+    const carry = Math.max(0, Math.min(T.mantleCarry, room - 0.05));
+    this.mantleFromX = this.pos.x;
+    this.mantleFromZ = this.pos.z;
+    this.mantleInX = fx * carry;
+    this.mantleInZ = fz * carry;
 
     const hs = this.speed;
     const speed = Math.max(hs, T.mantleExitSpeed * this.modifiers.speed);
@@ -1135,6 +1289,7 @@ export class Player implements PlayerSystem {
     this.mantleDirX = this.hasWish ? this.wishX : fx;
     this.mantleDirZ = this.hasWish ? this.wishZ : fz;
     this.mantling = true;
+    this.heldJump = false;
     if (this.wallRunning) this.endWallRun();
     this.endSlide();
     this.dashT = 0;
@@ -1152,9 +1307,190 @@ export class Player implements PlayerSystem {
     const t = Math.min(1, this.mantleTime / this.mantleDuration);
     // Eases out, but starts at only 1.5x the average rise so the first frame is a pull and not a yank.
     this.pos.y = lerp(this.mantleFrom, this.mantleTo, t * (1.5 - 0.5 * t));
+    const k = clamp((t - T.mantleCarryFrom) / (1 - T.mantleCarryFrom));
+    const carry = k * k * (3 - 2 * k);
+    this.pos.x = this.mantleFromX + this.mantleInX * carry;
+    this.pos.z = this.mantleFromZ + this.mantleInZ * carry;
     if (t < 1) return;
     this.mantling = false;
     this.v.y = 0;
+    // The climb ends beside the ledge with a few ticks of air before the feet are on it. A jump there is a jump off the top.
+    this.releaseJump(T.mantleTopJump);
+  }
+
+  // --- Vault ---------------------------------------------------------------------------------------------------
+
+  /**
+   * Waist-high cover with floor behind it: the body goes over on one hand, at the speed it arrived with. It has to be
+   * cover and not a platform, so the far edge and somewhere to land must both be found before anything moves.
+   *
+   * `auto` is the version that needs no key, for `MOVE.vaultAuto`: it starts from a run straight into the cover.
+   */
+  private tryVault(auto: boolean): boolean {
+    if (!T.vault || !this.grounded || this.sliding || this.crouched || this.slamming || this.fwd <= 0 || this.dashT > 0) return false;
+    const hs = this.speed;
+    const scale = Math.min(1, this.modifiers.speed);
+    if (hs < (auto ? T.vaultAutoSpeed : T.vaultMinSpeed) * scale) return false;
+    const dx = this.v.x / hs;
+    const dz = this.v.z / hs;
+    if (this.wishX * dx + this.wishZ * dz < T.vaultFacing) return false;
+
+    // The face, looked for above anything a step would take.
+    const o = this.tmp.set(this.pos.x, this.pos.y + T.vaultMinRise - 0.04, this.pos.z);
+    this.dir.set(dx, 0, dz);
+    if (!this.body.castRay(o, this.dir, auto ? T.radius + 0.35 : T.vaultReach, this.hit3)) return false;
+    const fn = this.hit3.normal;
+    const fl = Math.hypot(fn.x, fn.z);
+    if (Math.abs(fn.y) > T.wallMaxNormalY || -(fn.x * dx + fn.z * dz) / fl < T.vaultFacing) return false;
+    const face = this.hit3.toi;
+
+    // Anything in the way at chest height is a wall.
+    const up = T.vaultMaxRise + 0.1;
+    const y0 = this.pos.y + up;
+    o.y = y0;
+    if (this.body.castRay(o, this.dir, face + 0.3, this.hit3)) return false;
+
+    // Walk rays across the top until it ends. No end inside `vaultMaxDepth` means a platform, which is a jump's business.
+    const down = up + T.vaultMaxDrop;
+    let top = -Infinity;
+    let far = -1;
+    for (let d = face + 0.06; d <= face + T.vaultMaxDepth + 0.2; d += 0.2) {
+      o.set(this.pos.x + dx * d, y0, this.pos.z + dz * d);
+      if (!this.body.castRay(o, DOWN, down, this.hit3)) return false;
+      const y = this.hit3.point.y;
+      if (top === -Infinity) {
+        const rise = y - this.pos.y;
+        if (rise < T.vaultMinRise || rise > T.vaultMaxRise) return false;
+        top = y;
+      } else if (y > top + 0.25) {
+        return false;
+      } else if (y < top - 0.3) {
+        far = d - 0.1;
+        break;
+      } else {
+        top = Math.max(top, y);
+      }
+    }
+    if (far < 0) return false;
+
+    // Room to go up, tucked.
+    const over = top + T.vaultClear;
+    this.motion.set(0, over - this.pos.y, 0);
+    if (this.body.sweep(this.pos, T.crouchHeight, this.motion, this.hit3)) return false;
+
+    // The body covers ground at the speed it arrived with, a whole tick at a time, so the path can be no shorter than
+    // `vaultMinTime` of running: a slower crossing is speed lost, however steady `velocity` reads. Where the far side has
+    // no room for that much, the vault ends as soon as the body is clear of the cover and is simply a shorter one.
+    const speed = Math.max(hs, T.vaultMinSpeed * this.modifiers.speed);
+    const stride = speed * this.fixedDt;
+    const least = Math.ceil((far + T.radius + 0.25) / stride - 1e-6);
+    const wanted = Math.max(least, Math.ceil((speed * T.vaultMinTime) / stride - 1e-6));
+    let ticks = wanted;
+    let endY = this.vaultEnd(dx, dz, ticks * stride, least * stride, y0, down, over);
+    if (Number.isNaN(endY) && wanted > least) {
+      ticks = least;
+      endY = this.vaultEnd(dx, dz, ticks * stride, least * stride, y0, down, over);
+    }
+    if (Number.isNaN(endY)) return false;
+    const land = ticks * stride;
+
+    this.vaultFromX = this.pos.x;
+    this.vaultFromY = this.pos.y;
+    this.vaultFromZ = this.pos.z;
+    this.vaultDirX = dx;
+    this.vaultDirZ = dz;
+    this.vaultDist = land;
+    this.vaultSpeed = speed;
+    this.vaultOverY = over;
+    this.vaultLandY = endY;
+    this.vaultUp = clamp((face - T.radius) / land, 0.12, 0.45);
+    this.vaultDown = clamp((far + T.radius * 0.6) / land, 0.55, 0.9);
+    this.vaultTime = 0;
+    this.vaultDuration = ticks * this.fixedDt;
+    this.vaultEyeFrom = this.eye.y;
+    // Onto floor the head comes down into a crouched landing. Off a drop it leaves as it arrived, and the fall is a fall.
+    this.vaultEyeTo = endY + (this.vaultFalls ? T.eyeStand : T.vaultEyeLand);
+    this.vaultEyeLift = Math.max(0, top + T.vaultEyeOver - (this.vaultEyeFrom + this.vaultEyeTo) / 2);
+
+    const rise = top - this.pos.y;
+    this.endSlide();
+    this.leaveGround();
+    this.vaulting = true;
+    this.crouched = true;
+    this.height = T.crouchHeight;
+    this.jumpBufferT = this.coyoteT = this.landGraceT = this.landWeightT = 0;
+    this.jumpFresh = this.heldJump = false;
+    this.hasDoubleJump = true;
+    this.v.set(dx * speed, 0, dz * speed);
+    this.ctx.events.emit('player:vault', { height: rise, seconds: this.vaultDuration });
+    return true;
+  }
+
+  /**
+   * Where a vault `d` metres long would hand the body back: the height of its feet there, or NaN when it cannot end there.
+   * It needs floor to come down on, a clear way across at the height of the top, and nothing standing between `clearFrom`
+   * and the end that the way down would pass through.
+   *
+   * Floor lower than `vaultStepDown` is a drop. The path then ends level with where it began, in the air past the cover,
+   * and the fall belongs to the simulation: carried down inside the vault's fifth of a second, the view would be thrown at
+   * the floor.
+   */
+  private vaultEnd(dx: number, dz: number, d: number, clearFrom: number, y0: number, down: number, over: number): number {
+    const o = this.tmp.set(this.pos.x + dx * d, y0, this.pos.z + dz * d);
+    if (!this.body.castRay(o, DOWN, down, this.hit3) || this.hit3.normal.y < this.minWalkY) return NaN;
+    const floor = this.hit3.point.y + T.skin * 2;
+    if (floor > this.pos.y + T.stepHeight) return NaN;
+    const falls = floor < this.pos.y - T.vaultStepDown;
+    const endY = falls ? this.pos.y : floor;
+    for (let at = clearFrom; at < d - 0.05; at += 0.3) {
+      o.set(this.pos.x + dx * at, y0, this.pos.z + dz * at);
+      if (this.body.castRay(o, DOWN, down, this.hit3) && this.hit3.point.y > endY + 0.1) return NaN;
+    }
+    this.tmp2.set(this.pos.x, over, this.pos.z);
+    this.motion.set(dx * d, 0, dz * d);
+    if (this.body.sweep(this.tmp2, T.crouchHeight, this.motion, this.hit3)) return NaN;
+    this.tmp2.set(this.pos.x + dx * d, endY, this.pos.z + dz * d);
+    if (this.body.overlaps(this.tmp2, T.crouchHeight)) return NaN;
+    this.vaultFalls = falls;
+    return endY;
+  }
+
+  private vaultTick(h: number): void {
+    this.vaultTime += h;
+    // The path is a whole number of ticks long, so the last one arrives exactly at its end.
+    const u = this.vaultTime > this.vaultDuration - 1e-6 ? 1 : this.vaultTime / this.vaultDuration;
+    this.pos.x = this.vaultFromX + this.vaultDirX * this.vaultDist * u;
+    this.pos.z = this.vaultFromZ + this.vaultDirZ * this.vaultDist * u;
+    const a = clamp(u / this.vaultUp);
+    const b = clamp((u - this.vaultDown) / (1 - this.vaultDown));
+    this.pos.y = u < this.vaultDown
+      ? lerp(this.vaultFromY, this.vaultOverY, a * a * (3 - 2 * a))
+      : lerp(this.vaultOverY, this.vaultLandY, b * b * (3 - 2 * b));
+    if (u < 1) return;
+    // Whatever pushed on the body while it was on the path, it comes off at the speed it went on with.
+    this.v.set(this.vaultDirX * this.vaultSpeed, 0, this.vaultDirZ * this.vaultSpeed);
+    this.endVault();
+    this.vaultEyeY = this.vaultEye(1);
+    // The far side is ground, or was a moment ago: a press here or on the way over is a jump, never the double jump.
+    this.releaseJump(T.coyote);
+  }
+
+  /** Eye height in the world at progress `u`: a level crossing with as much lift as the cover asks for, then down. */
+  private vaultEye(u: number): number {
+    const k = u * u * (3 - 2 * u);
+    const a = clamp(u / 0.35);
+    const b = clamp((u - 0.65) / 0.35);
+    const lift = a * a * (3 - 2 * a) * (1 - b * b * (3 - 2 * b));
+    return lerp(this.vaultEyeFrom, this.vaultEyeTo, k) + this.vaultEyeLift * lift;
+  }
+
+  /** Hands the body back to the simulation where it is. The path clips the cover's corners, so it may need pushing out. */
+  private endVault(): void {
+    if (!this.vaulting) return;
+    this.vaulting = false;
+    this.v.y = 0;
+    this.airTime = 0;
+    if (this.body.overlaps(this.pos, this.height)) this.body.depenetrate(this.pos, this.height, T.skin);
   }
 
   // --- Collide and slide ---------------------------------------------------------------------------------------
@@ -1165,7 +1501,7 @@ export class Player implements PlayerSystem {
     this.wallPressed = false;
     const wanted = this.v.length() * h;
     this.slideAlong(h);
-    if (this.mantling) return;
+    if (this.mantling || this.vaulting) return;
 
     // Not moving while trying to. Nothing static can cause this, but a crusher or a bad teleport can, and casts
     // that start inside a solid cannot be trusted to get out on their own.
@@ -1210,7 +1546,7 @@ export class Player implements PlayerSystem {
       timeLeft *= 1 - moved / len;
 
       if (this.resolveContact(n, timeLeft)) {
-        if (this.mantling) return;
+        if (this.mantling || this.vaulting) return;
         planes = 0;
         timeLeft = this.stepTimeLeft;
         continue;
@@ -1258,6 +1594,7 @@ export class Player implements PlayerSystem {
     }
 
     if (!walkable && n.y > -0.3) {
+      if (T.vaultAuto && this.grounded && this.tryVault(true)) return true;
       if (this.tryMantle(n)) return true;
       if (this.wallRunning) {
         if (Math.abs(n.y) <= T.wallMaxNormalY && n.dot(this.wallN) < 0.9) return this.turnWallCorner(n);
@@ -1433,6 +1770,7 @@ export class Player implements PlayerSystem {
     this.endSlide();
     this.slamming = false;
     this.mantling = false;
+    this.endVault();
     this.dashT = 0;
     this.ctx.events.emit('player:died', { source });
   }
@@ -1478,6 +1816,7 @@ export class Player implements PlayerSystem {
       this.mantling = false;
       this.pos.y = this.mantleTo;
     }
+    this.endVault();
     this.leaveGround();
     this.coyoteT = 0;
     this.noGroundT = 0.12;
@@ -1501,6 +1840,7 @@ export class Player implements PlayerSystem {
     this.wallSide = 0;
     this.slamming = false;
     this.mantling = false;
+    this.vaulting = this.vaultEyeHeld = false;
     this.dashT = 0;
     this.coyoteT = this.jumpBufferT = this.dashBufferT = this.noGroundT = this.landGraceT = this.landWeightT = 0;
     this.slideQueued = this.flung = this.wallPressed = false;
@@ -1519,6 +1859,8 @@ export class Player implements PlayerSystem {
     // Standing, so a kill from the seat does not score as an airborne one.
     this.grounded = true;
     this.parked = true;
+    // Nothing steps the body layer in a seat, so a slide's legs or a hand off the weapon would wait there for the exit.
+    this.moveAnim.reset();
   }
 
   unpark(grace: number): void {
@@ -1549,6 +1891,7 @@ export class Player implements PlayerSystem {
     if (spawn) this.teleport(spawn.position, spawn.yaw);
     else this.teleport(this.pos);
     this.feedback.reset();
+    this.moveAnim.reset();
   }
 
   /** True when the capsule is inside something. Only tests and diagnostics need this. */

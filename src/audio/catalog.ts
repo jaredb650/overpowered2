@@ -258,7 +258,7 @@ export function lookup(id: string): SoundDef | undefined {
 /** Render order, by what a run reaches first. Whatever matches none of these can wait for the rest. */
 const RENDER_TIERS: readonly RegExp[] = [
   // Menu, the first fight, and moving around in it.
-  /^(ui_|hit_marker|wave_|footstep_|impact_|ricochet|casing_|weapon_|reload_|dash|double_jump|wall_kick|slide_|wallrun_|slam_|mantle|land_hard|jump_pad$|speed_wind|amb_)/,
+  /^(ui_|hit_marker|wave_|footstep_|impact_|ricochet|casing_|weapon_|reload_|dash|double_jump|wall_kick|slide_|wallrun_|slam_|mantle|hand_plant|boot_scuff|vault_over|gear_rustle|land_hard|jump_pad$|speed_wind|amb_)/,
   // The first kills: gore, enemy voices, and what a player feels getting hurt or picking something up. `machine_clang` is
   // a drone or skitter being shot, and `metal_clang` its wreck.
   /^(limb_|bone_|gib_|blood_|head_pop|body_|flesh_|vox_(grunt|pain|death|husk|radio)|enemy_|player_|heartbeat|low_health|armor_|heal_|pickup_|combo_|multikill|style_|grenade_|bullet_|machine_clang|metal_clang)/,

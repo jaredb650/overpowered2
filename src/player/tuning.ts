@@ -5,6 +5,11 @@
  * Normal running is planted and speed is something the player earns (DESIGN section 13). The feel comes from four
  * numbers more than any others: `runSpeed`, `groundAccel`, `groundGrip` and `overspeedDecel`. See docs/notes/player.md.
  */
+const query = typeof location === 'undefined' ? null : new URLSearchParams(location.search);
+const vaultFlag = query?.get('vault') ?? null;
+/** `?movefix=0` takes the parkour pass's repairs to the old moves back out: the thin ledge, the wall-run seam, the jump off the top of a climb. */
+const fixes = query?.get('movefix') !== '0';
+
 export const MOVE = {
   // Fixed simulation
   hz: 120,
@@ -165,6 +170,8 @@ export const MOVE = {
   wallProbe: 0.42,
   /** Speed the player is drawn onto a wall that curves away. */
   wallPull: 9,
+  /** A wall missing under the run for less than this is a seam, not the end of the wall. 0 ends the run on the first miss, as it used to. */
+  wallRunGrace: fixes ? 0.05 : 0,
 
   // Wall kick
   /** Gap to the wall a press in the air can kick from. */
@@ -190,6 +197,56 @@ export const MOVE = {
   mantleRiseFromSpeed: 0.5,
   /** Forward speed guaranteed at the top, enough to clear the lip. */
   mantleExitSpeed: 6,
+  /**
+   * How far the climb carries the body in toward the ledge, and the share of the climb after which it starts. 0.57 ends it
+   * standing on the ledge instead of beside it. It is 0, the old top-out, because the campaign's lesson tests judge a climb
+   * and a crossing by where the body first stands, and any carry moves that: see docs/notes/player.md.
+   */
+  mantleCarry: 0,
+  mantleCarryFrom: 0.65,
+  /** A ledge this thin still gets a hand on it: a rail, or the top of a wall. 0 misses them, as it used to. */
+  mantleThin: fixes ? 0.08 : 0,
+  /**
+   * Seconds after a climb in which a jump is a jump off the top. The climb ends with a few ticks of air before the feet are
+   * on the ledge, and a press there, or one made during the climb, used to spend the double jump. 0 is that again.
+   */
+  mantleTopJump: fixes ? 0.1 : 0,
+
+  // Vault. Waist-high cover with floor behind it, taken on one hand at the speed the player arrived with.
+  /** Off with `?vault=0`: a jump at cover is a jump again. */
+  vault: vaultFlag !== '0',
+  /**
+   * Vault with no key, from a run straight into the cover. Off by default, because cover is also something to stop
+   * behind and nothing here happens by accident. `?vault=auto` or the lab panel turns it on.
+   */
+  vaultAuto: vaultFlag === 'auto',
+  /** Speed toward the cover a press needs, and the speed the vault never drops below. */
+  vaultMinSpeed: 7,
+  /** Speed the no-key version needs: a run, not a walk up to the cover. */
+  vaultAutoSpeed: 10.5,
+  /** Body centre to the face of the cover at the press. */
+  vaultReach: 1.9,
+  /** Cosine of the widest angle between the run, the keys and the cover: about 40 degrees. */
+  vaultFacing: 0.76,
+  /** Lowest and highest top that counts as cover. Lower is a step, higher is a mantle. */
+  vaultMinRise: 0.5,
+  vaultMaxRise: 1.35,
+  /** Deepest cover. Anything deeper is a platform, and a jump lands on it. */
+  vaultMaxDepth: 2.6,
+  /** The far side may be this much lower than the near side. */
+  vaultMaxDrop: 1.5,
+  /** Lower than this on the far side is a drop: the vault ends level, in the air past the cover, and the player falls the rest. */
+  vaultStepDown: 0.15,
+  /** Feet over the top by this much. */
+  vaultClear: 0.06,
+  /**
+   * The shortest a vault lasts where the far side has room, so the hand has time to plant. The body never slows to fill
+   * it: the path is made that much longer instead.
+   */
+  vaultMinTime: 0.2,
+  /** Eye above the cover's top while crossing, and above the floor on arrival: the head stays low and lands in a crouch. */
+  vaultEyeOver: 0.62,
+  vaultEyeLand: 1.42,
 
   // Health
   maxHealth: 100,
@@ -279,6 +336,8 @@ export const FEEDBACK = {
   footstepPitchFromSpeed: 0.1,
   jumpVolume: 1,
   landVolume: 1,
+  /** Hands and boots on a move: the plant on a ledge, the scuff at the top. Low, under the move's own sound. */
+  bodyVolume: 0.8,
   /** Landing speed that plays at full volume. */
   landLoudAt: 20,
   /** Landings harder than this use the heavy thud. */

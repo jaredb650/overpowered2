@@ -23,6 +23,8 @@ On a dev server page that did not ask for it (no `?dev=1`, not the range) the la
 | O | Spawn the selected type at the crosshair |
 | K, L | Kill all. Clear corpses, limbs, chunks, blood and plates |
 
+**Movement.** Four boxes: move animations (`?moveanim=0`), their camera part (`?movecam=0`), legs in a slide and a vault (`?legs=0`), and vaulting cover with no key from a run (`?vault=auto`). They write the same switches as the URL flags and reset with the page. Two more are URL only: `?vault=0` (a jump at cover is a jump again) and `?movefix=0` (the thin-ledge grab, the wall-run seam grace and the jump off the top of a climb, all back to how they were). On the range, "Parkour strip" stands the player at the start of a course down the west wall with every move in order, a yellow line before each: vault thin cover, slide under a bar, vault a deep crate, wall run and kick across a 3.8 m corridor, mantle a 2 m block, walk off its far edge, climb the 3 m deck, slam back down. `src/lab/parkour.ts`, driven by `tools/scripts/parkour-live.mjs`.
+
 **Grants.** The panel has buttons for all 8 call-ins, straight to the inventory, every perk and powerup, and the combo. Each call-in is used with its usual key. Combos and perks start off on the range, so a combo set there shows but pays nothing until that box is ticked. Under `?dev=1` it is on: set 15, make a kill, and Airstrike, Warthog and Berserk arrive. A perk with `retrigger: 'ignore'` does nothing on a second press while it runs.
 
 Settings live in localStorage, one copy for the range, one for `?dev=1` and one for the dev server's other pages, so a test never leaks into a run. God mode and every weapon hold through a restart, a mission's loadout and a checkpoint redeploy. A hotkey the player has bound to a game action is the game's, and with the panel open over a menu the menu does not hear the keys.
@@ -32,6 +34,7 @@ Settings live in localStorage, one copy for the range, one for `?dev=1` and one 
 | File | Job |
 |---|---|
 | `range.ts` | The map. Floor ruled every 5 m, ticks every metre |
+| `parkour.ts` | The parkour strip along the range's west wall |
 | `index.ts` | Keys, time, player cheats, `window.__lab` for bots |
 | `panel.ts` | The panel. Holds no state |
 | `spawn.ts` | Crosshair placement, AI off, the walking route |

@@ -8,6 +8,7 @@ First-person weapons, arms and off-hand items. `src/weapons/viewmodels/**`, sand
 | `def.ts` | `ViewDef` (one per weapon), `Anim` (per-frame state a clip reads), `HandCtl` (where a hand wants to be) |
 | `arms.ts` | One skinned mesh per arm: sleeve, bracer, glove, 19 bones, two-bone IK |
 | `offhand.ts` | Left hand's own life: grenade, walkie, designator, sonar tap |
+| `legs.ts` | First-person legs for a slide and a vault: three rigid pieces a leg, posed by a two-bone solve |
 | `poses.ts`, `curves.ts`, `spring.ts` | Finger poses, timing curves, exact closed-form springs |
 | `kit/mesher.ts` | Procedural hard-surface builder. A part's whole surface is one buffer |
 | `kit/materials.ts` | The one shader for every opaque surface, the decal atlas, perk looks, light band |
@@ -42,6 +43,13 @@ Write `models/<id>.ts` exporting a `ViewDef`, and add it to `buildDefs` in `mode
 
 **Arms.** Shoulders are deliberately far under the frustum and out to the sides (`SHOULDER_R`, `SHOULDER_L`), not where a body would have them. The arms are shorter than most poses ask for, and a true shoulder slides the limb up past the eye as a huge sleeve. The IK also had a scratch-vector bug where the shoulder was overwritten by the hand's up vector. That was the source of the fat stump in early shots.
 
+**The body layer.** `ctx.player.moveAnim` (`MovePose`, from `src/player/moveAnim.ts`, described in docs/notes/player.md) says what a move does to the weapon, the left hand and the legs. The rig only applies it, so it works for any weapon and no model file knows about it:
+
+- `composeGun` adds `gun*` after the pose layers, and `composeLeftGun` adds it mirrored. Both scale it by `moveCalm`, which drops to 0.2 (`MOVE_CALM`) while the gun fires, reloads, swings or draws, so a shot never leaves a dipped gun. That has to hold for the first shot of a burst too, and the weapon system reads `muzzle()` before it calls `fire()`. So `fire()` sets `moveCalm` to 0.2 at once instead of easing to it, and `muzzle()` goes through `settleMuzzle`, which answers from where that puts the gun: it takes the socket back into the gun's frame and rebuilds the gun's transform with the move's share removed, from the rotation `composeGun` saved in `gunRot`. Measured live half way up a climb with the shotgun: the muzzle the shot was given is 2 cm from its place at rest, where it was 20 cm low.
+- `solveArms` blends the left wrist to `hand*` by `handW`, last, after the off-hand. `handFree` holds the hand on the weapon through a reload, a swing, akimbo and a draw. Fingers blend to `HANDS.open`. The right hand never leaves the weapon.
+- `Legs.update` draws the legs while `legsW` is up. They are written in the body's frame and turn against the look's pitch, so level eyes see boot tips in a slide and looking down shows the legs. They rise from under the view; there is no fade.
+- A stand-in player answers every read with a proxy, so the rig takes the layer only when `handW` is a number.
+
 **Light on the gun.** The baked light is too wide for something that fills a quarter of the screen. It runs from near black in the scrapyard to a trapped glare in the sump. Three things hold it together, all in `rig.ts` and `kit/materials.ts`:
 
 - `LIGHT_BAND` squeezes indirect light: soft ceiling, plus a floor that keeps the local hue, so the gun goes dim orange in the foundry instead of black.
@@ -63,6 +71,8 @@ Write `models/<id>.ts` exporting a `ViewDef`, and add it to `buildDefs` in `mode
 | Recoil, per weapon | `recoil` in the `ViewDef`. `omega` is how snappy, `zeta` how much it rings |
 | Gun placement | `pos`, `rot` in the `ViewDef`. Sword: `REST` |
 | Bob, sway, sprint pose | `sampleMotion` and `composeGun` in `rig.ts`. Mirror changes in `composeLeftGun` |
+| What a move does to gun and hand | `ANIM` and the targets in `src/player/moveAnim.ts`. Hand targets are view space, compressed to what the 58 degree view shows at arm's length: about 23 cm tall at 42 cm out |
+| Leg poses | `LEG_POSES` in `legs.ts`, body frame, eye at the origin |
 | Sword arcs | `ARCS`, `AREA`, `SLAM_*`, `COCK`, `PARRY` in `models/sword.ts`. Euler X, Y, Z: at X near 1.5 the blade stands up and Y leans it across the screen |
 | Dark or bright gun | `FILL_*`, `MOON_FLOOR` in `rig.ts`, the two floors in `LIGHT_BAND` |
 | Flash on the gun | The `0.4` in `POINT_LIMITED`. Lower is brighter |
@@ -117,6 +127,8 @@ VM_STEPS=perks,callins node tools/shot.mjs --url "/?sandbox=range&live=1&load=hu
 
 ## Known limitations
 
+- **The legs are simple.** Lofted cloth limbs with pads and a boxed boot, 7.2k triangles and six draws while shown. They read as legs in a slide. In a vault they pass on the gun's side, so at level eyes the weapon covers most of them and they show when looking down. Judged from stills only. `?legs=0` hides them.
+- **A planted hand is placed for the screen, not the world.** The true spot is below the view at level eyes, so the hand is lifted into the bottom of the frame and its travel compressed. It does not track the real ledge or wall surface.
 - **Nobody has played this with hands.** Every result is a script, a bot or a frame I read. Recoil weight and sword timing need a human.
 - **The sump is still bright.** Its baked light is high and the band only softens it, so the gun looks lit in a room that reads dark. The cause is the volume there, not the gun.
 - **Weapon swap has no holster-out.** The old gun disappears and the new one rises. The draw is 0.14 to 0.34 s, so I judged it a snap, but it is one frame of pop.

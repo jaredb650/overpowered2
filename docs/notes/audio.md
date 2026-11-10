@@ -276,6 +276,7 @@ Rendered at load. x4 means four rendered variants behind one id.
 ### Player
 
 - **Movement:** `dash` x3, `double_jump`, `wall_kick`, `wallrun_start`, `wallrun_loop`, `slide_start`, `slide_loop`, `slide_stop`, `slam_start`, `slam_fall_loop`, `slam_impact` x2, `slam_bounce`, `mantle`, `jump_pad`, `land_hard`, `speed_wind_loop`
+- **Hands and boots on a move, all quiet:** `hand_plant` x3 (ledge, cover, wall, the floor in a slam and a tenth of a second into a slide), `boot_scuff` x3 (top of a climb, far side of a vault, walking off an edge), `vault_over` (the body passing over cover), `gear_rustle` x3 (double jump tuck, hard landing). Played from `src/player/feedback.ts` through `body()`, which is silent under `?moveanim=0`: they are the sounds of the first-person body and go with it. `vault_over` stays, because the vault has its own switch
 - **Footsteps:** `footstep_concrete`, `footstep_metal`, `footstep_grate`, `footstep_dirt`, `footstep_glass`, `footstep_flesh` (wet), all x4. `footstep_armor`, `footstep_energy` and `footstep_lava` alias to the nearest of these, so every `SurfaceKind` works
 - **Health:** `player_hurt` x4, `player_hurt_heavy` x2, `player_death`, `armor_hit` x3, `armor_break`, `shield_hit` x3, `heal_tick`, `low_health_warn`, `heartbeat`, `heartbeat_loop`
 

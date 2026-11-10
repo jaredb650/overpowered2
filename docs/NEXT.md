@@ -72,3 +72,31 @@ Planned changes, after Assemble and the playtest finish so as not to collide wit
 
 1. `softskins`: done. Green troops, one truck at a time, one frag per squad, armour and health in the Guardhouse, more cover on the apron.
 2. `heavy`: done. The wreck objective comes at 8 s, the sniper is gone, and green troops carry through `wreck` and `turn`.
+
+## Parkour pass (2026-11-10)
+
+Owner: "Add animations for wall jumps, mantles, vaults, all parkour moves for the player. I think we should do a complete parkour overhaul."
+
+Shipped, and **not yet played by anyone**: it was built and checked by measurement, tests and frozen stills. Manual: docs/notes/player.md, "The body in first person" and "Vault".
+
+- A first-person body layer for every move: the left hand plants on ledges, cover, walls and the floor, the weapon dips, cants and floats, the camera rolls (never pitches or yaws, so the crosshair stays on the shot), and legs show in a slide and a vault.
+- A vault: jump while running at waist-high cover and the body goes over on one hand at the speed it arrived with.
+- Quiet hand and boot sounds on each move.
+- A jump pressed during a climb or a vault is now a jump off the top or the far side, with the double jump kept. Thin ledges can be grabbed.
+- Try it: `/?map=range`, F1, MOVEMENT, "Parkour strip". Off-switches: `?moveanim=0`, `?movecam=0`, `?legs=0`, `?vault=0`, `?movefix=0`.
+
+For the owner to decide by playing:
+
+1. **Vault on a key, or automatic?** The brief said running at cover carries you over. It ships on a jump press, because cover is also something to stop behind and the movement rule is that nothing happens by accident. `?vault=auto` or the lab box is the no-key version.
+2. **Should a jump at cover always be a vault?** Within 1.9 m of cover up to 2.6 m deep it is, so jumping onto a crate needs a start further back.
+3. **How much camera motion.** Roll is capped at 4.6 degrees. `ANIM.camera` is the one number a settings entry would write; there is no entry in the menu yet.
+4. **The legs.** Simple, good in a slide, and in a vault they cross the gun when looking down. Keep, improve or hide (`?legs=0`).
+
+Open:
+
+- The right hand never leaves the weapon: a mantle is one-handed and a wall on the right gets no trailing hand.
+- Jump and sprint have no new animation. The rig's own jump kick and run pose are what they have.
+- The mantle still ends beside the ledge with six ticks of air (`mantleCarry` is built and off). Turning it on needs the campaign's lesson tests to judge a crossing a moment later than the first standing frame.
+- The campaign's cable gallery can be crossed without a wall run (46 of 238 jump-and-dash timings on its own test lane). Found here, not caused here: it needs a deeper drop under the far deck or a lip that cannot be climbed.
+- The parkour strip is on the Test Range only. `/?sandbox=movement` has no viewmodel, so it shows the camera part alone.
+

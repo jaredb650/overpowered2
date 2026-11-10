@@ -1,6 +1,6 @@
 # Player notes: input, movement, camera
 
-Owned files: `src/input/**`, `src/player/**`, `src/sandbox/movement.ts`, `tools/scripts/movement-*`.
+Owned files: `src/input/**`, `src/player/**`, `src/sandbox/movement.ts`, `tools/scripts/movement-*`, `tools/scripts/parkour-live.mjs`. The first-person body layer is `src/player/moveAnim.ts`: see "The body in first person" below.
 
 ## Public API
 
@@ -23,7 +23,8 @@ import { createPlayer, createCameraRig, MOVE, VIEW, FEEDBACK } from '../player';
 **Player** (`PlayerSystem`). `position` and `eye` are interpolated for display, `velocity` is the simulated velocity.
 
 - Read: `speed` (horizontal, and it is what the feet really cover: see "Walls"), `state`, `grounded`, `sliding`, `crouched`, `wallRunning`, `wallSide`, `dashing`, `slamming`,
-  `mantling`, `dashCharges` (0..2, fractional while refilling), `stridePhase`, `groundSurface`.
+  `mantling`, `vaulting`, `dashCharges` (0..2, fractional while refilling), `stridePhase`, `groundSurface`. On the class only: `mantleProgress`, `mantleTopY`, `vaultProgress`, `kickSide`.
+- `moveAnim`: the body layer's pose for this frame (`MovePose` in contracts). CameraRig and the viewmodel rig read it. Nothing else should need to.
 - Motion: `launch(v)` replaces vertical speed and adds horizontal. `push(v)` adds on all axes. `teleport(p, yaw?)` clears motion.
 - Health: `takeDamage`, `heal(amount, overheal?)`, `addArmor`. Armor absorbs 2/3 of a hit; `true` and `hazard` damage skip it.
 - `modifiers`: `speed`, `jump`, `damageTaken`, `invulnerable`, `infiniteDash`. `reset()` restores them in place.
@@ -37,10 +38,10 @@ import { createPlayer, createCameraRig, MOVE, VIEW, FEEDBACK } from '../player';
 - Listens to player events itself: landing dip, slam, dash, slide, mantle and hit shake need no calls.
 - Every term on top of the look decays to exactly 0 (`settle`, and a rest threshold in `springStep`), so a level view is level.
 
-**Seats.** `player.park(feet)` holds the body for a vehicle seat: no input, no motion, and `takeDamage`, `launch` and `push` all do nothing. The view it was left with is kept, and it reads as grounded. `player.unpark(grace)` gives it back, untouchable for `grace` seconds. Look is still consumed while parked, because `input.frameLook` is what the seat aims with. `camera.setSeat(view)` hands the camera to a `SeatView`, with kicks and shake on top scaled by `view.shake`, and null gives it back. `camera.syncSeat()` places it at once, for shots fired before the rig's turn in the frame. Both `reset()`s clear all of this. Tests: `park.test.ts`.
+**Seats.** `player.park(feet)` holds the body for a vehicle seat: no input, no motion, and `takeDamage`, `launch` and `push` all do nothing. The view it was left with is kept, and it reads as grounded. It also clears the body layer, which nothing steps in a seat: a slide's legs or a hand off the weapon would otherwise wait there and play out on the way out. `player.unpark(grace)` gives it back, untouchable for `grace` seconds. Look is still consumed while parked, because `input.frameLook` is what the seat aims with. `camera.setSeat(view)` hands the camera to a `SeatView`, with kicks and shake on top scaled by `view.shake`, and null gives it back. `camera.syncSeat()` places it at once, for shots fired before the rig's turn in the frame. Both `reset()`s clear all of this. Tests: `park.test.ts`.
 
 **Events.** `player:jumped` now has `wall` and `bounce` flags. `player:slam` is `{ impact, position, radius }`, where `impact`
-is meters fallen. New: `player:slamstart`, `player:mantle { height }`.
+is meters fallen. New: `player:slamstart`, `player:mantle { height }`, `player:vault { height, seconds }`.
 
 ## Using it from gameplay code
 
@@ -88,6 +89,56 @@ the air too low to slam, which queues for the landing. A wall run needs all of: 
 along the wall, keys steering 9 to 53 degrees into it, and `wallRunAhead` meters of wall still in front. A wall kick needs
 `wallKickMinInto` toward the wall, so a press beside a wall stays a double jump. Mantling only happens in the air, so the
 player must jump to climb. The old beside-the-velocity wall scan is gone: a wall run starts from real contact.
+
+**Vault.** A jump pressed while running at waist-high cover goes over it on one hand instead of jumping: `tryVault` in
+`Player.ts`. It needs all of: on the ground, W held, at least `vaultMinSpeed`, the run and the keys within about 40 degrees of
+the cover's face, the face within `vaultReach`, a top 0.5 to 1.35 m up, an end to that top within `vaultMaxDepth`, walkable
+floor behind it no higher than a step, and room for a crouched body over the top and on the far side. Anything else is a
+jump as before: a platform, a wall, cover with something standing behind it, a walk up to it. Like a mantle it is scripted:
+`pos` moves along a path, nothing collides, and `velocity` keeps saying the entry speed.
+The feet go up over the top and down again, clipping the cover's corners on the way, which is why `endVault` checks for
+overlap. The eye does not follow the feet: `vaultEye` carries the head across nearly level and down into a crouched landing,
+because a head that rose and fell 1.2 m in a fifth of a second is a camera cut, not a vault. No landing event fires, so
+there is no thud and no stumble. A launch, a death or a teleport ends it where it is.
+
+Rules of the vault that must stay true, each held by `vault.test.ts`:
+
+- **The body really covers ground at the entry speed, every tick.** `velocity` cannot show this, because the vault holds
+  it constant: the tests measure position. The path is a whole number of ticks long at exactly that speed, and the tick
+  that starts the vault is its first step. It used to last `max(vaultMinTime, path / speed)`, so a press close to the
+  cover crossed at 8 m/s while the readout said 12.5.
+- **`vaultMinTime` lengthens the path, never slows the body.** The hand needs its fifth of a second, so a vault from close
+  in carries on past the cover until it has had it (`vaultEnd`). Where the far side has no room for that, the vault ends
+  as soon as the body is clear and is simply shorter.
+- **A lower far side is a fall, not part of the vault.** Floor more than `vaultStepDown` below the feet: the path ends
+  level with where it began, in the air past the cover, the head leaves as it arrived, and the drop and its landing belong
+  to the simulation. Carried down inside the path, a 1.4 m drop moved the eye 21 cm in one frame.
+- **A jump pressed on the way over is a jump off the far side.** The press is held (`holdJump`) and the end of the path
+  counts as ground for `coyote` seconds (`releaseJump`), so it is a ground jump and the double jump is kept. Left latched,
+  it fired as a double jump on the tick the vault ended, with the feet on the floor.
+
+Running into cover with no key does nothing, as before, so cover can still be stopped behind. `MOVE.vaultAuto` (off;
+`?vault=auto`, or the lab panel) vaults from a run of `vaultAutoSpeed` straight into it with no key. `?vault=0` turns
+vaulting off.
+
+**Mantle, the top.** A climb ends beside the ledge, drops about a centimetre and is bumped onto it by the step logic: six
+ticks in the air. A jump pressed in those ticks, or at any point during the climb, used to spend the double jump the
+moment the climb ended. Now the end of a climb counts as ground for `mantleTopJump` seconds and a press made on the way
+up is held for it, so it is a jump off the top with the double jump still to come. The body still ends where it always
+did, so nothing that judges a climb by position changes.
+
+`mantleCarry` would also take the six ticks away, by carrying the body in over the lip during the last third of the climb
+(0.57 ends it standing on the ledge on the next tick). It is built and tested and **off by default**, because it moves
+where a climb leaves the body and the campaign's lesson tests are pinned to that: see the campaign note under Known
+limitations. A ledge too thin for the first ray, a rail or a 12 cm wall, gets a second ray just behind its face
+(`mantleThin`) before it counts as a miss.
+
+**Wall run, the probe.** `wallStick` used to end the run on the first tick its capsule cast missed or came back with a
+tilted normal. It now asks a ray at waist height before giving up, and allows `wallRunGrace` (0.05 s) with no wall at all.
+See Known limitations: no case was found where this changes a run.
+
+`?movefix=0` takes these three repairs back out (`mantleTopJump`, `mantleThin` and `wallRunGrace` all 0), for comparing
+against the moves as they were.
 
 **Walls.** Two bugs here cost more than any tuning, and both showed up as "stuck on things":
 
@@ -141,11 +192,59 @@ works live in the sandbox.
 | Dash | `dashSpeed`, `dashTime`, `dashExit`, `dashKeep` |
 | Wall run strictness | `wallRunMinAir`, `wallRunWishMin/Max`, `wallRunWishAlong`, `wallRunAhead`, `wallRunMaxInto` |
 | Wall run length | `wallRunHold`, `wallRunMax`, `wallRunFallScale`, `wallRunSpeed`. Kick: `wallKick*` |
-| Mantle | `mantleReach`, `mantleFacing`, `mantleRiseSpeed` |
+| Mantle | `mantleReach`, `mantleFacing`, `mantleRiseSpeed`. The top: `mantleTopJump`, `mantleCarry` (off), `mantleCarryFrom`, `mantleThin` |
+| Vault | `vault`, `vaultAuto`, `vaultMinSpeed`, `vaultAutoSpeed`, `vaultReach`, `vaultFacing`, `vaultMinRise`, `vaultMaxRise`, `vaultMaxDepth`, `vaultMaxDrop`, `vaultStepDown`. Shortest vault where there is room: `vaultMinTime`. Head path: `vaultEyeOver`, `vaultEyeLand` |
+| Body animation | `ANIM` in `moveAnim.ts`. `ANIM.camera` is the comfort knob. Hand and leg placement: the targets in `MoveAnim.update` and `LEG_POSES` in `viewmodels/legs.ts` |
+| Hands and boots, volume | `FEEDBACK.bodyVolume` |
 | Ramp stickiness | `snapMaxSeparation`, `snapDown` |
 | Speed feel | `VIEW.fovSpeedAdd`, `fovSpeedFrom`, `fovSpeedFull`, `FEEDBACK.speedLinesFrom/Full` |
 | Head motion | `VIEW.bobHeight`, `bobSide`, `dipOmega`, `dipZeta` |
 | Footsteps | `strideBase`, `strideFromSpeed`, `FEEDBACK.footstepPitch` |
+
+## The body in first person
+
+`src/player/moveAnim.ts`, one `MoveAnim` owned by the Player and stepped at the end of its frame. It reads movement state
+and never changes it. It holds plain numbers, so `moveAnim.test.ts` drives it with a fake player. Three consumers:
+CameraRig adds `camRoll`, `camX`, `camY`. The viewmodel rig adds `gun*` to the weapon, gives the left arm to `hand*` by
+`handW`, and poses the legs from `legs*` (docs/notes/viewmodels.md).
+
+Rules that must stay true, each held by a test:
+
+- **No pitch and no yaw, for any move.** Shots leave from the eye along the look, not from the camera, so a pitched camera
+  is a crosshair that lies. The layer has roll and offsets only, and the offsets are clamped to `ANIM.maxOffset` (9 cm of
+  parallel shift, less than the landing dip already there). The old pitch kick on a mantle is gone while the layer is on.
+- **Every channel returns to exactly 0.** Weights fade with a snap at 0.001 and springs rest at 1e-4, so the level-view
+  test still reads exactly 0 a second after any move.
+- **A move can be cut at any moment.** Curves set targets and springs follow them, so a throw mid-mantle or a slam out
+  of a wall jump never shows as a jump in a channel. Roll is clamped to `ANIM.maxRoll` (4.6 degrees) whatever stacks.
+- **A working gun is left alone.** The rig scales the weapon part to a fifth while firing, reloading, swinging or drawing,
+  and keeps the left hand on the weapon through a reload, a swing, akimbo and anything the off-hand is doing. The first
+  shot counts too: it brings the gun out of the pose at once, and the muzzle the weapon system is given for it is already
+  there (`settleMuzzle` in the rig), so the flash does not start from a dipped gun.
+- **Its sounds go with it.** Hands and boots are played through `MovementFeedback.body`, which is silent while the layer
+  is off. The vault's own `vault_over` stays, because the vault has its own switch.
+
+| Move | Camera | Weapon | Left hand | Legs | Sound added |
+|---|---|---|---|---|---|
+| Mantle | Roll toward the hand through the climb, a dip and counter-roll at the top | Dips down and away, muzzle low | On the ledge, coming down the screen as the body rises, then pushes off | | `hand_plant`, `boot_scuff` at the top |
+| Vault | Roll and a shift over the planted hand, a dip on arrival. Head path is the Player's | Carried high, canted outward | Planted on the cover, sweeping back along the bottom of the view | Swing through on the right | `hand_plant`, `vault_over`, `boot_scuff` |
+| Wall run | The rig's own roll, plus a shift away from the wall | The rig's own cant | Trails on a wall to the left, riding the stride | | `hand_plant` (left wall) |
+| Wall jump | Roll and shove away from the wall | Shoved, when the wall is on its side | Pushes off a wall to the left | | `boot_scuff` |
+| Slide | 1.7 degrees of lean, a drop on entry | A little more cant | Touches the floor on the way down | Out in front | `hand_plant`, a tenth of a second in |
+| Slide-jump | A lift | Pops up out of the cant | | | |
+| Double jump | A lift | Tucks in | | | `gear_rustle` |
+| Hard landing | Extra dip, scaled from 10 to 26 m/s | Drops and recovers slowly, scaled the same | | | `gear_rustle` |
+| Dash | Roll into a side dash, none straight ahead | Lags the other way | | | |
+| Slam | A dip on impact | Driven down in the fall | To the ground on impact | | `hand_plant` |
+| Long fall, ledge drop | A dip for the missing step | Floats up with fall speed | | | `boot_scuff` off the edge |
+
+Jump and sprint are unchanged: the rig's own jump kick and run pose already cover them. Footfalls on a wall are the
+footsteps that were there.
+
+Off-switches: `?moveanim=0` removes the layer and its hand and boot sounds, and puts the mantle's old pitch kick back.
+`?movecam=0` keeps hands, weapon and legs and drops the camera part. `?legs=0` hides the legs. The lab panel has all three
+as boxes. With `?moveanim=0&vault=0&movefix=0` the moves are the ones from before the parkour pass. There was no reduced
+shake or camera motion setting to honour: `ANIM.camera` is the knob a settings entry would write, 0 to 1.
 
 `VIEW.wallRoll`: the roll follows Titanfall, with the head tipping away so the wall rolls under the feet. DESIGN says "rolls
 toward the wall". Flip the sign of `wallRoll` for the literal reading.
@@ -182,6 +281,27 @@ played. Bots cannot judge feel: these are distances and times, not a verdict.
 | Speed FOV at run / at 27 m/s | +4.2 / +8.4 | 0 / +5.5 | at most +6 |
 | Strafe roll, peak | 1.6 degrees | 0 | tiny or zero |
 | Roll left over, after any motion | up to 0.016 degrees | exactly 0 | exactly 0 |
+
+**Parkour pass** (2026-11-10), headless at 120 fps unless it says live:
+
+| | Before | After |
+|---|---|---|
+| Jump pressed 1.4 m from 1.1 m cover at 12.5 m/s | A jump over it | Vault: 2.6 m in 0.208 s, no landing event |
+| Ground covered in a vault, press 0.6 to 1.8 m out, at 12.5 and at 20 m/s | n/a | The entry speed in every frame. Live on the range: 12.5 m/s real for presses 0.7, 1.0 and 1.5 m out |
+| The same before the path was made whole ticks at the entry speed | n/a | 8.3 m/s from 0.6 m out, 10.3 from 1.0, and 8.6 to 13.4 at an entry of 20 |
+| Eye through that vault | n/a | Up 0.14 m, then down to 1.42 m above the floor. Fastest it moves is 4 cm in a 120 Hz frame, 4.7 m/s |
+| Vault off cover on the edge of a 1.4 m deck: fastest the eye moves inside the vault | n/a | 1.6 cm a frame, level. Then an ordinary fall and a landing at 9.3 m/s. It was 21 cm in one frame |
+| Cover with a wall 1.5 m behind it, press 0.6 m out | A jump | A 0.15 s vault at 12.5 m/s |
+| Jump pressed again during a vault | n/a | A ground jump off the far side, double jump kept. It was a double jump with the feet on the floor |
+| Jump pressed during a climb | Double jump spent as the climb ends | A jump off the top, double jump kept |
+| First shot half way up a climb: muzzle against its place at rest, live, shotgun | n/a | 2 cm. It was 20 cm low and 7 cm left |
+| Vault over a 1.2 m crate 2 m deep | A jump | Over it at the entry speed |
+| Run into cover, no key | Stops | Stops (vaults with `vaultAuto`) |
+| After a mantle: ticks in the air, feet drop | 6, 13 mm | The same. 0 and 0 with `mantleCarry` 0.57, which is off |
+| Camera pitch off the look in a mantle, live | 2.1 degrees | 0.6, all of it the landing nod that follows |
+| Camera pitch or yaw added by the body layer | n/a | 0 |
+| Most roll from the body layer, live: vault, mantle | n/a | 3.3, 1.6 degrees |
+| Wall run on a 2 km wall, and on 4 m panels | 1.43 s | 1.43 s |
 
 Wall lean at 12.5 m/s with each fix applied, real / reported: 6 degrees 1.45 / 12.43 before both, 12.43 / 12.44 after the
 `slideAlong` fix, 12.43 / 12.43 after both. 45 degrees: 1.09 / 1.51, then 1.3 / 1.49, then 8.84 / 8.84. Every lean from 1 to 75
@@ -232,8 +352,37 @@ All additive, in `src/core/contracts.ts`:
   25 m/s is now close to the strafe ceiling, and tiers above 20 need a pad or a blast. The 45 m/s in `ui/hud/crosshair.ts`
   and `smoothstep(13, 46)` in `audio/foley.ts`. Crucible gaps were tuned for 17 m/s: the 18 m ring gap now needs a dash.
 - **Hold-to-hop has no menu entry.** `Player.holdToHop` works and is tested. `ui/settings.ts` needs one line beside `invertY`.
-- **`player.speed` during a mantle** keeps saying how fast the player was going for the 0.1 to 0.3 s climb, on purpose, so
-  readouts and Overdrive do not blink to zero. Horizontal position does not change in that time.
+- **`player.speed` during a mantle or a vault** keeps saying how fast the player was going, on purpose, so readouts and
+  Overdrive do not blink to zero. In a mantle horizontal position does not change in that time (unless `mantleCarry` is
+  set). In a vault the body really covers that speed, tick for tick, and a test measures it by position.
+- **The campaign's cable gallery can be crossed without a wall run, and its tests do not see it.** Found here, not caused
+  here. On `campaign/parkour.test.ts`'s own lane, 46 of its 238 jump-and-dash timings end on the far deck, 37 of them by
+  catching the far lip, with the mantle carry and without it. The tests pass because `across` reads the first frame the
+  body stands, and a body on the lip has its centre up to 0.25 m short of the edge. The mantle carry is how it showed:
+  at 0.57 it puts the centre past the edge and turns two tests there and one in `outpost-map.test.ts` red, and at 0.25 it
+  stands the body on the lip of the LZ cut before `onTop` thinks it has arrived. So the carry is off until those tests
+  judge a crossing a moment later than the first standing frame. The 2 m face below the gallery's far deck is what gets
+  caught: a deeper drop, or a far lip that cannot be climbed, would close the hole. Not owned here.
+- **The body layer has not been played by a human.** Placement was judged from frozen stills, at a few frames a second
+  on a busy machine, never in motion. Timing is the part to distrust: a vault at a run is 0.2 s, and the hand has to
+  arrive, plant and leave inside it.
+- **A vault takes the jump.** Within reach of cover no deeper than 2.6 m, a jump press while running at it is a vault, so
+  jumping onto a crate needs a start further back, or `?vault=0`. Nothing has been played to say whether that is right.
+- **A vault from close in lands further out.** The path is never shorter than `vaultMinTime` of running where there is
+  room: 2.5 m at a run, 4 m at 20 m/s. That is where running would have put the body anyway, but the player has no
+  steering for that fifth of a second. `vaultMinTime` 0 ends every vault as soon as the body is clear of the cover.
+- **The longer path is checked with rays, not a swept body.** Between the cover and the end of an extended vault, `vaultEnd`
+  walks rays 0.3 m apart for anything standing above the way down, then tests the end for overlap. Something narrower
+  than that, off the centre line, can be passed through on the way down. `endVault` pushes the body out if it ends inside.
+- **Vaulting is still on a key, not automatic.** Running into cover with no key stops, as before. The no-key version is
+  `?vault=auto` or the lab box. See DESIGN section 13 and "Nothing happens by accident" above for why it is not the default.
+- **The wall run change fixed nothing that could be measured.** A 2 km wall and a wall of butted 4 m panels both ran 1.43 s
+  with and without it. It is there for casts that start in penetration, which Rapier may answer with nothing.
+- **The right hand never leaves the weapon.** A wall on the right gets no trailing hand and a mantle is one-handed.
+- **A vault goes through bodies.** `enemies/contact.ts` only names the mantle, but its nudge needs `state` to be ground,
+  crouch or air, so a vault is never pushed off its path, and a solid body's hold-off only writes a velocity the vault
+  ignores. Light bodies are still shoved aside by the run. Read from the code, not played.
+- **No comfort entry in the settings menu.** `ANIM.camera` and the URL flags exist. `ui/settings.ts` is not owned here.
 - **`player.speed` in an inside corner** flickers between 0 and about 1 m/s, averaging 0.2, while real motion is 0. The second
   wall is inside the skin gap, so a tick can end before it clips. Nothing that reads speed reacts to that little.
 - **Players pass through enemies.** The capsule only collides with `CG.World`. To change it, set `MOVE.collisionMask`, but
@@ -253,7 +402,9 @@ All additive, in `src/core/contracts.ts`:
 ## Testing
 
 ```
-npx vitest run src/player src/input                               # 75 tests, real Rapier, no browser
+npx vitest run src/player/movement.test.ts                         # one file at a time on this machine. Also moveMath, park, vault, moveAnim
+node tools/shot.mjs --url "/?map=range" --script tools/scripts/parkour-live.mjs --dpr 2 --w 1440 --h 900 --wait 500 --timeout 280 --out tools/out/parkour/pk.png
+                                                                    # every move on the range's strip, frozen mid-move. PK_WEAPON, PK_ONLY, PK_SHOTS=0
 npx tsx tools/scripts/movement-headless.ts [bot...] [--fps 60]     # bot numbers in about a second
 node tools/shot.mjs --url "/?sandbox=movement" --script tools/scripts/movement-bot.mjs --out tools/out/movement.png --wait 500
 node tools/shot.mjs --url "/?sandbox=movement&map=killhouse&seconds=120" --script tools/scripts/movement-map.mjs --out tools/out/movement-map.png --wait 500

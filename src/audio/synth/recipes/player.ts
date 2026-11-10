@@ -70,6 +70,24 @@ export const player = [
     s.noise('pink', 0.18).bp(900, 1).env(perc(0.13, 0.7, 0.015)).out();
     s.at(0.11, () => { thump(s, 130, 0.05, 0.6, 2); click(s, 1000, 0.3); });
   }),
+  // Hands and boots on the world, for the moves that put them there. Quiet on purpose: each sits under the move's own
+  // sound and only says what touched what.
+  r('hand_plant', { dur: 0.16, n: 3, mix: 'step', over: { volume: 0.22 }, expect: { attackMs: [0, 14] } }, s => {
+    slap(s, 0.55, s.r(520, 820));
+    s.osc('sine', [[0, 150], [0.04, 84]], 0.06).env(perc(0.05, 0.6)).out();
+  }),
+  r('boot_scuff', { dur: 0.2, n: 3, mix: 'step', over: { volume: 0.2 } }, s => {
+    s.noise('pink', 0.16).bp([[0, s.r(900, 1300)], [0.14, 520]], 0.9).env(perc(0.12, 0.8, 0.004)).out();
+    s.grains(0.1, t => 160 * Math.exp(-t * 20), 0.002).hp(1800).out(0.3);
+  }),
+  r('vault_over', { dur: 0.36, mix: 'player', over: { volume: 0.3 } }, s => {
+    whoosh(s, { from: 520, to: 1400, dur: 0.3, q: 0.9, peakAt: 0.14, level: 0.8 });
+    s.noise('pink', 0.12).bp(700, 1).env(perc(0.1, 0.5, 0.01)).out();
+  }),
+  r('gear_rustle', { dur: 0.24, n: 3, mix: 'step', over: { volume: 0.18 } }, s => {
+    s.noise('pink', 0.2).bp(s.r(1800, 2600), 0.7).am(s.wander(30, 0.6)).env(perc(0.16, 0.7, 0.01)).out();
+    s.at(s.r(0.02, 0.06), () => click(s, s.r(1800, 2600), 0.2));
+  }),
   r('jump_pad', { dur: 0.7, mix: 'player', over: { volume: 0.65, send: 0.2 }, expect: { trend: 1 } }, s => {
     thump(s, 90, 0.12, 1, 3);
     s.osc('sawtooth', [[0, 150], [0.55, 950]], 0.6).lp([[0, 700], [0.5, 3900]], 2).env(perc(0.55, 0.42, 0.004)).out();

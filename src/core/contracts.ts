@@ -661,7 +661,37 @@ export interface PlayerDamage {
 }
 
 /** One word for what the player is doing, for HUD, animation and style scoring. */
-export type PlayerMoveState = 'ground' | 'crouch' | 'air' | 'slide' | 'dash' | 'wallrun' | 'mantle' | 'slam' | 'dead';
+export type PlayerMoveState = 'ground' | 'crouch' | 'air' | 'slide' | 'dash' | 'wallrun' | 'mantle' | 'vault' | 'slam' | 'dead';
+
+/**
+ * What a move does to the player's own body in first person, from `src/player/moveAnim.ts`. Radians and meters in view
+ * space. There is no pitch or yaw on the camera here, because shots leave along the look.
+ */
+export interface MovePose {
+  readonly camRoll: number;
+  readonly camX: number;
+  readonly camY: number;
+  readonly gunX: number;
+  readonly gunY: number;
+  readonly gunZ: number;
+  readonly gunPitch: number;
+  readonly gunYaw: number;
+  readonly gunRoll: number;
+  /** How much of the left hand the move owns, and where it wants the wrist. Euler YXZ. */
+  readonly handW: number;
+  readonly handX: number;
+  readonly handY: number;
+  readonly handZ: number;
+  readonly handPitch: number;
+  readonly handYaw: number;
+  readonly handRoll: number;
+  /** 0 keeps the weapon's fingers, 1 is a flat palm. */
+  readonly handOpen: number;
+  /** 0 none, 1 slide, 2 vault. */
+  readonly legsMode: number;
+  readonly legsW: number;
+  readonly legsPhase: number;
+}
 
 export interface PlayerSystem extends GameSystem {
   /** Feet position. */
@@ -699,6 +729,10 @@ export interface PlayerSystem extends GameSystem {
   readonly crouched: boolean;
   readonly slamming: boolean;
   readonly mantling: boolean;
+  /** Going over cover. Optional so stand-in players need not carry it. */
+  readonly vaulting?: boolean;
+  /** The first-person body layer. Absent on stand-in players, and consumers then add nothing. */
+  readonly moveAnim?: MovePose;
   /** 0 to 2, fractional while recharging. */
   readonly dashCharges: number;
   /** What the feet last touched, for footsteps. */
@@ -848,6 +882,7 @@ export interface GameEvents {
   'player:slamstart': { position: THREE.Vector3 };
   /** `height` is the climb in meters. */
   'player:mantle': { height: number };
+  'player:vault': { height: number; seconds: number };
   'world:hazard': { kind: string; position: THREE.Vector3 };
   /** An explosive went off. The combat system applies `damage` with falloff over `radius` to enemies and the player. */
   'world:explosion': { position: THREE.Vector3; radius: number; damage: number; kind: 'barrel' | 'tank'; source: string };

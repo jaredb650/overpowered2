@@ -12,6 +12,7 @@
 import * as THREE from 'three';
 import type { CameraRig, Ctx, SeatView } from '../core/contracts';
 import { clamp, damp, lerp, rand, smoothstep } from '../core/math';
+import { ANIM } from './moveAnim';
 import { settle, springStep, type SpringState } from './moveMath';
 import { FEEDBACK, VIEW } from './tuning';
 
@@ -72,7 +73,9 @@ export class CameraRigSystem implements CameraRig {
         this.dip.v += VIEW.jumpLift;
         if (e.double) this.kick(-0.012, 0, 0);
       }),
-      events.on('player:mantle', e => this.kick(0.03 + e.height * 0.012, 0, 0)),
+      // With the body layer on, a climb is told by roll, the hand and the settle at the top. The old pitch kick moved the
+      // crosshair off the shot for the whole climb, so it only comes back with `?moveanim=0`.
+      events.on('player:mantle', e => { if (!ANIM.enabled) this.kick(0.03 + e.height * 0.012, 0, 0); }),
       events.on('player:slide', e => { if (e.active) this.fovPunch(VIEW.slidePunch, 0.3); }),
       events.on('player:damaged', e => this.addTrauma(clamp(e.amount / 60, 0.15, 0.7))),
     );
@@ -188,10 +191,20 @@ export class CameraRigSystem implements CameraRig {
       cam.position.x += cosY * bobX;
       cam.position.z -= sinY * bobX;
       cam.position.y += bobY + this.dip.x;
+      // The body layer: roll and small offsets only. It has no pitch or yaw to give, so the crosshair stays on the shot.
+      const pose = player.moveAnim;
+      let bodyRoll = 0;
+      // Sandboxes stand a proxy in for the player, and a proxy answers every read with another proxy.
+      if (pose && typeof pose.camRoll === 'number') {
+        cam.position.x += cosY * pose.camX;
+        cam.position.z -= sinY * pose.camX;
+        cam.position.y += pose.camY;
+        bodyRoll = pose.camRoll;
+      }
       cam.rotation.set(
         player.pitch + this.kickP.x + this.shakeP,
         yaw + this.kickY.x + this.shakeY,
-        this.roll + this.wallRoll + this.kickR.x + this.shakeR,
+        this.roll + this.wallRoll + bodyRoll + this.kickR.x + this.shakeR,
       );
     }
     if (Math.abs(this.fov - cam.fov) > 0.01) {

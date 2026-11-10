@@ -6,9 +6,10 @@
  * wall-run scrape and the slam fall whistle.
  */
 import * as THREE from 'three';
-import type { Ctx, DamageInfo } from '../core/contracts';
+import type { Ctx, DamageInfo, PlayOptions } from '../core/contracts';
 import type { EnemyInstance } from '../core/gameplay';
 import { clamp, lerp, smoothstep } from '../core/math';
+import { ANIM } from './moveAnim';
 import type { Player } from './Player';
 import { FEEDBACK, MOVE } from './tuning';
 
@@ -20,6 +21,10 @@ const MAX_SLAM_TARGETS = 48;
 export class MovementFeedback {
   private lastStride = 0;
   private trailDistance = 0;
+  private wasGrounded = true;
+  private wasMantling = false;
+  private wasVaulting = false;
+  private sinceJump = 9;
   private unsub: (() => void)[] = [];
   private readonly feet = new THREE.Vector3();
   private readonly along = new THREE.Vector3();
@@ -36,10 +41,15 @@ export class MovementFeedback {
     const p = this.player;
     this.unsub.push(
       events.on('player:jumped', e => {
+        this.sinceJump = 0;
         if (e.bounce) audio.play('slam_bounce');
-        else if (e.wall) audio.play('wall_kick');
-        else if (e.double) audio.play('double_jump');
-        else audio.play('player_jump', { volume: FEEDBACK.jumpVolume, pitchJitter: 0.05 });
+        else if (e.wall) {
+          audio.play('wall_kick');
+          this.body('boot_scuff', { volume: FEEDBACK.bodyVolume, pitch: 1.15, pitchJitter: 0.08 });
+        } else if (e.double) {
+          audio.play('double_jump');
+          this.body('gear_rustle', { volume: FEEDBACK.bodyVolume, pitchJitter: 0.1 });
+        } else audio.play('player_jump', { volume: FEEDBACK.jumpVolume, pitchJitter: 0.05 });
       }),
       events.on('player:landed', e => {
         const k = clamp(e.impact / FEEDBACK.landLoudAt, 0.2, 1);
@@ -47,6 +57,7 @@ export class MovementFeedback {
           volume: FEEDBACK.landVolume * k, pitch: 1.08 - 0.25 * k, pitchJitter: 0.05,
         });
         if (e.impact > FEEDBACK.landDust) fx.dust(p.position, UP, 0.5 + k);
+        if (e.impact > FEEDBACK.hardLanding) this.body('gear_rustle', { volume: FEEDBACK.bodyVolume * k, pitch: 0.9, pitchJitter: 0.1 });
       }),
       events.on('player:dashed', e => {
         audio.play('dash');
@@ -57,16 +68,32 @@ export class MovementFeedback {
         if (e.active) {
           audio.play('slide_start');
           audio.play('slide_ground', { volume: clamp(p.velocity.length() / 30, 0.4, 1), pitch: 1.05 });
+          // The bracing hand reaches the floor a tenth of a second into the slide.
+          this.body('hand_plant', { volume: FEEDBACK.bodyVolume * 0.6, pitch: 0.86, pitchJitter: 0.08, delay: 0.1 });
         } else if (p.grounded) {
           audio.play('slide_stop');
         }
       }),
-      events.on('player:wallrun', e => { if (e.active) audio.play('wallrun_start'); }),
-      events.on('player:mantle', () => audio.play('mantle')),
+      events.on('player:wallrun', e => {
+        if (!e.active) return;
+        audio.play('wallrun_start');
+        // The trailing hand finds the wall a moment after the feet do.
+        if (p.wallSide < 0) this.body('hand_plant', { volume: FEEDBACK.bodyVolume * 0.7, pitch: 1.2, pitchJitter: 0.08, delay: 0.09 });
+      }),
+      events.on('player:mantle', () => {
+        audio.play('mantle');
+        this.body('hand_plant', { volume: FEEDBACK.bodyVolume, pitchJitter: 0.08 });
+      }),
+      events.on('player:vault', () => {
+        // The vault is a move of its own with its own switch, so its sound stays when the body layer is off.
+        audio.play('vault_over', { volume: FEEDBACK.bodyVolume, pitchJitter: 0.05 });
+        this.body('hand_plant', { volume: FEEDBACK.bodyVolume, pitch: 0.92, pitchJitter: 0.08 });
+      }),
       events.on('player:slamstart', () => audio.play('slam_start')),
       events.on('player:slam', e => {
         const k = clamp(e.impact / FEEDBACK.slamFullAt, 0.3, 1);
         audio.play('slam_impact', { volume: 0.6 + 0.4 * k });
+        this.body('hand_plant', { volume: FEEDBACK.bodyVolume, pitch: 0.8, delay: 0.06 });
         render.post.radialBlur(0.45 * k, 0.25);
         render.post.chromatic(0.5 * k, 0.2);
         fx.slam(e.position, k);
@@ -97,10 +124,34 @@ export class MovementFeedback {
       if (p.grounded || p.wallRunning) this.footstep();
     }
 
+    this.bodySounds(dt);
     render.post.setSpeed(smoothstep(FEEDBACK.speedLinesFrom, FEEDBACK.speedLinesFull, p.velocity.length()));
     render.post.setLowHealth(p.alive ? 1 - clamp(p.health / 35) : 1);
     if (p.sliding || p.wallRunning) this.trail(dt);
     else this.trailDistance = 0;
+  }
+
+  /**
+   * A hand or a boot on a move. These are the sounds of the first-person body, so `?moveanim=0` silences them with it: a
+   * hand that is not shown does not slap a ledge.
+   */
+  private body(id: string, options: PlayOptions): void {
+    if (ANIM.enabled) this.ctx.audio.play(id, options);
+  }
+
+  /** Boots at the end of a climb, on the far side of cover, and scuffing off an edge the player walked over. */
+  private bodySounds(dt: number): void {
+    const p = this.player;
+    this.sinceJump += dt;
+    if (this.wasMantling && !p.mantling && p.alive) this.body('boot_scuff', { volume: FEEDBACK.bodyVolume, pitchJitter: 0.08 });
+    if (this.wasVaulting && !p.vaulting && p.alive) this.body('boot_scuff', { volume: FEEDBACK.bodyVolume, pitch: 0.9, pitchJitter: 0.08 });
+    const stepped = this.wasGrounded && !p.grounded && !p.mantling && !p.vaulting && !p.dashing && p.alive;
+    if (stepped && this.sinceJump > 0.1 && p.velocity.y <= 0.5 && p.speed > 2) {
+      this.body('boot_scuff', { volume: FEEDBACK.bodyVolume * 0.7, pitch: 1.1, pitchJitter: 0.1 });
+    }
+    this.wasGrounded = p.grounded;
+    this.wasMantling = p.mantling;
+    this.wasVaulting = p.vaulting;
   }
 
   /** Dust under a slide and sparks along a wall, spaced by distance so they stay even at any speed. */
@@ -158,5 +209,7 @@ export class MovementFeedback {
 
   reset(): void {
     this.lastStride = Math.floor(this.player.stridePhase);
+    this.wasGrounded = true;
+    this.wasMantling = this.wasVaulting = false;
   }
 }

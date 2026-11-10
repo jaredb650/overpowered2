@@ -6,16 +6,18 @@
  */
 import * as THREE from 'three';
 import { clamp, damp, lerp, smoothstep, wrapAngle } from '../../core/math';
-import { CG, type Ctx, type RayHit } from '../../core/contracts';
+import { CG, type Ctx, type MovePose, type RayHit } from '../../core/contracts';
 import type { CallInId, PerkId, PowerupId, SwordMove, ViewmodelRig, WeaponId } from '../../core/gameplay';
 import { Arm } from './arms';
 import { inQuad, outBack, outCubic } from './curves';
-import { Anim, type HandCtl, type ViewDef } from './def';
+import { Anim, HandCtl, type ViewDef } from './def';
 import { Kit } from './kit/kit';
 import { VmMaterials } from './kit/materials';
 import type { Model } from './kit/model';
 import { buildDefs, buildOffhand, type OffhandSet } from './models';
+import { Legs } from './legs';
 import { Offhand } from './offhand';
+import { HANDS } from './poses';
 import { Spring, Spring3 } from './spring';
 
 /**
@@ -68,6 +70,9 @@ const _eu = new THREE.Euler(0, 0, 0, 'YXZ');
 const _gunEuler = new THREE.Euler();
 const _moonFrom = new THREE.Vector3();
 const _moonHit: RayHit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, surface: 'concrete', collider: null };
+
+/** The share of a move's weapon pose that a working gun keeps. */
+const MOVE_CALM = 0.2;
 
 /** Soft limit: linear near zero, flattening toward `limit`. */
 const soft = (v: number, limit: number) => limit * Math.tanh(v / limit);
@@ -128,6 +133,17 @@ export class Rig implements ViewmodelRig {
   private wallSide = 0;
   private slamW = 0;
   private airW = 0;
+  /** The player's body layer for this frame, or null where the player is a stand-in. See src/player/moveAnim.ts. */
+  private move: MovePose | null = null;
+  /** How much of a move's weapon pose shows. It drops while the gun is working, so a shot is never fired from a dipped gun. */
+  private moveCalm = 1;
+  /** How free the left hand is to leave the weapon for a ledge or a wall. */
+  private handFree = 1;
+  private readonly moveHand = new HandCtl();
+  private legs!: Legs;
+  /** Each gun's rotation as composed this frame, which `settleMuzzle` needs to take a move back out of it. */
+  private readonly gunRot = new THREE.Vector3();
+  private readonly gunLRot = new THREE.Vector3();
   /** Where the eye and look were on this frame's rig update; muzzle() uses them to correct a stale camera. */
   private readonly eyeAtUpdate = new THREE.Vector3();
   private yawAtUpdate = 0;
@@ -190,6 +206,9 @@ export class Rig implements ViewmodelRig {
     const off: OffhandSet = buildOffhand(kit);
     this.offhand = new Offhand(off);
     this.root.add(this.offhand.root);
+    this.legs = new Legs(kit);
+    this.root.add(this.legs.root);
+    this.moveHand.base = 'move';
 
     render.viewScene.add(this.root);
 
@@ -313,6 +332,8 @@ export class Rig implements ViewmodelRig {
     if (!def) return;
     const a = left ? this.a2 : this.a;
     a.sinceFire = 0;
+    // A shot brings the gun out of a move's pose at once, not over the next few frames: see `settleMuzzle`.
+    this.moveCalm = Math.min(this.moveCalm, MOVE_CALM);
     a.shots++;
     a.strength = strength;
     a.heat = Math.min(1, a.heat + (def.heatPerShot ?? 0) * strength);
@@ -367,10 +388,34 @@ export class Rig implements ViewmodelRig {
   }
 
   muzzle(out: THREE.Vector3, left = false): THREE.Vector3 {
-    const def = left && this.akimboW > 0.01 ? this.defLeft : this.def;
+    const isLeft = left && this.akimboW > 0.01;
+    const def = isLeft ? this.defLeft : this.def;
     const s = def?.model.sockets.muzzle;
     if (!s) return out;
-    return this.toWorld(_a.setFromMatrixPosition(s.matrixWorld), out);
+    _a.setFromMatrixPosition(s.matrixWorld);
+    this.settleMuzzle(_a, isLeft);
+    return this.toWorld(_a, out);
+  }
+
+  /**
+   * The weapon system reads the muzzle before it tells the rig about the shot, so the first round of a burst would
+   * leave from wherever a climb or a hard landing had put the gun. While the gun carries more of a move than a working
+   * gun keeps, the muzzle is answered from where `fire` is about to put it: the flash and the gun agree on that frame.
+   */
+  private settleMuzzle(point: THREE.Vector3, left: boolean): void {
+    const mv = this.move;
+    const k = this.moveCalm - MOVE_CALM;
+    if (!mv || k < 0.01) return;
+    const gun = left ? this.gunL : this.gun;
+    const rot = left ? this.gunLRot : this.gunRot;
+    const side = left ? -1 : 1;
+    gun.worldToLocal(point);
+    _gunEuler.set(rot.x - mv.gunPitch * k, rot.y - side * mv.gunYaw * k, rot.z - side * mv.gunRoll * k);
+    point.multiply(gun.scale).applyQuaternion(_q.setFromEuler(_gunEuler));
+    point.x += gun.position.x - side * mv.gunX * k;
+    point.y += gun.position.y - mv.gunY * k;
+    point.z += gun.position.z - mv.gunZ * k;
+    this.root.localToWorld(point);
   }
 
   ejectPort(out: THREE.Vector3): THREE.Vector3 {
@@ -492,6 +537,7 @@ export class Rig implements ViewmodelRig {
 
     this.offhand.update(dt);
     this.solveArms(def, dl, akimboOn, dt);
+    this.legs.update(this.gun.visible ? this.move : null, this.ctx.player.pitch, dt);
     this.updateLooks(dt);
     this.updateMoon(dt);
     this.updateWrist(dt);
@@ -545,6 +591,13 @@ export class Rig implements ViewmodelRig {
     this.bobW = damp(this.bobW, p.grounded || p.wallRunning ? smoothstep(0.6, 7, speed) : 0, 10, dt);
     if (p.wallSide !== 0) this.wallSide = p.wallSide;
     this.slamW = damp(this.slamW, p.state === 'slam' ? 1 : 0, 14, dt);
+    // A stand-in player answers every read with a proxy, so the layer is only trusted when it holds numbers.
+    const pose = p.moveAnim;
+    this.move = pose && typeof pose.handW === 'number' ? pose : null;
+    const working = a.sinceFire < 0.35 || a.reload >= 0 || a.swing !== null || a.draw < 1;
+    this.moveCalm = damp(this.moveCalm, working ? MOVE_CALM : 1, working ? 30 : 9, dt);
+    const busy = a.reload >= 0 || a.swing !== null || this.akimbo || a.draw < 1;
+    this.handFree = damp(this.handFree, busy ? 0 : 1, 16, dt);
 
     if (dt > 0) {
       const yawRate = soft(wrapAngle(yaw - this.lastYaw) / dt, 9);
@@ -684,6 +737,18 @@ export class Rig implements ViewmodelRig {
     // Air: a slight float as the arms lose their ground reference.
     p.y += this.airW * 0.006;
 
+    // The body layer: what a mantle, a vault, a hard landing and the rest do to the weapon.
+    const mv = this.move;
+    if (mv) {
+      const c = this.moveCalm;
+      p.x += mv.gunX * c;
+      p.y += mv.gunY * c;
+      p.z += mv.gunZ * c;
+      r.x += mv.gunPitch * c;
+      r.y += mv.gunYaw * c;
+      r.z += mv.gunRoll * c;
+    }
+
     p.x += this.lookP.x.x + this.moveP.x.x;
     p.y += this.lookP.y.x + this.moveP.y.x;
     p.z += this.moveP.z.x;
@@ -715,6 +780,7 @@ export class Rig implements ViewmodelRig {
     r.y -= sc * def.rot[1];
 
     this.gun.position.copy(p);
+    this.gunRot.copy(r);
     _gunEuler.set(r.x, r.y, r.z);
     this.gun.quaternion.setFromEuler(_gunEuler);
     this.gun.visible = this.holsterW < 1 && this.scopeW < 0.9;
@@ -743,7 +809,19 @@ export class Rig implements ViewmodelRig {
     r.x -= run * 0.05 + fast * 0.14 - slide * 0.04;
     r.y -= run * 0.09 + fast * 0.14;
     r.z += run * 0.07 + fast * 0.13 + slide * 0.2;
+    // The body layer, mirrored.
+    const mv = this.move;
+    if (mv) {
+      const c = this.moveCalm;
+      p.x -= mv.gunX * c;
+      p.y += mv.gunY * c;
+      p.z += mv.gunZ * c;
+      r.x += mv.gunPitch * c;
+      r.y -= mv.gunYaw * c;
+      r.z -= mv.gunRoll * c;
+    }
     this.gunL.position.copy(p);
+    this.gunLRot.copy(r);
     _gunEuler.set(r.x, r.y, r.z);
     this.gunL.quaternion.setFromEuler(_gunEuler);
     this.gunL.visible = this.gun.visible;
@@ -804,6 +882,20 @@ export class Rig implements ViewmodelRig {
       _b.lerp(_p, ow);
       _qb.slerp(_q, ow);
       hand = off.ctl;
+    }
+    // A move takes the hand last and gives way to everything above: a ledge, the top of cover, a wall, the floor.
+    const mv = this.move;
+    const mw = mv && shown ? mv.handW * this.handFree * (1 - ow) : 0;
+    if (mv && mw > 0.001 && leftOk) {
+      _p.set(mv.handX, mv.handY, mv.handZ);
+      _q.setFromEuler(_eu.set(mv.handPitch, mv.handYaw, mv.handRoll));
+      _b.lerp(_p, mw);
+      _qb.slerp(_q, mw);
+      const open = mv.handOpen * mw;
+      const out = this.moveHand.pose;
+      for (let i = 0; i < out.length; i++) out[i] = hand.pose[i]! + (HANDS.open[i]! - hand.pose[i]!) * open;
+      this.moveHand.fingerRate = 22;
+      hand = this.moveHand;
     }
     this.armL.mesh.visible = leftOk;
     if (leftOk) {

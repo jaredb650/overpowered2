@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import { FACE } from '../world/kit/geo';
 import type { Kit } from '../world/kit/kit';
 import type { MapSpec } from '../world/map/spec';
+import { parkour } from './parkour';
 
 export const RANGE = { halfX: 32, halfZ: 26, wall: 11, deck: 3, thick: 2 } as const;
 
@@ -77,7 +78,7 @@ function lights(k: Kit): void {
 
 export const RANGE_STAGES = [
   { label: 'Pouring the floor', run: (k: Kit, spec: MapSpec) => { spec.reactor = null; shell(k); rule(k); } },
-  { label: 'Setting out the range', run: (k: Kit) => { ledges(k); cover(k); lights(k); } },
+  { label: 'Setting out the range', run: (k: Kit) => { ledges(k); cover(k); parkour(k); lights(k); } },
 ] as const;
 
 export function authorRange(_k: Kit, spec: MapSpec): void {

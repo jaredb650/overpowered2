@@ -9,6 +9,7 @@
  * The world is paused with a scale of zero, not with `time.paused`, because the player's clock ignores slow motion:
  * the camera can walk round a frozen body and fire into it, then step the world on a frame at a time.
  */
+import * as THREE from 'three';
 import type { Ctx } from '../core/contracts';
 import { DEV_ASKED, DevFlags, ON_RANGE } from '../core/devflags';
 import type { Game } from '../core/Game';
@@ -16,7 +17,10 @@ import type { WeaponId } from '../core/gameplay';
 import { MAX_ALIVE } from '../enemies/waves';
 import { WEAPON_ORDER } from '../weapons/data';
 import { AimOverlay } from './overlay';
-import { LabPanel } from './panel';
+import { ANIM } from '../player/moveAnim';
+import { MOVE } from '../player/tuning';
+import { LabPanel, type MoveSwitch } from './panel';
+import { PARKOUR } from './parkour';
 import { applyFlags, loadSettings, saveSettings } from './settings';
 import { LabSpawner } from './spawn';
 
@@ -28,6 +32,7 @@ const STATUS_REFRESH = 0.25;
 const GRENADE_FLOOR = 3;
 /** Extinction per metre on the range. The game's haze suits a city and hides a body at the far wall. */
 const RANGE_FOG = 0.0012;
+const _at = new THREE.Vector3();
 
 const isField = (t: EventTarget | null): boolean => t instanceof HTMLElement && /^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName);
 
@@ -68,6 +73,8 @@ export class Lab {
       togglePause: () => this.togglePause(),
       step: n => this.step(n),
       setSpeed: s => this.setSpeed(s),
+      parkour: () => this.parkour(),
+      move: (key, on) => this.moveSwitch(key, on),
     }, (ctx.enemies as unknown as { vehicles?: unknown }).vehicles != null);
     this.hint.className = 'lab-hint';
     this.hint.textContent = 'Click for the mouse. F1 or ` opens the panel.';
@@ -109,6 +116,28 @@ export class Lab {
 
   get open(): boolean {
     return this.opened;
+  }
+
+  /** The start of the range's parkour strip, looking down it. */
+  parkour(): boolean {
+    if (!ON_RANGE) return false;
+    this.ctx.player.teleport(_at.set(PARKOUR.start[0], 0.1, PARKOUR.start[1]), 0);
+    return true;
+  }
+
+  /** Movement switches belong to the player and reset with the page, like the URL flags they mirror. */
+  moveSwitch(key: MoveSwitch, on?: boolean): boolean {
+    if (key === 'autoVault') {
+      if (on !== undefined) MOVE.vaultAuto = on;
+      return MOVE.vaultAuto;
+    }
+    if (key === 'camera') {
+      if (on !== undefined) ANIM.camera = on ? 1 : 0;
+      return ANIM.camera > 0;
+    }
+    const field = key === 'anim' ? 'enabled' : 'legs';
+    if (on !== undefined) ANIM[field] = on;
+    return ANIM[field];
   }
 
   setOpen(open: boolean): void {
