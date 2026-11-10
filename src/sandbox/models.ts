@@ -116,7 +116,7 @@ export default async function models(params: URLSearchParams): Promise<void> {
     }
   } else if (bench) {
     await lib.load();
-    const ids = ARCHETYPES.filter(a => a.id !== 'titan' && a.id !== 'juggernaut').map(a => a.id);
+    const ids = ARCHETYPES.filter(a => !a.onRequest && a.id !== 'titan' && a.id !== 'juggernaut').map(a => a.id);
     for (let i = 0; i < bench; i++) place(ids[i % ids.length]!, ((i % 8) - 3.5) * 3, -Math.floor(i / 8) * 3 + 6);
   } else {
     await lib.load();

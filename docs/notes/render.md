@@ -80,6 +80,22 @@ On `LightVolumeBakeInput` in `contracts.ts`: `voxelSize?`. The rest live on the 
 | `measurePasses()` | Isolated GPU cost of each post pass |
 | `refreshStaticShadows()` | Re-render the static map once |
 | `renderSize()` | Internal size after quality and dynamic resolution |
+| `backdrop` | `{ scene, camera, still }` or null. See Backdrop below |
+
+## Backdrop
+
+`render.backdrop = { scene, camera, still }` makes `render()` draw that scene instead of the world: one `renderer.render` into the scene
+target, then bloom and the composite, so it gets the game's tone mapping, grade, vignette and grain and nothing that reads the world. The
+main menu's helicopter uses it (`docs/notes/ui.md`, "Main menu background"). Setting it to null brings the world back on the next frame.
+
+- **Its materials must not be patched.** `materials.patch` lights from the map's light volume, the moon's shadow maps and the world
+  camera's `opCamToWorld`, none of which match a scene drawn this way. Use plain three.js lights.
+- **The world draws first, three times** (`BACKDROP_AFTER`). FX and characters compile and draw their warm-ups on the first world frames,
+  and a backdrop set from the first frame would move those stalls onto the first frame of a run.
+- **A still backdrop stops drawing.** With `still: true` it is drawn three times (`STILL_DRAWS`), after which `render()` returns at once and
+  the canvas keeps the picture. A resize, or a different backdrop object, draws it again.
+- Fog and SSR history are not updated while it is up, so the first world frame after it can show a frame of stale reflection or fog.
+  It only ends when a run starts, on a freshly reset map, and nothing was seen.
 
 ## Tuning
 

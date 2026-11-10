@@ -45,6 +45,13 @@ v.describe();                           // one read of everything
 
 **Lab.** On `/?map=range` the panel has a row of vehicle buttons. AI off parks one at the crosshair to shoot at. AI on drives it in past the player, with men, shooting. `tools/scripts/vehicles-live.mjs` is the bot, with `VEHICLES_STEP` set to `models`, `fight`, `threat`, `wreck`, `air`, `dogfight` on the range or Kill House, and `soft`, `heavy`, `turn`, `insertion` on the real map.
 
+**The main menu flies the Packmule too.** `src/ui/backdrop/cabin.ts` builds `UTILITY_AIRFRAME` and the `M134` spec from `src/vehicles/` into its
+own scene with plain materials, so a change to the cabin, the door or the gun shows in the menu's background as well. It adds a lining over the
+forward bulkhead, because the cabin's front wall and the nose's end cap share the plane z = 2.5 and fight where both can be seen from inside,
+and some fittings only the menu has: hazard stripes on the sill, a seal and grab handle on the forward door post, and a pedestal from the
+pintle down to the sill, with an ammunition can at the end of the feed chute. In the game the gunner holds the gun and nothing shows under
+the pintle; parked and unmanned, it needed a stand.
+
 ## Why it is like this
 
 - **No physics bodies.** A kinematic chassis along a route, with weight added by `Driver`: limited acceleration, a braking curve worked out from the road left, wheels that lag the driver, and a spring under the body. A tank a blast can shove is a tank that can leave the road and strand a mission.

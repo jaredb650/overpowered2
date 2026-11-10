@@ -35,6 +35,8 @@ import { Stragglers } from './hud/stragglers';
 import { NowPlaying } from './hud/nowplaying';
 import { Screens, type ScreenName } from './screens/Screens';
 import { Flythrough } from './screens/flythrough';
+import { MenuBackdrop } from './backdrop/MenuBackdrop';
+import { backdropMode } from './backdrop/rhythm';
 import { isTitanWave } from '../enemies/waves';
 import type { CommsKind } from '../enemies/outpost/events';
 import { MISSION_ID } from '../campaign/select';
@@ -53,6 +55,11 @@ export interface GameHost {
 interface PickupSource {
   pickups?: readonly { kind: PickupKind; position: THREE.Vector3; active?: boolean }[];
 }
+
+/** The screens that show the helicopter behind them. The rest of the menu keeps the map: the Crucible's rules are about it. */
+const HELI_SCREENS: ReadonlySet<ScreenName> = new Set<ScreenName>(['splash', 'menu', 'guide', 'settings']);
+const MENU_BG = new URLSearchParams(location.search).get('menubg');
+const REDUCED_MOTION = typeof matchMedia === 'function' ? matchMedia('(prefers-reduced-motion: reduce)') : null;
 
 /** Long enough to see what killed you, short enough to still be angry about it. */
 const DEATH_BEAT = 1.5;
@@ -98,6 +105,8 @@ export class Hud implements HudSystem {
   private scoreboard: Scoreboard;
   private stragglers: Stragglers;
   private flythrough: Flythrough;
+  /** The contractor in the helicopter, behind the first menu screens. `?menubg=map` puts the flythrough back. */
+  readonly backdrop: MenuBackdrop;
   private nowPlaying = new NowPlaying();
   /** The Outpost's enemy has things to say. Null everywhere else. */
   private commander: CommanderHud | null;
@@ -179,6 +188,7 @@ export class Hud implements HudSystem {
     this.root.append(this.hud);
 
     this.flythrough = new Flythrough(ctx);
+    this.backdrop = new MenuBackdrop(ctx);
     this.screens = new Screens(ctx, this, this.settings);
     this.root.append(this.screens.el);
     // Last, so the track name shows over the menu as well as the HUD.
@@ -447,6 +457,7 @@ export class Hud implements HudSystem {
     const game = this.game;
     const playing = game?.state === 'playing';
 
+    this.updateBackdrop(dt, game?.state);
     this.flythrough.update(dt);
     this.screens.update(dt);
     this.updateLock(dt);
@@ -499,6 +510,18 @@ export class Hud implements HudSystem {
     this.stragglers.update(s);
     this.scoreboard.update(input.isDown?.('scoreboard') === true && playing === true, dt);
     this.updateDeath(dt);
+  }
+
+  /** The helicopter on the first menu screens, the flythrough on the others, and neither in a run, which frees the helicopter. */
+  private updateBackdrop(dt: number, state: GameState | undefined): void {
+    const screen = this.screens.name;
+    const menu = state === 'menu';
+    const heli = menu && HELI_SCREENS.has(screen);
+    const mode = backdropMode(MENU_BG, REDUCED_MOTION?.matches ?? false, this.settings.quality);
+    // The splash click is what lets audio start, so the cabin is heard from the menu on.
+    this.backdrop.update(dt, heli, mode, screen !== 'splash', screen === 'splash' ? 'splash' : 'menu');
+    this.flythrough.active = menu && !(heli && mode !== 'map');
+    if (state === 'playing' && this.backdrop.built) this.backdrop.dispose();
   }
 
   private readPickups(): readonly MinimapPoint[] {

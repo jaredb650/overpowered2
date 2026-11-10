@@ -22,6 +22,8 @@ export interface ArchetypeDef {
   weight: number;
   /** What the upper body does at rest and while aiming. */
   stance: 'unarmed' | 'rifle' | 'pistol' | 'shoulder' | 'heavy' | 'blades' | 'shield' | 'staff';
+  /** Not one of the enemy cast: `load()` with no list and `archetypes()` leave it out, so only a caller who names it pays for it. */
+  onRequest?: boolean;
 }
 
 const h = (scale: number, bulk: number, reach: number): HumanoidProportions => ({ scale, bulk, reach });
@@ -47,6 +49,8 @@ export const ARCHETYPES: readonly ArchetypeDef[] = [
   def('warden', 'Warden', h(1.18, 0.98, 1.06), 0xffe9a0, 14000, 'staff', 0.3, [{ model: 'wardenStaff', socket: 'handR' }]),
   def('juggernaut', 'Juggernaut', h(1.72, 1.62, 1.14), 0xff4a10, 22000, 'heavy', 0.92),
   { ...def('titan', 'Titan', h(3.8, 1.4, 1.18), 0xff5a1e, 30000, 'heavy', 1), stumps: 'machine' },
+  // The player, for the main menu's background. Nothing fights it, so it is never loaded with the cast.
+  { ...def('contractor', 'Contractor', h(1, 1.04, 1), 0xff5a14, 14000, 'unarmed', 0.3), onRequest: true },
   {
     id: 'skitter', name: 'Skitter', rig: 'skitter', proportions: h(1, 1, 1), accent: hex(0xff2030), tris: 6000,
     props: [], stumps: 'machine', weight: 0, stance: 'unarmed',
@@ -56,6 +60,9 @@ export const ARCHETYPES: readonly ArchetypeDef[] = [
     props: [], stumps: 'machine', weight: 0, stance: 'unarmed',
   },
 ];
+
+/** Everything a run can spawn: the list `load()` and `archetypes()` use when nobody names one. */
+export const CAST: readonly ArchetypeDef[] = ARCHETYPES.filter(a => !a.onRequest);
 
 export const archetypeById = (id: string): ArchetypeDef => {
   const a = ARCHETYPES.find(x => x.id === id);

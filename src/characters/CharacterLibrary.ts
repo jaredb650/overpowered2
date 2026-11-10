@@ -1,13 +1,13 @@
 /** Loads baked models and pools skinned instances per archetype, all sharing geometry. */
 import * as THREE from 'three';
 import type { CharacterInstance, CharacterLibrary, Ctx } from '../core/contracts';
-import { ARCHETYPES, archetypeById, rigFor } from './archetypes';
+import { CAST, archetypeById, rigFor } from './archetypes';
 import { Character, SeveredPart, type ArchetypeData } from './Character';
 import { buildInterior } from './anatomy/build';
 import { createInteriorMaterial } from './anatomy/interior';
 import { createBackingMaterial } from './anatomy/backing';
 import { WoundKind } from './anatomy/wounds';
-import { createCharacterMaterial, createDetailTexture } from './material';
+import { createCharacterMaterial, createDetailTexture, type SurfaceOptions } from './material';
 import { parseModel, type LoadedModel } from './model';
 import type { HumanoidAnimator } from './animation/index';
 import type { Manifest, Socket } from './format';
@@ -24,6 +24,9 @@ interface Loaded {
   material: THREE.Material;
   woundMaterial: THREE.Material;
   farMaterial: THREE.Material;
+  surface: SurfaceOptions;
+  /** The same surface without the engine's lighting, made on request. */
+  plain: THREE.Material | null;
 }
 
 interface Entry extends ArchetypeData {
@@ -83,7 +86,7 @@ export class CharacterLibraryImpl implements CharacterLibrary {
         const character = model.meta.kind === 'character';
         const farMaterial = character ? createCharacterMaterial(this.ctx, { ...surface, far: true }) : material;
         const woundMaterial = character ? createCharacterMaterial(this.ctx, { ...surface, wounds: true }) : material;
-        return { model, material, woundMaterial, farMaterial };
+        return { model, material, woundMaterial, farMaterial, surface, plain: null };
       })();
       this.models.set(id, p);
     }
@@ -91,7 +94,7 @@ export class CharacterLibraryImpl implements CharacterLibrary {
   }
 
   async load(archetypes?: string[]): Promise<void> {
-    const ids = archetypes ?? ARCHETYPES.map(a => a.id);
+    const ids = archetypes ?? CAST.map(a => a.id);
     await Promise.all(ids.map(id => {
       let p = this.loading.get(id);
       if (!p) {
@@ -278,12 +281,49 @@ export class CharacterLibraryImpl implements CharacterLibrary {
     }
   }
 
+  /**
+   * The archetype's skin without the engine's light volume and moon shadow, for a scene the world renderer does not
+   * light: the main menu's background lights itself with ordinary three.js lights. Load the archetype first.
+   */
+  async plainMaterial(archetype: string): Promise<THREE.Material> {
+    const loaded = await this.loadModel(archetype);
+    loaded.plain ??= createCharacterMaterial({ render: {} } as Ctx, loaded.surface);
+    return loaded.plain;
+  }
+
+  /**
+   * Frees an archetype nothing is using: geometry, atlases, materials and the pooled instances. For the ones loaded on
+   * request, like the menu's contractor. Returns false, and frees nothing, while any instance or limb is still out.
+   */
+  unload(archetype: string): boolean {
+    const e = this.entries.get(archetype);
+    const p = this.models.get(archetype);
+    if (!e || !p) return false;
+    if (e.active.size > 0 || e.activeLimbs.length > 0) return false;
+    for (const c of e.free) c.skeleton.dispose();
+    for (const l of e.freeLimbs) l.skeleton.dispose();
+    e.interior?.dispose();
+    e.interiorMaterial?.dispose();
+    e.backingMaterial?.dispose();
+    this.entries.delete(archetype);
+    this.loading.delete(archetype);
+    this.models.delete(archetype);
+    void p.then(l => {
+      const { model } = l;
+      for (const g of [...model.lods, ...model.lodsWithCaps, ...model.chains.values()]) g.dispose();
+      for (const m of new Set([l.material, l.woundMaterial, l.farMaterial, l.plain])) m?.dispose();
+      l.surface.atlasA?.dispose();
+      l.surface.atlasB?.dispose();
+    });
+    return true;
+  }
+
   rig(archetype: string) {
     return this.entries.get(archetype)?.rig ?? rigFor(archetypeById(archetype));
   }
 
   archetypes(): string[] {
-    return ARCHETYPES.map(a => a.id);
+    return CAST.map(a => a.id);
   }
 
   sockets(archetype: string): Record<string, Socket> {

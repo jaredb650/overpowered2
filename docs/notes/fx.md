@@ -2,6 +2,9 @@
 
 `createFx(ctx)` from `src/fx/index.ts`. Everything visible that is not a mesh or a decal goes through it.
 
+One exception: the main menu's cigar smoke (`src/ui/backdrop/smoke.ts`) is its own 160 points. The menu's background is drawn in place of
+the world (`Renderer.backdrop`), and these layers live in the world scene and read its depth, fog and clock, so they cannot be seen there.
+
 ## How it works
 
 **Particles live on the GPU.** Emission writes one spawn record into a ring buffer and uploads just that range. The vertex shader works out where the particle is from (record, time), so a particle costs CPU exactly once, when it is born. Slow-mo, hit-stop and pause come from `ctx.time.elapsed` with no extra code.

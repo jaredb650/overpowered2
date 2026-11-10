@@ -125,6 +125,29 @@ For the streams that come next (minigun, Lance, sword, the SMG):
 - The Lance was left as it was: two walls, each up to 1.6 m. It is one flag away from the metered budget (`penetrateWalls`).
 - `canSever` is the field for "takes limbs". The SMG still has it on.
 
+## Main menu background (built, owner asked for a helmet: done)
+
+Owner: a background like the helicopter shot in Metal Gear Solid V's menu, the main character smoking a cigar, instead of a map preview.
+
+Built: the contractor (the player's own body, new: `contractor` in `docs/notes/characters.md`) sits in the Packmule's open door at dusk, back
+against the forward post, right boot out over the sill, cigar in his left hand on his knee. A drag every 10 to 15 s with the tip flaring, an exhale
+the slipstream pulls out of the door, looks out of the door, weight shifts, a drifting handheld camera, swinging grab straps, rotor flicker on
+the sun, dim instruments, a sea of cloud with peaks through it sliding past, scraps of cloud going by close. Quiet cabin loop under the music.
+Manual: `docs/notes/ui.md`, "Main menu background".
+
+After the owner's first look ("give him a helmet or mask or something"): he now wears a high-cut helmet in the suit's grey-blue with an
+orange stripe, a cold status light and a smoked visor down over his eyes; the jaw and mouth stay bare for the cigar, and a half mask hangs
+on his chest strap. The cigar is held up its length and sits in the corner of his mouth on a drag, so the hand no longer covers the mouth.
+The cabin was made to read as an aircraft: cloud heads instead of a flat deck that looked like sea, hazard stripes on the sill, a grab
+handle on the door post, the gun on a pedestal, the red work light up so the troop seats show. On the splash he is framed above the title,
+and the view tilts down to the menu's framing on the click.
+
+- Off-switch: `?menubg=map` (the old flythrough). `?menubg=still` is the still frame that reduced motion gets. Graphics quality Low no longer freezes it.
+- About a third of the old background's cost: 2.4 ms a frame with the GPU's work against 7.5, 27 draws against 110 to 190.
+
+For the owner to judge by looking: the helmet and visor, the pose, how dark it is, the cigar's read at menu size, and the door gun, which is
+parked swung forward and is mostly behind the Play list at 16:10. The main rotor is never in frame from the cabin floor.
+
 ## Future job: the hive mission (planned, on hold)
 
 The second campaign mission, against the zombies on the planet Tallow, is planned and not built. The owner said on 2026-11-10 to hold it: plan it, keep it for a later job, build nothing now.

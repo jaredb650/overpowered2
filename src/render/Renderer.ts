@@ -37,6 +37,26 @@ interface RenderList {
 /** Device pixels per canvas pixel that stretch without a visible beat, cheapest last. */
 const STRETCHES = [1, 1.5, 2, 3, 4] as const;
 
+/**
+ * A scene drawn in place of the world, such as the main menu's background. It gets bloom and the composite (tone
+ * mapping, grade, vignette, grain) and nothing that reads the world: no shadows, light volume, AO, fog, SSR or decals.
+ * Its materials must not be patched by `materials.patch`, which lights from the world's volume and camera.
+ */
+export interface Backdrop {
+  scene: THREE.Scene;
+  camera: THREE.PerspectiveCamera;
+  /** True when nothing moves: it is drawn a few times, then the canvas keeps the picture until a resize. */
+  still: boolean;
+}
+
+/**
+ * World frames drawn before a backdrop may take over. The first ones are where FX and the characters compile and
+ * draw their warm-ups, and those have to land before a run, not on its first frame.
+ */
+const BACKDROP_AFTER = 3;
+/** A still backdrop is redrawn this many times after it is set or the canvas changes, then left alone. */
+const STILL_DRAWS = 3;
+
 /** Sizes stay even so half-resolution targets line up exactly with the area they cover. */
 const even = (v: number): number => Math.max(2, Math.round(v / 2) * 2);
 
@@ -79,6 +99,10 @@ export class Renderer implements RenderSystem {
   decalAtlas!: BakedSet;
   /** Automatic resolution scaling. Set `.enabled = false` to pin the preset's resolution. */
   readonly dynamicResolution = new DynamicResolution();
+  /** Drawn instead of the world while set. See `Backdrop`. */
+  backdrop: Backdrop | null = null;
+  private backdropDraws = 0;
+  private lastBackdrop: Backdrop | null = null;
 
   private ctx: Ctx | null = null;
   private sceneTarget!: THREE.WebGLRenderTarget;
@@ -266,6 +290,8 @@ export class Renderer implements RenderSystem {
     const fits = (d: number) => cssW * cssH * (dpr / d) ** 2 <= this.quality.maxPixels;
     const density = dpr / (STRETCHES.find(fits) ?? STRETCHES[STRETCHES.length - 1]!);
     this.renderer.setDrawingBufferSize(even(cssW * density), even(cssH * density), 1);
+    // Resizing clears the canvas, so a still backdrop has to be drawn again.
+    this.backdropDraws = 0;
     const aspect = cssW / cssH;
     this.camera.aspect = aspect;
     this.camera.updateProjectionMatrix();
@@ -445,7 +471,39 @@ export class Renderer implements RenderSystem {
     this.listMode = 'all';
   };
 
+  /** Draws `backdrop` through bloom and the composite only. A still one stops drawing once the canvas holds it. */
+  private renderBackdrop(b: Backdrop): void {
+    const { renderer } = this;
+    if (b !== this.lastBackdrop) {
+      this.lastBackdrop = b;
+      this.backdropDraws = 0;
+    }
+    // Counted only while still, so a backdrop that goes still later is drawn in its still state before it stops.
+    if (!b.still) this.backdropDraws = 0;
+    else if (this.backdropDraws >= STILL_DRAWS) return;
+    else this.backdropDraws++;
+    this.fallbackClock.update();
+    const realDt = this.ctx ? this.ctx.time.realDt : Math.min(this.fallbackClock.getDelta(), 0.05);
+    const time = this.ctx ? this.ctx.time.realElapsed : this.fallbackClock.getElapsed();
+    if (this.dynamicResolution.update(realDt)) this.applyResolution();
+    renderer.info.reset();
+    this.postState.update(realDt);
+    // The scene target is the size of the HDR one and resolves its own MSAA, so bloom and the composite read it directly.
+    renderer.setRenderTarget(this.sceneTarget);
+    renderer.clear(true, true, false);
+    renderer.render(b.scene, b.camera);
+    if (this.passes.bloom) this.bloom.render(renderer, this.sceneTarget);
+    this.composite.render(renderer, this.sceneTarget.texture, this.bloom.output, this.width, this.height, time, this.postState);
+    this.lastCalls = renderer.info.render.calls;
+    this.lastTriangles = renderer.info.render.triangles;
+  }
+
   render(): void {
+    if (this.backdrop && this.frames >= BACKDROP_AFTER) {
+      this.renderBackdrop(this.backdrop);
+      return;
+    }
+    this.lastBackdrop = null;
     const { renderer, scene, camera, viewScene, viewCamera, engine } = this;
     const gl = renderer.getContext() as WebGL2RenderingContext;
     this.fallbackClock.update();
