@@ -124,3 +124,12 @@ For the streams that come next (minigun, Lance, sword, the SMG):
 - A second weapon on a key is one row in `WEAPONS` plus a viewmodel. `docs/notes/weapons.md`, "Adding a family member", has the whole list and what a row cannot yet say.
 - The Lance was left as it was: two walls, each up to 1.6 m. It is one flag away from the metered budget (`penetrateWalls`).
 - `canSever` is the field for "takes limbs". The SMG still has it on.
+
+## Future job: the hive mission (planned, on hold)
+
+The second campaign mission, against the zombies on the planet Tallow, is planned and not built. The owner said on 2026-11-10 to hold it: plan it, keep it for a later job, build nothing now.
+
+- The plan is `docs/notes/hive-mission-plan.md`: thirteen stages in build order, from friendly soldiers and the air wing to the two new bosses (the Commander, Reissued, and the Remainder).
+- Boss order the owner set: an ordinary Juggernaut, then the Commander back as a new boss that is neither a Juggernaut nor a Titan, then the Titan as a mini boss, then the hive mind that talks to the player all mission.
+- No voice lines are to be generated for it yet.
+- Start it only on the owner's word. Before building, re-check the plan's facts against the code: weapons, the door gun, executions and the ragdoll stages all changed after it was written.
