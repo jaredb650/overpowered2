@@ -163,12 +163,18 @@ declare module '../../core/contracts' {
     /** Swaying and stupid: a hand to the head and no real balance, while the caller keeps it from acting. */
     daze?(seconds: number): void;
     /**
-     * Takes over from the pose on the bones right now, without a pop, and plays the get-up. `seconds` is the whole clip.
+     * Takes over from the pose on the bones right now, without a pop, and plays the get-up. `seconds` is the whole clip, or
+     * from `startU` (0..1, where in the clip the body already is) the rest of it, which then blends in over a shorter match.
      * The root must already be where it will stand. Returns how long it runs, 0 once the body has only to settle.
      */
-    getUp?(kind: GetUpKind, seconds: number, hurt: number): number;
+    getUp?(kind: GetUpKind, seconds: number, hurt: number, startU?: number): number;
     /** Writes the first frame of a get-up onto the bones, and where its hips sit relative to the root into `hips`. */
     poseGetUpStart?(kind: GetUpKind, hips: THREE.Vector3): void;
+    /**
+     * The same at any point `u` of the clip, 0..1. `flip` picks the lead side, 1 or -1, and the clip that follows keeps it;
+     * left out, it is mirrored at random, as `poseGetUpStart` is.
+     */
+    poseGetUpAt?(kind: GetUpKind, u: number, hips: THREE.Vector3, flip?: number): void;
     /** On the floor to stay. A body handed back to this animator takes up its crawl and does not get up. */
     readonly prone?: boolean;
   }

@@ -20,6 +20,14 @@ const CASES = {
   // Lying, and getting up. Starts from the end of `fall`.
   rise: { id: 'trooper', lead: 110, steps: [0, 16, 32, 48, 64, 80, 96, 112, 128, 144, 160, 190], act: r => r.hit('chest', 18, 60, r.shock(9)) },
   riseback: { id: 'trooper', flip: true, lead: 110, steps: [0, 16, 32, 48, 64, 80, 96, 112, 128, 144, 160, 190], act: r => r.hit('chest', 18, 60, r.shock(9)) },
+  // The same from the moment it starts to get up: the push up on its arms, or to sitting up, and the clip after it. With
+  // `?struggle=0` from the moment it gathers for the clip.
+  struggle: { id: 'trooper', steps: [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 100, 130], act: async r => { r.hit('chest', 18, 60, r.shock(9)); await r.until(() => r.rising(), 600); } },
+  struggleback: { id: 'trooper', flip: true, steps: [0, 10, 20, 30, 40, 50, 60, 80, 100, 120, 150, 190], act: async r => { r.hit('chest', 18, 60, r.shock(9)); await r.until(() => r.rising(), 600); } },
+  huskup: { id: 'husk', steps: [0, 6, 12, 18, 24, 30, 36, 42, 50, 60, 75, 90], act: async r => { r.hit('chest', 12, 60, r.shock(9)); await r.until(() => r.rising(), 600); } },
+  // A shotgun shell in the chest half way through the face-down clip, kneeling, four pellets on one frame that do not kill it:
+  // it goes back down from the clip's pose.
+  riseshot: { id: 'trooper', flip: true, steps: [0, 2, 4, 6, 8, 10, 12, 15, 20, 26, 34, 50], act: async r => { r.hit('chest', 18, 60, r.shock(9)); await r.until(e => e.rising > 0 && e.char.anim.clipU >= 0.5, 900); r.target.health = r.target.maxHealth; r.shell('chest', 4, 15, 18); } },
   // A rocket that does not kill.
   thrown: { id: 'trooper', steps: [0, 3, 6, 10, 15, 20, 26, 34, 44, 56, 72, 90], act: r => r.blast(3.2) },
   thrownup: { id: 'gunner', lead: 60, steps: [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330], act: r => r.blast(3.2) },
@@ -94,6 +102,28 @@ export default async function reactSeq(page, h) {
         const point = new V().setFromMatrixPosition(e.char.bones[Math.max(bone, 0)].matrixWorld);
         return ctx.enemies.applyDamage(e, { amount, type: 'bullet', point, dir: r.dir.clone(), force, source: 'test', region, bone: bone >= 0 ? bone : undefined });
       },
+      /** Steps a frame at a time until `test(target)` holds, `frames` at most. */
+      async until(test, frames) {
+        for (let i = 0; i < frames && !test(r.target); i++) await r.walk(1);
+      },
+      /** Gore has started it getting up: fighting up, or gathering for the clip. */
+      rising() {
+        const reflex = r.reflex();
+        return reflex !== null && (reflex.phase === 'struggle' || reflex.phase === 'gather');
+      },
+      reflex() {
+        return ctx.gore.owned.get(r.target.char)?.rag?.muscle?.reflex ?? null;
+      },
+      /** A shell: `pellets` pellets on one frame, as Combat lands them. */
+      shell(region, pellets, amount, force) {
+        const e = r.target;
+        const bone = e.char.rig.bones.findIndex(b => b.region === region);
+        const point = new V().setFromMatrixPosition(e.char.bones[Math.max(bone, 0)].matrixWorld);
+        r.log.push({ shell: { u: +(e.char.anim.clipU ?? 0).toFixed(2), rising: +e.rising.toFixed(2), of: +e.riseSeconds.toFixed(2) } });
+        for (let i = 0; i < pellets; i++) {
+          ctx.enemies.applyDamage(e, { amount, type: 'pellet', point, dir: r.dir.clone(), force, source: 'test', region, bone: bone >= 0 ? bone : undefined });
+        }
+      },
       tripLeg() {
         const e = r.target;
         const v = e.velocity.clone().setY(0);
@@ -149,8 +179,10 @@ export default async function reactSeq(page, h) {
         const c = e.char;
         const y = c.bones.map(b => b.matrixWorld.elements[13]);
         const seen = y.filter((_, i) => !c.isHidden(i));
+        const reflex = r.reflex();
         return {
           e: { x: +e.position.x.toFixed(2), z: +e.position.z.toFixed(2), down: e.downed, rise: +e.rising.toFixed(2), stag: +e.stagger.toFixed(2), alive: e.alive },
+          reflex: reflex ? { ph: reflex.phase, tries: reflex.tries, fails: reflex.fails, knocks: reflex.knocks, up: +(reflex.progress ?? 0).toFixed(2) } : null,
           hips: +y[0].toFixed(2), head: +y[4].toFixed(2), low: +Math.min(...seen).toFixed(3),
         };
       },

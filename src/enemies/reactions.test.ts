@@ -135,6 +135,26 @@ describe('reactions', () => {
     expect(hits(legless, 1, 'head', 50, smg).level).toBe('flinch');
   });
 
+  it('a body on its way up is put back down by a hard hit, and one SMG round only rocks it', () => {
+    // Getting up (`e.rising`), one SMG round in the chest flinches it. A shotgun at 8 m, four of its six pellets in the chest
+    // (2.1 of shock against a Trooper's `fall` of 1.7), fells it at strength 0.4 or more, so it drops from the clip's pose.
+    // Nothing floors a body with no legs.
+    const smgChest = body('trooper');
+    smgChest.rising = 1;
+    expect(hits(smgChest, 1, 'chest', 25, smg).level).toBe('flinch');
+    const shell = body('trooper');
+    shell.rising = 1;
+    const r = hits(shell, 4, 'chest', 20, 18, 'pellet');
+    expect(r.level).toBe('felled');
+    expect(r.strength).toBeGreaterThanOrEqual(0.4);
+    expect(r.knockout).toBe(false);
+    const legless = body('trooper');
+    legless.rising = 1;
+    legless.maim.legs = 0;
+    expect(hits(legless, 6, 'chest', 20, 18, 'pellet').level).toBe('flinch');
+    expect(hits(legless, 1, 'head', 20, 18, 'pellet').level).toBe('flinch');
+  });
+
   it('waits out its cooldown, so an SMG cannot hold a body in place', () => {
     const e = body('trooper');
     e.reactAt = 1;

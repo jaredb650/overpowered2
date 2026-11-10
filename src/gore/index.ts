@@ -547,7 +547,13 @@ export class Gore implements GoreSystem {
     _v.copy(chest.p).sub(hips.p).setY(0);
     if (_v.lengthSq() < 1e-3) _v.set(0, 1, 0).applyQuaternion(hips.q).setY(0);
     const away = reflex.kind === 'supine' ? -1 : 1;
-    const yaw = Math.atan2(_v.x * away, _v.z * away);
+    let yaw = Math.atan2(_v.x * away, _v.z * away);
+    if (reflex.startU > 0) {
+      // Pushed part of the way up, a body sat up has its chest over its hips. The turn that puts that frame's hips where the
+      // real ones are says it instead: the part of `hips × frame⁻¹` about the vertical.
+      _q2.copy(reflex.startHipsTurn).invert().premultiply(hips.q);
+      yaw = 2 * Math.atan2(_q2.y, _q2.w);
+    }
     _v2.copy(hips.p);
     _q.copy(hips.q);
     rag.destroy();
@@ -563,7 +569,7 @@ export class Gore implements GoreSystem {
     char.bones[0]!.position.copy(_v3);
     char.bones[0]!.quaternion.copy(_q).premultiply(_q2.setFromAxisAngle(_up, -yaw));
     root.updateMatrixWorld(true);
-    char.anim.getUp?.(reflex.kind, b.down!.rise, b.down!.hurt);
+    char.anim.getUp?.(reflex.kind, b.down!.rise, b.down!.hurt, reflex.startU);
   }
 
   /** Out of this system, with the instance left as it is. */

@@ -72,6 +72,8 @@ const REEL = {
 const GETUP_RELEASE = 0.16;
 /** Seconds to blend from a ragdoll's pose into the first frame of a clip. */
 const POSE_MATCH = 0.42;
+/** Shorter into a later frame, which a body that pushed itself part of the way up is already close to. */
+const POSE_MATCH_PART = 0.25;
 /** Longer for a body with no clip, whose whole change of pose is this blend. */
 const POSE_MATCH_CRAWL = 0.7;
 /** Seconds a wound hold takes to arrive and to let go. */
@@ -520,7 +522,7 @@ export class HumanoidAnimator implements CharacterAnimation {
     this.snapLeft = this.snapSeconds = seconds;
   }
 
-  getUp(kind: GetUpKind, seconds: number, hurt: number): number {
+  getUp(kind: GetUpKind, seconds: number, hurt: number, startU = 0): number {
     this.refreshPlan();
     this.reel = this.flail = this.flailW = this.buckle = this.buckleW = 0;
     this.action = null;
@@ -537,17 +539,23 @@ export class HumanoidAnimator implements CharacterAnimation {
     }
     this.planBlend = 0;
     this.clipKind = kind;
-    this.clipU = 0;
-    this.clipSeconds = Math.max(seconds, 0.4);
+    // Pushed part of the way up already (gore's struggle), it plays the rest over `seconds`, from a pose it is already close to.
+    this.clipU = clamp(startU, 0, 0.9);
+    const rest = 1 - this.clipU;
+    this.clipSeconds = Math.max(seconds, 0.4 * rest) / rest;
     this.clipHurt = clamp(hurt);
-    this.matchPose(POSE_MATCH);
-    return this.clipSeconds;
+    this.matchPose(this.clipU > 0 ? POSE_MATCH_PART : POSE_MATCH);
+    return this.clipSeconds * rest;
   }
 
   poseGetUpStart(kind: GetUpKind, hips: THREE.Vector3): void {
+    this.poseGetUpAt(kind, 0, hips);
+  }
+
+  poseGetUpAt(kind: GetUpKind, u: number, hips: THREE.Vector3, flip?: number): void {
     this.refreshPlan();
-    this.clipFlip = Math.random() < 0.5 ? 1 : -1;
-    this.poseClip(kind, 0, this.clipFlip, 0);
+    this.clipFlip = flip ?? (Math.random() < 0.5 ? 1 : -1);
+    this.poseClip(kind, clamp(u), this.clipFlip, 0);
     hips.copy(this.pelvisPos);
   }
 

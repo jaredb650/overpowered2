@@ -11,8 +11,9 @@ import { Physics } from '../physics/Physics';
 import { makeCtx } from '../sandbox/harness';
 import type { Ctx, DamageInfo } from '../core/contracts';
 import { createGoreSystem, GoreTuning, type Gore } from './index';
+import { MuscleState } from './muscles';
 import { RagTuning, type Rag } from './rag';
-import { ReflexTuning } from './reflex';
+import { ReflexTuning, STRUGGLE_PASS } from './reflex';
 import { TestDummy } from './testDummy';
 
 const trooper = archetypeById('trooper');
@@ -403,6 +404,259 @@ describe('knockdown', () => {
     gore.clear();
     expect(c.root.parent).toBe(scene);
     expect(gore.downed(c)).toBeNull();
+  });
+});
+
+describe('fighting up', () => {
+  const headings: readonly (readonly [number, number])[] = [[0, 2], [0, -2], [2, 0], [-1.4, 1.4]];
+  /** Midway between the shoulders, over the floor. */
+  const shoulders = (c: TestDummy) => (at(c, B.upperArmL).y + at(c, B.upperArmR).y) / 2;
+  /** A Trooper's: on the floor and to get up, which `damage.ts` cuts by 0.27 for a body with both arms to push with. */
+  const LIE = 1.2;
+  const RISE = 2.8;
+  const rise = RISE * (1 - 0.27);
+
+  /** Runs a body on from where it is until it has been back on the animation for a second, and says how that went. */
+  function finish(c: TestDummy, frames = 60 * 10): { back: number; pop: number; floor: number } {
+    const out = { back: -1, pop: 0, floor: 9 };
+    let last = pose(c);
+    for (let f = 0; f < frames; f++) {
+      frame(c);
+      const now = pose(c);
+      if (out.back < 0 && !gore.downed(c)) out.back = f;
+      if (out.back >= 0) {
+        for (let i = 0; i < now.length; i++) {
+          if (f <= out.back + 30) out.pop = Math.max(out.pop, now[i]!.distanceTo(last[i]!));
+          if (!hidden(c, i)) out.floor = Math.min(out.floor, now[i]!.y);
+        }
+        if (f > out.back + rise * 60 + 30) break;
+      }
+      last = now;
+    }
+    return out;
+  }
+
+  it('fights its way up: hurt, it gives out, drops back and tries again', () => {
+    // Badly hurt (0.9), with its first attempt made to give out (`giveOut` past 1 and two tries, so the second must get there).
+    // In that attempt the hips or the shoulders rise 0.15 m or more, the hips face down and the shoulders face up, where the
+    // clip has the hips sat on the floor; then they drop 0.1 m or more. From landing to standing takes 1.0 to 1.6 times what
+    // it did with the clip doing all of it: lie, gather and the whole rise.
+    expect(STRUGGLE_PASS).toBe(true);
+    const tuning = { giveOut: ReflexTuning.giveOut, maxTries: ReflexTuning.maxTries };
+    ReflexTuning.giveOut = 10;
+    ReflexTuning.maxTries = 2;
+    try {
+      for (const [x, z] of headings) {
+        gore.clear();
+        const c = spawnLiving();
+        gore.knockdown(c, { topple: v(x, 0, z), lie: LIE, rise, hurt: 0.9 });
+        const reflex = ragOf(c).muscle!.reflex!;
+        let landed = -1;
+        const from = { hips: NaN, top: NaN };
+        const peak = { hips: 0, top: 0 };
+        const low = { hips: 9, top: 9 };
+        let f = 0;
+        for (; f < 60 * 8 && gore.downed(c) && reflex.tries < 2; f++) {
+          frame(c);
+          if (landed < 0 && reflex.phase !== 'fall') landed = f;
+          if (reflex.tries !== 1) continue;
+          const hips = at(c, B.hips).y;
+          const top = shoulders(c);
+          if (Number.isNaN(from.hips)) {
+            from.hips = hips;
+            from.top = top;
+          }
+          if (reflex.fails === 0) {
+            peak.hips = Math.max(peak.hips, hips);
+            peak.top = Math.max(peak.top, top);
+          } else {
+            low.hips = Math.min(low.hips, hips);
+            low.top = Math.min(low.top, top);
+          }
+        }
+        expect(reflex.fails, `heading ${x},${z}`).toBe(1);
+        const part = peak.hips - from.hips > peak.top - from.top ? 'hips' : 'top';
+        expect(peak[part] - from[part], `heading ${x},${z}`).toBeGreaterThanOrEqual(0.15);
+        expect(peak[part] - low[part], `heading ${x},${z}`).toBeGreaterThanOrEqual(0.1);
+        const r = finish(c);
+        expect(r.back).toBeGreaterThan(0);
+        expect(reflex.startU).toBeGreaterThan(0);
+        const took = (f + r.back - landed) / 60 + rise;
+        const before = LIE + ReflexTuning.gatherSeconds + RISE;
+        expect(took / before, `heading ${x},${z}`).toBeGreaterThanOrEqual(1);
+        expect(took / before, `heading ${x},${z}`).toBeLessThanOrEqual(1.6);
+        expect(r.pop).toBeLessThan(0.14);
+        expect(r.floor).toBeGreaterThan(-0.05);
+        expect(c.root.position.y).toBeCloseTo(0, 3);
+        expect(at(c, B.head).y).toBeGreaterThan(1.4);
+      }
+    } finally {
+      Object.assign(ReflexTuning, tuning);
+      gore.clear();
+    }
+  });
+
+  it('undead get straight up', () => {
+    // Nothing felt (`hurt` 0, a Husk's): never gives out, and pushes for half the time. Sat up face up it is there in 0.57 to
+    // 0.6 s; up on straight arms face down, lifting the whole trunk on a lift capped at 0.55 of the body's weight, in 0.62 to
+    // 1.15 s, and either way now and then up to 1.27 s from a body still rolling when it starts (the plan asked for 0.5 s).
+    for (const [x, z] of headings) {
+      gore.clear();
+      const c = spawnLiving();
+      gore.knockdown(c, { topple: v(x, 0, z), lie: 0.3, rise: 1.1 * 0.73, hurt: 0 });
+      const reflex = ragOf(c).muscle!.reflex!;
+      let pushing = 0;
+      for (let f = 0; f < 60 * 6 && gore.downed(c); f++) {
+        frame(c);
+        if (reflex.phase === 'struggle') pushing++;
+      }
+      expect(gore.downed(c), `heading ${x},${z}`).toBeNull();
+      expect(reflex.fails).toBe(0);
+      expect(reflex.tries).toBe(1);
+      expect(reflex.startU).toBeGreaterThan(0);
+      expect(pushing / 60, `heading ${x},${z}`).toBeLessThanOrEqual(1.5);
+    }
+    gore.clear();
+  });
+
+  it('the lift never carries more than its share of the weight', () => {
+    // An explicit impulse under the hips and the shoulders, capped (`ReflexTuning.assistMax`, 0.55): read through a hook on
+    // every sub-step it lifts. Arms and legs push the rest, and it still gets there.
+    let most = 0;
+    let steps = 0;
+    MuscleState.onLift = share => {
+      most = Math.max(most, share);
+      steps++;
+    };
+    try {
+      for (const [x, z] of headings) {
+        gore.clear();
+        const c = spawnLiving();
+        gore.knockdown(c, { topple: v(x, 0, z), lie: 0.3, rise, hurt: 0.9 });
+        const reflex = ragOf(c).muscle!.reflex!;
+        for (let f = 0; f < 60 * 8 && gore.downed(c); f++) frame(c);
+        expect(gore.downed(c)).toBeNull();
+        expect(reflex.startU).toBeGreaterThan(0);
+      }
+    } finally {
+      MuscleState.onLift = null;
+      gore.clear();
+    }
+    expect(steps).toBeGreaterThan(60);
+    expect(most).toBeLessThanOrEqual(ReflexTuning.assistMax + 1e-9);
+    expect(most).toBeGreaterThan(ReflexTuning.assistMax * 0.8);
+  });
+
+  it('a hard hit while it fights up puts it back down, and one SMG round only rocks it', () => {
+    // Face down, most of the way up on its arms. One SMG round (20 N·s, struck 0.47 against `struggleKnock` 0.6) jolts it
+    // and it carries on. Four pellets of a shell in the same frame (18 N·s each) put it back down: within 0.5 s the attempt is
+    // over and it is lying, the hips under 0.3 m and the shoulders 0.08 m or more lower (0.09 to 0.25 m over sixteen, the
+    // least of them caught on its forearms), and then it tries again and gets up.
+    for (const shell of [false, true]) {
+      gore.clear();
+      const c = spawnLiving();
+      gore.knockdown(c, { topple: v(0, 0, 2), lie: 0.3, rise, hurt: 0.6 });
+      const reflex = ragOf(c).muscle!.reflex!;
+      for (let f = 0; f < 60 * 4 && !(reflex.phase === 'struggle' && reflex.progress >= 0.7); f++) frame(c);
+      expect(reflex.phase).toBe('struggle');
+      expect(reflex.kind).toBe('prone');
+      expect(reflex.knocks).toBe(0);
+      const point = at(c, B.chest);
+      const impulse = v(0, -0.3, -1).normalize().multiplyScalar(shell ? 18 : 20);
+      const top = shoulders(c);
+      gore.knockdown(c, { impulses: Array.from({ length: shell ? 4 : 1 }, () => ({ bone: B.chest, point, impulse })) });
+      let hips = 9;
+      let lowest = 9;
+      for (let f = 0; f < 30; f++) {
+        frame(c);
+        hips = Math.min(hips, at(c, B.hips).y);
+        lowest = Math.min(lowest, shoulders(c));
+      }
+      if (shell) {
+        expect(reflex.knocks).toBe(1);
+        expect(reflex.phase).toBe('lying');
+        expect(hips).toBeLessThan(0.3);
+        expect(top - lowest).toBeGreaterThanOrEqual(0.08);
+      } else {
+        expect(reflex.knocks).toBe(0);
+      }
+      const r = finish(c);
+      expect(r.back).toBeGreaterThanOrEqual(0);
+      expect(at(c, B.head).y).toBeGreaterThan(1.4);
+    }
+    gore.clear();
+  });
+
+  it('killed on its way up, it drops under its own weight', () => {
+    // A death call most of the way up (`damage.ts` `ragdoll`, an SMG round in the chest): the lift goes on that frame and the
+    // push with it, and what is left is muscle fading over `dieSeconds`. By then the shoulders are 0.1 m or more under where
+    // they were (0.17 to 0.23 m over the four headings). With the lift left on while the muscles faded it went on carrying
+    // 0.53 to 0.11 of the weight for half a second, and face down the shoulders first rose 0.1 m and more.
+    const giveOut = ReflexTuning.giveOut;
+    ReflexTuning.giveOut = 0;
+    let lifts = 0;
+    try {
+      for (const [x, z] of headings) {
+        gore.clear();
+        const c = spawnLiving();
+        gore.knockdown(c, { topple: v(x, 0, z), lie: 0.3, rise, hurt: 0.9 });
+        const reflex = ragOf(c).muscle!.reflex!;
+        for (let f = 0; f < 60 * 5 && !(reflex.phase === 'struggle' && reflex.progress >= 0.6); f++) frame(c);
+        expect(reflex.phase, `heading ${x},${z}`).toBe('struggle');
+        const top = shoulders(c);
+        gore.ragdoll(c);
+        expect(gore.downed(c)).toBeNull();
+        MuscleState.onLift = () => lifts++;
+        // A corpse now: nothing stands it up.
+        for (let f = 0; f < 30; f++) frame(null);
+        c.root.updateMatrixWorld(true);
+        MuscleState.onLift = null;
+        expect(top - shoulders(c), `heading ${x},${z}`).toBeGreaterThanOrEqual(0.1);
+      }
+    } finally {
+      ReflexTuning.giveOut = giveOut;
+      MuscleState.onLift = null;
+      gore.clear();
+    }
+    expect(lifts).toBe(0);
+  });
+
+  it('thrown while it pushes up, the legs fall with their weight and the lift goes', () => {
+    // A grenade 2 m off while it pushes (`Reflex.thrown`). The fall writes neither the legs' gain nor their gravity, so they
+    // must not keep the push's: four times the strength and 0.3 of their weight, for the whole flight. Nothing lifts.
+    const giveOut = ReflexTuning.giveOut;
+    ReflexTuning.giveOut = 0;
+    let lifts = 0;
+    try {
+      gore.clear();
+      const c = spawnLiving();
+      gore.knockdown(c, { topple: v(0, 0, 2), lie: 0.3, rise, hurt: 0.9 });
+      const rag = ragOf(c);
+      const reflex = rag.muscle!.reflex!;
+      for (let f = 0; f < 60 * 5 && !(reflex.phase === 'struggle' && reflex.progress >= 0.5); f++) frame(c);
+      expect(reflex.phase).toBe('struggle');
+      physics.radialImpulse(rag.center.clone().add(v(-2, 0.1, 0)), 8, 42);
+      MuscleState.onLift = () => {
+        if (reflex.phase === 'fall') lifts++;
+      };
+      const legs = rag.parts.filter(p => p.muscle!.role === 'leg');
+      let falling = 0;
+      for (let f = 0; f < 30; f++) {
+        frame(c);
+        if (reflex.phase !== 'fall') continue;
+        falling++;
+        for (const leg of legs) {
+          expect(leg.muscle!.gain).toBe(1);
+          expect(leg.body.gravityScale()).toBeCloseTo(rag.gravity, 6);
+        }
+      }
+      expect(falling).toBeGreaterThan(10);
+    } finally {
+      ReflexTuning.giveOut = giveOut;
+      MuscleState.onLift = null;
+      gore.clear();
+    }
+    expect(lifts).toBe(0);
   });
 });
 

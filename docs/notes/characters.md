@@ -73,7 +73,8 @@ None of these exist on skitters and drones, which is how gore and the enemies kn
 `getUp.ts` is two clips, keys on a 1.85 m body: hips, spine, ankles, wrists. IK does the rest, so one clip fits every humanoid and a missing limb just is not solved. Lead side is mirrored at random.
 
 - Face down: the head lies toward +Z. Press up, hands and knees, lead foot through, stand. Face up: the feet lie toward +Z. Sit up, hand behind, rock forward over the feet, stand. So the yaw comes from how the body lies, and nothing turns on the way up.
-- `getUp(kind, seconds, hurt)` takes over from whatever is on the bones and blends out of it over 0.42 s. The last 16% fades into ordinary standing, which has been posed underneath all along. A body with no legs has no clip: it blends 0.7 s into its crawl.
+- `getUp(kind, seconds, hurt, startU)` takes over from whatever is on the bones and blends out of it over 0.42 s. The last 16% fades into ordinary standing, which has been posed underneath all along. A body with no legs has no clip: it blends 0.7 s into its crawl. With `startU` (0..1) the clip starts that far in and plays the rest over `seconds`, blending in over 0.25 s: gore's struggle has already pushed the body up on straight arms (0.24, before the knees come under) or sat it up (0.3).
+- `poseGetUpStart(kind, hips)` writes the first frame onto the bones for gore to read joint targets from, and `poseGetUpAt(kind, u, hips, flip)` any frame; the clip that follows keeps that `flip`, its lead side, which is otherwise mirrored at random.
 - `keepAboveFloor` lifts the hips if a blend or an odd body shape would put a low joint through the floor. It is there because a blend knows nothing about the floor, and the keys were made on a Trooper.
 - A gun hand hugs the weapon in and the other arm does the pushing.
 

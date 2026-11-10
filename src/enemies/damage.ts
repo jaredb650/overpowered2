@@ -16,6 +16,7 @@ import { chance, clamp, lerp, pick, rand } from '../core/math';
 import { FACTIONS, type FactionRules } from '../contracts/data';
 import { ACTIVE } from '../contracts/select';
 import { KNOCK_PASS, MASS_PASS, WEIGHT_PASS } from '../gore/muscles';
+import { STRUGGLE_PASS } from '../gore/reflex';
 import { bursts, HEAVY_ROUND } from './wounds/rules';
 import { BLAST, OUTCOME_COUNT, OUTCOMES, rollBlast, tearsWaist, type BlastBody, type BlastRoll, type OutcomeRule } from './blast';
 import { CHECK_CARRY, CHECK_MIN, CHECK_TOPPLE_MAX, CHECK_TOPPLE_MIN, checkStrength, SLIDE_KICK, SLIDE_TOPPLE } from './contact';
@@ -47,11 +48,16 @@ const TOPPLE_MAX = 2.2;
 const SHOCK_AFTER_STAGGER = 0.5;
 /** Knocked cold by a head hit, it lies this much longer, and gets up dazed for its whole `daze`. */
 const KNOCKOUT_LIE = 1.5;
+/**
+ * Share of the get-up clip a body with all four limbs pushes itself through on the floor first (gore's struggle, `reflex.ts`),
+ * which the clip then does not have to: the mean of the two frames it pushes for, 0.24 face down and 0.3 face up.
+ */
+const RISE_PUSHED = 0.27;
 
 /** How a knockdown goes over, where the default from its direction and strength will not do. */
 interface Knock {
-  /** m/s on the upper body. Left out, along the hit by its strength. */
-  topple?: THREE.Vector3;
+  /** m/s on the upper body. Left out, along the hit by its strength. Null, none: it drops from the pose it is in. */
+  topple?: THREE.Vector3 | null;
   /** How hard the limbs are thrown, along the knockdown's direction. Left out, by its strength. */
   impact?: number;
   /** Knocked cold by a head hit (`KnockdownOptions.knockout`), at `point`. */
@@ -136,7 +142,7 @@ const UP = new THREE.Vector3(0, 1, 0);
 
 const _knock: Knock = {};
 /** The one `Knock` every caller fills, all of it each time. */
-function knockAs(topple: THREE.Vector3 | undefined, impact: number | undefined, knockout: boolean, point: THREE.Vector3 | undefined): Knock {
+function knockAs(topple: THREE.Vector3 | null | undefined, impact: number | undefined, knockout: boolean, point: THREE.Vector3 | undefined): Knock {
   _knock.topple = topple;
   _knock.impact = impact;
   _knock.knockout = knockout;
@@ -169,6 +175,18 @@ export function deathVelocity(e: Enemy, out: THREE.Vector3, now = Number.NaN): T
   out.x += x * k;
   out.z += z * k;
   return out;
+}
+
+/**
+ * Both arms and both legs there to push itself up with, none of them broken at the shoulder, elbow, hip or knee: what gore's
+ * struggle asks (`Reflex.canPush`), or a body that gathers for the whole clip would play it in the pushed one's time.
+ */
+function pushesUp(e: Enemy): boolean {
+  const s = e.char.severed;
+  if (s.has('armL') || s.has('armR') || s.has('forearmL') || s.has('forearmR') || s.has('legL') || s.has('legR') || s.has('shinL') || s.has('shinR')) return false;
+  const c = e.char;
+  return !c.isFractured(B.upperArmL) && !c.isFractured(B.foreArmL) && !c.isFractured(B.upperArmR) && !c.isFractured(B.foreArmR)
+    && !c.isFractured(B.thighL) && !c.isFractured(B.shinL) && !c.isFractured(B.thighR) && !c.isFractured(B.shinR);
 }
 
 /** Reel or knockback a hit adds at world time `now`, which the body has not stepped with until its next frame. */
@@ -747,7 +765,11 @@ export class DamageModel {
     // speed it goes down at, the head spinning against the chest and the hands thrown up at 10 m/s (gore.md, nothing a hit
     // does to the animation may land in one frame), as `contact.ts` does for a body check. With `?knock=0`, as before.
     const headDown = KNOCK_PASS && !held && r.level === 'felled' && region === 'head';
-    if (!headDown) anim.flinch(bone, d.dir, flinch);
+    // Felled on its way up, it goes over from the clip's pose, with nothing on the animator first either (`?struggle=0`: as
+    // before, which only a head hit did).
+    const riseDown = STRUGGLE_PASS && !held && r.level === 'felled' && e.rising > 0;
+    const floors = headDown || riseDown;
+    if (!floors) anim.flinch(bone, d.dir, flinch);
     if (held) return;
     const felt = profile.pain > 0;
     const blast = d.type === 'explosive';
@@ -755,7 +777,7 @@ export class DamageModel {
       if (!armoured) this.cryOut(e);
       return;
     }
-    if (felt && !headDown) {
+    if (felt && !floors) {
       if (blast || region === 'head') anim.guard?.(0.5 + r.strength * 0.5);
       else if (!armoured) anim.holdWound?.(bone, d.point, 0.7 + r.strength);
     }
@@ -763,20 +785,24 @@ export class DamageModel {
     const reactAt = e.reactAt;
     e.reactAt = this.w.now + profile.cooldown;
     if (r.level === 'thrown' || r.level === 'felled') {
-      const how = r.knockout ? knockAs(undefined, undefined, true, d.point) : undefined;
+      // Only the rising rule drops it from the clip's pose with no topple. A head hit on a rising body goes over as any head
+      // hit does, tipped along the round and, knocked cold, with legs and spine locked.
+      const drops = riseDown && region !== 'head';
+      const how = r.knockout || drops ? knockAs(drops ? null : undefined, undefined, r.knockout, r.knockout ? d.point : undefined) : undefined;
       if (this.knockDown(e, d.dir, r.strength, bone, profile, r.level === 'thrown', how)) {
         e.shock = 0;
         return;
       }
-      if (headDown) {
+      if (floors) {
         anim.flinch(bone, d.dir, flinch);
         // Gore has no room for it. Inside the cooldown or a get-up a head hit only skipped them to go to the floor, so it
         // flinches as any other hit would there; staggered, an SMG would pin and shove a body for as long as it kept firing.
+        // A body felled on its way up is always inside a get-up.
         if (early && !must) {
           e.reactAt = reactAt;
           return;
         }
-        if (felt) anim.guard?.(0.5 + r.strength * 0.5);
+        if (felt && headDown) anim.guard?.(0.5 + r.strength * 0.5);
       }
       // Past gore's budget. Staggering is what it would have done with one more foot under it.
       this.stagger(e, STAGGER_MAX, d.dir, r.strength, bone, profile.reel);
@@ -872,8 +898,9 @@ export class DamageModel {
     m.knockImpact.dir.copy(dir);
     m.knockImpact.strength = how?.impact ?? strength * 0.4;
     o.impact = m.knockImpact;
-    // A blast throws it by itself, once this returns and the blast reaches Physics.
-    if (thrown) o.topple = undefined;
+    // A blast throws it by itself, once this returns and the blast reaches Physics. Knocked down on its way up, it goes over
+    // from the clip's pose under its own weight, at the speed the clip had it moving (`measureAnimVelocity`).
+    if (thrown || how?.topple === null) o.topple = undefined;
     else if (how?.topple) o.topple = m.knockTopple.copy(how.topple);
     else o.topple = m.knockTopple.copy(dir).multiplyScalar(lerp(TOPPLE_MIN, TOPPLE_MAX, strength));
     o.impulses = undefined;
@@ -884,7 +911,9 @@ export class DamageModel {
     if (floored) wounds!.stayDown(e);
     o.hurt = floored ? 1 : profile.pain * (0.5 + strength * 0.5);
     o.lie = floored ? wounds!.lieSeconds(wounds!.bodyOf(e)!) : rand(profile.lie[0], profile.lie[1]) * (0.7 + strength * 0.6) * (cold ? KNOCKOUT_LIE : 1);
-    e.riseSeconds = floored ? 0 : profile.rise * (0.85 + strength * 0.4);
+    // With all four limbs it pushes itself part of the way up on the floor, and the clip plays the rest in the rest of the time.
+    const pushes = STRUGGLE_PASS && pushesUp(e);
+    e.riseSeconds = floored ? 0 : profile.rise * (0.85 + strength * 0.4) * (pushes ? 1 - RISE_PUSHED : 1);
     e.dazeSeconds = floored ? 0 : profile.daze * (thrown || cold ? 1 : strength);
     o.rise = e.riseSeconds;
     const wound = m.knockWound;

@@ -164,7 +164,7 @@ node tools/shot.mjs --url "/?autostart=1" --script tools/scripts/batch-fight.mjs
 
 `head-seq` is a lethal headshot on world frames, with world time beside each row. `blast-seq` is a grenade into a crowd of 12, a row per try. `batch-check` is the panel by real clicks, head knockdowns, shaped charges, the waist tear, machines and a big crowd, picked with `BATCH=`. `batch-fight` is a bot with real weapons and real input.
 
-`react-seq` steps world frames and writes one contact sheet per reaction, `tools/out/react-<case>.png`. Cases: `stagger stagleg trip fall fallback rise riseback thrown thrownup dance husk maimed oneleg noleg`. `react-chaos` runs 24 bodies with AI on under blasts and fire, and reports bodies that never get up.
+`react-seq` steps world frames and writes one contact sheet per reaction, `tools/out/react-<case>.png`. Cases: `stagger stagleg trip fall fallback rise riseback struggle struggleback huskup riseshot thrown thrownup dance husk maimed oneleg noleg`. `struggle`, `struggleback` and `huskup` start their sheet the frame a body starts to get up, so a sheet shows the push (or, with `&struggle=0`, the gather for the clip); `riseshot` puts four pellets that do not kill into a body half way through the face-down clip. `react-chaos` runs 24 bodies with AI on under blasts and fire, and reports bodies that never get up.
 
 `lab-check` drives everything with real keys, real pointer lock and all 16 types. Its reload for the settings check can cancel a music fetch, which shows up as one `requestfailed`.
 

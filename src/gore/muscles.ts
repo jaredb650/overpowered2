@@ -18,7 +18,7 @@ import { clamp, lerp, mulberry32, smoothstep } from '../core/math';
 import type { JointRole } from '../characters/rig';
 import { GRAVITY, OWN_BLAST } from '../physics/Physics';
 import type { Rag, RagPart } from './rag';
-import type { Reflex } from './reflex';
+import type { Reflex, ReflexLift } from './reflex';
 
 /** How a body goes down when it is not dropped outright. */
 export interface CollapseOptions {
@@ -468,6 +468,12 @@ const _lever = new THREE.Vector3();
 const _swing = new THREE.Vector3();
 const _vec = { x: 0, y: 0, z: 0 };
 
+/** Upward force in newtons one part of a body fighting up asks of the lift, for `mass` kilograms of it. */
+function liftForce(part: RagPart, y: number, target: number, l: ReflexLift, mass: number): number {
+  part.body.linvel(part.v);
+  return clamp(l.force * clamp((target - y) / l.band) - l.damping * mass * part.v.y, 0, l.force);
+}
+
 /** Enough for a spasm to reach every joint of a person. */
 const MAX_BURST = 12;
 /** Pulses running at once. An SMG lands a round every 0.1 s, and each one sets off about three. Sized for faster fire than that. */
@@ -762,6 +768,42 @@ export class MuscleState {
     if (this.twitch > 0) this.stepTwitch(dt);
     if (this.jolting > 0) this.stepJolts(dt);
     if (drive) this.holdHips(drive, dt);
+    else if (this.reflex && this.reflex.lift.force > 0) this.lift(this.reflex.lift, dt);
+  }
+
+  /**
+   * Called with the share of the chain's weight the lift carried, every sub-step it carries any. For tests: it must never
+   * be more than `ReflexTuning.assistMax`.
+   */
+  static onLift: ((share: number) => void) | null = null;
+
+  /**
+   * The lift under a body fighting its way up (`Reflex.lift`): vertical impulses at the hips and the chest toward the heights
+   * of the frame it pushes for, full `band` metres below them and nothing at them, damped, and never more than `force`
+   * between them. An explicit impulse with a cap, like the hold on the hips, and never a joint torque.
+   */
+  private lift(l: ReflexLift, dt: number): void {
+    const hips = this.rag.parts[0]!;
+    const chest = l.chest !== hips ? l.chest : null;
+    const half = this.totalMass * 0.5;
+    hips.body.translation(hips.p);
+    const up = liftForce(hips, hips.p.y, l.hipsY, l, half);
+    let top = 0;
+    if (chest) {
+      chest.body.translation(chest.p);
+      chest.body.rotation(chest.q);
+      _d.copy(l.chestAt).applyQuaternion(chest.q).add(chest.p);
+      top = liftForce(chest, _d.y, l.chestY, l, half);
+    }
+    const sum = up + top;
+    if (sum <= 0) return;
+    const k = (sum > l.force ? l.force / sum : 1) * dt;
+    _vec.x = _vec.z = 0;
+    _vec.y = up * k;
+    if (_vec.y > 0) hips.body.applyImpulse(_vec, true);
+    _vec.y = top * k;
+    if (chest && _vec.y > 0) chest.body.applyImpulseAtPoint(_vec, _d, true);
+    MuscleState.onLift?.((sum * k) / dt / (this.totalMass * WEIGHT * this.rag.gravity));
   }
 
   private hinge(c: RagPart, p: RagPart, m: JointMuscle, q: THREE.Quaternion, rel: THREE.Vector3, ligament: number, tone: number, dt: number): void {

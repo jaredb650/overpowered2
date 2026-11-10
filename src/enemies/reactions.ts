@@ -7,6 +7,7 @@
  * this answer through `mustFall`, and everything else a wound does happens on his own time, in src/enemies/wounds.
  */
 import { KNOCK_PASS } from '../gore/muscles';
+import { STRUGGLE_PASS } from '../gore/reflex';
 import { rigInfo } from '../gore/rigInfo';
 import type { GoreRegion } from '../characters/rig';
 import type { DamageInfo } from '../core/contracts';
@@ -98,6 +99,8 @@ const HEAD_KNOCK_LIGHT = 0.5;
  * leaves the SMG out again, and at Infinity only a shotgun or a heavy round floors a body, as with `?knock=0`.
  */
 export const HEAD_KNOCK_FORCE = KNOCK_PASS ? 15 : Infinity;
+/** At least how hard a body knocked down on its way up goes over, from the pose the clip had it in. */
+const RISE_KNOCK = 0.4;
 
 /** A wound decided it: he is going over, cooldown or no cooldown, and a blast throws him there. */
 export function mustFall(r: Reaction, d: DamageInfo): void {
@@ -152,7 +155,15 @@ export function chooseReaction(e: Enemy, d: DamageInfo, profile: ReactionProfile
     out.strength = Math.max(out.strength, knocksCold(d) ? HEAD_KNOCK : HEAD_KNOCK_LIGHT);
     return out;
   }
-  if (e.rising > 0 && !area) return out;
+  // On its way up only a hard hit puts it back down, a shotgun's pellets together or a heavy round: one SMG round rocks it.
+  // With `?struggle=0` nothing but a head hit, a blast or being run into does.
+  if (e.rising > 0 && !area) {
+    if (STRUGGLE_PASS && e.shock >= profile.fall) {
+      out.level = 'felled';
+      out.strength = Math.max(out.strength, RISE_KNOCK);
+    }
+    return out;
+  }
   if (area && e.shock >= profile.thrown) {
     out.level = 'thrown';
     return out;

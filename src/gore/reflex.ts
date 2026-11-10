@@ -6,17 +6,48 @@
  * own terms, which the muscle layer then tries to reach. Nothing here touches a rigid body, so it cannot throw anything.
  *
  * Fall: arms go wide, then reach out and down as the floor comes up, knees draw in, chin tucks. Lying: a hand goes to the
- * wound, the rest curls round it. Gather: the limbs find the first frame of a get-up, so that the handover has little
- * left to blend. Rigs are read through joint roles, so a missing limb is just a limb nobody moves.
+ * wound, the rest curls round it. Struggle: face down or face up, it pushes itself up on its own muscles to a point part way
+ * through its get-up, and a hurt body can give out and drop back. Gather: the limbs find the frame of the get-up the body
+ * is handed back at, so that the handover has little left to blend. Rigs are read through joint roles, so a missing limb is
+ * just a limb nobody moves.
  */
 import * as THREE from 'three';
 import { CG, type CharacterAnimation, type RayHit } from '../core/contracts';
 import { clamp, damp, lerp, smoothstep } from '../core/math';
 import type { GetUpKind } from '../characters/animation/getUp';
+import { GRAVITY } from '../physics/Physics';
 import { KNOCK_PASS, type MuscleState } from './muscles';
 import type { Rag, RagPart } from './rag';
 
-export type ReflexPhase = 'fall' | 'lying' | 'gather';
+export type ReflexPhase = 'fall' | 'lying' | 'struggle' | 'gather';
+
+const struggleFlag = typeof location === 'undefined' ? null : new URLSearchParams(location.search).get('struggle');
+/**
+ * `?struggle=0` puts back getting up from before a body fought its way up, for comparison in motion: it gathers to the first
+ * frame of the clip and the animation does all of it, over the whole of its time; a rising body is put back down only by a
+ * head hit, a blast or being run into. Read once, at load, by gore and by the damage model and its rules.
+ */
+export const STRUGGLE_PASS = struggleFlag !== '0';
+
+/**
+ * What a body fighting up off the floor asks of the lift under it, read each sub-step by `MuscleState`. Heights are in the
+ * world, `force` in newtons is its cap right now, and 0 is no lift.
+ */
+export interface ReflexLift {
+  hipsY: number;
+  chestY: number;
+  chest: RagPart | null;
+  /** Where on the chest it lifts, in the chest's frame: between the shoulders, so it raises the chest and not only its base. */
+  readonly chestAt: THREE.Vector3;
+  force: number;
+  band: number;
+  damping: number;
+}
+
+/** Chance that one attempt at getting up gives out, for a body this hurt. */
+export function giveOutChance(hurt: number): number {
+  return clamp(ReflexTuning.giveOut * (hurt - 1 / 3));
+}
 
 export const ReflexTuning = {
   /** Seconds before muscles answer a hit. A body that reacts at once looks like it knew. */
@@ -117,6 +148,72 @@ export const ReflexTuning = {
   strikeWait: 0.7,
   /** A hit this strong puts a body that has started to rise back on the floor. */
   strikeBack: 0.3,
+
+  /**
+   * Fighting up. Face down or face up with both arms and both legs, a body pushes itself on its own muscles to `struggleU`
+   * of the way through its clip: a push-up face down, arms straight and legs still out behind (the prone clip's second key;
+   * the clip brings the knees under), sat up face up (the supine
+   * one's). Joints are driven at these strengths to that frame's pose, and the clip plays only the rest. With `?struggle=0`
+   * it gathers to the clip's first frame.
+   */
+  struggle: { arm: 0.9, leg: 0.7, spine: 0.55, head: 0.5 },
+  struggleU: { prone: 0.24, supine: 0.3 } as Readonly<Record<'prone' | 'supine', number>>,
+  /** Seconds its effort takes to build, and for a body that feels nothing (`painFrom`). */
+  pushSeconds: 0.7,
+  pushUnhurt: 0.35,
+  /**
+   * The lift: a capped cheat under the hips and chest, like Euphoria's helper on a fall to the knees, never more than this
+   * share of the body's weight, times the effort (all of it from `assistFull` of the effort) and the weaker of arms and legs
+   * as a share of their push. An explicit vertical impulse each sub-step, never a joint torque, so the gain limit holds.
+   * Nothing within `assistSlack` metres under where the frame has the hips and the chest, all of it `assistBand` further
+   * down, and damped at `assistDamping` 1/s.
+   */
+  assistMax: 0.55,
+  assistFull: 0.5,
+  assistSlack: 0.03,
+  assistBand: 0.06,
+  assistDamping: 4,
+  /** How much stronger than holding themselves up arms and legs are while they push, as `braceGain` is for a brace. */
+  pushGain: 4,
+  /** It strains: the effort shakes by this share at this many rad/s, times how hurt it is. */
+  wobble: 0.08,
+  wobbleRate: 17,
+  /**
+   * Up: hips and shoulders within `upReach` metres of where the frame has them and the chest within `upTilt` rad of its lean,
+   * for `upHold` s. At 0.3 rad a body that had sat up swung its chest 0.4 rad either side of upright for half a second, and
+   * one face down hung its head 0.3 to 0.4 rad off the frame with hips and shoulders where they should be.
+   */
+  upReach: 0.08,
+  upTilt: 0.5,
+  upHold: 0.15,
+  /** Seconds it gathers there before it is handed back. Its joints have been reaching for that frame all along. */
+  upGather: 0.2,
+  /** Seconds an attempt may take to get there. Past it the body gathers to the clip's first frame instead. */
+  upPatience: 2,
+  /**
+   * How often a hurt body gives out, the owner's question 3. An attempt fails with chance `giveOut × (hurt - 1/3)`, so a
+   * body under a third hurt never does, a Husk (`hurt` 0) included. At 0.6 it is the plan's `0.6 × hurt - 0.2`. At 0.45
+   * about a quarter of the Troopers knocked down on the range give out at least once (`gore.md`, Measured).
+   */
+  giveOut: 0.45,
+  /**
+   * How far up an attempt that is going to fail gets before it gives out, least and most, as a share of what its hips and
+   * shoulders have to rise; or `giveLate` seconds after its effort is all there, if it never gets that far.
+   */
+  giveAt: [0.7, 0.9] as readonly [number, number],
+  giveLate: 0.5,
+  /** Giving out: the arms drop to `slumpArm` and the lift to nothing over `slumpSeconds`, and it lies `retryWait` s. */
+  slumpArm: 0.15,
+  slumpSeconds: 0.25,
+  retryWait: [0.5, 1.2] as readonly [number, number],
+  /** Attempts before one has to succeed. A body that is dying never does. */
+  maxTries: 3,
+  /**
+   * Hit strength that knocks a body fighting up back down, added up and fading at `knockFade` 1/s. One SMG round is 0.47
+   * and only rocks it; a second 0.1 s later, a shell's pellets together or a Judge round put it down.
+   */
+  struggleKnock: 0.6,
+  knockFade: 7,
 };
 
 interface Arm {
@@ -151,6 +248,8 @@ const _b = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _inv = new THREE.Quaternion();
 const _origin = new THREE.Vector3();
+const _d = new THREE.Vector3();
+const _path = new Int32Array(8);
 const X_AXIS = new THREE.Vector3(1, 0, 0);
 const DOWN = new THREE.Vector3(0, -1, 0);
 
@@ -174,10 +273,22 @@ export class Reflex {
   /** Knocked cold by a head hit. See `ReflexTuning.koSeconds`. */
   readonly knockout: boolean;
   kind: GetUpKind = 'prone';
-  /** Where the hips sit at the start of the chosen get-up, relative to where it will stand. */
+  /** Where the hips sit at the frame of the get-up it is handed back at, relative to where it will stand, and their turn. */
   readonly startHips = new THREE.Vector3();
+  readonly startHipsTurn = new THREE.Quaternion();
+  /** That frame, 0..1 of the clip: where its struggle got it to, or 0 when the clip does all of it. */
+  startU = 0;
   /** Seconds left to go slack, or below zero while still alive. */
   dying = -1;
+  /** Attempts at getting up so far, how many gave out by themselves, and how many were knocked back down. */
+  tries = 0;
+  fails = 0;
+  knocks = 0;
+  /** What it asks of the lift under it. See `ReflexLift`. */
+  readonly lift: ReflexLift = { hipsY: 0, chestY: 0, chest: null, chestAt: new THREE.Vector3(), force: 0, band: 0, damping: 0 };
+  /** 0..1 of the way into the effort of this attempt, and of the way up to its frame. */
+  effort = 0;
+  progress = 0;
   private arms: Arm[] = [];
   private legs: Leg[] = [];
   private spine: RagPart | null = null;
@@ -191,8 +302,29 @@ export class Reflex {
   private readonly seed: number;
   private readonly standHips: number;
   private readonly keep: THREE.Quaternion[];
+  /** A leg's pose where an attempt began and in the frame it pushes for, by bone. The legs come with the body, not before it. */
+  private readonly legFrom: THREE.Quaternion[];
+  private readonly legTo: THREE.Quaternion[];
   /** Age at which the hands left the face, or -1 while they guard it. */
   private guardEnd = -1;
+  /** How far up this attempt gives out (`progress`), or Infinity if it will not. */
+  private giveAt = Infinity;
+  /** Seconds since it gave out, or -1 while it is still trying. */
+  private slump = -1;
+  /** Knocked back down by a hit, so the slump is all there at once. */
+  private knocked = false;
+  /** Pushed itself to its frame, and is gathering there to be handed back at it. */
+  private pushed = false;
+  /** Seconds it has held its frame. */
+  private held = 0;
+  /** Hit strength taken while fighting up, fading. */
+  private blow = 0;
+  /** Heights over the floor of the hips and chest where the attempt began, and in the frame it pushes for, and its lean. */
+  private fromHips = 0;
+  private fromChest = 0;
+  private keyHips = 0;
+  private keyChest = 0;
+  private keyTilt = 0;
 
   constructor(
     private readonly rag: Rag,
@@ -207,6 +339,8 @@ export class Reflex {
     this.groundY = options.groundY;
     this.seed = muscle.random() * 100;
     this.keep = rag.source.bones.map(() => new THREE.Quaternion());
+    this.legFrom = rag.source.bones.map(() => new THREE.Quaternion());
+    this.legTo = rag.source.bones.map(() => new THREE.Quaternion());
     const bind = rag.info.bind;
     this.standHips = bind[1]!;
     if (options.dir) this.fallDir.set(options.dir.x, 0, options.dir.z);
@@ -269,6 +403,18 @@ export class Reflex {
       }
     }
     if (this.woundPart && !parts.includes(this.woundPart)) this.woundPart = null;
+    // Between the shoulders, from the chest's joint, in its frame: bind frames line up with the world.
+    const at = this.lift.chestAt.set(0, 0, 0);
+    const spine = this.spine;
+    if (spine) {
+      for (const arm of this.arms) {
+        const o = arm.shoulder.bone * 3;
+        const c = spine.bone * 3;
+        at.x += (bind[o]! - bind[c]!) / this.arms.length;
+        at.y += (bind[o + 1]! - bind[c + 1]!) / this.arms.length;
+        at.z += (bind[o + 2]! - bind[c + 2]!) / this.arms.length;
+      }
+    }
   }
 
   /** Remembers a wound for a hand to find. */
@@ -284,6 +430,11 @@ export class Reflex {
   struck(strength: number): void {
     if (this.dying >= 0) return;
     this.ready = false;
+    // Fighting up, what it takes adds up, and `sample` puts it back down past `struggleKnock`.
+    if (this.phase === 'struggle' || this.pushed) {
+      this.blow += strength;
+      return;
+    }
     if (this.phase === 'gather' && strength >= ReflexTuning.strikeBack) this.enter('lying');
     if (this.phase === 'lying') this.time = Math.max(0, this.time - strength * ReflexTuning.strikeWait);
   }
@@ -292,20 +443,135 @@ export class Reflex {
   thrown(): void {
     if (this.dying >= 0) return;
     this.ready = false;
+    // Thrown while it pushes up, the lift goes this sub-step, and the legs fall with all their weight and a gain of 1, as a
+    // body knocked off its feet starts: the fall writes neither, and they had the push's gain and most of their weight carried.
+    if (this.phase === 'struggle' || this.pushed) {
+      this.lift.force = 0;
+      const g = this.rag.gravity;
+      for (const part of this.rag.parts) {
+        if (part.muscle!.role !== 'leg') continue;
+        part.muscle!.gain = 1;
+        part.body.setGravityScale(g, false);
+      }
+    }
     this.enter('fall');
     this.landed = 0;
     for (const arm of this.arms) arm.yieldAt = -1;
   }
 
-  /** Died on the way down: whatever it was doing fades out, it does not stop. */
+  /**
+   * Died on the way down: whatever it was doing fades out, it does not stop. Fighting up, the lift under it goes on the spot
+   * and the push with it: what is left is muscle fading, and the body drops under its own weight.
+   */
   die(): void {
     if (this.dying < 0) this.dying = ReflexTuning.dieSeconds;
+    this.lift.force = 0;
   }
 
   private enter(phase: ReflexPhase): void {
     this.phase = phase;
     this.time = 0;
-    if (phase === 'gather') this.startGather();
+    if (phase !== 'gather') this.pushed = false;
+    if (phase !== 'struggle') this.slump = -1;
+    if (phase === 'struggle') this.startStruggle();
+    else if (phase === 'gather' && !this.pushed) this.startGather();
+  }
+
+  /** Time to get up: it fights its way up if it can, or gathers for the clip to do it all. */
+  private rise(): void {
+    this.kind = this.pickGetUp();
+    this.enter(STRUGGLE_PASS && this.kind !== 'crawl' && this.anim.poseGetUpAt && this.canPush() ? 'struggle' : 'gather');
+  }
+
+  /**
+   * Both arms and both legs, whole, to push with. On one shin a body face down never got its hips past 0.21 m and gathered
+   * for the clip 2 s later; the clip does it all, as before.
+   */
+  private canPush(): boolean {
+    if (this.arms.length < 2 || this.legs.length < 2) return false;
+    for (const arm of this.arms) if (!arm.elbow || arm.shoulder.muscle!.broken || arm.elbow.muscle!.broken) return false;
+    for (const leg of this.legs) if (!leg.knee || leg.hip.muscle!.broken || leg.knee.muscle!.broken) return false;
+    return true;
+  }
+
+  private startStruggle(): void {
+    const t = ReflexTuning;
+    const kind = this.kind === 'supine' ? 'supine' : 'prone';
+    const rng = this.muscle;
+    this.tries++;
+    this.startU = t.struggleU[kind];
+    this.readFrame(kind, this.startU, rng.random() < 0.5 ? 1 : -1);
+    for (const part of this.rag.parts) {
+      if (part.muscle!.role !== 'leg' || !part.parent) continue;
+      this.legTo[part.bone]!.copy(part.muscle!.pose);
+      this.legFrom[part.bone]!.copy(part.parent.q).conjugate().multiply(part.q);
+    }
+    this.effort = this.progress = 0;
+    this.held = 0;
+    this.knocked = false;
+    // The last try gets there unless something stops it.
+    const failing = this.tries < t.maxTries && rng.random() < giveOutChance(this.hurt);
+    this.giveAt = failing ? lerp(t.giveAt[0], t.giveAt[1], rng.random()) : Infinity;
+    const hips = this.rag.parts[0]!;
+    this.fromHips = hips.p.y - this.groundY;
+    const chest = this.spine ?? hips;
+    this.fromChest = chest.p.y + _d.copy(this.lift.chestAt).applyQuaternion(chest.q).y - this.groundY;
+  }
+
+  /** Gives out, by itself or knocked back down: the arms drop and the lift goes, and it lies a moment before trying again. */
+  private giveIn(knocked: boolean): void {
+    if (knocked) this.knocks++;
+    else this.fails++;
+    this.phase = 'struggle';
+    this.pushed = false;
+    this.slump = 0;
+    this.knocked = knocked;
+    this.blow = 0;
+  }
+
+  /** One frame of an attempt at getting up. */
+  private push(dt: number): void {
+    const t = ReflexTuning;
+    if (this.slump >= 0) {
+      this.slump += dt;
+      if (this.slump >= t.slumpSeconds) {
+        this.lie = lerp(t.retryWait[0], t.retryWait[1], this.muscle.random());
+        this.enter('lying');
+      }
+      return;
+    }
+    const push = this.hurt < t.painFrom ? t.pushUnhurt : t.pushSeconds;
+    this.effort = Math.min(1, this.effort + dt / push);
+    const hips = this.rag.parts[0]!;
+    const chest = this.spine ?? hips;
+    // How far up it has got: what the hips and the shoulders have gained of what they have to, together, to count as up.
+    const hipsUp = hips.p.y - this.groundY;
+    const shoulders = chest.p.y + _d.copy(this.lift.chestAt).applyQuaternion(chest.q).y - this.groundY;
+    const hipsTo = Math.max(0, this.keyHips - t.upReach - this.fromHips);
+    const chestTo = Math.max(0, this.keyChest - t.upReach - this.fromChest);
+    const gained = clamp(hipsUp - this.fromHips, 0, hipsTo) + clamp(shoulders - this.fromChest, 0, chestTo);
+    this.progress = hipsTo + chestTo > 0.05 ? gained / (hipsTo + chestTo) : this.effort;
+    // A body that is going to give out does it most of the way up, or when it has pushed as hard as it can for a moment.
+    if (this.progress >= this.giveAt || (this.giveAt < Infinity && this.time > push + t.giveLate)) {
+      this.giveIn(false);
+      return;
+    }
+    if (this.giveAt === Infinity) {
+      _up.set(0, 1, 0).applyQuaternion(chest.q);
+      const tilted = Math.abs(Math.acos(clamp(_up.y, -1, 1)) - this.keyTilt) >= t.upTilt;
+      const there = Math.abs(hipsUp - this.keyHips) < t.upReach && Math.abs(shoulders - this.keyChest) < t.upReach && !tilted;
+      this.held = there ? this.held + dt : 0;
+      if (this.held >= t.upHold) {
+        this.pushed = true;
+        this.enter('gather');
+        return;
+      }
+    }
+    // It has not got there. The clip does it all, as it did before.
+    if (this.time > t.upPatience) {
+      this.startU = 0;
+      this.enter('gather');
+    }
   }
 
   /** Once a frame, after Rag.measure. */
@@ -321,6 +587,8 @@ export class Reflex {
     this.stun = Math.max(0, this.stun - ReflexTuning.stunFade * dt);
     // Under less gravity a body lands slower from the same height, by the same share as it is thrown.
     if (rag.thud / rag.mass > ReflexTuning.stunThud * rag.throwScale) this.stun = 1;
+    if (this.blow >= ReflexTuning.struggleKnock && (this.phase === 'struggle' || this.pushed) && this.slump < 0) this.giveIn(true);
+    this.blow *= Math.exp(-ReflexTuning.knockFade * dt);
     this.advance(hips, dt);
 
     _front.set(0, 0, 1).applyQuaternion(chest.q);
@@ -328,6 +596,10 @@ export class Reflex {
     _left.set(1, 0, 0).applyQuaternion(chest.q);
     if (this.phase === 'fall') this.poseFall(hips, chest);
     else if (this.phase === 'lying') this.poseLying(chest);
+    else if (this.phase === 'struggle') {
+      if (this.slump < 0) this.poseStruggle();
+      else this.poseSlump();
+    }
     this.setStrengths(dt);
   }
 
@@ -348,8 +620,11 @@ export class Reflex {
       if (this.landed > t.landHold || this.time > t.maxFall) this.enter('lying');
     } else if (this.phase === 'lying') {
       const calm = hips.v.length() < t.gatherSpeed || this.time > this.lie + t.gatherPatience;
-      if (this.dying < 0 && this.time > this.lie && calm) this.enter('gather');
-    } else if (this.time > t.gatherSeconds) {
+      if (this.dying < 0 && this.time > this.lie && calm) this.rise();
+    } else if (this.phase === 'struggle') {
+      // Dead, it gets no further up and is not handed back.
+      if (this.dying < 0) this.push(dt);
+    } else if (this.time > (this.pushed ? t.upGather : t.gatherSeconds)) {
       this.ready = true;
     }
   }
@@ -363,20 +638,48 @@ export class Reflex {
   }
 
   private startGather(): void {
+    this.kind = this.pickGetUp();
+    this.startU = 0;
+    this.readFrame(this.kind, 0, 0);
+  }
+
+  /**
+   * Has the animator pose the get-up at `u` and reads each joint's target out of it. With `flip` 0 the animator picks the
+   * lead side, as it always has for the first frame. Notes where that frame has the hips and the chest, over the floor.
+   */
+  private readFrame(kind: GetUpKind, u: number, flip: number): void {
     const { rag, anim } = this;
     const bones = rag.source.bones;
     const defs = rag.source.rig.bones;
-    this.kind = this.pickGetUp();
     const keep = this.keep;
     for (let i = 0; i < bones.length; i++) keep[i]!.copy(bones[i]!.quaternion);
     _a.copy(bones[0]!.position);
-    anim.poseGetUpStart!(this.kind, this.startHips);
+    if (flip === 0 || !anim.poseGetUpAt) anim.poseGetUpStart!(kind, this.startHips);
+    else anim.poseGetUpAt(kind, u, this.startHips, flip);
     for (const part of rag.parts) {
       const parent = part.parent;
       if (!parent) continue;
       const pose = part.muscle!.pose;
       pose.identity();
       for (let b = part.bone; b !== parent.bone; b = defs[b]!.parent) pose.premultiply(bones[b]!.quaternion);
+    }
+    this.startHipsTurn.copy(bones[0]!.quaternion);
+    this.keyHips = this.keyChest = this.startHips.y;
+    this.keyTilt = 0;
+    const chest = this.spine;
+    if (chest) {
+      // The chest's place in the frame, down the chain from the hips, which sit on the root.
+      let n = 0;
+      for (let b = chest.bone; b >= 0 && n < _path.length; b = defs[b]!.parent) _path[n++] = b;
+      _b.set(0, 0, 0);
+      _q.identity();
+      for (let i = n - 1; i >= 0; i--) {
+        const bone = bones[_path[i]!]!;
+        _b.add(_d.copy(bone.position).applyQuaternion(_q));
+        _q.multiply(bone.quaternion);
+      }
+      this.keyChest = _b.y + _d.copy(this.lift.chestAt).applyQuaternion(_q).y;
+      this.keyTilt = Math.acos(clamp(_d.set(0, 1, 0).applyQuaternion(_q).y, -1, 1));
     }
     // These bones are the ragdoll's, and the merged ones are not rewritten by anything until the handover.
     for (let i = 0; i < bones.length; i++) bones[i]!.quaternion.copy(keep[i]!);
@@ -473,6 +776,28 @@ export class Reflex {
     return smoothstep(0, t.yieldSeconds, this.age - arm.yieldAt);
   }
 
+  /**
+   * The legs draw up as the body comes up, not ahead of it: driven to the frame's pose at once, a body face up lying flat
+   * swung its legs into the air before it sat up.
+   */
+  private poseStruggle(): void {
+    const k = smoothstep(0, 1, this.progress);
+    for (let i = 0; i < this.legs.length; i++) {
+      const leg = this.legs[i]!;
+      leg.hip.muscle!.pose.slerpQuaternions(this.legFrom[leg.hip.bone]!, this.legTo[leg.hip.bone]!, k);
+      if (leg.knee) leg.knee.muscle!.pose.slerpQuaternions(this.legFrom[leg.knee.bone]!, this.legTo[leg.knee.bone]!, k);
+    }
+  }
+
+  /** Giving out, the elbows give as a brace does, or straight arms under the shoulders hold the body up on their stops. */
+  private poseSlump(): void {
+    const bend = ReflexTuning.yieldElbow;
+    for (let i = 0; i < this.arms.length; i++) {
+      const e = this.arms[i]!.elbow?.muscle;
+      if (e) e.pose.setFromAxisAngle(e.hingeAxis, clamp(-bend, e.lo, e.hi));
+    }
+  }
+
   private poseLying(chest: RagPart): void {
     const t = ReflexTuning;
     const felt = this.hurt >= t.painFrom;
@@ -544,14 +869,22 @@ export class Reflex {
 
   private setStrengths(dt: number): void {
     const t = ReflexTuning;
-    const table = this.phase === 'fall' ? t.fall : this.phase === 'lying' ? t.lying : t.gather;
+    // A body that has died is not pushing: no push gain, no lift, and what it was holding fades as a gather's would.
+    const fighting = (this.phase === 'struggle' || this.pushed) && this.dying < 0;
+    const table = this.phase === 'fall' ? t.fall : this.phase === 'lying' ? t.lying : fighting ? t.struggle : t.gather;
     // A landing knocks the strength out of everything for a moment. It is why a hand on the floor gives instead of propping.
     const stunned = 1 - t.stunLoss * this.stun;
     const fading = this.dying >= 0 ? this.dying / t.dieSeconds : 1;
     const awake = smoothstep(0, t.reaction * 2, this.age - t.reaction);
     const scale = stunned * fading * (this.plank ? 1 : awake);
+    // Giving out: the arms go first and the rest goes back to lying. Knocked down, all at once.
+    const sag = this.slump < 0 ? 0 : this.knocked ? 1 : smoothstep(0, t.slumpSeconds, this.slump);
     const parts = this.rag.parts;
     const g = this.rag.gravity;
+    let arms = 0;
+    let armDrive = 0;
+    let legs = 0;
+    let legDrive = 0;
     for (let i = 0; i < parts.length; i++) {
       const part = parts[i]!;
       const m = part.muscle!;
@@ -561,17 +894,42 @@ export class Reflex {
         if (m.role === 'leg') want = lerp(want, t.plankLeg, this.plankLeft);
         else if (m.role === 'spine') want = lerp(want, t.plankSpine, this.plankLeft);
       }
+      if (sag > 0) want = lerp(want, (m.role === 'arm' ? t.slumpArm : t.lying[m.role]) * scale, sag);
       m.drive = damp(m.drive, want, t.driveRate, dt);
+      if (m.role === 'arm') {
+        arms++;
+        armDrive += m.drive;
+      } else if (m.role === 'leg') {
+        legs++;
+        legDrive += m.drive;
+      }
       // Knocked cold: the neck lets go on the spot, and the arms have nothing in them.
       if (this.knockout) {
         if (m.role === 'head' && this.age < t.koHead) m.drive = 0;
         else if (m.role === 'arm' && this.age < t.koSeconds) m.drive = Math.min(m.drive, t.koArm);
       }
-      if (this.phase !== 'fall') m.gain = 1;
+      if (this.phase !== 'fall') m.gain = fighting && (m.role === 'arm' || m.role === 'leg') ? t.pushGain : 1;
       // A working muscle carries its own weight, as in a collapse, or an arm on the floor cannot lift itself off it.
       // Falling, the legs keep theirs: feet need it on the floor to tip over. The arms and head keep `fallCarry` of it.
       const carry = this.phase === 'fall' ? t.fallCarry : 1;
       if (m.role === 'arm' || m.role === 'head' || (m.role === 'leg' && this.phase !== 'fall')) part.body.setGravityScale(g * (1 - carry * m.drive), false);
     }
+    const lift = this.lift;
+    lift.force = 0;
+    if (!fighting) return;
+    // The lift rises with the effort toward the frame's heights, and is never more than its share of the body's weight times
+    // the effort and the weaker of arms and legs: what they cannot push, it does not lift.
+    const effort = this.pushed ? 1 : this.effort;
+    const e = effort * effort * (3 - 2 * effort);
+    const rag = this.rag;
+    lift.hipsY = this.groundY + lerp(this.fromHips, this.keyHips, e) - t.assistSlack;
+    lift.chestY = this.groundY + lerp(this.fromChest, this.keyChest, e) - t.assistSlack;
+    lift.chest = this.spine;
+    lift.band = t.assistBand;
+    lift.damping = t.assistDamping;
+    // As a share of the strength they push with, so the lift is all there with arms and legs at it.
+    const limbs = Math.min(arms > 0 ? armDrive / arms / t.struggle.arm : 0, legs > 0 ? legDrive / legs / t.struggle.leg : 0);
+    const shake = 1 + t.wobble * this.hurt * Math.sin(this.age * t.wobbleRate + this.seed) * Math.sin(this.age * t.wobbleRate * 0.31);
+    lift.force = t.assistMax * rag.mass * -GRAVITY * g * clamp(Math.min(1, effort / t.assistFull) * limbs * shake * (1 - sag));
   }
 }
