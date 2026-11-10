@@ -15,7 +15,13 @@
 
 The HUD reads the game once a frame in `state.ts`, the only file that knows field names. It listens for `game:state`, `run:start`,
 `player:damaged`, `player:died`, `weapon:fired`, `weapon:unlocked`, `wave:start`, `wave:clear`, `callin:ready`, `score:gain`,
-`enemy:hit`, `enemy:killed`, `enemy:severed`, `perk:start`, `callin:used`, `combo:changed`, `comms:line`.
+`enemy:hit`, `enemy:killed`, `enemy:severed`, `perk:start`, `callin:used`, `combo:changed`, `comms:line`, `music:track`.
+
+**Track name.** `hud/nowplaying.ts` shows the name of the track that has just started, top centre above the boss bar, for 7 s: `OST` and
+the title for the game's own soundtrack, `LOCAL` for one of the owner's placeholder songs. It hangs on the UI root, after the screens,
+so it shows over the menu as well as in a run, and it never takes a click. It rests at opacity 0 and one Web Animation is the only thing
+that shows it, so nothing has to hide it again. Its CSS is `css/nowplaying.css`, imported by the widget. Audio decides what plays:
+see "Music" in `docs/notes/audio.md`.
 
 ## The weapon strip
 
@@ -67,6 +73,7 @@ are a compositor animation and survive a blocked main thread. `performance.mark(
 | Perk motion | One keyframe per id in `css/perks.css`. Slowmo is still on purpose |
 | Enemy reveal | `REVEAL_AT` in `hud/stragglers.ts`, 3 |
 | Comms feed | `CommsFeed` in `hud/feed.ts`: line cap and life. `COMMS_FEAR` in `Hud.ts` |
+| Track name | `SHOWN` and `FRAMES` in `hud/nowplaying.ts`, `.np` in `css/nowplaying.css` |
 | Contract notice | Copy in `contracts/data.ts`, layout `.mm-brief` and `.nt-*` in `css/screens.css`. It has to end above the wordmark |
 | Minimap | `NEAR_RANGE`, `FAR_RANGE`, `FAR_SPEED`, `REDRAW` in `hud/minimap.ts` |
 | Gore levels | `GORE_TABLE` in `settings.ts` |
@@ -103,7 +110,7 @@ Stored in `op2.settings.v1`, sanitized on load. They apply and save the moment t
 - **A perk's grade fades out over a second or two after quitting to the menu.** `PerkRunner.clear` starts a timed release, which the renderer's
   instant reset does not cut short, and post runs on render calls, so at the menu's half rate it fades at half speed. Quit during Berserk and the first cut
   starts red.
-- **Audio aborts show as `requestfailed` in the harness.** `audio/music/*.mp3 net::ERR_ABORTED` appears whenever a track is swapped while still
+- **Audio aborts show as `requestfailed` in the harness.** `audio/music/*.mp3` or `audio/ost/*.mp3` with `net::ERR_ABORTED` appears whenever a track is swapped while still
   streaming. It is the player dropping an element, not a console error.
 
 ## Testing
@@ -133,3 +140,4 @@ meaningful here. The scripts lived in the session scratchpad, not in the repo.
 | HUD against state | Bot plus grants at both sizes, DOM read against ctx | Wave, left, score, health, ammo, combo, multiplier, perks with times, chips, boss, tach all agree |
 | Reveal | 2 husks left in the real game | Tracked markers with distance, pulse on the minimap |
 | Contract select, sonar chip, comms feed | See `docs/notes/contracts.md` | |
+| Track name | `tools/scripts/music-live.mjs` at 1440x900, dpr 2: a real click on the splash, then the DOM and a screenshot | `OST Clerical Violence` top centre over the menu, opacity 1 two seconds after the track started. In a run (`?autostart=1`) it shows top centre at opacity 1, clear of the wave counter and minimap. Not looked at beside the boss bar |

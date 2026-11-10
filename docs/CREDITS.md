@@ -1,7 +1,22 @@
 # Credits
 
-Third-party sound in OVERPOWERED 2. Everything not listed here is the owner's own (the first game's samples in
-`public/audio/sfx`, the soundtrack) or is synthesized at load from `src/audio/synth`.
+Third-party sound in OVERPOWERED 2, and the game's own music. Everything not listed here is the owner's own (the first game's
+samples in `public/audio/sfx`) or is synthesized at load from `src/audio/synth`.
+
+## Original music
+
+Written for this game. Each track is composed as code and rendered by the project's own offline synthesizer (`tools/music`). Every
+sound in them is synthesized: no samples, no recordings, no third-party material, and no melody taken from an existing song.
+`nice npx tsx tools/music/render.ts <slug>` rebuilds a track from its song file, to the same bytes.
+
+| Track | File | Song file | Where it plays |
+|---|---|---|---|
+| Blue Hour Briefing | `public/audio/ost/menu/blue-hour-briefing.mp3` | `tools/music/songs/blue-hour-briefing.ts` | Menu |
+| Clerical Violence | `public/audio/ost/menu/clerical-violence.mp3` | `tools/music/songs/clerical-violence.ts` | Menu |
+
+The owner's placeholder songs under `public/audio/music` are commercial releases kept on the owner's machine only. They are ignored
+by git, are not on the public site, and are not part of the game's soundtrack. They were measured (tempo, loudness, spectrum) as a
+reference for the mix. Nothing was copied from them.
 
 `public/audio/sfx/gore/CREDITS.txt` is a copy of the attributions, so they ship with the files.
 

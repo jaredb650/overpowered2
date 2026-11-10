@@ -1,6 +1,6 @@
 # Audio notes
 
-Owned files: `src/audio/**`, `src/sandbox/audio.ts`, `public/audio/sfx/**`, `docs/CREDITS.md`. The ids below are stable. `src/audio/audio.test.ts` fails if this list
+Owned files: `src/audio/**`, `src/sandbox/audio.ts`, `public/audio/sfx/**`, `public/audio/ost/**`, `tools/music/**`, `docs/CREDITS.md`. The ids below are stable. `src/audio/audio.test.ts` fails if this list
 falls behind the catalogue, or if any call site in `src/` uses an id that does not resolve.
 
 ## How to call it
@@ -29,7 +29,8 @@ Rules that matter when choosing an id:
 
 Audio reads `ctx.player`, `ctx.time`, `ctx.world` and listens to events, so nobody else has to:
 
-- Music: `run:start` to easy, `wave:start` with wave >= 10 to hard, `game:state` menu and gameover to menu, pause to pause.
+- Music: `run:start` to easy, `wave:start` with wave >= 10 to hard, `game:state` menu and gameover to menu, pause to pause. Which
+  track plays, and where the tracks come from, is under "Music". How the game's own tracks are made is under "Original soundtrack".
 - Zone reverb and ambience beds, slow-mo pitch and filter (follows `ctx.time.slowmo`), low-health filter and heartbeat.
 - Speed wind, slide loop, wall-run scrape, slam fall whistle: these follow the player's state each frame.
 - Ducking: big ids carry their own duck. Calling `duck()` is only for moments with no big sound.
@@ -314,6 +315,51 @@ Rendered at load. x4 means four rendered variants behind one id.
 
 `jump_pad_idle_loop`, `barrel_hiss_loop`, `crusher_slam`, `crusher_rise`, `electric_floor_loop`, `electric_zap` x3, `lava_loop`, `lava_burn`, `steam_burst`, `metal_groan` x3, `alarm_klaxon`, `amb_core`, `amb_foundry`, `amb_refinery`, `amb_scrapyard`, `amb_transit`, `amb_ring`. The `amb_*` beds run themselves.
 
+## Music
+
+Three lists: `menu`, `easy` (a run's early waves) and `hard` (from wave 10). Each is built at load from two manifests of the same
+shape, `{ "menu": [{ "file", "title" }], "easy": [...], "hard": [...] }`:
+
+| Manifest | What it lists | In the repo | On the public site |
+|---|---|---|---|
+| `public/audio/ost/manifest.json` | The game's own soundtrack, `public/audio/ost/<list>/<slug>.mp3` | Yes, with the files | Yes |
+| `public/audio/music/manifest.json` | The owner's placeholder songs, which are commercial releases | The manifest only. `.gitignore` ignores everything else under `public/audio/music` | Emptied by `.github/workflows/pages.yml` before the build |
+
+So this machine plays both, a push carries only the game's own tracks, and the public site plays those alone. Vite copies `public/`
+as it is and the player asks for both manifests under `import.meta.env.BASE_URL` (`./`), so the Pages build needs nothing else.
+
+Rules that must stay true:
+
+- Nothing under `public/audio/music` except its manifest is ever committed. `src/audio/music.test.ts` asks git.
+- A track of the game's own lives in `public/audio/ost` and is put in that manifest by the renderer (`tools/music/render.ts`), never
+  by hand into the placeholder manifest.
+- Either manifest may be missing, empty or broken, and the other still plays.
+
+**Order** (`playlist.ts`). The game's tracks and the placeholders take turns, each from its own shuffle bag, starting with one of the
+game's. The same track never plays twice running unless it is the only one there is. At load the player asks the server for one
+song of the placeholder manifest (a `HEAD` request, `sampleFile` in `playlist.ts`). If it is not there, or the answer is an HTML
+page, the placeholders are left out for the session: that is a clone, which has the manifest and none of the songs, and it plays
+the game's own tracks with no failed requests. A single file that will not load on a machine that has the rest is dropped for the
+session after one attempt. A list with nothing in it borrows another (`FALLBACK`: easy from hard then menu, hard from easy then menu, menu from easy then
+hard), and two states that share a list keep the track that is playing. That is why the public site, which has only menu tracks
+until the run tracks are written, plays the menu tracks through a run.
+
+**Flags.** `?music=ost` plays only the game's own tracks and never asks for the placeholder manifest, which is how to hear what the
+public site will play. `?music=local` plays only the placeholders.
+
+**Track name.** When a track really starts to sound, audio emits `music:track` `{ state, title, file, original }` (declared in
+`music.ts`). The HUD shows the name top centre for 7 s, over the menu and in a run (`ui/hud/nowplaying.ts`): `OST` for the game's own,
+`LOCAL` for a placeholder.
+
+**Tracks.** Both menu tracks are rendered by `tools/music` from the song files named here. Numbers are ffmpeg's `ebur128` on the MP3.
+
+| List | Title | File | Song file | Tempo, key | Length | Loudness, range, true peak |
+|---|---|---|---|---|---|---|
+| menu | Blue Hour Briefing | `audio/ost/menu/blue-hour-briefing.mp3` | `tools/music/songs/blue-hour-briefing.ts` | 172 BPM, F minor | 3:01, 3.37 MB | -8.4 LUFS, 7.9 LU, +1.7 dBFS |
+| menu | Clerical Violence | `audio/ost/menu/clerical-violence.mp3` | `tools/music/songs/clerical-violence.ts` | 184 BPM, A minor | 3:10, 3.17 MB | -8.0 LUFS, 7.1 LU, +1.8 dBFS |
+
+The menu placeholder they sit beside measures -7.9 LUFS, 7.1 LU, +1.9 dBFS.
+
 ## API
 
 `createAudio(ctx)` returns an `AudioEngine`, which implements `AudioSystem` in `src/core/contracts.ts`: `play`, `playOneOf`, `layer`,
@@ -379,6 +425,10 @@ Nothing blocks the boot, and nothing has to wait for a sound.
 | Distance | `attenuation`, `airCutoff`, `wetness` in `voices.ts`. Per sound: `near`, `far`, `send` |
 | When health starts to sound bad | `HEALTH_DULL_START`, `HEALTH_DULL_FULL` in `foley.ts` |
 | Crossfades | `FADE_INTO`, `TRACK_FADE` in `music.ts` |
+| Which track comes next, what an empty list borrows | `Playlist`, `FALLBACK` in `playlist.ts` |
+| How long the track name shows | `SHOWN` in `ui/hud/nowplaying.ts` |
+| A track's loudness, ceiling, master EQ | `master` in its song file under `tools/music/songs`, then render it again |
+| Largest MP3 a track may be | `MAX_BYTES`, `MAX_KBPS` in `tools/music/render.ts` |
 | Load speed against load cost | `RENDER_THREADS`, `DECODE_THREADS`, `*_PATIENCE_MS` in `bank.ts`. Order: `RENDER_TIERS` in `catalog.ts` |
 | Casing density, hit marker spacing | `CASING_GAP`, `MARKER_GAP` in `reactions.ts` |
 | How heavy each round lands, body hit levels and spacing | `hitWeight`, `bodyHitLevels`, `HIT_GAP` in `reactions.ts`. Voices: `BODY_HIT` and the three packs in `catalog.ts`, `machine_clang`'s `over` |
@@ -392,6 +442,9 @@ node tools/shot.mjs --url "/?sandbox=audio&mode=idle" --script tools/scripts/aud
 node tools/shot.mjs --url "/?sandbox=audio&mode=idle" --script tools/scripts/audio-sheets.mjs --wait 200 --w 1248 --h 672
 node tools/shot.mjs --url "/?sandbox=audio" --wait 30000                                                     # every id in order, then polyphony load
 AS_LABEL=x node tools/shot.mjs --url "/?autostart=1" --script tools/scripts/audio-stress.mjs --wait 1000 --timeout 178   # the real game under fire, writes tools/out/audio-stress-x.json
+node tools/shot.mjs --url "/" --script tools/scripts/music-live.mjs --out tools/out/music/live.png --dpr 2 --w 1440 --h 900 --wait 1000 --timeout 170 --quiet   # the soundtrack: both manifests, the public build's one, the order, the track name
+npx vitest run src/audio/music.test.ts          # playlist rules, and that the placeholder songs cannot be committed
+npx vitest run tools/music/engine/engine.test.ts   # the offline renderer
 node tools/shot.mjs --url "/?sandbox=audio&mode=idle" --script tools/scripts/audio-cost.mjs --wait 500 --timeout 175     # what each piece of the graph costs
 ```
 
@@ -471,15 +524,258 @@ A soak cannot run past 3 minutes here. Nothing in the logs grows with time, but 
 | Duck on `hellfire_rocket_blast` | Music gain 0.45 at 250 ms |
 | Low health at 19 of 100 | Low-pass 1520 Hz, `heartbeat_loop` rate 1.39, limiter untouched by it |
 | Music | Menu on splash click, easy on Play, hard at wave 10 (0.10 / 0.90 crossfade 0.6 s in), menu on quit and on game over. Pause holds the track at 51.40 s and resumes from there |
+| Soundtrack, this machine (`music-live.mjs`) | Nothing plays before the first click. After it a track of the game's own starts, 2.5 s of audio in 2.5 s, peak 0.64 to 0.80 at the deck in its first seconds. Menu list of 3 (2 of the game's): nine tracks in a row alternate game, placeholder, with no repeat. Easy 13 and hard 11, all placeholders, play as before |
+| Soundtrack, placeholder manifest emptied as the public build does | Menu list is the 2 game tracks, which alternate. Easy and hard are empty and borrow them. No placeholder file is requested. Zero console errors |
+| `?music=ost` | Lists hold only the game's tracks. The placeholder manifest is not requested |
+| Track name | `OST Clerical Violence` top centre over the menu, opacity 1 two seconds in. In a run (`?autostart=1`) the `LOCAL` chip shows top centre at opacity 1, clear of the wave counter and the minimap |
+| A clone: placeholder manifest, no songs (`tools/out/ost-fix/live.mjs`, every placeholder MP3 answered with Vite's HTML page) | One `HEAD` request for one song, then menu 2 of the game's tracks, easy and hard 0. Menu to easy to hard to menu keeps the playing track with 0 ms of silence. No failed loads, no warnings |
 | Rooms | Each of the six zones sets its room and bed. T60 measures 3.7 / 6.7 / 1.7 / 0.8 / 2.7 / 1.0 s for core, foundry, refinery, scrapyard, transit, ring |
 | Beds from real player state | `wallrun_loop` 0.36 on a real wall run. `slide_loop` 0.28. `speed_wind_loop` 0.50 at 42 m/s. `slam_fall_loop` 0.37 at -57 m/s. All stop with the state |
 | Output in the soak | Peak 0.97 after the limiter and clipper. No NaN, no silent read while firing |
 | Sample packs | 56 files, 0.38 MB. No clipped sample. First sound within 3 ms of the start. Lengths 0.13 to 1.2 s. Mix level 0.06 to 0.18, against 0.10 to 0.22 for the synth gore around them |
 | `enemy_headshot3` | 0.799 s cut from the live buffer in the real game. Peak 0.71 kept |
 
+## Original soundtrack: writing a track
+
+Owned files: `tools/music/**`, `public/audio/ost/**`. A track is a TypeScript file that describes the song: patterns, notes,
+automation. `tools/music/render.ts` runs it through an offline synth and sequencer in plain Node and writes the audio. Every sound
+is synthesized. There are no samples, no network, and no dependencies beyond `tsx`, with `ffmpeg` and `lame` for files.
+
+```
+nice npx tsx tools/music/render.ts <slug>                  # whole song: MP3 into public/audio/ost/<list>/, its manifest line,
+                                                           # WAV, report (.json) and spectrogram (.png) in tools/out/music
+nice npx tsx tools/music/render.ts <slug> --draft          # whole song, nothing written under public/
+nice npx tsx tools/music/render.ts <slug> --bars 24:40     # only those bars (end exclusive): seconds, for working on a part
+nice npx tsx tools/music/render.ts <slug> --solo sub,pad   # only those tracks. Add --pic for a spectrogram of a part
+nice npx tsx tools/music/analyze.ts <file> [--bpm n] [--pic]   # the same measurements for any audio file
+# Flags may come before or after the slug.
+nice npx vitest run tools/music/engine/engine.test.ts --testTimeout=60000
+```
+
+`tools/music/songs/<slug>.ts` default-exports `() => Song`. A slug starting with `_` never ships (`_selftest` is one of everything
+the engine makes). Start from `blue-hour-briefing.ts`, which is the plainer of the two.
+
+### Rules that must stay true
+
+- **Same file, same bytes.** Nothing reads the clock or `Math.random`. Random choices come from `song.rng(label)` or a `seed`.
+- **Positions on the timeline are beats, lengths given to instruments are seconds.** `song.bar(b, beat)` is a position in beats
+  (bars count from 0), `song.s(beats)` is seconds. Notes inside a `line` are seconds from the start of that line.
+- **Clips that are synthesized per note are added as functions**, `track.add(beat, () => tone(...))`, so they are made only when
+  the track is mixed. A song never holds more than a few full-length buffers. Give a `key` when the same clip repeats (a drum hit,
+  an arp note) and it is rendered once per track. Pre-rendered one-shots (`const K = kick()`) are added directly.
+- **Effects work in place on stereo buffers.** An effect on a track is `(buf, ctx) => void`. Anything that follows the song uses the
+  factories on `Song` (`duck`, `filter`, `vol`, `gate`), which line up with the bars even in a partial render.
+- **The low end is one mono voice at a time.** One sub track, ducked by the kick, and everything else high-passed above it. The
+  master makes everything under 120 Hz mono.
+- **The master lands on `master.target` LUFS by itself.** Do not chase loudness with track faders. Read the limiter line of the
+  report: a mean over about 1.5 dB or a maximum over about 4 dB means the mix is being crushed and needs balancing, not more push.
+- **No samples, no downloads, no melodies from existing songs.** Reference tracks are measured, never copied.
+- **Do not hand-edit `public/audio/ost/manifest.json`.** The renderer owns each song's line.
+
+### The shape of a song file
+
+```ts
+import { Song, midi, line, chordOf, kick, snare, hits, breakKit, breakLoop, chop, reverb, type Patch } from '../engine';
+
+const PAD: Patch = { osc: [{ wave: 'saw', voices: 7, detune: 17, spread: 0.9 }], amp: { a: 0.4, d: 1, s: 0.85, r: 1 },
+  filter: { type: 'lp', cutoff: 2400, q: 0.6 }, hp: 250, gain: 0.16 };
+
+export default function build(): Song {
+  const song = new Song({ title: 'My Track', slug: 'my-track', list: 'easy', bpm: 150, bars: 112, key: 'A minor', master: { target: -7 } });
+  const { s, bar } = song;
+  song.section('intro', 0, 16);                               // named in the report, with its own level and band balance
+  const hall = song.bus('hall', b => reverb(b, { decay: 3 }), -4);
+
+  const drums = song.track('drums', { gain: -2 });            // a group: other tracks play into it
+  const K = kick({ freq: 50, drive: 3 });
+  const one = song.track('kick', { out: drums, gain: -3 });
+  const kicks: number[] = [];
+  for (let b = 16; b < 48; b++) for (const { step, level } of hits('x...x...x...x...')) {
+    one.add(bar(b, step / 4), K, { gain: level });
+    kicks.push(bar(b, step / 4));
+  }
+  const pad = song.track('pad', { gain: -6 }).send(hall, -8).fx(song.duck(kicks, { depth: 0.5, release: 0.2 }));
+  for (let b = 0; b < 48; b += 4) pad.add(bar(b), () => chordOf(PAD, ['A3', 'C4', 'E4', 'G4'].map(midi), s(16)));
+  return song;
+}
+```
+
+### Timeline (`engine/song.ts`)
+
+| | |
+|---|---|
+| `new Song({ title, slug, list, bpm, bars, key?, tail?, seed?, master? })` | `list` is `menu`, `easy` or `hard` and decides the folder and manifest list. `tail` is seconds of ring-out after the last bar, 2 by default |
+| `song.bar(b, beat?)`, `song.s(beats)`, `song.rng(label)` | Beats at the start of bar `b`. Seconds. A seeded random stream (`next`, `bi`, `range`, `int`, `pick`, `chance`) |
+| `song.track(name, { gain, pan, out, mute })` | `gain` is the fader in dB. `out` is another track to play into (a group), which then runs its own effects over the sum |
+| `track.add(beat, clip, { gain, pan, key })` | `clip` is a buffer or a function returning one. `gain` is linear |
+| `track.fx(...effects)` | Inserts, in order, before the fader |
+| `track.send(bus, dB)` or `track.send(bus, lane)` | After the fader. A lane is linear gain |
+| `song.bus(name, effect or [effects], dB)` | A send return into the master. Use reverbs and delays at their default `mix: 1` here |
+| `song.lane([[beat, value, curve?], ...])` | Automation. `curve` says how the value arrives at that point: `lin` (default), `exp` (for Hz), `ease`, `hold`. `lane.at(beat)` reads it, for per-note values |
+| `song.duck(beats, { depth, attack, hold, release, curve })` | Sidechain pump from a list of beats (the kicks). `depth` 0..1 |
+| `song.filter(mode, hzOrLane, q, poles?)`, `song.vol(lane)`, `song.gate(pattern, stepBeats, { floor, duty, mix })` | A swept filter, level automation, a rhythmic gate locked to the grid |
+| `song.section(name, fromBar, toBar)` | For the report only |
+| `song.master` | `target` (LUFS), `ceiling` (dB, -1), `hp` (26), `monoBelow` (120), `eq` (bands), `glue` (a compressor or null), `clipKnee` (dB under the ceiling where the clipper starts, 0 for off), `width`, `limiter` |
+
+The master chain is: mono lows, high-pass, EQ, glue compressor, gain to reach the target, soft clipper at twice the sample rate,
+look-ahead limiter. The gain is found by trial, so the result is within 0.1 LU of `target`.
+
+### Pitched sounds (`engine/synth.ts`)
+
+A `Patch` is oscillators into a filter into an amp envelope. `line(patch, notes, opts)` plays a list of notes as one continuous
+voice, `tone(patch, note, seconds, vel)` is one note, and `chordOf(patch, notes, seconds, vel, { strum })` stacks several. The same
+three exist for FM as `fmLine`, `fmTone` and `chordOf` with an `FmPatch`.
+
+| Patch field | |
+|---|---|
+| `osc: [{ wave, level, semi, cents, voices, detune, spread, pw, pwm, reset }]` | `wave`: `saw`, `square`, `pulse`, `tri`, `sine`, `noise`, band-limited. `voices` with `detune` (cents) and `spread` (0..1 stereo) is unison: 7 voices is a supersaw. `reset` starts every note at phase 0, for basses and acid |
+| `amp: { a, d, s, r }` | Seconds, and sustain 0..1 |
+| `filter: { type, cutoff, q, env, shape, key, lfo, drive, vel }` | `type`: `lp`, `hp`, `bp`, `notch` (state variable, 12 dB) or `ladder` (24 dB, saturating, `q` 0..1 is resonance). `env` is octaves of sweep by `shape`, an envelope of its own. `key` is key tracking, `lfo: { rate, depth }` is in octaves |
+| `hp` | A fixed high-pass after the filter. Use it on everything that is not the bass |
+| `pitchEnv: { semi, time }` | Starts off pitch and returns: a negative `semi` swoops up into the note, as a hoover does |
+| `vibrato: { rate, cents, delay }`, `glide`, `glideAll` | `glide` is the seconds a slide takes |
+| `drive`, `shape` | Saturation before the amp envelope: `tanh`, `soft`, `hard`, `fold`, `asym`, `diode` |
+| `gain`, `velAmp`, `accent` | `accent` is the extra level and filter envelope of an accented note |
+
+A note is `{ t, dur, note, vel?, slide?, accent? }`. `slide: true` ties into the note from the one before: no retrigger, and the
+pitch glides by `glide`. The earlier note must end within 60 ms of it. That is how acid lines, sub slides and legato leads are
+written. `opts.mod` takes `pitch(t)` (semitones), `cutoff(t)` (a multiplier) and `amp(t)` for anything else, such as a riser.
+
+`FmPatch.ops` is a list of modulator-into-carrier pairs: `{ ratio, carrier, index, decay, sustain, fb, level, cents, pan }`.
+`index` is the depth at the start of the note and falls to `sustain` of itself over `decay`. A pair at ratio 1 with a short, quiet
+pair at ratio 11 to 14 is an electric piano. Ratio 3.5 with a fast decay is a bell. Feedback (`fb`) towards 1 turns it into a bass.
+
+Starting points, all in the two song files: sub (`SUB`), reese and mid bass (`REESE`, `MID`), supersaw pad and strings (`PAD`,
+`STRINGS`), soft lead (`LEAD`), rave stab (`STAB`), hoover (`HOOVER`), acid (`ACID`, in `clerical-violence.ts` and `_selftest.ts`),
+plucked arp (`PLUCK`), electric piano and bell (`KEYS`, `PIANO`, `BELL`). `midi('F#1')`, `chord('A3', 'm9')`, `degree(root, scale, n)`,
+`CHORDS` and `SCALES` are in `engine/core.ts`.
+
+### Drums and one-shots (`engine/drums.ts`)
+
+Each returns a buffer peaking at 1, so render once and place many times.
+
+| | |
+|---|---|
+| `kick({ freq, punch, sweep, punch2, sweep2, hold, decay, click, drive, shape, lp, hp })` | `freq` is the resting pitch, `punch` the Hz above it at the first sample and `sweep` how fast that falls. `drive` 1 to 2 is clean, 4 to 6 is a hard techno kick, 10 and up with `shape: 'hard'` squares it into a hardcore kick: lengthen `hold` and `decay` for its tail |
+| `kickRumble(kickBuffer, { dur, decay, lp, drive })` | The low rumble that follows a techno kick. Place it a sixteenth after each kick and duck it |
+| `snare`, `clap`, `rim`, `hat` (`decay` 0.04 closed, 0.3 open), `ride`, `crash` (stereo), `tom`, `shaker`, `perc` | See the option types |
+| `noiseSweep({ dur, from, to, levelFrom, levelTo, curve, tremFrom, tremTo })` | Risers and downlifters, stereo |
+| `impact()`, `subDrop()` | The boom on a drop, and a sine falling through the lows |
+| `reversed(buf)`, `repitch(buf, semitones)`, `dulled(buf, lpHz)` | A reversed crash ending on the drop, a snare roll that rises, a ghost note |
+
+`hits('x...x.o.')` turns a pattern into `{ step, level }`. `X` is 1, `x` 0.8, `o` 0.5, `1`-`9` ninths, `.` a rest. Spaces and `|`
+are ignored. `euclid(hits, steps, rotate)` makes an evenly spread pattern.
+
+### Breaks (`engine/breaks.ts`)
+
+`breakKit({ seed, kick, snare, hatDecay, hatMetal })` is an acoustic-sounding kit. `breakLoop(kit, spec)` plays one or two bars on
+it, uneven as a drummer is (`swing`, `human`, `loose`), then glues it with a room, a compressor (`squash`), saturation (`drive`) and
+optionally an old sampler's `crush`. The loop has no seam. `spec.bpm` is the tempo the drummer plays at: chopped at a faster song
+tempo it comes out higher, as a sampled break does (136 into 184 is five semitones up).
+
+`chop(loop, pattern, { bpm, step, slice, pitch })` resequences it. One token per `step` beats (0.5 by default, 0.25 for sixteenths),
+and slice numbers count in the same unit from the start of the loop:
+
+```
+4      slice 4            _      hold the last slice      -      rest
+4r     reversed           4x3    three hits in the step   4h     half the step, then a gap
+4p-5   five semitones down       4x4u7   a four-hit roll rising seven semitones       4x4d12  falling
+4g60   at 60% level
+```
+
+`parseChop(pattern)` gives the steps as objects, for editing by code: `clerical-violence.ts` rolls dice over them (`mutate`) while
+keeping the backbeats in place. Layer a clean kick and snare over the break for weight, and high-pass the break at about 110 Hz.
+
+### Effects (`engine/fx.ts`)
+
+`eq(buf, bands)`, `filt(buf, mode, hzOrCurve, q, poles)`, `drive(buf, { amount, shape, lp, hpPre, mix, bias })`, `crush`,
+`chorus(buf, { rate, depth, delay, mix, voices, feedback })` (a flanger with a short `delay` and `feedback`), `delay(buf, { time,
+feedback, lp, hp, pingpong })`, `reverb(buf, { decay, size, damp, lowCut, predelay, hp })` (`size` 0.5 a room, 1 a plate, 1.8 a hall),
+`compress(buf, { threshold, ratio, attack, release, knee, makeup, mix, key })`, `widen`, `monoBelow`, `autopan`, `softClip`, `limit`,
+`fades`. `duckCurve` and `gateCurve` are what `song.duck` and `song.gate` are made of.
+
+### Measuring
+
+Nothing here can listen, so every pass ends in numbers and a picture. The render prints, and saves in `tools/out/music/<slug>.json`:
+
+- **Each track**: clips, peak and RMS after its fader, CPU seconds. The quickest way to see that a part is 10 dB too quiet.
+- **Master**: loudness, short-term maximum, range, peak, crest, how many dB it was pushed, what the glue and the limiter took. This
+  crest is the WAV's. Encoding adds 2 to 3 dB of peak, so it reads 2.5 to 3 dB lower than the same track as an MP3.
+- **Stereo**: correlation (1 is mono), side level, what is lost in mono.
+- **Bands**: the share of the energy in seven bands, for the whole song and for each section.
+- **4-bar RMS**: the arrangement as a row of numbers. A drop should stand 3 to 6 dB over the intro.
+- **The MP3**, measured again by ffmpeg, which is the number that is matched against the list, and decoded for its sample peak and
+  crest. Compare that crest, not the master's, with `analyze.ts` on a reference, which reads MP3s.
+
+`tools/out/music/<slug>.png` is the spectrogram: open it. The meter agrees with ffmpeg's `ebur128` to 0.1 LU (`engine/meter.ts`).
+
+What the placeholders measure (`analyze.ts` on their MP3s, so the crest is an MP3's), which is what "matches the list" means:
+
+| List | Tracks | Loudness, LUFS | Range, LU | Crest, dB | Tempo, BPM | Length | Bands: sub, bass, low mid, mid, high mid, high, air |
+|---|---|---|---|---|---|---|---|
+| menu | 1 | -7.9 | 7.1 | 11.5 | about 174 (the estimator said 167) | 6:17 | -9.6, -3.6, -7.2, -8.8, -12.9, -13.4, -15.7 |
+| easy | 13 | median -5.5, from -12.0 to -3.2 | 2.3 | 8.0 | 146 to 160 | 5:26 to 7:08 | -7.9, -2.6, -10.2, -13.1, -11.8, -15.1, -20.8 |
+| hard | 11 | median -8.8, from -17.6 to -6.7 | 5.1 | 10.8 | 170 to 180 for most | 5:57 to 9:38 | -6.6, -3.6, -9.3, -10.3, -12.2, -15.3, -19.4 |
+
+The two menu tracks against the menu reference, all three measured the same way, by `analyze.ts` on the MP3:
+
+| | Blue Hour Briefing | Clerical Violence | Placeholder |
+|---|---|---|---|
+| Loudness, range | -8.4 LUFS, 7.9 LU | -8.0 LUFS, 7.1 LU | -7.9 LUFS, 7.1 LU |
+| True peak, sample peak | +1.7, +1.2 dBFS | +1.8, +1.4 dBFS | +1.9, +1.2 dBFS |
+| Crest | 12.2 dB | 12.0 dB | 11.5 dB |
+| Stereo correlation, side, mono loss | 0.76, -8.6 dB, 0.57 dB | 0.73, -8.1 dB, 0.62 dB | 0.72, -7.8 dB, 0.66 dB |
+| Bands | -10.0, -3.9, -6.8, -8.1, -12.7, -12.7, -16.0 | -9.3, -5.2, -5.8, -7.5, -12.0, -12.6, -16.1 | -9.6, -3.6, -7.2, -8.8, -12.9, -13.4, -15.7 |
+| Limiter (from the render report) | 2.5 dB at most, 0.7 dB mean | 2.2 dB at most, 0.6 dB mean | |
+
+How the two were made, as a starting balance (RMS of each track while it plays, after its fader): drums group -17, sub -16 to -18,
+mid bass -22, pad -24 to -26, keys or stabs -22 to -24, lead -23, bell and arp -29 to -31, with the reverb return peaking near -12.
+The first pass of both had the drums and sub right and everything else 6 to 8 dB too quiet, which read as a dark, narrow, drum-only
+mix: mid band -12.5 where the reference has -8.8, and correlation 0.95. Blue Hour Briefing took five passes and Clerical Violence
+four: balance, tone (pad cutoffs, low-mid clean-up, a tighter kick sweep, the stabs and lead brought back 1.5 dB), the half-bar gap
+before the second drop and stereo width, then the master (an easier glue compressor, which raised the range from 6.4 to 8.4 LU).
+A review pass then fixed wrong notes (below) and the width: pads widened to 1.7 and the master to 1.2 and 1.1 (`master.width`,
+which acts above the 120 Hz mono split), which took the correlation from 0.85 and 0.81 to 0.76 and 0.73.
+
+### Things that will catch you
+
+- **lame turns the level down by itself**: to 0.95 at 160 kbps and under, 0.97 at 192, multiplied with any `--scale` given. The
+  renderer measures the MP3 against the WAV and encodes again with the scale that cancels it. Without that every track comes out
+  0.45 LU quieter than its master.
+- **MP3 peaks overshoot a limited master by 2 to 3 dB.** A ceiling of -1.4 dBFS gave +1.7 and +1.8 dBFS true peak in the file, the
+  same as the placeholder. The game plays music at 0.42 x 0.7 in float, so nothing clips.
+- **Bitrate follows length**, to stay under 3.4 MB: 144 kbps at 3:01, 136 at 3:10. Past about 3:20 it drops under 128.
+- **A line written for a minor chord plays wrong notes under a major one.** Both songs pick bass and acid notes as the chord's root
+  plus an interval. Clerical Violence first did that with minor pentatonic steps under F and G as well, so its acid played Ab, Bb and
+  Eb against a pad holding A and E. Its `inKey` and the two pentatonic sets now follow the chord, and Blue Hour Briefing's bass
+  approach pulls a step back into F minor. Nothing measures this: replay the note choice of any generated line and count the notes
+  outside the key (a soloed `--bars` render and a pitch-class spectrum confirm it).
+- **A slide needs the note before it to reach it.** A gap of more than 60 ms retriggers instead.
+- **`chordOf` and unison patches are stereo, most other things are mono** until an effect widens them. Pan mono clips with `add`'s `pan`.
+- **Send amounts are after the fader.** Turning a track down turns its reverb down too.
+- **A partial render masters what it is given.** Levels in a `--bars` or `--solo` render are not the levels in the song. Use them for
+  the picture and the band balance, and read loudness from a full render.
+- **The key estimate in `analyze.ts` is a guess** (it called F minor C minor). The tempo estimate is good to about 1 BPM on music with
+  drums and has only been checked against a click and these renders.
+
+### Speed
+
+On the M1 with other work running: 181 s of audio in 16 to 21 s of CPU (Blue Hour Briefing, 20 tracks, 5,000 clips), 190 s in 19 to
+25 s (Clerical Violence). A four-bar part renders in under a second. Supersaw pads are the most expensive thing (4 to 7 s a song),
+then the master's trial passes. Memory stays near 500 MB.
+
 ## Known limitations
 
 - **Nobody has heard any of this.** Every result above is a number. The mix and the character of each sound need ears. The packs most of all: none of them was chosen by listening.
+- **That goes double for the soundtrack.** Both menu tracks were composed and mixed by measurement: loudness, band balance, stereo width and
+  arrangement match the placeholder, and the spectrograms were read. Whether the tunes are good, the breaks feel right and the snares are
+  pleasant is for the owner's ears. Every sound is a recipe in the song file, so anything disliked can be changed and rendered again in 20 s.
+- **The public site has no run music of its own yet.** Only the menu list has game tracks, so on the public site a run borrows them. The
+  early-wave and late-wave tracks are separate work.
+- **The placeholder manifest is still tracked**, with the names of the owner's songs in it and none of the audio. The Pages build empties it.
+  A build made any other way from a clone asks for one of the songs at load, finds it missing, and plays only the game's own tracks.
+- **The renderer's reverb is one eight-line network with no modulation**, good for sends and not much else, and there is no time-stretch: a
+  break slice played slower is also lower.
 - **The body hits were tuned by measurement, in Node, with no browser run.** The pitch and level choices need the owner's ears, the Buzzsaw's
   beat of 9 most of all. `tools/out/audio-report.json` predates them: it has no line for `machine_clang`, so the "covers every synthesized
   id" check in `audio.test.ts` fails until the report is run again, and none for `hit_punch`, `hit_confirm`, `corpse_body` and
@@ -489,7 +785,7 @@ A soak cannot run past 3 minutes here. Nothing in the logs grows with time, but 
 - **`body_drag` is a slowed slug crawl,** because no free recording of a real drag turned up. Gore has no drag event, so it plays after three in ten hard landings.
 - **`blood_drip` is rarely heard in a heavy fight.** It is quiet, so thinning takes it. That is by design.
 - **CC BY 3.0 sounds need credit wherever the game ships.** `public/audio/sfx/gore/CREDITS.txt` goes out with the files, but a line in the game's own credits is better.
-- **`[requestfailed] ... .mp3 net::ERR_ABORTED` appears in `tools/shot.mjs` reports** when a track that is still streaming is replaced. The
+- **`[requestfailed] ... .mp3 net::ERR_ABORTED` appears in `tools/shot.mjs` reports** when a track that is still streaming is replaced (21 of them in one `music-live.mjs` run, which skips through 30 tracks). The
   harness counts it as an error. It is not a console error and the crossfade is unaffected.
 - **Music needs a gesture.** With `?autostart=1` and no click, a normal browser stays silent until the first click or key. The harness
   allows autoplay, so the context reports `running` there before any gesture.

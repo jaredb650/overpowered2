@@ -32,6 +32,7 @@ import { Minimap, type MinimapPoint } from './hud/minimap';
 import { Scoreboard } from './hud/scoreboard';
 import { SonarChip } from './hud/sonar';
 import { Stragglers } from './hud/stragglers';
+import { NowPlaying } from './hud/nowplaying';
 import { Screens, type ScreenName } from './screens/Screens';
 import { Flythrough } from './screens/flythrough';
 import { isTitanWave } from '../enemies/waves';
@@ -97,6 +98,7 @@ export class Hud implements HudSystem {
   private scoreboard: Scoreboard;
   private stragglers: Stragglers;
   private flythrough: Flythrough;
+  private nowPlaying = new NowPlaying();
   /** The Outpost's enemy has things to say. Null everywhere else. */
   private commander: CommanderHud | null;
 
@@ -179,6 +181,8 @@ export class Hud implements HudSystem {
     this.flythrough = new Flythrough(ctx);
     this.screens = new Screens(ctx, this, this.settings);
     this.root.append(this.screens.el);
+    // Last, so the track name shows over the menu as well as the HUD.
+    this.root.append(this.nowPlaying.el);
     this.screens.show('loading');
 
     addEventListener('resize', this.onResize);
@@ -220,6 +224,7 @@ export class Hud implements HudSystem {
       if (e.reason === 'kill' || e.reason === 'wave') return;
       this.styleLane.push(`+${e.points.toLocaleString('en-US')} ${e.reason}`, undefined);
     });
+    events.on('music:track', e => this.nowPlaying.show(e.title, e.original));
     events.on('comms:line', e => this.comms.push(e.text, COMMS_FEAR.has(e.kind) ? 'var(--amber)' : 'var(--cold)', e.speaker ?? e.squad));
     applySettings(this.ctx, this.settings);
     applyQuality(this.ctx, this.settings);

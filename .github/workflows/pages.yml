@@ -1,5 +1,6 @@
 # Builds the game and publishes it to GitHub Pages on every push to dev.
-# The commercial music is never in the repo, so the site ships with an empty music list and plays none.
+# The owner's placeholder songs are never in the repo, so their list is emptied here and the site plays only the game's
+# own soundtrack, which is committed under public/audio/ost with its own manifest. See docs/notes/audio.md, "Music".
 name: Pages
 
 on:
@@ -26,7 +27,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: No music on the public site
+      - name: No placeholder songs on the public site
         run: echo '{"menu":[],"easy":[],"hard":[]}' > public/audio/music/manifest.json
       - run: npm run build
       - uses: actions/upload-pages-artifact@v3

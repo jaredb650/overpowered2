@@ -1,0 +1,14 @@
+{
+  "menu": [
+    {
+      "file": "audio/ost/menu/blue-hour-briefing.mp3",
+      "title": "Blue Hour Briefing"
+    },
+    {
+      "file": "audio/ost/menu/clerical-violence.mp3",
+      "title": "Clerical Violence"
+    }
+  ],
+  "easy": [],
+  "hard": []
+}

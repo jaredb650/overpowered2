@@ -15,7 +15,7 @@ import { LoadGovernor, quietFloor, repeatGap } from './budget';
 import { ALIASES, CATALOG, lookup, synthCount, type SoundDef } from './catalog';
 import { PlayerFoley } from './foley';
 import { Mixer } from './mixer';
-import { MusicPlayer } from './music';
+import { MusicPlayer, type MusicSource } from './music';
 import { Reactions } from './reactions';
 import { roomForZone, type RoomId } from './reverb';
 import { DEAD_HANDLE, Voice, VoiceHandle, airCutoff, attenuation, kRate, wetness } from './voices';
@@ -62,6 +62,12 @@ interface Pool {
 }
 
 const emptyPool = (): Pool => ({ all: [], free: [], freeHrtf: [] });
+
+/** `?music=ost` to hear only the game's own soundtrack, `?music=local` for only the placeholder songs. */
+function musicSource(): MusicSource {
+  const value = typeof location === 'undefined' ? null : new URLSearchParams(location.search).get('music');
+  return value === 'ost' || value === 'local' ? value : 'all';
+}
 
 export interface AudioStats {
   state: AudioContextState | 'none';
@@ -244,7 +250,8 @@ export class AudioEngine implements AudioSystem {
     this.loadWall = performance.now();
 
     const base = import.meta.env.BASE_URL;
-    this.musicPlayer = new MusicPlayer(ac, mixer.musicIn, base);
+    this.musicPlayer = new MusicPlayer(ac, mixer.musicIn, base, musicSource());
+    this.musicPlayer.onTrack = (state, track) => this.ctx.events.emit('music:track', { state, title: track.title, file: track.file, original: track.original });
     this.musicPlayer.load().catch(err => console.warn('[audio] music manifest failed', err));
     this.bank = new SoundBank(ac, mixer, this.sounds, base);
     if (this.booted) this.bank.bootDone();
