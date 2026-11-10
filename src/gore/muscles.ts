@@ -228,8 +228,8 @@ export const MuscleTuning = {
   /** Drift dies away at this rate, in 1/s, with nothing left to steer it. */
   driftDecay: 2.2,
   /**
-   * Point where the torso tips the way it staggered, how hard, in m/s, and over how many seconds. Folded straight down, a
-   * body sits. Given in one frame, it was a hit.
+   * Point where the torso tips the way it staggered, how hard, in m/s at full gravity (times `Rag.throwScale`), and over how
+   * many seconds. Folded straight down, a body sits. Given in one frame, it was a hit.
    */
   toppleAt: 0.72,
   toppleSpeed: 1.6,
@@ -611,6 +611,8 @@ export class MuscleState {
     const above = total - legMass;
     this.meanMass = total / parts.length;
     for (const part of parts) part.body.userData = OWN_BLAST;
+    // Sized for the weight that acts, so holding, standing, the resting pull and a twitch all match the tempo dial.
+    const weight = WEIGHT * rag.gravity;
 
     const bind = info.bind;
     let rootInertia = 0;
@@ -646,11 +648,11 @@ export class MuscleState {
         }
       }
       m.inertia = (inertiaBelow * inertiaAbove) / Math.max(inertiaBelow + inertiaAbove, 1e-6);
-      m.load = Math.max(_b.length() * WEIGHT, 1e-3);
+      m.load = Math.max(_b.length() * weight, 1e-3);
       m.stand = m.load;
       if (m.role === 'leg' && legs > 0) {
         // A leg's lever on the weight above it is short, because a standing leg is nearly straight.
-        m.stand += t.standShare * (above / legs) * WEIGHT * (_b.length() / Math.max(massBelow, 1e-3));
+        m.stand += t.standShare * (above / legs) * weight * (_b.length() / Math.max(massBelow, 1e-3));
       }
     }
 
@@ -659,6 +661,16 @@ export class MuscleState {
       const relax = defs[i]!.relax;
       if (!relax || defs[i]!.ragdoll !== 'merge' || rag.mask[i] !== 1) continue;
       this.merged.push({ bone: i, rest: fromRotationVector(relax, new THREE.Quaternion()) });
+    }
+  }
+
+  /** The chain's gravity changed by `k`: a body killed in the air has landed. What each joint carries changes with it. */
+  reweigh(k: number): void {
+    for (const part of this.rag.parts) {
+      const m = part.muscle;
+      if (!m) continue;
+      m.load *= k;
+      m.stand *= k;
     }
   }
 
@@ -864,13 +876,16 @@ export class MuscleState {
    * Throws the limbs as well as the torso. `dir` is the way the hit pushes. A blast in front of a body sends its
    * arms back with the blast and its legs forward, because the feet were resisting while the torso moved.
    */
-  kick(dir: THREE.Vector3, strength: number): void {
-    if (strength <= 0 || !Number.isFinite(strength + dir.x + dir.y + dir.z)) return;
+  kick(dir: THREE.Vector3, hit: number): void {
+    if (hit <= 0 || !Number.isFinite(hit + dir.x + dir.y + dir.z)) return;
     const { rag, rng } = this;
     const t = MuscleTuning;
     const parts = rag.parts;
     // A frozen corpse has given up its bodies, and a blast can still reach it.
     if (parts.length === 0) return;
+    // Slower under less gravity, by the same share as a throw, so the limbs land as far apart.
+    const strength = hit * rag.throwScale;
+    rag.pushed = true;
     const first = parts[0]!;
     first.body.rotation(first.q);
     // Up along the body, not the world: a hit from above still throws the limbs of someone lying down.
@@ -1005,25 +1020,31 @@ export class MuscleState {
   letGo(): void {
     if (!this.reflex) return;
     this.reflex = null;
+    const g = this.rag.gravity;
     for (const part of this.rag.parts) {
       part.muscle!.drive = 0;
       part.muscle!.gain = 1;
-      part.body.setGravityScale(1, true);
+      part.body.setGravityScale(g, true);
     }
   }
 
-  /** Tips the upper body by this speed, in m/s. Internal to nothing: this is momentum, and it is meant to be. */
+  /**
+   * Tips the upper body by this speed, in m/s. Internal to nothing: this is momentum, and it is meant to be. Slower under
+   * less gravity, by `Rag.throwScale`, so it goes over as far.
+   */
   tip(speed: THREE.Vector3): void {
     const parts = this.rag.parts;
+    const k = this.rag.throwScale;
     for (let i = 0; i < parts.length; i++) {
       const part = parts[i]!;
       const role = part.muscle!.role;
       if (role === 'leg' || !part.parent) continue;
-      _vec.x = speed.x * part.mass;
-      _vec.y = speed.y * part.mass;
-      _vec.z = speed.z * part.mass;
+      _vec.x = speed.x * k * part.mass;
+      _vec.y = speed.y * k * part.mass;
+      _vec.z = speed.z * k * part.mass;
       part.body.applyImpulse(_vec, true);
     }
+    this.rag.pushed = true;
   }
 
   // -------------------------------------------------------------------------------------------
@@ -1169,12 +1190,13 @@ export class MuscleState {
     if (drive.toppleLeft > 0) {
       const k = Math.min(dt, drive.toppleLeft) / t.toppleSeconds;
       drive.toppleLeft -= dt;
-      // Whatever sits on the spine goes over, and takes the rest with it.
+      // Whatever sits on the spine goes over, and takes the rest with it. Slower under less gravity, as far.
       const parts = this.rag.parts;
+      const speed = t.toppleSpeed * this.rag.throwScale;
       for (let i = 0; i < parts.length; i++) {
         const part = parts[i]!;
         if (part.muscle!.role !== 'spine') continue;
-        const push = part.mass * t.toppleSpeed * drive.toppleSpread * k;
+        const push = part.mass * speed * drive.toppleSpread * k;
         _vec.x = drive.away.x * push;
         _vec.y = 0;
         _vec.z = drive.away.z * push;
@@ -1188,6 +1210,7 @@ export class MuscleState {
     const u = drive.time / drive.duration;
     drive.support = fade(t.supportFade, u, 0);
     const parts = this.rag.parts;
+    const g = this.rag.gravity;
     let root: RagPart | null = null;
     let carried = 0;
     for (let i = 0; i < parts.length; i++) {
@@ -1207,12 +1230,12 @@ export class MuscleState {
         root = part;
         continue;
       }
-      part.body.setGravityScale(m.role === 'leg' ? 1 : 1 - m.drive, false);
+      part.body.setGravityScale(g * (m.role === 'leg' ? 1 : 1 - m.drive), false);
       if (m.role === 'spine') carried += part.mass * m.drive;
     }
     // The hips take the trunk's weight, and the hold and the legs under them carry it: the body goes down under its whole
     // weight, with nothing bending the chest over.
-    if (root) root.body.setGravityScale(1 - t.trunkCut * root.muscle!.drive + ((1 - t.trunkCut) * carried) / root.mass, false);
+    if (root) root.body.setGravityScale(g * (1 - t.trunkCut * root.muscle!.drive + ((1 - t.trunkCut) * carried) / root.mass), false);
   }
 
   /** Reads joint targets out of the bones the animator just wrote. */
@@ -1263,10 +1286,11 @@ export class MuscleState {
 
   private endCollapse(): void {
     const parts = this.rag.parts;
+    const g = this.rag.gravity;
     for (let i = 0; i < parts.length; i++) {
       const part = parts[i]!;
       part.muscle!.drive = 0;
-      part.body.setGravityScale(1, true);
+      part.body.setGravityScale(g, true);
     }
     this.collapse = null;
     // Already at full tone: it must not dip and rise again as the drive lets go.

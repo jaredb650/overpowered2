@@ -97,6 +97,18 @@ Sword kills slice, so they have no throw to measure. The Kiln is 1 N·s.
 
 SMG rounds are six frames apart, so the same-frame rule never meets an SMG kill, and five of its nine runs predate it. Kept whole, as the weight pass first had it, the SMG kill at 8 m went 1.71 to 1.91 m (1.39 to 1.58 from death) against 1.00 to 1.21 on the code before it, because the Trooper staggers on the second round and dies on the third. Capped at 0.6 m/s but with the pellets of one shot still counted, the shotgun at 8 m went 0.75 to 1.06.
 
+**On the tempo dial** (2026-11-10, `?raggrav=`, `docs/notes/gore.md` Forces). Bodies fall under that share of gravity, and what moves them (blasts, shoves, rounds, a limb's spin) is slowed by its square root, so they should land as far and stay up longer. Measured as the table above was, hips at their furthest from where the body stood, dial 1 and 0.6 alternating in one session, with a scratch copy of `lab-throw` that also times the flight: from the blast to the hips first back under 0.45 m after they rose past 0.85 m. Survivors are the one Trooper in the middle hit with 1 damage, which the blast's push does not depend on.
+
+| Case | 1 | 0.6 |
+|---|---|---|
+| Rocket, floor 2 m away (9 bodies each) | 5.45 to 6.85, mean 6.38; in the air 0.91 s | 5.87 to 7.61, mean 6.56; 1.29 s |
+| Rocket, floor 4 m away, survivor (3 each) | 4.63 to 4.92; 0.61 s | 4.58 to 4.91; 0.81 s |
+| Grenade, floor 2 m away (9 each) | 4.11 to 5.53, mean 4.64; 0.75 s | 4.07 to 5.28, mean 4.83; 1.00 s |
+| Shotgun, 2 m (23 each, three sessions) | 1.41 to 3.16, mean 2.29, median 2.33 | 1.47 to 5.81, mean 2.67, median 2.52 |
+| Leaper killed 2.2 m up, falling at 6 m/s (3 each) | hips down at 0.27 s, frozen 1.3 to 1.4 s | 0.27 s, takes the dial at 0.30 s, frozen 1.6 to 1.8 s |
+
+The blasts land where they did, inside the ±15% the plan asked, and fly 1.33 times as long (1.29 by the arithmetic; the rocket at 2 m reads 1.38 on its medians). The sandbox `blast` scenario, which is the same every run, throws its muscle body 5.84 m at 1, 6.21 at 0.75 and 6.35 at 0.6, in the air 1.15 and 1.29 times as long. The shotgun at 2 m goes 17% further on average at 0.6, 8% on the medians: the pellets' push is in the body's speed when it dies, and that speed is not slowed, so it carries for longer (gore.md, Known limitations). Against the rows above, which predate the weight pass, the rocket survivor at 4 m reads 4.8 m at 1 as well. A body killed in the air keeps full gravity until it lands, so the Leaper is down at the same moment at both.
+
 **`lab-throw` under-reports survivors.** It measures at rest, and by then a body with AI off has got up and gone back to its post: the same rocket at 4 m reads 1.5 m there. Trust the table above for anyone who lived.
 
 ## Contact, measured

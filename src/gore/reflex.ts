@@ -27,7 +27,10 @@ export const ReflexTuning = {
   gather: { arm: 0.8, leg: 0.6, spine: 0.4, head: 0.5 },
   /** How fast joint strength reaches what the phase wants, in 1/s. */
   driveRate: 11,
-  /** A body counts as down with its hips under this share of their standing height, moving slower than this, for this long. */
+  /**
+   * A body counts as down with its hips under this share of their standing height, moving slower than this, for this long.
+   * Speeds here and in `stunThud` are at full gravity, and scale by `Rag.throwScale` under the tempo dial.
+   */
   landHeight: 0.42,
   landSpeed: 2.4,
   landHold: 0.14,
@@ -271,7 +274,8 @@ export class Reflex {
     const chest = this.spine ?? hips;
     this.look(chest, dt);
     this.stun = Math.max(0, this.stun - ReflexTuning.stunFade * dt);
-    if (rag.thud / rag.mass > ReflexTuning.stunThud) this.stun = 1;
+    // Under less gravity a body lands slower from the same height, by the same share as it is thrown.
+    if (rag.thud / rag.mass > ReflexTuning.stunThud * rag.throwScale) this.stun = 1;
     this.advance(hips, dt);
 
     _front.set(0, 0, 1).applyQuaternion(chest.q);
@@ -294,7 +298,7 @@ export class Reflex {
   private advance(hips: RagPart, dt: number): void {
     const t = ReflexTuning;
     if (this.phase === 'fall') {
-      const low = hips.p.y - this.groundY < this.standHips * t.landHeight && hips.v.length() < t.landSpeed;
+      const low = hips.p.y - this.groundY < this.standHips * t.landHeight && hips.v.length() < t.landSpeed * this.rag.throwScale;
       this.landed = low ? this.landed + dt : 0;
       if (this.landed > t.landHold || this.time > t.maxFall) this.enter('lying');
     } else if (this.phase === 'lying') {
@@ -469,6 +473,7 @@ export class Reflex {
     const awake = smoothstep(0, t.reaction * 2, this.age - t.reaction);
     const scale = stunned * fading * (this.plank ? 1 : awake);
     const parts = this.rag.parts;
+    const g = this.rag.gravity;
     for (let i = 0; i < parts.length; i++) {
       const part = parts[i]!;
       const m = part.muscle!;
@@ -482,7 +487,7 @@ export class Reflex {
       if (this.phase !== 'fall') m.gain = 1;
       // A working muscle carries its own weight, as in a collapse, or an arm on the floor cannot lift itself off it.
       // Falling, the legs keep theirs: feet need it on the floor to tip over.
-      if (m.role === 'arm' || m.role === 'head' || (m.role === 'leg' && this.phase !== 'fall')) part.body.setGravityScale(1 - m.drive, false);
+      if (m.role === 'arm' || m.role === 'head' || (m.role === 'leg' && this.phase !== 'fall')) part.body.setGravityScale(g * (1 - m.drive), false);
     }
   }
 }

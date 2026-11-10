@@ -294,8 +294,10 @@ describe('sustained fire', () => {
     for (let f = 0; f < seconds * 60; f++) {
       if (rounds && f % 3 === 0) {
         const hit = gore.raycastCorpses(at(c, B.chest).add(v(0, 0, 3)), v(0, 0, -1), 8);
-        // No limbs come off here. Losing one is meant to hurry a collapse, and it is not what is being measured.
-        if (hit) gore.damageCorpse(hit, { ...shot(hit.point, v(0, 0, -1), 0), severMult: 0 });
+        // No limbs come off here. Losing one is meant to hurry a collapse, and it is not what is being measured. Nor is a
+        // round in the head, which ends one on that frame: a body sinking under its weight bows its head into the line of
+        // chest fire, and before this skip that ended a collapse here about one run in ten.
+        if (hit && hit.region !== 'head') gore.damageCorpse(hit, { ...shot(hit.point, v(0, 0, -1), 0), severMult: 0 });
       }
       frame(null);
       [B.head, B.handL].forEach((bone, i) => {

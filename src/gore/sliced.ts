@@ -10,6 +10,7 @@ import { rand } from '../core/math';
 import type { BloodField } from './blood';
 import type { ImpactEvents } from './impacts';
 import { cutMesh, weldTable, type BoneCrossing, type CutSide } from './cut';
+import { RagTuning } from './rag';
 import { rigInfo } from './rigInfo';
 
 export const SliceTuning = {
@@ -179,7 +180,7 @@ export class SliceField {
     const body = world.createRigidBody(
       R.RigidBodyDesc.dynamic()
         .setTranslation(side.origin.x, side.origin.y, side.origin.z)
-        .setGravityScale(SliceTuning.holdGravity)
+        .setGravityScale(SliceTuning.holdGravity * RagTuning.gravityScale)
         .setLinearDamping(0.1)
         .setAngularDamping(0.6),
     );
@@ -229,6 +230,8 @@ export class SliceField {
   update(dt: number): void {
     const now = this.ctx.time.elapsed;
     const t = SliceTuning;
+    // Landings are heard as they would be at full gravity: slower under the dial by its square root, like a body's.
+    const heard = 1 / Math.sqrt(RagTuning.gravityScale);
     for (let i = this.halves.length - 1; i >= 0; i--) {
       const h = this.halves[i]!;
       if (h.sinking >= 0) {
@@ -245,14 +248,15 @@ export class SliceField {
       if (!body) continue;
       if (h.releaseAt > 0 && now >= h.releaseAt) {
         h.releaseAt = 0;
-        body.setGravityScale(1, true);
+        // Halves of a body fall the way a body does, on the tempo dial.
+        body.setGravityScale(RagTuning.gravityScale, true);
         body.setLinvel(h.slide, true);
       }
       body.translation(h.p);
       body.rotation(h.q);
       body.linvel(h.v);
       const speed = h.v.length();
-      h.nextThud = this.impacts.land('body', h.speed - speed, h.speed, h.p, h.nextThud);
+      h.nextThud = this.impacts.land('body', (h.speed - speed) * heard, h.speed * heard, h.p, h.nextThud);
       h.speed = speed;
       h.mesh.position.copy(h.p);
       h.mesh.quaternion.copy(h.q);

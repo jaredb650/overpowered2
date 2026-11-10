@@ -4,11 +4,14 @@
  */
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
+import { archetypeById, rigFor } from '../characters/archetypes';
+import { HumanoidAnimator } from '../characters/animation/HumanoidAnimator';
 import { humanoidRig, HumanoidBone as B } from '../characters/rig';
 import { Physics } from '../physics/Physics';
 import { makeCtx } from '../sandbox/harness';
 import type { Ctx, DamageInfo } from '../core/contracts';
 import { createGoreSystem, GoreTuning, type Gore } from './index';
+import { RagTuning, type Rag } from './rag';
 import { TestDummy } from './testDummy';
 
 const rig = humanoidRig('test');
@@ -493,5 +496,208 @@ describe('corpses', () => {
     const y0 = c.root.position.y;
     run(6);
     expect(c.root.position.y).toBeGreaterThan(y0);
+  });
+});
+
+describe('the tempo dial', () => {
+  const trooper = archetypeById('trooper');
+  const trooperRig = rigFor(trooper);
+  const at = (c: TestDummy, bone: number) => new THREE.Vector3().setFromMatrixPosition(c.bones[bone]!.matrixWorld);
+  const ragOf = (c: TestDummy): Rag | null => (gore as unknown as { owned: Map<TestDummy, { rag: Rag | null }> }).owned.get(c)?.rag ?? null;
+  const stand = (c: TestDummy) => {
+    c.anim.setLocomotion({ speed: 0, moveX: 0, moveZ: 1, aimYaw: 0, aimPitch: 0, grounded: true });
+    c.anim.update(1 / 60, 0);
+  };
+  /** A trooper on the real animator, which can collapse and get up. */
+  function living(): TestDummy {
+    const c = new TestDummy(trooperRig);
+    scene.add(c.root);
+    c.root.updateMatrixWorld(true);
+    (c as { anim: unknown }).anim = new HumanoidAnimator(c.bones, trooperRig, trooper, c.root, c.severed, b => (c as unknown as { hidden: Uint8Array }).hidden[b] === 1);
+    for (let i = 0; i < 20; i++) stand(c);
+    c.root.updateMatrixWorld(true);
+    return c;
+  }
+
+  it('no part outweighs the dial', () => {
+    // Every gravity write multiplies by the chain's share of world gravity, so one that does not puts a part back on 1 and
+    // shows here as a part heavier than the dial. The hips of a collapse carry the trunk's held weight on purpose, so they
+    // are held to the chain as a whole, whose weight carrying only moves about.
+    const was = RagTuning.gravityScale;
+    const dial = 0.6;
+    let part = 0;
+    let chain = 0;
+    let frames = 0;
+    const watch = (c: TestDummy, n: number) => {
+      for (let f = 0; f < n; f++) {
+        ctx.time.tick(1 / 60);
+        if (!gore.owns(c) && !gore.downed(c)) stand(c);
+        physics.step(ctx.time.dt);
+        gore.update();
+        const rag = ragOf(c);
+        if (!rag?.active) continue;
+        frames++;
+        let weight = 0;
+        let mass = 0;
+        for (const p of rag.parts) {
+          const scale = p.body.gravityScale();
+          weight += scale * p.mass;
+          mass += p.mass;
+          if (p.parent) part = Math.max(part, scale - dial);
+        }
+        chain = Math.max(chain, weight / mass - dial);
+      }
+    };
+    RagTuning.gravityScale = dial;
+    try {
+      // Down and alive, through the fall and lying there, then dead on the floor, which is `letGo`.
+      gore.clear();
+      let c = living();
+      gore.knockdown(c, { topple: v(0, 0, 1.7), lie: 2, hurt: 0.6, wound: { bone: B.thighL, point: at(c, B.thighL) } });
+      watch(c, 70);
+      gore.ragdoll(c);
+      watch(c, 60);
+      // Down, and back up again.
+      gore.clear();
+      c = living();
+      gore.knockdown(c, { topple: v(1.7, 0, 0), lie: 0.3, rise: 1.6, hurt: 0.6 });
+      watch(c, 300);
+      // A collapse to its end, which is `endCollapse`.
+      gore.clear();
+      c = living();
+      gore.collapse(c, { duration: 1.1 });
+      watch(c, 120);
+      // A collapse ended by a round in the head, which is `giveUp`.
+      gore.clear();
+      c = living();
+      gore.collapse(c, { duration: 1.7 });
+      watch(c, 18);
+      const head = at(c, B.head);
+      const from = head.clone().add(v(0, 2, 1.2));
+      const hit = gore.raycastCorpses(from, head.clone().sub(from).normalize(), 4);
+      expect(hit?.region).toBe('head');
+      gore.damageCorpse(hit!, { ...damage(hit!.point, 20), type: 'bullet', amount: 25, bone: B.head });
+      expect(ragOf(c)!.muscle!.collapse).toBeNull();
+      watch(c, 40);
+    } finally {
+      RagTuning.gravityScale = was;
+      gore.clear();
+    }
+    expect(part).toBeLessThan(1e-6);
+    expect(chain).toBeLessThan(1e-6);
+    expect(frames).toBeGreaterThan(300);
+  });
+
+  it('a body killed in the air falls at full gravity until it lands, then takes the dial', () => {
+    // A Leaper falls at 28 m/s² while it lives. Slowed to the dial the moment it died, it would hang in the air.
+    const was = RagTuning.gravityScale;
+    RagTuning.gravityScale = 0.6;
+    try {
+      gore.clear();
+      const c = living();
+      c.root.position.y = 1.5;
+      c.root.updateMatrixWorld(true);
+      gore.ragdoll(c, { velocity: v(0, -6, 1) });
+      const rag = ragOf(c)!;
+      expect(rag.gravity).toBe(1);
+      expect(Math.min(...rag.parts.map(p => p.body.gravityScale()))).toBe(1);
+      let landed = -1;
+      for (let f = 1; f <= 90 && landed < 0; f++) {
+        frame();
+        if (rag.gravity < 1) landed = f;
+      }
+      expect(landed).toBeGreaterThan(3);
+      expect(at(c, B.hips).y).toBeLessThan(1);
+      expect(Math.max(...rag.parts.map(p => p.body.gravityScale()))).toBeLessThan(0.6 + 1e-6);
+      // Killed on its feet, it takes the dial from the start.
+      gore.clear();
+      const d = living();
+      gore.ragdoll(d);
+      expect(ragOf(d)!.gravity).toBe(0.6);
+    } finally {
+      RagTuning.gravityScale = was;
+      gore.clear();
+    }
+  });
+
+  it('only the floor ends a fall at full gravity: not a long frame, not a hit in the air', () => {
+    // Read as a loss of the chain's momentum, gravity slowing a rising body in a 30 fps frame counted as a landing, and so did
+    // a round against its motion: the body took the dial 2.3 m up and flew on slowed, a third longer in the air.
+    const was = RagTuning.gravityScale;
+    RagTuning.gravityScale = 0.6;
+    /** Frames of `dt` until the chain takes the dial, with the highest the hips were when it did. */
+    const fall = (c: TestDummy, dt: number, hit?: (f: number) => void) => {
+      const rag = ragOf(c)!;
+      for (let f = 1; f * dt <= 2; f++) {
+        hit?.(f);
+        ctx.time.tick(dt);
+        physics.step(ctx.time.dt);
+        gore.update();
+        if (rag.gravity < 1) return { at: f * dt, hips: at(c, B.hips).y, rag };
+      }
+      return { at: -1, hips: at(c, B.hips).y, rag };
+    };
+    try {
+      for (const dt of [1 / 30, 1 / 20]) {
+        gore.clear();
+        const c = living();
+        c.root.position.y = 1;
+        c.root.updateMatrixWorld(true);
+        gore.ragdoll(c, { velocity: v(0, 6, 1) });
+        const end = fall(c, dt);
+        expect(end.at, `${Math.round(1 / dt)} fps`).toBeGreaterThan(0.4);
+        expect(end.hips, `${Math.round(1 / dt)} fps`).toBeLessThan(0.6);
+      }
+      // Falling toward the shooter, a Judge round in the chest, then a blast from under it.
+      for (const kind of ['round', 'blast'] as const) {
+        gore.clear();
+        const c = living();
+        c.root.position.y = 2.2;
+        c.root.updateMatrixWorld(true);
+        gore.ragdoll(c, { velocity: v(0, -3, 5) });
+        const end = fall(c, 1 / 60, f => {
+          if (f !== 4) return;
+          const chest = at(c, B.chest);
+          if (kind === 'blast') {
+            physics.radialImpulse(chest.clone().add(v(0, -1.5, 0)), 4, 600);
+            return;
+          }
+          const from = chest.clone().add(v(0, 0, 3));
+          const struck = gore.raycastCorpses(from, v(0, 0, -1), 6);
+          expect(struck).not.toBeNull();
+          gore.damageCorpse(struck!, { ...damage(struck!.point, 90), type: 'bullet', amount: 120, severMult: 0 });
+        });
+        expect(end.at, kind).toBeGreaterThan(0);
+        expect(end.hips, kind).toBeLessThan(0.6);
+      }
+      // A limb cut from a body thrown on the dial falls with it, not at full gravity, and one from a body killed in the air
+      // falls with that one. Its seed is the chain's own speed, so it cannot tell from that.
+      gore.clear();
+      const thrown = living();
+      gore.ragdoll(thrown);
+      for (let f = 0; f < 2; f++) frame();
+      physics.radialImpulse(v(0, 0.3, 1.2), 8, 900);
+      for (let f = 0; f < 6; f++) frame();
+      const body = ragOf(thrown)!;
+      body.parts[0]!.body.linvel(body.parts[0]!.v);
+      expect(body.parts[0]!.v.y).toBeGreaterThan(RagTuning.loftSpeed);
+      expect(gore.sever(thrown, 'armL', { ...damage(at(thrown, B.upperArmL), 1), type: 'bullet' })).not.toBeNull();
+      const newest = () => (gore as unknown as { limbs: { rag: Rag }[] }).limbs.at(-1)!.rag;
+      expect(newest().gravity).toBe(0.6);
+      expect(Math.max(...newest().parts.map(p => p.body.gravityScale()))).toBeLessThan(0.6 + 1e-6);
+      gore.clear();
+      const flying = living();
+      flying.root.position.y = 2.2;
+      flying.root.updateMatrixWorld(true);
+      gore.ragdoll(flying, { velocity: v(0, -6, 0) });
+      frame();
+      expect(ragOf(flying)!.gravity).toBe(1);
+      expect(gore.sever(flying, 'armL', { ...damage(at(flying, B.upperArmL), 1), type: 'bullet' })).not.toBeNull();
+      expect(newest().gravity).toBe(1);
+      expect(newest().killedInAir).toBe(true);
+    } finally {
+      RagTuning.gravityScale = was;
+      gore.clear();
+    }
   });
 });

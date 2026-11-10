@@ -3,7 +3,7 @@
  * which are the brief: bullets rock a body, a shotgun at the muzzle knocks it down and shoves it about a metre, and a
  * rocket nearby throws it a few metres and no further.
  */
-import { beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { humanoidRig, HumanoidBone as B } from '../characters/rig';
 import { DEFAULT_FORCE, type Ctx, type DamageInfo } from '../core/contracts';
@@ -12,7 +12,22 @@ import { Physics } from '../physics/Physics';
 import { makeCtx } from '../sandbox/harness';
 import { EXPLOSIONS, TUNING, WEAPONS } from '../weapons/data';
 import { createGoreSystem, type Gore } from './index';
+import { RagTuning } from './rag';
 import { TestDummy } from './testDummy';
+
+/**
+ * Every band holds on the tempo dial too: a body that falls slower is thrown slower, so it lands as far. 1 is today, and
+ * 0.75 and 0.6 are what the owner chooses between.
+ */
+const DIALS = [1, 0.75, 0.6];
+function onDial(dial: number): void {
+  beforeAll(() => {
+    RagTuning.gravityScale = dial;
+  });
+  afterAll(() => {
+    RagTuning.gravityScale = 1;
+  });
+}
 
 const rig = humanoidRig('test');
 const v = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
@@ -100,7 +115,8 @@ beforeAll(async () => {
   physics.flushQueries();
 });
 
-describe('bullets', () => {
+describe.each(DIALS)('bullets, tempo %s', dial => {
+  onDial(dial);
   it('rock a corpse under sustained fire and do not move it across the floor', () => {
     gore.clear();
     const c = spawn();
@@ -122,7 +138,8 @@ describe('bullets', () => {
   });
 });
 
-describe('shotgun', () => {
+describe.each(DIALS)('shotgun, tempo %s', dial => {
+  onDial(dial);
   it('knocks a body down and shoves it about a metre at the muzzle', () => {
     const force = WEAPONS.shotgun.force * TUNING.shotgun.pointBlankForce;
     let total = 0;
@@ -132,7 +149,8 @@ describe('shotgun', () => {
   });
 });
 
-describe('blasts', () => {
+describe.each(DIALS)('blasts, tempo %s', dial => {
+  onDial(dial);
   it('throw a body a few metres, and less the further it stood', () => {
     const close = blast('rocket', TUNING.rocket.radius, 2);
     const far = blast('rocket', TUNING.rocket.radius, 5);
@@ -188,7 +206,8 @@ describe('blasts', () => {
   });
 });
 
-describe('the master force dial', () => {
+describe.each(DIALS)('the master force dial, tempo %s', dial => {
+  onDial(dial);
   it('scales a throw, and zero leaves a body where it falls', () => {
     const normal = blast('rocket', TUNING.rocket.radius, 2).thrown;
     DevFlags.force = 0;

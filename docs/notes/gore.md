@@ -15,6 +15,8 @@ dropped, a lethal headshot, an SMG collapse and a Judge round to the chest. `wei
 weight pass, everywhere, the game included: feet on their soles, a collapse holding up a third of its weight, a twitching
 headshot, a stumbling body that staggers on from a round in the head, and a death that keeps only its stride. Two fixes
 stay on either way: a collapse's stagger and topple come in over 0.2 s, and far bodies are seeded at their true speed.
+`raggrav=0.75` (0.5 to 1, left out it is 1) is the tempo dial, everywhere, the game included: bodies fall under that share
+of gravity, and what throws them is slowed by its square root so that they land as far. See Forces.
 
 ```
 node tools/shot.mjs --url "/?sandbox=gore&scenario=blast&hold=1" --wait 9000 --out tools/out/blast.png \
@@ -173,7 +175,7 @@ Breaking: each hit on a limb adds `damage x breaks` to `char.stress` for that jo
 | `MuscleTuning` | `muscles.ts` | Everything in the muscle layer: ligaments, the knee's stop, resting pose, impact spin, collapse timing and how much of the trunk it holds up, twitching, jolts |
 | `ReflexTuning` | `reflex.ts` | A living body off its feet: strength by phase, when it counts as landed, how it braces |
 | `relax`, `role`, `collider` | `rig.ts` | Resting pose per joint, what each joint is for, and what a bone rests on where that is not its hit capsule |
-| `RagTuning` | `rag.ts` | Joint damping, death tone, hard limit strength and fade-in, rest damping, collider slimming, heel feet, speed clamps, blast lift, how far a broken joint opens |
+| `RagTuning` | `rag.ts` | The tempo dial (`gravityScale`) and when a body killed in the air takes it, joint damping, death tone, hard limit strength and fade-in, rest damping, collider slimming, heel feet, speed clamps, blast lift, how far a broken joint opens |
 | `swingShape()` | `rag.ts` | Asymmetric hip and shoulder reach |
 | `BloodTuning` | `blood.ts` | Rays per frame (24), droplet and pool caps, smear spacing |
 | `ChunkTuning` | `chunks.ts` | Slots per kind, live bodies (72), linger, bounce |
@@ -184,8 +186,38 @@ Breaking: each hit on a limb adds `damage x breaks` to `char.stress` for that jo
 
 Measured throws per weapon are in `docs/notes/lab.md`. A body is 85 kg, and gravity is 19, twice the real thing, which is the fact everything below comes back to.
 
+- **The tempo dial**, `RagTuning.gravityScale`, `?raggrav=`. At 19 m/s² every fall plays 1.41 times faster than real, which is
+  how a body half the size falls at real gravity, the miniature effect. The dial lets a body fall under less: 0.75 is 14.25 m/s²,
+  0.6 is 11.4. It is 1 until the owner chooses, and at 1 nothing changes: every death below runs the same to the last bit of every
+  bone, on a fixed random stream, against the code before the dial. Under it:
+  - each part of a chain is created at `Rag.gravity`, and every gravity write (a collapse's, a reflex's, `letGo`, `endCollapse`,
+    sliced halves) multiplies by it, so a muscle's cut is a share of the dial's weight;
+  - what moves a body is slowed by `Rag.throwScale`, the square root, because range is v²/g: `radialImpulse` and its ceiling,
+    `shove` and its ceiling, a round's share on the bone (`applyImpulse`), a limb's spin (`kick`), `tip` (a knockdown's
+    topple), a collapse's `toppleSpeed`, and a gib's limbs. The throw lands as far and stays in the air longer, 1.29 times at
+    0.6. As first built, with rounds at full speed on the bone and friction raised, Judge kills sat back on their heels for
+    0.3 to 0.6 s at 0.6, and the SMG walked a corpse 0.51 m against 0.28 at 1 (0.22 now);
+  - muscles are sized for the weight that acts (`bind`), so holding up, standing, the resting pull and a twitch keep their
+    share of it, and a crawling top half lifts that share;
+  - speeds that count as a landing are read as they would be at full gravity: `ReflexTuning.landSpeed` and `stunThud`, the
+    landing sounds (`hear`, a limb's splat, a half's thud), so nothing is quieter for falling slower. `ImpactTuning` is untouched,
+    because chunks report through it too;
+  - friction is not touched, 0.72 at every dial. Grip comes down with the weight, 14.4 m/s² at 1 to 8.7 at 0.6, as it would,
+    so a throw slowed by the square root slides about as far: a rocket at 2 m throws a corpse 6.4 m at 0.6 against 5.7 at 1
+    in the forces test, and 6.6 against 6.4 in the game. Raised to hold grip (`min(1.2, 0.72 / dial)`), a collapse's feet
+    measured no better, nor with it raised only while the collapse runs; it sat a Judge kill on its heels longer (0.29 to
+    0.58 s at 0.6 against 0.11 to 0.34, rounds unscaled) and stopped a thrown body 13% short in the sandbox;
+  - a chain seeded faster than `loftSpeed` (2 m/s) up or down was killed in the air. It keeps full gravity until the floor
+    gives back `landThud` (0.5 m/s) of upward speed in a frame, then takes the dial, with its muscles reweighed
+    (`setGravity`). Gravity only takes upward speed away, so a long frame cannot read as a landing, and a frame in which gore
+    pushed the chain (`Rag.pushed`: a round, a shove, a blast, a kick, a pin) is not read at all. A limb cut from a chain takes
+    that chain's state, not its own seed's. A Leaper falls at 28 m/s² while it lives, and slowed the moment it died it would
+    hang;
+  - not scaled: a round's jolts, which are torque across joints and cannot move a body as a whole, so scaled they only made a
+    dying body dance less (knockdown.test, 'jerks a dying body about'); the speed a body had when it died (see Known
+    limitations); chunks, which keep world gravity and their speeds.
 - **A hit** is `force` newton-seconds. `Gore.push` puts it on the struck bone, except that from 20 N·s to 90 N·s a growing share, up to `bodyShare`, moves the whole body through `Rag.shove`. Rocking a limb is what a bullet is for, so a bullet stays on the bone. All of a hard hit on one bone only folds a standing body at the knees: 288 N·s to the chest moved the hips 0.2 m.
-- **Feet stop a standing body within 0.3 m** at under 3 m/s. Friction with all the weight on them is 13.7 m/s². That is why hard hits have `bodyLift`, and why blasts aim `blastLift` metres high. Without them, more force only shows as limbs.
+- **Feet stop a standing body within 0.3 m** at under 3 m/s. Friction with all the weight on them is 14.4 m/s²: Rapier averages the body's 0.72 with the floor's 0.8. Under the tempo dial grip and speed come down together, so the distance holds. That is why hard hits have `bodyLift`, and why blasts aim `blastLift` metres high. Without them, more force only shows as limbs.
 - **Shove has a ceiling**, `maxShoveSpeed`, so six pellets in one frame cannot add up to a rocket.
 - **A blast** throws through `Rag.radialImpulse`, in one line and under one ceiling for the chain, `maxBlastSpeed`. `Combat.blast` calls `radialImpulse` after the damage, so a body the blast kills is thrown like any other. Before, a rocket 2 m away moved a corpse 3.1 m and a body it killed 1.2 m. The current throws are in `docs/notes/lab.md`.
 - **`Physics.radialImpulse`** sets a light piece's speed from what is left of the blast, not from its mass: `DEBRIS_SPEED` per point, up to 16 m/s. On a 0.2 kg chunk any strength at all ran into a mass-based cap, so by the arithmetic a Juggernaut's footstep fired chunks in flight at the same speed as a rocket. Negative strength, which is how Black Sun pulls, works the same way.
@@ -263,7 +295,22 @@ named, checked by breaking each one on purpose in a copy and seeing the test fai
   death stumble now and then lurches a whole body 0.3 to 0.6 m whatever its feet do.
 - **A dead foot rests on its heel** (`weight.test.ts`). On the whole sole a dead shin stood up by itself like a boot, and a
   body squatted on its heels for 0.5 to 1.2 s before it went over, a Brute up to 3.3 s. On a ball under the ankle the shin
-  tips and the knees go: down in 0.3 s. Only the collider changed, so mass, hits, cuts and slices are as they were.
+  tips and the knees go: down in 0.3 s. Only the collider changed, so mass, hits, cuts and slices are as they were. It holds
+  on the tempo dial too, at 0.75 and 0.6, over five rounds of six with the times stretched by the dial's pace (weight.test,
+  'on the tempo dial'). With rounds on the bone at full speed and friction raised to hold grip, as the dial was first built,
+  Judge kills sat on their heels 0.46 to 0.66 s at 0.6, and that build fails it every run.
+- **Every chain's gravity write multiplies by the chain's share of it** (`ragdoll.test.ts`, 'no part outweighs the dial'). One
+  that writes a plain number snaps that part back to full gravity under the tempo dial. Through a knockdown, getting up, dying
+  on the floor, a collapse to its end and one ended by a head round, at 0.6, no jointed part goes over the dial and no chain
+  weighs more than the dial allows. The hips of a collapse go over on purpose, carrying the trunk, so they are held to the
+  chain's total. Each of the six writes, and the body's creation, broken on its own in a copy: the test fails on every one. Not
+  covered: the two writes in `sliced.ts` (a half's hold and its release) and the crawler's lift, which no test runs on the dial.
+- **A body killed in the air falls at full gravity until only the floor stops it** (`ragdoll.test.ts`, two tests). Without
+  it, a Leaper shot falling at 28 m/s² would drop to 11.4 the frame it died, and hang. In the game, killed 2.2 m up and falling
+  at 6 m/s, its hips reach the floor 0.27 s after the kill at 1 and 0.6 alike. Read as any loss of the chain's momentum, as it
+  was first built, a body killed rising took the dial 2.3 m up at 30 fps and stayed in the air a third longer, and a round
+  against a falling one's motion did the same; a limb cut from a body thrown on the dial went back to full gravity. In a copy,
+  the second test fails with the old landing check, with pushed frames read, and with a limb deciding from its own seed.
 
 ## Measured
 
@@ -291,12 +338,54 @@ Shared 8 GB M1 under load average around 18, so treat these as upper bounds.
 | Judge kills frozen with a knee above 0.25 m, 18 per round, two sessions | 1, 2, 2 and 1, 0, 0, all Brutes, against 4, 2, 4 and 3, 4, 5, from all three archetypes |
 | Worst seeded bone, Trooper running at 3.8 and 2.2 m/s, mean of 48 frames | LOD 0 6.4 and 4.2 m/s, LOD 1 6.3 and 4.3, LOD 2 6.0 and 4.0. Before: LOD 1 8.5 and 6.4, LOD 2 10.4 and 9.3 |
 | `react-chaos`, weight pass against `?weight=0`, three runs each, load 5 to 7 | Physics step peak 7.9 to 10.2 ms against 6.8 to 10.1, CPU 4.9 to 5.8 ms a frame against 4.1 to 6.0: no difference past the noise. Every survivor back up, no console errors. Once more after the trunk's weight moved to the hips, load 2: 10.1 ms and 5.5 ms, the same |
+| Tempo dial at 1, against the code before it | Twenty-one deaths (drop, a running headshot, Judge and SMG collapse with a head round, on three archetypes; knockdowns by topple and blast; rocket, point-blank shotgun, sever, gib, killed falling and rising, a waist cut and its crawl), every bone every 0.1 s, the landing sounds and the loose limbs, on a fixed random stream: identical to the bit. The same run at 0.75 moves bones by 0.16 to 1.25 m, so it would show a difference. Again after the fix round (rounds and spin on the dial, plain friction, the landing check), with a second harness that hashes every rigid body every frame across the same twenty-one: identical |
+| Tempo dial, plain deaths (drop, a still headshot, Judge), Trooper and Brute, six headings, six rounds at 1, 0.75 and 0.6, `PROBE=tempo` | Hips on the floor 0.28 to 0.36 s, 0.33 to 0.48, 0.38 to 0.51. First 0.25 s at -14.8 to -15.7 m/s², -11.0 to -11.7, -8.7 to -9.2. Knees down 0.26 to 0.31 s, 0.30 to 0.36, 0.33 to 0.39. At rest 0.7 to 1.9 s, 0.8 to 2.0, 1.0 to 2.0. Hips rebound up to 0.06 m on a Trooper at 1, 0.09 at 0.75, 0.12 at 0.6; a Brute's up to 0.13, 0.18, 0.20. Slide once lying up to 0.23 m at 1 (a Brute's Judge kill), 0.20 at 0.75 and 0.6. A Trooper never on its heels; a Brute's Judge kill 0.85, 1.03, 1.83 s on average, which is its knees up at rest (Known limitations) |
+| Tempo dial, SMG collapses of 1.1 s shot in the chest, three rounds of six headings per round, same | Feet in the first 0.6 s, median: Trooper 0.13 m at 1, 0.18 at 0.75, 0.23 at 0.6 (rounds 0.20 to 0.29); Brute 0.14, 0.14, 0.18 (rounds 0.13 to 0.22). Feet at rest: Trooper 0.25, 0.28, 0.33 m; Brute 0.34, 0.41, 0.41, single rounds up to 0.55. At rest by 1.9 to 2.9 s at every dial |
+| Tempo dial, body killed 1.2 m up falling at 6 m/s, same | Hips on the floor at 0.22 to 0.23 s at every dial: full gravity until it lands |
+| Tempo dial, body killed rising at 6 m/s from 1 m, 30 fps | Takes the dial on landing, hips 0.14 m up, and is down at 0.767 s at 0.6 as at 1. As first built it took the dial 0.10 s after the kill, 2.29 m up, and came down at 1.000 s |
+| Tempo dial, the forces test's own measures (deterministic) at 1, 0.75, 0.6 | Rocket at 2 m 5.71, 5.79, 6.43 m, peak 9.4, 8.7, 7.6 m/s. Rocket at 5 m 3.16, 3.08, 3.10. Nuke 5.49, 5.33, 5.08. Point-blank shotgun 1.84, 1.86, 1.97. SMG 1.5 s on a corpse 0.28, 0.17, 0.22 m (0.41 and 0.51 with rounds at full speed). Force dial 0 leaves 0.12, 0.03, 0.03 |
+| Tempo dial, `knockdown.test.ts` and `weight.test.ts` run whole on the dial, one file at a time | knockdown at 0.6: 1 failure in 80 runs, 'jerks a dying body about' at a ratio of 1.21 against 1.3 (with jolts slowed too, 4 in 60, and as first built 2 in 33, the SMG walking a collapse 3.6 to 4.5 m); at 0.75, 8 of 8. weight at 0.75 and 0.6: about one run in four fails, in 'lies flat', 'lies still' or 'legs keep their gravity' (Known limitations); its heels on the dial, five rounds, pass 35 runs of 35 |
+| `react-chaos`, tempo dial 1 against 0.6, alternating, load 2.5 to 12 | Physics step peak 6.9 to 10.4 ms over five runs at 1, and 8.1 to 9.6 over five of seven at 0.6. The other two peaked at 23.5 and 26.8, both while the load ran 7 to 12 with another process holding a core. CPU 3.9 to 7.0 ms a frame against 3.9 to 6.3. Every survivor back up in all twelve, no console errors. After the fix round, load 1.5 to 3.5: 9.7 ms against 9.8, every survivor up, no errors |
 
 ## Known limitations
 
 - **A limp body running at 3.8 m/s can vault its planted leg.** Hips stay near 0.6 m for about 0.2 s before it goes down, and it can read as a held stride. Judged from a sheet, not in motion, so it needs someone to watch it. The heel did not change it: shot in the head on the range at 2.7 to 3.2 m/s, the hips were still 0.48 to 0.55 m up 18 frames later, and headless at 3.8 m/s they average 0.57 against 0.48 on the sole.
 - **A dead body ends folded on its knees.** It drops through them in 0.3 s and lies back over its shins: head to foot 0.75 m on a Trooper, against 0.96 when it sat on its heels first. A stop at the knee's folded end, 0.1 to 0.35 rad past the rig limit, and a braking zone before it were tried: none laid a body out any longer, and every one propped bodies in a kneel for up to a second. The `sweep` section of the weight probe has the numbers.
 - **A Brute killed by a Judge round can freeze with its knees up**, none to two in 18. Lying back, its folded legs are lifted with its thighs, and they stay there. The probe counts this as sitting on its heels.
+- **Under the tempo dial more bodies end with a knee up.** At rest with a knee above 0.25 m, of 84 probe deaths a round: 4 to
+  8 at 1, 7 to 11 at 0.75, 9 to 14 at 0.6. Nearly all are Brutes (Judge kills and collapses), and a Brute killed in the air
+  can come to rest propped with its hips 0.36 to 0.43 m up (two in six rounds at 0.75, never at 1). The cause is the
+  resting-pose pull, `neutralCap`, which holds the legs toward the microgravity pose: with it off, 0 of 84 at 1 and 1 of 84
+  at 0.6, and nothing propped. Scaling its rate, the ligaments, the joint damping or the settle speeds with the dial changed
+  nothing past the noise. Not changed: the pull is how every body settles, so it is the owner's call. It is also why the
+  Brute above freezes with its knees up.
+- **`weight.test.ts` holds only at 1 for lying flat and lying still.** Run whole on the dial, the file fails about one run in
+  four at 0.75 and 0.6: 'lies flat', a dropped Trooper ending with a knee 0.28 to 0.39 m up (the pull above); 'a lethal
+  headshot lies still', its hips 0.032 to 0.043 m above where they end, or 0.63 m of motion, after 1 s; now and then 'legs
+  keep their gravity during a collapse', 0.165 m against 0.16 (the skate below). The headshot is mostly its window: a fall
+  at 0.6 takes 1.29 times as long, and counted from 1.3 s it passes 24 bodies of 24 at 0.6. Only the heels are run on the
+  dial in the suite. A default below 1 needs these, and `muscles.test.ts` 'falls at the speed of gravity', made to know the
+  dial.
+- **A body keeps the speed it died with, and under the dial it falls for longer, so it goes further.** Killed moving at 2 m/s,
+  the hips travel 0.95 m at 1, 1.01 at 0.75 and 1.17 at 0.6, 12 bodies each; standing still, 0.12, 0.15 and 0.19. Holding grip
+  makes no difference: it is the time in the air. A Brute killed in the air with 2 m/s across slides 0.32 m once lying at 1
+  and 0.56 at 0.6. Slowing that speed at death would hold it, at the cost of a body visibly losing a quarter of its speed the
+  frame it dies; not done, the owner's call. It is the likely reason a point-blank shotgun goes a little further in the game
+  at 0.6: 2.67 m on average over 23 kills against 2.29 at 1 in the same sessions (medians 2.52 and 2.33), where the pellets'
+  push is already in the body's speed when the last one kills it. Headless, where it is not, the same kill goes 1.97 against
+  1.84.
+- **Feet skate more in a collapse under the dial**: a median of 0.18 m in the first 0.6 s at 0.75 and 0.23 at 0.6 on a Trooper,
+  against 0.13 at 1, and 0.18 at 0.6 on a Brute against 0.14. A collapse is held up by muscles and a hold on the hips that
+  work on the clock, not on gravity, and the feet under them carry less weight. Grip held, at 1.2 and 1.73, or raised only
+  while the collapse runs, measured no better.
+- **'Jerks a dying body about' is close to its line at 0.6.** Rounds land slowed on the dial, the quiet collapse they are
+  compared with does not, so the ratio falls from about 2.3 at 1 to about 1.9 against a line of 1.3: one run in 80 failed, at
+  1.21.
+- **Not everything that throws a body knows the dial.** Call-ins (the nuke's front, Black Sun) push what they find directly,
+  chunks and corpses alike, so under the dial they throw a corpse up to 1/dial as far. `Physics.radialImpulse` throws
+  hard-limit bodies (`muscles=0`) at full speed, and sliced halves too, which then fall on the dial, so a blast near the
+  halves of a sword kill sends them up to 1/dial as far. Loose limbs (0.62) and sliced halves (0.7) keep their friction, and
+  halves their slide speed, so they slide a little further.
 - **The end of a collapse steps harder by the probe's measure.** The largest change in the fall's acceleration from 0.6 of the
   way to its fastest is 3.4 to 8.1 m/s² as a six-round mean, against 2.9 to 4.5 with `?weight=0`; single bodies range from 2
   to 15, so only many rounds say anything. The worst is the 0.85 s Trooper collapse. The hips come down steadily from the

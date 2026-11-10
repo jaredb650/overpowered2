@@ -86,6 +86,10 @@ kill stacks twice.
 | `head` | `head_thud` | `wet_squelch` |
 | `organ` | `wet_squelch`, or `organ_splat` above 0.55. About a third leave a `blood_drip` | |
 
+Under gore's tempo dial (`?raggrav=`, `docs/notes/gore.md` Forces) a body falls slower and lands slower, so gore reports a body's, a limb's
+and a sliced half's landing as it would have been at full gravity: `strength` and which landings are heard do not change with the dial.
+Chunks keep world gravity and report as they land. `ImpactTuning` itself is untouched.
+
 Volume runs 0.35 to 1 with strength, and pitch falls as strength rises. Only a `body` asks what it landed on, with one ray. A pile of bodies is capped
 four ways: gore allows 6 events a frame, `reactions.ts` hears 9 a second with a burst of 5 and nothing past 55 m, the `flesh` family holds 6
 voices, and thinning takes the rest when the mix is crowded.

@@ -11,7 +11,7 @@ import { Physics } from '../physics/Physics';
 import { makeCtx } from '../sandbox/harness';
 import type { Ctx, DamageInfo } from '../core/contracts';
 import { createGoreSystem, type Gore } from './index';
-import type { Rag } from './rag';
+import { RagTuning, type Rag } from './rag';
 import { TestDummy } from './testDummy';
 
 const trooper = archetypeById('trooper');
@@ -77,31 +77,40 @@ function kill(kind: Death, c: TestDummy): void {
   }
 }
 
+/**
+ * Sitting on its heels: hips low while a knee is still high. On the whole sole a dead shin stood up by itself like a boot,
+ * and bodies squatted there for 0.4 to 1.1 s before they went over. `tempo` stretches the times by the tempo dial's pace,
+ * and the mean is over `rounds` of the six headings.
+ */
+function heels(tempo = 1, rounds = 1): void {
+  const bodies = rounds * HEADINGS.length;
+  for (const kind of ['drop', 'headshot', 'judge'] as const) {
+    let onHeels = 0;
+    let kneesDown = 0;
+    for (let i = 0; i < bodies; i++) {
+      const yaw = HEADINGS[i % HEADINGS.length]!;
+      gore.clear();
+      const c = spawnLiving(yaw);
+      const hips0 = at(c, B.hips).y;
+      kill(kind, c);
+      let down = -1;
+      for (let f = 1; f <= 120; f++) {
+        frame();
+        const knee = Math.max(at(c, B.shinL).y, at(c, B.shinR).y);
+        if (at(c, B.hips).y < 0.3 * hips0 && knee > 0.33 * hips0) onHeels += 1 / 60;
+        if (down < 0 && knee < 0.2 * hips0) down = f / 60;
+      }
+      kneesDown += down < 0 ? 2 : down;
+    }
+    expect(onHeels / bodies, kind).toBeLessThan(0.15 * tempo);
+    expect(kneesDown / bodies, kind).toBeLessThan(0.6 * tempo);
+  }
+  gore.clear();
+}
+
 describe('dead weight', () => {
   it('a dead body does not sit on its heels', () => {
-    // Sitting on its heels: hips low while a knee is still high. On the whole sole a dead shin stood up by itself like a
-    // boot, and bodies squatted there for 0.4 to 1.1 s before they went over.
-    for (const kind of ['drop', 'headshot', 'judge'] as const) {
-      let onHeels = 0;
-      let kneesDown = 0;
-      for (const yaw of HEADINGS) {
-        gore.clear();
-        const c = spawnLiving(yaw);
-        const hips0 = at(c, B.hips).y;
-        kill(kind, c);
-        let down = -1;
-        for (let f = 1; f <= 120; f++) {
-          frame();
-          const knee = Math.max(at(c, B.shinL).y, at(c, B.shinR).y);
-          if (at(c, B.hips).y < 0.3 * hips0 && knee > 0.33 * hips0) onHeels += 1 / 60;
-          if (down < 0 && knee < 0.2 * hips0) down = f / 60;
-        }
-        kneesDown += down < 0 ? 2 : down;
-      }
-      expect(onHeels / HEADINGS.length, kind).toBeLessThan(0.15);
-      expect(kneesDown / HEADINGS.length, kind).toBeLessThan(0.6);
-    }
-    gore.clear();
+    heels();
   });
 
   it('a dead body lies flat', () => {
@@ -204,5 +213,19 @@ describe('dead weight', () => {
     slides.sort((a, b) => a - b);
     expect((slides[8]! + slides[9]!) / 2).toBeLessThan(0.16);
     gore.clear();
+  });
+
+  // Last, so the tests above meet the same bodies as before the dial. A fall under less gravity takes longer by the square
+  // root, and so may this. With rounds at full speed and friction raised to hold grip, Judge kills sat on their heels 0.3
+  // to 0.6 s on average at 0.6. Five rounds, because now and then a dropped body squats for a second, at 1 as often: in
+  // twelve rounds of six at each dial, one round in twelve went over the line at 1, and three rounds in a row came to 0.15.
+  it.each([0.75, 0.6])('a dead body does not sit on its heels on the tempo dial, %s', dial => {
+    const was = RagTuning.gravityScale;
+    RagTuning.gravityScale = dial;
+    try {
+      heels(1 / Math.sqrt(dial), 5);
+    } finally {
+      RagTuning.gravityScale = was;
+    }
   });
 });

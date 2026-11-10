@@ -12,6 +12,7 @@ import * as THREE from 'three';
 import type RAPIER from '@dimforge/rapier3d-compat';
 import { CG, type PhysicsSystem } from '../core/contracts';
 import { DevFlags } from '../core/devflags';
+import { clamp } from '../core/math';
 import { groups } from '../physics/Physics';
 import type { BoneDef, RigDef } from '../characters/rig';
 import { invInertia, JointMuscle, MuscleState, MuscleTuning, splitSwing, swingReach, swingTwist, WEIGHT_PASS } from './muscles';
@@ -44,10 +45,35 @@ export interface RagBuild {
   massScale?: number;
   /** Runs the chain on the muscle layer. Without it, joints have hard limits and nothing else. */
   muscles?: boolean;
+  /**
+   * Killed in the air, so it falls at full gravity until it lands (`RagTuning.loftSpeed`). Left out, it is read from the
+   * chain root's seed. A limb cut from a chain already falling takes that chain's, because its seed is that chain's speed.
+   */
+  lofted?: boolean;
 }
+
+const tempoFlag = typeof location === 'undefined' ? null : new URLSearchParams(location.search).get('raggrav');
+/** `?raggrav=0.75` sets the tempo dial at load, held to 0.5..1. Left out, or not a number, it is 1. */
+const TEMPO = tempoFlag !== null && tempoFlag.trim() !== '' && Number.isFinite(Number(tempoFlag)) ? clamp(Number(tempoFlag), 0.5, 1) : 1;
 
 /** Joint feel. All rates are 1/seconds, applied through exp() so they do not depend on the step length. */
 export const RagTuning = {
+  /**
+   * The tempo of a fall: the share of world gravity a body falls under, 0.5..1. World gravity is 19, about twice the real
+   * thing, so at 1 every fall plays 1.41 times faster than real, and at 0.5 a body falls at real gravity. Throws keep their
+   * distance, because range is v²/g: what moves a body (a blast, a shove, a round, a limb's spin, a topple, a gib) is scaled
+   * by the square root, `Rag.throwScale`, and so are the speeds that count as a landing. Friction is not touched: its grip
+   * comes down with the weight, as it would, so a throw slides as far. Loose chunks stay at world gravity. 1 is the game as
+   * it was. `?raggrav=` sets it at load.
+   */
+  gravityScale: TEMPO,
+  /** A chain seeded moving up or down faster than this, in m/s, was killed in the air and falls at full gravity until it lands. */
+  loftSpeed: 2,
+  /**
+   * Upward speed the whole chain gains in one frame, in m/s, that counts as that landing. Gravity only ever takes it away,
+   * however long the frame, so only the floor gives it; a frame in which gore pushed the chain is not read.
+   */
+  landThud: 0.5,
   /** Base relative damping across a joint. High enough that nothing flutters. */
   jointDamping: 7,
   /** Radians past each limit a snapped hinge opens to, and how far a snapped ball joint swings. */
@@ -87,9 +113,9 @@ export const RagTuning = {
   heelFeet: WEIGHT_PASS,
   /** Hard ceiling on any single body's speed change from one impulse. A forearm is a few kilos, so this is what keeps it on. */
   maxImpulseSpeed: 9,
-  /** Fastest a blast can throw a whole chain, in m/s. At this speed a body lands about 5 m out. */
+  /** Fastest a blast can throw a whole chain, in m/s, times `Rag.throwScale`. At this speed a body lands about 5 m out. */
   maxBlastSpeed: 10,
-  /** A body already moving this fast takes no more from a shove, or six pellets in a row would add up to a rocket. */
+  /** A body already moving this fast takes no more from a shove, or six pellets in a row would add up to a rocket. Times `Rag.throwScale`. */
   maxShoveSpeed: 5,
   /** Metres added to a blast's height when aiming a throw, and the least a throw climbs per metre it goes out. Thrown flat, feet and friction stop a body inside a metre. */
   blastLift: 1.2,
@@ -281,6 +307,20 @@ export class Rag {
   nextPartThud = 0;
   /** Total mass of the bodies in the chain. */
   mass = 1;
+  /**
+   * Share of world gravity this chain falls under, which every gravity write multiplies by: `RagTuning.gravityScale`, except
+   * that a chain killed in the air keeps all of it until it first lands. A Leaper shot mid-leap falls at 28 m/s² while it
+   * lives, and slowed to the dial it would hang.
+   */
+  gravity = 1;
+  /** Gore pushed the chain since the last `measure`, so what its momentum did then says nothing about the floor. */
+  pushed = false;
+  /** Falling at full gravity until it lands. */
+  private lofted = false;
+  /** Landed last frame, at full gravity: takes the dial on this one. */
+  private landed = false;
+  /** The chain's vertical momentum at the last `measure`. NaN with nothing to compare it to yet. */
+  private lift = NaN;
   private momentum = 0;
   /** Lower-body height signal for smears: world position of the chain root. */
   readonly center = new THREE.Vector3();
@@ -297,15 +337,32 @@ export class Rag {
     this.mask = build.mask.slice();
     this.partOf = new Array<RagPart | null>(this.info.count).fill(null);
     this.muscle = build.muscles ? new MuscleState(this) : null;
-    this.create(build.seeds);
+    this.create(build.seeds, build.lofted);
   }
 
-  private create(seeds: Float32Array | null): void {
+  /** Killed in the air and not down yet, so still falling at full gravity. */
+  get killedInAir(): boolean {
+    return this.lofted;
+  }
+
+  /**
+   * What a speed that throws this chain is scaled by, so the throw lands where it would at full gravity: range is v²/g,
+   * so this is the square root of `gravity`. Speeds that count as a landing scale by it too.
+   */
+  get throwScale(): number {
+    return Math.sqrt(this.gravity);
+  }
+
+  private create(seeds: Float32Array | null, lofted?: boolean): void {
     const { physics, source, info, mask, build } = this;
     const { R, world } = physics;
     const rig = source.rig;
     const n = info.count;
     readPose(source, n, mask);
+    const rise = seeds ? seeds[build.chainRoot * SEED_STRIDE + 1]! : 0;
+    this.lofted = RagTuning.gravityScale < 1 && (lofted ?? Math.abs(rise) > RagTuning.loftSpeed);
+    this.gravity = this.lofted ? 1 : RagTuning.gravityScale;
+    this.landed = false;
 
     this.order.length = 0;
     this.partOf.fill(null);
@@ -358,7 +415,8 @@ export class Rag {
         .setTranslation(p.x, p.y, p.z)
         .setRotation(q)
         .setLinearDamping(RagTuning.linearDamping)
-        .setAngularDamping(RagTuning.angularDamping);
+        .setAngularDamping(RagTuning.angularDamping)
+        .setGravityScale(this.gravity);
       part.body = world.createRigidBody(desc);
 
       _inv.copy(q).invert();
@@ -473,6 +531,7 @@ export class Rag {
     for (const part of this.parts) if (part.parent && source.isFractured?.(part.bone)) this.breakJoint(part.bone);
     this.bindDrive();
     this.momentum = 0;
+    this.lift = NaN;
     this.active = true;
     this.calm = 0;
     this.quiet = 0;
@@ -662,8 +721,11 @@ export class Rag {
     const len = impulse.length() * force;
     // Rapier takes a NaN without complaint and the body then hangs frozen in mid-air for good.
     if (!Number.isFinite(len + point.x + point.y + point.z)) return;
-    _d.copy(impulse).multiplyScalar(len > cap ? (force * cap) / len : force);
+    // Slower under less gravity, by the same share as a throw, so a round moves a body as far as it did: on the tempo dial
+    // a round at full speed sat a body back on its heels and walked a dying one across the floor.
+    _d.copy(impulse).multiplyScalar((len > cap ? (force * cap) / len : force) * this.throwScale);
     part.body.applyImpulseAtPoint(_d, point, true);
+    this.pushed = true;
   }
 
   /** Moves the whole chain as one mass, shared out by weight. Nothing here turns it, however hard the push. */
@@ -676,21 +738,27 @@ export class Rag {
     const force = DevFlags.force;
     const first = this.parts[0]!;
     first.body.linvel(first.v);
-    const room = Math.max(0, RagTuning.maxShoveSpeed * Math.max(force, 1) - first.v.dot(impulse) / length);
-    const speed = Math.min((length * force) / mass, room);
+    // Slower under less gravity, by the same share as a blast, so it lands as far.
+    const throwScale = this.throwScale;
+    const room = Math.max(0, RagTuning.maxShoveSpeed * throwScale * Math.max(force, 1) - first.v.dot(impulse) / length);
+    const speed = Math.min(((length * force) / mass) * throwScale, room);
     for (const part of this.parts) part.body.applyImpulse(_d.copy(impulse).multiplyScalar((speed * part.mass) / length), true);
+    this.pushed = true;
   }
 
   /** Same falloff as Physics.radialImpulse, for bodies too new for it to find. */
-  radialImpulse(center: THREE.Vector3, radius: number, strength: number): void {
+  radialImpulse(center: THREE.Vector3, radius: number, blast: number): void {
     const muscle = this.muscle;
+    // Under less gravity the throw is slower and lasts longer, and lands as far.
+    const throwScale = this.throwScale;
+    const strength = blast * throwScale;
     // One direction for the whole chain: pushed along their own lines, the limbs shoot out sideways from the joints.
     if (muscle) {
       _b.set(this.center.x - center.x, this.center.y - center.y + RagTuning.blastLift, this.center.z - center.z);
       _b.y = Math.max(_b.y, Math.hypot(_b.x, _b.z) * RagTuning.blastClimb);
       _b.normalize();
     }
-    const top = RagTuning.maxBlastSpeed * Math.max(DevFlags.force, 1);
+    const top = RagTuning.maxBlastSpeed * throwScale * Math.max(DevFlags.force, 1);
     // A chain shares one ceiling: capped part by part, the light ones would stop short and the body would tear along them.
     let total = 0;
     let mass = 0;
@@ -709,6 +777,7 @@ export class Rag {
       else _a.multiplyScalar(push / Math.max(d, 0.2));
       part.body.applyImpulse(_a, true);
     }
+    this.pushed = true;
   }
 
   /** The body that carries `bone`: its own, or the nearest above it. */
@@ -738,6 +807,8 @@ export class Rag {
 
   /** Reads motion for settle detection. Call once per frame. */
   measure(dt: number, calmSpeed: number, calmSpin: number): void {
+    // Killed in the air, it landed at full gravity last frame, and was heard that way. From here on it falls at the dial.
+    if (this.landed) this.setGravity(RagTuning.gravityScale);
     let v = 0;
     let w = 0;
     let px = 0;
@@ -768,6 +839,11 @@ export class Rag {
       mass += part.mass;
     }
     const momentum = Math.hypot(px, py, pz);
+    // A landing is the floor taking a fall away. Read from the whole chain's loss of momentum, gravity alone slowing a rising
+    // body in a long frame, or a round against its motion, counted as one and slowed it to the dial in mid-air.
+    this.landed = this.lofted && !this.pushed && py - this.lift > RagTuning.landThud * mass;
+    this.lift = py;
+    this.pushed = false;
     this.thud = this.momentum - momentum;
     this.thudSpeed = this.momentum / mass;
     this.momentum = momentum;
@@ -782,6 +858,16 @@ export class Rag {
     const still = w < calmSpin * calmSpin || this.quiet > RagTuning.limitsOffAfter;
     if (this.speed < calmSpeed && still && !busy) this.calm += dt;
     else this.calm = 0;
+  }
+
+  /** Puts the chain on a new share of world gravity, keeping whatever share of its own weight each muscle carries. */
+  private setGravity(gravity: number): void {
+    const k = gravity / this.gravity;
+    this.gravity = gravity;
+    this.lofted = false;
+    this.landed = false;
+    for (const part of this.parts) part.body.setGravityScale(part.body.gravityScale() * k, false);
+    this.muscle?.reweigh(k);
   }
 
   /** Writes current body velocities into `out`, indexed by bone, for rebuilding part of this chain. */
@@ -815,6 +901,7 @@ export class Rag {
     this.order = this.order.filter(b => subtree[b] !== 1);
     // What left with the limb was not lost to anything.
     this.momentum = 0;
+    this.lift = NaN;
     if (this.active && parts.length > 0) this.muscle?.bind();
   }
 

@@ -4,9 +4,10 @@
 // Each section is written to tools/out/ragweight/<PROBE_PREFIX><section>.json. PROBE_ONLY narrows `fixes` and `sweep` to some
 // of their cases. Trust 6-heading means only, and several rounds of them: the animator starts every body at a random phase,
 // and MuscleState seeds come from a module counter, so no two runs are alike.
-// Sections: mass deaths ab arm hits variants pose fixes twitch trace flinch, which `all` runs, and sweep freeze collapse,
-// which run only when named. PROBE_SET=rag.heelFeet=0,muscle.trunkCut=1 sets tuning first; PROBE_CUTS=1,0 is the trunk cuts
-// `collapse` runs. Before the weight pass, `PROBE_SET=rag.heelFeet=0,muscle.trunkCut=1,gore.headshotTwitch=1`.
+// Sections: mass deaths ab arm hits variants pose fixes twitch trace flinch, which `all` runs, and sweep freeze collapse
+// tempo, which run only when named. PROBE_SET=rag.heelFeet=0,muscle.trunkCut=1 sets tuning first; PROBE_CUTS=1,0 is the trunk
+// cuts `collapse` runs. Before the weight pass, `PROBE_SET=rag.heelFeet=0,muscle.trunkCut=1,gore.headshotTwitch=1`. Any section
+// runs on the tempo dial with PROBE_SET=rag.gravityScale=0.6; `tempo` runs its own, PROBE_DIALS=1,0.75,0.6.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
@@ -23,8 +24,8 @@ import { rigInfo } from '../../src/gore/rigInfo';
 import { TestDummy } from '../../src/gore/testDummy';
 
 const sections = (process.env.PROBE ?? process.argv[2] ?? 'all').split(',').map(s => s.trim()).filter(Boolean);
-/** Sections added for the weight pass. They run only when named. */
-const NAMED_ONLY = new Set(['sweep', 'freeze', 'collapse']);
+/** Sections added for the weight pass and the tempo dial. They run only when named. */
+const NAMED_ONLY = new Set(['sweep', 'freeze', 'collapse', 'tempo']);
 const want = (s: string) => sections.includes(s) || (sections.includes('all') && !NAMED_ONLY.has(s));
 const OUT_DIR = new URL('../out/ragweight/', import.meta.url).pathname;
 const PREFIX = process.env.PROBE_PREFIX ?? '';
@@ -354,6 +355,7 @@ function deathMetrics(s: Sample[], duration?: number): DeathMetrics {
     lateHipsRise: r2(Math.max(...s.filter(x => x.t >= 1).map(x => x.p.hips.y)) - hipsRest),
     lateMotion: r2((() => { let d = 0; for (let i = 1; i < n; i++) if (s[i]!.t >= 1) for (const k of Object.keys(TRACK) as TrackName[]) d += s[i]!.p[k].distanceTo(s[i - 1]!.p[k]); return d; })()),
     finalKnee: [r2(last.kneeL), r2(last.kneeR)],
+    kneeRest: r2(Math.max(last.kneeYL, last.kneeYR)),
     finalHeadToFoot: r2(Math.max(last.p.head.distanceTo(last.p.footL), last.p.head.distanceTo(last.p.footR))),
     finalFootprint: r2((() => { const xs = Object.values(last.p).map(q => q.x), zs = Object.values(last.p).map(q => q.z); return Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...zs) - Math.min(...zs)); })()),
     meanGravityScaleFirst1s: r2((() => { const w = s.filter(x => x.t <= 1 && x.mass > 0); return w.reduce((a, x) => a + x.gEff, 0) / Math.max(w.length, 1) / -GRAVITY; })()),
@@ -972,4 +974,60 @@ if (want('collapse')) {
   }
   knob.muscle.trunkCut = was;
   saveSection('collapse', res);
+}
+
+if (want('tempo')) {
+  // Stage 2: the tempo dial, `RagTuning.gravityScale`. PROBE_DIALS=1,0.75,0.6 are the dials, each against the same cases.
+  // Plain deaths, six headings each, run until they freeze. Collapses three rounds of six, for the feet. `leap` is a body
+  // killed falling at 6 m/s from 1.2 m up, which keeps full gravity until it lands. A body hangs if it has not frozen in
+  // 8 s, or froze with its hips above 0.35 m.
+  const keys = ['tHipsFloor', 'accFirst025', 'comVpeak', 'reboundHips', 'lyingSlide', 'tRest01', 'tFreeze', 'onHeelsSeconds', 'tKneesDown', 'finalHeadToFoot', 'hipsRest', 'footSlideRest', 'hipsTravel'];
+  const dials = (process.env.PROBE_DIALS ?? '1,0.75,0.6').split(',').map(Number);
+  const was = knob.rag.gravityScale;
+  const res: Record<string, Record<string, unknown>> = {};
+  const frames = 60 * 8;
+  const leap = (arch: string, yaw: number): DeathMetrics => {
+    gore.clear();
+    const c = spawn(arch, 0, 0, yaw);
+    c.root.position.y = 1.2;
+    c.root.updateMatrixWorld(true);
+    gore.ragdoll(c, { velocity: v(Math.sin(yaw) * 2, -6, Math.cos(yaw) * 2) });
+    const m = deathMetrics(record(c, frames));
+    gore.clear();
+    return m;
+  };
+  for (const dial of dials) {
+    knob.rag.gravityScale = dial;
+    const row: Record<string, unknown> = {};
+    const hung: string[] = [];
+    const kneel: string[] = [];
+    let n = 0;
+    const tally = (runs: DeathMetrics[], name: string) => {
+      runs.forEach((r, i) => {
+        n++;
+        if (!Number.isFinite(r.tFreeze as number) || (r.hipsRest as number) > 0.35) hung.push(`${name} ${i} hips ${r.hipsRest} frozen ${r.tFreeze}`);
+        // As the freeze section counts it: at rest with a knee above 0.25 m.
+        if ((r.kneeRest as number) > 0.25) kneel.push(`${name} ${i} knee ${r.kneeRest}`);
+      });
+    };
+    for (const arch of ['trooper', 'brute']) {
+      for (const kind of ['drop', 'headshot-still', 'judge', 'leap']) {
+        const runs = HEADINGS.map(yaw => (kind === 'leap' ? leap(arch, yaw) : death(arch, kind, yaw, frames)));
+        tally(runs, `${arch}/${kind}`);
+        row[`${arch}/${kind}`] = { ...means(runs, keys), tHipsFloorRange: spreadOf(runs, 'tHipsFloor'), onHeelsRange: spreadOf(runs, 'onHeelsSeconds'), tRestRange: spreadOf(runs, 'tRest01') };
+      }
+      const runs: DeathMetrics[] = [];
+      for (let round = 0; round < 3; round++) for (const yaw of HEADINGS) runs.push(death(arch, 'collapse-smg', yaw, frames));
+      tally(runs, `${arch}/collapse-smg`);
+      const slides = runs.map(r => r.footSlide06 as number).sort((a, b) => a - b);
+      row[`${arch}/collapse-smg`] = { ...means(runs, [...keys, 'footSlide06']), footSlide06Median: r2((slides[8]! + slides[9]!) / 2), footSlideRestRange: spreadOf(runs, 'footSlideRest') };
+    }
+    row.hung = `${hung.length} of ${n}`;
+    row.hungCases = hung;
+    row.kneeling = `${kneel.length} of ${n}`;
+    row.kneelCases = kneel;
+    res[`dial${dial}`] = row;
+  }
+  knob.rag.gravityScale = was;
+  saveSection('tempo', res);
 }

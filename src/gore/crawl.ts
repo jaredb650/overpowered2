@@ -91,7 +91,8 @@ export class Crawler implements TorsoHalf {
       this.planted = false;
     }
     const reaching = this.clock < t.stroke * t.reach;
-    const lift = -GRAVITY * t.lift * dt;
+    // A share of the weight that acts on it, which the tempo dial sets.
+    const lift = -GRAVITY * this.rag.gravity * t.lift * dt;
 
     // Up on the elbows: part of the weight of the chest and head comes off the floor.
     _vec.x = 0;

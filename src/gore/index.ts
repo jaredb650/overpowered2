@@ -94,7 +94,10 @@ export const GoreTuning = {
   bodyLift: 0.6,
   /** Fraction of DamageInfo.force that a severed limb takes. The rest went into the wound. */
   limbForceShare: 0.45,
-  /** A gib flies at its force over this, between these speeds in m/s. Lighter than a body, so it goes further than one. */
+  /**
+   * A gib flies at its force over this, between these speeds in m/s. Lighter than a body, so it goes further than one. Its
+   * limbs take `Rag.throwScale` of it, since they fall on the tempo dial. Chunks keep world gravity and all of it.
+   */
   gibForcePerSpeed: 30,
   gibSpeedMin: 6,
   gibSpeedMax: 15,
@@ -573,6 +576,9 @@ export class Gore implements GoreSystem {
       membership: BodyFilter.membership,
       collidesWith: BodyFilter.collidesWith,
       restitution: 0.02,
+      // The same at every tempo: grip comes down with the weight, so a throw slowed to the dial slides as far. Raised to hold
+      // grip (1.2 at 0.6) it did nothing for a collapse's feet, kept Judge kills on their heels longer and stopped a thrown
+      // body short (gore.md, Forces).
       friction: 0.72,
       muscles: options?.muscles ?? MuscleTuning.enabled,
     });
@@ -727,7 +733,8 @@ export class Gore implements GoreSystem {
       this.wake(body);
       body.rag.cut(_mask);
     }
-    const limb = this.addLimb(char, piece, bone, _mask, _seeds);
+    // Cut from a chain in flight, the limb falls as that chain does: its seed is that chain's speed, already on the dial.
+    const limb = this.addLimb(char, piece, bone, _mask, _seeds, body?.rag?.active ? body.rag.killedInAir : undefined);
     char.hideLimb(bone);
     const torso = region === 'abdomen' && !body ? this.startCrawl(limb) : undefined;
 
@@ -781,12 +788,13 @@ export class Gore implements GoreSystem {
     return crawler;
   }
 
-  private addLimb(char: CharacterInstance, piece: SeveredLimb, bone: number, mask: Uint8Array, seeds: Float32Array): LooseLimb {
+  private addLimb(char: CharacterInstance, piece: SeveredLimb, bone: number, mask: Uint8Array, seeds: Float32Array, lofted?: boolean): LooseLimb {
     const info = rigInfo(char.rig);
     const rag = new Rag(this.ctx.physics, { rig: char.rig, root: piece.root, bones: piece.bones, isFractured: b => piece.isFractured(b) }, {
       chainRoot: bone,
       mask,
       seeds,
+      lofted,
       membership: LimbFilter.membership,
       collidesWith: LimbFilter.collidesWith,
       restitution: 0.28,
@@ -997,13 +1005,16 @@ export class Gore implements GoreSystem {
       if (_skip[bone] === 1 || body?.skip[bone] === 1) continue;
       const piece = this.takePiece(char, bone);
       markSubtree(info, bone, _mask);
-      const limb = this.addLimb(char, piece, bone, _mask, seeds);
+      // Thrown by the gib, not killed in the air, whatever its seed: it takes the dial, and `fling` holds the throw.
+      const limb = this.addLimb(char, piece, bone, _mask, seeds, false);
       char.hideLimb(bone);
       const p = limb.rag.center;
+      // A limb falls on the tempo dial and lands as far as it would at full gravity. Chunks keep world gravity and `launch`.
+      const fling = launch * limb.rag.throwScale;
       _v2.copy(p).sub(center);
       if (_v2.lengthSq() < 1e-4) randomUnit(_v2);
-      _v2.normalize().multiplyScalar(launch * rand(0.65, 1.15));
-      _v2.y += launch * rand(0.25, 0.6);
+      _v2.normalize().multiplyScalar(fling * rand(0.65, 1.15));
+      _v2.y += fling * rand(0.25, 0.6);
       for (const part of limb.rag.parts) {
         part.body.setLinvel(_v2, true);
         randomUnit(_v3).multiplyScalar(rand(8, 18));
@@ -1274,6 +1285,7 @@ export class Gore implements GoreSystem {
       }
       _v.multiplyScalar(Math.min(26, dist / 0.05) / dist);
       part.body.setLinvel(_v, true);
+      rag.pushed = true;
     }
   }
 
@@ -1298,6 +1310,8 @@ export class Gore implements GoreSystem {
   private throwFromBlast(target: PinTarget, rag: Rag, center: THREE.Vector3, radius: number, strength: number): void {
     const distance = rag.center.distanceTo(center);
     if (distance > radius) return;
+    // Physics.radialImpulse throws a chain with no muscles itself, after this.
+    rag.pushed = true;
     // With no room a wake only swaps places with a chain already moving, and that one comes back at rest.
     if (!rag.active && !this.hasRoom(target)) return;
     // A chain that has already stepped is in the query structures, so Physics finds it, but what it applies from
@@ -1406,7 +1420,8 @@ export class Gore implements GoreSystem {
     const t = GoreTuning;
     rag.drive();
     rag.measure(dt, t.calmSpeed, t.calmSpin);
-    const speed = rag.speed;
+    // As fast as it would be going at full gravity, so a landing under the tempo dial splats and sounds as it did.
+    const speed = rag.speed / rag.throwScale;
     const now = this.ctx.time.elapsed;
 
     // A hard stop against anything means it just hit something: leave a splat there.
@@ -1451,11 +1466,13 @@ export class Gore implements GoreSystem {
     const part = rag.thudPart;
     if (!part || rag.muscle?.standing) return;
     const own = impactKind(rag.source.rig.bones[part.bone]!);
-    const whole = rag.thud / rag.mass;
+    // Heard as it would land at full gravity: under the tempo dial the same fall lands slower, by `throwScale`.
+    const k = rag.throwScale;
+    const whole = rag.thud / rag.mass / k;
     const loose = rag.build.chainRoot !== 0;
-    if (loose) rag.nextThud = this.impacts.land(own, whole, rag.thudSpeed, part.p, rag.nextThud);
-    else if (own === 'body' || whole >= ImpactTuning.body.min) rag.nextThud = this.impacts.land('body', whole, rag.thudSpeed, part.p, rag.nextThud);
-    else rag.nextPartThud = this.impacts.land(own, rag.thud / part.mass, rag.thudPartSpeed, part.p, rag.nextPartThud);
+    if (loose) rag.nextThud = this.impacts.land(own, whole, rag.thudSpeed / k, part.p, rag.nextThud);
+    else if (own === 'body' || whole >= ImpactTuning.body.min) rag.nextThud = this.impacts.land('body', whole, rag.thudSpeed / k, part.p, rag.nextThud);
+    else rag.nextPartThud = this.impacts.land(own, rag.thud / part.mass / k, rag.thudPartSpeed / k, part.p, rag.nextPartThud);
   }
 
   // -------------------------------------------------------------------------------------------

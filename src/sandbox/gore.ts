@@ -13,6 +13,8 @@
  *   muscles    0 turns the muscle layer off everywhere, in any scenario.
  *   weight     0 puts back the bodies from before the weight pass, in any scenario and in the game. The collapse's eased
  *              stagger and topple and far bodies' true seed speed stay on: they are fixes, not a look.
+ *   raggrav    0.5..1, the tempo dial: the share of world gravity bodies fall under, in any scenario and in the game.
+ *              Throws are slowed by its square root, so they land as far. Left out it is 1. Chunks keep world gravity.
  *
  * Time is fixed at 1/60 per frame, so a scenario plays the same every run. window.__gore gives a capture
  * script frame-exact control: hold(), step(n) and sheet(), which draws a contact sheet over the page.
