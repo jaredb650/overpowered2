@@ -194,10 +194,18 @@ describe('what ships', () => {
     expect(tracked).toEqual(['public/audio/music/manifest.json']);
   });
 
-  it('builds the public site with the placeholder list emptied and the soundtrack left alone', () => {
+  // The owner's decision of 2026-11-10 (docs/NEXT.md): the public site plays no music at all, so the Pages build empties
+  // both lists and drops the soundtrack's files. Local builds keep both.
+  it('builds the public site with both lists emptied and the soundtrack files dropped', () => {
     const workflow = readFileSync(resolve(root, '.github/workflows/pages.yml'), 'utf8');
-    expect(workflow).toContain(`echo '{"menu":[],"easy":[],"hard":[]}' > public/audio/music/manifest.json`);
-    expect(workflow).not.toMatch(/>\s*public\/audio\/ost/);
-    expect(workflow).not.toMatch(/rm[^\n]*audio\/ost/);
+    const build = workflow.indexOf('npm run build');
+    const at = (line: string): number => {
+      const i = workflow.indexOf(line);
+      expect(i, line).toBeGreaterThan(-1);
+      return i;
+    };
+    expect(at(`echo '{"menu":[],"easy":[],"hard":[]}' > public/audio/music/manifest.json`)).toBeLessThan(build);
+    expect(at(`echo '{"menu":[],"easy":[],"hard":[]}' > public/audio/ost/manifest.json`)).toBeLessThan(build);
+    expect(at('find public/audio/ost -type f ! -name manifest.json -delete')).toBeLessThan(build);
   });
 });
