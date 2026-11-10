@@ -35,6 +35,31 @@ export const weapons = [
     s.osc('sine', [[0, 6100], [1, 1700]], 0.7).env(perc(0.55, 0.3)).out();
   }),
 
+  // Harrow. A rifle beside the SMG: a harder crack, a real chest thump, and a tail the SMG's 20 Hz chatter never has room for.
+  r('harrow_fire', { dur: 0.9, n: 3, mix: 'gun', over: { volume: 0.52, send: 0.2 }, expect: { attackMs: [0, 6], minSub: 0.03 } }, s => {
+    gunshot(s, {
+      crack: 1.5, crackHp: 2500, body: 1100, bodyDecay: 0.09, bodyLevel: 1.15, sub: 0.6, subFreq: 84, subDecay: 0.13,
+      tail: 0.4, tailDecay: 0.55, drive: 4, ring: 0.22, ringFreq: s.r(2700, 3100),
+    });
+  }),
+  // Rivet. All crack and slide: short enough that ten a second stay ten shots, and nothing below it to mistake for the Judge.
+  r('rivet_fire', { dur: 0.45, n: 3, mix: 'gun', over: { volume: 0.44 }, expect: { attackMs: [0, 6], centroid: [1200, 9000] } }, s => {
+    gunshot(s, {
+      crack: 1.3, crackHp: 3000, body: 1750, bodyDecay: 0.05, bodyLevel: 1, sub: 0.25, subFreq: 120, subDecay: 0.06,
+      tail: 0.18, tailDecay: 0.28, drive: 3.5, ring: 0.3, ringFreq: s.r(3300, 3800),
+    });
+    s.at(0.035, () => click(s, 2900, 0.35, 0.006));
+  }),
+  // Sabot. The cannon's report with no shell going off at the far end, so the shot itself carries it: a tearing dart and a long roll.
+  r('sabot_fire', { dur: 2, n: 2, mix: 'gunHeavy', over: { send: 0.32 }, expect: { attackMs: [0, 6], minSub: 0.05 } }, s => {
+    gunshot(s, {
+      crack: 2, crackHp: 2300, body: 620, bodyDecay: 0.17, bodyLevel: 1.35, sub: 1, subFreq: 54, subDecay: 0.3,
+      tail: 0.6, tailDecay: 1.2, drive: 5, ring: 0.36, ringFreq: s.r(1300, 1600),
+    });
+    s.osc('sawtooth', [[0, 6400], [0.04, 2600], [0.2, 420]], 0.24).drive(3, 'fold').env(perc(0.18, 0.8, 0.0003)).out(0.5);
+    s.at(0.01, () => s.noise('brown', 0.7).lp([[0, 900], [0.5, 100]]).env(perc(0.45, 1)).gain(1.6).out(0.4));
+  }),
+
   // Lance. The charge must end loud with no decay: releasing it is the payoff.
   r('railgun_charge', { dur: 1.6, mix: 'loop2d', expect: { trend: 1 } }, s => {
     const rise: [number, number][] = [[0, 95], [1.6, 760]];

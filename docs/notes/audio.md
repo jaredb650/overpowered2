@@ -249,6 +249,7 @@ Rendered at load. x4 means four rendered variants behind one id.
 ### Weapons
 
 - **Judge:** `revolver_fire` x3, `revolver_cock`, `revolver_open`, `revolver_load`, `revolver_close`, `revolver_ricochet` (the head-to-head ricochet)
+- **Harrow, Rivet, Sabot:** `harrow_fire` x3 (rifle: crack, chest thump, a tail), `rivet_fire` x3 (pistol: all crack and slide), `sabot_fire` x2 (the cannon with a tearing dart and no shell at the far end)
 - **Lance:** `railgun_charge` (one-shot rise, 1.6 s), `railgun_charge_loop` (held at full), `railgun_ready`, `railgun_fire`, `railgun_fizzle` (released early), `railgun_beam` (fading beam hum, one-shot)
 - **Buzzsaw:** `minigun_spinup` (1 s), `minigun_spin_loop` (barrels turning, no shots), `minigun_fire_loop` (50 rps barrage), `minigun_spindown`, `minigun_fire` x3 (single shot)
 - **Kiln:** `flame_ignite`, `flame_loop`, `flame_stop`, `flame_burn_loop` (a burning body, 3D)

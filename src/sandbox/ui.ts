@@ -110,7 +110,7 @@ export default async function ui(params: URLSearchParams): Promise<void> {
     },
     weapons: {
       current: 'smg' as WeaponId,
-      owned: new Set<WeaponId>(['smg', 'shotgun', 'rocket', 'autocannon', 'sword', 'judge', 'lance']),
+      owned: new Set<WeaponId>(['smg', 'harrow', 'shotgun', 'rocket', 'autocannon', 'sabot', 'sword', 'judge', 'rivet', 'lance']),
       reloading: false, reloadProgress: 0, scoped: false, grenades: 3, charge: 0, spread: 0,
       modifiers: { bottomlessMag: false },
       ammo: () => ({ mag: 22, magSize: 30, reserve: 240, maxReserve: 300 }),

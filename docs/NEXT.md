@@ -100,3 +100,27 @@ Open:
 - The campaign's cable gallery can be crossed without a wall run (46 of 238 jump-and-dash timings on its own test lane). Found here, not caused here: it needs a deeper drop under the far deck or a lip that cannot be climbed.
 - The parkour strip is on the Test Range only. `/?sandbox=movement` has no viewmodel, so it shows the camera part alone.
 
+## Weapon families and piercing rounds
+
+Owner's words: "Need to add more weapons, or alternate modes. On top of the SMG there should be an assault rifle. If you press one again, it should scroll through sub genres of a certain weapon. An assault rifle, which causes more damage. There should be a pistol on top of the revolver. The alternate for the autocannon should be piercing rounds, so it can shoot through walls or through multiple enemies. So you can use your sonar to see enemies through walls and then shoot them through walls."
+
+Done, and not yet played by anyone. Manual: `docs/notes/weapons.md`.
+
+- Press the key of the weapon in hand to step to the next one on that key. Any other key draws what was last held there. Q and the wheel work as before; the wheel moves between keys.
+- Key 1: SMG, then **Harrow**, a battle rifle. Key 4: Autocannon, then **Sabot**, the same cannon firing darts with no blast. Key 6: Judge, then **Rivet**, a pistol. Each has its own ammo and comes with the weapon it sits beside.
+- Rounds go through walls and bodies on a budget. The Sabot goes through about 5 m of wall in all and everyone in line, plates and a Riot's shield included. The Harrow goes through one body or thin cover. A round leaves a pale crater where it comes out.
+- Try it: `/?map=range`, F1, "Draw a weapon", then "Piercing gallery". T pings the sonar.
+- Off-switches: `?families=0`, `?pierce=0`, `?reach=0`.
+
+Waiting on the owner:
+
+- **The SMG loses damage with range now**, from 35 m down to half at 80, so that the Harrow has a reach the SMG has not. Nobody asked for the SMG to change. `?reach=0` is the old SMG.
+- **Names**: Harrow, Rivet, Sabot.
+- **All the numbers.** Damage, rate, kick, magazine sizes, what each goes through. First guesses from the tables.
+- **Hellfire Rounds on the Sabot** burst on every body the dart passes. That is a lot of blast from one trigger pull.
+
+For the streams that come next (minigun, Lance, sword, the SMG):
+
+- A second weapon on a key is one row in `WEAPONS` plus a viewmodel. `docs/notes/weapons.md`, "Adding a family member", has the whole list and what a row cannot yet say.
+- The Lance was left as it was: two walls, each up to 1.6 m. It is one flag away from the metered budget (`penetrateWalls`).
+- `canSever` is the field for "takes limbs". The SMG still has it on.

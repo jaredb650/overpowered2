@@ -10,14 +10,16 @@ import type {
 import type { GoreRegion } from '../characters/rig';
 import type { MuzzleKind } from '../core/contracts';
 import { clamp, rand } from '../core/math';
-import { EXPLOSIONS, HIT_STOP, SHAPED_CHARGE, SURFACE_SOUND, SWORD, TUNING, type ShapedCharge, type SoundLayer } from './data';
+import { EXPLOSIONS, HIT_STOP, PENETRATION, SHAPED_CHARGE, SURFACE_SOUND, SWORD, TUNING, type ShapedCharge, type SoundLayer } from './data';
 import { Feel } from './Feel';
 import { Flames } from './Flames';
 import { closestOnSegment, closestSegmentPoints } from './geometry';
+import { damageKept, loadBudget, makeBudget, passBody, passWall, perWall, type Budget } from './penetration';
 import { Projectiles } from './Projectiles';
 
 const MAX_RANGE = 800;
-const MAX_SEGMENTS = 8;
+/** Walls passed plus bounces. A sabot through a row of sheet metal is what needs the room. */
+const MAX_SEGMENTS = 12;
 /** Re-entrant calls happen when a kill's listeners fire guns. Deeper than this is a feedback loop. */
 const MAX_RAY_DEPTH = 4;
 const DAMAGE_RING = 128;
@@ -30,6 +32,10 @@ const PLAYER_RADIUS = 0.45;
 const WHIZZ_RADIUS = 3;
 const SHOCK = { range: 9, targets: 3, damage: 0.4 };
 const INSTAKILL = 9999;
+/** Quad size of the crater a round leaves coming out of a wall, at impact scale 1. The pale spall is about half of it. */
+const EXIT_CRATER = 0.3;
+/** Rounds this heavy light the far face up as they leave it. */
+const EXIT_FLASH_SCALE = 1.5;
 /** Kills closer than this put blood on the lens, scaled up as the range closes. */
 const LENS_BLOOD_RANGE = 3.5;
 
@@ -65,6 +71,11 @@ interface RayState {
   end: THREE.Vector3;
   hits: HitSlot[];
   result: ShotResult;
+  /** Penetration left on the shot in progress. */
+  budget: Budget;
+  exit: THREE.Vector3;
+  /** The way the face it left looks. */
+  exitNormal: THREE.Vector3;
 }
 
 export interface StrikeOptions {
@@ -85,6 +96,8 @@ export interface StrikeOptions {
   blastKind: ExplosionKind | undefined;
   /** A shaped charge landing on the body itself. */
   charge: ShapedCharge | undefined;
+  /** An armour-piercing round: neither plates nor a carried shield stop it. */
+  pierces: boolean;
 }
 
 interface QueuedBlast {
@@ -125,7 +138,7 @@ export class Combat implements CombatSystem {
 
   private readonly opts: StrikeOptions = {
     type: 'bullet', source: '', force: 0, severMult: 1, headshotMult: 2, gib: false,
-    slicePlaneNormal: undefined, explosionId: undefined, killStop: 0, quiet: false, reach: undefined, blastKind: undefined, charge: undefined,
+    slicePlaneNormal: undefined, explosionId: undefined, killStop: 0, quiet: false, reach: undefined, blastKind: undefined, charge: undefined, pierces: false,
   };
 
   // Scratch. Each is used within one function and never held across a call that could re-enter it.
@@ -156,6 +169,7 @@ export class Combat implements CombatSystem {
       this.stack.push({
         origin: new THREE.Vector3(), dir: new THREE.Vector3(), from: new THREE.Vector3(), end: new THREE.Vector3(), hits,
         result: { hitEnemy: false, headshot: false, killed: false, kills: 0, end: new THREE.Vector3() },
+        budget: makeBudget(), exit: new THREE.Vector3(), exitNormal: new THREE.Vector3(),
       });
     }
     for (let i = 0; i < MAX_QUEUED_BLASTS; i++) {
@@ -215,6 +229,7 @@ export class Combat implements CombatSystem {
     d.reach = undefined;
     d.blastKind = undefined;
     d.pierces = undefined;
+    d.armorPiercing = undefined;
     return d;
   }
 
@@ -256,6 +271,7 @@ export class Combat implements CombatSystem {
     o.reach = undefined;
     o.blastKind = undefined;
     o.charge = undefined;
+    o.pierces = false;
     return o;
   }
 
@@ -285,6 +301,10 @@ export class Combat implements CombatSystem {
     if (o.charge && enemy.armor > 0) {
       d.amount *= o.charge.direct;
       d.pierces = true;
+    }
+    if (o.pierces) {
+      d.armorPiercing = true;
+      if (enemy.armor > 0) d.pierces = true;
     }
     const killStop = o.killStop;
     const quiet = o.quiet;
@@ -388,18 +408,26 @@ export class Combat implements CombatSystem {
     const c = this.ctx;
     const r = st.result;
     let left = spec.maxDistance ?? MAX_RANGE;
+    /** The round's damage before range and penetration take their share. Bounces cut it. */
     let damage = spec.damage;
     let pierce = spec.pierce ?? 0;
     let bounces = spec.ricochet ?? 0;
-    let walls = spec.penetrate ? 2 : 0;
     let cleave = spec.cleave ?? 0;
+    /** Meters flown before this segment, for falloff. */
+    let flown = 0;
     const blood = spec.force ?? 0;
+    const budget = loadBudget(st.budget, spec.penetrate, spec.bodyCost, spec.penetrateKeep, spec.penetrateWalls);
+    const falloff = spec.falloff;
+    const scale = spec.impactScale ?? 1;
 
     for (let segment = 0; segment < MAX_SEGMENTS; segment++) {
       const wall = c.physics.raycast(st.origin, st.dir, left, CG.World);
       const limit = wall ? wall.distance : left;
-      const count = this.collectHits(st, limit, pierce);
-      const stopsOnEnemy = count > 0 && count > pierce;
+      // Bodies this round could still go through: the free ones, plus what its budget buys.
+      let through = pierce;
+      if (budget.left > 0) through += budget.body > 0 ? Math.floor(budget.left / budget.body + 1e-6) : MAX_PIERCE_SLOTS;
+      const count = this.collectHits(st, limit, Math.min(through, MAX_PIERCE_SLOTS - 1));
+      const stopsOnEnemy = count > 0 && count > through;
       const firstStop = stopsOnEnemy ? st.hits[count - 1]!.distance : limit;
 
       const shot = this.projectiles.shootable(st.origin, st.dir, count > 0 ? st.hits[0]!.distance : limit);
@@ -410,22 +438,26 @@ export class Combat implements CombatSystem {
         return;
       }
 
-      this.hitCorpses(st, firstStop, damage, spec);
+      this.hitCorpses(st, firstStop, damage * damageKept(budget), spec);
 
       let stopped = false;
       let hopFrom: HitSlot | null = null;
+      let dealt = damage;
       for (let i = 0; i < count; i++) {
         const h = st.hits[i]!;
+        dealt = damage * damageKept(budget);
+        if (falloff) dealt *= rangeFalloff(falloff, flown + h.distance);
         const o = this.strikeOptions(spec.type ?? (spec.source === 'shotgun' ? 'pellet' : 'bullet'), spec.source);
         o.force = blood;
         o.severMult = spec.severMult ?? 1;
         o.headshotMult = spec.headshotMult ?? 2;
         o.killStop = spec.killStop ?? 0;
         o.gib = spec.gib ?? false;
+        o.pierces = spec.armorPiercing ?? false;
         const splits = cleave > 0 && h.region !== 'head';
         // Vertical, through the line of the shot, so the two halves fall away either side of it.
         if (splits) o.slicePlaneNormal = this.vE.crossVectors(st.dir, UP).normalize();
-        const res = this.strike(h.enemy, h.point, h.normal, st.dir, h.bone, h.region, damage, o);
+        const res = this.strike(h.enemy, h.point, h.normal, st.dir, h.bone, h.region, dealt, o);
         r.hitEnemy = true;
         if (res.headshot) r.headshot = true;
         if (res.killed) {
@@ -436,24 +468,38 @@ export class Combat implements CombatSystem {
         if (!res.blocked && wall && wall.distance - h.distance < WALL_BLOOD_REACH) {
           c.render.decals.add('blood', wall.point, wall.normal, rand(0.5, 1.1) * (res.killed ? 1.5 : 1), rand(0, 6.28));
         }
-        if (spec.shock && !res.blocked) this.arc(h.point, h.enemy, damage * SHOCK.damage, spec);
-        if (pierce > 0 && i < pierce) continue;
+        if (spec.shock && !res.blocked) this.arc(h.point, h.enemy, dealt * SHOCK.damage, spec);
+        if (pierce > 0) {
+          pierce--;
+          continue;
+        }
+        // Read now: a burst below strikes other bodies, and the results come from a ring.
+        const headshot = res.headshot;
+        const blocked = res.blocked;
+        // False for a body an earlier burst of this same round already killed.
+        const struck = res.killed || h.enemy.alive;
+        if (passBody(budget, blocked)) {
+          this.exitBody(h.point, st.dir, blocked || h.enemy.machine);
+          // Hellfire Rounds go off on every body the round struck, not only the one that stops it: a round that goes
+          // through its target would otherwise burst on whatever is behind, or on nothing.
+          if (spec.blastRadius && struck) this.bulletBlast(h.point, h.normal, dealt, spec);
+          continue;
+        }
         stopped = true;
         hopFrom = h;
-        if (spec.headHops && res.headshot) this.hopHeads(h.point, h.enemy, spec.headHops, damage, spec);
+        if (spec.headHops && headshot) this.hopHeads(h.point, h.enemy, spec.headHops, dealt, spec);
         break;
       }
-      if (pierce > 0) pierce = Math.max(0, pierce - count);
 
       if (stopped) {
         const h = hopFrom!;
         st.end.copy(h.point);
         if (bounces > 0) {
           bounces--;
-          if (this.hopNearest(st, h, damage * 0.8, spec, bounces)) bounces = 0;
+          if (this.hopNearest(st, h, dealt * 0.8, spec, bounces)) bounces = 0;
         }
         if (spec.tracer) c.fx.tracer(st.from, st.end, spec.tracer);
-        if (spec.blastRadius) this.bulletBlast(st.end, h.normal, damage, spec);
+        if (spec.blastRadius) this.bulletBlast(st.end, h.normal, dealt, spec);
         return;
       }
 
@@ -463,22 +509,26 @@ export class Combat implements CombatSystem {
         return;
       }
 
+      const atWall = damage * damageKept(budget);
       st.end.copy(wall.point);
       if (spec.tracer) c.fx.tracer(st.from, st.end, spec.tracer);
-      this.impact(wall.point, wall.normal, wall.surface, spec.impactScale ?? 1);
-      c.world.objects?.damageExplosive(wall.collider, damage, spec.source);
-      c.enemies.vehicles?.shot(wall.collider, wall.point, damage, spec.source);
+      this.impact(wall.point, wall.normal, wall.surface, scale);
+      c.world.objects?.damageExplosive(wall.collider, atWall, spec.source);
+      const vehicle = c.enemies.vehicles?.shot(wall.collider, wall.point, atWall, spec.source) === true;
       left -= wall.distance;
+      flown += wall.distance;
 
-      if (walls > 0 && spec.penetrate) {
-        const exit = this.findExit(wall.point, st.dir, spec.penetrate);
-        if (exit) {
-          walls--;
-          this.impact(exit, this.vF.copy(st.dir), wall.surface, spec.impactScale ?? 1);
-          st.from.copy(exit);
-          st.origin.copy(exit).addScaledVector(st.dir, 0.02);
-          continue;
-        }
+      // A vehicle is not cover to shoot through: its parts take the round and that is the end of it. The per-wall rule
+      // is older than that and keeps what it did.
+      if (budget.left > 0 && (!vehicle || perWall(budget)) && passWall(c.physics, budget, wall, st.dir, st.exit, st.exitNormal)) {
+        const thickness = st.exit.distanceTo(wall.point);
+        this.exitWall(st.exit, st.dir, st.exitNormal, wall.surface, scale);
+        left -= thickness;
+        flown += thickness;
+        st.from.copy(st.exit);
+        st.origin.copy(st.exit).addScaledVector(st.dir, 0.02);
+        if (left > 0.05) continue;
+        return;
       }
 
       if (bounces > 0 && left > 1) {
@@ -492,9 +542,36 @@ export class Combat implements CombatSystem {
         continue;
       }
 
-      if (spec.blastRadius) this.bulletBlast(wall.point, wall.normal, damage, spec);
+      if (spec.blastRadius) this.bulletBlast(wall.point, wall.normal, atWall, spec);
       return;
     }
+  }
+
+  /**
+   * The far side of a wall a round went through: the surface's own impact off the face it left, a spall crater, and a puff
+   * of what the wall is made of thrown on along the shot. `normal` is that face's, from the probe: marks laid along the
+   * shot instead stand off a wall it left at a slant, and the decal pass cuts away whatever stands off.
+   */
+  exitWall(exit: THREE.Vector3, dir: THREE.Vector3, normal: THREE.Vector3, surface: SurfaceKind, scale: number): void {
+    const c = this.ctx;
+    const face = this.vF.copy(normal);
+    this.impact(exit, face, surface, scale);
+    // Spall: the far face breaks away far wider than the hole going in, and what is under the paint is pale. It is the one
+    // pale mark in the atlas, so it shows on a wall in shadow, where a scorch or a bullet hole is black on black.
+    if (surface !== 'glass' && surface !== 'grate' && surface !== 'energy' && surface !== 'lava') {
+      c.render.decals.add('exit', exit, face, EXIT_CRATER * scale, rand(0, 6.28));
+    }
+    const out = this.vA.copy(exit).addScaledVector(dir, 0.12);
+    c.fx.smoke(out, EXIT_DUST[surface], 0.3 * Math.sqrt(scale), 0.8);
+    if (scale >= EXIT_FLASH_SCALE) c.render.lights.flash(out, 0xffd9a8, 2.5 * scale, 5, 0.18);
+  }
+
+  /** The back of a body a round went through. `point` is where it went in. */
+  exitBody(point: THREE.Vector3, dir: THREE.Vector3, sparks: boolean): void {
+    const c = this.ctx;
+    const out = this.vA.copy(point).addScaledVector(dir, PENETRATION.bodyDepth);
+    if (sparks) c.fx.sparks(out, dir, 6, 0xffee88);
+    else c.fx.bloodHit(out, dir, 1.3);
   }
 
   /** Bends a reflected shot toward anything close to its new line, so a bounce reads as skill, not noise. */
@@ -534,17 +611,9 @@ export class Combat implements CombatSystem {
   private readonly scratchBlast: ExplosionSpec = { radius: 0, damage: 0, kind: 'hellfireBullet', source: '', team: 'player' };
   private readonly worldBlast: ExplosionSpec = { radius: 0, damage: 0, kind: 'barrel', source: '', team: 'player', worldObject: true };
 
-  /** Point where a shot leaves a wall no thicker than `depth`, or null when it stays buried. */
-  private findExit(entry: THREE.Vector3, dir: THREE.Vector3, depth: number): THREE.Vector3 | null {
-    const probe = this.vA.copy(entry).addScaledVector(dir, depth);
-    const back = this.vB.copy(dir).negate();
-    const hit = this.ctx.physics.raycast(probe, back, depth - 0.01, CG.World);
-    return hit && hit.distance > 0.001 ? hit.point : null;
-  }
-
   private hitCorpses(st: RayState, limit: number, damage: number, spec: ShotSpec): void {
     const c = this.ctx;
-    const tries = spec.pierce ? 3 : 1;
+    const tries = spec.pierce || spec.penetrate ? 3 : 1;
     const from = this.vC.copy(st.origin);
     let left = limit;
     for (let i = 0; i < tries; i++) {
@@ -971,6 +1040,19 @@ export class Combat implements CombatSystem {
     player.launch(v);
   }
 }
+
+/** Damage a round keeps at `distance`, by its falloff: all of it to `from`, `floor` of it from `to` on. */
+export function rangeFalloff(f: NonNullable<ShotSpec['falloff']>, distance: number): number {
+  if (distance <= f.from) return 1;
+  if (distance >= f.to) return f.floor;
+  return 1 - (1 - f.floor) * ((distance - f.from) / (f.to - f.from));
+}
+
+/** The puff on the far side of a wall, by what the wall is made of. */
+const EXIT_DUST: Record<SurfaceKind, number> = {
+  concrete: 0xb8b0a4, metal: 0x8a8d92, grate: 0x8a8d92, dirt: 0x8a7458, glass: 0xd8e4ea, flesh: 0x7a1010, armor: 0x8a8d92,
+  energy: 0x88ddff, lava: 0xff7733,
+};
 
 const NO_DAMAGE: DamageResult = { dealt: 0, killed: false, headshot: false, severed: [], blocked: false };
 

@@ -73,6 +73,21 @@ const MUZZLES: Record<MuzzleKind, MuzzleFx> = {
     color: hot(0xff5522, 1.9), size: 0.3, points: 5, inner: 0.22, petals: 1, petalLength: 0.6, life: FLASH,
     light: 0xff6030, lightPower: 3, lightRadius: 6, wisp: 0, sparks: 0,
   },
+  // Harrow: a four-point cross with long side jets, whiter than the SMG's star, so the two read apart on slot 1.
+  carbine: {
+    color: hot(0xffe0a0, 2.4), size: 0.3, points: 4, inner: 0.14, petals: 3, petalLength: 0.85, life: FLASH,
+    light: 0xffd090, lightPower: 6, lightRadius: 10, wisp: 0.08, sparks: 3,
+  },
+  // Rivet: a small tight pop, gone in a frame.
+  pistol: {
+    color: hot(0xfff0b0, 2.2), size: 0.15, points: 6, inner: 0.3, petals: 1, petalLength: 0.32, life: FLASH * 0.8,
+    light: 0xffd890, lightPower: 3, lightRadius: 6, wisp: 0.04, sparks: 0,
+  },
+  // Sabot: a cold blue-white lance of a flash. No fireball, because nothing in the round burns.
+  sabot: {
+    color: hot(0xbfe0ff, 2.6), size: 0.5, points: 4, inner: 0.1, petals: 2, petalLength: 2.1, life: 0.05,
+    light: 0xa8d0ff, lightPower: 12, lightRadius: 15, wisp: 0.22, sparks: 14,
+  },
 };
 
 const _side = new THREE.Vector3();
@@ -168,6 +183,10 @@ const TRACERS: Record<TracerKind, TracerFx> = {
   plasma: { color: hot(0x33ddff, 3), width: 0.05, speed: 180, length: 5, core: 6, minPx: 1.6 },
   rail: { color: hot(0x88ccff, 3), width: 0.05, speed: 1600, length: 90, core: 8, minPx: 2 },
   enemy: { color: hot(0xff3020, 3), width: 0.022, speed: 170, length: 6, core: 3.5, minPx: 1.4 },
+  carbine: { color: hot(0xffe0a0, 3), width: 0.02, speed: 700, length: 20, core: 6, minPx: 1.3 },
+  pistol: { color: hot(0xffd070, 3), width: 0.011, speed: 480, length: 6, core: 6, minPx: 1 },
+  // Thick and fast enough that its far segments, past each wall, are drawn before the eye can tell them apart.
+  sabot: { color: hot(0x9fd0ff, 3.4), width: 0.11, speed: 1400, length: 70, core: 9, minPx: 3 },
 };
 
 export function tracer(core: FxCore, from: THREE.Vector3, to: THREE.Vector3, kind: TracerKind): void {

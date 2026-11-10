@@ -1,9 +1,10 @@
 /** The dev panel: plain DOM on top of the game, in the HUD's colours. It holds no state of its own. */
 import type { VehicleKind } from '../campaign/types';
 import { ON_RANGE } from '../core/devflags';
-import type { CallInId, EnemyId, PerkId, PowerupId } from '../core/gameplay';
+import type { CallInId, EnemyId, PerkId, PowerupId, WeaponId } from '../core/gameplay';
 import { ENEMIES } from '../enemies/data';
 import { CALLIN_ORDER, CALLINS, EFFECTS, POWERUPS } from '../progression/data';
+import { WEAPONS, WEAPON_ORDER } from '../weapons/data';
 import type { AiMode, LabSettings } from './settings';
 
 /** Body animation for moves, its camera part, first-person legs, and vaulting cover with no key. */
@@ -67,6 +68,10 @@ export interface PanelActions {
   togglePause(): void;
   step(frames: number): void;
   setSpeed(speed: number): void;
+  /** Hands the player this weapon and draws it. */
+  weapon(id: WeaponId): void;
+  /** Stands the selected enemy in every bay of the range's piercing gallery, and the player at its near end. */
+  gallery(): void;
   /** Stands the player at the start of the range's parkour strip. */
   parkour(): void;
   /** Reads and writes one of the movement switches, which live with the player and not in the lab's settings. */
@@ -192,6 +197,16 @@ export class LabPanel {
     this.el.append(el('h2', '', 'PLAYER'));
     this.check(this.el, 'Every weapon, infinite ammo', 'arsenal');
     this.check(this.el, 'God mode', 'god');
+    // Every weapon by name, in key order: a family's members sit side by side.
+    this.el.append(el('h2', '', 'DRAW A WEAPON'));
+    const guns = el('div', 'lab-grid');
+    for (const id of WEAPON_ORDER) this.button(guns, `${WEAPONS[id].slot} ${WEAPONS[id].name}`, () => this.on.weapon(id));
+    this.el.append(guns);
+    if (ON_RANGE) {
+      const row = el('div', 'lab-row');
+      this.button(row, 'Piercing gallery: stand me there, fill the bays', () => this.on.gallery());
+      this.el.append(row);
+    }
   }
 
   private moveSection(): void {

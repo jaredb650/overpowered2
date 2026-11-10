@@ -965,10 +965,14 @@ export const FALSE_CHATTER: readonly Line[] = lines('chatter.');
 // Slots: what is recorded for each
 // -------------------------------------------------------------------------------------------------
 
-/** How a weapon is said, by id. A voice actor needs words, not ids. */
+/** How a weapon is said, by id. A voice actor needs words, not ids. The last three have words and no takes yet: the box prints them. */
 export const WEAPON_WORDS: Readonly<Record<string, string>> = {
   smg: 'SMG', shotgun: 'shotgun', rocket: 'rocket launcher', autocannon: 'autocannon', sword: 'sword', judge: 'Judge', lance: 'Lance', buzzsaw: 'Buzzsaw', kiln: 'Kiln', stakegun: 'Stakegun',
+  harrow: 'Harrow', rivet: 'Rivet', sabot: 'Sabot',
 };
+
+/** The word for a weapon. One with no entry yet is said by its name, so a new gun never reaches the box as a raw id. */
+export const weaponWord = (id: string): string => WEAPON_WORDS[id] ?? id.charAt(0).toUpperCase() + id.slice(1);
 
 /** The Kill House's spaces, as `world.zones` names them. */
 export const ROOM_WORDS: readonly string[] = ['TYRES', 'LANES', 'CRATES', 'STREET', 'SANDBAGS', 'PLYWOOD', 'TILES', 'PLANT', 'COURT', 'RING', 'YARD'];

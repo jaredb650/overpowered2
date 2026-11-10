@@ -139,6 +139,12 @@
 .slot-key { position: absolute; left: 0.22rem; top: 0.04rem; font-size: 0.82rem; font-weight: 800; line-height: 1; color: inherit; }
 .slot.owned { color: var(--ink); background: var(--plate); }
 .slot.active { color: #000; background: var(--ink); }
+.slot-fam { position: absolute; right: 0.22rem; top: 0.16rem; display: flex; gap: 0.12rem; }
+.slot-pip { width: 0.3rem; height: 0.3rem; box-sizing: border-box; border: 1px solid currentColor; opacity: 0.4; }
+.slot-pip.owned { opacity: 0.75; }
+.slot-pip.on { background: currentColor; opacity: 1; }
+/* A family cell keeps its pips in the corner, so its dry mark moves down to the icon. */
+.slot:has(.slot-fam).dry::after { top: 0.62rem; }
 .slot.dry::after { content: ''; position: absolute; right: 0.2rem; top: 0.2rem; width: 0.42rem; height: 0.42rem; background: var(--blood); }
 
 .arm-main { display: flex; align-items: flex-end; gap: 1.1rem; }
@@ -149,6 +155,10 @@
 .arm-who { display: flex; flex-direction: column; align-items: flex-end; gap: 0.15rem; padding-bottom: 0.2rem; }
 .arm-icon .ico { width: 13.5rem; height: 4.5rem; color: var(--ink); stroke: #000; stroke-width: 1.1; paint-order: stroke; }
 .arm-name { font: 1.65rem/1.1 var(--display); text-shadow: var(--edge); }
+.arm-family { display: flex; align-items: baseline; gap: 0.5rem; min-height: 1rem; font: 0.95rem/1 var(--display); text-shadow: var(--edge); }
+.arm-fam { color: var(--steel); }
+.arm-fam.on { color: var(--ink); }
+.arm-fam-key { padding: 0.02rem 0.28rem; color: #000; background: var(--steel); text-shadow: none; font-weight: 800; }
 
 .arm-ammo { position: relative; display: flex; flex-direction: column; align-items: stretch; gap: 0.3rem; min-width: 11.4rem; }
 .arm-count { display: flex; align-items: baseline; justify-content: flex-end; gap: 0.55rem; }

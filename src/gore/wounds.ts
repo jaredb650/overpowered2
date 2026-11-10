@@ -46,6 +46,8 @@ const LANCE: Bite = { entry: 0.03, exit: 0.07, limbExit: 0.06, depth: 0.1, ragge
 
 const BITES: Record<string, Bite> = {
   smg: SMALL, buzzsaw: { ...SMALL, ragged: 0.75 }, judge: REVOLVER, stakegun: STAKE, autocannon: CANNON, lance: LANCE,
+  // Family members (src/weapons/families.ts). The Harrow's rifle round tears like the Judge's; the Sabot's dart goes through like the Lance.
+  harrow: REVOLVER, rivet: SMALL, sabot: LANCE,
 };
 
 const _dir = new THREE.Vector3();

@@ -7,7 +7,9 @@ export const MAX_DECALS = 2048;
 
 /** First atlas cell and variant count per kind. Matches surface_decals. */
 const CELLS: Record<DecalKind, readonly [number, number]> = {
-  bullet: [0, 2],
+  // One hole, not two: the second cell went to the exit crater. At 12 cm and any rotation the two could not be told apart.
+  bullet: [0, 1],
+  exit: [1, 1],
   scorch: [2, 2],
   blood: [4, 4],
   bloodPool: [8, 2],

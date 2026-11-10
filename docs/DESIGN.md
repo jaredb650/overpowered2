@@ -120,6 +120,18 @@ Original five are available from the start. Each new weapon arrives in a weapon 
 | 9 | **Kiln** (flamethrower) | Short-range stream | Burning enemies panic, spread fire, char black |
 | 0 | **Stakegun** | Rebar stakes | Pins enemies and severed limbs to walls. Ragdolls hang from the stake |
 
+**Families.** A number key can hold more than one weapon. Pressing the key of the weapon in hand steps to the next on that key; any other key draws what was last held there. The second weapon comes with the first and has its own ammo.
+
+| Slot | Beside | Weapon | Role |
+|---|---|---|---|
+| 1 | SMG | **Harrow** (battle rifle) | 50 dmg, 24 mag, 6.7 rps. Full damage at any range, where the SMG fades from 35 m to half at 80. Through one body or thin cover. Takes limbs |
+| 4 | Autocannon | **Sabot** (the autocannon with darts) | 600 dmg, no blast, through armour, a Riot's shield, several walls and everyone in line. Ping the sonar, then shoot what it shows |
+| 6 | Judge | **Rivet** (pistol) | 30 dmg, 15 mag, as fast as the trigger, drawn in 0.1 s. Triple headshots, weak at range |
+
+**Penetration.** A round has a budget in meters of concrete, spent by the thickness of each wall it passes and by each body. It leaves a small dark hole going in and a wide pale crater coming out. The Lance keeps its own older rule: two walls, each up to 1.6 m. Numbers in `docs/notes/weapons.md`.
+
+Off-switches: `?families=0` (one weapon a key), `?pierce=0` (no gun in the table goes through anything), `?reach=0` (no gun loses damage with range).
+
 Grenades (G): 3 frags, restocked by ammo pickups. Cookable, bounce, and they can be shot out of the air to detonate.
 
 Viewmodels are detailed, have bob, sway, inertia, recoil on a spring, reload animations and a draw animation. Weapon shake is short and hard as in the first game. Recoil is mostly visual, and guns stay accurate.

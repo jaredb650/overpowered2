@@ -17,6 +17,10 @@ The HUD reads the game once a frame in `state.ts`, the only file that knows fiel
 `player:damaged`, `player:died`, `weapon:fired`, `weapon:unlocked`, `wave:start`, `wave:clear`, `callin:ready`, `score:gain`,
 `enemy:hit`, `enemy:killed`, `enemy:severed`, `perk:start`, `callin:used`, `combo:changed`, `comms:line`.
 
+## The weapon strip
+
+One cell per number key, not per weapon. A key that holds a family (`src/weapons/families.ts`) shows the member the key draws now, from `weapons.slotMember(slot)`, and carries a pip per member in its corner: filled for the one in the cell, hollow outlines for the others, dim for one not owned. Under the weapon's name, `arm-family` lists the family's owned members with the one in hand lit and the key that steps through them; it is empty for a weapon alone on its key. `HudState.member` falls back to the family's first weapon when the weapon system cannot say.
+
 ## Flow
 
 `core/Game.ts` knows states. `Hud.ts` owns the moves between them.

@@ -303,15 +303,18 @@ function check(name: string, ok: boolean, detail: unknown = ''): void {
 const near = (a: number, b: number, tol: number): boolean => Math.abs(a - b) <= tol;
 const FPS = [30, 60, 144] as const;
 
+/** Read from the table, so a retune of the SMG does not turn these into failures. */
+const SMG_RPS = 1 / WEAPONS.smg.interval;
+
 const tests: Record<string, (r: Rig) => void> = {
-  'fire rate: smg holds 20 rps at every frame rate'(r) {
+  'fire rate: smg holds its rate at every frame rate'(r) {
     for (const fps of FPS) {
       clean(r);
       r.weapons.modifiers.bottomlessMag = true;
       r.input.simulate('fire', true);
       run(r, 3, fps);
       const shots = r.record.fired.smg ?? 0;
-      check(`smg rate @${fps}`, near(shots / 3, 20, 0.34), `${(shots / 3).toFixed(2)} rps`);
+      check(`smg rate @${fps}`, near(shots / 3, SMG_RPS, 0.34), `${(shots / 3).toFixed(2)} rps`);
     }
   },
   'fire rate: buzzsaw reaches 50 rps after spin-up'(r) {
@@ -336,8 +339,9 @@ const tests: Record<string, (r: Rig) => void> = {
       r.input.simulate('fire', true);
       run(r, 2, fps);
       const shots = r.record.fired.smg ?? 0;
-      check(`akimbo total rate @${fps}`, near(shots / 2, 120, 1.5), `${(shots / 2).toFixed(2)} rps`);
-      check(`both guns fire @${fps}`, Math.abs(r.record.left - r.record.right) <= 1 && r.record.left > 100, `L ${r.record.left} R ${r.record.right}`);
+      // Two guns, each at three times the rate.
+      check(`akimbo total rate @${fps}`, near(shots / 2, SMG_RPS * 6, 1.5), `${(shots / 2).toFixed(2)} rps`);
+      check(`both guns fire @${fps}`, Math.abs(r.record.left - r.record.right) <= 1 && r.record.left > SMG_RPS * 5, `L ${r.record.left} R ${r.record.right}`);
     }
   },
   'fire rate: semi-auto cadence with a press held from before cooldown ends'(r) {
@@ -362,7 +366,7 @@ const tests: Record<string, (r: Rig) => void> = {
     run(r, 2, 60);
     r.input.simulate('fire', false);
     const shots = r.record.fired.smg ?? 0;
-    check('smg rate in slowmo', near(shots / 2, 20, 0.5), `${(shots / 2).toFixed(2)} rps`);
+    check('smg rate in slowmo', near(shots / 2, SMG_RPS, 0.5), `${(shots / 2).toFixed(2)} rps`);
     clean(r, 'autocannon');
     r.player.aim(0, 0.2, 1);
     r.ctx.time.pushScale('slowmo', 0.25, 0, 0);
@@ -389,12 +393,13 @@ const tests: Record<string, (r: Rig) => void> = {
         if (e.phase === 'start') start = t;
         else end = t;
       });
-      run(r, 3, fps, f => {
+      const empties = WEAPONS.smg.magSize / SMG_RPS;
+      run(r, empties + 1.5, fps, f => {
         t = f / fps;
         if (a.mag === 0) r.input.simulate('fire', false);
       });
       offA();
-      check(`mag empties in 1.5 s @${fps}`, start > 1.4 && start < 1.7, `reload started ${start.toFixed(3)} s`);
+      check(`mag empties in ${empties.toFixed(1)} s @${fps}`, start > empties - 0.1 && start < empties + 0.2, `reload started ${start.toFixed(3)} s`);
       check(`reload takes 1.0 s @${fps}`, near(end - start, 1, 2 * frameCap), `${(end - start).toFixed(3)} s`);
       check(`ammo transferred @${fps}`, a.mag === 30 && a.reserve === reserve - 30, `mag ${a.mag} reserve ${a.reserve}`);
     }
@@ -676,6 +681,86 @@ const tests: Record<string, (r: Rig) => void> = {
       run(r, 1, fps);
       r.input.simulate('fire', false);
       check(`rocket hits a body @${fps}`, d.hits.length >= 1 && d.hits[0]!.gib === true, d.hits.length);
+    }
+  },
+  'families: the key again steps through a slot, another key remembers'(r) {
+    const tap = (action: Action) => {
+      r.input.simulate(action, true);
+      run(r, 1 / 60, 60);
+      r.input.simulate(action, false);
+      run(r, 0.5, 60);
+    };
+    clean(r);
+    tap('weapon1');
+    check('1 again: SMG to Harrow', r.weapons.current === 'harrow', r.weapons.current);
+    tap('weapon4');
+    tap('weapon4');
+    check('4 twice: autocannon then Sabot', r.weapons.current === 'sabot', r.weapons.current);
+    tap('weapon1');
+    check('back on 1: the Harrow it left', r.weapons.current === 'harrow', r.weapons.current);
+    tap('weapon1');
+    check('1 again: wraps to the SMG', r.weapons.current === 'smg', r.weapons.current);
+    tap('weaponLast');
+    check('Q: the weapon before', r.weapons.current === 'harrow', r.weapons.current);
+    tap('weaponNext');
+    check('wheel: next key, not next member', r.weapons.current === 'shotgun', r.weapons.current);
+    tap('weaponPrev');
+    check('wheel back: the member last held there', r.weapons.current === 'harrow', r.weapons.current);
+    check('Rivet waits for the Judge', !r.weapons.owned.has('rivet'), '');
+    r.weapons.give('judge');
+    check('and comes with it', r.weapons.owned.has('rivet') && r.weapons.ammo('rivet').mag === WEAPONS.rivet.magSize, '');
+    r.input.simulate('fire', true);
+    run(r, 0.4, 60);
+    r.input.simulate('fire', false);
+    check('ammo is per member', r.weapons.ammo('harrow').mag < WEAPONS.harrow.magSize && r.weapons.ammo('smg').mag === WEAPONS.smg.magSize, r.weapons.ammo('harrow').mag);
+  },
+  'penetration: Harrow, Sabot, and the guns that have none'(r) {
+    const pull = (seconds: number) => {
+      r.input.simulate('fire', true);
+      run(r, seconds, 60);
+      r.input.simulate('fire', false);
+      run(r, 0.3, 60);
+    };
+    // The 4 cm steel sheet at x 30, z -20.
+    for (const [weapon, through] of [['harrow', true], ['smg', false], ['rivet', false]] as const) {
+      clean(r, weapon === 'rivet' ? 'judge' : weapon);
+      if (weapon === 'rivet') {
+        r.weapons.switchTo('rivet');
+        run(r, 0.5, 60);
+      }
+      r.player.place(30, 0);
+      r.player.eye.y = 1;
+      const behind = r.enemies.add(30, -24);
+      pull(0.04);
+      check(`${weapon} through sheet steel: ${through}`, (behind.hits.length > 0) === through, behind.hits.length);
+    }
+    clean(r, 'harrow');
+    r.player.eye.y = 1;
+    const line = [-6, -10, -14].map(z => r.enemies.add(0, z));
+    pull(0.04);
+    check('Harrow: one body, then the next, then no more', line.map(d => d.hits.length).join() === '1,1,0', line.map(d => d.hits.length).join());
+    check('Harrow: weaker out the back', (line[1]!.hits[0]?.amount ?? 99) < WEAPONS.harrow.damage, line[1]!.hits[0]?.amount);
+
+    // The 0.6 m concrete wall at x -40..-20, z -8.
+    clean(r, 'sabot');
+    r.player.place(-30, 0);
+    r.player.eye.y = 1;
+    const row = [-4, -12, -16, -20].map(z => r.enemies.add(-30, z));
+    row[1]!.armor = 60;
+    pull(0.1);
+    check('Sabot: everyone in line, either side of a wall', row.every(d => d.hits.length === 1), row.map(d => d.hits.length).join());
+    check('Sabot: no blast', r.record.explosions === 0, r.record.explosions);
+    check('Sabot: through plate', row[1]!.hits[0]?.pierces === true, '');
+    check('Sabot: its own magazine', r.weapons.ammo('sabot').mag === WEAPONS.sabot.magSize - 1 && r.weapons.ammo('autocannon').mag === WEAPONS.autocannon.magSize, '');
+    for (const fps of [30, 144]) {
+      clean(r);
+      r.player.place(-30, 0);
+      const beyond = r.enemies.add(-30, -14);
+      r.ctx.combat.spawnProjectile({
+        origin: new THREE.Vector3(-30, 1, 0), velocity: new THREE.Vector3(0, 0, -260), kind: 'bullet', team: 'player', damage: 50, source: 'test', penetrate: 1,
+      });
+      run(r, 0.4, fps);
+      check(`a projectile with a budget goes through @${fps}`, beyond.hits.length === 1 && r.combat.projectiles.count === 0, beyond.hits.length);
     }
   },
   'sword: chain damage, escalation, instant hit'(r) {
@@ -1032,17 +1117,31 @@ const tests: Record<string, (r: Rig) => void> = {
     smg.mag = 2;
     smg.reserve = 0;
     r.input.simulate('fire', true);
-    run(r, 0.1, 60);
+    run(r, 1 / SMG_RPS + 0.04, 60);
     check('the dry click plays', r.record.sounds.includes('weapon_dry'), r.record.sounds.join());
     check('holds the gun through the click', r.weapons.current === 'smg', r.weapons.current);
     run(r, 0.25, 60);
+    // The Harrow takes its turn straight after the SMG, as its family member.
+    check('hands over to its family member first', r.weapons.current === 'harrow', r.weapons.current);
+    r.input.simulate('fire', false);
+
+    // With the Harrow dry as well the hand-over lands on the shotgun, a semi-auto. That is the case the re-armed press is
+    // for: an automatic fires on a held trigger whatever the hand-over does.
+    clean(r);
+    for (const id of ['smg', 'harrow'] as const) {
+      const a = r.weapons.ammo(id);
+      a.mag = id === 'smg' ? 2 : 0;
+      a.reserve = 0;
+    }
+    r.input.simulate('fire', true);
+    run(r, 1 / SMG_RPS + 0.04 + 0.25, 60);
     check('hands over to the next loaded gun', r.weapons.current === 'shotgun', r.weapons.current);
-    run(r, 0.35, 60);
+    run(r, 0.45, 60);
     r.input.simulate('fire', false);
     check('a held trigger fires the new gun with no fresh click', r.record.fired.shotgun === 1, r.record.fired.shotgun);
 
     clean(r);
-    for (const id of ['smg', 'shotgun', 'rocket', 'autocannon'] as const) {
+    for (const id of ['smg', 'harrow', 'shotgun', 'rocket', 'autocannon', 'sabot'] as const) {
       const a = r.weapons.ammo(id);
       a.mag = 0;
       a.reserve = 0;

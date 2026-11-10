@@ -25,9 +25,17 @@ export type ReloadCue = readonly [at: number, id: string];
 export interface WeaponDef {
   id: WeaponId;
   name: string;
-  /** The number key. Sits in `weapon<slot>` of the input actions. */
+  /**
+   * The number key. Sits in `weapon<slot>` of the input actions. Weapons that share a slot are one family: pressing the key
+   * again steps to the next member, in the order of the rows below. See families.ts.
+   */
   slot: number;
+  /** The weapon this one comes with: owned whenever its base is. Unset for a weapon that is unlocked by itself. */
+  base?: WeaponId;
+  /** How the trigger works, and with it which code fires the gun. A second member of a family is whatever its row says here. */
   mode: FireMode;
+  /** What leaves the barrel, for a gun that does not fire a hitscan round. Unset is hitscan. */
+  round?: 'rocket' | 'shell' | 'stake';
   magSize: number;
   /** Rounds in reserve at the start of a run or when unlocked. */
   reserve: number;
@@ -42,6 +50,27 @@ export interface WeaponDef {
   spread: number;
   /** Multiplier on limb damage. */
   severMult: number;
+  /** Can its rounds take a limb off? False wears no limb at all, whatever `severMult` says. The Always Sever perk overrides it. */
+  canSever: boolean;
+  /**
+   * Penetration budget in meters of concrete, 0 for a round that stops at the first thing it meets. Walls cost their
+   * thickness times PENETRATION.surface, bodies cost `bodyCost`. Hitscan rounds only: a projectile sets its own on the spec.
+   */
+  penetration: number;
+  /** Budget one body costs this round. Unset takes PENETRATION.body. */
+  bodyCost?: number;
+  /** Goes through armour plates as if they were not there. */
+  armorPiercing?: boolean;
+  /** Damage holds to `from` meters, then falls in a line to `floor` of itself at `to`. Unset: full damage at any range. */
+  falloff?: { readonly from: number; readonly to: number; readonly floor: number };
+  /** After a headshot the round jumps to this many more heads, as the Judge's does. */
+  headHops?: number;
+  /** Right click raises the scope, as on the autocannon. */
+  scope?: boolean;
+  /** Hit-stop on a kill, seconds. */
+  killStop?: number;
+  /** Multiplies impact effects and decals on the world. */
+  impactScale?: number;
   /** Push on ragdolls and severed parts, in newton-seconds per hit. 0 takes the default for bullets. A body is about 85 kg. */
   force: number;
   headshotMult: number;
@@ -60,10 +89,13 @@ export interface WeaponDef {
   fovPunch: number;
 }
 
+/** Same number as HIT_STOP.heavyKill, which is declared after the table that needs it. */
+const HEAVY_KILL_STOP = 0.05;
+
 const MAG_RELOAD: readonly ReloadCue[] = [[0.05, 'reload_mag_out'], [0.55, 'reload_mag_in'], [0.82, 'reload_bolt']];
 
 const BASE = {
-  pellets: 1, spread: 0, severMult: 1, force: 0, headshotMult: 2, casing: null, fovPunch: 0,
+  pellets: 1, spread: 0, severMult: 1, canSever: true, penetration: 0, force: 0, headshotMult: 2, casing: null, fovPunch: 0,
   reloadFoley: MAG_RELOAD, drawSound: 'weapon_draw',
 } as const;
 
@@ -72,10 +104,23 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     ...BASE, id: 'smg', name: 'SMG', slot: 1, mode: 'auto',
     magSize: 30, reserve: 360, maxReserve: 720, reloadTime: 1.0, drawTime: 0.16,
     interval: 0.1, damage: 25,
+    // A short barrel: past this it is the Harrow's work. `?reach=0` takes range out of every gun.
+    falloff: { from: 35, to: 80, floor: 0.5 },
     muzzle: 'smg', tracer: 'bullet', casing: 'pistol',
     sounds: [{ id: 'smg_fire', pitchJitter: 0.03 }],
     reloadFoley: [[0.02, 'smg_reload']],
     recoil: 1, kick: 0.0016, shake: 0.004,
+  },
+  // The SMG's big brother: two thirds the rate, twice the round, and all of it at any range. It goes through one body, or a
+  // sheet of cover, and takes limbs.
+  harrow: {
+    ...BASE, id: 'harrow', name: 'HARROW', slot: 1, base: 'smg', mode: 'auto',
+    magSize: 24, reserve: 144, maxReserve: 288, reloadTime: 1.35, drawTime: 0.22,
+    interval: 0.15, damage: 50, severMult: 1.8, canSever: true, force: 14, headshotMult: 2,
+    penetration: 0.5,
+    muzzle: 'carbine', tracer: 'carbine', casing: 'rifle',
+    sounds: [{ id: 'harrow_fire', pitchJitter: 0.03 }],
+    recoil: 1, kick: 0.0058, shake: 0.01, fovPunch: 0.5, impactScale: 1.25,
   },
   shotgun: {
     ...BASE, id: 'shotgun', name: 'SHOTGUN', slot: 2, mode: 'semi',
@@ -87,7 +132,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     recoil: 1, kick: 0.014, shake: 0.02, fovPunch: 1.6,
   },
   rocket: {
-    ...BASE, id: 'rocket', name: 'ROCKET', slot: 3, mode: 'semi',
+    ...BASE, id: 'rocket', name: 'ROCKET', slot: 3, mode: 'semi', round: 'rocket',
     magSize: 1, reserve: 10, maxReserve: 20, reloadTime: 1.5, drawTime: 0.26,
     interval: 0.5, damage: 100, force: 90,
     muzzle: 'rocket', tracer: 'heavy',
@@ -96,13 +141,24 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     recoil: 1, kick: 0.022, shake: 0.04, fovPunch: 2.2,
   },
   autocannon: {
-    ...BASE, id: 'autocannon', name: 'AUTOCANNON', slot: 4, mode: 'semi',
+    ...BASE, id: 'autocannon', name: 'AUTOCANNON', slot: 4, mode: 'semi', round: 'shell',
     magSize: 5, reserve: 20, maxReserve: 40, reloadTime: 1.0, drawTime: 0.28,
     interval: 0.15, damage: 99999, force: 90,
     muzzle: 'autocannon', tracer: 'heavy', casing: 'cannon',
     sounds: [{ id: 'autocannon_shot' }],
-    drawSound: 'weapon_draw_heavy',
+    drawSound: 'weapon_draw_heavy', scope: true,
     recoil: 1, kick: 0.03, shake: 0.03, fovPunch: 3,
+  },
+  // The same cannon loaded with darts. No blast: the round goes on through walls and everyone standing in line.
+  sabot: {
+    ...BASE, id: 'sabot', name: 'SABOT', slot: 4, base: 'autocannon', mode: 'semi',
+    magSize: 5, reserve: 15, maxReserve: 30, reloadTime: 1.0, drawTime: 0.28,
+    interval: 0.45, damage: 600, severMult: 6, force: 140, headshotMult: 2,
+    penetration: 5, bodyCost: 0.12, armorPiercing: true,
+    muzzle: 'sabot', tracer: 'sabot', casing: 'cannon',
+    sounds: [{ id: 'sabot_fire', pitchJitter: 0.02 }],
+    drawSound: 'weapon_draw_heavy', scope: true,
+    recoil: 1.1, kick: 0.034, shake: 0.034, fovPunch: 3.4, killStop: HEAVY_KILL_STOP, impactScale: 2.2,
   },
   sword: {
     ...BASE, id: 'sword', name: 'SWORD', slot: 5, mode: 'melee',
@@ -116,10 +172,22 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     ...BASE, id: 'judge', name: 'JUDGE', slot: 6, mode: 'semi',
     magSize: 6, reserve: 30, maxReserve: 60, reloadTime: 1.5, drawTime: 0.22,
     interval: 0.42, damage: 120, severMult: 1.6, force: 40, headshotMult: 2.5,
+    headHops: 2, killStop: HEAVY_KILL_STOP, impactScale: 1.6,
     muzzle: 'revolver', tracer: 'heavy', casing: null,
     sounds: [{ id: 'revolver_fire', pitchJitter: 0.02 }],
     reloadFoley: [[0.04, 'revolver_open'], [0.34, 'revolver_load'], [0.74, 'revolver_close'], [0.9, 'revolver_cock']],
     recoil: 1, kick: 0.03, shake: 0.03, fovPunch: 2.4,
+  },
+  // The Judge is six slow verdicts. This is fifteen quick ones: out first, as fast as the finger, and nothing at long range.
+  rivet: {
+    ...BASE, id: 'rivet', name: 'RIVET', slot: 6, base: 'judge', mode: 'semi',
+    magSize: 15, reserve: 90, maxReserve: 180, reloadTime: 0.8, drawTime: 0.1,
+    interval: 0.105, damage: 30, canSever: false, force: 5, headshotMult: 3,
+    falloff: { from: 25, to: 55, floor: 0.5 },
+    muzzle: 'pistol', tracer: 'pistol', casing: 'pistol',
+    sounds: [{ id: 'rivet_fire', pitchJitter: 0.04 }],
+    reloadFoley: [[0.05, 'reload_mag_out'], [0.5, 'reload_mag_in'], [0.82, 'reload_bolt']],
+    recoil: 1, kick: 0.0062, shake: 0.006, fovPunch: 0.3,
   },
   lance: {
     ...BASE, id: 'lance', name: 'LANCE', slot: 7, mode: 'charge',
@@ -142,14 +210,14 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
   kiln: {
     ...BASE, id: 'kiln', name: 'KILN', slot: 9, mode: 'stream',
     magSize: 150, reserve: 300, maxReserve: 600, reloadTime: 1.8, drawTime: 0.26,
-    interval: 1 / 30, damage: 9, severMult: 0, force: 1, headshotMult: 1,
+    interval: 1 / 30, damage: 9, severMult: 0, canSever: false, force: 1, headshotMult: 1,
     muzzle: 'flame', tracer: 'bullet',
     sounds: [],
     reloadFoley: [[0.1, 'reload_cell'], [0.72, 'reload_bolt']], drawSound: 'weapon_draw_heavy',
     recoil: 0.14, kick: 0, shake: 0.0015,
   },
   stakegun: {
-    ...BASE, id: 'stakegun', name: 'STAKEGUN', slot: 0, mode: 'semi',
+    ...BASE, id: 'stakegun', name: 'STAKEGUN', slot: 0, mode: 'semi', round: 'stake',
     magSize: 5, reserve: 20, maxReserve: 40, reloadTime: 1.6, drawTime: 0.24,
     interval: 0.55, damage: 140, severMult: 2.6, force: 110,
     muzzle: 'rifle', tracer: 'heavy',
@@ -159,9 +227,11 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
   },
 };
 
-export const WEAPON_ORDER: readonly WeaponId[] = [
-  'smg', 'shotgun', 'rocket', 'autocannon', 'sword', 'judge', 'lance', 'buzzsaw', 'kiln', 'stakegun',
-];
+/**
+ * Slot order, and inside a slot the order its key steps through: the order of the rows above, so a new family member is
+ * placed by where its row goes, after its base.
+ */
+export const WEAPON_ORDER: readonly WeaponId[] = Object.keys(WEAPONS) as WeaponId[];
 export const STARTING_WEAPONS: readonly WeaponId[] = ['smg', 'shotgun', 'rocket', 'autocannon', 'sword'];
 
 /** Per-weapon behaviour that does not fit every row of the table. */
@@ -180,7 +250,10 @@ export const TUNING = {
   ammo: {
     /** Long enough to hear the dry click before the hands move. */
     swapDelay: 0.2,
-    /** Which gun takes over, first with ammo wins. Rockets come last: a dry player is usually in close. */
+    /**
+     * Which gun takes over, first with ammo wins. Rockets come last: a dry player is usually in close. Base weapons only:
+     * a family member takes its turn straight after its base, so a new one needs no entry here.
+     */
     fallback: ['buzzsaw', 'smg', 'shotgun', 'judge', 'stakegun', 'kiln', 'autocannon', 'lance', 'rocket', 'sword'] as readonly WeaponId[],
     /** Magazines paid into the last-held gun per sword kill. */
     swordKillMags: 0.5,
@@ -199,14 +272,17 @@ export const TUNING = {
     /** Under this range pellets count as point-blank: more sever, more push. */
     pointBlank: 6, pointBlankSever: 3, pointBlankForce: 6.6,
   },
-  judge: { ricochetRange: 28, ricochets: 2, ricochetDamage: 0.8 },
+  /** How many heads it hops to is `headHops` in its row. */
+  judge: { ricochetRange: 28, ricochetDamage: 0.8 },
   lance: {
     chargeTime: 0.85,
     /** Below this the trigger release is a fizzle, not a shot. */
     minCharge: 0.22,
     minDamage: 90,
-    /** Fully charged shots punch through this much solid. */
+    /** A fully charged shot punches through walls up to this thick, whatever they are made of. Bodies are `maxTargets`. */
     penetration: 1.6,
+    /** And through this many of them. */
+    walls: 2,
     maxTargets: 24,
     /** A full charge splits this many bodies along the beam. Each costs about 5 ms, so a long line ends in ragdolls. */
     cleave: 3,
@@ -390,6 +466,33 @@ export const EXPLOSIONS: Record<ExplosionKind, ExplosionDef> = {
     impulse: 20, sounds: [{ id: 'nuke_blast' }], ignoresCover: true, flash: 1, fovPunch: 12,
   },
 };
+
+/**
+ * Penetration, for every round that has a budget: hitscan through Combat.playerRay, projectiles through Projectiles.step.
+ * A budget is meters of concrete. A wall costs its measured thickness times its surface's factor, a body costs `body`
+ * (or the round's own `bodyCost`), and the round's damage falls with the budget it has left.
+ *
+ * The Lance does not pay by the meter. It is on the older per-wall rule (`TUNING.lance.walls`), where none of the costs
+ * below apply: see `Budget.walls` in penetration.ts.
+ */
+export const PENETRATION = {
+  /** Budget one body costs, unless the round says otherwise. */
+  body: 0.4,
+  /** A body whose armour or shield blocked the round costs this many times more. */
+  blocked: 2,
+  /** Cost per meter by surface. Infinity never lets a round through. */
+  surface: {
+    concrete: 1, metal: 1.5, grate: 0.3, dirt: 1.2, glass: 0.2, flesh: 0.5, armor: 2, energy: Infinity, lava: Infinity,
+  } as Record<SurfaceKind, number>,
+  /** Spacing of the probes that look for the far side of a wall. Two walls closer together than this count as one. */
+  step: 0.15,
+  /** No single wall thicker than this is ever passed, whatever the budget. Also the cap on probes per wall. */
+  maxWall: 3,
+  /** Share of its damage a round keeps when its budget is all but spent. With the budget untouched it keeps all of it. */
+  keep: 0.55,
+  /** How far past a body the exit spray starts. */
+  bodyDepth: 0.35,
+} as const;
 
 /** Spelled out so a hit never builds a string. */
 export const SURFACE_SOUND: Record<SurfaceKind, string> = {

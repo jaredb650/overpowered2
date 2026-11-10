@@ -35,6 +35,8 @@ Inputs the rig polls rather than being told, all public state: `weapons.grenades
 
 Write `models/<id>.ts` exporting a `ViewDef`, and add it to `buildDefs` in `models/index.ts`. The contract is:
 
+A family member (`docs/notes/weapons.md`) is the same one line. The Harrow and the Rivet are files of their own. The Sabot is `autocannon.ts` built with a second `Look`: the same receiver, with a smoothbore under a ported sleeve, blue-banded darts on the belt and blue glass, because it is the same gun with a different belt in it. A variant like that shares hand sockets and animation for free. It shares the reload and the draw. Its shot is its own, through the `Action` the clip is built with: the Thirty is `SHORT_RECOIL` (7 cm of barrel, home in 0.14 s), the Sabot `LONG_RECOIL` (10.5 cm, the charging handle thrown back with it, home in 0.36 s of its 0.45 s between shots), because it has no brake to bleed the shot off.
+
 - Origin at the top of the grip, `-Z` forward, `+Y` up. Sockets `muzzle` and `eject`, and hand sockets from `model.hand(name, contact, side, fingers, part?)`. `contact` is where the palm presses, **relative to `part` when one is given**. That is the easiest mistake here. It left the SMG's rack hand floating near the camera.
 - `animate(a)` runs every frame after `resetParts()`, so it writes offsets with `+=` and adds to `a.gunP` and `a.gunR`. Hands take `a.left.to(socket, weight)` in sequence, later wins.
 - Keep the hand off anything that swings past the camera. Riding the Mule's cover or the Buzzsaw's crank through a full turn dragged the whole arm across the eye. Hands crack a latch and let go.
@@ -91,6 +93,8 @@ Triangles and draw calls per weapon, as shipped. Only the held weapon draws.
 | Autocannon | 24.8k | 14 | | Stakegun | 20.3k | 12 |
 | Sword | 6.0k | 1 | | Grenade | 4.9k | 3 |
 | Judge | 13.4k | 10 | | Walkie, designator | 3.5k, 3.2k | 4, 5 |
+| Harrow | 9.6k | 9 | | Rivet | 5.2k | 7 |
+| Sabot | 26.3k | 14 | | | | |
 
 The sword and Judge are under the brief's 15k floor. They look finished at that count, so I left the budget unspent.
 
@@ -126,6 +130,8 @@ VM_STEPS=perks,callins node tools/shot.mjs --url "/?sandbox=range&live=1&load=hu
 `VM_AT` moves the camera, as JSON. Useful spots: foundry `0,0,-80` is the orange one, scrapyard `-66,0,80` is the darkest, `112,0,8` is cyan, the sump `112,-6,112` is the over-bright one.
 
 ## Known limitations
+
+- **The Harrow and the Rivet are lighter models than the first ten**, 9.6k and 5.2k triangles. They read correctly in the hand and on the turntable, but nobody has put them beside the SMG and the Judge for finish. Their reloads were checked as nine stills each, not in motion: on the Rivet the magazine goes in low on the screen and the gun is lifted to show it.
 
 - **The legs are simple.** Lofted cloth limbs with pads and a boxed boot, 7.2k triangles and six draws while shown. They read as legs in a slide. In a vault they pass on the gun's side, so at level eyes the weapon covers most of them and they show when looking down. Judged from stills only. `?legs=0` hides them.
 - **A planted hand is placed for the screen, not the world.** The true spot is below the view at level eyes, so the hand is lifted into the bottom of the frame and its travel compressed. It does not track the real ledge or wall surface.

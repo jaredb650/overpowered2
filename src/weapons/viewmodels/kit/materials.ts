@@ -288,6 +288,12 @@ function makeDecals(): { texture: THREE.CanvasTexture; regions: Record<string, R
     g2.textAlign = 'center';
     g2.fillText('BAR', w / 2, h - 20);
   });
+  // Family members. Added at the end, so nothing above moves in the atlas.
+  place('harrow', 320, 64, text('HARROW', STENCIL, 6));
+  place('cal68', 256, 40, text('6.8x51 FMJ', TECH, 2));
+  place('rivet', 256, 64, text('RIVET', STENCIL, 8));
+  place('cal10', 256, 40, text('10 MM AUTO', TECH, 2));
+  place('cal30ap', 320, 40, text('30x173 APFSDS-T', TECH, 2));
   // Stencil paint is never clean. Knock specks out of everything drawn so far.
   const rng = mulberry32(77);
   g.globalCompositeOperation = 'destination-out';

@@ -47,7 +47,7 @@ Reads from other systems: `world.nav`, `world.objects` (`hazardAt`, `padAt`, `se
 | `brain.ts` | Utility AI. Behaviours own the legs, attacks own the hands, and they run side by side |
 | `behaviours.ts`, `roles.ts`, `attacks.ts` | The parts a row is built from. `roles.ts` is what only one enemy does |
 | `bosses.ts` | Juggernaut and Titan: phases, damage rules, deaths. Same brain, plus a `BossController` |
-| `damage.ts` | Order of a hit: ward, shield, tank, region, plate, boss filter, health, limb pool |
+| `damage.ts` | Order of a hit: ward, shield, tank, region, plate, boss filter, health, limb pool. An armour-piercing round (`DamageInfo.armorPiercing`, the Sabot's dart) is not stopped by a Riot's shield: it rings the shield and lands on the man. Every other round is, as before |
 | `reactions.ts` | What a hit that does not kill does to a body: flinch, stagger, fall or thrown |
 | `movement.ts` | Flow field steering, separation, ground following, jump links, pads |
 | `contact.ts` | The player running into a body |

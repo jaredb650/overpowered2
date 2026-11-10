@@ -43,6 +43,8 @@ const ARC_W = turned(ARC_E, 180);
 const RETICLES: Record<WeaponId, Reticle> = {
   // Pixel-accurate, so the tightest reticle in the game: the gap barely moves.
   smg: { core: DOT, arms: four(tick(8, 1.25)), gap: 5, kick: 1.1, speedGap: 3 },
+  // The SMG's cross with heavier, longer arms set wider: the same family, a bigger round.
+  harrow: { core: DOT, arms: four(tick(11, 1.6)), gap: 8, kick: 3.2, speedGap: 3 },
   shotgun: {
     core: DOT,
     arms: four(poly('3,-14 14,-14 14,-3 11.6,-3 11.6,-11.6 3,-11.6')),
@@ -58,12 +60,20 @@ const RETICLES: Record<WeaponId, Reticle> = {
     arms: ['', poly('10,-1.5 40,-1.5 40,1.5 10,1.5'), turned(tick(10, 1.5, 10), 180), poly('-10,-1.5 -40,-1.5 -40,1.5 -10,1.5')],
     gap: 0, kick: 8, speedGap: 2,
   },
+  // The autocannon's frame with the box opened into a pair of brackets: nothing to blast, only a line to thread.
+  sabot: {
+    core: `${DOT}${poly('-7,-7 -3,-7 -3,-5.4 -5.4,-5.4 -5.4,5.4 -3,5.4 -3,7 -7,7')}${poly('7,-7 3,-7 3,-5.4 5.4,-5.4 5.4,5.4 3,5.4 3,7 7,7')}`,
+    arms: [tick(26, 0.9, 12), poly('12,-1.5 40,-1.5 40,1.5 12,1.5'), turned(tick(26, 0.9, 12), 180), poly('-12,-1.5 -40,-1.5 -40,1.5 -12,1.5')],
+    gap: 0, kick: 9, speedGap: 2,
+  },
   sword: { core: DIAMOND, arms: ['', ARC_E, '', ARC_W], gap: 0, kick: 0, speedGap: 0 },
   judge: {
     core: `${DOT}<path fill-rule="evenodd" d="M0 -13L11.5 7H-11.5Z M0 -8.4L-7.4 4.6H7.4Z"/>`,
     arms: ['', poly('17,-1.25 27,-1.25 27,1.25 17,1.25'), turned(tick(10, 1.25, 11), 180), poly('-17,-1.25 -27,-1.25 -27,1.25 -17,1.25')],
     gap: 0, kick: 9, speedGap: 2,
   },
+  // Small and open: a dot in a ring of four short ticks.
+  rivet: { core: DOT, arms: four(tick(4, 1.25, 2)), gap: 5, kick: 3.6, speedGap: 2 },
   lance: {
     core: DOT,
     arms: ['', poly('9,-1 62,-1 62,1 9,1'), '', poly('-9,-1 -62,-1 -62,1 -9,1')],

@@ -18,7 +18,9 @@ import type { CharacterInstance, DamageInfo, DamageType, ExplosionKind, GameSyst
 
 export type WeaponId =
   | 'smg' | 'shotgun' | 'rocket' | 'autocannon' | 'sword'
-  | 'judge' | 'lance' | 'buzzsaw' | 'kiln' | 'stakegun';
+  | 'judge' | 'lance' | 'buzzsaw' | 'kiln' | 'stakegun'
+  // Family members: they share a slot key with a base weapon. See src/weapons/families.ts.
+  | 'harrow' | 'rivet' | 'sabot';
 
 export type Team = 'player' | 'enemy';
 
@@ -82,6 +84,8 @@ export interface WeaponSystem extends GameSystem {
   setHolstered(holstered: boolean): void;
   /** A mission's kit: these guns and no others, with the first drawn. */
   setLoadout(weapons: readonly WeaponId[], grenades: number): void;
+  /** The member of a slot's family that its number key draws: the one last held there. */
+  slotMember?(slot: number): WeaponId;
 }
 
 export type SwordMove = 'light1' | 'light2' | 'light3' | 'windup' | 'area' | 'finisher' | 'block';
@@ -135,8 +139,24 @@ export interface ShotSpec {
   impactScale?: number;
   /** After a headshot the round jumps to this many more heads, as the Judge does. */
   headHops?: number;
-  /** Punches through walls up to this thick, in meters. */
+  /**
+   * Penetration budget, in meters of concrete. Each wall passed costs its measured thickness times its surface's
+   * factor, and each body costs `bodyCost`. See PENETRATION in src/weapons/data.ts. 0 or unset costs nothing.
+   */
   penetrate?: number;
+  /** Budget one body costs. Defaults to PENETRATION.body. 0 passes every body in line for free. */
+  bodyCost?: number;
+  /** Share of its damage the round keeps once its budget is spent. Defaults to PENETRATION.keep. 1 loses nothing. */
+  penetrateKeep?: number;
+  /**
+   * Set, `penetrate` is not a total: the round passes up to this many walls, each no thicker than `penetrate` whatever it
+   * is made of, and a vehicle is no exception. The Lance's rule from before budgets.
+   */
+  penetrateWalls?: number;
+  /** Goes through armour plates as if they were not there. */
+  armorPiercing?: boolean;
+  /** Damage holds to `from` meters of flight, then falls in a line to `floor` of itself at `to`. */
+  falloff?: { readonly from: number; readonly to: number; readonly floor: number };
   /** This many kills are split in two along the line of the shot. Head kills keep their own death. */
   cleave?: number;
 }
@@ -205,6 +225,11 @@ export interface ProjectileSpec {
   killStop?: number;
   /** Flames only: the caller draws the fire with fx.flame itself. */
   silent?: boolean;
+  /** Penetration budget, as on ShotSpec. A round with any goes through walls and bodies until it is spent. */
+  penetrate?: number;
+  /** Budget one body costs, as on ShotSpec. */
+  bodyCost?: number;
+  armorPiercing?: boolean;
 }
 
 export interface CombatSystem extends GameSystem {

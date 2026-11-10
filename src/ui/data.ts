@@ -9,11 +9,10 @@ import { MOVE } from '../player/tuning';
 import {
   CACHE_ORDER, CALLINS as CALLIN_DEFS, CHAIN_REACTION_KILLS, COMBO_PERKS, DROP_POD, EFFECTS, MEGA, OVERDRIVE_MIN_SPEED, PICKUP, SCORE, STACK, STYLE_GATE, WINDOWS,
 } from '../progression/data';
-import { SWORD, TUNING, WEAPONS as WEAPON_DEFS } from '../weapons/data';
+import { PENETRATION, SWORD, TUNING, WEAPONS as WEAPON_DEFS, WEAPON_ORDER as WEAPON_SEQUENCE } from '../weapons/data';
 
-export const WEAPON_ORDER: readonly WeaponId[] = [
-  'smg', 'shotgun', 'rocket', 'autocannon', 'sword', 'judge', 'lance', 'buzzsaw', 'kiln', 'stakegun',
-];
+/** The game's own order: number keys, and inside a key the order it steps through its family. */
+export const WEAPON_ORDER: readonly WeaponId[] = WEAPON_SEQUENCE;
 
 export interface WeaponInfo {
   name: string;
@@ -28,7 +27,12 @@ export const WEAPONS: Record<WeaponId, WeaponInfo> = {
   smg: {
     name: 'SMG', key: '1',
     role: `${def.smg.damage} damage, ${def.smg.magSize} rounds, ${Math.round(1 / def.smg.interval)} a second, dead accurate`,
-    note: 'Akimbo during Berserk: both guns fire.',
+    note: `Akimbo during Berserk: both guns fire.${def.smg.falloff ? ` Fades past ${def.smg.falloff.from} m.` : ''}`,
+  },
+  harrow: {
+    name: 'Harrow', key: '1',
+    role: `Battle rifle. ${def.harrow.damage} damage, ${def.harrow.magSize} rounds, ${Math.round(1 / def.harrow.interval)} a second`,
+    note: 'Press 1 again to swap with the SMG. Full damage at any range. Goes through one body or a sheet of cover, and takes limbs off.',
   },
   shotgun: {
     name: 'Shotgun', key: '2',
@@ -45,6 +49,11 @@ export const WEAPONS: Record<WeaponId, WeaponInfo> = {
     role: `30 mm shell kills everything within ${TUNING.autocannon.radius} m, ${def.autocannon.magSize} a magazine`,
     note: `Right click scopes. Bosses take ${TUNING.autocannon.bossDamage} a shell.`,
   },
+  sabot: {
+    name: 'Sabot', key: '4',
+    role: `The autocannon loaded with darts. ${def.sabot.damage} damage, no blast, through armour`,
+    note: `Press 4 again to swap. Goes through walls up to ${PENETRATION.maxWall} m thick, ${def.sabot.penetration} m of them in all, and everyone in line: ping the sonar, then shoot what it shows.`,
+  },
   sword: {
     name: 'Sword', key: '5',
     role: `Hold left click for a three-swing chain that lunges up to ${SWORD.lunge.range} m`,
@@ -53,7 +62,12 @@ export const WEAPONS: Record<WeaponId, WeaponInfo> = {
   judge: {
     name: 'Judge', key: '6',
     role: `Revolver, ${def.judge.damage} damage, ${def.judge.magSize} shots`,
-    note: `A headshot jumps to the next ${TUNING.judge.ricochets} heads.`,
+    note: `A headshot jumps to the next ${def.judge.headHops} heads.`,
+  },
+  rivet: {
+    name: 'Rivet', key: '6',
+    role: `Pistol. ${def.rivet.damage} damage, ${def.rivet.magSize} rounds, as fast as you can click`,
+    note: `Press 6 again to swap with the Judge. Out in a blink, headshots count triple, weak past ${def.rivet.falloff!.from} m.`,
   },
   lance: {
     name: 'Lance', key: '7',
@@ -80,7 +94,8 @@ export const WEAPONS: Record<WeaponId, WeaponInfo> = {
 export const GRENADE_NOTE = `${TUNING.grenade.start} frags, up to ${TUNING.grenade.max}. Ammo pickups restock them. Hold to cook. Shoot one out of the air to set it off.`;
 
 export const WEAPONS_NOTE =
-  `Five weapons from the start. A weapon cache drops every ${DROP_POD.everyWaves === 2 ? 'second' : `${DROP_POD.everyWaves}th`} wave, marked on your HUD, ` +
+  `Some keys hold two weapons: press the key again to swap, and each has its own ammo. The second comes with the first. ` +
+  `Five keys are loaded from the start. A weapon cache drops every ${DROP_POD.everyWaves === 2 ? 'second' : `${DROP_POD.everyWaves}th`} wave, marked on your HUD, ` +
   `with the next of ${CACHE_ORDER.map(id => WEAPONS[id].name).join(', ')}. A gun that runs dry hands over to the next one with ammo, and sword kills refill your last gun.`;
 
 export interface CallInInfo {

@@ -69,6 +69,34 @@ function cover(k: Kit): void {
   k.block('panel', 24, 0.6, -9, 26, 1.8, -7, 0.05);
 }
 
+/**
+ * The piercing gallery, behind the spawn: walls across a lane that runs along +X, thin to thick, with a bay behind each
+ * to stand bodies in. Stand at `GALLERY.stand`, look down +X, and a round has to go through every wall before the bay it
+ * is meant for. The lane is open on its -Z side, so the bays can be walked into.
+ */
+export const GALLERY = {
+  z0: 19, z1: 25, height: 3.2,
+  stand: [1.5, 22] as const,
+  /** Near face along X, thickness, and what it is made of. A normal interior wall in the maps is 0.6 to 1 m, an outer one 1.6. */
+  walls: [
+    { x: 6, thick: 0.3, mat: 'panel' }, { x: 10, thick: 0.6, mat: 'panel' }, { x: 14, thick: 1, mat: 'concrete' },
+    { x: 18.5, thick: 1.6, mat: 'concrete' }, { x: 24, thick: 0.1, mat: 'steel' },
+  ] as const,
+  /** Middle of the bay behind each wall. */
+  bays: [8.3, 12.3, 16.8, 22, 27] as const,
+} as const;
+
+function gallery(k: Kit): void {
+  const { z0, z1, height } = GALLERY;
+  for (const w of GALLERY.walls) k.block(w.mat, w.x, 0, z0, w.x + w.thick, height, z1, 0.03);
+  // A paint tick on the floor for every 10 cm of the wall behind it, so the thickness can be read from the stand.
+  const g = k.geo.use('paintYellow');
+  for (const w of GALLERY.walls) {
+    const ticks = Math.round(w.thick * 10);
+    for (let i = 0; i < ticks; i++) g.box(w.x - 0.5, LINE_Y, z0 + 0.3 + i * 0.3, 0.3, 0.002, 0.1, FACE.py);
+  }
+}
+
 function lights(k: Kit): void {
   const { halfX: x, halfZ: z } = RANGE;
   for (let i = -2; i <= 2; i++) {
@@ -78,7 +106,7 @@ function lights(k: Kit): void {
 
 export const RANGE_STAGES = [
   { label: 'Pouring the floor', run: (k: Kit, spec: MapSpec) => { spec.reactor = null; shell(k); rule(k); } },
-  { label: 'Setting out the range', run: (k: Kit) => { ledges(k); cover(k); parkour(k); lights(k); } },
+  { label: 'Setting out the range', run: (k: Kit) => { ledges(k); cover(k); gallery(k); parkour(k); lights(k); } },
 ] as const;
 
 export function authorRange(_k: Kit, spec: MapSpec): void {

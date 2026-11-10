@@ -68,7 +68,7 @@ function buildGallery(): Record<string, Effect> {
   g.headBurst = { fire: s => s.fx.headBurst(s.target.clone().setY(1.7), v(-0.5, 0.2, 0.3).normalize()) };
   g.gibBurst = { fire: s => s.fx.gibBurst(s.target.clone().setY(1), v(0.5, 0.5, 0.2).normalize(), 12) };
 
-  const muzzles: MuzzleKind[] = ['smg', 'rifle', 'shotgun', 'rocket', 'autocannon', 'plasma', 'railgun', 'minigun', 'revolver', 'flame', 'enemy'];
+  const muzzles: MuzzleKind[] = ['smg', 'rifle', 'shotgun', 'rocket', 'autocannon', 'plasma', 'railgun', 'minigun', 'revolver', 'flame', 'enemy', 'carbine', 'pistol', 'sabot'];
   for (const k of muzzles) {
     g[`muzzle-${k}`] = { fire: s => s.fx.muzzleFlash(s.target.clone().setY(1.4), v(1, 0, 0.25).normalize(), k) };
   }
@@ -84,7 +84,7 @@ function buildGallery(): Record<string, Effect> {
     },
   };
 
-  const tracers: TracerKind[] = ['bullet', 'heavy', 'hellfire', 'bloodthirst', 'berserk', 'plasma', 'rail', 'enemy'];
+  const tracers: TracerKind[] = ['bullet', 'heavy', 'hellfire', 'bloodthirst', 'berserk', 'plasma', 'rail', 'enemy', 'carbine', 'pistol', 'sabot'];
   for (const k of tracers) {
     g[`tracer-${k}`] = {
       fire: s => {

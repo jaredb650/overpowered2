@@ -517,6 +517,11 @@ export class DamageModel {
     // Shots at the exposed gun arm or the legs below the rim still land.
     const region = d.region;
     if (region === 'armR' || region === 'forearmR' || region === 'shinL' || region === 'shinR') return false;
+    // An armour-piercing dart goes through the shield as it does a plate, and lands on the man behind it. The shield rings.
+    if (d.armorPiercing) {
+      this.w.ctx.audio.play('riot_shield_hit', { position: d.point, pitchJitter: 0.1 });
+      return false;
+    }
     res.blocked = true;
     const { ctx } = this.w;
     ctx.audio.play('riot_shield_hit', { position: d.point, pitchJitter: 0.1 });

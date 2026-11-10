@@ -15,7 +15,7 @@ import type { Screen } from './Screens';
 
 /** Keys that are not in the rebinding table, for the end of the controls panel. */
 const FIXED_KEYS: readonly [string, string][] = [
-  ['1 to 0', 'Pick a weapon'], ['Esc', 'Pause'], ['F3', 'Frame rate'], ['F4', 'Debug readout'],
+  ['1 to 0', 'Pick a weapon. Again: the next one on that key'], ['Esc', 'Pause'], ['F3', 'Frame rate'], ['F4', 'Debug readout'],
 ];
 
 /** Every key on an action, so the guide can never tell a player about a binding they changed. */

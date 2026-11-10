@@ -50,7 +50,9 @@ render.render();                      // once per frame, after the camera is pla
 
 **Shadows.** `castShadow = true` is all a mesh needs. Everything casting at the time of `bakeLightVolume()` goes in the static map, except skinned meshes and meshes with `userData.dynamicShadow = true`. **Set that flag on anything built before the bake that later moves**, such as crushers and doors, or its shadow stays behind. Anything added later is dynamic. Dynamic shadows reach 34 m from the camera. Call `refreshStaticShadows()` after changing static geometry.
 
-**Decals.** `decals.add(kind, point, normal, size, rotation)`. `size` is the full quad edge in meters. For `bloodSmear` and `slash`, rotation sets the drag direction along local +X. Pools grow over about a second. Decals test depth in the shader, so nothing z-fights or overhangs a ledge. They do not wrap around corners: the part past a corner is cut off.
+**Decals.** `decals.add(kind, point, normal, size, rotation)`. `size` is the full quad edge in meters. For `bloodSmear` and `slash`, rotation sets the drag direction along local +X. Pools grow over about a second. Decals test depth in the shader, so nothing z-fights or overhangs a ledge. They do not wrap around corners: the part past a corner is cut off. For the same reason a decal must be given the normal of the face it lies on: one laid along a slanted shot stands off the wall and is cut down to a sliver.
+
+The atlas is 4 by 4 cells and all sixteen are taken. Every mark in it is dark but one: `exit`, the pale spall crater where a round came out of a wall (`exitHole` in `materials/decalAtlas.glsl.ts`), which is pale so that it shows on a wall in shadow. It took the second `bullet` cell, so bullet holes have one variant and their random rotation.
 
 **Post.** All `PostFx` methods run on real time, so effects decay through hit-stop and pause. `chromatic()` saturates, so anything from 0.01 to over 1 is safe.
 

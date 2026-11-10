@@ -5,6 +5,7 @@
  * callable objects rather than numbers, so every read here is typed-checked once and falls back to a neutral value.
  * That keeps the HUD alive at every stage of the build, and it makes this the only file that knows field names.
  */
+import { familyOfSlot } from '../weapons/families';
 import { rulesCustom } from '../contracts/crucible';
 import { MOVE } from '../player/tuning';
 import { WEAPONS } from '../weapons/data';
@@ -147,6 +148,13 @@ export class HudState {
 
   owns(ctx: Ctx, id: WeaponId): boolean {
     return ctx.weapons.owned?.has?.(id) === true;
+  }
+
+  /** The member of a number key's family that the key draws now. Without a weapon system to ask, its first. */
+  member(ctx: Ctx, slot: number): WeaponId | undefined {
+    const w = ctx.weapons;
+    const pick = typeof w.slotMember === 'function' ? w.slotMember(slot) : undefined;
+    return typeof pick === 'string' ? pick : familyOfSlot(slot)[0];
   }
 
   /** Magazine count of any weapon, for the empty pip on the strip. Unknown reads as loaded. */

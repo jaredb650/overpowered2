@@ -14,6 +14,8 @@ import { clamp, damp, invLerp, lerp, randomInCone, wrapAngle } from '../core/mat
 import { MOVE } from '../player/tuning';
 import type { Combat, Guard, GuardResult } from './Combat';
 import { HIT_STOP, STARTING_WEAPONS, SWORD, TUNING, WEAPONS, WEAPON_ORDER, type SoundLayer, type WeaponDef } from './data';
+import { familyOfSlot, membersOf, pressSlot, wheelSlot } from './families';
+import { PIERCE_ON } from './penetration';
 import { Sword } from './Sword';
 
 interface Slot {
@@ -28,6 +30,8 @@ const SLOT_ACTIONS = [
 ] as const;
 
 const UP = new THREE.Vector3(0, 1, 0);
+/** `?reach=0` takes range falloff out of every gun: the SMG and the Rivet hit as hard at 100 m as at 10. */
+const REACH_ON = typeof location === 'undefined' || new URLSearchParams(location.search).get('reach') !== '0';
 /** Seconds a rate boost cuts off a reload. Capped so Berserk does not turn reloads into a blink. */
 const MAX_RELOAD_BOOST = 1.5;
 
@@ -46,6 +50,9 @@ export class Weapons implements WeaponSystem, Guard {
   /** The gun a sword kill feeds: whatever was in hand before the blade came out. */
   private lastGun: WeaponId = 'smg';
   private pendingSwitch: WeaponId | null = null;
+  /** The member last held on each number key, which is the one the key draws. */
+  private readonly slotLast = new Map<number, WeaponId>();
+  private readonly recall = (slot: number): WeaponId | undefined => this.slotLast.get(slot);
   private drawLeft = 0;
   private holstered = false;
 
@@ -109,7 +116,31 @@ export class Weapons implements WeaponSystem, Guard {
     }
     this.slots = slots;
     this.sword = new Sword(ctx, this.combat, this.modifiers);
-    for (const id of STARTING_WEAPONS) this.owned.add(id);
+    for (const id of STARTING_WEAPONS) this.own(id);
+  }
+
+  /** Adds a weapon and the family members that come with it. Returns true when the weapon itself is new. */
+  private own(id: WeaponId): boolean {
+    const fresh = !this.owned.has(id);
+    this.owned.add(id);
+    const members = membersOf(id);
+    for (let i = 0; i < members.length; i++) {
+      const member = members[i]!;
+      if (this.owned.has(member)) continue;
+      this.owned.add(member);
+      const s = this.slots[member];
+      s.ammo.mag = s.def.magSize;
+      s.ammo.reserve = s.def.reserve;
+    }
+    return fresh;
+  }
+
+  slotMember(slot: number): WeaponId {
+    const family = familyOfSlot(slot);
+    const last = this.slotLast.get(slot);
+    if (last !== undefined && this.owned.has(last)) return last;
+    for (let i = 0; i < family.length; i++) if (this.owned.has(family[i]!)) return family[i]!;
+    return family[0] ?? this.current;
   }
 
   private get combat(): Combat {
@@ -142,7 +173,8 @@ export class Weapons implements WeaponSystem, Guard {
   reset(): void {
     this.stopEverything();
     this.owned.clear();
-    for (const id of STARTING_WEAPONS) this.owned.add(id);
+    this.slotLast.clear();
+    for (const id of STARTING_WEAPONS) this.own(id);
     for (const id of WEAPON_ORDER) {
       const s = this.slots[id];
       s.cooldown = 0;
@@ -183,7 +215,12 @@ export class Weapons implements WeaponSystem, Guard {
   }
 
   get charge(): number {
-    return this.current === 'buzzsaw' ? this.spin : this.chargeLevel;
+    return WEAPONS[this.current].mode === 'spin' ? this.spin : this.chargeLevel;
+  }
+
+  /** The blade is out: the weapon in hand is swung, not fired. */
+  private get bladeOut(): boolean {
+    return WEAPONS[this.current].mode === 'melee';
   }
 
   /** Crosshair openness. Guns here are accurate, so only the pellet cone and the minigun's wobble show. */
@@ -203,25 +240,36 @@ export class Weapons implements WeaponSystem, Guard {
   give(id: WeaponId): void {
     if (this.owned.has(id)) {
       this.addReserve(this.slots[id], 0.5);
+      // A second cache of a gun tops up what came with it too.
+      const members = membersOf(id);
+      for (let i = 0; i < members.length; i++) this.addReserve(this.slots[members[i]!], 0.5);
+      this.own(id);
       return;
     }
-    this.owned.add(id);
+    this.own(id);
     const s = this.slots[id];
     s.ammo.mag = s.def.magSize;
     s.ammo.reserve = s.def.reserve;
     this.ctx.events.emit('weapon:unlocked', { weapon: id });
+    // The banner is the base weapon's. What came with it gets a line in the feed, with the one thing to know about it.
+    const members = membersOf(id);
+    for (let i = 0; i < members.length; i++) {
+      this.ctx.hud.feed(`${WEAPONS[members[i]!].name}: PRESS ${s.def.slot} AGAIN`, '#39e0ff');
+    }
   }
 
   setLoadout(weapons: readonly WeaponId[], grenades: number): void {
     this.stopEverything();
     this.owned.clear();
-    for (const id of weapons) this.owned.add(id);
+    this.slotLast.clear();
+    for (const id of weapons) this.own(id);
     this.grenades = grenades;
     const first = weapons[0]!;
-    const gun = weapons.find(id => id !== 'sword') ?? first;
+    const gun = weapons.find(id => WEAPONS[id].mode !== 'melee') ?? first;
     this.current = first;
     this.lastWeapon = weapons[1] ?? first;
     this.lastGun = gun;
+    this.slotLast.set(WEAPONS[first].slot, first);
     this.ctx.viewmodel.equip?.(first, 0.01);
   }
 
@@ -238,7 +286,7 @@ export class Weapons implements WeaponSystem, Guard {
   }
 
   private feedGun(): void {
-    const id = this.current === 'sword' ? this.lastGun : this.current;
+    const id = this.bladeOut ? this.lastGun : this.current;
     const a = this.slots[id].ammo;
     a.reserve = Math.min(a.maxReserve, a.reserve + Math.ceil(a.magSize * TUNING.ammo.swordKillMags));
   }
@@ -269,7 +317,7 @@ export class Weapons implements WeaponSystem, Guard {
   }
 
   guard(incoming: THREE.Vector3): GuardResult {
-    return this.current === 'sword' ? this.sword.guard(incoming) : 'none';
+    return this.bladeOut ? this.sword.guard(incoming) : 'none';
   }
 
   /** Stops every continuous thing. Called on death, pause and holster, so nothing keeps roaring in a menu. */
@@ -336,7 +384,7 @@ export class Weapons implements WeaponSystem, Guard {
       if (this.drawLeft > 0) return;
     }
 
-    if (this.current === 'sword') {
+    if (this.bladeOut) {
       this.sword.update(dt);
       return;
     }
@@ -361,7 +409,8 @@ export class Weapons implements WeaponSystem, Guard {
     const { input } = this.ctx;
     for (let i = 0; i < SLOT_ACTIONS.length; i++) {
       if (!input.pressed(SLOT_ACTIONS[i]!)) continue;
-      const id = WEAPON_ORDER.find(w => WEAPONS[w].slot === i);
+      // The key of the slot in hand steps through its family. Any other key draws what was last held there.
+      const id = pressSlot(i, this.pendingSwitch ?? this.current, this.owned, this.slotLast.get(i));
       if (id) this.switchTo(id);
     }
     if (input.pressed('weaponLast')) this.switchTo(this.lastWeapon);
@@ -374,15 +423,10 @@ export class Weapons implements WeaponSystem, Guard {
     }
   }
 
+  /** The wheel walks number keys, not weapons: each notch lands on the member last held on the next key along. */
   private cycle(step: number): void {
-    const from = WEAPON_ORDER.indexOf(this.current);
-    for (let i = 1; i <= WEAPON_ORDER.length; i++) {
-      const id = WEAPON_ORDER[(from + i * step + WEAPON_ORDER.length * 2) % WEAPON_ORDER.length]!;
-      if (this.owned.has(id)) {
-        this.switchTo(id);
-        return;
-      }
-    }
+    const id = wheelSlot(this.current, step, this.owned, this.recall);
+    if (id) this.switchTo(id);
   }
 
   switchTo(id: WeaponId): void {
@@ -406,8 +450,9 @@ export class Weapons implements WeaponSystem, Guard {
     this.drySwap = -1;
     this.quickReturn = 0;
     this.current = id;
+    this.slotLast.set(WEAPONS[id].slot, id);
     this.lastWeapon = from;
-    if (from !== 'sword') this.lastGun = from;
+    if (WEAPONS[from].mode !== 'melee') this.lastGun = from;
     this.ctx.viewmodel.setCharge(0);
     this.beginDraw(id);
     this.ctx.events.emit('weapon:switched', { from, to: id });
@@ -571,15 +616,22 @@ export class Weapons implements WeaponSystem, Guard {
     if (this.ctx.input.isDown('fire')) this.pressBuffer = TUNING.pressBuffer;
   }
 
+  /** The list is base weapons. Each one's family members take their turn straight after it. */
   private nextLoaded(): WeaponId {
     const order = TUNING.ammo.fallback;
     for (let i = 0; i < order.length; i++) {
-      const id = order[i]!;
-      if (!this.owned.has(id)) continue;
-      const a = this.slots[id].ammo;
-      if (a.magSize === 0 || a.mag > 0 || a.reserve > 0) return id;
+      const base = order[i]!;
+      if (this.hasRounds(base)) return base;
+      const members = membersOf(base);
+      for (let k = 0; k < members.length; k++) if (this.hasRounds(members[k]!)) return members[k]!;
     }
     return 'sword';
+  }
+
+  private hasRounds(id: WeaponId): boolean {
+    if (!this.owned.has(id)) return false;
+    const a = this.slots[id].ammo;
+    return a.magSize === 0 || a.mag > 0 || a.reserve > 0;
   }
 
   private updateAuto(s: Slot, held: boolean): void {
@@ -837,7 +889,7 @@ export class Weapons implements WeaponSystem, Guard {
     s.tracer = m.tracer ?? def.tracer;
     s.pierce = 0;
     s.force = def.force;
-    s.severMult = m.alwaysSever ? 1000 : def.severMult;
+    s.severMult = m.alwaysSever ? 1000 : def.canSever ? def.severMult : 0;
     s.blastRadius = explosive ? TUNING.hellfireRounds.radius : undefined;
     s.ricochet = m.ricochet;
     s.shock = m.shockRounds;
@@ -845,10 +897,15 @@ export class Weapons implements WeaponSystem, Guard {
     s.tracerFrom = this.muzzleAt;
     s.type = def.pellets > 1 ? 'pellet' : 'bullet';
     s.gib = false;
-    s.killStop = 0;
-    s.impactScale = 1;
-    s.headHops = 0;
-    s.penetrate = 0;
+    s.killStop = def.killStop ?? 0;
+    s.impactScale = def.impactScale ?? 1;
+    s.headHops = def.headHops ? def.headHops + m.ricochet : 0;
+    s.penetrate = PIERCE_ON ? def.penetration : 0;
+    s.bodyCost = def.bodyCost;
+    s.penetrateKeep = undefined;
+    s.penetrateWalls = undefined;
+    s.armorPiercing = def.armorPiercing ?? false;
+    s.falloff = REACH_ON ? def.falloff : undefined;
     s.cleave = 0;
     return s;
   }
@@ -857,18 +914,20 @@ export class Weapons implements WeaponSystem, Guard {
     const def = s.def;
     this.consume(s);
     this.shotFeedback(def, left);
-    switch (def.id) {
+    // By what the row says leaves the barrel, never by which gun it is: a family member picks its own.
+    switch (def.round) {
       case 'rocket': this.shootRocket(def); return;
-      case 'autocannon': this.shootShell(def); return;
-      case 'stakegun': this.shootStake(def); return;
+      case 'shell': this.shootShell(def); return;
+      case 'stake': this.shootStake(def); return;
     }
     const c = this.ctx;
     const eye = c.player.eye;
     const fwd = c.player.forward;
     const m = this.modifiers;
     const shot = this.fillShot(def, def.damage * m.damage);
-    const pellets = Math.round(def.pellets * (def.id === 'shotgun' ? m.pellets : 1));
-    if (def.id === 'shotgun') {
+    const scatter = def.pellets > 1;
+    const pellets = Math.round(def.pellets * (scatter ? m.pellets : 1));
+    if (scatter) {
       shot.killStop = HIT_STOP.shotgunKill;
       const t = TUNING.shotgun;
       // One probe per trigger pull: a point-blank blast is a different event from a pellet at range.
@@ -878,10 +937,6 @@ export class Weapons implements WeaponSystem, Guard {
         shot.force = def.force * t.pointBlankForce;
         shot.killStop = HIT_STOP.shotgunPointBlank;
       }
-    } else if (def.id === 'judge') {
-      shot.headHops = TUNING.judge.ricochets + m.ricochet;
-      shot.killStop = HIT_STOP.heavyKill;
-      shot.impactScale = 1.6;
     }
     for (let i = 0; i < pellets; i++) {
       const dir = def.spread > 0 ? randomInCone(fwd, def.spread, this.dir) : fwd;
@@ -910,7 +965,10 @@ export class Weapons implements WeaponSystem, Guard {
     p.fuse = undefined;
     p.trail = trail;
     p.gib = false;
-    p.severMult = this.modifiers.alwaysSever ? 1000 : def.severMult;
+    p.severMult = this.modifiers.alwaysSever ? 1000 : def.canSever ? def.severMult : 0;
+    p.penetrate = 0;
+    p.bodyCost = undefined;
+    p.armorPiercing = false;
     p.force = def.force;
     p.headshotMult = def.headshotMult;
     p.killStop = 0;
@@ -986,7 +1044,12 @@ export class Weapons implements WeaponSystem, Guard {
     shot.tracer = undefined;
     shot.force = def.force * weight;
     shot.killStop = HIT_STOP.lanceKill;
+    // The per-wall rule it always had: two walls, each up to `penetration` thick, of anything, at no cost in damage.
+    // Bodies are the `pierce` above. `?pierce=0` does not reach here, as it never did.
     shot.penetrate = level >= 1 ? t.penetration : 0;
+    shot.penetrateWalls = t.walls;
+    shot.bodyCost = Infinity;
+    shot.penetrateKeep = 1;
     shot.cleave = level >= 1 ? t.cleave : 0;
     shot.impactScale = 1.4;
     const end = this.combat.fireRay(c.player.eye, c.player.forward, shot);
@@ -1004,7 +1067,7 @@ export class Weapons implements WeaponSystem, Guard {
    * under the target. That keeps the average on the target at any frame rate.
    */
   private applyHandling(dt: number): void {
-    if (this.current !== 'buzzsaw' || this.spin <= 0.05) return;
+    if (WEAPONS[this.current].mode !== 'spin' || this.spin <= 0.05) return;
     const t = TUNING.buzzsaw;
     const { player } = this.ctx;
     const v = player.velocity;
@@ -1028,7 +1091,7 @@ export class Weapons implements WeaponSystem, Guard {
   private updateZoom(): void {
     const c = this.ctx;
     const t = TUNING.autocannon;
-    if (this.current === 'autocannon' && c.input.pressed('aim') && !this.reloading && this.drawLeft <= 0) {
+    if (WEAPONS[this.current].scope && c.input.pressed('aim') && !this.reloading && this.drawLeft <= 0) {
       this.zoomed = !this.zoomed;
       c.audio.play('autocannon_zoom');
       c.camera.setZoom(this.zoomed ? t.scopeFov : null);

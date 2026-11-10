@@ -21,6 +21,7 @@ import { ANIM } from '../player/moveAnim';
 import { MOVE } from '../player/tuning';
 import { LabPanel, type MoveSwitch } from './panel';
 import { PARKOUR } from './parkour';
+import { GALLERY } from './range';
 import { applyFlags, loadSettings, saveSettings } from './settings';
 import { LabSpawner } from './spawn';
 
@@ -73,6 +74,8 @@ export class Lab {
       togglePause: () => this.togglePause(),
       step: n => this.step(n),
       setSpeed: s => this.setSpeed(s),
+      weapon: id => this.draw(id),
+      gallery: () => this.gallery(),
       parkour: () => this.parkour(),
       move: (key, on) => this.moveSwitch(key, on),
     }, (ctx.enemies as unknown as { vehicles?: unknown }).vehicles != null);
@@ -116,6 +119,29 @@ export class Lab {
 
   get open(): boolean {
     return this.opened;
+  }
+
+  /** Straight into the set, as the arsenal cheat does: `give` would raise an unlock banner. */
+  draw(id: WeaponId): void {
+    const { weapons } = this.ctx;
+    (weapons.owned as Set<WeaponId>).add(id);
+    weapons.switchTo(id);
+  }
+
+  /**
+   * The range's piercing gallery: the player at its near end looking down the lane, one of the selected enemy in the bay
+   * behind each wall. Returns how many were placed.
+   */
+  gallery(): number {
+    if (!ON_RANGE) return 0;
+    const { player } = this.ctx;
+    const z = (GALLERY.z0 + GALLERY.z1) / 2;
+    player.teleport(_at.set(GALLERY.stand[0], 0.1, GALLERY.stand[1]), -Math.PI / 2);
+    let placed = 0;
+    for (const x of GALLERY.bays) {
+      if (this.spawner.place(this.settings.spawn, _at.set(x, 0, z), this.settings.ai)) placed++;
+    }
+    return placed;
   }
 
   /** The start of the range's parkour strip, looking down it. */

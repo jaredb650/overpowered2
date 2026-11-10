@@ -90,6 +90,7 @@ Answers fielded first by bots, 150 s, seeds 3, 11, 23: camper `mortars, snipers`
 - **A blast rarely kills a man now.** He goes down and bleeds, so a gift can land seconds after the shell. The source carries through the bleed.
 - **Lines take their ids from a key beside them**, so moving a line keeps its audio. Changing the words needs a new take.
 - **The box prints the true number and the take says the band.** 212 shots is a take of two hundred. A line with two different slots stays text.
+- **A weapon is said by a word, never by its id.** `WEAPON_WORDS` has the word for each, and `weaponWord` says a gun with no entry by its name with a capital. The Harrow, the Rivet and the Sabot have words and no takes: the box prints their lines and plays nothing, because `voice.ts` only queues clips the manifest lists. `voice-script.ts` will ask for their takes the next time it is run; `docs/voice` has not been regenerated for them.
 
 ## Orders on the radio
 

@@ -53,8 +53,10 @@ export interface DamageInfo {
   /** A blast's splash: how far out the body stood, as a share of the radius. Rings in src/enemies/blast.ts read it. */
   reach?: number;
   blastKind?: ExplosionKind;
-  /** Goes through armour plates as if they were not there. A shaped charge's direct hit. */
+  /** Goes through armour plates as if they were not there. A shaped charge's direct hit, or an armour-piercing round on a plated body. */
   pierces?: boolean;
+  /** An armour-piercing round, armour or none: a carried shield does not stop it either. */
+  armorPiercing?: boolean;
 }
 
 export interface RayHit {
@@ -118,7 +120,8 @@ export interface DynamicLights {
   flash(position: THREE.Vector3, color: THREE.ColorRepresentation, intensity: number, radius: number, seconds: number): void;
 }
 
-export type DecalKind = 'bullet' | 'scorch' | 'blood' | 'bloodPool' | 'bloodSmear' | 'slash' | 'crack';
+/** `exit` is where a round came out of a wall: a pale spall crater, the one light mark among dark ones. */
+export type DecalKind = 'bullet' | 'scorch' | 'blood' | 'bloodPool' | 'bloodSmear' | 'slash' | 'crack' | 'exit';
 
 export interface DecalSystem {
   add(kind: DecalKind, position: THREE.Vector3, normal: THREE.Vector3, size: number, rotation?: number): void;
@@ -416,8 +419,8 @@ export interface CorpseHit {
 // Effects
 // ---------------------------------------------------------------------------------------------
 
-export type MuzzleKind = 'smg' | 'rifle' | 'shotgun' | 'rocket' | 'autocannon' | 'plasma' | 'railgun' | 'minigun' | 'revolver' | 'flame' | 'enemy';
-export type TracerKind = 'bullet' | 'heavy' | 'hellfire' | 'bloodthirst' | 'berserk' | 'plasma' | 'rail' | 'enemy';
+export type MuzzleKind = 'smg' | 'rifle' | 'shotgun' | 'rocket' | 'autocannon' | 'plasma' | 'railgun' | 'minigun' | 'revolver' | 'flame' | 'enemy' | 'carbine' | 'pistol' | 'sabot';
+export type TracerKind = 'bullet' | 'heavy' | 'hellfire' | 'bloodthirst' | 'berserk' | 'plasma' | 'rail' | 'enemy' | 'carbine' | 'pistol' | 'sabot';
 export type ExplosionKind = 'rocket' | 'grenade' | 'hellfire' | 'hellfireBullet' | 'shell' | 'plasma' | 'enemy' | 'barrel' | 'nuke' | 'finisher';
 export type BeamKind = 'rail' | 'lance' | 'laser' | 'sniper' | 'heal';
 export type SlashKind = 'light' | 'heavy' | 'sweep' | 'finisher';

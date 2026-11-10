@@ -10,6 +10,7 @@ import type { GoreRegion } from '../characters/rig';
 import type { Combat } from './Combat';
 import { SHAPED_CHARGE, SURFACE_SOUND, TUNING } from './data';
 import { closestSegmentPoints } from './geometry';
+import { damageKept, loadBudget, makeBudget, passBody, passWall, type Budget } from './penetration';
 import { ProjectileVisuals } from './ProjectileVisuals';
 
 const MAX_PROJECTILES = 256;
@@ -25,6 +26,16 @@ const ON_COURSE = PROXIMITY + 1;
 /** Rings and puffs hold this spacing during a hit-stop, when the clock runs but the shell barely moves. */
 const MIN_TRAIL_SPACING = 0.5;
 const MAX_PENDING_PINS = 8;
+/** Bodies one penetrating round can meet in a single step. */
+const MAX_SWEEP = 12;
+
+interface SweptHit {
+  enemy: EnemyInstance;
+  point: THREE.Vector3;
+  normal: THREE.Vector3;
+  bone: number;
+  region: GoreRegion;
+}
 
 /** A pin waiting for the frame after the stake struck. CorpseHits are ring-allocated, so this keeps its own copy. */
 interface PendingPin {
@@ -73,6 +84,11 @@ export interface Projectile {
   pinned: boolean;
   /** Direct damage already spent on this enemy, so a stake does not hit one body twice. */
   lastHit: number;
+  /** Penetration it has left. `full` 0 on everything that stops where it lands. */
+  budget: Budget;
+  /** Damage it left the barrel with: what it deals now is this times what its budget keeps. */
+  baseDamage: number;
+  armorPiercing: boolean;
 }
 
 function createProjectile(): Projectile {
@@ -84,6 +100,7 @@ function createProjectile(): Projectile {
     gib: false, severMult: 1, force: 0, headshotMult: 2, killStop: 0,
     explosive: false, blastRadius: 0, blastDamage: 0, blastKind: 'rocket', blastInstakill: false,
     blastSelf: undefined, blastPush: undefined, pinned: false, lastHit: -1,
+    budget: makeBudget(), baseDamage: 0, armorPiercing: false,
   };
 }
 
@@ -105,7 +122,10 @@ export class Projectiles {
   private readonly end = new THREE.Vector3();
   private readonly v = new THREE.Vector3();
   private readonly w = new THREE.Vector3();
+  private readonly exit = new THREE.Vector3();
+  private readonly exitNormal = new THREE.Vector3();
   private readonly nearby: EnemyInstance[] = [];
+  private readonly swept: SweptHit[] = [];
   private readonly pendingPins: PendingPin[] = [];
   private pendingCount = 0;
   private readonly shotResult = { projectile: null as unknown as Projectile, at: 0 };
@@ -119,6 +139,9 @@ export class Projectiles {
     this.visuals = new ProjectileVisuals(ctx);
     for (let i = 0; i < MAX_PROJECTILES; i++) {
       this.free.push(createProjectile());
+    }
+    for (let i = 0; i < MAX_SWEEP; i++) {
+      this.swept.push({ enemy: null as unknown as EnemyInstance, point: new THREE.Vector3(), normal: new THREE.Vector3(), bone: 0, region: 'chest' });
     }
     for (let i = 0; i < MAX_PENDING_PINS; i++) {
       this.pendingPins.push({
@@ -181,6 +204,9 @@ export class Projectiles {
     p.killStop = spec.killStop ?? 0;
     p.pinned = false;
     p.lastHit = -1;
+    loadBudget(p.budget, kind === 'grenade' ? 0 : spec.penetrate, spec.bodyCost);
+    p.baseDamage = spec.damage;
+    p.armorPiercing = spec.armorPiercing ?? false;
     p.visualHold = 0;
     p.visualOffset.set(0, 0, 0);
     if (spec.visualFrom) {
@@ -290,8 +316,46 @@ export class Projectiles {
     p.velocity.setLength(speed);
   }
 
+  /**
+   * A round with a budget meets everyone on this step's line in order, nearest first, and goes on until one of them
+   * stops it. Returns true when one did.
+   */
+  private sweepThrough(p: Projectile, dir: THREE.Vector3, limit: number): boolean {
+    const c = this.ctx;
+    const list = c.enemies.raycastAll(p.position, dir, limit, MAX_SWEEP);
+    if (!list) return false;
+    // The list is the enemy system's own scratch and a strike can re-enter it, so the hits are copied out first.
+    const n = Math.min(list.length, MAX_SWEEP);
+    for (let i = 0; i < n; i++) {
+      const from = list[i]!;
+      const to = this.swept[i]!;
+      to.enemy = from.enemy;
+      to.point.copy(from.point);
+      to.normal.copy(from.normal);
+      to.bone = from.bone;
+      to.region = from.region;
+    }
+    for (let i = 0; i < n; i++) {
+      const h = this.swept[i]!;
+      if (h.enemy.uid === p.lastHit || !h.enemy.alive) continue;
+      const res = this.strikeDirect(p, h.enemy, h.point, h.normal, dir, h.bone, h.region);
+      p.lastHit = h.enemy.uid;
+      if (passBody(p.budget, res.blocked)) {
+        this.combat.exitBody(h.point, dir, res.blocked || h.enemy.machine);
+        p.damage = p.baseDamage * damageKept(p.budget);
+        continue;
+      }
+      p.position.copy(h.point);
+      if (p.explosive) this.explode(p, undefined);
+      p.live = false;
+      return true;
+    }
+    return false;
+  }
+
   private sweepEnemies(p: Projectile, dir: THREE.Vector3, limit: number): boolean {
     const c = this.ctx;
+    if (p.budget.left > 0 && p.kind !== 'stake' && p.kind !== 'rocket') return this.sweepThrough(p, dir, limit);
     const hit = c.enemies.raycast(p.position, dir, limit);
     if (hit && hit.enemy.uid !== p.lastHit) {
       p.position.copy(hit.point);
@@ -316,10 +380,10 @@ export class Projectiles {
     return false;
   }
 
-  private hitEnemy(
+  private strikeDirect(
     p: Projectile, enemy: EnemyInstance, point: THREE.Vector3, normal: THREE.Vector3, dir: THREE.Vector3,
     bone: number | undefined, region: GoreRegion | undefined,
-  ): void {
+  ): DamageResult {
     const combat = this.combat;
     // Only rockets are area damage on contact. A shell or stake to the head has to read as a headshot.
     const o = combat.strikeOptions(p.kind === 'rocket' ? 'explosive' : 'bullet', p.source);
@@ -329,7 +393,15 @@ export class Projectiles {
     o.gib = p.gib;
     o.killStop = p.killStop;
     o.charge = p.explosive ? SHAPED_CHARGE[p.blastKind] : undefined;
-    const res = combat.strike(enemy, point, normal, dir, bone, region, p.damage, o);
+    o.pierces = p.armorPiercing;
+    return combat.strike(enemy, point, normal, dir, bone, region, p.damage, o);
+  }
+
+  private hitEnemy(
+    p: Projectile, enemy: EnemyInstance, point: THREE.Vector3, normal: THREE.Vector3, dir: THREE.Vector3,
+    bone: number | undefined, region: GoreRegion | undefined,
+  ): void {
+    const res = this.strikeDirect(p, enemy, point, normal, dir, bone, region);
 
     if (p.kind === 'stake') {
       if (p.explosive) this.explode(p, undefined);
@@ -427,6 +499,8 @@ export class Projectiles {
   private hitWorld(p: Projectile, wall: RayHit): void {
     const c = this.ctx;
     p.position.copy(wall.point);
+    // A stake's business with a wall is to stay in it.
+    if (p.budget.left > 0 && p.kind !== 'stake' && this.goThrough(p, wall)) return;
     switch (p.kind) {
       case 'stake':
         this.stakeLands(p, wall);
@@ -444,6 +518,29 @@ export class Projectiles {
         }
     }
     p.live = false;
+  }
+
+  /**
+   * A round with budget left meets a wall. It marks the near face, comes out of the far one and flies on from there next
+   * frame. A vehicle takes the round instead: its parts are not cover.
+   */
+  private goThrough(p: Projectile, wall: RayHit): boolean {
+    const c = this.ctx;
+    const dir = this.dir;
+    if (p.team === 'player' && c.enemies.vehicles?.shot(wall.collider, wall.point, p.damage, p.source) === true) {
+      p.live = false;
+      return true;
+    }
+    if (!passWall(c.physics, p.budget, wall, dir, this.exit, this.exitNormal)) return false;
+    c.fx.impact(wall.point, wall.normal, wall.surface, 1);
+    c.audio.play(SURFACE_SOUND[wall.surface], { position: wall.point, volume: 0.8, pitchJitter: 0.08 });
+    c.world.objects?.damageExplosive(wall.collider, p.damage, p.source);
+    this.combat.exitWall(this.exit, dir, this.exitNormal, wall.surface, 1);
+    p.position.copy(this.exit).addScaledVector(dir, 0.02);
+    p.damage = p.baseDamage * damageKept(p.budget);
+    // Whoever stood against the near face has had their turn. Beyond the wall the round is new to everyone.
+    p.lastHit = -1;
+    return true;
   }
 
   private stakeLands(p: Projectile, wall: RayHit): void {

@@ -6,7 +6,7 @@
 import { Kit } from '../kit/kit';
 import { Model } from '../kit/model';
 import { F } from '../kit/finishes';
-import type { Mesher } from '../kit/mesher';
+import type { Finish, Mesher } from '../kit/mesher';
 import { circle, curve, poly, rect, slot, slotRow, type V2 } from '../kit/shapes';
 import { hexX, knurl, rail, rivet, screwX } from '../kit/details';
 import { bump, hold, inOut, inQuad, outCubic, seg, thud } from '../curves';
@@ -22,13 +22,32 @@ const BELT_Z = -0.095;
 const BELT_TOP = 0.092;
 const BARREL_TRAVEL = 0.07;
 
-function receiver(m: Mesher): void {
+/**
+ * The Sabot is the same cannon set up for darts: a smooth tube under a long ported sleeve where the Thirty has its
+ * baffles, blue-banded rounds with a tungsten rod where the Thirty's are yellow-tipped, cold blue glass. Everything
+ * the hands touch is in the same place, so the two share one reload and one draw. The shot is its own: see `Action`.
+ */
+interface Look {
+  ap: boolean;
+  /** Side armour. */
+  plate: Finish;
+  /** Paint on the cover latch and charging handle. */
+  accent: Finish;
+  caliber: string;
+  stripe: number;
+}
+
+const AP_BLUE: Finish = { color: 0x1d4f93, rough: 0.42, metal: 0.1, wear: 0.9 };
+const HE: Look = { ap: false, plate: F.anodized, accent: F.red, caliber: 'cal30', stripe: 0xc9a227 };
+const AP: Look = { ap: true, plate: { color: 0x2a3442, rough: 0.44, metal: 0.35, wear: 0.85 }, accent: AP_BLUE, caliber: 'cal30ap', stripe: 0x3f8fe0 };
+
+function receiver(m: Mesher, look: Look): void {
   m.use(F.parkerized);
   m.side(poly([[0.205, 0.004], [0.208, 0.112, 0.008], [0.176, 0.142, 0.012], [-0.25, 0.142, 0.008], [-0.268, 0.122, 0.006], [-0.268, 0.02, 0.008], [-0.22, -0.002, 0.008]], 0.003), 0.1, { bevel: 0.0032 });
 
   // Stepped side armour: three layers of plate so the big flat flank has real depth.
   const armour = poly([[0.19, 0.018], [0.192, 0.1, 0.006], [0.168, 0.126, 0.008], [-0.238, 0.126, 0.006], [-0.25, 0.11, 0.006], [-0.25, 0.024, 0.006], [-0.21, 0.012, 0.006]], 0.0025);
-  m.use(F.anodized);
+  m.use(look.plate);
   m.mirror(() => m.at([0.0515, 0, 0], null, () => m.side(armour, 0.004, {
     bevel: 0.0011,
     holes: [...slotRow(-0.225, 0.04, -0.13, 0.04, 6, 0.042, 0.0085, Math.PI / 2), slot(0.17, 0.104, 0.025, 0.104, 0.0052, 3)],
@@ -44,9 +63,9 @@ function receiver(m: Mesher): void {
   m.use(F.anodized);
   m.at([0, 0.1445, -0.14], null, () => m.top(rect(-0.04, -0.125, 0.04, 0.115, 0.006), 0.005, { bevel: 0.0014 }));
   m.at([0, 0.147, -0.14], null, () => rail(m, 0.105, -0.115, 0.0212, F.anodized));
-  m.at([-0.0528, 0.056, 0.12], [0, -Math.PI / 2, 0], () => m.decal('cal30', 0.082, 0.0125, 0xc4c8cc));
+  m.at([-0.0528, 0.056, 0.12], [0, -Math.PI / 2, 0], () => m.decal(look.caliber, look.ap ? 0.1 : 0.082, 0.0125, 0xc4c8cc));
   m.at([-0.0528, 0.034, 0.1], [0, -Math.PI / 2, 0], () => m.decal('crucible', 0.11, 0.0145, 0x9aa0a6));
-  m.at([-0.0528, 0.0755, 0.134], [0, -Math.PI / 2, 0], () => m.decal('hazard', 0.1, 0.012, 0xc9a227));
+  m.at([-0.0528, 0.0755, 0.134], [0, -Math.PI / 2, 0], () => m.decal('hazard', 0.1, 0.012, look.stripe));
   // Rear readout, angled up at the eye.
   m.at([-0.03, 0.1455, 0.13], [-Math.PI / 2 + 0.12, 0, 0], () => {
     m.use(F.polymer);
@@ -133,18 +152,25 @@ function scope(m: Mesher): void {
   });
 }
 
-function barrel(m: Mesher): void {
+function barrel(m: Mesher, look: Look): void {
   m.part('barrel', [0, BORE, -0.268], () => {
     const zEnd = -0.56;
     m.use(F.barrel);
     m.lathe([[0.033, 0.03, 0], [0.033, -0.04], [0.0285, -0.046], [0.0285, -0.08, 0]], 24);
     // Fluted: real ribs down the tube, so the barrel catches a run of highlights instead of one.
     const flutes = 8;
-    m.surface(flutes * 6, 18, (u, v, out) => {
-      const a = u * Math.PI * 2;
-      const r = 0.0272 + 0.0022 * Math.cos(a * flutes) ** 2;
-      out.set(Math.cos(a) * r, Math.sin(a) * r, -0.08 + v * (zEnd + 0.08));
-    }, { wrapU: true, flip: true });
+    if (look.ap) {
+      // Smoothbore: a plain heavy tube, stepped once, with a blue band so nobody loads it with the wrong belt.
+      m.lathe([[0.0285, -0.08, 0], [0.0285, -0.3], [0.0262, -0.306], [0.0262, zEnd, 0]], 26);
+      m.use(AP_BLUE);
+      m.lathe([[0.0266, -0.34, 0], [0.0274, -0.342], [0.0274, -0.372], [0.0266, -0.374, 0]], 26, { chamfer: 0.0004 });
+    } else {
+      m.surface(flutes * 6, 18, (u, v, out) => {
+        const a = u * Math.PI * 2;
+        const r = 0.0272 + 0.0022 * Math.cos(a * flutes) ** 2;
+        out.set(Math.cos(a) * r, Math.sin(a) * r, -0.08 + v * (zEnd + 0.08));
+      }, { wrapU: true, flip: true });
+    }
     m.use(F.steelDark);
     // Collar where the buffer rods land.
     m.at([0, 0.009, -0.17], null, () => m.front(poly([[-0.058, -0.016], [0.058, -0.016], [0.058, 0.016, 0.012], [0.03, 0.03, 0.006], [-0.03, 0.03, 0.006], [-0.058, 0.016, 0.012]], 0.004), 0.018, { bevel: 0.002, holes: [circle(0, -0.009, 0.0285, 22)] }));
@@ -155,6 +181,10 @@ function barrel(m: Mesher): void {
     }
     // Muzzle brake: four flared baffles on two spines.
     const zb = zEnd;
+    if (look.ap) {
+      sleeve(m, zb);
+      return;
+    }
     m.use(F.barrelBlack);
     m.lathe([[0.0288, zb + 0.02, 0], [0.034, zb + 0.016], [0.034, zb - 0.015], [0.0288, zb - 0.02, 0]], 24);
     const baffle = (w: number, h: number, depth: number) => {
@@ -181,6 +211,35 @@ function barrel(m: Mesher): void {
   });
 }
 
+/** The Sabot's muzzle: a long pepperpot sleeve, three rings of ports, the same length as the Thirty's brake. */
+function sleeve(m: Mesher, zb: number): void {
+  m.use(F.barrelBlack);
+  m.lathe([[0.0262, zb + 0.02, 0], [0.039, zb + 0.008], [0.039, zb - 0.196], [0.035, zb - 0.222], [0.031, zb - 0.226], [0.0215, zb - 0.226, 0]], 28, { chamfer: 0.0012 });
+  m.use(F.steelDark);
+  for (const z of [zb - 0.012, zb - 0.1, zb - 0.188]) m.at([0, 0, z], null, () => m.lathe([[0.039, 0.007, 0], [0.0412, 0.005], [0.0412, -0.005], [0.039, -0.007, 0]], 28, { chamfer: 0.0006 }));
+  m.use(F.black);
+  for (let row = 0; row < 2; row++) {
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2 + row * (Math.PI / 8);
+      for (let k = 0; k < 3; k++) {
+        const z = zb - 0.034 - row * 0.088 - k * 0.02;
+        m.at([Math.cos(a) * 0.0388, Math.sin(a) * 0.0388, z], [0, 0, a], () => m.box(0.0012, 0.0105, 0.0125, 0.0003));
+      }
+    }
+  }
+  m.at([0, 0, zb - 0.1], null, () => m.lathe([[0.0215, 0.09, 0], [0.0215, -0.126, 0]], 18));
+}
+
+/** A fin-stabilised dart in its sabot: the case is the Thirty's, everything ahead of it is not. */
+function dart(m: Mesher): void {
+  m.use(F.brass);
+  m.lathe([[0, 0.1, 0], [0.0165, 0.1], [0.0165, 0.094], [0.0148, 0.092], [0.015, 0.088], [0.0152, -0.012], [0.0128, -0.028], [0.0118, -0.03, 0]], 18, { chamfer: 0.0006 });
+  m.use(AP_BLUE);
+  m.lathe([[0.0118, -0.03, 0], [0.0118, -0.05], [0.0126, -0.052], [0.0126, -0.062], [0.0106, -0.066], [0.0062, -0.07, 0]], 18, { chamfer: 0.0004 });
+  m.use({ color: 0x565a60, rough: 0.3, metal: 1, wear: 0.1 });
+  m.lathe([[0.0046, -0.07, 0], [0.0046, -0.1], [0.0026, -0.116], [0, -0.122, 0]], 12, { chamfer: 0 });
+}
+
 function shell(m: Mesher): void {
   // A 30 mm round lying along Z with its head at +Z. Scaled to read at arm's length, not to fit a NATO drawing.
   m.use(F.brass);
@@ -191,11 +250,12 @@ function shell(m: Mesher): void {
   m.lathe([[0.0085, -0.098, 0], [0.0055, -0.11], [0.0022, -0.119], [0, -0.12, 0]], 18, { chamfer: 0 });
 }
 
-function belt(m: Mesher): void {
+function belt(m: Mesher, look: Look): void {
   m.part('belt', [BELT_X, BELT_TOP, BELT_Z], () => {
     for (let i = 0; i < ROUNDS.length; i++) {
       m.part(ROUNDS[i]!, [0, -i * PITCH, 0], () => {
-        shell(m);
+        if (look.ap) dart(m);
+        else shell(m);
         // Steel link clipped round the case.
         m.use(F.steelDark);
         for (const z of [0.05, -0.002]) m.at([0, 0, z], null, () => m.lathe([[0.0156, 0.0065, 0], [0.0176, 0.0065], [0.0176, -0.0065], [0.0156, -0.0065, 0]], 18, { a0: -0.7, a1: Math.PI + 0.7, chamfer: 0.0005 }));
@@ -223,7 +283,7 @@ function feed(m: Mesher): void {
 }
 
 /** The hood the belt climbs into. It hinges along the receiver's top edge, and is the door a new belt goes in through. */
-function cover(m: Mesher): void {
+function cover(m: Mesher, look: Look): void {
   m.part('cover', [-0.05, 0.142, BELT_Z], () => {
     m.use(F.anodized);
     m.at([-0.0235, -0.024, 0], null, () => {
@@ -231,7 +291,7 @@ function cover(m: Mesher): void {
       m.use(F.anodizedGrey);
       for (const z of [-0.058, 0.058]) m.at([0, 0, z], null, () => m.front(poly([[-0.0275, -0.022], [0.023, -0.022], [0.023, 0.026, 0.004], [-0.01, 0.026, 0.008], [-0.0275, 0.009, 0.008]], 0.003), 0.012, { bevel: 0.0014 }));
       screwX(m, -0.0268, 0.0, 0.0, -1, 0.0028);
-      m.use(F.red);
+      m.use(look.accent);
       m.at([-0.0285, -0.006, 0], null, () => m.box(0.0055, 0.012, 0.04, 0.0014, 0.002));
     });
     m.use(F.steel);
@@ -239,12 +299,12 @@ function cover(m: Mesher): void {
   });
 }
 
-function charge(m: Mesher): void {
+function charge(m: Mesher, look: Look): void {
   m.part('charge', [-0.0575, 0.104, 0.06], () => {
     m.use(F.steelDark);
     m.at([0.002, 0, 0], null, () => m.box(0.008, 0.0078, 0.024, 0.0012));
     m.at([-0.012, 0, 0], [0, Math.PI / 2, 0], () => m.cyl(0.0048, 0.02, 12));
-    m.use(F.red);
+    m.use(look.accent);
     m.at([-0.026, 0, 0], null, () => {
       const t: V2[] = [[-0.022, -0.0052], [0.022, -0.0052], [0.022, 0.0052], [-0.022, 0.0052]];
       m.top(t.map(p => [p[1], p[0]] as V2), 0.011, { bevel: 0.0022 });
@@ -252,23 +312,23 @@ function charge(m: Mesher): void {
   });
 }
 
-function buildCannon(kit: Kit): Model {
+function buildCannon(kit: Kit, look: Look): Model {
   const m = kit.mesher();
   m.bevel = 0.0018;
-  receiver(m);
+  receiver(m, look);
   buffers(m);
   scope(m);
   feed(m);
-  barrel(m);
-  belt(m);
-  cover(m);
-  charge(m);
+  barrel(m, look);
+  belt(m, look);
+  cover(m, look);
+  charge(m, look);
   m.part('trigger', [0, -0.018, -0.002], () => {
     m.use(F.steelDark);
     m.side(poly([[-0.0035, 0.002], [0.0035, 0.002], [0.002, -0.009, 0.002], [0.0038, -0.0205, 0.0015], [0.0005, -0.0215, 0.001], [-0.0035, -0.0095, 0.003]], 0.001), 0.0065, { bevel: 0.0007 });
   });
   const model = new Model(m, kit.mats, {
-    glows: { scope: [0xff3a22, 2.4] },
+    glows: { scope: [look.ap ? 0x39b8ff : 0xff3a22, 2.4] },
     screens: { ammo: [176, 88] },
   });
   model.socket('muzzle', [0, BORE, -0.268 - 0.79]);
@@ -281,13 +341,32 @@ function buildCannon(kit: Kit): Model {
   return model;
 }
 
-function clip(a: Anim): void {
+/** How the gun works on a shot. */
+interface Action {
+  /** How far the barrel runs back, and how long it takes to come home. */
+  travel: number;
+  home: number;
+  /** How far the charging handle is thrown back with it. */
+  handle: number;
+}
+
+/** The Thirty's brake bleeds the shot off at the muzzle: a short stroke, home before the next round at 0.15 s. */
+const SHORT_RECOIL: Action = { travel: BARREL_TRAVEL, home: 0.14, handle: 0 };
+/**
+ * The Sabot has no brake, only a sleeve. The whole barrel runs back half as far again, takes the handle with it, and rides
+ * home on its buffers through most of the 0.45 s before the next dart.
+ */
+const LONG_RECOIL: Action = { travel: 0.105, home: 0.36, handle: 0.05 };
+
+const clip = (act: Action) => (a: Anim): void => {
   const P = a.parts;
   pullTrigger(a, 0.08);
   const t = a.sinceFire;
-  // Peak on the frame of the shot, home before the next one at 0.15 s.
-  const kick = t < 0.14 ? (1 - t / 0.14) ** 2 : 0;
-  P.barrel!.position.z += kick * BARREL_TRAVEL;
+  // Peak on the frame of the shot, home before the next one.
+  const kick = t < act.home ? (1 - t / act.home) ** 2 : 0;
+  P.barrel!.position.z += kick * act.travel;
+  // Thrown back with the barrel, and home well before it.
+  if (act.handle > 0) P.charge!.position.z += (t < act.home * 0.5 ? (1 - t / (act.home * 0.5)) ** 2 : 0) * act.handle;
   a.glow('scope', 1);
 
   const p = a.reload;
@@ -334,19 +413,35 @@ function clip(a: Anim): void {
     h.shape(HANDS.foregrip, hold(p, 0.68, 0.74, 0.9, 0.95));
   }
   P.belt!.position.y += lift;
-}
+};
 
 export function autocannonDef(kit: Kit): ViewDef {
   return {
     id: 'autocannon',
-    model: buildCannon(kit),
+    model: buildCannon(kit, HE),
     pos: [0.235, -0.27, -0.46],
     rot: [0.012, 0.05, 0],
     recoil: { back: 0.1, lift: 0.024, pitch: 0.12, yaw: 0.016, roll: 0.05, omega: 28, zeta: 0.5 },
     right: { socket: 'gripR', pose: HANDS.grip },
     left: { socket: 'gripL', pose: HANDS.foregrip },
     heatPerShot: 0.16,
-    animate: clip,
+    animate: clip(SHORT_RECOIL),
     readout: a => drawCount(a, 'ammo', 1, 5, '#ffb43a'),
+  };
+}
+
+/** Slot 4's second member. More travel in the hands and in the barrel than the Thirty: nothing bleeds the recoil off at the muzzle. */
+export function sabotDef(kit: Kit): ViewDef {
+  return {
+    id: 'sabot',
+    model: buildCannon(kit, AP),
+    pos: [0.235, -0.27, -0.46],
+    rot: [0.012, 0.05, 0],
+    recoil: { back: 0.12, lift: 0.02, pitch: 0.1, yaw: 0.012, roll: 0.04, omega: 30, zeta: 0.46 },
+    right: { socket: 'gripR', pose: HANDS.grip },
+    left: { socket: 'gripL', pose: HANDS.foregrip },
+    heatPerShot: 0.2,
+    animate: clip(LONG_RECOIL),
+    readout: a => drawCount(a, 'ammo', 1, 5, '#5ac8ff'),
   };
 }

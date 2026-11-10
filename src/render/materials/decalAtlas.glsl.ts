@@ -82,6 +82,28 @@ void bulletHole(vec2 p, uint seed, inout Surf s) {
   s.extra = clamp(max(max(hole, crater * 0.96), max(cracks * 0.9, soot * 0.62)), 0.0, 1.0);
 }
 
+// Where a round came out of a wall. The far face spalls: a ragged crater of freshly broken material several times the
+// width of the hole, with flakes thrown out past its edge. It is pale on purpose, the only light mark in the atlas, so it
+// reads on a wall in shadow where the other marks are black on black.
+void exitHole(vec2 p, uint seed, inout Surf s) {
+  float r = length(p);
+  float ang = atan(p.y, p.x);
+  float wob = angularNoise(ang, 7, seed) * 0.24 + angularNoise(ang, 19, seed + 1u) * 0.12;
+  float hole = 1.0 - smoothstep(0.1, 0.14, r * (1.0 + wob * 0.5));
+  float reach = 0.46 * (1.0 + wob);
+  float spall = 1.0 - smoothstep(reach * 0.78, reach, r);
+  float grit = fbm(p * 0.5 + 0.5, ivec2(34), 4, seed + 2u);
+  // Flakes past the rim, thinning with distance.
+  float flakes = smoothstep(0.6, 0.72, fbm(p * 0.5 + 0.5, ivec2(22), 3, seed + 3u)) * (1.0 - smoothstep(reach, reach + 0.36, r));
+  float rim = exp(-pow((r - reach) / 0.05, 2.0));
+  s.height = 0.5 - hole * 0.46 - spall * (0.14 + grit * 0.08) + rim * 0.04;
+  vec3 broken = vec3(0.5, 0.48, 0.45) * (0.72 + grit * 0.5);
+  s.albedo = mix(broken, vec3(0.004), max(hole, (1.0 - smoothstep(0.1, 0.24, r)) * 0.7));
+  s.rough = 0.9;
+  s.metal = 0.0;
+  s.extra = clamp(max(max(hole, spall * 0.97), flakes * 0.85), 0.0, 1.0);
+}
+
 void scorchMark(vec2 p, uint seed, inout Surf s) {
   float r = length(p);
   float ang = atan(p.y, p.x);
@@ -170,7 +192,8 @@ Surf surface_decals(vec2 uv) {
   // Margin keeps every shape away from the cell border.
   vec2 p = (fract(g) * 2.0 - 1.0) * 1.08;
   uint seed = uint(cell) * 13u + 200u;
-  if (cell < 2) bulletHole(p, seed, s);
+  if (cell < 1) bulletHole(p, seed, s);
+  else if (cell < 2) exitHole(p, seed, s);
   else if (cell < 4) scorchMark(p, seed, s);
   else if (cell < 8) {
     float f = bloodField(p, seed, cell == 4 ? 0.26 : cell == 5 ? 0.34 : cell == 6 ? 0.2 : 0.3, 38);
