@@ -42,6 +42,11 @@ export interface BoneDef {
   region: GoreRegion;
   /** Hit capsule in bone space. Omitted bones cannot be hit directly. */
   hit?: { from: Vec3Tuple; to: Vec3Tuple; radius: number };
+  /**
+   * The ragdoll's collider, where that differs from `hit`. Hits, mass, cuts and slices keep reading `hit`: this changes
+   * only what the body rests on.
+   */
+  collider?: { from: Vec3Tuple; to: Vec3Tuple; radius: number };
   /** True when the joint to the parent can be cut. Everything below it comes off with it. */
   severable?: boolean;
   /** 'body' gets a rigid body in a ragdoll; 'merge' rides rigidly on its parent's body. */
@@ -122,6 +127,9 @@ export function humanoidRig(id: string, p: Partial<HumanoidProportions> = {}): R
     {
       name: footName, parent: baseIndex + 1, offset: v(0, -0.42, 0), region: lowerRegion, ragdoll: 'merge',
       hit: { from: v(0, -0.03, -0.04), to: v(0, -0.05, 0.16), radius: 0.05 * s },
+      // A ball at the heel, under the ankle. On the whole sole a dead shin stood up by itself like a boot, and the body
+      // sat down on its heels; on a ball it tips, and the knees go.
+      collider: { from: v(0, -0.03, 0), to: v(0, -0.03, 0.001), radius: 0.05 * s },
       relax: [0.4, 0, 0],
     },
   ];

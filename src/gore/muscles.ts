@@ -63,7 +63,10 @@ declare module '../core/contracts' {
   interface RagdollOptions {
     /** The hit that caused this, so limbs react too. Left out, it is worked out from `impulses`. */
     impact?: { dir: THREE.Vector3; strength: number };
-    /** Death twitching, 0..1. Defaults to 1 for a body with no head, 0 otherwise. */
+    /**
+     * Death twitching, 0..1. Defaults to 1 for a body with no head, 0 otherwise, except that a limp body with no head is
+     * a lethal headshot and takes `GoreTuning.headshotTwitch`, which is 0.
+     */
     twitch?: number;
     /** False runs this one body on hard limits, for comparison. Defaults to `MuscleTuning.enabled`. */
     muscles?: boolean;
@@ -90,6 +93,14 @@ declare module '../core/contracts' {
 }
 
 const flag = typeof location === 'undefined' ? null : new URLSearchParams(location.search).get('muscles');
+const weightFlag = typeof location === 'undefined' ? null : new URLSearchParams(location.search).get('weight');
+/**
+ * `?weight=0` puts back the bodies from before the weight pass, for comparison in motion: feet that stand on their soles, a
+ * collapse that holds up a third of its own weight, a lethal headshot that twitches, a head round that a stumbling body
+ * staggers on from, and a death that keeps only the stride, not the stagger. Read once, at load. Left on either way: the
+ * stagger and topple of a collapse coming in over 0.2 s, and the true seed speed of far bodies.
+ */
+export const WEIGHT_PASS = weightFlag !== '0';
 
 export const MuscleTuning = {
   /** ?muscles=0 turns the whole layer off, for comparison: hard limits, instant ragdolls, no reactions. */
@@ -126,6 +137,11 @@ export const MuscleTuning = {
   /** Rapier's own hinge stop sits this far past the rig limit: at the straight end, and at the folded end. */
   hardMarginStraight: 0.14,
   hardMarginFolded: 0.5,
+  /**
+   * The same at a knee's folded end. A tighter stop was tried with the heel ball, from 0.35 down to 0.1, with and without a
+   * braking zone before it: none laid a dead body out any longer, and every one propped it in a kneel for up to a second.
+   */
+  kneeMarginFolded: 0.5,
 
   /** Speed of the pull toward the resting pose, in rad/s of natural frequency. */
   neutralRate: 3.4,
@@ -189,12 +205,21 @@ export const MuscleTuning = {
   driveRelax: 0.9,
   /** Legs carry the body above them, not just themselves, by this share of its weight. */
   standShare: 0.6,
+  /**
+   * Share of the trunk's weight a collapse drops while its muscles still work, 0..1. At 1 a dying body held up a third of
+   * its own weight and was lowered at a steady 0.6 to 0.8 m/s. At 0 the spine's muscles hold the chest up and hand its
+   * weight down to the hips, where the hold and the legs carry it, so it sinks under its full weight from the first frame.
+   * Left on the chest itself, that weight pitched it over the hold and turned the hips up to 1.1 rad off the animation's.
+   * Arms and head still carry their own. 1 with `?weight=0`.
+   */
+  trunkCut: WEIGHT_PASS ? 0 : 1,
   /** Natural frequency and damping ratio of the hold on the hips. */
   hipRate: 11,
   hipDamping: 1,
-  /** Point in the collapse where the feet stumble, and how fast. */
+  /** Point in the collapse where the feet stumble, how fast, and over how many seconds that speed comes in. */
   stumbleAt: 0.42,
   stumbleSpeed: 1.3,
+  stumbleSeconds: 0.2,
   /** Above this speed, in m/s, a body staggers on the way it was going. Below it, anywhere. */
   stumbleOnward: 0.4,
   /** Spread on the stagger and the topple, so that no two go down alike. */
@@ -202,9 +227,13 @@ export const MuscleTuning = {
   fallSpreadMax: 1.25,
   /** Drift dies away at this rate, in 1/s, with nothing left to steer it. */
   driftDecay: 2.2,
-  /** Point where the torso tips the way it staggered, and how hard, in m/s. Folded straight down, a body sits. */
+  /**
+   * Point where the torso tips the way it staggered, how hard, in m/s, and over how many seconds. Folded straight down, a
+   * body sits. Given in one frame, it was a hit.
+   */
   toppleAt: 0.72,
   toppleSpeed: 1.6,
+  toppleSeconds: 0.2,
   /** A hit during a collapse brings the end this much closer: time runs this many times faster from then on. */
   dropPace: 4,
   /** Hit strength between which a collapse starts to give up. Below it a bullet jolts the body, and it goes on dying. */
@@ -355,6 +384,11 @@ export class CollapseDrive {
   readonly local: THREE.Quaternion[];
   /** Which way the body staggers, chosen when it does. */
   readonly away = new THREE.Vector3();
+  /** Seconds of the stagger and the topple still to come in, and how hard each is for this body. */
+  stumbleLeft = 0;
+  toppleLeft = 0;
+  stumbleSpread = 1;
+  toppleSpread = 1;
   weakLeg = 1;
   /** The leg that was shot goes first. Zero if it does not matter. */
   shotLeg = 0;
@@ -958,6 +992,15 @@ export class MuscleState {
     this.limp = MuscleTuning.toneRise;
   }
 
+  /**
+   * Every muscle gone on this frame, whatever the body was doing: a collapse ends where it stands, and nothing twitches.
+   * `letGo` is the same for a body that was down and alive.
+   */
+  giveUp(): void {
+    if (this.collapse) this.endCollapse();
+    this.twitch = 0;
+  }
+
   /** A body down and alive stops being one. What it was doing with its limbs ends here. */
   letGo(): void {
     if (!this.reflex) return;
@@ -1067,6 +1110,8 @@ export class MuscleState {
     }
     if (!drive.stumbled && u >= t.stumbleAt) this.stumble(drive);
     if (!drive.toppled && u >= t.toppleAt) this.topple(drive);
+    // On the collapse's own clock, so one a hit has hurried still gets all of both before it ends.
+    this.easeFall(drive, dt * drive.pace);
     drive.ghost.addScaledVector(drive.drift, dt);
     drive.drift.multiplyScalar(Math.exp(-t.driftDecay * dt));
 
@@ -1095,7 +1140,8 @@ export class MuscleState {
       const a = rng() * Math.PI * 2;
       drive.away.set(Math.cos(a), 0, Math.sin(a));
     }
-    drive.drift.addScaledVector(drive.away, MuscleTuning.stumbleSpeed * this.spread());
+    drive.stumbleSpread = this.spread();
+    drive.stumbleLeft = MuscleTuning.stumbleSeconds;
   }
 
   private spread(): number {
@@ -1104,16 +1150,36 @@ export class MuscleState {
 
   private topple(drive: CollapseDrive): void {
     drive.toppled = true;
-    // Whatever sits on the spine goes over, and takes the rest with it.
-    const parts = this.rag.parts;
-    for (let i = 0; i < parts.length; i++) {
-      const part = parts[i]!;
-      if (part.muscle!.role !== 'spine') continue;
-      const push = part.mass * MuscleTuning.toppleSpeed * this.spread();
-      _vec.x = drive.away.x * push;
-      _vec.y = 0;
-      _vec.z = drive.away.z * push;
-      part.body.applyImpulse(_vec, true);
+    drive.toppleSpread = this.spread();
+    drive.toppleLeft = MuscleTuning.toppleSeconds;
+  }
+
+  /**
+   * The stagger and the topple come in over a moment, never in one frame: nothing a hit does to a body that is still
+   * following its animation may land at once. `dt` is collapse time, so a collapse a hit has hurried four times over takes
+   * them in 0.05 s, three frames. One ended outright, by a round in the head, keeps what it had of them.
+   */
+  private easeFall(drive: CollapseDrive, dt: number): void {
+    const t = MuscleTuning;
+    if (drive.stumbleLeft > 0) {
+      const k = Math.min(dt, drive.stumbleLeft) / t.stumbleSeconds;
+      drive.stumbleLeft -= dt;
+      drive.drift.addScaledVector(drive.away, t.stumbleSpeed * drive.stumbleSpread * k);
+    }
+    if (drive.toppleLeft > 0) {
+      const k = Math.min(dt, drive.toppleLeft) / t.toppleSeconds;
+      drive.toppleLeft -= dt;
+      // Whatever sits on the spine goes over, and takes the rest with it.
+      const parts = this.rag.parts;
+      for (let i = 0; i < parts.length; i++) {
+        const part = parts[i]!;
+        if (part.muscle!.role !== 'spine') continue;
+        const push = part.mass * t.toppleSpeed * drive.toppleSpread * k;
+        _vec.x = drive.away.x * push;
+        _vec.y = 0;
+        _vec.z = drive.away.z * push;
+        part.body.applyImpulse(_vec, true);
+      }
     }
   }
 
@@ -1122,6 +1188,8 @@ export class MuscleState {
     const u = drive.time / drive.duration;
     drive.support = fade(t.supportFade, u, 0);
     const parts = this.rag.parts;
+    let root: RagPart | null = null;
+    let carried = 0;
     for (let i = 0; i < parts.length; i++) {
       const part = parts[i]!;
       const m = part.muscle!;
@@ -1133,10 +1201,18 @@ export class MuscleState {
       } else {
         m.drive = fade(m.role === 'head' ? t.headFade : m.role === 'arm' ? t.armFade : t.spineFade, u, 0);
       }
-      // A muscle that still works carries its own weight, which the solver then does not have to fight for it. Not
-      // the legs, whose feet need their weight on the floor for friction.
+      // A muscle that still works carries its own weight, which the solver then does not have to fight for it. Not the
+      // legs, whose feet need their weight on the floor for friction. The spine's muscles hand theirs down to the hips.
+      if (!part.parent) {
+        root = part;
+        continue;
+      }
       part.body.setGravityScale(m.role === 'leg' ? 1 : 1 - m.drive, false);
+      if (m.role === 'spine') carried += part.mass * m.drive;
     }
+    // The hips take the trunk's weight, and the hold and the legs under them carry it: the body goes down under its whole
+    // weight, with nothing bending the chest over.
+    if (root) root.body.setGravityScale(1 - t.trunkCut * root.muscle!.drive + ((1 - t.trunkCut) * carried) / root.mass, false);
   }
 
   /** Reads joint targets out of the bones the animator just wrote. */

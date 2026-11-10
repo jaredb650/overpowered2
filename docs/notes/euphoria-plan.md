@@ -296,6 +296,14 @@ Also run `scenario=fall`, `scenario=collapse` and `scenario=stairs`, each with `
 - Campaign headshots with anatomy lose their twitch. That follows the owner's words, "no unnecessary animation".
 - Edits in `damageCorpse` and `sever` sit beside lane 2's audio lines.
 
+**As built (2026-11-09), where it differs from the above.** Numbers are in `gore.md` and `lab.md`.
+- 1.2: no knee stop. The sweep found no margin that met all three targets, and every stop and braking zone propped bodies in a kneel. The heel ships alone with `kneeMarginFolded` 0.5, so bodies end folded (Trooper head to foot 0.75 m against 0.96): the owner's call at the hand-off.
+- 1.0: the knockdown guard passes at 0.4 m, not 0.2. The wound is 0.78 m from the shoulder and the wrist reaches 0.56 m; it measures 0.24 to 0.31 m, and 0.53 to 0.66 m with the arm cut.
+- 1.3: the twitch default is `severed.has('head') ? (limp ? headshotTwitch : 1) : 0`, so a blade decapitation still twitches and `?weight=0` twitches exactly as before. `HEADSHOT_TWITCH` is switched too.
+- 1.5: the trunk's weight goes onto the hips (raised gravity on the root, the spine's own cut as the arms'), not onto the chest. On the chest it pitched the hips up to 1.1 rad off the animation and failed 'tracks the animation steadily' one run in ten. 'holds the pose at first...' now asks for hips above 0.55 of standing height, not 0.75: the body sinks from the first frame, to 0.64 to 0.72 there. The ramps run on the collapse's own clock.
+- 1.6: the probe step alone missed its target, so the animator also keeps the level of detail it last drew at and spends a far body's saved frames first (`catchUp`). `deathVelocity` keeps at most 0.6 m/s of reel and knockback, and nothing the same frame's rounds added: kept whole, the SMG kill at 8 m landed twice as far. `?weight=0` switches it, and the head round that ends a collapse, so every one of the owner's tries compares.
+- Tests: 'lies still' counts from 1 s, as the probe does, since from the moment the hips pass 0.4 m it counts the landing. 'lies at length' became 'lies flat'. `fracture.test.ts` kicks the knee backward: forward, it was forced through the toe of the old foot capsule.
+
 ---
 
 ## Stage 2. Tempo: a dial for how fast a body falls

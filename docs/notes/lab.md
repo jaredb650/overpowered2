@@ -87,6 +87,16 @@ Sword kills slice, so they have no throw to measure. The Kiln is 1 N·s.
 | Shotgun, 8 m | 0.6 | 0.6 |
 | SMG, kill at 8 m | 0.8 to 1.0 | 0.7 |
 
+**After the weight pass** (2026-11-09). A death now keeps the stagger and knockback it was in, up to 0.6 m/s (`DEATH_CARRY` in `damage.ts`), and not what rounds of the same frame added. `?weight=0` keeps only the stride, as before. In one session, metres to the hips at rest, and from where it died:
+
+| Case | Weight pass | `?weight=0` |
+|---|---|---|
+| SMG, kill at 8 m (9 and 8 runs) | 0.79 to 1.40, mean 1.12; 0.45 to 1.06 from death | 0.64 to 1.08, mean 0.84; 0.29 to 0.73 |
+| Shotgun, 2 m (4 and 3 runs) | 1.59 to 3.24 | 1.44 to 2.84 |
+| Shotgun, 8 m (4 and 3 runs) | 0.38 to 0.87 | 0.54 to 0.71 from death |
+
+SMG rounds are six frames apart, so the same-frame rule never meets an SMG kill, and five of its nine runs predate it. Kept whole, as the weight pass first had it, the SMG kill at 8 m went 1.71 to 1.91 m (1.39 to 1.58 from death) against 1.00 to 1.21 on the code before it, because the Trooper staggers on the second round and dies on the third. Capped at 0.6 m/s but with the pellets of one shot still counted, the shotgun at 8 m went 0.75 to 1.06.
+
 **`lab-throw` under-reports survivors.** It measures at rest, and by then a body with AI off has got up and gone back to its post: the same rocket at 4 m reads 1.5 m there. Trust the table above for anyone who lived.
 
 ## Contact, measured

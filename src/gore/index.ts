@@ -18,7 +18,7 @@ import { WEAPONS } from '../weapons/data';
 import { BloodField, BloodTuning } from './blood';
 import { ChunkField, scatter } from './chunks';
 import { ImpactEvents, impactKind, ImpactTuning } from './impacts';
-import { CollapseDrive, impactStrength, MuscleTuning, type CollapseOptions, type DownedBody, type KnockdownOptions } from './muscles';
+import { CollapseDrive, impactStrength, MuscleTuning, WEIGHT_PASS, type CollapseOptions, type DownedBody, type KnockdownOptions } from './muscles';
 import { BodyFilter, fillVelocity, LimbFilter, measureAnimVelocity, Rag, SEED_STRIDE } from './rag';
 import { boneRay, boneRayContact, nextCapsuleHit, rayBones, rayNearSphere } from './raycast';
 import { Reflex } from './reflex';
@@ -67,6 +67,11 @@ export const GoreTuning = {
   stumpSeconds: 4.5,
   /** Damage at or above this bursts the head. Below it the head pops off whole. */
   headBurstDamage: 40,
+  /**
+   * Twitching after a lethal headshot, 0..1. A body dropped like a sack lies still: twitching kept one stirring for 3 to 4 s
+   * after it landed. A head lost any other way, to a blade, still twitches. 1 with `?weight=0`.
+   */
+  headshotTwitch: WEIGHT_PASS ? 0 : 1,
   /** Even a clean cut sets a limb tumbling, whatever the strength of the hit. */
   limbImpactFloor: 0.3,
   /** Hit strength of losing a limb, to a body going down. */
@@ -584,7 +589,7 @@ export class Gore implements GoreSystem {
       }
     }
     this.strike(body.rag, options, 1);
-    const twitch = options?.twitch ?? (char.severed.has('head') ? 1 : 0);
+    const twitch = options?.twitch ?? (char.severed.has('head') ? (options?.limp ? GoreTuning.headshotTwitch : 1) : 0);
     if (twitch > 0 && !isMachine(char)) body.rag.muscle?.startTwitch(twitch);
     this.enforceBudget();
   }
@@ -741,8 +746,10 @@ export class Gore implements GoreSystem {
     limb.rag.applyImpulse(damage.bone !== undefined && _mask[damage.bone] === 1 ? damage.bone : bone, damage.point, _v);
     const impact = impactStrength(forceOf(damage), info.mass);
     limb.rag.muscle?.kick(damage.dir, Math.max(impact, GoreTuning.limbImpactFloor));
-    // A body that is losing limbs to gunfire is being shot, and that is no reason to stop showing it.
-    body?.rag?.muscle?.struck(Math.max(impact, GoreTuning.limbLossShock));
+    // A body that is losing limbs to gunfire is being shot, and that is no reason to stop showing it. Losing its head is:
+    // one still on its feet drops on this frame.
+    if (WEIGHT_PASS && region === 'head' && body?.rag?.muscle?.collapse) body.rag.goLimp();
+    else body?.rag?.muscle?.struck(Math.max(impact, GoreTuning.limbLossShock));
     body?.rag?.muscle?.kick(damage.dir, impact * MuscleTuning.corpseImpact);
 
     this.startStump(char, bone, 1);
@@ -1116,7 +1123,13 @@ export class Gore implements GoreSystem {
         target.smearAt.copy(target.rag.center);
       }
       const muscle = target.rag?.muscle;
-      const drive = muscle?.collapse;
+      let drive = muscle?.collapse ?? null;
+      // A round in the head of a body still on its feet drops it on this frame, and all of the round lands on the head:
+      // nothing is left to carry it or flinch at it. Not with `?weight=0`, where it staggers on.
+      if (WEIGHT_PASS && drive && hit.region === 'head') {
+        target.rag!.goLimp();
+        drive = null;
+      }
       // On its feet the hips are held, so all of a round on the chest only bends it backward over them. Most of it goes
       // into where the feet are heading instead, and under sustained fire the body is walked back by it.
       const onBone = drive ? 1 - MuscleTuning.carryShare : 1;

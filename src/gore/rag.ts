@@ -14,7 +14,7 @@ import { CG, type PhysicsSystem } from '../core/contracts';
 import { DevFlags } from '../core/devflags';
 import { groups } from '../physics/Physics';
 import type { BoneDef, RigDef } from '../characters/rig';
-import { invInertia, JointMuscle, MuscleState, MuscleTuning, splitSwing, swingReach, swingTwist } from './muscles';
+import { invInertia, JointMuscle, MuscleState, MuscleTuning, splitSwing, swingReach, swingTwist, WEIGHT_PASS } from './muscles';
 import { MAX_BONES, rigInfo, type RigInfo } from './rigInfo';
 
 export interface RagSource {
@@ -80,6 +80,11 @@ export const RagTuning = {
   angularDamping: 0.75,
   /** Hit capsules are generous for gunplay. Colliders are slimmer so limbs rest on the mesh surface. */
   colliderScale: 0.88,
+  /**
+   * Bones with a `collider` rest on that, not on their hit capsule: a foot on a ball at the heel, so a dead shin cannot
+   * stand up by itself on its sole. Off with `?weight=0`.
+   */
+  heelFeet: WEIGHT_PASS,
   /** Hard ceiling on any single body's speed change from one impulse. A forearm is a few kilos, so this is what keeps it on. */
   maxImpulseSpeed: 9,
   /** Fastest a blast can throw a whole chain, in m/s. At this speed a body lands about 5 m out. */
@@ -177,10 +182,12 @@ function readPose(src: RagSource, count: number, chainMask: Uint8Array | null): 
  * death, and it captures whatever the animation is doing: stride, flinch, recoil.
  */
 export function measureAnimVelocity(
-  src: RagSource, anim: { update(dt: number, lod: number, probing?: boolean): void }, velocity: THREE.Vector3 | null | undefined, out: Float32Array,
+  src: RagSource, anim: { update(dt: number, lod: number, probing?: boolean): void; catchUp?(): void }, velocity: THREE.Vector3 | null | undefined, out: Float32Array,
 ): void {
   const n = src.rig.bones.length;
   const h = 1 / 90;
+  // A far body's pose can be frames old, drawn under a root that has moved on since. Read from the present one.
+  anim.catchUp?.();
   // Animators can move the root too, for foot planting. That belongs to this probe, not to the pose.
   _rootPos.copy(src.root.position);
   _rootRot.copy(src.root.quaternion);
@@ -360,12 +367,14 @@ export class Rag {
         if (owner[b] !== part) continue;
         const hit = defs[b]!.hit;
         if (!hit) continue;
+        // What the body rests on. Its mass is still the share of the hit capsule's volume, so a foot keeps its weight.
+        const shape = (RagTuning.heelFeet ? defs[b]!.collider : undefined) ?? hit;
         // Capsule ends in this body's frame, through the bone that owns them.
-        _a.set(hit.from[0], hit.from[1], hit.from[2]).applyQuaternion(_rot[b]!).add(_pos[b]!).sub(p).applyQuaternion(_inv);
-        _b.set(hit.to[0], hit.to[1], hit.to[2]).applyQuaternion(_rot[b]!).add(_pos[b]!).sub(p).applyQuaternion(_inv);
+        _a.set(shape.from[0], shape.from[1], shape.from[2]).applyQuaternion(_rot[b]!).add(_pos[b]!).sub(p).applyQuaternion(_inv);
+        _b.set(shape.to[0], shape.to[1], shape.to[2]).applyQuaternion(_rot[b]!).add(_pos[b]!).sub(p).applyQuaternion(_inv);
         _c.copy(_b).sub(_a);
         const len = _c.length();
-        const radius = hit.radius * RagTuning.colliderScale;
+        const radius = shape.radius * RagTuning.colliderScale;
         const mass = Math.max((info.volume[b]! / Math.max(volume, 1e-6)) * totalMass, 0.05);
         const col = R.ColliderDesc.capsule(Math.max(len * 0.5, 1e-3), radius)
           .setTranslation((_a.x + _b.x) * 0.5, (_a.y + _b.y) * 0.5, (_a.z + _b.z) * 0.5)
@@ -441,8 +450,9 @@ export class Rag {
         let hi = -(joint.min ?? 0);
         if (build.muscles) {
           // The ligaments do the stopping. This is only there for what they cannot catch.
-          lo -= lo === 0 ? MuscleTuning.hardMarginStraight : MuscleTuning.hardMarginFolded;
-          hi += hi === 0 ? MuscleTuning.hardMarginStraight : MuscleTuning.hardMarginFolded;
+          const folded = joint.role === 'leg' ? MuscleTuning.kneeMarginFolded : MuscleTuning.hardMarginFolded;
+          lo -= lo === 0 ? MuscleTuning.hardMarginStraight : folded;
+          hi += hi === 0 ? MuscleTuning.hardMarginStraight : folded;
         }
         const current = hingeAngle(_rot[parent.bone]!, _rot[part.bone]!, _b);
         lo = Math.min(lo, current - 0.02);
@@ -636,10 +646,11 @@ export class Rag {
     }
   }
 
-  /** Every muscle gone on this frame, whatever it was doing. */
+  /** Every muscle gone on this frame, whatever it was doing: down and alive, still on its feet, or twitching. */
   goLimp(): void {
     this.slack = true;
     this.muscle?.letGo();
+    this.muscle?.giveUp();
   }
 
   applyImpulse(bone: number, point: THREE.Vector3, impulse: THREE.Vector3): void {

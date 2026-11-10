@@ -5,11 +5,14 @@
  *              side by side, hard limits on the left and muscles on the right, under identical input:
  *              limit | zerog | fall | stairsab | blast | lineup
  *              collapse: dropped, collapsing, collapsing on the move. twitch: still on the left, twitching on the right
+ *              weight: dropped, headshot, SMG collapse, Judge, in profile. Add weight=0 for the bodies before the weight pass
  *   arch       archetype to spawn, default husk. dummy=1 uses the capsule TestDummy instead.
  *   cam        x,y,z,tx,ty,tz camera override.
  *   q          render quality preset.
  *   hold       1 starts paused at frame 0, so a contact sheet is exact however long the page took to load.
  *   muscles    0 turns the muscle layer off everywhere, in any scenario.
+ *   weight     0 puts back the bodies from before the weight pass, in any scenario and in the game. The collapse's eased
+ *              stagger and topple and far bodies' true seed speed stay on: they are fixes, not a look.
  *
  * Time is fixed at 1/60 per frame, so a scenario plays the same every run. window.__gore gives a capture
  * script frame-exact control: hold(), step(n) and sheet(), which draws a contact sheet over the page.
@@ -480,6 +483,30 @@ const scenarios: Record<string, Scenario> = {
         s.gore.collapse(still!);
         s.gore.collapse(walker!, { velocity: v(2.2, 0, 0) });
       }
+    },
+  },
+  /**
+   * The weight pass: four deaths in profile, each shot from in front at frame 20. Dropped, a lethal headshot, an SMG
+   * collapse and a Judge round to the chest. `&weight=0` shows the same four from before it.
+   */
+  weight: {
+    camera: [0, 0.95, 3.7, 0, 0.6, 0],
+    setup(s) {
+      for (const x of [-3.9, -1.3, 1.3, 3.9]) s.place(x, 0, PROFILE);
+    },
+    frame(s, f) {
+      if (f !== 20) return;
+      const [dropped, headshot, collapse, judge] = s.row;
+      const back = v(-1, 0, 0);
+      s.gore.ragdoll(dropped!);
+      const a = s.aim(headshot!, B.head, bonePos(headshot!, B.head).add(v(4, 0, 0)));
+      if (a) s.gore.headshot(headshot!, s.damage(a.hit, a.dir, 50, 'bullet', 20));
+      s.gore.collapse(collapse!, { duration: 1.1, hit: { bone: B.chest, point: bonePos(collapse!, B.chest), dir: back, force: 20 } });
+      s.gore.ragdoll(judge!, { impulses: [{ bone: B.chest, point: bonePos(judge!, B.chest), impulse: v(-40, 6, 0) }] });
+    },
+    overlay(s, c, x, y, w, h) {
+      c.fillStyle = '#ffffffc0';
+      ['drop', 'headshot', 'collapse', 'judge'].forEach((name, i) => c.fillText(name, x + w * [0.05, 0.31, 0.58, 0.85][i]!, y + h - 8 * devicePixelRatio));
     },
   },
   /** Both dropped dead on muscles, only the one on the right twitching. */

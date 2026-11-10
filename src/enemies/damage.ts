@@ -15,6 +15,7 @@ import type { DamageResult, KillEvent } from '../core/gameplay';
 import { chance, clamp, lerp, pick, rand } from '../core/math';
 import { FACTIONS, type FactionRules } from '../contracts/data';
 import { ACTIVE } from '../contracts/select';
+import { WEIGHT_PASS } from '../gore/muscles';
 import { bursts, HEAVY_ROUND } from './wounds/rules';
 import { BLAST, OUTCOME_COUNT, OUTCOMES, rollBlast, tearsWaist, type BlastBody, type BlastRoll, type OutcomeRule } from './blast';
 import { ENEMIES, LIMB_SIZE, REGION_DAMAGE } from './data';
@@ -54,6 +55,16 @@ const BLEED_COLLAPSE_MAX = 2.6;
 /** How hard a body with anatomy twitches after a death that took it all at once, and one that came as a relief. */
 const SUDDEN_TWITCH = 1;
 const SLOW_TWITCH = 0.45;
+/** A lethal headshot drops him like a sack, and he lies still. A sudden death's twitch with `?weight=0`. */
+const HEADSHOT_TWITCH = WEIGHT_PASS ? 0 : SUDDEN_TWITCH;
+/**
+ * Most of its stagger and knockback a body keeps when it dies, in m/s. The living shed both within a second; a corpse
+ * slides on with whatever it is given. Kept whole, a stagger from the round before made an SMG kill at 8 m land twice as
+ * far, and the pellets of one shot added up to 10 m/s (that part is `unmoved` now). At 0.6, above
+ * `MuscleTuning.stumbleOnward`, a body killed mid-stagger still stumbles on the way it was going, and an SMG kill at 8 m
+ * lands about 0.3 m further than with none (`lab.md`).
+ */
+const DEATH_CARRY = 0.6;
 
 /** How hard each damage type works a limb pool, on top of the weapon's severMult. */
 const SEVER_FACTOR: Record<DamageType, number> = {
@@ -91,7 +102,45 @@ export const STRAY_TANK_RADIUS = 0.8;
 const TANK_SELF_DAMAGE = 0.35;
 const _v = new THREE.Vector3();
 const _n = new THREE.Vector3();
+const _dying = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0);
+
+/**
+ * How fast a body was really going when it died: its stride, the reel it was in and the knockback it was taking, and in the
+ * air, how fast it was falling. Movement steps by all three on the ground, so a body killed mid-stagger keeps going the way
+ * it was, up to `DEATH_CARRY`. What hits at world time `now` added, it has not stepped with yet, and does not keep. In the
+ * air only the stride moves it. With `?weight=0`, the stride alone, as before the weight pass.
+ */
+export function deathVelocity(e: Enemy, out: THREE.Vector3, now = Number.NaN): THREE.Vector3 {
+  if (!WEIGHT_PASS) return out.copy(e.velocity);
+  out.set(e.velocity.x, e.airborne ? e.verticalSpeed : e.velocity.y, e.velocity.z);
+  if (e.airborne) return out;
+  let x = e.reel.x + e.push.x;
+  let z = e.reel.z + e.push.z;
+  if (e.unmovedAt === now) {
+    const ux = x - e.unmoved.x;
+    const uz = z - e.unmoved.z;
+    // A knockdown or a trip since may have cleared or turned it: then nothing it stepped with is left.
+    if (ux * x + uz * z > 0) {
+      x = ux;
+      z = uz;
+    } else x = z = 0;
+  }
+  const k = Math.min(1, DEATH_CARRY / Math.max(Math.hypot(x, z), 1e-6));
+  out.x += x * k;
+  out.z += z * k;
+  return out;
+}
+
+/** Reel or knockback a hit adds at world time `now`, which the body has not stepped with until its next frame. */
+function unmoved(e: Enemy, now: number, x: number, z: number): void {
+  if (e.unmovedAt !== now) {
+    e.unmovedAt = now;
+    e.unmoved.set(0, 0, 0);
+  }
+  e.unmoved.x += x;
+  e.unmoved.z += z;
+}
 
 function newResult(): DamageResult {
   return { dealt: 0, killed: false, headshot: false, severed: [], blocked: false };
@@ -303,7 +352,8 @@ export class DamageModel {
 
   sever(e: Enemy, region: GoreRegion, d: DamageInfo, res: DamageResult | null): void {
     const { ctx } = this.w;
-    const cut = ctx.gore.sever(e.char, e.def.severAt?.[region] ?? region, d, e.velocity);
+    // The limb leaves at the speed the body was going, the same as the body it leaves when this is a death.
+    const cut = ctx.gore.sever(e.char, e.def.severAt?.[region] ?? region, d, deathVelocity(e, _dying, this.w.now));
     if (!cut) return;
     ctx.audio.play('limb_sever', { position: cut.stump, pitchJitter: 0.08 });
     if (!e.def.machine) say(e, this.w, 'vox_scream', 0.8);
@@ -491,16 +541,16 @@ export class DamageModel {
       ctx.gore.slice(e.char, d.point, d.slicePlaneNormal, d);
     } else if (headshot && !e.def.machine && (e.rising > 0 || body?.floored)) {
       // Half up, or lying down, there is no head to burst from standing height.
-      this.ragdoll(e, d, force, body ? SUDDEN_TWITCH : undefined, true);
+      this.ragdoll(e, d, force, body ? HEADSHOT_TWITCH : undefined, true);
       if (!body || d.amount >= HEAD_BURST_DAMAGE) ctx.gore.sever(e.char, 'head', d);
     } else if (headshot && body && d.amount < HEAD_BURST_DAMAGE) {
       // A light round kills a man and leaves him his head. Popping it off every time is what "like clay" meant.
-      this.ragdoll(e, d, force, SUDDEN_TWITCH, true);
+      this.ragdoll(e, d, force, HEADSHOT_TWITCH, true);
     } else if (headshot && !e.def.machine) {
-      ctx.gore.headshot(e.char, d, e.velocity);
+      ctx.gore.headshot(e.char, d, deathVelocity(e, _dying, this.w.now));
       if (d.amount < HEAD_BURST_DAMAGE) ctx.audio.play('vox_choke', { position: e.center, pitch: e.def.voice.pitch });
     } else if (blast?.outcome === 'head' && DevFlags.gibbing) {
-      ctx.gore.headshot(e.char, d, e.velocity);
+      ctx.gore.headshot(e.char, d, deathVelocity(e, _dying, this.w.now));
     } else {
       if (blownUp && !DevFlags.explosiveDeaths) this.blastMaim(e, d);
       if (blast) this.blastDeath(e, d, res, blast);
@@ -565,7 +615,7 @@ export class DamageModel {
     const o = this.m.collapseOptions;
     o.duration = slowly ? rand(BLEED_COLLAPSE_MIN, BLEED_COLLAPSE_MAX) : rand(COLLAPSE_MIN, COLLAPSE_MAX);
     o.twitch = twitch;
-    o.velocity.copy(e.velocity);
+    deathVelocity(e, o.velocity, this.w.now);
     if (AREA_TYPES.has(d.type)) o.hit = undefined;
     else {
       const hit = this.m.collapseHit;
@@ -590,7 +640,7 @@ export class DamageModel {
     } else {
       this.m.ragdollOptions.impulses![0]!.impulse.set(0, 0, 0);
     }
-    this.m.ragdollOptions.velocity!.copy(e.velocity);
+    deathVelocity(e, this.m.ragdollOptions.velocity!, this.w.now);
     this.m.ragdollOptions.twitch = twitch;
     this.m.ragdollOptions.limp = limp;
     ctx.gore.ragdoll(e.char, this.m.ragdollOptions);
@@ -620,6 +670,7 @@ export class DamageModel {
     const shove = e.rising > 0 ? 0 : clamp((pushForce / e.def.hp) * SHOVE_GAIN, 0, SHOVE_MAX) * (e.isBoss ? 0.1 : 1);
     e.push.x += d.dir.x * shove;
     e.push.z += d.dir.z * shove;
+    unmoved(e, this.w.now, d.dir.x * shove, d.dir.z * shove);
 
     if (e.pinned) dropOff(e);
 
@@ -784,6 +835,7 @@ export class DamageModel {
       const speed = reel * (1 + strength * REEL_GAIN);
       e.reel.x += dir.x * speed;
       e.reel.z += dir.z * speed;
+      unmoved(e, this.w.now, dir.x * speed, dir.z * speed);
     } else {
       anim.play('stagger', 1);
     }

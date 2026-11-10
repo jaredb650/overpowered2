@@ -136,6 +136,29 @@ describe('knockdown', () => {
     });
   }
 
+  it('a body lying down reaches its wound', () => {
+    // A working muscle carries its own weight: the drive's held torque is far under what lifts an arm, so with the arm's
+    // gravity left on, the hand lies on the floor wherever it landed. The wound is 0.78 m from the shoulder and the wrist
+    // reaches 0.56 m, so the wrist gets to 0.24 to 0.31 m of it with the arm's weight carried, and 0.55 to 0.66 m without.
+    gore.clear();
+    const c = spawnLiving();
+    const thigh = () => at(c, B.thighL).add(at(c, B.shinL)).multiplyScalar(0.5);
+    gore.knockdown(c, { topple: v(0, 0, -1.7), lie: 2, hurt: 0.6, wound: { bone: B.thighL, point: thigh() } });
+    const reflex = ragOf(c).muscle!.reflex!;
+    let lying = 0;
+    let nearest = 9;
+    for (let f = 0; f < 60 * 4 && gore.downed(c); f++) {
+      frame(c);
+      if (reflex.phase !== 'lying') continue;
+      lying++;
+      const wound = thigh();
+      nearest = Math.min(nearest, at(c, B.handL).distanceTo(wound), at(c, B.handR).distanceTo(wound));
+    }
+    expect(lying).toBeGreaterThan(60);
+    expect(nearest).toBeLessThan(0.4);
+    gore.clear();
+  });
+
   it('reads face up and face down from how it landed', () => {
     gore.clear();
     const kinds: string[] = [];

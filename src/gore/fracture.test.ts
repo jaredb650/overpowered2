@@ -35,11 +35,14 @@ function spawn(x: number): TestDummy {
 /** Angle about the hinge, in the rig's sense: positive folds an elbow, negative folds a knee. */
 const hinge = (c: TestDummy, bone: number) => -2 * Math.atan2(c.bones[bone]!.quaternion.x, c.bones[bone]!.quaternion.w);
 
-/** Throws a dead body at the floor shin-first, so the knee is forced the way it should not go. */
+/**
+ * Throws a dead body at the floor with its knee kicked backward, so the knee is forced the way it should not go. Kicked
+ * forward it was forced back through the toe of the foot's capsule, and a body now stands on a ball at the heel.
+ */
 function fall(c: TestDummy): void {
   gore.ragdoll(c, {
     velocity: v(0, -2, 0),
-    impulses: [{ bone: B.shinL, point: new THREE.Vector3().setFromMatrixPosition(c.bones[B.shinL]!.matrixWorld), impulse: v(0, 0, 60) }],
+    impulses: [{ bone: B.shinL, point: new THREE.Vector3().setFromMatrixPosition(c.bones[B.shinL]!.matrixWorld), impulse: v(0, 0, -60) }],
   });
 }
 

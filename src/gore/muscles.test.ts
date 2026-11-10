@@ -476,7 +476,10 @@ describe('collapse', () => {
     expect(drive(B.shinL)).toBe(1);
     expect(drive(B.shinR)).toBeGreaterThan(0.9);
     expect(at(c, B.head).y).toBeLessThan(before[B.head]!.y - 0.05);
-    expect(at(c, B.hips).y).toBeGreaterThan(hips0 * 0.75);
+    // Held, but under the trunk's whole weight: it sinks from the first frame, to 0.64 to 0.72 of standing height here
+    // over 30 bodies. With a third of that weight switched off it stayed at 0.79 to 0.86, which is what 0.75 was for.
+    // Folded, the hips are under a third.
+    expect(at(c, B.hips).y).toBeGreaterThan(hips0 * 0.55);
     const frames = settle();
     expect(frames).toBeLessThan(60 * 5);
     expect(at(c, B.hips).y).toBeLessThan(0.45);
@@ -652,9 +655,11 @@ describe('a lethal headshot', () => {
   });
 
   it('twitches only once it has landed', () => {
+    // A lethal headshot lies still now, so this is a head lost to a blade: the other way a body ends up with no head.
     gore.clear();
     const c = caught(0, false);
-    gore.headshot(c, shot(c));
+    gore.sever(c, 'head', shot(c));
+    gore.ragdoll(c);
     const muscle = ragOf(c).muscle as unknown as { twitch: number; burstLeft: number; onFloor: boolean };
     expect(muscle.twitch).toBeGreaterThan(0);
     let burstAt = -1;

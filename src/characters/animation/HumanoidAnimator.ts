@@ -255,6 +255,8 @@ export class HumanoidAnimator implements CharacterAnimation {
   private readonly seed = Math.random() * 100;
   private acc = 0;
   private tickCount = Math.floor(Math.random() * 4);
+  /** Level of detail of the last real update, which a probe poses at. */
+  private lastLod = 0;
 
   private action: ActionState | null = null;
   private meleeFlip = 1;
@@ -624,13 +626,35 @@ export class HumanoidAnimator implements CharacterAnimation {
   /**
    * `probing` is gore stepping ahead to read how fast the body is moving. A limb gone a moment ago is not movement, so the plan
    * waits for the next real frame: read across a change of plan, a few centimetres over 1/90 s seed a ragdoll at 12 m/s.
+   * A probe steps exactly its own `dt`, at the level of detail the pose it is compared with was drawn at, and gore calls
+   * `catchUp` first. Stepping a far body's saved frames inside the probe, posing its feet and arms in full, and reading the
+   * stale pose of a body whose root had moved on, it seeded bodies at LOD 1 and 2 up to 1.7 times too fast.
    */
   update(dt: number, lod: number, probing = false): void {
+    if (probing) {
+      this.advance(dt, this.lastLod, true);
+      return;
+    }
+    this.lastLod = lod;
     this.acc += dt;
     const every = lod <= 0 ? 1 : lod === 1 ? 2 : 4;
     if (++this.tickCount % every !== 0) return;
     const step = this.acc;
     this.acc = 0;
+    this.advance(step, lod, false);
+  }
+
+  /**
+   * Spends the frames a far body has saved up, so that its pose is the present one: a planted foot drawn under a root that
+   * has since moved on reads as a foot moving at metres a second. Nothing to do at LOD 0.
+   */
+  catchUp(): void {
+    const step = this.acc;
+    this.acc = 0;
+    this.advance(step, this.lastLod, false);
+  }
+
+  private advance(step: number, lod: number, probing: boolean): void {
     if (step <= 0) return;
     if (!probing) this.refreshPlan();
     this.time += step;

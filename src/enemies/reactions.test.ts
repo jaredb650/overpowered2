@@ -6,6 +6,8 @@ import { DEFAULT_FORCE, type CharacterInstance, type DamageInfo, type DamageType
 import type { EnemyId } from '../core/gameplay';
 import { ENEMIES, LIMB_SIZE } from './data';
 import { Enemy } from './Enemy';
+import { deathVelocity } from './damage';
+import { MuscleTuning } from '../gore/muscles';
 import { chooseReaction, profileOf, type Reaction } from './reactions';
 
 const rig = humanoidRig('test');
@@ -132,5 +134,48 @@ describe('reactions', () => {
     expect(profileOf(body('titan'))).toBeNull();
     expect(profileOf(body('skitter'))).toBeNull();
     expect(profileOf(body('drone'))).toBeNull();
+  });
+});
+
+describe('momentum at death', () => {
+  it('keeps the reel and the knockback a body was in, and how fast it was falling', () => {
+    const e = body('trooper');
+    e.velocity.set(0, 0, 2);
+    e.reel.set(0.3, 0, 0);
+    e.push.set(0.2, 0, 0);
+    const out = deathVelocity(e, new THREE.Vector3());
+    expect(out.x).toBeCloseTo(0.5, 6);
+    expect(out.z).toBeCloseTo(2, 6);
+    e.airborne = true;
+    e.verticalSpeed = -8;
+    // In the air only the stride moves a body.
+    expect(deathVelocity(e, new THREE.Vector3()).toArray()).toEqual([0, -8, 2]);
+  });
+
+  it('keeps no more than a modest share of a hard stagger', () => {
+    // The living shed a stagger within a second, and a corpse slides on with all it is given: kept whole, an SMG kill at
+    // 8 m mid-stagger landed twice as far. Enough is kept to stumble on the way it was going.
+    const e = body('trooper');
+    e.reel.set(3.6, 0, 0);
+    e.push.set(2.3, 0, 0);
+    const out = deathVelocity(e, new THREE.Vector3());
+    expect(out.x).toBeGreaterThan(MuscleTuning.stumbleOnward);
+    expect(out.x).toBeLessThanOrEqual(1);
+    expect(out.z).toBe(0);
+  });
+
+  it('does not keep what the rounds of this frame added, which the body has not stepped with', () => {
+    const e = body('trooper');
+    e.reel.set(0.3, 0, 0);
+    e.push.set(9.5, 0, 0);
+    e.unmoved.set(9.5, 0, 0);
+    e.unmovedAt = 5;
+    expect(deathVelocity(e, new THREE.Vector3(), 5).x).toBeCloseTo(0.3, 6);
+    // A frame later it has moved with all of it.
+    expect(deathVelocity(e, new THREE.Vector3(), 5.016).x).toBeGreaterThan(MuscleTuning.stumbleOnward);
+    // Cleared on the same frame, by a knockdown: nothing, and not a step back toward the gun.
+    e.reel.set(0, 0, 0);
+    e.push.set(0, 0, 0);
+    expect(deathVelocity(e, new THREE.Vector3(), 5).x).toBe(0);
   });
 });

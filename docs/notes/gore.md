@@ -10,15 +10,24 @@ Side by side, hard limits on the left and muscles on the right under identical i
 of the knee), `zerog`, `fall`, `stairsab`, `blast`, `lineup` (ten each way, hard row at the back). Then `collapse` (dropped,
 collapsing, collapsing on the move) and `twitch` (both on muscles, still on the left, twitching on the right).
 Add `hold=1` to start paused at frame 0, so a sheet is exact however long the page took to load. `muscles=0` turns the
-layer off everywhere, in any scenario and in the game itself.
+layer off everywhere, in any scenario and in the game itself. `weight` is four Troopers in profile shot from in front:
+dropped, a lethal headshot, an SMG collapse and a Judge round to the chest. `weight=0` puts back the bodies from before the
+weight pass, everywhere, the game included: feet on their soles, a collapse holding up a third of its weight, a twitching
+headshot, a stumbling body that staggers on from a round in the head, and a death that keeps only its stride. Two fixes
+stay on either way: a collapse's stagger and topple come in over 0.2 s, and far bodies are seeded at their true speed.
 
 ```
 node tools/shot.mjs --url "/?sandbox=gore&scenario=blast&hold=1" --wait 9000 --out tools/out/blast.png \
   --eval "window.__gore.sheet([20,26,35,52,90,180],3)"
 ```
 
-Tests: `npx vitest run src/gore`. `muscles.test.ts`, `ragdoll.test.ts` and `forces.test.ts` drive real Rapier ragdolls headless. `forces.test.ts` reads the weapon tables, so a retune must stay inside its bands. Under
+Tests: `npx vitest run src/gore`, one file at a time on a busy machine. `muscles.test.ts`, `ragdoll.test.ts`, `weight.test.ts`,
+`knockdown.test.ts` and `forces.test.ts` drive real Rapier ragdolls headless. `forces.test.ts` reads the weapon tables, so a retune must stay inside its bands. Under
 heavy load add `--testTimeout=60000`: the first test to touch WebAssembly can pass 5 s at low priority.
+
+The weight probe measures how bodies fall: `PROBE=<sections> nice npx vitest run tools/scripts/ragweight.test.ts --testTimeout=60000`.
+Sections and their switches are in the header of `tools/scripts/ragweight.probe.ts`, and each lands in `tools/out/ragweight/`.
+Trust six-heading means, and several rounds of them: the animator starts every body at a random phase.
 
 ## How to use it
 
@@ -31,7 +40,7 @@ ctx.gore.ragdoll(char, { impulses, velocity });   // death. Gore owns the instan
 ctx.gore.collapse(char, { duration, velocity, hit });  // death with time in it. Muscles fade out, then it drops
 ctx.gore.knockdown(char, options);                // ragdoll without dying. False if it cannot: stagger it instead
 ctx.gore.downed(char);                            // that body, while gore has it. Null once it is yours again
-ctx.gore.headshot(char, damage, velocity);        // death. Limp on this frame, at the speed it was going
+ctx.gore.headshot(char, damage, velocity);        // death. Limp on this frame, at the speed it was going, still once down
 ctx.gore.gib(char, center, force);                // death. Releases the instance
 ctx.gore.slice(char, point, normal, damage);      // death. Releases the instance
 
@@ -72,10 +81,14 @@ at the moment the enemy stops being an enemy, and stop driving it.
 - It needs legs on the ground. Airborne, call `ragdoll`: it holds the hips where the animation had them, so it would hang.
 - Past `GoreTuning.maxCollapses` (4), on a body with no legs, on a drone, or with `?muscles=0`, it is a plain ragdoll.
 - A blast, a pin or a repeat `ragdoll` makes it give up, four times faster. A hit does by its strength, from no faster for a bullet to the same for a heavy one, and a lost limb about halfway. See Taking rounds below.
+- A round in the head, or losing the head, ends it on that frame: `Rag.goLimp`, which calls `MuscleState.giveUp`. The whole round lands on the head, with nothing carried to the feet and no flinch underneath, and it falls under its full weight.
+- The spine's muscles hand the trunk's weight down to the hips, and the hold and the legs carry it (`MuscleTuning.trunkCut` 0), so it sinks from its first frame. Arms and head still carry their own weight. The stagger and the topple come in over 0.2 s each, on the collapse's own clock, so a hurried one gets all of both.
+- `damage.ts` passes `deathVelocity(e)` here, to `ragdoll` and `headshot`, and to `sever` for the limb: the stride, plus up to 0.6 m/s of reel and knockback (`DEATH_CARRY`), and in the air the stride and how fast it was falling. What the rounds of this frame added does not count, since the body has not stepped with it. A body killed mid-stagger stumbles on the way it was going.
 - `hit: { bone, point, dir, force }` is the shot that did it: it lands on the bone, the body staggers on along `dir`, a hand goes to the wound, and a shot leg gives way first. `damage.ts` calls this for bullets of 30 N·s or less, fire, shock and bleeding out, on a body with both legs under it.
 
-`ragdoll` takes four more options. `limp: true` is every muscle gone on this frame, so no tone arrives and nothing eases the fall: a lethal headshot. `twitch` is 0..1, and is 1 by itself on a body with no head, so a headshot or a
-decapitation needs nothing. `impact: { dir, strength }` throws the limbs: left out, it is worked out from `impulses`, so
+`ragdoll` takes four more options. `limp: true` is every muscle gone on this frame, so no tone arrives and nothing eases the fall: a lethal headshot. `twitch` is 0..1, and is 1 by itself on a body with no head, so a
+decapitation needs nothing, except on a limp one: a lethal headshot drops like a sack and lies still (`GoreTuning.headshotTwitch`, 0).
+`damage.ts` passes 0 for its own headshot deaths as well. `impact: { dir, strength }` throws the limbs: left out, it is worked out from `impulses`, so
 existing calls already get it, scaled down for bullets. Pass it for a knockdown with no impulses. `muscles: false` puts one
 body on hard limits, for comparison.
 
@@ -121,7 +134,8 @@ A body that is falling or dying answers every round, and nothing restarts.
 ## Contract additions
 
 Muscles add `collapse`, `knockdown`, `downed`, and `impact`, `twitch`, `muscles` and `limp` on `RagdollOptions`, from `muscles.ts` by module augmentation. `getUp.ts` adds the optional reaction members to `CharacterAnimation`.
-The rig gains `JointDef.role` and `BoneDef.relax`. `Physics` gains `OWN_BLAST`.
+The rig gains `JointDef.role`, `BoneDef.relax` and `BoneDef.collider`. `Physics` gains `OWN_BLAST`. `measureAnimVelocity`
+calls an animator's optional `catchUp` first, which `HumanoidAnimator` has.
 
 Wounds add `gore.wound`, and `wound`, `fracture`, `isFractured`, `skinMaterial`, `stress` and an optional `setLod` on `CharacterInstance`, `wound` and `isFractured` on `SeveredLimb`, and `WoundHit`. `RagSource` gains an optional `isFractured`, `Rag` gains `breakJoint`, `JointMuscle` gains `broken`.
 
@@ -155,11 +169,11 @@ Breaking: each hit on a limb adds `damage x breaks` to `char.stress` for that jo
 | Knob | File | What it does |
 |---|---|---|
 | `WoundTuning`, `BITES` | `wounds.ts` | Gore level, what breaks a limb, pellet range and merging, each weapon's wound |
-| `GoreTuning` | `index.ts` | Caps, settle speed and time, sink, heartbeat, hit-stop, whole-body share and lift of a hit, limb share of force, gib launch, corpse limb health, crawl time |
-| `MuscleTuning` | `muscles.ts` | Everything in the muscle layer: ligaments, resting pose, impact spin, collapse timing, twitching, jolts |
+| `GoreTuning` | `index.ts` | Caps, settle speed and time, sink, heartbeat, hit-stop, a headshot's twitch, whole-body share and lift of a hit, limb share of force, gib launch, corpse limb health, crawl time |
+| `MuscleTuning` | `muscles.ts` | Everything in the muscle layer: ligaments, the knee's stop, resting pose, impact spin, collapse timing and how much of the trunk it holds up, twitching, jolts |
 | `ReflexTuning` | `reflex.ts` | A living body off its feet: strength by phase, when it counts as landed, how it braces |
-| `relax`, `role` | `rig.ts` | Resting pose per joint, and what each joint is for |
-| `RagTuning` | `rag.ts` | Joint damping, death tone, hard limit strength and fade-in, rest damping, collider slimming, speed clamps, blast lift, how far a broken joint opens |
+| `relax`, `role`, `collider` | `rig.ts` | Resting pose per joint, what each joint is for, and what a bone rests on where that is not its hit capsule |
+| `RagTuning` | `rag.ts` | Joint damping, death tone, hard limit strength and fade-in, rest damping, collider slimming, heel feet, speed clamps, blast lift, how far a broken joint opens |
 | `swingShape()` | `rag.ts` | Asymmetric hip and shoulder reach |
 | `BloodTuning` | `blood.ts` | Rays per frame (24), droplet and pool caps, smear spacing |
 | `ChunkTuning` | `chunks.ts` | Slots per kind, live bodies (72), linger, bounce |
@@ -184,6 +198,11 @@ Measured throws per weapon are in `docs/notes/lab.md`. A body is 85 kg, and grav
   joint anchors are trivial and limits read straight off relative rotation.
 - Bones are driven by **rotation only**, down from the chain root. Solver stretch cannot reach the mesh.
 - Velocity seeding steps the animation 1/90 s ahead, differences the pose and restores it. No per-frame tracking of the living.
+  A far body first spends the frames its level of detail saved up (`catchUp`), and the step poses at the detail it was
+  drawn at. Before, a planted foot drawn under a root that had moved on read as metres a second, and bodies at LOD 1 and 2
+  were seeded up to 1.7 times too fast. Now the worst seeded bone of a running Trooper is within 6% at every level.
+- Feet rest on a ball under the ankle, `BoneDef.collider`, not on their hit capsule, so a dead shin cannot stand on its
+  sole. The foot keeps its mass, and hits, cuts and slices still read the capsule. `RagTuning.heelFeet`.
 - Cone and twist limits are velocity-level corrections in `preStep`. They can only remove closing speed, so they cannot
   explode at any stiffness. They fade in over 0.25 s because a running stride starts past them.
 - `Rag.jointGap()` and `stats().jointGap` report joint error, for checks.
@@ -201,7 +220,8 @@ else, and a body with a shape it wants to be. Five things, all on one layer.
 - **Neutral posture.** `relax` in the rig is the pose NASA measured in microgravity, varied per body. The pull is capped
   at 0.3 of the limb's own weight on the joint, so it can never lift it. It only shows in the air and in how bodies settle.
 - **Rotational impact.** `kick` turns arms one way and legs the other about the joints they hang from.
-- **Collapse.** The animator runs against a ghost root, and joints track what it writes. See below.
+- **Collapse.** The animator runs against a ghost root, and joints track what it writes. The spine hands the trunk's weight
+  to the hips, and the hold and the legs carry it, so the body sinks from the first frame. See Collapse and twitching above.
 - **Twitching.** Sine-squared torque bursts and whole-body spasms, on a schedule. They fade by getting rarer and shorter,
   because a limb on the floor does not stir at all below its own weight.
 
@@ -210,8 +230,8 @@ body has to come to rest. A corpse shot awake moves, but has no tone left.
 
 ### What has to stay true
 
-Each of these was found the hard way. All but the two marked are guarded by a test in `muscles.test.ts`, checked by
-breaking each one on purpose in a copy and seeing the test fail.
+Each of these was found the hard way. All but the two marked are guarded by a test, in `muscles.test.ts` unless another is
+named, checked by breaking each one on purpose in a copy and seeing the test fail.
 
 - **A pre-step impulse has a gain limit.** Four solver iterations cannot pass a torque down a chain inside one step. A
   torque sized for a whole limb overshoots, reverses and pumps energy in: speeds of 30 m/s that never settled. So torques
@@ -231,15 +251,19 @@ breaking each one on purpose in a copy and seeing the test fail.
   never settles. `Rag.preStep` skips a sleeping chain, and anything that means to move it wakes it.
 - **A spring on a light limb against the floor bounces for as long as it is allowed**, and the bouncing resets the quiet
   timer that would have let it go. That is why ligaments only spring back above `limitElasticLow`.
-- **A working muscle carries its own weight** (`knockdown.test.ts`, by the hand reaching a wound). The drive's implicit step is sized for one light body, so its held torque is far under what lifts an arm. Collapses and reflexes both turn gravity down on a driven limb. It was why a body lay perfectly still.
-- **Nothing a hit does to the animation may land in one frame** (no test). If the same burst kills, `measureAnimVelocity` reads the jump as speed. Arms snapping to a flail seeded 14 m/s. The hop gait snapping in put the hips 9 cm sideways, read as 8 m/s, which threw a body with a blown-off leg 2.8 m across the blast. That one is the owner's "ridiculous" throw, and it was there on kills too. Everything in `stumble` and the hop now eases in.
+- **A working muscle carries its own weight** (`knockdown.test.ts`, 'a body lying down reaches its wound', on real Rapier). The drive's implicit step is sized for one light body, so its held torque is far under what lifts an arm. Collapses and reflexes both turn gravity down on a driven arm or head. It was why a body lay perfectly still. Lying on its back, the wrist gets to 0.24 to 0.31 m of a wound on the thigh with it, and 0.55 to 0.66 m without. The trunk is the exception: in a collapse its weight goes onto the hips, where the hold and the legs carry it, and that is what makes a dying body heavy. Left on the chest, it pitched the chest over the hold and turned the hips up to 1.1 rad off the animation's, which 'tracks the animation steadily' (limit 1) caught one run in ten; on the hips the worst of 40 bodies is 0.58.
+- **Nothing a hit does to the animation may land in one frame** (no test). If the same burst kills, `measureAnimVelocity` reads the jump as speed. Arms snapping to a flail seeded 14 m/s. The hop gait snapping in put the hips 9 cm sideways, read as 8 m/s, which threw a body with a blown-off leg 2.8 m across the blast. That one is the owner's "ridiculous" throw, and it was there on kills too. Everything in `stumble` and the hop now eases in, and so do a collapse's stagger and topple, over 0.2 s.
 - **A ragdoll's speed is read with the body plan held** (`muscles.test.ts`, on a real `hidden`). `measureAnimVelocity` steps the animator with `probing`, which skips `refreshPlan`, because a limb that went this frame is not motion. Without it the difference is read over 1/90 s, so 13 cm is 12 m/s. A burst head started every body at about 12 m/s in a random direction with most joints at the 18 rad/s clamp, and it hit the floor in 0.19 s, faster than gravity. Two arms in one blast read as 2.4 m/s on the whole body. The animator's old headless walk was the worst of it, and is gone: nothing living has no head.
 - **In a collapse, the hold takes the reaction.** With every joint's reaction landing on the hips they thrash. While
   support lasts each body answers to one controller, and as it fades the reaction moves onto the parent, so what is left at
   the end are true joint torques with real weight on them.
-- **Legs keep their gravity during a collapse** (no test). Feet need weight on the floor for friction. Over three rounds of
-  six bodies at different headings, feet slid 0.09 to 0.16 m in the first 0.6 s with it and 0.34 to 0.47 m without. One body
-  facing one way does not show this, so a test needs several.
+- **Legs keep their gravity during a collapse** (`weight.test.ts`). Feet need weight on the floor for friction. Over three
+  rounds of six bodies at different headings, the median foot got 0.07 m from where it stood in the first 0.6 s with it, and
+  0.28 to 0.43 m without. One body facing one way does not show this, so the test takes several, and the median, because the
+  death stumble now and then lurches a whole body 0.3 to 0.6 m whatever its feet do.
+- **A dead foot rests on its heel** (`weight.test.ts`). On the whole sole a dead shin stood up by itself like a boot, and a
+  body squatted on its heels for 0.5 to 1.2 s before it went over, a Brute up to 3.3 s. On a ball under the ankle the shin
+  tips and the knees go: down in 0.3 s. Only the collider changed, so mass, hits, cuts and slices are as they were.
 
 ## Measured
 
@@ -261,10 +285,25 @@ Shared 8 GB M1 under load average around 18, so treat these as upper bounds.
 | Crowd under fire: 24 bodies, AI on, a blast every 0.45 s, `react-chaos` at Retina size | 10 knockdowns, peak 5 down and 7 ragdolls at once, physics step peak 6.7 ms, CPU 4.7 ms a frame, every survivor back on its feet, no console errors |
 | Bone movement in one frame across a handover | 0.003 to 0.026 m in Node, over four headings |
 | Falls that settle by themselves | all 36 in the test, usually about 2 s |
+| Weight pass, plain deaths (drop, headshot, Judge), Trooper and Brute, six headings, three rounds each in two sessions, against `?weight=0` | On its heels 0 to 0.01 s against 0.5 to 3.3 (a Brute's Judge death 0.5 to 1.2, see Known limitations). Knees down 0.27 to 0.31 s against 1.0 to 2.3. Hips on the floor 0.28 to 0.33 s against 0.34 to 0.45. First 0.25 s at -14.9 to -15.6 m/s² against -12.7 to -13.5. At rest 0.9 to 1.8 s against 1.1 to 2.0. Head to foot at rest, Trooper, 0.75 m against 0.96 |
+| Weight pass, SMG collapses of 0.85, 1.1 and 1.4 s, plain and shot in the chest, Trooper and Brute, six rounds of six headings, same | Gravity over the first second 0.93 to 0.97 of full against 0.53 to 0.74. Weight cut 5 to 8% against 35 to 42%. First 0.25 s at -2.3 to -4.6 m/s² against -1.7 to -3.3. Fastest fall 1.75 to 2.26 m/s against 2.06 to 2.83. Knees 0.35 m down at 0.13 to 0.15 s against 0.20 to 0.32. Hips on the floor at 0.98 s for 1.1 s, against 0.97 to 1.03. Feet at rest 0.19 to 0.29 m from where they stood (Brute 0.30 to 0.47) against 0.26 to 0.48 (0.36 to 0.56) |
+| Lethal headshot once down, husk, Trooper, Brute | Hips rise at most 0.03 m after 1 s, against 0.21 to 0.41. Head, hands and feet move 0.02 to 0.3 m between them against 2 to 4.4. Frozen at 1.3 to 1.6 s against 5 |
+| Judge kills frozen with a knee above 0.25 m, 18 per round, two sessions | 1, 2, 2 and 1, 0, 0, all Brutes, against 4, 2, 4 and 3, 4, 5, from all three archetypes |
+| Worst seeded bone, Trooper running at 3.8 and 2.2 m/s, mean of 48 frames | LOD 0 6.4 and 4.2 m/s, LOD 1 6.3 and 4.3, LOD 2 6.0 and 4.0. Before: LOD 1 8.5 and 6.4, LOD 2 10.4 and 9.3 |
+| `react-chaos`, weight pass against `?weight=0`, three runs each, load 5 to 7 | Physics step peak 7.9 to 10.2 ms against 6.8 to 10.1, CPU 4.9 to 5.8 ms a frame against 4.1 to 6.0: no difference past the noise. Every survivor back up, no console errors. Once more after the trunk's weight moved to the hips, load 2: 10.1 ms and 5.5 ms, the same |
 
 ## Known limitations
 
-- **A limp body running at 3.8 m/s can vault its planted leg.** Hips stay near 0.6 m for about 0.2 s before it goes down, and it can read as a held stride. Judged from a sheet, not in motion, so it needs someone to watch it.
+- **A limp body running at 3.8 m/s can vault its planted leg.** Hips stay near 0.6 m for about 0.2 s before it goes down, and it can read as a held stride. Judged from a sheet, not in motion, so it needs someone to watch it. The heel did not change it: shot in the head on the range at 2.7 to 3.2 m/s, the hips were still 0.48 to 0.55 m up 18 frames later, and headless at 3.8 m/s they average 0.57 against 0.48 on the sole.
+- **A dead body ends folded on its knees.** It drops through them in 0.3 s and lies back over its shins: head to foot 0.75 m on a Trooper, against 0.96 when it sat on its heels first. A stop at the knee's folded end, 0.1 to 0.35 rad past the rig limit, and a braking zone before it were tried: none laid a body out any longer, and every one propped bodies in a kneel for up to a second. The `sweep` section of the weight probe has the numbers.
+- **A Brute killed by a Judge round can freeze with its knees up**, none to two in 18. Lying back, its folded legs are lifted with its thighs, and they stay there. The probe counts this as sitting on its heels.
+- **The end of a collapse steps harder by the probe's measure.** The largest change in the fall's acceleration from 0.6 of the
+  way to its fastest is 3.4 to 8.1 m/s² as a six-round mean, against 2.9 to 4.5 with `?weight=0`; single bodies range from 2
+  to 15, so only many rounds say anything. The worst is the 0.85 s Trooper collapse. The hips come down steadily from the
+  first frame, and in the last 0.3 s of a 1.1 s collapse they fall 0.30 m against 0.51 (0.39 against 0.47 at 0.85 s), so
+  less is left for the end. Not looked into.
+- **A Brute collapse can still skate**: its feet end 0.30 to 0.47 m from where it stood, against 0.36 to 0.56 before.
+- **The death stumble can lurch a whole body** 0.3 to 0.6 m in the first 0.2 s of a collapse, feet and all, about one collapse in nine. It was there before the weight pass. Not looked into.
 - **No self-collision within a body.** An arm can rest inside its own torso. Left off for budget. I did not try turning it on.
 - **Velocity at death is close, not exact.** Position is continuous, but in a run cycle a bone can change speed in the first
   frame. Feet stopping on the floor is correct. One knee moved 12 cm in that frame, against 2 cm the frame before, in one of
@@ -277,13 +316,13 @@ Shared 8 GB M1 under load average around 18, so treat these as upper bounds.
 - **Archetypes checked in the browser:** husk, trooper, juggernaut, skitter and drone, with no console errors. Skitter and drone
   spark and throw scrap instead of bleeding. The other archetypes share the humanoid rig but I did not run them. Unit tests use
   the TestDummy.
-- **Bodies keep a stale recycled instance for one case.** The library pools 64 instances per archetype and takes the oldest
-  back when it runs out. Gore detects that and lets go, but 48 live enemies plus 40 corpses of one archetype is 88, so a
-  husk-heavy wave will lose corpses early. Raising the pool to 96 fixes it.
+- **The library pools 96 instances per archetype** and takes the oldest back when it runs out. Gore detects that and lets
+  go, so a corpse whose instance went back simply disappears. 48 live enemies plus 40 corpses of one archetype is 88, inside it.
 - Pools grow as stacked decals, since `DecalSystem` has no resize. 5 per corpse.
 - **`Physics.radialImpulse` moves what it finds.** It collects bodies inside Rapier's query and applies the impulses afterwards. A chunk at rest has given back its body, so a blast only reaches chunks in flight.
 - **Get-ups assume flat ground.** Feet and hands are keyed relative to the root, and the root sits on the floor under the chest. On a ramp or stairs a foot will sink or float a little. Not tried. A body beside a wall can stand with the wall inside its stand point, and `trackProgress` walks it out.
-- **A burn emitter sits on the root**, so on a burning body that is down the flames ride 1.2 m above it.
+- **A burn emitter sits on the chest bone** (`EnemyManager`), so it goes down with the body. Only a rig with no chest carries
+  it on the root at chest height, and there the flames ride above a body that is down.
 - **Knocked-down bodies have no collision with the player.** They are walked through, like crawlers.
 - **A collapse assumes level ground.** The hips are held at the height they started, so one begun on stairs or at a ledge
   hovers until support fades, then drops. Not tried on stairs. Airborne, call `ragdoll`.
@@ -295,8 +334,10 @@ Shared 8 GB M1 under load average around 18, so treat these as upper bounds.
 - **Arms can run past their reach** in a full blast, by 0.1 to 1 rad, before ligaments catch them.
 - **Twitching varies a lot from body to body.** A burst can move a hand a few centimeters or, rarely, flop a limb 30 to
   40 cm. Judged from numbers and stills, not in motion, so it needs someone to watch it.
-- **Ankles ease to rest visually only.** The foot's collider stays where it was at death, so a pointed foot can sit a
-  little off the floor. Spine and neck are merged too, and take their curve from the chest and head joints.
+- **Ankles ease to rest visually only.** The foot's collider is a ball under the ankle, fixed to the shin, and the visible
+  foot reaches about 0.21 m ahead of it with nothing under it, so toes can dip into the floor on a body lying face down.
+  Stairs looked right in the sandbox sheets; slopes were not tried. Spine and neck are merged too, and take their curve from
+  the chest and head joints.
 - **Drones occasionally hit the time limit** and freeze at 7 s instead of about 2.3 s. Seen a few times in long sequences,
   never in 13 isolated runs. On hard limits they always do.
 - Rapier's JS API allocates a little inside some calls. Gore passes target objects everywhere it can, but spawning a chain

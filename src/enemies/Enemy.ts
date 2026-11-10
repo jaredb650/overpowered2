@@ -192,6 +192,12 @@ export class Enemy implements EnemyInstance {
   reactAt = 0;
   /** Catch steps: where the hit is carrying the body, in m/s. Fades faster than a walk and slower than knockback. */
   readonly reel = new THREE.Vector3();
+  /**
+   * Reel and knockback that hits have added since its last step, and the world time they came at. It has not moved with
+   * them yet, so a body that dies before its next step does not keep them. See `deathVelocity`.
+   */
+  readonly unmoved = new THREE.Vector3();
+  unmovedAt = -1;
   /** Seconds until a stagger becomes a fall, and how hard. Zero if it is keeping its feet. */
   fallIn = 0;
   fallStrength = 0;
@@ -288,6 +294,8 @@ export class Enemy implements EnemyInstance {
     this.poise = this.stagger = this.blood = this.bleed = this.burnTick = this.charred = 0;
     this.shock = this.reactAt = this.fallIn = this.fallStrength = this.fallBone = 0;
     this.reel.set(0, 0, 0);
+    this.unmoved.set(0, 0, 0);
+    this.unmovedAt = -1;
     this.downed = false;
     this.rising = this.riseSeconds = this.dazeSeconds = 0;
     this.burnEmitter = null;
