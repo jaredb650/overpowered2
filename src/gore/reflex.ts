@@ -13,7 +13,7 @@ import * as THREE from 'three';
 import { CG, type CharacterAnimation, type RayHit } from '../core/contracts';
 import { clamp, damp, lerp, smoothstep } from '../core/math';
 import type { GetUpKind } from '../characters/animation/getUp';
-import type { MuscleState } from './muscles';
+import { KNOCK_PASS, type MuscleState } from './muscles';
 import type { Rag, RagPart } from './rag';
 
 export type ReflexPhase = 'fall' | 'lying' | 'gather';
@@ -58,9 +58,40 @@ export const ReflexTuning = {
   /** Elbow in radians as an arm wheels, and as it braces. */
   flailElbow: 0.85,
   braceElbow: 0.3,
-  /** Seconds the hands stay up at the face when a blast takes a body, and how they let go. */
-  guardHold: 0.2,
-  guardFade: 0.45,
+  /**
+   * The brace gives. Once a hand is this many metres off the floor with the chest still coming down faster than `yieldFalling`
+   * (m/s, at full gravity), its elbow eases to `yieldElbow` over `yieldSeconds`, and its strength over what holds the arm
+   * up drops from `braceGain` to `yieldGain`: the hand takes the weight and lets it through, instead of propping the body.
+   */
+  yieldReach: 0.08,
+  yieldFalling: 0.3,
+  yieldElbow: 1.3,
+  yieldSeconds: 0.18,
+  yieldGain: 2,
+  /**
+   * Share of the arms' and the head's gravity cut they keep while falling. At 1, as with `?knock=0`, a falling arm weighs what
+   * its strength leaves (a quarter, at the fall's 0.75), as a working muscle does; at 0 it falls with all its weight. At 0.5 it
+   * weighs five eighths, and still braces: at 0 the elbows fold flat under the body and some forward falls roll onto the back.
+   */
+  fallCarry: KNOCK_PASS ? 0.5 : 1,
+  /**
+   * Thrown by a blast, the hands go to the face and stay there while the hips are above `landHeight` of standing and falling
+   * slower than `guardFalling` m/s (at full gravity), for at most `guardHold` seconds, then let go over `guardFade`. With
+   * `?knock=0`, 0.2 s whatever the body is doing.
+   */
+  guardHold: KNOCK_PASS ? 0.6 : 0.2,
+  guardFalling: 2,
+  guardFade: 0.25,
+  /**
+   * Knocked cold by a head hit: the head hangs slack for `koHead` seconds and the arms are held to `koArm` for `koSeconds`, with
+   * no brace and no guard, and legs and spine lock for `koPlank` seconds, not `plankSeconds`, so it goes over like a sack.
+   */
+  koHead: 0.25,
+  koArm: 0.1,
+  koSeconds: 0.6,
+  koPlank: 0.25,
+  /** rad/s the round snaps the head back on its neck with, on the frame it lands (`MuscleState.whip`). */
+  koWhip: 24,
   /** Hip and knee in radians, in the air. */
   tuckHip: 0.55,
   tuckKnee: 0.9,
@@ -97,6 +128,10 @@ interface Arm {
   upper: number;
   fore: number;
   phase: number;
+  /** The fingertips from the elbow, in the forearm's frame. Zero with no hand to put down. */
+  readonly tip: THREE.Vector3;
+  /** Age at which its hand reached the floor in this fall, or -1. */
+  yieldAt: number;
 }
 
 interface Leg {
@@ -136,6 +171,8 @@ export class Reflex {
   groundY: number;
   /** Tipped over its feet rather than thrown off them. */
   readonly plank: boolean;
+  /** Knocked cold by a head hit. See `ReflexTuning.koSeconds`. */
+  readonly knockout: boolean;
   kind: GetUpKind = 'prone';
   /** Where the hips sit at the start of the chosen get-up, relative to where it will stand. */
   readonly startHips = new THREE.Vector3();
@@ -154,14 +191,17 @@ export class Reflex {
   private readonly seed: number;
   private readonly standHips: number;
   private readonly keep: THREE.Quaternion[];
+  /** Age at which the hands left the face, or -1 while they guard it. */
+  private guardEnd = -1;
 
   constructor(
     private readonly rag: Rag,
     private readonly muscle: MuscleState,
     private readonly anim: CharacterAnimation,
-    options: { lie: number; hurt: number; groundY: number; dir: THREE.Vector3 | null; plank: boolean },
+    options: { lie: number; hurt: number; groundY: number; dir: THREE.Vector3 | null; plank: boolean; knockout?: boolean },
   ) {
     this.plank = options.plank;
+    this.knockout = KNOCK_PASS && options.knockout === true;
     this.lie = options.lie;
     this.hurt = options.hurt;
     this.groundY = options.groundY;
@@ -211,6 +251,7 @@ export class Reflex {
         let upper = 0.3;
         let fore = 0.26;
         const rest = new THREE.Vector3(side * 0.3, -1, 0);
+        const tip = new THREE.Vector3();
         if (below) {
           const e = below.bone * 3;
           rest.set(bind[e]! - bind[o]!, bind[e + 1]! - bind[o + 1]!, bind[e + 2]! - bind[o + 2]!);
@@ -219,9 +260,12 @@ export class Reflex {
           if (hand !== undefined) {
             const h = hand * 3;
             fore = Math.hypot(bind[h]! - bind[e]!, bind[h + 1]! - bind[e + 1]!, bind[h + 2]! - bind[e + 2]!);
+            // Bind frames line up with the world, as `rest` assumes, so the far end of the hand's capsule is plain offsets.
+            const to = rag.source.rig.bones[hand]!.hit?.to ?? [0, 0, 0];
+            tip.set(bind[h]! - bind[e]! + to[0], bind[h + 1]! - bind[e + 1]! + to[1], bind[h + 2]! - bind[e + 2]! + to[2]);
           }
         }
-        this.arms.push({ shoulder: part, elbow: below, side, rest: rest.normalize(), upper, fore, phase: this.muscle.random() * Math.PI * 2 });
+        this.arms.push({ shoulder: part, elbow: below, side, rest: rest.normalize(), upper, fore, phase: this.muscle.random() * Math.PI * 2, tip, yieldAt: -1 });
       }
     }
     if (this.woundPart && !parts.includes(this.woundPart)) this.woundPart = null;
@@ -250,6 +294,7 @@ export class Reflex {
     this.ready = false;
     this.enter('fall');
     this.landed = 0;
+    for (const arm of this.arms) arm.yieldAt = -1;
   }
 
   /** Died on the way down: whatever it was doing fades out, it does not stop. */
@@ -353,8 +398,10 @@ export class Reflex {
     const brace = clamp(Math.max(1 - smoothstep(t.braceLow, t.braceHigh, height), tipped * 0.8));
     const w = this.age * t.flailRate + this.seed;
     const forward = clamp(facing * 0.5 + 0.5);
-    // Thrown, the first thing anybody does is cover their face.
-    const guard = this.plank ? 0 : 1 - smoothstep(t.guardHold, t.guardFade, this.age);
+    // Thrown, the first thing anybody does is cover their face. Knocked cold, nothing does anything.
+    const guard = this.plank || this.knockout ? 0 : this.guarding(hips);
+    const falling = chest.v.y < -t.yieldFalling * this.rag.throwScale;
+    const slack = this.knockout && this.age < t.koSeconds;
     for (let i = 0; i < this.arms.length; i++) {
       const arm = this.arms[i]!;
       const a = Math.sin(w + arm.phase);
@@ -368,12 +415,13 @@ export class Reflex {
       _a.addScaledVector(DOWN, 0.7).addScaledVector(_left, arm.side * lerp(0.6, 0.22, forward));
       _a.normalize();
       _dir.lerp(_a, brace).normalize();
-      this.aim(arm, _dir, lerp(t.flailElbow + a * 0.3, t.braceElbow, brace));
+      const give = this.give(arm, brace, falling);
+      this.aim(arm, _dir, lerp(t.flailElbow + a * 0.3, lerp(t.braceElbow, t.yieldElbow, give), brace));
       if (guard > 0.5 && this.head) {
         _b.copy(_front).multiplyScalar(0.14).addScaledVector(_left, arm.side * 0.07).add(this.head.p);
         this.reach(arm, _b);
       }
-      const gain = lerp(1, t.braceGain, brace);
+      const gain = slack ? 1 : lerp(1, lerp(t.braceGain, t.yieldGain, give), brace);
       arm.shoulder.muscle!.gain = gain;
       if (arm.elbow) arm.elbow.muscle!.gain = gain;
     }
@@ -392,7 +440,37 @@ export class Reflex {
 
   /** 1 while legs are locked for a body tipping over its feet, fading to nothing. */
   private get plankLeft(): number {
-    return this.plank ? 1 - smoothstep(ReflexTuning.plankSeconds * 0.6, ReflexTuning.plankSeconds, this.age) : 0;
+    const seconds = this.knockout ? ReflexTuning.koPlank : ReflexTuning.plankSeconds;
+    return this.plank ? 1 - smoothstep(seconds * 0.6, seconds, this.age) : 0;
+  }
+
+  /**
+   * 1 while a thrown body's hands cover its face. They stay there while it is going up or hanging at the top, and let go as it
+   * comes down at `guardFalling` or gets low, so they are free to meet the floor.
+   */
+  private guarding(hips: RagPart): number {
+    const t = ReflexTuning;
+    if (this.guardEnd < 0) {
+      const up = !KNOCK_PASS || (hips.p.y - this.groundY > this.standHips * t.landHeight && hips.v.y > -t.guardFalling * this.rag.throwScale);
+      if (!up || this.age >= t.guardHold) this.guardEnd = Math.min(this.age, t.guardHold);
+    }
+    return this.guardEnd < 0 ? 1 : 1 - smoothstep(this.guardEnd, this.guardEnd + t.guardFade, this.age);
+  }
+
+  /**
+   * How far a bracing hand has given, 0 to 1. Once it is on the floor with the chest still coming down, the elbow bends and
+   * the arm goes softer, so the weight comes through it instead of stopping on a straight arm. It does not take it back.
+   */
+  private give(arm: Arm, brace: number, falling: boolean): number {
+    const t = ReflexTuning;
+    if (!KNOCK_PASS || !arm.elbow) return 0;
+    if (arm.yieldAt < 0) {
+      if (!falling || brace < 0.5) return 0;
+      _b.copy(arm.tip).applyQuaternion(arm.elbow.q).add(arm.elbow.p);
+      if (_b.y - this.groundY >= t.yieldReach) return 0;
+      arm.yieldAt = this.age;
+    }
+    return smoothstep(0, t.yieldSeconds, this.age - arm.yieldAt);
   }
 
   private poseLying(chest: RagPart): void {
@@ -484,10 +562,16 @@ export class Reflex {
         else if (m.role === 'spine') want = lerp(want, t.plankSpine, this.plankLeft);
       }
       m.drive = damp(m.drive, want, t.driveRate, dt);
+      // Knocked cold: the neck lets go on the spot, and the arms have nothing in them.
+      if (this.knockout) {
+        if (m.role === 'head' && this.age < t.koHead) m.drive = 0;
+        else if (m.role === 'arm' && this.age < t.koSeconds) m.drive = Math.min(m.drive, t.koArm);
+      }
       if (this.phase !== 'fall') m.gain = 1;
       // A working muscle carries its own weight, as in a collapse, or an arm on the floor cannot lift itself off it.
-      // Falling, the legs keep theirs: feet need it on the floor to tip over.
-      if (m.role === 'arm' || m.role === 'head' || (m.role === 'leg' && this.phase !== 'fall')) part.body.setGravityScale(g * (1 - m.drive), false);
+      // Falling, the legs keep theirs: feet need it on the floor to tip over. The arms and head keep `fallCarry` of it.
+      const carry = this.phase === 'fall' ? t.fallCarry : 1;
+      if (m.role === 'arm' || m.role === 'head' || (m.role === 'leg' && this.phase !== 'fall')) part.body.setGravityScale(g * (1 - carry * m.drive), false);
     }
   }
 }

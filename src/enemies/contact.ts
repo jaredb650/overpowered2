@@ -2,9 +2,11 @@
  * What happens when the player runs into a body.
  *
  * Momentum is the game, so a crowd must never pin or stop a fast player: a hard capsule against 48 bodies would turn
- * a swarm into a cage. So light bodies give way, and speed is rewarded for it: a running player shoulders them aside
- * and knocks them off their feet, which turns a charge through a pack into a way out. Middling ones bump a run to a
- * stop and can be leaned through. Standing inside someone bumps the player out, so the camera never sits in a skull.
+ * a swarm into a cage. So light bodies give way, and speed is rewarded for it: a running player shoulders them aside,
+ * and at a sprint knocks them off their feet along the run, on gore's ragdolls, and they get up again (`checkStrength`,
+ * `DamageModel.bodyCheck`). A slide takes their legs. That turns a charge through a pack into a way out. Middling ones
+ * bump a run to a stop and can be leaned through. Standing inside someone bumps the player out, so the camera never sits
+ * in a skull.
  *
  * The big ones are solid (`SOLID_MASS`). There is no body to collide with, because enemies are points on the nav graph
  * and the player's capsule only sees the world, so a solid body works on the player's speed: it takes away whatever
@@ -23,9 +25,39 @@
  * apart.
  */
 import * as THREE from 'three';
+import { clamp, smoothstep } from '../core/math';
 import { MOVE } from '../player/tuning';
 import type { Enemy } from './Enemy';
 import type { AiWorld } from './aiWorld';
+
+/**
+ * The body check: how hard a run lands on a body, 0..1, from how fast the player was closing on it in m/s. Nothing below
+ * `CHECK_FROM`, all of it at `CHECK_FULL`, so a run at 12.5 knocks a light body down head on, within about 0.43 m of its
+ * middle, and anything short of a sprint, or further out, only staggers it. A slide adds up to `CHECK_SLIDE` under the legs,
+ * all of it from `CHECK_FROM` closing down, so it takes a light body from about 0.65 m off its middle at 10 m/s, and a slide
+ * past one, or one it walks into from the side, does not. All of it comes down with `mass`: a Riot (0.35) goes over at a
+ * sprint and a Brute (0.8) never does, running or sliding.
+ */
+export const CHECK_FROM = 9.5;
+export const CHECK_FULL = 13;
+export const CHECK_SLIDE = 0.4;
+/** At this strength a body goes off its feet. Below it, it staggers as it always did. */
+export const CHECK_MIN = 0.3;
+/** Metres per second of the player's run a body knocked down keeps, at most, on top of its own stride. */
+export const CHECK_CARRY = 3.5;
+/** Metres per second that tip a standing body over along the run, at no strength and at full. */
+export const CHECK_TOPPLE_MIN = 1.8;
+export const CHECK_TOPPLE_MAX = 2.8;
+/** Swept off its feet by a slide: the upper body goes back over at this, and the legs are thrown along the slide this hard. */
+export const SLIDE_TOPPLE = 1.2;
+export const SLIDE_KICK = 0.8;
+/** Camera trauma a knockdown adds to the bump's own. */
+const CHECK_TRAUMA = 0.06;
+
+export function checkStrength(closing: number, mass: number, sliding: boolean): number {
+  const slide = sliding ? CHECK_SLIDE * smoothstep(0, CHECK_FROM, closing) : 0;
+  return clamp((smoothstep(CHECK_FROM, CHECK_FULL, closing) + slide) * (1 - mass));
+}
 
 const PLAYER_RADIUS = 0.45;
 /** Speed at which the player counts as hitting a body rather than leaning on it. */
@@ -161,8 +193,11 @@ export function updateContact(e: Enemy, w: AiWorld): void {
   const shove = speed * SHOVE_FORCE * (1 - e.def.mass * 0.7);
   e.push.x += (vx / speed) * shove * 0.6 - nx * shove;
   e.push.z += (vz / speed) * shove * 0.6 - nz * shove;
-  e.char.anim.flinch(0, _v.set(vx / speed, 0, vz / speed), 1);
+  // Fast enough, it goes over along the run (`DamageModel.bodyCheck`). The fall is then the whole reaction: a flinch on top
+  // of it would be read into the speed the body goes down at, as nothing a hit does to the animation may land in one frame.
+  const down = w.enemies.model.bodyCheck(e, _v.set(vx / speed, 0, vz / speed), closing, w.ctx.player.sliding);
+  if (!down) e.char.anim.flinch(0, _v, 1);
   w.ctx.audio.play('body_thud', { position: e.center, pitchJitter: 0.1 });
-  w.ctx.camera.addTrauma(0.06 + e.def.mass * 0.1);
-  if (e.def.mass < 0.5) w.enemies.stagger(e, SHOVE_STAGGER, _v, 0.6);
+  w.ctx.camera.addTrauma(0.06 + e.def.mass * 0.1 + (down ? CHECK_TRAUMA : 0));
+  if (!down && e.def.mass < 0.5) w.enemies.stagger(e, SHOVE_STAGGER, _v, 0.6);
 }

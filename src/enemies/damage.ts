@@ -15,9 +15,10 @@ import type { DamageResult, KillEvent } from '../core/gameplay';
 import { chance, clamp, lerp, pick, rand } from '../core/math';
 import { FACTIONS, type FactionRules } from '../contracts/data';
 import { ACTIVE } from '../contracts/select';
-import { MASS_PASS, WEIGHT_PASS } from '../gore/muscles';
+import { KNOCK_PASS, MASS_PASS, WEIGHT_PASS } from '../gore/muscles';
 import { bursts, HEAVY_ROUND } from './wounds/rules';
 import { BLAST, OUTCOME_COUNT, OUTCOMES, rollBlast, tearsWaist, type BlastBody, type BlastRoll, type OutcomeRule } from './blast';
+import { CHECK_CARRY, CHECK_MIN, CHECK_TOPPLE_MAX, CHECK_TOPPLE_MIN, checkStrength, SLIDE_KICK, SLIDE_TOPPLE } from './contact';
 import { ENEMIES, LIMB_SIZE, REGION_DAMAGE } from './data';
 import { say } from './attacks';
 import { finishAttack } from './brain';
@@ -44,6 +45,19 @@ const TOPPLE_MIN = 1.2;
 const TOPPLE_MAX = 2.2;
 /** Share of a body's shock left after each kind of reaction, so one burst does not fell it twice. */
 const SHOCK_AFTER_STAGGER = 0.5;
+/** Knocked cold by a head hit, it lies this much longer, and gets up dazed for its whole `daze`. */
+const KNOCKOUT_LIE = 1.5;
+
+/** How a knockdown goes over, where the default from its direction and strength will not do. */
+interface Knock {
+  /** m/s on the upper body. Left out, along the hit by its strength. */
+  topple?: THREE.Vector3;
+  /** How hard the limbs are thrown, along the knockdown's direction. Left out, by its strength. */
+  impact?: number;
+  /** Knocked cold by a head hit (`KnockdownOptions.knockout`), at `point`. */
+  knockout?: boolean;
+  point?: THREE.Vector3;
+}
 /** Weapons light enough that a body takes a moment to die of them, on its feet. Anything harder drops it. */
 const DIES_ON_FEET: ReadonlySet<DamageType> = new Set<DamageType>(['bullet', 'fire', 'shock', 'true']);
 const DIES_ON_FEET_FORCE = 30;
@@ -116,7 +130,19 @@ const TANK_SELF_DAMAGE = 0.35;
 const _v = new THREE.Vector3();
 const _n = new THREE.Vector3();
 const _dying = new THREE.Vector3();
+const _check = new THREE.Vector3();
+const _checkTopple = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0);
+
+const _knock: Knock = {};
+/** The one `Knock` every caller fills, all of it each time. */
+function knockAs(topple: THREE.Vector3 | undefined, impact: number | undefined, knockout: boolean, point: THREE.Vector3 | undefined): Knock {
+  _knock.topple = topple;
+  _knock.impact = impact;
+  _knock.knockout = knockout;
+  _knock.point = point;
+  return _knock;
+}
 
 /**
  * How fast a body was really going when it died: its stride, the reel it was in and the knockback it was taking, and in the
@@ -665,8 +691,11 @@ export class DamageModel {
     const frac = clamp(amount / e.maxHealth, 0, 1);
     const bone = d.bone ?? (e.def.machine ? DroneBone.body : REGION_BONE[region] ?? 0);
     const armoured = res.blocked;
+    const flinch = flinchSize(frac, e.def.machine === true);
+    const profile = profileOf(e);
 
-    char.anim.flinch(bone, d.dir, flinchSize(frac, e.def.machine === true));
+    // A body with a profile, on its feet, flinches in `respond`, which knows first whether a head hit takes it to the floor.
+    if (!profile || e.downed) char.anim.flinch(bone, d.dir, flinch);
     char.hitFlash(armoured ? 0.35 : clamp(0.55 + frac * 2, 0.55, 1));
     if (!armoured && d.type !== 'fire' && d.type !== 'shock' && !e.def.machine) {
       e.blood = Math.min(1, e.blood + 0.08 + frac * 1.1);
@@ -687,9 +716,8 @@ export class DamageModel {
 
     if (e.pinned) dropOff(e);
 
-    const profile = profileOf(e);
     if (profile) {
-      this.respond(e, d, profile, region, amount, pushForce, bone, armoured, throws);
+      this.respond(e, d, profile, region, amount, pushForce, bone, armoured, throws, flinch);
       return;
     }
     e.poise += amount;
@@ -706,27 +734,52 @@ export class DamageModel {
   }
 
   /** The rule in reactions.ts, carried out. */
-  private respond(e: Enemy, d: DamageInfo, profile: ReactionProfile, region: GoreRegion, amount: number, force: number, bone: number, armoured: boolean, throws: boolean): void {
+  private respond(e: Enemy, d: DamageInfo, profile: ReactionProfile, region: GoreRegion, amount: number, force: number, bone: number, armoured: boolean, throws: boolean, flinch: number): void {
     const anim = e.char.anim;
     const r = chooseReaction(e, d, profile, region, amount, force, this.w.now);
-    if (this.m.outpost?.wounds.mustFall(e) || (throws && e.maim.legs > 0)) mustFall(r, d);
+    // Only a head hit goes to the floor through the cooldown or a get-up (`chooseReaction`), where anything else flinches.
+    const early = r.level === 'felled' && (this.w.now < e.reactAt || e.rising > 0);
+    const must = this.m.outpost?.wounds.mustFall(e) || (throws && e.maim.legs > 0);
+    if (must) mustFall(r, d);
     // Ice cannot stumble, and a body still arriving is on somebody else's clock.
-    if (e.frozen > 0 || e.entrance !== 'none') return;
+    const held = e.frozen > 0 || e.entrance !== 'none';
+    // Floored by a head hit, the fall is the whole reaction. A flinch and a guard on the animator first would be read into the
+    // speed it goes down at, the head spinning against the chest and the hands thrown up at 10 m/s (gore.md, nothing a hit
+    // does to the animation may land in one frame), as `contact.ts` does for a body check. With `?knock=0`, as before.
+    const headDown = KNOCK_PASS && !held && r.level === 'felled' && region === 'head';
+    if (!headDown) anim.flinch(bone, d.dir, flinch);
+    if (held) return;
     const felt = profile.pain > 0;
     const blast = d.type === 'explosive';
     if (r.level === 'flinch') {
       if (!armoured) this.cryOut(e);
       return;
     }
-    if (felt) {
+    if (felt && !headDown) {
       if (blast || region === 'head') anim.guard?.(0.5 + r.strength * 0.5);
       else if (!armoured) anim.holdWound?.(bone, d.point, 0.7 + r.strength);
     }
     if (felt && !armoured) say(e, this.w, e.def.voice.pain, 0.7);
+    const reactAt = e.reactAt;
     e.reactAt = this.w.now + profile.cooldown;
     if (r.level === 'thrown' || r.level === 'felled') {
+      const how = r.knockout ? knockAs(undefined, undefined, true, d.point) : undefined;
+      if (this.knockDown(e, d.dir, r.strength, bone, profile, r.level === 'thrown', how)) {
+        e.shock = 0;
+        return;
+      }
+      if (headDown) {
+        anim.flinch(bone, d.dir, flinch);
+        // Gore has no room for it. Inside the cooldown or a get-up a head hit only skipped them to go to the floor, so it
+        // flinches as any other hit would there; staggered, an SMG would pin and shove a body for as long as it kept firing.
+        if (early && !must) {
+          e.reactAt = reactAt;
+          return;
+        }
+        if (felt) anim.guard?.(0.5 + r.strength * 0.5);
+      }
       // Past gore's budget. Staggering is what it would have done with one more foot under it.
-      if (!this.knockDown(e, d.dir, r.strength, bone, profile, r.level === 'thrown')) this.stagger(e, STAGGER_MAX, d.dir, r.strength, bone, profile.reel);
+      this.stagger(e, STAGGER_MAX, d.dir, r.strength, bone, profile.reel);
       e.shock = 0;
       return;
     }
@@ -777,30 +830,68 @@ export class DamageModel {
     this.knockDown(e, _v.normalize(), e.fallStrength, e.fallBone, profile, false);
   }
 
+  /**
+   * The player ran into it (`contact.ts`). Fast enough, it goes off its feet along the run with some of the player's speed
+   * in it, and gets up again; a slide takes its legs from under it, so they go with the player and it goes over backwards.
+   * False when it did not go down: then contact staggers it as it always did. Bosses and machines, which have no
+   * reaction profile, never go down here.
+   */
+  bodyCheck(e: Enemy, dir: THREE.Vector3, closing: number, sliding: boolean): boolean {
+    const profile = profileOf(e);
+    if (!KNOCK_PASS || !profile || e.downed || e.frozen > 0 || e.entrance !== 'none') return false;
+    const s = checkStrength(closing, e.def.mass, sliding);
+    if (s < CHECK_MIN) return false;
+    // The shove contact just gave it is most of the player's speed, which on a corpse-to-be would be a throw.
+    const px = e.push.x;
+    const pz = e.push.z;
+    const carry = Math.hypot(px, pz);
+    if (carry > CHECK_CARRY) {
+      e.push.x *= CHECK_CARRY / carry;
+      e.push.z *= CHECK_CARRY / carry;
+    }
+    // Swept: `dir` is where the legs go, and the knockdown's own direction is where it falls, back along the slide.
+    const way = sliding ? _check.copy(dir).negate() : _check.copy(dir);
+    const topple = _checkTopple.copy(way).multiplyScalar(sliding ? SLIDE_TOPPLE : lerp(CHECK_TOPPLE_MIN, CHECK_TOPPLE_MAX, s));
+    const how = knockAs(topple, sliding ? SLIDE_KICK : undefined, false, undefined);
+    // Refused, `knockDown` calls off a fall the body already had coming, which is not this run's to call off.
+    const fallIn = e.fallIn;
+    if (this.knockDown(e, way, s, sliding ? B.thighL : B.chest, profile, false, how)) return true;
+    e.push.x = px;
+    e.push.z = pz;
+    e.fallIn = fallIn;
+    return false;
+  }
+
   /** False if gore has no room for another body on the floor. */
-  private knockDown(e: Enemy, dir: THREE.Vector3, strength: number, bone: number, profile: ReactionProfile, thrown: boolean): boolean {
+  private knockDown(e: Enemy, dir: THREE.Vector3, strength: number, bone: number, profile: ReactionProfile, thrown: boolean, how?: Knock): boolean {
     const { ctx } = this.w;
     const m = this.m;
     const o = m.knockOptions;
+    const cold = how?.knockout === true;
     o.velocity.set(e.velocity.x + e.reel.x + e.push.x, e.airborne ? e.verticalSpeed : 0, e.velocity.z + e.reel.z + e.push.z);
     m.knockImpact.dir.copy(dir);
-    m.knockImpact.strength = strength * 0.4;
+    m.knockImpact.strength = how?.impact ?? strength * 0.4;
     o.impact = m.knockImpact;
     // A blast throws it by itself, once this returns and the blast reaches Physics.
-    o.topple = thrown ? undefined : m.knockTopple.copy(dir).multiplyScalar(lerp(TOPPLE_MIN, TOPPLE_MAX, strength));
+    if (thrown) o.topple = undefined;
+    else if (how?.topple) o.topple = m.knockTopple.copy(how.topple);
+    else o.topple = m.knockTopple.copy(dir).multiplyScalar(lerp(TOPPLE_MIN, TOPPLE_MAX, strength));
     o.impulses = undefined;
+    o.knockout = cold;
     const wounds = m.outpost?.wounds ?? null;
     const floored = wounds?.bodyOf(e)?.floored ?? false;
     // Before gore has the body: what it hands back at the end depends on this.
     if (floored) wounds!.stayDown(e);
     o.hurt = floored ? 1 : profile.pain * (0.5 + strength * 0.5);
-    o.lie = floored ? wounds!.lieSeconds(wounds!.bodyOf(e)!) : rand(profile.lie[0], profile.lie[1]) * (0.7 + strength * 0.6);
+    o.lie = floored ? wounds!.lieSeconds(wounds!.bodyOf(e)!) : rand(profile.lie[0], profile.lie[1]) * (0.7 + strength * 0.6) * (cold ? KNOCKOUT_LIE : 1);
     e.riseSeconds = floored ? 0 : profile.rise * (0.85 + strength * 0.4);
-    e.dazeSeconds = floored ? 0 : profile.daze * (thrown ? 1 : strength);
+    e.dazeSeconds = floored ? 0 : profile.daze * (thrown || cold ? 1 : strength);
     o.rise = e.riseSeconds;
     const wound = m.knockWound;
     wound.bone = bone;
-    wound.point.setFromMatrixPosition(e.char.bones[bone]!.matrixWorld);
+    // Knocked cold, the head jolts back from where the round went in, and a hand goes there.
+    if (how?.point) wound.point.copy(how.point);
+    else wound.point.setFromMatrixPosition(e.char.bones[bone]!.matrixWorld);
     o.wound = wound;
     if (!ctx.gore.knockdown(e.char, o)) {
       e.fallIn = 0;
@@ -830,6 +921,7 @@ export class DamageModel {
     o.impulses = m.knockImpulses;
     o.impact = undefined;
     o.topple = undefined;
+    o.knockout = false;
     const wound = m.knockWound;
     wound.bone = bone;
     wound.point.copy(d.point);

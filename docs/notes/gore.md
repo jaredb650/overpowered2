@@ -19,7 +19,12 @@ stay on either way: a collapse's stagger and topple come in over 0.2 s, and far 
 of gravity, and what throws them is slowed by its square root so that they land as far. See Forces. `mass=0` puts back hits
 from before they knew the mass of what they hit, everywhere, the game included: a round's jolt and a blast's spin as big on a
 Juggernaut as on a Trooper, up to 9 m/s from one round on a limb, the bigger living flinch on springs that rang past rest, and
-a ragdoll budget that froze the oldest body whatever it was doing. See Taking rounds and The ragdoll budget.
+a ragdoll budget that froze the oldest body whatever it was doing. See Taking rounds and The ragdoll budget. `knock` is three
+husks knocked over alive at frame 20 and back up: a body check, a head hit that knocks one cold, and a rocket's blast 3 m in
+front of one facing the camera. `knock=0` puts back knockdowns from before they could be run over, everywhere, the game
+included: running into a body only staggers it, only a shotgun or a heavy round to the head floors it and nothing knocks it
+cold, a braced hand holds stiff, the arms carry their own weight in a fall, and a thrown body's hands leave its face after
+0.2 s. See Knockdown and getting up.
 
 ```
 node tools/shot.mjs --url "/?sandbox=gore&scenario=blast&hold=1" --wait 9000 --out tools/out/blast.png \
@@ -108,8 +113,16 @@ body on hard limits, for comparison.
 | `lie`, `rise` | seconds | On the floor, and to get up |
 | `hurt` | 0..1 | Below `painFrom` it never clutches a wound. Above it the get-up strains and shakes |
 | `wound` | `{ bone, point }` | Where a hand goes |
+| `knockout` | boolean | Knocked cold by a head hit. The round snaps the head back on its neck from `wound.point` along `impact.dir`, the neck and arms go slack, and it goes over like a sack |
 
 A further `knockdown` on a body that is down is a further hit: impulses land, a jolt goes in, the wait to get up lengthens, and a body that had begun to rise goes back to lying. Nothing starts over.
+
+Who calls it, in `damage.ts`: a fall, a trip, a blast, a head hit it lives through (`reactions.ts`, see `docs/notes/enemies.md` Hit reactions), and the body check, when the player runs into it (`contact.ts`, `DamageModel.bodyCheck`). The body check keeps at most 3.5 m/s of the player's speed in `velocity`, tips the body over along the run at 1.8 to 2.8 m/s and struck at the chest; a slide strikes the thigh, tips the upper body back at 1.2 m/s and throws the limbs back along the slide (`impact` 0.8 the other way), so the legs go on with the player and the body goes over backwards. A body check starts inside the enemy's own update, so `EnemyManager.updateEnemy` stops there when the body has gone down (What has to stay true).
+
+- **Knocked cold.** `knockout` on a pellet or a heavy round to the head. One `jolt` on the head, as first planned, passes most of the round up the chain: the chest whipped back 0.6 to 0.8 rad on the hips in two frames, and the head, lagging it, read as a nod. So the round snaps the neck alone, `MuscleState.whip`, toward `ReflexTuning.koWhip` (24 rad/s) times the body's jolt share: 0.50 to 1.0 rad along the shot within 0.1 s. Then the head has no drive for `koHead` (0.25 s), the arms at most `koArm` (0.1) for `koSeconds` (0.6 s) with no brace and no guard, and legs and spine lock for `koPlank` (0.25 s) where a topple locks them 0.42 s. `damage.ts` makes it lie 1.5 times as long and get up dazed for its whole `daze`.
+- **The brace gives.** Falling, the arms reach out and down for the floor at `braceGain` (5) times what holds them up. Once a hand's fingertips are `yieldReach` (0.08 m) off the floor with the chest still coming down, its elbow eases from `braceElbow` (0.3) to `yieldElbow` (1.3) over `yieldSeconds` (0.18 s) and the arm drops to `yieldGain` (2), so it bends and lets the weight through rather than propping the body on a straight arm.
+- **Arms have weight in a fall.** `ReflexTuning.fallCarry` (0.5) is the share of a working arm's and head's gravity cut they keep while falling. At 1, as before, a falling arm weighed a quarter of itself.
+- **A thrown body guards its face** while its hips are above `landHeight` of standing and it falls slower than `guardFalling` (2 m/s), for at most `guardHold` (0.6 s), then lets go over `guardFade` (0.25 s) to meet the floor. Before, it let go after 0.2 s whatever it was doing.
 
 - Past `GoreTuning.maxKnockdowns` (12, so that a grenade in a crowd of 12 throws all it leaves alive), on a rig whose animator has no `getUp`, or with muscles off, it returns false. `DamageModel` staggers instead.
 - A knockdown is never frozen by the ragdoll budget, never sunk by the corpse budget, and `raycastCorpses` skips it, because it is still an enemy and enemies have their own ray test.
@@ -119,7 +132,7 @@ A further `knockdown` on a body that is down is a further hit: impulses land, a 
 
 | Phase | Arms | Legs and spine |
 |---|---|---|
-| Fall | Hands to the face for 0.2 s if thrown. Wide and wheeling, then out and down toward the floor as it comes up, five times as strong as they need to hold themselves | Tucked and pedalling. Chin up going forward, tucked going back |
+| Fall | Hands to the face if thrown, until it comes down. Wide and wheeling, then out and down toward the floor as it comes up, five times as strong as they need to hold themselves, and once a hand is down the elbow gives. Slack if knocked cold | Tucked and pedalling. Chin up going forward, tucked going back. Knocked cold, the neck slack |
 | Lying | One hand to the wound, the other curls on the belly | Knees draw up and stir, slowly |
 | Gather | The first frame of the get-up | The same |
 
@@ -186,7 +199,7 @@ whichever body had died that frame: a grenade into a crowd left bodies frozen st
 
 ## Contract additions
 
-Muscles add `collapse`, `knockdown`, `downed`, and `impact`, `twitch`, `muscles` and `limp` on `RagdollOptions`, from `muscles.ts` by module augmentation. `getUp.ts` adds the optional reaction members to `CharacterAnimation`.
+Muscles add `collapse`, `knockdown` (whose options carry `knockout`), `downed`, and `impact`, `twitch`, `muscles` and `limp` on `RagdollOptions`, from `muscles.ts` by module augmentation. `getUp.ts` adds the optional reaction members to `CharacterAnimation`.
 The rig gains `JointDef.role`, `BoneDef.relax` and `BoneDef.collider`. `Physics` gains `OWN_BLAST`. `measureAnimVelocity`
 calls an animator's optional `catchUp` first, which `HumanoidAnimator` has.
 
@@ -225,7 +238,7 @@ Breaking: each hit on a limb adds `damage x breaks` to `char.stress` for that jo
 | `GoreTuning` | `index.ts` | Caps, what the ragdoll budget may freeze and when, settle speed and time, sink, heartbeat, hit-stop, a headshot's twitch, whole-body share and lift of a hit, limb share of force, gib launch, corpse limb health, crawl time |
 | `MuscleTuning` | `muscles.ts` | Everything in the muscle layer: ligaments, the knee's stop, resting pose, impact spin, collapse timing and how much of the trunk it holds up, twitching, jolts and how they and a blast's spin come down with mass |
 | `FlinchSprings`, `flinchSize` | `HumanoidAnimator.ts`, `damage.ts` | The living flinch: the springs it rides on, and its size from the share of health a hit took |
-| `ReflexTuning` | `reflex.ts` | A living body off its feet: strength by phase, when it counts as landed, how it braces |
+| `ReflexTuning` | `reflex.ts` | A living body off its feet: strength by phase, when it counts as landed, how it braces and how the brace gives, how much of the arms' weight they carry in a fall, how long a thrown body guards its face, and a knockout |
 | `relax`, `role`, `collider` | `rig.ts` | Resting pose per joint, what each joint is for, and what a bone rests on where that is not its hit capsule |
 | `RagTuning` | `rag.ts` | The tempo dial (`gravityScale`) and when a body killed in the air takes it, joint damping, death tone, hard limit strength and fade-in, rest damping, collider slimming, heel feet, speed clamps (one impulse on one body, a blast, a shove), blast lift, how far a broken joint opens |
 | `swingShape()` | `rag.ts` | Asymmetric hip and shoulder reach |
@@ -320,8 +333,18 @@ body has to come to rest. A corpse shot awake moves, but has no tone left.
 
 ### What has to stay true
 
-Each of these was found the hard way. All but the two marked are guarded by a test, in `muscles.test.ts` unless another is
+Each of these was found the hard way. All but the three marked are guarded by a test, in `muscles.test.ts` unless another is
 named, checked by breaking each one on purpose in a copy and seeing the test fail.
+
+- **A knockdown begun inside an enemy's own update ends that update** (no unit test; `lab-contact.mjs`, `CONTACT=knock`, in
+  the game). The body check knocks a body down from `updateContact`, in the middle of `EnemyManager.updateEnemy`. Left to run
+  on, the update placed and animated the body, the animator wrote the hips bone, and gore read the instance as one the library
+  had taken back (`reclaimed`) and let go of it the same frame: in the game a sprint knocked down 0 of 20, though every
+  `gore.knockdown` said yes. `updateEnemy` returns once `e.downed` is set, as it already did after a fall.
+- **A round that knocks a head cold turns the neck alone** (`knockdown.test.ts`, 'knocked cold, the head snaps back'). A
+  `jolt` on the head passes most of it up the chain, the chest whips back harder than the head, and the head lags into a nod:
+  about 1 rad the wrong way against the chest in two frames. With no snap at all, as on the code before, the test reads
+  -0.08 rad and fails.
 
 - **A pre-step impulse has a gain limit.** Four solver iterations cannot pass a torque down a chain inside one step. A
   torque sized for a whole limb overshoots, reverses and pumps energy in: speeds of 30 m/s that never settled. So torques
@@ -341,8 +364,8 @@ named, checked by breaking each one on purpose in a copy and seeing the test fai
   never settles. `Rag.preStep` skips a sleeping chain, and anything that means to move it wakes it.
 - **A spring on a light limb against the floor bounces for as long as it is allowed**, and the bouncing resets the quiet
   timer that would have let it go. That is why ligaments only spring back above `limitElasticLow`.
-- **A working muscle carries its own weight** (`knockdown.test.ts`, 'a body lying down reaches its wound', on real Rapier). The drive's implicit step is sized for one light body, so its held torque is far under what lifts an arm. Collapses and reflexes both turn gravity down on a driven arm or head. It was why a body lay perfectly still. Lying on its back, the wrist gets to 0.24 to 0.31 m of a wound on the thigh with it, and 0.55 to 0.66 m without. The trunk is the exception: in a collapse its weight goes onto the hips, where the hold and the legs carry it, and that is what makes a dying body heavy. Left on the chest, it pitched the chest over the hold and turned the hips up to 1.1 rad off the animation's, which 'tracks the animation steadily' (limit 1) caught one run in ten; on the hips the worst of 40 bodies is 0.58.
-- **Nothing a hit does to the animation may land in one frame** (no test). If the same burst kills, `measureAnimVelocity` reads the jump as speed. Arms snapping to a flail seeded 14 m/s. The hop gait snapping in put the hips 9 cm sideways, read as 8 m/s, which threw a body with a blown-off leg 2.8 m across the blast. That one is the owner's "ridiculous" throw, and it was there on kills too. Everything in `stumble` and the hop now eases in, and so do a collapse's stagger and topple, over 0.2 s.
+- **A working muscle carries its own weight** (`knockdown.test.ts`, 'a body lying down reaches its wound', on real Rapier). The drive's implicit step is sized for one light body, so its held torque is far under what lifts an arm. Collapses and reflexes both turn gravity down on a driven arm or head. It was why a body lay perfectly still. Lying on its back, the wrist gets to 0.24 to 0.31 m of a wound on the thigh with it, and 0.55 to 0.66 m without. The trunk is the exception: in a collapse its weight goes onto the hips, where the hold and the legs carry it, and that is what makes a dying body heavy. Left on the chest, it pitched the chest over the hold and turned the hips up to 1.1 rad off the animation's, which 'tracks the animation steadily' (limit 1) caught one run in ten; on the hips the worst of 40 bodies is 0.58. Falling, a living body's arms and head keep half their cut (`ReflexTuning.fallCarry` 0.5), so they fall with some weight and still reach the floor; with none of it the elbows folded flat under the body and some forward falls rolled onto the back. On the floor they carry all of it again.
+- **Nothing a hit does to the animation may land in one frame** (no test). If the same burst kills, `measureAnimVelocity` reads the jump as speed. Arms snapping to a flail seeded 14 m/s. The hop gait snapping in put the hips 9 cm sideways, read as 8 m/s, which threw a body with a blown-off leg 2.8 m across the blast. That one is the owner's "ridiculous" throw, and it was there on kills too. Everything in `stumble` and the hop now eases in, and so do a collapse's stagger and topple, over 0.2 s. A knockdown from the body check or a head hit skips the animator's flinch, and the head hit its guard: `DamageModel.respond` decides first, and flinches only a body that stays up. Flinched first, an SMG round to the head started the ragdoll's head at 15.5 rad/s against its parent, and a knocked-cold head snapped 0.74 to 0.80 rad in 0.1 s against 0.53 to 0.64 from the whip alone (in the game, `?map=range`, four each).
 - **A ragdoll's speed is read with the body plan held** (`muscles.test.ts`, on a real `hidden`). `measureAnimVelocity` steps the animator with `probing`, which skips `refreshPlan`, because a limb that went this frame is not motion. Without it the difference is read over 1/90 s, so 13 cm is 12 m/s. A burst head started every body at about 12 m/s in a random direction with most joints at the 18 rad/s clamp, and it hit the floor in 0.19 s, faster than gravity. Two arms in one blast read as 2.4 m/s on the whole body. The animator's old headless walk was the worst of it, and is gone: nothing living has no head.
 - **In a collapse, the hold takes the reaction.** With every joint's reaction landing on the hips they thrash. While
   support lasts each body answers to one controller, and as it fades the reaction moves onto the parent, so what is left at
@@ -421,6 +444,11 @@ Shared 8 GB M1 under load average around 18, so treat these as upper bounds.
 | A grenade into 16, `BLAST_CROWD=16 blast-seq.mjs`, four tries each, Troopers and Husks, against `?mass=0` | Frozen standing the frame it died, hips 0.86 to 0.91 m: none of eight tries against four of eight (two of eight in a second session). Every freeze with hips at 0.18 m or lower, 0.62 s or more after the death. Peak chains 14 to 15. After the fix round, four tries on Troopers: none, every freeze at 0.19 m or lower and 0.63 s or more |
 | `react-chaos`, stage 3 against `?mass=0`, alternating, load 3.5 to 8 | Physics step peak 7.6 to 10.6 ms, mean 8.8 over five, against 8.3 to 10.1, mean 9.4 over four. CPU 4.6 to 5.7 ms a frame against 4.8 to 8.1. Peak chains 11 to 13 against 11 to 14. Every survivor back up, no console errors. A second session, four each: 9.43 against 9.18 ms. After the fix round, three each at load 4 to 13: 7.4 to 9.0, mean 8.1, against 7.8 to 9.0, mean 8.6; every survivor up, no errors |
 | The ragdoll budget over it, scratch probes in Node (`tools/out/fx`, the reviewer's in the session scratchpad) | Sixteen unfreezable running, a second grenade 0.9 or 1.1 s after the first: with the clock left at death a corpse froze 1.4 to 2.3 m up in five tries of five; now every freeze has its hips at 0.18 m or lower. One corpse shot every six frames for 4 s: 6 freezes, 7 wakes, 6 pools and 77 rigid bodies made, now 1 wake, 0 pools and 11, as with the budget not over. A grenade into 30 and 36 Troopers, two each: over 14 chains for 58 to 62 frames, 14 again by 1.0 to 1.2 s |
+| Knocked over, a scratch probe on the `knockdown.test.ts` harness (`tools/out/knock/probe.test.ts`), Trooper, against a copy of the code before | Knocked cold, 8 rounds of 4 headings: the head turns 0.50 to 1.0 rad against the chest along the shot within 0.1 s; not knocked cold, -0.09 to -0.02, the head lagging the topple. With one `jolt` on the head the chest whipped back 0.6 to 0.8 rad on the hips in two frames and the head read -0.96 against it; with the neck alone at 11, 16 and 22 rad/s, 0.03 to 0.34, 0.10 to 0.64 and 0.40 to 1.00. Hands touch the floor before the chest in all 32 (0.27 to 0.38 s against 0.37 to 1.05) |
+| The same, topples at 2 m/s over eight headings | Hands on the floor before the chest, per round of eight: 5, 6, 6 keeping all of the arms' cut in a fall (`fallCarry` 1, as before), 6 to 8 over ten rounds at 0.5, 7, 8, 8 at 0. At 0 the elbow of the first hand down is 2.15 to 2.47 rad 0.2 s on (medians at 1.7 and 2 m/s), and one or two forward falls in nine roll onto the back; at 0.5, 1.66 to 1.87, every forward fall prone. That elbow is 0.9 rad or more in 28 of 30 forward falls at 0.5. With the brace's give off, much the same (0.81 to 2.56 against 0.90 to 2.62 over nine); the chest's speed 0.1 s after the hand lands is 0.3 to 1.8 times its speed at the landing either way |
+| The same, a survivor 3 m and 4 m from a rocket, ten each | A hand within 0.25 m of the head while the hips are above landing height: 0.22 to 0.38 s at 3 m (0.29 on average) and 0.12 to 0.25 at 4 m; on the code before, 0 to 0.32 (0.17) and 0 to 0.22. Both hands at once, at most 0.15 s either way. Not at all from the knockdown test's own blast (hips up to 1.0 m), either way |
+| `react-chaos`, knocked over against `?knock=0`, alternating, five each, load 2.3 to 7.3 | Physics step peak 8.6 to 15.5 ms, mean 11.3 and median 10.3, against 9.1 to 12.2, 9.8 and 9.2. CPU 3.5 to 5.3 ms a frame, mean 4.5, against 3.5 to 6.3, 4.6. Knockdowns 23 to 27 a run against 14 to 23: the script's rounds to the head push with 22 N·s, which floors a body now. At most 14 chains either way. Every survivor back up, no console errors. Again with the head hits that floor a body skipping the animator's flinch and guard, three each, load 5.5 to 8.6: 8.2 to 9.7 ms, mean 9.1 and median 9.4, against 8.7 to 10.5, 9.3 and 8.8; CPU 4.9 against 6.0; knockdowns 19 to 28 against 18; every survivor up, no errors |
+| A rocket survivor 4 m off, `tools/out/tempo/throw-tempo.mjs`, six each, alternating | 4.25 to 4.95 m, mean 4.58, in the air 0.58 s, against 4.54 to 4.94, 4.73 and 0.59 with `?knock=0` |
 
 ## Known limitations
 
@@ -515,6 +543,36 @@ Shared 8 GB M1 under load average around 18, so treat these as upper bounds.
 - **A burn emitter sits on the chest bone** (`EnemyManager`), so it goes down with the body. Only a rig with no chest carries
   it on the root at chest height, and there the flames ride above a body that is down.
 - **Knocked-down bodies have no collision with the player.** They are walked through, like crawlers.
+- **A body check needs to land near the middle.** Its strength is how fast the player closes on the body, so at a 12.5 m/s run
+  it goes over only when the player meets it within about 0.43 m of its middle; further out it is a glancing blow, and it
+  staggers as before. The body's own speed toward the player does not count, so a husk running at the player is no easier to
+  floor than one standing. In `lab-contact`'s 'run into a pack' the player meets two husks 0.6 m to either side at about 9 m/s
+  and neither goes down; with six in the run's lane (`charge`) all six do. `CHECK_FROM`, `CHECK_MIN`, or the body's own
+  speed in the closing, are the knobs, after the owner has charged a Crucible pack.
+- **A braced fall does not slow the chest.** Five times what holds an arm up is a few kilograms against an 85 kg trunk, so
+  the chest comes down through the hands' landing as fast or faster 0.1 s on (0.3 to 1.8 times its speed at the contact,
+  mostly over 1, with the brace giving or not), and on a fall forward the body mostly lands on its knees first and settles
+  onto its forearms. The plan's 30 to 60% slower is not met. What the give changes is the arm: on a straight one the elbow
+  could lock and prop the body 0.3 s; now it bends. The arms bend under the weight either way in most falls, so its test also
+  reads what the reflex asks of the landing hand's elbow: 1.0 to 1.3 rad in 4 to 6 falls of 8, where the stiff brace of
+  `?knock=0` never asks past 0.47.
+- **Knocked cold, the hands reach the floor before the chest**, in 32 of 32: slack arms at nine tenths of their weight hang
+  at the hips, and a body that crumples drops onto them (hands at 0.27 to 0.38 s, chest at 0.37 to 1.05 s). The plan asked for
+  the chest first in 3 of 4; a sack does not do that. What tells it from a plain knockdown is the head and arms, not the order.
+  Nor does it land sooner: the chest is down 0.03 s later than the same knockdown not knocked cold, on average over eight
+  headings (frame 29 against 27), and a fall forward can kneel 0.4 m up for half a second either way. Hanging the slack arms
+  bent along the trunk, so one caught under the body would fold, made it 0.06 s later still and was left out
+  (`tools/out/fix4/ko.test.ts`).
+- **Only one hand reaches the face in the air**, and for 0.22 to 0.38 s at 3 m from a rocket (0.29 on average; 0 to 0.32 and
+  0.17 before). The arms wake 0.07 s after the hit and are strong by about 0.2 s, and the arm on the blast's side is thrown
+  away from the face; both hands at once, at most 0.15 s. Three times the strength while guarding added 0.07 s on average,
+  inside the noise, and was left out. The knockdown test's own blast is too weak to get a hand there at all.
+- **A body that falls on its side and gets up face up can lose a wrist for a frame**, 0.3 s into the clip: the left hand
+  jumps 0.37 to 0.78 m. Three of 24 sideways knockdowns did it on the code before this stage, two of eight knocked cold here.
+  It is in the get-up (`getUp.ts`, `HumanoidAnimator`), not gore, and not looked into. The four headings' handover test
+  passes; the knocked-cold test does not check the handover for this reason.
+- **Knockdowns are spent by a charge.** Six husks run over hold six of the twelve slots for about a second and a half, so a
+  grenade straight after may only stagger some survivors.
 - **A collapse assumes level ground.** The hips are held at the height they started, so one begun on stairs or at a ledge
   hovers until support fades, then drops. Not tried on stairs. Airborne, call `ragdoll`.
 - **A very fast joint still reaches the hard stop.** Past about 30 rad/s the zone is used up in a step or two and the

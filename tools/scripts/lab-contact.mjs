@@ -1,11 +1,18 @@
 // Proves heavies are solid and nothing traps or throws the player. A bot on the Test Range holds forward into bodies.
-//   node tools/shot.mjs --url "/?map=range" --script tools/scripts/lab-contact.mjs --wait 500 --timeout 200 --out tools/out/contact.png
+//   node tools/shot.mjs --url "/?map=range" --script tools/scripts/lab-contact.mjs --dpr 2 --w 1440 --h 900 --wait 500 --timeout 200 --out tools/out/contact.png
+// CONTACT=walk,dash,slide,glance,jump,wall,titan,brutes,pack,charge,ring,knock runs only those. Left out, it runs all but `knock`,
+// which runs only when named: a sprint at 12.5 m/s into a standing Trooper and a Husk, KNOCK_RUNS (10) times each, with
+// whether it went down, where its hips came to rest along the run and the slowest the player went past it.
+const only = (process.env.CONTACT ?? '').split(',').filter(Boolean);
+const knockRuns = Number(process.env.KNOCK_RUNS ?? 10);
+
 export default async function contactTest(page, h) {
   for (let i = 0; i < 180; i++) {
     if (await page.evaluate(() => !!window.__lab && window.__op2?.game?.state === 'playing')) break;
     await h.sleep(500);
   }
-  return page.evaluate(async () => {
+  return page.evaluate(async ({ only, knockRuns }) => {
+    const wants = name => (only.length === 0 ? name !== 'knock' : only.includes(name));
     const lab = window.__lab;
     const { ctx } = window.__op2;
     const V = ctx.player.position.constructor;
@@ -52,7 +59,7 @@ export default async function contactTest(page, h) {
     };
 
     const out = {};
-    for (const id of ['brute', 'juggernaut', 'titan']) {
+    for (const id of wants('walk') ? ['brute', 'juggernaut', 'titan'] : []) {
       await clear();
       const e = place(id, 0, 0);
       start(0, 14, 0);
@@ -66,8 +73,8 @@ export default async function contactTest(page, h) {
       out[`walk into ${id}`].shakeMm = +(Math.sqrt(zs.reduce((a, z) => a + (z - mean) ** 2, 0) / zs.length) * 1000).toFixed(1);
     }
 
-    await clear();
-    {
+    if (wants('dash')) {
+      await clear();
       const e = place('brute', 0, 0);
       start(0, 8, 0);
       ctx.input.simulate('forward', true);
@@ -79,8 +86,8 @@ export default async function contactTest(page, h) {
       out['dash into brute'] = r;
     }
 
-    await clear();
-    {
+    if (wants('slide')) {
+      await clear();
       const e = place('brute', 0, 0);
       start(0, 8, 0);
       ctx.input.simulate('forward', true);
@@ -92,8 +99,8 @@ export default async function contactTest(page, h) {
       out['slide into brute'] = r;
     }
 
-    await clear();
-    {
+    if (wants('glance')) {
+      await clear();
       // Aimed a little off centre: a run should slide round and go on, not stop dead.
       const e = place('brute', 0, 0);
       start(0.6, 12, 0);
@@ -103,8 +110,8 @@ export default async function contactTest(page, h) {
       out['glancing run at brute'] = r;
     }
 
-    await clear();
-    {
+    if (wants('jump')) {
+      await clear();
       // A jump onto its shoulders must not stand the player there or throw them.
       const e = place('brute', 0, 0);
       start(0, 5, 0);
@@ -116,8 +123,8 @@ export default async function contactTest(page, h) {
       out['jump at brute'] = await watch(2, e);
     }
 
-    await clear();
-    {
+    if (wants('wall')) {
+      await clear();
       // Backed against the wall with a Juggernaut stood in the way, then walking along the wall to get out.
       start(0, 24, 0);
       const e = place('juggernaut', 0, 24.2);
@@ -129,8 +136,8 @@ export default async function contactTest(page, h) {
       out['spawned inside juggernaut at a wall'] = r;
     }
 
-    await clear();
-    {
+    if (wants('titan')) {
+      await clear();
       // A Titan walking at a player who stands with their back to a wall, then the player sidestepping out. Moved by
       // hand, because the nav graph stops a body short of the wall.
       const e = place('titan', 0, 14);
@@ -149,8 +156,8 @@ export default async function contactTest(page, h) {
       out['titan walks player into wall'] = r;
     }
 
-    await clear();
-    {
+    if (wants('brutes')) {
+      await clear();
       // Between two Brutes shoulder to shoulder with a wall behind.
       place('brute', -1.1, 23.4);
       place('brute', 1.1, 23.4);
@@ -161,22 +168,98 @@ export default async function contactTest(page, h) {
       out['pressed between two brutes at a wall'] = r;
     }
 
-    await clear();
-    {
-      // A run into a pack: light bodies give way, the Brute in the middle does not.
-      for (let i = -3; i <= 3; i++) if (i !== 0) place('husk', i * 1.2, 2);
-      for (let i = -2; i <= 2; i++) place('husk', i * 1.2 + 0.6, 0);
+    for (const [name, from] of [['pack', 14], ['charge', 23]]) {
+      if (!wants(name)) continue;
+      await clear();
+      // A run into a pack: light bodies give way, the Brute in the middle does not. Eleven husks, so a charge can put
+      // them all on the floor inside gore's twelve knockdowns. The pack's front row leaves the run's line open, so the player
+      // only meets two husks of the second, 0.6 m to either side, glancing at about 9 m/s toward them: a body check needs
+      // nearer the middle than that. `charge` starts against the back wall, at full speed, with six husks a hand's width
+      // either side of the line, five out to the sides and the Brute behind.
+      const husks = [];
+      if (name === 'pack') {
+        for (let i = -3; i <= 3; i++) if (i !== 0) husks.push(place('husk', i * 1.2, 2));
+        for (let i = -2; i <= 2; i++) husks.push(place('husk', i * 1.2 + 0.6, 0));
+      } else {
+        for (let i = 0; i < 6; i++) husks.push(place('husk', [0.15, -0.2, 0.05, 0.25, -0.1, -0.25][i], 6 - i * 1.4));
+        for (let i = 0; i < 5; i++) husks.push(place('husk', (i % 2 ? -1 : 1) * 1.4, 5.3 - i * 1.4));
+      }
       const brute = place('brute', 0.2, -3);
-      start(0, 14, 0);
+      const bruteZ = brute.position.z;
+      start(0, from, 0);
       ctx.input.simulate('forward', true);
-      const r = await watch(4.5, brute);
+      const downed = new Set();
+      let knockdowns = 0;
+      let stepPeak = 0;
+      const steps = [];
+      // Every run ends at the range's back wall, so how far past the Brute is capped at 12.5 m: what a pack takes out of a run
+      // is the slowest it goes from full speed until it is 3 m past the Brute.
+      let fast = false;
+      let slowest = 99;
+      const r = await watch(from === 14 ? 4.5 : 5.2, brute, () => {
+        const speed = Math.hypot(P.velocity.x, P.velocity.z);
+        if (speed > 12) fast = true;
+        if (fast && P.position.z > bruteZ - 3) slowest = Math.min(slowest, speed);
+        for (const e of husks) if (e.downed) downed.add(e);
+        const down = ctx.gore.stats().knockdowns;
+        knockdowns = Math.max(knockdowns, down);
+        stepPeak = Math.max(stepPeak, ctx.physics.stepMs);
+        if (down > 0) steps.push(ctx.physics.stepMs);
+      });
+      steps.sort((a, b) => a - b);
+      r.stepWhileDown = steps.length ? [steps[steps.length >> 1], steps[Math.floor(steps.length * 0.9)], steps.length].map(x => +x.toFixed(2)) : null;
       r.endZ = +P.position.z.toFixed(1);
       r.endX = +P.position.x.toFixed(1);
-      out['run into a pack'] = r;
+      r.pastBrute = +(bruteZ - P.position.z).toFixed(1);
+      r.slowest = +slowest.toFixed(2);
+      r.husksDown = downed.size;
+      r.knockdowns = knockdowns;
+      r.stepPeak = +stepPeak.toFixed(2);
+      out[name === 'pack' ? 'run into a pack' : 'charge a pack from 23 m'] = r;
     }
 
-    await clear();
-    {
+    if (wants('knock')) {
+      // A sprint into one standing body, head on to a hand's width either side. Its hips are read along the run from
+      // where it stood, at the last frame gore had it, which is where it lay to get up.
+      for (const id of ['trooper', 'husk']) {
+        const runs = [];
+        for (let i = 0; i < knockRuns; i++) {
+          await clear();
+          const e = place(id, 0, 0);
+          const stood = e.position.clone();
+          start(((i % 5) - 2) * 0.06, 18, 0);
+          ctx.input.simulate('forward', true);
+          await until(() => P.speed > 12.3, 2);
+          const entry = +P.speed.toFixed(2);
+          let down = false;
+          let slowest = 99;
+          let hit = -1;
+          const lay = new V();
+          await watch(3.2, null, () => {
+            if (hit < 0 && e.lastBumpAt > 0) hit = ctx.time.playerElapsed;
+            if (hit >= 0 && ctx.time.playerElapsed - hit < 0.4) slowest = Math.min(slowest, Math.hypot(P.velocity.x, P.velocity.z));
+            const d = ctx.gore.downed(e.char);
+            if (d) {
+              down = true;
+              lay.copy(d.center);
+            }
+          });
+          ctx.input.simulate('forward', false);
+          runs.push({ entry, down, along: down ? +(stood.z - lay.z).toFixed(2) : null, side: down ? +(lay.x - stood.x).toFixed(2) : null, slowest: +slowest.toFixed(2) });
+        }
+        const downs = runs.filter(r => r.down);
+        const along = downs.map(r => r.along);
+        out[`knock ${id}`] = {
+          downed: `${downs.length}/${runs.length}`,
+          along: along.length ? [Math.min(...along), +(along.reduce((a, b) => a + b, 0) / along.length).toFixed(2), Math.max(...along)] : null,
+          slowest: Math.min(...runs.map(r => r.slowest)),
+          runs,
+        };
+      }
+    }
+
+    if (wants('ring')) {
+      await clear();
       // Hemmed in by a live pack with AI on, and running out of it.
       for (let i = 0; i < 10; i++) {
         const a = (i / 10) * Math.PI * 2;
@@ -190,5 +273,5 @@ export default async function contactTest(page, h) {
     }
     await clear();
     return out;
-  });
+  }, { only, knockRuns });
 }

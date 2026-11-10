@@ -444,6 +444,9 @@ export class EnemyManager implements EnemySystem {
       if (!e.alive) return;
       updateMovement(e, w, dt, this.alive);
       updateContact(e, w);
+      // Run over (`DamageModel.bodyCheck`): gore has the bones now. Animated on top, the hips would read as an instance the
+      // library took back, and gore would let go the same frame.
+      if (e.downed) return;
     }
     this.place(e);
     this.animate(e, dt);

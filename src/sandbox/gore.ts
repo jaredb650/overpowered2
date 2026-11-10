@@ -6,6 +6,7 @@
  *              limit | zerog | fall | stairsab | blast | lineup
  *              collapse: dropped, collapsing, collapsing on the move. twitch: still on the left, twitching on the right
  *              weight: dropped, headshot, SMG collapse, Judge, in profile. Add weight=0 for the bodies before the weight pass
+ *              knock: knocked over alive and back up: a body check, a head hit that knocks it cold, a blast at 3 m
  *   arch       archetype to spawn, default husk. dummy=1 uses the capsule TestDummy instead.
  *   cam        x,y,z,tx,ty,tz camera override.
  *   q          render quality preset.
@@ -18,6 +19,10 @@
  *   mass       0 puts back hits from before they knew the mass of what they hit, in any scenario and in the game: a round's
  *              jolt and a blast's spin as big on a Juggernaut as on a Trooper, 9 m/s from one round on a limb, the bigger
  *              living flinch on springs that rang, and a ragdoll budget that froze the oldest body however fresh or fast.
+ *   knock      0 puts back knockdowns from before they could be run over, in any scenario and in the game: running into a
+ *              body only staggers it, only a shotgun or a heavy round to the head floors it and nothing knocks it cold, a
+ *              braced hand holds stiff, the arms carry their own weight in a fall, and a thrown body's hands leave its face
+ *              after 0.2 s.
  *
  * Time is fixed at 1/60 per frame, so a scenario plays the same every run. window.__gore gives a capture
  * script frame-exact control: hold(), step(n) and sheet(), which draws a contact sheet over the page.
@@ -514,6 +519,41 @@ const scenarios: Record<string, Scenario> = {
       ['drop', 'headshot', 'collapse', 'judge'].forEach((name, i) => c.fillText(name, x + w * [0.05, 0.31, 0.58, 0.85][i]!, y + h - 8 * devicePixelRatio));
     },
   },
+  /**
+   * Knocked over, alive, at frame 20, and back up: a body check from the front (3 m/s of the run kept, tipped back at 2.4), a
+   * head hit that knocks it cold, and a rocket's blast 3 m in front of the third, which faces the camera, so its hands can be
+   * seen on its face in the air. The blast goes off before the other two are down, or it would throw them as well.
+   * `&knock=0` shows them from before.
+   */
+  knock: {
+    camera: [0, 1.25, 4.9, 0, 0.5, -0.4],
+    setup(s) {
+      s.place(-2.6, 1, PROFILE);
+      s.place(0, 1, PROFILE);
+      s.place(2.6, 1, 0);
+    },
+    frame(s, f) {
+      if (f !== 20) return;
+      const [check, cold, thrown] = s.row;
+      const back = v(-1, 0, 0);
+      const up = { lie: 0.3, rise: 1.3, hurt: 0 };
+      s.gore.knockdown(thrown!, { ...up });
+      s.ctx.physics.radialImpulse(v(2.6, 0.3, 4), 8 * 1.35, 12 * 8);
+      s.gore.knockdown(check!, {
+        ...up, velocity: back.clone().multiplyScalar(3), topple: back.clone().multiplyScalar(2.4), impact: { dir: back, strength: 0.38 },
+        wound: { bone: B.chest, point: bonePos(check!, B.chest) },
+      });
+      const a = s.aim(cold!, B.head, bonePos(cold!, B.head).add(v(4, 0, 0)));
+      s.gore.knockdown(cold!, {
+        ...up, lie: 0.45, topple: back.clone().multiplyScalar(1.9), impact: { dir: back, strength: 0.28 }, knockout: true,
+        wound: { bone: B.head, point: a ? a.hit.point.clone() : bonePos(cold!, B.head) },
+      });
+    },
+    overlay(s, c, x, y, w, h) {
+      c.fillStyle = '#ffffffc0';
+      ['check', 'cold', 'blast'].forEach((name, i) => c.fillText(name, x + w * [0.16, 0.47, 0.78][i]!, y + h - 8 * devicePixelRatio));
+    },
+  },
   /** Both dropped dead on muscles, only the one on the right twitching. */
   twitch: {
     camera: [0, 1.2, 2.1, 0, 0.1, 0],
@@ -590,7 +630,8 @@ export default async function goreSandbox(params: URLSearchParams): Promise<void
     scenario.frame?.(stage, stage.frame++);
     for (const c of stage.row) {
       const live = (c as { live?: boolean }).live;
-      if (live !== false && !gore.owns(c)) c.anim.update(ctx.time.dt, 0);
+      // A body knocked down is still its owner's, but gore has its bones until it gets up.
+      if (live !== false && !gore.owns(c) && !gore.downed(c)) c.anim.update(ctx.time.dt, 0);
       (c as { tick?(dt: number): void }).tick?.(ctx.time.dt);
     }
     physics.step(ctx.time.dt);

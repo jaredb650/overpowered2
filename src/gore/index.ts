@@ -21,7 +21,7 @@ import { ImpactEvents, impactKind, ImpactTuning } from './impacts';
 import { CollapseDrive, impactStrength, MASS_PASS, MuscleTuning, WEIGHT_PASS, type CollapseOptions, type DownedBody, type KnockdownOptions } from './muscles';
 import { BodyFilter, fillVelocity, LimbFilter, measureAnimVelocity, Rag, SEED_STRIDE } from './rag';
 import { boneRay, boneRayContact, nextCapsuleHit, rayBones, rayNearSphere } from './raycast';
-import { Reflex } from './reflex';
+import { Reflex, ReflexTuning } from './reflex';
 import { Crawler } from './crawl';
 import { HUMAN_MASS, markSevered, markSubtree, MAX_BONES, rigInfo, type RigInfo } from './rigInfo';
 import { SliceField } from './sliced';
@@ -475,11 +475,27 @@ export class Gore implements GoreSystem {
     const muscle = rag.muscle!;
     const dir = options?.impact?.dir ?? options?.topple ?? null;
     const plank = options?.topple !== undefined;
-    muscle.startReflex(new Reflex(rag, muscle, char.anim, { lie: options?.lie ?? t.knockdownLie, hurt, groundY: ground, dir, plank }));
+    const reflex = new Reflex(rag, muscle, char.anim, { lie: options?.lie ?? t.knockdownLie, hurt, groundY: ground, dir, plank, knockout: options?.knockout });
+    muscle.startReflex(reflex);
     this.strikeDown(body, rag, options);
     if (options?.topple) muscle.tip(options.topple);
+    if (reflex.knockout && dir && options?.wound) this.knockOut(rag, options.wound.point, dir);
     body.down.center.copy(rag.center);
     return true;
+  }
+
+  /**
+   * The round that knocked it cold snaps the head back on this frame, about the neck and away from the round, with nothing in
+   * the neck to stop it (`ReflexTuning.koHead`). Torque across the one joint, so it moves the body as a whole no more than a
+   * round does. As heavy as every other jolt (`MuscleTuning.joltMassExp`).
+   */
+  private knockOut(rag: Rag, point: THREE.Vector3, dir: THREE.Vector3): void {
+    const head = rag.parts.find(p => p.muscle?.role === 'head');
+    if (!head) return;
+    head.body.translation(head.p);
+    _v.copy(point).sub(head.p).cross(_v2.copy(dir).normalize());
+    if (_v.lengthSq() < 1e-8) return;
+    rag.muscle!.whip(head.bone, _v.normalize(), ReflexTuning.koWhip * massShare(rag.info.mass, MuscleTuning.joltMassExp));
   }
 
   /** A hit on a body that is down and alive. It is added to whatever the body was doing. */

@@ -11,7 +11,8 @@ import { Physics } from '../physics/Physics';
 import { makeCtx } from '../sandbox/harness';
 import type { Ctx, DamageInfo } from '../core/contracts';
 import { createGoreSystem, GoreTuning, type Gore } from './index';
-import type { Rag } from './rag';
+import { RagTuning, type Rag } from './rag';
+import { ReflexTuning } from './reflex';
 import { TestDummy } from './testDummy';
 
 const trooper = archetypeById('trooper');
@@ -112,6 +113,28 @@ function watch(c: TestDummy, frames = 60 * 7): Run {
 
 const knock = (c: TestDummy, x: number, z: number) => gore.knockdown(c, { topple: v(x, 0, z), lie: 0.3, rise: 1.6, hurt: 0.6 });
 
+/** A hit capsule's two ends in the world, and the radius its collider has. */
+function capsule(c: TestDummy, bone: number): { a: THREE.Vector3; b: THREE.Vector3; r: number } {
+  const hit = rig.bones[bone]!.hit!;
+  const m = c.bones[bone]!.matrixWorld;
+  return { a: new THREE.Vector3(...hit.from).applyMatrix4(m), b: new THREE.Vector3(...hit.to).applyMatrix4(m), r: hit.radius * RagTuning.colliderScale };
+}
+/** Height of the lowest point of the chest, and of a hand, over the floor. */
+const chestLow = (c: TestDummy) => {
+  const k = capsule(c, B.chest);
+  return Math.min(k.a.y, k.b.y) - k.r;
+};
+const handLow = (c: TestDummy, hand: number) => {
+  const k = capsule(c, hand);
+  return Math.min(k.a.y, k.b.y) - k.r;
+};
+/** Bend at an elbow, from the bones either side of it. 0 is a straight arm. */
+const elbowFlex = (c: TestDummy, upper: number) => {
+  const s = at(c, upper);
+  const e = at(c, upper + 1);
+  return e.clone().sub(s).angleTo(at(c, upper + 2).sub(e));
+};
+
 describe('knockdown', () => {
   const headings: readonly (readonly [number, number])[] = [[0, 2], [0, -2], [2, 0], [-1.4, 1.4]];
   for (const [x, z] of headings) {
@@ -156,6 +179,107 @@ describe('knockdown', () => {
     }
     expect(lying).toBeGreaterThan(60);
     expect(nearest).toBeLessThan(0.4);
+    gore.clear();
+  });
+
+  it('knocked cold, the head snaps back from the round and the neck and arms go slack', () => {
+    // A shotgun or a heavy round to the head. One `jolt` on the head, as first planned, passes most of the round up the chain:
+    // the chest whipped back 0.6 to 0.8 rad on the hips in two frames and the head, lagging it, read as a nod. So the round
+    // snaps the neck alone (`MuscleState.whip`, `ReflexTuning.koWhip`): 0.50 to 1.0 rad along the shot within 0.1 s over 32
+    // bodies, and the same knockdown not knocked cold 0 or a little the other way, as the head lags the topple.
+    const head = rig.bones[B.head]!.hit!;
+    for (const [x, z] of headings) {
+      for (const cold of [true, false]) {
+        gore.clear();
+        const c = spawnLiving();
+        const dir = v(x, 0, z).normalize();
+        const face = new THREE.Vector3(...head.from).lerp(new THREE.Vector3(...head.to), 0.5).applyMatrix4(c.bones[B.head]!.matrixWorld);
+        face.addScaledVector(dir, -head.radius);
+        const q = (bone: number) => new THREE.Quaternion().setFromRotationMatrix(c.bones[bone]!.matrixWorld);
+        // The head's up in the chest's frame, and the shot in it.
+        const up = () => v(0, 1, 0).applyQuaternion(q(B.head)).applyQuaternion(q(B.chest).invert());
+        const up0 = up();
+        const along = dir.clone().applyQuaternion(q(B.chest).invert());
+        gore.knockdown(c, {
+          topple: dir.clone().multiplyScalar(1.9), impact: { dir, strength: 0.28 }, knockout: cold, lie: 0.45, rise: 1.6, hurt: 0.8,
+          wound: { bone: B.head, point: face },
+        });
+        const rag = ragOf(c);
+        const reflex = rag.muscle!.reflex!;
+        let snap = -9;
+        for (let f = 0; f < 6; f++) {
+          frame(c);
+          const u = up();
+          snap = Math.max(snap, u.angleTo(up0) * Math.sign(u.clone().sub(up0).dot(along)));
+        }
+        if (!cold) {
+          expect(snap, `not cold, heading ${x},${z}`).toBeLessThan(0.15);
+          continue;
+        }
+        expect(snap, `heading ${x},${z}`).toBeGreaterThanOrEqual(0.4);
+        // Nothing in the neck, and nothing in the arms to brace with or guard the face.
+        while (reflex.age < ReflexTuning.koSeconds && gore.downed(c)) {
+          for (const part of rag.parts) {
+            const m = part.muscle!;
+            if (m.role === 'arm') expect(m.drive).toBeLessThanOrEqual(ReflexTuning.koArm + 1e-9);
+            if (m.role === 'head' && reflex.age < ReflexTuning.koHead) expect(m.drive).toBe(0);
+          }
+          frame(c);
+        }
+        // It gets up. The handover is the four headings' test: a body that falls on its side and gets up face up can lose
+        // a wrist for a frame 0.3 s into the clip, as it could before (gore.md, Known limitations).
+        const r = watch(c);
+        expect(r.back).toBeGreaterThan(0);
+        expect(at(c, B.head).y).toBeGreaterThan(1.4);
+        expect(r.floor).toBeGreaterThan(-0.05);
+      }
+    }
+    gore.clear();
+  });
+
+  it('a braced fall gives: the hands meet the floor first and the arm bends under the weight', () => {
+    // Eight headings at 2 m/s. With the arms keeping half their gravity cut in the fall (`ReflexTuning.fallCarry` 0.5) the hands
+    // are down before the chest in 6 to 8 of 8 (10 rounds); keeping all of it, as before, 5 or 6, the falls backward missing.
+    // The elbow of the first hand down, 0.2 s after it lands, on the three falls forward: 0.9 rad or more in 28 of 30. A
+    // stiff brace bends about as much under the body, so the give is also read where it starts, in what the reflex asks of
+    // that elbow once its hand is down: 1.0 rad or more in 4 to 6 falls of 8 (`yieldElbow` 1.3), where a brace that holds
+    // stiff, as with `?knock=0`, never asks past 0.47 (`braceElbow` 0.3).
+    let first = 0;
+    let gave = 0;
+    const bent: number[] = [];
+    const hinge = (q: THREE.Quaternion) => 2 * Math.acos(Math.min(1, Math.abs(q.w)));
+    for (let k = 0; k < 8; k++) {
+      gore.clear();
+      const c = spawnLiving();
+      const a = (k * Math.PI) / 4;
+      knock(c, Math.sin(a) * 2, Math.cos(a) * 2);
+      const rag = ragOf(c);
+      const reflex = rag.muscle!.reflex!;
+      let hand = -1;
+      let chest = -1;
+      let arm = 0;
+      let asked = 0;
+      for (let f = 0; f < 80 && (chest < 0 || (hand >= 0 && f <= hand + 12)); f++) {
+        frame(c);
+        if (hand < 0 && Math.min(handLow(c, B.handL), handLow(c, B.handR)) < 0.02) {
+          hand = f;
+          arm = handLow(c, B.handL) < handLow(c, B.handR) ? B.upperArmL : B.upperArmR;
+        }
+        if (chest < 0 && chestLow(c) < 0.03) chest = f;
+        if (hand >= 0 && f <= hand + 12 && reflex.phase === 'fall') asked = Math.max(asked, hinge(rag.partFor(arm + 1).muscle!.pose));
+        if (hand >= 0 && f === hand + 12 && (k === 0 || k === 1 || k === 7)) bent.push(elbowFlex(c, arm));
+      }
+      expect(gore.downed(c)).not.toBeNull();
+      if (hand >= 0 && (chest < 0 || hand < chest)) first++;
+      if (asked >= 1) gave++;
+      const r = watch(c);
+      expect(r.back).toBeGreaterThan(0);
+      expect(r.pop).toBeLessThan(0.14);
+    }
+    expect(first).toBeGreaterThanOrEqual(6);
+    expect(gave).toBeGreaterThanOrEqual(2);
+    expect(bent).toHaveLength(3);
+    expect(bent.filter(b => b >= 0.9).length).toBeGreaterThanOrEqual(2);
     gore.clear();
   });
 
@@ -441,6 +565,33 @@ describe('a blast', () => {
     expect(drift(false)).toBeLessThan(0.4);
     // The hop gait snapping in put 8 m/s across the blast into the ragdoll's seed, and it landed 2.8 m off the line.
     expect(drift(true)).toBeLessThan(0.6);
+  });
+
+  it('keeps a hand at its face through the flight of a rocket', () => {
+    // Survivors 3 m from a rocket. The hands stay up while the body rises and hangs, and let go as it comes down at 2 m/s
+    // (`ReflexTuning.guardHold`): a hand within 0.25 m of the head for 0.22 to 0.38 s of the flight, 0.29 on average over ten.
+    // Letting go after 0.2 s whatever the body was doing, as before, 0 to 0.32 s and 0.17, since the arms are still waking
+    // for the first 0.2 s. Both hands at once, which the plan asked for, at most 0.15 s either way: the arm on the blast's
+    // side is thrown away from the face.
+    let total = 0;
+    for (let i = 0; i < 6; i++) {
+      gore.clear();
+      const c = spawnLiving(0, 3);
+      gore.knockdown(c, { hurt: 0.9, lie: 0.3, rise: 1.5 });
+      physics.radialImpulse(v(-3, 0.3, 3), 8 * 1.35, 12 * 8);
+      const reflex = ragOf(c).muscle!.reflex!;
+      let near = 0;
+      for (let f = 0; f < 90 && gore.downed(c); f++) {
+        frame(c);
+        if (reflex.phase !== 'fall' || at(c, B.hips).y < 0.41) continue;
+        const head = at(c, B.head);
+        if (Math.min(at(c, B.handL).distanceTo(head), at(c, B.handR).distanceTo(head)) < 0.25) near++;
+      }
+      expect(near / 60).toBeGreaterThanOrEqual(0.15);
+      total += near / 60;
+    }
+    expect(total / 6).toBeGreaterThanOrEqual(0.22);
+    gore.clear();
   });
 
   it('is thrown, lands and gets up, on any number of limbs', () => {

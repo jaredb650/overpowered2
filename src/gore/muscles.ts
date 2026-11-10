@@ -50,6 +50,11 @@ export interface KnockdownOptions {
   hurt?: number;
   /** Where a hand should go. */
   wound?: { bone: number; point: THREE.Vector3 };
+  /**
+   * Knocked cold by a head hit: a shotgun or a heavy round. The head whips back from `wound.point` along `impact.dir` and
+   * hangs slack for a moment, the arms go slack with no brace and no guard, and it goes over like a sack, alive.
+   */
+  knockout?: boolean;
 }
 
 /** What the owner of a knocked-down character reads each frame. */
@@ -110,6 +115,15 @@ const massFlag = typeof location === 'undefined' ? null : new URLSearchParams(lo
  * animator reads the same flag for its springs (`HumanoidAnimator`), since characters do not import gore.
  */
 export const MASS_PASS = massFlag !== '0';
+
+const knockFlag = typeof location === 'undefined' ? null : new URLSearchParams(location.search).get('knock');
+/**
+ * `?knock=0` puts back knockdowns from before they could be run over, for comparison in motion: running into a body only
+ * staggers it, a head hit floors it only from a shotgun or a heavy round and goes over like any other knockdown, a hand that
+ * braces a fall holds stiff, the arms carry their own weight in a fall, and a thrown body's hands leave its face after 0.2 s
+ * whatever it is doing. Read once, at load, by gore and by the damage model and its rules.
+ */
+export const KNOCK_PASS = knockFlag !== '0';
 
 export const MuscleTuning = {
   /** ?muscles=0 turns the whole layer off, for comparison: hard limits, instant ragdolls, no reactions. */
@@ -1106,6 +1120,17 @@ export class MuscleState {
     const parts = this.rag.parts;
     for (let i = 0; i < parts.length; i++) if (parts[i]!.muscle!.role === 'spine') return parts[i]!;
     return null;
+  }
+
+  /**
+   * One pulse across the joint above `bone`, about `axis` (world, unit), toward `spin` rad/s, and nothing else: no chain and no
+   * flinch elsewhere. A round in the face snaps the head back on its neck, where `jolt` would whip the chest back harder than
+   * the head, which then lags it and reads as a nod. Sized from the joint's own inertia like every jolt, so it cannot overshoot.
+   */
+  whip(bone: number, axis: THREE.Vector3, spin: number): void {
+    const part = this.rag.partFor(bone);
+    if (!part.parent || !(spin > 0) || !Number.isFinite(axis.x + axis.y + axis.z)) return;
+    this.addJolt(part, axis, spin);
   }
 
   private addJolt(part: RagPart, axis: THREE.Vector3, spin: number): void {

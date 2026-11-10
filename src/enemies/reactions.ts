@@ -6,6 +6,7 @@
  * This only decides. `DamageModel` carries it out. Section 14's wounds sit on top: a wound that puts a man down overrules
  * this answer through `mustFall`, and everything else a wound does happens on his own time, in src/enemies/wounds.
  */
+import { KNOCK_PASS } from '../gore/muscles';
 import { rigInfo } from '../gore/rigInfo';
 import type { GoreRegion } from '../characters/rig';
 import type { DamageInfo } from '../core/contracts';
@@ -79,12 +80,24 @@ export interface Reaction {
   strength: number;
   /** A shot leg took it out from under a moving body, so it goes the way it was going, not the way the shot was. */
   tripped: boolean;
+  /** Felled by a shotgun or a heavy round to the head: knocked cold, it goes over like a sack (`KnockdownOptions.knockout`). */
+  knockout: boolean;
 }
 
-const _out: Reaction = { level: 'flinch', strength: 0, tripped: false };
+const _out: Reaction = { level: 'flinch', strength: 0, tripped: false, knockout: false };
 
-/** How hard a head hit that puts a body down plays, at the least. */
+/**
+ * How hard a head hit that puts a body down plays, at the least: a shotgun or a heavy round, which knock it cold, and any
+ * other real round, which tips it over at 1.7 m/s.
+ */
 const HEAD_KNOCK = 0.7;
+const HEAD_KNOCK_LIGHT = 0.5;
+/**
+ * Newton-seconds from which any round to the head that does not kill puts the body on the floor. The owner's rule: every
+ * non-fatal head hit from a real gun, so the SMG (20) counts, and the Buzzsaw (6) and the Kiln (1) only rattle. Above 20 it
+ * leaves the SMG out again, and at Infinity only a shotgun or a heavy round floors a body, as with `?knock=0`.
+ */
+export const HEAD_KNOCK_FORCE = KNOCK_PASS ? 15 : Infinity;
 
 /** A wound decided it: he is going over, cooldown or no cooldown, and a blast throws him there. */
 export function mustFall(r: Reaction, d: DamageInfo): void {
@@ -92,9 +105,18 @@ export function mustFall(r: Reaction, d: DamageInfo): void {
   r.strength = Math.max(r.strength, 0.6);
 }
 
-/** A shotgun or a heavy round to the head that it lives through. A helmet stops the metal and none of the rest. */
-function knocksOut(d: DamageInfo, region: GoreRegion): boolean {
-  return region === 'head' && (d.type === 'pellet' || (d.amount >= HEAVY_ROUND && d.type !== 'explosive'));
+/**
+ * A head hit it lives through that puts it on the floor: a shotgun, a heavy round, or anything else that pushes with
+ * `HEAD_KNOCK_FORCE`. A helmet stops the metal and none of the rest. In the Campaign a clean head hit always kills, so
+ * this only ever meets glances and helmets there.
+ */
+function knocksOut(d: DamageInfo, region: GoreRegion, force: number): boolean {
+  return region === 'head' && d.type !== 'explosive' && (knocksCold(d) || force >= HEAD_KNOCK_FORCE);
+}
+
+/** The ones that knock it cold. */
+function knocksCold(d: DamageInfo): boolean {
+  return d.type === 'pellet' || d.amount >= HEAVY_ROUND;
 }
 
 function isLeg(region: GoreRegion): boolean {
@@ -121,11 +143,13 @@ export function chooseReaction(e: Enemy, d: DamageInfo, profile: ReactionProfile
   out.level = 'flinch';
   out.strength = clamp(e.shock / profile.fall);
   out.tripped = false;
+  out.knockout = false;
   // A body with no legs has nothing left to fall off. It flinches and keeps crawling.
   if (e.maim.legs === 0) return out;
-  if (knocksOut(d, region)) {
+  if (knocksOut(d, region, force)) {
     out.level = 'felled';
-    out.strength = Math.max(out.strength, HEAD_KNOCK);
+    out.knockout = KNOCK_PASS && knocksCold(d);
+    out.strength = Math.max(out.strength, knocksCold(d) ? HEAD_KNOCK : HEAD_KNOCK_LIGHT);
     return out;
   }
   if (e.rising > 0 && !area) return out;

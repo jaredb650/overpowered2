@@ -61,7 +61,17 @@ changes what is available on the next think.
 ## Decisions worth knowing
 
 - **Contact deals no damage.** Every hit the player takes is a telegraphed attack. A running player shoulders light bodies
-  aside and staggers them. Middling ones (Riot, Burner) cancel the inward part of the player's motion in a bump, and can be leaned
+  aside and staggers them, and at a sprint knocks them off their feet along the run, and they get up again: the body check
+  (`checkStrength`, `DamageModel.bodyCheck`). Its strength is how fast the player closes on the body, from nothing at
+  `CHECK_FROM` (9.5 m/s) to all of it at `CHECK_FULL` (13), plus up to `CHECK_SLIDE` (0.4) on a slide, all of it from
+  `CHECK_FROM` closing down, all times `1 - mass`; from `CHECK_MIN` (0.3) it goes over. So a 12.5 m/s run knocks a light body
+  down when it lands within about 0.43 m of the body's middle, a 10 m/s slide within about 0.65 m, a Riot goes over at a
+  sprint and a Brute never does. A slide past a body, or a body walking into a slide from the side, is not a sweep. It keeps
+  at most `CHECK_CARRY` (3.5 m/s) of the shove, is tipped over along the run at 1.8 to 2.8 m/s, and lands 1.0 to 2.5 m on. A
+  slide takes the legs: they go on with the player, and the body goes over backwards. If gore has no room for it, it staggers
+  as before, and a fall it already had coming still comes. Bosses and machines are staggered as before. `?knock=0` puts back
+  the stagger alone.
+  Middling ones (Riot, Burner) cancel the inward part of the player's motion in a bump, and can be leaned
   through. A player standing in a body is bumped out. `player.push` cancels a slide, dash or wall run, so a bump is only used on feet
   or in free flight, and those moves pass through light bodies. It also lifts the player off the floor, so called every frame it
   stacks into a throw: it is one bump, `NUDGE_GAP` apart, shared by all bodies.
@@ -101,9 +111,12 @@ One rule, in `reactions.ts`: `power = (force / body mass + damage / health) x re
 | Flinch | The spring flinch, sized by the share of health the hit took (`flinchSize` in `damage.ts`), and a cry. One SMG round tips a Trooper's chest 0.16 rad and it comes back without rocking past (`docs/notes/gore.md`, Taking rounds). A drone's and a skitter's keep the size they had before stage 3 |
 | Stagger | `e.reel` carries the body the way it was hit, the feet step after it, a hand goes to the wound or up to the face. No thinking while `e.stagger` lasts |
 | Fall | A stagger, then 0.16 to 0.42 s later `gore.knockdown`, so it visibly fails to catch itself |
+| Felled | `gore.knockdown` at once, with no steps to catch itself: a head hit it lives through, cooldown or not |
 | Thrown | `gore.knockdown` at once, for a blast, and the blast does the throwing |
 
-A shot leg at 2.2 m/s or more trips a body by `profile.trip`: it keeps its speed and falls forward. So does a leg more than 45% gone, at a stand. A head hit that does not kill always staggers. Getting up can only be interrupted by a blast.
+A shot leg at 2.2 m/s or more trips a body by `profile.trip`: it keeps its speed and falls forward. So does a leg more than 45% gone, at a stand.
+
+**A head hit that does not kill puts it on the floor** if it came from a real gun: a shotgun pellet, a heavy round (60 raw damage or more, the Judge), or anything that pushes with `HEAD_KNOCK_FORCE` (15 N·s) or more, which takes in the SMG (20). That is the owner's rule; raise `HEAD_KNOCK_FORCE` past 20 to leave the SMG out again. One SMG round to a Trooper's head is 50 of its 59.5 head pool, so the first floors it and the second kills. A pellet or a heavy round knocks it cold (`KnockdownOptions.knockout`, strength 0.7): the head snaps back on its neck, the neck and arms go slack, it lies half as long again and gets up dazed for its whole `daze`. Anything else tips it over at 1.7 m/s (strength 0.5). It goes down with no flinch and no guard on the animator first, since the ragdoll would start with their speed (an SMG round's flinch had the head spinning 15.5 rad/s against its parent; now about 1). A head hit goes down through the cooldown and a get-up only when gore takes the body: with no room (twelve down, or `?muscles=0`) it staggers, or inside the cooldown or a get-up flinches, so an SMG cannot hold a body in a stagger round after round. The Buzzsaw (6 N·s) and the Kiln (1) stagger as before, a body with no legs only flinches, and bosses and machines keep `poise`. In the Campaign a clean head hit always kills, so this only meets glances and helmets there. `?knock=0` puts back the old rule: only a pellet or a heavy round floors a body, and nothing knocks it cold. Getting up can only be interrupted by a blast, a head hit or being run into.
 
 | Profile | Stagger | Fall | Thrown | Lie, s | Rise, s | Cooldown |
 |---|---|---|---|---|---|---|
@@ -130,9 +143,9 @@ Bosses and machines have no profile and stagger by `poise`, the old way. For sca
 | `EnemyManager.ts` `EVASION_FROM`, `EVASION_SPAN` | Speed to `evasion`, which every aimed attack reads. Full at 11.5 m/s, just under the player's 12.5 m/s run. Retune if `runSpeed` moves |
 | `attacks.ts` `aimAtPlayer`, `SPEED_MISS`, `grazed` | Miss radius and the damage cut at speed |
 | `spawner.ts` | `PATH_MIN`, `PATH_MAX`, `REUSE_SECONDS`, `DROP_HEIGHT` |
-| `contact.ts` | `SOLID_MASS`, `OUT_RATE`, `OUT_MAX`, `CARRY_MAX`, `WEDGE_*`, `SHOVE_SPEED`, `SHOVE_FORCE`, `SHOVE_STAGGER`, `EASE_OUT`, `NUDGE_GAP` |
-| `damage.ts` | `SHOVE_GAIN`, `SHOVE_MAX`: knockback on the living, from a hit's `force` over the body's health. `STAGGER_*`, `FALL_LEAD_*`, `REEL_GAIN`, `TOPPLE_*`, `DIES_ON_FEET*`, `COLLAPSE_*` |
-| `reactions.ts` | `ReactionProfile` rows, `BODIES`, `REGION_SHOCK`, `SHOCK_PER_*`, `TRIP_SPEED`, `LEG_FAILS_FROM` |
+| `contact.ts` | `SOLID_MASS`, `OUT_RATE`, `OUT_MAX`, `CARRY_MAX`, `WEDGE_*`, `SHOVE_SPEED`, `SHOVE_FORCE`, `SHOVE_STAGGER`, `EASE_OUT`, `NUDGE_GAP`. The body check: `CHECK_FROM`, `CHECK_FULL`, `CHECK_SLIDE`, `CHECK_MIN`, `CHECK_CARRY`, `CHECK_TOPPLE_*`, `SLIDE_TOPPLE`, `SLIDE_KICK` |
+| `damage.ts` | `SHOVE_GAIN`, `SHOVE_MAX`: knockback on the living, from a hit's `force` over the body's health. `STAGGER_*`, `FALL_LEAD_*`, `REEL_GAIN`, `TOPPLE_*`, `DIES_ON_FEET*`, `COLLAPSE_*`, `KNOCKOUT_LIE` |
+| `reactions.ts` | `ReactionProfile` rows, `BODIES`, `REGION_SHOCK`, `SHOCK_PER_*`, `TRIP_SPEED`, `LEG_FAILS_FROM`, `HEAD_KNOCK`, `HEAD_KNOCK_LIGHT`, `HEAD_KNOCK_FORCE` |
 | `EnemyManager.ts` | `PATH_GAIN`, `STRANDED_*`, `STRAGGLER_PATH`, `RESCUE_*`, `CHAR_SECONDS`, `BUFF_SECONDS`, `HAZARD_TICK` |
 
 ## Difficulty curve
@@ -190,7 +203,9 @@ The final-code window covered only 13 to 26 game seconds, so its engaged counts 
 failed. Rescues there are the straggler rule moving bodies more than 110 m behind, not stuck ones: a group rescued from
 (73, 0, -139) was followed alone and walked its 169 m route normally, pad flight included.
 
-**Contact**, player at 12.5 m/s into still bodies: five husks, 4 staggered and thrown up to 2 m. Heavies: see `docs/notes/lab.md`.
+**Contact**, player at 12.5 m/s into still bodies: five husks, 4 staggered and thrown up to 2 m, before the body check. With it,
+head on, a Trooper and a Husk go down 10 times of 10 each, their hips coming to rest 1.5 to 1.7 m along the run, and the player
+keeps 12.5 m/s; met 0.6 m off the middle, as in the pack below, they only stagger. Heavies and the pack: see `docs/notes/lab.md`.
 
 **Maimed and bosses.** On the final code all nine maimed cases and the head pop chose the right behaviour and attack, and the
 Juggernaut ran from landing to `wave:clear` with 69 footfalls and no console errors. The Titan's full fight (50 footfalls, four

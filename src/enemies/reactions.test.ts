@@ -8,7 +8,7 @@ import { ENEMIES, LIMB_SIZE } from './data';
 import { Enemy } from './Enemy';
 import { deathVelocity } from './damage';
 import { MuscleTuning } from '../gore/muscles';
-import { chooseReaction, profileOf, type Reaction } from './reactions';
+import { chooseReaction, HEAD_KNOCK_FORCE, profileOf, type Reaction } from './reactions';
 
 const rig = humanoidRig('test');
 
@@ -89,22 +89,40 @@ describe('reactions', () => {
     expect(hits(e, 1, 'legL', 19, smg).level).toBe('fall');
   });
 
-  it('a head hit that does not kill always rattles them', () => {
+  it('a head hit from a real gun that does not kill puts it on the floor, and a light one rattles it', () => {
+    // The owner's rule. One SMG round to a Trooper's head is 50 of its 59.5 head pool, so it lives, and goes over.
+    const smgHead = hits(body('trooper'), 1, 'head', 50, smg);
+    expect(smgHead.level).toBe('felled');
+    expect(smgHead.strength).toBeGreaterThanOrEqual(0.5);
+    expect(smgHead.knockout).toBe(false);
+    expect(DEFAULT_FORCE.bullet).toBeGreaterThanOrEqual(HEAD_KNOCK_FORCE);
+    // The Buzzsaw's 6 N·s and the Kiln's 1 only rattle it, cooldown or not.
+    expect(hits(body('trooper'), 1, 'head', 26, 6).level).toBe('stagger');
     expect(hits(body('brute'), 1, 'head', 10, 5).level).toBe('stagger');
+    const cooling = body('trooper');
+    cooling.reactAt = 1;
+    expect(hits(cooling, 1, 'head', 50, smg).level).toBe('felled');
   });
 
-  it('a shotgun or a heavy round to the head that it lives through puts it on the floor, cooldown or not', () => {
-    expect(hits(body('brute'), 1, 'head', 20, 18, 'pellet').level).toBe('felled');
-    expect(hits(body('husk'), 1, 'head', 20, 18, 'pellet').level).toBe('felled');
-    expect(hits(body('trooper'), 1, 'head', 120, 40).level).toBe('felled');
+  it('a shotgun or a heavy round to the head that it lives through knocks it cold, cooldown or not', () => {
+    for (const r of [
+      hits(body('brute'), 1, 'head', 20, 18, 'pellet'),
+      hits(body('husk'), 1, 'head', 20, 18, 'pellet'),
+      hits(body('trooper'), 1, 'head', 120, 40),
+    ]) {
+      expect(r.level).toBe('felled');
+      expect(r.knockout).toBe(true);
+      expect(r.strength).toBeGreaterThanOrEqual(0.7);
+    }
     const e = body('brute');
     e.reactAt = 1;
     expect(hits(e, 1, 'head', 20, 18, 'pellet').level).toBe('felled');
   });
 
   it('a light round to the head keeps the stun, and a shotgun to the chest is not a knockdown', () => {
-    expect(hits(body('brute'), 1, 'head', 25, 5).level).toBe('stagger');
+    expect(hits(body('brute'), 1, 'head', 26, 6).level).toBe('stagger');
     expect(hits(body('brute'), 1, 'chest', 20, 18, 'pellet').level).not.toBe('felled');
+    expect(hits(body('trooper'), 1, 'chest', 25, smg).level).not.toBe('felled');
   });
 
   it('a heavy hit to the head floors a body on its way up too, but nothing floors a body with no legs', () => {
@@ -114,6 +132,7 @@ describe('reactions', () => {
     const legless = body('trooper');
     legless.maim.legs = 0;
     expect(hits(legless, 1, 'head', 20, 18, 'pellet').level).toBe('flinch');
+    expect(hits(legless, 1, 'head', 50, smg).level).toBe('flinch');
   });
 
   it('waits out its cooldown, so an SMG cannot hold a body in place', () => {

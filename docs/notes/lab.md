@@ -135,14 +135,17 @@ An independent session, 30 kills each way: the shotgun at 2 m 0.91 to 2.70, mean
 | Jump at a Brute | Height 1.38 m, which is a plain jump. No throw |
 | Spawned inside a Juggernaut at a wall | Walks out along the wall |
 | Titan walks the player into a wall | Pinned for as long as the bot stands there, never through the wall, top speed 9.45 m/s. Sidestep works at once |
-| Run into a pack, 11 husks and a Brute | Husks shouldered aside, slides round the Brute, carries on 13 m past it |
-| Ringed by 8 husks and 2 Brutes, AI on | Out and 17.5 m clear in 4 s |
+| Run into a pack, 11 husks and a Brute | Husks shouldered aside, slides round the Brute, carries on 13 m past it. On 2026-11-10, 12.5 m: the pack's front row leaves the run's line open, and the player meets only two husks of the second, 0.6 m to either side, closing at about 9 m/s, so none goes down with the body check either. A straight run can meet no more than those two: the front row is 1.2 m out, past a husk's 0.87 m reach. The run's slowest is the Brute's, 2.2 to 3.0 m/s either way (`slowest`) |
+| Sprint at 12.5 m/s into a standing Trooper, and a Husk, 10 runs each (`CONTACT=knock`, 2026-11-10) | Down 10 of 10 each, the hips at rest 1.47 to 1.68 m along the run (mean 1.58) and 1.48 to 1.70 (1.58), within 0.16 m of its line; the player never under 12.5 m/s. With `?knock=0`, and on the code before, 0 of 10: staggered |
+| Charge a pack from 23 m: six husks a hand's width either side of the line, five out to the sides, a Brute behind (`charge`) | Six down at once, the five aside untouched; carries on 12.5 m past the Brute. The physics step 0.9 ms median and 1.5 at the 90th percentile while they are down, 9.3 at the peak as the six chains start, against 0.2 with `?knock=0`, where nobody goes down. Six Troopers floored in one frame by shotgun pellets, which the code before does too, cost the same with `?knock=0`: 7.0 to 7.2 ms the first time in a session and 2.5 to 3.2 after, 1.0 median and 1.5 at the 90th percentile, against 7.3 to 9.1, 1.9 to 3.9, 1.1 and 1.4 (`tools/out/fix4/headseed.mjs`, `HS_MODE=cold`). The peak is six new chains, the first ones in a session; the stage adds knockdowns, not cost to each. Slowest through the pack, the Brute's: 2.95 m/s, 1.91 with `?knock=0` |
+| Ringed by 8 husks and 2 Brutes, AI on | Out and 17.5 m clear in 4 s. 17.5 again with the body check, and 17.6 with `?knock=0` (21.5 in one earlier run of the code before) |
 
 ## Checks
 
 ```
 node tools/shot.mjs --url "/?map=range" --script tools/scripts/lab-check.mjs --wait 500 --timeout 170 --out tools/out/labcheck.png
-node tools/shot.mjs --url "/?map=range" --script tools/scripts/lab-contact.mjs --wait 500 --timeout 150 --out tools/out/contact.png
+node tools/shot.mjs --url "/?map=range" --script tools/scripts/lab-contact.mjs --dpr 2 --w 1440 --h 900 --wait 500 --timeout 200 --out tools/out/contact.png
+CONTACT=knock node tools/shot.mjs --url "/?map=range" --script tools/scripts/lab-contact.mjs --dpr 2 --w 1440 --h 900 --wait 500 --timeout 200 --out tools/out/knock.png
 THROW_REPS=3 node tools/shot.mjs --url "/?map=range" --script tools/scripts/lab-throw.mjs --wait 500 --timeout 290 --out tools/out/throw.png
 node tools/shot.mjs --url "/?map=range" --script tools/scripts/lab-seq.mjs --dpr 2 --w 1440 --h 900 --wait 500 --timeout 120 --out tools/out/seq.png
 ```
