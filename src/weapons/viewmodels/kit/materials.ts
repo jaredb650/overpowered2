@@ -294,6 +294,10 @@ function makeDecals(): { texture: THREE.CanvasTexture; regions: Record<string, R
   place('rivet', 256, 64, text('RIVET', STENCIL, 8));
   place('cal10', 256, 40, text('10 MM AUTO', TECH, 2));
   place('cal30ap', 320, 40, text('30x173 APFSDS-T', TECH, 2));
+  place('quiver', 320, 64, text('QUIVER', STENCIL, 8));
+  place('msl', 320, 40, text('66 MM SEEKER x4', TECH, 2));
+  place('thresher', 320, 64, text('THRESHER', STENCIL, 5));
+  place('drum20', 256, 40, text('12 GA x20', TECH, 2));
   // Stencil paint is never clean. Knock specks out of everything drawn so far.
   const rng = mulberry32(77);
   g.globalCompositeOperation = 'destination-out';

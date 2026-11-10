@@ -77,6 +77,16 @@ export abstract class Vehicle {
     return this.position;
   }
 
+  /** For a missile painted on it: how far above `center` its hull is. A chopper's centre is already its middle. */
+  get aimLift(): number {
+    return this.def.kind === 'chopper' ? 0 : this.def.roof * 0.5;
+  }
+
+  /** For a missile painted on it: its half size, so its own hull does not count as cover in front of it. */
+  get paintRadius(): number {
+    return Math.max(this.def.halfWidth, this.def.halfLength);
+  }
+
   /** Puts every collider where the model is now. */
   protected placeColliders(): void {
     for (const part of this.parts) {

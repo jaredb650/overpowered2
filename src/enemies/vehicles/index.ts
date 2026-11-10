@@ -21,7 +21,7 @@ import { ON_RANGE } from '../../core/devflags';
 import { MISSION_ID } from '../../campaign/select';
 import type { ExplosionKind, RayHit } from '../../core/contracts';
 import { CG, type Ctx } from '../../core/contracts';
-import type { EnemyId, ExplosionSpec, FriendlyAircraft, VehicleTargets } from '../../core/gameplay';
+import type { EnemyId, ExplosionSpec, FriendlyAircraft, MissileTarget, VehicleTargets } from '../../core/gameplay';
 import { rand } from '../../core/math';
 import { Airframe } from '../../progression/callins/airframe';
 import { GroundProbe } from '../../progression/callins/ground';
@@ -243,6 +243,13 @@ export class VehicleSystem implements VehicleTargets {
 
   setFriendly(aircraft: FriendlyAircraft | null): void {
     this.friendly = aircraft;
+  }
+
+  /** Every live vehicle and the chopper, for a launcher that paints targets. A Vehicle is a MissileTarget as it stands. */
+  paintable(out: MissileTarget[]): number {
+    out.length = 0;
+    for (const v of this.live) if (v.alive && !v.retired) out.push(v);
+    return out.length;
   }
 
   // -------------------------------------------------------------------------------------------

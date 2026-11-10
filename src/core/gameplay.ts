@@ -20,7 +20,7 @@ export type WeaponId =
   | 'smg' | 'shotgun' | 'rocket' | 'autocannon' | 'sword'
   | 'judge' | 'lance' | 'buzzsaw' | 'kiln' | 'stakegun'
   // Family members: they share a slot key with a base weapon. See src/weapons/families.ts.
-  | 'harrow' | 'rivet' | 'sabot';
+  | 'harrow' | 'rivet' | 'sabot' | 'quiver' | 'thresher';
 
 export type Team = 'player' | 'enemy';
 
@@ -86,6 +86,32 @@ export interface WeaponSystem extends GameSystem {
   setLoadout(weapons: readonly WeaponId[], grenades: number): void;
   /** The member of a slot's family that its number key draws: the one last held there. */
   slotMember?(slot: number): WeaponId;
+  /** What a painting launcher has marked so far, for the HUD. Unset on a weapon system that has none. */
+  readonly paint?: PaintView;
+}
+
+/**
+ * Anything a missile can be painted on and steered at: an enemy, a vehicle, an aircraft. An EnemyInstance is one as it
+ * stands. `center` must be a live vector that follows the target.
+ */
+export interface MissileTarget {
+  readonly center: THREE.Vector3;
+  readonly alive: boolean;
+  readonly isBoss?: boolean;
+  /** Metres above `center` to aim at, for a target whose centre is its footprint. */
+  readonly aimLift?: number;
+  /** Its half size. A line of sight is clear when the first thing in the way is this close to the centre, its own hull. */
+  readonly paintRadius?: number;
+}
+
+/** The marks of a launcher that paints its targets, as the HUD draws them. */
+export interface PaintView {
+  /** True while the trigger is held and marks are being laid. */
+  readonly painting: boolean;
+  /** In the order painted. A target painted twice is in here twice. */
+  readonly marks: readonly MissileTarget[];
+  /** How many marks the salvo can carry. */
+  readonly max: number;
 }
 
 export type SwordMove = 'light1' | 'light2' | 'light3' | 'windup' | 'area' | 'finisher' | 'block';
@@ -106,8 +132,11 @@ export interface ViewmodelRig extends GameSystem {
   setAkimbo(on: boolean): void;
   /** Hides the model while the scope overlay is up. */
   setScoped(on: boolean): void;
-  /** Writes the muzzle in WORLD space, corrected for the separate viewmodel FOV. Tracers start here. */
-  muzzle(out: THREE.Vector3, left?: boolean): THREE.Vector3;
+  /**
+   * Writes the muzzle in WORLD space, corrected for the separate viewmodel FOV. Tracers start here. `barrel` picks a
+   * barrel on a gun with more than one (sockets `muzzle`, `muzzle1`, ...); a gun with one answers its muzzle for any.
+   */
+  muzzle(out: THREE.Vector3, left?: boolean, barrel?: number): THREE.Vector3;
   /** Writes the ejection port in world space. */
   ejectPort(out: THREE.Vector3): THREE.Vector3;
 }
@@ -193,8 +222,8 @@ export interface ExplosionSpec {
   worldObject?: boolean;
 }
 
-/** Dotted smoke, Hellfire smoke, the heavy strike smoke, 30mm rings, or a plasma spark line. */
-export type ProjectileTrail = 'none' | 'smoke' | 'big' | 'hellfire' | 'rings' | 'sparks';
+/** Dotted smoke, Hellfire smoke, the heavy strike smoke, 30mm rings, a plasma spark line, or a missile's thin quick smoke. */
+export type ProjectileTrail = 'none' | 'smoke' | 'big' | 'hellfire' | 'rings' | 'sparks' | 'swarm';
 
 export interface ProjectileSpec {
   origin: THREE.Vector3;
@@ -230,6 +259,23 @@ export interface ProjectileSpec {
   /** Budget one body costs, as on ShotSpec. */
   bodyCost?: number;
   armorPiercing?: boolean;
+  /**
+   * A guided missile: steered at this target at `turnRate`, and onto the nearest live enemy, vehicle or aircraft ahead if
+   * it dies. Null with a
+   * `turnRate` flies straight until something dies near its line, which it never looks for: it stays dumb.
+   */
+  target?: MissileTarget | null;
+  /** Radians a second the nose can turn. Set, the missile steers by this and not by `homing`. */
+  turnRate?: number;
+  /** Seconds after launch before it starts to steer, so a salvo leaves the tubes in a fan. */
+  steerDelay?: number;
+  /** Radians the path weaves either side of the line to its target, fading as it closes. */
+  weave?: number;
+  /** Metres a second added each second, up to `topSpeed`. */
+  accel?: number;
+  topSpeed?: number;
+  /** Scales the drawn body. */
+  size?: number;
 }
 
 export interface CombatSystem extends GameSystem {
@@ -310,6 +356,8 @@ export interface VehicleTargets {
   blast(center: THREE.Vector3, spec: ExplosionSpec): number;
   /** Writes where the enemy chopper is. False when none is up. */
   chopperAt(out: THREE.Vector3): boolean;
+  /** Writes every live vehicle and aircraft a launcher could paint into `out`, and returns how many. */
+  paintable?(out: MissileTarget[]): number;
   /** The player's aircraft has come on station, or with null, left. */
   setFriendly(aircraft: FriendlyAircraft | null): void;
 }

@@ -27,6 +27,10 @@ see "Music" in `docs/notes/audio.md`.
 
 One cell per number key, not per weapon. A key that holds a family (`src/weapons/families.ts`) shows the member the key draws now, from `weapons.slotMember(slot)`, and carries a pip per member in its corner: filled for the one in the cell, hollow outlines for the others, dim for one not owned. Under the weapon's name, `arm-family` lists the family's owned members with the one in hand lit and the key that steps through them; it is empty for a weapon alone on its key. `HudState.member` falls back to the family's first weapon when the weapon system cannot say.
 
+## Lock markers
+
+`hud/locks.ts`, inside the crosshair. While the Quiver's trigger is held, `weapons.paint` (a `PaintView`) lists its marks, and each painted target gets a corner bracket sat on its `center` plus `aimLift`, projected through `render.camera` every frame, with `x2` to `x4` beside it when spares are stacked on it, and `LOCK n/4` under the crosshair. A bracket pops when it gains a mark. The brackets turn amber and the label with them when every mark is laid. Four pooled elements, positioned by `transform` only, nothing built while painting. A target behind the eye is hidden, one off screen is held at the edge. The crosshair itself is a seeker's box for the Quiver and four short bars for the Thresher (`RETICLES` in `hud/crosshair.ts`). Measured live: four brackets and `LOCK 4/4` on a five-man arc, `x4` on a lone Juggernaut (`tools/out/swarm/live-paint-full.png`, `live-stack-juggernaut.png`).
+
 ## Flow
 
 `core/Game.ts` knows states. `Hud.ts` owns the moves between them.

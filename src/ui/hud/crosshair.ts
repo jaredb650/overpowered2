@@ -10,6 +10,7 @@ import type { WeaponId } from '../../core/gameplay';
 import { clamp, damp, wrapAngle } from '../../core/math';
 import { Flag, Label, Meter, Shown, div, markup, span } from '../dom';
 import type { HudState } from '../state';
+import { LockMarkers } from './locks';
 
 const poly = (pts: string) => `<polygon points="${pts}"/>`;
 /** Rotates one arm around the centre so a shape is only drawn once. */
@@ -50,10 +51,23 @@ const RETICLES: Record<WeaponId, Reticle> = {
     arms: four(poly('3,-14 14,-14 14,-3 11.6,-3 11.6,-11.6 3,-11.6')),
     diagonal: true, gap: 1, kick: 7, speedGap: 0, trueCone: true,
   },
+  // The pump's corner brackets turned into four short bars: the same cone, a busier gun.
+  thresher: {
+    core: DOT,
+    arms: four(poly('-1.3,-17 1.3,-17 1.3,-5 -1.3,-5')),
+    diagonal: true, gap: 1, kick: 4.5, speedGap: 0, trueCone: true,
+  },
   rocket: {
     core: poly('0,-7 8,3 5,5 0,-1.6 -5,5 -8,3'),
     arms: ['', poly('14,-1.25 34,-1.25 34,1.25 14,1.25'), turned(`${tick(2, 7, 12)}${tick(2, 5, 19)}${tick(2, 3, 26)}`, 180), poly('-14,-1.25 -34,-1.25 -34,1.25 -14,1.25')],
     gap: 0, kick: 6, speedGap: 2,
+  },
+  // A seeker's box: four corners around a dot, wide enough to read as "put them in here".
+  quiver: {
+    core: `${DOT}${poly('-16,-16 -9,-16 -9,-14 -14,-14 -14,-9 -16,-9')}${poly('16,-16 9,-16 9,-14 14,-14 14,-9 16,-9')}` +
+      `${poly('-16,16 -9,16 -9,14 -14,14 -14,9 -16,9')}${poly('16,16 9,16 9,14 14,14 14,9 16,9')}`,
+    arms: ['', poly('22,-1.25 30,-1.25 30,1.25 22,1.25'), '', poly('-22,-1.25 -30,-1.25 -30,1.25 -22,1.25')],
+    gap: 0, kick: 4, speedGap: 2,
   },
   autocannon: {
     core: '<path fill-rule="evenodd" d="M-5 -5H5V5H-5Z M-3 -3V3H3V-3Z"/>',
@@ -202,6 +216,7 @@ export class Crosshair {
   private comboHost: HTMLElement;
   private heat = -1;
   private aimClock = 0;
+  private locks: LockMarkers;
 
   constructor(private readonly ctx: Ctx) {
     this.armsHost = div('xh-arms');
@@ -250,6 +265,8 @@ export class Crosshair {
     this.promptShown = new Shown(promptHost);
     this.charge = new Meter(chargeFill);
     this.chargeShown = new Shown(chargeHost);
+    this.locks = new LockMarkers(ctx);
+    this.el.append(this.locks.el);
   }
 
   /** Reads a fired weapon: the reticle jumps on the frame of the shot. */
@@ -374,6 +391,7 @@ export class Crosshair {
     this.hits.head.update(dt);
     this.hits.kill.update(dt);
     this.updateArcs(dt);
+    this.locks.update(dt, s.targeting !== null);
   }
 
   private updateArcs(dt: number): void {
@@ -403,5 +421,6 @@ export class Crosshair {
       arc.el.style.opacity = '0';
     }
     this.bloom = 0;
+    this.locks.reset();
   }
 }

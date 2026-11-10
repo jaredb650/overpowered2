@@ -209,12 +209,15 @@ export class ProjectileVisuals {
     this.quat.setFromUnitVectors(Y, this.dir);
 
     switch (p.kind) {
-      case 'rocket':
-        this.put(L.rocket, pos, this.quat, 1, 1, 1);
+      case 'rocket': {
+        // A Quiver missile is the same body, smaller.
+        const k = p.size;
+        this.put(L.rocket, pos, this.quat, k, k, k);
         // The flare points back along the path, flickering only through its length.
         this.spin.setFromUnitVectors(Y, this.dir.negate());
-        this.put(L.flare, pos.addScaledVector(this.dir, 0.4), this.spin, 1, 0.8 + Math.random() * 0.7, 1);
+        this.put(L.flare, pos.addScaledVector(this.dir, 0.4 * k), this.spin, k, (0.8 + Math.random() * 0.7) * k, k);
         break;
+      }
       case 'shell':
         this.put(L.shell, pos, this.quat, 1, 1, 1);
         // Bow shock: tip forward, base trailing, as in the first game.

@@ -205,6 +205,10 @@ const stacks: SoundDef[] = [
     { id: 'autocannon_fire2' },
   ]),
   stack('hellfire_rocket_blast', [{ id: 'rocket_explosion' }, { id: 'hellfirerocket_explode' }]),
+  // The two guns beside the shotgun and the rocket wear their sibling's recording, re-pitched and cut short enough for their
+  // rate, over a synth layer of their own (synth/recipes/weapons.ts).
+  stack('thresher_fire', [{ id: 'shotgun_fire', pitch: 0.86, duration: 0.42, volume: 0.9 }, { id: 'thresher_punch' }]),
+  stack('quiver_fire', [{ id: 'rocket_fire', pitch: 1.3, duration: 0.45, volume: 0.7 }, { id: 'quiver_tube' }]),
   stack('sword_contact', [{ id: 'sword_flesh' }]),
   // A living drone or skitter struck: the plate clank and its 120 Hz thump, cut before the ring so ten a second stay ten
   // hits. `machine_clang` is `metal_clang`'s sound under a hit's voices, so doors and shutters keep theirs.

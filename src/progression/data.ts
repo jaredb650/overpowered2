@@ -4,6 +4,7 @@
  */
 import type { GradeName } from '../core/contracts';
 import type { CallInId, PerkId, PickupKind, PowerupId, WeaponId } from '../core/gameplay';
+import { SLOT4_OLD } from '../weapons/data';
 
 export type EffectId = PerkId | PowerupId;
 
@@ -475,8 +476,13 @@ export const DROP_POD = {
   life: 90,
 } as const;
 
-/** Unlock order for caches. */
-export const CACHE_ORDER: readonly WeaponId[] = ['judge', 'lance', 'buzzsaw', 'kiln', 'stakegun'];
+/**
+ * Unlock order for caches, one every DROP_POD.everyWaves. The explosive autocannon is the Sabot's upgrade on key 4: it
+ * was a starting weapon, so it comes early, in the second cache (wave 4), and pushes the rest back one cache.
+ */
+export const CACHE_ORDER: readonly WeaponId[] = (['judge', 'autocannon', 'lance', 'buzzsaw', 'kiln', 'stakegun'] as WeaponId[])
+  // `?slot4=old`: the autocannon is a starting weapon again, so no cache brings it.
+  .filter(id => !(SLOT4_OLD && id === 'autocannon'));
 
 export const PICKUP_LOOK: Readonly<Record<PickupKind, { label: string; color: string }>> = {
   health: { label: 'HEALTH', color: '#33ff66' },

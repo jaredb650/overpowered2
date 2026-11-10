@@ -10,7 +10,10 @@ const all = new Set<WeaponId>(WEAPON_ORDER);
 describe('family table', () => {
   it('groups by number key, base first', () => {
     expect(familyOfSlot(1)).toEqual(['smg', 'harrow']);
-    expect(familyOfSlot(4)).toEqual(['autocannon', 'sabot']);
+    expect(familyOfSlot(2)).toEqual(['shotgun', 'thresher']);
+    expect(familyOfSlot(3)).toEqual(['rocket', 'quiver']);
+    // The Sabot is first on key 4: the explosive autocannon is its upgrade.
+    expect(familyOfSlot(4)).toEqual(['sabot', 'autocannon']);
     expect(familyOfSlot(6)).toEqual(['judge', 'rivet']);
     expect(familyOfSlot(5)).toEqual(['sword']);
     expect(familyOf('harrow')).toEqual(['smg', 'harrow']);
@@ -25,7 +28,12 @@ describe('family table', () => {
     }
     expect(membersOf('smg')).toEqual(['harrow']);
     expect(membersOf('judge')).toEqual(['rivet']);
-    expect(membersOf('shotgun')).toEqual([]);
+    expect(membersOf('shotgun')).toEqual(['thresher']);
+    expect(membersOf('rocket')).toEqual(['quiver']);
+    // The autocannon is earned on its own, from a weapon cache: owning the Sabot does not bring it.
+    expect(membersOf('sabot')).toEqual([]);
+    expect(WEAPONS.autocannon.base).toBeUndefined();
+    expect(membersOf('sword')).toEqual([]);
   });
 
   it('the order is the table\'s, with each family together and its base first', () => {
@@ -41,7 +49,10 @@ describe('family table', () => {
   it('the key of the slot in hand steps to the next member and wraps', () => {
     expect(pressSlot(1, 'smg', all, undefined)).toBe('harrow');
     expect(pressSlot(1, 'harrow', all, undefined)).toBe('smg');
-    expect(pressSlot(2, 'shotgun', all, undefined)).toBeNull();
+    expect(pressSlot(2, 'shotgun', all, undefined)).toBe('thresher');
+    expect(pressSlot(4, 'sabot', all, undefined)).toBe('autocannon');
+    expect(pressSlot(4, 'autocannon', all, undefined)).toBe('sabot');
+    expect(pressSlot(5, 'sword', all, undefined)).toBeNull();
   });
 
   it('another slot\'s key draws the member last held there', () => {
@@ -57,11 +68,12 @@ describe('family table', () => {
   });
 
   it('the wheel walks keys, not weapons', () => {
-    const last = new Map<number, WeaponId>([[4, 'sabot']]);
+    const last = new Map<number, WeaponId>([[4, 'autocannon']]);
     const recall = (slot: number) => last.get(slot);
     expect(wheelSlot('smg', 1, all, recall)).toBe('shotgun');
     expect(wheelSlot('harrow', 1, all, recall)).toBe('shotgun');
-    expect(wheelSlot('rocket', 1, all, recall)).toBe('sabot');
+    expect(wheelSlot('rocket', 1, all, recall)).toBe('autocannon');
+    expect(wheelSlot('quiver', 1, all, () => undefined)).toBe('sabot');
     expect(wheelSlot('smg', -1, all, recall)).toBe('stakegun');
     expect(wheelSlot('smg', 1, new Set<WeaponId>(['smg', 'sword']), recall)).toBe('sword');
     expect(wheelSlot('smg', 1, new Set<WeaponId>(['smg', 'harrow']), recall)).toBeNull();
@@ -76,9 +88,12 @@ describe('families in the weapon system', () => {
   });
   const settle = () => r.run(0.4);
 
-  it('starts with the members of the starting weapons', () => {
+  it('starts with the members of the starting weapons, and the Sabot without its upgrade', () => {
     expect(r.weapons.owned.has('harrow')).toBe(true);
+    expect(r.weapons.owned.has('thresher')).toBe(true);
+    expect(r.weapons.owned.has('quiver')).toBe(true);
     expect(r.weapons.owned.has('sabot')).toBe(true);
+    expect(r.weapons.owned.has('autocannon')).toBe(false);
     expect(r.weapons.owned.has('rivet')).toBe(false);
     r.weapons.give('judge');
     expect(r.weapons.owned.has('rivet')).toBe(true);
@@ -87,7 +102,36 @@ describe('families in the weapon system', () => {
 
   it('a mission loadout brings members with their base and nothing else', () => {
     r.weapons.setLoadout(['smg', 'shotgun'], 0);
-    expect([...r.weapons.owned].sort()).toEqual(['harrow', 'shotgun', 'smg']);
+    expect([...r.weapons.owned].sort()).toEqual(['harrow', 'shotgun', 'smg', 'thresher']);
+  });
+
+  it('a loadout that names the autocannon keeps it, and its key draws it first', () => {
+    // The Outpost's loadout, written when the autocannon was the gun on 4.
+    r.weapons.setLoadout(['smg', 'shotgun', 'rocket', 'autocannon', 'sword'], 0);
+    expect(r.weapons.owned.has('autocannon')).toBe(true);
+    expect(r.weapons.owned.has('sabot')).toBe(false);
+    r.tap('weapon4');
+    expect(r.weapons.current).toBe('autocannon');
+    // With both named, the first one named is what the key draws.
+    r.weapons.setLoadout(['smg', 'autocannon', 'sabot', 'sword'], 0);
+    expect(r.weapons.slotMember(4)).toBe('autocannon');
+    r.weapons.setLoadout(['smg', 'sabot', 'autocannon', 'sword'], 0);
+    expect(r.weapons.slotMember(4)).toBe('sabot');
+  });
+
+  it('the cache that brings the autocannon puts it second on key 4, beside the Sabot', () => {
+    r.tap('weapon4');
+    expect(r.weapons.current).toBe('sabot');
+    r.run(0.4);
+    // Only the Sabot on the key: pressing it again does nothing.
+    r.tap('weapon4');
+    expect(r.weapons.current).toBe('sabot');
+    r.weapons.give('autocannon');
+    expect(r.weapons.owned.has('autocannon')).toBe(true);
+    expect(r.weapons.ammo('autocannon').mag).toBe(WEAPONS.autocannon.magSize);
+    r.run(0.4);
+    r.tap('weapon4');
+    expect(r.weapons.current).toBe('autocannon');
   });
 
   it('pressing the key again cycles, another key returns to the member last held', () => {
@@ -109,19 +153,20 @@ describe('families in the weapon system', () => {
   it('last weapon and the wheel still work', () => {
     r.tap('weapon1');
     settle();
+    r.weapons.give('autocannon');
     r.tap('weapon4');
     settle();
     r.tap('weapon4');
-    expect(r.weapons.current).toBe('sabot');
+    expect(r.weapons.current).toBe('autocannon');
     settle();
     r.tap('weaponLast');
-    expect(r.weapons.current).toBe('autocannon');
+    expect(r.weapons.current).toBe('sabot');
     settle();
     r.tap('weaponPrev');
     expect(r.weapons.current).toBe('rocket');
     settle();
     r.tap('weaponNext');
-    expect(r.weapons.current).toBe('autocannon');
+    expect(r.weapons.current).toBe('sabot');
     settle();
     r.tap('weaponPrev');
     settle();
@@ -196,8 +241,6 @@ describe('families in the weapon system', () => {
   });
 
   it('the scope belongs to the weapon data, so the Sabot has the autocannon\'s', () => {
-    r.tap('weapon4');
-    settle();
     r.tap('weapon4');
     settle();
     expect(r.weapons.current).toBe('sabot');

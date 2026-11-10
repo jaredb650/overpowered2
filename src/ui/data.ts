@@ -9,7 +9,7 @@ import { MOVE } from '../player/tuning';
 import {
   CACHE_ORDER, CALLINS as CALLIN_DEFS, CHAIN_REACTION_KILLS, COMBO_PERKS, DROP_POD, EFFECTS, MEGA, OVERDRIVE_MIN_SPEED, PICKUP, SCORE, STACK, STYLE_GATE, WINDOWS,
 } from '../progression/data';
-import { PENETRATION, SWORD, TUNING, WEAPONS as WEAPON_DEFS, WEAPON_ORDER as WEAPON_SEQUENCE } from '../weapons/data';
+import { PENETRATION, SLOT4_OLD, SWORD, TUNING, WEAPONS as WEAPON_DEFS, WEAPON_ORDER as WEAPON_SEQUENCE } from '../weapons/data';
 
 /** The game's own order: number keys, and inside a key the order it steps through its family. */
 export const WEAPON_ORDER: readonly WeaponId[] = WEAPON_SEQUENCE;
@@ -39,20 +39,30 @@ export const WEAPONS: Record<WeaponId, WeaponInfo> = {
     role: `${def.shotgun.pellets} pellets of ${def.shotgun.damage}, semi-auto`,
     note: `Inside ${TUNING.shotgun.pointBlank} m the pellets take limbs off.`,
   },
+  thresher: {
+    name: 'Thresher', key: '2',
+    role: `Drum shotgun. ${def.thresher.pellets} pellets of ${def.thresher.damage}, ${def.thresher.magSize} shells, ${Math.round(1 / def.thresher.interval)} a second held`,
+    note: 'Press 2 again to swap with the pump. It climbs as it fires: hold it down. The pump is still the harder single hit.',
+  },
   rocket: {
     name: 'Rocket', key: '3',
     role: `${def.rocket.damage} damage, ${TUNING.rocket.radius} m blast, one in the tube`,
     note: 'Direct hits gib. Fire at your feet to rocket jump, for very little health.',
   },
-  autocannon: {
-    name: 'Autocannon', key: '4',
-    role: `30 mm shell kills everything within ${TUNING.autocannon.radius} m, ${def.autocannon.magSize} a magazine`,
-    note: `Right click scopes. Bosses take ${TUNING.autocannon.bossDamage} a shell.`,
+  quiver: {
+    name: 'Quiver', key: '3',
+    role: `Four tubes. Hold to paint up to ${TUNING.quiver.marks} targets, let go and the missiles home on them`,
+    note: `Press 3 again to swap with the rocket. A tap fires all four straight. Each blast is ${TUNING.quiver.radius} m; all four on one target is a lot.`,
   },
   sabot: {
     name: 'Sabot', key: '4',
-    role: `The autocannon loaded with darts. ${def.sabot.damage} damage, no blast, through armour`,
-    note: `Press 4 again to swap. Goes through walls up to ${PENETRATION.maxWall} m thick, ${def.sabot.penetration} m of them in all, and everyone in line: ping the sonar, then shoot what it shows.`,
+    role: `30 mm cannon firing darts. ${def.sabot.damage} damage, no blast, through armour`,
+    note: `${SLOT4_OLD ? 'Press 4 again to swap with the autocannon. ' : ''}Right click scopes. Goes through walls up to ${PENETRATION.maxWall} m thick, ${def.sabot.penetration} m of them in all, and everyone in line: ping the sonar, then shoot what it shows.`,
+  },
+  autocannon: {
+    name: 'Autocannon', key: '4',
+    role: `${SLOT4_OLD ? '' : 'The upgrade: '}30 mm shell kills everything within ${TUNING.autocannon.radius} m, ${def.autocannon.magSize} a magazine`,
+    note: `${SLOT4_OLD ? '' : 'Comes in a weapon cache. Press 4 again to swap with the Sabot. '}Right click scopes. Bosses take ${TUNING.autocannon.bossDamage} a shell.`,
   },
   sword: {
     name: 'Sword', key: '5',
@@ -94,7 +104,7 @@ export const WEAPONS: Record<WeaponId, WeaponInfo> = {
 export const GRENADE_NOTE = `${TUNING.grenade.start} frags, up to ${TUNING.grenade.max}. Ammo pickups restock them. Hold to cook. Shoot one out of the air to set it off.`;
 
 export const WEAPONS_NOTE =
-  `Some keys hold two weapons: press the key again to swap, and each has its own ammo. The second comes with the first. ` +
+  `Some keys hold two weapons: press the key again to swap, and each has its own ammo. The second comes with the first${SLOT4_OLD ? '' : ', except the autocannon, which is an upgrade in a cache'}. ` +
   `Five keys are loaded from the start. A weapon cache drops every ${DROP_POD.everyWaves === 2 ? 'second' : `${DROP_POD.everyWaves}th`} wave, marked on your HUD, ` +
   `with the next of ${CACHE_ORDER.map(id => WEAPONS[id].name).join(', ')}. A gun that runs dry hands over to the next one with ammo, and sword kills refill your last gun.`;
 

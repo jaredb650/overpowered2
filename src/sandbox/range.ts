@@ -171,6 +171,9 @@ class StubPlayer {
   sliding = false;
   wallRunning = false;
   speed = 0;
+  /** The Thresher's climb writes these. */
+  pitch = 0;
+  yaw = 0;
   modifiers = { speed: 1, jump: 1, damageTaken: 1, invulnerable: false, infiniteDash: false };
   damage: PlayerDamage[] = [];
   launches: THREE.Vector3[] = [];
@@ -694,8 +697,18 @@ const tests: Record<string, (r: Rig) => void> = {
     tap('weapon1');
     check('1 again: SMG to Harrow', r.weapons.current === 'harrow', r.weapons.current);
     tap('weapon4');
+    check('4: the Sabot first', r.weapons.current === 'sabot', r.weapons.current);
     tap('weapon4');
-    check('4 twice: autocannon then Sabot', r.weapons.current === 'sabot', r.weapons.current);
+    check('4 again: nothing more until the autocannon is earned', r.weapons.current === 'sabot', r.weapons.current);
+    r.weapons.give('autocannon');
+    tap('weapon4');
+    check('4 again with the upgrade: the autocannon', r.weapons.current === 'autocannon', r.weapons.current);
+    tap('weapon3');
+    tap('weapon3');
+    check('3 twice: rocket then Quiver', r.weapons.current === 'quiver', r.weapons.current);
+    tap('weapon2');
+    tap('weapon2');
+    check('2 twice: shotgun then Thresher', r.weapons.current === 'thresher', r.weapons.current);
     tap('weapon1');
     check('back on 1: the Harrow it left', r.weapons.current === 'harrow', r.weapons.current);
     tap('weapon1');
@@ -703,7 +716,8 @@ const tests: Record<string, (r: Rig) => void> = {
     tap('weaponLast');
     check('Q: the weapon before', r.weapons.current === 'harrow', r.weapons.current);
     tap('weaponNext');
-    check('wheel: next key, not next member', r.weapons.current === 'shotgun', r.weapons.current);
+    // Key 2 was left on the Thresher above, so that is what its notch lands on.
+    check('wheel: next key, not next member', r.weapons.current === 'thresher', r.weapons.current);
     tap('weaponPrev');
     check('wheel back: the member last held there', r.weapons.current === 'harrow', r.weapons.current);
     check('Rivet waits for the Judge', !r.weapons.owned.has('rivet'), '');
@@ -713,6 +727,69 @@ const tests: Record<string, (r: Rig) => void> = {
     run(r, 0.4, 60);
     r.input.simulate('fire', false);
     check('ammo is per member', r.weapons.ammo('harrow').mag < WEAPONS.harrow.magSize && r.weapons.ammo('smg').mag === WEAPONS.smg.magSize, r.weapons.ammo('harrow').mag);
+  },
+  'quiver: a mark every paintEvery at any frame rate, four missiles a tube apart, each on its mark'(r) {
+    const q = TUNING.quiver;
+    for (const fps of [30, 60, 144]) {
+      clean(r, 'quiver');
+      const row = [-3, -1, 1, 3].map(x => r.enemies.add(x, -30, 100000));
+      r.input.simulate('fire', true);
+      let firstMark = -1;
+      let frames = 0;
+      run(r, q.paintEvery * 4 + 0.1, fps, () => {
+        frames++;
+        if (firstMark < 0 && (r.weapons.paint?.marks.length ?? 0) > 0) firstMark = frames / fps;
+      });
+      const marks = r.weapons.paint?.marks ?? [];
+      check(`four different marks @${fps}`, new Set(marks).size === 4, marks.length);
+      check(`first mark after paintEvery @${fps}`, firstMark >= q.paintEvery - 1 / fps && firstMark <= q.paintEvery + 2 / fps, firstMark.toFixed(3));
+      r.input.simulate('fire', false);
+      let launched = 0;
+      const at: number[] = [];
+      frames = 0;
+      run(r, 0.5, fps, () => {
+        frames++;
+        const n = r.record.fired.quiver ?? 0;
+        if (n > launched) at.push(frames / fps);
+        launched = n;
+      });
+      const gaps = at.slice(1).map((t, i) => t - at[i]!);
+      check(`four missiles @${fps}`, launched === 4, launched);
+      check(`a tube apart @${fps}`, gaps.every(g => near(g, WEAPONS.quiver.interval, 1.5 / fps + 0.001)), gaps.map(g => g.toFixed(3)).join());
+      run(r, 2.5, fps);
+      check(`every mark hit @${fps}`, row.every(d => d.hits.some(h => h.source === 'quiver')), row.map(d => d.hits.length).join());
+    }
+    clean(r, 'quiver');
+    const lone = r.enemies.add(0, -25, 100000);
+    r.input.simulate('fire', true);
+    run(r, q.paintEvery * 4 + 0.05, 60);
+    r.input.simulate('fire', false);
+    run(r, 3, 60);
+    const dealt = lone.hits.filter(h => h.source === 'quiver').reduce((n, h) => n + h.amount, 0);
+    check('salvo on one target: more than three rockets', dealt > WEAPONS.rocket.damage * 2 * 3, dealt.toFixed(0));
+    clean(r, 'quiver');
+    r.input.simulate('fire', true);
+    run(r, 1 / 60, 60);
+    r.input.simulate('fire', false);
+    run(r, 0.5, 60);
+    check('a tap dumb-fires all four', (r.record.fired.quiver ?? 0) === 4, r.record.fired.quiver);
+  },
+  'thresher: five a second at any frame rate, a drum of twenty, and it climbs'(r) {
+    for (const fps of [30, 60, 144]) {
+      clean(r, 'thresher');
+      r.player.pitch = 0;
+      r.input.simulate('fire', true);
+      run(r, 2, fps);
+      r.input.simulate('fire', false);
+      const shots = r.record.fired.thresher ?? 0;
+      check(`rate @${fps}`, shots >= 10 && shots <= 11, `${shots} in 2 s`);
+      check(`climb @${fps}`, r.player.pitch > WEAPONS.thresher.climb!.pitch * 8, r.player.pitch.toFixed(3));
+    }
+    clean(r, 'thresher');
+    r.input.simulate('fire', true);
+    run(r, 4.3, 60);
+    r.input.simulate('fire', false);
+    check('twenty, then the drum reload', (r.record.fired.thresher ?? 0) === 20 && r.weapons.reloading, `${r.record.fired.thresher} ${r.weapons.reloading}`);
   },
   'penetration: Harrow, Sabot, and the guns that have none'(r) {
     const pull = (seconds: number) => {
@@ -1141,7 +1218,7 @@ const tests: Record<string, (r: Rig) => void> = {
     check('a held trigger fires the new gun with no fresh click', r.record.fired.shotgun === 1, r.record.fired.shotgun);
 
     clean(r);
-    for (const id of ['smg', 'harrow', 'shotgun', 'rocket', 'autocannon', 'sabot'] as const) {
+    for (const id of ['smg', 'harrow', 'shotgun', 'thresher', 'rocket', 'quiver', 'autocannon', 'sabot'] as const) {
       const a = r.weapons.ammo(id);
       a.mag = 0;
       a.reserve = 0;

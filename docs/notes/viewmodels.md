@@ -37,6 +37,8 @@ Write `models/<id>.ts` exporting a `ViewDef`, and add it to `buildDefs` in `mode
 
 A family member (`docs/notes/weapons.md`) is the same one line. The Harrow and the Rivet are files of their own. The Sabot is `autocannon.ts` built with a second `Look`: the same receiver, with a smoothbore under a ported sleeve, blue-banded darts on the belt and blue glass, because it is the same gun with a different belt in it. A variant like that shares hand sockets and animation for free. It shares the reload and the draw. Its shot is its own, through the `Action` the clip is built with: the Thirty is `SHORT_RECOIL` (7 cm of barrel, home in 0.14 s), the Sabot `LONG_RECOIL` (10.5 cm, the charging handle thrown back with it, home in 0.36 s of its 0.45 s between shots), because it has no brake to bleed the shot off.
 
+The Thresher (`models/thresher.ts`) and the Quiver (`models/quiver.ts`) are files of their own. The Thresher is grey polymer where the pump is walnut: an in-line stock, a carry handle with the sights, a slotted shroud, a ported brake and a steel drum on a latch (part `drum`), which tips out and drops on the reload and comes back with a slap, then the handle is racked. The Quiver is a ribbed olive box of four tubes with a framed face, a painter unit on the left flank and a folding fore grip. **More than one barrel:** a model gives each its own socket, `muzzle`, `muzzle1`, `muzzle2`, `muzzle3`, and `Rig.muzzle(out, left, barrel)` answers the one asked for, or `muzzle` on a gun that has one. The Quiver's tubes empty in firing order, so tube `i` is drawn loaded while `i >= magSize - mag`; each shot kicks the block toward the side of the tube that fired. Its painter shows the marks: four lamps (glows `lamp0`..`lamp3`) lit by `a.charge`, which `Weapons` sets to marks over salvo size through `setCharge`, and a screen with the count and the four tubes. It loads from the front: the block is presented, and each round (parts `round0`..`round3`, hand sockets `load0`..`load3` on their tails) comes up from the waist and is pushed into its tube at 0.24, 0.4, 0.56 and 0.72 of the reload, on the four `quiver_load` cues.
+
 - Origin at the top of the grip, `-Z` forward, `+Y` up. Sockets `muzzle` and `eject`, and hand sockets from `model.hand(name, contact, side, fingers, part?)`. `contact` is where the palm presses, **relative to `part` when one is given**. That is the easiest mistake here. It left the SMG's rack hand floating near the camera.
 - `animate(a)` runs every frame after `resetParts()`, so it writes offsets with `+=` and adds to `a.gunP` and `a.gunR`. Hands take `a.left.to(socket, weight)` in sequence, later wins.
 - Keep the hand off anything that swings past the camera. Riding the Mule's cover or the Buzzsaw's crank through a full turn dragged the whole arm across the eye. Hands crack a latch and let go.
@@ -94,7 +96,8 @@ Triangles and draw calls per weapon, as shipped. Only the held weapon draws.
 | Sword | 6.0k | 1 | | Grenade | 4.9k | 3 |
 | Judge | 13.4k | 10 | | Walkie, designator | 3.5k, 3.2k | 4, 5 |
 | Harrow | 9.6k | 9 | | Rivet | 5.2k | 7 |
-| Sabot | 26.3k | 14 | | | | |
+| Sabot | 26.3k | 14 | | Thresher | 9.4k | 11 |
+| Quiver | 11.4k | 18 | | | | |
 
 The sword and Judge are under the brief's 15k floor. They look finished at that count, so I left the budget unspent.
 
@@ -131,6 +134,7 @@ VM_STEPS=perks,callins node tools/shot.mjs --url "/?sandbox=range&live=1&load=hu
 
 ## Known limitations
 
+- **The Thresher and the Quiver were checked as stills only**: a turntable each, seven fire frames and nine reload frames each in the sandbox, and stills in the real game. On the Quiver the face of the block is far up the view, so the four pushes of the reload are small on screen, and its hips pose fills the bottom right as a box launcher does. Nobody has seen either in motion.
 - **The Harrow and the Rivet are lighter models than the first ten**, 9.6k and 5.2k triangles. They read correctly in the hand and on the turntable, but nobody has put them beside the SMG and the Judge for finish. Their reloads were checked as nine stills each, not in motion: on the Rivet the magazine goes in low on the screen and the gun is lifted to show it.
 
 - **The legs are simple.** Lofted cloth limbs with pads and a boxed boot, 7.2k triangles and six draws while shown. They read as legs in a slide. In a vault they pass on the gun's side, so at level eyes the weapon covers most of them and they show when looking down. Judged from stills only. `?legs=0` hides them.

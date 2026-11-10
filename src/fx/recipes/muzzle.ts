@@ -83,6 +83,11 @@ const MUZZLES: Record<MuzzleKind, MuzzleFx> = {
     color: hot(0xfff0b0, 2.2), size: 0.15, points: 6, inner: 0.3, petals: 1, petalLength: 0.32, life: FLASH * 0.8,
     light: 0xffd890, lightPower: 3, lightRadius: 6, wisp: 0.04, sparks: 0,
   },
+  // Quiver: one tube's ignition. Smaller than the ROCKET's and over in a blink, so four in 0.3 s read as four, not one smear.
+  quiver: {
+    color: hot(0xff7a20, 2), size: 0.34, points: 6, inner: 0.3, petals: 2, petalLength: 0.8, life: 0.04,
+    light: 0xff8a40, lightPower: 6, lightRadius: 10, wisp: 0.26, sparks: 8,
+  },
   // Sabot: a cold blue-white lance of a flash. No fireball, because nothing in the round burns.
   sabot: {
     color: hot(0xbfe0ff, 2.6), size: 0.5, points: 4, inner: 0.1, petals: 2, petalLength: 2.1, life: 0.05,

@@ -20,6 +20,8 @@ const KIT = {
   shotgun: { weapons: ['smg', 'shotgun', 'sword'], grenades: 2 },
   launcher: { weapons: ['rocket', 'smg', 'shotgun', 'sword'], grenades: 2 },
   raid: { weapons: ['smg', 'shotgun', 'rocket', 'sword'], grenades: 3 },
+  // The armoury's rack hands out the autocannon, and so does this. The Sabot is first on key 4 in a wave run, but it does
+  // not come with the autocannon, so the Outpost's key 4 stays the explosive cannon it was written for.
   full: { weapons: ['smg', 'shotgun', 'rocket', 'autocannon', 'sword'], grenades: 3 },
 } as const satisfies Record<string, Loadout>;
 

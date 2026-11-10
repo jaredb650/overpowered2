@@ -60,6 +60,8 @@ const DEVICE: Record<CallInId, 'walkie' | 'designator'> = {
 const _p = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _s = new THREE.Vector3();
+/** Socket names of a gun's barrels after the first, which is `muzzle`. */
+const BARRELS: readonly string[] = ['muzzle', 'muzzle1', 'muzzle2', 'muzzle3'];
 const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
 const _qa = new THREE.Quaternion();
@@ -387,10 +389,11 @@ export class Rig implements ViewmodelRig {
     this.scoped = on;
   }
 
-  muzzle(out: THREE.Vector3, left = false): THREE.Vector3 {
+  muzzle(out: THREE.Vector3, left = false, barrel = 0): THREE.Vector3 {
     const isLeft = left && this.akimboW > 0.01;
     const def = isLeft ? this.defLeft : this.def;
-    const s = def?.model.sockets.muzzle;
+    const sockets = def?.model.sockets;
+    const s = (barrel > 0 ? sockets?.[BARRELS[barrel] ?? ''] : undefined) ?? sockets?.muzzle;
     if (!s) return out;
     _a.setFromMatrixPosition(s.matrixWorld);
     this.settleMuzzle(_a, isLeft);

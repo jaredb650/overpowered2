@@ -6,9 +6,9 @@
 // VM_MODE: reload (default), fire, draw, or sword. Screenshots: <out>-<id>-<n>.png.
 const ids = (process.env.VM_IDS ?? 'smg').split(',').filter(Boolean);
 const mode = process.env.VM_MODE ?? 'reload';
-const RELOAD = { smg: 1, shotgun: 1.25, rocket: 1.5, autocannon: 1, judge: 1.5, lance: 1.7, buzzsaw: 2.2, kiln: 1.8, stakegun: 1.6, harrow: 1.35, rivet: 0.8, sabot: 1 };
-const MAGS = { smg: 30, shotgun: 6, rocket: 1, autocannon: 5, judge: 6, lance: 4, buzzsaw: 200, kiln: 150, stakegun: 5, harrow: 24, rivet: 15, sabot: 5 };
-const DRAW = { smg: 0.16, shotgun: 0.2, rocket: 0.26, autocannon: 0.28, sword: 0.14, judge: 0.22, lance: 0.3, buzzsaw: 0.34, kiln: 0.26, stakegun: 0.24, harrow: 0.22, rivet: 0.1, sabot: 0.28 };
+const RELOAD = { smg: 1, shotgun: 1.25, rocket: 1.5, autocannon: 1, judge: 1.5, lance: 1.7, buzzsaw: 2.2, kiln: 1.8, stakegun: 1.6, harrow: 1.35, rivet: 0.8, sabot: 1, thresher: 2.7, quiver: 2.8 };
+const MAGS = { smg: 30, shotgun: 6, rocket: 1, autocannon: 5, judge: 6, lance: 4, buzzsaw: 200, kiln: 150, stakegun: 5, harrow: 24, rivet: 15, sabot: 5, thresher: 20, quiver: 4 };
+const DRAW = { smg: 0.16, shotgun: 0.2, rocket: 0.26, autocannon: 0.28, sword: 0.14, judge: 0.22, lance: 0.3, buzzsaw: 0.34, kiln: 0.26, stakegun: 0.24, harrow: 0.22, rivet: 0.1, sabot: 0.28, thresher: 0.28, quiver: 0.32 };
 
 export default async function anim(page, h) {
   for (let i = 0; i < 40; i++) {

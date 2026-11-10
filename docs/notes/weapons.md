@@ -12,6 +12,7 @@
 | `Flames.ts` | The invisible bodies inside the fire you see. 160 pool |
 | `Feel.ts` | Shake units and hit-stop pacing |
 | `families.ts` | Which weapons share a number key, and what the key, the wheel and a base weapon's unlock do about it. No state |
+| `swarm.ts` | The Quiver's mind: painting marks, filling a salvo, a missile's turn, weave and retarget. Pure functions and the `Painter`; no world |
 | `penetration.ts` | The budget a round spends on walls and bodies, and the probe that measures a wall. Hitscan and projectiles both ask here |
 | `testkit.ts` | A firing range for Vitest: the real `Weapons` and `Combat` on real Rapier, stand-in enemies, a stepped clock |
 
@@ -28,6 +29,8 @@ ctx.weapons.addAmmo(0.25);          // fraction of max reserve, every weapon
 ctx.weapons.modifiers.damage = 2;   // progression rewrites all of these every frame, so write them there, not here
 
 ctx.weapons.slotMember(1);          // 'smg' or 'harrow': what key 1 draws now
+ctx.weapons.paint;                  // the Quiver's marks while it is in hand (PaintView), else undefined
+ctx.combat.spawnProjectile({ ..., kind: 'rocket', target, turnRate: 3.6, steerDelay: 0.14, weave: 0.1 }); // a guided missile
 ctx.combat.fireRay(eye, dir, { damage: 50, source: 'harrow', team: 'player', penetrate: 0.5 });   // through a body or a sheet
 ctx.combat.spawnProjectile({ ..., kind: 'bullet', penetrate: 3, bodyCost: 0.2 });                  // the same budget, with travel time
 ```
@@ -48,11 +51,12 @@ All additive, in `src/core/gameplay.ts`.
 - `ShotSpec.cleave`, kills split along the line of the shot, up to this many.
 - `ExplosionSpec.worldObject`, set by combat's own `world:explosion` handler. Skips FX, sound and neighbour damage, because the world did those.
 
-- `WeaponId` gains `harrow`, `rivet` and `sabot`. Every `Record<WeaponId, ...>` in the tree has them: `ui/data.ts`, `ui/icons.ts`, `ui/hud/crosshair.ts`.
+- `WeaponId` gains `thresher` and `quiver` (this stream), after `harrow`, `rivet` and `sabot`. Every `Record<WeaponId, ...>` in the tree has them: `ui/data.ts`, `ui/icons.ts`, `ui/hud/crosshair.ts`.
 - `WeaponSystem.slotMember(slot)`, optional so a stand-in weapon system need not have it.
 - `ShotSpec.penetrate` was "walls up to this thick" and is now the budget described under Penetration. New beside it: `bodyCost`, `penetrateKeep`, `armorPiercing`, `falloff`, and `penetrateWalls`, which puts a round on the old per-wall rule and is how the Lance keeps it. `ProjectileSpec` gains `penetrate`, `bodyCost` and `armorPiercing`.
 - `MuzzleKind` and `TracerKind` gain `carbine`, `pistol` and `sabot`, with rows in `src/fx/recipes/muzzle.ts`.
 - `DamageInfo.reach` and `blastKind`, a blast's splash, which is what `src/enemies/blast.ts` rolls on. `DamageInfo.pierces`, a shaped charge's direct hit or an armour-piercing round on a plated body. `DamageInfo.armorPiercing`, an armour-piercing round on any body: `shieldStops` in `src/enemies/damage.ts` reads it and lets the round through a Riot's shield.
+- **Quiver stream.** `MissileTarget` (anything a missile can be painted on: an enemy as it stands, a `Vehicle` through its new `aimLift` and `paintRadius` getters) and `PaintView` (what the HUD draws). `WeaponSystem.paint?`. `ProjectileSpec` gains `target`, `turnRate`, `steerDelay`, `weave`, `accel`, `topSpeed`, `size`; `ProjectileTrail` gains `swarm`; `MuzzleKind` gains `quiver`. `ViewmodelRig.muzzle(out, left, barrel?)` picks a barrel by socket `muzzle1`..`muzzle3`. `VehicleTargets.paintable?(out)` lists live vehicles and the chopper. In `data.ts`: `FireMode` gains `paint`, `WeaponDef` gains `climb`.
 - `DecalKind` gains `exit`, the spall crater on the far side of a wall. It took the second bullet-hole cell of the atlas, so `bullet` has one variant now (`src/render/Decals.ts`, `materials/decalAtlas.glsl.ts`).
 
 One change outside this system: `Player.rideGround` in `src/player/Player.ts` adds `world.objects.platformVelocity` to position while grounded, swept so a wall stops it. Added to position rather than velocity, so the deck's speed never reads as the player's own. `docs/notes/player.md` and `world.md` still say moving geometry does not carry the player; their owners should drop that line. `Weapons.ts` also imports the plain `MOVE` table from `src/player/tuning.ts`.
@@ -69,12 +73,14 @@ One change outside this system: `Player.rideGround` in `src/player/Player.ts` ad
 
 ## How things work
 
-**Families.** Every weapon on one number key is a family, in `WEAPON_ORDER`, which is the order of the rows in `WEAPONS`. The key draws the member last held there; pressing it while holding one steps to the next owned member and wraps. Q is still the weapon before this one, whichever key it is on. The wheel walks keys, not weapons, and lands on the member last held on each, so a family is one notch. A member with a `base` is owned whenever its base is: `own()` adds it wherever a weapon is added (start of run, `give`, `setLoadout`), with a full magazine and its own reserve. Only the base raises the unlock banner; the member gets a line in the feed. Ammo is per member. A dry gun hands over to its family member before anything else: `TUNING.ammo.fallback` lists base weapons and `nextLoaded` tries each one's members straight after it. `?families=0` leaves each key with its first weapon.
+**Families.** Every weapon on one number key is a family, in `WEAPON_ORDER`, which is the order of the rows in `WEAPONS`. The key draws the member last held there; pressing it while holding one steps to the next owned member and wraps. Q is still the weapon before this one, whichever key it is on. The wheel walks keys, not weapons, and lands on the member last held on each, so a family is one notch. A member with a `base` is owned whenever its base is: `own()` adds it wherever a weapon is added (start of run, `give`, `setLoadout`), with a full magazine and its own reserve. Only the base raises the unlock banner; the member gets a line in the feed. Ammo is per member. A dry gun hands over to its family member before anything else: `TUNING.ammo.fallback` lists base weapons and `nextLoaded` tries each one's members straight after it. `?families=0` leaves each key with its first weapon, and implies `?slot4=old`, so key 4 is the explosive autocannon from the start, as before families.
 
 | Key | Base | Member | The member's job |
 |---|---|---|---|
 | 1 | SMG | **Harrow**, battle rifle | 50 damage at 6.7 a second against 25 at 10: a third more damage a second, in bigger pieces. Full damage at any range, where the SMG now fades from 35 m to half at 80. Goes through one body or 0.5 m of cover. Kicks 3.6 times as hard. Takes limbs (`severMult` 1.8) |
-| 4 | Autocannon | **Sabot**, the same cannon loaded with darts | Hitscan, 600 damage, no blast, through plates and through a Riot's shield. Budget 5 m, bodies at 0.12 m each. Same scope |
+| 2 | Shotgun | **Thresher**, drum shotgun | Full auto, 5 shells a second, 20 in the drum. 4 pellets of 20 to the pump's 6, so the pump stays the hard single hit; its damage a second is about the pump's held, spread over a burst. Real climb (`climb`), a 2.7 s drum reload. Takes limbs like the pump (`severMult` 2.4, the point-blank rule) |
+| 3 | Rocket | **Quiver**, four-tube box launcher | Hold to paint up to four marks, let go and four guided missiles leave a tube apart. See "The Quiver" |
+| 4 | **Sabot**, the cannon loaded with darts | Autocannon, the explosive belt: the upgrade | The Sabot is first on the key and comes from the start: hitscan, 600 damage, no blast, through plates and through a Riot's shield, budget 5 m, bodies at 0.12 m each. The autocannon has no `base`: a weapon cache brings it, the second one, after wave 4 (`CACHE_ORDER`), and its feed line says "PRESS 4 AGAIN" |
 | 6 | Judge | **Rivet**, pistol | 30 damage as fast as the trigger (9.5 a second), 15 rounds, out in 0.1 s. Headshots times 3. Half damage past 55 m, and no limbs. The Judge is six slow verdicts, this is the gun that is already up |
 
 **Adding a family member.** What it takes, in full:
@@ -84,11 +90,24 @@ One change outside this system: `Player.rideGround` in `src/player/Player.ts` ad
 3. A viewmodel, and one line for it in `viewmodels/models/index.ts`.
 4. `tsc` then names three UI rows it wants: `ui/data.ts` (guide text), `ui/icons.ts`, `ui/hud/crosshair.ts`.
 
+A member with no `base` is earned on its own (the autocannon): it needs its own place in `CACHE_ORDER` and in `TUNING.ammo.fallback`. A loadout (`setLoadout`) sets each key to the first weapon it names there, so a mission written for the autocannon still draws it on 4.
+
 Nothing else is needed. The dry-gun list takes a member after its base, `gore/wounds.ts` gives a gun with no `BITES` row the SMG's wound, the Commander says a gun with no entry in `WEAPON_WORDS` by its name, and the lab's "Draw a weapon" buttons and the guide's weapon page are built from the table.
 
 The row decides how it fires. `mode` picks the trigger code: `auto`, `semi`, `charge` (the Lance's, with `TUNING.lance`), `spin` (the Buzzsaw's, with `TUNING.buzzsaw`, slowdown included), `stream`, `melee` (the `Sword` class). `round` picks what leaves the barrel when it is not a hitscan round: `rocket`, `shell`, `stake`. More than one pellet makes it a scatter gun, with the point-blank rule and the pellet perks. `headHops`, `scope`, `penetration`, `bodyCost`, `armorPiercing`, `falloff` and `canSever` are fields too. So a second gun on key 7 or 8 is a row with `mode: 'charge'` or `'spin'` and its own damage, rate, budget and tracer. It shares the spin-up or charge numbers and sounds of the first, which live in `TUNING`, not in the row: a member that needs its own will have to move those into the row. A second blade on key 5 swings with `SWORD`'s numbers for the same reason.
 
 Weapon ids still written in `Weapons.ts`, each for a reason: `smg` for akimbo, because the left gun is an SMG viewmodel; `sword` as the end of the dry-gun list and as what a quick melee draws; and the hand a run starts with.
+
+**The Quiver.** `mode: 'paint'` in its row; the rules are `swarm.ts` and the numbers `TUNING.quiver`.
+
+- *Paint.* The press starts a `Painter` (`quiver_arm`). While the trigger is held a mark lands every `paintEvery` (0.2 s), the first 0.2 s after the press, so a tap leaves none. The mark goes on the unmarked target nearest the crosshair within `cone` (0.16 rad) and `range` (150 m) that a world ray reaches; with nobody new in view a spare stacks on a marked target still in view, a boss or a vehicle first (`heavy`: `isBoss`, or `paintRadius` over 1.5), else the nearest the crosshair. Each mark plays `quiver_lock` at a pitch that rises 0.16 a mark, and the fourth `quiver_full`. A marked target that dies drops its mark. The ray is only cast for targets in the cone, and only when a mark is due. Enemies come from `enemies.alive`, vehicles and the chopper from `vehicles.paintable`. Right click lets go of the marks and keeps the missiles (`quiver_cancel`).
+- *Release.* Every missile gets a target: the live marks in the order painted, the spares on the same rule as a stacked mark. No live mark is a dumb salvo. The four leave `interval` (0.1 s) apart on the player's clock, tube 0 top left, 1 top right, 2 bottom left, 3 bottom right, each from its own muzzle socket with its own flash, sound, recoil and backblast (`Weapons.backblast`: smoke and sparks behind the shoulder). Each tube points `fan` off the crosshair, outward, and aimed ones a touch up, so the four leave in a fan; a dumb salvo is centred a little above the crosshair with `dumbSpread` on top, so the low pair does not go into the floor.
+- *Flight.* `Projectiles.guide`: it leaves at 24 m/s and speeds up at 80 to 58. Straight for `steerDelay`, then it turns its nose at `turnRate` (3.6 rad/s, about a 16 m circle at full speed) toward its mark's `center` plus `aimLift`, weaving about that line by `weave` (0.1 rad side to side, half that up and down), fading inside 12 m. With no mark it weaves about a fixed `line`, its launch heading, never its current one, which would spiral. A mark that dies hands the missile to the nearest live enemy, vehicle or aircraft (`vehicles.paintable`) within `retargetRange` (45 m) and 70 degrees of its heading; with nobody it flies on straight. A guided missile's near-miss fuse is for its own mark only: it passes close by others and only a body square in its path stops it. The plain rocket's fuse is unchanged.
+- *Blast.* Each is a small ROCKET: kind `rocket`, so the player's own blast follows the ROCKET's rules (self-damage, cap, rocket-jump push), 110 direct and 90 over `radius` 3.5 m against the ROCKET's 100 over 8, with the shaped charge on armour. Measured live: one salvo took 520 off a Juggernaut where four ROCKETs took 260, and killed a 1000-health tank from full.
+- *Reload.* All four in one 2.8 s reload, which waits until the salvo has left.
+- *Pooling.* Missiles are the projectile pool, trails the fx smoke pool, lock markers four pooled DOM elements (`ui/hud/locks.ts`). Nothing is built while painting or firing.
+
+**The Thresher.** `mode: 'auto'` with `pellets` 4, so it is a scatter gun with the point-blank rule and the pellet perks like the pump. `climb` moves the aim itself, up 0.011 rad and up to 0.0035 to a side a shell, and does not spring back, so a held burst walks up for the player to pull down; `kick` springs back on top as for every gun. `?climb=0` takes the climb out. Its `force` is 16, the least that clears `BLAST.pointBlankForce` (100) once the point-blank rule has multiplied it, so a trunk kill up close can tear a body in two as the pump's can. Its gore and reactions are the pump's through the pellet type, with nothing added in `src/gore` or `src/enemies`.
 
 **Penetration.** A budget is meters of concrete, on `WeaponDef.penetration` for the guns and on the spec for anything else. A wall costs its measured thickness times `PENETRATION.surface` (steel 1.5, glass 0.2, a shield never). A body costs `PENETRATION.body`, 0.4, or the round's own `bodyCost`, and twice that if its armour or shield blocked the round. Damage falls in a line from all of it with the budget untouched to `keep`, 0.55, with it spent. Range and falloff are measured through the wall.
 
@@ -163,6 +182,9 @@ Measured over 80 s of the real game, with the bot holding the trigger on the SMG
 | What a gun goes through | `penetration` and `bodyCost` in its row. What things cost: `PENETRATION` |
 | Reach | `falloff` in its row: `from`, `to`, `floor`. Unset is full damage at any range, which is every gun but the SMG (35 to 80 m, half) and the Rivet (25 to 55 m, half). `?reach=0` takes it out of every gun |
 | A new family member | See "Adding a family member". Its key order is where its row sits in `WEAPONS` |
+| The Quiver | `TUNING.quiver`: mark rate, cone, turn rate, weave, speeds, blast. Damage and salvo gap in its row |
+| The Thresher's climb | `climb` in its row. `?climb=0` takes it out |
+| Key 4 as it was | `?slot4=old`: the autocannon first and from the start, the Sabot with it, no autocannon in a cache |
 | What fires a gun | `mode` and `round` in its row |
 | The Lance through walls | `TUNING.lance.penetration` (thickest wall) and `walls` (how many) |
 | The exit crater | `EXIT_CRATER` and `EXIT_FLASH_SCALE` in `Combat.ts`. Its look: `exitHole` in `src/render/materials/decalAtlas.glsl.ts` |
@@ -179,12 +201,18 @@ Measured over 80 s of the real game, with the bot holding the trigger on the SMG
 
 ```
 nice npx vitest run src/weapons/families.test.ts --testTimeout=60000      # 16: the table, the keys, the wheel, ownership, per-member ammo, the dry-gun order
+nice npx vitest run src/weapons/swarm.test.ts --testTimeout=60000        # 26: painting, stacking, release, turn, retarget, weave, the fuse, the Quiver and Thresher on the range
 nice npx vitest run src/weapons/penetration.test.ts --testTimeout=60000   # 48: budget, the per-wall rule, wall probe, hitscan, bursts, every gun, the Lance, projectiles at 30/60/144
 
 node tools/shot.mjs --url "/?map=range" --script tools/scripts/families-live.mjs --wait 500 --timeout 280 \
   --dpr 2 --w 1440 --h 900 --out tools/out/fam/live.png      # real keys and real enemies on the range's piercing gallery.
                                                              # FAM_ONLY=keys,gallery,holes,tracer,shield,hellfire,lance,reach,exits,cost
+node tools/shot.mjs --url "/?map=range" --script tools/scripts/swarm-live.mjs --wait 500 --timeout 300 \
+  --dpr 2 --w 1440 --h 900 --out tools/out/swarm/live.png    # keys, a five-man arc painted and killed, a Juggernaut, a tank, a tap, the Thresher
+                                                             # SWARM_ONLY=keys,paint,stack,heavy,tank,tap,thresher
 ```
+
+`/?sandbox=range&only=quiver` and `&only=thresher` run their checks at 30, 60 and 144 fps.
 
 ```
 /?sandbox=range                 # stepped clock, stand-in enemies, every number exact at 30/60/144 fps
@@ -247,7 +275,26 @@ Families and penetration, with `families-live.mjs` on the Test Range, real keys 
 | Whole game | `/?autostart=1`, bot cycling all ten slots for 40 s: 2412 frames, no errors, p50 16.7 ms, p99 33.4 ms, max 183 ms under a load average near 40 |
 | Whole game, after families and penetration | `/?autostart=1` with nobody at the keys: booted on the default map, ran until the waves killed the player, no console errors. A boot check, not a fight |
 
+**Quiver, Thresher and key 4**, measured. Unit tests and the range sandbox (230 of 230) on a stepped clock; `swarm-live.mjs` in the real game on the Test Range with real keys:
+
+| Thing | Result |
+|---|---|
+| Keys | `3 3 3 2 2 4 4` drew Rocket, Quiver, Rocket, Shotgun, Thresher, Sabot, Sabot (no autocannon yet). After `give('autocannon')`: `4 4` drew Autocannon, Sabot. A fresh run owns no autocannon |
+| Paint | Five Troopers in an arc 20 to 28 m out: marks 0, 1, 3, 4, 4 at 0.12, 0.37, 0.62, 0.87, 1.12 s held; four different targets, four brackets, `LOCK 4/4`. All four marked died in every run after the fuse fix, the fifth was untouched |
+| Rate | First mark 0.2 s after the press plus a frame at 30, 60 and 144 fps; missiles 0.1 s apart (one 30 fps frame of slack on the first gap) |
+| One target | A Juggernaut alone: `JJJJ`, the bracket reads `x4`. 2600 to 2080 from one salvo. Four ROCKETs on the same Juggernaut: 260 |
+| Tank | Painted on its hull four times; 1000 to dead from one salvo |
+| Tap | Four dumb missiles, none aimed |
+| Thresher | 10 shells in 2 s at 30, 60 and 144 fps; climb 0.106 to 0.112 rad over the 2 s; 20 shells then the drum reload. Live: a Trooper at 9 m dead with two limbs off |
+| Hitch | Worst frame across a salvo, Test Range at dpr 2 on a machine at load average 11 to 15: 23 to 62 ms on later salvos, 46 to 131 ms on the first of a page. A ROCKET's first blast of a page measured 78 to 204 ms the same way. Not separable from the machine's load; no repeatable spike of the Quiver's own |
+
 ## Known limitations
+
+- **Nobody has played the Quiver or the Thresher, or the new key 4.** Every number is a first guess and every result above is a test, a script or a still. The Quiver's mark rate, cone, turn rate and weave, the Thresher's climb and its damage a second against the pump's are the feel questions.
+- **The Quiver's cone is 9 degrees either side of the crosshair.** Targets wider apart than that need the crosshair swept across them while held. The lab's "Quiver" button stands its five inside it.
+- **Spares on a man who dies early are mostly wasted.** Four on one Trooper: the first kills him, and the rest retarget if someone is ahead of them in reach, or fly on. That is the rule as written; whether it reads well is unjudged.
+- **The reload loads from the front, a round at a time,** and the face of the block is far up the view, so in stills the pushes are small on screen. Its draw and fire poses were checked as stills, not in motion.
+- **Blast smoke reads as square sprites** in the stills of a salvo against the Test Range's sky (`salvo-air.png`). The ROCKET's blast shows the same squares faintly; four overlapping make them obvious. It is fx's smoke column, not touched here.
 
 - **Nobody has played the three new guns.** Their numbers are a first guess from the tables: rate and damage against their siblings, kick and shake by ratio. The feel of the Harrow's kick, the Rivet's snap and the Sabot's weight is unjudged.
 - **The SMG changed to give the Harrow its reach.** It was full damage at any range and now fades from 35 m to half at 80. The numbers are a guess nobody has played. `?reach=0` puts it back, and takes the Rivet's falloff with it.

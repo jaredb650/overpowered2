@@ -306,7 +306,7 @@ describe('the guns', () => {
   });
 
   it('Sabot: several walls of normal thickness and everyone between them, with no blast', () => {
-    draw('weapon4', 'weapon4');
+    draw('weapon4');
     expect(r.weapons.current).toBe('sabot');
     r.wall(-10, 1);
     r.wall(-20, 0.6);
@@ -329,7 +329,7 @@ describe('the guns', () => {
   });
 
   it('Sabot: its budget runs out', () => {
-    draw('weapon4', 'weapon4');
+    draw('weapon4');
     for (let i = 0; i < 4; i++) r.wall(-10 - i * 6, 1.6);
     const behind3 = r.enemies.add(0, -26);
     const behind4 = r.enemies.add(0, -32);
@@ -339,7 +339,10 @@ describe('the guns', () => {
   });
 
   it('autocannon: still a shell that bursts on the wall', () => {
-    draw('weapon4');
+    // The Sabot's upgrade, second on key 4 once a cache has brought it.
+    r.weapons.give('autocannon');
+    draw('weapon4', 'weapon4');
+    expect(r.weapons.current).toBe('autocannon');
     r.wall(-10, 0.3);
     const behind = r.enemies.add(0, -18);
     pull();
@@ -395,7 +398,7 @@ describe('the guns', () => {
 
     r.reset();
     r.weapons.modifiers.explosiveRounds = true;
-    draw('weapon4', 'weapon4');
+    draw('weapon4');
     r.enemies.add(0, -10);
     pull();
     expect(r.record.blasts.length).toBeGreaterThanOrEqual(1);

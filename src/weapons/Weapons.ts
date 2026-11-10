@@ -8,7 +8,7 @@
 import * as THREE from 'three';
 import { CG, type Ctx, type ExplosionKind, type LoopHandle } from '../core/contracts';
 import type {
-  AmmoState, ProjectileSpec, ProjectileTrail, ShotSpec, WeaponId, WeaponModifiers, WeaponSystem,
+  AmmoState, MissileTarget, PaintView, ProjectileSpec, ProjectileTrail, ShotSpec, WeaponId, WeaponModifiers, WeaponSystem,
 } from '../core/gameplay';
 import { clamp, damp, invLerp, lerp, randomInCone, wrapAngle } from '../core/math';
 import { MOVE } from '../player/tuning';
@@ -16,6 +16,7 @@ import type { Combat, Guard, GuardResult } from './Combat';
 import { HIT_STOP, STARTING_WEAPONS, SWORD, TUNING, WEAPONS, WEAPON_ORDER, type SoundLayer, type WeaponDef } from './data';
 import { familyOfSlot, membersOf, pressSlot, wheelSlot } from './families';
 import { PIERCE_ON } from './penetration';
+import { Painter, angleOff, type PaintCandidate } from './swarm';
 import { Sword } from './Sword';
 
 interface Slot {
@@ -34,6 +35,10 @@ const UP = new THREE.Vector3(0, 1, 0);
 const REACH_ON = typeof location === 'undefined' || new URLSearchParams(location.search).get('reach') !== '0';
 /** Seconds a rate boost cuts off a reload. Capped so Berserk does not turn reloads into a blink. */
 const MAX_RELOAD_BOOST = 1.5;
+/** `?climb=0` takes the real climb out of every gun that has one (the Thresher): its aim stays where it was put. */
+const CLIMB_ON = typeof location === 'undefined' || new URLSearchParams(location.search).get('climb') !== '0';
+/** Targets one paint look considers at most. */
+const MAX_IN_VIEW = 32;
 
 export class Weapons implements WeaponSystem, Guard {
   current: WeaponId = 'smg';
@@ -87,6 +92,18 @@ export class Weapons implements WeaponSystem, Guard {
 
   private akimboOn = false;
   private quickReturn = 0;
+
+  /** The Quiver: marks laid while the trigger is held, and the salvo that leaves when it lets go. */
+  private readonly painter = new Painter(TUNING.quiver.paintEvery);
+  private readonly salvoTargets: (MissileTarget | null)[] = [];
+  private salvoLeft = 0;
+  private salvoShot = 0;
+  private salvoClock = 0;
+  private salvoDumb = false;
+  private readonly inView: PaintCandidate[] = [];
+  private readonly candidatePool: PaintCandidate[] = [];
+  private readonly paintables: MissileTarget[] = [];
+  private readonly look = (): readonly PaintCandidate[] => this.gatherInView();
 
   /** The player's pose as the rig sampled it, one system after this one, last frame. See flashPoint. */
   private readonly rigEye = new THREE.Vector3();
@@ -233,6 +250,11 @@ export class Weapons implements WeaponSystem, Guard {
     return this.sword.step;
   }
 
+  /** The Quiver's marks while it is in hand. */
+  get paint(): PaintView | undefined {
+    return WEAPONS[this.current].mode === 'paint' ? this.painter : undefined;
+  }
+
   ammo(id: WeaponId = this.current): AmmoState {
     return this.slots[id].ammo;
   }
@@ -256,6 +278,11 @@ export class Weapons implements WeaponSystem, Guard {
     for (let i = 0; i < members.length; i++) {
       this.ctx.hud.feed(`${WEAPONS[members[i]!].name}: PRESS ${s.def.slot} AGAIN`, '#39e0ff');
     }
+    // An upgrade that lands on a key already in use (the autocannon beside the Sabot) says how to reach it, too.
+    const family = familyOfSlot(s.def.slot);
+    if (members.length === 0 && family.some(other => other !== id && this.owned.has(other))) {
+      this.ctx.hud.feed(`${s.def.name}: PRESS ${s.def.slot} AGAIN`, '#39e0ff');
+    }
   }
 
   setLoadout(weapons: readonly WeaponId[], grenades: number): void {
@@ -269,7 +296,9 @@ export class Weapons implements WeaponSystem, Guard {
     this.current = first;
     this.lastWeapon = weapons[1] ?? first;
     this.lastGun = gun;
-    this.slotLast.set(WEAPONS[first].slot, first);
+    // A key draws the first weapon the loadout names on it, so a mission that hands out the autocannon gets the
+    // autocannon on 4, not the Sabot that now comes first there.
+    for (const id of weapons) if (!this.slotLast.has(WEAPONS[id].slot)) this.slotLast.set(WEAPONS[id].slot, id);
     this.ctx.viewmodel.equip?.(first, 0.01);
   }
 
@@ -322,6 +351,7 @@ export class Weapons implements WeaponSystem, Guard {
 
   /** Stops every continuous thing. Called on death, pause and holster, so nothing keeps roaring in a menu. */
   private stopEverything(): void {
+    this.stopPaint();
     this.endContinuous();
     this.clearScope(false);
     this.cancelReload();
@@ -437,6 +467,7 @@ export class Weapons implements WeaponSystem, Guard {
       return;
     }
     const from = this.current;
+    this.stopPaint();
     this.endContinuous();
     this.clearScope(false);
     this.cancelReload();
@@ -480,6 +511,9 @@ export class Weapons implements WeaponSystem, Guard {
     const a = s.ammo;
     if (s.def.mode === 'melee' || this.reloading || a.mag >= a.magSize || a.reserve <= 0) return false;
     if (this.modifiers.bottomlessMag) return false;
+    // A salvo in the air finishes before the tubes are opened.
+    if (this.salvoLeft > 0) return false;
+    this.stopPaint();
     this.endContinuous();
     this.chargeLevel = 0;
     this.chargeFull = false;
@@ -570,6 +604,7 @@ export class Weapons implements WeaponSystem, Guard {
       case 'charge': this.updateCharge(s, dt, held); break;
       case 'spin': this.updateSpin(s, dt, held); break;
       case 'stream': this.updateStream(s, dt, held); break;
+      case 'paint': this.updatePaint(s, dt, held); break;
     }
     if (def.mode === 'auto' || def.mode === 'spin') {
       if (!held && s.cooldown < 0) s.cooldown = 0;
@@ -798,11 +833,11 @@ export class Weapons implements WeaponSystem, Guard {
   }
 
   /** Writes the muzzle to `muzzleAt`, starting from a sane guess so a missing viewmodel still draws tracers. */
-  private muzzle(left: boolean): THREE.Vector3 {
+  private muzzle(left: boolean, barrel = 0): THREE.Vector3 {
     const { player, viewmodel } = this.ctx;
     this.muzzleAt.copy(player.eye).addScaledVector(player.forward, 0.6);
     this.muzzleAt.y -= 0.18;
-    viewmodel.muzzle(this.muzzleAt, left);
+    viewmodel.muzzle(this.muzzleAt, left, barrel);
     return this.muzzleAt;
   }
 
@@ -845,11 +880,11 @@ export class Weapons implements WeaponSystem, Guard {
   }
 
   /** The shared frame-of-the-shot beats: flash, light, sound, recoil, shake, brass, event. */
-  private shotFeedback(def: WeaponDef, left: boolean, strength = 1): void {
+  private shotFeedback(def: WeaponDef, left: boolean, strength = 1, barrel = 0): void {
     const c = this.ctx;
     const { player } = c;
     const fwd = player.forward;
-    const at = this.muzzle(left);
+    const at = this.muzzle(left, barrel);
     c.fx.muzzleFlash(this.flashPoint(at), this.flashDir.set(0, 0, -1).applyQuaternion(c.render.camera.quaternion), def.muzzle);
     this.layerSounds(def.sounds);
     c.viewmodel.fire(def.recoil * strength, left);
@@ -914,6 +949,7 @@ export class Weapons implements WeaponSystem, Guard {
     const def = s.def;
     this.consume(s);
     this.shotFeedback(def, left);
+    if (def.climb && CLIMB_ON) this.climb(def.climb);
     // By what the row says leaves the barrel, never by which gun it is: a family member picks its own.
     switch (def.round) {
       case 'rocket': this.shootRocket(def); return;
@@ -974,6 +1010,7 @@ export class Weapons implements WeaponSystem, Guard {
     p.killStop = 0;
     p.silent = false;
     p.visualFrom = this.muzzleAt;
+    unguided(p);
     return p;
   }
 
@@ -1084,6 +1121,197 @@ export class Weapons implements WeaponSystem, Guard {
     v.z *= k;
   }
 
+  /**
+   * Real climb, on a gun whose row has it: the aim itself moves, up and to a random side, and stays there until the player
+   * pulls it back. The camera's kick is on top and springs back as usual.
+   */
+  private climb(c: { readonly pitch: number; readonly yaw: number }): void {
+    const p = this.ctx.player;
+    p.pitch = clamp(p.pitch + c.pitch * (0.85 + Math.random() * 0.3), -1.55, 1.55);
+    p.yaw += (Math.random() - 0.5) * 2 * c.yaw;
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // The Quiver: hold to paint, let go to fire
+  // -------------------------------------------------------------------------------------------
+
+  /** Rounds the next salvo can carry. */
+  private salvoRounds(s: Slot): number {
+    return this.modifiers.bottomlessMag ? TUNING.quiver.marks : Math.min(TUNING.quiver.marks, s.ammo.mag);
+  }
+
+  private updatePaint(s: Slot, dt: number, held: boolean): void {
+    const { audio, input, viewmodel } = this.ctx;
+    const p = this.painter;
+    if (this.salvoLeft > 0) {
+      this.stepSalvo(s, dt);
+      return;
+    }
+    if (!p.painting) {
+      if (this.pressBuffer <= 0 || s.cooldown > 0) return;
+      if (!this.canShoot(s)) {
+        this.dryFire();
+        this.pressBuffer = 0;
+        return;
+      }
+      this.pressBuffer = 0;
+      p.begin(this.salvoRounds(s));
+      audio.play('quiver_arm');
+    }
+    if (held) {
+      // Right click lets go of the marks and keeps the missiles, as it lets go of a Lance charge.
+      if (input.pressed('aim')) {
+        this.stopPaint();
+        audio.play('quiver_cancel');
+        return;
+      }
+      const marked = p.update(dt, this.look);
+      if (marked) {
+        const n = p.marks.length;
+        audio.play('quiver_lock', { pitch: 1 + (n - 1) * 0.16 });
+        if (p.full) audio.play('quiver_full');
+      }
+      viewmodel.setCharge(p.max > 0 ? p.marks.length / p.max : 0);
+      return;
+    }
+    this.launch(s);
+  }
+
+  /** The trigger let go: every mark becomes a missile, spares on the best of them, or a dumb salvo with none. */
+  private launch(s: Slot): void {
+    const n = this.salvoRounds(s);
+    const aimed = this.painter.release(this.salvoTargets, n, this.gatherInView());
+    this.ctx.viewmodel.setCharge(0);
+    if (n <= 0) return;
+    this.salvoLeft = n;
+    this.salvoShot = 0;
+    this.salvoClock = 0;
+    this.salvoDumb = aimed === 0;
+    this.stepSalvo(s, 0);
+  }
+
+  /** One tube after another, `interval` apart, on the player's clock. */
+  private stepSalvo(s: Slot, dt: number): void {
+    this.salvoClock -= dt;
+    const gap = this.interval(s.def);
+    while (this.salvoLeft > 0 && this.salvoClock <= 0) {
+      if (!this.canShoot(s)) {
+        this.salvoLeft = 0;
+        break;
+      }
+      this.fireMissile(s, this.salvoShot);
+      this.salvoShot++;
+      this.salvoLeft--;
+      this.salvoClock += gap;
+    }
+    if (this.salvoLeft > 0) return;
+    s.cooldown = TUNING.quiver.recover;
+    for (let i = 0; i < this.salvoTargets.length; i++) this.salvoTargets[i] = null;
+  }
+
+  private stopPaint(): void {
+    if (this.painter.painting || this.salvoLeft > 0) this.ctx.viewmodel.setCharge(0);
+    this.painter.cancel();
+    this.salvoLeft = 0;
+    for (let i = 0; i < this.salvoTargets.length; i++) this.salvoTargets[i] = null;
+  }
+
+  /** Everyone near the crosshair with a clear line to them, enemies and then vehicles. A ray each, only for those in the cone. */
+  private gatherInView(): readonly PaintCandidate[] {
+    const c = this.ctx;
+    const out = this.inView;
+    out.length = 0;
+    const alive = c.enemies.alive;
+    for (let i = 0; i < alive.length && out.length < MAX_IN_VIEW; i++) this.consider(alive[i]!);
+    const v = c.enemies.vehicles;
+    if (v && typeof v.paintable === 'function') {
+      const n = v.paintable(this.paintables);
+      for (let i = 0; i < n && out.length < MAX_IN_VIEW; i++) this.consider(this.paintables[i]!);
+      this.paintables.length = 0;
+    }
+    return out;
+  }
+
+  private consider(target: MissileTarget): void {
+    if (!target.alive) return;
+    const c = this.ctx;
+    const t = TUNING.quiver;
+    const eye = c.player.eye;
+    const at = this.v.copy(target.center);
+    at.y += target.aimLift ?? 0;
+    const angle = angleOff(eye, c.player.forward, at, t.range, Math.cos(t.cone));
+    if (angle < 0) return;
+    const dir = this.w.subVectors(at, eye);
+    const dist = dir.length();
+    dir.divideScalar(dist);
+    // A painted mark is a line of sight: a wall in the way hides the target, its own hull does not.
+    const wall = c.physics.raycast(eye, dir, dist, CG.World);
+    if (wall && wall.distance < dist - (target.paintRadius ?? 0.6)) return;
+    const k = this.inView.length;
+    const slot = this.candidatePool[k] ?? (this.candidatePool[k] = { target, angle });
+    slot.target = target;
+    slot.angle = angle;
+    this.inView.push(slot);
+  }
+
+  private fireMissile(s: Slot, index: number): void {
+    const c = this.ctx;
+    const def = s.def;
+    const t = TUNING.quiver;
+    const m = this.modifiers;
+    // Tubes empty in order, top left, top right, bottom left, bottom right, so the one that fires is the first still loaded.
+    const barrel = m.bottomlessMag ? index % 4 : clamp(def.magSize - s.ammo.mag, 0, 3);
+    this.consume(s);
+    this.shotFeedback(def, false, 1, barrel);
+    this.backblast();
+
+    const hell = m.instakillBlast;
+    const damage = def.damage * m.damage;
+    const p = this.fillProjectile('rocket', def, t.launchSpeed, damage, hell ? 'hellfire' : 'swarm');
+    // Each tube points a little off the block's centre, so the four leave in a fan and then turn in.
+    const fwd = c.player.forward;
+    const right = this.right.crossVectors(fwd, UP).normalize();
+    const up = this.w.crossVectors(right, fwd).normalize();
+    const sx = barrel % 2 === 0 ? -1 : 1;
+    const sy = barrel < 2 ? 1 : -1;
+    const dir = this.dir.copy(fwd);
+    if (this.salvoDumb) {
+      // Centred a touch above the crosshair, so the low pair does not go into the floor a few metres out.
+      dir.addScaledVector(right, sx * t.fan * 0.5).addScaledVector(up, (sy + 1) * t.fan * 0.4).normalize();
+      randomInCone(dir, t.dumbSpread, dir);
+    } else {
+      // Aimed missiles climb a touch as they leave, so the swarm arcs onto its marks rather than skimming the floor.
+      dir.addScaledVector(right, sx * t.fan).addScaledVector(up, sy * t.fan * 0.7 + t.fan * 0.6).normalize();
+    }
+    p.velocity.copy(dir).multiplyScalar(t.launchSpeed);
+    p.target = this.salvoDumb ? null : this.salvoTargets[index] ?? null;
+    p.turnRate = t.turnRate;
+    p.steerDelay = t.steerDelay;
+    p.weave = t.weave;
+    p.accel = t.accel;
+    p.topSpeed = t.topSpeed;
+    p.size = t.size;
+    p.gib = true;
+    p.killStop = HIT_STOP.heavyKill;
+    p.explosion = {
+      radius: t.radius * m.blastRadius, damage: t.blastDamage * m.damage, kind: hell ? 'hellfire' : 'rocket', instakill: hell,
+      playerPush: TUNING.rocket.playerPush, scale: t.blastScale, shake: t.blastShake,
+    };
+    this.combat.spawnProjectile(p);
+  }
+
+  /** Each tube vents out of the back of the block: smoke over the shoulder and a spit of sparks, where anyone behind sees it. */
+  private backblast(): void {
+    const c = this.ctx;
+    const { player } = c;
+    const right = this.right.crossVectors(player.forward, UP).normalize();
+    const at = this.v.copy(player.eye).addScaledVector(player.forward, -0.9).addScaledVector(right, 0.3);
+    at.y -= 0.08;
+    c.fx.smoke(at, 0xb9b4aa, 0.8, 1.3);
+    c.fx.sparks(at, this.w.copy(player.forward).negate(), 5, 0xffa040);
+    c.fx.smoke(at.addScaledVector(player.forward, -1.2), 0x989389, 1.3, 1.9);
+  }
+
   // -------------------------------------------------------------------------------------------
   // Scope
   // -------------------------------------------------------------------------------------------
@@ -1119,6 +1347,7 @@ export class Weapons implements WeaponSystem, Guard {
 
   private startQuickMelee(): void {
     const { viewmodel } = this.ctx;
+    this.stopPaint();
     this.endContinuous();
     this.cancelReload();
     this.clearScope(false);
@@ -1193,7 +1422,19 @@ export class Weapons implements WeaponSystem, Guard {
     p.visualFrom = undefined;
     p.homing = undefined;
     p.silent = false;
+    unguided(p);
     this.combat.spawnProjectile(p);
     if (strength > 0) c.audio.play('grenade_throw');
   }
+}
+
+/** Clears what only a guided missile sets, on the one spec every projectile of the player's is filled into. */
+function unguided(p: ProjectileSpec): void {
+  p.target = undefined;
+  p.turnRate = undefined;
+  p.steerDelay = undefined;
+  p.weave = undefined;
+  p.accel = undefined;
+  p.topSpeed = undefined;
+  p.size = undefined;
 }

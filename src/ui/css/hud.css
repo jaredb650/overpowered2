@@ -358,6 +358,18 @@
 .xh-tick-mag { left: -5.26rem; }
 .xh-tick-fill { width: 100%; height: 100%; background: var(--heat, var(--amber)); transform-origin: 50% 100%; }
 .xh-prompt { position: absolute; left: -10rem; top: 4.2rem; width: 20rem; text-align: center; }
+/* Quiver locks: a bracket on each painted target, positioned in px from the screen's centre by locks.ts. */
+.lk { position: absolute; left: 0; top: 0; width: 0; height: 0; }
+.lk-box { position: absolute; left: -1.7rem; top: -1.7rem; width: 3.4rem; height: 3.4rem; will-change: transform; }
+.lk-svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.lk-svg path { fill: var(--blood); stroke: #000; stroke-width: 1.2; paint-order: stroke; }
+.lk.full .lk-svg path { fill: var(--amber); }
+.lk-n { position: absolute; left: 100%; top: -0.3rem; padding-left: 0.15rem; color: var(--blood); font-weight: 800; font-size: 0.95rem;
+  text-shadow: 0 0 2px #000, 0 0 2px #000; white-space: nowrap; }
+.lk.full .lk-n { color: var(--amber); }
+.lk-label { position: absolute; left: -6rem; top: 2.6rem; width: 12rem; text-align: center; color: var(--blood); font-weight: 800;
+  font-size: 0.8rem; letter-spacing: 0.08em; text-shadow: 0 0 2px #000, 0 0 2px #000; }
+.lk.full .lk-label { color: var(--amber); }
 .xh-prompt-t { display: inline-block; padding: 0 0.5rem; background: var(--amber); color: #000; font-weight: 800; }
 .xh-charge { position: absolute; left: -4rem; top: 3.2rem; width: 8rem; height: 0.32rem; background: var(--plate); }
 .xh-charge-fill { width: 100%; height: 100%; background: var(--cold); transform-origin: 0 50%; }

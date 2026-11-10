@@ -146,3 +146,27 @@ Settled by the owner after playing; do not list these as open again.
 - **Hive mission:** planned, on hold (see the section above).
 - **Ragdolls and gore, put off to a later job:** the owner said the fighting "feels really, really good" as it is, so ragdoll stages 6, 7 and 8 (`docs/notes/euphoria-plan.md`), gore by weapon (the SMG wounding instead of severing, the head variants) and executions with prisoner questioning are not built. Do not change how ragdolls or gore behave until the owner asks. Stage 6 was stopped part-way; its unfinished edits were taken out of the tree and kept as `tools/out/paused/euphoria-stage6-partial.patch` (scratch, not committed), for whoever picks it up to read, not to apply blind.
 - **Still being built in this update:** the rest of the weapons (Sabot first on key 4, the swarm launcher, the auto shotgun, the minigun rework with the heavy machine gun and the door gun, the railgun, the melee weapons and the katana's reach) and the helicopter scene behind the main menu.
+
+## Weapons update: key 4 reordered, the Quiver and the Thresher (committed, not played)
+
+What the owner gets:
+
+- **Key 4:** the Sabot is the gun the key gives from the start. The explosive autocannon is its upgrade: the second weapon cache (after wave 4) brings it, and pressing 4 again reaches it. Missions that hand out the autocannon (the Outpost's armoury rack and its later checkpoints) still give the autocannon, and their key 4 draws it.
+- **Key 3, the Quiver:** a four-tube box launcher beside the rocket. Hold the trigger near enemies to paint up to four marks, one every 0.2 s, each with a bracket on the HUD and a rising tick; with fewer than four in view the spares stack, on a boss or a vehicle first. Let go and four missiles leave a tube apart, fan out, weave a little and home on their marks; one whose target dies takes the nearest enemy, vehicle or aircraft ahead, or flies on. A tap fires all four straight. Right click drops the marks and keeps the missiles. Bosses, vehicles and the chopper can be painted. One salvo killed a tank and took a fifth off a Juggernaut on the range, twice what four rockets did.
+- **Key 2, the Thresher:** a full-auto drum shotgun beside the pump. 20 shells, 5 a second, 4 pellets a shell to the pump's 6, a climb to hold down, a long drum reload.
+- Try it: F1, "Quiver: draw it, five targets ahead to paint", hold the trigger on them. Pick Juggernaut first for the stacking.
+- Off-switches: `?slot4=old` (key 4 as before: autocannon first and from the start, no autocannon in a cache), `?climb=0` (no Thresher climb), `?families=0` (no second guns at all, and key 4 the autocannon from the start, as before families).
+
+Waiting on the owner:
+
+- **Where the autocannon is earned:** second cache, after wave 4. It pushes the Lance, Buzzsaw, Kiln and Stakegun one pod later each.
+- **Names:** Quiver and Thresher.
+- **All the numbers**, nobody has played them: the Quiver's paint cone (9 degrees either side of the crosshair), mark rate, turn rate, weave and blast; the Thresher's climb and its damage against the pump's.
+- The Quiver and the Thresher also come with the rocket and the shotgun in the Outpost's loadouts, as the Harrow does with the SMG.
+- **The Outpost's Sabot:** the armoury rack and the full loadout give the autocannon alone now. Before, the Sabot came with it. Adding `sabot` to the rack and the `full` kit would put it back.
+
+Still open:
+
+- **The first salvo on a page can hitch** (46 to 131 ms measured, once 600 ms, on a loaded machine). A rocket's first blast on a page does the same, so it looks like the shared first-explosion cost, not the Quiver's; there is no warm-up for it yet.
+- The Quiver's reload and both guns' draw and fire poses were only checked as stills. Four overlapping blasts show square smoke sprites against the range sky (fx's smoke column, as a rocket's do faintly).
+- No voice lines for the new guns.

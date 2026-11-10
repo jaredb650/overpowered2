@@ -102,6 +102,28 @@ export class LabSpawner {
     return placed;
   }
 
+  /**
+   * Targets for the Quiver: `count` of `id` in a loose arc ahead of the player, 20 to 28 m out and inside the paint cone,
+   * so a hold paints them one after another without a sweep. Returns how many stood.
+   */
+  spread(id: EnemyId, ai: AiMode, count: number): number {
+    const { player, world } = this.ctx;
+    _flat.set(player.forward.x, 0, player.forward.z).normalize();
+    _right.set(-_flat.z, 0, _flat.x);
+    let placed = 0;
+    for (let i = 0; i < count; i++) {
+      const across = count > 1 ? i / (count - 1) - 0.5 : 0;
+      // Side by side more than one behind another, so no one stands in the path to the next one's mark.
+      const out = 20 + (i % 3) * 4;
+      _p.copy(player.position).addScaledVector(_flat, out).addScaledVector(_right, across * out * 0.26);
+      const ground = world.nav.groundHeight(_p.x, _p.y + 3, _p.z);
+      if (Number.isNaN(ground)) continue;
+      _p.y = ground;
+      if (this.place(id, _p, ai)) placed++;
+    }
+    return placed;
+  }
+
   place(id: EnemyId, at: THREE.Vector3, ai: AiMode): Enemy | null {
     const e = this.enemies.spawn(id, at);
     if (!e) return null;

@@ -41,6 +41,8 @@ v.describe();                           // one read of everything
 
 **The ride.** A `ride` step with a route is `progression.boardFlight`, on `src/vehicles/flight.ts`: the Packmule follows the marks, calls `ride:<mark>`, cannot be left, and its belt never runs out. A mark with `hit: true` sets it on fire. The body waits at the last mark, and the aircraft stays there with its rotors running down.
 
+**Painted by the Quiver.** `paintable(out)` lists every live vehicle and the chopper for the player's launcher, and a `Vehicle` is a `MissileTarget` as it stands: `center`, `alive`, and two getters, `aimLift` (half the roof height on the ground, 0 on the chopper, so a missile flies at the hull and not the wheel base) and `paintRadius` (its larger half extent, so its own hull is not cover in front of it on the line-of-sight ray, and so a spare mark prefers it). One salvo took a tank from 1000 to dead on the range: four direct hits at the shaped charge's double, 220 each, and their splash.
+
 **Lab.** On `/?map=range` the panel has a row of vehicle buttons. AI off parks one at the crosshair to shoot at. AI on drives it in past the player, with men, shooting. `tools/scripts/vehicles-live.mjs` is the bot, with `VEHICLES_STEP` set to `models`, `fight`, `threat`, `wreck`, `air`, `dogfight` on the range or Kill House, and `soft`, `heavy`, `turn`, `insertion` on the real map.
 
 ## Why it is like this

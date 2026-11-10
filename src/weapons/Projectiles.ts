@@ -4,13 +4,14 @@
  */
 import * as THREE from 'three';
 import { CG, type Ctx, type CorpseHit, type ExplosionKind, type RayHit } from '../core/contracts';
-import type { DamageResult, EnemyInstance, ProjectileSpec, ProjectileTrail, Team } from '../core/gameplay';
+import type { DamageResult, EnemyInstance, MissileTarget, ProjectileSpec, ProjectileTrail, Team } from '../core/gameplay';
 import { clamp, rand } from '../core/math';
 import type { GoreRegion } from '../characters/rig';
 import type { Combat } from './Combat';
 import { SHAPED_CHARGE, SURFACE_SOUND, TUNING } from './data';
 import { closestSegmentPoints } from './geometry';
 import { damageKept, loadBudget, makeBudget, passBody, passWall, type Budget } from './penetration';
+import { retarget, turnToward, weave } from './swarm';
 import { ProjectileVisuals } from './ProjectileVisuals';
 
 const MAX_PROJECTILES = 256;
@@ -89,6 +90,23 @@ export interface Projectile {
   /** Damage it left the barrel with: what it deals now is this times what its budget keeps. */
   baseDamage: number;
   armorPiercing: boolean;
+  /** A guided missile's mark. Null on everything else, and on a missile flying dumb. */
+  target: MissileTarget | null;
+  /** Radians a second; above 0 makes it a guided missile. */
+  turnRate: number;
+  /** The line a guided missile with no mark flies and weaves about: its launch heading, or its heading when its mark died. */
+  line: THREE.Vector3;
+  steerDelay: number;
+  weave: number;
+  weavePhase: number;
+  accel: number;
+  topSpeed: number;
+  /** Seconds since launch. */
+  age: number;
+  /** Drawn size. */
+  size: number;
+  blastScale: number | undefined;
+  blastShake: number | undefined;
 }
 
 function createProjectile(): Projectile {
@@ -101,6 +119,8 @@ function createProjectile(): Projectile {
     explosive: false, blastRadius: 0, blastDamage: 0, blastKind: 'rocket', blastInstakill: false,
     blastSelf: undefined, blastPush: undefined, pinned: false, lastHit: -1,
     budget: makeBudget(), baseDamage: 0, armorPiercing: false,
+    target: null, turnRate: 0, line: new THREE.Vector3(), steerDelay: 0, weave: 0, weavePhase: 0, accel: 0, topSpeed: 0, age: 0, size: 1,
+    blastScale: undefined, blastShake: undefined,
   };
 }
 
@@ -125,6 +145,10 @@ export class Projectiles {
   private readonly exit = new THREE.Vector3();
   private readonly exitNormal = new THREE.Vector3();
   private readonly nearby: EnemyInstance[] = [];
+  /** A missile's retarget candidates: the enemies near it, then every live vehicle and aircraft. */
+  private readonly candidates: MissileTarget[] = [];
+  private readonly hulls: MissileTarget[] = [];
+  private readonly want = new THREE.Vector3();
   private readonly swept: SweptHit[] = [];
   private readonly pendingPins: PendingPin[] = [];
   private pendingCount = 0;
@@ -133,6 +157,7 @@ export class Projectiles {
     radius: 0, damage: 0, kind: 'rocket' as ExplosionKind, source: '', team: 'player' as Team,
     instakill: undefined as boolean | undefined, selfDamage: undefined as number | undefined,
     playerPush: undefined as number | undefined, normal: undefined as THREE.Vector3 | undefined,
+    scale: undefined as number | undefined, shake: undefined as number | undefined,
   };
 
   constructor(private readonly ctx: Ctx, private readonly combat: Combat) {
@@ -207,6 +232,16 @@ export class Projectiles {
     loadBudget(p.budget, kind === 'grenade' ? 0 : spec.penetrate, spec.bodyCost);
     p.baseDamage = spec.damage;
     p.armorPiercing = spec.armorPiercing ?? false;
+    p.target = spec.target ?? null;
+    p.turnRate = spec.turnRate ?? 0;
+    p.line.copy(spec.velocity).normalize();
+    p.steerDelay = spec.steerDelay ?? 0;
+    p.weave = spec.weave ?? 0;
+    p.weavePhase = rand(0, 6.28);
+    p.accel = spec.accel ?? 0;
+    p.topSpeed = spec.topSpeed ?? 0;
+    p.age = 0;
+    p.size = spec.size ?? 1;
     p.visualHold = 0;
     p.visualOffset.set(0, 0, 0);
     if (spec.visualFrom) {
@@ -222,6 +257,8 @@ export class Projectiles {
       p.blastInstakill = blast.instakill ?? false;
       p.blastSelf = blast.selfDamage;
       p.blastPush = blast.playerPush;
+      p.blastScale = blast.scale;
+      p.blastShake = blast.shake;
     }
     this.visuals.tint(p, spec.tracer);
     this.live.push(p);
@@ -230,6 +267,8 @@ export class Projectiles {
   private retire(index: number): void {
     const p = this.live[index]!;
     p.live = false;
+    // A pooled missile must not keep a dead enemy reachable.
+    p.target = null;
     const last = this.live.pop()!;
     if (index < this.live.length) this.live[index] = last;
     this.free.push(p);
@@ -263,7 +302,9 @@ export class Projectiles {
 
   private step(p: Projectile, dt: number): void {
     const c = this.ctx;
-    if (p.homing > 0) this.steer(p, dt);
+    p.age += dt;
+    if (p.turnRate > 0) this.guide(p, dt);
+    else if (p.homing > 0) this.steer(p, dt);
     if (p.gravity > 0) p.velocity.y -= p.gravity * dt;
 
     const speed = p.velocity.length();
@@ -314,6 +355,53 @@ export class Projectiles {
     to.sub(p.position).normalize().multiplyScalar(speed);
     p.velocity.lerp(to, 1 - Math.exp(-p.homing * dt));
     p.velocity.setLength(speed);
+  }
+
+  /**
+   * A guided missile. It lights and speeds up, flies straight for `steerDelay` so a salvo leaves in a fan, then turns its
+   * nose at `turnRate` toward its mark, weaving less as it closes. A mark that dies hands it to the nearest live enemy
+   * ahead of it; with nobody there it flies on straight, a dumb rocket.
+   */
+  private guide(p: Projectile, dt: number): void {
+    if (p.accel > 0) {
+      const speed = p.velocity.length();
+      if (speed < p.topSpeed && speed > 1e-3) p.velocity.multiplyScalar(Math.min(p.topSpeed, speed + p.accel * dt) / speed);
+    }
+    if (p.age < p.steerDelay) return;
+    if (p.target && !p.target.alive) {
+      const n = this.ctx.enemies.query(p.position, TUNING.quiver.retargetRange, this.nearby) || 0;
+      const cands = this.candidates;
+      cands.length = 0;
+      for (let i = 0; i < n; i++) cands.push(this.nearby[i]!);
+      // Vehicles and the chopper too: retarget() keeps only those in range and ahead.
+      const v = this.ctx.enemies.vehicles;
+      if (v && typeof v.paintable === 'function') {
+        const m = v.paintable(this.hulls);
+        for (let i = 0; i < m; i++) cands.push(this.hulls[i]!);
+        this.hulls.length = 0;
+      }
+      p.target = retarget(p.position, p.velocity, cands, TUNING.quiver.retargetRange);
+      cands.length = 0;
+      // Nobody to take over: straight on from here.
+      if (!p.target) p.line.copy(p.velocity).normalize();
+    }
+    const t = p.target;
+    const want = this.want;
+    if (t) {
+      want.copy(t.center);
+      want.y += t.aimLift ?? 0;
+      want.sub(p.position);
+    } else {
+      // A fixed line, not the heading it has now: weaving about its own heading would wander off in a spiral.
+      want.copy(p.line);
+    }
+    const dist = want.length();
+    if (dist < 1e-3) return;
+    want.divideScalar(dist);
+    // The weave fades inside 12 m, so the last of the run is straight at the mark and the fuse gets its chance.
+    p.weavePhase += dt * 7;
+    weave(want, p.weavePhase, p.weave * (t ? Math.min(1, dist / 12) : 0.35));
+    turnToward(p.velocity, want, p.turnRate * dt);
   }
 
   /**
@@ -368,8 +456,12 @@ export class Projectiles {
     if (c.enemies.raycast(p.position, dir, limit + ON_COURSE)) return false;
     const end = this.end.copy(p.position).addScaledVector(dir, limit);
     const n = c.enemies.query(end, PROXIMITY + 1, this.nearby) || 0;
+    // A guided missile's fuse is for its own mark: it may pass close by others on the way, and only a body square in its
+    // path (the contact ray above) stops it short.
+    const mark = p.turnRate > 0 ? p.target : null;
     for (let i = 0; i < n; i++) {
       const e = this.nearby[i]!;
+      if (mark && e !== mark) continue;
       if (e.alive && e.center.distanceTo(end) < PROXIMITY + 0.5) {
         p.position.copy(end);
         this.explode(p, undefined);
@@ -619,6 +711,8 @@ export class Projectiles {
     b.instakill = p.blastInstakill;
     b.selfDamage = p.blastSelf;
     b.playerPush = p.blastPush;
+    b.scale = p.blastScale;
+    b.shake = p.blastShake;
     b.normal = normal;
     // Lift the centre off the surface, or every line-of-sight ray starts inside the wall it hit.
     const at = this.v.copy(p.position);
@@ -666,6 +760,14 @@ export class Projectiles {
         if (p.smokeClock >= 0.03) {
           p.smokeClock = 0;
           fx.smoke(this.behind(p, 0.3, at), 0xaaaaaa, 0.1, 2);
+        }
+        break;
+      case 'swarm':
+        // Thin and quick, so four of them are four lines and not one cloud.
+        if (p.smokeClock >= 0.035 && p.position.distanceToSquared(p.lastTrail) > 0.09) {
+          p.smokeClock = 0;
+          p.lastTrail.copy(p.position);
+          fx.smoke(this.behind(p, 0.2, at), 0xd2d0cc, 0.2, 0.9);
         }
         break;
       case 'sparks':

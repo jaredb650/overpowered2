@@ -105,14 +105,14 @@ Keys: WASD, Space jump, Shift dash, Ctrl/C slide and slam, R reload, Q last weap
 
 ## 7. Weapons
 
-Original five are available from the start. Each new weapon arrives in a weapon cache: a drop pod that lands on the map every second wave, marked on the HUD, so the bigger map gets used. Ammo is per weapon type, with bigger reserves than the first game.
+Five keys are loaded from the start: SMG, Shotgun, Rocket launcher, Sabot and Sword. Each new weapon arrives in a weapon cache: a drop pod that lands on the map every second wave, marked on the HUD, so the bigger map gets used. Ammo is per weapon type, with bigger reserves than the first game.
 
 | Slot | Weapon | Role | Signature |
 |---|---|---|---|
 | 1 | **SMG** | Original. 25 dmg, 30 mag, 20 rps, zero spread | Becomes real akimbo in Berserk: both guns fire |
 | 2 | **Shotgun** | Original. 6 pellets x 20, semi | Point-blank pellets sever limbs. Hellfire and Blood Thirst pellet counts carry over |
 | 3 | **Rocket launcher** | Original. 100 dmg, radius 8, 40 m/s, mag 1. Rocket jumps are a real movement option, with low self-damage | Direct hits gib |
-| 4 | **Autocannon** | Original. 30mm, 200 m/s, instakill blast radius 5, 5 mag, RMB scope | Ring trail, tracer cone |
+| 4 | **Sabot** | The 30mm cannon loaded with darts. 600 dmg, no blast, through armour, walls and everyone in line, 5 mag, RMB scope | Ping the sonar, then shoot what it shows |
 | 5 | **Sword** | Original three-swing chain, RMB area sweep, heavy finisher | Real slice kills along the swing plane. Blocks bullets on RMB hold |
 | 6 | **Judge** (revolver) | 6 shots, 120 dmg, slow | A headshot ricochets to the nearest enemy's head |
 | 7 | **Lance** (railgun) | Charge and release | Pierces everything in line, severs what it touches, leaves a fading beam |
@@ -120,17 +120,19 @@ Original five are available from the start. Each new weapon arrives in a weapon 
 | 9 | **Kiln** (flamethrower) | Short-range stream | Burning enemies panic, spread fire, char black |
 | 0 | **Stakegun** | Rebar stakes | Pins enemies and severed limbs to walls. Ragdolls hang from the stake |
 
-**Families.** A number key can hold more than one weapon. Pressing the key of the weapon in hand steps to the next on that key; any other key draws what was last held there. The second weapon comes with the first and has its own ammo.
+**Families.** A number key can hold more than one weapon. Pressing the key of the weapon in hand steps to the next on that key; any other key draws what was last held there. The second weapon comes with the first and has its own ammo, except the Autocannon, which is the Sabot's upgrade and comes in the second weapon cache (wave 4).
 
 | Slot | Beside | Weapon | Role |
 |---|---|---|---|
 | 1 | SMG | **Harrow** (battle rifle) | 50 dmg, 24 mag, 6.7 rps. Full damage at any range, where the SMG fades from 35 m to half at 80. Through one body or thin cover. Takes limbs |
-| 4 | Autocannon | **Sabot** (the autocannon with darts) | 600 dmg, no blast, through armour, a Riot's shield, several walls and everyone in line. Ping the sonar, then shoot what it shows |
+| 2 | Shotgun | **Thresher** (drum shotgun) | Full auto, 20-shell drum, 5 shells a second, 4 pellets x 20 against the pump's 6. Climbs as it fires and does not spring back; the pump stays the hard single hit |
+| 3 | Rocket launcher | **Quiver** (four-tube launcher) | Hold to paint up to 4 marks (one every 0.2 s, spares stack on a boss, a vehicle or the nearest), let go and four missiles leave 0.1 s apart and home on them. 110 + 90 splash over 3.5 m each. A tap fires all four straight |
+| 4 | Sabot | **Autocannon** (the upgrade, from a weapon cache) | Original. 30mm, 200 m/s, instakill blast radius 5, 5 mag, RMB scope. Ring trail, tracer cone |
 | 6 | Judge | **Rivet** (pistol) | 30 dmg, 15 mag, as fast as the trigger, drawn in 0.1 s. Triple headshots, weak at range |
 
 **Penetration.** A round has a budget in meters of concrete, spent by the thickness of each wall it passes and by each body. It leaves a small dark hole going in and a wide pale crater coming out. The Lance keeps its own older rule: two walls, each up to 1.6 m. Numbers in `docs/notes/weapons.md`.
 
-Off-switches: `?families=0` (one weapon a key), `?pierce=0` (no gun in the table goes through anything), `?reach=0` (no gun loses damage with range).
+Off-switches: `?families=0` (one weapon a key, key 4 the Autocannon from the start, as before families), `?slot4=old` (key 4 as before this order: Autocannon first and from the start, Sabot beside it), `?climb=0` (no Thresher climb), `?pierce=0` (no gun in the table goes through anything), `?reach=0` (no gun loses damage with range).
 
 Grenades (G): 3 frags, restocked by ammo pickups. Cookable, bounce, and they can be shot out of the air to detonate.
 

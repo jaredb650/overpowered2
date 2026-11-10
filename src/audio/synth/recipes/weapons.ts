@@ -60,6 +60,57 @@ export const weapons = [
     s.at(0.01, () => s.noise('brown', 0.7).lp([[0, 900], [0.5, 100]]).env(perc(0.45, 1)).gain(1.6).out(0.4));
   }),
 
+  // Thresher. The pump's recording sits on top (`thresher_fire` in catalog.ts); this is what makes it a drum gun: a short
+  // chest punch under it, and the bolt slamming home 50 ms later, so five a second read as a machine and not five pumps.
+  r('thresher_punch', { dur: 0.5, n: 3, mix: 'gun', over: { volume: 0.5, send: 0.16 }, expect: { attackMs: [0, 6], minSub: 0.04 } }, s => {
+    gunshot(s, {
+      crack: 0.9, crackHp: 1700, body: 520, bodyDecay: 0.07, bodyLevel: 1.2, sub: 0.95, subFreq: 72, subDecay: 0.12,
+      tail: 0.22, tailDecay: 0.32, drive: 4.5, ring: 0.12, ringFreq: s.r(1500, 1800),
+    });
+    s.at(0.05, () => { clank(s, s.r(820, 960), 0.55, 0.04); click(s, 2600, 0.4, 0.006); });
+  }),
+  // The drum: a heavy steel can with shells rattling in it, out on a latch and in with a slap.
+  r('drum_out', { dur: 0.6, mix: 'foley' }, s => {
+    click(s, 1600, 0.9);
+    s.at(0.04, () => clank(s, 520, 0.8, 0.08));
+    for (let i = 0; i < 6; i++) s.at(0.08 + i * 0.035 + s.r(0, 0.012), () => clank(s, s.r(1300, 1900), 0.28 - i * 0.03, 0.03));
+    s.at(0.06, () => s.noise('pink', 0.3).bp([[0, 900], [0.3, 500]], 1).env(perc(0.26, 0.3)).out());
+  }),
+  r('drum_in', { dur: 0.55, mix: 'foley' }, s => {
+    s.noise('pink', 0.12).bp(1000, 1).env(perc(0.1, 0.3, 0.02)).out();
+    s.at(0.1, () => { clank(s, 430, 1, 0.12); thump(s, 92, 0.1, 0.8, 2); });
+    s.at(0.13, () => click(s, 2300, 0.8));
+    for (let i = 0; i < 3; i++) s.at(0.15 + i * 0.03, () => clank(s, s.r(1400, 1800), 0.16, 0.025));
+  }),
+
+  // Quiver. One tube lighting: a sharp pop and a quick tearing hiss, a third the length of the ROCKET's, so four in 0.3 s
+  // are four. It sits under a pitched-up, cut-down `rocket_fire` (`quiver_fire` in catalog.ts) to keep the family voice.
+  r('quiver_tube', { dur: 0.9, n: 3, mix: 'gun', over: { volume: 0.5, send: 0.22, near: 8, far: 160 }, expect: { attackMs: [0, 8] } }, s => {
+    thump(s, 88, 0.09, 0.8, 2.6);
+    s.noise('white', 0.05).hp(2600).env(perc(0.04, 1, 0.0005)).drive(3).out(0.8);
+    s.noise('pink', 0.8).bp([[0, 2400], [0.15, 1300], [0.75, 600]], 0.8).env(perc(0.7, 0.85, 0.004)).drive(2.5).out(0.9);
+    s.osc('sawtooth', [[0, 900], [0.6, 260]], 0.7).lp(1800).env(perc(0.6, 0.18, 0.01)).out(0.5);
+  }),
+  r('quiver_load', { dur: 0.32, n: 2, mix: 'foley', over: { maxVoices: 3 } }, s => {
+    s.noise('pink', 0.12).bp([[0, 700], [0.1, 1500]], 1.2).env(perc(0.1, 0.35, 0.01)).out();
+    s.at(0.1, () => { clank(s, s.r(700, 820), 0.8, 0.07); click(s, 2400, 0.5); });
+  }),
+  // The seeker. Short, clean tones well above the guns, so a lock is heard through a fight.
+  r('quiver_arm', { dur: 0.3, mix: 'reward', over: { volume: 0.3 }, expect: { trend: 1 } }, s => {
+    s.osc('sine', [[0, 520], [0.22, 980]], 0.26).env([[0, 0.0001], [0.02, 0.6], [0.2, 0.5], [0.26, 0.0001]]).out(0.6);
+    click(s, 1800, 0.3, 0.006);
+  }),
+  r('quiver_lock', { dur: 0.16, mix: 'reward', over: { volume: 0.34, maxVoices: 4, perFrame: 2 }, expect: { centroid: [900, 6000] } }, s => {
+    s.osc('square', 1180, 0.09).lp(3600).env(perc(0.085, 0.8, 0.002)).out(0.6);
+    s.osc('sine', 2360, 0.06).env(perc(0.05, 0.4, 0.001)).out(0.6);
+  }),
+  r('quiver_full', { dur: 0.42, mix: 'reward', over: { volume: 0.36 } }, s => {
+    [0, 0.09, 0.18].forEach(t => s.at(t, () => s.osc('square', 1760, 0.07).lp(4200).env(perc(0.065, 0.7, 0.002)).out(0.55)));
+  }),
+  r('quiver_cancel', { dur: 0.3, mix: 'reward', over: { volume: 0.28 }, expect: { trend: -1 } }, s => {
+    s.osc('square', [[0, 900], [0.24, 300]], 0.26).lp(2400).env(perc(0.24, 0.7, 0.004)).out(0.6);
+  }),
+
   // Lance. The charge must end loud with no decay: releasing it is the payoff.
   r('railgun_charge', { dur: 1.6, mix: 'loop2d', expect: { trend: 1 } }, s => {
     const rise: [number, number][] = [[0, 95], [1.6, 760]];

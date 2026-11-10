@@ -70,6 +70,8 @@ export interface PanelActions {
   setSpeed(speed: number): void;
   /** Hands the player this weapon and draws it. */
   weapon(id: WeaponId): void;
+  /** Draws the Quiver and stands five of the selected enemy in a loose arc ahead, to paint. */
+  swarm(): void;
   /** Stands the selected enemy in every bay of the range's piercing gallery, and the player at its near end. */
   gallery(): void;
   /** Stands the player at the start of the range's parkour strip. */
@@ -202,6 +204,9 @@ export class LabPanel {
     const guns = el('div', 'lab-grid');
     for (const id of WEAPON_ORDER) this.button(guns, `${WEAPONS[id].slot} ${WEAPONS[id].name}`, () => this.on.weapon(id));
     this.el.append(guns);
+    const swarm = el('div', 'lab-row');
+    this.button(swarm, 'Quiver: draw it, five targets ahead to paint', () => this.on.swarm());
+    this.el.append(swarm);
     if (ON_RANGE) {
       const row = el('div', 'lab-row');
       this.button(row, 'Piercing gallery: stand me there, fill the bays', () => this.on.gallery());

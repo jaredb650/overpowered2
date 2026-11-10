@@ -9,12 +9,14 @@ import { harrowDef } from './harrow';
 import { judgeDef } from './judge';
 import { kilnDef } from './kiln';
 import { lanceDef } from './lance';
+import { quiverDef } from './quiver';
 import { rivetDef } from './rivet';
 import { rocketDef } from './rocket';
 import { shotgunDef } from './shotgun';
 import { smgDefs } from './smg';
 import { stakegunDef } from './stakegun';
 import { swordDef } from './sword';
+import { thresherDef } from './thresher';
 
 export interface OffhandSet {
   grenade: Model;
@@ -28,7 +30,7 @@ export function buildDefs(kit: Kit): Record<string, ViewDef> {
     smg: smg.right, smgLeft: smg.left, shotgun: shotgunDef(kit), rocket: rocketDef(kit), autocannon: autocannonDef(kit), sword: swordDef(kit),
     judge: judgeDef(kit), lance: lanceDef(kit), buzzsaw: buzzsawDef(kit), kiln: kilnDef(kit), stakegun: stakegunDef(kit),
     // Family members: the second weapon on a number key. One line here and one row in WEAPONS is the whole of adding one.
-    harrow: harrowDef(kit), rivet: rivetDef(kit), sabot: sabotDef(kit),
+    harrow: harrowDef(kit), rivet: rivetDef(kit), sabot: sabotDef(kit), thresher: thresherDef(kit), quiver: quiverDef(kit),
   };
 }
 

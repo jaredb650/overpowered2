@@ -1,6 +1,6 @@
 /**
  * Viewmodel test page.
- *   ?weapon=<id>                 smg harrow shotgun rocket autocannon sabot sword judge rivet lance buzzsaw kiln stakegun walkie designator grenade
+ *   ?weapon=<id>                 smg harrow shotgun thresher rocket quiver sabot autocannon sword judge rivet lance buzzsaw kiln stakegun walkie designator grenade
  *   ?view=inspect                model on its own at inspection scale. &yaw= &pitch= &dist= &fx= &fy= &fz= aim the camera at a point
  *   ?view=fp (default)           real first-person rig. &pose=idle|fire|reload|draw
  *   &engine=1 real renderer and baked hall, &manual=1 stepped clock. window.__vm exposes the rig and that clock.

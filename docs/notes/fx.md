@@ -125,7 +125,7 @@ Camera shake and hit-stop are not done here. Callers own those. Explosions do fi
 | `stains.ts` `STAIN_SCALE` | Stain size against strand width |
 | `recipes/explosions.ts` `RECIPES` | Counts, reach, shock, smoke, light per kind |
 | `recipes/impacts.ts` `SURFACES` | Per-surface chips, dust, sparks, pop |
-| `recipes/muzzle.ts` `MUZZLES`, `TRACERS` | Star shape, size, life, light. Tracer width, speed, length. `carbine`, `pistol` and `sabot` are the Harrow, Rivet and Sabot's own (`docs/notes/weapons.md`): the sabot tracer is 0.11 m wide at 1400 m/s, so the pieces of it either side of a wall are on screen together |
+| `recipes/muzzle.ts` `MUZZLES`, `TRACERS` | Star shape, size, life, light. Tracer width, speed, length. `carbine`, `pistol` and `sabot` are the Harrow, Rivet and Sabot's own (`docs/notes/weapons.md`), and `quiver` one tube of the Quiver lighting, smaller than the rocket's and over in 40 ms so four in 0.3 s read as four (the Thresher uses `shotgun`): the sabot tracer is 0.11 m wide at 1400 m/s, so the pieces of it either side of a wall are on screen together |
 | `recipes/misc.ts` `BEAMS`, `SLASHES` | Beam and slash looks |
 | `layers/chips.ts` | `uGlint`, `uGlintGain` (hot facet), `uFacet` (per-facet shading), `uEject` (blast warp), `uMinPx` (pixel floor at range) |
 | `layers/chips.ts` `CAPS` and the other constructors | Budget. Keep the sum at or under 30k |

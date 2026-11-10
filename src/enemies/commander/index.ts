@@ -144,8 +144,8 @@ export class Commander {
     this.jam.init();
     events.on('weapon:fired', f => {
       this.tracker.shot(f.weapon, f.origin.x, f.origin.z);
-      // A sword reaches nothing, and a rocket arrives as a blast.
-      if (f.weapon !== 'sword' && f.weapon !== 'rocket') this.devices.onShot(f.origin, f.dir);
+      // A sword reaches nothing, and a rocket or a Quiver missile arrives as a blast, not along the crosshair.
+      if (f.weapon !== 'sword' && f.weapon !== 'rocket' && f.weapon !== 'quiver') this.devices.onShot(f.origin, f.dir);
     });
     events.on('enemy:killed', k => this.onKilled(k));
     events.on('enemy:severed', () => { this.tracker.round.limbs++; });

@@ -65,6 +65,8 @@ One call, all layers start on the same audio frame.
 | `sword_contact` | `sword_flesh` |
 | `machine_hit` | `machine_clang` cut at 220 ms, before its ring. A living drone or skitter struck |
 | `perk_berserk` | `perk_berserk1` + `perk_berserk2` + `perk_berserk3` all at once, 0.4 / 0.6 / 0.4 as in the first game |
+| `thresher_fire` | `shotgun_fire` at pitch 0.86, cut at 420 ms, volume 0.9 + `thresher_punch`. The drum shotgun: the pump's voice, lower and short enough for five a second |
+| `quiver_fire` | `rocket_fire` at pitch 1.3, cut at 450 ms, volume 0.7 + `quiver_tube`. One tube of the four-barrel launcher |
 
 `ctx.audio.layer([{ id, volume, pitch, offset, delay, duration }, ...], options)` builds your own stack.
 
@@ -251,6 +253,8 @@ Rendered at load. x4 means four rendered variants behind one id.
 
 - **Judge:** `revolver_fire` x3, `revolver_cock`, `revolver_open`, `revolver_load`, `revolver_close`, `revolver_ricochet` (the head-to-head ricochet)
 - **Harrow, Rivet, Sabot:** `harrow_fire` x3 (rifle: crack, chest thump, a tail), `rivet_fire` x3 (pistol: all crack and slide), `sabot_fire` x2 (the cannon with a tearing dart and no shell at the far end)
+- **Thresher:** `thresher_punch` x3 (the layer under `thresher_fire`: a chest punch and the bolt slamming home 50 ms on), `drum_out`, `drum_in` (a steel drum with shells rattling in it)
+- **Quiver:** `quiver_tube` x3 (the layer under `quiver_fire`: a pop and a short tearing hiss), `quiver_load` x2 (a round into a tube, four a reload), and the seeker, all on the reward mix so they cut through a fight: `quiver_arm` (the trigger goes down), `quiver_lock` (one per mark, played at a pitch that rises 0.16 a mark), `quiver_full` (every mark laid), `quiver_cancel` (right click let go of the marks)
 - **Lance:** `railgun_charge` (one-shot rise, 1.6 s), `railgun_charge_loop` (held at full), `railgun_ready`, `railgun_fire`, `railgun_fizzle` (released early), `railgun_beam` (fading beam hum, one-shot)
 - **Buzzsaw:** `minigun_spinup` (1 s), `minigun_spin_loop` (barrels turning, no shots), `minigun_fire_loop` (50 rps barrage), `minigun_spindown`, `minigun_fire` x3 (single shot)
 - **Kiln:** `flame_ignite`, `flame_loop`, `flame_stop`, `flame_burn_loop` (a burning body, 3D)

@@ -8,7 +8,8 @@
 import type { ExplosionKind, MuzzleKind, SurfaceKind, TracerKind } from '../core/contracts';
 import type { SwordMove, WeaponId } from '../core/gameplay';
 
-export type FireMode = 'auto' | 'semi' | 'charge' | 'spin' | 'stream' | 'melee';
+/** `paint` is the Quiver's: hold to mark targets, let go to fire the salvo at them. Its numbers are `TUNING.quiver`. */
+export type FireMode = 'auto' | 'semi' | 'charge' | 'spin' | 'stream' | 'melee' | 'paint';
 export type CasingKind = 'pistol' | 'rifle' | 'shotgun' | 'cannon';
 
 /** Ids come from docs/notes/audio.md. Levels are balanced there, so `volume` is only for gameplay scaling. */
@@ -42,7 +43,7 @@ export interface WeaponDef {
   maxReserve: number;
   reloadTime: number;
   drawTime: number;
-  /** Seconds between shots. */
+  /** Seconds between shots. On a `paint` gun, between the missiles of a salvo. */
   interval: number;
   damage: number;
   pellets: number;
@@ -69,6 +70,11 @@ export interface WeaponDef {
   scope?: boolean;
   /** Hit-stop on a kill, seconds. */
   killStop?: number;
+  /**
+   * Real climb: radians each shot moves the aim itself, up and at random to either side, for the player to pull back down.
+   * Unlike `kick`, it does not spring back. `?climb=0` takes it out.
+   */
+  climb?: { readonly pitch: number; readonly yaw: number };
   /** Multiplies impact effects and decals on the world. */
   impactScale?: number;
   /** Push on ragdolls and severed parts, in newton-seconds per hit. 0 takes the default for bullets. A body is about 85 kg. */
@@ -98,6 +104,16 @@ const BASE = {
   pellets: 1, spread: 0, severMult: 1, canSever: true, penetration: 0, force: 0, headshotMult: 2, casing: null, fovPunch: 0,
   reloadFoley: MAG_RELOAD, drawSound: 'weapon_draw',
 } as const;
+
+/**
+ * `?slot4=old` puts key 4 back as the families stream left it: the explosive autocannon first and from the start, the Sabot
+ * beside it and owned with it, and no autocannon in a weapon cache. `?families=0` implies it, so that switch still gives
+ * the game from before families: key 4 is the explosive autocannon alone, from the start.
+ */
+export const SLOT4_OLD = typeof location !== 'undefined' && (() => {
+  const q = new URLSearchParams(location.search);
+  return q.get('slot4') === 'old' || q.get('families') === '0';
+})();
 
 export const WEAPONS: Record<WeaponId, WeaponDef> = {
   smg: {
@@ -131,6 +147,19 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     reloadFoley: [[0.1, 'reload_shell_in'], [0.32, 'reload_shell_in'], [0.54, 'reload_shell_in'], [0.86, 'reload_pump']],
     recoil: 1, kick: 0.014, shake: 0.02, fovPunch: 1.6,
   },
+  // The shotgun that does not stop: a drum of twenty, five a second. Fewer pellets a shell than the pump, so the pump stays
+  // the one hard hit, and a climb that walks the barrel up a burst for the player to hold down. `force` 16 is the least that
+  // clears BLAST.pointBlankForce (100) at point blank, so a trunk kill up close can tear a body in two as the pump's does.
+  thresher: {
+    ...BASE, id: 'thresher', name: 'THRESHER', slot: 2, base: 'shotgun', mode: 'auto',
+    magSize: 20, reserve: 60, maxReserve: 120, reloadTime: 2.7, drawTime: 0.28,
+    interval: 0.2, damage: 20, pellets: 4, spread: 0.062, severMult: 2.4, force: 16,
+    muzzle: 'shotgun', tracer: 'bullet', casing: 'shotgun',
+    sounds: [{ id: 'thresher_fire', pitchJitter: 0.04 }],
+    reloadFoley: [[0.04, 'drum_out'], [0.52, 'drum_in'], [0.84, 'reload_bolt']], drawSound: 'weapon_draw_heavy',
+    recoil: 0.85, kick: 0.011, shake: 0.016, fovPunch: 1.1,
+    climb: { pitch: 0.011, yaw: 0.0035 },
+  },
   rocket: {
     ...BASE, id: 'rocket', name: 'ROCKET', slot: 3, mode: 'semi', round: 'rocket',
     magSize: 1, reserve: 10, maxReserve: 20, reloadTime: 1.5, drawTime: 0.26,
@@ -140,6 +169,31 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     reloadFoley: [[0.15, 'reload_rocket'], [0.8, 'reload_bolt']], drawSound: 'weapon_draw_heavy',
     recoil: 1, kick: 0.022, shake: 0.04, fovPunch: 2.2,
   },
+  // Four tubes in a block. Hold to paint up to four marks, let go and they leave one tube after another and home on them.
+  // Each is a small ROCKET: the same blast rules for the player, a third of the reach. How it flies is TUNING.quiver.
+  quiver: {
+    ...BASE, id: 'quiver', name: 'QUIVER', slot: 3, base: 'rocket', mode: 'paint', round: 'rocket',
+    magSize: 4, reserve: 16, maxReserve: 32, reloadTime: 2.8, drawTime: 0.32,
+    interval: 0.1, damage: 110, force: 70,
+    muzzle: 'quiver', tracer: 'heavy',
+    sounds: [{ id: 'quiver_fire', pitchJitter: 0.05 }],
+    reloadFoley: [[0.06, 'reload_mag_out'], [0.24, 'quiver_load'], [0.4, 'quiver_load'], [0.56, 'quiver_load'], [0.72, 'quiver_load'], [0.88, 'reload_bolt']],
+    drawSound: 'weapon_draw_heavy',
+    recoil: 0.6, kick: 0.012, shake: 0.022, fovPunch: 1,
+  },
+  // First on the key: the cannon loaded with darts. No blast, so the round goes on through walls and everyone in line.
+  sabot: {
+    ...BASE, id: 'sabot', name: 'SABOT', slot: 4, mode: 'semi',
+    magSize: 5, reserve: 15, maxReserve: 30, reloadTime: 1.0, drawTime: 0.28,
+    interval: 0.45, damage: 600, severMult: 6, force: 140, headshotMult: 2,
+    penetration: 5, bodyCost: 0.12, armorPiercing: true,
+    muzzle: 'sabot', tracer: 'sabot', casing: 'cannon',
+    sounds: [{ id: 'sabot_fire', pitchJitter: 0.02 }],
+    drawSound: 'weapon_draw_heavy', scope: true,
+    recoil: 1.1, kick: 0.034, shake: 0.034, fovPunch: 3.4, killStop: HEAVY_KILL_STOP, impactScale: 2.2,
+  },
+  // The upgrade on key 4: the same cannon with its high-explosive belt. Not owned with the Sabot: a weapon cache brings it
+  // (CACHE_ORDER in progression), so it has no `base`.
   autocannon: {
     ...BASE, id: 'autocannon', name: 'AUTOCANNON', slot: 4, mode: 'semi', round: 'shell',
     magSize: 5, reserve: 20, maxReserve: 40, reloadTime: 1.0, drawTime: 0.28,
@@ -148,17 +202,6 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     sounds: [{ id: 'autocannon_shot' }],
     drawSound: 'weapon_draw_heavy', scope: true,
     recoil: 1, kick: 0.03, shake: 0.03, fovPunch: 3,
-  },
-  // The same cannon loaded with darts. No blast: the round goes on through walls and everyone standing in line.
-  sabot: {
-    ...BASE, id: 'sabot', name: 'SABOT', slot: 4, base: 'autocannon', mode: 'semi',
-    magSize: 5, reserve: 15, maxReserve: 30, reloadTime: 1.0, drawTime: 0.28,
-    interval: 0.45, damage: 600, severMult: 6, force: 140, headshotMult: 2,
-    penetration: 5, bodyCost: 0.12, armorPiercing: true,
-    muzzle: 'sabot', tracer: 'sabot', casing: 'cannon',
-    sounds: [{ id: 'sabot_fire', pitchJitter: 0.02 }],
-    drawSound: 'weapon_draw_heavy', scope: true,
-    recoil: 1.1, kick: 0.034, shake: 0.034, fovPunch: 3.4, killStop: HEAVY_KILL_STOP, impactScale: 2.2,
   },
   sword: {
     ...BASE, id: 'sword', name: 'SWORD', slot: 5, mode: 'melee',
@@ -227,12 +270,16 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
   },
 };
 
+if (SLOT4_OLD) WEAPONS.sabot.base = 'autocannon';
+
 /**
  * Slot order, and inside a slot the order its key steps through: the order of the rows above, so a new family member is
  * placed by where its row goes, after its base.
  */
-export const WEAPON_ORDER: readonly WeaponId[] = Object.keys(WEAPONS) as WeaponId[];
-export const STARTING_WEAPONS: readonly WeaponId[] = ['smg', 'shotgun', 'rocket', 'autocannon', 'sword'];
+export const WEAPON_ORDER: readonly WeaponId[] = (Object.keys(WEAPONS) as WeaponId[]).map(id =>
+  SLOT4_OLD && id === 'sabot' ? 'autocannon' : SLOT4_OLD && id === 'autocannon' ? 'sabot' : id);
+/** Key 4 starts with the Sabot. The explosive autocannon beside it is earned: see CACHE_ORDER in src/progression/data.ts. */
+export const STARTING_WEAPONS: readonly WeaponId[] = ['smg', 'shotgun', 'rocket', SLOT4_OLD ? 'autocannon' : 'sabot', 'sword'];
 
 /** Per-weapon behaviour that does not fit every row of the table. */
 export const TUNING = {
@@ -251,16 +298,56 @@ export const TUNING = {
     /** Long enough to hear the dry click before the hands move. */
     swapDelay: 0.2,
     /**
-     * Which gun takes over, first with ammo wins. Rockets come last: a dry player is usually in close. Base weapons only:
-     * a family member takes its turn straight after its base, so a new one needs no entry here.
+     * Which gun takes over, first with ammo wins. Rockets come last: a dry player is usually in close. Weapons that are
+     * unlocked by themselves: a family member with a `base` takes its turn straight after it, so it needs no entry here.
+     * The autocannon is earned on its own, so it has one.
      */
-    fallback: ['buzzsaw', 'smg', 'shotgun', 'judge', 'stakegun', 'kiln', 'autocannon', 'lance', 'rocket', 'sword'] as readonly WeaponId[],
+    fallback: ['buzzsaw', 'smg', 'shotgun', 'judge', 'stakegun', 'kiln', 'sabot', 'autocannon', 'lance', 'rocket', 'sword'] as readonly WeaponId[],
     /** Magazines paid into the last-held gun per sword kill. */
     swordKillMags: 0.5,
     /** Fraction of max reserve every owned gun is lifted to when a wave clears. */
     waveFloor: 0.2,
   },
   rocket: { speed: 40, radius: 8, selfDamage: 0.14, playerPush: 27 },
+  /**
+   * The Quiver. Hold to paint, let go to fire. A mark lands every `paintEvery` on the enemy nearest the crosshair inside
+   * `cone` that is in sight and not yet marked; with nobody new in view it stacks on one already marked, a boss or a
+   * vehicle first, then the one nearest the crosshair. A press shorter than `paintEvery` leaves no mark and dumb-fires.
+   */
+  quiver: {
+    marks: 4,
+    paintEvery: 0.2,
+    /** Half-angle around the crosshair, radians, and how far a mark reaches. */
+    cone: 0.16,
+    range: 150,
+    /** After a salvo, before the next press counts. The reload is usually what waits. */
+    recover: 0.25,
+    /** A missile leaves the tube slow, lights and climbs to `topSpeed`. */
+    launchSpeed: 24,
+    accel: 80,
+    topSpeed: 58,
+    /** Radians a second the nose can turn: about a 15 m circle at top speed. */
+    turnRate: 3.6,
+    /** Seconds of straight flight before it steers, so the four leave in a fan. */
+    steerDelay: 0.14,
+    /** Radians each tube's missile leaves off the line of the crosshair, outward from the block's centre. */
+    fan: 0.05,
+    /** Cone of a dumb salvo, fired with no marks, around each tube's own line. */
+    dumbSpread: 0.04,
+    /**
+     * Radians the line a missile steers for swings either side of its mark, side to side and half that up and down. It is
+     * the heading's offset, so it is also about how far the heading swings: at 0.22 a low missile dived into the floor.
+     */
+    weave: 0.1,
+    /** Its blast: a third of the ROCKET's reach and most of its punch. Self-damage and push are the ROCKET's. */
+    radius: 3.5,
+    blastDamage: 90,
+    blastScale: 0.6,
+    blastShake: 0.022,
+    /** How far a missile whose target died looks for another, ahead of it. */
+    retargetRange: 45,
+    size: 0.6,
+  },
   autocannon: {
     speed: 200, radius: 5, bossDamage: 900,
     scopeFov: 30, zoomRate: 16,

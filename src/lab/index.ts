@@ -76,6 +76,7 @@ export class Lab {
       setSpeed: s => this.setSpeed(s),
       weapon: id => this.draw(id),
       gallery: () => this.gallery(),
+      swarm: () => this.swarm(),
       parkour: () => this.parkour(),
       move: (key, on) => this.moveSwitch(key, on),
     }, (ctx.enemies as unknown as { vehicles?: unknown }).vehicles != null);
@@ -126,6 +127,12 @@ export class Lab {
     const { weapons } = this.ctx;
     (weapons.owned as Set<WeaponId>).add(id);
     weapons.switchTo(id);
+  }
+
+  /** The Quiver in hand and five of the selected enemy spread ahead to paint. Returns how many stood. */
+  swarm(): number {
+    this.draw('quiver');
+    return this.spawner.spread(this.settings.spawn, this.settings.ai, 5);
   }
 
   /**
