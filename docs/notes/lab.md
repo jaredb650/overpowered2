@@ -109,6 +109,17 @@ SMG rounds are six frames apart, so the same-frame rule never meets an SMG kill,
 
 The blasts land where they did, inside the ±15% the plan asked, and fly 1.33 times as long (1.29 by the arithmetic; the rocket at 2 m reads 1.38 on its medians). The sandbox `blast` scenario, which is the same every run, throws its muscle body 5.84 m at 1, 6.21 at 0.75 and 6.35 at 0.6, in the air 1.15 and 1.29 times as long. The shotgun at 2 m goes 17% further on average at 0.6, 8% on the medians: the pellets' push is in the body's speed when it dies, and that speed is not slowed, so it carries for longer (gore.md, Known limitations). Against the rows above, which predate the weight pass, the rocket survivor at 4 m reads 4.8 m at 1 as well. A body killed in the air keeps full gravity until it lands, so the Leaper is down at the same moment at both.
 
+**Hits with mass** (2026-11-10, `?mass=0` puts back what was before; `docs/notes/gore.md` Taking rounds and The ragdoll budget). Jolts and a blast's spin on the limbs come down with a body's mass, one round moves one limb by 6 m/s at most, and the living flinch is smaller and settles without rocking past rest. Stage 3 and `?mass=0` alternating, in two sessions; metres to the hips at rest.
+
+| Case | Stage 3 | `?mass=0` |
+|---|---|---|
+| Shotgun, 2 m (28 and 12 runs) | 0.84 to 2.41, mean 1.78 | 1.34 to 4.00, mean 2.35 |
+| SMG, kill at 8 m (12 each) | 0.87 to 1.66, mean 1.19 | 0.74 to 1.39, mean 1.07 |
+| Rocket 2 m from a corpse (12 each) | 4.89 to 6.87, mean 5.54 | 5.22 to 5.95, mean 5.58 |
+| SMG 1.5 s on a corpse (12 each) | 0.05 to 0.23 | 0.03 to 0.26 |
+
+An independent session, 30 kills each way: the shotgun at 2 m 0.91 to 2.70, mean 1.86, median 1.84, against a mean of 2.43 and a median of 2.54 with `?mass=0`, 17 of those 30 over 2.4. So the band's "before" was already over it. The shotgun's drop is not the cap on one impulse (with it at 9 and 6 in one session: 1.75 and 1.91 against 1.79 and 1.89). On a Trooper the mass factors are 1, which leaves the smaller flinch of the shell's first pellets, read into the speed the body dies with. Sixteen of those runs had the cap set in the page through `tools/out/stage3/throw-imp.mjs`, a scratch wrapper. `BLAST_CROWD=16 blast-seq.mjs` reports what froze and where: with `?mass=0` four tries of eight froze a body standing the frame it died, now none.
+
 **`lab-throw` under-reports survivors.** It measures at rest, and by then a body with AI off has got up and gone back to its post: the same rocket at 4 m reads 1.5 m there. Trust the table above for anyone who lived.
 
 ## Contact, measured

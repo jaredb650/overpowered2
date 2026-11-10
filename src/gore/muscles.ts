@@ -102,6 +102,15 @@ const weightFlag = typeof location === 'undefined' ? null : new URLSearchParams(
  */
 export const WEIGHT_PASS = weightFlag !== '0';
 
+const massFlag = typeof location === 'undefined' ? null : new URLSearchParams(location.search).get('mass');
+/**
+ * `?mass=0` puts back hits from before they knew the mass of what they hit, for comparison in motion: a round's jolt and a
+ * blast's spin the same on a Juggernaut as on a Trooper, a round putting up to 9 m/s on a limb, the living flinch and its
+ * springs that rang, and a ragdoll budget that froze the oldest body however fresh or fast. Read once, at load. The
+ * animator reads the same flag for its springs (`HumanoidAnimator`), since characters do not import gore.
+ */
+export const MASS_PASS = massFlag !== '0';
+
 export const MuscleTuning = {
   /** ?muscles=0 turns the whole layer off, for comparison: hard limits, instant ragdolls, no reactions. */
   get enabled(): boolean {
@@ -248,6 +257,15 @@ export const MuscleTuning = {
   /** Force in newton-seconds that jolts a living or dying body as hard as one can be, and the curve under it. */
   joltFull: 70,
   joltCurve: 0.6,
+  /**
+   * A jolt is a target spin per joint, sized from the joint's own inertia, so without this the same round turned a
+   * Juggernaut's long arm as fast as a Trooper's and moved its hand nearly three times as far. It is times
+   * `min(1.3, (HUMAN_MASS / mass) ** joltMassExp)`: 0.64 on a Brute, 0.30 on a Juggernaut, 1 on anything man-sized.
+   * 0 with `?mass=0`.
+   */
+  joltMassExp: MASS_PASS ? 0.75 : 0,
+  /** The same for the spin a blast gives the limbs (`kick` in `throwFromBlast`), at `min(1.3, (HUMAN_MASS / mass) ** this)`. */
+  blastMassExp: MASS_PASS ? 1 : 0,
   /** Spin a jolt gives the struck limb, the joints up the chain from it, and the rest of the body, in rad/s. */
   joltSpin: 11,
   joltChain: 4.5,

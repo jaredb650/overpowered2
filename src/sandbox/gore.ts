@@ -15,6 +15,9 @@
  *              stagger and topple and far bodies' true seed speed stay on: they are fixes, not a look.
  *   raggrav    0.5..1, the tempo dial: the share of world gravity bodies fall under, in any scenario and in the game.
  *              Throws are slowed by its square root, so they land as far. Left out it is 1. Chunks keep world gravity.
+ *   mass       0 puts back hits from before they knew the mass of what they hit, in any scenario and in the game: a round's
+ *              jolt and a blast's spin as big on a Juggernaut as on a Trooper, 9 m/s from one round on a limb, the bigger
+ *              living flinch on springs that rang, and a ragdoll budget that froze the oldest body however fresh or fast.
  *
  * Time is fixed at 1/60 per frame, so a scenario plays the same every run. window.__gore gives a capture
  * script frame-exact control: hold(), step(n) and sheet(), which draws a contact sheet over the page.

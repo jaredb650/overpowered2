@@ -59,6 +59,9 @@ const damage = (point: THREE.Vector3, force = 0): DamageInfo => ({
   amount: 60, type: 'pellet', point: point.clone(), dir: v(0, 0, -1), force, source: 'test',
 });
 
+/** The chain gore has for a body, or null. */
+const chainOf = (c: TestDummy): Rag | null => (gore as unknown as { owned: Map<TestDummy, { rag: Rag | null }> }).owned.get(c)?.rag ?? null;
+
 beforeAll(async () => {
   physics = await Physics.create();
   ctx = makeCtx({
@@ -167,12 +170,17 @@ describe('ragdoll', () => {
 
   it('caps simulated ragdolls and corpses, oldest out', () => {
     gore.clear();
+    // Nothing is frozen in its first moments, so twenty killed at once all fall, and the budget then takes them back.
+    const patience = Math.ceil((GoreTuning.freezeMinAge + GoreTuning.overSeconds) * 60) + 2;
     for (let i = 0; i < 20; i++) gore.ragdoll(spawn((i % 5) * 2 - 4, Math.floor(i / 5) * 2));
-    expect(gore.stats().ragdolls).toBe(GoreTuning.maxRagdolls);
+    expect(gore.stats().ragdolls).toBe(20);
     expect(gore.stats().corpses).toBe(20);
-    for (let i = 0; i < 30; i++) gore.ragdoll(spawn((i % 6) * 2 - 5, 10 + Math.floor(i / 6) * 2));
+    run(patience);
     expect(gore.stats().ragdolls).toBeLessThanOrEqual(GoreTuning.maxRagdolls);
+    for (let i = 0; i < 30; i++) gore.ragdoll(spawn((i % 6) * 2 - 5, 10 + Math.floor(i / 6) * 2));
     expect(gore.stats().corpses).toBe(GoreTuning.maxCorpses);
+    run(patience);
+    expect(gore.stats().ragdolls).toBeLessThanOrEqual(GoreTuning.maxRagdolls);
     gore.clear();
   });
 });
@@ -465,10 +473,12 @@ describe('corpses', () => {
     const dir = at.clone().sub(from).normalize();
     const hit = gore.raycastCorpses(from, dir, 10)!;
     expect(hit).not.toBeNull();
-    // Freezing it again here would leave the shot pushing a body Rapier no longer has, which panics the whole world.
+    // Freezing it again here would leave the shot pushing a body Rapier no longer has, which panics the whole world. The
+    // others died a frame ago, too fresh to freeze for it, so for a moment there is one more than the budget.
     gore.damageCorpse(hit, { ...damage(hit.point), dir, amount: 5 });
     run(2);
-    expect(gore.stats().ragdolls).toBe(GoreTuning.maxRagdolls);
+    expect(gore.stats().ragdolls).toBe(GoreTuning.maxRagdolls + 1);
+    expect(chainOf(old)?.active).toBe(true);
     const y0 = old.bones[B.hips]!.matrixWorld.elements[13]!;
     run(1);
     expect(old.bones[B.hips]!.matrixWorld.elements[13]!).not.toBe(y0);
@@ -497,6 +507,119 @@ describe('corpses', () => {
     run(6);
     expect(c.root.position.y).toBeGreaterThan(y0);
   });
+});
+
+describe('the ragdoll budget', () => {
+  const trooper = archetypeById('trooper');
+  const trooperRig = rigFor(trooper);
+  const at = (c: TestDummy, bone: number) => new THREE.Vector3().setFromMatrixPosition(c.bones[bone]!.matrixWorld);
+  /** A trooper on the real animator, which can collapse and get up. */
+  function living(x: number, z: number): TestDummy {
+    const c = new TestDummy(trooperRig);
+    c.root.position.set(x, 0, z);
+    scene.add(c.root);
+    c.root.updateMatrixWorld(true);
+    (c as { anim: unknown }).anim = new HumanoidAnimator(c.bones, trooperRig, trooper, c.root, c.severed, b => (c as unknown as { hidden: Uint8Array }).hidden[b] === 1);
+    for (let i = 0; i < 20; i++) {
+      c.anim.setLocomotion({ speed: 0, moveX: 0, moveZ: 1, aimYaw: 0, aimPitch: 0, grounded: true });
+      c.anim.update(1 / 60, 0);
+    }
+    c.root.updateMatrixWorld(true);
+    return c;
+  }
+
+  it('a blast at the cap freezes nothing in the air', () => {
+    // Every knockdown and collapse there can be is running, which the budget can never freeze, and a grenade kills six more.
+    // Freezing the oldest plain ragdoll whatever it was doing, it froze those six on their feet the frame they died, and
+    // with only an age rule it froze them 1.4 m up as the grenade threw them. Nothing may freeze until it is on the floor and
+    // slow, or out of time, and the budget takes them back as each one is. Then the collapses end, still over the budget,
+    // and each is a body just starting to fall however long it took to die.
+    gore.clear();
+    /** Every freeze, the budget's and a body settling by itself alike, and which it was. */
+    const frozen: { char: TestDummy; hips: number; speed: number; t: number; budget: boolean }[] = [];
+    const g = gore as unknown as { freezeBody(b: { char: TestDummy; rag: Rag | null }): void; budgetRagdolls(keep?: unknown): void };
+    const freeze = g.freezeBody.bind(gore);
+    const budget = g.budgetRagdolls.bind(gore);
+    let inBudget = false;
+    g.freezeBody = b => {
+      frozen.push({ char: b.char, hips: at(b.char, B.hips).y, speed: b.rag ? (b.rag.pushed ? Infinity : b.rag.speed) : 0, t: ctx.time.elapsed, budget: inBudget });
+      freeze(b);
+    };
+    /** When each body's fall started: the grenade, or the end of its collapse. */
+    const fell = new Map<TestDummy, number>();
+    const collapsing: TestDummy[] = [];
+    g.budgetRagdolls = keep => {
+      inBudget = true;
+      try { budget(keep); } finally { inBudget = false; }
+    };
+    try {
+      for (let i = 0; i < GoreTuning.maxKnockdowns; i++) {
+        expect(gore.knockdown(living(-16 + (i % 6) * 6.4, 26 + Math.floor(i / 6) * 4), { topple: v(0, 0, 1.7), lie: 12, rise: 2, hurt: 0.6 })).toBe(true);
+      }
+      const dying = 3;
+      for (let i = 0; i < GoreTuning.maxCollapses; i++) {
+        collapsing.push(living(-18 + i * 12, -2));
+        gore.collapse(collapsing.at(-1)!, { duration: dying });
+      }
+      run(12);
+      const unfreezable = GoreTuning.maxKnockdowns + GoreTuning.maxCollapses;
+      expect(gore.stats().ragdolls).toBe(unfreezable);
+      const crowd = Array.from({ length: 6 }, (_, i) => living(Math.cos(i * 1.05) * 1.4, 10 + Math.sin(i * 1.05) * 1.4));
+      for (const c of crowd) {
+        gore.ragdoll(c);
+        fell.set(c, ctx.time.elapsed);
+      }
+      // A grenade at their feet, as `Combat` sends one.
+      physics.radialImpulse(v(0, 0.3, 10), 7 * 1.35, 12 * 7);
+      expect(gore.stats().ragdolls).toBe(unfreezable + crowd.length);
+      expect(frozen).toHaveLength(0);
+      // Never in the air, never fresh, and never moving until it has had its time. A body still settling a limb then
+      // freezes on the floor.
+      const check = () => {
+        for (const f of frozen) {
+          const since = fell.get(f.char)!;
+          expect(since).toBeLessThanOrEqual(f.t);
+          const when = `${(f.t - since).toFixed(2)} s into its fall, ${f.budget ? 'by the budget' : 'settled'}`;
+          expect(f.hips, when).toBeLessThan(0.5);
+          if (!f.budget) continue;
+          expect(f.t - since, when).toBeGreaterThanOrEqual(GoreTuning.freezeMinAge - 1e-6);
+          if (f.t - since < GoreTuning.freezeMinAge + GoreTuning.overSeconds) expect(f.speed, when).toBeLessThanOrEqual(GoreTuning.freezeSpeed);
+        }
+      };
+      // Back to only what cannot freeze, once each has had its time.
+      const patience = Math.ceil((GoreTuning.freezeMinAge + GoreTuning.overSeconds) * 60) + 2;
+      let most = 0;
+      for (let f = 0; f < patience; f++) {
+        frame();
+        most = Math.max(most, gore.stats().ragdolls);
+      }
+      check();
+      expect(gore.stats().collapses).toBe(GoreTuning.maxCollapses);
+      expect(gore.stats().ragdolls).toBe(unfreezable);
+      expect(most).toBe(unfreezable + crowd.length);
+      expect(frozen).toHaveLength(crowd.length);
+      // The long collapses end, and four of the default length die after them: the end of each is where its fall starts.
+      // With the knockdowns that is still over the budget, until two of them have frozen.
+      const outlive = () => {
+        for (let f = 0; f < 60 * dying && gore.stats().collapses > 0; f++) frame();
+        expect(gore.stats().collapses).toBe(0);
+        for (const c of collapsing.splice(0)) fell.set(c, ctx.time.elapsed);
+        for (let f = 0; f < patience; f++) frame();
+        check();
+        expect(gore.stats().ragdolls).toBeLessThanOrEqual(GoreTuning.maxRagdolls);
+      };
+      outlive();
+      for (let i = 0; i < GoreTuning.maxCollapses; i++) {
+        collapsing.push(living(-18 + i * 12, -4));
+        gore.collapse(collapsing.at(-1)!);
+      }
+      outlive();
+    } finally {
+      delete (g as Partial<typeof g>).freezeBody;
+      delete (g as Partial<typeof g>).budgetRagdolls;
+      gore.clear();
+    }
+  }, 60000);
 });
 
 describe('the tempo dial', () => {
@@ -700,4 +823,87 @@ describe('the tempo dial', () => {
       gore.clear();
     }
   });
+});
+
+// Last in the file on purpose: its twenty-two bodies change what the tests after it in this world draw, and the tempo
+// dial's blast from under a falling body lands with its hips over 0.6 m about one draw in five, before stage 3 as well.
+describe('the ragdoll budget, again', () => {
+  const trooper = archetypeById('trooper');
+  const trooperRig = rigFor(trooper);
+  const at = (c: TestDummy, bone: number) => new THREE.Vector3().setFromMatrixPosition(c.bones[bone]!.matrixWorld);
+  function living(x: number, z: number): TestDummy {
+    const c = new TestDummy(trooperRig);
+    c.root.position.set(x, 0, z);
+    scene.add(c.root);
+    c.root.updateMatrixWorld(true);
+    (c as { anim: unknown }).anim = new HumanoidAnimator(c.bones, trooperRig, trooper, c.root, c.severed, b => (c as unknown as { hidden: Uint8Array }).hidden[b] === 1);
+    for (let i = 0; i < 20; i++) {
+      c.anim.setLocomotion({ speed: 0, moveX: 0, moveZ: 1, aimYaw: 0, aimPitch: 0, grounded: true });
+      c.anim.update(1 / 60, 0);
+    }
+    c.root.updateMatrixWorld(true);
+    return c;
+  }
+
+  it('a body thrown or shot again starts its time over', () => {
+    // Over the budget, timed from its death alone, a corpse a second grenade threw 2 m up froze there 1.6 s after it died,
+    // and a corpse under fire froze and woke every 0.6 s, a new pool each time. A throw and a round each start it again.
+    gore.clear();
+    const frozen: { char: TestDummy; hips: number }[] = [];
+    const g = gore as unknown as { freezeBody(b: { char: TestDummy; rag: Rag | null }): void };
+    const freeze = g.freezeBody.bind(gore);
+    g.freezeBody = b => {
+      frozen.push({ char: b.char, hips: at(b.char, B.hips).y });
+      freeze(b);
+    };
+    try {
+      for (let i = 0; i < GoreTuning.maxKnockdowns; i++) {
+        gore.knockdown(living(-16 + (i % 6) * 6.4, 26 + Math.floor(i / 6) * 4), { topple: v(0, 0, 1.7), lie: 12, rise: 2, hurt: 0.6 });
+      }
+      for (let i = 0; i < GoreTuning.maxCollapses; i++) gore.collapse(living(-18 + i * 12, -2), { duration: 5 });
+      run(12);
+      const crowd = Array.from({ length: 6 }, (_, i) => living(Math.cos(i * 1.05) * 1.4, 10 + Math.sin(i * 1.05) * 1.4));
+      for (const c of crowd) gore.ragdoll(c);
+      physics.radialImpulse(v(0, 0.3, 10), 7 * 1.35, 12 * 7);
+      run(54);
+      // The second grenade lands beside a body of the first still falling about.
+      const next = crowd.find(c => chainOf(c)?.active)!;
+      expect(next).toBeDefined();
+      const p = at(next, B.hips);
+      physics.radialImpulse(v(p.x + 0.4, 0.3, p.z), 7 * 1.35, 12 * 7);
+      let highest = 0;
+      for (let f = 0; f < 60; f++) {
+        frame();
+        for (const c of crowd) highest = Math.max(highest, at(c, B.hips).y);
+      }
+      expect(highest).toBeGreaterThan(1);
+      for (const f of frozen) expect(f.hips).toBeLessThan(0.5);
+      expect(gore.stats().ragdolls).toBeGreaterThan(GoreTuning.maxRagdolls);
+      // A corpse at rest, shot from above every six frames for 1.5 s with the budget still over: it wakes once and stays
+      // awake. Light rounds, so that nothing comes off it.
+      const target = crowd.find(c => chainOf(c) && !chainOf(c)!.active) ?? crowd[0]!;
+      const before = frozen.length;
+      let rounds = 0;
+      let sleeps = 0;
+      for (let f = 0; f < 90; f++) {
+        if (f % 6 === 0) {
+          const chest = at(target, B.chest);
+          const from = chest.clone().add(v(0, 2, 0));
+          const hit = gore.raycastCorpses(from, v(0, -1, 0), 4);
+          if (hit) {
+            gore.damageCorpse(hit, { amount: 3, type: 'bullet', point: hit.point.clone(), dir: v(0, -0.3, -1).normalize(), force: 20, source: 'test' });
+            rounds++;
+          }
+        }
+        frame();
+        if (rounds > 0 && !chainOf(target)!.active) sleeps++;
+      }
+      expect(rounds).toBeGreaterThan(10);
+      expect(sleeps).toBe(0);
+      expect(frozen.slice(before).filter(f => f.char === target)).toHaveLength(0);
+    } finally {
+      delete (g as Partial<typeof g>).freezeBody;
+      gore.clear();
+    }
+  }, 60000);
 });

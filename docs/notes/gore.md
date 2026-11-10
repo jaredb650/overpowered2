@@ -16,7 +16,10 @@ weight pass, everywhere, the game included: feet on their soles, a collapse hold
 headshot, a stumbling body that staggers on from a round in the head, and a death that keeps only its stride. Two fixes
 stay on either way: a collapse's stagger and topple come in over 0.2 s, and far bodies are seeded at their true speed.
 `raggrav=0.75` (0.5 to 1, left out it is 1) is the tempo dial, everywhere, the game included: bodies fall under that share
-of gravity, and what throws them is slowed by its square root so that they land as far. See Forces.
+of gravity, and what throws them is slowed by its square root so that they land as far. See Forces. `mass=0` puts back hits
+from before they knew the mass of what they hit, everywhere, the game included: a round's jolt and a blast's spin as big on a
+Juggernaut as on a Trooper, up to 9 m/s from one round on a limb, the bigger living flinch on springs that rang past rest, and
+a ragdoll budget that froze the oldest body whatever it was doing. See Taking rounds and The ragdoll budget.
 
 ```
 node tools/shot.mjs --url "/?sandbox=gore&scenario=blast&hold=1" --wait 9000 --out tools/out/blast.png \
@@ -128,10 +131,58 @@ A body that is falling or dying answers every round, and nothing restarts.
 
 - `MuscleState.jolt` is all torque across joints with its reaction on the parent, so it can jerk limbs against each other and cannot move the body as a whole. The struck limb turns away from the shot, joints up the chain follow with 40% kicking back the other way, and two random joints flinch. All one way, a stream of rounds just folds a body in half.
 - Sized from each joint's own inertia and a target spin, so it cannot overshoot. Twelve pulses run at once, oldest out.
+- A target spin is blind to mass: the same round turned a Juggernaut's long arm as fast as a Trooper's. So a jolt is times
+  `min(1.3, (85 / mass) ** MuscleTuning.joltMassExp)` (0.75): 1 for anything man-sized, 0.64 on a Brute (154 kg), 0.30 on a
+  Juggernaut (433 kg). `joltOf` in `index.ts` takes the body's mass at every call, and a man's for the animation flinch under
+  a collapse, which the animator sizes by build itself (`HumanoidAnimator.flinch`). A round's push on a lying Juggernaut moves
+  its hands about a fifth as far as before, a Brute's half, a Trooper's and a Husk's the same. How long a round keeps a
+  knocked-down body down (`Reflex.struck`) is not scaled.
+- One impulse changes one body's speed by at most `RagTuning.maxImpulseSpeed`, 6 m/s (9 before): a 20 N·s round put 8.7 m/s
+  on a 2.3 kg forearm and flipped it. The rest of a hard hit still moves the body through `Rag.shove`.
 - On its feet, three quarters of a round goes into `CollapseDrive.drift`, so the feet carry it, and a body under fire is walked back. All of it on the chest bent the body 80 degrees backward over its held hips.
 - The animation under a collapse flinches too, and the muscles carry that as well.
 - Once it has let go a jolt is 35%, and 15% once tone has gone. At full strength an SMG walked a body 5 m along the floor in 3 s.
 - A waist takes `corpseTrunkHealth` (420), not `corpseLimbHealth` (60). An SMG cut every body in two with its third round, because the chest counts toward the waist. It is also why a point blank shotgun's throw went up: see `docs/notes/lab.md`.
+- The living are the animator's, not gore's: a hit that does not kill flinches it on springs (`HumanoidAnimator.flinch`), at a
+  size `damage.ts` works out from the share of health it took, `flinchSize`: 0.2 + 2.2 × share, at most 1.4 (0.35 + 3 × share
+  and 1.6 before). The animator already sizes it by build, so mass is not counted twice. The springs under the spine, chest,
+  head and pelvis (`FlinchSprings`) are damped to about 0.8 of critical (the head 0.6), against about half before: a round
+  lands, leans and comes back without rocking past where it started. An SMG round tips a Trooper's chest 0.16 rad (0.26),
+  a Husk's 0.24 (0.32), a Brute's 0.05 (0.08); a Judge round on a Trooper 0.23. The chest's spring also carries an enemy's
+  own recoil (`play('shoot')`), which now settles the same way. A drone's and a skitter's flinch keep the old size: their
+  animators size nothing by build, and their tilt springs were not retuned, so the smaller one was only a smaller reaction.
+
+### The ragdoll budget
+
+`GoreTuning.maxRagdolls` (14) chains simulate at once; past it the budget freezes one. It used to freeze the oldest plain
+ragdoll whatever it was doing, which with every knockdown and collapse running (12 and 4, which it can never freeze) was
+whichever body had died that frame: a grenade into a crowd left bodies frozen standing, or in the air.
+
+- It freezes, oldest first, a body at rest: dead, awake again, thrown or shot, or let go by its collapse, at least
+  `freezeMinAge` (0.6 s) ago, and slower than `freezeSpeed` (1 m/s, `Rag.speed`, its fastest part). A chain pushed since it
+  was last measured counts as moving.
+- Then one that has kept a limb moving `overSeconds` (1 s) past that, once the body as a whole is under 1 m/s
+  (`Rag.massSpeed`, its centre of mass). By then a grenade's throw has landed; a body still in the air, falling off a ledge
+  or sliding is not frozen for it.
+- Nothing younger ever freezes here. With nothing fit to freeze, bodies run over the budget, and `update` looks again every
+  frame until it is back inside. A burst that kills six with sixteen unfreezable already running holds 22 chains for up to
+  1.6 s.
+- A throw or a round on a body already simulating starts its time again. Timed from its death alone, a second grenade 0.9 s
+  after the first threw a corpse 2 m up and the budget froze it there at 1.6 s, 1.4 to 2.3 m up at 5 to 6 m/s; and a corpse
+  under fire froze and woke every 0.6 s, a new blood pool and its chain rebuilt each time, since the frame's `measure` has
+  cleared `pushed` by the time `update` looks again.
+- The end of a collapse counts as a death: a body that took 1.7 s to die is just starting to fall.
+- Those times are the body's own, stretched by the tempo dial's pace.
+- A knockdown, a collapse still holding itself up, a staked body and the one just woken for a shot are never frozen here.
+- There is no ceiling on how far over it a burst runs, bar `maxCorpses`; see Known limitations for what that costs. Two were
+  tried, past 22 chains: freezing what was down on the floor whatever its speed froze bodies at 10 m/s the frame they hit
+  the floor, and freezing what was down with only a limb moving cut a grenade into 30 by about a tenth (chain-frames over
+  the budget) and froze arms mid-swing.
+- `ragdoll.test.ts`, 'a blast at the cap freezes nothing in the air', guards it. The old budget fails it before the grenade,
+  freezing the last two collapses the frame each starts (14 chains where 16 should be); a budget that freezes on age alone
+  fails it with hips 1.5 m up at 0.6 s, and one that dates a collapse's body from its death fails it the frame the collapse
+  ends. 'a body thrown or shot again starts its time over', last in the file, fails with the clock left at death (hips 1.4
+  to 2.6 m up) and with a round not restarting it (the shot corpse asleep 12 frames of 90).
 
 ## Contract additions
 
@@ -171,11 +222,12 @@ Breaking: each hit on a limb adds `damage x breaks` to `char.stress` for that jo
 | Knob | File | What it does |
 |---|---|---|
 | `WoundTuning`, `BITES` | `wounds.ts` | Gore level, what breaks a limb, pellet range and merging, each weapon's wound |
-| `GoreTuning` | `index.ts` | Caps, settle speed and time, sink, heartbeat, hit-stop, a headshot's twitch, whole-body share and lift of a hit, limb share of force, gib launch, corpse limb health, crawl time |
-| `MuscleTuning` | `muscles.ts` | Everything in the muscle layer: ligaments, the knee's stop, resting pose, impact spin, collapse timing and how much of the trunk it holds up, twitching, jolts |
+| `GoreTuning` | `index.ts` | Caps, what the ragdoll budget may freeze and when, settle speed and time, sink, heartbeat, hit-stop, a headshot's twitch, whole-body share and lift of a hit, limb share of force, gib launch, corpse limb health, crawl time |
+| `MuscleTuning` | `muscles.ts` | Everything in the muscle layer: ligaments, the knee's stop, resting pose, impact spin, collapse timing and how much of the trunk it holds up, twitching, jolts and how they and a blast's spin come down with mass |
+| `FlinchSprings`, `flinchSize` | `HumanoidAnimator.ts`, `damage.ts` | The living flinch: the springs it rides on, and its size from the share of health a hit took |
 | `ReflexTuning` | `reflex.ts` | A living body off its feet: strength by phase, when it counts as landed, how it braces |
 | `relax`, `role`, `collider` | `rig.ts` | Resting pose per joint, what each joint is for, and what a bone rests on where that is not its hit capsule |
-| `RagTuning` | `rag.ts` | The tempo dial (`gravityScale`) and when a body killed in the air takes it, joint damping, death tone, hard limit strength and fade-in, rest damping, collider slimming, heel feet, speed clamps, blast lift, how far a broken joint opens |
+| `RagTuning` | `rag.ts` | The tempo dial (`gravityScale`) and when a body killed in the air takes it, joint damping, death tone, hard limit strength and fade-in, rest damping, collider slimming, heel feet, speed clamps (one impulse on one body, a blast, a shove), blast lift, how far a broken joint opens |
 | `swingShape()` | `rag.ts` | Asymmetric hip and shoulder reach |
 | `BloodTuning` | `blood.ts` | Rays per frame (24), droplet and pool caps, smear spacing |
 | `ChunkTuning` | `chunks.ts` | Slots per kind, live bodies (72), linger, bounce |
@@ -219,6 +271,12 @@ Measured throws per weapon are in `docs/notes/lab.md`. A body is 85 kg, and grav
 - **A hit** is `force` newton-seconds. `Gore.push` puts it on the struck bone, except that from 20 N·s to 90 N·s a growing share, up to `bodyShare`, moves the whole body through `Rag.shove`. Rocking a limb is what a bullet is for, so a bullet stays on the bone. All of a hard hit on one bone only folds a standing body at the knees: 288 N·s to the chest moved the hips 0.2 m.
 - **Feet stop a standing body within 0.3 m** at under 3 m/s. Friction with all the weight on them is 14.4 m/s²: Rapier averages the body's 0.72 with the floor's 0.8. Under the tempo dial grip and speed come down together, so the distance holds. That is why hard hits have `bodyLift`, and why blasts aim `blastLift` metres high. Without them, more force only shows as limbs.
 - **Shove has a ceiling**, `maxShoveSpeed`, so six pellets in one frame cannot add up to a rocket.
+- **A blast spins the limbs by the body's mass.** The throw is shared out by mass already, but `kick`, the spin a blast gives
+  the limbs in `Gore.throwFromBlast`, was not: a rocket 3 m from a Juggernaut corpse sent its hands at 5.7 times the speed of
+  its hips. It is times `min(1.3, (85 / mass) ** MuscleTuning.blastMassExp)` (1): a Brute's 0.55, a Juggernaut's 0.20, a man's
+  1. Now 1.9 to 2.0 (1.76 to 1.81 for the right hand alone), a Brute's 1.7 against 2.0, a Husk's and a Trooper's 1.4 as
+  before, over two sessions. Less of the blast goes into the arms, so a Juggernaut's hips go 9 to 12% faster, 1.53 to 1.54 m/s
+  against 1.37 to 1.42. A loose limb spins as it did: it has no trunk to go with, and its rig's mass is the whole body's.
 - **A blast** throws through `Rag.radialImpulse`, in one line and under one ceiling for the chain, `maxBlastSpeed`. `Combat.blast` calls `radialImpulse` after the damage, so a body the blast kills is thrown like any other. Before, a rocket 2 m away moved a corpse 3.1 m and a body it killed 1.2 m. The current throws are in `docs/notes/lab.md`.
 - **`Physics.radialImpulse`** sets a light piece's speed from what is left of the blast, not from its mass: `DEBRIS_SPEED` per point, up to 16 m/s. On a 0.2 kg chunk any strength at all ran into a mass-based cap, so by the arithmetic a Juggernaut's footstep fired chunks in flight at the same speed as a rocket. Negative strength, which is how Black Sun pulls, works the same way.
 - **A limb cut by a blast is not thrown by it again.** `Gore.blast` skips anything younger than one frame. Otherwise a rocket's direct hit gave five limbs their launch speed and then, by the arithmetic on the old numbers, about 30 m/s on top.
@@ -311,6 +369,16 @@ named, checked by breaking each one on purpose in a copy and seeing the test fai
   was first built, a body killed rising took the dial 2.3 m up at 30 fps and stayed in the air a third longer, and a round
   against a falling one's motion did the same; a limb cut from a body thrown on the dial went back to full gravity. In a copy,
   the second test fails with the old landing check, with pushed frames read, and with a limb deciding from its own seed.
+- **The ragdoll budget never freezes a body in the air, or one just dead** (`ragdoll.test.ts`, 'a blast at the cap freezes
+  nothing in the air'). Twelve knockdowns and four collapses running and a grenade killing six: nothing freezes with its hips
+  above 0.5 m, nothing the budget freezes is under 0.6 s into its fall, nor moving above 1 m/s before its time is up, and the
+  end of a collapse starts that clock again. In a copy: the old budget, oldest out, fails it before the grenade, freezing the
+  last two collapses the frame each starts; freezing on age alone fails it with hips 1.5 m up at 0.6 s; dating a collapse's
+  body from its death fails it the frame the collapse ends. A second grenade 0.9 s later, and a corpse under fire with the
+  budget over, start a body's time again ('a body thrown or shot again starts its time over'): with the clock left at death
+  it fails with hips 1.4 to 2.6 m up, and with a round not restarting it the shot corpse sleeps 12 frames of 90. In the game,
+  `BLAST_CROWD=16` `blast-seq.mjs`: with `?mass=0` two to four tries of eight froze a body standing, hips 0.86 to 0.91 m, the
+  frame it died; now none of twelve, every freeze with hips at 0.19 m or lower and 0.62 s or more into its fall.
 
 ## Measured
 
@@ -346,6 +414,13 @@ Shared 8 GB M1 under load average around 18, so treat these as upper bounds.
 | Tempo dial, the forces test's own measures (deterministic) at 1, 0.75, 0.6 | Rocket at 2 m 5.71, 5.79, 6.43 m, peak 9.4, 8.7, 7.6 m/s. Rocket at 5 m 3.16, 3.08, 3.10. Nuke 5.49, 5.33, 5.08. Point-blank shotgun 1.84, 1.86, 1.97. SMG 1.5 s on a corpse 0.28, 0.17, 0.22 m (0.41 and 0.51 with rounds at full speed). Force dial 0 leaves 0.12, 0.03, 0.03 |
 | Tempo dial, `knockdown.test.ts` and `weight.test.ts` run whole on the dial, one file at a time | knockdown at 0.6: 1 failure in 80 runs, 'jerks a dying body about' at a ratio of 1.21 against 1.3 (with jolts slowed too, 4 in 60, and as first built 2 in 33, the SMG walking a collapse 3.6 to 4.5 m); at 0.75, 8 of 8. weight at 0.75 and 0.6: about one run in four fails, in 'lies flat', 'lies still' or 'legs keep their gravity' (Known limitations); its heels on the dial, five rounds, pass 35 runs of 35 |
 | `react-chaos`, tempo dial 1 against 0.6, alternating, load 2.5 to 12 | Physics step peak 6.9 to 10.4 ms over five runs at 1, and 8.1 to 9.6 over five of seven at 0.6. The other two peaked at 23.5 and 26.8, both while the load ran 7 to 12 with another process holding a core. CPU 3.9 to 7.0 ms a frame against 3.9 to 6.3. Every survivor back up in all twelve, no console errors. After the fix round, load 1.5 to 3.5: 9.7 ms against 9.8, every survivor up, no errors |
+| Hits with mass, `PROBE=hitmass PROBE_ROUNDS=4`, 24 bodies a case, against the code before it in the same session | One SMG round on a body knocked down and lying 2.5 s, what the round adds to either hand's travel over 0.3 s (shot against unshot): Juggernaut 0.03 m against 0.15, Brute 0.03 against 0.08, Trooper 0.07 against 0.06, Husk 0.07 against 0.07. Shot 1.2 s after the knockdown, as the plan first measured, a Juggernaut's right hand moves 0.39 m against 0.43, but 0.42 unshot: that is the fall. One SMG round that lands on a lying corpse's forearm: the hand ends 0.01 to 0.02 m from where it lay on average, 0.09 at most, against 0.02 to 0.03 and 0.15. A second session, seeded, 36 bodies a case and 107 rays on the forearm: means 0.004 to 0.024 m, 0.175 at most (a Brute's) against 0.181, so this was inside 0.2 before as well. A Trooper's hand peaks at 0.48 m/s on average against 0.62, 1.4 at most against 1.9; a Brute's does not change (2.2 at most both ways), since its 4.2 kg forearm never reaches the 6 m/s ceiling from a 20 N·s round. A rocket 3 m from a corpse, fastest hand over fastest hips: Husk 1.35 against 1.36, Trooper 1.44 against 1.42, Brute 1.68 against 1.99, Juggernaut 1.98 against 5.69 (right hand alone 1.28, 1.35, 1.61, 1.81 against 1.29, 1.37, 1.89, 4.73); hips 8.57, 8.53, 4.55, 1.53 m/s against 8.58, 8.51, 4.50, 1.37. The seeded session: Husk 1.38, Brute 1.68, Juggernaut 1.93 against 1.37, 1.99, 5.13 (right hand 1.33, 1.59, 1.76 against 1.34, 1.80, 4.24); hips 8.61, 4.55, 1.54 against 8.60, 4.52, 1.42 |
+| The living flinch, `PROBE=flinch`, against a twin not hit (exact) | One SMG round tips the chest: Trooper 0.164 rad against 0.257, Husk 0.242 against 0.322, Brute 0.045 against 0.076; a Judge round on a Trooper 0.233 against 0.289. Past rest the other way 0.001 rad, under 1%, against 14%. Within 0.02 rad of rest from 0.35 to 0.38 s against 0.42 |
+| `forces.test.ts`'s own measures with the stage's knobs on and off (a logging copy, one session) | The same at every dial within a few hundredths: rocket at 2 m 4.47, 5.25 to 5.33, 5.34 to 5.42 m; point-blank shotgun 1.78, 1.81, 1.87; SMG 1.5 s on a corpse 0.28, 0.31, 0.81. Bullets on the test's 85 kg body are untouched, and the impulse ceiling does not reach its throws. The copy runs its bodies in another order from the file itself, so compare these with each other, not with the tempo row above |
+| In the game, stage 3 against `?mass=0`, alternating, `lab-throw` | Shotgun at 2 m, 28 kills: 0.84 to 2.41 m, mean 1.78, against 1.34 to 4.00, mean 2.35, over 12. The impulse ceiling is not it (9 against 6 in one session: 1.75 and 1.91 against 1.79 and 1.89); the flinch of the shell's first pellets is (Known limitations). SMG kill at 8 m 0.87 to 1.66, mean 1.19, against 0.74 to 1.39, mean 1.07. Rocket 2 m from a corpse 4.89 to 6.87, mean 5.54, against 5.22 to 5.95, mean 5.58. SMG 1.5 s on a corpse 0.05 to 0.23 m against 0.03 to 0.26 |
+| A grenade into 16, `BLAST_CROWD=16 blast-seq.mjs`, four tries each, Troopers and Husks, against `?mass=0` | Frozen standing the frame it died, hips 0.86 to 0.91 m: none of eight tries against four of eight (two of eight in a second session). Every freeze with hips at 0.18 m or lower, 0.62 s or more after the death. Peak chains 14 to 15. After the fix round, four tries on Troopers: none, every freeze at 0.19 m or lower and 0.63 s or more |
+| `react-chaos`, stage 3 against `?mass=0`, alternating, load 3.5 to 8 | Physics step peak 7.6 to 10.6 ms, mean 8.8 over five, against 8.3 to 10.1, mean 9.4 over four. CPU 4.6 to 5.7 ms a frame against 4.8 to 8.1. Peak chains 11 to 13 against 11 to 14. Every survivor back up, no console errors. A second session, four each: 9.43 against 9.18 ms. After the fix round, three each at load 4 to 13: 7.4 to 9.0, mean 8.1, against 7.8 to 9.0, mean 8.6; every survivor up, no errors |
+| The ragdoll budget over it, scratch probes in Node (`tools/out/fx`, the reviewer's in the session scratchpad) | Sixteen unfreezable running, a second grenade 0.9 or 1.1 s after the first: with the clock left at death a corpse froze 1.4 to 2.3 m up in five tries of five; now every freeze has its hips at 0.18 m or lower. One corpse shot every six frames for 4 s: 6 freezes, 7 wakes, 6 pools and 77 rigid bodies made, now 1 wake, 0 pools and 11, as with the budget not over. A grenade into 30 and 36 Troopers, two each: over 14 chains for 58 to 62 frames, 14 again by 1.0 to 1.2 s |
 
 ## Known limitations
 
@@ -393,6 +468,33 @@ Shared 8 GB M1 under load average around 18, so treat these as upper bounds.
   less is left for the end. Not looked into.
 - **A Brute collapse can still skate**: its feet end 0.30 to 0.47 m from where it stood, against 0.36 to 0.56 before.
 - **The death stumble can lurch a whole body** 0.3 to 0.6 m in the first 0.2 s of a collapse, feet and all, about one collapse in nine. It was there before the weight pass. Not looked into.
+- **The ragdoll budget is not a hard cap.** Bodies that are fresh, or moving and inside their time, run over it: twelve
+  knockdowns, four collapses and a grenade killing six hold 22 chains until the six are at rest, 1.5 s in the test, 1.6 s at
+  most. A blast that kills more at once runs all of them for at least 0.6 s. The plan asked for at most 4 over for at most 1 s,
+  but knockdowns and collapses are never frozen, so 16 of those plus 6 dead is 22 whatever the budget does, and the only way
+  to hold 18 was to freeze four of the six in the air: with the plan's rule they froze 1.4 m up at 0.6 s. In `react-chaos`
+  the peak stayed at 11 to 14 chains and the step peak did not rise. A big burst costs more: a grenade into 30 Troopers in
+  Chrome held 26 to 27 chains for about 1.7 s, the physics step and gore's update together 5.3 to 5.9 ms at the 99th
+  percentile against 4.1 to 4.2 with `?mass=0`. In Node, 30 to 36 killed by one grenade are back to 14 chains 1.0 to 1.2 s
+  later, and the frame they die in is cheaper, 7.7 to 14.4 ms against 10.3 to 27.9 for 36, since the old budget froze 22 of
+  them in it. The two ceilings tried are in The ragdoll budget. Not tried on the 8 GB M1 in a Crucible-sized wave.
+- **A Husk's flinch is 0.242 rad**, against the plan's 0.24 at most, with the plan's own sizes. Left as specified.
+- **The head's flinch spring still swings 6 to 8% past rest** (20 to 21% before). It is the plan's (160, 15), 0.59 of critical
+  where the others are about 0.8; about (160, 21) would settle it, and would make a head hit's snap about a fifth smaller.
+- **A Juggernaut's limbs still outrun its hips in a blast**: fastest hand 1.93 to 1.98 times its hips (1.76 to 1.81 for the
+  right hand alone, which is what the plan measured), against the plan's 1.8. Spinning them less makes the hips faster, since
+  less of the blast goes into the arms: already 9 to 12% at 1, and at 1.5 for the mass exponent the ratio is 1.63 with the
+  hips 13% faster. The two targets pull against each other. In the sandbox `blast` sheet a Juggernaut holds one crouched pose,
+  arms tucked, from 0.33 to 0.58 s before it goes down, where with `?mass=0` an arm swings out: heavier, or stiff, by eye.
+- **The point-blank shotgun throws shorter in the game**, 1.78 to 1.86 m on average against 2.35 to 2.43 with `?mass=0` (28
+  and 30 kills against 12 and 30). The impulse ceiling made no difference to it, and on a Trooper the mass factors are 1,
+  which leaves the flinch: the first pellets of a shell flinch the living body on the frame the last one kills it, and the
+  springs' speed is read into the speed it dies with (`measureAnimVelocity`). The flinch is smaller now. Not measured on its
+  own. Inside the 1.2 to 2.4 m it was meant to stay in, on average; two to four kills in about thirty went under 1.2. The
+  mean before was already over 2.4, so that band cannot say whether it got worse.
+- **The tempo dial's 'only the floor ends a fall' test hangs on its draw.** Its blast from under a falling body lands with
+  the hips over 0.6 m in 7 to 9 tries of 40, before stage 3 as well (`tools/out/fx/airblast.test.ts`, scratch), so it
+  passes or fails by what ran before it in the file. 'a body thrown or shot again starts its time over' runs last for that.
 - **No self-collision within a body.** An arm can rest inside its own torso. Left off for budget. I did not try turning it on.
 - **Velocity at death is close, not exact.** Position is continuous, but in a run cycle a bone can change speed in the first
   frame. Feet stopping on the floor is correct. One knee moved 12 cm in that frame, against 2 cm the frame before, in one of

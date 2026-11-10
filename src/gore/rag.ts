@@ -15,7 +15,7 @@ import { DevFlags } from '../core/devflags';
 import { clamp } from '../core/math';
 import { groups } from '../physics/Physics';
 import type { BoneDef, RigDef } from '../characters/rig';
-import { invInertia, JointMuscle, MuscleState, MuscleTuning, splitSwing, swingReach, swingTwist, WEIGHT_PASS } from './muscles';
+import { invInertia, JointMuscle, MASS_PASS, MuscleState, MuscleTuning, splitSwing, swingReach, swingTwist, WEIGHT_PASS } from './muscles';
 import { MAX_BONES, rigInfo, type RigInfo } from './rigInfo';
 
 export interface RagSource {
@@ -111,8 +111,11 @@ export const RagTuning = {
    * stand up by itself on its sole. Off with `?weight=0`.
    */
   heelFeet: WEIGHT_PASS,
-  /** Hard ceiling on any single body's speed change from one impulse. A forearm is a few kilos, so this is what keeps it on. */
-  maxImpulseSpeed: 9,
+  /**
+   * Hard ceiling on any single body's speed change from one impulse. A forearm is a few kilos, so this is what keeps it on.
+   * At 9 a 20 N·s round put 8.7 m/s on a 2.3 kg forearm and flipped it. 9 with `?mass=0`.
+   */
+  maxImpulseSpeed: MASS_PASS ? 6 : 9,
   /** Fastest a blast can throw a whole chain, in m/s, times `Rag.throwScale`. At this speed a body lands about 5 m out. */
   maxBlastSpeed: 10,
   /** A body already moving this fast takes no more from a shove, or six pellets in a row would add up to a rocket. Times `Rag.throwScale`. */
@@ -343,6 +346,14 @@ export class Rag {
   /** Killed in the air and not down yet, so still falling at full gravity. */
   get killedInAir(): boolean {
     return this.lofted;
+  }
+
+  /**
+   * How fast the chain moves as a whole, its centre of mass, at the last `measure`. A limb still flopping barely shows in
+   * it; a body in the air, falling, or sliding or rolling along the floor does.
+   */
+  get massSpeed(): number {
+    return this.momentum / this.mass;
   }
 
   /**

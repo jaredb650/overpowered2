@@ -98,7 +98,7 @@ One rule, in `reactions.ts`: `power = (force / body mass + damage / health) x re
 
 | Level | What happens |
 |---|---|
-| Flinch | The old spring flinch and a cry |
+| Flinch | The spring flinch, sized by the share of health the hit took (`flinchSize` in `damage.ts`), and a cry. One SMG round tips a Trooper's chest 0.16 rad and it comes back without rocking past (`docs/notes/gore.md`, Taking rounds). A drone's and a skitter's keep the size they had before stage 3 |
 | Stagger | `e.reel` carries the body the way it was hit, the feet step after it, a hand goes to the wound or up to the face. No thinking while `e.stagger` lasts |
 | Fall | A stagger, then 0.16 to 0.42 s later `gore.knockdown`, so it visibly fails to catch itself |
 | Thrown | `gore.knockdown` at once, for a blast, and the blast does the throwing |

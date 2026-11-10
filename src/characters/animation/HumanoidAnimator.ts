@@ -36,6 +36,17 @@ const euler = new THREE.Euler(0, 0, 0, 'YXZ');
 const qEuler = (out: THREE.Quaternion, x: number, y: number, z: number) => out.setFromEuler(euler.set(x, y, z, 'YXZ'));
 const clipPose = new GetUpPose();
 
+/**
+ * Stiffness and damping of the springs a flinch rides on, read when an animator is made. Damped at 0.8 of critical (0.6 for
+ * the head), a hit lands, leans and comes back without rocking past where it started; at the old values, about half, the
+ * chest rang past rest by a seventh of its lean. The peak barely moves with them: how far a flinch goes is set by its size.
+ * The chest's also carries an enemy's own recoil (`play('shoot')`). `?mass=0` puts back the old ones, the same flag gore's
+ * weight of hits reads (`MASS_PASS` in `gore/muscles.ts`), which characters do not import.
+ */
+export const FlinchSprings = new URLSearchParams(typeof location === 'undefined' ? '' : location.search).get('mass') === '0'
+  ? { spine: [170, 13], chest: [210, 15], head: [240, 13], pelvis: [180, 15] }
+  : { spine: [110, 17], chest: [130, 19], head: [160, 15], pelvis: [120, 18] };
+
 /** How a body takes a hit that upsets its balance. */
 const REEL = {
   /** Seconds of quick steps at full strength. */
@@ -318,10 +329,10 @@ export class HumanoidAnimator implements CharacterAnimation {
   /** What `disarm` took out of his hands, for the next body the pool makes of him. */
   private droppedGrip: WeaponGrip | null = null;
   private droppedShield: THREE.Quaternion | null = null;
-  private readonly spine = new Spring3(170, 13);
-  private readonly chest = new Spring3(210, 15);
-  private readonly head = new Spring3(240, 13);
-  private readonly pelvis = new Spring3(180, 15);
+  private readonly spine = new Spring3(FlinchSprings.spine[0]!, FlinchSprings.spine[1]!);
+  private readonly chest = new Spring3(FlinchSprings.chest[0]!, FlinchSprings.chest[1]!);
+  private readonly head = new Spring3(FlinchSprings.head[0]!, FlinchSprings.head[1]!);
+  private readonly pelvis = new Spring3(FlinchSprings.pelvis[0]!, FlinchSprings.pelvis[1]!);
   private readonly armLS = new Spring3(150, 11);
   private readonly armRS = new Spring3(150, 11);
   private readonly recoil = new Spring3(420, 26);

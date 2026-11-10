@@ -18,18 +18,29 @@ import { WEAPONS } from '../weapons/data';
 import { BloodField, BloodTuning } from './blood';
 import { ChunkField, scatter } from './chunks';
 import { ImpactEvents, impactKind, ImpactTuning } from './impacts';
-import { CollapseDrive, impactStrength, MuscleTuning, WEIGHT_PASS, type CollapseOptions, type DownedBody, type KnockdownOptions } from './muscles';
+import { CollapseDrive, impactStrength, MASS_PASS, MuscleTuning, WEIGHT_PASS, type CollapseOptions, type DownedBody, type KnockdownOptions } from './muscles';
 import { BodyFilter, fillVelocity, LimbFilter, measureAnimVelocity, Rag, SEED_STRIDE } from './rag';
 import { boneRay, boneRayContact, nextCapsuleHit, rayBones, rayNearSphere } from './raycast';
 import { Reflex } from './reflex';
 import { Crawler } from './crawl';
-import { markSevered, markSubtree, MAX_BONES, rigInfo, type RigInfo } from './rigInfo';
+import { HUMAN_MASS, markSevered, markSubtree, MAX_BONES, rigInfo, type RigInfo } from './rigInfo';
 import { SliceField } from './sliced';
 import { WoundPlanner } from './wounds';
 
 export const GoreTuning = {
-  /** Simulated ragdolls. Past this the oldest freezes. */
+  /** Simulated ragdolls. Past this the oldest at rest freezes. */
   maxRagdolls: 14,
+  /**
+   * What the budget may freeze: a body dead (or awake, thrown or shot again) at least this many seconds and slower than
+   * `freezeSpeed` m/s (`Rag.speed`, its fastest part). One still moving it leaves for `overSeconds` more, and then it may
+   * freeze with a limb still moving, once the body as a whole is that slow (`Rag.massSpeed`). Freezing the oldest whatever
+   * it was doing stopped a body killed this very frame on its feet, or one a grenade had thrown, in mid-air for good; a
+   * grenade's throw is still 1.4 m up at 0.6 s. With nothing at rest to freeze, bodies run over the budget until they are,
+   * or until their time is up. 0, no limit and 0 with `?mass=0`.
+   */
+  freezeMinAge: MASS_PASS ? 0.6 : 0,
+  freezeSpeed: MASS_PASS ? 1 : Infinity,
+  overSeconds: MASS_PASS ? 1 : 0,
   /** Bodies still holding themselves up. Past this a collapse is just a ragdoll. */
   maxCollapses: 4,
   /**
@@ -115,8 +126,17 @@ export const GoreTuning = {
 };
 
 const forceOf = (d: DamageInfo): number => (d.force > 0 ? d.force : DEFAULT_FORCE[d.type]);
-/** How hard a hit of this force jolts a body, 0..1. Bullets have to count, so this is not `impactStrength`. */
-const joltOf = (force: number): number => clamp((force * DevFlags.force) / MuscleTuning.joltFull) ** MuscleTuning.joltCurve;
+/**
+ * A body's share of a jolt or a blast's spin, from its mass: 1 for anything man-sized, up to 1.3 for a small one, and on a
+ * Juggernaut 0.30 of a jolt and 0.20 of a blast's spin.
+ */
+const massShare = (mass: number, exponent: number): number => Math.min(1.3, (HUMAN_MASS / mass) ** exponent);
+/**
+ * How hard a hit of this force jolts a body of this mass, 0..1.3. Bullets have to count, so this is not `impactStrength`.
+ * A jolt is a spin per joint, which on its own is blind to mass, so the mass comes in here.
+ */
+const joltOf = (force: number, mass: number): number =>
+  clamp((force * DevFlags.force) / MuscleTuning.joltFull) ** MuscleTuning.joltCurve * massShare(mass, MuscleTuning.joltMassExp);
 
 const MAX_STAKES = 3;
 /** What a dead body counts as having, for how big a wound one hit makes. */
@@ -148,6 +168,13 @@ class DeadBody {
   readonly damage = new Float32Array(MAX_BONES);
   /** Set while it is alive and only here for a while. Its character is still somebody else's. */
   down: Knockdown | null = null;
+  /**
+   * World time it died, woke, stopped holding itself up, or was last thrown or shot: the ragdoll budget leaves it alone for
+   * `GoreTuning.freezeMinAge` after, and while it moves for `overSeconds` more.
+   */
+  freshAt = 0;
+  /** A collapse was holding it up when last looked at. The end of one is where its fall starts. */
+  holding = false;
   constructor(readonly char: CharacterInstance, readonly info: RigInfo) {}
 }
 
@@ -263,6 +290,8 @@ export class Gore implements GoreSystem {
   /** Next body to look at for its level of detail. One a frame is plenty for things that lie still. */
   private lodAt = 0;
   private lastKnock = -1;
+  /** Simulated bodies were over `maxRagdolls` with nothing yet fit to freeze, at the last look. */
+  private over = false;
   private ready = false;
   private readonly onPreStep = (dt: number): void => this.preStep(dt);
   private readonly onRadial = (center: THREE.Vector3, radius: number, strength: number): void =>
@@ -423,8 +452,9 @@ export class Gore implements GoreSystem {
         char.anim.holdWound?.(hit.bone, hit.point, seconds);
       }
       muscle.startCollapse(drive);
+      body.holding = true;
     }
-    if (hit) muscle.jolt(hit.bone, hit.point, hit.dir, joltOf(hit.force));
+    if (hit) muscle.jolt(hit.bone, hit.point, hit.dir, joltOf(hit.force, info.mass));
   }
 
   knockdown(char: CharacterInstance, options?: KnockdownOptions): boolean {
@@ -459,8 +489,9 @@ export class Gore implements GoreSystem {
       for (const i of options.impulses) {
         this.push(rag, i.bone, i.point, i.impulse);
         const force = i.impulse.length();
-        if (force > 0) muscle?.jolt(i.bone, i.point, _v.copy(i.impulse).divideScalar(force), joltOf(force));
-        muscle?.reflex?.struck(joltOf(force));
+        if (force > 0) muscle?.jolt(i.bone, i.point, _v.copy(i.impulse).divideScalar(force), joltOf(force, rag.info.mass));
+        // How hard it was hit, for how long it stays down, not how far it moves: that is left as it was for every size.
+        muscle?.reflex?.struck(joltOf(force, HUMAN_MASS));
       }
     }
     if (rag.age > 0) this.strike(rag, options, MuscleTuning.corpseImpact);
@@ -481,6 +512,7 @@ export class Gore implements GoreSystem {
   /** It died down there. The fall goes on from where it had got to, and this is a corpse from now on. */
   private endDown(b: DeadBody): void {
     b.down = null;
+    b.freshAt = this.ctx.time.elapsed;
     const rag = b.rag;
     if (!rag) return;
     rag.muscle?.reflex?.die();
@@ -559,6 +591,7 @@ export class Gore implements GoreSystem {
 
   private adopt(char: CharacterInstance): DeadBody {
     const body = new DeadBody(char, rigInfo(char.rig));
+    body.freshAt = this.ctx.time.elapsed;
     markSevered(body.info, char.severed, body.skip);
     this.owned.set(char, body);
     this.bodies.push(body);
@@ -612,16 +645,7 @@ export class Gore implements GoreSystem {
 
   /** `keep` has just been woken and is about to be used, so it is the one chain that may not freeze here. */
   private enforceBudget(keep?: PinTarget): void {
-    let live = 0;
-    for (const b of this.bodies) if (b.rag?.active && b.sinking < 0) live++;
-    for (let i = 0; i < this.bodies.length && live > GoreTuning.maxRagdolls; i++) {
-      const b = this.bodies[i]!;
-      // Frozen mid-collapse, a body would stand there for good. Frozen alive, it would never get up.
-      if (b !== keep && b.rag?.active && b.stakes.length === 0 && !b.rag.muscle?.collapse && !b.down) {
-        this.freezeBody(b);
-        live--;
-      }
-    }
+    this.budgetRagdolls(keep);
     let corpses = 0;
     for (const b of this.bodies) if (b.sinking < 0) corpses++;
     for (let i = 0; i < this.bodies.length && corpses > GoreTuning.maxCorpses; i++) {
@@ -651,6 +675,59 @@ export class Gore implements GoreSystem {
         limbs--;
       }
     }
+  }
+
+  /**
+   * Holds simulated bodies to `maxRagdolls`, oldest first. It freezes a body at rest: one dead, awake, thrown or shot
+   * `freezeMinAge` ago and slower than `freezeSpeed`. Then one that is down but has kept a limb moving for `overSeconds`
+   * past that. Nothing younger freezes here, nor anything in the air, so a burst that kills more than the budget, or throws
+   * what it has, runs over it for a moment. There is no ceiling on that: one that froze what was down whatever its limbs
+   * did, past 22 chains, cut a grenade into 30 by a tenth and froze arms mid-swing. Those times are the body's own: on the
+   * tempo dial it falls slower, and has longer. `update` looks again every frame until it is back inside.
+   */
+  private budgetRagdolls(keep?: PinTarget): void {
+    const t = GoreTuning;
+    let live = 0;
+    for (const b of this.bodies) if (b.rag?.active && b.sinking < 0) live++;
+    this.over = false;
+    if (live <= t.maxRagdolls) return;
+    const now = this.ctx.time.elapsed;
+    const bodies = this.bodies;
+    // At rest. A chain pushed since it was last measured is on its way somewhere, whatever it read then.
+    for (let i = 0; i < bodies.length && live > t.maxRagdolls; i++) {
+      const b = bodies[i]!;
+      if (!this.freezable(b, keep) || this.fallen(b, now) < t.freezeMinAge) continue;
+      if ((b.rag!.pushed ? Infinity : b.rag!.speed) > t.freezeSpeed) continue;
+      this.freezeBody(b);
+      live--;
+    }
+    // Out of time: down, though a limb may still be moving. Not one still going somewhere as a whole, which is a body in
+    // the air, falling off a ledge, or sliding.
+    for (let i = 0; i < bodies.length && live > t.maxRagdolls; i++) {
+      const b = bodies[i]!;
+      if (!this.freezable(b, keep) || this.fallen(b, now) < t.freezeMinAge + t.overSeconds) continue;
+      if ((b.rag!.pushed ? Infinity : b.rag!.massSpeed) > t.freezeSpeed) continue;
+      this.freezeBody(b);
+      live--;
+    }
+    this.over = live > t.maxRagdolls;
+  }
+
+  /** Frozen mid-collapse, a body would stand there for good. Frozen alive, it would never get up. A staked one hangs. */
+  private freezable(b: DeadBody, keep?: PinTarget): boolean {
+    return b !== keep && b.rag !== null && b.rag.active && b.stakes.length === 0 && !b.rag.muscle?.collapse && !b.down;
+  }
+
+  /**
+   * Seconds this body has been falling, in its own time: since it died, woke, was thrown or shot, or a collapse let go of
+   * it, which is a body that has just started to fall, however long it took to die. Slowed by the tempo dial's pace.
+   */
+  private fallen(b: DeadBody, now: number): number {
+    if (b.holding && !b.rag?.muscle?.collapse) {
+      b.holding = false;
+      b.freshAt = now;
+    }
+    return (now - b.freshAt) * (b.rag?.throwScale ?? 1);
   }
 
   private freezeBody(b: DeadBody): void {
@@ -1133,6 +1210,9 @@ export class Gore implements GoreSystem {
         target.smearLeft = 3;
         target.smearAt.copy(target.rag.center);
       }
+      // A round is motion the budget cannot see once the frame has been measured: dated from its waking alone, a corpse
+      // under fire froze and woke every 0.6 s, leaving a pool each time.
+      target.freshAt = this.ctx.time.elapsed;
       const muscle = target.rag?.muscle;
       let drive = muscle?.collapse ?? null;
       // A round in the head of a body still on its feet drops it on this frame, and all of the round lands on the head:
@@ -1146,12 +1226,13 @@ export class Gore implements GoreSystem {
       const onBone = drive ? 1 - MuscleTuning.carryShare : 1;
       if (target.rag) this.push(target.rag, hit.bone, hit.point, _v.copy(damage.dir).multiplyScalar(forceOf(damage) * onBone));
       if (drive) drive.carry(damage.dir, (forceOf(damage) * DevFlags.force) / target.info.mass);
-      const jolt = joltOf(forceOf(damage));
+      const jolt = joltOf(forceOf(damage), target.info.mass);
       muscle?.struck(impactStrength(forceOf(damage), target.info.mass));
       muscle?.kick(damage.dir, impactStrength(forceOf(damage), target.info.mass) * MuscleTuning.corpseImpact);
       muscle?.jolt(hit.bone, hit.point, damage.dir, jolt);
-      // Still on its feet, the animation it is following flinches too, and the muscles carry that as well.
-      muscle?.collapse?.flinch(hit.bone, damage.dir, MuscleTuning.collapseFlinch * jolt);
+      // Still on its feet, the animation it is following flinches too, and the muscles carry that as well. The animator
+      // sizes a flinch by build itself (`HumanoidAnimator.flinch`), so this one is not scaled by mass again.
+      muscle?.collapse?.flinch(hit.bone, damage.dir, MuscleTuning.collapseFlinch * joltOf(forceOf(damage), HUMAN_MASS));
       this.wounds.onBody(char, damage, damage.amount / CORPSE_HEALTH, hit.bone, hit.point);
       this.corpseSound(hit.point, damage, machine, false);
       target.damage[hit.bone] = target.damage[hit.bone]! + damage.amount * (damage.severMult ?? 1);
@@ -1247,6 +1328,7 @@ export class Gore implements GoreSystem {
     const rag = target.rag;
     if (!rag || rag.active) return;
     rag.wake();
+    if (target instanceof DeadBody) target.freshAt = this.ctx.time.elapsed;
     for (const stake of target.stakes) this.nail(rag, stake);
     this.enforceBudget(target);
   }
@@ -1320,10 +1402,16 @@ export class Gore implements GoreSystem {
       this.wake(target);
       rag.radialImpulse(center, radius, strength);
     }
+    // Thrown again, it starts its fall again: on the time from its death the ragdoll budget froze a body a second grenade
+    // had thrown 2 m up.
+    if (target instanceof DeadBody) target.freshAt = this.ctx.time.elapsed;
     rag.muscle?.dropNow();
     rag.muscle?.reflex?.thrown();
     const reach = strength * (1 - distance / radius);
-    rag.muscle?.kick(_v.copy(rag.center).sub(center), clamp(reach / MuscleTuning.blastFull));
+    // The throw is shared out by mass already, but the limbs' spin was not: a Juggernaut's hands went five times as fast as
+    // its hips. A loose limb has no trunk to go with, and its `info` is the whole body's, so it spins as it did.
+    const spin = target instanceof DeadBody ? massShare(rag.info.mass, MuscleTuning.blastMassExp) : 1;
+    rag.muscle?.kick(_v.copy(rag.center).sub(center), clamp(reach / MuscleTuning.blastFull) * spin);
   }
 
   // -------------------------------------------------------------------------------------------
@@ -1361,6 +1449,7 @@ export class Gore implements GoreSystem {
       const rag = b.rag;
       if (!rag?.active) continue;
       rag.muscle?.sampleCollapse(dt);
+      if (b.holding) this.fallen(b, now);
       rag.drive();
       rag.measure(dt, t.calmSpeed, t.calmSpin);
       rag.muscle?.sampleReflex(dt);
@@ -1381,6 +1470,9 @@ export class Gore implements GoreSystem {
       }
       if (rag.calm > t.settleTime || rag.age > (b.stakes.length > 0 ? t.maxPinnedSimTime : t.maxSimTime)) this.freezeBody(b);
     }
+    // Over the ragdoll budget, what was too fresh or too fast to freeze is looked at again now it has been measured. With
+    // `?mass=0` the budget was only ever kept when something died or woke, as before.
+    if (MASS_PASS && this.over) this.budgetRagdolls();
 
     for (let i = this.limbs.length - 1; i >= 0; i--) {
       const l = this.limbs[i]!;
@@ -1492,6 +1584,7 @@ export class Gore implements GoreSystem {
     }
     this.bodies = [];
     this.owned.clear();
+    this.over = false;
     for (const l of this.limbs) {
       l.rag.destroy();
       this.stopLimbEmitters(l);

@@ -15,7 +15,7 @@ import type { DamageResult, KillEvent } from '../core/gameplay';
 import { chance, clamp, lerp, pick, rand } from '../core/math';
 import { FACTIONS, type FactionRules } from '../contracts/data';
 import { ACTIVE } from '../contracts/select';
-import { WEIGHT_PASS } from '../gore/muscles';
+import { MASS_PASS, WEIGHT_PASS } from '../gore/muscles';
 import { bursts, HEAVY_ROUND } from './wounds/rules';
 import { BLAST, OUTCOME_COUNT, OUTCOMES, rollBlast, tearsWaist, type BlastBody, type BlastRoll, type OutcomeRule } from './blast';
 import { ENEMIES, LIMB_SIZE, REGION_DAMAGE } from './data';
@@ -57,6 +57,19 @@ const SUDDEN_TWITCH = 1;
 const SLOW_TWITCH = 0.45;
 /** A lethal headshot drops him like a sack, and he lies still. A sudden death's twitch with `?weight=0`. */
 const HEADSHOT_TWITCH = WEIGHT_PASS ? 0 : SUDDEN_TWITCH;
+/**
+ * The living flinch, from the share of health a hit took: `base + share * gain`, at most `max`. The animator already sizes
+ * it by build (`HumanoidAnimator.flinch`), so mass is not counted again here. As it was before, with `?mass=0`, an SMG round
+ * rocked a Trooper's chest 0.26 rad and the springs under it rang past rest by a seventh of that. A machine (a drone, a
+ * skitter) keeps the old size: its animator sizes nothing by build and its tilt spring was not made to settle, so the
+ * smaller one would only be a smaller reaction.
+ */
+const FLINCH = MASS_PASS ? { base: 0.2, gain: 2.2, max: 1.4 } : { base: 0.35, gain: 3, max: 1.6 };
+const MACHINE_FLINCH = { base: 0.35, gain: 3, max: 1.6 };
+export const flinchSize = (share: number, machine = false): number => {
+  const f = machine ? MACHINE_FLINCH : FLINCH;
+  return clamp(f.base + share * f.gain, f.base, f.max);
+};
 /**
  * Most of its stagger and knockback a body keeps when it dies, in m/s. The living shed both within a second; a corpse
  * slides on with whatever it is given. Kept whole, a stagger from the round before made an SMG kill at 8 m land twice as
@@ -653,7 +666,7 @@ export class DamageModel {
     const bone = d.bone ?? (e.def.machine ? DroneBone.body : REGION_BONE[region] ?? 0);
     const armoured = res.blocked;
 
-    char.anim.flinch(bone, d.dir, clamp(0.35 + frac * 3, 0.35, 1.6));
+    char.anim.flinch(bone, d.dir, flinchSize(frac, e.def.machine === true));
     char.hitFlash(armoured ? 0.35 : clamp(0.55 + frac * 2, 0.55, 1));
     if (!armoured && d.type !== 'fire' && d.type !== 'shock' && !e.def.machine) {
       e.blood = Math.min(1, e.blood + 0.08 + frac * 1.1);

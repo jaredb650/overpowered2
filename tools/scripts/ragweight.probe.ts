@@ -5,7 +5,7 @@
 // of their cases. Trust 6-heading means only, and several rounds of them: the animator starts every body at a random phase,
 // and MuscleState seeds come from a module counter, so no two runs are alike.
 // Sections: mass deaths ab arm hits variants pose fixes twitch trace flinch, which `all` runs, and sweep freeze collapse
-// tempo, which run only when named. PROBE_SET=rag.heelFeet=0,muscle.trunkCut=1 sets tuning first; PROBE_CUTS=1,0 is the trunk
+// tempo hitmass, which run only when named. PROBE_ROUNDS sets how many rounds of six headings `hitmass` runs. PROBE_SET=rag.heelFeet=0,muscle.trunkCut=1 sets tuning first; PROBE_CUTS=1,0 is the trunk
 // cuts `collapse` runs. Before the weight pass, `PROBE_SET=rag.heelFeet=0,muscle.trunkCut=1,gore.headshotTwitch=1`. Any section
 // runs on the tempo dial with PROBE_SET=rag.gravityScale=0.6; `tempo` runs its own, PROBE_DIALS=1,0.75,0.6.
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -17,6 +17,8 @@ import { HumanoidBone as B, type RigDef } from '../../src/characters/rig';
 import { GRAVITY, Physics } from '../../src/physics/Physics';
 import { makeCtx } from '../../src/sandbox/harness';
 import type { Ctx, DamageInfo } from '../../src/core/contracts';
+import * as damageModel from '../../src/enemies/damage';
+import { ENEMIES } from '../../src/enemies/data';
 import { createGoreSystem, GoreTuning, type Gore } from '../../src/gore/index';
 import { MuscleState, MuscleTuning } from '../../src/gore/muscles';
 import { Rag, RagTuning } from '../../src/gore/rag';
@@ -25,7 +27,7 @@ import { TestDummy } from '../../src/gore/testDummy';
 
 const sections = (process.env.PROBE ?? process.argv[2] ?? 'all').split(',').map(s => s.trim()).filter(Boolean);
 /** Sections added for the weight pass and the tempo dial. They run only when named. */
-const NAMED_ONLY = new Set(['sweep', 'freeze', 'collapse', 'tempo']);
+const NAMED_ONLY = new Set(['sweep', 'freeze', 'collapse', 'tempo', 'hitmass']);
 const want = (s: string) => sections.includes(s) || (sections.includes('all') && !NAMED_ONLY.has(s));
 const OUT_DIR = new URL('../out/ragweight/', import.meta.url).pathname;
 const PREFIX = process.env.PROBE_PREFIX ?? '';
@@ -872,32 +874,156 @@ if (want('trace')) {
 }
 
 if (want('flinch')) {
-  // A standing living body is the animator's: how far an SMG round moves its chest and head through `flinch`.
+  // A standing living body is the animator's: how far one round tips its chest and head through `flinch`. Read against a
+  // twin that was not hit, started from the same animator state, so the idle's own sway does not count. `chestTilt` is
+  // signed along the shot: past rest the other way is the overshoot. The size of the flinch is the damage model's own
+  // (`flinchSize`, falling back to the formula from before stage 3 on a tree without it).
   const res: Record<string, unknown> = {};
-  const hp: Record<string, number> = { husk: 50, trooper: 70, brute: 260 };
-  for (const arch of ['husk', 'trooper', 'brute']) {
-    gore.clear();
-    const c = spawn(arch, 0, 0, 0, true);
+  const sizeOf = (damageModel as { flinchSize?: (frac: number) => number }).flinchSize ?? ((frac: number) => Math.min(1.6, Math.max(0.35, 0.35 + frac * 3)));
+  const living = (arch: string): Body => {
+    const rig = rigOf(arch);
+    const c = new TestDummy(rig) as Body;
+    scene.add(c.root);
+    (c as { anim: unknown }).anim = new HumanoidAnimator(c.bones, rig, archetypeById(arch), c.root, c.severed, b => hiddenOf(c)[b] === 1);
+    return c;
+  };
+  const step = (c: Body) => {
     const anim = c.anim as HumanoidAnimator;
-    const frac = 25 / hp[arch]!;
-    const mag = Math.min(1.6, Math.max(0.35, 0.35 + frac * 3));
-    const chest0 = pos(c, B.chest), head0 = pos(c, B.head);
-    const cu0 = upOf(c, B.chest), hu0 = upOf(c, B.head);
-    anim.flinch(B.chest, FWD, mag);
-    let chestMax = 0, headMax = 0, chestRot = 0, headRot = 0, headPeak = 0, lastHead = head0.clone();
-    for (let i = 0; i < 30; i++) {
-      anim.setLocomotion({ speed: 0, moveX: 0, moveZ: 1, aimYaw: 0, aimPitch: 0, grounded: true } as never);
-      anim.update(1 / 60, 0);
-      c.root.updateMatrixWorld(true);
-      chestMax = Math.max(chestMax, pos(c, B.chest).distanceTo(chest0));
-      headMax = Math.max(headMax, pos(c, B.head).distanceTo(head0));
-      chestRot = Math.max(chestRot, upOf(c, B.chest).angleTo(cu0));
-      headRot = Math.max(headRot, upOf(c, B.head).angleTo(hu0));
+    anim.setLocomotion({ speed: 0, moveX: 0, moveZ: 1, aimYaw: 0, aimPitch: 0, grounded: true } as never);
+    anim.update(1 / 60, 0);
+    c.root.updateMatrixWorld(true);
+  };
+  const cases: [string, string, number][] = [['husk', 'husk', 25], ['trooper', 'trooper', 25], ['brute', 'brute', 25], ['trooper-judge', 'trooper', 120]];
+  for (const [name, arch, amount] of cases) {
+    const c = living(arch);
+    const ref = living(arch);
+    const a = c.anim as unknown as Record<string, number>;
+    const b = ref.anim as unknown as Record<string, number>;
+    b.time = a.time!; b.seed = a.seed!; b.tickCount = a.tickCount!;
+    for (let i = 0; i < 30; i++) { step(c); step(ref); }
+    const frac = Math.min(1, amount / ENEMIES[arch as keyof typeof ENEMIES].hp);
+    const mag = sizeOf(frac);
+    (c.anim as HumanoidAnimator).flinch(B.chest, FWD, mag);
+    const tilt: number[] = [];
+    let chestRot = 0, headRot = 0, headPeak = 0, lastHead = pos(c, B.head);
+    const cross = v(0, 0, 0), axis = v(0, 0, 0);
+    for (let i = 0; i < 60; i++) {
+      step(c); step(ref);
+      const u = upOf(c, B.chest), u0 = upOf(ref, B.chest);
+      axis.crossVectors(u0, FWD).normalize();
+      tilt.push(Math.atan2(cross.crossVectors(u0, u).dot(axis), u0.dot(u)));
+      chestRot = Math.max(chestRot, u.angleTo(u0));
+      headRot = Math.max(headRot, upOf(c, B.head).angleTo(upOf(ref, B.head)));
       const h = pos(c, B.head); headPeak = Math.max(headPeak, h.distanceTo(lastHead) * 60); lastHead = h;
     }
-    res[arch] = { magnitude: r2(mag), chestMoved: r3(chestMax), headMoved: r3(headMax), chestRot: r3(chestRot), headRot: r3(headRot), headPeakSpeed: r2(headPeak) };
+    let iPeak = 0;
+    for (let i = 1; i < tilt.length; i++) if (tilt[i]! > tilt[iPeak]!) iPeak = i;
+    const peak = tilt[iPeak]!;
+    const back = Math.min(0, ...tilt.slice(iPeak));
+    let settled = tilt.length;
+    while (settled > 0 && Math.abs(tilt[settled - 1]!) < 0.02) settled--;
+    res[name] = {
+      magnitude: r2(mag), chestTilt: r3(peak), tPeak: r2((iPeak + 1) / 60), overshoot: r3(-back), overshootShare: r2(-back / Math.max(peak, 1e-6)),
+      tiltAt05: r3(Math.abs(tilt[29]!)), within002From: r2(settled / 60), chestRot: r3(chestRot), headRot: r3(headRot), headPeakSpeed: r2(headPeak),
+    };
+    scene.remove(c.root, ref.root);
   }
   saveSection('flinch', res);
+}
+
+if (want('hitmass')) {
+  // Stage 3: a round shows the mass of what it hits. PROBE_ROUNDS rounds (default 2) of six headings, each case:
+  // - down: knocked down and lying, one SMG round the way `hitWhileDown` sends it, with a wound for a hand to go to. Also the
+  //   round alone, the wound alone and neither, since the reach to a wound moves a long arm further than any round, and a
+  //   body lying there stirs by itself, so what the round does is `shot` against `none`. Hands, 0.3 s on.
+  // - forearm: a corpse at rest, one SMG round that really lands on its right forearm. The hand, 1 s on.
+  // - rocket: a corpse at rest, a rocket on the floor 3 m away. Peak hand speed over peak hips speed, 1 s on.
+  const rounds = Number(process.env.PROBE_ROUNDS ?? 2);
+  const res: Record<string, unknown> = {};
+  const stat = (xs: number[]) => {
+    const f = xs.filter(Number.isFinite).sort((a, b) => a - b);
+    if (!f.length) return null;
+    return { mean: r3(f.reduce((s, x) => s + x, 0) / f.length), median: r3((f[(f.length - 1) >> 1]! + f[f.length >> 1]!) / 2), min: r3(f[0]!), max: r3(f.at(-1)!), n: f.length };
+  };
+  const corpse = (arch: string, yaw: number): Body => {
+    gore.clear();
+    const c = spawn(arch, 0, 0, yaw, false);
+    gore.ragdoll(c);
+    let f = 0;
+    while (gore.stats().ragdolls > 0 && f < 600) { frame(); f++; }
+    return c;
+  };
+  const peakOf = (c: Body, bones: number[], frames: number) => {
+    const last = bones.map(b => pos(c, b));
+    const start = last.map(p => p.clone());
+    const peak = bones.map(() => 0);
+    for (let f = 0; f < frames; f++) {
+      frame();
+      bones.forEach((b, i) => { const p = pos(c, b); peak[i] = Math.max(peak[i]!, p.distanceTo(last[i]!) / ctx.time.dt); last[i] = p; });
+    }
+    return { peak, moved: last.map((p, i) => p.distanceTo(start[i]!)) };
+  };
+  for (const arch of ['husk', 'trooper', 'brute', 'juggernaut']) {
+    // `down` is shot 70 frames after the knockdown, as the `hits` section does, which on a big body is still the fall;
+    // `lying` 150 frames after, with longer on the floor, once it lies there.
+    for (const [when, at, lie] of [['down', 70, 3], ['lying', 150, 4]] as const) for (const variant of ['shot+wound', 'shot', 'wound', 'none']) {
+      const handR: number[] = [], hand: number[] = [];
+      for (let r = 0; r < rounds; r++) for (const yaw of HEADINGS) {
+        gore.clear();
+        const c = spawn(arch, 0, 0, yaw, true);
+        gore.knockdown(c, { topple: v(0, 0, -1.8), lie, rise: 2, hurt: 0.6 });
+        for (let i = 0; i < at; i++) frame();
+        const target = pos(c, B.chest);
+        const dir = target.clone().sub(target.clone().add(v(0, 1.4, 4))).normalize();
+        const options: NonNullable<Parameters<Gore['knockdown']>[1]> = {};
+        if (variant.startsWith('shot')) options.impulses = [{ bone: B.chest, point: target, impulse: dir.clone().multiplyScalar(20) }];
+        if (variant.endsWith('wound')) options.wound = { bone: B.chest, point: target };
+        gore.knockdown(c, options);
+        const { moved } = peakOf(c, [B.handL, B.handR], 18);
+        handR.push(moved[1]!);
+        hand.push(Math.max(moved[0]!, moved[1]!));
+      }
+      gore.clear();
+      res[`${when}/${arch}/${variant}`] = { handR: stat(handR), hand: stat(hand) };
+    }
+    {
+      const handR: number[] = [], peakR: number[] = [];
+      let misses = 0;
+      for (let r = 0; r < rounds; r++) for (const yaw of HEADINGS) {
+        const c = corpse(arch, yaw);
+        const mid = pos(c, B.foreArmR).add(pos(c, B.handR)).multiplyScalar(0.5);
+        let hit: ReturnType<Gore['raycastCorpses']> = null;
+        let dir = v(0, -1, 0);
+        for (const off of [v(0, 3, 0.4), v(0.4, 3, 0), v(-0.4, 3, 0), v(0, 3, -0.4), v(1.5, 1.5, 0), v(-1.5, 1.5, 0), v(0, 1.5, 1.5), v(0, 1.5, -1.5)]) {
+          dir = mid.clone().sub(off.clone().add(mid)).normalize();
+          const h = gore.raycastCorpses(mid.clone().add(off), dir, off.length() + 1);
+          if (h && h.bone === B.foreArmR) { hit = h; break; }
+        }
+        if (!hit) { misses++; continue; }
+        gore.damageCorpse(hit, dmg(hit.point, dir, 25, 20));
+        const { peak, moved } = peakOf(c, [B.handR], 60);
+        handR.push(moved[0]!);
+        peakR.push(peak[0]!);
+      }
+      gore.clear();
+      res[`forearm/${arch}`] = { handR: stat(handR), peakHandR: stat(peakR), misses };
+    }
+    {
+      const ratio: number[] = [], ratioR: number[] = [], hips: number[] = [];
+      for (let r = 0; r < rounds; r++) for (const yaw of HEADINGS) {
+        const c = corpse(arch, yaw);
+        const at = pos(c, B.hips);
+        physics.radialImpulse(v(at.x, 0.3, at.z + 3), 8 * 1.35, 12 * 8);
+        const { peak } = peakOf(c, [B.hips, B.handL, B.handR], 60);
+        hips.push(peak[0]!);
+        ratio.push(Math.max(peak[1]!, peak[2]!) / peak[0]!);
+        ratioR.push(peak[2]! / peak[0]!);
+      }
+      gore.clear();
+      res[`rocket/${arch}`] = { handOverHips: stat(ratio), handROverHips: stat(ratioR), hipsPeak: stat(hips) };
+    }
+  }
+  saveSection('hitmass', res);
 }
 
 if (want('sweep')) {

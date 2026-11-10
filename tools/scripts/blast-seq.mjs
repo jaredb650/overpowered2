@@ -1,10 +1,13 @@
 // A grenade into a crowd on the Test Range, several tries on one sheet: a row per try, a column per moment. AI off, real rings, real gore.
 //   BLAST_TRIES=4 node tools/shot.mjs --url "/?map=range" --script tools/scripts/blast-seq.mjs --dpr 2 --w 1440 --h 900 --wait 500 --timeout 170 --out tools/out/blast.png
 // BLAST_ID picks the body, BLAST_KIND the blast, BLAST_NAME the sheet, which lands at <name>-sheet.png next to --out. On the Outpost add &contract=outpost.
+// BLAST_CROWD is how many stand there (12). Each try reports every body the ragdoll budget or settling froze: where its hips
+// were, how fast it was going and how long it had been dead, and `high`, how many froze with the hips above 0.5 m.
 const tries = Number(process.env.BLAST_TRIES ?? 4);
 const id = process.env.BLAST_ID ?? 'trooper';
 const kind = process.env.BLAST_KIND ?? 'grenade';
 const SPREAD = Number(process.env.BLAST_SPREAD ?? 5);
+const CROWD = Number(process.env.BLAST_CROWD ?? 12);
 const STEPS = [0, 6, 16, 34, 80, 200, 420];
 const TILE_W = 320;
 const TILE_H = 200;
@@ -31,7 +34,7 @@ export default async function blastSeq(page, h) {
     const model = ctx.enemies.model;
     const rolled = model.rolled.bind(model);
     const r = {
-      V, crowd: [], rolls: [], kills: 0, gibs: 0,
+      V, crowd: [], rolls: [], kills: 0, gibs: 0, frozen: [], crowdSize: 12,
       async walk(frames) {
         lab.step(frames);
         while (lab.steps > 0) await frame();
@@ -47,9 +50,10 @@ export default async function blastSeq(page, h) {
         r.crowd = [];
         r.rolls = [];
         r.kills = r.gibs = 0;
-        for (let i = 0; i < 12; i++) {
+        r.frozen = [];
+        for (let i = 0; i < r.crowdSize; i++) {
           const a = i * 2.399963;
-          const d = spread * Math.sqrt((i + 0.5) / 12);
+          const d = spread * Math.sqrt((i + 0.5) / r.crowdSize);
           r.crowd.push(lab.spawner.place(bodyId, new V(Math.cos(a) * d, 0, Math.sin(a) * d), 'off'));
         }
         const d = new V(0, 0.8, 0).sub(ctx.player.eye);
@@ -84,6 +88,19 @@ export default async function blastSeq(page, h) {
       r.kills++;
       if (k.gibbed) r.gibs++;
     });
+    const gore = ctx.gore;
+    const freeze = gore.freezeBody.bind(gore);
+    const hips = new V();
+    gore.freezeBody = b => {
+      if (b.rag?.active) {
+        r.frozen.push({
+          hips: +b.char.bones[0].getWorldPosition(hips).y.toFixed(2),
+          speed: b.rag.pushed ? 'pushed' : +b.rag.speed.toFixed(2),
+          dead: b.freshAt === undefined ? null : +(ctx.time.elapsed - b.freshAt).toFixed(2),
+        });
+      }
+      return freeze(b);
+    };
     window.__r = r;
   });
 
@@ -92,7 +109,7 @@ export default async function blastSeq(page, h) {
   const rows = [];
   const results = [];
   for (let t = 0; t < tries; t++) {
-    await page.evaluate(async ({ id, spread }) => { await window.__r.start(id, spread); }, { id, spread: SPREAD });
+    await page.evaluate(async ({ id, spread, crowd }) => { window.__r.crowdSize = crowd; await window.__r.start(id, spread); }, { id, spread: SPREAD, crowd: CROWD });
     const worst = await page.evaluate(({ kind, spec }) => {
       const t0 = performance.now();
       window.__r.go(kind, spec);
@@ -113,6 +130,7 @@ export default async function blastSeq(page, h) {
     results.push({
       rolls: await page.evaluate(() => window.__r.rolls), kills: await page.evaluate(() => window.__r.kills), gibs: await page.evaluate(() => window.__r.gibs), blastMs: worst,
       first: states[1], last,
+      frozen: await page.evaluate(() => window.__r.frozen), high: await page.evaluate(() => window.__r.frozen.filter(f => f.hips > 0.5).length),
     });
   }
   const context = await page.context().browser().newContext();
