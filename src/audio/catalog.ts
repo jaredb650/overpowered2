@@ -278,7 +278,7 @@ const RENDER_TIERS: readonly RegExp[] = [
   // a drone or skitter being shot, and `metal_clang` its wreck.
   /^(limb_|bone_|gib_|blood_|head_pop|body_|flesh_|vox_(grunt|pain|death|husk|radio)|enemy_|player_|heartbeat|low_health|armor_|heal_|pickup_|combo_|multikill|style_|grenade_|bullet_|machine_clang|metal_clang)/,
   // The first streaks and the first weapon cache.
-  /^(perk_|powerup_|callin_|cache_|missile_|explosion_|vox_|revolver_|stake_|flame_|minigun_|railgun_|lance_|plasma_|sword_|sentinel_|lightning_)/,
+  /^(perk_|powerup_|callin_|cache_|missile_|explosion_|vox_|revolver_|stake_|flame_|minigun_|cannon_|piledriver_|railgun_|lance_|plasma_|sword_|sentinel_|lightning_)/,
 ];
 
 /** Lower renders sooner. Every id's first variant comes before any id's spares in the same tier. */

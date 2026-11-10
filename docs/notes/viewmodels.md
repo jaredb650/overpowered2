@@ -24,7 +24,7 @@ viewmodel.equip('lance', 0.3);       // seconds <= 0.03 skips the draw, for a qu
 viewmodel.fire(strength, left);      // strength scales the weapon's own RecoilSpec
 viewmodel.reload(seconds);           // the clip stretches to whatever it is given
 viewmodel.swing('light2', seconds);  // 'block' is an overlay on the guard, not a move
-viewmodel.setCharge(0..1);           // Lance capacitors, Buzzsaw spin, sword wind-up
+viewmodel.setCharge(0..1);           // Lance capacitors, the rotary cannon's spin, sword wind-up
 ```
 
 The `sonar:tap` event raises the left hand to the helmet. Its fingers land `SONAR.tapLead` later, when the ping goes out.
@@ -38,6 +38,10 @@ Write `models/<id>.ts` exporting a `ViewDef`, and add it to `buildDefs` in `mode
 A family member (`docs/notes/weapons.md`) is the same one line. The Harrow and the Rivet are files of their own. The Sabot is `autocannon.ts` built with a second `Look`: the same receiver, with a smoothbore under a ported sleeve, blue-banded darts on the belt and blue glass, because it is the same gun with a different belt in it. A variant like that shares hand sockets and animation for free. It shares the reload and the draw. Its shot is its own, through the `Action` the clip is built with: the Thirty is `SHORT_RECOIL` (7 cm of barrel, home in 0.14 s), the Sabot `LONG_RECOIL` (10.5 cm, the charging handle thrown back with it, home in 0.36 s of its 0.45 s between shots), because it has no brake to bleed the shot off.
 
 The Thresher (`models/thresher.ts`) and the Quiver (`models/quiver.ts`) are files of their own. The Thresher is grey polymer where the pump is walnut: an in-line stock, a carry handle with the sights, a slotted shroud, a ported brake and a steel drum on a latch (part `drum`), which tips out and drops on the reload and comes back with a slap, then the handle is racked. The Quiver is a ribbed olive box of four tubes with a framed face, a painter unit on the left flank and a folding fore grip. **More than one barrel:** a model gives each its own socket, `muzzle`, `muzzle1`, `muzzle2`, `muzzle3`, and `Rig.muzzle(out, left, barrel)` answers the one asked for, or `muzzle` on a gun that has one. The Quiver's tubes empty in firing order, so tube `i` is drawn loaded while `i >= magSize - mag`; each shot kicks the block toward the side of the tube that fired. Its painter shows the marks: four lamps (glows `lamp0`..`lamp3`) lit by `a.charge`, which `Weapons` sets to marks over salvo size through `setCharge`, and a screen with the count and the four tubes. It loads from the front: the block is presented, and each round (parts `round0`..`round3`, hand sockets `load0`..`load3` on their tails) comes up from the waist and is pushed into its tube at 0.24, 0.4, 0.56 and 0.72 of the reload, on the four `quiver_load` cues.
+
+Key 8 is two files. **The Trommel** (`models/trommel.ts`, registered under the id `buzzsaw`) replaced the Buzzsaw's model: six barrels 3 cm across where the old ones were 1.7, on a circle 8 cm wide where the old one was 5, each with a 20 mm bore and a heavy collar at the muzzle, held in a plain steel muzzle ring where the red toothed disc was. The housing is half as wide again and taller, with a fatter motor in its flank, a thicker carry handle and a bigger can of 20 mm on a chute of wider links. Nothing on it is toothed or red. `spinMax` is 24 rad/s. Its clip hammers the whole gun about while rounds leave: six sines at rates that share no factor, on position and rotation, held for 0.09 s after a round and faded over 0.16, with the can swinging on its latch and the chute whipping; the recoil spring under it has three times the old travel on a slower spring (`omega` 58), so at 25 rounds a second the gun never comes home between two. The reload is the Buzzsaw's: can off, new can on, one throw of the feed lever. `models/buzzsaw.ts` is kept, and `?slot8=old` builds it in the Trommel's place.
+
+**The Piledriver** (`models/piledriver.ts`) is a carried heavy machine gun: a long riveted receiver under a hinged feed cover, a barrel in a cage of four slotted plates, a block of a brake, a belt box on the left with seven linked rounds climbing out of it onto the feed tray, a charging handle the whole fist goes round, a ladder sight. The barrel is its own part (`barrel`) and runs back 2.2 cm in the cage on every round, the bolt 7 cm, and the belt steps a link. Its recoil is the hardest of any automatic: 5 cm back and 0.052 rad of climb on a spring slow enough (`omega` 34) that eight a second are eight blows. Reload: cover up, box off, new box on at 0.5, belt up onto the tray, cover down at 0.69, handle racked at 0.8 on `piledriver_charge`.
 
 - Origin at the top of the grip, `-Z` forward, `+Y` up. Sockets `muzzle` and `eject`, and hand sockets from `model.hand(name, contact, side, fingers, part?)`. `contact` is where the palm presses, **relative to `part` when one is given**. That is the easiest mistake here. It left the SMG's rack hand floating near the camera.
 - `animate(a)` runs every frame after `resetParts()`, so it writes offsets with `+=` and adds to `a.gunP` and `a.gunR`. Hands take `a.left.to(socket, weight)` in sequence, later wins.
@@ -95,14 +99,14 @@ Triangles and draw calls per weapon, as shipped. Only the held weapon draws.
 | Model | Triangles | Draws | | Model | Triangles | Draws |
 |---|---|---|---|---|---|---|
 | SMG, each | 22.8k | 12 | | Lance | 34.7k | 17 |
-| Shotgun | 18.5k | 8 | | Buzzsaw | 19.9k | 10 |
+| Shotgun | 18.5k | 8 | | Trommel (the Buzzsaw's model, with `?slot8=old`: 19.9k, 10) | 19.2k | 10 |
 | Rocket | 20.4k | 9 | | Kiln | 15.3k | 10 |
 | Autocannon | 24.8k | 14 | | Stakegun | 20.3k | 12 |
 | Sword | 6.0k | 1 | | Grenade | 4.9k | 3 |
 | Judge | 13.4k | 10 | | Walkie, designator | 3.5k, 3.2k | 4, 5 |
 | Harrow | 9.6k | 9 | | Rivet | 5.2k | 7 |
 | Sabot | 26.3k | 14 | | Thresher | 9.4k | 11 |
-| Quiver | 11.4k | 18 | | | | |
+| Quiver | 11.4k | 18 | | Piledriver | 14.9k | 11 |
 
 The sword and Judge are under the brief's 15k floor. They look finished at that count, so I left the budget unspent.
 
@@ -154,6 +158,7 @@ VM_STEPS=perks,callins node tools/shot.mjs --url "/?sandbox=range&live=1&load=hu
 - **The Lance's rails are hard to see from the eye.** They glow, but the capacitors on the near flank carry most of the charge read.
 - **The Lance's charge was checked as four stills**, one at each stage in the real game, with the charge held still for each. The capacitors and the screen read; whether the stage jolt and the shake at full read in motion is unjudged. With `?lance=old` the old gun keeps this clip, so its capacitors fill at the new stages' thresholds and not in quarters.
 - **Parry and guard share a pose family.** `Sword.ts` has one state for wind-up and guard, so held guard looks like the wind-up, and only a blocked shot snaps across the body.
-- **The Buzzsaw's spin rate is tuned for 60 fps.** At 30 rad/s it advances about half a barrel a frame. At other refresh rates it can stroboscope.
+- **The Trommel's spin rate is tuned for 60 fps.** At 24 rad/s it advances a little over a third of a barrel a frame, so it reads as turning. At other refresh rates it can stroboscope. The Buzzsaw's 30 was half a barrel a frame.
+- **The Trommel and the Piledriver were checked as stills only**: a turntable each (`tools/out/heavy/i-*.png`), each at rest and firing in the real game, and four frames of the Piledriver's reload. Nobody has seen the hammering or the recoil in motion, and the Trommel's reload was not looked at again on the new model. Both guns sit low and right and hide the hands at the hip: the left hand is behind the can or the belt box.
 - **A hand target's palm is its +Y, and +X is the little finger side.** The comment on `Model.hand` reads the other way round. The sonar tap first came out backwards on that.
 - Grenade and call-in models live on the left hand only. Throwing during a reload borrows the hand and the clip keeps running.

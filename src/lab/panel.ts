@@ -78,6 +78,10 @@ export interface PanelActions {
   lance(count: number): void;
   /** Stands the selected enemy in every bay of the range's piercing gallery, and the player at its near end. */
   gallery(): void;
+  /** Draws a gun of key 8 with a full belt and stands nine of the selected enemy in three ranks ahead of it. */
+  heavy(id: 'buzzsaw' | 'piledriver'): void;
+  /** Straight into the Packmule's door, at its gun. */
+  doorGun(): void;
   /** Stands the player at the start of the range's parkour strip. */
   parkour(): void;
   /** Reads and writes one of the movement switches, which live with the player and not in the lab's settings. */
@@ -219,6 +223,12 @@ export class LabPanel {
     this.button(lance, 'Lance: draw it, a column of 8 to shoot through', () => this.on.lance(8));
     this.button(lance, 'Column of 20', () => this.on.lance(20));
     this.el.append(lance);
+    // Key 8: the rotary cannon and the heavy machine gun against three ranks, and the helicopter's door gun.
+    const heavy = el('div', 'lab-row');
+    this.button(heavy, `${WEAPONS.buzzsaw.name}: draw it, nine in three ranks ahead`, () => this.on.heavy('buzzsaw'));
+    this.button(heavy, `${WEAPONS.piledriver.name}: the same`, () => this.on.heavy('piledriver'));
+    this.button(heavy, 'Door gun: board it now', () => this.on.doorGun());
+    this.el.append(heavy);
     if (ON_RANGE) {
       const row = el('div', 'lab-row');
       this.button(row, 'Piercing gallery: stand me there, fill the bays', () => this.on.gallery());

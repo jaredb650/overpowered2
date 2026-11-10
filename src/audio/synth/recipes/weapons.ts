@@ -180,42 +180,113 @@ export const weapons = [
     s.noise('pink', 0.5).bp([[0, 2600], [0.4, 500]], 0.9).env(perc(0.4, 0.4, 0.003)).out(0.5);
   }),
 
-  // Buzzsaw. Everything is built on a 50 Hz firing grid so spin and barrage share a pulse.
-  r('minigun_spinup', { dur: 1, mix: 'loop2d', expect: { trend: 1 } }, s => {
-    const f: [number, number][] = [[0, 42], [0.9, 300]];
-    s.osc('sawtooth', f, 1).lp([[0, 500], [1, 3400]], 1.5).env([[0, 0.1], [0.92, 0.55], [1, 0.0001]]).out(0.6);
-    s.osc('square', f.map(([t, v]) => [t, v * 2.03] as const), 1).lp(2400).env([[0, 0.02], [0.92, 0.2], [1, 0.0001]]).out(0.6);
-    s.grains(1, t => 10 + t * t * 240, 0.0018, t => 0.4 + t * 0.6).bp(2300, 1.6).out(1.2);
+  // Trommel, the 20 mm rotary cannon on key 8. The ids are the old minigun's, and the helicopter's door gun plays them too.
+  // A heavy electric drive bringing a cluster of barrels round, and a barrage of 25 a second: slow enough that every round
+  // is a blow, fast enough that they run into one roar. Weapons turns `minigun_spin_loop` with the barrels and
+  // `minigun_fire_loop` with the rate, so both are written at full speed. Nothing here is a sawtooth held on a note:
+  // that was the saw.
+  r('minigun_spinup', { dur: 0.9, mix: 'loop2d', over: { volume: 0.42 }, expect: { trend: 1 } }, s => {
+    // The drive takes up the load, then its growl, its whine and the air it moves all climb as the cluster comes round.
+    // Measured, the first version of these four was nearly all under 130 Hz: a rumble a laptop cannot play. The weight
+    // stays, and the hum an octave up, the whine, the air and the cams carry it to where it is heard.
+    thump(s, 58, 0.12, 0.5, 2);
+    const f: [number, number][] = [[0, 40], [0.7, 122]];
+    s.osc('square', f, 0.85).lp([[0, 260], [0.8, 800]]).env([[0, 0.2], [0.65, 0.4], [0.85, 0.0001]]).out(0.45);
+    s.osc('triangle', f.map(([t, v]) => [t, v * 2] as const), 0.85).drive(3).lp([[0, 500], [0.8, 1700]]).env([[0, 0.2], [0.65, 0.55], [0.85, 0.0001]]).out(0.6);
+    s.osc('sine', [[0, 500], [0.7, 1900]], 0.85).env([[0, 0.0001], [0.1, 0.1], [0.65, 0.3], [0.85, 0.0001]]).out(0.6);
+    s.noise('pink', 0.85).bp([[0, 300], [0.8, 1600]], 0.8).env([[0, 0.05], [0.65, 0.5], [0.85, 0.0001]]).out(1);
+    // The cams, far apart at first and closing up.
+    s.grains(0.85, t => 8 + t * t * 90, 0.004, t => 0.4 + t * 0.6).bp([[0, 600], [0.8, 1300]], 1.4).drive(2).out(1.4);
   }),
   r('minigun_spin_loop', { dur: 1, mix: 'loop2d', loop: true }, s => {
-    s.osc('sawtooth', 300).lp(3400, 1.5).am(s.lfo(50, 0.24)).out(0.33);
-    s.osc('square', 609).lp(2400).out(0.12);
-    s.osc('sine', 50).out(0.16);
-    s.noise('pink').bp(3000, 1).out(0.08);
+    // The drive's growl beating at the rate the barrels pass, a thrum an octave under it, and a faint gear whine.
+    s.osc('square', 122).lp(700).am(s.lfo(25, 0.3)).out(0.3);
+    s.osc('triangle', 244).drive(2.2).lp(1500).am(s.lfo(25, 0.25)).out(0.32);
+    s.osc('square', 61).lp(200).out(0.1);
+    s.osc('sine', 1480).am(s.lfo(25, 0.4)).out(0.08);
+    s.grains(1.3, () => 50, 0.004).bp(1300, 1.2).drive(2).out(0.9);
+    s.noise('pink').bp(900, 0.7).am(s.lfo(25, 0.5)).out(0.32);
   }),
-  r('minigun_fire_loop', { dur: 0.8, mix: 'loop2d', loop: true, over: { volume: 0.72, send: 0.2 }, seam: 0.1 }, s => {
+  r('minigun_fire_loop', { dur: 0.8, mix: 'loop2d', loop: true, over: { volume: 0.9, send: 0.24 }, seam: 0.1 }, s => {
+    // Twenty rounds, 40 ms apart, so the loop is exactly a whole number of them. Each is three things written by hand: a
+    // crack of 4 ms, a report of 30 ms, and a blow that falls from 150 Hz to 55 while it lasts.
     const n = Math.ceil((0.8 + 0.2) * s.sr);
-    const train = new Float32Array(n);
-    const step = Math.round(0.02 * s.sr);
+    const crack = new Float32Array(n);
+    const report = new Float32Array(n);
+    const blow = new Float32Array(n);
+    const step = Math.round(0.04 * s.sr);
+    const cl = Math.round(0.004 * s.sr);
+    const rl = Math.round(0.03 * s.sr);
+    const bl = Math.round(0.036 * s.sr);
     for (let i = 0, k = 0; i < n; i += step, k++) {
-      // Loop-periodic amplitude: every 40th shot repeats, so the seam cannot be heard.
-      const a = 0.7 + 0.3 * Math.sin(((k % 40) * 2.399) % 6.283);
-      for (let j = 0; j < 90 && i + j < n; j++) train[i + j] = a * (1 - j / 90) * (s.rng() * 2 - 1);
+      // Loop-periodic level: every 20th round repeats, so the seam cannot be heard.
+      const a = 0.78 + 0.22 * Math.sin(((k % 20) * 2.399) % 6.283);
+      for (let j = 0; j < cl && i + j < n; j++) crack[i + j] = a * (1 - j / cl) * (s.rng() * 2 - 1);
+      for (let j = 0; j < rl && i + j < n; j++) {
+        const e = 1 - j / rl;
+        report[i + j] = a * e * e * (s.rng() * 2 - 1);
+      }
+      for (let j = 0; j < bl && i + j < n; j++) {
+        const t = j / s.sr;
+        const e = 1 - j / bl;
+        blow[i + j] = a * e * Math.sin(2 * Math.PI * (150 * t - (95 / 0.072) * t * t));
+      }
     }
-    const shots = s.samples(train);
-    shots.fork().hp(1900).drive(3.5).out(0.5);
-    shots.fork().bp(640, 0.7).drive(6).out(0.95);
-    shots.fork().lp(170).gain(4).drive(3).out(0.9);
-    s.osc('sawtooth', 300).lp(3200).out(0.1);
-    s.noise('pink').lp(2600).am(s.lfo(50, 0.5)).out(0.16);
+    s.samples(crack).hp(2400).drive(3).out(0.6);
+    s.samples(report).bp(520, 0.7).drive(6).out(1);
+    s.samples(report).bp(1100, 0.8).drive(2).out(0.4);
+    s.samples(blow).drive(2.5).lp(260).out(1);
+    // What is between the rounds: the gas, and the gun's own weight shaking.
+    s.noise('pink').lp(1800).am(s.lfo(25, 0.5)).out(0.14);
+    s.noise('brown').lp(150).gain(1.6).out(0.28);
   }),
   r('minigun_spindown', { dur: 1.5, mix: 'loop2d', expect: { trend: -1 } }, s => {
-    const f: [number, number][] = [[0, 300], [1.4, 30]];
-    s.osc('sawtooth', f, 1.5).lp([[0, 3400], [1.4, 300]], 1.5).env(perc(1.4, 0.55, 0.002)).out();
-    s.grains(1.4, t => 200 * Math.exp(-t * 2.8) + 4, 0.0018, t => 1 - t / 1.5).bp([[0, 2300], [1.3, 420]], 1.6).out(1.2);
+    // Written to the barrels' own run-down, 1.1 s from full, so Weapons can start it part way for a gun that was not at
+    // full spin. The cluster stops against its detent at the end.
+    const f: [number, number][] = [[0, 122], [1.1, 55], [1.3, 30]];
+    s.osc('square', f, 1.4).lp([[0, 700], [1.2, 220]]).env([[0, 0.4], [1, 0.25], [1.3, 0.0001]]).out(0.45);
+    s.osc('triangle', f.map(([t, v]) => [t, v * 2] as const), 1.4).drive(2.2).lp([[0, 1500], [1.2, 400]]).env([[0, 0.55], [1, 0.25], [1.3, 0.0001]]).out(0.6);
+    s.osc('sine', [[0, 1480], [1.2, 420]], 1.3).env([[0, 0.3], [0.8, 0.08], [1.2, 0.0001]]).out(0.6);
+    s.noise('pink', 1.3).bp([[0, 900], [1.2, 250]], 0.7).env([[0, 0.5], [0.8, 0.12], [1.25, 0.0001]]).out(1);
+    s.grains(1.3, t => 50 * Math.exp(-t * 2.2) + 3, 0.004, t => 1 - t / 1.4).bp([[0, 1300], [1.2, 500]], 1.4).drive(2).out(1.3);
+    // A knock with nothing bright in it: the last third has to be the darkest.
+    s.at(1.22, () => thump(s, 70, 0.1, 0.5, 2));
   }),
-  r('minigun_fire', { dur: 0.28, n: 3, mix: 'gun', expect: { attackMs: [0, 5] } }, s => {
-    gunshot(s, { crack: 0.8, crackHp: 2600, body: 860, bodyDecay: 0.05, sub: 0.6, subFreq: 110, subDecay: 0.07, drive: 3.5 });
+  // The last round of a burst and its roll-off, played as the barrage stops, so it ends on a report and not on a fade.
+  r('minigun_fire', { dur: 0.9, n: 3, mix: 'gun', over: { volume: 0.5, send: 0.3 }, expect: { attackMs: [0, 6], minSub: 0.03 } }, s => {
+    gunshot(s, {
+      crack: 0.7, crackHp: 2200, body: 400, bodyDecay: 0.09, bodyLevel: 1.2, sub: 1, subFreq: 62, subDecay: 0.16,
+      tail: 0.7, tailDecay: 0.6, drive: 4.5, ring: 0.2, ringFreq: s.r(900, 1200),
+    });
+  }),
+  // A 20 mm round going off where it lands: a hard dry crack and a knock, over in a tenth of a second, because twenty-five
+  // a second have to stay twenty-five. Nothing rolls on after it. Played at the burst, so the door gun's come up late.
+  r('cannon_burst', {
+    dur: 0.3, n: 4, mix: 'blastSmall',
+    over: { volume: 0.4, priority: 5, maxVoices: 5, perFrame: 2, near: 8, far: 200, send: 0.22, pitchJitter: 0.1 },
+    expect: { attackMs: [0, 6], centroid: [900, 9000] },
+  }, s => {
+    s.noise('white', 0.04).hp(2000).env(perc(0.014, 1, 0.0002)).drive(6, 'hard').out(0.75);
+    s.noise('pink', 0.1).bp([[0, 1900], [0.06, 520]], 0.8).env(perc(0.07, 1, 0.0004)).drive(4).out(1.1);
+    thump(s, s.r(105, 130), 0.06, 0.7, 2.6);
+    s.grains(0.2, t => 160 * Math.exp(-t * 18), 0.002, t => Math.exp(-t * 12)).bp(2600, 1).out(0.5);
+  }),
+
+  // Piledriver, the heavy machine gun. Slow and heavy: the crack is the smaller part, and under it a blow at 56 Hz that takes
+  // a fifth of a second to go, with the bolt running home after it. Eight a second stay eight separate reports.
+  r('piledriver_fire', { dur: 1.1, n: 3, mix: 'gun', over: { volume: 0.78, send: 0.3 }, expect: { attackMs: [0, 6], minSub: 0.05 } }, s => {
+    gunshot(s, {
+      crack: 1.9, crackHp: 2200, body: 560, bodyDecay: 0.13, bodyLevel: 1.4, sub: 1.1, subFreq: 56, subDecay: 0.2,
+      tail: 0.55, tailDecay: 0.75, drive: 5, ring: 0.28, ringFreq: s.r(1100, 1400),
+    });
+    s.at(0.008, () => s.noise('brown', 0.5).lp([[0, 800], [0.35, 100]]).env(perc(0.3, 1)).gain(1.7).out(0.4));
+    s.at(0.062, () => clank(s, s.r(520, 620), 0.5, 0.05));
+  }),
+  // Its charging handle: hauled back against the spring with the whole arm, and let go.
+  r('piledriver_charge', { dur: 0.75, mix: 'foley', over: { volume: 0.55 } }, s => {
+    s.noise('pink', 0.22).bp([[0, 500], [0.2, 1200]], 1.2).env(perc(0.2, 0.4, 0.03)).out();
+    s.at(0.2, () => { clank(s, 380, 1, 0.12); click(s, 1700, 0.6); });
+    s.at(0.42, () => { clank(s, 300, 1, 0.14); thump(s, 84, 0.12, 0.9, 2); click(s, 2300, 0.5); });
   }),
 
   // Kiln.

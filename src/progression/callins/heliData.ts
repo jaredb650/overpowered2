@@ -9,8 +9,116 @@
 import type { EngineSoundPlan, OrbitPlan, Point } from './airframe';
 import type { PilotPlan } from '../../vehicles/pilot';
 import type { SeatPlan } from '../../vehicles/seat';
+import type { MuzzleKind } from '../../core/contracts';
+import type { BurstSpec } from '../../core/gameplay';
 
 export const SMALL_MAP = 80;
+
+/** `?doorgun=old` puts the M134 back in the Packmule's door: sixty light rounds a second that neither burst nor go through anything. */
+export const DOORGUN_OLD = typeof location !== 'undefined' && new URLSearchParams(location.search).get('doorgun') === 'old';
+
+/** The Packmule's door gun, in the same units as a row of the weapon table. */
+export interface DoorGunPlan {
+  /** What the gunner's panel calls the belt. */
+  name: string;
+  rounds: number;
+  roundsPerSecond: number;
+  /** At most this many leave on one frame. A long frame loses rounds and not its pace. */
+  perFrame: number;
+  spinUp: number;
+  spinDown: number;
+  /** Below this spin the barrels turn but nothing leaves them. */
+  fireAt: number;
+  /** Radians per second at full spin. */
+  barrelRate: number;
+  spread: number;
+  damage: number;
+  severMult: number;
+  force: number;
+  /** Each round goes off where it first strikes and where it stops: src/weapons/burst.ts. Null for a round that does not. */
+  burst: BurstSpec | null;
+  /** Metres of concrete a round goes on through, and what a body costs it. 0 stops at the first thing it meets. */
+  penetrate: number;
+  bodyCost: number;
+  /** One tracer in this many, as a real belt is loaded. */
+  tracerEvery: number;
+  flashEvery: number;
+  casingEvery: number;
+  flash: MuzzleKind;
+  casing: 'rifle' | 'cannon';
+  impactScale: number;
+  range: number;
+  /** How hard the stream shakes the view, and the walk it puts on the barrels. */
+  trauma: number;
+  kick: number;
+  /** `minigun_fire_loop` is cut at 25 rounds a second: this turns it to the gun's own rate. */
+  loopPitch: number;
+}
+
+/**
+ * The door gun: a 20 mm rotary cannon. It is the one gun in the game whose rounds do both things: they burst where they
+ * land, as the rotary cannon's do on foot, and they go on through, as the heavy machine gun's do. The men it is fired at
+ * are under a roof or behind a wall more often than not. 1.4 m is a roof or an inner wall and the man beneath it; an outer
+ * wall of 1.6 m still stops it. Half the old gun's rate and nearly three times its round, so it is a third more damage a
+ * second, in rounds that can be seen landing. The burst is half as big again as the one on foot, to read from the air.
+ */
+const DOOR_GUN: DoorGunPlan = {
+  name: '20MM HEI-AP',
+  rounds: 1000,
+  roundsPerSecond: 30,
+  perFrame: 3,
+  spinUp: 0.5,
+  spinDown: 1.1,
+  fireAt: 0.8,
+  barrelRate: 46,
+  spread: 0.007,
+  damage: 60,
+  severMult: 3,
+  force: 34,
+  burst: { radius: 0.6, damage: 16, scale: 1.5 },
+  penetrate: 1.4,
+  bodyCost: 0.3,
+  tracerEvery: 2,
+  // The muzzle is a metre under the sight. The on-foot gun's flash there, every round, sat on the target: a rifle's, every other.
+  flashEvery: 2,
+  casingEvery: 2,
+  flash: 'rifle',
+  casing: 'cannon',
+  impactScale: 1.6,
+  range: 420,
+  trauma: 0.55,
+  kick: 0.0012,
+  loopPitch: 30 / 25,
+};
+
+/** The gun as it was before the rework. */
+const M134_GUN: DoorGunPlan = {
+  name: 'M134 7.62',
+  rounds: 1800,
+  roundsPerSecond: 60,
+  perFrame: 4,
+  spinUp: 0.42,
+  spinDown: 0.95,
+  fireAt: 0.8,
+  barrelRate: 62,
+  spread: 0.0065,
+  damage: 22,
+  severMult: 1.6,
+  force: 6,
+  burst: null,
+  penetrate: 0,
+  bodyCost: 0.4,
+  tracerEvery: 4,
+  flashEvery: 2,
+  casingEvery: 3,
+  flash: 'minigun',
+  casing: 'rifle',
+  impactScale: 1.5,
+  range: 420,
+  trauma: 0.11,
+  kick: 0.0006,
+  loopPitch: 2,
+};
 
 /**
  * Highest either gun can point. From 31 m this still reaches the far wall of the Kill House, and any flatter the sight
@@ -154,29 +262,5 @@ export const DOOR = {
   flightSpeed: 17,
   flightRest: 1.7,
   flightSink: 1.2,
-  gun: {
-    rounds: 1800,
-    roundsPerSecond: 60,
-    /** At most this many leave on one frame. A long frame loses rounds and not its pace. */
-    perFrame: 4,
-    spinUp: 0.42,
-    spinDown: 0.95,
-    /** Below this spin the barrels turn but nothing leaves them. */
-    fireAt: 0.8,
-    /** Radians per second at full spin. */
-    barrelRate: 62,
-    spread: 0.0065,
-    damage: 22,
-    severMult: 1.6,
-    force: 6,
-    /** One tracer in this many, as a real belt is loaded. Every round would join into a solid beam at this rate. */
-    tracerEvery: 4,
-    flashEvery: 2,
-    casingEvery: 3,
-    impactScale: 1.5,
-    range: 420,
-    /** How hard the stream shakes the view, and the walk it puts on the barrels. */
-    trauma: 0.11,
-    kick: 0.0006,
-  },
+  gun: DOORGUN_OLD ? M134_GUN : DOOR_GUN,
 } as const satisfies HeliPlan & Record<string, unknown>;

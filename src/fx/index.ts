@@ -17,6 +17,7 @@ import { hotInto, type Rgb } from './layers/shared';
 import { CHIP } from './palette';
 import { bloodHit, bloodJet, bloodMist, gibBurst, headBurst } from './recipes/blood';
 import { chipBurst, hellfireBurst } from './recipes/bursts';
+import { burst as cannonBurst } from './recipes/cannon';
 import { embers, explosion } from './recipes/explosions';
 import { impact } from './recipes/impacts';
 import * as misc from './recipes/misc';
@@ -224,6 +225,10 @@ class Fx implements FxSystem {
 
   heatShimmer(position: THREE.Vector3, radius: number, seconds: number): void {
     this.core.shimmer.add(position.x, position.y, position.z, radius, this.core.now, seconds, 1, 0);
+  }
+
+  burst(position: THREE.Vector3, normal: THREE.Vector3, scale?: number): void {
+    cannonBurst(this.core, position, normal, scale);
   }
 
   /** Debug counters for sandboxes and the debug overlay. Scans the rings: not for per-frame use. */

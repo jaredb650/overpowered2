@@ -116,7 +116,7 @@ Five keys are loaded from the start: SMG, Shotgun, Rocket launcher, Sabot and Sw
 | 5 | **Sword** | Original three-swing chain, RMB area sweep, heavy finisher | Real slice kills along the swing plane. Blocks bullets on RMB hold |
 | 6 | **Judge** (revolver) | 6 shots, 120 dmg, slow | A headshot ricochets to the nearest enemy's head |
 | 7 | **Lance** (railgun) | Tap for a plasma ball: 60 dmg and a small splash, four a second. Hold to charge through three stages and release a beam, 1000 dmg at full | A full beam pierces everyone in line, two walls and armour, severs what it touches, and sets a plasma burst off at every body it passed, one after another down the line |
-| 8 | **Buzzsaw** (minigun) | Spin-up, then 50 rps | Slows the player. Shreds limbs one by one |
+| 8 | **Trommel** (20 mm rotary cannon; the Buzzsaw reworked, id `buzzsaw`) | Spin-up, then 25 rps of 32 dmg | Every round bursts where it lands, the size of a grapefruit. Heavy shake. The player walks while it fires. Takes limbs. Goes through nothing |
 | 9 | **Kiln** (flamethrower) | Short-range stream | Burning enemies panic, spread fire, char black |
 | 0 | **Stakegun** | Rebar stakes | Pins enemies and severed limbs to walls. Ragdolls hang from the stake |
 
@@ -129,6 +129,7 @@ Five keys are loaded from the start: SMG, Shotgun, Rocket launcher, Sabot and Sw
 | 3 | Rocket launcher | **Quiver** (four-tube launcher) | Hold to paint up to 4 marks (one every 0.2 s, spares stack on a boss, a vehicle or the nearest), let go and four missiles leave 0.1 s apart and home on them. 110 + 90 splash over 3.5 m each. A tap fires all four straight |
 | 4 | Sabot | **Autocannon** (the upgrade, from a weapon cache) | Original. 30mm, 200 m/s, instakill blast radius 5, 5 mag, RMB scope. Ring trail, tracer cone |
 | 6 | Judge | **Rivet** (pistol) | 30 dmg, 15 mag, as fast as the trigger, drawn in 0.1 s. Triple headshots, weak at range |
+| 8 | Trommel | **Piledriver** (heavy machine gun) | 90 dmg, 50 on the belt, 8 rps. Through 2.4 m of wall and everyone in line. Takes off any limb it touches and can burst what it kills. Kicks and climbs. Slows the player less than the Trommel. Comes in the Trommel's cache |
 
 **Penetration.** A round has a budget in meters of concrete, spent by the thickness of each wall it passes and by each body. It leaves a small dark hole going in and a wide pale crater coming out. The Lance keeps its own older rule: two walls, each up to 1.6 m. Numbers in `docs/notes/weapons.md`.
 
@@ -237,7 +238,7 @@ The owner played the first build. Their verdict: new features are cool, the grap
 
 - **AC-130**: a modelled gunship circles a designated area for 2 minutes while the player keeps fighting on the ground. Visible shells and tracers. Weapons: 25mm Gatling (a walking stream), 40mm Bofors (strings of exploding autocannon shells), 105mm howitzer (several slow, huge artillery shots with visible arcs), plus Hellfire missiles and flare drops. Never harms the player.
 - **Attack Chopper**: the player takes the gunner seat, CoD-killstreak style. The helicopter flies itself to wherever enemies are. Chin cannon and rockets until munitions run out, then back to the ground. Enemies are highlighted on the helicopter HUD.
-- **Door Gunner**: the same idea, from the side door of a utility helicopter on a circling orbit, with an M134 minigun.
+- **Door Gunner**: the same idea, from the side door of a utility helicopter on a circling orbit, with a 20 mm rotary cannon. It is the one gun whose rounds both burst where they land and go on through roofs and walls, because the men under it are mostly behind something.
 
 ## 14. The Outpost update (applies to the Outpost contract only; see section 15)
 

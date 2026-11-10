@@ -5,7 +5,8 @@
 import { TONE_OF, type AdaptationId, type Tone } from '../../enemies/commander/adaptations';
 import type { Briefing } from '../../enemies/commander/events';
 import {
-  answer, bandFor, councilFor, councilOn, COUNT_BANDS, gloat, LAST, lineById, order, reactions, textOnly, trickOrder, trickSay, weaponWord,
+  answer, bandFor, councilFor, councilOn, COUNT_BANDS, gloat, LAST, lineById, order, reactions, textOnly, trickOrder, trickSay, UNVOICED_WEAPONS,
+  weaponWord,
   type Line, type Speaker, type Topic, type TrapCause,
 } from '../../enemies/commander/lines';
 import type { RoundReport } from '../../enemies/commander/tracker';
@@ -186,6 +187,7 @@ const WORD = /\{(n|weapon|room|name|squad)\}/g;
 /** Fills the slots. The text keeps the true number; the clip name carries the band a recording was made at. */
 export function spoken(line: Line, fill: Filled, topic: Topic | null): Spoken {
   let key = '';
+  let unvoiced = false;
   const text = line.text.replace(WORD, (_, slot: string) => {
     if (slot === 'n') {
       const n = fill.n ?? 0;
@@ -195,13 +197,14 @@ export function spoken(line: Line, fill: Filled, topic: Topic | null): Spoken {
     }
     if (slot === 'weapon') {
       key = fill.weapon ?? '';
+      if (UNVOICED_WEAPONS.has(key)) unvoiced = true;
       return weaponWord(key);
     }
     const word = slot === 'room' ? fill.room : slot === 'squad' ? fill.squad : fill.name;
     key = word ?? '';
     return word ?? '';
   });
-  return { id: line.id, text, clip: textOnly(line) ? null : key ? `${line.id}~${key.replace(/ /g, '_')}` : line.id };
+  return { id: line.id, text, clip: textOnly(line) || unvoiced ? null : key ? `${line.id}~${key.replace(/ /g, '_')}` : line.id };
 }
 
 /** Seconds a page stays up if there is no recording to time it by. */

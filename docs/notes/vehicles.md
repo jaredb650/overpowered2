@@ -9,7 +9,7 @@
 | `humvee` | Scout car | Count, cab goes through to the driver | About a magazine, one rocket, a grenade or two | Roof gun with a real gunner |
 | `truck` | Troop truck | Count, as above | The same, a little more | Roof gun with a real gunner, men out of the back |
 | `tank` | Main battle tank | Sparks and the armour marker | Direct rockets and shells. Five on the hull, measured with the real launcher, and three on the engine | Laid main gun, roof gun |
-| `chopper` | Attack helicopter | Nothing, but the door gun counts on tail, rotor and cockpit | Tail or rotor off, one perfect autocannon round in the cockpit, or enough of anything else that is direct | Chin gun, rocket salvos |
+| `chopper` | Attack helicopter | Nothing, but the door gun counts on tail, rotor and cockpit (`SKIN_BULLETS`, 0.22 of a round: 13 of its 60 now, 30 times a second, where the M134 did 4.8 sixty times) | Tail or rotor off, one perfect autocannon round in the cockpit, or enough of anything else that is direct | Chin gun, rocket salvos |
 
 **Locational damage.** Each part in `data.ts` is a box and a real collider, so what the bullet stops on is what took the hit.
 
@@ -46,7 +46,8 @@ v.describe();                           // one read of everything
 **Lab.** On `/?map=range` the panel has a row of vehicle buttons. AI off parks one at the crosshair to shoot at. AI on drives it in past the player, with men, shooting. `tools/scripts/vehicles-live.mjs` is the bot, with `VEHICLES_STEP` set to `models`, `fight`, `threat`, `wreck`, `air`, `dogfight` on the range or Kill House, and `soft`, `heavy`, `turn`, `insertion` on the real map.
 
 **The main menu flies the Packmule too.** `src/ui/backdrop/cabin.ts` builds `UTILITY_AIRFRAME` and the `M134` spec from `src/vehicles/` into its
-own scene with plain materials, so a change to the cabin, the door or the gun shows in the menu's background as well. It adds a lining over the
+own scene with plain materials, so a change to the cabin, the door or the gun shows in the menu's background as well. The spec is still
+named `M134`, and is the 20 mm rotary cannon since the door gun's rework: thicker barrels on a wider circle, in a muzzle clamp. It adds a lining over the
 forward bulkhead, because the cabin's front wall and the nose's end cap share the plane z = 2.5 and fight where both can be seen from inside,
 and some fittings only the menu has: hazard stripes on the sill, a seal and grab handle on the forward door post, and a pedestal from the
 pintle down to the sill, with an ammunition can at the end of the feed chute. In the game the gunner holds the gun and nothing shows under

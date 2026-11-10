@@ -70,10 +70,22 @@ function buildGallery(): Record<string, Effect> {
   g.headBurst = { fire: s => s.fx.headBurst(s.target.clone().setY(1.7), v(-0.5, 0.2, 0.3).normalize()) };
   g.gibBurst = { fire: s => s.fx.gibBurst(s.target.clone().setY(1), v(0.5, 0.5, 0.2).normalize(), 12) };
 
-  const muzzles: MuzzleKind[] = ['smg', 'rifle', 'shotgun', 'rocket', 'autocannon', 'plasma', 'railgun', 'minigun', 'revolver', 'flame', 'enemy', 'carbine', 'pistol', 'sabot', 'quiver'];
+  const muzzles: MuzzleKind[] = ['smg', 'rifle', 'shotgun', 'rocket', 'autocannon', 'plasma', 'railgun', 'minigun', 'revolver', 'flame', 'enemy', 'carbine', 'pistol', 'sabot', 'quiver', 'rotary', 'hmg'];
   for (const k of muzzles) {
     g[`muzzle-${k}`] = { fire: s => s.fx.muzzleFlash(s.target.clone().setY(1.4), v(1, 0, 0.25).normalize(), k) };
   }
+  // The 20 mm round going off: one on the floor, one on the wall, and a second of the rotary gun walked along the floor.
+  g.burst = { fire: s => s.fx.burst?.(s.target.clone().setY(0.02), UP) };
+  g['burst-wall'] = { fire: s => s.fx.burst?.(v(0, 1.6, -3.98), v(0, 0, 1)) };
+  g['burst-door'] = { fire: s => s.fx.burst?.(s.target.clone().setY(0.02), UP, 1.5) };
+  g['burst-stream'] = {
+    fire: s => s.fx.burst?.(s.target.clone().setY(0.02), UP),
+    tick(s, frame) {
+      // Twenty-five a second is five every twelve frames.
+      if (frame > 60 || Math.floor(frame * 25 / 60) === Math.floor((frame - 1) * 25 / 60)) return;
+      s.fx.burst?.(s.target.clone().add(v(-3 + frame * 0.1, 0.02, Math.sin(frame * 1.7) * 0.5)).setY(0.02), UP);
+    },
+  };
   g['smg-burst'] = {
     fire: s => s.fx.muzzleFlash(s.target.clone().setY(1.4), v(1, 0, 0.25).normalize(), 'smg'),
     tick(s, frame) {

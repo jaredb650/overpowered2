@@ -7,7 +7,7 @@
  * a viewmodel. Nothing in this file changes.
  */
 import type { WeaponId } from '../core/gameplay';
-import { WEAPONS, WEAPON_ORDER } from './data';
+import { SLOT8_OLD, WEAPONS, WEAPON_ORDER } from './data';
 
 /** `?families=0` leaves every number key with its first weapon only, as before families existed. */
 export const FAMILIES_ON = typeof location === 'undefined' || new URLSearchParams(location.search).get('families') !== '0';
@@ -27,6 +27,8 @@ for (const slot of SLOT_ORDER) {
   const all = WEAPON_ORDER.filter(id => WEAPONS[id].slot === slot && (MELEE_FOUR_ON || WEAPONS[id].base !== 'sword'));
   BY_SLOT.set(slot, FAMILIES_ON ? all : all.slice(0, 1));
 }
+// `?slot8=old`: key 8 is the Buzzsaw alone, as it was, even where the lab's arsenal hands out every gun.
+if (SLOT8_OLD) BY_SLOT.set(WEAPONS.buzzsaw.slot, ['buzzsaw']);
 const NONE: readonly WeaponId[] = [];
 
 /** Every weapon on a number key, base first. */

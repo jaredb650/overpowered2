@@ -246,13 +246,18 @@ function weightOf(id: keyof typeof WEAPONS, force: number = WEAPONS[id].force): 
 describe('body hits', () => {
   const def = (id: string): SoundDef => lookup(id)!;
 
-  it('weighs a round by what it is: Buzzsaw, SMG, pellets, Judge, then the heaviest', () => {
+  it('weighs a round by what it is: SMG, the rotary cannon, pellets, Judge, then the heaviest', () => {
+    // `buzzsaw` is the 20 mm rotary cannon since its rework: a round heavier than the SMG's, where the old one was the lightest.
     const buzzsaw = weightOf('buzzsaw');
     const smg = weightOf('smg');
     const pellets = weightOf('shotgun');
     const judge = weightOf('judge');
     const stake = weightOf('stakegun');
-    expect(buzzsaw).toBeLessThan(smg);
+    expect(smg).toBeLessThan(buzzsaw);
+    expect(buzzsaw).toBeLessThan(judge);
+    // The heavy machine gun beside it lands heavier than the cannon's round and lighter than a stake.
+    expect(weightOf('piledriver')).toBeGreaterThan(buzzsaw);
+    expect(weightOf('piledriver')).toBeLessThan(stake);
     expect(smg).toBeLessThan(pellets);
     expect(pellets).toBeLessThan(judge);
     expect(judge).toBeLessThan(stake);
@@ -277,13 +282,18 @@ describe('body hits', () => {
     expect(bodyHitLevels(2)).toEqual(bodyHitLevels(1));
   });
 
-  it('plays every SMG round, even a frame early, and turns the Buzzsaw stream into a beat', () => {
+  it('plays every SMG round, even a frame early, and turns a stream faster than that into a beat', () => {
     const frame = 1 / 60;
     expect(bodyHitLevels(weightOf('smg')).gap).toBeLessThan(WEAPONS.smg.interval - frame);
     expect(bodyHitLevels(weightOf('judge')).gap).toBeLessThan(WEAPONS.judge.interval);
+    // The rotary cannon's 25 a second land as a beat of about 14: more rounds than the ear is given hits.
     const buzzsaw = bodyHitLevels(weightOf('buzzsaw')).gap;
-    expect(buzzsaw / WEAPONS.buzzsaw.interval).toBeGreaterThan(5);
-    expect(1 / buzzsaw).toBeLessThan(10);
+    expect(buzzsaw).toBeGreaterThan(WEAPONS.buzzsaw.interval);
+    expect(1 / buzzsaw).toBeLessThan(15);
+    // A light round at the old Buzzsaw's 50 a second is still thinned to under ten.
+    expect(1 / bodyHitLevels(hitWeight(13, 'bullet', 6)).gap).toBeLessThan(10);
+    // The heavy machine gun's eight a second all land.
+    expect(bodyHitLevels(weightOf('piledriver')).gap).toBeLessThan(WEAPONS.piledriver.interval - frame);
   });
 
   it('keeps a hit 30 m away inside hearing, where the old curve had it at an eighth', () => {
@@ -393,14 +403,23 @@ describe('body hit reactions', () => {
     expect(pellets.pitch).toBeLessThan(smg.pitch);
   });
 
-  it('turns a Buzzsaw stream into a beat', () => {
+  it('turns a stream of light rounds into a beat', () => {
+    // The old Buzzsaw's round, 13 damage pushing with 6, one a frame: no gun fires it now, and the rule still holds.
     const r = rig();
     for (let i = 0; i < 60; i++) {
-      r.hit('buzzsaw', 'bullet', WEAPONS.buzzsaw.damage, WEAPONS.buzzsaw.force);
+      r.hit('buzzsaw', 'bullet', 13, 6);
       r.frames(1);
     }
     expect(r.count('hit_punch')).toBeGreaterThanOrEqual(7);
     expect(r.count('hit_punch')).toBeLessThanOrEqual(10);
+    // The rotary cannon's own round is heavier and is let through more often, and still not every frame.
+    const heavy = rig();
+    for (let i = 0; i < 60; i++) {
+      heavy.hit('buzzsaw', 'bullet', WEAPONS.buzzsaw.damage, WEAPONS.buzzsaw.force);
+      heavy.frames(1);
+    }
+    expect(heavy.count('hit_punch')).toBeGreaterThan(r.count('hit_punch'));
+    expect(heavy.count('hit_punch')).toBeLessThanOrEqual(16);
   });
 
   it('leaves headshots, blocked rounds, blades, fire, assists and enemies to their own sounds', () => {

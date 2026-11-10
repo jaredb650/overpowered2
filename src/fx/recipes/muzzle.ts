@@ -93,6 +93,18 @@ const MUZZLES: Record<MuzzleKind, MuzzleFx> = {
     color: hot(0xbfe0ff, 2.6), size: 0.5, points: 4, inner: 0.1, petals: 2, petalLength: 2.1, life: 0.05,
     light: 0xa8d0ff, lightPower: 12, lightRadius: 15, wisp: 0.22, sparks: 14,
   },
+  // The 20 mm rotary gun: a fat orange ball with three tongues, twenty-five times a second, so it burns as one ragged fire
+  // at the muzzle. Nearly twice the size of the old minigun's star, and no bigger: at this rate it is on screen most of the
+  // time, beside the crosshair. No wisp: the barrels' own smoke would hide the gun.
+  rotary: {
+    color: hot(0xffa820, 2.2), size: 0.32, points: 7, inner: 0.3, petals: 3, petalLength: 0.9, life: FLASH,
+    light: 0xffb050, lightPower: 9, lightRadius: 12, wisp: 0, sparks: 3,
+  },
+  // The heavy machine gun: a cross thrown sideways by the brake, with long jets, eight times a second.
+  hmg: {
+    color: hot(0xffc060, 2.4), size: 0.52, points: 4, inner: 0.13, petals: 3, petalLength: 1.5, life: 0.045,
+    light: 0xffb860, lightPower: 12, lightRadius: 14, wisp: 0.2, sparks: 9,
+  },
 };
 
 const _side = new THREE.Vector3();

@@ -91,6 +91,7 @@ Answers fielded first by bots, 150 s, seeds 3, 11, 23: camper `mortars, snipers`
 - **Lines take their ids from a key beside them**, so moving a line keeps its audio. Changing the words needs a new take.
 - **The box prints the true number and the take says the band.** 212 shots is a take of two hundred. A line with two different slots stays text.
 - **A weapon is said by a word, never by its id.** `WEAPON_WORDS` has the word for each, and `weaponWord` says a gun with no entry by its name with a capital. The Harrow, the Rivet and the Sabot have words and no takes: the box prints their lines and plays nothing, because `voice.ts` only queues clips the manifest lists. `voice-script.ts` will ask for their takes the next time it is run; `docs/voice` has not been regenerated for them.
+- **A renamed gun's old takes are not played.** Key 8's gun (id `buzzsaw`) is the Trommel now and its eight takes say "Buzzsaw", so `UNVOICED_WEAPONS` in `lines.ts` lists it and `spoken` in `ui/commander/pick.ts` gives any line that names it no clip: the box says "Trommel" and nothing plays. Record new takes under the same `~buzzsaw` names and empty the set to give him his voice back. `?slot8=old` brings the word "Buzzsaw" and the old takes back together.
 
 ## Orders on the radio
 

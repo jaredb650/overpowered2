@@ -6,7 +6,7 @@
  * Feel.shake converts them to camera trauma.
  */
 import type { ExplosionKind, MuzzleKind, SurfaceKind, TracerKind } from '../core/contracts';
-import type { SwordMove, WeaponId } from '../core/gameplay';
+import type { BurstSpec, SwordMove, WeaponId } from '../core/gameplay';
 
 /** `paint` is the Quiver's: hold to mark targets, let go to fire the salvo at them. Its numbers are `TUNING.quiver`. */
 export type FireMode = 'auto' | 'semi' | 'charge' | 'spin' | 'stream' | 'melee' | 'paint';
@@ -75,6 +75,18 @@ export interface WeaponDef {
    * Unlike `kick`, it does not spring back. `?climb=0` takes it out.
    */
   climb?: { readonly pitch: number; readonly yaw: number };
+  /**
+   * Each round goes off where it lands: a flash, a crack and fragments inside `radius`. Not an explosion, and nothing like
+   * the autocannon's: see src/weapons/burst.ts. `?burst=0` takes it out.
+   */
+  burst?: BurstSpec;
+  /** Chance that a kill by one of its rounds bursts the body, 0 to 1. Unset, a kill leaves a body as any bullet's does. */
+  gib?: number;
+  /**
+   * Ground speed while it fires, as a share of run speed: a gun too heavy to run with. Unset does not slow the player.
+   * How it comes on and what it leaves alone is src/weapons/handling.ts. `?slow=0` takes it out.
+   */
+  slow?: number;
   /** Multiplies impact effects and decals on the world. */
   impactScale?: number;
   /** Push on ragdolls and severed parts, in newton-seconds per hit. 0 takes the default for bullets. A body is about 85 kg. */
@@ -120,6 +132,12 @@ export const SLOT4_OLD = typeof location !== 'undefined' && (() => {
  * no bursts. The code that fires it is src/weapons/lance.ts when this is off, and `Weapons.updateCharge` when it is on.
  */
 export const LANCE_OLD = typeof location !== 'undefined' && new URLSearchParams(location.search).get('lance') === 'old';
+
+/**
+ * `?slot8=old` puts key 8 back as it was: the BUZZSAW by name and by its numbers (50 light rounds a second, no bursts, the
+ * old spin and slowdown), in its old model, and no PILEDRIVER beside it. The sounds stay the new ones.
+ */
+export const SLOT8_OLD = typeof location !== 'undefined' && new URLSearchParams(location.search).get('slot8') === 'old';
 
 export const WEAPONS: Record<WeaponId, WeaponDef> = {
   smg: {
@@ -284,14 +302,38 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     reloadFoley: [[0.12, 'reload_cell'], [0.78, 'reload_bolt']], drawSound: 'weapon_draw_heavy',
     recoil: 1.3, kick: 0.075, shake: 0.14, fovPunch: 7,
   },
+  // The 20 mm rotary cannon. Big rounds, twenty-five a second once the barrels are turning, each one going off where it
+  // lands (`burst`: a flash, a crack and fragments inside half a metre, never a blast). It goes through nothing. `force` 34
+  // is over the 30 a body can die on its feet under, so what it kills is knocked down. Spin-up, the climb of its rate and
+  // the slowdown while spun are TUNING.buzzsaw; `slow` is while it fires. The id is the old name's: saves, caches and the
+  // Commander know the gun by it.
   buzzsaw: {
-    ...BASE, id: 'buzzsaw', name: 'BUZZSAW', slot: 8, mode: 'spin',
-    magSize: 200, reserve: 400, maxReserve: 800, reloadTime: 2.2, drawTime: 0.34,
-    interval: 0.02, damage: 13, spread: 0.008, severMult: 2.2, force: 6,
-    muzzle: 'minigun', tracer: 'bullet', casing: 'rifle',
+    ...BASE, id: 'buzzsaw', name: 'TROMMEL', slot: 8, mode: 'spin',
+    magSize: 120, reserve: 240, maxReserve: 360, reloadTime: 2.4, drawTime: 0.38,
+    interval: 0.04, damage: 32, spread: 0.012, severMult: 2.6, force: 34,
+    burst: { radius: 0.45, damage: 10 }, slow: 0.5, impactScale: 1.5,
+    muzzle: 'rotary', tracer: 'heavy', casing: 'cannon',
     sounds: [],
     drawSound: 'weapon_draw_heavy',
-    recoil: 0.5, kick: 0.0009, shake: 0.0035,
+    recoil: 1, kick: 0.0042, shake: 0.03, fovPunch: 0.35,
+  },
+  // The heavy machine gun beside it: a third of the rate and three times the round. It goes through walls and everyone in
+  // line on the penetration budget (2.4 m: an inner wall and the men behind it), takes off any limb it touches, and a kill
+  // can burst the body (`gib`). It kicks, it climbs, and it slows the player less than the cannon. Owned with the cannon.
+  // 90 at `severMult` 5 is 450 a round on a corpse, over the 420 a waist lasts (GoreTuning.corpseTrunkHealth): one round
+  // cuts a dead body in two and the next bursts a half. `force` is 48 and not more: measured at 38, 48 and 85, what a round
+  // throws is the pieces it cut, as far at 38 as at 85, so the number is set by what it does to the living, which is to
+  // stagger a Brute with its second round and not with every one.
+  piledriver: {
+    ...BASE, id: 'piledriver', name: 'PILEDRIVER', slot: 8, base: 'buzzsaw', mode: 'auto',
+    magSize: 50, reserve: 100, maxReserve: 150, reloadTime: 3, drawTime: 0.4,
+    interval: 0.12, damage: 90, spread: 0.004, severMult: 5, force: 48, headshotMult: 2,
+    penetration: 2.4, bodyCost: 0.3, gib: 0.3, slow: 0.72, killStop: 0.03, impactScale: 1.8,
+    muzzle: 'hmg', tracer: 'heavy', casing: 'cannon',
+    sounds: [{ id: 'piledriver_fire', pitchJitter: 0.03 }],
+    reloadFoley: [[0.05, 'reload_mag_out'], [0.5, 'reload_mag_in'], [0.8, 'piledriver_charge']], drawSound: 'weapon_draw_heavy',
+    recoil: 1, kick: 0.016, shake: 0.045, fovPunch: 1.3,
+    climb: { pitch: 0.0028, yaw: 0.0016 },
   },
   kiln: {
     ...BASE, id: 'kiln', name: 'KILN', slot: 9, mode: 'stream',
@@ -314,6 +356,16 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
 };
 
 if (SLOT4_OLD) WEAPONS.sabot.base = 'autocannon';
+if (SLOT8_OLD) {
+  // The BUZZSAW's row as it was. With no base and no cache, the PILEDRIVER is never handed out, and families.ts leaves it
+  // off key 8, so one the lab's arsenal hands over anyway is never drawn.
+  Object.assign(WEAPONS.buzzsaw, {
+    name: 'BUZZSAW', magSize: 200, reserve: 400, maxReserve: 800, reloadTime: 2.2, drawTime: 0.34, interval: 0.02, damage: 13,
+    spread: 0.008, severMult: 2.2, force: 6, burst: undefined, slow: undefined, impactScale: undefined, muzzle: 'minigun',
+    tracer: 'bullet', casing: 'rifle', recoil: 0.5, kick: 0.0009, shake: 0.0035, fovPunch: 0,
+  });
+  WEAPONS.piledriver.base = undefined;
+}
 if (LANCE_OLD) {
   Object.assign(WEAPONS.lance, {
     magSize: 4, reserve: 16, maxReserve: 32, interval: 0.35, damage: 420, recoil: 1, kick: 0.05, shake: 0.06, fovPunch: 5,
@@ -476,16 +528,37 @@ export const TUNING = {
      */
     chain: { first: 0.04, gap: 0.035, perFrame: 2, max: 32, scale: 0.8, shake: 0.014 },
   },
+  /** The rotary cannon's barrels. `?slot8=old` puts the spin times and `moveSpeed` back as the BUZZSAW had them. */
   buzzsaw: {
-    spinUp: 0.55, spinDown: 0.85,
+    spinUp: SLOT8_OLD ? 0.55 : 0.7, spinDown: SLOT8_OLD ? 0.85 : 1.1,
     /** Below this spin the barrels turn but nothing leaves them. */
     fireAt: 0.8,
     /** The fire rate climbs from this fraction of full over the rest of the spin. */
     minRate: 0.45,
-    /** Ground speed cap while the barrels turn, as a fraction of MOVE.runSpeed. */
-    moveSpeed: 0.62,
-    /** Air and slide speed bleeds much more gently: momentum still belongs to the player. */
-    airDrag: 0.6,
+    /** Ground speed cap while the barrels turn and nothing leaves them, as a fraction of MOVE.runSpeed. Firing is the row's `slow`. */
+    moveSpeed: SLOT8_OLD ? 0.62 : 0.8,
+  },
+  /**
+   * How a gun's `slow` comes on and goes, for every gun that has one: see src/weapons/handling.ts. The cap eases in at
+   * `rise` a second from the first round and out at `fall` once `hold` has passed with none.
+   */
+  handling: {
+    rise: 9, fall: 4, hold: 0.16,
+    /** Past this many times run speed the player was thrown or earned it: a pad, a blast, a slide hop. The gun leaves that alone. */
+    leave: 1.5,
+    /**
+     * Speed a move left under `leave` (a dash ends at 13 m/s, a dash-jump at 18) bleeds down to the cap this many m/s a
+     * second, net of what the legs give back, rather than being cut the frame the move ends: 13 to the cannon's cap in a
+     * fifth of a second, 18 in four tenths.
+     */
+    carry: 30,
+  },
+  /** What every cannon round's burst shares. Its radius, fragments and size are on the round: `WeaponDef.burst`. */
+  burst: {
+    /** Push of a fragment, newton-seconds. */
+    force: 8,
+    /** First-game shake at the burst, fading to nothing `shakeRange` metres from the eye. */
+    shake: 0.008, shakeRange: 7,
   },
   kiln: {
     speed: 26, life: 0.5, drag: 1.6, startRadius: 0.16, endRadius: 1.05,

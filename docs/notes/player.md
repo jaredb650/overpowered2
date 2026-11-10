@@ -53,6 +53,12 @@ if (ctx.player.state === 'wallrun') score.style('wallrun');
 const sway = ctx.input.frameLook.x;                             // weapon sway
 ```
 
+Two guns slow the player by writing `velocity` after the player has moved: the rotary cannon and the heavy machine gun on key 8,
+through `src/weapons/handling.ts`. It holds an ordinary run and an ordinary jump to a share of run speed, and reads `dashing`,
+`sliding`, `wallRunning`, `mantling`, `vaulting` and `slamming` so that it clamps nothing during a move, and nothing above 1.5 times
+run speed. What a move leaves under that (`dashExit`, `dashKeep`) bleeds down to the cap at `TUNING.handling.carry` rather than
+being cut the frame the move ends. `docs/notes/weapons.md`, "Heavy guns slow the player". `?slow=0` takes it out.
+
 ## How movement works
 
 DESIGN section 13 overrides section 6: normal running is planted, and speed is something the player chooses and earns.

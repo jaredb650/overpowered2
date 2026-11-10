@@ -1,5 +1,6 @@
 /**
- * The two guns the player actually sees: the M134 on its door pintle and the Harrow's chin cannon.
+ * The two guns the player actually sees: the 20 mm rotary cannon on its door pintle (the spec is still called `M134`, which
+ * is what it was before the door gun's rework) and the Harrow's chin cannon.
  *
  * Both are ordinary world objects and not viewmodels. A gun on an aircraft has to be there for someone watching from the
  * ground too, and in the world scene the muzzle needs no correction for a second camera: a tracer leaves it exactly.
@@ -104,7 +105,7 @@ function m134Body(b: ModelBuilder): void {
   b.box(0.2, 0.05, 0.3, IRON, { at: [0, -0.1, 0.02] });
   for (const s of [1, -1]) b.box(0.03, 0.14, 0.2, IRON, { at: [s * 0.1, -0.03, 0.02] });
   b.box(0.13, 0.15, 0.32, GUNMETAL, { at: [0, 0, 0.04] });
-  b.cyl(0.075, 0.075, 0.13, 12, GUNMETAL, { at: [0, 0, -0.17], rot: ALONG_Z });
+  b.cyl(0.084, 0.084, 0.13, 12, GUNMETAL, { at: [0, 0, -0.17], rot: ALONG_Z });
   b.box(0.08, 0.1, 0.16, WORN, { at: [0.11, 0.03, 0.06] });
   b.cyl(0.04, 0.04, 0.2, 10, IRON, { at: [-0.1, 0.05, 0.05], rot: ALONG_Z });
   // Spade grips, the thing the gunner's hands are on.
@@ -127,11 +128,15 @@ function m134Body(b: ModelBuilder): void {
 const BARRELS = 6;
 
 function m134Barrels(b: ModelBuilder): void {
+  // 20 mm tubes since the door gun's rework: half as thick again as the 7.62 ones, on a wider circle, in heavier clamps.
+  // The spec keeps its name, which the menu's cabin builds it by.
   for (let i = 0; i < BARRELS; i++) {
     const a = (i / BARRELS) * Math.PI * 2;
-    b.cyl(0.0135, 0.0135, 0.76, 8, i % 2 ? IRON : GUNMETAL, { at: [Math.cos(a) * 0.044, Math.sin(a) * 0.044, -0.6], rot: ALONG_Z });
+    b.cyl(0.0205, 0.0205, 0.76, 10, i % 2 ? IRON : GUNMETAL, { at: [Math.cos(a) * 0.05, Math.sin(a) * 0.05, -0.6], rot: ALONG_Z });
   }
-  for (const z of [-0.34, -0.72, -0.96]) b.cyl(0.066, 0.066, 0.024, 12, IRON, { at: [0, 0, z], rot: ALONG_Z });
+  for (const z of [-0.34, -0.66]) b.cyl(0.076, 0.076, 0.03, 14, IRON, { at: [0, 0, z], rot: ALONG_Z });
+  // The muzzle clamp: a thick ring the six sit in.
+  b.cyl(0.08, 0.08, 0.05, 14, GUNMETAL, { at: [0, 0, -0.95], rot: ALONG_Z });
 }
 
 export const M134: GunSpec = {

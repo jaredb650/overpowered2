@@ -257,3 +257,34 @@ Still open:
 
 - The four models were judged as stills, not in motion. The Spade's beheading is confirmed by the game's kill event, not yet by a clear still.
 - Touched outside the weapon system, all small: `src/enemies/damage.ts` (a club's head kill keeps the head), `src/weapons/families.ts` (`?melee=old`), `src/enemies/commander/tracker.ts` and `index.ts`, `src/enemies/outpost/index.ts` (the new weapons count as melee and make blade noise), `src/enemies/commander/lines.ts` (words for them), `src/progression/index.ts` (Adrenaline counts every melee kill, not only the sword's).
+
+## Key 8: the Trommel, the Piledriver and the door gun (built and committed, not played, not heard)
+
+Owner's words: "The minigun, I don't like that it has a buzzsaw thing. I think the barrels should be thicker. It shouldn't just feel like a super fast assault rifle. It should feel like it's shooting bigger bullets, higher caliber. Not a super big explosion, but it should feel like a 20 millimeter Gatling gun. Very small explosions, grapefruit sized. It should shake the screen a lot and feel more violent. It should slow you down while you're shooting it too." And beside it a heavy machine gun, slower, far more damage and gibbing a round, the one that goes through walls; and the door gunner's gun with both.
+
+Manual: `docs/notes/weapons.md`, "Key 8", "Bursts", "The door gun", "Heavy guns slow the player".
+
+What the owner gets:
+
+- **The BUZZSAW is the TROMMEL**, a 20 mm rotary cannon. The saw was its name, its sound and its look, and all three went: a new name, a low drive and 25 heavy rounds a second where there was a sawtooth whine and 50 light ones, six barrels 3 cm thick in a plain muzzle ring where there were thin ones behind a red toothed disc, and a reticle that no longer spins. 32 damage a round for 13. Every round goes off where it lands in a flash, a crack and a puff the size of a grapefruit. Big brass, a thick tracer on every round, a big orange flash, a lot of shake, and the gun hammers in the hands. By the tables it takes an arm off a Trooper in the swarm with one round, and it knocks down what it kills. It goes through nothing.
+- **It slows you**: to 0.8 of a run while the barrels turn (right click still spins it early) and to half while it fires. In the air too, over about a tenth of a second. A dash, a slide, a wall run, a climb, a vault, a slam and anything a pad or a blast threw you at are left alone, and what a dash leaves behind bleeds off over a quarter of a second (a dash-jump's over about a third) rather than stopping you dead where it ends.
+- **Press 8 again: the PILEDRIVER**, a heavy machine gun, in the same weapon cache as the Trommel. 90 damage at 8 a second, 50 on the belt, a slow 3 s reload. It goes through an inner wall and everyone behind it (one round killed a file of three Troopers), takes off any limb it touches, bursts three kills in ten, and cuts a dead body in two with one round. It kicks, climbs a little for you to hold down, and slows you to 0.72 of a run while it fires.
+- **The door gun** is a 20 mm rotary cannon now: 30 rounds a second of 60 for 60 of 22, and the only gun that does both, bursting where it lands and going on through 1.4 m of roof or wall. Over the Kill House with the sight held on men behind cover, 67 of 73 hits landed on bodies it could not see.
+- Try it: F1, "TROMMEL: draw it, nine in three ranks ahead", "PILEDRIVER: the same", "Door gun: board it now". On the Test Range, "Piercing gallery" for the Piledriver.
+- **The Commander calls it the Trommel.** His recorded takes say "Buzzsaw", so his lines about it are shown and not spoken.
+- Off-switches: `?slot8=old` (the BUZZSAW by name, numbers and model, no Piledriver, the Commander's old takes), `?burst=0` (no round bursts), `?slow=0` (no gun slows you), `?doorgun=old` (the M134).
+
+Waiting on the owner:
+
+- **The names**: Trommel (a rotary drum, and the German for drum, as in drumfire) and Piledriver. Each is one string in its row of `WEAPONS`.
+- **How much shake.** It is set high on purpose: about a degree of pitch and roll, re-rolled twenty times a second, for as long as the trigger is held. `shake` in the Trommel's row.
+- **The slowdown holding in the air.** The old gun only dragged there, which measured as nothing: a hop with the trigger held kept full speed. Say if a jump should be free again.
+- **The door gun's rate was halved** to make each round three times as big. Say if it should keep its sixty a second.
+- **Every number**: both guns' damage, rate, belts, kick and climb, the burst's size and its fragments (0.45 m, 10 damage, which seldom reach anyone), how often the Piledriver bursts a body.
+
+Still open:
+
+- **Nothing has been heard.** The sounds were rebuilt once after the first version measured as a rumble too low for small speakers; whether they are deep and violent is for ears.
+- **The Commander's Trommel lines are silent.** Eight takes say "Buzzsaw" and voice cannot be made here; new takes saying "Trommel" would bring his voice back.
+- **Frame cost**, measured last at a load average of about 6 on `react-chaos.mjs`'s crowd (24 bodies, AI on, a rocket every 0.45 s): p95 19.2 ms alone, 19.3 with the Trommel held into it (23 bursts a second), 18.5 with 60 door-gun bursts a second; the physics step's p95 1.9, 2.0 and 2.7 ms. No console errors.
+- Touched outside the weapon system, all small: two rows in `src/gore/wounds.ts` (the wound a 20 mm round and a heavy machine gun round leave; `?slot8=old` keeps the old one), `fx.burst` and two muzzle flashes in `src/fx`, three sandbox checks in `src/sandbox/range.ts`, the body-hit expectations in `src/audio/audio.test.ts`, three lab buttons, and the door gun's barrels in `src/vehicles/guns.ts`, which the menu's helicopter shares.

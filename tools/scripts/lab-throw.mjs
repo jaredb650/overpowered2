@@ -22,7 +22,7 @@ export default async function throwTest(page, h) {
     lab.flags.gibbing = false;
     lab.flags.progression = false;
     ctx.player.modifiers.invulnerable = true;
-    for (const id of ['smg', 'shotgun', 'rocket', 'autocannon', 'sword', 'judge', 'lance', 'buzzsaw', 'kiln', 'stakegun']) {
+    for (const id of ['smg', 'shotgun', 'rocket', 'autocannon', 'sword', 'judge', 'lance', 'buzzsaw', 'piledriver', 'kiln', 'stakegun']) {
       if (!ctx.weapons.owned.has(id)) ctx.weapons.give(id);
     }
     const frame = () => new Promise(r => requestAnimationFrame(r));
@@ -196,6 +196,7 @@ export default async function throwTest(page, h) {
       'shotgun at 8 m': () => gun('shotgun', 8),
       'judge at 8 m': () => gun('judge', 8),
       'buzzsaw kill at 8 m': () => gun('buzzsaw', 8),
+      'piledriver kill at 8 m': () => gun('piledriver', 8),
       'autocannon at 10 m': () => gun('autocannon', 10),
       'lance at 8 m': () => gun('lance', 8),
       'stakegun at 8 m': () => gun('stakegun', 8),
@@ -208,6 +209,7 @@ export default async function throwTest(page, h) {
       'rocket 2 m from a corpse': () => near('rocket', 8, 100, 2, true),
       'smg 1.5 s on a corpse': () => corpseSpray('smg', 1.5),
       'buzzsaw 1.5 s on a corpse': () => corpseSpray('buzzsaw', 1.5),
+      'piledriver 1.5 s on a corpse': () => corpseSpray('piledriver', 1.5),
     };
     const out = {};
     for (const [name, run] of Object.entries(cases)) {

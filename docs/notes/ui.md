@@ -65,7 +65,7 @@ One cell per number key, not per weapon. A key that holds a family (`src/weapons
 
 ## The charge bar
 
-Under the crosshair, `xh-charge` in `hud/crosshair.ts`: the Buzzsaw's spin and the Lance's charge, from `HudState.charge`. For a weapon whose `mode` is `charge` (the Lance) it is staged, from `TUNING.lance.stages` (`docs/notes/weapons.md`, "The Lance"): a notch on the bar at each stage short of full, and the bar's own classes say what letting go fires. It is grey while that is only a plasma ball (`staged`), cyan from the first stage (`s1`, then `s2`), and white in an amber frame at full (`full`). One `Flag` a stage, so a class is written when a stage is crossed and not every frame. With `?lance=old` there are no stages and the bar is the plain one.
+Under the crosshair, `xh-charge` in `hud/crosshair.ts`: the rotary cannon's spin and the Lance's charge, from `HudState.charge`. It is the only spin readout now: the cannon's reticle used to turn with the barrels (`spins`), which was a saw on the HUD, and is four fat blocks that every round throws wide. The Piledriver's is long bars to either side. For a weapon whose `mode` is `charge` (the Lance) it is staged, from `TUNING.lance.stages` (`docs/notes/weapons.md`, "The Lance"): a notch on the bar at each stage short of full, and the bar's own classes say what letting go fires. It is grey while that is only a plasma ball (`staged`), cyan from the first stage (`s1`, then `s2`), and white in an amber frame at full (`full`). One `Flag` a stage, so a class is written when a stage is crossed and not every frame. With `?lance=old` there are no stages and the bar is the plain one.
 
 ## Lock markers
 

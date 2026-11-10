@@ -22,9 +22,24 @@ export type WeaponId =
   // Family members: they share a slot key with a base weapon. See src/weapons/families.ts.
   | 'harrow' | 'rivet' | 'sabot' | 'quiver' | 'thresher'
   // Key 5 beside the sword: knife, crowbar, shovel, baton. Swung by the same code, src/weapons/melee.
-  | 'knife' | 'crowbar' | 'shovel' | 'baton';
+  | 'knife' | 'crowbar' | 'shovel' | 'baton'
+  // The heavy machine gun beside the rotary cannon on key 8.
+  | 'piledriver';
 
 export type Team = 'player' | 'enemy';
+
+/**
+ * A small cannon round going off where it lands: a flash, dust, a crack and a few fragments. It is not a blast: nothing is
+ * thrown, nothing rolls on the blast table, and it costs a handful of particles. See src/weapons/burst.ts.
+ */
+export interface BurstSpec {
+  /** Metres. A body this close to the burst, other than the one the round struck, takes fragments. */
+  readonly radius: number;
+  /** Fragment damage at the burst, falling to half at the edge. */
+  readonly damage: number;
+  /** Scales the flash, the dust and the sparks. Unset is 1, the round fired on foot. */
+  readonly scale?: number;
+}
 
 /** Written by perks and powerups. WeaponSystem reads it every shot. Defaults are all neutral. */
 export interface WeaponModifiers {
@@ -202,6 +217,11 @@ export interface ShotSpec {
    * ahead of them are mostly its own kills of a frame before, and must not be struck again at full damage.
    */
   skipCorpses?: boolean;
+  /**
+   * The round bursts where it first strikes anything and where it stops: see BurstSpec. Not the same as `blastRadius`, which
+   * is a real explosion, and which takes its place while both are set.
+   */
+  burst?: BurstSpec;
 }
 
 /**

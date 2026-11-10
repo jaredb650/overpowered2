@@ -321,16 +321,18 @@ const tests: Record<string, (r: Rig) => void> = {
       check(`smg rate @${fps}`, near(shots / 3, SMG_RPS, 0.34), `${(shots / 3).toFixed(2)} rps`);
     }
   },
-  'fire rate: buzzsaw reaches 50 rps after spin-up'(r) {
+  'fire rate: the rotary cannon (buzzsaw) reaches its rate after spin-up'(r) {
+    // 25 a second as the Trommel, 50 with `?slot8=old`: the table says which.
+    const rps = 1 / WEAPONS.buzzsaw.interval;
     for (const fps of FPS) {
       clean(r, 'buzzsaw');
       r.weapons.modifiers.bottomlessMag = true;
       r.input.simulate('fire', true);
-      run(r, 1, fps);
+      run(r, 1.2, fps);
       r.record.fired = {};
       run(r, 2, fps);
       const shots = r.record.fired.buzzsaw ?? 0;
-      check(`buzzsaw rate @${fps}`, near(shots / 2, 50, 0.6), `${(shots / 2).toFixed(2)} rps`);
+      check(`buzzsaw rate @${fps}`, near(shots / 2, rps, 0.6), `${(shots / 2).toFixed(2)} rps`);
     }
   },
   'fire rate: berserk modifier and real akimbo'(r) {
@@ -1361,7 +1363,7 @@ const tests: Record<string, (r: Rig) => void> = {
     r.input.simulate('fire', true);
     run(r, 0.3, 60);
     check('nothing leaves before spin-up', (r.record.fired.buzzsaw ?? 0) === 0, r.record.fired.buzzsaw);
-    run(r, 0.5, 60);
+    run(r, 0.7, 60);
     check('fires once spun', (r.record.fired.buzzsaw ?? 0) > 3, r.record.fired.buzzsaw);
     r.player.velocity.set(17, 0, 0);
     run(r, 1, 60);
@@ -1392,7 +1394,8 @@ const tests: Record<string, (r: Rig) => void> = {
       });
       r.input.simulate('fire', false);
       const average = travelled / seconds;
-      check(`average speed @${fps}`, near(average, top * TUNING.buzzsaw.moveSpeed, 0.6), average.toFixed(2));
+      // While it fires the cap is the row's `slow`. With `?slot8=old` the row has none and the barrels' own cap is all there is.
+      check(`average speed @${fps}`, near(average, top * (WEAPONS.buzzsaw.slow ?? TUNING.buzzsaw.moveSpeed), 0.6), average.toFixed(2));
     }
   },
   'ammo: a gun that runs dry hands over, and the sword is the last resort'(r) {

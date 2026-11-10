@@ -221,7 +221,9 @@ The rest are additive, in `contracts.ts`. `PhysicsSystem`: `preStep`, `radialLis
 
 | Hit | Leaves |
 |---|---|
-| SMG, Buzzsaw | 1.25 cm hole. Stays in a trunk. Through a limb, a small exit |
+| SMG (and the Buzzsaw, with `?slot8=old`) | 1.25 cm hole. Stays in a trunk. Through a limb, a small exit |
+| Trommel, the 20 mm rotary cannon (source `buzzsaw`) | 3 cm crater, 8.5 cm exit, 11 cm deep: two thirds of the autocannon's. Works a limb toward breaking at 2 a point of damage, so one round breaks a joint. Its burst's fragments carry no bone and leave no mark |
+| Piledriver | 1.8 cm hole and a torn 7.5 cm exit. Breaks at 2.2 a point |
 | Judge | 1.45 cm hole, and a torn 5.5 cm exit on the far side of the capsule, as the ray leaves it |
 | Stakegun, Lance | Bigger of the same |
 | Autocannon | 4.5 cm crater, 11.5 cm exit, 13 cm deep |

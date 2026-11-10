@@ -89,6 +89,7 @@ fx.spawnIn(pos, color?, height?)
 fx.wallSparks(pos, normal, along)
 fx.lensBlood(amount)                         // also fires itself on gibs and head bursts within 3 m
 fx.heatShimmer(pos, radius, seconds)
+fx.burst?.(pos, normal, scale?)              // a 20 mm round going off: see below. Optional on the contract
 fx.muzzleFlash(pos, dir, kind, view?)
 ```
 
@@ -112,6 +113,7 @@ trail.stop();
 - `fireTrail` on something barely moving burns like `burning`.
 - An emitter stops itself when a parented target loses its parent.
 - `fx.impact` adds a `bullet` decal. `fx.explosion` adds a `scorch` decal. Blood decals come from two places: `src/gore/blood.ts` for wounds and pools, and the stain queue here for drops FX can see land.
+- `fx.burst(position, normal, scale)` is a small cannon round going off on a surface, made to be called tens of times a second: a hard white disc and thin rays for three frames, three lobes of fire about 20 cm across that are gone in a tenth of a second, seven sparks off the face, two puffs of dust and three dark chips. Fifteen particle records and two flash sprites; a light for every other call and a scorch for one in three. It is not an explosion: no smoke column, shock sphere, shimmer or post effect. Beside it on a contact sheet the smallest explosion, `hellfireBullet` at 2 m, is sixty records and a fireball ten times as wide (`tools/out/heavy/fx-burst.png`). `scale` 1.5 is the door gun's. Callers: `src/weapons/burst.ts` only. Gallery entries `burst`, `burst-wall`, `burst-door`, `burst-stream`.
 - `fx.smoke` is a cube dot up to 1.2 m, the original's look. Bigger sizes become a soft billow, because a translucent box several meters across looks wrong.
 - `src/player/feedback.ts` calls `dust`, `dashStreaks` (with the eye position), `slam` and `wallSparks`. The jump-pad burst needs no call: FX listens for `world:pad`.
 - `fx:casing` fires on each casing bounce. Its payload object is reused. There is no tinkle sample in `public/audio/sfx`, so audio has to pick something.
@@ -128,7 +130,8 @@ Camera shake and hit-stop are not done here. Callers own those. Explosions do fi
 | `stains.ts` `STAIN_SCALE` | Stain size against strand width |
 | `recipes/explosions.ts` `RECIPES` | Counts, reach, shock, smoke, light per kind. `plasmaBurst` is the Lance's (`docs/notes/weapons.md`, "The Lance"): a white-blue star, a short plasma fireball at half the radius, a shock sphere, a floor ring and a scorch, 20 chips and 12 sparks, 53 particles in all against a shell's 115, because a full beam sets one off at every body it struck, a few hundredths of a second apart. `/?sandbox=fx&effect=plasmaBurst` |
 | `recipes/impacts.ts` `SURFACES` | Per-surface chips, dust, sparks, pop |
-| `recipes/muzzle.ts` `MUZZLES`, `TRACERS` | Star shape, size, life, light. Tracer width, speed, length. `carbine`, `pistol` and `sabot` are the Harrow, Rivet and Sabot's own (`docs/notes/weapons.md`), and `quiver` one tube of the Quiver lighting, smaller than the rocket's and over in 40 ms so four in 0.3 s read as four (the Thresher uses `shotgun`): the sabot tracer is 0.11 m wide at 1400 m/s, so the pieces of it either side of a wall are on screen together |
+| `recipes/muzzle.ts` `MUZZLES`, `TRACERS` | Star shape, size, life, light. Tracer width, speed, length. `carbine`, `pistol` and `sabot` are the Harrow, Rivet and Sabot's own (`docs/notes/weapons.md`), and `quiver` one tube of the Quiver lighting, smaller than the rocket's and over in 40 ms so four in 0.3 s read as four (the Thresher uses `shotgun`): the sabot tracer is 0.11 m wide at 1400 m/s, so the pieces of it either side of a wall are on screen together. `rotary` is the 20 mm rotary cannon's (the Trommel on key 8): a fat orange ball with three tongues, 0.32 m where the old `minigun` star is 0.17, and no bigger, because at 25 a second it is on screen most of the time beside the crosshair. `hmg` is the Piledriver's: a four-point cross with long side jets off the brake |
+| `recipes/cannon.ts` | The burst of a small cannon round: `CORE` (the white disc, 7.5 cm), the lobes' sizes and lives, sparks, dust, and how often it lights the room (`LIGHT_EVERY`) or leaves a scorch (`SCORCH_EVERY`) |
 | `recipes/misc.ts` `BEAMS`, `SLASHES` | Beam and slash looks |
 | `layers/chips.ts` | `uGlint`, `uGlintGain` (hot facet), `uFacet` (per-facet shading), `uEject` (blast warp), `uMinPx` (pixel floor at range) |
 | `layers/chips.ts` `CAPS` and the other constructors | Budget. Keep the sum at or under 30k |

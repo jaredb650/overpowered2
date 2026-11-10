@@ -10,6 +10,7 @@
  *
  * Nothing here imports three.js.
  */
+import { SLOT8_OLD } from '../../weapons/data';
 import { CALLSIGNS } from '../outpost/doctrine';
 import { ADAPTATIONS, TRICKS, type AdaptationId, type Tone, type TrickId } from './adaptations';
 
@@ -967,13 +968,19 @@ export const FALSE_CHATTER: readonly Line[] = lines('chatter.');
 
 /** How a weapon is said, by id. A voice actor needs words, not ids. The last three have words and no takes yet: the box prints them. */
 export const WEAPON_WORDS: Readonly<Record<string, string>> = {
-  smg: 'SMG', shotgun: 'shotgun', rocket: 'rocket launcher', autocannon: 'autocannon', sword: 'sword', judge: 'Judge', lance: 'Lance', buzzsaw: 'Buzzsaw', kiln: 'Kiln', stakegun: 'Stakegun',
+  smg: 'SMG', shotgun: 'shotgun', rocket: 'rocket launcher', autocannon: 'autocannon', sword: 'sword', judge: 'Judge', lance: 'Lance', buzzsaw: SLOT8_OLD ? 'Buzzsaw' : 'Trommel', kiln: 'Kiln', stakegun: 'Stakegun',
   harrow: 'Harrow', rivet: 'Rivet', sabot: 'Sabot',
   knife: 'knife', crowbar: 'crowbar', shovel: 'shovel', baton: 'baton',
 };
 
 /** The word for a weapon. One with no entry yet is said by its name, so a new gun never reaches the box as a raw id. */
 export const weaponWord = (id: string): string => WEAPON_WORDS[id] ?? id.charAt(0).toUpperCase() + id.slice(1);
+
+/**
+ * Weapons renamed since their takes were recorded. The takes say the old name (key 8's say "Buzzsaw"), so a line naming
+ * one of these is printed with the new word and not played. `?slot8=old` gives key 8 its old name and its takes back.
+ */
+export const UNVOICED_WEAPONS: ReadonlySet<string> = new Set(SLOT8_OLD ? [] : ['buzzsaw']);
 
 /** The Kill House's spaces, as `world.zones` names them. */
 export const ROOM_WORDS: readonly string[] = ['TYRES', 'LANES', 'CRATES', 'STREET', 'SANDBAGS', 'PLYWOOD', 'TILES', 'PLANT', 'COURT', 'RING', 'YARD'];

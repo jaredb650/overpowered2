@@ -145,7 +145,7 @@ Keys H and J, no mark to choose. Door Gunner at combo 18, Attack Chopper at 22: 
 |---|---|---|
 | Time, cooldown | 60 s, 150 s | 45 s, 120 s |
 | Flight | `Autopilot`: runs in, circles the thickest knot, reverses every 13 to 26 s | `OrbitPath`, left-hand, centre sliding after the fight |
-| Guns | LMB 30mm, 320 rounds at 10 a second. RMB rockets, 38. Both at once | LMB M134, 1800 rounds at 60 a second, 0.42 s spin-up, 1 in 4 a tracer |
+| Guns | LMB 30mm, 320 rounds at 10 a second. RMB rockets, 38. Both at once | LMB 20 mm rotary cannon, 1000 rounds at 30 a second, 0.5 s spin-up, every other one a tracer. 60 damage a round. Every round bursts where it lands and goes on through 1.4 m of roof or wall: the one gun with both (`docs/notes/weapons.md`, "The door gun"). `?doorgun=old` is the M134: 1800 at 60 a second, 22 a round, neither |
 | Zoom | Wheel, x2.5 | RMB, x1.8 |
 | Arc | 112 degrees either side of the nose | 69 degrees either side of the door |
 | Picture | `thermal` grade: cold grey, only fire keeps colour | The normal grade, hot tracers on the cold map |
@@ -171,7 +171,7 @@ Extend `GunnerStrike` with `fly`, `shoot` and `spent`. Give it a `HeliPlan` and 
 
 ## Pickups
 
-Drops 30% per kill, weighted toward what the player lacks, capped at 24, expire in 28 s. Map items: 3 Mega Health and 3 Heavy Armor on `world.pickupSpots` by a stride that lands on the Kill House deck corners, respawning at 45 s and 35 s. Ambient supply every 10 s. Capsules first at 25 s, then every 32 to 48 s, from a shuffled bag of all ten, 30 s life, at least 35 m away, with a `hud.marker`. Pods every second wave clear, with the unlock order in `CACHE_ORDER`, then full resupply once the arsenal is complete. A weapon's family members (`docs/notes/weapons.md`) come with it and are not in `CACHE_ORDER`: the Harrow, the Thresher and the Quiver are there from the start with the SMG, the shotgun and the rocket, and the Rivet arrives in the Judge's cache. Key 4 starts with the Sabot. The explosive autocannon is its upgrade and is earned: it is second in `CACHE_ORDER` (Judge, Autocannon, Lance, Buzzsaw, Kiln, Stakegun), so the wave 4 pod brings it and everything after it comes one pod later than before. It was a starting weapon, so it comes early rather than last. `?slot4=old` takes it out of the list and makes it a starting weapon again. `weapons.give` and `setLoadout` do that themselves, so a mission that hands out the SMG hands out the Harrow.
+Drops 30% per kill, weighted toward what the player lacks, capped at 24, expire in 28 s. Map items: 3 Mega Health and 3 Heavy Armor on `world.pickupSpots` by a stride that lands on the Kill House deck corners, respawning at 45 s and 35 s. Ambient supply every 10 s. Capsules first at 25 s, then every 32 to 48 s, from a shuffled bag of all ten, 30 s life, at least 35 m away, with a `hud.marker`. Pods every second wave clear, with the unlock order in `CACHE_ORDER`, then full resupply once the arsenal is complete. A weapon's family members (`docs/notes/weapons.md`) come with it and are not in `CACHE_ORDER`: the Harrow, the Thresher and the Quiver are there from the start with the SMG, the shotgun and the rocket, the Rivet arrives in the Judge's cache, and the Piledriver in the cache that brings the Trommel, which `CACHE_ORDER` still calls `buzzsaw`. Key 4 starts with the Sabot. The explosive autocannon is its upgrade and is earned: it is second in `CACHE_ORDER` (Judge, Autocannon, Lance, Buzzsaw, Kiln, Stakegun), so the wave 4 pod brings it and everything after it comes one pod later than before. It was a starting weapon, so it comes early rather than last. `?slot4=old` takes it out of the list and makes it a starting weapon again. `weapons.give` and `setLoadout` do that themselves, so a mission that hands out the SMG hands out the Harrow.
 
 ## Tuning knobs
 
@@ -220,7 +220,7 @@ Drops 30% per kill, weighted toward what the player lacks, capped at 24, expire 
 - **The HUD hint during steering** is the one in `CALLINS.orbital`, which covers both stages.
 - **Air-to-air from `DESIGN.md` section 17 is not built,** because no enemy chopper exists to fight. See "Adding a seat". Nothing can shoot the helicopters down either.
 - **Nobody has flown a seat with hands.** Aim hold, sensitivity at zoom, pacing and how the bail key sits are all unjudged. The kill counts are a bot that cannot miss by aiming, and they say little about a person.
-- **Neither helicopter has a sound of its own.** Rotors are `drone_rotor_loop` pitched down, the M134 is the Buzzsaw's loops, the cannon is the autocannon pitched up. None of it has been listened to.
+- **Neither helicopter has a sound of its own.** Rotors are `drone_rotor_loop` pitched down, the door gun plays the Trommel's loops (the `minigun_*` ids, rewritten for a 20 mm gun and turned to its 30 rounds a second), the cannon is the autocannon pitched up. None of it has been listened to.
 - **Rounds aimed outward over a near wall still burst on the invisible containment.** The -0.36 rad pitch stop covers the map itself. Nothing tells a ray an invisible wall from a real one, and the fix is a flag from the world owner.
 - **The sonar key still works in a seat.** It pings from the parked body and does nothing useful. One test of `player.parked` in `contracts/sonar.ts` would stop it.
 - **The parked body still collects pickups** that land on it.

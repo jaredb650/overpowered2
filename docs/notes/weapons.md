@@ -15,6 +15,8 @@
 | `swarm.ts` | The Quiver's mind: painting marks, filling a salvo, a missile's turn, weave and retarget. Pure functions and the `Painter`; no world |
 | `lance.ts` | The Lance: the rules of its charge, the pool its plasma bursts wait in (`PlasmaChain`), and its trigger, beam and sweep (`Lance`). `Weapons` holds one and hands it a few closures (`LanceHost`) |
 | `penetration.ts` | The budget a round spends on walls and bodies, and the probe that measures a wall. Hitscan and projectiles both ask here |
+| `burst.ts` | A small cannon round going off where it lands: the look, the crack and the fragments. Never a blast. The Trommel's rounds and the door gun's |
+| `handling.ts` | A gun too heavy to run with: the cap a row's `slow` puts on the player's speed, how it eases, and the moves it leaves alone |
 | `testkit.ts` | A firing range for Vitest: the real `Weapons` and `Combat` on real Rapier, stand-in enemies, a stepped clock |
 
 ## Using it
@@ -34,6 +36,7 @@ ctx.weapons.paint;                  // the Quiver's marks while it is in hand (P
 ctx.combat.spawnProjectile({ ..., kind: 'rocket', target, turnRate: 3.6, steerDelay: 0.14, weave: 0.1 }); // a guided missile
 ctx.combat.fireRay(eye, dir, { damage: 50, source: 'harrow', team: 'player', penetrate: 0.5 });   // through a body or a sheet
 ctx.combat.spawnProjectile({ ..., kind: 'bullet', penetrate: 3, bodyCost: 0.2 });                  // the same budget, with travel time
+ctx.combat.fireRay(eye, dir, { damage: 32, source: 'buzzsaw', team: 'player', burst: { radius: 0.45, damage: 10 } }); // a 20 mm round: it bursts where it lands
 ```
 
 Rules for callers:
@@ -61,6 +64,7 @@ All additive, in `src/core/gameplay.ts`.
 - **Melee stream.** `WeaponId` gains `knife`, `crowbar`, `shovel`, `baton`, after `sword`. `SwordMove` gains `heavy`, the right click of a melee weapon with no guard. Nothing else in the contract changed.
 - **Lance stream.** `ShotSpec.struck`, a `StruckList` the caller owns: the ray adds each body it struck (`points`, `enemies`, `count`) and counts the walls it passed (`walls`), and passes over any body already in the list, so one round can be resolved in several rays. Unset, a ray does nothing new. `ExplosionKind` gains `plasmaBurst`, with rows in `EXPLOSIONS`, in `src/fx/recipes/explosions.ts` and in `BLAST.rings` (`src/enemies/blast.ts`). `ProjectileTrail` gains `plasma`. In `data.ts`: `ExplosionDef.noKillStop`, `LANCE_OLD`, `HIT_STOP.lanceShot`. `Weapons.lance` is public, for tests and the lab.
 - `DecalKind` gains `exit`, the spall crater on the far side of a wall. It took the second bullet-hole cell of the atlas, so `bullet` has one variant now (`src/render/Decals.ts`, `materials/decalAtlas.glsl.ts`).
+- **Key 8 stream.** `WeaponId` gains `piledriver`. `BurstSpec` (`radius`, `damage`, `scale`) and `ShotSpec.burst`: a round that bursts where it first strikes and where it stops. `FxSystem.burst?(position, normal, scale?)`, optional so a stand-in need not have it. `MuzzleKind` gains `rotary` and `hmg`. In `data.ts`, `WeaponDef` gains `burst`, `gib` (the chance a kill bursts the body) and `slow` (speed while it fires, as a share of run speed), and `TUNING` gains `handling` and `burst`. `Combat.bursts` is the `Bursts` instance, with `stats` for tests.
 
 One change outside this system: `Player.rideGround` in `src/player/Player.ts` adds `world.objects.platformVelocity` to position while grounded, swept so a wall stops it. Added to position rather than velocity, so the deck's speed never reads as the player's own. `docs/notes/player.md` and `world.md` still say moving geometry does not carry the player; their owners should drop that line. `Weapons.ts` also imports the plain `MOVE` table from `src/player/tuning.ts`.
 
@@ -80,6 +84,11 @@ One change outside this system: `Player.rideGround` in `src/player/Player.ts` ad
 - **The Lance's gore and reactions are data.** `force` on the ball, the beam's `severMult` and `cleave`, and the blast table's row for `plasmaBurst`. Nothing in `src/gore`, and one table row in `src/enemies/blast.ts`.
 - **A Hellfire round bursts on the body it hits.** On every body it goes through, and where it stops. Not on a wall it passes.
 - **An exit mark lies on the far face.** `exitWall` takes the face's normal from the probe, not the line of the shot. The decal pass cuts away anything that stands off the surface, so a mark laid along a slanted shot is a sliver.
+- **A burst is never a blast.** `Bursts.at` must not call `explode`. A blast rolls every body in reach on the blast table, throws every ragdoll and chunk near it and punches the camera; a burst is `fx.burst`, `cannon_burst`, and a quiet bullet hit on bodies inside its radius other than the one the round struck. Fragments are `bullet` damage with no `reach` and no `blastKind`, so bodies answer them as they answer any light round. `heavy.test.ts` holds this.
+- **Only the door gun has both.** On foot the Trommel bursts and goes through nothing, the Piledriver goes through and does not burst. The helicopter's door gun sets `burst` and `penetrate` on one spec, and is the only thing that does. `heavy.test.ts` checks the two rows.
+- **A round bursts twice at most.** Where it first strikes anything, and where it stops if it went on. A round with Hellfire Rounds has that blast instead and no burst.
+- **The slowdown leaves a move alone.** `holdSpeed` clamps nothing while the player dashes, slides, wall runs, climbs, vaults or slams, and nothing above 1.5 times run speed. What a move leaves under that (a dash's 13 m/s, a dash-jump's 18) bleeds down to the cap at `TUNING.handling.carry` and is never cut in one frame. An ordinary jump is held to the cap like the ground.
+- **The rotary cannon's id is `buzzsaw`.** Saves, `CACHE_ORDER`, the dry-gun list, the Commander's lines and other streams' tests know it by that. Its name is a string in its row, and the Commander's word for it is `WEAPON_WORDS.buzzsaw`.
 
 ## How things work
 
@@ -93,6 +102,7 @@ One change outside this system: `Player.rideGround` in `src/player/Player.ts` ad
 | 4 | **Sabot**, the cannon loaded with darts | Autocannon, the explosive belt: the upgrade | The Sabot is first on the key and comes from the start: hitscan, 600 damage, no blast, through plates and through a Riot's shield, budget 5 m, bodies at 0.12 m each. The autocannon has no `base`: a weapon cache brings it, the second one, after wave 4 (`CACHE_ORDER`), and its feed line says "PRESS 4 AGAIN" |
 | 5 | Sword | **Shiv** (`knife`), **Prybar** (`crowbar`), **Spade** (`shovel`), **Cosh** (`baton`) | Four swung weapons, all owned with the sword, in that order on the key. See "Key 5" |
 | 6 | Judge | **Rivet**, pistol | 30 damage as fast as the trigger (9.5 a second), 15 rounds, out in 0.1 s. Headshots times 3. Half damage past 55 m, and no limbs. The Judge is six slow verdicts, this is the gun that is already up |
+| 8 | **Trommel**, 20 mm rotary cannon (id `buzzsaw`) | **Piledriver**, heavy machine gun | 90 damage at 8.3 a second against 32 at 25: about the same damage a second, in rounds nearly three times as big. Goes through 2.4 m of wall and everyone in line at 0.3 m a body, where the Trommel goes through nothing. Takes off any limb it touches (`severMult` 5), and three kills in ten burst the body (`gib`). Kicks, climbs, and slows the player to 0.72 of a run where the Trommel's firing is 0.5. No burst. Arrives in the Trommel's cache. See "Key 8" |
 
 **Adding a family member.** What it takes, in full:
 
@@ -105,7 +115,7 @@ A member with no `base` is earned on its own (the autocannon): it needs its own 
 
 Nothing else is needed. The dry-gun list takes a member after its base, `gore/wounds.ts` gives a gun with no `BITES` row the SMG's wound, the Commander says a gun with no entry in `WEAPON_WORDS` by its name, and the lab's "Draw a weapon" buttons and the guide's weapon page are built from the table.
 
-The row decides how it fires. `mode` picks the trigger code: `auto`, `semi`, `charge` (the Lance's, with `TUNING.lance`), `spin` (the Buzzsaw's, with `TUNING.buzzsaw`, slowdown included), `stream`, `melee` (`melee/Melee.ts`, reading the weapon's row in `MELEE`). `round` picks what leaves the barrel when it is not a hitscan round: `rocket`, `shell`, `stake`. More than one pellet makes it a scatter gun, with the point-blank rule and the pellet perks. `headHops`, `scope`, `penetration`, `bodyCost`, `armorPiercing`, `falloff` and `canSever` are fields too. So a second gun on key 7 or 8 is a row with `mode: 'charge'` or `'spin'` and its own damage, rate, budget and tracer. It shares the spin-up or charge numbers and sounds of the first, which live in `TUNING`, not in the row: a member that needs its own will have to move those into the row. A melee member is not like that: its swings, reach and what it does to a body are its own row in `MELEE` (`melee/data.ts`); only the katana has the guard, the charged sweep and the finisher, which stay `SWORD`'s.
+The row decides how it fires. `mode` picks the trigger code: `auto`, `semi`, `charge` (the Lance's, with `TUNING.lance`), `spin` (the rotary cannon's, with `TUNING.buzzsaw`: spin-up, the climb of its rate, and the slowdown while spun), `stream`, `melee` (`melee/Melee.ts`, reading the weapon's row in `MELEE`). `round` picks what leaves the barrel when it is not a hitscan round: `rocket`, `shell`, `stake`. More than one pellet makes it a scatter gun, with the point-blank rule and the pellet perks. `headHops`, `scope`, `penetration`, `bodyCost`, `armorPiercing`, `falloff`, `canSever`, `burst`, `gib` and `slow` are fields too. So a second gun on key 7 or 8 is a row with `mode: 'charge'` or `'spin'` and its own damage, rate, budget and tracer. It shares the spin-up or charge numbers and sounds of the first, which live in `TUNING`, not in the row: a member that needs its own will have to move those into the row. A melee member is not like that: its swings, reach and what it does to a body are its own row in `MELEE` (`melee/data.ts`); only the katana has the guard, the charged sweep and the finisher, which stay `SWORD`'s.
 
 Weapon ids still written in `Weapons.ts`, each for a reason: `smg` for akimbo, because the left gun is an SMG viewmodel; `sword` as the end of the dry-gun list; and the hand a run starts with. A quick melee swings whatever key 5 would draw (`slotMember(5)`), so with the Shiv last held there the melee key is a knife.
 
@@ -198,7 +208,22 @@ Pixels from the gun at 1280x720, median / max, from `RL_GROUP=view`. Old is the 
 
 **Stake pins.** `gore.pin` needs a ragdoll that has stepped once, so `Projectiles.nail` queues the pin and it goes in a frame later, for every stake. `pinReach` is 7.5 m because gore drags a bone at 26 m/s for 0.3 s; past that the bone stops short and the body hangs off the wall on nothing.
 
-**Buzzsaw slowdown** is written to velocity, because progression rewrites `modifiers.speed` every frame, after weapons run. The player re-accelerates at 120 Hz between our once-a-frame clamps, so the clamp sits half a frame's regain below the target. It reads `MOVE.runSpeed` and `MOVE.groundAccel` directly, because a copy of those went stale when DESIGN section 13 retuned the ground.
+**Key 8.** The owner's words: no buzzsaw thing, thicker barrels, bigger bullets and not a super fast assault rifle, very small explosions, a lot of shake, and it slows you; and beside it a heavy machine gun that is slower, hits far harder a round, gibs more and is the one that goes through walls.
+
+- *The Trommel* is the BUZZSAW reworked: a 20 mm rotary cannon. The saw was three things and all three are gone: the name, the sound (a 300 Hz sawtooth under a 50 Hz barrage, now a low drive and 25 blows a second; `docs/notes/audio.md`), and the look (thin barrels behind a red toothed disc, and a reticle that spun; `docs/notes/viewmodels.md`). 25 rounds a second for 50, 32 damage for 13, so 800 a second for 650. `force` 34 is over the 30 a body can die on its feet under and over the 15 that floors a body hit in the head, so what it kills is knocked down and a head hit that does not kill puts a man on the floor, where the Buzzsaw's 6 did neither: both come from the number in the row, through `src/enemies` as it stands. By the tables an arm is gone in one round on a Trooper in the swarm (83 against a pool of 35; `severMult` 2.6), and in two on the Outpost's men, whose limbs wear at 0.3. Big brass (`casing: 'cannon'`), a `heavy` tracer on every round, and the `rotary` flash. Belt of 120, 240 carried, 360 at most.
+- *Its spin.* `TUNING.buzzsaw`: 0.7 s to full, firing from 0.8 of that (0.56 s), the rate climbing from 0.45 of full over the rest, 1.1 s to run down. Right click spins it with no round leaving, as before. `Weapons` turns the spin loop's pitch and level with the barrels and the fire loop's pitch with the rate, plays the run-down from part way in for a gun let go part way up, and plays `minigun_fire`, the last round's report, when the barrage stops.
+- *Its shake.* 0.03 a round in the first game's units, which at 25 a second holds the camera at 0.41 trauma: about 0.9 degrees of pitch and 1.1 of roll, re-rolled every 50 ms. The SMG's is 0.004. A kick of 0.0042 rad a round that settles at about a quarter of a degree of climb, a little FOV punch on each, and the viewmodel's own hammering on top (`viewmodels.md`). Shake is on the view only: rounds leave along the look.
+- *The Piledriver* is the row under it: `mode: 'auto'`, no spin. 90 damage every 0.12 s, pushing with 48 N·s. At `severMult` 5 a round is 450 on a corpse, over the 420 a dead waist lasts, so one round cuts a dead body in two and the next bursts a half; measured at 38, 48 and 85 N·s, what a round throws is the pieces it cut, as far at 38 as at 85, so 48 was chosen for the living: a Brute staggers on its second round, not on every one. It is a heavy round to everything that asks (60 or more): it carries on through a plate it breaks and knocks a body cold with a head hit it lives through. `kick` 0.016 and a real `climb`, a quarter of the Thresher's. 50 on the belt, 3 s to change it.
+
+**Bursts.** `burst` in a row, `burst.ts` for the rule, `src/fx/recipes/cannon.ts` for the look. A 20 mm round goes off where it lands: a white core the size of a grapefruit with a few rays, a pop of fire about 20 cm across that is gone in a tenth of a second, sparks and a puff of dust, a short light for every other one, a scorch for one in three, and `cannon_burst` at the point. Fifteen particle records and two flash sprites, where the smallest explosion in the game, the Hellfire round's, is sixty and a 2 m fireball. Fragments reach `radius` (0.45 m) from the burst to a body's skin, taken as 0.25 m off the line from its feet to its head, and do `damage` (10) at the burst falling to half at the edge, as one quiet `bullet` strike with a push of 8 N·s; cover between the burst and the body stops them. The body the round itself struck gets the round and no fragments. Bodies have to be nearly touching for it to reach from one to the next: it is the look and the sound of an explosive round far more than it is splash, which is what was asked. `?burst=0` takes bursts out everywhere.
+
+**The door gun** (`src/progression/callins/doorGunner.ts`, numbers in `heliData.ts`, `DOOR.gun`) is the one gun with both: `burst` and `penetrate` on the same spec. 30 rounds a second for 60 and 60 damage for 22, so a third more a second; 1.4 m of budget, which is a roof or an inner wall and the man under it; a burst half as big again as the one on foot, to be seen from the air. A penetrating round bursts on the first thing it strikes, wall or body, and again where it stops. `?doorgun=old` is the M134 as it was.
+
+**Heavy guns slow the player** (`handling.ts`). `slow` in a row is ground speed while the gun fires, as a share of run speed: 0.5 for the Trommel, 0.72 for the Piledriver. The Trommel is also held to `TUNING.buzzsaw.moveSpeed`, 0.8, while its barrels turn with nothing leaving them. The cap eases in at `TUNING.handling.rise` from the first round and out at `fall` once `hold` has passed with none, so it comes on over about a tenth of a second and goes over a quarter. It is written to velocity, because progression rewrites `modifiers.speed` every frame, after weapons run. The player re-accelerates at 120 Hz between our once-a-frame clamps, so on the ground the clamp sits half a frame's regain below the target. It reads `MOVE.runSpeed` and `MOVE.groundAccel` directly, because a copy of those went stale when DESIGN section 13 retuned the ground.
+
+What it leaves alone: a dash, a slide, a wall run, a climb, a vault and a slam, and any speed past 1.5 times a run (`TUNING.handling.leave`), which a pad, a blast or a slide hop put there. What a move leaves behind under that is carried, not cut: a dash ends at 13 m/s and a dash-jump at 18, and a hard clamp the frame after stopped the player dead where the move ended (the review measured 13 to 5.7 and 18 to 6.25 in one frame). Now speed a move left, or any speed over a run, bleeds down at `TUNING.handling.carry` (30 m/s a second) net of what the legs or a held key in the air give back, and the clamp takes over once it reaches the cap; `Handling.carrying` holds that from frame to frame. An ordinary jump is held to the cap as the ground is. The Buzzsaw only dragged gently in the air, and measured live that was no slowdown at all: the air gives speed back to a player under run speed faster than the drag took it, and a hop with the trigger held kept 12.5 m/s. `?slow=0` takes the whole thing out.
+
+**`?slot8=old`** puts the BUZZSAW's row back (name, 50 rounds a second of 13, no bursts, its belt, its light shake, its spin times and its 0.62 while spun), its own model, its old wound, and takes the Piledriver off the key, even where the lab's arsenal hands every gun over (`families.ts` gives key 8 the Buzzsaw alone). The fire loop plays at the old 50 a second (its pitch reads the row's `interval`), and the Commander calls it the Buzzsaw again, with his recordings. The other sounds stay the new ones, and so do the handling rules above.
 
 **Key 5.** One class, `melee/Melee.ts`, swings all five weapons; `equip(id)` picks the row of `MELEE` it reads. `?melee=old` (`MELEE_FOUR_ON` in `families.ts`) leaves the katana alone on the key. What a swing touches is `melee/sweep.ts`:
 
@@ -251,6 +276,12 @@ Measured over 80 s of the real game, with the bot holding the trigger on the SMG
 | The Quiver | `TUNING.quiver`: mark rate, cone, turn rate, weave, speeds, blast. Damage and salvo gap in its row |
 | The Thresher's climb | `climb` in its row. `?climb=0` takes it out |
 | Key 4 as it was | `?slot4=old`: the autocannon first and from the start, the Sabot with it, no autocannon in a cache |
+| The Trommel's rate, round, shake, kick | Its row, `buzzsaw`. Spin-up, run-down and the rate's climb: `TUNING.buzzsaw` |
+| A burst | `burst` in the row: `radius`, fragment `damage`, `scale`. Fragment push and the shake of one nearby: `TUNING.burst`. Its look: `src/fx/recipes/cannon.ts`. `?burst=0` takes it out |
+| How much a heavy gun slows the player | `slow` in its row, and `TUNING.buzzsaw.moveSpeed` for barrels turning. How fast it comes on, and the speed it leaves alone: `TUNING.handling`. `?slow=0` takes it out |
+| How often the Piledriver bursts a body | `gib` in its row, a chance a round |
+| The door gun | `DOOR.gun` in `src/progression/callins/heliData.ts`. `?doorgun=old` is the M134 |
+| Key 8 as it was | `?slot8=old` |
 | What fires a gun | `mode` and `round` in its row |
 | The Lance through walls | `TUNING.lance.penetration` (thickest wall), and `walls` on the stage (how many; the old gun reads `TUNING.lance.walls`) |
 | The Lance's charge | `TUNING.lance`: `tapTime`, `chargeTime`, and `at` on each of `stages` |
@@ -277,6 +308,7 @@ Measured over 80 s of the real game, with the bot holding the trigger on the SMG
 nice npx vitest run src/weapons/families.test.ts --testTimeout=60000      # 16: the table, the keys, the wheel, ownership, per-member ammo, the dry-gun order
 nice npx vitest run src/weapons/swarm.test.ts --testTimeout=60000        # 26: painting, stacking, release, turn, retarget, weave, the fuse, the Quiver and Thresher on the range
 nice npx vitest run src/weapons/penetration.test.ts --testTimeout=60000   # 48: budget, the per-wall rule, wall probe, hitscan, bursts, every gun, the Lance, projectiles at 30/60/144
+nice npx vitest run src/weapons/heavy.test.ts --testTimeout=60000         # 33: key 8's table, the cannon's rate and bursts, fragments, the heavy machine gun through walls, the slowdown and its moves, the door gun
 nice npx vitest run src/weapons/melee/sweep.test.ts --testTimeout=60000   # 24: reach, arc, slab, thrust, point blank, nothing behind, every swing of key 5 held to its reach, reaching down
 nice npx vitest run src/weapons/melee/melee.test.ts --testTimeout=60000   # 18: the katana's reach, step, wall, dash and sweep on real Rapier; the four's damage, type, bonus (back, reeling, down), plate, chain, key 5, a Skitter at the feet, Butcher
 nice npx vitest run src/weapons/lance.test.ts --testTimeout=60000         # 52: the charge and the cell, the chain's pool, a tap, each stage, the sweep and its corpses, the bursts at 30/60/144, walls, armour, the FOV punch, what cancels it
@@ -307,6 +339,15 @@ RL_GROUP=guns node tools/shot.mjs --url "/?sandbox=range&live=1&load=husk,troope
 ```
 
 `range-live.mjs` is the real game with waves off: real map, real enemies, real gore. Groups are `guns`, `heavy`, `sword`, `perks`, `view`, `world`. `RL_ONLY=a,b` reruns named steps. Kills in these runs trigger real perks, so a later step can be running under Blood Thirst.
+
+```
+node tools/shot.mjs --url "/?map=range" --script tools/scripts/heavy-live.mjs --wait 500 --timeout 290 \
+  --dpr 2 --w 1440 --h 900 --out tools/out/heavy/live.png    # key 8 in the real game. HEAVY_ONLY=view,rotary,hmg,gallery,slow,cost,door
+HEAVY_ONLY=doorwalls node tools/shot.mjs --url "/?map=killhouse&autostart=1" --script tools/scripts/heavy-live.mjs ...   # the door gun, sight held on men behind cover
+node tools/shot.mjs --url "/?map=range&slot8=old&doorgun=old" --script tools/scripts/heavy-switches.mjs ...              # what the switches leave
+```
+
+A still at dpr 2 takes ten to twenty seconds on a busy machine and the game runs on while it is taken, so `heavy-live.mjs` times everything in the page and takes its stills after. Run it a few steps at a time: the whole list does not fit one 290 s slot.
 
 ## Verified
 
@@ -352,7 +393,7 @@ Families and penetration, with `families-live.mjs` on the Test Range, real keys 
 | Headshots | Yellow chips, `headshot` layer, 28 ms stop on a survivor, gore.headshot on a kill |
 | Shotgun | Point-blank trooper: 2 limbs severed, then dead. Brute: armour blocked 4 pellets, dead in 5 shots |
 | Judge | One headshot, 2 ricochets, 3 dead husks, all counted as headshots |
-| Buzzsaw | 49 rps once spun, nothing before 0.44 s, limbs come off a brute. Held 10.3 m/s against a 10.5 target live. That target has since dropped to 7.75 with the run speed, and the new number is only checked in the range |
+| Buzzsaw, before its rework into the Trommel | 49 rps once spun, nothing before 0.44 s, limbs come off a brute. Held 10.3 m/s against a 10.5 target live. See "Key 8, measured" for the gun as it is |
 | Kiln | Trooper burning for 4 s, fire spread to the husk beside it, both died of it |
 | Rocket | Trooper at 14 m gibbed. Jump plus rocket in open sky: 16.2 m peak, 13.5 HP. Reloads itself |
 | Autocannon | FOV 90 to 30, look scale 0.268, scope overlay up, brute gibbed at 22 m with one shell, all restored on unscope |
@@ -430,6 +471,32 @@ After review, two things changed: the later rays of the sweep no longer strike c
 
 A sampled profile of a third run (rays 4.9, 3.5, 26.1, 2.3, 2.0, 1.8, 1.6 ms) put half the time inside the Lance's rays in `gore` cutting a body in two (`slice`, `cutMesh`), and most of the rest in the deaths themselves: a head kill, ragdolls being made, Rapier colliders. The third ray is the one with a cut and a head kill in it. All of that is gore and enemy code this work must not change; the Lance's lever on it is how many kills it cuts (`cleave`, 3).
 
+**Key 8, measured.** `heavy.test.ts` on a stepped clock (33 of 33, with the carry after a dash and the Commander's word), the range sandbox's three cannon checks at 30, 60 and 144 fps (9 of 9), and `heavy-live.mjs` in the real game at dpr 2 with real pointer lock, on a machine whose load average ran from 16 to 84 while it was measured. Stills in `tools/out/heavy/`.
+
+| Thing | Result |
+|---|---|
+| HUD | "Trommel", `8 TROMMEL PILEDRIVER` under it, two pips on key 8, the new icons (`live-view-buzzsaw-rest.png`) |
+| Trommel, rate | 25.6 and 24.6 a second once spun, live. Nothing leaves before 0.56 s, then exactly its rate at 30, 60 and 144 fps in the tests |
+| Trommel, bursts | 122 rounds and 122 bursts in one run, 149 and 149 in another: one each. No `fx.explosion` at any point. On the lab's nine, with its files 0.65 m apart, 3 fragments landed in 149 rounds; at 0.9 m apart, none |
+| Trommel, the piercing gallery | Two seconds down the lane: all five bays untouched, 45 bursts on the first wall |
+| Piledriver, one round | Down a file of three Troopers 1.3 m apart: three hits, three kills, in both runs. In the second the round had rolled its `gib` and all three burst |
+| Piledriver, held | 8.9 a second counted from the first round. The aim climbed 0.051 rad in two seconds |
+| Piledriver, the gallery | 1.5 s: the bays behind the 0.3, 0.6 and 1.0 m walls dead, the two behind the 1.6 m wall untouched. The first rounds stop in the third wall, 0.9 m of budget short after two bodies; once those are down the next ones reach the third bay |
+| Speed, by ground covered, W held | Free 12.5. Trommel with the barrels turning 10.3 to 10.4 against a 10.0 target, firing 6.65 to 6.7 against 6.25. Piledriver firing 9.4 against 9.0. Both back at 12.5 after. The half metre over is this machine's 25 to 30 fps; the sandbox holds the average within 0.6 at 30, 60 and 144 |
+| A hop as the trigger goes down | 12.3 m/s at take-off, 10.5 half a second later, which is the barrels' cap at that moment. Before the cap held in the air: 12.5 |
+| 24 bodies with their AI on, six seconds a gun | SMG 216 frames, p50 33 ms, p95 67, physics step p50 1.6, p95 6.1, worst 75. Trommel 188 frames, p50 33, p95 67, step 2.1, 6.6 and 13; 27.5 bursts a second, 5 kills, 7 limbs. Piledriver 190 frames, p95 83, step 2.8, 7.2 and 44; 7 kills, 2 bodies burst, 5 limbs. An earlier pass of the same on a busier machine: Trommel 150 frames, p50 50, step p95 13, with 7 kills and 12 limbs |
+| One burst, CPU | 0.05 to 0.19 ms, 300 timed with 24 Troopers standing by; the slow ones are the first batches |
+| The Trommel into a bare wall, five seconds | With bursts 246 and 239 frames, without 269; p50 16.7 ms and p95 33 in all three. About one frame in ten, on a machine at a load average of 80, before the burst's light was cut to every other one. Not measured again after |
+| Door gun, Test Range, fourteen Troopers | 30 rounds a second, 1.07 bursts a round, 12 of 14 dead in under ten seconds. Frames p50 16.7, p95 50, worst 300; step p50 1.2, p95 4.7 |
+| Door gun, Kill House, sight held on men behind cover, 14 s | 73 hits, 67 of them on a body the gun had no line of sight to; 8 kills, 6 of them blind. 667 bursts. Frames p50 33, p95 67, worst 250; step 2.9, 7.4, worst 23 |
+| `?slot8=old&doorgun=old` | "Buzzsaw", no Piledriver with it, 50.2 a second, no bursts, 8.0 m/s while firing (its 0.62), belt `M134 7.62 1800` |
+| `?burst=0&slow=0` | Trommel 24.6 a second, no bursts, 12.5 m/s while firing |
+| A dash with the Trommel firing, W held (`tools/out/minigun-final.mjs`) | 5.67 m/s before; the dash at 26; after it 13 down to 5.67 in about a quarter of a second, no frame losing more than 0.51 m/s. A dash-jump: 17.5 in the air down to 6.25 in about 0.35 s, no frame losing more than 0.92. Before the fix one frame took 13 to 5.7 |
+| `react-chaos.mjs`'s crowd on `?map=range`, 7 s each, after the light was cut to every other burst | Chaos alone (24 bodies, AI on, a rocket blast every 0.45 s): p50 16.6 ms, p95 19.2, worst 38.6; step p50 1.0, p95 1.9, worst 9.1. With the Trommel held into it: 22.9 bursts a second, p50 16.6, p95 19.3, worst 26.7; step 1.3, 2.0, 2.3. With 60 door-gun bursts a second (scale 1.5) on top: p50 16.7, p95 18.5, worst 25.9; step 1.6, 2.7, 5.3. No console errors. Load average about 6 |
+| `?map=range&slot8=old`, the arsenal on | Three presses of 8 all draw the Buzzsaw; the Piledriver is owned (the arsenal) and never reached |
+| Throws, `lab-throw.mjs`, Trooper, gibbing off | Trommel: a kill at 8 m leaves the hips 1.04 to 1.18 m from where he stood; 1.5 s on a corpse moves it 0.8 to 1.1 m. Piledriver: a kill drops him where he stood, 0.11 to 0.16 m; 1.5 s on a corpse throws its cut pieces 1.6 to 7.2 m (`docs/notes/lab.md`) |
+| The burst, beside the smallest explosion | `tools/out/heavy/fx-burst.png`: 15 live records against `hellfireBullet`'s 60, a 20 cm pop against a 2 m fireball |
+
 ## Known limitations
 
 - **Nobody has played key 5's new reach or the four new weapons.** Every number is a first guess and every result is a test, a script or a still. The katana's reach, its step and the dash's speed and trigger, and each new weapon's timing, push and damage are the feel questions. Held, the katana steps again on every swing, so a held chain walks forward through a line; whether that reads as pressing an attack or as being dragged is unjudged.
@@ -439,6 +506,15 @@ A sampled profile of a third run (rays 4.9, 3.5, 26.1, 2.3, 2.0, 1.8, 1.6 ms) pu
 - **The side a flat club swing lands on** was measured on Troopers holding rifles. On a body with its arms elsewhere the side rays can pass it and the middle ray is used, which at a walking look is the neck.
 - **The fling throws everything within 1.8 m** of a point just behind the body: another corpse, a downed body, debris.
 - **Melee kills do not slice on a cut from the Shiv** and a knife never takes a limb (`canSever: false`). That is a choice, not a limit of the system.
+
+- **Nobody has played key 8, or heard it.** Every number in the two rows, the spin times, both slowdowns, the burst's size and the door gun's rate and round are first guesses, and every result is a test, a script or a still. How much shake is too much is the first thing to judge: `shake` in the Trommel's row.
+- **A burst's fragments seldom land.** 0.45 m to the skin means bodies nearly touching. The lab's three ranks stand 0.65 m apart for it.
+- **The Piledriver rolls `gib` a round, not a body.** A round that kills three in a file bursts all three or none.
+- **Hellfire Rounds on the Trommel are a real blast a round**, 25 a second, in place of its burst. The Buzzsaw's were 50.
+- **`?slot8=old` is the old gun on the new rules.** It keeps the new sounds (the fire loop at the old rate), the cap in the air and the moves the cap leaves alone; a slide was dragged before and is not now.
+- **A held strafe in the air can hold carried speed up.** The carry brakes against what `airAccelSlow` gives back with a key held; a player strafing hard after a dash-jump gains more than that and keeps some of the jump until he lands.
+- **Enemy rounds do not burst.** `ShotSpec.burst` is read on the player's side of `fireRay` only.
+- **The Commander's lines about the Trommel are text only.** `WEAPON_WORDS` calls it the Trommel, and his eight recorded takes (`cmd.weapon.*~buzzsaw`) say "Buzzsaw", so `UNVOICED_WEAPONS` in `enemies/commander/lines.ts` keeps them from playing: the box prints the line and the page is timed by its length. New takes for "Trommel" would put his voice back (record them as `~buzzsaw` and empty the set). `?slot8=old` plays the old takes again.
 
 - **Nobody has played the Lance.** Every number is a first guess: the 0.4 s a tap may last, the three stages and their timing, 1000 damage, what each costs the cell, the bursts' size and pace, the kick and the hit-stop. Whether it is fun is the owner's to say.
 - **From the gun, a line of bursts is seen end on.** They go off one behind another down the crosshair, so the ripple reads as a growing flash with rings round it; the line shows from the side (`live-chain-side-*.jpg`) and from the gun only when the beam crosses a crowd at an angle. The 'rail' beam's own rings are large on screen for the first metres, as they were.
@@ -476,7 +552,7 @@ A sampled profile of a third run (rays 4.9, 3.5, 26.1, 2.3, 2.0, 1.8, 1.6 ms) pu
 - **Only the SMG has a viewmodel so far.** `viewmodels/models` builds `smg` and `smgLeft`, so every other weapon shows the SMG and fires from its muzzle. Flash and tracer alignment for the other nine is unverified, and so are reload, swing and draw animations.
 - **Enemy flashes inside 3 m of the camera** still take fx's lift to the view scene, through the stale camera. They land up to a frame of motion off, on top of the viewmodel. Now that the player's gun does not need that rule, fx could drop it for anything but a `view` flash, once `view` keeps the world parts in world space.
 - **Pickup weighting ignores dry guns when the sword is out.** `pickups.ts` reads `weapons.ammo()`, the weapon in hand, and the sword reports no reserve. So a player forced onto the blade gets no extra ammo drops. Sword kills feed the last gun regardless.
-- **Buzzsaw slowdown lives on velocity.** A `moveScale` read by progression when it writes `modifiers.speed` would be cleaner, but that is not this system's file.
+- **A heavy gun's slowdown lives on velocity.** A `moveScale` read by progression when it writes `modifiers.speed` would be cleaner, but that is not this system's file.
 - **The crane does not pass its speed on.** Jump off a moving deck and you lose its 4 m/s. Riding drifted 11 cm over 6.4 m of travel.
 - **The slash crescent is a stand-in for the cut**, tilted so it can be seen. See above.
 - **Rockets hit twice on a direct hit**: the contact strike, then the blast. That is deliberate and only shows on targets that survive 100. Before the fuse was fixed, that meant nothing: see Rocket fuse.

@@ -102,10 +102,13 @@ const RETICLES: Record<WeaponId, Reticle> = {
     arms: ['', poly('9,-1 62,-1 62,1 9,1'), '', poly('-9,-1 -62,-1 -62,1 -9,1')],
     gap: 0, kick: 12, speedGap: 0,
   },
-  buzzsaw: {
-    core: DOT,
-    arms: four(poly('-8,-17 -4,-19 4,-19 8,-17 7,-14.6 3,-16 -3,-16 -7,-14.6')),
-    gap: 2, kick: 1.2, speedGap: 3, spins: true,
+  // The rotary cannon: four fat blocks that every round throws wide. It no longer turns: a spinning ring was the saw.
+  buzzsaw: { core: DOT, arms: four(tick(7, 2.3, 10)), gap: 3, kick: 2.4, speedGap: 3 },
+  // The heavy machine gun: long heavy bars to either side and short ones above and below, kicked far apart by each round.
+  piledriver: {
+    core: DIAMOND,
+    arms: [tick(8, 1.9, 12), poly('12,-1.9 31,-1.9 31,1.9 12,1.9'), turned(tick(8, 1.9, 12), 180), poly('-12,-1.9 -31,-1.9 -31,1.9 -12,1.9')],
+    gap: 2, kick: 7, speedGap: 2,
   },
   kiln: {
     core: DOT,

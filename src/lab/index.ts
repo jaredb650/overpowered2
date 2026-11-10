@@ -78,6 +78,8 @@ export class Lab {
       setSpeed: s => this.setSpeed(s),
       weapon: id => this.draw(id),
       gallery: () => this.gallery(),
+      heavy: id => this.heavy(id),
+      doorGun: () => ctx.progression.boardCallIn('doorGunner'),
       swarm: () => this.swarm(),
       melee: backs => this.melee(backs),
       lance: n => this.lance(n),
@@ -170,6 +172,32 @@ export class Lab {
     let placed = 0;
     for (const x of GALLERY.bays) {
       if (this.spawner.place(this.settings.spawn, _at.set(x, 0, z), this.settings.ai)) placed++;
+    }
+    return placed;
+  }
+
+  /**
+   * A gun of key 8 in hand with a full belt, and nine of the selected enemy ahead in three ranks of three, 9 m out and close
+   * together: the heavy machine gun goes through a file of them, and the rotary cannon's bursts reach from one to the next.
+   * Returns how many stood.
+   */
+  heavy(id: 'buzzsaw' | 'piledriver' = 'buzzsaw'): number {
+    this.draw(id);
+    this.ctx.weapons.refillMagazines();
+    const { player, world } = this.ctx;
+    const flat = Math.hypot(player.forward.x, player.forward.z) || 1;
+    const fx = player.forward.x / flat;
+    const fz = player.forward.z / flat;
+    let placed = 0;
+    for (let i = 0; i < 9; i++) {
+      const ahead = 9 + Math.floor(i / 3) * 1.3;
+      // Shoulder to shoulder: 0.65 m between files leaves 0.4 m from a burst on one man to the skin of the next.
+      const side = (i % 3 - 1) * 0.65;
+      _at.set(player.position.x + fx * ahead - fz * side, player.position.y + 3, player.position.z + fz * ahead + fx * side);
+      const ground = world.nav.groundHeight(_at.x, _at.y, _at.z);
+      if (Number.isNaN(ground)) continue;
+      _at.y = ground;
+      if (this.spawner.place(this.settings.spawn, _at, this.settings.ai)) placed++;
     }
     return placed;
   }

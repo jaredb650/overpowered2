@@ -419,7 +419,7 @@ export interface CorpseHit {
 // Effects
 // ---------------------------------------------------------------------------------------------
 
-export type MuzzleKind = 'smg' | 'rifle' | 'shotgun' | 'rocket' | 'autocannon' | 'plasma' | 'railgun' | 'minigun' | 'revolver' | 'flame' | 'enemy' | 'carbine' | 'pistol' | 'sabot' | 'quiver';
+export type MuzzleKind = 'smg' | 'rifle' | 'shotgun' | 'rocket' | 'autocannon' | 'plasma' | 'railgun' | 'minigun' | 'revolver' | 'flame' | 'enemy' | 'carbine' | 'pistol' | 'sabot' | 'quiver' | 'rotary' | 'hmg';
 export type TracerKind = 'bullet' | 'heavy' | 'hellfire' | 'bloodthirst' | 'berserk' | 'plasma' | 'rail' | 'enemy' | 'carbine' | 'pistol' | 'sabot';
 export type ExplosionKind = 'rocket' | 'grenade' | 'hellfire' | 'hellfireBullet' | 'shell' | 'plasma' | 'plasmaBurst' | 'enemy' | 'barrel' | 'nuke' | 'finisher';
 export type BeamKind = 'rail' | 'lance' | 'laser' | 'sniper' | 'heal';
@@ -496,6 +496,11 @@ export interface FxSystem extends GameSystem {
   lensBlood(amount: number): void;
   /** Hot-air distortion over a point for `seconds`. */
   heatShimmer(position: THREE.Vector3, radius: number, seconds: number): void;
+  /**
+   * A small cannon round going off on `normal`: a hot star, a pop of fire the size of a grapefruit, sparks and a puff of dust.
+   * A few dozen particles and one short light, made to be fired tens of times a second. Optional so a stand-in need not have it.
+   */
+  burst?(position: THREE.Vector3, normal: THREE.Vector3, scale?: number): void;
 }
 
 // ---------------------------------------------------------------------------------------------

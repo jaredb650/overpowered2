@@ -129,16 +129,18 @@ ids of their own and cannot take a living hit's start on the frame or its voices
 `bullet_body` (`flesh` family, near 5 m, far 55 m, 0.42) at the old 0.4, or 0.3 on a limb. Under it, `corpse_punch` (the `limb_thud`
 recordings, `flesh` family, priority 3, 2 voices) at 0.5 and pitch 1.3, or 0.4 and 1.5 on a limb, only for the player's guns. A wreck gets
 `metal_clang` cut at 220 ms under the world's voices, from any source. The punch and the clank are spaced `CORPSE_KNOCK_GAP`, 70 ms, so a
-Buzzsaw sweep over a pile of bodies is a beat like it is on the living.
+rotary cannon's sweep over a pile of bodies is a beat like it is on the living.
 
-**Weight.** `hitWeight` in `reactions.ts` reads the round's damage and push: 0 is 12 damage (a Buzzsaw round), 1 is 240 (a full Lance, a
+**Weight.** `hitWeight` in `reactions.ts` reads the round's damage and push: 0 is 12 damage (the Buzzsaw's round, before it became the Trommel), 1 is 240 (a full Lance, a
 stake), on a log scale. A pellet counts as four, because a shotgun blast is one hit to the ear and only its first pellet is played. Push
 counts double, so a point-blank shotgun lands as one of the heaviest things in the game. Damage powerups make every round heavier.
 `bodyHitLevels` turns the weight into levels. Heavier is louder and lower, and a lower punch is a longer one.
 
 | Round | Weight | `hit_punch` volume, pitch | `hit_confirm` volume, pitch | Gap |
 |---|---|---|---|---|
-| Buzzsaw, 13 | 0.03 | 0.64, 1.54 | 0.56, 1.11 | 113 ms, about 9 a second of its 50 |
+| A light round, 13 pushing with 6 (the old Buzzsaw; nothing fires it now) | 0.03 | 0.64, 1.54 | 0.56, 1.11 | 113 ms, about 9 a second of 50 |
+| Trommel, 32 pushing with 34 | 0.58 | 0.96, 1.26 | 0.81, 0.99 | 70 ms, about 14 a second of its 25 |
+| Piledriver, 90 pushing with 48 | 0.69 | 1.02, 1.20 | 0.86, 0.97 | 70 ms, every round of its 8 |
 | SMG, 25 | 0.25 | 0.76, 1.43 | 0.66, 1.07 | 70 ms, every round |
 | Shotgun, 20 a pellet | 0.63 | 0.99, 1.23 | 0.84, 0.98 | 70 ms, one hit a blast |
 | Judge, 120 | 0.77 | 1.07, 1.17 | 0.90, 0.95 | 70 ms |
@@ -169,7 +171,7 @@ filter. dB:
 | | 3 m | 10 m | 20 m | 30 m | 40 m | 60 m |
 |---|---|---|---|---|---|---|
 | Before, any round | -2.8 | -8.9 | -15.7 | -20.9 | -26.8 | silent |
-| Buzzsaw | -1.2 | -2.4 | -6.8 | -9.1 | -10.2 | -11.3 |
+| A light round, weight 0.03 (the old Buzzsaw) | -1.2 | -2.4 | -6.8 | -9.1 | -10.2 | -11.3 |
 | SMG | -0.5 | -1.5 | -5.5 | -7.8 | -8.9 | -9.9 |
 | Shotgun | +0.7 | +0.1 | -3.7 | -5.8 | -6.9 | -7.9 |
 | Judge | +1.1 | +0.6 | -3.2 | -5.3 | -6.4 | -7.3 |
@@ -266,7 +268,9 @@ Rendered at load. x4 means four rendered variants behind one id.
 - **Thresher:** `thresher_punch` x3 (the layer under `thresher_fire`: a chest punch and the bolt slamming home 50 ms on), `drum_out`, `drum_in` (a steel drum with shells rattling in it)
 - **Quiver:** `quiver_tube` x3 (the layer under `quiver_fire`: a pop and a short tearing hiss), `quiver_load` x2 (a round into a tube, four a reload), and the seeker, all on the reward mix so they cut through a fight: `quiver_arm` (the trigger goes down), `quiver_lock` (one per mark, played at a pitch that rises 0.16 a mark), `quiver_full` (every mark laid), `quiver_cancel` (right click let go of the marks)
 - **Lance:** `lance_plasma` x3 (a tap: the plasma ball leaving, a falling chirp over a soft thump), `railgun_charge_loop` (the charge: started at 0.42 of its pitch and bent up to 1 with the charge itself, so it is the rising tone and then the hum held at full), `lance_stage` (one tick as the charge reaches each stage, played 0.26 higher each time, on the reward mix), `railgun_ready` (the last stage), `railgun_fire` (the beam; a weaker stage plays it higher and quieter), `lance_thunder` x2 (the clap over a full beam: a crack, then two seconds of rolling thunder), `railgun_beam` (fading beam hum, one-shot), `railgun_fizzle` (right click let the charge go), `plasma_burst` x3 (a ball landing, or one link of the chain a beam leaves at every body it struck: a snap, a low thump and a sizzle, 3D, six voices, two starts a frame). `railgun_charge` (one-shot rise, 1.6 s) is the old gun's, heard only with `?lance=old`
-- **Buzzsaw:** `minigun_spinup` (1 s), `minigun_spin_loop` (barrels turning, no shots), `minigun_fire_loop` (50 rps barrage), `minigun_spindown`, `minigun_fire` x3 (single shot)
+- **Trommel (the 20 mm rotary cannon on key 8, id `buzzsaw`; the helicopter's door gun plays the same five):** `minigun_spinup` (the drive taking up the load, 0.9 s), `minigun_spin_loop` (barrels turning, written at full speed; `Weapons` turns its pitch from 0.45 to 1 and its level with the spin, so the rise is heard on the loop itself), `minigun_fire_loop` (25 rounds a second, each a crack, a report and a blow falling from 150 Hz to 55; its pitch follows the gun's rate, so it winds up into the roar), `minigun_spindown` (1.1 s of run-down from full spin and the cluster stopping; started part way in for a gun let go part way up), `minigun_fire` x3 (the last round and its roll-off, played as the barrage stops)
+- **Cannon bursts:** `cannon_burst` x4 (a 20 mm round going off where it lands: a dry crack and a knock, 0.1 s, in 3D at the burst, up to 5 voices)
+- **Piledriver (the heavy machine gun on key 8):** `piledriver_fire` x3 (a crack over a 56 Hz blow that takes 0.2 s to go, the bolt running home after it), `piledriver_charge` (the charging handle hauled back and let go, in its reload)
 - **Kiln:** `flame_ignite`, `flame_loop`, `flame_stop`, `flame_burn_loop` (a burning body, 3D)
 - **Stakegun:** `stake_fire`, `stake_reload`, `stake_hit_wall`, `stake_hit_flesh`, `stake_twang`
 - **Grenades:** `grenade_pin`, `grenade_throw`, `grenade_bounce` x3, `grenade_explode` x2
@@ -793,6 +797,7 @@ then the master's trial passes. Memory stays near 500 MB.
   A build made any other way from a clone asks for one of the songs at load, finds it missing, and plays only the game's own tracks.
 - **The renderer's reverb is one eight-line network with no modulation**, good for sends and not much else, and there is no time-stretch: a
   break slice played slower is also lower.
+- **Key 8's sounds were balanced by measurement and have not been heard.** The Trommel's four are the old minigun ids with new recipes, which the door gun plays too. The first version of the spin sounds measured a centroid of 104 to 127 Hz with up to 87% of its energy under 120 Hz, a rumble a laptop cannot play, and was rebuilt: the report now reads `minigun_spin_loop` 264 Hz with 20% sub, `minigun_spinup` rising from 136 to 497, `minigun_spindown` falling from 344 to 118, `minigun_fire_loop` 548 Hz with 45% sub against the SMG shot's 621, `piledriver_fire` 450 Hz with 67% sub and 0.65 s long, `cannon_burst` 1.1 to 1.25 kHz and 0.2 s. Whether that is deep and violent, and whether a loop turned from 0.45 to 1 reads as a spin-up, is for ears. The fire loop is cut at 25 rounds a second and turned to the gun's rate, so the door gun's 30 play it a fifth sharp and `?slot8=old` plays it an octave up.
 - **The body hits were tuned by measurement, in Node, with no browser run.** The pitch and level choices need the owner's ears, the Buzzsaw's
   beat of 9 most of all. `tools/out/audio-report.json` predates them: it has no line for `machine_clang`, so the "covers every synthesized
   id" check in `audio.test.ts` fails until the report is run again, and none for `hit_punch`, `hit_confirm`, `corpse_body` and

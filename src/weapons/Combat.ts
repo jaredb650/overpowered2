@@ -10,6 +10,7 @@ import type {
 import type { GoreRegion } from '../characters/rig';
 import type { MuzzleKind } from '../core/contracts';
 import { clamp, rand } from '../core/math';
+import { BURST_ON, Bursts } from './burst';
 import { EXPLOSIONS, HIT_STOP, PENETRATION, SHAPED_CHARGE, SURFACE_SOUND, SWORD, TUNING, type ShapedCharge, type SoundLayer } from './data';
 import { Feel } from './Feel';
 import { Flames } from './Flames';
@@ -123,6 +124,8 @@ export class Combat implements CombatSystem {
   readonly feel: Feel;
   readonly projectiles: Projectiles;
   readonly flames: Flames;
+  /** Small cannon rounds going off where they land: `ShotSpec.burst`. Never a blast. See burst.ts. */
+  readonly bursts: Bursts;
 
   private readonly damageRing: DamageInfo[] = [];
   private damageHead = 0;
@@ -156,6 +159,7 @@ export class Combat implements CombatSystem {
     this.feel = new Feel(ctx);
     this.projectiles = new Projectiles(ctx, this);
     this.flames = new Flames(ctx, this);
+    this.bursts = new Bursts(ctx, this);
     for (let i = 0; i < DAMAGE_RING; i++) {
       this.damageRing.push({ amount: 0, type: 'bullet', point: new THREE.Vector3(), dir: new THREE.Vector3(), force: 0, source: '' });
     }
@@ -209,6 +213,7 @@ export class Combat implements CombatSystem {
   reset(): void {
     this.projectiles.clear();
     this.flames.clear();
+    this.bursts.reset();
     this.feel.reset();
     this.queueLen = 0;
     this.exploding = false;
@@ -425,6 +430,10 @@ export class Combat implements CombatSystem {
     const budget = loadBudget(st.budget, spec.penetrate, spec.bodyCost, spec.penetrateKeep, spec.penetrateWalls);
     const falloff = spec.falloff;
     const scale = spec.impactScale ?? 1;
+    // A cannon round bursts on the first thing it strikes and again where it stops, if it went on: two at most. A round
+    // with a real blast of its own (Hellfire Rounds) has that instead.
+    const burst = BURST_ON && !spec.blastRadius ? spec.burst : undefined;
+    let burstFirst = burst !== undefined;
 
     for (let segment = 0; segment < MAX_SEGMENTS; segment++) {
       const wall = c.physics.raycast(st.origin, st.dir, left, CG.World);
@@ -495,6 +504,8 @@ export class Combat implements CombatSystem {
           // Hellfire Rounds go off on every body the round struck, not only the one that stops it: a round that goes
           // through its target would otherwise burst on whatever is behind, or on nothing.
           if (spec.blastRadius && struck) this.bulletBlast(h.point, h.normal, dealt, spec);
+          else if (burst && burstFirst) this.bursts.at(h.point, h.normal, burst, spec.source, h.enemy);
+          burstFirst = false;
           continue;
         }
         stopped = true;
@@ -512,6 +523,7 @@ export class Combat implements CombatSystem {
         }
         if (spec.tracer) c.fx.tracer(st.from, st.end, spec.tracer);
         if (spec.blastRadius) this.bulletBlast(st.end, h.normal, dealt, spec);
+        else if (burst) this.bursts.at(st.end, h.normal, burst, spec.source, h.enemy);
         return;
       }
 
@@ -535,6 +547,8 @@ export class Combat implements CombatSystem {
       if (budget.left > 0 && (!vehicle || perWall(budget)) && passWall(c.physics, budget, wall, st.dir, st.exit, st.exitNormal)) {
         const thickness = st.exit.distanceTo(wall.point);
         if (spec.struck) spec.struck.walls++;
+        if (burst && burstFirst) this.bursts.at(wall.point, wall.normal, burst, spec.source, null);
+        burstFirst = false;
         this.exitWall(st.exit, st.dir, st.exitNormal, wall.surface, scale);
         left -= thickness;
         flown += thickness;
@@ -556,6 +570,7 @@ export class Combat implements CombatSystem {
       }
 
       if (spec.blastRadius) this.bulletBlast(wall.point, wall.normal, atWall, spec);
+      else if (burst) this.bursts.at(wall.point, wall.normal, burst, spec.source, null);
       return;
     }
   }

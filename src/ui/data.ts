@@ -117,9 +117,18 @@ export const WEAPONS: Record<WeaponId, WeaponInfo> = {
       : `A full charge goes through everyone in line and ${TUNING.lance.walls} walls, and a plasma burst goes off at each body it passes. Right click lets a charge go.`,
   },
   buzzsaw: {
-    name: 'Buzzsaw', key: '8',
-    role: `Minigun, spins up to ${Math.round(1 / def.buzzsaw.interval)} rounds a second`,
-    note: 'Slows you while it fires. Shreds limbs one by one.',
+    name: def.buzzsaw.name.charAt(0) + def.buzzsaw.name.slice(1).toLowerCase(), key: '8',
+    role: def.buzzsaw.burst
+      ? `20 mm rotary cannon. Spins up to ${Math.round(1 / def.buzzsaw.interval)} rounds a second, ${def.buzzsaw.damage} damage each, and every round bursts where it lands`
+      : `Minigun, spins up to ${Math.round(1 / def.buzzsaw.interval)} rounds a second`,
+    note: def.buzzsaw.burst
+      ? 'Right click spins it up early. You walk while it fires. Takes limbs off, and goes through nothing: for walls, press 8 again.'
+      : 'Slows you while it fires. Shreds limbs one by one.',
+  },
+  piledriver: {
+    name: 'Piledriver', key: '8',
+    role: `Heavy machine gun. ${def.piledriver.damage} damage, ${def.piledriver.magSize} on the belt, ${Math.round(1 / def.piledriver.interval)} a second`,
+    note: `Press 8 again to swap with the ${def.buzzsaw.name.charAt(0) + def.buzzsaw.name.slice(1).toLowerCase()}. Goes through walls, ${def.piledriver.penetration} m of them in all, and everyone in line. Takes limbs off and can burst what it kills. It kicks, and it slows you a little.`,
   },
   kiln: {
     name: 'Kiln', key: '9',
@@ -159,7 +168,7 @@ const callIn = (id: CallInId, name: string, action: Action, note: string): CallI
 export const CALLINS: Record<CallInId, CallInInfo> = {
   airstrike: callIn('airstrike', 'Airstrike', 'streak', '15 rockets across the mark, then a finale.'),
   warthog: callIn('warthog', 'Warthog', 'callinWarthog', '50 shells along a line. Hold the click and drag to set its heading.'),
-  doorGunner: callIn('doorGunner', 'Door Gunner', 'callinDoorGunner', 'No mark needed. You take the M134 in the door of a circling helicopter until the belt or the time runs out.'),
+  doorGunner: callIn('doorGunner', 'Door Gunner', 'callinDoorGunner', 'No mark needed. You take the 20 mm gun in the door of a circling helicopter until the belt or the time runs out. Its rounds burst where they land and go through roofs and walls.'),
   attackChopper: callIn('attackChopper', 'Attack Chopper', 'callinChopper', 'No mark needed. You take the gunner seat, the pilot finds the fight, and you have a cannon and rockets until they run out.'),
   orbital: callIn('orbital', 'Orbital Lance', 'callinOrbital', 'A burning beam you steer for 6 seconds.'),
   ac130: callIn('ac130', 'AC-130', 'callinAc130', 'A gunship circles the mark for two minutes and shells it while you fight.'),

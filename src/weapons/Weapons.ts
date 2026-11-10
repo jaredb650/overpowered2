@@ -15,6 +15,7 @@ import { MOVE } from '../player/tuning';
 import type { Combat, Guard, GuardResult } from './Combat';
 import { HIT_STOP, STARTING_WEAPONS, SWORD, TUNING, WEAPONS, WEAPON_ORDER, type SoundLayer, type WeaponDef } from './data';
 import { familyOfSlot, membersOf, pressSlot, wheelSlot } from './families';
+import { Handling, holdSpeed } from './handling';
 import { PIERCE_ON } from './penetration';
 import { Painter, angleOff, type PaintCandidate } from './swarm';
 import { isMelee } from './melee/data';
@@ -41,6 +42,12 @@ const MAX_RELOAD_BOOST = 1.5;
 const CLIMB_ON = typeof location === 'undefined' || new URLSearchParams(location.search).get('climb') !== '0';
 /** Targets one paint look considers at most. */
 const MAX_IN_VIEW = 32;
+/** The spin loop's pitch with the barrels barely turning, as a share of its pitch at full spin. */
+const SPIN_PITCH = 0.45;
+/** Seconds of `minigun_spindown` that are the run-down from full spin, before the cluster stops. See its recipe. */
+const SPIN_RUNDOWN = 1.1;
+/** Seconds between two reports in `minigun_fire_loop`: a gun firing faster than that (`?slot8=old`) plays it faster. */
+const FIRE_LOOP_STEP = 0.04;
 
 export class Weapons implements WeaponSystem, Guard {
   current: WeaponId = 'smg';
@@ -82,6 +89,8 @@ export class Weapons implements WeaponSystem, Guard {
   private chargeFull = false;
   private spin = 0;
   private spinning = false;
+  /** How much of a heavy gun's firing slowdown is on, and the cap it puts on the player's speed. See handling.ts. */
+  private readonly handling = new Handling();
   private streamOn = false;
   private loop: LoopHandle | null = null;
   private fireLoop: LoopHandle | null = null;
@@ -385,6 +394,7 @@ export class Weapons implements WeaponSystem, Guard {
     this.chargeFull = false;
     this.spin = 0;
     this.spinning = false;
+    this.handling.reset();
     this.pressBuffer = 0;
     this.autoReload = -1;
     this.drySwap = -1;
@@ -504,6 +514,7 @@ export class Weapons implements WeaponSystem, Guard {
     this.chargeFull = false;
     this.spin = 0;
     this.spinning = false;
+    this.handling.reset();
     this.pressBuffer = 0;
     this.autoReload = -1;
     this.drySwap = -1;
@@ -776,9 +787,18 @@ export class Weapons implements WeaponSystem, Guard {
     this.ctx.viewmodel.setCharge(this.spin);
     if (this.spinning) {
       this.spinning = false;
+      this.ceaseFire();
       this.endContinuous();
-      this.ctx.audio.play('minigun_spindown');
+      // The run-down is written from full spin over SPIN_RUNDOWN seconds. A gun let go part way up starts it part way down.
+      this.ctx.audio.play('minigun_spindown', { volume: lerp(0.5, 1, this.spin), offset: (1 - this.spin) * SPIN_RUNDOWN });
     }
+  }
+
+  /** The barrage stops: the loop is cut and the last round rolls off, so a burst ends on a report and not on a fade. */
+  private ceaseFire(): void {
+    if (!this.fireLoop) return;
+    this.setFireLoop(null);
+    this.ctx.audio.play('minigun_fire');
   }
 
   private updateSpin(s: Slot, dt: number, held: boolean): void {
@@ -796,17 +816,23 @@ export class Weapons implements WeaponSystem, Guard {
     this.setLoop('minigun_spin_loop');
     this.spin = Math.min(1, this.spin + dt / t.spinUp);
     viewmodel.setCharge(this.spin);
+    // The drive is heard coming up with the barrels: the loop is written at full speed and turned with them.
+    this.loop?.setPitch(lerp(SPIN_PITCH, 1, this.spin), 0.04);
+    this.loop?.setVolume(lerp(0.45, 1, this.spin), 0.04);
     if (!held || this.spin < t.fireAt) {
-      this.setFireLoop(null);
+      this.ceaseFire();
       return;
     }
     if (!this.canShoot(s)) {
-      this.setFireLoop(null);
+      this.ceaseFire();
       this.dryFire();
       return;
     }
     this.setFireLoop('minigun_fire_loop');
     const rate = lerp(t.minRate, 1, invLerp(t.fireAt, 1, this.spin));
+    // The loop is cut to the full rate. Turned with the rate, the barrage is heard winding up into it, and a perk that
+    // speeds the gun speeds its sound.
+    this.fireLoop?.setPitch(clamp((rate * this.modifiers.fireRate * FIRE_LOOP_STEP) / s.def.interval, 0.4, 2), 0.05);
     const interval = this.interval(s.def) / rate;
     while (s.cooldown <= 0 && this.canShoot(s)) {
       this.shootGun(s, false);
@@ -965,7 +991,9 @@ export class Weapons implements WeaponSystem, Guard {
     s.headshotMult = def.headshotMult;
     s.tracerFrom = this.muzzleAt;
     s.type = def.pellets > 1 ? 'pellet' : 'bullet';
-    s.gib = false;
+    // A round heavy enough to burst what it kills does so by its row's odds, rolled a round.
+    s.gib = def.gib !== undefined && Math.random() < def.gib;
+    s.burst = def.burst;
     s.killStop = def.killStop ?? 0;
     s.impactScale = def.impactScale ?? 1;
     s.headHops = def.headHops ? def.headHops + m.ricochet : 0;
@@ -983,6 +1011,7 @@ export class Weapons implements WeaponSystem, Guard {
     const def = s.def;
     this.consume(s);
     this.shotFeedback(def, left);
+    if (def.slow !== undefined) this.handling.shot();
     if (def.climb && CLIMB_ON) this.climb(def.climb);
     // By what the row says leaves the barrel, never by which gun it is: a family member picks its own.
     switch (def.round) {
@@ -1133,26 +1162,13 @@ export class Weapons implements WeaponSystem, Guard {
   }
 
   /**
-   * Slowdown is written to velocity, not modifiers.speed, because progression rewrites that field every frame. The
-   * player runs at 120 Hz and wins speed back between two clamps of this one, so the clamp sits half a frame's regain
-   * under the target. That keeps the average on the target at any frame rate.
+   * A heavy gun slows the player: a little while the rotary cannon's barrels turn, a lot while it or the heavy machine gun
+   * fires (`slow` in the row). The rules, and what a dash, a slide and the other moves keep, are handling.ts.
    */
   private applyHandling(dt: number): void {
-    if (WEAPONS[this.current].mode !== 'spin' || this.spin <= 0.05) return;
-    const t = TUNING.buzzsaw;
-    const { player } = this.ctx;
-    const v = player.velocity;
-    const speed = Math.hypot(v.x, v.z);
-    const scale = player.modifiers.speed;
-    const target = MOVE.runSpeed * scale * lerp(1, t.moveSpeed, this.spin);
-    if (speed < 1e-3) return;
-    let next: number;
-    if (player.grounded && !player.sliding) next = Math.min(speed, Math.max(target - MOVE.groundAccel * scale * dt * 0.5, 0));
-    else if (speed > target) next = damp(speed, target, t.airDrag, dt);
-    else return;
-    const k = next / speed;
-    v.x *= k;
-    v.z *= k;
+    const def = WEAPONS[this.current];
+    const cap = this.handling.cap(dt, def, def.mode === 'spin' ? this.spin : 0);
+    holdSpeed(this.ctx.player, cap, dt, this.handling);
   }
 
   /**

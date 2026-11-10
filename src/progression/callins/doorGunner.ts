@@ -1,7 +1,8 @@
 /**
- * Door Gunner: the player stands in the open left door of the Packmule with an M134 while it flies left-hand circles
- * over the fight. The gun spins up, then puts sixty rounds a second through the sight, one in four a tracer, inside the
- * arc the door allows.
+ * Door Gunner: the player stands in the open left door of the Packmule with a 20 mm rotary cannon while it flies
+ * left-hand circles over the fight. The gun spins up, then puts thirty rounds a second through the sight, every other
+ * one a tracer, inside the arc the door allows. Each round bursts where it lands and goes on through a roof or a wall:
+ * the gun's numbers, and why it has both, are `DOOR.gun` in heliData.ts. `?doorgun=old` is the M134 it replaced.
  *
  * The circle is an OrbitPath, and its centre slides slowly after the fight, so a lap stays a lap. Rounds are hitscan:
  * at this range a real one lands in a tenth of a second, and they go through combat like any gun, with the tracer
@@ -35,7 +36,12 @@ const _casing = new THREE.Vector3();
 const SHOT: ShotSpec = {
   damage: G.damage, source: 'door_gun', team: 'player', maxDistance: G.range, tracerFrom: _muzzle,
   force: G.force, severMult: G.severMult, impactScale: G.impactScale,
+  // Both at once, on this gun alone: the burst of the rotary cannon and the heavy machine gun's way through walls.
+  burst: G.burst ?? undefined, penetrate: G.penetrate, bodyCost: G.bodyCost,
 };
+/** The spin loop's pitch with the barrels barely turning, and the seconds of the run-down sound that are the run-down. */
+const SPIN_PITCH = 0.45;
+const SPIN_RUNDOWN = 1.1;
 
 export class DoorGunner extends GunnerStrike<UtilityMount> {
   private readonly path: OrbitPath | FlightPath;
@@ -51,7 +57,7 @@ export class DoorGunner extends GunnerStrike<UtilityMount> {
   private spinning = false;
   private spinLoop: LoopHandle | null = null;
   private fireLoop: LoopHandle | null = null;
-  private readonly belt = { name: 'M134 7.62', ammo: G.rounds, max: G.rounds };
+  private readonly belt = { name: G.name, ammo: G.rounds, max: G.rounds };
 
   constructor(kit: StrikeKit, rig: SeatRig, ride: Ride<UtilityMount>, private readonly flight: Flight | null = null) {
     super(kit, rig, D, ride, 'door', 'door_gun');
@@ -151,6 +157,8 @@ export class DoorGunner extends GunnerStrike<UtilityMount> {
     } else if (!held && this.spinning) {
       this.spinDown();
     }
+    // The drive is heard coming up with the barrels.
+    this.spinLoop?.setPitch(SPIN_PITCH + (1 - SPIN_PITCH) * seat.spin, 0.04);
     if (held && seat.spin >= G.fireAt) this.stream(dt);
     else this.ceaseFire();
   }
@@ -159,17 +167,21 @@ export class DoorGunner extends GunnerStrike<UtilityMount> {
     this.spinning = false;
     this.spinLoop?.stop(0.2);
     this.spinLoop = null;
-    this.kit.ctx.audio.play('minigun_spindown');
+    // Written from full spin: a gun let go part way up starts it part way down.
+    this.kit.ctx.audio.play('minigun_spindown', { offset: (1 - this.seat.spin) * SPIN_RUNDOWN });
   }
 
   private ceaseFire(): void {
-    this.fireLoop?.stop(0.08);
+    if (!this.fireLoop) return;
+    this.fireLoop.stop(0.08);
     this.fireLoop = null;
+    // The last round's report and its roll-off, so the barrage ends on a shot and not on a fade.
+    this.kit.ctx.audio.play('minigun_fire');
   }
 
   private stream(dt: number): void {
     const { audio, camera } = this.kit.ctx;
-    this.fireLoop ??= audio.startLoop('minigun_fire_loop', { fadeIn: 0.03 });
+    this.fireLoop ??= audio.startLoop('minigun_fire_loop', { fadeIn: 0.03, pitch: G.loopPitch });
     this.shotIn -= dt;
     for (let i = 0; this.shotIn <= 0 && i < G.perFrame && this.belt.ammo > 0; i++) {
       this.shotIn += 1 / G.roundsPerSecond;
@@ -191,11 +203,11 @@ export class DoorGunner extends GunnerStrike<UtilityMount> {
     randomInCone(seat.aim, G.spread, _dir);
     SHOT.tracer = this.fired % G.tracerEvery === 0 ? 'heavy' : undefined;
     combat.fireRay(seat.view.position, _dir, SHOT);
-    if (this.fired % G.flashEvery === 0) fx.muzzleFlash(_muzzle, _bore, 'minigun');
+    if (this.fired % G.flashEvery === 0) fx.muzzleFlash(_muzzle, _bore, G.flash);
     if (this.fired % G.casingEvery === 0) {
       _casing.copy(_bore).multiplyScalar(-1.5);
       _casing.y -= rand(3, 5);
-      fx.shellCasing(gun.root.position, _casing, 'rifle');
+      fx.shellCasing(gun.root.position, _casing, G.casing);
     }
   }
 

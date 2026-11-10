@@ -10,6 +10,7 @@ import type { CharacterInstance, Ctx, DamageInfo, WoundHit } from '../core/contr
 import { clamp, lerp, rand } from '../core/math';
 import { boneRay, boneRayContact, rayBones, rayCapsule } from './raycast';
 import { CAP_STRIDE, markSevered, MAX_BONES, rigInfo, type RigInfo } from './rigInfo';
+import { SLOT8_OLD } from '../weapons/data';
 
 export const WoundTuning = {
   /** The Gore setting. 0 paints blood and leaves bodies whole, 1 is the game as tuned, 2 opens them sooner and wider. */
@@ -45,9 +46,13 @@ const CANNON: Bite = { entry: 0.045, exit: 0.115, limbExit: 0.09, depth: 0.13, r
 const LANCE: Bite = { entry: 0.03, exit: 0.07, limbExit: 0.06, depth: 0.1, ragged: 0.8, breaks: 2 };
 
 const BITES: Record<string, Bite> = {
-  smg: SMALL, buzzsaw: { ...SMALL, ragged: 0.75 }, judge: REVOLVER, stakegun: STAKE, autocannon: CANNON, lance: LANCE,
+  // `buzzsaw` is the 20 mm rotary cannon now (the Trommel): two thirds of the autocannon's bite. `?slot8=old` is the old gun and its old hole.
+  smg: SMALL, buzzsaw: SLOT8_OLD ? { ...SMALL, ragged: 0.75 } : { ...CANNON, entry: 0.03, exit: 0.085, limbExit: 0.07, depth: 0.11, breaks: 2 },
+  judge: REVOLVER, stakegun: STAKE, autocannon: CANNON, lance: LANCE,
   // Family members (src/weapons/families.ts). The Harrow's rifle round tears like the Judge's; the Sabot's dart goes through like the Lance.
   harrow: REVOLVER, rivet: SMALL, sabot: LANCE,
+  // Key 8's second gun: a heavy machine gun round goes in bigger than the Judge's and comes out bigger still.
+  piledriver: { ...REVOLVER, entry: 0.018, exit: 0.075, limbExit: 0.065, breaks: 2.2 },
 };
 
 const _dir = new THREE.Vector3();
