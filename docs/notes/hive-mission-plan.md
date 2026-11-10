@@ -105,10 +105,10 @@ The rule from the Outpost's plan holds: never two 8s without a breath. `push` bu
 | 6 | The mission's plumbing | Sixteen empty beats that run, and a panel to jump between them | none |
 | 7 | The fly-in and the battle outside | Minutes 0 to 9:30, with the Juggernaut | 1 to 6 |
 | 8 | The map inside, and the dark | The Works, a lamp, and real darkness | 5 |
-| 9 | The Commander, Reissued | Minutes 9:30 to 14:25 | 2, 6, 8 |
-| 10 | The descent | Minutes 14:25 to 18:40, the squad thinning | 2, 6, 8 |
+| 9 | The Commander, Reissued | Minutes 9:30 to 14:25 | 1, 2, 6, 8 |
+| 10 | The descent | Minutes 14:25 to 18:40, the squad thinning | 1, 2, 6, 8 |
 | 11 | Lights out, and the Titan | Minutes 18:40 to 24:30 | 6, 8, 10 |
-| 12 | The Remainder | Minutes 24:30 to 28:45 | 3, 6, 8, 9 |
+| 12 | The Remainder | Minutes 24:30 to 28:45 | 1, 3, 6, 8, 9 |
 | 13 | The mission whole | The menu entry, the ending, one run from start to end | all |
 
 That is one more than the dozen asked for. The plumbing is its own stage so that four agents can start at once (1, 2, 5 and 6) and so that stages 9 to 12 do not wait on stage 7, which is the largest. If stage 7 runs long, `push` and `juggernaut` go to a second agent after `line` is committed.
@@ -414,6 +414,7 @@ Each stage says what the player gets, what to build and where, targets that can 
 
 **Build.** All of it is additive, and none of it reaches for a system that may not be there yet: steps that belong to another system go through the registry by name, and warn when nothing answers.
 - `src/campaign/index.ts`, `events.ts`: a call registry, `campaign.calls.set(name, fn)`, asked before the host's own `switch` (fact 5). `campaign.jump(id)`: the run is rebuilt and opens at that beat.
+- **Who registers.** Each system registers its own calls in its `init`: `allies:*` in `src/allies/index.ts`, `tide:set` in `src/war/index.ts`, `air:plan` in `src/war/ledger.ts`. For a system that landed before this stage, this stage adds those few lines. For one that lands after, its own stage does. So a later stage can script a call whose system is not in yet: it warns, and takes effect the day that system lands.
 - `src/lab/panel.ts`, `index.ts`: the **Mission** section. One button a beat, the running one marked. `window.__lab.beat(id)` for bots.
 - `src/campaign/types.ts`, `runner.ts`, `host.ts`, `validate.ts`, `testkit.ts`:
   - steps `ally` (tag, kinds, mark, order), `roster` (strength, floor), `lose` (how, mark), `tide` (lanes, front, counts), `air` (plan). Each is checked for its marks by `validate.ts` and handed to `calls` as `allies:form`, `allies:roster`, `allies:lose`, `tide:set`, `air:plan`;
@@ -444,7 +445,7 @@ Each stage says what the player gets, what to build and where, targets that can 
 
 **Build.**
 - A contract row in `src/contracts/data.ts`: id `sump`, map `sump`, `ai: 'swarm'`, `waves: 'swarm'`, `wounds: 'limbs'`, `mission: 'sump'`, `locked: true`, and the Council's notice for Form 7743-R. `ContractId` gains it.
-- `allies`, `war` and the tasker register their calls with the campaign (stage 6's names). `sump.ts` takes its marks from `sump.places.ts`.
+- `sump.ts` takes its marks from `sump.places.ts`. A test that every call these five beats make has something registered for it.
 - **The beats,** in `sump.ts`:
   - `briefing`: five shots on the existing cutscene player. `council.brief.line` (recorded), then new text. The last frame is the unregistered sender's one word. Council: "That sender is not on the register. Do not reply. Replies are billable."
   - `flyin`: a `ride` on a route of marks. `DoorGunner.round` reports each ray to `tide.ray` (fact 14), and the far battle raises the signal `seat:fired` on the first one. `council.brief.thanks` (recorded) at the door. On `seat:fired`, `cmd.in.hello` (recorded), then the Council in text: "Please disregard. That account is closed." At the east rim `cmd.in.door` (recorded) and `tide.scatter(6)`. At the north rim six drones under `squad`, with `laneWalk` to the door. No mark has `hit`: you land.
@@ -567,7 +568,7 @@ Each stage says what the player gets, what to build and where, targets that can 
 
 **Try it.** `/?map=range&dev=1` and spawn him from the panel with three winches. `/?contract=sump&autostart=1&beat=reissue`.
 
-**Depends on.** Stage 2 for the Bailiffs, stage 6 for the steps, stage 8 for the hall.
+**Depends on.** Stage 1 for the parade's tokens, stage 2 for the Bailiffs and prey, stage 6 for the steps, stage 8 for the hall. The `ramp` beat's `air hold` and the overwatch signing off are calls into stages 3 and 7, and take effect when those are in.
 
 **Cut if needed.** Two winches. No body swap: STORES only refills his health.
 
@@ -603,7 +604,7 @@ Each stage says what the player gets, what to build and where, targets that can 
 
 **Try it.** `/?contract=sump&autostart=1&beat=drop`, `&beat=flare`.
 
-**Depends on.** Stages 2, 6 and 8.
+**Depends on.** Stages 1, 2, 6 and 8.
 
 **Risks.** Sniper relocation has never been seen running (`enemies.md`, known limitations), and leapers have only been run in the wave game. Burners never choose a Bailiff, so the fire that takes two of them is the script's.
 
@@ -700,7 +701,7 @@ Each stage says what the player gets, what to build and where, targets that can 
 
 **Try it.** `/?contract=sump&autostart=1&beat=kettle`. `&phase=3` starts at the Lid.
 
-**Depends on.** Stage 3 for the strikes, stage 6 for the steps, stage 8 for the Kettle, stage 9 for `Structure`.
+**Depends on.** Stage 1 for the tokens its body is made of, stage 3 for the strikes, stage 6 for the steps, stage 8 for the Kettle, stage 9 for `Structure`.
 
 **Cut if needed.** Arms as plain booms from the kit with a few tokens on them. Two intakes. One brake housing. The speaker's shell rule.
 
