@@ -133,3 +133,14 @@ The second campaign mission, against the zombies on the planet Tallow, is planne
 - Boss order the owner set: an ordinary Juggernaut, then the Commander back as a new boss that is neither a Juggernaut nor a Titan, then the Titan as a mini boss, then the hive mind that talks to the player all mission.
 - No voice lines are to be generated for it yet.
 - Start it only on the owner's word. Before building, re-check the plan's facts against the code: weapons, the door gun, executions and the ragdoll stages all changed after it was written.
+
+## Owner decisions, 2026-11-10
+
+Settled by the owner after playing; do not list these as open again.
+
+- **SMG and Harrow:** keep every SMG change, the range falloff included. "The SMG and the assault rifle both feel really good."
+- **Parkour:** it "feels really good right now". Vault stays on a jump press. Keep the legs. Camera roll stays at the shipped amount. Whatever else is open on parkour can stay open.
+- **Ragdoll stages 1 to 5:** keep every shipped default (rest pose, fall speed 1, knockdown width, push-up help, SMG headshots floor the body).
+- **Slot 4:** the Sabot is the first gun on the key and the explosive autocannon is the upgrade behind it.
+- **Music:** pinned. The two menu tracks and the playlist plumbing are in; the early-wave and late-wave tracks and the MP3 PLAYER screen wait for a later job. The public site may go without music.
+- **Hive mission:** planned, on hold (see the section above).
