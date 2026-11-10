@@ -309,7 +309,8 @@ export class Combat implements CombatSystem {
         this.feel.stop(result.killed ? HIT_STOP.headshotKill : HIT_STOP.headshot);
       } else {
         c.fx.bloodHit(point, dir, 1);
-        this.play('bullet_body', point, 0.8, 0.06);
+        // The material of the hit. Its weight by round, and the 2D confirmation, are layered by audio from the same enemy:hit.
+        this.play(enemy.machine ? 'machine_hit' : 'bullet_body', point, 1, 0.06);
         c.hud.hitMarker(result.killed ? 'kill' : 'body');
       }
       if (result.killed && killStop > 0) this.feel.stop(killStop);
@@ -911,7 +912,7 @@ export class Combat implements CombatSystem {
         tally.kills++;
         if (Math.random() < 0.5) this.play('enemy_explode', e.center);
       } else {
-        this.play('enemy_hit', e.center, 0.8, 0.05);
+        this.play(e.machine ? 'machine_hit' : 'enemy_hit', e.center, 0.8, 0.05);
       }
     }
     return tally;

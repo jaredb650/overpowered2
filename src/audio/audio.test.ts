@@ -5,16 +5,22 @@
  */
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { Vector3 } from 'three';
 import { describe, expect, it } from 'vitest';
-import type { PerkId, PickupKind, PowerupId } from '../core/gameplay';
-import type { SurfaceKind } from '../core/contracts';
+import type { DamageResult, EnemyInstance, PerkId, PickupKind, PowerupId } from '../core/gameplay';
+import type { AudioSystem, Ctx, DamageType, PlayOptions, SurfaceKind } from '../core/contracts';
+import { makeCtx } from '../sandbox/harness';
 import { arbitrate, type VoiceSlot } from './allocator';
 import { analyze, checkStats, loudness, type AudioStats } from './analyze';
 import { audibleSpan } from './bank';
 import { LoadGovernor, VOICE_BUDGETS, quietFloor, repeatGap } from './budget';
-import { ALIASES, CATALOG, lookup, renderRank } from './catalog';
+import { ALIASES, CATALOG, lookup, renderRank, type SoundDef } from './catalog';
+import { MIX } from './mix';
+import { Reactions, bodyHitLevels, hitWeight } from './reactions';
 import { ROOMS, ROOM_IDS, generateImpulse, measureT60, roomForZone } from './reverb';
+import { trimFor } from './synth/render';
 import { airCutoff, attenuation, wetness } from './voices';
+import { TUNING, WEAPONS } from '../weapons/data';
 
 const RATE = 48000;
 
@@ -231,6 +237,243 @@ describe('sample packs', () => {
   });
 });
 
+/** A weapon's round as the hit sees it: its damage, pellets as pellets, and its push. */
+function weightOf(id: keyof typeof WEAPONS, force: number = WEAPONS[id].force): number {
+  const w = WEAPONS[id];
+  return hitWeight(w.damage, w.pellets > 1 ? 'pellet' : 'bullet', force);
+}
+
+describe('body hits', () => {
+  const def = (id: string): SoundDef => lookup(id)!;
+
+  it('weighs a round by what it is: Buzzsaw, SMG, pellets, Judge, then the heaviest', () => {
+    const buzzsaw = weightOf('buzzsaw');
+    const smg = weightOf('smg');
+    const pellets = weightOf('shotgun');
+    const judge = weightOf('judge');
+    const stake = weightOf('stakegun');
+    expect(buzzsaw).toBeLessThan(smg);
+    expect(smg).toBeLessThan(pellets);
+    expect(pellets).toBeLessThan(judge);
+    expect(judge).toBeLessThan(stake);
+    expect(weightOf('lance')).toBe(1);
+    expect(smg).toBeLessThan(0.35);
+    // A point-blank blast carries its full push, and lands as one of the heaviest things in the game.
+    expect(weightOf('shotgun', WEAPONS.shotgun.force * TUNING.shotgun.pointBlankForce)).toBeGreaterThan(0.95);
+    expect(hitWeight(0, 'bullet', 0)).toBe(0);
+    expect(hitWeight(Number.NaN, 'bullet', 0)).toBe(0);
+  });
+
+  it('lands heavier rounds louder and lower, under one curve', () => {
+    let last = bodyHitLevels(0);
+    for (let w = 0.1; w <= 1.0001; w += 0.1) {
+      const l = bodyHitLevels(w);
+      expect(l.punchVolume).toBeGreaterThan(last.punchVolume);
+      expect(l.punchPitch).toBeLessThan(last.punchPitch);
+      expect(l.confirmVolume).toBeGreaterThan(last.confirmVolume);
+      expect(l.gap).toBeLessThanOrEqual(last.gap);
+      last = l;
+    }
+    expect(bodyHitLevels(2)).toEqual(bodyHitLevels(1));
+  });
+
+  it('plays every SMG round, even a frame early, and turns the Buzzsaw stream into a beat', () => {
+    const frame = 1 / 60;
+    expect(bodyHitLevels(weightOf('smg')).gap).toBeLessThan(WEAPONS.smg.interval - frame);
+    expect(bodyHitLevels(weightOf('judge')).gap).toBeLessThan(WEAPONS.judge.interval);
+    const buzzsaw = bodyHitLevels(weightOf('buzzsaw')).gap;
+    expect(buzzsaw / WEAPONS.buzzsaw.interval).toBeGreaterThan(5);
+    expect(1 / buzzsaw).toBeLessThan(10);
+  });
+
+  it('keeps a hit 30 m away inside hearing, where the old curve had it at an eighth', () => {
+    expect(attenuation(30, 5, 55)).toBeLessThan(0.13);
+    expect(attenuation(30, def('bullet_body').near, def('bullet_body').far)).toBeGreaterThan(0.25);
+    expect(attenuation(30, def('hit_punch').near, def('hit_punch').far)).toBeGreaterThan(0.38);
+    expect(attenuation(30, def('machine_clang').near, def('machine_clang').far)).toBeGreaterThan(0.3);
+    expect(attenuation(60, def('hit_punch').near, def('hit_punch').far)).toBeGreaterThan(0.15);
+  });
+
+  it('gives body hits their own voices, one transient a frame, above landings and below blasts', () => {
+    const living = ['bullet_body', 'hit_punch', 'hit_confirm', 'machine_clang'];
+    for (const id of living) {
+      const d = def(id);
+      expect(d.family, id).toBeUndefined();
+      expect(d.priority, id).toBeGreaterThan(MIX.flesh.priority);
+      expect(d.priority, id).toBeLessThan(MIX.blast.priority);
+      expect(d.maxVoices, id).toBeLessThanOrEqual(3);
+      // A shotgun blast is one hit. A second wet layer on its frame only added level, and at point blank pushed the limiter.
+      expect(d.perFrame, id).toBe(1);
+    }
+    // The dead are struck on the same frames under ids of their own, so they cannot take a living hit's start or voices.
+    for (const id of ['corpse_body', 'corpse_punch']) {
+      const d = def(id);
+      expect(d.family, id).toBe('flesh');
+      for (const hit of living) expect(d.priority, `${id} under ${hit}`).toBeLessThan(def(hit).priority);
+    }
+    // Under the headshot's own layers, which are what a head is meant to sound like.
+    expect(def('hit_punch').priority).toBeLessThan(def('enemy_headshot').priority);
+    expect(def('hit_confirm').priority).toBeLessThan(def('enemy_headshot').priority);
+  });
+
+  it('leaves the world its metal: doors, shutters, snares and rams keep the clank they had', () => {
+    const world = def('metal_clang');
+    expect({ ...world, recipe: undefined }).toEqual({ ...MIX.impact, volume: 0.46, send: 0.22, id: 'metal_clang', kind: 'synth', loop: false, recipe: undefined });
+    // The same plate, rendered by the same build.
+    expect(def('machine_clang').recipe!.build).toBe(world.recipe!.build);
+  });
+
+  it('builds the layers from approved recordings and a metal that is not flesh', () => {
+    expect(def('hit_punch').files!.every(f => /^gore\/limb_thud_\d\.mp3$/.test(f))).toBe(true);
+    expect(def('hit_confirm').files!.every(f => /^gore\/wet_slap_[1-4]\.mp3$/.test(f))).toBe(true);
+    expect(def('corpse_body').files).toEqual(def('bullet_body').files);
+    expect(def('corpse_punch').files).toEqual(def('hit_punch').files);
+    const machine = def('machine_hit');
+    expect(machine.kind).toBe('stack');
+    expect(machine.layers!.map(l => l.id)).toEqual(['machine_clang']);
+    expect(machine.layers![0]!.duration).toBeLessThan(0.3);
+    expect(def('machine_clang').kind).toBe('synth');
+  });
+});
+
+describe('body hit reactions', () => {
+  interface Played { id: string; volume: number; pitch: number; spatial: boolean }
+  const rig = () => {
+    const ctx = makeCtx({ enemies: { alive: [] } as unknown as Ctx['enemies'] });
+    const plays: Played[] = [];
+    const audio = {
+      play: (id: string, o: PlayOptions = {}) => plays.push({ id, volume: o.volume ?? 1, pitch: o.pitch ?? 1, spatial: o.position !== undefined }),
+    } as unknown as AudioSystem;
+    const reactions = new Reactions(ctx, audio);
+    const hit = (source: string, type: DamageType, amount: number, force: number, over: Partial<DamageResult> = {}, enemy = 'trooper') => {
+      ctx.events.emit('enemy:hit', {
+        enemy: { id: enemy, machine: enemy === 'drone', center: new Vector3() } as unknown as EnemyInstance,
+        damage: { amount, type, point: new Vector3(4, 1, 20), dir: new Vector3(0, 0, 1), force, source },
+        result: { dealt: amount, killed: false, headshot: false, severed: [], blocked: false, ...over },
+      });
+    };
+    // Audio runs after Weapons and Combat, so the end of the frame is where a held hit lands.
+    const endFrame = () => reactions.update(1 / 60, null);
+    const frames = (n: number) => {
+      for (let i = 0; i < n; i++) {
+        endFrame();
+        ctx.time.tick(1 / 60);
+      }
+    };
+    const count = (id: string) => plays.filter(p => p.id === id).length;
+    return { ctx, plays, hit, endFrame, frames, count };
+  };
+
+  it('lands an SMG round as a punch where it struck and a 2D confirmation, every round at 10 a second', () => {
+    const r = rig();
+    for (let i = 0; i < 10; i++) {
+      r.hit('smg', 'bullet', WEAPONS.smg.damage, WEAPONS.smg.force);
+      r.frames(6);
+    }
+    expect(r.count('hit_punch')).toBe(10);
+    expect(r.count('hit_confirm')).toBe(10);
+    expect(r.plays.find(p => p.id === 'hit_punch')!.spatial).toBe(true);
+    expect(r.plays.find(p => p.id === 'hit_confirm')!.spatial).toBe(false);
+    expect(r.count('hit_marker')).toBe(10);
+  });
+
+  it('hears six pellets on one frame as one heavier hit', () => {
+    const r = rig();
+    r.hit('smg', 'bullet', WEAPONS.smg.damage, 0);
+    r.endFrame();
+    const smg = r.plays.find(p => p.id === 'hit_punch')!;
+    r.frames(30);
+    r.plays.length = 0;
+    for (let i = 0; i < 6; i++) r.hit('shotgun', 'pellet', WEAPONS.shotgun.damage, WEAPONS.shotgun.force);
+    r.endFrame();
+    expect(r.count('hit_punch')).toBe(1);
+    expect(r.count('hit_confirm')).toBe(1);
+    const pellets = r.plays.find(p => p.id === 'hit_punch')!;
+    expect(pellets.volume).toBeGreaterThan(smg.volume);
+    expect(pellets.pitch).toBeLessThan(smg.pitch);
+  });
+
+  it('turns a Buzzsaw stream into a beat', () => {
+    const r = rig();
+    for (let i = 0; i < 60; i++) {
+      r.hit('buzzsaw', 'bullet', WEAPONS.buzzsaw.damage, WEAPONS.buzzsaw.force);
+      r.frames(1);
+    }
+    expect(r.count('hit_punch')).toBeGreaterThanOrEqual(7);
+    expect(r.count('hit_punch')).toBeLessThanOrEqual(10);
+  });
+
+  it('leaves headshots, blocked rounds, blades, fire, assists and enemies to their own sounds', () => {
+    const r = rig();
+    r.hit('smg', 'bullet', 25, 0, { headshot: true });
+    r.hit('shotgun', 'pellet', 20, 18);
+    r.frames(10);
+    r.hit('smg', 'bullet', 25, 0, { blocked: true });
+    r.hit('sword', 'slash', 75, 60);
+    r.hit('kiln', 'fire', 9, 1);
+    r.hit('rocket', 'explosive', 100, 90, { killed: true });
+    r.hit('sentinel', 'bullet', 20, 5);
+    r.hit('trooper', 'bullet', 10, 0);
+    r.frames(10);
+    expect(r.count('hit_punch')).toBe(0);
+    expect(r.count('hit_confirm')).toBe(0);
+  });
+
+  it('keeps the headshot to itself whichever pellet of the blast landed first', () => {
+    const r = rig();
+    r.hit('shotgun', 'pellet', WEAPONS.shotgun.damage, WEAPONS.shotgun.force);
+    r.hit('shotgun', 'pellet', WEAPONS.shotgun.damage, WEAPONS.shotgun.force, { headshot: true });
+    r.hit('shotgun', 'pellet', WEAPONS.shotgun.damage, WEAPONS.shotgun.force);
+    r.frames(1);
+    expect(r.count('hit_punch')).toBe(0);
+    expect(r.count('hit_confirm')).toBe(0);
+    // The next blast, with no head in it, is a body hit again.
+    r.frames(30);
+    r.hit('shotgun', 'pellet', WEAPONS.shotgun.damage, WEAPONS.shotgun.force);
+    r.endFrame();
+    expect(r.count('hit_punch')).toBe(1);
+  });
+
+  it('drops a hit held over a pause rather than land it out of time', () => {
+    const r = rig();
+    r.hit('smg', 'bullet', WEAPONS.smg.damage, WEAPONS.smg.force);
+    r.ctx.events.emit('game:state', { from: 'playing', to: 'paused' });
+    r.frames(1);
+    expect(r.count('hit_punch')).toBe(0);
+  });
+
+  it('gives a machine a lower, quieter punch under its clank and no flesh', () => {
+    const r = rig();
+    r.hit('smg', 'bullet', 25, 0);
+    r.endFrame();
+    const flesh = r.plays.find(p => p.id === 'hit_punch')!;
+    r.frames(10);
+    r.plays.length = 0;
+    r.hit('smg', 'bullet', 25, 0, {}, 'drone');
+    r.endFrame();
+    expect(r.count('hit_confirm')).toBe(0);
+    const metal = r.plays.find(p => p.id === 'hit_punch')!;
+    expect(metal.volume).toBeLessThan(flesh.volume);
+    expect(metal.pitch).toBeLessThan(flesh.pitch);
+  });
+
+  it('lands the killing round with its weight, and leaves the 2D confirmation to the kill marker', () => {
+    const r = rig();
+    r.hit('judge', 'bullet', 120, 40, { killed: true });
+    r.endFrame();
+    expect(r.count('hit_punch')).toBe(1);
+    expect(r.count('hit_confirm')).toBe(0);
+    expect(r.count('hit_marker')).toBe(0);
+    // A blast whose first pellet wounds and a later one kills is a kill too.
+    r.frames(30);
+    r.hit('shotgun', 'pellet', WEAPONS.shotgun.damage, WEAPONS.shotgun.force);
+    r.hit('shotgun', 'pellet', WEAPONS.shotgun.damage, WEAPONS.shotgun.force, { killed: true });
+    r.endFrame();
+    expect(r.count('hit_punch')).toBe(2);
+    expect(r.count('hit_confirm')).toBe(0);
+  });
+});
+
 describe('distance', () => {
   it('is flat inside near, falls after it, and is silent at far', () => {
     expect(attenuation(3, 5, 90)).toBe(1);
@@ -331,6 +574,46 @@ describe.skipIf(!report)('real renders', () => {
         expect(s.seconds, line.id).toBeGreaterThanOrEqual(0.015);
       }
     }
+  });
+
+  /**
+   * Levels from the report's own measurements of the recordings each layer reuses. A pack's level is its mean loudness
+   * matched by `trimFor`, as the bank does at load. A 3D voice in front plays a mono buffer 3 dB down, as the panner does.
+   */
+  it('puts a body hit under the gun and the headshot up close, and keeps it heard at 30 m', () => {
+    const line = (id: string) => report!.lines.find(l => l.id === id)!;
+    const mixLoud = (id: string) => (line(id) as unknown as { mixLoud: number }).mixLoud;
+    const packLevel = (id: string, recordings: string, count: number) => {
+      const louds = line(recordings).stats.slice(0, count).map(s => s.loud);
+      const mean = louds.reduce((a, b) => a + b, 0) / louds.length;
+      return mean * trimFor(mean) * lookup(id)!.volume;
+    };
+    const front = Math.SQRT1_2;
+    const smg = mixLoud('smg_fire');
+    const headshot = Math.max(mixLoud('enemy_headshot'), mixLoud('enemy_headshot2'), mixLoud('enemy_headshot3'));
+    const wet = packLevel('bullet_body', 'bullet_body', 6);
+    const punch = packLevel('hit_punch', 'limb_thud', 5);
+    const confirm = packLevel('hit_confirm', 'wet_slap', 4);
+    const at = (id: string, d: number) => attenuation(d, lookup(id)!.near, lookup(id)!.far);
+    // Loudness of layers that do not share a band adds as power.
+    const hit = (w: number, d: number) => {
+      const l = bodyHitLevels(w);
+      return Math.hypot(wet * at('bullet_body', d) * front, punch * l.punchVolume * at('hit_punch', d) * front, confirm * l.confirmVolume);
+    };
+    const smgWeight = hitWeight(WEAPONS.smg.damage, 'bullet', 0);
+
+    // The confirmation alone stays well under the gun and the headshot, at any weight.
+    expect(confirm * bodyHitLevels(smgWeight).confirmVolume).toBeLessThan(smg * 0.4);
+    expect(confirm * bodyHitLevels(1).confirmVolume).toBeLessThan(smg * 0.6);
+    expect(hit(1, 3)).toBeLessThan(headshot);
+    // Up close an SMG hit is about the shot's own size. Today's was 3 dB under it.
+    expect(hit(smgWeight, 3) / smg).toBeGreaterThan(0.8);
+    expect(hit(smgWeight, 3) / smg).toBeLessThan(1.25);
+    // At 30 m it is under 9 dB down, where the old wet hit alone was 21 dB down.
+    expect(hit(smgWeight, 30) / smg).toBeGreaterThan(0.35);
+    expect((wet / lookup('bullet_body')!.volume) * 0.42 * 0.8 * attenuation(30, 5, 55) * front / smg).toBeLessThan(0.1);
+    // A heavier round is a heavier hit at every range.
+    for (const d of [3, 10, 30, 60]) expect(hit(weightOf('judge'), d), `${d} m`).toBeGreaterThan(hit(smgWeight, d) * 1.15);
   });
 
   it('lets a hit ring out rather than get cut off', () => {

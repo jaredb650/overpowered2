@@ -14,6 +14,7 @@ import {
 } from '../core/contracts';
 import { DevFlags } from '../core/devflags';
 import { clamp, rand, randomInCone, randomUnit } from '../core/math';
+import { WEAPONS } from '../weapons/data';
 import { BloodField, BloodTuning } from './blood';
 import { ChunkField, scatter } from './chunks';
 import { ImpactEvents, impactKind, ImpactTuning } from './impacts';
@@ -112,6 +113,8 @@ const joltOf = (force: number): number => clamp((force * DevFlags.force) / Muscl
 const MAX_STAKES = 3;
 /** What a dead body counts as having, for how big a wound one hit makes. */
 const CORPSE_HEALTH = 100;
+/** Real seconds between the knocks of rounds into the dead, a living hit's shortest gap, so a Buzzsaw sweep is a beat. */
+const CORPSE_KNOCK_GAP = 0.07;
 
 const machines = new Set(ARCHETYPES.filter(a => a.stumps === 'machine').map(a => a.id));
 /** Drones and skitters spark where everything else bleeds. */
@@ -251,6 +254,7 @@ export class Gore implements GoreSystem {
   private readonly wounds: WoundPlanner;
   /** Next body to look at for its level of detail. One a frame is plenty for things that lie still. */
   private lodAt = 0;
+  private lastKnock = -1;
   private ready = false;
   private readonly onPreStep = (dt: number): void => this.preStep(dt);
   private readonly onRadial = (center: THREE.Vector3, radius: number, strength: number): void =>
@@ -1091,7 +1095,7 @@ export class Gore implements GoreSystem {
 
   damageCorpse(hit: CorpseHit, damage: DamageInfo): void {
     const target = hit.handle;
-    const { fx, audio } = this.ctx;
+    const { fx } = this.ctx;
     const machine = (target instanceof DeadBody && isMachine(target.char)) || (target instanceof LooseLimb && target.machine);
     if (machine) {
       fx.sparks(hit.point, damage.dir, 8);
@@ -1125,7 +1129,7 @@ export class Gore implements GoreSystem {
       // Still on its feet, the animation it is following flinches too, and the muscles carry that as well.
       muscle?.collapse?.flinch(hit.bone, damage.dir, MuscleTuning.collapseFlinch * jolt);
       this.wounds.onBody(char, damage, damage.amount / CORPSE_HEALTH, hit.bone, hit.point);
-      audio.play('bullet_body', { position: hit.point, volume: 0.4, pitchJitter: 0.1 });
+      this.corpseSound(hit.point, damage, machine, false);
       target.damage[hit.bone] = target.damage[hit.bone]! + damage.amount * (damage.severMult ?? 1);
       // Damage on a bone counts toward the nearest severable joint at or above it.
       const defs = char.rig.bones;
@@ -1143,11 +1147,29 @@ export class Gore implements GoreSystem {
       target.crawler?.kill();
       this.wounds.onLimb(target.piece, target.info, damage, hit.bone, hit.point);
       target.health -= damage.amount * (damage.severMult ?? 1);
-      audio.play('bullet_body', { position: hit.point, volume: 0.3, pitchJitter: 0.12 });
+      this.corpseSound(hit.point, damage, machine, true);
       if (target.health <= 0 && DevFlags.gibbing) this.burstLimb(target, damage);
     } else {
       this.sliced.damage(target, hit.point, _v.copy(damage.dir).multiplyScalar(forceOf(damage)));
     }
+  }
+
+  /**
+   * A round into the dead: a living body's hit, lower and without the 2D confirmation, because a corpse is something hit,
+   * not a hit that counted. Its ids are its own, so it never takes a living hit's start on the frame or its voices. Flesh
+   * keeps its wet on every round, as before hits had layers. The knock under it, a punch or a wreck's clank, is spaced
+   * like a living hit, and the punch is the player's guns' alone, as it is on the living.
+   */
+  private corpseSound(at: THREE.Vector3, damage: DamageInfo, machine: boolean, limb: boolean): void {
+    const { audio, time } = this.ctx;
+    if (!machine) audio.play('corpse_body', { position: at, volume: limb ? 0.3 : 0.4, pitchJitter: limb ? 0.12 : 0.1 });
+    const now = time.realElapsed;
+    if (now - this.lastKnock < CORPSE_KNOCK_GAP || (!machine && !Object.hasOwn(WEAPONS, damage.source))) return;
+    this.lastKnock = now;
+    // A wreck is metal in the world: the plate under the world's voices, cut where a living machine's is.
+    if (machine) audio.play('metal_clang', { position: at, volume: limb ? 0.36 : 0.45, pitch: limb ? 1.2 : 1, pitchJitter: 0.1, duration: 0.22 });
+    // Less mass in a limb than a body, so higher and shorter.
+    else audio.play('corpse_punch', { position: at, volume: limb ? 0.4 : 0.5, pitch: limb ? 1.5 : 1.3, pitchJitter: 0.08 });
   }
 
   private burstLimb(limb: LooseLimb, damage: DamageInfo): void {

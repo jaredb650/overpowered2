@@ -127,13 +127,23 @@ const samples: SoundDef[] = [
   sample('frfff.mp3', 'enemyFx', 0.3),
 ];
 
-/** Sample packs from docs/CREDITS.md. Each id is `count` numbered files in sfx/gore. */
-function pack(id: string, count: number, fallback: string, volume: number, over: Partial<MixProfile> = {}): SoundDef {
+/**
+ * Sample packs from docs/CREDITS.md. Each id is `count` numbered files in sfx/gore, named after the id or after `source`
+ * when one pack's recordings serve a second id with its own level and voices.
+ */
+function pack(id: string, count: number, fallback: string, volume: number, over: Partial<MixProfile> = {}, source = id): SoundDef {
   return {
     ...MIX.flesh, ...over, volume, id, kind: 'sample', loop: false, fallback,
-    files: Array.from({ length: count }, (_, i) => `gore/${id}_${i + 1}.mp3`),
+    files: Array.from({ length: count }, (_, i) => `gore/${source}_${i + 1}.mp3`),
   };
 }
+
+/**
+ * The player's rounds landing on a body are the point of the fight, not texture, so they leave the `flesh` family
+ * landings share: a pile of bodies can no longer thin them out or take their voices. One start a frame is one hit,
+ * however many pellets landed in it. See "Body hits" in docs/notes/audio.md for the levels.
+ */
+const BODY_HIT: Partial<MixProfile> = { family: undefined, familyMax: undefined, perFrame: 1 };
 
 /** Volumes sit these against the synth gore around them: 0.42 is `body_thud`, 0.72 is `limb_sever`. */
 const packs: SoundDef[] = [
@@ -150,7 +160,20 @@ const packs: SoundDef[] = [
   pack('blood_drip', 4, 'blood_spurt', 0.2, { near: 3, far: 25 }),
   pack('blood_splatter', 4, 'blood_splat', 0.36, { priority: 4 }),
   pack('body_drag', 3, 'body_scrape', 0.24, { maxVoices: 2, near: 3, far: 30 }),
-  pack('bullet_body', 6, 'blood_splat', 0.42, { maxVoices: 4, priority: 4 }),
+  // The wet of a body hit. One a frame: a second wet layer under the same blast added only level, and at point blank
+  // that was enough to push the limiter. The curve keeps a hit at 30 m at 0.25 of point blank, where 5 to 55 m left it at 0.12.
+  pack('bullet_body', 6, 'blood_splat', 0.38, { ...BODY_HIT, maxVoices: 3, priority: 5, near: 8, far: 110 }),
+  // Its weight: the limb_thud recordings pitched up 1.05 to 1.55 by the round, a short 120-400 Hz punch with a 5 ms attack,
+  // which is the band the SMG leaves open. Wide, because this is what says a hit landed 30 m away.
+  pack('hit_punch', 5, 'body_thud', 0.38, { ...BODY_HIT, maxVoices: 3, priority: 6, near: 12, far: 160, send: 0.08, pitchJitter: 0.05 }, 'limb_thud'),
+  // A corpse or a loose limb being shot: the same recordings under texture's rules, in the family landings fill, so a
+  // pile of bodies under fire thins itself and never takes a living hit's start or its voices. `corpse_body` is what
+  // `bullet_body` was on corpses before hits had layers.
+  pack('corpse_body', 6, 'blood_splat', 0.42, { maxVoices: 4, priority: 4 }, 'bullet_body'),
+  pack('corpse_punch', 5, 'body_thud', 0.38, { maxVoices: 2, priority: 3, perFrame: 1, near: 8, far: 110, send: 0.08, pitchJitter: 0.05 }, 'limb_thud'),
+  // The confirmation, played 2D: wet_slap's 1-4 kHz crunch, 7 to 11 dB under the SMG shot at any range. The fifth
+  // recording is 6 dB quieter and half sub, so it is left to the landings.
+  pack('hit_confirm', 4, 'gib_land', 0.15, { ...BODY_HIT, maxVoices: 2, priority: 7, send: 0.04, pitchJitter: 0.04 }, 'wet_slap'),
   pack('sword_flesh', 3, 'limb_sever', 0.6, { priority: 6, family: 'gore', familyMax: 10, near: 6, far: 70 }),
   // These run up to 2 s, so a pile of bodies must not stack them.
   pack('blood_spill', 3, 'blood_spurt', 0.4, { maxVoices: 2, priority: 4 }),
@@ -183,6 +206,9 @@ const stacks: SoundDef[] = [
   ]),
   stack('hellfire_rocket_blast', [{ id: 'rocket_explosion' }, { id: 'hellfirerocket_explode' }]),
   stack('sword_contact', [{ id: 'sword_flesh' }]),
+  // A living drone or skitter struck: the plate clank and its 120 Hz thump, cut before the ring so ten a second stay ten
+  // hits. `machine_clang` is `metal_clang`'s sound under a hit's voices, so doors and shutters keep theirs.
+  stack('machine_hit', [{ id: 'machine_clang', duration: 0.22 }]),
   stack('perk_berserk', [{ id: 'perk_berserk1' }, { id: 'perk_berserk2' }, { id: 'perk_berserk3' }]),
 ];
 
@@ -233,8 +259,9 @@ export function lookup(id: string): SoundDef | undefined {
 const RENDER_TIERS: readonly RegExp[] = [
   // Menu, the first fight, and moving around in it.
   /^(ui_|hit_marker|wave_|footstep_|impact_|ricochet|casing_|weapon_|reload_|dash|double_jump|wall_kick|slide_|wallrun_|slam_|mantle|land_hard|jump_pad$|speed_wind|amb_)/,
-  // The first kills: gore, enemy voices, and what a player feels getting hurt or picking something up.
-  /^(limb_|bone_|gib_|blood_|head_pop|body_|flesh_|vox_(grunt|pain|death|husk|radio)|enemy_|player_|heartbeat|low_health|armor_|heal_|pickup_|combo_|multikill|style_|grenade_|bullet_)/,
+  // The first kills: gore, enemy voices, and what a player feels getting hurt or picking something up. `machine_clang` is
+  // a drone or skitter being shot, and `metal_clang` its wreck.
+  /^(limb_|bone_|gib_|blood_|head_pop|body_|flesh_|vox_(grunt|pain|death|husk|radio)|enemy_|player_|heartbeat|low_health|armor_|heal_|pickup_|combo_|multikill|style_|grenade_|bullet_|machine_clang|metal_clang)/,
   // The first streaks and the first weapon cache.
   /^(perk_|powerup_|callin_|cache_|missile_|explosion_|vox_|revolver_|stake_|flame_|minigun_|railgun_|sword_|sentinel_|lightning_)/,
 ];

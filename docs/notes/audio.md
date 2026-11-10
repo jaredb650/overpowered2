@@ -40,6 +40,7 @@ Audio reads `ctx.player`, `ctx.time`, `ctx.world` and listens to events, so nobo
 |---|---|
 | `fx:casing` | `casing_brass` (rifle a little lower), `casing_shotgun`, `casing_heavy`. Volume follows strength. Quiet bounces thin out under 50 ms apart |
 | `enemy:hit` from the player | `hit_marker`, `hit_marker_head`, `hit_marker_armor`. Skips fire ticks |
+| `enemy:hit` from a round of the player's own guns (`bullet`, `pellet`) on a body | `hit_punch` at the hit and `hit_confirm` in 2D, weighted by the round and played at the end of the frame. A machine gets a quieter, lower `hit_punch` and no confirm, and a kill has `hit_marker_kill` in place of the confirm. See "Body hits" |
 | `enemy:killed` from the player | `hit_marker_kill` |
 | `enemy:severed` on flesh | `bone_snap`, `flesh_tear` and `blood_spurt` under the enemies system's `limb_sever` |
 | `enemy:killed` | `blood_splatter` and `blood_spill` on a gib, `head_pop` and `vox_gurgle` on a head kill |
@@ -61,6 +62,7 @@ One call, all layers start on the same audio frame.
 | `autocannon_shot` | `autocannon_fire` cut at 500 ms + `autocannon_fire2` in full, as in the first game |
 | `hellfire_rocket_blast` | `rocket_explosion` + `hellfirerocket_explode` |
 | `sword_contact` | `sword_flesh` |
+| `machine_hit` | `machine_clang` cut at 220 ms, before its ring. A living drone or skitter struck |
 | `perk_berserk` | `perk_berserk1` + `perk_berserk2` + `perk_berserk3` all at once, 0.4 / 0.6 / 0.4 as in the first game |
 
 `ctx.audio.layer([{ id, volume, pitch, offset, delay, duration }, ...], options)` builds your own stack.
@@ -87,6 +89,102 @@ kill stacks twice.
 Volume runs 0.35 to 1 with strength, and pitch falls as strength rises. Only a `body` asks what it landed on, with one ray. A pile of bodies is capped
 four ways: gore allows 6 events a frame, `reactions.ts` hears 9 a second with a burst of 5 and nothing past 55 m, the `flesh` family holds 6
 voices, and thinning takes the rest when the mix is crowded.
+
+## Body hits
+
+A player's round on a living body is three layers, all starting on the frame of the hit:
+
+| Layer | Who plays it | What it is | Where |
+|---|---|---|---|
+| `bullet_body` (`machine_hit` on a drone or skitter) | `Combat.strike` | The material: the owner's wet hit, or a plate clank | 3D, near 8 m, far 110 m (`machine_clang`: 10 m, 150 m) |
+| `hit_punch` | `reactions.ts`, from `enemy:hit` | The weight: the `limb_thud` recordings pitched up, a 120-400 Hz punch with a 5 ms attack | 3D, near 12 m, far 160 m |
+| `hit_confirm` | `reactions.ts`, from `enemy:hit` | The confirmation: `wet_slap`'s 1-4 kHz crunch. Flesh only, and not on a kill | 2D |
+
+Only `bullet` and `pellet` rounds from the player's own guns (`WEAPONS`) get the second and third, and those are strikes Combat plays aloud.
+Sentinels and call-ins keep Combat's layer alone, so they never spend the gap a trigger pull needs. `reactions.ts` holds the frame's hit and
+plays it from `update`, which runs after Weapons and Combat, so every pellet of a trigger pull has landed by then. A headshot is left to
+`headshot`: it drops a body hit held on its frame, whichever pellet came first, and holds off body hits for one gap after. Combat's wet layer
+still plays for a body pellet on that frame, as it always has. A blocked round is `impact_armor` alone. On a kill `hit_marker_kill` is the 2D
+confirmation, as it already stood in for `hit_marker`, and the punch keeps the killing round's weight. A sever keeps its own layers on top.
+
+**The dead.** Corpses and loose limbs (`gore/index.ts`) are struck on the same frames as the living, often by the same pellets, so they have
+ids of their own and cannot take a living hit's start on the frame or its voices. Flesh gets `corpse_body` on every round, which is the old
+`bullet_body` (`flesh` family, near 5 m, far 55 m, 0.42) at the old 0.4, or 0.3 on a limb. Under it, `corpse_punch` (the `limb_thud`
+recordings, `flesh` family, priority 3, 2 voices) at 0.5 and pitch 1.3, or 0.4 and 1.5 on a limb, only for the player's guns. A wreck gets
+`metal_clang` cut at 220 ms under the world's voices, from any source. The punch and the clank are spaced `CORPSE_KNOCK_GAP`, 70 ms, so a
+Buzzsaw sweep over a pile of bodies is a beat like it is on the living.
+
+**Weight.** `hitWeight` in `reactions.ts` reads the round's damage and push: 0 is 12 damage (a Buzzsaw round), 1 is 240 (a full Lance, a
+stake), on a log scale. A pellet counts as four, because a shotgun blast is one hit to the ear and only its first pellet is played. Push
+counts double, so a point-blank shotgun lands as one of the heaviest things in the game. Damage powerups make every round heavier.
+`bodyHitLevels` turns the weight into levels. Heavier is louder and lower, and a lower punch is a longer one.
+
+| Round | Weight | `hit_punch` volume, pitch | `hit_confirm` volume, pitch | Gap |
+|---|---|---|---|---|
+| Buzzsaw, 13 | 0.03 | 0.64, 1.54 | 0.56, 1.11 | 113 ms, about 9 a second of its 50 |
+| SMG, 25 | 0.25 | 0.76, 1.43 | 0.66, 1.07 | 70 ms, every round |
+| Shotgun, 20 a pellet | 0.63 | 0.99, 1.23 | 0.84, 0.98 | 70 ms, one hit a blast |
+| Judge, 120 | 0.77 | 1.07, 1.17 | 0.90, 0.95 | 70 ms |
+| Stakegun, 140 and push 110 | 0.97 | 1.18, 1.06 | 0.99, 0.91 | 70 ms |
+| Full Lance, point-blank shotgun, autocannon shell | 1 | 1.20, 1.05 | 1.00, 0.90 | 70 ms |
+
+A machine's `hit_punch` is 0.6 of that and 0.85 of the pitch, under the clank. Catalogue levels: `bullet_body` 0.38 (was 0.42, played at
+0.8, so 1 dB louder up close), `hit_punch` 0.38, `hit_confirm` 0.15, `machine_clang` 0.42.
+
+**Why hits were quiet.** Measured from the files with `analyze.ts`, mixed as the engine mixes them:
+
+- Distance. `bullet_body` had `flesh`'s curve, near 5 m and far 55 m: 0.50 of point blank at 10 m, 0.23 at 20 m, 0.125 at 30 m, 0.064 at
+  40 m, nothing past 55 m. Most fights are 10 to 40 m away.
+- Level. Played at 0.8, and a mono 3D voice in front plays 3 dB down, so even point blank was 2.8 dB under the SMG shot. At 30 m it was
+  20.9 dB under.
+- Band. 64 to 75% of its energy is under 120 Hz, which laptop speakers barely play and where the SMG puts 62% of its own. Only 6 to 18% is
+  in 120-400 Hz, which is the band the SMG leaves open (7%).
+- Attack. 42 to 65 ms to reach 90% of peak, while the gun's 15 ms attack starts on the same frame. Its onset was inside the shot.
+- Variants. Loudness 0.17 to 0.40 across the six, 7 dB apart under one level.
+- Voices. It was in the `flesh` family with 15 landing packs, 6 voices between them. In a crowded mix a landing in the previous 90 ms
+  thinned a hit as a repeat, and hits past about 35 m fell under the floor. Gunfire was not stealing them: it plays from the 2D pool,
+  and only narrows the 3D budget by the few voices it holds.
+- Machines got the flesh sample.
+
+**After.** Perceived loudness (`loudness` in `analyze.ts`) against the SMG shot, all layers mixed, a 3D voice in front at -3 dB. No reverb or air
+filter. dB:
+
+| | 3 m | 10 m | 20 m | 30 m | 40 m | 60 m |
+|---|---|---|---|---|---|---|
+| Before, any round | -2.8 | -8.9 | -15.7 | -20.9 | -26.8 | silent |
+| Buzzsaw | -1.2 | -2.4 | -6.8 | -9.1 | -10.2 | -11.3 |
+| SMG | -0.5 | -1.5 | -5.5 | -7.8 | -8.9 | -9.9 |
+| Shotgun | +0.7 | +0.1 | -3.7 | -5.8 | -6.9 | -7.9 |
+| Judge | +1.1 | +0.6 | -3.2 | -5.3 | -6.4 | -7.3 |
+| Stakegun | +1.7 | +1.2 | -2.5 | -4.5 | -5.5 | -6.4 |
+
+Every hit stays under its own gun: the shotgun shot is +4.3 dB and the Judge's +7.6 dB on this scale. `hit_confirm` alone is -10.6 dB for the
+SMG and -7.0 dB for a stake, and the `headshot` stack is +3.7 dB, so a headshot still stands over any body hit. In the first 80 ms, where shot
+and hit start together, an SMG hit at 30 m sat 18 to 26 dB under the shot in every band. It now sits 4.8 dB under in 120-400 Hz and 5.3 dB
+under in 1-4 kHz, which is audible over it.
+
+**Voices.** The three packs and `machine_clang` have no family, so landings cannot thin them or take their voices, and each allows one
+start a frame: six pellets make one wet layer, one punch and one confirm, not six transients. A second wet layer on the blast's frame added
+only level: at 4 m with music on it took the limiter to 1 to 3 dB of reduction on most blasts. Offline, a point-blank blast's pre-limiter
+peak with one wet layer is back to what it was before body hits had layers (0.72 at worst over 400 blasts, against 0.84 before and 0.99 with
+two). `reactions.ts` plays a living hit at most once a gap. Priorities: `bullet_body` and `machine_clang` 5, `hit_punch` 6, `hit_confirm` 7,
+over landings and the dead (3 and 4) and under blasts and the headshot (8 and up). None is critical. `hit_confirm` plays from the 2D pool and
+starts at 0.09 or more, over the full-mix floor of 0.04, so nothing thins it. Sustained SMG fire into bodies costs about 3 more voices than
+before (`bullet_body` dropped from 4 voices to 3, its tail past 300 ms is under -30 dB).
+
+`machine_clang` is `metal_clang`'s build under its own id. Doors, shutters, snares, a vehicle's ram and a wreck being shot play
+`metal_clang` itself, which keeps the `impact` mix it always had (0.46, near 5 m, far 80 m, family `impact`).
+
+**Kills and headshots.** Louder body hits leave less room over them. On the report's numbers, an SMG kill at 10 m (its punch, wet and
+`hit_marker_kill`) is about 2 dB over a plain hit, where it was about 4 dB, and the in-game run measured a kill 1.5 dB over a hit against 6 dB
+before, and a headshot 2.8 dB over against 7.7 (one to four events each). Taking the confirm off a kill clears `hit_marker_kill`'s 2D slot
+but does not buy back level. Getting the old margin back would take a quieter hit or a louder kill marker, which then crowds the headshot.
+That is a call for the owner's ears.
+
+**How it was measured.** The MP3s were decoded with `afconvert` to 48 kHz float, cut by the bank's own silence trim, pitched by linear
+resampling, matched with `trimFor`, mixed at the levels above and read with `analyze.ts`. The numbers for the untouched files agree with
+`tools/out/audio-report.json` to 1% (`smg_fire` 0.439 against 0.444, `bullet_body` 1 0.398 against 0.397). `src/audio/audio.test.ts` repeats the
+level sums from the report's measurements of the same recordings.
 
 ## Original samples
 
@@ -133,6 +231,10 @@ to the synth gore at load.
 | `blood_splatter` | 4 | `blood_splat` |
 | `body_drag` | 3 | `body_scrape` |
 | `bullet_body` | 6 | `blood_splat` |
+| `hit_punch` | 5, the `limb_thud` recordings | `body_thud` |
+| `hit_confirm` | 4, `wet_slap` 1 to 4 | `gib_land` |
+| `corpse_body` | 6, the `bullet_body` recordings | `blood_splat` |
+| `corpse_punch` | 5, the `limb_thud` recordings | `body_thud` |
 | `sword_flesh` | 3 | `limb_sever` |
 | `blood_spill` | 3 | `blood_spurt` |
 
@@ -159,7 +261,8 @@ Rendered at load. x4 means four rendered variants behind one id.
 - **Surfaces:** `impact_concrete`, `impact_metal`, `impact_grate`, `impact_dirt`, `impact_glass`, `impact_flesh`, `impact_armor`, `impact_energy`, `impact_lava`, all x4
 - **Ricochet:** `ricochet` x4, `bullet_flyby` x3 (near miss, complements `bullet_whizz`)
 - **Explosions:** `explosion_barrel` x2, `explosion_tank`, `explosion_small` x3, `explosion_distant` x2, `explosion_debris` x3
-- **Debris:** `glass_break` x3, `metal_clang` x4, `concrete_crumble` x3
+- **Debris:** `glass_break` x3, `metal_clang` x4 (doors, shutters, snares, rams, a wreck being shot), `machine_clang` x4 (the same plate
+  for a living machine being shot, through `machine_hit`), `concrete_crumble` x3
 
 ### Bodies
 
@@ -249,7 +352,7 @@ Nothing blocks the boot, and nothing has to wait for a sound.
    constructor calls `enumerateDevices()`, which starts that same service without blocking, and the context is made when it answers
    (or after 6 s). The context then takes under 10 ms. Until then every public method is a safe no-op that remembers music state,
    volumes and unlock.
-2. `SoundBank` (`bank.ts`) does the rest as small jobs in `requestIdleCallback`: rooms first, then 68 sample ids, then 474 recipe variants
+2. `SoundBank` (`bank.ts`) does the rest as small jobs in `requestIdleCallback`: rooms first, then 75 sample ids, then 513 recipe variants
    in `renderRank` order: every id's first variant in a tier before spares, tiers by what a run reaches first.
 3. Jobs that find no idle time run anyway after 250 ms during the boot and 60 ms after it, so loading always finishes.
 4. A sound played before it has rendered is skipped and jumps the queue. `stats().missed` counts these.
@@ -272,6 +375,8 @@ Nothing blocks the boot, and nothing has to wait for a sound.
 | Crossfades | `FADE_INTO`, `TRACK_FADE` in `music.ts` |
 | Load speed against load cost | `RENDER_THREADS`, `DECODE_THREADS`, `*_PATIENCE_MS` in `bank.ts`. Order: `RENDER_TIERS` in `catalog.ts` |
 | Casing density, hit marker spacing | `CASING_GAP`, `MARKER_GAP` in `reactions.ts` |
+| How heavy each round lands, body hit levels and spacing | `hitWeight`, `bodyHitLevels`, `HIT_GAP` in `reactions.ts`. Voices: `BODY_HIT` and the three packs in `catalog.ts`, `machine_clang`'s `over` |
+| Rounds into the dead | `corpseSound` and `CORPSE_KNOCK_GAP` in `gore/index.ts`. Voices: `corpse_body` and `corpse_punch` in `catalog.ts` |
 
 ## Testing
 
@@ -369,6 +474,10 @@ A soak cannot run past 3 minutes here. Nothing in the logs grows with time, but 
 ## Known limitations
 
 - **Nobody has heard any of this.** Every result above is a number. The mix and the character of each sound need ears. The packs most of all: none of them was chosen by listening.
+- **The body hits were tuned by measurement, in Node, with no browser run.** The pitch and level choices need the owner's ears, the Buzzsaw's
+  beat of 9 most of all. `tools/out/audio-report.json` predates them: it has no line for `machine_clang`, so the "covers every synthesized
+  id" check in `audio.test.ts` fails until the report is run again, and none for `hit_punch`, `hit_confirm`, `corpse_body` and
+  `corpse_punch`. No existing render changed: `metal_clang` is back to its old mix, and `machine_clang` is its build under a new id.
 - **`tools/shot.mjs` has no real audio device.** It runs Chrome with `--mute-audio`, so underruns are counted against a fake output. Whether the owner's crackle is gone can only be heard on the owner's machine.
 - **Only Chrome was run.** The owner's browser is not known. Safari and Firefox have no `playbackStats`, so the governor reads the clock there, which is coarser.
 - **`body_drag` is a slowed slug crawl,** because no free recording of a real drag turned up. Gore has no drag event, so it plays after three in ten hard landings.
@@ -380,7 +489,7 @@ A soak cannot run past 3 minutes here. Nothing in the logs grows with time, but 
   allows autoplay, so the context reports `running` there before any gesture.
 - **Ids no one plays yet:** `jump_pad_idle_loop`, `electric_floor_loop`, `lava_loop`, `barrel_hiss_loop` and `alarm_klaxon` need the world to
   start them, because `WorldObjects` exposes no positions. `warden_shield_loop`, `warden_buff`, `skitter_step`, `concrete_crumble`,
-  `glass_break`, `metal_clang`, `bullet_flyby`, `shield_hit`, `sword_block`, `weapon_holster`, `minigun_fire`, `lightning_strike`,
+  `glass_break`, `bullet_flyby`, `shield_hit`, `sword_block`, `weapon_holster`, `minigun_fire`, `lightning_strike`,
   `electric_buzz_loop` and `powerup_idle_loop` wait for their owners.
 - **Gore scales the headshot twice.** It passes 0.75 / 0.5625 / 0.75 on top of catalogue levels that already hold that ratio, so whenever
   gore's call lands first the layers are about 2.5 dB down and their ratio is off. `audio.play('headshot', { position })` is the right call.
