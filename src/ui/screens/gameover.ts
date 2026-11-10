@@ -63,7 +63,8 @@ export class GameOverScreen implements Screen {
     const r = this.hud.report;
     this.killedBy.set(r.killedBy ? `Killed by ${this.hud.killerName(r.killedBy)}` : 'Killed');
     this.record.set(r.isHighScore);
-    this.high.set(r.isHighScore ? `Old best ${r.highAtStart.toLocaleString('en-US')}` : `High score ${r.highAtStart.toLocaleString('en-US')}`);
+    const best = r.highAtStart.toLocaleString('en-US');
+    this.high.set(r.custom ? 'Custom rules. Unranked, so no record is kept.' : r.isHighScore ? `Old best ${best}` : `High score ${best}`);
     this.stats.replaceChildren(...statRows(r));
 
     const top = r.topWeapons(5);

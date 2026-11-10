@@ -15,6 +15,7 @@ const row = (label: string, value: string) => div('st-row', span('st-k', label),
 export function statRows(r: RunReport): HTMLElement[] {
   return [
     ...(r.beat ? [row('mission', r.beat), row('contractors lost', n(r.deaths))] : [row('wave reached', n(r.wave))]),
+    ...(r.custom ? [row('rules', 'custom, unranked')] : []),
     row('time', clock(r.seconds)),
     row('kills', n(r.kills)),
     row('headshots', n(r.headshots)),

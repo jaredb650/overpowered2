@@ -37,6 +37,7 @@ import { Flythrough } from './screens/flythrough';
 import { isTitanWave } from '../enemies/waves';
 import type { CommsKind } from '../enemies/outpost/events';
 import { MISSION_ID } from '../campaign/select';
+import { crucibleRules, refreshRules } from '../contracts/crucible';
 import { ACTIVE } from '../contracts/select';
 import { CommanderHud } from './commander';
 
@@ -259,7 +260,7 @@ export class Hud implements HudSystem {
     this.state.read(this.ctx);
     // A checkpoint is the same mission going on, and the bill at the end is for all of it.
     if (this.ctx.campaign?.returning) this.report.killedBy = '';
-    else this.report.begin(this.state.highScore);
+    else this.report.begin(this.state.highScore, this.state.customRules);
     this.deathClock = 0;
     this.vitals.reset(this.state);
     this.tach.reset();
@@ -284,7 +285,7 @@ export class Hud implements HudSystem {
 
   private onWaveStart(wave: number, total: number, boss: boolean): void {
     const hard = wave >= 10;
-    const sub = boss ? `${isTitanWave(wave) ? 'titan' : 'juggernaut'} inbound` : `${total} hostile`;
+    const sub = boss ? `${isTitanWave(wave, crucibleRules()) ? 'titan' : 'juggernaut'} inbound` : `${total} hostile`;
     this.bannerLanes.showBand(boss ? 'boss' : hard ? 'hard' : 'wave', `WAVE ${wave}`, sub);
   }
 
@@ -322,6 +323,8 @@ export class Hud implements HudSystem {
     // The press that chose this button must not also jump or fire on the first frame of the run.
     this.ctx.input.endFrame?.();
     this.requestLock('run');
+    // Before the reset, so the score, the HUD and the waves all start the run on the same rules.
+    refreshRules();
     game.newRun();
     this.pauseGuard = 2;
   }

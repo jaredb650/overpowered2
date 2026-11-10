@@ -9,6 +9,8 @@ import type { HudState } from '../state';
 
 const WHEELS = 8;
 const ROLL_RATE = 11;
+/** What the record line holds while it reads 'custom rules'. No score is negative. */
+const CUSTOM = -2;
 
 export class Odometer {
   readonly el: HTMLElement;
@@ -126,12 +128,13 @@ export class Tally {
     this.odo.set(s.score);
     this.odo.update(dt);
 
-    const beating = s.highScore > 0 && s.score > s.highScore;
+    // A run on custom rules is unranked: it is never measured against the record.
+    const beating = !s.customRules && s.highScore > 0 && s.score > s.highScore;
     this.beat.set(beating);
-    const shown = beating ? s.score : s.highScore;
+    const shown = s.customRules ? CUSTOM : beating ? s.score : s.highScore;
     if (shown !== this.highShown) {
       this.highShown = shown;
-      this.high.set(beating ? 'new high' : `high ${s.highScore.toLocaleString('en-US')}`);
+      this.high.set(s.customRules ? 'custom rules' : beating ? 'new high' : `high ${s.highScore.toLocaleString('en-US')}`);
     }
   }
 

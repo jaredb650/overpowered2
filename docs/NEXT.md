@@ -42,6 +42,7 @@ The feeling to chase: "it could be, there's something missing... not as good as 
 ## Testing
 
 - Dev panel: grant yourself kill combos, perks, streaks and summons, or add them to the inventory.
+- Done: the dev panel (F1 or backquote) loads on every map and contract of the dev server, with every cheat off until you tick it; `?dev=0` turns it off there. The public site keeps `?dev=1`. Main menu, The Crucible's tab, **Crucible rules**: each type's first wave or off, Juggernaut and Titan cadence and count, start wave, wave size, escort, most alive, breaks, spawn speed, enemy health and damage. Any custom rule makes the run unranked; `?rules=0` plays the standard rules.
 
 ## Lead's proposals (owner has not approved these)
 

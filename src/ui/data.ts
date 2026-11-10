@@ -188,7 +188,10 @@ export const ENEMY_NAMES: Record<EnemyId, string> = {
   skitter: 'Skitter', drone: 'Drone', juggernaut: 'Juggernaut', titan: 'Titan',
 };
 
-/** In order of arrival. `wave` is the first wave each one appears in, from ROSTER in enemies/waves.ts. */
+/**
+ * In order of arrival. `wave` is the first wave each one appears in on the standard rules, from ROSTER in enemies/rules.ts.
+ * The Guide documents the standard, ranked game; the Crucible rules screen shows a custom one.
+ */
 export const ENEMY_GUIDE: readonly { id: EnemyId; wave: number; role: string; tip: string }[] = [
   { id: 'husk', wave: 1, role: 'Melee swarm', tip: 'Slow. The danger is the crowd. Herd them into a line and blow them up.' },
   { id: 'trooper', wave: 1, role: 'Ranged', tip: 'Bursts inside 30 m and backs away under 13. Keep moving and it misses.' },

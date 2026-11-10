@@ -5,6 +5,7 @@
  * callable objects rather than numbers, so every read here is typed-checked once and falls back to a neutral value.
  * That keeps the HUD alive at every stage of the build, and it makes this the only file that knows field names.
  */
+import { rulesCustom } from '../contracts/crucible';
 import { MOVE } from '../player/tuning';
 import { WEAPONS } from '../weapons/data';
 import type { Ctx } from '../core/contracts';
@@ -55,6 +56,8 @@ export class HudState {
   score = 0;
   kills = 0;
   highScore = 0;
+  /** The run is on custom Crucible rules, so it is unranked. */
+  customRules = false;
   combo = 0;
   comboTimer = 0;
   multiplier = 1;
@@ -115,6 +118,7 @@ export class HudState {
     this.score = num(g.score, 0);
     this.kills = num(g.kills, 0);
     this.highScore = num(g.highScore, 0);
+    this.customRules = rulesCustom();
     this.combo = num(g.combo, 0);
     this.comboTimer = num(g.comboTimer, 0);
     this.multiplier = num(g.multiplier, 1);

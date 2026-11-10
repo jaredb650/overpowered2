@@ -6,6 +6,7 @@
  */
 import type { Ctx } from '../core/contracts';
 import type { DamageResult, EnemyInstance, KillEvent } from '../core/gameplay';
+import { rulesCustom } from '../contracts/crucible';
 import { readHighScore, writeHighScore } from '../contracts/scores';
 import { ACTIVE } from '../contracts/select';
 import { Combo } from './counters';
@@ -160,7 +161,8 @@ export class ScoreKeeper {
   add(points: number, reason: string, position?: EnemyInstance['center']): void {
     this.score += points;
     this.ctx.events.emit('score:gain', { points, reason, position });
-    if (this.score > this.highScore) {
+    // A run on custom Crucible rules is unranked. The record stays the standard game's, so nothing is announced or written.
+    if (this.score > this.highScore && !rulesCustom()) {
       this.highScore = this.score;
       if (!this.beatHighScore && this.storedHighScore > 0) {
         this.beatHighScore = true;

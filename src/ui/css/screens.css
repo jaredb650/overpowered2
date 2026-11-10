@@ -221,7 +221,32 @@
 .mm-tab.lock { color: var(--dim); white-space: nowrap; }
 .mm-tab.lock::before { content: ''; display: inline-block; width: 0.7rem; height: 0.56rem; margin-right: 0.5rem; background: currentColor; box-shadow: 0 -0.3rem 0 -0.12rem currentColor; vertical-align: 0.06rem; }
 .mm-tab.lock.on { color: #000; }
-.nt-lock { margin-top: 0.5rem; padding: 0.3rem 0.6rem 0.22rem; background: rgba(157, 176, 189, 0.14); color: var(--amber); font-size: 1rem; font-weight: 600; }
+.nt-lock, .nt-rules { margin-top: 0.5rem; padding: 0.3rem 0.6rem 0.22rem; background: rgba(157, 176, 189, 0.14); color: var(--amber); font-size: 1rem; font-weight: 600; }
+/* The Crucible's rules button sits under its notice, with the notice's text edge. */
+.mm-brief > .mi-small { margin-top: 0.5rem; padding-left: 1.4rem; }
+
+/* --- Crucible rules: the settings sheet, with two columns of compact rows so the whole set fits at 16:9 --- */
+.scr-rules .gd-panel { max-width: 88rem; }
+.rl-col { flex: 1 1 0; min-width: 0; }
+.scr-rules .row { height: 3.4rem; }
+.rl-col-note { display: block; margin: 0 0 0.3rem; color: var(--steel); font-size: 1rem; }
+/* A value off its default is amber. A row that is off, or whose boss is, reads dim. */
+.row.changed .st-val, .row.changed .row-v { color: var(--amber); }
+.row.focus.changed .st-val, .row.focus.changed .row-v { color: #000; }
+.row.off .st-val { color: var(--dim); }
+.row.focus.off .st-val { color: rgba(0, 0, 0, 0.45); }
+/* Turned off by the player is still a change: it keeps the amber mark, which a row dimmed only by its boss does not have. */
+.row.off.changed .st-val { color: var(--amber); }
+.row.focus.off.changed .st-val { color: #000; }
+.rl-sub { margin: -1rem 1.4rem 1.4rem 3rem; font: 2.1rem/1.2 var(--display); color: var(--amber); }
+.rl-state { margin: 0 1.4rem 1.2rem 3rem; padding: 0.4rem 0.6rem 0.5rem; background: rgba(157, 176, 189, 0.14); }
+.rl-state-k { display: block; font: 1.9rem/1.2 var(--display); }
+.rl-state-v { display: block; color: var(--steel); font-size: 1rem; line-height: 1.3; }
+.rl-state.custom .rl-state-k { color: var(--amber); }
+.rl-plan { display: grid; grid-template-columns: auto 1fr; gap: 0.25rem 0.8rem; margin: 0 1.4rem 1rem 3rem; font-size: 1rem; line-height: 1.3; }
+.rl-plan-k { color: var(--steel); }
+.rl-hint { display: block; margin: 0 1.4rem 1rem 3rem; color: var(--steel); font-size: 1rem; line-height: 1.3; }
+.rl-warn { margin: 0 1.4rem 0 3rem; color: var(--amber); font-size: 1rem; line-height: 1.3; }
 .mi.off .mi-t { color: var(--dim); }
 
 /* Mission complete. */

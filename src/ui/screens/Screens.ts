@@ -11,10 +11,12 @@ import type { LoadingScreen } from './loading';
 import { MainMenu } from './mainmenu';
 import { MissionComplete } from './complete';
 import { PauseScreen } from './pause';
+import { RulesScreen } from './rules';
 import { SettingsScreen } from './settingsScreen';
 import { SplashScreen } from './splash';
 
-export type ScreenName = 'loading' | 'splash' | 'menu' | 'pause' | 'gameover' | 'complete' | 'guide' | 'settings' | 'none';
+/** 'rules' is the Crucible's, reached only from the main menu, and its Back goes straight there. */
+export type ScreenName = 'loading' | 'splash' | 'menu' | 'pause' | 'gameover' | 'complete' | 'guide' | 'settings' | 'rules' | 'none';
 
 export interface Screen {
   readonly el: HTMLElement;
@@ -45,6 +47,7 @@ export class Screens {
       complete: new MissionComplete(ctx, hud),
       guide: new GuideScreen(ctx, hud),
       settings: new SettingsScreen(ctx, hud, settings),
+      rules: new RulesScreen(ctx, hud),
     };
     this.el = div('screens');
     for (const s of Object.values(this.screens)) {

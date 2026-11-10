@@ -10,7 +10,8 @@ import type { ContractDef } from './data';
 const KEY = 'op2_campaign_beaten';
 
 const flag = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('unlock') : null;
-const forced = flag === '1' || (import.meta.env.DEV && typeof location !== 'undefined' && flag !== '0');
+// The location check first, so a script run by tsx, which has no `import.meta.env`, can still import this file.
+const forced = flag === '1' || (typeof location !== 'undefined' && import.meta.env.DEV && flag !== '0');
 let beatenThisSession = false;
 
 export function campaignBeaten(): boolean {

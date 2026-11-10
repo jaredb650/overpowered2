@@ -6,6 +6,8 @@ import { WEAPONS } from './data';
 export class RunReport {
   score = 0;
   highAtStart = 0;
+  /** Played on custom Crucible rules: unranked, so it never sets a record. */
+  custom = false;
   kills = 0;
   headshots = 0;
   wave = 0;
@@ -53,7 +55,8 @@ export class RunReport {
     on.on('player:died', e => { this.killedBy = e.source; });
   }
 
-  begin(highScore: number): void {
+  begin(highScore: number, custom = false): void {
+    this.custom = custom;
     this.score = this.kills = this.headshots = this.wave = this.seconds = 0;
     this.shots = this.hits = this.bestCombo = this.topSpeed = 0;
     this.limbs = this.gibs = this.slices = this.damageTaken = this.callIns = 0;
@@ -89,7 +92,7 @@ export class RunReport {
   }
 
   get isHighScore(): boolean {
-    return this.score > 0 && this.score > this.highAtStart;
+    return !this.custom && this.score > 0 && this.score > this.highAtStart;
   }
 
   /** Top weapons by kills, most first. Runs once per screen, never per frame. */

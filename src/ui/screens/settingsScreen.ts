@@ -23,7 +23,8 @@ interface Rebinder {
 
 const ACTION_NAMES = new Map<Action, string>(KEY_GROUPS.flatMap(g => g.rows));
 
-class Slider implements NavItem {
+/** Shared with the Crucible rules screen. */
+export class Slider implements NavItem {
   readonly el: HTMLElement;
   private fill: Meter;
   private text: Label;

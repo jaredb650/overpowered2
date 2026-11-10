@@ -206,8 +206,9 @@ export async function createCtx(canvas: HTMLCanvasElement, onProgress: Progress 
 }
 
 /**
- * URL flags: ?contract=<id> and ?map=<id> pick the game (contracts/select.ts), ?autostart=1 skips the menus, ?dev=1 adds the
- * dev panel, ?map=range is the Test Range. Bots read window.__op2.
+ * URL flags: ?contract=<id> and ?map=<id> pick the game (contracts/select.ts, which lists the rest), ?autostart=1 skips the
+ * menus, ?dev=1 adds the dev panel (the dev server has it on every page unless ?dev=0), ?map=range is the Test Range. Bots
+ * read window.__op2.
  */
 export async function startGame(params: URLSearchParams): Promise<void> {
   showLoading();

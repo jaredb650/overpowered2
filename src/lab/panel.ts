@@ -27,7 +27,7 @@ const CSS = `
 .lab-panel h2 { margin: 16px 0 6px; font-size: 11px; font-weight: 600; color: var(--steel, #9db0bd); }
 .lab-status { color: var(--steel, #9db0bd); min-height: 2.8em; white-space: pre-wrap; }
 .lab-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; }
-.lab-grid button { font-size: 11px; }
+.lab-grid button { font-size: 10px; } /* JUGGERNAUT fits a quarter of the panel at 10px, not at 11 */
 .lab-grid.wide { grid-template-columns: repeat(2, 1fr); }
 .lab-row { display: flex; gap: 3px; margin-top: 3px; }
 .lab-row > * { flex: 1; }
@@ -80,7 +80,8 @@ export class LabPanel {
   private readonly typeButtons = new Map<EnemyId, HTMLButtonElement>();
   private readonly aiButtons = new Map<AiMode, HTMLButtonElement>();
 
-  constructor(private readonly s: LabSettings, private readonly on: PanelActions) {
+  /** `vehicles`: this map runs them. The Crucible does not, and a row of buttons that do nothing is a trap. */
+  constructor(private readonly s: LabSettings, private readonly on: PanelActions, private readonly vehicles = true) {
     const style = el('style');
     style.textContent = CSS;
     document.head.appendChild(style);
@@ -165,9 +166,11 @@ export class LabPanel {
       this.on.changed();
     });
     sync();
-    const vehicles = el('div', 'lab-row');
-    for (const kind of VEHICLE_ORDER) this.button(vehicles, kind.toUpperCase(), () => this.on.vehicle(kind));
-    this.el.appendChild(vehicles);
+    if (this.vehicles) {
+      const vehicles = el('div', 'lab-row');
+      for (const kind of VEHICLE_ORDER) this.button(vehicles, kind.toUpperCase(), () => this.on.vehicle(kind));
+      this.el.appendChild(vehicles);
+    }
     const clear = el('div', 'lab-row');
     this.button(clear, 'Kill all', () => this.on.killAll());
     this.button(clear, 'Clear bodies', () => this.on.clearBodies());

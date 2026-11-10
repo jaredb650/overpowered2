@@ -1,15 +1,19 @@
 /**
- * Dev controls: the panel, the time controls and the aim readout. Game.ts loads this only on /?map=range or with
- * ?dev=1, so a normal run never downloads it. Everything else the lab changes goes through DevFlags, or through the
- * public scale request on the clock.
+ * Dev controls: the panel, the time controls and the aim readout. Game.ts loads this on /?map=range, with ?dev=1, and on
+ * every page of the dev server unless ?dev=0 (core/devflags.ts), so the public site's normal run never downloads it.
+ * Everything else the lab changes goes through DevFlags, or through the public scale request on the clock.
+ *
+ * A dev server page that did not ask for the lab plays as the real game until the panel is first opened: no hint, no
+ * hotkeys but F1 and backquote, and every cheat off (settings.ts).
  *
  * The world is paused with a scale of zero, not with `time.paused`, because the player's clock ignores slow motion:
  * the camera can walk round a frozen body and fire into it, then step the world on a frame at a time.
  */
 import type { Ctx } from '../core/contracts';
-import { DevFlags, ON_RANGE } from '../core/devflags';
+import { DEV_ASKED, DevFlags, ON_RANGE } from '../core/devflags';
 import type { Game } from '../core/Game';
 import type { WeaponId } from '../core/gameplay';
+import { MAX_ALIVE } from '../enemies/waves';
 import { WEAPON_ORDER } from '../weapons/data';
 import { AimOverlay } from './overlay';
 import { LabPanel } from './panel';
@@ -27,6 +31,10 @@ const RANGE_FOG = 0.0012;
 
 const isField = (t: EventTarget | null): boolean => t instanceof HTMLElement && /^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName);
 
+interface Bindings {
+  conflicts?(code: string): readonly unknown[];
+}
+
 export class Lab {
   readonly settings = loadSettings();
   readonly flags = DevFlags;
@@ -36,6 +44,10 @@ export class Lab {
   private readonly panel: LabPanel;
   private readonly hint = document.createElement('div');
   private opened = false;
+  /** The time and spawn keys answer. From the start where the lab was asked for, elsewhere once the panel has been opened. */
+  private armed = DEV_ASKED;
+  /** The panel let the mouse go mid-run, so the hint says how to take it back. */
+  private tookMouse = false;
   private steps = 0;
   private statusClock = 0;
 
@@ -56,7 +68,7 @@ export class Lab {
       togglePause: () => this.togglePause(),
       step: n => this.step(n),
       setSpeed: s => this.setSpeed(s),
-    });
+    }, (ctx.enemies as unknown as { vehicles?: unknown }).vehicles != null);
     this.hint.className = 'lab-hint';
     this.hint.textContent = 'Click for the mouse. F1 or ` opens the panel.';
     this.hint.style.display = 'none';
@@ -104,8 +116,11 @@ export class Lab {
     this.opened = open;
     this.panel.el.classList.toggle('open', open);
     const { input } = this.ctx;
-    if (open) input.releaseLock();
-    else {
+    if (open) {
+      this.armed = true;
+      if (this.game.state === 'playing') this.tookMouse = true;
+      input.releaseLock();
+    } else {
       (document.activeElement as HTMLElement | null)?.blur();
       if (this.game.state === 'playing') input.requestLock();
     }
@@ -144,7 +159,15 @@ export class Lab {
       this.setOpen(false);
       return;
     }
-    if (e.repeat || isField(e.target) || this.game.state !== 'playing') return;
+    if (this.opened && this.game.state !== 'playing') {
+      // A menu sits behind the panel, and Enter there would start a run that takes the mouse from under it. Keys inside
+      // the panel never leave it (panel.ts).
+      if (!(e.target instanceof Node && this.panel.el.contains(e.target))) e.stopPropagation();
+      return;
+    }
+    if (e.repeat || !this.armed || isField(e.target) || this.game.state !== 'playing') return;
+    // A key the player has bound to the game is the game's.
+    if ((this.ctx.input as unknown as Bindings).conflicts?.(e.code)?.length) return;
     switch (e.code) {
       case 'KeyP': this.togglePause(); break;
       case 'Period': this.step(1); break;
@@ -174,7 +197,7 @@ export class Lab {
     const { enemies, time } = this.ctx;
     const stats = this.game.stats();
     const world = this.paused ? 'paused' : `${time.slowmo.toFixed(2)}x`;
-    this.panel.setStatus(`alive ${enemies.alive.length} / 48   world ${world}\n${String(stats.fps)} fps   ${String(stats.cpuMs)} ms`);
+    this.panel.setStatus(`alive ${enemies.alive.length} / ${MAX_ALIVE}   world ${world}\n${String(stats.fps)} fps   ${String(stats.cpuMs)} ms`);
   }
 
   private readonly frame = (): void => {
@@ -183,14 +206,20 @@ export class Lab {
     const playing = game.state === 'playing';
     if (playing) {
       this.updateTime();
+      // Held every frame, not set once: a restart, a mission's loadout, a checkpoint redeploy and the end of Berserk all
+      // put the player and the guns back to neutral.
+      if (settings.god) ctx.player.modifiers.invulnerable = true;
       // Progression rewrites the modifiers every frame, after weapons have read them.
       if (settings.arsenal) {
+        for (const id of WEAPON_ORDER) (ctx.weapons.owned as Set<WeaponId>).add(id);
         ctx.weapons.modifiers.bottomlessMag = true;
         if (ctx.weapons.grenades < GRENADE_FLOOR) ctx.weapons.addGrenades(GRENADE_FLOOR);
       }
     }
+    if (ctx.input.locked) this.tookMouse = false;
     this.overlay.update(settings.overlay);
-    this.hint.style.display = playing && !this.opened && !ctx.input.locked ? 'block' : 'none';
+    const hint = playing && !this.opened && !ctx.input.locked && (DEV_ASKED || this.tookMouse);
+    this.hint.style.display = hint ? 'block' : 'none';
     if (this.opened) this.updateStatus();
   };
 }

@@ -1,5 +1,9 @@
-/** What the panel remembers. The range and a real game with ?dev=1 keep separate copies, so a test never leaks into a run. */
-import { DevFlags, ON_RANGE } from '../core/devflags';
+/**
+ * What the panel remembers. The range, a real game with ?dev=1 and the dev server's other pages keep separate copies, so a
+ * test never leaks into a run. Those other pages did not ask for the lab, so they keep only the spawn picks: god mode,
+ * every weapon, world speed and the rest start off on each load, and a cheat left on can never carry into a playtest.
+ */
+import { DEV_ASKED, DevFlags, ON_RANGE } from '../core/devflags';
 import type { EnemyId } from '../core/gameplay';
 
 export type AiMode = 'off' | 'patrol' | 'on';
@@ -21,7 +25,9 @@ export interface LabSettings {
   force: number;
 }
 
-const KEY = `op2.lab.v1.${ON_RANGE ? 'range' : 'game'}`;
+const KEY = `op2.lab.v1.${ON_RANGE ? 'range' : DEV_ASKED ? 'game' : 'dev'}`;
+/** All a page that did not ask for the lab brings back. */
+const CONVENIENCES: readonly (keyof LabSettings)[] = ['spawn', 'ai', 'row'];
 
 /** Perks start off on the range because a stray Hellfire is exactly what stops a body being studied. */
 const DEFAULTS: LabSettings = {
@@ -31,7 +37,11 @@ const DEFAULTS: LabSettings = {
 
 export function loadSettings(): LabSettings {
   try {
-    return { ...DEFAULTS, ...(JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<LabSettings>) };
+    const stored = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<LabSettings>;
+    if (DEV_ASKED) return { ...DEFAULTS, ...stored };
+    const kept: Partial<LabSettings> = {};
+    for (const k of CONVENIENCES) if (k in stored) (kept as Record<string, unknown>)[k] = stored[k];
+    return { ...DEFAULTS, ...kept };
   } catch {
     return { ...DEFAULTS };
   }

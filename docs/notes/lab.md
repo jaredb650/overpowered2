@@ -1,6 +1,8 @@
 # Test Range and dev controls
 
-`src/lab/`, flags in `src/core/devflags.ts`. `Game.ts` loads the lab only on `/?map=range` or with `?dev=1`, so a normal run never downloads it.
+`src/lab/`, flags in `src/core/devflags.ts`. `Game.ts` loads the lab on `/?map=range`, with `?dev=1` in any build, and on every page of the dev server unless `?dev=0`. A production build's normal run, the public site's, never downloads it.
+
+On a dev server page that did not ask for it (no `?dev=1`, not the range) the lab is quiet until the panel is first opened: no hint, no hotkeys but F1 and backquote, and god mode, every weapon, world speed and the rest start off on each page load. Only the spawn type, AI mode and row size are remembered there.
 
 ## How to use it
 
@@ -9,6 +11,7 @@
 | `/?map=range` | The Test Range. No menu, no waves. Perks start off, god mode and every weapon start on |
 | `/?dev=1` | The real game with the same panel. Add `&autostart=1` to skip the menus |
 | `/?map=killhouse&dev=1` | Any map, the same way |
+| Any page of the dev server | The panel, with every cheat off until ticked. `?dev=0` removes it |
 
 | Key | Does |
 |---|---|
@@ -22,7 +25,7 @@
 
 **Grants.** The panel has buttons for all 8 call-ins, straight to the inventory, every perk and powerup, and the combo. Each call-in is used with its usual key. Combos and perks start off on the range, so a combo set there shows but pays nothing until that box is ticked. Under `?dev=1` it is on: set 15, make a kill, and Airstrike, Warthog and Berserk arrive. A perk with `retrigger: 'ignore'` does nothing on a second press while it runs.
 
-Settings live in localStorage, one copy for the range and one for `?dev=1`, so a test never leaks into a run.
+Settings live in localStorage, one copy for the range, one for `?dev=1` and one for the dev server's other pages, so a test never leaks into a run. God mode and every weapon hold through a restart, a mission's loadout and a checkpoint redeploy. A hotkey the player has bound to a game action is the game's, and with the panel open over a menu the menu does not hear the keys.
 
 ## How it fits together
 

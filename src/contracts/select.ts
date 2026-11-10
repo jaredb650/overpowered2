@@ -7,6 +7,11 @@
  *   ?contract=crucible&map=killhouse  Those rules on that map. Unranked, so a test cannot set a record
  *   ?unlock=1                       Every locked contract is open, for this page and any it moves on to. The dev server opens them anyway
  *   ?unlock=0                       On the dev server, the locks stay as a new player has them
+ *   ?dev=1                          The dev panel (F1 or backquote), in any build, the public site included
+ *   ?dev=0                          On the dev server, no dev panel. It loads on every other page there (core/devflags.ts)
+ *   ?rules=0                        The Crucible plays its standard rules, whatever the player has set (contracts/crucible.ts)
+ *
+ * Every flag but ?map and ?autostart rides along when the menu moves to another contract.
  */
 import type { MapId } from '../world/map/maps';
 import { CONTRACTS, DEFAULT_CONTRACT, type ContractDef, type ContractId } from './data';

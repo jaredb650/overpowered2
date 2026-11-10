@@ -95,6 +95,11 @@ export class EnemyManager implements EnemySystem {
   readonly alive: Enemy[] = [];
   /** Enemies waiting in the wave queue. */
   queued = 0;
+  /**
+   * The Crucible's health and damage rules, over the wave scale. Only its wave director sets them, at the start of a run,
+   * and every reset puts them back to 1, so Endless Humans and the Campaign never see them.
+   */
+  readonly tuning = { health: 1, damage: 1 };
   get remaining(): number {
     return this.alive.length + this.queued - (this.outpost?.prisoners ?? 0);
   }
@@ -198,6 +203,7 @@ export class EnemyManager implements EnemySystem {
     for (const s of this.strikes) s.live = false;
     this.queued = 0;
     this.wave = 1;
+    this.tuning.health = this.tuning.damage = 1;
     this.linksTaken = this.rescues = this.nextRescueAt = 0;
     this.fieldCleared = false;
     this.director.reset();
@@ -237,8 +243,8 @@ export class EnemyManager implements EnemySystem {
     ctx.render.scene.add(char.root);
 
     const scale = waveScale(this.wave);
-    e.maxHealth = e.health = def.hp * scale.health;
-    e.damageMul = scale.damage;
+    e.maxHealth = e.health = def.hp * scale.health * this.tuning.health;
+    e.damageMul = scale.damage * this.tuning.damage;
     // A small spread keeps a pack from moving in lockstep.
     e.speedMul = scale.speed * rand(0.93, 1.07);
     e.score = def.score;
