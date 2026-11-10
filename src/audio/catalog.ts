@@ -210,6 +210,17 @@ const stacks: SoundDef[] = [
   stack('thresher_fire', [{ id: 'shotgun_fire', pitch: 0.86, duration: 0.42, volume: 0.9 }, { id: 'thresher_punch' }]),
   stack('quiver_fire', [{ id: 'rocket_fire', pitch: 1.3, duration: 0.45, volume: 0.7 }, { id: 'quiver_tube' }]),
   stack('sword_contact', [{ id: 'sword_flesh' }]),
+  // Key 5 beside the sword: the sword's own recordings and the body hits, re-pitched to each weapon's weight.
+  stack('blade_dash', [{ id: 'sword_sweep', pitch: 1.35, duration: 0.3, volume: 0.8 }]),
+  stack('knife_swing', [{ id: 'sword_swing', pitch: 1.5, duration: 0.16, volume: 0.55 }]),
+  stack('club_swing', [{ id: 'sword_swing', pitch: 0.7, duration: 0.3, volume: 0.75 }]),
+  stack('spade_swing', [{ id: 'sword_sweep', pitch: 0.62, duration: 0.5, volume: 0.85 }]),
+  stack('knife_flesh', [{ id: 'sword_flesh', pitch: 1.4, duration: 0.28, volume: 0.7 }, { id: 'hit_punch', pitch: 1.3, volume: 0.5 }]),
+  stack('club_hit', [{ id: 'hit_punch', pitch: 0.82 }, { id: 'impact_metal', pitch: 0.62, duration: 0.18, volume: 0.32 }]),
+  stack('club_plate', [{ id: 'metal_clang', pitch: 0.9, duration: 0.3, volume: 0.7 }, { id: 'hit_punch', pitch: 0.7, volume: 0.6 }]),
+  stack('spade_flat', [{ id: 'hit_punch', pitch: 0.66 }, { id: 'metal_clang', pitch: 0.72, duration: 0.42, volume: 0.6 }]),
+  stack('spade_wall', [{ id: 'metal_clang', pitch: 0.8, duration: 0.5, volume: 0.8 }, { id: 'impact_concrete', pitch: 0.8, volume: 0.6 }]),
+  stack('baton_hit', [{ id: 'hit_punch', pitch: 1.12 }, { id: 'wet_slap', pitch: 0.85, volume: 0.35 }]),
   // A living drone or skitter struck: the plate clank and its 120 Hz thump, cut before the ring so ten a second stay ten
   // hits. `machine_clang` is `metal_clang`'s sound under a hit's voices, so doors and shutters keep theirs.
   stack('machine_hit', [{ id: 'machine_clang', duration: 0.22 }]),

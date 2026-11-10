@@ -55,6 +55,7 @@ import { OutpostWaves } from './waves';
 import { WoundSystem } from '../wounds';
 import { ARMOUR } from '../wounds/armour';
 import { WoundTuning } from '../wounds/rules';
+import { isMelee } from '../../weapons/melee/data';
 
 export { soldierOf } from './soldier';
 
@@ -681,7 +682,7 @@ export class Outpost {
   private onFired(weapon: string, origin: THREE.Vector3): void {
     if (this.w.now < this.shotHeardAt) return;
     this.shotHeardAt = this.w.now + NOISE_TICK;
-    this.noise(origin, weapon === 'sword' ? BLADE_NOISE : SHOT_NOISE);
+    this.noise(origin, isMelee(weapon) ? BLADE_NOISE : SHOT_NOISE);
   }
 
   private listenToFeet(now: number): void {

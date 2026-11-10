@@ -17,7 +17,7 @@ First-person weapons, arms and off-hand items. `src/weapons/viewmodels/**`, sand
 
 ## Using it
 
-`Weapons.ts` and `Sword.ts` already drive everything. Nothing outside them should need more than the `ViewmodelRig` interface.
+`Weapons.ts` and `melee/Melee.ts` already drive everything. Nothing outside them should need more than the `ViewmodelRig` interface.
 
 ```ts
 viewmodel.equip('lance', 0.3);       // seconds <= 0.03 skips the draw, for a quick melee
@@ -66,6 +66,8 @@ The Thresher (`models/thresher.ts`) and the Quiver (`models/quiver.ts`) are file
 
 **Sword.** Timings are the first game's, the arcs are not. Each runs along the `sweep` in `SWORD.chain`, so blade, crescent and cut plane agree. A move starts from wherever the blade is, so a chain flows. The hilt stays near the bottom edge and the blade does the crossing, otherwise a cut disappears below the screen. The blast frame of the finisher is `p = 0.571`, and `SLAM_END` lands exactly there. The blade shader reads the wear tag as position across the blade, which is how the temper line follows the curve.
 
+**Key 5's other four.** The Shiv (`knife.ts`), Prybar (`crowbar.ts`), Spade (`shovel.ts`) and Cosh (`baton.ts`) are one file each and share one clip, `models/melee.ts`: a move is three poses, start, middle and end, run as one curve, and a move whose row in `MELEE` has an `impact` share first winds up to its start pose over that share, so the model and the blow agree. Moves are `light1`..`light3` and `heavy` (`SwordMove`), each model reading them as its own. The arcs follow the sword's rule: the hand stays low and the head of the weapon crosses the view. A backhand keeps the hand's roll on the forehand side (Z near -1.5); rolled the other way the forearm turned into the view and the weapon pointed at the camera. The Shiv, Prybar and Cosh are one-handed (`left: null`); the Spade has the left hand on its D grip. The Cosh opens on the draw: its two outer tubes are parts (`tube1`, `tube2`) that slide out over the first half of it.
+
 **Scope.** The gun lifts and hides past `scopeW` 0.9. The overlay arrives before that, so the gun can be seen inside it for about 100 ms.
 
 ## Tuning
@@ -78,6 +80,7 @@ The Thresher (`models/thresher.ts`) and the Quiver (`models/quiver.ts`) are file
 | What a move does to gun and hand | `ANIM` and the targets in `src/player/moveAnim.ts`. Hand targets are view space, compressed to what the 58 degree view shows at arm's length: about 23 cm tall at 42 cm out |
 | Leg poses | `LEG_POSES` in `legs.ts`, body frame, eye at the origin |
 | Sword arcs | `ARCS`, `AREA`, `SLAM_*`, `COCK`, `PARRY` in `models/sword.ts`. Euler X, Y, Z: at X near 1.5 the blade stands up and Y leans it across the screen |
+| Key 5's other four | `REST` and `moves` in `models/knife.ts`, `crowbar.ts`, `shovel.ts`, `baton.ts`; the clip they share is `models/melee.ts` |
 | Dark or bright gun | `FILL_*`, `MOON_FLOOR` in `rig.ts`, the two floors in `LIGHT_BAND` |
 | Flash on the gun | The `0.4` in `POINT_LIMITED`. Lower is brighter |
 | Perk strength | The `vmEmis` lines in `FRAG_SURFACE` |
@@ -122,6 +125,8 @@ Maximums in the flick with the trigger held reach 44 to 106 px on the semi-autos
 
 VM_IDS=shotgun,judge VM_MODE=reload node tools/shot.mjs --url "/?sandbox=viewmodels&manual=1" \
   --script tools/scripts/viewmodel-anim.mjs --out tools/out/vm/a.png      # reload, fire, draw, sword: exact frames
+MELEE_IDS=knife,crowbar node tools/shot.mjs --url "/?sandbox=viewmodels&manual=1" \
+  --script tools/scripts/melee-vm.mjs --wait 1500 --dpr 2 --w 1440 --h 900 --out tools/out/melee/vm.png   # key 5: rest, draw, every swing
 VM_IDS=lance node tools/shot.mjs --url "/?sandbox=viewmodels&view=inspect" \
   --script tools/scripts/viewmodel-inspect.mjs --out tools/out/vm/i.png   # turntable, one page load for the arsenal
 VM_SPOTS=bright,dark node tools/shot.mjs --url "/?sandbox=range&live=1&load=husk" \
@@ -134,6 +139,7 @@ VM_STEPS=perks,callins node tools/shot.mjs --url "/?sandbox=range&live=1&load=hu
 
 ## Known limitations
 
+- **Key 5's four were checked as stills only**: rest, four draw frames and six frames of every swing on the stepped clock (`tools/scripts/melee-vm.mjs`), and stills in the real game. The Shiv's backhand ends with its blade behind the fist; the Prybar's and Spade's overheads bring the hand large into the top of the view while they wind up. Triangle counts and GPU cost were not measured.
 - **The Thresher and the Quiver were checked as stills only**: a turntable each, seven fire frames and nine reload frames each in the sandbox, and stills in the real game. On the Quiver the face of the block is far up the view, so the four pushes of the reload are small on screen, and its hips pose fills the bottom right as a box launcher does. Nobody has seen either in motion.
 - **The Harrow and the Rivet are lighter models than the first ten**, 9.6k and 5.2k triangles. They read correctly in the hand and on the turntable, but nobody has put them beside the SMG and the Judge for finish. Their reloads were checked as nine stills each, not in motion: on the Rivet the magazine goes in low on the screen and the gun is lifted to show it.
 

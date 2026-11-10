@@ -19,9 +19,12 @@ export const SLOT_ORDER: readonly number[] = WEAPON_ORDER.reduce<number[]>((out,
   return out;
 }, []);
 
+/** `?melee=old` leaves key 5 with the katana alone, as before the Shiv, Prybar, Spade and Cosh. */
+export const MELEE_FOUR_ON = typeof location === 'undefined' || new URLSearchParams(location.search).get('melee') !== 'old';
+
 const BY_SLOT = new Map<number, readonly WeaponId[]>();
 for (const slot of SLOT_ORDER) {
-  const all = WEAPON_ORDER.filter(id => WEAPONS[id].slot === slot);
+  const all = WEAPON_ORDER.filter(id => WEAPONS[id].slot === slot && (MELEE_FOUR_ON || WEAPONS[id].base !== 'sword'));
   BY_SLOT.set(slot, FAMILIES_ON ? all : all.slice(0, 1));
 }
 const NONE: readonly WeaponId[] = [];

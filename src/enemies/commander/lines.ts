@@ -969,6 +969,7 @@ export const FALSE_CHATTER: readonly Line[] = lines('chatter.');
 export const WEAPON_WORDS: Readonly<Record<string, string>> = {
   smg: 'SMG', shotgun: 'shotgun', rocket: 'rocket launcher', autocannon: 'autocannon', sword: 'sword', judge: 'Judge', lance: 'Lance', buzzsaw: 'Buzzsaw', kiln: 'Kiln', stakegun: 'Stakegun',
   harrow: 'Harrow', rivet: 'Rivet', sabot: 'Sabot',
+  knife: 'knife', crowbar: 'crowbar', shovel: 'shovel', baton: 'baton',
 };
 
 /** The word for a weapon. One with no entry yet is said by its name, so a new gun never reaches the box as a raw id. */

@@ -34,6 +34,8 @@ const GRENADE_FLOOR = 3;
 /** Extinction per metre on the range. The game's haze suits a city and hides a body at the far wall. */
 const RANGE_FOG = 0.0012;
 const _at = new THREE.Vector3();
+/** Meters from the eye to the front of each body the melee reach test stands. */
+const MELEE_LINE: readonly number[] = [1.5, 2.5, 3.5, 5, 8];
 
 const isField = (t: EventTarget | null): boolean => t instanceof HTMLElement && /^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName);
 
@@ -77,6 +79,7 @@ export class Lab {
       weapon: id => this.draw(id),
       gallery: () => this.gallery(),
       swarm: () => this.swarm(),
+      melee: backs => this.melee(backs),
       parkour: () => this.parkour(),
       move: (key, on) => this.moveSwitch(key, on),
     }, (ctx.enemies as unknown as { vehicles?: unknown }).vehicles != null);
@@ -127,6 +130,15 @@ export class Lab {
     const { weapons } = this.ctx;
     (weapons.owned as Set<WeaponId>).add(id);
     weapons.switchTo(id);
+  }
+
+  /**
+   * A reach test for key 5: the selected enemy at 1.5, 2.5, 3.5, 5 and 8 m from the eye to its front, a little to either
+   * side of the crosshair in turn, so a swing shows what it reaches and what it does not. `backs` turns them all away, for
+   * the Shiv. Draws nothing: hold whichever weapon is to be tried. Returns how many stood.
+   */
+  melee(backs = false): number {
+    return this.spawner.reachLine(this.settings.spawn, this.settings.ai, MELEE_LINE, backs);
   }
 
   /** The Quiver in hand and five of the selected enemy spread ahead to paint. Returns how many stood. */

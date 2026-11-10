@@ -4,7 +4,7 @@
  * The blade lies along -Z with the edge on -Y, and the origin is the middle of the hilt.
  *
  * Timings are the first game's (docs/original/04, section 8). The arcs are not: each move runs along the direction
- * Sword.ts cuts in, so what the blade does, the crescent it draws and the plane it slices on all agree.
+ * melee/Melee.ts cuts in, so what the blade does, the crescent it draws and the plane it slices on all agree.
  */
 import { Kit } from '../kit/kit';
 import { Model } from '../kit/model';

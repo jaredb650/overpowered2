@@ -124,6 +124,29 @@ export class LabSpawner {
     return placed;
   }
 
+  /**
+   * One of `id` at each distance in `fronts`, meters from the eye to the front of its body along the crosshair, every other
+   * one 0.35 m to the side so each shows past the last. `backs` turns them all to face away. Returns how many stood.
+   */
+  reachLine(id: EnemyId, ai: AiMode, fronts: readonly number[], backs: boolean): number {
+    const { player, world } = this.ctx;
+    _flat.set(player.forward.x, 0, player.forward.z).normalize();
+    _right.set(-_flat.z, 0, _flat.x);
+    const radius = ENEMIES[id].radius * 0.85;
+    let placed = 0;
+    for (let i = 0; i < fronts.length; i++) {
+      _p.copy(player.position).addScaledVector(_flat, fronts[i]! + radius).addScaledVector(_right, i % 2 === 0 ? 0.35 : -0.35);
+      const ground = world.nav.groundHeight(_p.x, _p.y + 3, _p.z);
+      if (Number.isNaN(ground)) continue;
+      _p.y = ground;
+      const e = this.place(id, _p, ai);
+      if (!e) continue;
+      if (backs) e.yaw += Math.PI;
+      placed++;
+    }
+    return placed;
+  }
+
   place(id: EnemyId, at: THREE.Vector3, ai: AiMode): Enemy | null {
     const e = this.enemies.spawn(id, at);
     if (!e) return null;

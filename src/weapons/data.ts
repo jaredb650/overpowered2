@@ -211,6 +211,40 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     sounds: [], reloadFoley: [], drawSound: 'weapon_draw_blade',
     recoil: 0, kick: 0, shake: 0.01,
   },
+  // Key 5's family. Swings, reach and what each does to a body are MELEE in melee/data.ts; these rows are what every weapon
+  // has. `force` is the blow's push in N·s, which is what src/enemies/reactions.ts staggers and floors a body by.
+  knife: {
+    ...BASE, id: 'knife', name: 'SHIV', slot: 5, base: 'sword', mode: 'melee',
+    magSize: 0, reserve: 0, maxReserve: 0, reloadTime: 0, drawTime: 0.08,
+    interval: 0.17, damage: 32, canSever: false, force: 25,
+    muzzle: 'smg', tracer: 'bullet',
+    sounds: [], reloadFoley: [], drawSound: 'weapon_draw_blade',
+    recoil: 0, kick: 0, shake: 0.006,
+  },
+  crowbar: {
+    ...BASE, id: 'crowbar', name: 'PRYBAR', slot: 5, base: 'sword', mode: 'melee',
+    magSize: 0, reserve: 0, maxReserve: 0, reloadTime: 0, drawTime: 0.2,
+    interval: 0.4, damage: 60, canSever: false, force: 110, headshotMult: 1.5,
+    muzzle: 'smg', tracer: 'bullet',
+    sounds: [], reloadFoley: [], drawSound: 'weapon_draw_heavy',
+    recoil: 0, kick: 0, shake: 0.018,
+  },
+  shovel: {
+    ...BASE, id: 'shovel', name: 'SPADE', slot: 5, base: 'sword', mode: 'melee',
+    magSize: 0, reserve: 0, maxReserve: 0, reloadTime: 0, drawTime: 0.3,
+    interval: 0.58, damage: 60, severMult: 1.2, canSever: true, force: 300, headshotMult: 1.5,
+    muzzle: 'smg', tracer: 'bullet',
+    sounds: [], reloadFoley: [], drawSound: 'weapon_draw_heavy',
+    recoil: 0, kick: 0, shake: 0.03,
+  },
+  baton: {
+    ...BASE, id: 'baton', name: 'COSH', slot: 5, base: 'sword', mode: 'melee',
+    magSize: 0, reserve: 0, maxReserve: 0, reloadTime: 0, drawTime: 0.12,
+    interval: 0.23, damage: 10, canSever: false, force: 95, headshotMult: 1.5,
+    muzzle: 'smg', tracer: 'bullet',
+    sounds: [], reloadFoley: [], drawSound: 'weapon_draw',
+    recoil: 0, kick: 0, shake: 0.008,
+  },
   judge: {
     ...BASE, id: 'judge', name: 'JUDGE', slot: 6, mode: 'semi',
     magSize: 6, reserve: 30, maxReserve: 60, reloadTime: 1.5, drawTime: 0.22,

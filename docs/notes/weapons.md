@@ -6,7 +6,7 @@
 |---|---|
 | `data.ts` | Every number. `WEAPONS`, `TUNING`, `SWORD`, `EXPLOSIONS`, `HIT_STOP`. Tune here; the code reads this and nothing else |
 | `Weapons.ts` | Input to shots: fire modes, reload, scope, grenades, ammo fallbacks. All on `time.playerDt` |
-| `Sword.ts` | The chain, wind-up, sweep, finisher, guard, lunge, slices |
+| `melee/` | Key 5, the katana and the four beside it. `Melee.ts` swings all of them (chain, step, the katana's dash, wind-up, sweep, finisher, guard, slices); `sweep.ts` is what a swing touches, pure geometry; `data.ts` is `MELEE`, every swing and reach |
 | `Combat.ts` | Hit resolution: rays, `strike` (the one door to `enemies.applyDamage`), blasts, the blast queue |
 | `Projectiles.ts`, `ProjectileVisuals.ts` | Swept projectiles, 256 pool, oldest out. One InstancedMesh per shape |
 | `Flames.ts` | The invisible bodies inside the fire you see. 160 pool |
@@ -57,6 +57,7 @@ All additive, in `src/core/gameplay.ts`.
 - `MuzzleKind` and `TracerKind` gain `carbine`, `pistol` and `sabot`, with rows in `src/fx/recipes/muzzle.ts`.
 - `DamageInfo.reach` and `blastKind`, a blast's splash, which is what `src/enemies/blast.ts` rolls on. `DamageInfo.pierces`, a shaped charge's direct hit or an armour-piercing round on a plated body. `DamageInfo.armorPiercing`, an armour-piercing round on any body: `shieldStops` in `src/enemies/damage.ts` reads it and lets the round through a Riot's shield.
 - **Quiver stream.** `MissileTarget` (anything a missile can be painted on: an enemy as it stands, a `Vehicle` through its new `aimLift` and `paintRadius` getters) and `PaintView` (what the HUD draws). `WeaponSystem.paint?`. `ProjectileSpec` gains `target`, `turnRate`, `steerDelay`, `weave`, `accel`, `topSpeed`, `size`; `ProjectileTrail` gains `swarm`; `MuzzleKind` gains `quiver`. `ViewmodelRig.muzzle(out, left, barrel?)` picks a barrel by socket `muzzle1`..`muzzle3`. `VehicleTargets.paintable?(out)` lists live vehicles and the chopper. In `data.ts`: `FireMode` gains `paint`, `WeaponDef` gains `climb`.
+- **Melee stream.** `WeaponId` gains `knife`, `crowbar`, `shovel`, `baton`, after `sword`. `SwordMove` gains `heavy`, the right click of a melee weapon with no guard. Nothing else in the contract changed.
 - `DecalKind` gains `exit`, the spall crater on the far side of a wall. It took the second bullet-hole cell of the atlas, so `bullet` has one variant now (`src/render/Decals.ts`, `materials/decalAtlas.glsl.ts`).
 
 One change outside this system: `Player.rideGround` in `src/player/Player.ts` adds `world.objects.platformVelocity` to position while grounded, swept so a wall stops it. Added to position rather than velocity, so the deck's speed never reads as the player's own. `docs/notes/player.md` and `world.md` still say moving geometry does not carry the player; their owners should drop that line. `Weapons.ts` also imports the plain `MOVE` table from `src/player/tuning.ts`.
@@ -81,6 +82,7 @@ One change outside this system: `Player.rideGround` in `src/player/Player.ts` ad
 | 2 | Shotgun | **Thresher**, drum shotgun | Full auto, 5 shells a second, 20 in the drum. 4 pellets of 20 to the pump's 6, so the pump stays the hard single hit; its damage a second is about the pump's held, spread over a burst. Real climb (`climb`), a 2.7 s drum reload. Takes limbs like the pump (`severMult` 2.4, the point-blank rule) |
 | 3 | Rocket | **Quiver**, four-tube box launcher | Hold to paint up to four marks, let go and four guided missiles leave a tube apart. See "The Quiver" |
 | 4 | **Sabot**, the cannon loaded with darts | Autocannon, the explosive belt: the upgrade | The Sabot is first on the key and comes from the start: hitscan, 600 damage, no blast, through plates and through a Riot's shield, budget 5 m, bodies at 0.12 m each. The autocannon has no `base`: a weapon cache brings it, the second one, after wave 4 (`CACHE_ORDER`), and its feed line says "PRESS 4 AGAIN" |
+| 5 | Sword | **Shiv** (`knife`), **Prybar** (`crowbar`), **Spade** (`shovel`), **Cosh** (`baton`) | Four swung weapons, all owned with the sword, in that order on the key. See "Key 5" |
 | 6 | Judge | **Rivet**, pistol | 30 damage as fast as the trigger (9.5 a second), 15 rounds, out in 0.1 s. Headshots times 3. Half damage past 55 m, and no limbs. The Judge is six slow verdicts, this is the gun that is already up |
 
 **Adding a family member.** What it takes, in full:
@@ -94,9 +96,9 @@ A member with no `base` is earned on its own (the autocannon): it needs its own 
 
 Nothing else is needed. The dry-gun list takes a member after its base, `gore/wounds.ts` gives a gun with no `BITES` row the SMG's wound, the Commander says a gun with no entry in `WEAPON_WORDS` by its name, and the lab's "Draw a weapon" buttons and the guide's weapon page are built from the table.
 
-The row decides how it fires. `mode` picks the trigger code: `auto`, `semi`, `charge` (the Lance's, with `TUNING.lance`), `spin` (the Buzzsaw's, with `TUNING.buzzsaw`, slowdown included), `stream`, `melee` (the `Sword` class). `round` picks what leaves the barrel when it is not a hitscan round: `rocket`, `shell`, `stake`. More than one pellet makes it a scatter gun, with the point-blank rule and the pellet perks. `headHops`, `scope`, `penetration`, `bodyCost`, `armorPiercing`, `falloff` and `canSever` are fields too. So a second gun on key 7 or 8 is a row with `mode: 'charge'` or `'spin'` and its own damage, rate, budget and tracer. It shares the spin-up or charge numbers and sounds of the first, which live in `TUNING`, not in the row: a member that needs its own will have to move those into the row. A second blade on key 5 swings with `SWORD`'s numbers for the same reason.
+The row decides how it fires. `mode` picks the trigger code: `auto`, `semi`, `charge` (the Lance's, with `TUNING.lance`), `spin` (the Buzzsaw's, with `TUNING.buzzsaw`, slowdown included), `stream`, `melee` (`melee/Melee.ts`, reading the weapon's row in `MELEE`). `round` picks what leaves the barrel when it is not a hitscan round: `rocket`, `shell`, `stake`. More than one pellet makes it a scatter gun, with the point-blank rule and the pellet perks. `headHops`, `scope`, `penetration`, `bodyCost`, `armorPiercing`, `falloff` and `canSever` are fields too. So a second gun on key 7 or 8 is a row with `mode: 'charge'` or `'spin'` and its own damage, rate, budget and tracer. It shares the spin-up or charge numbers and sounds of the first, which live in `TUNING`, not in the row: a member that needs its own will have to move those into the row. A melee member is not like that: its swings, reach and what it does to a body are its own row in `MELEE` (`melee/data.ts`); only the katana has the guard, the charged sweep and the finisher, which stay `SWORD`'s.
 
-Weapon ids still written in `Weapons.ts`, each for a reason: `smg` for akimbo, because the left gun is an SMG viewmodel; `sword` as the end of the dry-gun list and as what a quick melee draws; and the hand a run starts with.
+Weapon ids still written in `Weapons.ts`, each for a reason: `smg` for akimbo, because the left gun is an SMG viewmodel; `sword` as the end of the dry-gun list; and the hand a run starts with. A quick melee swings whatever key 5 would draw (`slotMember(5)`), so with the Shiv last held there the melee key is a knife.
 
 **The Quiver.** `mode: 'paint'` in its row; the rules are `swarm.ts` and the numbers `TUNING.quiver`.
 
@@ -167,7 +169,40 @@ Pixels from the gun at 1280x720, median / max, from `RL_GROUP=view`. Old is the 
 
 **Buzzsaw slowdown** is written to velocity, because progression rewrites `modifiers.speed` every frame, after weapons run. The player re-accelerates at 120 Hz between our once-a-frame clamps, so the clamp sits half a frame's regain below the target. It reads `MOVE.runSpeed` and `MOVE.groundAccel` directly, because a copy of those went stale when DESIGN section 13 retuned the ground.
 
-**Lunge.** A dash at 30 m/s for 0.16 s toward the target, renewed every frame and homing on it. A single shove is worth about a meter once ground friction has had it (`15^2 / (2 * stopDecel)`).
+**Key 5.** One class, `melee/Melee.ts`, swings all five weapons; `equip(id)` picks the row of `MELEE` it reads. `?melee=old` (`MELEE_FOUR_ON` in `families.ts`) leaves the katana alone on the key. What a swing touches is `melee/sweep.ts`:
+
+- *The slab.* A swing's plane holds the eye, the crosshair's line and the direction the blade crosses the screen (`sweep`), so every swing passes through what the crosshair is on. Inside the plane the blade covers `arc` radians centred on the crosshair, out to `reach` meters; out of the plane it is `width` thick either side. A thrust is a cone of `arc` along the crosshair. A body is an upright capsule (its feet, its height, its row's `radius` times 0.85), and `reach` is measured from the eye to the body's surface. Where it is struck is the point of its axis nearest the plane, and of those the nearest the crosshair, so a cut lands where the player aims; a ray from the eye at that point finds the bone and region. A body whose surface is within `pointBlank` (about 0.5 m) and not behind the eye is struck by any swing.
+- *Reaching down.* A body wholly under the slab (a Skitter at the feet, a man on the floor) is met by the same swing aimed lower, at the top of the body, by no more than `REACH_DOWN` (0.8 rad). Its reach does not grow, nothing behind or above is reached by it, and a swing at a standing man is the same with it or without it. Without it every flat swing of the five passed over a Skitter at a walking look. A body that is `downed` is `DOWNED_HEIGHT` (0.6 m) tall to a swing, not its standing height.
+- *Cover.* A world ray from the eye to the near side of the body. Anything behind a wall is safe, however close.
+- *The step.* A body past a swing's reach but inside reach plus `step` (0.6 to 0.8 m) pulls the player in at `stepSpeed`, arriving 0.3 m inside reach as the step's time runs out; the swing stays live for its whole length while it does. Held through a chain, each swing steps again: the katana held 1 s walked 1.9 m and cut three bodies at 1.5, 2.5 and 3.5 m. Nothing is pulled from further.
+- *Impact.* `impact` is the share of a swing before its blow lands, for the wind-up of a slow one (the Prybar's overhead at 0.38, the Spade's edge at 0.4). Unset is the frame of the click, as the katana's always are. The model winds up over the same share.
+- *The katana's reach.* Each swing reaches 2.0, 2.1 and 2.2 m, and with its 0.8 m step 2.8 to 3.0 m to the front of a body. Its arcs are 115 to 143 degrees, its slab 0.5 m either side. Before this it was a 120 degree cone 5 m from the eye with anything within 1.7 m struck, behind included, and a lunge from 10 m on every swing: it cut at about 10 m standing still. `?blade=old` puts all of that back.
+- *The katana's dash* (`KATANA.dash`), its own move: a swing while moving at 7 m/s or more along the crosshair (a run is 12.5) toward a body within 7 m and 22 degrees of it pulls at 30 m/s for up to 0.15 s, with a 5 degree FOV punch and `blade_dash`, and the swing stays live until it arrives. Standing still it never fires. Measured live: peak 30 m/s, the trooper cut on arrival; the same swing standing at 6.5 m moved the player 1 cm and touched nobody.
+- *The charged sweep* (`SWORD.area`) is flat, 160 degrees, and reaches `KATANA.area.reach`, 3.2 m, 2.24 m on a tap; it was 8 m. The finisher is unchanged: a blast of radius 8, 3 m ahead.
+
+| | Shiv (`knife`) | Prybar (`crowbar`) | Spade (`shovel`) | Cosh (`baton`) |
+|---|---|---|---|---|
+| Damage, type | 32, a cut | 60, a blow | 60 a blow with the face; 96 a cut with the edge | 10, a blow |
+| Swings | 2, 0.17 s and 0.18 s | 2, 0.4 s and 0.44 s | 2 flat, 0.58 s and 0.62 s | 3, 0.23, 0.23, 0.3 s |
+| Right click | thrust, 2.4 times | overhead, 1.75 times, waits 0.24 s | the edge, overhead, waits 0.29 s | a jab |
+| Reach, step | 1.6 m, 0.6 | 1.9 m, 0.7 | 2.3 m, 0.7, and 150 degrees wide | 1.8 m, 0.6 |
+| Push (`force`) | 25 | 110, 190 overhead | 300 | 95, 120 on the third, 150 the jab |
+| Draw | 0.08 s | 0.2 s | 0.3 s | 0.12 s |
+| Its point | 3 times on a back turned (`bonus.behind`, cos 0.3) or anyone reeling, falling, down or getting up | breaks the limb it lands on; through plate for 1.5 times | the face throws what it kills; the edge takes a head at the neck | knocks people down and barely hurts them |
+
+How each gets there, all through the data a hit carries and the systems that already read it; nothing in `src/gore` or the ragdoll, reaction and wound code changed:
+
+- *Where a flat club swing lands.* A ray at the middle of a Trooper at a walking look (pitch -0.12) meets his neck, which is the head region: a Prybar or Spade blow there killed him (60 times `headshotMult` 1.5) and burst his head. So a club's flat swing (`type: 'melee'`, not a thrust) casts its ray at the side the blow comes from, 0.55 then 0.3 of the body's radius out (`SIDE_BLOW`), and at the middle only if both pass the body. Live, the same blows now land on the arm on that side. A deliberate blow at the head is still a head blow.
+- *Blows are `type: 'melee'`* with `severMult` 0, so no limb pool is worn and nothing is cut. Butcher (`alwaysSever`) does not change that: a blade under Butcher takes everything, a club still takes nothing. `gore/wounds.ts` already strains the struck bone by a melee hit's full damage, and `WoundTuning.breakAt` is 60 for a man-sized limb: one Prybar blow on an arm or leg breaks it, and a broken arm or leg is what `DamageModel.updateMaim` reads. Measured live: a Prybar blow on a Trooper's arm took 37 and broke it.
+- *Staggers and knockdowns* are `src/enemies/reactions.ts` reading the push: a blow's `force` over the body's mass plus its share of health. A Cosh blow to the head floors a body whatever its health (`HEAD_KNOCK_FORCE`, 15 N·s). Measured live on a Trooper, one Cosh blow a third of a second: 55, 45, 32, 22, 12, dead, down from the first blow to the last. A head counts as a head for clubs and the Spade (`heads`); for the katana and the Shiv a head is the chest, as a sword cut always was.
+- *The Shiv's bonus* reads the real enemy's `stagger`, `downed`, `rising` and `fallIn`, and its `yaw`, through a structural cast; nothing on `EnemyInstance` changed. Live: one cut on a Gunner's front, 32; on its back, dead.
+- *The Prybar on plate* is the shaped charge's rule (`StrikeOptions.charge`): on a body with a plate left the blow is 1.5 times and goes through the plates. A Riot's shield still stops it. Live: a Brute took 98 from the overhead and had its arm broken.
+- *The Spade's face* throws a body it kills with `Physics.radialImpulse` from 0.8 m behind the body along the swing, radius 1.8, strength 120 (`fling`), which is how a blast throws one, and gore's own listener carries the ragdoll. A single impulse on one bone is capped at 6 m/s (`RagTuning.maxImpulseSpeed`), which would barely move a body. Live: a Trooper killed by the face lay 2.7 to 2.9 m from where it stood (three runs), against 1.0 to 1.2 with the bone impulse alone and 1.8 to 2.3 for the shotgun at 2 m. It also throws any corpse or knocked-down body within that 1.8 m.
+- *The Spade's edge* is a cut (`type: 'slash'`, `severMult` 1.2). On a kill where it struck the head, it sets `slicePlaneNormal` across the neck, from the neck bone toward the head, so `gore.slice` takes the head off there, whichever way the swing went (`beheads`). Live: every edge test reported the kill as sliced at the head.
+- *A club kills and leaves the head on.* The one hook outside the weapons: in `DamageModel.lethal` (`src/enemies/damage.ts`), a head kill typed `'melee'` ragdolls the body limp, as a light round's head kill on an outpost body does, instead of going to `gore.headshot`, which bursts a head at 40 damage or more. Only key 5's blows strike an enemy typed `'melee'` (enemies hit the player with it, never each other), so no other weapon's kill changes. The Spade's edge still takes a head, with its slice plane, which is tested before this.
+- *Kills on key 5 feed the last gun*, count for the Commander's melee habit and for Adrenaline (`progression/index.ts`), as sword kills did.
+
+**Lunge** (`?blade=old` only). A dash at 30 m/s for 0.16 s toward the target, renewed every frame and homing on it. A single shove is worth about a meter once ground friction has had it (`15^2 / (2 * stopDecel)`).
 
 **Slices cost about 5 ms each.** A sweep slices 3 kills per frame and the rest ragdoll. A full Lance shot splits the first 3.
 
@@ -190,7 +225,8 @@ Measured over 80 s of the real game, with the bot holding the trigger on the SMG
 | The exit crater | `EXIT_CRATER` and `EXIT_FLASH_SCALE` in `Combat.ts`. Its look: `exitHole` in `src/render/materials/decalAtlas.glsl.ts` |
 | Ammo pressure | `reserve`, `maxReserve` per weapon, `TUNING.ammo` |
 | Rocket jump | `TUNING.rocket.playerPush`, `selfDamage`. `EXPLOSIONS.rocket.selfCap` |
-| Sword | `SWORD.chain[]`, `.area`, `.finisher`, `.lunge`, `.windup` |
+| Key 5's swings and reach | `MELEE[id]` in `melee/data.ts`: `chain`, `heavy`, each swing's `reach`, `arc`, `width`, `impact`, `force`, `sever`, `fling`; `step`, `pointBlank`, `bonus`, `armour` per weapon. Damage, push and draw in the `WEAPONS` row |
+| The katana's specials | `KATANA.dash`, `KATANA.area` in `melee/data.ts`; `SWORD.windup`, `.area` (damage, timing), `.finisher`. Its swings' timing and damage are still `SWORD.chain`. `?blade=old` is the reach before this |
 | Blast feel | `EXPLOSIONS[kind]`: `shake`, `shakeRange`, `edgeDamage`, `impulse`, `selfCap` |
 | What a blast does to a body | `BLAST` and `OUTCOMES` in `src/enemies/blast.ts` |
 | Armour against rockets and shells | `SHAPED_CHARGE` |
@@ -203,10 +239,15 @@ Measured over 80 s of the real game, with the bot holding the trigger on the SMG
 nice npx vitest run src/weapons/families.test.ts --testTimeout=60000      # 16: the table, the keys, the wheel, ownership, per-member ammo, the dry-gun order
 nice npx vitest run src/weapons/swarm.test.ts --testTimeout=60000        # 26: painting, stacking, release, turn, retarget, weave, the fuse, the Quiver and Thresher on the range
 nice npx vitest run src/weapons/penetration.test.ts --testTimeout=60000   # 48: budget, the per-wall rule, wall probe, hitscan, bursts, every gun, the Lance, projectiles at 30/60/144
+nice npx vitest run src/weapons/melee/sweep.test.ts --testTimeout=60000   # 24: reach, arc, slab, thrust, point blank, nothing behind, every swing of key 5 held to its reach, reaching down
+nice npx vitest run src/weapons/melee/melee.test.ts --testTimeout=60000   # 18: the katana's reach, step, wall, dash and sweep on real Rapier; the four's damage, type, bonus (back, reeling, down), plate, chain, key 5, a Skitter at the feet, Butcher
 
 node tools/shot.mjs --url "/?map=range" --script tools/scripts/families-live.mjs --wait 500 --timeout 280 \
   --dpr 2 --w 1440 --h 900 --out tools/out/fam/live.png      # real keys and real enemies on the range's piercing gallery.
                                                              # FAM_ONLY=keys,gallery,holes,tracer,shield,hellfire,lance,reach,exits,cost
+node tools/shot.mjs --url "/?map=range" --script tools/scripts/melee-live.mjs --wait 500 --timeout 300 \
+  --dpr 2 --w 1440 --h 900 --out tools/out/melee/live.png   # key 5 on a line at 1.5 to 8 m, the dash, the bonus, a break, the fling, the edge
+                                                             # MELEE_ONLY=keys,reach,four,back,baton,crowbar,fling,edge,dash
 node tools/shot.mjs --url "/?map=range" --script tools/scripts/swarm-live.mjs --wait 500 --timeout 300 \
   --dpr 2 --w 1440 --h 900 --out tools/out/swarm/live.png    # keys, a five-man arc painted and killed, a Juggernaut, a tank, a tap, the Thresher
                                                              # SWARM_ONLY=keys,paint,stack,heavy,tank,tap,thresher
@@ -225,6 +266,21 @@ RL_GROUP=guns node tools/shot.mjs --url "/?sandbox=range&live=1&load=husk,troope
 `range-live.mjs` is the real game with waves off: real map, real enemies, real gore. Groups are `guns`, `heavy`, `sword`, `perks`, `view`, `world`. `RL_ONLY=a,b` reruns named steps. Kills in these runs trigger real perks, so a later step can be running under Blood Thirst.
 
 ## Verified
+
+**Key 5, after review** (`tools/out/melee-fix-live.mjs`, Test Range, AI off, no console errors). A Trooper 1.9 m out at a walking look: the Prybar's first swing hit his left arm, 60, arm broken, 24 left; the Spade's face the same arm, broken, on the floor; the Cosh the arm for 10. Aimed at the head (pitch 0.02) the Prybar and Spade kill with the head on (`headOff` false), as does a Prybar kill at 30 health. A Skitter 1.2 m out at a walking look: one swing of each of the five struck and killed it (it had been 0 for the four and only the katana's first swing). The Cosh floored a Trooper in four blows and threw it 3.7 m; walked up to 1.3 m, one Shiv cut at a walking look took 96 (three times) and killed it. The Spade's edge at the head: sliced at the head, two of two. `sweep.test.ts` 24 of 24, `melee.test.ts` 18 of 18, `/?sandbox=range&only=sword` 68 of 68, `&only=melee` 38 of 38.
+
+**Key 5** (melee stream). `sweep.test.ts` 16 of 16, `melee.test.ts` 15 of 15, `families.test.ts` 18 of 18. `/?sandbox=range` 315 of 315, its sword and melee groups at 30, 60 and 144 fps; `&only=sword&blade=old` 59 of 59 on the old reach. `melee-live.mjs` on the Test Range, real keys and mouse, Troopers with AI off at 1.5, 2.5, 3.5, 5 and 8 m to their fronts, no console errors:
+
+| Thing | Result |
+|---|---|
+| Keys | `5` five times from the sword: Shiv, Prybar, Spade, Cosh, Sword. The HUD strip reads `5 SWORD SHIV PRYBAR SPADE COSH` |
+| Katana held 1 s, standing | 1.5, 2.5 and 3.5 m sliced, 5 and 8 m untouched; the player stepped 1.9 m over three swings |
+| The four, each held 1.2 s | Shiv and Prybar killed the first three, 5 and 8 m untouched. Spade: one dead, two at 31 and 28 with a bone broken each. Cosh: one dead, two on the floor |
+| Dash | Running in from 9.4 m and swinging at 6.9: 30 m/s, cut on arrival. Standing at 6.5: no pull, nothing struck |
+| Shiv | One cut, a Gunner's front: 90 to 58. Its back: dead |
+| Prybar | A Trooper's arm: 37 and broken. A Brute, overhead: 98, arm broken, through its plate |
+| Spade | Face kill: hips 2.94, 2.74, 2.94 m from where it stood. Edge at head height: sliced at the head, three of three |
+| Cosh | A Trooper, a blow every 0.38 s: 55, 45, 32, 22, 12, dead, on the floor from the first |
 
 In the real game against real enemies, with `range-live.mjs`, zero console errors in every run. `/?sandbox=range` passes 202 of 202. Its SMG checks read the rate from the table now: they had been failing since the SMG went to 10 a second. Its dry-gun group checks the hand-over twice: to the Harrow, and with the Harrow dry too, to the shotgun, which is the semi-auto the re-armed press exists for.
 
@@ -290,6 +346,14 @@ Families and penetration, with `families-live.mjs` on the Test Range, real keys 
 
 ## Known limitations
 
+- **Nobody has played key 5's new reach or the four new weapons.** Every number is a first guess and every result is a test, a script or a still. The katana's reach, its step and the dash's speed and trigger, and each new weapon's timing, push and damage are the feel questions. Held, the katana steps again on every swing, so a held chain walks forward through a line; whether that reads as pressing an attack or as being dragged is unjudged.
+- **The four new models were checked as stills** on the viewmodel sandbox's stepped clock (rest, draw, six frames of each swing), not in motion. The Shiv's backhand ends with the blade behind the fist, and the Prybar's and Spade's overheads bring the hand large into the top of the view while they wind up. Triangle counts were not measured.
+- **The Spade's edge taking a head** is confirmed by the kill event (sliced, at the head) in five of five live tries, not by a still that shows the head off; `char.severed` does not list the head after a slice, and the reviewer's still showed a body standing with a bleeding neck stump.
+- **The Cosh throws a floored body about 3.7 m**, past the Shiv's 2.2 m. The Shiv's bonus on a downed body is paid (96, live) only after walking up to it.
+- **The side a flat club swing lands on** was measured on Troopers holding rifles. On a body with its arms elsewhere the side rays can pass it and the middle ray is used, which at a walking look is the neck.
+- **The fling throws everything within 1.8 m** of a point just behind the body: another corpse, a downed body, debris.
+- **Melee kills do not slice on a cut from the Shiv** and a knife never takes a limb (`canSever: false`). That is a choice, not a limit of the system.
+
 - **Nobody has played the Quiver or the Thresher, or the new key 4.** Every number is a first guess and every result above is a test, a script or a still. The Quiver's mark rate, cone, turn rate and weave, the Thresher's climb and its damage a second against the pump's are the feel questions.
 - **The Quiver's cone is 9 degrees either side of the crosshair.** Targets wider apart than that need the crosshair swept across them while held. The lab's "Quiver" button stands its five inside it.
 - **Spares on a man who dies early are mostly wasted.** Four on one Trooper: the first kills him, and the rest retarget if someone is ahead of them in reach, or fly on. That is the rule as written; whether it reads well is unjudged.
@@ -300,7 +364,7 @@ Families and penetration, with `families-live.mjs` on the Test Range, real keys 
 - **The SMG changed to give the Harrow its reach.** It was full damage at any range and now fades from 35 m to half at 80. The numbers are a guess nobody has played. `?reach=0` puts it back, and takes the Rivet's falloff with it.
 - **The exit crater is the same pale grey on every wall.** It reads as broken concrete on concrete and as bare metal on steel, but it does not take the wall's own colour. Glass, grates, energy and lava get no crater. It was looked at on the range's panel wall only.
 - **The Sabot's own shot was checked as stills.** Seven frames each of it and the autocannon, with nothing broken in them. Whether the longer stroke reads in motion is unjudged. Its reload and draw are the autocannon's.
-- **A second spin, charge or melee member shares the first one's `TUNING`.** Spin-up, charge time, the sword's chain and their sounds are not in the row. See "Adding a family member".
+- **A second spin or charge member shares the first one's `TUNING`.** Spin-up, charge time and their sounds are not in the row. A melee member has its own swings in `MELEE`. See "Adding a family member".
 - **The Commander has words for the three new guns and no recordings.** His line about a favourite weapon prints and is silent for them.
 - **A trimesh is a skin to the probe.** A round is charged one step, 0.15 m, for each face. Walls are boxes; the ring decks are the trimeshes.
 - **Two walls closer than 0.15 m count as one.**

@@ -33,7 +33,8 @@ import { Sentinels } from './sentinels';
 
 const COMBO_PITCH_STEP = 0.015;
 const COMBO_BREAK_MIN = 5;
-const SWORD = /sword/;
+/** Every kill by hand on key 5: the sword's moves and the four beside it. */
+const SWORD = /^(sword|knife|crowbar|shovel|baton)/;
 /** Damage that counts as the player taking a limb off by hand, for Butcher. */
 const BY_HAND: ReadonlySet<DamageInfo['type']> = new Set(['bullet', 'pellet', 'melee', 'slash']);
 const MAX_SEVER_MEMORY = 64;

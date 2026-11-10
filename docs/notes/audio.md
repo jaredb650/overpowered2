@@ -67,6 +67,16 @@ One call, all layers start on the same audio frame.
 | `perk_berserk` | `perk_berserk1` + `perk_berserk2` + `perk_berserk3` all at once, 0.4 / 0.6 / 0.4 as in the first game |
 | `thresher_fire` | `shotgun_fire` at pitch 0.86, cut at 420 ms, volume 0.9 + `thresher_punch`. The drum shotgun: the pump's voice, lower and short enough for five a second |
 | `quiver_fire` | `rocket_fire` at pitch 1.3, cut at 450 ms, volume 0.7 + `quiver_tube`. One tube of the four-barrel launcher |
+| `blade_dash` | `sword_sweep` at pitch 1.35, cut at 300 ms. The katana's dash out of a run |
+| `knife_swing` | `sword_swing` at pitch 1.5, cut at 160 ms, volume 0.55. The Shiv's cut and thrust, played lower for the thrust |
+| `club_swing` | `sword_swing` at pitch 0.7, cut at 300 ms. The Prybar and the Cosh, the Cosh played at 1.1 to 1.3 |
+| `spade_swing` | `sword_sweep` at pitch 0.62, cut at 500 ms. The Spade, face and edge |
+| `knife_flesh` | `sword_flesh` at pitch 1.4, cut at 280 ms + `hit_punch` at 1.3, half volume |
+| `club_hit` | `hit_punch` at 0.82 + `impact_metal` at 0.62, cut at 180 ms, a third volume. The bar on a body |
+| `club_plate` | `metal_clang` at 0.9, cut at 300 ms + `hit_punch` at 0.7. The bar on armour |
+| `spade_flat` | `hit_punch` at 0.66 + `metal_clang` at 0.72, cut at 420 ms. The face of the spade on anything |
+| `spade_wall` | `metal_clang` at 0.8, cut at 500 ms + `impact_concrete` at 0.8 |
+| `baton_hit` | `hit_punch` at 1.12 + `wet_slap` at 0.85, a third volume |
 
 `ctx.audio.layer([{ id, volume, pitch, offset, delay, duration }, ...], options)` builds your own stack.
 

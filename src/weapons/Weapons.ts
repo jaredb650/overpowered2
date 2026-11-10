@@ -17,7 +17,8 @@ import { HIT_STOP, STARTING_WEAPONS, SWORD, TUNING, WEAPONS, WEAPON_ORDER, type 
 import { familyOfSlot, membersOf, pressSlot, wheelSlot } from './families';
 import { PIERCE_ON } from './penetration';
 import { Painter, angleOff, type PaintCandidate } from './swarm';
-import { Sword } from './Sword';
+import { isMelee } from './melee/data';
+import { Melee } from './melee/Melee';
 
 interface Slot {
   def: WeaponDef;
@@ -50,7 +51,8 @@ export class Weapons implements WeaponSystem, Guard {
   };
 
   private readonly slots: Record<WeaponId, Slot>;
-  private readonly sword: Sword;
+  /** Every weapon on key 5, the katana and its family: src/weapons/melee. */
+  private readonly sword: Melee;
   private lastWeapon: WeaponId = 'shotgun';
   /** The gun a sword kill feeds: whatever was in hand before the blade came out. */
   private lastGun: WeaponId = 'smg';
@@ -132,7 +134,7 @@ export class Weapons implements WeaponSystem, Guard {
       };
     }
     this.slots = slots;
-    this.sword = new Sword(ctx, this.combat, this.modifiers);
+    this.sword = new Melee(ctx, this.combat, this.modifiers);
     for (const id of STARTING_WEAPONS) this.own(id);
   }
 
@@ -181,7 +183,7 @@ export class Weapons implements WeaponSystem, Guard {
       }
     });
     events.on('enemy:killed', e => {
-      if (e.damage.source.startsWith('sword')) this.feedGun();
+      if (e.damage.source.startsWith('sword') || isMelee(e.damage.source)) this.feedGun();
     });
     events.on('wave:clear', () => this.liftReserves());
     this.ctx.viewmodel.equip?.(this.current, 0.01);
@@ -415,6 +417,8 @@ export class Weapons implements WeaponSystem, Guard {
     }
 
     if (this.bladeOut) {
+      // A loadout or a reset can put a blade in hand without a draw: the swings are always the ones of the weapon held.
+      this.sword.equip(this.current);
       this.sword.update(dt);
       return;
     }
@@ -493,6 +497,7 @@ export class Weapons implements WeaponSystem, Guard {
   private beginDraw(id: WeaponId): void {
     const def = WEAPONS[id];
     this.drawLeft = def.drawTime;
+    if (def.mode === 'melee') this.sword.equip(id);
     this.ctx.viewmodel.equip(id, def.drawTime);
     this.ctx.audio.play(def.drawSound);
   }
@@ -1354,8 +1359,10 @@ export class Weapons implements WeaponSystem, Guard {
     this.chargeLevel = 0;
     this.chargeFull = false;
     viewmodel.setCharge(0);
-    viewmodel.equip('sword', 0.02);
-    this.sword.quickStrike();
+    // The melee key swings whatever key 5 would draw: the knife, if that is the one last held there.
+    const blade = this.slotMember(WEAPONS.sword.slot);
+    viewmodel.equip(blade, 0.02);
+    this.sword.quickStrike(blade);
   }
 
   private afterQuick(): void {

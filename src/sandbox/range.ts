@@ -22,6 +22,7 @@ import { MOVE } from '../player/tuning';
 import type { Combat } from '../weapons/Combat';
 import { createCombat, createWeapons, SWORD, TUNING, WEAPONS } from '../weapons';
 import { SHAPED_CHARGE } from '../weapons/data';
+import { BLADE_OLD, KATANA, MELEE } from '../weapons/melee/data';
 import type { Weapons } from '../weapons/Weapons';
 import { makeCtx, runLoop } from './harness';
 
@@ -842,7 +843,8 @@ const tests: Record<string, (r: Rig) => void> = {
   },
   'sword: chain damage, escalation, instant hit'(r) {
     clean(r, 'sword');
-    const d = r.enemies.add(0, -3);
+    // 1.85 m to the front of the body: inside every swing's reach, old and new.
+    const d = r.enemies.add(0, -2.2);
     r.player.eye.y = 1;
     r.input.simulate('fire', true);
     r.ctx.time.tick(1 / 60);
@@ -867,6 +869,32 @@ const tests: Record<string, (r: Rig) => void> = {
   },
   'sword: cone and line of sight'(r) {
     clean(r, 'sword');
+    // The 0.6 m wall's near face is at z -8. Standing 1.2 m from it, the body behind it is well inside reach.
+    r.player.place(-30, -6.8);
+    r.player.eye.y = 1;
+    const shielded = r.enemies.add(-30, -8.95);
+    r.player.place(-24, -5);
+    r.player.eye.y = 1;
+    const inside = r.enemies.add(-24, -6.9);
+    const behind = r.enemies.add(-24, -4);
+    r.input.simulate('fire', true);
+    run(r, 0.1, 60);
+    r.input.simulate('fire', false);
+    check('hits in front', inside.hits.length === 1, inside.hits.length);
+    // The old rule struck anything within 1.7 m, behind the eye included.
+    check('behind is safe', BLADE_OLD || behind.hits.length === 0, behind.hits.length);
+    clean(r, 'sword');
+    r.player.place(-30, -6.8);
+    r.player.eye.y = 1;
+    const walled = r.enemies.add(-30, -8.95);
+    r.input.simulate('fire', true);
+    run(r, 0.1, 60);
+    r.input.simulate('fire', false);
+    check('wall blocks it', walled.hits.length === 0 && shielded.hits.length === 0, walled.hits.length);
+  },
+  'sword (blade=old): cone and line of sight'(r) {
+    if (!BLADE_OLD) return check('runs with ?blade=old only', true);
+    clean(r, 'sword');
     r.player.place(-30, -5);
     r.player.eye.y = 1;
     const shielded = r.enemies.add(-30, -9.5);
@@ -887,14 +915,87 @@ const tests: Record<string, (r: Rig) => void> = {
     run(r, 0.016, 60);
     r.input.simulate('fire', false);
     check('out of reach on the click', d.hits.length === 0, d.hits.length);
-    r.player.place(0, -1.5);
+    r.player.place(0, BLADE_OLD ? -1.5 : -4.3);
     r.player.eye.y = 1;
     run(r, 0.05, 60);
     check('cut on arrival', d.hits.length === 1, d.hits.length);
     run(r, 0.5, 60);
     check('only once per swing', d.hits.length === 1, d.hits.length);
   },
-  'sword: lunge pulls toward a target out of reach'(r) {
+  'sword: standing still, a body 4 m out is not reached and nobody is pulled from 8 m'(r) {
+    if (BLADE_OLD) return check('the measured reach: not with ?blade=old', true);
+    for (const fps of FPS) {
+      clean(r, 'sword');
+      const four = r.enemies.add(0, -4.35);
+      const eight = r.enemies.add(0.3, -8.35);
+      r.input.simulate('fire', true);
+      let z = 0;
+      run(r, 0.9, fps, () => {
+        const v = r.player.velocity;
+        const speed = Math.abs(v.z);
+        const next = Math.max(0, speed - MOVE.stopDecel / fps);
+        v.z = speed > 0 ? (v.z / speed) * next : 0;
+        z += v.z / fps;
+        r.player.place(0, z);
+      });
+      r.input.simulate('fire', false);
+      check(`nothing at 4 m @${fps}`, four.hits.length === 0 && eight.hits.length === 0, `${four.hits.length} ${eight.hits.length}`);
+      check(`no pull @${fps}`, z > -0.05, z.toFixed(2));
+    }
+  },
+  'sword: steps in for a body just past reach, a step and no more'(r) {
+    if (BLADE_OLD) return check('the measured reach: not with ?blade=old', true);
+    for (const fps of FPS) {
+      clean(r, 'sword');
+      // The front of the body 2.6 m out: past the first swing's 2.0, inside 2.0 plus the 0.8 m step.
+      const d = r.enemies.add(0, -2.95);
+      r.input.simulate('fire', true);
+      let z = 0;
+      run(r, 0.3, fps, f => {
+        if (f === 0) r.input.simulate('fire', false);
+        const v = r.player.velocity;
+        const speed = Math.abs(v.z);
+        const next = Math.max(0, speed - MOVE.stopDecel / fps);
+        v.z = speed > 0 ? (v.z / speed) * next : 0;
+        z += v.z / fps;
+        r.player.place(0, z);
+      });
+      check(`cut after the step @${fps}`, d.hits.length === 1, d.hits.length);
+      check(`a step, not a dash @${fps}`, -z < MELEE.sword.step + 0.2, (-z).toFixed(2));
+    }
+  },
+  'sword: dashes out of a run, to its own range'(r) {
+    if (BLADE_OLD) return check('the measured reach: not with ?blade=old', true);
+    for (const fps of FPS) {
+      clean(r, 'sword');
+      const d = r.enemies.add(0, -6);
+      r.player.velocity.set(0, 0, -12.5);
+      r.input.simulate('fire', true);
+      let z = 0;
+      let peak = 0;
+      run(r, 0.4, fps, f => {
+        if (f === 0) r.input.simulate('fire', false);
+        const v = r.player.velocity;
+        peak = Math.max(peak, -v.z);
+        const speed = Math.abs(v.z);
+        const next = Math.max(0, speed - MOVE.stopDecel / fps);
+        v.z = speed > 0 ? (v.z / speed) * next : 0;
+        z += v.z / fps;
+        r.player.place(0, z);
+      });
+      check(`dash speed @${fps}`, peak > 20, peak.toFixed(1));
+      check(`cut on arrival @${fps}`, d.hits.length === 1, d.hits.length);
+    }
+    clean(r, 'sword');
+    const far = r.enemies.add(0, -(KATANA.dash.range + 2));
+    r.player.velocity.set(0, 0, -12.5);
+    r.input.simulate('fire', true);
+    run(r, 0.02, 60);
+    r.input.simulate('fire', false);
+    check('nothing past the dash', -r.player.velocity.z < 13 && far.hits.length === 0, r.player.velocity.z.toFixed(1));
+  },
+  'sword (blade=old): lunge pulls toward a target out of reach'(r) {
+    if (!BLADE_OLD) return check('runs with ?blade=old only', true);
     clean(r, 'sword');
     r.enemies.add(0, -8);
     r.input.simulate('fire', true);
@@ -924,7 +1025,30 @@ const tests: Record<string, (r: Rig) => void> = {
       void d;
     }
   },
-  'sword: area sweep charges and reaches further'(r) {
+  'sword: area sweep charges and reaches its own 3.2 m'(r) {
+    if (BLADE_OLD) return check('the measured reach: not with ?blade=old', true);
+    clean(r, 'sword');
+    const mid = r.enemies.add(0, -3.2);
+    const close = r.enemies.add(0.4, -1.9);
+    r.player.eye.y = 1;
+    r.input.simulate('aim', true);
+    run(r, 0.02, 60);
+    r.input.simulate('aim', false);
+    run(r, 0.3, 60);
+    check('tap: weak and short', near(close.hits[0]?.amount ?? 0, 100 * SWORD.windup.tapPower, 8) && mid.hits.length === 0, `${close.hits[0]?.amount?.toFixed(1)} / mid ${mid.hits.length}`);
+    clean(r, 'sword');
+    const far = r.enemies.add(0, -(KATANA.area.reach + 0.1));
+    const past = r.enemies.add(0.5, -(KATANA.area.reach + 1.4));
+    r.player.eye.y = 1;
+    r.input.simulate('aim', true);
+    run(r, 0.4, 60);
+    r.input.simulate('aim', false);
+    run(r, 0.3, 60);
+    check('charged: full damage at full reach', far.hits[0]?.amount === 100, far.hits[0]?.amount);
+    check('and nothing past it', past.hits.length === 0, past.hits.length);
+  },
+  'sword (blade=old): area sweep charges and reaches further'(r) {
+    if (!BLADE_OLD) return check('runs with ?blade=old only', true);
     clean(r, 'sword');
     const near7 = r.enemies.add(0, -7.5);
     const close = r.enemies.add(0, -4);
@@ -1344,7 +1468,7 @@ const tests: Record<string, (r: Rig) => void> = {
   },
   'sword: the push keeps both the blade and the line of the swing'(r) {
     clean(r, 'sword');
-    const d = r.enemies.add(0, -3);
+    const d = r.enemies.add(0, -2.2);
     r.player.eye.y = 1;
     r.input.simulate('fire', true);
     run(r, 0.02, 60);
@@ -1353,7 +1477,7 @@ const tests: Record<string, (r: Rig) => void> = {
     check('forward part survives', !!dir && dir.z < -0.4, dir?.z.toFixed(2));
     check('blade part survives', !!dir && Math.abs(dir.y) > 0.3, dir?.y.toFixed(2));
     clean(r, 'sword');
-    const e = r.enemies.add(0, -3);
+    const e = r.enemies.add(0, -2.2);
     r.player.eye.y = 1;
     r.input.simulate('melee', true);
     run(r, 0.02, 60);
@@ -1362,13 +1486,114 @@ const tests: Record<string, (r: Rig) => void> = {
   },
   'sword: a cleave only slices the first few, the budget is real'(r) {
     clean(r, 'sword');
-    for (let i = 0; i < 6; i++) r.enemies.add(i - 2.5, -3, 10);
+    // Six packed in front, every one inside the first swing.
+    for (let i = 0; i < 6; i++) r.enemies.add((i - 2.5) * 0.2, -1.9, 10);
     r.player.eye.y = 1;
     r.input.simulate('fire', true);
     run(r, 0.02, 60);
     r.input.simulate('fire', false);
     const planes = r.enemies.alive.filter(d => (d as Dummy).hits[0]?.slicePlaneNormal).length;
     check('three slices, the rest ragdoll', planes === 3, planes);
+  },
+  'melee: key 5 steps through the sword and the four beside it'(r) {
+    clean(r, 'sword');
+    const seen: WeaponId[] = [];
+    for (let i = 0; i < 5; i++) {
+      r.input.simulate('weapon5', true);
+      run(r, 1 / 60, 60);
+      r.input.simulate('weapon5', false);
+      run(r, 0.4, 60);
+      seen.push(r.weapons.current);
+    }
+    check('sword, shiv, prybar, spade, cosh, sword', seen.join() === 'knife,crowbar,shovel,baton,sword', seen.join());
+  },
+  'melee: each of the four reaches its own reach and not past it, at any frame rate'(r) {
+    for (const id of ['knife', 'crowbar', 'shovel', 'baton'] as const) {
+      const m = MELEE[id];
+      const first = m.chain[0]!;
+      for (const fps of FPS) {
+        clean(r, id);
+        // The front of one body just inside the first swing, another past it and its step.
+        const inside = r.enemies.add(0, -(first.reach - 0.15 + 0.35));
+        const past = r.enemies.add(3, -(first.reach + m.step + 0.5 + 0.35));
+        r.input.simulate('fire', true);
+        run(r, 1 / fps, fps);
+        r.input.simulate('fire', false);
+        run(r, first.seconds + 0.05, fps);
+        check(`${id} inside @${fps}`, inside.hits.length === 1, inside.hits.length);
+        clean(r, id);
+        r.player.place(3, 0);
+        const alone = r.enemies.add(3, -(first.reach + m.step + 0.5 + 0.35));
+        r.input.simulate('fire', true);
+        run(r, 1 / fps, fps);
+        r.input.simulate('fire', false);
+        run(r, first.seconds + 0.05, fps);
+        check(`${id} past reach and step @${fps}`, alone.hits.length === 0 && past.hits.length === 0, alone.hits.length);
+      }
+    }
+  },
+  'melee: the shiv is quick and three times the cut in the back'(r) {
+    clean(r, 'knife');
+    const front = r.enemies.add(0, -1.5);
+    r.input.simulate('fire', true);
+    run(r, 1 / 60, 60);
+    r.input.simulate('fire', false);
+    check('a cut from the front', front.hits[0]?.amount === WEAPONS.knife.damage && front.hits[0]?.type === 'slash', front.hits[0]?.amount);
+    check('no slice on a knife cut', front.hits[0]?.slicePlaneNormal === undefined, '');
+    clean(r, 'knife');
+    const back = r.enemies.add(0, -1.5);
+    back.yaw = Math.PI;
+    r.input.simulate('fire', true);
+    run(r, 1 / 60, 60);
+    r.input.simulate('fire', false);
+    check('three times from behind', near(back.hits[0]?.amount ?? 0, WEAPONS.knife.damage * MELEE.knife.bonus!.mult, 1e-6), back.hits[0]?.amount);
+    clean(r, 'knife');
+    const d = r.enemies.add(0, -1.5);
+    r.input.simulate('fire', true);
+    run(r, 1, 60);
+    r.input.simulate('fire', false);
+    check('about five cuts a second held', d.hits.length >= 5 && d.hits.length <= 7, d.hits.length);
+  },
+  'melee: the prybar and the cosh are blows, and take no limbs'(r) {
+    for (const id of ['crowbar', 'baton'] as const) {
+      clean(r, id);
+      const d = r.enemies.add(0, -1.6);
+      r.input.simulate('fire', true);
+      run(r, 0.3, 60);
+      r.input.simulate('fire', false);
+      const h = d.hits[0];
+      check(`${id}: a blow`, h?.type === 'melee' && h.severMult === 0 && h.slicePlaneNormal === undefined, `${h?.type} ${h?.severMult}`);
+      check(`${id}: its push`, h?.force === WEAPONS[id].force, h?.force);
+    }
+    clean(r, 'crowbar');
+    const d = r.enemies.add(0, -1.6);
+    r.input.simulate('aim', true);
+    run(r, 1 / 60, 60);
+    r.input.simulate('aim', false);
+    check('the overhead waits for its wind-up', d.hits.length === 0, d.hits.length);
+    run(r, 0.4, 60);
+    check('then lands', near(d.hits[0]?.amount ?? 0, WEAPONS.crowbar.damage * MELEE.crowbar.heavy!.mult, 1e-6), d.hits[0]?.amount);
+  },
+  'melee: the face of the spade is a wide blow, its edge a cut'(r) {
+    clean(r, 'shovel');
+    const d = r.enemies.add(0, -2.2, 10);
+    r.input.simulate('fire', true);
+    run(r, 0.3, 60);
+    r.input.simulate('fire', false);
+    check('the face: a blow', d.hits[0]?.type === 'melee' && d.hits[0]?.severMult === 0, d.hits[0]?.type);
+    clean(r, 'shovel');
+    const side = r.enemies.add(1.4, -1.6);
+    r.input.simulate('fire', true);
+    run(r, 0.3, 60);
+    r.input.simulate('fire', false);
+    check('the face reaches wide', side.hits.length === 1, side.hits.length);
+    clean(r, 'shovel');
+    const e = r.enemies.add(0, -2.0);
+    r.input.simulate('aim', true);
+    run(r, 1 / 60, 60);
+    r.input.simulate('aim', false);
+    run(r, 0.4, 60);
+    check('the edge: a cut', e.hits[0]?.type === 'slash' && e.hits[0]?.severMult === WEAPONS.shovel.severMult, e.hits[0]?.type);
   },
   'switching: per-weapon cooldowns, last weapon, ownership'(r) {
     clean(r, 'shotgun');

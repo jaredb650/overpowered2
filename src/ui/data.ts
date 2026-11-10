@@ -10,6 +10,7 @@ import {
   CACHE_ORDER, CALLINS as CALLIN_DEFS, CHAIN_REACTION_KILLS, COMBO_PERKS, DROP_POD, EFFECTS, MEGA, OVERDRIVE_MIN_SPEED, PICKUP, SCORE, STACK, STYLE_GATE, WINDOWS,
 } from '../progression/data';
 import { PENETRATION, SLOT4_OLD, SWORD, TUNING, WEAPONS as WEAPON_DEFS, WEAPON_ORDER as WEAPON_SEQUENCE } from '../weapons/data';
+import { BLADE_OLD, KATANA, MELEE, type MeleeId } from '../weapons/melee/data';
 
 /** The game's own order: number keys, and inside a key the order it steps through its family. */
 export const WEAPON_ORDER: readonly WeaponId[] = WEAPON_SEQUENCE;
@@ -22,6 +23,13 @@ export interface WeaponInfo {
 }
 
 const def = WEAPON_DEFS;
+
+/** Meters to the front of a body a weapon's longest swing reaches, with its step: what the guide calls its reach. */
+function reachOf(id: MeleeId): string {
+  const m = MELEE[id];
+  return (Math.max(...m.chain.map(s => s.reach)) + m.step).toFixed(1);
+}
+const swordReach = (): string => reachOf('sword');
 
 export const WEAPONS: Record<WeaponId, WeaponInfo> = {
   smg: {
@@ -66,8 +74,30 @@ export const WEAPONS: Record<WeaponId, WeaponInfo> = {
   },
   sword: {
     name: 'Sword', key: '5',
-    role: `Hold left click for a three-swing chain that lunges up to ${SWORD.lunge.range} m`,
-    note: 'Hold right click to block bullets, release to sweep. Right click on swing 2 or 3 is the finisher blast.',
+    role: BLADE_OLD
+      ? `Hold left click for a three-swing chain that lunges up to ${SWORD.lunge.range} m`
+      : `Hold left click for a three-swing chain that reaches about ${swordReach()} m. Running at someone, it dashes up to ${KATANA.dash.range} m`,
+    note: 'Hold right click to block bullets, release to sweep. Right click on swing 2 or 3 is the finisher blast. Press 5 again for the other blades and clubs.',
+  },
+  knife: {
+    name: 'Shiv', key: '5',
+    role: `Knife. ${def.knife.damage} a cut, out in a blink, about ${reachOf('knife')} m`,
+    note: `Times ${MELEE.knife.bonus!.mult} from behind, or on anyone reeling, falling or down. Right click thrusts.`,
+  },
+  crowbar: {
+    name: 'Prybar', key: '5',
+    role: `Crowbar. ${def.crowbar.damage} a blow: breaks the arm or leg it lands on, and staggers`,
+    note: `Right click is an overhead blow. Goes through plate for ${MELEE.crowbar.armour!.direct} times the blow. Takes no limbs off.`,
+  },
+  shovel: {
+    name: 'Spade', key: '5',
+    role: `Shovel. Slow and wide, ${def.shovel.damage} with the face, which throws what it kills`,
+    note: 'Right click swings the edge: a cut, and on the head it takes the head off.',
+  },
+  baton: {
+    name: 'Cosh', key: '5',
+    role: `Baton. ${def.baton.damage} a blow, three to a chain: it knocks people down rather than killing them`,
+    note: 'Two body blows put most on the floor, one to the head does. Right click jabs.',
   },
   judge: {
     name: 'Judge', key: '6',
@@ -156,7 +186,7 @@ export const PERKS: Record<PerkId, PerkInfo> = {
   berserk: perk('berserk', 'Berserk', comboAt('berserk'), `${STACK.damage.berserk}x damage, ${STACK.fireRate.berserk}x fire rate, ${STACK.speed.berserk}x speed, akimbo, no damage taken`),
   sentinels: perk('sentinels', 'Sentinels', comboAt('sentinels'), 'Three gun drones orbit you'),
   chainStorm: perk('chainStorm', 'Chain Storm', comboAt('chainStorm'), 'Every kill arcs lightning'),
-  adrenaline: perk('adrenaline', 'Adrenaline', within(WINDOWS.adrenaline, 'sword kills'), `+${STACK.adrenalinePerStack * 100}% speed, stacks to 3`),
+  adrenaline: perk('adrenaline', 'Adrenaline', within(WINDOWS.adrenaline, 'melee kills'), `+${STACK.adrenalinePerStack * 100}% speed, stacks to 3`),
   slowmo: perk('slowmo', 'Slowmo', within(WINDOWS.slowmo, 'headshots'), 'The world at quarter speed, you at full speed'),
   butcher: perk('butcher', 'Butcher', `A limb off ${WINDOWS.butcher.need} different bodies in ${WINDOWS.butcher.span} s, direct hits only`, 'Every hit severs'),
   skyfall: perk('skyfall', 'Skyfall', `${within(WINDOWS.skyfall, 'kills')}, off the ground for ${STYLE_GATE.hangTime} s or more`, 'Unlimited air dashes, explosive slam'),

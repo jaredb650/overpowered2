@@ -601,6 +601,10 @@ export class DamageModel {
     } else if (d.slicePlaneNormal) {
       sliced = true;
       ctx.gore.slice(e.char, d.point, d.slicePlaneNormal, d);
+    } else if (headshot && !e.def.machine && d.type === 'melee') {
+      // A club kills a man and leaves him his head: key 5's blunt blows, the only hits on an enemy typed 'melee'. An edge
+      // takes a head with a slice plane, above.
+      this.ragdoll(e, d, force, body ? HEADSHOT_TWITCH : undefined, true);
     } else if (headshot && !e.def.machine && (e.rising > 0 || body?.floored)) {
       // Half up, or lying down, there is no head to burst from standing height.
       this.ragdoll(e, d, force, body ? HEADSHOT_TWITCH : undefined, true);

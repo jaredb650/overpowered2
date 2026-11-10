@@ -89,7 +89,7 @@ export interface RoundReport extends Tally {
 }
 
 const EXPLOSIVE = /^(rocket|grenade|autocannon)/;
-const MELEE = /^(sword|melee)/;
+const MELEE = /^(sword|melee|knife|crowbar|shovel|baton)/;
 
 export class StyleTracker {
   round: Tally = blank();

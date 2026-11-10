@@ -193,3 +193,37 @@ Still open:
 - **The first salvo on a page can hitch** (46 to 131 ms measured, once 600 ms, on a loaded machine). A rocket's first blast on a page does the same, so it looks like the shared first-explosion cost, not the Quiver's; there is no warm-up for it yet.
 - The Quiver's reload and both guns' draw and fire poses were only checked as stills. Four overlapping blasts show square smoke sprites against the range sky (fx's smoke column, as a rocket's do faintly).
 - No voice lines for the new guns.
+
+## Key 5: a katana that only cuts what it reaches, and four more to swing (committed, not played)
+
+Owner's words: "Add more melee weapons, like maybe a crowbar, knife, shovel, baton. Melee weapons that are fun in their own respect. The katana feels a little bit overpowered because I feel like it can slice people from like a mile away."
+
+Why it cut from a mile away: every swing pulled the player toward anyone within 10 m, standing still or not, and then cut anything in a 120 degree cone out to 5 m from the eye, and anything within 1.7 m, behind included. The charged sweep reached 8 m.
+
+What the owner gets:
+
+- **The katana** cuts what its blade sweeps through: each swing is a slab along the crosshair, 2.0 to 2.2 m out, with a 0.8 m step for a body just past that, so 2.8 to 3 m to the front of a body at most. Nothing behind cover, nothing behind the player. Same damage, timing and slices up close. **Its dash** is now its own move: swing while running at someone within 7 m and it carries you there at 30 m/s with a punch of the view. Standing still there is no pull. The charged sweep reaches 3.2 m. The guard and the finisher are as they were.
+- **Press 5 again** for the four beside it, all owned from the start: **Shiv** (knife), **Prybar** (crowbar), **Spade** (shovel), **Cosh** (baton). Each has its own model, swings, right click and sounds.
+  - Shiv: two quick cuts, out in 0.08 s, short. Three times the damage on a back turned or anyone reeling, falling or down. Right click thrusts.
+  - Prybar: slow, a blow that breaks the arm or leg it lands on and puts people on their heels or the floor. Through armour plate for half again. Takes no limbs off. Right click is an overhead that winds up.
+  - Spade: slow and wide. The face is a heavy blow that throws what it kills nearly 3 m. Right click swings the edge: a cut that takes a head off at the neck.
+  - Cosh: quick and light. It knocks people down rather than killing them: a Trooper went down on the first blow and took six to die.
+- A club's flat swing lands on the arm on the side it comes from, so at an ordinary look the Prybar and the Spade's face break an arm instead of landing on the neck and killing. Aimed at the head they still kill, and a club kill leaves the head on: only the Spade's edge takes heads.
+- Every swing of the five reaches down for something low at your feet (a Skitter, a man on the floor), without reaching further.
+- Butcher makes the blades sever everything; the clubs still take nothing off.
+- The melee key swings whichever of the five is on key 5.
+- Try it: F1, draw any of them, then "Melee reach: five at 1.5 to 8 m" (or "Backs turned" for the Shiv).
+- Off-switches: `?blade=old` puts the katana's old reach and lunge back. `?melee=old` takes the four new weapons off key 5, leaving the katana alone.
+
+Waiting on the owner:
+
+- **Every number.** The katana's reach and step, when the dash fires and how far, and each new weapon's speed, damage and push.
+- **Held, the katana steps on every swing**, so holding the button through a line walks you forward about 0.8 m a swing (1.9 m in a held second). Say if a held chain should stand still.
+- **A club kill leaves the head on** (one small hook in `src/enemies/damage.ts`, reached only by key 5's blows). Say if a Prybar to the head should burst it after all.
+- **Butcher and the clubs.** Butcher says every hit severs; the clubs are kept out of it, so a Prybar never takes a limb. Say if Butcher should win.
+- **The Cosh throws a floored man about 3.7 m**, so the Shiv's bonus on him needs a walk up first.
+
+Still open:
+
+- The four models were judged as stills, not in motion. The Spade's beheading is confirmed by the game's kill event, not yet by a clear still.
+- Touched outside the weapon system, all small: `src/enemies/damage.ts` (a club's head kill keeps the head), `src/weapons/families.ts` (`?melee=old`), `src/enemies/commander/tracker.ts` and `index.ts`, `src/enemies/outpost/index.ts` (the new weapons count as melee and make blade noise), `src/enemies/commander/lines.ts` (words for them), `src/progression/index.ts` (Adrenaline counts every melee kill, not only the sword's).

@@ -81,6 +81,11 @@ const RETICLES: Record<WeaponId, Reticle> = {
     gap: 0, kick: 9, speedGap: 2,
   },
   sword: { core: DIAMOND, arms: ['', ARC_E, '', ARC_W], gap: 0, kick: 0, speedGap: 0 },
+  // Key 5's family: the sword's arcs, closer in for the short ones, wider for the spade's swing.
+  knife: { core: DIAMOND, arms: ['', ARC_E, '', ARC_W], gap: -9, kick: 0, speedGap: 0 },
+  crowbar: { core: DIAMOND, arms: ['', ARC_E, '', ARC_W], gap: -4, kick: 0, speedGap: 0 },
+  shovel: { core: DIAMOND, arms: ['', ARC_E, '', ARC_W], gap: 5, kick: 0, speedGap: 0 },
+  baton: { core: DOT, arms: ['', ARC_E, '', ARC_W], gap: -6, kick: 0, speedGap: 0 },
   judge: {
     core: `${DOT}<path fill-rule="evenodd" d="M0 -13L11.5 7H-11.5Z M0 -8.4L-7.4 4.6H7.4Z"/>`,
     arms: ['', poly('17,-1.25 27,-1.25 27,1.25 17,1.25'), turned(tick(10, 1.25, 11), 180), poly('-17,-1.25 -27,-1.25 -27,1.25 -17,1.25')],

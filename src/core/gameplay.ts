@@ -20,7 +20,9 @@ export type WeaponId =
   | 'smg' | 'shotgun' | 'rocket' | 'autocannon' | 'sword'
   | 'judge' | 'lance' | 'buzzsaw' | 'kiln' | 'stakegun'
   // Family members: they share a slot key with a base weapon. See src/weapons/families.ts.
-  | 'harrow' | 'rivet' | 'sabot' | 'quiver' | 'thresher';
+  | 'harrow' | 'rivet' | 'sabot' | 'quiver' | 'thresher'
+  // Key 5 beside the sword: knife, crowbar, shovel, baton. Swung by the same code, src/weapons/melee.
+  | 'knife' | 'crowbar' | 'shovel' | 'baton';
 
 export type Team = 'player' | 'enemy';
 
@@ -114,7 +116,8 @@ export interface PaintView {
   readonly max: number;
 }
 
-export type SwordMove = 'light1' | 'light2' | 'light3' | 'windup' | 'area' | 'finisher' | 'block';
+/** `heavy` is the right click of a melee weapon with no guard. Each model reads the moves as its own swings. */
+export type SwordMove = 'light1' | 'light2' | 'light3' | 'windup' | 'area' | 'finisher' | 'block' | 'heavy';
 
 /** First-person arms and weapons. WeaponSystem drives it; it never changes game state. */
 export interface ViewmodelRig extends GameSystem {

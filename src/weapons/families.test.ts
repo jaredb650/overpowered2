@@ -15,7 +15,8 @@ describe('family table', () => {
     // The Sabot is first on key 4: the explosive autocannon is its upgrade.
     expect(familyOfSlot(4)).toEqual(['sabot', 'autocannon']);
     expect(familyOfSlot(6)).toEqual(['judge', 'rivet']);
-    expect(familyOfSlot(5)).toEqual(['sword']);
+    // Key 5: the katana and the four swung beside it, all owned with it.
+    expect(familyOfSlot(5)).toEqual(['sword', 'knife', 'crowbar', 'shovel', 'baton']);
     expect(familyOf('harrow')).toEqual(['smg', 'harrow']);
   });
 
@@ -33,7 +34,7 @@ describe('family table', () => {
     // The autocannon is earned on its own, from a weapon cache: owning the Sabot does not bring it.
     expect(membersOf('sabot')).toEqual([]);
     expect(WEAPONS.autocannon.base).toBeUndefined();
-    expect(membersOf('sword')).toEqual([]);
+    expect(membersOf('sword')).toEqual(['knife', 'crowbar', 'shovel', 'baton']);
   });
 
   it('the order is the table\'s, with each family together and its base first', () => {
@@ -52,7 +53,9 @@ describe('family table', () => {
     expect(pressSlot(2, 'shotgun', all, undefined)).toBe('thresher');
     expect(pressSlot(4, 'sabot', all, undefined)).toBe('autocannon');
     expect(pressSlot(4, 'autocannon', all, undefined)).toBe('sabot');
-    expect(pressSlot(5, 'sword', all, undefined)).toBeNull();
+    expect(pressSlot(5, 'sword', all, undefined)).toBe('knife');
+    expect(pressSlot(5, 'baton', all, undefined)).toBe('sword');
+    expect(pressSlot(5, 'sword', new Set<WeaponId>(['sword']), undefined)).toBeNull();
   });
 
   it('another slot\'s key draws the member last held there', () => {
