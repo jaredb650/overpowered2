@@ -1,6 +1,7 @@
 # Builds the game and publishes it to GitHub Pages on every push to dev.
-# The owner's placeholder songs are never in the repo, so their list is emptied here and the site plays only the game's
-# own soundtrack, which is committed under public/audio/ost with its own manifest. See docs/notes/audio.md, "Music".
+# The public site plays no music at all (owner's decision, 2026-11-10). The owner's placeholder songs are never in the
+# repo, and the game's own tracks under public/audio/ost are kept out of the published build: both lists are emptied here
+# and the track files are removed before the build. Local builds are unaffected. See docs/notes/audio.md, "Music".
 name: Pages
 
 on:
@@ -27,8 +28,11 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: No placeholder songs on the public site
-        run: echo '{"menu":[],"easy":[],"hard":[]}' > public/audio/music/manifest.json
+      - name: No music on the public site
+        run: |
+          echo '{"menu":[],"easy":[],"hard":[]}' > public/audio/music/manifest.json
+          echo '{"menu":[],"easy":[],"hard":[]}' > public/audio/ost/manifest.json
+          find public/audio/ost -type f ! -name manifest.json -delete
       - run: npm run build
       - uses: actions/upload-pages-artifact@v3
         with:

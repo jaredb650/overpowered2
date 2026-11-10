@@ -322,10 +322,13 @@ shape, `{ "menu": [{ "file", "title" }], "easy": [...], "hard": [...] }`:
 
 | Manifest | What it lists | In the repo | On the public site |
 |---|---|---|---|
-| `public/audio/ost/manifest.json` | The game's own soundtrack, `public/audio/ost/<list>/<slug>.mp3` | Yes, with the files | Yes |
+| `public/audio/ost/manifest.json` | The game's own soundtrack, `public/audio/ost/<list>/<slug>.mp3` | Yes, with the files | No: emptied, and the files removed, by `.github/workflows/pages.yml` before the build |
 | `public/audio/music/manifest.json` | The owner's placeholder songs, which are commercial releases | The manifest only. `.gitignore` ignores everything else under `public/audio/music` | Emptied by `.github/workflows/pages.yml` before the build |
 
-So this machine plays both, a push carries only the game's own tracks, and the public site plays those alone. Vite copies `public/`
+So this machine plays both and a push carries only the game's own tracks. **The public site plays no music at all**: the owner decided
+on 2026-11-10 that it ships silent until the soundtrack is finished and heard, so the Pages build empties both manifests and deletes
+the track files from the build. To let the public site play the game's own tracks again, take the two `ost` lines out of the
+"No music on the public site" step. Vite copies `public/`
 as it is and the player asks for both manifests under `import.meta.env.BASE_URL` (`./`), so the Pages build needs nothing else.
 
 Rules that must stay true:
