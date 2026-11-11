@@ -14,7 +14,7 @@ import { clamp, damp, invLerp, lerp, randomInCone, wrapAngle } from '../core/mat
 import { MOVE } from '../player/tuning';
 import type { Combat, Guard, GuardResult } from './Combat';
 import { HIT_STOP, STARTING_WEAPONS, SWORD, TUNING, WEAPONS, WEAPON_ORDER, type SoundLayer, type WeaponDef } from './data';
-import { familyOfSlot, membersOf, pressSlot, wheelSlot } from './families';
+import { familyOf, familyOfSlot, membersOf, pressSlot, wheelSlot } from './families';
 import { Handling, holdSpeed } from './handling';
 import { PIERCE_ON } from './penetration';
 import { Painter, angleOff, type PaintCandidate } from './swarm';
@@ -694,8 +694,13 @@ export class Weapons implements WeaponSystem, Guard {
     if (this.ctx.input.isDown('fire')) this.pressBuffer = TUNING.pressBuffer;
   }
 
-  /** The list is base weapons. Each one's family members take their turn straight after it. */
+  /**
+   * The gun on the same key first, so a dry Harrow hands over to the SMG beside it and not to whatever heads the list. Then
+   * the list, which is base weapons, each one's family members taking their turn straight after it.
+   */
   private nextLoaded(): WeaponId {
+    const own = familyOf(this.current);
+    for (let k = 0; k < own.length; k++) if (own[k] !== this.current && this.hasRounds(own[k]!)) return own[k]!;
     const order = TUNING.ammo.fallback;
     for (let i = 0; i < order.length; i++) {
       const base = order[i]!;

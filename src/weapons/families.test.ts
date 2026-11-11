@@ -233,6 +233,18 @@ describe('families in the weapon system', () => {
     expect(r.weapons.current).toBe('shotgun');
     // The finger never left the trigger: a semi-auto fires once on the hand-over and waits for a fresh click.
     expect(d.hits.filter(h => h.source === 'shotgun').length).toBe(WEAPONS.shotgun.pellets);
+
+    // With the rotary cannon owned, which heads the list, a dry Harrow still hands over to the SMG on its own key.
+    r.reset();
+    r.weapons.give('buzzsaw');
+    r.tap('weapon1');
+    settle();
+    expect(r.weapons.current).toBe('harrow');
+    dry('harrow', 1);
+    r.input.simulate('fire', true);
+    r.run(0.6);
+    r.input.simulate('fire', false);
+    expect(r.weapons.current).toBe('smg');
   });
 
   it('what a gun fires and how its trigger works come from its row, not its name', () => {
