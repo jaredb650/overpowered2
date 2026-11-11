@@ -113,7 +113,7 @@ Five keys are loaded from the start: SMG, Shotgun, Rocket launcher, Sabot and Sw
 | 2 | **Shotgun** | Original. 6 pellets x 20, semi | Point-blank pellets sever limbs. Hellfire and Blood Thirst pellet counts carry over |
 | 3 | **Rocket launcher** | Original. 100 dmg, radius 8, 40 m/s, mag 1. Rocket jumps are a real movement option, with low self-damage | Direct hits gib |
 | 4 | **Sabot** | The 30mm cannon loaded with darts. 600 dmg, no blast, through armour, walls and everyone in line, 5 mag, RMB scope | Ping the sonar, then shoot what it shows |
-| 5 | **Sword** | Original three-swing chain, RMB area sweep, heavy finisher | Real slice kills along the swing plane. Blocks bullets on RMB hold |
+| 5 | **Sword** (katana) | Original three-swing chain, RMB area sweep, heavy finisher. Cuts only what its blade reaches: 2.8 to 3 m to the front of a body, nothing behind cover or behind the player. A swing while running at someone within 7 m dashes to them | Real slice kills along the swing plane. Blocks bullets on RMB hold |
 | 6 | **Judge** (revolver) | 6 shots, 120 dmg, slow | A headshot ricochets to the nearest enemy's head |
 | 7 | **Lance** (railgun) | Tap for a plasma ball: 60 dmg and a small splash, four a second. Hold to charge through three stages and release a beam, 1000 dmg at full | A full beam pierces everyone in line, two walls and armour, severs what it touches, and sets a plasma burst off at every body it passed, one after another down the line |
 | 8 | **Trommel** (20 mm rotary cannon; the Buzzsaw reworked, id `buzzsaw`) | Spin-up, then 25 rps of 32 dmg | Every round bursts where it lands, the size of a grapefruit. Heavy shake. The player walks while it fires. Takes limbs. Goes through nothing |
@@ -128,12 +128,15 @@ Five keys are loaded from the start: SMG, Shotgun, Rocket launcher, Sabot and Sw
 | 2 | Shotgun | **Thresher** (drum shotgun) | Full auto, 20-shell drum, 5 shells a second, 4 pellets x 20 against the pump's 6. Climbs as it fires and does not spring back; the pump stays the hard single hit |
 | 3 | Rocket launcher | **Quiver** (four-tube launcher) | Hold to paint up to 4 marks (one every 0.2 s, spares stack on a boss, a vehicle or the nearest), let go and four missiles leave 0.1 s apart and home on them. 110 + 90 splash over 3.5 m each. A tap fires all four straight |
 | 4 | Sabot | **Autocannon** (the upgrade, from a weapon cache) | Original. 30mm, 200 m/s, instakill blast radius 5, 5 mag, RMB scope. Ring trail, tracer cone |
+| 5 | Sword | **Shiv** (knife), **Prybar** (crowbar), **Spade** (shovel), **Cosh** (baton) | Owned with the sword, in that order on the key. Shiv: quick cuts, triple on a back turned or anyone down. Prybar: breaks the limb it lands on, through plate. Spade: the face throws what it kills, the edge (RMB) takes a head. Cosh: knocks people down. Clubs take no limbs and leave the head on |
 | 6 | Judge | **Rivet** (pistol) | 30 dmg, 15 mag, as fast as the trigger, drawn in 0.1 s. Triple headshots, weak at range |
 | 8 | Trommel | **Piledriver** (heavy machine gun) | 90 dmg, 50 on the belt, 8 rps. Through 2.4 m of wall and everyone in line. Takes off any limb it touches and can burst what it kills. Kicks and climbs. Slows the player less than the Trommel. Comes in the Trommel's cache |
 
 **Penetration.** A round has a budget in meters of concrete, spent by the thickness of each wall it passes and by each body. It leaves a small dark hole going in and a wide pale crater coming out. The Lance keeps its own older rule: two walls, each up to 1.6 m. Numbers in `docs/notes/weapons.md`.
 
-Off-switches: `?families=0` (one weapon a key, key 4 the Autocannon from the start, as before families), `?slot4=old` (key 4 as before this order: Autocannon first and from the start, Sabot beside it), `?climb=0` (no Thresher climb), `?pierce=0` (no gun in the table goes through anything), `?reach=0` (no gun loses damage with range).
+Off-switches: `?families=0` (one weapon a key, key 4 the Autocannon from the start, as before families), `?slot4=old` (key 4 as before this order: Autocannon first and from the start, Sabot beside it), `?climb=0` (no Thresher climb), `?pierce=0` (no gun in the table goes through anything), `?reach=0` (no gun loses damage with range), `?melee=old` (the katana alone on key 5), `?blade=old` (the katana's old reach and lunge), `?lance=old` (the railgun as it was), `?slot8=old` (the Buzzsaw, no Piledriver), `?burst=0` (no round bursts), `?slow=0` (no gun slows the player), `?doorgun=old` (the M134 in the helicopter door).
+
+**Heavy guns slow the player.** While it fires the Trommel holds the player to half a run (0.8 with the barrels turning and nothing leaving them), the Piledriver to 0.72. A move already going is left alone, but a slide (9 m/s), a vault (7) and a wall run (8) need their speed to start, so none of the three can be started with the Trommel firing.
 
 Grenades (G): 3 frags, restocked by ammo pickups. Cookable, bounce, and they can be shot out of the air to detonate.
 

@@ -11,6 +11,7 @@ import {
 } from '../progression/data';
 import { LANCE_OLD, PENETRATION, SLOT4_OLD, SWORD, TUNING, WEAPONS as WEAPON_DEFS, WEAPON_ORDER as WEAPON_SEQUENCE } from '../weapons/data';
 import { BLADE_OLD, KATANA, MELEE, type MeleeId } from '../weapons/melee/data';
+import { MELEE_FOUR_ON } from '../weapons/families';
 
 /** The game's own order: number keys, and inside a key the order it steps through its family. */
 export const WEAPON_ORDER: readonly WeaponId[] = WEAPON_SEQUENCE;
@@ -77,7 +78,7 @@ export const WEAPONS: Record<WeaponId, WeaponInfo> = {
     role: BLADE_OLD
       ? `Hold left click for a three-swing chain that lunges up to ${SWORD.lunge.range} m`
       : `Hold left click for a three-swing chain that reaches about ${swordReach()} m. Running at someone, it dashes up to ${KATANA.dash.range} m`,
-    note: 'Hold right click to block bullets, release to sweep. Right click on swing 2 or 3 is the finisher blast. Press 5 again for the other blades and clubs.',
+    note: `Hold right click to block bullets, release to sweep. Right click on swing 2 or 3 is the finisher blast.${MELEE_FOUR_ON ? ' Press 5 again for the other blades and clubs.' : ''}`,
   },
   knife: {
     name: 'Shiv', key: '5',
@@ -145,9 +146,9 @@ export const WEAPONS: Record<WeaponId, WeaponInfo> = {
 export const GRENADE_NOTE = `${TUNING.grenade.start} frags, up to ${TUNING.grenade.max}. Ammo pickups restock them. Hold to cook. Shoot one out of the air to set it off.`;
 
 export const WEAPONS_NOTE =
-  `Some keys hold two weapons: press the key again to swap, and each has its own ammo. The second comes with the first${SLOT4_OLD ? '' : ', except the autocannon, which is an upgrade in a cache'}. ` +
+  `Some keys hold more than one weapon: press the key again for the next, and each gun has its own ammo. The second comes with the first${SLOT4_OLD ? '' : ', except the autocannon, which is an upgrade in a cache'}. ` +
   `Five keys are loaded from the start. A weapon cache drops every ${DROP_POD.everyWaves === 2 ? 'second' : `${DROP_POD.everyWaves}th`} wave, marked on your HUD, ` +
-  `with the next of ${CACHE_ORDER.map(id => WEAPONS[id].name).join(', ')}. A gun that runs dry hands over to the next one with ammo, and sword kills refill your last gun.`;
+  `with the next of ${CACHE_ORDER.map(id => WEAPONS[id].name).join(', ')}. A gun that runs dry hands over to the other gun on its key, or else the next one with ammo, and kills with anything on key 5 refill your last gun.`;
 
 export interface CallInInfo {
   name: string;

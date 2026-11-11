@@ -969,7 +969,7 @@ export const FALSE_CHATTER: readonly Line[] = lines('chatter.');
 /** How a weapon is said, by id. A voice actor needs words, not ids. The last three have words and no takes yet: the box prints them. */
 export const WEAPON_WORDS: Readonly<Record<string, string>> = {
   smg: 'SMG', shotgun: 'shotgun', rocket: 'rocket launcher', autocannon: 'autocannon', sword: 'sword', judge: 'Judge', lance: 'Lance', buzzsaw: SLOT8_OLD ? 'Buzzsaw' : 'Trommel', kiln: 'Kiln', stakegun: 'Stakegun',
-  harrow: 'Harrow', rivet: 'Rivet', sabot: 'Sabot',
+  harrow: 'Harrow', rivet: 'Rivet', sabot: 'Sabot', thresher: 'Thresher', quiver: 'Quiver', piledriver: 'Piledriver',
   knife: 'knife', crowbar: 'crowbar', shovel: 'shovel', baton: 'baton',
 };
 
