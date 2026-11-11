@@ -168,7 +168,18 @@ Settled by the owner after playing; do not list these as open again.
 - **Music:** pinned. The two menu tracks and the playlist plumbing are in; the early-wave and late-wave tracks and the MP3 PLAYER screen wait for a later job. The public site ships with no music at all (the Pages build empties both manifests and drops the track files), and there is no MP3 PLAYER or upload feature to build for now.
 - **Hive mission:** planned, on hold (see the section above).
 - **Ragdolls and gore, put off to a later job:** the owner said the fighting "feels really, really good" as it is, so ragdoll stages 6, 7 and 8 (`docs/notes/euphoria-plan.md`), gore by weapon (the SMG wounding instead of severing, the head variants) and executions with prisoner questioning are not built. Do not change how ragdolls or gore behave until the owner asks. Stage 6 was stopped part-way; its unfinished edits were taken out of the tree and kept as `tools/out/paused/euphoria-stage6-partial.patch` (scratch, not committed), for whoever picks it up to read, not to apply blind.
-- **Still being built in this update:** the rest of the weapons (Sabot first on key 4, the swarm launcher, the auto shotgun, the minigun rework with the heavy machine gun and the door gun, the railgun, the melee weapons and the katana's reach) and the helicopter scene behind the main menu.
+- **Built in this update, all committed:** the rest of the weapons (Sabot first on key 4, the Quiver, the Thresher, the Trommel with the Piledriver and the door gun, the Lance, the melee weapons and the katana's reach) and the helicopter scene behind the main menu. The menu scene is on the public site; the Lance, key 5, key 8 and the final check's fixes are local until the owner asks for a push.
+
+## Final check, 2026-11-10 (stopped before its report)
+
+The check ran for 90 minutes and was cut off when the session restarted, so it left no report. This is what its log and saved results (`tools/out/xcheck`, scratch) show.
+
+- **Tests:** all 55 test files ran one at a time. One failed, `src/audio/music.test.ts`, because it still expected the soundtrack on the public site; fixed in `9689fde`. 1055 tests passed. Type check clean.
+- **A flaky test, older than this update:** `src/gore/muscles.test.ts`, 'never leaves a stale speed on a sleeping body', fails about 1 run in 24 today ("expected 362 to be less than 360") and failed 4 in 24 at stage 5 (`34c686b`). The file is unchanged since stage 5. Not fixed, because ragdoll code is not to be touched.
+- **Ragdolls and gore since stage 5:** the only changes under `src/gore` and the enemy reaction files are 9 lines in `src/gore/wounds.ts` (wound-size rows for the new rounds) and 9 lines in `src/enemies/damage.ts` (a club kill leaves the head on). The gore, reaction, contact and wound test files each passed 6 runs of 6, apart from the flaky test above.
+- **Fixed:** a gun that runs dry now hands over to the other gun on its own key first (`84e9714`); the guide, the Commander's lines and the design's key table were brought up to date (`0348c45`); a stale path in the notes (`66c6321`).
+- **Load time, production build, on a loaded machine:** 15 to 16 s to the splash for both builds it compared, with one 24 s run; the "Waking the army" step at 97% took 1 to 2 s. The 70 s wait once seen on the live site did not show up locally.
+- **Not done:** a two-wave Crucible run on the production build (the menu and the weapon cycle did run on it). Do it as part of the check before the next push.
 
 ## Weapons update: key 4 reordered, the Quiver and the Thresher (committed, not played)
 
