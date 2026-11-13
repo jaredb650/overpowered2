@@ -232,4 +232,4 @@ Each has a fallback, so the update works without it.
 | 13 | **Headshot puff** | A fatal headshot, under the current headshot sound | 2D | 0.1 to 0.2 s | 2 | A soft wet *pff*: a burst of mist. Very quiet, only adds air to the existing sound. Search: "spray puff", "air puff" | The current headshot sound alone |
 
 **Kept as they are:** the fatal headshot sound (the first game's stack), the explosions, the Juggernaut's armour break
-roar, and the existing tail and rotor break sounds on helicopters.
+roar, the tank's track snap and metal groan, and the helicopter's stricken sound.
