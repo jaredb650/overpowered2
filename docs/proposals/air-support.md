@@ -1,13 +1,13 @@
 # Proposal: the air support update
 
-Status: idea, not scheduled. Written 2026-11-13 from the owner's notes after playtesting. Nothing here is built.
-Open questions are marked **Q** with the default the build would use.
+Status: idea, not scheduled. Written 2026-11-13 from the owner's notes after playtesting; the owner answered the first
+round of questions the same day. Nothing here is built.
 
 ## The goal
 
 Air support is the best feeling in the game: you are being overwhelmed, you call it in, and the fight changes. Today it
-also makes you untouchable with no consequence. The update keeps the feeling and adds the consequence: the enemies fight
-back against the aircraft, not just you, and you can lose an aircraft.
+also makes you untouchable with no consequence. The update keeps the feeling and adds a consequence: the enemies fight
+back against the aircraft, not just you, and you can lose one.
 
 The picture to aim for: you stand on the ground with the AC-130, the attack chopper and the door gunner all up at
 once, each raining fire in its own style, while rocket troops lock onto them, flares pop and missiles chase them down.
@@ -17,18 +17,18 @@ once, each raining fire in its own style, while rocket troops lock onto them, fl
 Applies to the door gunner, the attack chopper and the AC-130. Instant strikes (airstrike, Warthog, Orbital Lance,
 Black Sun, nuke) stay as they are.
 
-- When you call it in, you are in the seat and in control.
-- **E** leaves the seat. The aircraft does not go home: it stays and fights on its own until its ammunition (helicopters)
-  or its time (AC-130) runs out.
+- **Tap** the call-in key: you take the seat and fly it. **Hold** the key: it goes in as an AI from the start and you
+  stay on the ground.
+- **E** leaves the seat. The aircraft does not go home: it stays and fights on its own until it is spent (see below).
 - Once you leave, you cannot get back in.
+- Call-ins only work from your own body on the ground. While you are in a seat you cannot call anything; leave first.
+  So with three aircraft ready, you send in the ones you want as AIs first, and tap the one you want to fly last.
 - The AC-130 never flies anywhere smart. It holds a fixed left-hand circle over the spot it was called to, like the real
   one (a "pylon turn"). The helicopters keep their current AI flying.
-- Under AI control the aircraft uses the same weapons the player does, switching rounds visibly, so you can watch it work
-  from the ground.
-- **Q1.** Several at once: you can only sit in one seat. If you call a second aircraft while seated, default: you move to
-  the new seat and the old one carries on as an AI.
-- **Q2.** Can you call one straight into AI mode without taking the seat (for the "orchestra" picture)? Default: tap
-  the key to take the seat, hold it to send it in as an AI.
+- Under AI control each aircraft uses the same weapons the player does, switching rounds visibly, so you can watch it
+  work from the ground.
+- **How long each lasts.** Helicopters run until their ammunition is gone. The AC-130 runs on its timer (2 minutes
+  today) with unlimited ammunition; only magazines and reloads limit it.
 
 Today: leaving the door gunner sends it home (`doorGunner.ts`), and the AC-130 is AI-only, a 2-minute siege that adds a
 gun every half minute.
@@ -47,17 +47,13 @@ An attack chopper plus plus. Four weapons, one key each, with a round or fuze to
 - **Crew reloads.** Each gun has its own magazine and reloads on its own clock, including while you fire another gun. You
   juggle: drop a 105, switch to the Gatling while it reloads, empty that, switch to the 40 while both reload.
 - **Flight time.** Every round takes time to fall from 185 m, so you lead moving targets and paint them.
-- **Glide bomb.** Click the spot. The bay takes a few seconds to open, there is a small *clink*, and you watch the bomb
-  fall out and guide itself onto the spot. The explosion is one of the biggest in the game: bigger than the airstrike's
-  final bomb, a step down from the nuke, with a camera shake you feel on the ground.
+- **Glide bomb.** Fire it at the spot under the crosshair. The bay takes a few seconds to open, there is a small
+  *clink*, and you watch the bomb fall out. It homes on a laser that comes out of the centre of your screen, so you
+  steer it all the way down like a wire-guided rocket, and can drag it onto a moving boss. The explosion is one of the
+  biggest in the game: bigger than the airstrike's final bomb, a step down from the nuke, with a camera shake you feel on
+  the ground.
 - **Views.** Three, switched with one key: the current normal view with enemy boxes, white-hot thermal, and black-hot
   thermal. Every view shows every enemy; the views are about the look, not about hiding anything.
-- **Q3.** Which gun is the second one in real life? The current AC-130J carries a 30 mm gun; the older AC-130U carried a 40 mm.
-  Default: 40 mm, because it is slower and heavier and the game already has a 40 mm round.
-- **Q4.** Glide bomb guidance: fixed at release, or does it follow your mark while it falls, so you can drag it onto a
-  moving target? Default: it follows the mark, like a laser-guided bomb.
-- **Q5.** Does the AC-130 still run on a timer (2 minutes today) with ammunition only limited by reloads, while the
-  helicopters run until their ammunition is gone? Default: yes.
 
 ## 3. The enemies fight the aircraft
 
@@ -66,46 +62,65 @@ An attack chopper plus plus. Four weapons, one key each, with a round or fuze to
 - It is never a flood. At most one or two enemies hunt aircraft at a time across the whole map, and a new one is picked
   only after a cooldown.
 - A boss you are pounding from the air turns its missiles on the aircraft doing it.
-- **The lock.** A lock-on tone beeps while an enemy locks on; a launch warning sounds when the missile is in the air; the
-  missile takes a few seconds to arrive.
-- **Flares.** In the attack chopper and the AC-130, you fire flares yourself. In the door gunner, the pilot fires them on
-  his own and you have no say: that is the reason to pick the other two.
-- **Armour.**
-  - Door gunner: unarmoured. Bullets from far away travel slowly and rarely hit, but snipers and close gunmen can hit it.
-  - Attack chopper and AC-130: immune to bullets, only missiles hurt them.
-- When an aircraft is shot down with you in it, you are thrown back into your body and it crashes.
-- Your body stays untouchable while you sit in a seat, as today. In survival mode a death resets everything, and you
-  cannot dodge while flying, so the aircraft is what is at risk, not you.
-- **Q6.** How many missile hits does each take? Default: door gunner 1, attack chopper 2, AC-130 3.
-- **Q7.** Flares: a few charges that refill slowly, or a cooldown? Default: 3 charges, one back every 15 s.
-- **Q8.** When the door gunner is hit by bullets, what loses health: the helicopter or you? Default: the helicopter.
+- **The lock.** A lock-on tone beeps while an enemy locks on. A launch warning sounds when the missile is in the air.
+  There is no on-screen marker; instead the missile itself is easy to see: a bright homing missile with a smoke trail
+  that you can watch climb toward you and steer itself. That is when you fire flares, and you watch it chase the flares
+  and burst in mid-air.
+- **Getting shot down.** When an aircraft is shot down with you in it, you are thrown back into your body and it
+  crashes.
 
-## 4. What it looks like from the ground
+| | Door gunner | Attack chopper | AC-130 |
+|---|---|---|---|
+| Missile hits to bring it down | 1 | 2 | 3 |
+| Bullets | Hurt it (the helicopter, never you). Far shots travel slowly and rarely land; snipers and close gunmen can hit | Immune | Immune |
+| Flares | The pilot fires them on his own. You have no say | 3, fired by you | 3, fired by you |
+| Feel | Vulnerable on purpose: low, unarmoured, and whether you are shot down is out of your hands | Mostly safe if you listen for the lock tone | Hard to bring down; still listen for the tone |
+
+- **Flares** have no recharge timer to plan around, because you cannot dodge in a seat. The only limit is a 3-second
+  lockout after each pop, so a double press does not waste them.
+
+## 4. Nothing the aircraft fire can hurt you
+
+Your body stays untouchable while you sit in a seat, as today. In survival mode a death resets everything, and you cannot
+dodge while flying, so the aircraft is what is at risk, not you.
+
+No aircraft's fire hurts you on the ground either: not the glide bomb, not the 105, not the white phosphorus cloud. You
+can walk through a burning cloud. This is the rule today, and it stays.
+
+## 5. What it looks like from the ground
 
 Each weapon has its own signature so you can read the AC-130 working without seeing it:
 - the Gatling's stream;
 - the 40 mm switching between surface bursts, AP tracers punching through roofs, and flak bursts in the air spraying
   pellets down;
 - the 105's big blasts, and white phosphorus clouds with burning streamers;
-- the glide bomb's whole-screen shake;
-- flares popping, smoke trails of missiles chasing the aircraft, and wreckage when one comes down.
+- the glide bomb falling under its laser, then the whole-screen shake;
+- flares popping, smoke trails of missiles chasing the aircraft, missiles bursting on flares, and wreckage when one
+  comes down.
 
-## 5. Left out
+## 6. Left out
 
 - A radar or x-ray pulse. Every view already shows every enemy; hiding them only to reveal them again would nerf the
   aircraft.
-- Lock-on missiles for the player. They felt like a howitzer that aims itself; the glide bomb does the job better.
+- Lock-on missiles for the player. They felt like a howitzer that aims itself; the steered glide bomb does the job better.
+- Calling a second aircraft from inside a seat.
+- Getting back into an aircraft you left.
 
-## 6. Pieces, for costing later
+## 7. Still open
+
+- **Do the 3 flares refill during a sortie?** Default: no, 3 per sortie.
+- **The door gunner pilot's flares:** how many, and how reliable? Default: 2, and he is sometimes late.
+
+## 8. Pieces, for costing later
 
 Rough sizes only, not measured against the code.
 
 | Piece | Size |
 |---|---|
-| Seat then AI handover for all three aircraft, no re-entry | Medium |
+| Tap to fly, hold to send in as an AI; E hands over to the AI; no re-entry; no calling from a seat | Medium |
 | AC-130 seat: four weapons, own reloads, flight time, views | Large |
 | 40 mm HE / AP / flak rounds (AP may reuse `src/weapons/penetration.ts`) | Medium |
 | 105 white phosphorus cloud that sets enemies on fire (may reuse the Burner's fire) | Medium |
-| Glide bomb: bay, fall, guidance, the blast | Medium |
-| Enemy anti-air: picking hunters, lock, missile, flares, hits and crashes | Large |
+| Glide bomb: bay, fall, steering by the screen-centre laser, the blast | Medium |
+| Enemy anti-air: picking hunters, lock tone, visible homing missile, flares, hits and crashes | Large |
 | Effects and sounds for all of the above | Medium |
