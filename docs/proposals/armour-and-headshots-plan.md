@@ -1,4 +1,6 @@
-# Proposal: the armour, headshot and vehicle weak point update
+# Plan: armour and headshots
+
+Covers armour feedback, headshot feedback and vehicle weak points.
 
 Status: idea, not scheduled. Written 2026-11-13 from the owner's notes; the owner answered the first round the same
 day. Nothing here is built. Open questions are marked **Q** with the default the build would use.
@@ -108,7 +110,7 @@ in small weak points you have to aim for on purpose. Rockets and shells use the 
 
 | Weak point | Hitbox | Rocket (direct) | Sabot |
 |---|---|---|---|
-| **Roof** (top of the turret, the hatch) | Tiny, at the very top | **One rocket kills it** | 2 rounds (Q) |
+| **Roof** (top of the turret, the hatch) | Tiny, at the very top. Almost never hit in play: an Easter egg for the player who knows | **One rocket kills it** | 2 rounds |
 | **Turret ring** (the joint between turret and hull) | A thin band all the way round. Hard to hit by accident | 2 rockets kill it. **Any hit locks the main gun** | 4 rounds kill it. Any hit locks the main gun |
 | **Rear vents** (the engine) | The back deck | 2 rockets kill it | 8 rounds |
 | **Tracks** | The sides, as today | Breaks a track and stops it, as today | Can break a track too |
@@ -157,11 +159,11 @@ Today in The Crucible only the Brute and the Juggernaut wear armour.
 **Recommendation:** helmets on Gunners and Rocketeers only, starting from a mid wave, plus an on/off switch in the
 Custom Crucible rules screen. Troopers never. Default: that, pending the owner's call.
 
-## 9. Still open
+## 9. Settled
 
-- **Q.** Sabot rounds to kill a tank through the roof: 2? Default: 2.
-- **Q.** Are rocket and Sabot weak-point hits the same for the Humvee and the truck? Default: no, soft-skins already die
-  to one blast; the Sabot just does normal bullet damage to them.
+- Sabot rounds through the tank roof: 2.
+- The Humvee and the truck get no weak points. Soft-skins already die to one blast; the Sabot does normal bullet damage
+  to them.
 
 ## 10. Left out
 
@@ -184,4 +186,50 @@ Rough sizes only, not measured against the code.
 | Tank weak points (roof, ring, vents), the locked main gun, Sabot on tanks | Medium |
 | Helicopter pilot and tail rotor hitboxes, Sabot on helicopters | Small to medium |
 | Crucible helmets on Gunners and Rocketeers from a mid wave, with a rules switch | Small to medium |
-| New sounds (tink, tunk, clang-dink, crunch, bone crack, puff) | Medium; new sound files from the library or made by hand, not ElevenLabs |
+| New sounds | Medium. The owner is sourcing the files; see section 12 |
+
+## 12. Sound files to find
+
+Today every armour sound in the game is synthesized at load (`impact_armor`, `armor_plate_off`, `hit_marker_armor`,
+`ricochet` in `src/audio/synth/recipes`), and the headshot is the first game's three recordings stacked
+(`enemy_headshot`, `2`, `3`). The new recordings replace or sit on top of those.
+
+**What to get, for every file:**
+- WAV or MP3, mono is fine. Silence trimmed from the start: the sound must hit on the first millisecond.
+- 2 to 4 takes of each where the table says so, so repeated hits don't sound like one sample.
+- A licence that allows use in a free public game. CC0 needs nothing; CC BY needs the author and link. Write down the
+  author, licence and link for each file: they go into `docs/CREDITS.md` and a `CREDITS.txt` beside the files, the same
+  way the gore sounds are credited. Nothing ripped from another game, Counter-Strike included: find something in that
+  spirit.
+- Drop them in a new folder, for example `public/audio/sfx/armour/`, with names that say what they are.
+
+**"2D"** means it plays at the same volume wherever you stand, quietly, like a hit marker tick. **"In the world"** means
+it comes from the enemy or the vehicle.
+
+### Must have
+
+| # | Sound | Plays when | Where | Length | Takes | What it should sound like |
+|---|---|---|---|---|---|---|
+| 1 | **Armour stopped** | A round is fully stopped by a plate or helmet | 2D | 0.15 to 0.3 s | 3 to 4 | A short, bright metal *tink*: a bullet glancing off steel, with a thin ricochet whine trailing away. Light, not a clang. Search: "bullet ricochet metal", "metal ping" |
+| 2 | **Armour through** | Part of a round gets past a plate into the man | 2D | 0.2 to 0.35 s | 3 | A dull, heavier *tunk*: a round punching a thick steel plate, with a muffled thump of cloth and body underneath. No crack, no bone. Search: "bullet hit metal plate thud", "bullet impact steel heavy" |
+| 3 | **Armour broken** | A shot destroys a plate or helmet; every Sabot hit on armour | 2D | 0.4 to 0.8 s | 2 to 3 | The loudest and most satisfying of the three: a sharp, ringing *clang-dink* of a helmet being hit hard, then a short rattle of loose metal pieces skittering. Must be all metal. Search: "helmet hit metal clang", "metal impact ring", "metal debris rattle" (the rattle can be a separate file layered on top) |
+| 4 | **Armour crunch** | A direct rocket or shell blows every plate off an enemy | In the world | 0.6 to 1.2 s | 2 | Sheet steel crumpling and tearing, then plates clattering away, heavy and low. Plays under the explosion. Search: "metal crunch", "car crash metal crumple", "metal tear" |
+| 5 | **Headshot crack** | A headshot on flesh that does not kill | 2D | 0.1 to 0.2 s | 3 | A dry bone crack: short and hard, like a thick stick snapping or a knuckle crack. No wetness, no splatter. Search: "bone crack", "bone break dry", "stick snap" |
+| 6 | **Vehicle weak point** | A rocket or Sabot hits a tank's roof, turret ring or rear vents, or a helicopter's pilot or tail rotor | 2D | 0.3 to 0.5 s | 2 | A heavy, deep metal *clank* with a bright ring on top, so you know you found the spot. Bigger and lower than "armour broken". Search: "heavy metal impact", "anvil hit", "metal clang deep" |
+| 7 | **Sabot on a vehicle** | A Sabot round hits any part of a tank or helicopter | In the world | 0.3 to 0.6 s | 2 to 3 | A dart punching through thick steel: a sharp, high crack of metal with a deep ring under it. Search: "bullet hit tank armor", "metal pierce impact", "armor penetration" |
+
+### Good to have
+
+Each has a fallback, so the update works without it.
+
+| # | Sound | Plays when | Where | Length | Takes | What it should sound like | Without it |
+|---|---|---|---|---|---|---|---|
+| 8 | **Helmet clatter** | Helmet pieces land on the ground | In the world | 0.3 to 0.6 s | 3 | A light metal shell bouncing twice on concrete. Search: "helmet drop", "metal bowl drop" | The current synthesized plate sound |
+| 9 | **Pellet deflect** | A shotgun pellet bounces off a helmet | In the world | 0.2 to 0.5 s | 3 to 4 | A quick bullet ricochet whine. Search: "ricochet" | The current synthesized ricochet |
+| 10 | **Turret jammed** | A hit on the turret ring locks the main gun | In the world | 0.8 to 1.5 s | 1 | Heavy gears grinding and seizing with a metal screech. Search: "gear grind", "machine jam" | The callout text alone |
+| 11 | **Cockpit glass** | A Sabot kills a helicopter's pilot | In the world | 0.3 to 0.6 s | 2 | Thick glass cracking and shattering. Search: "glass crack", "windshield shatter" | Sound 6 alone |
+| 12 | **Riot shield punch** | A Sabot goes through a riot shield | In the world | 0.2 to 0.4 s | 2 | A dart punching through a thin metal sheet with a short tearing scrape. Search: "metal sheet pierce", "bullet through metal" | Sound 3 plus the current shield ring |
+| 13 | **Headshot puff** | A fatal headshot, under the current headshot sound | 2D | 0.1 to 0.2 s | 2 | A soft wet *pff*: a burst of mist. Very quiet, only adds air to the existing sound. Search: "spray puff", "air puff" | The current headshot sound alone |
+
+**Kept as they are:** the fatal headshot sound (the first game's stack), the explosions, the Juggernaut's armour break
+roar, and the existing tail and rotor break sounds on helicopters.
