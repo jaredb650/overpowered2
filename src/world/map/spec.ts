@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import type { MapZone, SpawnPoint } from '../../core/contracts';
 import type { EmplacementSpec } from '../../vehicles/emplacement';
 import type { DesignatedLink } from '../nav';
-import { SHACK, WALL, type StructureSpec } from '../structures';
+import { SHACK, WALL, type StructureSpec, type WallStyle } from '../structures';
 import { LEVEL } from './layout';
 
 export interface PadSpec {
@@ -166,11 +166,12 @@ export class MapSpec {
   /**
    * A straight wall standing on `y` from pillar centre (ax, az) to pillar centre (bx, bz), cut into segments about
    * WALL.segment long with a pillar at every joint. Runs that share an end share its pillar, so a `wallGate` drops in between two.
+   * `style` builds it taller and thicker, with a battlement (structures.ts, WallStyle); without one it is the plain 3 m wall.
    */
-  wall(ax: number, az: number, bx: number, bz: number, y = 0): void {
+  wall(ax: number, az: number, bx: number, bz: number, y = 0, style?: WallStyle): void {
     const n = Math.max(1, Math.round(Math.hypot(bx - ax, bz - az) / WALL.segment));
     for (let i = 0; i < n; i++) {
-      this.segment('wall', ax + ((bx - ax) * i) / n, az + ((bz - az) * i) / n, ax + ((bx - ax) * (i + 1)) / n, az + ((bz - az) * (i + 1)) / n, y);
+      this.segment('wall', ax + ((bx - ax) * i) / n, az + ((bz - az) * i) / n, ax + ((bx - ax) * (i + 1)) / n, az + ((bz - az) * (i + 1)) / n, y, style);
     }
   }
 
@@ -178,8 +179,8 @@ export class MapSpec {
    * A steel gate between two pillar centres, in a wall. Shut or blown, nothing between. (`gate` is an enemy entrance.) With `opens`
    * it is a lift gate that rises for the player or an ally near it and drops behind them.
    */
-  wallGate(ax: number, az: number, bx: number, bz: number, y = 0, opens = false): void {
-    this.segment('gate', ax, az, bx, bz, y);
+  wallGate(ax: number, az: number, bx: number, bz: number, y = 0, opens = false, style?: WallStyle): void {
+    this.segment('gate', ax, az, bx, bz, y, style);
     if (opens) this.structures[this.structures.length - 1]!.opens = true;
   }
 
@@ -188,9 +189,9 @@ export class MapSpec {
     this.structures.push({ kind: 'shack', x, y, z, yaw, length: SHACK.width, look });
   }
 
-  private segment(kind: 'wall' | 'gate', ax: number, az: number, bx: number, bz: number, y: number): void {
+  private segment(kind: 'wall' | 'gate', ax: number, az: number, bx: number, bz: number, y: number, style?: WallStyle): void {
     const length = Math.hypot(bx - ax, bz - az);
-    this.structures.push({ kind, x: (ax + bx) / 2, y, z: (az + bz) / 2, yaw: Math.atan2(-(bz - az), bx - ax), length });
+    this.structures.push({ kind, x: (ax + bx) / 2, y, z: (az + bz) / 2, yaw: Math.atan2(-(bz - az), bx - ax), length, ...(style ? { style } : {}) });
   }
 
   view(name: string, px: number, py: number, pz: number, lx: number, ly: number, lz: number): void {

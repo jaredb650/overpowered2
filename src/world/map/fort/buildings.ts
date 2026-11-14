@@ -8,9 +8,9 @@ import { signPanel, wallLamp } from '../../kit/props';
 import { signId } from '../../kit/signs';
 import { Site } from '../outpost/site';
 import type { MapSpec } from '../spec';
-import { type BuildingDef, BUILDINGS, MAGAZINE, ring, type Rgb } from './plan';
+import { type BuildingDef, BUILDINGS, COUNTER, MAGAZINE, ring, type Rgb, SHOP_WALL } from './plan';
 
-const T = 0.3;
+const T = SHOP_WALL;
 
 interface Look { wall: Mat; tint: Rgb; roof: Mat; counter: Mat }
 
@@ -57,21 +57,33 @@ function building(k: Kit, site: Site, b: BuildingDef): void {
   g.box(d1 + 0.001, door.h / 2, (fz0 + fz1) / 2, 0.001, door.h / 2, T / 2, FACE.nx);
   g.tint(1);
 
-  // The counter along the back wall, opposite the door, with stock on shelves behind it.
+  // Shelves of stock on the back wall, the keeper's floor, then the counter across the room. Its right end stops short of the wall:
+  // the keeper's way in, with a hinged flap over it.
   const back = north ? z1 - T : z0 + T, dir = north ? -1 : 1;
-  const cw = Math.min(2.6, (x1 - x0) / 2 - 1);
-  k.block(look.counter, door.x - cw, 0, Math.min(back, back + dir * 0.9), door.x + cw, 1.05, Math.max(back, back + dir * 0.9), 0.03);
-  g.use('steelDark').bevel(door.x, 1.07, back + dir * 0.45, cw + 0.05, 0.02, 0.5, 0.01);
+  const cw = Math.min(2.6, (x1 - x0) / 2 - 1.2);
+  const [c0, c1] = COUNTER.counter;
+  const flapAt = door.x + cw + 0.45;
+  k.block(look.counter, door.x - cw, 0, Math.min(back + dir * c0, back + dir * c1), door.x + cw, 1.05, Math.max(back + dir * c0, back + dir * c1), 0.03);
+  g.use('steelDark').bevel(door.x, 1.07, back + dir * (c0 + c1) / 2, cw + 0.05, 0.02, (c1 - c0) / 2 + 0.06, 0.01);
+  g.use('plywood').tint(0.7).box(flapAt, 1.06, back + dir * (c0 + c1) / 2, 0.42, 0.02, (c1 - c0) / 2, FACE.py | FACE.ny | FACE.sides);
+  g.tint(1);
+  // Under the flap, the gap a keeper walks through: nothing there for a buyer to stand on but the floor.
   g.use('steelDark');
-  for (const y of [1.4, 2.0]) g.bevel(door.x, y, back + dir * 0.2, cw, 0.02, 0.18, 0.01);
-  for (let i = 0; i < 8; i++) {
-    const s = 0.12 + k.rng() * 0.12;
+  const sw = Math.min(cw + 0.8, (x1 - x0) / 2 - T - 0.1);
+  for (const y of [0.6, 1.3, 1.95]) g.bevel(door.x, y, back + dir * 0.2, sw, 0.02, 0.2, 0.01);
+  for (let i = 0; i < 12; i++) {
+    const s = 0.12 + k.rng() * 0.12, row = i % 3;
     g.use(i % 3 ? 'panel' : 'paintYellow').tint(0.5 + k.rng() * 0.3);
-    g.bevel(door.x - cw + 0.3 + (i % 4) * ((cw * 2 - 0.6) / 3), (i < 4 ? 1.4 : 2.0) + s + 0.02, back + dir * 0.2, s * 1.2, s, 0.14, 0.02);
+    g.bevel(door.x - sw + 0.3 + Math.floor(i / 3) * ((sw * 2 - 0.6) / 3), [0.6, 1.3, 1.95][row]! + s + 0.02, back + dir * 0.2, s * 1.2, s, 0.14, 0.02);
   }
   g.tint(1);
+  // A till on the counter and a lamp over the keeper.
+  g.use('steelDark').bevel(door.x - cw + 0.6, 1.22, back + dir * (c0 + 0.2), 0.22, 0.14, 0.16, 0.03);
+  g.use('emissiveCyan').box(door.x - cw + 0.6, 1.3, back + dir * (c0 + 0.03), 0.16, 0.05, 0.005, north ? FACE.nz : FACE.pz);
   k.lampBar(door.x, h - 0.15, (z0 + z1) / 2, 0, Math.min(4, x1 - x0 - 2), 'white', 0, 0);
   k.light(door.x, h - 0.9, (z0 + z1) / 2, 'white', 30, 8);
+  // Over the keeper and his shelves, so whoever stands there is lit.
+  k.light(door.x, h - 0.7, back + dir * 0.9, 'white', 18, 5);
 
   // The sign over the door, lit, and a lamp on the wall beside it.
   const yaw = north ? Math.PI : 0;

@@ -10,6 +10,7 @@ import { Physics } from '../physics/Physics';
 import { Route, RouteFinder } from '../enemies/outpost/routes';
 import { MapSpec } from './map/spec';
 import { NavGraph } from './nav';
+import { DebrisTuning } from './debris';
 import { HEALTH, REPAIR_SECONDS, SHACK_BULLET, Structures, WALL } from './structures';
 
 let physics: Physics;
@@ -356,5 +357,62 @@ describe('lift gates', () => {
 
   it('draws the whole run in one chunk of meshes, not a group a piece', () => {
     expect(lifts.root.children.length).toBeLessThanOrEqual(2);
+  });
+});
+
+describe('debris', () => {
+  const step = (n: number) => {
+    for (let i = 0; i < n; i++) {
+      physics.world.timestep = 1 / 60;
+      physics.world.step();
+      walls.update(1 / 60);
+    }
+  };
+
+  it('throws a shack apart as real bodies away from the blast, which settle and lie there, then fade', () => {
+    reset();
+    const d = walls.debris;
+    walls.blast(V(-8, 0.5, -10), 8, 100, 'rocket');
+    expect(shack.stage).toBe('breached');
+    expect(d.bodies).toBeGreaterThan(30);
+    expect(d.bodies).toBeLessThanOrEqual(DebrisTuning.maxBodies);
+    step(30);
+    // Mostly away from the blast, which was on the shack's north side.
+    const pieces = (d as unknown as { all: { alive: boolean; p: THREE.Vector3 }[] }).all.filter(c => c.alive);
+    const south = pieces.filter(c => c.p.z > -8).length;
+    expect(south / pieces.length).toBeGreaterThan(0.6);
+    step(60 * DebrisTuning.maxFlight);
+    expect(d.bodies).toBe(0);
+    expect(d.pieces).toBeGreaterThan(30);
+    // Nothing fell through the floor (this one is 28 m across: a piece thrown off its edge falls and is let go).
+    const lying = pieces.filter(c => c.alive);
+    expect(lying.length).toBeGreaterThan(30);
+    for (const c of lying) expect(c.p.y).toBeGreaterThan(-0.3);
+    step(60 * (DebrisTuning.linger + DebrisTuning.shrink + 0.5));
+    expect(d.pieces).toBe(0);
+  });
+
+  it('caps the bodies in flight, and a blast throws resting wreckage again', () => {
+    reset();
+    const d = walls.debris;
+    for (let i = 0; i < 4; i++) {
+      walls.setStage(shack, 0);
+      walls.blast(V(-8, 0.5, -10), 8, 100, 'rocket');
+    }
+    expect(d.bodies).toBe(DebrisTuning.maxBodies);
+    step(60 * DebrisTuning.maxFlight);
+    expect(d.bodies).toBe(0);
+    physics.radialImpulse(V(-8, 0.3, -8), 6, 80);
+    expect(d.bodies).toBeGreaterThan(5);
+    reset();
+    expect(d.pieces).toBe(0);
+  });
+
+  it('knocks lumps off a wall when it drops a stage', () => {
+    reset();
+    walls.damage(mid, HEALTH.wall[0]);
+    expect(mid.stage).toBe('damaged');
+    expect(walls.debris.bodies).toBeGreaterThan(4);
+    reset();
   });
 });

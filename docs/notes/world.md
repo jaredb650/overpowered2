@@ -36,16 +36,28 @@ the gates for a wave). Blown is blown, open or not; a repair brings it back shut
 
 **Drawing.** Pieces are drawn in 72 m squares on the static map's grid, one mesh per material each, redrawn on the next `update` after
 any piece in the square changes stage or a gate moves. The fort's 220 pieces are 55 to 67 meshes. A standing wall and its pillar
-are all `concrete` (the caps are tinted), so the common case is one material.
+are all `concrete` (the caps and the slits' throats are tinted), so the common case is one material.
 
 A wall is 3 m tall and 0.5 m thick on 0.8 m pillars. `WALL.catwalk` (1.7 m) is the deck height for a walkway behind it: a standing
-eye clears the top by about 0.3 m. The fort map builds the catwalk itself.
+eye clears the top by about 0.3 m.
+
+**Styled walls.** `spec.wall(ax, az, bx, bz, y, style)` and `spec.wallGate(..., opens, style)` take a `WallStyle` (structures.ts): its
+height, thickness and pillar, and its top. `top: 'crenels'` builds a battlement: the body up to `sill`, then in every segment a crenel
+(a gap `crenel` wide, the segment's middle) between two merlons, each with a loophole slit `slit.w` wide from `sill + slit.y0` to
+`sill + slit.y1`, and a solid cap stone. `top: 'port'` is the body alone, a low wall to fire over. Pillars rise with the wall (the first
+run to reach a pillar's spot sets its style). The fort's (`FORT_WALL`, `FORT_PORT` in its plan) are 5.65 m and 0.8 m on 1 m pillars,
+sill 4.95: the fort map builds the catwalk behind them at 3.8 m. A styled wall's damaged stage is holed low and bitten, one merlon gone;
+breached leaves stubs 55 and 32 % of the sill high.
+
+**Health scales with length**: a wall segment's stages are `HEALTH.wall` times its length over `WALL.segment` (4 m), whatever its
+height, so a breach in the fort's tall walls costs what one in a plain wall does (the gap a breach opens is body-sized either way).
+Gates and shacks keep their numbers.
 
 | Kind | Stages | Collision |
 |---|---|---|
 | Wall segment | intact (300), damaged (300), breached | Intact: one slab. Damaged: two loopholes at chest height you can shoot through, the top bitten down to 2.45 to 2.75 m, still no way through. Breached: stubs at each end and 0.22 m of rubble, a 2.5 m gap a body walks through |
 | Gate | intact (400), breached | A 0.2 m steel leaf, then nothing: the leaf lies flat beside the gap, for show |
-| Shack | intact (120), breached | One solid box (the boards are skin), then 0.22 m of rubble |
+| Shack | intact (120), breached | One solid box (the boards are skin), then 0.22 m of rubble. Its boards, posts, door and roof fly off as debris |
 
 **What wears them.** Every blast goes through `Combat.blast`, which calls `world.objects.damageExplosivesInRadius`, so rockets,
 grenades, tank shells, autocannon rounds, call-ins, enemy RPGs and bombers all reach them without any change in the weapons. A
@@ -57,6 +69,17 @@ damage; blasts count 1.5 times on a shack. Roughly: a player rocket against a wa
 take a stage, one rocket flattens a shack, five open a gate. Every stage change plays dust, chips and smoke, with
 `concrete_crumble` and `explosion_debris` for a wall, `metal_groan` and `metal_clang` for a gate, `impact_metal` for a shack.
 No new sound ids.
+
+**Debris** (`src/world/debris.ts`, `objects.walls.debris`). A shack that falls throws its standing stage as real Rapier boxes: every
+board (in pairs, about half of them snapped in two), each corner post, the door and the roof sheet, about 60 pieces, from where they
+stood. A wall dropping a stage knocks off 7 lumps (14 on a breach). Pieces fly away from the blast that did it, faster the closer and
+bigger it was (to about 12 m/s and up); a shack shot down by small arms just falls in. They tumble, pile on each other
+(`CG.Debris` against `CG.World | CG.Debris`, never the player or bullets), give their body back after 0.6 s slow or 8 s in the air, lie
+there 16 s and shrink away in 1.2 s. A later blast throws resting wreckage again (`Physics.radialListeners`), so a pile can be blown
+about. Caps (`DebrisTuning`): 90 bodies in flight (a new piece freezes the oldest where it is), 160 pieces per material (the oldest
+goes). Drawn as one instanced unit box per material (`plywood`, `rust`, `steelDark`, `concrete`) under `walls.debris.root`, which
+Objects adds beside the structures: 4 draw calls at most. `world.reset()` clears it. Measured in the fort's map sandbox: one shack is
+60 bodies, frame CPU 4 to 8 ms while they fly; four at once hit the 90 cap.
 
 **Nav.** Pieces go up after the nav sample (`World.build` calls `objects.walls.attach(navGraph)`), so the floor under each one is on
 the graph. `NavGraph.setBlocked` counts blockers per node in an oriented box: the flow field does not step onto a blocked node,
@@ -105,6 +128,8 @@ the range.
 - **One mesh per stage, not a gradual wear.** Within a stage the look does not change as health falls.
 - **No ramps or jump pads over a damaged wall yet.** That is the engineers' job, in the wave director piece.
 - **Tuning is a guess.** Health and the tank multiplier have not been played against real waves.
+- **Debris is one box per piece,** stretched from a unit cube, so a plank's texture is squashed. Pieces make no sound when they land.
+- **Debris that was frozen at the body cap hangs where it was** until it shrinks away, sometimes in the air.
 
 # The Kill House
 

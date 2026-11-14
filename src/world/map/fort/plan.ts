@@ -2,13 +2,14 @@
  * The fort of Outpost Defense on paper: piece 6 of docs/proposals/outpost-defense.md, drawn in docs/notes/fort.md. x runs east, z south,
  * y up, and the field is y 0. Three square rings round the origin, each authored as its north side and turned clockwise a quarter at a time.
  *
- * Behind every wall is a rampart: an earth-filled firing step whose top is the catwalk, at WALL.catwalk. A breach opens onto its face,
- * which a man can vault (nav links any ledge up to 1.9 m), so a breach is a way in and the catwalk is still one solid walk.
+ * The walls are 5.65 m of concrete with a battlement (FORT_WALL): a merlon either side of a crenel every 4 m, a loophole in every
+ * merlon. Behind them a steel gantry, the catwalk, stands on posts at LEVEL.deck, so a man on it fights through a crenel or a slit and
+ * ducks behind the sill, and a breach opens under it into the yard. It runs unbroken round every ring, over the gates too.
  *
  * Everything another system needs is plain data at the bottom of this file: shops, ally posts, spawns, lanes, mortar spots, landing zones.
  */
 import type { AllyType } from '../../../allies/data';
-import { WALL } from '../../structures';
+import type { WallStyle } from '../../structures';
 
 export type Vec = readonly [number, number, number];
 export type Rgb = readonly [number, number, number];
@@ -27,8 +28,23 @@ export function rot(i: number, x: number, z: number): [number, number] {
 /** A camera's yaw (0 looks down -Z, north) authored on the north side, turned with it. */
 export const turnYaw = (i: number, yaw = 0): number => yaw - (i * Math.PI) / 2;
 
-/** Every floor a man stands on. Nothing else is floor: roofs, cover tops and sandbags are not. */
-export const LEVEL = { ground: 0, deck: WALL.catwalk, gun: 2.3, tower: 4.7 } as const;
+/**
+ * Every floor a man stands on: the field, the catwalk, the gun pads, the tower tops, the flat roofs you can climb to inside the rings,
+ * and the top of the rocky rise in the west field. Nothing else is floor: other roofs, cover tops and sandbags are not.
+ */
+export const LEVEL = { ground: 0, deck: 3.8, gun: 4.3, tower: 7, roof: 3, rise: 3.5 } as const;
+
+/**
+ * The fort's walls: 5.65 m from the field, 0.8 m thick on 1 m pillars. From the catwalk the sill of a crenel is 1.15 m up (a crouch
+ * is under it, a standing man fires over it), the merlons 1.85 m (over a standing head), and each merlon's slit is at a standing eye.
+ */
+export const FORT_WALL: WallStyle = {
+  height: LEVEL.deck + 1.85, thick: 0.8, pillar: 1, top: 'crenels', sill: LEVEL.deck + 1.15, crenel: 1, slit: { w: 0.16, y0: 0.15, y1: 0.52 },
+};
+/** In front of a mounted gun the wall stops at the sill, a 4 m port the gun sweeps over. */
+export const FORT_PORT: WallStyle = { ...FORT_WALL, height: FORT_WALL.sill, top: 'port' };
+/** A port's half-width either side of its gun. */
+const PORT = 2;
 
 /** Half the ground. Nav and the minimap stop here. */
 export const EDGE = 120;
@@ -36,14 +52,14 @@ export const EDGE = 120;
 export const FENCE = 114;
 export const SKY = 40;
 
-/** The rampart behind a wall, measured in from the wall's line. It starts inside the pillars' back face, so nothing gets between. */
-export const RAMPART = { from: 0.27, to: 3.4 } as const;
-/** A corner tower: a square of rampart raised to LEVEL.tower, this far in from both walls, with a roof this high over its top. */
-export const BASTION = { reach: 4.4, roof: 2.5 } as const;
-/** Runs: down from a rampart end beside a gate, up from the catwalk to a bastion, up from the yard to the catwalk. */
-export const STAIR = { gate: 3, tower: 4.4, yard: 3, width: 2.4 } as const;
-/** A gun's raised pad on the rampart: half its length, the ramp each end, and the tripod's foot in from the wall line. */
-export const GUN_PAD = { half: 1.8, ramp: 1.6, back: 1.1 } as const;
+/** The catwalk behind a wall, measured in from the wall's line: from the wall's back face to the posts on the yard side. */
+export const RAMPART = { from: 0.42, to: 3 } as const;
+/** A corner guard tower: a concrete block raised to LEVEL.tower, this far in from both walls, with a cabin roof this high over its top. */
+export const BASTION = { reach: 5, roof: 2.6 } as const;
+/** Runs: up from the yard beside a gate, up from the catwalk to a tower, up from the yard to the catwalk; and the stairs' width. */
+export const STAIR = { gate: 4.8, tower: 4.2, yard: 4.8, width: 2.2 } as const;
+/** A gun's raised pad on the catwalk: half its length, the ramp each end, and the tripod's foot in from the wall line. */
+export const GUN_PAD = { half: 1.8, ramp: 1.2, back: 1.15 } as const;
 
 interface GateAt { side: number; u: number; w: number }
 interface Along { side: number; u: number }
@@ -101,6 +117,42 @@ export function rampartSpan(r: RingDef, side: number): [number, number] {
   return [left, right];
 }
 
+/** A stretch of a side's wall line, corner to corner: battlement, a gun's port, or a gate. Local x. */
+export interface WallRun { u0: number; u1: number; kind: 'wall' | 'port' | 'gate' }
+
+/** Each side's wall line in order, as the map builds it and spec.wall cuts it. */
+export function wallRuns(r: RingDef, side: number): WallRun[] {
+  const cuts = [
+    ...r.gates.filter(g => g.side === side).map(g => ({ u0: g.u - g.w / 2, u1: g.u + g.w / 2, kind: 'gate' as const })),
+    ...r.guns.filter(g => g.side === side).map(g => ({ u0: g.u - PORT, u1: g.u + PORT, kind: 'port' as const })),
+  ].sort((a, b) => a.u0 - b.u0);
+  const out: WallRun[] = [];
+  let u = -r.half;
+  for (const c of cuts) {
+    if (c.u0 > u) out.push({ u0: u, u1: c.u0, kind: 'wall' });
+    out.push(c);
+    u = c.u1;
+  }
+  out.push({ u0: u, u1: r.half, kind: 'wall' });
+  return out;
+}
+
+/** Local x of every crenel on a side: the middle of each battlement segment, cut as spec.wall cuts a run. */
+export function crenels(r: RingDef, side: number): number[] {
+  const out: number[] = [];
+  for (const run of wallRuns(r, side)) {
+    if (run.kind !== 'wall') continue;
+    const n = Math.max(1, Math.round((run.u1 - run.u0) / 4));
+    for (let i = 0; i < n; i++) out.push(run.u0 + ((i + 0.5) * (run.u1 - run.u0)) / n);
+  }
+  return out;
+}
+
+/** The crenel nearest `u` on a side. */
+export function crenelAt(r: RingDef, side: number, u: number): number {
+  return crenels(r, side).reduce((best, c) => (Math.abs(c - u) < Math.abs(best - u) ? c : best), Infinity);
+}
+
 // ---- buildings ---------------------------------------------------------------------------------------------------
 
 export interface BuildingDef {
@@ -118,11 +170,17 @@ export interface BuildingDef {
 /** Each stands flush against a rampart or in a corner of one, so nothing behind it is a nook. */
 export const BUILDINGS: readonly BuildingDef[] = [
   { id: 'barracks', ring: 'outer', x0: -36, z0: 41.4, x1: -20, z1: 48.6, h: 3.4, door: { face: 'n', x: -28, w: 2.4, h: 2.5 }, sign: 'BARRACKS' },
-  { id: 'armoury', ring: 'middle', x0: -7, z0: -28.6, x1: 7, z1: -21.4, h: 3.6, door: { face: 's', x: 0, w: 3.2, h: 2.8 }, sign: 'ARMOURY' },
+  { id: 'armoury', ring: 'middle', x0: -7, z0: -28.6, x1: 7, z1: -21.4, h: 3.4, door: { face: 's', x: 0, w: 3.2, h: 2.8 }, sign: 'ARMOURY' },
   { id: 'infirmary', ring: 'core', x0: -10.6, z0: -10.6, x1: -2, z1: -4.4, h: 3.3, door: { face: 's', x: -6.3, w: 2.4, h: 2.5 }, sign: 'INFIRMARY' },
 ];
 /** The core's magazine: a sandbagged bunker beside the infirmary, sold from the same counter. */
 export const MAGAZINE = { x0: 4.4, z0: 5, x1: 10.6, z1: 10.6, h: 2.2 } as const;
+
+/**
+ * Inside a shop, measured in from the back wall's inner face: shelves to `shelf`, the keeper's floor, then the counter from `counter[0]`
+ * to `counter[1]`, and the buyer `buyer` in. One end of the counter stops short of the side wall: the keeper's way round.
+ */
+export const COUNTER = { shelf: 0.42, keeper: 0.98, counter: [1.55, 2.25], buyer: 2.9 } as const;
 
 export interface FortShop {
   id: BuildingDef['id'];
@@ -132,6 +190,8 @@ export interface FortShop {
   anchor: Vec;
   /** A camera's yaw from the anchor to the counter. */
   yaw: number;
+  /** Where the shopkeeper stands behind the counter, on the floor, and his yaw (toward the buyer: `yaw + π`). */
+  keeper: { pos: Vec; yaw: number };
   /** The doorway's middle, on the floor. */
   door: Vec;
   /** What the attackers aim at and the shop's health belongs to: the building's box. */
@@ -141,14 +201,18 @@ export interface FortShop {
 const SHOP_NAMES: Record<BuildingDef['id'], string> = { barracks: 'BARRACKS', armoury: 'ARMOURY', infirmary: 'INFIRMARY AND MAGAZINE' };
 
 /** One shop per ring. Losing the ring loses its shop. */
+/** The shops' walls. */
+export const SHOP_WALL = 0.3;
+
 export const FORT_SHOPS: readonly FortShop[] = BUILDINGS.map(b => {
   const north = b.door.face === 'n';
-  // The counter runs along the back wall; the buyer stands 1.3 m in front of it.
-  const back = north ? b.z1 : b.z0;
-  const anchorZ = back + (north ? -2.4 : 2.4);
+  // The counter runs along the back wall with the keeper behind it; the buyer stands in front of it.
+  const back = north ? b.z1 - SHOP_WALL : b.z0 + SHOP_WALL, dir = north ? -1 : 1;
+  const yaw = north ? Math.PI : 0;
   return {
     id: b.id, ring: b.ring, name: SHOP_NAMES[b.id],
-    anchor: [b.door.x, 0, anchorZ], yaw: north ? Math.PI : 0,
+    anchor: [b.door.x, 0, back + dir * COUNTER.buyer], yaw,
+    keeper: { pos: [b.door.x, 0, back + dir * COUNTER.keeper], yaw: north ? 0 : Math.PI },
     door: [b.door.x, 0, north ? b.z0 : b.z1],
     target: { min: [b.x0, 0, b.z0], max: [b.x1, b.h, b.z1] },
   };
@@ -175,8 +239,8 @@ export interface FortPost {
 /** A mounted gun's tripod foot and facing, in the order the map places them. */
 export interface FortGun { ring: RingId; pos: Vec; yaw: number; arc: number }
 
-/** The catwalk's middle, in from the wall line: clear of the pillars and the band a wall blocks on the nav. */
-const DECK_IN = 2;
+/** Where a man on the catwalk stands to fire through a crenel, in from the wall line: up at the sill, clear of the pillars. */
+const DECK_IN = 1.05;
 
 function onSide(r: RingDef, side: number, u: number, inward: number, y: number): Vec {
   const [x, z] = rot(side, u, -r.half + inward);
@@ -199,15 +263,15 @@ function buildPosts(): FortPost[] {
   const add = (type: PostType, ring: RingId, pos: Vec, yaw: number, gun?: number) =>
     out.push({ id: `${type}-${ring}-${out.filter(p => p.type === type && p.ring === ring).length + 1}`, type, ring, pos, yaw, ...(gun === undefined ? {} : { gun }) });
   for (const r of RINGS) {
-    for (const a of RIFLE_AT[r.id]) add('rifleman', r.id, onSide(r, a.side, a.u, DECK_IN, LEVEL.deck), turnYaw(a.side));
-    // Snipers on the bastions, looking out across the corner.
-    for (const c of r.bastions) add('sniper', r.id, onSide(r, c, -r.half + 2, 2, LEVEL.tower), turnYaw(c, Math.PI / 4));
-    // Rocketeers on the rampart just past the top of a gate's stairs.
-    for (const g of r.gates) add('rocketeer', r.id, onSide(r, g.side, g.u + g.w / 2 + 0.4 + STAIR.gate + 1.4, DECK_IN, LEVEL.deck), turnYaw(g.side));
-    // Machine gunners on rampart corners with no bastion.
+    // Riflemen at a crenel each, rocketeers at the crenel just past a gate.
+    for (const a of RIFLE_AT[r.id]) add('rifleman', r.id, onSide(r, a.side, crenelAt(r, a.side, a.u), DECK_IN, LEVEL.deck), turnYaw(a.side));
+    // Snipers in the guard towers, at the corner window, looking out across the corner.
+    for (const c of r.bastions) add('sniper', r.id, onSide(r, c, -r.half + 2.4, 2.4, LEVEL.tower), turnYaw(c, Math.PI / 4));
+    for (const g of r.gates) add('rocketeer', r.id, onSide(r, g.side, crenelAt(r, g.side, g.u + g.w / 2 + 3), DECK_IN, LEVEL.deck), turnYaw(g.side));
+    // Machine gunners on catwalk corners with no tower.
     for (const c of SIDES) {
       if (r.id === 'core' || r.bastions.includes(c)) continue;
-      add('gunner', r.id, onSide(r, c, -r.half + 1.8, 1.8, LEVEL.deck), turnYaw(c, Math.PI / 4));
+      add('gunner', r.id, onSide(r, c, -r.half + 1.6, 1.6, LEVEL.deck), turnYaw(c, Math.PI / 4));
     }
   }
   FORT_GUNS.forEach((g, i) => {
@@ -230,7 +294,7 @@ export const FORT_POSTS: readonly FortPost[] = buildPosts();
 
 /** Riot police wait here, one per stretch of yard, and go to the nearest breach in their ring. */
 export const FORT_BREACH_POINTS: readonly { ring: RingId; pos: Vec }[] = [
-  ...SIDES.map(side => ({ ring: 'outer' as const, pos: onSide(ring('outer'), side, -6, RAMPART.to + 5, 0) })),
+  ...SIDES.map(side => ({ ring: 'outer' as const, pos: onSide(ring('outer'), side, -12, RAMPART.to + 6, 0) })),
   ...SIDES.map(side => {
     const [x, z] = rot(side, -10, -18);
     return { ring: 'middle' as const, pos: [x, 0, z] as Vec };

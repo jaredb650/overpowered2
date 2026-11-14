@@ -6,7 +6,6 @@
 import * as THREE from 'three';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { CG, type Ctx, type Structure } from '../../../core/contracts';
-import { WALL } from '../../structures';
 
 type WorldT = import('../../World').World;
 type Plan = typeof import('./plan');
@@ -63,23 +62,46 @@ describe('the fort', () => {
   it('is inside its budget', () => {
     const r = world.report;
     expect(r.triangles as number).toBeLessThan(450000);
-    expect(r.colliders as number).toBeLessThan(900);
+    // Static boxes are cheap in Rapier's tree; most of these are sandbags, crates and the catwalk's posts.
+    expect(r.colliders as number).toBeLessThan(1300);
     expect(r.lights as number).toBeLessThan(160);
     // Walls, gates and shacks are drawn a chunk at a time, not a group a piece.
     expect(world.objects.walls.root.children.length).toBeLessThan(40);
   });
 
-  it('has three rings of walls with lift gates in each, and the guns on pads high enough to fire over them', () => {
+  it('has three rings of tall walls with lift gates in each, and the guns on pads high enough to fire over their ports', () => {
     const walls = world.objects.walls.all;
     expect(walls.filter(p => p.kind === 'wall').length).toBeGreaterThan(150);
     for (const r of plan.RINGS) expect(r.gates.length).toBeGreaterThan(0);
     expect(gates.length).toBe(plan.RINGS.reduce((n, r) => n + r.gates.length, 0));
     expect(world.spec.emplacements.length).toBe(plan.FORT_GUNS.length);
     for (const e of world.spec.emplacements) {
-      expect(e.pos.y + 1.2).toBeGreaterThan(WALL.height + 0.3);
+      expect(e.pos.y + 1.2).toBeGreaterThan(plan.FORT_PORT.height + 0.3);
       expect(onFloor(e.pos)).toBe(true);
     }
-    expect(plan.LEVEL.deck).toBe(WALL.catwalk);
+    // A real wall: over five metres from the field, and a breach still costs what a plain 4 m segment's does.
+    expect(plan.FORT_WALL.height).toBeGreaterThan(5);
+    const seg = walls.find(p => p.kind === 'wall')!;
+    expect(seg.maxHealth / (seg as unknown as { spec: { length: number } }).spec.length).toBeCloseTo(300 / 4, 0);
+  });
+
+  it('fights from cover: a standing man fires through a crenel or a slit, a crouching one is under the sill, a merlon covers his head', () => {
+    (physics as unknown as { flushQueries(): void }).flushQueries();
+    const eye = 1.62, crouch = 0.86;
+    const riflemen = plan.FORT_POSTS.filter(p => p.type === 'rifleman');
+    expect(riflemen.length).toBeGreaterThan(15);
+    const out = (p: (typeof riflemen)[number]) => V(-Math.sin(p.yaw), 0, -Math.cos(p.yaw));
+    for (const p of riflemen) {
+      const at = P(p.pos), f = out(p);
+      // Standing at his crenel, nothing within 4 m in front of his eye.
+      expect(physics.raycast(V(at.x, at.y + eye, at.z), f, 4, CG.World), `${p.id} standing`).toBeNull();
+      expect(physics.raycast(V(at.x, at.y + crouch, at.z), f, 3, CG.World), `${p.id} crouched`).not.toBeNull();
+      // A step to the side, behind the merlon, his standing head is covered, but the slit in it is at his eye.
+      const side = V(-f.z, 0, f.x).multiplyScalar(1);
+      const behind = V(at.x + side.x, at.y + 1.78, at.z + side.z);
+      expect(physics.raycast(behind, f, 3, CG.World), `${p.id} merlon`).not.toBeNull();
+      expect(physics.raycast(V(behind.x, at.y + 1.5, behind.z), f, 4, CG.World), `${p.id} slit`).toBeNull();
+    }
   });
 
   it('lets a man walk every catwalk and onto every bastion from the core', () => {
@@ -92,8 +114,7 @@ describe('the fort', () => {
         const [a, b] = plan.rampartSpan(r, i);
         for (let u = a + 0.6; u < b - 0.5; u += 2) {
           const [x, z] = plan.rot(i, u, -r.half + 2.2);
-          // Gates and gun pads cut the deck; the pads are checked as guns.
-          if (r.gates.some(g => g.side === i && Math.abs(u - g.u) < g.w / 2 + 0.4 + plan.STAIR.gate + 0.3)) continue;
+          // The deck runs on over the gates; the gun pads cut it, and are checked as guns.
           if (r.guns.some(g => g.side === i && Math.abs(u - g.u) < plan.GUN_PAD.half + plan.GUN_PAD.ramp + 0.3)) continue;
           // So do the stairs up to a bastion; its top is checked below.
           if ((r.bastions.includes(i) && u < a + plan.STAIR.tower + 0.3) || (r.bastions.includes((i + 1) & 3) && u > b - plan.STAIR.tower - 0.3)) continue;
@@ -102,7 +123,7 @@ describe('the fort', () => {
           if (!onFloor(p) || !(route(p, core) < 400)) lost.push(`${r.id} side ${i} at ${u.toFixed(1)}`);
         }
         if (r.bastions.includes(i)) {
-          const [x, z] = plan.rot(i, -r.half + 2.2, -r.half + 2.2);
+          const [x, z] = plan.rot(i, -r.half + 2.4, -r.half + 2.4);
           const p = V(x, plan.LEVEL.tower, z);
           if (!onFloor(p) || !(route(p, core) < 400)) lost.push(`${r.id} bastion ${i}`);
         }
@@ -127,14 +148,14 @@ describe('the fort', () => {
     openRings([]);
   });
 
-  it('opens a way in through a breach, over the rampart', () => {
+  it('opens a way in through a breach, under the catwalk', () => {
     openRings([]);
     const walls = world.objects.walls;
-    const north = walls.all.find(p => p.kind === 'wall' && walls.distance(p, V(-20, 1, -52)) < 0.6)!;
+    const north = walls.all.find(p => p.kind === 'wall' && walls.distance(p, V(-10, 1, -52)) < 0.6)!;
     walls.setStage(north, 2);
-    expect(route(V(-20, 0, -70), V(-20, 0, -40))).toBeLessThan(80);
+    expect(route(V(-10, 0, -70), V(-10, 0, -40))).toBeLessThan(80);
     walls.setStage(north, 0);
-    expect(route(V(-20, 0, -70), V(-20, 0, -40))).toBe(Infinity);
+    expect(route(V(-10, 0, -70), V(-10, 0, -40))).toBe(Infinity);
   });
 
   it('puts every shop in its ring, its counter on the floor inside its own building', () => {
@@ -151,6 +172,17 @@ describe('the fort', () => {
       // Something solid in front of the buyer: the counter.
       const f = V(-Math.sin(s.yaw), 0, -Math.cos(s.yaw));
       expect(physics.raycast(V(a.x, 0.8, a.z), f, 2, CG.World), s.id).not.toBeNull();
+      // The keeper: on the floor inside, the counter between him and the buyer, facing the buyer, a way round to the core.
+      const kp = P(s.keeper.pos);
+      expect(kp.x > s.target.min[0] && kp.x < s.target.max[0] && kp.z > s.target.min[2] && kp.z < s.target.max[2], `${s.id} keeper`).toBe(true);
+      expect(onFloor(kp), `${s.id} keeper`).toBe(true);
+      const toBuyer = V(a.x - kp.x, 0, a.z - kp.z);
+      const hit = physics.raycast(V(kp.x, 0.8, kp.z), toBuyer.clone().normalize(), toBuyer.length(), CG.World);
+      expect(hit, `${s.id} counter`).not.toBeNull();
+      expect(Math.abs(Math.cos(s.keeper.yaw - s.yaw - Math.PI) - 1), `${s.id} keeper yaw`).toBeLessThan(1e-6);
+      expect(route(kp, V(1, 0, 1)), `${s.id} keeper`).toBeLessThan(200);
+      // Standing room behind the counter: a body fits, nothing at chest height within his reach to the sides.
+      expect(physics.overlapCapsule(V(kp.x, 0.95, kp.z), 0.3, 0.5, CG.World), `${s.id} keeper room`).toBe(false);
     }
   });
 

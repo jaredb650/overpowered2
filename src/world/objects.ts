@@ -147,7 +147,7 @@ export class Objects implements WorldObjects {
     this.buildGantries(spec);
     if (spec.reactor) this.buildReactor(spec.reactor);
     this.walls = new Structures(ctx, spec.structures, material);
-    this.root.add(this.walls.root);
+    this.root.add(this.walls.root, this.walls.debris.root);
   }
 
   get structures(): readonly Structure[] {

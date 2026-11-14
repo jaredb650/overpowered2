@@ -12,6 +12,8 @@ export const SIGNS = [
   'REACTOR ACCESS', 'PLATFORM 1', 'PLATFORM 2', 'EVACUATE', 'LINE 7 CENTRAL', 'SLAG YARD', 'TANK FARM', 'RAIL YARD',
   'ARROW L', 'ARROW R', 'ARROW U', 'GAP AHEAD', 'LAUNCH', 'BLAST DOOR', 'COOLANT', 'CRANE 04',
   'BARRACKS', 'ARMOURY', 'INFIRMARY', 'MAGAZINE',
+  'GATE 1', 'GATE 2', 'GATE 3', 'GATE 4', 'GATE 5', 'GATE 6', 'GATE 7', 'GATE 8',
+  'MOTOR POOL', 'FUEL POINT', 'NO SMOKING', 'MESS HALL', 'COMMS', 'AMMO DUMP', 'CHECKPOINT', 'HALT', 'HQ', 'MINES',
 ] as const;
 
 export type SignName = (typeof SIGNS)[number];
@@ -33,7 +35,7 @@ function paint(): HTMLCanvasElement {
   c.textBaseline = 'middle';
   SIGNS.forEach((text, i) => {
     const x = (i % COLS) * CELL_W, y = Math.floor(i / COLS) * CELL_H;
-    const warn = /DANGER|VOLTAGE|CRUSH|NO ENTRY|EVACUATE|GAP/.test(text);
+    const warn = /DANGER|VOLTAGE|CRUSH|NO ENTRY|EVACUATE|GAP|NO SMOKING|HALT|MINES|AMMO/.test(text);
     c.fillStyle = warn ? '#3a0d10' : '#08141f';
     c.fillRect(x, y, CELL_W, CELL_H);
     c.strokeStyle = warn ? '#ff4d3a' : '#62d9ff';
