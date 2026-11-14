@@ -69,6 +69,8 @@ class Campaign implements CampaignSystem {
     this.host = new GameHost(ctx, this.ui);
     this.runner = new MissionRunner(mission, this.host);
     this.host.runner = this.runner;
+    // A mission with Bailiffs in it (Foreclosure) loads their bodies now; on a cold load its first squad would land in enemy bodies.
+    if (/"do":"(roster|battle)"/.test(JSON.stringify(mission.beats))) void ctx.allies?.preload();
   }
 
   init(): void {

@@ -12,7 +12,7 @@ import {
   antenna, belt, boot, bracer, cuirass, drape, feet, handsAndHead, headP, hood, hosePath, kneePad, padOn, panelLine, pauldron, plate, rivets,
   shinGuard, suit, surfaceHit, torsoBand,
 } from '../parts/gear';
-import { bone, cloth, darkSteel, glow, hazard, leather, muscle, paintedMetal, rubber, rust, skin, steel } from '../parts/materials';
+import { bone, cloth, darkSteel, dyed, glow, hazard, leather, muscle, paintedMetal, rubber, rust, scrapPaint, skin, steel } from '../parts/materials';
 import { standardSockets } from '../parts/sockets';
 import { B, type Side, type Sk } from '../parts/skeleton';
 import { clothedBody } from './soldiers';
@@ -281,10 +281,11 @@ const sphereDist = (sk: Sk, x: number, y: number, z: number) => {
 export function warden(m: Model, sk: Sk, def: ArchetypeDef): Record<string, Socket> {
   const accent = accentOf(def);
   const P = headP(sk);
-  const robe = cloth(0x38343a, 0.5);
-  const vest = cloth(0x8a7a58, 0.5);
+  // The militia's priest: a deep teal robe bleached in the salt, a cream vestment, a mantle and mitre painted plum.
+  const robe = dyed(0x1f6a6c, 0.3);
+  const vest = dyed(0xd6c69a, 0.15);
   const gold: Mat = { albedo: [0.76, 0.6, 0.3], rough: 0.32, metal: 1, detail: 2, wear: 0.4 };
-  const iron = paintedMetal(0x26221e, 0.5, 1);
+  const iron = scrapPaint(0x6a3a7a, 0.5, 0.6);
   const { body, sockets } = clothedBody(m, sk, { suit: robe, mass: 0.96, folds: 1.5, glove: leather(0x2c2620) });
   // Layered vestments in long stiff panels reaching the floor.
   for (let i = 0; i < 10; i++) {
@@ -304,7 +305,7 @@ export function warden(m: Model, sk: Sk, def: ArchetypeDef): Record<string, Sock
   m.add(capsule([0, 1.28, 0.16], [0, 1.08, 0.18], 0.012), gold, B.chest, { rigid: true });
   m.add(sphere([0, 1.3, 0.16], 0.03), accent, B.chest, { rigid: true });
   // Tall mitre and a blank gilt mask: nothing human looks out.
-  hood(m, sk, cloth(0x1c1a1e), { size: 1.02 });
+  hood(m, sk, dyed(0x3a2a48, 0.2), { size: 1.02 });
   m.add(ellipsoid(P(0, 0.07, 0.052), [0.074, 0.098, 0.066]), gold, B.head, { rigid: true });
   for (const s of BOTH) m.add(rbox(P(s * 0.034, 0.098, 0.116), [0.018, 0.0034, 0.006], 0.002), accent, B.head, { rigid: true });
   m.add(rbox(P(0, 0.008, 0.116), [0.024, 0.0026, 0.005], 0.002), darkSteel, B.head, { rigid: true, detail: true });

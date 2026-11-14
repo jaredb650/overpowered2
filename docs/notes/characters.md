@@ -96,6 +96,36 @@ red over a body is the crosshair's word for hostile. Accent `#ff2a22`. `bailiff`
 - The identification sheet: `tools/scripts/bureau-sheet.mjs` (a Bailiff and a heavy either side of each human enemy type at 10, 25 and
   50 m through the game's lens, and 25 m in grey).
 
+### The militia: the human enemies
+
+Since 2026-11-14 the seven human types are Holdfast's ragtag militia (`docs/proposals/mission-2-plan.md`, section 4), everywhere,
+the Outpost and Endless Humans included. The shapes are as they were; only the paint changed. Four materials in `parts/materials.ts`:
+`dyed` (cloth bleached toward chalk in blotches by the salt), `patched` (dyed cloth with squares of other cloth sewn on, a dark stitch
+round each), `woven` (a checked wrap with a thread through it, worn where the rubber hood was) and `scrapPaint` (hand-painted plate,
+chipped, faded and rusting through, its rust brown). **No red on them**: red is the Bureau's and the crosshair's.
+
+| Type | Accent | Paint |
+|---|---|---|
+| Trooper | Turquoise `#22d6c4` (was cyan) | Turquoise plate, a yellow band round the helmet, patched sand fatigues, a cream and turquoise check wrap, olive radio |
+| Gunner | Amber `#ffb020` | Amber-yellow bucket helm (a teal stripe down it), collar and pauldrons; a patched ochre duster over slate blue; green shells |
+| Brute | Hot magenta `#ff2ab4` (was red) | Magenta cuirass and pauldrons, a yellow gorget, green, yellow and bare lames, patched denim, a green drum pack; the iron mask stays dark |
+| Rocketeer | Mint `#10ffb0` | Green plate and helmet, patched olive overalls, an orange check headscarf |
+| Sniper | Violet `#9a5cff` (was red-pink) | Sand suit, ghillie rags in six colours, a violet check hood |
+| Riot | Blue `#2a6cff` | Cobalt plate with a yellow chevron, a yellow stripe over the helmet, patched sand under it, and `militiaShield`: the riot shield painted cobalt with a yellow band. `riotShield` stays dark for the Bailiffs |
+| Warden | Cream `#ffe9a0` | A teal robe, a cream vestment, a plum mantle and mitre |
+
+- **The guns are shared** with the Bailiffs, so they keep their paint. Their lit marks moved off red with the types: the minigun's drum
+  is the Brute's magenta and the sniper rifle's lens the Sniper's violet, which the Bailiff heavy and sniper now carry too.
+- **The partial heads and helmets are baked from the same builders,** so they were re-baked with the bodies and match them: the
+  Trooper's and Gunner's wraps show in the torn hood, the Brute's yellow gorget at his neck. The Husk's are untouched.
+- **Size.** A bright paint is a bigger atlas: the same noise is more bits on a light colour. `dyed` and `scrapPaint` keep their noise to
+  low octaves and small amplitude, and rust changes colour and roughness but not metalness (a noisy alpha channel), which brought the
+  heaviest bodies back under 2.5 MB: Riot 2.47, Brute 2.46, Gunner 2.45, Trooper 2.45, Rocketeer 2.36, Sniper 2.35, Warden 2.22 MB,
+  each `.bin` plus its two atlases. Partial heads 1.6 to 1.9 MB each, helmets 0.25 to 0.43 MB.
+- **The sheet** (`tools/scripts/bureau-sheet.mjs`): at 25 m every type is lighter than the Bailiffs (mean value of the chest, Bailiff
+  about 40, heavy 34): Trooper 86, Gunner 80, Brute 63, Rocketeer 84, Sniper 80, Riot 84, Warden 103, and every one is coloured where the
+  Bailiffs are black.
+
 `SeveredLimb` follows the gore dummy's contract: `root` sits at identity in the scene, `bones[bone]` holds the world
 pose. Everything outside the chain is parented to that bone at near-zero scale, so skin blended into the parent closes
 over the child cap. Props on the chain are cloned onto the limb, because a limb can outlive the instance that shed it.

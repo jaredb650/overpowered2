@@ -431,7 +431,7 @@ The Sump plan's section 3 holds, with these changes.
 | # | Stage | What the owner gets | Size | Depends on | Model, effort | Tokens |
 |---|---|---|---|---|---|---|
 | 1 | The Bureau's look (**built**, `docs/notes/characters.md`, The Bailiffs) | Bailiffs on their own two bodies in black, grey and red; the player's body and arms the same; an identification sheet | M | none | Opus, high | 0.4 to 0.7M |
-| 2 | The ragtag militia | The seven human types re-baked in colour, no red on them, helmets repainted | M to L | none | Opus, high | 0.6 to 1.0M |
+| 2 | The ragtag militia (**built**, `docs/notes/characters.md`, The militia) | The seven human types re-baked in colour, no red on them, helmets repainted | M to L | none | Opus, high | 0.6 to 1.0M |
 | 3 | **The Frame on the range** (**built**, `docs/notes/frame.md`) | Walk, look, jets, stomp, charge, backhand, three guns, the cockpit and HUD, on a stand-in body of boxes | L | none | Opus, xhigh | 1.2 to 1.8M |
 | 4 | The Frame's body | The baked walker, its animator, kneel and stand, boarding, the collapse, the eject | L | 3's interface; can start beside it | Opus, high | 0.8 to 1.2M |
 | 5 | What it breaks, what breaks it | `crush`, stalls, thrown wrecks, crushed men, parts and weak points, the top-attack lock and smoke, dread, sappers | M to L | 3 | Opus, high | 0.6 to 1.0M |
@@ -469,6 +469,12 @@ size of the Outpost.
   at 25 m, but not than the Gunner, Brute and Riot, until stage 2 paints them. No partial heads for the Bailiffs: they burst.
 - **2. The ragtag militia.** `archetypes/soldiers.ts` and the helmet props. Targets: the same sheet, every type still named right by eye
   from its silhouette and paint; the Outpost's `mission-live.mjs` steps unchanged. Try: the models sandbox, then `/?contract=campaign`.
+  **Built 2026-11-14.** Dyed, patched, salt-bleached cloth, check wraps and rusting hand-painted plate in each type's colour, no red: the
+  Brute went magenta, the Sniper violet, the Trooper turquoise, with the minigun's and sniper rifle's lit marks to match. The Riot carries
+  `militiaShield` (cobalt, a yellow band); the Bailiffs keep the dark `riotShield`. Helmets and the Trooper, Gunner and Brute partial heads
+  re-baked to match. On the sheet every type is lighter than the Bailiffs at 25 m (chest value 63 to 103 against about 40) and coloured
+  where they are black; each named right by eye. Every body under 2.5 MB (the heaviest 2.47). Foreclosure, and any mission with `roster`
+  or `battle` steps, now loads the Bailiffs as the campaign starts (`campaign/index.ts`).
 - **3. The Frame on the range.** `src/frame/`: `controller.ts` (the walker), `seat.ts` (a `GunnerSeat` on a moving mount),
   `weapons.ts`, `hud` tone in `vehicles/hud.ts`, `cockpit.ts`. `player.carry`. Targets: 60 fps on the range with 18 enemies, no fall
   through any floor in 300 s of random driving, a jet onto a 2.6 m container 10 of 10, a stomp from 4 m knocks everyone in 10 m down,

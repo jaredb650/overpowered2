@@ -8,7 +8,7 @@ import {
   antenna, belt, boot, bracer, cuirass, drape, elbowPad, feet, groove, handsAndHead, headP, helmet, hood, hosePath, kneePad, lineH, lineV, padOn,
   panelLine, pauldron, plate, pouch, respirator, rivets, shinGuard, stencil, suit, surfaceHit, thighPlate, visorSlit,
 } from '../parts/gear';
-import { cloth, darkSteel, glow, hazard, leather, paintedMetal, rubber, skin, steel } from '../parts/materials';
+import { darkSteel, dyed, glow, hazard, leather, paintedMetal, patched, rubber, scrapPaint, skin, steel, woven } from '../parts/materials';
 import { standardSockets } from '../parts/sockets';
 import { B, type Side, type Sk } from '../parts/skeleton';
 
@@ -60,15 +60,23 @@ function harness(m: Model, base: Shape, sk: Sk, mat: Mat): void {
 /*
  * Helmets are baked as props (`*Helmet` in props.ts) and worn on the `head` socket, so the helmet you see is the plate that
  * gets shot off. The bodies keep only the hooded head underneath.
+ *
+ * The human types are Holdfast's militia (docs/proposals/mission-2-plan.md, section 4): dyed cloth bleached by the salt, patches,
+ * scrap plate painted by hand in each type's colour and rusting. No red anywhere, because red is ours and the crosshair's.
  */
-const trooperShell = () => paintedMetal(0x3c4a5c, 0.5, 1);
-const rocketeerShell = () => paintedMetal(0x394a42, 0.5, 1);
-const riotNavy = () => paintedMetal(0x1e2a44, 0.45, 1);
-const gunnerIron = () => paintedMetal(0x2e2a26, 0.55, 1);
+const trooperShell = () => scrapPaint(0x1f9cb2, 0.5);
+const rocketeerShell = () => scrapPaint(0x6cc07a, 0.5);
+const riotNavy = () => scrapPaint(0x2b5cc4, 0.45);
+const gunnerIron = () => scrapPaint(0xd09a24, 0.55);
+/** The militia's brown webbing and pouches. */
+const webbing = () => dyed(0x4e4030, 0.2);
+/** Hand-painted stripes and marks on the plate. */
+const daub = (color: number): Mat => ({ ...dyed(color, 0.15), rough: 0.6, wear: 0.6 });
 
 function trooperHead(m: Model, sk: Sk, def: ArchetypeDef): void {
   const P = headP(sk);
-  hood(m, sk, rubber);
+  // A cream and turquoise wrap where the hood was, an orange thread through it.
+  hood(m, sk, woven(0xd2c39a, 0x1f8a80, 0xd07a26));
   visorSlit(m, sk, accentOf(def));
   m.add(blend(0.016, ellipsoid(P(0, 0.028, 0.09), [0.066, 0.046, 0.044]), cone(P(0, 0.018, 0.1), P(0, 0.006, 0.136), 0.032, 0.024)), darkSteel, B.head, { rigid: true });
   for (const s of BOTH) m.add(cyl(P(s * 0.046, 0.012, 0.098), P(s * 0.074, 0.0, 0.112), 0.02, 0.004), rubber, B.head, { rigid: true });
@@ -78,15 +86,17 @@ export function trooperHelmet(m: Model, sk: Sk, def: ArchetypeDef): void {
   const P = headP(sk);
   const shellMat = trooperShell();
   helmet(m, sk, { mat: shellMat, ears: true, neckGuard: true });
+  // A yellow band painted round the crown by hand.
+  m.paint(rbox(P(0, 0.17, 0), [0.2, 0.012, 0.2], 0.002), daub(0xe0b82c), 0.003);
   // Rear fin: the trooper's read at range.
   m.add(blend(0.01, rbox(P(0, 0.2, -0.04), [0.008, 0.024, 0.09], 0.006), rbox(P(0, 0.17, -0.1), [0.008, 0.05, 0.05], 0.006)), shellMat, B.head, { rigid: true, k: 0.01 });
   antenna(m, P(-0.11, 0.12, -0.03), P(-0.15, 0.42, -0.1), B.head, darkSteel, accentOf(def));
 }
 
 export function trooper(m: Model, sk: Sk, def: ArchetypeDef): Record<string, Socket> {
-  const fatigue = cloth(0x2a3442, 0.6);
+  const fatigue = patched(0x9a8a5e, [0x5c7a3c, 0x2a7f8c, 0xc08a3a, 0x6a5a8a]);
   const shell = trooperShell();
-  const web = cloth(0x14171c, 0.2);
+  const web = webbing();
   const { body, sockets } = clothedBody(m, sk, { suit: fatigue, mass: 1 });
   const torsoLayer = m.snapshot();
   cuirass(m, body, sk, shell, { off: 0.024, top: 1.47, bottom: 1.17, width: 0.165 });
@@ -110,7 +120,7 @@ export function trooper(m: Model, sk: Sk, def: ArchetypeDef): Record<string, Soc
   // Thigh holster on the right, drop pouch on the left.
   m.add(rbox(sk.on(B.thighR, B.shinR, 0.34, -0.086, 0, 0.012), [0.016, 0.075, 0.032], 0.012), web, B.thighR, { rigid: true });
   // Radio pack with antenna.
-  m.add(rbox([0, 1.34, -0.17], [0.1, 0.13, 0.05], 0.018), paintedMetal(0x20262e, 0.5, 1), B.chest, { rigid: true });
+  m.add(rbox([0, 1.34, -0.17], [0.1, 0.13, 0.05], 0.018), scrapPaint(0x6e7a3a, 0.5), B.chest, { rigid: true });
   m.add(rbox([0, 1.34, -0.222], [0.066, 0.09, 0.004], 0.003), darkSteel, B.chest, { rigid: true, detail: true });
   m.add(rbox([-0.05, 1.42, -0.225], [0.01, 0.006, 0.002], 0.001), accentOf(def), B.chest, { rigid: true, detail: true });
   antenna(m, [0.08, 1.46, -0.18], [0.1, 1.98, -0.28], B.chest, darkSteel);
@@ -120,9 +130,10 @@ export function trooper(m: Model, sk: Sk, def: ArchetypeDef): Record<string, Soc
 }
 
 export function gunner(m: Model, sk: Sk, def: ArchetypeDef): Record<string, Socket> {
-  const coat = cloth(0x3a3026, 0.8);
+  // An ochre duster patched with whatever was to hand, over a slate-blue shirt.
+  const coat = patched(0xb07a2c, [0x5c7a3c, 0x2a7f8c, 0xcab070, 0x4a5a7a], 0.14);
   const iron = gunnerIron();
-  const { body, sockets } = clothedBody(m, sk, { suit: cloth(0x24211e), mass: 1.12 });
+  const { body, sockets } = clothedBody(m, sk, { suit: dyed(0x3e5c70), mass: 1.12 });
   // Long stiff coat in panels: bulk at the shoulders, skirts to the knee.
   suit(m, m.snapshot(), coat, { off: 0.016, folds: 1.5, seed: 3, exclude: [...handsAndHead(sk), sphere(sk.on(B.thighL, B.shinL, 1.1), 0.34), sphere(sk.on(B.thighR, B.shinR, 1.1), 0.34)] });
   for (const [x, z, w] of [[0.1, 0.13, 0.095], [-0.1, 0.13, 0.095], [0.1, -0.15, 0.1], [-0.1, -0.15, 0.1], [0.19, -0.01, 0.07], [-0.19, -0.01, 0.07]] as const) {
@@ -138,7 +149,7 @@ export function gunner(m: Model, sk: Sk, def: ArchetypeDef): Record<string, Sock
     const t = i / 8;
     const p: V3 = [0.115 - t * 0.2, 1.47 - t * 0.31, 0];
     const h = surfaceHit(coatLayer, [p[0], p[1], 0.3], [0, 0, -1]);
-    m.add(capsule(add(h, [0.016, 0.012, 0.016]), add(h, [-0.016, -0.012, 0.016]), 0.0085), hazard(0xb03010, 0xb03010), B.chest, { rigid: true });
+    m.add(capsule(add(h, [0.016, 0.012, 0.016]), add(h, [-0.016, -0.012, 0.016]), 0.0085), hazard(0x2f8a48, 0x2f8a48), B.chest, { rigid: true });
   }
   for (const s of BOTH) {
     pauldron(m, sk, s, iron, { size: 1.12, tiers: 2 });
@@ -148,7 +159,7 @@ export function gunner(m: Model, sk: Sk, def: ArchetypeDef): Record<string, Sock
   // High collar rising to the ears. The bucket helm is `gunnerHelmet`.
   m.add(cut(frustum(sk.p(B.neck, 0, -0.05, -0.005), sk.p(B.neck, 0, 0.1, -0.015), 0.13, 0.15, 0.008), cyl(sk.p(B.neck, 0, -0.1, -0.005), sk.p(B.neck, 0, 0.2, -0.015), 0.105, 0.003)), iron, B.chest, { rigid: true });
   m.cut(rbox(sk.p(B.neck, 0, 0.09, 0.14), [0.07, 0.08, 0.05], 0.02), { k: 0.012 });
-  hood(m, sk, rubber);
+  hood(m, sk, woven(0x2a6a78, 0x3e5c70, 0xcab070));
   return sockets;
 }
 
@@ -161,47 +172,51 @@ export function gunnerHelmet(m: Model, sk: Sk, def: ArchetypeDef): void {
   m.add(rbox(P(0, 0.09, 0.104), [0.066, 0.0085, 0.012], 0.003), accentOf(def), B.head, { rigid: true });
   rivets(m, bucket, [[-0.085, 0.17, 0], [-0.03, 0.17, 0], [0.03, 0.17, 0], [0.085, 0.17, 0], [-0.085, 0.03, 0], [0.085, 0.03, 0]].map(([x, y, z]) => P(x!, y!, z!)), [0, 0, -1], steel, B.head);
   m.add(rbox(P(0, 0.222, 0), [0.04, 0.012, 0.09], 0.01), darkSteel, B.head, { rigid: true });
+  m.paint(rbox(P(0, 0.12, 0), [0.03, 0.2, 0.2], 0.002), daub(0x1f8a80), 0.003);
   for (let i = -2; i <= 2; i++) panelLine(m, P(i * 0.026, 0.005, 0.13), P(i * 0.026, 0.06, 0.13), 0.0035);
 }
 
 export function brute(m: Model, sk: Sk, def: ArchetypeDef): Record<string, Socket> {
-  const plateMat = paintedMetal(0x4a2420, 0.5, 1);
+  // Scavenged plate that never matched: magenta on the chest and shoulders, a yellow gorget, green and bare iron below.
+  const plateMat = scrapPaint(0xb83a86, 0.5);
   const iron = paintedMetal(0x24262a, 0.55, 1);
+  const yellow = scrapPaint(0xd2aa2a, 0.55);
+  const green = scrapPaint(0x4f8a46, 0.55);
   const P = headP(sk);
-  const { body, sockets } = clothedBody(m, sk, { suit: cloth(0x262a30), mass: 1.45, folds: 0.7, bootMat: iron });
+  const { body, sockets } = clothedBody(m, sk, { suit: patched(0x3f5f8e, [0x8a7a52, 0x2a7f8c, 0xc08a3a], 0.13), mass: 1.45, folds: 0.7, bootMat: iron });
   const front = cuirass(m, body, sk, plateMat, { off: 0.03, top: 1.52, bottom: 1.12, width: 0.27 });
   rivets(m, front, [-0.2, -0.1, 0, 0.1, 0.2].flatMap(x => [[x, 1.48, 0], [x, 1.16, 0]] as V3[]), [0, 0, -1], steel, B.chest, 0.0075);
   stencil(m, [0.12, 1.4, 0.24], 0.1, 0.03, 5, hazardInk);
   for (let i = -3; i <= 3; i++) groove(m, front, lineV(i * 0.05, 1.2, 1.3, 0.1, 0.002));
   // Stacked abdomen lames: these are the plates the gunfire strips.
   for (let i = 0; i < 3; i++) {
-    plate(m, body, 0.026, 0.014, rbox([0, 1.1 - i * 0.052, 0.1], [0.16 - i * 0.014, 0.03, 0.14], 0.012), iron, i < 1 ? B.spine : B.hips);
+    plate(m, body, 0.026, 0.014, rbox([0, 1.1 - i * 0.052, 0.1], [0.16 - i * 0.014, 0.03, 0.14], 0.012), [green, yellow, iron][i]!, i < 1 ? B.spine : B.hips);
   }
   belt(m, sk, m.snapshot(), 0.96, leather(0x141210), steel, { width: 0.032, off: 0.03 });
   for (const s of BOTH) {
     pauldron(m, sk, s, plateMat, { size: 1.5, tiers: 2, spike: darkSteel, flare: 0.2 });
     kneePad(m, body, sk, s, plateMat, 1.2);
     shinGuard(m, body, sk, s, plateMat);
-    thighPlate(m, body, sk, s, iron);
-    bracer(m, body, sk, s, iron);
+    thighPlate(m, body, sk, s, s > 0 ? green : yellow);
+    bracer(m, body, sk, s, s > 0 ? yellow : iron);
     boot(m, sk, s, iron, { plated: plateMat, height: 0.3 });
   }
   // Gorget swallows the neck, so the head reads tiny between the shoulders.
-  m.add(cut(frustum(sk.p(B.neck, 0, -0.07, -0.01), sk.p(B.neck, 0, 0.1, 0.0), 0.2, 0.125, 0.012), cyl(sk.p(B.neck, 0, -0.2, 0), sk.p(B.neck, 0, 0.2, 0), 0.09, 0.003)), iron, B.chest, { rigid: true });
+  m.add(cut(frustum(sk.p(B.neck, 0, -0.07, -0.01), sk.p(B.neck, 0, 0.1, 0.0), 0.2, 0.125, 0.012), cyl(sk.p(B.neck, 0, -0.2, 0), sk.p(B.neck, 0, 0.2, 0), 0.09, 0.003)), yellow, B.chest, { rigid: true });
   hood(m, sk, rubber, { size: 0.92 });
   m.add(cut(ellipsoid(P(0, 0.1, 0.02), [0.098, 0.1, 0.11]), rbox(P(0, 0.082, 0.12), [0.06, 0.009, 0.05], 0.002)), iron, B.head, { rigid: true });
   m.add(ellipsoid(P(0, 0.082, 0.056), [0.056, 0.0085, 0.062]), accentOf(def), B.head, { rigid: true });
   // Ammo drum pack on the back.
-  m.add(rbox([0, 1.34, -0.24], [0.17, 0.2, 0.08], 0.03), iron, B.chest, { rigid: true });
+  m.add(rbox([0, 1.34, -0.24], [0.17, 0.2, 0.08], 0.03), green, B.chest, { rigid: true });
   m.add(cyl([0, 1.34, -0.32], [0, 1.34, -0.335], 0.09), accentOf(def, 0.6), B.chest, { rigid: true, detail: true });
   hosePath(m, [[0.12, 1.45, -0.2], [0.26, 1.58, -0.14], [0.36, 1.46, 0.02], [0.4, 1.28, 0.06]], B.chest, { r: 0.02, mat: steel });
   return sockets;
 }
 
 export function rocketeer(m: Model, sk: Sk, def: ArchetypeDef): Record<string, Socket> {
-  const fatigue = cloth(0x2c3430, 0.7);
+  const fatigue = patched(0x6a7038, [0x9a8a5e, 0xc0702c, 0x3e5c70], 0.12);
   const shell = rocketeerShell();
-  const web = cloth(0x141814, 0.2);
+  const web = webbing();
   const P = headP(sk);
   const { body, sockets } = clothedBody(m, sk, { suit: fatigue, mass: 1.04 });
   const layer = m.snapshot();
@@ -213,7 +228,8 @@ export function rocketeer(m: Model, sk: Sk, def: ArchetypeDef): Record<string, S
     kneePad(m, body, sk, s, shell);
     pouch(m, surfaceHit(layer, [s * 0.11, 1.08, 0.3], [0, 0, -1]), web, { bone: B.spine, size: [0.05, 0.06, 0.034] });
   }
-  hood(m, sk, rubber);
+  // An orange headscarf in checks.
+  hood(m, sk, woven(0xc8702a, 0xd2c39a, 0x2a4a3a));
   respirator(m, sk, darkSteel, { filter: shell });
   m.add(ellipsoid(P(0.04, 0.09, 0.108), [0.02, 0.016, 0.008]), accentOf(def, 0.4), B.head, { rigid: true });
   sockets.back = { bone: B.chest, pos: [0, 0.1, -0.2], rot: [0, 0, 0, 1] };
@@ -232,12 +248,13 @@ export function rocketeerHelmet(m: Model, sk: Sk, def: ArchetypeDef): void {
 
 export function sniper(m: Model, sk: Sk, def: ArchetypeDef): Record<string, Socket> {
   const P = headP(sk);
-  const drab = cloth(0x2b3028, 0.8);
-  const strip = cloth(0x3a3e30, 0.9);
+  const drab = dyed(0x7a6a48);
+  // Rags in every colour the market had: they break up his line and still read as the militia's.
+  const rags = [0x6e4e98, 0x9a8a5e, 0x5c7a3c, 0xb07a2c, 0x2a7f8c, 0x8a62b0].map(c => dyed(c, 0.3));
   const { body, sockets } = clothedBody(m, sk, { suit: drab, mass: 0.84, folds: 1.3 });
   for (const s of BOTH) {
-    kneePad(m, body, sk, s, leather(0x1e2018));
-    bracer(m, body, sk, s, leather(0x1e2018));
+    kneePad(m, body, sk, s, leather(0x4a3a28));
+    bracer(m, body, sk, s, leather(0x4a3a28));
   }
   // Tattered ghillie: strips hang from shoulders and back, breaking up the body line at range.
   let seed = 7;
@@ -249,11 +266,11 @@ export function sniper(m: Model, sk: Sk, def: ArchetypeDef): Record<string, Sock
     const top = surfaceHit(layer, [x * 3, 1.46 - rnd() * 0.05, z * 3], [-x, 0, -z]);
     const L = 0.28 + rnd() * 0.42;
     const bone = z > 0.06 || Math.abs(x) < 0.08 ? B.chest : B.chest;
-    drape(m, add(top, [0, 0.02, 0]), add(top, [x * 0.35, -L, z * 0.45]), 0.012 + rnd() * 0.02, 0.004, strip, bone, i);
+    drape(m, add(top, [0, 0.02, 0]), add(top, [x * 0.35, -L, z * 0.45]), 0.012 + rnd() * 0.02, 0.004, rags[i % rags.length]!, bone, i);
   }
-  belt(m, sk, layer, 1.02, cloth(0x14160f), steel);
+  belt(m, sk, layer, 1.02, webbing(), steel);
   // Single huge lens on a smooth hood. Reads as one bright point on a tall thin body.
-  hood(m, sk, cloth(0x1c1e18), { folds: 2, size: 1.06 });
+  hood(m, sk, woven(0x5a3c86, 0x7a6a48, 0xcab070), { folds: 2, size: 1.06 });
   m.add(cone(P(0, 0.09, 0.09), P(0, 0.09, 0.17), 0.05, 0.042), darkSteel, B.head, { rigid: true });
   m.add(torus(P(0, 0.09, 0.172), [0, 0, 1], 0.04, 0.007), steel, B.head, { rigid: true });
   m.add(ellipsoid(P(0, 0.09, 0.165), [0.037, 0.037, 0.014]), accentOf(def), B.head, { rigid: true });
@@ -265,10 +282,12 @@ export function sniper(m: Model, sk: Sk, def: ArchetypeDef): Record<string, Sock
 export function riot(m: Model, sk: Sk, def: ArchetypeDef): Record<string, Socket> {
   const navy = riotNavy();
   const pad = rubber;
-  const { body, sockets } = clothedBody(m, sk, { suit: cloth(0x171d2a), mass: 1.2, folds: 0.8, handsL: 'grip' });
+  const { body, sockets } = clothedBody(m, sk, { suit: patched(0x8c7c58, [0x5c7a3c, 0x3e5c70, 0xc08a3a], 0.13), mass: 1.2, folds: 0.8, handsL: 'grip' });
   const front = cuirass(m, body, sk, navy, { off: 0.03, top: 1.5, bottom: 1.1, width: 0.21 });
   for (let i = 0; i < 3; i++) groove(m, front, lineH(1.17 + i * 0.05, -0.17, 0.17, 0.1));
   m.paint(rbox([0, 1.415, 0.2], [0.075, 0.007, 0.08], 0.002), accentOf(def, 0.8), 0.001);
+  // A yellow chevron daubed across the chest plate.
+  m.paint(rbox([0, 1.3, 0.2], [0.2, 0.018, 0.1], 0.002), daub(0xe0b82c), 0.002);
   stencil(m, [0, 1.36, 0.24], 0.14, 0.03, 9);
   belt(m, sk, m.snapshot(), 1.02, rubber, steel, { width: 0.03, off: 0.024 });
   for (const s of BOTH) {
@@ -279,7 +298,7 @@ export function riot(m: Model, sk: Sk, def: ArchetypeDef): Record<string, Socket
     elbowPad(m, body, sk, s, navy);
     bracer(m, body, sk, s, navy);
   }
-  hood(m, sk, rubber);
+  hood(m, sk, woven(0x3e5c70, 0xd2c39a, 0xe0b82c));
   return sockets;
 }
 
@@ -293,6 +312,7 @@ export function riotHelmet(m: Model, sk: Sk, def: ArchetypeDef): void {
   }, B.head, { rigid: true });
   m.add(rbox(P(0, 0.14, 0.135), [0.05, 0.003, 0.002], 0.001), accentOf(def), B.head, { rigid: true, detail: true });
   m.add(capsule(P(-0.1, 0.13, 0.03), P(0.1, 0.13, 0.03), 0.012), navy, B.head, { rigid: true });
+  m.paint(rbox(P(0, 0.2, -0.02), [0.022, 0.2, 0.2], 0.002), daub(0xe0b82c), 0.003);
 }
 
 export function burner(m: Model, sk: Sk, def: ArchetypeDef): Record<string, Socket> {

@@ -151,3 +151,94 @@ export const scales = (color: number | V3): Mat => ({
     tintBy(o, 0.7 + sstep(0, 0.12, cellEdge(f1)) * 0.5);
   },
 });
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The militia's palette (docs/proposals/mission-2-plan.md, section 4): dyed cloth gone pale in the salt, scrap plate painted by hand
+// and rusting through. No red: rust stays brown, and the brightest warm colour is orange.
+// ---------------------------------------------------------------------------------------------------------------------
+
+const SALT: V3 = [0.8, 0.77, 0.69];
+const mixTo = (o: MatSample, c: V3, t: number) => {
+  o.r += (c[0] - o.r) * t; o.g += (c[1] - o.g) * t; o.b += (c[2] - o.b) * t;
+};
+/** 0..1 from three integers, for picking a patch. */
+const hash3 = (a: number, b: number, c: number) => {
+  let h = Math.imul(a, 374761393) ^ Math.imul(b, 668265263) ^ Math.imul(c, 1274126177);
+  h = Math.imul(h ^ (h >>> 13), 1103515245);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+};
+
+/** Dyed cloth, bleached toward chalk in blotches by sun and salt. The atlas adds the grime. Low octaves only: fine noise on a bright dye is what makes an atlas big. */
+export const dyed = (color: number, bleach = 0.35): Mat => ({
+  albedo: hexc(color), rough: 0.92, detail: DETAIL_CLOTH,
+  paint: (x, y, z, o) => {
+    tintBy(o, 0.9 + fbm(x * 7, y * 7, z * 7, 2) * 0.26);
+    mixTo(o, SALT, sstep(-0.05, 0.35, fbm(x * 2.6 + 5, y * 2.6, z * 2.6, 2)) * bleach);
+  },
+});
+
+/** Dyed cloth with squares of other cloth sewn on, a dark stitch round each: `patches` are their colours, `size` their spacing. */
+export const patched = (color: number, patches: readonly number[], size = 0.12, bleach = 0.35): Mat => {
+  const base = dyed(color, bleach);
+  const cols = patches.map(hexc);
+  return {
+    ...base,
+    paint: (x, y, z, o) => {
+      const w = noise(x * 9, y * 9, z * 9) * 0.08;
+      const u = x / size + w, v = y / size - w, s = z / size + w;
+      const gx = Math.floor(u), gy = Math.floor(v), gz = Math.floor(s);
+      const h = hash3(gx, gy, gz);
+      if (h < 0.34) {
+        const inside = Math.max(Math.abs(u - gx - 0.5), Math.abs(v - gy - 0.5), Math.abs(s - gz - 0.5));
+        if (inside < 0.36) {
+          const c = cols[Math.floor(h * 1000) % cols.length]!;
+          o.r = c[0]; o.g = c[1]; o.b = c[2];
+          if (inside > 0.33) tintBy(o, 0.55);
+        }
+      }
+      base.paint!(x, y, z, o);
+    },
+  };
+};
+
+/** A woven wrap or scarf: checks of `a` and `b` with a thin `c` stripe through every other band. */
+export const woven = (a: number, b: number, c: number, band = 0.024, bleach = 0.25): Mat => {
+  const base = dyed(a, bleach);
+  const B = hexc(b), C = hexc(c);
+  return {
+    ...base,
+    paint: (x, y, z, o) => {
+      const i = Math.floor(y / band), j = Math.floor((x + z * 0.7) / band);
+      if ((i ^ j) & 1) mixTo(o, B, 0.85);
+      const t = y / band - i;
+      if ((i & 3) === 0 && t > 0.4 && t < 0.6) mixTo(o, C, 0.9);
+      base.paint!(x, y, z, o);
+    },
+  };
+};
+
+/**
+ * Scrap plate painted by hand: chipped to bare steel, faded by the salt, rust blooming through and streaking down. Its own noise
+ * rather than `paintedMetal`'s, and gentler: on a bright paint the same variation is more bits in the atlas.
+ */
+export const scrapPaint = (color: number, rough = 0.55, rustiness = 1): Mat => ({
+  albedo: hexc(color), rough, metal: 0.25, detail: DETAIL_METAL, wear: 1,
+  paint: (x, y, z, o) => {
+    tintBy(o, 0.92 + fbm(x * 6, y * 6, z * 6, 2) * 0.2);
+    mixTo(o, SALT, sstep(0.0, 0.4, fbm(x * 3 + 2, y * 3, z * 3, 2)) * 0.22);
+    const chip = fbm(x * 40 + 3, y * 40, z * 40, 2);
+    if (chip > 0.36) {
+      const t = sstep(0.36, 0.4, chip) * 0.7;
+      mixTo(o, [0.17, 0.17, 0.18], t);
+      o.metal += (1 - o.metal) * t;
+    }
+    const n = fbm(x * 11 + 2, y * 11, z * 11, 3);
+    const streak = sstep(0.2, 0.6, noise(x * 14, y * 2.5, z * 14)) * sstep(0.0, 0.3, fbm(x * 6, y * 6 + 4, z * 6, 2));
+    const r = Math.min(1, sstep(0.14, 0.32, n) + streak * 0.5) * rustiness;
+    if (r > 0) {
+      // Colour and roughness only: a metalness that varies with the rust is a noisy alpha channel, and the atlas pays for it.
+      mixTo(o, [0.36 + n * 0.1, 0.18 + n * 0.05, 0.08], r * 0.85);
+      o.rough += (0.88 - o.rough) * r;
+    }
+  },
+});

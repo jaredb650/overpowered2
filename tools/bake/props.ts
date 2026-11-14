@@ -14,7 +14,7 @@ import { brute, gunner, gunnerHelmet, riotHelmet, rocketeerHelmet, trooper, troo
 import { husk } from './archetypes/creatures';
 import { headOnly, sideBlown, toHead, topBlown } from './parts/headWreck';
 import { B, Sk } from './parts/skeleton';
-import { darkSteel, glass, glow, hazard, hexc, leather, paintedMetal, rubber, rust, steel } from './parts/materials';
+import { darkSteel, glass, glow, hazard, hexc, leather, paintedMetal, rubber, rust, scrapPaint, steel } from './parts/materials';
 
 export interface PropDef {
   build(m: Model): Record<string, Socket>;
@@ -100,7 +100,8 @@ const minigun: PropDef = {
   tris: 5200,
   atlas: 512,
   build(m) {
-    const red = glow(hexc(0xff2a1a), 1);
+    // The Brute's magenta, not red: red is the Bureau's (docs/proposals/mission-2-plan.md, section 4).
+    const red = glow(hexc(0xff2ab4), 1);
     m.add(rbox([0, 0.04, 0.02], [0.07, 0.076, 0.19], 0.02), gun, 0);
     m.add(cyl([0, 0.04, 0.2], [0, 0.04, 0.33], 0.082, 0.01), gunLight, 0);
     for (let i = 0; i < 6; i++) {
@@ -148,7 +149,8 @@ const sniperRifle: PropDef = {
   tris: 3400,
   atlas: 512,
   build(m) {
-    const red = glow(hexc(0xff1060), 0.35);
+    // The Sniper's violet, not red.
+    const red = glow(hexc(0x9a5cff), 0.35);
     m.add(rbox([0, 0.06, 0.06], [0.021, 0.034, 0.17], 0.008), gun, 0);
     m.add(cyl([0, 0.066, 0.2], [0, 0.066, 1.02], 0.014, 0.002), darkSteel, 0);
     m.add(cyl([0, 0.066, 0.2], [0, 0.066, 0.62], 0.024, 0.004), gunLight, 0);
@@ -168,12 +170,12 @@ const sniperRifle: PropDef = {
   },
 };
 
-const riotShield: PropDef = {
+/** The riot shield: `face` is its paint, `band` an optional stripe daubed across it. The Bailiffs carry it dark, the militia's Riot blue. */
+const shieldOf = (face: Mat, band?: Mat): PropDef => ({
   tris: 2600,
   atlas: 512,
   build(m) {
     const blue = glow(hexc(0x2a6cff), 1);
-    const face = paintedMetal(0x20262e, 0.5, 1);
     // Authored with the face toward +Z and the handle at the origin. About chin to shin on a soldier.
     const shell = cut(ellipsoid([0, 0.06, -0.26], [0.4, 0.74, 0.36]), ellipsoid([0, 0.06, -0.285], [0.4, 0.74, 0.36]));
     const trimmed = cut(cut(shell, rbox([0, 0.06, -0.55], [1, 1, 0.5], 0.002)), rbox([0, -0.68, 0.1], [0.6, 0.12, 0.6], 0.03));
@@ -186,9 +188,12 @@ const riotShield: PropDef = {
     m.add(rbox([0, 0, -0.02], [0.016, 0.1, 0.012], 0.006), grip, 0);
     m.add(rbox([0, 0.09, 0.02], [0.03, 0.012, 0.03], 0.006), gun, 0);
     m.add(rbox([0, -0.09, 0.02], [0.03, 0.012, 0.03], 0.006), gun, 0);
+    if (band) m.paint(rbox([0, -0.2, 0.1], [0.5, 0.05, 0.2], 0.002), band, 0.004);
     return {};
   },
-};
+});
+const riotShield = shieldOf(paintedMetal(0x20262e, 0.5, 1));
+const militiaShield = shieldOf(scrapPaint(0x2b5cc4, 0.5), { albedo: hexc(0xe0b82c), rough: 0.6, metal: 0.1, detail: 2, wear: 0.6 });
 
 const blade: PropDef = {
   tris: 1400,
@@ -355,7 +360,7 @@ function partialHead(archetype: string, body: (m: Model, sk: Sk, def: ArchetypeD
 }
 
 export const PROPS: Record<string, PropDef> = {
-  smg, pistol, shotgun, minigun, launcher, sniperRifle, riotShield, blade, flamer, wardenStaff, fuelTank, twinTanks, rocketPack,
+  smg, pistol, shotgun, minigun, launcher, sniperRifle, riotShield, militiaShield, blade, flamer, wardenStaff, fuelTank, twinTanks, rocketPack,
   trooperHelmet: wornOnHead('trooper', trooperHelmet),
   gunnerHelmet: wornOnHead('gunner', gunnerHelmet),
   rocketeerHelmet: wornOnHead('rocketeer', rocketeerHelmet),
