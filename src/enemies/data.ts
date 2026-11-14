@@ -132,7 +132,7 @@ const husk: EnemyDef = {
   id: 'husk', name: 'Husk', hp: 50, speed: 4, accel: 3.5, turn: 3.5, radius: 0.42, eyeHeight: 1.6, chest: 1.2, score: 100,
   poise: 0.5, limbFrac: 0.5, headPool: 50, headPoolFixed: true, ranged: false, sidearm: false, crawlPace: 0.6,
   muzzleBone: B.handR, muzzleForward: 0,
-  voice: { bark: 'vox_husk_growl', attack: 'vox_husk_snarl', pain: 'vox_pain', die: 'vox_death', pitch: 1 }, mass: 0,
+  voice: { bark: 'vox_husk_growl', attack: 'vox_husk_snarl', pain: 'vox_pain', die: 'vox_dying_zombie', pitch: 1 }, mass: 0,
   behaviours: [advance(1, 0.08), press(2), ...maimedBehaviours()],
   attacks: [
     melee({ name: 'claw', reach: 2, damage: 6, windup: 0.5, cooldown: [1.2, 1.7], requires: e => e.maim.arms > 0 && e.maim.legs > 0 }),
@@ -146,7 +146,7 @@ const trooper: EnemyDef = {
   id: 'trooper', name: 'Trooper', hp: 70, speed: 3.8, accel: 4, turn: 4, radius: 0.45, eyeHeight: 1.62, chest: 1.2, score: 100,
   poise: 0.45, limbFrac: 0.5, headPool: 0.85, ranged: true, sidearm: true, crawlPace: 0.55,
   muzzleBone: B.handR, muzzleForward: 0.3,
-  voice: { bark: 'vox_radio', attack: 'vox_alert', pain: 'vox_pain', die: 'vox_death', pitch: 1 }, mass: 0,
+  voice: { bark: 'vox_radio', attack: 'vox_alert', pain: 'vox_pain', die: 'vox_dying_human', pitch: 1 }, mass: 0,
   behaviours: [advance(1, 0), engage(trooperBand), backOff(trooperBand), flank(17), seekCover(), ...maimedBehaviours()],
   attacks: [
     gun({
@@ -163,7 +163,7 @@ const gunner: EnemyDef = {
   id: 'gunner', name: 'Gunner', hp: 90, speed: 4.2, accel: 4, turn: 4, radius: 0.5, eyeHeight: 1.66, chest: 1.25, score: 150,
   poise: 0.45, limbFrac: 0.5, headPool: 0.85, ranged: true, sidearm: false, crawlPace: 0.38,
   muzzleBone: B.handR, muzzleForward: 0.45,
-  voice: { bark: 'vox_grunt', attack: 'vox_alert', pain: 'vox_pain', die: 'vox_death', pitch: 0.92 }, mass: 0,
+  voice: { bark: 'vox_grunt', attack: 'vox_alert', pain: 'vox_pain', die: 'vox_dying_human', pitch: 0.92 }, mass: 0,
   behaviours: [advance(1, 0), engage(gunnerBand, 0.95), seekCover(0.8), ...maimedBehaviours()],
   attacks: [
     shotgun({ name: 'blast', range: [0.5, 13], pellets: 6, damage: 3.2, speed: 62, windup: 0.5, cooldown: [1.7, 2.5] }),
@@ -179,7 +179,7 @@ const brute: EnemyDef = {
   id: 'brute', name: 'Brute', hp: 260, speed: 3, accel: 3, turn: 3, radius: 0.72, eyeHeight: 2.05, chest: 1.5, score: 200,
   poise: 0.5, limbFrac: 0.42, headPool: 0.7, ranged: true, sidearm: false, crawlPace: 0.5,
   muzzleBone: B.handR, muzzleForward: 0.7,
-  voice: { bark: 'vox_brute_grunt', attack: 'vox_brute_grunt', pain: 'vox_pain', die: 'vox_death', pitch: 0.7 },
+  voice: { bark: 'vox_brute_grunt', attack: 'vox_brute_grunt', pain: 'vox_pain', die: 'vox_dying_human', pitch: 0.7 },
   mass: 0.8, contactRadius: 0.62, footfall: { sound: 'juggernaut_step', pitch: 1.35, volume: 0.5, impulse: 0 },
   behaviours: [advance(1, 0), engage({ engage: 34, hold: 16, backOff: 0 }, 0.55), ...maimedBehaviours()],
   attacks: [
@@ -203,7 +203,7 @@ const stalker: EnemyDef = {
   id: 'stalker', name: 'Stalker', hp: 120, speed: 11, accel: 12, turn: 12, radius: 0.42, eyeHeight: 1.72, chest: 1.3, score: 200,
   poise: 0.6, limbFrac: 0.5, headPool: 0.85, ranged: false, sidearm: false, crawlPace: 0.45,
   muzzleBone: B.handR, muzzleForward: 0,
-  voice: { bark: 'vox_stalker_hiss', attack: 'vox_stalker_hiss', pain: 'vox_pain', die: 'vox_death', pitch: 1.1 }, mass: 0,
+  voice: { bark: 'vox_stalker_hiss', attack: 'vox_stalker_hiss', pain: 'vox_pain', die: 'vox_dying_zombie', pitch: 1.1 }, mass: 0,
   behaviours: [advance(1, 0.5), surround(5, 0.95), dodge(21, 1.15), ...maimedBehaviours()],
   attacks: [
     melee({ name: 'twinSlash', reach: 2.4, damage: 8, windup: 0.26, hits: 2, gap: 0.16, cooldown: [1.1, 1.6], sound: 'enemy_blade', requires: e => e.maim.arms > 0 && e.maim.legs > 0 }),
@@ -216,7 +216,7 @@ const rocketeer: EnemyDef = {
   id: 'rocketeer', name: 'Rocketeer', hp: 90, speed: 3.4, accel: 3.5, turn: 3.5, radius: 0.5, eyeHeight: 1.64, chest: 1.22, score: 150,
   poise: 0.5, limbFrac: 0.5, headPool: 0.85, ranged: true, sidearm: false, crawlPace: 0.36,
   muzzleBone: B.handR, muzzleForward: 0.5,
-  voice: { bark: 'vox_radio', attack: 'vox_alert', pain: 'vox_pain', die: 'vox_death', pitch: 0.9 }, mass: 0,
+  voice: { bark: 'vox_radio', attack: 'vox_alert', pain: 'vox_pain', die: 'vox_dying_human', pitch: 0.9 }, mass: 0,
   behaviours: [advance(1, 0), keepAway(20), engage({ engage: 52, hold: 32, backOff: 0 }, 0.6), seekCover(0.7), ...maimedBehaviours()],
   attacks: [
     rocket({ name: 'rocket', range: [10, 56], damage: 26, radius: 5, speed: 26, windup: 0.95, cooldown: [3.6, 5.2] }),
@@ -229,7 +229,7 @@ const sniper: EnemyDef = {
   id: 'sniper', name: 'Sniper', hp: 70, speed: 3.6, accel: 4, turn: 3.5, radius: 0.42, eyeHeight: 1.78, chest: 1.3, score: 150,
   poise: 0.4, limbFrac: 0.5, headPool: 0.8, ranged: true, sidearm: true, crawlPace: 0.36,
   muzzleBone: B.handR, muzzleForward: 0.7,
-  voice: { bark: 'vox_radio', attack: 'vox_alert', pain: 'vox_pain', die: 'vox_death', pitch: 1.05 }, mass: 0,
+  voice: { bark: 'vox_radio', attack: 'vox_alert', pain: 'vox_pain', die: 'vox_dying_human', pitch: 1.05 }, mass: 0,
   behaviours: [advance(1, 0), keepAway(26), plant(120), relocate(8, 18, 2), ...maimedBehaviours()],
   attacks: [
     sniperShot({ name: 'snipe', range: [16, 130], damage: 38, windup: 1.9, lock: 0.3, cooldown: [2.4, 3.4] }),
@@ -242,7 +242,7 @@ const riot: EnemyDef = {
   id: 'riot', name: 'Riot', hp: 130, speed: 3.2, accel: 3.5, turn: 2.8, radius: 0.58, eyeHeight: 1.7, chest: 1.26, score: 150,
   poise: 0.6, limbFrac: 0.45, headPool: 0.85, ranged: true, sidearm: false, crawlPace: 0.36,
   muzzleBone: B.handR, muzzleForward: 0.25,
-  voice: { bark: 'vox_radio', attack: 'vox_grunt', pain: 'vox_pain', die: 'vox_death', pitch: 0.95 }, mass: 0.35,
+  voice: { bark: 'vox_radio', attack: 'vox_grunt', pain: 'vox_pain', die: 'vox_dying_human', pitch: 0.95 }, mass: 0.35,
   behaviours: [advance(0.9, 0), shieldWall(), ...maimedBehaviours()],
   attacks: [
     melee({ name: 'bash', reach: 2.7, damage: 12, windup: 0.5, knock: 11, anim: 'attackHeavy', cooldown: [1.8, 2.8], requires: e => e.shield }),
@@ -259,7 +259,7 @@ const leaper: EnemyDef = {
   id: 'leaper', name: 'Leaper', hp: 80, speed: 6.5, accel: 5, turn: 5, radius: 0.4, eyeHeight: 1.5, chest: 1.1, score: 150,
   poise: 0.55, limbFrac: 0.5, headPool: 0.85, ranged: false, sidearm: false, crawlPace: 0.5,
   muzzleBone: B.handR, muzzleForward: 0,
-  voice: { bark: 'vox_leaper_shriek', attack: 'vox_leaper_shriek', pain: 'vox_pain', die: 'vox_death', pitch: 1.15 }, mass: 0,
+  voice: { bark: 'vox_leaper_shriek', attack: 'vox_leaper_shriek', pain: 'vox_pain', die: 'vox_dying_zombie', pitch: 1.15 }, mass: 0,
   behaviours: [advance(1, 0), press(3), wallCling(), ...maimedBehaviours()],
   attacks: [
     pounce(16),
@@ -273,7 +273,7 @@ const bomber: EnemyDef = {
   id: 'bomber', name: 'Bomber', hp: 45, speed: 7, accel: 4.5, turn: 4, radius: 0.46, eyeHeight: 1.6, chest: 1.2, score: 100,
   poise: 0.9, limbFrac: 0.6, headPool: 45, headPoolFixed: true, ranged: false, sidearm: false, crawlPace: 0.5,
   muzzleBone: B.chest, muzzleForward: 0,
-  voice: { bark: 'vox_bomber_cackle', attack: 'vox_bomber_cackle', pain: 'vox_pain', die: 'vox_death', pitch: 1 }, mass: 0,
+  voice: { bark: 'vox_bomber_cackle', attack: 'vox_bomber_cackle', pain: 'vox_pain', die: 'vox_dying_zombie', pitch: 1 }, mass: 0,
   behaviours: [advance(1, 0), crawl(), wriggle(), lost()],
   attacks: [fuse(0.7)],
   tank: { regions: ['chest', 'abdomen'], rearOnly: false, radius: 7, damage: 180, onDeath: 1 },
@@ -284,7 +284,7 @@ const burner: EnemyDef = {
   id: 'burner', name: 'Burner', hp: 140, speed: 3.4, accel: 3.5, turn: 3.5, radius: 0.54, eyeHeight: 1.66, chest: 1.25, score: 150,
   poise: 0.55, limbFrac: 0.45, headPool: 0.85, ranged: true, sidearm: false, crawlPace: 0.36,
   muzzleBone: B.handR, muzzleForward: 0.55,
-  voice: { bark: 'vox_burner_breath', attack: 'vox_burner_breath', pain: 'vox_pain', die: 'vox_death', pitch: 0.9 }, mass: 0.2,
+  voice: { bark: 'vox_burner_breath', attack: 'vox_burner_breath', pain: 'vox_pain', die: 'vox_dying_zombie', pitch: 0.9 }, mass: 0.2,
   behaviours: [advance(1, 0), engage({ engage: 12, hold: 7, backOff: 0 }, 0.9), ...maimedBehaviours()],
   attacks: [
     flamer({ name: 'flame', range: [0.5, 10.5], damage: 5, duration: 2.2, windup: 0.6, cooldown: [2.4, 3.4] }),
@@ -297,7 +297,7 @@ const warden: EnemyDef = {
   id: 'warden', name: 'Warden', hp: 160, speed: 3.2, accel: 3.5, turn: 3.5, radius: 0.5, eyeHeight: 1.92, chest: 1.42, score: 200,
   poise: 0.7, limbFrac: 0.5, headPool: 0.85, ranged: true, sidearm: false, crawlPace: 0.36,
   muzzleBone: B.handR, muzzleForward: 0.6,
-  voice: { bark: 'vox_warden_chant', attack: 'vox_warden_chant', pain: 'vox_pain', die: 'vox_death', pitch: 0.9 }, mass: 0,
+  voice: { bark: 'vox_warden_chant', attack: 'vox_warden_chant', pain: 'vox_pain', die: 'vox_dying_human', pitch: 0.9 }, mass: 0,
   behaviours: [advance(1, 0), keepAway(13, 1.1), support(14, 70, 3), ...maimedBehaviours()],
   attacks: [
     gun({
@@ -349,7 +349,7 @@ const juggernaut: EnemyDef = {
   id: 'juggernaut', name: 'Juggernaut', hp: 2600, speed: 4.4, accel: 3, turn: 2.6, radius: 1.15, eyeHeight: 2.9, chest: 2.1, score: 2000,
   poise: 0.22, limbFrac: 0.2, headPool: Infinity, ranged: false, sidearm: false, crawlPace: 0.45,
   muzzleBone: B.chest, muzzleForward: 0.6, wholeLimbs: true,
-  voice: { bark: 'vox_juggernaut_roar', attack: 'vox_juggernaut_roar', pain: 'vox_pain', die: 'vox_death', pitch: 0.85 },
+  voice: { bark: 'vox_juggernaut_roar', attack: 'vox_juggernaut_roar', pain: 'vox_pain', die: 'vox_dying_zombie', pitch: 0.85 },
   mass: 1, contactRadius: 1, footfall: { sound: 'juggernaut_step', pitch: 1, volume: 1, impulse: 3 },
   behaviours: JUGGERNAUT_BEHAVIOURS,
   attacks: JUGGERNAUT_ATTACKS,

@@ -9,6 +9,7 @@ import {
   type SurfaceKind,
 } from '../core/contracts';
 import type { DamageResult, EnemyId, EnemyInstance } from '../core/gameplay';
+import type { ZoneId } from '../enemies/wounds/rules';
 import { clamp, lerp, rand } from '../core/math';
 import { WEAPONS } from '../weapons/data';
 import type { RoomId } from './reverb';
@@ -58,6 +59,26 @@ const DRAG_AT = 0.7;
 /** Share of organ landings that leave a drip behind. */
 const DRIP_CHANCE = 0.35;
 const HARD_SURFACES: ReadonlySet<SurfaceKind> = new Set<SurfaceKind>(['metal', 'grate', 'armor']);
+/**
+ * A contact under this strength is a ragdoll rolling or sliding, not landing: a short knock, `ragdoll_bump`, instead of a
+ * whole body fall played quietly. Organs are wet at any speed and keep their own sounds.
+ */
+const BUMP_BELOW = 0.25;
+/**
+ * Knocks heard per second and at once, apart from the landings' budget. Gore spaces each body's contacts out (`cooldown`
+ * in gore/impacts.ts), so this is the cap over a pile of them: a few knocks a second read as weight, more as a drum.
+ */
+const BUMP_RATE = 6;
+const BUMP_BURST = 3;
+
+/** A wound that slows a man, and one that ends his fight. A heart or a head kills him, and the kill is the sound. */
+const MINOR_ZONES: ReadonlySet<ZoneId> = new Set<ZoneId>(['thigh', 'hand', 'arm', 'shoulder']);
+const CRIPPLING_ZONES: ReadonlySet<ZoneId> = new Set<ZoneId>(['innerThigh', 'gut', 'lung', 'spine', 'pelvis', 'carotid']);
+const ARTERIES: ReadonlySet<ZoneId> = new Set<ZoneId>(['innerThigh', 'carotid']);
+/** A hole in the lung or the throat takes the voice with it, as the wound system's `mute` does. */
+const VOICELESS: ReadonlySet<ZoneId> = new Set<ZoneId>(['lung', 'carotid']);
+/** Shortest gap between two arterial sprays anywhere, so a swarm losing limbs is not one long hiss. */
+const SPRAY_GAP = 1.2;
 
 /** Distant noises, so a quiet moment says the building is alive and failing. The open air zones stay open. */
 const ROOM_NOISES: Partial<Record<RoomId, string>> = {
@@ -145,6 +166,15 @@ export class Reactions {
   private lastCombo = 0;
   private armor = 0;
   private landingTokens = LANDING_BURST;
+  private bumpTokens = BUMP_BURST;
+  /** The worst wound named this frame, played at its end in place of the crunch, unless he died of it. */
+  private wound: 'wound_minor' | 'wound_crippling' | null = null;
+  private woundEnemy: EnemyInstance | null = null;
+  /** Men gone mortal or down this frame, who get their dying line at its end. */
+  private readonly dying: EnemyInstance[] = [];
+  /** Men who have had their dying line, or have no voice left to have it with. */
+  private readonly voiced = new Set<number>();
+  private lastSpray = -SPRAY_GAP;
   private readonly probeFrom = new Vector3();
   private readonly probeDown = new Vector3(0, -1, 0);
   private readonly probeHit: RayHit = { point: new Vector3(), normal: new Vector3(), distance: 0, surface: 'concrete', collider: null };
@@ -157,12 +187,17 @@ export class Reactions {
     events.on('enemy:severed', e => this.onSevered(e));
     events.on('enemy:killed', e => this.onKilled(e));
     events.on('gore:impact', e => this.onLanding(e));
+    events.on('enemy:wounded', e => this.onWounded(e));
+    events.on('enemy:condition', ({ enemy, condition }) => {
+      if ((condition === 'mortal' || condition === 'downed') && !this.voiced.has(enemy.uid)) this.dying.push(enemy);
+    });
     events.on('player:damaged', () => this.onPlayerDamaged());
     events.on('player:healed', e => this.onHealed(e.amount));
     events.on('game:state', ({ from, to }) => {
       // A hit held over a pause would land after it, out of time with its shot.
       if (to === 'paused') {
         this.held = false;
+        this.wound = null;
         this.play('ui_open');
       }
       else if (from === 'paused' && to === 'playing') this.play('ui_close');
@@ -233,25 +268,60 @@ export class Reactions {
     this.heldAt.copy(damage.point);
   }
 
-  /** Plays the frame's body hit. Every pellet of a trigger pull has landed by now, so a headshot among them has been heard. */
+  /**
+   * Plays the frame's body hit. Every pellet of a trigger pull has landed by now, so a headshot among them has been heard.
+   * A wound named on a man who lived through it is what the hit meant, so its 2D tier takes the crunch's place.
+   */
   private landBodyHit(): void {
-    if (!this.held) return;
+    const wound = this.woundEnemy?.alive === true ? this.wound : null;
+    this.wound = null;
+    this.woundEnemy = null;
+    const held = this.held;
     this.held = false;
     const l = this.heldLevels;
-    if (this.heldMachine) {
-      this.play('hit_punch', this.heldAt, l.punchVolume * MACHINE_PUNCH, l.punchPitch * MACHINE_PITCH);
-      return;
-    }
-    this.play('hit_punch', this.heldAt, l.punchVolume, l.punchPitch);
+    if (held && this.heldMachine) this.play('hit_punch', this.heldAt, l.punchVolume * MACHINE_PUNCH, l.punchPitch * MACHINE_PITCH);
+    else if (held) this.play('hit_punch', this.heldAt, l.punchVolume, l.punchPitch);
+    if (wound) this.play(wound);
     // The kill marker is a kill's 2D confirmation, as it is the plain marker's.
-    if (!this.heldKill) this.play('hit_confirm', undefined, l.confirmVolume, l.confirmPitch);
+    else if (held && !this.heldMachine && !this.heldKill) this.play('hit_confirm', undefined, l.confirmVolume, l.confirmPitch);
   }
 
+  /** `enemy:wounded` comes once per man per zone, so each tier says something new. */
+  private onWounded({ enemy, zone, damage }: GameEvents['enemy:wounded']): void {
+    if (VOICELESS.has(zone)) this.voiced.add(enemy.uid);
+    if (ENEMY_SOURCES.has(damage.source)) return;
+    if (ARTERIES.has(zone)) this.spray(damage.point, 0.05);
+    const tier = CRIPPLING_ZONES.has(zone) ? 'wound_crippling' : MINOR_ZONES.has(zone) ? 'wound_minor' : null;
+    if (!tier || this.wound === 'wound_crippling') return;
+    this.wound = tier;
+    this.woundEnemy = enemy;
+  }
+
+  private spray(at: Vector3, delay: number): void {
+    const now = this.ctx.time.realElapsed;
+    if (now - this.lastSpray < SPRAY_GAP) return;
+    this.lastSpray = now;
+    this.play('blood_spray', at, 1, rand(0.92, 1.08), delay);
+  }
+
+  /** Gone mortal or down: the line is said from the body, once, by a man who still has a voice. His death has its own. */
+  private sayDying(): void {
+    for (const e of this.dying) {
+      if (!e.alive || this.voiced.has(e.uid)) continue;
+      this.voiced.add(e.uid);
+      this.play('vox_dying_human', e.center, 0.7);
+    }
+    this.dying.length = 0;
+  }
+
+  /**
+   * One recorded rip with its bone in it, over the synth `limb_sever` that whoever cut it plays, and the stump spraying
+   * after it. It replaces the bone snap, tear and spill that used to be layered here, which together were mud.
+   */
   private onSevered({ enemy, damage }: GameEvents['enemy:severed']): void {
     if (isMachine(enemy) || enemy.id === 'titan') return;
-    this.play('bone_snap', damage.point, 0.9, 1, 0.015);
-    this.play('flesh_tear', damage.point, 0.7, 1, 0.02);
-    this.play('blood_spill', damage.point, 0.8, 1, 0.07);
+    this.play('limb_rip', damage.point, 1, 1, 0.01);
+    this.spray(damage.point, 0.3);
   }
 
   private onKilled({ enemy, damage, gibbed, headshot }: GameEvents['enemy:killed']): void {
@@ -259,19 +329,29 @@ export class Reactions {
     if (isMachine(enemy)) return;
     if (gibbed) {
       this.play('blood_splatter', enemy.center, 1, 1, 0.03);
-      this.play('blood_spill', enemy.center, 1, 1, 0.05);
+      // What went up coming down.
+      this.play('gib_rain', enemy.center, 1, 1, 0.15);
     }
     else if (headshot) {
       this.play('head_pop', enemy.center);
       this.play('vox_gurgle', enemy.center, 0.8, rand(0.9, 1.1), 0.18);
     }
+    // The body shot's partner to `headshot_puff`: a round from the player's gun that killed.
+    else if (BODY_HIT_TYPES.has(damage.type) && Object.hasOwn(WEAPONS, damage.source)) this.play('kill_body');
   }
 
   /** What a body, limb, head or chunk sounds like landing. The payload is reused, so nothing here keeps it. */
   private onLanding({ position, strength, kind }: GameEvents['gore:impact']): void {
-    if (this.landingTokens < 1 || !Number.isFinite(strength)) return;
+    if (!Number.isFinite(strength)) return;
     const { player } = this.ctx;
     if (position.distanceToSquared(player.position) > LANDING_RANGE * LANDING_RANGE) return;
+    if (kind !== 'organ' && strength < BUMP_BELOW) {
+      if (this.bumpTokens < 1) return;
+      this.bumpTokens--;
+      this.play('ragdoll_bump', position, 0.55 + 1.8 * strength, kind === 'body' ? rand(0.9, 1) : rand(1.05, 1.2));
+      return;
+    }
+    if (this.landingTokens < 1) return;
     this.landingTokens--;
     const volume = 0.35 + 0.65 * strength;
     // Hard landings are lower as well as louder: it is the heavy parts that hit hard.
@@ -285,14 +365,14 @@ export class Reactions {
         break;
       case 'limb':
         this.play('limb_thud', position, volume, pitch);
-        if (wet) this.play('wet_slap', position, volume * 0.7, pitch, 0.01);
+        if (wet) this.play('gore_splat', position, volume * 0.7, pitch, 0.01);
         break;
       case 'head':
         this.play('head_thud', position, volume, pitch);
         if (wet) this.play('wet_squelch', position, volume * 0.6, pitch, 0.02);
         break;
       case 'organ':
-        this.play(wet ? 'organ_splat' : 'wet_squelch', position, volume, pitch);
+        this.play(wet ? (Math.random() < 0.5 ? 'gore_splat' : 'organ_splat') : 'wet_squelch', position, volume, pitch);
         if (Math.random() < DRIP_CHANCE) this.play('blood_drip', position, volume * 0.8, 1, rand(0.15, 0.4));
         break;
     }
@@ -321,9 +401,11 @@ export class Reactions {
   /** Runs after Weapons and Combat in the frame order, so on the frame the hits landed. */
   update(dt: number, room: RoomId | null): void {
     this.landBodyHit();
+    if (this.dying.length > 0) this.sayDying();
     const { enemies, player } = this.ctx;
     this.armor = player.armor;
     this.landingTokens = Math.min(LANDING_BURST, this.landingTokens + LANDING_RATE * dt);
+    this.bumpTokens = Math.min(BUMP_BURST, this.bumpTokens + BUMP_RATE * dt);
     this.noiseClock -= dt;
     if (this.noiseClock <= 0) this.roomNoise(room, player.position);
     const alive = enemies.alive;
@@ -392,5 +474,11 @@ export class Reactions {
     this.lastCombo = 0;
     this.armor = 0;
     this.landingTokens = LANDING_BURST;
+    this.bumpTokens = BUMP_BURST;
+    this.wound = null;
+    this.woundEnemy = null;
+    this.dying.length = 0;
+    this.voiced.clear();
+    this.lastSpray = -SPRAY_GAP;
   }
 }

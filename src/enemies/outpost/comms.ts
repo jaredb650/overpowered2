@@ -115,7 +115,8 @@ export class Comms {
     if (s) line.position.copy(s.e.center);
     else line.position.copy(w.player.position);
     w.ctx.events.emit('comms:line', line);
-    if (s) say(s.e, w, SCREAMED.has(kind) ? 'vox_scream' : s.e.def.voice.attack, 0.45);
+    // A dying man's voice is audio's `vox_dying_human`, from the same moment's `enemy:condition`.
+    if (s && kind !== 'dying') say(s.e, w, SCREAMED.has(kind) ? 'vox_scream' : s.e.def.voice.attack, 0.45);
   }
 
   /** Words the caller chose, on the same feed. `who` names a voice that belongs to nobody on the map. */

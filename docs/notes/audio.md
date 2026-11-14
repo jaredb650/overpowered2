@@ -42,9 +42,11 @@ Audio reads `ctx.player`, `ctx.time`, `ctx.world` and listens to events, so nobo
 | `fx:casing` | `casing_brass` (rifle a little lower), `casing_shotgun`, `casing_heavy`. Volume follows strength. Quiet bounces thin out under 50 ms apart |
 | `enemy:hit` from the player | `hit_marker`, `hit_marker_head`, or by the hit's armour outcome `armour_stopped`, `armour_through`, or a piece broken off: `armour_broken` for a helmet (a broken piece on a `head` hit, since only helmets cover the head), `plate_destroyed` for any other plate (all 2D). A broken piece is heard even on a kill and inside the marker gap. Skips fire ticks. `hit_marker_armor` is kept but no longer played |
 | `enemy:hit` from a round of the player's own guns (`bullet`, `pellet`) on a body | `hit_punch` at the hit and `hit_confirm` in 2D, weighted by the round and played at the end of the frame. A machine gets a quieter, lower `hit_punch` and no confirm, and a kill has `hit_marker_kill` in place of the confirm. See "Body hits" |
-| `enemy:killed` from the player | `hit_marker_kill` |
-| `enemy:severed` on flesh | `bone_snap`, `flesh_tear` and `blood_spurt` under the enemies system's `limb_sever` |
-| `enemy:killed` | `blood_splatter` and `blood_spill` on a gib, `head_pop` and `vox_gurgle` on a head kill |
+| `enemy:wounded` from the player | The worst zone named on the frame, 2D, in place of that hit's `hit_confirm`: `wound_minor` (thigh, hand, arm, shoulder) or `wound_crippling` (femoral, gut, lung, spine, pelvis, carotid). Nothing if he died of it, since the kill is the sound. Femoral and carotid also spray (`blood_spray` at the wound) |
+| `enemy:condition` to mortal or downed | `vox_dying_human` from the body at the end of the frame, once per man, and never for one hit in the lung or the throat (no voice left). The comms `dying` line is text only, so the two do not double |
+| `enemy:killed` from the player | `hit_marker_kill`, and `kill_body` (2D) when a round from the player's gun killed and it was neither a headshot nor a gib |
+| `enemy:severed` on flesh | `limb_rip` at the cut over the synth `limb_sever` whoever cut it plays, then the stump's `blood_spray`. `bone_snap`, `flesh_tear` and `blood_spill` were layered here before and made mud; `flesh_tear` is kept in the catalogue but no longer played |
+| `enemy:killed` | `blood_splatter` and `gib_rain` (the pieces coming down, 0.15 s later) on a gib, `head_pop` and `vox_gurgle` on a head kill |
 | `gore:impact` | See "Landings" below |
 | Burning enemies, nearest 4 in 50 m | `flame_burn_loop`, following the body |
 | `combo:changed` to 0 from 3 or more | `combo_break` |
@@ -95,9 +97,15 @@ kill stacks twice.
 | Kind | Sound | Above strength 0.55, also |
 |---|---|---|
 | `body` | `body_fall_metal` on metal, grate or armor, otherwise `body_fall_concrete` | `flesh_slosh`. Above 0.7, three in ten also get `body_drag` |
-| `limb` | `limb_thud` | `wet_slap` |
+| `limb` | `limb_thud` | `gore_splat` |
 | `head` | `head_thud` | `wet_squelch` |
-| `organ` | `wet_squelch`, or `organ_splat` above 0.55. About a third leave a `blood_drip` | |
+| `organ` | `wet_squelch`, or above 0.55 `organ_splat` or `gore_splat` at random. About a third leave a `blood_drip` | |
+
+A `body`, `limb` or `head` contact under strength 0.25 is a ragdoll rolling or sliding rather than landing, and gets a short
+knock, `ragdoll_bump` (seven takes), in place of a quiet body fall: many small knocks as it settles are what give a ragdoll
+weight. They have their own budget, 6 a second with a burst of 3, so they never spend a landing's, and gore's per-body
+`cooldown` (0.25 s for a body) already spaces one body's. Gore reports nothing under `min` (0.9 m/s lost per kg for a
+body), so a slow slide is mostly silent today: see the follow-up in `docs/proposals/gore-sounds.md`.
 
 Under gore's tempo dial (`?raggrav=`, `docs/notes/gore.md` Forces) a body falls slower and lands slower, so gore reports a body's, a limb's
 and a sliced half's landing as it would have been at full gravity: `strength` and which landings are heard do not change with the dial.
@@ -240,6 +248,22 @@ Random-pick groups: `bullet_hit` (the four samples), `sword_hit`, `player_footst
   2D, over the hit markers' 0.066 to 0.114), then in the world `sabot_shield_pierce` 0.24, `sabot_on_vehicle` 0.26 and
   `armour_crunch` 0.36, heard to 120 m. The crunch plays whenever a direct rocket or shell tears armour off a body
 - Guns: `sabot_shot` (replaces `sabot_fire` on the Sabot), `autocannon_blast` (replaces `autocannon_shot` on the autocannon)
+
+**The wound and gore update** (`sfx/gore2`, the owner's own generated recordings; plan and wiring in
+`docs/proposals/gore-sounds.md`). Every file trimmed of lead-in silence, mono, 44.1 kHz, peaks to -1 dB; the long 2D ones cut
+to 0.9 s or less with a fade. Multi-take ids are matched at load like a pack (`takes()` in the catalog), so the level is where
+the mean take lands:
+- 2D on the reward mix: `wound_minor` 0.16 (three takes), `wound_crippling` 0.21 (four), `kill_body` 0.19 (one, over
+  `hit_marker_kill`, the body shot's partner to `headshot_puff`)
+- Voices, from the body, on the voice mix (heard 6 to 70 m like the other voices): `vox_dying_human` 0.22 (four takes cut
+  through a radio: band-passed 300 Hz to 3.2 kHz, compressed and soft-clipped) and `vox_dying_zombie` 0.22 (three, dry).
+  Each enemy's `voice.die` names one: the men every squad is made of (trooper, gunner, rocketeer, sniper, riot, brute,
+  warden) are human, the swarm's own (husk, stalker, leaper, bomber, burner, juggernaut) zombie; drones, skitters and
+  the titan keep their machine and boss sounds. `vox_death`, the synth they all used, is their fallback
+- World: `limb_rip` 0.2 (two takes, the first again as a third), `gib_rain` 0.16, `blood_spray` 0.12 (two takes, cut to
+  2.5 s, one start every 1.2 s at most), `gore_splat` 0.14 (three), `ragdoll_bump` 0.075 (seven, heard to 35 m)
+- Wet steps: for 6 s after a body is gibbed, the player's steps within 3.5 m of where it happened add `wet_squelch`
+  (`src/player/feedback.ts`)
 
 **The gun sound update** (`sfx/guns`, the owner's own generated recordings). Every player gun now fires a recording.
 Each is set by how loud it lands, not by its file's level: `shot()` in the catalog divides its place on one ladder by the

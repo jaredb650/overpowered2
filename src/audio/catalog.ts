@@ -158,6 +158,36 @@ const armourSamples: SoundDef[] = [
 ];
 
 /**
+ * Takes of one sound in sfx/gore2, one at random each time, matched at load like a pack so `level` is where the mean
+ * take lands. `count` takes are `<id>_1.mp3` on; a group of two lists its first take again to make the three the
+ * catalogue asks for.
+ */
+function takes(id: string, count: number, mix: MixClass, level: number, fallback: string, over: Partial<MixProfile> = {}): SoundDef {
+  const files = Array.from({ length: Math.max(3, count) }, (_, i) => `gore2/${id}_${(i % count) + 1}.mp3`);
+  return { ...MIX[mix], ...over, critical: false, volume: level / 0.3, id, kind: 'sample', loop: false, fallback, files };
+}
+
+/**
+ * The wound and gore update (sfx/gore2, the owner's own generated sounds). See docs/proposals/gore-sounds.md. The 2D
+ * confirmations sit on the armour ladder, a little loud for the same reason the armour cues were raised: their weight is
+ * in the low mids. The world sounds sit with the guns for the big events, and the ragdoll's knocks well under them.
+ */
+const VOICE_LINE: Partial<MixProfile> = { priority: 4, maxVoices: 3, perFrame: 2 };
+const woundSamples: SoundDef[] = [
+  takes('wound_minor', 3, 'reward', 0.16, 'hit_marker', CONFIRM),
+  takes('wound_crippling', 4, 'reward', 0.21, 'hit_marker', CONFIRM),
+  shot('kill_body', 'gore2/kill_body.mp3', 'reward', 0.19, 0.2, CONFIRM),
+  // Death and dying, from the body. The men's are cut through a radio, the swarm's are not.
+  takes('vox_dying_human', 4, 'voice', 0.22, 'vox_death', VOICE_LINE),
+  takes('vox_dying_zombie', 3, 'voice', 0.22, 'vox_death', VOICE_LINE),
+  takes('limb_rip', 2, 'gore', 0.2, 'limb_sever', { priority: 5, maxVoices: 3 }),
+  takes('blood_spray', 2, 'gore', 0.12, 'blood_spurt', { priority: 4, maxVoices: 2, perFrame: 1, near: 4, far: 40 }),
+  shot('gib_rain', 'gore2/gib_rain.mp3', 'gore', 0.16, 0.075, { priority: 4, maxVoices: 2, perFrame: 1, near: 8, far: 80, pitchJitter: 0.06 }),
+  takes('gore_splat', 3, 'flesh', 0.14, 'gib_squelch'),
+  takes('ragdoll_bump', 7, 'flesh', 0.075, 'body_thud', { priority: 2, maxVoices: 3, near: 3, far: 35, pitchJitter: 0.12 }),
+];
+
+/**
  * A gun shot set by how loud it lands rather than by its file's level: `level` is its place on the gun ladder and `loud`
  * is the file's own loudness (analyze.ts `loudness`, the loudest 50 ms), measured when it was added. Remeasure if a file
  * is replaced.
@@ -320,7 +350,7 @@ const aliases: Record<string, string> = {
 };
 
 export const CATALOG: ReadonlyMap<string, SoundDef> = new Map(
-  [...samples, ...armourSamples, ...gunShots, ...packs, ...groups, ...stacks, ...recipes.map(synth)].map(def => [def.id, def]),
+  [...samples, ...armourSamples, ...woundSamples, ...gunShots, ...packs, ...groups, ...stacks, ...recipes.map(synth)].map(def => [def.id, def]),
 );
 
 export const ALIASES: Readonly<Record<string, string>> = aliases;

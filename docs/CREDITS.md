@@ -26,6 +26,15 @@ were trimmed and mixed down to mono for the game. Nothing in them is third-party
 `armour_stopped_2.mp3` and `armour_stopped_3.mp3`, the owner's own as well. `plate_destroyed` plays one of three takes the
 same way: `plate_destroyed_1.mp3`, `plate_destroyed_2.mp3` and `plate_destroyed_3.mp3`, also the owner's own AI-generated sounds.
 
+The sounds in `public/audio/sfx/gore2` are the owner's own AI-generated sounds too, trimmed and mixed down to mono for the game
+(the human death lines also cut through a radio filter). Nothing in them is third-party material: `wound_minor_1.mp3`,
+`wound_minor_2.mp3`, `wound_minor_3.mp3`, `wound_crippling_1.mp3`, `wound_crippling_2.mp3`, `wound_crippling_3.mp3`,
+`wound_crippling_4.mp3`, `kill_body.mp3`, `vox_dying_human_1.mp3`, `vox_dying_human_2.mp3`, `vox_dying_human_3.mp3`,
+`vox_dying_human_4.mp3`, `vox_dying_zombie_1.mp3`, `vox_dying_zombie_2.mp3`, `vox_dying_zombie_3.mp3`, `limb_rip_1.mp3`,
+`limb_rip_2.mp3`, `blood_spray_1.mp3`, `blood_spray_2.mp3`, `gib_rain.mp3`, `gore_splat_1.mp3`, `gore_splat_2.mp3`,
+`gore_splat_3.mp3`, `ragdoll_bump_1.mp3`, `ragdoll_bump_2.mp3`,
+`ragdoll_bump_3.mp3`, `ragdoll_bump_4.mp3`, `ragdoll_bump_5.mp3`, `ragdoll_bump_6.mp3`, `ragdoll_bump_7.mp3`.
+
 ## Licences
 
 | Source | Licence | Terms | Read at |

@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { Vector3 } from 'three';
 import { describe, expect, it } from 'vitest';
 import type { DamageResult, EnemyInstance, PerkId, PickupKind, PowerupId } from '../core/gameplay';
-import type { AudioSystem, Ctx, DamageType, PlayOptions, SurfaceKind } from '../core/contracts';
+import type { AudioSystem, Ctx, DamageType, GameEvents, PlayOptions, SurfaceKind } from '../core/contracts';
 import { makeCtx } from '../sandbox/harness';
 import { arbitrate, type VoiceSlot } from './allocator';
 import { analyze, checkStats, loudness, type AudioStats } from './analyze';
@@ -491,6 +491,84 @@ describe('body hit reactions', () => {
     r.endFrame();
     expect(r.count('hit_punch')).toBe(2);
     expect(r.count('hit_confirm')).toBe(0);
+  });
+
+  const man = (uid = 1) => ({ uid, id: 'trooper', alive: true, machine: false, center: new Vector3() }) as unknown as EnemyInstance;
+  const wound = (r: ReturnType<typeof rig>, enemy: EnemyInstance, zone: string, source = 'smg') => {
+    r.ctx.events.emit('enemy:wounded', {
+      enemy, zone, label: '', bonus: 0,
+      damage: { amount: 30, type: 'bullet', point: new Vector3(), dir: new Vector3(0, 0, 1), force: 0, source },
+    } as unknown as GameEvents['enemy:wounded']);
+  };
+
+  it('plays the worst wound of the frame in place of the crunch, and nothing for a wound he died of', () => {
+    const r = rig();
+    const e = man();
+    r.hit('smg', 'bullet', 30, 0);
+    wound(r, e, 'thigh');
+    wound(r, e, 'gut');
+    r.endFrame();
+    expect(r.count('hit_punch')).toBe(1);
+    expect(r.count('hit_confirm')).toBe(0);
+    expect(r.count('wound_crippling')).toBe(1);
+    expect(r.count('wound_minor')).toBe(0);
+    r.frames(30);
+    r.plays.length = 0;
+    wound(r, e, 'arm');
+    (e as { alive: boolean }).alive = false;
+    r.endFrame();
+    expect(r.count('wound_minor')).toBe(0);
+    // A bomber's blast is not the player's to be told about.
+    wound(r, man(2), 'arm', 'bomber');
+    r.endFrame();
+    expect(r.count('wound_minor')).toBe(0);
+  });
+
+  it('says a dying line once per man, and never for one with a hole in his lung', () => {
+    const r = rig();
+    const a = man(1);
+    const b = man(2);
+    r.ctx.events.emit('enemy:condition', { enemy: a, condition: 'mortal' });
+    r.endFrame();
+    r.ctx.events.emit('enemy:condition', { enemy: a, condition: 'downed' });
+    // The lung's wound and the mortal it causes can come in either order on the frame.
+    r.ctx.events.emit('enemy:condition', { enemy: b, condition: 'mortal' });
+    wound(r, b, 'lung');
+    r.endFrame();
+    expect(r.count('vox_dying_human')).toBe(1);
+  });
+
+  it('knocks a rolling ragdoll softly, and caps the knocks of a pile apart from its landings', () => {
+    const r = rig();
+    const land = (strength: number, kind = 'body') =>
+      r.ctx.events.emit('gore:impact', { position: new Vector3(0, 0, 5), strength, kind } as GameEvents['gore:impact']);
+    for (let i = 0; i < 20; i++) land(0.1);
+    land(0.8);
+    r.endFrame();
+    expect(r.count('ragdoll_bump')).toBe(3);
+    expect(r.count('body_fall_concrete') + r.count('body_fall_metal')).toBe(1);
+    // A second's worth of frames refills about six.
+    r.plays.length = 0;
+    for (let i = 0; i < 60; i++) {
+      land(0.1);
+      r.frames(1);
+    }
+    expect(r.count('ragdoll_bump')).toBeGreaterThanOrEqual(5);
+    expect(r.count('ragdoll_bump')).toBeLessThanOrEqual(7);
+  });
+
+  it('confirms a body kill from the player\'s gun with its own 2D sound, and rains a gib down where it happened', () => {
+    const r = rig();
+    const kill = (over: Partial<GameEvents['enemy:killed']>, source = 'smg') => r.ctx.events.emit('enemy:killed', {
+      enemy: man(), damage: { amount: 99, type: 'bullet', point: new Vector3(), dir: new Vector3(0, 0, 1), force: 0, source },
+      headshot: false, gibbed: false, ...over,
+    } as GameEvents['enemy:killed']);
+    kill({});
+    kill({ headshot: true });
+    kill({ gibbed: true });
+    kill({}, 'bomber');
+    expect(r.count('kill_body')).toBe(1);
+    expect(r.count('gib_rain')).toBe(1);
   });
 });
 

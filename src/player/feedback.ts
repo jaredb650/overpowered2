@@ -18,6 +18,15 @@ const UP = new THREE.Vector3(0, 1, 0);
 
 const MAX_SLAM_TARGETS = 48;
 
+/** Where a body was blown apart, the floor is wet for a while: steps inside this many metres of it squelch. */
+const GIB_WET_RADIUS = 3.5;
+const GIB_WET_SECONDS = 6;
+/** Height either side of the spot that is the same floor. */
+const GIB_WET_HEIGHT = 2;
+/** Spots remembered at once. A rocket into a crowd lays several, and the oldest goes first. */
+const GIB_SPOTS = 4;
+const GIB_STEP_VOLUME = 0.7;
+
 export class MovementFeedback {
   private lastStride = 0;
   private trailDistance = 0;
@@ -30,6 +39,8 @@ export class MovementFeedback {
   private readonly along = new THREE.Vector3();
   private readonly wallNormal = new THREE.Vector3();
   private readonly slamHits: EnemyInstance[] = [];
+  private readonly gibs = Array.from({ length: GIB_SPOTS }, () => ({ at: new THREE.Vector3(), until: -1 }));
+  private nextGib = 0;
   private readonly slamDamage: DamageInfo = {
     amount: 0, type: 'crush', point: new THREE.Vector3(), dir: new THREE.Vector3(), force: 0, source: 'slam',
   };
@@ -111,6 +122,13 @@ export class MovementFeedback {
         }
       }),
       events.on('player:died', () => audio.play('player_death', { unaffectedByTime: true })),
+      events.on('enemy:killed', e => {
+        if (!e.gibbed || e.enemy.machine) return;
+        const spot = this.gibs[this.nextGib]!;
+        this.nextGib = (this.nextGib + 1) % GIB_SPOTS;
+        spot.at.copy(e.enemy.center);
+        spot.until = this.ctx.time.elapsed + GIB_WET_SECONDS;
+      }),
     );
   }
 
@@ -205,11 +223,26 @@ export class MovementFeedback {
     // The first game's trio is the concrete step. Other surfaces get their synthesized set.
     if (p.groundSurface === 'concrete' || p.wallRunning) audio.playOneOf(FOOTSTEPS, options);
     else audio.play(`footstep_${p.groundSurface}`, options);
+    if (!p.wallRunning && this.onGore()) audio.play('wet_squelch', { volume: options.volume * GIB_STEP_VOLUME, pitch: 1.12, pitchJitter: 0.12 });
+  }
+
+  /** Standing where something was gibbed in the last few seconds. */
+  private onGore(): boolean {
+    const now = this.ctx.time.elapsed;
+    const p = this.player.position;
+    for (const g of this.gibs) {
+      if (now > g.until || Math.abs(g.at.y - p.y) > GIB_WET_HEIGHT) continue;
+      const dx = g.at.x - p.x;
+      const dz = g.at.z - p.z;
+      if (dx * dx + dz * dz < GIB_WET_RADIUS * GIB_WET_RADIUS) return true;
+    }
+    return false;
   }
 
   reset(): void {
     this.lastStride = Math.floor(this.player.stridePhase);
     this.wasGrounded = true;
     this.wasMantling = this.wasVaulting = false;
+    for (const g of this.gibs) g.until = -1;
   }
 }

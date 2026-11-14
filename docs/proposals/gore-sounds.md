@@ -1,7 +1,8 @@
 # Plan: wound and gore sounds
 
-Status: idea, not scheduled. Written 2026-11-14 at the owner's request: the armour cues made armour readable by ear, and
-flesh should be as readable. The owner is generating the sounds. Nothing here is built.
+Status: partly built, 2026-11-14, from the sounds the owner generated, with the plan changed by the owner: see "What was
+built" at the end. Written 2026-11-14 at the owner's request: the armour cues made armour readable by ear, and flesh should
+be as readable.
 
 ## What the game can do to a body
 
@@ -126,3 +127,55 @@ the gore system (5 to 10, 24, 25) plays for the swarm too.
 - Start on the impact, with no lead-in.
 - One sound per file, mono is fine.
 - Several takes of anything that repeats (the 2D tiers, the hits) so a long fight does not sound like one sample.
+
+## What was built (2026-11-14)
+
+The owner generated nine folders and changed the plan: no head burst, decapitation or waist tear, no tier 2 or 3 except
+where a sound below fits, and #3 (`wound_mortal`) became death and dying voices. Files are in `public/audio/sfx/gore2`,
+levels and wiring in `docs/notes/audio.md` ("The wound and gore update", the reactions table, "Landings").
+
+| Folder | Id | When | Level |
+|---|---|---|---|
+| minorWound | `wound_minor` (3) | `enemy:wounded` thigh, hand, arm, shoulder, from the player. 2D, in place of that hit's `hit_confirm` | 0.16 |
+| cripplingWound | `wound_crippling` (4) | `enemy:wounded` femoral, gut, lung, spine, pelvis, and carotid (it ends his fight too). 2D, the same way; the worse tier wins a frame | 0.21 |
+| dead:dying, human | `vox_dying_human` (4, radio filtered) | The death line (`voice.die`) of trooper, gunner, rocketeer, sniper, riot, brute and warden (every role a squad has), and `enemy:condition` mortal or downed, once per man, not after a lung or carotid wound | 0.22, voice mix |
+| dead:dying, zombie | `vox_dying_zombie` (3) | The death line of husk, stalker, leaper, bomber, burner and juggernaut | 0.22, voice mix |
+| torsoShot | `kill_body` (1) | `enemy:killed` by the player's gun, not a headshot, not a gib. 2D over `hit_marker_kill` | 0.19 |
+| limbRippedOff | `limb_rip` (2) | `enemy:severed`, in place of the `bone_snap`, `flesh_tear`, `blood_spill` layers, over the synth `limb_sever` | 0.2 |
+| totalGib | `gib_rain` (1) | A gib, 0.15 s after `blood_splatter`, in place of `blood_spill`. Steps within 3.5 m of it for 6 s add `wet_squelch` | 0.16 |
+| giblets landing | `gore_splat` (3) | A limb's wet landing layer (was `wet_slap`), and half of the hard organ landings | 0.14 |
+| bloodSpraying | `blood_spray` (2, cut to 2.5 s) | A femoral or carotid wound, and a stump after a sever. One start per 1.2 s anywhere | 0.12 |
+| ragdollSounds | `ragdoll_bump` (7) | `gore:impact` on a body, limb or head under strength 0.25: a knock in place of a quiet body fall. 6 a second, burst 3, apart from the landings' budget | 0.075 |
+
+Not done, and why:
+
+- **A man who goes mortal and then dies says two lines**, one at mortal or down and one at death, because the death line is
+  `say(e, w, e.def.voice.die)` in `src/enemies/damage.ts`, which another agent owns. When it is free: skip that call for a
+  man the wound system already voiced (or move the death line to audio's `enemy:killed`, which knows `headshot`).
+- **The die line is chosen per enemy type, not per faction.** A brute or warden is human everywhere and a husk zombie
+  everywhere. That matches the game's voices, which are per type too.
+- **`limb_sever` still plays under `limb_rip`.** It comes from `damage.ts` and `Combat.ts`. If the rip is enough alone,
+  drop the call in `damage.ts` `sever()` once that file is free.
+
+### Follow-up for gore: softer contacts for the ragdoll knocks
+
+Audio plays `ragdoll_bump` for every soft contact gore reports, but gore reports nothing under `ImpactTuning[kind].min`
+(0.9 m/s lost per kg for a body, 2.5 for a limb, 2 for a head), so a body sliding or rolling slowly makes no sound. The
+change, in `src/gore/impacts.ts` and nowhere else (not made: `src/gore` belongs to the ragdoll work):
+
+```ts
+// ImpactTuning: a contact this soft is reported too, at the strength it has, with its own shorter per-body gap.
+body: { min: 0.9, full: 12, cooldown: 0.25, soft: 0.3, softCooldown: 0.12 },
+limb: { min: 2.5, full: 11, cooldown: 0.16, soft: 0.8, softCooldown: 0.1 },
+head: { min: 2, full: 10, cooldown: 0.2, soft: 0.7, softCooldown: 0.12 },
+
+// ImpactEvents.land: report soft contacts, capped at 0.24 strength so audio hears them as knocks, not landings.
+const soft = lost < t.min;
+if (lost < (t.soft ?? t.min) || now < readyAt || this.left <= 0) return readyAt;
+...
+p.strength = soft ? Math.min(0.24, clamp(speed / t.full) * scale) : clamp(speed / t.full) * scale;
+...
+return now + (soft ? t.softCooldown ?? t.cooldown : t.cooldown);
+```
+
+Organs keep no `soft`, so chunks are unchanged. Audio's caps (6 knocks a second, 55 m) already hold whatever this adds.
