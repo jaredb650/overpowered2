@@ -5,6 +5,7 @@
  * man who takes a lot of killing is that fight. What he adds is his own trade. He calls shells on himself, and he never stops talking.
  */
 import * as THREE from 'three';
+import { ACTIVE } from '../../contracts/select';
 import { pick } from '../../core/math';
 import type { Behaviour } from '../brain';
 import { JUGGERNAUT_ATTACKS, JUGGERNAUT_BEHAVIOURS, type Juggernaut } from '../bosses';
@@ -65,9 +66,9 @@ export class Person {
     this.fallTo = null;
   }
 
-  /** Called as the last wave starts. */
+  /** Called as the last wave starts. Outpost Defense has no last wave, so he never comes down there, and his death ends nothing. */
   arm(): void {
-    if (this.body || this.dead) return;
+    if (this.body || this.dead || ACTIVE.def.economy) return;
     this.dueAt = this.c.w.now + ENTRY_DELAY;
   }
 

@@ -231,6 +231,12 @@ function shield(b: ModelBuilder, s: MountLevel['shield']): void {
 /** Anything an AI uses to say it is the one on the gun. */
 export type Occupant = object;
 
+/**
+ * Whose rounds these are. The player's are `emplacement`, and pay and score like his own; an ally's are `ally_` like every ally's gun
+ * (allies/data.ts `ALLY_SOURCE`), so progression, the economy and the hit sounds treat them as his and not the player's.
+ */
+export const gunSource = (occupant: 'player' | Occupant | null): string => (occupant === 'player' || occupant === null ? 'emplacement' : 'ally_emplacement');
+
 export class Emplacement {
   /** Who is on the gun: 'player' through the seat, an AI by `occupy`, or nobody. */
   occupant: 'player' | Occupant | null = null;
@@ -487,6 +493,7 @@ export class Emplacement {
     shotSpec.bodyCost = L.bodyCost;
     shotSpec.impactScale = L.impactScale;
     shotSpec.tracer = this.fired % L.tracerEvery === 0 ? 'heavy' : undefined;
+    shotSpec.source = gunSource(this.occupant);
     combat.fireRay(_muzzle, _dir, shotSpec);
     if (this.fired % L.flashEvery === 0) fx.muzzleFlash(_muzzle, _bore, L.flash);
     if (this.fired % 2 === 0) {

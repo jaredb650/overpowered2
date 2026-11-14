@@ -14,7 +14,7 @@ function view(over: Partial<ShopView> = {}): ShopView {
     credits: 10_000, inBreak: true, owned: new Set<WeaponId>(['harrow', 'rivet', 'knife']),
     ammo: () => ({ reserve: 10, maxReserve: 100 }), grenades: 0, grenadesMax: 6, stims: 1, stimsMax: 5, squad: 0,
     held: new Set<CallInId>(), cooldown: () => 0, mounts: [{ level: 1, names: ['M2', 'M2A1', 'M134'] }], pieces: [],
-    lost: () => false, ...over,
+    lost: () => false, mortars: 0, mortarsMax: 4, ...over,
   };
 }
 
@@ -96,7 +96,14 @@ describe('buying', () => {
     expect(find(offers('infirmary', view({ stims: 5 })), { kind: 'stim' }).why).toBe('Carrying 5');
     expect(find(offers('armoury', view({ grenades: 6 })), { kind: 'grenade' }).why).toBe('Full');
     expect(find(offers('barracks', view({ squad: ECONOMY.squadMax })), { kind: 'ally', type: 'rifleman' }).why).toMatch(/Squad full/);
-    expect(find(offers('barracks', view()), { kind: 'mortar' }).why).toBe('Coming later');
+  });
+
+  it('piece 8: sells mortar teams, one a mortar post, and none off the fort', () => {
+    expect(find(offers('barracks', view()), { kind: 'mortar' })).toMatchObject({ price: ALLY_PRICES.mortar, why: null });
+    expect(find(offers('barracks', view({ squad: ECONOMY.squadMax })), { kind: 'mortar' }).why).toBeNull();
+    expect(find(offers('barracks', view({ mortars: 4 })), { kind: 'mortar' }).why).toBe('All 4 posts manned');
+    expect(find(offers('barracks', view({ mortarsMax: 0 })), { kind: 'mortar' }).why).toBe('No mortar posts here');
+    expect(find(offers('barracks', view({ credits: 100 })), { kind: 'mortar' }).why).toMatch(/^Need/);
   });
 
   it('sells weapons only in a break, and everything else under fire', () => {
@@ -222,8 +229,10 @@ describe('the runtime', () => {
 });
 
 describe('the contract', () => {
-  it('plays on its own URL, on the Test Range until the fort lands, and leaves ?map=range to the lab', () => {
-    expect(pickContract('defense', null)).toMatchObject({ def: { id: 'defense', name: 'Outpost Defense', economy: true }, ranked: true });
+  it('plays on the fort, keeps the Test Range stand-in for ?map=range, and leaves a bare ?map=range to the lab', () => {
+    expect(pickContract('defense', null)).toMatchObject({ def: { id: 'defense', name: 'Outpost Defense', economy: true }, map: 'fort', ranked: true });
+    expect(pickContract(null, 'fort').def.id).toBe('defense');
+    expect(pickContract('defense', 'range')).toMatchObject({ def: { id: 'defense' }, map: 'range', ranked: false });
     expect(pickContract(null, 'range').def.id).toBe('crucible');
   });
 });

@@ -225,8 +225,11 @@ export class RouteFinder {
     return top;
   }
 
-  /** Writes a route into `out`. False when there is none. With `avoid`, ground it can see costs EXPOSED_COST times more. */
-  find(from: THREE.Vector3, to: THREE.Vector3, out: Route, avoid: Exposure | null = null): boolean {
+  /**
+   * Writes a route into `out`. False when there is none. With `avoid`, ground it can see costs EXPOSED_COST times more. `budget` is the
+   * most nodes it opens: enough for a building, not for the way round a fort's walls, which asks for more (contracts/defense/siege.ts).
+   */
+  find(from: THREE.Vector3, to: THREE.Vector3, out: Route, avoid: Exposure | null = null, budget = MAX_EXPANSIONS): boolean {
     out.clear();
     const nav = this.nav;
     if (!nav) return false;
@@ -244,7 +247,7 @@ export class RouteFinder {
     this.push(a, 0);
     let found = false;
     let expansions = 0;
-    while (this.heapSize > 0 && expansions++ < MAX_EXPANSIONS) {
+    while (this.heapSize > 0 && expansions++ < budget) {
       const u = this.pop();
       if (u === b) {
         found = true;

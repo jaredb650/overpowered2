@@ -4,23 +4,27 @@
  * contract, null on every other. The rules are economy.ts and the prices data.ts; this file only reads the run and
  * carries purchases out.
  *
- * The wave hook for piece 7 is `DefenseWaves`: whatever `ctx.waves` is, this reads `wave` and `phase`, listens to
- * `wave:start` and `wave:clear`, writes `nextWaveIn` when a break begins, and asks it for `preview` and `breakSeconds` if
- * it has them. Until the director lands, Endless Humans' own waves run (enemies/index.ts gives this contract the Outpost's).
+ * The wave hook is `DefenseWaves`: whatever `ctx.waves` is, this reads `wave` and `phase`, listens to `wave:start` and
+ * `wave:clear`, writes `nextWaveIn` when a break begins, and asks it for `preview` and `breakSeconds` if it has them. On the fort it
+ * is the wave director (director.ts); on the Test Range stand-in, Endless Humans' own waves (enemies/index.ts).
  */
 import * as THREE from 'three';
-import { ALLY_SOURCE } from '../../allies/data';
-import type { Ctx } from '../../core/contracts';
+import type { AllyType } from '../../allies/data';
+import type { Ctx, Structure } from '../../core/contracts';
 import { DEV_TOOLS } from '../../core/devflags';
 import type { WaveSystem, WeaponId } from '../../core/gameplay';
 import type { Emplacement } from '../../vehicles/emplacement';
 import { MOUNT_LEVELS } from '../../vehicles/emplacement';
 import { TUNING } from '../../weapons/data';
+import { FORT_BREACH_POINTS, FORT_POSTS, FORT_RALLY, FORT_SHOPS, type Vec } from '../../world/map/fort/plan';
+import type { StructureSpec } from '../../world/structures';
 import { ACTIVE } from '../select';
 import {
-  ECONOMY, LOADOUT_MELEE, SHOPS, SHOP_ORDER, WEAPON_PRICES, killPay, placeholderPreview, wavePay, type ShopId,
+  ECONOMY, LOADOUT_MELEE, SHOPS, SHOP_ORDER, WEAPON_PRICES, killPay, paysFor, placeholderPreview, wavePay, type ShopId,
 } from './data';
 import { ShopState, checkLoadout, offers, sameAct, type Act, type Offer, type ShopView } from './economy';
+import { outward } from './field';
+import { MortarTeams } from './teams';
 
 /**
  * What Outpost Defense needs from whatever runs its waves. Endless Humans' `OutpostWaves` is all of this but the optional
@@ -52,13 +56,28 @@ export interface ShopAnchors {
 
 const anchor = (x: number, z: number, yaw: number): ShopAnchor => ({ position: new THREE.Vector3(x, 0, z), yaw });
 
-/** The Test Range: behind the spawn, clear of the gallery and the guns. Swap for the fort's export when it lands. */
+/** The Test Range: behind the spawn, clear of the gallery and the guns. `?contract=defense&map=range` still plays here. */
 export const RANGE_ANCHORS: ShopAnchors = {
   barracks: anchor(-16, 21, 0),
   armoury: anchor(-8, 23, 0),
   infirmary: anchor(0, 24, 0),
   rally: new THREE.Vector3(0, 0, 4),
 };
+
+/** The fort's shops (`FORT_SHOPS`). The fort's yaw is the buyer's facing; the counter faces back at him, so ours is that plus π. */
+const fortShop = (id: ShopId): ShopAnchor => {
+  const s = FORT_SHOPS.find(x => x.id === id)!;
+  return { position: new THREE.Vector3(...s.anchor), yaw: s.yaw + Math.PI };
+};
+
+export const FORT_ANCHORS: ShopAnchors = {
+  barracks: fortShop('barracks'),
+  armoury: fortShop('armoury'),
+  infirmary: fortShop('infirmary'),
+  rally: new THREE.Vector3(...FORT_RALLY),
+};
+
+const ON_FORT = ACTIVE.map === 'fort';
 
 declare module '../../core/contracts' {
   interface GameEvents {
@@ -96,7 +115,9 @@ export class Defense {
   readonly shops: Record<ShopId, ShopState> = { barracks: new ShopState('barracks'), armoury: new ShopState('armoury'), infirmary: new ShopState('infirmary') };
   /** Set by a new run, cleared by `deploy`. The run waits paused on the loadout screen until then. */
   needLoadout = false;
-  anchors: ShopAnchors = RANGE_ANCHORS;
+  anchors: ShopAnchors = ON_FORT ? FORT_ANCHORS : RANGE_ANCHORS;
+  /** The player's mortar teams (piece 8). Only the fort has posts for them. */
+  readonly mortars: MortarTeams;
 
   private kiosks: Kiosk[] = [];
   private prompted: Kiosk | null = null;
@@ -105,12 +126,17 @@ export class Defense {
   /** The wave whose break has had its length set, or -1 while a wave is on. */
   private breakFor = -1;
 
-  constructor(private readonly ctx: Ctx) {}
+  /** The breach the riot police are holding, if any. */
+  private breach: Structure | null = null;
+
+  constructor(private readonly ctx: Ctx) {
+    this.mortars = new MortarTeams(ctx, ON_FORT);
+  }
 
   init(): void {
     const { events } = this.ctx;
     events.on('enemy:killed', e => {
-      if (!ALLY_SOURCE.test(e.damage.source)) this.earn(killPay(e.headshot));
+      if (paysFor(e.damage.source)) this.earn(killPay(e.headshot));
     });
     events.on('wave:clear', e => {
       const pay = wavePay(e.wave);
@@ -121,6 +147,37 @@ export class Defense {
     if (DEV_TOOLS) this.debug();
   }
 
+  /** Riot police go to a breach in the fort's walls, and back to their posts once it is repaired (allies' `markBreach`). */
+  private watchBreaches(): void {
+    const pieces = this.ctx.world.objects.structures;
+    if (!ON_FORT || !pieces || this.watching) return;
+    this.watching = true;
+    for (const piece of pieces) {
+      if (piece.kind === 'shack') continue;
+      piece.onStageChange(stage => {
+        if (stage === 'breached') this.markBreach(piece);
+        else if (this.breach === piece) this.markBreach(pieces.find(p => p.kind !== 'shack' && p.stage === 'breached') ?? null);
+      });
+    }
+  }
+
+  private watching = false;
+
+  private markBreach(piece: Structure | null): void {
+    const allies = this.ctx.allies;
+    this.breach = piece;
+    if (!allies) return;
+    if (!piece) {
+      allies.clearBreach();
+      return;
+    }
+    const spec = (piece as Structure & { spec: StructureSpec }).spec;
+    const out = outward(spec.x, spec.z, _a);
+    // The line forms in the yard behind the gap, facing out through it.
+    _b.set(spec.x, 0, spec.z).addScaledVector(out, -(piece.kind === 'gate' ? 4 : 5.5));
+    allies.markBreach(_b, Math.atan2(-out.x, -out.z));
+  }
+
   reset(): void {
     this.credits = this.earned = 0;
     for (const id of SHOP_ORDER) this.shops[id].restore();
@@ -129,6 +186,9 @@ export class Defense {
     this.asked = false;
     this.breakFor = -1;
     this.prompt(null);
+    this.mortars.reset();
+    this.breach = null;
+    this.watchBreaches();
     // Each gun starts the run as a heavy machine gun (proposal: Mounted guns).
     for (const gun of this.mounts()) gun.upgrade(1);
   }
@@ -143,6 +203,8 @@ export class Defense {
     }
     this.hookBreak();
     this.readCounter();
+    if (this.inBreak && this.ctx.input.pressed('nextWave')) this.startNow();
+    this.mortars.update(!this.inBreak);
   }
 
   // --- Waves -----------------------------------------------------------------------------------
@@ -171,9 +233,16 @@ export class Defense {
     w.nextWaveIn = w.breakSeconds?.(key + 1) ?? (key === 0 ? ECONOMY.firstBreak : ECONOMY.breakSeconds);
   }
 
-  /** Ends the break now. For the lab and bots; the player waits it out. */
+  /** Ends the break now. For the lab and bots. */
   skipBreak(): void {
     if (this.inBreak) this.waves.nextWaveIn = 0;
+  }
+
+  /** The player calls the next wave in early (the `nextWave` key, L). The break's countdown goes to its last three seconds. */
+  startNow(): void {
+    if (!this.inBreak || this.waves.nextWaveIn <= 3) return;
+    this.waves.nextWaveIn = 3;
+    this.ctx.hud.feed('NEXT WAVE CALLED IN', '#ff8a3a');
   }
 
   // --- Credits and the loadout -----------------------------------------------------------------
@@ -214,6 +283,8 @@ export class Defense {
       mounts: this.mounts().map(g => ({ level: g.levelNumber, names: MOUNT_LEVELS.map(l => l.name.split(' //')[0]!) })),
       pieces,
       lost: id => this.shops[id].lost,
+      mortars: this.mortars.count,
+      mortarsMax: this.mortars.max,
     };
   }
 
@@ -277,16 +348,30 @@ export class Defense {
         ctx.hud.banner(`${SHOPS[act.shop].name.toUpperCase()} REBUILT`, '', SHOPS[act.shop].color);
         return null;
       case 'mortar':
-        return 'Coming later';
+        return this.mortars.add();
     }
   }
 
-  /** A new man at the barracks, posted at the rally point with his own patch of it. */
-  private hire(type: Parameters<NonNullable<Ctx['allies']>['spawn']>[0]): string | null {
+  /**
+   * A new man at the barracks. On the fort he gathers at the rally point and walks to the first free post of his type (`FORT_POSTS`,
+   * riot police at `FORT_BREACH_POINTS`), outer ring first. Elsewhere he holds his own patch of the rally point.
+   */
+  private hire(type: AllyType): string | null {
     const allies = this.ctx.allies;
     if (!allies) return 'No troops on this page';
     const { nav } = this.ctx.world;
     const n = allies.allies.length;
+    if (ON_FORT) {
+      _a.set(FORT_RALLY[0] + ((n % 3) - 1) * 1.5, 1, FORT_RALLY[2]);
+      if (!nav.nearest(_a, 6, _a)) return 'No room at the barracks';
+      const post = this.postFor(type);
+      if (post) {
+        _b.set(post.pos[0], post.pos[1] + 1, post.pos[2]);
+        if (!nav.nearest(_b, 3, _b)) _b.copy(_a);
+      } else _b.copy(_a);
+      const radius = type === 'riot' || type === 'gunner' || type === 'sniper' ? 2 : type === 'shotgunner' ? 4 : 5;
+      return allies.spawn(type, _a.clone(), _b.clone(), radius, post?.yaw ?? Number.NaN) ? null : 'No room for him';
+    }
     const from = this.anchors.barracks.position;
     _a.set(from.x, from.y + 1, from.z - 2);
     if (!nav.nearest(_a, 8, _a)) return 'No room at the barracks';
@@ -294,6 +379,15 @@ export class Defense {
     _b.set(rally.x + ((n % 5) - 2) * 3.5, rally.y + 1, rally.z - Math.floor(n / 5) * 3);
     if (!nav.nearest(_b, 8, _b)) _b.copy(_a);
     return allies.spawn(type, _a.clone(), _b.clone()) ? null : 'No room for him';
+  }
+
+  /** The first post of his type nobody alive holds, outer ring first. Medics share theirs. */
+  private postFor(type: AllyType): { pos: Vec; yaw: number } | null {
+    const list: { pos: Vec; yaw: number }[] = type === 'riot'
+      ? FORT_BREACH_POINTS.map(b => ({ pos: b.pos, yaw: Math.atan2(-b.pos[0], -b.pos[2]) }))
+      : FORT_POSTS.filter(p => p.type === type);
+    const held = this.ctx.allies?.allies ?? [];
+    return list.find(p => !held.some(a => Math.hypot(a.post.x - p.pos[0], a.post.z - p.pos[2]) < 1.5)) ?? list[0] ?? null;
   }
 
   /**
@@ -315,7 +409,7 @@ export class Defense {
 
   // --- The counters in the world -----------------------------------------------------------------
 
-  /** A steel counter and a lit sign at each anchor. The fort's buildings replace the counter; the sign and prompt stay. */
+  /** A steel counter and a lit sign at each anchor. On the fort the buildings have counters, so only the sign goes up. */
   private build(): void {
     const { render } = this.ctx;
     if (!render?.scene) return;
@@ -328,14 +422,20 @@ export class Defense {
       const root = new THREE.Group();
       root.position.copy(at.position);
       root.rotation.y = at.yaw;
-      const counter = new THREE.Mesh(base, steel);
-      counter.position.y = 0.525;
-      const pole = new THREE.Mesh(post, steel);
-      pole.position.set(0.7, SIGN_HEIGHT / 2, 0);
       const sign = new THREE.MeshBasicMaterial({ color: SHOPS[id].color });
       const plate = new THREE.Mesh(board, sign);
-      plate.position.set(0, SIGN_HEIGHT, 0);
-      root.add(counter, pole, plate);
+      if (ON_FORT) {
+        // The fort's building has the counter, 1.3 m in front of where the buyer stands. Only the lit board goes up, over it.
+        plate.position.set(0, SIGN_HEIGHT + 0.3, 1.3);
+        root.add(plate);
+      } else {
+        const counter = new THREE.Mesh(base, steel);
+        counter.position.y = 0.525;
+        const pole = new THREE.Mesh(post, steel);
+        pole.position.set(0.7, SIGN_HEIGHT / 2, 0);
+        plate.position.set(0, SIGN_HEIGHT, 0);
+        root.add(counter, pole, plate);
+      }
       render.scene.add(root);
       this.kiosks.push({ id, root, sign, label: at.position.clone().setY(at.position.y + SIGN_HEIGHT + 0.5) });
     }

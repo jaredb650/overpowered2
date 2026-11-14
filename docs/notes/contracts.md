@@ -44,8 +44,9 @@ ACTIVE.ranked;                                  // false on a map the contract d
 
 ## Outpost Defense
 
-`src/contracts/defense/`, piece 5 of `docs/proposals/outpost-defense.md`. The contract row `defense` (`economy: true`) under Endless Humans: its AI,
-waves and wounds, plus credits, a loadout screen, three shops and breaks. Locked with Endless Humans until the campaign is beaten
+`src/contracts/defense/`, pieces 5, 7 and 8 of `docs/proposals/outpost-defense.md`. The contract row `defense` (`economy: true`, `map: 'fort'`)
+under Endless Humans: its AI and wounds on the fort (`docs/notes/fort.md`), with its own wave director, credits, a loadout screen, three shops,
+breaks and the player's mortar teams. Locked with Endless Humans until the campaign is beaten
 (`?unlock=1`, or the dev server, opens it).
 
 | File | Job |
@@ -54,11 +55,23 @@ waves and wounds, plus credits, a loadout screen, three shops and breaks. Locked
 | `defense/economy.ts` | Pure rules over a `ShopView` snapshot: `offers(shop, view)` with each row's price and why it is shut, `checkLoadout`, `ShopState` |
 | `defense/index.ts` | `Defense` on `ctx.contracts.defense`: credits, the counters in the world and E, buying, the break hook, shop loss, `window.__defense` and a DEFENSE lab section |
 | `ui/screens/loadout.ts`, `ui/screens/shop.ts` | The two menus, on the settings sheet's rail and rows |
-| `ui/hud/defense.ts` | Credits, the next wave's line in a break, the three shops (red while lost), under the wave plate |
+| `defense/waves.ts` | The wave plan as data: `planWave(wave)`, the boss order, `previewLine`, `DIRECTOR` (alive cap, men a wave, breaks) |
+| `defense/director.ts` | `DefenseDirector`, `ctx.waves` on the fort: feeds squads from the fence, trucks and tanks up the lanes, helicopters, bosses, bombers |
+| `defense/siege.ts` | What every attacker does: assault, sappers and their charges, engineers' sandbags and jump pads, enemy mortar teams, bosses at the walls, shop raids |
+| `defense/field.ts` | The rules as arithmetic: rings and depth, `SATCHEL` and `satchelBlast`, `MortarCrew`, `pickMortarTarget` |
+| `defense/shells.ts` | Mortar rounds in the air for both sides: thump, arc with a smoke trail, whistle, floor ring, landing |
+| `defense/teams.ts` | The player's mortar teams (piece 8) |
+| `ui/hud/defense.ts` | Credits, the next wave's line in a break with `L: START NOW`, the three shops (red while lost), under the wave plate |
 
-**Start it.** `/?contract=defense`, or Outpost Defense on the menu. The fort switch is one line: `map: 'range'` on the row in `data.ts` becomes
-`'fort'` (and `MAP_IDS` in `select.ts` gains it), and `anchors` in `defense/index.ts` takes the fort's export in place of `RANGE_ANCHORS`.
-`?map=range` stays the lab's: `pickContract` never hands the Test Range to a contract that borrows it.
+**Start it.** `/?contract=defense` (or `/?map=fort`), or Outpost Defense on the menu: the fort. `?contract=defense&map=range` is the old
+Test Range stand-in (counters behind the spawn, Endless Humans' squads as waves, no mortar posts); a bare `?map=range` stays the lab's.
+
+**How to play it.** Pick a primary and a secondary, deploy, and use the 20 s break: the Barracks is in the outer ring's south band, the
+Armoury in the middle ring's north band, the Infirmary in the core's north-west corner. Walk in and press E at the counter. Hires gather
+outside the Barracks door and walk to a post of their type (`FORT_POSTS`; riot police to `FORT_BREACH_POINTS`, and to any breach as it
+opens). The break line says what the next wave brings; **L** starts it now (its countdown drops to 3 s). Hold the walls from the catwalks,
+shoot the men with charges before they reach the wall, kill mortar crews in the field pits (a red `MORTAR` marker hangs over a manned one),
+blow engineers' sandbags and jump pads, and repair walls from the Barracks between fights.
 
 **Flow.** A new run opens the loadout over a paused game. Deploy arms the player (`weapons.setLoadout([primary, secondary, 'knife'], 0)`),
 the budget left becomes credits, and the first break (20 s) starts. Walk up to a counter (2.6 m) and press E: the run pauses under its menu.
@@ -70,27 +83,85 @@ a wave clears. Budget 1,600: the Harrow and the Rivet leave 300. Killing everyth
 
 | Shop | Sells | Lost means |
 |---|---|---|
-| Barracks | Rifleman 250, machine gunner 500, shotgunner 500, riot 750, medic 750, sniper 1,100, rocketeer 1,200; mortar team 1,200 shown, shut ("Coming later"). Squad cap 8, up or down, so a dead man frees his place. Repairs: wall 250 and gate 350 a stage, half for a chip, 4 s of work through `Structure.repair` | No troops, no repairs |
+| Barracks | Rifleman 250, machine gunner 500, shotgunner 500, riot 750, medic 750, sniper 1,100, rocketeer 1,200; mortar team 1,200, one a mortar post (4 on the fort, outside the squad cap). Squad cap 8, up or down, so a dead man frees his place. Repairs: wall 250 and gate 350 a stage, half for a chip, 4 s of work through `Structure.repair` | No troops, no repairs |
 | Armoury | Weapons only in a break (a base brings its family member and is priced for both). Ammunition by gun: a box is half the most reserve, 50 to 90 for basic, 200 to 300 specialty, 260 to 450 explosive (the Quiver cheapest). Grenades 150. Mounted gun to level 2 for 700, 3 for 1,600. Call-ins 600 (airstrike) to 8,000 (nuke), any time, not while one is held or rearming | No weapons, special ammo, upgrades or call-ins |
 | Infirmary | Stim 150 up to 5. Basic ammo 100: half a reserve for every basic gun | No stims, no resupply |
 
 A lost shop (`damageShop(id, amount)`, `ShopState`, 1,500 health each) sells only its rebuild, in a break: barracks 2,500, armoury 3,000,
-infirmary 3,500. Its sign and HUD chip go red and the banner says so. Nothing damages a shop yet but the lab and `__defense.damageShop`.
+infirmary 3,500. Its sign and HUD chip go red and the banner says so. Attackers inside a ring shoot its shop: 10 a second each within 6 m of the
+building (`FORT_SHOPS` target box), so four men take a shop in under 40 s.
 
 **What else this contract turns off** (`economy` on the row): combo call-ins (`progression/index.ts` skips `offer`), weapon cache pods and kill
 drops, and the wave-end ammo floor (`Weapons.ts`). Every mounted gun goes back to level 1 at a new run.
 
 **The wave hook** (`DefenseWaves` in `defense/index.ts`). Whatever `ctx.waves` is on this contract: Defense reads `wave` and `phase`,
 listens to `wave:start` and `wave:clear`, writes `nextWaveIn` once as each break begins, and calls `preview(wave)` and `breakSeconds(wave)`
-if they exist. Today `createWaves` hands this contract Endless Humans' `OutpostWaves` (squads from the ground spawns), so a director
-replaces that and adds the two methods. `__defense.skipBreak()` ends a break.
+if they exist. On the fort `createWaves` builds the `DefenseDirector`; on the range stand-in it is Endless Humans' `OutpostWaves`.
 
-**Dev.** `window.__defense` (`earn(n)`, `skipBreak()`, `damageShop(id, n)`, `offers(id)`, `buy(id, act)`), the DEFENSE lab section (+1000,
-skip break, hit each shop 500), and `tools/scripts/defense-live.mjs`:
+**The waves** (`waves.ts`). Humans only, endless. Each band keeps what came before it. Men on foot: 8 on wave 1, 2 more a wave, to 64,
+fed through the fence 20 alive at most (`DIRECTOR.aliveCap`, under the game's 48); their health climbs with the wave (`waveScale`, 8.5% a
+wave) and their rank odds with it. One or two sides of the fort early, three from wave 4, all four from 10.
+
+| Wave | Who comes |
+|---|---|
+| 1 to 3 | Riflemen and shotgunners in squads of 4 or 5. 2, 2 and 3 of the riflemen carry satchel charges |
+| 4 to 6 | Plus enemy mortar teams (1, 1, 2; two men each) and engineers (1, then one more every third wave, to 4) |
+| 7 to 9 | Plus a troop truck (5 men) and a scout car (2) up the lanes, more later; rocketeers in the squads |
+| 10 on | Plus bombers (2, one more every third wave, to 8), snipers and machine gunners in the squads |
+| 5, 10, 15, 20, 25 | Tanks, attack helicopters, the Juggernaut, the Titan, then all four; 60% of a wave's men as escort |
+| 30, 35, ... | The order again with one more of each (a second Titan every other round) |
+
+Breaks: 20 s before wave 1, 30 s, 40 s before a boss wave. The break line is `previewLine` (`1 TANK, 12 men on foot, 1 with charges, ...`).
+
+**The siege** (`siege.ts`). The Outpost's squad brain hunts a player it can route to; behind shut gates it stands at the fence. So every
+man is in a directed squad and the siege gives each squad, read off its leader: the shop in its ring if it stands, else a way into the next
+ring (a breached wall or blown gate, as a point inside it, or an engineer's jump pad), else cover 20 m out from that wall (7 m in a yard),
+facing it. A squad with no way in for 30 s hands a rifleman a charge. In the player's ring, within 30 m of him, the squad brain takes over;
+further off the siege walks them to cover near him. Routes go through `RouteFinder.find` with a bigger budget (30,000 nodes) and round
+the ring's corners a leg at a time; men from trucks and gun seats are taken on as they appear.
+
+- **Satchel charges** (`SATCHEL`): the sapper runs to the nearest standing wall or gate of the next ring (a gate counts 14 m nearer), kneels
+  2.2 s, sets the Commander's charge model with its blink and a 5 m red ring on the floor, and runs back. 7 s later it wears the wall
+  through `world.objects.damageExplosivesInRadius` (420: a gate in one, a wall stage in each) and blasts anyone there (70, 5 m). Shoot the
+  carrier and there is no charge; shoot the charge and it pops early for 42, a chip on the wall.
+- **Enemy mortar teams**: two men walk to a free `FORT_MORTARS` pit on their side. Standing still at the pit for 4 s sets up the tube (the
+  Commander's model) and hangs `MORTAR` over it; then a salvo of 3 every 11 s, 60% on the player when he is inside the walls, else along
+  the walls they face, each round 50 in 6 m with the red ring and the whistle. A crewman moving or knocked off the pit starts the setup
+  over (`MortarCrew`); kill both, or blast the tube, and the team is done and its men join the assault.
+- **Engineers**: over a damaged wall of the next ring with no pad yet, 5 s of work puts a jump pad 1.5 m out from it; any attacker taking that
+  way is thrown onto the rampart (`leapTo`, 0.95 s, 4 m over). Otherwise, out in the field, a sandbag wall (3.2 by 1.15 m, a real collider)
+  16 to 26 m out, that squads with no way in take cover behind. Two blasts take a sandbag wall, one a pad; a breach under a pad removes it.
+- **Bosses and bombers** keep the swarm's brain. While they have no path to the player a `siege` behaviour walks them to the wall in the
+  way: a bomber blows himself up against it (380 to the wall); a Juggernaut beats it for 70 a second, a Titan 140. Tanks drive up a lane to
+  the track and shell (their shells count 4 times on walls); helicopters come one at a time from the air spawns and circle the fort.
+
+**The Commander** is built with the Outpost but never asked to compose a wave or brief a break here, and `Person.arm` refuses an economy
+contract, so he never comes down in person and nothing can end the run with CONTRACT FULFILLED.
+
+**The player's mortar teams** (`teams.ts`, piece 8). Bought at the Barracks for 1,200, posted at the next free mortar post (four, in the
+middle ring's yards): a tube, crates and a cyan beacon, no crew to fight anything. During a wave each fires every 8 to 13 s
+(`TEAM_MORTAR`): `pickMortarTarget` weighs every enemy body and ground vehicle out in the field (1 each, 4 for a vehicle, plus the
+square of the bodies within 7 m), adds 3.5 m of scatter and pushes the point out to 9 m past the outer wall's line; with nothing out
+there a round still lands somewhere in the field. The round thumps out of the tube, climbs on a lit arc with a smoke trail, whistles and
+lands as an ally's rocket does: enemies, vehicles, shacks and sandbags, never the player or his men. Its kills are `ally_mortar`, paid
+nothing.
+
+**Who is paid** (`paysFor` in `data.ts`): the player's kills and his call-ins'. Not an ally's (`ally_`), including an ally on a mounted gun
+(the gun's rounds are `ally_emplacement` whenever the seat is not the player's, `gunSource` in `vehicles/emplacement.ts`) and the mortar
+teams; not the enemy's own mortars, mines or charges.
+
+**Dev.** `window.__defense` (`earn(n)`, `skipBreak()`, `startNow()`, `damageShop(id, n)`, `offers(id)`, `buy(id, act)`, `mortars`), the DEFENSE
+lab section (+1000, skip break, hit each shop 500), `__op2.ctx.waves.jumpTo(n)` and `.describe()` (with `siege` in it), and
+`tools/scripts/defense-live.mjs`:
 
 ```
 node tools/shot.mjs --url "/?contract=defense&autostart=1" --script tools/scripts/defense-live.mjs --wait 500 --timeout 280 --dpr 2 --w 1440 --h 900 --out tools/out/economy/live.png
+DEFENSE_STEP=waves node tools/shot.mjs --url "/?contract=defense&autostart=1" --script tools/scripts/defense-live.mjs --wait 500 --timeout 900 --dpr 2 --w 1440 --h 900 --out tools/out/defense/w.png
 ```
+
+A private server for long runs: `OP2_NO_HMR=1 npx vite --port <n>`, and `--port <n>` on `shot.mjs`; with HMR on, another agent's edit
+reloads the page mid-run. Tests: `src/contracts/defense/director.test.ts` (the plan, charges on a real wall, mortar crews, the Commander,
+the early start, who is paid, the player's mortars) and `economy.test.ts`.
 
 **Verified** (2026-11-14, real Chrome at 1440x900, dpr 2, `defense-live.mjs` on a private server of the commit): the loadout by
 keys (Judge picked, 50 left, back to the Rivet, Deploy: 300 credits, Harrow, Rivet and Shiv owned); the 20 s break with the plate's countdown,
@@ -98,17 +169,31 @@ the credits and the next-wave line; E at each counter; a rifleman hired (squad 1
 credits 300 + 4,000 - 250 - 600 - 150 = 3,300; in wave 1 every weapon row read `Only in a break`; the infirmary lost (red sign, red chip,
 banner) offered only its rebuild, `Only in a break`. Screens in `tools/out/economy/`.
 
+**Verified, the waves** (2026-11-14, `DEFENSE_STEP=waves`, real Chrome 1440x900 dpr 2, a private no-HMR server; the bot holds the outer
+catwalk with an aimbot, health and ammunition topped up, two mortar teams and four allies bought). Wave 1: sappers set charges on the north
+wall; one blew a segment to damaged, a second breached it, the rest of the squad went in and shot at the Barracks (smoke run: 83 hits in 20 s).
+Wave 4 with nobody shooting back (diagnosis run): squads from the west and south rounded the corners to a breach, raided the Barracks to
+nothing in about 35 s, then hunted the player along the yard; the mortar team set up in its pit and fired 6 salvos; the engineer built a
+pad over a damaged wall and three sandbag walls. Wave 5 under the bot: 5 men leapt over two pads, the tank drove up the north lane and
+shelled, the Barracks fell at about 100 s. Wave 15: the Juggernaut dropped onto the field and walked to the wall; charges and pads kept
+coming. The player's two teams fired 94 rounds over the run; none landed inside the walls. Frame cost in wave 5 (10 enemies, 4 allies, the
+tank, shells in the air): 307 draw calls, 576k triangles, frames at the harness's 60 Hz cap (median and p95 16.7 ms); wave 15 with 22
+enemies: 384 calls, 786k triangles. No console errors. Screens in `tools/out/defense/`.
+
 **Rough.**
 - **Nobody has played it, and the prices are first guesses** held to Q3 and Q4 by tests, not by feel.
 - **A shop's menu pauses the world.** See the proposal's section on the build.
-- **Endless Humans' Commander still runs.** Killing him ends the run with CONTRACT FULFILLED, which an endless mode should not do; the
-  wave director should own that.
-- **On the Test Range** the waves come from the four corner spawns, two of them 24 m beside the player's start, and the counters are
-  boxes with lit signs and no colliders. New hires all post round one rally point; the fort should give posts by type.
+- **On the Test Range stand-in** the waves are Endless Humans' from the corner spawns, the counters are boxes, and hires share one rally point.
 - **Mounted guns are reached through a cast** to the call-in manager's private `emplacements`, as the lab does. A public getter on
   progression would be cleaner.
-- **Kills by an ally on a mounted gun pay** (its rounds are the player's `emplacement` source). Ally kills otherwise pay nothing.
-- **No early start**: the player waits a break out (the lab and `__defense.skipBreak()` can end it).
+- **Allies do not man the mounted guns.** A machine gunner posted on a gun stands behind it. If one ever mans it, its kills pay nothing.
+- **The siege is tactics by hand.** Squads with no way in sit in cover until a charge, a pad or a 30 s stall gets them moving; engineers'
+  sandbags are not in the cover map, and men go behind them by hand. The squad brain's flanks and grenades only come in near the player.
+- **Shop raids are tracers and a number.** Men at a shop fire visible rounds at its wall and its health goes down; the building does not
+  show wear, and nothing but the HUD chip and the banner says it is lost.
+- **Enemy mortars land on allies without hurting them** (allies are hurt only by rounds aimed at them), and the player's mortar crews are
+  a tube and a beacon, no men.
+- **Bosses beat on a wall standing still**; there is no animation for it, only dust.
 
 ## Unlocks
 

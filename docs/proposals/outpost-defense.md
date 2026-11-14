@@ -1,7 +1,8 @@
 # Plan: Outpost Defense, an Endless Humans map
 
 Status: plan, not scheduled. Written 2026-11-14 from the owner's notes; the owner answered the first round of questions
-the same day. Pieces 1 (stims), 2 (allies, partly: see `docs/notes/allies.md`, Rough), 3 (mounted guns), 4 (walls, gates and shacks), 5 (the economy, on the Test Range until the fort lands) and 6 (the fort map, `docs/notes/fort.md`, at `/?map=fort`) are built; nothing else is. Open details are marked **Q** with the default the build would use.
+the same day. Pieces 1 (stims), 2 (allies, partly: see `docs/notes/allies.md`, Rough), 3 (mounted guns), 4 (walls, gates and shacks), 5 (the economy, on the Test Range until the fort lands) and 6 (the fort map, `docs/notes/fort.md`, at `/?map=fort`), 7 (the wave director) and 8 (the player's mortar teams) are built: the mode plays on the fort.
+Open details are marked **Q** with the default the build used.
 
 ## Why this, and why in this order
 
@@ -116,8 +117,8 @@ Each is useful on its own; the mode comes last. Sizes are rough.
 | 4 | **Destructible walls, gates and shacks**: staged wear, holes, breaches, repairs. **Built**: `src/world/structures.ts`, notes in `docs/notes/world.md` under Walls, gates and shacks | Any map can use them | Large | Opus, high |
 | 5 | **Credits, shops, loadout screen, breaks**: the economy and its UI. **Built**: `src/contracts/defense/`, notes in `docs/notes/contracts.md` under Outpost Defense | The mode | Medium to large | Opus, medium |
 | 6 | **The fort map**: rings, catwalks, gates, towers, shacks, the open field round it. **Built**: `src/world/map/fort/`, at `/?map=fort`, notes in `docs/notes/fort.md`; shops, posts, spawns, lanes and mortar spots are data in `fort/plan.ts` | The mode | Large | Opus, high |
-| 7 | **The wave director**: escalation, mortar teams, engineers (charges, cover, jump pads), vehicles, the boss order | The mode | Medium to large | Opus, high |
-| 8 | **The player's mortar teams** | The mode | Small to medium | Opus, medium |
+| 7 | **The wave director**: escalation, mortar teams, engineers (charges, cover, jump pads), vehicles, the boss order. **Built**: `src/contracts/defense/director.ts`, `waves.ts`, `siege.ts`, `field.ts`, `shells.ts`; notes in `docs/notes/contracts.md` under Outpost Defense | The mode | Medium to large | Opus, high |
+| 8 | **The player's mortar teams**. **Built**: `src/contracts/defense/teams.ts` | The mode | Small to medium | Opus, medium |
 
 Pieces 1, 3 and 4 do not depend on each other and could be built side by side; 2 is the longest. The mode (5 to 8)
 starts once 2 and 4 exist.
@@ -136,6 +137,26 @@ starts once 2 and 4 exist.
   menu would need its own key handling over pointer lock; this was the smaller change.
 - **Waves.** Endless Humans' own squads stand in, with 20 s before wave 1 and 30 s breaks. The break's line is a placeholder until
   the director supplies `preview(wave)`. The director's hook is `DefenseWaves` in `src/contracts/defense/index.ts`.
+
+## The waves and the mortar teams as built (pieces 7 and 8, 2026-11-14)
+
+The mode plays on the fort (`/?contract=defense`, or `/?map=fort`). `?contract=defense&map=range` keeps the Test Range stand-in with
+Endless Humans' waves. Details are in `docs/notes/contracts.md`, Outpost Defense.
+
+- **Q5 taken**: a boss every fifth wave in the order tanks, attack helicopters, the Juggernaut, the Titan, all at once, then round again with
+  one more of each (the Titan one more every second round). A boss wave is the boss and 60% of a wave's men as an escort.
+- **Humans who cannot reach the player besiege him.** The Outpost's squad brain stands at the fence when the gates are shut, so every man is
+  in a directed squad (`siege.ts`): the shop in his ring first, then a way into the next ring (a breach, a blown gate, an engineer's jump pad),
+  and with none, cover facing that wall. A squad with no way in for 30 s hands one rifleman a charge, so a sealed fort cannot stall a wave.
+  In the player's own ring the squad brain takes over again.
+- **Bosses and bombers** have no path to a sealed player, so a `siege` behaviour walks them to the wall in the way: a bomber blows himself
+  up against it, a Juggernaut or Titan beats on it (70 and 140 a second) until it gives.
+- **The Commander** never composes a wave or briefs a break here, and `Person.arm` refuses this contract, so his death cannot end the run.
+- **Credits**: an ally on a mounted gun now fires `ally_emplacement` rounds and is paid nothing; nor are the player's mortar teams
+  (`ally_mortar`) or the enemy's own mortars and charges.
+- **Piece 8**: 1,200 at the Barracks, one a mortar post (four, in the middle ring's yards), outside the squad cap. A round every 8 to 13 s
+  during a wave, weighted toward groups (each other body within 7 m adds its square) and vehicles (4), never within 9 m of the outer wall's
+  line; with nothing out there, somewhere in the field anyway.
 
 ## Left out
 

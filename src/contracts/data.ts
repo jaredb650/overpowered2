@@ -170,8 +170,7 @@ export const CONTRACTS: readonly ContractDef[] = [
   {
     id: 'defense',
     name: 'Outpost Defense',
-    // shortcut: the Test Range stands in until the fort map lands; then this is 'fort' (and MAP_IDS in select.ts gains it).
-    map: 'range',
+    map: 'fort',
     faction: 'humans',
     waves: 'squads',
     ai: 'outpost',

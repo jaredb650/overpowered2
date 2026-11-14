@@ -1,11 +1,13 @@
 # The fort
 
-Piece 6 of `docs/proposals/outpost-defense.md`: the Outpost Defense map, at `/?map=fort`. Files: `src/world/map/fort/`. No mode, no
-waves and no shops run on it yet; it is the ground the economy and the wave director attach to.
+Piece 6 of `docs/proposals/outpost-defense.md`: the Outpost Defense map. Files: `src/world/map/fort/`. Outpost Defense plays here
+(`docs/notes/contracts.md`, Outpost Defense): its shops are `FORT_SHOPS`, hires take `FORT_POSTS`, the wave director brings men from
+`FORT_SPAWNS` and machines up `FORT_LANES`, enemy mortar teams use `FORT_MORTARS`, and the player's own use the mortar posts.
 
 | URL | What |
 |---|---|
-| `/?map=fort&autostart=1` | The default contract (the swarm) on the fort |
+| `/?map=fort&autostart=1` | Outpost Defense (the fort is its map now) |
+| `/?map=fort&contract=crucible&autostart=1` | The swarm on the fort |
 | `/?map=fort&contract=outpost&autostart=1` | Human squads |
 | `/?map=fort&contract=outpost&allies=6&autostart=1` | With six allies round the player in the core |
 | `/?sandbox=map&map=fort&view=overview` | Fly camera. Views: `overview`, `high`, `core`, `infirmary`, `middle`, `armoury`, `outer`, `barracks`, `catwalk`, `gun`, `tower`, `gate`, `gateIn`, `middleGate`, `field`, `fieldWide` |
@@ -108,7 +110,7 @@ Frame rates in the harness at 2x are the harness's (2 to 14 fps), not the map's;
 ## Rough
 
 - **Nobody has played it.** The ring sizes, the lanes and how far out the spawns are are guesses for a siege. Spawns at 104 to 108 m are
-  past the spawner's 40 to 80 m path band, so it picks the nearest of them; the wave director should pick its own from `FORT_SPAWNS`.
+  past the spawner's 40 to 80 m path band, so the swarm's spawner picks the nearest of them; the wave director picks its own from `FORT_SPAWNS`.
 - **No catwalk over the gates.** The walk goes down the stairs, through the gate's passage and up the other side.
 - **The rampart's yard face is vaultable everywhere** (1.7 m is under nav's 1.9 m jump), so attackers inside a ring climb onto the catwalk
   anywhere, and the player needs a mantle. That is what lets a breach be a way in at all.
@@ -116,4 +118,5 @@ Frame rates in the harness at 2x are the harness's (2 to 14 fps), not the map's;
 - **Bastions are not destructible.** Nor are gun pads, ramparts or shops; shop health is the economy's number, `target` only says where.
 - **Ground puddles** read as pale blotches from high up under the moon. They are the dirt material's wetness, as on every map.
 - **Four-fold symmetry.** Every side of the field is the north side turned, with small jitter on the shacks.
-- **Mortar teams and landing zones are only data and paint.** Nothing uses them yet.
+- **Landing zones are only data and paint.** The enemy helicopter does not land, and nothing else uses them.
+- **Engineers' sandbag walls are not in the cover map**, which is built at load. The siege sends men behind them by hand.

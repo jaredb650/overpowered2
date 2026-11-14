@@ -64,6 +64,9 @@ export interface ShopView {
   mounts: readonly { level: number; names: readonly string[] }[];
   pieces: readonly PieceView[];
   lost(shop: ShopId): boolean;
+  /** The player's mortar teams posted, and the posts there are for them (none off the fort). */
+  mortars: number;
+  mortarsMax: number;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -189,7 +192,8 @@ function barracks(v: ShopView): Offer[] {
   for (const type of BARRACKS_ORDER) {
     const price = ALLY_PRICES[type];
     if (type === 'mortar') {
-      out.push({ section: 'Troops', label: 'Mortar team', detail: ALLY_ROLES.mortar, price, why: 'Coming later', act: { kind: 'mortar' } });
+      const why = v.mortarsMax === 0 ? 'No mortar posts here' : v.mortars >= v.mortarsMax ? `All ${v.mortarsMax} posts manned` : need(price, v);
+      out.push({ section: 'Troops', label: 'Mortar team', detail: ALLY_ROLES.mortar, price, why, act: { kind: 'mortar' } });
       continue;
     }
     const why = full ? `Squad full, ${ECONOMY.squadMax}` : need(price, v);

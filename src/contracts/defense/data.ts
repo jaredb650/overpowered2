@@ -5,9 +5,10 @@
  * Tuned to Q4's default: the opening budget buys the Harrow and the Rivet with a little left over, and a player who kills
  * most of waves 1 to 4 can hire the first rocketeer in the break before wave 5, not before (economy.test.ts checks both).
  */
-import type { AllyType } from '../../allies/data';
+import { ALLY_SOURCE, type AllyType } from '../../allies/data';
 import type { CallInId, WeaponId } from '../../core/gameplay';
 import { waveStrength } from '../../enemies/outpost/doctrine';
+import { GIFT_SOURCES } from '../../progression/data';
 
 export const ECONOMY = {
   /** The loadout screen's budget. What is not spent there becomes credits. */
@@ -27,6 +28,12 @@ export const ECONOMY = {
   /** Seconds of work a bought repair takes, so a wall cannot be fixed instantly mid-fight. */
   repairSeconds: 4,
 } as const;
+
+/**
+ * Whether a kill pays. The player's rounds and his call-ins do; an ally's never do (`ally_`, and that includes an ally on a mounted gun
+ * and the player's own mortar teams), and nor does the enemy killing his own men with a mortar, a mine or a satchel charge.
+ */
+export const paysFor = (source: string): boolean => !ALLY_SOURCE.test(source) && !GIFT_SOURCES.test(source) && source !== 'satchel';
 
 /** Credits for one kill. */
 export const killPay = (headshot: boolean): number => ECONOMY.kill + (headshot ? ECONOMY.headshot : 0);
@@ -170,10 +177,7 @@ export const SHOPS: Record<ShopId, ShopDef> = {
 
 export const SHOP_ORDER: readonly ShopId[] = ['barracks', 'armoury', 'infirmary'];
 
-/**
- * What the break says is coming, until the wave director (piece 7) supplies `preview(wave)` on `ctx.waves`. Until then the
- * waves are Endless Humans' own, so this says what those are.
- */
+/** The break's line off the fort, where Endless Humans' squads stand in for the wave director (`?contract=defense&map=range`). */
 export function placeholderPreview(wave: number): string {
-  return `About ${waveStrength(wave)} men in squads. Endless Humans' waves stand in until the wave director is built`;
+  return `About ${waveStrength(wave)} men in squads. The Test Range runs Endless Humans' waves; the fort has the director`;
 }

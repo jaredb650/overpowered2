@@ -50,6 +50,8 @@ export const DEFAULT_BINDINGS: Readonly<Bindings> = {
   sonar: ['KeyT'],
   // Q and F are taken (last weapon, melee); Y is the nearest free key to the left hand.
   stim: ['KeyY'],
+  // Outpost Defense: call the next wave in before the break runs out. L is free and away from the movement keys.
+  nextWave: ['KeyL'],
   pause: ['Escape'],
   scoreboard: ['Tab'],
   debugFps: ['F3'],

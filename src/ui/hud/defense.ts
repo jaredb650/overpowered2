@@ -1,6 +1,6 @@
 /**
- * Outpost Defense on the HUD, under the wave plate: the credits, the next wave's line during a break, and the three shops,
- * red while lost. The countdown itself is the plate's, as in The Crucible.
+ * Outpost Defense on the HUD, under the wave plate: the credits, the next wave's line during a break with the key that starts it
+ * now, and the three shops, red while lost. The countdown itself is the plate's, as in The Crucible.
  */
 import type { Ctx } from '../../core/contracts';
 import { SHOPS, SHOP_ORDER } from '../../contracts/defense/data';
@@ -30,7 +30,12 @@ export class DefenseHud {
     this.credits.set(d.credits.toLocaleString('en-US'));
     const between = d.inBreak && !d.needLoadout;
     this.nextShown.set(between);
-    if (between) this.next.set(`Next: ${d.preview}`);
+    if (between) {
+      // The early start only means something once there is a wave to bring forward and more than its last seconds to save.
+      const key = this.ctx.input.labelFor?.('nextWave') ?? 'L';
+      const early = this.ctx.waves.nextWaveIn > 3 ? `  ·  ${key}: START NOW` : '';
+      this.next.set(`Next: ${d.preview}${early}`);
+    }
     for (const s of this.shops) {
       const shop = d.shops[s.id];
       s.lost.set(shop.lost);
