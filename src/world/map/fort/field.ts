@@ -54,10 +54,10 @@ function edge(k: Kit): void {
   const F = FENCE;
   fence(k, [-F, -F, F, -F, F, F, -F, F, -F, -F], 0, 2.6, false);
   const half = SKY / 2;
-  k.collide(0, half, -F - 0.5, F + 1, half, 0.5, 'concrete', false);
-  k.collide(0, half, F + 0.5, F + 1, half, 0.5, 'concrete', false);
-  k.collide(-F - 0.5, half, 0, 0.5, half, F, 'concrete', false);
-  k.collide(F + 0.5, half, 0, 0.5, half, F, 'concrete', false);
+  k.containment(0, half, -F - 0.5, F + 1, half, 0.5);
+  k.containment(0, half, F + 0.5, F + 1, half, 0.5);
+  k.containment(-F - 0.5, half, 0, 0.5, half, F);
+  k.containment(F + 0.5, half, 0, 0.5, half, F);
 }
 
 /** A Czech hedgehog: three crossed girders. Cover for a man, a wall for a wheel. */

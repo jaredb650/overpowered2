@@ -196,8 +196,8 @@ export class Battery {
    * How close to its aim a round starts to collide with the world, for a shot arriving along a unit direction that
    * points back up its path. A wall in the way stops a round, as it should. A roof would stop the crew's every round, so
    * one that high is left out of it, as the Warthog's shells do, unless the round is AP and is meant to meet it. A round
-   * is never armed further out than this line was tested: the ship flies outside both maps' invisible walls, and a round
-   * live from the muzzle would burst on their outer faces in mid-air.
+   * is never armed further out than this line was tested. The probe and the rounds both pass the maps' invisible
+   * containment (CG.Air): the ship flies outside it, and its rounds once burst on its outer faces in mid-air.
    */
   armRange(aim: THREE.Vector3, dx: number, dy: number, dz: number, reach: number, meetRoofs = false): number {
     const open = this.probe.clearance(aim.x, aim.y + 0.3, aim.z, dx, dy, dz, reach);

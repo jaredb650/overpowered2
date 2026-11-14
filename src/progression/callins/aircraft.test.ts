@@ -214,7 +214,7 @@ function gunship(w: World, ai: boolean): Gunship {
   const rig = seatRig();
   const kit = { ctx: w.ctx, probe: { heightAt: () => 0, clearance: (..._a: number[]) => _a[6]! } } as unknown as StrikeKit;
   const order = { point: new THREE.Vector3(), heading: new THREE.Vector3(1, 0, 0) };
-  const strike = new Ac130(kit, order, { airframe, rounds, prisoners: new Set() } as unknown as Ac130Rig, rig as never, ai);
+  const strike = new Ac130(kit, order, { airframe, rounds, prisoners: new Set(), probe: kit.probe } as unknown as Ac130Rig, rig as never, ai);
   return { strike, rig, fired, positions };
 }
 

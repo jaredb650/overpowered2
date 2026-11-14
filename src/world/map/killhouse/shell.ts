@@ -67,7 +67,7 @@ function buildSpan(k: Kit, plan: MapPlan, w: WallDef, ux: number, uz: number, u0
   const g = k.geo;
   const t = w.half, h = w.h, mid = (u0 + u1) / 2, half = (u1 - u0) / 2;
   k.collide(mid, h / 2, 0, half, h / 2, t + SKIN, 'concrete');
-  if (w.perimeter) k.collide(mid, (h + KH.containment) / 2, 0, half, (KH.containment - h) / 2, t + SKIN, 'concrete', false);
+  if (w.perimeter) k.containment(mid, (h + KH.containment) / 2, 0, half, (KH.containment - h) / 2, t + SKIN);
   g.use('concreteDark').tint(0.72);
   g.slab(mid, h / 2, 0, half, h / 2, t, 1.6, FACE.pz | FACE.nz | FACE.px | FACE.nx | (w.decked ? 0 : FACE.py));
   g.tint(1);
@@ -181,9 +181,9 @@ function buildGate(k: Kit, spec: MapSpec, gate: GateDef): void {
   k.block('concrete', 0.02, 0, -w / 2 - 1, D + 1, H, -w / 2, 0.05);
   k.block('concrete', 0.02, 0, w / 2, D + 1, H, w / 2 + 1, 0.05);
   k.block('concreteDark', D, 0, -w / 2, D + 1, H, w / 2, 0.05);
-  k.collide((D + 1) / 2, (H + C) / 2, -w / 2 - 0.5, (D + 1) / 2, (C - H) / 2, 0.5, 'concrete', false);
-  k.collide((D + 1) / 2, (H + C) / 2, w / 2 + 0.5, (D + 1) / 2, (C - H) / 2, 0.5, 'concrete', false);
-  k.collide(D + 0.5, (H + C) / 2, 0, 0.5, (C - H) / 2, w / 2, 'concrete', false);
+  k.containment((D + 1) / 2, (H + C) / 2, -w / 2 - 0.5, (D + 1) / 2, (C - H) / 2, 0.5);
+  k.containment((D + 1) / 2, (H + C) / 2, w / 2 + 0.5, (D + 1) / 2, (C - H) / 2, 0.5);
+  k.containment(D + 0.5, (H + C) / 2, 0, 0.5, (C - H) / 2, w / 2);
   g.use('asphalt').tint(0.5).gridStep(0, 0.004, w / 2, D, 0, 0, 0, 0, -w, 1.2);
   // Roller shutter, jammed open a body's height: this is the dark they come out of.
   g.use('panel').tint(0.44, 0.48, 0.54);

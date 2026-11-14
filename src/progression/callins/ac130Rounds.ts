@@ -91,6 +91,8 @@ export interface BombPlan {
 }
 
 const MAX_SPARKS = 200;
+/** Every round is fired from outside the map, so the invisible containment round it is no wall to them. */
+export const AIR = CG.World | CG.Air;
 const Y = new THREE.Vector3(0, 1, 0);
 const DOWN = new THREE.Vector3(0, -1, 0);
 const NOSE = new THREE.Vector3(0, -1, 0);
@@ -353,7 +355,7 @@ export class Ac130Rounds {
     // From where the step starts: testing where it ends would sweep straight back through the roof being skipped.
     const armed = step > 1e-4 && _prev.distanceToSquared(s.aim) < s.armRange * s.armRange;
     if (armed && s.kind === 'flak' && this.flak(s, step)) return;
-    if (armed && this.ctx.physics.raycastInto(_prev, _dir, step, CG.World, this.hit)) {
+    if (armed && this.ctx.physics.raycastInto(_prev, _dir, step, AIR, this.hit)) {
       if (s.kind === 'ap' && this.through(s)) return;
       this.land(s, this.hit.point, this.hit.normal);
       return;
@@ -365,7 +367,7 @@ export class Ac130Rounds {
   private flak(s: Spark, step: number): boolean {
     const F = A.bofors.flak;
     const reach = step + F.fuze;
-    const wall = this.ctx.physics.raycastInto(_prev, _dir, reach, CG.World, this.hit) ? this.hit.distance : Infinity;
+    const wall = this.ctx.physics.raycastInto(_prev, _dir, reach, AIR, this.hit) ? this.hit.distance : Infinity;
     let enemy = Infinity;
     const n = this.ctx.enemies.query(_prev, reach, _near) || 0;
     for (let i = 0; i < n; i++) {
@@ -432,7 +434,7 @@ export class Ac130Rounds {
     }
     _want.subVectors(body.position, _prev);
     const step = _want.length();
-    if (left < B.armWithin && step > 1e-4 && this.ctx.physics.raycastInto(_prev, _want.divideScalar(step), step + 0.5, CG.World, this.hit)) {
+    if (left < B.armWithin && step > 1e-4 && this.ctx.physics.raycastInto(_prev, _want.divideScalar(step), step + 0.5, AIR, this.hit)) {
       this.retire();
       this.onImpact('bomb', this.hit.point, this.hit.normal, _dir);
       return;

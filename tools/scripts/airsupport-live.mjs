@@ -14,6 +14,11 @@
 // flares   tap M: the lock tone, the launch warning, the player's flares drawing the missile off, seen from the seat
 // crash    tap H with one hit left: a missile brings it down, the player is back on the ground watching it fall and burn
 // pilot    tap J: the pilot throws his own flares at a missile while the player is on the gun
+//
+// The fix for the gunship over the Crucible's invisible walls (screenshots to tools/out/ac130fix/):
+// crucible  run on /?map=crucible&autostart=1. Tap M, hold still for 6 s: the sight must keep its spot on the floor
+//           while the ship circles (it was locked on the invisible lid 35 m under the ship and dragged round with it).
+//           Then the 25, 40 and 105 mm: every impact on the floor, none in the air on the lid or the walls.
 const mode = process.env.AS_MODE ?? 'views';
 
 function prelude() {
@@ -378,8 +383,56 @@ async function pilot(page, h) {
   return out;
 }
 
+/** `above` is each impact's height over the floor under it, by a ray with CG.World | CG.Air (1 | 512) through the lid. */
+async function crucible(page, h) {
+  const out = { seat: await seatAc130(page, h, 10) };
+  await page.evaluate(() => {
+    const { ctx } = window.__op2;
+    const rounds = ctx.progression.callInsManager.gunship.rounds;
+    const on = rounds.onImpact;
+    window.__impacts = [];
+    rounds.onImpact = (kind, p, n, d) => {
+      const floor = ctx.physics.raycast(p.clone().setY(p.y + 1), { x: 0, y: -1, z: 0 }, 400, 1 | 512);
+      window.__impacts.push({ kind, y: Math.round(p.y), above: floor ? Math.round(floor.distance - 1) : null });
+      on(kind, p, n, d);
+    };
+    window.__sight = () => {
+      const s = ctx.progression.callInsManager.seats.seat;
+      return s && { x: Math.round(s.point.x), y: Math.round(s.point.y), z: Math.round(s.point.z), range: Math.round(s.range) };
+    };
+  });
+  out.sight = [];
+  for (let i = 0; i < 13; i++) {
+    out.sight.push(await page.evaluate(() => window.__sight()));
+    await h.sleep(500);
+  }
+  const [a, b] = [out.sight[0], out.sight[out.sight.length - 1]];
+  out.drift = a && b ? Math.round(Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z)) : null;
+  await h.shot('sight');
+  // Off whatever the mark was on, to open floor.
+  await page.evaluate(() => window.__op2.ctx.input.simulateLook(160, 60));
+  await h.sleep(300);
+  out.aim = await page.evaluate(() => window.__sight());
+  await page.evaluate(() => window.__tap('weapon1'));
+  await fireFor(page, h, 600);
+  await h.sleep(1600);
+  await h.shot('25mm');
+  await page.evaluate(() => window.__tap('weapon2'));
+  await fireFor(page, h, 700);
+  await h.sleep(2200);
+  await h.shot('40mm');
+  await page.evaluate(() => window.__tap('weapon3'));
+  await fireFor(page, h, 100);
+  await h.sleep(4900);
+  await h.shot('105mm');
+  out.impacts = await page.evaluate(() => window.__impacts);
+  // The Crucible's invisible lid is at 148 to 152 m, where every round burst before the fix.
+  out.onLid = out.impacts.filter(i => i.y >= 140).length;
+  return out;
+}
+
 export default async function airsupport(page, h) {
   if (!(await booted(page, h))) return { booted: false };
   await page.evaluate(prelude);
-  return { views, rounds, wp, bomb, ai, handover, missile, flares, crash, pilot }[mode](page, h);
+  return { views, rounds, wp, bomb, ai, handover, missile, flares, crash, pilot, crucible }[mode](page, h);
 }

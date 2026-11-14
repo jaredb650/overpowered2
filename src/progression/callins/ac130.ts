@@ -25,8 +25,8 @@ import { AC130 as A } from './ac130Data';
 import { Battery, FireControl, GUN_ORDER } from './ac130Guns';
 import { AC130_AIRFRAME, type Ac130Mount } from './ac130Model';
 import { Crash } from './crash';
-import { Ac130Rounds, flakCone, type ImpactKind } from './ac130Rounds';
-import { GroundRing } from './ground';
+import { AIR, Ac130Rounds, flakCone, type ImpactKind } from './ac130Rounds';
+import { GroundProbe, GroundRing } from './ground';
 import { Radio } from './radio';
 import { FLARE_LOCKOUT, type Aircraft, type StrikeKit, type StrikeOrder } from './shared';
 
@@ -103,6 +103,8 @@ const VIEWS: readonly View[] = [
 export class Ac130Rig {
   readonly airframe: Airframe<Ac130Mount>;
   readonly rounds: Ac130Rounds;
+  /** The ground as the guns see it from outside the map: through its invisible containment, as the rounds go. */
+  readonly probe: GroundProbe;
   /**
    * Men with their hands up, by uid. The crew holds fire on them: killing a prisoner pays the player a perk, and that
    * has to stay the player's own decision. Kept here because some will have surrendered before the ship was called.
@@ -112,6 +114,7 @@ export class Ac130Rig {
   constructor(ctx: Ctx, materials: ModelMaterials) {
     this.airframe = new Airframe(materials, ctx.render.scene, AC130_AIRFRAME);
     this.rounds = new Ac130Rounds(ctx, materials);
+    this.probe = new GroundProbe(ctx, AIR);
     ctx.events.on('enemy:surrendered', e => this.prisoners.add(e.enemy.uid));
     ctx.events.on('run:start', () => this.prisoners.clear());
   }
@@ -220,7 +223,7 @@ export class Ac130 implements Aircraft {
     this.ring.setColor(this.color, 1.6);
     this.radio = new Radio(ctx, A.callsign, this.color);
     this.engines = new EngineSound(ctx, A.engine);
-    this.battery = new Battery(ctx, kit.probe, rig.airframe, rig.rounds);
+    this.battery = new Battery(ctx, rig.probe, rig.airframe, rig.rounds);
     this.crew = new FireControl(ctx, this.battery, rig.airframe, this.path.center, this.radius, this.radio, rig.prisoners);
     this.phosphorus = new Phosphorus(ctx);
     this.seat = new GunnerSeat(ctx, seats, A.seat);

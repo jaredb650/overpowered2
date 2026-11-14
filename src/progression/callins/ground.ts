@@ -10,15 +10,19 @@ import type RAPIER from '@dimforge/rapier3d-compat';
 import { CG, type Ctx } from '../../core/contracts';
 import { clamp } from '../../core/math';
 
-/** Rapier filter word that hits only `mask`. Same layout as Physics.groups. */
-const queryWord = (mask: number): number => ((0xffff & 0xffff) << 16) | (mask & 0xffff);
-const WORLD_FILTER = queryWord(CG.World);
+/** Rapier filter word that hits only `mask`. Same layout as Physics.groups, and CG.Air passes the containment as there. */
+const queryWord = (mask: number): number => ((mask & CG.Air ? CG.Air : 0xffff) << 16) | (mask & 0xffff);
 
-/** Allocation-free height probe. physics.raycast builds result vectors, which this runs hundreds of times a frame. */
+/**
+ * Allocation-free height probe. physics.raycast builds result vectors, which this runs hundreds of times a frame.
+ * `mask` CG.World | CG.Air is for fire from outside the map, whose rounds pass its invisible containment.
+ */
 export class GroundProbe {
   private readonly ray: RAPIER.Ray;
+  private readonly filter: number;
 
-  constructor(private readonly ctx: Ctx) {
+  constructor(private readonly ctx: Ctx, mask: number = CG.World) {
+    this.filter = queryWord(mask);
     const R = ctx.physics.R;
     this.ray = new R.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 });
   }
@@ -29,7 +33,7 @@ export class GroundProbe {
     o.x = x;
     o.y = fromY;
     o.z = z;
-    const hit = this.ctx.physics.world.castRay(this.ray, maxDrop, true, undefined, WORLD_FILTER);
+    const hit = this.ctx.physics.world.castRay(this.ray, maxDrop, true, undefined, this.filter);
     return hit ? fromY - hit.timeOfImpact : NaN;
   }
 
@@ -48,7 +52,7 @@ export class GroundProbe {
     d.x = dx;
     d.y = dy;
     d.z = dz;
-    const hit = this.ctx.physics.world.castRay(this.ray, limit, true, undefined, WORLD_FILTER);
+    const hit = this.ctx.physics.world.castRay(this.ray, limit, true, undefined, this.filter);
     d.x = 0;
     d.y = -1;
     d.z = 0;

@@ -50,6 +50,7 @@ export const AC130 = {
     roll: 0.2,
     eye: [0, 0, 0],
     reach: 900,
+    outside: true,
     grade: null,
     enemyColor: '#ff6a30',
     grace: 2.5,

@@ -5,8 +5,9 @@
  * Convention: a wall or path from A to B has its front on the right of travel (local +Z when heading +X).
  */
 import * as THREE from 'three';
+import type RAPIER from '@dimforge/rapier3d-compat';
 import { mulberry32 } from '../../core/math';
-import type { BakedLight, PhysicsSystem, SurfaceKind } from '../../core/contracts';
+import { CG, type BakedLight, type PhysicsSystem, type SurfaceKind } from '../../core/contracts';
 import { FACE, Geo, type Mat } from './geo';
 import { Voxels } from './voxels';
 
@@ -64,6 +65,8 @@ const _m = new THREE.Matrix4();
 const _q = new THREE.Quaternion();
 const _c = new THREE.Vector3();
 const _h = new THREE.Vector3();
+/** Rapier group word for invisible containment: world to every body and query, except a query from the air (CG.Air). */
+const CONTAINMENT = ((CG.World << 16) | (0xffff & ~CG.Air)) >>> 0;
 
 export class Kit {
   readonly geo = new Geo();
@@ -110,7 +113,7 @@ export class Kit {
   }
 
   /** Box collider in the current frame. `vox` false keeps it out of AO and light occlusion (gratings). */
-  collide(cx: number, cy: number, cz: number, hx: number, hy: number, hz: number, surface: SurfaceKind = 'concrete', vox = true): void {
+  collide(cx: number, cy: number, cz: number, hx: number, hy: number, hz: number, surface: SurfaceKind = 'concrete', vox = true): RAPIER.Collider {
     const m = this.geo.m;
     _c.set(
       m[0]! * cx + m[1]! * cy + m[2]! * cz + m[3]!,
@@ -127,6 +130,15 @@ export class Kit {
     if (this.climbless) this.physics.markNoClimb(c);
     this.colliders++;
     if (vox) this.vox.fillBox(m, cx, cy, cz, hx, hy, hz);
+    return c;
+  }
+
+  /**
+   * Invisible containment, the box that keeps a rocket jump on the map. It stops everything a wall stops, but fire from
+   * an aircraft outside the map passes it: a gunship's rounds would otherwise burst on its outer face in mid-air.
+   */
+  containment(cx: number, cy: number, cz: number, hx: number, hy: number, hz: number): void {
+    this.collide(cx, cy, cz, hx, hy, hz, 'concrete', false).setCollisionGroups(CONTAINMENT);
   }
 
   collideMesh(vertices: Float32Array, indices: Uint32Array, surface: SurfaceKind, vox = true): void {

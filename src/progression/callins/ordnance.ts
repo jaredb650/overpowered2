@@ -75,7 +75,8 @@ export class Ordnance {
       const speed = shot.velocity.length();
       _dir.copy(shot.velocity).divideScalar(speed);
       const step = speed * dt;
-      const hit = this.ctx.physics.raycast(pos, _dir, step + 0.5, CG.World);
+      // From the sky: a nuke starts 470 m up, over the Crucible's invisible lid at 150 m, and would burst on it.
+      const hit = this.ctx.physics.raycast(pos, _dir, step + 0.5, CG.World | CG.Air);
       if (hit) {
         shot.live = false;
         shot.group.visible = false;

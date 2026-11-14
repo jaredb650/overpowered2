@@ -150,9 +150,9 @@ export function authorRing(k: Kit, spec: MapSpec): void {
 
   // Invisible containment: nobody should clear the wall, however good the chain.
   for (const [x, z, hx, hz] of [[H + 24, 0, 8, H + 40], [-H - 24, 0, 8, H + 40], [0, H + 24, H + 40, 8], [0, -H - 24, H + 40, 8]] as const) {
-    k.collide(x, 80, z, hx, 90, hz, 'concrete', false);
+    k.containment(x, 80, z, hx, 90, hz);
   }
-  k.collide(0, 150, 0, H + 40, 2, H + 40, 'concrete', false);
+  k.containment(0, 150, 0, H + 40, 2, H + 40);
 
   theGap(k, spec);
   spec.view('ring_south', 110, LEVEL.ring + 1.7, RING.half - 2, 20, LEVEL.ring + 1, RING.half);

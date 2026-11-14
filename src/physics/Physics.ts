@@ -11,8 +11,8 @@ import { DevFlags } from '../core/devflags';
 
 /** Rapier group word: memberships in the high 16 bits, filter in the low 16 bits. */
 export const groups = (membership: number, filter: number): number => ((membership & 0xffff) << 16) | (filter & 0xffff);
-/** Filter word for a query that should hit everything in `mask`. */
-const queryGroups = (mask: number): number => groups(0xffff, mask);
+/** Filter word for a query that should hit everything in `mask`. With CG.Air in it, the invisible containment is not met. */
+const queryGroups = (mask: number): number => groups(mask & CG.Air ? CG.Air : 0xffff, mask);
 
 /** A body with this as its userData is thrown by whoever owns it, from `radialListeners`. radialImpulse skips it. */
 export const OWN_BLAST = { ownBlast: true };

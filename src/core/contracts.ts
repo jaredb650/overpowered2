@@ -87,6 +87,11 @@ export const CG = {
   Trigger: 1 << 7,
   /** Stops the player and nothing else. Bullets, bodies, nav and light pass through: see Site.barrier in world/map/outpost. */
   Barrier: 1 << 8,
+  /**
+   * Nothing is made of it. A query that carries it is fire from aircraft outside the map, and passes the invisible
+   * containment round it (Kit.containment), which stops every body and every other query as before.
+   */
+  Air: 1 << 9,
 } as const;
 
 /** Lifecycle shared by all systems. `update` is called by Game once per frame. */

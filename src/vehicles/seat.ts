@@ -53,6 +53,11 @@ export interface SeatPlan {
    * no cut. `fixed` gives the spot it stands on.
    */
   exposed?: boolean;
+  /**
+   * Fires into the map from outside it, as the gunship does: the sight passes the invisible containment (CG.Air), as its
+   * rounds do. Without it the sight lands on the containment's outer face, and the lock holds that spot in mid-air.
+   */
+  outside?: boolean;
 }
 
 export type SeatStage = 'boarding' | 'seated' | 'left';
@@ -176,6 +181,12 @@ export class GunnerSeat {
   private parkAt: THREE.Vector3 | null = null;
   /** True while `point` is on something, and the sight has a place on the ground to hold. */
   private locked = false;
+  /**
+   * A dead lock (`lock` 1) holds this spot, which only the mouse moves. Re-reading it off the sight every frame let it
+   * crawl: whatever passes in front of the spot as the aircraft circles, a tower's own curve say, became the new spot.
+   */
+  private readonly spot = new THREE.Vector3();
+  private spotted = false;
   private readonly hit: RayHit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, surface: 'concrete', collider: null };
   private readonly lit: THREE.Object3D[] = [];
   private readonly held: THREE.Object3D[] = [];
@@ -243,6 +254,7 @@ export class GunnerSeat {
   sit(target: THREE.Vector3, pivot: THREE.Vector3): void {
     const { camera, render } = this.ctx;
     this.stage = 'seated';
+    this.spotted = false;
     _to.subVectors(target, pivot);
     this.yaw = Math.atan2(-_to.x, -_to.z);
     this.pitch = clamp(Math.atan2(_to.y, Math.hypot(_to.x, _to.z)), this.plan.pitchMin, this.plan.pitchMax);
@@ -261,18 +273,23 @@ export class GunnerSeat {
     if (this.stage !== 'seated') return;
     this.left = Math.max(0, this.left - dt);
     this.zoom();
-    if (this.locked) this.holdGround(pivot);
+    if (this.locked || this.spotted) this.holdGround(pivot);
     this.steer(frame);
     this.placeEye(pivot);
     this.horizon(frame);
     this.sight();
+    const look = this.ctx.input.frameLook;
+    if (this.plan.lock >= 1 && (!this.spotted || look.x !== 0 || look.y !== 0)) {
+      this.spotted = this.locked;
+      this.spot.copy(this.point);
+    }
     this.ctx.camera.syncSeat();
   }
 
   /** Takes out what the aircraft's own motion did to the line of sight since last frame. */
   private holdGround(pivot: THREE.Vector3): void {
     this.placeEye(pivot);
-    _to.subVectors(this.point, this.view.position);
+    _to.subVectors(this.spotted ? this.spot : this.point, this.view.position);
     const { lock } = this.plan;
     this.yaw += wrapAngle(Math.atan2(-_to.x, -_to.z) - this.yaw) * lock;
     this.pitch += (Math.atan2(_to.y, Math.hypot(_to.x, _to.z)) - this.pitch) * lock;
@@ -322,7 +339,7 @@ export class GunnerSeat {
   private sight(): void {
     const { physics } = this.ctx;
     const eye = this.view.position;
-    this.locked = physics.raycastInto(eye, this.aim, this.plan.reach, CG.World, this.hit);
+    this.locked = physics.raycastInto(eye, this.aim, this.plan.reach, this.plan.outside ? CG.World | CG.Air : CG.World, this.hit);
     if (this.locked) this.point.copy(this.hit.point);
     else this.point.copy(eye).addScaledVector(this.aim, this.plan.reach);
     this.range = this.locked ? this.hit.distance : this.plan.reach;
