@@ -104,6 +104,14 @@ ${WOUND_COMMON}
 varying vec3 vWoundTilt;
 varying float vWoundNear;
 flat varying int vRegion;
+// A crater as big as a partial head wound tears out in a few lobes round its line, so it is not a round hole. A share
+// of its radius, from where it sits, so each wound keeps its own shape.
+float op2Lobes(vec3 off, vec3 axis, vec3 at) {
+  vec3 b1 = normalize(cross(axis, abs(axis.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
+  float a = atan(dot(off, cross(axis, b1)), dot(off, b1));
+  float ph = dot(at, vec3(371.0, 917.0, 533.0));
+  return sin(a * 3.0 + ph) * 0.22 + sin(a * 5.0 + ph * 1.7) * 0.14 + sin(a * 9.0 + ph * 2.3) * 0.07;
+}
 #endif
 vec4 op2Tri(vec3 p, vec3 w) {
   return texture2D(tDetail, p.zy) * w.x + texture2D(tDetail, p.xz) * w.y + texture2D(tDetail, p.xy) * w.z;
@@ -248,6 +256,7 @@ float sWoundH = 0.0;
       } else {
         float wander = mix(tear, tearBig, smoothstep(0.02, 0.06, t1.w));
         float m = dist + past * 2.0 - radius * (1.0 + wander * mix(0.1, 0.55, ragged)) + tearFine * mix(0.3, 1.0, ragged);
+        if (kind == OP2_CRATER) m -= radius * op2Lobes(off, axis, t0.xyz) * smoothstep(0.035, 0.055, radius);
         if (m < edge) {
           edge = m;
           rimWidth = kind == OP2_GASH ? 0.007 : clamp(radius * 0.45, 0.006, 0.03);

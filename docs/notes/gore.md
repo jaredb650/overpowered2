@@ -2,7 +2,7 @@
 
 `src/gore/`, `src/physics/`, sandbox at `/?sandbox=gore&scenario=<name>`.
 
-Scenarios: `ragdoll limbs crawl headshot explosion slice shootcorpse stairs stress rigs idle`. `rigs` works on any rig, including skitter and drone. Add `arch=trooper` for another
+Scenarios: `ragdoll limbs crawl headshot headpartial explosion slice shootcorpse stairs stress rigs idle`. `rigs` works on any rig, including skitter and drone. Add `arch=trooper` for another
 archetype, `dummy=1` for the capsule TestDummy, `cam=x,y,z,tx,ty,tz` for the camera. Time is fixed at 1/60, so runs repeat.
 `window.__gore` has `hold()`, `step(n)` and `sheet(frames, columns)`, which draws a contact sheet over the page.
 
@@ -80,11 +80,17 @@ Rules for callers:
 - **Waist cut:** `sever(char, 'abdomen', ...)` on a living character returns `result.torso`, a `TorsoHalf`. The instance becomes
   the legs: ragdoll it. The top half drags itself at the player for about 7 s. `setTarget`, `kill`, `position`, `alive`.
 - A killing headshot's `outcome` (`HeadOutcome`, decided by `headOutcome` in `src/enemies/damage.ts`, plan in
-  `docs/proposals/partial-head-wounds.md`): `hole`, the head stays on; `burst`; `partial`, which bursts until step 2 builds
-  it; `off`, whole. A bullet never takes a head off: under 40 a hole, 40 or more a burst, and a burst for the very
+  `docs/proposals/partial-head-wounds.md`): `hole`, the head stays on; `burst`; `partial`; `off`, whole. A bullet never
+  takes a head off: under 40 a hole, 40 or more a partial wound on the Trooper, Gunner, Husk and Brute and a burst on the
+  rest, and a burst for the very
   damaging (autocannon, Sabot, the Judge within 8 m, 4 pellets of one blast on one head, `HEAD_VOLLEY`). Left out, the
   outcome is a blast's: a burst at 40 or more, else off whole. On a body gore already has (down, rising, dead) a burst
   cuts the head out of the ragdoll where it lies. A club leaves the head; the katana's slice plane still takes it.
+- A **partial** wound is built only on the archetypes in `PARTIAL_BUILT` (`src/gore/index.ts`: the Trooper), and bursts on
+  the rest; `?headpartial=0` bursts them all. `partialHead` cuts one crater of 0.55 head radii through the wound shader
+  (`WoundPlanner.headWound`), tipped in over the crown, which the interior's skull and brain (`anatomy/build.ts`) show
+  through, and throws two cranium shells, half a brain and meat from the kit. Sandbox: `scenario=headpartial&arch=trooper`.
+  The sandbox has no player, so gore puts bodies on the far LOD, which draws no wounds: `setLod(0)` them before drawing.
 - The burst is a kit of pieces that add up to a head, built in code in `chunks.ts` and scaled to the head's radius (x1.15):
   the cranium in three curved shells (bloodied bone outside, dark red inside), the jaw in two quarter rings, the brain in
   two halves, two eyes. They start where they sit in the head and fly out from its centre together, pushed along the

@@ -315,6 +315,15 @@ export class WoundPlanner {
     }
   }
 
+  /**
+   * A partial head wound (docs/proposals/partial-head-wounds.md): the side of the head the round came in by blown away,
+   * one crater as wide as most of the head along its line, which the skull and brain inside show through.
+   */
+  headWound(char: CharacterInstance, bone: number, point: THREE.Vector3, dir: THREE.Vector3, radius: number): void {
+    char.bones[bone]!.updateWorldMatrix(true, false);
+    this.cut(char, WoundKind.crater, bone, point, dir, radius, 0.16, 1);
+  }
+
   /** A hit on a loose limb: holes, but nothing left to break. */
   onLimb(limb: Flesh, info: RigInfo, d: DamageInfo, bone: number, point: THREE.Vector3): void {
     if (d.type === 'fire' || d.type === 'shock' || d.type === 'true' || d.type === 'explosive') return;

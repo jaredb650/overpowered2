@@ -1,9 +1,11 @@
 # Idea: partial head wounds instead of clean decapitation
 
 Status: step 1 built on 2026-11-14 (the rules, the Fallout burst kit, pellet counting on the head, the helmet thrown
-off). The hook for step 2 is `headOutcome` in `src/enemies/damage.ts`, which already answers 'partial' for a severe
-headshot on the Trooper, Gunner, Husk and Brute; `gore.headshot` bursts a 'partial' until step 2 builds it. Not done in
-step 1: the full Lance is not in the very damaging tier (nothing tells a full beam from a ball in `DamageInfo` yet).
+off). Step 2 built on 2026-11-14 for the Trooper, the cheap way (see Step 2, below); **waiting for the owner to look
+before step 3.** `headOutcome` in `src/enemies/damage.ts` answers 'partial' for a severe headshot on the Trooper, Gunner,
+Husk and Brute; `gore.headshot` builds it on the archetypes in `PARTIAL_BUILT` (`src/gore/index.ts`, the Trooper) and
+bursts it on the rest. Not done in step 1: the full Lance is not in the very damaging tier (nothing tells a full beam
+from a ball in `DamageInfo` yet).
 
 ## The problem
 
@@ -121,3 +123,36 @@ Machines are out of it.
 - **Not Fable**, and **not a multi-agent workflow**: this is visual craft on one machine, not hard reasoning or wide
   fan-out, and parallel agents would fight over the same files and the one browser.
 - One agent per step, run one after another, each starting from the last one's commit.
+
+## Step 2: what was built (2026-11-14)
+
+**The cheap way won**: no baking. A partial wound is one very big crater through the existing wound shader, and the
+baked-at-load interior shows through it.
+
+- `gore.headshot` with 'partial' on a Trooper calls `partialHead`: the helmet is already thrown (`damage.ts`
+  `throwHelmet`, as for a burst), `WoundPlanner.headWound` cuts a ragged crater of 0.55 head radii (6 cm, so a hole
+  about 12 cm across) and 16 cm deep, its line tipped 0.55 down into the head from over the crown and its middle raised
+  0.3 head radii, so the round's side and the top of the head go together. Two small cranium shells, half a brain and two
+  lumps of meat from step 1's kit are thrown back out of it, with blood. The body ragdolls limp, as a head kill does.
+- The interior (`src/characters/anatomy/build.ts`) already had a skull; it gained a **brain** (an organ-coloured lumpy
+  blob inside it). The interior shader opens the skull further for a crater this big (bone cut to 0.62 of the radius,
+  from 0.3), so the layers read from outside in: torn hood, red meat, broken bone edge, brain.
+- The skin shader (`src/characters/material.ts`) tears a crater over 3.5 cm radius out in a few lobes round its line
+  (`op2Lobes`), so it is less of a round hole. Cannon and blast craters of that size get it too.
+- Down, rising or dead, a 'partial' opens the head where it lies the same way.
+- **Switch:** `?headpartial=0` bursts every 'partial' again, everywhere, the game included.
+- **Sandbox:** `/?sandbox=gore&scenario=headpartial&arch=trooper`: one shot in the face, one in the side of the head.
+  The sandbox has no player, so gore puts its bodies on the far level of detail, which draws no wounds: call
+  `setLod(0)` on `__gore.stage.row` before drawing.
+
+**Why not the baked head.** The crater sells "part of the head blown away" from the front, three-quarter and side, with
+the head still on the neck, and it costs nothing per archetype. A baked partial head would mean new geometry per enemy
+and per side, swapped in at the wound. Keep it in reserve if the owner finds the crater too round from the front.
+
+**Rough.** Shot square in the face the opening still reads round from the front, as the Trooper's hood frames it. The
+brain is a smooth pinkish lump with highlights, not folded. A body that lands face down hides the wound.
+
+**Step 3 with this approach** (Gunner, Husk, Brute): add each to `PARTIAL_BUILT`, check its interior skull and brain sit
+inside its head (`buildInterior` scales them by height, so a Brute's big head or a Husk's mask may need an offset), check
+what its head props do (a helmet must be a plate that `throwHelmet` throws), and screenshot each. About a round or two of
+screenshots per enemy; no baking.

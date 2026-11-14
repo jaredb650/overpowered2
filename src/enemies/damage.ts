@@ -162,7 +162,7 @@ const WHOLE_LIMB: Partial<Record<GoreRegion, GoreRegion>> = { forearmL: 'armL', 
 
 /** A killing round of this much damage or more is a severe headshot. Below it he keeps his head, with a hole in it. */
 const HEAD_BURST_DAMAGE = 40;
-/** Severe headshots on these get a partial head wound in step 2 of docs/proposals/partial-head-wounds.md. */
+/** Severe headshots on these get a partial head wound (docs/proposals/partial-head-wounds.md); gore says which are built. */
 const PARTIAL_HEADS: ReadonlySet<string> = new Set(['trooper', 'gunner', 'husk', 'brute']);
 /** Rounds that burst any head they kill: the very damaging tier, with four pellets of a blast and the Judge up close. */
 const HEAD_BURSTERS: ReadonlySet<string> = new Set(['autocannon', 'sabot']);
@@ -808,17 +808,18 @@ export class DamageModel {
       // takes a head with a slice plane, above.
       this.ragdoll(e, d, force, body ? HEADSHOT_TWITCH : undefined, true);
     } else if (headshot && !e.def.machine) {
-      // A bullet never takes a head off whole. 'partial' bursts until step 2 of the plan builds it.
-      const burst = headOutcome(d.amount, this.heavyHead(e, d), e.def.id) !== 'hole';
+      // A bullet never takes a head off whole. Gore bursts a 'partial' on an enemy whose partial wound is not built yet.
+      const outcome = headOutcome(d.amount, this.heavyHead(e, d), e.def.id);
+      const burst = outcome !== 'hole';
       const down = e.rising > 0 || body?.floored === true;
       if (burst) this.throwHelmet(e, d);
       if (!down && (burst || !body)) {
-        ctx.gore.headshot(e.char, d, deathVelocity(e, _dying, this.w.now), burst ? 'burst' : 'hole');
+        ctx.gore.headshot(e.char, d, deathVelocity(e, _dying, this.w.now), outcome);
         if (!burst) ctx.audio.play('vox_choke', { position: e.center, pitch: e.def.voice.pitch });
       } else {
-        // A man keeps the death a light round gives him; one half up or lying down has the head burst where it lies.
+        // A man keeps the death a light round gives him; one half up or lying down has the head opened where it lies.
         this.ragdoll(e, d, force, body ? HEADSHOT_TWITCH : undefined, true);
-        if (burst) ctx.gore.headshot(e.char, d, undefined, 'burst');
+        if (burst) ctx.gore.headshot(e.char, d, undefined, outcome);
       }
     } else if (blast?.outcome === 'head' && DevFlags.gibbing) {
       ctx.gore.headshot(e.char, d, deathVelocity(e, _dying, this.w.now));

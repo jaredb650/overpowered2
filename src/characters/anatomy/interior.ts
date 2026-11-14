@@ -103,7 +103,8 @@ for (int i = 0; i < OP2_MAX_WOUNDS; i++) {
   // Never all the way down to nothing, or a small hole shows as a black dot with no flesh in it.
   sLight = max(sLight, open * (0.8 + 0.5 * exp(-under / (radius * 1.5 + 0.015))));
   // Layers go by how far the wound reached. A gash only opens what it passes through.
-  float reachShare = vPart == ${Part.bone} ? 0.3 : kind == OP2_CRATER || kind == OP2_EXIT ? 0.72 : 0.4;
+  // A crater as wide as a partial head wound breaks the skull open most of the way out to its edge.
+  float reachShare = vPart == ${Part.bone} ? mix(0.3, 0.62, smoothstep(0.035, 0.055, radius) * float(kind == OP2_CRATER)) : kind == OP2_CRATER || kind == OP2_EXIT ? 0.72 : 0.4;
   float enough = vPart == ${Part.muscle} && kind != OP2_GASH ? step(0.03, depth) : vPart == ${Part.bone} && kind == OP2_CRATER ? step(0.075, depth) : 0.0;
   if (((code >> 3) & vRegion) != 0 && enough > 0.5) {
     float m = dist + past * 3.0 - radius * reachShare * (1.0 + tear * mix(0.15, 0.45, ragged));

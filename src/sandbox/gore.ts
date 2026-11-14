@@ -1,7 +1,7 @@
 /**
  * Gore test room. A row of characters and scripted scenarios at /?sandbox=gore&scenario=<name>.
  *
- *   scenario   headshot | limbs | crawl | explosion | slice | ragdoll | shootcorpse | stairs | stress | rigs | idle
+ *   scenario   headshot | headpartial | limbs | crawl | explosion | slice | ragdoll | shootcorpse | stairs | stress | rigs | idle
  *              side by side, hard limits on the left and muscles on the right, under identical input:
  *              limit | zerog | fall | stairsab | blast | lineup
  *              collapse: dropped, collapsing, collapsing on the move. twitch: still on the left, twitching on the right
@@ -267,6 +267,30 @@ const scenarios: Record<string, Scenario> = {
       if (f === 20) shot(r[1]!, 50);
       if (f === 60) shot(r[0]!, 20);
       if (f === 100) shot(r[2]!, 50);
+    },
+  },
+  /**
+   * A severe round in the head (docs/proposals/partial-head-wounds.md): a partial wound on a Trooper, a burst on the rest,
+   * or on everyone with headpartial=0. Left in the face, right in the side of the head, both from the camera, at frame 20.
+   * Wounded first and the helmet thrown, as `damage.ts` does. The sandbox has no player, so gore puts bodies on the far
+   * level of detail, which shows no wounds: a capture calls `setLod(0)` on each before it draws.
+   */
+  headpartial: {
+    camera: [0, 1.6, 3.2, 0, 1.45, 0],
+    setup(s) {
+      s.place(-0.8, 0);
+      s.place(0.8, 0, PROFILE);
+    },
+    frame(s, f) {
+      if (f !== 20) return;
+      for (const c of s.row) {
+        const a = s.aim(c, B.head, v(c.root.position.x, 1.65, 9));
+        if (!a) continue;
+        const d = s.damage(a.hit, a.dir, 50);
+        for (const p of (c as unknown as { props: { bone: number; object: THREE.Object3D }[] }).props) if (p.bone === B.head) p.object.removeFromParent();
+        s.gore.wound(c, d, 1);
+        s.gore.headshot(c, d, undefined, 'partial');
+      }
     },
   },
   explosion: {

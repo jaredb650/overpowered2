@@ -35,6 +35,7 @@ const HEART: Rgb = [0.2, 0.02, 0.03];
 const LIVER: Rgb = [0.11, 0.018, 0.016];
 const STOMACH: Rgb = [0.34, 0.14, 0.12];
 const BOWEL: Rgb = [0.42, 0.2, 0.17];
+const BRAIN: Rgb = [0.44, 0.24, 0.24];
 
 const add = (a: V3, b: V3, k = 1): V3 => [a[0] + b[0] * k, a[1] + b[1] * k, a[2] + b[2] * k];
 const sub = (a: V3, b: V3): V3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
@@ -398,6 +399,8 @@ export function buildInterior(model: LoadedModel, rig: RigDef, bind: readonly TH
   muscleSleeve(g, neck, add(head, [0, 0.06 * scale, 0]), 0.055 * scale, B.neck, rnd);
   g.blob(skull, [0.078 * scale, 0.098 * scale, 0.092 * scale], 8, 10, [B.head, B.head, 0], Part.bone, BONE_RGB, 0.02, rnd);
   g.blob(add(skull, [0, -0.08 * scale, 0.03 * scale]), [0.058 * scale, 0.04 * scale, 0.06 * scale], 5, 7, [B.head, B.head, 0], Part.bone, BONE_RGB, 0.03, rnd);
+  // The brain, which a head blown partly open shows (docs/proposals/partial-head-wounds.md).
+  g.blob(add(skull, [0, 0.012 * scale, -0.004 * scale]), [0.07 * scale, 0.078 * scale, 0.082 * scale], 8, 12, headBind, Part.organ, BRAIN, 0.07, rnd);
 
   for (const side of [1, -1] as const) {
     const [upper, fore, hand] = side === 1 ? [B.upperArmL, B.foreArmL, B.handL] : [B.upperArmR, B.foreArmR, B.handR];

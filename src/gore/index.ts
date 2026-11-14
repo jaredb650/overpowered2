@@ -16,7 +16,7 @@ import { DevFlags } from '../core/devflags';
 import { clamp, rand, randomInCone, randomUnit } from '../core/math';
 import { WEAPONS } from '../weapons/data';
 import { BloodField, BloodTuning } from './blood';
-import { ChunkField, scatter } from './chunks';
+import { ChunkField, scatter, type ChunkKind } from './chunks';
 import { ImpactEvents, impactKind, ImpactTuning } from './impacts';
 import { CollapseDrive, impactStrength, MASS_PASS, MuscleTuning, STAND_PASS, STRENGTH_PASS, WEIGHT_PASS, type CollapseOptions, type DownedBody, type KnockdownOptions, type LimbStrength } from './muscles';
 import { BodyFilter, fillVelocity, LimbFilter, measureAnimVelocity, Rag, SEED_STRIDE } from './rag';
@@ -27,6 +27,21 @@ import { Crawler } from './crawl';
 import { HUMAN_MASS, markSevered, markSubtree, MAX_BONES, rigInfo, type RigInfo } from './rigInfo';
 import { SliceField } from './sliced';
 import { WoundPlanner } from './wounds';
+
+/**
+ * Archetypes whose partial head wound is built (docs/proposals/partial-head-wounds.md step 2); the rest burst a
+ * 'partial'. `?headpartial=0` bursts them all, to compare.
+ */
+const PARTIAL_BUILT: ReadonlySet<string> = new Set(
+  typeof location !== 'undefined' && new URLSearchParams(location.search).get('headpartial') === '0' ? [] : ['trooper'],
+);
+/** A partial wound's crater radius, against the head's hit radius. */
+const PARTIAL_WIDTH = 0.55;
+/** How far its line tips down into the head from over the crown, and how far up the head its middle sits, in head radii. */
+const PARTIAL_TILT = 0.55;
+const PARTIAL_RAISE = 0.3;
+/** What a partial wound throws out, and each piece's size against the head's hit radius. */
+const PARTIAL_PIECES: readonly (readonly [ChunkKind, number])[] = [['cranium', 0.55], ['cranium', 0.4], ['brain', 0.5], ['meat', 0.3], ['meat', 0.25]];
 
 export const GoreTuning = {
   /** Simulated ragdolls. Past this the oldest at rest freezes. */
@@ -1139,8 +1154,8 @@ export class Gore implements GoreSystem {
     const info = rigInfo(char.rig);
     const neck = info.severBone.get('head');
     const what = outcome ?? (damage.amount >= GoreTuning.headBurstDamage ? 'burst' : 'off');
-    // Step 2 of docs/proposals/partial-head-wounds.md gives a few bodies a partial wound; until then it bursts.
-    const burst = what === 'burst' || what === 'partial';
+    const partial = what === 'partial' && PARTIAL_BUILT.has(char.archetype);
+    const burst = what === 'burst' || (what === 'partial' && !partial);
     const down = this.owned.get(char);
     // A body standing in a collapse keeps its head to a blast, as it always has; told what to do, it does it.
     if (down && neck !== undefined && !char.severed.has('head') && (down.down || outcome !== undefined)) {
@@ -1150,6 +1165,7 @@ export class Gore implements GoreSystem {
         down.rag?.goLimp();
       }
       if (burst) this.burstHead(char, neck, damage);
+      else if (partial) this.partialHead(char, neck, damage);
       else if (what === 'off') this.sever(char, 'head', damage);
       return;
     }
@@ -1168,6 +1184,8 @@ export class Gore implements GoreSystem {
 
     if (burst) {
       this.burstHead(char, neck, damage);
+    } else if (partial) {
+      this.partialHead(char, neck, damage);
     } else if (what === 'off') {
       this.sever(char, 'head', damage, velocity);
       fx.bloodHit(at, damage.dir, 1.2);
@@ -1236,6 +1254,39 @@ export class Gore implements GoreSystem {
     fx.bloodMist(at, 0.3);
     this.blood.splatterAlong(at, damage.dir, 9, 8, 0.6);
     this.blood.spray(at, _up, 10, 11, 0.32, 0.12);
+  }
+
+  /**
+   * A partial head wound: the side of the head the round came in by is blown away and the rest stays on, open to the
+   * skull and brain (one big crater, `WoundPlanner.headWound`), with a piece of cranium and of brain thrown from it.
+   */
+  private partialHead(char: CharacterInstance, neck: number, damage: DamageInfo): void {
+    const { fx } = this.ctx;
+    const info = rigInfo(char.rig);
+    const headBone = info.children[neck]![0] ?? neck;
+    const r = char.rig.bones[headBone]!.hit?.radius ?? 0.1;
+    const at = damage.point;
+    // Tipped in from over the top of the head and raised toward it, so the round's side and the crown go together and
+    // the hole is a torn oval, not a porthole punched square through the face.
+    const head = char.bones[headBone]!;
+    head.updateWorldMatrix(true, false);
+    _v4.setFromMatrixColumn(head.matrixWorld, 1).normalize();
+    _v5.copy(damage.dir).addScaledVector(_v4, -PARTIAL_TILT).normalize();
+    _v2.copy(at).addScaledVector(_v4, r * PARTIAL_RAISE);
+    this.wounds.headWound(char, headBone, _v2, _v5, r * PARTIAL_WIDTH);
+    // Back out of the hole the way the round came, and up: what it blew out of the head.
+    _v3.copy(damage.dir).negate().multiplyScalar(0.6).add(_up).normalize();
+    for (const [kind, size] of PARTIAL_PIECES) {
+      scatter(_v3, 2.5, 2, 3, _v);
+      randomUnit(_v2);
+      _q.setFromUnitVectors(_up, _v2);
+      this.chunks.spawn(kind, at.x, at.y, at.z, _v.x, _v.y, _v.z, r * size, _q, 14);
+    }
+    fx.bloodHit(at, _v3, 1.4);
+    fx.bloodMist(at, 0.22);
+    this.bleed(char, at, damage.dir, 7, 6, 0.5);
+    this.blood.spray(at, _v3, 8, 6, 0.4, 0.1);
+    char.setBloodiness(0.3);
   }
 
   // -------------------------------------------------------------------------------------------
