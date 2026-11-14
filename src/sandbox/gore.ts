@@ -261,7 +261,8 @@ const scenarios: Record<string, Scenario> = {
       const r = s.row;
       const shot = (c: CharacterInstance, amount: number) => {
         const a = s.aim(c, B.head, EYE);
-        if (a) s.gore.headshot(c, s.damage(a.hit, a.dir, amount));
+        // A bullet: a burst at 40 or more, a hole under it (docs/proposals/partial-head-wounds.md).
+        if (a) s.gore.headshot(c, s.damage(a.hit, a.dir, amount), undefined, amount >= 40 ? 'burst' : 'hole');
       };
       if (f === 20) shot(r[1]!, 50);
       if (f === 60) shot(r[0]!, 20);

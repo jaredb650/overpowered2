@@ -9,7 +9,7 @@
  */
 import * as THREE from 'three';
 import { DroneBone, HumanoidBone as B, type GoreRegion } from '../characters/rig';
-import { DEFAULT_FORCE, type DamageInfo, type DamageType } from '../core/contracts';
+import { DEFAULT_FORCE, HEAD_VOLLEY, type DamageInfo, type DamageType, type HeadOutcome } from '../core/contracts';
 import { DevFlags } from '../core/devflags';
 import type { DamageResult, KillEvent } from '../core/gameplay';
 import { chance, clamp, lerp, pick, rand, smoothstep } from '../core/math';
@@ -160,8 +160,24 @@ const REGION_BONE: Record<GoreRegion, number> = {
 
 const WHOLE_LIMB: Partial<Record<GoreRegion, GoreRegion>> = { forearmL: 'armL', forearmR: 'armR', shinL: 'legL', shinR: 'legR' };
 
-/** Gore bursts the head at this much damage. Below it the head pops off whole, and a man keeps his. */
+/** A killing round of this much damage or more is a severe headshot. Below it he keeps his head, with a hole in it. */
 const HEAD_BURST_DAMAGE = 40;
+/** Severe headshots on these get a partial head wound in step 2 of docs/proposals/partial-head-wounds.md. */
+const PARTIAL_HEADS: ReadonlySet<string> = new Set(['trooper', 'gunner', 'husk', 'brute']);
+/** Rounds that burst any head they kill: the very damaging tier, with four pellets of a blast and the Judge up close. */
+const HEAD_BURSTERS: ReadonlySet<string> = new Set(['autocannon', 'sabot']);
+const JUDGE_BURST_RANGE = 8;
+
+/**
+ * What a killing round does to a head (docs/proposals/partial-head-wounds.md): a hole under 40, a burst for the very
+ * damaging (`heavy`), and between the two a partial wound on the enemies in `PARTIAL_HEADS`, a burst on the rest. Never
+ * off whole: that is a blast's and the katana's.
+ */
+export function headOutcome(round: number, heavy: boolean, enemy: string): HeadOutcome {
+  if (heavy) return 'burst';
+  if (round < HEAD_BURST_DAMAGE) return 'hole';
+  return PARTIAL_HEADS.has(enemy) ? 'partial' : 'burst';
+}
 const RESULT_RING = 16;
 /** Seconds between cries of pain. Under an SMG every hit would otherwise be one. */
 const PAIN_GAP = 0.7;
@@ -304,6 +320,8 @@ export class DamageModel {
   /** Pellets of the blast on this frame that have met each plate, so a blast's pellets are counted together. */
   private readonly volley = new Map<Plate, number>();
   private volleyAt = -1;
+  /** Pellets of this frame's blast on the head the last hit struck, counting it. 0 for anything else. */
+  private headVolley = 0;
   /** Limbs the blast `seenIn` has taken so far. */
   private cuts = 0;
   private readonly seam: DamageInfo = { amount: 0, type: 'explosive', point: new THREE.Vector3(), dir: new THREE.Vector3(), force: 0, source: '' };
@@ -373,6 +391,7 @@ export class DamageModel {
     const kneeling = body !== null && wounds!.kneeling(e);
     if (body) amount = wounds!.priced(placed, d, amount, region, kneeling);
     res.headshot = region === 'head' && !area && (placed === null || (placed.zone === 'head' && !placed.glancing));
+    this.headVolley = region === 'head' && !area ? this.w.ctx.gore.headPellets(e.char, d) : 0;
 
     // A plate does nothing about a fire, or about blood that is already leaving.
     const reaches = (!body || d.type === 'explosive' || !area) && !kneeling;
@@ -640,6 +659,22 @@ export class DamageModel {
     return classOf(d.source, d.amount);
   }
 
+  /** A very damaging round to the head: one of `HEAD_BURSTERS`, four pellets of a blast, or the Judge up close. */
+  private heavyHead(e: Enemy, d: DamageInfo): boolean {
+    if (d.type === 'pellet') return this.headVolley >= HEAD_VOLLEY;
+    if (HEAD_BURSTERS.has(d.source)) return true;
+    return d.source === 'judge' && e.position.distanceTo(this.w.player.position) < JUDGE_BURST_RANGE;
+  }
+
+  /** A burst head throws off the helmet still on it, so none is left over the neck. */
+  private throwHelmet(e: Enemy, d: DamageInfo): void {
+    for (const plate of e.plates) {
+      if (plate.hp <= 0 || !plate.spec.regions.includes('head')) continue;
+      plate.hp = 0;
+      this.m.debris.launch(plate, d.dir);
+    }
+  }
+
   /** A blast chips whichever plate is left. */
   private blastPlate(e: Enemy): Plate | null {
     for (let i = 0; i < e.plates.length; i++) {
@@ -772,16 +807,19 @@ export class DamageModel {
       // A club kills a man and leaves him his head: key 5's blunt blows, the only hits on an enemy typed 'melee'. An edge
       // takes a head with a slice plane, above.
       this.ragdoll(e, d, force, body ? HEADSHOT_TWITCH : undefined, true);
-    } else if (headshot && !e.def.machine && (e.rising > 0 || body?.floored)) {
-      // Half up, or lying down, there is no head to burst from standing height.
-      this.ragdoll(e, d, force, body ? HEADSHOT_TWITCH : undefined, true);
-      if (!body || d.amount >= HEAD_BURST_DAMAGE) ctx.gore.sever(e.char, 'head', d);
-    } else if (headshot && body && d.amount < HEAD_BURST_DAMAGE) {
-      // A light round kills a man and leaves him his head. Popping it off every time is what "like clay" meant.
-      this.ragdoll(e, d, force, HEADSHOT_TWITCH, true);
     } else if (headshot && !e.def.machine) {
-      ctx.gore.headshot(e.char, d, deathVelocity(e, _dying, this.w.now));
-      if (d.amount < HEAD_BURST_DAMAGE) ctx.audio.play('vox_choke', { position: e.center, pitch: e.def.voice.pitch });
+      // A bullet never takes a head off whole. 'partial' bursts until step 2 of the plan builds it.
+      const burst = headOutcome(d.amount, this.heavyHead(e, d), e.def.id) !== 'hole';
+      const down = e.rising > 0 || body?.floored === true;
+      if (burst) this.throwHelmet(e, d);
+      if (!down && (burst || !body)) {
+        ctx.gore.headshot(e.char, d, deathVelocity(e, _dying, this.w.now), burst ? 'burst' : 'hole');
+        if (!burst) ctx.audio.play('vox_choke', { position: e.center, pitch: e.def.voice.pitch });
+      } else {
+        // A man keeps the death a light round gives him; one half up or lying down has the head burst where it lies.
+        this.ragdoll(e, d, force, body ? HEADSHOT_TWITCH : undefined, true);
+        if (burst) ctx.gore.headshot(e.char, d, undefined, 'burst');
+      }
     } else if (blast?.outcome === 'head' && DevFlags.gibbing) {
       ctx.gore.headshot(e.char, d, deathVelocity(e, _dying, this.w.now));
     } else {

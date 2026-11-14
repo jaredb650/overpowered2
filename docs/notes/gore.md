@@ -55,7 +55,8 @@ ctx.gore.ragdoll(char, { impulses, velocity });   // death. Gore owns the instan
 ctx.gore.collapse(char, { duration, velocity, hit });  // death with time in it. Muscles fade out, then it drops
 ctx.gore.knockdown(char, options);                // ragdoll without dying. False if it cannot: stagger it instead
 ctx.gore.downed(char);                            // that body, while gore has it. Null once it is yours again
-ctx.gore.headshot(char, damage, velocity);        // death. Limp on this frame, at the speed it was going, still once down
+ctx.gore.headshot(char, damage, velocity, outcome); // death. Limp on this frame, at the speed it was going, still once down
+ctx.gore.headPellets(char, damage);               // pellets of this frame's blast on that head so far, counting this one
 ctx.gore.gib(char, center, force);                // death. Releases the instance
 ctx.gore.slice(char, point, normal, damage);      // death. Releases the instance
 
@@ -78,8 +79,18 @@ Rules for callers:
   everything else.
 - **Waist cut:** `sever(char, 'abdomen', ...)` on a living character returns `result.torso`, a `TorsoHalf`. The instance becomes
   the legs: ragdoll it. The top half drags itself at the player for about 7 s. `setTarget`, `kill`, `position`, `alive`.
-- Headshot damage of 40 or more bursts the head, less pops it off whole. Both are kills. A non-lethal head removal is
-  `sever(char, 'head', ...)`.
+- A killing headshot's `outcome` (`HeadOutcome`, decided by `headOutcome` in `src/enemies/damage.ts`, plan in
+  `docs/proposals/partial-head-wounds.md`): `hole`, the head stays on; `burst`; `partial`, which bursts until step 2 builds
+  it; `off`, whole. A bullet never takes a head off: under 40 a hole, 40 or more a burst, and a burst for the very
+  damaging (autocannon, Sabot, the Judge within 8 m, 4 pellets of one blast on one head, `HEAD_VOLLEY`). Left out, the
+  outcome is a blast's: a burst at 40 or more, else off whole. On a body gore already has (down, rising, dead) a burst
+  cuts the head out of the ragdoll where it lies. A club leaves the head; the katana's slice plane still takes it.
+- The burst is a kit of pieces that add up to a head, built in code in `chunks.ts` and scaled to the head's radius (x1.15):
+  the cranium in three curved shells (bloodied bone outside, dark red inside), the jaw in two quarter rings, the brain in
+  two halves, two eyes. They start where they sit in the head and fly out from its centre together, pushed along the
+  shot. A soldier's helmet still on is thrown off first (`DamageModel.throwHelmet`); on a corpse it goes with the head.
+- A corpse's head: pellets that bring this frame's blast to four on it, or wear it through, burst it; anything else that
+  wears it through (`corpseLimbHealth`) shoots it off whole. A non-lethal head removal is `sever(char, 'head', ...)`.
 
 ### Collapse and twitching
 

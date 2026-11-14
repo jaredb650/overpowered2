@@ -10,7 +10,7 @@ import { ARCHETYPES } from '../characters/archetypes';
 import type { GoreRegion } from '../characters/rig';
 import {
   CG, DEFAULT_FORCE, type CapsuleHit, type CharacterInstance, type CorpseHit, type Ctx, type DamageInfo, type EmitterHandle,
-  type GoreSystem, type RagdollOptions, type RayHit, type SeveredLimb, type SeverResult,
+  HEAD_VOLLEY, type GoreSystem, type HeadOutcome, type RagdollOptions, type RayHit, type SeveredLimb, type SeverResult,
 } from '../core/contracts';
 import { DevFlags } from '../core/devflags';
 import { clamp, rand, randomInCone, randomUnit } from '../core/math';
@@ -1135,27 +1135,30 @@ export class Gore implements GoreSystem {
   // Headshots
   // -------------------------------------------------------------------------------------------
 
-  headshot(char: CharacterInstance, damage: DamageInfo, velocity?: THREE.Vector3): void {
+  headshot(char: CharacterInstance, damage: DamageInfo, velocity?: THREE.Vector3, outcome?: HeadOutcome): void {
     const info = rigInfo(char.rig);
     const neck = info.severBone.get('head');
+    const what = outcome ?? (damage.amount >= GoreTuning.headBurstDamage ? 'burst' : 'off');
+    // Step 2 of docs/proposals/partial-head-wounds.md gives a few bodies a partial wound; until then it bursts.
+    const burst = what === 'burst' || what === 'partial';
     const down = this.owned.get(char);
-    if (down?.down && neck !== undefined && !char.severed.has('head')) {
-      this.endDown(down);
-      down.rag?.goLimp();
-      this.sever(char, 'head', damage);
-      if (damage.amount >= GoreTuning.headBurstDamage) this.ctx.fx.headBurst(damage.point, damage.dir);
+    // A body standing in a collapse keeps its head to a blast, as it always has; told what to do, it does it.
+    if (down && neck !== undefined && !char.severed.has('head') && (down.down || outcome !== undefined)) {
+      // Down, rising or dead already: nothing comes off whole, and a burst comes apart where the head lies.
+      if (down.down) {
+        this.endDown(down);
+        down.rag?.goLimp();
+      }
+      if (burst) this.burstHead(char, neck, damage);
+      else if (what === 'off') this.sever(char, 'head', damage);
       return;
     }
-    if (neck === undefined || this.owned.has(char) || char.severed.has('head')) {
-      if (!this.owned.has(char) || down?.down) this.ragdoll(char, { velocity, limp: true });
+    if (neck === undefined || down || char.severed.has('head')) {
+      if (!down || down.down) this.ragdoll(char, { velocity, limp: true });
       return;
     }
     const { fx, audio, time } = this.ctx;
-    char.root.updateMatrixWorld(true);
-    const headBone = info.children[neck]![0] ?? neck;
-    const head = _v4.setFromMatrixPosition(char.bones[headBone]!.matrixWorld);
-    head.y += (char.rig.bones[headBone]!.hit?.radius ?? 0.1) * 0.8;
-    const at = head.clone();
+    const at = this.headAt(char, neck);
 
     // Same frame, in this order: chips, sound, stutter. Nothing here waits on anything.
     audio.play('enemy_headshot', { position: at, volume: 0.75 });
@@ -1163,18 +1166,13 @@ export class Gore implements GoreSystem {
     audio.play('enemy_headshot3', { position: at, volume: 0.75 });
     time.hitStop(GoreTuning.hitStopSeconds, GoreTuning.hitStopScale);
 
-    const burst = damage.amount >= GoreTuning.headBurstDamage;
     if (burst) {
-      fx.headBurst(at, damage.dir);
-      this.burstSkull(at, damage.dir);
-      char.hideLimb(neck);
-      this.startStump(char, neck, 1.7);
-      fx.bloodMist(at, 0.3);
-      this.blood.splatterAlong(at, damage.dir, 9, 8, 0.6);
-      this.blood.spray(at, _up, 10, 11, 0.32, 0.12);
-    } else {
+      this.burstHead(char, neck, damage);
+    } else if (what === 'off') {
       this.sever(char, 'head', damage, velocity);
       fx.bloodHit(at, damage.dir, 1.2);
+    } else {
+      fx.bloodHit(damage.point, damage.dir, 1.2);
     }
 
     // Nothing is left to sell it with. The body goes on this frame, with whatever momentum it had.
@@ -1182,21 +1180,62 @@ export class Gore implements GoreSystem {
     audio.play('enemy_die', { position: at, volume: 0.5 });
   }
 
-  private burstSkull(at: THREE.Vector3, dir: THREE.Vector3): void {
-    const c = this.chunks;
-    const n = 7;
-    for (let i = 0; i < n; i++) {
-      scatter(dir, 5, 4.5, 8, _v);
-      c.spawn('skull', at.x, at.y, at.z, _v.x, _v.y + 2, _v.z, rand(0.03, 0.055));
+  private readonly headVolley = new Map<CharacterInstance, number>();
+  private headVolleyAt = -1;
+
+  headPellets(char: CharacterInstance, damage: DamageInfo): number {
+    if (damage.type !== 'pellet') return 0;
+    const now = this.ctx.time.elapsed;
+    if (this.headVolleyAt !== now) {
+      this.headVolleyAt = now;
+      this.headVolley.clear();
     }
+    const n = (this.headVolley.get(char) ?? 0) + 1;
+    this.headVolley.set(char, n);
+    return n;
+  }
+
+  /** The middle of the head, a little above the head bone. */
+  private headAt(char: CharacterInstance, neck: number): THREE.Vector3 {
+    const info = rigInfo(char.rig);
+    char.root.updateMatrixWorld(true);
+    const headBone = info.children[neck]![0] ?? neck;
+    const head = _v4.setFromMatrixPosition(char.bones[headBone]!.matrixWorld);
+    head.y += (char.rig.bones[headBone]!.hit?.radius ?? 0.1) * 0.8;
+    return head.clone();
+  }
+
+  /**
+   * The Fallout burst: the head comes apart into the pieces it is made of, sized to it, and the neck is left a stump.
+   * Works on a body gore already has, which loses the head's part of its ragdoll as a cut limb would.
+   */
+  private burstHead(char: CharacterInstance, neck: number, damage: DamageInfo): void {
+    const { fx } = this.ctx;
+    const info = rigInfo(char.rig);
+    const headBone = info.children[neck]![0] ?? neck;
+    const at = this.headAt(char, neck);
+    const r = char.rig.bones[headBone]!.hit?.radius ?? 0.1;
+    const body = this.owned.get(char);
+    if (body?.rag) {
+      markSubtree(info, neck, _mask);
+      this.wake(body);
+      body.rag.cut(_mask);
+      for (let i = 0; i < info.count; i++) if (_mask[i] === 1) body.skip[i] = 1;
+    }
+    fx.headBurst(at, damage.dir);
+    // A prone head faces wherever the body lies; standing, the body's facing is close enough for nine pieces in flight.
+    char.root.getWorldQuaternion(_q);
+    // The hit radius sits inside the skin, and a helmet bigger still: the pieces are a little over it.
+    this.chunks.burstHead(at, _q, r * 1.15, damage.dir);
     for (let i = 0; i < 3; i++) {
-      scatter(dir, 3.5, 3.5, 6, _v);
-      c.spawn('brain', at.x, at.y, at.z, _v.x, _v.y + 2, _v.z, rand(0.03, 0.05));
+      scatter(damage.dir, 4, 4, 7, _v);
+      this.chunks.spawn('meat', at.x, at.y, at.z, _v.x, _v.y, _v.z, rand(0.03, 0.05));
     }
-    for (let i = 0; i < 3; i++) {
-      scatter(dir, 4, 4, 7, _v);
-      c.spawn('meat', at.x, at.y, at.z, _v.x, _v.y, _v.z, rand(0.03, 0.05));
-    }
+    char.hideLimb(neck);
+    this.startStump(char, neck, 1.7);
+    fx.bloodMist(at, 0.3);
+    this.blood.splatterAlong(at, damage.dir, 9, 8, 0.6);
+    this.blood.spray(at, _up, 10, 11, 0.32, 0.12);
   }
 
   // -------------------------------------------------------------------------------------------
@@ -1404,7 +1443,14 @@ export class Gore implements GoreSystem {
       let b = hit.bone;
       while (b >= 0 && !defs[b]!.severable) b = defs[b]!.parent;
       const lasts = b >= 0 && defs[b]!.region === 'abdomen' ? GoreTuning.corpseTrunkHealth : GoreTuning.corpseLimbHealth;
-      if (b >= 0 && target.damage[hit.bone]! >= lasts) {
+      const head = b >= 0 && defs[b]!.region === 'head';
+      // A shotgun's blast is one hit on a head: four of its pellets there, counting any that killed him, burst it. A head
+      // worn through by pellets bursts too; anything else that wears it through shoots it off.
+      const volley = head ? this.headPellets(char, damage) : 0;
+      if (head && (volley >= HEAD_VOLLEY || (volley > 0 && target.damage[hit.bone]! >= lasts))) {
+        target.damage[hit.bone] = 0;
+        this.headshot(char, damage, undefined, 'burst');
+      } else if (b >= 0 && target.damage[hit.bone]! >= lasts) {
         target.damage[hit.bone] = 0;
         this.sever(char, defs[b]!.region, damage);
       }

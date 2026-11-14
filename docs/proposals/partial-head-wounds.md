@@ -1,6 +1,9 @@
 # Idea: partial head wounds instead of clean decapitation
 
-Status: idea, pinned by the owner on 2026-11-14. Nothing here is built or costed.
+Status: step 1 built on 2026-11-14 (the rules, the Fallout burst kit, pellet counting on the head, the helmet thrown
+off). The hook for step 2 is `headOutcome` in `src/enemies/damage.ts`, which already answers 'partial' for a severe
+headshot on the Trooper, Gunner, Husk and Brute; `gore.headshot` bursts a 'partial' until step 2 builds it. Not done in
+step 1: the full Lance is not in the very damaging tier (nothing tells a full beam from a ball in `DamageInfo` yet).
 
 ## The problem
 

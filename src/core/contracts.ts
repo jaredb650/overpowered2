@@ -28,6 +28,14 @@ export const DEFAULT_FORCE: Record<DamageType, number> = {
   bullet: 20, pellet: 30, explosive: 130, melee: 90, slash: 60, fire: 5, shock: 15, crush: 200, true: 10,
 };
 
+/**
+ * What a killing headshot does to the head (docs/proposals/partial-head-wounds.md): a hole and it stays on, part of it
+ * blown away (not built yet, it bursts), burst into pieces, or off whole (a blast's only).
+ */
+export type HeadOutcome = 'hole' | 'partial' | 'burst' | 'off';
+/** Pellets of one blast on one head that count as one very damaging hit, which bursts it. */
+export const HEAD_VOLLEY = 4;
+
 /** A single application of damage to an enemy. */
 export interface DamageInfo {
   amount: number;
@@ -387,9 +395,12 @@ export interface GoreSystem extends GameSystem {
   slice(char: CharacterInstance, point: THREE.Vector3, normal: THREE.Vector3, damage: DamageInfo): void;
   /**
    * The signature head kill. Takes ownership of the character, like ragdoll, and the body goes limp on this frame.
-   * Bursts at high damage, pops the head off whole at low damage.
+   * `outcome` (`HeadOutcome`) is what happens to the head; left out it is a blast's: a burst at 40 or more, else off whole.
+   * On a body gore already has (down, rising or dead) it bursts the head or leaves it.
    */
-  headshot(char: CharacterInstance, damage: DamageInfo, velocity?: THREE.Vector3): void;
+  headshot(char: CharacterInstance, damage: DamageInfo, velocity?: THREE.Vector3, outcome?: HeadOutcome): void;
+  /** Pellets of one blast (this frame) that have met this head so far, counting this one. 0 for anything not a pellet. */
+  headPellets(char: CharacterInstance, damage: DamageInfo): number;
   /** Nearest ragdoll, corpse or severed limb along a ray. Bodies stay shootable after death. */
   raycastCorpses(origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number): CorpseHit | null;
   /** Pushes, wounds and possibly cuts up a dead body. */
