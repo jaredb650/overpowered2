@@ -26,4 +26,10 @@ export const PARKOUR = {
    * with a jump and jumping again makes it from anywhere in the last 8 m of the deck, which is what the level teaches.
    */
   wallRun: { gap: 22, headroom: 3, wallPast: 4, width: 7 },
+  /**
+   * Holdfast's stacks (Foreclosure). `climb`: two containers, out of a walk's reach and inside a wall climb's, from the street. The
+   * chimney: two faces this far apart, rising `rise` from the climb's top to four high, whose outer faces refuse the climb, so wall to
+   * wall is the only way up. `gap`: the jump between the stacks on top. holdfast-map.test.ts plays all three on the map.
+   */
+  stacks: { climb: 5.2, chimney: { width: 1.5, rise: 5.2 }, gap: 5 },
 } as const;

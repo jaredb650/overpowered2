@@ -64,6 +64,8 @@ export interface StructureSpec {
   yaw: number;
   length: number;
   look?: 'planks' | 'sheet';
+  /** A shack's walls painted this colour (a multiplier on the boards' own shade), for a town that is not a base. */
+  paint?: readonly [number, number, number];
   /** A gate on a lift: it rises for the player or an ally near it and drops behind them once the gap is clear. */
   opens?: boolean;
   /** A wall (or the pillars beside a gate) built to this instead of WALL. */
@@ -90,6 +92,8 @@ interface Part {
   hidden?: boolean;
   bevel?: number;
   tint?: number;
+  /** Takes the piece's `paint`, if it has one. */
+  painted?: boolean;
   yaw?: number; pitch?: number; roll?: number;
 }
 
@@ -234,8 +238,8 @@ function shackStages(look: 'planks' | 'sheet', rng: () => number): Part[][] {
       const tint = 0.78 + rng() * 0.3;
       const f = fixed + Math.sign(fixed) * out;
       standing.push(onX
-        ? box(f, H / 2, u, 0.02, H / 2, along / n - 0.006, wallMat, { tint })
-        : box(u, H / 2, f, along / n - 0.006, H / 2, 0.02, wallMat, { tint }));
+        ? box(f, H / 2, u, 0.02, H / 2, along / n - 0.006, wallMat, { tint, painted: true })
+        : box(u, H / 2, f, along / n - 0.006, H / 2, 0.02, wallMat, { tint, painted: true }));
     }
   };
   face(w, d - 0.02, false);
@@ -455,7 +459,8 @@ export class Structures {
     geo.push(s.x, s.y, s.z, s.yaw);
     for (const p of parts) {
       if (p.hidden) continue;
-      geo.use(p.mat).tint(p.tint ?? 1);
+      const t = p.tint ?? 1, c = p.painted ? s.paint : undefined;
+      geo.use(p.mat).tint(t * (c?.[0] ?? 1), t * (c?.[1] ?? 1), t * (c?.[2] ?? 1));
       const tilted = p.yaw !== undefined || p.pitch !== undefined || p.roll !== undefined;
       if (tilted) geo.push(p.x, p.y, p.z, p.yaw ?? 0, p.pitch ?? 0, p.roll ?? 0);
       const x = tilted ? 0 : p.x, y = tilted ? 0 : p.y, z = tilted ? 0 : p.z;

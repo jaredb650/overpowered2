@@ -3,15 +3,16 @@
 Mission 2 of the campaign, after the Outpost. The plan is `docs/proposals/mission-2-plan.md`; this file says what exists. Updated as
 each stage lands.
 
-## Where it stands (stage 6, the plumbing)
+## Where it stands (stages 6 and 7: the plumbing and the map)
 
-The skeleton: all sixteen beats as rows that run end to end with stand-ins. No map, no Frame, no Old Mother yet.
+The skeleton: all sixteen beats as rows that run end to end with stand-ins, on Holdfast. No Old Mother yet; the Frame is stage 3's.
 
 - **Play it:** `/?contract=foreclosure` on the dev server, or the menu's Foreclosure tab. From a beat: `&beat=<id>`, or the dev panel's
   **MISSION: FORECLOSURE, FROM A BEAT** buttons (F1), which reload the page on that beat with its checkpoint's kit.
-- **Where:** the Test Range stands in for Holdfast. Every place is a mark or zone in `src/campaign/missions/foreclosure.ts` named after
-  the plan's places (`lz`, `gate`, `square`, `quay`, `slip`, `harbour`, `pans`, `deck`, ...). Stage 7 moves those names onto Holdfast and
-  sets the contract row's `map`.
+- **Where:** Holdfast (stage 7, `docs/notes/holdfast.md`), the contract row's `map: 'holdfast'`. Every place is in
+  `src/campaign/missions/foreclosure.places.ts`: `PLACES` names them all, `MARKS` is what the beats name today (plus every route's marks),
+  and `BATTLES`, `OVERWATCH`, `ROUTES` (`technicalWest`, `technicalEast`, the Frame's `frameStacks`, `frameMarket`, `frameHarbour`,
+  `frameWest`, `framePans`) are there for the beats to come. A beat that names a new place adds it to `NAMED` in that file.
 - **Lock:** the row is shut in the menu until the Outpost is won (`opensAfter: 'outpost'`, `isShut` in `src/contracts/unlocks.ts`), and
   open on the dev server, as every lock is there. It is not `locked: true`, because that flag means "after the campaign" and
   `contracts.test.ts` pins the rows that carry it.
@@ -23,7 +24,7 @@ The skeleton: all sixteen beats as rows that run end to end with stand-ins. No m
 
 | # | Beat | Checkpoint | What runs now | Ends on |
 |---|---|---|---|---|
-| 1 | `briefing` | none | Council lines, a stand-in film over the range | the film |
+| 1 | `briefing` | none | Council lines, a stand-in film over Holdfast | the film |
 | 2 | `overwatch` | `lz`, issued kit | Six Bailiffs at the LZ, four militia holding at the shacks, `sortie` over the LZ | the lease running out |
 | 3 | `landing` | `lz` | The squad, militia (`ensure`d), a technical with crew, the E hint | `flats` and the technical's crew cleared |
 | 4 | `wall` | `shanties` | Battle `eastStreet` starts, two gunners on the wall, the launcher rack | gunners cleared and the launcher taken |
@@ -64,8 +65,12 @@ after a death in every beat, and from every beat; the squad and the sky at every
 
 ## For the next stages
 
-- **Holdfast (7):** replace `MARKS` and `ZONES` by name, set `map` on the contract row (and `MAP_IDS` in `contracts/select.ts`), add
-  routes for the technicals. The briefing and ending films are stand-ins over the range.
+- **Holdfast (7): built.** The marks are on the map; the films fly over it (still stand-in shots). For stage 9: `OVERWATCH` lists the
+  gunship's targets round the LZ and the anti-air teams' spots (`aaWest`, `aaEast`); `BATTLES` the war's other fights, each with a firing
+  line and cover proved; the wall guns are `spec.emplacements` 0 and 1, the roof guns 2 and 3; the technicals have routes. For stage 10:
+  the parkour route's marks (`stacksFoot` to `stacksEnd`), Grandad at `quayRoad` (the aisle's north mouth), `doorGun`, `courierWreck`. For
+  stage 8: `PANS.loop` and the deck marks, which stand on the salt until Old Mother exists. For stage 11: the flak tower's guns are drawn
+  static (`flakGuns()` in `yard.ts`) at `flakGun1..4`.
 - **The Frame (3 to 5):** provide `frame(act, at, done)` through `campaign.provide`. `board` must cope with the player already in one:
   `mount` boards by `kneel`, then `foreclosure` opens with `board`. A death in the Frame is the player's death; the checkpoint's `board`
   gives the fresh one.

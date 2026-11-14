@@ -5,11 +5,11 @@
  * Every beat runs end to end with stand-ins: a small squad or two where the plan has a fight, a tank for Grandad and for Old Mother,
  * and the `frame` steps answered by a banner until the Frame (src/frame) provides them.
  *
- * shortcut: the places are on the Test Range (64 by 52 m, the spawn at z 15) until Holdfast lands (stage 7); then MARKS and ZONES
- * become Holdfast's, by the names below, and the contract row names the map.
+ * The places are Holdfast's (src/world/map/holdfast), by name in `foreclosure.places.ts`.
  */
-import type { Beat, Loadout, Mark, Mission, Step, Zone } from '../types';
+import type { Beat, Loadout, Mission, Step } from '../types';
 import { FORECLOSURE_LINES } from './foreclosure.lines';
+import { MARKS, ROUTES, ZONES } from './foreclosure.places';
 
 const say = (id: string, wait = false): Step => ({ do: 'say', line: `mission.foreclosure.${id}`, wait });
 const council = (id: string, wait = false): Step => say(`council.${id}`, wait);
@@ -37,49 +37,6 @@ const EAST_STREET: Step = {
 /** A beat in the Frame starts in a fresh one, so a restart gets one. */
 const inFrame = (at: string): Step => ({ do: 'frame', act: 'board', at });
 const REPLACEMENT = ['mission.foreclosure.council.replacement'];
-
-const m = (x: number, z: number, yaw = 0): Mark => ({ at: [x, 0.1, z], yaw });
-
-const MARKS: Readonly<Record<string, Mark>> = {
-  // Checkpoints and places the player is put. The range's open floor, clear of its cover, wall, shacks and guns.
-  lz: m(0, 15),
-  shanties: m(8, 12),
-  gate: m(-16, 3),
-  square: m(0, -4),
-  quay: m(12, -2),
-  slip: m(0, -12),
-  frame: m(6, -12),
-  harbour: m(-4, -16),
-  pans: m(-16, 12, Math.PI / 2),
-  deck: m(10, 10),
-  // Where things stand.
-  outerShacks: m(12, 6),
-  wallGuns: m(-16, -4),
-  breachKit: m(-10, 2),
-  eastBureau: m(18, 0),
-  eastMilitia: m(18, -14),
-  lanes: m(-14, -12),
-  stacks: m(16, -12),
-  quayRoad: m(24, -14),
-  craneCab: m(20, -2),
-  thresherRack: m(13, -3),
-  quayHealth: m(11, -3),
-  quayArmour: m(11, -1),
-  slipNorth: m(0, -18),
-  slipEast: m(20, -8),
-  slipWest: m(-20, -4),
-  backStreet: m(-6, -6),
-  backTank: m(-24, -16),
-  flakTower: m(-14, -18),
-  mother: m(18, 12),
-  deckCrew: m(16, 8),
-  deckGun: m(12, 9),
-};
-
-const ZONES: Readonly<Record<string, Zone>> = {
-  // Out of the west gate onto the salt.
-  westGate: { min: [-20, -1, 8], max: [-12, 6, 16] },
-};
 
 const BEATS: readonly Beat[] = [
   {
@@ -343,18 +300,18 @@ export const FORECLOSURE: Mission = {
   loadout: KIT.issued,
   zones: ZONES,
   marks: MARKS,
-  routes: {},
+  routes: ROUTES,
   doors: {},
   cutscenes: {
-    // Stand-ins over the range. The real ones fly over Holdfast.
+    // Over Holdfast: in from the sea over the flak tower and the stacks, then down over the wall to the Flats where the 14th land.
     briefing: {
       shots: [
-        { from: [-40, 40, 40], to: [-10, 24, 30], lookFrom: [0, 0, 0], lookTo: [0, 0, -6], seconds: 8, fadeIn: 2, caption: 'Holdfast' },
-        { from: [30, 18, -10], to: [20, 12, 10], lookFrom: [0, 2, 0], lookTo: [0, 2, 10], seconds: 6, fadeOut: 1.2, caption: 'Form 7742-F' },
+        { from: [150, 70, -160], to: [90, 50, -90], lookFrom: [60, 0, -40], lookTo: [60, 0, 0], seconds: 8, fadeIn: 2, caption: 'Holdfast' },
+        { from: [20, 30, 80], to: [60, 22, 74], lookFrom: [70, 4, 30], lookTo: [70, 2, 50], seconds: 6, fadeOut: 1.2, caption: 'Form 7742-F' },
       ],
     },
     ending: {
-      shots: [{ from: [10, 14, 20], to: [10, 40, 40], lookFrom: [0, 0, 0], lookTo: [0, 0, -10], seconds: 10, fadeIn: 1, fadeOut: 3 }],
+      shots: [{ from: [-60, 12, 10], to: [-20, 60, 60], lookFrom: [-90, 2, 0], lookTo: [60, 0, 0], seconds: 10, fadeIn: 1, fadeOut: 3 }],
       endsBlack: true,
     },
   },

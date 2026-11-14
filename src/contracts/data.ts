@@ -118,8 +118,7 @@ export const CONTRACTS: readonly ContractDef[] = [
   {
     id: 'foreclosure',
     name: 'Foreclosure',
-    // shortcut: the Test Range stands in for Holdfast until its map lands (docs/proposals/mission-2-plan.md, stage 7).
-    map: 'range',
+    map: 'holdfast',
     faction: 'humans',
     waves: 'squads',
     ai: 'outpost',

@@ -4,6 +4,8 @@ import type { Kit } from '../kit/kit';
 import type { NavBuildOptions } from '../nav';
 import { authorMap, MAP_STAGES, type MapStage } from './crucible';
 import { authorFort, FORT_EXTENT, FORT_STAGES } from './fort';
+import { authorHoldfast, HOLDFAST_BOUNDS, HOLDFAST_HUB, HOLDFAST_STAGES } from './holdfast';
+import { LEVEL as HOLDFAST_LEVEL } from './holdfast/plan';
 import { LEVEL as FORT_LEVEL } from './fort/plan';
 import { authorKillHouse, KILLHOUSE_EXTENT, KILLHOUSE_STAGES } from './killhouse';
 import { authorOutpost, OUTPOST_EXTENT, OUTPOST_STAGES } from './outpost';
@@ -14,7 +16,7 @@ import type { MapSpec } from './spec';
 import type { MapZone } from '../../core/contracts';
 import { ACTIVE } from '../../contracts/select';
 
-export type MapId = 'crucible' | 'killhouse' | 'outpost' | 'fort' | 'range';
+export type MapId = 'crucible' | 'killhouse' | 'outpost' | 'fort' | 'holdfast' | 'range';
 
 export interface MapDef {
   id: MapId;
@@ -106,6 +108,23 @@ const fort: MapDef = {
   readyLabel: 'Manning the walls',
 };
 
+const H = HOLDFAST_BOUNDS;
+const holdfast: MapDef = {
+  id: 'holdfast',
+  bounds: box(H.x0, -10, H.z0, H.x1, 60, H.z1),
+  // The volume caps at 200 cells a side: 360 m at 1.8 m is 200, so the salt is lit out to the horizon.
+  lightBounds: box(-180, -8, -180, 180, 28, 180),
+  lightCell: 1.8,
+  minimapExtent: Math.max(-H.x0, H.x1, -H.z0, H.z1),
+  navHub: HOLDFAST_HUB,
+  // The salt, the dock's floor, the firing steps, gun pads, flat roofs, the harbour walk, the quay crane's deck and the east stacks' top.
+  // Container tops elsewhere are no floor: nobody walks the parkour route.
+  nav: { mutual: true, levels: Object.values(HOLDFAST_LEVEL) },
+  stages: HOLDFAST_STAGES,
+  author: authorHoldfast,
+  readyLabel: 'Hanging out the washing',
+};
+
 const range: MapDef = {
   id: 'range',
   bounds: box(-RANGE.halfX - 2, -4, -RANGE.halfZ - 2, RANGE.halfX + 2, 34, RANGE.halfZ + 2),
@@ -117,7 +136,7 @@ const range: MapDef = {
   readyLabel: 'Switching on the lights',
 };
 
-const MAPS: Record<MapId, MapDef> = { crucible, killhouse, outpost, fort, range };
+const MAPS: Record<MapId, MapDef> = { crucible, killhouse, outpost, fort, holdfast, range };
 
 /** The map of the page's contract, or whatever `?map=` names. contracts/select.ts has the rules. */
 export function selectMap(): MapDef {

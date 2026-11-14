@@ -14,6 +14,7 @@ export const SIGNS = [
   'BARRACKS', 'ARMOURY', 'INFIRMARY', 'MAGAZINE',
   'GATE 1', 'GATE 2', 'GATE 3', 'GATE 4', 'GATE 5', 'GATE 6', 'GATE 7', 'GATE 8',
   'MOTOR POOL', 'FUEL POINT', 'NO SMOKING', 'MESS HALL', 'COMMS', 'AMMO DUMP', 'CHECKPOINT', 'HALT', 'HQ', 'MINES',
+  'HOLDFAST', 'PORT OFFICE', 'DRY DOCK', 'CANNERY', 'SALT PANS', 'NOODLES', 'QUAY', 'FERRY',
 ] as const;
 
 export type SignName = (typeof SIGNS)[number];

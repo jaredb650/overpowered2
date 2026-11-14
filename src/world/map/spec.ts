@@ -185,8 +185,8 @@ export class MapSpec {
   }
 
   /** A plank or sheet-metal hut, SHACK.width along `yaw` (the kit's: 0 runs along +X) and SHACK.depth across, door on its +Z side. */
-  shack(x: number, z: number, yaw = 0, look: 'planks' | 'sheet' = 'planks', y = 0): void {
-    this.structures.push({ kind: 'shack', x, y, z, yaw, length: SHACK.width, look });
+  shack(x: number, z: number, yaw = 0, look: 'planks' | 'sheet' = 'planks', y = 0, paint?: readonly [number, number, number]): void {
+    this.structures.push({ kind: 'shack', x, y, z, yaw, length: SHACK.width, look, ...(paint ? { paint } : {}) });
   }
 
   private segment(kind: 'wall' | 'gate', ax: number, az: number, bx: number, bz: number, y: number, style?: WallStyle): void {
