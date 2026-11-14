@@ -108,7 +108,7 @@ death and `RadioOrders`' orders (the orders still move his squads; only the word
   they come round again. The owner's `cmd.def.armour.bitch` is always his first line about a tank.
 - **The Council** (the Office of Societal Compliance, the player's handler) says what is actually coming and from where: 48 lines in
   `DEFENSE_COUNCIL`. `{dir}` is one side or several, always in compass order (`sidesWord`: `north and east`, `north, east, south and west`).
-- **The player's men** call out on the comms feed in the bottom left, in the allies' cyan, as `kind: 'ally'` with the man's type as the
+- **The player's men** call out on the comms feed in the bottom left, in green (`--friend`; the enemy's chatter is cyan), as `kind: 'ally'` with the man's type as the
   speaker: breaches, gates, contact by side, charges, tanks, helicopters, incoming mortar fire, man down, killed, reloading, a shop hit or
   lost, wave clear. The nearest man standing says it; with nobody standing nothing is said. 2 s between any two (a breach, a man down or a
   machine cuts in) and a gap per call (contact 20 s a side, reload 14 s).

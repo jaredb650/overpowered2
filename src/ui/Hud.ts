@@ -18,7 +18,6 @@ import { Vitals } from './hud/vitals';
 import { Arms } from './hud/arms';
 import { Tach } from './hud/tach';
 import { Tally } from './hud/tally';
-import { ALLY_TEXT } from '../allies/data';
 import { Combo } from './hud/combo';
 import { Perks } from './hud/perks';
 import { CallIns } from './hud/callins';
@@ -243,7 +242,7 @@ export class Hud implements HudSystem {
     });
     events.on('music:track', e => this.nowPlaying.show(e.title, e.original));
     events.on('defense:open', e => this.openDefense(e.screen));
-    events.on('comms:line', e => this.comms.push(e.text, e.kind === 'ally' ? ALLY_TEXT : COMMS_FEAR.has(e.kind) ? 'var(--amber)' : 'var(--cold)', e.speaker ?? e.squad));
+    events.on('comms:line', e => this.comms.push(e.text, e.kind === 'ally' ? 'var(--friend)' : COMMS_FEAR.has(e.kind) ? 'var(--amber)' : 'var(--cold)', e.speaker ?? e.squad));
     applySettings(this.ctx, this.settings);
     applyQuality(this.ctx, this.settings);
   }

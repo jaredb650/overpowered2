@@ -147,7 +147,7 @@ in lines written for the fort (a wave, armour, the helicopter, a charge, a breac
 player's handler, says what is coming and from which side: `Wave 4. Hostiles massing to the north and east.`, reinforcements by side,
 each machine by the side it comes from, bosses, mortars, engineers, charges and breaches by ring and side, shops under attack and lost,
 the wave cleared, ten seconds to the next. One speaker at a time; her warnings are never dropped. The player's own men call out on the
-comms feed in cyan: `Breach! Outer wall, north side!`, contact by side, man down, reloading, a shop under attack. Text only: no line has
+comms feed in green: `Breach! Outer wall, north side!`, contact by side, man down, reloading, a shop under attack. Text only: no line has
 a recording.
 
 **The player's mortar teams** (`teams.ts`, piece 8). Bought at the Barracks for 1,200, posted at the next free mortar post (four, in the
@@ -245,7 +245,7 @@ It is a second hit and not a multiplier on the first because the first has alrea
 
 ## Comms feed
 
-`comms:line` (`CommsLine` in `enemies/outpost/events.ts`) goes to `CommsFeed` in `ui/hud/feed.ts`: four lines at most, six seconds each, above the sonar chip. The speaker shows, or the squad when the speaker is null. `fear`, `panic`, `surrender` and `squadGone` show amber, the player's own men (`ally`, Outpost Defense's `radio.ts`) cyan, everything else cold. Text only for now.
+`comms:line` (`CommsLine` in `enemies/outpost/events.ts`) goes to `CommsFeed` in `ui/hud/feed.ts`: four lines at most, six seconds each, above the sonar chip. The speaker shows, or the squad when the speaker is null. `fear`, `panic`, `surrender` and `squadGone` show amber, the player's own men (`ally`, Outpost Defense's `radio.ts`) green (`--friend`), everything else cold. Text only for now.
 
 ## Tuning knobs
 
