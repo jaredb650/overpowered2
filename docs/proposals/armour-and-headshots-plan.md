@@ -81,8 +81,22 @@ rest go through. This applies to the shotgun (6 pellets) and the Thresher (4).
   points live in that helmet. It still breaks the same way: the order means you need a medium round, two pellets, or
   several light rounds to the same head before your headshots land.
 - Plates on the chest work the same way they do today, with the new cues.
-- **Risk to check before costing.** The helmet that is painted into the character model would have to come off with the
-  plate. If the model cannot hide its helmet, the plate has to become the whole helmet instead. Neither is checked yet.
+- **Checked 2026-11-13: the painted helmet cannot be hidden, but it can be moved out of the body.**
+  - The baker (`tools/bake`) builds each character as one signed-distance surface, so the helmet is fused into the head:
+    there is no skull under it, only the helmet's outside. Hiding its triangles would leave a hole.
+  - But archetypes already mount baked props on sockets (the Rocketeer's pack on `back`, every gun on `handR`), and the
+    baker can bake a single model by name. So: take the `helmet(...)` call out of each helmeted body, bake it as its own
+    prop with the same shape and materials, and mount it on a head socket. The body underneath then bakes as the bare head
+    (`handsAndHead`). It looks the same as today until it comes off.
+  - At runtime, the HELMET plate uses that prop as its mesh instead of the slab, so the existing plate debris throws the
+    real helmet. In The Crucible the same prop is worn for looks and never comes off (no plate there).
+  - Helmeted bodies: `trooper`, `rocketeer`, `riot` (all `helmet()` in `archetypes/soldiers.ts`) and `gunner` (its own
+    iron bucket). Those are the campaign's rifle, rocket, shield and shotgun roles, which are exactly the roles that wear
+    HELMET. The `contractor` has a helmet too but wears no plate.
+  - Cost: **medium.** Four rebakes and four helmet props, a head socket, a plate mesh override, and a look at the bare
+    heads, which nobody has seen (the Trooper's respirator and crest may need moving to the helmet). Splitting a helmet
+    into two or three pieces is extra; one helmet flying off is the first step. The Commander's heavy helmet is the same
+    prop, larger, with the visor that already exists.
 
 ## 4. Headshots you can read
 
