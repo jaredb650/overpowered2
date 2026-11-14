@@ -430,7 +430,7 @@ The Sump plan's section 3 holds, with these changes.
 
 | # | Stage | What the owner gets | Size | Depends on | Model, effort | Tokens |
 |---|---|---|---|---|---|---|
-| 1 | The Bureau's look | Bailiffs on their own two bodies in black, grey and red; the player's body and arms the same; an identification sheet | M | none | Opus, high | 0.4 to 0.7M |
+| 1 | The Bureau's look (**built**, `docs/notes/characters.md`, The Bailiffs) | Bailiffs on their own two bodies in black, grey and red; the player's body and arms the same; an identification sheet | M | none | Opus, high | 0.4 to 0.7M |
 | 2 | The ragtag militia | The seven human types re-baked in colour, no red on them, helmets repainted | M to L | none | Opus, high | 0.6 to 1.0M |
 | 3 | **The Frame on the range** (**built**, `docs/notes/frame.md`) | Walk, look, jets, stomp, charge, backhand, three guns, the cockpit and HUD, on a stand-in body of boxes | L | none | Opus, xhigh | 1.2 to 1.8M |
 | 4 | The Frame's body | The baked walker, its animator, kneel and stand, boarding, the collapse, the eject | L | 3's interface; can start beside it | Opus, high | 0.8 to 1.2M |
@@ -462,6 +462,11 @@ size of the Outpost.
   re-baked, the sleeve finishes. Loaded by pages with allies (the fort, `&allies=`, this mission). Targets: each body under 2.5 MB; the
   sheet (a Bailiff beside each human enemy type at 10, 25 and 50 m) shows them apart by value at 25 m; Outpost Defense's garrison
   wears them. Try: `/?map=range&contract=outpost&allies=6&foes=5`.
+  **Built 2026-11-14.** `bailiff` (2.0 MB) and `bailiffHeavy` (2.2 MB), every ally type on them with its gun fitted by
+  `library.arm`, the garrison and the shopkeepers in them, the contractor and the first-person sleeve, bracer and wrist re-coloured. The
+  pack frame went grey and its bar red; the helmet band and chest bar are gone from the Bailiffs, because a lit red bar on the chest read
+  as a red block at 25 m. The sheet (`tools/scripts/bureau-sheet.mjs`): a Bailiff is darker than the Trooper, Sniper, Rocketeer and Warden
+  at 25 m, but not than the Gunner, Brute and Riot, until stage 2 paints them. No partial heads for the Bailiffs: they burst.
 - **2. The ragtag militia.** `archetypes/soldiers.ts` and the helmet props. Targets: the same sheet, every type still named right by eye
   from its silhouette and paint; the Outpost's `mission-live.mjs` steps unchanged. Try: the models sandbox, then `/?contract=campaign`.
 - **3. The Frame on the range.** `src/frame/`: `controller.ts` (the walker), `seat.ts` (a `GunnerSeat` on a moving mount),

@@ -1,5 +1,5 @@
 /**
- * A shopkeeper behind each counter (Outpost Defense): a rifleman's body in the allies' kit, idle at the fort's `keeper` point (or just
+ * A shopkeeper behind each counter (Outpost Defense): a Bailiff rifleman in the allies' kit (`AllySystem.body`), idle at the fort's `keeper` point (or just
  * behind the counter until the fort has one), turning to face the player when he comes near and nodding when he buys. Not an ally:
  * not in the squad or on the minimap, never shot at, and nothing he does touches the fight.
  */
@@ -9,13 +9,11 @@ import type { CharacterInstance, Ctx } from '../../core/contracts';
 import { dampAngle } from '../../core/math';
 import type { ShopId } from './data';
 
-/** The body: the rifleman's. */
-const BODY = 'trooper';
 /** He turns to the player inside this, and animates at full rate inside `NEAR`, skips frames out to `FAR`, and stops past it. */
 const WATCH = 7;
 const NEAR = 20;
 const FAR = 60;
-/** Seconds between tries while the body is not loaded yet. */
+/** Seconds between tries while the Bailiffs are not loaded yet. */
 const RETRY = 1;
 
 export interface KeeperPoint {
@@ -72,25 +70,18 @@ export class Keepers {
 
   private raise(): void {
     const { ctx } = this;
-    if (!ctx.render?.scene) return;
+    const allies = ctx.allies;
+    if (!ctx.render?.scene || !allies) return;
+    // Not loaded yet: the next try.
+    if (!allies.ready) {
+      void allies.preload();
+      return;
+    }
     for (const { id, at } of this.points) {
-      let char: CharacterInstance;
-      try {
-        char = ctx.characters.spawn(BODY);
-      } catch {
-        // Not loaded yet: the next try.
-        for (const m of this.men) {
-          m.char.root.removeFromParent();
-          ctx.allies?.props.strip(m.char);
-          m.char.release();
-        }
-        this.men.length = 0;
-        return;
-      }
+      const char: CharacterInstance = allies.body('rifleman');
       char.root.position.copy(at.pos);
       char.root.rotation.y = at.yaw;
       (char.anim as { setPosture?(name: string): void }).setPosture?.('stand');
-      ctx.allies?.props.fit(char);
       ctx.render.scene.add(char.root);
       this.men.push({ id, char, at, yaw: at.yaw });
     }

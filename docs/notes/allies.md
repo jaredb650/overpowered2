@@ -47,19 +47,36 @@ bank, a roster on the HUD and the mode's economy. Allies have no lines.
 
 | File | Job |
 |---|---|
-| `data.ts` | `ALLY_TYPES` (body, health, gun, stance, band), `ALLY` (the lab's squad of 8, `maxAlive` 20 for Outpost Defense's cap, timings, reaches), `ALLY_SOURCE`, colours |
+| `data.ts` | `ALLY_TYPES` (stand-in body, what he wears, health, gun, stance), `ALLY` (the lab's squad of 8, `maxAlive` 20 for Outpost Defense's cap, timings, reaches), `ALLY_SOURCE`, colours |
 | `rules.ts` | Plain arithmetic: follow slots, `crosshairRead`, `prefersAlly`, the `OrderKey` gesture, `takeHit`, `revive`, `reviveCost` |
 | `ally.ts` | One man. His body is an `Enemy` struct that is never in `enemies.alive` |
 | `index.ts` | `AllySystem`: spawning, thinking, steering, firing, hurt/down/revive/dead, the enemy's foes, rays and CHECK FIRE |
 | `fire.ts` | Their guns and rockets |
 | `orders.ts` | The E key and its prompts |
-| `props.ts` | The pack frame, aerial, beacon and bands |
+| `props.ts` | The pack frame, aerial, beacon and red marks |
 | `lab.ts` | URL flags, `window.__allies`, the lab section |
 
 ## What is reused
 
-- **Bodies and animation:** the enemy's archetypes through `ctx.characters.spawn`, posed with `setPosture` and `setLocomotion` like a
-  soldier. Rifleman `trooper`, machine gunner `brute`, sniper `sniper`, rocketeer `rocketeer`, shotgunner `gunner`, riot `riot`, medic `warden`.
+- **Bodies and animation:** the Bureau's own, the Bailiffs (`docs/notes/characters.md`), posed with `setPosture` and `setLocomotion` like
+  a soldier. `AllySystem.body(type)` spawns `ALLY_TYPES[type].wears.model` and fits his gun with `library.arm`:
+
+  | Type | Body | Gun, stance |
+  |---|---|---|
+  | Rifleman | `bailiff` | SMG, rifle |
+  | Machine gunner | `bailiffHeavy` | Minigun, heavy |
+  | Sniper | `bailiff` | Sniper rifle, rifle |
+  | Rocketeer | `bailiff` | Launcher, shoulder |
+  | Shotgunner | `bailiff` | Shotgun, rifle |
+  | Riot police | `bailiffHeavy` | Shield and pistol, shield |
+  | Medic | `bailiff` | Pistol, pistol |
+
+  The Bailiffs are `onRequest`: `AllySystem.preload()` loads them and the guns, and pages with allies call it early (Outpost Defense's
+  `init`, the lab when `&allies=` is set, waiting for it before the squad goes up). `ready` is true once that has finished or failed.
+  A man spawned before then wears his type's `body`, the enemy he stands in for (rifleman `trooper`, machine gunner `brute`, sniper
+  `sniper`, rocketeer `rocketeer`, shotgunner `gunner`, riot `riot`, medic `warden`), with its own gun, plus the red band and chest bar.
+  That `body` is also where his `Enemy` numbers come from (eye height, radius, voice), whichever body he wears.
+  Outpost Defense's shopkeepers are `body('rifleman')` too, raised once `ready`.
 - **Steering:** `updateMovement` from `enemies/movement.ts` with an `AiWorld` of our own. `footbound` and `probeAt = Infinity` keep it off the
   director, and `flowUntil` is cleared every frame, because the flow field leads to the player.
 - **Routes and cover:** the Outpost's `RouteFinder` and `CoverMap` when it runs, our own built once otherwise. Our bodies take uids from
@@ -78,7 +95,7 @@ bank, a roster on the HUD and the mode's economy. Allies have no lines.
 | An ally's rockets | Burst in `fire.ts`, never `combat.explode`: no self damage, no push, no hit marker |
 | An ally's kills pay nothing | `ALLY_SOURCE = /^ally_/`. `progression/index.ts` drops kills, hits, severs and wound points; `audio/reactions.ts` confirms nothing; the wound labels do not float (fact 10) |
 | The crosshair | `crosshair.ts` asks `ctx.allies.raycast` beside `enemies.raycast`: the nearer wins, nothing shows through a wall, and an enemy in front of an ally is red (`crosshairRead`). Green is the `friendly` class, `--friend` |
-| Nothing on the body is green | Pale pack frame, a whip aerial with a cold white beacon (amber while he is down), cyan helmet band and chest bar |
+| Nothing on the body is green | A black Bailiff with a red slit and a red stripe down the left sleeve; a grey pack frame with a thin red bar across its back, a whip aerial with a cold white beacon (amber while he is down). Our red stays small, so the red crosshair still means hostile: a red chest bar read as a red block at 25 m and is only on a stand-in body |
 
 ## How enemies fight them
 
@@ -154,11 +171,18 @@ Real Chrome, 1440x900 at dpr 2, Test Range, `contract=outpost`, on the shared ma
 
 ## On the minimap
 
-Every ally is a dot on the minimap in every mode that has them (`&allies=`, the fort): cyan, the helmet band's colour, round where
+Every ally is a dot on the minimap in every mode that has them (`&allies=`, the fort): cyan (`ALLY_TEXT`, the plan's question 8: the
+minimap keeps its ally colour, the bodies went black and red), round where
 enemies are square; amber and pulsing while down, like his beacon; gone once dead (he leaves `allies`). Only those inside the map are
 drawn. `ui/hud/minimap.ts` reads `ctx.allies.allies` directly.
 
 ## Rough
+
+- **By value, a Bailiff stands apart from the Trooper, Sniper, Rocketeer and Warden at 25 m, not from the Gunner, Brute and Riot**, who are
+  as dark (`tools/out/bureau/sheet-full.png`, chest values in grey 40 to 45 against 35 to 41 for those three). Against them it is the red
+  slit and stripe, the beacon and the aerial. Stage 2's colourful militia is the plan's answer.
+- **A man spawned before the Bailiffs load wears the enemy's body** for the rest of his life. Pages with allies preload; the campaign host
+  (Foreclosure's `roster` and `battle`) does not yet, so its first squad may stand in enemy bodies on a cold load.
 
 - **Nobody has played it.** Balance is bots and two fights. With the head rule a squad of eight beats seven enemies without a scratch.
 - **Swarm enemies ignore allies.** Husks and the swarm's guns only ever choose the player. The plan's `prey` behaviour is not built.

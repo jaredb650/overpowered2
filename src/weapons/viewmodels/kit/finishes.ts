@@ -31,8 +31,10 @@ export const F = {
   white: { color: 0xc7cbd0, rough: 0.5, metal: 0.05, wear: 0.9 },
   /** Fire-engine enamel on the Kiln's tanks. */
   enamelRed: { color: 0x7a1d17, rough: 0.28, metal: 0.1, wear: 1 },
-  /** Combat sleeve. */
-  fabric: { color: 0x3a4048, rough: 0.82, metal: 0, wear: 0, kind: Kind.fabric },
+  /** Combat sleeve: the Bureau's black (docs/proposals/mission-2-plan.md, section 4). */
+  fabric: { color: 0x17181b, rough: 0.84, metal: 0, wear: 0, kind: Kind.fabric },
+  /** The Bureau's red, for a stripe: small, never a coat. */
+  bureauRed: { color: 0xc4201a, rough: 0.38, metal: 0.05, wear: 0.4 },
   fabricDark: { color: 0x262a30, rough: 0.86, metal: 0, wear: 0, kind: Kind.fabric },
   /** Glove body, palm reinforcement. */
   leather: { color: 0x25272b, rough: 0.5, metal: 0, wear: 0.1, kind: Kind.leather },

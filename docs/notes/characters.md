@@ -57,22 +57,44 @@ The animator measures velocity from `root.position`, so feet stay planted howeve
 | `anim.setPosture(name)`, `anim.disarm()` | Soldier postures from `animation/postures.ts`: crouch, cover, lean, hands up, kneel, cower, flee, drag, revive, downed. `disarm` empties the hands until the pool resets the body |
 | `library.plainMaterial(id)` | The archetype's skin without the engine's light volume and shadows, for a scene the world renderer does not light. Made on request, freed by `unload` |
 | `library.unload(id)` | Frees an archetype: geometry, atlases, materials, pooled instances. Refuses, and returns false, while any body or limb is out |
+| `library.arm(char, kit, stance)` | Fits baked props to one body as if its archetype carried them (grip, shield, muzzle) and sets the stance (`anim.setStance`). Replaces what the last `arm` fitted. For one body worn with different kit, the Bailiffs. Load the props first with `prop(id)` |
 
 ### The contractor: the player's own body
 
 `contractor` is the player, seen from outside for the first time, for the main menu's background (`docs/notes/ui.md`). Builder in
-`tools/bake/archetypes/contractor.ts`. It follows the first-person kit so the two agree: grey-blue combat sleeve, armoured bracers with the
-wrist computer on the left (lit cold and dim, so it never reads as the cigar beside it), leather gloves, a slim plate carrier with a rubber
-half mask hung on its right shoulder strap. On the head, `helmetAndVisor`: a high-cut grey-blue shell with an orange stripe over the crown,
-a cold status light on a left rail box and a chin strap, and a smoked visor hinged at the temples, down over the eyes and the bridge of the
+`tools/bake/archetypes/contractor.ts`. It follows the first-person kit so the two agree, and since 2026-11-14 wears the Bureau's black,
+grey and red (`docs/proposals/mission-2-plan.md`, section 4): a near-black combat sleeve with a red stripe down the left arm, grey plates,
+armoured bracers with the wrist computer on the left (lit red and dim, so it never reads as the cigar beside it), leather gloves, a slim
+plate carrier with a rubber half mask hung on its right shoulder strap. On the head, `helmetAndVisor`: a high-cut grey shell with a red
+stripe over the crown, a red status light on a left rail box and a chin strap, and a smoked visor hinged at the temples, down over the eyes and the bridge of the
 nose. It stops above the upper lip, so the jaw, the stubble and the mouth stay free for the cigar. Under it is the bake's `humanHead` with
 a squarer jaw, a lip line and an earpiece. The visor is 14 mm thick: thinner, and the bake's 5 mm voxels break it into holes. Left hand
 baked in a grip, right hand open.
-Accent `#ff5a14`, the HUD's hot orange: warm colour belongs to the player. A `mouth` socket on the head is where the menu's cigar sits.
+Accent `#ff2a22`, the Bureau's red (the HUD keeps its orange). A `mouth` socket on the head is where the menu's cigar sits.
 
 It is marked `onRequest`, so `load()` with no list and `archetypes()` (which read `CAST`) leave it out: no run pays for it, and nothing
 spawns it as an enemy. Load it by name. `ARCHETYPES` still lists it, so the baker, `archetypeById` and `/?sandbox=models&archetype=contractor`
-see it. 13.8k triangles, 716 KB plus two atlases of 0.6 and 0.9 MB. It has a `STYLES` row but has never been walked by the animator.
+see it. 13.8k triangles, 725 KB plus two atlases of 0.5 and 0.9 MB. It has a `STYLES` row but has never been walked by the animator.
+The first-person arms match (`weapons/viewmodels`): `F.fabric` is near-black `#17181b` (the legs share it), the bracer's dorsal plate has a
+`F.bureauRed` stripe down its outer edge, and the wrist readout is red, amber below 30% health.
+
+### The Bailiffs: the player's allies
+
+`bailiff` and `bailiffHeavy` (`tools/bake/archetypes/bailiffs.ts`) are the Bureau's men, worn by every ally (`docs/notes/allies.md`), so
+our side never shares a body with theirs. Matte black suit, charcoal armour cut close, grey webbing straps, belt and pouches, a cloth hood
+over a smooth glossy black helmet whose front is one faceplate with a single red slit, and a red stripe down the left sleeve. The heavy is
+the same in plate: cuirass, pauldrons (the left one striped), thigh and shin plates, a gorget. Red is small and lit, never a coat, because
+red over a body is the crosshair's word for hostile. Accent `#ff2a22`. `bailiff` h(1.04, 0.92, 1.02), 13k triangles, 2.0 MB with atlases;
+`bailiffHeavy` h(1.08, 1.2, 1.02), 13.9k triangles, 2.2 MB. `STYLES` rows: a little lighter on the feet, and the heavy wider.
+
+- **Nothing is baked in their hands.** `library.arm` fits the gun per ally type at spawn (`ALLY_TYPES[type].wears`), with the stance to go
+  with it: an SMG, a shotgun, a sniper rifle, a launcher on the shoulder, a pistol, the minigun or a shield and pistol on the heavy.
+- **`onRequest`.** No run loads them; `AllySystem.preload` does, on pages with allies.
+- **The helmet is part of the body,** so it never comes off. **No partial heads:** a severe head wound bursts them (gore's `PARTIAL_HEADS`
+  is keyed by archetype and does not list them). Two baked stand-ins would be 2.9 MB more per body for something allies rarely show.
+- `soldiers.ts`'s `harness` shards at their neck (thin straps on a hood), so they take the contractor's capsule straps instead.
+- The identification sheet: `tools/scripts/bureau-sheet.mjs` (a Bailiff and a heavy either side of each human enemy type at 10, 25 and
+  50 m through the game's lens, and 25 m in grey).
 
 `SeveredLimb` follows the gore dummy's contract: `root` sits at identity in the scene, `bones[bone]` holds the world
 pose. Everything outside the chain is parented to that bone at near-zero scale, so skin blended into the parent closes

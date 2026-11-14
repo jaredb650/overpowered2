@@ -378,7 +378,12 @@ export class HumanoidAnimator implements CharacterAnimation {
     this.restQ = bones.map(() => new THREE.Quaternion());
   }
 
-  private readonly stance: ArchetypeDef['stance'];
+  private stance: ArchetypeDef['stance'];
+
+  /** How the weapon is held, for a body that carries different kit per wearer (`CharacterLibrary.arm`). */
+  setStance(stance: ArchetypeDef['stance']): void {
+    this.stance = stance;
+  }
 
   setGrip(grip: WeaponGrip | null): void {
     this.grip = grip;

@@ -2,6 +2,7 @@
  * Allies by type (docs/proposals/outpost-defense.md, piece 2). Every number an ally lives by is here: the body he wears, his
  * gun, how he holds a post, and the squad's rules. Plain data, so the Outpost Defense shop and the big mission can read it.
  */
+import type { ArchetypeDef } from '../characters/archetypes';
 import type { MuzzleKind, TracerKind } from '../core/contracts';
 import type { EnemyId } from '../core/gameplay';
 
@@ -38,10 +39,25 @@ export interface AllyGun {
   rocket?: { speed: number; radius: number; damage: number };
 }
 
+/** The Bureau's body a type wears (docs/proposals/mission-2-plan.md, section 4), and the kit `CharacterLibrary.arm` fits to it. */
+export interface AllyWears {
+  model: 'bailiff' | 'bailiffHeavy';
+  kit: readonly { model: string; socket: string }[];
+  stance: ArchetypeDef['stance'];
+}
+
+/** The two Bailiff bodies, loaded only by pages with allies (`AllySystem.preload`). */
+export const BAILIFF_BODIES = ['bailiff', 'bailiffHeavy'] as const;
+
 export interface AllyTypeDef {
   label: string;
-  /** The soldier body he wears: the same bodies, rigs and animation as the enemy. */
+  /**
+   * The enemy whose numbers his body uses (eye height, radius, voice, hit zones), and the body he wears, with that enemy's own gun,
+   * until the Bailiffs have loaded.
+   */
   body: EnemyId;
+  /** What he looks like: one of the Bailiffs' bodies, with his gun fitted. */
+  wears: AllyWears;
   hp: number;
   gun: AllyGun;
   stance: Stance;
@@ -67,39 +83,39 @@ const rifle: AllyGun = {
 };
 
 export const ALLY_TYPES: Record<AllyType, AllyTypeDef> = {
-  rifleman: { label: 'Rifleman', body: 'trooper', hp: 150, gun: rifle, stance: 'patrol', firesOnTheMove: true, near: 8, far: 30, height: 0.2, kneels: true },
+  rifleman: { label: 'Rifleman', body: 'trooper', wears: { model: 'bailiff', kit: [{ model: 'smg', socket: 'handR' }], stance: 'rifle' }, hp: 150, gun: rifle, stance: 'patrol', firesOnTheMove: true, near: 8, far: 30, height: 0.2, kneels: true },
   gunner: {
-    label: 'Machine gunner', body: 'brute', hp: 260, stance: 'hold', firesOnTheMove: false, near: 12, far: 40, height: 0.4, kneels: false,
+    label: 'Machine gunner', body: 'brute', wears: { model: 'bailiffHeavy', kit: [{ model: 'minigun', socket: 'handR' }], stance: 'heavy' }, hp: 260, stance: 'hold', firesOnTheMove: false, near: 12, far: 40, height: 0.4, kneels: false,
     gun: {
       ...rifle, source: 'ally_mg',
       damage: 9, burst: [10, 18], gap: 0.075, rest: [0.6, 1.1], spread: 0.03, range: 55, mag: 100, reload: 3.4, sound: 'enemy_smg', pitch: 0.82, muzzle: 'minigun', tracer: 'heavy' },
   },
   sniper: {
-    label: 'Sniper', body: 'sniper', hp: 120, stance: 'high', firesOnTheMove: false, near: 22, far: 60, height: 1, kneels: true,
+    label: 'Sniper', body: 'sniper', wears: { model: 'bailiff', kit: [{ model: 'sniperRifle', socket: 'handR' }], stance: 'rifle' }, hp: 120, stance: 'high', firesOnTheMove: false, near: 22, far: 60, height: 1, kneels: true,
     gun: {
       ...rifle, source: 'ally_sniper',
       damage: 70, burst: [1, 1], gap: 0.1, rest: [1.6, 2.4], spread: 0.004, range: 90, closeBad: 10, mag: 5, reload: 2.6, sound: 'sniper_fire', pitch: 1, muzzle: 'railgun', tracer: 'sabot' },
   },
   rocketeer: {
-    label: 'Rocketeer', body: 'rocketeer', hp: 140, stance: 'hold', firesOnTheMove: false, near: 14, far: 45, height: 0.3, kneels: true, antiArmour: true,
+    label: 'Rocketeer', body: 'rocketeer', wears: { model: 'bailiff', kit: [{ model: 'launcher', socket: 'handR' }], stance: 'shoulder' }, hp: 140, stance: 'hold', firesOnTheMove: false, near: 14, far: 45, height: 0.3, kneels: true, antiArmour: true,
     gun: {
       ...rifle, source: 'ally_rocket',
       damage: 0, burst: [1, 1], gap: 0.1, rest: [3, 4.2], spread: 0.012, range: 60, closeBad: 8, mag: 2, reload: 3.4, sound: 'enemy_rocket_fire', pitch: 1, muzzle: 'rocket', tracer: 'heavy', rocket: { speed: 38, radius: 5, damage: 120 } },
   },
   shotgunner: {
-    label: 'Shotgunner', body: 'gunner', hp: 170, stance: 'guard', firesOnTheMove: true, near: 2, far: 10, height: 0, kneels: false,
+    label: 'Shotgunner', body: 'gunner', wears: { model: 'bailiff', kit: [{ model: 'shotgun', socket: 'handR' }], stance: 'rifle' }, hp: 170, stance: 'guard', firesOnTheMove: true, near: 2, far: 10, height: 0, kneels: false,
     gun: {
       ...rifle, source: 'ally_shotgun',
       damage: 9, pellets: 8, cone: 0.06, burst: [1, 1], gap: 0.1, rest: [0.75, 1.1], spread: 0.01, range: 16, mag: 6, reload: 2.5, sound: 'enemy_shotgun', pitch: 1, muzzle: 'shotgun', tracer: 'pistol' },
   },
   riot: {
-    label: 'Riot police', body: 'riot', hp: 200, stance: 'line', firesOnTheMove: true, near: 2, far: 12, height: 0, kneels: false, shield: true,
+    label: 'Riot police', body: 'riot', wears: { model: 'bailiffHeavy', kit: [{ model: 'riotShield', socket: 'handL' }, { model: 'pistol', socket: 'handR' }], stance: 'shield' }, hp: 200, stance: 'line', firesOnTheMove: true, near: 2, far: 12, height: 0, kneels: false, shield: true,
     gun: {
       ...rifle, source: 'ally_pistol',
       damage: 10, burst: [2, 2], gap: 0.2, rest: [0.8, 1.3], spread: 0.03, range: 18, mag: 12, reload: 2, sound: 'enemy_pistol', pitch: 1, muzzle: 'pistol', tracer: 'pistol' },
   },
   medic: {
-    label: 'Medic', body: 'warden', hp: 140, stance: 'medic', firesOnTheMove: false, near: 10, far: 26, height: 0.2, kneels: true,
+    label: 'Medic', body: 'warden', wears: { model: 'bailiff', kit: [{ model: 'pistol', socket: 'handR' }], stance: 'pistol' }, hp: 140, stance: 'medic', firesOnTheMove: false, near: 10, far: 26, height: 0.2, kneels: true,
     medic: { stims: 3, seconds: 3.5, reach: 32 },
     gun: {
       ...rifle, source: 'ally_carbine',
@@ -163,8 +179,12 @@ export const ALLY = {
   treatReach: 1.4,
 } as const;
 
-/** Cold cyan, the HUD's friendly accent on the body (never green: green is the husk's and the Warthog's). The crosshair is green. */
+/** Cold cyan, the friendly colour on the HUD and the minimap (never green: green is the husk's and the Warthog's). The crosshair is green. */
 export const ALLY_COLOR = 0x39e0ff;
+/** The Bureau's red, on the kit: small and lit, never a coat, since red over a body is the crosshair's word for hostile. */
+export const ALLY_MARK = 0xff2a22;
+/** The pack frame's grey. */
+export const ALLY_FRAME = 0x4a4e55;
 export const ALLY_BEACON = 0xdfefff;
 export const ALLY_DOWN_COLOR = 0xffb030;
 export const ALLY_TEXT = '#39e0ff';

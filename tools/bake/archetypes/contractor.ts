@@ -1,9 +1,9 @@
 /**
  * The player: the Council's contractor, seen from outside for the first time. Built from the first-person kit so the
- * two agree: a grey-blue combat sleeve, armoured bracers with the wrist computer on the left, leather gloves, a slim
+ * two agree, in the Bureau's black, grey and red (docs/proposals/mission-2-plan.md, section 4): a near-black combat sleeve, armoured bracers with the wrist computer on the left, leather gloves, a slim
  * plate carrier. An open-faced helmet with a smoked visor down over the eyes, so he has no face to read but a jaw and a
- * mouth: the main menu shows him smoking, and a full mask could not. His accent is the HUD's orange: warm colour belongs
- * to whatever the player does; the helmet's one cold light matches the wrist computer.
+ * mouth: the main menu shows him smoking, and a full mask could not. His accent is the Bureau's red, small and lit: a
+ * stripe down the left sleeve and over the crown, and the helmet's status light, which matches the wrist computer.
  */
 import type { ArchetypeDef } from '../../../src/characters/archetypes';
 import type { Socket } from '../../../src/characters/format';
@@ -42,13 +42,13 @@ const eyes: Mat = { albedo: [0.06, 0.05, 0.05], rough: 0.15, detail: DETAIL_SKIN
 /** Smoked polycarbonate: near black, glossy, a little metal so the dusk sky slides across it. */
 const smoked: Mat = { albedo: [0.018, 0.024, 0.034], rough: 0.06, metal: 0.55, detail: 2 };
 
-/** The cold status light on the helmet, the wrist screen's colour. */
-const COLD: V3 = [0.22, 0.85, 1.0];
+/** The status light on the helmet, the wrist screen's colour: the Bureau's red. */
+const RED: V3 = [1.0, 0.16, 0.13];
 
 export function contractor(m: Model, sk: Sk, def: ArchetypeDef): Record<string, Socket> {
-  const sleeve = cloth(0x343b44, 0.35);
+  const sleeve = cloth(0x141518, 0.2);
   const web = cloth(0x1d1f23, 0.2);
-  const polymer = paintedMetal(0x40454c, 0.55, 0.5);
+  const polymer = paintedMetal(0x4a4e55, 0.55, 0.3);
   const carbon = paintedMetal(0x26282c, 0.36, 0.3);
   const accent = glow([def.accent[0], def.accent[1], def.accent[2]], 0.9);
   const P = headP(sk);
@@ -77,14 +77,14 @@ export function contractor(m: Model, sk: Sk, def: ArchetypeDef): Record<string, 
     kneePad(m, body, sk, s, carbon, 0.95);
     shinGuard(m, body, sk, s, polymer);
     bracer(m, body, sk, s, s > 0 ? carbon : polymer);
-    // A stripe of the accent down the outside of each sleeve.
+    // A stripe of the accent down the outside of the left sleeve, as the Bailiffs wear it.
     const { upper, fore } = sk.armBones(s);
-    m.paint(capsule(sk.on(upper, fore, 0.15, s * 0.055, 0, 0), sk.on(upper, fore, 0.6, s * 0.052, 0, 0), 0.008), { ...accent, emissive: 0.5 }, 0.001);
+    if (s > 0) m.paint(capsule(sk.on(upper, fore, 0.15, s * 0.055, 0, 0), sk.on(upper, fore, 0.6, s * 0.052, 0, 0), 0.008), { ...accent, emissive: 0.5 }, 0.001);
   }
-  // The wrist computer on the left bracer, the one the first-person arm reads from. Cold, so it never reads as the cigar.
+  // The wrist computer on the left bracer, the one the first-person arm reads from. Dim, so it never reads as the cigar.
   const wrist = sk.on(B.foreArmL, B.handL, 0.62, 0.035, 0.0, 0.0);
   m.add(rbox(wrist, [0.012, 0.032, 0.026], 0.005), darkSteel, B.foreArmL, { rigid: true });
-  m.add(rbox(add(wrist, [0.0125, 0, 0]), [0.002, 0.026, 0.02], 0.002), glow(COLD, 0.035), B.foreArmL, { rigid: true, detail: true });
+  m.add(rbox(add(wrist, [0.0125, 0, 0]), [0.002, 0.026, 0.02], 0.002), glow(RED, 0.035), B.foreArmL, { rigid: true, detail: true });
   // Holster on the right thigh, knife on the left.
   m.add(rbox(sk.on(B.thighR, B.shinR, 0.3, -0.088, 0, 0.01), [0.018, 0.08, 0.036], 0.012), web, B.thighR, { rigid: true });
   m.add(rbox(sk.on(B.thighR, B.shinR, 0.18, -0.1, 0.03, 0.02), [0.016, 0.03, 0.03], 0.008), carbon, B.thighR, { rigid: true });
@@ -121,10 +121,10 @@ export function contractor(m: Model, sk: Sk, def: ArchetypeDef): Record<string, 
 }
 
 /**
- * A high-cut shell in the suit's grey-blue, cut away over the ears and open from the brow down, with a smoked visor
+ * A high-cut shell in the plates' grey, cut away over the ears and open from the brow down, with a smoked visor
  * hinged at the temples and dropped over the eyes and the bridge of the nose. It stops above the upper lip, so the mouth
- * and jaw stay free for the cigar. A chin strap holds it on, an orange stripe runs back over the crown, and a small rail
- * box on the left carries the cold status light.
+ * and jaw stay free for the cigar. A chin strap holds it on, a red stripe runs back over the crown, and a small rail
+ * box on the left carries the red status light.
  */
 function helmetAndVisor(m: Model, sk: Sk, shellMat: Mat, trim: Mat, accent: Mat): void {
   const P = headP(sk);
@@ -140,7 +140,7 @@ function helmetAndVisor(m: Model, sk: Sk, shellMat: Mat, trim: Mat, accent: Mat)
   const cuts = union(below, ears, brow);
   m.paint(cut(offset(cuts, 0.009), cuts), trim, 0.002);
   groove(m, shell, lineH(hy + 0.17, -0.14, 0.14, hz, 0.0016, 0.2));
-  // The orange stripe: back over the crown, offset to his left of the centre line.
+  // The red stripe: back over the crown, offset to his left of the centre line.
   m.paint(rbox(P(0.03, 0.2, -0.02), [0.006, 0.06, 0.16], 0.002), { ...accent, emissive: 0.12, rough: 0.5 }, 0.0015);
   // A brow guard the visor tucks under.
   const guard = inter(ellipsoid(P(0, 0.112, 0.0), [0.112, 0.112, 0.136]), rbox(P(0, 0.138, 0.1), [0.11, 0.009, 0.07], 0.004), 0.003);
@@ -161,7 +161,7 @@ function helmetAndVisor(m: Model, sk: Sk, shellMat: Mat, trim: Mat, accent: Mat)
   // Side rails, and on the left a small box with the cold light.
   for (const s of BOTH) m.add(rbox(P(s * 0.104, 0.112, -0.04), [0.008, 0.01, 0.05], 0.003), trim, B.head, { rigid: true });
   m.add(rbox(P(0.112, 0.112, -0.05), [0.008, 0.014, 0.02], 0.003), darkSteel, B.head, { rigid: true });
-  m.add(rbox(P(0.12, 0.114, -0.044), [0.0015, 0.004, 0.006], 0.001), glow(COLD, 0.8), B.head, { rigid: true, detail: true });
+  m.add(rbox(P(0.12, 0.114, -0.044), [0.0015, 0.004, 0.006], 0.001), glow(RED, 0.8), B.head, { rigid: true, detail: true });
   // Chin strap: from behind each ear, round under the jaw, clear of the mouth.
   for (const s of BOTH) {
     const pts = spline([P(s * 0.094, 0.08, -0.03), P(s * 0.084, 0.03, -0.012), P(s * 0.066, -0.014, 0.024), P(s * 0.03, -0.042, 0.052), P(0, -0.046, 0.058)], 14);

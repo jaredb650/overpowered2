@@ -1081,10 +1081,11 @@ export class Rig implements ViewmodelRig {
     const { g, canvas, texture } = s;
     const w = canvas.width;
     const h = canvas.height;
-    g.fillStyle = '#04090c';
+    g.fillStyle = '#0c0606';
     g.fillRect(0, 0, w, h);
+    // The Bureau's red; amber when he is low, as a downed ally's beacon turns.
     const low = hp / mx < 0.3;
-    const hue = low ? '#ff3a2a' : '#35e8ff';
+    const hue = low ? '#ffb030' : '#ff3a2a';
     g.fillStyle = hue;
     g.font = '700 46px "Courier New", monospace';
     g.textBaseline = 'top';
@@ -1092,7 +1093,7 @@ export class Rig implements ViewmodelRig {
     g.font = '700 18px "Courier New", monospace';
     g.fillText('VIT', 112, 12);
     g.fillRect(8, 58, (w - 16) * clamp(hp / mx), 9);
-    g.fillStyle = '#7fa4b4';
+    g.fillStyle = '#9a9ea6';
     g.fillRect(8, 72, (w - 16) * clamp(ar / 100), 5);
     g.font = '700 22px "Courier New", monospace';
     g.fillText(`${String(Math.round(this.a.speed)).padStart(2, '0')} M/S`, 8, 88);

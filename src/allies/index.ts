@@ -9,13 +9,13 @@
  *   orders.ts  the E key
  *   props.ts   the pack, the beacon and the bands that say "ours"
  *
- * They wear the enemy's soldier bodies and walk on the enemy's steering (`updateMovement`), routes and cover map, and take hits
+ * They wear the Bureau's own bodies, the Bailiffs (`body`), and walk on the enemy's steering (`updateMovement`), routes and cover map, and take hits
  * through the wound system's zones and `Injuries`. They are not in `enemies.alive`, so `Combat` never sees them: the player's
  * rounds and blasts pass through (fact 11), and a line through one gets a green spark and CHECK FIRE. Enemy soldiers turn on
  * them through `Soldier.foe` (src/enemies/outpost/weapons.ts).
  */
 import * as THREE from 'three';
-import { CG, type Ctx, type DamageInfo, type DamageType, type GameSystem, type Structure } from '../core/contracts';
+import { CG, type CharacterInstance, type Ctx, type DamageInfo, type DamageType, type GameSystem, type Structure } from '../core/contracts';
 import type { EnemyInstance } from '../core/gameplay';
 import type { GoreRegion } from '../characters/rig';
 import { clamp, damp, dampAngle, rand, randInt, TAU } from '../core/math';
@@ -35,7 +35,7 @@ import { WoundTuning, ZONES } from '../enemies/wounds/rules';
 import { resolveZone, type ZoneHit } from '../enemies/wounds/zones';
 import type { PostureName } from '../characters/animation/postures';
 import { Ally, type AllyMount, type Order } from './ally';
-import { ALLY, ALLY_DOWN_COLOR, ALLY_ORDER, ALLY_TEXT, ALLY_TYPES, CHECK_FIRE_TEXT, type AllyType } from './data';
+import { ALLY, ALLY_DOWN_COLOR, ALLY_ORDER, ALLY_TEXT, ALLY_TYPES, BAILIFF_BODIES, CHECK_FIRE_TEXT, type AllyType, type AllyWears } from './data';
 import './events';
 import { AllyGuns } from './fire';
 import { AllyLab } from './lab';
@@ -51,6 +51,14 @@ declare module '../core/contracts' {
     /** Friendly soldiers. Optional: a stand-in context may not have them. */
     allies?: AllySystem;
   }
+}
+
+/** The character library's calls past the shared contract. */
+interface Armory {
+  load(ids: string[]): Promise<void>;
+  prop(id: string): Promise<unknown>;
+  spawn(id: string): CharacterInstance;
+  arm(char: CharacterInstance, kit: AllyWears['kit'], stance: AllyWears['stance']): void;
 }
 
 /** Ally bodies take uids from here, so a cover spot they claim never reads as an enemy's. */
@@ -110,6 +118,10 @@ export class AllySystem implements GameSystem {
    */
   keyTaken: (() => boolean) | null = null;
 
+  /** True once the Bailiffs' bodies have loaded, or failed to: from then on `body` hands out what it will hand out for good. */
+  ready = false;
+  private bailiffs = false;
+  private loading: Promise<void> | null = null;
   /** Cleared when handed out, not when given back: whoever still holds a dead man reads him as dead. */
   private readonly pool = new Pool<Ally>(() => new Ally());
   private readonly sense = new PlayerSense();
@@ -210,6 +222,43 @@ export class AllySystem implements GameSystem {
   // Spawning and orders
   // -------------------------------------------------------------------------------------------
 
+  /**
+   * Loads the Bailiffs' bodies and the guns fitted to them. Only pages with allies pay for them, so those pages call this early (the
+   * fort, `&allies=`); the first `body` asked for starts it otherwise.
+   */
+  preload(): Promise<void> {
+    return this.loading ??= (async () => {
+      const lib = this.ctx.characters as unknown as Armory;
+      try {
+        await lib.load([...BAILIFF_BODIES]);
+        await Promise.all([...new Set(ALLY_ORDER.flatMap(t => ALLY_TYPES[t].wears.kit.map(k => k.model)))].map(id => lib.prop(id)));
+        this.bailiffs = true;
+      } catch (err) {
+        console.warn('[allies] the Bailiffs did not load; allies wear the enemy bodies', err);
+      }
+      this.ready = true;
+    })();
+  }
+
+  /**
+   * A body for a man of this type with our kit on it: a Bailiff with his gun once they have loaded, the enemy body he stands in for
+   * (with its own gun) until then. The caller adds it to the scene, and strips the kit (`props.strip`) before releasing it.
+   */
+  body(type: AllyType): CharacterInstance {
+    const def = ALLY_TYPES[type];
+    const lib = this.ctx.characters as unknown as Armory;
+    let char: CharacterInstance;
+    if (this.bailiffs) {
+      char = lib.spawn(def.wears.model);
+      lib.arm(char, def.wears.kit, def.wears.stance);
+    } else {
+      void this.preload();
+      char = lib.spawn(def.body);
+    }
+    this.props.fit(char);
+    return char;
+  }
+
   /** One man at `at`, holding a post there (or at `post`) of `radius`. Null past the cap or off the map. */
   spawn(type: AllyType, at: THREE.Vector3, post?: THREE.Vector3, radius: number = ALLY.postRadius, yaw = Number.NaN): Ally | null {
     if (this.allies.length >= ALLY.maxAlive || !this.prepare()) return null;
@@ -219,7 +268,7 @@ export class AllySystem implements GameSystem {
     a.clear();
     const e = a.body;
     e.reset();
-    const char = ctx.characters.spawn(def.body);
+    const char = this.body(type);
     e.uid = ++this.uid;
     e.id = def.body;
     e.def = ENEMIES[def.body];
@@ -237,7 +286,6 @@ export class AllySystem implements GameSystem {
     e.shield = def.shield === true;
     e.yaw = Number.isNaN(yaw) ? ctx.player.yaw + Math.PI : yaw;
     ctx.render.scene.add(char.root);
-    this.props.fit(char);
     a.type = type;
     a.def = def;
     a.maxHealth = a.health = def.hp;

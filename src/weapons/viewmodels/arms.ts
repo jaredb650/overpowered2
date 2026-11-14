@@ -326,6 +326,9 @@ function bracer(m: Mesher): void {
   lay(0.13, 0.0505, -0.1, () => {
     m.top(poly([[-0.022, 0.058], [0.022, 0.058], [0.026, 0.004], [0.019, -0.012], [-0.019, -0.012], [-0.026, 0.004]], 0.004), 0.0022, { bevel: 0.0008 });
   });
+  // The Bureau's red stripe down the outer edge of the plate, as the Bailiffs wear it down the sleeve.
+  m.use(F.bureauRed);
+  lay(0.13, 0.0505, -0.1, () => m.top(rect(0.0262, -0.05, 0.0302, 0.066, 0.0012), 0.0026, { bevel: 0.0006 }));
   // Worn on the inside of the wrist, the way soldiers wear watches: with the left hand cradling a handguard the
   // palm side is what faces the shooter.
   if (m.skinSide < 0) {

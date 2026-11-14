@@ -37,5 +37,7 @@ export const STYLES: Record<string, MoveStyle> = {
   warden: { ...base, hunch: 0.04, gazeLift: 0.4, crouch: 0.98, stance: 0.85, cadence: 0.8, bounce: 0.4 },
   juggernaut: { ...base, hunch: 0.3, crouch: 0.94, stance: 1.5, armsOut: 0.8, cadence: 0.96, bounce: 1.1, armLift: 0.14 },
   contractor: { ...base, hunch: 0.08, crouch: 0.95 },
+  bailiff: { ...base, hunch: 0.1, crouch: 0.93, cadence: 1.04, bounce: 0.85 },
+  bailiffHeavy: { ...base, hunch: 0.15, crouch: 0.93, stance: 1.2, cadence: 0.92, armsOut: 0.35 },
   titan: { ...base, hunch: 0.24, crouch: 0.96, stance: 1.5, armsOut: 0.75, cadence: 0.98, bounce: 1.05, armLift: 0.3 },
 };

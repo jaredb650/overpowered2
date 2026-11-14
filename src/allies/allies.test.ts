@@ -7,7 +7,8 @@ import * as THREE from 'three';
 import type { Ctx } from '../core/contracts';
 import { ENEMIES } from '../enemies/data';
 import { Ally } from './ally';
-import { ALLY, ALLY_SOURCE, ALLY_TYPES } from './data';
+import manifest from '../../public/assets/characters/manifest.json';
+import { ALLY, ALLY_ORDER, ALLY_SOURCE, ALLY_TYPES, BAILIFF_BODIES } from './data';
 import { AllyGuns } from './fire';
 import { AllySystem } from './index';
 import { Orders, type OrderHost } from './orders';
@@ -409,5 +410,18 @@ describe('mounted guns', () => {
     a.order = 'follow';
     expect(sys.manGun(a, 0)).toBe(false);
     expect(gun.occupy).not.toHaveBeenCalled();
+  });
+});
+
+describe('the Bailiffs', () => {
+  it('every type wears a baked Bailiff body with a baked gun in his right hand', () => {
+    const baked = manifest.models as Record<string, { kind: string }>;
+    for (const t of ALLY_ORDER) {
+      const w = ALLY_TYPES[t].wears;
+      expect(BAILIFF_BODIES).toContain(w.model);
+      expect(baked[w.model]?.kind).toBe('character');
+      expect(w.kit.some(k => k.socket === 'handR')).toBe(true);
+      for (const k of w.kit) expect(baked[k.model]?.kind, `${t}: ${k.model}`).toBe('prop');
+    }
   });
 });

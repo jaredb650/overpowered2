@@ -197,6 +197,8 @@ export class Defense {
     });
     this.repair.init();
     if (this.ctx.allies) this.ctx.allies.keyTaken = () => this.repair.piece !== null;
+    // The garrison and the shopkeepers wear the Bailiffs: load them while the player picks a loadout.
+    void this.ctx.allies?.preload();
     this.build();
     if (DEV_TOOLS) this.debug();
   }

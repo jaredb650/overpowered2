@@ -177,7 +177,7 @@
   },
   "contractor": {
    "file": "contractor.bin",
-   "bytes": 742592,
+   "bytes": 742640,
    "triangles": 13766,
    "kind": "character"
   },
@@ -252,6 +252,18 @@
    "bytes": 215192,
    "triangles": 6964,
    "kind": "prop"
+  },
+  "bailiff": {
+   "file": "bailiff.bin",
+   "bytes": 697532,
+   "triangles": 12970,
+   "kind": "character"
+  },
+  "bailiffHeavy": {
+   "file": "bailiffHeavy.bin",
+   "bytes": 756016,
+   "triangles": 13938,
+   "kind": "character"
   }
  }
 }

@@ -31,13 +31,15 @@ export class AllyLab {
     const squad = Number(params.get('allies') ?? 0);
     const foes = Number(params.get('foes') ?? 0);
     const breach = params.get('breach') === '1';
+    // The Bailiffs' bodies load first, so the squad does not stand in enemy bodies.
+    const bodies = squad > 0 ? this.allies.preload() : Promise.resolve();
     this.ctx.events.on('run:start', () => {
       // After every system's reset, and after the player is stood at the spawn.
-      setTimeout(() => {
+      void bodies.then(() => setTimeout(() => {
         if (squad > 0) this.squad(squad);
         if (foes > 0) this.foes(foes);
         if (breach) this.breachAhead();
-      }, 0);
+      }, 0));
       setTimeout(() => this.panel(), 300);
     });
   }

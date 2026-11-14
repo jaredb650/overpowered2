@@ -1,7 +1,7 @@
 /** Loads baked models and pools skinned instances per archetype, all sharing geometry. */
 import * as THREE from 'three';
 import type { CharacterInstance, CharacterLibrary, Ctx } from '../core/contracts';
-import { CAST, archetypeById, rigFor } from './archetypes';
+import { CAST, archetypeById, rigFor, type ArchetypeDef } from './archetypes';
 import { Character, SeveredPart, type ArchetypeData } from './Character';
 import { buildInterior } from './anatomy/build';
 import { createInteriorMaterial } from './anatomy/interior';
@@ -246,38 +246,63 @@ export class CharacterLibraryImpl implements CharacterLibrary {
 
   /** Mounts the archetype's baked props and tells the animator how they are held. */
   private fitProps(e: Entry, c: Character): void {
-    const sockets = e.model.meta.sockets;
-    for (const p of e.def.props) {
-      const sock = sockets[p.socket];
-      const loaded = this.propCache.get(p.model);
-      if (!sock || !loaded) continue;
-      const mesh = this.makeProp(p.model, p.model)!;
-      mesh.position.set(sock.pos[0], sock.pos[1], sock.pos[2]);
-      mesh.quaternion.set(sock.rot[0], sock.rot[1], sock.rot[2], sock.rot[3]);
-      c.attachProp(sock.bone, mesh);
-      const scale = e.def.proportions.scale;
-      const muzzle = loaded.model.meta.sockets.muzzle;
-      if (muzzle && !c.muzzle) {
-        c.muzzle = new THREE.Object3D();
-        c.muzzle.position.set(muzzle.pos[0], muzzle.pos[1], muzzle.pos[2]);
-        mesh.add(c.muzzle);
-      }
-      if (e.def.rig !== 'humanoid') continue;
-      const anim = c.anim as unknown as HumanoidAnimator;
-      if (p.socket === 'handR' && e.def.stance !== 'blades') {
-        const fg = loaded.model.meta.sockets.foregrip;
-        anim.setGrip({
-          socketPos: new THREE.Vector3(sock.pos[0], sock.pos[1], sock.pos[2]),
-          socketRot: new THREE.Quaternion(sock.rot[0], sock.rot[1], sock.rot[2], sock.rot[3]),
-          foregrip: fg ? new THREE.Vector3(fg.pos[0], fg.pos[1], fg.pos[2]).multiplyScalar(scale) : null,
-        });
-        mesh.scale.setScalar(scale);
-      } else if (p.socket === 'handL' && e.def.stance === 'shield') {
-        anim.setShield(new THREE.Quaternion(sock.rot[0], sock.rot[1], sock.rot[2], sock.rot[3]));
-        mesh.scale.setScalar(scale);
-      } else {
-        mesh.scale.setScalar(scale);
-      }
+    for (const p of e.def.props) this.mount(e, c, p, e.def.stance, false);
+  }
+
+  /**
+   * Fits baked props to a body for as long as it is out, as if its archetype carried them, and sets how they are held: for one
+   * body that carries different kit per wearer (the allies' Bailiffs). Whatever the last `arm` fitted is replaced. Load the props
+   * first (`prop(id)`). Humanoids only.
+   */
+  arm(char: CharacterInstance, kit: readonly { model: string; socket: string }[], stance: ArchetypeDef['stance']): void {
+    const c = char as Character;
+    const e = this.entries.get(c.archetype);
+    if (!e || e.def.rig !== 'humanoid') return;
+    const anim = c.anim as unknown as HumanoidAnimator;
+    for (let i = c.props.length - 1; i >= 0; i--) {
+      const p = c.props[i]!;
+      if (!p.object.userData.armed) continue;
+      p.object.removeFromParent();
+      c.props.splice(i, 1);
+    }
+    c.muzzle = null;
+    anim.setGrip(null);
+    anim.setShield(null);
+    anim.setStance(stance);
+    for (const p of kit) this.mount(e, c, p, stance, true);
+  }
+
+  private mount(e: Entry, c: Character, p: { model: string; socket: string }, stance: ArchetypeDef['stance'], armed: boolean): void {
+    const sock = e.model.meta.sockets[p.socket];
+    const loaded = this.propCache.get(p.model);
+    if (!sock || !loaded) return;
+    const mesh = this.makeProp(p.model, p.model)!;
+    mesh.position.set(sock.pos[0], sock.pos[1], sock.pos[2]);
+    mesh.quaternion.set(sock.rot[0], sock.rot[1], sock.rot[2], sock.rot[3]);
+    if (armed) mesh.userData.armed = true;
+    c.attachProp(sock.bone, mesh);
+    const scale = e.def.proportions.scale;
+    const muzzle = loaded.model.meta.sockets.muzzle;
+    if (muzzle && !c.muzzle) {
+      c.muzzle = new THREE.Object3D();
+      c.muzzle.position.set(muzzle.pos[0], muzzle.pos[1], muzzle.pos[2]);
+      mesh.add(c.muzzle);
+    }
+    if (e.def.rig !== 'humanoid') return;
+    const anim = c.anim as unknown as HumanoidAnimator;
+    if (p.socket === 'handR' && stance !== 'blades') {
+      const fg = loaded.model.meta.sockets.foregrip;
+      anim.setGrip({
+        socketPos: new THREE.Vector3(sock.pos[0], sock.pos[1], sock.pos[2]),
+        socketRot: new THREE.Quaternion(sock.rot[0], sock.rot[1], sock.rot[2], sock.rot[3]),
+        foregrip: fg ? new THREE.Vector3(fg.pos[0], fg.pos[1], fg.pos[2]).multiplyScalar(scale) : null,
+      });
+      mesh.scale.setScalar(scale);
+    } else if (p.socket === 'handL' && stance === 'shield') {
+      anim.setShield(new THREE.Quaternion(sock.rot[0], sock.rot[1], sock.rot[2], sock.rot[3]));
+      mesh.scale.setScalar(scale);
+    } else {
+      mesh.scale.setScalar(scale);
     }
   }
 

@@ -50,7 +50,11 @@ export const ARCHETYPES: readonly ArchetypeDef[] = [
   def('juggernaut', 'Juggernaut', h(1.72, 1.62, 1.14), 0xff4a10, 22000, 'heavy', 0.92),
   { ...def('titan', 'Titan', h(3.8, 1.4, 1.18), 0xff5a1e, 30000, 'heavy', 1), stumps: 'machine' },
   // The player, for the main menu's background. Nothing fights it, so it is never loaded with the cast.
-  { ...def('contractor', 'Contractor', h(1, 1.04, 1), 0xff5a14, 14000, 'unarmed', 0.3), onRequest: true },
+  { ...def('contractor', 'Contractor', h(1, 1.04, 1), 0xff2a22, 14000, 'unarmed', 0.3), onRequest: true },
+  // The Bureau's own, the player's allies (tools/bake/archetypes/bailiffs.ts). No gun is baked: allies/props.ts fits one per type,
+  // and sets the stance to go with it. Loaded only by pages with allies.
+  { ...def('bailiff', 'Bailiff', h(1.04, 0.92, 1.02), 0xff2a22, 13000, 'rifle', 0.2), onRequest: true },
+  { ...def('bailiffHeavy', 'Bailiff (heavy)', h(1.08, 1.2, 1.02), 0xff2a22, 14000, 'heavy', 0.5), onRequest: true },
   {
     id: 'skitter', name: 'Skitter', rig: 'skitter', proportions: h(1, 1, 1), accent: hex(0xff2030), tris: 6000,
     props: [], stumps: 'machine', weight: 0, stance: 'unarmed',
