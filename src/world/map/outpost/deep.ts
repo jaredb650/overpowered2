@@ -95,7 +95,8 @@ function gallery(s: Site): void {
   s.mass('concreteDark', farEnd, floor - 1, KITCHEN_STAIR.south, farEnd + 1, ceil, south, 0.5, 2);
   // Decks stand on the trench floor, so their ends are its walls.
   s.mass('concreteDark', nearEnd, trench - 1, north, nearLip, floor, south, 0.74, 1.6);
-  s.mass('concreteDark', farLip, trench - 1, north, farEnd, floor, south, 0.74, 1.6);
+  // The far deck's end is "no climb": a jump and a climb out of the trench would skip the wall run.
+  s.k.noClimb(() => s.mass('concreteDark', farLip, trench - 1, north, farEnd, floor, south, 0.74, 1.6));
   s.mass('concreteDark', nearLip, trench - 1, north, farLip, trench, south, 0.5, 2);
   // The ceiling's underside, where the far platform and the kitchen stand over it.
   g.use('concreteDark').tint(0.4).slab(0, ceil + 0.002, (north + south) / 2, farEnd, 0.001, (south - north) / 2, 2, FACE.ny);

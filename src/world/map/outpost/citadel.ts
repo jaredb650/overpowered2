@@ -28,9 +28,10 @@ function slabs(s: Site): void {
   const stair: Rect = rect(KITCHEN_STAIR.foot, KITCHEN_STAIR.north, KITCHEN_STAIR.top, KITCHEN_STAIR.south);
   for (const r of carveAll(rect(14, -80, 58, -70), [stair])) s.solid(r.x0, -2, r.z0, r.x1, 0, r.z1);
   // Far platform: solid to the pit floor west of the gallery, and the gallery's own ceiling over its near deck.
-  s.solid(-58, pit - 1, -80, GALLERY_STAIR.top, 0, farLip);
+  // No climb on its face to the pit: a jump and a climb out of the pit would skip the dash.
+  s.k.noClimb(() => s.solid(-58, pit - 1, -80, GALLERY_STAIR.top, 0, farLip));
   s.solid(GALLERY_STAIR.top, -2, -80, -14, 0, GALLERY_STAIR.north);
-  s.solid(GALLERY_STAIR.top, pit - 1, GALLERY_STAIR.south, -14, 0, farLip);
+  s.k.noClimb(() => s.solid(GALLERY_STAIR.top, pit - 1, GALLERY_STAIR.south, -14, 0, farLip));
   s.solid(platform.x0, pit - 1, platform.z0, platform.x1, 0, -41);
   s.solid(x0, pit - 1, farLip, x1, pit, COOLANT.south);
 }

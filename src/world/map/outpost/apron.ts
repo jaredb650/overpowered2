@@ -286,7 +286,8 @@ function wreck(s: Site): void {
   const k = s.k, g = k.geo;
   const { x0, z0, x1, z1, deck } = WRECK;
   const mx = (x0 + x1) / 2, mz = (z0 + z1) / 2;
-  s.solid(x0, 0, z0, x1, deck, z1, 'metal');
+  // No climb: a jump and a climb up the hull would make the double jump optional.
+  k.noClimb(() => s.solid(x0, 0, z0, x1, deck, z1, 'metal'));
   s.plan.blocks.push({ x0, z0, x1, z1 });
   g.use('steelDark').tint(0.34, 0.32, 0.32).slab(mx, deck / 2, mz, (x1 - x0) / 2 - 0.01, deck / 2, (z1 - z0) / 2 - 0.01, 2, FACE.px | FACE.nx | FACE.pz | FACE.nz);
   // Hull plates, burned from the engine end forward.

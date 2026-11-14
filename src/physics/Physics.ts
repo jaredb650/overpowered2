@@ -42,6 +42,7 @@ export class Physics implements PhysicsSystem {
   stepMs = 0;
 
   private surfaces = new Map<number, SurfaceKind>();
+  private noClimb = new Set<number>();
   private accumulator = 0;
   private ray!: RAPIER.Ray;
   private capsules = new Map<string, RAPIER.Capsule>();
@@ -167,6 +168,14 @@ export class Physics implements PhysicsSystem {
 
   surfaceOf(collider: RAPIER.Collider): SurfaceKind {
     return this.surfaces.get(collider.handle) ?? 'concrete';
+  }
+
+  markNoClimb(collider: RAPIER.Collider): void {
+    this.noClimb.add(collider.handle);
+  }
+
+  climbable(collider: RAPIER.Collider | null): boolean {
+    return !collider || !this.noClimb.has(collider.handle);
   }
 
   /** Call after creating static geometry so queries see it before the first step. */

@@ -26,8 +26,8 @@ const SECOND_JUMP_FRAMES = 15;
 /** Lanes run north along -z from a lip at z = 0, each with its own x. */
 const LANE = { mantle: 0, double: 40, dash: 80, wall: 120, slide: 160 } as const;
 
-function box(ph: PhysicsSystem, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number): void {
-  ph.addStaticBox(V((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2), V((x1 - x0) / 2, (y1 - y0) / 2, (z1 - z0) / 2), null, 'concrete');
+function box(ph: PhysicsSystem, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number) {
+  return ph.addStaticBox(V((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2), V((x1 - x0) / 2, (y1 - y0) / 2, (z1 - z0) / 2), null, 'concrete');
 }
 
 function deck(ph: PhysicsSystem, x: number): void {
@@ -40,7 +40,9 @@ function build(ph: PhysicsSystem): void {
   // A wall to climb, straight off the run-up.
   for (const [x, ledge] of [[LANE.mantle, PARKOUR.mantle.ledge], [LANE.double, PARKOUR.doubleJump.ledge]] as const) {
     deck(ph, x);
-    box(ph, x - HALF_WIDTH, -2, -14, x + HALF_WIDTH, ledge, 0);
+    const wall = box(ph, x - HALF_WIDTH, -2, -14, x + HALF_WIDTH, ledge, 0);
+    // The wreck's hull is "no climb" on the map, as here: one jump and a climb would reach the deck.
+    if (x === LANE.double) ph.markNoClimb(wall);
   }
 
   // An open gap.

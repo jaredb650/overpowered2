@@ -1365,7 +1365,8 @@ export class Player implements PlayerSystem {
 
   /**
    * A jump at a wall, looking straight at it with W held. Along the wall is a wall run; at it is a climb. The same wall
-   * cannot be climbed twice before landing, so a chimney is climbed by going from one wall to the other.
+   * cannot be climbed twice before landing, so a chimney is climbed by going from one wall to the other. A map can mark a
+   * collider "no climb" (`Kit.noClimb`), where the climb never starts and a jump at it only mantles if it reaches the ledge.
    */
   private canClimb(n: THREE.Vector3): boolean {
     if (this.grounded || this.slamming || this.fwd <= 0 || this.slideHeld || this.airTime < T.climbMinAir) return false;
@@ -1373,7 +1374,7 @@ export class Player implements PlayerSystem {
     const nl = Math.hypot(n.x, n.z);
     // The view, not the keys: the look is (-sin yaw, -cos yaw), and into the wall is -n.
     const facing = (Math.sin(this.simYaw) * n.x + Math.cos(this.simYaw) * n.z) / nl;
-    return facing >= T.climbFacing && !this.sameWall(n);
+    return facing >= T.climbFacing && !this.sameWall(n) && this.ctx.physics.climbable(this.hit.collider);
   }
 
   private startClimb(n: THREE.Vector3): void {

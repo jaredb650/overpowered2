@@ -103,7 +103,8 @@ along the wall, keys steering 9 to 53 degrees into it, and `wallRunAhead` meters
 `wallKickMinInto` toward the wall, so a press beside a wall stays a double jump. Mantling only happens in the air, so the
 player must jump to climb. The old beside-the-velocity wall scan is gone: a wall run starts from real contact. A wall climb
 needs all of: `climbMinAir` off the ground, W held, the view within about 30 degrees of straight at the wall (`climbFacing`),
-not falling faster than `climbMinVy`, not crouching or slamming, and a wall not already climbed since the last landing. A big
+not falling faster than `climbMinVy`, not crouching or slamming, a wall not already climbed since the last landing, and a
+collider the map has not marked "no climb" (`kit.noClimb`, `physics.markNoClimb`: see `world.md`). A big
 slam needs `bigSlamHeight` of real fall under the slam.
 
 **The double jump comes back only on the ground.** Landing gives it back, and so do a mantle and a vault, which end on their

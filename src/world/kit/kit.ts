@@ -71,6 +71,8 @@ export class Kit {
   readonly lights: BakedLight[] = [];
   readonly rng = mulberry32(0xc0ffee);
   colliders = 0;
+  /** While set, every collider made is "no climb". Set it with `noClimb`. */
+  private climbless = false;
 
   constructor(readonly physics: PhysicsSystem) {}
 
@@ -96,6 +98,17 @@ export class Kit {
 
   // ---- collision ---------------------------------------------------------------------------------------------
 
+  /** Every collider `fn` makes, by any builder, refuses the player's wall climb: for a face a level needs out of one jump's reach. */
+  noClimb(fn: () => void): void {
+    const was = this.climbless;
+    this.climbless = true;
+    try {
+      fn();
+    } finally {
+      this.climbless = was;
+    }
+  }
+
   /** Box collider in the current frame. `vox` false keeps it out of AO and light occlusion (gratings). */
   collide(cx: number, cy: number, cz: number, hx: number, hy: number, hz: number, surface: SurfaceKind = 'concrete', vox = true): void {
     const m = this.geo.m;
@@ -106,19 +119,19 @@ export class Kit {
     );
     _h.set(hx, hy, hz);
     const identity = m[0] === 1 && m[5] === 1 && m[10] === 1;
-    if (identity) {
-      this.physics.addStaticBox(_c, _h, null, surface);
-    } else {
+    if (!identity) {
       _m.set(m[0]!, m[1]!, m[2]!, 0, m[4]!, m[5]!, m[6]!, 0, m[8]!, m[9]!, m[10]!, 0, 0, 0, 0, 1);
       _q.setFromRotationMatrix(_m);
-      this.physics.addStaticBox(_c, _h, _q, surface);
     }
+    const c = this.physics.addStaticBox(_c, _h, identity ? null : _q, surface);
+    if (this.climbless) this.physics.markNoClimb(c);
     this.colliders++;
     if (vox) this.vox.fillBox(m, cx, cy, cz, hx, hy, hz);
   }
 
   collideMesh(vertices: Float32Array, indices: Uint32Array, surface: SurfaceKind, vox = true): void {
-    this.physics.addStaticMesh(vertices, indices, surface);
+    const c = this.physics.addStaticMesh(vertices, indices, surface);
+    if (this.climbless) this.physics.markNoClimb(c);
     this.colliders++;
     if (vox) this.vox.fillTriangles(vertices, indices);
   }

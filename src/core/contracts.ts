@@ -217,6 +217,10 @@ export interface PhysicsSystem extends GameSystem {
   addStaticMesh(vertices: Float32Array, indices: Uint32Array, surface: SurfaceKind): RAPIER.Collider;
   /** Surface kind stored on a collider. */
   surfaceOf(collider: RAPIER.Collider): SurfaceKind;
+  /** Marks a static collider "no climb": the player's wall climb will not start on it. Wall runs and mantles still do. */
+  markNoClimb(collider: RAPIER.Collider): void;
+  /** False for a collider marked "no climb". */
+  climbable(collider: RAPIER.Collider | null): boolean;
   /** Applies a radial impulse to every dynamic body in range (ragdolls, gibs, debris). */
   radialImpulse(center: THREE.Vector3, radius: number, strength: number): void;
   /** Run before every sub-step with the timestep. Ragdoll joint limits live here. */

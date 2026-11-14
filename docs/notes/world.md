@@ -9,6 +9,11 @@ Then call `world.update()` once per frame in the world slot, and `world.reset()`
 The default is `crucible`, the swarm game. The Kill House is the map of The Outpost contract, picked from the menu. `selectMap()` takes
 the map from `ACTIVE` in `contracts/select.ts`: `docs/notes/contracts.md` has the URL rules. Add `&map=killhouse` to any sandbox that builds a world.
 
+**"No climb" surfaces.** Wrap any builder calls in `kit.noClimb(() => ...)` and every collider they make refuses the player's
+wall climb (`physics.markNoClimb(collider)` does it for one collider made outside the kit; `physics.climbable(collider)` reads it).
+A jump at such a face still mantles if the ledge is in a jump's reach, and wall runs and kicks off it still work. Use it on a face
+a lesson needs out of one jump's reach, since one jump plus a climb reaches a ledge about 5.5 m up (`docs/notes/player.md`).
+
 # Walls, gates and shacks
 
 Piece 4 of `docs/proposals/outpost-defense.md`. Reusable pieces any map places; the fort map will be built from them. Files:
@@ -232,6 +237,7 @@ Why it is built the way it is:
 - **Scripted doors take their holes from `DOORS`.** The door's collider comes from `campaign/doors.ts`. The map leaves the hole, with its head and jambs, and nav is sampled before any door exists, so every doorway is on the graph and `routes.setClosed` shuts it for walkers.
 - **`Site.barrier` stops a player and nothing else.** It is `CG.Barrier`: on the player's mask only, off every ray, and it touches no body. The men on the south wall fire out over a line the player must not cross, which an ordinary invisible wall would stop. Bullets, rockets, nav and light all pass.
 - **Everything over a gap hangs below the lip or has no collider.** The bridge stumps are steel you cannot stand on. The wreck is one box, with the wing and fin off it and no collider on them, because anything against the hull is a leg up that kills the lesson.
+- **"No climb" where a climb would skip a lesson.** The wreck's hull (`apron.ts`), the pit's far wall (`citadel.ts`) and the trench's far deck end (`deep.ts`) are built inside `kit.noClimb`: one jump and a wall climb would reach all three.
 - **The gallery's north wall is one box with no skin.** It is what gets run on. Its light is inside its face.
 - **The deck is the whole run-up.** The stairs arrive side-on at the lip end, so a strafe has 13 m and not 23.
 - **Nav joins two floors two cells apart, whatever stands between them.** `nav.ts` makes drop links with no wall test. A thin wall with a lower floor behind it gets one, which is why the near deck has a bank of cabinets along its south wall. Do not take them out without running the walk.
