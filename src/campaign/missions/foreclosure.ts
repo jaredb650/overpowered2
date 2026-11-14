@@ -182,6 +182,8 @@ const BEATS: readonly Beat[] = [
     start: [
       squadOf(5, 'square'),
       { do: 'callins', held: true },
+      // Said again so a jump straight here has it. A restart has it anyway: objectives are saved with the checkpoint.
+      { do: 'objective', id: 'smoke', text: 'Reach the smoke', at: 'slip' },
       { do: 'rack', weapon: 'sabot', at: 'craneCab', optional: true },
       { do: 'squad', tag: 'stacks', men: ['sniper', 'sniper', 'trooper', 'rocketeer'], at: 'stacks', orders: 'hold' },
       { do: 'vehicle', tag: 'grandad', kind: 'tank', at: 'quayRoad' },
