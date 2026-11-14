@@ -860,6 +860,25 @@ export interface HazardState {
 
 export type ReactorState = 'stable' | 'unstable' | 'critical';
 
+/** How far a wall has worn. Gates and shacks skip `damaged`: a gate is shut or blown, a shack standing or flat. */
+export type StructureStage = 'intact' | 'damaged' | 'breached';
+
+/** A wall segment, gate or shack that blasts wear down and repairs put back. src/world/structures.ts builds them. */
+export interface Structure {
+  readonly id: number;
+  readonly kind: 'wall' | 'gate' | 'shack';
+  readonly stage: StructureStage;
+  /** Health left in this stage, and what the stage starts with. Zero once breached. */
+  readonly health: number;
+  readonly maxHealth: number;
+  /** 0..1 through a repair, or -1 when none is under way. Any damage stops it. */
+  readonly repairing: number;
+  /** Takes it up one stage over `seconds` (or tops up a chipped one). False when it is already whole or under repair. */
+  repair(seconds?: number): boolean;
+  /** Called on every change of stage, by damage or repair. Returns the unsubscribe. */
+  onStageChange(fn: (stage: StructureStage, from: StructureStage) => void): () => void;
+}
+
 /**
  * Jump pads, launch ramps, hazards and the player are handled by the world itself. Enemies and the combat system
  * use this interface: they poll hazards and pads, and they report damage to explosives. Explosives never apply
@@ -880,6 +899,8 @@ export interface WorldObjects {
   platformVelocity(position: THREE.Vector3, out: THREE.Vector3): boolean;
   /** Reactor mood: stable cyan, unstable flicker, critical warm. For bosses and the last stand. */
   setReactorState(state: ReactorState): void;
+  /** Walls, gates and shacks, in the order the map placed them. Blasts wear them through `damageExplosivesInRadius`. */
+  readonly structures?: readonly Structure[];
 }
 
 // ---------------------------------------------------------------------------------------------

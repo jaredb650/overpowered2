@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import type { MapZone, SpawnPoint } from '../../core/contracts';
 import type { EmplacementSpec } from '../../vehicles/emplacement';
 import type { DesignatedLink } from '../nav';
+import { SHACK, WALL, type StructureSpec } from '../structures';
 import { LEVEL } from './layout';
 
 export interface PadSpec {
@@ -114,6 +115,8 @@ export class MapSpec {
   spawns: SpawnPoint[] | null = null;
   /** Mounted guns, built by the call-in manager on the first run: see src/vehicles/emplacement.ts. */
   readonly emplacements: EmplacementSpec[] = [];
+  /** Walls, gates and shacks that blasts wear down: see src/world/structures.ts. */
+  readonly structures: StructureSpec[] = [];
 
   zone(id: string, name: string, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number): void {
     this.zones.push({ id, name, bounds: new THREE.Box3(new THREE.Vector3(x0, y0, z0), new THREE.Vector3(x1, y1, z1)) });
@@ -158,6 +161,32 @@ export class MapSpec {
   /** A mounted gun with its tripod's foot here, facing `yaw` (a camera's: 0 looks down -Z), swinging `arc` either way. */
   emplacement(x: number, y: number, z: number, yaw: number, arc = 1, level = 1): void {
     this.emplacements.push({ pos: new THREE.Vector3(x, y, z), yaw, arc, level });
+  }
+
+  /**
+   * A straight wall standing on `y` from pillar centre (ax, az) to pillar centre (bx, bz), cut into segments about
+   * WALL.segment long with a pillar at every joint. Runs that share an end share its pillar, so a `wallGate` drops in between two.
+   */
+  wall(ax: number, az: number, bx: number, bz: number, y = 0): void {
+    const n = Math.max(1, Math.round(Math.hypot(bx - ax, bz - az) / WALL.segment));
+    for (let i = 0; i < n; i++) {
+      this.segment('wall', ax + ((bx - ax) * i) / n, az + ((bz - az) * i) / n, ax + ((bx - ax) * (i + 1)) / n, az + ((bz - az) * (i + 1)) / n, y);
+    }
+  }
+
+  /** A steel gate between two pillar centres, in a wall. Shut or blown, nothing between. (`gate` is an enemy entrance.) */
+  wallGate(ax: number, az: number, bx: number, bz: number, y = 0): void {
+    this.segment('gate', ax, az, bx, bz, y);
+  }
+
+  /** A plank or sheet-metal hut, SHACK.width along `yaw` (the kit's: 0 runs along +X) and SHACK.depth across, door on its +Z side. */
+  shack(x: number, z: number, yaw = 0, look: 'planks' | 'sheet' = 'planks', y = 0): void {
+    this.structures.push({ kind: 'shack', x, y, z, yaw, length: SHACK.width, look });
+  }
+
+  private segment(kind: 'wall' | 'gate', ax: number, az: number, bx: number, bz: number, y: number): void {
+    const length = Math.hypot(bx - ax, bz - az);
+    this.structures.push({ kind, x: (ax + bx) / 2, y, z: (az + bz) / 2, yaw: Math.atan2(-(bz - az), bx - ax), length });
   }
 
   view(name: string, px: number, py: number, pz: number, lx: number, ly: number, lz: number): void {

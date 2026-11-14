@@ -36,6 +36,8 @@ export interface NavGrid {
   readonly nx: number;
   readonly nz: number;
   readonly colStart: Int32Array;
+  /** Nodes a wall, gate or shack stands on since the sample (NavGraph.setBlocked). Not floor while above zero. */
+  readonly blocked?: Uint8Array;
   locate(p: THREE.Vector3, ring?: number): number;
 }
 
@@ -251,7 +253,7 @@ export class RouteFinder {
       const gu = g[u]!;
       for (let l = start[u]!, end = start[u + 1]!; l < end; l++) {
         const v = links[l]!;
-        if (this.closed[v]) continue;
+        if (this.closed[v] || nav.blocked?.[v]) continue;
         let step = cost[l]!;
         if (avoid && avoid.exposed(px[v]!, pz[v]!)) step *= EXPOSED_COST;
         const gv = gu + step;
@@ -316,7 +318,7 @@ export class RouteFinder {
     if (cx < 0 || cz < 0 || cx >= nav.nx || cz >= nav.nz) return false;
     const c = cz * nav.nx + cx;
     for (let i = nav.colStart[c]!, end = nav.colStart[c + 1]!; i < end; i++) {
-      if (Math.abs(nav.py[i]! - y) < SLOPE_STEP) return this.closed[i] === 0;
+      if (Math.abs(nav.py[i]! - y) < SLOPE_STEP) return this.closed[i] === 0 && !nav.blocked?.[i];
     }
     return false;
   }

@@ -9,6 +9,8 @@ import type { Enemy } from '../enemies/Enemy';
 import type { EnemyManager } from '../enemies/EnemyManager';
 import { VEHICLES } from '../enemies/vehicles';
 import type { CallInManager } from '../progression/callins/manager';
+import type { Objects } from '../world/objects';
+import { WALL } from '../world/structures';
 import type { AiMode } from './settings';
 
 const REACH = 40;
@@ -241,6 +243,13 @@ export class LabSpawner {
       return;
     }
     guns.place({ pos: _at.clone(), yaw: Math.atan2(-player.forward.x, -player.forward.z), arc: 1 });
+  }
+
+  /** A wall segment across the crosshair, its face to the player. Blasts wear it like any on the map. */
+  wall(): void {
+    const f = this.ctx.player.forward;
+    this.aimPoint(0.6, _at);
+    (this.ctx.world.objects as Objects).walls.place({ kind: 'wall', x: _at.x, y: _at.y, z: _at.z, yaw: Math.atan2(-f.x, -f.z), length: WALL.segment });
   }
 
   killAll(): void {

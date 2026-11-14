@@ -71,6 +71,12 @@ export class NavGraph implements NavQuery {
   slopeX = new Float32Array(0);
   slopeZ = new Float32Array(0);
   clearance = new Uint8Array(0);
+  /**
+   * How many things stand on each node since the sample: walls, gates and shacks go up after it, so the floor under them is
+   * on the graph and a breach only has to clear the count. A blocked node is no floor and no step for the flow field,
+   * `locate`, `groundHeight` and RouteFinder.
+   */
+  blocked = new Uint8Array(0);
   nodeCount = 0;
 
   private linkStart = new Int32Array(1);
@@ -107,6 +113,8 @@ export class NavGraph implements NavQuery {
   private hasTarget = false;
   private levels: readonly number[] | null = null;
   private dirty = false;
+  /** A blocker changed: the next full pass also forgets every node it could not reach, so none keeps a way through. */
+  private forget = false;
   /** Node expansions per frame. */
   budget = 4500;
 
@@ -363,6 +371,7 @@ export class NavGraph implements NavQuery {
     await onProgress(0.9);
     this.computeClearance();
 
+    this.blocked = new Uint8Array(n1);
     this.dist = new Int32Array(n1).fill(INF);
     this.next = new Int32Array(n1).fill(-1);
     this.nextKind = new Uint8Array(n1);
@@ -422,6 +431,7 @@ export class NavGraph implements NavQuery {
     const py = this.py;
     let best = -1, bestD = 1e9;
     for (let i = s; i < e; i++) {
+      if (this.blocked[i]) continue;
       const d = py[i]! - y;
       // Prefer the floor under the feet to a ceiling just overhead.
       const cost = d > 0.9 ? d * 3 : -d;
@@ -449,6 +459,33 @@ export class NavGraph implements NavQuery {
       if (best >= 0 && bestD < r + 2) break;
     }
     return best;
+  }
+
+  /**
+   * Adds or takes away one blocker on every node at floor height `y` inside a box centred on (x, z) whose length runs along
+   * the unit (ux, uz). The next flow pass is a full one, so nothing keeps following a pointer through the change.
+   */
+  setBlocked(x: number, z: number, y: number, ux: number, uz: number, halfLength: number, halfDepth: number, on: boolean): void {
+    const reach = Math.ceil(Math.hypot(halfLength, halfDepth)) + 1;
+    const cx = Math.floor(x - this.minX), cz = Math.floor(z - this.minZ);
+    for (let iz = cz - reach; iz <= cz + reach; iz++) {
+      for (let ix = cx - reach; ix <= cx + reach; ix++) {
+        if (ix < 0 || iz < 0 || ix >= this.nx || iz >= this.nz) continue;
+        const c = iz * this.nx + ix;
+        for (let i = this.colStart[c]!; i < this.colStart[c + 1]!; i++) {
+          const dx = this.px[i]! - x, dz = this.pz[i]! - z;
+          if (Math.abs(dx * ux + dz * uz) > halfLength || Math.abs(dz * ux - dx * uz) > halfDepth || Math.abs(this.py[i]! - y) > 1) continue;
+          if (on) {
+            this.blocked[i]!++;
+            this.dist[i] = INF;
+            this.next[i] = -1;
+          } else if (this.blocked[i]! > 0) this.blocked[i]!--;
+        }
+      }
+    }
+    this.passCount = FULL_EVERY * Math.ceil(this.passCount / FULL_EVERY + 1) - 1;
+    this.dirty = this.hasTarget;
+    this.forget = true;
   }
 
   // ---- flow field --------------------------------------------------------------------------------------------
@@ -493,7 +530,14 @@ export class NavGraph implements NavQuery {
     let cursor = this.cursor;
     let spent = 0;
     while (spent < budget) {
-      if (this.queued === 0) { this.running = false; break; }
+      if (this.queued === 0) {
+        this.running = false;
+        if (this.forget && this.passLimit === INF) {
+          this.forget = false;
+          for (let i = 0; i < this.nodeCount; i++) if (doneStamp[i] !== pass) { this.dist[i] = INF; this.next[i] = -1; }
+        }
+        break;
+      }
       const bi = cursor & (BUCKETS - 1);
       const e = heads[bi]!;
       if (e < 0) { cursor++; continue; }
@@ -511,7 +555,7 @@ export class NavGraph implements NavQuery {
       spent++;
       for (let r = inStart[u]!, end = inStart[u + 1]!; r < end; r++) {
         const v = inFrom[r]!;
-        if (doneStamp[v] === pass) continue;
+        if (doneStamp[v] === pass || this.blocked[v]) continue;
         const d = du + inCost[r]!;
         if (stamp[v] !== pass || d < tent[v]!) {
           stamp[v] = pass;
@@ -554,7 +598,8 @@ export class NavGraph implements NavQuery {
     // A few hops ahead smooths the 8-way grid into natural headings.
     for (let i = 0; i < 4; i++) {
       const v = next[cur]!;
-      if (v < 0) break;
+      // A wall that went up since the last pass: stop short of it until the next pass routes round.
+      if (v < 0 || this.blocked[v]) break;
       if (nextKind[cur] !== LINK_WALK) {
         if (cur === n) cur = v;
         break;
@@ -611,7 +656,7 @@ export class NavGraph implements NavQuery {
     const c = iz * this.nx + ix;
     let best = -1;
     for (let i = this.colStart[c]!, e = this.colStart[c + 1]!; i < e; i++) {
-      if (this.py[i]! <= y + 0.5) best = i;
+      if (this.py[i]! <= y + 0.5 && !this.blocked[i]) best = i;
     }
     if (best >= 0) {
       return this.py[best]! + this.slopeX[best]! * (x - this.px[best]!) + this.slopeZ[best]! * (z - this.pz[best]!);

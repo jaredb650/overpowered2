@@ -6,9 +6,10 @@
 import * as THREE from 'three';
 import type RAPIER from '@dimforge/rapier3d-compat';
 import { clamp, lerp, smoothstep, TAU } from '../core/math';
-import type { Ctx, HazardKind, HazardState, ReactorState, WorldObjects } from '../core/contracts';
+import type { Ctx, HazardKind, HazardState, ReactorState, Structure, WorldObjects } from '../core/contracts';
 import { FACE, Geo, type Mat } from './kit/geo';
 import type { Kit } from './kit/kit';
+import { Structures } from './structures';
 import { ballistic, type CrusherSpec, type ElectricSpec, type GantrySpec, type LaunchRampSpec, type MapSpec, type PadSpec, type ReactorSpec } from './map/spec';
 
 const PLAYER_GRAVITY = 28;
@@ -132,6 +133,8 @@ export class Objects implements WorldObjects {
   private reactor: { u: { uTime: { value: number }; uHeat: { value: number }; uPulse: { value: number } }; gyroA: THREE.Group; gyroB: THREE.Group } | null = null;
   private playerReal = false;
   private hazardTick = 0;
+  /** Walls, gates and shacks. They go up after the nav sample: World calls `walls.attach`. */
+  readonly walls: Structures;
 
   constructor(private readonly ctx: Ctx, spec: MapSpec, private readonly kit: Kit, private readonly material: (m: Mat) => THREE.Material) {
     this.root.name = 'world-objects';
@@ -143,6 +146,12 @@ export class Objects implements WorldObjects {
     this.buildElectric(spec);
     this.buildGantries(spec);
     if (spec.reactor) this.buildReactor(spec.reactor);
+    this.walls = new Structures(ctx, spec.structures, material);
+    this.root.add(this.walls.root);
+  }
+
+  get structures(): readonly Structure[] {
+    return this.walls.all;
   }
 
   // ---- jump pads ---------------------------------------------------------------------------------------------
@@ -324,12 +333,16 @@ export class Objects implements WorldObjects {
   damageExplosive(collider: RAPIER.Collider | null, amount: number, source: string): boolean {
     if (!collider) return false;
     const e = this.byCollider.get(collider.handle);
-    if (!e) return false;
+    if (!e) {
+      this.walls.hit(collider, amount);
+      return false;
+    }
     this.hurt(e, amount, source);
     return true;
   }
 
   damageExplosivesInRadius(center: THREE.Vector3, radius: number, amount: number, source: string): void {
+    this.walls.blast(center, radius, amount, source);
     for (const e of this.explosives) {
       if (!e.alive) continue;
       const d = e.pos.distanceTo(center);
@@ -358,6 +371,8 @@ export class Objects implements WorldObjects {
       camera.addTrauma(clamp(1 - d / (spec.radius * 4)) * (barrel ? 0.5 : 0.9));
     }
     events.emit('world:explosion', { position: c, radius: spec.radius, damage: spec.damage, kind: e.kind, source });
+    // Combat skips the world for a blast the world set off, so a barrel against a wall wears it here.
+    this.walls.blast(c, spec.radius, spec.damage, source);
 
     // Neighbours go a beat later, so a row of barrels ripples instead of popping at once.
     const now = this.ctx.time.elapsed;
@@ -716,6 +731,7 @@ export class Objects implements WorldObjects {
     this.tickElectric(elapsed);
     this.tickGantries(elapsed, dt);
     this.tickReactor(dt, elapsed);
+    this.walls.update(dt);
     if (this.playerReal && this.ctx.player.alive) {
       this.triggerPads();
       this.triggerRamps(dt);
@@ -731,5 +747,6 @@ export class Objects implements WorldObjects {
     }
     this.setReactorState('stable');
     this.reactorHeat = 0;
+    this.walls.reset();
   }
 }

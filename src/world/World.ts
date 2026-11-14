@@ -138,6 +138,7 @@ export class World implements WorldSystem {
     this.report.navLinks = stats.links;
     this.report.navRemoved = stats.removed;
     this.report.navMs = Math.round(stats.ms);
+    this.objects.walls.attach(this.navGraph);
 
     this.zones = spec.zones;
     this.playerSpawns = spec.playerSpawns;

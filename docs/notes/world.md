@@ -9,6 +9,89 @@ Then call `world.update()` once per frame in the world slot, and `world.reset()`
 The default is `crucible`, the swarm game. The Kill House is the map of The Outpost contract, picked from the menu. `selectMap()` takes
 the map from `ACTIVE` in `contracts/select.ts`: `docs/notes/contracts.md` has the URL rules. Add `&map=killhouse` to any sandbox that builds a world.
 
+# Walls, gates and shacks
+
+Piece 4 of `docs/proposals/outpost-defense.md`. Reusable pieces any map places; the fort map will be built from them. Files:
+`src/world/structures.ts` (everything), the builders in `src/world/map/spec.ts`, tests in `src/world/structures.test.ts`.
+Try them on the Test Range (`/?map=range`): a run of four segments with a gate, from (-26, 0) to (-6, 0), and a plank and a sheet
+shack outside it at (-10, -9) and (-22, -14). `spec.view('walls')` looks at it. The lab's `Wall segment` button puts one more across
+the crosshair.
+
+```ts
+spec.wall(-26, 0, -18, 0);      // pillar centre to pillar centre: cut into segments about 4 m long, a pillar at every joint
+spec.wallGate(-18, 0, -14, 0);  // a steel gate between two pillars. Runs that share an end share the pillar
+spec.wall(-14, 0, -6, 0);       // optional last argument: the floor y, so a ring can stand on a terrace
+spec.shack(-10, -9, 0.3, 'planks');   // or 'sheet'. 3.2 x 2.6 m, 2.3 m tall, door on its +Z side
+```
+
+A wall is 3 m tall and 0.5 m thick on 0.8 m pillars. `WALL.catwalk` (1.7 m) is the deck height for a walkway behind it: a standing
+eye clears the top by about 0.3 m. The fort map builds the catwalk itself.
+
+| Kind | Stages | Collision |
+|---|---|---|
+| Wall segment | intact (300), damaged (300), breached | Intact: one slab. Damaged: two loopholes at chest height you can shoot through, the top bitten down to 2.45 to 2.75 m, still no way through. Breached: stubs at each end and 0.22 m of rubble, a 2.5 m gap a body walks through |
+| Gate | intact (400), breached | A 0.2 m steel leaf, then nothing: the leaf lies flat beside the gap, for show |
+| Shack | intact (120), breached | One solid box (the boards are skin), then 0.22 m of rubble |
+
+**What wears them.** Every blast goes through `Combat.blast`, which calls `world.objects.damageExplosivesInRadius`, so rockets,
+grenades, tank shells, autocannon rounds, call-ins, enemy RPGs and bombers all reach them without any change in the weapons. A
+barrel or tank going off wears them from `Objects.detonate`, because Combat skips the world for a blast the world set off. Each piece
+takes the blast's damage scaled from 1 at its nearest point down to 0.4 at the edge of the radius. A tank shell (`tank_cannon`)
+counts 4 times. Damage a stage cannot take carries into the next, so a big enough blast goes straight through. Small arms, melee and
+flame reach the world through `damageExplosive`. That does nothing to walls and gates, and chips a shack at a quarter of the
+damage; blasts count 1.5 times on a shack. Roughly: a player rocket against a wall face is a third of a stage, two enemy tank shells
+take a stage, one rocket flattens a shack, five open a gate. Every stage change plays dust, chips and smoke, with
+`concrete_crumble` and `explosion_debris` for a wall, `metal_groan` and `metal_clang` for a gate, `impact_metal` for a shack.
+No new sound ids.
+
+**Nav.** Pieces go up after the nav sample (`World.build` calls `objects.walls.attach(navGraph)`), so the floor under each one is on
+the graph. `NavGraph.setBlocked` counts blockers per node in an oriented box: the flow field does not step onto a blocked node,
+`locate` skips it, and `groundHeight` falls back to the physics ray there, which reports the wall, so a crowd pressing on it stops.
+`RouteFinder` reads the same `blocked` array, so soldiers' and allies' routes close and open with it. A piece blocks a cell either
+side of its line until it is breached; pillars stay blocked. Any change makes the next flow pass a full one, and that pass forgets
+the nodes it could not reach, so nothing keeps a way through a wall that has just been repaired. This is cheaper than a nav link
+per breach, and it works for a breach anywhere along a run.
+
+**Repairs** (for the later shop). `ctx.world.objects.structures` lists every piece as a `Structure` (contracts.ts):
+
+```ts
+const piece = ctx.world.objects.structures![i]!;
+piece.stage;            // 'intact' | 'damaged' | 'breached'
+piece.health; piece.maxHealth;   // this stage's
+piece.repair(4);        // up one stage over 4 s, or a chipped intact one topped up. False if whole or already under way
+piece.repairing;        // 0..1, or -1
+const off = piece.onStageChange((stage, from) => { /* riot police to the breach, a HUD marker */ });
+```
+
+Any damage stops a repair. The last moment of a repair out of a breach waits until nobody (player or enemy) stands in the gap.
+`world.reset()` puts everything back up whole.
+
+## Proving it
+
+```
+nice npx vitest run src/world/structures.test.ts --testTimeout=60000
+node tools/shot.mjs --url "/?map=range" --script tools/scripts/walls-live.mjs --wait 500 --timeout 240 --dpr 2 --w 1440 --h 900 --out tools/out/walls/x.png
+```
+
+The tests run real Rapier and a real nav graph: thresholds and carry-over, falloff and the tank multiplier, small arms against each
+kind, rays and capsules through every stage, the flow field and RouteFinder across a wall that only the gate or a breach crosses,
+opening on a breach and closing on repair, and repairs with listeners, interruption and an occupied gap. The live script wears a
+segment with real blasts to damaged and breached, sends a husk through the breach (it walks the gap at x -19, not round the run's
+end), flattens the plank shack with one rocket, blows the gate with five and repairs a breach. 0 console errors, 115 draw calls on
+the range.
+
+## Known limitations
+
+- **Bullet holes and scorch marks stay where a wall was.** Decals have no clear-by-box, so they hang in the air over a breach.
+- **Enemies have no collider.** One crowded into the band beside a stub can clip its edge by about 0.15 m. A repair waits for the gap
+  to clear, but only checks the player and enemies, not ragdolls or allies.
+- **Rubble is low enough to walk over but not exactly under the feet.** Enemies walk at the nav floor (0), 0.22 m into the rubble.
+- **The minimap does not show pieces.** It is charted from the nav graph before they go up.
+- **Blasts do not care which side they hit,** and do not need a line to the piece. A rocket in the yard wears the wall behind a shack.
+- **One mesh per stage, not a gradual wear.** Within a stage the look does not change as health falls.
+- **No ramps or jump pads over a damaged wall yet.** That is the engineers' job, in the wave director piece.
+- **Tuning is a guess.** Health and the tank multiplier have not been played against real waves.
+
 # The Kill House
 
 A roofless concrete shoot house in a walled yard, 71 x 71 m inside the perimeter. Files: `src/world/map/killhouse/`.

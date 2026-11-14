@@ -121,4 +121,11 @@ export function authorRange(_k: Kit, spec: MapSpec): void {
   // Two mounted guns in front of the spawn, facing down the field.
   spec.emplacement(-5, 0, 10, 0, 1);
   spec.emplacement(5, 0, 10, 0, 1);
+  // A wall run with a gate in it, off to the left so the guns keep their lane, and two shacks outside it.
+  spec.wall(-26, 0, -18, 0);
+  spec.wallGate(-18, 0, -14, 0);
+  spec.wall(-14, 0, -6, 0);
+  spec.shack(-10, -9, 0.3, 'planks');
+  spec.shack(-22, -14, -0.2, 'sheet');
+  spec.view('walls', -12, 4, 9, -16, 1.2, -3);
 }

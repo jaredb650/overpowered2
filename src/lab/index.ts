@@ -69,6 +69,7 @@ export class Lab {
       spawn: n => this.spawn(n),
       vehicle: kind => this.spawner.vehicle(kind, this.settings.ai),
       emplacement: () => this.spawner.emplacement(),
+      wall: () => this.spawner.wall(),
       killAll: () => this.spawner.killAll(),
       clearBodies: () => this.spawner.clearBodies(),
       grant: id => ctx.progression.grant(id),

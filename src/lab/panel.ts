@@ -62,6 +62,8 @@ export interface PanelActions {
   vehicle(kind: VehicleKind): void;
   /** A mounted gun at the crosshair, or the next level for the one already there. */
   emplacement(): void;
+  /** A destructible wall segment across the crosshair. */
+  wall(): void;
   killAll(): void;
   clearBodies(): void;
   grant(id: PerkId | PowerupId): void;
@@ -201,6 +203,7 @@ export class LabPanel {
     }
     const clear = el('div', 'lab-row');
     this.button(clear, 'Mounted gun', () => this.on.emplacement());
+    this.button(clear, 'Wall segment', () => this.on.wall());
     this.button(clear, 'Kill all', () => this.on.killAll());
     this.button(clear, 'Clear bodies', () => this.on.clearBodies());
     this.el.append(grid, modes, go, size, clear);

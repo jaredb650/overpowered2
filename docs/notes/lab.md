@@ -23,7 +23,7 @@ On a dev server page that did not ask for it (no `?dev=1`, not the range) the la
 | O | Spawn the selected type at the crosshair |
 | K, L | Kill all. Clear corpses, limbs, chunks, blood and plates |
 
-The panel's `Mounted gun` button places a mounted gun under the crosshair, or levels up the one there; the range has two in front of the spawn. See `vehicles.md`.
+The panel's `Mounted gun` button places a mounted gun under the crosshair, or levels up the one there; the range has two in front of the spawn. See `vehicles.md`. `Wall segment` beside it puts a destructible wall segment across the crosshair, its face to the player; the range has a run with a gate and two shacks at its left. See `world.md`.
 
 **Movement.** Four boxes: move animations (`?moveanim=0`), their camera part (`?movecam=0`), legs in a slide and a vault (`?legs=0`), and vaulting cover with no key from a run (`?vault=auto`). They write the same switches as the URL flags and reset with the page. Two more are URL only: `?vault=0` (a jump at cover is a jump again) and `?movefix=0` (the thin-ledge grab, the wall-run seam grace and the jump off the top of a climb, all back to how they were). On the range, "Parkour strip" stands the player at the start of a course down the west wall with every move in order, a yellow line before each: vault thin cover, slide under a bar, vault a deep crate, wall run and kick across a 3.8 m corridor, mantle a 2 m block, walk off its far edge, climb the 3 m deck, slam back down. `src/lab/parkour.ts`, driven by `tools/scripts/parkour-live.mjs`.
 

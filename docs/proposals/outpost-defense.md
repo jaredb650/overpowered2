@@ -1,7 +1,7 @@
 # Plan: Outpost Defense, an Endless Humans map
 
 Status: plan, not scheduled. Written 2026-11-14 from the owner's notes; the owner answered the first round of questions
-the same day. Pieces 1 (stims), 2 (allies, partly: see `docs/notes/allies.md`, Rough) and 3 (mounted guns) are built; nothing else is. Open details are marked **Q** with the default the build would use.
+the same day. Pieces 1 (stims), 2 (allies, partly: see `docs/notes/allies.md`, Rough), 3 (mounted guns) and 4 (walls, gates and shacks) are built; nothing else is. Open details are marked **Q** with the default the build would use.
 
 ## Why this, and why in this order
 
@@ -113,7 +113,7 @@ Each is useful on its own; the mode comes last. Sizes are rough.
 | 1 | **Stims** replacing health pickups everywhere: inventory of 5, injection animation, the vulnerable second, HUD. **Built**: `progression/stims.ts`, notes in `docs/notes/progression.md` under Stims | Every mode gets it | Medium | Opus, medium |
 | 2 | **Allied soldiers** (built, partly: `src/allies/`, `docs/notes/allies.md`; enemies other than human squads ignore them, and nobody has played them): friendly squad AI built from the enemy soldier code, hold an area by type, follow on E, revive with a stim, a friendly crosshair, no friendly fire (the hive plan's question 1 default) | The big mission's core piece | Large | Opus, high |
 | 3 | **Mounted guns** (built: `src/vehicles/emplacement.ts`, `docs/notes/vehicles.md`): wall emplacements the player and allies can man, infinite ammo, the upgrade ladder | Any map can use them | Medium | Opus, medium |
-| 4 | **Destructible walls, gates and shacks**: staged wear, holes, breaches, repairs | Any map can use them | Large | Opus, high |
+| 4 | **Destructible walls, gates and shacks**: staged wear, holes, breaches, repairs. **Built**: `src/world/structures.ts`, notes in `docs/notes/world.md` under Walls, gates and shacks | Any map can use them | Large | Opus, high |
 | 5 | **Credits, shops, loadout screen, breaks**: the economy and its UI | The mode | Medium to large | Opus, medium |
 | 6 | **The fort map**: rings, catwalks, gates, towers, shacks, the open field round it | The mode | Large | Opus, high |
 | 7 | **The wave director**: escalation, mortar teams, engineers (charges, cover, jump pads), vehicles, the boss order | The mode | Medium to large | Opus, high |
