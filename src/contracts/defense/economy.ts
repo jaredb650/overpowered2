@@ -9,6 +9,7 @@ import type { CallInId, WeaponId } from '../../core/gameplay';
 import { CALLINS, CALLIN_ORDER } from '../../progression/data';
 import { WEAPONS, WEAPON_ORDER } from '../../weapons/data';
 import { membersOf } from '../../weapons/families';
+import { FORT_POSTS, type FortPost } from '../../world/map/fort/plan';
 import {
   ALLY_PRICES, ALLY_ROLES, BARRACKS_ORDER, BASIC_REFILL_PRICE, CALLIN_PRICES, ECONOMY, GRENADE_PRICE, MOUNT_PRICES, REPAIR_PRICES,
   SHOPS, STIM_PRICE, WEAPON_PRICES, type ShopId,
@@ -243,3 +244,9 @@ export function offers(shop: ShopId, v: ShopView): Offer[] {
 }
 
 export const sameAct = (a: Act, b: Act): boolean => JSON.stringify(a) === JSON.stringify(b);
+
+/** Where the free garrison stands on the fort: `n` of the outer ring's rifleman posts, evenly spread, so every side has someone. */
+export function startPosts(n: number = ECONOMY.startRiflemen): FortPost[] {
+  const outer = FORT_POSTS.filter(p => p.type === 'rifleman' && p.ring === 'outer');
+  return Array.from({ length: Math.min(n, outer.length) }, (_, i) => outer[Math.floor((i * outer.length) / n)]!);
+}

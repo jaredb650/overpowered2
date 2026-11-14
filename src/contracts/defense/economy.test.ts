@@ -6,7 +6,7 @@ import { pickContract } from '../select';
 import {
   ALLY_PRICES, CALLIN_PRICES, DEFAULT_LOADOUT, ECONOMY, SHOPS, STIM_PRICE, WEAPON_PRICES, killPay, wavePay,
 } from './data';
-import { ShopState, checkLoadout, offers, type Act, type ShopView } from './economy';
+import { ShopState, checkLoadout, offers, startPosts, type Act, type ShopView } from './economy';
 import { Defense } from './index';
 
 function view(over: Partial<ShopView> = {}): ShopView {
@@ -92,7 +92,23 @@ describe('buying', () => {
     expect(find(offers('infirmary', view({ credits: STIM_PRICE })), { kind: 'stim' }).why).toBeNull();
   });
 
-  it('caps stims at five, grenades at their most, and the squad at eight', () => {
+  it('starts each run with two squads of three riflemen, spread so every side of the outer ring is held', () => {
+    expect(ECONOMY.startRiflemen).toBe(6);
+    const posts = startPosts();
+    expect(posts).toHaveLength(6);
+    expect(posts.every(p => p.type === 'rifleman' && p.ring === 'outer')).toBe(true);
+    expect(new Set(posts.map(p => p.id)).size).toBe(6);
+    expect(new Set(posts.map(p => p.yaw.toFixed(3))).size).toBe(4);
+  });
+
+  it('caps the squad at twenty, so fourteen can be hired on top of the six', () => {
+    expect(ECONOMY.squadMax).toBe(20);
+    expect(find(offers('barracks', view({ squad: ECONOMY.startRiflemen })), { kind: 'ally', type: 'rifleman' }).why).toBeNull();
+    expect(find(offers('barracks', view({ squad: 19 })), { kind: 'ally', type: 'rifleman' }).why).toBeNull();
+    expect(find(offers('barracks', view({ squad: 20 })), { kind: 'ally', type: 'rifleman' }).why).toBe('Squad full, 20');
+  });
+
+  it('caps stims at five, grenades at their most, and the squad at its most', () => {
     expect(find(offers('infirmary', view({ stims: 5 })), { kind: 'stim' }).why).toBe('Carrying 5');
     expect(find(offers('armoury', view({ grenades: 6 })), { kind: 'grenade' }).why).toBe('Full');
     expect(find(offers('barracks', view({ squad: ECONOMY.squadMax })), { kind: 'ally', type: 'rifleman' }).why).toMatch(/Squad full/);

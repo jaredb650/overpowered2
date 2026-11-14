@@ -23,8 +23,10 @@ export const ECONOMY = {
   /** Seconds of the break before wave 1, and between waves. The world stops while a shop is open. */
   firstBreak: 20,
   breakSeconds: 30,
-  /** Most allies hired at once, up or down: the proposal's squad of 4 to 8. */
-  squadMax: 8,
+  /** Most allies at once, up or down, the free garrison included: six start, fourteen more can be hired. */
+  squadMax: 20,
+  /** The free garrison every run starts with: two squads of three riflemen, already on posts round the outer ring. */
+  startRiflemen: 6,
   /** Seconds of work a bought repair takes, so a wall cannot be fixed instantly mid-fight. */
   repairSeconds: 4,
 } as const;

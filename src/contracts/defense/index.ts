@@ -22,7 +22,7 @@ import { ACTIVE } from '../select';
 import {
   ECONOMY, LOADOUT_MELEE, SHOPS, SHOP_ORDER, WEAPON_PRICES, killPay, paysFor, placeholderPreview, wavePay, type ShopId,
 } from './data';
-import { ShopState, checkLoadout, offers, sameAct, type Act, type Offer, type ShopView } from './economy';
+import { ShopState, checkLoadout, offers, sameAct, startPosts, type Act, type Offer, type ShopView } from './economy';
 import { outward } from './field';
 import { MortarTeams } from './teams';
 
@@ -259,7 +259,29 @@ export class Defense {
     this.ctx.weapons.setLoadout([primary!, secondary!, LOADOUT_MELEE], 0);
     this.credits = check.left;
     this.needLoadout = false;
+    this.garrison();
     return null;
+  }
+
+  /**
+   * The free riflemen the run starts with (`ECONOMY.startRiflemen`), already on their posts: on the fort spread round the outer
+   * ring (`startPosts`), on the Test Range in a ring round the rally point, facing out. Ordinary allies from then on.
+   */
+  private garrison(): void {
+    const allies = this.ctx.allies;
+    if (!allies) return;
+    const { nav } = this.ctx.world;
+    const n = ECONOMY.startRiflemen;
+    const posts = ON_FORT ? startPosts(n) : Array.from({ length: n }, (_, i) => {
+      const a = (i / n) * Math.PI * 2;
+      const r = this.anchors.rally;
+      // A camera's yaw looks down -z, so facing out along `a` is `a + π`.
+      return { pos: [r.x + Math.sin(a) * 10, r.y, r.z + Math.cos(a) * 10] as Vec, yaw: a + Math.PI };
+    });
+    for (const p of posts) {
+      _a.set(p.pos[0], p.pos[1] + 1, p.pos[2]);
+      if (nav.nearest(_a, ON_FORT ? 3 : 8, _a)) allies.spawn('rifleman', _a.clone(), _a.clone(), 5, p.yaw);
+    }
   }
 
   // --- Shops -----------------------------------------------------------------------------------

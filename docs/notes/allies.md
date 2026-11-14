@@ -45,7 +45,7 @@ bank, a roster on the HUD and the mode's economy. Allies have no lines.
 
 | File | Job |
 |---|---|
-| `data.ts` | `ALLY_TYPES` (body, health, gun, stance, band), `ALLY` (squad cap 8, timings, reaches), `ALLY_SOURCE`, colours |
+| `data.ts` | `ALLY_TYPES` (body, health, gun, stance, band), `ALLY` (the lab's squad of 8, `maxAlive` 20 for Outpost Defense's cap, timings, reaches), `ALLY_SOURCE`, colours |
 | `rules.ts` | Plain arithmetic: follow slots, `crosshairRead`, `prefersAlly`, the `OrderKey` gesture, `takeHit`, `revive`, `reviveCost` |
 | `ally.ts` | One man. His body is an `Enemy` struct that is never in `enemies.alive` |
 | `index.ts` | `AllySystem`: spawning, thinking, steering, firing, hurt/down/revive/dead, the enemy's foes, rays and CHECK FIRE |
@@ -130,6 +130,15 @@ Real Chrome, 1440x900 at dpr 2, Test Range, `contract=outpost`, on the shared ma
   ally lost. Eight against seven with a breach: every enemy dead in about 22 s, no ally down, kills by sniper, rifles and the gun. Score and
   combo stayed 0 throughout.
 - **Cost of eight in a fight:** `AllySystem.update` median 0.5 ms, p95 1.3 ms (one run); 0.1 to 0.8 ms sampled in the fight runs.
+- **Cost of twenty on the fort** (Outpost Defense's cap, wave 5, 45 s, `defense-garrison.mjs`): median 0.2 ms, p95 1.4 ms, worst 4.2 ms;
+  frames held 16.7 ms (p95 16.8). Thinks are staggered, so the median barely moves; the p95 is the bursts of sight rays. A light fight
+  (3 of 20 firing): a wave that engages them all has not been measured.
+
+## On the minimap
+
+Every ally is a dot on the minimap in every mode that has them (`&allies=`, the fort): cyan, the helmet band's colour, round where
+enemies are square; amber and pulsing while down, like his beacon; gone once dead (he leaves `allies`). Only those inside the map are
+drawn. `ui/hud/minimap.ts` reads `ctx.allies.allies` directly.
 
 ## Rough
 

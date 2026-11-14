@@ -116,7 +116,7 @@ export const ALLY = {
   /** Squad cap for the range test. Outpost Defense will set its own. */
   squadMax: 8,
   /** Most allies alive at once, any squad. */
-  maxAlive: 12,
+  maxAlive: 20,
   /** Seconds between thinks, and the jitter that spreads them. */
   think: 0.25,
   /** How far he looks for something to shoot, and how many sight rays one think may spend. */

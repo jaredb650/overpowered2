@@ -67,7 +67,11 @@ breaks and the player's mortar teams. Locked with Endless Humans until the campa
 Test Range stand-in (counters behind the spawn, Endless Humans' squads as waves, no mortar posts); a bare `?map=range` stays the lab's.
 
 **How to play it.** Pick a primary and a secondary, deploy, and use the 20 s break: the Barracks is in the outer ring's south band, the
-Armoury in the middle ring's north band, the Infirmary in the core's north-west corner. Walk in and press E at the counter. Hires gather
+Armoury in the middle ring's north band, the Infirmary in the core's north-west corner; the minimap shows each as a lettered tile in its
+colour (B, A, I; grey while lost; held on the rim when off the map, so it points the way), and every ally as a cyan dot (amber while down).
+You start with a free garrison, `ECONOMY.startRiflemen` (6, two squads of three), already on six of the outer ring's twelve rifleman posts,
+every other one (`startPosts`), so each side has two or one; on the range stand-in they stand in a 10 m ring round the rally point, facing
+out. They are ordinary allies (E, revive, death) and count toward the squad cap. Walk in and press E at the counter. Hires gather
 outside the Barracks door and walk to a post of their type (`FORT_POSTS`; riot police to `FORT_BREACH_POINTS`, and to any breach as it
 opens). The break line says what the next wave brings; **L** starts it now (its countdown drops to 3 s). Hold the walls from the catwalks,
 shoot the men with charges before they reach the wall, kill mortar crews in the field pits (a red `MORTAR` marker hangs over a manned one),
@@ -83,7 +87,7 @@ a wave clears. Budget 1,600: the Harrow and the Rivet leave 300. Killing everyth
 
 | Shop | Sells | Lost means |
 |---|---|---|
-| Barracks | Rifleman 250, machine gunner 500, shotgunner 500, riot 750, medic 750, sniper 1,100, rocketeer 1,200; mortar team 1,200, one a mortar post (4 on the fort, outside the squad cap). Squad cap 8, up or down, so a dead man frees his place. Repairs: wall 250 and gate 350 a stage, half for a chip, 4 s of work through `Structure.repair` | No troops, no repairs |
+| Barracks | Rifleman 250, machine gunner 500, shotgunner 500, riot 750, medic 750, sniper 1,100, rocketeer 1,200; mortar team 1,200, one a mortar post (4 on the fort, outside the squad cap). Squad cap 20 with the free six, so 14 more can be hired, up or down, so a dead man frees his place. Repairs: wall 250 and gate 350 a stage, half for a chip, 4 s of work through `Structure.repair` | No troops, no repairs |
 | Armoury | Weapons only in a break (a base brings its family member and is priced for both). Ammunition by gun: a box is half the most reserve, 50 to 90 for basic, 200 to 300 specialty, 260 to 450 explosive (the Quiver cheapest). Grenades 150. Mounted gun to level 2 for 700, 3 for 1,600. Call-ins 600 (airstrike) to 8,000 (nuke), any time, not while one is held or rearming | No weapons, special ammo, upgrades or call-ins |
 | Infirmary | Stim 150 up to 5. Basic ammo 100: half a reserve for every basic gun | No stims, no resupply |
 
@@ -168,6 +172,12 @@ keys (Judge picked, 50 left, back to the Rivet, Deploy: 300 credits, Harrow, Riv
 the credits and the next-wave line; E at each counter; a rifleman hired (squad 1), an airstrike bought (held, banner READY), a stim (2);
 credits 300 + 4,000 - 250 - 600 - 150 = 3,300; in wave 1 every weapon row read `Only in a break`; the infirmary lost (red sign, red chip,
 banner) offered only its rebuild, `Only in a break`. Screens in `tools/out/economy/`.
+
+**Garrison and the minimap** (2026-11-14, `defense-garrison.mjs`, dpr 2, 1440x900, the owner's dev server): six riflemen up at deploy,
+at (-49, 20), (-13, 51) and the rest round the outer ring; the minimap with B, A and I and the cyan dots (`tools/out/defense2/g-start.png`),
+one downed and amber on it (`g-down.png`). Then 14 hired to the cap of 20 (two more refused, `Squad full, 20`) and wave 5 for 45 s in god
+mode: `AllySystem.update` median 0.2 ms, p95 1.4 ms, worst 4.2 ms over 2,712 frames; frames median 16.7, p95 16.8 ms (the harness's
+60 Hz cap). A light fight: 3 of the 20 shooting at the end, 8 enemies alive.
 
 **Verified, the waves** (2026-11-14, `DEFENSE_STEP=waves`, real Chrome 1440x900 dpr 2, a private no-HMR server; the bot holds the outer
 catwalk with an aimbot, health and ammunition topped up, two mortar teams and four allies bought). Wave 1: sappers set charges on the north

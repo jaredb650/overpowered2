@@ -5,6 +5,8 @@
  * kept on purpose here, as real short position histories rather than a smeared buffer, which would smear the
  * whole map once it rotates.
  */
+import { ALLY_DOWN_COLOR, ALLY_TEXT } from '../../allies/data';
+import { SHOPS, SHOP_ORDER } from '../../contracts/defense/data';
 import type { Ctx } from '../../core/contracts';
 import { clamp, damp } from '../../core/math';
 import { MOVE } from '../../player/tuning';
@@ -27,6 +29,10 @@ const PING_PERIOD = 1.1;
 const ENEMY = '#ff3b3b';
 const ELITE = '#ff9a2e';
 const NORTH = '#eef4f7';
+/** Friendlies: the cyan of their helmet band, amber while down like their beacon. Never enemy red, never husk green. */
+const ALLY = ALLY_TEXT;
+const ALLY_DOWN = `#${ALLY_DOWN_COLOR.toString(16)}`;
+const SHOP_LOST = '#6b737c';
 
 export interface MinimapPoint {
   x: number;
@@ -155,6 +161,27 @@ export class Minimap {
       g.fill();
     }
 
+    // Shops: a lettered tile in the shop's colour, grey while lost, held on the rim when off the map so it still points the way.
+    const defense = this.ctx.contracts?.defense;
+    if (defense) {
+      g.font = `800 ${Math.round(10 * u)}px ui-monospace, Menlo, monospace`;
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      for (const id of SHOP_ORDER) {
+        const p = defense.anchors[id].position;
+        const x = clamp(sx(p.x, p.z), 9 * u, size - 9 * u);
+        const y = clamp(sy(p.x, p.z), 9 * u, size - 9 * u);
+        const color = defense.shops[id].lost ? SHOP_LOST : SHOPS[id].color;
+        g.fillStyle = '#05090e';
+        g.fillRect(x - 8 * u, y - 8 * u, 16 * u, 16 * u);
+        g.strokeStyle = color;
+        g.lineWidth = 2 * u;
+        g.strokeRect(x - 7 * u, y - 7 * u, 14 * u, 14 * u);
+        g.fillStyle = color;
+        g.fillText(SHOPS[id].name[0]!, x, y + u);
+      }
+    }
+
     const n = Math.min(s.enemies.length, MAX_TRACKED);
     const reveal = s.sonarLive > 0 || (s.phase !== 'intermission' && s.remaining <= REVEAL_AT);
     if (this.trailCount > 1) {
@@ -202,6 +229,27 @@ export class Minimap {
         g.strokeRect(cx - r - this.ping * 14 * u, cy - r - this.ping * 14 * u, (r + this.ping * 14 * u) * 2, (r + this.ping * 14 * u) * 2);
         g.globalAlpha = 1;
       }
+    }
+
+    // Friendlies: round, where enemies are square. The dead are off the roster already.
+    const allies = this.ctx.allies?.allies;
+    if (allies) {
+      g.strokeStyle = '#000000';
+      g.lineWidth = 1.5 * u;
+      for (const a of allies) {
+        const p = a.body.position;
+        const x = sx(p.x, p.z);
+        const y = sy(p.x, p.z);
+        if (x < 0 || y < 0 || x > size || y > size) continue;
+        const down = a.state === 'down';
+        g.fillStyle = down ? ALLY_DOWN : ALLY;
+        g.globalAlpha = down ? 0.55 + 0.45 * (1 - this.ping) : 1;
+        g.beginPath();
+        g.arc(x, y, (down ? 4.5 : 3.6) * u, 0, Math.PI * 2);
+        g.fill();
+        g.stroke();
+      }
+      g.globalAlpha = 1;
     }
 
     // North rides the rim, so a player-up map still gives a fixed bearing to call out.
