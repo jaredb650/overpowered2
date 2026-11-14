@@ -5,16 +5,17 @@
  */
 import * as THREE from 'three';
 import type { Action, Ctx } from '../core/contracts';
-import type { SeatPanel } from '../core/gameplay';
+import type { MissileTarget, SeatPanel } from '../core/gameplay';
 import { Flag, Label, Meter, Num, Shown, div, markup, span } from '../ui/dom';
 import type { GunnerSeat, SeatRig } from './seat';
 import './gunner.css';
 
 /**
  * `mount` is a gun on the ground: no clock, no sensor readouts, and the bar under the sight is heat. `gunship` is the
- * AC-130's fire control: four guns on number keys, each with its own magazine.
+ * AC-130's fire control: four guns on number keys, each with its own magazine. `frame` is the Distraint Frame's cockpit
+ * (src/frame): heat under the sight, a row a clock, where the legs point, and the pod's marks.
  */
-export type GunnerTone = 'thermal' | 'door' | 'mount' | 'gunship';
+export type GunnerTone = 'thermal' | 'door' | 'mount' | 'gunship' | 'frame';
 
 export interface GunnerWeapon {
   name: string;
@@ -28,6 +29,8 @@ export interface GunnerWeapon {
 
 /** One for every enemy the game allows at once. */
 const MAX_TAGS = 48;
+/** The Frame's pod has six tubes, and each mark is one. */
+const MAX_MARKS = 6;
 /** The gunship's four guns and its flares. */
 const MAX_WEAPONS = 5;
 /** The body's tag pins to this share of the half-screen, so it is findable when it is out of shot. */
@@ -38,6 +41,7 @@ const RETICLES: Readonly<Record<GunnerTone, string>> = {
   gunship: `<svg class="gn-ret" viewBox="-100 -100 200 200" aria-hidden="true"><path d="M-90 0h-40M90 0h40M0-90v-40M0 90v40M-14 0h-40M14 0h40M0-14v-40M0 14v40M-62-62h16M-62-62v16M62-62h-16M62-62v16M-62 62h16M-62 62v-16M62 62h-16M62 62v-16"/><rect x="-1.6" y="-1.6" width="3.2" height="3.2"/></svg>`,
   door: `<svg class="gn-ret" viewBox="-100 -100 200 200" aria-hidden="true"><circle r="34"/><path d="M-46 0h-14M46 0h14M0-46v-14M0 46v14"/><rect x="-1.6" y="-1.6" width="3.2" height="3.2"/></svg>`,
   mount: `<svg class="gn-ret" viewBox="-100 -100 200 200" aria-hidden="true"><path d="M-30 0h-18M30 0h18M0 30v18"/><rect x="-1.6" y="-1.6" width="3.2" height="3.2"/></svg>`,
+  frame: `<svg class="gn-ret" viewBox="-100 -100 200 200" aria-hidden="true"><path d="M-44-20v-12h12M44-20v-12h-12M-44 20v12h12M44 20v12h-12M-22 0h-10M22 0h10M0 14v10"/><rect x="-1.6" y="-1.6" width="3.2" height="3.2"/></svg>`,
 };
 
 const _p = new THREE.Vector3();
@@ -69,6 +73,21 @@ class Tag {
     this.x = px;
     this.y = py;
     this.el.style.transform = `translate3d(${px}px,${py}px,0)`;
+  }
+
+  hide(): void {
+    this.shown.set(false);
+  }
+}
+
+/** A painted mark: a diamond on the target, until the salvo leaves. */
+class Mark {
+  readonly el = div('gn-mark');
+  private readonly shown = new Shown(this.el, 'block');
+
+  place(x: number, y: number): void {
+    this.shown.set(true);
+    this.el.style.transform = `translate3d(${Math.round(x)}px,${Math.round(y)}px,0) rotate(45deg)`;
   }
 
   hide(): void {
@@ -117,7 +136,10 @@ class WeaponRow {
 export class GunnerHud implements SeatPanel {
   readonly el: HTMLElement;
   private readonly tags: Tag[] = [];
+  private readonly marks: Mark[] = [];
   private readonly body: HTMLElement;
+  private readonly legs: HTMLElement;
+  private readonly legsShown: Shown;
   private readonly rows: WeaponRow[] = [];
   private readonly reticleHost: HTMLElement;
   private readonly label: Label;
@@ -147,6 +169,11 @@ export class GunnerHud implements SeatPanel {
     }
     this.body = div('gn-body', span('', 'YOU'));
     tags.append(this.body);
+    for (let i = 0; i < MAX_MARKS; i++) {
+      const mark = new Mark();
+      this.marks.push(mark);
+      tags.append(mark.el);
+    }
 
     for (let i = 0; i < MAX_WEAPONS; i++) this.rows.push(new WeaponRow());
 
@@ -161,13 +188,15 @@ export class GunnerHud implements SeatPanel {
     const spinFill = div('gn-sfill');
     const spin = div('gn-spin', spinFill);
     this.reticleHost = div('gn-reticle');
+    this.legs = div('gn-legtick');
+    const legs = div('gn-legs', this.legs);
 
     this.el = div('gn',
       div('gn-corner gn-tl'), div('gn-corner gn-tr'), div('gn-corner gn-bl'), div('gn-corner gn-br'),
       tags,
       this.reticleHost,
       spin,
-      div('gn-top', label, div('gn-time', div('gn-tbar', timeFill), seconds)),
+      div('gn-top', label, div('gn-time', div('gn-tbar', timeFill), seconds), legs),
       div('gn-arms', ...this.rows.map(r => r.el)),
       div('gn-read',
         div('gn-row', span('gn-key', 'RNG'), range),
@@ -192,6 +221,7 @@ export class GunnerHud implements SeatPanel {
     this.warning = new Flag(this.el, 'warning');
     this.hot = new Flag(this.el, 'hot');
     this.inverted = new Flag(this.el, 'inverted');
+    this.legsShown = new Shown(legs, 'block');
     addEventListener('resize', this.measure);
   }
 
@@ -219,6 +249,8 @@ export class GunnerHud implements SeatPanel {
     const flares = plan.tone === 'gunship' || plan.tone === 'thermal' ? ` // ${this.key('jump')} FLARES` : '';
     this.hint.set(plan.tone === 'gunship'
       ? `${this.key('fire')} FIRE // 1-4 GUN, AGAIN FOR ROUND // ${this.key('aim')} ZOOM // ${this.key('reload')} VIEW${flares}${out}`
+      : plan.tone === 'frame'
+        ? `${this.key('jump')} JETS // ${this.key('slide')} IN THE AIR STOMP // ${this.key('dash')} CHARGE // ${this.key('melee')} BACKHAND // WHEEL ZOOM${out}`
       : plan.aimZooms
         ? `${this.key('fire')} FIRE // ${this.key('aim')} ZOOM${out}`
         : `${this.key('fire')} CANNON // ${this.key('aim')} ROCKETS // WHEEL ZOOM${flares}${out}`);
@@ -244,10 +276,31 @@ export class GunnerHud implements SeatPanel {
     this.altitude.set(Math.round(seat.altitude));
     this.heading.set(Math.round((((-seat.yaw * 180) / Math.PI) % 360 + 360) % 360));
     this.zoom.set(seat.zoomed ? `x${(plan.fov / plan.zoomFov).toFixed(1)}` : 'x1.0');
-    this.spin.set(plan.tone === 'mount' ? seat.heat : seat.spin);
+    this.spin.set(plan.tone === 'mount' || plan.tone === 'frame' ? seat.heat : seat.spin);
     this.hot.set(seat.overheated);
     this.inverted.set(seat.inverted);
     for (let i = 0; i < MAX_WEAPONS; i++) this.rows[i]!.update(seat.weapons[i]);
+    this.legsShown.set(Number.isFinite(seat.legs));
+    // The legs against the view: the middle of the strip is where the view looks, its ends the arc either side.
+    if (Number.isFinite(seat.legs)) this.legs.style.transform = `translateX(${(-seat.legs / plan.arcHalf) * 8}rem)`;
+    this.markTargets(seat.marks);
+  }
+
+  private markTargets(marks: readonly MissileTarget[]): void {
+    const camera = this.ctx.render.camera;
+    let used = 0;
+    for (let i = 0; i < marks.length && used < MAX_MARKS; i++) {
+      const t = marks[i]!;
+      // A target marked again shows each mark stacked over the last.
+      let before = 0;
+      for (let j = 0; j < i; j++) if (marks[j] === t) before++;
+      _p.copy(t.center);
+      _p.y += (t.aimLift ?? 0) + before * 0.7;
+      _p.project(camera);
+      if (_p.z > 1) continue;
+      this.marks[used++]!.place((_p.x * 0.5 + 0.5) * this.width, (0.5 - _p.y * 0.5) * this.height);
+    }
+    for (let i = used; i < MAX_MARKS; i++) this.marks[i]!.hide();
   }
 
   private tagEnemies(): void {

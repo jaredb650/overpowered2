@@ -432,7 +432,7 @@ The Sump plan's section 3 holds, with these changes.
 |---|---|---|---|---|---|---|
 | 1 | The Bureau's look | Bailiffs on their own two bodies in black, grey and red; the player's body and arms the same; an identification sheet | M | none | Opus, high | 0.4 to 0.7M |
 | 2 | The ragtag militia | The seven human types re-baked in colour, no red on them, helmets repainted | M to L | none | Opus, high | 0.6 to 1.0M |
-| 3 | **The Frame on the range** | Walk, look, jets, stomp, charge, backhand, three guns, the cockpit and HUD, on a stand-in body of boxes | L | none | Opus, xhigh | 1.2 to 1.8M |
+| 3 | **The Frame on the range** (**built**, `docs/notes/frame.md`) | Walk, look, jets, stomp, charge, backhand, three guns, the cockpit and HUD, on a stand-in body of boxes | L | none | Opus, xhigh | 1.2 to 1.8M |
 | 4 | The Frame's body | The baked walker, its animator, kneel and stand, boarding, the collapse, the eject | L | 3's interface; can start beside it | Opus, high | 0.8 to 1.2M |
 | 5 | What it breaks, what breaks it | `crush`, stalls, thrown wrecks, crushed men, parts and weak points, the top-attack lock and smoke, dread, sappers | M to L | 3 | Opus, high | 0.6 to 1.0M |
 | 6 | The mission's plumbing (**built**, `docs/campaign/FORECLOSURE.md`) | Sixteen empty beats that run, the contract row (locked), the dev panel's Mission section, steps for the Frame, the roster and holding call-ins | M | none | Opus, high | 0.4 to 0.6M |
@@ -468,6 +468,10 @@ size of the Outpost.
   `weapons.ts`, `hud` tone in `vehicles/hud.ts`, `cockpit.ts`. `player.carry`. Targets: 60 fps on the range with 18 enemies, no fall
   through any floor in 300 s of random driving, a jet onto a 2.6 m container 10 of 10, a stomp from 4 m knocks everyone in 10 m down,
   `?frameturn=free` works. Try: `/?map=range&frame=1`.
+  **Built 2026-11-14.** All five targets met (`docs/notes/frame.md`, Measured). The walker stands on five rays and walls a capsule
+  from a step's height up; jets launch with a kick toward the keys held and steer at full control while they burn (half control
+  otherwise). Stage 4 replaces `StandIn` in `cockpit.ts` and keeps `FRAME_PLACES`; stage 5 fills `Frame.hit`, the interceptor, which
+  takes every hit and counts none yet.
 - **4. The Frame's body.** `tools/bake/archetypes/frame.ts`, a `walker` rig in `rig.ts`, `WalkerAnimator`. Targets: under 30k
   triangles and 3 MB, feet planted with no visible slide at 7 m/s, the kneel and the collapse, a sheet from outside at four angles.
 - **5. What it breaks.** Touches `world/structures.ts` (stall), `weapons/Combat.ts` (`crush`), `enemies/vehicles/wreck.ts` (the throw),

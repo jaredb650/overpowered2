@@ -2137,6 +2137,15 @@ export class Player implements PlayerSystem {
     this.parkGrace = grace;
   }
 
+  carry(feet: THREE.Vector3): void {
+    if (!this.parked) return;
+    this.pos.copy(feet);
+    this.prev.copy(feet);
+    this.position.copy(feet);
+    this.eye.copy(feet);
+    this.eye.y += this.eyeHeight;
+  }
+
   reset(): void {
     this.parked = false;
     this.parkGrace = 0;

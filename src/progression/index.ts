@@ -18,6 +18,7 @@ import type { Flight } from '../vehicles/flight';
 import { ALLY_SOURCE } from '../allies/data';
 import { ACTIVE } from '../contracts/select';
 import { CallInManager } from './callins/manager';
+import type { Frame } from '../frame/seat';
 import { aboveFloor } from './callins/shared';
 import { ChainEffects } from './chains';
 import { Combo, TimeWindow } from './counters';
@@ -168,6 +169,11 @@ class Progression implements ProgressionSystem {
 
   boardFlight(flight: Flight): void {
     this.callInsManager.boardFlight(flight);
+  }
+
+  /** The Distraint Frame (src/frame/seat.ts): `frame.board(feet, yaw)` puts the player in a fresh one. Not on ProgressionSystem either. */
+  get frame(): Frame {
+    return this.callInsManager.frame;
   }
 
   /** A mission's flak shuts the sky (campaign `callins` step). Not on ProgressionSystem: only the campaign host asks. */

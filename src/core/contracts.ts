@@ -796,6 +796,11 @@ export interface PlayerSystem extends GameSystem {
   park(feet: THREE.Vector3, exposed?: boolean): void;
   /** Gives the body back, still untouchable for `grace` seconds, because whatever came for it is standing round it. */
   unpark(grace: number): void;
+  /**
+   * Moves a parked body with whatever it is parked in, every frame: the Frame's cockpit. Nothing else changes, as `park`
+   * clears input and resets the body layer. Does nothing to a body that is not parked.
+   */
+  carry(feet: THREE.Vector3): void;
 }
 
 export interface PlayerModifiers {

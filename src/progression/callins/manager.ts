@@ -10,6 +10,8 @@ import type { CallInId } from '../../core/gameplay';
 import { ATTACK_AIRFRAME, type AttackMount } from '../../vehicles/attackModel';
 import type { Flight } from '../../vehicles/flight';
 import { Emplacements } from '../../vehicles/emplacement';
+import { FRAME_ASKED } from '../../frame/data';
+import { Frame } from '../../frame/seat';
 import { CALLIN_HOLD } from '../../input/bindings';
 import { CHIN_CANNON, Gun, M134 } from '../../vehicles/guns';
 import { SeatRig } from '../../vehicles/seat';
@@ -84,6 +86,8 @@ export class CallInManager {
   private readonly seats: SeatRig;
   /** Mounted guns. Here because they seat the player through the same rig as the aircraft. */
   readonly emplacements: Emplacements;
+  /** The Distraint Frame, here for the same reason. Built the first time it is asked for. */
+  private frameRig: Frame | null = null;
   private readonly harrow: Ride<AttackMount>;
   private readonly packmule: Ride<UtilityMount>;
   private readonly order: StrikeOrder = { point: new THREE.Vector3(), heading: new THREE.Vector3(1, 0, 0) };
@@ -123,6 +127,13 @@ export class CallInManager {
       unlisten();
       for (const spec of (ctx.world as unknown as { spec?: MapSpec }).spec?.emplacements ?? []) this.emplacements.place(spec);
     });
+    // `?frame=1`: every run starts in a Frame at the player's spawn.
+    if (FRAME_ASKED) {
+      ctx.events.on('run:start', () => {
+        const spawn = ctx.world.playerSpawns[0];
+        if (spawn) this.frame.board(spawn.position, spawn.yaw);
+      });
+    }
     this.warmShaders(materials);
   }
 
@@ -141,6 +152,11 @@ export class CallInManager {
       stand.layers.set(UNDRAWN_LAYER);
       this.ctx.render.scene.add(stand);
     }
+  }
+
+  /** The Distraint Frame (src/frame). `board` puts the player in a fresh one. */
+  get frame(): Frame {
+    return (this.frameRig ??= new Frame(this.ctx, this.kit.materials, this.seats, () => this.holster()));
   }
 
   cooldown(id: CallInId): number {
@@ -196,6 +212,7 @@ export class CallInManager {
       this.lowerDevice();
     }
 
+    this.frameRig?.update(this.ctx.time.playerDt);
     this.emplacements.update(dt, !this.steering && !this.targeting.id);
     if (this.holstered && !this.aiming && !this.seats.occupied) {
       this.gunBackIn -= dt;
@@ -416,6 +433,7 @@ export class CallInManager {
 
   clear(): void {
     this.shut = false;
+    this.frameRig?.clear();
     this.emplacements.clear();
     if (this.targeting.id) this.targeting.exit();
     this.steering = null;

@@ -11,6 +11,7 @@
 import * as THREE from 'three';
 import { CG, type Ctx, type GradeName, type RayHit, type SeatView } from '../core/contracts';
 import { clamp, wrapAngle } from '../core/math';
+import type { MissileTarget } from '../core/gameplay';
 import type { Point } from '../progression/callins/airframe';
 import type { GroundProbe } from '../progression/callins/ground';
 import { GunnerHud, type GunnerTone, type GunnerWeapon } from './hud';
@@ -174,6 +175,10 @@ export class GunnerSeat {
   status = '';
   /** Brackets round the enemies. A thermal view shows them by their heat instead. */
   boxes = true;
+  /** A walking mount's legs against the view, radians, for the panel's tick. NaN on everything that does not walk. */
+  legs = NaN;
+  /** A painting launcher's marks, as the panel draws them. */
+  marks: readonly MissileTarget[] = [];
   readonly view: SeatView = { position: new THREE.Vector3(), yaw: 0, pitch: 0, roll: 0, shake: 1 };
 
   /** Nothing to leave by: the seat is the mission's until it says otherwise. */

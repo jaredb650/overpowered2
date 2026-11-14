@@ -140,7 +140,8 @@ export class Heat {
   value = 0;
   overheated = false;
 
-  constructor(public level: MountLevel) {}
+  /** Any gun with the three heat numbers: a rung of the ladder, or the Frame's rotary. */
+  constructor(public level: Pick<MountLevel, 'heatPerShot' | 'cool' | 'vent'>) {}
 
   /** One round. True if that was the one that locked it out. */
   shot(): boolean {
