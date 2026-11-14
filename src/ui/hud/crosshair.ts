@@ -12,6 +12,7 @@ import { Flag, Label, Meter, Shown, div, markup, span } from '../dom';
 import type { HudState } from '../state';
 import { LANCE_OLD, TUNING, WEAPONS } from '../../weapons/data';
 import { LockMarkers } from './locks';
+import { crosshairRead } from '../../allies/rules';
 
 /** The Lance's stages as shares of its charge: a notch on the bar at each short of full, and the bar steps colour as each is reached. */
 const CHARGE_STAGES: readonly number[] = LANCE_OLD ? [] : TUNING.lance.stages.map(s => s.at);
@@ -220,6 +221,7 @@ export class Crosshair {
   private spinQ = NaN;
   private hide: Flag;
   private hostile: Flag;
+  private friendly: Flag;
   private comboTick: Meter;
   private comboShown: Shown;
   private magTick: Meter;
@@ -286,6 +288,7 @@ export class Crosshair {
     }
     this.hide = new Flag(reticle, 'hidden');
     this.hostile = new Flag(reticle, 'hostile');
+    this.friendly = new Flag(reticle, 'friendly');
     this.comboTick = new Meter(comboFill, 'Y');
     this.comboShown = new Shown(this.comboHost);
     this.magTick = new Meter(magFill, 'Y');
@@ -347,15 +350,17 @@ export class Crosshair {
     this.aimClock -= dt;
     if (this.aimClock > 0) return;
     this.aimClock = 1 / 12;
-    const { physics, player, enemies } = this.ctx;
+    const { physics, player, enemies, allies } = this.ctx;
     const hit = typeof enemies.raycast === 'function' ? enemies.raycast(player.eye, player.forward, 250) : null;
-    if (!hit || hit.enemy?.alive !== true) {
-      this.hostile.set(false);
-      return;
-    }
-    // A reticle that reddens through a wall would be a wallhack.
-    const wall = typeof physics.raycast === 'function' ? physics.raycast(player.eye, player.forward, hit.distance) : null;
-    this.hostile.set(!wall);
+    const foe = hit && hit.enemy?.alive === true ? hit.distance : Infinity;
+    // An ally is green, the nearer of the two wins, and nothing hostile ever reads green (allies/rules.ts `crosshairRead`).
+    const friend = allies?.raycast(player.eye, player.forward, Math.min(foe, 250))?.distance ?? Infinity;
+    const near = Math.min(foe, friend);
+    // A reticle that changes through a wall would be a wallhack.
+    const wall = Number.isFinite(near) && typeof physics.raycast === 'function' ? physics.raycast(player.eye, player.forward, near) : null;
+    const read = crosshairRead(foe, friend, wall ? wall.distance : Infinity);
+    this.hostile.set(read === 'hostile');
+    this.friendly.set(read === 'friendly');
   }
 
   update(s: HudState, dt: number, heat: number): void {

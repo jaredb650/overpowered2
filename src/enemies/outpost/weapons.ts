@@ -43,10 +43,13 @@ const _vel = new THREE.Vector3();
 const _target = new THREE.Vector3();
 const _rand = new THREE.Vector3();
 
-/** Weapon up, rounds left, nerve holding, and something to shoot at: the player, or a position the squad wants kept down. */
+/** An ally (src/allies) he can see and has turned on instead of the player. The allies' system sets it; nothing here does. */
+const atFoe = (s: Soldier): boolean => s.foe !== null && s.foe.alive;
+
+/** Weapon up, rounds left, nerve holding, and something to shoot at: the player, an ally, or a position the squad wants kept down. */
 const canFire = (e: Enemy): boolean => {
   const s = soldierOf(e);
-  return !!s && s.fighting && !s.silent && s.weapon === 'primary' && s.exposed && s.mag > 0 && s.reloadUntil === 0 && hasGun(e) && (s.sees || s.suppressing || s.blind) && !heldBack(s);
+  return !!s && s.fighting && !s.silent && s.weapon === 'primary' && s.exposed && s.mag > 0 && s.reloadUntil === 0 && hasGun(e) && (s.sees || s.suppressing || s.blind || atFoe(s)) && !heldBack(s);
 };
 
 /** The same, but only on a target he can see. Rockets and sniper rounds are too few to spend on a guess. */
@@ -54,6 +57,18 @@ const canAim = (e: Enemy): boolean => {
   const s = soldierOf(e);
   return !!s && s.fighting && !s.silent && s.weapon === 'primary' && s.exposed && s.sees && s.mag > 0 && s.reloadUntil === 0 && hasGun(e) && !heldBack(s);
 };
+
+/** The same, for a shotgun or a rocket, which are spent on an ally he can see as readily as on the player. */
+const canAimFoe = (e: Enemy): boolean => {
+  const s = soldierOf(e);
+  return !!s && s.fighting && !s.silent && s.weapon === 'primary' && s.exposed && (s.sees || atFoe(s)) && s.mag > 0 && s.reloadUntil === 0 && hasGun(e) && !heldBack(s);
+};
+
+/** Turns him on the ally for the shot. The arms still read the player (`EnemyManager.animate`), which is a known flaw. */
+function faceFoe(e: Enemy, s: Soldier): void {
+  e.face = 'lock';
+  e.yaw = Math.atan2(s.foe!.center.x - e.position.x, s.foe!.center.z - e.position.z);
+}
 
 /** One hand and a pistol: on his feet with a target, or from the floor if it comes close enough. */
 const canFireSidearm = (e: Enemy): boolean => {
@@ -97,7 +112,8 @@ interface GunSpec {
 
 /** Writes where this man wants his rounds to go, for a gun that has to swing to get there. */
 function wanted(e: Enemy, w: AiWorld, s: Soldier, speed: number): void {
-  if (s.sees) interceptPoint(w, s.squad.outpost.track, _muzzle, speed, s.rankDef.lead, _want);
+  if (atFoe(s)) _want.copy(s.foe!.center);
+  else if (s.sees) interceptPoint(w, s.squad.outpost.track, _muzzle, speed, s.rankDef.lead, _want);
   else _want.copy(s.aim);
   _dir.subVectors(_want, _muzzle).normalize();
 }
@@ -117,7 +133,8 @@ function soldierGun(t: GunSpec): AttackDef {
     requires: t.requires ?? canFire,
     begin(e, w) {
       const s = soldierOf(e)!;
-      e.face = s.sees ? 'player' : 'lock';
+      if (atFoe(s)) faceFoe(e, s);
+      else e.face = s.sees ? 'player' : 'lock';
       muzzleOf(e, _muzzle);
       w.telegraphs.glint(_muzzle, 0xff5030, 0.5, e.attackWindup);
       if (t.traverse) {
@@ -142,6 +159,16 @@ function soldierGun(t: GunSpec): AttackDef {
       muzzleOf(e, _muzzle);
       const o = s.squad.outpost;
       const nerve = nerveOf(s, w);
+      if (atFoe(s)) {
+        s.foe!.shotAt(_muzzle, t.damage * e.damageMul, t.miss * nerve, e.id);
+        _dir.subVectors(s.foe!.center, _muzzle).normalize();
+        w.ctx.combat.enemyMuzzle(_muzzle, _dir, t.muzzle);
+        if (t.loop) {
+          if (index === 0) e.attackLoop = w.ctx.audio.startLoop(t.loop, { position: e.center });
+        } else w.ctx.audio.play(t.sound, { position: _muzzle, pitch: t.pitch ?? 1, pitchJitter: 0.08 });
+        e.char.anim.play('shoot', 1.4);
+        return;
+      }
       if (t.traverse) {
         const range = Math.max(_muzzle.distanceTo(s.sees ? w.player.chest : s.aim), 1);
         randomUnit(_rand);
@@ -208,9 +235,11 @@ const shotgunBlast: AttackDef = {
   active: 0.1,
   recover: 0.35,
   moveMul: 0.55,
-  requires: canAim,
+  requires: canAimFoe,
   begin(e, w) {
-    e.face = 'player';
+    const s = soldierOf(e);
+    if (s && atFoe(s)) faceFoe(e, s);
+    else e.face = 'player';
     w.ctx.audio.play('smg_reload', { position: e.center, volume: 0.55, pitch: 1.5 });
     muzzleOf(e, _muzzle);
     w.telegraphs.glint(_muzzle, 0xffa030, 0.8, e.attackWindup);
@@ -221,6 +250,12 @@ const shotgunBlast: AttackDef = {
     s.mag--;
     s.firedAt = w.now;
     muzzleOf(e, _muzzle);
+    if (atFoe(s)) {
+      for (let i = 0; i < 8; i++) s.foe!.shotAt(_muzzle, 5.5 * e.damageMul, 2.5 * nerveOf(s, w), e.id);
+      w.ctx.audio.play('enemy_shotgun', { position: _muzzle, pitchJitter: 0.08 });
+      e.char.anim.play('shoot', 0.8);
+      return;
+    }
     aimRound(w, s.squad.outpost.track, _muzzle, _want, 80, s.rankDef, nerveOf(s, w), 0.45, 1);
     for (let i = 0; i < 8; i++) {
       _dir.copy(_want);
@@ -243,14 +278,18 @@ const launcher = rocket({ name: 'rocket', range: [8, 54], damage: 44, radius: 5,
 /** The laser telegraph is the swarm's. The round goes where the target will be and not where it was, and it lands at its feet. */
 const rocketShot: AttackDef = {
   ...launcher,
-  requires: canAim,
+  requires: canAimFoe,
   fire(e, w) {
     const s = soldierOf(e);
     if (!s) return;
     s.mag--;
     s.firedAt = w.now;
     muzzleOf(e, _muzzle);
-    interceptPoint(w, s.squad.outpost.track, _muzzle, 34, s.rankDef.lead, _target);
+    const foe = atFoe(s) ? s.foe! : null;
+    if (foe) {
+      faceFoe(e, s);
+      _target.copy(foe.center);
+    } else interceptPoint(w, s.squad.outpost.track, _muzzle, 34, s.rankDef.lead, _target);
     _target.y -= 1;
     wander(s, w);
     _dir.subVectors(_target, _muzzle).normalize();
@@ -258,6 +297,8 @@ const rocketShot: AttackDef = {
     w.ctx.combat.spawnProjectile({
       origin: _muzzle, velocity: _vel, kind: 'rocket', team: 'enemy', damage: 44 * e.damageMul, source: e.id, explosion: { radius: 5, damage: 44 * e.damageMul, kind: 'enemy', selfDamage: 1 }, lifetime: 5, homing: 0,
     });
+    // The real rocket hurts the player if he is near where it lands. Its burst on allies goes through the ally.
+    foe?.blast(_target, 5, 44 * e.damageMul, _muzzle.distanceTo(_target) / 34, e.id);
     w.ctx.combat.enemyMuzzle(_muzzle, _dir, 'rocket');
     w.ctx.audio.play('enemy_rocket_fire', { position: _muzzle, pitchJitter: 0.08 });
   },

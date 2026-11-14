@@ -20,6 +20,18 @@ export type Weapon = 'primary' | 'sidearm' | 'none';
 /** 0 walks, 1 jogs, 2 sprints while the sprint lasts. */
 export type Urgency = 0 | 1 | 2;
 
+/**
+ * Someone other than the player for a man to shoot: a friendly soldier (src/allies). Set from outside by the allies' system,
+ * never by the squad, and only when the man can see him. `shotAt` rolls one round from `from`, hurts him and draws it; `blast`
+ * lands a rocket's burst on him after `delay`.
+ */
+export interface Foe {
+  readonly alive: boolean;
+  readonly center: THREE.Vector3;
+  shotAt(from: THREE.Vector3, damage: number, miss: number, source: string): void;
+  blast(at: THREE.Vector3, radius: number, damage: number, delay: number, source: string): void;
+}
+
 /** A man can sprint this long before dropping back to a jog. */
 export const SPRINT_SECONDS = 5;
 
@@ -137,6 +149,9 @@ export class Soldier {
   /** Last time he called out, which is what brings people. */
   calledAt = -99;
 
+  /** An ally he has turned his gun on instead of the player. See `Foe`. */
+  foe: Foe | null = null;
+
   /** On the ground, unable to act. Set through Outpost.setDowned. */
   downed = false;
   rescuer: Soldier | null = null;
@@ -201,6 +216,7 @@ export class Soldier {
     this.droppedAt = this.scramble = null;
     this.crawlPlanAt = 0;
     this.calledAt = -99;
+    this.foe = null;
   }
 
   get callsign(): string {

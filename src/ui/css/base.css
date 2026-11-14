@@ -14,6 +14,7 @@ html { font-size: min(calc(100vw / 120), calc(100vh / 67.5)); }
   --amber: #ffb400;
   --hot: #ff5a14;
   --blood: #ff1c2b;
+  --friend: #3dff7a;
   --whitehot: #fff1c4;
   --display: 'Anton', Impact, 'Arial Narrow', sans-serif;
   --mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, Menlo, monospace;

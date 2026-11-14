@@ -12,6 +12,7 @@ import type { DamageResult, EnemyId, EnemyInstance } from '../core/gameplay';
 import type { ZoneId } from '../enemies/wounds/rules';
 import { clamp, lerp, rand } from '../core/math';
 import { WEAPONS } from '../weapons/data';
+import { ALLY_SOURCE } from '../allies/data';
 import type { RoomId } from './reverb';
 import { DEAD_HANDLE } from './voices';
 
@@ -92,6 +93,8 @@ const ENEMY_SOURCES: ReadonlySet<string> = new Set<EnemyId>([
   'husk', 'trooper', 'gunner', 'brute', 'stalker', 'rocketeer', 'sniper', 'riot', 'leaper', 'bomber', 'burner', 'warden',
   'skitter', 'drone', 'juggernaut', 'titan',
 ]);
+/** Not the player's: the enemy's own, or an ally's (src/allies), whose hits and kills are never confirmed to the player. */
+const notPlayers = (source: string): boolean => ENEMY_SOURCES.has(source) || ALLY_SOURCE.test(source);
 
 /**
  * Rounds that get a body hit. Every strike of these is one Combat plays aloud. Blasts, blades, fire and arcs strike
@@ -230,7 +233,7 @@ export class Reactions {
   private onHit({ enemy, damage, result }: GameEvents['enemy:hit']): void {
     const now = this.ctx.time.realElapsed;
     // Fire ticks on its own. Confirming every tick would drown out the shots that took aim.
-    if (damage.type === 'fire' || ENEMY_SOURCES.has(damage.source)) return;
+    if (damage.type === 'fire' || notPlayers(damage.source)) return;
     this.bodyHit(enemy, damage, result, now);
     const armour = result.armour ?? (result.blocked ? 'stopped' : undefined);
     // A piece coming off is news even on a kill and inside the gap, so a Sabot headshot through a helmet is both sounds.
@@ -289,7 +292,7 @@ export class Reactions {
   /** `enemy:wounded` comes once per man per zone, so each tier says something new. */
   private onWounded({ enemy, zone, damage }: GameEvents['enemy:wounded']): void {
     if (VOICELESS.has(zone)) this.voiced.add(enemy.uid);
-    if (ENEMY_SOURCES.has(damage.source)) return;
+    if (notPlayers(damage.source)) return;
     if (ARTERIES.has(zone)) this.spray(damage.point, 0.05);
     const tier = CRIPPLING_ZONES.has(zone) ? 'wound_crippling' : MINOR_ZONES.has(zone) ? 'wound_minor' : null;
     if (!tier || this.wound === 'wound_crippling') return;
@@ -325,7 +328,7 @@ export class Reactions {
   }
 
   private onKilled({ enemy, damage, gibbed, headshot }: GameEvents['enemy:killed']): void {
-    if (!ENEMY_SOURCES.has(damage.source)) this.play('hit_marker_kill');
+    if (!notPlayers(damage.source)) this.play('hit_marker_kill');
     if (isMachine(enemy)) return;
     if (gibbed) {
       this.play('blood_splatter', enemy.center, 1, 1, 0.03);

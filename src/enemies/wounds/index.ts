@@ -13,6 +13,7 @@
  * `DamageModel` asks this one question per hit, `take`, and carries out a fall if `mustFall` says so. Everything else runs on
  * the man's own time, from `update`, ahead of his brain and his legs.
  */
+import { ALLY_SOURCE } from '../../allies/data';
 import * as THREE from 'three';
 import { HumanoidBone as B, type GoreRegion } from '../../characters/rig';
 import type { DamageInfo, DamageType } from '../../core/contracts';
@@ -286,7 +287,8 @@ export class WoundSystem {
   private label(s: Soldier, zone: ZoneId, label: string, bonus: number, d: DamageInfo): void {
     const { ctx, now } = this.w;
     ctx.events.emit('enemy:wounded', { enemy: s.e, zone, label, bonus, damage: d });
-    if (now - this.labelAt < LABEL_GAP) return;
+    // The label is the player's style feedback. An ally's hit (src/allies) earns none.
+    if (now - this.labelAt < LABEL_GAP || ALLY_SOURCE.test(d.source)) return;
     this.labelAt = now;
     ctx.hud.floatText(s.e.center, label, LABEL_COLOR);
   }
