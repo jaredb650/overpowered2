@@ -145,8 +145,32 @@ const armourSamples: SoundDef[] = [
   armour('armour_crunch', 'impact', 0.4, { priority: 6 }),
   armour('sabot_on_vehicle', 'impact', 0.35, { priority: 6 }),
   armour('sabot_shield_pierce', 'impact', 0.35, { priority: 6 }),
-  armour('sabot_shot', 'gun', 0.45, { send: 0.22 }),
-  armour('autocannon_blast', 'gun', 0.5, { send: 0.22 }),
+];
+
+/**
+ * A gun shot set by how loud it lands rather than by its file's level: `level` is its place on the gun ladder and `loud`
+ * is the file's own loudness (analyze.ts `loudness`, the loudest 50 ms), measured when it was added. Remeasure if a file
+ * is replaced.
+ */
+function shot(id: string, file: string, mix: MixClass, level: number, loud: number, over: Partial<MixProfile> = {}): SoundDef {
+  return { ...MIX[mix], ...over, volume: level / loud, id, kind: 'sample', loop: false, file };
+}
+
+/**
+ * The gun sound update (sfx/guns, the owner's own generated recordings) and the two cannon shots from the armour update.
+ * One ladder, about 6 dB from bottom to top: light guns at the old SMG's level (0.14), shotguns at the old shotgun's
+ * (0.23), the heavy single shots on top. A gun that fires fast sits a little under one that fires once.
+ */
+const gunShots: SoundDef[] = [
+  shot('smg_shot', 'guns/smg_shot.mp3', 'gun', 0.143, 0.105),
+  shot('pistol_shot', 'guns/pistol_shot.mp3', 'gun', 0.138, 0.145),
+  shot('harrow_shot', 'guns/harrow_shot.mp3', 'gun', 0.165, 0.234, { send: 0.2 }),
+  shot('auto_shotgun_shot', 'guns/auto_shotgun_shot.mp3', 'gun', 0.204, 0.259, { send: 0.18 }),
+  shot('pump_shotgun_shot', 'guns/pump_shotgun_shot.mp3', 'gun', 0.234, 0.3, { send: 0.2 }),
+  shot('hmg_shot', 'guns/hmg_shot.mp3', 'gun', 0.225, 0.25, { send: 0.3 }),
+  shot('revolver_shot', 'guns/revolver_shot.mp3', 'gunHeavy', 0.24, 0.254),
+  shot('sabot_shot', 'armour/sabot_shot.mp3', 'gunHeavy', 0.246, 0.374, { send: 0.32 }),
+  shot('autocannon_blast', 'armour/autocannon_blast.mp3', 'gun', 0.285, 0.658, { send: 0.22 }),
 ];
 
 /**
@@ -283,7 +307,7 @@ const aliases: Record<string, string> = {
 };
 
 export const CATALOG: ReadonlyMap<string, SoundDef> = new Map(
-  [...samples, ...armourSamples, ...packs, ...groups, ...stacks, ...recipes.map(synth)].map(def => [def.id, def]),
+  [...samples, ...armourSamples, ...gunShots, ...packs, ...groups, ...stacks, ...recipes.map(synth)].map(def => [def.id, def]),
 );
 
 export const ALIASES: Readonly<Record<string, string>> = aliases;

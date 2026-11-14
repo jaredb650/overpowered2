@@ -234,6 +234,15 @@ Random-pick groups: `bullet_hit` (the four samples), `sword_hit`, `player_footst
 - In the world: `armour_crunch` (a shaped charge strips every plate), `sabot_on_vehicle`, `sabot_shield_pierce`
 - Guns: `sabot_shot` (replaces `sabot_fire` on the Sabot), `autocannon_blast` (replaces `autocannon_shot` on the autocannon)
 
+**The gun sound update** (`sfx/guns`, the owner's own generated recordings). Every player gun now fires a recording.
+Each is set by how loud it lands, not by its file's level: `shot()` in the catalog divides its place on one ladder by the
+file's measured loudness. The ladder runs about 6 dB from the bottom to the top: `smg_shot` (SMG) and `pistol_shot`
+(Rivet) at the old SMG's level, `harrow_shot` (Harrow), `auto_shotgun_shot` (Thresher), `hmg_shot` (Piledriver),
+`pump_shotgun_shot` (shotgun) at the old shotgun's level, `revolver_shot` (Judge), `sabot_shot`, and `autocannon_blast`
+on top. The files were trimmed of dead air, mixed to mono and peak-normalised to -1 dB. The ids they replace on the guns
+(`smg_fire`, `shotgun_fire`, `thresher_fire`, `harrow_fire`, `rivet_fire`, `revolver_fire`, `piledriver_fire`) stay in
+the catalog.
+
 ## Sample packs
 
 Real recordings from free libraries. Sources, authors and licences for every file are in `docs/CREDITS.md`. One id holds all its variants, and pitch

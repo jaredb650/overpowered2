@@ -246,7 +246,7 @@ describe('the heavy machine gun', () => {
     expect(fired).toBeGreaterThanOrEqual(Math.floor(2 / hmg.interval));
     expect(fired).toBeLessThanOrEqual(Math.ceil(2 / hmg.interval) + 1);
     expect(r.combat.bursts.stats.bursts).toBe(0);
-    expect(r.record.sounds.filter(id => id === 'piledriver_fire').length).toBe(fired);
+    expect(r.record.sounds.filter(id => id === 'hmg_shot').length).toBe(fired);
   });
 
   it('goes through an inner wall and the men behind it, losing some of its damage on the way', () => {
