@@ -271,7 +271,8 @@ export function harrowDef(kit: Kit): ViewDef {
     model: buildHarrow(kit),
     pos: [0.14, -0.136, -0.43],
     rot: [0.022, 0.08, 0],
-    recoil: { back: 0.034, lift: 0.005, pitch: 0.04, yaw: 0.008, roll: 0.014, omega: 40, zeta: 0.56 },
+    // Back into the shoulder with a slight tip, not a muzzle flip (owner, 2026-11-13).
+    recoil: { back: 0.042, lift: 0.003, pitch: 0.016, yaw: 0.008, roll: 0.014, omega: 40, zeta: 0.56 },
     right: { socket: 'gripR', pose: HANDS.grip },
     left: { socket: 'gripL', pose: HANDS.support },
     heatPerShot: 0.016,

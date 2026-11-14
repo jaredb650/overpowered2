@@ -171,7 +171,7 @@ const gunShots: SoundDef[] = [
   { ...sample('guns/pump_rack_forward.mp3', 'foley', 0.16), id: 'pump_rack_forward' },
   shot('smg_shot', 'guns/smg_shot.mp3', 'gun', 0.143, 0.105),
   shot('pistol_shot', 'guns/pistol_shot.mp3', 'gun', 0.138, 0.145),
-  shot('harrow_shot', 'guns/harrow_shot.mp3', 'gun', 0.165, 0.234, { send: 0.2 }),
+  shot('harrow_shot', 'guns/harrow_shot.mp3', 'gun', 0.165, 0.381, { send: 0.2 }),
   shot('auto_shotgun_shot', 'guns/auto_shotgun_shot.mp3', 'gun', 0.204, 0.259, { send: 0.18 }),
   shot('pump_shotgun_shot', 'guns/pump_shotgun_shot.mp3', 'gun', 0.234, 0.3, { send: 0.2 }),
   shot('hmg_shot', 'guns/hmg_shot.mp3', 'gun', 0.225, 0.25, { send: 0.3 }),

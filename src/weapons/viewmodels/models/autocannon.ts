@@ -421,7 +421,8 @@ export function autocannonDef(kit: Kit): ViewDef {
     model: buildCannon(kit, HE),
     pos: [0.235, -0.27, -0.46],
     rot: [0.012, 0.05, 0],
-    recoil: { back: 0.1, lift: 0.024, pitch: 0.12, yaw: 0.016, roll: 0.05, omega: 28, zeta: 0.5 },
+    // Back into the shoulder with a slight tip, not a muzzle flip (owner, 2026-11-13).
+    recoil: { back: 0.13, lift: 0.012, pitch: 0.045, yaw: 0.016, roll: 0.05, omega: 28, zeta: 0.5 },
     right: { socket: 'gripR', pose: HANDS.grip },
     left: { socket: 'gripL', pose: HANDS.foregrip },
     heatPerShot: 0.16,
@@ -437,7 +438,8 @@ export function sabotDef(kit: Kit): ViewDef {
     model: buildCannon(kit, AP),
     pos: [0.235, -0.27, -0.46],
     rot: [0.012, 0.05, 0],
-    recoil: { back: 0.12, lift: 0.02, pitch: 0.1, yaw: 0.012, roll: 0.04, omega: 30, zeta: 0.46 },
+    // Back into the shoulder with a slight tip, not a muzzle flip (owner, 2026-11-13).
+    recoil: { back: 0.15, lift: 0.01, pitch: 0.04, yaw: 0.012, roll: 0.04, omega: 30, zeta: 0.46 },
     right: { socket: 'gripR', pose: HANDS.grip },
     left: { socket: 'gripL', pose: HANDS.foregrip },
     heatPerShot: 0.2,
