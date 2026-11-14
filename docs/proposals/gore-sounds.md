@@ -159,9 +159,11 @@ Not done, and why:
 
 ### Follow-up for gore: softer contacts for the ragdoll knocks
 
+Done, 2026-11-14: made as written below, in `src/gore/impacts.ts` (the cap is `SOFT_CAP`).
+
 Audio plays `ragdoll_bump` for every soft contact gore reports, but gore reports nothing under `ImpactTuning[kind].min`
 (0.9 m/s lost per kg for a body, 2.5 for a limb, 2 for a head), so a body sliding or rolling slowly makes no sound. The
-change, in `src/gore/impacts.ts` and nowhere else (not made: `src/gore` belongs to the ragdoll work):
+change, in `src/gore/impacts.ts` and nowhere else:
 
 ```ts
 // ImpactTuning: a contact this soft is reported too, at the strength it has, with its own shorter per-body gap.

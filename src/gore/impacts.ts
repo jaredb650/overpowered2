@@ -27,11 +27,14 @@ declare module '../core/contracts' {
  * one figure in newton-seconds would be silent on the first or constant on the last. Loudness comes from the speed
  * going in, not the speed lost: a body stops over several frames, so its first frame of contact, the only one that
  * can be reported without lag, loses about the same from any height.
+ *
+ * A contact down to `soft` is reported too, at the strength it has but no more than `SOFT_CAP`, with its own shorter
+ * gap `softCooldown`: a body sliding or rolling slowly knocks. Organs have none, so chunks only land.
  */
 export const ImpactTuning = {
-  body: { min: 0.9, full: 12, cooldown: 0.25 },
-  limb: { min: 2.5, full: 11, cooldown: 0.16 },
-  head: { min: 2, full: 10, cooldown: 0.2 },
+  body: { min: 0.9, full: 12, cooldown: 0.25, soft: 0.3, softCooldown: 0.12 },
+  limb: { min: 2.5, full: 11, cooldown: 0.16, soft: 0.8, softCooldown: 0.1 },
+  head: { min: 2, full: 10, cooldown: 0.2, soft: 0.7, softCooldown: 0.12 },
   organ: { min: 3.5, full: 12, cooldown: 0.14 },
   /** A chunk this size or larger is at full strength. Smaller ones fall off to `organFloor`. */
   organFullSize: 0.1,
@@ -39,6 +42,9 @@ export const ImpactTuning = {
   /** Events per frame across everything. A gib lands thirty pieces at once and the mixer only keeps a few. */
   perFrame: 6,
 };
+
+/** A soft contact's strength at most, so audio hears it as a knock (`ragdoll_bump`), not a landing. */
+const SOFT_CAP = 0.24;
 
 /** Which sound a part of a body makes. */
 export function impactKind(def: BoneDef): ImpactKind {
@@ -67,13 +73,14 @@ export class ImpactEvents {
   land(kind: ImpactKind, lost: number, speed: number, at: THREE.Vector3, readyAt: number, scale = 1): number {
     const t = ImpactTuning[kind];
     const now = this.ctx.time.elapsed;
-    if (lost < t.min || now < readyAt || this.left <= 0) return readyAt;
+    const soft = lost < t.min;
+    if (lost < ('soft' in t ? t.soft : t.min) || now < readyAt || this.left <= 0) return readyAt;
     this.left--;
     const p = this.payload;
     p.position.copy(at);
-    p.strength = clamp(speed / t.full) * scale;
+    p.strength = soft ? Math.min(SOFT_CAP, clamp(speed / t.full) * scale) : clamp(speed / t.full) * scale;
     p.kind = kind;
     this.ctx.events.emit('gore:impact', p);
-    return now + t.cooldown;
+    return now + (soft && 'softCooldown' in t ? t.softCooldown : t.cooldown);
   }
 }
