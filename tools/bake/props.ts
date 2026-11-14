@@ -3,12 +3,15 @@
  * on a hand socket the same way. `muzzle` and `foregrip` sockets tell the runtime where the shot leaves and
  * where the off hand goes.
  */
+import { archetypeById, unitRigFor, type ArchetypeDef } from '../../src/characters/archetypes';
 import type { Socket } from '../../src/characters/format';
-import type { Mat, Model } from './model';
+import { Model, type Mat } from './model';
 import {
   blend, capsule, cone, cut, cyl, ellipsoid, fbm, frustum, hexBolt, rbox, rows, sphere, spline, torus, tube,
   type V3,
 } from './sdf';
+import { gunnerHelmet, riotHelmet, rocketeerHelmet, trooperHelmet } from './archetypes/soldiers';
+import { B, Sk } from './parts/skeleton';
 import { darkSteel, glass, glow, hazard, hexc, leather, paintedMetal, rubber, rust, steel } from './parts/materials';
 
 export interface PropDef {
@@ -305,7 +308,45 @@ const rocketPack: PropDef = {
   },
 };
 
+/**
+ * A soldier's helmet as its own model, so the helmet you see is the plate that gets shot off. Built where it sits on that
+ * archetype's head, then moved so the head bone is the origin: it mounts on the `head` socket, which is that origin.
+ */
+function wornOnHead(archetype: string, build: (m: Model, sk: Sk, def: ArchetypeDef) => void): PropDef {
+  return {
+    tris: 2400,
+    atlas: 512,
+    // The body's own voxel, so the shell comes out exactly as it was when it was baked into him.
+    voxelScale: 1,
+    build(m) {
+      const def = archetypeById(archetype);
+      const sk = new Sk(unitRigFor(def));
+      const on = new Model();
+      build(on, sk, def);
+      const [hx, hy, hz] = sk.pos[B.head]!;
+      const back = (v: V3): V3 => [v[0] - hx, v[1] - hy, v[2] - hz];
+      for (const e of on.edits) {
+        const { f, lo, hi } = e.shape;
+        const paint = e.mat?.paint;
+        m.edits.push({
+          ...e,
+          shape: { f: (x, y, z) => f(x + hx, y + hy, z + hz), lo: back(lo), hi: back(hi) },
+          // Paint is placed in world space: sample it where the helmet was, so the wear and chips land where they did.
+          mat: e.mat && paint ? { ...e.mat, paint: (x, y, z, o) => paint(x + hx, y + hy, z + hz, o) } : e.mat,
+          lo: back(e.lo),
+          hi: back(e.hi),
+        });
+      }
+      return {};
+    },
+  };
+}
+
 export const PROPS: Record<string, PropDef> = {
   smg, pistol, shotgun, minigun, launcher, sniperRifle, riotShield, blade, flamer, wardenStaff, fuelTank, twinTanks, rocketPack,
+  trooperHelmet: wornOnHead('trooper', trooperHelmet),
+  gunnerHelmet: wornOnHead('gunner', gunnerHelmet),
+  rocketeerHelmet: wornOnHead('rocketeer', rocketeerHelmet),
+  riotHelmet: wornOnHead('riot', riotHelmet),
 };
 

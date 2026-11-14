@@ -67,7 +67,7 @@ Priority order as given. "Chrome" means it ran in the real game with a screensho
 | Smoke | Yes | Chrome: the cloud. Soldiers losing sight through it: not measured |
 | Anti-air | Yes | Chrome through real keys: AA LOCK, Warthog cut off. Seated call-ins eject by the same path, not run |
 | Call-in radio jammer | Yes | Chrome through real keys: call held, went the moment he died |
-| Heavier helmets | Yes | Chrome: visor, head plate 21 to 63 |
+| Heavier helmets | Yes | Chrome: visor, his own helmet 1.1 times larger, head plate 21 to 63 |
 | Nobody surrenders | Yes | Doctrine, one flag |
 | Rigged casualties | Yes | Chrome: goes when the player closes |
 | Radio silence, false chatter | Yes | Headless: `Alpha-7` naming a wired room |

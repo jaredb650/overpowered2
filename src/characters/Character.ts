@@ -280,7 +280,8 @@ export class Character implements CharacterInstance {
     const cap = this.a.model.capByBone.get(boneIndex);
     if (cap && def.parent >= 0) this.showCap(cap.parentCap, this.bones[def.parent]!);
     for (const p of this.props) {
-      if (this.hidden[p.bone]) p.object.visible = false;
+      // A prop already off the bone (a helmet shot off and flying) is not on the limb any more.
+      if (this.hidden[p.bone] && p.object.parent === this.bones[p.bone]) p.object.visible = false;
     }
   }
 
@@ -642,7 +643,8 @@ export class SeveredPart implements SeveredLimb {
     this.data[this.extras + EXTRA_PARAMS * 4 + 1] = 0;
     this.showWounds();
     for (const p of src.props) {
-      if (!chain[p.bone]) continue;
+      // A prop that has already left the bone (a helmet shot off) stays where it went.
+      if (!chain[p.bone] || p.object.parent !== src.bones[p.bone]) continue;
       // A clone, because the limb can outlive the instance that shed it.
       const clone = p.object.clone();
       clone.visible = true;

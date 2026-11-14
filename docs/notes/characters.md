@@ -170,7 +170,7 @@ Warm-up: `CharacterLibraryImpl.warmWounds` draws one wounded body out of sight o
 | LOD 1 / LOD 2 | About 42% and 14% of LOD 0 |
 | Animation, 48 characters all at LOD 0 | 0.75 ms on a loaded M1, against a 2 ms budget, before LOD savings |
 | 48 characters in the sandbox | 214 draw calls and 1.05M triangles including shadow passes |
-| Disk | 37 MB for 16 characters and 13 props, about 2.2 MB per character |
+| Disk | 37 MB for 16 characters and 17 props, about 2.2 MB per character |
 | Atlas density | 2.1 to 2.8 mm per texel at 1024 |
 | Foot slide | Under 2 cm at 2 to 11 m/s and at 30 to 144 Hz, asserted in `animation/gait.test.ts` |
 
@@ -209,6 +209,15 @@ it to make equipment fit the body beneath.
 Adding an archetype: an entry in `src/characters/archetypes.ts`, a builder in `tools/bake/archetypes/`, a line in
 `STYLES` for how it moves. Props go in `tools/bake/props.ts`, authored with the grip at the origin and the barrel along
 +Z.
+
+Helmets are props, so they can come off. The Trooper, Gunner, Rocketeer and Riot bake with a bare hooded head, and their
+helmets (`trooperHelmet`, `gunnerHelmet`, `rocketeerHelmet`, `riotHelmet`) are built by the same code in `archetypes/soldiers.ts`
+where they sat on the head, then moved by `wornOnHead` in `props.ts` so the head bone is the origin. They mount on the `head`
+socket (in `standardSockets`: the head bone's own origin). What goes with the helmet: the Trooper's crest fin and antenna, the
+Rocketeer's monocle, the Riot's dome visor, the Gunner's whole bucket. The Trooper's goggle slit and mouthpiece and the
+Rocketeer's respirator stay on the face. In The Crucible a helmet is only worn; where a soldier wears the `HELMET` plate it is
+that plate's mesh (`docs/notes/enemies.md`, `armor.ts`). A prop that has left its bone (a helmet shot off) is not hidden with a
+burst head and is not cloned onto a severed one.
 
 ## Tuning
 

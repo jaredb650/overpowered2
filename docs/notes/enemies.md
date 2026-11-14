@@ -55,7 +55,7 @@ Reads from other systems: `world.nav`, `world.objects` (`hazardAt`, `padAt`, `se
 | `contact.ts` | The player running into a body |
 | `director.ts` | Attack tokens and gaps, ray budget, squads, barks |
 | `spawner.ts`, `waves.ts` | Entrances, composition tables, the queue |
-| `armor.ts`, `telegraph.ts` | Plate meshes and debris, every warning visual |
+| `armor.ts`, `telegraph.ts` | Plate meshes and debris, every warning visual. A plate with `worn` (the soldiers' `HELMET`) uses the baked prop his archetype mounts on that socket as its mesh instead of a slab, so the debris throws his real helmet and leaves a bare head; `fitPlates` puts it back on his head at body scale on respawn, and a body without the prop falls back to the slab |
 
 Maimed states have no special cases. They are behaviours and attacks whose score or `requires` reads `e.maim`, so a lost limb
 changes what is available on the next think.

@@ -16,6 +16,7 @@ import { PlateDebris, plateGeometry, plateMaterial, type Plate, type PlateSpec }
 import { say } from './attacks';
 import { finishAttack, thinkAttacks, thinkBehaviours, tickAttack, type Behaviour } from './brain';
 import { updateContact } from './contact';
+import { archetypeById } from '../characters/archetypes';
 import { ENEMIES, LIMB_SIZE, waveScale, type Footfall } from './data';
 import { DamageModel, STRAY_TANK_DAMAGE, STRAY_TANK_RADIUS } from './damage';
 import { Director } from './director';
@@ -287,7 +288,12 @@ export class EnemyManager implements EnemySystem {
   fitPlates(e: Enemy, specs: readonly PlateSpec[]): void {
     let meshes = this.plateMeshes.get(e.char);
     if (!meshes) {
+      const def = archetypeById(e.char.archetype);
       meshes = specs.map(spec => {
+        // His helmet is already on his head as a baked prop: that is the plate, so shooting it off bares his head.
+        const model = spec.worn && def.props.find(p => p.socket === spec.worn)?.model;
+        const prop = model && e.char.bones[spec.bone]!.getObjectByName(model);
+        if (prop instanceof THREE.Mesh) return prop;
         const mesh = new THREE.Mesh(plateGeometry(spec), plateMaterial(this.ctx));
         mesh.castShadow = true;
         e.char.attachProp(spec.bone, mesh);
@@ -300,14 +306,22 @@ export class EnemyManager implements EnemySystem {
     for (let i = 0; i < specs.length; i++) {
       const spec = specs[i]!;
       const mesh = meshes[i]!;
+      const worn = mesh.material !== plateMaterial(this.ctx);
       e.char.bones[spec.bone]!.add(mesh);
-      mesh.position.set(spec.offset[0], spec.offset[1], spec.offset[2]);
-      mesh.rotation.set(spec.tilt?.[0] ?? 0, spec.tilt?.[1] ?? 0, spec.tilt?.[2] ?? 0);
-      mesh.scale.setScalar(1);
+      if (worn) {
+        // Where the head socket mounts it, at the body's scale, as `fitProps` first put it.
+        mesh.position.set(0, 0, 0);
+        mesh.rotation.set(0, 0, 0);
+        mesh.scale.setScalar(archetypeById(e.char.archetype).proportions.scale);
+      } else {
+        mesh.position.set(spec.offset[0], spec.offset[1], spec.offset[2]);
+        mesh.rotation.set(spec.tilt?.[0] ?? 0, spec.tilt?.[1] ?? 0, spec.tilt?.[2] ?? 0);
+        mesh.scale.setScalar(1);
+      }
       mesh.visible = true;
       const hp = spec.hp * e.maxHealth;
       total += hp;
-      plates.push({ spec, hp, mesh });
+      plates.push({ spec, hp, mesh, worn });
     }
     e.plates = plates;
     e.armor = total;

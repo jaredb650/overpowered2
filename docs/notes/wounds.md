@@ -78,7 +78,7 @@ Wounds stack: `Injuries.add` deepens a wound in the same place and adds a new on
 |---|---|---|
 | Wound hold | `holdWorst`, `anim.holdWound` | Done. Pressure takes 40% off, aim worse by 1.3. It also runs while crawling. No free hand, no hold |
 | Weapon character | `CHARACTER`, `HEAVY_ROUND` | Done for bleed and limb wear. Fire cauterises. Cannons burst a man, which is `bursts` |
-| Armour | `armour.ts`, `onPlate` | Done. Front plate and helmet, real meshes. Stops small arms outright with a blunt stagger, hangs off below 55%, comes off. Nothing on the back |
+| Armour | `armour.ts`, `onPlate` | Done. Front plate and helmet, real meshes: the helmet plate is the helmet he wears (`HELMET.worn`), so shooting it off bares his hooded head. Stops small arms outright with a blunt stagger, hangs off below 55% (the helmet tips forward over his eyes), comes off. Nothing on the back |
 | Blast concussion | `concuss` | Done. Dazed 3 to 6 s, deaf, aim 3.5x, takes no orders. A plate does not stop it |
 | Fire | `panic`, `rollAt` | Partly. Runs in circles, and after 1.5 to 3 s throws himself down, which puts it out. He writhes. There is no real roll |
 | Self-aid | `selfAid` in `behaviours.ts` | Done. 2.6 to 4.2 s kneeling, stops the worst wound. A hit interrupts it |
@@ -147,7 +147,7 @@ node tools/shot.mjs --url "/?autostart=1" --script tools/scripts/wounds-swarm.mj
 - **Burn panic is written but not seen.** On the range with AI off he stands and burns, and I have no sequence with the brain on.
 - **A paralysed man's legs still stir** in gore's lying phase, because `Reflex` knows nothing of wounds.
 - **A prone man firing a sidearm** uses the crawl's arm pose: the pistol is at the end of a hand on the floor. It fires true to the numbers and looks wrong.
-- **Plates are `plateGeometry` slabs** in the suit's colours. I judged them only at the range the sheets show.
+- **Chest plates are `plateGeometry` slabs** in the suit's colours; the helmet is the baked helmet prop. I judged them only at the range the sheets show.
 - **`stragglers.ts` marks prisoners too.** The reveal now works, but with three or more prisoners the markers can all go to them and miss the last hostile.
 - **Some downed men barely crawl**, because a hidden cover spot is often within a metre. In one run two moved under half a metre.
 - **Wave pacing has not been retuned.** Plates and mortal time make men last longer, and nobody has compared that to section 14.2.

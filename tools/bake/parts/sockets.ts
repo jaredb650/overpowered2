@@ -44,5 +44,7 @@ export function standardSockets(sk: Sk): Record<string, Socket> {
     handL: handSocket(sk, 1),
     back: { bone: B.chest, pos: sub([0, 1.35, -0.2], chest), rot: [0, 0, 0, 1] },
     hip: { bone: B.hips, pos: [0.2, -0.05, 0], rot: [0, 0, 0, 1] },
+    // The head bone's own origin: helmets are baked around it (see `wornOnHead` in props.ts).
+    head: { bone: B.head, pos: [0, 0, 0], rot: [0, 0, 0, 1] },
   };
 }

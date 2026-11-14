@@ -57,13 +57,27 @@ function harness(m: Model, base: Shape, sk: Sk, mat: Mat): void {
   }
 }
 
-function trooperHead(m: Model, sk: Sk, def: ArchetypeDef, shellMat: Mat): void {
+/*
+ * Helmets are baked as props (`*Helmet` in props.ts) and worn on the `head` socket, so the helmet you see is the plate that
+ * gets shot off. The bodies keep only the hooded head underneath.
+ */
+const trooperShell = () => paintedMetal(0x3c4a5c, 0.5, 1);
+const rocketeerShell = () => paintedMetal(0x394a42, 0.5, 1);
+const riotNavy = () => paintedMetal(0x1e2a44, 0.45, 1);
+const gunnerIron = () => paintedMetal(0x2e2a26, 0.55, 1);
+
+function trooperHead(m: Model, sk: Sk, def: ArchetypeDef): void {
   const P = headP(sk);
   hood(m, sk, rubber);
-  helmet(m, sk, { mat: shellMat, ears: true, neckGuard: true });
   visorSlit(m, sk, accentOf(def));
   m.add(blend(0.016, ellipsoid(P(0, 0.028, 0.09), [0.066, 0.046, 0.044]), cone(P(0, 0.018, 0.1), P(0, 0.006, 0.136), 0.032, 0.024)), darkSteel, B.head, { rigid: true });
   for (const s of BOTH) m.add(cyl(P(s * 0.046, 0.012, 0.098), P(s * 0.074, 0.0, 0.112), 0.02, 0.004), rubber, B.head, { rigid: true });
+}
+
+export function trooperHelmet(m: Model, sk: Sk, def: ArchetypeDef): void {
+  const P = headP(sk);
+  const shellMat = trooperShell();
+  helmet(m, sk, { mat: shellMat, ears: true, neckGuard: true });
   // Rear fin: the trooper's read at range.
   m.add(blend(0.01, rbox(P(0, 0.2, -0.04), [0.008, 0.024, 0.09], 0.006), rbox(P(0, 0.17, -0.1), [0.008, 0.05, 0.05], 0.006)), shellMat, B.head, { rigid: true, k: 0.01 });
   antenna(m, P(-0.11, 0.12, -0.03), P(-0.15, 0.42, -0.1), B.head, darkSteel, accentOf(def));
@@ -71,7 +85,7 @@ function trooperHead(m: Model, sk: Sk, def: ArchetypeDef, shellMat: Mat): void {
 
 export function trooper(m: Model, sk: Sk, def: ArchetypeDef): Record<string, Socket> {
   const fatigue = cloth(0x2a3442, 0.6);
-  const shell = paintedMetal(0x3c4a5c, 0.5, 1);
+  const shell = trooperShell();
   const web = cloth(0x14171c, 0.2);
   const { body, sockets } = clothedBody(m, sk, { suit: fatigue, mass: 1 });
   const torsoLayer = m.snapshot();
@@ -101,14 +115,13 @@ export function trooper(m: Model, sk: Sk, def: ArchetypeDef): Record<string, Soc
   m.add(rbox([-0.05, 1.42, -0.225], [0.01, 0.006, 0.002], 0.001), accentOf(def), B.chest, { rigid: true, detail: true });
   antenna(m, [0.08, 1.46, -0.18], [0.1, 1.98, -0.28], B.chest, darkSteel);
   hosePath(m, [[-0.07, 1.46, -0.17], [-0.1, 1.56, -0.1], [-0.08, 1.63, -0.02], [-0.06, 1.625, 0.06]], B.chest, { r: 0.008 });
-  trooperHead(m, sk, def, shell);
+  trooperHead(m, sk, def);
   return sockets;
 }
 
 export function gunner(m: Model, sk: Sk, def: ArchetypeDef): Record<string, Socket> {
   const coat = cloth(0x3a3026, 0.8);
-  const iron = paintedMetal(0x2e2a26, 0.55, 1);
-  const P = headP(sk);
+  const iron = gunnerIron();
   const { body, sockets } = clothedBody(m, sk, { suit: cloth(0x24211e), mass: 1.12 });
   // Long stiff coat in panels: bulk at the shoulders, skirts to the knee.
   suit(m, m.snapshot(), coat, { off: 0.016, folds: 1.5, seed: 3, exclude: [...handsAndHead(sk), sphere(sk.on(B.thighL, B.shinL, 1.1), 0.34), sphere(sk.on(B.thighR, B.shinR, 1.1), 0.34)] });
@@ -132,17 +145,23 @@ export function gunner(m: Model, sk: Sk, def: ArchetypeDef): Record<string, Sock
     kneePad(m, body, sk, s, iron);
     pouch(m, surfaceHit(coatLayer, [s * 0.15, 1.0, 0.3], [0, 0, -1]), leather(0x2a2018), { bone: B.hips, size: [0.05, 0.05, 0.03] });
   }
-  // High collar rising to the ears, then the bucket helm: a flat-topped wide block at range.
+  // High collar rising to the ears. The bucket helm is `gunnerHelmet`.
   m.add(cut(frustum(sk.p(B.neck, 0, -0.05, -0.005), sk.p(B.neck, 0, 0.1, -0.015), 0.13, 0.15, 0.008), cyl(sk.p(B.neck, 0, -0.1, -0.005), sk.p(B.neck, 0, 0.2, -0.015), 0.105, 0.003)), iron, B.chest, { rigid: true });
   m.cut(rbox(sk.p(B.neck, 0, 0.09, 0.14), [0.07, 0.08, 0.05], 0.02), { k: 0.012 });
   hood(m, sk, rubber);
+  return sockets;
+}
+
+/** The bucket helm: a flat-topped wide block at range. */
+export function gunnerHelmet(m: Model, sk: Sk, def: ArchetypeDef): void {
+  const P = headP(sk);
+  const iron = gunnerIron();
   const bucket = cut(rbox(P(0, 0.1, 0.008), [0.102, 0.112, 0.116], 0.03), rbox(P(0, 0.09, 0.14), [0.07, 0.0115, 0.04], 0.003));
   m.add(bucket, iron, B.head, { rigid: true });
   m.add(rbox(P(0, 0.09, 0.104), [0.066, 0.0085, 0.012], 0.003), accentOf(def), B.head, { rigid: true });
   rivets(m, bucket, [[-0.085, 0.17, 0], [-0.03, 0.17, 0], [0.03, 0.17, 0], [0.085, 0.17, 0], [-0.085, 0.03, 0], [0.085, 0.03, 0]].map(([x, y, z]) => P(x!, y!, z!)), [0, 0, -1], steel, B.head);
   m.add(rbox(P(0, 0.222, 0), [0.04, 0.012, 0.09], 0.01), darkSteel, B.head, { rigid: true });
   for (let i = -2; i <= 2; i++) panelLine(m, P(i * 0.026, 0.005, 0.13), P(i * 0.026, 0.06, 0.13), 0.0035);
-  return sockets;
 }
 
 export function brute(m: Model, sk: Sk, def: ArchetypeDef): Record<string, Socket> {
@@ -181,7 +200,7 @@ export function brute(m: Model, sk: Sk, def: ArchetypeDef): Record<string, Socke
 
 export function rocketeer(m: Model, sk: Sk, def: ArchetypeDef): Record<string, Socket> {
   const fatigue = cloth(0x2c3430, 0.7);
-  const shell = paintedMetal(0x394a42, 0.5, 1);
+  const shell = rocketeerShell();
   const web = cloth(0x141814, 0.2);
   const P = headP(sk);
   const { body, sockets } = clothedBody(m, sk, { suit: fatigue, mass: 1.04 });
@@ -195,16 +214,20 @@ export function rocketeer(m: Model, sk: Sk, def: ArchetypeDef): Record<string, S
     pouch(m, surfaceHit(layer, [s * 0.11, 1.08, 0.3], [0, 0, -1]), web, { bone: B.spine, size: [0.05, 0.06, 0.034] });
   }
   hood(m, sk, rubber);
-  helmet(m, sk, { mat: shell, ears: true });
   respirator(m, sk, darkSteel, { filter: shell });
-  // Targeting monocle swung over the right eye.
+  m.add(ellipsoid(P(0.04, 0.09, 0.108), [0.02, 0.016, 0.008]), accentOf(def, 0.4), B.head, { rigid: true });
+  sockets.back = { bone: B.chest, pos: [0, 0.1, -0.2], rot: [0, 0, 0, 1] };
+  return sockets;
+}
+
+/** Helmet with the targeting monocle that swings off it over the right eye. */
+export function rocketeerHelmet(m: Model, sk: Sk, def: ArchetypeDef): void {
+  const P = headP(sk);
+  helmet(m, sk, { mat: rocketeerShell(), ears: true });
   m.add(cyl(P(-0.12, 0.13, 0), P(-0.12, 0.098, 0.03), 0.012), darkSteel, B.head, { rigid: true });
   m.add(capsule(P(-0.12, 0.098, 0.03), P(-0.05, 0.094, 0.13), 0.009), darkSteel, B.head, { rigid: true });
   m.add(torus(P(-0.042, 0.092, 0.132), [0, 0, 1], 0.03, 0.007), darkSteel, B.head, { rigid: true });
   m.add(ellipsoid(P(-0.042, 0.092, 0.13), [0.028, 0.028, 0.012]), accentOf(def), B.head, { rigid: true });
-  m.add(ellipsoid(P(0.04, 0.09, 0.108), [0.02, 0.016, 0.008]), accentOf(def, 0.4), B.head, { rigid: true });
-  sockets.back = { bone: B.chest, pos: [0, 0.1, -0.2], rot: [0, 0, 0, 1] };
-  return sockets;
 }
 
 export function sniper(m: Model, sk: Sk, def: ArchetypeDef): Record<string, Socket> {
@@ -240,8 +263,7 @@ export function sniper(m: Model, sk: Sk, def: ArchetypeDef): Record<string, Sock
 }
 
 export function riot(m: Model, sk: Sk, def: ArchetypeDef): Record<string, Socket> {
-  const P = headP(sk);
-  const navy = paintedMetal(0x1e2a44, 0.45, 1);
+  const navy = riotNavy();
   const pad = rubber;
   const { body, sockets } = clothedBody(m, sk, { suit: cloth(0x171d2a), mass: 1.2, folds: 0.8, handsL: 'grip' });
   const front = cuirass(m, body, sk, navy, { off: 0.03, top: 1.5, bottom: 1.1, width: 0.21 });
@@ -258,14 +280,19 @@ export function riot(m: Model, sk: Sk, def: ArchetypeDef): Record<string, Socket
     bracer(m, body, sk, s, navy);
   }
   hood(m, sk, rubber);
+  return sockets;
+}
+
+/** Helmet with a full dome visor and a blue reflection: the head reads as a big round bubble. */
+export function riotHelmet(m: Model, sk: Sk, def: ArchetypeDef): void {
+  const P = headP(sk);
+  const navy = riotNavy();
   helmet(m, sk, { mat: navy, size: 1.12, neckGuard: true, ears: false });
-  // Full dome visor with a blue reflection: the head reads as a big round bubble.
   m.add(cut(ellipsoid(P(0, 0.078, 0.042), [0.102, 0.104, 0.1]), rbox(P(0, 0.082, -0.1), [0.2, 0.2, 0.14], 0.002)), {
     albedo: [0.02, 0.05, 0.11], rough: 0.08, metal: 0.8, detail: 2,
   }, B.head, { rigid: true });
   m.add(rbox(P(0, 0.14, 0.135), [0.05, 0.003, 0.002], 0.001), accentOf(def), B.head, { rigid: true, detail: true });
   m.add(capsule(P(-0.1, 0.13, 0.03), P(0.1, 0.13, 0.03), 0.012), navy, B.head, { rigid: true });
-  return sockets;
 }
 
 export function burner(m: Model, sk: Sk, def: ArchetypeDef): Record<string, Socket> {

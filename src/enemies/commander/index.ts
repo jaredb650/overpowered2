@@ -75,6 +75,7 @@ const BACK_OFF_REST = 2.4;
 const BLAST_FLOOR = 18;
 /** What a heavier helmet multiplies the head plate by. */
 const HELMET_MULT = 3;
+const HEAVY_HELMET_SCALE = 1.1;
 /** Answers that change how men already in the fight behave. Everything else arrives with a wave built round it. */
 const WORKS_IN_FIGHT: ReadonlySet<AdaptationId> = new Set<AdaptationId>(['spread', 'shotguns', 'smoke', 'helmets', 'noSurrender', 'falseSurrender', 'radioSilence']);
 const NEEDS_A_WAVE: readonly AdaptationId[] = ADAPTATIONS.map(a => a.id).filter(id => !WORKS_IN_FIGHT.has(id));
@@ -365,6 +366,8 @@ export class Commander {
       if (!p.spec.regions.includes('head')) continue;
       e.armor += p.hp * (HELMET_MULT - 1);
       p.hp *= HELMET_MULT;
+      // His own helmet, a size up, so the order reads before the first shot. fitPlates puts it back to size on respawn.
+      if (p.worn) p.mesh.scale.multiplyScalar(HEAVY_HELMET_SCALE);
       this.props.fit(e.char, 'visor');
       return;
     }

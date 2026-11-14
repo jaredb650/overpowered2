@@ -14,6 +14,7 @@ const CARRIER: PlateSpec = {
 };
 const HELMET: PlateSpec = {
   regions: ['head'], bone: B.head, hp: 0.3, shape: 'slab', paint: KIT, size: [0.17, 0.2, 0.05], offset: [0, 0.205, 0.02], tilt: [-Math.PI / 2, 0, 0],
+  worn: 'head',
 };
 
 /** The machine gunner already carries more iron than this. */

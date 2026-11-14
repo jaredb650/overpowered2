@@ -36,13 +36,13 @@ const def = (
 
 export const ARCHETYPES: readonly ArchetypeDef[] = [
   def('husk', 'Husk', h(1, 0.88, 1.12), 0xa8ff3c, 12000, 'unarmed', 0.1),
-  def('trooper', 'Trooper', h(1, 1, 1), 0x26d9ff, 13000, 'rifle', 0.25, [{ model: 'smg', socket: 'handR' }]),
-  def('gunner', 'Gunner', h(1.04, 1.14, 1), 0xffb020, 13000, 'rifle', 0.35, [{ model: 'shotgun', socket: 'handR' }]),
+  def('trooper', 'Trooper', h(1, 1, 1), 0x26d9ff, 13000, 'rifle', 0.25, [{ model: 'smg', socket: 'handR' }, { model: 'trooperHelmet', socket: 'head' }]),
+  def('gunner', 'Gunner', h(1.04, 1.14, 1), 0xffb020, 13000, 'rifle', 0.35, [{ model: 'shotgun', socket: 'handR' }, { model: 'gunnerHelmet', socket: 'head' }]),
   def('brute', 'Brute', h(1.22, 1.5, 1.08), 0xff2a1a, 14000, 'heavy', 0.7, [{ model: 'minigun', socket: 'handR' }]),
   def('stalker', 'Stalker', h(1.06, 0.84, 1.1), 0xa040ff, 12000, 'blades', 0.05, [{ model: 'blade', socket: 'handR' }, { model: 'blade', socket: 'handL' }]),
-  def('rocketeer', 'Rocketeer', h(1.02, 1.08, 1), 0x10ffb0, 13000, 'shoulder', 0.4, [{ model: 'launcher', socket: 'handR' }, { model: 'rocketPack', socket: 'back' }]),
+  def('rocketeer', 'Rocketeer', h(1.02, 1.08, 1), 0x10ffb0, 13000, 'shoulder', 0.4, [{ model: 'launcher', socket: 'handR' }, { model: 'rocketPack', socket: 'back' }, { model: 'rocketeerHelmet', socket: 'head' }]),
   def('sniper', 'Sniper', h(1.1, 0.86, 1.06), 0xff1060, 12000, 'rifle', 0.2, [{ model: 'sniperRifle', socket: 'handR' }]),
-  def('riot', 'Riot', h(1.06, 1.22, 1), 0x2a6cff, 13000, 'shield', 0.5, [{ model: 'riotShield', socket: 'handL' }, { model: 'pistol', socket: 'handR' }]),
+  def('riot', 'Riot', h(1.06, 1.22, 1), 0x2a6cff, 13000, 'shield', 0.5, [{ model: 'riotShield', socket: 'handL' }, { model: 'pistol', socket: 'handR' }, { model: 'riotHelmet', socket: 'head' }]),
   def('leaper', 'Leaper', h(0.96, 0.8, 1.32), 0xff30d0, 12000, 'unarmed', 0.02),
   def('bomber', 'Bomber', h(0.98, 0.98, 1), 0xffd800, 12000, 'unarmed', 0.3, [{ model: 'fuelTank', socket: 'back' }]),
   def('burner', 'Burner', h(1.04, 1.2, 1), 0xff8a20, 13000, 'rifle', 0.45, [{ model: 'flamer', socket: 'handR' }, { model: 'twinTanks', socket: 'back' }]),

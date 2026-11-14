@@ -39,12 +39,19 @@ export interface PlateSpec {
   /** 'slab' is a shallow curved plate. 'sleeve' wraps most of the way round a limb. */
   shape: 'slab' | 'sleeve';
   paint: PlatePaint;
+  /**
+   * The socket of a baked prop he already wears there (a helmet on 'head'). When his archetype mounts one, that prop is the
+   * plate's mesh, seated where it was mounted, and the slab above is only the fallback.
+   */
+  worn?: string;
 }
 
 export interface Plate {
   spec: PlateSpec;
   hp: number;
   mesh: THREE.Mesh;
+  /** The mesh is his own worn prop at the bone's origin, not a slab at `spec.offset`. */
+  worn?: boolean;
 }
 
 /** Facets across and down a plate. Coarse on purpose: flat shading is what makes it read as forged. */

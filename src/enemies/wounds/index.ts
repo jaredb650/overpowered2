@@ -168,8 +168,9 @@ export class WoundSystem {
     if (!s) return;
     if (plate.hp > 0 && plate.hp < plate.spec.hp * e.maxHealth * CRACKED) {
       // Still on him, hanging by what is left of the straps.
-      plate.mesh.position.y = plate.spec.offset[1] - CRACK_DROP;
-      plate.mesh.rotation.x = (plate.spec.tilt?.[0] ?? 0) + CRACK_TIP;
+      // A worn helmet sits at the bone's origin, so it tips from there.
+      plate.mesh.position.y = (plate.worn ? 0 : plate.spec.offset[1]) - CRACK_DROP;
+      plate.mesh.rotation.x = (plate.worn ? 0 : plate.spec.tilt?.[0] ?? 0) + CRACK_TIP;
     }
     if (d.type === 'explosive') {
       // A plate stops metal. It does nothing about the pressure.

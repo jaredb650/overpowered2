@@ -98,6 +98,15 @@ rest go through. This applies to the shotgun (6 pellets) and the Thresher (4).
     heads, which nobody has seen (the Trooper's respirator and crest may need moving to the helmet). Splitting a helmet
     into two or three pieces is extra; one helmet flying off is the first step. The Commander's heavy helmet is the same
     prop, larger, with the visor that already exists.
+- **Built 2026-11-13** (one helmet flying off; splitting it into pieces is still to do).
+  - `trooperHelmet`, `gunnerHelmet`, `rocketeerHelmet`, `riotHelmet` in `tools/bake/props.ts` (`wornOnHead`), built by the
+    same code as before in `archetypes/soldiers.ts` and mounted on a new `head` socket (the head bone's origin). The bodies
+    bake with the bare rubber hood. The helmet takes the Trooper's crest fin and antenna, the Rocketeer's monocle and the
+    Riot's dome visor; the Trooper's goggle slit and mouthpiece and the Rocketeer's respirator stay on the face.
+  - `HELMET` has `worn: 'head'`: `fitPlates` uses the mounted helmet as the plate's mesh, so `PlateDebris` throws it, the
+    cracked tip tips it forward, and a respawn puts it back. Hit points and regions are unchanged.
+  - Heavy helmets scale it 1.1 alongside the visor. A burst head hides it as before; one already shot off is left alone and
+    is not cloned onto a severed head.
 
 ## 4. Headshots you can read
 

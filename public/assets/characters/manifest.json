@@ -9,8 +9,8 @@
   },
   "trooper": {
    "file": "trooper.bin",
-   "bytes": 733204,
-   "triangles": 12948,
+   "bytes": 730944,
+   "triangles": 12954,
    "kind": "character"
   },
   "smg": {
@@ -33,8 +33,8 @@
   },
   "gunner": {
    "file": "gunner.bin",
-   "bytes": 662384,
-   "triangles": 12952,
+   "bytes": 659836,
+   "triangles": 12924,
    "kind": "character"
   },
   "burner": {
@@ -69,8 +69,8 @@
   },
   "rocketeer": {
    "file": "rocketeer.bin",
-   "bytes": 705480,
-   "triangles": 12958,
+   "bytes": 699472,
+   "triangles": 12964,
    "kind": "character"
   },
   "titan": {
@@ -135,8 +135,8 @@
   },
   "riot": {
    "file": "riot.bin",
-   "bytes": 711132,
-   "triangles": 12860,
+   "bytes": 709508,
+   "triangles": 12904,
    "kind": "character"
   },
   "pistol": {
@@ -180,6 +180,30 @@
    "bytes": 742592,
    "triangles": 13766,
    "kind": "character"
+  },
+  "trooperHelmet": {
+   "file": "trooperHelmet.bin",
+   "bytes": 66964,
+   "triangles": 2400,
+   "kind": "prop"
+  },
+  "gunnerHelmet": {
+   "file": "gunnerHelmet.bin",
+   "bytes": 61292,
+   "triangles": 2400,
+   "kind": "prop"
+  },
+  "rocketeerHelmet": {
+   "file": "rocketeerHelmet.bin",
+   "bytes": 62136,
+   "triangles": 2400,
+   "kind": "prop"
+  },
+  "riotHelmet": {
+   "file": "riotHelmet.bin",
+   "bytes": 66820,
+   "triangles": 2394,
+   "kind": "prop"
   }
  }
 }
