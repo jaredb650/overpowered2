@@ -377,6 +377,7 @@ export class WoundSystem {
     }
     b.condition = 'mortal';
     b.mortalFrom = now;
+    b.dyingFrom = Math.min(b.dyingFrom, now);
     b.mortalUntil = now + rand(T.mortal[0], T.mortal[1]);
     this.rollLastStand(s, b);
     this.announce(s.e, 'mortal');
@@ -398,6 +399,7 @@ export class WoundSystem {
     const wasMortal = b.condition === 'mortal';
     b.floored = true;
     b.condition = 'downed';
+    b.dyingFrom = Math.min(b.dyingFrom, now);
     b.mortalUntil = Infinity;
     let clock = rand(T.bleedOut[0], T.bleedOut[1]) * (wasMortal ? 0.6 : 1);
     for (let i = 0; i < b.count; i++) {

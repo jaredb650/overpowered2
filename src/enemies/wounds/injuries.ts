@@ -68,6 +68,8 @@ export class Injuries {
   screams = 0;
 
   mortalFrom = 0;
+  /** When he first went mortal or down: audio gives him his dying line at the end of that frame, so not his death line. */
+  dyingFrom = Infinity;
   mortalUntil = Infinity;
   bleedsOutAt = Infinity;
   /** A medic has been and cannot do more. Nobody is sent a second time. */
@@ -115,6 +117,7 @@ export class Injuries {
     this.limp = 0;
     this.screams = 0;
     this.mortalFrom = 0;
+    this.dyingFrom = Infinity;
     this.mortalUntil = this.bleedsOutAt = Infinity;
     this.stabilised = false;
     this.source = 'bleed';

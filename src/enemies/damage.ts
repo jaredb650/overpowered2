@@ -848,7 +848,8 @@ export class DamageModel {
       distance: e.position.distanceTo(player.position),
       explosionId: d.explosionId ?? null,
     };
-    if (!headshot) say(e, this.w, e.def.voice.die, 0.7);
+    // A man who went mortal or down on an earlier frame has had his dying line (audio's `sayDying`): one voice per man.
+    if (!headshot && !((body?.dyingFrom ?? Infinity) < this.w.now)) say(e, this.w, e.def.voice.die, 0.7);
     ctx.events.emit('enemy:killed', ev);
     if (e.dyingKind === 'none') this.m.retire(e);
     else this.m.holdForDeath(e);
