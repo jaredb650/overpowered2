@@ -118,4 +118,7 @@ export function authorRange(_k: Kit, spec: MapSpec): void {
     position: new THREE.Vector3(sx!, 0.1, sz!), zone: 'range', kind: 'ground' as const,
   }));
   spec.view('overview', 0, 16, 34, 0, 0, -6);
+  // Two mounted guns in front of the spawn, facing down the field.
+  spec.emplacement(-5, 0, 10, 0, 1);
+  spec.emplacement(5, 0, 10, 0, 1);
 }

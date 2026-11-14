@@ -10,7 +10,8 @@ import { Flag, Label, Meter, Num, Shown, div, markup, span } from '../ui/dom';
 import type { GunnerSeat, SeatRig } from './seat';
 import './gunner.css';
 
-export type GunnerTone = 'thermal' | 'door';
+/** `mount` is a gun on the ground: no clock, no sensor readouts, and the bar under the sight is heat. */
+export type GunnerTone = 'thermal' | 'door' | 'mount';
 
 export interface GunnerWeapon {
   name: string;
@@ -27,6 +28,7 @@ const EDGE = 0.92;
 const RETICLES: Readonly<Record<GunnerTone, string>> = {
   thermal: `<svg class="gn-ret" viewBox="-100 -100 200 200" aria-hidden="true"><path d="M-62-62h20M-62-62v20M62-62h-20M62-62v20M-62 62h20M-62 62v-20M62 62h-20M62 62v-20M-30 0h-16M30 0h16M0-30v-16M0 30v16"/><rect x="-1.6" y="-1.6" width="3.2" height="3.2"/></svg>`,
   door: `<svg class="gn-ret" viewBox="-100 -100 200 200" aria-hidden="true"><circle r="34"/><path d="M-46 0h-14M46 0h14M0-46v-14M0 46v14"/><rect x="-1.6" y="-1.6" width="3.2" height="3.2"/></svg>`,
+  mount: `<svg class="gn-ret" viewBox="-100 -100 200 200" aria-hidden="true"><path d="M-30 0h-18M30 0h18M0 30v18"/><rect x="-1.6" y="-1.6" width="3.2" height="3.2"/></svg>`,
 };
 
 const _p = new THREE.Vector3();
@@ -112,6 +114,7 @@ export class GunnerHud implements SeatPanel {
   private readonly spinShown: Shown;
   private readonly boarding: Flag;
   private readonly warning: Flag;
+  private readonly hot: Flag;
   private width = 1;
   private height = 1;
   private tone: GunnerTone | null = null;
@@ -168,6 +171,7 @@ export class GunnerHud implements SeatPanel {
     this.spinShown = new Shown(spin, 'block');
     this.boarding = new Flag(this.el, 'boarding');
     this.warning = new Flag(this.el, 'warning');
+    this.hot = new Flag(this.el, 'hot');
     addEventListener('resize', this.measure);
   }
 
@@ -190,12 +194,12 @@ export class GunnerHud implements SeatPanel {
       this.reticleHost.replaceChildren(markup(RETICLES[plan.tone]));
     }
     this.label.set(plan.label);
-    const out = seat.noWayOut ? '' : ` // ${this.key('interact')} BAIL OUT`;
+    const out = seat.noWayOut ? '' : ` // ${this.key('interact')} ${plan.tone === 'mount' ? 'LEAVE' : 'BAIL OUT'}`;
     this.hint.set(plan.aimZooms
       ? `${this.key('fire')} FIRE // ${this.key('aim')} ZOOM${out}`
       : `${this.key('fire')} CANNON // ${this.key('aim')} ROCKETS // WHEEL ZOOM${out}`);
     this.el.style.setProperty('--gn-hot', plan.enemyColor);
-    this.spinShown.set(plan.tone === 'door');
+    this.spinShown.set(plan.tone !== 'thermal');
   }
 
   /** Called by the HUD while a seat is up. */
@@ -215,7 +219,8 @@ export class GunnerHud implements SeatPanel {
     this.altitude.set(Math.round(seat.altitude));
     this.heading.set(Math.round((((-seat.yaw * 180) / Math.PI) % 360 + 360) % 360));
     this.zoom.set(seat.zoomed ? `x${(plan.fov / plan.zoomFov).toFixed(1)}` : 'x1.0');
-    this.spin.set(seat.spin);
+    this.spin.set(plan.tone === 'mount' ? seat.heat : seat.spin);
+    this.hot.set(seat.overheated);
     for (let i = 0; i < MAX_WEAPONS; i++) this.rows[i]!.update(seat.weapons[i]);
   }
 

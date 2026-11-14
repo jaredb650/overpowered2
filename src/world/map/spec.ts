@@ -1,6 +1,7 @@
 /** Everything the authored map declares besides static geometry. Filled in by the zone files, read by World. */
 import * as THREE from 'three';
 import type { MapZone, SpawnPoint } from '../../core/contracts';
+import type { EmplacementSpec } from '../../vehicles/emplacement';
 import type { DesignatedLink } from '../nav';
 import { LEVEL } from './layout';
 
@@ -111,6 +112,8 @@ export class MapSpec {
   plan: MapPlan | null = null;
   /** When set, ground and air spawns are these and nothing is derived from the nav graph. */
   spawns: SpawnPoint[] | null = null;
+  /** Mounted guns, built by the call-in manager on the first run: see src/vehicles/emplacement.ts. */
+  readonly emplacements: EmplacementSpec[] = [];
 
   zone(id: string, name: string, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number): void {
     this.zones.push({ id, name, bounds: new THREE.Box3(new THREE.Vector3(x0, y0, z0), new THREE.Vector3(x1, y1, z1)) });
@@ -150,6 +153,11 @@ export class MapSpec {
 
   tank(x: number, y: number, z: number): void {
     this.explosives.push({ pos: new THREE.Vector3(x, y, z), kind: 'tank' });
+  }
+
+  /** A mounted gun with its tripod's foot here, facing `yaw` (a camera's: 0 looks down -Z), swinging `arc` either way. */
+  emplacement(x: number, y: number, z: number, yaw: number, arc = 1, level = 1): void {
+    this.emplacements.push({ pos: new THREE.Vector3(x, y, z), yaw, arc, level });
   }
 
   view(name: string, px: number, py: number, pz: number, lx: number, ly: number, lz: number): void {

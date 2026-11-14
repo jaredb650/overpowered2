@@ -90,5 +90,12 @@
 .gn.boarding .gn-reticle, .gn.boarding .gn-spin, .gn.boarding .gn-read, .gn.boarding .gn-arms, .gn.boarding .gn-hint, .gn.boarding .gn-time { display: none; }
 
 /* What the seat replaces. Score, kill feed, combo, banners and hit markers stay: this is still the player's run. */
-.hud.seated .vitals, .hud.seated .arms, .hud.seated .tach, .hud.seated .callins, .hud.seated .ci.sn,
+.hud.seated:not(:has(> .gn.tone-mount)) .vitals, .hud.seated .arms, .hud.seated .tach, .hud.seated .callins, .hud.seated .ci.sn,
 .hud.seated .lowframe, .hud.seated .xh-reticle, .hud.seated .xh-tick, .hud.seated .xh-prompt, .hud.seated .xh-charge { display: none; }
+
+/* A gun on the ground. The body is out in the open, so health stays up (above), and nothing here is a sensor's. */
+.gn.tone-mount .gn-corner, .gn.tone-mount .gn-tags, .gn.tone-mount .gn-time, .gn.tone-mount .gn-read { display: none; }
+.gn.tone-mount .gn-spin { top: calc(50% + 5rem); }
+.gn.tone-mount .gn-spin::before { content: 'HEAT'; position: absolute; left: 0; right: 0; bottom: 0.7rem; text-align: center; font-size: 0.95rem; color: var(--gn-dim); }
+.gn.tone-mount.hot .gn-spin::before { content: 'OVERHEAT'; color: var(--blood); }
+.gn.tone-mount.hot .gn-sfill { background: var(--blood); }

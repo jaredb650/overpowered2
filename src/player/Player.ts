@@ -46,6 +46,8 @@ export class Player implements PlayerSystem {
   parked = false;
   /** Seconds left of being untouchable after a seat. */
   private parkGrace = 0;
+  /** Parked at a gun on the ground, where the body still takes hits. */
+  private exposed = false;
   /** A player setting: holding Space hops on every landing instead of needing a fresh press. */
   holdToHop = T.holdToHop;
 
@@ -1747,7 +1749,7 @@ export class Player implements PlayerSystem {
   }
 
   takeDamage(damage: PlayerDamage): void {
-    if (!this.alive || this.modifiers.invulnerable || this.parked || this.parkGrace > 0) return;
+    if (!this.alive || this.modifiers.invulnerable || (this.parked && !this.exposed) || this.parkGrace > 0) return;
     if (this.interceptor?.(damage)) return;
     const amount = damage.amount * this.modifiers.damageTaken;
     if (amount <= 0) return;
@@ -1851,8 +1853,9 @@ export class Player implements PlayerSystem {
     this.eye.y += this.eyeHeight;
   }
 
-  park(feet: THREE.Vector3): void {
+  park(feet: THREE.Vector3, exposed = false): void {
     const { pitch } = this;
+    this.exposed = exposed;
     this.teleport(feet, this.yaw);
     this.pitch = pitch;
     this.clearInput();

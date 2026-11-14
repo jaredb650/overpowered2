@@ -769,8 +769,11 @@ export interface PlayerSystem extends GameSystem {
   readonly parked: boolean;
   /** Asked before every hit. Returning true means something else took it. */
   interceptor: ((damage: PlayerDamage) => boolean) | null;
-  /** Puts the body at `feet` and holds it there: no input, no motion, and nothing can touch it. The view is kept. */
-  park(feet: THREE.Vector3): void;
+  /**
+   * Puts the body at `feet` and holds it there: no input, no motion, and nothing can touch it. The view is kept.
+   * `exposed` still lets hits through, for a gun on the ground with the player standing at it.
+   */
+  park(feet: THREE.Vector3, exposed?: boolean): void;
   /** Gives the body back, still untouchable for `grace` seconds, because whatever came for it is standing round it. */
   unpark(grace: number): void;
 }

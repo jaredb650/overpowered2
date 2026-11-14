@@ -80,3 +80,54 @@ the pintle; parked and unmanned, it needed a stand.
 - No vehicle shows on the minimap, apart from a roof gunner.
 - Drones and ATVs from section 17 are not built.
 - Men in a truck are not visible until they get out.
+
+# Mounted guns
+
+`src/vehicles/emplacement.ts`. A heavy gun on a tripod behind a steel shield, that any map can place and anyone can man.
+Piece 3 of `docs/proposals/outpost-defense.md`.
+
+## Using it
+
+- **A map** calls `spec.emplacement(x, y, z, yaw, arc = 1, level = 1)` in its author function: the tripod's foot, a facing as a
+  camera's yaw (0 looks down -Z) and the radians it swings either way. The call-in manager builds them on the first run and
+  they stay for every run after. The Test Range has two at (-5, 0, 10) and (5, 0, 10), facing down the field.
+- **The lab:** `Mounted gun` (next to Kill all) puts one on the floor under the crosshair, facing away from the player.
+  Pressed again with the crosshair on that gun, it goes up a level (1, 2, 3, 1).
+- **The player** walks up (1.7 m of the gun or the spot behind it) and presses E (the prompt says `E MAN GUN`). Fire shoots,
+  aim zooms, E leaves. The player's own gun is holstered while on it. Death, a new run or another seat empties it.
+- **Code:** `CallInManager.emplacements` (an `Emplacements`) has `place(spec)` and `all`. Each `Emplacement` has `upgrade(level)`,
+  `levelNumber`, `heat` and `occupant`.
+
+## The gun
+
+The player goes through the gunner's seat (`GunnerSeat` in `seat.ts`) with the plan's `exposed` set: the body is parked at the
+spot behind the gun with `player.park(feet, true)`, which keeps it still but lets hits through. No shell, no silhouettes
+through walls, no cut flash, no grace on the way out. The HUD is the gunner's overlay in tone `mount`: no clock, no sensor
+readouts or brackets, the health bar stays up, and the bar under the sight is heat (`OVERHEAT` in red while locked out).
+
+The shield is a steel box collider that swings with the gun. Enemy rounds stop on it, and the gunner's head and shoulders
+(eye at 1.62 m) stand above every rung's plate, so he can be shot; blasts reach him as anywhere. Rounds leave the muzzle,
+ahead of the shield, toward the point under the sight, or straight down the bore when the sight is on something within 4 m.
+**The gun cannot be destroyed**, for now.
+
+| Level | Gun | Rate | Damage | Heat | Shield (w, top) | Sound |
+|---|---|---|---|---|---|---|
+| 1 | M2 .50 (`HMG`) | 8/s | 70, 1.2 m pen | 64 rounds (8 s) to overheat | 1.1 m, 1.28 m | `hmg_shot` |
+| 2 | M2A1 .50 | 11/s | 70, 1.2 m pen | 88 rounds (8 s) | 1.6 m, 1.36 m | `hmg_shot` pitched 1.1 |
+| 3 | M134 rotary (the door gun's model) | 33/s after a 0.6 s spin-up | 32, 0.4 m pen | 200 rounds (6 s) | 1.6 m, 1.36 m | the `minigun_*` five, as the door gun plays them |
+
+Heat (`Heat`): each round adds `heatPerShot`, off the trigger it falls at `cool` (0.25 to 0.3 a second). At 1 the gun locks out
+(`steam_burst`, and `weapon_dry` on a pull) and vents at `vent` (0.33 to 0.4 a second) all the way to 0 before it fires again,
+about 2.5 to 3 s. Ammunition never runs out. The numbers are `MOUNT_LEVELS`, data for a shop to sell.
+
+## For allies
+
+An AI mans a gun with `occupy(who)` (false if taken), points it with `aimAt(point)`, holds the trigger with `trigger(held)` and
+gets off with `vacate(who)`. It stands at `standAt`. The gun swings toward the point at 2.5 rad/s inside its arc, and heat, the
+arc and the rounds are the same code the player goes through. Its rounds are `team: 'player'`, source `emplacement`, so kills
+by an ally on a gun count as the player's for now; the ally piece decides that. Nothing about the AI itself lives here.
+
+## Not done
+
+- The gun cannot be destroyed or knocked out, and enemies do not single out a manned gun.
+- While seated, enemy grenade flashes and lens blood are skipped, because they read `player.parked`.

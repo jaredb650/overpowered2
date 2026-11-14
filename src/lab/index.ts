@@ -68,6 +68,7 @@ export class Lab {
       changed: () => this.changed(),
       spawn: n => this.spawn(n),
       vehicle: kind => this.spawner.vehicle(kind, this.settings.ai),
+      emplacement: () => this.spawner.emplacement(),
       killAll: () => this.spawner.killAll(),
       clearBodies: () => this.spawner.clearBodies(),
       grant: id => ctx.progression.grant(id),

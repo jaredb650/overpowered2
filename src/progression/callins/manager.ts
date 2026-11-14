@@ -9,8 +9,10 @@ import type { Action, Ctx, GradeName } from '../../core/contracts';
 import type { CallInId } from '../../core/gameplay';
 import { ATTACK_AIRFRAME, type AttackMount } from '../../vehicles/attackModel';
 import type { Flight } from '../../vehicles/flight';
+import { Emplacements } from '../../vehicles/emplacement';
 import { CHIN_CANNON, Gun, M134 } from '../../vehicles/guns';
 import { SeatRig } from '../../vehicles/seat';
+import type { MapSpec } from '../../world/map/spec';
 import { UTILITY_AIRFRAME, type UtilityMount } from '../../vehicles/utilityModel';
 import { ModelMaterials } from '../modelkit';
 import { CALLIN_ORDER, CALLINS } from '../data';
@@ -70,6 +72,8 @@ export class CallInManager {
   private readonly aftermath: NukeAftermath;
   private readonly gunship: Ac130Rig;
   private readonly seats: SeatRig;
+  /** Mounted guns. Here because they seat the player through the same rig as the aircraft. */
+  readonly emplacements: Emplacements;
   private readonly harrow: Ride<AttackMount>;
   private readonly packmule: Ride<UtilityMount>;
   private readonly order: StrikeOrder = { point: new THREE.Vector3(), heading: new THREE.Vector3(1, 0, 0) };
@@ -96,6 +100,12 @@ export class CallInManager {
     this.seats = new SeatRig(ctx, probe, holdGrade);
     this.harrow = { frame: new Airframe(materials, scene, ATTACK_AIRFRAME), gun: new Gun(materials, scene, CHIN_CANNON) };
     this.packmule = { frame: new Airframe(materials, scene, UTILITY_AIRFRAME), gun: new Gun(materials, scene, M134) };
+    this.emplacements = new Emplacements(ctx, materials, this.seats, () => this.holster());
+    // The map is built by the first run, and its guns stay for every run after.
+    const unlisten = ctx.events.on('run:start', () => {
+      unlisten();
+      for (const spec of (ctx.world as unknown as { spec?: MapSpec }).spec?.emplacements ?? []) this.emplacements.place(spec);
+    });
     this.warmShaders(materials);
   }
 
@@ -166,6 +176,7 @@ export class CallInManager {
       this.lowerDevice();
     }
 
+    this.emplacements.update(dt, !this.steering && !this.targeting.id);
     if (this.holstered && !this.aiming && !this.seats.occupied) {
       this.gunBackIn -= dt;
       if (this.gunBackIn <= 0) this.drawGun();
@@ -312,6 +323,12 @@ export class CallInManager {
     this.gunBackIn = GUN_BACK_DELAY;
   }
 
+  private holster(): void {
+    if (this.holstered) return;
+    this.holstered = true;
+    this.ctx.weapons.setHolstered(true);
+  }
+
   private drawGun(): void {
     this.holstered = false;
     this.ctx.weapons.setHolstered(false);
@@ -359,6 +376,7 @@ export class CallInManager {
   }
 
   clear(): void {
+    this.emplacements.clear();
     if (this.targeting.id) this.targeting.exit();
     this.steering = null;
     for (const strike of this.strikes) strike.dispose();

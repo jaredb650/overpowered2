@@ -60,6 +60,8 @@ export interface PanelActions {
   changed(): void;
   spawn(count: number): void;
   vehicle(kind: VehicleKind): void;
+  /** A mounted gun at the crosshair, or the next level for the one already there. */
+  emplacement(): void;
   killAll(): void;
   clearBodies(): void;
   grant(id: PerkId | PowerupId): void;
@@ -198,6 +200,7 @@ export class LabPanel {
       this.el.appendChild(vehicles);
     }
     const clear = el('div', 'lab-row');
+    this.button(clear, 'Mounted gun', () => this.on.emplacement());
     this.button(clear, 'Kill all', () => this.on.killAll());
     this.button(clear, 'Clear bodies', () => this.on.clearBodies());
     this.el.append(grid, modes, go, size, clear);

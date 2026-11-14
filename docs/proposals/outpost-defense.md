@@ -112,7 +112,7 @@ Each is useful on its own; the mode comes last. Sizes are rough.
 |---|---|---|---|---|
 | 1 | **Stims** replacing health pickups everywhere: inventory of 5, injection animation, the vulnerable second, HUD. **Built**: `progression/stims.ts`, notes in `docs/notes/progression.md` under Stims | Every mode gets it | Medium | Opus, medium |
 | 2 | **Allied soldiers**: friendly squad AI built from the enemy soldier code, hold an area by type, follow on E, revive with a stim, a friendly crosshair, no friendly fire (the hive plan's question 1 default) | The big mission's core piece | Large | Opus, high |
-| 3 | **Mounted guns**: wall emplacements the player and allies can man, infinite ammo, the upgrade ladder | Any map can use them | Medium | Opus, medium |
+| 3 | **Mounted guns** (built: `src/vehicles/emplacement.ts`, `docs/notes/vehicles.md`): wall emplacements the player and allies can man, infinite ammo, the upgrade ladder | Any map can use them | Medium | Opus, medium |
 | 4 | **Destructible walls, gates and shacks**: staged wear, holes, breaches, repairs | Any map can use them | Large | Opus, high |
 | 5 | **Credits, shops, loadout screen, breaks**: the economy and its UI | The mode | Medium to large | Opus, medium |
 | 6 | **The fort map**: rings, catwalks, gates, towers, shacks, the open field round it | The mode | Large | Opus, high |

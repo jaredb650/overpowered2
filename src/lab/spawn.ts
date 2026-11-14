@@ -8,6 +8,7 @@ import { ENEMIES } from '../enemies/data';
 import type { Enemy } from '../enemies/Enemy';
 import type { EnemyManager } from '../enemies/EnemyManager';
 import { VEHICLES } from '../enemies/vehicles';
+import type { CallInManager } from '../progression/callins/manager';
 import type { AiMode } from './settings';
 
 const REACH = 40;
@@ -227,6 +228,19 @@ export class LabSpawner {
       x: _at.x, y: _at.y, z: _at.z, route: parked ? [] : [{ x: stop.x, z: stop.z, hold: 0 }], tag: null,
       crew: parked ? [] : ['trooper', 'gunner', 'trooper'], crewTag: null, holds: false, holdYaw: NaN, parked,
     });
+  }
+
+  /** A mounted gun on the floor under the crosshair, facing away from the player. Pressed again on the same gun, it goes up a level. */
+  emplacement(): void {
+    const { player, progression } = this.ctx;
+    const guns = (progression as unknown as { callInsManager: CallInManager }).callInsManager.emplacements;
+    this.aimPoint(1.2, _at);
+    const near = guns.all.find(e => e.spec.pos.distanceTo(_at) < 1.5);
+    if (near) {
+      near.upgrade(near.levelNumber % 3 + 1);
+      return;
+    }
+    guns.place({ pos: _at.clone(), yaw: Math.atan2(-player.forward.x, -player.forward.z), arc: 1 });
   }
 
   killAll(): void {

@@ -48,6 +48,11 @@ export interface SeatPlan {
   grace: number;
   /** Multiplies every shake that reaches the view. */
   shake: number;
+  /**
+   * A gun on the ground: the body stays at the gun and can be hit, with no shell, no marks through walls, no grace and
+   * no cut. `fixed` gives the spot it stands on.
+   */
+  exposed?: boolean;
 }
 
 export type SeatStage = 'boarding' | 'seated' | 'left';
@@ -156,6 +161,9 @@ export class GunnerSeat {
   altitude = 0;
   /** 0..1 for a gun that has to spin up. */
   spin = 0;
+  /** 0..1 for a gun that runs hot, and whether it is locked out cooling. The owner writes both. */
+  heat = 0;
+  overheated = false;
   readonly weapons: GunnerWeapon[] = [];
   readonly view: SeatView = { position: new THREE.Vector3(), yaw: 0, pitch: 0, roll: 0, shake: 1 };
 
@@ -182,14 +190,16 @@ export class GunnerSeat {
   /** The view leaves the body. The player is safe from this frame on. */
   board(): void {
     const { camera, hud, player, render, world } = this.ctx;
-    if (!this.parkAt || !world.nav.nearest(this.parkAt, PARK_SEARCH, _spot)) restingPlace(this.ctx, _spot);
-    player.park(_spot);
+    const { exposed } = this.plan;
+    if (exposed && this.parkAt) _spot.copy(this.parkAt);
+    else if (!this.parkAt || !world.nav.nearest(this.parkAt, PARK_SEARCH, _spot)) restingPlace(this.ctx, _spot);
+    player.park(_spot, exposed);
     this.rig.seat = this;
-    this.rig.shell.show(_spot);
+    if (!exposed) this.rig.shell.show(_spot);
     camera.setSeat(this.view);
     this.rig.hud.open(this);
     hud.seat(this.rig.hud);
-    render.post.flash('#ffffff', CUT_FLASH, CUT_SECONDS);
+    if (!exposed) render.post.flash('#ffffff', CUT_FLASH, CUT_SECONDS);
   }
 
   /** Stands the view off the aircraft, for the look at it on the way in. */
@@ -211,13 +221,15 @@ export class GunnerSeat {
     this.pitch = clamp(Math.atan2(_to.y, Math.hypot(_to.x, _to.z)), this.plan.pitchMin, this.plan.pitchMax);
     camera.setZoom(this.plan.fov);
     if (this.plan.grade) this.rig.holdGrade(this.plan.grade);
-    render.post.flash('#ffffff', CUT_FLASH, CUT_SECONDS);
+    if (!this.plan.exposed) render.post.flash('#ffffff', CUT_FLASH, CUT_SECONDS);
   }
 
   /** `frame` is the aircraft's orientation and `pivot` where the gun turns, both as flown this frame. */
   update(dt: number, frame: THREE.Quaternion, pivot: THREE.Vector3): void {
-    this.mark();
-    this.rig.shell.update(dt);
+    if (!this.plan.exposed) {
+      this.mark();
+      this.rig.shell.update(dt);
+    }
     if (this.stage !== 'seated') return;
     this.left = Math.max(0, this.left - dt);
     this.zoom();
@@ -312,6 +324,6 @@ export class GunnerSeat {
     hud.seat(null);
     if (this.plan.grade) this.rig.holdGrade(null);
     player.unpark(quiet ? 0 : this.plan.grace);
-    if (!quiet) render.post.flash('#ffffff', CUT_FLASH, CUT_SECONDS);
+    if (!quiet && !this.plan.exposed) render.post.flash('#ffffff', CUT_FLASH, CUT_SECONDS);
   }
 }
