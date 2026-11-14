@@ -607,7 +607,9 @@ export class Melee {
   private touch(e: EnemyInstance): number {
     const b = this.body;
     b.base.copy(e.position);
-    b.height = (e as unknown as Balance).downed === true ? Math.min(DOWNED_HEIGHT, e.char.rig.height) : e.char.rig.height;
+    // `downed` also means gore holds a body still on its feet (stumbling or catching its balance): that one is full height.
+    const low = (e as unknown as Balance).downed === true && this.ctx.gore.downed?.(e.char)?.standing !== true;
+    b.height = low ? Math.min(DOWNED_HEIGHT, e.char.rig.height) : e.char.rig.height;
     b.radius = this.radiusOf(e);
     return swingTouches(this.shape, this.frame, b, this.contact);
   }
