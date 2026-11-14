@@ -282,7 +282,7 @@ function stalls(k: Kit, site: Site): void {
 /** Crane Street: cover where the militia counter-attack and where the aisle opens, a burnt car, braziers, a sign over the aisle. */
 function craneStreet(k: Kit, site: Site): void {
   for (const [x, z] of [[40, 13.6], [88, 13.6], [108, 13.6], [148, 13.6], [6, 13.6]] as const) brazier(k, x, z, 0, 14);
-  for (const [x0, z0, x1, z1] of [[30, 9, 31.2, 10.2], [131, 9, 132.4, 10.4], [96, 12.6, 97.4, 14]] as const) site.crate(x0, z0, x1, z1, 1.2, pick(k, DYES));
+  for (const [x0, z0, x1, z1] of [[18, 9, 19.2, 10.2], [131, 9, 132.4, 10.4], [96, 12.6, 97.4, 14]] as const) site.crate(x0, z0, x1, z1, 1.2, pick(k, DYES));
   signPanel(k, 56.5, 6, 8.1, 0, 4.6, 1, signId('CRANE 04'));
   // The cul-de-sac west of the stacks: shacks round a yard, shut off from the west road by the barricade.
   const spec = site.spec;

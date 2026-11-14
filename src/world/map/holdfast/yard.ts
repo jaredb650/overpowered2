@@ -123,6 +123,12 @@ function gantry(k: Kit, site: Site): void {
 function stacks(k: Kit, site: Site): void {
   for (const s of STACKS) block(k, site, s);
   chimney(k);
+  // The first climb, lit from Crane Street, a ladder of painted rungs up A's face where people go up.
+  const a = stack('A'), lx = (CHIMNEY.x0 + CHIMNEY.x1) / 2 - 5;
+  k.light(lx, 4, a.z1 + 3, 'orange', 26, 12);
+  const rg = k.geo.use('paintWhite').tint(0.95, 0.84, 0.3);
+  for (let y = 0.8; y < stackTop(a); y += 0.9) rg.box(lx, y, a.z1 + 0.04, 0.5, 0.05, 0.01, FACE.pz);
+  rg.tint(1);
   gantry(k, site);
   const g = k.geo;
   // Stairs up E1's east face in the lane, and a landing onto its top.
@@ -304,6 +310,8 @@ function harbour(k: Kit, site: Site): void {
   for (const [i, y] of [[0, 4], [2, 9], [5, 14]] as const) {
     const c = DYES[i]!;
     g.use('paintWhite').tint(c[0] * 0.8, c[1] * 0.8, c[2] * 0.8).box(fx, y, f.z1 + 0.02, (f.x1 - f.x0) / 2, 0.9, 0.01, FACE.pz);
+    g.box(f.x1 + 0.02, y, (f.z1 + HARBOUR.z1) / 2, 0.01, 0.9, (f.z1 - HARBOUR.z1) / 2, FACE.px);
+    g.box(f.x0 - 0.02, y, (f.z1 + HARBOUR.z1) / 2, 0.01, 0.9, (f.z1 - HARBOUR.z1) / 2, FACE.nx);
   }
   g.tint(1);
   // Its parapet, and a slot window high up on the town side.
@@ -318,6 +326,8 @@ function harbour(k: Kit, site: Site): void {
   banner(k, fx, f.top - 3, f.z1 + 0.02, 0, 6, 7, DYES[2]!);
   k.light(fx, f.top + 2, fz, 'red', 30, 16);
   k.light(fx, 8, f.z1 + 4, 'orange', 30, 16);
+  // Floods at its foot, up its faces: the target the Frame walks to.
+  for (const [lx, lz] of [[f.x1 + 3, f.z1 + 3], [f.x0 - 3, f.z1 + 3]] as const) k.light(lx, 2, lz, 'white', 40, 22);
   site.plan.blocks.push({ x0: f.x0, z0: f.z0, x1: f.x1, z1: f.z1 });
 }
 
