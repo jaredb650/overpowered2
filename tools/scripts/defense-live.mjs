@@ -71,14 +71,14 @@ export default async function defenseLive(page, h) {
   await h.shot('armoury');
   // Down to the first call-in and buy it.
   out.bought = await page.evaluate(() => {
-    const rows = [...document.querySelectorAll('.scr-shop .sp-row')];
+    const rows = [...document.querySelectorAll('.scr-shop:not(.scr-loadout) .sp-row')];
     const i = rows.findIndex(r => r.textContent.startsWith('AIRSTRIKE'));
     rows[i].click();
-    return document.querySelector('.scr-shop .set-note')?.textContent;
+    return document.querySelector('.scr-shop:not(.scr-loadout) .set-note')?.textContent;
   });
   await h.sleep(200);
   await h.shot('armoury-bought');
-  await page.evaluate(() => document.querySelector('.scr-shop .sh-body').scrollTo(0, 99999));
+  await page.evaluate(() => document.querySelector('.scr-shop:not(.scr-loadout) .sh-body').scrollTo(0, 99999));
   await h.shot('armoury-bottom');
   await leave();
   out.afterArmoury = await state();
@@ -96,7 +96,7 @@ export default async function defenseLive(page, h) {
   await h.sleep(1500);
   await h.shot('wave-hud');
   await visit(-8, 23, 'armoury-wave');
-  out.underFire = await page.evaluate(() => [...document.querySelectorAll('.scr-shop .sp-row')].slice(0, 3).map(r => r.textContent));
+  out.underFire = await page.evaluate(() => [...document.querySelectorAll('.scr-shop:not(.scr-loadout) .sp-row')].slice(0, 3).map(r => r.textContent));
   await h.shot('armoury-wave');
   await leave();
 
@@ -105,7 +105,7 @@ export default async function defenseLive(page, h) {
   await h.sleep(500);
   await h.shot('infirmary-lost-hud');
   await visit(0, 24, 'infirmary-lost');
-  out.lostOffers = await page.evaluate(() => [...document.querySelectorAll('.scr-shop .sp-row')].map(r => r.textContent));
+  out.lostOffers = await page.evaluate(() => [...document.querySelectorAll('.scr-shop:not(.scr-loadout) .sp-row')].map(r => r.textContent));
   await h.shot('infirmary-lost');
   await leave();
   out.end = await state();

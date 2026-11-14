@@ -138,7 +138,7 @@ function weapons(v: ShopView): Offer[] {
     const p = WEAPON_PRICES[id];
     if (!p) continue;
     const members = membersOf(id).filter(m => !v.owned.has(m));
-    const detail = members.length > 0 ? `With the ${members.map(m => WEAPONS[m].name).join(', ')}` : p.explosive ? 'Explosive' : WEAPONS[id].name;
+    const detail = members.length > 0 ? `With the ${members.map(m => WEAPONS[m].name).join(', ')}` : `${p.ammo} ammo`;
     const why = v.owned.has(id) ? 'Owned' : !v.inBreak ? 'Only in a break' : need(p.price, v);
     out.push({ section: 'Weapons', label: WEAPONS[id].name, detail, price: p.price, why, act: { kind: 'weapon', id } });
   }

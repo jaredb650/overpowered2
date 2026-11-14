@@ -4,11 +4,11 @@
  */
 import type { Ctx } from '../../core/contracts';
 import { SHOPS, SHOP_ORDER } from '../../contracts/defense/data';
-import { Flag, Label, Num, Shown, div, span } from '../dom';
+import { Flag, Label, Shown, div, span } from '../dom';
 
 export class DefenseHud {
   readonly el: HTMLElement;
-  private credits: Num;
+  private credits: Label;
   private next: Label;
   private nextShown: Shown;
   private shops: { id: (typeof SHOP_ORDER)[number]; lost: Flag; hurt: Flag }[];
@@ -18,7 +18,7 @@ export class DefenseHud {
     const next = span('df-next');
     const chips = SHOP_ORDER.map(id => ({ id, el: span('df-shop', SHOPS[id].name) }));
     this.el = div('df', div('df-cr', span('df-cr-t', 'credits'), n), next, div('df-shops', ...chips.map(c => c.el)));
-    this.credits = new Num(n);
+    this.credits = new Label(n);
     this.next = new Label(next);
     this.nextShown = new Shown(next, 'block');
     this.shops = chips.map(c => ({ id: c.id, lost: new Flag(c.el, 'lost'), hurt: new Flag(c.el, 'hurt') }));
@@ -27,7 +27,7 @@ export class DefenseHud {
   update(): void {
     const d = this.ctx.contracts.defense;
     if (!d) return;
-    this.credits.set(d.credits);
+    this.credits.set(d.credits.toLocaleString('en-US'));
     const between = d.inBreak && !d.needLoadout;
     this.nextShown.set(between);
     if (between) this.next.set(`Next: ${d.preview}`);

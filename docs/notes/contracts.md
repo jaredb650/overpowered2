@@ -92,6 +92,24 @@ skip break, hit each shop 500), and `tools/scripts/defense-live.mjs`:
 node tools/shot.mjs --url "/?contract=defense&autostart=1" --script tools/scripts/defense-live.mjs --wait 500 --timeout 280 --dpr 2 --w 1440 --h 900 --out tools/out/economy/live.png
 ```
 
+**Verified** (2026-11-14, real Chrome at 1440x900, dpr 2, `defense-live.mjs` on a private server of the commit): the loadout by
+keys (Judge picked, 50 left, back to the Rivet, Deploy: 300 credits, Harrow, Rivet and Shiv owned); the 20 s break with the plate's countdown,
+the credits and the next-wave line; E at each counter; a rifleman hired (squad 1), an airstrike bought (held, banner READY), a stim (2);
+credits 300 + 4,000 - 250 - 600 - 150 = 3,300; in wave 1 every weapon row read `Only in a break`; the infirmary lost (red sign, red chip,
+banner) offered only its rebuild, `Only in a break`. Screens in `tools/out/economy/`.
+
+**Rough.**
+- **Nobody has played it, and the prices are first guesses** held to Q3 and Q4 by tests, not by feel.
+- **A shop's menu pauses the world.** See the proposal's section on the build.
+- **Endless Humans' Commander still runs.** Killing him ends the run with CONTRACT FULFILLED, which an endless mode should not do; the
+  wave director should own that.
+- **On the Test Range** the waves come from the four corner spawns, two of them 24 m beside the player's start, and the counters are
+  boxes with lit signs and no colliders. New hires all post round one rally point; the fort should give posts by type.
+- **Mounted guns are reached through a cast** to the call-in manager's private `emplacements`, as the lab does. A public getter on
+  progression would be cleaner.
+- **Kills by an ally on a mounted gun pay** (its rounds are the player's `emplacement` source). Ally kills otherwise pay nothing.
+- **No early start**: the player waits a break out (the lab and `__defense.skipBreak()` can end it).
+
 ## Unlocks
 
 Endless Humans has `locked: true`. `unlocks.ts` holds one flag, `op2_campaign_beaten` in localStorage, set when a mission with `unlocks` is won from its first beat. A win reached through `?beat=` beats nothing. `?unlock=1` opens it for that page and any it moves on to. The menu shows a shut contract and refuses to start it. A URL or `?autostart=1` still reaches it, because every bot and sandbox on the Kill House goes in that way.
