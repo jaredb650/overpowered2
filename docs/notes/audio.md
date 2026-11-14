@@ -232,7 +232,7 @@ Random-pick groups: `bullet_hit` (the four samples), `sword_hit`, `player_footst
 - 2D confirmations on the reward mix: `armour_stopped`, `armour_through`, `armour_broken` (a helmet broken off, the signature,
   like a headshot), `plate_destroyed` (any other plate broken off, and a vehicle weak point hit; three takes at random, never the
   same twice running), `headshot_crack` (a headshot that
-  did not kill), `headshot_puff` (over `headshot` on a head kill), `vehicle_weak_point` (registered, waits for the weak points)
+  did not kill), `headshot_puff` (over `headshot` on a head kill), `vehicle_weak_point` (a vehicle weak point found)
 - In the world: `armour_crunch` (a shaped charge strips every plate), `sabot_on_vehicle`, `sabot_shield_pierce`
 - Levels (2026-11-13, raised once by ear the same day): every file trimmed of lead-in silence, mono, peaks to -1 dB, then
   set by how loud it lands (`shot()`) on a ladder by how much it means: `armour_stopped` 0.12 (three takes at random),
