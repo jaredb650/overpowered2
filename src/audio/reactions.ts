@@ -199,7 +199,8 @@ export class Reactions {
     this.bodyHit(enemy, damage, result, now);
     const armour = result.armour ?? (result.blocked ? 'stopped' : undefined);
     // A piece coming off is news even on a kill and inside the gap, so a Sabot headshot through a helmet is both sounds.
-    if (armour === 'broken') this.play('armour_broken');
+    // Only a helmet covers the head, so a broken piece on a head hit is a helmet, and gets the signature.
+    if (armour === 'broken') this.play(damage.region === 'head' ? 'armour_broken' : 'plate_destroyed');
     if (result.killed || now - this.lastMarker < MARKER_GAP) return;
     this.lastMarker = now;
     if (armour === 'broken') return;

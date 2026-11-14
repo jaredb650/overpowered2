@@ -40,7 +40,7 @@ Audio reads `ctx.player`, `ctx.time`, `ctx.world` and listens to events, so nobo
 | Event | Sound |
 |---|---|
 | `fx:casing` | `casing_brass` (rifle a little lower), `casing_shotgun`, `casing_heavy`. Volume follows strength. Quiet bounces thin out under 50 ms apart |
-| `enemy:hit` from the player | `hit_marker`, `hit_marker_head`, or by the hit's armour outcome `armour_stopped`, `armour_through`, `armour_broken` (all 2D). A broken piece is heard even on a kill and inside the marker gap. Skips fire ticks. `hit_marker_armor` is kept but no longer played |
+| `enemy:hit` from the player | `hit_marker`, `hit_marker_head`, or by the hit's armour outcome `armour_stopped`, `armour_through`, or a piece broken off: `armour_broken` for a helmet (a broken piece on a `head` hit, since only helmets cover the head), `plate_destroyed` for any other plate (all 2D). A broken piece is heard even on a kill and inside the marker gap. Skips fire ticks. `hit_marker_armor` is kept but no longer played |
 | `enemy:hit` from a round of the player's own guns (`bullet`, `pellet`) on a body | `hit_punch` at the hit and `hit_confirm` in 2D, weighted by the round and played at the end of the frame. A machine gets a quieter, lower `hit_punch` and no confirm, and a kill has `hit_marker_kill` in place of the confirm. See "Body hits" |
 | `enemy:killed` from the player | `hit_marker_kill` |
 | `enemy:severed` on flesh | `bone_snap`, `flesh_tear` and `blood_spurt` under the enemies system's `limb_sever` |
@@ -229,12 +229,14 @@ Id is the file name without extension. Aliases in brackets are the first game's 
 Random-pick groups: `bullet_hit` (the four samples), `sword_hit`, `player_footstep`.
 
 **The armour update** (`sfx/armour`, the owner's own generated recordings, keyed by name):
-- 2D confirmations on the reward mix: `armour_stopped`, `armour_through`, `armour_broken`, `headshot_crack` (a headshot that
+- 2D confirmations on the reward mix: `armour_stopped`, `armour_through`, `armour_broken` (a helmet broken off, the signature,
+  like a headshot), `plate_destroyed` (any other plate broken off, and a vehicle weak point hit; three takes at random, never the
+  same twice running), `headshot_crack` (a headshot that
   did not kill), `headshot_puff` (over `headshot` on a head kill), `vehicle_weak_point` (registered, waits for the weak points)
 - In the world: `armour_crunch` (a shaped charge strips every plate), `sabot_on_vehicle`, `sabot_shield_pierce`
 - Levels (2026-11-13, raised once by ear the same day): every file trimmed of lead-in silence, mono, peaks to -1 dB, then
   set by how loud it lands (`shot()`) on a ladder by how much it means: `armour_stopped` 0.12 (three takes at random),
-  `armour_through` 0.17, `headshot_crack` 0.17, `headshot_puff` 0.18, `armour_broken` 0.2, `vehicle_weak_point` 0.26 (all
+  `armour_through` 0.17, `plate_destroyed` 0.17 (three takes), `headshot_crack` 0.17, `headshot_puff` 0.18, `armour_broken` 0.2, `vehicle_weak_point` 0.26 (all
   2D, over the hit markers' 0.066 to 0.114), then in the world `sabot_shield_pierce` 0.24, `sabot_on_vehicle` 0.26 and
   `armour_crunch` 0.36, heard to 120 m. The crunch plays whenever a direct rocket or shell tears armour off a body
 - Guns: `sabot_shot` (replaces `sabot_fire` on the Sabot), `autocannon_blast` (replaces `autocannon_shot` on the autocannon)

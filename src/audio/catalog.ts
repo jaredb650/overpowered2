@@ -144,6 +144,12 @@ const armourSamples: SoundDef[] = [
   shot('armour_through', 'armour/armour_through.mp3', 'reward', 0.17, 0.362, CONFIRM),
   shot('headshot_crack', 'armour/headshot_crack.mp3', 'reward', 0.17, 0.207, CONFIRM),
   shot('headshot_puff', 'armour/headshot_puff.mp3', 'reward', 0.18, 0.287, CONFIRM),
+  // Any plate but a helmet coming off, three takes so stripping one enemy never repeats back to back. 0.17 / 0.3 lands at 0.17.
+  {
+    ...MIX.reward, perFrame: 1, maxVoices: 3, critical: false, volume: 0.17 / 0.3, id: 'plate_destroyed', kind: 'sample', loop: false,
+    fallback: 'hit_marker_armor', files: ['armour/plate_destroyed_1.mp3', 'armour/plate_destroyed_2.mp3', 'armour/plate_destroyed_3.mp3'],
+  },
+  // A helmet coming off: the signature, like a headshot.
   shot('armour_broken', 'armour/armour_broken.mp3', 'reward', 0.2, 0.299, { perFrame: 1, maxVoices: 3 }),
   shot('vehicle_weak_point', 'armour/vehicle_weak_point.mp3', 'reward', 0.26, 0.349, CONFIRM),
   shot('sabot_on_vehicle', 'armour/sabot_on_vehicle.mp3', 'impact', 0.26, 0.416, { priority: 6 }),

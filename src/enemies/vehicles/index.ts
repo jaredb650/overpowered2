@@ -308,7 +308,7 @@ export class VehicleSystem implements VehicleTargets {
     const { audio, hud } = this.ctx;
     hud.hitMarker(killed ? 'kill' : weak ? 'armorBroken' : pierced ? 'armorThrough' : dealt ? 'body' : 'armor');
     if (weak) audio.play('vehicle_weak_point');
-    audio.play(killed ? 'hit_marker_kill' : weak ? 'armour_broken' : pierced ? 'armour_through' : dealt ? 'hit_marker' : 'armour_stopped');
+    audio.play(killed ? 'hit_marker_kill' : weak ? 'plate_destroyed' : pierced ? 'armour_through' : dealt ? 'hit_marker' : 'armour_stopped');
   }
 
   /** A weak point found: at least its share of the whole machine, and what it does to it. */
