@@ -153,6 +153,7 @@ export class RulesScreen implements Screen {
     const feed = this.slider('Spawn speed', 'feedPct', pct);
     const health = this.slider('Enemy health', 'healthPct', pct);
     const damage = this.slider('Enemy damage', 'damagePct', pct);
+    const helmets = this.slider('Helmets on Gunners and Rocketeers', 'helmetsFrom', v => (v === 0 ? 'Never' : wave(v)));
     const types = SWARM_IDS.map(id => this.stepper(ENEMY_NAMES[id], {
       limit: WAVE_LIMIT, format: wave,
       read: r => r.types[id].from, write: (r, v) => { r.types[id].from = v; },
@@ -163,7 +164,7 @@ export class RulesScreen implements Screen {
     defaults.el.classList.add('mi-small');
     const back = menuButton('Back', () => this.hud.screens.show('menu'));
     back.el.classList.add('mi-small');
-    const left: NavItem[] = [jugFrom, jugEvery, jugCount, titanFrom, titanEvery, start, size, escort, alive, pause, bossPause, feed, health, damage];
+    const left: NavItem[] = [jugFrom, jugEvery, jugCount, titanFrom, titanEvery, start, size, escort, alive, pause, bossPause, feed, health, damage, helmets];
     this.items = [...left, ...types, defaults, back];
 
     const note = span('set-note');

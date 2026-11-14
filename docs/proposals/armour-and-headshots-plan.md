@@ -9,8 +9,11 @@ sound files are wired in, with new shots for the Sabot and the autocannon. **Bui
 classes, pellet counting, one rule everywhere, the Brute's plates halved).
 **Built later still:** section 6's weak points and the locked main gun (no new hit boxes: weak points are found by where
 the round lands).
-**Not built:** section 3 (removable helmets), section 6's weak points and turret lock, section 8
-(Crucible helmets).
+Section 8: Gunners and Rocketeers wear helmet armour in The Crucible from wave 8, with a "Helmets on Gunners and
+Rocketeers" setting on the Custom Crucible rules screen (Never, or any wave).
+Section 3: removable helmets (each baked as its own prop on a head socket, and the HELMET plate throws it).
+**Not built:** a helmet splitting into two or three pieces; a hollow underside for the flying helmet (it is a solid cap);
+a face detail on the Gunner's and Riot's bare hoods.
 
 Original status: idea, not scheduled. Written 2026-11-13 from the owner's notes; the owner answered the first round the same
 day. Nothing here is built. Open questions are marked **Q** with the default the build would use.

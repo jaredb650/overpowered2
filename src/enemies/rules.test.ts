@@ -421,7 +421,7 @@ describe('the standard rules', () => {
       expect(newH.log.filter(l => l.includes('wave:clear')).length).toBe(60);
       expect(newH.log.filter(l => l.includes('boss titan')).length).toBe(6);
       expect(newH.log.filter(l => l.includes('boss juggernaut')).length).toBe([5, 15, 25, 35, 45, 55].reduce((n, w) => n + 1 + Math.floor(w / 15), 0));
-      expect(newH.manager.tuning).toEqual({ health: 1, damage: 1 });
+      expect(newH.manager.tuning).toEqual({ health: 1, damage: 1, helmetsFrom: 8 });
       vi.restoreAllMocks();
 
       // And the comparison is sharp: one second more of break is a different game.
@@ -718,7 +718,7 @@ describe('composing waves on custom rules', () => {
     w.start(r);
     expect(w.wave).toBe(29);
     expect(w.nextWaveIn).toBe(3);
-    expect(h.manager.tuning).toEqual({ health: 2.5, damage: 0.5 });
+    expect(h.manager.tuning).toEqual({ health: 2.5, damage: 0.5, helmetsFrom: 8 });
     // The first countdown is silent, and wave 30 is the first one played.
     for (let i = 0; i < 40 && w.wave === 29; i++) h.step(w);
     expect(w.wave).toBe(30);

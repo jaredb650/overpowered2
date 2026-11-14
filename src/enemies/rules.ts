@@ -85,6 +85,8 @@ export interface CrucibleRules {
   feedPct: number;
   healthPct: number;
   damagePct: number;
+  /** From this wave on, Gunners and Rocketeers wear their helmets as armour. 0: never. */
+  helmetsFrom: number;
 }
 
 export type NumberRule = Exclude<keyof CrucibleRules, 'types' | 'juggernaut' | 'titan'>;
@@ -112,6 +114,7 @@ export const RULE_LIMITS: Readonly<Record<NumberRule, Limit>> = {
   feedPct: { min: 50, max: 300, step: 25 },
   healthPct: { min: 25, max: 400, step: 25 },
   damagePct: { min: 25, max: 400, step: 25 },
+  helmetsFrom: { min: 0, max: 60, step: 1 },
 };
 
 const NUMBER_RULES = Object.keys(RULE_LIMITS) as NumberRule[];
@@ -138,6 +141,8 @@ export const DEFAULT_RULES: CrucibleRules = freeze({
   feedPct: 100,
   healthPct: 100,
   damagePct: 100,
+  // Between the first Juggernaut and the first Titan: armour joins the climb as the Commander's helmets do in Endless Humans.
+  helmetsFrom: 8,
 });
 
 export function cloneRules(r: CrucibleRules): CrucibleRules {

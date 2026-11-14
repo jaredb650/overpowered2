@@ -142,6 +142,7 @@ export class Waves implements WaveSystem {
     // Only this game sets these, after the manager's own reset put them back to 1.
     this.manager.tuning.health = rules.healthPct / 100;
     this.manager.tuning.damage = rules.damagePct / 100;
+    this.manager.tuning.helmetsFrom = rules.helmetsFrom;
     this.running = true;
     // The plate reads the wave to come during a break, so a late start shows its own number from the first second.
     this.wave = rules.startWave - 1;

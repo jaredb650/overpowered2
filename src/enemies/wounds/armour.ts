@@ -12,7 +12,7 @@ const KIT: PlatePaint = { body: 0x1c2733, rib: 0x263340, edge: 0x4d5c6a, bolt: 0
 const CARRIER: PlateSpec = {
   regions: ['chest'], bone: B.chest, hp: 0.5, shape: 'slab', paint: KIT, size: [0.34, 0.3, 0.05], offset: [0, 0.1, 0.17], tilt: [-0.06, 0, 0], facing: 'front',
 };
-const HELMET: PlateSpec = {
+export const HELMET: PlateSpec = {
   regions: ['head'], bone: B.head, hp: 0.3, shape: 'slab', paint: KIT, size: [0.17, 0.2, 0.05], offset: [0, 0.205, 0.02], tilt: [-Math.PI / 2, 0, 0],
   worn: 'head',
 };

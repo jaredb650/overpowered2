@@ -27,6 +27,10 @@ import { Spawner } from './spawner';
 import { VehicleSystem, vehiclesActive } from './vehicles';
 import { Telegraphs } from './telegraph';
 import { MAX_ALIVE } from './waves';
+import { HELMET } from './wounds/armour';
+
+/** The Crucible's helmeted types: the dangerous ones, so the armour says what to aim at. Troopers stay bare. */
+const CRUCIBLE_HELMETS: ReadonlySet<EnemyId> = new Set<EnemyId>(['gunner', 'rocketeer']);
 
 const MAX_THINKS_PER_FRAME = 14;
 const THINK_INTERVAL = [0.12, 0.22, 0.4, 0.6] as const;
@@ -97,10 +101,10 @@ export class EnemyManager implements EnemySystem {
   /** Enemies waiting in the wave queue. */
   queued = 0;
   /**
-   * The Crucible's health and damage rules, over the wave scale. Only its wave director sets them, at the start of a run,
-   * and every reset puts them back to 1, so Endless Humans and the Campaign never see them.
+   * The Crucible's health and damage rules, over the wave scale, and the wave its helmets start (0: never). Only its wave
+   * director sets them, at the start of a run, and every reset puts them back, so Endless Humans and the Campaign never see them.
    */
-  readonly tuning = { health: 1, damage: 1 };
+  readonly tuning = { health: 1, damage: 1, helmetsFrom: 0 };
   get remaining(): number {
     return this.alive.length + this.queued - (this.outpost?.prisoners ?? 0);
   }
@@ -205,6 +209,7 @@ export class EnemyManager implements EnemySystem {
     this.queued = 0;
     this.wave = 1;
     this.tuning.health = this.tuning.damage = 1;
+    this.tuning.helmetsFrom = 0;
     this.linksTaken = this.rescues = this.nextRescueAt = 0;
     this.fieldCleared = false;
     this.director.reset();
@@ -272,6 +277,7 @@ export class EnemyManager implements EnemySystem {
     e.limbHp.set('head', def.headPoolFixed ? def.headPool : e.maxHealth * def.headPool);
 
     if (def.plates) this.fitPlates(e, def.plates);
+    else if (CRUCIBLE_HELMETS.has(id) && this.tuning.helmetsFrom > 0 && this.wave >= this.tuning.helmetsFrom) this.fitPlates(e, [HELMET]);
     if (def.boss) e.boss = def.boss(e, this.w);
     if (def.footfall) this.fitFootfall(char, def.footfall);
     if (def.loop) e.bodyLoop = ctx.audio.startLoop(def.loop, { position });
