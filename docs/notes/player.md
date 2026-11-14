@@ -267,7 +267,17 @@ works live in the sandbox.
 `src/player/moveAnim.ts`, one `MoveAnim` owned by the Player and stepped at the end of its frame. It reads movement state
 and never changes it. It holds plain numbers, so `moveAnim.test.ts` drives it with a fake player. Three consumers:
 CameraRig adds `camRoll`, `camX`, `camY`. The viewmodel rig adds `gun*` to the weapon, gives the left arm to `hand*` by
-`handW`, and poses the legs from `legs*` (docs/notes/viewmodels.md).
+`handW` (the right arm, mirrored, when `handSide` is +1), passes the gun to the left hand by `swap`, and poses the legs from
+`legs*` (docs/notes/viewmodels.md).
+
+**The hand-off** (parkour update, part 2). A wall on the right takes the right hand: on a wall run with `wallSide` +1, and
+clinging turned with the wall to the right of the view (the same `climbNormal` test the cling's left hand uses). A linear
+clock runs 0 to 1 over `ANIM.handoff` (0.15 s) and back the same way when that ends; `swap` is it eased. While the clock is
+above 0, `handSide` is +1 and `hand*` is the right hand on the wall, written as the left hand's wall pose and mirrored by the
+rig; its weight is `smoothstep(0.5, 1, clock)`, so the right hand stays on the gun until the gun has crossed, and is back on it
+before the gun leaves the left. The left hand's own moves wait for the clock to reach 0. Nothing blocks firing: there is no
+`weapons.occupy`, the shot leaves from the muzzle wherever the gun is, and the gun keeps full accuracy (nothing in the weapons
+reads the hand). The climb still hides the gun with both hands on the wall.
 
 Rules that must stay true, each held by a test:
 
@@ -289,7 +299,7 @@ Rules that must stay true, each held by a test:
 |---|---|---|---|---|---|
 | Mantle | Roll toward the hand through the climb, a dip and counter-roll at the top | Dips down and away, muzzle low | On the ledge, coming down the screen as the body rises, then pushes off | | `hand_plant`, `boot_scuff` at the top |
 | Vault | Roll and a shift over the planted hand, a dip on arrival. Head path is the Player's | Carried high, canted outward | Planted on the cover, sweeping back along the bottom of the view | Swing through on the right | `hand_plant`, `vault_over`, `boot_scuff` |
-| Wall run | The rig's own roll, plus a shift away from the wall | The rig's own cant | Trails on a wall to the left, riding the stride | | `hand_plant` (left wall) |
+| Wall run | The rig's own roll, plus a shift away from the wall | The rig's own cant. With the wall on the right, passed to the left hand in 0.15 s and back after | Trails on a wall to the left, riding the stride. With the wall on the right it holds the gun, and the right hand trails on the wall | | `hand_plant` (left wall) |
 | Wall jump | Roll and shove away from the wall | Shoved, when the wall is on its side | Pushes off a wall to the left | | `boot_scuff` |
 | Slide | 1.7 degrees of lean, a drop on entry | A little more cant | Touches the floor on the way down | Out in front | `hand_plant`, a tenth of a second in |
 | Slide-jump | A lift | Pops up out of the cant | | | |
@@ -299,7 +309,7 @@ Rules that must stay true, each held by a test:
 | Slam | A dip on impact | Driven down in the fall | To the ground on impact | | `hand_plant` |
 | Big slam | A harder dip; the eye goes down to 1 m and back (Player) | Driven into the floor, recovering over 0.6 s | A fist into the floor, knuckles down | | `hand_plant` twice, `land_hard` low, `slam_impact` low |
 | Wall climb | A little roll into each pull, alternating | Put away: down and out of the view | High on the wall, sliding down the screen as the body rises, each pull | | `wall_kick` sounds only on the jump off |
-| Cling | | Out, as at rest | Flat on the wall while facing it; trailing on it, as on a wall run, with the wall to the left; back on the gun with the wall to the right or behind | | |
+| Cling | | Out, as at rest; in the left hand with the wall to the right | Flat on the wall while facing it; trailing on it, as on a wall run, with the wall to the left; holding the gun with the wall to the right (the right hand on the wall); back on the gun with the wall behind | | |
 | Long fall, ledge drop | A dip for the missing step | Floats up with fall speed | | | `boot_scuff` off the edge |
 
 Jump and sprint are unchanged: the rig's own jump kick and run pose already cover them. Footfalls on a wall are the
@@ -405,6 +415,7 @@ All additive, in `src/core/contracts.ts`:
 - `Player.holdToHop` is on the class only, not on `PlayerSystem`.
 - `GameEvents`: `player:jumped` flags, `player:slam` radius and `big`, `player:slamstart`, `player:mantle`.
 - `PlayerMoveState` adds `climb` and `cling`.
+- `MovePose` adds `handSide` and `swap` (the hand-off).
 
 ## Known limitations
 
@@ -443,8 +454,12 @@ All additive, in `src/core/contracts.ts`:
   `?vault=auto` or the lab box. See DESIGN section 13 and "Nothing happens by accident" above for why it is not the default.
 - **The wall run change fixed nothing that could be measured.** A 2 km wall and a wall of butted 4 m panels both ran 1.43 s
   with and without it. It is there for casts that start in penetration, which Rapier may answer with nothing.
-- **The right hand never leaves the weapon.** A wall on the right gets no trailing hand and a mantle is one-handed. The big
-  slam's "both fists" are the left fist and the gun driven down with the right hand; a wall climb hides the gun instead.
+- **The right hand leaves the weapon only for a wall on the right** (the hand-off). A mantle is one-handed. The big slam's
+  "both fists" are the left fist and the gun driven down with the right hand; a wall climb hides the gun instead.
+- **A hand-off delays the left hand's next move by up to 0.15 s.** A mantle, vault or slide straight out of a wall run on the
+  right waits for the gun to come back before the left hand plants. Read from the code, not seen.
+- **The wall jump's gun shove ignores the hand-off.** Kicking off a wall on the right shoves the gun as if it were in the right
+  hand, mirrored with it while the gun comes back.
 - **The climb breaks three level promises** (found here, not fixed here: the levels are not owned here). One run-up jump
   straight at a wall with W now climbs 2.4 m and mantles, so a ledge up to about 5.5 m is reached without a double jump.
   `campaign/parkour.test.ts` "kicks a runner off the hull if the second press comes at it" fails (the wreck, 4.2 m, is
@@ -481,6 +496,9 @@ npx vitest run src/player/movement.test.ts                         # one file at
 node tools/shot.mjs --url "/?map=range" --script tools/scripts/parkour-live.mjs --dpr 2 --w 1440 --h 900 --wait 500 --timeout 280 --out tools/out/parkour/pk.png
                                                                     # every move on the range's strip, frozen mid-move. PK_WEAPON, PK_ONLY, PK_SHOTS=0
                                                                     # PK_ONLY=bigslam,climb,cling,chimney for the parkour update
+node tools/shot.mjs --port 5197 --url "/?map=range" --script tools/scripts/handoff-live.mjs --dpr 2 --w 1440 --h 900 --wait 500 --timeout 400 --out tools/out/handoff/h.png
+                                                                    # the hand-off: every weapon on a right-side wall run, mid-motion, firing, a swing, the cling.
+                                                                    # HO_IDS, HO_STEPS. --port 5197 runs a private server without HMR, which others' edits would reload
 npx tsx tools/scripts/movement-headless.ts [bot...] [--fps 60]     # bot numbers in about a second
 node tools/shot.mjs --url "/?sandbox=movement" --script tools/scripts/movement-bot.mjs --out tools/out/movement.png --wait 500
 node tools/shot.mjs --url "/?sandbox=movement&map=killhouse&seconds=120" --script tools/scripts/movement-map.mjs --out tools/out/movement-map.png --wait 500

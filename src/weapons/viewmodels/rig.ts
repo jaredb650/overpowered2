@@ -71,10 +71,21 @@ const _rot = new THREE.Vector3();
 const _eu = new THREE.Euler(0, 0, 0, 'YXZ');
 const _gunEuler = new THREE.Euler();
 const _moonFrom = new THREE.Vector3();
+const _c = new THREE.Vector3();
+const _qc = new THREE.Quaternion();
+const _one = new THREE.Vector3(1, 1, 1);
+const _mInv = new THREE.Matrix4();
+const _mHand = new THREE.Matrix4();
 const _moonHit: RayHit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, surface: 'concrete', collider: null };
 
 /** The share of a move's weapon pose that a working gun keeps. */
 const MOVE_CALM = 0.2;
+
+/**
+ * The left hand's grip on a weapon in the hand-off is the right hand's, mirrored across the gun's centre plane. These nudge
+ * it, in the gun's frame, on a weapon where the mirror lands the palm on something.
+ */
+const LEFT_GRIP: Partial<Record<string, readonly [number, number, number]>> = {};
 
 /** Soft limit: linear near zero, flattening toward `limit`. */
 const soft = (v: number, limit: number) => limit * Math.tanh(v / limit);
@@ -142,6 +153,13 @@ export class Rig implements ViewmodelRig {
   /** How free the left hand is to leave the weapon for a ledge or a wall. */
   private handFree = 1;
   private readonly moveHand = new HandCtl();
+  /** How free the gun is to pass to the left hand: a reload, a swing, a draw, akimbo or a device in the hand take it back. */
+  private swapFree = 1;
+  /** How far the gun is in the left hand this frame, and the sign that mirrors a side-to-side term with it: 1 to -1. */
+  private swapW = 0;
+  private gunSide = 1;
+  private readonly swapHand = new HandCtl();
+  private readonly wallHand = new HandCtl();
   private legs!: Legs;
   /** Each gun's rotation as composed this frame, which `settleMuzzle` needs to take a move back out of it. */
   private readonly gunRot = new THREE.Vector3();
@@ -412,7 +430,7 @@ export class Rig implements ViewmodelRig {
     if (!mv || k < 0.01) return;
     const gun = left ? this.gunL : this.gun;
     const rot = left ? this.gunLRot : this.gunRot;
-    const side = left ? -1 : 1;
+    const side = left ? -1 : this.gunSide;
     gun.worldToLocal(point);
     _gunEuler.set(rot.x - mv.gunPitch * k, rot.y - side * mv.gunYaw * k, rot.z - side * mv.gunRoll * k);
     point.multiply(gun.scale).applyQuaternion(_q.setFromEuler(_gunEuler));
@@ -602,6 +620,11 @@ export class Rig implements ViewmodelRig {
     this.moveCalm = damp(this.moveCalm, working ? MOVE_CALM : 1, working ? 30 : 9, dt);
     const busy = a.reload >= 0 || a.swing !== null || this.akimbo || a.draw < 1;
     this.handFree = damp(this.handFree, busy ? 0 : 1, 16, dt);
+    // A blow is struck from the right hand, so a swing takes the weapon back at once and the hand-off rides its wind-up.
+    this.swapFree = damp(this.swapFree, busy || this.offhand.leftWeight > 0.001 ? 0 : 1, a.swing !== null ? 40 : 16, dt);
+    this.swapW = this.move ? this.move.swap * this.swapFree : 0;
+    if (this.swapW < 1e-3) this.swapW = 0;
+    this.gunSide = 1 - 2 * this.swapW;
 
     if (dt > 0) {
       const yawRate = soft(wrapAngle(yaw - this.lastYaw) / dt, 9);
@@ -729,6 +752,21 @@ export class Rig implements ViewmodelRig {
     r.z += slide * 0.2;
     r.x += slide * 0.04;
 
+    // The hand-off: the gun goes over to the left hand as its mirror image in place, but it is the same model, so the eye
+    // sees its other side. It dips under the view on the way across. Every side-to-side term after this one is mirrored by
+    // `m`; the motion springs, which answer the body and not the hand, are not.
+    const sw = this.swapW;
+    const m = this.gunSide;
+    if (sw > 0) {
+      p.x *= m;
+      r.y *= m;
+      r.z *= m;
+      const arc = Math.sin(Math.PI * sw);
+      p.y -= 0.03 * arc;
+      p.z += 0.02 * arc;
+      r.x -= 0.18 * arc;
+    }
+
     const wall = this.wallW * this.wallSide;
     p.x -= wall * 0.016;
     r.z -= wall * 0.17;
@@ -745,12 +783,12 @@ export class Rig implements ViewmodelRig {
     const mv = this.move;
     if (mv) {
       const c = this.moveCalm;
-      p.x += mv.gunX * c;
+      p.x += mv.gunX * c * m;
       p.y += mv.gunY * c;
       p.z += mv.gunZ * c;
       r.x += mv.gunPitch * c;
-      r.y += mv.gunYaw * c;
-      r.z += mv.gunRoll * c;
+      r.y += mv.gunYaw * c * m;
+      r.z += mv.gunRoll * c * m;
     }
 
     p.x += this.lookP.x.x + this.moveP.x.x;
@@ -761,12 +799,12 @@ export class Rig implements ViewmodelRig {
     r.z += this.lookR.z.x + this.moveR.z.x;
 
     // Recoil and clip motion.
-    p.x += this.recoilP.x.x + a.gunP.x;
+    p.x += this.recoilP.x.x + a.gunP.x * m;
     p.y += this.recoilP.y.x + a.gunP.y;
     p.z += this.recoilP.z.x + a.gunP.z + this.settle.x * 0.008;
     r.x += this.recoilR.x.x + a.gunR.x + this.settle.x * 0.02;
-    r.y += this.recoilR.y.x + a.gunR.y;
-    r.z += this.recoilR.z.x + a.gunR.z;
+    r.y += this.recoilR.y.x + a.gunR.y * m;
+    r.z += this.recoilR.z.x + a.gunR.z * m;
 
     // Draw and holster share one curve.
     const raise = a.draw < 1 ? 1 - outBack(a.draw, 1.2) : 0;
@@ -775,13 +813,13 @@ export class Rig implements ViewmodelRig {
     p.y += k * DRAW_Y;
     p.z += k * DRAW_Z;
     r.x += k * DRAW_PITCH;
-    r.z += k * DRAW_ROLL;
+    r.z += k * DRAW_ROLL * m;
 
     // Scope: the gun comes up to the eye just before the overlay takes over.
     const sc = this.scopeW;
-    p.x -= sc * def.pos[0] * 0.9;
+    p.x -= sc * def.pos[0] * 0.9 * m;
     p.y += sc * 0.05;
-    r.y -= sc * def.rot[1];
+    r.y -= sc * def.rot[1] * m;
 
     this.gun.position.copy(p);
     this.gunRot.copy(r);
@@ -860,15 +898,46 @@ export class Rig implements ViewmodelRig {
     const shown = this.gun.visible;
     const off = this.offhand;
     const rightOk = shown && this.resolveHand(a.right, def.model, _a, _qa);
+    const mv = this.move;
+    // In the hand-off the left hand takes the right hand's grip, mirrored across the gun, while the right goes to the wall.
+    const sw = rightOk ? this.swapW : 0;
+    if (sw > 0) this.mirrorGrip(def.id, _a, _qa, _c, _qc);
     this.armR.mesh.visible = rightOk;
     if (rightOk) {
-      this.fingers(this.armR, a.right, dt);
+      let hand = a.right;
+      const ww = mv && mv.handSide > 0 ? mv.handW * this.swapFree : 0;
+      if (mv && ww > 0.001) {
+        _p.set(-mv.handX, mv.handY, mv.handZ);
+        _q.setFromEuler(_eu.set(mv.handPitch, -mv.handYaw, -mv.handRoll));
+        _a.lerp(_p, ww);
+        _qa.slerp(_q, ww);
+        const out = this.wallHand.pose;
+        const open = mv.handOpen * ww;
+        for (let i = 0; i < out.length; i++) out[i] = hand.pose[i]! + (HANDS.open[i]! - hand.pose[i]!) * open;
+        this.wallHand.fingerRate = 22;
+        hand = this.wallHand;
+      }
+      this.fingers(this.armR, hand, dt);
       this.armR.applyPose();
       this.armR.solve(_a, _qa, SHOULDER_R, POLE_R);
     }
 
     let leftOk = shown && this.resolveHand(a.left, def.model, _b, _qb);
     let hand = a.left;
+    const gw = smoothstep(0.15, 0.6, sw);
+    if (gw > 0) {
+      // A one-handed weapon has no left hand to start from: it comes up from below.
+      if (!leftOk) {
+        this.anchors.pouchL!.matrixWorld.decompose(_b, _qb, _s);
+        leftOk = true;
+      }
+      _b.lerp(_c, gw);
+      _qb.slerp(_qc, gw);
+      const out = this.swapHand.pose;
+      for (let i = 0; i < out.length; i++) out[i] = hand.pose[i]! + (a.right.pose[i]! - hand.pose[i]!) * gw;
+      this.swapHand.trigger = a.right.trigger * gw;
+      hand = this.swapHand;
+    }
     if (akimbo && defLeft) {
       const k = this.akimboW;
       if (this.resolveHand(this.a2.left, defLeft.model, _p, _q)) {
@@ -888,8 +957,7 @@ export class Rig implements ViewmodelRig {
       hand = off.ctl;
     }
     // A move takes the hand last and gives way to everything above: a ledge, the top of cover, a wall, the floor.
-    const mv = this.move;
-    const mw = mv && shown ? mv.handW * this.handFree * (1 - ow) : 0;
+    const mw = mv && shown && mv.handSide < 0 ? mv.handW * this.handFree * (1 - ow) : 0;
     if (mv && mw > 0.001 && leftOk) {
       _p.set(mv.handX, mv.handY, mv.handZ);
       _q.setFromEuler(_eu.set(mv.handPitch, mv.handYaw, mv.handRoll));
@@ -907,6 +975,22 @@ export class Rig implements ViewmodelRig {
       this.armL.applyPose();
       this.armL.solve(_b, _qb, SHOULDER_L, POLE_L);
     }
+  }
+
+  /** The right hand's target on the gun, reflected across the gun's own centre plane, for the left arm (itself a reflection). */
+  private mirrorGrip(id: string, p: THREE.Vector3, q: THREE.Quaternion, outP: THREE.Vector3, outQ: THREE.Quaternion): void {
+    _mInv.copy(this.gun.matrixWorld).invert();
+    _mHand.compose(p, q, _one).premultiply(_mInv).decompose(outP, outQ, _s);
+    outP.x = -outP.x;
+    outQ.y = -outQ.y;
+    outQ.z = -outQ.z;
+    const nudge = LEFT_GRIP[id];
+    if (nudge) {
+      outP.x += nudge[0];
+      outP.y += nudge[1];
+      outP.z += nudge[2];
+    }
+    _mHand.compose(outP, outQ, _s).premultiply(this.gun.matrixWorld).decompose(outP, outQ, _s);
   }
 
   private fingers(arm: Arm, h: HandCtl, dt: number): void {

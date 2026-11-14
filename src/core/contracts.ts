@@ -710,6 +710,10 @@ export interface MovePose {
   readonly handRoll: number;
   /** 0 keeps the weapon's fingers, 1 is a flat palm. */
   readonly handOpen: number;
+  /** -1 `hand*` is the left hand; +1 it is the right hand, posed as the left one and mirrored by the rig. */
+  readonly handSide: number;
+  /** 0..1: how far the gun has passed to the left hand, for a wall on the right. */
+  readonly swap: number;
   /** 0 none, 1 slide, 2 vault. */
   readonly legsMode: number;
   readonly legsW: number;

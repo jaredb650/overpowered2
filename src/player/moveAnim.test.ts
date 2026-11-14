@@ -122,26 +122,52 @@ describe('move animation layer', () => {
     expect(a.legsW).toBe(0);
   });
 
-  it('trails the hand on a wall to the left, and leaves it on the weapon for a wall to the right', () => {
+  it('trails the left hand on a wall to the left, with no hand-off', () => {
     const left = source();
     left.grounded = false;
     left.wallRunning = true;
     left.wallSide = -1;
     const a = new MoveAnim();
-    run(a, left, 0.6);
+    let swap = 0;
+    run(a, left, 0.6, () => { swap = Math.max(swap, a.swap); });
+    expect(swap).toBe(0);
+    expect(a.handSide).toBe(-1);
     expect(a.handW).toBeGreaterThan(0.9);
     expect(a.handX).toBeLessThan(-0.3);
     // Head away from the wall.
     expect(a.camX).toBeGreaterThan(0.02);
+  });
 
-    const right = source();
-    right.grounded = false;
-    right.wallRunning = true;
-    right.wallSide = 1;
-    const b = new MoveAnim();
-    run(b, right, 0.6);
-    expect(b.handW).toBe(0);
-    expect(b.camX).toBeLessThan(-0.02);
+  it('passes the gun to the left hand on a wall to the right in 0.15 s, the right hand to the wall, and back after', () => {
+    const s = source();
+    s.grounded = false;
+    s.wallRunning = true;
+    s.wallSide = 1;
+    const a = new MoveAnim();
+    // The right hand stays on the gun until the left has it, then goes to the wall.
+    run(a, s, 0.06);
+    expect(a.swap).toBeGreaterThan(0.3);
+    expect(a.swap).toBeLessThan(0.7);
+    expect(a.handW).toBe(0);
+    run(a, s, 0.09);
+    expect(a.swap).toBe(1);
+    expect(a.handSide).toBe(1);
+    expect(a.handW).toBe(1);
+    // Posed as the left hand on a wall to the left: the rig mirrors it.
+    expect(a.handX).toBeLessThan(-0.3);
+    run(a, s, 0.4);
+    expect(a.handW).toBe(1);
+    expect(a.camX).toBeLessThan(-0.02);
+    s.wallRunning = false;
+    s.wallSide = 0;
+    run(a, s, 0.08);
+    expect(a.handW).toBe(0);
+    expect(a.swap).toBeGreaterThan(0);
+    run(a, s, 0.08);
+    expect(a.swap).toBe(0);
+    expect(a.handSide).toBe(-1);
+    run(a, s, 1);
+    expect(a.idle).toBe(true);
   });
 
   it('kicks the view away from the wall on a wall jump, either side', () => {
@@ -257,12 +283,17 @@ describe('move animation layer', () => {
     expect(cling.step).toBeLessThan(0.06);
     expect(a.gunY).toBeGreaterThan(-0.02);
     expect(a.handW).toBeGreaterThan(0.8);
-    // Turned with the wall on the right, the hand goes back to the gun. With it on the left, it stays on the wall.
+    // Turned with the wall on the right, the gun passes to the left hand and the right goes on the wall. With it on the
+    // left, the left hand stays on the wall and the gun stays in the right.
     s.yaw = Math.PI / 2;
     run(a, s, 0.4);
-    expect(a.handW).toBeLessThan(0.05);
+    expect(a.swap).toBe(1);
+    expect(a.handSide).toBe(1);
+    expect(a.handW).toBeGreaterThan(0.8);
     s.yaw = -Math.PI / 2;
     run(a, s, 0.4);
+    expect(a.swap).toBe(0);
+    expect(a.handSide).toBe(-1);
     expect(a.handW).toBeGreaterThan(0.8);
     s.clinging = false;
     s.grounded = true;

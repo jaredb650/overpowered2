@@ -52,6 +52,8 @@ export const ANIM = {
   /** Fall speed where the arms start to float, and where they are fully up. */
   fallFrom: 6,
   fallFull: 18,
+  /** Seconds the gun takes to pass to the left hand for a wall on the right, and back. */
+  handoff: 0.15,
 };
 
 /** What the layer reads. Player satisfies it; tests pass a plain object. */
@@ -156,6 +158,13 @@ export class MoveAnim {
   handRoll = 0;
   /** 0 keeps the weapon's finger pose, 1 is a flat open palm. */
   handOpen = 0;
+  /**
+   * -1: `hand*` is the left hand. +1: it is the right hand on a wall to the right, written as the left hand's pose on a
+   * wall to the left, which the rig mirrors onto the right arm.
+   */
+  handSide = -1;
+  /** 0..1, eased: how far the gun has gone over to the left hand. */
+  swap = 0;
   // --- Output: legs.
   legsMode: LegsMode = 0;
   legsW = 0;
@@ -190,6 +199,8 @@ export class MoveAnim {
   private vaultP = 0;
   private climbW = 0;
   private clingW = 0;
+  /** 0..1, linear: the hand-off's clock. */
+  private swapT = 0;
   private sinceSlide = 9;
   private sinceJump = 9;
 
@@ -317,6 +328,14 @@ export class MoveAnim {
     this.slamW = fade(this.slamW, s.slamming ? 1 : 0, 14, dt);
     this.climbW = fade(this.climbW, s.climbing ? 1 : 0, 20, dt);
     this.clingW = fade(this.clingW, s.clinging ? 1 : 0, 14, dt);
+    // A wall on the right takes the right hand: on a wall run, and clinging turned with the wall on that side.
+    const n = s.climbNormal;
+    const sy = Math.sin(s.yaw);
+    const cy = Math.cos(s.yaw);
+    const into = n ? sy * n.x + cy * n.z : 0;
+    const right = n ? n.z * sy - n.x * cy : 0;
+    const wallRight = s.alive && ((s.wallRunning && s.wallSide > 0) || (!!s.clinging && into <= 0.5 && right > 0.3));
+    this.swapT = clamp(this.swapT + (wallRight ? dt : -dt) / ANIM.handoff);
     const falling = air && !s.slamming && !s.wallRunning ? smoothstep(ANIM.fallFrom, ANIM.fallFull, -s.velocity.y) : 0;
     this.fallW = fade(this.fallW, falling, falling > this.fallW ? 5 : 14, dt);
 
@@ -450,7 +469,18 @@ export class MoveAnim {
     let bx = 0;
     let by = 0;
     let bz = 0;
-    if (mw > 0) {
+    if (this.swapT > 0) {
+      // The right hand on a wall to the right, once the left hand has the gun. Posed as the left hand on a wall to the left.
+      const ph = s.stridePhase * Math.PI;
+      const run = s.wallRunning ? 1 : 0;
+      bx = -0.36;
+      by = -0.13 + 0.012 * Math.sin(ph * 2) * run;
+      bz = -0.44 + 0.03 * Math.cos(ph) * run;
+      hpitch = 0.3;
+      hyaw = 0.12;
+      hroll = -1.35;
+      hw = smoothstep(0.5, 1, this.swapT);
+    } else if (mw > 0) {
       // On the ledge. The ledge holds still in the world, so the hand comes down the screen as the body goes up.
       const rel = clamp(this.mantleTop - s.eye.y, -1.2, 0.8);
       const out = this.mantleOut >= 0 ? clamp(this.mantleOut / ANIM.mantleOut) : 0;
@@ -492,13 +522,9 @@ export class MoveAnim {
       hyaw = -0.35;
       hroll = 0;
       hw = this.climbW;
-    } else if (this.clingW > 0.02 && s.climbNormal) {
+    } else if (this.clingW > 0.02 && n) {
       // On the wall while the gun is out. Where the hand can be seen depends on where the view is, against the wall.
-      const n = s.climbNormal;
-      const sy = Math.sin(s.yaw);
-      const cy = Math.cos(s.yaw);
-      const into = sy * n.x + cy * n.z;
-      const right = n.z * sy - n.x * cy;
+      // Turned with the wall on the right, the hand-off above has it.
       if (into > 0.5) {
         // Still facing it: flat on the wall ahead, low.
         bx = -0.18;
@@ -592,9 +618,13 @@ export class MoveAnim {
       follow(this.hyaw, hyaw, ho, hzeta, dt);
       follow(this.hr, hroll, ho, hzeta, dt);
     }
-    // Up fast, because a vault at a run is over in a fifth of a second and the hand has to be there for it.
-    this.handW = hw > this.handW ? damp(this.handW, hw, 42, dt) : damp(this.handW, hw, 18, dt);
+    // Up fast, because a vault at a run is over in a fifth of a second and the hand has to be there for it. The hand-off
+    // runs on its own clock and is taken as it is, so the right hand is back on the gun before the gun leaves the left.
+    if (this.swapT > 0) this.handW = hw;
+    else this.handW = hw > this.handW ? damp(this.handW, hw, 42, dt) : damp(this.handW, hw, 18, dt);
     if (hw === 0 && this.handW < 1e-3) this.handW = 0;
+    this.handSide = this.swapT > 0 ? 1 : -1;
+    this.swap = inOut(this.swapT);
 
     // --- Write.
     const cam = ANIM.camera;
@@ -640,7 +670,7 @@ export class MoveAnim {
 
   /** True when nothing is playing and every output is at rest. */
   get idle(): boolean {
-    return this.camRoll === 0 && this.camX === 0 && this.camY === 0 && this.handW === 0 && this.legsW === 0
+    return this.camRoll === 0 && this.camX === 0 && this.camY === 0 && this.handW === 0 && this.legsW === 0 && this.swap === 0
       && this.gunX === 0 && this.gunY === 0 && this.gunZ === 0 && this.gunPitch === 0 && this.gunYaw === 0 && this.gunRoll === 0;
   }
 
@@ -649,6 +679,8 @@ export class MoveAnim {
     for (const c of this.clips) c.t = -1;
     this.clean = true;
     this.slideW = this.wallW = this.slamW = this.fallW = this.mantleW = this.vaultW = this.climbW = this.clingW = 0;
+    this.swapT = this.swap = 0;
+    this.handSide = -1;
     this.mantleOut = this.vaultOut = -1;
     this.sinceSlide = this.sinceJump = 9;
     this.camRoll = this.camX = this.camY = 0;

@@ -1,6 +1,7 @@
 # Plan: the parkour update
 
-Status: sections 1 to 4 built 2026-11-14 (part 1), with every **Q** at its default; section 5 is part 2, not built. Written
+Status: sections 1 to 4 built 2026-11-14 (part 1), with every **Q** at its default; section 5 built the same day (part 2),
+Q8 at its default. Written
 2026-11-13 from the owner's notes after playing; the owner answered the first round of questions the same day. Open details
 are marked **Q** with the default the build would use. What was built, with its numbers, is in `docs/notes/player.md`.
 How movement works today is in `docs/notes/player.md`; every number lives in `src/player/tuning.ts`.
@@ -124,6 +125,15 @@ Known limitations in `docs/notes/player.md`). The levels are not part of this jo
 - **Q8.** Hand-off time. Default: 0.15 s each way, firing allowed throughout (the shot comes from whichever hand holds
   the gun at that moment).
 
+**Built** (part 2): the default, 0.15 s each way on a linear clock, eased. The gun's pose is mirrored across the middle of the
+view and dips under it on the way, the model itself never reflected; the right hand leaves the grip once the gun has crossed
+and is back on it before the gun leaves the left. The left-hand grip is the right hand's, reflected across the gun, for every
+weapon; no weapon needed its own fix. Firing is never blocked and needed no change: the muzzle is wherever the gun is. A
+reload, a draw, the off-hand or akimbo hand the gun back for as long as they last. The melee weapons are held in the left hand
+the same way, and a blow is struck from the right: a swing brings the weapon back across in its wind-up and it goes over again
+after. Clinging turned with the wall on the right swaps hands too. The climb still hides the gun. See
+`docs/notes/player.md` and `docs/notes/viewmodels.md`.
+
 ## 6. Left out
 
 - A parkour roll on big landings (the owner dropped it).
@@ -143,5 +153,5 @@ Rough sizes only, not measured against the code.
 | 180 wall jump with the camera turn; chimneys | Small to medium |
 | Wall run to wall run (check first; may be a small rule change) | Small |
 | Double jump only back on the ground (check today's rule) | Small |
-| Left-hand hand-off: animation, left-hand grip per weapon, the right hand on the wall | Large (every gun needs a left-hand hold) |
+| Left-hand hand-off: animation, left-hand grip per weapon, the right hand on the wall | Built: medium, as the grip is the right hand's mirrored and no weapon needed its own |
 | New sounds: big slam impact, climbing steps, wall slide scrape | Small; the owner sources them |

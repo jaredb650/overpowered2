@@ -355,6 +355,36 @@ describe('the double jump comes back only on the ground', () => {
     press('jump');
   }
 
+  it('passes the gun to the left hand on a wall run on the right, not the left, and never stops the shooting', () => {
+    wallRunRight();
+    const p = game.player;
+    expect(stepUntil(() => p.wallRunning, 1.5)).toBe(true);
+    expect(p.wallSide).toBe(1);
+    // Mid-way through the hand-off, then all the way. Nothing asks the weapons to stop for it.
+    const half = stepUntil(() => p.moveAnim.swap > 0.3, 0.2);
+    expect(half && p.moveAnim.swap < 0.9).toBe(true);
+    expect(stepUntil(() => p.moveAnim.swap === 1, 0.2)).toBe(true);
+    expect(p.moveAnim.handSide).toBe(1);
+    expect(occupied.filter(s => s > 0)).toEqual([]);
+    // Across to the left wall: the gun goes back, and stays in the right hand there.
+    p.yaw = 0;
+    step(18);
+    p.yaw += 0.5;
+    step();
+    press('jump');
+    expect(stepUntil(() => p.wallRunning, 1.5)).toBe(true);
+    expect(p.wallSide).toBe(-1);
+    expect(p.moveAnim.swap).toBe(0);
+    let most = 0;
+    for (let i = 0; i < 30 && p.wallRunning; i++) {
+      step();
+      most = Math.max(most, p.moveAnim.swap);
+    }
+    expect(most).toBe(0);
+    expect(p.moveAnim.handSide).toBe(-1);
+    expect(occupied.filter(s => s > 0)).toEqual([]);
+  });
+
   it('runs wall to wall between different walls, kicking across', () => {
     wallRunRight();
     const p = game.player;
