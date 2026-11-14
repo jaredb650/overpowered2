@@ -6,6 +6,7 @@
  * rps is 20 rps at any frame rate rather than rounding up to whole frames.
  */
 import * as THREE from 'three';
+import { ACTIVE } from '../contracts/select';
 import { CG, type Ctx, type ExplosionKind, type LoopHandle } from '../core/contracts';
 import type {
   AmmoState, MissileTarget, PaintView, ProjectileSpec, ProjectileTrail, ShotSpec, WeaponId, WeaponModifiers, WeaponSystem,
@@ -220,7 +221,8 @@ export class Weapons implements WeaponSystem, Guard {
     events.on('enemy:killed', e => {
       if (e.damage.source.startsWith('sword') || isMelee(e.damage.source)) this.feedGun();
     });
-    events.on('wave:clear', () => this.liftReserves());
+    // Outpost Defense sells ammunition, so a wave's end gives none.
+    events.on('wave:clear', () => { if (!ACTIVE.def.economy) this.liftReserves(); });
     this.ctx.viewmodel.equip?.(this.current, 0.01);
   }
 

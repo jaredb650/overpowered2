@@ -37,9 +37,60 @@ ACTIVE.ranked;                                  // false on a map the contract d
 | `/?map=killhouse` | Endless Humans: the contract that plays there | Kill House | Kept |
 | `/?map=crucible` | The Crucible | Crucible | Kept |
 | `/?map=range` | The Crucible's rules. No contract owns it | Test Range | Not kept |
+| `/?contract=defense` | Outpost Defense: the economy, shops and loadout. On the Test Range until the fort map lands | Test Range | Kept |
 | `/?contract=crucible&map=killhouse` | The Crucible's rules | Kill House | Not kept |
 
 `/` is always the default contract. There is no remembered choice, so the URL is the only state and a sandbox can never open on the wrong map.
+
+## Outpost Defense
+
+`src/contracts/defense/`, piece 5 of `docs/proposals/outpost-defense.md`. The contract row `defense` (`economy: true`) under Endless Humans: its AI,
+waves and wounds, plus credits, a loadout screen, three shops and breaks. Locked with Endless Humans until the campaign is beaten
+(`?unlock=1`, or the dev server, opens it).
+
+| File | Job |
+|---|---|
+| `defense/data.ts` | Every number: `ECONOMY` (budget, pay, breaks, squad cap, repair time), `WEAPON_PRICES`, `ALLY_PRICES`, `CALLIN_PRICES`, `MOUNT_PRICES`, `REPAIR_PRICES`, `STIM_PRICE`, `SHOPS` (health, rebuild) |
+| `defense/economy.ts` | Pure rules over a `ShopView` snapshot: `offers(shop, view)` with each row's price and why it is shut, `checkLoadout`, `ShopState` |
+| `defense/index.ts` | `Defense` on `ctx.contracts.defense`: credits, the counters in the world and E, buying, the break hook, shop loss, `window.__defense` and a DEFENSE lab section |
+| `ui/screens/loadout.ts`, `ui/screens/shop.ts` | The two menus, on the settings sheet's rail and rows |
+| `ui/hud/defense.ts` | Credits, the next wave's line in a break, the three shops (red while lost), under the wave plate |
+
+**Start it.** `/?contract=defense`, or Outpost Defense on the menu. The fort switch is one line: `map: 'range'` on the row in `data.ts` becomes
+`'fort'` (and `MAP_IDS` in `select.ts` gains it), and `anchors` in `defense/index.ts` takes the fort's export in place of `RANGE_ANCHORS`.
+`?map=range` stays the lab's: `pickContract` never hands the Test Range to a contract that borrows it.
+
+**Flow.** A new run opens the loadout over a paused game. Deploy arms the player (`weapons.setLoadout([primary, secondary, 'knife'], 0)`),
+the budget left becomes credits, and the first break (20 s) starts. Walk up to a counter (2.6 m) and press E: the run pauses under its menu.
+Enter or a click buys, Esc, E or Close goes back. A shop menu pauses the world, so shopping under fire costs the walk, not the clock.
+
+**Credits.** `killPay`: 10 a kill, 15 a head, the player's and his call-ins'; an ally's pay nothing. `wavePay`: 125 + 25 per wave number when
+a wave clears. Budget 1,600: the Harrow and the Rivet leave 300. Killing everything in waves 1 to 3 leaves 1,125, short of the rocketeer at
+1,200; wave 4 takes it to about 1,490 (Q4; `economy.test.ts`).
+
+| Shop | Sells | Lost means |
+|---|---|---|
+| Barracks | Rifleman 250, machine gunner 500, shotgunner 500, riot 750, medic 750, sniper 1,100, rocketeer 1,200; mortar team 1,200 shown, shut ("Coming later"). Squad cap 8, up or down, so a dead man frees his place. Repairs: wall 250 and gate 350 a stage, half for a chip, 4 s of work through `Structure.repair` | No troops, no repairs |
+| Armoury | Weapons only in a break (a base brings its family member and is priced for both). Ammunition by gun: a box is half the most reserve, 50 to 90 for basic, 200 to 300 specialty, 260 to 450 explosive (the Quiver cheapest). Grenades 150. Mounted gun to level 2 for 700, 3 for 1,600. Call-ins 600 (airstrike) to 8,000 (nuke), any time, not while one is held or rearming | No weapons, special ammo, upgrades or call-ins |
+| Infirmary | Stim 150 up to 5. Basic ammo 100: half a reserve for every basic gun | No stims, no resupply |
+
+A lost shop (`damageShop(id, amount)`, `ShopState`, 1,500 health each) sells only its rebuild, in a break: barracks 2,500, armoury 3,000,
+infirmary 3,500. Its sign and HUD chip go red and the banner says so. Nothing damages a shop yet but the lab and `__defense.damageShop`.
+
+**What else this contract turns off** (`economy` on the row): combo call-ins (`progression/index.ts` skips `offer`), weapon cache pods and kill
+drops, and the wave-end ammo floor (`Weapons.ts`). Every mounted gun goes back to level 1 at a new run.
+
+**The wave hook** (`DefenseWaves` in `defense/index.ts`). Whatever `ctx.waves` is on this contract: Defense reads `wave` and `phase`,
+listens to `wave:start` and `wave:clear`, writes `nextWaveIn` once as each break begins, and calls `preview(wave)` and `breakSeconds(wave)`
+if they exist. Today `createWaves` hands this contract Endless Humans' `OutpostWaves` (squads from the ground spawns), so a director
+replaces that and adds the two methods. `__defense.skipBreak()` ends a break.
+
+**Dev.** `window.__defense` (`earn(n)`, `skipBreak()`, `damageShop(id, n)`, `offers(id)`, `buy(id, act)`), the DEFENSE lab section (+1000,
+skip break, hit each shop 500), and `tools/scripts/defense-live.mjs`:
+
+```
+node tools/shot.mjs --url "/?contract=defense&autostart=1" --script tools/scripts/defense-live.mjs --wait 500 --timeout 280 --dpr 2 --w 1440 --h 900 --out tools/out/economy/live.png
+```
 
 ## Unlocks
 

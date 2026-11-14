@@ -7,8 +7,11 @@
  */
 import type { MapId } from '../world/map/maps';
 
-/** `outpost` is Endless Humans. The id is older than the campaign, and URLs and score tables are keyed on it. */
-export type ContractId = 'campaign' | 'crucible' | 'outpost';
+/**
+ * `outpost` is Endless Humans. The id is older than the campaign, and URLs and score tables are keyed on it. `defense` is
+ * Outpost Defense, Endless Humans' tower defense (docs/proposals/outpost-defense.md).
+ */
+export type ContractId = 'campaign' | 'crucible' | 'outpost' | 'defense';
 
 /** Who lives there. Section 15's faction rules hang off this: pain, fear, bleeding, gib thresholds. */
 export type FactionId = 'swarm' | 'humans';
@@ -67,6 +70,11 @@ export interface ContractDef {
   mission?: string;
   /** Shut until the campaign has been beaten once. See unlocks.ts. */
   locked?: boolean;
+  /**
+   * Credits, a loadout screen, shops and breaks (contracts/defense). Call-ins are bought, not earned by combo, and no weapon
+   * cache, kill drop or wave-end ammo floor hands out what the shops sell.
+   */
+  economy?: boolean;
   /** localStorage key of this contract's high score. */
   scoreKey: string;
 }
@@ -158,6 +166,35 @@ export const CONTRACTS: readonly ContractDef[] = [
       ],
     },
     scoreKey: 'op2_highscore.outpost',
+  },
+  {
+    id: 'defense',
+    name: 'Outpost Defense',
+    // shortcut: the Test Range stands in until the fort map lands; then this is 'fort' (and MAP_IDS in select.ts gains it).
+    map: 'range',
+    faction: 'humans',
+    waves: 'squads',
+    ai: 'outpost',
+    wounds: 'anatomy',
+    rewards: { backShot: 1.5 },
+    locked: true,
+    economy: true,
+    briefing: {
+      ref: 'Form 7742-F',
+      subject: 'Every human force advancing on the fort, now and in future',
+      body: [
+        'The fort is Council property. The humans outside dispute this, in waves. You are contracted to hold it until they stop, which on current projections they will not.',
+        'You arrive with a budget, not a gun. Everything else is bought: troops, ammunition, weapons, repairs and air support. Each wave held is paid for.',
+        'Shops lost to the enemy may be rebuilt at the contractor\'s expense. The Council does not reimburse walls.',
+      ],
+      terms: [
+        ['Site', 'The fort, three rings deep'],
+        ['Occupants', 'Yours, if you pay them'],
+        ['Duration', 'Open-ended'],
+        ['Appeals', 'In writing, to an address now destroyed'],
+      ],
+    },
+    scoreKey: 'op2_highscore.defense',
   },
 ];
 

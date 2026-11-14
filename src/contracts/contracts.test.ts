@@ -60,6 +60,7 @@ describe('picking a contract', () => {
 
 describe('the campaign and what it unlocks', () => {
   const endless = CONTRACTS.find(c => c.id === 'outpost')!;
+  const defense = CONTRACTS.find(c => c.id === 'defense')!;
 
   it('leads the menu, and leaves / on the swarm game', () => {
     expect(CONTRACTS[0]).toMatchObject({ id: 'campaign', map: 'outpost', mission: 'outpost' });
@@ -75,8 +76,8 @@ describe('the campaign and what it unlocks', () => {
     expect(endless.mission).toBeUndefined();
   });
 
-  it('holds Endless Humans shut until the campaign is beaten, and only that', () => {
-    expect(CONTRACTS.filter(isLocked)).toEqual([endless]);
+  it('holds Endless Humans and its Outpost Defense shut until the campaign is beaten, and only those', () => {
+    expect(CONTRACTS.filter(isLocked)).toEqual([endless, defense]);
     expect(campaignBeaten()).toBe(false);
     expect(recordCampaignBeaten()).toBe(true);
     expect(CONTRACTS.filter(isLocked)).toEqual([]);

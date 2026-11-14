@@ -255,3 +255,20 @@
 .mc-bill { grid-template-columns: 9.5rem 1fr; }
 .mc-stamp { padding: 0.6rem 1.4rem 0.5rem; background: var(--amber); color: #000; font: 2.4rem/1.1 var(--display); }
 .mc-stamp-s { display: block; margin-top: 0.15rem; font: 600 1rem/1.3 var(--mono); }
+
+/* --- Outpost Defense: shops and the loadout (contracts/defense) --- */
+
+.scr-shop .gd-panel { max-width: 84rem; }
+.scr-shop .set-list { max-width: none; }
+.sp-row { grid-template-columns: 17rem 1fr 6rem; height: 3.2rem; cursor: pointer; }
+.sp-detail { min-width: 0; color: var(--steel); font-size: 1.05rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sp-row.off .row-k, .sp-row.off .row-v { color: var(--dim); }
+.sp-row.off .sp-detail { color: var(--amber); }
+.sp-row.poor .row-v { color: var(--blood); }
+.sp-row.on { box-shadow: inset 0.35rem 0 0 var(--hot); }
+.sp-row.on .row-k { color: var(--hot); }
+.sp-row.focus .row-k, .sp-row.focus .row-v, .sp-row.focus .sp-detail { color: #000; }
+.sp-wallet .rl-state-k { font-size: 3.2rem; color: var(--amber); }
+.scr-shop .sh-side > .rl-hint { margin-top: -0.6rem; }
+.scr-loadout .sh-side > .mi:not(.mi-small) { font-size: 3.8rem; }
+.scr-loadout .sh-side > .mi.off { color: var(--dim); }

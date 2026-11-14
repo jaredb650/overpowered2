@@ -459,3 +459,15 @@
 .dbg { position: absolute; left: 34rem; top: 1rem; }
 .dbg-fps { padding: 0 0.4rem; background: var(--plate); color: var(--cold); }
 .dbg-info { margin: 0.3rem 0 0; padding: 0.4rem 0.6rem; background: rgba(7, 10, 14, 0.86); color: var(--ink); font: 600 0.95rem/1.3 var(--mono); }
+
+/* --- Outpost Defense: credits, the next wave, the shops (hud/defense.ts) --- */
+
+.df { display: flex; flex-direction: column; gap: 0.3rem; align-items: flex-start; }
+.df-cr { display: flex; align-items: baseline; gap: 0.5rem; padding: 0 0.6rem 0 0.5rem; background: var(--plate); }
+.df-cr-t { color: var(--steel); font-size: 1rem; font-weight: 700; }
+.df-cr-n { font: 2.4rem/1.16 var(--display); color: var(--amber); text-shadow: var(--edge); }
+.df-next { max-width: 30rem; padding: 0 0.35rem; background: var(--plate); color: var(--cold); font-size: 1rem; line-height: 1.35; }
+.df-shops { display: flex; gap: 0.3rem; }
+.df-shop { padding: 0 0.35rem; background: var(--plate); color: var(--steel); font-size: 0.9rem; }
+.df-shop.hurt { color: var(--amber); }
+.df-shop.lost { background: var(--blood); color: #000; text-decoration: line-through; }

@@ -28,7 +28,9 @@ const MAP_IDS: Record<MapId, true> = { crucible: true, killhouse: true, outpost:
 
 export function pickContract(contract: string | null, map: string | null): ActiveContract {
   const namedMap = map !== null && map in MAP_IDS ? (map as MapId) : null;
-  const def = CONTRACTS.find(c => c.id === contract) ?? CONTRACTS.find(c => c.map === namedMap) ?? DEFAULT_CONTRACT;
+  // The Test Range is the lab's, whoever borrows it: `?map=range` stays the Crucible's rules.
+  const owner = namedMap === 'range' ? undefined : CONTRACTS.find(c => c.map === namedMap);
+  const def = CONTRACTS.find(c => c.id === contract) ?? owner ?? DEFAULT_CONTRACT;
   const resolved = namedMap ?? def.map;
   return { def, map: resolved, ranked: resolved === def.map };
 }

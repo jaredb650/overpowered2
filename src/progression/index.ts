@@ -16,6 +16,7 @@ import type {
 } from '../core/gameplay';
 import type { Flight } from '../vehicles/flight';
 import { ALLY_SOURCE } from '../allies/data';
+import { ACTIVE } from '../contracts/select';
 import { CallInManager } from './callins/manager';
 import { aboveFloor } from './callins/shared';
 import { ChainEffects } from './chains';
@@ -40,6 +41,8 @@ const SWORD = /^(sword|knife|crowbar|shovel|baton)/;
 /** Damage that counts as the player taking a limb off by hand, for Butcher. */
 const BY_HAND: ReadonlySet<DamageInfo['type']> = new Set(['bullet', 'pellet', 'melee', 'slash']);
 const MAX_SEVER_MEMORY = 64;
+/** Outpost Defense sells call-ins, weapons, stims and ammo (contracts/defense), so nothing here hands them out for free. */
+const SHOPS_SELL = ACTIVE.def.economy === true;
 
 const _up = new THREE.Vector3(0, 1, 0);
 const _toPlayer = new THREE.Vector3();
@@ -116,7 +119,7 @@ class Progression implements ProgressionSystem {
     events.on('wave:clear', e => {
       if (e.bonus > 0) this.scoreKeeper.add(e.bonus, 'wave');
       this.scoreKeeper.persist();
-      this.pods.onWaveClear(e.wave);
+      if (!SHOPS_SELL) this.pods.onWaveClear(e.wave);
     });
     events.on('player:slam', e => this.onSlam(e.impact, e.position));
     events.on('player:died', () => this.onDeath());
@@ -218,7 +221,7 @@ class Progression implements ProgressionSystem {
     this.scoreKeeper.onKill(e, combo);
 
     // Check order from the first game, with the new rungs folded in behind each original.
-    this.callInsManager.offer(combo);
+    if (!SHOPS_SELL) this.callInsManager.offer(combo);
     for (const rung of COMBO_PERKS) {
       if (combo >= this.comboAt.get(rung.perk)! && !this.perks.isActive(rung.perk)) {
         this.comboAt.set(rung.perk, combo + rung.rearm);
@@ -230,7 +233,7 @@ class Progression implements ProgressionSystem {
     if (this.perks.isActive('vampire')) this.drain(e);
     this.frost.onKill(e);
     this.chains.onKill(e, this.perks.isActive('chainStorm'), this.perks.isActive('chainReaction'));
-    this.pickupsManager.onKill(e);
+    if (!SHOPS_SELL) this.pickupsManager.onKill(e);
   }
 
   /** Everything a kill does for the perk windows. Only the player's own kills come here. */

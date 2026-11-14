@@ -13,10 +13,17 @@ import { MissionComplete } from './complete';
 import { PauseScreen } from './pause';
 import { RulesScreen } from './rules';
 import { SettingsScreen } from './settingsScreen';
+import { ShopScreen } from './shop';
+import { LoadoutScreen } from './loadout';
+import type { ShopId } from '../../contracts/defense/data';
 import { SplashScreen } from './splash';
 
-/** 'rules' is the Crucible's, reached only from the main menu, and its Back goes straight there. */
-export type ScreenName = 'loading' | 'splash' | 'menu' | 'pause' | 'gameover' | 'complete' | 'guide' | 'settings' | 'rules' | 'none';
+/**
+ * 'rules' is the Crucible's, reached only from the main menu, and its Back goes straight there. 'loadout' and 'shop' are
+ * Outpost Defense's, over a paused run.
+ */
+export type ScreenName =
+  | 'loading' | 'splash' | 'menu' | 'pause' | 'gameover' | 'complete' | 'guide' | 'settings' | 'rules' | 'loadout' | 'shop' | 'none';
 
 export interface Screen {
   readonly el: HTMLElement;
@@ -30,6 +37,7 @@ export class Screens {
   private screens: Record<Exclude<ScreenName, 'none'>, Screen>;
   private loadingScreen: LoadingScreen;
   private pauseScreen: PauseScreen;
+  private shopScreen: ShopScreen;
   private nav: Nav;
   private current: ScreenName = 'none';
   private returnTo: ScreenName = 'menu';
@@ -38,6 +46,7 @@ export class Screens {
     this.nav = new Nav(ctx);
     this.loadingScreen = adoptLoading();
     this.pauseScreen = new PauseScreen(hud);
+    this.shopScreen = new ShopScreen(ctx, hud);
     this.screens = {
       loading: this.loadingScreen,
       splash: new SplashScreen(ctx, hud),
@@ -48,6 +57,8 @@ export class Screens {
       guide: new GuideScreen(ctx, hud),
       settings: new SettingsScreen(ctx, hud, settings),
       rules: new RulesScreen(ctx, hud),
+      loadout: new LoadoutScreen(ctx, hud),
+      shop: this.shopScreen,
     };
     this.el = div('screens');
     for (const s of Object.values(this.screens)) {
@@ -75,6 +86,12 @@ export class Screens {
     const screen = this.screens[name];
     screen.el.style.display = '';
     screen.open(this.nav);
+  }
+
+  /** Outpost Defense's buy menu for one shop. */
+  shop(id: ShopId): void {
+    this.shopScreen.shop = id;
+    this.show('shop');
   }
 
   /** Back out of guide or settings to whichever screen opened it. */
