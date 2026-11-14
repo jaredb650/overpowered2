@@ -7,7 +7,7 @@
  */
 import * as THREE from 'three';
 import type RAPIER from '@dimforge/rapier3d-compat';
-import type { PartDef, VehicleDef } from './data';
+import type { PartDef, VehicleDef, WeakZone } from './data';
 import type { VehicleSystem } from './index';
 
 export interface PartState {
@@ -26,6 +26,8 @@ const _local = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _spin = new THREE.Quaternion();
 const _inverse = new THREE.Quaternion();
+const _up = new THREE.Vector3(0, 1, 0);
+const _pivot = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0);
 
 export abstract class Vehicle {
@@ -122,6 +124,31 @@ export abstract class Vehicle {
       }
     }
     if (this.health <= 0 && this.alive) this.destroy(source, point);
+  }
+
+  /** The weak point a round that landed at `point` on `part` found, if any. */
+  weakAt(part: PartState, point: THREE.Vector3): WeakZone | null {
+    const zones = this.def.weak;
+    if (!zones) return null;
+    _inverse.copy(this.quaternion).invert();
+    _local.copy(point).sub(this.position).applyQuaternion(_inverse);
+    for (const z of zones) {
+      if (z.part) {
+        if (z.part === part.def.id) return z;
+        continue;
+      }
+      const at = z.at!;
+      const half = z.half!;
+      let { x, y, z: w } = _local;
+      if (z.about) {
+        // Into the turret's own frame: the box was drawn with the turret facing forward.
+        _pivot.set(z.about[0], z.about[1], z.about[2]);
+        _at.copy(_local).sub(_pivot).applyAxisAngle(_up, -this.turretYaw).add(_pivot);
+        ({ x, y, z: w } = _at);
+      }
+      if (Math.abs(x - at[0]) <= half[0] && Math.abs(y - at[1]) <= half[1] && Math.abs(w - at[2]) <= half[2]) return z;
+    }
+    return null;
   }
 
   /** Metres from a point to the nearest part of the vehicle, and which part that is. */

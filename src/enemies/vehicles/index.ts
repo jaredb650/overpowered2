@@ -28,7 +28,7 @@ import { GroundProbe } from '../../progression/callins/ground';
 import { ModelMaterials } from '../../progression/modelkit';
 import { Gun, type GunSpec } from '../../vehicles/guns';
 import { Skyline } from '../../vehicles/skyline';
-import { EXPLOSIONS } from '../../weapons/data';
+import { EXPLOSIONS, SHAPED_CHARGE } from '../../weapons/data';
 import type { AiWorld } from '../aiWorld';
 import type { Enemy } from '../Enemy';
 import type { EnemyManager } from '../EnemyManager';
@@ -37,7 +37,7 @@ import { SOLDIER_BEHAVIOURS } from '../outpost/behaviours';
 import { dropOff } from '../roles';
 import { bulletDamage, directDamage, splashDamage } from './armour';
 import { EnemyChopper, type GunshipRig } from './chopper';
-import { CHOPPER, MAX_LIVE, MAX_WRECKS, VEHICLES, type GroundDef } from './data';
+import { CHOPPER, MAX_LIVE, MAX_WRECKS, VEHICLES, type GroundDef, type WeakZone } from './data';
 import { GroundVehicle, GunRack, type GroundOrder } from './ground';
 import { CHIN_GUN, Fleet, GUNSHIP_AIRFRAME, gunshipTailGroup } from './models';
 import { Vehicle, type PartState } from './vehicle';
@@ -304,22 +304,33 @@ export class VehicleSystem implements VehicleTargets {
   }
 
   /** `pierced` is a dart through armour: it reads as armour let through, not as a plain hit. */
-  private marker(dealt: boolean, killed: boolean, pierced = false): void {
+  private marker(dealt: boolean, killed: boolean, pierced = false, weak = false): void {
     const { audio, hud } = this.ctx;
-    hud.hitMarker(killed ? 'kill' : pierced ? 'armorThrough' : dealt ? 'body' : 'armor');
-    audio.play(killed ? 'hit_marker_kill' : pierced ? 'armour_through' : dealt ? 'hit_marker' : 'armour_stopped');
+    hud.hitMarker(killed ? 'kill' : weak ? 'armorBroken' : pierced ? 'armorThrough' : dealt ? 'body' : 'armor');
+    if (weak) audio.play('vehicle_weak_point');
+    audio.play(killed ? 'hit_marker_kill' : weak ? 'armour_broken' : pierced ? 'armour_through' : dealt ? 'hit_marker' : 'armour_stopped');
+  }
+
+  /** A weak point found: at least its share of the whole machine, and what it does to it. */
+  private weakHit(v: Vehicle, zone: WeakZone, share: number, dealt: number, point: THREE.Vector3): number {
+    if (zone.id === 'ring' && v instanceof GroundVehicle) v.lockGun(point);
+    else if (zone.id === 'pilot') this.callout(point, 'PILOT DOWN');
+    else if (zone.id === 'roof') this.callout(point, 'THROUGH THE HATCH');
+    return Math.max(dealt, share * v.def.health);
   }
 
   shot(collider: RAPIER.Collider | null, point: THREE.Vector3, amount: number, source: string): boolean {
     const part = this.part(collider);
     if (!part) return false;
     const v = part.owner;
-    const dealt = bulletDamage(v.def, part.def, amount, source);
+    let dealt = bulletDamage(v.def, part.def, amount, source);
     if (dealt > 0 && part.def.id === 'cab' && v instanceof GroundVehicle) v.shotDriver(dealt, point);
     const pierced = dealt > 0 && v.def.armoured;
+    const weak = pierced && source === 'sabot' ? v.weakAt(part, point) : null;
+    if (weak) dealt = this.weakHit(v, weak, weak.sabot, dealt, point);
     if (pierced) this.ctx.audio.play('sabot_on_vehicle', { position: point, pitchJitter: 0.04 });
     v.take(dealt, part, source, point);
-    this.marker(dealt > 0, !v.alive, pierced);
+    this.marker(dealt > 0, !v.alive, pierced, weak !== null);
     return true;
   }
 
@@ -327,9 +338,11 @@ export class VehicleSystem implements VehicleTargets {
     const part = this.part(collider);
     if (!part) return false;
     const v = part.owner;
-    const dealt = directDamage(v.def, part.def, amount, kind, source);
+    let dealt = directDamage(v.def, part.def, amount, kind, source);
+    const weak = SHAPED_CHARGE[kind] ? v.weakAt(part, point) : null;
+    if (weak) dealt = this.weakHit(v, weak, weak.charge, dealt, point);
     v.take(dealt, part, source, point);
-    this.marker(dealt > 0, !v.alive);
+    this.marker(dealt > 0, !v.alive, false, weak !== null);
     return true;
   }
 

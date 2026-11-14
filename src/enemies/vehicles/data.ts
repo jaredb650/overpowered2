@@ -93,6 +93,24 @@ export interface WreckDef {
   hop: number;
 }
 
+export type WeakId = 'roof' | 'ring' | 'vents' | 'pilot' | 'tailRotor';
+
+/**
+ * A weak point: where a round lands, not a collider of its own. Either a box the landing point falls in (model space, or
+ * turret space when `about` is set) or a whole part. A hit there takes at least a share of the vehicle's full health.
+ */
+export interface WeakZone {
+  id: WeakId;
+  at?: Point;
+  half?: Point;
+  part?: PartId;
+  /** The turret's pivot (`TURRET_RING` in models.ts): the box turns with the turret about it. */
+  about?: Point;
+  /** Least share of full health one hit takes: a shaped charge's direct hit (rocket, shell), and a Sabot dart. */
+  charge: number;
+  sabot: number;
+}
+
 export interface VehicleDef {
   kind: VehicleKind;
   name: string;
@@ -111,6 +129,8 @@ export interface VehicleDef {
   ram: { damage: number; throw: number };
   /** Men it brings along when an order names none. They are extras: they hold nothing up. */
   crew: readonly EnemyId[];
+  /** Weak points, first match wins. */
+  weak?: readonly WeakZone[];
 }
 
 export interface GroundDef extends VehicleDef {
@@ -177,6 +197,13 @@ export const TANK: GroundDef = {
     { id: 'trackRight', at: [-1.56, 0.78, 0], half: [0.34, 0.74, 4.05], scale: 0.8, pool: 190 },
     { id: 'turret', at: [0, 2.45, -0.15], half: [1.32, 0.56, 2.05], scale: 1, pool: 460, turns: true },
   ],
+  // The roof hatch is almost never hit, and one rocket in it ends the tank. The ring is the thin band under the turret's
+  // overhang, and any hit there locks the main gun. The vents are the engine deck. Rockets: 1, 2, 2. Sabot: 2, 4, 8.
+  weak: [
+    { id: 'roof', at: [0, 3.0, -0.35], half: [0.5, 0.08, 0.55], about: [0, 1.98, -0.15], charge: 1, sabot: 0.5 },
+    { id: 'ring', at: [0, 1.95, -0.15], half: [1.45, 0.09, 2.15], charge: 0.5, sabot: 0.25 },
+    { id: 'vents', part: 'engine', charge: 0.5, sabot: 0.125 },
+  ],
   wreck: { blastRadius: 9, blastDamage: 140, blastScale: 2.1, burnSeconds: 45, burnReach: 1.8, cookOffs: [1.4, 2.6, 4.2, 7], hop: 1.2 },
   ram: { damage: 80, throw: 13 },
   crew: ['trooper', 'trooper', 'trooper'],
@@ -229,6 +256,12 @@ export const CHOPPER: ChopperDef = {
     { id: 'tail', at: [0, 0.95, -4.3], half: [0.46, 0.7, 2.75], scale: 1, pool: 200 },
     // A wide flat box, so a near miss from below lands on it. It takes two, or the first rocket anywhere near would always end the fight.
     { id: 'rotor', at: [0, 2.35, 0.3], half: [3.9, 0.24, 3.9], scale: 1, pool: 420 },
+  ],
+  // The glass over the pilot, and the tail rotor at the very end of the boom: a dart or a rocket in the first kills the
+  // pilot, in the second takes the tail (its pool is 200, a third of 620 is more).
+  weak: [
+    { id: 'pilot', at: [0, 0.35, 4.6], half: [0.65, 0.42, 1.1], charge: 1, sabot: 1 },
+    { id: 'tailRotor', at: [0, 1.2, -6.8], half: [0.55, 0.65, 0.4], charge: 0.34, sabot: 0.34 },
   ],
   wreck: { blastRadius: 8.5, blastDamage: 130, blastScale: 1.9, burnSeconds: 34, burnReach: 1.6, cookOffs: [1.5, 3.4], hop: 0 },
   ram: { damage: 0, throw: 0 },

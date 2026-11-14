@@ -22,6 +22,19 @@
 | Rotor | 420 | Drops like a stone. Two rockets, because its box is wide and a near miss from below lands on it |
 | Cockpit | none | 1.6 times, and 5 times on top for an aimed shell |
 
+**Weak points** (`weak` in `data.ts`, found by `Vehicle.weakAt` from where the round landed, not by a collider). A rocket or
+shell direct hit, or a Sabot dart, that lands in one takes at least its share of the whole machine, plays
+`vehicle_weak_point` and shows the broken-armour marker. The Sabot is the one bullet that hurts armour anywhere
+(`SABOT_ON_ARMOUR`, a tenth of its 600); weak points are where it counts.
+
+| Weak point | Where | Rockets to kill | Sabot darts | Also |
+|---|---|---|---|---|
+| Roof | The hatch on top of the turret, turning with it | 1 | 2 | "THROUGH THE HATCH" |
+| Ring | The thin band under the turret's overhang | 2 | 4 | Locks the main gun: it stops turning, reloads 2.5 times slower and fires where it points. The roof gun still turns |
+| Vents | The engine deck | 2 | 8 | |
+| Pilot | The glass over the helicopter's pilot | 1 | 1 | "PILOT DOWN" |
+| Tail rotor | The end of the tail boom | | | Takes the tail: it spins down |
+
 A soft-skin at 28% health stops, its men get out, and it goes up 4.5 s later unless something finishes it first. Shooting the driver through the cab stops it dead with the horn stuck on.
 
 ## Using it

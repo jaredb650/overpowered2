@@ -10,6 +10,7 @@ import { WEAPONS } from '../../weapons/data';
 import { bulletDamage, directDamage, splashDamage } from './armour';
 import { CHOPPER, HUMVEE, SOFT_FIRE_AT, TANK, TRUCK, type GroundDef, type PartDef, type VehicleDef } from './data';
 import { Driver, type RoutePoint } from './drive';
+import { Vehicle, type PartState } from './vehicle';
 
 const part = (def: VehicleDef, id: string): PartDef => def.parts.find(p => p.id === id)!;
 const ROCKET = WEAPONS.rocket.damage;
@@ -38,6 +39,32 @@ describe('armour', () => {
     // A track is a pool of its own, and a few darts break it.
     const track = part(TANK, 'trackLeft');
     expect(Math.ceil(track.pool / bulletDamage(TANK, track, SABOT, 'sabot'))).toBeLessThanOrEqual(5);
+  });
+
+  it('finds weak points by where a round lands, and the turret ones turn with the turret', () => {
+    const at = (def: VehicleDef, turretYaw = 0) => ({ def, position: new THREE.Vector3(), quaternion: new THREE.Quaternion(), turretYaw });
+    const weak = (def: VehicleDef, partId: string, x: number, y: number, z: number, yaw = 0) =>
+      Vehicle.prototype.weakAt.call(at(def, yaw) as unknown as Vehicle, { def: part(def, partId) } as PartState, new THREE.Vector3(x, y, z))?.id ?? null;
+    expect(weak(TANK, 'turret', 0, 3.01, -0.3)).toBe('roof');
+    // Turned a quarter, the hatch is off to the side of the hull frame, and the old spot is plain roof again.
+    expect(weak(TANK, 'turret', 0.3, 3.01, -0.15, Math.PI / 2)).toBe('roof');
+    expect(weak(TANK, 'turret', 1.32, 2.6, -0.15)).toBeNull();
+    expect(weak(TANK, 'hull', 1.2, 1.94, 0.5)).toBe('ring');
+    expect(weak(TANK, 'engine', 0, 1.9, -3.5)).toBe('vents');
+    expect(weak(TANK, 'hull', 1.2, 1.3, 2)).toBeNull();
+    expect(weak(CHOPPER, 'cockpit', 0.6, 0.4, 4.6)).toBe('pilot');
+    expect(weak(CHOPPER, 'tail', 0, 1.2, -6.9)).toBe('tailRotor');
+    expect(weak(CHOPPER, 'body', 1, 0, 0.7)).toBeNull();
+  });
+
+  it('weak points take what the plan says: rockets 1, 2, 2 and darts 2, 4, 8 on a tank; one dart for a pilot', () => {
+    const z = (def: VehicleDef, id: string) => def.weak!.find(w => w.id === id)!;
+    const hits = (share: number) => Math.ceil(1 / share - 1e-9);
+    expect([hits(z(TANK, 'roof').charge), hits(z(TANK, 'ring').charge), hits(z(TANK, 'vents').charge)]).toEqual([1, 2, 2]);
+    expect([hits(z(TANK, 'roof').sabot), hits(z(TANK, 'ring').sabot), hits(z(TANK, 'vents').sabot)]).toEqual([2, 4, 8]);
+    expect(hits(z(CHOPPER, 'pilot').sabot)).toBe(1);
+    // A dart in the tail rotor takes more than the tail's own pool, so the tail goes.
+    expect(z(CHOPPER, 'tailRotor').sabot * CHOPPER.health).toBeGreaterThan(part(CHOPPER, 'tail').pool);
   });
 
   it('a soft-skin dies to about a magazine or two of gunfire', () => {

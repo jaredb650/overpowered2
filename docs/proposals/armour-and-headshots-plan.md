@@ -7,6 +7,8 @@ headshots on removable helmets, section 5 (Sabot deletes armour and pierces shie
 plates), and the Sabot doing a share of its damage anywhere on an armoured vehicle (no weak points yet). The owner's
 sound files are wired in, with new shots for the Sabot and the autocannon. **Built later the same day:** sections 2 and 7 (ballistic
 classes, pellet counting, one rule everywhere, the Brute's plates halved).
+**Built later still:** section 6's weak points and the locked main gun (no new hit boxes: weak points are found by where
+the round lands).
 **Not built:** section 3 (removable helmets), section 6's weak points and turret lock, section 8
 (Crucible helmets).
 

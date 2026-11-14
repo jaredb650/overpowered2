@@ -59,6 +59,9 @@ const RECOIL = 0.62;
 const RECOIL_RETURN = 5;
 const SHELL_SHAKE = 0.5;
 const TURRET_JAM = 0.22;
+/** A locked gun reloads this much slower, and fires at whatever it happens to point at. */
+const LOCKED_RELOAD = 2.5;
+const _bore = new THREE.Vector3();
 /** A tank that has stopped shifts along the road now and then, because the one thing it must not be is a fixture. */
 const SHUFFLE_EVERY: readonly [number, number] = [11, 19];
 const SHUFFLE_METRES: readonly [number, number] = [5, 11];
@@ -122,6 +125,8 @@ export class GroundVehicle extends Vehicle {
   private fireLeft = -1;
   private engineFire = false;
   private turretJammed = false;
+  /** A round in the turret ring: the main gun no longer turns. The roof gun still does. */
+  private gunLocked = false;
   private readonly smoke: EmitterHandle[] = [];
 
   constructor(sys: VehicleSystem, override readonly def: GroundDef, private readonly model: GroundModel, private readonly order: GroundOrder) {
@@ -295,14 +300,15 @@ export class GroundVehicle extends Vehicle {
     const reload = this.engineFire ? ENGINE_FIRE_RELOAD : 1;
     this.reloadLeft -= (dt / reload);
     this.muzzle(_muzzle);
-    if (this.stage === 'laying') {
+    if (this.gunLocked) this.layAt.copy(_muzzle).addScaledVector(_bore.set(0, 0, 1).transformDirection(barrel.matrixWorld), c.range);
+    else if (this.stage === 'laying') {
       const left = this.layLeft / c.lay;
       if (left > LASER_TRACKS && this.sees) this.leadOn(c, _muzzle, this.layAt);
     } else if (engaged) this.leadOn(c, _muzzle, this.layAt);
 
     // The turret and the gun chase the mark at their own slow rates.
     let error = 0;
-    if (engaged || this.stage === 'laying') {
+    if (!this.gunLocked && (engaged || this.stage === 'laying')) {
       this.pivotRing(_pivot);
       const wanted = wrapAngle(Math.atan2(this.layAt.x - _pivot.x, this.layAt.z - _pivot.z) - drive.yaw);
       error = wrapAngle(wanted - this.turretYaw);
@@ -321,13 +327,22 @@ export class GroundVehicle extends Vehicle {
     this.whine(Math.abs(error) > 0.02);
 
     if (this.stage === 'loading') {
-      if (this.reloadLeft <= 0 && engaged && Math.abs(error) < LAID) this.beginLay(c);
+      // Locked, it still fires now and then, wherever it was left pointing.
+      if (this.reloadLeft <= 0 && engaged && (this.gunLocked || Math.abs(error) < LAID)) this.beginLay(c);
       return;
     }
     this.layLeft -= dt;
     this.muzzle(_muzzle);
     sys.world.telegraphs.aimLaser(this.laser, _muzzle, this.layAt);
     if (this.layLeft <= 0) this.fire(c);
+  }
+
+  /** A round in the turret ring (a weak point, see data.ts): the main gun stays where it points. */
+  lockGun(point: THREE.Vector3): void {
+    if (this.gunLocked || !this.def.cannon) return;
+    this.gunLocked = true;
+    this.sys.ctx.audio.play('tank_turret_stop', { position: point });
+    this.sys.callout(point, 'MAIN GUN LOCKED');
   }
 
   private pivotRing(out: THREE.Vector3): THREE.Vector3 {
@@ -371,7 +386,7 @@ export class GroundVehicle extends Vehicle {
     const { audio, camera, combat, fx, player } = sys.ctx;
     this.endLay();
     this.stage = 'loading';
-    this.reloadLeft = c.reload;
+    this.reloadLeft = c.reload * (this.gunLocked ? LOCKED_RELOAD : 1);
     this.muzzle(_muzzle);
     _dir.subVectors(this.layAt, _muzzle).normalize();
     _vel.copy(_dir).multiplyScalar(c.speed);
