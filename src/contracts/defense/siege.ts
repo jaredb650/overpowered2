@@ -52,10 +52,13 @@ const MAX_COVERS = 10;
 const MAX_PADS = 6;
 const COVER_HP = 2;
 const COVER = { length: 3.2, height: 1.15, depth: 0.8 } as const;
-const PAD_REACH = 1.5;
-/** Seconds of a pad's leap, and the extra rise that clears a 3 m wall. */
-const PAD_FLIGHT = 0.95;
-const PAD_APEX = 4;
+/**
+ * A jump pad: how near it a man must be to take it, how far out from the wall's line it stands, and its leap's seconds and extra
+ * rise (`leapTo`). Over a 5.65 m wall to the catwalk behind it: from anywhere in reach the feet pass at least 6.5 m up over the
+ * wall's thickness, top out near 8 m, and come down on the deck. The flight is straight across in plan, so a pad near the wall
+ * would put the man through it: the way over needs the run-up.
+ */
+export const PAD = { reach: 1.5, out: 3.5, flight: 1.25, apex: 1 } as const;
 /** What a boss against a wall does to it a second, and a bomber's last act. */
 const BASH: Partial<Record<string, number>> = { juggernaut: 70, titan: 140 };
 const BOMBER_WALL = 380;
@@ -74,6 +77,13 @@ const _n = new THREE.Vector3();
 const _m = new THREE.Vector3();
 const _v = new THREE.Vector3();
 const _q = new THREE.Quaternion();
+
+/** A pad at a wall segment: where it stands in the field square to the segment's middle, and the catwalk's middle behind it. */
+export function padSpots(spec: { x: number; z: number }, out: THREE.Vector3, land: THREE.Vector3): void {
+  const n = outward(spec.x, spec.z, _m);
+  out.set(spec.x + n.x * PAD.out, 0, spec.z + n.z * PAD.out);
+  land.set(spec.x, LEVEL.deck, spec.z).addScaledVector(n, -(RAMPART.from + RAMPART.to) / 2);
+}
 const _up = new THREE.Vector3(0, 1, 0);
 
 export type JobKind = 'assault' | 'sapper' | 'engineer' | 'crew';
@@ -430,7 +440,7 @@ export class Siege {
     if (way) {
       st.noWaySince = now;
       for (const job of men) {
-        if (way.pad && this.near(job.s.e.position, way.pad.out, PAD_REACH) && !job.s.e.airborne) {
+        if (way.pad && this.near(job.s.e.position, way.pad.out, PAD.reach) && !job.s.e.airborne) {
           this.leap(job, way.pad);
           continue;
         }
@@ -552,7 +562,7 @@ export class Siege {
     outward(pad.piece.spec.x, pad.piece.spec.z, _n);
     _a.x += rand(-0.6, 0.6) * Math.abs(_n.z);
     _a.z += rand(-0.6, 0.6) * Math.abs(_n.x);
-    leapTo(e, _a, PAD_FLIGHT, PAD_APEX);
+    leapTo(e, _a, PAD.flight, PAD.apex);
     this.ctx.fx.jumpPad(pad.out, _up, 0xff8a2a);
     this.ctx.audio.play('jump_pad', { position: pad.out });
     job.key = '';
@@ -729,7 +739,7 @@ export class Siege {
       job.key = '';
     }
     if (job.piece) {
-      this.faceOf(job.piece, p, 1.5, _a);
+      padSpots(job.piece.spec, _a, _v);
     } else {
       if (depth !== 0 || this.covers.length >= MAX_COVERS) {
         job.kind = 'assault';
@@ -785,9 +795,9 @@ export class Siege {
 
   private buildPad(piece: Piece): void {
     if (piece.stage !== 'damaged') return;
-    const out = this.faceOf(piece, _b.set(piece.spec.x, 0, piece.spec.z), 1.5, new THREE.Vector3());
+    const out = new THREE.Vector3(), land = new THREE.Vector3();
+    padSpots(piece.spec, out, land);
     outward(piece.spec.x, piece.spec.z, _n);
-    const land = new THREE.Vector3(piece.spec.x, LEVEL.deck, piece.spec.z).addScaledVector(_n, -(RAMPART.from + RAMPART.to) / 2);
     const b = new ModelBuilder()
       .box(1.5, 0.12, 1.5, 0x3a4048, { at: [0, 0.06, 0] })
       .box(1.2, 0.2, 0.3, 0x55606a, { at: [0, 0.22, 0.45], rot: [0.5, 0, 0] })

@@ -123,15 +123,21 @@ export class RouteFinder {
     const start = new Int32Array(n + 1);
     const to: number[] = [];
     const cost: number[] = [];
-    const walkable = (a: number, cx: number, cz: number): number => {
+    const walkable = (a: number, cx: number, cz: number, dx: number, dz: number): number => {
       if (cx < 0 || cz < 0 || cx >= nav.nx || cz >= nav.nz) return -1;
       const c = cz * nav.nx + cx;
       const steep = this.sloped(a);
       let best = -1;
       let bestD = Infinity;
       for (let i = nav.colStart[c]!; i < nav.colStart[c + 1]!; i++) {
-        const d = Math.abs(nav.py[i]! - nav.py[a]!);
-        if (d <= (steep || this.sloped(i) ? SLOPE_STEP : STEP) && d < bestD) {
+        const rise = nav.py[i]! - nav.py[a]!;
+        const d = Math.abs(rise);
+        // A slope is climbed up its fall line. Across it, a stair's side is a ledge no walker can step: the rise must be one
+        // either end's slope explains (or a plain step), not just within the slope's limit. A diagonal passes through a corner
+        // of two other cells, one of which may be that ledge, so it takes a plain step only.
+        const fits = d <= STEP || (dx * dz === 0 && (Math.abs(rise - nav.slopeX[a]! * dx - nav.slopeZ[a]! * dz) <= STEP ||
+          Math.abs(rise - nav.slopeX[i]! * dx - nav.slopeZ[i]! * dz) <= STEP));
+        if (fits && d <= (steep || this.sloped(i) ? SLOPE_STEP : STEP) && d < bestD) {
           bestD = d;
           best = i;
         }
@@ -143,10 +149,10 @@ export class RouteFinder {
     for (let a = 0; a < n; a++) {
       start[a] = to.length;
       const cx = Math.floor(nav.px[a]! - nav.minX), cz = Math.floor(nav.pz[a]! - nav.minZ);
-      for (let d = 0; d < 4; d++) side[d] = walkable(a, cx + DX[d]!, cz + DZ[d]!);
+      for (let d = 0; d < 4; d++) side[d] = walkable(a, cx + DX[d]!, cz + DZ[d]!, DX[d]!, DZ[d]!);
       for (let d = 0; d < 8; d++) {
         // Diagonals only through open corners, as in nav.ts, so no step clips a wall end.
-        const b = d < 4 ? side[d]! : side[d - 4]! >= 0 && side[(d - 3) & 3]! >= 0 ? walkable(a, cx + DX[d]!, cz + DZ[d]!) : -1;
+        const b = d < 4 ? side[d]! : side[d - 4]! >= 0 && side[(d - 3) & 3]! >= 0 ? walkable(a, cx + DX[d]!, cz + DZ[d]!, DX[d]!, DZ[d]!) : -1;
         if (b < 0) continue;
         to.push(b);
         cost.push((d < 4 ? 1 : Math.SQRT2) + (3 - nav.clearance[b]!) * WALL_COST);
@@ -306,13 +312,32 @@ export class RouteFinder {
     // Shoulders count. A line that only just clears a wall end has a man's arm through it.
     const sx = (-dz / length) * BODY_HALF, sz = (dx / length) * BODY_HALF;
     const open = avoid !== null && (avoid.exposed(ax, az) || avoid.exposed(ax + dx, az + dz));
+    // The floor under the line, step by step: a walker climbs at most a step between samples, so a cut onto a stair's side fails.
+    let floor = ay;
     for (let i = 1; i < steps; i++) {
       const t = i / steps;
       const x = ax + dx * t, y = ay + dy * t, z = az + dz * t;
-      if (!this.overFloor(x, y, z) || !this.overFloor(x + sx, y, z + sz) || !this.overFloor(x - sx, y, z - sz)) return false;
+      const h = this.floorAt(x, y, z);
+      if (!(Math.abs(h - floor) <= STEP)) return false;
+      floor = h;
+      if (!this.overFloor(x + sx, y, z + sz) || !this.overFloor(x - sx, y, z - sz)) return false;
       if (avoid && !open && avoid.exposed(x, z)) return false;
     }
-    return true;
+    return Math.abs(ay + dy - floor) <= STEP;
+  }
+
+  /** The floor's height under a point on a cut: the node within a slope's step of `y`, on its own plane. NaN for none, or shut. */
+  private floorAt(x: number, y: number, z: number): number {
+    const nav = this.nav!;
+    const cx = Math.floor(x - nav.minX), cz = Math.floor(z - nav.minZ);
+    if (cx < 0 || cz < 0 || cx >= nav.nx || cz >= nav.nz) return NaN;
+    const c = cz * nav.nx + cx;
+    for (let i = nav.colStart[c]!, end = nav.colStart[c + 1]!; i < end; i++) {
+      if (Math.abs(nav.py[i]! - y) >= SLOPE_STEP) continue;
+      if (this.closed[i] !== 0 || nav.blocked?.[i]) return NaN;
+      return nav.py[i]! + nav.slopeX[i]! * (x - nav.px[i]!) + nav.slopeZ[i]! * (z - nav.pz[i]!);
+    }
+    return NaN;
   }
 
   private overFloor(x: number, y: number, z: number): boolean {

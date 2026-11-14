@@ -172,11 +172,18 @@ Frame rates in the harness at 2x are the harness's, not the map's; other agents'
 
 - **Nobody has played it.** The ring sizes, the lanes and how far out the spawns are are guesses for a siege, and the new walls
   change the fight: the field is now shot at from crenels, slits, towers, roofs and the water and comms towers.
-- **A drop over the wall.** Walls go up after the nav sample, so the nav still has drop links from the catwalk's outer edge to the field
-  beyond the wall line. A man on the catwalk who wants the field could take one and walk through the wall (enemies have no collider).
-  Nothing sends anyone that way today; the enemy on the catwalk wants the player inside.
-- **Engineers' jump pads** (siege.ts) land on the catwalk at `LEVEL.deck` behind a damaged wall; their arc was tuned for the 3 m wall
-  and has not been watched over a 5.65 m one.
+- **No drop over the wall.** Walls go up after the nav sample, so the sample has drop links from the catwalk's outer edge over the wall
+  line, but each lands within a metre of the line, on ground the standing wall blocks (`Structures.block`), so no flow field takes one
+  while the wall stands (the test checks every catwalk, gun step and tower top, gates shut). A breach unblocks it: a real way down.
+- **Engineers' jump pads** (siege.ts `PAD`) stand 3.5 m out from the damaged segment's middle and throw a man in 1.25 s with 1 m of extra
+  rise to the middle of the catwalk: from anywhere in the pad's 1.5 m reach the feet pass at least 6.5 m up over the 5.65 m wall
+  (peak near 8 m). The flight is straight in plan, so the run-up is what clears the wall; the old pad (1.5 m out, 0.95 s) put men
+  through it. Tested in `fort-map.test.ts`; seen in the game taken by a wave-1 squad.
+- **Allies reach every gun and post from the rally point** (the test walks a real ally to all of them). Two causes of the gunner who
+  stalled at a stair's foot, both fixed: the route finder (`enemies/outpost/routes.ts`) linked the yard to a stair's side a metre up,
+  which nobody can step, so links onto a slope now have to rise the way the slope does, diagonals take a plain step only, and a
+  straight cut follows the floor step by step; and a man waiting at a lift gate that had risen was routed back to it when the next
+  gate on (a ring further in) was shut (`allies/index.ts` gateway skips open gates and tries both faces).
 - **Lift gates pop up and down** in one frame, with a clang; no animation. The raised leaf (to 6.3 m) stands in front of the gatehouse
   bridge while it is up.
 - **Towers, gun blockhouses, gatehouses, pillboxes and the base's buildings are not destructible.** Only walls, gates and shacks are.

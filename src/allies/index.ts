@@ -736,15 +736,17 @@ export class AllySystem implements GameSystem {
     const gates: { piece: Structure; score: number; x: number; z: number }[] = [];
     for (const p of pieces) {
       const spec = (p as Structure & { spec?: { x: number; z: number; yaw: number; opens?: boolean } }).spec;
-      if (p.kind !== 'gate' || p.stage !== 'intact' || !spec?.opens) continue;
-      // Square to the gate, on his side of it.
+      // An open gate is not what is in the way: he stands at it once it rises, and would only be routed back to it.
+      if (p.kind !== 'gate' || p.stage !== 'intact' || !spec?.opens || this.walls?.isOpen(p)) continue;
+      // Square to the gate, either side: a gate a ring further in has its near face on the far side of its line from him.
       const nx = Math.sin(spec.yaw), nz = Math.cos(spec.yaw);
-      const side = Math.sign((from.x - spec.x) * nx + (from.z - spec.z) * nz) || 1;
-      const x = spec.x + nx * side * GATE_FRONT, z = spec.z + nz * side * GATE_FRONT;
-      gates.push({ piece: p, score: Math.hypot(x - from.x, z - from.z) + Math.hypot(to.x - spec.x, to.z - spec.z), x, z });
+      for (const side of [1, -1]) {
+        const x = spec.x + nx * side * GATE_FRONT, z = spec.z + nz * side * GATE_FRONT;
+        gates.push({ piece: p, score: Math.hypot(x - from.x, z - from.z) + Math.hypot(to.x - spec.x, to.z - spec.z), x, z });
+      }
     }
     gates.sort((a, b) => a.score - b.score);
-    for (let i = 0; i < Math.min(2, gates.length); i++) {
+    for (let i = 0; i < Math.min(4, gates.length); i++) {
       const g = gates[i]!;
       _b.set(g.x, from.y + 1, g.z);
       if (!this.ctx.world.nav.nearest(_b, 3, _b)) continue;
