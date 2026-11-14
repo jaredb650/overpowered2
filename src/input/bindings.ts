@@ -110,3 +110,6 @@ export function labelForCode(code: string): string {
   if (code.startsWith('Numpad')) return `Num ${code.slice(6)}`;
   return code;
 }
+
+/** Seconds a call-in key is held before it counts as a hold: an aircraft sent in as an AI, where a tap flies it. */
+export const CALLIN_HOLD = 0.35;

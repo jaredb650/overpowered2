@@ -1,7 +1,8 @@
 # Proposal: the air support update
 
-Status: idea, not scheduled. Written 2026-11-13 from the owner's notes after playtesting; the owner answered the first
-round of questions the same day. Nothing here is built.
+Status: part 1 built 2026-11-14 (sections 1, 2, 4 and 5; see "Aircraft: flown or sent in" and "The AC-130" in
+`docs/notes/progression.md`). Part 2, section 3, is not. Written 2026-11-13 from the owner's notes after playtesting; the owner
+answered the first round of questions the same day.
 
 ## The goal
 
@@ -12,7 +13,7 @@ back against the aircraft, not just you, and you can lose one.
 The picture to aim for: you stand on the ground with the AC-130, the attack chopper and the door gunner all up at
 once, each raining fire in its own style, while rocket troops lock onto them, flares pop and missiles chase them down.
 
-## 1. Every aircraft is both yours and an AI
+## 1. Every aircraft is both yours and an AI (built)
 
 Applies to the door gunner, the attack chopper and the AC-130. Instant strikes (airstrike, Warthog, Orbital Lance,
 Black Sun, nuke) stay as they are.
@@ -33,7 +34,7 @@ Black Sun, nuke) stay as they are.
 Today: leaving the door gunner sends it home (`doorGunner.ts`), and the AC-130 is AI-only, a 2-minute siege that adds a
 gun every half minute.
 
-## 2. The AC-130 in your hands
+## 2. The AC-130 in your hands (built)
 
 An attack chopper plus plus. Four weapons, one key each, with a round or fuze toggle on the two that have one.
 
@@ -55,7 +56,9 @@ An attack chopper plus plus. Four weapons, one key each, with a round or fuze to
 - **Views.** Three, switched with one key: the current normal view with enemy boxes, white-hot thermal, and black-hot
   thermal. Every view shows every enemy; the views are about the look, not about hiding anything.
 
-## 3. The enemies fight the aircraft
+## 3. The enemies fight the aircraft (part 2, not built)
+
+Hooks are in: `Aircraft` in `callins/shared.ts` (`hits`, `flares`, `hit()`, `down()`), `Ac130.popFlares()`.
 
 - Anything that fires explosives can turn on an aircraft: Rocketeers, the Juggernaut, other rocket bosses. The Commander
   already shoots call-ins down (`shootDown` in `callins/manager.ts`), which this builds on.
@@ -79,7 +82,7 @@ An attack chopper plus plus. Four weapons, one key each, with a round or fuze to
 - **Flares** have no recharge timer to plan around, because you cannot dodge in a seat. The only limit is a 3-second
   lockout after each pop, so a double press does not waste them.
 
-## 4. Nothing the aircraft fire can hurt you
+## 4. Nothing the aircraft fire can hurt you (built)
 
 Your body stays untouchable while you sit in a seat, as today. In survival mode a death resets everything, and you cannot
 dodge while flying, so the aircraft is what is at risk, not you.
@@ -87,7 +90,7 @@ dodge while flying, so the aircraft is what is at risk, not you.
 No aircraft's fire hurts you on the ground either: not the glide bomb, not the 105, not the white phosphorus cloud. You
 can walk through a burning cloud. This is the rule today, and it stays.
 
-## 5. What it looks like from the ground
+## 5. What it looks like from the ground (built)
 
 Each weapon has its own signature so you can read the AC-130 working without seeing it:
 - the Gatling's stream;

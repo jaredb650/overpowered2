@@ -9,7 +9,7 @@ import * as THREE from 'three';
 import type { ModelBuilder } from '../modelkit';
 import type { AirframeSpec, Point, RotorSpec } from './airframe';
 
-export type Ac130Mount = 'gun25' | 'gun40' | 'gun105' | 'railLeft' | 'railRight' | 'flareLeft' | 'flareRight';
+export type Ac130Mount = 'gun25' | 'gun40' | 'gun105' | 'railLeft' | 'railRight' | 'flareLeft' | 'flareRight' | 'ramp' | 'sensor';
 
 const GREY = '#515a64';
 const LIGHT = '#6c7682';
@@ -200,6 +200,10 @@ export const AC130_AIRFRAME: AirframeSpec<Ac130Mount> = {
     railRight: [-RAIL_X, 1.1, 1.5],
     flareLeft: [2.55, -2.1, -2.8],
     flareRight: [-2.55, -2.1, -2.8],
+    /** Under the upswept tail, where the glide bomb leaves by the ramp. */
+    ramp: [0, -1.4, -9.8],
+    /** The sensor ball under the left side of the nose: the seat's eye and the laser's source. */
+    sensor: [2.1, -1.7, 9.4],
   },
   strobe: { build: strobes, period: 1.4, lit: 0.09 },
 };

@@ -51,8 +51,8 @@ export class AttackChopper extends GunnerStrike<AttackMount> {
   private readonly cannon = { name: '30MM CANNON', ammo: C.rounds, max: C.rounds };
   private readonly rockets = { name: 'ROCKETS', ammo: R.rounds, max: R.rounds };
 
-  constructor(kit: StrikeKit, rig: SeatRig, ride: Ride<AttackMount>) {
-    super(kit, rig, A, ride, 'chin', 'chopper');
+  constructor(kit: StrikeKit, rig: SeatRig, ride: Ride<AttackMount>, ai = false) {
+    super(kit, rig, A, ride, 'chin', 'chopper', ai);
     const { bounds } = kit.ctx.world;
     const span = (bounds.max.x - bounds.min.x) / 2;
     const plan = span < SMALL_MAP ? A.small : A.large;
@@ -82,11 +82,10 @@ export class AttackChopper extends GunnerStrike<AttackMount> {
   }
 
   protected shoot(dt: number): void {
-    const { input } = this.kit.ctx;
     this.cannonIn = Math.max(0, this.cannonIn - dt);
     this.rocketIn = Math.max(0, this.rocketIn - dt);
-    if (input.isDown('fire') && this.cannon.ammo > 0 && this.cannonIn <= 0) this.fireCannon();
-    if (input.isDown('aim') && this.rockets.ammo > 0 && this.rocketIn <= 0) this.fireRocket();
+    if (this.trigger.fire && this.cannon.ammo > 0 && this.cannonIn <= 0) this.fireCannon();
+    if (this.trigger.alt && this.rockets.ammo > 0 && this.rocketIn <= 0) this.fireRocket();
   }
 
   /** A line from `_from` to the sight, opened by `spread`. Writes `_vel` at `speed`. */
@@ -107,8 +106,11 @@ export class AttackChopper extends GunnerStrike<AttackMount> {
     // The barrel is right under the sight, and the autocannon's own flash would cover what it is shooting at.
     fx.muzzleFlash(_from, _dir, 'rifle');
     gun.recoil(C.recoil);
-    camera.kick(C.kick, rand(-C.kick, C.kick) * 0.5);
-    camera.addTrauma(C.trauma);
+    if (!this.ai) {
+      camera.kick(C.kick, rand(-C.kick, C.kick) * 0.5);
+      camera.addTrauma(C.trauma);
+    }
+    _play.position = this.heard;
     _play.volume = 0.8;
     _play.pitch = rand(1.2, 1.3);
     audio.play('autocannon_fire', _play);
@@ -123,7 +125,8 @@ export class AttackChopper extends GunnerStrike<AttackMount> {
     this.lay(R.spread, R.speed);
     combat.spawnProjectile(ROCKET);
     fx.muzzleFlash(_from, _dir, 'rocket');
-    camera.addTrauma(R.trauma);
+    if (!this.ai) camera.addTrauma(R.trauma);
+    _play.position = this.heard;
     _play.volume = 0.9;
     _play.pitch = rand(0.95, 1.1);
     audio.play('rocket_fire', _play);

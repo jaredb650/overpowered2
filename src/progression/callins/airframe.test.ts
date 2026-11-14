@@ -106,18 +106,10 @@ describe('the gunship on the ladder', () => {
   });
 
   it('pays at the assist rate for every weapon', () => {
-    for (const source of ['ac130_25mm', 'ac130_40mm', 'ac130_105mm', 'ac130_hellfire']) expect(ASSIST_SOURCES.test(source)).toBe(true);
+    for (const source of ['ac130_25mm', 'ac130_40mm', 'ac130_40mm_ap', 'ac130_flak', 'ac130_105mm', 'ac130_wp', 'ac130_bomb']) expect(ASSIST_SOURCES.test(source)).toBe(true);
   });
 
-  it('opens with one gun and only ever adds more', () => {
-    const { phases } = AC130;
-    expect(phases[0]!.at).toBe(0);
-    expect(phases[0]!.boforsGap + phases[0]!.howitzerGap + phases[0]!.hellfireGap).toBe(0);
-    const up = (p: (typeof phases)[number]) => [p.gatlingGap, p.boforsGap, p.howitzerGap, p.hellfireGap].filter(g => g > 0).length;
-    for (let i = 1; i < phases.length; i++) {
-      expect(phases[i]!.at).toBeGreaterThan(phases[i - 1]!.at);
-      expect(up(phases[i]!)).toBeGreaterThanOrEqual(up(phases[i - 1]!));
-      expect(phases[i]!.gatlingGap).toBeLessThan(phases[i - 1]!.gatlingGap);
-    }
+  it('holds a left-hand circle: left wing toward the centre', () => {
+    expect(AC130.orbit.rate).toBeLessThan(0);
   });
 });

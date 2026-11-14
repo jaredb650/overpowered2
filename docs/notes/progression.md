@@ -15,9 +15,10 @@
 | `callins/ground.ts` | `GroundRing`, `GroundStrip` and `GroundProbe` |
 | `callins/bodies.ts` | `BodyQuery`: bodies in a ball, and waking resting corpses |
 | `callins/airstrike.ts`, `warthog.ts`, `orbital.ts`, `blacksun.ts`, `nuke.ts` | The strikes. `ordnance.ts` is the hero missiles |
-| `callins/ac130.ts`, `ac130Guns.ts`, `ac130Rounds.ts`, `ac130Model.ts`, `ac130Data.ts` | The gunship: stages and impacts, fire control, what is in the air, the airframe, its numbers |
+| `callins/ac130.ts`, `ac130Guns.ts`, `ac130Rounds.ts`, `ac130Model.ts`, `ac130Data.ts` | The gunship: the seat, views, impacts and white phosphorus; the four guns and the crew; what is in the air; the airframe; its numbers |
 | `callins/airframe.ts`, `radio.ts` | Shared by aircraft call-ins. See "Building another aircraft" |
-| `callins/gunnerStrike.ts`, `attackChopper.ts`, `doorGunner.ts`, `heliData.ts` | The two helicopters: the flight they share, each one's flying and guns, their numbers |
+| `callins/gunnerStrike.ts`, `attackChopper.ts`, `doorGunner.ts`, `heliData.ts` | The two helicopters: the flight and the AI crew they share, each one's flying and guns, their numbers |
+| `callins/shared.ts` | `Strike`, `Aircraft` (the hooks anti-air will use), `TapOrHold` |
 | `src/vehicles/seat.ts` | The gunner's seat: the view, the parked body, aiming, marking enemies, always handing control back |
 | `src/vehicles/emplacement.ts` | Mounted guns on the ground, manned through the same seat. See the end of `vehicles.md` |
 | `src/vehicles/emplacement.ts` | Mounted guns on the ground, manned through the same seat. See the end of `vehicles.md` |
@@ -82,7 +83,7 @@ The walkie and designator are the viewmodel's `Offhand`, driven by `progression.
 | Airstrike | Radio 0, cue 3, 15 rockets 4 to 5.4, finale fired 6.5, lands about 7.1 | Finale radius 20, instakill, only throws the player. Rockets start under any roof above their own landing point |
 | Warthog | Cue 2, 50 shells 4 to 6.45, roar 6.5, jet overhead 6 | 60 m corridor, 1.2 m spacing. Each shell gets a clear line to its own impact, so an overhang cannot eat part of the run |
 | Orbital | Pilot laser 0.9 s, beam 6 s | Steers at 34 m/s, 420 damage a second in 6 m. RMB lets go: the beam parks, burns out, and the gun comes back |
-| AC-130 | Inbound 0 to 9, on station to 129, gone by 141 | Two minutes of escalating fire. See below |
+| AC-130 | Inbound 0 to 9, on station to 129, gone by 141 | No mark: tap or hold the key. See below |
 | Black Sun | Grows 1 s, pulls to 6.2, collapses, implodes at 6.75 | Dragged by the feet, walls hold them, crush within 3.5 m from T+2.6. Corpses orbit at 10 m. Implosion radius 28, bodies leave at about 55 m/s. Uses `finisher`, so the nuke keeps its own recipe |
 | Nuke | Siren 6 s, missile for the last 2.8 s, white, front at 105 m/s | Kills every enemy it reaches, bosses within a few frames despite their per-hit cap. Sky, ash, cloud and moonlight stay for 45 s, gone by 70 s |
 
@@ -95,33 +96,75 @@ A ragdoll inherits `enemy.velocity` at death, so the nuke sets that just before 
 
 Strike, overlay and aftermath shaders are compiled at load by unrendered stand-ins on layer 31. three's compile pass only walks visible objects, hence a layer and not `visible = false`. In the last measured run no custom shader compiled during a strike. Standard-material programs still appear on the first bodies of a run: at least some of those are gore's, which `docs/notes/fx.md` already flags.
 
+## Aircraft: flown or sent in
+
+The door gunner (J), the attack chopper (H) and the AC-130 (M) are each the player's to fly or an AI's
+(`docs/proposals/air-support.md`, sections 1, 2, 4 and 5).
+
+- **Tap** the key: the player takes the seat. **Hold** it `CALLIN_HOLD` (0.35 s, `input/bindings.ts`): it goes in with its crew
+  on the guns, the player keeps the body and the gun stays drawn. `TapOrHold` in `shared.ts` decides, `CallInManager.readKeys` feeds it.
+- **Nothing can be called from a seat.** `readKeys` returns while `seats.occupied`, so with three aircraft ready, send in the AIs first
+  and tap the one to fly last.
+- **Any way out of the seat with something left hands it to the crew:** E, the seat's clock, death. The crew fights on with the same
+  `shoot` (helicopters) or the same `Battery` (gunship), and there is no way back in: the call-in is spent and nothing reboards a seat.
+  Rounds spent (helicopters) or time up (gunship) sends it home instead.
+- **How long:** helicopters until their rounds are gone, or `aiSeconds` from the call (door 90, chopper 120) so the one airframe is home
+  before the cooldown (`aircraft.test.ts`). The gunship on its two minutes, ammunition unlimited, magazines only.
+- **A seat the crew kept was never boarded,** so `GunnerSeat.leave` only undoes anything when `rig.seat` is itself. Without that, an AI
+  aircraft ending would tear down the seat the player is sitting in on another one.
+- **Hooks for anti-air (part 2):** every aircraft is an `Aircraft` (`shared.ts`): `position`, `hits` (door 1, chopper 2, gunship 3, from
+  `armour` in the data), `flares` (2, 3, 3), `hit()` (a missile landed; true when that brought it down) and `down()`. `down` throws the
+  player out of the seat and the aircraft is gone the next frame: part 2 puts the crash there. `Ac130.popFlares()` spends one and throws
+  the fans. `CallInManager.shootDown` (the Commander's MANPADS) now calls `down()`.
+- **The crews.** Helicopters (`GunnerStrike.aiFight`): the sight goes straight onto the man nearest the middle of the fight, the gun
+  swings after it, and the trigger is pulled in bursts (`ai.burst`, `ai.rest`) while he is inside the arc. The chopper adds rockets on a
+  knot of 3. Under AI the guns are heard from the aircraft and nothing shakes the player's view.
+
 ## The AC-130
 
-Key M, combo 28, cooldown 180 s, ring 34 m. Above the Orbital Lance because it outlasts everything on the ladder, below Chain Storm because two minutes of assist kills are what put Black Sun and the nuke in reach. That leaves 18 and 22 for the helicopters. The cooldown must outlast the 141 s flight, as there is one airframe.
+Key M, combo 28, cooldown 180 s, ring 34 m. Radius 160, altitude 185, a 33 s lap, drawn at 1.8x. A fixed left-hand circle (a pylon
+turn) over what the crosshair was on when the key went, or the player's feet over open sky. The centre never moves.
+All of it runs on the strike clock except the rounds and the white phosphorus, which run on `dt`.
 
-Radius 160, altitude 185, a 33 s lap, drawn at 1.8x. All of it runs on the strike clock except the rounds, which fly on `dt`, so they pile up in SLOWMO like the airstrike's.
+**The seat** (tap). The view cuts from a chase camera to the sensor ball under the nose at 5 s, on station at 9. The sight is
+dead-locked on the ground (`lock` 1). The seat's clock is the time left on station.
 
-| Seconds on station | Line | Firing |
+| Key | Gun | Magazine, reload | Flight from 245 m | Round |
+|---|---|---|---|---|
+| 1 | 25 mm Gatling | 120 at 18 a second, 4 s | 1.3 s | 55 in 2.6 m. A stream |
+| 2 (again: round) | 40 mm | 12, 0.32 s apart, 4.5 s | 1.9 s | **HE** 170 in 5 m on the first surface. **AP** through up to 3 roofs or walls of 1.6 m each (`pierce`: `passWall` on the per-wall rule, and never down through the ground), then 320 in 2.8 m. **Flak** goes off 2.5 m short of the first enemy or surface on its line (`fuze`): 60 in 2.5 m and 14 pellets of 75 in a 0.32 rad cone, 24 m reach, as player rays |
+| 3 (again: round) | 105 mm | 2, 1.6 s apart, 7 s | 4.6 s on an arc, whistle | **HE** 620 in 12 m, 5 m up. **WP** 200 in 6 m, white streamers, and a cloud 8 m across for 14 s: anyone in it burns 5 s (`e.burning`, the Burner's fire). It never looks for the player |
+| 4 | Glide bomb | 1 a sortie | about 5 s | The ramp opens 2.6 s (`metal_groan`), a clink (`casing_heavy`), it falls 1 s, then glides at 55 m/s turning onto the laser, which is the middle of the screen all the way down (`steerBomb`). Instakill in 28 m, 5 m up, the biggest blast after the nuke, shake felt on the ground out to 160 m |
+
+Each magazine reloads on its own clock the moment it is empty, whichever gun is on the trigger, so the juggle is the game. RMB zooms
+(x2.7). R cycles the view: **TV** (normal picture, enemy boxes), **WHITE HOT** and **BLACK HOT** (the `thermal` grade plus a CSS
+filter on the canvas, `grayscale` and for black-hot `invert`, since a grade cannot invert; enemies glow white, so black in black-hot;
+no boxes, and the panel turns dark on the white sky). `GunnerSeat.look` sets all of it and `leave` undoes it. E hands it to the crew.
+
+**The crew** (hold, or after E) fires through the same `Battery`, so it waits on the same magazines:
+
+| Gun | Target | Round |
 |---|---|---|
-| 0 | TWO-FIVE TRACKING | 25mm bursts |
-| 24 | FOUR-ZERO ONLINE | Plus 40mm strings of 5 |
-| 54 | ONE-OH-FIVE UP | Plus 105mm salvos of 3, Hellfire, 40mm strings of 6 |
-| 92 | ALL GUNS | Everything faster, 40mm strings of 8, 105mm salvos of 4 |
+| 25mm | Nearest with a clear line, the aim dragged at 11 m/s so the stream walks on | |
+| 40mm | Thickest knot, a string of 6 across the line of fire | AP if there is anything over him within 30 m, flak on a knot of 3 or more (all on its middle), HE otherwise |
+| 105mm | Thickest knot over 9 m from the player | HE and WP by turns, "WILLIE PETE, SHOT" |
+| Bomb | Once, after 25 s on station, on a boss or a knot of 5 | The laser stays on him all the way down |
 
-| Gun | Target | Rhythm |
-|---|---|---|
-| 25mm | Nearest with a clear line | 12 rounds a second in bursts. The aim is dragged at 11 m/s and never set, so the stream is seen to walk on and between targets |
-| 40mm | Thickest knot | A string laid across the line of fire, 0.3 s apart |
-| 105mm | Thickest knot over 9 m from the player | 2.7 s apart, 4.6 s in the air on a real arc, whistle for the last 2 s, bursts 5 m up so a wall does not save the room behind it |
-| Hellfire | Most health and armour, bosses first | Drops, lights, dives from above |
+**Never harms the player.** Every blast is `selfDamage: 0, playerPush: 0`, and goes through `combat.explode` as a `worldObject`,
+because that is the only way to stop a shell setting off a map barrel, and a barrel's own blast does hurt. The flag leaves the look and
+sound to the caller, which is why each round has its own and no `ExplosionKind` was added. Flak pellets are player rays. WP only writes
+`burning` on enemies.
 
-Flares every 27 s and on arrival and departure. With nobody in the box for 7 s the 25mm rakes it anyway, so the siege never goes dead. The crew holds fire on anyone who has surrendered: killing a prisoner pays a perk, and that is the player's decision.
+**Keep the 49 degrees.** At 33 degrees a 4.2 m wall shadowed most of a 10 m room. A parabola's mean slope is its chord's, so curving the
+rounds cannot fix a shallow orbit.
 
-**Never harms the player.** Every blast is `selfDamage: 0, playerPush: 0`, and goes through `combat.explode` as a `worldObject`, because that is the only way to stop a shell setting off a map barrel, and a barrel's own blast does hurt. The flag leaves the look and sound to the caller, which is why each gun has its own and no `ExplosionKind` was added. So gunship fire never sets off barrels, on purpose.
+**Arming.** The ship flies outside both maps' invisible walls, so a round live from the muzzle bursts in mid-air on their outer faces.
+`Battery.armRange` casts from the aim back up the path and returns how close to the aim the round goes live: just short of a low wall so
+it strikes, just under anything over 8 m so a roof cannot eat the crew's fire (except AP, which is meant to meet it), and otherwise only
+as far as the line was tested. It is measured from the start of each step.
 
-**Keep the 49 degrees.** At 33 degrees a 4.2 m wall shadowed most of a 10 m room: 70% of the 25mm and every Hellfire hit a wall. A parabola's mean slope is its chord's, so curving the rounds cannot fix a shallow orbit: the launch would have to point up.
-
-**Arming.** The ship flies outside both maps' invisible walls, so a round live from the muzzle bursts in mid-air on their outer faces. `FireControl.armRange` casts from the aim back up the path and returns how close to the aim the round goes live: just short of a low wall so it strikes, just under anything over 8 m so a roof cannot eat two minutes of fire, and otherwise only as far as the line was tested. It is measured from the start of each step: from the end, the first live step sweeps back through the roof it was meant to skip.
+**The laser** is drawn from 15% of the way down the beam: a line that starts at the seat's own eye clips the near plane into a streak
+across the screen. From the seat it is a dot under the crosshair; from the ground, a red line from the ship.
 
 ### Building another aircraft
 
@@ -152,7 +195,7 @@ Keys H and J, no mark to choose. Door Gunner at combo 18, Attack Chopper at 22: 
 | Arc | 112 degrees either side of the nose | 69 degrees either side of the door |
 | Picture | `thermal` grade: cold grey, only fire keeps colour | The normal grade, hot tracers on the cold map |
 
-**The flight.** Key, 3 s watching it fly in from a chase camera, cut to the seat, fight, cut back, and the aircraft leaves over the next 10 s. E bails out. `GunnerStrike` outlives the seat, so `seat.leave` hands control back at once and the strike carries on until the aircraft has gone. `leave` is the one way out and undoes everything, so every exit is safe: rounds, time, E, death, a new run.
+**The flight.** Tap, 3 s watching it fly in from a chase camera, cut to the seat, fight, cut back. E hands it to the crew (see "Aircraft: flown or sent in"); once the rounds or `aiSeconds` are gone it leaves over the next 10 s. `GunnerStrike` outlives the seat, so `seat.leave` hands control back at once and the strike carries on until the aircraft has gone. `leave` is the one way out and undoes everything, so every exit is safe: rounds, time, E, death, a new run.
 
 **The body** is parked by `player.park`, on the nearest honest floor if the player was in the air or on a hazard. Nothing can touch it. Enemies keep coming and claw at the wire shell, which is also what the `YOU` tag finds from the air. The player gets 2.5 s of grace on return, because that crowd is still standing there.
 
@@ -226,7 +269,8 @@ Drops 30% per kill, weighted toward what the player lacks, capped at 24, expire 
 | Perks | Sentinels killed 10 of 10, Chain Storm 10 of 12 by arc, Chain Reaction 9 of 10 by blast, Butcher severed, Skyfall slam, Overdrive follows speed, Adrenaline 1.45x at 3 stacks |
 | Reset | Nuke sky, four strikes, ten effects, a pod and a capsule, then death, then a new run: every modifier neutral, time scale 1, grade neutral, moon restored, no extra scene objects, and nothing landed in the next 9 s |
 | High score | 7725 in localStorage, read back after a reload. Now one per contract: see `docs/notes/contracts.md`. `op2_highscore` is The Crucible's |
-| AC-130, Kill House, real AI, stationary player, 6 extra enemies every 12 s (`tools/scripts/ac130-live.mjs`, `AC_MODE=full`) | 75 kills: 25mm 34, 40mm 24, 105mm 9, Hellfire 8. Wall hits: 25mm 52 of 653, 40mm 8 of 82, Hellfire 0 of 7, 105mm 5 of 11. All 37 radio lines in order. Airframe hidden at the end, cooldown still running |
+| Air support part 1, Kill House, Retina (`tools/scripts/airsupport-live.mjs`, 2026-11-14) | `views`: TV, white-hot, black-hot, the filter cleared on return to TV. `rounds`: HE, AP and flak from the seat. `wp`: cloud up, 3 enemies burning, player untouched. `bomb`: ramp, guiding, blast on the crosshair, 3 kills (men under the Kill House decks are behind cover, as for any blast). `ai`: J and M held, player kept the gun; 21 door gun kills, the gunship crew switched to WP. `handover`: H tapped, E, the Harrow killed 16 more with the player on the ground; a second H was refused on cooldown. No aircraft round reached `takeDamage` in any run |
+| AC-130, Kill House, real AI, stationary player, 6 extra enemies every 12 s (`tools/scripts/ac130-live.mjs`, `AC_MODE=full`). Before the air support update: the siege had phases and Hellfires, and that script still calls it through the old mark | 75 kills: 25mm 34, 40mm 24, 105mm 9, Hellfire 8. Wall hits: 25mm 52 of 653, 40mm 8 of 82, Hellfire 0 of 7, 105mm 5 of 11. All 37 radio lines in order. Airframe hidden at the end, cooldown still running |
 | AC-130 never harms (`AC_MODE=safe`, Range) | Mortal player, husks only, in the box for 145 s: 106 kills, health 100 to 100, nothing from the ship reached `takeDamage`, all 13 pushes were husk melee. Run before the 105 bubble went from 14 m to 9 m, which does not touch the blast spec |
 | AC-130 on the Crucible (`AC_MODE=roof`) | Under a 4 m Transit roof, final build: 96 kills in 100 s, with rounds arriving inside it. Scrapyard: 96 kills. The ship set off no barrels in either run, while Sentinels set off 3 nearby in an earlier one |
 | AC-130 reset (`AC_MODE=reset`) | New run with six rounds in the air: airframe and rounds gone on the reset frame, no explosion or radio line in the next 12 s, cooldown 0, no strike left |
@@ -241,7 +285,9 @@ Drops 30% per kill, weighted toward what the player lacks, capped at 24, expire 
 
 - **The Hellfire grade is too strong for this map, and only the render owner can fix it.** `gain [1.34, 0.86, 0.46]` multiplies a world lit cyan, which has no red to lift, so lit floors go teal and pale areas tan. That is the wash from `playtest-t15.png`. Ranking SLOWMO above it fixes the pair, but Hellfire alone still looks like that. Suggested: pull `gain` toward neutral and use `isolate` to keep orange, as Berserk does. Blood Thirst turns blue into pink for its whole 10 s in the same way, milder.
 - **The HUD hint during steering** is the one in `CALLINS.orbital`, which covers both stages.
-- **Air-to-air from `DESIGN.md` section 17 is not built,** because no enemy chopper exists to fight. See "Adding a seat". Nothing can shoot the helicopters down either.
+- **Air-to-air from `DESIGN.md` section 17 is not built,** because no enemy chopper exists to fight. See "Adding a seat". Anti-air is part 2 of `docs/proposals/air-support.md`; only the hooks are here.
+- **Only one friendly aircraft is visible to the enemy chopper** (`setFriendly` has one slot), and a crew-flown helicopter ignores its hits.
+- **`tools/scripts/ac130-live.mjs` still calls the gunship through a mark,** which it no longer has.
 - **Nobody has flown a seat with hands.** Aim hold, sensitivity at zoom, pacing and how the bail key sits are all unjudged. The kill counts are a bot that cannot miss by aiming, and they say little about a person.
 - **Neither helicopter has a sound of its own.** Rotors are `drone_rotor_loop` pitched down, the door gun plays the Trommel's loops (the `minigun_*` ids, rewritten for a 20 mm gun and turned to its 30 rounds a second), the cannon is the autocannon pitched up. None of it has been listened to.
 - **Rounds aimed outward over a near wall still burst on the invisible containment.** The -0.36 rad pitch stop covers the map itself. Nothing tells a ray an invisible wall from a real one, and the fix is a flag from the world owner.

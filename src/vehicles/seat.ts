@@ -165,6 +165,10 @@ export class GunnerSeat {
   heat = 0;
   overheated = false;
   readonly weapons: GunnerWeapon[] = [];
+  /** Said after the label at the top of the panel: a sensor's view, say. */
+  status = '';
+  /** Brackets round the enemies. A thermal view shows them by their heat instead. */
+  boxes = true;
   readonly view: SeatView = { position: new THREE.Vector3(), yaw: 0, pitch: 0, roll: 0, shake: 1 };
 
   /** Nothing to leave by: the seat is the mission's until it says otherwise. */
@@ -175,10 +179,33 @@ export class GunnerSeat {
   private readonly hit: RayHit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, surface: 'concrete', collider: null };
   private readonly lit: THREE.Object3D[] = [];
   private readonly held: THREE.Object3D[] = [];
+  private grade: GradeName | null;
+  private enemyColor: string;
+  private filter = '';
 
   constructor(private readonly ctx: Ctx, private readonly rig: SeatRig, readonly plan: SeatPlan) {
     this.left = plan.seconds;
     this.view.shake = plan.shake;
+    this.grade = plan.grade;
+    this.enemyColor = plan.enemyColor;
+  }
+
+  /** The picture is inverted, black-hot: the panel turns dark to be read on a white sky. */
+  get inverted(): boolean {
+    return this.filter.includes('invert');
+  }
+
+  /**
+   * A sensor's picture: the grade held, a CSS filter over the canvas (a grade cannot invert, and black-hot is an
+   * inversion), and the colour the enemies glow through walls. `leave` undoes all of it.
+   */
+  look(grade: GradeName | null, filter: string, enemyColor: string): void {
+    const seated = this.stage === 'seated';
+    if (seated && grade !== this.grade) this.rig.holdGrade(grade);
+    this.grade = grade;
+    this.enemyColor = enemyColor;
+    this.filter = filter;
+    if (seated) this.ctx.render.renderer.domElement.style.filter = filter;
   }
 
   /** For a flight that ends somewhere else: the body waits there, so the player gets out where the aircraft does, and not before. */
@@ -220,7 +247,8 @@ export class GunnerSeat {
     this.yaw = Math.atan2(-_to.x, -_to.z);
     this.pitch = clamp(Math.atan2(_to.y, Math.hypot(_to.x, _to.z)), this.plan.pitchMin, this.plan.pitchMax);
     camera.setZoom(this.plan.fov);
-    if (this.plan.grade) this.rig.holdGrade(this.plan.grade);
+    if (this.grade) this.rig.holdGrade(this.grade);
+    if (this.filter) render.renderer.domElement.style.filter = this.filter;
     if (!this.plan.exposed) render.post.flash('#ffffff', CUT_FLASH, CUT_SECONDS);
   }
 
@@ -308,21 +336,25 @@ export class GunnerSeat {
     lit.length = 0;
     held.length = 0;
     for (const e of enemies.alive) (prisoners.has(e.uid) ? held : lit).push(e.char.mesh);
-    render.highlight(lit, this.plan.enemyColor, 1);
+    render.highlight(lit, this.enemyColor, 1);
     if (held.length > 0) render.highlight(held, PRISONER_COLOR, PRISONER_STRENGTH);
   }
 
   /** Back to the body, whatever state things are in. `quiet` is for a new run, which has its own cut. */
   leave(quiet = false): void {
     if (this.stage === 'left') return;
+    // A seat the crew kept never had the player in it, and the rig may be holding someone else's.
+    const boarded = this.rig.seat === this;
     this.stage = 'left';
+    if (!boarded) return;
     const { camera, hud, player, render } = this.ctx;
     this.rig.seat = null;
     this.rig.shell.hide();
     camera.setSeat(null);
     camera.setZoom(null);
     hud.seat(null);
-    if (this.plan.grade) this.rig.holdGrade(null);
+    if (this.grade) this.rig.holdGrade(null);
+    if (this.filter) render.renderer.domElement.style.filter = '';
     player.unpark(quiet ? 0 : this.plan.grace);
     if (!quiet && !this.plan.exposed) render.post.flash('#ffffff', CUT_FLASH, CUT_SECONDS);
   }

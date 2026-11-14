@@ -145,6 +145,15 @@ export interface HeliPlan {
   winchester: number;
   /** Kills inside this window earn a line from the crew, at most this often. */
   praise: { kills: number; window: number; every: number };
+  /**
+   * Seconds from the call that the crew fights on with rounds left, seated time included. The one airframe has to be
+   * home before the cooldown ends, so this and `departSeconds` fit inside it (heli.test.ts).
+   */
+  aiSeconds: number;
+  /** The crew on the gun: seconds of each burst and of the pause after it, and the knot that earns the second weapon. */
+  ai: { burst: readonly [number, number]; rest: readonly [number, number]; altKnot: number };
+  /** Missile hits that bring it down, and flares aboard. Read by part 2 of the air support plan. */
+  armour: { hits: number; flares: number };
 }
 
 const ROTOR = 'heli_rotor_loop';
@@ -183,6 +192,9 @@ export const ATTACK = {
   knotRadius: 11,
   winchester: 1.5,
   praise: { kills: 3, window: 1.6, every: 9 },
+  aiSeconds: 120,
+  ai: { burst: [0.6, 1.4], rest: [0.5, 1.2], altKnot: 3 },
+  armour: { hits: 2, flares: 3 },
   /** How long the pilot takes to change his mind about where the fight is, as a rate. */
   focusRate: 0.9,
   scanEvery: 0.5,
@@ -241,6 +253,9 @@ export const DOOR = {
   knotRadius: 11,
   winchester: 1.5,
   praise: { kills: 4, window: 1.4, every: 9 },
+  aiSeconds: 90,
+  ai: { burst: [1.2, 2.4], rest: [0.8, 1.6], altKnot: 99 },
+  armour: { hits: 1, flares: 2 },
   /** How fast the circle slides toward the fight, as a rate. Slow, so the lap stays a lap. */
   focusRate: 0.22,
   scanEvery: 0.5,

@@ -10,28 +10,37 @@ import { Flag, Label, Meter, Num, Shown, div, markup, span } from '../ui/dom';
 import type { GunnerSeat, SeatRig } from './seat';
 import './gunner.css';
 
-/** `mount` is a gun on the ground: no clock, no sensor readouts, and the bar under the sight is heat. */
-export type GunnerTone = 'thermal' | 'door' | 'mount';
+/**
+ * `mount` is a gun on the ground: no clock, no sensor readouts, and the bar under the sight is heat. `gunship` is the
+ * AC-130's fire control: four guns on number keys, each with its own magazine.
+ */
+export type GunnerTone = 'thermal' | 'door' | 'mount' | 'gunship';
 
 export interface GunnerWeapon {
   name: string;
   ammo: number;
   max: number;
+  /** 0..1 through a reload, or -1 with none running. Left out for a gun that never reloads. */
+  reload?: number;
+  /** The gun the trigger fires, where there is a choice. */
+  selected?: boolean;
 }
 
 /** One for every enemy the game allows at once. */
 const MAX_TAGS = 48;
-const MAX_WEAPONS = 2;
+const MAX_WEAPONS = 4;
 /** The body's tag pins to this share of the half-screen, so it is findable when it is out of shot. */
 const EDGE = 0.92;
 
 const RETICLES: Readonly<Record<GunnerTone, string>> = {
   thermal: `<svg class="gn-ret" viewBox="-100 -100 200 200" aria-hidden="true"><path d="M-62-62h20M-62-62v20M62-62h-20M62-62v20M-62 62h20M-62 62v-20M62 62h-20M62 62v-20M-30 0h-16M30 0h16M0-30v-16M0 30v16"/><rect x="-1.6" y="-1.6" width="3.2" height="3.2"/></svg>`,
+  gunship: `<svg class="gn-ret" viewBox="-100 -100 200 200" aria-hidden="true"><path d="M-90 0h-40M90 0h40M0-90v-40M0 90v40M-14 0h-40M14 0h40M0-14v-40M0 14v40M-62-62h16M-62-62v16M62-62h-16M62-62v16M-62 62h16M-62 62v-16M62 62h-16M62 62v-16"/><rect x="-1.6" y="-1.6" width="3.2" height="3.2"/></svg>`,
   door: `<svg class="gn-ret" viewBox="-100 -100 200 200" aria-hidden="true"><circle r="34"/><path d="M-46 0h-14M46 0h14M0-46v-14M0 46v14"/><rect x="-1.6" y="-1.6" width="3.2" height="3.2"/></svg>`,
   mount: `<svg class="gn-ret" viewBox="-100 -100 200 200" aria-hidden="true"><path d="M-30 0h-18M30 0h18M0 30v18"/><rect x="-1.6" y="-1.6" width="3.2" height="3.2"/></svg>`,
 };
 
 const _p = new THREE.Vector3();
+const NONE: readonly never[] = [];
 
 class Tag {
   readonly el: HTMLElement;
@@ -72,6 +81,8 @@ class WeaponRow {
   private ammo: Num;
   private bar: Meter;
   private dry: Flag;
+  private selected: Flag;
+  private loading: Flag;
   private shown: Shown;
 
   constructor() {
@@ -83,16 +94,22 @@ class WeaponRow {
     this.ammo = new Num(ammo);
     this.bar = new Meter(fill);
     this.dry = new Flag(this.el, 'dry');
+    this.selected = new Flag(this.el, 'sel');
+    this.loading = new Flag(this.el, 'loading');
     this.shown = new Shown(this.el, 'grid');
   }
 
   update(w: GunnerWeapon | undefined): void {
     this.shown.set(!!w);
     if (!w) return;
+    const loading = (w.reload ?? -1) >= 0;
     this.name.set(w.name);
     this.ammo.set(w.ammo);
-    this.bar.set(w.ammo / w.max);
-    this.dry.set(w.ammo <= 0);
+    // A reloading gun's bar is the reload filling, so the juggle between guns can be read at a glance.
+    this.bar.set(loading ? w.reload! : w.ammo / w.max);
+    this.dry.set(w.ammo <= 0 && !loading);
+    this.loading.set(loading);
+    this.selected.set(w.selected === true);
   }
 }
 
@@ -115,6 +132,7 @@ export class GunnerHud implements SeatPanel {
   private readonly boarding: Flag;
   private readonly warning: Flag;
   private readonly hot: Flag;
+  private readonly inverted: Flag;
   private width = 1;
   private height = 1;
   private tone: GunnerTone | null = null;
@@ -172,6 +190,7 @@ export class GunnerHud implements SeatPanel {
     this.boarding = new Flag(this.el, 'boarding');
     this.warning = new Flag(this.el, 'warning');
     this.hot = new Flag(this.el, 'hot');
+    this.inverted = new Flag(this.el, 'inverted');
     addEventListener('resize', this.measure);
   }
 
@@ -194,12 +213,14 @@ export class GunnerHud implements SeatPanel {
       this.reticleHost.replaceChildren(markup(RETICLES[plan.tone]));
     }
     this.label.set(plan.label);
-    const out = seat.noWayOut ? '' : ` // ${this.key('interact')} ${plan.tone === 'mount' ? 'LEAVE' : 'BAIL OUT'}`;
-    this.hint.set(plan.aimZooms
-      ? `${this.key('fire')} FIRE // ${this.key('aim')} ZOOM${out}`
-      : `${this.key('fire')} CANNON // ${this.key('aim')} ROCKETS // WHEEL ZOOM${out}`);
+    const out = seat.noWayOut ? '' : ` // ${this.key('interact')} ${plan.tone === 'mount' ? 'LEAVE' : 'HAND TO AI'}`;
+    this.hint.set(plan.tone === 'gunship'
+      ? `${this.key('fire')} FIRE // 1-4 GUN, AGAIN FOR ROUND // ${this.key('aim')} ZOOM // ${this.key('reload')} VIEW${out}`
+      : plan.aimZooms
+        ? `${this.key('fire')} FIRE // ${this.key('aim')} ZOOM${out}`
+        : `${this.key('fire')} CANNON // ${this.key('aim')} ROCKETS // WHEEL ZOOM${out}`);
     this.el.style.setProperty('--gn-hot', plan.enemyColor);
-    this.spinShown.set(plan.tone !== 'thermal');
+    this.spinShown.set(plan.tone !== 'thermal' && plan.tone !== 'gunship');
   }
 
   /** Called by the HUD while a seat is up. */
@@ -212,6 +233,7 @@ export class GunnerHud implements SeatPanel {
     this.tagBody();
     if (seat.stage !== 'seated') return;
     const { plan } = seat;
+    this.label.set(seat.status ? `${plan.label} // ${seat.status}` : plan.label);
     this.seconds.set(Math.ceil(seat.left));
     this.timeBar.set(seat.left / plan.seconds);
     this.warning.set(seat.left <= 10);
@@ -221,6 +243,7 @@ export class GunnerHud implements SeatPanel {
     this.zoom.set(seat.zoomed ? `x${(plan.fov / plan.zoomFov).toFixed(1)}` : 'x1.0');
     this.spin.set(plan.tone === 'mount' ? seat.heat : seat.spin);
     this.hot.set(seat.overheated);
+    this.inverted.set(seat.inverted);
     for (let i = 0; i < MAX_WEAPONS; i++) this.rows[i]!.update(seat.weapons[i]);
   }
 
@@ -229,7 +252,7 @@ export class GunnerHud implements SeatPanel {
     const { prisoners } = this.rig;
     const camera = render.camera;
     let used = 0;
-    for (const e of enemies.alive) {
+    for (const e of this.rig.seat?.boxes === false ? NONE : enemies.alive) {
       if (used >= MAX_TAGS) break;
       _p.copy(e.center).project(camera);
       if (_p.z > 1 || Math.abs(_p.x) > 1 || Math.abs(_p.y) > 1) continue;

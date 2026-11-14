@@ -10,6 +10,7 @@ import type { CallInId } from '../../core/gameplay';
 import { ATTACK_AIRFRAME, type AttackMount } from '../../vehicles/attackModel';
 import type { Flight } from '../../vehicles/flight';
 import { Emplacements } from '../../vehicles/emplacement';
+import { CALLIN_HOLD } from '../../input/bindings';
 import { CHIN_CANNON, Gun, M134 } from '../../vehicles/guns';
 import { SeatRig } from '../../vehicles/seat';
 import type { MapSpec } from '../../world/map/spec';
@@ -27,7 +28,7 @@ import type { Ride } from './gunnerStrike';
 import { Nuke, NukeAftermath, nukeFrontMaterial } from './nuke';
 import { Orbital, orbitalMaterials } from './orbital';
 import { Ordnance } from './ordnance';
-import type { Strike, StrikeKit, StrikeOrder } from './shared';
+import { isAircraft, TapOrHold, type Strike, type StrikeKit, type StrikeOrder } from './shared';
 import { Targeting } from './targeting';
 import { Warthog, warthogModel } from './warthog';
 
@@ -42,8 +43,11 @@ const KEYS: Readonly<Record<CallInId, Action>> = {
   nuke: 'callinNuke',
 };
 
-/** No mark to choose: the pilot finds the fight, so the key goes straight to the seat. */
-const SEATED: ReadonlySet<CallInId> = new Set<CallInId>(['doorGunner', 'attackChopper']);
+/**
+ * Aircraft: no mark to choose. A tap takes the seat, a hold sends it in with its crew on the guns. The helicopters find
+ * the fight themselves, and the gunship circles whatever the crosshair was on, or the player's feet.
+ */
+const SEATED: ReadonlySet<CallInId> = new Set<CallInId>(['doorGunner', 'attackChopper', 'ac130']);
 
 const UNDRAWN_LAYER = 31;
 /** Seconds a call waits on a jammed uplink before it gets through regardless. Nothing the enemy does may eat a reward for good. */
@@ -56,6 +60,8 @@ interface Uplink {
 
 interface HeldCall {
   id: CallInId;
+  /** Sent in with its crew, not flown. */
+  ai: boolean;
   age: number;
   readonly point: THREE.Vector3;
   readonly heading: THREE.Vector3;
@@ -83,7 +89,10 @@ export class CallInManager {
   private gunBackIn = 0;
   /** Which call-in each running strike is, so anti-air can find it. */
   private readonly flying = new Map<Strike, CallInId>();
-  private readonly heldCall: HeldCall = { id: 'airstrike', age: 0, point: new THREE.Vector3(), heading: new THREE.Vector3(1, 0, 0) };
+  private readonly tapHold = new TapOrHold(CALLIN_HOLD);
+  /** The aircraft key `tapHold` is timing. */
+  private pressing: CallInId = 'airstrike';
+  private readonly heldCall: HeldCall = { id: 'airstrike', ai: false, age: 0, point: new THREE.Vector3(), heading: new THREE.Vector3(1, 0, 0) };
   private calling = false;
 
   constructor(private readonly ctx: Ctx, materials: ModelMaterials, holdGrade: (grade: GradeName | null) => void) {
@@ -154,7 +163,7 @@ export class CallInManager {
   update(dt: number): void {
     for (const id of CALLIN_ORDER) if (this.cooldowns[id] > 0) this.cooldowns[id] = Math.max(0, this.cooldowns[id] - dt);
 
-    if (this.ctx.player.alive) this.readKeys();
+    if (this.ctx.player.alive) this.readKeys(dt);
     if (this.calling) this.waitOnUplink(dt);
 
     const result = this.targeting.update(dt);
@@ -184,15 +193,28 @@ export class CallInManager {
     this.aftermath.update(dt);
   }
 
-  private readKeys(): void {
+  /** Nothing can be called from a seat: leave it first. */
+  private readKeys(dt: number): void {
     const { input } = this.ctx;
-    if (this.steering || this.seats.occupied) return;
+    if (this.steering || this.seats.occupied) {
+      this.tapHold.cancel();
+      return;
+    }
+    if (this.tapHold.waiting) {
+      const how = this.tapHold.update(dt, input.isDown(KEYS[this.pressing]));
+      if (how) this.board(this.pressing, how === 'hold');
+      return;
+    }
     for (const id of CALLIN_ORDER) {
       if (!input.pressed(KEYS[id])) continue;
       if (this.targeting.id === id) this.leaveTargeting('callin_cancel');
       else if (this.held.has(id)) {
-        if (SEATED.has(id)) this.board(id);
-        else this.enter(id);
+        if (SEATED.has(id)) {
+          this.pressing = id;
+          this.tapHold.press();
+        } else {
+          this.enter(id);
+        }
       }
       else this.deny(id);
       return;
@@ -223,12 +245,13 @@ export class CallInManager {
   }
 
   /** The call is made and paid for, and it goes the moment the jammer stops or the patience runs out. */
-  private hold(id: CallInId): void {
-    const { audio, hud, player } = this.ctx;
+  private hold(id: CallInId, ai = false): void {
+    const { audio, hud } = this.ctx;
     this.calling = true;
     this.heldCall.id = id;
+    this.heldCall.ai = ai;
     this.heldCall.age = 0;
-    this.heldCall.point.copy(SEATED.has(id) ? player.position : this.order.point);
+    this.heldCall.point.copy(this.order.point);
     this.heldCall.heading.copy(this.order.heading);
     audio.play('callin_denied');
     hud.feed(`${CALLINS[id].name} HELD: UPLINK JAMMED`, CALLINS[id].color);
@@ -240,12 +263,12 @@ export class CallInManager {
     if (this.uplinkDown && call.age < UPLINK_PATIENCE) return;
     if (this.steering || this.seats.occupied || !this.ctx.player.alive) return;
     this.calling = false;
-    if (SEATED.has(call.id)) {
-      this.board(call.id);
-      return;
-    }
     this.order.point.copy(call.point);
     this.order.heading.copy(call.heading);
+    if (SEATED.has(call.id)) {
+      this.takeOff(call.id, call.ai);
+      return;
+    }
     this.ctx.audio.play('callin_confirm');
     this.fly(call.id);
   }
@@ -259,13 +282,13 @@ export class CallInManager {
     this.ctx.events.emit('callin:used', { id, position: this.order.point });
   }
 
-  /** Anti-air on the newest of this kind. A seat is emptied and its aircraft leaves. Anything else is simply gone. */
+  /** Anti-air on the newest of this kind. An aircraft goes down, with the player thrown out of its seat. Anything else is simply gone. */
   shootDown(id: CallInId): boolean {
     for (let i = this.strikes.length - 1; i >= 0; i--) {
       const strike = this.strikes[i]!;
       if (this.flying.get(strike) !== id) continue;
-      if (SEATED.has(id)) {
-        this.seats.eject();
+      if (isAircraft(strike)) {
+        strike.down();
         return true;
       }
       strike.dispose();
@@ -276,25 +299,29 @@ export class CallInManager {
     return false;
   }
 
-  board(id: CallInId): void {
-    const { audio, events, player, weapons } = this.ctx;
+  /** An aircraft, flown (`ai` false) or sent in with its crew. Paid for here, whether or not a jammer holds it up. */
+  board(id: CallInId, ai = false): void {
     if (this.targeting.id) this.targeting.exit();
     this.held.delete(id);
     this.cooldowns[id] = CALLINS[id].cooldown;
+    if (!this.targeting.solve(this.order.point)) this.order.point.copy(this.ctx.player.position);
     if (this.uplinkDown && !this.calling && this.heldCall.age === 0) {
-      this.hold(id);
+      this.hold(id, ai);
       return;
     }
     this.heldCall.age = 0;
+    this.takeOff(id, ai);
+  }
+
+  private takeOff(id: CallInId, ai: boolean): void {
+    const { audio, events, hud, player } = this.ctx;
     audio.play('callin_confirm');
-    if (!this.holstered) {
-      this.holstered = true;
-      weapons.setHolstered(true);
-    }
-    const strike = this.launch(id);
+    if (ai) hud.feed(`${CALLINS[id].name} SENT IN`, CALLINS[id].color);
+    else this.holster();
+    const strike = this.launch(id, ai);
     this.strikes.push(strike);
     this.flying.set(strike, id);
-    events.emit('callin:used', { id, position: player.position });
+    events.emit('callin:used', { id, position: id === 'ac130' ? this.order.point : player.position });
   }
 
   /** Onto a mission's fixed flight in the Packmule. Nothing on the ground can hold this one up. */
@@ -352,14 +379,14 @@ export class CallInManager {
     this.fly(id);
   }
 
-  private launch(id: CallInId): Strike {
+  private launch(id: CallInId, ai = false): Strike {
     switch (id) {
       case 'airstrike': return new Airstrike(this.kit, this.order);
       case 'warthog': return new Warthog(this.kit, this.order);
-      case 'doorGunner': return new DoorGunner(this.kit, this.seats, this.packmule);
-      case 'attackChopper': return new AttackChopper(this.kit, this.seats, this.harrow);
+      case 'doorGunner': return new DoorGunner(this.kit, this.seats, this.packmule, null, ai);
+      case 'attackChopper': return new AttackChopper(this.kit, this.seats, this.harrow, ai);
       case 'orbital': return new Orbital(this.kit, this.order, this.targeting);
-      case 'ac130': return new Ac130(this.kit, this.order, this.gunship);
+      case 'ac130': return new Ac130(this.kit, this.order, this.gunship, this.seats, ai);
       case 'blackSun': return new BlackSun(this.kit, this.order);
       case 'nuke': return new Nuke(this.kit, this.order, this.aftermath);
     }
@@ -368,6 +395,7 @@ export class CallInManager {
   /** The player died: nothing is left half-open, but strikes already called in still land. */
   onDeath(): void {
     this.seats.eject();
+    this.tapHold.cancel();
     this.calling = false;
     if (this.targeting.id) this.leaveTargeting(null);
     this.steering?.release();
@@ -382,6 +410,7 @@ export class CallInManager {
     for (const strike of this.strikes) strike.dispose();
     this.strikes.length = 0;
     this.flying.clear();
+    this.tapHold.cancel();
     this.calling = false;
     this.kit.ordnance.clear();
     this.aftermath.clear();

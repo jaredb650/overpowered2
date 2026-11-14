@@ -12,6 +12,7 @@
   text-shadow: 0 0 0.3rem rgba(0, 0, 0, 0.7);
   pointer-events: none;
 }
+.gn.inverted { --gn: #0c1014; --gn-dim: rgba(12, 16, 20, 0.6); text-shadow: 0 0 0.3rem rgba(255, 255, 255, 0.8); }
 .gn.tone-door { --gn: #ffe2b0; --gn-dim: rgba(255, 226, 176, 0.55); }
 
 .gn-corner { position: absolute; width: 7rem; height: 7rem; border: 0 solid var(--gn-dim); }
@@ -44,6 +45,15 @@
 .gn-wfill { height: 100%; background: var(--gn); transform-origin: 0 50%; }
 .gn-weapon.dry { color: var(--blood); }
 .gn-weapon.dry .gn-wfill { background: var(--blood); }
+.gn-weapon.loading .gn-wfill { background: var(--gn-dim); }
+
+/* The gunship: four guns, the one on the trigger lit and the rest dimmed while their crews reload. */
+.gn.tone-gunship .gn-arms { gap: 0.5rem; bottom: 9rem; }
+.gn.tone-gunship .gn-weapon { color: var(--gn-dim); }
+.gn.tone-gunship .gn-weapon.sel { color: var(--gn); }
+.gn.tone-gunship .gn-weapon.sel .gn-wname::before { content: '> '; }
+.gn.tone-gunship .gn-wammo { font-size: 2rem; }
+.gn.tone-gunship .gn-reticle { width: 22rem; height: 22rem; margin: -11rem 0 0 -11rem; }
 
 .gn-read { position: absolute; right: 5rem; bottom: 5rem; width: 12rem; display: flex; flex-direction: column; gap: 0.25rem; }
 .gn-row { display: flex; justify-content: space-between; align-items: baseline; }

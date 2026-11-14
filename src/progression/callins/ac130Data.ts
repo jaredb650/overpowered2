@@ -3,22 +3,7 @@
  * ../data.ts with the others.
  */
 
-/** What the guns are doing at each stage of the siege. A gap of 0 means that gun has not come up yet. */
-export interface SiegePhase {
-  /** Seconds on station. */
-  at: number;
-  /** Said as the phase opens. */
-  line: string;
-  /** Seconds between 25mm bursts. */
-  gatlingGap: number;
-  boforsGap: number;
-  /** Shells in one 40mm string. */
-  boforsShells: number;
-  howitzerGap: number;
-  /** Shots in one 105mm salvo. */
-  howitzerShots: number;
-  hellfireGap: number;
-}
+import type { SeatPlan } from '../../vehicles/seat';
 
 export const AC130 = {
   callsign: 'SPECTRE',
@@ -46,70 +31,110 @@ export const AC130 = {
   scanEvery: 0.25,
   /** Anything in the way above this height over the target is a roof, not a wall, and rounds go in under it. */
   roofHeight: 8,
+  /**
+   * Fire control, the player's seat. The eye is the sensor ball under the nose, dead-locked on the ground (lock 1) so
+   * the circle never drags the sight off its spot. Its clock is the time on station, which the strike writes.
+   */
+  seat: {
+    label: 'SPECTRE // FIRE CONTROL',
+    tone: 'gunship',
+    seconds: 120,
+    fov: 40,
+    zoomFov: 15,
+    aimZooms: true,
+    arcCenter: Math.PI / 2,
+    arcHalf: 1.15,
+    pitchMin: -1.45,
+    pitchMax: -0.3,
+    lock: 1,
+    roll: 0.2,
+    eye: [0, 0, 0],
+    reach: 900,
+    grade: null,
+    enemyColor: '#ff6a30',
+    grace: 2.5,
+    shake: 0.35,
+  } as SeatPlan,
+  /**
+   * Every gun has a magazine and its own crew reloading it, on its own clock, whichever gun is on the trigger. Ammunition
+   * is unlimited: only magazines and reloads hold a gun back. `interval` is the least time between two shots of one gun.
+   * `speed` is m/s, so a round from 245 m away is in the air for a second or more and a moving man has to be led.
+   */
   gatling: {
-    speed: 190,
-    roundsPerSecond: 12,
+    magazine: 120, reload: 4, interval: 1 / 18, speed: 190,
+    /** Radians of cone on the player's stream. */
+    spread: 0.0035,
+    damage: 55,
+    radius: 2.6,
+    /** The crew's bursts, and the pause between them. */
     burst: [1.6, 2.8] as const,
-    /** m/s the aim walks. It starts short of the target, on the aircraft's side, so the stream is seen to walk on. */
+    gap: 2.4,
+    /** m/s the crew's aim walks. It starts short of the target, on the aircraft's side, so the stream is seen to walk on. */
     walkSpeed: 11,
     walkIn: 9,
     scatter: 1.1,
-    damage: 55,
-    radius: 2.6,
-    /** With nobody in the box the 25mm rakes it anyway after this long, so the siege never goes dead. */
+    /** With nobody in the box the crew rakes it anyway after this long, so the AI never goes dead. */
     reconAfter: 7,
     retry: 0.8,
   },
-  bofors: { speed: 130, gap: 0.3, spacing: 3.4, scatter: 0.8, damage: 170, radius: 5, retry: 1 },
+  bofors: {
+    magazine: 12, reload: 4.5, interval: 0.32, speed: 130, spread: 0.002,
+    /** The crew's string: shells in it, metres apart across the line of fire, scatter, and the pause after. */
+    shells: 6, spacing: 3.4, scatter: 0.8, gap: 4.5, retry: 1,
+    /** Bursts on the first surface: clears a rooftop. */
+    he: { damage: 170, radius: 5 },
+    /** Goes on through up to `walls` roofs and walls no thicker than `wall` metres each, and bursts small where it stops. */
+    ap: { damage: 320, radius: 2.8, walls: 3, wall: 1.6, beyond: 30 },
+    /**
+     * Bursts `fuze` metres short of the first enemy or surface on its line and throws `pellets` heavy pellets forward in
+     * a cone of `cone` radians, reaching `reach`: a giant shotgun for men behind low cover. The crew picks it for a knot
+     * of `knot` or more in the open.
+     */
+    flak: { fuze: 2.5, damage: 60, radius: 2.5, pellets: 14, pelletDamage: 75, cone: 0.32, reach: 24, knot: 3 },
+  },
   howitzer: {
+    magazine: 2, reload: 7, interval: 1.6,
     /** Seconds in the air. Slow enough to watch one fall, and to get a whistle in. */
     flight: 4.6,
     /** Gently down out of the barrel and steep at the end. Any stronger and it would lob up out of a gun pointing down. */
     gravity: 14,
     /** It bursts this far over where it lands, so a wall beside the impact does not save the whole room behind it. */
     burstHeight: 5,
-    gap: 2.7,
+    /** The crew's scatter, and the pause after a magazine. */
     spread: 5,
+    gap: 6,
     damage: 620,
     radius: 12,
     /**
-     * It never fires this close to the player: nothing would hurt, but nobody could see through it. Kept tight, because
-     * enemies close on the player, and at 14 m the biggest gun was left shooting at stragglers.
+     * The crew never fires it this close to the player: nothing would hurt, but nobody could see through it. Kept tight,
+     * because enemies close on the player, and at 14 m the biggest gun was left shooting at stragglers.
      */
     noFire: 9,
     whistle: 2,
     retry: 1.5,
+    /**
+     * White phosphorus: a smaller blast, then a white cloud `cloud` metres across that burns for `seconds`. Anyone in it
+     * is set alight for `burn` seconds, as by the Burner's fire. Never the player.
+     */
+    wp: { damage: 200, radius: 6, cloud: 8, seconds: 14, burn: 5, puffEvery: 0.2, streamers: 10 },
   },
-  hellfire: {
-    /** Seconds falling off the rail before the motor lights, and how hard it falls and then accelerates. */
-    drop: 0.7, fall: 14, thrust: 208,
-    speed: 130, turn: 3.4, damage: 1100, radius: 7, life: 9, whistle: 1.4, retry: 2,
-    /** It steers for a point this many times its ground distance above the target, which folds the end of the flight into a dive. */
-    topAttack: 2.2,
-    /** It only meets the world this close to the target, by which point it is in the dive. */
-    armWithin: 60,
+  /**
+   * One per sortie. The ramp takes `bay` seconds to open, the bomb falls free for `fall`, then glides at `speed` and
+   * turns onto the laser at `turn`, all the way down. One of the biggest blasts in the game: the airstrike's finale is
+   * 20 m, the nuke is the map.
+   */
+  bomb: {
+    bay: 2.6, fall: 1, gravity: 9.8, speed: 55, turn: 2.6, life: 18, armWithin: 70,
+    radius: 28, damage: 6000, shake: 1.6, whistle: 3,
+    /** The crew drops it on a boss, or on a knot this big, once it has been on station this long. */
+    after: 25, knot: 5,
   },
-  flares: { pairs: 8, gap: 0.16, speed: 15, gravity: 9, drag: 0.55, life: 3.4, every: 27 },
+  /** Missile hits that bring it down, and flares aboard. Read by part 2 of the air support plan. */
+  armour: { hits: 3, flares: 3 },
+  /** Thrown on arrival and on leaving, and by `Ac130.popFlares`. */
+  flares: { pairs: 8, gap: 0.16, speed: 15, gravity: 9, drag: 0.55, life: 3.4 },
   /** Enemies within this of each other count as one target for the heavy guns. */
   clusterRadius: 8,
-  phases: [
-    {
-      at: 0, line: 'TWO-FIVE TRACKING. GUNS HOT.',
-      gatlingGap: 3.4, boforsGap: 0, boforsShells: 0, howitzerGap: 0, howitzerShots: 0, hellfireGap: 0,
-    },
-    {
-      at: 24, line: 'FOUR-ZERO ONLINE. WALKING IT IN.',
-      gatlingGap: 3, boforsGap: 7, boforsShells: 5, howitzerGap: 0, howitzerShots: 0, hellfireGap: 0,
-    },
-    {
-      at: 54, line: 'ONE-OH-FIVE UP. KEEP YOUR HEAD DOWN.',
-      gatlingGap: 2.6, boforsGap: 6, boforsShells: 6, howitzerGap: 15, howitzerShots: 3, hellfireGap: 12,
-    },
-    {
-      at: 92, line: 'ALL GUNS. EVERYTHING WE HAVE LEFT.',
-      gatlingGap: 1.8, boforsGap: 4, boforsShells: 8, howitzerGap: 9.5, howitzerShots: 4, hellfireGap: 7,
-    },
-  ] as readonly SiegePhase[],
   /** Seconds left on station, and what the crew says about it. */
   countdown: [[60, 'SIXTY SECONDS ON STATION.'], [30, 'THIRTY SECONDS. BINGO FUEL.'], [10, 'TEN SECONDS. LAST ROUNDS.']] as const,
   /** Kills inside this window earn a line from the crew, at most this often. */

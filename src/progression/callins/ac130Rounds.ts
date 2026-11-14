@@ -2,19 +2,24 @@
  * Everything the gunship puts in the air. combat.spawnProjectile cannot carry these: its shell is a 1.5 m needle under
  * a pixel wide from up here, it cannot say when a round landed, and it lets a roof eat a shot from a mile away.
  *
- * Rounds, flares and muzzle flashes are one instanced draw, additive so they sit on top of the fog and hot so bloom
- * carries them. Their width is held to a pixel floor, which is what keeps a shell visible all the way down from 300 m.
- * Missiles have real bodies and smoke, so they are four pooled models instead.
+ * Rounds, flares, muzzle flashes and the bomb's laser are one instanced draw, additive so they sit on top of the fog and
+ * hot so bloom carries them. Their width is held to a pixel floor, which is what keeps a shell visible all the way down
+ * from 300 m. The glide bomb has a real body and smoke, so it is a model of its own.
+ *
+ * Three rounds do more than land: AP goes on through walls (`pierce`), flak bursts short of what it meets (`fuze`), and
+ * the bomb turns onto a laser all the way down (`steerBomb`). Those three are plain functions, for the tests.
  */
 import * as THREE from 'three';
 import { CG, type Ctx, type EmitterHandle, type RayHit } from '../../core/contracts';
 import type { EnemyInstance } from '../../core/gameplay';
-import { rand } from '../../core/math';
+import { rand, randomInCone } from '../../core/math';
+import { loadBudget, makeBudget, passWall, type Budget, type Raycaster } from '../../weapons/penetration';
 import { ModelBuilder, type ModelMaterials } from '../modelkit';
 import { AC130 as A } from './ac130Data';
 
-export type RoundKind = 'g25' | 'g40' | 'g105';
-export type ImpactKind = RoundKind | 'hellfire';
+/** `g40` is the 40 mm's HE, `wp` the 105's white phosphorus. */
+export type RoundKind = 'g25' | 'g40' | 'ap' | 'flak' | 'g105' | 'wp';
+export type ImpactKind = RoundKind | 'bomb';
 type SparkKind = RoundKind | 'flare' | 'flash';
 
 interface Look {
@@ -32,9 +37,16 @@ interface Look {
 const LOOKS: Readonly<Record<RoundKind | 'flare', Look>> = {
   g25: { width: 0.2, length: 9, minPx: 1.8, r: 7, g: 4.6, b: 1.5, trail: 0 },
   g40: { width: 0.42, length: 8, minPx: 2.8, r: 9, g: 3.4, b: 0.8, trail: 0 },
+  // AP is the cold white-blue streak, so a round punching a roof reads apart from the orange HE.
+  ap: { width: 0.36, length: 12, minPx: 2.6, r: 6, g: 8, b: 13, trail: 0 },
+  flak: { width: 0.46, length: 7, minPx: 2.8, r: 12, g: 2.2, b: 0.6, trail: 0 },
   g105: { width: 0.8, length: 4.6, minPx: 4.5, r: 10, g: 7.5, b: 4.5, trail: 0.07 },
+  wp: { width: 0.8, length: 4.6, minPx: 4.5, r: 12, g: 12, b: 11, trail: 0.05 },
   flare: { width: 1.15, length: 2.3, minPx: 4, r: 15, g: 14, b: 12, trail: 0.11 },
 };
+
+/** The laser is a line, drawn as a long thin spark from the sensor to the spot. */
+const LASER = { minPx: 1.3, r: 9, g: 1.2, b: 0.8 };
 
 interface Spark {
   live: boolean;
@@ -46,10 +58,12 @@ interface Spark {
   gravity: number;
   age: number;
   life: number;
-  /** World collisions only start this close to the aim. See FireControl.armRange. */
+  /** World collisions only start this close to the aim. See Battery.armRange. */
   armRange: number;
   /** Seconds before landing that it starts to whistle. 0 once it has, or if it never does. */
   whistle: number;
+  /** Walls an AP round may still go through. */
+  walls: number;
   width: number;
   length: number;
   minPx: number;
@@ -60,54 +74,112 @@ interface Spark {
   trailIn: number;
 }
 
-interface Missile {
+interface Bomb {
   live: boolean;
   group: THREE.Group;
   velocity: THREE.Vector3;
-  aim: THREE.Vector3;
-  target: EnemyInstance | null;
-  uid: number;
   age: number;
-  armRange: number;
   whistled: boolean;
   smoke: EmitterHandle | null;
 }
 
-const MAX_SPARKS = 160;
-const MISSILES = 4;
+export interface BombPlan {
+  fall: number;
+  gravity: number;
+  speed: number;
+  turn: number;
+}
+
+const MAX_SPARKS = 200;
 const Y = new THREE.Vector3(0, 1, 0);
+const DOWN = new THREE.Vector3(0, -1, 0);
 const NOSE = new THREE.Vector3(0, -1, 0);
-const TAIL = new THREE.Vector3(0, 1.4, 0);
+const TAIL = new THREE.Vector3(0, 1.6, 0);
 const SMOKE = 0xb4bcc4;
-const HIT_RANGE = 2;
+/** Metres a round that has passed a wall is moved on, so its next step does not meet the face it just left. */
+const EXIT_STEP = 0.05;
 
 const _prev = new THREE.Vector3();
 const _dir = new THREE.Vector3();
 const _want = new THREE.Vector3();
 const _scale = new THREE.Vector3();
+const _exit = new THREE.Vector3();
+const _probe = new THREE.Vector3();
+const _mid = new THREE.Vector3();
 const _quat = new THREE.Quaternion();
 const _matrix = new THREE.Matrix4();
+const _near: EnemyInstance[] = [];
 
-function missileModel(materials: ModelMaterials): THREE.Group {
-  const b = new ModelBuilder();
-  b.cyl(0.16, 0.16, 2.1, 8, '#b9c2cb');
-  // Nose down the model's -Y, as in ordnance.ts.
-  b.solid(new THREE.ConeGeometry(0.16, 0.5, 8), '#20262c', { at: [0, -1.3, 0], rot: [Math.PI, 0, 0] });
-  for (let i = 0; i < 4; i++) {
-    const a = (i * Math.PI) / 2;
-    b.box(0.34, 0.5, 0.03, '#39424c', { at: [Math.cos(a) * 0.24, 0.8, Math.sin(a) * 0.24], rot: [0, -a, 0] });
+/**
+ * An AP round met `wall` going along unit `dir`. True when it goes on: the wall is one it can pass (`passWall`, on the
+ * per-wall rule), and there is still floor under the far side, so it never drops through the ground itself. Writes the
+ * point it comes out at into `exit`.
+ */
+export function pierce(physics: Raycaster, budget: Budget, wall: RayHit, dir: THREE.Vector3, exit: THREE.Vector3): boolean {
+  if (!passWall(physics, budget, wall, dir, exit)) return false;
+  return physics.raycast(_probe.copy(exit).addScaledVector(dir, EXIT_STEP), DOWN, 200, CG.World) !== null;
+}
+
+/**
+ * Where a flak round flying along unit `dir` goes off, given the open distance ahead of it (`open`, Infinity for none),
+ * the distance to the nearest enemy ahead (`enemy`), and the step it is about to take. Returns metres along the step to
+ * burst at, or -1 to fly on. It goes `fuze` short of whichever comes first.
+ */
+export function fuze(open: number, enemy: number, step: number, distance: number): number {
+  const first = Math.min(open, enemy);
+  if (first - distance > step) return -1;
+  return Math.max(0, first - distance);
+}
+
+/** One frame of the glide bomb: a free fall off the ramp, then a glide turning onto `laser`. Moves `position`. */
+export function steerBomb(position: THREE.Vector3, velocity: THREE.Vector3, laser: THREE.Vector3, age: number, dt: number, plan: BombPlan): void {
+  if (age < plan.fall) {
+    velocity.y -= plan.gravity * dt;
+  } else {
+    _want.subVectors(laser, position).setLength(plan.speed);
+    velocity.lerp(_want, 1 - Math.exp(-plan.turn * dt)).setLength(plan.speed);
   }
-  b.glow(new THREE.CylinderGeometry(0.12, 0.05, 0.3, 8), '#ffb060', 7, { at: [0, 1.2, 0] });
+  position.addScaledVector(velocity, dt);
+}
+
+/** `n` pellet directions in a cone of `cone` radians about unit `dir`. */
+export function flakCone(dir: THREE.Vector3, cone: number, out: THREE.Vector3[]): THREE.Vector3[] {
+  for (const v of out) randomInCone(dir, cone, v);
+  return out;
+}
+
+function bombModel(materials: ModelMaterials): THREE.Group {
+  const b = new ModelBuilder();
+  b.cyl(0.34, 0.34, 3.2, 10, '#5b6570');
+  // Nose down the model's -Y, as in ordnance.ts. The seeker is the dark glass at its tip.
+  b.solid(new THREE.ConeGeometry(0.34, 0.9, 10), '#2a3038', { at: [0, -2.05, 0], rot: [Math.PI, 0, 0] });
+  b.solid(new THREE.SphereGeometry(0.16, 8, 6), '#0d1216', { at: [0, -2.45, 0] });
+  b.cyl(0.35, 0.35, 0.16, 10, '#ffcf3a', { at: [0, -1.1, 0] });
+  // Glide wings, folded out, and the tail fins that steer it.
+  b.box(2.6, 0.1, 0.5, '#3a424c', { at: [0, 0.1, 0] });
+  for (let i = 0; i < 4; i++) {
+    const a = (i * Math.PI) / 2 + Math.PI / 4;
+    b.box(0.7, 0.6, 0.05, '#39424c', { at: [Math.cos(a) * 0.45, 1.35, Math.sin(a) * 0.45], rot: [0, -a, 0] });
+  }
   return materials.group(b);
 }
 
 export class Ac130Rounds {
-  /** Set once by the strike. Called when a round or missile lands. `normal` is null when it reached its aim in open air. */
-  onImpact: (kind: ImpactKind, point: THREE.Vector3, normal: THREE.Vector3 | null) => void = () => undefined;
+  /**
+   * Set by the strike. Called when a round or the bomb lands. `normal` is null when it went off in open air, and `dir`
+   * is the way it was going, which the flak's cone needs.
+   */
+  onImpact: (kind: ImpactKind, point: THREE.Vector3, normal: THREE.Vector3 | null, dir: THREE.Vector3) => void = () => undefined;
+  /** Where the bomb steers. The owner moves it every frame. */
+  readonly laser = new THREE.Vector3();
+  /** The laser is drawn from here while `laserOn`. */
+  readonly laserFrom = new THREE.Vector3();
+  laserOn = false;
 
   private readonly sparks: Spark[] = [];
   private head = 0;
-  private readonly missiles: Missile[] = [];
+  private readonly bomb: Bomb;
+  private readonly budget: Budget = makeBudget();
   private readonly mesh: THREE.InstancedMesh;
   private readonly colors: Float32Array;
   private readonly hit: RayHit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, surface: 'concrete', collider: null };
@@ -131,21 +203,19 @@ export class Ac130Rounds {
     for (let i = 0; i < MAX_SPARKS; i++) {
       this.sparks.push({
         live: false, kind: 'flash', origin: new THREE.Vector3(), velocity: new THREE.Vector3(), position: new THREE.Vector3(), aim: new THREE.Vector3(),
-        gravity: 0, age: 0, life: 0, armRange: Infinity, whistle: 0, width: 0, length: 0, minPx: 0, r: 0, g: 0, b: 0, trail: 0, trailIn: 0,
+        gravity: 0, age: 0, life: 0, armRange: Infinity, whistle: 0, walls: 0, width: 0, length: 0, minPx: 0, r: 0, g: 0, b: 0, trail: 0, trailIn: 0,
       });
     }
-    for (let i = 0; i < MISSILES; i++) {
-      const group = missileModel(materials);
-      group.visible = false;
-      ctx.render.scene.add(group);
-      this.missiles.push({ live: false, group, velocity: new THREE.Vector3(), aim: new THREE.Vector3(), target: null, uid: -1, age: 0, armRange: Infinity, whistled: false, smoke: null });
-    }
+    const group = bombModel(materials);
+    group.visible = false;
+    ctx.render.scene.add(group);
+    this.bomb = { live: false, group, velocity: new THREE.Vector3(), age: 0, whistled: false, smoke: null };
   }
 
   private next(kind: SparkKind, look: Look | null): Spark {
     // Oldest out. At these fire rates the pool never comes close to wrapping onto a shell still in the air.
     const s = this.sparks[this.head]!;
-    this.head = (this.head + 1) % MAX_SPARKS;
+    this.head = (this.head + 1) % (MAX_SPARKS - 1);
     s.live = true;
     s.kind = kind;
     s.age = 0;
@@ -173,16 +243,17 @@ export class Ac130Rounds {
     s.life = seconds;
     s.gravity = gravity;
     s.armRange = armRange;
-    s.whistle = kind === 'g105' ? A.howitzer.whistle : 0;
+    s.whistle = kind === 'g105' || kind === 'wp' ? A.howitzer.whistle : 0;
+    s.walls = kind === 'ap' ? A.bofors.ap.walls : 0;
     s.velocity.subVectors(aim, from).divideScalar(seconds);
     s.velocity.y += 0.5 * gravity * seconds;
   }
 
-  flare(from: THREE.Vector3, velocity: THREE.Vector3): void {
+  flare(from: THREE.Vector3, velocity: THREE.Vector3, life: number = A.flares.life): void {
     const s = this.next('flare', LOOKS.flare);
     s.position.copy(from);
     s.velocity.copy(velocity);
-    s.life = A.flares.life * rand(0.8, 1.15);
+    s.life = life * rand(0.8, 1.15);
   }
 
   /** `size` is a radius in metres, held to `minPx` on screen. */
@@ -198,16 +269,12 @@ export class Ac130Rounds {
     s.life = seconds;
   }
 
-  /** Falls off the rail, lights, then flies at `target`, or at `aim` if there is none or it dies on the way. */
-  launch(from: THREE.Vector3, velocity: THREE.Vector3, target: EnemyInstance | null, aim: THREE.Vector3, armRange: number): void {
-    const m = this.missiles.find(x => !x.live) ?? this.missiles[0]!;
-    this.retire(m);
+  /** Out of the ramp at `velocity`. It steers for `laser` from then on. */
+  drop(from: THREE.Vector3, velocity: THREE.Vector3): void {
+    const m = this.bomb;
+    this.retire();
     m.live = true;
-    m.target = target;
-    m.uid = target?.uid ?? -1;
-    m.aim.copy(aim);
     m.age = 0;
-    m.armRange = armRange;
     m.whistled = false;
     m.velocity.copy(velocity);
     m.group.position.copy(from);
@@ -215,17 +282,18 @@ export class Ac130Rounds {
     m.group.visible = true;
   }
 
-  /** True while a missile is on its way to this enemy, so a second one looks for someone else. */
-  hunting(enemy: EnemyInstance): boolean {
-    for (const m of this.missiles) if (m.live && m.uid === enemy.uid) return true;
-    return false;
+  get bombLive(): boolean {
+    return this.bomb.live;
+  }
+
+  get bombPosition(): THREE.Vector3 {
+    return this.bomb.group.position;
   }
 
   /** True once nothing is left to land. */
   get idle(): boolean {
-    for (const s of this.sparks) if (s.live && (s.kind === 'g25' || s.kind === 'g40' || s.kind === 'g105')) return false;
-    for (const m of this.missiles) if (m.live) return false;
-    return true;
+    for (const s of this.sparks) if (s.live && s.kind !== 'flare' && s.kind !== 'flash') return false;
+    return !this.bomb.live;
   }
 
   update(dt: number): void {
@@ -244,7 +312,8 @@ export class Ac130Rounds {
       }
       if (s.live) count = this.draw(s, count, pixel, camera.position);
     }
-    for (const m of this.missiles) if (m.live) this.moveMissile(m, dt);
+    if (this.bomb.live) this.moveBomb(dt);
+    if (this.laserOn) count = this.drawLaser(count, pixel, camera.position);
     this.mesh.count = count;
     if (count === 0) return;
     this.mesh.instanceMatrix.needsUpdate = true;
@@ -256,7 +325,12 @@ export class Ac130Rounds {
     s.trailIn -= dt;
     if (s.trailIn > 0) return;
     s.trailIn = s.trail;
-    this.ctx.fx.smoke(s.position, SMOKE, size, seconds);
+    this.ctx.fx.smoke(s.position, s.kind === 'wp' ? 0xf2f4f6 : SMOKE, size, seconds);
+  }
+
+  private land(s: Spark, point: THREE.Vector3, normal: THREE.Vector3 | null): void {
+    s.live = false;
+    this.onImpact(s.kind as RoundKind, point, normal, _dir);
   }
 
   private moveRound(s: Spark, dt: number): void {
@@ -270,24 +344,63 @@ export class Ac130Rounds {
     // On the round's own clock, not the audio clock, so it keeps time through SLOWMO and dies with the round on a reset.
     if (s.whistle > 0 && s.life - s.age <= s.whistle) {
       s.whistle = 0;
-      this.ctx.audio.play('missile_incoming', { position: s.aim, pitch: 0.82 });
+      this.ctx.audio.play('missile_incoming', { position: s.aim, pitch: s.kind === 'wp' ? 0.95 : 0.82 });
     }
 
     _dir.subVectors(s.position, _prev);
     const step = _dir.length();
+    if (step > 1e-6) _dir.divideScalar(step);
     // From where the step starts: testing where it ends would sweep straight back through the roof being skipped.
-    if (step > 1e-4 && _prev.distanceToSquared(s.aim) < s.armRange * s.armRange) {
-      _dir.divideScalar(step);
-      if (this.ctx.physics.raycastInto(_prev, _dir, step, CG.World, this.hit)) {
-        s.live = false;
-        this.onImpact(s.kind as RoundKind, this.hit.point, this.hit.normal);
-        return;
-      }
+    const armed = step > 1e-4 && _prev.distanceToSquared(s.aim) < s.armRange * s.armRange;
+    if (armed && s.kind === 'flak' && this.flak(s, step)) return;
+    if (armed && this.ctx.physics.raycastInto(_prev, _dir, step, CG.World, this.hit)) {
+      if (s.kind === 'ap' && this.through(s)) return;
+      this.land(s, this.hit.point, this.hit.normal);
+      return;
     }
-    if (s.age >= s.life) {
-      s.live = false;
-      this.onImpact(s.kind as RoundKind, s.aim, null);
+    if (s.age >= s.life) this.land(s, s.aim, null);
+  }
+
+  /** Burst short of the first surface or enemy ahead. True when it went off. */
+  private flak(s: Spark, step: number): boolean {
+    const F = A.bofors.flak;
+    const reach = step + F.fuze;
+    const wall = this.ctx.physics.raycastInto(_prev, _dir, reach, CG.World, this.hit) ? this.hit.distance : Infinity;
+    let enemy = Infinity;
+    const n = this.ctx.enemies.query(_prev, reach, _near) || 0;
+    for (let i = 0; i < n; i++) {
+      const e = _near[i]!;
+      if (!e.alive) continue;
+      // Along the line, and close enough to it to be what the fuze sees.
+      _mid.subVectors(e.center, _prev);
+      const along = _mid.dot(_dir);
+      if (along > 0 && _mid.addScaledVector(_dir, -along).lengthSq() < F.fuze * F.fuze) enemy = Math.min(enemy, along);
     }
+    const at = fuze(wall, enemy, step, F.fuze);
+    if (at < 0) return false;
+    this.land(s, _mid.copy(_prev).addScaledVector(_dir, at), null);
+    return true;
+  }
+
+  /** An AP round goes on from the far side of the wall it met, on the same line. True if it did. */
+  private through(s: Spark): boolean {
+    loadBudget(this.budget, A.bofors.ap.wall, 0, 1, s.walls);
+    if (!pierce(this.ctx.physics, this.budget, this.hit, _dir, _exit)) return false;
+    s.walls = this.budget.walls;
+    const { fx } = this.ctx;
+    fx.impact(this.hit.point, this.hit.normal, this.hit.surface, 1.6);
+    fx.sparks(_exit, _dir, 10, '#cfe4ff');
+    this.ctx.audio.play('impact_metal', { position: this.hit.point, volume: 0.8 });
+    // A straight round: start a fresh closed-form flight from the far face, on to the same aim at the same speed.
+    const speed = s.velocity.length();
+    s.origin.copy(_exit).addScaledVector(_dir, EXIT_STEP);
+    s.position.copy(s.origin);
+    s.life = Math.max(0.01, s.origin.distanceTo(s.aim) / speed);
+    s.velocity.copy(_dir).multiplyScalar(speed);
+    s.age = 0;
+    // Every wall from here on is met, however low.
+    s.armRange = 1e6;
+    return true;
   }
 
   private moveFlare(s: Spark, dt: number): void {
@@ -301,52 +414,39 @@ export class Ac130Rounds {
     this.puff(s, dt, 1.3, 1.5);
   }
 
-  private moveMissile(m: Missile, dt: number): void {
+  private moveBomb(dt: number): void {
     if (dt <= 0) return;
-    const { fx, physics } = this.ctx;
-    const H = A.hellfire;
+    const B = A.bomb;
+    const m = this.bomb;
     const body = m.group;
     m.age += dt;
-    if (m.target && m.target.alive && m.target.uid === m.uid) m.aim.copy(m.target.center);
-
-    if (m.age < H.drop) {
-      m.velocity.y -= H.fall * dt;
-    } else {
-      m.smoke ??= fx.attachEmitter(body, 'airstrikeTrail', TAIL);
-      // Top attack, as the real missile flies: from above, the walls round a target are not in the way.
-      _want.subVectors(m.aim, body.position);
-      _want.y += Math.hypot(_want.x, _want.z) * H.topAttack;
-      _want.setLength(H.speed);
-      m.velocity.lerp(_want, 1 - Math.exp(-H.turn * dt));
-      m.velocity.setLength(Math.min(H.speed, m.velocity.length() + H.thrust * dt));
-    }
-
-    const speed = m.velocity.length();
-    _dir.copy(m.velocity).divideScalar(speed);
+    if (m.age >= B.fall) m.smoke ??= this.ctx.fx.attachEmitter(body, 'smokeTrail', TAIL);
+    _prev.copy(body.position);
+    steerBomb(body.position, m.velocity, this.laser, m.age, dt, B);
+    _dir.copy(m.velocity).normalize();
     body.quaternion.setFromUnitVectors(NOSE, _dir);
-    const step = speed * dt;
-    const left = body.position.distanceTo(m.aim);
-    if (!m.whistled && left < H.speed * H.whistle) {
+    const left = body.position.distanceTo(this.laser);
+    if (!m.whistled && left < B.speed * B.whistle) {
       m.whistled = true;
-      this.ctx.audio.play('missile_incoming', { position: m.aim, pitch: 1.15 });
+      this.ctx.audio.play('nuke_incoming', { position: this.laser, pitch: 1.5, volume: 0.7 });
     }
-    if (left < m.armRange && physics.raycastInto(body.position, _dir, step + 0.5, CG.World, this.hit)) {
-      this.retire(m);
-      this.onImpact('hellfire', this.hit.point, this.hit.normal);
+    _want.subVectors(body.position, _prev);
+    const step = _want.length();
+    if (left < B.armWithin && step > 1e-4 && this.ctx.physics.raycastInto(_prev, _want.divideScalar(step), step + 0.5, CG.World, this.hit)) {
+      this.retire();
+      this.onImpact('bomb', this.hit.point, this.hit.normal, _dir);
       return;
     }
-    body.position.addScaledVector(_dir, step);
-    if (body.position.distanceToSquared(m.aim) < HIT_RANGE * HIT_RANGE || m.age >= H.life) {
-      this.retire(m);
-      this.onImpact('hellfire', body.position, null);
+    if (m.age >= B.life) {
+      this.retire();
+      this.onImpact('bomb', body.position, null, _dir);
     }
   }
 
-  private retire(m: Missile): void {
+  private retire(): void {
+    const m = this.bomb;
     m.live = false;
     m.group.visible = false;
-    m.target = null;
-    m.uid = -1;
     m.smoke?.stop();
     m.smoke = null;
   }
@@ -371,17 +471,35 @@ export class Ac130Rounds {
       _quat.setFromUnitVectors(Y, _dir.normalize());
     }
     _matrix.compose(s.position, _quat, _scale.set(width, length, width));
+    return this.put(at, s.r, s.g, s.b);
+  }
+
+  /** The last slot of the pool is kept for the laser, so nothing in the air can push it out. */
+  private drawLaser(at: number, pixel: number, eye: THREE.Vector3): number {
+    _dir.subVectors(this.laser, this.laserFrom);
+    const length = _dir.length();
+    if (length < 1e-3) return at;
+    _mid.copy(this.laserFrom).addScaledVector(_dir, 0.5);
+    _quat.setFromUnitVectors(Y, _dir.divideScalar(length));
+    const width = _mid.distanceTo(eye) * pixel * LASER.minPx;
+    // The octahedron's tips are the ends of the line, so it is half as long either way as the line is.
+    _matrix.compose(_mid, _quat, _scale.set(width, length / 2, width));
+    return this.put(at, LASER.r, LASER.g, LASER.b);
+  }
+
+  private put(at: number, r: number, g: number, b: number): number {
     this.mesh.setMatrixAt(at, _matrix);
     const c = at * 3;
-    this.colors[c] = s.r;
-    this.colors[c + 1] = s.g;
-    this.colors[c + 2] = s.b;
+    this.colors[c] = r;
+    this.colors[c + 1] = g;
+    this.colors[c + 2] = b;
     return at + 1;
   }
 
   clear(): void {
     for (const s of this.sparks) s.live = false;
-    for (const m of this.missiles) this.retire(m);
+    this.retire();
+    this.laserOn = false;
     this.mesh.count = 0;
   }
 }

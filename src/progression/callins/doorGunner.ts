@@ -59,8 +59,8 @@ export class DoorGunner extends GunnerStrike<UtilityMount> {
   private fireLoop: LoopHandle | null = null;
   private readonly belt = { name: G.name, ammo: G.rounds, max: G.rounds };
 
-  constructor(kit: StrikeKit, rig: SeatRig, ride: Ride<UtilityMount>, private readonly flight: Flight | null = null) {
-    super(kit, rig, D, ride, 'door', 'door_gun');
+  constructor(kit: StrikeKit, rig: SeatRig, ride: Ride<UtilityMount>, private readonly flight: Flight | null = null, ai = false) {
+    super(kit, rig, D, ride, 'door', 'door_gun', ai);
     const { bounds } = kit.ctx.world;
     const small = (bounds.max.x - bounds.min.x) / 2 < SMALL_MAP;
     this.limit = small ? D.limit.small : D.limit.large;
@@ -72,8 +72,8 @@ export class DoorGunner extends GunnerStrike<UtilityMount> {
       const end = flight.marks[flight.marks.length - 1]!;
       this.seat.fixed(_pos.set(end.x, end.y, end.z));
     } else {
-      // A copy, because the hold is cut short the moment the seat empties.
-      this.orbit = this.path = new OrbitPath({ ...(small ? D.small : D.large), holdSeconds: D.seat.seconds + D.boardSeconds });
+      // A copy, because the hold is cut short the moment the aircraft heads home.
+      this.orbit = this.path = new OrbitPath({ ...(small ? D.small : D.large), holdSeconds: D.aiSeconds + D.boardSeconds });
       const { center } = this.orbit;
       center.set(clamp(this.fight.x, -this.limit, this.limit), 0, clamp(this.fight.z, -this.limit, this.limit));
       this.orbit.begin(center, Math.atan2(center.z, center.x) + 2.4);
@@ -104,7 +104,7 @@ export class DoorGunner extends GunnerStrike<UtilityMount> {
 
   protected fly(dt: number): void {
     const { frame, path, clock, seat, orbit } = this;
-    if (orbit && seat.stage !== 'left') this.drift(orbit, dt);
+    if (orbit && !this.homebound) this.drift(orbit, dt);
     path.at(clock, _pos);
     path.heading(clock, _fwd);
     if (seat.stage === 'left' && !orbit) this.settle(dt);
@@ -144,21 +144,26 @@ export class DoorGunner extends GunnerStrike<UtilityMount> {
   }
 
   protected shoot(dt: number): void {
-    const { audio, input } = this.kit.ctx;
+    const { audio } = this.kit.ctx;
     const { gun, seat } = this;
     if (this.scripted) this.belt.ammo = this.belt.max;
-    const held = input.isDown('fire') && this.belt.ammo > 0;
+    const held = this.trigger.fire && this.belt.ammo > 0;
     seat.spin = clamp(seat.spin + (held ? dt / G.spinUp : -dt / G.spinDown));
     gun.turn(seat.spin * G.barrelRate * dt);
     if (held && !this.spinning) {
       this.spinning = true;
-      audio.play('minigun_spinup');
-      this.spinLoop = audio.startLoop('minigun_spin_loop', { fadeIn: 0.1 });
+      audio.play('minigun_spinup', { position: this.heard });
+      this.spinLoop = audio.startLoop('minigun_spin_loop', { fadeIn: 0.1, position: this.heard });
     } else if (!held && this.spinning) {
       this.spinDown();
     }
     // The drive is heard coming up with the barrels.
     this.spinLoop?.setPitch(SPIN_PITCH + (1 - SPIN_PITCH) * seat.spin, 0.04);
+    const heard = this.heard;
+    if (heard) {
+      this.spinLoop?.setPosition(heard);
+      this.fireLoop?.setPosition(heard);
+    }
     if (held && seat.spin >= G.fireAt) this.stream(dt);
     else this.ceaseFire();
   }
@@ -168,7 +173,7 @@ export class DoorGunner extends GunnerStrike<UtilityMount> {
     this.spinLoop?.stop(0.2);
     this.spinLoop = null;
     // Written from full spin: a gun let go part way up starts it part way down.
-    this.kit.ctx.audio.play('minigun_spindown', { offset: (1 - this.seat.spin) * SPIN_RUNDOWN });
+    this.kit.ctx.audio.play('minigun_spindown', { offset: (1 - this.seat.spin) * SPIN_RUNDOWN, position: this.heard });
   }
 
   private ceaseFire(): void {
@@ -176,12 +181,12 @@ export class DoorGunner extends GunnerStrike<UtilityMount> {
     this.fireLoop.stop(0.08);
     this.fireLoop = null;
     // The last round's report and its roll-off, so the barrage ends on a shot and not on a fade.
-    this.kit.ctx.audio.play('minigun_fire');
+    this.kit.ctx.audio.play('minigun_fire', { position: this.heard });
   }
 
   private stream(dt: number): void {
     const { audio, camera } = this.kit.ctx;
-    this.fireLoop ??= audio.startLoop('minigun_fire_loop', { fadeIn: 0.03, pitch: G.loopPitch });
+    this.fireLoop ??= audio.startLoop('minigun_fire_loop', { fadeIn: 0.03, pitch: G.loopPitch, position: this.heard });
     this.shotIn -= dt;
     for (let i = 0; this.shotIn <= 0 && i < G.perFrame && this.belt.ammo > 0; i++) {
       this.shotIn += 1 / G.roundsPerSecond;
@@ -189,6 +194,7 @@ export class DoorGunner extends GunnerStrike<UtilityMount> {
     }
     // A short frame's debt is paid above. A long frame's is forgiven, so the rate never bursts to catch up.
     if (this.shotIn < 0) this.shotIn = 0;
+    if (this.ai) return;
     camera.addTrauma(G.trauma);
     camera.kick(rand(-G.kick, G.kick), rand(-G.kick, G.kick));
   }
