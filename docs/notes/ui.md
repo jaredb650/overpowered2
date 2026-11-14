@@ -122,6 +122,7 @@ are a compositor animation and survive a blocked main thread. `performance.mark(
 | Enemy reveal | `REVEAL_AT` in `hud/stragglers.ts`, 3 |
 | Comms feed | `CommsFeed` in `hud/feed.ts`: line cap and life. `COMMS_FEAR` in `Hud.ts` |
 | Track name | `SHOWN` and `FRAMES` in `hud/nowplaying.ts`, `.np` in `css/nowplaying.css` |
+| Stims | `.vit-stim`, `.st-*` in `css/hud.css`, built in `hud/vitals.ts`: the key, one pip per stim (`STIM.max`), and INJECT blinking under 35% health with a stim ready and none going. Pips dim while one goes in |
 | Contract notice | Copy in `contracts/data.ts`, layout `.mm-brief` and `.nt-*` in `css/screens.css`. It has to end above the wordmark |
 | Minimap | `NEAR_RANGE`, `FAR_RANGE`, `FAR_SPEED`, `REDRAW` in `hud/minimap.ts` |
 | Gore levels | `GORE_TABLE` in `settings.ts` |

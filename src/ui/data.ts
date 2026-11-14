@@ -7,7 +7,7 @@ import type { Action } from '../core/contracts';
 import type { CallInId, EnemyId, PerkId, PowerupId, WeaponId } from '../core/gameplay';
 import { MOVE } from '../player/tuning';
 import {
-  CACHE_ORDER, CALLINS as CALLIN_DEFS, CHAIN_REACTION_KILLS, COMBO_PERKS, DROP_POD, EFFECTS, MEGA, OVERDRIVE_MIN_SPEED, PICKUP, SCORE, STACK, STYLE_GATE, WINDOWS,
+  CACHE_ORDER, CALLINS as CALLIN_DEFS, CHAIN_REACTION_KILLS, COMBO_PERKS, DROP_POD, EFFECTS, MEGA, OVERDRIVE_MIN_SPEED, PICKUP, SCORE, STACK, STIM, STYLE_GATE, WINDOWS,
 } from '../progression/data';
 import { LANCE_OLD, PENETRATION, SLOT4_OLD, SWORD, TUNING, WEAPONS as WEAPON_DEFS, WEAPON_ORDER as WEAPON_SEQUENCE } from '../weapons/data';
 import { BLADE_OLD, KATANA, MELEE, type MeleeId } from '../weapons/melee/data';
@@ -230,7 +230,7 @@ export const POWERUPS: Record<PowerupId, { name: string; color: string; note: st
 export const POWERUP_NOTE = 'Capsules appear on a schedule, marked on your HUD, and last 15 s once taken.';
 
 export const PICKUP_GUIDE: readonly { name: string; note: string }[] = [
-  { name: 'Health', note: `+${PICKUP.health}. Kills drop these, and health also regenerates after ${MOVE.regenDelay} s without a hit` },
+  { name: 'Stim', note: `One more stim to carry, up to ${STIM.max}. Kills drop these. Each heals ${STIM.heal} and takes a second to inject; health also regenerates after ${MOVE.regenDelay} s without a hit` },
   { name: 'Armor', note: `+${PICKUP.armor}. Takes two thirds of every hit` },
   { name: 'Ammo', note: `${PICKUP.ammo * 100}% of every reserve and a grenade` },
   { name: 'Mega Health', note: `+${MEGA.heal}, past your maximum. Respawns on the map` },
@@ -329,7 +329,7 @@ export const KEY_GROUPS: readonly { title: string; rows: readonly [Action, strin
     title: 'Fight',
     rows: [
       ['fire', 'Fire'], ['aim', 'Aim and alt fire'], ['reload', 'Reload'], ['melee', 'Quick melee'],
-      ['grenade', 'Grenade'], ['sonar', 'Sonar ping'], ['weaponLast', 'Last weapon'], ['weaponNext', 'Next weapon'], ['weaponPrev', 'Previous weapon'],
+      ['grenade', 'Grenade'], ['stim', 'Use stim'], ['sonar', 'Sonar ping'], ['weaponLast', 'Last weapon'], ['weaponNext', 'Next weapon'], ['weaponPrev', 'Previous weapon'],
     ],
   },
   {

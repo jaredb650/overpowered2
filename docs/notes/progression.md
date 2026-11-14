@@ -19,6 +19,7 @@
 | `callins/airframe.ts`, `radio.ts` | Shared by aircraft call-ins. See "Building another aircraft" |
 | `callins/gunnerStrike.ts`, `attackChopper.ts`, `doorGunner.ts`, `heliData.ts` | The two helicopters: the flight they share, each one's flying and guns, their numbers |
 | `src/vehicles/seat.ts` | The gunner's seat: the view, the parked body, aiming, marking enemies, always handing control back |
+| `src/vehicles/emplacement.ts` | Mounted guns on the ground, manned through the same seat. See the end of `vehicles.md` |
 | `src/vehicles/pilot.ts`, `skyline.ts`, `targets.ts` | The Harrow's autopilot, the height of the map, finding the fight |
 | `src/vehicles/hud.ts`, `gunner.css` | The overlay that replaces the on-foot HUD in a seat |
 | `src/vehicles/attackModel.ts`, `utilityModel.ts`, `guns.ts`, `loft.ts` | Both airframes, the M134 and the chin cannon, the hull lofter |
@@ -169,6 +170,26 @@ Traps found the hard way:
 
 Extend `GunnerStrike` with `fly`, `shoot` and `spent`. Give it a `HeliPlan` and a `Ride`, add a key, and add its source prefix to `ASSIST_SOURCES`. Air-to-air from DESIGN section 17 goes in `GunnerStrike.scan`: while an enemy chopper is up, write it into `fight`.
 
+## Stims
+
+`stims.ts`, numbers in `STIM` (`data.ts`). Health pickups are stims now, in every mode: the `health` pickup kind keeps its id (campaign
+drops, the minimap, `pickup_health`) and its look, but collecting one puts a stim in the kit instead of healing. The kit holds 5, and a
+run starts with 1. A full kit leaves the pickup lying there (`Pickups.wants`), the way a health pack used to wait at full health, and
+kill drops roll a stim far less often while the kit is full. Mega Health is unchanged: a rare map prize that heals 100 past max at
+once, and the Commander's bait. It stays because it is a different decision (go out and get it now) from a stim (spend one when you
+choose), and the bait trap needs something worth walking into a crossfire for.
+
+The stim key (`stim`, Y by default) injects one: heal 30 (a health pack gave 25; a little more for the second it costs). The injection
+is 1 s on the player's clock. `weapons.occupy(1)` stops and blocks fire, aim, reload, melee, grenades and switching, and a cooking
+grenade is thrown. `holdSpeed` (the heavy guns' clamp) holds ground speed to 45% of run speed. The heal lands at 0.5 s, when the needle
+goes in. Damage does not cancel it; dying does. Refused with `ui_error` and a feed line at full health or with none left. Ignored while
+an injection runs, for 0.35 s after one, while seated or while aiming a call-in, so a double press does not spend two.
+`stim:inject` starts the off hand's animation (`docs/notes/viewmodels.md`). Sounds: `stim_click` on the press, `stim_hiss` at the heal.
+
+`progression.stims` is the `StimKit` contract: `count`, `max`, `injecting` (0..1 or -1), `give(n)`, `spend()`. **`spend()` is the hook
+for reviving an ally** (Outpost Defense piece 2): it takes one stim and does nothing else, returning false when there is none. The
+caller plays its own animation and sound. Nothing calls it yet. Test: `stims.test.ts`.
+
 ## Pickups
 
 Drops 30% per kill, weighted toward what the player lacks, capped at 24, expire in 28 s. Map items: 3 Mega Health and 3 Heavy Armor on `world.pickupSpots` by a stride that lands on the Kill House deck corners, respawning at 45 s and 35 s. Ambient supply every 10 s. Capsules first at 25 s, then every 32 to 48 s, from a shuffled bag of all ten, 30 s life, at least 35 m away, with a `hud.marker`. Pods every second wave clear, with the unlock order in `CACHE_ORDER`, then full resupply once the arsenal is complete. A weapon's family members (`docs/notes/weapons.md`) come with it and are not in `CACHE_ORDER`: the Harrow, the Thresher and the Quiver are there from the start with the SMG, the shotgun and the rocket, the Rivet arrives in the Judge's cache, and the Piledriver in the cache that brings the Trommel, which `CACHE_ORDER` still calls `buzzsaw`. Key 4 starts with the Sabot. The explosive autocannon is its upgrade and is earned: it is second in `CACHE_ORDER` (Judge, Autocannon, Lance, Buzzsaw, Kiln, Stakegun), so the wave 4 pod brings it and everything after it comes one pod later than before. It was a starting weapon, so it comes early rather than last. `?slot4=old` takes it out of the list and makes it a starting weapon again. `weapons.give` and `setLoadout` do that themselves, so a mission that hands out the SMG hands out the Harrow.
@@ -198,7 +219,8 @@ Drops 30% per kill, weighted toward what the player lacks, capped at 24, expire 
 | Black Sun | Corpses gathered at the hole, thrown from about 10 m to 35 m in 0.8 s |
 | Nuke | The pack died about 88 m out and came to rest at 104 m on average, leaving at up to 28 m/s. Sky, cloud and burnt moonlight still up at T+25 |
 | All ten powerups | Quad 4x and ends, Haste 1.5x, Vampire +12, Ricochet 3, Shock arced to a second brute, Ghost sends enemies to `lost` past 15 m, Magnet pulled an item in from 26 m, Regen, Frost froze 6 of 6 and the shot one shattered, Time Warp 0.25 then 1 |
-| Pickups | Mega 100 to 200 then decays, Heavy Armor +100, Health +25 and left alone at full health. Drops 13 in 40 kills, all on the floor |
+| Pickups | Mega 100 to 200 then decays, Heavy Armor +100, Health +25 and left alone at full health. Drops 13 in 40 kills, all on the floor. (Before stims: a health pickup is now one stim) |
+| Stims (Test Range, 2026-11-14) | Refused at full health. 28 to 58 at 0.50 s, one stim spent. Fire held through the second: 0 rounds, then 4 in the 0.3 s after |
 | Caches | Wave 2 and wave 4 clears each sent a pod. `weapons.give` unlocked Judge then Lance (before the autocannon went second in the list) |
 | Perks | Sentinels killed 10 of 10, Chain Storm 10 of 12 by arc, Chain Reaction 9 of 10 by blast, Butcher severed, Skyfall slam, Overdrive follows speed, Adrenaline 1.45x at 3 stacks |
 | Reset | Nuke sky, four strikes, ten effects, a pod and a capsule, then death, then a new run: every modifier neutral, time scale 1, grade neutral, moon restored, no extra scene objects, and nothing landed in the next 9 s |

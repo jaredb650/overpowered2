@@ -5,7 +5,9 @@
  * out. They run on realDt, as in the first game, so SLOWMO leaves them spinning at full speed.
  *
  * Three first-game faults are fixed by construction: drops land on the floor instead of keeping the enemy's height,
- * they expire instead of stacking forever, and a health pack is not eaten at full health.
+ * they expire instead of stacking forever, and a pickup the player cannot use stays where it is.
+ *
+ * The `health` kind is a stim: it goes into the player's kit (../stims.ts), and stays on the ground while the kit is full.
  */
 import * as THREE from 'three';
 import { MISSION_ID } from '../../campaign/select';
@@ -15,6 +17,7 @@ import { chance, clamp, pick, rand, TAU } from '../../core/math';
 import { GroundProbe } from '../callins/ground';
 import { CAPSULE, MEGA, PICKUP as P, PICKUP_LOOK, POWERUPS, type EffectId } from '../data';
 import type { ModelMaterials } from '../modelkit';
+import type { Stims } from '../stims';
 import { pickupModel } from './models';
 
 type ModelKind = Exclude<PickupKind, 'weaponCache'>;
@@ -164,7 +167,7 @@ export class Pickups {
   private capsuleIn: number = CAPSULE.firstAt;
   private grantEffect: (id: EffectId) => void = () => undefined;
 
-  constructor(private readonly ctx: Ctx, materials: ModelMaterials) {
+  constructor(private readonly ctx: Ctx, materials: ModelMaterials, private readonly stims: Stims) {
     this.probe = new GroundProbe(ctx);
     for (const kind of Object.keys(PICKUP_LOOK) as PickupKind[]) {
       if (kind === 'weaponCache') continue;
@@ -297,7 +300,8 @@ export class Pickups {
     const ammo = weapons.ammo();
     const hurt = 1 - clamp(player.health / player.maxHealth);
     const dry = ammo.maxReserve > 0 ? 1 - clamp(ammo.reserve / ammo.maxReserve) : 0;
-    const wHealth = 1 + hurt * 2.5;
+    // A full stim kit cannot take one, so it would only lie there.
+    const wHealth = this.stims.full ? 0.3 : 1 + hurt * 2.5;
     const wAmmo = 1 + dry * 2.5;
     const wArmor = 0.7;
     const r = rand(0, wHealth + wAmmo + wArmor);
@@ -391,8 +395,7 @@ export class Pickups {
   }
 
   private wants(p: Pickup): boolean {
-    const { player } = this.ctx;
-    if (p.kind === 'health') return player.health < player.maxHealth;
+    if (p.kind === 'health') return !this.stims.full;
     return true;
   }
 
@@ -406,8 +409,8 @@ export class Pickups {
 
     switch (kind) {
       case 'health':
-        player.heal(P.health);
-        hud.feed(`Health restored +${P.health}`, look.color);
+        this.stims.give(1);
+        hud.feed(`Stim ${this.stims.count}/${this.stims.max}`, look.color);
         break;
       case 'armor':
         player.addArmor(P.armor);

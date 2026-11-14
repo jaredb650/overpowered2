@@ -1,9 +1,10 @@
 /**
- * The left hand's own life: frag grenades, call-in devices and the sonar tap. It sits on top of whatever the main gun is
+ * The left hand's own life: frag grenades, call-in devices, the sonar tap and the stim injection. It sits on top of whatever the main gun is
  * doing, so throwing a grenade mid-reload or from a two-handed hold just borrows the hand for a moment.
  */
 import * as THREE from 'three';
 import { SONAR } from '../../contracts/data';
+import { STIM } from '../../progression/data';
 import { clamp, damp } from '../../core/math';
 import { TUNING } from '../data';
 import { inOut, inQuad, outBack, outCubic, seg } from './curves';
@@ -23,6 +24,12 @@ const TAP_SIDE = new THREE.Vector3(0.37, 0.38, -0.83);
 /** The fingers land at SONAR.tapLead, stay for the press, and the hand is gone by the end. */
 const TAP_PRESS = 0.1;
 const TAP_SECONDS = 0.56;
+/** Stim: shown at chest height with the cap flicked off, then driven into the side of the neck, held, and dropped. */
+const STIM_SHOW = new THREE.Vector3(-0.15, -0.06, -0.42);
+/** Short of the neck itself, which is out of shot: the fist stays in the lower-left corner for the press. */
+const STIM_NECK = new THREE.Vector3(-0.15, -0.12, -0.22);
+/** The needle's way in at the neck, in view space: back toward the camera and a little right. */
+const STIM_IN = new THREE.Vector3(0.25, 0.1, 1).normalize();
 
 export class Offhand {
   readonly root = new THREE.Group();
@@ -43,9 +50,11 @@ export class Offhand {
   private tapT = -1;
   private readonly tapHand = new THREE.Object3D();
   private readonly restOffset = new THREE.Vector3();
+  /** Seconds into a stim injection, or negative when there is none. */
+  private stimT = -1;
 
   constructor(private readonly set: OffhandSet) {
-    for (const m of [set.grenade, set.walkie, set.designator]) {
+    for (const m of [set.grenade, set.walkie, set.designator, set.stim]) {
       m.root.visible = false;
       this.root.add(m.root);
     }
@@ -70,7 +79,8 @@ export class Offhand {
     this.leftWeight = 0;
     this.press = 0;
     this.tapT = -1;
-    for (const m of [this.set.grenade, this.set.walkie, this.set.designator]) m.root.visible = false;
+    this.stimT = -1;
+    for (const m of [this.set.grenade, this.set.walkie, this.set.designator, this.set.stim]) m.root.visible = false;
   }
 
   cook(): void {
@@ -93,6 +103,16 @@ export class Offhand {
     if (this.state === 'none' && this.deviceW < 0.05) this.tapT = 0;
   }
 
+  /** A stim, on 'stim:inject'. It takes the hand from anything else: the weapons have stopped for it. */
+  inject(): void {
+    this.stimT = 0;
+    this.tapT = -1;
+    if (this.state !== 'none') {
+      this.state = 'none';
+      this.set.grenade.root.visible = false;
+    }
+  }
+
   /** Target confirmed: thumb on the talk key, or the laser burns. */
   confirm(): void {
     this.press = 1;
@@ -108,6 +128,7 @@ export class Offhand {
     this.updateDevice(dt);
     if (this.state === 'none' && this.deviceW < 0.002) this.leftWeight = 0;
     this.updateTap(dt);
+    this.updateStim(dt);
     this.root.updateMatrixWorld(true);
   }
 
@@ -132,6 +153,55 @@ export class Offhand {
     const press = seg(t, lead, lead + TAP_PRESS);
     p.addScaledVector(TAP_FINGERS, Math.sin(press * Math.PI) * 0.012);
     this.leftWeight = outCubic(seg(t, 0, 0.07)) * (1 - seg(t, lead + TAP_PRESS * 2, TAP_SECONDS));
+  }
+
+  private updateStim(dt: number): void {
+    const m = this.set.stim;
+    if (this.stimT < 0) return;
+    const t = (this.stimT += dt);
+    const end = STIM.seconds;
+    if (t >= end) {
+      this.stimT = -1;
+      m.root.visible = false;
+      return;
+    }
+    const at = STIM.injectAt;
+    this.hand = m.sockets.hold!;
+    m.resetParts();
+    this.ctl.begin(null);
+    this.ctl.base = 'offhand';
+    this.ctl.fingerRate = 30;
+    this.ctl.pose.set(HANDS.foregrip);
+    m.root.visible = true;
+    const p = m.root.position;
+    const r = m.root.rotation;
+    // Up into view, then across to the neck, turning the needle in on the way.
+    const up = outBack(seg(t, 0, 0.2), 1.2);
+    const go = inOut(seg(t, 0.24, at - 0.04));
+    const away = inQuad(seg(t, 0.72, end));
+    p.lerpVectors(REST_LOW, STIM_SHOW, up).lerp(STIM_NECK, go);
+    // Turned so the thumb side faces the eye and the injector shows above and below the fist.
+    r.set(0.15 - go * 1.4, -0.9 + go * 0.6, 0.2 - go * 0.1);
+    // The thumb snaps the cap off, and it spins away out of shot.
+    const flick = seg(t, 0.1, 0.3);
+    const cap = m.parts.cap!;
+    cap.position.y += inQuad(flick) * 0.08;
+    cap.position.x += flick * 0.03;
+    cap.rotation.z = flick * 2.5;
+    cap.visible = flick < 1;
+    // In: a short hard shove along the needle, held while the dose goes, then out.
+    const shove = outCubic(seg(t, at - 0.06, at)) * (1 - inOut(seg(t, 0.66, 0.78)));
+    p.addScaledVector(STIM_IN, shove * 0.03);
+    p.y -= away * 0.3;
+    p.z += away * 0.06;
+    m.parts.needle!.visible = t >= at - 0.06;
+    if (t > at && t < at + 0.05) {
+      p.x += Math.sin(t * 90) * 0.002;
+      p.y += Math.sin(t * 70 + 1) * 0.002;
+    }
+    const dose = m.glows.dose;
+    if (dose) dose.color.copy(dose.userData.base as THREE.Color).multiplyScalar(1 - 0.9 * seg(t, at, at + 0.15));
+    this.leftWeight = outCubic(seg(t, 0, 0.08)) * (1 - seg(t, 0.8, end));
   }
 
   private updateGrenade(): void {

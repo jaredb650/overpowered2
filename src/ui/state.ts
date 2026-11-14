@@ -73,6 +73,11 @@ export class HudState {
   remaining = 0;
   enemies: readonly EnemyInstance[] = NO_ENEMIES;
 
+  stims = 0;
+  stimsMax = 5;
+  /** 0..1 through an injection, or -1. */
+  stimInjecting = -1;
+
   /** Seconds until the next ping, out of `sonarLimit`. */
   sonarWait = 0;
   sonarLimit = 1;
@@ -126,6 +131,10 @@ export class HudState {
     this.effects = Array.isArray(g.effects) ? (g.effects as ActiveEffect[]) : NO_EFFECTS;
     this.targeting = str<CallInId | ''>(g.targeting, '') || null;
     this.dangerClose = bool(g.dangerClose);
+    const kit = (g.stims ?? {}) as Record<string, unknown>;
+    this.stims = num(kit.count, 0);
+    this.stimsMax = num(kit.max, 5);
+    this.stimInjecting = num(kit.injecting, -1);
 
     const waves = ctx.waves as unknown as Record<string, unknown>;
     this.wave = num(waves.wave, 0);

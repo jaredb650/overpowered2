@@ -48,6 +48,8 @@ export const DEFAULT_BINDINGS: Readonly<Bindings> = {
   callinBlackSun: ['KeyB'],
   callinNuke: ['KeyN'],
   sonar: ['KeyT'],
+  // Q and F are taken (last weapon, melee); Y is the nearest free key to the left hand.
+  stim: ['KeyY'],
   pause: ['Escape'],
   scoreboard: ['Tab'],
   debugFps: ['F3'],

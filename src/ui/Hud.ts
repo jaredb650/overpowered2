@@ -130,7 +130,7 @@ export class Hud implements HudSystem {
 
     this.worldLayer = new WorldLayer(ctx);
     this.stragglers = new Stragglers(this.worldLayer);
-    this.vitals = new Vitals();
+    this.vitals = new Vitals(ctx);
     this.arms = new Arms(ctx);
     this.tach = new Tach();
     this.tally = new Tally();

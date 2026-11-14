@@ -61,6 +61,17 @@
 .vit-regen { display: none; padding: 0 0.4rem; background: var(--ink); color: #000; font-weight: 800; }
 .vitals.regen .vit-regen { display: inline-block; animation: op-blink 0.5s steps(1) infinite; }
 
+/* Stims: key, a pip per stim carried, and INJECT blinking when health is low and one is ready. */
+.vit-stim { --c: #33ff66; display: inline-flex; align-items: center; gap: 0.35rem; height: 1.25rem; margin-right: 0.5rem; vertical-align: top; }
+.vit-stim .ci-key { min-width: 1.25rem; padding: 0 0.25rem; font-size: 0.9rem; }
+.st-pips { display: flex; gap: 0.18rem; height: 100%; }
+.st-pip { width: 0.55rem; height: 100%; background: var(--plate); transform: skewX(-15deg); }
+.st-pip.on { background: var(--c); box-shadow: 0 0 0.4rem rgba(51, 255, 102, 0.45); }
+.st-go { display: none; padding: 0 0.4rem; background: var(--c); color: #000; font-weight: 800; text-transform: uppercase; }
+.vitals.stim-go .st-go { display: inline-block; animation: op-blink 0.5s steps(1) infinite; }
+.vit-stim.empty .ci-key { color: var(--dim); }
+.vit-stim.busy .st-pips { opacity: 0.5; }
+
 /* Ingots: a static slanted mask over plain fills, so the bar moves by transform alone. */
 .bar {
   position: relative;
@@ -347,6 +358,8 @@
 .xh-arm .xh-svg *, .xh-core .xh-svg * { fill: #fff; stroke: #000; stroke-width: 1.1; paint-order: stroke; }
 .xh-arm .xh-svg g, .xh-core .xh-svg g { stroke: none; }
 .xh-reticle.hostile .xh-svg * { fill: var(--blood); }
+/* An ally under the crosshair (src/allies). Green is the HUD's only: nothing on a friendly body is green. */
+.xh-reticle.friendly .xh-svg * { fill: var(--friend); }
 .hm .xh-svg * { stroke: #000; stroke-width: 1.2; paint-order: stroke; }
 .hm-body .xh-svg * { fill: #fff; }
 .hm-armor .xh-svg *, .hm-armorThrough .xh-svg *, .hm-armorBroken .xh-svg * { fill: var(--cold); }

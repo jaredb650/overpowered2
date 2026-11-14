@@ -235,6 +235,7 @@ export class Rig implements ViewmodelRig {
       on('player:damaged', e => this.onHurt(e.amount)),
       on('callin:used', () => this.offhand.confirm()),
       on('sonar:tap', () => this.offhand.tap()),
+      on('stim:inject', () => this.offhand.inject()),
     );
     this.reset();
   }

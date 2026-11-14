@@ -110,6 +110,8 @@ export class Weapons implements WeaponSystem, Guard {
 
   private akimboOn = false;
   private quickReturn = 0;
+  /** Seconds left of `occupy`. */
+  private occupied = 0;
 
   /** The Quiver: marks laid while the trigger is held, and the salvo that leaves when it lets go. */
   private readonly painter = new Painter(TUNING.quiver.paintEvery);
@@ -245,6 +247,7 @@ export class Weapons implements WeaponSystem, Guard {
     this.lastGun = 'smg';
     this.pendingSwitch = null;
     this.holstered = false;
+    this.occupied = 0;
     this.sword.reset();
     this.lance.reset();
     this.drawLeft = 0;
@@ -382,6 +385,12 @@ export class Weapons implements WeaponSystem, Guard {
     }
   }
 
+  occupy(seconds: number): void {
+    if (this.cooking) this.throwGrenade(this.cookLeft, 1);
+    this.stopEverything();
+    this.occupied = seconds;
+  }
+
   guard(incoming: THREE.Vector3): GuardResult {
     return this.bladeOut ? this.sword.guard(incoming) : 'none';
   }
@@ -433,6 +442,10 @@ export class Weapons implements WeaponSystem, Guard {
     this.syncAkimbo();
 
     if (this.holstered) return;
+    if (this.occupied > 0) {
+      this.occupied -= dt;
+      return;
+    }
     this.readSwitch();
     this.updateGrenade(dt);
     this.updateZoom();

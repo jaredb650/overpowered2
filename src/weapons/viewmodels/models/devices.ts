@@ -146,3 +146,28 @@ export function buildDesignator(kit: Kit): Model {
   model.hand('hold', [-0.018, -0.05, 0.026], [0.02, -0.96, 0.25], [0.32, -0.2, -0.92]);
   return model;
 }
+
+/** Stim autoinjector, standing on its end: safety cap up (+Y), needle down. A green window shows the dose until it goes in. */
+export function buildStim(kit: Kit): Model {
+  const m = kit.mesher();
+  const up = (y: number, fn: () => void) => m.at([0, y, 0], [Math.PI / 2, 0, 0], fn);
+  // The fist covers the top half, so the dose window sits below it where the eye can see it drain.
+  m.use(F.oliveDark);
+  up(-0.005, () => m.cyl(0.0115, 0.13, 18));
+  m.use(F.yellow);
+  up(0.05, () => m.cyl(0.0118, 0.012, 18, 0.0004));
+  m.glow('dose', () => up(-0.045, () => m.cyl(0.0119, 0.026, 18, 0.0004)));
+  m.use(F.polymerGrey);
+  up(-0.074, () => m.cyl(0.0095, 0.014, 16));
+  m.part('cap', [0, 0.068, 0], () => {
+    m.use(F.enamelRed);
+    m.at([0, 0, 0], [Math.PI / 2, 0, 0], () => m.cyl(0.0108, 0.016, 16));
+  });
+  m.part('needle', [0, -0.081, 0], () => {
+    m.use(F.chrome);
+    m.at([0, -0.009, 0], [Math.PI / 2, 0, 0], () => m.cyl(0.0008, 0.018, 6, 0));
+  });
+  const model = new Model(m, kit.mats, { glows: { dose: [0x33ff66, 3] } });
+  model.hand('hold', [-0.012, 0.022, 0], [0.02, -0.98, 0.2], [0.34, -0.18, -0.92]);
+  return model;
+}

@@ -15,6 +15,7 @@ import type {
   ActiveEffect, CallInId, DamageResult, EnemyInstance, KillEvent, PerkId, PickupKind, PowerupId, ProgressionSystem,
 } from '../core/gameplay';
 import type { Flight } from '../vehicles/flight';
+import { ALLY_SOURCE } from '../allies/data';
 import { CallInManager } from './callins/manager';
 import { aboveFloor } from './callins/shared';
 import { ChainEffects } from './chains';
@@ -30,6 +31,7 @@ import { Pickups } from './pickups/pickups';
 import { DropPods } from './pickups/pods';
 import { ScoreKeeper } from './score';
 import { Sentinels } from './sentinels';
+import { Stims } from './stims';
 
 const COMBO_PITCH_STEP = 0.015;
 const COMBO_BREAK_MIN = 5;
@@ -63,6 +65,7 @@ class Progression implements ProgressionSystem {
   private frost!: FrostNova;
   private pickupsManager!: Pickups;
   private pods!: DropPods;
+  private stimKit!: Stims;
   private explosionId: number | null = null;
   private explosionKills = 0;
   private regenTick = 0;
@@ -89,7 +92,8 @@ class Progression implements ProgressionSystem {
     this.sentinels = new Sentinels(ctx, materials);
     this.chains = new ChainEffects(ctx);
     this.frost = new FrostNova(ctx);
-    this.pickupsManager = new Pickups(ctx, materials);
+    this.stimKit = new Stims(ctx);
+    this.pickupsManager = new Pickups(ctx, materials, this.stimKit);
     this.pods = new DropPods(ctx, materials);
     this.pickupsManager.onGrant(id => this.perks.grant(id));
     this.perks.listen({
@@ -100,13 +104,14 @@ class Progression implements ProgressionSystem {
     this.resetStyleGate();
 
     const { events } = ctx;
-    events.on('enemy:killed', e => { if (DevFlags.progression) this.onKill(e); });
-    events.on('enemy:hit', e => { if (DevFlags.progression) this.onHit(e.enemy, e.damage, e.result); });
-    events.on('enemy:severed', e => { if (DevFlags.progression) this.onSevered(e.enemy, e.damage); });
+    // An ally's hits and kills (src/allies) pay nothing, move no combo and feed no perk: they are not the player's.
+    events.on('enemy:killed', e => { if (DevFlags.progression && !ALLY_SOURCE.test(e.damage.source)) this.onKill(e); });
+    events.on('enemy:hit', e => { if (DevFlags.progression && !ALLY_SOURCE.test(e.damage.source)) this.onHit(e.enemy, e.damage, e.result); });
+    events.on('enemy:severed', e => { if (DevFlags.progression && !ALLY_SOURCE.test(e.damage.source)) this.onSevered(e.enemy, e.damage); });
     // A prisoner caught in a strike's splash is not the player's choice, so it earns nothing.
     events.on('enemy:executed', e => { if (DevFlags.progression && !ASSIST_SOURCES.test(e.kill.damage.source)) this.onExecuted(e.kill.enemy); });
     events.on('enemy:wounded', e => {
-      if (DevFlags.progression && !ASSIST_SOURCES.test(e.damage.source)) this.scoreKeeper.add(e.bonus, e.label, e.enemy.center);
+      if (DevFlags.progression && !ASSIST_SOURCES.test(e.damage.source) && !ALLY_SOURCE.test(e.damage.source)) this.scoreKeeper.add(e.bonus, e.label, e.enemy.center);
     });
     events.on('wave:clear', e => {
       if (e.bonus > 0) this.scoreKeeper.add(e.bonus, 'wave');
@@ -139,6 +144,8 @@ class Progression implements ProgressionSystem {
     for (const e of this.pods.entries) if (e.active) this.listed.push(e);
     return this.listed;
   }
+
+  get stims(): Stims { return this.stimKit; }
 
   isActive(id: PerkId | PowerupId): boolean {
     return this.perks.isActive(id);
@@ -398,6 +405,7 @@ class Progression implements ProgressionSystem {
     this.chains.update(real);
     this.callInsManager.update(real);
     this.sentinels.update(time.playerDt);
+    this.stimKit.update(time.playerDt);
     this.frost.update(time.dt);
     this.pickupsManager.update(real, this.perks.isActive('magnet'));
     this.pods.update(real);
@@ -432,6 +440,7 @@ class Progression implements ProgressionSystem {
     this.frost.clear();
     this.pickupsManager.clear();
     this.pods.clear();
+    this.stimKit.reset();
     this.pickupsManager.layout();
     this.ctx.events.emit('combo:changed', { combo: 0 });
   }

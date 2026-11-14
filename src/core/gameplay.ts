@@ -99,6 +99,11 @@ export interface WeaponSystem extends GameSystem {
   switchTo(id: WeaponId): void;
   /** Hides the gun and blocks firing, for call-in targeting. */
   setHolstered(holstered: boolean): void;
+  /**
+   * The off hand is busy for `seconds` (a stim injection): no fire, aim, reload, melee, grenade or switch, and any of
+   * those under way stops. The gun stays out. Optional so stand-in weapon systems need not carry it.
+   */
+  occupy?(seconds: number): void;
   /** A mission's kit: these guns and no others, with the first drawn. */
   setLoadout(weapons: readonly WeaponId[], grenades: number): void;
   /** The member of a slot's family that its number key draws: the one last held there. */
@@ -457,6 +462,7 @@ export type CallInId = 'airstrike' | 'warthog' | 'doorGunner' | 'attackChopper' 
 export type PowerupId =
   | 'quad' | 'haste' | 'vampire' | 'ricochet' | 'shock' | 'ghost' | 'magnet' | 'regen' | 'frostNova' | 'timeWarp';
 
+/** `health` is the stim pickup: it puts one stim in the player's kit (progression/stims.ts) and heals nothing itself. */
 export type PickupKind = 'health' | 'ammo' | 'armor' | 'megaHealth' | 'heavyArmor' | 'weaponCache' | PowerupId;
 
 export interface ActiveEffect {
@@ -507,6 +513,23 @@ export interface ProgressionSystem extends GameSystem {
   readonly dangerClose: boolean;
   /** Everything worth a dot on the minimap, including weapon caches. */
   readonly pickups: readonly { kind: PickupKind; position: THREE.Vector3; active: boolean }[];
+  /** The player's stims: carried, injected on the stim key. */
+  readonly stims: StimKit;
+}
+
+/** The stims the player carries. Health pickups put stims in here; the stim key spends one on the player. */
+export interface StimKit {
+  readonly count: number;
+  readonly max: number;
+  /** 0..1 through an injection, or -1 when none is going. While one goes the player cannot fire, aim or reload. */
+  readonly injecting: number;
+  /** Adds up to `n`, capped at `max`. Returns how many went in. */
+  give(n: number): number;
+  /**
+   * Takes one stim for something other than the player's own injection, such as reviving a wounded ally. No animation, no
+   * heal, no sound: the caller does those. False when there is none to take. Nothing calls this yet (Outpost Defense piece 2).
+   */
+  spend(): boolean;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -631,5 +654,7 @@ declare module './contracts' {
     'sonar:tap': Record<string, never>;
     /** The ring went out. `origin` is reused, so copy it to keep it. */
     'sonar:ping': { origin: THREE.Vector3 };
+    /** The player started a stim injection. The heal lands `STIM.injectAt` seconds later. */
+    'stim:inject': Record<string, never>;
   }
 }

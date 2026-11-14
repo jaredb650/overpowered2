@@ -6,7 +6,7 @@ import { autocannonDef, sabotDef } from './autocannon';
 import { batonDef } from './baton';
 import { crowbarDef } from './crowbar';
 import { buzzsawDef } from './buzzsaw';
-import { buildDesignator, buildGrenade, buildWalkie } from './devices';
+import { buildDesignator, buildGrenade, buildStim, buildWalkie } from './devices';
 import { harrowDef } from './harrow';
 import { judgeDef } from './judge';
 import { knifeDef } from './knife';
@@ -29,6 +29,7 @@ export interface OffhandSet {
   grenade: Model;
   walkie: Model;
   designator: Model;
+  stim: Model;
 }
 
 export function buildDefs(kit: Kit): Record<string, ViewDef> {
@@ -46,5 +47,5 @@ export function buildDefs(kit: Kit): Record<string, ViewDef> {
 }
 
 export function buildOffhand(kit: Kit): OffhandSet {
-  return { grenade: buildGrenade(kit), walkie: buildWalkie(kit), designator: buildDesignator(kit) };
+  return { grenade: buildGrenade(kit), walkie: buildWalkie(kit), designator: buildDesignator(kit), stim: buildStim(kit) };
 }

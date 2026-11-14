@@ -427,6 +427,23 @@ export const REGEN = { healthPerSecond: 14, ammoPerSecond: 0.04, tick: 0.25 } as
 export const FROST = { radius: 34, freezeSeconds: 7, frontSpeed: 60 } as const;
 export const MEGA = { heal: 100, decayPerSecond: 2 } as const;
 
+/** Stims, which replace health pickups (docs/proposals/outpost-defense.md, piece 1). A health pickup is one stim. */
+export const STIM = {
+  max: 5,
+  /** Carried into every run, so the key is learnt before the first pickup. */
+  start: 1,
+  /** A health pack gave 25; a little more, for the second spent standing still. */
+  heal: 30,
+  /** The whole injection: no fire, aim, reload, melee or grenade, and slow feet. Damage does not cut it short. */
+  seconds: 1,
+  /** When the needle goes in and the health lands. */
+  injectAt: 0.5,
+  /** Ground speed cap through the injection, as a share of run speed. */
+  moveCap: 0.45,
+  /** After one ends the key waits this long, so a double press does not spend a second stim. */
+  cooldown: 0.35,
+} as const;
+
 export const PICKUP = {
   dropChance: 0.3,
   /** Live drop cap. Oldest goes first. */
@@ -442,7 +459,6 @@ export const PICKUP = {
   bobHeight: 0.3,
   bobRate: 3,
   hover: 1.1,
-  health: 25,
   armor: 25,
   /** Reserve fraction per ammo pickup. */
   ammo: 0.25,
@@ -487,7 +503,7 @@ export const CACHE_ORDER: readonly WeaponId[] = (['judge', 'autocannon', 'lance'
   .filter(id => !(SLOT4_OLD && id === 'autocannon'));
 
 export const PICKUP_LOOK: Readonly<Record<PickupKind, { label: string; color: string }>> = {
-  health: { label: 'HEALTH', color: '#33ff66' },
+  health: { label: 'STIM', color: '#33ff66' },
   ammo: { label: 'AMMO', color: '#ffd400' },
   armor: { label: 'ARMOR', color: '#4aa8ff' },
   megaHealth: { label: 'MEGA HEALTH', color: '#00ff99' },

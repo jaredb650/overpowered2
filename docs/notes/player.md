@@ -27,6 +27,7 @@ import { createPlayer, createCameraRig, MOVE, VIEW, FEEDBACK } from '../player';
 - `moveAnim`: the body layer's pose for this frame (`MovePose` in contracts). CameraRig and the viewmodel rig read it. Nothing else should need to.
 - Motion: `launch(v)` replaces vertical speed and adds horizontal. `push(v)` adds on all axes. `teleport(p, yaw?)` clears motion.
 - Health: `takeDamage`, `heal(amount, overheal?)`, `addArmor`. Armor absorbs 2/3 of a hit; `true` and `hazard` damage skip it.
+  Health pickups are stims carried in `progression.stims`, injected on the stim key (Y): see Stims in `docs/notes/progression.md`.
 - `modifiers`: `speed`, `jump`, `damageTaken`, `invulnerable`, `infiniteDash`. `reset()` restores them in place.
 - `holdToHop`: off by default. On, holding Space hops on every landing. No menu writes it yet: see Known limitations.
 

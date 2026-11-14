@@ -179,6 +179,16 @@ export const player = [
     s.osc('sine', [[0, 880], [0.1, 1320]], 0.18).env(perc(0.15, 0.8, 0.002)).out();
     s.osc('sine', [[0, 1760], [0.1, 2640]], 0.14).env(perc(0.1, 0.25, 0.002)).out();
   }),
+  // Stim: the cap snapping off and the spring arming, then the gas charge driving the plunger home.
+  r('stim_click', { dur: 0.2, mix: 'player', over: { volume: 0.4 }, expect: { attackMs: [0, 8] } }, s => {
+    click(s, 3200, 0.8, 0.008);
+    s.at(0.07, () => clank(s, 2400, 0.35, 0.03));
+  }),
+  r('stim_hiss', { dur: 0.6, mix: 'player', over: { volume: 0.42 }, expect: { attackMs: [0, 12] } }, s => {
+    click(s, 1800, 0.9, 0.01);
+    thump(s, 160, 0.05, 0.4, 1.6);
+    s.noise('white', 0.55).bp([[0, 6000], [0.5, 3600]], 1.4).env(perc(0.5, 0.7, 0.004)).out();
+  }),
   r('low_health_warn', { dur: 0.7, mix: 'reward', over: { volume: 0.34 } }, s => {
     s.osc('square', 494, 0.16).lp(1800).env(swell(0.004, 0.15, 0.04, 0.6)).out();
     s.at(0.2, () => s.osc('square', 392, 0.26).lp(1800).env(swell(0.004, 0.25, 0.08, 0.6)).out());

@@ -1,6 +1,12 @@
-/** Health and armor. Bars are ingots: a slanted mask over plain scaled fills, so losing health is one transform. */
+/**
+ * Health, armor and stims. Bars are ingots: a slanted mask over plain scaled fills, so losing health is one transform.
+ * The stims sit on the line over the health bar: the key, one pip per stim carried, and a blinking INJECT when health is
+ * low and a stim is ready.
+ */
+import type { Ctx } from '../../core/contracts';
 import { clamp, damp } from '../../core/math';
-import { Flag, Meter, Num, Shown, div, span } from '../dom';
+import { STIM } from '../../progression/data';
+import { Flag, Label, Meter, Num, SLAM, Shown, div, span } from '../dom';
 import type { HudState } from '../state';
 
 const LOW = 0.35;
@@ -58,8 +64,15 @@ export class Vitals {
   private hitPunch = 0;
   private numEl: HTMLElement;
   private punchQ = -1;
+  private stimKey: Label;
+  private stimEl: HTMLElement;
+  private pips: Flag[];
+  private stimGo: Flag;
+  private stimEmpty: Flag;
+  private stimBusy: Flag;
+  private lastStims = -1;
 
-  constructor() {
+  constructor(private readonly ctx: Ctx) {
     const hpNum = span('vit-hp');
     const apNum = span('vit-ap');
     const overFill = div('bar-over');
@@ -67,11 +80,16 @@ export class Vitals {
     this.apBar = new Bar('bar-ap');
     const armorRow = div('vit-armor', apNum, this.apBar.el);
     const regen = span('vit-regen', 'regen');
+    const key = span('ci-key');
+    const pipEls = Array.from({ length: STIM.max }, () => span('st-pip'));
+    this.stimEl = div('vit-stim', key, div('st-pips', ...pipEls), span('st-go', 'inject'));
+    this.stimKey = new Label(key);
+    this.pips = pipEls.map(el => new Flag(el, 'on'));
     this.el = div('vitals',
       armorRow,
       div('vit-health',
         hpNum,
-        div('vit-col', div('vit-sub', regen), this.hpBar.el),
+        div('vit-col', div('vit-sub', this.stimEl, regen), this.hpBar.el),
       ),
     );
     this.numEl = hpNum;
@@ -82,6 +100,9 @@ export class Vitals {
     this.overheal = new Flag(this.el, 'overheal');
     this.regen = new Flag(this.el, 'regen');
     this.armored = new Shown(armorRow, 'flex');
+    this.stimGo = new Flag(this.el, 'stim-go');
+    this.stimEmpty = new Flag(this.stimEl, 'empty');
+    this.stimBusy = new Flag(this.stimEl, 'busy');
   }
 
   /** Called by the damage event so the number jolts on the frame of the hit. */
@@ -109,6 +130,14 @@ export class Vitals {
     else this.regenHold -= dt;
     this.regen.set(this.regenHold > 0 && frac < 1);
 
+    for (let i = 0; i < this.pips.length; i++) this.pips[i]!.set(i < s.stims);
+    if (this.lastStims >= 0 && s.stims > this.lastStims) this.stimEl.animate(SLAM as unknown as Keyframe[], 240);
+    this.lastStims = s.stims;
+    const busy = s.stimInjecting >= 0;
+    this.stimBusy.set(busy);
+    this.stimEmpty.set(s.stims <= 0);
+    this.stimGo.set(frac < LOW && s.stims > 0 && !busy && s.alive);
+
     if (this.hitPunch > 0.001) {
       this.hitPunch = damp(this.hitPunch, 0, 16, dt);
       this.punch(this.hitPunch < 0.01 ? 0 : this.hitPunch);
@@ -124,6 +153,11 @@ export class Vitals {
 
   reset(s: HudState): void {
     this.lastHealth = s.health;
+    this.lastStims = -1;
+    // Bindings can change in settings, so the key relabels on the way back into a run.
+    const input = this.ctx.input as unknown as { labelFor?: (a: string) => unknown };
+    const label = typeof input.labelFor === 'function' ? input.labelFor('stim') : '';
+    this.stimKey.set(typeof label === 'string' ? label : '');
     this.hpBar.reset(1);
     this.apBar.reset(0);
     this.hitPunch = 0;

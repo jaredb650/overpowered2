@@ -597,7 +597,7 @@ export type Action =
   | 'forward' | 'back' | 'left' | 'right' | 'jump' | 'dash' | 'slide' | 'fire' | 'aim' | 'reload'
   | 'melee' | 'grenade' | 'interact' | 'weaponNext' | 'weaponPrev' | 'weaponLast'
   | 'weapon1' | 'weapon2' | 'weapon3' | 'weapon4' | 'weapon5' | 'weapon6' | 'weapon7' | 'weapon8' | 'weapon9' | 'weapon0'
-  | 'streak' | 'callinWarthog' | 'callinDoorGunner' | 'callinChopper' | 'callinOrbital' | 'callinAc130' | 'callinBlackSun' | 'callinNuke' | 'sonar'
+  | 'streak' | 'callinWarthog' | 'callinDoorGunner' | 'callinChopper' | 'callinOrbital' | 'callinAc130' | 'callinBlackSun' | 'callinNuke' | 'sonar' | 'stim'
   | 'pause' | 'scoreboard' | 'debugFps' | 'debugOverlay';
 
 export interface InputSystem extends GameSystem {

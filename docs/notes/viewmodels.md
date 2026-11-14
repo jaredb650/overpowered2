@@ -7,7 +7,7 @@ First-person weapons, arms and off-hand items. `src/weapons/viewmodels/**`, sand
 | `rig.ts` | The frame: motion sampling, springs, the gun's pose layers, arm solve, light on the gun, wrist readout, `muzzle()`, `ejectPort()` |
 | `def.ts` | `ViewDef` (one per weapon), `Anim` (per-frame state a clip reads), `HandCtl` (where a hand wants to be) |
 | `arms.ts` | One skinned mesh per arm: sleeve, bracer, glove, 19 bones, two-bone IK |
-| `offhand.ts` | Left hand's own life: grenade, walkie, designator, sonar tap |
+| `offhand.ts` | Left hand's own life: grenade, walkie, designator, sonar tap, stim injection |
 | `legs.ts` | First-person legs for a slide and a vault: three rigid pieces a leg, posed by a two-bone solve |
 | `poses.ts`, `curves.ts`, `spring.ts` | Finger poses, timing curves, exact closed-form springs |
 | `kit/mesher.ts` | Procedural hard-surface builder. A part's whole surface is one buffer |
@@ -27,7 +27,7 @@ viewmodel.swing('light2', seconds);  // 'block' is an overlay on the guard, not 
 viewmodel.setCharge(0..1);           // Lance capacitors, the rotary cannon's spin, sword wind-up
 ```
 
-The `sonar:tap` event raises the left hand to the helmet. Its fingers land `SONAR.tapLead` later, when the ping goes out.
+The `sonar:tap` event raises the left hand to the helmet. Its fingers land `SONAR.tapLead` later, when the ping goes out. The `stim:inject` event plays the stim (`Offhand.updateStim`, model `buildStim` in `models/devices.ts`): the autoinjector comes up in a fist with its green dose window below the hand, the thumb flicks the red cap off, the fist swings to the lower-left corner toward the neck, shoves in at `STIM.injectAt` (needle out, dose goes dark) and drops away by `STIM.seconds`. It takes the hand from a sonar tap or a grenade.
 
 Inputs the rig polls rather than being told, all public state: `weapons.grenades` falling starts a cook and `input.isDown('grenade')` going false throws it. `progression.targeting` picks the device, and the `callin:used` event presses its key. `weapons.ammo(id)`, `weapons.reloading`. `perk:start` and `perk:end` for `hellfire`, `berserk`, `frostNova`.
 
