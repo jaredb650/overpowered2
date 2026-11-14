@@ -162,6 +162,9 @@ function shot(id: string, file: string, mix: MixClass, level: number, loud: numb
  * (0.23), the heavy single shots on top. A gun that fires fast sits a little under one that fires once.
  */
 const gunShots: SoundDef[] = [
+  // The first game's pump, cut out of its shotgun shot into its two strokes, so they land on the viewmodel's pump.
+  { ...sample('guns/pump_rack_back.mp3', 'foley', 0.16), id: 'pump_rack_back' },
+  { ...sample('guns/pump_rack_forward.mp3', 'foley', 0.16), id: 'pump_rack_forward' },
   shot('smg_shot', 'guns/smg_shot.mp3', 'gun', 0.143, 0.105),
   shot('pistol_shot', 'guns/pistol_shot.mp3', 'gun', 0.138, 0.145),
   shot('harrow_shot', 'guns/harrow_shot.mp3', 'gun', 0.165, 0.234, { send: 0.2 }),

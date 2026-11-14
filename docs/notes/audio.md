@@ -239,7 +239,9 @@ Each is set by how loud it lands, not by its file's level: `shot()` in the catal
 file's measured loudness. The ladder runs about 6 dB from the bottom to the top: `smg_shot` (SMG) and `pistol_shot`
 (Rivet) at the old SMG's level, `harrow_shot` (Harrow), `auto_shotgun_shot` (Thresher), `hmg_shot` (Piledriver),
 `pump_shotgun_shot` (shotgun) at the old shotgun's level, `revolver_shot` (Judge), `sabot_shot`, and `autocannon_blast`
-on top. The files were trimmed of dead air, mixed to mono and peak-normalised to -1 dB. The ids they replace on the guns
+on top. The pump shotgun racks between shots with `pump_rack_back` and `pump_rack_forward`, the two strokes cut out of
+the first game's `shotgun_fire`, played by `cycleFoley` at 0.14 s and 0.26 s after the shot to land on the viewmodel's
+pump. The files were trimmed of dead air, mixed to mono and peak-normalised to -1 dB. The ids they replace on the guns
 (`smg_fire`, `shotgun_fire`, `thresher_fire`, `harrow_fire`, `rivet_fire`, `revolver_fire`, `piledriver_fire`) stay in
 the catalog.
 

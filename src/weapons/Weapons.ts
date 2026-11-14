@@ -76,6 +76,10 @@ export class Weapons implements WeaponSystem, Guard {
   private reloadLeft = 0;
   private reloadTotal = 0;
   private reloadCue = 0;
+  /** Seconds since the last shot of a hand-cycled gun, and its next `cycleFoley` cue. Negative when nothing is due. */
+  private cycleAt = -1;
+  private cycleCue = 0;
+  private cycleGun: WeaponId | null = null;
   private autoReload = -1;
   /** Counts down to handing a dry gun over to the next loaded one. Negative when idle. */
   private drySwap = -1;
@@ -568,7 +572,20 @@ export class Weapons implements WeaponSystem, Guard {
     return true;
   }
 
+  private updateCycle(dt: number): void {
+    if (this.cycleAt < 0) return;
+    const cues = this.cycleGun === this.current ? WEAPONS[this.current].cycleFoley : undefined;
+    // Put away mid-cycle: the hand never finished the pump, so neither does the sound.
+    if (!cues || this.cycleCue >= cues.length) {
+      this.cycleAt = -1;
+      return;
+    }
+    this.cycleAt += dt;
+    while (this.cycleCue < cues.length && this.cycleAt >= cues[this.cycleCue]![0]) this.ctx.audio.play(cues[this.cycleCue++]![1]);
+  }
+
   private updateReload(dt: number): void {
+    this.updateCycle(dt);
     const { input } = this.ctx;
     if (this.reloading) {
       // A bottomless mag makes the wait pointless. The first game made you sit through it.
@@ -952,6 +969,11 @@ export class Weapons implements WeaponSystem, Guard {
     const at = this.muzzle(left, barrel);
     c.fx.muzzleFlash(this.flashPoint(at), this.flashDir.set(0, 0, -1).applyQuaternion(c.render.camera.quaternion), def.muzzle);
     this.layerSounds(def.sounds);
+    if (def.cycleFoley) {
+      this.cycleAt = 0;
+      this.cycleCue = 0;
+      this.cycleGun = def.id;
+    }
     c.viewmodel.fire(def.recoil * strength, left);
     if (def.kick > 0) {
       const side = left ? -1 : 1;

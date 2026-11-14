@@ -489,3 +489,24 @@ describe('the Commander', () => {
     expect(spoken(line, { weapon: 'rocket' }, 'weapon').clip).toBe('cmd.weapon.smug.others~rocket');
   });
 });
+
+describe('the pump shotgun', () => {
+  it('racks after each shot, back then forward, while the pump moves', () => {
+    r.wall(-30, 1);
+    r.weapons.give('shotgun');
+    r.weapons.switchTo('shotgun');
+    r.run(0.6);
+    expect(r.weapons.current).toBe('shotgun');
+    r.record.sounds.length = 0;
+    r.input.simulate('fire', true);
+    r.run(1 / 60);
+    r.input.simulate('fire', false);
+    r.run(0.1);
+    expect(r.record.sounds).toContain('pump_shotgun_shot');
+    expect(r.record.sounds).not.toContain('pump_rack_back');
+    r.run(0.25);
+    const back = r.record.sounds.indexOf('pump_rack_back');
+    expect(back).toBeGreaterThan(-1);
+    expect(r.record.sounds.indexOf('pump_rack_forward')).toBeGreaterThan(back);
+  });
+});

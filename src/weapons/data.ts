@@ -97,6 +97,8 @@ export interface WeaponDef {
   casing: CasingKind | null;
   sounds: readonly SoundLayer[];
   reloadFoley: readonly ReloadCue[];
+  /** Sounds after each shot, at seconds after it, for a gun that is cycled by hand between shots. */
+  cycleFoley?: readonly ReloadCue[];
   drawSound: string;
   /** Viewmodel recoil strength passed to viewmodel.fire. */
   recoil: number;
@@ -168,6 +170,8 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     interval: 0.3, damage: 20, pellets: 6, spread: 0.05, severMult: 2.4, force: 18,
     muzzle: 'shotgun', tracer: 'bullet', casing: 'shotgun',
     sounds: [{ id: 'pump_shotgun_shot', pitchJitter: 0.04 }],
+    // On the viewmodel's pump (shotgun.ts clip): back by 0.15 s after the shot, home again by 0.27 s.
+    cycleFoley: [[0.14, 'pump_rack_back'], [0.26, 'pump_rack_forward']],
     reloadFoley: [[0.1, 'reload_shell_in'], [0.32, 'reload_shell_in'], [0.54, 'reload_shell_in'], [0.86, 'reload_pump']],
     recoil: 1, kick: 0.014, shake: 0.02, fovPunch: 1.6,
   },
