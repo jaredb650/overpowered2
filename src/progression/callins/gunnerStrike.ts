@@ -131,6 +131,8 @@ export abstract class GunnerStrike<M extends string> implements Aircraft {
     // Last, after the guns: the flares are the bottom line of the panel.
     this.seat.weapons.push(this.flareRow);
     if (this.ai) {
+      // A mission's crewed flight says its own words.
+      if (this.scripted) return;
       this.radio.say('INBOUND. WE HAVE THE GUN.');
       this.kit.ctx.hud.banner(this.plan.callsign, 'CREW ON THE GUN', this.plan.color);
       return;

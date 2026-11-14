@@ -31,12 +31,13 @@ const FIRST_WORDS_AT = 3.5;
 const RADIO_SETTLE = 0.5;
 
 const BOSS_NAME = 'The Commander';
-const NAMES: Record<Speaker, string> = { commander: 'The Commander', council: 'The Council', intercept: 'Intercepted transmission', radio: 'Radio' };
+const NAMES: Record<Speaker, string> = { commander: 'The Commander', council: 'The Council', intercept: 'Intercepted transmission', radio: 'Radio', harbourmaster: 'The Harbourmaster' };
 const TAGS: Record<Speaker, string> = {
   commander: 'Outpost command / open channel',
   council: 'Office of Societal Compliance',
   intercept: 'Outpost command to all units',
   radio: '',
+  harbourmaster: 'Holdfast port address',
 };
 const TONES: ReadonlySet<string> = new Set<Tone>(['smug', 'irritated', 'rattled', 'cracked']);
 const CHIPS: readonly [StatusFlag, string][] = [['painted', 'PAINTED'], ['jammed', 'SONAR JAMMED'], ['uplink', 'UPLINK JAMMED'], ['aaLock', 'AA LOCK']];

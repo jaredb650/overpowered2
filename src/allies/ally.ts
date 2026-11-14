@@ -48,6 +48,8 @@ export class Ally implements Vitals, Foe {
   order: Order = 'post';
   /** The mounted gun at his post, if it has one. He mans it while he holds the post and the player is not at it. */
   mount: AllyMount | null = null;
+  /** Another squad's man, fighting his own battle (a mission's `battle`): a held E is not his order. A tap still reaches him. */
+  detached = false;
   /** On the gun now: `mount.occupant` is him. */
   manning = false;
 
@@ -108,6 +110,7 @@ export class Ally implements Vitals, Foe {
     this.postYaw = Number.NaN;
     this.order = 'post';
     this.mount = null;
+    this.detached = false;
     this.manning = false;
     this.target = null;
     this.hasArmour = false;

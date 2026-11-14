@@ -14,7 +14,8 @@ import { SLOT8_OLD } from '../../weapons/data';
 import { CALLSIGNS } from '../outpost/doctrine';
 import { ADAPTATIONS, TRICKS, type AdaptationId, type Tone, type TrickId } from './adaptations';
 
-export type Speaker = 'commander' | 'council' | 'intercept' | 'radio';
+/** `harbourmaster`: Holdfast's, over the port's loudspeakers (Foreclosure). */
+export type Speaker = 'commander' | 'council' | 'intercept' | 'radio' | 'harbourmaster';
 /** The arc's four, plus what the others sound like. */
 export type Emotion = Tone | 'orders' | 'deadpan' | 'urgent' | 'hushed';
 

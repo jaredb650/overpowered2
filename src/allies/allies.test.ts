@@ -341,6 +341,21 @@ describe('orders and revive', () => {
     expect(a.state).toBe('down');
   });
 
+  it('a held E orders the player\'s own men and leaves another squad\'s to their battle', () => {
+    const ctx = fakeCtx();
+    const sys = new AllySystem(ctx as unknown as Ctx);
+    const own = stand(sys, v(0, 0, -3), ctx);
+    const theirs = stand(sys, v(4, 0, -3), ctx);
+    theirs.detached = true;
+    sys.toggleSquad();
+    expect(own.order).toBe('follow');
+    expect(theirs.order).toBe('post');
+    sys.toggleSquad();
+    expect(own.order).toBe('post');
+    sys.dismiss(theirs);
+    expect(sys.allies).toEqual([own]);
+  });
+
   it('a dead ally cannot be revived', () => {
     const ctx = fakeCtx();
     const sys = new AllySystem(ctx as unknown as Ctx);

@@ -23,6 +23,7 @@ const WHO: Record<Speaker, readonly [name: string, tag: string]> = {
   council: ['The Council', 'Office of Societal Compliance'],
   intercept: ['Intercepted transmission', 'Outpost command to all units'],
   radio: ['Packmule', 'Your ride'],
+  harbourmaster: ['The Harbourmaster', 'Holdfast port address'],
 };
 
 const TONES: ReadonlySet<string> = new Set(['smug', 'irritated', 'rattled', 'cracked']);

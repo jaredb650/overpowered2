@@ -238,9 +238,17 @@ export type Occupant = object;
  */
 export const gunSource = (occupant: 'player' | Occupant | null): string => (occupant === 'player' || occupant === null ? 'emplacement' : 'ally_emplacement');
 
+/**
+ * The enemy on a gun (a mission's wall gunner): his rounds are enemy rounds, which only the player meets, at a man's share of the damage
+ * and wider, because a gun that shot the player as the player shoots it would end every run on the first burst.
+ */
+export const HOSTILE_GUN = { source: 'enemy_emplacement', damage: 6, spread: 4 } as const;
+
 export class Emplacement {
   /** Who is on the gun: 'player' through the seat, an AI by `occupy`, or nobody. */
   occupant: 'player' | Occupant | null = null;
+  /** The man on it is the enemy's. */
+  hostile = false;
   level: MountLevel;
   readonly heat: Heat;
   /** Where the gun turns. */
@@ -336,16 +344,18 @@ export class Emplacement {
 
   // ---- an AI on the gun ---------------------------------------------------------------------------------------
 
-  /** Takes the gun for `who`. False if someone is already on it. */
-  occupy(who: Occupant): boolean {
+  /** Takes the gun for `who`. False if someone is already on it. `hostile`: he is the enemy's (HOSTILE_GUN). */
+  occupy(who: Occupant, hostile = false): boolean {
     if (this.occupant) return false;
     this.occupant = who;
+    this.hostile = hostile;
     return true;
   }
 
   vacate(who: Occupant): void {
     if (this.occupant !== who) return;
     this.occupant = null;
+    this.hostile = false;
     this.aimPoint = null;
     this.held = false;
     this.silence();
@@ -381,6 +391,7 @@ export class Emplacement {
     this.seat?.leave(true);
     this.seat = null;
     this.occupant = null;
+    this.hostile = false;
     this.aimPoint = null;
     this.held = false;
     this.heat.value = 0;
@@ -485,16 +496,18 @@ export class Emplacement {
     gun.bore(_bore);
     if (target) _to.subVectors(target, _muzzle).normalize();
     else _to.copy(_bore);
-    randomInCone(_to, L.spread, _dir);
+    const hostile = this.hostile && this.occupant !== 'player';
+    randomInCone(_to, hostile ? L.spread * HOSTILE_GUN.spread : L.spread, _dir);
     this.fired++;
-    shotSpec.damage = L.damage;
+    shotSpec.team = hostile ? 'enemy' : 'player';
+    shotSpec.damage = hostile ? HOSTILE_GUN.damage : L.damage;
     shotSpec.severMult = L.severMult;
     shotSpec.force = L.force;
     shotSpec.penetrate = L.penetrate;
     shotSpec.bodyCost = L.bodyCost;
     shotSpec.impactScale = L.impactScale;
     shotSpec.tracer = this.fired % L.tracerEvery === 0 ? 'heavy' : undefined;
-    shotSpec.source = gunSource(this.occupant);
+    shotSpec.source = hostile ? HOSTILE_GUN.source : gunSource(this.occupant);
     combat.fireRay(_muzzle, _dir, shotSpec);
     if (this.fired % L.flashEvery === 0) fx.muzzleFlash(_muzzle, _bore, L.flash);
     if (this.fired % 2 === 0) {

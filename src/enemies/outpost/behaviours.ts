@@ -145,6 +145,8 @@ const hold: Behaviour = {
       return;
     }
     if (s.sees) s.aim.copy(w.player.chest);
+    // Out of the player's sight with a Bailiff in his: he peeks toward the man he is shooting, not the lane the player was last seen on.
+    else if (s.foe?.alive) s.aim.copy(s.foe.center);
     else q.fireOnLane(s, s.aim, now);
     s.suppressing = q.firesBlind(now);
     e.face = s.sees ? 'player' : 'lock';

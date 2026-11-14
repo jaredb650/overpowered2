@@ -343,12 +343,12 @@ export class AllySystem implements GameSystem {
     this.ctx.audio.play('ui_confirm', { volume: 0.6 });
   }
 
-  /** Anyone still on his post: everyone follows. Everyone already following: back to posts. */
+  /** Anyone of the player's own still on his post: they all follow. All already following: back to posts. Detached men are left to their fight. */
   toggleSquad(): void {
     let posted = false;
-    for (const a of this.allies) if (a.state === 'up' && a.order === 'post') posted = true;
+    for (const a of this.allies) if (!a.detached && a.state === 'up' && a.order === 'post') posted = true;
     const order: Order = posted ? 'follow' : 'post';
-    for (const a of this.allies) this.setOrder(a, order);
+    for (const a of this.allies) if (!a.detached) this.setOrder(a, order);
     this.ctx.hud.feed(order === 'follow' ? 'SQUAD: ON ME' : 'SQUAD: BACK TO POSTS', ALLY_TEXT);
     this.ctx.audio.play('ui_confirm', { volume: 0.8 });
   }
@@ -1134,6 +1134,12 @@ export class AllySystem implements GameSystem {
     ctx.gore.ragdoll(a.body.char, { velocity: _b });
     ctx.events.emit('ally:dead', { ally: a });
     this.release(a, false);
+  }
+
+  /** Takes a man off unseen, body and all: the fight has moved on without him. */
+  dismiss(a: Ally): void {
+    const i = this.allies.indexOf(a);
+    if (i >= 0) this.release(a, true);
   }
 
   /** Off the roster. `keepBody` false: gore owns the body now. */

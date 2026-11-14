@@ -498,7 +498,7 @@ export interface ProgressionSystem extends GameSystem {
   grant(id: PerkId | PowerupId): void;
   grantCallIn(id: CallInId): void;
   /** Straight into a gunner's seat, with no key and nothing earned. */
-  boardCallIn(id: CallInId): void;
+  boardCallIn(id: CallInId, over?: THREE.Vector3): void;
   /** Into the Packmule's door on a fixed flight, with no way out and no clock. A mission's insertion. */
   boardFlight(flight: Flight): void;
   /** Points for something that is not a kill: a vehicle, say. */

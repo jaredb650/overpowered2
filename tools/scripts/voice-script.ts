@@ -13,7 +13,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { OUTPOST_LINES } from '../../src/campaign/missions/outpost.lines';
 import { COUNT_BANDS, DIR_WORDS, LINES, NAMES, ROOM_WORDS, SIDE_WORDS, slotsOf, SQUAD_WORDS, textOnly, topicOf, WEAPON_WORDS, type Line, type Speaker } from '../../src/enemies/commander/lines';
 
-const VOICE: Record<Speaker, string> = { commander: 'the void', intercept: 'the void', council: 'shodan', radio: 'radio crew' };
+const VOICE: Record<Speaker, string> = { commander: 'the void', intercept: 'the void', council: 'shodan', radio: 'radio crew', harbourmaster: 'the harbourmaster' };
 
 /** Section 19: the Commander's tag is [EVIL] plus the line's own emotion. */
 const tag = (l: Line): string => (l.speaker === 'commander' || l.speaker === 'intercept' ? `[EVIL][${l.emotion}]` : `[${l.emotion}]`);

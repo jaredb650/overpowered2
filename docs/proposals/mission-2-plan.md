@@ -438,7 +438,7 @@ The Sump plan's section 3 holds, with these changes.
 | 6 | The mission's plumbing (**built**, `docs/campaign/FORECLOSURE.md`) | Sixteen empty beats that run, the contract row (locked), the dev panel's Mission section, steps for the Frame, the roster and holding call-ins | M | none | Opus, high | 0.4 to 0.6M |
 | 7 | Holdfast (**built**, `docs/notes/holdfast.md`) | The map, its parkour lessons measured as `parkour.ts` does, mech widths proved | L | none | Opus, high | 1.0 to 1.5M |
 | 8 | Old Mother | The boss, all three phases, on the range then the pans | L | 3, 5, 7 | Opus, xhigh | 1.0 to 1.5M |
-| 9 | Beats 1 to 6 | Briefing to courier, with enemy gunners on the wall guns | M to L | 1, 6, 7 | Opus, high | 0.6 to 1.0M |
+| 9 | Beats 1 to 6 (**built**, `docs/campaign/FORECLOSURE.md`) | Briefing to courier, with enemy gunners on the wall guns | M to L | 1, 6, 7 | Opus, high | 0.6 to 1.0M |
 | 10 | Beats 7 to 10 | Stacks to mount: the hard stretch, the hold, getting in | M | 4, 9 | Opus, high | 0.5 to 0.8M |
 | 11 | Beats 11 to 16, and the whole | Foreclosure to ending, the flak tower, the menu entry, `docs/campaign/FORECLOSURE.md`, the voice script, a pacing pass | L | 5, 8, 10; 2 before it is called done | Opus, high | 0.8 to 1.2M |
 
@@ -505,6 +505,12 @@ size of the Outpost.
   2:30 to 3:30; every attack warns for 1 s or more; the deck is a floor once stopped, with no fall-through in 100 slams.
 - **9 to 11.** The beats, as the Outpost's were built: rows, places, lines, a bot that plays from any beat. 11 adds the menu tab (locked
   until the Outpost is beaten, open on the dev server), the ending, the doc and a test that the doc says what the game says.
+  **9 built 2026-11-14.** The overwatch is a fight from the first second, the gunship centred on the LZ: men in the open, roof guns
+  manned, both technicals, the trench, the fuel farm, two rocketeers hunting it (three launches, three flares in the bot's runs). The
+  Flats with the revive taught on a sniped man, the wall with enemy-manned wall guns and the breaching charge or the gate, the market
+  with a Bailiff lost and prisoners, the courier shot down by the flak tower into the Slip. The war (`src/campaign/war.ts`): a battle
+  beside the player in every beat, held on its ground, counter-attacked, with both sides' call-outs on the feed. Hold E orders only the
+  player's own. The Harbourmaster has her own speaker. Defense's notice is now 7742-G. Over budget at peaks on draws (see the doc).
 
 ## 9. Open questions for the owner
 

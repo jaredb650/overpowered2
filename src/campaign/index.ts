@@ -15,6 +15,7 @@
 import type { Ctx } from '../core/contracts';
 import type { EnemyInstance } from '../core/gameplay';
 import { recordCampaignBeaten } from '../contracts/unlocks';
+import { GoreTuning } from '../gore';
 import type { CampaignSystem, MissionResult } from './events';
 import './events';
 import { GameHost } from './host';
@@ -66,7 +67,7 @@ class Campaign implements CampaignSystem {
     if (!mission) throw new Error(`no mission ${id}`);
     for (const problem of validateMission(mission)) console.warn(`[campaign] ${mission.id}: ${problem}`);
     this.ui = new CampaignHud(ctx);
-    this.host = new GameHost(ctx, this.ui);
+    this.host = new GameHost(ctx, this.ui, mission.calls, mission.fronts);
     this.runner = new MissionRunner(mission, this.host);
     this.host.runner = this.runner;
     // A mission with Bailiffs in it (Foreclosure) loads their bodies now; on a cold load its first squad would land in enemy bodies.
@@ -148,6 +149,9 @@ class Campaign implements CampaignSystem {
     this.opening = null;
     this.host.clear();
     this.ui.reset();
+    // shortcut: a mission's corpse cap under the gore setting's, applied each run; a settings change mid-run lifts it until the next.
+    const { corpses } = this.runner.mission;
+    if (corpses !== undefined) GoreTuning.maxCorpses = Math.min(GoreTuning.maxCorpses, corpses);
     if (redeploying) {
       const { score, kills, headshots } = this.banked!;
       this.ctx.progression.resume(score, kills, headshots);

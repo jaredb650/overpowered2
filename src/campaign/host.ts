@@ -14,12 +14,15 @@ import type { EnemyManager } from '../enemies/EnemyManager';
 import { MAX_HOSTILE } from '../enemies/outpost/doctrine';
 import type { ActionId } from '../enemies/outpost/planner';
 import type { OutpostSquad } from '../enemies/outpost/squad';
+import type { Emplacement } from '../vehicles/emplacement';
+import { Courier } from './courier';
 import { CutscenePlayer } from './cutscene';
 import { Doors } from './doors';
 import type { CampaignHud } from './hud';
 import { Racks } from './racks';
 import type { MissionRunner } from './runner';
-import type { BattleOrder, Cutscene, DoorDef, FrameAct, Loadout, Mark, MissionHost, ObjectiveState, SquadOrder, SquadOrders } from './types';
+import type { BattleOrder, Callout, Cutscene, DoorDef, FrameAct, Loadout, Mark, MissionHost, ObjectiveState, SquadOrder, SquadOrders } from './types';
+import { War } from './war';
 
 /** Seconds between men coming on, the same walk-in the waves use. */
 const MAN_GAP = 0.55;
@@ -40,6 +43,8 @@ const DRILL_SECONDS = 14;
 const DEPLOY_GRACE = 2.5;
 /** Spots across a pane that go at once, so a wide one comes down as a sheet rather than as one hole. */
 const PANE_BURSTS = 5;
+/** A sniper's round into one of the player's own men (`wound`, `lose`): from this high over a mark, and what it does. */
+const SNIPED = { height: 3.5, wound: 1, kill: 3 } as const;
 /** Towards the player, who is on the Stack's side of it. */
 const THROUGH_GLASS = new THREE.Vector3(0, 0, 1);
 
@@ -58,6 +63,8 @@ export class GameHost implements MissionHost {
   readonly doors: Doors;
   readonly racks: Racks;
   readonly film: CutscenePlayer;
+  readonly war: War;
+  readonly courier: Courier;
   runner!: MissionRunner;
 
   private readonly tagOf = new Map<number, string>();
@@ -71,13 +78,20 @@ export class GameHost implements MissionHost {
   private rideDone: (() => void) | null = null;
   private level = 1;
   /** The player's Bailiffs, and each battle's. A man leaves these lists as he dies, before the pool can hand him out again. */
-  private readonly squadMen: Ally[] = [];
+  readonly squadMen: Ally[] = [];
   private readonly battles = new Map<string, Ally[]>();
 
-  constructor(private readonly ctx: Ctx, private readonly ui: CampaignHud) {
+  constructor(private readonly ctx: Ctx, private readonly ui: CampaignHud, calls: readonly Callout[] = [], fronts: Readonly<Record<string, { name: string; place: string }>> = {}) {
     this.doors = new Doors(ctx);
     this.racks = new Racks(ctx);
     this.film = new CutscenePlayer(ctx, ui);
+    this.war = new War(ctx, {
+      tagOf: uid => this.tagOf.get(uid),
+      squadMen: this.squadMen,
+      release: tag => this.release(tag),
+      signal: name => this.runner.signal(name),
+    }, calls, fronts);
+    this.courier = new Courier(ctx, name => this.runner.signal(name));
     const { events } = ctx;
     events.on('enemy:spawned', e => {
       if (this.tagging) this.tagOf.set(e.enemy.uid, this.tagging);
@@ -308,10 +322,11 @@ export class GameHost implements MissionHost {
     });
   }
 
-  /** shortcut: the gunship circles where the crosshair falls from the mark, not the mark itself; give `boardCallIn` a point when a beat needs it exact. */
+  /** The gunship's circle is centred on the mark itself (`boardCallIn` with a point), not on wherever the crosshair falls from it. */
   sortie(over: Mark, done: () => void): void {
     this.place(over);
-    this.ride('ac130', [], done);
+    this.rideDone = done;
+    this.ctx.progression.boardCallIn('ac130', _v.set(...over.at));
   }
 
   /** The Frame is stage 3's (src/frame), which provides this. Until it lands, a banner says what would happen and the beat goes on. */
@@ -339,22 +354,45 @@ export class GameHost implements MissionHost {
     (this.ctx.progression as unknown as { holdCallIns(held: boolean): void }).holdCallIns(held);
   }
 
+  /** The Bureau's side posted and detached from the player's orders, the militia's held on their ground by the war (war.ts). */
   battle(order: BattleOrder, at: Mark, from: Mark): void {
     const facing = Math.atan2(from.at[0] - at.at[0], from.at[2] - at.at[2]);
     const men = this.ctx.allies?.spawnSquad(order.bailiffs.length, new THREE.Vector3(...at.at), facing, 4, order.bailiffs) ?? [];
     this.battles.set(order.id, men);
+    this.war.front(order.id, at, from, men);
     this.squad({ do: 'squad', tag: order.id, men: order.militia, at: order.from, orders: 'hold' }, from);
   }
 
   stop(battle: string): void {
     for (const a of this.battles.get(battle) ?? []) this.dismiss(a);
     this.battles.delete(battle);
+    this.war.end(battle);
     this.sweep(battle);
   }
 
-  /** shortcut: reaches AllySystem's private `release`, the one way a man leaves unseen; ask src/allies for a public one when it is free. */
   private dismiss(a: Ally): void {
-    (this.ctx.allies as unknown as { release(a: Ally, withBody: boolean): void }).release(a, true);
+    this.ctx.allies?.dismiss(a);
+  }
+
+  /** A sniper's round into the player's man of this type (or the last man up), from over `from`: `wound` puts him down, `lose` kills him. */
+  private snipe(type: string, from: string, kill: boolean): void {
+    const allies = this.ctx.allies;
+    const up = this.squadMen.filter(a => a.state === 'up');
+    const a = up.find(m => m.type === type) ?? up[up.length - 1];
+    const mark = this.runner.mission.marks[from];
+    if (!allies || !a || !mark) return;
+    const shooter = new THREE.Vector3(mark.at[0], mark.at[1] + SNIPED.height, mark.at[2]);
+    const dir = a.body.center.clone().sub(shooter).normalize();
+    this.ctx.fx.tracer(shooter, a.body.center, 'sabot');
+    this.ctx.audio.play('sniper_fire', { position: shooter, volume: 1 });
+    // Just enough to put him down, or plenty: the wound table decides how he falls, `takeHit` whether he gets up.
+    const amount = kill ? a.maxHealth * SNIPED.kill : a.health * SNIPED.wound;
+    allies.hurt(a, amount, a.body.center, dir, undefined, 'chest', 'bullet', 'sniper');
+  }
+
+  private gun(index: number): Emplacement | undefined {
+    const p = this.ctx.progression as unknown as { callInsManager?: { emplacements?: { all: readonly Emplacement[] } } };
+    return p.callInsManager?.emplacements?.all[index];
   }
 
   adapt(): void {
@@ -408,6 +446,36 @@ export class GameHost implements MissionHost {
       case 'commanderToRoof':
         if (arg) this.manager.outpost?.commander.person.fallBack(new THREE.Vector3(...this.runner.mission.marks[arg]!.at));
         return;
+      // Foreclosure's war (war.ts, courier.ts). `crew` is `tag:gun`, a tag's man on the map's mounted gun of that index.
+      case 'crew': {
+        const [tag, index] = (arg ?? '').split(':');
+        const gun = this.gun(Number(index));
+        if (tag && gun) this.war.crew(gun, tag);
+        return;
+      }
+      case 'charge':
+        if (arg) this.war.breach(this.runner.mission.marks[arg]!);
+        return;
+      // Marks, comma separated: the wall or gate by any of them going raises `war:breached`.
+      case 'watch':
+        this.war.watch((arg ?? '').split(',').map(m => this.runner.mission.marks[m]!).filter(Boolean));
+        return;
+      // `type@mark`: one of the player's own is shot from over the mark.
+      case 'wound':
+      case 'lose': {
+        const [type, from] = (arg ?? '').split('@');
+        this.snipe(type ?? '', from ?? '', name === 'lose');
+        return;
+      }
+      // The mission's `courier` route, shot at from its `flak` route, down onto the `arg` mark.
+      case 'courier': {
+        const { marks, routes } = this.runner.mission;
+        this.courier.fly(routes.courier!.map(m => marks[m]!), (routes.flak ?? []).map(m => marks[m]!), marks[arg!]!);
+        return;
+      }
+      case 'wreck':
+        if (arg) this.courier.burn(this.runner.mission.marks[arg]!);
+        return;
       default:
         console.warn(`[campaign] nothing provides the call "${name}"`);
     }
@@ -443,6 +511,8 @@ export class GameHost implements MissionHost {
     this.doors.update(dt);
     this.racks.update(dt);
     this.film.update(this.ctx.time.realDt);
+    this.war.update(dt);
+    this.courier.update(dt);
     if (this.rideDone && !this.ctx.player.parked) {
       const done = this.rideDone;
       this.rideDone = null;
@@ -466,5 +536,7 @@ export class GameHost implements MissionHost {
     this.markers.clear();
     this.racks.reset();
     this.film.reset();
+    this.war.clear();
+    this.courier.clear();
   }
 }

@@ -29,7 +29,8 @@ a squad fight. `allies-live` is everything in one run, plus the frame cost of ei
 const allies = ctx.allies;                       // AllySystem
 allies.spawn('rifleman', at, post?, radius?, yaw?);
 allies.spawnSquad(count, center, yaw, ahead?, types?);
-allies.setOrder(a, 'follow' | 'post'); allies.toggle(a); allies.toggleSquad();
+allies.setOrder(a, 'follow' | 'post'); allies.toggle(a); allies.toggleSquad();   // the hold: every man not `detached`
+allies.dismiss(a);                               // off the map unseen, body and all
 allies.markBreach(point, yawOut); allies.clearBreach();
 a.mount = gun;                                   // an AllyMount (a mounted gun): he mans it while he holds his post
 allies.keyTaken = () => boolean;                 // another use of a held E is on offer: the squad hold stands down
@@ -148,7 +149,8 @@ that best lies between; he waits there for it to rise, then goes on.
 ## Orders
 
 Look at a man within 3.6 m and **tap E**: he follows, or goes back to his post. **Hold E** (0.55 s), on a man or with any ally within
-60 m: if anyone is on his post the whole squad follows, otherwise all go back. **Hold E on a downed man** (1.1 s): a stim. Followers take a
+60 m: if anyone is on his post the whole squad follows, otherwise all go back. The squad is the player's own: a man marked
+`detached` (another squad's, in a mission's `battle`) is left to his fight by the hold, though a tap still reaches him. **Hold E on a downed man** (1.1 s): a stim. Followers take a
 fan behind the player 4 to 8 m back, run past 12 m off, and take cover within 7 m of their slot when they see something.
 
 E is shared. A prisoner in reach and in view keeps it. With `keyTaken` saying yes (a wall to board up) and nobody in front, the hold is not
@@ -181,8 +183,8 @@ drawn. `ui/hud/minimap.ts` reads `ctx.allies.allies` directly.
 - **By value, a Bailiff stands apart from the Trooper, Sniper, Rocketeer and Warden at 25 m, not from the Gunner, Brute and Riot**, who are
   as dark (`tools/out/bureau/sheet-full.png`, chest values in grey 40 to 45 against 35 to 41 for those three). Against them it is the red
   slit and stripe, the beacon and the aerial. Stage 2's colourful militia is the plan's answer.
-- **A man spawned before the Bailiffs load wears the enemy's body** for the rest of his life. Pages with allies preload; the campaign host
-  (Foreclosure's `roster` and `battle`) does not yet, so its first squad may stand in enemy bodies on a cold load.
+- **A man spawned before the Bailiffs load wears the enemy's body** for the rest of his life. Pages with allies preload, the campaign
+  included (a mission with `roster` or `battle` steps, `campaign/index.ts`).
 
 - **Nobody has played it.** Balance is bots and two fights. With the head rule a squad of eight beats seven enemies without a scratch.
 - **Swarm enemies ignore allies.** Husks and the swarm's guns only ever choose the player. The plan's `prey` behaviour is not built.

@@ -209,7 +209,7 @@ export const CONTRACTS: readonly ContractDef[] = [
     locked: true,
     economy: true,
     briefing: {
-      ref: 'Form 7742-F',
+      ref: 'Form 7742-G',
       subject: 'Every human force advancing on the fort, now and in future',
       body: [
         'The fort is Council property. The humans outside dispute this, in waves. You are contracted to hold it until they stop, which on current projections they will not.',

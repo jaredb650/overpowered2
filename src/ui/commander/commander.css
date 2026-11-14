@@ -46,6 +46,11 @@
 .cmd-box.intercept .cmd-text { color: var(--amber); font-size: 1.14rem; font-weight: 500; }
 .cmd-box.intercept .cmd-name { color: #000; background: var(--amber); padding: 0.12rem 0.5rem 0.04rem; }
 
+/* Holdfast's own voice: the port's address system, warm and painted. */
+.cmd-box.harbourmaster { --accent: #f2c12e; background: #1d0f1e; }
+.cmd-box.harbourmaster .cmd-text { color: #ffe9c4; font-weight: 400; }
+.cmd-box.harbourmaster .cmd-name { color: #1d0f1e; background: #f2c12e; padding: 0.12rem 0.5rem 0.04rem; }
+
 /* What the box does as the Commander comes apart. */
 .cmd-box.commander.rattled .cmd-text { color: #f5e6c8; }
 .cmd-box.commander.cracked { --accent: var(--blood); }

@@ -163,8 +163,8 @@ class Progression implements ProgressionSystem {
     this.callInsManager.grant(id);
   }
 
-  boardCallIn(id: CallInId): void {
-    this.callInsManager.board(id);
+  boardCallIn(id: CallInId, over?: THREE.Vector3): void {
+    this.callInsManager.board(id, false, over);
   }
 
   boardFlight(flight: Flight): void {
@@ -174,6 +174,11 @@ class Progression implements ProgressionSystem {
   /** The Distraint Frame (src/frame/seat.ts): `frame.board(feet, yaw)` puts the player in a fresh one. Not on ProgressionSystem either. */
   get frame(): Frame {
     return this.callInsManager.frame;
+  }
+
+  /** A mission's courier: the Packmule on a fixed flight, crewed, nobody in the seat. Not on ProgressionSystem: only the campaign host asks. */
+  flyFlight(flight: Flight): { down(): void; readonly position: THREE.Vector3 } {
+    return this.callInsManager.flyFlight(flight);
   }
 
   /** A mission's flak shuts the sky (campaign `callins` step). Not on ProgressionSystem: only the campaign host asks. */

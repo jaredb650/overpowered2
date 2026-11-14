@@ -1,7 +1,8 @@
 /**
  * Who is talking, drawn on a small canvas and shown big, so it reads as a bad video link from a man in a bunker. It is the only face
  * the player ever gets for the Commander, and it has to carry the arc on its own: section 18's smug, irritated, rattled and cracked
- * are four different men by the end. The Council gets a seal, because it does not have a face. The intercept gets a signal.
+ * are four different men by the end. The Council gets a seal, because it does not have a face. The intercept gets a signal. The
+ * Harbourmaster gets the port's loudspeaker on its pole, because that is all anyone in Holdfast ever sees of her either.
  *
  * Plain canvas shapes at 96 pixels, so nothing is loaded and nothing costs anything while nobody is speaking.
  */
@@ -66,6 +67,7 @@ export class Portrait {
       this.commander(talking);
       g.restore();
     } else if (this.speaker === 'council') this.seal(talking);
+    else if (this.speaker === 'harbourmaster') this.horn(talking);
     else this.signal();
     this.scan();
     g.globalAlpha = 1;
@@ -245,6 +247,43 @@ export class Portrait {
     this.rect(30, 70, 36, 2, ring);
     this.rect(35, 74, 26, 2, ring);
     this.rect(40, 78, 16, 2, ring);
+  }
+
+  /** Holdfast's loudspeaker on its pole against a painted wall, under bunting, rings coming off it while she talks. */
+  private horn(talking: boolean): void {
+    const f = this.frame;
+    this.rect(0, 0, SIZE, SIZE, '#3a1a3c');
+    // A painted wall in bands, the town's colours.
+    this.rect(0, 62, SIZE, 34, '#1f6f78');
+    this.rect(0, 58, SIZE, 4, '#e0a020');
+    // Bunting across the top.
+    const flags = ['#e83e8c', '#f2c12e', '#27b5c9', '#f07b2a'];
+    this.line('#c8b89a', 1, 0, 10, 96, 16);
+    for (let i = 0; i < 8; i++) this.poly(flags[i % 4]!, 4 + i * 12, 10 + i * 0.75, 12 + i * 12, 11 + i * 0.75, 8 + i * 12, 19 + i * 0.75);
+    // The pole and its bracket.
+    this.rect(24, 34, 4, 62, '#5a5148');
+    this.rect(24, 44, 18, 3, '#5a5148');
+    // The horn: a flared trumpet pointing at the player, rusted.
+    this.poly('#b8b0a0', 40, 38, 40, 54, 70, 66, 70, 26);
+    this.poly('#8c8478', 40, 46, 40, 54, 70, 66, 70, 46);
+    this.blob(70, 46, 5, 20, '#d9d2c2');
+    this.blob(70, 46, 3, 15, '#2a2420');
+    this.rect(34, 40, 7, 12, '#6b6258');
+    if (talking) {
+      const g = this.g;
+      g.strokeStyle = '#f2c12e';
+      g.lineWidth = 2;
+      for (let i = 0; i < 3; i++) {
+        const r = 8 + ((f + i * 3) % 9) * 2.4;
+        g.globalAlpha = 1 - ((f + i * 3) % 9) / 9;
+        g.beginPath();
+        g.arc(72, 46, r, -0.9, 0.9);
+        g.stroke();
+      }
+      g.globalAlpha = 1;
+    }
+    // A lamp on the bracket that blinks on air.
+    this.blob(26, 30, 3, 3, talking && f % 2 === 0 ? '#ff5a2a' : '#5a2a1a');
   }
 
   /** A signal on a scope, which is all anyone knows about where this came from. */

@@ -327,12 +327,16 @@ export class CallInManager {
     return false;
   }
 
-  /** An aircraft, flown (`ai` false) or sent in with its crew. Paid for here, whether or not a jammer holds it up. */
-  board(id: CallInId, ai = false): void {
+  /**
+   * An aircraft, flown (`ai` false) or sent in with its crew. Paid for here, whether or not a jammer holds it up. `over` is where it
+   * works (a mission's sortie); otherwise where the crosshair falls, or the player's feet.
+   */
+  board(id: CallInId, ai = false, over?: THREE.Vector3): void {
     if (this.targeting.id) this.targeting.exit();
     this.held.delete(id);
     this.cooldowns[id] = CALLINS[id].cooldown;
-    if (!this.targeting.solve(this.order.point)) this.order.point.copy(this.ctx.player.position);
+    if (over) this.order.point.copy(over);
+    else if (!this.targeting.solve(this.order.point)) this.order.point.copy(this.ctx.player.position);
     if (this.uplinkDown && !this.calling && this.heldCall.age === 0) {
       this.hold(id, ai);
       return;
@@ -364,6 +368,14 @@ export class CallInManager {
     const strike = new DoorGunner(this.kit, this.seats, this.packmule, flight);
     this.strikes.push(strike);
     this.flying.set(strike, 'doorGunner');
+  }
+
+  /** The Packmule on a mission's fixed flight with its own crew and nobody in the seat: a courier crossing. `down()` brings it down. */
+  flyFlight(flight: Flight): { down(): void; readonly position: THREE.Vector3 } {
+    const strike = new DoorGunner(this.kit, this.seats, this.packmule, flight, true);
+    this.strikes.push(strike);
+    this.flying.set(strike, 'doorGunner');
+    return strike;
   }
 
   private leaveTargeting(sound: string | null): void {

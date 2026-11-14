@@ -7,9 +7,11 @@
  *
  * The places are Holdfast's (src/world/map/holdfast), by name in `foreclosure.places.ts`.
  */
-import type { Beat, Loadout, Mission, Step } from '../types';
-import { FORECLOSURE_LINES } from './foreclosure.lines';
-import { MARKS, ROUTES, ZONES } from './foreclosure.places';
+import type { AllyType } from '../../allies/data';
+import type { EnemyId } from '../../core/gameplay';
+import type { Beat, Cue, Loadout, Mission, Step } from '../types';
+import { CALLS, FORECLOSURE_LINES, FRONTS } from './foreclosure.lines';
+import { BATTLES, MARKS, OVERWATCH, ROUTES, SKY_ROUTES, ZONES } from './foreclosure.places';
 
 const say = (id: string, wait = false): Step => ({ do: 'say', line: `mission.foreclosure.${id}`, wait });
 const council = (id: string, wait = false): Step => say(`council.${id}`, wait);
@@ -28,11 +30,25 @@ const KIT = {
 const FOURTEENTH = ['rifleman', 'gunner', 'rifleman', 'medic', 'rocketeer', 'shotgunner'] as const;
 const squadOf = (n: number, at: string): Step => ({ do: 'roster', men: FOURTEENTH.slice(0, n), at });
 
-/** The other squad on the street, beside the player's from the wall to the Square. */
-const EAST_STREET: Step = {
-  do: 'battle', id: 'eastStreet', bailiffs: ['rifleman', 'rifleman', 'gunner', 'rocketeer'], at: 'eastBureau',
-  militia: ['trooper', 'trooper', 'gunner'], from: 'eastMilitia', ensure: true,
-};
+/** Another squad's fight beside the player's (src/campaign/war.ts): its Bailiffs at `at`, the militia across at `from` (BATTLES). */
+const battle = (id: keyof typeof BATTLES, bailiffs: readonly AllyType[], militia: readonly EnemyId[], ensure = false): Step => ({
+  do: 'battle', id, bailiffs, at: BATTLES[id]!.at, militia, from: BATTLES[id]!.from, ensure,
+});
+/** The squad under the wall east of the gate, from the wall to the Square. */
+const EAST_STREET = battle('eastStreet', ['rifleman', 'gunner', 'rocketeer'], ['trooper', 'gunner'], true);
+/** The militia coming back at a battle each time it is cleared: its counter-attack, booked under the battle so the war holds it there. */
+const counter = (id: keyof typeof BATTLES, men: readonly EnemyId[]): Cue => ({
+  when: { left: 0, tag: id }, repeat: true, run: [{ do: 'squad', tag: id, men, at: BATTLES[id]!.from, orders: 'hold' }],
+});
+/** A squad, held on its mark until shot at or walked up on, put back after a restart. */
+const posted = (tag: string, men: readonly EnemyId[], at: string): Step => ({ do: 'squad', tag, men, at, orders: 'hold', ensure: true });
+/** A militiaman on a mounted gun: the man and the gun (`spec.emplacements` index: the wall guns 0 and 1, the roof guns 2 and 3). */
+const gunner = (tag: string, at: string, gun: number): Step[] => [posted(tag, ['gunner'], at), { do: 'call', name: 'crew', arg: `${tag}:${gun}` }];
+/** The two technicals, on their tracks from the flats' edge to the gate, crew out at the end. */
+const TECHNICALS: readonly Step[] = [
+  { do: 'vehicle', tag: 'technical.west', kind: 'humvee', at: 'techW0', route: 'technicalWest', crew: ['trooper', 'gunner'], crewTag: 'technical.crew', ensure: true },
+  { do: 'vehicle', tag: 'technical.east', kind: 'humvee', at: 'techE0', route: 'technicalEast', crew: ['trooper', 'rocketeer'], crewTag: 'technical.crew', ensure: true },
+];
 
 /** A beat in the Frame starts in a fresh one, so a restart gets one. */
 const inFrame = (at: string): Step => ({ do: 'frame', act: 'board', at });
@@ -60,19 +76,42 @@ const BEATS: readonly Beat[] = [
     // A restart here is another go in the gunship, not another sitting through the notice.
     checkpoint: { at: 'lz', loadout: KIT.issued },
     start: [
-      { do: 'music', state: 'easy' },
+      { do: 'music', state: 'hard' },
       { do: 'threat', level: 1 },
       { do: 'objective', id: 'mission', text: 'Foreclose on Holdfast' },
       { do: 'objective', id: 'cover', text: 'Cover the 14th\'s landing', at: 'lz' },
       squadOf(6, 'lz'),
-      { do: 'squad', tag: 'flats', men: ['trooper', 'trooper', 'gunner', 'rocketeer'], at: 'outerShacks', orders: 'hold' },
+      // The second stick, fighting into the east shanties beside the first.
+      battle('flats', ['rifleman', 'gunner', 'medic'], ['trooper', 'gunner']),
+      // Out of the shanties at the LZ, in the open: the first thing under the crosshair.
+      { do: 'squad', tag: 'ow.rush', men: ['trooper', 'trooper', 'gunner', 'rocketeer'], at: 'openGround' },
+      ...gunner('ow.roofWest', 'roofGunWest', 2),
+      ...gunner('ow.roofEast', 'roofGunEast', 3),
+      // The anti-air: a rocketeer at each end of the flats, hunting the gunship (callins/antiAir.ts).
+      posted('ow.aaWest', ['rocketeer'], 'aaWest'),
+      posted('ow.aaEast', ['rocketeer'], 'aaEast'),
+      ...TECHNICALS,
+      // A trench for the white phosphorus, and the fuel farm with men round it for the glide bomb.
+      posted('ow.trench', ['trooper', 'trooper', 'trooper'], 'trench'),
+      posted('ow.fuel', ['trooper', 'rocketeer', 'trooper'], 'fuelDepot'),
       harbour('wave'),
-      { do: 'sortie', over: 'lz' },
+      radio('cover'),
+      council('lease'),
+      { do: 'hint', text: 'The anti-air locks on with a rising tone: {jump} throws flares.', seconds: 8 },
+      { do: 'sortie', over: OVERWATCH.over },
       { do: 'done', id: 'cover' },
       radio('lease'),
       { do: 'signal', name: 'landed' },
     ],
-    cues: [{ when: { after: 20 }, run: [harbour('stove')] }],
+    cues: [
+      { when: { after: 22 }, run: [harbour('stove')] },
+      { when: { after: 50 }, run: [harbour('lock')] },
+      // The shanties keep coming while the gunship is up: more men in the open, and a hunter for every one shot off the anti-air.
+      { when: { left: 1, tag: 'ow.rush' }, repeat: true, run: [{ do: 'squad', tag: 'ow.rush', men: ['trooper', 'gunner', 'trooper'], at: 'outerShacks' }] },
+      { when: { left: 0, tag: 'ow.trench' }, repeat: true, run: [{ do: 'squad', tag: 'ow.trench', men: ['trooper', 'trooper', 'rocketeer'], at: 'trench', orders: 'hold' }] },
+      { when: { left: 0, tag: 'ow.aaEast' }, repeat: true, run: [{ do: 'squad', tag: 'ow.aaEast', men: ['rocketeer', 'trooper'], at: 'aaEast', orders: 'hold' }] },
+      counter('flats', ['trooper', 'gunner']),
+    ],
     until: { signal: 'landed' },
   },
   {
@@ -80,13 +119,36 @@ const BEATS: readonly Beat[] = [
     title: 'The Flats',
     checkpoint: { at: 'lz', loadout: KIT.issued },
     start: [
+      { do: 'music', state: 'hard' },
+      { do: 'threat', level: 2 },
+      // The gunship's far targets are not the landing's fight, and the draw budget wants their bodies back.
+      { do: 'sweep', tag: 'ow.fuel' },
+      { do: 'sweep', tag: 'ow.aaWest' },
+      { do: 'sweep', tag: 'ow.aaEast' },
       squadOf(6, 'lz'),
+      battle('flats', ['rifleman', 'gunner', 'medic'], ['trooper', 'gunner'], true),
       { do: 'objective', id: 'shanties', text: 'Clear the outer shanties', at: 'outerShacks' },
-      { do: 'hint', text: 'Tap {interact} on a Bailiff: on me, or hold here. Hold {interact}: the whole squad.' },
-      { do: 'squad', tag: 'flats', men: ['trooper', 'trooper', 'gunner'], at: 'outerShacks', ensure: true },
-      { do: 'vehicle', tag: 'technical', kind: 'humvee', at: 'shanties', crew: ['trooper', 'gunner'], crewTag: 'technical.crew' },
+      harbour('landing'),
+      { do: 'hint', text: 'Tap {interact} on a Bailiff: on me, or hold here. Hold {interact}: your whole squad.', seconds: 9 },
+      ...TECHNICALS,
+      posted('shacks', ['trooper', 'gunner', 'trooper', 'rocketeer'], 'outerShacks'),
+      // In the shack, behind boards: one rocket flattens the shack and him in it.
+      posted('sniper', ['sniper'], 'sniperShack'),
     ],
-    until: { cleared: ['flats', 'technical.crew'] },
+    cues: [
+      // The sniper's first round puts one of the six down: the revive, taught on a man who needs it.
+      {
+        when: { after: 14 },
+        run: [
+          { do: 'call', name: 'wound', arg: 'rocketeer@sniperShack' },
+          { do: 'hint', text: 'Bailiff down. Hold {interact} on him: a stim gets him up.', seconds: 9 },
+          council('revive'),
+        ],
+      },
+      counter('flats', ['trooper', 'rocketeer']),
+    ],
+    // Not the technicals' crews: a crew that got out before a checkpoint is not put back by `ensure` with its burnt-out technical.
+    until: { cleared: ['shacks', 'sniper', 'technical.west', 'technical.east'] },
   },
   {
     id: 'wall',
@@ -94,13 +156,35 @@ const BEATS: readonly Beat[] = [
     checkpoint: { at: 'shanties', loadout: KIT.issued },
     start: [
       { do: 'done', id: 'shanties' },
+      { do: 'music', state: 'hard' },
+      { do: 'threat', level: 3 },
       squadOf(6, 'shanties'),
+      { do: 'stop', battle: 'flats' },
       { do: 'objective', id: 'wall', text: 'Break through the wall', at: 'gate' },
       { do: 'rack', weapon: 'rocket', at: 'breachKit' },
+      // The painted segment and the gate: whichever goes first, by the charge or by rockets, is the way in.
+      { do: 'call', name: 'watch', arg: 'breach,gate' },
+      harbour('wall'),
+      // Pinned in the trench under the west wall gun, and the squad under the wall east of the gate.
+      battle('westWall', ['rifleman', 'rifleman', 'medic'], ['trooper', 'rocketeer'], true),
       EAST_STREET,
-      { do: 'squad', tag: 'wallGuns', men: ['gunner', 'gunner'], at: 'wallGuns', orders: 'hold' },
+      ...gunner('wallGun.west', 'wallGunWest', 0),
+      ...gunner('wallGun.east', 'wallGunEast', 1),
+      { do: 'hint', text: 'The launcher is on the 14th\'s breaching kit. Five rockets take the gate.', seconds: 8 },
     ],
-    until: { all: [{ cleared: 'wallGuns' }, { signal: 'took:rocket' }] },
+    cues: [
+      // Under the wall, or after a while: a Bailiff goes for the painted segment with the charge.
+      {
+        when: { any: [{ zone: 'wallFoot' }, { after: 45 }] },
+        run: [
+          council('breach'),
+          { do: 'call', name: 'charge', arg: 'breach' },
+          { do: 'hint', text: 'A Bailiff is setting a charge on the painted segment. Keep him alive for ten seconds.', seconds: 8 },
+        ],
+      },
+      counter('westWall', ['trooper', 'trooper']),
+    ],
+    until: { all: [{ cleared: ['wallGun.west', 'wallGun.east'] }, { signal: 'war:breached' }] },
   },
   {
     id: 'market',
@@ -108,35 +192,70 @@ const BEATS: readonly Beat[] = [
     checkpoint: { at: 'gate', loadout: KIT.launcher },
     start: [
       { do: 'done', id: 'wall' },
+      { do: 'music', state: 'hard' },
+      { do: 'threat', level: 3 },
       squadOf(6, 'gate'),
+      { do: 'stop', battle: 'westWall' },
       EAST_STREET,
+      battle('marketCorner', ['rifleman', 'gunner', 'medic'], ['trooper', 'gunner'], true),
       { do: 'objective', id: 'square', text: 'Push through the Market to the Square', at: 'square' },
-      { do: 'squad', tag: 'lanes', men: ['riot', 'trooper', 'trooper', 'warden'], at: 'lanes', orders: 'hold' },
+      harbour('market'),
+      // Riot shields in the lane with a Warden behind them, riflemen on the roofs over it.
+      posted('lanes', ['riot', 'trooper', 'riot', 'warden'], 'lanes'),
+      posted('roof.west', ['trooper'], 'marketRoofWest'),
+      posted('roof.north', ['sniper'], 'marketRoofNorth'),
+      posted('roof.east', ['trooper'], 'marketRoofEast'),
     ],
-    until: { cleared: 'lanes' },
+    cues: [
+      // A round off the north roof, and one of the six does not get up.
+      { when: { after: 20 }, run: [{ do: 'call', name: 'lose', arg: 'shotgunner@marketRoofNorth' }, harbour('lost')] },
+      { when: { after: 30 }, run: [{ do: 'squad', tag: 'lanes', men: ['brute', 'trooper'], at: 'lanes', orders: 'hold' }] },
+      {
+        when: { event: 'enemy:surrendered' },
+        run: [
+          { do: 'hint', text: 'Hands up. Walk up and {interact} to question him; hold {interact} to grab him.', seconds: 8 },
+          council('prisoners'),
+        ],
+      },
+      counter('marketCorner', ['trooper', 'rocketeer']),
+    ],
+    until: { cleared: ['lanes', 'roof.west', 'roof.north', 'roof.east'] },
   },
   {
     id: 'courier',
     title: 'The Square',
     start: [
       { do: 'done', id: 'square' },
+      { do: 'music', state: 'easy' },
       { do: 'stop', battle: 'eastStreet' },
-      council('fees', true),
-      { do: 'banner', text: 'THE COURIER', sub: 'Stand-in: it burns and goes down in the dry dock' },
+      { do: 'stop', battle: 'marketCorner' },
       { do: 'callins', held: true },
-      radio('courier'),
-      harbour('iron'),
-      { do: 'objective', id: 'smoke', text: 'Reach the smoke', at: 'slip' },
-      { do: 'wait', seconds: 4 },
-      { do: 'signal', name: 'downed' },
+      // The breath: the 22nd hold the Square's north side while the militia regroup on Crane Street.
+      battle('squareCounter', ['rifleman', 'gunner', 'medic'], ['trooper', 'trooper']),
+      council('fees', true),
+      { do: 'objective', id: 'courier', text: 'The Frame is coming in. Watch the north', at: 'courierWreck' },
+      { do: 'call', name: 'courier', arg: 'courierWreck' },
     ],
-    until: { signal: 'downed' },
+    cues: [
+      { when: { signal: 'war:hit' }, run: [radio('courier'), harbour('iron')] },
+      // Then their counter-attack into the Square, as the courier burns.
+      {
+        when: { signal: 'war:downed' },
+        run: [
+          { do: 'done', id: 'courier' },
+          { do: 'squad', tag: 'squareCounter', men: ['trooper', 'gunner', 'trooper', 'rocketeer'], at: 'counterMilitia', orders: 'hold' },
+        ],
+      },
+    ],
+    until: { signal: 'war:downed' },
   },
   {
     id: 'stacks',
     title: 'The Stacks',
     checkpoint: { at: 'square', loadout: KIT.launcher },
     start: [
+      { do: 'stop', battle: 'squareCounter' },
+      { do: 'call', name: 'wreck', arg: 'courierWreck' },
       squadOf(5, 'square'),
       { do: 'callins', held: true },
       // Said again so a jump straight here has it. A restart has it anyway: objectives are saved with the checkpoint.
@@ -300,7 +419,7 @@ export const FORECLOSURE: Mission = {
   loadout: KIT.issued,
   zones: ZONES,
   marks: MARKS,
-  routes: ROUTES,
+  routes: { ...ROUTES, ...SKY_ROUTES },
   doors: {},
   cutscenes: {
     // Over Holdfast: in from the sea over the flak tower and the stacks, then down over the wall to the Flats where the 14th land.
@@ -316,6 +435,10 @@ export const FORECLOSURE: Mission = {
     },
   },
   lines: FORECLOSURE_LINES,
+  // The draw budget (docs/campaign/FORECLOSURE.md, Measured): every man, dead or alive, is about six draws and 15k triangles.
+  corpses: 8,
+  calls: CALLS,
+  fronts: FRONTS,
   redeployLines: ['mission.council.redeploy.fee', 'mission.council.redeploy.keep'],
   beats: BEATS,
 };

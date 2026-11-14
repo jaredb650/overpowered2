@@ -244,6 +244,18 @@ export interface Beat {
   redeployLines?: readonly string[];
 }
 
+/** Who calls out in a war (war.ts), and about what. */
+export type CallSide = 'bureau' | 'militia';
+export type CallKind = 'contact' | 'fire' | 'down' | 'up' | 'dead' | 'gun' | 'charge' | 'breach' | 'counter' | 'clear';
+
+/** A call-out on the comms feed: text only, never spoken, with a stable id. `{place}` and `{label}` are filled, a capital slot capitalised. */
+export interface Callout {
+  id: string;
+  side: CallSide;
+  kind: CallKind;
+  text: string;
+}
+
 export interface Mission {
   id: string;
   title: string;
@@ -261,6 +273,12 @@ export interface Mission {
   /** Said after a restart, in turn. */
   redeployLines: readonly string[];
   beats: readonly Beat[];
+  /** At most this many corpses lie about (under the gore setting's cap): a war's dead are the draw budget's biggest share. */
+  corpses?: number;
+  /** The war's call-outs, both sides (war.ts). */
+  calls?: readonly Callout[];
+  /** Each battle's squad name on the feed and the word for where it is, by battle id. */
+  fronts?: Readonly<Record<string, { name: string; place: string }>>;
 }
 
 // -------------------------------------------------------------------------------------------------

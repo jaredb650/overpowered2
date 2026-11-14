@@ -103,7 +103,7 @@ export class Orders {
 
   private squadNear(): boolean {
     const p = this.ctx.player.position;
-    for (const a of this.host.allies) if (a.state === 'up' && a.body.position.distanceTo(p) < ALLY.squadReach) return true;
+    for (const a of this.host.allies) if (!a.detached && a.state === 'up' && a.body.position.distanceTo(p) < ALLY.squadReach) return true;
     return false;
   }
 

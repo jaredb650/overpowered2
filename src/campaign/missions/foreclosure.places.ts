@@ -125,6 +125,21 @@ export const PLACES: Readonly<Record<string, Mark>> = {
 export const ZONES: Readonly<Record<string, Zone>> = {
   // Out of the west gate onto the salt.
   westGate: box(-24, -1, -26, -12, 7, -14),
+  // Under the wall, from the painted segment to the gate: where the breaching charge goes on.
+  wallFoot: box(44, -1, 50.5, 76, 6, 64),
+};
+
+/**
+ * Marks in the air, which no floor is under: the courier's flight in `courier` (beat 6), in from over the shanties, north over the Square,
+ * hit by the flak tower over the stacks, and burning down toward the Slip. It is in the ground in the dry dock by `courierWreck`.
+ */
+export const SKY: Readonly<Record<string, Mark>> = {
+  courierIn: at(150, 70, 90),
+  courierTown: at(100, 60, 40),
+  courierSquare: at(80, 55, 5),
+  courierHit: { at: [88, 48, -25], hit: true },
+  courierBurning: at(110, 35, -55),
+  courierFall: at(120, 24, -72),
 };
 
 /** Lists of marks. Technicals drive the tracks; the Frame's routes are swept at its width by the map test. */
@@ -142,17 +157,29 @@ export const ROUTES: Readonly<Record<string, readonly string[]>> = {
   framePans: ['pans', 'pansA', 'pansB', 'pansC', 'pansD', 'pans'],
 };
 
+/** Lists the mission flies or fires along, kept out of ROUTES because the map keeps its dressing off every ROUTES line. */
+export const SKY_ROUTES: Readonly<Record<string, readonly string[]>> = {
+  // `courier`: its flight (SKY), and the flak tower's four guns that shoot it down.
+  courier: ['courierIn', 'courierTown', 'courierSquare', 'courierHit', 'courierBurning', 'courierFall'],
+  flak: ['flakGun1', 'flakGun2', 'flakGun3', 'flakGun4'],
+};
+
 /** The names the skeleton's beats use. A beat that starts naming another place adds it here. */
 const NAMED = [
-  'lz', 'shanties', 'gate', 'square', 'quay', 'slip', 'frame', 'harbour', 'pans', 'deck', 'outerShacks', 'wallGuns', 'breachKit',
+  'lz', 'shanties', 'gate', 'square', 'quay', 'slip', 'frame', 'harbour', 'pans', 'deck', 'outerShacks', 'breachKit',
   'eastBureau', 'eastMilitia', 'lanes', 'stacks', 'quayRoad', 'craneCab', 'thresherRack', 'quayHealth', 'quayArmour', 'slipNorth',
   'slipEast', 'slipWest', 'backStreet', 'backTank', 'flakTower', 'mother', 'deckCrew', 'deckGun',
+  // Beats 1 to 6 (stage 9): the overwatch's targets, the wall, the market's roofs, the war's battles, the courier's wreck.
+  'sniperShack', 'trench', 'fuelDepot', 'roofGunWest', 'roofGunEast', 'aaWest', 'aaEast', 'openGround', 'wallGunWest', 'wallGunEast',
+  'breach', 'marketRoofWest', 'marketRoofEast', 'marketRoofNorth', 'courierWreck', 'flatsBureau', 'flatsMilitia', 'westBureau',
+  'cornerBureau', 'cornerMilitia', 'squareBureau', 'counterMilitia', 'flakGun1', 'flakGun2', 'flakGun3', 'flakGun4',
 ];
 
 /** The mission's marks: what its beats name and what its routes run through. */
-export const MARKS: Readonly<Record<string, Mark>> = Object.fromEntries(
-  Object.entries(PLACES).filter(([id]) => NAMED.includes(id) || Object.values(ROUTES).some(r => r.includes(id))),
-);
+export const MARKS: Readonly<Record<string, Mark>> = {
+  ...Object.fromEntries(Object.entries(PLACES).filter(([id]) => NAMED.includes(id) || Object.values(ROUTES).some(r => r.includes(id)))),
+  ...SKY,
+};
 
 /** The Frame's routes, by id in ROUTES. */
 export const FRAME_ROUTES = ['frameStacks', 'frameMarket', 'frameHarbour', 'frameWest', 'framePans'] as const;

@@ -22,6 +22,13 @@ function zones(t: Trigger, out: string[]): void {
   if ('any' in t) for (const part of t.any) zones(part, out);
 }
 
+/** Signals the real game's systems raise (the war's breach, the courier's fall), which a FakeHost has none of. */
+function signals(t: Trigger, out: string[]): void {
+  if ('signal' in t && t.signal.startsWith('war:')) out.push(t.signal);
+  if ('all' in t) for (const part of t.all) signals(part, out);
+  if ('any' in t) for (const part of t.any) signals(part, out);
+}
+
 interface Seen {
   /** The squad and the sky as each beat opened. */
   roster: string;
@@ -52,6 +59,10 @@ function playThrough(die: (beat: string) => boolean, from?: string): { host: Fak
       (fn as ((skipped?: boolean) => void) | null)?.(false);
     }
     for (const took of host.racks.splice(0)) took();
+    const raised: string[] = [];
+    if (beat.until) signals(beat.until, raised);
+    for (const cue of beat.cues ?? []) signals(cue.when, raised);
+    for (const name of raised) run.signal(name);
     const want: string[] = [];
     if (beat.until) zones(beat.until, want);
     for (const cue of beat.cues ?? []) zones(cue.when, want);
@@ -88,7 +99,7 @@ describe('Foreclosure', () => {
     expect(run.state).toBe('won');
     expect(host.finishedCount).toBe(1);
     expect(beats).toEqual(PLAN_BEATS);
-    expect(host.log).toContain('battle eastStreet 4v3');
+    expect(host.log).toContain('battle eastStreet 3v2');
     expect(host.log).toContain('stop eastStreet');
     expect(host.log.filter(l => l.startsWith('frame '))).toEqual(['frame kneel', 'frame board', 'frame board', 'frame board', 'frame eject']);
   });
