@@ -11,8 +11,19 @@ import { createCharacterMaterial, createDetailTexture, type SurfaceOptions } fro
 import { parseModel, type LoadedModel } from './model';
 import type { HumanoidAnimator } from './animation/index';
 import type { Manifest, Socket } from './format';
+import { ACTIVE } from '../contracts/select';
 
 const BASE = 'assets/characters/';
+/**
+ * Foreclosure fights Holdfast's militia, and nothing else does (docs/notes/characters.md, The militia): on its page these
+ * load their bake in `militia/` instead, and the Riot carries `militiaShield` (the Bailiffs' `riotShield` stays dark).
+ */
+const MILITIA: ReadonlySet<string> = new Set(ACTIVE.def.id !== 'foreclosure' ? [] : [
+  'trooper', 'gunner', 'brute', 'rocketeer', 'sniper', 'riot', 'warden', 'trooperHelmet', 'gunnerHelmet', 'rocketeerHelmet', 'riotHelmet',
+  'trooperHeadPartialSide', 'trooperHeadPartialTop', 'gunnerHeadPartialSide', 'gunnerHeadPartialTop', 'bruteHeadPartialSide', 'bruteHeadPartialTop',
+  'minigun', 'sniperRifle', 'militiaShield',
+]);
+const kitOf = (def: ArchetypeDef) => (MILITIA.has(def.id) ? def.props.map(p => (p.model === 'riotShield' ? { ...p, model: 'militiaShield' } : p)) : def.props);
 /** Enough for the 48 live enemies with room for corpses held by gore. */
 const MAX_INSTANCES_PER_ARCHETYPE = 96;
 const MAX_LIMBS_PER_ARCHETYPE = 24;
@@ -72,14 +83,15 @@ export class CharacterLibraryImpl implements CharacterLibrary {
     if (!p) {
       p = (async () => {
         const manifest = await this.getManifest();
-        const file = manifest.models[id]?.file;
+        const file = MILITIA.has(id) ? `militia/${id}.bin` : manifest.models[id]?.file;
         if (!file) throw new Error(`Model "${id}" is not baked. Run tools/bake/bake.ts ${id}`);
         const res = await fetch(`${BASE}${file}`);
         const model = parseModel(await res.arrayBuffer());
         this.detail ??= createDetailTexture();
         const atlas = model.meta.atlas;
+        const dir = BASE + file.slice(0, file.lastIndexOf('/') + 1);
         const [atlasA, atlasB] = atlas
-          ? await Promise.all([loadTexture(BASE + atlas.albedo, true), loadTexture(BASE + atlas.normal, false)])
+          ? await Promise.all([loadTexture(dir + atlas.albedo, true), loadTexture(dir + atlas.normal, false)])
           : [null, null];
         const surface = { detail: this.detail, atlasA, atlasB, extraBase: model.meta.skeleton.length * 4 };
         const material = createCharacterMaterial(this.ctx, surface);
@@ -135,7 +147,7 @@ export class CharacterLibraryImpl implements CharacterLibrary {
   private async loadOne(id: string): Promise<void> {
     const def = archetypeById(id);
     const { model, material, woundMaterial, farMaterial } = await this.loadModel(id);
-    await Promise.all(def.props.map(async p => {
+    await Promise.all(kitOf(def).map(async p => {
       this.propCache.set(p.model, await this.loadModel(p.model));
     }));
     const bindPositions = model.meta.skeleton.map(b => new THREE.Vector3(...b.pos));
@@ -246,7 +258,7 @@ export class CharacterLibraryImpl implements CharacterLibrary {
 
   /** Mounts the archetype's baked props and tells the animator how they are held. */
   private fitProps(e: Entry, c: Character): void {
-    for (const p of e.def.props) this.mount(e, c, p, e.def.stance, false);
+    for (const p of kitOf(e.def)) this.mount(e, c, p, e.def.stance, false);
   }
 
   /**

@@ -98,8 +98,7 @@ red over a body is the crosshair's word for hostile. Accent `#ff2a22`. `bailiff`
 
 ### The militia: the human enemies
 
-Since 2026-11-14 the seven human types are Holdfast's ragtag militia (`docs/proposals/mission-2-plan.md`, section 4), everywhere,
-the Outpost and Endless Humans included. The shapes are as they were; only the paint changed. Four materials in `parts/materials.ts`:
+In Foreclosure the seven human types are Holdfast's ragtag militia (`docs/proposals/mission-2-plan.md`, section 4). The shapes are as they were; only the paint changed. Four materials in `parts/materials.ts`:
 `dyed` (cloth bleached toward chalk in blotches by the salt), `patched` (dyed cloth with squares of other cloth sewn on, a dark stitch
 round each), `woven` (a checked wrap with a thread through it, worn where the rubber hood was) and `scrapPaint` (hand-painted plate,
 chipped, faded and rusting through, its rust brown). **No red on them**: red is the Bureau's and the crosshair's.
@@ -125,6 +124,18 @@ chipped, faded and rusting through, its rust brown). **No red on them**: red is 
 - **The sheet** (`tools/scripts/bureau-sheet.mjs`): at 25 m every type is lighter than the Bailiffs (mean value of the chest, Bailiff
   about 40, heavy 34): Trooper 86, Gunner 80, Brute 63, Rocketeer 84, Sniper 80, Riot 84, Warden 103, and every one is coloured where the
   Bailiffs are black.
+
+#### Foreclosure only
+
+Everywhere else (the Outpost, Outpost Defense, Endless Humans, the Test Range) the human types wear their original paint, the bake from
+before the militia. The militia's bakes sit beside them in `public/assets/characters/militia/` under the same names (`trooper.bin`,
+`gunnerHelmet.a.png`, `bruteHeadPartialTop.n.png`, the minigun and sniper rifle, `militiaShield`), outside `manifest.json`.
+`CharacterLibrary.ts` (`MILITIA`) loads a listed model from that folder when the page's contract (`ACTIVE`, fixed for the page) is
+`foreclosure`, and swaps the Riot's `riotShield` for `militiaShield`; on any other page the folder is never fetched. The Bailiffs carry
+the militia's minigun and sniper rifle in Foreclosure, the originals elsewhere, and always the dark `riotShield`.
+
+`tools/bake` still builds the militia, and writes under the plain name: after a re-bake of one of these, move its three files into
+`militia/` and `git checkout` the originals and `manifest.json`. The originals' builders are in `c4f0586^`.
 
 `SeveredLimb` follows the gore dummy's contract: `root` sits at identity in the scene, `bones[bone]` holds the world
 pose. Everything outside the chain is parented to that bone at near-zero scale, so skin blended into the parent closes

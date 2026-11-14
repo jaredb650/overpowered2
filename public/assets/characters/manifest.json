@@ -9,7 +9,7 @@
   },
   "trooper": {
    "file": "trooper.bin",
-   "bytes": 730960,
+   "bytes": 730944,
    "triangles": 12954,
    "kind": "character"
   },
@@ -45,13 +45,13 @@
   },
   "brute": {
    "file": "brute.bin",
-   "bytes": 749020,
+   "bytes": 748972,
    "triangles": 13900,
    "kind": "character"
   },
   "warden": {
    "file": "warden.bin",
-   "bytes": 681348,
+   "bytes": 681300,
    "triangles": 13964,
    "kind": "character"
   },
@@ -111,7 +111,7 @@
   },
   "sniper": {
    "file": "sniper.bin",
-   "bytes": 687996,
+   "bytes": 687952,
    "triangles": 11846,
    "kind": "character"
   },
@@ -264,12 +264,6 @@
    "bytes": 756016,
    "triangles": 13938,
    "kind": "character"
-  },
-  "militiaShield": {
-   "file": "militiaShield.bin",
-   "bytes": 71448,
-   "triangles": 2600,
-   "kind": "prop"
   }
  }
 }
