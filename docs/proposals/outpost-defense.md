@@ -58,17 +58,23 @@ and take a few seconds of work, so a wall cannot be fixed instantly mid-fight.
 Each starts as a heavy machine gun with infinite ammunition. Upgrades: **Q2.** Default ladder: HMG, then a faster HMG
 with a shield, then a minigun.
 
-### Allies by type
+### Allies by type (owner, 2026-11-14)
 
-| Type | Holds | Notes |
-|---|---|---|
-| Rifleman | A wall section | The cheap core of the squad |
-| Machine gunner | A mounted gun, or a wall corner | |
-| Sniper | A tower or high point | Expensive |
-| Rocketeer | Near a gate | Unlocks later; counters vehicles and choppers |
-| Medic | The core | Revives with stims of his own |
+Each type has a job, and costs differ by type.
 
-- **Q3.** Prices and wages. Default: riflemen cheap, specialists three to five times as much; no upkeep.
+| Type | Where it is good | Where it is bad | Holds |
+|---|---|---|---|
+| Rifleman (Trooper) | All-rounder, the perimeter | | A wall section |
+| Machine gunner | All-rounder, the perimeter | | A mounted gun or a wall corner |
+| Sniper | The perimeter, at range | Close combat | A tower or high point |
+| Rocketeer | The perimeter; vehicles and choppers | Close combat | Near a gate |
+| Mortar team | Shelling the field | Useless up close | Inside the walls, out of sight |
+| Shotgunner (Gunner) | Close combat inside the fort | Range | Inside, guarding a shop |
+| Riot police | Containing a breach | Range | Inside; when a wall is breached they move to it and form a shield line across the gap to block it at close range |
+| Medic | The core | | Revives with stims of his own |
+
+- **Q3.** Prices. Default: riflemen cheapest; machine gunners and shotgunners about twice that; riot police and medics
+  about three times; snipers, rocketeers and mortar teams about four to five times. No upkeep.
 
 ### The economy
 
@@ -92,8 +98,11 @@ The tension is spending now against saving for what is coming:
 | Boss waves, in this order | Tanks, then **helicopter** bosses, then the **Juggernaut**, then the **Titan**, then everything at once. The undead bosses are the late surprise |
 
 - **Q5.** Boss wave spacing. Default: every 5th wave, in the order above, then repeating harder.
-- **Q6.** Do the player's existing call-ins (airstrike, Warthog, AC-130 and the rest, earned by combo) stay on in this
-  mode? Default: yes, as in every mode, unchanged. The air support overhaul comes later.
+- **Call-ins are bought in this mode** (owner, 2026-11-14), not earned by combo: airstrike, Warthog, door gunner, attack
+  chopper, AC-130 and the rest sit in a shop at prices that climb with their power. **Q6.** Which shop. Default: the
+  Armoury, and any time, not only in breaks.
+- **Q7.** The owner said shops can be bought. Default: a lost shop can be rebuilt for a large sum in a break, once its ring
+  is clear again.
 
 ## The pieces, in build order
 
