@@ -5,7 +5,7 @@
  * An id is built from a key written next to its line, not from where the line sits, so lines can be moved and the recordings stay
  * matched. Change a line's words and it wants recording again. Change its key and it has lost its audio.
  *
- * Slots are `{n}`, `{weapon}`, `{room}`, `{name}` and `{squad}`. The box prints the true number; the recording says the nearest band, so 212 shots
+ * Slots are `{n}`, `{weapon}`, `{room}`, `{name}`, `{squad}` and `{dir}`. The box prints the true number; the recording says the nearest band, so 212 shots
  * is a take of "two hundred". A line with two different slots would need every pairing recorded, so it stays text in the box.
  *
  * Nothing here imports three.js.
@@ -857,6 +857,208 @@ const CHATTER: Keyed = {
 };
 
 // -------------------------------------------------------------------------------------------------
+// Outpost Defense: he is the one at the walls now, and the Council is the player's handler on the radio
+// -------------------------------------------------------------------------------------------------
+
+/**
+ * What happens on the fort that someone says something about. `contracts/defense/radio.ts` picks from these. None has a take yet: the
+ * box prints them and plays nothing, and `voice-script.ts` will list them for the next session.
+ */
+export type DefenseEvent =
+  | 'open' | 'wave' | 'armour' | 'truck' | 'chopper' | 'juggernaut' | 'titan' | 'all' | 'mortar' | 'charge' | 'breach' | 'engineer'
+  | 'shop' | 'lost' | 'repair' | 'losses' | 'long' | 'hire' | 'clear' | 'tankDown' | 'chopperDown' | 'playerDead';
+
+/** His lines, by event. Each key carries its own emotion, so a recording session knows how he feels saying it. */
+const DEFENSE_CMD: Record<DefenseEvent, Readonly<Record<string, readonly [Tone, string]>>> = {
+  open: {
+    squatter: ['smug', 'This is the Commander. You are squatting in a fort. I\'ve brought some men to discuss it.'],
+    rings: ['smug', 'Three rings of wall. Very good. I\'ve counted them. I\'ve also counted my men. I have more men.'],
+    wall: ['smug', 'Lovely little fort. I\'ll be taking it off you a wall at a time.'],
+  },
+  wave: {
+    shed: ['smug', 'Here comes another lot. I\'ve got loads of them. I keep them in a shed.'],
+    key: ['smug', 'Open the gate. No? We\'ll open it for you. We\'ve brought a key. The key is a bomb.'],
+    lunch: ['smug', 'Right, lads. Walls, then lunch. Walls first.'],
+    again: ['irritated', 'Again. Over the field, at the walls, all of you. Again.'],
+    overtime: ['irritated', 'This is overtime now. Do you know what overtime costs? I\'m billing you.'],
+    memo: ['irritated', 'I\'ve sent a memo round. It says get in the fort. That\'s the whole memo.'],
+    volunteers: ['rattled', 'These are volunteers. I asked who wanted to go. I pointed at them while I asked.'],
+    cooks: ['rattled', 'That\'s the cooks. I\'ve sent the cooks. Somebody give the cooks a gun.'],
+    last: ['rattled', 'This is the last wave. I\'ve said that before. This time I mean it more.'],
+    dog: ['cracked', 'Everyone. Everyone left. Clive\'s brother. Clive\'s brother\'s dog. Go.'],
+    dreams: ['cracked', 'I dream about your walls. They\'re taller in the dreams. I still lose.'],
+    giftshop: ['cracked', 'We\'ve closed the gift shop. Everyone who worked in the gift shop is in this wave.'],
+  },
+  armour: {
+    bitch: ['smug', 'I\'m putting armour on your bitch ass.'],
+    parking: ['smug', 'I\'ve brought a tank. Don\'t worry about the parking. It parks wherever it likes.'],
+    money: ['smug', 'Let\'s see how your walls get on with a tank. My money\'s on the tank.'],
+    ink: ['irritated', 'I\'ve signed out a tank. In ink. Make it worth my bloody while.'],
+    driven: ['rattled', 'A tank. Yes. A whole tank. That\'s what you\'ve driven me to. And it\'s driving.'],
+    margaret: ['cracked', 'I\'ve named the tank Margaret Two. Margaret One is a mortar. Margaret Two is angrier.'],
+  },
+  truck: {
+    minibus: ['smug', 'Here\'s the minibus. Mind the step, lads. Mind the bullets, mostly.'],
+    delivery: ['irritated', 'Delivery for the fort. Signed for by whoever\'s still standing.'],
+    carpool: ['rattled', 'We\'re carpooling now. Fuel\'s gone up. Everything\'s gone up. Mostly my men.'],
+  },
+  chopper: {
+    wave: ['smug', 'Look up. No, further. That\'s my helicopter. Give it a wave.'],
+    roof: ['smug', 'I\'ve sent the helicopter. You\'ll like it. It gets a lovely view of your roof.'],
+    letter: ['irritated', 'The helicopter is borrowed. If you scratch it, I\'m the one who gets the letter.'],
+    cloud: ['rattled', 'Hit something. Anything. The pilot\'s been up there an hour and he\'s hit a cloud.'],
+  },
+  juggernaut: {
+    when: ['smug', 'I\'ve had something dug up for you. Don\'t ask from where. Don\'t ask from when.'],
+    basement: ['rattled', 'We found him in the basement. He wouldn\'t stay down. Now he\'s your problem.'],
+  },
+  titan: {
+    measured: ['smug', 'This one\'s big. Bigger than your walls. I measured.'],
+    allowed: ['cracked', 'I\'ve let the big one out. I\'m not allowed to let the big one out. Nobody tell the Council.'],
+  },
+  all: {
+    everything: ['rattled', 'Everything. The tanks, the helicopter, the thing in the basement. All of it. Now.'],
+    crypt: ['cracked', 'I\'ve emptied the motor pool, the hangar and the crypt. We have a crypt. Had a crypt.'],
+  },
+  mortar: {
+    diary: ['smug', 'Margaret\'s set up in the field. She\'s got your walls in her diary.'],
+    invent: ['smug', 'Mortars. They go up, then they come down on you. I didn\'t invent it. I wish I had.'],
+    paperwork: ['irritated', 'Heads down. Or don\'t. Honestly, it\'s less paperwork if you don\'t.'],
+    aim: ['rattled', 'Aim at the fort. The big thing with walls. No. The other way. The other way!'],
+  },
+  charge: {
+    doorbell: ['smug', 'That\'s a charge on your wall. Think of it as a doorbell. A very loud doorbell.'],
+    door: ['smug', 'We\'re making a door. You didn\'t give us one, so we\'re making one.'],
+    seven: ['irritated', 'Seven seconds. Count them with me. Or run. Running\'s also fine.'],
+    hands: ['rattled', 'Don\'t shoot the charge! It took him ages! He\'s not good with his hands!'],
+  },
+  breach: {
+    made: ['smug', 'Oh, look. A door. Where did that come from? We made it. We made a door.'],
+    air: ['smug', 'We\'ve improved your ventilation. No need to thank us. In you go, lads.'],
+    onion: ['smug', 'That\'s another ring. Like an onion. We\'re peeling you. You\'re the onion.'],
+    rubble: ['irritated', 'Told you. Walls are a suggestion. Through you go, lads. Mind the rubble.'],
+    time: ['rattled', 'We\'re in! We\'re actually in! Somebody write down the time!'],
+    framed: ['cracked', 'A hole. A beautiful hole. I\'m going to have it framed.'],
+  },
+  engineer: {
+    sheep: ['smug', 'We\'ve built a little ramp. Over the wall they go. Like sheep. Armed sheep.'],
+    neighbours: ['smug', 'Sandbags. We\'re moving in. You\'ve got neighbours now.'],
+    permission: ['irritated', 'My engineers are building. No planning permission. Report us.'],
+  },
+  shop: {
+    paying: ['smug', 'My lads are doing a bit of shopping. They\'re not paying.'],
+    closing: ['smug', 'Closing time at the shop. Everybody out. Everybody dead.'],
+    review: ['irritated', 'We\'re leaving a review of your shop. One star. Bullet holes.'],
+  },
+  lost: {
+    business: ['smug', 'Out of business. Shame. I hear the competition\'s very aggressive.'],
+    feels: ['smug', 'Now you know how it feels. I had a gift shop once.'],
+    receipt: ['rattled', 'We got the shop! Keep the receipt! There\'s no receipt! We burned it!'],
+  },
+  repair: {
+    morning: ['irritated', 'You\'re fixing the wall. We blew that up. That took a man all morning.'],
+    quote: ['irritated', 'Oh, you\'re a builder now. Do you do quotes? I\'ve got a hole in my army.'],
+    cheating: ['rattled', 'You can\'t just repair it! That\'s cheating! Is that cheating? Someone check the form!'],
+    life: ['cracked', 'We knock it down. You put it back. We knock it down. This is my life now.'],
+  },
+  losses: {
+    plenty: ['smug', 'Fine. Plenty more where they came from. Recruitment\'s very good this time of year.'],
+    names: ['irritated', 'Stop that. I had names for those. Now I have to learn new names.'],
+    clive: ['irritated', 'That was Clive\'s whole section. Clive is going to be furious. Clive was in that section.'],
+    brave: ['rattled', 'I have to write to their mothers! All of them! I\'ve run out of "brave"!'],
+    field: ['rattled', 'The field\'s full! There\'s nowhere to put them! Stop putting them in the field!'],
+    arm: ['cracked', 'Another one. Lovely. I\'m keeping a tally on my arm. I\'m running out of arm.'],
+    hell: ['cracked', 'Bloody hell. Bloody, bloody hell. That was a whole platoon. That was a whole Thursday.'],
+  },
+  long: {
+    home: ['irritated', 'You\'re still in there. Of course you are. Don\'t you have a home to go to?'],
+    job: ['irritated', 'You\'ve held that fort longer than I\'ve held a job. I\'ve had this job eleven years.'],
+    rent: ['rattled', 'How long are you staying? Accounts says we should be charging you rent.'],
+    pension: ['rattled', 'Fourteen months to my pension. That was before you. It feels like forty.'],
+    outside: ['cracked', 'I\'ve forgotten what it\'s like out there. Is there an out there? Is it all walls now?'],
+    dark: ['cracked', 'I don\'t sleep. I lie in the dark and I listen to you not dying.'],
+  },
+  hire: {
+    double: ['smug', 'You\'ve hired help. How much? I\'ll pay double. I won\'t. But I\'ll say I will.'],
+    payroll: ['irritated', 'Oh, you\'ve got friends now. You bought them. That\'s not friendship, that\'s payroll.'],
+    dennis: ['rattled', 'Is that one of mine? He looks like one of mine. Dennis? Dennis, is that you?'],
+  },
+  clear: {
+    regroup: ['smug', 'We\'re regrouping. That was regrouping. You\'ll know when we attack.'],
+    tea: ['irritated', 'Fine. Tea break. Then we\'re doing that again, and it\'s going to go differently.'],
+    count: ['rattled', 'Count off. Count off! One. Is that it? Just one? Who said one?'],
+    stops: ['cracked', 'Again. We\'ll go until one of us stops. It won\'t be me. It might be me.'],
+  },
+  tankDown: {
+    signed: ['rattled', 'That was signed out in my name! Do you know what a tank costs? Neither do I! It\'s a lot!'],
+    knew: ['cracked', 'Margaret Two. We hardly knew her. She ran over Clive\'s foot, and we hardly knew her.'],
+  },
+  chopperDown: {
+    piece: ['rattled', 'That was borrowed! I have to give that back! In one piece!'],
+    sky: ['cracked', 'The sky\'s had another one. I told them not to go up there.'],
+  },
+  playerDead: {
+    keys: ['smug', 'Somebody find the keys. We\'re moving back in.'],
+    bodies: ['smug', 'My fort. My lovely fort. Mind the bodies, lads. They\'re mostly ours.'],
+  },
+};
+
+/**
+ * What the Council tells the player is actually happening, in her own voice and short enough to read in a fight. `{dir}` is one or
+ * more sides of the fort, as `sidesWord` says them. A line with `{n}` and `{dir}` both is text only, by the usual rule.
+ */
+const DEFENSE_COUNCIL: Keyed = {
+  'open.brief': 'Contractor, this is the Office of Societal Compliance. We will call each wave and where it comes from. Hold the fort.',
+  'open.hours': 'Contractor. Hostiles will come through the fence. Watch the radio for directions. This call is recorded.',
+  'wave.massing': 'Wave {n}. Hostiles massing to the {dir}.',
+  'wave.inbound': 'Wave {n} inbound from the {dir}. Man the walls.',
+  'wave.infantry': 'Wave {n}. Infantry approaching from the {dir}.',
+  'boss.tanks': 'Wave {n}. Armour. Tanks will come up the roads. Infantry from the {dir}.',
+  'boss.choppers': 'Wave {n}. Attack helicopter authorised. Infantry from the {dir}.',
+  'boss.juggernaut': 'Wave {n}. A Juggernaut will be dropped on the field. Infantry from the {dir}.',
+  'boss.titan': 'Wave {n}. A Titan. Do not ask us where they found it. Infantry from the {dir}.',
+  'boss.all': 'Wave {n}. Everything they have: armour, air and worse. Infantry from the {dir}.',
+  'reinforce.a': 'Enemy reinforcements, {dir}.',
+  'reinforce.b': 'Reinforcements coming through the fence, {dir}.',
+  'reinforce.c': 'More infantry entering the field from the {dir}.',
+  'tank.a': 'Tank approaching from the {dir}.',
+  'tank.b': 'Armour on the {dir} road.',
+  'truck.a': 'Troop truck inbound, {dir}.',
+  'truck.b': 'Vehicle with infantry approaching from the {dir}.',
+  'humvee.a': 'Scout car approaching from the {dir}.',
+  'chopper.a': 'Attack helicopter inbound from the {dir}.',
+  'chopper.b': 'Attack helicopter inbound, {dir}. Take cover.',
+  juggernaut: 'Juggernaut on the field, {dir} side.',
+  titan: 'Titan on the field, {dir} side.',
+  bombers: 'Bombers on foot, {dir}. Stop them short of the wall.',
+  'mortar.a': 'Enemy mortar set up to the {dir}. It is marked.',
+  'mortar.b': 'Mortar pit active, {dir}. Expect incoming fire.',
+  pad: 'Engineers have built a jump pad at the {dir} wall.',
+  cover: 'Engineers building cover in the field, {dir}.',
+  'charge.outer': 'Charge on the outer wall, {dir} side.',
+  'charge.middle': 'Charge on the middle wall, {dir} side.',
+  'charge.core': 'Charge on the core wall, {dir} side.',
+  'breach.outer': 'Breach. Outer wall, {dir} side.',
+  'breach.middle': 'Breach. Middle wall, {dir} side.',
+  'breach.core': 'Breach. Core wall, {dir} side.',
+  'gate.outer': 'Outer gate down, {dir} side.',
+  'gate.middle': 'Middle gate down, {dir} side.',
+  'gate.core': 'Core gate down, {dir} side.',
+  'shop.barracks': 'The Barracks is under attack.',
+  'shop.armoury': 'The Armoury is under attack.',
+  'shop.infirmary': 'The Infirmary is under attack.',
+  'lost.barracks': 'The Barracks has been lost. It can be rebuilt in a break.',
+  'lost.armoury': 'The Armoury has been lost. It can be rebuilt in a break.',
+  'lost.infirmary': 'The Infirmary has been lost. It can be rebuilt in a break.',
+  tankDown: 'Tank destroyed.',
+  chopperDown: 'Attack helicopter down.',
+  'clear.a': 'Wave repelled. You have a break. Resupply.',
+  'clear.b': 'Area secure. The break has started.',
+  'clear.c': 'Hostiles neutralised. The shops are open.',
+  soon: 'Ten seconds to the next wave. Get to the walls.',
+};
+
+// -------------------------------------------------------------------------------------------------
 // Everything above, as lines
 // -------------------------------------------------------------------------------------------------
 
@@ -927,6 +1129,8 @@ export const LINES: readonly Line[] = [
   ...table('cmd.playerDead', 'commander', 'smug', PLAYER_DEAD),
   ...(Object.keys(ORDERS) as OrderDrill[]).flatMap(drill => table(`cmd.order.${drill}`, 'commander', 'smug', ORDERS[drill])),
   ...radioTable(),
+  ...(Object.keys(DEFENSE_CMD) as DefenseEvent[]).flatMap(ev => Object.entries(DEFENSE_CMD[ev]).map(([key, [emotion, text]]): Line => ({ id: `cmd.def.${ev}.${key}`, speaker: 'commander', emotion, text }))),
+  ...table('council.def', 'council', 'deadpan', DEFENSE_COUNCIL),
 ];
 
 const BY_ID = new Map(LINES.map(l => [l.id, l]));
@@ -961,6 +1165,11 @@ export const LAST_WORDS: readonly Line[] = lines('cmd.dead.');
 export const FINAL_COUNCIL: readonly Line[] = lines('council.final.');
 export const PLAYER_DOWN: readonly Line[] = lines('cmd.playerDead.');
 export const FALSE_CHATTER: readonly Line[] = lines('chatter.');
+/** His Outpost Defense lines for an event, and the Council's for a key (`breach.outer` has one line, `reinforce` has three). */
+export const defenseLines = (ev: DefenseEvent): Line[] => lines(`cmd.def.${ev}.`);
+export const councilDefense = (key: string): Line[] => LINES.filter(l => l.id === `council.def.${key}` || l.id.startsWith(`council.def.${key}.`));
+/** Outpost Defense says only these. Everything else he says belongs to the Kill House. */
+export const isDefenseLine = (id: string): boolean => id.startsWith('cmd.def.') || id.startsWith('council.def.');
 
 // -------------------------------------------------------------------------------------------------
 // Slots: what is recorded for each
@@ -988,6 +1197,18 @@ export const ROOM_WORDS: readonly string[] = ['TYRES', 'LANES', 'CRATES', 'STREE
 /** The squads, in the order they are raised. */
 export const SQUAD_WORDS: readonly string[] = CALLSIGNS;
 
+/** The fort's sides, 0 north (-z) to 3 west, as the Council says them. */
+export const SIDE_WORDS: readonly string[] = ['north', 'east', 'south', 'west'];
+
+/** One or more sides in one phrase, always in compass order: `north and east`, `north, east, south and west`. */
+export function sidesWord(sides: Iterable<number>): string {
+  const words = [...new Set(sides)].sort((a, b) => a - b).map(i => SIDE_WORDS[i & 3]!);
+  return words.length < 2 ? words[0] ?? '' : `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`;
+}
+
+/** Every `{dir}` there is: each of the fifteen sets of sides. */
+export const DIR_WORDS: readonly string[] = Array.from({ length: 15 }, (_, m) => sidesWord([0, 1, 2, 3].filter(i => (m + 1) & (1 << i))));
+
 /** Squad leaders get these, in turn, so the box can mourn someone. */
 export const NAMES: readonly string[] = ['Dennis', 'Okafor', 'Whitlock', 'Marsh', 'Novak', 'Reyes', 'Big Tom', 'Sully'];
 
@@ -1002,7 +1223,7 @@ export const COUNT_BANDS: Readonly<Partial<Record<Topic, readonly (readonly [num
   headshots: SMALL, limbs: SMALL, executions: SMALL, sonar: SMALL, pickups: SMALL, callIns: SMALL, melee: SMALL, gift: SMALL,
 };
 
-const SLOT = /\{(n|weapon|room|name|squad)\}/g;
+const SLOT = /\{(n|weapon|room|name|squad|dir)\}/g;
 
 /** The different slots in a line. */
 export const slotsOf = (text: string): string[] => [...new Set([...text.matchAll(SLOT)].map(m => m[1]!))];

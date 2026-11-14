@@ -142,6 +142,14 @@ the ring's corners a leg at a time; men from trucks and gun seats are taken on a
 **The Commander** is built with the Outpost but never asked to compose a wave or brief a break here, and `Person.arm` refuses an economy
 contract, so he never comes down in person and nothing can end the run with CONTRACT FULFILLED.
 
+**The radio** (`radio.ts`, on the fort; docs/notes/commander.md, "Outpost Defense: the radio"). His Kill House lines are off here. He threatens
+in lines written for the fort (a wave, armour, the helicopter, a charge, a breach, a shop, a repair, his losses), and the Council, as the
+player's handler, says what is coming and from which side: `Wave 4. Hostiles massing to the north and east.`, reinforcements by side,
+each machine by the side it comes from, bosses, mortars, engineers, charges and breaches by ring and side, shops under attack and lost,
+the wave cleared, ten seconds to the next. One speaker at a time; her warnings are never dropped. The player's own men call out on the
+comms feed in cyan: `Breach! Outer wall, north side!`, contact by side, man down, reloading, a shop under attack. Text only: no line has
+a recording.
+
 **The player's mortar teams** (`teams.ts`, piece 8). Bought at the Barracks for 1,200, posted at the next free mortar post (four, in the
 middle ring's yards): a tube, crates and a cyan beacon, no crew to fight anything. During a wave each fires every 8 to 13 s
 (`TEAM_MORTAR`): `pickMortarTarget` weighs every enemy body and ground vehicle out in the field (1 each, 4 for a vehicle, plus the
@@ -237,7 +245,7 @@ It is a second hit and not a multiplier on the first because the first has alrea
 
 ## Comms feed
 
-`comms:line` (`CommsLine` in `enemies/outpost/events.ts`) goes to `CommsFeed` in `ui/hud/feed.ts`: four lines at most, six seconds each, above the sonar chip. The speaker shows, or the squad when the speaker is null. `fear`, `panic`, `surrender` and `squadGone` show amber, everything else cold. Text only for now.
+`comms:line` (`CommsLine` in `enemies/outpost/events.ts`) goes to `CommsFeed` in `ui/hud/feed.ts`: four lines at most, six seconds each, above the sonar chip. The speaker shows, or the squad when the speaker is null. `fear`, `panic`, `surrender` and `squadGone` show amber, the player's own men (`ally`, Outpost Defense's `radio.ts`) cyan, everything else cold. Text only for now.
 
 ## Tuning knobs
 

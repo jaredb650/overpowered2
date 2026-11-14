@@ -97,6 +97,76 @@ Answers fielded first by bots, 150 s, seeds 3, 11, 23: camper `mortars, snipers`
 
 Section 22: in endless he is always there, directing the men, and they obey. Every 12 to 18 s `RadioOrders` picks the squad doing least, chooses from what the player is doing (still: frag, flash; running: cut-off; holding a prisoner: flank; few men left: rush), and asks `squad.obey`. That prices the drill at nothing and replans. If the plan does not contain the drill he tries his next choice, so **he is never heard ordering something his men cannot do.** The line goes through `commander:bark`, the squad's leader answers on the feed when it starts, and `commander:order` and `commander:obeyed` say so. `{squad}` is a new slot, and `cmd.order.<drill>.<key>` the new lines. A mission writes his words itself, so none of this runs under `MISSION_ID`. Radio silence stops it too.
 
+## Outpost Defense: the radio
+
+`src/contracts/defense/radio.ts`, built by `contracts/index.ts` on the fort only. On this contract he is the one at the walls, so his Kill House
+lines are off: the box drops every bark that is not a fort line (`isDefenseLine`), which takes out his first words, his line on a player's
+death and `RadioOrders`' orders (the orders still move his squads; only the words go). He never briefs a break here anyway. In their place:
+
+- **The Commander** threatens: 87 lines in `DEFENSE_CMD`, by event, each with its own emotion. He picks a line he has not said this run, as
+  close to his mood as there is (smug for waves 1 to 5, irritated to 10, rattled to 15, cracked after), and once an event's lines are spent
+  they come round again. The owner's `cmd.def.armour.bitch` is always his first line about a tank.
+- **The Council** (the Office of Societal Compliance, the player's handler) says what is actually coming and from where: 48 lines in
+  `DEFENSE_COUNCIL`. `{dir}` is one side or several, always in compass order (`sidesWord`: `north and east`, `north, east, south and west`).
+- **The player's men** call out on the comms feed in the bottom left, in the allies' cyan, as `kind: 'ally'` with the man's type as the
+  speaker: breaches, gates, contact by side, charges, tanks, helicopters, incoming mortar fire, man down, killed, reloading, a shop hit or
+  lost, wave clear. The nearest man standing says it; with nobody standing nothing is said. 2 s between any two (a breach, a man down or a
+  machine cuts in) and a gap per call (contact 20 s a side, reload 14 s).
+
+**How a wave sounds.** `wave:start`: his threat (a boss wave's own: armour, the helicopter, the Juggernaut, the Titan, everything; every
+fourth wave from 8, how long this has gone on), then hers: `Wave 4. Hostiles massing to the north and east.` from the director's `fronts`.
+The men at the fence call contact by side as the first squads come through. From 12 s in, fresh men at the fence are gathered for 4 s and
+named as reinforcements by side, at most every 30 s. Machines are called as they appear, by the side they come from (`Tank approaching from
+the south.`), bosses as they drop, bombers once in 30 s. Then the siege as it happens: a charge set (by ring and side, once in 12 s a
+stretch), a mortar set up, a jump pad, cover in the field (once in 40 s), a breach or a gate down by ring and side, a shop under attack
+(once in 25 s) or lost. Every 12 enemy dead he mourns. `wave:clear`: his line, hers (`Wave repelled. You have a break.`), a man's. Ten
+seconds before the next wave she says so. Repairs and hires get a line of his.
+
+**Pacing** (`Airwaves`). One line on the box at a time: a line is up for its length at the box's typing rate (`TYPE_RATE`, 70 a second) plus
+`HOLD` (2.6 s, sent with the bark as `hold`), then 0.5 s of quiet. Her warnings queue and are never dropped; one already waiting with the
+same words is not queued twice. His threats come first when he is due one (13 s since his last, a wave start may cut in, and a chance per
+event in `THREAT`), and give way: one still waiting after 4 s goes, and so does any with two of her warnings behind it. Everything runs on
+`realDt` and only while playing, as the box does, so the two keep the same clock.
+
+**Lines to record** (none has a take; `voice.ts` plays only what the manifest lists, so the box prints them and plays nothing). Run
+`voice-script.ts` to put them on the sheet: `{dir}` is recorded as the four sides, and the reinforcement lines as all fifteen sets of sides.
+The wave and boss-wave calls carry `{n}` and `{dir}` both, so they stay text. `docs/voice` has not been regenerated for them.
+
+- `cmd.def.open`: squatter, rings, wall
+- `cmd.def.wave`: shed, key, lunch (smug); again, overtime, memo (irritated); volunteers, cooks, last (rattled); dog, dreams, giftshop (cracked)
+- `cmd.def.armour`: bitch, parking, money (smug); ink (irritated); driven (rattled); margaret (cracked)
+- `cmd.def.truck`: minibus (smug), delivery (irritated), carpool (rattled)
+- `cmd.def.chopper`: wave, roof (smug); letter (irritated); cloud (rattled)
+- `cmd.def.juggernaut`: when (smug), basement (rattled). `cmd.def.titan`: measured (smug), allowed (cracked). `cmd.def.all`: everything (rattled), crypt (cracked)
+- `cmd.def.mortar`: diary, invent (smug); paperwork (irritated); aim (rattled)
+- `cmd.def.charge`: doorbell, door (smug); seven (irritated); hands (rattled)
+- `cmd.def.breach`: made, air, onion (smug); rubble (irritated); time (rattled); framed (cracked)
+- `cmd.def.engineer`: sheep, neighbours (smug); permission (irritated)
+- `cmd.def.shop`: paying, closing (smug); review (irritated). `cmd.def.lost`: business, feels (smug); receipt (rattled)
+- `cmd.def.repair`: morning, quote (irritated); cheating (rattled); life (cracked)
+- `cmd.def.losses`: plenty (smug); names, clive (irritated); brave, field (rattled); arm, hell (cracked)
+- `cmd.def.long`: home, job (irritated); rent, pension (rattled); outside, dark (cracked)
+- `cmd.def.hire`: double (smug), payroll (irritated), dennis (rattled)
+- `cmd.def.clear`: regroup (smug), tea (irritated), count (rattled), stops (cracked)
+- `cmd.def.tankDown`: signed (rattled), knew (cracked). `cmd.def.chopperDown`: piece (rattled), sky (cracked). `cmd.def.playerDead`: keys, bodies (smug)
+- `council.def` (deadpan): `open.brief`, `open.hours`; `wave.massing`, `wave.inbound`, `wave.infantry` (text); `boss.tanks`, `boss.choppers`,
+  `boss.juggernaut`, `boss.titan`, `boss.all` (text); `reinforce.a/b/c`; `tank.a/b`; `truck.a/b`; `humvee.a`; `chopper.a/b`; `juggernaut`;
+  `titan`; `bombers`; `mortar.a/b`; `pad`; `cover`; `charge.outer/middle/core`; `breach.outer/middle/core`; `gate.outer/middle/core`;
+  `shop.barracks/armoury/infirmary`; `lost.barracks/armoury/infirmary`; `tankDown`; `chopperDown`; `clear.a/b/c`; `soon`
+
+**Knobs.** Top of `radio.ts`: `HOLD`, `STALE`, `COMMANDER_GAP`, `THREAT`, the reinforcement window (`OPENING`, `GATHER`, `REINFORCE_GAP`),
+the per-event gaps, `LOSS_STEP`, `LONG_FROM`; the men's lines and gaps in `SQUAD`, `SQUAD_GAP`, `SQUAD_ANY`.
+
+**Tests.** `src/contracts/defense/radio.test.ts`: a wave start names its wave and sides, his threat first; a boss wave by name with the
+owner's line; a breach, a tank by its road and a shop; no line up before the last has had its time, in a burst and over twelve waves, and
+none of her warnings dropped; only `cmd.def` lines from him, none twice before the set is spent; his old lines refused on the fort; every
+fort line text with no take in the manifest and only slots a session can record; the men's contact once a side, a man down at once,
+silence with nobody standing.
+
+**Rough.** Nobody has listened to it for a whole run, and the gaps are guesses. When his lines get takes, a take longer than its text's
+airtime will be cut by the next line: the radio times lines by their text, not by the recording. Fronts come from the director's `fronts`;
+a director without it would make her say `fence` for the sides.
+
 ## Voice
 
 `nice -n 19 npx tsx tools/scripts/voice-script.ts` writes `docs/voice/commander-script.csv` and `.md`. 413 lines, 375 recorded, 924 takes: 850 Commander, 30 intercept, 44 Council. The rest is radio and stays text. Slots multiply a line, and that is where most of the takes come from: cut `NAMES`, `ROOM_WORDS` or a band in `COUNT_BANDS` to shorten the session.

@@ -40,6 +40,8 @@ const LINES: Record<CommsKind, readonly string[]> = {
   lastStand: ['Come on then!', 'You\'re coming with me!', 'Taking you with me!'],
   // The Commander's men speak from src/enemies/commander/lines.ts, through `relay`.
   order: [],
+  // The player's own men on the fort, from src/contracts/defense/radio.ts.
+  ally: [],
   pinning: ['Keep it pinned!', 'Hold it there! Don\'t let it up!', 'Rounds on that corner, keep them on it!', 'Nobody stops firing!'],
   flushing: ['Flush it out!', 'It\'s dug in! Frag it!', 'Grenade on that position, move it!', 'Get it out of there!'],
   rushing: ['Everyone in! Now!', 'Go, go, go! Push!', 'All of you, on it, now!', 'Close it down!'],

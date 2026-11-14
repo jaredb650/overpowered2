@@ -10,20 +10,19 @@
  * its first word once the radio has been quiet a moment. The mission says his death and a player's death in its own lines.
  */
 import { MISSION_ID } from '../../campaign/select';
+import { ACTIVE } from '../../contracts/select';
 import type { Ctx } from '../../core/contracts';
 import type { EnemyInstance } from '../../core/gameplay';
 import { TONE_OF, type Tone } from '../../enemies/commander/adaptations';
 import type { Briefing, StatusFlag } from '../../enemies/commander/events';
-import { FINAL_COUNCIL, FIRST, LAST_WORDS, lineById, PLAYER_DOWN, type Speaker } from '../../enemies/commander/lines';
+import { FINAL_COUNCIL, FIRST, isDefenseLine, LAST_WORDS, lineById, PLAYER_DOWN, type Speaker } from '../../enemies/commander/lines';
 import { Flag, Label, div, h, span } from '../dom';
 import type { Settings } from '../settings';
 import './commander.css';
-import { readingSeconds, Script, spoken, type Page } from './pick';
+import { readingSeconds, Script, spoken, TYPE_RATE, type Page } from './pick';
 import { Portrait } from './portrait';
 import { Voice } from './voice';
 
-/** Characters a second. Quick enough that nobody waits for it, slow enough to look typed by a man under fire. */
-const TYPE_RATE = 70;
 /** Seconds a line over the open channel stays up. */
 const BARK_SECONDS = 4.2;
 /** Seconds between the run starting and his first words. */
@@ -39,6 +38,7 @@ const TAGS: Record<Speaker, string> = {
   intercept: 'Outpost command to all units',
   radio: '',
 };
+const TONES: ReadonlySet<string> = new Set<Tone>(['smug', 'irritated', 'rattled', 'cracked']);
 const CHIPS: readonly [StatusFlag, string][] = [['painted', 'PAINTED'], ['jammed', 'SONAR JAMMED'], ['uplink', 'UPLINK JAMMED'], ['aaLock', 'AA LOCK']];
 
 interface Radar {
@@ -65,6 +65,8 @@ export class CommanderHud {
   private shown = 0;
   private clock = 0;
   private bark = false;
+  /** Seconds the bark stays up once typed. */
+  private barkHold = BARK_SECONDS;
   /** A page waiting for the mission's radio. */
   private held = false;
   private settle = 0;
@@ -101,7 +103,7 @@ export class CommanderHud {
     const { events } = ctx;
     events.on('commander:briefing', b => this.onBriefing(b));
     events.on('commander:status', e => this.chips.get(e.flag)?.set(e.on));
-    events.on('commander:bark', e => this.onBark(e.id, e.vars));
+    events.on('commander:bark', e => this.onBark(e.id, e.vars, e.hold));
     events.on('commander:fulfilled', () => this.onFulfil());
     events.on('commander:quiet', () => this.close());
     events.on('commander:person', e => { this.person = e.arrived; });
@@ -132,15 +134,19 @@ export class CommanderHud {
     this.open(this.script.compose(b));
   }
 
-  private onBark(id: string, vars?: Readonly<Record<string, string>>): void {
+  private onBark(id: string, vars?: Readonly<Record<string, string>>, hold?: number): void {
     if (this.page >= 0 && !this.bark) return;
     if (this.radio) return;
+    // Outpost Defense has a radio of its own (contracts/defense/radio.ts). His Kill House lines, orders and openers make no sense on the fort.
+    if (ACTIVE.def.economy && !isDefenseLine(id)) return;
     const line = lineById(id);
     if (!line) return;
     const part = spoken(line, vars ?? {}, null);
-    const tone: Tone = line.emotion === 'smug' || line.emotion === 'irritated' || line.emotion === 'rattled' || line.emotion === 'cracked' ? line.emotion : 'cracked';
+    const council = line.speaker === 'council';
+    const tone: Tone = TONES.has(line.emotion) ? (line.emotion as Tone) : council ? 'smug' : 'cracked';
     this.bark = true;
-    this.pages = [{ speaker: 'commander', tone, parts: [part] }];
+    this.barkHold = hold ?? BARK_SECONDS;
+    this.pages = [{ speaker: council ? 'council' : 'commander', tone, parts: [part] }];
     this.show(0);
   }
 
@@ -171,7 +177,7 @@ export class CommanderHud {
     this.full = page.parts.map(p => p.text).join(page.speaker === 'intercept' ? '\n' : ' ');
     this.shown = 0;
     this.text.textContent = '';
-    this.clock = readingSeconds(page) * (this.bark ? 0 : 1) + (this.bark ? BARK_SECONDS : 0);
+    this.clock = this.bark ? this.barkHold : readingSeconds(page);
     this.box.className = `cmd-box on ${page.speaker} ${page.tone}${this.bark ? ' bark' : ''}`;
     this.name.set(NAMES[page.speaker]);
     this.tag.set(TAGS[page.speaker]);

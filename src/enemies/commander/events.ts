@@ -34,8 +34,8 @@ declare module '../../core/contracts' {
     'commander:done': Record<string, never>;
     /** A warning chip goes up or comes down. */
     'commander:status': { flag: StatusFlag; on: boolean };
-    /** One line from the Commander over the open channel, mid-wave. An id from lines.ts. */
-    'commander:bark': { id: string; vars?: Readonly<Record<string, string>> };
+    /** One line over the open channel, mid-wave: his, or the Council's on the fort. An id from lines.ts. `hold` is seconds up once typed. */
+    'commander:bark': { id: string; vars?: Readonly<Record<string, string>>; hold?: number };
     /** He told a squad what to do, and `drill` is what it will now do. */
     'commander:order': { squad: string; drill: string };
     /** That squad has started on it. */

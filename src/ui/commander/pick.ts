@@ -31,6 +31,7 @@ interface Filled {
   room?: string;
   name?: string;
   squad?: string;
+  dir?: string;
 }
 
 /** Under this a topic is not worth bringing up, and the Commander fills the silence instead. */
@@ -182,7 +183,10 @@ function announce(id: AdaptationId, late: boolean, topic: Topic | null): Line {
   return answer(id, late);
 }
 
-const WORD = /\{(n|weapon|room|name|squad)\}/g;
+/** Characters a second the box types at. The defense radio times its lines by it too. */
+export const TYPE_RATE = 70;
+
+const WORD = /\{(n|weapon|room|name|squad|dir)\}/g;
 
 /** Fills the slots. The text keeps the true number; the clip name carries the band a recording was made at. */
 export function spoken(line: Line, fill: Filled, topic: Topic | null): Spoken {
@@ -200,11 +204,11 @@ export function spoken(line: Line, fill: Filled, topic: Topic | null): Spoken {
       if (UNVOICED_WEAPONS.has(key)) unvoiced = true;
       return weaponWord(key);
     }
-    const word = slot === 'room' ? fill.room : slot === 'squad' ? fill.squad : fill.name;
+    const word = slot === 'room' ? fill.room : slot === 'squad' ? fill.squad : slot === 'dir' ? fill.dir : fill.name;
     key = word ?? '';
     return word ?? '';
   });
-  return { id: line.id, text, clip: textOnly(line) || unvoiced ? null : key ? `${line.id}~${key.replace(/ /g, '_')}` : line.id };
+  return { id: line.id, text, clip: textOnly(line) || unvoiced ? null : key ? `${line.id}~${key.replace(/,? /g, '_')}` : line.id };
 }
 
 /** Seconds a page stays up if there is no recording to time it by. */

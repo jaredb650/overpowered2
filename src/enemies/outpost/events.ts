@@ -17,7 +17,7 @@ import type { Condition, ZoneId } from '../wounds/rules';
 export type CommsKind =
   | 'contact' | 'lost' | 'noise' | 'manDown' | 'leaderDown' | 'takingCommand' | 'medic' | 'reloading' | 'moving' | 'covering'
   | 'flanking' | 'frag' | 'flash' | 'breach' | 'fallback' | 'regroup' | 'fear' | 'panic' | 'surrender' | 'fix' | 'squadGone'
-  | 'hit' | 'dying' | 'beg' | 'scream' | 'rescue' | 'lastStand' | 'order'
+  | 'hit' | 'dying' | 'beg' | 'scream' | 'rescue' | 'lastStand' | 'order' | 'ally'
   | 'pinning' | 'flushing' | 'rushing' | 'cutoff' | 'ambushSet' | 'spring' | 'opening' | 'wounded' | 'dry' | 'refused' | 'hostage' | 'clearShot' | 'obey' | 'behindUs';
 
 export interface CommsLine {
