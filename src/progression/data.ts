@@ -200,7 +200,9 @@ export const GIFT_SOURCES = /^(mortar|mine|tripwire|claymore|rigged|deadman)/;
  */
 export const COMBO_PERKS: readonly { perk: PerkId; at: number; rearm: number }[] = [
   { perk: 'berserk', at: 15, rearm: 15 },
-  { perk: 'sentinels', at: 20, rearm: 20 },
+  // Sentinels (combo 20) were taken off the ladder on 2026-11-13 at the owner's word: they blocked the view and stole
+  // kills. The perk itself still works; put `{ perk: 'sentinels', at: 20, rearm: 20 }` back here (and in LADDER,
+  // ui/data.ts) to restore it.
   { perk: 'chainStorm', at: 30, rearm: 30 },
 ];
 

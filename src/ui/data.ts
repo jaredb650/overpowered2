@@ -190,7 +190,10 @@ const perk = (id: PerkId, name: string, trigger: string, reward: string): PerkIn
   ({ name, trigger, reward: `${EFFECTS[id].seconds} s. ${reward}`, color: EFFECTS[id].color });
 
 const within = (w: { need: number; span: number }, what: string) => `${w.need} ${what} in ${w.span} s`;
-const comboAt = (id: PerkId) => `Combo ${COMBO_PERKS.find(p => p.perk === id)!.at}`;
+const comboAt = (id: PerkId) => {
+  const rung = COMBO_PERKS.find(p => p.perk === id);
+  return rung ? `Combo ${rung.at}` : 'Off';
+};
 
 export const PERKS: Record<PerkId, PerkInfo> = {
   bloodthirst: perk('bloodthirst', 'Blood Thirst', within(WINDOWS.bloodthirst, 'kills'), `${STACK.damage.bloodthirst}x damage, bottomless mags, double pellets`),
@@ -240,7 +243,6 @@ export const LADDER: readonly { combo: number; name: string; color: string }[] =
   { combo: 12, name: 'Warthog', color: CALLINS.warthog.color },
   { combo: 15, name: 'Berserk', color: PERKS.berserk.color },
   { combo: 18, name: 'Door Gunner', color: CALLINS.doorGunner.color },
-  { combo: 20, name: 'Sentinels', color: PERKS.sentinels.color },
   { combo: 22, name: 'Attack Chopper', color: CALLINS.attackChopper.color },
   { combo: 25, name: 'Orbital Lance', color: CALLINS.orbital.color },
   { combo: 28, name: 'AC-130', color: CALLINS.ac130.color },

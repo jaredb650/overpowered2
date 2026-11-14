@@ -9,7 +9,7 @@
 | `perks.ts` | Activation, countdowns, stacking, the one writer of `weapons.modifiers` and `player.modifiers`, grade choice |
 | `counters.ts` | `TimeWindow` (sliding) and `Combo` (gap-based) |
 | `score.ts` | Scoring, style labels, multi-kills, high score |
-| `chains.ts`, `frost.ts`, `sentinels.ts` | Chain Storm and Chain Reaction, Frost Nova, the drones |
+| `chains.ts`, `frost.ts`, `sentinels.ts` | Chain Storm and Chain Reaction, Frost Nova, the drones. The drones (Sentinels) are off the combo ladder since 2026-11-13: nothing grants them in a run, and the guide hides them. `COMBO_PERKS` in `data.ts` says how to put them back |
 | `callins/manager.ts` | Ownership, cooldowns, keys, the holster, running strikes |
 | `callins/targeting.ts` | Aim solve, confirm, cancel, the Warthog drag |
 | `callins/ground.ts` | `GroundRing`, `GroundStrip` and `GroundProbe` |
