@@ -159,12 +159,12 @@ fade; the body cap holds; a blast throws resting wreckage again; a wall dropping
 
 | Measure | Fort | For scale |
 |---|---|---|
-| Static | 216k triangles, 979 colliders, 110 baked lights, 184 wall segments, 8 gates, 31 shacks | Outpost 257k, 457, 131. The old fort 96k, 259, 65 |
+| Static | 217k triangles, 986 colliders, 119 baked lights, 184 wall segments, 8 gates, 31 shacks | Outpost 257k, 457, 131. The old fort 96k, 259, 65 |
 | Nav | 50.9k nodes, 0.44 s | Outpost 37.7k |
 | Build | 2.8 s all in, the light bake 2.3 s of it | |
 | Draw calls, map sandbox (no characters) | 98 (a tower, a crenel) to 229 (the field looking in), 210k to 410k triangles in view, CPU 1.3 to 4 ms | Old fort 142 to 188; Outpost sandbox 90 to 118 |
 | Debris | One shack: 60 bodies, CPU 4 to 8 ms while they fly, then 0; four at once: the 90-body cap | |
-| Draw calls, real game, 6 allies and a wave | see the last report | Old fort 155 to 245; Outpost 151 to 196 |
+| Draw calls, real game, 6 allies and wave 1 (`fort-game.mjs`) | 151 to 166 at a crenel or in a tower, 292 to 306 in the core looking south over the whole base; 365k to 750k triangles; CPU 4 to 7 ms | Old fort 155 to 245; Outpost 151 to 196 |
 
 Frame rates in the harness at 2x are the harness's, not the map's; other agents' browsers were running.
 
@@ -184,4 +184,6 @@ Frame rates in the harness at 2x are the harness's, not the map's; other agents'
 - **The spoil bank's top is no floor,** so men go round it, not over; the player can stand on it.
 - **Landing zones are only data and paint.** The enemy helicopter does not land, and nothing else uses them.
 - **Engineers' sandbag walls are not in the cover map**, which is built at load. The siege sends men behind them by hand.
-- **Colliders** are 979, over the old budget of 900 (the test allows 1300): the catwalk's posts, sandbags, crates and wire.
+- **The core looking out is the costly view:** about 300 draw calls with characters, against 245 on the old fort. The walls and
+  towers are under 170.
+- **Colliders** are 986, over the old budget of 900 (the test allows 1300): the catwalk's posts, sandbags, crates and wire.
