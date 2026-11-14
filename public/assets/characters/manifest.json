@@ -216,6 +216,42 @@
    "bytes": 215700,
    "triangles": 6980,
    "kind": "prop"
+  },
+  "gunnerHeadPartialSide": {
+   "file": "gunnerHeadPartialSide.bin",
+   "bytes": 203896,
+   "triangles": 6922,
+   "kind": "prop"
+  },
+  "gunnerHeadPartialTop": {
+   "file": "gunnerHeadPartialTop.bin",
+   "bytes": 218636,
+   "triangles": 6966,
+   "kind": "prop"
+  },
+  "huskHeadPartialSide": {
+   "file": "huskHeadPartialSide.bin",
+   "bytes": 207188,
+   "triangles": 6940,
+   "kind": "prop"
+  },
+  "huskHeadPartialTop": {
+   "file": "huskHeadPartialTop.bin",
+   "bytes": 221932,
+   "triangles": 6996,
+   "kind": "prop"
+  },
+  "bruteHeadPartialSide": {
+   "file": "bruteHeadPartialSide.bin",
+   "bytes": 203132,
+   "triangles": 6954,
+   "kind": "prop"
+  },
+  "bruteHeadPartialTop": {
+   "file": "bruteHeadPartialTop.bin",
+   "bytes": 215192,
+   "triangles": 6964,
+   "kind": "prop"
   }
  }
 }

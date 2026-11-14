@@ -17,7 +17,8 @@ const VIEWS = [
 
 export default async function shots(page, h) {
   for (let i = 0; i < 120; i++) {
-    if (await page.evaluate(() => (window.__gore?.gore.standIns?.size ?? 0) >= 2)) break;
+    const arch = new URL(page.url()).searchParams.get('arch') ?? 'husk';
+    if (await page.evaluate(a => ['Side', 'Top'].every(v => window.__gore?.gore.standIns?.has(`${a}HeadPartial${v}`)), arch)) break;
     await h.sleep(250);
   }
   for (const f of frames) {
@@ -113,7 +114,7 @@ export default async function shots(page, h) {
     const after = { L: shown(L), R: shown(R), Lneck: L.bones[3].scale.x, Rneck: R.bones[3].scale.x };
     // The severed head carries a copy of the stand-in.
     let flying = 0;
-    g.ctx.render.scene.traverse(o => { if (o.name === 'trooperHeadPartialSide' || o.name === 'trooperHeadPartialTop') if (o.visible && o.parent && !g.stage.row.some(c => c.bones.includes(o.parent))) flying++; });
+    g.ctx.render.scene.traverse(o => { if (/HeadPartial(Side|Top)$/.test(o.name)) if (o.visible && o.parent && !g.stage.row.some(c => c.bones.includes(o.parent))) flying++; });
     L.release();
     const reset = { props: L.props.filter(p => p.untilReset).length, inverses: L.skeleton.boneInverses === L.a.bindInverses, head: L.bones[4].scale.x, helmetVisible: L.props.filter(p => p.bone === 4).map(p => p.object.visible) };
     return { before, after, flying, reset };

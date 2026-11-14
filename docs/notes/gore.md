@@ -87,17 +87,18 @@ Rules for callers:
   outcome is a blast's: a burst at 40 or more, else off whole. On a body gore already has (down, rising, dead) a burst
   cuts the head out of the ragdoll where it lies. A club leaves the head; the katana's slice plane still takes it.
 - A **partial** wound is a baked partial head standing in for the real one, on the archetypes in `PARTIAL_HEADS`
-  (`src/gore/index.ts`: the Trooper); the rest burst, as does one whose heads have not loaded yet, and `?headpartial=0`
+  (`src/gore/index.ts`: the Trooper, Gunner, Husk and Brute); the rest burst, as does one whose heads have not loaded yet, and `?headpartial=0`
   bursts them all. Two props per archetype, baked from his own head (`tools/bake/parts/headWreck.ts`, `partialHead` in
   `props.ts`): `<arch>HeadPartialSide`, his left side sheared off (mirrored for a round from his left), and
-  `<arch>HeadPartialTop`, the crown and upper face blown open. A round within `PARTIAL_SIDE` of the head's sideways axis
+  `<arch>HeadPartialTop`, the crown and upper face blown open. Each head's measurements (outer crown and face, skull, the
+  Brute's iron mask) and palette (the Husk's dead flesh) are `fitFor` in `headWreck.ts`; the cut planes are shared. A round within `PARTIAL_SIDE` of the head's sideways axis
   takes the side, anything else the top. `partialHead` loads them at `init` through `ctx.characters.prop` and mounts a clone
   with `Character.standIn(headBone, mesh)`: the head bone's bind inverse is collapsed for that body alone, so its skin
   (and the interior's) folds away while the bone stays, still hit, on the ragdoll, and still burst or shot off on the corpse;
   a severed head takes a clone of the stand-in with it (`SeveredPart.pose` shares the body's bind inverses). Reset puts the
   shared inverses back and drops the stand-in (`attachProp(..., untilReset)`). It also hides anything else still on the
   head bone, a helmet no plate threw. It still throws step 1's cranium shells, half a brain and meat, with blood. Sandbox:
-  `scenario=headpartial&arch=trooper`, captured by `tools/scripts/headpartial-shots.mjs` (`HP_CHECK=1` also bursts and
+  `scenario=headpartial&arch=<trooper|gunner|husk|brute>`, captured by `tools/scripts/headpartial-shots.mjs` (`HP_CHECK=1` also bursts and
   shoots off the heads and checks the reset). The sandbox has no player, so gore puts bodies on the far LOD, which draws no
   wounds: `setLod(0)` them before drawing.
 - The burst is a kit of pieces that add up to a head, built in code in `chunks.ts` and scaled to the head's radius (x1.15):

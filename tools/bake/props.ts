@@ -10,7 +10,8 @@ import {
   blend, capsule, cone, cut, cyl, ellipsoid, fbm, frustum, hexBolt, rbox, rows, sphere, spline, torus, tube,
   type V3,
 } from './sdf';
-import { gunnerHelmet, riotHelmet, rocketeerHelmet, trooper, trooperHelmet } from './archetypes/soldiers';
+import { brute, gunner, gunnerHelmet, riotHelmet, rocketeerHelmet, trooper, trooperHelmet } from './archetypes/soldiers';
+import { husk } from './archetypes/creatures';
 import { headOnly, sideBlown, toHead, topBlown } from './parts/headWreck';
 import { B, Sk } from './parts/skeleton';
 import { darkSteel, glass, glow, hazard, hexc, leather, paintedMetal, rubber, rust, steel } from './parts/materials';
@@ -346,7 +347,7 @@ function partialHead(archetype: string, body: (m: Model, sk: Sk, def: ArchetypeD
       body(whole, sk, def);
       const on = new Model();
       const box = headOnly(whole.edits, sk, on.edits);
-      wreck(on, sk, box);
+      wreck(on, sk, box, def);
       toHead(on.edits, sk, m);
       return {};
     },
@@ -361,5 +362,11 @@ export const PROPS: Record<string, PropDef> = {
   riotHelmet: wornOnHead('riot', riotHelmet),
   trooperHeadPartialSide: partialHead('trooper', trooper, sideBlown),
   trooperHeadPartialTop: partialHead('trooper', trooper, topBlown),
+  gunnerHeadPartialSide: partialHead('gunner', gunner, sideBlown),
+  gunnerHeadPartialTop: partialHead('gunner', gunner, topBlown),
+  huskHeadPartialSide: partialHead('husk', husk, sideBlown),
+  huskHeadPartialTop: partialHead('husk', husk, topBlown),
+  bruteHeadPartialSide: partialHead('brute', brute, sideBlown),
+  bruteHeadPartialTop: partialHead('brute', brute, topBlown),
 };
 

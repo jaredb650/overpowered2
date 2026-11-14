@@ -2,10 +2,11 @@
 
 Status: step 1 built on 2026-11-14 (the rules, the Fallout burst kit, pellet counting on the head, the helmet thrown
 off). Step 2 built on 2026-11-14 for the Trooper the cheap way, then redone the same day as a **modeled, baked partial
-head** after the owner found the crater too much like ordinary bullet damage (see Step 2b, below); **waiting for the
-owner to look before step 3.** `headOutcome` in `src/enemies/damage.ts` answers 'partial' for a severe headshot on the
-Trooper, Gunner, Husk and Brute; `gore.headshot` builds it on the archetypes in `PARTIAL_HEADS` (`src/gore/index.ts`, the
-Trooper) and bursts it on the rest. Not done in step 1: the full Lance is not in the very damaging tier (nothing tells a full beam
+head** after the owner found the crater too much like ordinary bullet damage (see Step 2b, below). The owner played it
+("the exact feel I wanted"); **step 3 built on 2026-11-14**: the Gunner, Husk and Brute have their own baked partial heads
+(see Step 3, at the end). `headOutcome` in `src/enemies/damage.ts` answers 'partial' for a severe headshot on the
+Trooper, Gunner, Husk and Brute; `gore.headshot` builds it on the archetypes in `PARTIAL_HEADS` (`src/gore/index.ts`, all
+four) and bursts it on the rest. Not done in step 1: the full Lance is not in the very damaging tier (nothing tells a full beam
 from a ball in `DamageInfo` yet).
 
 ## The problem
@@ -205,3 +206,32 @@ under the stand-in is hidden by the hood but is not modeled.
 measurements are the hooded Trooper's (`HOOD_C`, `SKULL_C` and the cut planes in head space), so each needs its own skull
 and cut placed for its head: the Gunner's high collar, the Husk's bare face, the Brute's small head in a gorget and
 visor. About a round or two of screenshots and three or four bakes per enemy.
+
+## Step 3: the Gunner, Husk and Brute (2026-11-14)
+
+Built the Trooper's way: two baked props each, `<arch>HeadPartialSide` and `<arch>HeadPartialTop`, with the same cut
+planes, rim, splinters, folded brain, hanging eye and jaw, flaps and blood. `PARTIAL_HEADS` names all four.
+
+**What was refitted.** The wreck's measurements moved out of constants into `fitFor(def)` in `headWreck.ts`: the outer
+crown and lower face the cut face is layered against, the skull (the brain is sized from it), an optional outer shell, a
+palette, and what hangs off the side variant. The Trooper's numbers are unchanged, so his props did not need a rebake.
+
+- **Gunner**: the Trooper's hood without the respirator, so the same fit and no filter. His high collar is on the chest
+  bone, so it stays on the body and hides the hanging jaw from the front; the bucket helm is thrown as a plate when he
+  wears one, or hidden with the head by `standIn` when it is only the prop (checked live: the prop goes invisible).
+- **Husk**: fitted to `humanHead` (gaunt), skull closer under thin skin. Undead palette: dried brown-red meat with grey
+  and green mottling, yellowed bone, a grey brain with dark folds, thick dark red-brown blood, a dry crust round the hole
+  in place of the burn, and flaps of his blotched grey skin. The eye hanging on its nerve glows his accent green, and a
+  bar of his iron jaw cage hangs bent with the broken jaw.
+- **Brute**: his hood at 0.92 inside a solid iron mask. The cut face shows a band of dark iron with a bright sheared edge
+  outside the hood layers, and his flaps and skull plates are iron outside. His gorget is on the chest and stays; his head
+  plate is thrown by `damage.ts` as before.
+
+**Checked.** Sandbox `scenario=headpartial&arch=<gunner|husk|brute>` with `tools/scripts/headpartial-shots.mjs` (now waits
+for that archetype's two props). Live on `/?map=range`, a severe (60) rifle round to the head of each mounts its stand-in
+(Gunner and Brute from the front: the top; Husk from the side: the side). Screenshots in `tools/out/headpartial3/`,
+`contact.png` first (each enemy: top variant front, three-quarter, side and 10 m, then the side variant the same).
+
+**Rough.** As step 2b's. The Gunner's collar hides most of the hanging eye and jaw from the front. The Brute's torn iron
+reads as a dark band more than as bent metal; his skull plates show their bone side from the front. The Husk's cage bar
+is small at range.

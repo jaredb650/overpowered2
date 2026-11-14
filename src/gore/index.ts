@@ -36,7 +36,7 @@ import { WoundPlanner } from './wounds';
 const PARTIAL_HEADS: Readonly<Record<string, readonly [side: string, top: string]>> =
   typeof location !== 'undefined' && new URLSearchParams(location.search).get('headpartial') === '0'
     ? {}
-    : { trooper: ['trooperHeadPartialSide', 'trooperHeadPartialTop'] };
+    : Object.fromEntries(['trooper', 'gunner', 'husk', 'brute'].map(a => [a, [`${a}HeadPartialSide`, `${a}HeadPartialTop`] as const]));
 /** A round this far off the head's sideways axis, or nearer, takes the side off; anything else the top. */
 const PARTIAL_SIDE = 0.55;
 /** What a partial wound throws out, and each piece's size against the head's hit radius. */
