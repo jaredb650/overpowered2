@@ -273,6 +273,11 @@ export const COCKPIT_SHELL_SCALE = 5;
 export const SOURCE_SCALE: Readonly<Record<string, number>> = { chopper_cannon: 0.14 };
 /** The one bullet that counts: the Packmule's gun on a chopper's thin skin, so the Door Gunner has a fight to be in. */
 export const SKIN_BULLETS: Readonly<Record<string, number>> = { door_gun: 0.22 };
+/**
+ * The Sabot's dart is the one bullet that goes through armour, anywhere on it, but only for a share of its 600: about 17 to
+ * kill a tank on the hull and 11 to bring a helicopter down, 4 for a track. Weak points that do more are a later stage.
+ */
+export const SABOT_ON_ARMOUR = 0.1;
 /** Parts of a chopper that SKIN_BULLETS can reach. */
 export const SKIN_PARTS: ReadonlySet<PartId> = new Set<PartId>(['tail', 'rotor', 'cockpit']);
 /** Tracks are broken at this share of the top speed: one side gone is a stop, and an engine fire is this. */

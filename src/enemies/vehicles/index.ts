@@ -303,10 +303,11 @@ export class VehicleSystem implements VehicleTargets {
     return collider ? this.colliders.get(collider.handle) ?? null : null;
   }
 
-  private marker(dealt: boolean, killed: boolean): void {
+  /** `pierced` is a dart through armour: it reads as armour let through, not as a plain hit. */
+  private marker(dealt: boolean, killed: boolean, pierced = false): void {
     const { audio, hud } = this.ctx;
-    hud.hitMarker(killed ? 'kill' : dealt ? 'body' : 'armor');
-    audio.play(killed ? 'hit_marker_kill' : dealt ? 'hit_marker' : 'hit_marker_armor');
+    hud.hitMarker(killed ? 'kill' : pierced ? 'armorThrough' : dealt ? 'body' : 'armor');
+    audio.play(killed ? 'hit_marker_kill' : pierced ? 'armour_through' : dealt ? 'hit_marker' : 'armour_stopped');
   }
 
   shot(collider: RAPIER.Collider | null, point: THREE.Vector3, amount: number, source: string): boolean {
@@ -315,8 +316,10 @@ export class VehicleSystem implements VehicleTargets {
     const v = part.owner;
     const dealt = bulletDamage(v.def, part.def, amount, source);
     if (dealt > 0 && part.def.id === 'cab' && v instanceof GroundVehicle) v.shotDriver(dealt, point);
+    const pierced = dealt > 0 && v.def.armoured;
+    if (pierced) this.ctx.audio.play('sabot_on_vehicle', { position: point, pitchJitter: 0.04 });
     v.take(dealt, part, source, point);
-    this.marker(dealt > 0, !v.alive);
+    this.marker(dealt > 0, !v.alive, pierced);
     return true;
   }
 

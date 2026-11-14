@@ -40,7 +40,7 @@ Audio reads `ctx.player`, `ctx.time`, `ctx.world` and listens to events, so nobo
 | Event | Sound |
 |---|---|
 | `fx:casing` | `casing_brass` (rifle a little lower), `casing_shotgun`, `casing_heavy`. Volume follows strength. Quiet bounces thin out under 50 ms apart |
-| `enemy:hit` from the player | `hit_marker`, `hit_marker_head`, `hit_marker_armor`. Skips fire ticks |
+| `enemy:hit` from the player | `hit_marker`, `hit_marker_head`, or by the hit's armour outcome `armour_stopped`, `armour_through`, `armour_broken` (all 2D). A broken piece is heard even on a kill and inside the marker gap. Skips fire ticks. `hit_marker_armor` is kept but no longer played |
 | `enemy:hit` from a round of the player's own guns (`bullet`, `pellet`) on a body | `hit_punch` at the hit and `hit_confirm` in 2D, weighted by the round and played at the end of the frame. A machine gets a quieter, lower `hit_punch` and no confirm, and a kill has `hit_marker_kill` in place of the confirm. See "Body hits" |
 | `enemy:killed` from the player | `hit_marker_kill` |
 | `enemy:severed` on flesh | `bone_snap`, `flesh_tear` and `blood_spurt` under the enemies system's `limb_sever` |
@@ -227,6 +227,12 @@ Id is the file name without extension. Aliases in brackets are the first game's 
 - **Unnamed in the first game:** `222`, `3333`, `asdf`, `frfff`
 
 Random-pick groups: `bullet_hit` (the four samples), `sword_hit`, `player_footstep`.
+
+**The armour update** (`sfx/armour`, the owner's own generated recordings, keyed by name):
+- 2D confirmations on the reward mix: `armour_stopped`, `armour_through`, `armour_broken`, `headshot_crack` (a headshot that
+  did not kill), `headshot_puff` (over `headshot` on a head kill), `vehicle_weak_point` (registered, waits for the weak points)
+- In the world: `armour_crunch` (a shaped charge strips every plate), `sabot_on_vehicle`, `sabot_shield_pierce`
+- Guns: `sabot_shot` (replaces `sabot_fire` on the Sabot), `autocannon_blast` (replaces `autocannon_shot` on the autocannon)
 
 ## Sample packs
 

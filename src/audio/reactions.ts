@@ -194,9 +194,13 @@ export class Reactions {
     // Fire ticks on its own. Confirming every tick would drown out the shots that took aim.
     if (damage.type === 'fire' || ENEMY_SOURCES.has(damage.source)) return;
     this.bodyHit(enemy, damage, result, now);
+    const armour = result.armour ?? (result.blocked ? 'stopped' : undefined);
+    // A piece coming off is news even on a kill and inside the gap, so a Sabot headshot through a helmet is both sounds.
+    if (armour === 'broken') this.play('armour_broken');
     if (result.killed || now - this.lastMarker < MARKER_GAP) return;
     this.lastMarker = now;
-    this.play(result.blocked ? 'hit_marker_armor' : result.headshot ? 'hit_marker_head' : 'hit_marker');
+    if (armour === 'broken') return;
+    this.play(armour === 'stopped' ? 'armour_stopped' : armour === 'through' ? 'armour_through' : result.headshot ? 'hit_marker_head' : 'hit_marker');
   }
 
   /**

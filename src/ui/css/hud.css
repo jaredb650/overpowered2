@@ -349,7 +349,8 @@
 .xh-reticle.hostile .xh-svg * { fill: var(--blood); }
 .hm .xh-svg * { stroke: #000; stroke-width: 1.2; paint-order: stroke; }
 .hm-body .xh-svg * { fill: #fff; }
-.hm-armor .xh-svg * { fill: var(--cold); }
+.hm-armor .xh-svg *, .hm-armorThrough .xh-svg *, .hm-armorBroken .xh-svg * { fill: var(--cold); }
+.hm-armorThrough .xh-svg .tick { fill: #fff; }
 .hm-head .xh-svg * { fill: #ffe500; }
 .hm-kill .xh-svg * { fill: var(--blood); }
 

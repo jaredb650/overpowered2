@@ -130,7 +130,8 @@ const svgWrap = (inner: string) => `<svg class="xh-svg" viewBox="-80 -80 160 160
 const DIRS = [[0, -1], [1, 0], [0, 1], [-1, 0]] as const;
 const DIAGS = [[0.707, -0.707], [0.707, 0.707], [-0.707, 0.707], [-0.707, -0.707]] as const;
 
-export type HitKind = 'body' | 'head' | 'kill' | 'armor';
+/** The three armour kinds: the plate stopped it, some got through (a white tick inside), the plate broke (bigger, longer arms). */
+export type HitKind = 'body' | 'head' | 'kill' | 'armor' | 'armorThrough' | 'armorBroken';
 
 const stroke = (r: number, len: number, w: number) =>
   [45, 135, 225, 315].map(a => turned(poly(`${-w},${-r - len} ${w},${-r - len} ${w},${-r} ${-w},${-r}`), a)).join('');
@@ -138,6 +139,8 @@ const stroke = (r: number, len: number, w: number) =>
 const HITS: Record<HitKind, { shape: string; life: number; scale: number }> = {
   body: { shape: stroke(8, 9, 1.4), life: 0.15, scale: 1.45 },
   armor: { shape: stroke(8, 7, 2.2) + '<path fill-rule="evenodd" d="M-6 -6H6V6H-6Z M-4.4 -4.4V4.4H4.4V-4.4Z" transform="rotate(45)"/>', life: 0.16, scale: 1.4 },
+  armorThrough: { shape: stroke(8, 7, 2.2) + '<path fill-rule="evenodd" d="M-6 -6H6V6H-6Z M-4.4 -4.4V4.4H4.4V-4.4Z" transform="rotate(45)"/><path class="tick" d="M-2 -2H2V2H-2Z" transform="rotate(45)"/>', life: 0.18, scale: 1.45 },
+  armorBroken: { shape: stroke(10, 13, 2.6) + '<path fill-rule="evenodd" d="M-8 -8H8V8H-8Z M-6 -6V6H6V-6Z" transform="rotate(45)"/>', life: 0.26, scale: 1.8 },
   head: { shape: stroke(9, 15, 2.2), life: 0.26, scale: 1.7 },
   kill: { shape: stroke(11, 22, 3.6) + poly('0,-5 5,0 0,5 -5,0'), life: 0.36, scale: 1.9 },
 };
@@ -262,6 +265,8 @@ export class Crosshair {
     this.hits = {
       body: new HitMarker('body'),
       armor: new HitMarker('armor'),
+      armorThrough: new HitMarker('armorThrough'),
+      armorBroken: new HitMarker('armorBroken'),
       head: new HitMarker('head'),
       kill: new HitMarker('kill'),
     };
@@ -272,7 +277,7 @@ export class Crosshair {
       magHost,
       chargeHost,
       promptHost,
-      this.hits.body.el, this.hits.armor.el, this.hits.head.el, this.hits.kill.el,
+      this.hits.body.el, this.hits.armor.el, this.hits.armorThrough.el, this.hits.armorBroken.el, this.hits.head.el, this.hits.kill.el,
     );
     for (let i = 0; i < MAX_ARCS; i++) {
       const arc = new DamageArc();
@@ -302,6 +307,7 @@ export class Crosshair {
     if (kind === 'kill') {
       this.hits.body.cut();
       this.hits.armor.cut();
+      this.hits.armorThrough.cut();
     }
     this.hits[kind].fire();
   }

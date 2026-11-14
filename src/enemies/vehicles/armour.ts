@@ -7,13 +7,14 @@
 import type { ExplosionKind } from '../../core/contracts';
 import { SHAPED_CHARGE } from '../../weapons/data';
 import {
-  ARMOUR_BLAST_MOST, ARMOUR_BLAST_SHARE, COCKPIT_SHELL_SCALE, SKIN_BULLETS, SKIN_PARTS, SOFT_BLAST_SCALE, SOURCE_SCALE,
+  ARMOUR_BLAST_MOST, ARMOUR_BLAST_SHARE, COCKPIT_SHELL_SCALE, SABOT_ON_ARMOUR, SKIN_BULLETS, SKIN_PARTS, SOFT_BLAST_SCALE, SOURCE_SCALE,
   type PartDef, type VehicleDef,
 } from './data';
 
 /** Bullets are anything that lands with no blast behind it. */
 export function bulletDamage(def: VehicleDef, part: PartDef, amount: number, source: string): number {
   if (!def.armoured) return amount * part.scale;
+  if (source === 'sabot') return amount * SABOT_ON_ARMOUR * part.scale;
   const skin = SKIN_BULLETS[source];
   return skin !== undefined && SKIN_PARTS.has(part.id) ? amount * skin * part.scale : 0;
 }

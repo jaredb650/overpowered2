@@ -387,7 +387,12 @@ export interface DamageResult {
   severed: GoreRegion[];
   /** Hit armour, a shield or an immune spot; suppresses blood. */
   blocked: boolean;
+  /** What a plate, helmet, shield or ward made of the round. Unset when no armour was in the way. */
+  armour?: ArmourOutcome;
 }
+
+/** Stopped: the armour took it all. Through: some reached the body. Broken: the piece was destroyed (with or without the rest getting in). */
+export type ArmourOutcome = 'stopped' | 'through' | 'broken';
 
 /** The player's aircraft, as an enemy chopper sees it. */
 export interface FriendlyAircraft {
@@ -539,7 +544,7 @@ export interface HudSystem extends GameSystem {
   /** Kill feed line. */
   feed(text: string, color?: string): void;
   /** Crosshair hit marker. */
-  hitMarker(kind: 'body' | 'head' | 'kill' | 'armor'): void;
+  hitMarker(kind: 'body' | 'head' | 'kill' | 'armor' | 'armorThrough' | 'armorBroken'): void;
   /** Score text that floats up from a world position. */
   floatText(position: THREE.Vector3, text: string, color?: string): void;
   /** A world position marker, e.g. a weapon cache or powerup. Returns a remover. */

@@ -130,6 +130,8 @@ const PAIN_GAP = 0.7;
 const BOSS_PAIN_GAP = 6;
 /** A tank the player did not set off, as a share of a full blast. */
 export const STRAY_TANK_DAMAGE = 0.17;
+/** The Piledriver shreds armour: a plate takes its rounds at this many times their worth. */
+export const PILEDRIVER_SHRED = 2;
 export const STRAY_TANK_RADIUS = 0.8;
 /** Share of a shot tank's blast that reaches the player who shot it. Too close is a mistake, not a death sentence. */
 const TANK_SELF_DAMAGE = 0.35;
@@ -227,6 +229,7 @@ export class DamageModel {
     this.head = (this.head + 1) % RESULT_RING;
     r.dealt = 0;
     r.killed = r.headshot = r.blocked = false;
+    r.armour = undefined;
     r.severed.length = 0;
     return r;
   }
@@ -263,16 +266,22 @@ export class DamageModel {
     res.headshot = region === 'head' && !area && (placed === null || (placed.zone === 'head' && !placed.glancing));
 
     // A plate does nothing about a fire, or about blood that is already leaving.
-    const round = (!body || d.type === 'explosive' || !area) && !d.pierces && !kneeling;
-    const plate = !round ? null : area ? this.blastPlate(e) : this.plateFor(e, region, d);
+    const reaches = (!body || d.type === 'explosive' || !area) && !kneeling;
+    // A round that goes through armour takes the armour with it: the Sabot's dart deletes the piece it passes, a shaped
+    // charge on the body strips every plate he wears (only the one it hit on a boss, so one rocket cannot skip his phases).
+    if (reaches && d.pierces && e.armor > 0) this.tearOff(e, region, d, res);
+    const plate = !reaches || d.pierces ? null : area ? this.blastPlate(e) : this.plateFor(e, region, d);
     if (plate) {
+      const shred = d.source === 'piledriver' ? PILEDRIVER_SHRED : 1;
       // Section 14.6: a plate stops small arms outright, the round that breaks it included. Only a heavy round carries on through.
-      const absorbed = placed && d.amount < HEAVY_ROUND ? amount : Math.min(plate.hp, amount);
-      plate.hp -= absorbed;
-      e.armor = Math.max(0, e.armor - absorbed);
+      const absorbed = placed && d.amount < HEAVY_ROUND ? amount : Math.min(plate.hp / shred, amount);
+      plate.hp -= absorbed * shred;
+      e.armor = Math.max(0, e.armor - absorbed * shred);
       amount -= absorbed;
-      if (plate.hp <= 0) this.shootOff(e, plate, d);
+      const broken = plate.hp <= 0;
+      if (broken) this.shootOff(e, plate, d);
       if (body) wounds!.onPlate(e, plate, d, region);
+      res.armour = broken ? 'broken' : amount <= 0 ? 'stopped' : 'through';
       if (amount <= 0) {
         res.blocked = true;
         res.headshot = false;
@@ -476,6 +485,25 @@ export class DamageModel {
     return null;
   }
 
+  /** An armour-piercing round or a shaped charge on the body: the armour in its way is gone, and the round lands in full. */
+  private tearOff(e: Enemy, region: GoreRegion, d: DamageInfo, res: DamageResult): void {
+    const all = !d.armorPiercing && !e.isBoss;
+    // A dart only takes what covers the spot it hit; a charge on a boss takes the nearest plate it can find.
+    const only = all ? null : this.plateFor(e, region, d) ?? (d.armorPiercing ? null : this.blastPlate(e));
+    if (!all && !only) return;
+    let torn = 0;
+    for (let i = 0; i < e.plates.length; i++) {
+      const p = e.plates[i]!;
+      if (p.hp <= 0 || (only && p !== only)) continue;
+      e.armor = Math.max(0, e.armor - p.hp);
+      this.shootOff(e, p, d);
+      torn++;
+    }
+    if (torn === 0) return;
+    res.armour = 'broken';
+    if (all && torn > 1) this.w.ctx.audio.play('armour_crunch', { position: e.center, pitchJitter: 0.05 });
+  }
+
   /** A blast chips whichever plate is left. */
   private blastPlate(e: Enemy): Plate | null {
     for (let i = 0; i < e.plates.length; i++) {
@@ -500,6 +528,7 @@ export class DamageModel {
     const { ctx } = this.w;
     e.ward -= d.amount;
     res.blocked = true;
+    res.armour = 'stopped';
     this.w.telegraphs.flashWard(e.wardVisual);
     e.char.hitFlash(0.25);
     if (e.ward <= 0) {
@@ -517,12 +546,14 @@ export class DamageModel {
     // Shots at the exposed gun arm or the legs below the rim still land.
     const region = d.region;
     if (region === 'armR' || region === 'forearmR' || region === 'shinL' || region === 'shinR') return false;
-    // An armour-piercing dart goes through the shield as it does a plate, and lands on the man behind it. The shield rings.
+    // An armour-piercing dart goes through the shield as it does a plate, and lands on the man behind it.
     if (d.armorPiercing) {
-      this.w.ctx.audio.play('riot_shield_hit', { position: d.point, pitchJitter: 0.1 });
+      this.w.ctx.audio.play('sabot_shield_pierce', { position: d.point, pitchJitter: 0.04 });
+      res.armour = 'broken';
       return false;
     }
     res.blocked = true;
+    res.armour = 'stopped';
     const { ctx } = this.w;
     ctx.audio.play('riot_shield_hit', { position: d.point, pitchJitter: 0.1 });
     e.char.anim.flinch(B.upperArmL, d.dir, 0.3);

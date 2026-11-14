@@ -29,6 +29,17 @@ describe('armour', () => {
     expect(bulletDamage(CHOPPER, part(CHOPPER, 'body'), 13, 'door_gun')).toBe(0);
   });
 
+  it('the Sabot goes through armour anywhere, but a tank still takes a pile of darts', () => {
+    const SABOT = WEAPONS.sabot.damage;
+    const darts = (def: VehicleDef, id: string): number => Math.ceil(def.health / bulletDamage(def, part(def, id), SABOT, 'sabot'));
+    for (const p of [...TANK.parts, ...CHOPPER.parts]) expect(bulletDamage(TANK, p, SABOT, 'sabot')).toBeGreaterThan(0);
+    expect(darts(TANK, 'hull')).toBeGreaterThanOrEqual(15);
+    expect(darts(CHOPPER, 'body')).toBeGreaterThanOrEqual(10);
+    // A track is a pool of its own, and a few darts break it.
+    const track = part(TANK, 'trackLeft');
+    expect(Math.ceil(track.pool / bulletDamage(TANK, track, SABOT, 'sabot'))).toBeLessThanOrEqual(5);
+  });
+
   it('a soft-skin dies to about a magazine or two of gunfire', () => {
     const rounds = (def: GroundDef, id: string): number => def.health / bulletDamage(def, part(def, id), WEAPONS.smg.damage, 'smg');
     expect(rounds(HUMVEE, 'cab')).toBeGreaterThan(20);

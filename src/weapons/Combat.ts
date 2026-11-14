@@ -320,23 +320,28 @@ export class Combat implements CombatSystem {
       if (!quiet) {
         c.fx.impact(point, normal, 'armor');
         this.play('impact_armor', point, 0.9, 0.05);
-        c.hud.hitMarker('armor');
+        c.hud.hitMarker(result.armour === 'broken' ? 'armorBroken' : 'armor');
       }
       return result;
     }
 
     if (!quiet) {
+      // Armour that broke or let the round through has its own marker; the 2D armour sound comes from audio's enemy:hit.
+      const armour = result.armour === 'broken' ? 'armorBroken' : result.armour === 'through' ? 'armorThrough' : null;
       if (result.headshot) {
-        // The yellow chips and the triple layer are the signature of the whole game. Never positional.
-        c.fx.chips(point, 0xffff00, 20);
-        this.play('headshot');
-        c.hud.hitMarker(result.killed ? 'kill' : 'head');
+        // You can hear whether it killed: the old headshot and a 2D puff over a little red mist, or a dry crack and nothing to see.
+        if (result.killed) {
+          c.fx.bloodMist(point, HEADSHOT_MIST);
+          this.play('headshot');
+          this.play('headshot_puff');
+        } else this.play('headshot_crack');
+        c.hud.hitMarker(result.killed ? 'kill' : armour ?? 'head');
         this.feel.stop(result.killed ? HIT_STOP.headshotKill : HIT_STOP.headshot);
       } else {
         c.fx.bloodHit(point, dir, 1);
         // The material of the hit. Its weight by round, and the 2D confirmation, are layered by audio from the same enemy:hit.
         this.play(enemy.machine ? 'machine_hit' : 'bullet_body', point, 1, 0.06);
-        c.hud.hitMarker(result.killed ? 'kill' : 'body');
+        c.hud.hitMarker(result.killed ? 'kill' : armour ?? 'body');
       }
       if (result.killed && killStop > 0) this.feel.stop(killStop);
       else if (result.severed.length > 0) {
@@ -1088,5 +1093,7 @@ const EXIT_DUST: Record<SurfaceKind, number> = {
   energy: 0x88ddff, lava: 0xff7733,
 };
 
+/** Size of the red mist a fatal headshot leaves: a puff over the wound, not a burst. */
+const HEADSHOT_MIST = 2.2;
 const NO_DAMAGE: DamageResult = { dealt: 0, killed: false, headshot: false, severed: [], blocked: false };
 

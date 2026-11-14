@@ -127,6 +127,28 @@ const samples: SoundDef[] = [
   sample('frfff.mp3', 'enemyFx', 0.3),
 ];
 
+/** The armour update's recordings in sfx/armour (docs/CREDITS.md), keyed by name rather than by path. */
+function armour(name: string, mix: MixClass, effective: number, over: Partial<MixProfile> = {}): SoundDef {
+  return { ...sample(`armour/${name}.mp3`, mix, effective, over), id: name };
+}
+
+/** 2D confirmations ride the reward mix with the hit markers; the rest come from where the round landed. */
+const CONFIRM: Partial<MixProfile> = { perFrame: 1, maxVoices: 2 };
+const armourSamples: SoundDef[] = [
+  armour('armour_stopped', 'reward', 0.16, CONFIRM),
+  armour('armour_through', 'reward', 0.18, CONFIRM),
+  armour('armour_broken', 'reward', 0.26, { perFrame: 1, maxVoices: 3 }),
+  armour('headshot_crack', 'reward', 0.24, CONFIRM),
+  armour('headshot_puff', 'reward', 0.24, CONFIRM),
+  // Not played yet: it waits for the vehicle weak points (docs/proposals/armour-and-headshots-plan.md, section 6).
+  armour('vehicle_weak_point', 'reward', 0.26, CONFIRM),
+  armour('armour_crunch', 'impact', 0.4, { priority: 6 }),
+  armour('sabot_on_vehicle', 'impact', 0.35, { priority: 6 }),
+  armour('sabot_shield_pierce', 'impact', 0.35, { priority: 6 }),
+  armour('sabot_shot', 'gun', 0.45, { send: 0.22 }),
+  armour('autocannon_blast', 'gun', 0.5, { send: 0.22 }),
+];
+
 /**
  * Sample packs from docs/CREDITS.md. Each id is `count` numbered files in sfx/gore, named after the id or after `source`
  * when one pack's recordings serve a second id with its own level and voices.
@@ -261,7 +283,7 @@ const aliases: Record<string, string> = {
 };
 
 export const CATALOG: ReadonlyMap<string, SoundDef> = new Map(
-  [...samples, ...packs, ...groups, ...stacks, ...recipes.map(synth)].map(def => [def.id, def]),
+  [...samples, ...armourSamples, ...packs, ...groups, ...stacks, ...recipes.map(synth)].map(def => [def.id, def]),
 );
 
 export const ALIASES: Readonly<Record<string, string>> = aliases;
