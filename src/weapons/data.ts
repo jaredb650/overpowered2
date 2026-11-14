@@ -9,6 +9,9 @@ import type { ExplosionKind, MuzzleKind, SurfaceKind, TracerKind } from '../core
 import type { BurstSpec, SwordMove, WeaponId } from '../core/gameplay';
 
 /** `paint` is the Quiver's: hold to mark targets, let go to fire the salvo at them. Its numbers are `TUNING.quiver`. */
+/** Light: stopped, wears the plate a little. Medium: stopped, breaks the plate. Heavy: wears it hard, and half gets through. */
+export type ArmourClass = 'light' | 'medium' | 'heavy';
+
 export type FireMode = 'auto' | 'semi' | 'charge' | 'spin' | 'stream' | 'melee' | 'paint';
 export type CasingKind = 'pistol' | 'rifle' | 'shotgun' | 'cannon';
 
@@ -62,6 +65,11 @@ export interface WeaponDef {
   bodyCost?: number;
   /** Goes through armour plates as if they were not there. */
   armorPiercing?: boolean;
+  /**
+   * How a plate or helmet takes this gun's round (enemies/damage.ts). Unset: light under HEAVY_ROUND damage, heavy at or
+   * over it. Medium is a rifle-class round: the plate stops it but is wrecked doing so. Pellets are counted per blast.
+   */
+  armour?: ArmourClass;
   /** Damage holds to `from` meters, then falls in a line to `floor` of itself at `to`. Unset: full damage at any range. */
   falloff?: { readonly from: number; readonly to: number; readonly floor: number };
   /** After a headshot the round jumps to this many more heads, as the Judge's does. */
@@ -159,7 +167,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
   harrow: {
     ...BASE, id: 'harrow', name: 'HARROW', slot: 1, base: 'smg', mode: 'auto',
     magSize: 24, reserve: 144, maxReserve: 288, reloadTime: 1.35, drawTime: 0.22,
-    interval: 0.12, damage: 50, severMult: 1.8, canSever: true, force: 14, headshotMult: 2,
+    interval: 0.12, damage: 50, severMult: 1.8, canSever: true, force: 14, headshotMult: 2, armour: 'medium',
     penetration: 0.5,
     muzzle: 'carbine', tracer: 'carbine', casing: 'rifle',
     sounds: [{ id: 'harrow_shot', pitchJitter: 0.03 }],
@@ -277,7 +285,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
   judge: {
     ...BASE, id: 'judge', name: 'JUDGE', slot: 6, mode: 'semi',
     magSize: 6, reserve: 30, maxReserve: 60, reloadTime: 1.5, drawTime: 0.22,
-    interval: 0.42, damage: 120, severMult: 1.6, force: 40, headshotMult: 2.5,
+    interval: 0.42, damage: 120, severMult: 1.6, force: 40, headshotMult: 2.5, armour: 'medium',
     headHops: 2, killStop: HEAVY_KILL_STOP, impactScale: 1.6,
     muzzle: 'revolver', tracer: 'heavy', casing: null,
     sounds: [{ id: 'revolver_shot', pitchJitter: 0.02 }],

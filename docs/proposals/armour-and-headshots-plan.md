@@ -5,8 +5,9 @@ Covers armour feedback, headshot feedback and vehicle weak points.
 Status: partly built, 2026-11-13. **Built:** section 1 (three outcomes, markers, sounds), section 4 except helmet
 headshots on removable helmets, section 5 (Sabot deletes armour and pierces shields, Piledriver double, rocket strips all
 plates), and the Sabot doing a share of its damage anywhere on an armoured vehicle (no weak points yet). The owner's
-sound files are wired in, with new shots for the Sabot and the autocannon. **Not built:** sections 2 and 7 (ballistic
-classes, pellet counting, one rule), section 3 (removable helmets), section 6's weak points and turret lock, section 8
+sound files are wired in, with new shots for the Sabot and the autocannon. **Built later the same day:** sections 2 and 7 (ballistic
+classes, pellet counting, one rule everywhere, the Brute's plates halved).
+**Not built:** section 3 (removable helmets), section 6's weak points and turret lock, section 8
 (Crucible helmets).
 
 Original status: idea, not scheduled. Written 2026-11-13 from the owner's notes; the owner answered the first round the same

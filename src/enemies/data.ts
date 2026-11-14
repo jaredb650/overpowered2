@@ -187,13 +187,15 @@ const brute: EnemyDef = {
     melee({ name: 'smash', reach: 3, damage: 18, windup: 0.6, anim: 'attackHeavy', knock: 10, cooldown: [2, 3], requires: e => e.maim.legs > 0 && e.maim.arms > 0 }),
     ...maimedAttacks(10),
   ],
+  // Half what they were before the one armour rule (2026-11-13): a light round now wears a plate by half its damage, so
+  // this keeps the SMG rounds it takes to strip a Brute where they were.
   plates: [
-    { regions: ['chest'], bone: B.chest, hp: 0.3, shape: 'slab', paint: BRUTE_PAINT, size: [0.56, 0.4, 0.09], offset: [0, 0.02, 0.27], tilt: [-0.06, 0, 0], facing: 'front' },
-    { regions: ['chest', 'abdomen'], bone: B.chest, hp: 0.28, shape: 'slab', paint: BRUTE_PAINT, size: [0.62, 0.56, 0.09], offset: [0, 0.03, -0.47], tilt: [0.04, Math.PI, 0], facing: 'back' },
-    { regions: ['abdomen'], bone: B.spine, hp: 0.22, shape: 'slab', paint: BRUTE_PAINT, size: [0.46, 0.24, 0.07], offset: [0, 0.03, 0.22], facing: 'front' },
-    { regions: ['armL'], bone: B.upperArmL, hp: 0.14, shape: 'sleeve', paint: BRUTE_PAINT, size: [0.2, 0.26, 0.03], offset: [0.1, -0.2, 0], tilt: [0, Math.PI / 2, 0.34] },
-    { regions: ['armR'], bone: B.upperArmR, hp: 0.14, shape: 'sleeve', paint: BRUTE_PAINT, size: [0.2, 0.26, 0.03], offset: [-0.1, -0.2, 0], tilt: [0, -Math.PI / 2, -0.34] },
-    { regions: ['head'], bone: B.head, hp: 0.16, shape: 'slab', paint: BRUTE_PAINT, size: [0.17, 0.3, 0.07], offset: [0, 0.2, 0.03], tilt: [-Math.PI / 2, 0, 0] },
+    { regions: ['chest'], bone: B.chest, hp: 0.15, shape: 'slab', paint: BRUTE_PAINT, size: [0.56, 0.4, 0.09], offset: [0, 0.02, 0.27], tilt: [-0.06, 0, 0], facing: 'front' },
+    { regions: ['chest', 'abdomen'], bone: B.chest, hp: 0.14, shape: 'slab', paint: BRUTE_PAINT, size: [0.62, 0.56, 0.09], offset: [0, 0.03, -0.47], tilt: [0.04, Math.PI, 0], facing: 'back' },
+    { regions: ['abdomen'], bone: B.spine, hp: 0.11, shape: 'slab', paint: BRUTE_PAINT, size: [0.46, 0.24, 0.07], offset: [0, 0.03, 0.22], facing: 'front' },
+    { regions: ['armL'], bone: B.upperArmL, hp: 0.07, shape: 'sleeve', paint: BRUTE_PAINT, size: [0.2, 0.26, 0.03], offset: [0.1, -0.2, 0], tilt: [0, Math.PI / 2, 0.34] },
+    { regions: ['armR'], bone: B.upperArmR, hp: 0.07, shape: 'sleeve', paint: BRUTE_PAINT, size: [0.2, 0.26, 0.03], offset: [-0.1, -0.2, 0], tilt: [0, -Math.PI / 2, -0.34] },
+    { regions: ['head'], bone: B.head, hp: 0.08, shape: 'slab', paint: BRUTE_PAINT, size: [0.17, 0.3, 0.07], offset: [0, 0.2, 0.03], tilt: [-Math.PI / 2, 0, 0] },
   ],
 };
 

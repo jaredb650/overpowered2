@@ -320,6 +320,11 @@ export class Combat implements CombatSystem {
       if (!quiet) {
         c.fx.impact(point, normal, 'armor');
         this.play('impact_armor', point, 0.9, 0.05);
+        // A pellet the plate turned: it glances off where it can be seen, with a whine.
+        if (d.type === 'pellet' && result.armour === 'stopped') {
+          c.fx.sparks(point, normal, 8, 0xffd9a0);
+          this.play('ricochet', point, 0.8, 0.1);
+        }
         c.hud.hitMarker(result.armour === 'broken' ? 'armorBroken' : 'armor');
       }
       return result;

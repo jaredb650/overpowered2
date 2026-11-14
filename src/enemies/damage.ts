@@ -21,6 +21,8 @@ import { bursts, HEAVY_ROUND } from './wounds/rules';
 import { BLAST, OUTCOME_COUNT, OUTCOMES, rollBlast, tearsWaist, type BlastBody, type BlastRoll, type OutcomeRule } from './blast';
 import { CHECK_CARRY, CHECK_MIN, CHECK_TOPPLE_MAX, CHECK_TOPPLE_MIN, checkStrength, SLIDE_KICK, SLIDE_TOPPLE } from './contact';
 import { ENEMIES, LIMB_SIZE, REGION_DAMAGE } from './data';
+import { WEAPONS, type ArmourClass } from '../weapons/data';
+import type { WeaponId } from '../core/gameplay';
 import { say } from './attacks';
 import { finishAttack } from './brain';
 import { chooseReaction, mustFall, profileOf, type ReactionProfile } from './reactions';
@@ -132,6 +134,25 @@ const BOSS_PAIN_GAP = 6;
 export const STRAY_TANK_DAMAGE = 0.17;
 /** The Piledriver shreds armour: a plate takes its rounds at this many times their worth. */
 export const PILEDRIVER_SHRED = 2;
+/** A light round wears a plate by this share of its own damage: an SMG round takes about half of a trooper's helmet. */
+export const LIGHT_WEAR = 0.5;
+
+/** A gun's own class, else light under HEAVY_ROUND damage and heavy at or over it (melee, call-in guns, sentinels). */
+export function classOf(source: string, round: number): ArmourClass {
+  const def = Object.hasOwn(WEAPONS, source) ? WEAPONS[source as WeaponId] : null;
+  return def?.armour ?? (round >= HEAVY_ROUND ? 'heavy' : 'light');
+}
+
+/**
+ * One round on one plate. `round` is the round's own damage, `amount` what it would do where it struck. Light is stopped
+ * and wears the plate by half the round; medium is stopped but wrecks the plate; heavy wears it by the round (twice for
+ * a shredder) and half of what it would have done gets through either way.
+ */
+export function armourHit(cls: ArmourClass, plateHp: number, round: number, amount: number, shred = 1): { wear: number; through: number } {
+  if (cls === 'medium') return { wear: plateHp, through: 0 };
+  if (cls === 'light') return { wear: round * LIGHT_WEAR, through: 0 };
+  return { wear: round * shred, through: amount * 0.5 };
+}
 export const STRAY_TANK_RADIUS = 0.8;
 /** Share of a shot tank's blast that reaches the player who shot it. Too close is a mistake, not a death sentence. */
 const TANK_SELF_DAMAGE = 0.35;
@@ -213,6 +234,9 @@ export class DamageModel {
   /** What has come up so far in the blast `seenIn`, so that one crowd does not all go the same way. */
   private readonly seen = new Uint8Array(OUTCOME_COUNT);
   private seenIn = -1;
+  /** Pellets of the blast on this frame that have met each plate, so a blast's pellets are counted together. */
+  private readonly volley = new Map<Plate, number>();
+  private volleyAt = -1;
   /** Limbs the blast `seenIn` has taken so far. */
   private cuts = 0;
   private readonly seam: DamageInfo = { amount: 0, type: 'explosive', point: new THREE.Vector3(), dir: new THREE.Vector3(), force: 0, source: '' };
@@ -273,25 +297,34 @@ export class DamageModel {
     const plate = !reaches || d.pierces ? null : area ? this.blastPlate(e) : this.plateFor(e, region, d);
     if (plate) {
       const shred = d.source === 'piledriver' ? PILEDRIVER_SHRED : 1;
-      // Section 14.6: a plate stops small arms outright, the round that breaks it included. Only a heavy round carries on through.
-      const absorbed = placed && d.amount < HEAVY_ROUND ? amount : Math.min(plate.hp / shred, amount);
-      plate.hp -= absorbed * shred;
-      e.armor = Math.max(0, e.armor - absorbed * shred);
-      amount -= absorbed;
+      // What the plate loses, and what of the round gets past it.
+      let wear: number;
+      let through: number;
+      if (e.isBoss || area) {
+        // Bosses keep the soak their phases were tuned on, and a blast chips whatever plate is left. What breaks through
+        // only half lands; the rest went into tearing the plate off.
+        const absorbed = Math.min(plate.hp / shred, amount);
+        wear = absorbed * shred;
+        through = (amount - absorbed) * 0.5;
+      } else {
+        // One rule in every mode, by the class of the round (docs/proposals/armour-and-headshots-plan.md, section 2).
+        ({ wear, through } = armourHit(this.armourClass(plate, d), plate.hp, d.amount, amount, shred));
+      }
+      e.armor = Math.max(0, e.armor - Math.min(wear, plate.hp));
+      plate.hp -= wear;
       const broken = plate.hp <= 0;
       if (broken) this.shootOff(e, plate, d);
       if (body) wounds!.onPlate(e, plate, d, region);
-      res.armour = broken ? 'broken' : amount <= 0 ? 'stopped' : 'through';
-      if (amount <= 0) {
+      res.armour = broken ? 'broken' : through <= 0 ? 'stopped' : 'through';
+      if (through <= 0) {
         res.blocked = true;
         res.headshot = false;
-        res.dealt = absorbed;
-        this.react(e, d, region, absorbed, res);
+        res.dealt = amount;
+        this.react(e, d, region, amount, res);
         this.m.emitHit(e, d, res);
         return res;
       }
-      // What breaks through a plate only half lands; the rest went into tearing the plate off.
-      amount *= 0.5;
+      amount = through;
     }
 
     if (e.frozen > 0 && amount >= 4) amount *= 3;
@@ -502,6 +535,23 @@ export class DamageModel {
     if (torn === 0) return;
     res.armour = 'broken';
     if (all && torn > 1) this.w.ctx.audio.play('armour_crunch', { position: e.center, pitchJitter: 0.05 });
+  }
+
+  /**
+   * The class a round meets this plate as. A shotgun's pellets are counted per blast: the first on a piece bounces off, the
+   * second wrecks it (medium), and the rest find nothing in their way.
+   */
+  private armourClass(plate: Plate, d: DamageInfo): ArmourClass {
+    if (d.type === 'pellet') {
+      if (this.volleyAt !== this.w.now) {
+        this.volleyAt = this.w.now;
+        this.volley.clear();
+      }
+      const hits = (this.volley.get(plate) ?? 0) + 1;
+      this.volley.set(plate, hits);
+      return hits >= 2 ? 'medium' : 'light';
+    }
+    return classOf(d.source, d.amount);
   }
 
   /** A blast chips whichever plate is left. */
