@@ -9,6 +9,7 @@
  * mid-stride. `?stand=0` switches all of it off.
  */
 import { clamp, lerp, smoothstep } from '../core/math';
+import type { LimbStrength } from './muscles';
 
 export const StandTuning = {
   /** A step reaches this far from between the feet, in metres times the rig's size. */
@@ -87,6 +88,15 @@ export const StandTuning = {
 /** The budget a hit of this strength, 0..1, leaves a body to catch itself with. */
 export function standBudget(strength: number): number {
   return lerp(0.9, 0.55, clamp(strength));
+}
+
+/**
+ * What a body's wounds and nature do to that budget (stage 8): half of it rests on the weaker leg, a head that is not all
+ * there (`LimbStrength.neck` under 1, concussed or ringing) has 0.7 of it, and one that feels nothing (`felt` false: under
+ * `ReflexTuning.painFrom`, the undead) 1.3 times it.
+ */
+export function strengthBudget(s: LimbStrength, felt: boolean): number {
+  return (0.5 + 0.5 * clamp(Math.min(s.legL, s.legR))) * (s.neck < 1 ? 0.7 : 1) * (felt ? 1 : 1.3);
 }
 
 /** One body's fight for its balance. */

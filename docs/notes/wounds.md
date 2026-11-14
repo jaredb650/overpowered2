@@ -145,7 +145,7 @@ node tools/shot.mjs --url "/?autostart=1" --script tools/scripts/wounds-swarm.mj
 - **No drag has been looked at frame by frame.** A rescuer dragged a man in two live runs, by the numbers, and revive was read on the Test Range, where there is no cover to drag him to.
 - **Bait has not been measured as a lure.** The rescue lines fire and the code path ran. Nobody has counted men drawn out of cover by one screaming man.
 - **Burn panic is written but not seen.** On the range with AI off he stands and burns, and I have no sequence with the brain on.
-- **A paralysed man's legs still stir** in gore's lying phase, because `Reflex` knows nothing of wounds.
+- **A man on fire rolls only where a fall would be seen** (within 20 m, in view, at full detail). Further off the fall's timer drops him and he lies still. Since euphoria plan stage 8 what the wounds leave each limb reaches gore (`Injuries.strength`, `gore.md` Wounds set strength): a paralysed man's legs lie dead, no longer stirring.
 - **A prone man firing a sidearm** uses the crawl's arm pose: the pistol is at the end of a hand on the floor. It fires true to the numbers and looks wrong.
 - **Chest plates are `plateGeometry` slabs** in the suit's colours; the helmet is the baked helmet prop. I judged them only at the range the sheets show.
 - **`stragglers.ts` marks prisoners too.** The reveal now works, but with three or more prisoners the markers can all go to them and miss the last hostile.

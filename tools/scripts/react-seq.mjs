@@ -24,6 +24,11 @@ const CASES = {
   stagwalk: { id: 'trooper', ai: 'patrol', settle: 40, steps: [0, 4, 8, 12, 18, 24, 30, 38, 46, 56, 70, 90, 110, 130], act: r => { r.log.push({ speed: +r.target.velocity.length().toFixed(2) }); r.sure(() => r.hit('chest', 18, 34, r.shock(0.85))); } },
   // And shot from the front as it comes on, against its run.
   stagrun: { id: 'trooper', ai: 'patrol', settle: 40, steps: [0, 4, 8, 12, 18, 24, 30, 38, 46, 56, 70, 90, 110, 130], act: r => { const v = r.target.velocity.clone().setY(0); r.log.push({ speed: +v.length().toFixed(2) }); r.dir.copy(v).normalize().negate(); r.sure(() => r.hit('chest', 18, 34, r.shock(0.85))); } },
+  // Stage 8: the same stagger on a Trooper whose left leg's pool is 85% spent (strength 0.16): the knee gives and stays giving,
+  // the stagger turns toward that side, and it has 0.58 of the budget. Compare `stagger`, and itself with `&strength=0`.
+  stagweak: { id: 'trooper', steps: [0, 4, 8, 12, 18, 24, 30, 38, 46, 56, 70, 90, 110, 130], act: r => { r.weaken('legL', 0.85); r.sure(() => r.hit('chest', 18, 34, r.shock(0.85))); } },
+  // A head round on a body catching its balance, 15 frames in: it costs twice its health (`HEAD_COST`), so it goes over.
+  staghead: { id: 'trooper', steps: [0, 4, 8, 12, 18, 24, 30, 38, 46, 56, 70, 90], act: async r => { r.sure(() => r.hit('chest', 18, 34, r.shock(0.85))); await r.advance(15); r.target.health = r.target.maxHealth; r.hit('head', 10, 20); } },
   // The same, on a shot leg.
   stagleg: { id: 'trooper', steps: [0, 4, 8, 12, 18, 24, 30, 38, 46, 56, 70, 90], act: r => r.hit('legL', 18, 34, r.shock(0.85)) },
   // Shot in the leg at a run.
@@ -147,6 +152,12 @@ export default async function reactSeq(page, h) {
         lab.togglePause();
         await r.walk(c.settle ?? 20);
       },
+      /** Spends this share of a limb's pool (stage 8: what is left of it is its strength). A leg's pool is 1.2 of a limb's. */
+      weaken(region, spent) {
+        const e = r.target;
+        const size = region.startsWith('leg') ? 1.2 : region.startsWith('shin') ? 0.9 : region.startsWith('forearm') ? 0.7 : 1;
+        e.limbHp.set(region, e.maxHealth * e.def.limbFrac * size * (1 - spent));
+      },
       shock(v) {
         r.target.shock = v;
         r.target.reactAt = 0;
@@ -258,6 +269,9 @@ export default async function reactSeq(page, h) {
           e: { x: +e.position.x.toFixed(2), z: +e.position.z.toFixed(2), down: e.downed, rise: +e.rising.toFixed(2), stag: +e.stagger.toFixed(2), alive: e.alive },
           reflex: reflex ? { ph: reflex.phase, tries: reflex.tries, fails: reflex.fails, knocks: reflex.knocks, up: +(reflex.progress ?? 0).toFixed(2) } : null,
           hips: +y[0].toFixed(2), head: +y[4].toFixed(2), low: +Math.min(...seen).toFixed(3),
+          // Stage 8: how much more the left knee bends than the right, radians, and the budget catching itself.
+          knee: +(['L', 'R'].map(s => { const p = i => new V().setFromMatrixPosition(c.bones[i].matrixWorld); const [a, b, k] = s === 'L' ? [11, 12, 13] : [14, 15, 16]; return p(b).sub(p(a)).angleTo(p(k).sub(p(b))); }).reduce((l, rr) => l - rr)).toFixed(2),
+          budget: ctx.gore.owned.get(c)?.rag?.muscle?.collapse?.stand?.budget?.toFixed(2) ?? null,
         };
       },
     };

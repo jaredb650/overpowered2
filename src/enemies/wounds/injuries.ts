@@ -4,6 +4,13 @@
  */
 import { CHARACTER, HEAVY_BLEED, HEAVY_ROUND, WoundTuning, ZONES, type Condition, type ZoneId } from './rules';
 import type { DamageType } from '../../core/contracts';
+import type { LimbStrength } from '../../gore/muscles';
+
+/** Smoothstep, here so this file stays plain numbers. */
+const ease = (a: number, b: number, x: number): number => {
+  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+};
 
 const MAX_WOUNDS = 8;
 
@@ -239,6 +246,20 @@ export class Injuries {
 
   concussed(now: number): boolean {
     return now < this.concussedUntil || now < this.ringingUntil;
+  }
+
+  /**
+   * What the wounds leave each limb (stage 8, `LimbStrength`): a leg by how far it is to giving way, an arm wound 0.2 and a hand
+   * wound 0.6, paralysed legs nothing, a gut wound the trunk 0.6, and a head that is ringing or concussed the neck 0.4.
+   */
+  strength(now: number, out: LimbStrength): LimbStrength {
+    out.legL = this.paralysed ? 0 : 1 - 0.8 * ease(0, WoundTuning.legGives, this.legL);
+    out.legR = this.paralysed ? 0 : 1 - 0.8 * ease(0, WoundTuning.legGives, this.legR);
+    out.armL = this.armL ? 0.2 : this.handL ? 0.6 : 1;
+    out.armR = this.armR ? 0.2 : this.handR ? 0.6 : 1;
+    out.trunk = this.hunched ? 0.6 : 1;
+    out.neck = this.concussed(now) ? 0.4 : 1;
+    return out;
   }
 
   /** Multiplies the miss radius right now. */

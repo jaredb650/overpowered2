@@ -156,6 +156,11 @@ declare module '../../core/contracts' {
      * `strength` is 0..1. The root is the caller's to move: the feet follow it.
      */
     stumble?(worldDir: THREE.Vector3, strength: number, bone: number): void;
+    /**
+     * A weak leg (1 left, -1 right) gives at the knee by `amount`, 0..1, as a shot one does: the hips drop and roll toward it with
+     * the foot kept planted. Call it each frame it should hold; it eases in, and once no longer called it fades as a buckle does.
+     */
+    buckleLeg?(side: number, amount: number): void;
     /** A hand goes to a wound and stays until `seconds` run out. This is the hold that section 14.6 of the design asks for. */
     holdWound?(bone: number, worldPoint: THREE.Vector3, seconds: number): void;
     /** Hands come up in front of the face. */

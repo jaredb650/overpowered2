@@ -487,6 +487,14 @@ export class HumanoidAnimator implements CharacterAnimation {
     for (const g of this.feet) g.lastPsi = (this.phase + g.phaseOffset) % 1;
   }
 
+  buckleLeg(side: number, amount: number): void {
+    const to = side > 0 ? 1 : -1;
+    // The other knee is still giving: it has to come back first, or the hips would roll across in one frame.
+    if (to !== this.buckleSide && this.buckleW > 0.05) return;
+    this.buckleSide = to;
+    this.buckle = Math.max(this.buckle, clamp(amount));
+  }
+
   holdWound(bone: number, worldPoint: THREE.Vector3, seconds: number): void {
     if (this.hidden(bone)) return;
     const b = this.bones[bone]!;

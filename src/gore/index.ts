@@ -18,11 +18,11 @@ import { WEAPONS } from '../weapons/data';
 import { BloodField, BloodTuning } from './blood';
 import { ChunkField, scatter } from './chunks';
 import { ImpactEvents, impactKind, ImpactTuning } from './impacts';
-import { CollapseDrive, impactStrength, MASS_PASS, MuscleTuning, STAND_PASS, WEIGHT_PASS, type CollapseOptions, type DownedBody, type KnockdownOptions } from './muscles';
+import { CollapseDrive, impactStrength, MASS_PASS, MuscleTuning, STAND_PASS, STRENGTH_PASS, WEIGHT_PASS, type CollapseOptions, type DownedBody, type KnockdownOptions, type LimbStrength } from './muscles';
 import { BodyFilter, fillVelocity, LimbFilter, measureAnimVelocity, Rag, SEED_STRIDE } from './rag';
 import { boneRay, boneRayContact, nextCapsuleHit, rayBones, rayNearSphere } from './raycast';
 import { Reflex, ReflexTuning } from './reflex';
-import { Stand, StandTuning } from './stand';
+import { Stand, StandTuning, strengthBudget } from './stand';
 import { Crawler } from './crawl';
 import { HUMAN_MASS, markSevered, markSubtree, MAX_BONES, rigInfo, type RigInfo } from './rigInfo';
 import { SliceField } from './sliced';
@@ -442,10 +442,10 @@ export class Gore implements GoreSystem {
       return;
     }
     const body = this.adopt(char);
-    this.beginCollapse(body, options?.duration ?? MuscleTuning.collapseSeconds, options?.velocity, options?.twitch, options?.hit);
+    this.beginCollapse(body, options?.duration ?? MuscleTuning.collapseSeconds, options?.velocity, options?.twitch, options?.hit, options?.strength);
   }
 
-  private beginCollapse(body: DeadBody, duration: number, velocity?: THREE.Vector3, twitch?: number, hit?: CollapseOptions['hit']): void {
+  private beginCollapse(body: DeadBody, duration: number, velocity?: THREE.Vector3, twitch?: number, hit?: CollapseOptions['hit'], strength?: LimbStrength): void {
     const { char, info } = body;
     // Short of GoreTuning.maxSimTime, with time left over to land.
     const seconds = clamp(duration, 0.3, 5);
@@ -461,7 +461,10 @@ export class Gore implements GoreSystem {
     if (hit) rag.applyImpulse(hit.bone, hit.point, _v.copy(hit.dir).multiplyScalar(hit.force));
     const muscle = rag.muscle;
     if (!muscle) return;
+    if (strength) muscle.strengthen(strength, true);
     if (drive && muscle.canStand()) {
+      // Its weaker leg goes first, unless a leg was shot just now.
+      if (strength && strength.legL !== strength.legR) drive.shotLeg = strength.legL < strength.legR ? 1 : -1;
       if (hit) {
         drive.away.set(hit.dir.x, 0, hit.dir.z).normalize();
         const region = info.rig.bones[hit.bone]!.region;
@@ -495,7 +498,8 @@ export class Gore implements GoreSystem {
     // It reads the pose and the root, so before the ragdoll takes them over. The animator goes on with the stumble it was
     // given, against a root that drifts on at the speed the body had.
     const drive = stumble ? new CollapseDrive(char.anim, char.root, char.bones, clamp(stumble.seconds, 0.2, 3), options.velocity) : null;
-    if (drive && catching) drive.stand = new Stand(stumble!.budget!);
+    const strength = options?.strength;
+    if (drive && catching) drive.stand = new Stand(stumble!.budget! * (strength ? strengthBudget(strength, hurt >= ReflexTuning.painFrom) : 1));
     const body = this.adopt(char);
     body.down = new Knockdown(options?.rise ?? t.knockdownRise, hurt);
     // On its feet nothing throws the limbs: the animation is doing the flailing, and a kick would take its feet off the floor.
@@ -503,6 +507,8 @@ export class Gore implements GoreSystem {
     this.startRag(body, { velocity: options?.velocity, impact: drive ? undefined : options?.impact }, drive !== null);
     const rag = body.rag!;
     const muscle = rag.muscle!;
+    // Its wounds are already on it, so they are there from the first frame.
+    if (strength) muscle.strengthen(strength, true);
     const dir = options?.impact?.dir ?? options?.topple ?? null;
     const plank = !drive && options?.topple !== undefined;
     const reflex = new Reflex(rag, muscle, char.anim, { lie: options?.lie ?? t.knockdownLie, hurt, groundY: ground, dir, plank, knockout: !drive && options?.knockout });
@@ -513,11 +519,13 @@ export class Gore implements GoreSystem {
       const wound = options?.wound;
       const struck = wound ? body.info.rig.bones[wound.bone]?.region : undefined;
       if (struck && (struck.startsWith('leg') || struck.startsWith('shin'))) drive.shotLeg = struck.endsWith('L') ? 1 : -1;
+      else if (strength && strength.legL !== strength.legR) drive.shotLeg = strength.legL < strength.legR ? 1 : -1;
       muscle.startCollapse(drive);
     }
     this.strikeDown(body, rag, options);
     if (!drive && options?.topple) muscle.tip(options.topple);
     if (reflex.knockout && dir && options?.wound) this.knockOut(rag, options.wound.point, dir);
+    if (options?.roll && STRENGTH_PASS) reflex.roll(options.roll);
     body.down.center.copy(rag.center);
     body.down.standing = drive !== null;
     return true;
@@ -561,6 +569,7 @@ export class Gore implements GoreSystem {
   /** A hit on a body that is down and alive. It is added to whatever the body was doing. */
   private strikeDown(body: DeadBody, rag: Rag, options: KnockdownOptions | undefined): void {
     const muscle = rag.muscle;
+    if (options?.strength && rag.age > 0) muscle?.strengthen(options.strength);
     // Still on its feet in a stumble, with its hips held: as for a body dying on them (`damageCorpse`), most of a round goes
     // into where the feet are heading, or all of it on the bone only bends the body over the hold.
     const stumble = muscle?.collapse?.alive ? muscle.collapse : null;
@@ -586,6 +595,11 @@ export class Gore implements GoreSystem {
     if (rag.age > 0) this.strike(rag, options, MuscleTuning.corpseImpact);
     const wound = options?.wound;
     if (wound && body.skip[wound.bone] !== 1) muscle?.reflex?.wound(wound.bone, wound.point);
+  }
+
+  setStrength(char: CharacterInstance, strength: LimbStrength): void {
+    const b = this.owned.get(char);
+    if (b?.down) b.rag?.muscle?.strengthen(strength);
   }
 
   downed(char: CharacterInstance): DownedBody | null {

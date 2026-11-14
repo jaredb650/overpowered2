@@ -16,7 +16,7 @@ import { CG, type CharacterAnimation, type RayHit } from '../core/contracts';
 import { clamp, damp, lerp, smoothstep } from '../core/math';
 import type { GetUpKind } from '../characters/animation/getUp';
 import { GRAVITY } from '../physics/Physics';
-import { KNOCK_PASS, type MuscleState } from './muscles';
+import { KNOCK_PASS, STRENGTH_PASS, type MuscleState } from './muscles';
 import type { Rag, RagPart } from './rag';
 
 export type ReflexPhase = 'fall' | 'lying' | 'struggle' | 'gather';
@@ -44,9 +44,13 @@ export interface ReflexLift {
   damping: number;
 }
 
-/** Chance that one attempt at getting up gives out, for a body this hurt. */
-export function giveOutChance(hurt: number): number {
-  return clamp(ReflexTuning.giveOut * (hurt - 1 / 3));
+/**
+ * Chance that one attempt at getting up gives out, for a body this hurt, on a weaker leg this strong (`LimbStrength`). A body
+ * that feels nothing (`painFrom`) does not care what its legs are like.
+ */
+export function giveOutChance(hurt: number, leg = 1): number {
+  const t = ReflexTuning;
+  return clamp(t.giveOut * (hurt - 1 / 3) + (hurt >= t.painFrom ? t.weakLegGive * (1 - leg) : 0));
 }
 
 export const ReflexTuning = {
@@ -138,6 +142,28 @@ export const ReflexTuning = {
   fallChin: 0.42,
   fallChinUp: -0.5,
   lyingCurl: 0.16,
+  /**
+   * Shot in the gut (`LimbStrength.trunk` under 1, or a wound on the belly): it curls round it this far, knees drawn up by
+   * `gutDraw` of the writhe's reach, both hands on it, and the spine holds the curl at no less than `gutSpine`.
+   */
+  gutCurl: 0.45,
+  gutDraw: 1.4,
+  gutSpine: 0.3,
+  /** An arm weaker than this does not reach for a wound: it hangs, and the other hand goes. */
+  reachFrom: 0.5,
+  /**
+   * Strength of an arm whose hand is on the wound, lying. At the lying 0.55 it carried half its weight and a hand reaching up
+   * onto the belly of a body on its back stopped 0.35 m short, on the floor beside it.
+   */
+  clutchArm: 0.85,
+  /**
+   * On fire, down: it rolls over, then back, every `rollEvery` seconds, pushing for the first `rollPush` of each at `rollSpin`
+   * rad/s about its trunk (`MuscleState.roll`).
+   */
+  rollEvery: 0.6,
+  rollSpin: 7,
+  /** Seconds of each roll it pushes for; the rest it goes over on what it has. */
+  rollPush: 0.3,
   /** How much of a leg draws up while lying, and how fast it stirs, in rad/s. */
   writheHip: 0.5,
   writheKnee: 0.8,
@@ -196,6 +222,8 @@ export const ReflexTuning = {
    * about a quarter of the Troopers knocked down on the range give out at least once (`gore.md`, Measured).
    */
   giveOut: 0.45,
+  /** What a weak leg adds to that: this, times what its wounds took off the weaker leg. */
+  weakLegGive: 0.4,
   /**
    * How far up an attempt that is going to fail gets before it gives out, least and most, as a share of what its hips and
    * shoulders have to rise; or `giveLate` seconds after its effort is all there, if it never gets that far.
@@ -236,6 +264,8 @@ interface Arm {
   readonly tip: THREE.Vector3;
   /** Age at which its hand reached the floor in this fall, or -1. */
   yieldAt: number;
+  /** Its hand is on the wound, lying. */
+  clutch: boolean;
 }
 
 interface Leg {
@@ -335,6 +365,12 @@ export class Reflex {
   /** The pose each joint was reaching for when the body lost its feet, by bone, and seconds left easing out of it. */
   private offFrom: THREE.Quaternion[] | null = null;
   private offLeft = 0;
+  /** The wound's region, which says whether both hands go to it and whether the body curls round it. */
+  private woundRegion = '';
+  /** On fire: seconds of rolling left, seconds to the next, and which way it goes. */
+  private rollLeft = 0;
+  private rollIn = 0;
+  private rollWay = 1;
 
   constructor(
     private readonly rag: Rag,
@@ -367,7 +403,7 @@ export class Reflex {
       const m = part.muscle!;
       if (!part.parent || (m.role !== 'leg' && m.role !== 'spine')) continue;
       m.pose.copy(part.parent.q).conjugate().multiply(part.q);
-      m.drive = m.role === 'leg' ? t.plankLeg : t.plankSpine;
+      m.drive = (m.role === 'leg' ? t.plankLeg : t.plankSpine) * m.strength;
     }
   }
 
@@ -409,7 +445,7 @@ export class Reflex {
             tip.set(bind[h]! - bind[e]! + to[0], bind[h + 1]! - bind[e + 1]! + to[1], bind[h + 2]! - bind[e + 2]! + to[2]);
           }
         }
-        this.arms.push({ shoulder: part, elbow: below, side, rest: rest.normalize(), upper, fore, phase: this.muscle.random() * Math.PI * 2, tip, yieldAt: -1 });
+        this.arms.push({ shoulder: part, elbow: below, side, rest: rest.normalize(), upper, fore, phase: this.muscle.random() * Math.PI * 2, tip, yieldAt: -1, clutch: false });
       }
     }
     if (this.woundPart && !parts.includes(this.woundPart)) this.woundPart = null;
@@ -433,7 +469,15 @@ export class Reflex {
     part.body.translation(part.p);
     part.body.rotation(part.q);
     this.woundPart = part;
+    this.woundRegion = this.rag.source.rig.bones[bone]?.region ?? '';
     this.woundAt.copy(point).sub(part.p).applyQuaternion(_q.copy(part.q).conjugate());
+  }
+
+  /** On fire: once it is down it rolls over and back for `seconds`, and does not get up before it is done. */
+  roll(seconds: number): void {
+    this.rollLeft = Math.max(this.rollLeft, seconds);
+    this.rollIn = 0;
+    this.rollWay = this.muscle.random() < 0.5 ? 1 : -1;
   }
 
   /** A further hit. The way down carries on from where it had got to, and a body that was rising goes back. */
@@ -554,7 +598,7 @@ export class Reflex {
     this.held = 0;
     this.knocked = false;
     // The last try gets there unless something stops it.
-    const failing = this.tries < t.maxTries && rng.random() < giveOutChance(this.hurt);
+    const failing = this.tries < t.maxTries && rng.random() < giveOutChance(this.hurt, this.muscle.weakestLeg().strength);
     this.giveAt = failing ? lerp(t.giveAt[0], t.giveAt[1], rng.random()) : Infinity;
     const hips = this.rag.parts[0]!;
     this.fromHips = hips.p.y - this.groundY;
@@ -639,13 +683,29 @@ export class Reflex {
     _up.set(0, 1, 0).applyQuaternion(chest.q);
     _left.set(1, 0, 0).applyQuaternion(chest.q);
     if (this.phase === 'fall') this.poseFall(hips, chest);
-    else if (this.phase === 'lying') this.poseLying(chest);
+    else if (this.phase === 'lying') {
+      this.poseLying(chest);
+      if (this.rollLeft > 0 && this.dying < 0) this.rolling(dt);
+    }
     else if (this.phase === 'struggle') {
       if (this.slump < 0) this.poseStruggle();
       else this.poseSlump();
     }
     this.easeOff(dt);
     this.setStrengths(dt);
+  }
+
+  private rolling(dt: number): void {
+    const t = ReflexTuning;
+    // It lies until it has done.
+    this.lie = Math.max(this.lie, this.time + this.rollLeft);
+    this.rollLeft -= dt;
+    this.rollIn -= dt;
+    if (this.rollIn <= 0) {
+      this.rollIn = t.rollEvery;
+      this.rollWay = -this.rollWay;
+    }
+    if (this.rollIn > t.rollEvery - t.rollPush) this.muscle.roll(this.rollWay * t.rollSpin * this.rag.throwScale, this.groundY);
   }
 
   private look(chest: RagPart, dt: number): void {
@@ -847,13 +907,21 @@ export class Reflex {
     const t = ReflexTuning;
     const felt = this.hurt >= t.painFrom;
     const stir = Math.sin(this.age * t.writheRate + this.seed);
+    const wound = this.woundPart;
+    const region = this.woundRegion;
+    // A leg or the belly gets both hands clamped on it; anything else one, and a curl round the belly with the other.
+    const both = STRENGTH_PASS && (region === 'abdomen' || region.startsWith('leg') || region.startsWith('shin'));
+    const gut = STRENGTH_PASS && felt && (region === 'abdomen' || (this.spine?.muscle!.strengthTo ?? 1) < 1);
     let clutching = false;
     for (let i = 0; i < this.arms.length; i++) {
       const arm = this.arms[i]!;
-      const wound = this.woundPart;
-      if (felt && !clutching && wound && wound !== arm.shoulder && wound !== arm.elbow) {
+      const able = arm.shoulder.muscle!.strengthTo >= t.reachFrom;
+      arm.clutch = felt && able && (both || !clutching) && wound !== null && wound !== arm.shoulder && wound !== arm.elbow;
+      if (arm.clutch) {
         clutching = true;
-        _b.copy(this.woundAt).applyQuaternion(wound.q).add(wound.p);
+        _b.copy(this.woundAt).applyQuaternion(wound!.q).add(wound!.p);
+        // Side by side on it, not in the same place.
+        if (both) _b.addScaledVector(_left, arm.side * 0.05);
         this.reach(arm, _b);
       } else if (felt) {
         // Nothing to hold, so it curls in on the belly, the way a body guards what it has left.
@@ -866,10 +934,12 @@ export class Reflex {
     }
     for (let i = 0; i < this.legs.length; i++) {
       const leg = this.legs[i]!;
-      const draw = felt ? 0.5 + 0.5 * Math.sin(this.age * t.writheRate * 0.7 + leg.phase) * (0.6 + stir * 0.4) : 0.3;
+      // The shot leg is drawn up and kept still, held, while the other kicks; a gut wound draws both knees up.
+      const held = STRENGTH_PASS && wound !== null && (wound === leg.hip || wound === leg.knee);
+      const draw = !felt ? 0.3 : gut ? t.gutDraw : held ? 1 : 0.5 + 0.5 * Math.sin(this.age * t.writheRate * 0.7 + leg.phase) * (0.6 + stir * 0.4);
       this.pose(leg, t.writheHip * draw, t.writheKnee * draw);
     }
-    this.curl(t.lyingCurl * (felt ? 1 : 0.3), _front.y > 0 ? 0.4 : -0.35);
+    this.curl(gut ? t.gutCurl : t.lyingCurl * (felt ? 1 : 0.3), _front.y > 0 ? 0.4 : -0.35);
   }
 
   private curl(spine: number, head: number): void {
@@ -912,6 +982,11 @@ export class Reflex {
     this.aim(arm, _a, bend);
   }
 
+  private clutches(part: RagPart): boolean {
+    for (const arm of this.arms) if (arm.clutch && (arm.shoulder === part || arm.elbow === part)) return true;
+    return false;
+  }
+
   private setStrengths(dt: number): void {
     const t = ReflexTuning;
     // A body that has died is not pushing: no push gain, no lift, and what it was holding fades as a gather's would.
@@ -935,11 +1010,15 @@ export class Reflex {
       const m = part.muscle!;
       if (!part.parent || m.role === null) continue;
       let want = table[m.role] * scale;
+      if (STRENGTH_PASS && m.role === 'spine' && this.phase === 'lying' && this.hurt >= t.painFrom && (this.woundRegion === 'abdomen' || m.strengthTo < 1)) want = Math.max(want, t.gutSpine * scale);
       if (this.phase === 'fall') {
         if (m.role === 'leg') want = lerp(want, t.plankLeg, this.plankLeft);
         else if (m.role === 'spine') want = lerp(want, t.plankSpine, this.plankLeft);
       }
       if (sag > 0) want = lerp(want, (m.role === 'arm' ? t.slumpArm : t.lying[m.role]) * scale, sag);
+      if (STRENGTH_PASS && m.role === 'arm' && this.phase === 'lying' && this.clutches(part)) want = Math.max(want, t.clutchArm * scale);
+      // What its wounds leave the limb: a paralysed leg is driven at nothing, and lies dead on its ligaments.
+      want *= m.strength;
       m.drive = damp(m.drive, want, t.driveRate, dt);
       if (m.role === 'arm') {
         arms++;

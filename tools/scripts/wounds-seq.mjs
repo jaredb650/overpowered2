@@ -35,6 +35,11 @@ const CASES = {
   scramble: { rig: 0.45, shots: [{ at: [10, 0, -0.06, 0.05], from: 'front' }], steps: [0, 20, 40, 60, 80, 100, 120, 140, 170, 200, 240, 300] },
   burst: { burst: 8, steps: [0, 4, 8, 12, 18, 24, 34, 50, 80, 120, 180, 260] },
   fire: { fire: true, steps: LONG },
+  // Stage 8: the same, every 10 frames from when he throws himself down, to see him roll over and back.
+  fireroll: { fire: true, steps: [0, 100, 130, 160, 190, 220, 240, 260, 280, 300, 320, 340, 360, 380, 400, 430] },
+  // Stage 8: concussed by a blast too far off to throw him, then a hard round in the chest: he takes it on his muscles with
+  // 0.7 of the budget and his head loose. (A glance off the skull rings him too, but puts him on the floor first.)
+  concussreel: { blast: 7, damage: 40, post: [{ at: [2, 0.02, 0.1, 0.16], from: 'front', amount: 18, force: 90, wait: 70 }], steps: [0, 4, 8, 12, 18, 24, 30, 38, 46, 56, 70, 90] },
   plate: { burst: 5, steps: [0, 4, 8, 12, 18, 24, 34, 50, 80, 120, 180, 260], plain: true },
   // The dice loaded, so a mortal wound ends in the other of its two ways.
   collapse: { rig: 0.38, shots: [{ at: [2, 0.13, 0.2, -0.14], from: 'back' }], steps: [0, 30, 100, 180, 240, 270, 300, 330, 360, 400, 460, 540] },
@@ -152,7 +157,31 @@ export default async function woundsSeq(page, h) {
           clock: w && Number.isFinite(w.injuries.bleedsOutAt) ? +(w.injuries.bleedsOutAt - ctx.time.elapsed).toFixed(1) : undefined,
           bleed: w ? +w.injuries.bleed.toFixed(3) : undefined,
           hipsY: +e.char.bones[0].matrixWorld.elements[13].toFixed(2),
+          ...r.body(),
         };
+      },
+      /** Stage 8: what the body is doing with its strength. Chest facing up (+) or down, knee bends, hands from the wound, legs' drive. */
+      body() {
+        const e = r.target;
+        const bones = e.char.bones;
+        const p = i => new V().setFromMatrixPosition(bones[i].matrixWorld);
+        const knee = (a, b, c) => +p(b).sub(p(a)).angleTo(p(c).sub(p(b))).toFixed(2);
+        const out = { front: +new V(0, 0, 1).transformDirection(bones[2].matrixWorld).y.toFixed(2), kneeL: knee(11, 12, 13), kneeR: knee(14, 15, 16) };
+        const rag = ctx.gore.owned?.get(e.char)?.rag;
+        const reflex = rag?.muscle?.reflex;
+        if (reflex) {
+          out.ph = reflex.phase;
+          let legs = 0;
+          for (const part of rag.parts) if (part.muscle?.role === 'leg') legs = Math.max(legs, part.muscle.drive);
+          out.legDrive = +legs.toFixed(2);
+          const w = reflex.woundPart;
+          if (w) {
+            const at = reflex.woundAt.clone().applyQuaternion(w.q).add(w.p);
+            out.hands = [7, 10].map(i => +p(i).distanceTo(at).toFixed(2));
+          }
+        }
+        if (rag?.muscle?.collapse?.stand) out.budget = +rag.muscle.collapse.stand.budget.toFixed(2);
+        return out;
       },
     };
     ctx.events.on('enemy:wounded', x => r.log.push({ label: x.label, zone: x.zone }));
@@ -177,6 +206,10 @@ export default async function woundsSeq(page, h) {
     if (c.blast) await page.evaluate(({ d, m }) => window.__r.blast(d, m), { d: c.blast, m: c.damage });
     if (c.fire) await page.evaluate(() => window.__r.burn());
     if (c.down) await page.evaluate(() => window.__r.fell());
+    for (const s of c.post ?? []) {
+      if (s.wait) await page.evaluate(n => window.__r.walk(n), s.wait);
+      await page.evaluate(x => window.__r.shoot(x), s);
+    }
     if (c.burst) {
       for (let i = 0; i < c.burst; i++) {
         await page.evaluate(() => {
@@ -199,6 +232,8 @@ export default async function woundsSeq(page, h) {
     }
     if (c.rig) await page.evaluate(() => { Math.random = window.__random; });
     results[name] = { log: await page.evaluate(() => window.__r.log.splice(0)), notes: notes.map((n, i) => ({ f: c.steps[i], ...n })) };
+    // As it goes, so a page reload part way (another edit to the source) does not lose what ran before it.
+    if (process.env.WOUND_EACH) console.log(JSON.stringify({ case: name, ...results[name] }));
     const context = await page.context().browser().newContext();
     const sheet = await context.newPage();
     await sheet.setViewportSize({ width: TILE_W * COLUMNS, height: TILE_H * Math.ceil(tiles.length / COLUMNS) });

@@ -12,10 +12,10 @@ import { DroneBone, HumanoidBone as B, type GoreRegion } from '../characters/rig
 import { DEFAULT_FORCE, type DamageInfo, type DamageType } from '../core/contracts';
 import { DevFlags } from '../core/devflags';
 import type { DamageResult, KillEvent } from '../core/gameplay';
-import { chance, clamp, lerp, pick, rand } from '../core/math';
+import { chance, clamp, lerp, pick, rand, smoothstep } from '../core/math';
 import { FACTIONS, type FactionRules } from '../contracts/data';
 import { ACTIVE } from '../contracts/select';
-import { KNOCK_PASS, MASS_PASS, STAND_PASS, WEIGHT_PASS } from '../gore/muscles';
+import { KNOCK_PASS, MASS_PASS, STAND_PASS, STRENGTH_PASS, WEIGHT_PASS, type LimbStrength } from '../gore/muscles';
 import { standBudget, StandTuning } from '../gore/stand';
 import { STRUGGLE_PASS } from '../gore/reflex';
 import { bursts, HEAVY_ROUND } from './wounds/rules';
@@ -67,6 +67,11 @@ const HEAD_COST = 2;
 const STAND_MAX_SPEED = 5;
 /** What full strength adds to a catch step. */
 const REEL_GAIN = 1.4;
+/** Sideways push toward a weak leg added to a stagger's unit direction, times what its wounds took off it: up to 39°. */
+const WEAK_TURN = 0.8;
+/** Share of a limb's pool gone before it starts to weaken, as `reactions.ts` reads a leg giving way; and a broken limb. */
+const POOL_WEAK_FROM = 0.45;
+const FRACTURED = 0.15;
 /** Metres per second tipping the upper body over the feet, at no strength and at full. Less is a body that folds up. */
 const TOPPLE_MIN = 1.2;
 const TOPPLE_MAX = 2.2;
@@ -93,6 +98,8 @@ interface Knock {
   stumble?: number;
   /** With `stumble`: what it has to catch itself with, 0..1. Left out, it can only fall. */
   budget?: number;
+  /** On fire: seconds it rolls once down (`KnockdownOptions.roll`). */
+  roll?: number;
 }
 const _stumble: { seconds: number; budget?: number } = { seconds: 0 };
 /** Weapons light enough that a body takes a moment to die of them, on its feet. Anything harder drops it. */
@@ -195,14 +202,42 @@ const UP = new THREE.Vector3(0, 1, 0);
 
 const _knock: Knock = {};
 /** The one `Knock` every caller fills, all of it each time. */
-function knockAs(topple: THREE.Vector3 | null | undefined, impact: number | undefined, knockout: boolean, point: THREE.Vector3 | undefined, stumble?: number, budget?: number): Knock {
+function knockAs(topple: THREE.Vector3 | null | undefined, impact: number | undefined, knockout: boolean, point: THREE.Vector3 | undefined, stumble?: number, budget?: number, roll?: number): Knock {
   _knock.topple = topple;
   _knock.impact = impact;
   _knock.knockout = knockout;
   _knock.point = point;
   _knock.stumble = stumble;
   _knock.budget = budget;
+  _knock.roll = roll;
   return _knock;
+}
+
+const _strength: LimbStrength = { legL: 1, legR: 1, armL: 1, armR: 1, trunk: 1, neck: 1 };
+const _turn = new THREE.Vector3();
+
+/** What is left of a limb's pool, as strength: whole until `POOL_WEAK_FROM` of it is gone, nothing when all of it is. */
+function poolStrength(e: Pick<Enemy, 'limbHp' | 'maxHealth' | 'def'>, region: GoreRegion): number {
+  const left = e.limbHp.get(region);
+  if (left === undefined) return 1;
+  const whole = e.maxHealth * e.def.limbFrac * (LIMB_SIZE[region] ?? 1);
+  return 1 - smoothstep(POOL_WEAK_FROM, 1, 1 - left / whole);
+}
+
+/**
+ * Stage 8, the Crucible's rule: what the limb pools leave each limb, the weaker of its two pools, and a broken one
+ * `FRACTURED`. Trunk and neck have no pools of their own. Exported for its test.
+ */
+export function poolStrengths(e: Pick<Enemy, 'limbHp' | 'maxHealth' | 'def' | 'char'>, out: LimbStrength): LimbStrength {
+  const c = e.char;
+  const limb = (upper: GoreRegion, lower: GoreRegion, a: number, b: number) =>
+    c.isFractured(a) || c.isFractured(b) ? FRACTURED : Math.min(poolStrength(e, upper), poolStrength(e, lower));
+  out.legL = limb('legL', 'shinL', B.thighL, B.shinL);
+  out.legR = limb('legR', 'shinR', B.thighR, B.shinR);
+  out.armL = limb('armL', 'forearmL', B.upperArmL, B.foreArmL);
+  out.armR = limb('armR', 'forearmR', B.upperArmR, B.foreArmR);
+  out.trunk = out.neck = 1;
+  return out;
 }
 
 /**
@@ -274,6 +309,24 @@ export class DamageModel {
   private readonly seam: DamageInfo = { amount: 0, type: 'explosive', point: new THREE.Vector3(), dir: new THREE.Vector3(), force: 0, source: '' };
 
   constructor(private readonly w: AiWorld, private readonly m: EnemyManager) {}
+
+  /**
+   * What this body's wounds leave each limb (`LimbStrength`), for gore: a man's from his wounds (`Injuries.strength`), anything
+   * else's from its limb pools, and a broken limb `FRACTURED` either way. One shared object, filled each call.
+   */
+  strengthOf(e: Enemy): LimbStrength {
+    if (!STRENGTH_PASS) {
+      _strength.legL = _strength.legR = _strength.armL = _strength.armR = _strength.trunk = _strength.neck = 1;
+      return _strength;
+    }
+    const body = this.m.outpost?.wounds.bodyOf(e);
+    if (!body) return poolStrengths(e, _strength);
+    body.strength(this.w.now, _strength);
+    const c = e.char;
+    if (c.isFractured(B.thighL) || c.isFractured(B.shinL)) _strength.legL = Math.min(_strength.legL, FRACTURED);
+    if (c.isFractured(B.thighR) || c.isFractured(B.shinR)) _strength.legR = Math.min(_strength.legR, FRACTURED);
+    return _strength;
+  }
 
   /** What can break this body. A husk on the Outpost is still a husk. */
   private rules(e: Enemy): FactionRules {
@@ -796,6 +849,7 @@ export class DamageModel {
     o.duration = slowly ? rand(BLEED_COLLAPSE_MIN, BLEED_COLLAPSE_MAX) : rand(COLLAPSE_MIN, COLLAPSE_MAX);
     o.twitch = twitch;
     deathVelocity(e, o.velocity, this.w.now);
+    o.strength = this.strengthOf(e);
     if (AREA_TYPES.has(d.type)) o.hit = undefined;
     else {
       const hit = this.m.collapseHit;
@@ -974,12 +1028,12 @@ export class DamageModel {
    * just given, and loses its balance physically (`STUMBLE_EXTRA`); anywhere else, or if gore has no room, it staggers on
    * its animation and is knocked down `FALL_LEAD_MIN` to `FALL_LEAD_MAX` seconds later (`fall`), as before.
    */
-  private fallFrom(e: Enemy, dir: THREE.Vector3, strength: number, bone: number, profile: ReactionProfile | null): void {
+  private fallFrom(e: Enemy, dir: THREE.Vector3, strength: number, bone: number, profile: ReactionProfile | null, roll?: number): void {
     const lead = rand(FALL_LEAD_MIN, FALL_LEAD_MAX);
     if (profile && this.seenStanding(e)) {
       _fall.copy(dir).setY(0);
       if (_fall.lengthSq() < 1e-6) _fall.set(Math.sin(e.yaw), 0, Math.cos(e.yaw));
-      if (this.knockDown(e, _fall.normalize(), strength, bone, profile, false, knockAs(null, undefined, false, undefined, lead + STUMBLE_EXTRA))) return;
+      if (this.knockDown(e, _fall.normalize(), strength, bone, profile, false, knockAs(null, undefined, false, undefined, lead + STUMBLE_EXTRA, undefined, roll))) return;
     }
     e.fallIn = lead;
     e.fallStrength = strength;
@@ -987,11 +1041,11 @@ export class DamageModel {
   }
 
   /** Wounds: nothing hit him, he has simply stopped being able to stand. He goes over the way he was facing. */
-  drop(e: Enemy, strength: number, bone: number): void {
+  drop(e: Enemy, strength: number, bone: number, roll?: number): void {
     if (e.downed || e.fallIn > 0 || !e.alive) return;
     _n.set(Math.sin(e.yaw), 0, Math.cos(e.yaw));
     this.stagger(e, STAGGER_MIN, _n, strength, bone, 0.5);
-    this.fallFrom(e, _n, strength, bone, profileOf(e));
+    this.fallFrom(e, _n, strength, bone, profileOf(e), roll);
   }
 
   /** Wounds: patched up and helped to his feet, from the crawl he was in. */
@@ -1069,6 +1123,8 @@ export class DamageModel {
       o.stumble = _stumble;
     } else o.stumble = undefined;
     o.cost = undefined;
+    o.strength = this.strengthOf(e);
+    o.roll = how?.roll;
     const wounds = m.outpost?.wounds ?? null;
     const floored = wounds?.bodyOf(e)?.floored ?? false;
     // Before gore has the body: what it hands back at the end depends on this.
@@ -1117,6 +1173,8 @@ export class DamageModel {
     o.knockout = false;
     o.stumble = undefined;
     o.cost = cost;
+    o.strength = this.strengthOf(e);
+    o.roll = undefined;
     const wound = m.knockWound;
     wound.bone = bone;
     wound.point.copy(d.point);
@@ -1125,12 +1183,34 @@ export class DamageModel {
     this.cryOut(e);
   }
 
+  /**
+   * A stagger goes over toward a weak leg (stage 8): turned toward that side by `WEAK_TURN` times what its wounds took off the
+   * weaker leg. On its feet on its muscles that is the side its knee gives on. A shared vector; `dir` is left as it was.
+   */
+  private towardWeakLeg(e: Enemy, dir: THREE.Vector3): THREE.Vector3 {
+    if (e.def.machine) return dir;
+    const s = this.strengthOf(e);
+    const weak = Math.min(s.legL, s.legR);
+    if (weak >= 1) return dir;
+    // The body's left is its local +X, turned by its yaw.
+    const side = s.legL < s.legR ? 1 : -1;
+    const k = WEAK_TURN * (1 - weak) * side;
+    _turn.set(dir.x, 0, dir.z);
+    const len = _turn.length();
+    if (len < 1e-6) return dir;
+    _turn.divideScalar(len);
+    _turn.x += Math.cos(e.yaw) * k;
+    _turn.z -= Math.sin(e.yaw) * k;
+    return _turn.lengthSq() < 1e-6 ? dir : _turn.normalize();
+  }
+
   /** A hit that took its balance. With `dir` it takes real steps that way, `reel` metres per second at the start. */
   stagger(e: Enemy, seconds: number, dir?: THREE.Vector3, strength = 0.5, bone = REGION_BONE.chest, reel = 1.5): void {
     if (e.isBoss) return;
     e.stagger = Math.max(e.stagger, seconds);
     const anim = e.char.anim;
     if (dir && anim.stumble) {
+      dir = this.towardWeakLeg(e, dir);
       anim.stumble(dir, strength, bone);
       const speed = reel * (1 + strength * REEL_GAIN);
       e.reel.x += dir.x * speed;

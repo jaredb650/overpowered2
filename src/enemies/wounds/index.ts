@@ -87,6 +87,8 @@ const _dir = new THREE.Vector3();
 /** Bit for each zone, so a man pays each one once. */
 const ZONE_BIT: Record<ZoneId, number> = { thigh: 0, innerThigh: 1, hand: 2, arm: 3, shoulder: 3, lung: 4, heart: 5, gut: 6, carotid: 7, spine: 8, pelvis: 9, head: 10 };
 const RINGING_BIT = 11;
+/** Seconds a man on fire rolls once he is down, least and most. */
+const FIRE_ROLL: readonly [number, number] = [1.5, 2.5];
 
 export class WoundSystem {
   private readonly hit: ZoneHit = { zone: 'thigh', side: 0, behind: false, glancing: false };
@@ -536,7 +538,7 @@ export class WoundSystem {
       // Stop, drop: the floor is the first thing anyone thinks of, and it does put the fire out.
       b.rollAt = 0;
       e.burning = Math.min(e.burning, 0.7);
-      this.manager.model.drop(e, 0.6, B.chest);
+      this.manager.model.drop(e, 0.6, B.chest, rand(FIRE_ROLL[0], FIRE_ROLL[1]));
     }
   }
 
@@ -661,6 +663,8 @@ export class WoundSystem {
     e.speedMul = s.baseSpeed * pace;
     const stumps = e.char.severed.size > 0 ? this.stumpBleed(e) : 0;
     e.bleed = b.floored || b.condition === 'mortal' ? 0 : (b.bleed + stumps) * e.maxHealth;
+    // A body gore has alive goes on as weak as he is.
+    if (e.downed) this.w.ctx.gore.setStrength(e.char, this.manager.model.strengthOf(e));
   }
 
   private stumpBleed(e: Enemy): number {

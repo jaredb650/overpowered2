@@ -22,6 +22,21 @@ import type { Reflex, ReflexLift } from './reflex';
 import { StandTuning, type Stand } from './stand';
 import { HUMAN_HEIGHT } from './rigInfo';
 
+/**
+ * What a body's wounds leave each limb to work with, 0..1, Euphoria's strength per limb. 1 is whole. A limb's joints are driven
+ * at their strength times what they would be (`JointMuscle.strength`), so a weak one holds less, carries less of its own weight
+ * and gives at the knee; at 0 it is dead weight on its ligaments. Set by the owner from its wounds (`GoreSystem.setStrength`).
+ */
+export interface LimbStrength {
+  legL: number;
+  legR: number;
+  armL: number;
+  armR: number;
+  trunk: number;
+  /** Under 1 only for a head that is not all there: concussed or ringing. */
+  neck: number;
+}
+
 /** How a body goes down when it is not dropped outright. */
 export interface CollapseOptions {
   /** Seconds from the first weakness to a limp body. Default `MuscleTuning.collapseSeconds`, at most 5. */
@@ -32,6 +47,8 @@ export interface CollapseOptions {
   twitch?: number;
   /** The shot that did it: where it goes in, and which way it was going. The body staggers on along it. */
   hit?: { bone: number; point: THREE.Vector3; dir: THREE.Vector3; force: number };
+  /** What its wounds left it. The weaker leg gives first. */
+  strength?: LimbStrength;
 }
 
 /** Knocked off its feet and alive. Everything here is about how it lands and how long it stays there. */
@@ -71,6 +88,10 @@ export interface KnockdownOptions {
   stumble?: { seconds: number; budget?: number };
   /** For a further hit on a body catching its balance: the share of its health this one took, which its budget pays for. */
   cost?: number;
+  /** What its wounds left it. On the first call it is there at once; on a further hit it eases in (`MuscleTuning.strengthRate`). */
+  strength?: LimbStrength;
+  /** On fire: once it is down it rolls, over and back, for this many seconds (`ReflexTuning.rollEvery`). */
+  roll?: number;
 }
 
 /** What the owner of a knocked-down character reads each frame. */
@@ -121,6 +142,11 @@ declare module '../core/contracts' {
      * (`stand`), which needs no getting up. Null if it never has.
      */
     handedBack(char: CharacterInstance): 'clip' | 'stand' | 'crawl' | null;
+    /**
+     * What this character's wounds leave each limb, for a body gore has alive (`knockdown`). Call it whenever that changes;
+     * it eases in. Nothing for a body gore does not have: pass it with `knockdown` too.
+     */
+    setStrength(char: CharacterInstance, strength: LimbStrength): void;
   }
 }
 
@@ -159,6 +185,15 @@ const standFlag = typeof location === 'undefined' ? null : new URLSearchParams(l
  * Read once, at load, by gore and by the damage model.
  */
 export const STAND_PASS = standFlag !== '0';
+
+const strengthFlag = typeof location === 'undefined' ? null : new URLSearchParams(location.search).get('strength');
+/**
+ * `?strength=0` puts back bodies from before their wounds set their strength (stage 8), for comparison in motion: every limb
+ * whole whatever its wounds, no knee held giving under a body on its muscles, no stagger turned toward a weak leg, one hand to a
+ * wound and the other on the belly, a lying body writhing both legs, and a man on fire lying still. Read once, at load, by
+ * gore and by the damage model.
+ */
+export const STRENGTH_PASS = strengthFlag !== '0';
 
 export const MuscleTuning = {
   /** ?muscles=0 turns the whole layer off, for comparison: hard limits, instant ragdolls, no reactions. */
@@ -255,6 +290,8 @@ export const MuscleTuning = {
   standingSupport: 0.05,
   /** One leg gives out this much sooner, as a share of the duration. */
   weakLegLead: 0.14,
+  /** Rate a change in a limb's strength eases in at, 1/s. Nothing a wound does may land in one frame. */
+  strengthRate: 5,
   /** How far a full-strength joint sags under the limb's own weight, in radians. */
   driveDroop: 0.1,
   driveDamping: 1.1,
@@ -454,6 +491,14 @@ export class JointMuscle {
   gain = 1;
   /** Snapped: no ligament, no tone, and no drive. Whatever hangs off it swings free. */
   broken = false;
+  /**
+   * What the body's wounds leave this joint, 0..1, and what it is easing to. It multiplies the drive wherever one is written,
+   * so the stiffness, the weight the muscle carries and the lift under a body fighting up all go with it.
+   */
+  strength = 1;
+  strengthTo = 1;
+  /** Which of `LimbStrength` this joint answers to. Null on the root. */
+  limb: keyof LimbStrength | null = null;
 }
 
 /** A body that is still trying to stand. Runs the animator against a ghost root and hands joints their targets. */
@@ -553,6 +598,7 @@ const MAX_JOLTS = 12;
 const WEIGHT = -GRAVITY;
 
 let nextSeed = 1;
+const _weak = { strength: 1, side: 0 };
 
 /** Inverse inertia of a body about a world axis, from its principal moments. */
 export function invInertia(part: RagPart, axis: THREE.Vector3): number {
@@ -684,6 +730,8 @@ export class MuscleState {
   private ligament = 1;
   /** 0..1, how much ligaments may push back as well as brake. */
   private elastic = 1;
+  /** Some joint's strength is still on its way to what the wounds left it. */
+  private easing = false;
 
   constructor(private readonly rag: Rag) {
     this.rng = mulberry32(nextSeed++ * 2654435761);
@@ -829,6 +877,86 @@ export class MuscleState {
     this.chest = trunk ? { part: trunk, at: trunk.com } : null;
   }
 
+  /**
+   * What the body's wounds leave each limb (`LimbStrength`). It eases in at `MuscleTuning.strengthRate`, or with `now` is there
+   * on this frame: a body taken over with its wounds already on it.
+   */
+  strengthen(s: LimbStrength, now = false): void {
+    for (const part of this.rag.parts) {
+      const m = part.muscle;
+      if (!m?.limb) continue;
+      m.strengthTo = clamp(s[m.limb]);
+      if (now) m.strength = m.strengthTo;
+      else if (m.strength !== m.strengthTo) this.easing = true;
+    }
+  }
+
+  /** The weakest leg's strength, and its side (1 is left), or 0 with both whole. */
+  weakestLeg(): { strength: number; side: number } {
+    const out = _weak;
+    out.strength = 1;
+    out.side = 0;
+    for (const part of this.rag.parts) {
+      const m = part.muscle!;
+      if (m.role !== 'leg' || m.strength >= out.strength) continue;
+      out.strength = m.strength;
+      out.side = m.limb === 'legL' ? 1 : -1;
+    }
+    return out;
+  }
+
+  private easeStrength(dt: number): void {
+    const k = 1 - Math.exp(-MuscleTuning.strengthRate * dt);
+    let left = false;
+    for (const part of this.rag.parts) {
+      const m = part.muscle;
+      if (!m || m.strength === m.strengthTo) continue;
+      m.strength += (m.strengthTo - m.strength) * k;
+      if (Math.abs(m.strengthTo - m.strength) < 1e-3) m.strength = m.strengthTo;
+      else left = true;
+    }
+    this.easing = left;
+  }
+
+  /**
+   * Rolls the whole body over about its trunk at `spin` rad/s, as one piece: a body on fire throwing its weight over. Called each
+   * frame it pushes, it tops the trunk's roll up to `spin`, never down. Momentum, like `tip`, put on every part as the turn of a
+   * rigid body rolling on the floor at `groundY`, so each part gets its share by its own mass and inertia, and the side it lies
+   * on does not slide: turned about the trunk's own line, the floor stopped it dead in two frames. One kick a roll was not
+   * enough either: the arm on the floor stops it. Signed: the sign is which way.
+   */
+  roll(spin: number, groundY: number): void {
+    const parts = this.rag.parts;
+    const hips = parts[0]!;
+    const chest = this.firstJoint();
+    if (!chest) return;
+    hips.body.translation(hips.p);
+    chest.body.translation(chest.p);
+    _axis.copy(chest.p).sub(hips.p).setY(0);
+    if (_axis.lengthSq() < 1e-6) return;
+    _axis.normalize();
+    hips.body.angvel(hips.w);
+    chest.body.angvel(chest.w);
+    const now = (hips.w.dot(_axis) + chest.w.dot(_axis)) * 0.5;
+    const add = spin > 0 ? Math.max(0, spin - now) : Math.min(0, spin - now);
+    if (add === 0) return;
+    _axis.multiplyScalar(add);
+    _b.copy(chest.p).add(hips.p).multiplyScalar(0.5);
+    _b.y = groundY;
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i]!;
+      const body = part.body;
+      body.translation(part.p);
+      body.linvel(part.v);
+      _a.copy(part.p).sub(_b);
+      _d.crossVectors(_axis, _a).add(part.v);
+      body.setLinvel(_d, true);
+      const w = body.angvel();
+      body.setAngvel({ x: w.x + _axis.x, y: w.y + _axis.y, z: w.z + _axis.z }, true);
+    }
+    this.rag.pushed = true;
+  }
+
   /** The chain's gravity changed by `k`: a body killed in the air has landed. What each joint carries changes with it. */
   reweigh(k: number): void {
     for (const part of this.rag.parts) {
@@ -846,6 +974,8 @@ export class MuscleState {
     const def = this.rag.source.rig.bones[part.bone]!;
     const joint = def.joint;
     m.role = joint?.role ?? null;
+    const left = this.rag.info.bind[part.bone * 3]! >= 0;
+    m.limb = !part.parent ? null : m.role === 'leg' ? (left ? 'legL' : 'legR') : m.role === 'arm' ? (left ? 'armL' : 'armR') : m.role === 'head' ? 'neck' : 'trunk';
     m.pull = lerp(t.strengthMin, t.strengthMax, rng());
     if (part.hinge) {
       const ax = joint?.axis ?? [1, 0, 0];
@@ -1037,6 +1167,7 @@ export class MuscleState {
   advance(dt: number, bones: readonly THREE.Bone[]): void {
     const t = MuscleTuning;
     const { rag } = this;
+    if (this.easing) this.easeStrength(dt);
     this.hold = Math.min(1, rag.age / t.limitRise);
     this.ligament = 1 - smoothstep(t.limitLetGoStart, t.limitLetGoEnd, rag.quiet);
     this.elastic = smoothstep(t.limitElasticLow, t.limitElasticHigh, rag.speed);
@@ -1516,6 +1647,12 @@ export class MuscleState {
     // Rag.drive wrote physics into these. An animator that does not touch a bone must leave its target alone.
     for (let i = 0; i < local.length; i++) bones[i]!.quaternion.copy(local[i]!);
     bones[0]!.position.copy(drive.hipsLocal);
+    // Alive, a weak leg gives at the knee and the hips drop and roll toward it, in the animation it follows: the pins and the
+    // hold then take it there, foot planted. Held as long as it is weak; the animator eases it in and out.
+    if (drive.alive) {
+      const weak = this.weakestLeg();
+      if (weak.side !== 0) drive.anim.buckleLeg?.(weak.side, 1 - weak.strength);
+    }
     drive.anim.update(dt, 0);
     for (let i = 0; i < local.length; i++) local[i]!.copy(bones[i]!.quaternion);
     drive.hipsLocal.copy(bones[0]!.position);
@@ -1598,13 +1735,14 @@ export class MuscleState {
         m.drive = drive.support;
       } else if (m.role === 'leg') {
         const side = this.rag.info.bind[part.bone * 3]! >= 0 ? 1 : -1;
-        m.drive = catching ? StandTuning.legDrive : fade(stand ? stand.leg : t.legFade, u, side === drive.weakLeg ? t.weakLegLead : 0);
+        // Catching itself, not by strength: a weak leg is the knee it gives at (`buckleLeg`), which a weak drive would not follow.
+        m.drive = catching ? StandTuning.legDrive : m.strength * fade(stand ? stand.leg : t.legFade, u, side === drive.weakLeg ? t.weakLegLead : 0);
       } else if (catching) {
-        m.drive = catching.upper;
+        m.drive = m.strength * catching.upper;
       } else if (stand) {
-        m.drive = fade(m.role === 'head' ? stand.head : m.role === 'arm' ? stand.arm : stand.spine, u, 0);
+        m.drive = m.strength * fade(m.role === 'head' ? stand.head : m.role === 'arm' ? stand.arm : stand.spine, u, 0);
       } else {
-        m.drive = fade(m.role === 'head' ? t.headFade : m.role === 'arm' ? t.armFade : t.spineFade, u, 0);
+        m.drive = m.strength * fade(m.role === 'head' ? t.headFade : m.role === 'arm' ? t.armFade : t.spineFade, u, 0);
       }
       // A muscle that still works carries its own weight, which the solver then does not have to fight for it. Not the
       // legs, whose feet need their weight on the floor for friction. The spine's muscles hand theirs down to the hips.
