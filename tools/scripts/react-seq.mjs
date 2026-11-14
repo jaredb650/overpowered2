@@ -2,6 +2,9 @@
 //   REACT=stagger,fall node tools/shot.mjs --url "/?map=range" --script tools/scripts/react-seq.mjs --wait 500 --timeout 150 --out tools/out/react.png
 // Every case runs on world frames through the lab's own step, so a sheet shows the same moments however slow the machine is.
 // Sheets land next to --out as react-<case>.png. REACT_DPR=2 is set with --dpr 2 --w 1440 --h 900.
+// REACT_TRACK=1 steps one frame at a time and adds `track` to each case: the most the hips' speed changes in a frame before
+// the body lands (reflex `lying`), and the most the hips rise once the hold under them is below half (euphoria plan stage 6).
+const track = !!process.env.REACT_TRACK;
 const only = (process.env.REACT ?? '').split(',').filter(Boolean);
 const TILE_W = 480;
 const TILE_H = 300;
@@ -39,6 +42,33 @@ const CASES = {
   noleg: { id: 'trooper', maim: ['legR', 'legL'], steps: [0, 12, 24, 36, 48, 60, 80, 100, 120, 140, 170, 200], act: r => r.hit('chest', 10, 60, r.shock(9)) },
 };
 
+/** What `REACT_TRACK` reports from a frame-by-frame trace. Frame 0 is the one before the hit. */
+function summarise(t) {
+  // Landed: the reflex is lying, or the hips are as low as the reflex calls landed (`ReflexTuning.landHeight` of standing).
+  const low0 = 0.42 * t[0].y;
+  let landed = t.findIndex(p => p.phase === 'lying' || p.y < low0);
+  if (landed < 0) landed = t.length;
+  let jump = 0;
+  let jumpAt = -1;
+  for (let i = 1; i + 1 < landed; i++) {
+    const a = t[i - 1], b = t[i], c = t[i + 1];
+    const dv = Math.hypot(c.x - 2 * b.x + a.x, c.y - 2 * b.y + a.y, c.z - 2 * b.z + a.z) * 60;
+    if (dv > jump) { jump = dv; jumpAt = i; }
+  }
+  let low = Infinity;
+  let rise = 0;
+  let riseAt = -1;
+  const loose = t.findIndex(p => p.support < 0.5);
+  for (let i = Math.max(loose, 0); loose >= 0 && i < landed; i++) {
+    low = Math.min(low, t[i].y);
+    if (t[i].y - low > rise) { rise = t[i].y - low; riseAt = i; }
+  }
+  const lostAt = t.findIndex(p => p.lost);
+  const lost = lostAt >= 0 ? t[lostAt].lost : null;
+  const ys = t.slice(0, landed + 8).map(p => +p.y.toFixed(2)).join(' ');
+  return { landed, loose, lost, lostAt, jump: +jump.toFixed(2), jumpAt, rise: +rise.toFixed(3), riseAt, ys };
+}
+
 export default async function reactSeq(page, h) {
   for (let i = 0; i < 180; i++) {
     if (await page.evaluate(() => !!window.__lab && window.__op2?.game?.state === 'playing')) break;
@@ -75,6 +105,7 @@ export default async function reactSeq(page, h) {
         ctx.enemies.reset();
         lab.spawner.clearBodies();
         if (lab.paused) lab.togglePause();
+        r.trace = [];
         ctx.player.teleport(new V(0, 0.1, 6.4), 0);
         await frame();
         const e = lab.spawner.place(c.id, new V(0, 0, 3), c.ai ?? 'off');
@@ -164,9 +195,20 @@ export default async function reactSeq(page, h) {
             s.at++;
             s.left--;
           }
-          if (s) await r.walk(1);
+          if (s || r.tracking) {
+            await r.walk(1);
+            if (r.tracking) r.record();
+          }
         }
-        if (!s) await r.walk(n);
+        if (!s && !r.tracking) await r.walk(n);
+      },
+      /** One frame of `track`: the hips, the hold under them (1 on the animation, 0 down with none), and the reflex's phase. */
+      record() {
+        const e = r.target;
+        const m = e.char.bones[0].matrixWorld.elements;
+        const muscle = ctx.gore.owned.get(e.char)?.rag?.muscle ?? null;
+        const drive = muscle?.collapse ?? null;
+        r.trace.push({ x: m[12], y: m[13], z: m[14], support: drive ? drive.support : e.downed ? 0 : 1, phase: muscle?.reflex?.phase ?? null, lost: muscle?.balance?.lost ?? null });
       },
       /** Keeps the body in frame, about chest height at rest and lower when it is down. */
       aim() {
@@ -200,6 +242,7 @@ export default async function reactSeq(page, h) {
   for (const [name, c] of Object.entries(CASES)) {
     if (only.length > 0 && !only.includes(name)) continue;
     await page.evaluate(async ({ c }) => { await window.__r.start(c); }, { c: { id: c.id, ai: c.ai, pace: c.pace, settle: c.settle, flip: c.flip, maim: c.maim } });
+    if (track) await page.evaluate(() => { window.__r.tracking = true; window.__r.record(); });
     await page.evaluate(`(${c.act.toString()})(window.__r)`);
     if (c.lead) await page.evaluate(n => window.__r.advance(n), c.lead);
     const tiles = [];
@@ -215,6 +258,7 @@ export default async function reactSeq(page, h) {
       notes.push(await page.evaluate(() => window.__r.probe()));
     }
     results[name] = { log: await page.evaluate(() => window.__r.log.splice(0)), notes: notes.map((n, i) => ({ f: c.steps[i], ...n })) };
+    if (track) results[name].track = summarise(await page.evaluate(() => window.__r.trace.splice(0)));
     const context = await page.context().browser().newContext();
     const sheet = await context.newPage();
     const rows = Math.ceil(tiles.length / COLUMNS);

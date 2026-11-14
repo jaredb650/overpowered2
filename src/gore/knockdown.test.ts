@@ -861,3 +861,197 @@ describe('a blast', () => {
     gore.clear();
   });
 });
+
+describe('losing balance', () => {
+  // A stagger that becomes a fall is one motion (`KnockdownOptions.stumble`): on its muscles from the hit, following the
+  // stumble its animator was given, with a hold under the hips that fades, until its weight gets past its feet. Then the
+  // Reflex takes the same chain on from where it is. As `damage.ts` does it: the animator is told to stumble, then gore takes
+  // the body at the speed it reels, for the fall's lead plus 0.35 s at most.
+  const headings: readonly (readonly [number, number])[] = [[0, 1], [0, -1], [1, 0], [-0.7, 0.7]];
+
+  function lose(c: TestDummy, dir: THREE.Vector3, reel: number, seconds = 0.64, strength = 0.9): boolean {
+    c.anim.stumble!(dir, strength, B.chest);
+    return gore.knockdown(c, {
+      velocity: dir.clone().multiplyScalar(reel), stumble: { seconds }, hurt: 0.6, lie: 0.6, rise: 1.6, wound: { bone: B.chest, point: at(c, B.chest) },
+    });
+  }
+
+  interface Fall {
+    /** Frame it lost its feet on, and why, how far through its time, and its capture point then, in steps. */
+    lost: number;
+    why: string | null;
+    at: number;
+    err: number;
+    /** Footfalls the animator took before it lost them. */
+    steps: number;
+    /** Most a foot on the floor moved in a frame while the hold had over half the weight. */
+    slide: number;
+    /** Most any bone's movement changed from one frame to the next, over the first three frames and the three from the switch. */
+    start: number;
+    turn: number;
+    /** Change in the hips' velocity over the switch, m/s. */
+    dv: number;
+    /** Frame it was lying, or -1; and whether it was the same ragdoll all the way. */
+    lying: number;
+    same: boolean;
+  }
+
+  /** Follows a body that is losing its balance until it is lying, frame by frame. */
+  function follow(c: TestDummy, frames = 60 * 2): Fall {
+    const rag = ragOf(c);
+    const muscle = rag.muscle!;
+    const out: Fall = { lost: -1, why: null, at: 0, err: 0, steps: 0, slide: 0, start: 0, turn: 0, dv: 0, lying: -1, same: true };
+    let steps = 0;
+    (c.anim as unknown as { onFootstep: (() => void) | null }).onFootstep = () => steps++;
+    let last = pose(c);
+    let move: THREE.Vector3[] | null = null;
+    const hipsV: THREE.Vector3[] = [];
+    for (let f = 0; f < frames && gore.downed(c) && out.lying < 0; f++) {
+      const support = muscle.collapse?.support ?? 0;
+      frame(c);
+      out.same &&= gore.downed(c) === null || ragOf(c) === rag;
+      const now = pose(c);
+      const step = now.map((p, i) => p.clone().sub(last[i]!));
+      if (move) {
+        let shake = 0;
+        for (let i = 0; i < step.length; i++) shake = Math.max(shake, step[i]!.distanceTo(move[i]!));
+        if (f < 3) out.start = Math.max(out.start, shake);
+        if (out.lost >= 0 && f <= out.lost + 2) out.turn = Math.max(out.turn, shake);
+      }
+      if (support > 0.5) {
+        for (const foot of [B.footL, B.footR]) {
+          if (now[foot]!.y < 0.12 && last[foot]!.y < 0.12) out.slide = Math.max(out.slide, Math.hypot(step[foot]!.x, step[foot]!.z));
+        }
+      }
+      hipsV.push(step[B.hips]!.clone().multiplyScalar(60));
+      if (out.lost < 0 && muscle.balance.lost) {
+        out.lost = f;
+        out.why = muscle.balance.lost;
+        out.at = muscle.balance.at;
+        out.err = muscle.balance.err;
+        out.steps = steps;
+      }
+      if (out.lost >= 0 && f === out.lost + 1) out.dv = Math.max(hipsV[f]!.distanceTo(hipsV[f - 1]!), hipsV[f - 1]!.distanceTo(hipsV[f - 2] ?? hipsV[f - 1]!));
+      if (muscle.reflex?.phase === 'lying') out.lying = f;
+      move = step;
+      last = now;
+    }
+    return out;
+  }
+
+  for (const [x, z] of headings) {
+    it(`goes down on its muscles, heading ${x},${z}`, () => {
+      // Strength 0.9 reeling at 3 m/s, as a Trooper is by a hit that fells it. The animated stumble alone changes a bone's
+      // movement by 0.10 to 0.19 m from one frame to the next in its first three frames (the flail of a forearm, a shin's
+      // step); on its muscles the worst is 0.02 to 0.05 at the start and 0.01 to 0.06 across the switch, which is what the
+      // stumble does there with the switch held off too (0.04 to 0.05), and the hips' speed changes 0.2 to 0.3 m/s on it.
+      gore.clear();
+      const c = spawnLiving();
+      expect(lose(c, v(x, 0, z).normalize(), 3)).toBe(true);
+      expect(gore.stats().stumbles).toBe(1);
+      const r = follow(c);
+      expect(r.same).toBe(true);
+      expect(r.lost).toBeGreaterThan(0);
+      expect(r.steps).toBeGreaterThanOrEqual(1);
+      expect(r.slide).toBeLessThanOrEqual(0.05);
+      expect(r.start).toBeLessThanOrEqual(0.06);
+      expect(r.turn).toBeLessThanOrEqual(0.06);
+      expect(r.dv).toBeLessThanOrEqual(1);
+      expect(r.lying).toBeGreaterThan(r.lost);
+      expect(r.lying).toBeLessThan(1.6 * 60);
+      expect(gore.stats().stumbles).toBe(0);
+      const back = watch(c);
+      expect(back.back).toBeGreaterThan(0);
+      expect(back.pop).toBeLessThan(0.14);
+      expect(back.floor).toBeGreaterThan(-0.05);
+      expect(at(c, B.head).y).toBeGreaterThan(1.4);
+      gore.clear();
+    });
+  }
+
+  it('loses it on its momentum, not the clock', () => {
+    // At 4 m/s the speed it has over what its weakening legs can carry puts its weight past its feet before its time is up:
+    // by momentum in 24 of 24 over four runs, at 0.52 to 0.73 of its time.
+    const why: string[] = [];
+    for (let i = 0; i < 6; i++) {
+      gore.clear();
+      const c = spawnLiving();
+      const a = (i * Math.PI) / 3;
+      lose(c, v(Math.sin(a), 0, Math.cos(a)), 4);
+      const r = follow(c);
+      why.push(`${r.why} at ${r.at.toFixed(2)}, err ${r.err.toFixed(2)}`);
+    }
+    gore.clear();
+    expect(why.filter(w => !w.startsWith('clock')).length, why.join('; ')).toBeGreaterThanOrEqual(4);
+    expect(why.filter(w => w.startsWith('momentum')).length, why.join('; ')).toBeGreaterThanOrEqual(4);
+  });
+
+  it('dies on the way: the death carries on from where the body is', () => {
+    // Killed 0.2 s in, the worst change in a bone's movement from one frame to the next over the next six is 0.02 to 0.06 m,
+    // and 0.03 to 0.05 if it lives: the death adds nothing to what the stumble was doing.
+    for (const [x, z] of headings) {
+      gore.clear();
+      const c = spawnLiving();
+      const rag = (lose(c, v(x, 0, z).normalize(), 3), ragOf(c));
+      let last = pose(c);
+      let move: THREE.Vector3[] | null = null;
+      let shake = 0;
+      for (let f = 0; f < 18; f++) {
+        if (f === 12) {
+          expect(rag.muscle!.collapse?.alive).toBe(true);
+          gore.ragdoll(c);
+          expect(rag.muscle!.balance.lost).toBe('dead');
+        }
+        frame(null);
+        const now = pose(c);
+        const step = now.map((p, i) => p.clone().sub(last[i]!));
+        if (move && f >= 12) for (let i = 0; i < step.length; i++) shake = Math.max(shake, step[i]!.distanceTo(move[i]!));
+        move = step;
+        last = now;
+      }
+      expect(shake).toBeLessThanOrEqual(0.06);
+      expect(gore.owns(c)).toBe(true);
+      expect(gore.downed(c)).toBeNull();
+      expect(ragOf(c)).toBe(rag);
+      for (let i = 0; i < 60 * 8 && gore.stats().ragdolls > 0; i++) frame(null);
+      expect(gore.stats().ragdolls).toBe(0);
+    }
+    gore.clear();
+  });
+
+  it('the fifth is refused, and is not counted as a death', () => {
+    gore.clear();
+    const bodies = Array.from({ length: GoreTuning.maxStumbles + 1 }, (_, i) => spawnLiving(i * 2 - 4, 4));
+    for (let i = 0; i < GoreTuning.maxStumbles; i++) expect(lose(bodies[i]!, v(0, 0, 1), 3)).toBe(true);
+    const fifth = bodies[GoreTuning.maxStumbles]!;
+    expect(lose(fifth, v(0, 0, 1), 3)).toBe(false);
+    expect(gore.downed(fifth)).toBeNull();
+    // Refused, the caller knocks it down the old way, which has room.
+    expect(knock(fifth, 0, 2)).toBe(true);
+    const s = gore.stats();
+    expect(s.stumbles).toBe(GoreTuning.maxStumbles);
+    expect(s.collapses).toBe(0);
+    expect(s.knockdowns).toBe(GoreTuning.maxStumbles + 1);
+    gore.clear();
+  });
+
+  it('four at once cost the physics step no more than 0.8 ms over four plain knockdowns', () => {
+    const cost = (stumble: boolean): number => {
+      gore.clear();
+      const bodies = Array.from({ length: 4 }, (_, i) => spawnLiving(i * 2.5 - 4, -4));
+      for (const c of bodies) expect(stumble ? lose(c, v(0, 0, 1), 3) : knock(c, 0, 2)).toBe(true);
+      const ms: number[] = [];
+      for (let f = 0; f < 50; f++) {
+        frame(null);
+        ms.push(physics.stepMs);
+      }
+      gore.clear();
+      ms.sort((a, b) => a - b);
+      return ms[ms.length >> 1]!;
+    };
+    cost(true);
+    let over = 0;
+    for (let i = 0; i < 3; i++) over += cost(true) - cost(false);
+    expect(over / 3).toBeLessThanOrEqual(0.8);
+  });
+});

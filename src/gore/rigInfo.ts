@@ -34,7 +34,7 @@ export interface RigInfo {
 const cache = new WeakMap<RigDef, RigInfo>();
 
 /** A 1.85 m human weighs about 85 kg. Mass grows with the cube of size. */
-const HUMAN_HEIGHT = 1.85;
+export const HUMAN_HEIGHT = 1.85;
 export const HUMAN_MASS = 85;
 
 export function rigInfo(rig: RigDef): RigInfo {

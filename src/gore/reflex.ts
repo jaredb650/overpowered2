@@ -214,6 +214,13 @@ export const ReflexTuning = {
    */
   struggleKnock: 0.6,
   knockFade: 7,
+
+  /**
+   * Seconds over which a body that lost its balance on its feet (`offFeet`) eases from the pose its stumble had each joint
+   * reaching for into the fall's. Strength already eases at `driveRate`; with the targets switched in one frame the legs
+   * tucked at once and the hips' speed jumped up to 1.5 m/s on that frame.
+   */
+  offBlend: 0.2,
 };
 
 interface Arm {
@@ -325,6 +332,9 @@ export class Reflex {
   private keyHips = 0;
   private keyChest = 0;
   private keyTilt = 0;
+  /** The pose each joint was reaching for when the body lost its feet, by bone, and seconds left easing out of it. */
+  private offFrom: THREE.Quaternion[] | null = null;
+  private offLeft = 0;
 
   constructor(
     private readonly rag: Rag,
@@ -457,6 +467,40 @@ export class Reflex {
     this.enter('fall');
     this.landed = 0;
     for (const arm of this.arms) arm.yieldAt = -1;
+  }
+
+  /**
+   * A stumble it could not catch has ended (`KnockdownOptions.stumble`, `MuscleState.fallOver`): until now the body followed
+   * its animation and this waited. It falls from here, the way its weight was going, with every muscle easing from what the
+   * stumble left it to the fall's. It has known about the hit since the stumble began, so nothing waits to wake, and it lost
+   * its feet, it was not thrown: its hands go for the floor, not its face, unless a blast is what ended the stumble.
+   */
+  offFeet(dir: THREE.Vector3, thrown: boolean): void {
+    const t = ReflexTuning;
+    this.enter('fall');
+    this.landed = 0;
+    this.fallDir.set(dir.x, 0, dir.z);
+    this.age = Math.max(this.age, t.reaction * 3, t.guardFade);
+    if (!thrown && this.guardEnd < 0) this.guardEnd = 0;
+    for (const arm of this.arms) arm.yieldAt = -1;
+    // What the stumble had each joint reaching for, which the fall's pose takes over from over `offBlend`.
+    const from = (this.offFrom ??= this.rag.source.bones.map(() => new THREE.Quaternion()));
+    for (const part of this.rag.parts) if (part.parent) from[part.bone]!.copy(part.muscle!.pose);
+    this.offLeft = t.offBlend;
+  }
+
+  /** Eases each joint's target from the stumble's pose into the one just written, for a body that has just lost its feet. */
+  private easeOff(dt: number): void {
+    const from = this.offFrom;
+    if (!from || this.offLeft <= 0) return;
+    this.offLeft = Math.max(0, this.offLeft - dt);
+    const k = smoothstep(0, 1, 1 - this.offLeft / ReflexTuning.offBlend);
+    for (const part of this.rag.parts) {
+      if (!part.parent) continue;
+      const pose = part.muscle!.pose;
+      _q.copy(pose);
+      pose.slerpQuaternions(from[part.bone]!, _q, k);
+    }
   }
 
   /**
@@ -600,6 +644,7 @@ export class Reflex {
       if (this.slump < 0) this.poseStruggle();
       else this.poseSlump();
     }
+    this.easeOff(dt);
     this.setStrengths(dt);
   }
 

@@ -18,7 +18,7 @@ import { WEAPONS } from '../weapons/data';
 import { BloodField, BloodTuning } from './blood';
 import { ChunkField, scatter } from './chunks';
 import { ImpactEvents, impactKind, ImpactTuning } from './impacts';
-import { CollapseDrive, impactStrength, MASS_PASS, MuscleTuning, WEIGHT_PASS, type CollapseOptions, type DownedBody, type KnockdownOptions } from './muscles';
+import { CollapseDrive, impactStrength, MASS_PASS, MuscleTuning, STAND_PASS, WEIGHT_PASS, type CollapseOptions, type DownedBody, type KnockdownOptions } from './muscles';
 import { BodyFilter, fillVelocity, LimbFilter, measureAnimVelocity, Rag, SEED_STRIDE } from './rag';
 import { boneRay, boneRayContact, nextCapsuleHit, rayBones, rayNearSphere } from './raycast';
 import { Reflex, ReflexTuning } from './reflex';
@@ -48,6 +48,12 @@ export const GoreTuning = {
    * a crowd of 12, which can leave 11 to throw: at 6, every survivor after the sixth stood still in the blast that threw his neighbours.
    */
   maxKnockdowns: 12,
+  /**
+   * Living bodies losing their balance on their muscles at once (`KnockdownOptions.stumble`), counted inside `maxKnockdowns`.
+   * Past this a stumble is refused, and the caller staggers the body and knocks it down the old way. Each one is a chain
+   * that starts up to half a second before its knockdown would have.
+   */
+  maxStumbles: 4,
   /** Seconds on the floor and seconds to rise, for a knockdown that does not say. */
   knockdownLie: 1.2,
   knockdownRise: 2.4,
@@ -466,22 +472,50 @@ export class Gore implements GoreSystem {
     }
     if (!MuscleTuning.enabled || !char.anim.getUp || this.knockedDown() >= GoreTuning.maxKnockdowns) return false;
     const t = GoreTuning;
+    const stumble = options?.stumble;
+    // Losing its balance takes two feet to lose it on, and one of the few places for it. Refused, the caller has the old way.
+    if (stumble && (!STAND_PASS || this.stumbling() >= t.maxStumbles || this.feetOf(char) < 2)) return false;
     const hurt = options?.hurt ?? 0.6;
     const ground = char.root.position.y;
+    // It reads the pose and the root, so before the ragdoll takes them over. The animator goes on with the stumble it was
+    // given, against a root that drifts on at the speed the body had.
+    const drive = stumble ? new CollapseDrive(char.anim, char.root, char.bones, clamp(stumble.seconds, 0.2, 3), options.velocity) : null;
     const body = this.adopt(char);
     body.down = new Knockdown(options?.rise ?? t.knockdownRise, hurt);
-    this.startRag(body, { velocity: options?.velocity, impact: options?.impact });
+    // On its feet nothing throws the limbs: the animation is doing the flailing, and a kick would take its feet off the floor.
+    // Its feet are planted, so they start still, and its hips at the speed it was reeling.
+    this.startRag(body, { velocity: options?.velocity, impact: drive ? undefined : options?.impact }, drive !== null);
     const rag = body.rag!;
     const muscle = rag.muscle!;
     const dir = options?.impact?.dir ?? options?.topple ?? null;
-    const plank = options?.topple !== undefined;
-    const reflex = new Reflex(rag, muscle, char.anim, { lie: options?.lie ?? t.knockdownLie, hurt, groundY: ground, dir, plank, knockout: options?.knockout });
+    const plank = !drive && options?.topple !== undefined;
+    const reflex = new Reflex(rag, muscle, char.anim, { lie: options?.lie ?? t.knockdownLie, hurt, groundY: ground, dir, plank, knockout: !drive && options?.knockout });
     muscle.startReflex(reflex);
+    if (drive) {
+      // The Reflex waits (`MuscleState.sampleReflex`) while the same chain stumbles, held up less and less.
+      drive.alive = true;
+      const wound = options?.wound;
+      const struck = wound ? body.info.rig.bones[wound.bone]?.region : undefined;
+      if (struck && (struck.startsWith('leg') || struck.startsWith('shin'))) drive.shotLeg = struck.endsWith('L') ? 1 : -1;
+      muscle.startCollapse(drive);
+    }
     this.strikeDown(body, rag, options);
-    if (options?.topple) muscle.tip(options.topple);
+    if (!drive && options?.topple) muscle.tip(options.topple);
     if (reflex.knockout && dir && options?.wound) this.knockOut(rag, options.wound.point, dir);
     body.down.center.copy(rag.center);
     return true;
+  }
+
+  /** How many shins a character has left to stand on. */
+  private feetOf(char: CharacterInstance): number {
+    const info = rigInfo(char.rig);
+    markSevered(info, char.severed, _skip);
+    let n = 0;
+    for (let i = 0; i < info.count; i++) {
+      const joint = info.rig.bones[i]!.joint;
+      if (joint?.role === 'leg' && joint.kind === 'hinge' && _skip[i] !== 1) n++;
+    }
+    return n;
   }
 
   /**
@@ -501,10 +535,16 @@ export class Gore implements GoreSystem {
   /** A hit on a body that is down and alive. It is added to whatever the body was doing. */
   private strikeDown(body: DeadBody, rag: Rag, options: KnockdownOptions | undefined): void {
     const muscle = rag.muscle;
+    // Still on its feet in a stumble, with its hips held: as for a body dying on them (`damageCorpse`), most of a round goes
+    // into where the feet are heading, or all of it on the bone only bends the body over the hold.
+    const stumble = muscle?.collapse?.alive ? muscle.collapse : null;
     if (options?.impulses) {
       for (const i of options.impulses) {
-        this.push(rag, i.bone, i.point, i.impulse);
         const force = i.impulse.length();
+        if (stumble && force > 0) {
+          this.push(rag, i.bone, i.point, _v.copy(i.impulse).multiplyScalar(1 - MuscleTuning.carryShare));
+          stumble.carry(_v.copy(i.impulse).divideScalar(force), (force * DevFlags.force) / rag.info.mass);
+        } else this.push(rag, i.bone, i.point, i.impulse);
         if (force > 0) muscle?.jolt(i.bone, i.point, _v.copy(i.impulse).divideScalar(force), joltOf(force, rag.info.mass));
         // How hard it was hit, for how long it stays down, not how far it moves: that is left as it was for every size.
         muscle?.reflex?.struck(joltOf(force, HUMAN_MASS));
@@ -531,6 +571,8 @@ export class Gore implements GoreSystem {
     b.freshAt = this.ctx.time.elapsed;
     const rag = b.rag;
     if (!rag) return;
+    // Still stumbling, the death carries on from where the body is: the hold goes, and what the muscles had fades.
+    rag.muscle?.loseFooting('dead');
     rag.muscle?.reflex?.die();
     // Time it spent alive does not count against time to settle.
     rag.age = Math.min(rag.age, 1);
@@ -579,9 +621,20 @@ export class Gore implements GoreSystem {
     if (at >= 0) this.bodies.splice(at, 1);
   }
 
+  /** Bodies dying on their feet. A living body's stumble runs on the same drive and is not one of them. */
   private collapsing(): number {
     let n = 0;
-    for (const b of this.bodies) if (b.rag?.muscle?.collapse) n++;
+    for (const b of this.bodies) {
+      const drive = b.rag?.muscle?.collapse;
+      if (drive && !drive.alive) n++;
+    }
+    return n;
+  }
+
+  /** Living bodies losing their balance, still on their feet. */
+  private stumbling(): number {
+    let n = 0;
+    for (const b of this.bodies) if (b.rag?.muscle?.collapse?.alive) n++;
     return n;
   }
 
@@ -620,9 +673,10 @@ export class Gore implements GoreSystem {
     return body;
   }
 
-  private startRag(body: DeadBody, options?: RagdollOptions): void {
+  /** `walk`: on its feet, so the speed it has is the root's and not every bone's (`measureAnimVelocity`). */
+  private startRag(body: DeadBody, options?: RagdollOptions, walk = false): void {
     const { char, info } = body;
-    measureAnimVelocity(char, char.anim, options?.velocity, _seeds);
+    measureAnimVelocity(char, char.anim, options?.velocity, _seeds, walk);
     for (let i = 0; i < info.count; i++) _mask[i] = body.skip[i] === 1 ? 0 : 1;
     body.rag = new Rag(this.ctx.physics, char, {
       chainRoot: 0,
@@ -830,6 +884,8 @@ export class Gore implements GoreSystem {
     markSubtree(info, bone, _mask);
     if (body?.rag) {
       this.wake(body);
+      // A limb gone mid-stumble, the body is off its feet: its animator is about to change how it stands.
+      body.rag.muscle?.loseFooting('limb');
       body.rag.cut(_mask);
     }
     // Cut from a chain in flight, the limb falls as that chain does: its seed is that chain's speed, already on the dial.
@@ -1427,6 +1483,8 @@ export class Gore implements GoreSystem {
     // Thrown again, it starts its fall again: on the time from its death the ragdoll budget froze a body a second grenade
     // had thrown 2 m up.
     if (target instanceof DeadBody) target.freshAt = this.ctx.time.elapsed;
+    // A living body it catches stumbling leaves its feet with the blast.
+    rag.muscle?.loseFooting('thrown');
     rag.muscle?.dropNow();
     rag.muscle?.reflex?.thrown();
     const reach = strength * (1 - distance / radius);
@@ -1634,7 +1692,7 @@ export class Gore implements GoreSystem {
   }
 
   /** Counts for the debug overlay and budget checks. */
-  stats(): { ragdolls: number; corpses: number; limbs: number; liveLimbs: number; limbSpeed: number; chunkBodies: number; rays: number; halves: number; jointGap: number; collapses: number; knockdowns: number } {
+  stats(): { ragdolls: number; corpses: number; limbs: number; liveLimbs: number; limbSpeed: number; chunkBodies: number; rays: number; halves: number; jointGap: number; collapses: number; knockdowns: number; stumbles: number } {
     let ragdolls = 0;
     let corpses = 0;
     let jointGap = 0;
@@ -1655,7 +1713,7 @@ export class Gore implements GoreSystem {
     }
     return {
       ragdolls, corpses, limbs: this.limbs.length, liveLimbs, limbSpeed, chunkBodies: this.chunks.bodies,
-      rays: this.blood.raysUsed, halves: this.sliced.count, jointGap, collapses: this.collapsing(), knockdowns: this.knockedDown(),
+      rays: this.blood.raysUsed, halves: this.sliced.count, jointGap, collapses: this.collapsing(), knockdowns: this.knockedDown(), stumbles: this.stumbling(),
     };
   }
 }

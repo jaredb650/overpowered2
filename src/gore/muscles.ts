@@ -19,6 +19,7 @@ import type { JointRole } from '../characters/rig';
 import { GRAVITY, OWN_BLAST } from '../physics/Physics';
 import type { Rag, RagPart } from './rag';
 import type { Reflex, ReflexLift } from './reflex';
+import { HUMAN_HEIGHT } from './rigInfo';
 
 /** How a body goes down when it is not dropped outright. */
 export interface CollapseOptions {
@@ -55,6 +56,14 @@ export interface KnockdownOptions {
    * hangs slack for a moment, the arms go slack with no brace and no guard, and it goes over like a sack, alive.
    */
   knockout?: boolean;
+  /**
+   * Losing its balance, not knocked off its feet: the body goes onto its muscles on this frame and follows the stumble its
+   * animator was just given, with a hold under the hips that fades over `seconds`. It goes over when its weight gets past its
+   * feet, or at `seconds` at the latest, and from there this is the same knockdown, the same ragdoll. No `topple`, and
+   * `impact` is not used: the animation is doing the flailing. Refused past `GoreTuning.maxStumbles`, on fewer than two
+   * feet, and with `?stand=0`: the caller staggers it and knocks it down the old way.
+   */
+  stumble?: { seconds: number };
 }
 
 /** What the owner of a knocked-down character reads each frame. */
@@ -124,6 +133,14 @@ const knockFlag = typeof location === 'undefined' ? null : new URLSearchParams(l
  * whatever it is doing. Read once, at load, by gore and by the damage model and its rules.
  */
 export const KNOCK_PASS = knockFlag !== '0';
+
+const standFlag = typeof location === 'undefined' ? null : new URLSearchParams(location.search).get('stand');
+/**
+ * `?stand=0` puts back a fall from before a body lost its balance on its muscles, for comparison in motion: a stagger the
+ * animation plays on its springs, then 0.16 to 0.42 s later a knockdown that tips it over with its legs and spine locked.
+ * Read once, at load, by gore and by the damage model.
+ */
+export const STAND_PASS = standFlag !== '0';
 
 export const MuscleTuning = {
   /** ?muscles=0 turns the whole layer off, for comparison: hard limits, instant ragdolls, no reactions. */
@@ -262,6 +279,28 @@ export const MuscleTuning = {
   /** Hit strength between which a collapse starts to give up. Below it a bullet jolts the body, and it goes on dying. */
   dropFrom: 0.15,
   dropFull: 0.7,
+
+  /**
+   * A living body losing its balance (`KnockdownOptions.stumble`): the fade of each role, as a collapse's, in shares of the
+   * stumble's seconds. The hold under the hips starts to go at once and carries the trunk's weight while it lasts, so the
+   * weight comes onto the legs as it goes, before they give.
+   */
+  standFade: {
+    support: [0, 0.7], leg: [0.35, 1], spine: [0.5, 1], arm: [0.7, 1], head: [0.7, 1],
+  } as Readonly<Record<'support' | 'leg' | 'spine' | 'arm' | 'head', readonly [number, number]>>,
+  /**
+   * When it has lost it. Its weight is heading for a point on the floor, the capture point: where its centre of mass is, plus
+   * its speed times the time a body that tall takes to tip, sqrt(height / gravity). A step reaches `stepReach` metres (times
+   * the rig's size) from between the feet, and `balanceLost` steps away is out of reach.
+   */
+  stepReach: 0.55,
+  balanceLost: 1.6,
+  /** Or the chest is this far off upright, in radians. */
+  tiltLost: 0.8,
+  /** Or the hips are this many metres from where the animation has them: it is no longer the body that is stumbling. */
+  hipGapLost: 0.3,
+  /** Or its centre of mass is under this share of its standing height over its feet: its legs have gone. */
+  sunkLost: 0.5,
 
   /** How hard the animation under a dying body flinches at a hit. Rounds all lean it the same way, and they add up fast. */
   collapseFlinch: 0.55,
@@ -424,6 +463,11 @@ export class CollapseDrive {
   weakLeg = 1;
   /** The leg that was shot goes first. Zero if it does not matter. */
   shotLeg = 0;
+  /**
+   * Not dying: a living body that has lost its balance and is failing to catch it (`KnockdownOptions.stumble`). Its fades are
+   * `MuscleTuning.standFade`, it has no death stagger and no topple of its own, and it ends in the body's `Reflex`, not limp.
+   */
+  alive = false;
 
   /** Reads the pose and the root, so build this before the Rag takes them over. */
   constructor(
@@ -532,6 +576,30 @@ function rotationBetween(from: THREE.Quaternion, to: THREE.Quaternion, out: THRE
   return out.set(e.x * k, e.y * k, e.z * k);
 }
 
+/**
+ * Why a living body's stumble ended. By itself: its momentum carried its weight past its feet, it leaned too far, its hips
+ * left the animation's, its legs went from under it, its time was up, or it was told to stay on the floor (`prone`). From
+ * outside: it lost a limb, a blast threw it, or it died on the way.
+ */
+export type BalanceLost = 'momentum' | 'tilt' | 'hips' | 'sunk' | 'clock' | 'prone' | 'limb' | 'thrown' | 'dead';
+
+/** A living body's balance while it stumbles. See `MuscleTuning.balanceLost`. */
+export interface Balance {
+  /** Distance from between the feet to where its weight is heading, in steps (`MuscleTuning.stepReach`). */
+  err: number;
+  /** The chest off upright, in radians. */
+  tilt: number;
+  /** Metres between the hips and where the animation has them. */
+  gap: number;
+  /** Height of the centre of mass over the lower foot, as a share of standing. */
+  height: number;
+  /** What ended the stumble, or null while it lasts, and how far through its time that was. */
+  lost: BalanceLost | null;
+  at: number;
+  /** The centre of mass's velocity at the last reading. */
+  readonly speed: THREE.Vector3;
+}
+
 /** One short pulse across one joint. */
 class Jolt {
   part: RagPart | null = null;
@@ -563,6 +631,12 @@ export class MuscleState {
   private meanMass = 1;
   /** Inertia of the whole chain about its root, for holding the hips. */
   private bodyInertia = 1;
+  /** The shins, and where each one's lower end is in its own frame: what a body stands on, for reading its balance. */
+  private readonly feet: { part: RagPart; at: THREE.Vector3 }[] = [];
+  /** Height of the centre of mass over the feet, standing as the rig is bound. */
+  private standCom = 1;
+  /** The last reading of a living body's balance while it stumbles, and what ended the stumble. For tests and probes. */
+  readonly balance: Balance = { err: 0, tilt: 0, gap: 0, height: 1, lost: null, at: 0, speed: new THREE.Vector3() };
   private readonly merged: { bone: number; rest: THREE.Quaternion }[] = [];
   private burstLeft = 0;
   private burstLength = 0;
@@ -700,6 +774,26 @@ export class MuscleState {
       if (!relax || defs[i]!.ragdoll !== 'merge' || rag.mask[i] !== 1) continue;
       this.merged.push({ bone: i, rest: fromRotationVector(relax, new THREE.Quaternion()) });
     }
+
+    // What it stands on: the lower end of each shin, which is the ankle, or the end of its capsule with no foot below it.
+    this.feet.length = 0;
+    let com = 0;
+    let low = Infinity;
+    for (const part of parts) {
+      com += part.mass * (bind[part.bone * 3 + 1]! + part.com.y);
+      if (!part.hinge || part.muscle!.role !== 'leg') continue;
+      const at = new THREE.Vector3();
+      const o = part.bone * 3;
+      const foot = info.children[part.bone]![0];
+      if (foot !== undefined && rag.mask[foot] === 1) at.set(bind[foot * 3]! - bind[o]!, bind[foot * 3 + 1]! - bind[o + 1]!, bind[foot * 3 + 2]! - bind[o + 2]!);
+      else {
+        const to = defs[part.bone]!.hit?.to;
+        if (to) at.set(to[0], to[1], to[2]);
+      }
+      this.feet.push({ part, at });
+      low = Math.min(low, bind[o + 1]! + at.y);
+    }
+    this.standCom = this.feet.length > 0 ? Math.max(com / total - low, 0.1) : 1;
   }
 
   /** The chain's gravity changed by `k`: a body killed in the air has landed. What each joint carries changes with it. */
@@ -1044,6 +1138,13 @@ export class MuscleState {
     this.collapse = drive;
     this.limp = 0;
     this.tone = 1;
+    if (drive.alive) {
+      const b = this.balance;
+      b.err = b.tilt = b.gap = b.at = 0;
+      b.height = 1;
+      b.lost = null;
+      b.speed.copy(drive.drift);
+    }
     this.sampleStrengths(drive);
     this.readPose(drive);
   }
@@ -1074,11 +1175,135 @@ export class MuscleState {
   sampleReflex(dt: number): void {
     const r = this.reflex;
     if (!r) return;
+    // A living body still on its feet follows its stumble, and the Reflex waits until it loses them.
+    const drive = this.collapse;
+    if (drive) {
+      if (!drive.alive || dt <= 0) return;
+      const lost = this.readBalance(drive);
+      if (!lost) return;
+      this.fallOver(drive, lost);
+    }
     r.sample(dt);
     if (r.dying !== 0) return;
     this.letGo();
     // Already at full tone: it must not dip and rise again as the drive lets go.
     this.limp = MuscleTuning.toneRise;
+  }
+
+  /**
+   * Where a stumbling body's weight is heading against where its feet are, read once a frame from what `Rag.drive` and
+   * `Rag.measure` have just read. Returns what has cost it its feet, or null while it is still on them.
+   */
+  private readBalance(drive: CollapseDrive): BalanceLost | null {
+    const t = MuscleTuning;
+    const { rag, balance, feet } = this;
+    const parts = rag.parts;
+    let x = 0;
+    let y = 0;
+    let z = 0;
+    let vx = 0;
+    let vy = 0;
+    let vz = 0;
+    let mass = 0;
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i]!;
+      _a.copy(part.com).applyQuaternion(part.q).add(part.p);
+      x += _a.x * part.mass;
+      y += _a.y * part.mass;
+      z += _a.z * part.mass;
+      vx += part.v.x * part.mass;
+      vy += part.v.y * part.mass;
+      vz += part.v.z * part.mass;
+      mass += part.mass;
+    }
+    x /= mass;
+    y /= mass;
+    z /= mass;
+    balance.speed.set(vx / mass, vy / mass, vz / mass);
+    if (drive.time >= drive.duration) return 'clock';
+    // Told to stay on the floor while it stumbled (a wound, `setPosture`): the animation under it is lying down.
+    if (drive.anim.prone) return 'prone';
+    if (feet.length === 0) return 'sunk';
+    let fx = 0;
+    let fz = 0;
+    let low = Infinity;
+    for (let i = 0; i < feet.length; i++) {
+      const f = feet[i]!;
+      _a.copy(f.at).applyQuaternion(f.part.q).add(f.part.p);
+      fx += _a.x;
+      fz += _a.z;
+      low = Math.min(low, _a.y);
+    }
+    fx /= feet.length;
+    fz /= feet.length;
+    const scale = rag.source.rig.height / HUMAN_HEIGHT;
+    const h = Math.max(y - low, 0.05);
+    // The time a body this tall takes to tip, under the gravity it falls at. The catch steps carry it at the drift for as long
+    // as the legs taking them work, so what they cannot catch is the speed it has over that share of it. Read against the
+    // feet alone, a body reeling at 4 m/s had lost it on its first frame, before a single step; with the whole drift taken
+    // off, it never lost it to momentum at all, only by leaning over.
+    let legs = 0;
+    let n = 0;
+    for (let i = 0; i < parts.length; i++) {
+      const m = parts[i]!.muscle!;
+      if (m.role !== 'leg') continue;
+      legs += m.drive;
+      n++;
+    }
+    const carried = n > 0 ? legs / n : 0;
+    const tip = Math.sqrt(h / (WEIGHT * rag.gravity));
+    const ox = (balance.speed.x - drive.drift.x * carried) * tip;
+    const oz = (balance.speed.z - drive.drift.z * carried) * tip;
+    balance.err = Math.hypot(x + ox - fx, z + oz - fz) / (t.stepReach * scale);
+    balance.height = h / this.standCom;
+    // Off the chest its stumble asks for, not off upright: a hard stumble leans the animated chest 0.7 to 0.86 rad by itself in
+    // its first fifth of a second, and read off upright that ended it before its first step.
+    const chest = this.firstJoint() ?? parts[0]!;
+    // The animation's chest in the world: down the chain from the hips, joint target by joint target.
+    _q.identity();
+    for (let p: RagPart | null = chest; p?.parent; p = p.parent) _q.premultiply(p.muscle!.pose);
+    _q.premultiply(drive.hipsRot);
+    _a.set(0, 1, 0).applyQuaternion(_q);
+    balance.tilt = Math.acos(clamp(_b.set(0, 1, 0).applyQuaternion(chest.q).dot(_a), -1, 1));
+    balance.gap = parts[0]!.p.distanceTo(drive.hipsAt);
+    if (balance.err > t.balanceLost) return 'momentum';
+    if (balance.tilt > t.tiltLost) return 'tilt';
+    if (balance.gap > t.hipGapLost * scale) return 'hips';
+    if (balance.height < t.sunkLost) return 'sunk';
+    return null;
+  }
+
+  /**
+   * A living body's stumble ends: its feet are no longer under it. The `Reflex` takes the same chain on from where it is, every
+   * muscle at the strength the stumble left it, and falls the way its weight was going. Nothing is zeroed and nothing is
+   * built: there is no switch to see.
+   */
+  private fallOver(drive: CollapseDrive, lost: BalanceLost): void {
+    const parts = this.rag.parts;
+    const g = this.rag.gravity;
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i]!;
+      const m = part.muscle!;
+      if (!part.parent) m.drive = 0;
+      // The hold has gone and the trunk's weight is its own again. The Reflex writes gravity for arms and head, and for
+      // legs once the body is down; never for the hips or the chest.
+      if (!part.parent || m.role === 'spine' || m.role === 'leg') part.body.setGravityScale(g, false);
+    }
+    this.collapse = null;
+    this.balance.lost = lost;
+    this.balance.at = drive.time / drive.duration;
+    this.reflex?.offFeet(this.balance.speed, lost === 'thrown');
+  }
+
+  /**
+   * Takes a stumbling body off its feet now, whatever its balance: it has lost a limb, a blast has thrown it, or it has died
+   * on the way, which carries on from where the body is. False, and nothing done, for a body that is not stumbling.
+   */
+  loseFooting(why: BalanceLost): boolean {
+    const drive = this.collapse;
+    if (!drive?.alive) return false;
+    this.fallOver(drive, why);
+    return true;
   }
 
   /**
@@ -1210,14 +1435,18 @@ export class MuscleState {
     const t = MuscleTuning;
     drive.time += dt * drive.pace;
     const u = drive.time / drive.duration;
-    if (u >= 1) {
-      this.endCollapse();
-      return;
+    // A living body's stumble ends in its Reflex, once the frame has been measured (`sampleReflex`), and until then it goes
+    // on following the stumble its animator was given: no death stagger, and no topple but its own weight.
+    if (!drive.alive) {
+      if (u >= 1) {
+        this.endCollapse();
+        return;
+      }
+      if (!drive.stumbled && u >= t.stumbleAt) this.stumble(drive);
+      if (!drive.toppled && u >= t.toppleAt) this.topple(drive);
+      // On the collapse's own clock, so one a hit has hurried still gets all of both before it ends.
+      this.easeFall(drive, dt * drive.pace);
     }
-    if (!drive.stumbled && u >= t.stumbleAt) this.stumble(drive);
-    if (!drive.toppled && u >= t.toppleAt) this.topple(drive);
-    // On the collapse's own clock, so one a hit has hurried still gets all of both before it ends.
-    this.easeFall(drive, dt * drive.pace);
     drive.ghost.addScaledVector(drive.drift, dt);
     drive.drift.multiplyScalar(Math.exp(-t.driftDecay * dt));
 
@@ -1293,7 +1522,9 @@ export class MuscleState {
   private sampleStrengths(drive: CollapseDrive): void {
     const t = MuscleTuning;
     const u = drive.time / drive.duration;
-    drive.support = fade(t.supportFade, u, 0);
+    // A living body losing its balance fades on its own table: the hold first, then the legs, and the arms and head last.
+    const stand = drive.alive ? t.standFade : null;
+    drive.support = fade(stand ? stand.support : t.supportFade, u, 0);
     const parts = this.rag.parts;
     const g = this.rag.gravity;
     let root: RagPart | null = null;
@@ -1305,7 +1536,9 @@ export class MuscleState {
         m.drive = drive.support;
       } else if (m.role === 'leg') {
         const side = this.rag.info.bind[part.bone * 3]! >= 0 ? 1 : -1;
-        m.drive = fade(t.legFade, u, side === drive.weakLeg ? t.weakLegLead : 0);
+        m.drive = fade(stand ? stand.leg : t.legFade, u, side === drive.weakLeg ? t.weakLegLead : 0);
+      } else if (stand) {
+        m.drive = fade(m.role === 'head' ? stand.head : m.role === 'arm' ? stand.arm : stand.spine, u, 0);
       } else {
         m.drive = fade(m.role === 'head' ? t.headFade : m.role === 'arm' ? t.armFade : t.spineFade, u, 0);
       }
@@ -1320,7 +1553,11 @@ export class MuscleState {
     }
     // The hips take the trunk's weight, and the hold and the legs under them carry it: the body goes down under its whole
     // weight, with nothing bending the chest over.
-    if (root) root.body.setGravityScale(g * (1 - t.trunkCut * root.muscle!.drive + ((1 - t.trunkCut) * carried) / root.mass), false);
+    // On its feet and alive, the hold carries the trunk's weight while it lasts, so the legs take catch steps instead of
+    // carrying a body that sinks onto them: handed to the hips as a dying body's is, it sank 0.1 m in the first 0.15 s, the
+    // swinging foot dragged on the floor, and a leg it then landed on stopped the hips' fall by up to 1.3 m/s in a frame.
+    const cut = drive.alive ? 1 : t.trunkCut;
+    if (root) root.body.setGravityScale(g * (1 - cut * root.muscle!.drive + ((1 - cut) * carried) / root.mass), false);
   }
 
   /** Reads joint targets out of the bones the animator just wrote. */

@@ -209,9 +209,14 @@ function readPose(src: RagSource, count: number, chainMask: Uint8Array | null): 
  * Estimates each bone's velocity by stepping the animation a moment ahead and differencing, then restoring
  * the pose. It needs no per-frame tracking of living characters, so the cost is paid only at the moment of
  * death, and it captures whatever the animation is doing: stride, flinch, recoil.
+ *
+ * `velocity` is added to every bone, as if the whole pose slid along with it. With `walk` the root moves along it over the
+ * step instead, and an animator that plants its feet in the world (`HumanoidAnimator`) leaves a planted foot where it is:
+ * a living body losing its balance at 4 m/s started its planted feet sliding at 4 m/s, 0.06 m a frame.
  */
 export function measureAnimVelocity(
   src: RagSource, anim: { update(dt: number, lod: number, probing?: boolean): void; catchUp?(): void }, velocity: THREE.Vector3 | null | undefined, out: Float32Array,
+  walk = false,
 ): void {
   const n = src.rig.bones.length;
   const h = 1 / 90;
@@ -230,11 +235,12 @@ export function measureAnimVelocity(
     out[i * SEED_STRIDE + 1] = _pos[i]!.y;
     out[i * SEED_STRIDE + 2] = _pos[i]!.z;
   }
+  if (walk && velocity) src.root.position.addScaledVector(velocity, h);
   anim.update(h, 0, true);
   readPose(src, n, null);
-  const vx = velocity?.x ?? 0;
-  const vy = velocity?.y ?? 0;
-  const vz = velocity?.z ?? 0;
+  const vx = walk ? 0 : velocity?.x ?? 0;
+  const vy = walk ? 0 : velocity?.y ?? 0;
+  const vz = walk ? 0 : velocity?.z ?? 0;
   const maxV = RagTuning.maxSeedSpeed;
   const maxW = RagTuning.maxSeedSpin;
   for (let i = 0; i < n; i++) {
