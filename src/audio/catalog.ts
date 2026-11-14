@@ -129,25 +129,26 @@ const samples: SoundDef[] = [
 
 /**
  * The armour update's sounds, set by how loud they land (see `shot` below: level over the file's measured loudness), on a
- * ladder by how much each means. The 2D confirmations sit with the hit markers (0.066 to 0.114): a round the armour
- * stopped is the quietest thing, a piece breaking stands well over a kill's tick, and a weak point found over that. The
- * world sounds sit near the guns, the crunch of every plate going at once the loudest.
+ * ladder by how much each means. Raised once by ear (2026-11-13): these carry their weight in the low mids, which the
+ * loudness measure discounts and laptop speakers lose, so at hit-marker level only their hiss came through. The 2D
+ * confirmations now sit over the hit markers (0.066 to 0.114), a stopped round the quietest of them; the world sounds sit
+ * with the guns, and the crunch of armour torn off by a rocket is the loudest, and carries.
  */
 const CONFIRM: Partial<MixProfile> = { perFrame: 1, maxVoices: 2 };
 const armourSamples: SoundDef[] = [
-  // Three takes, one at random each time. Matched at load like a pack, so 0.2 lands at 0.06.
+  // Three takes, one at random each time. Matched at load like a pack, so 0.4 lands at 0.12.
   {
-    ...MIX.reward, ...CONFIRM, critical: false, volume: 0.2, id: 'armour_stopped', kind: 'sample', loop: false, fallback: 'hit_marker_armor',
+    ...MIX.reward, ...CONFIRM, critical: false, volume: 0.4, id: 'armour_stopped', kind: 'sample', loop: false, fallback: 'hit_marker_armor',
     files: ['armour/armour_stopped_1.mp3', 'armour/armour_stopped_2.mp3', 'armour/armour_stopped_3.mp3'],
   },
-  shot('armour_through', 'armour/armour_through.mp3', 'reward', 0.085, 0.362, CONFIRM),
-  shot('headshot_crack', 'armour/headshot_crack.mp3', 'reward', 0.1, 0.207, CONFIRM),
-  shot('headshot_puff', 'armour/headshot_puff.mp3', 'reward', 0.11, 0.287, CONFIRM),
-  shot('armour_broken', 'armour/armour_broken.mp3', 'reward', 0.15, 0.299, { perFrame: 1, maxVoices: 3 }),
-  shot('vehicle_weak_point', 'armour/vehicle_weak_point.mp3', 'reward', 0.18, 0.349, CONFIRM),
-  shot('sabot_on_vehicle', 'armour/sabot_on_vehicle.mp3', 'impact', 0.16, 0.416, { priority: 6 }),
-  shot('sabot_shield_pierce', 'armour/sabot_shield_pierce.mp3', 'impact', 0.16, 0.52, { priority: 6 }),
-  shot('armour_crunch', 'armour/armour_crunch.mp3', 'impact', 0.24, 0.426, { priority: 7 }),
+  shot('armour_through', 'armour/armour_through.mp3', 'reward', 0.17, 0.362, CONFIRM),
+  shot('headshot_crack', 'armour/headshot_crack.mp3', 'reward', 0.17, 0.207, CONFIRM),
+  shot('headshot_puff', 'armour/headshot_puff.mp3', 'reward', 0.18, 0.287, CONFIRM),
+  shot('armour_broken', 'armour/armour_broken.mp3', 'reward', 0.2, 0.299, { perFrame: 1, maxVoices: 3 }),
+  shot('vehicle_weak_point', 'armour/vehicle_weak_point.mp3', 'reward', 0.26, 0.349, CONFIRM),
+  shot('sabot_on_vehicle', 'armour/sabot_on_vehicle.mp3', 'impact', 0.26, 0.416, { priority: 6 }),
+  shot('sabot_shield_pierce', 'armour/sabot_shield_pierce.mp3', 'impact', 0.24, 0.52, { priority: 6 }),
+  shot('armour_crunch', 'armour/armour_crunch.mp3', 'impact', 0.36, 0.426, { priority: 7, near: 12, far: 120 }),
 ];
 
 /**

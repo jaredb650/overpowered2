@@ -232,10 +232,11 @@ Random-pick groups: `bullet_hit` (the four samples), `sword_hit`, `player_footst
 - 2D confirmations on the reward mix: `armour_stopped`, `armour_through`, `armour_broken`, `headshot_crack` (a headshot that
   did not kill), `headshot_puff` (over `headshot` on a head kill), `vehicle_weak_point` (registered, waits for the weak points)
 - In the world: `armour_crunch` (a shaped charge strips every plate), `sabot_on_vehicle`, `sabot_shield_pierce`
-- Levels (2026-11-13): every file trimmed of lead-in silence, mono, peaks to -1 dB, then set by how loud it lands (`shot()`)
-  on a ladder by how much it means: `armour_stopped` 0.06 (three takes at random), `armour_through` 0.085,
-  `headshot_crack` 0.1, `headshot_puff` 0.11, `armour_broken` 0.15, `vehicle_weak_point` 0.18 (all 2D, against the hit
-  markers' 0.066 to 0.114), then in the world `sabot_on_vehicle` and `sabot_shield_pierce` 0.16 and `armour_crunch` 0.24
+- Levels (2026-11-13, raised once by ear the same day): every file trimmed of lead-in silence, mono, peaks to -1 dB, then
+  set by how loud it lands (`shot()`) on a ladder by how much it means: `armour_stopped` 0.12 (three takes at random),
+  `armour_through` 0.17, `headshot_crack` 0.17, `headshot_puff` 0.18, `armour_broken` 0.2, `vehicle_weak_point` 0.26 (all
+  2D, over the hit markers' 0.066 to 0.114), then in the world `sabot_shield_pierce` 0.24, `sabot_on_vehicle` 0.26 and
+  `armour_crunch` 0.36, heard to 120 m. The crunch plays whenever a direct rocket or shell tears armour off a body
 - Guns: `sabot_shot` (replaces `sabot_fire` on the Sabot), `autocannon_blast` (replaces `autocannon_shot` on the autocannon)
 
 **The gun sound update** (`sfx/guns`, the owner's own generated recordings). Every player gun now fires a recording.

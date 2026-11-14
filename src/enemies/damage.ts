@@ -534,7 +534,8 @@ export class DamageModel {
     }
     if (torn === 0) return;
     res.armour = 'broken';
-    if (all && torn > 1) this.w.ctx.audio.play('armour_crunch', { position: e.center, pitchJitter: 0.05 });
+    // Any armour a direct rocket or shell tears off crunches, one plate or six. A dart's deletion is the broken cue alone.
+    if (all) this.w.ctx.audio.play('armour_crunch', { position: e.center, pitchJitter: 0.05 });
   }
 
   /**
