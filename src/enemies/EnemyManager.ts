@@ -307,6 +307,7 @@ export class EnemyManager implements EnemySystem {
       const spec = specs[i]!;
       const mesh = meshes[i]!;
       const worn = mesh.material !== plateMaterial(this.ctx);
+      this.debris.release(mesh);
       e.char.bones[spec.bone]!.add(mesh);
       if (worn) {
         // Where the head socket mounts it, at the body's scale, as `fitProps` first put it.

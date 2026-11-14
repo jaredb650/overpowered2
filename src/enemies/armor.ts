@@ -205,6 +205,12 @@ export class PlateDebris {
     });
   }
 
+  /** A pooled body takes its piece back while it is still in the air: it stops flying here and is never retired. */
+  release(mesh: THREE.Mesh): void {
+    const i = this.flying.findIndex(f => f.mesh === mesh);
+    if (i >= 0) this.flying.splice(i, 1);
+  }
+
   update(dt: number): void {
     for (let i = this.flying.length - 1; i >= 0; i--) {
       const f = this.flying[i]!;
