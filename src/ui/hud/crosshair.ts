@@ -367,7 +367,8 @@ export class Crosshair {
     if (s.weapon !== this.weapon) this.setWeapon(s.weapon);
 
     const hidden = s.scoped || s.targeting !== null;
-    this.hide.set(hidden);
+    // Aimed down sights, the gun's own sight is the crosshair. The ammo and combo readouts stay.
+    this.hide.set(hidden || s.aim > 0.5);
     this.aimCheck(dt);
 
     this.bloom = damp(this.bloom, 0, 13, dt);

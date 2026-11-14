@@ -669,6 +669,11 @@ export interface CameraRig extends GameSystem {
   fovPunch(degrees: number, seconds: number): void;
   /** Continuous FOV override for scopes; null restores it. */
   setZoom(fov: number | null): void;
+  /**
+   * Aim down sights, already blended by the weapon: `fovScale` multiplies the composed FOV, `lookScale` the mouse. 1, 1 is
+   * hip fire. Optional so stand-in camera rigs need not carry it.
+   */
+  setAim?(fovScale: number, lookScale: number): void;
   /** The world FOV as last composed, in degrees. */
   readonly fov: number;
   /** Player-facing FOV setting. Speed, punches and zoom are composed on top of it. */

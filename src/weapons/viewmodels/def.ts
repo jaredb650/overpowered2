@@ -33,6 +33,14 @@ export interface ViewDef {
   /** Hip position of the model origin in view space, and its rotation. */
   pos: Tuple3;
   rot: Tuple3;
+  /**
+   * Aim down sights: the point of the sight, in the model's frame, that sits on the eye line when aimed (the tip of the
+   * front post, the dot of a reflex sight), and how far in front of the eye it sits, meters. Unset: the gun has no ADS pose.
+   */
+  sight?: Tuple3;
+  /** The rear sight, for iron sights: the gun is pitched so it lines up with `sight`. Unset on an optic: level. */
+  rear?: Tuple3;
+  relief?: number;
   recoil: RecoilSpec;
   right: HandBind | null;
   left: HandBind | null;

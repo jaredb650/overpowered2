@@ -7,7 +7,7 @@ import { Kit } from '../kit/kit';
 import { Model } from '../kit/model';
 import { F } from '../kit/finishes';
 import type { Mesher, V3 } from '../kit/mesher';
-import { curve, poly, rect, type V2 } from '../kit/shapes';
+import { circle, curve, poly, rect, type V2 } from '../kit/shapes';
 import { clampBand, knurl, rail, rivet, screwX } from '../kit/details';
 import { bump, hold, inOut, inQuad, outCubic, seg, thud } from '../curves';
 import type { Anim, ViewDef } from '../def';
@@ -82,9 +82,9 @@ function optic(m: Mesher): void {
     m.use(F.anodized);
     m.at([0.02, -0.03, 0.0], null, () => m.side(poly([[0.05, 0], [-0.05, 0], [-0.04, 0.02, 0.006], [0.04, 0.02, 0.006]], 0.002), 0.03, { bevel: 0.0014 }));
     m.at([0.03, -0.03, 0.0], null, () => { m.use(F.steelDark); m.box(0.024, 0.008, 0.1, 0.0012); });
-    // Body.
+    // Body: hollow along the bore, so the eye sees through it when aimed (ADS).
     m.use(F.polymer);
-    m.side(poly([[0.075, -0.018], [0.075, 0.02, 0.006], [0.058, 0.03, 0.006], [-0.062, 0.03, 0.006], [-0.075, 0.016, 0.006], [-0.075, -0.018, 0.005]], 0.003), 0.044, { bevel: 0.0024 });
+    m.front(rect(-0.022, -0.018, 0.022, 0.03, 0.006), 0.15, { bevel: 0.0015, holes: [circle(0, 0.006, 0.016, 24)] });
     m.use(F.polymerGrey);
     m.mirror(() => m.at([0.0228, 0, 0], null, () => m.side(rect(-0.06, -0.012, 0.06, 0.022, 0.003), 0.0024, { bevel: 0.0008, holes: [rect(-0.05, -0.006, -0.012, 0.016, 0.0018), rect(0.0, -0.006, 0.05, 0.016, 0.0018)] })));
     m.mirror(() => {
@@ -95,15 +95,11 @@ function optic(m: Mesher): void {
     m.at([0, 0.006, -0.075], null, () => {
       m.use(F.rubber);
       m.lathe([[0.021, 0.004, 0], [0.024, 0.0], [0.0245, -0.018], [0.0225, -0.03], [0.0195, -0.031], [0.0185, -0.02, 0]], 26);
-      m.use(F.black);
-      m.at([0, 0, -0.012], null, () => m.cyl(0.0185, 0.001, 20, 0));
       m.glass(() => m.at([0, 0, -0.0125], null, () => m.cyl(0.0184, 0.0006, 20, 0)));
     });
     m.at([0, 0.006, 0.075], null, () => {
       m.use(F.rubber);
       m.lathe([[0.0185, 0.03, 0], [0.0225, 0.03], [0.0235, 0.012], [0.0205, 0.0], [0.0175, 0.0, 0]], 24);
-      m.use(F.black);
-      m.at([0, 0, 0.004], null, () => m.cyl(0.0172, 0.001, 18, 0));
       // A lit reticle in the eyepiece reads from the shooter's seat.
       m.glow('reticle', () => m.at([0, 0, 0.0052], null, () => {
         m.prism(rect(-0.0075, -0.00035, 0.0075, 0.00035, 0), 0.0002, { bevel: 0 });
@@ -360,6 +356,8 @@ export function rocketDef(kit: Kit): ViewDef {
     model: buildRocket(kit),
     pos: [0.255, -0.215, -0.36],
     rot: [0.012, 0.075, 0],
+    // ADS: through the optic, its reticle on the eye line and the eyecup close.
+    sight: [-0.062, 0.124, -0.1198], relief: 0.1,
     recoil: { back: 0.085, lift: 0.018, pitch: 0.075, yaw: 0.012, roll: 0.03, omega: 22, zeta: 0.56 },
     right: { socket: 'gripR', pose: HANDS.grip },
     left: { socket: 'gripL', pose: HANDS.foregrip },

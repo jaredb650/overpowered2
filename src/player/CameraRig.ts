@@ -36,6 +36,9 @@ export class CameraRigSystem implements CameraRig {
   private zoomFov: number | null = null;
   private zoomBlend = 0;
   private lastZoomFov = VIEW.baseFov;
+  /** Aim down sights, as the weapon blends it: see `setAim`. */
+  private aimFov = 1;
+  private aimLook = 1;
   private punches: Punch[] = Array.from({ length: MAX_PUNCHES }, () => ({ degrees: 0, left: 0, duration: 1 }));
 
   private trauma = 0;
@@ -118,6 +121,11 @@ export class CameraRigSystem implements CameraRig {
   setZoom(fov: number | null): void {
     this.zoomFov = fov;
     if (fov !== null) this.lastZoomFov = fov;
+  }
+
+  setAim(fovScale: number, lookScale: number): void {
+    this.aimFov = fovScale;
+    this.aimLook = lookScale;
   }
 
   setBaseFov(degrees: number): void {
@@ -248,12 +256,13 @@ export class CameraRigSystem implements CameraRig {
     const free = this.baseFov + this.speedFov + punch;
     this.zoomBlend = damp(this.zoomBlend, this.zoomFov === null ? 0 : 1, VIEW.zoomRate, real);
     if (this.zoomFov === null && this.zoomBlend < 0.001) this.zoomBlend = 0;
-    this.fov = lerp(free, this.lastZoomFov, this.zoomBlend);
+    this.fov = lerp(free, this.lastZoomFov, this.zoomBlend) * this.aimFov;
 
     // The same mouse motion should move the same distance on screen at any zoom. Only the scope changes it:
     // speed FOV must not change aim feel while running.
     const zoomed = lerp(this.baseFov, this.lastZoomFov, this.zoomBlend);
-    player.lookScale = Math.tan((zoomed * DEG) / 2) / Math.tan((this.baseFov * DEG) / 2);
+    // Aim down sights scales the mouse by the ADS sensitivity setting alone, not by its narrower view.
+    player.lookScale = (Math.tan((zoomed * DEG) / 2) / Math.tan((this.baseFov * DEG) / 2)) * this.aimLook;
   }
 
   private updateShake(real: number): void {
@@ -277,6 +286,7 @@ export class CameraRigSystem implements CameraRig {
     this.roll = this.wallRoll = 0;
     this.zoomFov = null;
     this.zoomBlend = 0;
+    this.aimFov = this.aimLook = 1;
     for (const p of this.punches) p.left = 0;
   }
 }

@@ -271,6 +271,8 @@ export function harrowDef(kit: Kit): ViewDef {
     model: buildHarrow(kit),
     pos: [0.14, -0.136, -0.43],
     rot: [0.022, 0.08, 0],
+    // ADS: the hooded post's tip through the rear aperture.
+    sight: [0, 0.101, -0.4215], rear: [0, 0.094, 0.118], relief: 0.64,
     // Back into the shoulder with a slight tip, not a muzzle flip (owner, 2026-11-13).
     recoil: { back: 0.042, lift: 0.003, pitch: 0.016, yaw: 0.008, roll: 0.014, omega: 40, zeta: 0.56 },
     right: { socket: 'gripR', pose: HANDS.grip },

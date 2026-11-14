@@ -87,6 +87,8 @@ export interface WeaponSystem extends GameSystem {
   /** 0..1 progress for the current reload. */
   readonly reloadProgress: number;
   readonly scoped: boolean;
+  /** 0..1 aim down sights, eased. Optional so stand-in weapon systems need not carry it. */
+  readonly aim?: number;
   readonly grenades: number;
   modifiers: WeaponModifiers;
   ammo(id?: WeaponId): AmmoState;
@@ -155,6 +157,8 @@ export interface ViewmodelRig extends GameSystem {
   setAkimbo(on: boolean): void;
   /** Hides the model while the scope overlay is up. */
   setScoped(on: boolean): void;
+  /** 0..1 how far the gun is up at the eye, eased: aim down sights. Optional so stand-in rigs need not carry it. */
+  setAim?(weight: number): void;
   /**
    * Writes the muzzle in WORLD space, corrected for the separate viewmodel FOV. Tracers start here. `barrel` picks a
    * barrel on a gun with more than one (sockets `muzzle`, `muzzle1`, ...); a gun with one answers its muzzle for any.

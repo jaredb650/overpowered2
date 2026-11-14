@@ -46,6 +46,8 @@ export class HudState {
   reloading = false;
   reloadProgress = 0;
   scoped = false;
+  /** 0..1 aim down sights. */
+  aim = 0;
   grenades = 0;
   /** 0..1 charge of the Lance or spin of the Buzzsaw. */
   charge = 0;
@@ -115,6 +117,7 @@ export class HudState {
     this.reloading = bool(w.reloading);
     this.reloadProgress = num(w.reloadProgress, 0);
     this.scoped = bool(w.scoped);
+    this.aim = num(w.aim, 0);
     this.grenades = num(w.grenades, 0);
     this.charge = num(w.charge, 0);
     this.spread = WEAPONS[this.weapon].spread;

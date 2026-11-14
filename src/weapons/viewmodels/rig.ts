@@ -78,6 +78,11 @@ const _mInv = new THREE.Matrix4();
 const _mHand = new THREE.Matrix4();
 const _moonHit: RayHit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, surface: 'concrete', collider: null };
 
+/** Eye relief when a ViewDef gives a sight and no `relief`. */
+const RELIEF = 0.2;
+/** The share of breathing, bob, look lag and body inertia a gun keeps when fully aimed. */
+const ADS_SWAY = 0.2;
+
 /** The share of a move's weapon pose that a working gun keeps. */
 const MOVE_CALM = 0.2;
 
@@ -117,6 +122,8 @@ export class Rig implements ViewmodelRig {
   private holstered = false;
   private scoped = false;
   private scopeW = 0;
+  /** Aim down sights, eased, as the weapon system sets it. */
+  private aimW = 0;
   private akimbo = false;
   private akimboW = 0;
   private reloadLeft = 0;
@@ -290,6 +297,7 @@ export class Rig implements ViewmodelRig {
     this.holsterRate = 0;
     this.scoped = false;
     this.scopeW = 0;
+    this.aimW = 0;
     this.akimbo = false;
     this.akimboW = 0;
     this.perkHeat = 0;
@@ -406,6 +414,10 @@ export class Rig implements ViewmodelRig {
 
   setScoped(on: boolean): void {
     this.scoped = on;
+  }
+
+  setAim(weight: number): void {
+    this.aimW = clamp(weight);
   }
 
   muzzle(out: THREE.Vector3, left = false, barrel = 0): THREE.Vector3 {
@@ -709,6 +721,25 @@ export class Rig implements ViewmodelRig {
     const p = _pos.set(def.pos[0], def.pos[1], def.pos[2]);
     const r = _rot.set(def.rot[0], def.rot[1], def.rot[2]);
 
+    // Aim down sights: the sight comes onto the eye line, square to the view. x goes in before the hand-off's mirror, which
+    // multiplies it by the gun's side, so the sight is centred from either hand. Sway falls to `ADS_SWAY` of itself.
+    const sight = def.sight;
+    const aim = sight ? this.aimW : 0;
+    if (sight && aim > 0) {
+      // Iron sights: pitch so the rear lines up with the front, then put the front on the eye line.
+      const rear = def.rear;
+      const pitch = rear ? Math.atan2(rear[1] - sight[1], rear[2] - sight[2]) : 0;
+      const c = Math.cos(pitch);
+      const s = Math.sin(pitch);
+      const y = sight[1] * c - sight[2] * s;
+      const z = sight[1] * s + sight[2] * c;
+      p.x = lerp(p.x, -sight[0] * this.gunSide, aim);
+      p.y = lerp(p.y, -y, aim);
+      p.z = lerp(p.z, -(def.relief ?? RELIEF) - z, aim);
+      r.set(lerp(r.x, pitch, aim), r.y * (1 - aim), r.z * (1 - aim));
+    }
+    const sway = 1 - (1 - ADS_SWAY) * aim;
+
     // Akimbo pushes the main gun out to make room.
     const ak = this.akimboW;
     p.x += ak * 0.045;
@@ -716,17 +747,19 @@ export class Rig implements ViewmodelRig {
     r.y -= ak * 0.1;
 
     // Breathing: the slowest layer, gone once the player moves.
-    p.y += Math.sin(t * 1.35) * 0.0013 * idle;
-    p.x += Math.sin(t * 0.82 + 1) * 0.0008 * idle;
-    r.x += Math.sin(t * 1.35 + 0.6) * 0.0028 * idle;
-    r.z += Math.sin(t * 0.61) * 0.0022 * idle;
+    const breath = idle * sway;
+    p.y += Math.sin(t * 1.35) * 0.0013 * breath;
+    p.x += Math.sin(t * 0.82 + 1) * 0.0008 * breath;
+    r.x += Math.sin(t * 1.35 + 0.6) * 0.0028 * breath;
+    r.z += Math.sin(t * 0.61) * 0.0022 * breath;
 
     // Synced to the footfalls CameraRig bobs to: side sway once per stride pair, drop on every footfall.
     const phase = this.ctx.player.stridePhase * Math.PI;
-    p.x += Math.cos(phase) * 0.0062 * this.bobW;
-    p.y += (0.0039 - Math.abs(Math.sin(phase)) * 0.0078) * this.bobW;
-    r.z += Math.cos(phase) * 0.012 * this.bobW;
-    r.x += (Math.abs(Math.sin(phase)) - 0.5) * 0.008 * this.bobW;
+    const bob = this.bobW * sway;
+    p.x += Math.cos(phase) * 0.0062 * bob;
+    p.y += (0.0039 - Math.abs(Math.sin(phase)) * 0.0078) * bob;
+    r.z += Math.cos(phase) * 0.012 * bob;
+    r.x += (Math.abs(Math.sin(phase)) - 0.5) * 0.008 * bob;
 
     // Pose layers.
     const run = this.runW;
@@ -767,7 +800,7 @@ export class Rig implements ViewmodelRig {
       r.x -= 0.18 * arc;
     }
 
-    const wall = this.wallW * this.wallSide;
+    const wall = this.wallW * this.wallSide * sway;
     p.x -= wall * 0.016;
     r.z -= wall * 0.17;
     r.y += wall * 0.03;
@@ -791,12 +824,12 @@ export class Rig implements ViewmodelRig {
       r.z += mv.gunRoll * c * m;
     }
 
-    p.x += this.lookP.x.x + this.moveP.x.x;
-    p.y += this.lookP.y.x + this.moveP.y.x;
-    p.z += this.moveP.z.x;
-    r.x += this.lookR.x.x + this.moveR.x.x;
-    r.y += this.lookR.y.x + this.moveR.y.x;
-    r.z += this.lookR.z.x + this.moveR.z.x;
+    p.x += (this.lookP.x.x + this.moveP.x.x) * sway;
+    p.y += (this.lookP.y.x + this.moveP.y.x) * sway;
+    p.z += this.moveP.z.x * sway;
+    r.x += (this.lookR.x.x + this.moveR.x.x) * sway;
+    r.y += (this.lookR.y.x + this.moveR.y.x) * sway;
+    r.z += (this.lookR.z.x + this.moveR.z.x) * sway;
 
     // Recoil and clip motion.
     p.x += this.recoilP.x.x + a.gunP.x * m;

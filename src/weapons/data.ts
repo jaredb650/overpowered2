@@ -76,6 +76,11 @@ export interface WeaponDef {
   headHops?: number;
   /** Right click raises the scope, as on the autocannon. */
   scope?: boolean;
+  /**
+   * Aim down sights on right click, for a gun whose right button does nothing else. `zoom` is the share the view narrows by,
+   * `time` the seconds the gun takes to come up to the eye. What ADS does to spread, recoil and speed is `TUNING.ads`.
+   */
+  ads?: { readonly zoom: number; readonly time: number };
   /** Hit-stop on a kill, seconds. */
   killStop?: number;
   /**
@@ -161,6 +166,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     sounds: [{ id: 'smg_shot', pitchJitter: 0.03 }],
     reloadFoley: [[0.02, 'smg_reload']],
     recoil: 1, kick: 0.0016, shake: 0.004,
+    ads: { zoom: 0.12, time: 0.16 },
   },
   // The SMG's big brother: 500 rounds a minute to its 800, twice the round, and all of it at any range. It goes through one body, or a
   // sheet of cover, and takes limbs.
@@ -172,6 +178,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     muzzle: 'carbine', tracer: 'carbine', casing: 'rifle',
     sounds: [{ id: 'harrow_shot', pitchJitter: 0.03 }],
     recoil: 1, kick: 0.0058, shake: 0.01, fovPunch: 0.5, impactScale: 1.25,
+    ads: { zoom: 0.18, time: 0.2 },
   },
   shotgun: {
     ...BASE, id: 'shotgun', name: 'SHOTGUN', slot: 2, mode: 'semi',
@@ -183,6 +190,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     cycleFoley: [[0.14, 'pump_rack_back'], [0.26, 'pump_rack_forward']],
     reloadFoley: [[0.1, 'reload_shell_in'], [0.32, 'reload_shell_in'], [0.54, 'reload_shell_in'], [0.86, 'reload_pump']],
     recoil: 1, kick: 0.014, shake: 0.02, fovPunch: 1.6,
+    ads: { zoom: 0.1, time: 0.2 },
   },
   // The shotgun that does not stop: a drum of twenty, five a second. Fewer pellets a shell than the pump, so the pump stays
   // the one hard hit, and a climb that walks the barrel up a burst for the player to hold down. `force` 16 is the least that
@@ -196,6 +204,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     reloadFoley: [[0.04, 'drum_out'], [0.52, 'drum_in'], [0.84, 'reload_bolt']], drawSound: 'weapon_draw_heavy',
     recoil: 0.85, kick: 0.011, shake: 0.016, fovPunch: 1.1,
     climb: { pitch: 0.011, yaw: 0.0035 },
+    ads: { zoom: 0.12, time: 0.25 },
   },
   rocket: {
     ...BASE, id: 'rocket', name: 'ROCKET', slot: 3, mode: 'semi', round: 'rocket',
@@ -205,6 +214,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     sounds: [{ id: 'rocket_fire', pitchJitter: 0.03 }],
     reloadFoley: [[0.15, 'reload_rocket'], [0.8, 'reload_bolt']], drawSound: 'weapon_draw_heavy',
     recoil: 1, kick: 0.022, shake: 0.04, fovPunch: 2.2,
+    ads: { zoom: 0.2, time: 0.3 },
   },
   // Four tubes in a block. Hold to paint up to four marks, let go and they leave one tube after another and home on them.
   // Each is a small ROCKET: the same blast rules for the player, a third of the reach. How it flies is TUNING.quiver.
@@ -293,6 +303,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     sounds: [{ id: 'revolver_shot', pitchJitter: 0.02 }],
     reloadFoley: [[0.04, 'revolver_open'], [0.34, 'revolver_load'], [0.74, 'revolver_close'], [0.9, 'revolver_cock']],
     recoil: 1, kick: 0.03, shake: 0.03, fovPunch: 2.4,
+    ads: { zoom: 0.15, time: 0.18 },
   },
   // The Judge is six slow verdicts. This is fifteen quick ones: out first, as fast as the finger, and nothing at long range.
   rivet: {
@@ -304,6 +315,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     sounds: [{ id: 'pistol_shot', pitchJitter: 0.04 }],
     reloadFoley: [[0.05, 'reload_mag_out'], [0.5, 'reload_mag_in'], [0.82, 'reload_bolt']],
     recoil: 1, kick: 0.0062, shake: 0.006, fovPunch: 0.3,
+    ads: { zoom: 0.1, time: 0.15 },
   },
   // A tap is a plasma ball, a hold is a beam: how it charges, what each stage fires and the bursts a beam leaves are
   // TUNING.lance. The cell holds twelve: a ball takes one, a beam two, a full beam three. `interval` is between balls,
@@ -349,6 +361,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     reloadFoley: [[0.05, 'reload_mag_out'], [0.5, 'reload_mag_in'], [0.8, 'piledriver_charge']], drawSound: 'weapon_draw_heavy',
     recoil: 1, kick: 0.016, shake: 0.045, fovPunch: 1.3,
     climb: { pitch: 0.0028, yaw: 0.0016 },
+    ads: { zoom: 0.15, time: 0.3 },
   },
   kiln: {
     ...BASE, id: 'kiln', name: 'KILN', slot: 9, mode: 'stream',
@@ -367,6 +380,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     sounds: [{ id: 'stake_fire', pitchJitter: 0.03 }],
     reloadFoley: [[0.1, 'stake_reload'], [0.84, 'reload_bolt']],
     recoil: 1, kick: 0.024, shake: 0.024, fovPunch: 1.4,
+    ads: { zoom: 0.2, time: 0.24 },
   },
 };
 
@@ -568,6 +582,11 @@ export const TUNING = {
      */
     carry: 30,
   },
+  /**
+   * Aim down sights, on every gun with an `ads` in its row: shares of the hip-fire value while fully aimed. `speed` is of run
+   * speed, a walk, held by the same clamp as a heavy gun's slowdown (handling.ts). `sensitivity` is the setting's default.
+   */
+  ads: { spread: 0.35, recoil: 0.55, climb: 0.6, speed: 0.45, sensitivity: 0.8 },
   /** What every cannon round's burst shares. Its radius, fragments and size are on the round: `WeaponDef.burst`. */
   burst: {
     /** Push of a fragment, newton-seconds. */

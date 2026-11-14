@@ -237,6 +237,8 @@ export function stakegunDef(kit: Kit): ViewDef {
     model: buildStakegun(kit),
     pos: [0.2, -0.205, -0.43],
     rot: [0.02, 0.07, 0],
+    // ADS: the folding post's glowing tip.
+    sight: [0.024, 0.1325, -0.2], relief: 0.42,
     recoil: { back: 0.07, lift: 0.012, pitch: 0.095, yaw: 0.012, roll: 0.03, omega: 32, zeta: 0.5 },
     right: { socket: 'gripR', pose: HANDS.grip },
     left: { socket: 'gripL', pose: HANDS.foregrip },

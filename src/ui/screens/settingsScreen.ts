@@ -6,7 +6,8 @@ import { KEY_GROUPS } from '../data';
 import { Label, Meter, div, h, span } from '../dom';
 import type { Hud } from '../Hud';
 import {
-  DEFAULTS, FOV_RANGE, GORE_LEVELS, QUALITY_LEVELS, SENSITIVITY_RANGE, applyQuality, applySettings, saveSettings, type Settings,
+  AIM_SENSITIVITY_RANGE, DEFAULTS, FOV_RANGE, GORE_LEVELS, QUALITY_LEVELS, SENSITIVITY_RANGE, applyQuality, applySettings, saveSettings,
+  type Settings,
 } from '../settings';
 import type { Nav, NavItem } from './nav';
 import { menuButton } from './parts';
@@ -155,12 +156,14 @@ export class SettingsScreen implements Screen {
     const fov = new Slider('Field of view', ...FOV_RANGE, 1, () => s.fov, v => { s.fov = v; }, v => `${v}`, tick);
     const invert = new Stepper('Invert mouse', ['Off', 'On'], () => (s.invertY ? 1 : 0), v => { s.invertY = v === 1; }, tick);
     const hop = new Stepper('Hold jump to hop', ['Off', 'On'], () => (s.holdToHop ? 1 : 0), v => { s.holdToHop = v === 1; }, tick);
+    const aimMode = new Stepper('Aim down sights', ['Toggle', 'Hold'], () => (s.aimHold ? 1 : 0), v => { s.aimHold = v === 1; }, tick);
+    const aimSens = new Slider('Aim sensitivity', ...AIM_SENSITIVITY_RANGE, 0.05, () => s.aimSensitivity, v => { s.aimSensitivity = v; }, v => v.toFixed(2), tick);
     const master = new Slider('Master volume', 0, 1, 0.05, () => s.master, v => { s.master = v; }, pct, tick);
     const sfx = new Slider('Effects volume', 0, 1, 0.05, () => s.sfx, v => { s.sfx = v; }, pct, tick);
     const music = new Slider('Music volume', 0, 1, 0.05, () => s.music, v => { s.music = v; }, pct, tick);
     const quality = new Stepper('Graphics quality', QUALITY_LEVELS, () => s.quality, v => { s.quality = v; }, qualityTick);
     const gore = new Stepper('Gore', GORE_LEVELS, () => s.gore, v => { s.gore = v; }, tick);
-    const general = [sensitivity, fov, invert, hop, master, sfx, music, quality, gore];
+    const general = [sensitivity, fov, invert, hop, aimMode, aimSens, master, sfx, music, quality, gore];
     this.refreshers = general.map(r => () => r.refresh());
     const keys = this.keyRows();
     const resetKeys = menuButton('Reset keys', () => this.resetKeys());
@@ -169,7 +172,7 @@ export class SettingsScreen implements Screen {
     this.panels = [
       {
         el: div('gd-panel', div('set-list',
-          span('gd-h', 'Controls and view'), sensitivity.el, fov.el, invert.el, hop.el,
+          span('gd-h', 'Controls and view'), sensitivity.el, fov.el, invert.el, hop.el, aimMode.el, aimSens.el,
           span('gd-h', 'Audio'), master.el, sfx.el, music.el,
           span('gd-h', 'Video'), quality.el, gore.el,
         )),

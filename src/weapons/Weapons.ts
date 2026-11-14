@@ -11,7 +11,7 @@ import { CG, type Ctx, type ExplosionKind, type LoopHandle } from '../core/contr
 import type {
   AmmoState, MissileTarget, PaintView, ProjectileSpec, ProjectileTrail, ShotSpec, WeaponId, WeaponModifiers, WeaponSystem,
 } from '../core/gameplay';
-import { clamp, damp, invLerp, lerp, randomInCone, wrapAngle } from '../core/math';
+import { clamp, damp, invLerp, lerp, randomInCone, smoothstep, wrapAngle } from '../core/math';
 import { MOVE } from '../player/tuning';
 import type { Combat, Guard, GuardResult } from './Combat';
 import { HIT_STOP, STARTING_WEAPONS, SWORD, TUNING, WEAPONS, WEAPON_ORDER, type SoundLayer, type WeaponDef } from './data';
@@ -104,6 +104,14 @@ export class Weapons implements WeaponSystem, Guard {
   private zoomed = false;
   private zoom = 0;
   private scopeShown = false;
+
+  /** Aim down sights. Settings write the first two: right click toggles it unless `aimHold`, and the mouse share while aimed. */
+  aimHold = false;
+  aimSensitivity: number = TUNING.ads.sensitivity;
+  /** The toggle's state. A reload, a quick melee or a draw suspends it; a dash, a slide or a switch drops it. */
+  private aimOn = false;
+  /** 0 to 1, linear over the gun's `ads.time`. `aim` is it eased. */
+  private aimT = 0;
 
   private cooking = false;
   private cookLeft = 0;
@@ -272,6 +280,11 @@ export class Weapons implements WeaponSystem, Guard {
     return this.scopeShown;
   }
 
+  /** 0..1 how far the gun is up at the eye, eased. */
+  get aim(): number {
+    return smoothstep(0, 1, this.aimT);
+  }
+
   get charge(): number {
     const mode = WEAPONS[this.current].mode;
     return mode === 'spin' ? this.spin : mode === 'charge' && LANCE_ON ? this.lance.level : this.chargeLevel;
@@ -285,7 +298,12 @@ export class Weapons implements WeaponSystem, Guard {
   /** Crosshair openness. Guns here are accurate, so only the pellet cone and the minigun's wobble show. */
   get spread(): number {
     const def = WEAPONS[this.current];
-    return clamp(def.spread / 0.06);
+    return clamp(this.coneOf(def) / 0.06);
+  }
+
+  /** The gun's cone, tightened by aiming down its sights. */
+  private coneOf(def: WeaponDef): number {
+    return def.spread * lerp(1, TUNING.ads.spread, this.aim);
   }
 
   get swordStep(): number {
@@ -399,6 +417,7 @@ export class Weapons implements WeaponSystem, Guard {
 
   /** Stops every continuous thing. Called on death, pause and holster, so nothing keeps roaring in a menu. */
   private stopEverything(): void {
+    this.aimOn = false;
     this.stopPaint();
     this.endContinuous();
     this.clearScope(false);
@@ -435,6 +454,7 @@ export class Weapons implements WeaponSystem, Guard {
     const c = this.ctx;
     const dt = c.time.playerDt;
     this.sword.tick(dt);
+    this.updateAim(dt);
     if (c.player.alive === false) return;
 
     for (const id of WEAPON_ORDER) {
@@ -524,6 +544,8 @@ export class Weapons implements WeaponSystem, Guard {
       return;
     }
     const from = this.current;
+    this.aimOn = false;
+    this.aimT = 0;
     this.stopPaint();
     this.endContinuous();
     this.clearScope(false);
@@ -977,8 +999,11 @@ export class Weapons implements WeaponSystem, Guard {
   }
 
   /** The shared frame-of-the-shot beats: flash, light, sound, recoil, shake, brass, event. */
-  private shotFeedback(def: WeaponDef, left: boolean, strength = 1, barrel = 0): void {
+  private shotFeedback(def: WeaponDef, left: boolean, shot = 1, barrel = 0): void {
     const c = this.ctx;
+    // Aimed, the gun is in the shoulder: less kick, climb and shake. The flash and the sound are the same gun.
+    const steady = lerp(1, TUNING.ads.recoil, this.aim);
+    const strength = shot * steady;
     const { player } = c;
     const fwd = player.forward;
     const at = this.muzzle(left, barrel);
@@ -992,7 +1017,7 @@ export class Weapons implements WeaponSystem, Guard {
     c.viewmodel.fire(def.recoil * strength, left);
     if (def.kick > 0) {
       const side = left ? -1 : 1;
-      c.camera.kick(def.kick * strength, (Math.random() - 0.5) * def.kick * 0.6 * side, 0);
+      c.camera.kick(def.kick * strength, (Math.random() - 0.5) * def.kick * 0.6 * side * steady, 0);
     }
     this.combat.feel.shake(def.shake * strength);
     if (def.fovPunch > 0) c.camera.fovPunch(def.fovPunch * strength, 0.12);
@@ -1054,7 +1079,7 @@ export class Weapons implements WeaponSystem, Guard {
     this.consume(s);
     this.shotFeedback(def, left);
     if (def.slow !== undefined) this.handling.shot();
-    if (def.climb && CLIMB_ON) this.climb(def.climb);
+    if (def.climb && CLIMB_ON) this.climb(def.climb, lerp(1, TUNING.ads.climb, this.aim));
     // By what the row says leaves the barrel, never by which gun it is: a family member picks its own.
     switch (def.round) {
       case 'rocket': this.shootRocket(def); return;
@@ -1080,7 +1105,7 @@ export class Weapons implements WeaponSystem, Guard {
       }
     }
     for (let i = 0; i < pellets; i++) {
-      const dir = def.spread > 0 ? randomInCone(fwd, def.spread, this.dir) : fwd;
+      const dir = def.spread > 0 ? randomInCone(fwd, this.coneOf(def), this.dir) : fwd;
       this.combat.fireRay(eye, dir, shot);
     }
   }
@@ -1210,17 +1235,18 @@ export class Weapons implements WeaponSystem, Guard {
   private applyHandling(dt: number): void {
     const def = WEAPONS[this.current];
     const cap = this.handling.cap(dt, def, def.mode === 'spin' ? this.spin : 0);
-    holdSpeed(this.ctx.player, cap, dt, this.handling);
+    // Aimed, the player walks. The same clamp, so a dash, a slide or a wall run is never cut by it.
+    holdSpeed(this.ctx.player, Math.min(cap, lerp(1, TUNING.ads.speed, this.aim)), dt, this.handling);
   }
 
   /**
    * Real climb, on a gun whose row has it: the aim itself moves, up and to a random side, and stays there until the player
    * pulls it back. The camera's kick is on top and springs back as usual.
    */
-  private climb(c: { readonly pitch: number; readonly yaw: number }): void {
+  private climb(c: { readonly pitch: number; readonly yaw: number }, k: number): void {
     const p = this.ctx.player;
-    p.pitch = clamp(p.pitch + c.pitch * (0.85 + Math.random() * 0.3), -1.55, 1.55);
-    p.yaw += (Math.random() - 0.5) * 2 * c.yaw;
+    p.pitch = clamp(p.pitch + c.pitch * k * (0.85 + Math.random() * 0.3), -1.55, 1.55);
+    p.yaw += (Math.random() - 0.5) * 2 * c.yaw * k;
   }
 
   // -------------------------------------------------------------------------------------------
@@ -1402,6 +1428,34 @@ export class Weapons implements WeaponSystem, Guard {
     c.fx.smoke(at, 0xb9b4aa, 0.8, 1.3);
     c.fx.sparks(at, this.w.copy(player.forward).negate(), 5, 0xffa040);
     c.fx.smoke(at.addScaledVector(player.forward, -1.2), 0x989389, 1.3, 1.9);
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // Aim down sights
+  // -------------------------------------------------------------------------------------------
+
+  /**
+   * Right click on a gun with `ads` in its row: toggled, or held with `aimHold`. A gun that uses the button for something
+   * else (a scope, the Lance's charge, the Quiver's marks, the cannon's spin, a blade's block) has no `ads` and never reads
+   * it here. Runs every frame, dead or holstered too, so the weight always falls back and hands the camera back its view.
+   */
+  private updateAim(dt: number): void {
+    const c = this.ctx;
+    const def = WEAPONS[this.current];
+    const p = c.player;
+    const busy = this.holstered || this.occupied > 0 || p.alive === false;
+    // A press while holstered is a call-in's cancel, not ours.
+    if (def.ads && !busy && !this.aimHold && c.input.pressed('aim')) this.aimOn = !this.aimOn;
+    const moving = p.dashing === true || p.sliding === true;
+    if (moving) this.aimOn = false;
+    const wants = this.aimHold ? c.input.isDown('aim') : this.aimOn;
+    const blocked = busy || moving || !def.ads || this.reloading || this.drawLeft > 0 || this.akimboOn
+      || this.sword.inQuickStrike || this.quickReturn > 0;
+    const up = wants && !blocked;
+    this.aimT = clamp(this.aimT + (up ? dt : -dt) / (def.ads?.time ?? 0.2));
+    const w = this.aim;
+    c.camera.setAim?.(1 - (def.ads?.zoom ?? 0) * w, lerp(1, this.aimSensitivity, w));
+    c.viewmodel.setAim?.(w);
   }
 
   // -------------------------------------------------------------------------------------------

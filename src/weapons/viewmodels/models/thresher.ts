@@ -267,6 +267,8 @@ export function thresherDef(kit: Kit): ViewDef {
     model: buildThresher(kit),
     pos: [0.15, -0.14, -0.42],
     rot: [0.026, 0.08, 0],
+    // ADS: the front post's tip through the carry handle's aperture.
+    sight: [0, 0.133, -0.4645], rear: [0, 0.138, 0.085], relief: 0.65,
     recoil: { back: 0.052, lift: 0.01, pitch: 0.075, yaw: 0.014, roll: 0.03, omega: 34, zeta: 0.5 },
     right: { socket: 'gripR', pose: HANDS.grip },
     left: { socket: 'gripL', pose: HANDS.support },

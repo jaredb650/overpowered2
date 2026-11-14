@@ -197,6 +197,8 @@ export function rivetDef(kit: Kit): ViewDef {
     model: buildRivet(kit),
     pos: [0.128, -0.126, -0.4],
     rot: [0.02, 0.06, 0],
+    // ADS: the fibre post in the notch, at rest on the slide.
+    sight: [0, 0.0602, -0.1272], rear: [0, 0.061, 0.048], relief: 0.3,
     recoil: { back: 0.024, lift: 0.01, pitch: 0.12, yaw: 0.014, roll: 0.03, omega: 38, zeta: 0.5 },
     right: { socket: 'gripR', pose: HANDS.grip },
     left: { socket: 'gripL', pose: HANDS.support },

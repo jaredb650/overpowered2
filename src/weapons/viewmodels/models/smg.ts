@@ -360,6 +360,8 @@ export function smgDefs(kit: Kit): { right: ViewDef; left: ViewDef } {
     model: buildSmg(kit),
     pos: [0.135, -0.125, -0.43],
     rot: [0.025, 0.085, 0],
+    // ADS through the reflex sight: its reticle.
+    sight: [0, 0.0962, 0.0005], relief: 0.17,
     recoil,
     right: { socket: 'gripR', pose: HANDS.grip },
     left: { socket: 'gripL', pose: HANDS.support },

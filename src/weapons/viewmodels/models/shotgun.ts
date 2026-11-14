@@ -282,6 +282,8 @@ export function shotgunDef(kit: Kit): ViewDef {
     model: buildShotgun(kit),
     pos: [0.142, -0.112, -0.395],
     rot: [0.03, 0.08, 0],
+    // ADS: the bead through the ghost ring.
+    sight: [0, 0.058, -0.6685], rear: [0, 0.0795, 0.0421], relief: 0.81,
     recoil: { back: 0.062, lift: 0.012, pitch: 0.1, yaw: 0.012, roll: 0.03, omega: 30, zeta: 0.52 },
     right: { socket: 'gripR', pose: HANDS.grip },
     left: { socket: 'pumpL', pose: HANDS.support },

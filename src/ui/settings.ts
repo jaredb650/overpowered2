@@ -5,6 +5,7 @@ import { BloodTuning } from '../gore/blood';
 import { ChunkTuning } from '../gore/chunks';
 import { WoundTuning } from '../gore/wounds';
 import { clamp } from '../core/math';
+import { TUNING } from '../weapons/data';
 
 const STORAGE_KEY = 'op2.settings.v1';
 /** The player's default radians per pixel. Sensitivity in settings is a multiple of this. */
@@ -25,19 +26,26 @@ export interface Settings {
   gore: number;
   /** Holding jump hops on every landing. */
   holdToHop: boolean;
+  /** Aim down sights while the button is held. Off, a click toggles it, which is kinder to a trackpad. */
+  aimHold: boolean;
+  /** Mouse speed while aimed down sights, as a share of the hip-fire speed. */
+  aimSensitivity: number;
 }
 
 export const DEFAULTS: Readonly<Settings> = {
   sensitivity: 1, fov: 90, invertY: false, master: 0.8, sfx: 1, music: 0.7, quality: 2, gore: 1, holdToHop: false,
+  aimHold: false, aimSensitivity: TUNING.ads.sensitivity,
 };
 
 export const SENSITIVITY_RANGE = [0.1, 4] as const;
 export const FOV_RANGE = [70, 120] as const;
+export const AIM_SENSITIVITY_RANGE = [0.3, 1.5] as const;
 
 /** A stored value from an older build, or a hand-edited one, must not reach the camera. */
 function sanitize(s: Settings): void {
   s.sensitivity = clamp(s.sensitivity, ...SENSITIVITY_RANGE);
   s.fov = clamp(s.fov, ...FOV_RANGE);
+  s.aimSensitivity = clamp(s.aimSensitivity, ...AIM_SENSITIVITY_RANGE);
   s.master = clamp(s.master);
   s.sfx = clamp(s.sfx);
   s.music = clamp(s.music);
@@ -72,6 +80,11 @@ export function saveSettings(s: Settings): void {
 
 interface FovRig {
   setBaseFov?: (degrees: number) => void;
+}
+
+interface AimOwner {
+  aimHold?: boolean;
+  aimSensitivity?: number;
 }
 
 interface LookOwner {
@@ -117,6 +130,9 @@ export function applySettings(ctx: Ctx, s: Settings): void {
   look.sensitivity = BASE_SENSITIVITY * s.sensitivity;
   look.invertY = s.invertY;
   look.holdToHop = s.holdToHop;
+  const aim = ctx.weapons as unknown as AimOwner;
+  aim.aimHold = s.aimHold;
+  aim.aimSensitivity = s.aimSensitivity;
   (ctx.camera as unknown as FovRig).setBaseFov?.(s.fov);
   ctx.audio.setVolumes?.(s.master, s.sfx, s.music);
   applyGore(s.gore);

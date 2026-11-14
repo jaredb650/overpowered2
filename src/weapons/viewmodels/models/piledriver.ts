@@ -312,6 +312,8 @@ export function piledriverDef(kit: Kit): ViewDef {
     model: buildPiledriver(kit),
     pos: [0.175, -0.168, -0.42],
     rot: [0.026, 0.075, 0],
+    // ADS: the post's tip through the ladder's notch.
+    sight: [0, 0.112, -0.4635], rear: [0, 0.1355, 0.118], relief: 0.7,
     // The hardest kick of any automatic: half as far again as the Harrow's on a slower spring, so eight a second is eight blows.
     recoil: { back: 0.05, lift: 0.008, pitch: 0.052, yaw: 0.012, roll: 0.02, omega: 34, zeta: 0.5 },
     right: { socket: 'gripR', pose: HANDS.grip },

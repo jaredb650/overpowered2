@@ -2,7 +2,7 @@
  * Viewmodel test page.
  *   ?weapon=<id>                 smg harrow shotgun thresher rocket quiver sabot autocannon sword judge rivet lance buzzsaw kiln stakegun walkie designator grenade
  *   ?view=inspect                model on its own at inspection scale. &yaw= &pitch= &dist= &fx= &fy= &fz= aim the camera at a point
- *   ?view=fp (default)           real first-person rig. &pose=idle|fire|reload|draw
+ *   ?view=fp (default)           real first-person rig. &pose=idle|fire|reload|draw|ads
  *   &engine=1 real renderer and baked hall, &manual=1 stepped clock. window.__vm exposes the rig and that clock.
  */
 import * as THREE from 'three';
@@ -190,6 +190,7 @@ export default async function viewmodelSandbox(params: URLSearchParams): Promise
   rig.equip(weapon as WeaponId, pose === 'draw' ? 0.25 : 0.01);
   if (pose === 'reload') rig.reload(1.2);
   if (pose === 'fire') rig.fire(1);
+  if (pose === 'ads') rig.setAim(1);
 
   const api = {
     rig, ctx, player, ammo, fakeWeapons, fakeProgression, inputDown,

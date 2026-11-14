@@ -298,6 +298,8 @@ export function judgeDef(kit: Kit): ViewDef {
     model: buildJudge(kit),
     pos: [0.135, -0.138, -0.42],
     rot: [0.02, 0.06, 0],
+    // ADS: the glowing insert sat on the rear blade, whose notch is painted and not cut.
+    sight: [0, 0.0825, -0.2875], rear: [0, 0.0841, 0.016], relief: 0.42,
     recoil: { back: 0.05, lift: 0.03, pitch: 0.27, yaw: 0.02, roll: 0.05, omega: 19, zeta: 0.56 },
     right: { socket: 'gripR', pose: HANDS.grip },
     left: { socket: 'gripL', pose: HANDS.support },

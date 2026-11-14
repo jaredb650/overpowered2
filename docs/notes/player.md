@@ -31,6 +31,7 @@ import { createPlayer, createCameraRig, MOVE, VIEW, FEEDBACK } from '../player';
   Health pickups are stims carried in `progression.stims`, injected on the stim key (Y): see Stims in `docs/notes/progression.md`.
 - `modifiers`: `speed`, `jump`, `damageTaken`, `invulnerable`, `infiniteDash`. `reset()` restores them in place.
 - `holdToHop`: off by default. On, holding Space hops on every landing. No menu writes it yet: see Known limitations.
+- Settings that reach the weapons (`ui/settings.ts`, saved with the rest): *Aim down sights* Toggle (default, for a trackpad) or Hold writes `Weapons.aimHold`; *Aim sensitivity* (0.3 to 1.5, default 0.8) writes `Weapons.aimSensitivity`, which `CameraRig.setAim` multiplies into `lookScale` while aimed. Aimed, the player walks (`TUNING.ads.speed`, 5 m/s), so a wall run has to be taken before aiming; aimed on one keeps its speed (docs/notes/weapons.md).
 
 **CameraRig** (`CameraRig`). Only this writes `render.camera`, `render.viewCamera` and `audio.setListener`.
 
