@@ -10,6 +10,22 @@ The owner asked for:
 - for the campaign, our side looking nothing like theirs. The shadowy, evil bureau's men should look the part: "a spec-ops ninja type:
   all black, with black, grey and red accents; that's our thing. The enemies are more ragtag and colourful."
 
+## 0. The owner's decisions (2026-11-14): build it
+
+The owner read this plan and chose it: **Foreclosure is mission 2 and is to be built**, and The Sump (the zombie mission)
+follows as mission 3. "It's an excuse to show off what we built, and to build the mech as well."
+
+- **Every open question in section 9 takes its default.**
+- **The opening is a fight, not a ride.** In `overwatch` the player is actively blowing Holdfast apart from the AC-130:
+  shredding militia in the open, technicals and roof guns, flattening shanties, white phosphorus on a trench, the glide bomb
+  on a target worth it, all while covering the landing. Plenty to shoot from the first second; the anti-air locks and flares
+  still teach the lock tone.
+- **A war, not a squad walk.** Shootouts between the Bureau's men and the militia throughout: other Bailiff squads fighting
+  their own battles beside the player's six (assaulting a street, holding a corner, pinned under a wall gun), militia
+  counter-attacks on the 14th, crossfire the player walks into, wounded men dragged back, call-outs on both sides. The player
+  is one part of a larger fight. Use the allies system for every Bailiff squad and the far-battle idea from The Sump plan
+  where distance allows; keep within the budget in section 7.
+
 ## 1. Where it goes: before The Sump
 
 **This is mission 2. The Sump moves to mission 3, unchanged except for the look of its Bailiffs.**
