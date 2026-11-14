@@ -127,24 +127,27 @@ const samples: SoundDef[] = [
   sample('frfff.mp3', 'enemyFx', 0.3),
 ];
 
-/** The armour update's recordings in sfx/armour (docs/CREDITS.md), keyed by name rather than by path. */
-function armour(name: string, mix: MixClass, effective: number, over: Partial<MixProfile> = {}): SoundDef {
-  return { ...sample(`armour/${name}.mp3`, mix, effective, over), id: name };
-}
-
-/** 2D confirmations ride the reward mix with the hit markers; the rest come from where the round landed. */
+/**
+ * The armour update's sounds, set by how loud they land (see `shot` below: level over the file's measured loudness), on a
+ * ladder by how much each means. The 2D confirmations sit with the hit markers (0.066 to 0.114): a round the armour
+ * stopped is the quietest thing, a piece breaking stands well over a kill's tick, and a weak point found over that. The
+ * world sounds sit near the guns, the crunch of every plate going at once the loudest.
+ */
 const CONFIRM: Partial<MixProfile> = { perFrame: 1, maxVoices: 2 };
 const armourSamples: SoundDef[] = [
-  armour('armour_stopped', 'reward', 0.16, CONFIRM),
-  armour('armour_through', 'reward', 0.18, CONFIRM),
-  armour('armour_broken', 'reward', 0.26, { perFrame: 1, maxVoices: 3 }),
-  armour('headshot_crack', 'reward', 0.24, CONFIRM),
-  armour('headshot_puff', 'reward', 0.24, CONFIRM),
-  // Not played yet: it waits for the vehicle weak points (docs/proposals/armour-and-headshots-plan.md, section 6).
-  armour('vehicle_weak_point', 'reward', 0.26, CONFIRM),
-  armour('armour_crunch', 'impact', 0.4, { priority: 6 }),
-  armour('sabot_on_vehicle', 'impact', 0.35, { priority: 6 }),
-  armour('sabot_shield_pierce', 'impact', 0.35, { priority: 6 }),
+  // Three takes, one at random each time. Matched at load like a pack, so 0.2 lands at 0.06.
+  {
+    ...MIX.reward, ...CONFIRM, critical: false, volume: 0.2, id: 'armour_stopped', kind: 'sample', loop: false, fallback: 'hit_marker_armor',
+    files: ['armour/armour_stopped_1.mp3', 'armour/armour_stopped_2.mp3', 'armour/armour_stopped_3.mp3'],
+  },
+  shot('armour_through', 'armour/armour_through.mp3', 'reward', 0.085, 0.362, CONFIRM),
+  shot('headshot_crack', 'armour/headshot_crack.mp3', 'reward', 0.1, 0.207, CONFIRM),
+  shot('headshot_puff', 'armour/headshot_puff.mp3', 'reward', 0.11, 0.287, CONFIRM),
+  shot('armour_broken', 'armour/armour_broken.mp3', 'reward', 0.15, 0.299, { perFrame: 1, maxVoices: 3 }),
+  shot('vehicle_weak_point', 'armour/vehicle_weak_point.mp3', 'reward', 0.18, 0.349, CONFIRM),
+  shot('sabot_on_vehicle', 'armour/sabot_on_vehicle.mp3', 'impact', 0.16, 0.416, { priority: 6 }),
+  shot('sabot_shield_pierce', 'armour/sabot_shield_pierce.mp3', 'impact', 0.16, 0.52, { priority: 6 }),
+  shot('armour_crunch', 'armour/armour_crunch.mp3', 'impact', 0.24, 0.426, { priority: 7 }),
 ];
 
 /**
