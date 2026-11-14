@@ -680,7 +680,7 @@ export interface PlayerDamage {
 }
 
 /** One word for what the player is doing, for HUD, animation and style scoring. */
-export type PlayerMoveState = 'ground' | 'crouch' | 'air' | 'slide' | 'dash' | 'wallrun' | 'mantle' | 'vault' | 'slam' | 'dead';
+export type PlayerMoveState = 'ground' | 'crouch' | 'air' | 'slide' | 'dash' | 'wallrun' | 'mantle' | 'vault' | 'slam' | 'climb' | 'cling' | 'dead';
 
 /**
  * What a move does to the player's own body in first person, from `src/player/moveAnim.ts`. Radians and meters in view
@@ -920,8 +920,8 @@ export interface GameEvents {
   'player:dashed': { dir: THREE.Vector3 };
   'player:slide': { active: boolean };
   'player:wallrun': { active: boolean };
-  /** `impact` is the height fallen in meters. `radius` is the shockwave reach in meters. */
-  'player:slam': { impact: number; position: THREE.Vector3; radius: number };
+  /** `impact` is the height fallen in meters. `radius` is the shockwave reach in meters. `big`: a big slam (`MOVE.bigSlamHeight`). */
+  'player:slam': { impact: number; position: THREE.Vector3; radius: number; big?: boolean };
   'player:slamstart': { position: THREE.Vector3 };
   /** `height` is the climb in meters. */
   'player:mantle': { height: number };

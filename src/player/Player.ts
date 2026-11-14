@@ -11,7 +11,7 @@ import type RAPIER from '@dimforge/rapier3d-compat';
 import type {
   Ctx, PlayerDamage, PlayerModifiers, PlayerMoveState, PlayerSystem, SurfaceKind,
 } from '../core/contracts';
-import { clamp, damp, lerp } from '../core/math';
+import { clamp, damp, lerp, smoothstep, wrapAngle } from '../core/math';
 import { CapsuleWorld, newSweepHit } from './collide';
 import { MovementFeedback } from './feedback';
 import { MoveAnim } from './moveAnim';
@@ -25,6 +25,11 @@ const MAX_SLIDE_ITERATIONS = 5;
 /** Below this, an obstacle's top is a lip the capsule's round bottom simply rolls over. */
 const FLAT_NORMAL_Y = 0.999;
 const DOWN = new THREE.Vector3(0, -1, 0);
+/**
+ * Extra seconds the hands are held off the gun past a move's own length. The weapon counts down in frames and the body in
+ * ticks, so a lock of exactly the move's length can end a frame early; the move gives the hands back itself when it ends.
+ */
+const ARMS_SLACK = 0.25;
 const NEUTRAL_MODIFIERS: PlayerModifiers = { speed: 1, jump: 1, damageTaken: 1, invulnerable: false, infiniteDash: false };
 
 export class Player implements PlayerSystem {
@@ -60,6 +65,10 @@ export class Player implements PlayerSystem {
   mantling = false;
   /** Going over waist-high cover on one hand. Scripted like a mantle: `pos` is moved along a path and nothing collides. */
   vaulting = false;
+  /** Going up a wall hand over hand, gun away. */
+  climbing = false;
+  /** Stuck to a wall after a climb with W still held, sliding down it, gun out. */
+  clinging = false;
   alive = true;
   dashCharges = T.dashCharges;
   /** -1 wall on the left of the view, +1 on the right, 0 none. */
@@ -194,6 +203,19 @@ export class Player implements PlayerSystem {
   /** Seconds the wall has been missing under a wall run. */
   private wallLostT = 0;
 
+  /** Seconds left on the floor after a big slam. */
+  private recoverT = 0;
+  /** Out of the wall being climbed or clung to, horizontal. */
+  private readonly climbN = new THREE.Vector3();
+  private climbT = 0;
+  private clingT = 0;
+  /** Upward speed the jump still had when the hands took over. It carries on and fades under gravity. */
+  private climbCarry = 0;
+  /** The view's turn after a wall jump: radians in all, how much is applied, and seconds in. */
+  private turnTotal = 0;
+  private turnDone = 0;
+  private turnT = 0;
+
   // Scratch
   private readonly hit = newSweepHit();
   private readonly hit2 = newSweepHit();
@@ -228,6 +250,8 @@ export class Player implements PlayerSystem {
     if (!this.alive) return 'dead';
     if (this.mantling) return 'mantle';
     if (this.vaulting) return 'vault';
+    if (this.climbing) return 'climb';
+    if (this.clinging) return 'cling';
     if (this.dashT > 0) return 'dash';
     if (this.slamming) return 'slam';
     if (this.wallRunning) return 'wallrun';
@@ -246,6 +270,21 @@ export class Player implements PlayerSystem {
     return this.mantleTo;
   }
 
+  /** 0..1 through the climb up a wall. */
+  get climbProgress(): number {
+    return this.climbing ? clamp(this.climbT / T.climbTime) : 0;
+  }
+
+  /** Out of the wall being climbed or clung to. Stale when on no wall. */
+  get climbNormal(): THREE.Vector3 {
+    return this.climbN;
+  }
+
+  /** Seconds left on the floor after a big slam, 0 when not down. */
+  get recovering(): number {
+    return this.recoverT;
+  }
+
   /** 0..1 through the vault, in step with the frame rather than the tick. */
   get vaultProgress(): number {
     return this.vaulting ? clamp((this.vaultTime + this.accumulator) / this.vaultDuration) : 0;
@@ -258,7 +297,7 @@ export class Player implements PlayerSystem {
     const anim = this.moveAnim;
     events.on('player:jumped', e => anim.jumped(e.wall ? 'wall' : e.double ? 'double' : e.bounce ? 'bounce' : 'ground', this.kickSide));
     events.on('player:landed', e => anim.landed(e.impact));
-    events.on('player:slam', e => anim.slammed(e.impact));
+    events.on('player:slam', e => anim.slammed(e.impact, e.big));
     events.on('player:dashed', e => {
       const c = Math.cos(this.yaw);
       const sn = Math.sin(this.yaw);
@@ -288,7 +327,9 @@ export class Player implements PlayerSystem {
 
     if (this.alive) {
       const scale = this.sensitivity * this.lookScale;
-      this.yaw -= look.x * scale;
+      const turn = -look.x * scale;
+      this.yaw += this.clinging ? this.limitWallLook(turn) : turn;
+      if (this.turnTotal !== 0) this.stepTurn(dt);
       this.pitch = clamp(this.pitch - look.y * scale * (this.invertY ? -1 : 1), -T.pitchLimit, T.pitchLimit);
       this.sampleInput();
     } else {
@@ -315,7 +356,8 @@ export class Player implements PlayerSystem {
     const alpha = this.accumulator / this.fixedDt;
     this.position.lerpVectors(this.prev, this.pos, alpha);
 
-    const eyeTarget = this.alive ? (this.sliding ? T.eyeSlide : this.crouched ? T.eyeCrouch : T.eyeStand) : 0.35;
+    const down = this.recoverT > T.bigSlamRecover * 0.4;
+    const eyeTarget = this.alive ? (this.sliding ? T.eyeSlide : this.crouched ? T.eyeCrouch : down ? T.bigSlamEye : T.eyeStand) : 0.35;
     this.eyeHeight = damp(this.eyeHeight, eyeTarget, T.eyeRate, dt);
     this.stepSmooth = damp(this.stepSmooth, 0, T.stepSmoothRate, dt);
     if (this.vaulting) {
@@ -348,6 +390,30 @@ export class Player implements PlayerSystem {
     if (typeof floor !== 'number' || this.pos.y > floor - T.lostBelowWorld) return;
     const spawns = this.ctx.world.playerSpawns;
     if (Array.isArray(spawns) && spawns[0]) this.teleport(spawns[0].position, spawns[0].yaw);
+  }
+
+  /**
+   * While clinging the view goes anywhere but into the wall. Turning toward the wall slows near the wall's plane and stops
+   * at it; turning away is always free. A climb ends facing the wall, so a view already pointed into it is never moved, only
+   * not let deeper in.
+   */
+  private limitWallLook(turn: number): number {
+    const n = this.climbN;
+    // Angle between the view and straight out of the wall, 0..PI.
+    const off = (yaw: number) => Math.acos(clamp(-Math.sin(yaw) * n.x - Math.cos(yaw) * n.z, -1, 1));
+    const now = off(this.yaw);
+    if (off(this.yaw + turn) <= now) return turn;
+    return turn * (1 - smoothstep(Math.PI / 2 - T.clingViewEase, Math.PI / 2, now));
+  }
+
+  /** The eased turn after a wall jump, added to whatever the mouse does. */
+  private stepTurn(dt: number): void {
+    this.turnT += dt;
+    const k = clamp(this.turnT / T.wallJumpTurn);
+    const want = this.turnTotal * k * k * (3 - 2 * k);
+    this.yaw += want - this.turnDone;
+    this.turnDone = want;
+    if (k >= 1) this.turnTotal = this.turnDone = 0;
   }
 
   private sampleInput(): void {
@@ -395,16 +461,22 @@ export class Player implements PlayerSystem {
     }
 
     this.updateCrouch();
-    this.handleJump();
-    if (this.vaulting) {
-      // The tick that starts a vault is also its first step, or every vault would begin by standing still for one.
-      this.vaultTick(h);
-      return;
+    if (this.recoverT > 0) {
+      this.recoverInput(h);
+    } else {
+      this.handleJump();
+      if (this.vaulting) {
+        // The tick that starts a vault is also its first step, or every vault would begin by standing still for one.
+        this.vaultTick(h);
+        return;
+      }
+      this.handleDash();
+      this.handleSlideKey();
     }
-    this.handleDash();
-    this.handleSlideKey();
 
     if (this.dashT > 0) this.dashForces();
+    else if (this.recoverT > 0) this.recoverForces(h);
+    else if (this.climbing || this.clinging) this.onWallForces(h);
     else if (this.wallRunning) this.wallForces(h);
     else if (this.grounded) {
       if (this.sliding) this.slideForces(h);
@@ -419,6 +491,7 @@ export class Player implements PlayerSystem {
 
     this.categorize();
     if (this.wallRunning) this.wallStick();
+    else if (this.climbing || this.clinging) this.wallHold();
 
     if (this.dashT > 0) this.dashAfterMove(h);
     if (this.sliding) this.slideAfterMove();
@@ -494,7 +567,9 @@ export class Player implements PlayerSystem {
     // A press in the air is judged once, on the tick after it happened.
     this.jumpFresh = false;
 
-    if (this.wallRunning) {
+    if (this.climbing || this.clinging) {
+      this.wallJump();
+    } else if (this.wallRunning) {
       this.tmp.copy(this.wallN);
       this.endWallRun();
       this.wallKick(this.tmp);
@@ -798,13 +873,21 @@ export class Player implements PlayerSystem {
     this.wallCoyoteT = 0;
 
     if (this.wallRunning) this.endWallRun();
+    if (this.climbing || this.clinging) this.leaveWall();
     const wasSlam = this.slamming;
-    if (wasSlam) this.landSlam(impact);
+    const big = wasSlam && this.landSlam(impact);
+    if (big) {
+      // All of it stops here, and nothing of it is kept for a hop.
+      this.v.set(0, 0, 0);
+      this.hopVx = this.hopVz = 0;
+      this.landGraceT = this.landWeightT = 0;
+      this.slideQueued = false;
+    }
     if (this.airTime > 0.05 || impact > 2) this.ctx.events.emit('player:landed', { impact });
 
     this.grounded = true;
     this.groundN.copy(n);
-    if (this.slideQueued || (wasSlam && this.slideHeld)) {
+    if (!big && (this.slideQueued || (wasSlam && this.slideHeld))) {
       this.slideQueued = false;
       const s = this.v.length();
       if (wasSlam && this.slideCooldownT <= 0) {
@@ -897,6 +980,7 @@ export class Player implements PlayerSystem {
 
   private startSlam(): void {
     if (this.wallRunning) this.endWallRun();
+    if (this.climbing || this.clinging) this.leaveWall();
     if (this.dashT > 0) this.endDash(false);
     this.slamming = true;
     this.slamStartY = this.pos.y;
@@ -908,13 +992,52 @@ export class Player implements PlayerSystem {
     this.v.y = Math.max(this.v.y - T.gravity * T.slamGravityScale * h, -T.slamMaxSpeed);
   }
 
-  private landSlam(impactSpeed: number): void {
+  /** Returns true for a big slam, which leaves the player on the floor for `bigSlamRecover`. */
+  private landSlam(impactSpeed: number): boolean {
     this.slamming = false;
     const fall = Math.max(this.slamStartY - this.pos.y, 0);
     this.slamFall = fall + this.slamBonusFall(impactSpeed);
-    this.bounceT = T.slamBounceWindow;
-    const radius = lerp(T.slamRadiusMin, T.slamRadiusMax, clamp(this.slamFall / T.slamRadiusFall));
-    this.ctx.events.emit('player:slam', { impact: this.slamFall, position: this.pos.clone(), radius });
+    // Meters really fallen, not the bonus for arriving fast: a slam's own acceleration from 5 m is worth 6.3 of it.
+    const big = fall >= T.bigSlamHeight;
+    // A big slam has no bounce: the price of the hit is the moment on the floor.
+    this.bounceT = big ? 0 : T.slamBounceWindow;
+    const radius = lerp(T.slamRadiusMin, T.slamRadiusMax, clamp(this.slamFall / T.slamRadiusFall)) * (big ? T.bigSlamReach : 1);
+    if (big) {
+      this.recoverT = T.bigSlamRecover;
+      this.arms(T.bigSlamRecover + ARMS_SLACK);
+    }
+    this.ctx.events.emit('player:slam', { impact: this.slamFall, position: this.pos.clone(), radius, big });
+    return big;
+  }
+
+  /** Down after a big slam: no moving, jumping, sliding or shooting. A dash gets up at once, and costs its charge as any dash does. */
+  private recoverInput(h: number): void {
+    this.recoverT = Math.max(0, this.recoverT - h);
+    this.jumpBufferT = 0;
+    this.jumpFresh = this.slideLatch = this.slideQueued = false;
+    this.handleDash();
+    if (this.dashT > 0) this.recoverT = 0;
+    if (this.recoverT === 0) this.arms(0);
+  }
+
+  private recoverForces(h: number): void {
+    this.v.x = this.v.z = 0;
+    if (this.grounded) this.v.y = 0;
+    else this.v.y -= T.gravity * h;
+  }
+
+  private endRecover(): void {
+    if (this.recoverT <= 0) return;
+    this.recoverT = 0;
+    this.arms(0);
+  }
+
+  /**
+   * Keeps the hands off the weapon for `seconds`: no fire, aim or reload. 0 gives them back. The weapon system is not in
+   * the core context, so a stand-in game without one simply has nothing to block.
+   */
+  private arms(seconds: number): void {
+    (this.ctx as { weapons?: { occupy?(s: number): void } }).weapons?.occupy?.(seconds);
   }
 
   /** Height equivalent of arriving already moving fast, so a slam out of a fall is worth what it felt like. */
@@ -926,7 +1049,8 @@ export class Player implements PlayerSystem {
 
   private airForces(h: number): void {
     const v = this.v;
-    if (this.hasWish) {
+    // Through a wall jump's turn the keys still point at the wall being left, and would pull the jump back toward it.
+    if (this.hasWish && this.turnTotal === 0) {
       const wish = T.airWishSpeed * this.modifiers.speed;
       const speed = this.speed;
       const along = v.x * this.wishX + v.z * this.wishZ;
@@ -984,6 +1108,7 @@ export class Player implements PlayerSystem {
       }
       this.endWallRun();
     }
+    if (this.climbing || this.clinging) this.leaveWall();
     if (this.sliding) this.endSlide();
     if (this.slamming) this.slamming = false;
 
@@ -1091,7 +1216,7 @@ export class Player implements PlayerSystem {
     this.wallRunT = 0;
     this.wallLostT = 0;
     this.wallRunning = true;
-    this.hasDoubleJump = true;
+    // The double jump comes back on the ground and nowhere else: a wall gives nothing back.
     this.dashT = 0;
     this.updateWallSide();
     this.ctx.events.emit('player:wallrun', { active: true });
@@ -1228,12 +1353,137 @@ export class Player implements PlayerSystem {
     this.kickSide = nx * Math.cos(this.simYaw) - nz * Math.sin(this.simYaw) > 0 ? -1 : 1;
     this.tmp2.set(nx, 0, nz);
     this.rememberWall(this.tmp2);
-    this.hasDoubleJump = true;
     this.noWallT = T.wallKickLock;
     this.wallCoyoteT = 0;
     this.jumpBufferT = 0;
     if (this.dashT > 0) this.endDash(true);
     if (this.slamming) this.slamming = false;
+    this.ctx.events.emit('player:jumped', { double: false, wall: true });
+  }
+
+  // --- Climb, cling and the wall jump ---------------------------------------------------------------------------
+
+  /**
+   * A jump at a wall, looking straight at it with W held. Along the wall is a wall run; at it is a climb. The same wall
+   * cannot be climbed twice before landing, so a chimney is climbed by going from one wall to the other.
+   */
+  private canClimb(n: THREE.Vector3): boolean {
+    if (this.grounded || this.slamming || this.fwd <= 0 || this.slideHeld || this.airTime < T.climbMinAir) return false;
+    if (Math.abs(n.y) > T.wallMaxNormalY || this.v.y < T.climbMinVy) return false;
+    const nl = Math.hypot(n.x, n.z);
+    // The view, not the keys: the look is (-sin yaw, -cos yaw), and into the wall is -n.
+    const facing = (Math.sin(this.simYaw) * n.x + Math.cos(this.simYaw) * n.z) / nl;
+    return facing >= T.climbFacing && !this.sameWall(n);
+  }
+
+  private startClimb(n: THREE.Vector3): void {
+    const nl = Math.hypot(n.x, n.z);
+    this.climbN.set(n.x / nl, 0, n.z / nl);
+    this.climbing = true;
+    this.clinging = false;
+    this.climbT = 0;
+    this.climbCarry = Math.max(0, this.v.y);
+    this.dashT = 0;
+    this.coyoteT = this.wallCoyoteT = 0;
+    this.endSlide();
+    // Both hands and both feet are on the wall: the gun is away until the climb ends.
+    this.arms(T.climbTime + ARMS_SLACK);
+    this.onWallForces(0);
+  }
+
+  /**
+   * Three pulls of `climbHeight / climbSteps` each, then the cling's slide. The pull is sin^2 over each step, which averages
+   * to exactly half its peak over whole ticks, so the steps add `climbHeight` to the tick.
+   */
+  private onWallForces(h: number): void {
+    const n = this.climbN;
+    if (this.climbing) {
+      this.climbT += h;
+      const u = Math.min(1, this.climbT / T.climbTime);
+      const s = Math.sin(Math.PI * T.climbSteps * u);
+      this.climbCarry = Math.max(0, this.climbCarry - T.gravity * h);
+      this.v.y = (2 * T.climbHeight / T.climbTime) * s * s + this.climbCarry;
+      if (u >= 1) {
+        // The top of the climb: still holding W sticks to the wall. Anything else lets go.
+        this.climbing = false;
+        this.arms(0);
+        if (this.fwd > 0) {
+          this.clinging = true;
+          this.clingT = 0;
+        } else {
+          this.leaveWall();
+          return;
+        }
+      }
+    } else {
+      if (this.fwd <= 0) {
+        this.leaveWall();
+        return;
+      }
+      this.clingT += h;
+      const k = clamp(this.clingT / T.clingSlideBuild);
+      this.v.y = -lerp(T.clingSlideStart, T.clingSlideMax, k);
+    }
+    this.v.x = -n.x * T.wallPress;
+    this.v.z = -n.z * T.wallPress;
+  }
+
+  /** After the move: the wall must still be there at the waist, or there is nothing to climb or hold. */
+  private wallHold(): void {
+    if (this.grounded) {
+      this.leaveWall();
+      return;
+    }
+    this.tmp2.set(this.pos.x, this.pos.y + this.height / 2, this.pos.z);
+    this.dir.copy(this.climbN).negate();
+    const n = this.hit3.normal;
+    if (!this.body.castRay(this.tmp2, this.dir, T.radius + T.wallProbe, this.hit3) || Math.abs(n.y) > T.wallMaxNormalY || n.dot(this.climbN) < 0.8) {
+      this.leaveWall();
+      return;
+    }
+    const nl = Math.hypot(n.x, n.z);
+    this.climbN.set(n.x / nl, 0, n.z / nl);
+  }
+
+  /** Off the wall, by letting go, a jump, a dash, a slam, a ledge or the ground. That wall is spent until landing. */
+  private leaveWall(): void {
+    if (!this.climbing && !this.clinging) return;
+    if (this.climbing) this.arms(0);
+    this.climbing = this.clinging = false;
+    this.climbCarry = 0;
+    this.rememberWall(this.climbN);
+    // Letting go drifts off the wall rather than pressing into it.
+    const into = this.v.x * this.climbN.x + this.v.z * this.climbN.z;
+    if (into < 0) {
+      this.v.x -= this.climbN.x * into;
+      this.v.z -= this.climbN.z * into;
+    }
+  }
+
+  /**
+   * Space on the wall: out and up, and the view turns to face away from it over `wallJumpTurn`, mouse on top. The turn
+   * mirrors the view in the wall, so looking straight at it is a half turn and looking along it is none. It is not the
+   * double jump and does not touch it.
+   */
+  private wallJump(): void {
+    const n = this.tmp.copy(this.climbN);
+    this.leaveWall();
+    this.v.set(n.x * T.wallJumpOut, T.wallJumpUp * this.modifiers.jump, n.z * T.wallJumpOut);
+    const fx = -Math.sin(this.yaw);
+    const fz = -Math.cos(this.yaw);
+    const into = fx * n.x + fz * n.z;
+    if (into < 0) {
+      const rx = fx - 2 * n.x * into;
+      const rz = fz - 2 * n.z * into;
+      // Head on, a mirror is exactly half a turn either way. Turn the way the view already leans, or right.
+      let turn = wrapAngle(Math.atan2(-rx, -rz) - this.yaw);
+      if (Math.abs(Math.abs(turn) - Math.PI) < 1e-3) turn = Math.PI * (fx * n.z - fz * n.x > 0 ? 1 : -1);
+      this.turnTotal = turn;
+      this.turnDone = this.turnT = 0;
+    }
+    this.kickSide = 0;
+    this.noWallT = T.wallKickLock;
+    this.jumpBufferT = 0;
     this.ctx.events.emit('player:jumped', { double: false, wall: true });
   }
 
@@ -1293,6 +1543,8 @@ export class Player implements PlayerSystem {
     this.mantling = true;
     this.heldJump = false;
     if (this.wallRunning) this.endWallRun();
+    // A climb that brings a ledge into reach turns into the mantle.
+    if (this.climbing || this.clinging) this.leaveWall();
     this.endSlide();
     this.dashT = 0;
     this.leaveGround();
@@ -1589,7 +1841,7 @@ export class Player implements PlayerSystem {
 
     // Stairs, curbs and lips. A walkable tilt can still be an edge, which must not act like a ramp: at 40 m/s
     // the velocity redirect off a 10 cm curb would throw the player 25 m/s upward.
-    if (towardHorizontally && n.y < FLAT_NORMAL_Y && n.y > -0.1 && !this.wallRunning) {
+    if (towardHorizontally && n.y < FLAT_NORMAL_Y && n.y > -0.1 && !this.wallRunning && !this.climbing && !this.clinging) {
       const low = hit.point.y - this.pos.y < T.stepHeight + 0.03;
       const allowed = this.grounded || this.v.y <= 2;
       if ((!walkable || (low && this.isEdge(n))) && allowed && this.tryStepUp(timeLeft)) return true;
@@ -1598,10 +1850,15 @@ export class Player implements PlayerSystem {
     if (!walkable && n.y > -0.3) {
       if (T.vaultAuto && this.grounded && this.tryVault(true)) return true;
       if (this.tryMantle(n)) return true;
+      // On a wall already, the contact only holds the body to it. A ledge in reach was the mantle above.
+      if (this.climbing || this.clinging) return false;
       if (this.wallRunning) {
         if (Math.abs(n.y) <= T.wallMaxNormalY && n.dot(this.wallN) < 0.9) return this.turnWallCorner(n);
       } else if (this.canWallRun(n)) {
         this.startWallRun(n);
+        return true;
+      } else if (this.canClimb(n)) {
+        this.startClimb(n);
         return true;
       }
     }
@@ -1773,6 +2030,8 @@ export class Player implements PlayerSystem {
     this.slamming = false;
     this.mantling = false;
     this.endVault();
+    this.leaveWall();
+    this.endRecover();
     this.dashT = 0;
     this.ctx.events.emit('player:died', { source });
   }
@@ -1810,6 +2069,9 @@ export class Player implements PlayerSystem {
 
   private interruptForLaunch(): void {
     if (this.wallRunning) this.endWallRun();
+    this.leaveWall();
+    // Thrown off the floor is up off it: the stand-up is over.
+    this.endRecover();
     this.endSlide();
     this.slamming = false;
     this.dashT = 0;
@@ -1843,6 +2105,9 @@ export class Player implements PlayerSystem {
     this.slamming = false;
     this.mantling = false;
     this.vaulting = this.vaultEyeHeld = false;
+    if (this.climbing || this.recoverT > 0) this.arms(0);
+    this.climbing = this.clinging = false;
+    this.recoverT = this.turnTotal = this.turnDone = 0;
     this.dashT = 0;
     this.coyoteT = this.jumpBufferT = this.dashBufferT = this.noGroundT = this.landGraceT = this.landWeightT = 0;
     this.slideQueued = this.flung = this.wallPressed = false;

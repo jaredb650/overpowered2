@@ -380,5 +380,181 @@ export default async function parkourLive(page, h) {
     }, { dash, land });
   });
 
+  // The parkour update. A big slam in the open: the fists, the ring, the crack. Fire is held through the stand-up.
+  await run('bigslam', async () => {
+    await page.evaluate(async () => {
+      const k = window.pk;
+      await k.place(0, 9, 8, 0, -0.45);
+      await k.tap('slide');
+      await k.until(() => k.P.grounded, 2.5);
+      window.__op2.ctx.input.simulate('fire', true);
+      k.watch.fired = 0;
+      // Judged at the shot, not after: the frame the stand-up ends may fire before anything here looks.
+      k.firedDown = 0;
+      window.__op2.ctx.events.on('weapon:fired', () => { if (k.P.recovering > 0) k.firedDown++; });
+      await k.freezeAfter(0.1);
+    });
+    const down = await page.evaluate(() => ({ recovering: window.pk.P.recovering, speed: window.pk.P.speed, pose: window.pk.pose() }));
+    await still('bigslam-fists');
+    const stood = await page.evaluate(async () => {
+      const k = window.pk;
+      await k.until(() => k.P.recovering === 0, 1);
+      await k.wait(0.3);
+      window.__op2.ctx.input.simulate('fire', false);
+      return { firedWhileDown: k.firedDown, firedAfter: k.watch.fired - k.firedDown };
+    });
+    // A dash out of a second one.
+    const dash = await page.evaluate(async () => {
+      const k = window.pk;
+      await k.place(0, 9, 8, 0, -0.2);
+      await k.tap('slide');
+      await k.until(() => k.P.grounded, 2.5);
+      await k.wait(0.1);
+      const charges = k.P.dashCharges;
+      window.__op2.ctx.input.simulate('forward', true);
+      await k.tap('dash');
+      await k.wait(0.05);
+      return { recovering: k.P.recovering, dashing: k.P.dashing, chargesSpent: Math.round((charges - k.P.dashCharges) * 100) / 100, speed: k.P.speed };
+    });
+    return page.evaluate(async parts => {
+      const k = window.pk;
+      const r = k.report(parts);
+      r.rest = await k.rest();
+      return r;
+    }, { down, stood, dash });
+  });
+
+  // The 5 m corridor wall from its east side: a jump at it, three pulls, and the mantle onto its top.
+  await run('climb', async () => {
+    await page.evaluate(async () => {
+      const k = window.pk;
+      await k.place(-26.4, 0.1, -4, Math.PI / 2, 0.15);
+      window.__op2.ctx.input.simulate('forward', true);
+      await k.wait(0.1);
+      k.trace = [];
+      let last = '';
+      k.tap('jump');
+      await k.freezeWhen(() => {
+        const s = `${k.P.state} x${k.P.position.x.toFixed(2)} y${k.P.position.y.toFixed(1)}`;
+        if (k.P.state !== last) k.trace.push(s);
+        last = k.P.state;
+        return k.P.climbing && k.P.climbProgress >= 0.5;
+      }, 1.5);
+    });
+    const mid = await page.evaluate(() => ({ climbing: window.pk.P.climbing, p: window.pk.P.climbProgress, y: window.pk.P.position.y, trace: window.pk.trace, pose: window.pk.pose() }));
+    await still('climb');
+    await page.evaluate(() => window.pk.freezeWhen(() => window.pk.P.mantling && window.pk.P.mantleProgress >= 0.4, 1.5));
+    const mantle = await page.evaluate(() => ({ mantling: window.pk.P.mantling, pose: window.pk.pose() }));
+    await still('climb-mantle');
+    return page.evaluate(async parts => {
+      const k = window.pk;
+      await k.until(() => k.P.grounded, 1.5);
+      const r = k.report({ ...parts, topY: k.P.position.y });
+      r.rest = await k.rest();
+      return r;
+    }, { mid, mantle });
+  });
+
+  // The room's 11 m east wall: climb, cling, turn to look along it with the wall on the left, and fire.
+  await run('cling', async () => {
+    await page.evaluate(async () => {
+      const k = window.pk;
+      await k.place(30.4, 0.1, 0, -Math.PI / 2, 0);
+      window.__op2.ctx.input.simulate('forward', true);
+      await k.wait(0.1);
+      await k.tap('jump');
+      await k.until(() => k.P.clinging, 1.5);
+      k.look(-1.45, -0.1);
+      await k.wait(0.12);
+      window.__op2.ctx.input.simulate('fire', true);
+      k.watch.fired = 0;
+      await k.freezeAfter(0.18);
+    });
+    const along = await page.evaluate(() => ({ clinging: window.pk.P.clinging, vy: window.pk.P.velocity.y, fired: window.pk.watch.fired, pose: window.pk.pose() }));
+    await still('cling-shoot');
+    // Then round toward straight out, and the jump off with its half turn.
+    const off = await page.evaluate(async () => {
+      const k = window.pk;
+      window.__op2.ctx.input.simulate('fire', false);
+      await k.tap('jump');
+      const yaw0 = k.P.yaw;
+      await k.wait(0.3);
+      return { turned: Math.round((k.P.yaw - yaw0) * 1000) / 1000 };
+    });
+    return page.evaluate(async parts => {
+      const k = window.pk;
+      await k.until(() => k.P.grounded, 3);
+      const r = k.report(parts);
+      r.rest = await k.rest();
+      return r;
+    }, { along, off });
+  });
+
+  // A chimney: two 24 m walls 2.4 m apart, built in the page east of the range's middle. Climb, jump across, climb, five times.
+  await run('chimney', async () => {
+    const climbs = await page.evaluate(async () => {
+      const k = window.pk;
+      const { ctx } = window.__op2;
+      const V = k.P.position.constructor;
+      if (!k.chimney) {
+        // No THREE on the page: borrow the constructors from a mesh already in the scene.
+        let any = null;
+        ctx.render.scene.traverse(o => { if (!any && o.isMesh && o.geometry?.attributes?.position) any = o; });
+        const Mesh = any.constructor;
+        const Geometry = any.geometry.constructor;
+        const Attribute = any.geometry.attributes.position.constructor;
+        const wall = (x0, z0, x1, z1, h) => {
+          ctx.physics.addStaticBox(new V((x0 + x1) / 2, h / 2, (z0 + z1) / 2), new V((x1 - x0) / 2, h / 2, (z1 - z0) / 2), null, 'concrete');
+          const p = [];
+          const n = [];
+          const quad = (a, b, c, d, nx, ny, nz) => { for (const v of [a, b, c, a, c, d]) { p.push(...v); n.push(nx, ny, nz); } };
+          quad([x0, 0, z1], [x1, 0, z1], [x1, h, z1], [x0, h, z1], 0, 0, 1);
+          quad([x1, 0, z0], [x0, 0, z0], [x0, h, z0], [x1, h, z0], 0, 0, -1);
+          quad([x0, 0, z0], [x0, 0, z1], [x0, h, z1], [x0, h, z0], -1, 0, 0);
+          quad([x1, 0, z1], [x1, 0, z0], [x1, h, z0], [x1, h, z1], 1, 0, 0);
+          quad([x0, h, z1], [x1, h, z1], [x1, h, z0], [x0, h, z0], 0, 1, 0);
+          const g = new Geometry();
+          g.setAttribute('position', new Attribute(new Float32Array(p), 3));
+          g.setAttribute('normal', new Attribute(new Float32Array(n), 3));
+          ctx.render.scene.add(new Mesh(g, ctx.render.materials.world('concrete')));
+        };
+        wall(24, 14, 28, 15, 24);
+        wall(24, 10.6, 28, 11.6, 24);
+        ctx.physics.flushQueries?.();
+        k.chimney = true;
+      }
+      await k.place(26, 0.1, 12.8, Math.PI, 0.1);
+      window.__op2.ctx.input.simulate('forward', true);
+      await k.wait(0.1);
+      await k.tap('jump');
+      let n = 0;
+      for (let i = 0; i < 5; i++) {
+        if (!(await k.until(() => k.P.climbing, 1.2))) break;
+        n++;
+        if (i === 4) break;
+        await k.until(() => !k.P.climbing, 1);
+        await k.tap('jump');
+      }
+      return n;
+    });
+    // The last jump off, frozen half way across with both walls in view.
+    await page.evaluate(async () => {
+      const k = window.pk;
+      await k.until(() => !k.P.climbing, 1);
+      k.look(0, -0.35);
+      await k.tap('jump');
+      await k.freezeAfter(0.12);
+    });
+    const mid = await page.evaluate(() => ({ state: window.pk.P.state, y: window.pk.P.position.y, pose: window.pk.pose() }));
+    await still('chimney');
+    return page.evaluate(async parts => {
+      const k = window.pk;
+      await k.until(() => k.P.grounded, 4);
+      const r = k.report({ ...parts, endY: k.P.position.y });
+      r.rest = await k.rest();
+      return r;
+    }, { climbs, mid });
+  });
+
   return out;
 }

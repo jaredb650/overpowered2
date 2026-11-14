@@ -139,6 +139,16 @@ export const MOVE = {
   slamRadiusMax: 12,
   /** Fall height that earns the biggest shockwave. */
   slamRadiusFall: 12,
+  /**
+   * A slam from at least this high is a big slam: both fists into the floor, a wider and harder hit, every bit of momentum
+   * gone, and `bigSlamRecover` seconds on the floor with no moving and no shooting. No bounce and no slide come out of it.
+   */
+  bigSlamHeight: 6,
+  bigSlamRecover: 0.5,
+  /** Reach of a big slam against a small one's from the same height. Damage scales in `FEEDBACK.bigSlamDamage`. */
+  bigSlamReach: 1.5,
+  /** Eye above the feet while down on the fists. */
+  bigSlamEye: 1.0,
 
   // Wall run. A wall run needs all of: airborne a moment, W held, moving along the wall, steering a little into it,
   // and a wall long enough to run on. A brush against a wall meets none of that.
@@ -185,6 +195,33 @@ export const MOVE = {
   wallKickSteer: 0.6,
   wallKickLock: 0.25,
   wallCoyote: 0.15,
+
+  // Wall climb. A jump at a wall, looking straight at it with W held, goes up it hand over hand. Along the wall is still a
+  // wall run. The gun is away for the climb.
+  /** Cosine of the widest angle between the view and straight into the wall: about 30 degrees. */
+  climbFacing: 0.866,
+  climbSteps: 3,
+  /** Height the steps add, on top of whatever the jump was still carrying, and the time they take. */
+  climbHeight: 2.4,
+  climbTime: 0.45,
+  /** Time off the ground first, so a jump from against the wall leaves the floor before the hands take over. */
+  climbMinAir: 0.1,
+  /** Falling faster than this is a fall past a wall, not a jump at it. */
+  climbMinVy: -6,
+  /** Speed the body is held into the wall while on it, so contact is made every tick. */
+  wallPress: 2,
+  /** Still holding W at the top of the climb: the body sticks and slides down, this fast at first, building to the most. */
+  clingSlideStart: 1.5,
+  clingSlideMax: 4,
+  /** Seconds from the first slide speed to the most. */
+  clingSlideBuild: 1,
+  /** While clinging the view can turn anywhere but into the wall: turning toward it slows from this angle off the wall's plane (radians). */
+  clingViewEase: 0.35,
+  /** Space while climbing or clinging: off the wall, out and up, and the view turned to face away from it. */
+  wallJumpOut: 7.5,
+  wallJumpUp: 9,
+  /** Seconds of the view's turn, eased. Mouse motion adds on top of it. */
+  wallJumpTurn: 0.22,
 
   // Mantle. Airborne only: on the ground the player must jump first, so nothing lifts them unasked.
   /** Highest ledge above the feet the hands can reach. */
@@ -358,4 +395,8 @@ export const FEEDBACK = {
   slamForce: 60,
   /** Fall height where a slam counts as full strength for damage, shake and sound. */
   slamFullAt: 12,
+  /** Big slam damage against a small slam's from the same height. */
+  bigSlamDamage: 1.5,
+  /** Push, newton-seconds, on a body inside the inner half of a big slam: enough to take a man off his feet. */
+  bigSlamKnock: 420,
 };

@@ -14,6 +14,7 @@
  */
 import { clamp, damp, lerp, smoothstep } from '../core/math';
 import { springStep, type SpringState } from './moveMath';
+import { MOVE } from './tuning';
 
 const query = typeof location === 'undefined' ? null : new URLSearchParams(location.search);
 
@@ -43,6 +44,8 @@ export const ANIM = {
   slideRoll: 0.03,
   kickRoll: 1.3,
   dashRoll: 1.0,
+  /** Roll into each pull of a wall climb, alternating sides. */
+  climbRoll: 0.025,
   /** Landing speed where the crunch starts and where it is whole. A plain jump lands at 9.5. */
   landFrom: 10,
   landFull: 26,
@@ -72,6 +75,13 @@ export interface MoveSource {
   mantleTopY: number;
   /** 0..1 through the vault. */
   vaultProgress: number;
+  /** Up a wall hand over hand, and 0..1 through it. Optional so a stand-in player need not carry the wall moves. */
+  climbing?: boolean;
+  climbProgress?: number;
+  /** Stuck to the wall after a climb, sliding down it. */
+  clinging?: boolean;
+  /** Out of the wall being climbed or clung to. */
+  climbNormal?: { x: number; z: number };
 }
 
 export type LegsMode = 0 | 1 | 2;
@@ -178,6 +188,8 @@ export class MoveAnim {
   private vaultW = 0;
   private vaultOut = -1;
   private vaultP = 0;
+  private climbW = 0;
+  private clingW = 0;
   private sinceSlide = 9;
   private sinceJump = 9;
 
@@ -186,12 +198,14 @@ export class MoveAnim {
   private readonly tuck = clip();
   private readonly crunch = clip();
   private readonly plant = clip();
+  /** A big slam: both fists into the floor. */
+  private readonly fists = clip();
 
   private was = { grounded: true, sliding: false, mantling: false, vaulting: false };
   private readonly springs = [
     this.roll, this.cx, this.cy, this.gx, this.gy, this.gz, this.gp, this.gyaw, this.gr, this.hx, this.hy, this.hz, this.hp, this.hyaw, this.hr,
   ];
-  private readonly clips = [this.brace, this.kick, this.tuck, this.crunch, this.plant];
+  private readonly clips = [this.brace, this.kick, this.tuck, this.crunch, this.plant, this.fists];
   /** False while anything may be off its rest, so a layer that is switched off is cleared once and not every frame. */
   private clean = true;
 
@@ -230,7 +244,7 @@ export class MoveAnim {
     if (!ANIM.enabled) return;
     this.clean = false;
     // A slam lands twice in one tick, once as a slam and once as a landing. The rig already throws the gun down for it.
-    if (this.plant.t === 0) return;
+    if (this.plant.t === 0 || this.fists.t === 0) return;
     const k = smoothstep(ANIM.landFrom, ANIM.landFull, impact);
     if (k <= 0) return;
     start(this.crunch, 0.22 + 0.26 * k, k);
@@ -248,9 +262,15 @@ export class MoveAnim {
     this.gz.v += fwd * 0.5;
   }
 
-  slammed(impact: number): void {
+  slammed(impact: number, big = false): void {
     if (!ANIM.enabled) return;
     this.clean = false;
+    if (big) {
+      // Both fists into the floor and the head down after them. The getting up is the Player's eye coming back.
+      start(this.fists, 0.62);
+      this.cy.v -= 2.6;
+      return;
+    }
     const k = clamp(impact / 12, 0.4, 1);
     // A harder slam keeps the hand down longer. It always goes all the way down: half a plant is no pose at all.
     start(this.plant, 0.34 + 0.2 * k, k);
@@ -295,6 +315,8 @@ export class MoveAnim {
     this.wallW = fade(this.wallW, s.wallRunning ? 1 : 0, s.wallRunning ? 9 : 12, dt);
     if (s.wallSide !== 0) this.wallSide = s.wallSide;
     this.slamW = fade(this.slamW, s.slamming ? 1 : 0, 14, dt);
+    this.climbW = fade(this.climbW, s.climbing ? 1 : 0, 20, dt);
+    this.clingW = fade(this.clingW, s.clinging ? 1 : 0, 14, dt);
     const falling = air && !s.slamming && !s.wallRunning ? smoothstep(ANIM.fallFrom, ANIM.fallFull, -s.velocity.y) : 0;
     this.fallW = fade(this.fallW, falling, falling > this.fallW ? 5 : 14, dt);
 
@@ -333,6 +355,11 @@ export class MoveAnim {
     const tuckP = advance(this.tuck, dt);
     const crunchP = advance(this.crunch, dt);
     const plantP = advance(this.plant, dt);
+    const fistsP = advance(this.fists, dt);
+    // One pull per step, and which hand leads it.
+    const climbU = clamp(s.climbProgress ?? 0) * MOVE.climbSteps;
+    const stepP = climbU - Math.floor(climbU);
+    const stepSide = Math.floor(climbU) % 2 === 0 ? 1 : -1;
 
     // --- Camera targets.
     let roll = 0;
@@ -348,6 +375,7 @@ export class MoveAnim {
       cx -= 0.04 * lean;
     }
     roll += ANIM.slideRoll * this.slideW;
+    if (s.climbing) roll += ANIM.climbRoll * stepSide * Math.sin(Math.PI * stepP);
     cx -= this.wallSide * 0.03 * this.wallW;
 
     // --- Weapon targets.
@@ -377,6 +405,20 @@ export class MoveAnim {
     // Slam: both arms drive down with the body.
     gy += 0.02 * this.slamW;
     gr -= 0.18 * this.slamW;
+    // Climb: the gun is put away, down and out of the view, and both hands are on the wall.
+    gx += 0.05 * this.climbW;
+    gy -= 0.34 * this.climbW;
+    gz += 0.06 * this.climbW;
+    gp -= 1.0 * this.climbW;
+    gr += 0.3 * this.climbW;
+    if (fistsP >= 0) {
+      // Big slam: the gun hand goes down into the floor with the other.
+      const b = hold(fistsP, 0, 0.12, 0.55, 1);
+      gy -= 0.16 * b;
+      gz -= 0.03 * b;
+      gp -= 0.6 * b;
+      gr -= 0.12 * b;
+    }
     // A long fall: the arms float up.
     gy += 0.022 * this.fallW;
     gp += 0.1 * this.fallW;
@@ -432,6 +474,50 @@ export class MoveAnim {
       hyaw = 0.55;
       hroll = 0;
       hw = vw;
+    } else if (fistsP >= 0) {
+      // Big slam: a fist into the floor, knuckles down, low in the view but in it.
+      bx = -0.17;
+      by = -0.19;
+      bz = -0.42;
+      hpitch = -1.1;
+      hyaw = 0.2;
+      hroll = 0;
+      hw = hold(fistsP, 0, 0.1, 0.6, 1);
+    } else if (this.climbW > 0.02) {
+      // Up the wall: the hand takes a hold high, and the wall goes down the screen under it as the body rises.
+      bx = -0.2;
+      by = lerp(0.1, -0.12, inOut(stepP));
+      bz = -0.36;
+      hpitch = 1.0;
+      hyaw = -0.35;
+      hroll = 0;
+      hw = this.climbW;
+    } else if (this.clingW > 0.02 && s.climbNormal) {
+      // On the wall while the gun is out. Where the hand can be seen depends on where the view is, against the wall.
+      const n = s.climbNormal;
+      const sy = Math.sin(s.yaw);
+      const cy = Math.cos(s.yaw);
+      const into = sy * n.x + cy * n.z;
+      const right = n.z * sy - n.x * cy;
+      if (into > 0.5) {
+        // Still facing it: flat on the wall ahead, low.
+        bx = -0.18;
+        by = -0.07;
+        bz = -0.36;
+        hpitch = 0.9;
+        hyaw = -0.3;
+        hroll = 0;
+        hw = this.clingW * smoothstep(0.5, 0.8, into);
+      } else if (right < -0.3) {
+        // Turned out with the wall on the left: the hand stays on it, as on a wall run.
+        bx = -0.36;
+        by = -0.11;
+        bz = -0.44;
+        hpitch = 0.3;
+        hyaw = 0.12;
+        hroll = -1.35;
+        hw = this.clingW * smoothstep(0.3, 0.6, -right);
+      }
     } else if (plantP >= 0) {
       // Slam: one hand to the ground.
       bx = -0.24;
@@ -527,7 +613,8 @@ export class MoveAnim {
     this.handPitch = this.hp.x;
     this.handYaw = this.hyaw.x;
     this.handRoll = this.hr.x;
-    this.handOpen = clamp(this.handW * 1.4);
+    // A fist, not a palm, for the big slam.
+    this.handOpen = fistsP >= 0 ? 0 : clamp(this.handW * 1.4);
 
     if (!ANIM.legs) {
       this.legsMode = 0;
@@ -561,7 +648,7 @@ export class MoveAnim {
     for (const s of this.springs) s.x = s.v = 0;
     for (const c of this.clips) c.t = -1;
     this.clean = true;
-    this.slideW = this.wallW = this.slamW = this.fallW = this.mantleW = this.vaultW = 0;
+    this.slideW = this.wallW = this.slamW = this.fallW = this.mantleW = this.vaultW = this.climbW = this.clingW = 0;
     this.mantleOut = this.vaultOut = -1;
     this.sinceSlide = this.sinceJump = 9;
     this.camRoll = this.camX = this.camY = 0;

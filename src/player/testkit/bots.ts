@@ -416,8 +416,8 @@ export const slamBot: Bot = function* (b) {
   b.metric('slam_impact_12m', round(impact));
   b.metric('slam_radius_12m', round(radius));
 
-  // Bounce: jump held at impact.
-  yield* place(b, LANES.strafe, 15, 0);
+  // Bounce: jump held at impact. From below `bigSlamHeight`, because a big slam has no bounce.
+  yield* place(b, LANES.strafe, 5.5, 0);
   yield;
   yield* tap(b, 'slide');
   yield* waitUntil(b, () => p.position.y < 3.2, 3);

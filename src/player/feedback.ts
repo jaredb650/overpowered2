@@ -103,13 +103,14 @@ export class MovementFeedback {
       events.on('player:slamstart', () => audio.play('slam_start')),
       events.on('player:slam', e => {
         const k = clamp(e.impact / FEEDBACK.slamFullAt, 0.3, 1);
-        audio.play('slam_impact', { volume: 0.6 + 0.4 * k });
+        audio.play('slam_impact', { volume: 0.6 + 0.4 * k, pitch: e.big ? 0.72 : 1 });
         this.body('hand_plant', { volume: FEEDBACK.bodyVolume, pitch: 0.8, delay: 0.06 });
         render.post.radialBlur(0.45 * k, 0.25);
         render.post.chromatic(0.5 * k, 0.2);
-        fx.slam(e.position, k);
-        this.ctx.physics.radialImpulse(e.position, e.radius, 30 * k);
-        this.slamEnemies(e.position, e.radius, k);
+        fx.slam(e.position, e.big ? 1.6 : k);
+        if (e.big) this.groundImpact(e.position);
+        this.ctx.physics.radialImpulse(e.position, e.radius, 30 * k * (e.big ? FEEDBACK.bigSlamDamage : 1));
+        this.slamEnemies(e.position, e.radius, k, e.big === true);
       }),
       events.on('player:damaged', e => {
         audio.play(e.amount >= 35 ? 'player_hurt_heavy' : 'player_hurt', { unaffectedByTime: true });
@@ -193,20 +194,42 @@ export class MovementFeedback {
     fx.wallSparks(this.feet, this.wallNormal, this.along);
   }
 
-  private slamEnemies(center: THREE.Vector3, radius: number, strength: number): void {
+  /**
+   * A big slam's ground impact, not an explosion: a deep thud and the second fist landing, a ring of dust rolling out,
+   * floor thrown up in chips and a wide crack. Nothing burns.
+   */
+  private groundImpact(at: THREE.Vector3): void {
+    const { audio, fx, render } = this.ctx;
+    audio.play('land_hard', { volume: 1, pitch: 0.62 });
+    this.body('hand_plant', { volume: FEEDBACK.bodyVolume, pitch: 0.7, delay: 0.03 });
+    for (const [ring, count, scale] of [[1.2, 8, 1.4], [2.6, 12, 1.8]] as const) {
+      for (let i = 0; i < count; i++) {
+        const a = ((i + (ring > 2 ? 0.5 : 0)) / count) * Math.PI * 2;
+        this.feet.set(at.x + Math.cos(a) * ring, at.y, at.z + Math.sin(a) * ring);
+        fx.dust(this.feet, UP, scale);
+      }
+    }
+    fx.chips(at, 0x6f6a63, 14);
+    // Stand-in renderers in the tests have no decals.
+    render.decals?.add('crack', at, UP, 5.5, Math.random() * Math.PI * 2);
+  }
+
+  /** Small or big, damage falls off to the rim. A big slam hits `bigSlamDamage` harder, and throws the inner half off its feet. */
+  private slamEnemies(center: THREE.Vector3, radius: number, strength: number, big = false): void {
     // Sandboxes run without an enemy system, and stubs answer with something that is not a count.
     const { enemies } = this.ctx;
     const count = enemies?.query(center, radius, this.slamHits);
     if (typeof count !== 'number') return;
     const d = this.slamDamage;
-    const peak = lerp(FEEDBACK.slamDamageMin, FEEDBACK.slamDamageMax, strength);
+    const peak = lerp(FEEDBACK.slamDamageMin, FEEDBACK.slamDamageMax, strength) * (big ? FEEDBACK.bigSlamDamage : 1);
     for (let i = 0; i < Math.min(count, MAX_SLAM_TARGETS); i++) {
       const enemy = this.slamHits[i]!;
       const distance = enemy.position.distanceTo(center);
       d.amount = peak * lerp(1, FEEDBACK.slamEdge, clamp(distance / radius));
       d.point.copy(enemy.center);
-      d.dir.copy(enemy.position).sub(center).setY(0.4).normalize();
-      d.force = FEEDBACK.slamForce * strength;
+      const knock = big && distance < radius * 0.5;
+      d.dir.copy(enemy.position).sub(center).setY(knock ? 0.6 : 0.4).normalize();
+      d.force = knock ? FEEDBACK.bigSlamKnock : FEEDBACK.slamForce * strength;
       enemies.applyDamage(enemy, d);
     }
   }

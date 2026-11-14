@@ -237,6 +237,48 @@ describe('move animation layer', () => {
     expect(worst).toBeLessThan(0.05);
   });
 
+  it('puts the gun away for a climb, keeps a hand on the wall while clinging, fists the floor on a big slam, and rests after', () => {
+    const a = new MoveAnim();
+    const s = source();
+    s.grounded = false;
+    const climb = run(a, s, 0.45, t => {
+      s.climbing = true;
+      s.climbProgress = t / 0.45;
+    });
+    s.climbing = false;
+    expect(climb.gunDown).toBeLessThan(-0.25);
+    expect(climb.hand).toBeGreaterThan(0.9);
+    // A big holster, but eased in: no channel jumps in a frame.
+    expect(climb.step).toBeLessThan(0.06);
+    // Clinging, still facing the wall (yaw 0 looks down -Z, the wall is there): the gun is back and a hand is on the wall.
+    s.clinging = true;
+    s.climbNormal = { x: 0, z: 1 };
+    const cling = run(a, s, 0.4);
+    expect(cling.step).toBeLessThan(0.06);
+    expect(a.gunY).toBeGreaterThan(-0.02);
+    expect(a.handW).toBeGreaterThan(0.8);
+    // Turned with the wall on the right, the hand goes back to the gun. With it on the left, it stays on the wall.
+    s.yaw = Math.PI / 2;
+    run(a, s, 0.4);
+    expect(a.handW).toBeLessThan(0.05);
+    s.yaw = -Math.PI / 2;
+    run(a, s, 0.4);
+    expect(a.handW).toBeGreaterThan(0.8);
+    s.clinging = false;
+    s.grounded = true;
+    s.yaw = 0;
+    a.slammed(8, true);
+    a.landed(40);
+    const slam = run(a, s, 0.3);
+    expect(slam.camY).toBeLessThan(-0.045);
+    expect(slam.gunDown).toBeLessThan(-0.08);
+    expect(slam.hand).toBeGreaterThan(0.9);
+    expect(a.handOpen).toBe(0);
+    run(a, s, 1.2);
+    expect(a.idle).toBe(true);
+    expect(a.camRoll).toBe(0);
+  });
+
   it('stays inside the roll limit when everything stacks', () => {
     const a = new MoveAnim();
     const s = source();

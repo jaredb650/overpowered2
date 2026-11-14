@@ -66,6 +66,11 @@ export class CameraRigSystem implements CameraRig {
         this.addTrauma(0.45 + 0.4 * k);
         this.dip.v -= 1.5 + 2.5 * k;
         this.fovPunch(VIEW.slamPunch + VIEW.slamPunchHard * k, 0.28);
+        if (e.big) {
+          // The thump of a body hitting the floor with its whole weight.
+          this.addTrauma(1);
+          this.dip.v -= 2.5;
+        }
       }),
       events.on('player:dashed', () => this.fovPunch(VIEW.dashPunch, 0.22)),
       events.on('player:jumped', e => {

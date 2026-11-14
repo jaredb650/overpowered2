@@ -23,7 +23,8 @@ import { createPlayer, createCameraRig, MOVE, VIEW, FEEDBACK } from '../player';
 **Player** (`PlayerSystem`). `position` and `eye` are interpolated for display, `velocity` is the simulated velocity.
 
 - Read: `speed` (horizontal, and it is what the feet really cover: see "Walls"), `state`, `grounded`, `sliding`, `crouched`, `wallRunning`, `wallSide`, `dashing`, `slamming`,
-  `mantling`, `vaulting`, `dashCharges` (0..2, fractional while refilling), `stridePhase`, `groundSurface`. On the class only: `mantleProgress`, `mantleTopY`, `vaultProgress`, `kickSide`.
+  `mantling`, `vaulting`, `dashCharges` (0..2, fractional while refilling), `stridePhase`, `groundSurface`. On the class only: `mantleProgress`, `mantleTopY`, `vaultProgress`, `kickSide`,
+  `climbing`, `clinging`, `climbProgress`, `climbNormal`, `recovering` (seconds left on the floor after a big slam). `state` adds `climb` and `cling`.
 - `moveAnim`: the body layer's pose for this frame (`MovePose` in contracts). CameraRig and the viewmodel rig read it. Nothing else should need to.
 - Motion: `launch(v)` replaces vertical speed and adds horizontal. `push(v)` adds on all axes. `teleport(p, yaw?)` clears motion.
 - Health: `takeDamage`, `heal(amount, overheal?)`, `addArmor`. Armor absorbs 2/3 of a hit; `true` and `hazard` damage skip it.
@@ -41,8 +42,13 @@ import { createPlayer, createCameraRig, MOVE, VIEW, FEEDBACK } from '../player';
 
 **Seats.** `player.park(feet)` holds the body for a vehicle seat: no input, no motion, and `takeDamage`, `launch` and `push` all do nothing. The view it was left with is kept, and it reads as grounded. It also clears the body layer, which nothing steps in a seat: a slide's legs or a hand off the weapon would otherwise wait there and play out on the way out. `player.unpark(grace)` gives it back, untouchable for `grace` seconds. Look is still consumed while parked, because `input.frameLook` is what the seat aims with. `camera.setSeat(view)` hands the camera to a `SeatView`, with kicks and shake on top scaled by `view.shake`, and null gives it back. `camera.syncSeat()` places it at once, for shots fired before the rig's turn in the frame. Both `reset()`s clear all of this. Tests: `park.test.ts`.
 
-**Events.** `player:jumped` now has `wall` and `bounce` flags. `player:slam` is `{ impact, position, radius }`, where `impact`
-is meters fallen. New: `player:slamstart`, `player:mantle { height }`, `player:vault { height, seconds }`.
+**Events.** `player:jumped` now has `wall` and `bounce` flags; the wall jump off a climb or a cling is `wall` too. `player:slam` is
+`{ impact, position, radius, big }`, where `impact` is meters fallen and `big` marks a big slam. New: `player:slamstart`,
+`player:mantle { height }`, `player:vault { height, seconds }`.
+
+**The hands.** A big slam's stand-up and a wall climb keep the hands off the gun through `weapons.occupy(seconds)`, the same
+call a stim uses, and give them back with `occupy(0)` when the move ends early. The weapon system is not in the core `Ctx`,
+so the Player reaches it as an optional field and a headless game has nothing to block.
 
 ## Using it from gameplay code
 
@@ -95,7 +101,14 @@ with a stumble (`landWeight*`) that scales with impact and is gone in 0.14 s.
 the air too low to slam, which queues for the landing. A wall run needs all of: `wallRunMinAir` off the ground, W held, moving
 along the wall, keys steering 9 to 53 degrees into it, and `wallRunAhead` meters of wall still in front. A wall kick needs
 `wallKickMinInto` toward the wall, so a press beside a wall stays a double jump. Mantling only happens in the air, so the
-player must jump to climb. The old beside-the-velocity wall scan is gone: a wall run starts from real contact.
+player must jump to climb. The old beside-the-velocity wall scan is gone: a wall run starts from real contact. A wall climb
+needs all of: `climbMinAir` off the ground, W held, the view within about 30 degrees of straight at the wall (`climbFacing`),
+not falling faster than `climbMinVy`, not crouching or slamming, and a wall not already climbed since the last landing. A big
+slam needs `bigSlamHeight` of real fall under the slam.
+
+**The double jump comes back only on the ground.** Landing gives it back, and so do a mantle and a vault, which end on their
+ledge or far side. A wall run, a wall kick and a wall jump give nothing back: they used to refill it. Wall kicks and wall
+jumps are separate from it, so a double jump and then a kick or a wall jump is fine.
 
 **Vault.** A jump pressed while running at waist-high cover goes over it on one hand instead of jumping: `tryVault` in
 `Player.ts`. It needs all of: on the ground, W held, at least `vaultMinSpeed`, the run and the keys within about 40 degrees of
@@ -139,6 +152,42 @@ did, so nothing that judges a climb by position changes.
 where a climb leaves the body and the campaign's lesson tests are pinned to that: see the campaign note under Known
 limitations. A ledge too thin for the first ray, a rail or a 12 cm wall, gets a second ray just behind its face
 (`mantleThin`) before it counts as a miss.
+
+**Big slam** (the parkour update, part 1). A slam with at least `bigSlamHeight` (6 m) of real fall under it, measured from
+where the slam started and not counting the speed bonus (a slam's own pull from 5 m is worth 6.3 m of `slamFall`). It lands
+with all velocity set to 0, nothing kept for a hop, no bounce window and no slide, and the player is down for `bigSlamRecover`
+(0.5 s): no moving, jumping, sliding or shooting, the eye at `bigSlamEye` (1 m) for the first 60% and back up after. A dash
+in that time gets up at once and spends its charge like any dash. A launch, a death or a teleport also ends it. The hit
+reaches `bigSlamReach` (1.5) times a small slam's from the same height, does `FEEDBACK.bigSlamDamage` (1.5) times the damage,
+and inside its inner half pushes with `FEEDBACK.bigSlamKnock` (420 N s) up and outward, which is what takes a man off his feet
+in `enemies/reactions.ts` (crush damage, so no limbs blown off and no fire). Below 6 m the slam is exactly the small one.
+
+**Wall climb.** Jump at a wall looking at it with W held: three pulls (`climbSteps`), `climbHeight` (2.4 m) over `climbTime`
+(0.45 s). Each pull is sin^2, which over whole ticks averages to exactly half its peak, so the steps add 2.4 m to the tick;
+whatever upward speed the jump still had rides on top and fades under gravity (from a standing jump at a wall the climb starts
+0.1 s up and adds about 0.6 m). The body is pressed into the wall at `wallPress` (2 m/s), so it touches every tick, and every
+touch asks `tryMantle` first: a ledge that comes into reach during the climb turns into today's mantle, which ends where it
+always did. The gun is away (`occupy(climbTime)`, and the body layer drops it out of view). A wall that ends under the waist
+lets go. From a run-up jump, one jump plus a climb plus the mantle's 2.2 m reaches a ledge about 5.5 m up.
+
+**Cling.** Still holding W when the climb ends, the body sticks and slides down at `clingSlideStart` (1.5 m/s), building
+linearly to `clingSlideMax` (4 m/s) over `clingSlideBuild` (1 s). Releasing W drops off. The ground, a dash, a slam or a
+jump also end it. The hands are back, at full accuracy (nothing in the weapons reads movement for spread). The view can turn
+anywhere but into the wall: a turn that takes the view further toward the wall is scaled down from `clingViewEase` (20
+degrees) short of the wall's plane to nothing at it, and a turn away is always whole. The climb ends looking at the wall, so
+that is never a snap: the view is just not let deeper in.
+
+**Wall jump.** Space while climbing or clinging: off the wall at `wallJumpOut` (7.5 m/s) and `wallJumpUp` (9 m/s), and the
+view turns over `wallJumpTurn` (0.22 s), smoothstep-eased, with the mouse added on top. The turn mirrors the view in the
+wall: looking straight at it is a half turn, looking along it is none, so the player always comes off facing out. The keys
+do not steer the air until the turn is done: W still points at the wall being left, and pulled the jump back so hard that a
+3.8 m chimney reached the far wall falling too fast to climb. Gaps from 1.8 to 4.5 m climb without limit at 30, 60 and 144
+fps. The wall is spent until landing, so a chimney is climbed by going wall to wall, with no limit: the test climbs 8 times up a 2.4 m gap to
+over 20 m. Today's wall kick is untouched and still answers a press in the air into a wall that is not a climb or a run.
+
+**Wall run to wall run** already worked and is unchanged: kicking off one run with the view turned across toward the other
+wall starts a run there, back and forth. The kick steers the velocity toward the keys, so a kick with the view straight down
+the corridor goes straight down it and does not reach the other wall; that has to be a look across (the tests use 0.5 rad).
 
 **Wall run, the probe.** `wallStick` used to end the run on the first tick its capsule cast missed or came back with a
 tilted normal. It now asks a ray at waist height before giving up, and allows `wallRunGrace` (0.05 s) with no wall at all.
@@ -200,6 +249,10 @@ works live in the sandbox.
 | Wall run strictness | `wallRunMinAir`, `wallRunWishMin/Max`, `wallRunWishAlong`, `wallRunAhead`, `wallRunMaxInto` |
 | Wall run length | `wallRunHold`, `wallRunMax`, `wallRunFallScale`, `wallRunSpeed`. Kick: `wallKick*` |
 | Mantle | `mantleReach`, `mantleFacing`, `mantleRiseSpeed`. The top: `mantleTopJump`, `mantleCarry` (off), `mantleCarryFrom`, `mantleThin` |
+| Big slam | `bigSlamHeight`, `bigSlamRecover`, `bigSlamReach`, `bigSlamEye`. Hit: `FEEDBACK.bigSlamDamage`, `FEEDBACK.bigSlamKnock` |
+| Wall climb | `climbFacing`, `climbSteps`, `climbHeight`, `climbTime`, `climbMinAir`, `climbMinVy`, `wallPress` |
+| Cling | `clingSlideStart`, `clingSlideMax`, `clingSlideBuild`, `clingViewEase` |
+| Wall jump | `wallJumpOut`, `wallJumpUp`, `wallJumpTurn` |
 | Vault | `vault`, `vaultAuto`, `vaultMinSpeed`, `vaultAutoSpeed`, `vaultReach`, `vaultFacing`, `vaultMinRise`, `vaultMaxRise`, `vaultMaxDepth`, `vaultMaxDrop`, `vaultStepDown`. Shortest vault where there is room: `vaultMinTime`. Head path: `vaultEyeOver`, `vaultEyeLand` |
 | Body animation | `ANIM` in `moveAnim.ts`. `ANIM.camera` is the comfort knob. Hand and leg placement: the targets in `MoveAnim.update` and `LEG_POSES` in `viewmodels/legs.ts` |
 | Hands and boots, volume | `FEEDBACK.bodyVolume` |
@@ -243,6 +296,9 @@ Rules that must stay true, each held by a test:
 | Hard landing | Extra dip, scaled from 10 to 26 m/s | Drops and recovers slowly, scaled the same | | | `gear_rustle` |
 | Dash | Roll into a side dash, none straight ahead | Lags the other way | | | |
 | Slam | A dip on impact | Driven down in the fall | To the ground on impact | | `hand_plant` |
+| Big slam | A harder dip; the eye goes down to 1 m and back (Player) | Driven into the floor, recovering over 0.6 s | A fist into the floor, knuckles down | | `hand_plant` twice, `land_hard` low, `slam_impact` low |
+| Wall climb | A little roll into each pull, alternating | Put away: down and out of the view | High on the wall, sliding down the screen as the body rises, each pull | | `wall_kick` sounds only on the jump off |
+| Cling | | Out, as at rest | Flat on the wall while facing it; trailing on it, as on a wall run, with the wall to the left; back on the gun with the wall to the right or behind | | |
 | Long fall, ledge drop | A dip for the missing step | Floats up with fall speed | | | `boot_scuff` off the edge |
 
 Jump and sprint are unchanged: the rig's own jump kick and run pose already cover them. Footfalls on a wall are the
@@ -346,7 +402,8 @@ All additive, in `src/core/contracts.ts`:
   `stridePhase`, `sensitivity`, `invertY`, `lookScale`. `heal` gained an optional `overheal`.
 - `PlayerModifiers.infiniteDash`, new type `PlayerMoveState`.
 - `Player.holdToHop` is on the class only, not on `PlayerSystem`.
-- `GameEvents`: `player:jumped` flags, `player:slam` radius, `player:slamstart`, `player:mantle`.
+- `GameEvents`: `player:jumped` flags, `player:slam` radius and `big`, `player:slamstart`, `player:mantle`.
+- `PlayerMoveState` adds `climb` and `cling`.
 
 ## Known limitations
 
@@ -385,7 +442,17 @@ All additive, in `src/core/contracts.ts`:
   `?vault=auto` or the lab box. See DESIGN section 13 and "Nothing happens by accident" above for why it is not the default.
 - **The wall run change fixed nothing that could be measured.** A 2 km wall and a wall of butted 4 m panels both ran 1.43 s
   with and without it. It is there for casts that start in penetration, which Rapier may answer with nothing.
-- **The right hand never leaves the weapon.** A wall on the right gets no trailing hand and a mantle is one-handed.
+- **The right hand never leaves the weapon.** A wall on the right gets no trailing hand and a mantle is one-handed. The big
+  slam's "both fists" are the left fist and the gun driven down with the right hand; a wall climb hides the gun instead.
+- **The climb breaks three level promises** (found here, not fixed here: the levels are not owned here). One run-up jump
+  straight at a wall with W now climbs 2.4 m and mantles, so a ledge up to about 5.5 m is reached without a double jump.
+  `campaign/parkour.test.ts` "kicks a runner off the hull if the second press comes at it" fails (the wreck, 4.2 m, is
+  climbed), and its "is out of reach of one jump" only still passes because the climb leaves the body on the lip 0.24 m short
+  of where `onTop` looks. `world/map/outpost/outpost-map.test.ts` fails "double jump to the wreck, never one" and "nobody gets
+  out of the route" (the pit's far wall is climbed). The wreck and the pit need to be taller than about 6 m, or unclimbable.
+- **The cling has no scrape sound.** The wall-run bed in `audio/foley.ts` reads `wallRunning` only; the owner is sourcing a
+  slide scrape. A climb's pulls are silent apart from the body layer's motion.
+- **The cling's view limit is on yaw only.** Pitch is free, as everywhere.
 - **A vault goes through bodies.** `enemies/contact.ts` only names the mantle, but its nudge needs `state` to be ground,
   crouch or air, so a vault is never pushed off its path, and a solid body's hold-off only writes a velocity the vault
   ignores. Light bodies are still shoved aside by the run. Read from the code, not played.
@@ -409,9 +476,10 @@ All additive, in `src/core/contracts.ts`:
 ## Testing
 
 ```
-npx vitest run src/player/movement.test.ts                         # one file at a time on this machine. Also moveMath, park, vault, moveAnim
+npx vitest run src/player/movement.test.ts                         # one file at a time on this machine. Also moveMath, park, vault, moveAnim, climb
 node tools/shot.mjs --url "/?map=range" --script tools/scripts/parkour-live.mjs --dpr 2 --w 1440 --h 900 --wait 500 --timeout 280 --out tools/out/parkour/pk.png
                                                                     # every move on the range's strip, frozen mid-move. PK_WEAPON, PK_ONLY, PK_SHOTS=0
+                                                                    # PK_ONLY=bigslam,climb,cling,chimney for the parkour update
 npx tsx tools/scripts/movement-headless.ts [bot...] [--fps 60]     # bot numbers in about a second
 node tools/shot.mjs --url "/?sandbox=movement" --script tools/scripts/movement-bot.mjs --out tools/out/movement.png --wait 500
 node tools/shot.mjs --url "/?sandbox=movement&map=killhouse&seconds=120" --script tools/scripts/movement-map.mjs --out tools/out/movement-map.png --wait 500
