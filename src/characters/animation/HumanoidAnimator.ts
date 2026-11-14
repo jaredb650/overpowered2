@@ -522,6 +522,10 @@ export class HumanoidAnimator implements CharacterAnimation {
     this.snapLeft = this.snapSeconds = seconds;
   }
 
+  blendFrom(seconds: number): void {
+    this.matchPose(seconds);
+  }
+
   getUp(kind: GetUpKind, seconds: number, hurt: number, startU = 0): number {
     this.refreshPlan();
     this.reel = this.flail = this.flailW = this.buckle = this.buckleW = 0;

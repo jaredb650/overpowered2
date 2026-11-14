@@ -25,7 +25,7 @@ export default async function chaos(page, h) {
       const a = (i / 24) * Math.PI * 2;
       spawned.push(lab.spawner.place(ids[i % ids.length], new V(Math.cos(a) * 9, 0, Math.sin(a) * 9), 'on'));
     }
-    const peak = { knockdowns: 0, ragdolls: 0, collapses: 0, stumbles: 0, step: 0, cpu: 0 };
+    const peak = { knockdowns: 0, ragdolls: 0, collapses: 0, stumbles: 0, standing: 0, step: 0, cpu: 0 };
     let downs = 0;
     let rises = 0;
     const was = new Map();
@@ -36,6 +36,7 @@ export default async function chaos(page, h) {
       peak.collapses = Math.max(peak.collapses, s.collapses);
       // Living bodies losing their balance on their muscles (euphoria plan stage 6), none with `?stand=0`.
       peak.stumbles = Math.max(peak.stumbles, s.stumbles ?? 0);
+      peak.standing = Math.max(peak.standing, s.standing ?? 0);
       peak.step = Math.max(peak.step, ctx.physics.stepMs);
       for (const e of ctx.enemies.alive) {
         const before = was.get(e) ?? false;

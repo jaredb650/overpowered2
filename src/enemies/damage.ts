@@ -16,6 +16,7 @@ import { chance, clamp, lerp, pick, rand } from '../core/math';
 import { FACTIONS, type FactionRules } from '../contracts/data';
 import { ACTIVE } from '../contracts/select';
 import { KNOCK_PASS, MASS_PASS, STAND_PASS, WEIGHT_PASS } from '../gore/muscles';
+import { standBudget, StandTuning } from '../gore/stand';
 import { STRUGGLE_PASS } from '../gore/reflex';
 import { bursts, HEAVY_ROUND } from './wounds/rules';
 import { BLAST, OUTCOME_COUNT, OUTCOMES, rollBlast, tearsWaist, type BlastBody, type BlastRoll, type OutcomeRule } from './blast';
@@ -49,6 +50,21 @@ const FALL_LEAD_MAX = 0.42;
  */
 const STUMBLE_EXTRA = 0.35;
 const STUMBLE_RANGE = 20;
+/**
+ * A stagger at least this strong, where a fall would be seen, is taken on the body's muscles too, and it may catch itself
+ * (`KnockdownOptions.stumble.budget`, `gore/stand.ts`): it is gore's for up to `StandTuning.maxSeconds`, unable to attack,
+ * and comes back standing or goes over. Weaker, refused, or with `?stand=0`, the stagger is the animation's, as before.
+ */
+const STAND_FROM = 0.35;
+/** What a head hit costs a body catching its balance, as a share of its health: at `StandTuning.hitCost`, any budget. */
+const HEAD_COST = 2;
+/**
+ * Not faster than this, in m/s, with its stride, the reel and the knockback added up. A Trooper's hardest stagger from a
+ * standstill is 4.05, which it catches in five steps; harder than that the body decides. Shot along its patrol at 2.5 m/s
+ * it reels at 6.5, and on its muscles lost its feet to that six frames later without a step, every time: that is a trip,
+ * and the rule asked for a stagger. Shot against its run the two cancel, and it is taken.
+ */
+const STAND_MAX_SPEED = 5;
 /** What full strength adds to a catch step. */
 const REEL_GAIN = 1.4;
 /** Metres per second tipping the upper body over the feet, at no strength and at full. Less is a body that folds up. */
@@ -75,8 +91,10 @@ interface Knock {
   point?: THREE.Vector3;
   /** Seconds it may stumble on its muscles before it goes over (`KnockdownOptions.stumble`). Needs `topple: null`. */
   stumble?: number;
+  /** With `stumble`: what it has to catch itself with, 0..1. Left out, it can only fall. */
+  budget?: number;
 }
-const _stumble = { seconds: 0 };
+const _stumble: { seconds: number; budget?: number } = { seconds: 0 };
 /** Weapons light enough that a body takes a moment to die of them, on its feet. Anything harder drops it. */
 const DIES_ON_FEET: ReadonlySet<DamageType> = new Set<DamageType>(['bullet', 'fire', 'shock', 'true']);
 const DIES_ON_FEET_FORCE = 30;
@@ -177,12 +195,13 @@ const UP = new THREE.Vector3(0, 1, 0);
 
 const _knock: Knock = {};
 /** The one `Knock` every caller fills, all of it each time. */
-function knockAs(topple: THREE.Vector3 | null | undefined, impact: number | undefined, knockout: boolean, point: THREE.Vector3 | undefined, stumble?: number): Knock {
+function knockAs(topple: THREE.Vector3 | null | undefined, impact: number | undefined, knockout: boolean, point: THREE.Vector3 | undefined, stumble?: number, budget?: number): Knock {
   _knock.topple = topple;
   _knock.impact = impact;
   _knock.knockout = knockout;
   _knock.point = point;
   _knock.stumble = stumble;
+  _knock.budget = budget;
   return _knock;
 }
 
@@ -817,7 +836,9 @@ export class DamageModel {
     const profile = profileOf(e);
 
     // A body with a profile, on its feet, flinches in `respond`, which knows first whether a head hit takes it to the floor.
-    if (!profile || e.downed) char.anim.flinch(bone, d.dir, flinch);
+    // Not one on its feet on its muscles: gore has its root, the animator would read its yaw as 0, and the round lands on the
+    // body itself.
+    if (!profile || (e.downed && !this.w.ctx.gore.downed(char)?.standing)) char.anim.flinch(bone, d.dir, flinch);
     char.hitFlash(armoured ? 0.35 : clamp(0.55 + frac * 2, 0.55, 1));
     if (!armoured && d.type !== 'fire' && d.type !== 'shock' && !e.def.machine) {
       e.blood = Math.min(1, e.blood + 0.08 + frac * 1.1);
@@ -827,7 +848,8 @@ export class DamageModel {
     const pushForce = d.force || DEFAULT_FORCE[d.type];
     e.pressure = Math.min(1, e.pressure + 0.22 + frac);
     if (e.downed) {
-      this.hitWhileDown(e, d, bone, pushForce);
+      // Catching its balance, a round costs it what it took of its health, and one in the head more than it has: it goes over.
+      this.hitWhileDown(e, d, bone, pushForce, region === 'head' && !armoured ? HEAD_COST : frac);
       return;
     }
     // Getting up runs on keys from the root. Moved under it, the feet would slide.
@@ -926,6 +948,25 @@ export class DamageModel {
     e.shock *= SHOCK_AFTER_STAGGER;
     // A trip goes the way it was running, which the stagger above left in `reel`.
     if (r.level === 'fall') this.fallFrom(e, r.tripped ? e.reel : d.dir, r.strength, bone, profile);
+    else if (r.strength >= STAND_FROM) this.standFrom(e, d.dir, r.strength, bone, profile);
+  }
+
+  /** Where a body on its muscles and on its feet reads, and can be: near, in view, at full detail, on the ground on two legs. */
+  private seenStanding(e: Enemy): boolean {
+    return STAND_PASS && e.lod === 0 && e.inView && e.dist < STUMBLE_RANGE && !e.airborne && e.maim.legs === 2;
+  }
+
+  /**
+   * A hard stagger it might recover from (`STAND_FROM`). Where the player can see it, the body goes onto its muscles now, in
+   * the stagger it was just given, and catches itself or does not. Refused, going too fast to catch, or already due to
+   * fall, the stagger stands.
+   */
+  private standFrom(e: Enemy, dir: THREE.Vector3, strength: number, bone: number, profile: ReactionProfile): void {
+    if (!this.seenStanding(e) || e.fallIn > 0 || this.m.outpost?.wounds.bodyOf(e)?.floored) return;
+    if (Math.hypot(e.velocity.x + e.reel.x + e.push.x, e.velocity.z + e.reel.z + e.push.z) > STAND_MAX_SPEED) return;
+    _fall.copy(dir).setY(0);
+    if (_fall.lengthSq() < 1e-6) return;
+    this.knockDown(e, _fall.normalize(), strength, bone, profile, false, knockAs(null, undefined, false, undefined, StandTuning.maxSeconds, standBudget(strength)));
   }
 
   /**
@@ -935,7 +976,7 @@ export class DamageModel {
    */
   private fallFrom(e: Enemy, dir: THREE.Vector3, strength: number, bone: number, profile: ReactionProfile | null): void {
     const lead = rand(FALL_LEAD_MIN, FALL_LEAD_MAX);
-    if (STAND_PASS && profile && e.lod === 0 && e.inView && e.dist < STUMBLE_RANGE && !e.airborne && e.maim.legs === 2) {
+    if (profile && this.seenStanding(e)) {
       _fall.copy(dir).setY(0);
       if (_fall.lengthSq() < 1e-6) _fall.set(Math.sin(e.yaw), 0, Math.cos(e.yaw));
       if (this.knockDown(e, _fall.normalize(), strength, bone, profile, false, knockAs(null, undefined, false, undefined, lead + STUMBLE_EXTRA))) return;
@@ -1024,8 +1065,10 @@ export class DamageModel {
     // Losing its balance on its muscles, in the stagger it was given this frame. Refused, the caller has the timer.
     if (how?.stumble) {
       _stumble.seconds = how.stumble;
+      _stumble.budget = how.budget;
       o.stumble = _stumble;
     } else o.stumble = undefined;
+    o.cost = undefined;
     const wounds = m.outpost?.wounds ?? null;
     const floored = wounds?.bodyOf(e)?.floored ?? false;
     // Before gore has the body: what it hands back at the end depends on this.
@@ -1061,7 +1104,7 @@ export class DamageModel {
   }
 
   /** It keeps taking hits on the floor, and every one lands on the body as it lies. */
-  private hitWhileDown(e: Enemy, d: DamageInfo, bone: number, force: number): void {
+  private hitWhileDown(e: Enemy, d: DamageInfo, bone: number, force: number, cost: number): void {
     const m = this.m;
     const o = m.knockOptions;
     const i = m.knockImpulses[0]!;
@@ -1073,6 +1116,7 @@ export class DamageModel {
     o.topple = undefined;
     o.knockout = false;
     o.stumble = undefined;
+    o.cost = cost;
     const wound = m.knockWound;
     wound.bone = bone;
     wound.point.copy(d.point);

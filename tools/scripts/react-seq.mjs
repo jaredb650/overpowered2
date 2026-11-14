@@ -4,6 +4,8 @@
 // Sheets land next to --out as react-<case>.png. REACT_DPR=2 is set with --dpr 2 --w 1440 --h 900.
 // REACT_TRACK=1 steps one frame at a time and adds `track` to each case: the most the hips' speed changes in a frame before
 // the body lands (reflex `lying`), and the most the hips rise once the hold under them is below half (euphoria plan stage 6).
+// For a body catching its balance (stage 7) it adds `stand`: frames on its muscles, the catch steps it took, the frame it was
+// handed back standing or what it lost its feet to, and the most the hips moved in one frame.
 const track = !!process.env.REACT_TRACK;
 const only = (process.env.REACT ?? '').split(',').filter(Boolean);
 const TILE_W = 480;
@@ -12,7 +14,16 @@ const COLUMNS = 4;
 
 const CASES = {
   // A hard shot in the chest that does not kill.
-  stagger: { id: 'trooper', steps: [0, 4, 8, 12, 18, 24, 30, 38, 46, 56, 70, 90], act: r => r.hit('chest', 18, 34, r.shock(0.85)) },
+  stagger: { id: 'trooper', steps: [0, 4, 8, 12, 18, 24, 30, 38, 46, 56, 70, 90, 110, 130], act: r => r.sure(() => r.hit('chest', 18, 34, r.shock(0.85))) },
+  // The same on a Brute, which is 2.7 times the mass; then with a second, harder hit 20 frames in, which it does not catch;
+  // then with the SMG held on the Brute, a round every six frames for a second.
+  stagbrute: { id: 'brute', steps: [0, 4, 8, 12, 18, 24, 30, 38, 46, 56, 70, 90], act: r => r.sure(() => r.hit('chest', 18, 34, r.shock(0.9))) },
+  staghard: { id: 'trooper', steps: [0, 4, 8, 12, 18, 24, 30, 38, 46, 56, 70, 90], act: async r => { r.sure(() => r.hit('chest', 18, 34, r.shock(0.85))); await r.advance(20); r.target.health = r.target.maxHealth; r.hit('chest', 10, 110); } },
+  smgbrute: { id: 'brute', steps: [0, 6, 12, 18, 24, 30, 36, 44, 52, 60, 76, 96], act: r => { r.sure(() => r.hit('chest', 18, 34, r.shock(0.9))); r.stream(6, 60); } },
+  // The same on a Trooper walking its patrol.
+  stagwalk: { id: 'trooper', ai: 'patrol', settle: 40, steps: [0, 4, 8, 12, 18, 24, 30, 38, 46, 56, 70, 90, 110, 130], act: r => { r.log.push({ speed: +r.target.velocity.length().toFixed(2) }); r.sure(() => r.hit('chest', 18, 34, r.shock(0.85))); } },
+  // And shot from the front as it comes on, against its run.
+  stagrun: { id: 'trooper', ai: 'patrol', settle: 40, steps: [0, 4, 8, 12, 18, 24, 30, 38, 46, 56, 70, 90, 110, 130], act: r => { const v = r.target.velocity.clone().setY(0); r.log.push({ speed: +v.length().toFixed(2) }); r.dir.copy(v).normalize().negate(); r.sure(() => r.hit('chest', 18, 34, r.shock(0.85))); } },
   // The same, on a shot leg.
   stagleg: { id: 'trooper', steps: [0, 4, 8, 12, 18, 24, 30, 38, 46, 56, 70, 90], act: r => r.hit('legL', 18, 34, r.shock(0.85)) },
   // Shot in the leg at a run.
@@ -66,7 +77,21 @@ function summarise(t) {
   const lostAt = t.findIndex(p => p.lost);
   const lost = lostAt >= 0 ? t[lostAt].lost : null;
   const ys = t.slice(0, landed + 8).map(p => +p.y.toFixed(2)).join(' ');
-  return { landed, loose, lost, lostAt, jump: +jump.toFixed(2), jumpAt, rise: +rise.toFixed(3), riseAt, ys };
+  // Catching its balance: frames gore had it on its feet with a budget, and how that ended.
+  const from = t.findIndex(p => p.stand);
+  let stand = null;
+  if (from >= 0) {
+    let to = from;
+    while (to + 1 < t.length && t[to + 1].stand) to++;
+    // The enemy hears of it a frame after gore lets go.
+    const after = t[to + 2] ?? t[to + 1];
+    let step = 0;
+    for (let i = 1; i < t.length; i++) step = Math.max(step, Math.hypot(t[i].x - t[i - 1].x, t[i].y - t[i - 1].y, t[i].z - t[i - 1].z));
+    stand = { from, frames: to - from + 1, steps: t[to].stand.steps, budget: +t[to].stand.budget.toFixed(2), back: after && !after.down ? to + 1 : -1, lost: after?.lost ?? null, hipStep: +step.toFixed(3), lowest: +Math.min(...t.map(p => p.y)).toFixed(2) };
+  }
+  // The frames around the largest change, as steps of the hips in millimetres, to tell a hitch from a hit.
+  const around = t.slice(Math.max(1, jumpAt - 3), jumpAt + 5).map((p, i, a) => i === 0 ? null : Math.round(Math.hypot(p.x - a[i - 1].x, p.y - a[i - 1].y, p.z - a[i - 1].z) * 1000)).slice(1).join(' ');
+  return { landed, loose, lost, lostAt, jump: +jump.toFixed(2), jumpAt, around, rise: +rise.toFixed(3), riseAt, ys, stand };
 }
 
 export default async function reactSeq(page, h) {
@@ -126,6 +151,12 @@ export default async function reactSeq(page, h) {
         r.target.shock = v;
         r.target.reactAt = 0;
         return v;
+      },
+      /** Runs a hit with the dice loaded against a fall: what can stagger it does, and nothing that might fell it does. */
+      sure(act) {
+        const before = Math.random;
+        Math.random = () => 0.999;
+        try { return act(); } finally { Math.random = before; }
       },
       hit(region, amount, force) {
         const e = r.target;
@@ -208,7 +239,8 @@ export default async function reactSeq(page, h) {
         const m = e.char.bones[0].matrixWorld.elements;
         const muscle = ctx.gore.owned.get(e.char)?.rag?.muscle ?? null;
         const drive = muscle?.collapse ?? null;
-        r.trace.push({ x: m[12], y: m[13], z: m[14], support: drive ? drive.support : e.downed ? 0 : 1, phase: muscle?.reflex?.phase ?? null, lost: muscle?.balance?.lost ?? null });
+        const stand = drive?.stand ? { steps: drive.stand.steps, budget: drive.stand.budget } : null;
+        r.trace.push({ x: m[12], y: m[13], z: m[14], support: drive ? drive.support : e.downed ? 0 : 1, phase: muscle?.reflex?.phase ?? null, lost: muscle?.balance?.lost ?? null, stand, down: e.downed });
       },
       /** Keeps the body in frame, about chest height at rest and lower when it is down. */
       aim() {

@@ -111,7 +111,7 @@ One rule, in `reactions.ts`: `power = (force / body mass + damage / health) x re
 | Level | What happens |
 |---|---|
 | Flinch | The spring flinch, sized by the share of health the hit took (`flinchSize` in `damage.ts`), and a cry. One SMG round tips a Trooper's chest 0.16 rad and it comes back without rocking past (`docs/notes/gore.md`, Taking rounds). A drone's and a skitter's keep the size they had before stage 3 |
-| Stagger | `e.reel` carries the body the way it was hit, the feet step after it, a hand goes to the wound or up to the face. No thinking while `e.stagger` lasts |
+| Stagger | `e.reel` carries the body the way it was hit, the feet step after it, a hand goes to the wound or up to the face. No thinking while `e.stagger` lasts. At strength 0.35 or more (`STAND_FROM`), where the player can see it (full detail, in view, within 20 m, on the ground on two legs), gore takes the body on the same frame and it catches its balance on its muscles or does not (`stumble.budget`, `gore/stand.ts`): `e.downed` for up to 2.5 s, then handed back standing with 0.2 s of stagger, or down as from any knockdown. A further round costs it `amount / maxHealth` of its budget, a head hit `HEAD_COST`. Refused, or with `?stand=0`, the stagger is the animation's |
 | Fall | A stagger, and where the player can see it (full detail, in view, within 20 m) gore takes the body on the same frame and it loses its balance on its muscles (`stumble`, at most 0.16 to 0.42 s plus 0.35); anywhere else, or with gore full or `?stand=0`, 0.16 to 0.42 s later `gore.knockdown`, so it visibly fails to catch itself |
 | Felled | `gore.knockdown` at once, with no steps to catch itself: a head hit it lives through, cooldown or not, or a hard hit on its way up |
 | Thrown | `gore.knockdown` at once, for a blast, and the blast does the throwing |
@@ -148,7 +148,7 @@ Bosses and machines have no profile and stagger by `poise`, the old way. For sca
 | `attacks.ts` `aimAtPlayer`, `SPEED_MISS`, `grazed` | Miss radius and the damage cut at speed |
 | `spawner.ts` | `PATH_MIN`, `PATH_MAX`, `REUSE_SECONDS`, `DROP_HEIGHT` |
 | `contact.ts` | `SOLID_MASS`, `OUT_RATE`, `OUT_MAX`, `CARRY_MAX`, `WEDGE_*`, `SHOVE_SPEED`, `SHOVE_FORCE`, `SHOVE_STAGGER`, `EASE_OUT`, `NUDGE_GAP`. The body check: `CHECK_FROM`, `CHECK_FULL`, `CHECK_SLIDE`, `CHECK_MIN`, `CHECK_CARRY`, `CHECK_TOPPLE_*`, `SLIDE_TOPPLE`, `SLIDE_KICK` |
-| `damage.ts` | `SHOVE_GAIN`, `SHOVE_MAX`: knockback on the living, from a hit's `force` over the body's health. `STAGGER_*`, `FALL_LEAD_*`, `STUMBLE_EXTRA`, `STUMBLE_RANGE`, `REEL_GAIN`, `TOPPLE_*`, `DIES_ON_FEET*`, `COLLAPSE_*`, `KNOCKOUT_LIE` |
+| `damage.ts` | `SHOVE_GAIN`, `SHOVE_MAX`: knockback on the living, from a hit's `force` over the body's health. `STAGGER_*`, `FALL_LEAD_*`, `STUMBLE_EXTRA`, `STUMBLE_RANGE`, `STAND_FROM`, `HEAD_COST`, `REEL_GAIN`, `TOPPLE_*`, `DIES_ON_FEET*`, `COLLAPSE_*`, `KNOCKOUT_LIE` |
 | `reactions.ts` | `ReactionProfile` rows, `BODIES`, `REGION_SHOCK`, `SHOCK_PER_*`, `TRIP_SPEED`, `LEG_FAILS_FROM`, `HEAD_KNOCK`, `HEAD_KNOCK_LIGHT`, `HEAD_KNOCK_FORCE` |
 | `EnemyManager.ts` | `PATH_GAIN`, `STRANDED_*`, `STRAGGLER_PATH`, `RESCUE_*`, `CHAR_SECONDS`, `BUFF_SECONDS`, `HAZARD_TICK` |
 

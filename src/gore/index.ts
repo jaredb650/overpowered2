@@ -9,8 +9,8 @@ import * as THREE from 'three';
 import { ARCHETYPES } from '../characters/archetypes';
 import type { GoreRegion } from '../characters/rig';
 import {
-  DEFAULT_FORCE, type CapsuleHit, type CharacterInstance, type CorpseHit, type Ctx, type DamageInfo, type EmitterHandle,
-  type GoreSystem, type RagdollOptions, type SeveredLimb, type SeverResult,
+  CG, DEFAULT_FORCE, type CapsuleHit, type CharacterInstance, type CorpseHit, type Ctx, type DamageInfo, type EmitterHandle,
+  type GoreSystem, type RagdollOptions, type RayHit, type SeveredLimb, type SeverResult,
 } from '../core/contracts';
 import { DevFlags } from '../core/devflags';
 import { clamp, rand, randomInCone, randomUnit } from '../core/math';
@@ -22,6 +22,7 @@ import { CollapseDrive, impactStrength, MASS_PASS, MuscleTuning, STAND_PASS, WEI
 import { BodyFilter, fillVelocity, LimbFilter, measureAnimVelocity, Rag, SEED_STRIDE } from './rag';
 import { boneRay, boneRayContact, nextCapsuleHit, rayBones, rayNearSphere } from './raycast';
 import { Reflex, ReflexTuning } from './reflex';
+import { Stand, StandTuning } from './stand';
 import { Crawler } from './crawl';
 import { HUMAN_MASS, markSevered, markSubtree, MAX_BONES, rigInfo, type RigInfo } from './rigInfo';
 import { SliceField } from './sliced';
@@ -54,6 +55,11 @@ export const GoreTuning = {
    * that starts up to half a second before its knockdown would have.
    */
   maxStumbles: 4,
+  /**
+   * Living bodies catching their balance on their muscles at once (`KnockdownOptions.stumble.budget`), counted inside
+   * `maxKnockdowns` and apart from `maxStumbles`. Past this one is refused, and the caller's animated stagger stands.
+   */
+  maxStanding: 6,
   /** Seconds on the floor and seconds to rise, for a knockdown that does not say. */
   knockdownLie: 1.2,
   knockdownRise: 2.4,
@@ -187,6 +193,7 @@ class DeadBody {
 /** What a character on the floor is waiting to do. */
 class Knockdown implements DownedBody {
   readonly center = new THREE.Vector3();
+  standing = false;
   constructor(readonly rise: number, readonly hurt: number) {}
 }
 
@@ -274,6 +281,8 @@ const _seeds = new Float32Array(MAX_BONES * SEED_STRIDE);
 const _mask = new Uint8Array(MAX_BONES);
 const _skip = new Uint8Array(MAX_BONES);
 const _up = new THREE.Vector3(0, 1, 0);
+const _down = new THREE.Vector3(0, -1, 0);
+const _ground: RayHit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, surface: 'concrete', collider: null };
 
 /** Corpse hits, like capsule hits, come from a ring so a shot can hold one while testing the next. */
 const corpseRing: CorpseHit[] = Array.from({ length: 16 }, () => ({
@@ -299,6 +308,8 @@ export class Gore implements GoreSystem {
   /** Simulated bodies were over `maxRagdolls` with nothing yet fit to freeze, at the last look. */
   private over = false;
   private ready = false;
+  /** How each character was last given back (`handedBack`). */
+  private readonly back = new WeakMap<CharacterInstance, 'clip' | 'stand' | 'crawl'>();
   private readonly onPreStep = (dt: number): void => this.preStep(dt);
   private readonly onRadial = (center: THREE.Vector3, radius: number, strength: number): void =>
     this.blast(center, radius, strength);
@@ -471,15 +482,20 @@ export class Gore implements GoreSystem {
       return true;
     }
     if (!MuscleTuning.enabled || !char.anim.getUp || this.knockedDown() >= GoreTuning.maxKnockdowns) return false;
+    this.back.delete(char);
     const t = GoreTuning;
     const stumble = options?.stumble;
     // Losing its balance takes two feet to lose it on, and one of the few places for it. Refused, the caller has the old way.
-    if (stumble && (!STAND_PASS || this.stumbling() >= t.maxStumbles || this.feetOf(char) < 2)) return false;
+    // Catching it has places of its own, and takes level ground under both feet.
+    const catching = stumble?.budget !== undefined;
+    if (stumble && (!STAND_PASS || this.feetOf(char, catching) < 2)) return false;
+    if (stumble && (catching ? this.standing() >= t.maxStanding : this.stumbling() >= t.maxStumbles)) return false;
     const hurt = options?.hurt ?? 0.6;
     const ground = char.root.position.y;
     // It reads the pose and the root, so before the ragdoll takes them over. The animator goes on with the stumble it was
     // given, against a root that drifts on at the speed the body had.
     const drive = stumble ? new CollapseDrive(char.anim, char.root, char.bones, clamp(stumble.seconds, 0.2, 3), options.velocity) : null;
+    if (drive && catching) drive.stand = new Stand(stumble!.budget!);
     const body = this.adopt(char);
     body.down = new Knockdown(options?.rise ?? t.knockdownRise, hurt);
     // On its feet nothing throws the limbs: the animation is doing the flailing, and a kick would take its feet off the floor.
@@ -503,19 +519,29 @@ export class Gore implements GoreSystem {
     if (!drive && options?.topple) muscle.tip(options.topple);
     if (reflex.knockout && dir && options?.wound) this.knockOut(rag, options.wound.point, dir);
     body.down.center.copy(rag.center);
+    body.down.standing = drive !== null;
     return true;
   }
 
-  /** How many shins a character has left to stand on. */
-  private feetOf(char: CharacterInstance): number {
+  /** How many shins a character has left to stand on. With `level`, none if the ground under them is not level (stairs, a ledge). */
+  private feetOf(char: CharacterInstance, level = false): number {
     const info = rigInfo(char.rig);
     markSevered(info, char.severed, _skip);
     let n = 0;
     for (let i = 0; i < info.count; i++) {
       const joint = info.rig.bones[i]!.joint;
-      if (joint?.role === 'leg' && joint.kind === 'hinge' && _skip[i] !== 1) n++;
+      if (joint?.role !== 'leg' || joint.kind !== 'hinge' || _skip[i] === 1) continue;
+      n++;
+      if (level && !this.levelUnder(_v.setFromMatrixPosition(char.bones[info.children[i]![0] ?? i]!.matrixWorld), char.root.position.y)) return 0;
     }
     return n;
+  }
+
+  /** True if the ground under `at` is within `StandTuning.uneven` of `y`. */
+  private levelUnder(at: THREE.Vector3, y: number): boolean {
+    const reach = StandTuning.uneven;
+    _v2.set(at.x, y + 0.5, at.z);
+    return this.ctx.physics.raycastInto(_v2, _down, 0.5 + reach, CG.World, _ground) && Math.abs(_ground.point.y - y) <= reach;
   }
 
   /**
@@ -541,7 +567,14 @@ export class Gore implements GoreSystem {
     if (options?.impulses) {
       for (const i of options.impulses) {
         const force = i.impulse.length();
-        if (stumble && force > 0) {
+        if (stumble?.stand && force > 0) {
+          // Catching its balance, all of it lands on the body, with no lift: it is standing. The hold gives way to a hit hard
+          // enough (`Stand.hit`), its feet go after it, and its budget pays for it.
+          const dv = (force * DevFlags.force) / rag.info.mass;
+          this.push(rag, i.bone, i.point, i.impulse, 0);
+          stumble.stand.hit(dv, options.cost ?? 0);
+          stumble.carry(_v.copy(i.impulse).divideScalar(force), dv);
+        } else if (stumble && force > 0) {
           this.push(rag, i.bone, i.point, _v.copy(i.impulse).multiplyScalar(1 - MuscleTuning.carryShare));
           stumble.carry(_v.copy(i.impulse).divideScalar(force), (force * DevFlags.force) / rag.info.mass);
         } else this.push(rag, i.bone, i.point, i.impulse);
@@ -557,6 +590,10 @@ export class Gore implements GoreSystem {
 
   downed(char: CharacterInstance): DownedBody | null {
     return this.owned.get(char)?.down ?? null;
+  }
+
+  handedBack(char: CharacterInstance): 'clip' | 'stand' | 'crawl' | null {
+    return this.back.get(char) ?? null;
   }
 
   private knockedDown(): number {
@@ -612,6 +649,30 @@ export class Gore implements GoreSystem {
     char.bones[0]!.quaternion.copy(_q).premultiply(_q2.setFromAxisAngle(_up, -yaw));
     root.updateMatrixWorld(true);
     char.anim.getUp?.(reflex.kind, b.down!.rise, b.down!.hurt, reflex.startU);
+    this.back.set(char, reflex.kind === 'crawl' ? 'crawl' : 'clip');
+  }
+
+  /**
+   * It caught its balance (`Stand.caught`). The animation has been running under it all along, against the ghost root, so it
+   * takes over mid-stride: the root goes where the ghost is, the bones stay as physics left them, and the animator blends
+   * out of that pose. Nothing gets up, because nothing went down.
+   */
+  private handStanding(b: DeadBody, drive: CollapseDrive): void {
+    const { char } = b;
+    const hips = b.rag!.parts[0]!;
+    _v2.copy(hips.p);
+    _q.copy(hips.q);
+    b.rag!.destroy();
+    this.release(b);
+    const root = char.root;
+    const yaw = 2 * Math.atan2(drive.facing.y, drive.facing.w);
+    root.position.copy(drive.ghost);
+    root.rotation.set(0, yaw, 0);
+    char.bones[0]!.position.copy(_v2).sub(root.position).applyAxisAngle(_up, -yaw);
+    char.bones[0]!.quaternion.copy(_q).premultiply(_q2.setFromAxisAngle(_up, -yaw));
+    root.updateMatrixWorld(true);
+    char.anim.blendFrom?.(StandTuning.standBlend);
+    this.back.set(char, 'stand');
   }
 
   /** Out of this system, with the instance left as it is. */
@@ -631,21 +692,31 @@ export class Gore implements GoreSystem {
     return n;
   }
 
-  /** Living bodies losing their balance, still on their feet. */
+  /** Living bodies losing their balance, still on their feet, that can only fall. */
   private stumbling(): number {
     let n = 0;
-    for (const b of this.bodies) if (b.rag?.muscle?.collapse?.alive) n++;
+    for (const b of this.bodies) {
+      const drive = b.rag?.muscle?.collapse;
+      if (drive?.alive && !drive.stand) n++;
+    }
+    return n;
+  }
+
+  /** Living bodies catching their balance. */
+  private standing(): number {
+    let n = 0;
+    for (const b of this.bodies) if (b.rag?.muscle?.collapse?.stand) n++;
     return n;
   }
 
   /** A hit on a body: some of it at the bone it struck, which is what turns it, and the rest on the whole body. */
-  private push(rag: Rag, bone: number, point: THREE.Vector3, impulse: THREE.Vector3): void {
+  private push(rag: Rag, bone: number, point: THREE.Vector3, impulse: THREE.Vector3, lift = GoreTuning.bodyLift): void {
     const t = GoreTuning;
     const share = t.bodyShare * clamp((impulse.length() - t.bodyShareFrom) / (t.bodyShareFull - t.bodyShareFrom));
     rag.applyImpulse(bone, point, _v5.copy(impulse).multiplyScalar(1 - share));
     if (share <= 0) return;
     _v5.copy(impulse).multiplyScalar(share);
-    _v5.y += _v5.length() * t.bodyLift;
+    _v5.y += _v5.length() * lift;
     rag.shove(_v5);
   }
 
@@ -1528,6 +1599,9 @@ export class Gore implements GoreSystem {
       }
       const rag = b.rag;
       if (!rag?.active) continue;
+      // Catching its balance, the ground has to go on being there, where its animation is walking it.
+      const walked = rag.muscle?.collapse;
+      if (walked?.stand && !this.levelUnder(walked.ghost, rag.muscle!.reflex?.groundY ?? walked.ghost.y)) rag.muscle!.loseFooting('sunk');
       rag.muscle?.sampleCollapse(dt);
       if (b.holding) this.fallen(b, now);
       rag.drive();
@@ -1545,7 +1619,10 @@ export class Gore implements GoreSystem {
       }
       if (b.down) {
         b.down.center.copy(rag.center);
-        if (rag.muscle?.reflex?.ready) this.handBack(b);
+        b.down.standing = rag.muscle?.collapse?.alive === true;
+        const drive = rag.muscle?.collapse;
+        if (drive?.stand?.caught) this.handStanding(b, drive);
+        else if (rag.muscle?.reflex?.ready) this.handBack(b);
         continue;
       }
       if (rag.calm > t.settleTime || rag.age > (b.stakes.length > 0 ? t.maxPinnedSimTime : t.maxSimTime)) this.freezeBody(b);
@@ -1692,7 +1769,7 @@ export class Gore implements GoreSystem {
   }
 
   /** Counts for the debug overlay and budget checks. */
-  stats(): { ragdolls: number; corpses: number; limbs: number; liveLimbs: number; limbSpeed: number; chunkBodies: number; rays: number; halves: number; jointGap: number; collapses: number; knockdowns: number; stumbles: number } {
+  stats(): { ragdolls: number; corpses: number; limbs: number; liveLimbs: number; limbSpeed: number; chunkBodies: number; rays: number; halves: number; jointGap: number; collapses: number; knockdowns: number; stumbles: number; standing: number } {
     let ragdolls = 0;
     let corpses = 0;
     let jointGap = 0;
@@ -1713,7 +1790,7 @@ export class Gore implements GoreSystem {
     }
     return {
       ragdolls, corpses, limbs: this.limbs.length, liveLimbs, limbSpeed, chunkBodies: this.chunks.bodies,
-      rays: this.blood.raysUsed, halves: this.sliced.count, jointGap, collapses: this.collapsing(), knockdowns: this.knockedDown(), stumbles: this.stumbling(),
+      rays: this.blood.raysUsed, halves: this.sliced.count, jointGap, collapses: this.collapsing(), knockdowns: this.knockedDown(), stumbles: this.stumbling(), standing: this.standing(),
     };
   }
 }

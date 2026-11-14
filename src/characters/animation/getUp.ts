@@ -168,6 +168,11 @@ declare module '../../core/contracts' {
      * The root must already be where it will stand. Returns how long it runs, 0 once the body has only to settle.
      */
     getUp?(kind: GetUpKind, seconds: number, hurt: number, startU?: number): number;
+    /**
+     * Takes over from the pose on the bones right now, without a pop, and carries on with whatever it was doing: a body that
+     * caught its balance on its muscles, handed back mid-stride. The pose blends out over `seconds`.
+     */
+    blendFrom?(seconds: number): void;
     /** Writes the first frame of a get-up onto the bones, and where its hips sit relative to the root into `hips`. */
     poseGetUpStart?(kind: GetUpKind, hips: THREE.Vector3): void;
     /**

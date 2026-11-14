@@ -63,6 +63,8 @@ const EVASION_FROM = 3;
 const EVASION_SPAN = 8.5;
 /** Below this a falling wreck has missed the map. */
 const CRASH_FLOOR = -40;
+/** Seconds before a body that caught its balance on its muscles acts again, once gore hands it back standing. */
+const STOOD_STAGGER = 0.2;
 /** A player outrunning the tide strands a lot of it at once. It comes back in a trickle, not all on one frame. */
 const RESCUE_GAP = 0.3;
 
@@ -495,6 +497,12 @@ export class EnemyManager implements EnemySystem {
     e.groundSampleAt.set(root.position.x, root.position.z);
     e.lastProgress.copy(root.position);
     e.thinkAt = 0;
+    // It caught its balance on its feet (`gore/stand.ts`): there is nothing to get up from, and it is itself again at once.
+    if (ctx.gore.handedBack(e.char) === 'stand') {
+      e.rising = 0;
+      e.stagger = STOOD_STAGGER;
+      return;
+    }
     const rise = e.maim.legs === 0 ? 0 : e.riseSeconds;
     e.rising = rise;
     e.stagger = rise + e.dazeSeconds;
