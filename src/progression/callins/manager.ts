@@ -73,6 +73,8 @@ const GUN_BACK_DELAY = 0.16;
 
 export class CallInManager {
   readonly held = new Set<CallInId>();
+  /** A mission has shut the sky: every key is refused, and what is held stays held. */
+  shut = false;
   readonly targeting: Targeting;
   private readonly kit: StrikeKit;
   private readonly cooldowns: Record<CallInId, number> = { airstrike: 0, warthog: 0, doorGunner: 0, attackChopper: 0, orbital: 0, ac130: 0, blackSun: 0, nuke: 0 };
@@ -217,7 +219,7 @@ export class CallInManager {
     for (const id of CALLIN_ORDER) {
       if (!input.pressed(KEYS[id])) continue;
       if (this.targeting.id === id) this.leaveTargeting('callin_cancel');
-      else if (this.held.has(id)) {
+      else if (this.held.has(id) && !this.shut) {
         if (SEATED.has(id)) {
           this.pressing = id;
           this.tapHold.press();
@@ -236,7 +238,7 @@ export class CallInManager {
     const left = this.cooldowns[id];
     const def = CALLINS[id];
     // The first game failed silently here.
-    hud.feed(left > 0 ? `${def.name} COOLDOWN ${Math.ceil(left)}s` : `${def.name} NOT READY`, def.color);
+    hud.feed(this.shut ? `${def.name} HELD: AIRSPACE CLOSED` : left > 0 ? `${def.name} COOLDOWN ${Math.ceil(left)}s` : `${def.name} NOT READY`, def.color);
   }
 
   private enter(id: CallInId): void {
@@ -413,6 +415,7 @@ export class CallInManager {
   }
 
   clear(): void {
+    this.shut = false;
     this.emplacements.clear();
     if (this.targeting.id) this.targeting.exit();
     this.steering = null;

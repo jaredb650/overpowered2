@@ -11,7 +11,7 @@ import type { MapId } from '../world/map/maps';
  * `outpost` is Endless Humans. The id is older than the campaign, and URLs and score tables are keyed on it. `defense` is
  * Outpost Defense, Endless Humans' tower defense (docs/proposals/outpost-defense.md).
  */
-export type ContractId = 'campaign' | 'crucible' | 'outpost' | 'defense';
+export type ContractId = 'campaign' | 'foreclosure' | 'crucible' | 'outpost' | 'defense';
 
 /** Who lives there. Section 15's faction rules hang off this: pain, fear, bleeding, gib thresholds. */
 export type FactionId = 'swarm' | 'humans';
@@ -70,6 +70,8 @@ export interface ContractDef {
   mission?: string;
   /** Shut until the campaign has been beaten once. See unlocks.ts. */
   locked?: boolean;
+  /** Shut in the menu until this mission has been won: the next mission of the campaign. Only the Outpost records a win so far. */
+  opensAfter?: 'outpost';
   /**
    * Credits, a loadout screen, shops and breaks (contracts/defense). Call-ins are bought, not earned by combo, and no weapon
    * cache, kill drop or wave-end ammo floor hands out what the shops sell.
@@ -112,6 +114,35 @@ export const CONTRACTS: readonly ContractDef[] = [
       ],
     },
     scoreKey: 'op2_highscore.campaign',
+  },
+  {
+    id: 'foreclosure',
+    name: 'Foreclosure',
+    // shortcut: the Test Range stands in for Holdfast until its map lands (docs/proposals/mission-2-plan.md, stage 7).
+    map: 'range',
+    faction: 'humans',
+    waves: 'squads',
+    ai: 'outpost',
+    wounds: 'anatomy',
+    rewards: { backShot: 1.5 },
+    mission: 'foreclosure',
+    opensAfter: 'outpost',
+    briefing: {
+      ref: 'Form 7742-F',
+      subject: 'The free port of Holdfast, its residents, and everything they owe',
+      body: [
+        'Holdfast garrisoned The Outpost. Its debts have transferred. Holdfast has filed an objection. Objections are not a recognised form.',
+        'You will land with a squad of the 14th Recoveries, under air cover. They are not to be spoken to.',
+        'A Distraint Frame is available on request. Fees apply.',
+      ],
+      terms: [
+        ['Site', 'Holdfast, a shipyard on the salt flats of Brine'],
+        ['Occupants', 'Dockers, salt-cutters, a harbourmaster'],
+        ['Duration', 'Twenty to thirty minutes, billed'],
+        ['Appeals', 'Not a recognised form'],
+      ],
+    },
+    scoreKey: 'op2_highscore.foreclosure',
   },
   {
     id: 'crucible',

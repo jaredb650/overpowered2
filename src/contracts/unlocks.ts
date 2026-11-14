@@ -36,3 +36,6 @@ export function recordCampaignBeaten(): boolean {
 }
 
 export const isLocked = (contract: ContractDef): boolean => contract.locked === true && !campaignBeaten();
+
+/** What the menu shuts: a locked row, or the next mission while the one before it is unwon. Only the Outpost's win is recorded so far. */
+export const isShut = (contract: ContractDef): boolean => isLocked(contract) || (contract.opensAfter !== undefined && !campaignBeaten());

@@ -16,7 +16,7 @@ function eachTrigger(trigger: Trigger, fn: (t: Trigger) => void): void {
 }
 
 /** A beat that leaves for itself or somewhere earlier before anything can stop it would spin the runner for ever. */
-const HOLDS: ReadonlySet<Step['do']> = new Set<Step['do']>(['wait', 'until', 'cutscene', 'ride']);
+const HOLDS: ReadonlySet<Step['do']> = new Set<Step['do']>(['wait', 'until', 'cutscene', 'ride', 'sortie', 'frame']);
 
 export function validateMission(m: Mission): string[] {
   const problems: string[] = [];
@@ -24,6 +24,7 @@ export function validateMission(m: Mission): string[] {
   const beatIds = m.beats.map(b => b.id);
   /** Tag to the beats that spawn it. */
   const spawned = new Map<string, number[]>();
+  const battles = new Set<string>();
 
   if (lineIds.size !== m.lines.length) problems.push('two lines share an id');
   if (new Set(beatIds).size !== beatIds.length) problems.push('two beats share an id');
@@ -45,8 +46,16 @@ export function validateMission(m: Mission): string[] {
       case 'rack':
       case 'drop':
       case 'place':
+      case 'frame':
         need(m.marks[step.at], `mark ${step.at}`);
         break;
+      case 'roster': if (step.at) need(m.marks[step.at], `mark ${step.at}`); break;
+      case 'sortie': need(m.marks[step.over], `mark ${step.over}`); break;
+      case 'battle':
+        need(m.marks[step.at], `mark ${step.at}`);
+        need(m.marks[step.from], `mark ${step.from}`);
+        break;
+      case 'stop': need(battles.has(step.battle), `battle ${step.battle}`); break;
       case 'vehicle':
         need(m.marks[step.at], `mark ${step.at}`);
         if (step.route) need(m.routes[step.route], `route ${step.route}`);
@@ -58,6 +67,7 @@ export function validateMission(m: Mission): string[] {
       default: break;
     }
     if (step.do === 'squad' && step.men.length > MAX_HOSTILE) problems.push(`${where}: squad ${step.tag} is over the cap on its own`);
+    if (step.do === 'battle' && step.militia.length > MAX_HOSTILE) problems.push(`${where}: battle ${step.id} is over the cap on its own`);
   };
 
   const checkTrigger = (where: string, trigger: Trigger): void => {
@@ -73,6 +83,10 @@ export function validateMission(m: Mission): string[] {
       else spawned.set(tag, [index]);
     };
     if (step.do === 'squad' || step.do === 'boss') note(step.tag);
+    if (step.do === 'battle') {
+      note(step.id);
+      battles.add(step.id);
+    }
     if (step.do === 'vehicle') {
       note(step.tag);
       if (step.crew?.length) note(step.crewTag ?? step.tag);
@@ -109,6 +123,8 @@ export function validateMission(m: Mission): string[] {
     if ('at' in step && step.at) named.marks.add(step.at);
     if (step.do === 'door') named.doors.add(step.door);
     if (step.do === 'call' && step.arg) named.marks.add(step.arg);
+    if (step.do === 'sortie') named.marks.add(step.over);
+    if (step.do === 'battle') named.marks.add(step.from);
     if (step.do === 'vehicle' && step.holds) {
       named.marks.add(step.holds);
       if (!m.marks[step.holds]) problems.push(`vehicle ${step.tag}: no mark ${step.holds}`);

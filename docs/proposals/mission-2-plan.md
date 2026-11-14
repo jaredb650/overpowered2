@@ -435,7 +435,7 @@ The Sump plan's section 3 holds, with these changes.
 | 3 | **The Frame on the range** | Walk, look, jets, stomp, charge, backhand, three guns, the cockpit and HUD, on a stand-in body of boxes | L | none | Opus, xhigh | 1.2 to 1.8M |
 | 4 | The Frame's body | The baked walker, its animator, kneel and stand, boarding, the collapse, the eject | L | 3's interface; can start beside it | Opus, high | 0.8 to 1.2M |
 | 5 | What it breaks, what breaks it | `crush`, stalls, thrown wrecks, crushed men, parts and weak points, the top-attack lock and smoke, dread, sappers | M to L | 3 | Opus, high | 0.6 to 1.0M |
-| 6 | The mission's plumbing | Sixteen empty beats that run, the contract row (locked), the dev panel's Mission section, steps for the Frame, the roster and holding call-ins | M | none | Opus, high | 0.4 to 0.6M |
+| 6 | The mission's plumbing (**built**, `docs/campaign/FORECLOSURE.md`) | Sixteen empty beats that run, the contract row (locked), the dev panel's Mission section, steps for the Frame, the roster and holding call-ins | M | none | Opus, high | 0.4 to 0.6M |
 | 7 | Holdfast | The map, its parkour lessons measured as `parkour.ts` does, mech widths proved | L | none | Opus, high | 1.0 to 1.5M |
 | 8 | Old Mother | The boss, all three phases, on the range then the pans | L | 3, 5, 7 | Opus, xhigh | 1.0 to 1.5M |
 | 9 | Beats 1 to 6 | Briefing to courier, with enemy gunners on the wall guns | M to L | 1, 6, 7 | Opus, high | 0.6 to 1.0M |
@@ -475,6 +475,9 @@ size of the Outpost.
   crushes a technical, a lock is broken by smoke 10 of 10, the Frame dies to 15 front rockets and 6 rear.
 - **6. Plumbing.** `campaign/missions/foreclosure.ts`, `.lines.ts`, `.test.ts`, `types.ts` steps (`frame`, `roster`, `callins`), the lab
   panel's Mission section. Targets: no dangling names, startable from any beat, finishable after a death in each.
+  **Built 2026-11-14.** Sixteen beats on the Test Range with stand-ins, steps `sortie`, `frame`, `roster`, `callins`, `battle`, `stop`,
+  the contract row (shut until the Outpost is won, by `opensAfter`, since `locked` would change `contracts.test.ts`), the panel's beat
+  buttons. What is real and what stands in: `docs/campaign/FORECLOSURE.md`.
 - **7. Holdfast.** `src/world/map/holdfast/`, as the Outpost's. Targets: the Sump's map targets scaled to the site; the stacks' parkour
   route crossed by bots and not crossable by walking; every Frame route clear at 3.6 m wide by a swept box.
 - **8. Old Mother.** `src/enemies/vehicles/crawler.ts` and its rows. Targets: a bot in the Frame with the pod wins phases 1 and 2 in

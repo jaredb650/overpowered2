@@ -4,6 +4,7 @@
  *
  * Coordinates are the map's: x east, y up, z south. A yaw of 0 looks north, along -z, as `player.teleport` takes it.
  */
+import type { AllyType } from '../allies/data';
 import type { GameEvents, MusicState, WorldMaterialName } from '../core/contracts';
 import type { CallInId, EnemyId, PickupKind, WeaponId } from '../core/gameplay';
 import type { AdaptationId } from '../enemies/commander/adaptations';
@@ -58,6 +59,8 @@ export type SquadOrders =
   | 'ambush';
 
 export type VehicleKind = 'humvee' | 'truck' | 'tank' | 'chopper';
+
+export type FrameAct = 'kneel' | 'board' | 'eject';
 
 /** Everything a mission must have on the player at a checkpoint, however they got there, so a restart can never strand them without the gun the next fight needs. */
 export interface Loadout {
@@ -181,6 +184,31 @@ export type Step =
   | { do: 'cutscene'; id: string }
   /** Into a gunner's seat, holding the script until the player is back in their body. `route` is a flight path, and a ride raises `ride:<mark>` as it reaches each one. */
   | { do: 'ride'; seat: CallInId; route?: string }
+  /**
+   * The AC-130 circling the mark, flown by the player from the first second: no crew on the guns, nothing earned, its usual lease.
+   * Holds the script until the lease runs out and the player is back in their body.
+   */
+  | { do: 'sortie'; over: string }
+  /**
+   * The Distraint Frame (docs/proposals/mission-2-plan.md, section 3). Holds the script until it is done. `kneel` stands one on the mark
+   * with its hatch open, done once the player has climbed in. `board` puts the player straight into one on the mark, done at once: how
+   * a beat in the Frame starts, so a restart gets a fresh one. `eject` throws the player out of it, done when they land on the mark.
+   */
+  | { do: 'frame'; act: FrameAct; at: string }
+  /**
+   * The player's own squad of Bailiffs, the ones E orders. The men still standing stay where they are, up to this many; anyone missing
+   * joins at the mark, and anyone over is taken off unseen. A run rebuilt for a restart has nobody, so every checkpoint's beat says it.
+   */
+  | { do: 'roster'; men: readonly AllyType[]; at?: string }
+  /** `held`: the sky is shut. A call-in key is refused, and what was earned is kept for when it opens. A restart opens it, so every checkpoint's beat says it. */
+  | { do: 'callins'; held: boolean }
+  /**
+   * Another squad's fight, beside the player's: `bailiffs` posted at `at` facing `from`, and `militia` holding at `from` until the first
+   * shot. The militia are booked under `id`, so `cleared` waits on the Bureau winning it. `ensure` as on `squad`.
+   */
+  | { do: 'battle'; id: string; bailiffs: readonly AllyType[]; at: string; militia: readonly EnemyId[]; from: string; ensure?: boolean }
+  /** Ends a battle the fight has moved on from: both sides taken off unseen and unscored. */
+  | { do: 'stop'; battle: string }
   /** The Commander answers the way the player has been fighting: the box between rounds, with the next answer fielded. */
   | { do: 'adapt' }
   /** One particular answer, for a fight built round it. */
@@ -248,6 +276,7 @@ export interface ObjectiveState {
 
 export type SquadOrder = Extract<Step, { do: 'squad' }>;
 export type VehicleOrder = Extract<Step, { do: 'vehicle' }>;
+export type BattleOrder = Extract<Step, { do: 'battle' }>;
 
 /** Every body that counts under a tag has to end with one `unitGone`, or `cleared` waits for ever. */
 export interface MissionHost {
@@ -289,6 +318,15 @@ export interface MissionHost {
   /** `skipped` says the player pressed through it. */
   cutscene(id: string, scene: Cutscene, done: (skipped: boolean) => void): void;
   ride(seat: CallInId, route: readonly Mark[], done: () => void): void;
+  sortie(over: Mark, done: () => void): void;
+  frame(act: FrameAct, at: Mark, done: () => void): void;
+  /** `at` null: anyone missing joins where the player stands. */
+  roster(men: readonly AllyType[], at: Mark | null): void;
+  callins(held: boolean): void;
+  /** The militia are already counted under the battle's id, as a squad's men are. */
+  battle(order: BattleOrder, at: Mark, from: Mark): void;
+  /** Each militiaman taken off still ends in `unitGone`. */
+  stop(battle: string): void;
   adapt(): void;
   field(answer: AdaptationId): void;
   threat(level: number, grade?: Rank): void;

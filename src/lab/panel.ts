@@ -1,5 +1,7 @@
 /** The dev panel: plain DOM on top of the game, in the HUD's colours. It holds no state of its own. */
+import { MISSIONS } from '../campaign/missions';
 import type { VehicleKind } from '../campaign/types';
+import { CONTRACTS, type ContractId } from '../contracts/data';
 import { ON_RANGE } from '../core/devflags';
 import type { CallInId, EnemyId, PerkId, PowerupId, WeaponId } from '../core/gameplay';
 import { ENEMIES } from '../enemies/data';
@@ -90,6 +92,8 @@ export interface PanelActions {
   parkour(): void;
   /** Reads and writes one of the movement switches, which live with the player and not in the lab's settings. */
   move(key: MoveSwitch, on?: boolean): boolean;
+  /** Loads the page again on this contract's mission, from this beat. */
+  jump(contract: ContractId, beat: string): void;
 }
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, className = '', text = ''): HTMLElementTagNameMap[K] {
@@ -122,6 +126,7 @@ export class LabPanel {
     this.grantSection();
     this.timeSection();
     this.bodySection();
+    this.missionSection();
     this.el.append(el('div', 'lab-keys', 'F1 or ` panel   P pause   . step\n[ ] slower, faster   O spawn\nK kill all   L clear bodies'));
     // The game listens on window. What happens on the panel stays on the panel, or a click would also fire the gun.
     for (const type of ['mousedown', 'wheel', 'keydown'] as const) this.el.addEventListener(type, e => e.stopPropagation());
@@ -322,6 +327,18 @@ export class LabPanel {
       this.on.changed();
     });
     this.el.append(box, reset);
+  }
+
+  /** Every beat of every mission a contract plays, as `?beat=` would start it. */
+  private missionSection(): void {
+    for (const c of CONTRACTS) {
+      const mission = c.mission ? MISSIONS[c.mission] : undefined;
+      if (!mission) continue;
+      this.el.append(el('h2', '', `MISSION: ${mission.title.toUpperCase()}, FROM A BEAT`));
+      const beats = el('div', 'lab-grid wide');
+      mission.beats.forEach((b, i) => this.button(beats, `${i + 1} ${b.title}`, () => this.on.jump(c.id, b.id)));
+      this.el.append(beats);
+    }
   }
 
   private syncSpawn(): void {

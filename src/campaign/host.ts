@@ -3,6 +3,7 @@
  * them can be replaced with `campaign.provide`, as `vehicle` is by the system that has the vehicles.
  */
 import * as THREE from 'three';
+import type { Ally, AllyType } from '../allies';
 import type { Ctx, GameEvents, MusicState } from '../core/contracts';
 import type { CallInId, EnemyId, EnemyInstance, PickupKind, WeaponId } from '../core/gameplay';
 import type { AdaptationId } from '../enemies/commander/adaptations';
@@ -18,7 +19,7 @@ import { Doors } from './doors';
 import type { CampaignHud } from './hud';
 import { Racks } from './racks';
 import type { MissionRunner } from './runner';
-import type { Cutscene, DoorDef, Loadout, Mark, MissionHost, ObjectiveState, SquadOrder, SquadOrders } from './types';
+import type { BattleOrder, Cutscene, DoorDef, FrameAct, Loadout, Mark, MissionHost, ObjectiveState, SquadOrder, SquadOrders } from './types';
 
 /** Seconds between men coming on, the same walk-in the waves use. */
 const MAN_GAP = 0.55;
@@ -69,6 +70,9 @@ export class GameHost implements MissionHost {
   private bossTag: string | null = null;
   private rideDone: (() => void) | null = null;
   private level = 1;
+  /** The player's Bailiffs, and each battle's. A man leaves these lists as he dies, before the pool can hand him out again. */
+  private readonly squadMen: Ally[] = [];
+  private readonly battles = new Map<string, Ally[]>();
 
   constructor(private readonly ctx: Ctx, private readonly ui: CampaignHud) {
     this.doors = new Doors(ctx);
@@ -84,6 +88,12 @@ export class GameHost implements MissionHost {
     events.on('enemy:hit', e => {
       const tag = this.tagOf.get(e.enemy.uid);
       if (tag) this.release(tag);
+    });
+    events.on('ally:dead', e => {
+      for (const list of [this.squadMen, ...this.battles.values()]) {
+        const i = list.indexOf(e.ally);
+        if (i >= 0) list.splice(i, 1);
+      }
     });
     events.on('commander:person', e => {
       const body = this.manager.outpost?.commander.person.body;
@@ -298,6 +308,55 @@ export class GameHost implements MissionHost {
     });
   }
 
+  /** shortcut: the gunship circles where the crosshair falls from the mark, not the mark itself; give `boardCallIn` a point when a beat needs it exact. */
+  sortie(over: Mark, done: () => void): void {
+    this.place(over);
+    this.ride('ac130', [], done);
+  }
+
+  /** The Frame is stage 3's (src/frame), which provides this. Until it lands, a banner says what would happen and the beat goes on. */
+  frame(act: FrameAct, at: Mark, done: () => void): void {
+    if (act === 'eject') this.place(at);
+    this.ctx.hud.banner('DISTRAINT FRAME', `Stand-in: ${act}`);
+    done();
+  }
+
+  roster(men: readonly AllyType[], at: Mark | null): void {
+    const allies = this.ctx.allies;
+    if (!allies) return;
+    while (this.squadMen.length > men.length) this.dismiss(this.squadMen.pop()!);
+    const missing = men.slice(this.squadMen.length);
+    if (missing.length === 0) return;
+    const { player } = this.ctx;
+    const center = at ? new THREE.Vector3(...at.at) : player.position.clone();
+    for (const a of allies.spawnSquad(missing.length, center, (at?.yaw ?? player.yaw) + Math.PI, 3, missing)) {
+      allies.setOrder(a, 'follow');
+      this.squadMen.push(a);
+    }
+  }
+
+  callins(held: boolean): void {
+    (this.ctx.progression as unknown as { holdCallIns(held: boolean): void }).holdCallIns(held);
+  }
+
+  battle(order: BattleOrder, at: Mark, from: Mark): void {
+    const facing = Math.atan2(from.at[0] - at.at[0], from.at[2] - at.at[2]);
+    const men = this.ctx.allies?.spawnSquad(order.bailiffs.length, new THREE.Vector3(...at.at), facing, 4, order.bailiffs) ?? [];
+    this.battles.set(order.id, men);
+    this.squad({ do: 'squad', tag: order.id, men: order.militia, at: order.from, orders: 'hold' }, from);
+  }
+
+  stop(battle: string): void {
+    for (const a of this.battles.get(battle) ?? []) this.dismiss(a);
+    this.battles.delete(battle);
+    this.sweep(battle);
+  }
+
+  /** shortcut: reaches AllySystem's private `release`, the one way a man leaves unseen; ask src/allies for a public one when it is free. */
+  private dismiss(a: Ally): void {
+    (this.ctx.allies as unknown as { release(a: Ally, withBody: boolean): void }).release(a, true);
+  }
+
   adapt(): void {
     this.manager.outpost?.commander.intermission(this.level, INTERMISSION, true);
   }
@@ -399,6 +458,8 @@ export class GameHost implements MissionHost {
     this.tagging = null;
     this.bossTag = null;
     this.rideDone = null;
+    this.squadMen.length = 0;
+    this.battles.clear();
     this.arrivalClock = 0;
     this.level = 1;
     for (const marker of this.markers.values()) marker.off();

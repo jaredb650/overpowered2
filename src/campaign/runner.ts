@@ -501,6 +501,34 @@ export class MissionRunner implements WatchFacts {
         });
         return;
       }
+      case 'sortie': {
+        const latch = this.hold(run);
+        host.sortie(this.mark(step.over), () => {
+          latch.open = true;
+        });
+        return;
+      }
+      case 'frame': {
+        const latch = this.hold(run);
+        host.frame(step.act, this.mark(step.at), () => {
+          latch.open = true;
+        });
+        return;
+      }
+      case 'roster':
+        host.roster(step.men, step.at === undefined ? null : this.mark(step.at));
+        return;
+      case 'callins':
+        host.callins(step.held);
+        return;
+      case 'battle':
+        if (step.ensure && this.spawned(step.id) > 0) return;
+        this.book(step.id, step.militia.length);
+        host.battle(step, this.mark(step.at), this.mark(step.from));
+        return;
+      case 'stop':
+        host.stop(step.battle);
+        return;
       case 'adapt':
         host.adapt();
         return;

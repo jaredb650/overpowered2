@@ -11,6 +11,7 @@
  */
 import * as THREE from 'three';
 import type { Ctx } from '../core/contracts';
+import { contractSearch } from '../contracts/select';
 import { DEV_ASKED, DevFlags, ON_RANGE } from '../core/devflags';
 import type { Game } from '../core/Game';
 import type { WeaponId } from '../core/gameplay';
@@ -87,6 +88,12 @@ export class Lab {
       lance: n => this.lance(n),
       parkour: () => this.parkour(),
       move: (key, on) => this.moveSwitch(key, on),
+      jump: (contract, beat) => {
+        const next = new URLSearchParams(contractSearch(contract, location.search));
+        next.delete('mission');
+        next.set('beat', beat);
+        location.search = next.toString();
+      },
     }, (ctx.enemies as unknown as { vehicles?: unknown }).vehicles != null);
     this.hint.className = 'lab-hint';
     this.hint.textContent = 'Click for the mouse. F1 or ` opens the panel.';

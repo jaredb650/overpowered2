@@ -9,7 +9,7 @@ import { storedRulesCustom } from '../../contracts/crucible';
 import { CONTRACTS, COUNCIL_OFFICE, NOTICE_FOOTER, NOTICE_TITLE, type ContractDef } from '../../contracts/data';
 import { readHighScore } from '../../contracts/scores';
 import { ACTIVE, NAMED, contractSearch } from '../../contracts/select';
-import { campaignBeaten, isLocked } from '../../contracts/unlocks';
+import { campaignBeaten, isShut } from '../../contracts/unlocks';
 import type { Ctx } from '../../core/contracts';
 import { div, h, span } from '../dom';
 import type { Hud } from '../Hud';
@@ -43,7 +43,7 @@ export class MainMenu implements Screen {
     this.rules.el.classList.add('mi-small');
     this.tabs = CONTRACTS.map((contract, i) => {
       const el = h('button', 'mm-tab', contract.name);
-      el.classList.toggle('lock', isLocked(contract));
+      el.classList.toggle('lock', isShut(contract));
       el.type = 'button';
       el.tabIndex = -1;
       return { el, focused: () => this.select(i), activate: () => this.select(i) };
@@ -76,9 +76,9 @@ export class MainMenu implements Screen {
     );
     if (high > 0) this.notice.append(div('nt-high', span('nt-high-k', 'High score'), span('nt-high-v', high.toLocaleString('en-US'))));
     if (isCrucible(contract) && storedRulesCustom()) this.notice.append(div('nt-rules', 'Custom rules are on. Runs on them are unranked and set no record.'));
-    if (isLocked(contract)) this.notice.append(div('nt-lock', 'Locked. Finish the Campaign to open this account.'));
+    if (isShut(contract)) this.notice.append(div('nt-lock', 'Locked. Finish the Campaign to open this account.'));
     else if (contract !== ACTIVE.def) this.notice.append(div('nt-move', 'Play reloads the page to reach this site.'));
-    this.items[0]!.el.classList.toggle('off', isLocked(contract));
+    this.items[0]!.el.classList.toggle('off', isShut(contract));
   }
 
   private select(i: number): void {
@@ -119,13 +119,13 @@ export class MainMenu implements Screen {
   /** A contract's map cannot be built under a running world, so another contract means another page load. */
   private play(): void {
     const contract = CONTRACTS[this.selected]!;
-    if (isLocked(contract)) this.ctx.audio.play?.('ui_error');
+    if (isShut(contract)) this.ctx.audio.play?.('ui_error');
     else if (contract === ACTIVE.def) this.hud.startRun();
     else location.search = contractSearch(contract.id, location.search);
   }
 
   open(nav: Nav): void {
-    for (let i = 0; i < CONTRACTS.length; i++) this.tabs[i]!.el.classList.toggle('lock', isLocked(CONTRACTS[i]!));
+    for (let i = 0; i < CONTRACTS.length; i++) this.tabs[i]!.el.classList.toggle('lock', isShut(CONTRACTS[i]!));
     this.nav = nav;
     const list = this.navItems();
     nav.set(list, this.fromRules ? Math.max(0, list.indexOf(this.rules)) : 0);

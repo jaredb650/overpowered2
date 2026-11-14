@@ -170,6 +170,11 @@ class Progression implements ProgressionSystem {
     this.callInsManager.boardFlight(flight);
   }
 
+  /** A mission's flak shuts the sky (campaign `callins` step). Not on ProgressionSystem: only the campaign host asks. */
+  holdCallIns(held: boolean): void {
+    this.callInsManager.shut = held;
+  }
+
   award(points: number, reason: string, position?: THREE.Vector3): void {
     if (DevFlags.progression) this.scoreKeeper.add(points, reason, position);
   }

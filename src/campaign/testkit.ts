@@ -17,6 +17,11 @@ export class FakeHost implements MissionHost {
   finishedCount = 0;
   cutsceneDone: ((skipped: boolean) => void) | null = null;
   rideDone: (() => void) | null = null;
+  sortieDone: (() => void) | null = null;
+  frameDone: (() => void) | null = null;
+  /** The player's squad, by type, and whether the sky is shut. */
+  rosterMen: string[] = [];
+  skyHeld = false;
   racks: (() => void)[] = [];
   autoSpeak = true;
   drills = true;
@@ -95,6 +100,25 @@ export class FakeHost implements MissionHost {
   }
   ride(_seat: string, _route: unknown, done: () => void): void {
     this.rideDone = done;
+  }
+  sortie(_over: unknown, done: () => void): void {
+    this.sortieDone = done;
+  }
+  frame(act: string, _at: unknown, done: () => void): void {
+    this.log.push(`frame ${act}`);
+    this.frameDone = done;
+  }
+  roster(men: readonly string[]): void {
+    this.rosterMen = [...men];
+  }
+  callins(held: boolean): void {
+    this.skyHeld = held;
+  }
+  battle(order: { id: string; bailiffs: readonly unknown[]; militia: readonly unknown[] }): void {
+    this.log.push(`battle ${order.id} ${order.bailiffs.length}v${order.militia.length}`);
+  }
+  stop(battle: string): void {
+    this.log.push(`stop ${battle}`);
   }
   adapt(): void {
     this.log.push('adapt');
