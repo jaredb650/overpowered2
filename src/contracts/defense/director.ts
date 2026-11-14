@@ -104,6 +104,11 @@ export class DefenseDirector implements DefenseWaves {
     this.phase = 'intermission';
   }
 
+  /** The sides of the fort this wave comes from (0 north, 1 east, 2 south, 3 west), or none in a break. Allies read it to man that side. */
+  get fronts(): readonly number[] {
+    return this.phase === 'intermission' ? [] : this.sides;
+  }
+
   preview(wave: number): string {
     return previewLine(this.planFor(wave));
   }

@@ -9,14 +9,15 @@
  * is the wave director (director.ts); on the Test Range stand-in, Endless Humans' own waves (enemies/index.ts).
  */
 import * as THREE from 'three';
+import type { Ally } from '../../allies/ally';
 import type { AllyType } from '../../allies/data';
 import type { Ctx, Structure } from '../../core/contracts';
 import { DEV_TOOLS } from '../../core/devflags';
-import type { WaveSystem, WeaponId } from '../../core/gameplay';
+import type { EnemyInstance, WaveSystem, WeaponId } from '../../core/gameplay';
 import type { Emplacement } from '../../vehicles/emplacement';
 import { MOUNT_LEVELS } from '../../vehicles/emplacement';
 import { TUNING } from '../../weapons/data';
-import { FORT_BREACH_POINTS, FORT_POSTS, FORT_RALLY, FORT_SHOPS, type Vec } from '../../world/map/fort/plan';
+import { FORT_BREACH_POINTS, FORT_POSTS, FORT_RALLY, FORT_SHOPS, type FortPost, type Vec } from '../../world/map/fort/plan';
 import type { StructureSpec } from '../../world/structures';
 import { ACTIVE } from '../select';
 import {
@@ -24,6 +25,10 @@ import {
 } from './data';
 import { ShopState, checkLoadout, offers, sameAct, startPosts, type Act, type Offer, type ShopView } from './economy';
 import { outward } from './field';
+import { Garrison } from './garrison';
+import { Keepers, type KeeperPoint } from './keepers';
+import { HandRepair, REPAIR_COLOR } from './repair';
+import type { Siege } from './siege';
 import { MortarTeams } from './teams';
 
 /**
@@ -37,6 +42,10 @@ export interface DefenseWaves extends WaveSystem {
   preview?(wave: number): string;
   /** Seconds of the break before `wave`. */
   breakSeconds?(wave: number): number;
+  /** The sides of the fort the wave on now comes from (0 north, clockwise), none in a break. The allies man them. */
+  readonly fronts?: readonly number[];
+  /** The attackers' orders, for the men running charges (the director's). */
+  readonly siege?: Siege;
 }
 
 /** Where a shop stands. The fort map exports these; until it does, the Test Range's stand in. */
@@ -79,6 +88,28 @@ export const FORT_ANCHORS: ShopAnchors = {
 
 const ON_FORT = ACTIVE.map === 'fort';
 
+/**
+ * Where each shopkeeper stands: the fort's `keeper` point once the map exports one, else behind the counter (on the fort 2 m past the
+ * buyer's spot, the counter between; on the Test Range just behind the box), facing the buyer.
+ */
+function keeperAt(id: ShopId, at: ShopAnchor): KeeperPoint {
+  const shop = ON_FORT ? (FORT_SHOPS.find(x => x.id === id) as { keeper?: Vec | { pos: Vec } } | undefined) : undefined;
+  if (shop?.keeper) {
+    const [x, y, z] = 'pos' in shop.keeper ? shop.keeper.pos : shop.keeper;
+    return { pos: new THREE.Vector3(x, y, z), yaw: Math.atan2(at.position.x - x, at.position.z - z) };
+  }
+  // The counter faces the buyer along `at.yaw` (a camera's: -sin, -cos); the keeper is behind it, facing that way.
+  const fx = -Math.sin(at.yaw), fz = -Math.cos(at.yaw);
+  const back = ON_FORT ? 2.05 : 0.9;
+  return { pos: new THREE.Vector3(at.position.x - fx * back, at.position.y, at.position.z - fz * back), yaw: Math.atan2(fx, fz) };
+}
+
+/** A machine gunner's posts: the mounted guns first, the nearest the barracks first, then the rest in the map's order. */
+const gunFirst = (p: FortPost): number => (p.gun === undefined ? 1000 : Math.hypot(p.pos[0] - FORT_RALLY[0], p.pos[2] - FORT_RALLY[2]));
+
+/** Satchel carriers and bombers: a pulsing red outline and a blinking light over the head, and red on the minimap. */
+const CARRIER_RED = 0xff2a12;
+
 declare module '../../core/contracts' {
   interface GameEvents {
     /** The HUD puts up the loadout or a shop's menu, and pauses the run under it. */
@@ -107,6 +138,8 @@ interface Kiosk {
 
 const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
+const BEACON_SHAPE = new THREE.OctahedronGeometry(0.13, 0);
+const BEACON_GLOW = new THREE.MeshBasicMaterial({ color: new THREE.Color(CARRIER_RED).multiplyScalar(6), toneMapped: false, fog: false });
 
 export class Defense {
   credits = 0;
@@ -118,6 +151,12 @@ export class Defense {
   anchors: ShopAnchors = ON_FORT ? FORT_ANCHORS : RANGE_ANCHORS;
   /** The player's mortar teams (piece 8). Only the fort has posts for them. */
   readonly mortars: MortarTeams;
+  /** Boarding up walls by hand (repair.ts). */
+  readonly repair: HandRepair;
+  /** Who defends what (garrison.ts). Only the fort has posts to move. */
+  readonly garrison: Garrison;
+  /** The uids of every enemy carrying a charge now: sappers on their way to a wall and bombers. The minimap marks them. */
+  readonly carriers = new Set<number>();
 
   private kiosks: Kiosk[] = [];
   private prompted: Kiosk | null = null;
@@ -128,9 +167,17 @@ export class Defense {
 
   /** The breach the riot police are holding, if any. */
   private breach: Structure | null = null;
+  private keepers: Keepers | null = null;
+  /** The first worn wall of a run says how to board it up. */
+  private hinted = false;
+  private readonly carrierList: EnemyInstance[] = [];
+  private readonly carrierMeshes: THREE.Object3D[] = [];
+  private readonly beacons: THREE.Mesh[] = [];
 
   constructor(private readonly ctx: Ctx) {
     this.mortars = new MortarTeams(ctx, ON_FORT);
+    this.repair = new HandRepair(ctx, n => this.earn(n));
+    this.garrison = new Garrison((p, r, out) => ctx.world.nav.nearest(p, r, out));
   }
 
   init(): void {
@@ -142,7 +189,14 @@ export class Defense {
       const pay = wavePay(e.wave);
       this.earn(pay);
       this.ctx.hud.feed(`+${pay} CREDITS: WAVE ${e.wave} HELD`, '#ffc14a');
+      this.garrison.stand(this.ctx.allies?.allies ?? []);
     });
+    events.on('wave:start', () => {
+      this.garrison.fronts = [...(this.waves.fronts ?? [])];
+      this.garrison.plan(this.ctx.allies?.allies ?? []);
+    });
+    this.repair.init();
+    if (this.ctx.allies) this.ctx.allies.keyTaken = () => this.repair.piece !== null;
     this.build();
     if (DEV_TOOLS) this.debug();
   }
@@ -154,7 +208,8 @@ export class Defense {
     this.watching = true;
     for (const piece of pieces) {
       if (piece.kind === 'shack') continue;
-      piece.onStageChange(stage => {
+      piece.onStageChange((stage, from) => {
+        if (stage !== 'intact' && from === 'intact') this.hint();
         if (stage === 'breached') this.markBreach(piece);
         else if (this.breach === piece) this.markBreach(pieces.find(p => p.kind !== 'shack' && p.stage === 'breached') ?? null);
       });
@@ -163,12 +218,21 @@ export class Defense {
 
   private watching = false;
 
+  /** Once a run, as the first wall or gate wears: how to board it up. */
+  private hint(): void {
+    if (this.hinted) return;
+    this.hinted = true;
+    const key = this.ctx.input.labelFor?.('interact') ?? 'E';
+    this.ctx.hud.feed(`WALL HIT: HOLD ${key} AT IT TO BOARD UP, +${ECONOMY.handPay}`, REPAIR_COLOR);
+  }
+
   private markBreach(piece: Structure | null): void {
     const allies = this.ctx.allies;
     this.breach = piece;
     if (!allies) return;
     if (!piece) {
       allies.clearBreach();
+      this.garrison.breach = null;
       return;
     }
     const spec = (piece as Structure & { spec: StructureSpec }).spec;
@@ -176,6 +240,7 @@ export class Defense {
     // The line forms in the yard behind the gap, facing out through it.
     _b.set(spec.x, 0, spec.z).addScaledVector(out, -(piece.kind === 'gate' ? 4 : 5.5));
     allies.markBreach(_b, Math.atan2(-out.x, -out.z));
+    this.garrison.breach = _b.clone();
   }
 
   reset(): void {
@@ -188,6 +253,10 @@ export class Defense {
     this.prompt(null);
     this.mortars.reset();
     this.breach = null;
+    this.hinted = false;
+    this.repair.reset();
+    this.garrison.reset();
+    this.carriers.clear();
     this.watchBreaches();
     // Each gun starts the run as a heavy machine gun (proposal: Mounted guns).
     for (const gun of this.mounts()) gun.upgrade(1);
@@ -201,10 +270,66 @@ export class Defense {
       }
       return;
     }
+    const { ctx } = this;
+    const dt = ctx.time.dt;
     this.hookBreak();
     this.readCounter();
-    if (this.inBreak && this.ctx.input.pressed('nextWave')) this.startNow();
+    // E goes to a counter, a man in front of the player or a mounted gun before a wall.
+    this.repair.update(dt, this.prompted !== null || Number.isFinite(ctx.allies?.focusDistance ?? Infinity) || this.gunNear());
+    if (this.inBreak && ctx.input.pressed('nextWave')) this.startNow();
     this.mortars.update(!this.inBreak);
+    if (ON_FORT && ctx.allies) {
+      if (!this.inBreak) this.garrison.watch(ctx.enemies.alive);
+      this.garrison.update(ctx.time.elapsed, ctx.allies.allies);
+    }
+    this.markCarriers();
+    this.keepers?.update(dt);
+  }
+
+  /** A mounted gun within a step: E is the gun's. */
+  private gunNear(): boolean {
+    const p = this.ctx.player.position;
+    return this.mounts().some(g => Math.min(Math.hypot(p.x - g.standAt.x, p.z - g.standAt.z), Math.hypot(p.x - g.pivot.x, p.z - g.pivot.z)) < 2.2 &&
+      Math.abs(p.y - g.standAt.y) < 1.5);
+  }
+
+  /** Everyone carrying a charge: outlined red, pulsing, through walls; a blinking red light over each; red on the minimap. */
+  private markCarriers(): void {
+    const { ctx } = this;
+    const list = this.carrierList;
+    list.length = 0;
+    this.waves.siege?.sappers(list);
+    for (const e of ctx.enemies.alive) if (e.id === 'bomber' && e.alive) list.push(e);
+    this.carriers.clear();
+    const meshes = this.carrierMeshes;
+    meshes.length = 0;
+    for (const e of list) {
+      this.carriers.add(e.uid);
+      meshes.push(e.char.mesh);
+    }
+    const t = ctx.time.elapsed;
+    if (meshes.length > 0) ctx.render.highlight?.(meshes, CARRIER_RED, 0.55 + 0.45 * Math.abs(Math.sin(t * 5)));
+    const on = t % 0.5 < 0.25;
+    const eye = ctx.player.position;
+    for (let i = 0; i < Math.max(list.length, this.beacons.length); i++) {
+      const e = list[i];
+      if (!e) {
+        this.beacons[i]!.visible = false;
+        continue;
+      }
+      const b = this.beacons[i] ?? this.beacon();
+      b.visible = on;
+      b.position.set(e.position.x, e.position.y + 2.15, e.position.z);
+      // Grows with distance, so it still reads as a light at the fence.
+      b.scale.setScalar(Math.max(1, b.position.distanceTo(eye) / 22));
+    }
+  }
+
+  private beacon(): THREE.Mesh {
+    const b = new THREE.Mesh(BEACON_SHAPE, BEACON_GLOW);
+    this.ctx.render.scene.add(b);
+    this.beacons.push(b);
+    return b;
   }
 
   // --- Waves -----------------------------------------------------------------------------------
@@ -259,7 +384,7 @@ export class Defense {
     this.ctx.weapons.setLoadout([primary!, secondary!, LOADOUT_MELEE], 0);
     this.credits = check.left;
     this.needLoadout = false;
-    this.garrison();
+    this.postGarrison();
     return null;
   }
 
@@ -267,7 +392,7 @@ export class Defense {
    * The free riflemen the run starts with (`ECONOMY.startRiflemen`), already on their posts: on the fort spread round the outer
    * ring (`startPosts`), on the Test Range in a ring round the rally point, facing out. Ordinary allies from then on.
    */
-  private garrison(): void {
+  private postGarrison(): void {
     const allies = this.ctx.allies;
     if (!allies) return;
     const { nav } = this.ctx.world;
@@ -280,7 +405,9 @@ export class Defense {
     });
     for (const p of posts) {
       _a.set(p.pos[0], p.pos[1] + 1, p.pos[2]);
-      if (nav.nearest(_a, ON_FORT ? 3 : 8, _a)) allies.spawn('rifleman', _a.clone(), _a.clone(), 5, p.yaw);
+      if (!nav.nearest(_a, ON_FORT ? 3 : 8, _a)) continue;
+      const a = allies.spawn('rifleman', _a.clone(), _a.clone(), 5, p.yaw);
+      if (a && ON_FORT) this.garrison.enlist(a);
     }
   }
 
@@ -322,6 +449,7 @@ export class Defense {
     const failed = this.carryOut(act);
     if (failed) return failed;
     this.credits -= offer.price;
+    this.keepers?.nod(shop);
     return null;
   }
 
@@ -392,7 +520,10 @@ export class Defense {
         if (!nav.nearest(_b, 3, _b)) _b.copy(_a);
       } else _b.copy(_a);
       const radius = type === 'riot' || type === 'gunner' || type === 'sniper' ? 2 : type === 'shotgunner' ? 4 : 5;
-      return allies.spawn(type, _a.clone(), _b.clone(), radius, post?.yaw ?? Number.NaN) ? null : 'No room for him';
+      const a = allies.spawn(type, _a.clone(), _b.clone(), radius, post?.yaw ?? Number.NaN);
+      if (!a) return 'No room for him';
+      this.enlist(a, post);
+      return null;
     }
     const from = this.anchors.barracks.position;
     _a.set(from.x, from.y + 1, from.z - 2);
@@ -403,11 +534,16 @@ export class Defense {
     return allies.spawn(type, _a.clone(), _b.clone()) ? null : 'No room for him';
   }
 
-  /** The first post of his type nobody alive holds, outer ring first. Medics share theirs. */
-  private postFor(type: AllyType): { pos: Vec; yaw: number } | null {
-    const list: { pos: Vec; yaw: number }[] = type === 'riot'
+  /** On the garrison's roll, and on the gun at his post if it has one. */
+  private enlist(a: Ally, post: { gun?: number } | null): void {
+    this.garrison.enlist(a, post?.gun === undefined ? null : this.mounts()[post.gun] ?? null);
+  }
+
+  /** The first post of his type nobody alive holds, outer ring first; for a machine gunner the mounted guns first. Medics share theirs. */
+  private postFor(type: AllyType): { pos: Vec; yaw: number; gun?: number } | null {
+    const list: { pos: Vec; yaw: number; gun?: number }[] = type === 'riot'
       ? FORT_BREACH_POINTS.map(b => ({ pos: b.pos, yaw: Math.atan2(-b.pos[0], -b.pos[2]) }))
-      : FORT_POSTS.filter(p => p.type === type);
+      : FORT_POSTS.filter(p => p.type === type).sort((a: FortPost, b: FortPost) => gunFirst(a) - gunFirst(b));
     const held = this.ctx.allies?.allies ?? [];
     return list.find(p => !held.some(a => Math.hypot(a.post.x - p.pos[0], a.post.z - p.pos[2]) < 1.5)) ?? list[0] ?? null;
   }
@@ -461,6 +597,7 @@ export class Defense {
       render.scene.add(root);
       this.kiosks.push({ id, root, sign, label: at.position.clone().setY(at.position.y + SIGN_HEIGHT + 0.5) });
     }
+    this.keepers = new Keepers(this.ctx, SHOP_ORDER.map(id => ({ id, at: keeperAt(id, this.anchors[id]) })));
   }
 
   /** Signs go red while their shop is lost. */

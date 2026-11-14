@@ -15,7 +15,7 @@
  * them through `Soldier.foe` (src/enemies/outpost/weapons.ts).
  */
 import * as THREE from 'three';
-import { CG, type Ctx, type DamageInfo, type DamageType, type GameSystem } from '../core/contracts';
+import { CG, type Ctx, type DamageInfo, type DamageType, type GameSystem, type Structure } from '../core/contracts';
 import type { EnemyInstance } from '../core/gameplay';
 import type { GoreRegion } from '../characters/rig';
 import { clamp, damp, dampAngle, rand, randInt, TAU } from '../core/math';
@@ -28,13 +28,13 @@ import type { Enemy } from '../enemies/Enemy';
 import type { EnemyManager } from '../enemies/EnemyManager';
 import { updateMovement } from '../enemies/movement';
 import { CoverMap, type CoverSpot, type SpotQuery, type SpotReading } from '../enemies/outpost/cover';
-import { RouteFinder, type NavGrid } from '../enemies/outpost/routes';
+import { RouteFinder, type NavGrid, type Route } from '../enemies/outpost/routes';
 import { soldierOf } from '../enemies/outpost/soldier';
 import type { Telegraphs } from '../enemies/telegraph';
 import { WoundTuning, ZONES } from '../enemies/wounds/rules';
 import { resolveZone, type ZoneHit } from '../enemies/wounds/zones';
 import type { PostureName } from '../characters/animation/postures';
-import { Ally, type Order } from './ally';
+import { Ally, type AllyMount, type Order } from './ally';
 import { ALLY, ALLY_DOWN_COLOR, ALLY_ORDER, ALLY_TEXT, ALLY_TYPES, CHECK_FIRE_TEXT, type AllyType } from './data';
 import './events';
 import { AllyGuns } from './fire';
@@ -44,7 +44,7 @@ import { AllyProps } from './props';
 import { followSlot, prefersAlly, revive, takeHit } from './rules';
 
 export { ALLY_SOURCE, ALLY_TYPES, type AllyType } from './data';
-export type { Ally } from './ally';
+export type { Ally, AllyMount } from './ally';
 
 declare module '../core/contracts' {
   interface Ctx {
@@ -66,6 +66,18 @@ const BLAST_REACH = 0.9;
 const MAX_CANDIDATES = 6;
 /** A down tag shows within this, so a fight's worth of them do not cover the screen. */
 const TAG_RANGE = 70;
+/** A man on a mounted gun steps off it while the player stands this close to its seat, so the player can take it. */
+const GUN_YIELD = 2.2;
+/** Metres a man on a mounted gun engages to, and the seconds of each burst and of the pause after it (the gun has heat). */
+const GUN_RANGE = 85;
+const GUN_BURST = 1.4;
+const GUN_PAUSE = 0.8;
+/** Metres to a destination past which a route is searched with `LONG_ROUTE` nodes, and seconds such a route is kept through stalls. */
+const LONG_FROM = 35;
+const LONG_ROUTE = 120_000;
+const LONG_KEEP = 6;
+/** Metres in front of a lift gate a man waits for it to rise: inside its reach (`GATE_OPEN`, 4.5). */
+const GATE_FRONT = 2.5;
 
 const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
@@ -92,6 +104,11 @@ export class AllySystem implements GameSystem {
   breach: { point: THREE.Vector3; yaw: number } | null = null;
   /** Milliseconds this system took last frame, for the bench. */
   cpuMs = 0;
+  /**
+   * Something else wants a held E now (a wall to board up): the squad's hold gesture stands down unless the player is looking at a
+   * man in reach. Set by whoever owns that use of the key.
+   */
+  keyTaken: (() => boolean) | null = null;
 
   /** Cleared when handed out, not when given back: whoever still holds a dead man reads him as dead. */
   private readonly pool = new Pool<Ally>(() => new Ally());
@@ -107,6 +124,8 @@ export class AllySystem implements GameSystem {
   private foeCursor = 0;
   private foesSet = false;
   private checkFireAt = -99;
+  /** The frame of the last long route search. */
+  private longAt = -1;
   private readonly candidates: EnemyInstance[] = [];
   private readonly ranked: EnemyInstance[] = [];
   private readonly rankScore: number[] = [];
@@ -125,6 +144,11 @@ export class AllySystem implements GameSystem {
     this.w = { ctx, director, telegraphs: null as unknown as Telegraphs, get enemies() { return ctx.enemies as unknown as EnemyManager; }, player: this.sense, now: 0 };
     this.guns = new AllyGuns(ctx, (point, radius, damage, source) => this.hostileBlast(point, radius, damage, source));
     this.orders = new Orders(ctx, this);
+  }
+
+  /** The world's walls and gates, for whether a lift gate is up. */
+  private get walls(): { isOpen(p: Structure): boolean } | null {
+    return (this.ctx.world.objects as unknown as { walls?: { isOpen(p: Structure): boolean } } | undefined)?.walls ?? null;
   }
 
   private get enemies(): EnemyManager {
@@ -326,6 +350,7 @@ export class AllySystem implements GameSystem {
       const a = this.allies[i]!;
       if (a.state === 'down') this.updateDown(a, now);
       else this.updateUp(a, dt, now);
+      if (a.state !== 'up' && a.manning) this.dismount(a);
       if (a.state === 'dead') continue;
       this.place(a);
       this.animate(a, dt);
@@ -365,7 +390,7 @@ export class AllySystem implements GameSystem {
       this.reroute(a);
     }
     this.face(a, dt);
-    this.shoot(a, now);
+    if (!this.manGun(a, now)) this.shoot(a, now);
     this.posture(a, now);
   }
 
@@ -405,7 +430,9 @@ export class AllySystem implements GameSystem {
   /** Scores the enemy he would rather shoot. Higher is better; -Infinity for never. */
   private rate(a: Ally, e: EnemyInstance, dist: number): number {
     const def = a.def;
-    if (dist > def.gun.range) return -Infinity;
+    if (dist > this.range(a)) return -Infinity;
+    // On a mounted gun he takes what the gun can swing to.
+    if (a.manning && a.mount && !inArc(a.mount, e.center)) return -Infinity;
     let score = -dist;
     if (def.gun.closeBad > 0 && dist < def.gun.closeBad) score -= 30;
     if (def.stance === 'high') score += (e.id === 'sniper' || e.id === 'rocketeer' ? 25 : 0) + dist * 1.5;
@@ -427,7 +454,7 @@ export class AllySystem implements GameSystem {
       a.seenAt = now;
       return;
     }
-    const n = enemies.query(a.body.position, def.gun.range, this.candidates);
+    const n = enemies.query(a.body.position, this.range(a), this.candidates);
     const ranked = this.ranked;
     const score = this.rankScore;
     ranked.length = score.length = 0;
@@ -458,6 +485,11 @@ export class AllySystem implements GameSystem {
       return;
     }
     if (a.target && (!this.shootable(a.target) || now - a.seenAt > ALLY.memory)) a.target = null;
+  }
+
+  /** Metres he engages to: his gun's, or the mounted gun's while he is on one. */
+  private range(a: Ally): number {
+    return a.manning ? GUN_RANGE : a.def.gun.range;
   }
 
   /** A rocketeer's first look is for a vehicle in range and in sight. */
@@ -509,6 +541,12 @@ export class AllySystem implements GameSystem {
     const e = a.body;
     if (a.patient) {
       this.setDest(a, a.patient.body.position);
+      return;
+    }
+    if (a.mount && a.order === 'post') {
+      this.claim(a, null);
+      e.pace = 1;
+      this.setDest(a, this.gunSpot(a, a.mount, _a));
       return;
     }
     // The anchor: a slot behind the player, a place in the riot line, or the post.
@@ -574,6 +612,56 @@ export class AllySystem implements GameSystem {
     this.setDest(a, anchor);
   }
 
+  /** The gun's seat, or a step beside it along the wall while the player is at it or anyone else is on it. */
+  private gunSpot(a: Ally, g: AllyMount, out: THREE.Vector3): THREE.Vector3 {
+    out.copy(g.standAt);
+    const p = this.ctx.player.position;
+    const taken = (g.occupant !== null && g.occupant !== a) || Math.hypot(p.x - g.standAt.x, p.z - g.standAt.z) < GUN_YIELD;
+    if (!taken) return out;
+    // Along the wall: square to the way the gun faces.
+    out.x += Math.cos(g.spec.yaw) * 1.4;
+    out.z -= Math.sin(g.spec.yaw) * 1.4;
+    return out;
+  }
+
+  /**
+   * A man posted on a mounted gun works it while he stands at its seat and holds his post: on, aimed at his target inside its arc, the
+   * trigger in bursts. He steps off for the player, when he leaves the seat, or goes down. True while he is on it: his own gun is quiet.
+   * Public for the tests.
+   */
+  manGun(a: Ally, now: number): boolean {
+    const g = a.mount;
+    if (!g || a.order !== 'post' || a.patient || a.state !== 'up') {
+      if (a.manning) this.dismount(a);
+      return false;
+    }
+    const e = a.body;
+    const p = this.ctx.player.position;
+    const seated = Math.hypot(e.position.x - g.standAt.x, e.position.z - g.standAt.z) < 0.75;
+    const player = Math.hypot(p.x - g.standAt.x, p.z - g.standAt.z) < GUN_YIELD;
+    if (!a.manning) {
+      if (!seated || player || !g.occupy(a)) return false;
+      a.manning = true;
+      a.target = null;
+    } else if (!seated || player || g.occupant !== a) {
+      this.dismount(a);
+      return false;
+    }
+    const at = this.aimPoint(a);
+    if (at && now - a.seenAt < ALLY.think * 2.5 && inArc(g, at)) {
+      g.aimAt(at);
+      g.trigger(now % (GUN_BURST + GUN_PAUSE) < GUN_BURST);
+    } else g.trigger(false);
+    return true;
+  }
+
+  private dismount(a: Ally): void {
+    a.manning = false;
+    if (!a.mount || a.mount.occupant !== a) return;
+    a.mount.trigger(false);
+    a.mount.vacate(a);
+  }
+
   /** The spot he has, while it still gives him a shot at the threat from inside his ground. */
   private keepSpot(a: Ally, threat: THREE.Vector3): CoverSpot | null {
     const s = a.spot;
@@ -610,13 +698,59 @@ export class AllySystem implements GameSystem {
 
   private reroute(a: Ally): void {
     const e = a.body;
-    if (!this.routes?.find(e.position, a.dest, a.route) || a.route.count === 0) {
-      a.route.clear();
-      a.route.push(a.dest.x, a.dest.y, a.dest.z);
+    const now = this.w.now;
+    // A post across the fort (a hire walking from the barracks to a gun, a man sent to the far side) is past the default search.
+    // The long search is a few milliseconds, so one a frame, and a man keeps a long route he has rather than search it again.
+    const far = Math.hypot(a.dest.x - e.position.x, a.dest.z - e.position.z) > LONG_FROM;
+    if (far && (now === this.longAt || (a.longTo.distanceTo(a.dest) < 1.2 && a.route.count > 1 && now < a.longUntil))) {
+      a.progressAt = now + (now === this.longAt ? 0.1 : STALL_SECONDS);
+      a.progressFrom.copy(e.position);
+      return;
+    }
+    if (far) {
+      this.longAt = now;
+      a.longTo.copy(a.dest);
+      a.longUntil = now + LONG_KEEP;
+    }
+    a.via = null;
+    const budget = far ? LONG_ROUTE : undefined;
+    if (!this.routes?.find(e.position, a.dest, a.route, null, budget) || a.route.count === 0) {
+      a.via = this.gateway(e.position, a.dest, budget, a.route);
+      if (!a.via) {
+        a.route.clear();
+        a.route.push(a.dest.x, a.dest.y, a.dest.z);
+      }
     }
     a.route.next = 0;
     a.progressAt = this.w.now + STALL_SECONDS;
     a.progressFrom.copy(e.position);
+  }
+
+  /**
+   * No way there on the floor graph: a shut lift gate is in the way (it rises only for someone standing at it). Routes him to the
+   * near side of the lift gate that best lies between, and returns it; he waits there for it to rise, then goes on (`steer`).
+   */
+  private gateway(from: THREE.Vector3, to: THREE.Vector3, budget: number | undefined, out: Route): Structure | null {
+    const pieces = this.ctx.world.objects?.structures;
+    if (!pieces || !this.routes) return null;
+    const gates: { piece: Structure; score: number; x: number; z: number }[] = [];
+    for (const p of pieces) {
+      const spec = (p as Structure & { spec?: { x: number; z: number; yaw: number; opens?: boolean } }).spec;
+      if (p.kind !== 'gate' || p.stage !== 'intact' || !spec?.opens) continue;
+      // Square to the gate, on his side of it.
+      const nx = Math.sin(spec.yaw), nz = Math.cos(spec.yaw);
+      const side = Math.sign((from.x - spec.x) * nx + (from.z - spec.z) * nz) || 1;
+      const x = spec.x + nx * side * GATE_FRONT, z = spec.z + nz * side * GATE_FRONT;
+      gates.push({ piece: p, score: Math.hypot(x - from.x, z - from.z) + Math.hypot(to.x - spec.x, to.z - spec.z), x, z });
+    }
+    gates.sort((a, b) => a.score - b.score);
+    for (let i = 0; i < Math.min(2, gates.length); i++) {
+      const g = gates[i]!;
+      _b.set(g.x, from.y + 1, g.z);
+      if (!this.ctx.world.nav.nearest(_b, 3, _b)) continue;
+      if (this.routes.find(from, _b, out, null, budget) && out.count > 0) return g.piece;
+    }
+    return null;
   }
 
   // -------------------------------------------------------------------------------------------
@@ -633,6 +767,11 @@ export class AllySystem implements GameSystem {
     }
     if (r.done) {
       e.mode = 'hold';
+      // At a lift gate on the way: on as soon as it is up (or blown).
+      if (a.via && (a.via.stage !== 'intact' || this.walls?.isOpen(a.via))) {
+        a.longUntil = 0;
+        this.reroute(a);
+      }
       return;
     }
     const last = r.next === r.count - 1;
@@ -729,6 +868,7 @@ export class AllySystem implements GameSystem {
     const moving = Math.hypot(e.velocity.x, e.velocity.z) > 0.6;
     const engaged = this.aimPoint(a) !== null && now - a.seenAt < ALLY.memory;
     if (a.treatUntil > 0) want = 'revive';
+    else if (a.manning) want = 'stand';
     else if (engaged && !moving) {
       const firing = a.burstLeft > 0 || now >= a.nextShotAt - 0.15;
       if (a.spot && e.position.distanceTo(a.dest) < 0.8) {
@@ -948,6 +1088,7 @@ export class AllySystem implements GameSystem {
 
   /** Off the roster. `keepBody` false: gore owns the body now. */
   private release(a: Ally, withBody: boolean): void {
+    if (a.manning) this.dismount(a);
     this.untag(a);
     this.claim(a, null);
     if (a.patient) this.dropPatient(a);
@@ -1089,3 +1230,10 @@ export function createAllies(ctx: Ctx): AllySystem {
 
 /** Types in the order the lab shows them. */
 export { ALLY_ORDER };
+
+/** True when `at` is inside the arc the gun swings through. */
+function inArc(g: AllyMount, at: THREE.Vector3): boolean {
+  const want = Math.atan2(-(at.x - g.pivot.x), -(at.z - g.pivot.z));
+  const off = Math.atan2(Math.sin(want - g.spec.yaw), Math.cos(want - g.spec.yaw));
+  return Math.abs(off) <= g.spec.arc + 0.05;
+}

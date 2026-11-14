@@ -297,6 +297,16 @@ describe('orders and revive', () => {
     expect(h.squads).toBe(1);
   });
 
+  it('with a wall to board up in reach, a hold with nobody in front is the wall\'s, not the squad\'s', () => {
+    const { ctx, a } = addressed();
+    a.body.position.set(10, 0, 10);
+    a.body.center.set(10, 1.4, 10);
+    const h = { ...host(a, null), keyTaken: () => true };
+    const orders = new Orders(ctx as unknown as Ctx, h);
+    press(ctx, orders, 0.8);
+    expect(h.squads).toBe(0);
+  });
+
   it('a hold on a downed man is a revive, and nothing while the player sits in a seat', () => {
     const { ctx, a } = addressed();
     a.state = 'down';
@@ -339,5 +349,65 @@ describe('orders and revive', () => {
     expect(ctx.gore.ragdoll).toHaveBeenCalled();
     expect(sys.allies).not.toContain(a);
     expect(sys.playerRevive(a)).toBe(false);
+  });
+});
+
+describe('mounted guns', () => {
+  /** A gun at (10, 0, 10) facing north (-Z), that records what the man on it asks. */
+  function fakeGun() {
+    const gun = {
+      standAt: v(10, 0, 10), pivot: v(10, 1, 9), spec: { yaw: 0, arc: 1.15 }, occupant: null as object | null,
+      occupy: vi.fn((who: object) => (gun.occupant ? false : ((gun.occupant = who), true))),
+      vacate: vi.fn((who: object) => { if (gun.occupant === who) gun.occupant = null; }),
+      aimAt: vi.fn(), trigger: vi.fn(),
+    };
+    return gun;
+  }
+
+  it('a man posted on a gun mans it, fires at what is in its arc, and steps off for the player and when he goes down', () => {
+    const ctx = fakeCtx();
+    const sys = new AllySystem(ctx as unknown as Ctx);
+    const gun = fakeGun();
+    const a = stand(sys, gun.standAt.clone(), ctx);
+    a.def = ALLY_TYPES.gunner;
+    a.mount = gun;
+    const ahead = { center: v(10, 1, -20), alive: true };
+    a.target = ahead as never;
+    a.seenAt = 0.1;
+    expect(sys.manGun(a, 0.1)).toBe(true);
+    expect(gun.occupant).toBe(a);
+    expect(a.manning).toBe(true);
+    // Taking the gun clears his target so the next look honours the arc; he sees the man again.
+    a.target = ahead as never;
+    sys.manGun(a, 0.2);
+    expect(gun.aimAt).toHaveBeenLastCalledWith(ahead.center);
+    expect(gun.trigger).toHaveBeenLastCalledWith(true);
+    // Behind the gun: out of its arc, the trigger comes off.
+    a.target = { center: v(10, 1, 40), alive: true } as never;
+    sys.manGun(a, 0.3);
+    expect(gun.trigger).toHaveBeenLastCalledWith(false);
+    // The player walks up to the gun: he steps off so the player can take it.
+    ctx.player.position.copy(gun.standAt);
+    expect(sys.manGun(a, 0.4)).toBe(false);
+    expect(gun.occupant).toBeNull();
+    expect(a.manning).toBe(false);
+    // The player leaves; he gets back on. Then down: off again.
+    ctx.player.position.set(0, 0, 0);
+    expect(sys.manGun(a, 0.5)).toBe(true);
+    a.state = 'down';
+    expect(sys.manGun(a, 0.6)).toBe(false);
+    expect(gun.occupant).toBeNull();
+  });
+
+  it('a man following the player, or with no gun at his post, never takes one', () => {
+    const ctx = fakeCtx();
+    const sys = new AllySystem(ctx as unknown as Ctx);
+    const gun = fakeGun();
+    const a = stand(sys, gun.standAt.clone(), ctx);
+    expect(sys.manGun(a, 0)).toBe(false);
+    a.mount = gun;
+    a.order = 'follow';
+    expect(sys.manGun(a, 0)).toBe(false);
+    expect(gun.occupy).not.toHaveBeenCalled();
   });
 });

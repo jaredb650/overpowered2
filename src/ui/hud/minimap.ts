@@ -28,6 +28,9 @@ const PING_PERIOD = 1.1;
 
 const ENEMY = '#ff3b3b';
 const ELITE = '#ff9a2e';
+/** A man carrying a charge (Outpost Defense): a round bomb with a lit fuse, held on the rim when off the map. */
+const CARRIER = '#ff1e10';
+const FUSE = '#ffd54a';
 const NORTH = '#eef4f7';
 /** Friendlies: the cyan of their helmet band, amber while down like their beacon. Never enemy red, never husk green. */
 const ALLY = ALLY_TEXT;
@@ -199,10 +202,15 @@ export class Minimap {
       g.globalAlpha = 1;
     }
 
+    const carriers = defense?.carriers;
     for (let i = 0; i < s.enemies.length; i++) {
       const e = s.enemies[i]!;
       const x = sx(e.position.x, e.position.z);
       const y = sy(e.position.x, e.position.z);
+      if (carriers?.has(e.uid)) {
+        this.bomb(clamp(x, 7 * u, size - 7 * u), clamp(y, 7 * u, size - 7 * u), u);
+        continue;
+      }
       const inside = x >= 0 && y >= 0 && x <= size && y <= size;
       const cx = inside ? x : clamp(x, 3 * u, size - 3 * u);
       const cy = inside ? y : clamp(y, 3 * u, size - 3 * u);
@@ -275,6 +283,33 @@ export class Minimap {
     g.closePath();
     g.stroke();
     g.fill();
+  }
+
+  private bomb(x: number, y: number, u: number): void {
+    const { g } = this;
+    g.strokeStyle = CARRIER;
+    g.globalAlpha = 1 - this.ping;
+    g.lineWidth = 2 * u;
+    g.beginPath();
+    g.arc(x, y, (6 + this.ping * 10) * u, 0, Math.PI * 2);
+    g.stroke();
+    g.globalAlpha = 1;
+    g.fillStyle = CARRIER;
+    g.strokeStyle = '#000000';
+    g.lineWidth = 1.5 * u;
+    g.beginPath();
+    g.arc(x, y, 5.5 * u, 0, Math.PI * 2);
+    g.fill();
+    g.stroke();
+    g.strokeStyle = FUSE;
+    g.beginPath();
+    g.moveTo(x + 3.5 * u, y - 3.5 * u);
+    g.lineTo(x + 6.5 * u, y - 6.5 * u);
+    g.stroke();
+    if (this.ping < 0.5) {
+      g.fillStyle = FUSE;
+      g.fillRect(x + 5.5 * u, y - 8.5 * u, 3 * u, 3 * u);
+    }
   }
 
   reset(): void {

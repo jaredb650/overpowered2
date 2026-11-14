@@ -61,7 +61,10 @@ breaks and the player's mortar teams. Locked with Endless Humans until the campa
 | `defense/field.ts` | The rules as arithmetic: rings and depth, `SATCHEL` and `satchelBlast`, `MortarCrew`, `pickMortarTarget` |
 | `defense/shells.ts` | Mortar rounds in the air for both sides: thump, arc with a smoke trail, whistle, floor ring, landing |
 | `defense/teams.ts` | The player's mortar teams (piece 8) |
-| `ui/hud/defense.ts` | Credits, the next wave's line in a break with `L: START NOW`, the three shops (red while lost), under the wave plate |
+| `defense/repair.ts` | `HandRepair`: boarding up walls and gates by hand, hold E, paid per stage |
+| `defense/garrison.ts` | `Garrison`: who defends what. Moves allies' posts to the wave's fronts, the breach and the next ring in; puts gunners on their guns |
+| `defense/keepers.ts` | `Keepers`: a shopkeeper behind each counter |
+| `ui/hud/defense.ts` | Credits, the next wave's line in a break with `L: START NOW`, the three shops (red while lost), under the wave plate; the progress ring under the crosshair while boarding up |
 
 **Start it.** `/?contract=defense` (or `/?map=fort`), or Outpost Defense on the menu: the fort. `?contract=defense&map=range` is the old
 Test Range stand-in (counters behind the spawn, Endless Humans' squads as waves, no mortar posts); a bare `?map=range` stays the lab's.
@@ -87,7 +90,7 @@ a wave clears. Budget 1,600: the Harrow and the Rivet leave 300. Killing everyth
 
 | Shop | Sells | Lost means |
 |---|---|---|
-| Barracks | Rifleman 250, machine gunner 500, shotgunner 500, riot 750, medic 750, sniper 1,100, rocketeer 1,200; mortar team 1,200, one a mortar post (4 on the fort, outside the squad cap). Squad cap 20 with the free six, so 14 more can be hired, up or down, so a dead man frees his place. Repairs: wall 250 and gate 350 a stage, half for a chip, 4 s of work through `Structure.repair` | No troops, no repairs |
+| Barracks | Rifleman 250, machine gunner 500, shotgunner 500, riot 750, medic 750, sniper 1,100, rocketeer 1,200; mortar team 1,200, one a mortar post (4 on the fort, outside the squad cap). Squad cap 20 with the free six, so 14 more can be hired, up or down, so a dead man frees his place. Repairs: wall 250 and gate 350 a stage, half for a chip, 4 s of work through `Structure.repair`: the work crew, for a wall the player cannot get to | No troops, no crews |
 | Armoury | Weapons only in a break (a base brings its family member and is priced for both). Ammunition by gun: a box is half the most reserve, 50 to 90 for basic, 200 to 300 specialty, 260 to 450 explosive (the Quiver cheapest). Grenades 150. Mounted gun to level 2 for 700, 3 for 1,600. Call-ins 600 (airstrike) to 8,000 (nuke), any time, not while one is held or rearming | No weapons, special ammo, upgrades or call-ins |
 | Infirmary | Stim 150 up to 5. Basic ammo 100: half a reserve for every basic gun | No stims, no resupply |
 
@@ -150,6 +153,40 @@ the wave cleared, ten seconds to the next. One speaker at a time; her warnings a
 comms feed in green: `Breach! Outer wall, north side!`, contact by side, man down, reloading, a shop under attack. Text only: no line has
 a recording.
 
+**Boarding up by hand** (`repair.ts`, the owner's playtest: a hole should not be the end). Stand within `ECONOMY.handReach` (2.4 m) of a
+damaged or breached wall or gate, from the catwalk or the yard or outside, and **hold E**: `HOLD E BOARD UP WALL +20` hangs over the stretch
+nearest you, a ring fills under the crosshair, and each stage takes `handSeconds` (3 s) to the hammering (`stake_hit_wall` over
+`impact_concrete`, or `impact_metal` on a gate, with dust). Each stage pays `handPay` (20) as it goes up, with a `+20` floating off the wall;
+a chip on a standing wall is half the time and half the pay. A breached wall is two stages: 6 s and 40 credits. Letting go or walking off
+starts the stage over; a hit (`player:damaged`) does too, and E has to come up before it counts again. The last stage of a breach waits
+(`CLEAR THE GAP`) while anyone stands in it. In a wave and in a break. E goes to a counter, a man in front of the player or a mounted gun
+within 2.2 m first; a wall offered takes the held E from the squad's hold gesture (`AllySystem.keyTaken`). A piece the Barracks' crew is
+on is theirs. The first wall or gate of a run to wear puts `WALL HIT: HOLD E AT IT TO BOARD UP, +20` on the feed. The Barracks' paid
+repair stays as the remote option: a crew on any wall, wherever the player is fighting.
+
+**Men with charges.** Sappers on their way to a wall (`Siege.sappers`, until the charge is set) and every bomber are outlined red through
+walls, pulsing (`render.highlight`, the sonar's x-ray: a rim in plain sight, a full silhouette behind cover), carry a blinking red light over
+the head that grows with distance so it still reads at the fence, and show on the minimap as a red bomb with a lit fuse, held on the rim
+when off the map (`Defense.carriers`, uids).
+
+**Who defends what** (`garrison.ts`, on the fort). Every man the Barracks posts (and the free six) is enlisted with his home post. In a
+wave, twice a second: men on the sides the wave comes from (`DefenseDirector.fronts`) hold; a quiet side keeps one rifleman per ring
+(`GARRISON.keep`) and the rest of that side's riflemen shift to the threatened side of their ring, spaced along the wall; shotgunners go to
+the breach the riot line holds; when four attackers (`GARRISON.overrun`) are inside a ring's yard at once, everyone posted in it falls back
+to the nearest post of the next ring in, for the rest of the wave. A machine gunner is posted on the nearest free mounted gun first and
+**mans it** (`Ally.mount`, allies.md): aimed at what he sees inside its arc, bursts of 1.4 s, its rounds `ally_emplacement` (unpaid). He
+steps aside along the wall while the player is within 2.2 m of the gun's seat, so E takes it, and gets back on after. At a wave's end
+everyone goes home.
+
+**Shopkeepers** (`keepers.ts`). A rifleman's body in the allies' kit behind each counter, at the fort's `FORT_SHOPS[].keeper` (or 0.9 m
+behind the box on the Test Range): idle, turning to face the player inside 7 m, a nod when something is bought. Not an ally: not in the
+squad, not on the minimap, nothing shoots him.
+
+**The shop menus** show the thing on every row (`offerIcon` in `ui/screens/shop.ts`): the gun's silhouette, the same gun with a box of
+rounds for its ammunition, a soldier's bust with his trade's mark for each troop type (`troopIcon`), the call-in icons from the HUD, and
+icons for the grenade, stims, basic ammo, the mounted gun, walls and gates, a rebuild and the mortar team (`ui/icons.ts`). A row that
+cannot be bought is dimmed and says why in amber.
+
 **The player's mortar teams** (`teams.ts`, piece 8). Bought at the Barracks for 1,200, posted at the next free mortar post (four, in the
 middle ring's yards): a tube, crates and a cyan beacon, no crew to fight anything. During a wave each fires every 8 to 13 s
 (`TEAM_MORTAR`): `pickMortarTarget` weighs every enemy body and ground vehicle out in the field (1 each, 4 for a vehicle, plus the
@@ -173,7 +210,9 @@ DEFENSE_STEP=waves node tools/shot.mjs --url "/?contract=defense&autostart=1" --
 
 A private server for long runs: `OP2_NO_HMR=1 npx vite --port <n>`, and `--port <n>` on `shot.mjs`; with HMR on, another agent's edit
 reloads the page mid-run. Tests: `src/contracts/defense/director.test.ts` (the plan, charges on a real wall, mortar crews, the Commander,
-the early start, who is paid, the player's mortars) and `economy.test.ts`.
+the early start, who is paid, the player's mortars, boarding up a real wall and stopping on a hit, the carriers marked, the garrison
+shifting to the fronts, falling back and manning a gun) and `economy.test.ts`; `src/allies/allies.test.ts` for a man on a gun.
+`tools/scripts/defense-board.mjs` photographs the playtest's fixes (`BOARD_STEP=bomber` for the wave alone).
 
 **Verified** (2026-11-14, real Chrome at 1440x900, dpr 2, `defense-live.mjs` on a private server of the commit): the loadout by
 keys (Judge picked, 50 left, back to the Rivet, Deploy: 300 credits, Harrow, Rivet and Shiv owned); the 20 s break with the plate's countdown,
@@ -198,13 +237,27 @@ coming. The player's two teams fired 94 rounds over the run; none landed inside 
 tank, shells in the air): 307 draw calls, 576k triangles, frames at the harness's 60 Hz cap (median and p95 16.7 ms); wave 15 with 22
 enemies: 384 calls, 786k triangles. No console errors. Screens in `tools/out/defense/`.
 
+**Verified, the playtest's fixes** (2026-11-14, `defense-board.mjs`, real Chrome 1440x900 dpr 2, a private no-HMR server of the
+working tree, with the fort overhaul half-landed in it). A shopkeeper behind each of the three counters, facing the player
+(`tools/out/defense3/b-keeper.png`); the Barracks' and Armoury's menus on E with icons (`b-shop-barracks.png`, `b-shop-armoury.png`); a
+breached stretch of the outer north wall boarded up by holding the real E key from the catwalk, two stages, +40 credits, with the prompt,
+the ring and the hint (`b-repair-prompt.png`, `b-repair-ring.png`, `b-repair-done.png`); three gunners hired, the outer south-west and
+west guns manned after the walk (`b-gun.png`); wave 2 from the east and south moved one of the north side's two riflemen east; a bomber
+in the field outlined and lit, with two sappers, on the minimap as red bombs (`w-bomber.png`, `w-bomber-zoom.png`,
+`w-minimap-zoom.png`). No console errors.
+
 **Rough.**
-- **Nobody has played it, and the prices are first guesses** held to Q3 and Q4 by tests, not by feel.
+- **Nobody has played it, and the prices are first guesses** held to Q3 and Q4 by tests, not by feel. Hand repair's 3 s and 20 credits
+  a stage too.
+- **The third gunner, posted on the middle ring's west gun, got through the middle gate but stalled at the foot of a stair** the fort
+  overhaul is adding (its first route node 1.8 m over him). Recheck once that overhaul is committed.
 - **A shop's menu pauses the world.** See the proposal's section on the build.
 - **On the Test Range stand-in** the waves are Endless Humans' from the corner spawns, the counters are boxes, and hires share one rally point.
 - **Mounted guns are reached through a cast** to the call-in manager's private `emplacements`, as the lab does. A public getter on
   progression would be cleaner.
-- **Allies do not man the mounted guns.** A machine gunner posted on a gun stands behind it. If one ever mans it, its kills pay nothing.
+- **The garrison only moves posts.** Fronts are whole sides; nobody anticipates a wave in the break, and riflemen do not shift between
+  rings, only along their own. Overrun is a count of attackers in a yard and lasts the wave.
+- **Shopkeepers hold the rifleman's aim pose** (the body is the rifleman's, rifle and all), and have no idle beyond breathing and turning.
 - **The siege is tactics by hand.** Squads with no way in sit in cover until a charge, a pad or a 30 s stall gets them moving; engineers'
   sandbags are not in the cover map, and men go behind them by hand. The squad brain's flanks and grenades only come in near the player.
 - **Shop raids are tracers and a number.** Men at a shop fire visible rounds at its wall and its health goes down; the building does not

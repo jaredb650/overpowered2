@@ -24,6 +24,8 @@ export interface OrderHost {
   toggle(a: Ally): void;
   toggleSquad(): void;
   playerRevive(a: Ally): boolean;
+  /** Another use of a held E is on offer (a wall to board up): with nobody in front, the squad's hold stands down. */
+  readonly keyTaken?: (() => boolean) | null;
 }
 
 export class Orders {
@@ -113,7 +115,7 @@ export class Orders {
     }
     const focus = this.nearest();
     this.focus = focus;
-    if (!focus && !this.squadNear()) {
+    if (!focus && (!this.squadNear() || this.host.keyTaken?.())) {
       this.reset();
       return;
     }

@@ -1,12 +1,16 @@
 /**
  * Outpost Defense's buy menu (contracts/defense), on the settings sheet's rail and rows. One shop at a time, opened at its
- * counter with E. The run waits under it. Every row says its price, and a row that cannot be bought says why instead of
- * what it is. Enter or a click buys; Esc, E or Close goes back to the fight.
+ * counter with E. The run waits under it. Every row shows what it sells (the gun's silhouette, the troop, the call-in, the kit),
+ * says its price, and a row that cannot be bought says why instead of what it is. Enter or a click buys; Esc, E or Close goes
+ * back to the fight.
  */
 import type { Ctx } from '../../core/contracts';
 import { SHOPS, type ShopId } from '../../contracts/defense/data';
 import type { Offer } from '../../contracts/defense/economy';
-import { Label, div, span } from '../dom';
+import {
+  AMMO_ICON, GATE_ICON, GRENADE_ICON, MORTAR_ICON, MOUNT_ICON, REBUILD_ICON, STIM_ICON, WALL_ICON, callInIcon, troopIcon, weaponIcon,
+} from '../icons';
+import { Label, div, markup, span } from '../dom';
 import type { Hud } from '../Hud';
 import type { Nav, NavItem } from './nav';
 import { menuButton } from './parts';
@@ -14,9 +18,28 @@ import type { Screen } from './Screens';
 
 const credits = (n: number): string => n.toLocaleString('en-US');
 
-/** A row: name, what it is or why not, price. */
+/** The picture for a row: its class (w a gun side-on, t a man, s square) and the svg, with a box of rounds over a gun for its ammunition. */
+function offerIcon(o: Offer): HTMLElement {
+  const a = o.act;
+  const cell = (cls: string, ...svgs: string[]) => span(`sp-ico ${cls}`, ...svgs.map(x => markup(x)));
+  switch (a.kind) {
+    case 'weapon': return cell('w', weaponIcon(a.id));
+    case 'ammo': return cell('w', weaponIcon(a.id), AMMO_ICON);
+    case 'grenade': return cell('g', GRENADE_ICON);
+    case 'refill': return cell('s', AMMO_ICON);
+    case 'ally': return cell('t', troopIcon(a.type));
+    case 'mortar': return cell('s', MORTAR_ICON);
+    case 'callin': return cell('s', callInIcon(a.id));
+    case 'mount': return cell('s', MOUNT_ICON);
+    case 'repair': return cell('s', o.label.startsWith('Gate') ? GATE_ICON : WALL_ICON);
+    case 'stim': return cell('s', STIM_ICON);
+    case 'rebuild': return cell('s', REBUILD_ICON);
+  }
+}
+
+/** A row: what it is as a picture, its name, what it is or why not, price. */
 function offerRow(o: Offer, buy: () => void): NavItem {
-  const el = div('row sp-row', span('row-k', o.label), span('sp-detail', o.why ?? o.detail), span('row-v', o.price > 0 ? credits(o.price) : ''));
+  const el = div('row sp-row sp-irow', offerIcon(o), span('row-k', o.label), span('sp-detail', o.why ?? o.detail), span('row-v', o.price > 0 ? credits(o.price) : ''));
   el.classList.toggle('off', o.why !== null);
   el.classList.toggle('poor', o.why?.startsWith('Need') === true);
   return { el, activate: buy };

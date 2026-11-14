@@ -27,8 +27,15 @@ export const ECONOMY = {
   squadMax: 20,
   /** The free garrison every run starts with: two squads of three riflemen, already on posts round the outer ring. */
   startRiflemen: 6,
-  /** Seconds of work a bought repair takes, so a wall cannot be fixed instantly mid-fight. */
+  /** Seconds of work a bought repair takes. The Barracks' crew works on any wall, wherever the player is. */
   repairSeconds: 4,
+  /**
+   * Boarding up by hand (hold E at a damaged wall or gate, repair.ts): seconds a stage and the credits each stage pays, a chip (still
+   * intact) half of both; and how near the wall he has to stand. A breached wall is two stages: 6 s and 40 credits.
+   */
+  handSeconds: 3,
+  handPay: 20,
+  handReach: 2.4,
 } as const;
 
 /**

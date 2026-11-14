@@ -269,6 +269,18 @@
 .sp-row.on .row-k { color: var(--hot); }
 .sp-row.focus .row-k, .sp-row.focus .row-v, .sp-row.focus .sp-detail { color: #000; }
 .sp-wallet .rl-state-k { font-size: 3.2rem; color: var(--amber); }
+/* The shop's rows carry a picture of what they sell (screens/shop.ts offerIcon). */
+.sp-irow { grid-template-columns: 6.2rem 14rem 1fr 6rem; }
+.sp-ico { position: relative; display: flex; align-items: center; justify-content: center; height: 2.6rem; color: var(--ink); }
+.sp-ico .ico { fill: currentColor; }
+.sp-ico.w .ico { width: 5.7rem; height: 1.9rem; }
+.sp-ico.t .ico { width: 3.2rem; height: 2.4rem; }
+.sp-ico.s .ico { width: 2.3rem; height: 2.3rem; }
+.sp-ico.g .ico { width: 1.9rem; height: 2.375rem; }
+.sp-ico.w .ico + .ico { position: absolute; right: -0.2rem; bottom: -0.1rem; width: 1.2rem; height: 1.2rem; color: var(--amber); }
+.sp-row.off .sp-ico { color: var(--dim); }
+.sp-row.on .sp-ico { color: var(--hot); }
+.sp-row.focus .sp-ico, .sp-row.focus .sp-ico.w .ico + .ico { color: #000; }
 .scr-shop .sh-side > .rl-hint { margin-top: -0.6rem; }
 .scr-loadout .sh-side > .mi:not(.mi-small) { font-size: 3.8rem; }
 .scr-loadout .sh-side > .mi.off { color: var(--dim); }

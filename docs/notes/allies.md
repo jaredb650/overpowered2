@@ -31,6 +31,8 @@ allies.spawn('rifleman', at, post?, radius?, yaw?);
 allies.spawnSquad(count, center, yaw, ahead?, types?);
 allies.setOrder(a, 'follow' | 'post'); allies.toggle(a); allies.toggleSquad();
 allies.markBreach(point, yawOut); allies.clearBreach();
+a.mount = gun;                                   // an AllyMount (a mounted gun): he mans it while he holds his post
+allies.keyTaken = () => boolean;                 // another use of a held E is on offer: the squad hold stands down
 allies.playerRevive(a);                          // spends one of the player's stims
 allies.hurt(a, amount, point, dir, bone, region, type, source);
 allies.raycast(origin, dir, max);                // the crosshair's test
@@ -111,13 +113,29 @@ An enemy rocket at an ally is the real projectile (it still hurts the player nea
 | Riot police | Pistol, 18 m | Holds; with a breach marked, forms a line across it | Shield stops rounds from the front. Line slots 1.05 m apart, square to the way out |
 | Medic | Carbine, 34 m | Holds | Goes to the nearest downed ally within 32 m, revives him |
 
+## Mounted guns
+
+A man whose `mount` is set (Outpost Defense's garrison sets it for a machine gunner posted on a gun) walks to the gun's `standAt`, takes
+it with `occupy` once he is within 0.75 m, and while he holds his post works it in `manGun`: his own gun is quiet, he engages to 85 m but
+only what is inside the gun's arc, `aimAt` his target, and the trigger in bursts of 1.4 s with 0.8 s off (the gun has heat). He `vacate`s
+for the player (within 2.2 m of the seat, so E takes it; he waits a step along the wall), when he follows, goes down, dies or leaves the
+seat. `AllyMount` in `ally.ts` is the shape; the allies never import the vehicles.
+
+## Long routes and lift gates
+
+A destination more than 35 m away is searched with 120,000 nodes (`LONG_ROUTE`, about 6 ms on the fort) instead of the default, at most
+one such search a frame, and a man keeps a long route through stalls for 6 s rather than search it again. When there is no route because
+a shut lift gate is in the way (the fort's gates rise only for someone at them), `gateway` routes him to the near side of the lift gate
+that best lies between; he waits there for it to rise, then goes on.
+
 ## Orders
 
 Look at a man within 3.6 m and **tap E**: he follows, or goes back to his post. **Hold E** (0.55 s), on a man or with any ally within
 60 m: if anyone is on his post the whole squad follows, otherwise all go back. **Hold E on a downed man** (1.1 s): a stim. Followers take a
 fan behind the player 4 to 8 m back, run past 12 m off, and take cover within 7 m of their slot when they see something.
 
-E is shared. A prisoner in reach and in view keeps it. A mounted gun yields to an ally the player is looking at
+E is shared. A prisoner in reach and in view keeps it. With `keyTaken` saying yes (a wall to board up) and nobody in front, the hold is not
+the squad's. A mounted gun yields to an ally the player is looking at
 (`Emplacements.update` reads `ctx.allies.focusDistance`); otherwise a gun in reach takes the press.
 
 ## Measured

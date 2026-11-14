@@ -103,3 +103,45 @@ export function pickupColor(kind: PickupKind): string {
     default: return '#ff7ad9';
   }
 }
+
+// ---- Outpost Defense's shops: troops, kit and works. Same straight-segment language, 32x24 for a man, 24x24 for the rest. ----
+
+/** Helmet, face and shoulders, left of the box, with room on the right for what marks his trade. */
+const BUST = 'M6 3H14L16 6V9H4V6Z M6 10H14V13L12 15H8L6 13Z M1 24V19L6 16H14L19 19V24Z';
+const TROOP_MARKS: Record<'rifleman' | 'gunner' | 'sniper' | 'rocketeer' | 'shotgunner' | 'riot' | 'medic', string> = {
+  // A rifle upright.
+  rifleman: 'M25 1H27V20H25Z M23 11H25V15H23Z M27 6H29V9H27Z',
+  // Three rounds of a belt.
+  gunner: 'M21 9L22.5 5L24 9V18H21Z M25 9L26.5 5L28 9V18H25Z M29 9L30.5 5L32 9V18H29Z',
+  // A diamond reticle.
+  sniper: 'M26 2L32 8L26 14L20 8Z M26 5L29 8L26 11L23 8Z',
+  // A launcher tube with its cone.
+  rocketeer: 'M20 7H29V12H20Z M29 6L32 9.5L29 13Z M23 12H25V16H23Z',
+  // Two shells.
+  shotgunner: 'M21 4H25V15H21Z M27 4H31V15H27Z M21 15H25V17H21Z M27 15H31V17H27Z',
+  // A shield.
+  riot: 'M20 3H32V14L26 20L20 14Z M22 5H30V7H22Z',
+  // A cross.
+  medic: 'M24 2H28V6H32V10H28V14H24V10H20V6H24Z',
+};
+
+export function troopIcon(type: keyof typeof TROOP_MARKS): string {
+  return `<svg class="ico" viewBox="0 0 32 24" aria-hidden="true"><path fill-rule="evenodd" d="${BUST} ${TROOP_MARKS[type]}"/></svg>`;
+}
+
+const square = (d: string) => `<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path fill-rule="evenodd" d="${d}"/></svg>`;
+
+/** A syringe. */
+export const STIM_ICON = square('M1 11H4V9H6V11H17V15H6V17H4V15H1Z M8 12H15V14H8Z M17 12.5H21V13.5H17Z M21 13H24V13.5H21Z');
+/** Three rounds standing on a clip: ammunition. */
+export const AMMO_ICON = square('M3 8L5 3L7 8V20H3Z M10 8L12 3L14 8V20H10Z M17 8L19 3L21 8V20H17Z M2 20H22V23H2Z');
+/** A heavy gun on its tripod behind a shield. */
+export const MOUNT_ICON = square('M7 6H19V10H7Z M19 7H24V9H19Z M2 3H5V15H2Z M11 10H14V14H11Z M12 14L6 23H8.5L12.5 17L16.5 23H19L13 14Z');
+/** Courses of block with a board nailed across: a wall to repair. */
+export const WALL_ICON = square('M1 3H11V8H1Z M13 3H23V8H13Z M1 10H5V15H1Z M7 10H17V15H7Z M19 10H23V15H19Z M1 17H11V22H1Z M13 17H23V22H13Z M2 13L22 7L23 9.5L3 15.5Z');
+/** A gate's leaf: bars between two rails. */
+export const GATE_ICON = square('M1 2H23V5H1Z M3 5H6V23H3Z M10.5 5H13.5V23H10.5Z M18 5H21V23H18Z M1 13H23V15H1Z');
+/** A hammer: building back up. */
+export const REBUILD_ICON = square('M3 3H14V9H3Z M14 4H18V8H14Z M7 9H10V23H7Z');
+/** A mortar tube on its bipod and base plate. */
+export const MORTAR_ICON = square('M5 18L16 2L19 4L8 20Z M11 12L17 22H14.5L10 14.5Z M2 20H11V23H2Z');

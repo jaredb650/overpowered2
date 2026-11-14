@@ -15,6 +15,7 @@
 import * as THREE from 'three';
 import type RAPIER from '@dimforge/rapier3d-compat';
 import type { Ctx, Structure } from '../../core/contracts';
+import type { EnemyInstance } from '../../core/gameplay';
 import { rand } from '../../core/math';
 import type { Behaviour } from '../../enemies/brain';
 import type { Device } from '../../enemies/commander/devices';
@@ -998,6 +999,12 @@ export class Siege {
         this.ctx.audio.play('juggernaut_slam', { position: _a, volume: 0.8 });
       }
     }
+  }
+
+  /** Every man running a satchel charge to a wall now, until he sets it. Outpost Defense marks them red (index.ts). */
+  sappers(out: EnemyInstance[]): EnemyInstance[] {
+    for (const [s, job] of this.jobs) if (job.kind === 'sapper' && job.uid === s.e.uid && s.e.alive) out.push(s.e);
+    return out;
   }
 
   describe(): Record<string, unknown> {

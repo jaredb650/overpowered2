@@ -1,5 +1,6 @@
 /** One friendly soldier. The Enemy is only his body, for the shared steering and animation; everything he knows lives here. */
 import * as THREE from 'three';
+import type { Structure } from '../core/contracts';
 import type { EnemyInstance } from '../core/gameplay';
 import { Enemy } from '../enemies/Enemy';
 import type { CoverSpot } from '../enemies/outpost/cover';
@@ -10,6 +11,21 @@ import { ALLY_TYPES, type AllyType, type AllyTypeDef } from './data';
 import type { Vitals } from './rules';
 
 export type Order = 'post' | 'follow';
+
+/**
+ * A mounted gun as a man on it uses it (`vehicles/emplacement.ts`, `occupy` / `aimAt` / `trigger` / `vacate`). Only the shape: the allies
+ * never import the vehicles.
+ */
+export interface AllyMount {
+  readonly standAt: THREE.Vector3;
+  readonly pivot: THREE.Vector3;
+  readonly spec: { readonly yaw: number; readonly arc: number };
+  readonly occupant: unknown;
+  occupy(who: object): boolean;
+  vacate(who: object): void;
+  aimAt(point: THREE.Vector3): void;
+  trigger(held: boolean): void;
+}
 
 export class Ally implements Vitals, Foe {
   readonly body = new Enemy();
@@ -30,6 +46,10 @@ export class Ally implements Vitals, Foe {
   /** Which way the post faces, for a man with nothing to look at. NaN for any. */
   postYaw = Number.NaN;
   order: Order = 'post';
+  /** The mounted gun at his post, if it has one. He mans it while he holds the post and the player is not at it. */
+  mount: AllyMount | null = null;
+  /** On the gun now: `mount.occupant` is him. */
+  manning = false;
 
   target: EnemyInstance | null = null;
   /** A vehicle he is shooting at instead of a man: where it is. */
@@ -41,6 +61,11 @@ export class Ally implements Vitals, Foe {
 
   readonly dest = new THREE.Vector3();
   readonly route = new Route();
+  /** The far destination his last long route search was for, and until when he keeps that route through stalls. */
+  readonly longTo = new THREE.Vector3(Infinity, 0, 0);
+  longUntil = 0;
+  /** A shut lift gate his route stops at: he waits for it to rise, then goes on. */
+  via: Structure | null = null;
   spot: CoverSpot | null = null;
   /** Leans out of his spot to this side to fire: -1, 0 or 1. */
   fireSide = 0;
@@ -82,11 +107,16 @@ export class Ally implements Vitals, Foe {
     this.bleedsOutAt = 0;
     this.postYaw = Number.NaN;
     this.order = 'post';
+    this.mount = null;
+    this.manning = false;
     this.target = null;
     this.hasArmour = false;
     this.seenAt = -99;
     this.thinkAt = 0;
     this.route.clear();
+    this.longTo.set(Infinity, 0, 0);
+    this.longUntil = 0;
+    this.via = null;
     this.spot = null;
     this.fireSide = 0;
     this.patrolAt = this.stalls = this.progressAt = 0;

@@ -165,6 +165,7 @@ export class Hud implements HudSystem {
       this.scope.el,
       this.targeting.el,
       this.crosshair.el,
+      this.defense?.ring,
       div('col-left',
         this.tally.el,
         this.defense?.el,

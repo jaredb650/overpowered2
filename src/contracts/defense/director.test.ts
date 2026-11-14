@@ -13,12 +13,17 @@ import { waveScale } from '../../enemies/data';
 import { MAX_ALIVE } from '../../enemies/waves';
 import { Physics } from '../../physics/Physics';
 import { gunSource } from '../../vehicles/emplacement';
-import { RINGS } from '../../world/map/fort/plan';
+import { Ally } from '../../allies/ally';
+import { ALLY_TYPES } from '../../allies/data';
+import { FORT_POSTS, RINGS } from '../../world/map/fort/plan';
 import { MapSpec } from '../../world/map/spec';
 import { Structures } from '../../world/structures';
-import { paysFor } from './data';
+import { ECONOMY, paysFor } from './data';
 import { FIELD_MORTAR, MortarCrew, pickMortarTarget, SATCHEL, satchelBlast, TEAM_MORTAR, tooClose, type MortarCandidate } from './field';
+import { Garrison, GARRISON, sideOf } from './garrison';
 import { Defense } from './index';
+import { HandRepair, handPay } from './repair';
+import { Siege } from './siege';
 import { TEAM_SOURCE } from './teams';
 import { BOSS_ORDER, bossFor, DIRECTOR, footMen, menIn, planWave, previewLine } from './waves';
 
@@ -176,13 +181,15 @@ function fakeCtx(phase: 'intermission' | 'spawning', wave = 2) {
   const events = new EventBus<GameEvents>();
   const ctx = {
     events,
-    input: { pressed: (a: string) => a === 'nextWave', labelFor: () => 'L' },
+    input: { pressed: (a: string) => a === 'nextWave', isDown: () => false, labelFor: () => 'L' },
     player: { alive: true, parked: false, position: V(500, 0, 500) },
     time: { elapsed: 0, dt: 0.016 },
     waves: { wave, phase, nextWaveIn: 0 },
     hud: { banner: vi.fn(), feed, follow: () => () => {} },
     world: { objects: { structures: [] } },
-    render: {},
+    progression: {},
+    enemies: { alive: [] as unknown[] },
+    render: { highlight: vi.fn() } as { highlight: unknown; scene?: THREE.Scene },
   } as unknown as Ctx;
   return { ctx, feed, events };
 }
@@ -254,5 +261,169 @@ describe('the player\'s mortar teams', () => {
     }
     expect(hits.group).toBeGreaterThan(hits.truck);
     expect(hits.truck).toBeGreaterThan(hits.lone);
+  });
+});
+
+describe('boarding up by hand', () => {
+  async function site() {
+    const physics = await Physics.create();
+    const spec = new MapSpec();
+    spec.wall(-2, 0, 2, 0);
+    const events = new EventBus<GameEvents>();
+    const input = { held: true, isDown: () => input.held, labelFor: () => 'E' };
+    const ctx = {
+      physics, fx: noop('fx'), audio: noop('audio'), events, input,
+      player: { position: V(0, 0, 1.2), alive: true, parked: false },
+      enemies: { query: () => 0 },
+      hud: { follow: vi.fn(() => () => {}), floatText: vi.fn() },
+      world: { objects: {} as { walls?: Structures } },
+    };
+    const walls = new Structures(ctx as unknown as Ctx, spec.structures, () => new THREE.MeshBasicMaterial());
+    walls.attach(null);
+    ctx.world.objects.walls = walls;
+    let paid = 0;
+    const r = new HandRepair(ctx as unknown as Ctx, n => (paid += n));
+    r.init();
+    const run = (seconds: number, busy = false) => {
+      for (let i = 0; i < Math.round(seconds / 0.1); i++) r.update(0.1, busy);
+    };
+    return { ctx, walls, wall: walls.all[0]!, r, run, input, events, paid: () => paid };
+  }
+
+  it('puts a breach back a stage at a time, paying each stage as it goes up', async () => {
+    const { walls, wall, run, paid, ctx } = await site();
+    walls.damage(wall, 1000);
+    expect(wall.stage).toBe('breached');
+    run(ECONOMY.handSeconds + 0.2);
+    expect(wall.stage).toBe('damaged');
+    expect(paid()).toBe(ECONOMY.handPay);
+    run(ECONOMY.handSeconds);
+    expect(wall.stage).toBe('intact');
+    expect(paid()).toBe(ECONOMY.handPay * 2);
+    expect(ctx.hud.floatText).toHaveBeenCalledWith(expect.anything(), `+${ECONOMY.handPay}`, expect.any(String));
+    // A chip on a standing wall: half the time, half the pay.
+    walls.damage(wall, 100);
+    expect(handPay(wall)).toBe(ECONOMY.handPay / 2);
+    run(ECONOMY.handSeconds / 2 + 0.2);
+    expect(wall.health).toBe(wall.maxHealth);
+    expect(paid()).toBe(ECONOMY.handPay * 2.5);
+  });
+
+  it('stops on a hit, waits for E to come up, and stops when he walks off or lets go', async () => {
+    const { walls, wall, r, run, input, events, ctx, paid } = await site();
+    walls.damage(wall, 400);
+    expect(wall.stage).toBe('damaged');
+    run(ECONOMY.handSeconds / 2);
+    expect(r.working).toBe(true);
+    expect(r.progress).toBeGreaterThan(0.4);
+    events.emit('player:damaged', { amount: 8, type: 'bullet' });
+    expect(r.progress).toBe(0);
+    // Still holding: nothing counts until E is let go.
+    run(1);
+    expect(r.progress).toBe(0);
+    input.held = false;
+    run(0.2);
+    input.held = true;
+    run(1);
+    expect(r.progress).toBeGreaterThan(0.3);
+    // Let go: the stage starts over.
+    input.held = false;
+    run(0.1);
+    expect(r.progress).toBe(0);
+    input.held = true;
+    run(1);
+    // Walks off: nothing in reach.
+    ctx.player.position.set(0, 0, 8);
+    run(0.1);
+    expect(r.piece).toBeNull();
+    expect(r.progress).toBe(0);
+    // Something else wants E (a counter, a man in front, a gun): no wall.
+    ctx.player.position.set(0, 0, 1.2);
+    run(ECONOMY.handSeconds + 1, true);
+    expect(wall.stage).toBe('damaged');
+    expect(paid()).toBe(0);
+  });
+});
+
+describe('men with charges', () => {
+  it('marks the men running satchels to a wall and the bombers, nobody else, and drops a sapper once he is dead', () => {
+    const siege = new Siege({ physics: { radialListeners: new Set() } } as unknown as Ctx, {} as never, {} as never);
+    const man = (uid: number) => ({ e: { uid, alive: true, char: { mesh: new THREE.Object3D() }, position: V(0, 0, -80) }, squad: { directed: false } });
+    const sapper = man(1), rifleman = man(2);
+    siege.assign(sapper as never, 'sapper');
+    siege.assign(rifleman as never, 'assault');
+    expect(siege.sappers([]).map(e => e.uid)).toEqual([1]);
+
+    const { ctx } = fakeCtx('spawning');
+    (ctx.waves as { siege?: Siege }).siege = siege;
+    const bomber = { uid: 9, id: 'bomber', alive: true, char: { mesh: new THREE.Object3D() }, position: V(0, 0, -60) };
+    (ctx.enemies as unknown as { alive: unknown[] }).alive = [bomber, { ...rifleman.e, id: 'trooper' }];
+    // Not `init`: no counters. The beacons still need a scene.
+    (ctx.render as { scene?: THREE.Scene }).scene = new THREE.Scene();
+    const d = new Defense(ctx);
+    d.update();
+    expect([...d.carriers].sort()).toEqual([1, 9]);
+    expect(ctx.render.highlight).toHaveBeenCalledWith([sapper.e.char.mesh, bomber.char.mesh], expect.anything(), expect.any(Number));
+    sapper.e.alive = false;
+    d.update();
+    expect([...d.carriers]).toEqual([9]);
+  });
+});
+
+describe('the garrison', () => {
+  let uid = 0;
+  const snap = (p: THREE.Vector3, _r: number, out: THREE.Vector3) => (out.copy(p), true);
+  function posted(type: keyof typeof ALLY_TYPES, at: readonly [number, number, number]): Ally {
+    const a = new Ally();
+    a.type = type;
+    a.def = ALLY_TYPES[type];
+    a.body.uid = ++uid;
+    a.post.set(at[0], at[1], at[2]);
+    return a;
+  }
+  const outerRifles = (side: number) => FORT_POSTS.filter(p => p.type === 'rifleman' && p.ring === 'outer' && sideOf(p.pos[0], p.pos[2]) === side);
+
+  it('sends a quiet side\'s spare riflemen to the side the wave comes from, keeps one, and brings them home in the break', () => {
+    const g = new Garrison(snap);
+    const east = outerRifles(1);
+    const men = east.map(p => posted('rifleman', p.pos));
+    const west = posted('rifleman', outerRifles(3)[0]!.pos);
+    const north = posted('rifleman', outerRifles(0)[0]!.pos);
+    const all = [...men, west, north];
+    for (const a of all) g.enlist(a);
+    g.fronts = [0];
+    g.plan(all);
+    const sides = men.map(a => sideOf(a.post.x, a.post.z));
+    expect(sides.filter(s => s === 1)).toHaveLength(GARRISON.keep);
+    expect(sides.filter(s => s === 0)).toHaveLength(east.length - GARRISON.keep);
+    // The only man on the west side and the man already on the threatened side stay.
+    expect(sideOf(west.post.x, west.post.z)).toBe(3);
+    expect(north.post.toArray()).toEqual([...outerRifles(0)[0]!.pos]);
+    // Nobody shifted lands on another man.
+    for (const a of all) for (const b of all) if (a !== b) expect(a.post.distanceTo(b.post)).toBeGreaterThan(2);
+    g.stand(all);
+    expect(men.every(a => sideOf(a.post.x, a.post.z) === 1)).toBe(true);
+  });
+
+  it('mans a machine gunner\'s gun, sends shotgunners to the breach, and falls back a ring when the ring is overrun', () => {
+    const g = new Garrison(snap);
+    const gunPost = FORT_POSTS.find(p => p.type === 'gunner' && p.gun !== undefined && p.ring === 'outer')!;
+    const gunner = posted('gunner', gunPost.pos);
+    const gun = { standAt: V(0, 0, 0), pivot: V(0, 1, 0), spec: { yaw: 0, arc: 1 }, occupant: null, occupy: () => true, vacate() {}, aimAt() {}, trigger() {} };
+    g.enlist(gunner, gun);
+    expect(gunner.mount).toBe(gun);
+    const shotgun = posted('shotgunner', FORT_POSTS.find(p => p.type === 'shotgunner')!.pos);
+    g.enlist(shotgun);
+    g.breach = V(0, 0, -45);
+    g.plan([gunner, shotgun]);
+    expect(Math.hypot(shotgun.post.x, shotgun.post.z + 45)).toBeLessThan(0.01);
+    expect(gunner.mount).toBe(gun);
+    // Four attackers in the outer yard: the outer ring is overrun, and its gunner leaves the gun for a post in the middle ring.
+    g.watch(Array.from({ length: GARRISON.overrun }, (_, i) => ({ position: V(-40 + i, 0, 40), alive: true })));
+    g.plan([gunner, shotgun]);
+    expect(gunner.mount).toBeNull();
+    expect(Math.max(Math.abs(gunner.post.x), Math.abs(gunner.post.z))).toBeLessThan(RINGS.find(r => r.id === 'middle')!.half);
+    g.stand([gunner, shotgun]);
+    expect(gunner.mount).toBe(gun);
   });
 });

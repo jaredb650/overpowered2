@@ -471,3 +471,8 @@
 .df-shop { padding: 0 0.35rem; background: var(--plate); color: var(--steel); font-size: 0.9rem; }
 .df-shop.hurt { color: var(--amber); }
 .df-shop.lost { background: var(--blood); color: #000; text-decoration: line-through; }
+.df-fix { position: absolute; left: 50%; top: 50%; flex-direction: column; align-items: center; gap: 0.2rem; transform: translate(-50%, -2.5rem); pointer-events: none; }
+.df-fix-svg { width: 5rem; height: 5rem; transform: rotate(-90deg); }
+.df-fix-bg { fill: none; stroke: rgba(7, 10, 14, 0.55); stroke-width: 7; }
+.df-fix-arc { fill: none; stroke: var(--amber); stroke-width: 5; }
+.df-fix-t { padding: 0 0.35rem; background: var(--plate); color: var(--amber); font-size: 1rem; font-weight: 700; white-space: nowrap; }
