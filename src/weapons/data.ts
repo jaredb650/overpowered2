@@ -218,7 +218,8 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     drawSound: 'weapon_draw_heavy',
     recoil: 0.6, kick: 0.012, shake: 0.022, fovPunch: 1,
   },
-  // First on the key: the cannon loaded with darts. No blast, so the round goes on through walls and everyone in line.
+  // First on the key: a slim anti-armour sniper rifle firing darts. No blast, so the round goes on through walls and
+  // everyone in line.
   sabot: {
     ...BASE, id: 'sabot', name: 'SABOT', slot: 4, mode: 'semi',
     magSize: 5, reserve: 15, maxReserve: 30, reloadTime: 1.0, drawTime: 0.28,
@@ -229,12 +230,13 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     drawSound: 'weapon_draw_heavy', scope: true,
     recoil: 1.1, kick: 0.034, shake: 0.034, fovPunch: 3.4, killStop: HEAVY_KILL_STOP, impactScale: 2.2,
   },
-  // The upgrade on key 4: the same cannon with its high-explosive belt. Not owned with the Sabot: a weapon cache brings it
-  // (CACHE_ORDER in progression), so it has no `base`.
+  // The upgrade on key 4: a shoulder-fired 20 mm-class cannon fed by a clip of three shells from the top. Not owned with
+  // the Sabot: a weapon cache brings it (CACHE_ORDER in progression), so it has no `base`. Reserve is in whole clips and
+  // carries about the shells it did on five-round belts (24 in hand at the start where it was 25).
   autocannon: {
     ...BASE, id: 'autocannon', name: 'AUTOCANNON', slot: 4, mode: 'semi', round: 'shell',
-    magSize: 5, reserve: 20, maxReserve: 40, reloadTime: 1.0, drawTime: 0.28,
-    interval: 0.15, damage: 99999, force: 90,
+    magSize: 3, reserve: 21, maxReserve: 42, reloadTime: 1.0, drawTime: 0.28,
+    interval: 0.3, damage: 99999, force: 90,
     muzzle: 'autocannon', tracer: 'heavy', casing: 'cannon',
     sounds: [{ id: 'autocannon_blast' }],
     drawSound: 'weapon_draw_heavy', scope: true,

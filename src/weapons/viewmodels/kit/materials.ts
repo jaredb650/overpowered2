@@ -216,7 +216,7 @@ function makeDecals(): { texture: THREE.CanvasTexture; regions: Record<string, R
   place('crucible', 320, 48, text('CRUCIBLE ARMS', TECH, 3));
   place('cal9', 256, 40, text('9x25 CASELESS', TECH, 2));
   place('cal12', 256, 40, text('12 GA  3.5"', TECH, 2));
-  place('cal30', 256, 40, text('30x173 HE-I', TECH, 2));
+  place('cal30', 256, 40, text('20x138B HE-I', TECH, 2));
   place('cal50', 256, 40, text('.500 JUDGE', TECH, 3));
   place('hv', 320, 48, text('!! 40 kV !!', TECH, 3));
   place('lance', 320, 64, text('LANCE MK IV', STENCIL, 5));
@@ -293,7 +293,7 @@ function makeDecals(): { texture: THREE.CanvasTexture; regions: Record<string, R
   place('cal68', 256, 40, text('6.8x51 FMJ', TECH, 2));
   place('rivet', 256, 64, text('RIVET', STENCIL, 8));
   place('cal10', 256, 40, text('10 MM AUTO', TECH, 2));
-  place('cal30ap', 320, 40, text('30x173 APFSDS-T', TECH, 2));
+  place('cal30ap', 320, 40, text('14.5x114 APFSDS', TECH, 2));
   place('quiver', 320, 64, text('QUIVER', STENCIL, 8));
   place('msl', 320, 40, text('66 MM SEEKER x4', TECH, 2));
   place('thresher', 320, 64, text('THRESHER', STENCIL, 5));

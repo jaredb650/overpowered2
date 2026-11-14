@@ -65,12 +65,12 @@ export const WEAPONS: Record<WeaponId, WeaponInfo> = {
   },
   sabot: {
     name: 'Sabot', key: '4',
-    role: `30 mm cannon firing darts. ${def.sabot.damage} damage, no blast, through armour`,
+    role: `Anti-armour sniper rifle firing darts. ${def.sabot.damage} damage, no blast, through armour`,
     note: `${SLOT4_OLD ? 'Press 4 again to swap with the autocannon. ' : ''}Right click scopes. Goes through walls up to ${PENETRATION.maxWall} m thick, ${def.sabot.penetration} m of them in all, and everyone in line: ping the sonar, then shoot what it shows.`,
   },
   autocannon: {
     name: 'Autocannon', key: '4',
-    role: `${SLOT4_OLD ? '' : 'The upgrade: '}30 mm shell kills everything within ${TUNING.autocannon.radius} m, ${def.autocannon.magSize} a magazine`,
+    role: `${SLOT4_OLD ? '' : 'The upgrade: '}20 mm shell kills everything within ${TUNING.autocannon.radius} m, clips of ${def.autocannon.magSize}`,
     note: `${SLOT4_OLD ? '' : 'Comes in a weapon cache. Press 4 again to swap with the Sabot. '}Right click scopes. Bosses take ${TUNING.autocannon.bossDamage} a shell.`,
   },
   sword: {

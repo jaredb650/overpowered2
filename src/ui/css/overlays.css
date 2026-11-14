@@ -1,4 +1,5 @@
-/* --- Autocannon scope: an octagonal port, with the first game's red cross kept as its heritage --- */
+/* --- Scope: an octagonal port, with the first game's red cross kept as its heritage. A gun with a reticle of its own
+   (RETICLES in hud/overlays.ts) sets data-reticle and hides the cross --- */
 
 .scope { display: none; position: absolute; inset: 0; }
 .sc-mask {
@@ -29,6 +30,24 @@
   height: 40rem;
   margin: -20rem 0 0 -0.35rem;
   background: repeating-linear-gradient(180deg, rgba(255, 0, 0, 0.78) 0 0.125rem, transparent 0.125rem 2.5rem);
+}
+.scope[data-reticle] :is(.sc-line, .sc-dot, .sc-mils) { display: none; }
+.sc-ret {
+  display: none;
+  position: absolute;
+  left: calc(50% - 30rem);
+  top: calc(50% - 30rem);
+  width: 60rem;
+  height: 60rem;
+  overflow: visible;
+  filter: drop-shadow(0 0 0.12rem rgba(0, 0, 0, 0.9));
+}
+.scope[data-reticle="autocannon"] .sc-ret { color: #ff5a2a; }
+.scope[data-reticle="sabot"] .sc-ret { color: #9fe0ff; }
+/* The Sabot's glass is round where the cannon's is a sighting port. */
+.scope[data-reticle="sabot"] .sc-mask {
+  clip-path: none;
+  background: radial-gradient(circle at 50% 50%, transparent 29.6rem, #05080c 30rem);
 }
 .sc-read { position: absolute; display: flex; align-items: baseline; gap: 0.45rem; }
 .sc-tag { color: var(--steel); }

@@ -7,7 +7,7 @@
 const ids = (process.env.VM_IDS ?? 'smg').split(',').filter(Boolean);
 const mode = process.env.VM_MODE ?? 'reload';
 const RELOAD = { smg: 1, shotgun: 1.25, rocket: 1.5, autocannon: 1, judge: 1.5, lance: 1.7, buzzsaw: 2.4, kiln: 1.8, stakegun: 1.6, harrow: 1.35, rivet: 0.8, sabot: 1, thresher: 2.7, quiver: 2.8, piledriver: 3 };
-const MAGS = { smg: 30, shotgun: 6, rocket: 1, autocannon: 5, judge: 6, lance: 12, buzzsaw: 120, kiln: 150, stakegun: 5, harrow: 24, rivet: 15, sabot: 5, thresher: 20, quiver: 4, piledriver: 50 };
+const MAGS = { smg: 30, shotgun: 6, rocket: 1, autocannon: 3, judge: 6, lance: 12, buzzsaw: 120, kiln: 150, stakegun: 5, harrow: 24, rivet: 15, sabot: 5, thresher: 20, quiver: 4, piledriver: 50 };
 const DRAW = { smg: 0.16, shotgun: 0.2, rocket: 0.26, autocannon: 0.28, sword: 0.14, judge: 0.22, lance: 0.3, buzzsaw: 0.38, kiln: 0.26, stakegun: 0.24, harrow: 0.22, rivet: 0.1, sabot: 0.28, thresher: 0.28, quiver: 0.32, piledriver: 0.4 };
 
 export default async function anim(page, h) {

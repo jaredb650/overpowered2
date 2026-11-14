@@ -1,6 +1,6 @@
-/** Full-screen modes: the autocannon scope, call-in targeting and the low-health frame. */
+/** Full-screen modes: the scope, call-in targeting and the low-health frame. */
 import type { Ctx } from '../../core/contracts';
-import type { CallInId } from '../../core/gameplay';
+import type { CallInId, WeaponId } from '../../core/gameplay';
 import { CALLINS as CALLIN_DEFS } from '../../progression/data';
 import { Flag, Label, Num, Shown, div, markup, span } from '../dom';
 import { CALLINS } from '../data';
@@ -9,6 +9,35 @@ import type { Settings } from '../settings';
 import type { HudState } from '../state';
 
 const RANGE_RATE = 1 / 10;
+
+/**
+ * A scoped gun with a reticle of its own; any other keeps the plain red cross. Drawn in a 600-unit box over the 60rem
+ * port, so 10 units are 1rem.
+ */
+const RETICLES: Partial<Record<WeaponId, { tag: string; svg: string }>> = {
+  // Heavy and simple for a lobbed shell: thick posts, a chevron to lay on the target, and a drop ladder under it.
+  autocannon: {
+    tag: 'shells',
+    svg: `<svg class="sc-ret" viewBox="-300 -300 600 600" fill="none" stroke="currentColor">
+      <path stroke-width="12" d="M-300 0H-70M70 0H300M0 300V238"/>
+      <path stroke-width="5" stroke-linejoin="miter" d="M-34 34L0 0L34 34"/>
+      <path stroke-width="2.5" d="M0 40V238M-22 60H22M-18 100H18M-14 150H14M-10 210H10"/>
+      <g fill="currentColor" stroke="none" font-size="17" font-weight="700" font-family="monospace">
+        <text x="30" y="66">2</text><text x="26" y="106">4</text><text x="22" y="156">6</text><text x="18" y="216">8</text>
+      </g>
+    </svg>`,
+  },
+  // A sniper's: hairline cross, mil dots out to five, a fine centre dot, thin posts at the rim.
+  sabot: {
+    tag: 'darts',
+    svg: `<svg class="sc-ret" viewBox="-300 -300 600 600" fill="none" stroke="currentColor">
+      <path stroke-width="1.2" d="M-200 0H-8M8 0H200M0 -200V-8M0 8V200"/>
+      <path stroke-width="4" d="M-300 0H-200M200 0H300M0 -300V-200M0 200V300"/>
+      <g fill="currentColor" stroke="none">${[1, 2, 3, 4, 5].flatMap(i => [[i, 0], [-i, 0], [0, i], [0, -i]])
+        .map(([x, y]) => `<circle cx="${x! * 34}" cy="${y! * 34}" r="2.6"/>`).join('')}<circle r="1.8"/></g>
+    </svg>`,
+  },
+};
 
 /** Distance to whatever the crosshair is on, refreshed a few times a second. */
 function rangeTo(ctx: Ctx, maxDist: number): number {
@@ -25,12 +54,17 @@ export class Scope {
   private mag: Num;
   private rangeShown: Shown;
   private zoom: Label;
+  private tag: Label;
+  private reticle: WeaponId | null = null;
+  private reticles = new Map<WeaponId, HTMLElement>();
   private clock = 0;
 
   constructor(private readonly ctx: Ctx, private readonly settings: Settings) {
     const range = span('sc-val');
     const mag = span('sc-val');
     const zoom = span('sc-tag');
+    const tag = span('sc-tag', 'shells');
+    for (const [id, r] of Object.entries(RETICLES)) this.reticles.set(id as WeaponId, markup(r.svg));
     const rangeRow = div('sc-read sc-range', span('sc-tag', 'range'), range, span('sc-tag', 'm'));
     this.el = div('scope',
       div('sc-mask'),
@@ -39,8 +73,9 @@ export class Scope {
       div('sc-dot'),
       div('sc-mils sc-mils-h'),
       div('sc-mils sc-mils-v'),
+      ...this.reticles.values(),
       rangeRow,
-      div('sc-read sc-mag', span('sc-tag', 'shells'), mag),
+      div('sc-read sc-mag', tag, mag),
       div('sc-read sc-zoom', zoom),
     );
     this.shown = new Shown(this.el, 'block');
@@ -48,12 +83,14 @@ export class Scope {
     this.mag = new Num(mag);
     this.rangeShown = new Shown(rangeRow, 'flex');
     this.zoom = new Label(zoom);
+    this.tag = new Label(tag);
     this.shown.set(false);
   }
 
   update(s: HudState, dt: number): void {
     this.shown.set(s.scoped);
     if (!s.scoped) return;
+    if (s.weapon !== this.reticle) this.pickReticle(s.weapon);
     this.mag.set(s.mag);
     this.clock -= dt;
     if (this.clock > 0) return;
@@ -64,6 +101,16 @@ export class Scope {
     const d = rangeTo(this.ctx, 500);
     this.rangeShown.set(d > 0);
     this.range.set(Math.round(d));
+  }
+
+  /** Shows the gun's own reticle, or the plain cross with `data-reticle` unset. */
+  private pickReticle(id: WeaponId): void {
+    this.reticle = id;
+    const own = RETICLES[id];
+    if (own) this.el.dataset.reticle = id;
+    else delete this.el.dataset.reticle;
+    for (const [rid, el] of this.reticles) el.style.display = rid === id ? 'block' : 'none';
+    this.tag.set(own?.tag ?? 'shells');
   }
 }
 
