@@ -363,7 +363,7 @@ Rendered at load. x4 means four rendered variants behind one id.
 ### Perks, call-ins, powerups
 
 - **Perk stingers:** `perk_bloodthirst` (= `perk_bloodthirsty`), `perk_sentinels`, `perk_chainStorm`, `perk_butcher`, `perk_skyfall`, `perk_chainReaction`, `perk_overdrive`, `perk_warthog`, `perk_end`
-- **Call-ins:** `callin_ready`, `callin_target_loop`, `callin_confirm`, `callin_cancel`, `callin_denied`, `missile_incoming` x3, `orbital_charge`, `orbital_beam_loop`, `orbital_strike`, `blacksun_open`, `blacksun_loop`, `blacksun_implode`, `nuke_siren`, `nuke_incoming`, `nuke_blast`, `nuke_tail`, `siren_loop`
+- **Call-ins:** `callin_ready`, `callin_target_loop`, `callin_confirm`, `callin_cancel`, `callin_denied`, `aa_lock`, `aa_launch`, `missile_incoming` x3, `orbital_charge`, `orbital_beam_loop`, `orbital_strike`, `blacksun_open`, `blacksun_loop`, `blacksun_implode`, `nuke_siren`, `nuke_incoming`, `nuke_blast`, `nuke_tail`, `siren_loop`
 - **Chain Storm:** `lightning_arc` x4, `lightning_strike` x3, `electric_buzz_loop`
 - **Powerups:** `powerup_quad`, `powerup_haste`, `powerup_vampire`, `powerup_ricochet`, `powerup_shock`, `powerup_ghost`, `powerup_magnet`, `powerup_regen`, `powerup_frostNova`, `powerup_timeWarp`, `powerup_end`, `powerup_spawn`, `powerup_idle_loop`, `vampire_drain`, `magnet_pull`, `frost_nova_blast`, `time_warp_in`, `time_warp_out`
 - **Pickups:** `pickup_health`, `pickup_ammo`, `pickup_armor`, `pickup_megaHealth`, `pickup_heavyArmor`, `pickup_weaponCache`, `pickup_grenade`, `pickup_generic` (the first game's 400/800/1200 Hz steps). `pickup_quad` and the other powerup kinds alias to `powerup_*`

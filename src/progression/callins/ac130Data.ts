@@ -129,8 +129,13 @@ export const AC130 = {
     /** The crew drops it on a boss, or on a knot this big, once it has been on station this long. */
     after: 25, knot: 5,
   },
-  /** Missile hits that bring it down, and flares aboard. Read by part 2 of the air support plan. */
+  /** Missile hits that bring it down and flares aboard (`antiAir.ts`). Bullets cannot hurt it. */
   armour: { hits: 3, flares: 3 },
+  /**
+   * Shot down: it noses over and falls from the circle, carried in toward its centre so it comes down on the map. See
+   * crash.ts. `inward` and `along` are the m/s it starts the fall with, toward the centre and along the circle.
+   */
+  crash: { gravity: 9, spin: 0.5, spinUp: 0.4, pitchRate: 0.3, pitch: 0.8, belly: 3, radius: 16, damage: 900, wreck: 12, scale: 2.2, inward: 26, along: 22 },
   /** Thrown on arrival and on leaving, and by `Ac130.popFlares`. */
   flares: { pairs: 8, gap: 0.16, speed: 15, gravity: 9, drag: 0.55, life: 3.4 },
   /** Enemies within this of each other count as one target for the heavy guns. */

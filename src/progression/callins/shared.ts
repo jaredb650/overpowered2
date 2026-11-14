@@ -42,19 +42,40 @@ export interface StrikeOrder {
   heading: THREE.Vector3;
 }
 
+/** Seconds after a pop before the flares will go again, so a double press does not throw two. */
+export const FLARE_LOCKOUT = 3;
+
 /**
  * A call-in that is an aircraft: the door gunner, the attack chopper and the gunship. Each is the player's to fly or an
- * AI's, and it is what the enemy's anti-air (part 2 of `docs/proposals/air-support.md`) will shoot at.
+ * AI's, and it is what the enemy's anti-air (`antiAir.ts`) shoots at.
  */
 export interface Aircraft extends Strike {
   readonly position: THREE.Vector3;
+  /** What every damage source it fires starts with, so a boss knows which aircraft is pounding it. */
+  readonly sources: string;
   /** Missile hits left before it goes down. */
   hits: number;
   /** Flares left to throw at a missile. */
   flares: number;
+  /** Small-arms rounds that land before it goes down. 0 on an airframe bullets cannot hurt. */
+  rounds: number;
+  /** The player is in the seat, or on the way to it. */
+  readonly flown: boolean;
+  /** The pilot or the crew throw its flares, not the player. */
+  readonly autoFlares: boolean;
+  /** Anti-air may lock it: up, not going down, and not a mission's fixed flight. */
+  readonly huntable: boolean;
+  /** Throws flares a player can see on its own. Otherwise anti-air draws them where it is. */
+  readonly drawsFlares?: boolean;
   /** A missile reached it. True when that brought it down. */
   hit(): boolean;
-  /** Down now: whoever is in the seat is back in the body, and the aircraft is gone. */
+  /** A round landed. True when that brought it down. */
+  shot(): boolean;
+  /** Flares out, if any are left and the last pop is `FLARE_LOCKOUT` behind. True when they went. */
+  popFlares(): boolean;
+  /** A burst from an enemy chopper landed. Helicopters only: the gunship flies far over them. */
+  struck?(seconds: number): void;
+  /** Down now: whoever is in the seat is back in the body, and the aircraft crashes. */
   down(): void;
 }
 

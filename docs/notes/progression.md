@@ -18,7 +18,8 @@
 | `callins/ac130.ts`, `ac130Guns.ts`, `ac130Rounds.ts`, `ac130Model.ts`, `ac130Data.ts` | The gunship: the seat, views, impacts and white phosphorus; the four guns and the crew; what is in the air; the airframe; its numbers |
 | `callins/airframe.ts`, `radio.ts` | Shared by aircraft call-ins. See "Building another aircraft" |
 | `callins/gunnerStrike.ts`, `attackChopper.ts`, `doorGunner.ts`, `heliData.ts` | The two helicopters: the flight and the AI crew they share, each one's flying and guns, their numbers |
-| `callins/shared.ts` | `Strike`, `Aircraft` (the hooks anti-air will use), `TapOrHold` |
+| `callins/shared.ts` | `Strike`, `Aircraft` (what anti-air shoots at), `FLARE_LOCKOUT`, `TapOrHold` |
+| `callins/antiAir.ts`, `crash.ts` | The enemy fights the aircraft: hunters, the lock, missiles, flares, rounds on the door gunner; a shot-down aircraft's fall and wreck |
 | `src/vehicles/seat.ts` | The gunner's seat: the view, the parked body, aiming, marking enemies, always handing control back |
 | `src/vehicles/emplacement.ts` | Mounted guns on the ground, manned through the same seat. See the end of `vehicles.md` |
 | `src/vehicles/emplacement.ts` | Mounted guns on the ground, manned through the same seat. See the end of `vehicles.md` |
@@ -112,13 +113,56 @@ The door gunner (J), the attack chopper (H) and the AC-130 (M) are each the play
   before the cooldown (`aircraft.test.ts`). The gunship on its two minutes, ammunition unlimited, magazines only.
 - **A seat the crew kept was never boarded,** so `GunnerSeat.leave` only undoes anything when `rig.seat` is itself. Without that, an AI
   aircraft ending would tear down the seat the player is sitting in on another one.
-- **Hooks for anti-air (part 2):** every aircraft is an `Aircraft` (`shared.ts`): `position`, `hits` (door 1, chopper 2, gunship 3, from
-  `armour` in the data), `flares` (2, 3, 3), `hit()` (a missile landed; true when that brought it down) and `down()`. `down` throws the
-  player out of the seat and the aircraft is gone the next frame: part 2 puts the crash there. `Ac130.popFlares()` spends one and throws
-  the fans. `CallInManager.shootDown` (the Commander's MANPADS) now calls `down()`.
+- **What anti-air shoots at:** every aircraft is an `Aircraft` (`shared.ts`). See "The enemy fights the aircraft" below.
 - **The crews.** Helicopters (`GunnerStrike.aiFight`): the sight goes straight onto the man nearest the middle of the fight, the gun
   swings after it, and the trigger is pulled in bursts (`ai.burst`, `ai.rest`) while he is inside the arc. The chopper adds rockets on a
   knot of 3. Under AI the guns are heard from the aircraft and nothing shakes the player's view.
+
+## The enemy fights the aircraft
+
+Part 2 of `docs/proposals/air-support.md` (section 3). `AntiAir` (`callins/antiAir.ts`, numbers in `ANTI_AIR`) is owned by the
+`CallInManager`, which hands it every running `Aircraft` each frame on the strike clock.
+
+- **Who hunts.** Rocketeers (the swarm's and the Outpost's, both `rocketeer`), the Juggernaut and the Titan, within 330 m of an
+  aircraft, never a prisoner. One at a time across the map: a new hunter is picked only with nobody hunting and the rest run out, 8 s
+  after the first aircraft is up and 14 to 22 s after each hunt ends. The pick is random among everyone in reach; the target is the
+  aircraft the player is in if it is in reach, or the nearest.
+- **A boss pounded from the air** (`enemy:hit` from a source starting with an aircraft's `sources`: `door`, `chopper`, `ac130`) turns on
+  that aircraft at once, outside the rest, as long as fewer than two are hunting; at most one missile per boss every 10 s after its last.
+- **The lock** is 3.2 s (a boss's 2.4). The seat in that aircraft hears `aa_lock`, a pip whose gap closes from 0.42 s to 0.1 s, then
+  `aa_launch`, a two-tone warble, as the missile leaves. From the ground neither is heard. No marker on screen. A hunter who dies, or an
+  aircraft going down or gone home, ends the lock.
+- **The missile** is anti-air's own, not a combat projectile: it leaves the man steeply up and leaning toward the aircraft, 16 m/s
+  building to 60 m/s at 26 m/s², turning at 2.6 rad/s. It is drawn as a hot spark held to 9 px (`Ac130Rounds.flash`, a second instance of
+  the gunship's renderer), with `airstrikeTrail` and its own thick smoke every 0.05 s so it reads from the gunship's sensor 200 m up. About
+  4.5 s to the gunship, 1.5 to 2.5 s to a helicopter. It hits within 5 m, and bursts on its own after 11 s or when its aircraft is gone.
+  Its bursts are a look and a sound only.
+- **Flares** are noticed by the aircraft's `flares` count going down, so the seat, the pilot and the crew all throw them the same way.
+  Each pop throws 6 decoys from 6 m under the aircraft (at the eye a flare is the whole screen), drawn unless the aircraft draws its
+  own (the gunship's fans, `drawsFlares`). Every missile on that aircraft more than 14 m from it turns onto a decoy and bursts on it, or
+  in mid-air when the decoy burns out. Closer than that, it is too late.
+  - **The player** pops them with the jump key (Space) in the chopper and gunship seats: 3 each, no refill, `FLARE_LOCKOUT` (3 s) after
+    each pop, shown as a reload on the panel's FLARES row (a fifth row on the gunship). The hint says so.
+  - **The door gunner's pilot** throws his own 2 (`armour.pilot`); the key does nothing there. **Any crew** (after E, or sent in) throws
+    its own too. Both throw at 55 to 95 m out but not before 0.6 s after launch, and 30% of the time late, at 6 to 12 m, which is inside
+    the 14 m: the flares go and the missile hits anyway.
+- **Hits.** `hit()`: door gunner 1, chopper 2, gunship 3, with a radio line and a shake in the seat. `shot()`: only the door gunner
+  takes rounds (`armour.rounds` 24). Every 0.4 s each trooper, gunner, brute, warden or riot within 75 m of it rolls a landing round at
+  12% falling to nothing at 75 m, and each sniper within 260 m at 6%; 45% of rolls put an enemy tracer up whether it lands or not. Nobody
+  stops fighting the ground to do it: it is a roll, not their own fire. The chopper and gunship never take rounds. An enemy chopper's
+  burst on the door gunner is a round too.
+- **Shot down** (`down()`, which the Commander's MANPADS `shootDown` also calls): the seat empties at once (the player is back in the
+  body), the guns and engines stop, `MAYDAY`, and a `Crash` (`crash.ts`) takes the airframe: fire trail, black smoke, the helicopters
+  spinning up to 4.5 rad/s, the gunship nosing over and carried in toward its circle's middle so it lands on the map, falling at 11 and 9
+  m/s². Where it meets `skyline.ground` (or after 14 s): a blast of 420 in 9 m (helicopter) or 900 in 16 m (gunship) as the player's team
+  with `selfDamage 0`, `playerPush 0` and `worldObject` (no barrel goes off), the finisher fireball, a scorch, then the wreck burns 9 or 12 s
+  and the strike ends. Source `door_crash`, `chopper_crash`, `ac130_crash`. A mission's fixed flight is never hunted and takes no rounds.
+- **Enemy choppers** see one friendly at a time (`VehicleTargets.setFriendly`). Anti-air hands them a stand-in that follows the
+  helicopter the player is in, or else any helicopter still up, so two helicopters no longer clear each other. A burst on a crew-flown
+  helicopter now comes off its time (`clock`), where it used to do nothing. The gunship is never their target.
+- **Tests:** `aircraft.test.ts`, "Part 2". **Live:** `tools/scripts/airsupport-live.mjs` modes `missile`, `flares`, `crash`, `pilot`.
+- **Rough:** a hunter does not visibly turn and aim up during the lock; the missile just leaves his chest. The door gunner's rounds are
+  rolled, not real enemy fire. Missile bursts near a helicopter can fill the door gunner's view.
 
 ## The AC-130
 

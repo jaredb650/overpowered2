@@ -1,7 +1,7 @@
 # Proposal: the air support update
 
-Status: part 1 built 2026-11-14 (sections 1, 2, 4 and 5; see "Aircraft: flown or sent in" and "The AC-130" in
-`docs/notes/progression.md`). Part 2, section 3, is not. Written 2026-11-13 from the owner's notes after playtesting; the owner
+Status: built. Part 1 2026-11-14 (sections 1, 2, 4 and 5; see "Aircraft: flown or sent in" and "The AC-130" in
+`docs/notes/progression.md`). Part 2, section 3, 2026-11-14 (see "The enemy fights the aircraft" there). Written 2026-11-13 from the owner's notes after playtesting; the owner
 answered the first round of questions the same day.
 
 ## The goal
@@ -56,9 +56,9 @@ An attack chopper plus plus. Four weapons, one key each, with a round or fuze to
 - **Views.** Three, switched with one key: the current normal view with enemy boxes, white-hot thermal, and black-hot
   thermal. Every view shows every enemy; the views are about the look, not about hiding anything.
 
-## 3. The enemies fight the aircraft (part 2, not built)
+## 3. The enemies fight the aircraft (built, part 2)
 
-Hooks are in: `Aircraft` in `callins/shared.ts` (`hits`, `flares`, `hit()`, `down()`), `Ac130.popFlares()`.
+Built in `callins/antiAir.ts` and `crash.ts`. Flares are on the jump key (Space) in the chopper and gunship seats.
 
 - Anything that fires explosives can turn on an aircraft: Rocketeers, the Juggernaut, other rocket bosses. The Commander
   already shoots call-ins down (`shootDown` in `callins/manager.ts`), which this builds on.
@@ -111,8 +111,9 @@ Each weapon has its own signature so you can read the AC-130 working without see
 
 ## 7. Still open
 
-- **Do the 3 flares refill during a sortie?** Default: no, 3 per sortie.
-- **The door gunner pilot's flares:** how many, and how reliable? Default: 2, and he is sometimes late.
+- **Do the 3 flares refill during a sortie?** Default: no, 3 per sortie. Built that way.
+- **The door gunner pilot's flares:** how many, and how reliable? Default: 2, and he is sometimes late. Built that way: late 30% of the
+  time, and any crew is late as often.
 
 ## 8. Pieces, for costing later
 

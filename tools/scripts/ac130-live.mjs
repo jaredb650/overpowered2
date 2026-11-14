@@ -134,18 +134,21 @@ async function booted(page, h) {
   return false;
 }
 
-/** Key to enter, aim down, click to confirm. Returns what targeting said at each step. */
+/**
+ * Aim down and hold M: the gunship goes in with its crew on the guns, over what the crosshair is on. There is no mark
+ * to place any more (air support part 1); a tap would put the player in the seat instead.
+ */
 async function callIn(page) {
   return page.evaluate(async () => {
     const { ctx } = window.__op2;
     ctx.player.pitch = -0.55;
     ctx.progression.grantCallIn('ac130');
     const before = ctx.progression.targeting;
-    await window.__tap('callinAc130');
-    const entering = ctx.progression.targeting;
-    await new Promise(r => setTimeout(r, 200));
-    await window.__tap('fire');
-    return { before, entering, after: ctx.progression.targeting, held: [...ctx.progression.callIns], cooldown: ctx.progression.callInCooldown('ac130') };
+    ctx.input.simulate('callinAc130', true);
+    await new Promise(r => setTimeout(r, 600));
+    ctx.input.simulate('callinAc130', false);
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+    return { before, after: ctx.progression.targeting, seated: ctx.progression.callInsManager.seats.occupied, held: [...ctx.progression.callIns], cooldown: ctx.progression.callInCooldown('ac130') };
   });
 }
 

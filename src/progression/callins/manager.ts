@@ -18,8 +18,10 @@ import { UTILITY_AIRFRAME, type UtilityMount } from '../../vehicles/utilityModel
 import { ModelMaterials } from '../modelkit';
 import { CALLIN_ORDER, CALLINS } from '../data';
 import { Ac130, Ac130Rig } from './ac130';
+import { Ac130Rounds } from './ac130Rounds';
 import { Airframe } from './airframe';
 import { Airstrike } from './airstrike';
+import { AntiAir } from './antiAir';
 import { AttackChopper } from './attackChopper';
 import { BlackSun, blackSunMaterials } from './blacksun';
 import { DoorGunner } from './doorGunner';
@@ -28,7 +30,7 @@ import type { Ride } from './gunnerStrike';
 import { Nuke, NukeAftermath, nukeFrontMaterial } from './nuke';
 import { Orbital, orbitalMaterials } from './orbital';
 import { Ordnance } from './ordnance';
-import { isAircraft, TapOrHold, type Strike, type StrikeKit, type StrikeOrder } from './shared';
+import { isAircraft, TapOrHold, type Aircraft, type Strike, type StrikeKit, type StrikeOrder } from './shared';
 import { Targeting } from './targeting';
 import { Warthog, warthogModel } from './warthog';
 
@@ -94,6 +96,9 @@ export class CallInManager {
   private pressing: CallInId = 'airstrike';
   private readonly heldCall: HeldCall = { id: 'airstrike', ai: false, age: 0, point: new THREE.Vector3(), heading: new THREE.Vector3(1, 0, 0) };
   private calling = false;
+  /** The enemy's side of the air war: hunters, their missiles, the flares, the rounds that reach a door gunner. */
+  private readonly antiAir: AntiAir;
+  private readonly aircraft: Aircraft[] = [];
 
   constructor(private readonly ctx: Ctx, materials: ModelMaterials, holdGrade: (grade: GradeName | null) => void) {
     const probe = new GroundProbe(ctx);
@@ -109,6 +114,7 @@ export class CallInManager {
     this.seats = new SeatRig(ctx, probe, holdGrade);
     this.harrow = { frame: new Airframe(materials, scene, ATTACK_AIRFRAME), gun: new Gun(materials, scene, CHIN_CANNON) };
     this.packmule = { frame: new Airframe(materials, scene, UTILITY_AIRFRAME), gun: new Gun(materials, scene, M134) };
+    this.antiAir = new AntiAir(ctx, new Ac130Rounds(ctx, materials), this.seats.prisoners);
     this.emplacements = new Emplacements(ctx, materials, this.seats, () => this.holster());
     // The map is built by the first run, and its guns stay for every run after.
     const unlisten = ctx.events.on('run:start', () => {
@@ -180,6 +186,9 @@ export class CallInManager {
         if (strike === this.steering) this.lowerDevice();
       }
     }
+    this.aircraft.length = 0;
+    for (const strike of this.strikes) if (isAircraft(strike)) this.aircraft.push(strike);
+    this.antiAir.update(dt, this.aircraft);
     if (this.steering && this.ctx.input.pressed('aim')) {
       this.steering.release();
       this.lowerDevice();
@@ -282,7 +291,7 @@ export class CallInManager {
     this.ctx.events.emit('callin:used', { id, position: this.order.point });
   }
 
-  /** Anti-air on the newest of this kind. An aircraft goes down, with the player thrown out of its seat. Anything else is simply gone. */
+  /** The Commander's MANPADS, on the newest of this kind. An aircraft crashes, with the player thrown out of its seat. Anything else is simply gone. */
   shootDown(id: CallInId): boolean {
     for (let i = this.strikes.length - 1; i >= 0; i--) {
       const strike = this.strikes[i]!;
@@ -410,6 +419,8 @@ export class CallInManager {
     for (const strike of this.strikes) strike.dispose();
     this.strikes.length = 0;
     this.flying.clear();
+    this.antiAir.clear();
+    this.aircraft.length = 0;
     this.tapHold.cancel();
     this.calling = false;
     this.kit.ordnance.clear();

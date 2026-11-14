@@ -88,6 +88,15 @@ export const callIns = [
     s.osc('sawtooth', 165, 0.1).lp(1400).env(swell(0.002, 0.09, 0.02, 0.6)).out();
     s.at(0.13, () => s.osc('sawtooth', 165, 0.12).lp(1400).env(swell(0.002, 0.11, 0.03, 0.6)).out());
   }),
+  // Anti-air on the seat the player is in: one pip of the lock tone, played faster as the lock closes, then the launch
+  // warning, a two-tone warble that says the missile is in the air.
+  r('aa_lock', { dur: 0.12, mix: 'reward', over: { volume: 0.42, exempt: true } }, s => {
+    s.osc('square', 1240, 0.09).lp(3600).env(swell(0.002, 0.08, 0.01, 0.5)).out();
+  }),
+  r('aa_launch', { dur: 1.5, mix: 'reward', over: { volume: 0.55, exempt: true } }, s => {
+    // Each pip rings off, and the last ones quieter, so the warble ends on a fade and not a cut.
+    for (let i = 0; i < 6; i++) s.at(i * 0.2, () => s.osc('square', i % 2 ? 990 : 1480, 0.3).lp(4200).env(perc(0.22, 0.5 * (1 - i * 0.1), 0.002)).out());
+  }),
   r('missile_incoming', { dur: 1.6, n: 3, mix: 'blastSmall', over: { volume: 0.5, near: 12, far: 200, airDelay: false, send: 0.2, duck: undefined, maxVoices: 4 }, expect: { trend: -1 } }, s => {
     const f = s.r(1500, 2100);
     s.osc('sine', [[0, f], [1.5, f * 0.46]], 1.6).env([[0, 0.0001], [1.4, 0.3], [1.6, 0.0001]]).out();

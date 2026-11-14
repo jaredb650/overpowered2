@@ -28,7 +28,8 @@ export interface GunnerWeapon {
 
 /** One for every enemy the game allows at once. */
 const MAX_TAGS = 48;
-const MAX_WEAPONS = 4;
+/** The gunship's four guns and its flares. */
+const MAX_WEAPONS = 5;
 /** The body's tag pins to this share of the half-screen, so it is findable when it is out of shot. */
 const EDGE = 0.92;
 
@@ -214,11 +215,13 @@ export class GunnerHud implements SeatPanel {
     }
     this.label.set(plan.label);
     const out = seat.noWayOut ? '' : ` // ${this.key('interact')} ${plan.tone === 'mount' ? 'LEAVE' : 'HAND TO AI'}`;
+    // The door gunner's pilot throws his own; the chopper (thermal) and gunship seats have the key.
+    const flares = plan.tone === 'gunship' || plan.tone === 'thermal' ? ` // ${this.key('jump')} FLARES` : '';
     this.hint.set(plan.tone === 'gunship'
-      ? `${this.key('fire')} FIRE // 1-4 GUN, AGAIN FOR ROUND // ${this.key('aim')} ZOOM // ${this.key('reload')} VIEW${out}`
+      ? `${this.key('fire')} FIRE // 1-4 GUN, AGAIN FOR ROUND // ${this.key('aim')} ZOOM // ${this.key('reload')} VIEW${flares}${out}`
       : plan.aimZooms
         ? `${this.key('fire')} FIRE // ${this.key('aim')} ZOOM${out}`
-        : `${this.key('fire')} CANNON // ${this.key('aim')} ROCKETS // WHEEL ZOOM${out}`);
+        : `${this.key('fire')} CANNON // ${this.key('aim')} ROCKETS // WHEEL ZOOM${flares}${out}`);
     this.el.style.setProperty('--gn-hot', plan.enemyColor);
     this.spinShown.set(plan.tone !== 'thermal' && plan.tone !== 'gunship');
   }

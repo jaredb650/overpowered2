@@ -16,6 +16,7 @@ import * as THREE from 'three';
 import type { Action, Ctx, ExplosionKind, ExplosionOptions, PlayOptions } from '../../core/contracts';
 import type { EnemyInstance, ExplosionSpec, KillEvent, ShotSpec } from '../../core/gameplay';
 import { clamp, rand, TAU } from '../../core/math';
+import type { GunnerWeapon } from '../../vehicles/hud';
 import { GunnerSeat, type SeatRig } from '../../vehicles/seat';
 import { CALLINS } from '../data';
 import type { ModelMaterials } from '../modelkit';
@@ -23,10 +24,11 @@ import { Airframe, EngineSound, OrbitPath } from './airframe';
 import { AC130 as A } from './ac130Data';
 import { Battery, FireControl, GUN_ORDER } from './ac130Guns';
 import { AC130_AIRFRAME, type Ac130Mount } from './ac130Model';
+import { Crash } from './crash';
 import { Ac130Rounds, flakCone, type ImpactKind } from './ac130Rounds';
 import { GroundRing } from './ground';
 import { Radio } from './radio';
-import type { Aircraft, StrikeKit, StrikeOrder } from './shared';
+import { FLARE_LOCKOUT, type Aircraft, type StrikeKit, type StrikeOrder } from './shared';
 
 const UP = new THREE.Vector3(0, 1, 0);
 /** Metres a blast stands off a wall, so its line-of-sight rays do not start inside it. */
@@ -175,8 +177,14 @@ export class Phosphorus {
 }
 
 export class Ac130 implements Aircraft {
-  hits = A.armour.hits;
-  flares = A.armour.flares;
+  readonly sources = 'ac130';
+  readonly drawsFlares = true;
+  hits: number = A.armour.hits;
+  flares: number = A.armour.flares;
+  rounds = 0;
+  private flareLock = 0;
+  private readonly flareRow: GunnerWeapon = { name: 'FLARES', ammo: A.armour.flares, max: A.armour.flares, reload: -1 };
+  private crash: Crash | null = null;
   private t = 0;
   private countdownAt = 0;
   private pairsLeft = A.flares.pairs;
@@ -188,7 +196,6 @@ export class Ac130 implements Aircraft {
   private praiseIn = 0;
   private onStation = false;
   private offStation = false;
-  private gone = false;
   private view = 0;
   /** The crew has the guns. Once true it stays true. */
   private ai: boolean;
@@ -205,7 +212,7 @@ export class Ac130 implements Aircraft {
   private readonly radius = CALLINS.ac130.radius;
   private readonly color = CALLINS.ac130.color;
 
-  constructor(private readonly kit: StrikeKit, order: StrikeOrder, private readonly rig: Ac130Rig, seats: SeatRig, ai: boolean) {
+  constructor(private readonly kit: StrikeKit, order: StrikeOrder, private readonly rig: Ac130Rig, private readonly seats: SeatRig, ai: boolean) {
     const { ctx } = kit;
     this.ai = ai;
     this.path.begin(order.point, this.arrivalAngle(order.point));
@@ -217,7 +224,7 @@ export class Ac130 implements Aircraft {
     this.crew = new FireControl(ctx, this.battery, rig.airframe, this.path.center, this.radius, this.radio, rig.prisoners);
     this.phosphorus = new Phosphorus(ctx);
     this.seat = new GunnerSeat(ctx, seats, A.seat);
-    this.seat.weapons.push(...this.battery.weapons);
+    this.seat.weapons.push(...this.battery.weapons, this.flareRow);
     rig.rounds.onImpact = (kind, point, normal, dir) => this.impact(kind, point, normal, dir);
     this.stopListening = ctx.events.on('enemy:killed', e => this.onKill(e));
     this.engines.start(3);
@@ -242,23 +249,61 @@ export class Ac130 implements Aircraft {
     return this.rig.airframe.root.position;
   }
 
+  get flown(): boolean {
+    return !this.ai && this.seat.stage !== 'left';
+  }
+
+  get autoFlares(): boolean {
+    return !this.flown;
+  }
+
+  get huntable(): boolean {
+    return !this.crash && !this.offStation;
+  }
+
   hit(): boolean {
-    if (this.gone || --this.hits > 0) return false;
+    if (this.crash) return false;
+    if (--this.hits > 0) {
+      this.radio.say(this.hits === 1 ? 'HIT AGAIN. WE CANNOT TAKE ANOTHER.' : 'WE ARE HIT. NUMBER TWO ENGINE IS OUT.');
+      if (this.flown) this.kit.ctx.camera.addTrauma(0.6);
+      return false;
+    }
     this.down();
     return true;
   }
 
-  /** Part 2 puts the crash here. For now the ship is simply gone, and the seat with it. */
-  down(): void {
-    this.gone = true;
-    this.seat.leave();
+  /** Bullets cannot reach it up here. */
+  shot(): boolean {
+    return false;
   }
 
-  /** Part 2's flare button. A pair of fans of flares, if there are any left. */
+  /** Shot down: the seat is empty at once, and the ship noses over and falls in toward the circle's middle. */
+  down(): void {
+    if (this.crash) return;
+    const { path, rig, seats } = this;
+    const C = A.crash;
+    this.hits = 0;
+    this.offStation = true;
+    this.seat.leave();
+    this.battery.silence();
+    this.engines.stop(3);
+    this.ring.hide();
+    rig.rounds.laserOn = false;
+    this.radio.say('MAYDAY. MAYDAY. SPECTRE IS GOING DOWN.');
+    const { position } = rig.airframe.root;
+    _vel.subVectors(path.center, position).setY(0).normalize().multiplyScalar(C.inward);
+    path.heading(this.t, _fwd);
+    _vel.addScaledVector(_fwd, C.along);
+    this.crash = new Crash(this.kit.ctx, rig.airframe.root, _vel, (x, z) => seats.skyline.ground(x, z), C, 'ac130_crash');
+  }
+
+  /** The flare key: a pair of fans of flares, if there are any left and the last pop is far enough behind. */
   popFlares(): boolean {
-    if (this.flares <= 0) return false;
+    if (this.crash || this.flares <= 0 || this.flareLock > 0) return false;
     this.flares--;
+    this.flareLock = FLARE_LOCKOUT;
     this.dropFlares();
+    this.kit.ctx.audio.play('flame_ignite', { volume: 0.8, pitch: 1.3, position: this.flown ? undefined : this.position });
     return true;
   }
 
@@ -270,8 +315,18 @@ export class Ac130 implements Aircraft {
   }
 
   update(dt: number): boolean {
-    if (this.gone) return true;
+    if (this.crash) {
+      this.radio.update(dt);
+      this.rig.airframe.update(dt * 0.4);
+      this.rig.rounds.update(this.kit.ctx.time.dt);
+      this.phosphorus.update(this.kit.ctx.time.dt);
+      this.throwFlares(dt);
+      return this.crash.update(dt) && this.rig.rounds.idle && this.phosphorus.count === 0;
+    }
     this.t += dt;
+    this.flareLock = Math.max(0, this.flareLock - dt);
+    this.flareRow.ammo = this.flares;
+    this.flareRow.reload = this.flareLock > 0 ? 1 - this.flareLock / FLARE_LOCKOUT : -1;
     const { path, rig, t, seat, battery } = this;
     this.fly();
     rig.airframe.update(dt);
@@ -331,6 +386,7 @@ export class Ac130 implements Aircraft {
       seat.leave();
       return;
     }
+    if (input.pressed('jump')) this.popFlares();
     for (let i = 0; i < WEAPON_KEYS.length; i++) {
       if (!input.pressed(WEAPON_KEYS[i]!)) continue;
       const gun = GUN_ORDER[i]!;
@@ -576,6 +632,7 @@ export class Ac130 implements Aircraft {
     this.stopListening();
     this.ring.dispose();
     this.phosphorus.clear();
+    this.crash?.dispose();
     rig.airframe.hide();
     rig.rounds.clear();
   }

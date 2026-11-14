@@ -152,8 +152,11 @@ export interface HeliPlan {
   aiSeconds: number;
   /** The crew on the gun: seconds of each burst and of the pause after it, and the knot that earns the second weapon. */
   ai: { burst: readonly [number, number]; rest: readonly [number, number]; altKnot: number };
-  /** Missile hits that bring it down, and flares aboard. Read by part 2 of the air support plan. */
-  armour: { hits: number; flares: number };
+  /**
+   * Missile hits that bring it down, flares aboard, small-arms rounds that bring it down (0: bullets cannot hurt it),
+   * and whether the pilot throws the flares on his own, with no say for the gunner.
+   */
+  armour: { hits: number; flares: number; rounds: number; pilot: boolean };
 }
 
 const ROTOR = 'heli_rotor_loop';
@@ -194,7 +197,7 @@ export const ATTACK = {
   praise: { kills: 3, window: 1.6, every: 9 },
   aiSeconds: 120,
   ai: { burst: [0.6, 1.4], rest: [0.5, 1.2], altKnot: 3 },
-  armour: { hits: 2, flares: 3 },
+  armour: { hits: 2, flares: 3, rounds: 0, pilot: false },
   /** How long the pilot takes to change his mind about where the fight is, as a rate. */
   focusRate: 0.9,
   scanEvery: 0.5,
@@ -255,7 +258,7 @@ export const DOOR = {
   praise: { kills: 4, window: 1.4, every: 9 },
   aiSeconds: 90,
   ai: { burst: [1.2, 2.4], rest: [0.8, 1.6], altKnot: 99 },
-  armour: { hits: 1, flares: 2 },
+  armour: { hits: 1, flares: 2, rounds: 24, pilot: true },
   /** How fast the circle slides toward the fight, as a rate. Slow, so the lap stays a lap. */
   focusRate: 0.22,
   scanEvery: 0.5,

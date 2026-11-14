@@ -11,15 +11,17 @@
  * seat can also be emptied from outside, on death, so the strike notices that it is empty and never assumes it did it.
  */
 import * as THREE from 'three';
-import type { EnemyInstance, FriendlyAircraft, KillEvent } from '../../core/gameplay';
+import type { EnemyInstance, KillEvent } from '../../core/gameplay';
 import { clamp, rand, wrapAngle } from '../../core/math';
 import type { Gun } from '../../vehicles/guns';
+import type { GunnerWeapon } from '../../vehicles/hud';
 import { GunnerSeat, type SeatRig } from '../../vehicles/seat';
 import { thickestKnot } from '../../vehicles/targets';
 import { EngineSound, type Airframe } from './airframe';
+import { Crash, type CrashPlan } from './crash';
 import type { HeliPlan } from './heliData';
 import { Radio } from './radio';
-import type { Aircraft, StrikeKit } from './shared';
+import { FLARE_LOCKOUT, type Aircraft, type StrikeKit } from './shared';
 
 /** How a gun sits with nobody on it: on the middle of its arc, drooped. */
 const STOWED_PITCH = -0.3;
@@ -28,11 +30,14 @@ const BINGO_AT = 10;
 const WIND_DOWN = 5;
 /** The crew says so once for this many bursts that land, and no more. */
 const HITS_PER_CALL = 5;
+/** A helicopter shot down: it spins as it falls, and the blast where it lands is a big rocket's. */
+const CRASH: CrashPlan = { gravity: 11, spin: 4.5, spinUp: 3, pitchRate: 0.5, pitch: 0.5, belly: 1.2, radius: 9, damage: 420, wreck: 9, scale: 1.3 };
 
 const _pivot = new THREE.Vector3();
 const _chase = new THREE.Vector3();
 const _nose = new THREE.Vector3();
 const _to = new THREE.Vector3();
+const _was = new THREE.Vector3();
 
 /** One aircraft and its gun, built at load like the Warthog's jet. */
 export interface Ride<M extends string> {
@@ -57,7 +62,15 @@ export abstract class GunnerStrike<M extends string> implements Aircraft {
   protected homebound = false;
   hits: number;
   flares: number;
-  private gone = false;
+  rounds: number;
+  /** Seconds left of the lockout after a pop. */
+  private flareLock = 0;
+  /** The flares' line on the panel. */
+  private readonly flareRow: GunnerWeapon;
+  /** Set when it is shot down. It falls on this, and the strike ends when the wreck has burnt out. */
+  private crash: Crash | null = null;
+  /** m/s as flown last frame, for the fall to start from. */
+  private readonly velocity = new THREE.Vector3();
   private target: EnemyInstance | null = null;
   /** Seconds left of the crew's burst, or below zero, of the pause after it. */
   private burst = 0;
@@ -82,24 +95,24 @@ export abstract class GunnerStrike<M extends string> implements Aircraft {
     ride: Ride<M>,
     private readonly gunMount: M,
     /** Every damage source this aircraft uses starts with this. */
-    private readonly sources: string,
+    readonly sources: string,
     ai: boolean,
   ) {
     const { ctx } = kit;
     this.ai = ai;
     this.hits = plan.armour.hits;
     this.flares = plan.armour.flares;
+    this.rounds = plan.armour.rounds;
     this.frame = ride.frame;
     this.gun = ride.gun;
     this.radio = new Radio(ctx, plan.callsign, plan.color);
     this.engines = new EngineSound(ctx, plan.engine);
     this.seat = new GunnerSeat(ctx, rig, plan.seat);
+    this.flareRow = { name: plan.armour.pilot ? 'PILOT FLARES' : 'FLARES', ammo: this.flares, max: this.flares, reload: -1 };
     this.stopListening = ctx.events.on('enemy:killed', e => this.onKill(e));
     this.scan();
     this.engines.start(1.2);
     ctx.audio.play('walkietalkie_fire');
-    const aircraft: FriendlyAircraft = { position: this.frame.root.position, hit: seconds => this.struck(seconds) };
-    ctx.enemies.vehicles?.setFriendly(aircraft);
   }
 
   /** Moves the airframe for this frame. */
@@ -115,6 +128,8 @@ export abstract class GunnerStrike<M extends string> implements Aircraft {
 
   /** Call at the end of a subclass constructor, once the aircraft is in the air. */
   protected begin(): void {
+    // Last, after the guns: the flares are the bottom line of the panel.
+    this.seat.weapons.push(this.flareRow);
     if (this.ai) {
       this.radio.say('INBOUND. WE HAVE THE GUN.');
       this.kit.ctx.hud.banner(this.plan.callsign, 'CREW ON THE GUN', this.plan.color);
@@ -133,27 +148,84 @@ export abstract class GunnerStrike<M extends string> implements Aircraft {
     return this.ai ? this.frame.root.position : undefined;
   }
 
+  get flown(): boolean {
+    return !this.ai && this.seat.stage !== 'left';
+  }
+
+  get autoFlares(): boolean {
+    return this.plan.armour.pilot || !this.flown;
+  }
+
+  get huntable(): boolean {
+    return !this.crash && !this.scripted;
+  }
+
   hit(): boolean {
-    if (this.gone || --this.hits > 0) return false;
+    if (this.crash) return false;
+    if (--this.hits > 0) {
+      this.radio.say('WE ARE HIT. STILL FLYING.');
+      if (this.flown) this.kit.ctx.camera.addTrauma(0.7);
+      return false;
+    }
     this.down();
     return true;
   }
 
-  /** Part 2 puts a crash here. For now the aircraft is simply gone, and the seat with it. */
+  shot(): boolean {
+    // A mission's fixed flight goes down where the mission says, and nowhere else.
+    if (this.crash || this.scripted || this.plan.armour.rounds <= 0) return false;
+    if (this.flown) this.kit.ctx.camera.addTrauma(0.12);
+    this.kit.ctx.audio.play('impact_metal', { volume: 0.7, position: this.heard });
+    if (--this.rounds > 0) {
+      if (this.rounds % 8 === 0) this.radio.say('TAKING ROUNDS. TAKING ROUNDS.');
+      return false;
+    }
+    this.down();
+    return true;
+  }
+
+  popFlares(): boolean {
+    if (this.crash || this.flares <= 0 || this.flareLock > 0) return false;
+    this.flares--;
+    this.flareLock = FLARE_LOCKOUT;
+    this.kit.ctx.audio.play('flame_ignite', { volume: 0.8, pitch: 1.5, position: this.heard });
+    if (this.plan.armour.pilot) this.radio.say('FLARES. FLARES.');
+    return true;
+  }
+
+  /** Shot down: the seat is empty at once, and the aircraft falls. Nothing it does from here can hurt the player. */
   down(): void {
-    this.gone = true;
+    if (this.crash) return;
+    const { frame, kit, rig } = this;
+    this.hits = 0;
     this.seat.leave();
+    this.silence();
+    this.engines.stop(2.5);
+    this.radio.say('MAYDAY. MAYDAY. WE ARE GOING DOWN.');
+    this.crash = new Crash(kit.ctx, frame.root, this.velocity, (x, z) => rig.skyline.ground(x, z), CRASH, `${this.sources}_crash`);
   }
 
   update(dt: number): boolean {
-    if (this.gone) return true;
+    if (this.crash) {
+      this.frame.update(dt * 0.5);
+      this.frame.mount(this.gunMount, _pivot);
+      this.radio.update(dt);
+      this.stow(dt);
+      return this.crash.update(dt);
+    }
     const { frame, gunMount, seat, kit } = this;
     this.clock += dt;
+    this.flareLock = Math.max(0, this.flareLock - dt);
+    this.flareRow.ammo = this.flares;
+    // The lockout is shown as a reload on the player's own flares, so a second press can be seen to wait.
+    this.flareRow.reload = this.flareLock > 0 && !this.plan.armour.pilot ? 1 - this.flareLock / FLARE_LOCKOUT : -1;
     this.radio.update(dt);
     this.scanIn -= dt;
     if (this.scanIn <= 0) this.scan();
 
+    _was.copy(frame.root.position);
     this.fly(dt);
+    if (dt > 0) this.velocity.subVectors(frame.root.position, _was).divideScalar(dt);
     const running = this.scripted ? Math.max(0, 1 - this.departed / WIND_DOWN) : 1;
     frame.update(dt * running);
     frame.mount(gunMount, _pivot);
@@ -209,6 +281,7 @@ export abstract class GunnerStrike<M extends string> implements Aircraft {
       this.shoot(dt);
       return;
     }
+    if (!plan.armour.pilot && kit.ctx.input.pressed('jump')) this.popFlares();
     if (kit.ctx.input.pressed('interact') || seat.left <= 0) {
       seat.leave();
       return;
@@ -329,14 +402,23 @@ export abstract class GunnerStrike<M extends string> implements Aircraft {
     this.target = null;
   }
 
-  /** A burst from an enemy chopper landed. It comes off the time left in the seat. */
-  private struck(seconds: number): void {
+  /**
+   * A burst from an enemy chopper landed. It comes off the time left: the seat's, or under the crew the time to go home.
+   * An airframe bullets can hurt takes a round as well.
+   */
+  struck(seconds: number): void {
     const { seat, kit, radio } = this;
-    if (seat.stage !== 'seated') return;
-    seat.left = Math.max(0, seat.left - seconds);
-    kit.ctx.camera.addTrauma(0.3);
-    kit.ctx.audio.play('impact_metal', { volume: 0.9 });
+    if (this.crash) return;
+    if (this.ai) this.clock += seconds;
+    else if (seat.stage === 'seated') seat.left = Math.max(0, seat.left - seconds);
+    else return;
     this.hitCalls++;
+    if (this.plan.armour.rounds > 0) {
+      this.shot();
+      return;
+    }
+    if (!this.ai) kit.ctx.camera.addTrauma(0.3);
+    kit.ctx.audio.play('impact_metal', { volume: 0.9, position: this.heard });
     if (this.hitCalls % HITS_PER_CALL === 1) radio.say('TAKING FIRE. KILL THAT GUNSHIP.');
   }
 
@@ -356,8 +438,8 @@ export abstract class GunnerStrike<M extends string> implements Aircraft {
     this.silence();
     this.engines.stop(1.2);
     this.stopListening();
+    this.crash?.dispose();
     this.frame.hide();
     this.gun.hide();
-    this.kit.ctx.enemies.vehicles?.setFriendly(null);
   }
 }

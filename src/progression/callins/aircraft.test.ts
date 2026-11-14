@@ -3,9 +3,9 @@
  * put, its magazines, flight times, AP through roofs, the flak cone, white phosphorus, and the glide bomb's steering.
  */
 import * as THREE from 'three';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CG, type Ctx, type RayHit } from '../../core/contracts';
-import type { EnemyInstance } from '../../core/gameplay';
+import type { EnemyId, EnemyInstance, ExplosionSpec } from '../../core/gameplay';
 import { CALLIN_HOLD } from '../../input/bindings';
 import { makeBudget, loadBudget, type Raycaster } from '../../weapons/penetration';
 import { CALLINS } from '../data';
@@ -13,9 +13,11 @@ import { Ac130, Phosphorus, type Ac130Rig } from './ac130';
 import { AC130 } from './ac130Data';
 import { Battery, flightSeconds, GUN_ORDER, Magazine } from './ac130Guns';
 import { flakCone, fuze, pierce, steerBomb } from './ac130Rounds';
+import { AntiAir, ANTI_AIR, type Sky } from './antiAir';
 import { AttackChopper } from './attackChopper';
+import { DoorGunner } from './doorGunner';
 import { ATTACK, DOOR } from './heliData';
-import { TapOrHold, type StrikeKit } from './shared';
+import { FLARE_LOCKOUT, TapOrHold, type Aircraft, type StrikeKit } from './shared';
 
 const DT = 1 / 30;
 
@@ -42,13 +44,13 @@ function enemy(x: number, z: number, uid = 1): EnemyInstance {
 interface World {
   ctx: Ctx;
   keys: { pressed: Set<string>; down: Set<string> };
-  log: { parks: number; unparks: number; projectiles: number; hurt: number };
+  log: { parks: number; unparks: number; projectiles: number; hurt: number; blasts: ExplosionSpec[]; sounds: string[] };
   enemies: EnemyInstance[];
 }
 
 function world(): World {
   const keys = { pressed: new Set<string>(), down: new Set<string>() };
-  const log = { parks: 0, unparks: 0, projectiles: 0, hurt: 0 };
+  const log = { parks: 0, unparks: 0, projectiles: 0, hurt: 0, blasts: [] as ExplosionSpec[], sounds: [] as string[] };
   const enemies = [enemy(0, 30)];
   const ctx = stub<Ctx>({
     input: { pressed: (a: string) => keys.pressed.has(a), isDown: (a: string) => keys.down.has(a), frameLook: { x: 0, y: 0 } },
@@ -70,7 +72,8 @@ function world(): World {
       nav: { nearest: () => false }, objects: { hazardAt: () => null }, playerSpawns: [],
     },
     physics: { raycastInto: () => false, raycast: () => null },
-    combat: { spawnProjectile: () => log.projectiles++ },
+    combat: { spawnProjectile: () => log.projectiles++, explode: (_p: THREE.Vector3, spec: ExplosionSpec) => log.blasts.push(spec) },
+    audio: { play: (id: string) => log.sounds.push(id) },
     events: { on: () => () => undefined },
     time: { dt: DT },
     render: { camera: { position: new THREE.Vector3(), fov: 60 }, renderer: { domElement: { clientHeight: 900, style: {} } } },
@@ -175,13 +178,14 @@ describe('a helicopter handed to its crew', () => {
     expect(CALLINS.doorGunner.cooldown).toBeGreaterThan(DOOR.boardSeconds + DOOR.aiSeconds + DOOR.departSeconds);
   });
 
-  it('goes down to missiles: two hits for the chopper, and the seat is emptied', () => {
+  it('goes down to missiles: two hits for the chopper, the seat is emptied, and it crashes before it is gone', () => {
     const w = world();
     const { strike, rig } = chopper(w, false);
     expect(strike.hit()).toBe(false);
     expect(strike.hit()).toBe(true);
     expect(rig['seat']).toBeNull();
-    expect(strike.update(DT)).toBe(true);
+    expect(strike.update(DT)).toBe(false);
+    expect(run(strike, 40)).toBe(true);
   });
 });
 
@@ -410,5 +414,338 @@ describe('white phosphorus', () => {
     expect(w.log.hurt).toBe(0);
     for (let t = 0; t < AC130.howitzer.wp.seconds; t += DT) wp.update(DT);
     expect(wp.count).toBe(0);
+  });
+});
+
+// --- Part 2: the enemy fights the aircraft -------------------------------------------------------------------------------
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+function door(w: World, ai: boolean): { strike: DoorGunner; rig: Record<string, unknown> } {
+  const rig = seatRig();
+  const gun = {
+    point() {}, snap() {}, turn() {}, recoil() {}, hide() {},
+    muzzle: (out: THREE.Vector3) => out.set(0, 30, 0), bore: (out: THREE.Vector3) => out.set(0, -1, 0),
+  };
+  const strike = new DoorGunner({ ctx: w.ctx } as StrikeKit, rig as never, { frame: frame(), gun } as never, null, ai);
+  return { strike, rig };
+}
+
+/** An aircraft that only counts what is done to it, standing where it is put. */
+interface Dummy extends Aircraft {
+  struckBy: number;
+  popped: number;
+}
+
+function dummy(at: THREE.Vector3, o: Partial<Aircraft> = {}): Dummy {
+  const d: Dummy = {
+    position: at, sources: 'chopper', hits: 2, flares: 3, rounds: 0, flown: true, autoFlares: false, huntable: true,
+    struckBy: 0, popped: 0,
+    hit() { d.struckBy++; return --d.hits <= 0; },
+    shot: () => false,
+    popFlares() { if (d.flares <= 0) return false; d.flares--; d.popped++; return true; },
+    down() {}, update: () => false, dispose() {},
+    ...o,
+  };
+  return d;
+}
+
+const sky = (): Sky => ({ flash() {}, flare() {}, update() {}, clear() {} }) as unknown as Sky;
+
+function hunter(id: EnemyId, x: number, z: number, uid: number): EnemyInstance {
+  const e = enemy(x, z, uid) as { id: EnemyId };
+  e.id = id;
+  return e as unknown as EnemyInstance;
+}
+
+function antiAir(w: World): AntiAir {
+  return new AntiAir(w.ctx, sky(), new Set());
+}
+
+/** Steps anti-air with these aircraft up, until `until` says so or the time runs out. Returns the seconds it took. */
+function step(aa: AntiAir, aircraft: Aircraft[], seconds: number, until?: () => boolean): number {
+  for (let t = 0; t < seconds; t += DT) {
+    aa.update(DT, aircraft);
+    if (until?.()) return t;
+  }
+  return seconds;
+}
+
+describe('anti-air hunters', () => {
+  it('picks one at a time across the map, and the next only after a rest', () => {
+    const w = world();
+    w.enemies.length = 0;
+    for (let i = 0; i < 6; i++) w.enemies.push(hunter('rocketeer', i * 3, 0, i + 1));
+    const a = dummy(new THREE.Vector3(0, 40, 60), { hits: 99 });
+    const aa = antiAir(w);
+    // Nobody looks at it until it has been up a while.
+    expect(step(aa, [a], ANTI_AIR.firstRest - 0.5, () => aa.hunts.length > 0)).toBe(ANTI_AIR.firstRest - 0.5);
+    let most = 0;
+    let started = 0;
+    let lastEnd = -1;
+    let shortestRest = Infinity;
+    let was = 0;
+    for (let t = 0; t < 120; t += DT) {
+      aa.update(DT, [a]);
+      most = Math.max(most, aa.hunts.length);
+      if (aa.hunts.length > was) {
+        started++;
+        if (lastEnd >= 0) shortestRest = Math.min(shortestRest, t - lastEnd);
+      }
+      if (aa.hunts.length < was) lastEnd = t;
+      was = aa.hunts.length;
+    }
+    expect(most).toBe(1);
+    expect(started).toBeGreaterThan(2);
+    expect(shortestRest).toBeGreaterThanOrEqual(ANTI_AIR.rest[0] - DT);
+  });
+
+  it('only takes men who fire explosives, and never a prisoner', () => {
+    const w = world();
+    w.enemies.length = 0;
+    w.enemies.push(hunter('trooper', 0, 0, 1), hunter('sniper', 2, 0, 2), hunter('rocketeer', 4, 0, 3));
+    const aa = new AntiAir(w.ctx, sky(), new Set([3]));
+    const a = dummy(new THREE.Vector3(0, 40, 60));
+    step(aa, [a], 40);
+    expect(aa.hunts.length).toBe(0);
+  });
+
+  it('turns a boss pounded from the air on that aircraft at once, as a second hunter', () => {
+    const w = world();
+    let onHit: ((e: { enemy: EnemyInstance; damage: { source: string } }) => void) | null = null;
+    (w.ctx as unknown as { events: unknown }).events = { on: (_k: string, f: typeof onHit) => { onHit = f; return () => undefined; } };
+    w.enemies.length = 0;
+    const boss = hunter('juggernaut', 0, 0, 7);
+    (boss as { isBoss: boolean }).isBoss = true;
+    w.enemies.push(hunter('rocketeer', 5, 0, 1), boss);
+    const chopper = dummy(new THREE.Vector3(0, 40, 60), { sources: 'chopper', hits: 99 });
+    const gunship = dummy(new THREE.Vector3(200, 185, 0), { sources: 'ac130', hits: 99, flown: false });
+    const aa = new AntiAir(w.ctx, sky(), new Set());
+    // The pick takes the first man in the list: the Rocketeer, so the boss is free.
+    vi.spyOn(Math, 'random').mockReturnValue(0.99);
+    step(aa, [chopper, gunship], ANTI_AIR.firstRest + 0.2);
+    expect(aa.hunts.map(h => h.enemy.id)).toEqual(['rocketeer']);
+    onHit!({ enemy: boss, damage: { source: 'ac130_105mm' } });
+    expect(aa.hunts.length).toBe(2);
+    expect(aa.hunts.find(h => h.enemy === boss)?.target).toBe(gunship);
+    // Never a third.
+    onHit!({ enemy: boss, damage: { source: 'chopper_rocket' } });
+    expect(aa.hunts.length).toBe(2);
+  });
+});
+
+describe('the lock and the missile', () => {
+  it('beeps a lock tone for the lock, warns at launch, and climbs to the gunship in a few seconds', () => {
+    const w = world();
+    w.enemies.length = 0;
+    w.enemies.push(hunter('rocketeer', 0, 0, 1));
+    const ship = dummy(new THREE.Vector3(160, 185, 0), { hits: 3 });
+    const aa = antiAir(w);
+    step(aa, [ship], ANTI_AIR.firstRest + 1, () => aa.hunts.length > 0);
+    const locked = step(aa, [ship], 10, () => aa.missiles.length > 0);
+    expect(locked).toBeGreaterThan(ANTI_AIR.lock - 0.2);
+    expect(locked).toBeLessThan(ANTI_AIR.lock + 0.1);
+    expect(w.log.sounds.filter(id => id === 'aa_lock').length).toBeGreaterThan(8);
+    expect(w.log.sounds).toContain('aa_launch');
+    const m = aa.missiles[0]!;
+    const start = m.body.position.y;
+    step(aa, [ship], 1);
+    expect(m.body.position.y).toBeGreaterThan(start + 15);
+    const flight = 1 + step(aa, [ship], 10, () => ship.struckBy > 0);
+    expect(ship.struckBy).toBe(1);
+    expect(flight).toBeGreaterThan(3);
+    expect(flight).toBeLessThan(7);
+  });
+
+  it('is never heard from the ground: no tone when the player is not in that aircraft', () => {
+    const w = world();
+    w.enemies.length = 0;
+    w.enemies.push(hunter('rocketeer', 0, 0, 1));
+    const a = dummy(new THREE.Vector3(0, 40, 60), { flown: false });
+    const aa = antiAir(w);
+    step(aa, [a], ANTI_AIR.firstRest + ANTI_AIR.lock + 1);
+    expect(aa.missiles.length).toBe(1);
+    expect(w.log.sounds).not.toContain('aa_lock');
+    expect(w.log.sounds).not.toContain('aa_launch');
+  });
+});
+
+describe('flares', () => {
+  function inFlight(w: World, a: Dummy): AntiAir {
+    w.enemies.length = 0;
+    w.enemies.push(hunter('rocketeer', 0, 0, 1));
+    const aa = antiAir(w);
+    step(aa, [a], 30, () => aa.missiles.length > 0);
+    return aa;
+  }
+
+  it('pull a missile still far enough out onto a decoy, where it bursts in mid-air', () => {
+    const w = world();
+    const ship = dummy(new THREE.Vector3(160, 185, 0), { hits: 3 });
+    const aa = inFlight(w, ship);
+    step(aa, [ship], 1.5);
+    expect(ship.popFlares()).toBe(true);
+    aa.update(DT, [ship]);
+    const m = aa.missiles[0]!;
+    expect(m.target).toBeNull();
+    expect(m.decoy).not.toBeNull();
+    step(aa, [ship], 10, () => aa.missiles.length === 0);
+    expect(aa.missiles.length).toBe(0);
+    expect(ship.struckBy).toBe(0);
+  });
+
+  it('are too late for a missile already on the aircraft', () => {
+    const w = world();
+    const ship = dummy(new THREE.Vector3(160, 185, 0), { hits: 3 });
+    const aa = inFlight(w, ship);
+    step(aa, [ship], 10, () => aa.missiles[0]!.body.position.distanceTo(ship.position) < ANTI_AIR.decoy.least - 2);
+    ship.popFlares();
+    step(aa, [ship], 3, () => ship.struckBy > 0);
+    expect(ship.struckBy).toBe(1);
+  });
+
+  it('are thrown by the pilot or the crew on their own when it is theirs to do', () => {
+    const w = world();
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    const crewed = dummy(new THREE.Vector3(0, 40, 80), { autoFlares: true });
+    const aa = inFlight(w, crewed);
+    step(aa, [crewed], 10, () => aa.missiles.length === 0);
+    expect(crewed.popped).toBe(1);
+    expect(crewed.struckBy).toBe(0);
+  });
+
+  it('three in the chopper and the gunship seats, on the jump key, with a lockout after each', () => {
+    const w = world();
+    const { strike } = chopper(w, false);
+    run(strike, ATTACK.boardSeconds + 0.5);
+    w.keys.pressed.add('jump');
+    strike.update(DT);
+    strike.update(DT);
+    w.keys.pressed.clear();
+    expect(strike.flares).toBe(ATTACK.armour.flares - 1);
+    expect(strike.popFlares()).toBe(false);
+    run(strike, FLARE_LOCKOUT + 0.1);
+    expect(strike.popFlares()).toBe(true);
+    run(strike, FLARE_LOCKOUT + 0.1);
+    expect(strike.popFlares()).toBe(true);
+    run(strike, FLARE_LOCKOUT + 0.1);
+    expect(strike.flares).toBe(0);
+    expect(strike.popFlares()).toBe(false);
+
+    const g = gunship(w, false);
+    run(g.strike, AC130.orbit.entrySeconds + 1);
+    let thrown = 0;
+    for (let i = 0; i < 6; i++) {
+      w.keys.pressed.add('jump');
+      g.strike.update(DT);
+      w.keys.pressed.clear();
+      if (g.strike.flares === AC130.armour.flares - thrown - 1) thrown++;
+      run(g.strike, i % 2 ? FLARE_LOCKOUT + 0.1 : 0.5);
+    }
+    expect(AC130.armour.flares).toBe(3);
+    expect(thrown).toBe(3);
+    expect(g.strike.flares).toBe(0);
+  });
+
+  it('in the door gunner are the pilot\'s: two, the key does nothing, and sometimes they are late', () => {
+    const w = world();
+    const { strike } = door(w, false);
+    run(strike, DOOR.boardSeconds + 0.5);
+    expect(strike.flares).toBe(2);
+    w.keys.pressed.add('jump');
+    strike.update(DT);
+    w.keys.pressed.clear();
+    expect(strike.flares).toBe(2);
+    expect(strike.flown).toBe(true);
+    expect(strike.autoFlares).toBe(true);
+
+    // On time: a missile on it is pulled off.
+    w.enemies.length = 0;
+    w.enemies.push(hunter('rocketeer', 0, 0, 1));
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    const aa = antiAir(w);
+    step(aa, [strike], 30, () => aa.missiles.length > 0);
+    step(aa, [strike], 10, () => aa.missiles.length === 0);
+    expect(strike.flares).toBe(1);
+    expect(strike.hits).toBe(1);
+
+    // Late: he throws them, but the missile is already there.
+    vi.spyOn(Math, 'random').mockReturnValue(0.1);
+    const late = door(world(), true).strike;
+    const aa2 = antiAir(w);
+    step(aa2, [late], 40, () => aa2.missiles.length > 0);
+    step(aa2, [late], 10, () => aa2.missiles.length === 0);
+    expect(late.flares).toBe(1);
+    expect(late.hits).toBe(0);
+  });
+});
+
+describe('hits, rounds and the crash', () => {
+  it('missiles: one brings the door gunner down, two the chopper, three the gunship', () => {
+    const w = world();
+    const d = door(w, true).strike;
+    expect(d.hit()).toBe(true);
+    const c = chopper(w, true).strike;
+    expect([c.hit(), c.hit()]).toEqual([false, true]);
+    const g = gunship(w, true).strike;
+    expect([g.hit(), g.hit(), g.hit()]).toEqual([false, false, true]);
+    for (const a of [d, c, g]) {
+      expect(a.huntable).toBe(false);
+      expect(a.hit()).toBe(false);
+    }
+  });
+
+  it('bullets hurt the door gunner and nothing else', () => {
+    const w = world();
+    const d = door(w, true).strike;
+    const c = chopper(w, true).strike;
+    const g = gunship(w, true).strike;
+    for (let i = 0; i < 200; i++) {
+      expect(c.shot()).toBe(false);
+      expect(g.shot()).toBe(false);
+    }
+    expect(c.huntable && g.huntable).toBe(true);
+    let downAt = 0;
+    for (let i = 1; i <= 100 && !downAt; i++) if (d.shot()) downAt = i;
+    expect(downAt).toBe(DOOR.armour.rounds);
+
+    // And under fire, men close under it land rounds on it, and on nothing armoured.
+    const w2 = world();
+    w2.enemies.length = 0;
+    for (let i = 0; i < 8; i++) w2.enemies.push(hunter('trooper', i * 2, 0, i + 1));
+    const shots = { door: 0, other: 0 };
+    const low = dummy(new THREE.Vector3(0, 30, 10), { rounds: 99, shot: () => (shots.door++, false), huntable: true });
+    const armoured = dummy(new THREE.Vector3(0, 30, -10), { rounds: 0, shot: () => (shots.other++, false) });
+    const aa = new AntiAir(w2.ctx, sky(), new Set());
+    step(aa, [low, armoured], 60);
+    expect(shots.door).toBeGreaterThan(2);
+    expect(shots.other).toBe(0);
+  });
+
+  it('a crash falls, hits the ground with a blast that hurts enemies and never the player, then is gone', () => {
+    for (const make of ['door', 'chopper', 'gunship'] as const) {
+      const w = world();
+      const strike = make === 'door' ? door(w, false).strike : make === 'chopper' ? chopper(w, false).strike : gunship(w, false).strike;
+      run(strike, 12);
+      const before = strike.position.y;
+      strike.down();
+      expect(strike.flown).toBe(false);
+      expect(w.log.unparks).toBe(1);
+      run(strike, 0.5);
+      expect(strike.position.y).toBeLessThan(before);
+      expect(run(strike, 60)).toBe(true);
+      const crash = w.log.blasts.filter(b => b.source.endsWith('_crash'));
+      expect(crash.length, make).toBe(1);
+      for (const b of crash) {
+        expect(b.team).toBe('player');
+        expect(b.selfDamage).toBe(0);
+        expect(b.playerPush).toBe(0);
+        expect(b.worldObject).toBe(true);
+        expect(b.damage).toBeGreaterThan(0);
+      }
+      expect(w.log.hurt).toBe(0);
+    }
   });
 });
