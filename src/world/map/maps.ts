@@ -3,6 +3,8 @@ import * as THREE from 'three';
 import type { Kit } from '../kit/kit';
 import type { NavBuildOptions } from '../nav';
 import { authorMap, MAP_STAGES, type MapStage } from './crucible';
+import { authorFort, FORT_EXTENT, FORT_STAGES } from './fort';
+import { LEVEL as FORT_LEVEL } from './fort/plan';
 import { authorKillHouse, KILLHOUSE_EXTENT, KILLHOUSE_STAGES } from './killhouse';
 import { authorOutpost, OUTPOST_EXTENT, OUTPOST_STAGES } from './outpost';
 import { authorRange, RANGE, RANGE_STAGES } from '../../lab/range';
@@ -12,7 +14,7 @@ import type { MapSpec } from './spec';
 import type { MapZone } from '../../core/contracts';
 import { ACTIVE } from '../../contracts/select';
 
-export type MapId = 'crucible' | 'killhouse' | 'outpost' | 'range';
+export type MapId = 'crucible' | 'killhouse' | 'outpost' | 'fort' | 'range';
 
 export interface MapDef {
   id: MapId;
@@ -88,6 +90,22 @@ const outpost: MapDef = {
   readyLabel: 'Lighting the wire',
 };
 
+const F = FORT_EXTENT;
+const fort: MapDef = {
+  id: 'fort',
+  bounds: box(-F, -4, -F, F, 40, F),
+  // The volume caps at 200 cells a side: 240 m at 1.2 m is 200.
+  lightBounds: box(-F, -2, -F, F, 20, F),
+  lightCell: 1.2,
+  minimapExtent: F,
+  navHub: new THREE.Vector3(1, 0, 1),
+  // The field, the catwalks, the gun pads and the bastion tops. Roofs, sandbags and cover tops are no floor.
+  nav: { mutual: true, levels: Object.values(FORT_LEVEL) },
+  stages: FORT_STAGES,
+  author: authorFort,
+  readyLabel: 'Manning the walls',
+};
+
 const range: MapDef = {
   id: 'range',
   bounds: box(-RANGE.halfX - 2, -4, -RANGE.halfZ - 2, RANGE.halfX + 2, 34, RANGE.halfZ + 2),
@@ -99,7 +117,7 @@ const range: MapDef = {
   readyLabel: 'Switching on the lights',
 };
 
-const MAPS: Record<MapId, MapDef> = { crucible, killhouse, outpost, range };
+const MAPS: Record<MapId, MapDef> = { crucible, killhouse, outpost, fort, range };
 
 /** The map of the page's contract, or whatever `?map=` names. contracts/select.ts has the rules. */
 export function selectMap(): MapDef {

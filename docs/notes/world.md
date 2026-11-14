@@ -5,7 +5,7 @@ Then call `world.update()` once per frame in the world slot, and `world.reset()`
 
 ## Maps
 
-`src/world/map/maps.ts` holds one `MapDef` row per map, and `World` only reads that row. `?map=crucible`, `?map=killhouse` or `?map=outpost` picks one.
+`src/world/map/maps.ts` holds one `MapDef` row per map, and `World` only reads that row. `?map=crucible`, `?map=killhouse`, `?map=outpost` or `?map=fort` (Outpost Defense's fort: `docs/notes/fort.md`) picks one.
 The default is `crucible`, the swarm game. The Kill House is the map of The Outpost contract, picked from the menu. `selectMap()` takes
 the map from `ACTIVE` in `contracts/select.ts`: `docs/notes/contracts.md` has the URL rules. Add `&map=killhouse` to any sandbox that builds a world.
 
@@ -28,6 +28,15 @@ spec.wallGate(-18, 0, -14, 0);  // a steel gate between two pillars. Runs that s
 spec.wall(-14, 0, -6, 0);       // optional last argument: the floor y, so a ring can stand on a terrace
 spec.shack(-10, -9, 0.3, 'planks');   // or 'sheet'. 3.2 x 2.6 m, 2.3 m tall, door on its +Z side
 ```
+
+`spec.wallGate(ax, az, bx, bz, y, true)` makes a **lift gate**: guides and a head beam over its pillars, and a leaf that rises 3.4 m
+(no collider, nav open) while the player or an ally is within `GATE_OPEN` (4.5 m) of its middle, and drops once none is within
+`GATE_SHUT` (6 m) and nobody stands in the gap. `objects.walls.setOpen(gate, open)` and `isOpen(gate)` drive it by hand (a mode can shut
+the gates for a wave). Blown is blown, open or not; a repair brings it back shut. The fort's gates are all lift gates.
+
+**Drawing.** Pieces are drawn in 72 m squares on the static map's grid, one mesh per material each, redrawn on the next `update` after
+any piece in the square changes stage or a gate moves. The fort's 220 pieces are 55 to 67 meshes. A standing wall and its pillar
+are all `concrete` (the caps are tinted), so the common case is one material.
 
 A wall is 3 m tall and 0.5 m thick on 0.8 m pillars. `WALL.catwalk` (1.7 m) is the deck height for a walkway behind it: a standing
 eye clears the top by about 0.3 m. The fort map builds the catwalk itself.

@@ -174,9 +174,13 @@ export class MapSpec {
     }
   }
 
-  /** A steel gate between two pillar centres, in a wall. Shut or blown, nothing between. (`gate` is an enemy entrance.) */
-  wallGate(ax: number, az: number, bx: number, bz: number, y = 0): void {
+  /**
+   * A steel gate between two pillar centres, in a wall. Shut or blown, nothing between. (`gate` is an enemy entrance.) With `opens`
+   * it is a lift gate that rises for the player or an ally near it and drops behind them.
+   */
+  wallGate(ax: number, az: number, bx: number, bz: number, y = 0, opens = false): void {
     this.segment('gate', ax, az, bx, bz, y);
+    if (opens) this.structures[this.structures.length - 1]!.opens = true;
   }
 
   /** A plank or sheet-metal hut, SHACK.width along `yaw` (the kit's: 0 runs along +X) and SHACK.depth across, door on its +Z side. */

@@ -269,3 +269,92 @@ describe('repair', () => {
     player.position.set(100, 0, 100);
   });
 });
+
+describe('lift gates', () => {
+  let liftPhysics: Physics;
+  let liftNav: NavGraph;
+  let lifts: Structures;
+  let lift: Structure;
+  const friend = { position: V(100, 0, 100), alive: true };
+  const inGap: { alive: boolean; position: THREE.Vector3 }[] = [];
+  const through = (): number => {
+    liftNav.setTarget(V(0, 0, 7));
+    liftNav.settle();
+    return liftNav.pathDistance(V(0, 0, -7));
+  };
+  const shut = (): boolean => liftPhysics.raycast(V(0, 1.2, -3), V(0, 0, 1), 6) !== null;
+
+  beforeAll(async () => {
+    liftPhysics = await Physics.create();
+    liftPhysics.addStaticBox(V(0, -0.5, 0), V(14, 0.5, 14), null, 'concrete');
+    liftPhysics.flushQueries();
+    liftNav = new NavGraph(liftPhysics);
+    await liftNav.build(new THREE.Box3(V(-14, -3, -14), V(14, 10, 14)), [], V(0, 0, 8), async () => {}, {});
+    const spec = new MapSpec();
+    spec.wall(-14.4, 0, -2, 0);
+    spec.wallGate(-2, 0, 2, 0, 0, true);
+    spec.wall(2, 0, 14.4, 0);
+    const enemies = { query: (_p: THREE.Vector3, _r: number, out: unknown[]) => { out.push(...inGap); return inGap.length; } };
+    const ctx = { physics: liftPhysics, fx: noop('fx'), audio: noop('audio'), player: friend, enemies } as unknown as Ctx;
+    lifts = new Structures(ctx, spec.structures, () => new THREE.MeshBasicMaterial());
+    lifts.attach(liftNav);
+    liftPhysics.flushQueries();
+    lift = lifts.all.find(p => p.kind === 'gate')!;
+  }, 60000);
+
+  const tick = () => {
+    lifts.update(0.02);
+    liftPhysics.flushQueries();
+  };
+
+  it('stays down with nobody near, and nothing gets through', () => {
+    tick();
+    expect(lifts.isOpen(lift)).toBe(false);
+    expect(shut()).toBe(true);
+    expect(through()).toBe(Infinity);
+  });
+
+  it('rises for a friend near it, opening the way, and drops once he has gone', () => {
+    friend.position.set(0, 0, 3);
+    tick();
+    expect(lifts.isOpen(lift)).toBe(true);
+    expect(shut()).toBe(false);
+    expect(through()).toBeLessThan(20);
+    friend.position.set(0, 0, 10);
+    tick();
+    expect(lifts.isOpen(lift)).toBe(false);
+    expect(shut()).toBe(true);
+    expect(through()).toBe(Infinity);
+  });
+
+  it('will not drop on someone standing in the gap', () => {
+    friend.position.set(0, 0, 3);
+    tick();
+    friend.position.set(0, 0, 10);
+    inGap.push({ alive: true, position: V(0, 0, 0.1) });
+    tick();
+    expect(lifts.isOpen(lift)).toBe(true);
+    inGap.length = 0;
+    tick();
+    expect(lifts.isOpen(lift)).toBe(false);
+  });
+
+  it('blown while up is blown, and a reset puts it back down', () => {
+    friend.position.set(0, 0, 3);
+    tick();
+    lifts.blast(V(0, 1, -1), 5, 2000, 'test');
+    expect(lift.stage).toBe('breached');
+    expect(lifts.isOpen(lift)).toBe(false);
+    expect(through()).toBeLessThan(20);
+    friend.position.set(100, 0, 100);
+    lifts.reset();
+    liftPhysics.flushQueries();
+    expect(lift.stage).toBe('intact');
+    expect(shut()).toBe(true);
+    expect(through()).toBe(Infinity);
+  });
+
+  it('draws the whole run in one chunk of meshes, not a group a piece', () => {
+    expect(lifts.root.children.length).toBeLessThanOrEqual(2);
+  });
+});

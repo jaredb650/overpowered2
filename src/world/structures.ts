@@ -46,7 +46,19 @@ export interface StructureSpec {
   yaw: number;
   length: number;
   look?: 'planks' | 'sheet';
+  /** A gate on a lift: it rises for the player or an ally near it and drops behind them once the gap is clear. */
+  opens?: boolean;
 }
+
+/** A lift gate rises for a friend within this many metres of its middle, and drops when none is within `GATE_SHUT`. */
+export const GATE_OPEN = 4.5;
+export const GATE_SHUT = 6;
+/**
+ * Pieces are drawn in squares, one mesh per material each, so a fort of two hundred is a few dozen draw calls. The squares are the
+ * static map's (Geo cuts concrete and steel 5 across from -180), so no square's meshes are cut again.
+ */
+const CHUNK = 72;
+const CHUNK_MIN = -180;
 
 /** A box in the piece's frame: x along, y up from its base, z across. Tilted parts are only for show. */
 interface Part {
@@ -87,7 +99,8 @@ function chunks(rng: () => number, n: number, halfX: number, halfZ: number, mat:
 
 function wallStages(length: number, rng: () => number): Part[][] {
   const P = length - WALL.pillar, h = P / 2, t = WALL.thick / 2, H = WALL.height;
-  const intact = [slab(-h, h, 0, H, t), box(0, H - 0.05, 0, h, 0.05, t + 0.04, 'concreteDark')];
+  // The cap is concrete in shadow, not concreteDark: a standing wall then costs one draw call per chunk, not two.
+  const intact = [slab(-h, h, 0, H, t), box(0, H - 0.05, 0, h, 0.05, t + 0.04, 'concrete', { tint: 0.62 })];
   // Two loopholes through the middle band, a bite out of the top, and what fell out of them at the foot.
   const a0 = -P * 0.3, a1 = a0 + 0.55, b0 = P * 0.12, b1 = b0 + 0.45, bite = P * 0.08;
   const damaged = [
@@ -110,22 +123,37 @@ function wallStages(length: number, rng: () => number): Part[][] {
   return [intact, damaged, breached];
 }
 
-function gateStages(length: number): Part[][] {
-  const P = length - WALL.pillar, h = P / 2, t = GATE.thick / 2, H = GATE.height;
-  const shut = [
-    box(0, H / 2, 0, h, H / 2, t, 'steelDark', { solid: true, bevel: 0.02 }),
-    box(0, 0.4, 0, h - 0.02, 0.16, t + 0.012, 'hazard'),
-    ...[-0.66, -0.33, 0, 0.33, 0.66].map(f => box(f * h, H / 2 + 0.2, 0, 0.05, H / 2 - 0.45, t + 0.03, 'steel')),
-    box(0, H - 0.12, 0, h - 0.02, 0.06, t + 0.03, 'steel'),
+/** How far a lift gate's leaf rises: its foot then clears a tall man. */
+const LIFT = 3.4;
+
+/** The leaf, shut, `lift` metres up. Up, it stops nobody. */
+function leaf(h: number, lift: number): Part[] {
+  const t = GATE.thick / 2, H = GATE.height;
+  return [
+    box(0, lift + H / 2, 0, h, H / 2, t, 'steelDark', { solid: lift === 0, bevel: 0.02 }),
+    box(0, lift + 0.4, 0, h - 0.02, 0.16, t + 0.012, 'hazard'),
+    ...[-0.66, -0.33, 0, 0.33, 0.66].map(f => box(f * h, lift + H / 2 + 0.2, 0, 0.05, H / 2 - 0.45, t + 0.03, 'steel')),
+    box(0, lift + H - 0.12, 0, h - 0.02, 0.06, t + 0.03, 'steel'),
   ];
+}
+
+/** Shut, blown, and for a lift gate open as well. A lift gate carries its guides and the head beam on top of the pillars. */
+function gateStages(length: number, opens: boolean): { stages: Part[][]; open: Part[] } {
+  const P = length - WALL.pillar, h = P / 2, t = GATE.thick / 2, top = LIFT + GATE.height + 0.2;
+  const frame = opens ? [
+    ...[-1, 1].map(s => box(s * (length / 2), (WALL.height + 0.3 + top) / 2, 0, 0.16, (top - WALL.height - 0.3) / 2, 0.22, 'steelDark')),
+    box(0, top + 0.18, 0, length / 2 + 0.2, 0.18, 0.26, 'steelDark'),
+    box(0, top + 0.18, 0, length / 2 - 0.4, 0.07, 0.27, 'hazard'),
+  ] : [];
   // Torn off its hinges and thrown flat, with the hinge plates left on the pillars.
   const blown = [
     box(0.2, 0.25, -1.3, h * 0.95, 0.08, 1.2, 'steelDark', { pitch: 0.06, roll: 0.18, yaw: 0.12 }),
     box(0.2, 0.36, -1.3, h * 0.9, 0.03, 0.12, 'hazard', { pitch: 0.06, roll: 0.18, yaw: 0.12 }),
     ...[0.6, 2.2].map(y => box(-h + 0.05, y, 0, 0.06, 0.12, t + 0.02, 'steel')),
     ...[0.6, 2.2].map(y => box(h - 0.05, y, 0, 0.06, 0.12, t + 0.02, 'steel')),
+    ...frame,
   ];
-  return [shut, blown];
+  return { stages: [[...leaf(h, 0), ...frame], blown], open: [...leaf(h, LIFT), ...frame] };
 }
 
 function shackStages(look: 'planks' | 'sheet', rng: () => number): Part[][] {
@@ -173,7 +201,7 @@ function shackStages(look: 'planks' | 'sheet', rng: () => number): Part[][] {
 
 function pillarParts(): Part[] {
   const H = WALL.height + 0.25, p = WALL.pillar / 2;
-  return [box(0, H / 2, 0, p, H / 2, p, 'concrete', { solid: true, bevel: 0.05 }), box(0, H + 0.06, 0, p + 0.05, 0.06, p + 0.05, 'concreteDark')];
+  return [box(0, H / 2, 0, p, H / 2, p, 'concrete', { solid: true, bevel: 0.05 }), box(0, H + 0.06, 0, p + 0.05, 0.06, p + 0.05, 'concrete', { tint: 0.62 })];
 }
 
 const UP = new THREE.Vector3(0, 1, 0);
@@ -185,6 +213,13 @@ const _n = new THREE.Vector3();
 
 type Listener = (stage: StructureStage, from: StructureStage) => void;
 
+/** One square of the map's pieces and pillars, drawn as one mesh per material and redrawn when any of them changes. */
+interface Chunk {
+  readonly pieces: Piece[];
+  readonly pillars: StructureSpec[];
+  group: THREE.Group | null;
+}
+
 /** One wall segment, gate or shack. The manager does the work; this is its state and the API a shop calls. */
 class Piece implements Structure {
   readonly stages: readonly StructureStage[];
@@ -194,7 +229,11 @@ class Piece implements Structure {
   repairSeconds = REPAIR_SECONDS;
   repairTick = 0;
   colliders: RAPIER.Collider[] = [];
-  readonly groups: THREE.Group[] = [];
+  /** A lift gate that is up. Only ever true at the first stage. */
+  open = false;
+  /** Whether its nav block is on: standing and shut. */
+  blocking = false;
+  chunk: Chunk | null = null;
   readonly listeners = new Set<Listener>();
   readonly ux: number;
   readonly uz: number;
@@ -203,7 +242,7 @@ class Piece implements Structure {
   readonly halfDepth: number;
   readonly height: number;
 
-  constructor(readonly id: number, readonly kind: StructureKind, readonly spec: StructureSpec, readonly parts: Part[][]) {
+  constructor(readonly id: number, readonly kind: StructureKind, readonly spec: StructureSpec, readonly parts: Part[][], readonly openParts: Part[] | null) {
     this.stages = STAGES[kind];
     this.health = HEALTH[kind][0];
     this.ux = Math.cos(spec.yaw);
@@ -216,6 +255,11 @@ class Piece implements Structure {
 
   get stage(): StructureStage {
     return this.stages[this.index]!;
+  }
+
+  /** What stands now: the stage's parts, or the raised leaf of an open gate. */
+  get current(): readonly Part[] {
+    return this.open && this.openParts ? this.openParts : this.parts[this.index]!;
   }
 
   get maxHealth(): number {
@@ -247,6 +291,9 @@ export class Structures {
   readonly all: Piece[] = [];
   private readonly byCollider = new Map<number, Piece>();
   private readonly pillars = new Map<string, StructureSpec>();
+  private readonly chunks = new Map<string, Chunk>();
+  private readonly dirty = new Set<Chunk>();
+  private readonly gates: Piece[] = [];
   private nav: NavGraph | null = null;
   private attached = false;
   private readonly near: EnemyInstance[] = [];
@@ -261,6 +308,7 @@ export class Structures {
     this.attached = true;
     this.nav = nav;
     for (const s of this.specs) this.build(s);
+    this.redraw();
   }
 
   /** A piece placed after load, as the lab does. Before `attach` it waits for it. */
@@ -269,20 +317,28 @@ export class Structures {
       (this.specs as StructureSpec[]).push(spec);
       return null;
     }
-    return this.build(spec);
+    const piece = this.build(spec);
+    this.redraw();
+    return piece;
+  }
+
+  private chunkAt(x: number, z: number): Chunk {
+    const key = `${Math.floor((x - CHUNK_MIN) / CHUNK)},${Math.floor((z - CHUNK_MIN) / CHUNK)}`;
+    let c = this.chunks.get(key);
+    if (!c) this.chunks.set(key, (c = { pieces: [], pillars: [], group: null }));
+    this.dirty.add(c);
+    return c;
   }
 
   private build(s: StructureSpec): Piece {
     const rng = mulberry32(0x5ca1 + this.all.length * 977);
-    const parts = s.kind === 'wall' ? wallStages(s.length, rng) : s.kind === 'gate' ? gateStages(s.length) : shackStages(s.look ?? 'planks', rng);
-    const piece = new Piece(this.all.length, s.kind, s, parts);
+    const gate = s.kind === 'gate' ? gateStages(s.length, s.opens === true) : null;
+    const parts = s.kind === 'wall' ? wallStages(s.length, rng) : gate ? gate.stages : shackStages(s.look ?? 'planks', rng);
+    const piece = new Piece(this.all.length, s.kind, s, parts, s.opens && gate ? gate.open : null);
     this.all.push(piece);
-    for (const stage of parts) {
-      const g = this.mesh(stage, s);
-      g.visible = false;
-      piece.groups.push(g);
-      this.root.add(g);
-    }
+    if (piece.openParts) this.gates.push(piece);
+    piece.chunk = this.chunkAt(s.x, s.z);
+    piece.chunk.pieces.push(piece);
     if (s.kind !== 'shack') {
       for (const end of [-1, 1]) {
         piece.toWorld((end * s.length) / 2, 0, 0, _p);
@@ -290,20 +346,34 @@ export class Structures {
         if (this.pillars.has(key)) continue;
         const pillar = { ...s, x: _p.x, z: _p.z };
         this.pillars.set(key, pillar);
-        this.root.add(this.mesh(pillarParts(), pillar));
+        this.chunkAt(pillar.x, pillar.z).pillars.push(pillar);
         this.addColliders(pillarParts(), pillar, null);
         // A body's width round the pillar, so the gap beside a breach starts where the stubs do.
         this.nav?.setBlocked(_p.x, _p.z, s.y, piece.ux, piece.uz, WALL.pillar / 2 + 0.6, WALL.pillar / 2 + 0.6, true);
       }
     }
-    piece.groups[0]!.visible = true;
     this.addColliders(parts[0]!, s, piece);
     this.block(piece, true);
     return piece;
   }
 
-  private mesh(parts: readonly Part[], s: StructureSpec): THREE.Group {
-    const geo = new Geo();
+  /** Redraws every chunk something changed in since the last call. */
+  private redraw(): void {
+    for (const c of this.dirty) {
+      const geo = new Geo();
+      for (const p of c.pillars) this.draw(geo, pillarParts(), p);
+      for (const q of c.pieces) this.draw(geo, q.current, q.spec);
+      if (c.group) {
+        this.root.remove(c.group);
+        for (const m of c.group.children) (m as THREE.Mesh).geometry.dispose();
+      }
+      c.group = geo.finish(this.material);
+      this.root.add(c.group);
+    }
+    this.dirty.clear();
+  }
+
+  private draw(geo: Geo, parts: readonly Part[], s: StructureSpec): void {
     geo.push(s.x, s.y, s.z, s.yaw);
     for (const p of parts) {
       if (p.hidden) continue;
@@ -316,7 +386,6 @@ export class Structures {
       if (tilted) geo.pop();
     }
     geo.pop();
-    return geo.finish(this.material);
   }
 
   private addColliders(parts: readonly Part[], s: StructureSpec, piece: Piece | null): void {
@@ -334,6 +403,8 @@ export class Structures {
   }
 
   private block(piece: Piece, on: boolean): void {
+    if (piece.blocking === on) return;
+    piece.blocking = on;
     const s = piece.spec;
     const shack = piece.kind === 'shack';
     // Across: a cell either side of a thin wall, so no link can step over it, whichever way the wall runs.
@@ -403,18 +474,10 @@ export class Structures {
       return;
     }
     const was = q.stage;
-    for (const c of q.colliders) {
-      this.byCollider.delete(c.handle);
-      this.ctx.physics.world.removeCollider(c, false);
-    }
-    q.colliders.length = 0;
-    q.groups[from]!.visible = false;
-    q.groups[index]!.visible = true;
     q.index = index;
     q.health = q.maxHealth;
-    this.addColliders(q.parts[index]!, q.spec, q);
-    const last = q.stages.length - 1;
-    if ((from === last) !== (index === last)) this.block(q, index !== last);
+    if (index > 0) q.open = false;
+    this.refit(q);
     if (loud) this.effects(q, index > from);
     for (const fn of q.listeners) fn(q.stage, was);
   }
@@ -442,6 +505,52 @@ export class Structures {
     }
   }
 
+  /** Colliders, nav and the drawing for what stands now. */
+  private refit(q: Piece): void {
+    for (const c of q.colliders) {
+      this.byCollider.delete(c.handle);
+      this.ctx.physics.world.removeCollider(c, false);
+    }
+    q.colliders.length = 0;
+    this.addColliders(q.current, q.spec, q);
+    this.block(q, q.index !== q.stages.length - 1 && !q.open);
+    if (q.chunk) this.dirty.add(q.chunk);
+  }
+
+  /** Raises or drops a lift gate. False for anything else, a blown gate, or no change. Drop waits for nobody in the gap. */
+  setOpen(piece: Structure, open: boolean): boolean {
+    const q = piece as Piece;
+    if (!q.openParts || q.index > 0 || q.open === open) return false;
+    if (!open && this.occupied(q)) return false;
+    q.open = open;
+    this.refit(q);
+    const mid = q.toWorld(0, GATE.height, 0, _p);
+    this.ctx.audio.play('metal_clang', { position: mid, volume: 0.5, pitch: open ? 1.2 : 0.8 });
+    return true;
+  }
+
+  isOpen(piece: Structure): boolean {
+    return (piece as Piece).open;
+  }
+
+  /** Lift gates rise for the player or an ally near them, and drop once none is near. */
+  private tendGates(): void {
+    if (this.gates.length === 0) return;
+    const player = this.ctx.player?.position instanceof THREE.Vector3 && this.ctx.player.alive ? this.ctx.player.position : null;
+    const allies = (this.ctx as { allies?: { allies: readonly { state: string; body: { position: THREE.Vector3 } }[] } }).allies?.allies ?? [];
+    for (const q of this.gates) {
+      if (q.index > 0) continue;
+      let near = Infinity;
+      const at = (p: THREE.Vector3) => {
+        if (Math.abs(p.y - q.spec.y) < 3) near = Math.min(near, Math.hypot(p.x - q.spec.x, p.z - q.spec.z));
+      };
+      if (player) at(player);
+      for (const a of allies) if (a.state === 'up') at(a.body.position);
+      if (!q.open && near < GATE_OPEN) this.setOpen(q, true);
+      else if (q.open && near > GATE_SHUT) this.setOpen(q, false);
+    }
+  }
+
   /** True while the player or an enemy stands where the piece would be solid again. */
   occupied(piece: Structure): boolean {
     const q = piece as Piece;
@@ -458,8 +567,14 @@ export class Structures {
     return false;
   }
 
-  /** Call once per frame: runs repairs. */
+  /** Call once per frame: runs repairs, lifts gates and redraws what changed. */
   update(dt: number): void {
+    this.tendGates();
+    this.updateRepairs(dt);
+    this.redraw();
+  }
+
+  private updateRepairs(dt: number): void {
     for (const q of this.all) {
       if (q.repairing < 0) continue;
       q.repairing = Math.min(1, q.repairing + dt / q.repairSeconds);
@@ -484,7 +599,9 @@ export class Structures {
     for (const q of this.all) {
       q.repairing = -1;
       this.setStage(q, 0);
+      if (q.open) this.setOpen(q, false);
       q.health = q.maxHealth;
     }
+    this.redraw();
   }
 }

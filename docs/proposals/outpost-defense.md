@@ -1,7 +1,7 @@
 # Plan: Outpost Defense, an Endless Humans map
 
 Status: plan, not scheduled. Written 2026-11-14 from the owner's notes; the owner answered the first round of questions
-the same day. Pieces 1 (stims), 2 (allies, partly: see `docs/notes/allies.md`, Rough), 3 (mounted guns), 4 (walls, gates and shacks) and 5 (the economy, on the Test Range until the fort lands) are built; nothing else is. Open details are marked **Q** with the default the build would use.
+the same day. Pieces 1 (stims), 2 (allies, partly: see `docs/notes/allies.md`, Rough), 3 (mounted guns), 4 (walls, gates and shacks), 5 (the economy, on the Test Range until the fort lands) and 6 (the fort map, `docs/notes/fort.md`, at `/?map=fort`) are built; nothing else is. Open details are marked **Q** with the default the build would use.
 
 ## Why this, and why in this order
 
@@ -115,7 +115,7 @@ Each is useful on its own; the mode comes last. Sizes are rough.
 | 3 | **Mounted guns** (built: `src/vehicles/emplacement.ts`, `docs/notes/vehicles.md`): wall emplacements the player and allies can man, infinite ammo, the upgrade ladder | Any map can use them | Medium | Opus, medium |
 | 4 | **Destructible walls, gates and shacks**: staged wear, holes, breaches, repairs. **Built**: `src/world/structures.ts`, notes in `docs/notes/world.md` under Walls, gates and shacks | Any map can use them | Large | Opus, high |
 | 5 | **Credits, shops, loadout screen, breaks**: the economy and its UI. **Built**: `src/contracts/defense/`, notes in `docs/notes/contracts.md` under Outpost Defense | The mode | Medium to large | Opus, medium |
-| 6 | **The fort map**: rings, catwalks, gates, towers, shacks, the open field round it | The mode | Large | Opus, high |
+| 6 | **The fort map**: rings, catwalks, gates, towers, shacks, the open field round it. **Built**: `src/world/map/fort/`, at `/?map=fort`, notes in `docs/notes/fort.md`; shops, posts, spawns, lanes and mortar spots are data in `fort/plan.ts` | The mode | Large | Opus, high |
 | 7 | **The wave director**: escalation, mortar teams, engineers (charges, cover, jump pads), vehicles, the boss order | The mode | Medium to large | Opus, high |
 | 8 | **The player's mortar teams** | The mode | Small to medium | Opus, medium |
 
