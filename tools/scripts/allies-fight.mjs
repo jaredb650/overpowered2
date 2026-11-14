@@ -11,6 +11,7 @@ export default async function alliesFight(page, h) {
     await h.sleep(500);
   }
   await page.mouse.click(300, 400);
+  if (process.env.BREACH) await page.evaluate(() => { window.breach = true; });
   await page.evaluate(([n, f]) => {
     const { ctx } = window.__op2;
     const V = ctx.player.position.constructor;
@@ -21,6 +22,7 @@ export default async function alliesFight(page, h) {
     ctx.player.pitch = 0;
     window.__allies.squad(n);
     window.__allies.foes(f);
+    if (window.breach) window.__allies.breachAhead();
     ctx.player.teleport(new V(0, 0.1, 22));
     ctx.player.pitch = -0.05;
     window.kills = { ally: 0, other: 0, by: {} };
@@ -40,6 +42,7 @@ export default async function alliesFight(page, h) {
         up: s('up'), down: s('down'), enemies: ctx.enemies.alive.length, onAllies: (ctx.enemies.outpost?.soldiers ?? []).filter(x => x.foe).length,
         firing: A.allies.filter(a => a.target || a.hasArmour).length, inCover: A.allies.filter(a => a.spot).length, kills: window.kills.ally, other: window.kills.other,
         ms: +A.cpuMs.toFixed(2), score: ctx.progression.score ?? null,
+        who: A.allies.map(a => `${a.type.slice(0, 4)}:${a.state[0]}${a.target ? '>' + a.target.id.slice(0, 4) : a.hasArmour ? '>car' : ''}${a.spot ? '@' : ''}${a.patient ? '+' : ''}`).join(' '),
       };
     }));
     if (t % 10 === 8) await h.shot(`t${t + 2}`);

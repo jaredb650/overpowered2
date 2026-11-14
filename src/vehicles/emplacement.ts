@@ -558,7 +558,9 @@ export class Emplacements {
     // Read before the guns run, so the press that steps off one cannot also step onto it.
     const seated = this.rig.occupied;
     for (const e of this.all) e.update(dt);
-    const near = free && !seated && player.alive && !player.parked ? this.nearest() : null;
+    // E is shared: an ally the player is looking at, in reach, has it over a gun that is merely near (src/allies/orders.ts).
+    const ally = Number.isFinite(this.ctx.allies?.focusDistance ?? Infinity);
+    const near = free && !seated && !ally && player.alive && !player.parked ? this.nearest() : null;
     this.prompt(near);
     if (near && input.pressed('interact')) {
       this.prompt(null);
