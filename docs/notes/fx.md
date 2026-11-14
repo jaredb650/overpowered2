@@ -42,7 +42,7 @@ Short-lived shapes have their own small rings: `flashes`, `muzzle`, `muzzleView`
 
 ## Blood (the owner's taste overrides the first game here)
 
-Faceted chips stay for explosions and the 20 yellow headshot chips. Blood left that language: on the night map, a chunky opaque red chip at 1.08 reads as confetti and glows.
+Faceted chips stay for explosions. The 20 yellow headshot chips and their flash were removed on 2026-11-13, from Combat and from `headBurst`: a head kill is a small red mist (`bloodMist`) and the 2D `headshot_puff`. Blood left that language: on the night map, a chunky opaque red chip at 1.08 reads as confetti and glows.
 
 - **A record is a strand.** The vertex shader walks a ribbon back along the drop's own path, head at `age`, tail `trail` seconds behind, so one instance is a curved arc that gravity bends. The fragment shader rounds the head, tapers the tail and pinches it into beads. Detail comes from the shader and the stains, not from count.
 - **Lit by the scene.** `layers/blood.ts` is a patched `MeshStandardMaterial`, so it gets the light volume, moon shadow, dynamic lights and fog. Red under this map's cyan light would be black, so strands and blood decals take their brightness from the light and keep their own hue (`uLift`, and `opTint` in `Decals.ts`). Blood still goes dark in the dark and lights up in a flash. Output is capped at 0.5 because the bloom's soft knee starts at 0.55.

@@ -1,9 +1,8 @@
 import * as THREE from 'three';
 import { clamp, rand } from '../../core/math';
 import type { FxCore } from '../core';
-import { BLOOD_TONE, CHIP } from '../palette';
+import { BLOOD_TONE } from '../palette';
 import { STAIN_SCALE } from '../stains';
-import { chipBurst } from './bursts';
 
 const _v = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0);
@@ -114,19 +113,16 @@ export function gibBurst(core: FxCore, position: THREE.Vector3, dir: THREE.Vecto
 }
 
 /**
- * The signature: 20 yellow chips on the same frame as the triple-layered sound. The chips and the flash
- * are the game's language and they stay exactly as they were. The blood around them is a geyser and a
- * crown of thin strands, and the skull itself is gore's.
+ * A head going: a geyser and a crown of thin strands, and the skull itself is gore's. The first game's yellow chips
+ * and flash were taken out at the owner's word (2026-11-13): they read as sparks, not as a head.
  */
 export function headBurst(core: FxCore, position: THREE.Vector3, dir: THREE.Vector3): void {
   const { x, y, z } = position;
-  chipBurst(core, x, y, z, CHIP.yellow, 20, core.floorAt(x, y, z));
   bloodJet(core, position, UP, 1.3);
   core.blood.setTone(BLOOD_TONE.arterial);
   for (let i = 0; i < 6; i++) {
     _v.set(dir.x * 0.7 + rand(-0.7, 0.7), rand(0.35, 1), dir.z * 0.7 + rand(-0.7, 0.7)).normalize();
     stream(core, x, y, z, _v.x, _v.y, _v.z, 1, rand(5, 9), 0.8, 0.008, 0.08, 1.8, 0, 1);
   }
-  core.flashes.star(x, y, z, CHIP.yellow, 0.42, core.now, 0.05, 6, 0.24, 0.7, 0.4, 5);
   spatter(core, position, 0.7);
 }
