@@ -21,7 +21,7 @@ const CASINGS: Record<GameEvents['fx:casing']['kind'], string> = {
 /** An SMG's brass bounces 60 times a second. That much tinkle is rain, so the quiet bounces give way. */
 const CASING_GAP = 0.05;
 const CASING_LOUD = 0.6;
-/** Well under the SMG's 100 ms, so every bullet gets its tick. */
+/** Well under the SMG's 75 ms, so every bullet gets its tick. */
 const MARKER_GAP = 0.04;
 const COMBO_WORTH_MOURNING = 3;
 /** Pickups have their own sounds. Below this a heal is a tick of something like Regen. */
@@ -84,8 +84,11 @@ const HEAVY_ROUND = 240;
 const PELLET_LOAD = 4;
 /** Push counts as this much damage, so a slow heavy round weighs what it hits like, and a point-blank shotgun the most. */
 const FORCE_WEIGHT = 2;
-/** Shortest gap between body hits: every SMG round at 10 a second lands, and a Buzzsaw's 50 become a beat of about 9. */
-const HIT_GAP = 0.07;
+/**
+ * Shortest gap between body hits: every SMG round at 800 a minute lands, even when 60 fps puts two of them 4 frames apart,
+ * and the rotary cannon's 25 a second become a beat of about 18.
+ */
+const HIT_GAP = 0.055;
 const HIT_GAP_LIGHT = 0.12;
 /** Weights under this are spaced toward HIT_GAP_LIGHT. The SMG is 0.25. */
 const LIGHT_BELOW = 0.2;

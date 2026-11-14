@@ -145,7 +145,8 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
   smg: {
     ...BASE, id: 'smg', name: 'SMG', slot: 1, mode: 'auto',
     magSize: 30, reserve: 360, maxReserve: 720, reloadTime: 1.0, drawTime: 0.16,
-    interval: 0.1, damage: 25,
+    // 800 rounds a minute.
+    interval: 0.075, damage: 25,
     // A short barrel: past this it is the Harrow's work. `?reach=0` takes range out of every gun.
     falloff: { from: 35, to: 80, floor: 0.5 },
     muzzle: 'smg', tracer: 'bullet', casing: 'pistol',
@@ -153,12 +154,12 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     reloadFoley: [[0.02, 'smg_reload']],
     recoil: 1, kick: 0.0016, shake: 0.004,
   },
-  // The SMG's big brother: two thirds the rate, twice the round, and all of it at any range. It goes through one body, or a
+  // The SMG's big brother: 500 rounds a minute to its 800, twice the round, and all of it at any range. It goes through one body, or a
   // sheet of cover, and takes limbs.
   harrow: {
     ...BASE, id: 'harrow', name: 'HARROW', slot: 1, base: 'smg', mode: 'auto',
     magSize: 24, reserve: 144, maxReserve: 288, reloadTime: 1.35, drawTime: 0.22,
-    interval: 0.15, damage: 50, severMult: 1.8, canSever: true, force: 14, headshotMult: 2,
+    interval: 0.12, damage: 50, severMult: 1.8, canSever: true, force: 14, headshotMult: 2,
     penetration: 0.5,
     muzzle: 'carbine', tracer: 'carbine', casing: 'rifle',
     sounds: [{ id: 'harrow_shot', pitchJitter: 0.03 }],

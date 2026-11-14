@@ -286,10 +286,10 @@ describe('body hits', () => {
     const frame = 1 / 60;
     expect(bodyHitLevels(weightOf('smg')).gap).toBeLessThan(WEAPONS.smg.interval - frame);
     expect(bodyHitLevels(weightOf('judge')).gap).toBeLessThan(WEAPONS.judge.interval);
-    // The rotary cannon's 25 a second land as a beat of about 14: more rounds than the ear is given hits.
+    // The rotary cannon's 25 a second land as a beat of about 18: more rounds than the ear is given hits.
     const buzzsaw = bodyHitLevels(weightOf('buzzsaw')).gap;
     expect(buzzsaw).toBeGreaterThan(WEAPONS.buzzsaw.interval);
-    expect(1 / buzzsaw).toBeLessThan(15);
+    expect(1 / buzzsaw).toBeLessThan(20);
     // A light round at the old Buzzsaw's 50 a second is still thinned to under ten.
     expect(1 / bodyHitLevels(hitWeight(13, 'bullet', 6)).gap).toBeLessThan(10);
     // The heavy machine gun's eight a second all land.
@@ -374,11 +374,12 @@ describe('body hit reactions', () => {
     return { ctx, plays, hit, endFrame, frames, count };
   };
 
-  it('lands an SMG round as a punch where it struck and a 2D confirmation, every round at 10 a second', () => {
+  it('lands an SMG round as a punch where it struck and a 2D confirmation, every round at 800 a minute', () => {
     const r = rig();
+    // 800 a minute at 60 fps is 4 and 5 frames apart in turn.
     for (let i = 0; i < 10; i++) {
       r.hit('smg', 'bullet', WEAPONS.smg.damage, WEAPONS.smg.force);
-      r.frames(6);
+      r.frames(i % 2 ? 5 : 4);
     }
     expect(r.count('hit_punch')).toBe(10);
     expect(r.count('hit_confirm')).toBe(10);
