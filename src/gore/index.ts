@@ -29,17 +29,16 @@ import { SliceField } from './sliced';
 import { WoundPlanner } from './wounds';
 
 /**
- * Archetypes whose partial head wound is built (docs/proposals/partial-head-wounds.md step 2); the rest burst a
- * 'partial'. `?headpartial=0` bursts them all, to compare.
+ * The baked stand-ins for the head on a partial head wound (docs/proposals/partial-head-wounds.md), by archetype: the side
+ * blown away (baked on +X, mirrored for the other side) and the crown and upper face blown open. The rest burst a
+ * 'partial', as does an archetype whose heads have not loaded yet. `?headpartial=0` bursts them all, to compare.
  */
-const PARTIAL_BUILT: ReadonlySet<string> = new Set(
-  typeof location !== 'undefined' && new URLSearchParams(location.search).get('headpartial') === '0' ? [] : ['trooper'],
-);
-/** A partial wound's crater radius, against the head's hit radius. */
-const PARTIAL_WIDTH = 0.55;
-/** How far its line tips down into the head from over the crown, and how far up the head its middle sits, in head radii. */
-const PARTIAL_TILT = 0.55;
-const PARTIAL_RAISE = 0.3;
+const PARTIAL_HEADS: Readonly<Record<string, readonly [side: string, top: string]>> =
+  typeof location !== 'undefined' && new URLSearchParams(location.search).get('headpartial') === '0'
+    ? {}
+    : { trooper: ['trooperHeadPartialSide', 'trooperHeadPartialTop'] };
+/** A round this far off the head's sideways axis, or nearer, takes the side off; anything else the top. */
+const PARTIAL_SIDE = 0.55;
 /** What a partial wound throws out, and each piece's size against the head's hit radius. */
 const PARTIAL_PIECES: readonly (readonly [ChunkKind, number])[] = [['cranium', 0.55], ['cranium', 0.4], ['brain', 0.5], ['meat', 0.3], ['meat', 0.25]];
 
@@ -341,6 +340,11 @@ export class Gore implements GoreSystem {
   init(): void {
     if (this.ready) return;
     this.ready = true;
+    const lib = this.ctx.characters as unknown as { prop?(id: string): Promise<THREE.Mesh> } | undefined;
+    for (const id of Object.values(PARTIAL_HEADS).flat()) {
+      // A test's stub library may answer with nothing at all.
+      void Promise.resolve(lib?.prop?.(id)).then(mesh => mesh && this.standIns.set(id, mesh), () => {});
+    }
     this.ctx.physics.preStep.add(this.onPreStep);
     this.ctx.physics.radialListeners.add(this.onRadial);
   }
@@ -1154,7 +1158,7 @@ export class Gore implements GoreSystem {
     const info = rigInfo(char.rig);
     const neck = info.severBone.get('head');
     const what = outcome ?? (damage.amount >= GoreTuning.headBurstDamage ? 'burst' : 'off');
-    const partial = what === 'partial' && PARTIAL_BUILT.has(char.archetype);
+    const partial = what === 'partial' && (PARTIAL_HEADS[char.archetype]?.every(id => this.standIns.has(id)) ?? false);
     const burst = what === 'burst' || (what === 'partial' && !partial);
     const down = this.owned.get(char);
     // A body standing in a collapse keeps its head to a blast, as it always has; told what to do, it does it.
@@ -1256,9 +1260,14 @@ export class Gore implements GoreSystem {
     this.blood.spray(at, _up, 10, 11, 0.32, 0.12);
   }
 
+  /** Baked partial heads by prop id, loaded at init. */
+  private readonly standIns = new Map<string, THREE.Mesh>();
+
   /**
-   * A partial head wound: the side of the head the round came in by is blown away and the rest stays on, open to the
-   * skull and brain (one big crater, `WoundPlanner.headWound`), with a piece of cranium and of brain thrown from it.
+   * A partial head wound: part of the head blown away and the rest left on the neck. The head's skin folds away and a baked
+   * partial head (`PARTIAL_HEADS`) takes its place on the head bone, so it follows the ragdoll, comes off with the head if
+   * the body is shot again and goes with the pooled body's reset. The round's side of the head goes if it came in from the
+   * side, the crown and upper face otherwise. A piece of cranium and of brain are thrown out of it, with blood.
    */
   private partialHead(char: CharacterInstance, neck: number, damage: DamageInfo): void {
     const { fx } = this.ctx;
@@ -1266,15 +1275,19 @@ export class Gore implements GoreSystem {
     const headBone = info.children[neck]![0] ?? neck;
     const r = char.rig.bones[headBone]!.hit?.radius ?? 0.1;
     const at = damage.point;
-    // Tipped in from over the top of the head and raised toward it, so the round's side and the crown go together and
-    // the hole is a torn oval, not a porthole punched square through the face.
     const head = char.bones[headBone]!;
+    const [side, top] = PARTIAL_HEADS[char.archetype]!;
     head.updateWorldMatrix(true, false);
-    _v4.setFromMatrixColumn(head.matrixWorld, 1).normalize();
-    _v5.copy(damage.dir).addScaledVector(_v4, -PARTIAL_TILT).normalize();
-    _v2.copy(at).addScaledVector(_v4, r * PARTIAL_RAISE);
-    this.wounds.headWound(char, headBone, _v2, _v5, r * PARTIAL_WIDTH);
-    // Back out of the hole the way the round came, and up: what it blew out of the head.
+    head.getWorldQuaternion(_q).invert();
+    const along = _v.copy(damage.dir).applyQuaternion(_q);
+    const sideways = Math.abs(along.x) >= PARTIAL_SIDE;
+    const mesh = this.standIns.get(sideways ? side : top)!.clone();
+    mesh.scale.setScalar(ARCHETYPES.find(a => a.id === char.archetype)?.proportions.scale ?? 1);
+    // Baked with his left (+X) side gone: the side the round came in by, so a round travelling toward +X mirrors it.
+    if (sideways && along.x > 0) mesh.scale.x = -mesh.scale.x;
+    // A head already stood in for, or gone, keeps what it has.
+    char.standIn?.(headBone, mesh);
+    // Back out of the wound the way the round came, and up: what it blew out of the head.
     _v3.copy(damage.dir).negate().multiplyScalar(0.6).add(_up).normalize();
     for (const [kind, size] of PARTIAL_PIECES) {
       scatter(_v3, 2.5, 2, 3, _v);

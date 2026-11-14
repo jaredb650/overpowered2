@@ -10,7 +10,8 @@ import {
   blend, capsule, cone, cut, cyl, ellipsoid, fbm, frustum, hexBolt, rbox, rows, sphere, spline, torus, tube,
   type V3,
 } from './sdf';
-import { gunnerHelmet, riotHelmet, rocketeerHelmet, trooperHelmet } from './archetypes/soldiers';
+import { gunnerHelmet, riotHelmet, rocketeerHelmet, trooper, trooperHelmet } from './archetypes/soldiers';
+import { headOnly, sideBlown, toHead, topBlown } from './parts/headWreck';
 import { B, Sk } from './parts/skeleton';
 import { darkSteel, glass, glow, hazard, hexc, leather, paintedMetal, rubber, rust, steel } from './parts/materials';
 
@@ -323,20 +324,30 @@ function wornOnHead(archetype: string, build: (m: Model, sk: Sk, def: ArchetypeD
       const sk = new Sk(unitRigFor(def));
       const on = new Model();
       build(on, sk, def);
-      const [hx, hy, hz] = sk.pos[B.head]!;
-      const back = (v: V3): V3 => [v[0] - hx, v[1] - hy, v[2] - hz];
-      for (const e of on.edits) {
-        const { f, lo, hi } = e.shape;
-        const paint = e.mat?.paint;
-        m.edits.push({
-          ...e,
-          shape: { f: (x, y, z) => f(x + hx, y + hy, z + hz), lo: back(lo), hi: back(hi) },
-          // Paint is placed in world space: sample it where the helmet was, so the wear and chips land where they did.
-          mat: e.mat && paint ? { ...e.mat, paint: (x, y, z, o) => paint(x + hx, y + hy, z + hz, o) } : e.mat,
-          lo: back(e.lo),
-          hi: back(e.hi),
-        });
-      }
+      toHead(on.edits, sk, m);
+      return {};
+    },
+  };
+}
+
+/**
+ * A partial head wound's stand-in for the head (docs/proposals/partial-head-wounds.md): the archetype's own head, cut out of
+ * the whole body so it matches him where it is whole, then wrecked. Mounted on the head bone where the helmet goes.
+ */
+function partialHead(archetype: string, body: (m: Model, sk: Sk, def: ArchetypeDef) => unknown, wreck: typeof sideBlown): PropDef {
+  return {
+    tris: 7000,
+    atlas: 1024,
+    voxelScale: 0.6,
+    build(m) {
+      const def = archetypeById(archetype);
+      const sk = new Sk(unitRigFor(def));
+      const whole = new Model();
+      body(whole, sk, def);
+      const on = new Model();
+      const box = headOnly(whole.edits, sk, on.edits);
+      wreck(on, sk, box);
+      toHead(on.edits, sk, m);
       return {};
     },
   };
@@ -348,5 +359,7 @@ export const PROPS: Record<string, PropDef> = {
   gunnerHelmet: wornOnHead('gunner', gunnerHelmet),
   rocketeerHelmet: wornOnHead('rocketeer', rocketeerHelmet),
   riotHelmet: wornOnHead('riot', riotHelmet),
+  trooperHeadPartialSide: partialHead('trooper', trooper, sideBlown),
+  trooperHeadPartialTop: partialHead('trooper', trooper, topBlown),
 };
 

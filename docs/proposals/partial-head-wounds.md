@@ -1,10 +1,11 @@
 # Idea: partial head wounds instead of clean decapitation
 
 Status: step 1 built on 2026-11-14 (the rules, the Fallout burst kit, pellet counting on the head, the helmet thrown
-off). Step 2 built on 2026-11-14 for the Trooper, the cheap way (see Step 2, below); **waiting for the owner to look
-before step 3.** `headOutcome` in `src/enemies/damage.ts` answers 'partial' for a severe headshot on the Trooper, Gunner,
-Husk and Brute; `gore.headshot` builds it on the archetypes in `PARTIAL_BUILT` (`src/gore/index.ts`, the Trooper) and
-bursts it on the rest. Not done in step 1: the full Lance is not in the very damaging tier (nothing tells a full beam
+off). Step 2 built on 2026-11-14 for the Trooper the cheap way, then redone the same day as a **modeled, baked partial
+head** after the owner found the crater too much like ordinary bullet damage (see Step 2b, below); **waiting for the
+owner to look before step 3.** `headOutcome` in `src/enemies/damage.ts` answers 'partial' for a severe headshot on the
+Trooper, Gunner, Husk and Brute; `gore.headshot` builds it on the archetypes in `PARTIAL_HEADS` (`src/gore/index.ts`, the
+Trooper) and bursts it on the rest. Not done in step 1: the full Lance is not in the very damaging tier (nothing tells a full beam
 from a ball in `DamageInfo` yet).
 
 ## The problem
@@ -124,7 +125,7 @@ Machines are out of it.
   fan-out, and parallel agents would fight over the same files and the one browser.
 - One agent per step, run one after another, each starting from the last one's commit.
 
-## Step 2: what was built (2026-11-14)
+## Step 2: what was built first (2026-11-14), since replaced by step 2b
 
 **The cheap way won**: no baking. A partial wound is one very big crater through the existing wound shader, and the
 baked-at-load interior shows through it.
@@ -152,7 +153,55 @@ and per side, swapped in at the wound. Keep it in reserve if the owner finds the
 **Rough.** Shot square in the face the opening still reads round from the front, as the Trooper's hood frames it. The
 brain is a smooth pinkish lump with highlights, not folded. A body that lands face down hides the wound.
 
-**Step 3 with this approach** (Gunner, Husk, Brute): add each to `PARTIAL_BUILT`, check its interior skull and brain sit
-inside its head (`buildInterior` scales them by height, so a Brute's big head or a Husk's mask may need an offset), check
-what its head props do (a helmet must be a plate that `throwHelmet` throws), and screenshot each. About a round or two of
-screenshots per enemy; no baking.
+The owner's verdict on it: "It looks like our normal bullet hole damage system if I just shot someone a bunch. These
+partial decap head wounds need to look special. The stumps need to be modeled." `WoundPlanner.headWound` is gone; the
+lobed tears (`op2Lobes`) stay for big cannon and blast craters, and the interior's brain stays.
+
+## Step 2b: the baked partial head (2026-11-14)
+
+**Two variants, baked per archetype** from his own head, so where it is whole it is exactly him
+(`tools/bake/parts/headWreck.ts`, registered as props by `partialHead` in `tools/bake/props.ts`):
+
+- `trooperHeadPartialSide`: his left (+X) side sheared off on a slant that takes more of the crown than the jaw. A jagged
+  bone rim proud of the flesh with splinters off it, the brain open, swollen over the break and spilling down the side,
+  the eye hanging on its nerve against the cheek, the broken half of the jaw hanging with its teeth, the respirator's
+  filter dangling on its hose, burned hood flaps folded down, tissue hanging off the rim.
+- `trooperHeadPartialTop`: the crown and upper face gone from under the eyes in front to high on the back; jaw and
+  snout left. Skull plates with the hood still on them standing open round the rim like petals, the brain folded and
+  bulging in the bowl, scalp flaps peeled back over the sides, an eye hanging over the snout, blood in the lip of the bowl
+  and run down the snout.
+- Both: the cut face in layers by depth (burned hood, fat, meat, a bone band, dark wet inside), the hood scorched round
+  the hole and blood run down from it in streaks, the brain's folds in the shape and its painted sulci.
+
+**How it is made.** The whole Trooper is built as for his own bake, the edits on his head and neck that reach a box round
+the head are kept, each clipped to it (`headOnly`), a jagged signed-distance cut (`torn`: a plane broken up by fbm and
+ridged noise) takes the missing part with a layered flesh material on what it exposes, and the inside is put back as
+edits with their own materials: a skull shell broken on its own jagged line a few millimetres proud, splinters, the skull
+hollowed, the brain, blood, eye, jaw, flaps. The model moves to the head bone's origin, as the helmet does. 7000
+triangles and a 1024 atlas each; about a minute and a half each at full quality (`nice npm run bake --
+trooperHeadPartialSide trooperHeadPartialTop`), 17 s with `--draft`.
+
+**At runtime.** `gore.init` loads both props through the library's `prop()`. On a partial wound `partialHead` picks the side
+variant when the round runs within `PARTIAL_SIDE` (0.55) of the head's sideways axis, mirrored (scale X -1) when it came in
+from his right, so the side facing the shooter is the one gone, and the top variant otherwise (face, back, above). It
+mounts a clone on the head bone with `Character.standIn`, which collapses that bone's bind inverse for this body alone:
+his head's skin and interior fold away, but the bone stays, so the stand-in follows the ragdoll, the head is still hit
+on the corpse, and a later burst or shot-off takes it (a severed head carries a clone of it). The helmet is thrown by
+`damage.ts` as in step 1; one with no plate to throw is hidden with the skin. Step 2's flying pieces and blood are kept.
+On reset the shared inverses come back and the stand-in is dropped. `?headpartial=0` still bursts everything.
+
+**Checked.** Sandbox `scenario=headpartial&arch=trooper` with `tools/scripts/headpartial-shots.mjs` (close-ups round both
+heads, 10 and 18 m; `HP_CHECK=1` bursts the left head and shoots the right one off as a corpse, then resets: the
+stand-ins hide with the head, the severed head carries one, reset drops it). Live on `/?map=range&contract=outpost`, a
+severe round through the helmet mounts `trooperHeadPartialSide`. Screenshots in `tools/out/headpartial2/`,
+`contact.png` first.
+
+**Rough.** The stand-in has one level of detail. A body that lands face down still hides the wound. At 18 m it reads as
+a red and pink broken head rather than in detail. The skull plates are small and read mostly from above. The neck's seam
+under the stand-in is hidden by the hood but is not modeled.
+
+**Step 3 this way** (Gunner, Husk, Brute): two bakes per enemy, `<arch>HeadPartialSide` and `<arch>HeadPartialTop`, each
+`partialHead(<arch>, <builder>, sideBlown | topBlown)` plus an entry in `PARTIAL_HEADS`. The wreck code is shared, but its
+measurements are the hooded Trooper's (`HOOD_C`, `SKULL_C` and the cut planes in head space), so each needs its own skull
+and cut placed for its head: the Gunner's high collar, the Husk's bare face, the Brute's small head in a gorget and
+visor. About a round or two of screenshots and three or four bakes per enemy.

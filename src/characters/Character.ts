@@ -124,6 +124,8 @@ function placeWound(a: ArchetypeData, book: WoundBook, bone: THREE.Bone, boneInd
 interface AttachedProp {
   bone: number;
   object: THREE.Object3D;
+  /** Taken off at reset: a partial head's stand-in, not something he spawns with. */
+  untilReset: boolean;
 }
 
 /** A wound that takes nothing away, for callers that only know where it is. */
@@ -374,9 +376,27 @@ export class Character implements CharacterInstance {
     this.data[this.extras + EXTRA_PARAMS * 4 + 3] = amount;
   }
 
-  attachProp(boneIndex: number, prop: THREE.Object3D): void {
+  /**
+   * Folds the skin on one bone away and mounts `prop` there in its place: a stand-in for that part of him, a partial head.
+   * The bone stays, so it is still hit, still on the ragdoll, and still comes off or bursts, stand-in and all. Undone at
+   * reset. False if that bone is hidden or already stood in for.
+   */
+  standIn(boneIndex: number, prop: THREE.Object3D): boolean {
+    const own = this.skeleton.boneInverses;
+    if (this.hidden[boneIndex] || own[boneIndex] !== this.a.bindInverses[boneIndex]) return false;
+    // The bind inverses are the archetype's, shared by every body: this one gets its own before one is changed.
+    const inverses = own === this.a.bindInverses ? own.slice() : own;
+    inverses[boneIndex] = new THREE.Matrix4().makeScale(COLLAPSED, COLLAPSED, COLLAPSED).multiply(this.a.bindInverses[boneIndex]!);
+    this.skeleton.boneInverses = inverses;
+    // Whatever else is still on it (a helmet no plate threw off) goes with the skin.
+    for (const p of this.props) if (p.bone === boneIndex && p.object.parent === this.bones[boneIndex]) p.object.visible = false;
+    this.attachProp(boneIndex, prop, true);
+    return true;
+  }
+
+  attachProp(boneIndex: number, prop: THREE.Object3D, untilReset = false): void {
     this.bones[boneIndex]!.add(prop);
-    this.props.push({ bone: boneIndex, object: prop });
+    this.props.push({ bone: boneIndex, object: prop, untilReset });
     prop.visible = !this.hidden[boneIndex];
   }
 
@@ -488,6 +508,7 @@ export class Character implements CharacterInstance {
       else b.position.copy(this.a.bindPositions[i]!);
     }
     this.hidden.fill(0);
+    this.skeleton.boneInverses = this.a.bindInverses;
     this.severed.clear();
     this.flash = 0;
     this.book.clear();
@@ -496,7 +517,13 @@ export class Character implements CharacterInstance {
     if (this.inside) this.showInside(FAR_LOD);
     this.data.fill(0, this.extras, this.extras + EXTRA_TEXELS * 4);
     this.data[this.extras + EXTRA_INFO * 4 + 1] = Math.random() * 64;
-    for (const p of this.props) p.object.visible = true;
+    for (let i = this.props.length - 1; i >= 0; i--) {
+      const p = this.props[i]!;
+      p.object.visible = true;
+      if (!p.untilReset) continue;
+      p.object.removeFromParent();
+      this.props.splice(i, 1);
+    }
     this.mesh.geometry = this.a.model.lods[0]!;
     this.mesh.material = this.a.material;
     this.lod = 0;
@@ -604,6 +631,8 @@ export class SeveredPart implements SeveredLimb {
       m.copy(srcBone.matrixWorld);
     }
     this.root.add(rootBone);
+    // A bone the body has a stand-in on (`Character.standIn`) keeps its skin folded away here too.
+    this.skeleton.boneInverses = src.skeleton.boneInverses;
     m.decompose(rootBone.position, rootBone.quaternion, s);
     rootBone.scale.setScalar(1);
 
@@ -643,8 +672,8 @@ export class SeveredPart implements SeveredLimb {
     this.data[this.extras + EXTRA_PARAMS * 4 + 1] = 0;
     this.showWounds();
     for (const p of src.props) {
-      // A prop that has already left the bone (a helmet shot off) stays where it went.
-      if (!chain[p.bone] || p.object.parent !== src.bones[p.bone]) continue;
+      // A prop that has already left the bone (a helmet shot off) stays where it went; one out of sight stays so.
+      if (!chain[p.bone] || p.object.parent !== src.bones[p.bone] || !p.object.visible) continue;
       // A clone, because the limb can outlive the instance that shed it.
       const clone = p.object.clone();
       clone.visible = true;

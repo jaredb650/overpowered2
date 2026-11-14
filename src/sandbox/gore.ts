@@ -635,6 +635,8 @@ export default async function goreSandbox(params: URLSearchParams): Promise<void
   const rig = humanoidRig('dummy');
   const spawnChar = (): CharacterInstance => (useDummy ? new TestDummy(rig) : library.spawn(arch));
 
+  // Gore loads the partial heads' stand-ins through the library.
+  ctx.characters = library;
   const gore = createGoreSystem(ctx);
   ctx.gore = gore;
   gore.init();

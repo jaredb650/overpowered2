@@ -204,6 +204,18 @@
    "bytes": 66820,
    "triangles": 2394,
    "kind": "prop"
+  },
+  "trooperHeadPartialSide": {
+   "file": "trooperHeadPartialSide.bin",
+   "bytes": 201704,
+   "triangles": 6916,
+   "kind": "prop"
+  },
+  "trooperHeadPartialTop": {
+   "file": "trooperHeadPartialTop.bin",
+   "bytes": 215700,
+   "triangles": 6980,
+   "kind": "prop"
   }
  }
 }

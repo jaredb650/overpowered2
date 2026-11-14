@@ -299,6 +299,8 @@ export interface CharacterInstance {
   hitFlash(intensity: number): void;
   /** Attaches a prop (gun, shield) to a bone. Falls with the bone when severed. */
   attachProp(boneIndex: number, prop: THREE.Object3D): void;
+  /** Folds a bone's skin away and mounts `prop` in its place until reset; the bone stays. False if it cannot. */
+  standIn?(boneIndex: number, prop: THREE.Object3D): boolean;
   /**
    * A second skinned mesh showing only the chain from `boneIndex` down, with the child-side stump cap
    * visible, posed exactly like this instance right now. GoreSystem drives its bones from rigid bodies.
