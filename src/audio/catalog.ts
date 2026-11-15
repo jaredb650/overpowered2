@@ -213,7 +213,7 @@ const gunShots: SoundDef[] = [
   shot('hmg_shot', 'guns/hmg_shot.mp3', 'gun', 0.225, 0.25, { send: 0.3 }),
   shot('revolver_shot', 'guns/revolver_shot.mp3', 'gunHeavy', 0.24, 0.254),
   shot('sabot_shot', 'guns/sabot_shot.mp3', 'gunHeavy', 0.246, 0.219, { send: 0.32 }),
-  shot('autocannon_blast', 'guns/autocannon_blast.mp3', 'gun', 0.285, 0.26, { send: 0.22 }),
+  shot('autocannon_blast', 'guns/autocannon_blast.mp3', 'gun', 0.43, 0.26, { send: 0.22 }),
 ];
 
 /**
