@@ -571,3 +571,14 @@ export const STYLE = {
 
 export const STYLE_COLOR = '#ffd400';
 export const HEADSHOT_COLOR = '#ffff00';
+
+/** The floating hit text setting: today's `+points LABEL`, the points alone, or none. Set from src/ui/settings.ts. */
+export const HIT_TEXT_LEVELS = ['Full', 'Points', 'Off'] as const;
+export const HitText = { level: 0 };
+
+/** The float for a hit, or null when the setting hides it. A label paid no points of its own passes none. */
+export function hitText(label: string, points?: number): string | null {
+  if (HitText.level === 2 || (points === undefined && HitText.level === 1)) return null;
+  if (points === undefined) return label;
+  return label && HitText.level === 0 ? `+${points} ${label}` : `+${points}`;
+}

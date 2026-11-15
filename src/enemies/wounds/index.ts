@@ -20,6 +20,7 @@ import type { DamageInfo, DamageType } from '../../core/contracts';
 import { chance, clamp, pick, rand } from '../../core/math';
 import { FACTIONS } from '../../contracts/data';
 import { ACTIVE } from '../../contracts/select';
+import { hitText } from '../../progression/data';
 import type { AiWorld } from '../aiWorld';
 import type { Plate } from '../armor';
 import { say } from '../attacks';
@@ -290,7 +291,8 @@ export class WoundSystem {
     // The label is the player's style feedback. An ally's hit (src/allies) earns none.
     if (now - this.labelAt < LABEL_GAP || ALLY_SOURCE.test(d.source)) return;
     this.labelAt = now;
-    ctx.hud.floatText(s.e.center, label, LABEL_COLOR);
+    const text = hitText(label);
+    if (text) ctx.hud.floatText(s.e.center, text, LABEL_COLOR);
   }
 
   private cry(s: Soldier, b: Injuries): void {

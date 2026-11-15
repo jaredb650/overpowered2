@@ -10,7 +10,7 @@ import { rulesCustom } from '../contracts/crucible';
 import { readHighScore, writeHighScore } from '../contracts/scores';
 import { ACTIVE } from '../contracts/select';
 import { Combo } from './counters';
-import { GIFT_SOURCES, HEADSHOT_COLOR, MULTI_KILLS, SCORE, STYLE, STYLE_COLOR } from './data';
+import { GIFT_SOURCES, HEADSHOT_COLOR, MULTI_KILLS, SCORE, STYLE, STYLE_COLOR, hitText } from './data';
 
 /** Sources the map owns. A kill from any of them is environmental. */
 const ENVIRONMENT = /^(world|hazard|barrel|tank|lava|crusher|electric|env)/;
@@ -77,7 +77,7 @@ export class ScoreKeeper {
     const pts = Math.round(SCORE.headshot * this.comboTier(combo) * this.speedTier());
     this.add(pts, 'headshot', enemy.center);
     this.ctx.hud.feed(`HEADSHOT! +${pts}`, HEADSHOT_COLOR);
-    this.float(enemy, `+${pts} HEADSHOT`, HEADSHOT_COLOR);
+    this.float(enemy, hitText('HEADSHOT', pts), HEADSHOT_COLOR);
   }
 
   /** A prisoner shot: paid on top of the kill itself, which 'enemy:killed' has already priced. */
@@ -86,7 +86,7 @@ export class ScoreKeeper {
     const pts = Math.round(bonus * this.comboTier(combo) * this.speedTier());
     this.add(pts, label, enemy.center);
     this.ctx.hud.feed(`${label} +${pts}`, STYLE_COLOR);
-    this.float(enemy, `+${pts} ${label}`, STYLE_COLOR);
+    this.float(enemy, hitText(label, pts), STYLE_COLOR);
   }
 
   /** The first style names the kill; the rest are in the number. */
@@ -139,17 +139,18 @@ export class ScoreKeeper {
     if (multi.label) {
       audio.play('multikill', { pitch: 1 + Math.min(multiCount, 8) * 0.06 });
       hud.feed(`${multi.label} +${multi.bonus}`, STYLE_COLOR);
-      this.float(e.enemy, multi.label, STYLE_COLOR);
+      this.float(e.enemy, hitText(multi.label), STYLE_COLOR);
       if (multiCount >= 5) hud.banner(multi.label, `${multiCount} KILLS`, STYLE_COLOR);
     }
     if (bonus > 0 && label && label !== 'HEADSHOT') audio.play('style_bonus');
 
-    this.float(e.enemy, label ? `+${points} ${label}` : `+${points}`, color ?? (label ? STYLE_COLOR : undefined));
+    this.float(e.enemy, hitText(label, points), color ?? (label ? STYLE_COLOR : undefined));
     hud.feed(label ? `${label} +${points}` : `Enemy eliminated +${points}`, color ?? (label ? STYLE_COLOR : undefined));
     return points;
   }
 
-  private float(enemy: EnemyInstance, text: string, color?: string): void {
+  private float(enemy: EnemyInstance, text: string | null, color?: string): void {
+    if (text === null) return;
     const frame = this.ctx.time.frame;
     if (frame !== this.floatFrame) {
       this.floatFrame = frame;

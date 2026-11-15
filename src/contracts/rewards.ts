@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import type { Ctx, DamageInfo, DamageType } from '../core/contracts';
 import type { DamageResult, EnemyInstance } from '../core/gameplay';
+import { hitText } from '../progression/data';
 import { WEAPONS } from '../weapons/data';
 
 /** Seconds between labels, because an SMG in someone's back would otherwise paint them twenty a second. */
@@ -38,7 +39,8 @@ export class BackShots {
     if (enemies.applyDamage(enemy, this.extra).killed) result.killed = true;
     if (time.realElapsed - this.labelAt >= LABEL_GAP) {
       this.labelAt = time.realElapsed;
-      hud.floatText(enemy.center, 'BACK SHOT', LABEL_COLOR);
+      const text = hitText('BACK SHOT');
+      if (text) hud.floatText(enemy.center, text, LABEL_COLOR);
     }
   }
 }

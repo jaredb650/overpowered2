@@ -140,6 +140,7 @@ Stored in `op2.settings.v1`, sanitized on load. They apply and save the moment t
 | Volumes | `audio.setVolumes` |
 | Quality | `render.setQuality`, 0 to 3. Recompiles shaders when the light count changes, so it hitches once |
 | Gore | `GoreTuning`, `BloodTuning`, `ChunkTuning`, written live. See the limitation below |
+| Hit text | `HitText.level` in `progression/data.ts`, read by `hitText()`. Full is `+700 HEADSHOT`, Points is `+700` and drops the words that pay nothing of their own (wound zones like FEMORAL, BACK SHOT, multi-kill names, vehicle callouts), Off floats none of them. Scoring, the feed, the style lane and sounds stay as they are. Ally orders, pickups, repair pay and the jump pad mark still float, since they are not hits |
 | Keys | `input.rebind`, `captureNext`. Rows show every key on an action |
 
 ## Known limitations

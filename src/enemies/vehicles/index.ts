@@ -25,6 +25,7 @@ import type { EnemyId, ExplosionSpec, FriendlyAircraft, MissileTarget, VehicleTa
 import { rand } from '../../core/math';
 import { Airframe } from '../../progression/callins/airframe';
 import { GroundProbe } from '../../progression/callins/ground';
+import { hitText } from '../../progression/data';
 import { ModelMaterials } from '../../progression/modelkit';
 import { Gun, type GunSpec } from '../../vehicles/guns';
 import { Skyline } from '../../vehicles/skyline';
@@ -390,7 +391,8 @@ export class VehicleSystem implements VehicleTargets {
   }
 
   callout(at: THREE.Vector3, text: string): void {
-    this.ctx.hud.floatText(at, text, CALLOUT);
+    const shown = hitText(text);
+    if (shown) this.ctx.hud.floatText(at, shown, CALLOUT);
   }
 
   /** A blast with this system's name on it, for wrecks going up. */

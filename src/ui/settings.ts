@@ -5,6 +5,7 @@ import { BloodTuning } from '../gore/blood';
 import { ChunkTuning } from '../gore/chunks';
 import { WoundTuning } from '../gore/wounds';
 import { clamp } from '../core/math';
+import { HIT_TEXT_LEVELS, HitText } from '../progression/data';
 import { TUNING } from '../weapons/data';
 
 const STORAGE_KEY = 'op2.settings.v1';
@@ -30,11 +31,13 @@ export interface Settings {
   aimHold: boolean;
   /** Mouse speed while aimed down sights, as a share of the hip-fire speed. */
   aimSensitivity: number;
+  /** Floating text over a hit enemy: an index into HIT_TEXT_LEVELS. */
+  hitText: number;
 }
 
 export const DEFAULTS: Readonly<Settings> = {
   sensitivity: 1, fov: 90, invertY: false, master: 0.8, sfx: 1, music: 0.7, quality: 2, gore: 1, holdToHop: false,
-  aimHold: false, aimSensitivity: TUNING.ads.sensitivity,
+  aimHold: false, aimSensitivity: TUNING.ads.sensitivity, hitText: 0,
 };
 
 export const SENSITIVITY_RANGE = [0.1, 4] as const;
@@ -51,6 +54,7 @@ function sanitize(s: Settings): void {
   s.music = clamp(s.music);
   s.quality = clamp(Math.round(s.quality), 0, QUALITY_LEVELS.length - 1);
   s.gore = clamp(Math.round(s.gore), 0, GORE_LEVELS.length - 1);
+  s.hitText = clamp(Math.round(s.hitText), 0, HIT_TEXT_LEVELS.length - 1);
 }
 
 export function loadSettings(): Settings {
@@ -136,6 +140,7 @@ export function applySettings(ctx: Ctx, s: Settings): void {
   (ctx.camera as unknown as FovRig).setBaseFov?.(s.fov);
   ctx.audio.setVolumes?.(s.master, s.sfx, s.music);
   applyGore(s.gore);
+  HitText.level = s.hitText;
 }
 
 export function applyQuality(ctx: Ctx, s: Settings): void {
