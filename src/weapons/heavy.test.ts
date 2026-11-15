@@ -28,9 +28,9 @@ beforeEach(async () => {
 });
 afterEach(() => vi.restoreAllMocks());
 
-/** Hands key 8 over and draws one of its guns. */
+/** Hands one of key 8's guns over and draws it. */
 function draw(id: 'buzzsaw' | 'piledriver'): void {
-  r.weapons.give('buzzsaw');
+  r.weapons.give(id);
   r.weapons.switchTo(id);
   r.run(0.6);
   expect(r.weapons.current).toBe(id);
@@ -49,13 +49,15 @@ function hold(seconds: number, fps = 60): void {
 }
 
 describe('key 8, the table', () => {
-  it('holds the rotary cannon and the heavy machine gun, and the second comes with the first', () => {
+  it('holds the rotary cannon and the heavy machine gun, each its own unlock', () => {
     expect(familyOfSlot(8)).toEqual(['buzzsaw', 'piledriver']);
     expect(membersOf('buzzsaw')).toEqual(['piledriver']);
     expect(hmg.base).toBe('buzzsaw');
-    // The cache that brings the cannon brings both: the heavy machine gun is in no cache of its own.
+    // Each comes in a cache of its own: the cannon's does not bring the heavy machine gun.
     expect(CACHE_ORDER).toContain('buzzsaw');
-    expect(CACHE_ORDER).not.toContain('piledriver');
+    expect(CACHE_ORDER).toContain('piledriver');
+    r.weapons.give('buzzsaw');
+    expect(r.weapons.owned.has('piledriver')).toBe(false);
     expect(WEAPON_ORDER.indexOf('piledriver')).toBe(WEAPON_ORDER.indexOf('buzzsaw') + 1);
   });
 
@@ -501,10 +503,10 @@ describe('the pump shotgun', () => {
     r.input.simulate('fire', true);
     r.run(1 / 60);
     r.input.simulate('fire', false);
-    r.run(0.1);
+    r.run(0.3);
     expect(r.record.sounds).toContain('pump_shotgun_shot');
     expect(r.record.sounds).not.toContain('pump_rack_back');
-    r.run(0.25);
+    r.run(0.5);
     const back = r.record.sounds.indexOf('pump_rack_back');
     expect(back).toBeGreaterThan(-1);
     expect(r.record.sounds.indexOf('pump_rack_forward')).toBeGreaterThan(back);

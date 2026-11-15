@@ -8,7 +8,6 @@ import type { StructureStage } from '../../core/contracts';
 import type { CallInId, WeaponId } from '../../core/gameplay';
 import { CALLINS, CALLIN_ORDER } from '../../progression/data';
 import { WEAPONS, WEAPON_ORDER } from '../../weapons/data';
-import { membersOf } from '../../weapons/families';
 import { FORT_POSTS, type FortPost } from '../../world/map/fort/plan';
 import {
   ALLY_PRICES, ALLY_ROLES, BARRACKS_ORDER, BASIC_REFILL_PRICE, CALLIN_PRICES, ECONOMY, GRENADE_PRICE, MOUNT_PRICES, REPAIR_PRICES,
@@ -141,8 +140,7 @@ function weapons(v: ShopView): Offer[] {
   for (const id of WEAPON_ORDER) {
     const p = WEAPON_PRICES[id];
     if (!p) continue;
-    const members = membersOf(id).filter(m => !v.owned.has(m));
-    const detail = members.length > 0 ? `With the ${members.map(m => WEAPONS[m].name).join(', ')}` : `${p.ammo} ammo`;
+    const detail = `${p.ammo} ammo`;
     const why = v.owned.has(id) ? 'Owned' : !v.inBreak ? 'Only in a break' : need(p.price, v);
     out.push({ section: 'Weapons', label: WEAPONS[id].name, detail, price: p.price, why, act: { kind: 'weapon', id } });
   }

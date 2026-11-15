@@ -9,6 +9,7 @@ import {
 } from '../data';
 import type { Hud } from '../Hud';
 import { GRENADE_ICON, weaponIcon } from '../icons';
+import { inPlay } from '../../weapons/families';
 import type { Nav, NavItem } from './nav';
 import { menuButton } from './parts';
 import type { Screen } from './Screens';
@@ -50,7 +51,7 @@ function movementPanel(ctx: Ctx): HTMLElement {
 function weaponsPanel(): HTMLElement {
   return div('gd-panel',
     div('gd-list gd-weapons',
-      ...WEAPON_ORDER.map(id => {
+      ...WEAPON_ORDER.filter(inPlay).map(id => {
         const w = WEAPONS[id];
         return div('gd-wrow', span('gd-key', w.key), markup(weaponIcon(id)), span('gd-name', w.name), span('gd-body', `${w.role}. ${w.note}`));
       }),

@@ -93,7 +93,7 @@ const CLIP_SCALE = 1.18;
 const C_PITCH = 0.04;
 const CLIP_ROUNDS = ['r0', 'r1', 'r2'] as const;
 /** How far the barrel runs back into the receiver on a shot, and the spring it runs back through. */
-const SLAM = 0.12;
+const SLAM = 0.15;
 const SPRING = 0.16;
 
 function cannonReceiver(m: Mesher): void {
@@ -282,12 +282,12 @@ function buildCannon(kit: Kit): Model {
   return model;
 }
 
-/** Long recoil: the barrel is back in the receiver on the frame of the shot and the spring runs it home in 0.22 s. */
+/** Long recoil: the barrel is back in the receiver on the frame of the shot, held there, and the spring runs it home by 0.32 s. */
 function cannonAnim(a: Anim): void {
   const P = a.parts;
   pullTrigger(a, 0.08);
   const t = a.sinceFire;
-  const kick = t < 0.012 ? t / 0.012 : t < 0.04 ? 1 : 1 - inOut(seg(t, 0.04, 0.24));
+  const kick = t < 0.012 ? t / 0.012 : t < 0.06 ? 1 : 1 - inOut(seg(t, 0.06, 0.32));
   P.barrel!.position.z += kick * SLAM;
   P.spring!.scale.z *= (SPRING - kick * SLAM) / SPRING;
   P.charge!.position.z += (t < 0.14 ? bump(t, 0, 0.14) : 0) * 0.05;
@@ -580,8 +580,8 @@ export function autocannonDef(kit: Kit): ViewDef {
     model: buildCannon(kit),
     pos: [0.25, -0.31, -0.47],
     rot: [0.012, 0.05, 0],
-    // Back into the shoulder with a slight tip, not a muzzle flip (owner, 2026-11-13).
-    recoil: { back: 0.13, lift: 0.012, pitch: 0.045, yaw: 0.016, roll: 0.05, omega: 28, zeta: 0.5 },
+    // Back into the shoulder with a slight tip, not a muzzle flip (owner, 2026-11-13); harder still on 2026-11-15.
+    recoil: { back: 0.21, lift: 0.016, pitch: 0.06, yaw: 0.022, roll: 0.07, omega: 24, zeta: 0.48 },
     right: { socket: 'gripR', pose: HANDS.grip },
     left: { socket: 'gripL', pose: HANDS.foregrip },
     heatPerShot: 0.22,

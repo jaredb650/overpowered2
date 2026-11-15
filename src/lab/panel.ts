@@ -7,6 +7,7 @@ import type { CallInId, EnemyId, PerkId, PowerupId, WeaponId } from '../core/gam
 import { ENEMIES } from '../enemies/data';
 import { CALLIN_ORDER, CALLINS, EFFECTS, POWERUPS } from '../progression/data';
 import { WEAPONS, WEAPON_ORDER } from '../weapons/data';
+import { inPlay } from '../weapons/families';
 import type { AiMode, LabSettings } from './settings';
 
 /** Body animation for moves, its camera part, first-person legs, and vaulting cover with no key. */
@@ -221,7 +222,7 @@ export class LabPanel {
     // Every weapon by name, in key order: a family's members sit side by side.
     this.el.append(el('h2', '', 'DRAW A WEAPON'));
     const guns = el('div', 'lab-grid');
-    for (const id of WEAPON_ORDER) this.button(guns, `${WEAPONS[id].slot} ${WEAPONS[id].name}`, () => this.on.weapon(id));
+    for (const id of WEAPON_ORDER.filter(inPlay)) this.button(guns, `${WEAPONS[id].slot} ${WEAPONS[id].name}`, () => this.on.weapon(id));
     this.el.append(guns);
     const swarm = el('div', 'lab-row');
     this.button(swarm, 'Quiver: draw it, five targets ahead to paint', () => this.on.swarm());

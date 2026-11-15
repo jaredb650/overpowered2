@@ -212,13 +212,13 @@ describe('the runtime', () => {
     expect(e.credits).toBe(5000 - WEAPON_PRICES.sabot!.price);
   });
 
-  it('deploys the loadout with a free Shiv, no grenades, and the change as credits', () => {
+  it('deploys the loadout with a free katana, no grenades, and the change as credits', () => {
     const { ctx, setLoadout } = fakeCtx();
     const d = new Defense(ctx);
     d.needLoadout = true;
     expect(d.deploy('rocket', 'rivet')).toMatch(/No explosives/);
     expect(d.deploy('harrow', 'rivet')).toBeNull();
-    expect(setLoadout).toHaveBeenCalledWith(['harrow', 'rivet', 'knife'], 0);
+    expect(setLoadout).toHaveBeenCalledWith(['harrow', 'rivet', 'sword'], 0);
     expect(d.credits).toBe(ECONOMY.budget - 900 - 400);
     expect(d.needLoadout).toBe(false);
   });

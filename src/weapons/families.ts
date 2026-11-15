@@ -19,8 +19,16 @@ export const SLOT_ORDER: readonly number[] = WEAPON_ORDER.reduce<number[]>((out,
   return out;
 }, []);
 
-/** `?melee=old` leaves key 5 with the katana alone, as before the Shiv, Prybar, Spade and Cosh. */
-export const MELEE_FOUR_ON = typeof location === 'undefined' || new URLSearchParams(location.search).get('melee') !== 'old';
+/**
+ * Key 5 is the katana alone (owner, 2026-11-15): the Shiv, Prybar, Spade and Cosh are off keys, loadouts, pickups and the
+ * lab. Their rows and code stay; `?melee=four` puts them back beside it.
+ */
+export const MELEE_FOUR_ON = typeof location !== 'undefined' && new URLSearchParams(location.search).get('melee') === 'four';
+
+/** A weapon the game can hand out: on a number key. False for the melee four while they are off. */
+export function inPlay(id: WeaponId): boolean {
+  return familyOf(id).includes(id);
+}
 
 const BY_SLOT = new Map<number, readonly WeaponId[]>();
 for (const slot of SLOT_ORDER) {

@@ -151,15 +151,16 @@ describe('katana reach', () => {
 });
 
 describe('the four beside it', () => {
-  it('key 5 steps through all five and wraps', () => {
+  it('are switched off: key 5 is the katana alone', () => {
     hold('sword');
+    for (const id of ['knife', 'crowbar', 'shovel', 'baton'] as const) r.weapons.give(id);
     const seen: WeaponId[] = [];
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 2; i++) {
       r.tap('weapon5');
       r.run(0.4);
       seen.push(r.weapons.current);
     }
-    expect(seen).toEqual(['knife', 'crowbar', 'shovel', 'baton', 'sword']);
+    expect(seen).toEqual(['sword', 'sword']);
   });
 
   it('the knife: short, and three times the cut from behind', () => {
@@ -310,9 +311,8 @@ describe('the four beside it', () => {
   });
 
   it('the melee key swings what key 5 last drew', () => {
-    hold('sword');
-    r.tap('weapon5');
-    r.run(0.4);
+    // The four are off key 5, so the knife is drawn by hand, as the lab would with `?melee=four`.
+    hold('knife');
     expect(r.weapons.current).toBe('knife');
     r.weapons.switchTo('smg');
     r.run(0.4);

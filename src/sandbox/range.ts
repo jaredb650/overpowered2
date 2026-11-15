@@ -22,6 +22,7 @@ import { MOVE } from '../player/tuning';
 import type { Combat } from '../weapons/Combat';
 import { createCombat, createWeapons, SWORD, TUNING, WEAPONS } from '../weapons';
 import { HIT_STOP, LANCE_OLD, SHAPED_CHARGE } from '../weapons/data';
+import { MELEE_FOUR_ON } from '../weapons/families';
 import { BLADE_OLD, KATANA, MELEE } from '../weapons/melee/data';
 import type { Weapons } from '../weapons/Weapons';
 import { makeCtx, runLoop } from './harness';
@@ -1591,7 +1592,8 @@ const tests: Record<string, (r: Rig) => void> = {
       run(r, 0.4, 60);
       seen.push(r.weapons.current);
     }
-    check('sword, shiv, prybar, spade, cosh, sword', seen.join() === 'knife,crowbar,shovel,baton,sword', seen.join());
+    const want = MELEE_FOUR_ON ? 'knife,crowbar,shovel,baton,sword' : 'sword,sword,sword,sword,sword';
+    check(MELEE_FOUR_ON ? 'sword, shiv, prybar, spade, cosh, sword' : 'the katana alone on key 5', seen.join() === want, seen.join());
   },
   'melee: each of the four reaches its own reach and not past it, at any frame rate'(r) {
     for (const id of ['knife', 'crowbar', 'shovel', 'baton'] as const) {

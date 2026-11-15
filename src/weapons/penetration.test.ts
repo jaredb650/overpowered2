@@ -352,8 +352,8 @@ describe('the guns', () => {
   });
 
   it('Rivet: no limbs, triple headshots, half damage far away', () => {
-    r.weapons.give('judge');
-    draw('weapon6', 'weapon6');
+    r.weapons.give('rivet');
+    draw('weapon6');
     expect(r.weapons.current).toBe('rivet');
     const near = r.enemies.add(0, -10);
     pull(0.03);
@@ -368,14 +368,34 @@ describe('the guns', () => {
   });
 
   it('Rivet: fires as fast as the trigger, far faster than the Judge', () => {
-    r.weapons.give('judge');
-    draw('weapon6', 'weapon6');
+    r.weapons.give('rivet');
+    draw('weapon6');
     const d = r.enemies.add(0, -10);
     for (let i = 0; i < 6; i++) r.tap('fire');
     r.run(0.2);
     expect(d.hits.length).toBeGreaterThanOrEqual(2);
     expect(WEAPONS.rivet.interval).toBeLessThan(WEAPONS.judge.interval / 3);
     expect(WEAPONS.rivet.drawTime).toBeLessThan(WEAPONS.judge.drawTime);
+  });
+
+  it('Rivet: right click is a three-round burst, then a pause, and no ADS', () => {
+    const b = WEAPONS.rivet.altBurst!;
+    r.weapons.give('rivet');
+    draw('weapon6');
+    const d = r.enemies.add(0, -10);
+    r.tap('aim');
+    r.run(b.gap * (b.rounds - 1) + 0.05);
+    expect(d.hits.length).toBe(b.rounds);
+    expect(r.weapons.ammo('rivet').mag).toBe(WEAPONS.rivet.magSize - b.rounds);
+    expect(r.weapons.aim).toBe(0);
+    // A click inside the pause does nothing; one after it is the next burst.
+    r.tap('aim');
+    r.run(0.05);
+    expect(d.hits.length).toBe(b.rounds);
+    r.run(b.recover);
+    r.tap('aim');
+    r.run(b.gap * (b.rounds - 1) + 0.05);
+    expect(d.hits.length).toBe(b.rounds * 2);
   });
 
   it('SMG and Harrow: the rifle reaches, the SMG fades with range', () => {

@@ -223,9 +223,10 @@ const SHELLS = [0.12, 0.34, 0.56] as const;
 function clip(a: Anim): void {
   const P = a.parts;
   pullTrigger(a);
-  // Hand-cycled: the off hand throws the pump between shots. The whole cycle fits the 0.3 s refire.
+  // Hand-cycled: the off hand throws the pump between shots, deliberately. The whole cycle fits the 0.85 s refire, and
+  // the rack's foley (cycleFoley in data.ts) lands on its ends: back at 0.42 s, home at 0.72 s.
   const t = a.sinceFire;
-  let rack = t < 0.28 ? hold(t, 0.07, 0.15, 0.17, 0.27) : 0;
+  let rack = t < 0.74 ? hold(t, 0.2, 0.42, 0.48, 0.72) : 0;
   a.gunP.z += rack * 0.012;
   a.gunR.z -= rack * 0.035;
   a.gunR.x += rack * 0.012;

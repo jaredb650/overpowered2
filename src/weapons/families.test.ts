@@ -1,8 +1,8 @@
-/** Weapon families: what a number key, the wheel and Q draw, and what comes with a base weapon. */
+/** Weapon families: what a number key, the wheel and Q draw. Every weapon is its own unlock: nothing comes with a base. */
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { WeaponId } from '../core/gameplay';
-import { WEAPONS, WEAPON_ORDER } from './data';
-import { SLOT_ORDER, familyOf, familyOfSlot, membersOf, pressSlot, wheelSlot } from './families';
+import { TUNING, WEAPONS, WEAPON_ORDER } from './data';
+import { SLOT_ORDER, familyOf, familyOfSlot, inPlay, membersOf, pressSlot, wheelSlot } from './families';
 import { makeRange, type Range } from './testkit';
 
 const all = new Set<WeaponId>(WEAPON_ORDER);
@@ -15,14 +15,17 @@ describe('family table', () => {
     // The Sabot is first on key 4: the explosive autocannon is its upgrade.
     expect(familyOfSlot(4)).toEqual(['sabot', 'autocannon']);
     expect(familyOfSlot(6)).toEqual(['judge', 'rivet']);
-    // Key 5: the katana and the four swung beside it, all owned with it.
-    expect(familyOfSlot(5)).toEqual(['sword', 'knife', 'crowbar', 'shovel', 'baton']);
+    // Key 5: the katana alone. The four swung beside it are switched off (`?melee=four` brings them back).
+    expect(familyOfSlot(5)).toEqual(['sword']);
+    for (const id of ['knife', 'crowbar', 'shovel', 'baton'] as WeaponId[]) expect(inPlay(id), id).toBe(false);
+    expect(inPlay('sword')).toBe(true);
     expect(familyOf('harrow')).toEqual(['smg', 'harrow']);
   });
 
-  it('every weapon is on exactly one key, and every member names a base on the same key', () => {
+  it('every weapon in play is on exactly one key, and every member names a base on the same key', () => {
     const seen = SLOT_ORDER.flatMap(slot => familyOfSlot(slot));
-    expect([...seen].sort()).toEqual([...WEAPON_ORDER].sort());
+    expect([...seen].sort()).toEqual(WEAPON_ORDER.filter(inPlay).sort());
+    expect(new Set(seen).size).toBe(seen.length);
     for (const id of WEAPON_ORDER) {
       const base = WEAPONS[id].base;
       if (base) expect(WEAPONS[base].slot, id).toBe(WEAPONS[id].slot);
@@ -34,7 +37,7 @@ describe('family table', () => {
     // The autocannon is earned on its own, from a weapon cache: owning the Sabot does not bring it.
     expect(membersOf('sabot')).toEqual([]);
     expect(WEAPONS.autocannon.base).toBeUndefined();
-    expect(membersOf('sword')).toEqual(['knife', 'crowbar', 'shovel', 'baton']);
+    expect(membersOf('sword')).toEqual([]);
   });
 
   it('the order is the table\'s, with each family together and its base first', () => {
@@ -53,9 +56,8 @@ describe('family table', () => {
     expect(pressSlot(2, 'shotgun', all, undefined)).toBe('thresher');
     expect(pressSlot(4, 'sabot', all, undefined)).toBe('autocannon');
     expect(pressSlot(4, 'autocannon', all, undefined)).toBe('sabot');
-    expect(pressSlot(5, 'sword', all, undefined)).toBe('knife');
-    expect(pressSlot(5, 'baton', all, undefined)).toBe('sword');
-    expect(pressSlot(5, 'sword', new Set<WeaponId>(['sword']), undefined)).toBeNull();
+    // The katana alone: key 5 again does nothing, even with the four owned.
+    expect(pressSlot(5, 'sword', all, undefined)).toBeNull();
   });
 
   it('another slot\'s key draws the member last held there', () => {
@@ -91,21 +93,31 @@ describe('families in the weapon system', () => {
   });
   const settle = () => r.run(0.4);
 
-  it('starts with the members of the starting weapons, and the Sabot without its upgrade', () => {
-    expect(r.weapons.owned.has('harrow')).toBe(true);
-    expect(r.weapons.owned.has('thresher')).toBe(true);
-    expect(r.weapons.owned.has('quiver')).toBe(true);
-    expect(r.weapons.owned.has('sabot')).toBe(true);
+  it('a run starts with the weapons it names, members too, and the Sabot without its upgrade', () => {
+    expect([...r.weapons.owned].sort()).toEqual(['harrow', 'quiver', 'rocket', 'sabot', 'shotgun', 'smg', 'sword', 'thresher']);
     expect(r.weapons.owned.has('autocannon')).toBe(false);
-    expect(r.weapons.owned.has('rivet')).toBe(false);
-    r.weapons.give('judge');
-    expect(r.weapons.owned.has('rivet')).toBe(true);
-    expect(r.weapons.ammo('rivet').mag).toBe(WEAPONS.rivet.magSize);
   });
 
-  it('a mission loadout brings members with their base and nothing else', () => {
+  it('a pickup gives that weapon only, never the rest of its key', () => {
+    // A rack, a drop pod, a cache and the Outpost's shop all hand a weapon over through give.
+    const pairs: [WeaponId, WeaponId][] = [['shotgun', 'thresher'], ['rocket', 'quiver'], ['smg', 'harrow'], ['judge', 'rivet'], ['buzzsaw', 'piledriver']];
+    for (const [base, member] of pairs) {
+      r.weapons.setLoadout(['sword'], 0);
+      r.weapons.give(base);
+      expect(r.weapons.owned.has(base), base).toBe(true);
+      expect(r.weapons.owned.has(member), `${base} brought ${member}`).toBe(false);
+      // A second one of the same is ammo for it, not the member.
+      r.weapons.give(base);
+      expect(r.weapons.owned.has(member), member).toBe(false);
+      r.weapons.give(member);
+      expect(r.weapons.owned.has(member), member).toBe(true);
+      expect(r.weapons.ammo(member).mag).toBe(WEAPONS[member].magSize);
+    }
+  });
+
+  it('a mission loadout brings what it names and nothing else', () => {
     r.weapons.setLoadout(['smg', 'shotgun'], 0);
-    expect([...r.weapons.owned].sort()).toEqual(['harrow', 'shotgun', 'smg', 'thresher']);
+    expect([...r.weapons.owned].sort()).toEqual(['shotgun', 'smg']);
   });
 
   it('a loadout that names the autocannon keeps it, and its key draws it first', () => {
@@ -135,6 +147,33 @@ describe('families in the weapon system', () => {
     r.run(0.4);
     r.tap('weapon4');
     expect(r.weapons.current).toBe('autocannon');
+  });
+
+  it('each autocannon shell shoves the player back along the shot: all of it in the air, along the floor on the ground', () => {
+    const t = TUNING.autocannon;
+    r.weapons.give('autocannon');
+    r.weapons.switchTo('autocannon');
+    r.run(0.6);
+    const P = r.player;
+    const shoot = () => {
+      P.velocity.set(0, 0, 0);
+      r.tap('fire');
+      r.run(1 / 60);
+      const v = P.velocity.clone();
+      r.run(0.5);
+      return v;
+    };
+    // Aimed down and ahead, as at the floor in front of you.
+    P.forward.set(0, -Math.SQRT1_2, -Math.SQRT1_2);
+    P.grounded = false;
+    const air = shoot();
+    expect(air.y).toBeCloseTo(t.push * Math.SQRT1_2, 5);
+    expect(air.z).toBeCloseTo(t.push * Math.SQRT1_2, 5);
+    P.grounded = true;
+    const ground = shoot();
+    expect(ground.y).toBe(0);
+    expect(ground.z).toBeCloseTo(t.push * t.groundPush * Math.SQRT1_2, 5);
+    P.forward.set(0, 0, -1);
   });
 
   it('pressing the key again cycles, another key returns to the member last held', () => {
@@ -253,7 +292,8 @@ describe('families in the weapon system', () => {
     expect(WEAPONS.autocannon.round).toBe('shell');
     expect(WEAPONS.sabot.round).toBeUndefined();
     expect(WEAPONS.sabot.mode).toBe(WEAPONS.autocannon.mode);
-    expect(WEAPONS.judge.headHops).toBe(2);
+    // The Judge's headshot ricochet is off, for the fanning that replaces it.
+    expect(WEAPONS.judge.headHops).toBeUndefined();
     expect(WEAPONS.rivet.headHops).toBeUndefined();
   });
 

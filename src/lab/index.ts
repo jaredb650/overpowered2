@@ -17,6 +17,7 @@ import type { Game } from '../core/Game';
 import type { WeaponId } from '../core/gameplay';
 import { MAX_ALIVE } from '../enemies/waves';
 import { WEAPON_ORDER } from '../weapons/data';
+import { inPlay } from '../weapons/families';
 import { AimOverlay } from './overlay';
 import { ANIM } from '../player/moveAnim';
 import { MOVE } from '../player/tuning';
@@ -130,7 +131,7 @@ export class Lab {
     player.modifiers.invulnerable = this.settings.god;
     if (!this.settings.arsenal) return;
     // Straight into the set: `give` would raise an unlock banner for each one, on every boot.
-    for (const id of WEAPON_ORDER) (weapons.owned as Set<WeaponId>).add(id);
+    for (const id of WEAPON_ORDER) if (inPlay(id)) (weapons.owned as Set<WeaponId>).add(id);
   }
 
   get open(): boolean {
@@ -333,7 +334,7 @@ export class Lab {
       if (settings.god) ctx.player.modifiers.invulnerable = true;
       // Progression rewrites the modifiers every frame, after weapons have read them.
       if (settings.arsenal) {
-        for (const id of WEAPON_ORDER) (ctx.weapons.owned as Set<WeaponId>).add(id);
+        for (const id of WEAPON_ORDER) if (inPlay(id)) (ctx.weapons.owned as Set<WeaponId>).add(id);
         ctx.weapons.modifiers.bottomlessMag = true;
         if (ctx.weapons.grenades < GRENADE_FLOOR) ctx.weapons.addGrenades(GRENADE_FLOOR);
       }

@@ -102,15 +102,11 @@ function sight(m: Mesher): void {
     m.at([0.0185, 0.022, 0.002], null, () => m.box(0.004, 0.018, 0.018, 0.0008));
     m.at([0.0, 0.0458, 0.002], null, () => m.box(0.012, 0.0045, 0.014, 0.0008));
     m.glass(() => m.at([0, 0.02, -0.012], null, () => m.front(windowCut, 0.0012, { bevel: 0 })));
-    // The reticle floats on the glass, facing the shooter.
+    // The reticle floats on the glass, facing the shooter: one small dot and nothing round it, so it never covers a man
+    // at range (owner, 2026-11-15: the dot and its three ticks hid targets).
     m.glow('sight', () => {
       m.at([0, 0.0225, -0.0115], null, () => {
-        m.prism(poly([[-0.0009, -0.0009], [0.0009, -0.0009], [0.0009, 0.0009], [-0.0009, 0.0009]], 0.0003), 0.0002, { bevel: 0 });
-        for (let i = 0; i < 3; i++) {
-          m.at([0, 0, 0], [0, 0, (i / 3) * Math.PI * 2 + Math.PI / 2], () => {
-            m.prism(rect(0.0045, -0.00035, 0.0075, 0.00035, 0), 0.0002, { bevel: 0 });
-          });
-        }
+        m.prism(poly([[-0.00038, -0.00038], [0.00038, -0.00038], [0.00038, 0.00038], [-0.00038, 0.00038]], 0.00018), 0.0002, { bevel: 0 });
       });
     });
   });

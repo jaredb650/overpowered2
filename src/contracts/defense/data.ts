@@ -87,8 +87,8 @@ export const WEAPON_PRICES: Partial<Record<WeaponId, WeaponPrice>> = {
   lance: { price: 2400, explosive: true, ammo: 'explosive', box: 380 },
 };
 
-/** The free melee weapon every loadout carries. */
-export const LOADOUT_MELEE: WeaponId = 'knife';
+/** The free melee weapon every loadout carries: the katana, the one melee weapon in play. */
+export const LOADOUT_MELEE: WeaponId = 'sword';
 /** What the loadout screen starts on: a decent rifle and a pistol (Q4). */
 export const DEFAULT_LOADOUT: readonly [WeaponId, WeaponId] = ['harrow', 'rivet'];
 

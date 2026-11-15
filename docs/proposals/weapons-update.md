@@ -17,6 +17,8 @@ HMG the **Piledriver** (key 8), the flamethrower the **Kiln** (key 9), the spear
 - **The charge-up** is dramatic: energy pulled into the gun from around it, the gun shaking harder and harder.
 
 ## 2. Aiming and tuning
+**Built 2026-11-15.** ADS zoom about 1.5x the magnification (zoom 0.34 to 0.42, scope 20 degrees); SMG dot 0.76 mm, no ticks; pump 0.85 s and 23 a pellet; Sabot 30/60, autocannon 42/84; autocannon slam, shake 0.06 and a 7 m/s push (0.6 of it along the floor); Trommel barrels 0.74 m; Piledriver straight back; melee four off (`?melee=four`); Rivet right click bursts three (no ADS); Judge `headHops` off.
+
 - **ADS** on every weapon that has it: narrower field of view and more zoom, so it is good for precise shots.
 - **SMG sight**: a much smaller dot.
 - **Shotgun (pump)**: slower fire rate, slightly more damage. Today it fires almost semi-auto.
@@ -30,6 +32,8 @@ HMG the **Piledriver** (key 8), the flamethrower the **Kiln** (key 9), the spear
 - **Judge**: the headshot ricochet is switched off (the fanning in section 5 replaces it).
 
 ## 3. Picking up a weapon gives that weapon only
+**Built 2026-11-15.** `Weapons.own()` no longer adds `membersOf(base)`; the start names its members, and the Rivet and Piledriver got caches of their own.
+
 Today a pickup unlocks its whole number key: the pump shotgun also gives the Thresher, the rocket launcher also gives the Quiver.
 Every weapon is its own unlock.
 

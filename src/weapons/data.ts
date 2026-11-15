@@ -34,7 +34,10 @@ export interface WeaponDef {
    * again steps to the next member, in the order of the rows below. See families.ts.
    */
   slot: number;
-  /** The weapon this one comes with: owned whenever its base is. Unset for a weapon that is unlocked by itself. */
+  /**
+   * The weapon on its key this one is a variant of: it hands over to it first when dry. It is still its own unlock: owning
+   * the base never brings it (docs/proposals/weapons-update.md section 3).
+   */
   base?: WeaponId;
   /** How the trigger works, and with it which code fires the gun. A second member of a family is whatever its row says here. */
   mode: FireMode;
@@ -81,6 +84,8 @@ export interface WeaponDef {
    * `time` the seconds the gun takes to come up to the eye. What ADS does to spread, recoil and speed is `TUNING.ads`.
    */
   ads?: { readonly zoom: number; readonly time: number };
+  /** Right click fires `rounds` this far apart, then waits `recover` before the next shot: the Rivet's burst. Instead of ADS. */
+  altBurst?: { readonly rounds: number; readonly gap: number; readonly recover: number };
   /** Hit-stop on a kill, seconds. */
   killStop?: number;
   /**
@@ -166,7 +171,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     sounds: [{ id: 'smg_shot', pitchJitter: 0.03 }],
     reloadFoley: [[0.02, 'smg_reload']],
     recoil: 1, kick: 0.0016, shake: 0.004,
-    ads: { zoom: 0.12, time: 0.16 },
+    ads: { zoom: 0.35, time: 0.16 },
   },
   // The SMG's big brother: 500 rounds a minute to its 800, twice the round, and all of it at any range. It goes through one body, or a
   // sheet of cover, and takes limbs.
@@ -178,19 +183,20 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     muzzle: 'carbine', tracer: 'carbine', casing: 'rifle',
     sounds: [{ id: 'harrow_shot', pitchJitter: 0.03 }],
     recoil: 1, kick: 0.0058, shake: 0.01, fovPunch: 0.5, impactScale: 1.25,
-    ads: { zoom: 0.18, time: 0.2 },
+    ads: { zoom: 0.4, time: 0.2 },
   },
   shotgun: {
     ...BASE, id: 'shotgun', name: 'SHOTGUN', slot: 2, mode: 'semi',
     magSize: 6, reserve: 36, maxReserve: 72, reloadTime: 1.25, drawTime: 0.2,
-    interval: 0.3, damage: 20, pellets: 6, spread: 0.05, severMult: 2.4, force: 18,
+    // A deliberate pump: 0.85 s a shell (owner, 2026-11-15: it fired near semi-auto at 0.3).
+    interval: 0.85, damage: 23, pellets: 6, spread: 0.05, severMult: 2.4, force: 18,
     muzzle: 'shotgun', tracer: 'bullet', casing: 'shotgun',
     sounds: [{ id: 'pump_shotgun_shot', pitchJitter: 0.04 }],
-    // On the viewmodel's pump (shotgun.ts clip): back by 0.15 s after the shot, home again by 0.27 s.
-    cycleFoley: [[0.14, 'pump_rack_back'], [0.26, 'pump_rack_forward']],
+    // On the viewmodel's pump (shotgun.ts clip): back by 0.42 s after the shot, home again by 0.72 s.
+    cycleFoley: [[0.4, 'pump_rack_back'], [0.7, 'pump_rack_forward']],
     reloadFoley: [[0.1, 'reload_shell_in'], [0.32, 'reload_shell_in'], [0.54, 'reload_shell_in'], [0.86, 'reload_pump']],
     recoil: 1, kick: 0.014, shake: 0.02, fovPunch: 1.6,
-    ads: { zoom: 0.1, time: 0.2 },
+    ads: { zoom: 0.34, time: 0.2 },
   },
   // The shotgun that does not stop: a drum of twenty, five a second. Fewer pellets a shell than the pump, so the pump stays
   // the one hard hit, and a climb that walks the barrel up a burst for the player to hold down. `force` 16 is the least that
@@ -204,7 +210,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     reloadFoley: [[0.04, 'drum_out'], [0.52, 'drum_in'], [0.84, 'reload_bolt']], drawSound: 'weapon_draw_heavy',
     recoil: 0.85, kick: 0.011, shake: 0.016, fovPunch: 1.1,
     climb: { pitch: 0.011, yaw: 0.0035 },
-    ads: { zoom: 0.12, time: 0.25 },
+    ads: { zoom: 0.35, time: 0.25 },
   },
   rocket: {
     ...BASE, id: 'rocket', name: 'ROCKET', slot: 3, mode: 'semi', round: 'rocket',
@@ -214,7 +220,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     sounds: [{ id: 'rocket_fire', pitchJitter: 0.03 }],
     reloadFoley: [[0.15, 'reload_rocket'], [0.8, 'reload_bolt']], drawSound: 'weapon_draw_heavy',
     recoil: 1, kick: 0.022, shake: 0.04, fovPunch: 2.2,
-    ads: { zoom: 0.2, time: 0.3 },
+    ads: { zoom: 0.42, time: 0.3 },
   },
   // Four tubes in a block. Hold to paint up to four marks, let go and they leave one tube after another and home on them.
   // Each is a small ROCKET: the same blast rules for the player, a third of the reach. How it flies is TUNING.quiver.
@@ -232,7 +238,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
   // everyone in line.
   sabot: {
     ...BASE, id: 'sabot', name: 'SABOT', slot: 4, mode: 'semi',
-    magSize: 5, reserve: 15, maxReserve: 30, reloadTime: 1.0, drawTime: 0.28,
+    magSize: 5, reserve: 30, maxReserve: 60, reloadTime: 1.0, drawTime: 0.28,
     interval: 0.45, damage: 600, severMult: 6, force: 140, headshotMult: 2,
     penetration: 5, bodyCost: 0.12, armorPiercing: true,
     muzzle: 'sabot', tracer: 'sabot', casing: 'cannon',
@@ -241,16 +247,16 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     recoil: 1.1, kick: 0.034, shake: 0.034, fovPunch: 3.4, killStop: HEAVY_KILL_STOP, impactScale: 2.2,
   },
   // The upgrade on key 4: a shoulder-fired 20 mm-class cannon fed by a clip of three shells from the top. Not owned with
-  // the Sabot: a weapon cache brings it (CACHE_ORDER in progression), so it has no `base`. Reserve is in whole clips and
-  // carries about the shells it did on five-round belts (24 in hand at the start where it was 25).
+  // the Sabot: a weapon cache brings it (CACHE_ORDER in progression), so it has no `base`. Reserve is in whole clips,
+  // doubled after the owner's play (2026-11-15). Each shell shoves the player back along the shot: TUNING.autocannon.push.
   autocannon: {
     ...BASE, id: 'autocannon', name: 'AUTOCANNON', slot: 4, mode: 'semi', round: 'shell',
-    magSize: 3, reserve: 21, maxReserve: 42, reloadTime: 1.0, drawTime: 0.28,
+    magSize: 3, reserve: 42, maxReserve: 84, reloadTime: 1.0, drawTime: 0.28,
     interval: 0.3, damage: 99999, force: 90,
     muzzle: 'autocannon', tracer: 'heavy', casing: 'cannon',
     sounds: [{ id: 'autocannon_blast' }],
     drawSound: 'weapon_draw_heavy', scope: true,
-    recoil: 1, kick: 0.03, shake: 0.03, fovPunch: 3,
+    recoil: 1, kick: 0.045, shake: 0.06, fovPunch: 4,
   },
   sword: {
     ...BASE, id: 'sword', name: 'SWORD', slot: 5, mode: 'melee',
@@ -298,12 +304,13 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     ...BASE, id: 'judge', name: 'JUDGE', slot: 6, mode: 'semi',
     magSize: 6, reserve: 30, maxReserve: 60, reloadTime: 1.5, drawTime: 0.22,
     interval: 0.42, damage: 120, severMult: 1.6, force: 40, headshotMult: 2.5, armour: 'medium',
-    headHops: 2, killStop: HEAVY_KILL_STOP, impactScale: 1.6,
+    // No `headHops`: the headshot ricochet is off, for the fanning to come (docs/proposals/weapons-update.md section 5).
+    killStop: HEAVY_KILL_STOP, impactScale: 1.6,
     muzzle: 'revolver', tracer: 'heavy', casing: null,
     sounds: [{ id: 'revolver_shot', pitchJitter: 0.02 }],
     reloadFoley: [[0.04, 'revolver_open'], [0.34, 'revolver_load'], [0.74, 'revolver_close'], [0.9, 'revolver_cock']],
     recoil: 1, kick: 0.03, shake: 0.03, fovPunch: 2.4,
-    ads: { zoom: 0.15, time: 0.18 },
+    ads: { zoom: 0.38, time: 0.18 },
   },
   // The Judge is six slow verdicts. This is fifteen quick ones: out first, as fast as the finger, and nothing at long range.
   rivet: {
@@ -315,7 +322,8 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     sounds: [{ id: 'pistol_shot', pitchJitter: 0.04 }],
     reloadFoley: [[0.05, 'reload_mag_out'], [0.5, 'reload_mag_in'], [0.82, 'reload_bolt']],
     recoil: 1, kick: 0.0062, shake: 0.006, fovPunch: 0.3,
-    ads: { zoom: 0.1, time: 0.15 },
+    // Right click is a three-round burst, as a Glock's burst mode: no ADS.
+    altBurst: { rounds: 3, gap: 0.06, recover: 0.32 },
   },
   // A tap is a plasma ball, a hold is a beam: how it charges, what each stage fires and the bursts a beam leaves are
   // TUNING.lance. The cell holds twelve: a ball takes one, a beam two, a full beam three. `interval` is between balls,
@@ -350,7 +358,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
   // 90 at `severMult` 5 is 450 a round on a corpse, over the 420 a waist lasts (GoreTuning.corpseTrunkHealth): one round
   // cuts a dead body in two and the next bursts a half. `force` is 48 and not more: measured at 38, 48 and 85, what a round
   // throws is the pieces it cut, as far at 38 as at 85, so the number is set by what it does to the living, which is to
-  // stagger a Brute with its second round and not with every one.
+  // stagger a Brute with its second round and not with every one. Its own unlock, as every weapon is.
   piledriver: {
     ...BASE, id: 'piledriver', name: 'PILEDRIVER', slot: 8, base: 'buzzsaw', mode: 'auto',
     magSize: 50, reserve: 100, maxReserve: 150, reloadTime: 3, drawTime: 0.4,
@@ -361,7 +369,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     reloadFoley: [[0.05, 'reload_mag_out'], [0.5, 'reload_mag_in'], [0.8, 'piledriver_charge']], drawSound: 'weapon_draw_heavy',
     recoil: 1, kick: 0.016, shake: 0.045, fovPunch: 1.3,
     climb: { pitch: 0.0028, yaw: 0.0016 },
-    ads: { zoom: 0.15, time: 0.3 },
+    ads: { zoom: 0.38, time: 0.3 },
   },
   kiln: {
     ...BASE, id: 'kiln', name: 'KILN', slot: 9, mode: 'stream',
@@ -380,7 +388,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     sounds: [{ id: 'stake_fire', pitchJitter: 0.03 }],
     reloadFoley: [[0.1, 'stake_reload'], [0.84, 'reload_bolt']],
     recoil: 1, kick: 0.024, shake: 0.024, fovPunch: 1.4,
-    ads: { zoom: 0.2, time: 0.24 },
+    ads: { zoom: 0.42, time: 0.24 },
   },
 };
 
@@ -407,8 +415,13 @@ if (LANCE_OLD) {
  */
 export const WEAPON_ORDER: readonly WeaponId[] = (Object.keys(WEAPONS) as WeaponId[]).map(id =>
   SLOT4_OLD && id === 'sabot' ? 'autocannon' : SLOT4_OLD && id === 'autocannon' ? 'sabot' : id);
-/** Key 4 starts with the Sabot. The explosive autocannon beside it is earned: see CACHE_ORDER in src/progression/data.ts. */
-export const STARTING_WEAPONS: readonly WeaponId[] = ['smg', 'shotgun', 'rocket', SLOT4_OLD ? 'autocannon' : 'sabot', 'sword'];
+/**
+ * Key 4 starts with the Sabot. The explosive autocannon beside it is earned: see CACHE_ORDER in src/progression/data.ts.
+ * Every weapon is its own unlock, so the members a run has always started with are named here.
+ */
+export const STARTING_WEAPONS: readonly WeaponId[] = [
+  'smg', 'harrow', 'shotgun', 'thresher', 'rocket', 'quiver', ...(SLOT4_OLD ? ['autocannon', 'sabot'] as const : ['sabot'] as const), 'sword',
+];
 
 /** Per-weapon behaviour that does not fit every row of the table. */
 export const TUNING = {
@@ -479,7 +492,13 @@ export const TUNING = {
   },
   autocannon: {
     speed: 200, radius: 5, bossDamage: 900,
-    scopeFov: 30, zoomRate: 16,
+    /** The Sabot's and the autocannon's scope: 20 degrees, half again the 30 it was (owner, 2026-11-15). */
+    scopeFov: 20, zoomRate: 16,
+    /**
+     * Metres a second each shell shoves the player back along the shot: all of it in the air, where it can steer a fall
+     * or a jump, `groundPush` of it on the ground and along the ground only.
+     */
+    push: 7, groundPush: 0.6,
     /** Zoom past which the viewmodel is hidden and the scope overlay reads as up. */
     scopeShowAt: 0.6,
   },

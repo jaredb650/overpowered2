@@ -26,9 +26,9 @@ const BARRELS = 6;
 /** Outside radius of a barrel along its length, and of its bore: 20 mm across. */
 const R_BARREL = 0.0152;
 const R_BORE = 0.01;
-/** Where the cluster starts, and how far the muzzles are ahead of that. */
+/** Where the cluster starts, and how far the muzzles are ahead of that: a long gatling cannon (owner, 2026-11-15, was 0.46). */
 const NOSE = -0.19;
-const LENGTH = 0.46;
+const LENGTH = 0.74;
 /** Half width of the housing. */
 const HALF = 0.064;
 /** Radians a second at full spin. Under a third of a barrel a frame at 60 Hz, so it reads as turning and not as a strobe. */
@@ -162,7 +162,8 @@ function barrels(m: Mesher): void {
     });
     m.use(F.steelDark);
     plate(-0.014, 0.063, 0.026);
-    plate(-0.2, 0.0605, 0.02);
+    plate(-0.22, 0.0605, 0.02);
+    plate(-0.46, 0.0605, 0.02);
     // Central spindle, as thick as one of the old gun's barrels.
     m.use(F.steel);
     m.lathe([[0.012, 0.0, 0], [0.012, zf + 0.044, 0]], 14);

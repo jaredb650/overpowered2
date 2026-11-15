@@ -119,6 +119,8 @@ export class Weapons implements WeaponSystem, Guard {
 
   private akimboOn = false;
   private quickReturn = 0;
+  /** Rounds left in an `altBurst` under way. */
+  private burstLeft = 0;
   /** Seconds left of `occupy`. */
   private occupied = 0;
 
@@ -182,19 +184,10 @@ export class Weapons implements WeaponSystem, Guard {
     for (const id of STARTING_WEAPONS) this.own(id);
   }
 
-  /** Adds a weapon and the family members that come with it. Returns true when the weapon itself is new. */
+  /** Adds a weapon, and only that one: a family member is its own unlock. Returns true when the weapon is new. */
   private own(id: WeaponId): boolean {
     const fresh = !this.owned.has(id);
     this.owned.add(id);
-    const members = membersOf(id);
-    for (let i = 0; i < members.length; i++) {
-      const member = members[i]!;
-      if (this.owned.has(member)) continue;
-      this.owned.add(member);
-      const s = this.slots[member];
-      s.ammo.mag = s.def.magSize;
-      s.ammo.reserve = s.def.reserve;
-    }
     return fresh;
   }
 
@@ -322,10 +315,6 @@ export class Weapons implements WeaponSystem, Guard {
   give(id: WeaponId): void {
     if (this.owned.has(id)) {
       this.addReserve(this.slots[id], 0.5);
-      // A second cache of a gun tops up what came with it too.
-      const members = membersOf(id);
-      for (let i = 0; i < members.length; i++) this.addReserve(this.slots[members[i]!], 0.5);
-      this.own(id);
       return;
     }
     this.own(id);
@@ -333,14 +322,9 @@ export class Weapons implements WeaponSystem, Guard {
     s.ammo.mag = s.def.magSize;
     s.ammo.reserve = s.def.reserve;
     this.ctx.events.emit('weapon:unlocked', { weapon: id });
-    // The banner is the base weapon's. What came with it gets a line in the feed, with the one thing to know about it.
-    const members = membersOf(id);
-    for (let i = 0; i < members.length; i++) {
-      this.ctx.hud.feed(`${WEAPONS[members[i]!].name}: PRESS ${s.def.slot} AGAIN`, '#39e0ff');
-    }
-    // An upgrade that lands on a key already in use (the autocannon beside the Sabot) says how to reach it, too.
+    // A weapon that lands on a key already in use (the autocannon beside the Sabot) says how to reach it.
     const family = familyOfSlot(s.def.slot);
-    if (members.length === 0 && family.some(other => other !== id && this.owned.has(other))) {
+    if (family.some(other => other !== id && this.owned.has(other))) {
       this.ctx.hud.feed(`${s.def.name}: PRESS ${s.def.slot} AGAIN`, '#39e0ff');
     }
   }
@@ -433,6 +417,7 @@ export class Weapons implements WeaponSystem, Guard {
     this.autoReload = -1;
     this.drySwap = -1;
     this.quickReturn = 0;
+    this.burstLeft = 0;
     this.ctx.viewmodel.setCharge(0);
   }
 
@@ -560,6 +545,7 @@ export class Weapons implements WeaponSystem, Guard {
     this.autoReload = -1;
     this.drySwap = -1;
     this.quickReturn = 0;
+    this.burstLeft = 0;
     this.current = id;
     this.slotLast.set(WEAPONS[id].slot, id);
     this.lastWeapon = from;
@@ -787,6 +773,21 @@ export class Weapons implements WeaponSystem, Guard {
   }
 
   private updateSemi(s: Slot): void {
+    const burst = s.def.altBurst;
+    if (burst && (this.burstLeft > 0 || this.ctx.input.pressed('aim'))) {
+      if (s.cooldown > 0) return;
+      if (!this.canShoot(s)) {
+        if (this.burstLeft === 0 && !this.startReload()) this.wentDry();
+        this.burstLeft = 0;
+        return;
+      }
+      if (this.burstLeft === 0) this.burstLeft = burst.rounds;
+      this.pressBuffer = 0;
+      this.shootGun(s, false);
+      this.burstLeft--;
+      s.cooldown = (this.burstLeft > 0 ? burst.gap : burst.recover) / Math.max(this.modifiers.fireRate, 0.01);
+      return;
+    }
     if (this.pressBuffer <= 0 || s.cooldown > 0) return;
     if (!this.canShoot(s)) {
       this.dryFire();
@@ -1165,6 +1166,16 @@ export class Weapons implements WeaponSystem, Guard {
     p.gib = true;
     p.explosion = { radius: t.radius, damage: def.damage, kind: 'shell', instakill: true, selfDamage: 0 };
     this.combat.spawnProjectile(p);
+    // The shot shoves the player back along it: all of it in the air, where it steers a jump; on the ground, a short
+    // shove along the floor, so a shot at your feet does not lift you.
+    const { player } = this.ctx;
+    const f = player.forward;
+    if (player.grounded) {
+      player.velocity.x -= f.x * t.push * t.groundPush;
+      player.velocity.z -= f.z * t.push * t.groundPush;
+    } else {
+      player.velocity.addScaledVector(f, -t.push);
+    }
   }
 
   private shootStake(def: WeaponDef): void {
