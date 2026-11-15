@@ -92,7 +92,7 @@ export class Orders {
     if (!o || o.prisoners <= 0) return false;
     const p = this.ctx.player;
     for (const s of o.soldiers) {
-      if (!s.surrendered || s.released) continue;
+      if (!s.surrendered || s.released || s.cuffed) continue;
       if (s.collared) return true;
       if (s.e.position.distanceTo(p.position) >= PRISONER_REACH) continue;
       _a.copy(s.e.center).sub(p.eye).normalize();

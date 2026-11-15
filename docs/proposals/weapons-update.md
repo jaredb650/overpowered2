@@ -78,6 +78,7 @@ Built 2026-11-15: an arcing hose of burning globs, splashes into pooled patches 
   fire.
 
 ## 9. Prisoners and the drone
+**Built 2026-11-15.** Hold E on the man held by the collar cuffs him; the Bureau drone comes down a ray-checked column of open sky (a man under a roof is walked out first), hooks him, lifts him off and flies off; 40/60/90/150 credits by rank in Outpost Defense, the feed line elsewhere; see `docs/notes/outpost.md`, Captured.
 A surrendered enemy can be captured: his hands are cuffed behind his back, and a quadcopter drone flies over, lowers a hook on a
 rope, picks him up and flies off with him. In modes with credits it pays: "BOUNTY SECURED".
 

@@ -8,6 +8,7 @@
  *   enemy:wounded                       section 14.6's style labels, once per man per zone, with what it pays
  *   enemy:condition                     a man moved between section 14.1's conditions
  *   prisoner:grabbed, questioned, freed, refused, rearmed   what became of a man who gave up
+ *   prisoner:cuffed, secured            the capture and the drone (airlift.ts)
  */
 import type * as THREE from 'three';
 import type { DamageInfo } from '../../core/contracts';
@@ -65,5 +66,9 @@ declare module '../../core/contracts' {
     'prisoner:refused': { enemy: EnemyInstance };
     /** He got hold of a gun and is back in the fight. */
     'prisoner:rearmed': { enemy: EnemyInstance };
+    /** The player cuffed him. A drone is coming for him. */
+    'prisoner:cuffed': { enemy: EnemyInstance };
+    /** The drone lifted him off the floor. `bounty` is the credits it paid, 0 in a mode without them. Once per man. */
+    'prisoner:secured': { enemy: EnemyInstance; bounty: number };
   }
 }

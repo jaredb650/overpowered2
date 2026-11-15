@@ -8,6 +8,7 @@
 import { ALLY_SOURCE, type AllyType } from '../../allies/data';
 import type { CallInId, WeaponId } from '../../core/gameplay';
 import { waveStrength } from '../../enemies/outpost/doctrine';
+import type { Rank } from '../../enemies/outpost/rank';
 import { GIFT_SOURCES } from '../../progression/data';
 
 export const ECONOMY = {
@@ -48,6 +49,12 @@ export const paysFor = (source: string): boolean => !ALLY_SOURCE.test(source) &&
 export const killPay = (headshot: boolean): number => ECONOMY.kill + (headshot ? ECONOMY.headshot : 0);
 /** Credits for surviving `wave`. */
 export const wavePay = (wave: number): number => ECONOMY.waveBase + ECONOMY.waveStep * wave;
+
+/**
+ * Credits for a prisoner cuffed and lifted out by the drone (enemies/outpost/airlift.ts), by his rank. Four to ten kills' worth: he
+ * had to be broken, walked up to, grabbed and cuffed with his friends still about.
+ */
+export const BOUNTY: Readonly<Record<Rank, number>> = { conscript: 40, regular: 60, veteran: 90, elite: 150 };
 
 // ---------------------------------------------------------------------------------------------
 // Weapons and ammunition

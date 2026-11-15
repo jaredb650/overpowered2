@@ -4,7 +4,7 @@
 //
 //   nice -n 19 npx tsx tools/scripts/human-cases.ts [case,case] [seed]
 //
-// Cases: oneshot ranks execute refuse rescue rearm question grab orders ambush, and with HUMAN_MAP=outpost: tower climb sniper
+// Cases: oneshot ranks execute refuse rescue rearm question grab cuff orders ambush, and with HUMAN_MAP=outpost: tower climb sniper
 import * as THREE from 'three';
 
 const globals = globalThis as unknown as Record<string, unknown>;
@@ -28,6 +28,7 @@ const { EnemyManager } = await import('../../src/enemies/EnemyManager');
 const { noop } = await import('../../src/core/stubs');
 const { soldierOf } = await import('../../src/enemies/outpost');
 const { RANKS } = await import('../../src/enemies/outpost/rank');
+(globalThis as any).__cg = await import('../../src/core/contracts');
 
 function fakeCharacter(id: string): unknown {
   const root = new THREE.Group();
@@ -312,6 +313,91 @@ const CASES: Record<string, () => void> = {
       held, distance, playerBefore, afterFront, armorBefore, healthBefore, afterBehind, stops, stopsLate, speedWithHim: speed,
       letGo: outpost.captives.held === null, fate: s.fate, released: s.released, freed: outpost.captives.freed,
     };
+  },
+  cuff() {
+    // Grabbed, cuffed, and the drone takes him: out in the yard, then from under a roof.
+    const { CG } = (globalThis as any).__cg;
+    let credits = 0;
+    ctx.contracts = { sonar: { live: 0 }, defense: { earn: (n: number) => { credits += n; } } };
+    const secured: number[] = [];
+    ctx.events.on('prisoner:secured', (p: any) => secured.push(p.bounty));
+    const take = (at: THREE.Vector3, putBack = false) => {
+      fresh();
+      const men = squad(['trooper', 'trooper', 'trooper'], 'regular', at);
+      run(0.5);
+      const e = men[0];
+      for (const m of men.slice(1)) manager.withdraw(m);
+      kneel(e);
+      const s = soldierOf(e)!;
+      player.teleport(e.position.clone().add(new THREE.Vector3(0, 0, 2)), 0);
+      run(0.2);
+      input.simulate('interact', true);
+      run(0.55);
+      input.simulate('interact', false);
+      run(0.1);
+      const held = outpost.captives.held === s;
+      input.simulate('interact', true);
+      run(0.75);
+      input.simulate('interact', false);
+      // Grabbing carried him out from where he knelt. Back under the roof he goes, before the airlift looks for sky.
+      if (putBack) e.position.copy(at);
+      const lift = outpost.captives.airlift;
+      const c = lift.of(s);
+      const seen: string[] = [];
+      let last = '', peak = e.position.y, walked = 0, maxDrones = 0;
+      const from = e.position.clone();
+      const sky = [0, 1, 2, 3, 4].map(i => {
+        const a = (i / 4) * Math.PI * 2, r = i === 4 ? 0 : 1.6;
+        const hit = ctx.physics.raycast(new THREE.Vector3(from.x + Math.cos(a) * r, from.y + (i === 4 ? 0.4 : 6), from.z + Math.sin(a) * r), new THREE.Vector3(0, 1, 0), 30, CG.World | CG.Air);
+        return hit ? +hit.distance.toFixed(1) : null;
+      });
+      for (let f = 0; f < 60 * 50 && e.alive; f++) {
+        run(1 / 60);
+        const phase = `${c?.phase}${s.led ? ' led' : ''}`;
+        if (phase !== last) seen.push(`${phase} @${ctx.time.elapsed.toFixed(1)}`);
+        last = phase;
+        peak = Math.max(peak, e.position.y);
+        if (c?.phase === 'cuffed') walked = Math.max(walked, Math.hypot(e.position.x - from.x, e.position.z - from.z));
+        maxDrones = Math.max(maxDrones, lift.flying);
+      }
+      return { held, cuffed: s.cuffed, sky, from: from.toArray().map((v: number) => +v.toFixed(1)), seen, rose: +(peak - from.y).toFixed(1), walked: +walked.toFixed(1), gone: !e.alive, flying: lift.flying, maxDrones };
+    };
+    // Somewhere on the map with a roof over it.
+    const up = new THREE.Vector3(0, 1, 0);
+    const p = new THREE.Vector3();
+    let roofed: THREE.Vector3 | null = null;
+    for (let i = 0; i < 4000 && !roofed; i++) {
+      p.set(YARD.x + (Math.random() - 0.5) * 120, 0.5, YARD.z + (Math.random() - 0.5) * 120);
+      if (!world.nav.nearest(p, 3, p)) continue;
+      const under = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]].every(([dx, dz]) => ctx.physics.raycast(new THREE.Vector3(p.x + dx!, p.y + 0.4, p.z + dz!), up, 30, CG.World | CG.Air));
+      if (under) roofed = p.clone();
+    }
+    // Three cuffed one after another: two drones in the air at most, the third waits on his knees, and all three go.
+    const queue = () => {
+      fresh();
+      const men = squad(['trooper', 'trooper', 'trooper'], 'conscript', near(3, 0));
+      run(0.5);
+      for (const e of men) kneel(e);
+      for (const e of men) {
+        player.teleport(e.position.clone().add(new THREE.Vector3(0, 0, 2)), 0);
+        run(0.2);
+        input.simulate('interact', true);
+        run(0.55);
+        input.simulate('interact', false);
+        run(0.1);
+        input.simulate('interact', true);
+        run(0.75);
+        input.simulate('interact', false);
+        run(0.1);
+      }
+      let maxDrones = 0;
+      for (let f = 0; f < 60 * 70 && men.some(e => e.alive); f++) {
+        run(1 / 60);
+        maxDrones = Math.max(maxDrones, outpost.captives.airlift.flying);
+      }
+      return { cuffed: men.map(e => soldierOf(e)?.cuffed ?? 'gone'), allGone: men.every(e => !e.alive), maxDrones, seconds: +ctx.time.elapsed.toFixed(1) };
+    };
+    tally.cuff = { queue: queue(), open: take(near(3, 0)), roofed: roofed ? { at: roofed.toArray().map(v => +v.toFixed(1)), ...take(roofed, true) } : 'none found', credits, secured };
   },
   orders() {
     fresh();

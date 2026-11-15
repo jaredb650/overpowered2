@@ -18,10 +18,12 @@ o.hostile; o.prisoners;
 ```
 
 Events, typed in `events.ts`: `comms:line`, `enemy:broken`, `enemy:surrendered`, `enemy:executed`, `enemy:backshot`, `enemy:escaped`,
-`squad:broken`, `dread:spike`, `squad:drill`, `prisoner:grabbed`, `prisoner:questioned`, `prisoner:freed`, `prisoner:refused`, `prisoner:rearmed`.
+`squad:broken`, `dread:spike`, `squad:drill`, `prisoner:grabbed`, `prisoner:questioned`, `prisoner:freed`, `prisoner:refused`, `prisoner:rearmed`,
+`prisoner:cuffed`, `prisoner:secured` (with the `bounty` paid, 0 without credits).
 
 ```ts
 o.captives;                             // Prisoners: .held, .signs(s), .freed
+o.captives.airlift;                     // cuffed men and the drones: .of(s) his Capture, .flying
 o.suppression;                          // .level 0..1, .blind, .cracks
 o.track; o.stillFor;                    // the player's motion as the men read it, and seconds in one place
 squad.goal; squad.drill; squad.grade;   // what it wants, what it is doing, what it is
@@ -53,9 +55,11 @@ squad.obey(drill, seconds);             // the Commander. False if the squad can
 | `rank.ts` | Conscript, regular, veteran, elite, as a table |
 | `suppression.ts` | What being shot at, and a flashbang, do to the player |
 | `prisoners.ts` | The signs, giving up, what a kneeling man does, and the E key |
+| `capture.ts` | One capture as a state machine (cuffing, cuffed, hooked, gone) and the bounty paid once. No three.js |
+| `airlift.ts` | Cuffs, the walk out from under a roof, and the drone: model, flight, the line and hook, the man hanging, the bounty |
 | `waves.ts` | The wave loop. `createWaves` hands this to the game on a squads contract |
 | `comms.ts`, `dropped.ts`, `soldier.ts` | Radio lines, guns on the floor, one man's state |
-| `src/characters/animation/postures.ts` | Crouch, cover, lean, hands up, kneel, cower, drag, revive |
+| `src/characters/animation/postures.ts` | Crouch, cover, lean, hands up, kneel, cower, drag, revive, cuffed, bound |
 
 The squad thinks twice a second and gives orders. Men carry them out alone, so all tactics live in `squad.ts` as a choice of where
 to send whom. Morale outranks orders: `collapse` takes a man out of the squad.
@@ -154,6 +158,29 @@ A man weighs five signs: squad half gone, nobody within 14 m, the side down to a
 | Tap E again | Let go. He walks out, and each man freed adds 6% to the next man's odds, up to 24%, never for elites |
 | Hold E | Held in front, 5.5 m/s at most, 14 s until he twists free. Bullets from a 130 degree arc in front hit him, his plates included. Friends in that arc hold fire for `hesitates` seconds, and conscripts never fire. Flanks get a clean shot, so squads flank |
 | Tap E while holding | Let go |
+| Hold E while holding (0.6 s) | Cuffed: hands behind his back, cuffs on, on his knees. The drone comes for him (below) |
+
+### Captured: the cuffs and the drone
+
+`airlift.ts`, with `capture.ts` as its state machine: cuffing (1.1 s, two clicks) then cuffed, hooked, gone. A cuffed man is out of
+everything else: no refusing, rearming, bolting or release, the ally orders and the kneeling prompt skip him, and `MAX_PRISONERS`
+never lets him go. He is still shootable, at the kneeling x5.
+
+- **Roofs.** The drone only flies down a column of open sky: three rays up from his feet for the line, four at 1.6 m from rotor height
+  (6 m) for the drone, 30 m long, `CG.World | CG.Air`. A man cuffed under a roof gets up (`bound`, hands still behind him) and is walked
+  to the nearest floor with open sky that a route reaches, in rings out to 24 m, else a gate; there he kneels again. Stopped short, he
+  is looked at again from where he stands, three tries.
+- **The flight.** In along a line 100 m long, rising 0.32 in 1, that a ray finds clear at its height and at the man's height under it,
+  tried in eight directions starting beyond him as the player sees it. It stops 24 m over him, comes straight down to 7.5 m, pays out
+  the line at 3.4 m/s with the hook swinging (a weight on a line, steered onto his back for the last half), hooks the harness on his
+  upper back, and winds in at 1.5 m/s while climbing. The line stands him up and takes him off the floor, then he swings under it
+  (`resetFeet` every frame, so his legs hang). Back up the column to 24 m, out the way it came, gone at 130 m from the player.
+- **The bounty** is paid as his feet leave the floor, once (`Capture.secure`): `BOUNTY` in `contracts/defense/data.ts`, 40, 60, 90, 150
+  credits by rank, with a `+N BOUNTY SECURED` float (the Hit text setting) and a `BOUNTY SECURED +N CREDITS` feed line. With no
+  credits (anything but Outpost Defense), the feed line `BOUNTY SECURED` only.
+- **Two drones** in the air at most (`MAX_DRONES`); anyone else cuffed waits his turn on his knees. Shot or knocked off the hook alive,
+  he falls, and waits for the next one; paid already, he is not paid again. Killed, the drone winds in its line and leaves.
+- The sounds are stand-ins: `liftdrone_rotor_loop` (Doppler), `liftdrone_winch_loop`, `cuff_click`.
 
 ## Tuning knobs
 
@@ -163,7 +190,8 @@ A man weighs five signs: squad half gone, nobody within 14 m, the side down to a
 | `aim.ts` | `MISS_*`, `SPEED_TAX`, `EYE_RATE` |
 | `planner.ts` `ACTIONS` | What each drill needs, gives and costs |
 | `suppression.ts` | `PER_ROUND`, `FADE`, `JOLT`, `BLUR`, `BLIND_*` |
-| `prisoners.ts` | The signs, `HIT_GRACE`, `HOLD_*`, `RESCUE_RANGE`, `SAFE_*` |
+| `prisoners.ts` | The signs, `HIT_GRACE`, `HOLD_*`, `RESCUE_RANGE`, `SAFE_*`, `CUFF_SECONDS` |
+| `airlift.ts` | `MAX_DRONES`, `TOP`, `HOVER`, `COLUMN`, `FAR`, `CRUISE`, `LOWER`, `REEL`, `SHORT` |
 | `doctrine.ts` `ROLES` | Range band, magazine, reload, starting morale, fires on the move, base of fire |
 | `doctrine.ts` | `SQUAD_TEMPLATES`, `MAX_HOSTILE`, `waveStrength`, `fireRules`, `defaultDoctrine` |
 | `morale.ts` | State bars, `DREAD_LIFT`, `FEAR`, `DREAD_SPIKES`, `AIM_BY_STATE`, `PEEK_WAIT_BY_STATE`, `RAPID_*` |
@@ -178,6 +206,8 @@ A man weighs five signs: squad half gone, nobody within 14 m, the side down to a
 nice -n 19 npx tsx tools/scripts/human-bench.ts runner 120 3 1  # real Player and ballistics. runner strafe fighter duelist camper. seconds seed wave
 nice -n 19 npx tsx tools/scripts/human-cases.ts all 7           # every surrender and prisoner rule on the real systems
 HUMAN_MAP=outpost nice -n 19 npx tsx tools/scripts/human-cases.ts tower,climb,sniper 7
+nice -n 19 npx vite-node tools/scripts/human-cases.ts cuff 7    # cuffed in the open, under a roof, three queued. tsx fails on import.meta.env today; vite-node runs it
+node tools/shot.mjs --url "/?contract=defense&autostart=1" --dpr 2 --w 1440 --h 900 --script tools/scripts/prisoners-live.mjs --out tools/out/prisoners/prisoners.png --wait 500 --timeout 220
 HUMAN_CASES=suppress,flash node tools/shot.mjs --url "/?contract=outpost&autostart=1&dev=1" --dpr 2 --w 1440 --h 900 --script tools/scripts/humans-live.mjs --out tools/out/humans.png --wait 500 --timeout 170
 nice -n 19 npx tsx tools/scripts/outpost-sim.ts hold 120 7      # about 3 s, no browser. camp, hold, hunter, spree, rescue, tour
 python3 tools/scripts/outpost-plot.py tools/out/outpost-hold.json 3

@@ -313,6 +313,29 @@ const held: Behaviour = {
   },
 };
 
+/** In cuffs. Kneels where he was put, or is walked out from under a roof to where the drone can reach him (airlift.ts). */
+const cuffed: Behaviour = {
+  name: 'cuffed',
+  score: e => (soldierOf(e)?.cuffed ? 8 : 0),
+  enter(e) {
+    e.mode = 'hold';
+    e.face = 'lock';
+    pose(e, soldierOf(e)!.led ? 'bound' : 'cuffed');
+  },
+  frame(e, w) {
+    const s = soldierOf(e)!;
+    if (!s.led || e.pinned) return;
+    e.mode = 'point';
+    e.face = 'move';
+    e.pace = WALK_SHARE * 0.8;
+    if (!walkRoute(e, s, w)) return;
+    s.led = false;
+    e.mode = 'hold';
+    e.face = 'lock';
+    pose(e, 'cuffed');
+  },
+};
+
 const flee: Behaviour = {
   name: 'flee',
   score: e => (soldierOf(e)?.fate === 'flee' ? 5 : 0),
@@ -408,4 +431,4 @@ const aid: Behaviour = {
  * Burning is the only maimed rule a soldier keeps from the swarm. Crawling is the wounds' business, and always away. Headbutts and
  * disarmed rushes are out: a man who loses his gun arm reaches for a sidearm, or runs, or gives up.
  */
-export const SOLDIER_BEHAVIOURS: Behaviour[] = [panic(), downed, held, surrender, flee, aid, scramble, selfAid, posted, move, hold];
+export const SOLDIER_BEHAVIOURS: Behaviour[] = [panic(), downed, cuffed, held, surrender, flee, aid, scramble, selfAid, posted, move, hold];

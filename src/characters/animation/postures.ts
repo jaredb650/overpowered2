@@ -10,7 +10,7 @@ import * as THREE from 'three';
 
 export type PostureName =
   | 'stand' | 'crouch' | 'cover' | 'peek' | 'leanLeft' | 'leanRight' | 'handsUp' | 'kneel' | 'cower' | 'flee' | 'drag' | 'revive' | 'downed'
-  | 'hunched' | 'pistol';
+  | 'hunched' | 'pistol' | 'cuffed' | 'bound';
 
 interface Shape {
   /** Hips lowered. */
@@ -64,6 +64,9 @@ const SHAPES: Record<PostureName, Shape> = {
   hunched: { ...FLAT, drop: 0.09, shift: -0.03, bend: 0.82, head: -0.5, brace: 0.3 },
   // One arm out in front with a pistol at the end of it, with the other hand gone and hanging.
   pistol: { ...FLAT, drop: 0.03, bend: 0.1, roll: -0.08, hands: 1, x: 0.04, y: 0.1, z: 0.84, leftOnly: 1 },
+  // A prisoner in cuffs: on his knees, wrists together behind his back, head down. `bound` is the same on his feet, walked or lifted.
+  cuffed: { ...FLAT, drop: 0.25, shift: 0.01, bend: 0.14, head: 0.34, kneel: 1, hands: 1, x: -0.26, y: -0.8, z: -0.36, tremble: 0.2 },
+  bound: { ...FLAT, bend: 0.06, head: 0.2, hands: 1, x: -0.26, y: -0.8, z: -0.36 },
 };
 
 const KEYS = Object.keys(FLAT) as (keyof Shape)[];

@@ -118,6 +118,28 @@ export const vehicles = [
     s.osc('sawtooth', [[0, 120], [1.3, 30]], 1.5).lp(700).env(perc(0.9, 1.4, 0.01)).out();
     s.at(0.2, () => clank(s, 400, 0.4, 0.1));
   }),
+  // The Bureau's prisoner drone (enemies/outpost/airlift.ts): four small props at a high buzz, never quite in step, a motor whine over
+  // them and the air they push. Doppler is on in the airlift, so it bends as it comes in and goes.
+  r('liftdrone_rotor_loop', { dur: 2, mix: 'loop3d', loop: true, over: { volume: 0.6, maxVoices: 3, near: 8, far: 130, send: 0.14 } }, s => {
+    s.osc('sawtooth', 118).lp(900).am(s.lfo(4, 0.18)).out(0.34);
+    s.osc('sawtooth', 121.5).lp(900).out(0.28);
+    s.osc('sawtooth', 236).lp(1400).am(s.lfo(2.5, 0.2)).out(0.14);
+    s.osc('sine', 1880).am(s.wander(1.5, 0.15)).out(0.03);
+    s.noise('pink').bp(700, 0.9).am(s.lfo(59, 0.35)).out(0.6);
+    s.noise('brown').lp(260).gain(1.6).am(s.lfo(4, 0.2)).out(0.5);
+  }),
+  // The winch paying out or winding in: a geared motor's whine and the drum's tick.
+  r('liftdrone_winch_loop', { dur: 1, mix: 'loop3d', loop: true, over: { volume: 0.5, maxVoices: 3, near: 5, far: 60 } }, s => {
+    s.osc('sawtooth', 640).lp(2200).am(s.lfo(12, 0.25)).out(0.18);
+    s.osc('square', 1280).lp(2600).out(0.05);
+    s.noise('pink').bp(1700, 3).am(s.lfo(24, 0.6, 'square')).out(0.3);
+    s.noise('brown').lp(200).gain(1.2).out(0.2);
+  }),
+  // Cuffs closing: a ratchet of three teeth and a bright ring off the steel. The hook latching plays it lower.
+  r('cuff_click', { dur: 0.35, n: 2, mix: 'foley', over: { volume: 0.7, near: 3, far: 30 }, expect: { attackMs: [0, 8] } }, s => {
+    for (let i = 0; i < 3; i++) s.at(i * 0.035, () => click(s, s.r(3200, 3800), 1 - i * 0.18, 0.008));
+    s.at(0.07, () => modal(s, { f0: s.r(2400, 2700), modes: MODES.bar, decay: 0.08, level: 0.3, strike: 0.2 }));
+  }),
   r('gunship_turbine_loop', { dur: 1, mix: 'loop3d', loop: true, over: { volume: 0.42, maxVoices: 3, near: 6, far: 120 } }, s => {
     s.osc('sine', 2100).am(s.wander(2, 0.1)).out(0.09);
     s.osc('sine', 3150).out(0.05);

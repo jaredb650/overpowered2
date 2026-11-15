@@ -873,6 +873,7 @@ export class Outpost {
 
   /** Gets up and walks to a gate, hands still in the air. Still shootable, still a prisoner. */
   release(s: Soldier): void {
+    if (s.cuffed) return;
     s.released = true;
     s.fate = 'flee';
     s.e.thinkAt = 0;
@@ -881,7 +882,7 @@ export class Outpost {
   private releaseOldest(): void {
     let oldest: Soldier | null = null;
     for (const s of this.soldiers) {
-      if (s.surrendered && !s.released && (!oldest || s.surrenderedAt < oldest.surrenderedAt)) oldest = s;
+      if (s.surrendered && !s.released && !s.cuffed && (!oldest || s.surrenderedAt < oldest.surrenderedAt)) oldest = s;
     }
     if (oldest) this.release(oldest);
   }

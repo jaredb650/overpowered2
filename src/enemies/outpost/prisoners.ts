@@ -7,13 +7,15 @@
  *
  * Once kneeling he is not furniture. Shot and alive, he runs, because that was his answer. Friends firing nearby is the moment to go for his
  * gun or the gate. Left alone and out of sight, some men think again. And the player can get hold of him: tap E to question him, tap
- * again to let him go, hold E to take him by the collar and put him between you and his friends.
+ * again to let him go, hold E to take him by the collar and put him between you and his friends. With him by the collar, tap E lets
+ * him go and holding E again cuffs him, and the drone comes for him (airlift.ts).
  */
 import * as THREE from 'three';
 import type { PlayerDamage } from '../../core/contracts';
 import { chance, clamp } from '../../core/math';
 import type { AiWorld } from '../aiWorld';
 import { finishAttack } from '../brain';
+import { Airlift } from './airlift';
 import type { Outpost } from './index';
 import { FEAR } from './morale';
 import { pose, type Soldier } from './soldier';
@@ -48,8 +50,9 @@ const PRISONER_SECONDS = 45;
 /** Metres he can be reached from, and the cone he has to be in. */
 const REACH = 3.1;
 const REACH_COS = 0.55;
-/** Seconds of holding the key that makes it a grab and not a tap. */
+/** Seconds of holding the key that makes it a grab and not a tap, and on the man held, a cuffing. */
 const GRAB_SECONDS = 0.4;
+const CUFF_SECONDS = 0.6;
 /** Where he is held, from the player, and how fast a man can go with someone in front of him. */
 const HOLD_FORWARD = 1.0;
 const HOLD_SIDE = 0.34;
@@ -84,8 +87,12 @@ export class Prisoners {
   private marksUntil = 0;
   private revealUntil = 0;
   private readonly lit: THREE.Object3D[] = [];
+  /** Cuffed men and the drones that take them. */
+  readonly airlift: Airlift;
 
-  constructor(private readonly w: AiWorld, private readonly o: Outpost) {}
+  constructor(private readonly w: AiWorld, private readonly o: Outpost) {
+    this.airlift = new Airlift(w, o);
+  }
 
   init(): void {
     this.w.ctx.player.interceptor = d => this.intercept(d);
@@ -98,6 +105,7 @@ export class Prisoners {
     this.clearPrompt();
     this.clearMarks();
     this.revealUntil = 0;
+    this.airlift.reset();
   }
 
   // -------------------------------------------------------------------------------------------
@@ -148,7 +156,7 @@ export class Prisoners {
   /** What a kneeling man makes of things. Runs on his think tick. */
   look(s: Soldier, now: number): void {
     const e = s.e;
-    if (s.collared) return;
+    if (s.collared || s.cuffed) return;
     if (e.hasLos && e.dist < 40) s.watchedAt = now;
     if (now < s.judgeAt) return;
     s.judgeAt = now + JUDGE_EVERY;
@@ -324,6 +332,13 @@ export class Prisoners {
     }
   }
 
+  /** Out of the player's hands and into cuffs. airlift.ts has him from here. */
+  private cuff(s: Soldier): void {
+    this.drop();
+    this.keyHeld = -1;
+    this.airlift.cuff(s);
+  }
+
   // -------------------------------------------------------------------------------------------
   // Asking him
   // -------------------------------------------------------------------------------------------
@@ -413,7 +428,7 @@ export class Prisoners {
       return;
     }
     const key = input.labelFor?.('interact') ?? 'E';
-    const text = s === this.held ? `${key} LET GO` : s.questioned ? `${key} LET GO   HOLD ${key} GRAB` : `${key} QUESTION   HOLD ${key} GRAB`;
+    const text = s === this.held ? `${key} LET GO   HOLD ${key} CUFF` : s.questioned ? `${key} LET GO   HOLD ${key} GRAB` : `${key} QUESTION   HOLD ${key} GRAB`;
     if (text === this.prompted) return;
     this.clearPrompt();
     this.prompted = text;
@@ -425,7 +440,7 @@ export class Prisoners {
     let best: Soldier | null = null;
     let bestD = REACH;
     for (const s of this.o.soldiers) {
-      if (!s.surrendered || s.released || s.collared || s.fate !== 'surrender') continue;
+      if (!s.surrendered || s.released || s.collared || s.cuffed || s.fate !== 'surrender') continue;
       const d = s.e.position.distanceTo(p.position);
       if (d >= bestD) continue;
       _a.subVectors(s.e.center, p.eye).normalize();
@@ -447,7 +462,9 @@ export class Prisoners {
     }
     if (input.isDown('interact')) {
       this.keyHeld += dt;
-      if (this.keyHeld >= GRAB_SECONDS && target !== this.held) this.grab(target);
+      if (target === this.held) {
+        if (this.keyHeld >= CUFF_SECONDS) this.cuff(target);
+      } else if (this.keyHeld >= GRAB_SECONDS) this.grab(target);
       return;
     }
     this.keyHeld = -1;
@@ -471,7 +488,7 @@ export class Prisoners {
     if (o.prisoners > 0 || this.held) {
       for (let i = o.soldiers.length - 1; i >= 0; i--) {
         const s = o.soldiers[i]!;
-        if (s.surrendered && !s.collared && s.hitAt >= s.surrenderedAt) this.refuse(s);
+        if (s.surrendered && !s.collared && !s.cuffed && s.hitAt >= s.surrenderedAt) this.refuse(s);
       }
       this.focus = this.held ? null : this.nearest();
       this.prompt(this.held ?? this.focus);
@@ -484,11 +501,13 @@ export class Prisoners {
       for (const s of o.soldiers) if (s.fighting) lit.push(s.e.char.mesh);
       ctx.render.highlight(lit, PROMPT_COLOR, Math.min(1, (this.revealUntil - now) / 1.5));
     }
+    this.airlift.update(dt);
   }
 
   /** The man he was. For a body that has gone: nothing of him stays held. */
   gone(s: Soldier): void {
     if (this.held === s) this.drop();
     if (this.focus === s) this.focus = null;
+    this.airlift.gone(s);
   }
 }
