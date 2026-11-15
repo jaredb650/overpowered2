@@ -88,6 +88,19 @@ New sounds use a synthesized or existing stand-in until the owner supplies real 
 `docs/notes/audio.md` so it can be swapped. Needed: Lance beam and giant ball, vaporize, double-barrel shots, Ultramag shot and
 slide, Raufoss burst, sticky bolt beep and blast, napalm hose, Judge fanning, katana moves, the drone and the cuffs.
 
+**The owner's sounds, supplied 2026-11-15** in `~/Downloads` (copy, never move; they may be WAV inside; trim lead-in silence,
+set by measured loudness, credit in `docs/CREDITS.md`). Whoever builds the weapon wires its sounds:
+
+| File | Use |
+|---|---|
+| `dbShotgunBlast.mp3` | Double-barrel shot. Alt fire (both barrels) plays it twice, a few ms apart, so it sounds like two triggers pulled at once |
+| `ultraMagShot.mp3` | Ultramag shot |
+| `stakeGunShot.mp3` | Stakegun shot (replaces today's) |
+| `stakeGunStringStretchBack.mp3` | Stakegun re-cocking: the string drawn back after each shot / on reload |
+| `stakeBombBeep.mp3` | A stuck explosive stake's countdown: 2 to 4 beeps, quickening, before it detonates |
+| `raufossDetonation.mp3` | A Raufoss round bursting on a surface or a body (Piledriver alt fire, Sabot mod) |
+| `suppressor (1).mp3` | The SMG with the suppressor mod |
+
 ## Build order
 | Wave | Pieces |
 |---|---|
