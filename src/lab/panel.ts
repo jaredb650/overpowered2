@@ -225,7 +225,7 @@ export class LabPanel {
     this.el.append(el('h2', '', 'PLAYER'));
     this.check(this.el, 'Every weapon, infinite ammo', 'arsenal');
     this.check(this.el, 'Infinite reserves, mags still reload', 'reserves');
-    const kit = el('div', 'lab-row');
+    const kit = el('div', 'lab-grid wide');
     this.button(kit, 'Give all weapons', () => this.on.giveAll());
     this.button(kit, 'Refill reserves', () => this.on.refillReserves());
     this.button(kit, 'Max grenades', () => this.on.maxGrenades());
