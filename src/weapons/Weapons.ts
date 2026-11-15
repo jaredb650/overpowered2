@@ -604,7 +604,11 @@ export class Weapons implements WeaponSystem, Guard {
       return;
     }
     this.cycleAt += dt;
-    while (this.cycleCue < cues.length && this.cycleAt >= cues[this.cycleCue]![0]) this.ctx.audio.play(cues[this.cycleCue++]![1]);
+    while (this.cycleCue < cues.length && this.cycleAt >= cues[this.cycleCue]![0]) {
+      // The first cue is the rack coming back: that is when the spent shell flies.
+      if (this.cycleCue === 0 && WEAPONS[this.current].casing) this.eject(WEAPONS[this.current]);
+      this.ctx.audio.play(cues[this.cycleCue++]![1]);
+    }
   }
 
   private updateReload(dt: number): void {
@@ -1022,7 +1026,8 @@ export class Weapons implements WeaponSystem, Guard {
     }
     this.combat.feel.shake(def.shake * strength);
     if (def.fovPunch > 0) c.camera.fovPunch(def.fovPunch * strength, 0.12);
-    if (def.casing) this.eject(def);
+    // A hand-cycled gun's shell stays in the chamber until the pump comes back (updateCycle).
+    if (def.casing && !def.cycleFoley) this.eject(def);
 
     const e = this.firedEvent;
     e.weapon = def.id;
