@@ -82,6 +82,8 @@ rope, picks him up and flies off with him. In modes with credits it pays: "BOUNT
   - Harrow red dot sight.
   - Sabot Raufoss rounds (as on the Piledriver; not an alt fire, because the Sabot's alt fire is its scope).
 - Default: the shop is Outpost Defense's economy and shop code reused where it fits, not a second system.
+- **The cheat panel** (owner, 2026-11-15) gets a row per mod to grant it and fit or remove it, so mods can be tested without the
+  shop. Everything the "all weapons + infinite ammo" cheat does not hand out gets a way in from the panel.
 
 ## Sounds
 New sounds use a synthesized or existing stand-in until the owner supplies real ones. Every stand-in is listed in
