@@ -617,6 +617,28 @@ export const TUNING = {
     speed: 26, life: 0.5, drag: 1.6, startRadius: 0.16, endRadius: 1.05,
     burnSeconds: 4,
   },
+  /**
+   * The Kiln's own stream: burning liquid, not the Burner's rising fire (which keeps `kiln` above). A glob leaves at `speed`,
+   * slows by `drag` and falls by `gravity`, so a flat shot from the eye lands about 11 m out and a lob reaches about 20.
+   * `life` is long enough for any lob to come down. It touches bodies as a ball growing from `radius[0]` to `radius[1]`. Where it lands it feeds a patch.
+   */
+  napalm: {
+    speed: 24, drag: 0.9, gravity: -10, life: 2.2, radius: [0.2, 0.55],
+    /** A man the stream itself hits is coated, and burns this long. One who walks through a patch burns `burnSeconds`. */
+    coatSeconds: 8,
+    /** Side to side and up and down, metres a second, so the hose sways a little even held still. */
+    wobble: 0.45,
+    patch: {
+      /** Seconds a patch burns after the last glob that fed it, the last `fade` of them dying down. */
+      life: 7, fade: 2,
+      /** Pooled. A full pool puts out the oldest. */
+      max: 24,
+      /** A glob landing this close to a patch on the same surface feeds it, growing it by `grow` up to `maxRadius`. */
+      merge: 0.9, radius: 0.55, grow: 0.06, maxRadius: 1.5,
+      /** Seconds between checks for men standing in it. */
+      tick: 0.25,
+    },
+  },
   stake: {
     speed: 120, gravity: 7, stuckSeconds: 24, maxStuck: 40,
     /** Gore drags a pinned bone at 26 m/s for 0.3 s. Past that it would hang off the wall on nothing. */

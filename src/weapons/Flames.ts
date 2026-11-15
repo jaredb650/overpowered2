@@ -1,16 +1,25 @@
 /**
- * Fire as gameplay. The stream a player sees is fx.flame; these are the invisible bodies riding in it
- * that actually touch things. Each one swells as it travels, so the Kiln is a cone rather than a line.
+ * Fire as gameplay. Two kinds ride through here.
+ *
+ * The Burner's fire: invisible bodies in the stream fx.flame draws, each swelling as it travels, so his is a cone.
+ *
+ * The Kiln's napalm: globs of burning liquid on a ring, oldest out. Each falls under gravity, so the stream is an arc, and
+ * the chain of globs in firing order is the hose fx.hose draws, bending as the aim swings. A glob that reaches the world
+ * splashes and feeds a burning patch there, on floors and walls alike. Patches are pooled and burn on for seconds,
+ * setting alight anyone who stands in them. They never look for the player: his own napalm does not hurt him, as his
+ * flames never did.
  */
 import * as THREE from 'three';
 import { CG, type Ctx } from '../core/contracts';
 import type { EnemyInstance, ProjectileSpec, Team } from '../core/gameplay';
-import { lerp, rand } from '../core/math';
+import { clamp, lerp, rand } from '../core/math';
 import type { Combat } from './Combat';
 import { TUNING } from './data';
 import { closestOnSegment, closestSegmentPoints } from './geometry';
 
 const MAX_FLAMES = 160;
+/** 30 globs a second for `napalm.life` seconds is 66, a lob that long. A flat shot lands in 0.6 s, 18 globs. */
+const MAX_GLOBS = 72;
 const MAX_HITS = 3;
 /** A flame loses this much of its bite each time it licks something. */
 const BITE_DECAY = 0.7;
@@ -18,15 +27,28 @@ const BODY_RADIUS = 0.35;
 const PLAYER_RADIUS = 0.45;
 const SCORCH_GAP = 0.12;
 const MARKER_GAP = 0.14;
+const SPLASH_SOUND_GAP = 0.13;
+/** Globs fired further apart than this are two strands, not one hose. */
+const STRAND_GAP = 0.09;
+/** The hose leaves the nozzle and slides onto the true path, from the eye, over this long. */
+const SLIDE = 0.16;
+/** Floats a chain point: x y z, age, the glob's serial (the texture rides on it), and 1 where a strand starts. */
+export const HOSE_STRIDE = 6;
+/** Past this many burning patches each one burns thinner on screen, so a floor of them costs what twelve do. */
+const PATCH_BUDGET = 12;
 
 interface Flame {
   live: boolean;
   serial: number;
   team: Team;
+  napalm: boolean;
   damage: number;
   source: string;
   position: THREE.Vector3;
   velocity: THREE.Vector3;
+  /** Napalm only: from the true path to the nozzle at birth, slid away over SLIDE. */
+  offset: THREE.Vector3;
+  born: number;
   rise: number;
   age: number;
   life: number;
@@ -34,24 +56,55 @@ interface Flame {
   hitCount: number;
 }
 
+export interface Patch {
+  live: boolean;
+  serial: number;
+  position: THREE.Vector3;
+  normal: THREE.Vector3;
+  radius: number;
+  /** Seconds since the last glob fed it. */
+  age: number;
+  source: string;
+}
+
+function makeFlame(): Flame {
+  return {
+    live: false, serial: 0, team: 'player', napalm: false, damage: 0, source: '', position: new THREE.Vector3(),
+    velocity: new THREE.Vector3(), offset: new THREE.Vector3(), born: 0, rise: 0, age: 0, life: 0,
+    hits: new Array<number>(MAX_HITS).fill(-1), hitCount: 0,
+  };
+}
+
 export class Flames {
   private readonly pool: Flame[] = [];
+  private readonly globs: Flame[] = [];
+  readonly patches: Patch[] = [];
   private serial = 0;
   private count = 0;
+  private globHead = 0;
+  private globCount = 0;
+  private patchCount = 0;
+  private patchSerial = 0;
+  private clock = 0;
+  private hoseDrawn = false;
+  /** The live muzzle the weapon passes as `visualFrom`. Read every frame, so the hose stays on the nozzle. */
+  private nozzle: THREE.Vector3 | null = null;
+  private readonly chain = new Float32Array((MAX_GLOBS + 1) * HOSE_STRIDE);
   private readonly nearby: EnemyInstance[] = [];
   private readonly dir = new THREE.Vector3();
   private readonly near = new THREE.Vector3();
   private readonly head = new THREE.Vector3();
   private readonly end = new THREE.Vector3();
+  private readonly drawn = new THREE.Vector3();
   private scorchClock = 0;
   private markerClock = 0;
+  private splashClock = 0;
 
   constructor(private readonly ctx: Ctx, private readonly combat: Combat) {
-    for (let i = 0; i < MAX_FLAMES; i++) {
-      this.pool.push({
-        live: false, serial: 0, team: 'player', damage: 0, source: '', position: new THREE.Vector3(), velocity: new THREE.Vector3(),
-        rise: 0, age: 0, life: 0, hits: new Array<number>(MAX_HITS).fill(-1), hitCount: 0,
-      });
+    for (let i = 0; i < MAX_FLAMES; i++) this.pool.push(makeFlame());
+    for (let i = 0; i < MAX_GLOBS; i++) this.globs.push(makeFlame());
+    for (let i = 0; i < TUNING.napalm.patch.max; i++) {
+      this.patches.push({ live: false, serial: 0, position: new THREE.Vector3(), normal: new THREE.Vector3(), radius: 0, age: 0, source: '' });
     }
   }
 
@@ -59,14 +112,28 @@ export class Flames {
 
   clear(): void {
     for (const f of this.pool) f.live = false;
-    this.count = 0;
+    for (const g of this.globs) g.live = false;
+    for (const p of this.patches) p.live = false;
+    this.count = this.globCount = this.patchCount = 0;
+    if (this.hoseDrawn) this.ctx.fx.hose?.(this.chain, 0);
+    this.hoseDrawn = false;
   }
 
   get alive(): number {
-    return this.count;
+    return this.count + this.globCount;
+  }
+
+  /** Patches burning now. */
+  get burning(): number {
+    return this.patchCount;
   }
 
   spawn(spec: ProjectileSpec): void {
+    // Only the Kiln fires player flames, and the Kiln fires napalm.
+    if (spec.team === 'player') {
+      this.spawnGlob(spec);
+      return;
+    }
     let f: Flame | undefined;
     let oldest = this.pool[0]!;
     for (let i = 0; i < MAX_FLAMES; i++) {
@@ -81,17 +148,8 @@ export class Flames {
       f = oldest;
       this.count--;
     }
-    f.live = true;
-    f.serial = ++this.serial;
-    f.team = spec.team;
-    f.damage = spec.damage;
-    f.source = spec.source;
-    f.position.copy(spec.origin);
-    f.velocity.copy(spec.velocity);
-    f.rise = spec.gravity ?? 0;
-    f.age = 0;
+    this.fill(f, spec);
     f.life = spec.lifetime ?? TUNING.kiln.life;
-    f.hitCount = 0;
     this.count++;
     if (!spec.silent) {
       // Enemy burners spawn flames on a tick rather than every frame, so each one carries a tick's worth of fire.
@@ -100,10 +158,52 @@ export class Flames {
     }
   }
 
+  private fill(f: Flame, spec: ProjectileSpec): void {
+    f.live = true;
+    f.serial = ++this.serial;
+    f.team = spec.team;
+    f.napalm = false;
+    f.damage = spec.damage;
+    f.source = spec.source;
+    f.position.copy(spec.origin);
+    f.velocity.copy(spec.velocity);
+    f.offset.set(0, 0, 0);
+    f.born = this.clock;
+    f.rise = spec.gravity ?? 0;
+    f.age = 0;
+    f.hitCount = 0;
+  }
+
+  private spawnGlob(spec: ProjectileSpec): void {
+    const n = TUNING.napalm;
+    const g = this.globs[this.globHead]!;
+    this.globHead = (this.globHead + 1) % MAX_GLOBS;
+    if (!g.live) this.globCount++;
+    this.fill(g, spec);
+    g.napalm = true;
+    g.rise = spec.gravity ?? n.gravity;
+    g.life = spec.lifetime ?? n.life;
+    // Two slow beats out of step, so the hose sways and never repeats a shape.
+    const t = this.clock;
+    g.velocity.x += Math.sin(t * 7.3) * n.wobble + rand(-0.12, 0.12);
+    g.velocity.y += Math.sin(t * 5.1 + 1.7) * n.wobble * 0.7;
+    g.velocity.z += Math.cos(t * 6.1) * n.wobble + rand(-0.12, 0.12);
+    this.nozzle = spec.visualFrom ?? null;
+    if (spec.visualFrom) g.offset.subVectors(spec.visualFrom, spec.origin);
+  }
+
   update(dt: number): void {
-    if (this.count === 0 || dt <= 0) return;
+    if (dt <= 0) return;
+    this.clock += dt;
     this.scorchClock -= dt;
     this.markerClock -= dt;
+    this.splashClock -= dt;
+    if (this.count > 0) this.updateFlames(dt);
+    if (this.globCount > 0 || this.hoseDrawn) this.updateGlobs(dt);
+    if (this.patchCount > 0) this.updatePatches(dt);
+  }
+
+  private updateFlames(dt: number): void {
     const drag = Math.exp(-TUNING.kiln.drag * dt);
     for (let i = 0; i < MAX_FLAMES; i++) {
       const f = this.pool[i]!;
@@ -122,12 +222,77 @@ export class Flames {
     }
   }
 
+  private updateGlobs(dt: number): void {
+    const drag = Math.exp(-TUNING.napalm.drag * dt);
+    for (let i = 0; i < MAX_GLOBS; i++) {
+      const g = this.globs[i]!;
+      if (!g.live) continue;
+      g.age += dt;
+      if (g.age >= g.life) {
+        this.kill(g);
+        continue;
+      }
+      g.velocity.multiplyScalar(drag);
+      g.velocity.y += g.rise * dt;
+      this.move(g, dt);
+      if (g.live) this.lickEnemies(g);
+    }
+    this.drawHose();
+  }
+
+  /** Newest first, from the nozzle out. A dead glob or a pause in firing starts a new strand. */
+  private drawHose(): void {
+    const c = this.chain;
+    let n = 0;
+    let newer: Flame | null = null;
+    for (let k = 1; k <= MAX_GLOBS; k++) {
+      const g = this.globs[(this.globHead - k + MAX_GLOBS) % MAX_GLOBS]!;
+      if (!g.live) {
+        newer = null;
+        continue;
+      }
+      const start = !newer || newer.born - g.born > STRAND_GAP;
+      if (k === 1 && this.nozzle && this.clock - g.born < STRAND_GAP) {
+        this.write(n++, this.nozzle, 0, g.serial + 1, 1);
+        this.write(n++, this.place(g), g.age, g.serial, 0);
+      } else {
+        this.write(n++, this.place(g), g.age, g.serial, start ? 1 : 0);
+      }
+      newer = g;
+    }
+    if (n === 0 && !this.hoseDrawn) return;
+    this.ctx.fx.hose?.(c, n);
+    this.hoseDrawn = n > 0;
+  }
+
+  private place(g: Flame): THREE.Vector3 {
+    const slide = Math.max(0, 1 - g.age / SLIDE);
+    return this.drawn.copy(g.position).addScaledVector(g.offset, slide * slide);
+  }
+
+  private write(i: number, p: THREE.Vector3, age: number, serial: number, start: number): void {
+    const c = this.chain;
+    const o = i * HOSE_STRIDE;
+    if (o + HOSE_STRIDE > c.length) return;
+    c[o] = p.x;
+    c[o + 1] = p.y;
+    c[o + 2] = p.z;
+    c[o + 3] = age;
+    c[o + 4] = serial % 4096;
+    c[o + 5] = start;
+  }
+
   private kill(f: Flame): void {
     f.live = false;
-    this.count--;
+    if (f.napalm) this.globCount--;
+    else this.count--;
   }
 
   private radius(f: Flame): number {
+    if (f.napalm) {
+      const r = TUNING.napalm.radius;
+      return lerp(r[0], r[1], f.age / f.life);
+    }
     const k = TUNING.kiln;
     return lerp(k.startRadius, k.endRadius, f.age / f.life);
   }
@@ -143,14 +308,96 @@ export class Flames {
       f.position.addScaledVector(dir, len);
       return;
     }
+    if (f.team === 'player' && f.damage > 0) c.world.objects?.damageExplosive(wall.collider, f.damage, f.source);
+    if (f.napalm) {
+      // Liquid does not slide off: it splashes and stays, burning.
+      this.feed(wall.point, wall.normal, f.source);
+      c.fx.napalmSplash?.(wall.point, wall.normal);
+      if (this.splashClock <= 0) {
+        this.splashClock = SPLASH_SOUND_GAP;
+        c.audio.play('flame_splash', { position: wall.point, pitchJitter: 0.12 });
+      }
+      this.kill(f);
+      return;
+    }
     f.position.copy(wall.point).addScaledVector(wall.normal, 0.05);
     // Fire does not bounce: it spreads along whatever it hit and dies quicker.
     f.velocity.addScaledVector(wall.normal, -f.velocity.dot(wall.normal)).multiplyScalar(0.45);
     f.age += (f.life - f.age) * 0.3;
-    if (f.team === 'player' && f.damage > 0) c.world.objects?.damageExplosive(wall.collider, f.damage, f.source);
     if (this.scorchClock <= 0) {
       this.scorchClock = SCORCH_GAP;
       c.render.decals.add('scorch', wall.point, wall.normal, rand(0.5, 1), rand(0, 6.28));
+    }
+  }
+
+  /** A glob landing: grows the patch it lands in, or lights a new one, putting out the oldest if the pool is full. */
+  feed(point: THREE.Vector3, normal: THREE.Vector3, source: string): Patch {
+    const t = TUNING.napalm.patch;
+    let best: Patch | null = null;
+    let bestD = Infinity;
+    let free: Patch | null = null;
+    let oldest = this.patches[0]!;
+    for (const p of this.patches) {
+      if (!p.live) {
+        free ??= p;
+        continue;
+      }
+      if (p.serial < oldest.serial) oldest = p;
+      if (p.normal.dot(normal) < 0.7) continue;
+      const d = p.position.distanceTo(point);
+      if (d < bestD && d < t.merge + p.radius * 0.5) {
+        best = p;
+        bestD = d;
+      }
+    }
+    if (best) {
+      best.age = 0;
+      best.radius = Math.min(t.maxRadius, best.radius + t.grow);
+      return best;
+    }
+    const p = free ?? oldest;
+    if (!free) this.patchCount--;
+    p.live = true;
+    p.serial = ++this.patchSerial;
+    p.position.copy(point);
+    p.normal.copy(normal);
+    p.radius = t.radius;
+    p.age = 0;
+    p.source = source;
+    this.patchCount++;
+    this.ctx.render.decals.add('scorch', point, normal, rand(1.3, 1.8), rand(0, 6.28));
+    return p;
+  }
+
+  private updatePatches(dt: number): void {
+    const t = TUNING.napalm.patch;
+    const tick = Math.floor((this.clock - dt) / t.tick) !== Math.floor(this.clock / t.tick);
+    const thin = Math.min(1, PATCH_BUDGET / this.patchCount);
+    for (const p of this.patches) {
+      if (!p.live) continue;
+      p.age += dt;
+      if (p.age >= t.life) {
+        p.live = false;
+        this.patchCount--;
+        continue;
+      }
+      const heat = clamp((t.life - p.age) / t.fade);
+      this.ctx.fx.napalm?.(p.position, p.normal, p.radius, heat * thin);
+      if (tick) this.ignite(p);
+    }
+  }
+
+  /** As the white phosphorus does: anyone standing in it catches fire, and burns on after he leaves. */
+  private ignite(p: Patch): void {
+    const n = this.ctx.enemies.query(p.position, p.radius + 2.6, this.nearby) || 0;
+    for (let i = 0; i < n; i++) {
+      const e = this.nearby[i]!;
+      if (!e.alive) continue;
+      this.head.copy(e.position);
+      this.head.y += e.char.rig.height;
+      closestOnSegment(p.position, e.position, this.head, this.near);
+      if (this.near.distanceTo(p.position) > p.radius + BODY_RADIUS) continue;
+      e.burning = Math.max(e.burning, TUNING.kiln.burnSeconds);
     }
   }
 
@@ -176,7 +423,8 @@ export class Flames {
       this.dir.normalize();
       const res = this.combat.strike(e, this.near, this.dir, this.dir, undefined, undefined, f.damage, o);
       f.damage *= BITE_DECAY;
-      if (!res.blocked) e.burning = Math.max(e.burning, TUNING.kiln.burnSeconds);
+      // Napalm sticks: a man the stream hits is coated in it.
+      if (!res.blocked) e.burning = Math.max(e.burning, f.napalm ? TUNING.napalm.coatSeconds : TUNING.kiln.burnSeconds);
       if (this.markerClock <= 0 || res.killed) {
         this.markerClock = MARKER_GAP;
         c.hud.hitMarker(res.killed ? 'kill' : res.blocked ? 'armor' : 'body');

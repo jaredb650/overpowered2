@@ -301,6 +301,21 @@ export const weapons = [
     s.noise('white').hp(5200).am(s.wander(3, 0.5)).out(0.07);
     s.grains(3, () => 34, 0.0025).bp(1700, 1.6).drive(1.8).out(1, 0.1);
   }),
+  // The napalm hose: fuel forced through the nozzle under pressure, a heavy roar of it burning, and the liquid sputtering.
+  // A stand-in until the owner has a recording.
+  r('flame_hose_loop', { dur: 2.4, mix: 'loop2d', loop: true, stereo: true, over: { volume: 0.6 } }, s => {
+    s.noise('brown').lp(300).gain(2.2).am(s.wander(4, 0.3)).out(0.95, 0.15);
+    s.noise('pink').lp(1500).sweep(s.wander(2, 380)).am(s.wander(7, 0.3)).out(0.65, -0.15);
+    s.noise('white').bp(3400, 1.2).am(s.wander(12, 0.12)).out(0.2);
+    s.grains(3, () => 20, 0.004).bp(850, 2.2).drive(1.6).out(0.85);
+    s.grains(3, () => 38, 0.0018).bp(2500, 1.5).drive(1.8).out(0.6, 0.1);
+  }),
+  // A glob of it landing: a wet slap and a short sizzle, in 3D where it lands.
+  r('flame_splash', { dur: 0.45, mix: 'impact', over: { volume: 0.4, maxVoices: 3, pitchJitter: 0.12 } }, s => {
+    s.noise('pink', 0.12).bp([[0, 900], [0.1, 380]], 1.1).env(perc(0.1, 1, 0.003)).out(0.8);
+    thump(s, 95, 0.07, 0.35, 1.5);
+    s.grains(0.4, t => 260 * Math.exp(-t * 7), 0.0015, t => 1 - t * 2.4).bp(3200, 1.2).out(0.55);
+  }),
   r('flame_stop', { dur: 0.5, mix: 'gun' }, s => {
     s.noise('pink', 0.45).bp([[0, 1200], [0.4, 3200]], 0.9).env(perc(0.38, 0.8, 0.002)).out();
     s.at(0.03, () => thump(s, 90, 0.1, 0.4, 1.6));

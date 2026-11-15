@@ -523,6 +523,15 @@ export interface FxSystem extends GameSystem {
    * A few dozen particles and one short light, made to be fired tens of times a second. Optional so a stand-in need not have it.
    */
   burst?(position: THREE.Vector3, normal: THREE.Vector3, scale?: number): void;
+  /**
+   * The Kiln's stream this frame: `count` points of the napalm chain, newest first, 6 floats each (x, y, z, age, texture
+   * coordinate, 1 where a strand starts; see weapons/Flames). Drawn until the next call. 0 hides it.
+   */
+  hose?(chain: Float32Array, count: number): void;
+  /** One frame of a burning napalm patch on `normal`. `heat` 0..1 thins it as it dies down. */
+  napalm?(position: THREE.Vector3, normal: THREE.Vector3, radius: number, heat: number): void;
+  /** A glob of napalm splashing on a surface. */
+  napalmSplash?(position: THREE.Vector3, normal: THREE.Vector3): void;
 }
 
 // ---------------------------------------------------------------------------------------------

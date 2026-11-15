@@ -23,6 +23,7 @@ import { impact } from './recipes/impacts';
 import * as misc from './recipes/misc';
 import { listen } from './recipes/movement';
 import { muzzleFlash, tracer } from './recipes/muzzle';
+import { hose, napalm, napalmSplash } from './recipes/napalm';
 
 const _c: Rgb = { r: 0, g: 0, b: 0 };
 
@@ -229,6 +230,18 @@ class Fx implements FxSystem {
 
   burst(position: THREE.Vector3, normal: THREE.Vector3, scale?: number): void {
     cannonBurst(this.core, position, normal, scale);
+  }
+
+  hose(chain: Float32Array, count: number): void {
+    hose(this.core, chain, count);
+  }
+
+  napalm(position: THREE.Vector3, normal: THREE.Vector3, radius: number, heat: number): void {
+    napalm(this.core, position, normal, radius, heat);
+  }
+
+  napalmSplash(position: THREE.Vector3, normal: THREE.Vector3): void {
+    napalmSplash(this.core, position, normal);
   }
 
   /** Debug counters for sandboxes and the debug overlay. Scans the rings: not for per-frame use. */

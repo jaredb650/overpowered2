@@ -62,6 +62,7 @@ at every locked enemy in quick succession. Three charges, three locks at most.
 ## 7. The Kiln: napalm
 Not a puff of fire: an arcing hose of burning liquid, like a real M2 flamethrower. The stream arcs, splashes, sticks to the
 surfaces it hits and keeps burning there.
+Built 2026-11-15: an arcing hose of burning globs, splashes into pooled patches on floors and walls that burn 7 s and light anyone in them; see `docs/notes/weapons.md`.
 
 ## 8. New weapons
 - **Double-barrel shotgun** (key 2): a super shotgun. Fire shoots one barrel, alt fire both at once.

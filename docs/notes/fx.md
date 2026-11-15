@@ -21,6 +21,8 @@ That is 25,200, inside the 30k budget. Each ring evicts oldest-out by overwritin
 
 Short-lived shapes have their own small rings: `flashes`, `muzzle`, `muzzleView`, `trailRings`, `waves`, `shock`, `lines` (tracers and beams), `arcs`, `slashes`, `shimmer`, `lens`.
 
+The one layer that is not a ring: `hose` (`layers/hose.ts`), the Kiln's napalm stream, a camera-facing ribbon rebuilt on the CPU through the glob chain (Catmull-Rom, 3 points a glob, 222 at most) each frame it is in the air. One draw call while napalm is in flight, none otherwise; a drawn hose holds through pause and hit-stop. A narrow white-hot rope at the nozzle widening to 0.64 m, torn and red as it ages, its texture riding on the glob serial so the liquid is seen to move. `recipes/napalm.ts` wraps it in the smoke ring's torn fire (none in the first 2 m, so the screen in front of the gun stays clear), peels black smoke off it and drops burning streaks from it; a patch is fire sprites over its area, a glow, black smoke, on a wall drops running off it, and a pooled light now and then. Past 12 patches each one burns thinner, so a floor of them costs what twelve do.
+
 ## What is kept from the first game, on purpose
 
 - Spawn at full size and full colour. `core.birth` pre-rolls one frame, so frame one is an open burst and not a dot.
@@ -78,6 +80,9 @@ fx.beam(from, to, 'rail'|'lance'|'laser'|'sniper'|'heal', width?, seconds?)
 fx.arc(from, to, color?, seconds?, width?)
 fx.slash(center, normal, startDir, arc, radius, 'light'|'heavy'|'sweep'|'finisher')
 fx.flame(pos, dir, intensity?)               // call every frame while firing
+fx.hose?(chain, count)                       // the Kiln's napalm stream, from weapons/Flames, every frame it is in the air
+fx.napalm?(pos, normal, radius, heat)        // one frame of a burning napalm patch
+fx.napalmSplash?(pos, normal)                // a glob landing
 fx.frostShatter(pos, dir, scale?)
 fx.embers(pos, count, spread?)
 fx.dust(pos, normal, scale?)

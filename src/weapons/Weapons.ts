@@ -919,10 +919,10 @@ export class Weapons implements WeaponSystem, Guard {
     if (!this.streamOn) {
       this.streamOn = true;
       c.audio.play('flame_ignite');
-      this.setLoop('flame_loop');
+      this.setLoop('flame_hose_loop');
     }
+    // The stream itself is the napalm's hose, drawn by Flames from the globs.
     this.muzzle(false);
-    c.fx.flame(this.muzzleAt, c.player.forward, 1);
     const interval = this.interval(s.def);
     while (s.cooldown <= 0 && this.canShoot(s)) {
       this.shootFlame(s);
@@ -1196,12 +1196,12 @@ export class Weapons implements WeaponSystem, Guard {
   private shootFlame(s: Slot): void {
     const c = this.ctx;
     const def = s.def;
-    const k = TUNING.kiln;
+    const k = TUNING.napalm;
     this.consume(s);
     const p = this.fillProjectile('flame', def, k.speed, def.damage * this.modifiers.damage, 'none');
     p.velocity.addScaledVector(c.player.velocity, 0.6);
     p.lifetime = k.life;
-    p.gravity = 2.5;
+    p.gravity = k.gravity;
     p.silent = true;
     c.viewmodel.fire(def.recoil, false);
     this.combat.feel.shake(def.shake);

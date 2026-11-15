@@ -40,6 +40,7 @@ export function makeUniforms(): FxUniforms {
 export const ORDER = {
   smoke: 10,
   puffs: 11,
+  hose: 12,
   chips: 15,
   blood: 16,
   rings: 20,
