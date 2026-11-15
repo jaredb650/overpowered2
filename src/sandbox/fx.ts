@@ -70,7 +70,7 @@ function buildGallery(): Record<string, Effect> {
   g.headBurst = { fire: s => s.fx.headBurst(s.target.clone().setY(1.7), v(-0.5, 0.2, 0.3).normalize()) };
   g.gibBurst = { fire: s => s.fx.gibBurst(s.target.clone().setY(1), v(0.5, 0.5, 0.2).normalize(), 12) };
 
-  const muzzles: MuzzleKind[] = ['smg', 'rifle', 'shotgun', 'rocket', 'autocannon', 'plasma', 'railgun', 'minigun', 'revolver', 'flame', 'enemy', 'carbine', 'pistol', 'sabot', 'quiver', 'rotary', 'hmg'];
+  const muzzles: MuzzleKind[] = ['smg', 'rifle', 'shotgun', 'rocket', 'autocannon', 'plasma', 'railgun', 'minigun', 'revolver', 'flame', 'enemy', 'carbine', 'pistol', 'sabot', 'snipe', 'quiver', 'rotary', 'hmg'];
   for (const k of muzzles) {
     g[`muzzle-${k}`] = { fire: s => s.fx.muzzleFlash(s.target.clone().setY(1.4), v(1, 0, 0.25).normalize(), k) };
   }
@@ -98,11 +98,23 @@ function buildGallery(): Record<string, Effect> {
     },
   };
 
-  const tracers: TracerKind[] = ['bullet', 'heavy', 'hellfire', 'bloodthirst', 'berserk', 'plasma', 'rail', 'enemy', 'carbine', 'pistol', 'sabot'];
+  const tracers: TracerKind[] = ['bullet', 'heavy', 'hellfire', 'bloodthirst', 'berserk', 'plasma', 'rail', 'enemy', 'carbine', 'pistol', 'sabot', 'snipe'];
   for (const k of tracers) {
     g[`tracer-${k}`] = {
       fire: s => {
         for (let i = 0; i < 5; i++) s.fx.tracer(v(-16, 1.4 + i * 0.5, s.target.z - 2 + i), v(18, 1.2 + i * 0.3, s.target.z - 2 + i), k);
+      },
+    };
+  }
+
+  // One Sabot dart and one enemy Sniper round, flash and wake, side on: the vapor is what to judge.
+  for (const k of ['sabot', 'snipe'] as const) {
+    g[`wake-${k}`] = {
+      fire: s => {
+        const from = v(-14, 1.5, s.target.z);
+        const to = v(22, 1.2, s.target.z - 3);
+        s.fx.muzzleFlash(from, to.clone().sub(from).normalize(), k);
+        s.fx.tracer(from, to, k);
       },
     };
   }

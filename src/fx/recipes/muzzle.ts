@@ -6,6 +6,7 @@ import { SmokeMode } from '../layers/smoke';
 import type { FlashLayer } from '../layers/flashes';
 import { hot, type Rgb } from '../layers/shared';
 import { SMOKE, SPARK } from '../palette';
+import { wake, wakeMuzzle } from './sabot';
 
 interface MuzzleFx {
   color: Rgb;
@@ -93,6 +94,11 @@ const MUZZLES: Record<MuzzleKind, MuzzleFx> = {
     color: hot(0xbfe0ff, 2.6), size: 0.5, points: 4, inner: 0.1, petals: 2, petalLength: 2.1, life: 0.05,
     light: 0xa8d0ff, lightPower: 12, lightRadius: 15, wisp: 0.22, sparks: 14,
   },
+  // The enemy Sniper's: the Sabot's lance in his laser's crimson, so an incoming round reads as his.
+  snipe: {
+    color: hot(0xff3050, 2.6), size: 0.45, points: 4, inner: 0.1, petals: 2, petalLength: 1.8, life: 0.05,
+    light: 0xff4060, lightPower: 10, lightRadius: 14, wisp: 0.18, sparks: 8,
+  },
   // The 20 mm rotary gun: a fat orange ball with three tongues, twenty-five times a second, so it burns as one ragged fire
   // at the muzzle. Nearly twice the size of the old minigun's star, and no bigger: at this rate it is on screen most of the
   // time, beside the crosshair. No wisp: the barrels' own smoke would hide the gun.
@@ -167,6 +173,7 @@ export function muzzleFlash(core: FxCore, position: THREE.Vector3, dir: THREE.Ve
   }
 
   r.lights.flash(position, f.light, f.lightPower, f.lightRadius, 0.06);
+  if (kind === 'sabot' || kind === 'snipe') wakeMuzzle(core, position, dir, kind);
 
   if (f.wisp > 0) {
     const s = core.smoke;
@@ -204,9 +211,11 @@ const TRACERS: Record<TracerKind, TracerFx> = {
   pistol: { color: hot(0xffd070, 3), width: 0.011, speed: 480, length: 6, core: 6, minPx: 1 },
   // Thick and fast enough that its far segments, past each wall, are drawn before the eye can tell them apart.
   sabot: { color: hot(0x9fd0ff, 3.4), width: 0.11, speed: 1400, length: 70, core: 9, minPx: 3 },
+  snipe: { color: hot(0xff1040, 3.4), width: 0.035, speed: 1400, length: 70, core: 6, minPx: 2.5 },
 };
 
 export function tracer(core: FxCore, from: THREE.Vector3, to: THREE.Vector3, kind: TracerKind): void {
   const f = TRACERS[kind];
   core.lines.tracer(from, to, f.color, f.width, core.birth, f.speed, f.length, f.core, f.minPx);
+  if (kind === 'sabot' || kind === 'snipe') wake(core, from, to, kind);
 }

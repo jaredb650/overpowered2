@@ -439,9 +439,9 @@ export function sniperShot(t: SniperTuning): AttackDef {
       muzzleOf(e, _muzzle);
       _dir.subVectors(e.aimPoint, _muzzle).normalize();
       w.ctx.combat.fireRay(_muzzle, _dir, {
-        damage: t.damage * e.damageMul, source: e.id, team: 'enemy', maxDistance: 240, tracer: 'heavy', whizz: 'sniper_crack',
+        damage: t.damage * e.damageMul, source: e.id, team: 'enemy', maxDistance: 240, tracer: 'snipe', whizz: 'sniper_crack',
       });
-      w.ctx.combat.enemyMuzzle(_muzzle, _dir, 'railgun');
+      w.ctx.combat.enemyMuzzle(_muzzle, _dir, 'snipe');
       w.ctx.audio.play('sniper_fire', { position: _muzzle, pitchJitter: 0.05 });
       e.char.anim.play('shoot', 0.8);
       e.shotsFired++;
