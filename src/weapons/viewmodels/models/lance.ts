@@ -9,19 +9,29 @@ import { F } from '../kit/finishes';
 import type { Finish, Mesher } from '../kit/mesher';
 import { curve, poly, rect, slotRow } from '../kit/shapes';
 import { coil, rail, screwX } from '../kit/details';
+import * as THREE from 'three';
 import { clamp, lerp } from '../../../core/math';
-import { TUNING } from '../../data';
+import { LANCE_LOOK, MARKS } from '../../lance';
 import { hold, inOut, inQuad, outCubic, seg, thud } from '../curves';
 import type { Anim, ViewDef } from '../def';
 import { HANDS } from '../poses';
 import { pullTrigger } from './common';
 
-/** The charge each stage of the beam is reached at (src/weapons/lance.ts). A capacitor fills on the way to each. */
-const STAGE_AT: readonly number[] = TUNING.lance.stages.map(s => s.at);
-/** Seconds a capacitor flares white, and the gun jolts, as its stage lands. */
+/** The marks of the charge (src/weapons/lance.ts), full last. A capacitor fills on the way to each. */
+const STAGE_AT: readonly number[] = MARKS;
+/** Seconds a capacitor flares white, and the gun jolts, as its mark lands. */
 const STAGE_POP = 0.16;
-/** Hum in the hands by stage reached: none, first, second, full. Metres. */
-const HUM = [0, 0.0004, 0.001, 0.0034] as const;
+/** Hum in the hands by mark reached: none, first, second, full. Metres. On top of it a shake that climbs with the cube of the charge. */
+const HUM = [0, 0.0005, 0.0013, 0.0042] as const;
+const SHAKE = 0.0065;
+/** Every glow and its HDR level. Beam mode is each one's own colour; ball mode turns them all to `GREEN` over `TINT_TIME`. */
+const GLOWS: Record<string, readonly [number, number]> = {
+  sight: [0x35e8ff, 7], rail: [0x7ff4ff, 1], cell: [0x35e8ff, 2.4],
+  cap0: [0x45e8ff, 1], cap1: [0x45e8ff, 1], cap2: [0x45e8ff, 1], cap3: [0x45e8ff, 1],
+};
+const GREEN = new THREE.Color(0x4dff7a);
+const TINT_TIME = 0.18;
+const _tint = new THREE.Color();
 
 const BORE = 0.074;
 const RAIL_Z0 = -0.17;
@@ -211,10 +221,7 @@ function buildLance(kit: Kit): Model {
     m.side(poly([[-0.0035, 0.002], [0.0035, 0.002], [0.002, -0.009, 0.002], [0.0038, -0.0205, 0.0015], [0.0005, -0.0215, 0.001], [-0.0035, -0.0095, 0.003]], 0.001), 0.0065, { bevel: 0.0007 });
   });
   const model = new Model(m, kit.mats, {
-    glows: {
-      sight: [0x35e8ff, 7], rail: [0x7ff4ff, 1], cell: [0x35e8ff, 2.4],
-      cap0: [0x45e8ff, 1], cap1: [0x45e8ff, 1], cap2: [0x45e8ff, 1], cap3: [0x45e8ff, 1],
-    },
+    glows: GLOWS,
     screens: { charge: [192, 112] },
   });
   model.socket('muzzle', [0, BORE, RAIL_Z1 - 0.03]);
@@ -233,21 +240,21 @@ function drawScreen(a: Anim): void {
   const w = canvas.width;
   const h = canvas.height;
   const full = a.charge >= 0.999;
-  const stage = stageOf(a.charge);
+  const ink = LANCE_LOOK.ball ? '#4dff7a' : '#35e8ff';
   g.fillStyle = '#03090d';
   g.fillRect(0, 0, w, h);
-  g.fillStyle = full ? '#ffffff' : '#35e8ff';
+  g.fillStyle = full ? '#ffffff' : ink;
   g.font = '800 44px "Courier New", monospace';
   g.textBaseline = 'top';
   g.fillText(full ? 'MAX' : `${String(Math.round(a.charge * 100)).padStart(3, '0')}%`, 8, 6);
-  // What letting go now fires: a ball under the first stage, then the beam by its stage.
+  // The mode: what a tap and a full charge fire.
   g.font = '800 26px "Courier New", monospace';
-  g.fillText(stage === 0 ? 'BALL' : 'I'.repeat(stage), 128, 14);
+  g.fillText(LANCE_LOOK.ball ? 'BALL' : 'BEAM', 118, 14);
   g.font = '700 20px "Courier New", monospace';
   g.fillText(`CELL ${a.mag}/${a.magSize}`, 8, 54);
   g.fillStyle = '#123';
   g.fillRect(8, 84, w - 16, 18);
-  g.fillStyle = full ? '#ffffff' : '#35e8ff';
+  g.fillStyle = full ? '#ffffff' : ink;
   g.fillRect(8, 84, (w - 16) * a.charge, 18);
   // A notch at each stage short of full.
   g.fillStyle = '#03090d';
@@ -262,17 +269,40 @@ function stageOf(charge: number): number {
   return n;
 }
 
-/** The stage seen last frame and when it landed, for the flare. One Lance is ever in the hands. */
+/** The stage seen last frame and when it landed, for the flare, and the mode the screen and the glows last showed. One Lance is ever in the hands. */
 let seenStage = 0;
 let stageLanded = -99;
+let shownBall = false;
+let tint = 0;
+let flipAt = -99;
+
+/** `a.glow` in the mode's colour: the glow's own in beam mode, green in ball mode, blended through a toggle. */
+function glow(a: Anim, name: string, level: number): void {
+  a.glow(name, level);
+  if (tint <= 0) return;
+  const m = a.model!.glows[name];
+  if (!m) return;
+  _tint.copy(GREEN).multiplyScalar(GLOWS[name]![1] * level);
+  m.color.lerp(_tint, tint);
+}
 
 function clip(a: Anim): void {
   const P = a.parts;
   pullTrigger(a, 0.1, 0.3);
   const c = a.charge;
   const t = a.sinceFire;
+  // A beam pouring out holds the bank at the flash of a shot for as long as it lasts.
+  const beam = LANCE_LOOK.beam;
   // The bank discharges in a flash, then bleeds down over the half-second after a shot.
-  const burst = t < 0.5 ? (1 - t / 0.5) ** 2 * a.strength : 0;
+  const burst = Math.max(t < 0.5 ? (1 - t / 0.5) ** 2 * a.strength : 0, beam);
+  tint = clamp(tint + (LANCE_LOOK.ball ? 1 : -1) * a.dt / TINT_TIME);
+  if (LANCE_LOOK.ball !== shownBall) {
+    shownBall = LANCE_LOOK.ball;
+    flipAt = a.time;
+    drawScreen(a);
+  }
+  // A toggle flares the bank in its new colour.
+  const flip = clamp(1 - (a.time - flipAt) / 0.25);
 
   // A stage landing flares its capacitor white and jolts the gun, so the charge is read in steps and not as a ramp.
   const stage = stageOf(c);
@@ -290,19 +320,24 @@ function clip(a: Anim): void {
     } else if (stage >= STAGE_AT.length) {
       level += 8 + 3 * Math.sin(a.time * 44) + pop * 10;
     }
-    a.glow(CAPS[i]!, level);
+    glow(a, CAPS[i]!, level + flip * 6 + beam * (4 + 4 * Math.sin(a.time * 70 + i)));
   }
   const full = c >= 0.999 ? 1 + 0.25 * Math.sin(a.time * 44) : 0;
-  a.glow('rail', 0.06 + c * c * 5 + stage * 2 + pop * 6 + full * 5 + burst * 16);
-  a.glow('sight', 0.9 + c * 0.8);
-  a.glow('cell', 0.7 + c * 1.1);
+  glow(a, 'rail', 0.06 + c * c * 5 + stage * 2 + pop * 6 + full * 5 + burst * 16 + flip * 3);
+  glow(a, 'sight', 0.9 + c * 0.8 + flip);
+  glow(a, 'cell', 0.7 + c * 1.1 + flip * 2 + beam * 2);
 
-  // Hum in the hands: small and fast, stepping up with each stage to a real shake at full charge.
-  const hum = c * c * 0.0006 + HUM[Math.min(stage, HUM.length - 1)]!;
+  // Hum in the hands: small and fast, stepping up with each stage, under a shake that climbs to a fight to hold it at full
+  // and holds there while a beam pours out.
+  const shake = Math.max(c * c * c, beam * 0.85);
+  const hum = c * c * 0.0006 + HUM[Math.min(stage, HUM.length - 1)]! + shake * SHAKE * (0.75 + 0.25 * Math.sin(a.time * 13));
   a.gunP.x += Math.sin(a.time * 91) * hum;
   a.gunP.y += Math.sin(a.time * 107 + 1) * hum;
   a.gunR.z += Math.sin(a.time * 83) * hum * 2.2;
   a.gunR.x += Math.sin(a.time * 97 + 2) * hum * 0.9;
+  a.gunR.y += Math.sin(a.time * 71 + 3) * hum * 0.6;
+  // A beam pushes the gun back into the shoulder.
+  a.gunP.z += beam * 0.03;
   // The arms brace as it charges, and take the jolt of each stage.
   a.gunP.z += c * 0.018 + pop * 0.006;
   a.gunP.y -= c * 0.004;
@@ -334,8 +369,8 @@ function clip(a: Anim): void {
   const seat = p >= 0.655 ? thud(seg(p, 0.655, 0.78)) : 0;
   const rack = hold(p, 0.76, 0.84, 0.86, 0.92);
   P.bolt!.position.z += rack * 0.06;
-  a.glow('cell', p > 0.3 && p < 0.7 ? 0.05 : 0.2 + seg(p, 0.86, 1) * 0.6);
-  for (let i = 0; i < CAPS.length; i++) a.glow(CAPS[i]!, lerp(0.05, 0.3, seg(p, 0.86, 1)));
+  glow(a, 'cell', p > 0.3 && p < 0.7 ? 0.05 : 0.2 + seg(p, 0.86, 1) * 0.6);
+  for (let i = 0; i < CAPS.length; i++) glow(a, CAPS[i]!, lerp(0.05, 0.3, seg(p, 0.86, 1)));
 
   const present = hold(p, 0, 0.12, 0.86, 1);
   a.gunR.z -= present * 0.3;

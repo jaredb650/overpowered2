@@ -232,6 +232,10 @@ class Fx implements FxSystem {
     cannonBurst(this.core, position, normal, scale);
   }
 
+  inhale(to: THREE.Vector3, reach: number, count: number, color?: THREE.ColorRepresentation): void {
+    misc.inhale(this.core, to, reach, count, color);
+  }
+
   hose(chain: Float32Array, count: number): void {
     hose(this.core, chain, count);
   }

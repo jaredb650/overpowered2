@@ -426,13 +426,14 @@ describe('the guns', () => {
   });
 
   describe('Lance, as it was before budgets', () => {
+    // The rail shot: a tap in beam mode.
     const full = () => {
       r.weapons.give('lance');
       draw('weapon7');
       r.input.simulate('fire', true);
-      r.run(TUNING.lance.tapTime + TUNING.lance.chargeTime + 0.1);
+      r.run(1 / 60);
       r.input.simulate('fire', false);
-      // Long enough for the beam, and over before the first of its plasma bursts: those are lance.test.ts's.
+      // Long enough for the shot, and over before the first of its plasma bursts: those are lance.test.ts's.
       r.run(0.03);
     };
 
@@ -470,17 +471,16 @@ describe('the guns', () => {
       expect(behind.hits.length).toBe(1);
     });
 
-    it('a part charge goes through nothing', () => {
+    it('the sustained beam of a full charge goes through nothing', () => {
       r.weapons.give('lance');
       draw('weapon7');
       r.wall(-10, 0.3);
       const behind = r.enemies.add(0, -15);
       r.input.simulate('fire', true);
-      // The stage under full, the strongest beam that is not a full one.
-      r.run(TUNING.lance.tapTime + TUNING.lance.chargeTime * 0.8);
+      r.run(TUNING.lance.tapTime + TUNING.lance.chargeTime + 0.1);
       r.input.simulate('fire', false);
-      r.run(0.05);
-      expect(r.weapons.lance.fired.beams).toEqual([0, 1, 0]);
+      r.run(TUNING.lance.beam.seconds + 0.1);
+      expect(r.weapons.lance.fired.beams).toBe(1);
       expect(behind.hits.length).toBe(0);
     });
   });

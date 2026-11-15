@@ -42,6 +42,26 @@ const PARTIAL_SIDE = 0.55;
 /** What a partial wound throws out, and each piece's size against the head's hit radius. */
 const PARTIAL_PIECES: readonly (readonly [ChunkKind, number])[] = [['cranium', 0.55], ['cranium', 0.4], ['brain', 0.5], ['meat', 0.3], ['meat', 0.25]];
 
+/**
+ * Vaporized bodies (`Gore.vaporize`): the Lance's beam and giant ball. A body sags for `sag` seconds on its own weight, then
+ * rises on `lift` of world gravity turned upward, slowed by `drag`, turning at up to `spin` rad/s, and burns away over
+ * `seconds`. `max` at once, each a live chain that never freezes; past it a body is ash on the spot.
+ */
+export const VaporTuning = {
+  max: 10,
+  seconds: [1.6, 2.3] as const,
+  sag: 0.14,
+  rise: 1.1,
+  lift: 0.03,
+  drag: 1.3,
+  spin: 1.1,
+  spinDrag: 0.4,
+  /** Of the speed it died with, what it keeps along the floor. */
+  keep: 0.25,
+  /** Seconds between spits of sparks off a body. Embers come every frame. */
+  ashEvery: 0.09,
+};
+
 export const GoreTuning = {
   /** Simulated ragdolls. Past this the oldest at rest freezes. */
   maxRagdolls: 14,
@@ -189,6 +209,12 @@ class DeadBody {
   smearLeft = 7;
   readonly smearAt = new THREE.Vector3();
   pooled = false;
+  /** World time it was vaporized, or -1. `vaporFor` is how long it takes to go. */
+  vapor = -1;
+  vaporFor = 0;
+  lifted = false;
+  bare = false;
+  ashAt = 0;
   /** Bones gone from this body. */
   readonly skip = new Uint8Array(MAX_BONES);
   readonly damage = new Float32Array(MAX_BONES);
@@ -303,6 +329,11 @@ const corpseRing: CorpseHit[] = Array.from({ length: 16 }, () => ({
   distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3(), handle: null, bone: 0, region: 'chest' as GoreRegion,
 }));
 let corpseAt = 0;
+
+/** A vaporized body's helmet and gear do not burn on the skin's dissolve, so they go first. A reset shows them again. */
+const hideProp = (o: THREE.Object3D): void => {
+  if ((o as THREE.Mesh).isMesh && !(o as THREE.SkinnedMesh).isSkinnedMesh) o.visible = false;
+};
 
 export class Gore implements GoreSystem {
   private bodies: DeadBody[] = [];
@@ -895,7 +926,7 @@ export class Gore implements GoreSystem {
 
   /** Frozen mid-collapse, a body would stand there for good. Frozen alive, it would never get up. A staked one hangs. */
   private freezable(b: DeadBody, keep?: PinTarget): boolean {
-    return b !== keep && b.rag !== null && b.rag.active && b.stakes.length === 0 && !b.rag.muscle?.collapse && !b.down;
+    return b !== keep && b.vapor < 0 && b.rag !== null && b.rag.active && b.stakes.length === 0 && !b.rag.muscle?.collapse && !b.down;
   }
 
   /**
@@ -1438,6 +1469,102 @@ export class Gore implements GoreSystem {
   }
 
   // -------------------------------------------------------------------------------------------
+  // Vaporized
+  // -------------------------------------------------------------------------------------------
+
+  vaporize(char: CharacterInstance, velocity?: THREE.Vector3): void {
+    const v = VaporTuning;
+    let body = this.owned.get(char) ?? null;
+    if (body && (body.vapor >= 0 || body.sinking >= 0)) return;
+    let burning = 0;
+    for (const b of this.bodies) if (b.vapor >= 0) burning++;
+    if (burning >= v.max) {
+      this.ashNow(char, body);
+      return;
+    }
+    if (velocity) velocity.set(velocity.x * v.keep, Math.max(velocity.y, 0), velocity.z * v.keep);
+    if (!body) {
+      body = this.adopt(char);
+      this.startRag(body, { limp: true, muscles: false, velocity });
+    } else {
+      if (body.down) this.endDown(body);
+      if (!body.rag) this.startRag(body, { limp: true, muscles: false, velocity });
+      else {
+        body.rag.wake();
+        body.rag.goLimp();
+      }
+    }
+    const rag = body.rag;
+    if (!rag?.active || rag.parts.length === 0) {
+      this.ashNow(char, body);
+      return;
+    }
+    body.vapor = this.ctx.time.elapsed;
+    body.vaporFor = rand(v.seconds[0], v.seconds[1]);
+    body.lifted = false;
+    body.bare = false;
+    body.ashAt = 0;
+    body.stakes.length = 0;
+    const { fx, render, audio } = this.ctx;
+    fx.sparks(rag.center, _up, 18, 0xbfeeff);
+    render.lights.flash(rag.center, 0x9fe0ff, 6, 6, 0.35);
+    audio.play('lance_vaporize', { position: rag.center, pitchJitter: 0.08 });
+  }
+
+  /** A vaporized body's frame: up off the floor once it has sagged, glowing and burning away, and gone at the end. */
+  private burnAway(b: DeadBody, now: number): void {
+    const v = VaporTuning;
+    const age = now - b.vapor;
+    const k = age / b.vaporFor;
+    const rag = b.rag;
+    const at = rag?.active ? rag.center : _v.setFromMatrixPosition(b.char.bones[0]!.matrixWorld);
+    if (k >= 1) {
+      this.ashNow(b.char, b, 0.5);
+      return;
+    }
+    if (!b.lifted && age >= v.sag && rag?.active) {
+      b.lifted = true;
+      randomUnit(_v2).multiplyScalar(v.spin);
+      for (const part of rag.parts) {
+        part.body.setGravityScale(-v.lift, true);
+        part.body.setLinearDamping(v.drag);
+        part.body.setAngularDamping(v.spinDrag);
+        part.body.linvel(part.v);
+        part.v.y = Math.max(part.v.y, 0) + v.rise * rand(0.85, 1.15);
+        part.body.setLinvel(part.v, true);
+        part.body.angvel(part.w);
+        part.body.setAngvel(part.w.multiplyScalar(0.3).add(_v2), true);
+      }
+    }
+    // 1 to 2 on the skin is the dissolve (characters/material.ts): a glow, then holes that eat in from the edges.
+    (b.char as unknown as { setBurn?(amount: number): void }).setBurn?.(1 + k * k * (3 - 2 * k));
+    const { fx } = this.ctx;
+    const part = rag?.active ? rag.parts[Math.floor(Math.random() * rag.parts.length)] : undefined;
+    if (part) part.body.translation(part.p);
+    _v3.copy(part ? part.p : at);
+    fx.embers(_v3, k < 0.85 ? 3 : 1, 0.5);
+    if (now >= b.ashAt) {
+      b.ashAt = now + v.ashEvery;
+      // Smoke is the first game's cubes, which read as boxes round a body: the ash is embers and sparks.
+      fx.sparks(_v3, _up, k < 0.6 ? 3 : 1, k < 0.5 ? 0x9fe0ff : 0xffa050);
+    }
+    if (k > 0.65 && !b.bare) {
+      b.bare = true;
+      b.char.root.traverse(hideProp);
+    }
+  }
+
+  /** Gone in a breath of ash: the end of a vaporized body, or one past the cap. */
+  private ashNow(char: CharacterInstance, body: DeadBody | null, scale = 1): void {
+    const { fx } = this.ctx;
+    const at = body?.rag?.active ? _v4.copy(body.rag.center) : _v4.setFromMatrixPosition(char.bones[0]!.matrixWorld);
+    fx.embers(at, Math.round(26 * scale), 1.2);
+    fx.sparks(at, _up, Math.round(12 * scale), 0xffb060);
+    if (body) this.dropBody(body);
+    char.release();
+  }
+
+  // -------------------------------------------------------------------------------------------
   // Slicing
   // -------------------------------------------------------------------------------------------
 
@@ -1722,6 +1849,14 @@ export class Gore implements GoreSystem {
         continue;
       }
       const rag = b.rag;
+      if (b.vapor >= 0) {
+        if (rag?.active) {
+          rag.drive();
+          rag.measure(dt, t.calmSpeed, t.calmSpin);
+        }
+        this.burnAway(b, now);
+        continue;
+      }
       if (!rag?.active) continue;
       // Catching its balance, the ground has to go on being there, where its animation is walking it.
       const walked = rag.muscle?.collapse;

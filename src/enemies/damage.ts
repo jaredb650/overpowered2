@@ -795,6 +795,8 @@ export class DamageModel {
       e.boss.onDeath(e, this.w, d);
     } else if (e.def.id === 'drone') {
       this.m.startCrash(e);
+    } else if (d.vaporize && !shatter && ctx.gore.vaporize) {
+      ctx.gore.vaporize(e.char, deathVelocity(e, _dying, this.w.now));
     } else if (DevFlags.gibbing && (shatter || (blownUp && DevFlags.explosiveDeaths))) {
       gibbed = true;
       if (shatter) ctx.fx.sparks(e.center, _n.set(0, 1, 0), 40, 0xa0e8ff);

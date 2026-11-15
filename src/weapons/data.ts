@@ -325,9 +325,9 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     // Right click is a three-round burst, as a Glock's burst mode: no ADS.
     altBurst: { rounds: 3, gap: 0.06, recover: 0.32 },
   },
-  // A tap is a plasma ball, a hold is a beam: how it charges, what each stage fires and the bursts a beam leaves are
-  // TUNING.lance. The cell holds twelve: a ball takes one, a beam two, a full beam three. `interval` is between balls,
-  // and `damage`, `kick`, `shake` and `fovPunch` are the full beam's.
+  // Right click toggles beam and ball. A tap is a rail shot or a plasma ball, a full charge a sustained beam or a giant
+  // ball: TUNING.lance. The cell holds twelve: a ball takes one, a rail shot three, a giant ball four, a beam six.
+  // `interval` is between balls, and `damage`, `kick`, `shake` and `fovPunch` are the rail shot's.
   lance: {
     ...BASE, id: 'lance', name: 'LANCE', slot: 7, mode: 'charge',
     magSize: 12, reserve: 48, maxReserve: 96, reloadTime: 1.7, drawTime: 0.3,
@@ -510,14 +510,15 @@ export const TUNING = {
   /** How many heads it hops to is `headHops` in its row. */
   judge: { ricochetRange: 28, ricochetDamage: 0.8 },
   /**
-   * The Lance. A press let go before the first stage is a plasma ball. Held, the charge climbs through `stages`, and
-   * letting go fires the beam of the last one reached. Every body a beam strikes sets off a plasma burst, one after
-   * another down the line. The rules are src/weapons/lance.ts. `minCharge`, `minDamage`, `maxTargets` and `cleave` are the
-   * old gun's, which `?lance=old` brings back.
+   * The Lance. Right click toggles the mode: the beam (blue) or the ball (green). In both a press let go short of a full
+   * charge is the tap and a full charge is the big shot. Beam mode taps `rail`, the old gun's full beam, with a plasma burst
+   * at every body it strikes (a ball when the cell cannot pay for it), and a full charge is `beam`, a second of sustained
+   * beam that vaporizes what it touches. Ball mode taps `ball` and a full charge is `giant`. The rules are
+   * src/weapons/lance.ts. `minCharge`, `minDamage`, `maxTargets` and `cleave` are the old gun's, which `?lance=old` brings back.
    */
   lance: {
-    /** Seconds from the start of the charge to the last stage. */
-    chargeTime: LANCE_OLD ? 0.85 : 1,
+    /** Seconds from the start of the charge to full. 1 before the beam and the giant ball. */
+    chargeTime: LANCE_OLD ? 0.85 : 1.3,
     /** Below this the trigger release is a fizzle, not a shot. */
     minCharge: 0.22,
     minDamage: 90,
@@ -530,7 +531,7 @@ export const TUNING = {
     cleave: 3,
     /** A press this short shows and sounds no charge at all, so a tap is clean. The charge starts after it. */
     tapTime: 0.1,
-    /** Seconds after a full beam before the next press counts. A weaker beam waits by its `weight`, a ball `interval`. */
+    /** Seconds after a rail shot before the next press counts. A ball waits `interval`. */
     recover: 0.5,
     /** Degrees the view narrows by at full charge. */
     fovPull: 7,
@@ -539,8 +540,15 @@ export const TUNING = {
      * thrown from the charge's narrowed view, so a full beam opens the view from 83 to 97 degrees in a frame.
      */
     punchTime: 0.2,
-    /** Metres a second a full beam shoves the player back along the shot. */
+    /** Metres a second a rail shot shoves the player back along the shot. */
     push: 2.5,
+    /** Shares of the charge it ticks at on the way to full, a capacitor filling for each. */
+    marks: [0.3, 0.65],
+    /**
+     * The charge-up: energy pulled in from `reach` metres round the muzzle, `rate` slivers a second at full (by the charge
+     * squared), and the camera's trauma a second at full (`trauma`, cubed in the charge).
+     */
+    inhale: { reach: 1.4, rate: 420, arcs: 14, trauma: 0.5 },
     /**
      * The tap: a concussion shot. `force` on the body it hits and the blast rings on those beside it floor light bodies
      * and stagger heavy ones (src/enemies/reactions.ts, blast.ts). `radius` and `splash` are its burst, `size` how big it is
@@ -552,17 +560,33 @@ export const TUNING = {
       recoil: 0.4, kick: 0.008, shake: 0.008, fovPunch: 0.7,
     },
     /**
-     * `at` is the charge a stage is reached at and `cost` what its beam takes from the cell. `damage` is a share of the
-     * row's. `pierce` is how many bodies it goes on through after the first, `walls` how many walls of `penetration`
-     * thickness, `cleave` how many kills it splits. `burst` is the radius of the plasma burst at each body it strikes and
-     * `burstDamage` its centre. `weight` scales kick, shake, recoil and the wait after; `width` and `linger` are the beam.
-     * `pierces` is armour: plates and a carried shield do not stop it, as they do not stop the Sabot's dart.
+     * The beam mode's tap. `cost` is what it takes from the cell, `damage` a share of the row's. `pierce` is how many bodies
+     * it goes on through after the first, `walls` how many walls of `penetration` thickness, `cleave` how many kills it
+     * splits. `burst` is the radius of the plasma burst at each body it strikes and `burstDamage` its centre. `weight` scales
+     * kick, shake, recoil and the wait after; `width` and `linger` are the line. `pierces` is armour: plates and a carried
+     * shield do not stop it, as they do not stop the Sabot's dart.
      */
-    stages: [
-      { at: 0.3, cost: 2, damage: 0.2, pierce: 1, walls: 0, cleave: 0, pierces: false, burst: 1.8, burstDamage: 60, weight: 0.4, width: 0.05, linger: 0.4 },
-      { at: 0.65, cost: 2, damage: 0.45, pierce: 4, walls: 0, cleave: 1, pierces: false, burst: 2.2, burstDamage: 100, weight: 0.65, width: 0.08, linger: 0.55 },
-      { at: 1, cost: 3, damage: 1, pierce: 31, walls: 2, cleave: 3, pierces: true, burst: 2.8, burstDamage: 160, weight: 1, width: 0.13, linger: 0.95 },
-    ],
+    rail: { cost: 3, damage: 1, pierce: 31, walls: 2, cleave: 3, pierces: true, burst: 2.8, burstDamage: 160, weight: 1, width: 0.13, linger: 0.95 },
+    /**
+     * The beam mode's full charge, an Orbital Lance from the hip: `seconds` of beam down the aim, wherever it is turned.
+     * It stops at walls. Every body within `radius` of the line takes `dps` (on the perks' damage) in ticks of `tick`, dies
+     * vaporized, or burns for `burn` seconds if it lives. The cell pays `cost` over the beam, so it is never empty mid-beam.
+     * The player is shoved back at `push` m/s², the camera takes `trauma` a second, and the next press waits `recover`.
+     * `width` and `sheath` are the metres across of its drawn core and the glow round it, times `thick` as it leaves the
+     * gun, narrowing to `thin` at its end as it runs out (`beamGirth`).
+     */
+    beam: {
+      cost: 6, seconds: 1, dps: 3000, tick: 0.05, radius: 0.45, range: 400, burn: 6, push: 4.5, trauma: 1.1, recover: 0.35,
+      width: 0.4, sheath: 0.6, thick: 2.2, thin: 0.12,
+    },
+    /**
+     * The ball mode's full charge: a slow ball of `size` metres across that bursts on whatever it touches, or at the end
+     * of `life`, in a plasma blast of `blast` metres and `damage` at its centre. Its kills are vaporized.
+     */
+    giant: {
+      cost: 4, speed: 15, life: 6, size: 1.4, blast: 10, damage: 900, scale: 2.2, shake: 0.4, playerPush: 16, selfDamage: 0.2,
+      recoil: 1.6, kick: 0.09, shakeFire: 0.12, fovPunch: 6, recover: 0.7,
+    },
     /** A full beam's first flash is this many times its width, for a tenth of a second. */
     sheath: 3.5,
     /**

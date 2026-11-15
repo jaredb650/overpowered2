@@ -179,6 +179,35 @@ export const weapons = [
     s.at(0.01, () => zap(s, 0.35, 0.4, s.r(90, 130)));
     s.noise('pink', 0.5).bp([[0, 2600], [0.4, 500]], 0.9).env(perc(0.4, 0.4, 0.003)).out(0.5);
   }),
+  // Stand-ins for the Lance's beam and giant ball (docs/notes/audio.md lists them), until real ones come.
+  // The sustained beam: a searing roar with an energy whine riding on it and the air crackling. Its level follows the beam.
+  r('lance_beam_loop', { dur: 1.2, mix: 'loop2d', loop: true, over: { volume: 0.75, send: 0.3 } }, s => {
+    s.osc('sawtooth', 82.5).drive(3).hp(70).lp(2400, 2).am(s.lfo(15, 0.2)).out(0.6);
+    s.osc('sawtooth', 123.75, undefined, 9).hp(100).lp(3000, 2).out(0.35);
+    s.osc('sine', 1650).am(s.lfo(30, 0.45)).out(0.16);
+    s.noise('pink').bp(2600, 0.8).sweep(s.wander(5, 900)).am(s.wander(20, 0.4)).out(1);
+    s.grains(1.2, () => 160, 0.0012).hp(3200).out(0.6);
+  }),
+  // The giant ball in flight, in 3D where it is: a slow heavy throb and a crackle round it.
+  r('lance_giant_loop', { dur: 1.6, mix: 'loop3d', loop: true, over: { volume: 0.8, near: 10, far: 180, maxVoices: 2 } }, s => {
+    s.osc('sine', 55).am(s.lfo(5, 0.4)).drive(2).out(0.6);
+    s.osc('sawtooth', 110).lp(900, 2).am(s.lfo(2.5, 0.3)).out(0.4);
+    s.noise('pink').bp(900, 1.4).am(s.wander(9, 0.5)).out(0.8);
+    s.grains(1.6, () => 70, 0.0015).bp(3200, 1.4).out(0.6);
+  }),
+  // A body vaporizing: a hiss that swells and climbs as it burns away, crackling, and a last breath of it.
+  r('lance_vaporize', { dur: 1.9, n: 2, mix: 'impact', over: { volume: 0.5, maxVoices: 4, perFrame: 2, near: 6, far: 70 } }, s => {
+    s.noise('pink', 1.9).bp([[0, 700], [1.7, 4200]], 1.1).env([[0, 0.0001], [0.15, 0.7], [1.3, 1], [1.9, 0.0001]]).out(0.7);
+    s.grains(1.8, t => 40 + t * 90, 0.0014, t => 1 - t * 0.45).hp(2800).out(0.7);
+    s.osc('sine', [[0, 900], [1.6, 2600]], 1.7).am(s.lfo(24, 0.5)).env([[0, 0.0001], [0.2, 0.25], [1.6, 0.0001]]).out(0.3);
+    zap(s, 0.3, 0.3, 110);
+  }),
+  // Right click on the Lance: the bank switching over, a clack and a two-note chirp.
+  r('lance_mode', { dur: 0.3, mix: 'reward', over: { volume: 0.32 }, expect: { centroid: [700, 7000] } }, s => {
+    click(s, 2100, 0.7, 0.006);
+    s.osc('square', [[0, 700], [0.06, 1400]], 0.08).lp(3600).env(perc(0.07, 0.6, 0.002)).out(0.45);
+    s.at(0.08, () => s.osc('square', 1860, 0.1).lp(4200).env(perc(0.09, 0.5, 0.002)).out(0.4));
+  }),
 
   // Trommel, the 20 mm rotary cannon on key 8. The ids are the old minigun's, and the helicopter's door gun plays them too.
   // A heavy electric drive bringing a cluster of barrels round, and a barrage of 25 a second: slow enough that every round

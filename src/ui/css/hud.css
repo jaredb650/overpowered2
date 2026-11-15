@@ -393,6 +393,8 @@
 .xh-charge.staged .xh-charge-mark { display: block; }
 .xh-charge.staged .xh-charge-fill { background: var(--steel); }
 .xh-charge.staged.s1 .xh-charge-fill { background: var(--cold); }
+/* The Lance in ball mode charges green, as its gun glows. */
+.xh-charge.staged.ball .xh-charge-fill { background: var(--friend); }
 .xh-charge.staged.full { outline: 0.1rem solid var(--amber); }
 .xh-charge.staged.full .xh-charge-fill { background: var(--ink); }
 

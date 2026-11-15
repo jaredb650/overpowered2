@@ -187,6 +187,16 @@ float sWoundH = 0.0;
 
   if (burn > 0.001) {
     float n = grain * 0.7 + micro.b * 0.3;
+    // Past 1 the body is vaporizing (Gore.vaporize): fully charred, lit from inside, and eaten away from 1 to 2.
+    float vapor = clamp(burn - 1.0, 0.0, 1.0);
+    burn = min(burn, 1.0);
+    if (vapor > 0.0) {
+      float hole = vapor * 1.2 - 0.12;
+      if (n < hole) discard;
+      float rim = smoothstep(0.09, 0.0, n - hole);
+      float hot = 1.0 - smoothstep(0.0, 0.5, vapor);
+      sGlow += vec3(0.45, 0.8, 1.0) * hot * (1.4 + 1.2 * micro.g) + vec3(1.0, 0.42, 0.08) * rim * 9.0;
+    }
     float edge = burn * 1.45 - 0.2;
     float charred = smoothstep(edge + 0.1, edge - 0.08, n);
     float ember = smoothstep(0.035, 0.0, abs(n - edge)) * step(burn, 0.995);

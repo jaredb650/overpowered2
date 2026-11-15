@@ -83,7 +83,7 @@ export default async function lanceLive(page, h) {
     };
     window.fired = () => {
       const l = ctx.weapons.lance;
-      return { balls: l.fired.balls, beams: [...l.fired.beams], bursts: l.fired.bursts, pending: l.chain.pending };
+      return { ...l.fired, pending: l.chain.pending };
     };
     /** The trigger, to the frame. `seconds` is on the player's clock; 0 is a press and a release a frame apart. */
     window.pull = async (seconds = 0) => {

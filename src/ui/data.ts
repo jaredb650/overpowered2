@@ -112,10 +112,10 @@ export const WEAPONS: Record<WeaponId, WeaponInfo> = {
   },
   lance: {
     name: 'Lance', key: '7',
-    role: LANCE_OLD ? 'Railgun. Hold to charge, release to fire' : 'Railgun. Tap for a plasma ball, hold to charge a beam',
+    role: LANCE_OLD ? 'Railgun. Hold to charge, release to fire' : 'Railgun. Tap to fire, hold for a full charge. Right click: beam or ball',
     note: LANCE_OLD
       ? 'Pierces everything in line and severs what it touches.'
-      : `A full charge goes through everyone in line and ${TUNING.lance.walls} walls, and a plasma burst goes off at each body it passes. Right click lets a charge go.`,
+      : `Beam: a tap goes through everyone in line and ${TUNING.lance.walls} walls, a plasma burst at each body; a full charge is a second of beam that vaporizes what it touches. Ball: a tap is a plasma ball, a full charge a giant one that bursts on whatever it meets.`,
   },
   buzzsaw: {
     name: def.buzzsaw.name.charAt(0) + def.buzzsaw.name.slice(1).toLowerCase(), key: '8',

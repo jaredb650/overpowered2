@@ -278,6 +278,8 @@ export interface ExplosionSpec {
   shake?: number;
   /** A map explosive went off. The world drew it, sounded it and chains its own neighbours, so combat only resolves it. */
   worldObject?: boolean;
+  /** Its kills are vaporized (DamageInfo.vaporize). */
+  vaporize?: boolean;
 }
 
 /**

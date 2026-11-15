@@ -53,6 +53,7 @@ function copyBlast(to: ExplosionSpec, from: ExplosionSpec): void {
   to.scale = from.scale;
   to.shake = from.shake;
   to.worldObject = from.worldObject;
+  to.vaporize = from.vaporize;
 }
 
 interface HitSlot {
@@ -99,6 +100,8 @@ export interface StrikeOptions {
   charge: ShapedCharge | undefined;
   /** An armour-piercing round: neither plates nor a carried shield stop it. */
   pierces: boolean;
+  /** Its kill is vaporized. */
+  vaporize: boolean;
 }
 
 interface QueuedBlast {
@@ -141,7 +144,7 @@ export class Combat implements CombatSystem {
 
   private readonly opts: StrikeOptions = {
     type: 'bullet', source: '', force: 0, severMult: 1, headshotMult: 2, gib: false,
-    slicePlaneNormal: undefined, explosionId: undefined, killStop: 0, quiet: false, reach: undefined, blastKind: undefined, charge: undefined, pierces: false,
+    slicePlaneNormal: undefined, explosionId: undefined, killStop: 0, quiet: false, reach: undefined, blastKind: undefined, charge: undefined, pierces: false, vaporize: false,
   };
 
   // Scratch. Each is used within one function and never held across a call that could re-enter it.
@@ -235,6 +238,7 @@ export class Combat implements CombatSystem {
     d.blastKind = undefined;
     d.pierces = undefined;
     d.armorPiercing = undefined;
+    d.vaporize = undefined;
     return d;
   }
 
@@ -277,6 +281,7 @@ export class Combat implements CombatSystem {
     o.blastKind = undefined;
     o.charge = undefined;
     o.pierces = false;
+    o.vaporize = false;
     return o;
   }
 
@@ -303,6 +308,7 @@ export class Combat implements CombatSystem {
     d.explosionId = o.explosionId;
     d.reach = o.reach;
     d.blastKind = o.blastKind;
+    d.vaporize = o.vaporize || undefined;
     if (o.charge && enemy.armor > 0) {
       d.amount *= o.charge.direct;
       d.pierces = true;
@@ -1008,6 +1014,7 @@ export class Combat implements CombatSystem {
       o.severMult = spec.team === 'player' && c.weapons.modifiers.alwaysSever ? 1000 : 1.5;
       o.reach = dist / radius;
       o.blastKind = spec.kind;
+      o.vaporize = spec.vaporize === true;
       o.explosionId = id;
       o.quiet = true;
       const res = this.strike(e, e.center, UP, dir, undefined, undefined, amount, o);

@@ -65,6 +65,8 @@ export interface DamageInfo {
   pierces?: boolean;
   /** An armour-piercing round, armour or none: a carried shield does not stop it either. */
   armorPiercing?: boolean;
+  /** A kill floats up and burns away to ash (GoreSystem.vaporize): the Lance's beam and giant ball. */
+  vaporize?: boolean;
 }
 
 export interface RayHit {
@@ -423,6 +425,11 @@ export interface GoreSystem extends GameSystem {
   wound(char: CharacterInstance, damage: DamageInfo, severity: number): boolean;
   /** Pins a corpse or limb to the world at a point, for the Stakegun. */
   pin(hit: CorpseHit, anchor: THREE.Vector3): void;
+  /**
+   * Vaporized: the body goes limp, floats up off the floor turning slowly, glows and burns away to ash, then is gone. Takes
+   * ownership like `ragdoll`. Past its cap the body is ash on the spot. Optional so a stand-in need not have it.
+   */
+  vaporize?(char: CharacterInstance, velocity?: THREE.Vector3): void;
   clear(): void;
 }
 
@@ -523,6 +530,8 @@ export interface FxSystem extends GameSystem {
    * A few dozen particles and one short light, made to be fired tens of times a second. Optional so a stand-in need not have it.
    */
   burst?(position: THREE.Vector3, normal: THREE.Vector3, scale?: number): void;
+  /** Energy drawn in: `count` hot slivers from up to `reach` metres all round `to`, each arriving there as it dies. */
+  inhale?(to: THREE.Vector3, reach: number, count: number, color?: THREE.ColorRepresentation): void;
   /**
    * The Kiln's stream this frame: `count` points of the napalm chain, newest first, 6 floats each (x, y, z, age, texture
    * coordinate, 1 where a strand starts; see weapons/Flames). Drawn until the next call. 0 hides it.

@@ -487,37 +487,21 @@ const tests: Record<string, (r: Rig) => void> = {
     check('out of range head is safe', far.hits.length === 0, far.hits.length);
     check('ricochet sound', r.record.sounds.includes('revolver_ricochet'), '');
   },
-  'lance: a tap is a plasma ball, a hold is a beam by its stage, and a burst goes off at every body in line'(r) {
+  'lance: a tap is the rail shot with a burst at every body in line, a full charge a second of beam, right click the mode'(r) {
     // `?lance=old` runs the check after this one instead. A check with no assertion counts as a failure, so it says so.
     if (LANCE_OLD) {
       check('skipped: the page asked for the old Lance', true);
       return;
     }
     const t = TUNING.lance;
-    const low = t.stages[0];
-    const full = t.stages[t.stages.length - 1]!;
     const mag = WEAPONS.lance.magSize;
-    const beams = (d: Dummy) => d.hits.filter(h => h.type === 'bullet');
+    const rails = (d: Dummy) => d.hits.filter(h => h.type === 'bullet');
     for (const fps of FPS) {
-      clean(r, 'lance');
-      r.player.eye.y = 1;
-      const hit = r.enemies.add(0, -10);
-      const beside = r.enemies.add(1.5, -10);
-      r.input.simulate('fire', true);
-      run(r, 1 / fps, fps);
-      r.input.simulate('fire', false);
-      run(r, 0.4, fps);
-      check(`tap: one ball lands @${fps}`, beams(hit).length === 1 && near(beams(hit)[0]!.amount, t.ball.damage, 0.01), hit.hits.map(h => h.amount.toFixed(0)).join());
-      check(`tap: it splashes the one beside @${fps}`, beside.hits.length === 1 && beside.hits[0]!.type === 'explosive', beside.hits.length);
-      check(`tap: one of the cell @${fps}`, r.weapons.ammo('lance').mag === mag - t.ball.cost, r.weapons.ammo('lance').mag);
-      check(`tap: no charge heard @${fps}`, !r.record.sounds.includes('lance_stage') && r.record.sounds.includes('lance_plasma'), r.record.sounds.join());
-
       clean(r, 'lance');
       r.player.eye.y = 1;
       const row = Array.from({ length: 12 }, (_, i) => r.enemies.add(0, -6 - i * 2));
       r.input.simulate('fire', true);
-      run(r, t.tapTime + t.chargeTime + 0.1, fps);
-      check(`full charge shown @${fps}`, r.weapons.charge === 1, r.weapons.charge);
+      run(r, 1 / fps, fps);
       r.input.simulate('fire', false);
       let seen = r.record.explosions;
       let most = 0;
@@ -525,33 +509,36 @@ const tests: Record<string, (r: Rig) => void> = {
         most = Math.max(most, r.record.explosions - seen);
         seen = r.record.explosions;
       });
-      check(`full: through all twelve at full damage @${fps}`, row.every(d => beams(d).length === 1 && near(beams(d)[0]!.amount, WEAPONS.lance.damage, 0.01)), row.map(d => beams(d).length).join());
-      check(`full: a burst a body @${fps}`, r.record.explosions === 12, r.record.explosions);
-      check(`full: never more than ${t.chain.perFrame} bursts a frame @${fps}`, most > 0 && most <= t.chain.perFrame, most);
-      check(`full: ${full.cost} of the cell @${fps}`, r.weapons.ammo('lance').mag === mag - full.cost, r.weapons.ammo('lance').mag);
-      check(`full: three ticks, then the clap @${fps}`, r.record.sounds.filter(s => s === 'lance_stage').length === t.stages.length && r.record.sounds.includes('lance_thunder'), r.record.sounds.join());
-      check(`full: the world held on what it struck @${fps}`, r.record.stops.length > 0 && r.record.stops[0]! >= HIT_STOP.lanceShot, r.record.stops.join());
-    }
+      check(`tap: through all twelve at full damage @${fps}`, row.every(d => rails(d).length === 1 && near(rails(d)[0]!.amount, WEAPONS.lance.damage, 0.01)), row.map(d => rails(d).length).join());
+      check(`tap: a burst a body @${fps}`, r.record.explosions === 12, r.record.explosions);
+      check(`tap: never more than ${t.chain.perFrame} bursts a frame @${fps}`, most > 0 && most <= t.chain.perFrame, most);
+      check(`tap: ${t.rail.cost} of the cell @${fps}`, r.weapons.ammo('lance').mag === mag - t.rail.cost, r.weapons.ammo('lance').mag);
+      check(`tap: the clap, and no charge heard @${fps}`, !r.record.sounds.includes('lance_stage') && r.record.sounds.includes('lance_thunder'), r.record.sounds.join());
+      check(`tap: the world held on what it struck @${fps}`, r.record.stops.length > 0 && r.record.stops[0]! >= HIT_STOP.lanceShot, r.record.stops.join());
 
-    clean(r, 'lance');
-    r.player.eye.y = 1;
-    const line = [-6, -9, -12].map(z => r.enemies.add(0, z));
-    r.input.simulate('fire', true);
-    run(r, t.tapTime + low.at * t.chargeTime + 0.05, 60);
-    r.input.simulate('fire', false);
-    run(r, 0.03, 60);
-    check('first stage: through one body, into the next, no further', line.map(d => beams(d).length).join() === '1,1,0', line.map(d => beams(d).length).join());
-    check('first stage: a share of the damage', near(beams(line[0]!)[0]?.amount ?? 0, WEAPONS.lance.damage * low.damage, 0.01), beams(line[0]!)[0]?.amount);
+      clean(r, 'lance');
+      r.player.eye.y = 1;
+      const burnt = r.enemies.add(0, -10);
+      r.input.simulate('fire', true);
+      run(r, t.tapTime + t.chargeTime + 0.1, fps);
+      check(`full charge shown @${fps}`, r.weapons.charge === 1, r.weapons.charge);
+      r.input.simulate('fire', false);
+      run(r, t.beam.seconds + 0.1, fps);
+      const burns = burnt.hits.filter(h => h.type === 'fire' && h.vaporize);
+      check(`full: a second of beam, a strike a tick @${fps}`, burns.length >= Math.floor(t.beam.seconds / Math.max(t.beam.tick, 1 / fps)) - 1, burns.length);
+      check(`full: ${t.beam.cost} of the cell @${fps}`, r.weapons.ammo('lance').mag === mag - t.beam.cost, r.weapons.ammo('lance').mag);
+      check(`full: three ticks on the way @${fps}`, r.record.sounds.filter(s => s === 'lance_stage').length === t.marks.length + 1, r.record.sounds.join());
+    }
 
     clean(r, 'lance');
     r.player.place(30, 0);
     const behind = r.enemies.add(30, -24);
     r.player.eye.y = 1;
     r.input.simulate('fire', true);
-    run(r, t.tapTime + t.chargeTime + 0.1, 60);
+    run(r, 1 / 60, 60);
     r.input.simulate('fire', false);
     run(r, 0.03, 60);
-    check('full charge punches through a thin wall', beams(behind).length === 1, behind.hits.length);
+    check('a tap punches through a thin wall', rails(behind).length === 1, behind.hits.length);
 
     clean(r, 'lance');
     r.player.eye.y = 1;
@@ -563,7 +550,11 @@ const tests: Record<string, (r: Rig) => void> = {
     r.input.simulate('aim', false);
     r.input.simulate('fire', false);
     run(r, 0.1, 60);
-    check('right click lets the charge go', spared.hits.length === 0 && r.weapons.ammo('lance').mag === mag && r.record.sounds.includes('railgun_fizzle'), spared.hits.length);
+    check('right click lets the charge go and toggles to ball mode', spared.hits.length === 0 && r.weapons.ammo('lance').mag === mag && r.record.sounds.includes('railgun_fizzle') && r.weapons.lance.mode === 'ball', spared.hits.length);
+    r.input.simulate('aim', true);
+    run(r, 1 / 60, 60);
+    r.input.simulate('aim', false);
+    run(r, 1 / 60, 60);
   },
   'lance: charge scales damage, pierces all, fizzles early'(r) {
     // The gun from before plasma: only `?lance=old` still fires it.

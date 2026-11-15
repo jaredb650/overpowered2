@@ -7,6 +7,7 @@ import { GRENADE_ICON, weaponIcon } from '../icons';
 import type { HudState } from '../state';
 import { TUNING, WEAPONS as WEAPON_DEFS } from '../../weapons/data';
 import { SLOT_ORDER, familyOf, familyOfSlot } from '../../weapons/families';
+import { LANCE_LOOK, LANCE_ON } from '../../weapons/lance';
 
 const MAX_GRENADE_PIPS = TUNING.grenade.max;
 
@@ -154,6 +155,8 @@ export class Arms {
       this.name.set(WEAPONS[s.weapon].name);
       this.magEl.animate(SLAM as unknown as Keyframe[], 140);
     }
+    // The Lance wears its mode, which right click toggles, on its name.
+    if (s.weapon === 'lance' && LANCE_ON) this.name.set(`${WEAPONS.lance.name} · ${LANCE_LOOK.ball ? 'BALL' : 'BEAM'}`);
 
     const melee = s.magSize === 0;
     const count = s.bottomless && !melee ? '∞' : melee ? '–' : String(s.mag);

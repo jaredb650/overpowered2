@@ -315,6 +315,9 @@ const stacks: SoundDef[] = [
   stack('spade_flat', [{ id: 'hit_punch', pitch: 0.66 }, { id: 'metal_clang', pitch: 0.72, duration: 0.42, volume: 0.6 }]),
   stack('spade_wall', [{ id: 'metal_clang', pitch: 0.8, duration: 0.5, volume: 0.8 }, { id: 'impact_concrete', pitch: 0.8, volume: 0.6 }]),
   stack('baton_hit', [{ id: 'hit_punch', pitch: 1.12 }, { id: 'wet_slap', pitch: 0.85, volume: 0.35 }]),
+  // The Lance's giant ball leaving and going off: stand-ins stacked from its own sounds and the Hellfire's blast.
+  stack('lance_giant', [{ id: 'lance_thunder', pitch: 0.7, volume: 0.8 }, { id: 'lance_plasma', pitch: 0.45 }, { id: 'railgun_fire', pitch: 0.55, volume: 0.5 }]),
+  stack('lance_nova', [{ id: 'hellfirerocket_explode' }, { id: 'lance_thunder', pitch: 0.6, volume: 0.9 }, { id: 'plasma_burst', pitch: 0.55 }]),
   // A living drone or skitter struck: the plate clank and its 120 Hz thump, cut before the ring so ten a second stay ten
   // hits. `machine_clang` is `metal_clang`'s sound under a hit's voices, so doors and shutters keep theirs.
   stack('machine_hit', [{ id: 'machine_clang', duration: 0.22 }]),

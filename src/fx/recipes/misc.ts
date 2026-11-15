@@ -118,6 +118,21 @@ export function beam(core: FxCore, from: THREE.Vector3, to: THREE.Vector3, kind:
   if (kind === 'rail' || kind === 'lance') core.ctx.render.lights.flash(to, 0x88ccff, 10, 12, 0.14);
 }
 
+/**
+ * Energy drawn in, for a charge: hot slivers born all round `to`, out to `reach`, each flying straight in and dying as it
+ * arrives. No gravity and no floor, so they converge exactly.
+ */
+export function inhale(core: FxCore, to: THREE.Vector3, reach: number, count: number, color: THREE.ColorRepresentation = 0x66ccff): void {
+  hotInto(_c, color, 5);
+  const s = core.streaks.begin(_c, core.birth, 0.2, -0.01, -1e6, 0.02, 0.24);
+  for (let i = 0; i < count; i++) {
+    const life = rand(0.12, 0.28);
+    _p.set(rand(-1, 1), rand(-1, 1), rand(-1, 1)).normalize().multiplyScalar(reach * rand(0.35, 1));
+    s.setLife(life);
+    s.add(to.x + _p.x, to.y + _p.y, to.z + _p.z, -_p.x / life, -_p.y / life, -_p.z / life, rand(0.003, 0.008));
+  }
+}
+
 /** One bolt, with short forked branches near the middle. */
 export function arc(
   core: FxCore, from: THREE.Vector3, to: THREE.Vector3, color: THREE.ColorRepresentation = 0x66ccff,

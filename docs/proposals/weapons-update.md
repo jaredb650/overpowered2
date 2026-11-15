@@ -7,6 +7,7 @@ HMG the **Piledriver** (key 8), the flamethrower the **Kiln** (key 9), the spear
 **Judge** and the pistol the **Rivet** (key 6), the katana the **Sword** (key 5).
 
 ## 1. The Lance (railgun): a massive buff
+**Built 2026-11-15.** Beam and ball modes on right click, the sustained beam, the giant ball, vaporized deaths, a 1.3 s charge with energy pulled in; see docs/notes/weapons.md, The Lance.
 - **Tap** fires what today's full charge fires.
 - **Full charge** is a 1 s sustained beam, like the Orbital Lance: it vaporizes and burns everything it touches.
 - **Vaporized deaths**: the body goes limp, floats up off the ground and dissolves into glowing ash (the feel of a body hit by an
