@@ -84,6 +84,10 @@ const samples: SoundDef[] = [
   sample('bulltet_hit3.mp3', 'impact', 0.15),
   sample('bullet_hit4.mp3', 'impact', 0.15),
   sample('bullet_whizz.mp3', 'enemyFx', 0.2, { maxVoices: 3, near: 6, far: 18, send: 0.02, pitchJitter: 0.1 }),
+  // An enemy sniper's round past your head (group `sniper_crack`), the owner's own. Set by loudness like `shot()` below.
+  // Combat plays near misses at 0.7, so 0.214 lands at 0.15, about 9 dB over the whizz, close and dry.
+  shot('bullet_snap', 'bullet_snap.mp3', 'enemyFx', 0.214, 0.208, { priority: 7, maxVoices: 2, near: 6, far: 40, send: 0.03 }),
+  shot('bullet_crack', 'bullet_crack.mp3', 'enemyFx', 0.214, 0.275, { priority: 7, maxVoices: 2, near: 6, far: 40, send: 0.03 }),
   sample('30mmShell_flyBy.mp3', 'enemyFx', 0.25, { maxVoices: 4, near: 20, far: 200, send: 0.1 }),
 
   sample('enemy_hit.mp3', 'gore', 0.2, { maxVoices: 4, perFrame: 2 }),
@@ -276,6 +280,7 @@ const groups: SoundDef[] = [
   group('bullet_hit', ['bullet_hit1', 'bullet_hit2', 'bulltet_hit3', 'bullet_hit4']),
   group('sword_hit', ['sword_hit1', 'sword_hit2']),
   group('player_footstep', ['player_footstep1', 'player_footstep2', 'player_footstep3']),
+  group('sniper_crack', ['bullet_snap', 'bullet_crack']),
 ];
 
 function stack(id: string, layers: readonly SoundLayer[]): SoundDef {

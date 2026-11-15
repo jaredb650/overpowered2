@@ -820,7 +820,7 @@ export class Combat implements CombatSystem {
         return;
       }
       if (hit.dist2 < WHIZZ_RADIUS * WHIZZ_RADIUS && hit.s > 0.02 && hit.s < 0.98) {
-        this.play('bullet_whizz', this.vA.copy(st.origin).addScaledVector(st.dir, limit * hit.s), 0.7, 0.1);
+        this.play(spec.whizz ?? 'bullet_whizz', this.vA.copy(st.origin).addScaledVector(st.dir, limit * hit.s), 0.7, 0.1);
       }
     }
     if (spec.tracer) c.fx.tracer(st.from, st.end, spec.tracer);

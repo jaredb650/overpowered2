@@ -346,7 +346,7 @@ const marksmanShot: AttackDef = {
     wander(s, w);
     _dir.subVectors(_target, _muzzle).normalize();
     const still = s.squad.outpost.stillFor >= SNIPE_STILL_SECONDS;
-    w.ctx.combat.fireRay(_muzzle, _dir, { damage: (still ? SNIPE_STILL_DAMAGE : SNIPE_DAMAGE) * e.damageMul, source: e.id, team: 'enemy', maxDistance: 240, tracer: 'heavy' });
+    w.ctx.combat.fireRay(_muzzle, _dir, { damage: (still ? SNIPE_STILL_DAMAGE : SNIPE_DAMAGE) * e.damageMul, source: e.id, team: 'enemy', maxDistance: 240, tracer: 'heavy', whizz: 'sniper_crack' });
     w.ctx.combat.enemyMuzzle(_muzzle, _dir, 'railgun');
     s.squad.outpost.suppression.round(_muzzle, _dir, e.hasLos);
     w.ctx.audio.play('sniper_fire', { position: _muzzle, pitchJitter: 0.05 });

@@ -211,6 +211,8 @@ export interface ShotSpec {
   penetrateWalls?: number;
   /** Goes through armour plates as if they were not there. */
   armorPiercing?: boolean;
+  /** An enemy ray's near-miss sound past the player. Defaults to `bullet_whizz`. */
+  whizz?: string;
   /** Damage holds to `from` meters of flight, then falls in a line to `floor` of itself at `to`. */
   falloff?: { readonly from: number; readonly to: number; readonly floor: number };
   /** This many kills are split in two along the line of the shot. Head kills keep their own death. */

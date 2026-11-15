@@ -234,7 +234,14 @@ Id is the file name without extension. Aliases in brackets are the first game's 
 - **UI:** `menu_select`
 - **Unnamed in the first game:** `222`, `3333`, `asdf`, `frfff`
 
-Random-pick groups: `bullet_hit` (the four samples), `sword_hit`, `player_footstep`.
+Random-pick groups: `bullet_hit` (the four samples), `sword_hit`, `player_footstep`, `sniper_crack`.
+
+**Sniper near misses** (the owner's own generated recordings, `bullet_snap` and `bullet_crack`). An enemy sniper's round
+(the Sniper and the outpost marksman) that passes within 3 m of the player without hitting plays `sniper_crack`, one of the two,
+never the same twice running, in place of `bullet_whizz`: `ShotSpec.whizz` names the sound, and Combat's enemy ray measures the
+closest distance from the round's path to the player's body, feet to eye. A direct hit plays neither. Trimmed to the transient
+(0.098 s and 0.289 s of lead-in), mono, 44.1 kHz, peaks to -1 dB, 160 kbps, and set by loudness to land at 0.15, about 9 dB over
+the whizz, with little reverb.
 
 **The armour update** (`sfx/armour`, the owner's own generated recordings, keyed by name):
 - 2D confirmations on the reward mix: `armour_stopped`, `armour_through`, `armour_broken` (a helmet broken off, the signature,
