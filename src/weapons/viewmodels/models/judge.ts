@@ -9,6 +9,7 @@ import { F } from '../kit/finishes';
 import type { Finish, Mesher } from '../kit/mesher';
 import { curve, poly, slotRow, type V2 } from '../kit/shapes';
 import { knurl, screwX } from '../kit/details';
+import { damp } from '../../../core/math';
 import { bump, hold, inOut, inQuad, outCubic, seg, thud } from '../curves';
 import type { Anim, ViewDef } from '../def';
 import { HANDS } from '../poses';
@@ -212,19 +213,27 @@ function buildJudge(kit: Kit): Model {
   model.hand('latchHold', [-0.03, 0.0, 0.0], [-0.5, -0.2, -0.8], [0.8, -0.3, -0.5], 'latch');
   model.hand('loaderHold', [0, -0.002, 0.038], [-0.2, 0.1, -0.97], [0.5, 0.8, -0.3], 'loader');
   model.hand('craneHold', [-0.06, 0.0, -0.01], [-0.1, 0.3, -0.95], [0.9, -0.3, -0.2], 'crane');
+  // Fanning: the flat of the off hand held over the top strap, and swept back across the hammer spur on each shot.
+  model.hand('fanHold', [-0.01, 0.12, 0.0], [0, 0, -1], [1, -0.25, 0]);
+  model.hand('fanSlap', [-0.005, 0.085, 0.08], [0, 0, -1], [1, -0.35, 0]);
   return model;
 }
 
 /** The crane swings this far out, around its pin. */
 const CRANE_OPEN = 1.25;
+/** How far the off hand is up on the hammer for the fanning, eased toward `a.charge`, which Weapons holds at 1 for it. */
+let fanW = 0;
 
 function clip(a: Anim): void {
   const P = a.parts;
   pullTrigger(a, 0.09, 0.4);
   a.glow('sight', 1);
   const t = a.sinceFire;
-  // Hammer falls on the shot, and the thumb brings it back through the refire, indexing the cylinder as it rises.
-  const cock = t < 0.42 ? inOut(seg(t, 0.17, 0.36)) : 1;
+  // Hammer falls on the shot, and the thumb brings it back through the refire, indexing the cylinder as it rises. Fanned,
+  // the slap brings it back at once.
+  fanW = damp(fanW, a.charge, 16, a.dt);
+  const fanning = a.charge > 0.5;
+  const cock = fanning ? inOut(seg(t, 0.01, 0.06)) : t < 0.42 ? inOut(seg(t, 0.17, 0.36)) : 1;
   P.hammer!.rotation.x += cock * 0.72 - 0.72;
   P.cyl!.rotation.z += (a.shots + (t < 0.42 ? cock - 1 : 0)) * STEP;
   a.gunR.z -= t < 0.36 ? bump(t, 0.15, 0.36) * 0.018 : 0;
@@ -236,6 +245,13 @@ function clip(a: Anim): void {
     a.gunR.x += k * 1.1;
     a.gunR.z += k * 0.5;
     P.cyl!.rotation.z += k * 5;
+  }
+  if (fanW > 0.01) {
+    const h = a.left;
+    h.fingerRate = 50;
+    h.to('fanHold', fanW);
+    h.to('fanSlap', fanning ? bump(t, 0, 0.09) : 0);
+    h.shape(HANDS.open, fanW);
   }
   const p = a.reload;
   if (p < 0) return;

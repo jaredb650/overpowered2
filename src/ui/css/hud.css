@@ -397,6 +397,12 @@
 .xh-charge.staged.ball .xh-charge-fill { background: var(--friend); }
 .xh-charge.staged.full { outline: 0.1rem solid var(--amber); }
 .xh-charge.staged.full .xh-charge-fill { background: var(--ink); }
+/* The Judge's fanning: a short bar in three, a round each, amber while it charges and red while it drains. Below the lock count. */
+.xh-charge.pips { left: -2.7rem; top: 4.4rem; width: 5.4rem; height: 0.42rem; }
+.xh-charge.pips .xh-charge-fill { background: var(--amber); }
+.xh-charge.pips.drain .xh-charge-fill { background: var(--blood); }
+.xh-charge-pip { display: none; position: absolute; top: 0; width: 0.24rem; height: 100%; margin-left: -0.12rem; background: #000; }
+.xh-charge.pips .xh-charge-pip { display: block; }
 
 .arc { position: absolute; left: -6.5rem; top: -1rem; width: 13rem; height: 2rem; transform-origin: 50% 50%; will-change: transform, opacity; }
 .arc svg { display: block; width: 100%; height: 100%; overflow: visible; }

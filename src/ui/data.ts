@@ -108,7 +108,7 @@ export const WEAPONS: Record<WeaponId, WeaponInfo> = {
   judge: {
     name: 'Judge', key: '6',
     role: `Revolver, ${def.judge.damage} damage, ${def.judge.magSize} shots`,
-    note: `A headshot jumps to the next ${def.judge.headHops} heads.`,
+    note: 'Hold right click to charge up to three rounds, let go and sweep the crosshair over a head for each: it fans them off, a headshot apiece.',
   },
   rivet: {
     name: 'Rivet', key: '6',

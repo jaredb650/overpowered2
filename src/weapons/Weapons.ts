@@ -15,6 +15,7 @@ import { clamp, damp, invLerp, lerp, randomInCone, smoothstep, wrapAngle } from 
 import { MOVE } from '../player/tuning';
 import type { Combat, Guard, GuardResult } from './Combat';
 import { HIT_STOP, STARTING_WEAPONS, SWORD, TUNING, WEAPONS, WEAPON_ORDER, type SoundLayer, type WeaponDef } from './data';
+import { Fan, type FanHooks, type FanLock } from './fan';
 import { familyOf, familyOfSlot, membersOf, pressSlot, wheelSlot } from './families';
 import { Handling, holdSpeed } from './handling';
 import { PIERCE_ON } from './penetration';
@@ -138,6 +139,22 @@ export class Weapons implements WeaponSystem, Guard {
   private readonly candidatePool: PaintCandidate[] = [];
   private readonly paintables: MissileTarget[] = [];
   private readonly look = (): readonly PaintCandidate[] => this.gatherInView();
+
+  /** The Judge's fanning: bars charged on right click, a lock a bar, then a headshot at each. See fan.ts. */
+  private readonly fan = new Fan();
+  private fanSlot: Slot | null = null;
+  /** Seconds the off hand stays up on the hammer after the last fanned shot. */
+  private fanHand = 0;
+  private readonly fanHooks: FanHooks = {
+    look: locked => this.fanLook(locked),
+    head: (e, out) => this.combat.headOf(e, out),
+    bar: n => this.ctx.audio.play('judge_fan_tick', { pitch: 1 + (n - 1) * 0.14 }),
+    release: () => this.setLoop('judge_fan_tension'),
+    drain: k => this.loop?.setPitch(lerp(1, 1.9, k), 0.05),
+    lock: n => this.ctx.audio.play('judge_fan_lock', { pitch: 1 + (n - 1) * 0.12 }),
+    shoot: lock => this.fanShot(lock.enemy),
+    end: fired => this.fanEnd(fired),
+  };
 
   /** The player's pose as the rig sampled it, one system after this one, last frame. See flashPoint. */
   private readonly rigEye = new THREE.Vector3();
@@ -283,6 +300,7 @@ export class Weapons implements WeaponSystem, Guard {
   }
 
   get charge(): number {
+    if (WEAPONS[this.current].altFan) return this.fan.bar;
     const mode = WEAPONS[this.current].mode;
     return mode === 'spin' ? this.spin : mode === 'charge' && LANCE_ON ? this.lance.level : this.chargeLevel;
   }
@@ -307,9 +325,10 @@ export class Weapons implements WeaponSystem, Guard {
     return this.sword.step;
   }
 
-  /** The Quiver's marks while it is in hand. */
+  /** The Quiver's marks while it is in hand, or the Judge's locks. */
   get paint(): PaintView | undefined {
-    return WEAPONS[this.current].mode === 'paint' ? this.painter : undefined;
+    const def = WEAPONS[this.current];
+    return def.mode === 'paint' ? this.painter : def.altFan ? this.fan : undefined;
   }
 
   ammo(id: WeaponId = this.current): AmmoState {
@@ -586,7 +605,7 @@ export class Weapons implements WeaponSystem, Guard {
     if (s.def.mode === 'melee' || this.reloading || a.mag >= a.magSize || a.reserve <= 0) return false;
     if (this.modifiers.bottomlessMag) return false;
     // A salvo in the air finishes before the tubes are opened.
-    if (this.salvoLeft > 0) return false;
+    if (this.salvoLeft > 0 || this.fan.phase === 'fire') return false;
     this.stopPaint();
     this.endContinuous();
     this.chargeLevel = 0;
@@ -689,6 +708,7 @@ export class Weapons implements WeaponSystem, Guard {
       return;
     }
 
+    if (def.altFan && this.updateFan(s, dt)) return;
     switch (def.mode) {
       case 'auto': this.updateAuto(s, held); break;
       case 'semi': this.updateSemi(s); break;
@@ -1392,7 +1412,9 @@ export class Weapons implements WeaponSystem, Guard {
   }
 
   private stopPaint(): void {
-    if (this.painter.painting || this.salvoLeft > 0) this.ctx.viewmodel.setCharge(0);
+    if (this.painter.painting || this.salvoLeft > 0 || this.fan.busy) this.ctx.viewmodel.setCharge(0);
+    this.fan.cancel();
+    this.fanHand = 0;
     this.painter.cancel();
     this.salvoLeft = 0;
     for (let i = 0; i < this.salvoTargets.length; i++) this.salvoTargets[i] = null;
@@ -1496,6 +1518,67 @@ export class Weapons implements WeaponSystem, Guard {
     c.fx.smoke(at, 0xb9b4aa, 0.8, 1.3);
     c.fx.sparks(at, this.w.copy(player.forward).negate(), 5, 0xffa040);
     c.fx.smoke(at.addScaledVector(player.forward, -1.2), 0x989389, 1.3, 1.9);
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // The Judge: hold right click to charge, paint a head a bar, fan the hammer
+  // -------------------------------------------------------------------------------------------
+
+  /** True while the fan has the gun (charging, painting, firing): a left click does nothing then. */
+  private updateFan(s: Slot, dt: number): boolean {
+    const { input, viewmodel } = this.ctx;
+    const t = s.def.altFan!;
+    this.fanSlot = s;
+    const loaded = this.modifiers.bottomlessMag ? t.bars : s.ammo.mag;
+    this.fan.update(dt, t, input.pressed('aim'), input.isDown('aim'), loaded, s.cooldown <= 0, this.fanHooks);
+    if (this.fanHand > 0) this.fanHand -= dt;
+    // The off hand comes up over the hammer at the press and stays there through the last slap.
+    viewmodel.setCharge(this.fan.busy || this.fanHand > 0 ? 1 : 0);
+    return this.fan.busy;
+  }
+
+  /** The unlocked head nearest the crosshair inside the fan's cone, with nothing solid between it and the eye. */
+  private fanLook(locked: readonly FanLock[]): FanLock['enemy'] | null {
+    const c = this.ctx;
+    const t = WEAPONS[this.current].altFan!;
+    const eye = c.player.eye;
+    const cos = Math.cos(t.cone);
+    const alive = c.enemies.alive;
+    let best: FanLock['enemy'] | null = null;
+    let bestAngle = Infinity;
+    outer: for (let i = 0; i < alive.length; i++) {
+      const e = alive[i]!;
+      if (!e.alive) continue;
+      for (let k = 0; k < locked.length; k++) if (locked[k]!.enemy === e) continue outer;
+      const head = this.combat.headOf(e, this.v);
+      const angle = angleOff(eye, c.player.forward, head, t.range, cos);
+      if (angle < 0 || angle >= bestAngle) continue;
+      const dir = this.w.subVectors(head, eye);
+      const dist = dir.length();
+      if (c.physics.raycast(eye, dir.divideScalar(dist), dist, CG.World)) continue;
+      best = e;
+      bestAngle = angle;
+    }
+    return best;
+  }
+
+  /** One slap of the hammer: a round at his head from the eye, whatever the crosshair is on now. */
+  private fanShot(target: FanLock['enemy']): void {
+    const s = this.fanSlot!;
+    const def = s.def;
+    // The tension breaks on the first shot.
+    if (this.loopKind === 'judge_fan_tension') this.endContinuous();
+    this.consume(s);
+    this.shotFeedback(def, false);
+    this.combat.fireAtHead(this.ctx.player.eye, target, this.fillShot(def, def.damage * this.modifiers.damage));
+  }
+
+  private fanEnd(fired: boolean): void {
+    if (this.loopKind === 'judge_fan_tension') this.endContinuous();
+    if (!fired) return;
+    const t = this.fanSlot!.def.altFan!;
+    this.fanSlot!.cooldown = t.recover / Math.max(this.modifiers.fireRate, 0.01);
+    this.fanHand = t.recover;
   }
 
   // -------------------------------------------------------------------------------------------

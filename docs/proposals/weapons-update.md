@@ -49,6 +49,7 @@ Every weapon is its own unlock.
   pellets out the far side: through cover, or through the man it hit into the men behind him.
 
 ## 5. The Judge's fanning
+**Built 2026-11-15.** Right click replaces the Judge's ADS: bars of 0.4 s up to three and the rounds loaded, a 1.5 s drain to paint a head a bar, then a sure headshot at each lock 0.1 s apart (cover in the line takes it); no lock spends nothing; see docs/notes/weapons.md, The Judge's fanning.
 Hold alt fire to charge a small bar, up to three times; each charge is one bullet. On release the bar drains over about 1.5 s,
 and while it drains the player paints locks on enemies' heads by looking at them. When it runs out, the Judge fans off a headshot
 at every locked enemy in quick succession. Three charges, three locks at most.

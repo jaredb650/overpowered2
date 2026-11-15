@@ -34,6 +34,19 @@ export const weapons = [
       .env([[0, 0.0001], [0.02, 1], [1, 0.0001]]).out(0.55);
     s.osc('sine', [[0, 6100], [1, 1700]], 0.7).env(perc(0.55, 0.3)).out();
   }),
+  // The Judge's fanning: a bar charged, a head locked, and the tension while the bars drain (bent up by Weapons.fanHooks).
+  r('judge_fan_tick', { dur: 0.14, mix: 'reward', over: { volume: 0.3, maxVoices: 3 } }, s => {
+    click(s, 2600, 0.6, 0.006);
+    s.osc('square', 1320, 0.06).lp(3000).env(perc(0.05, 0.6, 0.002)).out(0.5);
+  }),
+  r('judge_fan_lock', { dur: 0.3, mix: 'reward', over: { volume: 0.36, maxVoices: 3, perFrame: 2 } }, s => {
+    clank(s, 2300, 0.8, 0.06);
+    s.osc('sine', 3450, 0.25).env(perc(0.22, 0.45, 0.001)).out(0.6);
+  }),
+  r('judge_fan_tension', { dur: 1, mix: 'loop2d', loop: true, over: { volume: 0.45 } }, s => {
+    s.osc('sine', 330).am(s.lfo(8, 0.35)).out(0.4);
+    s.osc('sawtooth', 495).lp(1400).am(s.lfo(8, 0.35)).out(0.12);
+  }),
 
   // Harrow. A rifle beside the SMG: a harder crack, a real chest thump, and a tail the SMG's 20 Hz chatter never has room for.
   r('harrow_fire', { dur: 0.9, n: 3, mix: 'gun', over: { volume: 0.52, send: 0.2 }, expect: { attackMs: [0, 6], minSub: 0.03 } }, s => {

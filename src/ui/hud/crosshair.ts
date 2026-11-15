@@ -244,6 +244,9 @@ export class Crosshair {
   /** The Lance in ball mode: the bar goes green. */
   private chargeBall: Flag;
   private chargeSteps: Flag[] = [];
+  /** The Judge's fanning: the bar split in three, one a round, and red while it drains. */
+  private chargePips: Flag;
+  private chargeDrain: Flag;
   private comboHost: HTMLElement;
   private heat = -1;
   private aimClock = 0;
@@ -275,6 +278,13 @@ export class Crosshair {
     }
     this.chargeStaged = new Flag(chargeHost, 'staged');
     this.chargeBall = new Flag(chargeHost, 'ball');
+    for (const at of [1 / 3, 2 / 3]) {
+      const pip = div('xh-charge-pip');
+      pip.style.left = `${at * 100}%`;
+      chargeHost.append(pip);
+    }
+    this.chargePips = new Flag(chargeHost, 'pips');
+    this.chargeDrain = new Flag(chargeHost, 'drain');
 
     this.hits = {
       body: new HitMarker('body'),
@@ -438,6 +448,9 @@ export class Crosshair {
       this.chargeStaged.set(staged && CHARGE_STAGES.length > 0);
       this.chargeBall.set(staged && LANCE_LOOK.ball);
       for (let i = 0; i < this.chargeSteps.length; i++) this.chargeSteps[i]!.set(staged && s.charge >= CHARGE_STAGES[i]! - 1e-6);
+      const pips = WEAPONS[s.weapon].altFan !== undefined;
+      this.chargePips.set(pips);
+      this.chargeDrain.set(pips && this.ctx.weapons?.paint?.painting === true);
     }
 
     this.hits.body.update(dt);

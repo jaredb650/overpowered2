@@ -680,7 +680,7 @@ export class Combat implements CombatSystem {
   }
 
   /** Writes the middle of `enemy`'s head into `out`. Anything without a head offers its chest. */
-  private headOf(enemy: EnemyInstance, out: THREE.Vector3): THREE.Vector3 {
+  headOf(enemy: EnemyInstance, out: THREE.Vector3): THREE.Vector3 {
     const rig = enemy.char.rig;
     for (let i = 0; i < rig.bones.length; i++) {
       const def = rig.bones[i]!;
@@ -697,6 +697,30 @@ export class Combat implements CombatSystem {
     const bones = enemy.char.rig.bones;
     for (let i = 0; i < bones.length; i++) if (bones[i]!.name === name) return i;
     return 0;
+  }
+
+  /**
+   * The Judge's fanning: a round from `from` into `target`'s head, sure to land there while nothing is in the way, his own
+   * arms included. Cover or another man in the line takes it instead, as a plain shot down that line.
+   */
+  fireAtHead(from: THREE.Vector3, target: EnemyInstance, spec: ShotSpec): void {
+    const c = this.ctx;
+    const head = this.headOf(target, this.vE);
+    const dir = this.vF.subVectors(head, from);
+    const dist = Math.max(dir.length(), 1e-4);
+    dir.divideScalar(dist);
+    const near = c.enemies.raycast(from, dir, dist + 0.3);
+    if ((near && near.enemy !== target) || c.physics.raycast(from, dir, dist, CG.World)) {
+      this.fireRay(from, dir, spec);
+      return;
+    }
+    if (spec.tracer) c.fx.tracer(spec.tracerFrom ?? from, head, spec.tracer);
+    const o = this.strikeOptions(spec.type ?? 'bullet', spec.source);
+    o.force = spec.force ?? 0;
+    o.severMult = spec.severMult ?? 1;
+    o.headshotMult = spec.headshotMult ?? 2;
+    o.killStop = spec.killStop ?? 0;
+    this.strike(target, head, this.vA.copy(dir).negate(), dir, this.boneIndex(target, 'head'), 'head', spec.damage, o);
   }
 
   /** The Judge's signature: the slug leaves one skull for the next. Each hop is a real headshot. */
