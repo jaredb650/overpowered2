@@ -7,8 +7,8 @@
  *
  * Once kneeling he is not furniture. Shot and alive, he runs, because that was his answer. Friends firing nearby is the moment to go for his
  * gun or the gate. Left alone and out of sight, some men think again. And the player can get hold of him: tap E to question him, tap
- * again to let him go, hold E to take him by the collar and put him between you and his friends. With him by the collar, tap E lets
- * him go and holding E again cuffs him, and the drone comes for him (airlift.ts).
+ * again to let him go, hold E to cuff him, and the drone snatches him away (airlift.ts). The human shield (hold E to take him by the
+ * collar and put him between you and his friends) is switched off by `HOSTAGES` for now.
  */
 import * as THREE from 'three';
 import type { PlayerDamage } from '../../core/contracts';
@@ -16,6 +16,7 @@ import { chance, clamp } from '../../core/math';
 import type { AiWorld } from '../aiWorld';
 import { finishAttack } from '../brain';
 import { Airlift } from './airlift';
+import { gesture } from './capture';
 import type { Outpost } from './index';
 import { FEAR } from './morale';
 import { pose, type Soldier } from './soldier';
@@ -50,9 +51,13 @@ const PRISONER_SECONDS = 45;
 /** Metres he can be reached from, and the cone he has to be in. */
 const REACH = 3.1;
 const REACH_COS = 0.55;
-/** Seconds of holding the key that makes it a grab and not a tap, and on the man held, a cuffing. */
-const GRAB_SECONDS = 0.4;
+/** Seconds of holding the key on the man held by the collar that cuff him. Only with `HOSTAGES`. */
 const CUFF_SECONDS = 0.6;
+/**
+ * The human shield (hold E: him by the collar, between you and his friends) is off for now (owner, 2026-11-15): hold E cuffs him
+ * straight away. The grab and everything after it stay here, dormant; true brings them back, with hold E grabbing again.
+ */
+const HOSTAGES = false;
 /** Where he is held, from the player, and how fast a man can go with someone in front of him. */
 const HOLD_FORWARD = 1.0;
 const HOLD_SIDE = 0.34;
@@ -428,7 +433,8 @@ export class Prisoners {
       return;
     }
     const key = input.labelFor?.('interact') ?? 'E';
-    const text = s === this.held ? `${key} LET GO   HOLD ${key} CUFF` : s.questioned ? `${key} LET GO   HOLD ${key} GRAB` : `${key} QUESTION   HOLD ${key} GRAB`;
+    const hold = `HOLD ${key} ${HOSTAGES ? 'GRAB' : 'CUFF'}`;
+    const text = s === this.held ? `${key} LET GO   HOLD ${key} CUFF` : `${key} ${s.questioned ? 'LET GO' : 'QUESTION'}   ${hold}`;
     if (text === this.prompted) return;
     this.clearPrompt();
     this.prompted = text;
@@ -460,16 +466,23 @@ export class Prisoners {
       this.keyHeld = -1;
       return;
     }
-    if (input.isDown('interact')) {
-      this.keyHeld += dt;
-      if (target === this.held) {
-        if (this.keyHeld >= CUFF_SECONDS) this.cuff(target);
-      } else if (this.keyHeld >= GRAB_SECONDS) this.grab(target);
+    const down = input.isDown('interact');
+    if (down) this.keyHeld += dt;
+    if (target === this.held) {
+      if (down && this.keyHeld >= CUFF_SECONDS) this.cuff(target);
+      else if (!down) {
+        this.keyHeld = -1;
+        this.letGo(target);
+      }
       return;
     }
+    const g = gesture(this.keyHeld, down, target.questioned);
+    if (!g) return;
     this.keyHeld = -1;
-    if (target === this.held) this.letGo(target);
-    else if (target.questioned) this.letGo(target);
+    if (g === 'cuff') {
+      if (HOSTAGES) this.grab(target);
+      else this.cuff(target);
+    } else if (g === 'letGo') this.letGo(target);
     else this.question(target);
   }
 

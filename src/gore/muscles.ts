@@ -147,6 +147,12 @@ declare module '../core/contracts' {
      * it eases in. Nothing for a body gore does not have: pass it with `knockdown` too.
      */
     setStrength(char: CharacterInstance, strength: LimbStrength): void;
+    /**
+     * Pulls a body gore has down by its chest: `pull` gets the chest's position and velocity and changes the velocity, which
+     * the joints pass on to the rest. The prisoner drone's line (enemies/outpost/airlift.ts). Returns the chest's position, or
+     * null if gore does not have the body down.
+     */
+    tug?(char: CharacterInstance, pull: (position: THREE.Vector3, velocity: THREE.Vector3) => void): THREE.Vector3 | null;
   }
 }
 

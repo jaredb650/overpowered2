@@ -55,8 +55,8 @@ squad.obey(drill, seconds);             // the Commander. False if the squad can
 | `rank.ts` | Conscript, regular, veteran, elite, as a table |
 | `suppression.ts` | What being shot at, and a flashbang, do to the player |
 | `prisoners.ts` | The signs, giving up, what a kneeling man does, and the E key |
-| `capture.ts` | One capture as a state machine (cuffing, cuffed, hooked, gone) and the bounty paid once. No three.js |
-| `airlift.ts` | Cuffs, the walk out from under a roof, and the drone: model, flight, the line and hook, the man hanging, the bounty |
+| `capture.ts` | The E key, the snatch's timing, the line, one capture as a state machine and the bounty paid once. No three.js |
+| `airlift.ts` | Cuffs, the drag out from under a roof, and the drone: model, the pass, the line and hook, the man on it as a ragdoll, the bounty |
 | `waves.ts` | The wave loop. `createWaves` hands this to the game on a squads contract |
 | `comms.ts`, `dropped.ts`, `soldier.ts` | Radio lines, guns on the floor, one man's state |
 | `src/characters/animation/postures.ts` | Crouch, cover, lean, hands up, kneel, cower, drag, revive, cuffed, bound |
@@ -156,31 +156,39 @@ A man weighs five signs: squad half gone, nobody within 14 m, the side down to a
 | Unwatched 6 s, player over 12 m away | Rolls `rearms`, again every 15 s. If it hits he goes for his gun, rejoins the nearest squad and fights |
 | Tap E | Questioned, once. `talks` says whether it is true. True: every squad marked and shown through walls for 9 s, and he names the worst of it, an ambush first. A lie: a marker on empty ground |
 | Tap E again | Let go. He walks out, and each man freed adds 6% to the next man's odds, up to 24%, never for elites |
-| Hold E | Held in front, 5.5 m/s at most, 14 s until he twists free. Bullets from a 130 degree arc in front hit him, his plates included. Friends in that arc hold fire for `hesitates` seconds, and conscripts never fire. Flanks get a clean shot, so squads flank |
-| Tap E while holding | Let go |
-| Hold E while holding (0.6 s) | Cuffed: hands behind his back, cuffs on, on his knees. The drone comes for him (below) |
+| Hold E (0.4 s) | Cuffed at once: hands behind his back, cuffs on, on his knees, and the drone snatches him (below). Questioned or not |
 
-### Captured: the cuffs and the drone
+The human shield (hold E: him by the collar, in front of the player, bullets from the front hitting him, his friends holding fire) is
+switched off for now (owner, 2026-11-15): `HOSTAGES` in `prisoners.ts`. Its code (`grab`, `carry`, `intercept`, `stopsFire`) is left
+dormant there; true brings back hold E = grab, and on the man held, tap E = let go, hold E = cuff.
 
-`airlift.ts`, with `capture.ts` as its state machine: cuffing (1.1 s, two clicks) then cuffed, hooked, gone. A cuffed man is out of
-everything else: no refusing, rearming, bolting or release, the ally orders and the kneeling prompt skip him, and `MAX_PRISONERS`
-never lets him go. He is still shootable, at the kneeling x5.
+### Captured: the cuffs and the snatch
 
-- **Roofs.** The drone only flies down a column of open sky: three rays up from his feet for the line, four at 1.6 m from rotor height
-  (6 m) for the drone, 30 m long, `CG.World | CG.Air`. A man cuffed under a roof gets up (`bound`, hands still behind him) and is walked
-  to the nearest floor with open sky that a route reaches, in rings out to 24 m, else a gate; there he kneels again. Stopped short, he
-  is looked at again from where he stands, three tries.
-- **The flight.** In along a line 100 m long, rising 0.32 in 1, that a ray finds clear at its height and at the man's height under it,
-  tried in eight directions starting beyond him as the player sees it. It stops 24 m over him, comes straight down to 7.5 m, pays out
-  the line at 3.4 m/s with the hook swinging (a weight on a line, steered onto his back for the last half), hooks the harness on his
-  upper back, and winds in at 1.5 m/s while climbing. The line stands him up and takes him off the floor, then he swings under it
-  (`resetFeet` every frame, so his legs hang). Back up the column to 24 m, out the way it came, gone at 130 m from the player.
-- **The bounty** is paid as his feet leave the floor, once (`Capture.secure`): `BOUNTY` in `contracts/defense/data.ts`, 40, 60, 90, 150
-  credits by rank, with a `+N BOUNTY SECURED` float (the Hit text setting) and a `BOUNTY SECURED +N CREDITS` feed line. With no
-  credits (anything but Outpost Defense), the feed line `BOUNTY SECURED` only.
-- **Two drones** in the air at most (`MAX_DRONES`); anyone else cuffed waits his turn on his knees. Shot or knocked off the hook alive,
-  he falls, and waits for the next one; paid already, he is not paid again. Killed, the drone winds in its line and leaves.
-- The sounds are stand-ins: `liftdrone_rotor_loop` (Doppler), `liftdrone_winch_loop`, `cuff_click`.
+`airlift.ts`, with `capture.ts` for the key (`gesture`), the timings, the line (`rope`) and the state machine: cuffing (0.7 s, clicks
+at 0.3 and 0.55) then cuffed, hooked, gone. A cuffed man is out of everything else: no refusing, rearming, bolting or release, the ally
+orders and the kneeling prompt skip him, and `MAX_PRISONERS` never lets him go. He is still shootable, at the kneeling x5.
+
+- **The snatch.** 1.5 s after the cuffs go on (1.2 s after the first click) the hook takes him off the floor, on a fly-by. The drone
+  is in the picture from 1.2 s before: it dives in at about 50 degrees at 22 m/s with the hook trailing on a 9 m line (4 m behind,
+  8 m under), the hook's path a parabola that bottoms out at his back (`SWOOP` 18 s², nearly 4 g at the bottom), and climbs out
+  steeper still (`CLIMB`). It never stops. Gone 4.5 s after the snatch, or past 140 m from the player.
+- **On the line** he is the game's ragdoll, alive: `gore.knockdown` (down 8 s, `LIE`) with a yank up and along the pass, then every
+  frame `gore.tug` pulls his chest by its velocity toward the winch, never further than the line (`rope`), and the joints bring the
+  rest, limp and flailing, swinging behind and under the drone as it climbs. It is not a kill. With no room for another ragdoll
+  (`GoreTuning.maxKnockdowns`) he hangs as he stands under a swinging weight instead.
+- **Clear passes.** Rays along the hook's path and the drone's, and from hook to drone where the line is low, pick a heading with
+  nothing in the way: 16 tried, across the player's view first. The drone never flies through anything.
+- **Roofs.** With no clear pass over him, the nearest floor within 14 m that has open sky and a clear pass is found, and on the pass
+  he is dragged out to it along the line at 13 m/s as a ragdoll across the floor: straight if nothing is in the way at his height, or
+  along a route through the door (18 m at most). The snatch waits for the drag, which keeps it within 2 s of the first click. With no
+  such floor at all, the pass goes over him anyway (a shortcut; nothing on the maps does this).
+- **The bounty** is paid as he is yanked off the floor, once (`Capture.secure`): `BOUNTY` in `contracts/defense/data.ts`, 40, 60, 90,
+  150 credits by rank, into `ctx.contracts.wallet` (Outpost Defense's purse, or the Crucible's), with a `+N BOUNTY SECURED` float (the
+  Hit text setting) and a `BOUNTY SECURED +N CREDITS` feed line. With no wallet, the feed line `BOUNTY SECURED` only.
+- **Four drones** in the air at most (`MAX_DRONES`): a pass takes about six seconds, so that keeps every snatch on time however fast
+  the player cuffs. Off the line alive (shot loose, or snagged 5 m past it for half a second), he lies there, gets up in his cuffs and
+  waits for the next pass; paid already, he is not paid again. Killed, the drone flies on with the empty hook.
+- The sounds are stand-ins: `liftdrone_rotor_loop` (Doppler), `liftdrone_snatch`, `cuff_click`.
 
 ## Tuning knobs
 
@@ -190,8 +198,9 @@ never lets him go. He is still shootable, at the kneeling x5.
 | `aim.ts` | `MISS_*`, `SPEED_TAX`, `EYE_RATE` |
 | `planner.ts` `ACTIONS` | What each drill needs, gives and costs |
 | `suppression.ts` | `PER_ROUND`, `FADE`, `JOLT`, `BLUR`, `BLIND_*` |
-| `prisoners.ts` | The signs, `HIT_GRACE`, `HOLD_*`, `RESCUE_RANGE`, `SAFE_*`, `CUFF_SECONDS` |
-| `airlift.ts` | `MAX_DRONES`, `TOP`, `HOVER`, `COLUMN`, `FAR`, `CRUISE`, `LOWER`, `REEL`, `SHORT` |
+| `prisoners.ts` | The signs, `HIT_GRACE`, `HOLD_*`, `RESCUE_RANGE`, `SAFE_*`, `HOSTAGES` |
+| `capture.ts` | `CUFF_HOLD`, `CLICKS`, `CUFFING_SECONDS`, `SNATCH_AT`, `DRAG_SPEED` |
+| `airlift.ts` | `MAX_DRONES`, `SPEED`, `SWOOP`, `CLIMB`, `LEAD`, `AFTER`, `TRAIL`, `DROP`, `PULL`, `LIE`, `DRAG_REACH` |
 | `doctrine.ts` `ROLES` | Range band, magazine, reload, starting morale, fires on the move, base of fire |
 | `doctrine.ts` | `SQUAD_TEMPLATES`, `MAX_HOSTILE`, `waveStrength`, `fireRules`, `defaultDoctrine` |
 | `morale.ts` | State bars, `DREAD_LIFT`, `FEAR`, `DREAD_SPIKES`, `AIM_BY_STATE`, `PEEK_WAIT_BY_STATE`, `RAPID_*` |
@@ -206,7 +215,7 @@ never lets him go. He is still shootable, at the kneeling x5.
 nice -n 19 npx tsx tools/scripts/human-bench.ts runner 120 3 1  # real Player and ballistics. runner strafe fighter duelist camper. seconds seed wave
 nice -n 19 npx tsx tools/scripts/human-cases.ts all 7           # every surrender and prisoner rule on the real systems
 HUMAN_MAP=outpost nice -n 19 npx tsx tools/scripts/human-cases.ts tower,climb,sniper 7
-nice -n 19 npx vite-node tools/scripts/human-cases.ts cuff 7    # cuffed in the open, under a roof, three queued. tsx fails on import.meta.env today; vite-node runs it
+nice -n 19 npx vite-node tools/scripts/human-cases.ts cuff 7    # cuffed in the open, under a roof, four in a row. tsx fails on import.meta.env today; vite-node runs it
 node tools/shot.mjs --url "/?contract=defense&autostart=1" --dpr 2 --w 1440 --h 900 --script tools/scripts/prisoners-live.mjs --out tools/out/prisoners/prisoners.png --wait 500 --timeout 220
 HUMAN_CASES=suppress,flash node tools/shot.mjs --url "/?contract=outpost&autostart=1&dev=1" --dpr 2 --w 1440 --h 900 --script tools/scripts/humans-live.mjs --out tools/out/humans.png --wait 500 --timeout 170
 nice -n 19 npx tsx tools/scripts/outpost-sim.ts hold 120 7      # about 3 s, no browser. camp, hold, hunter, spree, rescue, tour

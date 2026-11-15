@@ -313,26 +313,14 @@ const held: Behaviour = {
   },
 };
 
-/** In cuffs. Kneels where he was put, or is walked out from under a roof to where the drone can reach him (airlift.ts). */
+/** In cuffs, on his knees, until the drone takes him (airlift.ts). */
 const cuffed: Behaviour = {
   name: 'cuffed',
   score: e => (soldierOf(e)?.cuffed ? 8 : 0),
   enter(e) {
     e.mode = 'hold';
     e.face = 'lock';
-    pose(e, soldierOf(e)!.led ? 'bound' : 'cuffed');
-  },
-  frame(e, w) {
-    const s = soldierOf(e)!;
-    if (!s.led || e.pinned) return;
-    e.mode = 'point';
-    e.face = 'move';
-    e.pace = WALK_SHARE * 0.8;
-    if (!walkRoute(e, s, w)) return;
-    s.led = false;
-    e.mode = 'hold';
-    e.face = 'lock';
-    pose(e, 'cuffed');
+    if (!e.pinned) pose(e, 'cuffed');
   },
 };
 

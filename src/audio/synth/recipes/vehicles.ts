@@ -119,7 +119,7 @@ export const vehicles = [
     s.at(0.2, () => clank(s, 400, 0.4, 0.1));
   }),
   // The Bureau's prisoner drone (enemies/outpost/airlift.ts): four small props at a high buzz, never quite in step, a motor whine over
-  // them and the air they push. Doppler is on in the airlift, so it bends as it comes in and goes.
+  // them and the air they push. Doppler is on in the airlift, so it bends as it dives past.
   r('liftdrone_rotor_loop', { dur: 2, mix: 'loop3d', loop: true, over: { volume: 0.6, maxVoices: 3, near: 8, far: 130, send: 0.14 } }, s => {
     s.osc('sawtooth', 118).lp(900).am(s.lfo(4, 0.18)).out(0.34);
     s.osc('sawtooth', 121.5).lp(900).out(0.28);
@@ -128,12 +128,12 @@ export const vehicles = [
     s.noise('pink').bp(700, 0.9).am(s.lfo(59, 0.35)).out(0.6);
     s.noise('brown').lp(260).gain(1.6).am(s.lfo(4, 0.2)).out(0.5);
   }),
-  // The winch paying out or winding in: a geared motor's whine and the drum's tick.
-  r('liftdrone_winch_loop', { dur: 1, mix: 'loop3d', loop: true, over: { volume: 0.5, maxVoices: 3, near: 5, far: 60 } }, s => {
-    s.osc('sawtooth', 640).lp(2200).am(s.lfo(12, 0.25)).out(0.18);
-    s.osc('square', 1280).lp(2600).out(0.05);
-    s.noise('pink').bp(1700, 3).am(s.lfo(24, 0.6, 'square')).out(0.3);
-    s.noise('brown').lp(200).gain(1.2).out(0.2);
+  // The snatch: the line snapping taut with a man on the end of it, a whip crack, a twang and the jolt through the hook.
+  r('liftdrone_snatch', { dur: 0.9, n: 2, mix: 'machine', over: { volume: 0.8, near: 6, far: 90, family: undefined }, expect: { attackMs: [0, 10] } }, s => {
+    snap(s, 1, 0.02, 1, 2600);
+    s.osc('sawtooth', [[0, 180], [0.5, 120]], 0.6).lp(1400).env(perc(0.45, 0.5, 0.002)).out();
+    clank(s, 520, 0.7, 0.12);
+    thump(s, 80, 0.18, 0.8);
   }),
   // Cuffs closing: a ratchet of three teeth and a bright ring off the steel. The hook latching plays it lower.
   r('cuff_click', { dur: 0.35, n: 2, mix: 'foley', over: { volume: 0.7, near: 3, far: 30 }, expect: { attackMs: [0, 8] } }, s => {

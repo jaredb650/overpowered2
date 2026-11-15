@@ -231,6 +231,11 @@ class DeadBody {
 }
 
 /** What a character on the floor is waiting to do. */
+/** The rig's chest bone (HumanoidBone.chest), where a line takes hold. */
+const CHEST = 2;
+const _tugAt = new THREE.Vector3();
+const _tugV = new THREE.Vector3();
+
 class Knockdown implements DownedBody {
   readonly center = new THREE.Vector3();
   standing = false;
@@ -650,6 +655,21 @@ export class Gore implements GoreSystem {
   setStrength(char: CharacterInstance, strength: LimbStrength): void {
     const b = this.owned.get(char);
     if (b?.down) b.rag?.muscle?.strengthen(strength);
+  }
+
+  tug(char: CharacterInstance, pull: (position: THREE.Vector3, velocity: THREE.Vector3) => void): THREE.Vector3 | null {
+    const b = this.owned.get(char);
+    const rag = b?.down ? b.rag : null;
+    if (!rag?.active) return null;
+    const part = rag.parts.find(p => p.bone === CHEST) ?? rag.parts[Math.min(1, rag.parts.length - 1)];
+    if (!part) return null;
+    const at = part.body.translation();
+    const v = part.body.linvel();
+    _tugAt.set(at.x, at.y, at.z);
+    _tugV.set(v.x, v.y, v.z);
+    pull(_tugAt, _tugV);
+    part.body.setLinvel(_tugV, true);
+    return _tugAt;
   }
 
   downed(char: CharacterInstance): DownedBody | null {

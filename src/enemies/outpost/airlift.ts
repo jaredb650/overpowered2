@@ -1,53 +1,62 @@
 /**
- * Taking a prisoner away. The player cuffs a man (prisoners.ts, hold E on the man he has by the collar), and the Bureau's drone comes for
- * him: a squat matte quadcopter that flies in high from off the map, comes straight down over him, lowers a hook on a line, hooks the
- * harness on his back, winches him off his feet and carries him off dangling under it until he is out of sight. Where the game has
- * credits that pays a bounty (contracts/defense/data.ts `BOUNTY`).
+ * Taking a prisoner away. The player cuffs a man (prisoners.ts, hold E), and a second and a half later the Bureau's drone takes him: a
+ * squat matte quadcopter that dives in low and fast with a hook trailing under it on a long line, snatches him off the floor on the pass
+ * without slowing, and climbs away with him on the end of the line, limp and flailing (the game's own ragdoll, alive, not a kill), until
+ * it is out of sight. Where the game has credits (Outpost Defense's, or the Crucible's purse: `ctx.contracts.wallet`) that pays a bounty
+ * (contracts/defense/data.ts `BOUNTY`), once, as he leaves the floor.
  *
- * Roofs: the drone only ever flies down a column of open sky. A man cuffed under a roof is walked out first, on his feet with his hands
- * behind him, to the nearest floor with open sky above it that a route reaches (a gate if nothing nearer will do). In and out, it flies
- * a straight line high above the map that a ray has found clear.
+ * The pass is a parabola: the hook's path bottoms out at his back with the drone `TRAIL` m ahead of it and `DROP` m over it. Rays along
+ * the hook's path and the drone's pick a heading with nothing in the way, so it never flies through a wall or a roof.
  *
- * The state machine is capture.ts. Two drones at most are in the air; anyone else cuffed waits his turn on his knees.
+ * Roofs: with no clear heading over him, the nearest floor within 14 m that has one is found, and on the pass he is dragged out to it
+ * along the line, a ragdoll pulled across the floor (straight, or along a route through the door), and snatched from there.
+ *
+ * The state machine and the arithmetic are capture.ts.
  */
 import * as THREE from 'three';
 import { HumanoidBone as B } from '../../characters/rig';
 import { CG, type LoopHandle } from '../../core/contracts';
-import { clamp, damp, dampAngle, TAU } from '../../core/math';
+import { clamp, TAU } from '../../core/math';
 import { BOUNTY } from '../../contracts/defense/data';
 import { Airframe, type AirframeSpec } from '../../progression/callins/airframe';
 import { hitText } from '../../progression/data';
 import { ModelBuilder, ModelMaterials } from '../../progression/modelkit';
 import type { AiWorld } from '../aiWorld';
-import { Capture, type Wallet } from './capture';
+import { finishAttack } from '../brain';
+import { Capture, CLICKS, DRAG_SPEED, rope, snatchTime, type Wallet } from './capture';
 import type { Outpost } from './index';
 import { pose, type Soldier } from './soldier';
 
-/** Most drones in the air at once. */
-export const MAX_DRONES = 2;
-/** Metres above him the drone comes down from, and the open sky the column test asks for. */
-const TOP = 24;
-const SKY = TOP + 6;
-/** Radius of the column: the drone's span with a margin. */
+/** Most drones in the air at once. A pass takes about six seconds, so this many keeps the snatch on time for anyone cuffed. */
+export const MAX_DRONES = 4;
+/**
+ * Metres a second along the pass, and the curve of it: up `SWOOP` s² either side of the snatch, and `CLIMB` s² more after it. Steep, so
+ * the hook is low only for the few metres either side of him: it dives in at about 50 degrees, pulls nearly 4 g and climbs out.
+ */
+const SPEED = 22;
+const SWOOP = 18;
+const CLIMB = 4;
+/** Seconds before the snatch it comes into the picture, and after it, that it is gone. */
+const LEAD = 1.2;
+const AFTER = 4.5;
+const GONE_RANGE = 140;
+/** Where the hook trails: this far behind the drone and this far under it. The line is the hypotenuse. */
+const TRAIL = 4;
+const DROP = 8;
+const LINE = Math.hypot(TRAIL, DROP);
+/** How hard the line takes up what is past its length, per second, and how far past it a stuck body is let go. */
+const PULL = 9;
+const SNAG = 5;
+/** The column the pad search asks for before trying headings: the drone's span, from rotor height up. */
 const COLUMN = 1.6;
-/** Metres above his floor it hovers to lower the hook, and the lowest its rotors get. */
-const HOVER = 7.5;
-const ROTORS = HOVER - 1.5;
-/** Metres out along the clear line it comes in on and leaves by, and how far from the player counts as out of sight. */
-const FAR = 100;
-const GONE_RANGE = 130;
-const CRUISE = 20;
-/** Line paid out and wound in, metres a second, and the line left out when it carries him. */
-const LOWER = 3.4;
-const REEL = 1.5;
-const SHORT = 3.2;
-/** Seconds into the cuffing that the cuffs close, the second wrist a beat after. */
-const CLICK_AT = 0.45;
-const CLICK_GAP = 0.28;
-/** Seconds the drone gives up after, whatever happens: nothing stays in the air for ever. */
-const LIFETIME = 60;
-/** Tries at a fresh pad for a man who stopped short of his. */
-const PAD_TRIES = 3;
+const SKY = 30;
+/** Farthest he is dragged out from under a roof. */
+const DRAG_REACH = 14;
+const DRAG_ROUTE = 18;
+/** Seconds gore keeps him down: the whole drag and pass, and if he comes off the line, how long he lies there. */
+const LIE = 8;
+/** His back over the floor as he kneels, where the hook goes. */
+const BACK = 0.9;
 const FEED_COLOR = '#ffc14a';
 
 const HULL = '#2a2d30';
@@ -91,44 +100,13 @@ const DRONE: AirframeSpec<'winch'> = {
   strobe: { build: b => void b.glow(new THREE.SphereGeometry(0.05, 8, 6), '#ff2010', 6, { at: [0, 0.24, -0.32] }), period: 1.1, lit: 0.16 },
 };
 
-type Leg = 'inbound' | 'descend' | 'lower' | 'haul' | 'climb' | 'outbound';
-
-/** What the airlift keeps about one cuffed man. */
-interface Held {
-  c: Capture;
-  /** Where the drone comes down to him: where he kneels, or where he is being walked to. */
-  readonly pad: THREE.Vector3;
-  padded: boolean;
-  tries: number;
-  readonly cuffs: THREE.Group;
-  clicks: number;
-}
-
 class Drone {
   readonly frame: Airframe<'winch'>;
   readonly pos = new THREE.Vector3();
-  readonly vel = new THREE.Vector3();
-  readonly push = new THREE.Vector3();
-  readonly top = new THREE.Vector3();
-  readonly far = new THREE.Vector3();
-  readonly bob = new THREE.Vector3();
-  readonly bobVel = new THREE.Vector3();
-  /** Where he was hooked: it hauls straight up from there, not after him as he swings. */
-  readonly spot = new THREE.Vector3();
   readonly rope: THREE.Mesh;
   readonly hook: THREE.Group;
-  heading = 0;
-  pitch = 0;
-  roll = 0;
-  leg: Leg = 'inbound';
-  held: Held | null = null;
   busy = false;
-  line = 0;
-  floorY = 0;
-  lifted = false;
-  age = 0;
   hum: LoopHandle | null = null;
-  winch: LoopHandle | null = null;
 
   constructor(materials: ModelMaterials, scene: THREE.Scene, rope: THREE.Mesh, hook: THREE.Group) {
     this.frame = new Airframe(materials, scene, DRONE);
@@ -139,19 +117,62 @@ class Drone {
   }
 }
 
+/** What the airlift keeps about one cuffed man. */
+interface Held {
+  c: Capture;
+  /** Seconds since the cuffs went on. */
+  age: number;
+  clicks: number;
+  readonly cuffs: THREE.Group;
+  /** Where the hook takes him (his back, or the pad he is dragged to), the heading of the pass, and the snatch, in `age`. */
+  readonly at: THREE.Vector3;
+  readonly dir: THREE.Vector3;
+  planned: boolean;
+  snatchAt: number;
+  /** Out from under a roof: the floor he is dragged along, and its length. Empty in the open. */
+  readonly path: THREE.Vector3[];
+  drag: number;
+  drone: Drone | null;
+  /** Gore has him as a ragdoll. False when it had no room, and he hangs as he stands (`bob`). */
+  limp: boolean;
+  /** The end of the line: his chest, or with no ragdoll, a weight standing in for it. */
+  readonly load: THREE.Vector3;
+  readonly bob: THREE.Vector3;
+  readonly bobVel: THREE.Vector3;
+  snagged: number;
+}
+
 const UP = new THREE.Vector3(0, 1, 0);
 const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
 const _c = new THREE.Vector3();
-const _w = new THREE.Vector3();
+const _d = new THREE.Vector3();
 const _f = new THREE.Vector3();
-const _h = new THREE.Vector3();
 const _q = new THREE.Quaternion();
+const _yank = new THREE.Vector3();
+const _pad = new THREE.Vector3();
+const _padAt = new THREE.Vector3();
+const _padDir = new THREE.Vector3();
+
+/** Where the empty hook is `s` seconds from the snatch (negative before it), on a pass along `dir` that takes him at `at`. */
+function hookAt(at: THREE.Vector3, dir: THREE.Vector3, s: number, out: THREE.Vector3): THREE.Vector3 {
+  const up = SWOOP * s * s + (s > 0 ? CLIMB * s * s : 0);
+  return out.set(at.x + dir.x * SPEED * s, at.y + up, at.z + dir.z * SPEED * s);
+}
+
+/** The drone, `TRAIL` ahead of its hook and `DROP` over it. */
+function droneAt(at: THREE.Vector3, dir: THREE.Vector3, s: number, out: THREE.Vector3): THREE.Vector3 {
+  return hookAt(at, dir, s, out).addScaledVector(dir, TRAIL).setY(out.y + DROP);
+}
 
 export class Airlift {
   readonly held: Held[] = [];
   private readonly drones: Drone[] = [];
   private kit: { materials: ModelMaterials; rope: THREE.BufferGeometry; ropeMat: THREE.Material; ring: THREE.BufferGeometry; link: THREE.BufferGeometry; steel: THREE.Material } | null = null;
+  /** The line's far end and length for this frame's tug, read by `pull`, which is made once. */
+  private readonly anchor = new THREE.Vector3();
+  private length = LINE;
+  private readonly pull = (p: THREE.Vector3, v: THREE.Vector3): void => void rope(p, v, this.anchor, this.length, PULL);
 
   constructor(private readonly w: AiWorld, private readonly o: Outpost) {}
 
@@ -168,13 +189,12 @@ export class Airlift {
     return null;
   }
 
-  /** Hands behind his back and the cuffs on. Called with him already out of the player's hands. */
+  /** Hands behind his back and the cuffs on, and the drone on its way. */
   cuff(s: Soldier): void {
     const { ctx } = this.w;
     const e = s.e;
     const kit = this.prepare();
     s.cuffed = true;
-    s.led = false;
     e.mode = 'hold';
     e.face = 'lock';
     e.velocity.set(0, 0, 0);
@@ -186,21 +206,29 @@ export class Airlift {
     cuffs.add(new THREE.Mesh(kit.ring, kit.steel), new THREE.Mesh(kit.ring, kit.steel), new THREE.Mesh(kit.link, kit.steel));
     cuffs.visible = false;
     ctx.render.scene.add(cuffs);
-    this.held.push({ c: new Capture(s), pad: new THREE.Vector3(), padded: false, tries: 0, cuffs, clicks: 0 });
-    ctx.hud.feed('PRISONER CUFFED: DRONE INBOUND', FEED_COLOR);
+    const h: Held = {
+      c: new Capture(s), age: 0, clicks: 0, cuffs, at: new THREE.Vector3(), dir: new THREE.Vector3(), planned: false, snatchAt: 0, path: [], drag: 0,
+      drone: null, limp: false, load: new THREE.Vector3(), bob: new THREE.Vector3(), bobVel: new THREE.Vector3(), snagged: 0,
+    };
+    this.held.push(h);
+    this.plan(h);
+    ctx.hud.feed('PRISONER CUFFED', FEED_COLOR);
     ctx.events.emit('prisoner:cuffed', { enemy: e });
   }
 
   update(dt: number): void {
     for (let i = this.held.length - 1; i >= 0; i--) {
       const h = this.held[i]!;
+      h.age += dt;
       h.c.step(dt);
-      this.cuffing(h);
-      if (h.c.phase === 'cuffed' && !h.padded && h.tries < PAD_TRIES && !h.c.s.e.airborne) this.findPad(h);
+      this.click(h);
+      if (!h.c.drone && h.c.phase !== 'hooked' && h.c.phase !== 'gone' && !h.c.s.e.downed && !h.c.s.e.airborne) {
+        if (!h.planned) this.plan(h);
+        if (this.flying < MAX_DRONES) this.dispatch(h);
+      }
+      if (h.drone && this.fly(h, h.drone, dt)) continue;
       this.placeCuffs(h);
     }
-    for (const h of this.held) if (h.c.waiting && h.padded && this.flying < MAX_DRONES) this.dispatch(h);
-    for (const d of this.drones) if (d.busy) this.fly(d, dt);
   }
 
   /** A body that has left the round, for any reason: killed, or carried off. */
@@ -210,7 +238,7 @@ export class Airlift {
     const h = this.held[i]!;
     this.held.splice(i, 1);
     h.cuffs.removeFromParent();
-    for (const d of this.drones) if (d.held === h) this.letGo(d);
+    if (h.drone) this.park(h.drone);
   }
 
   reset(): void {
@@ -223,15 +251,15 @@ export class Airlift {
   // The man
   // -------------------------------------------------------------------------------------------
 
-  private cuffing(h: Held): void {
+  private click(h: Held): void {
     const { c } = h;
-    if (c.phase !== 'cuffing' || h.clicks >= 2 || c.t < CLICK_AT + h.clicks * CLICK_GAP) return;
+    if (c.phase !== 'cuffing' || h.clicks >= CLICKS.length || c.t < CLICKS[h.clicks]!) return;
     h.clicks++;
     h.cuffs.visible = true;
     this.w.ctx.audio.play('cuff_click', { position: c.s.e.center, pitch: h.clicks === 1 ? 1 : 1.12 });
   }
 
-  /** Steel on both wrists and the link between them, wherever his hands have got to. */
+  /** Steel on both wrists and the link between them, wherever his hands have got to. Thrown about on the line, the link is let go. */
   private placeCuffs(h: Held): void {
     if (!h.cuffs.visible) return;
     const bones = h.c.s.e.char.bones;
@@ -242,6 +270,7 @@ export class Airlift {
     this.ring(ringR!, r, bones[B.foreArmR]);
     _a.subVectors(ringR!.position, ringL!.position);
     const span = _a.length();
+    link!.visible = span < 0.3;
     link!.position.addVectors(ringL!.position, ringR!.position).multiplyScalar(0.5);
     link!.scale.set(Math.max(span, 0.01), 1, 1);
     if (span > 1e-4) link!.quaternion.setFromUnitVectors(_b.set(1, 0, 0), _a.divideScalar(span));
@@ -255,66 +284,110 @@ export class Airlift {
     if (_c.lengthSq() > 1e-6) ring.quaternion.setFromUnitVectors(_b.set(0, 0, 1), _c.normalize());
   }
 
-  /**
-   * Open sky over `p`: nothing over his head for the line, and nothing round the column from rotor height up for the drone. A wall
-   * beside him lower than the rotors is no matter; one that reaches them is, as a ray started inside it says.
-   */
-  private openSky(p: THREE.Vector3): boolean {
+  /** His upper back as he kneels, where the hook goes. Worked out, not read off his bones: he is still going down onto his knees. */
+  private harness(s: Soldier, out: THREE.Vector3): THREE.Vector3 {
+    const e = s.e;
+    return out.set(e.position.x - Math.sin(e.yaw) * 0.16, e.position.y + BACK, e.position.z - Math.cos(e.yaw) * 0.16);
+  }
+
+  /** Nothing in the way of the hook's path or the drone's, on a pass along `dir` that takes him at `at`. */
+  private clear(at: THREE.Vector3, dir: THREE.Vector3): boolean {
     const { physics } = this.w.ctx;
-    // Three rays for the line, so a beam across the top of him is not missed.
-    for (let i = 0; i < 7; i++) {
-      const line = i < 3;
-      const a = line ? (i / 3) * TAU : ((i - 3) / 4) * TAU;
-      const r = line ? 0.4 : COLUMN;
-      _c.set(p.x + Math.cos(a) * r, p.y + (line ? 0.4 : ROTORS), p.z + Math.sin(a) * r);
-      if (physics.raycast(_c, UP, line ? SKY : SKY - ROTORS, CG.World | CG.Air)) return false;
+    for (let k = 0; k < 2; k++) {
+      const path = k === 0 ? hookAt : droneAt;
+      path(at, dir, -LEAD, _a);
+      for (let s = -LEAD + 0.15; s <= 1.2 + 1e-6; s += 0.15) {
+        path(at, dir, s, _b);
+        _c.subVectors(_b, _a);
+        const len = _c.length();
+        if (physics.raycast(_a, _c.divideScalar(len), len, CG.World | CG.Air)) return false;
+        _a.copy(_b);
+      }
+    }
+    // And the line between them, where it is low enough to meet a roof.
+    for (let s = -0.45; s <= 0.45 + 1e-6; s += 0.15) {
+      hookAt(at, dir, s, _a);
+      droneAt(at, dir, s, _b);
+      _c.subVectors(_b, _a);
+      const len = _c.length();
+      if (physics.raycast(_a, _c.divideScalar(len), len, CG.World | CG.Air)) return false;
     }
     return true;
   }
 
-  /** Where the drone can reach him: here, or the nearest open floor a route gets him to. */
-  private findPad(h: Held): void {
+  /** A clear heading for a pass that takes him at `at`, across the player's view first. Writes `out`. */
+  private heading(at: THREE.Vector3, tries: number, out: THREE.Vector3): boolean {
+    const p = this.w.player.position;
+    const base = Math.atan2(at.x - p.x, at.z - p.z) + Math.PI / 2;
+    for (let k = 0; k < tries; k++) {
+      const a = base + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * (TAU / tries);
+      out.set(Math.sin(a), 0, Math.cos(a));
+      if (this.clear(at, out)) return true;
+    }
+    out.set(Math.sin(base), 0, Math.cos(base));
+    return false;
+  }
+
+  /** Open sky over `p` from the drone's height up: a cheap look before the rays of a whole pass. */
+  private openSky(p: THREE.Vector3): boolean {
+    const { physics } = this.w.ctx;
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 4) * TAU;
+      const r = i === 4 ? 0 : COLUMN;
+      _c.set(p.x + Math.cos(a) * r, p.y + (i === 4 ? 0.4 : DROP - 1), p.z + Math.sin(a) * r);
+      if (physics.raycast(_c, UP, SKY, CG.World | CG.Air)) return false;
+    }
+    return true;
+  }
+
+  /** Where and how the pass takes him: over him, or over the nearest floor he can be dragged out to. */
+  private plan(h: Held): void {
     const s = h.c.s;
     const e = s.e;
-    h.tries++;
-    if (this.openSky(e.position)) {
-      h.pad.copy(e.position);
-      h.padded = true;
-      return;
-    }
+    h.planned = true;
+    h.path.length = 0;
+    h.drag = 0;
+    this.harness(s, h.at);
+    if (this.heading(h.at, 16, h.dir)) return;
     const { nav } = this.w.ctx.world;
-    for (let r = 3; r <= 24; r += 3) {
+    const { physics } = this.w.ctx;
+    for (let r = 2; r <= DRAG_REACH; r += 2) {
       for (let k = 0; k < 8; k++) {
         const a = (k / 8) * TAU;
-        _f.set(e.position.x + Math.cos(a) * r, e.position.y, e.position.z + Math.sin(a) * r);
-        if (!nav.nearest(_f, 2, _f) || !this.openSky(_f) || !this.o.routeTo(s, _f)) continue;
-        this.walk(h, _f);
+        _pad.set(e.position.x + Math.cos(a) * r, e.position.y, e.position.z + Math.sin(a) * r);
+        if (!nav.nearest(_pad, 1.5, _pad) || !this.openSky(_pad)) continue;
+        _padAt.copy(_pad).setY(_pad.y + BACK);
+        if (!this.heading(_padAt, 8, _padDir)) continue;
+        // Straight out if nothing is in the way at his height, or along a route through the door.
+        _b.copy(e.position).setY(e.position.y + 0.6);
+        _c.copy(_pad).setY(_pad.y + 0.6).sub(_b);
+        const straight = _c.length();
+        if (!physics.raycast(_b, _c.divideScalar(straight), straight, CG.World)) {
+          h.path.push(e.position.clone().setY(e.position.y + BACK), _padAt.clone());
+        } else {
+          if (!this.o.routeTo(s, _pad) || s.route.length > DRAG_ROUTE) continue;
+          for (let i = 0; i < s.route.count; i++) h.path.push(new THREE.Vector3(s.route.x[i]!, s.route.y[i]! + BACK, s.route.z[i]!));
+          h.path.push(_padAt.clone());
+        }
+        for (let i = 1; i < h.path.length; i++) h.drag += h.path[i]!.distanceTo(h.path[i - 1]!);
+        h.at.copy(_padAt);
+        h.dir.copy(_padDir);
         return;
       }
     }
-    // shortcut: a man with no open floor in 24 m and no route to a gate stays where he is, cuffed and unpaid; nothing on the maps does this.
-    if (this.o.routeToGate(s)) this.walk(h, s.dest);
+    // shortcut: no clear pass within 14 m of him: the drone takes him straight up through whatever is over him. Nothing on the maps does this.
   }
 
-  private walk(h: Held, to: THREE.Vector3): void {
-    const s = h.c.s;
-    h.pad.copy(to);
-    h.padded = true;
-    s.led = true;
-    s.e.thinkAt = 0;
-    pose(s.e, 'bound');
-  }
-
-  /** At his pad and on the floor: the drone may come down to him. */
-  private ready(h: Held): boolean {
-    const s = h.c.s;
-    if (s.led || s.e.airborne || s.downed) return false;
-    // He stopped short of it, stuck on something. The next frame looks again from where he is.
-    if (s.e.position.distanceTo(h.pad) > 1.5) {
-      h.padded = false;
-      return false;
+  /** The point `along` metres down the drag. */
+  private dragPoint(h: Held, along: number, out: THREE.Vector3): THREE.Vector3 {
+    let left = along;
+    for (let i = 1; i < h.path.length; i++) {
+      const a = h.path[i - 1]!, b = h.path[i]!;
+      const len = a.distanceTo(b);
+      if (left <= len) return out.lerpVectors(a, b, len > 0 ? left / len : 1);
+      left -= len;
     }
-    return true;
+    return out.copy(h.path[h.path.length - 1]!);
   }
 
   // -------------------------------------------------------------------------------------------
@@ -324,11 +397,9 @@ export class Airlift {
   private prepare(): NonNullable<Airlift['kit']> {
     if (this.kit) return this.kit;
     const { materials } = this.w.ctx.render;
-    const models = new ModelMaterials(this.w.ctx);
-    const rope = new THREE.CylinderGeometry(0.018, 0.018, 1, 5, 1, true).translate(0, 0.5, 0);
     this.kit = {
-      materials: models,
-      rope,
+      materials: new ModelMaterials(this.w.ctx),
+      rope: new THREE.CylinderGeometry(0.02, 0.02, 1, 5, 1, true).translate(0, 0.5, 0),
       ropeMat: materials.patch(new THREE.MeshStandardMaterial({ color: '#1c1a17', roughness: 0.95 })),
       ring: new THREE.TorusGeometry(0.048, 0.012, 6, 14),
       link: new THREE.BoxGeometry(1, 0.014, 0.014),
@@ -354,195 +425,51 @@ export class Airlift {
 
   private dispatch(h: Held): void {
     const d = this.drones.find(x => !x.busy) ?? this.build();
-    const { ctx } = this.w;
-    const player = this.w.player.position;
     d.busy = true;
-    d.held = h;
+    h.drone = d;
     h.c.drone = true;
-    d.leg = 'inbound';
-    d.age = d.line = 0;
-    d.lifted = false;
-    d.floorY = h.pad.y;
-    d.top.copy(h.pad).setY(h.pad.y + TOP);
-    // In over him from beyond him, as the player sees it, along the first line high over the map that a ray finds clear.
-    const start = Math.atan2(h.pad.z - player.z, h.pad.x - player.x);
-    let found = false;
-    for (let k = 0; k < 8 && !found; k++) {
-      const a = start + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * (TAU / 8);
-      _f.set(Math.cos(a), 0.32, Math.sin(a)).normalize();
-      found = !ctx.physics.raycast(d.top, _f, FAR, CG.World | CG.Air)
-        && !ctx.physics.raycast(_c.copy(d.top).setY(d.top.y - SHORT - 2.5), _f, FAR, CG.World | CG.Air);
-    }
-    if (!found) _f.copy(UP);
-    d.far.copy(d.top).addScaledVector(_f, FAR);
-    d.pos.copy(d.far);
-    d.vel.subVectors(d.top, d.far).setLength(CRUISE);
-    d.heading = Math.atan2(-_f.x, -_f.z);
-    d.pitch = d.roll = 0;
-    d.frame.update(0);
-    d.hum = ctx.audio.startLoop('liftdrone_rotor_loop', { position: d.pos, doppler: true, fadeIn: 1.5 }) ?? null;
+    h.snatchAt = Math.max(snatchTime(h.drag), h.age + LEAD);
+    h.snagged = 0;
   }
 
-  /** Flies toward `to`, arriving without overshoot. Returns the distance left. */
-  private seek(d: Drone, to: THREE.Vector3, top: number, accel: number, dt: number): number {
-    _a.subVectors(to, d.pos);
-    const dist = _a.length();
-    const speed = Math.min(top, Math.sqrt(1.6 * accel * dist));
-    if (dist > 1e-4) _a.multiplyScalar(speed / dist);
-    _b.subVectors(_a, d.vel);
-    const most = accel * dt;
-    if (_b.length() > most) _b.setLength(most);
-    d.vel.add(_b);
-    d.push.copy(_b).divideScalar(Math.max(dt, 1e-4));
-    d.pos.addScaledVector(d.vel, dt);
-    return dist;
-  }
-
-  private fly(d: Drone, dt: number): void {
-    const { player } = this.w;
-    const h = d.held;
-    d.age += dt;
-    if (h && h.c.phase === 'hooked' && this.offHook(d, h)) return;
-    const hover = _w.set(h ? h.c.s.e.position.x : d.pos.x, d.floorY + HOVER + Math.sin(d.age * 4.1) * 0.06, h ? h.c.s.e.position.z : d.pos.z);
-    switch (d.leg) {
-      case 'inbound':
-        if (this.seek(d, d.top, CRUISE, 8, dt) < 2.5) d.leg = 'descend';
-        break;
-      case 'descend': {
-        if (!h) {
-          d.leg = 'climb';
-          break;
-        }
-        const ready = this.ready(h);
-        if (!ready) hover.set(h.pad.x, hover.y, h.pad.z);
-        if (this.seek(d, hover, 8, 5, dt) < 0.4 && ready && d.vel.length() < 0.6) this.startLower(d);
-        break;
-      }
-      case 'lower':
-        this.seek(d, hover, 1.5, 3, dt);
-        if (h) this.lower(d, h, dt);
-        else this.reelIn(d, dt);
-        break;
-      case 'haul':
-        hover.set(d.spot.x, d.floorY + HOVER + 2.5, d.spot.z);
-        this.seek(d, hover, 1.4, 2.5, dt);
-        d.line = Math.max(SHORT, d.line - REEL * dt);
-        if (d.line <= SHORT && d.lifted) {
-          d.leg = 'climb';
-          d.winch?.stop(0.3);
-          d.winch = null;
-        }
-        break;
-      case 'climb':
-        if (!h) this.reelIn(d, dt);
-        if (this.seek(d, _c.set(d.pos.x, d.floorY + TOP, d.pos.z), 7, 3.5, dt) < 1.5) d.leg = 'outbound';
-        break;
-      case 'outbound':
-        if (!h) this.reelIn(d, dt);
-        // Past where it came in from, and on up: it has to get out of sight.
-        this.seek(d, _c.copy(d.far).sub(d.top).multiplyScalar(2).add(d.top), CRUISE, 6, dt);
-        if (d.pos.distanceTo(player.position) > GONE_RANGE) {
-          this.finish(d);
-          return;
-        }
-        break;
-    }
-    if (d.age > LIFETIME) {
-      this.finish(d);
-      return;
-    }
-    if (h && h.c.phase === 'hooked') this.hang(d, h, dt);
-    this.pose(d, dt);
-    this.drawLine(d);
-  }
-
-  private startLower(d: Drone): void {
-    d.leg = 'lower';
-    d.line = 0;
-    d.frame.mount('winch', d.bob);
-    d.bobVel.copy(d.vel);
-    d.winch = this.w.ctx.audio.startLoop('liftdrone_winch_loop', { position: d.pos }) ?? null;
-  }
-
-  /** His upper back, where the harness ring is: what the hook goes for and what he hangs from. */
-  private harness(h: Held, out: THREE.Vector3): THREE.Vector3 {
-    const e = h.c.s.e;
-    const chest = e.char.bones[B.chest];
-    if (chest) chest.getWorldPosition(out);
-    else out.copy(e.center);
-    if (out.y <= e.position.y + 0.1) out.copy(e.center);
-    return out.addScaledVector(_h.set(Math.sin(e.yaw), 0, Math.cos(e.yaw)), -0.16).setY(out.y + 0.12);
-  }
-
-  /** The hook going down on its line, swinging, steered onto his back for the last of it. */
-  private lower(d: Drone, h: Held, dt: number): void {
-    const target = this.harness(h, _f);
-    const win = d.frame.mount('winch', _a);
-    const need = win.distanceTo(target);
-    d.line = Math.min(d.line + LOWER * dt, need + 0.3);
-    this.swing(d, dt);
-    if (d.line > need * 0.5) {
-      const k = 1 - Math.exp(-3 * dt);
-      d.bob.x += (target.x - d.bob.x) * k;
-      d.bob.z += (target.z - d.bob.z) * k;
-    }
-    const e = h.c.s.e;
-    if ((d.bob.distanceTo(target) > 0.3 && d.line < need) || e.downed || !h.c.hook()) return;
-    d.leg = 'haul';
-    d.bob.copy(target);
-    d.spot.copy(target);
-    d.bobVel.set(0, 0, 0);
-    d.lifted = false;
-    e.pinned = e.carried = true;
-    e.velocity.set(0, 0, 0);
-    pose(e, 'bound');
-    this.w.ctx.audio.play('cuff_click', { position: target, pitch: 0.72, volume: 1.2 });
-  }
-
-  /** A free weight on the line: gravity, a little air, and the line never longer than it is. */
-  private swing(d: Drone, dt: number): void {
-    d.bobVel.y -= 9.8 * dt;
-    d.bobVel.multiplyScalar(Math.exp(-0.5 * dt));
-    d.bob.addScaledVector(d.bobVel, dt);
-    const win = d.frame.mount('winch', _c);
-    _b.subVectors(d.bob, win);
-    const len = _b.length();
-    if (len <= d.line || len < 1e-4) return;
-    _b.divideScalar(len);
-    d.bob.copy(win).addScaledVector(_b, d.line);
-    const out = d.bobVel.dot(_b);
-    if (out > 0) d.bobVel.addScaledVector(_b, -out);
-  }
-
-  /** The man on the hook. The line takes his weight off the floor first, then he swings under the drone. */
-  private hang(d: Drone, h: Held, dt: number): void {
-    const e = h.c.s.e;
-    const drop = e.def.chest + 0.12;
-    if (!d.lifted) {
-      const win = d.frame.mount('winch', _c);
-      d.bob.x = e.position.x;
-      d.bob.z = e.position.z;
-      const over = win.distanceTo(d.bob) - d.line;
-      if (over > 0) d.bob.y += over;
-      e.position.y = Math.max(d.floorY, d.bob.y - drop);
-      if (e.position.y > d.floorY + 0.5) this.secure(d, h);
-    } else {
-      this.swing(d, dt);
-      e.position.set(d.bob.x, d.bob.y - drop, d.bob.z);
-      // He turns slowly on the line.
-      e.yaw += Math.sin(d.age * 0.7) * 0.35 * dt;
-    }
-    e.groundY = e.position.y;
-    (e.char.anim as { resetFeet?(): void }).resetFeet?.();
-  }
-
-  /** Off the floor: paid for, once. */
-  private secure(d: Drone, h: Held): void {
-    d.lifted = true;
-    d.bobVel.set(0, 0, 0);
+  /** One frame of the pass. True when it is over and the man is gone. */
+  private fly(h: Held, d: Drone, dt: number): boolean {
     const { ctx } = this.w;
     const e = h.c.s.e;
-    const wallet: Wallet | null | undefined = ctx.contracts?.defense;
+    const s = h.age - h.snatchAt;
+    if (s < -LEAD) return false;
+    droneAt(h.at, h.dir, s, d.pos);
+    if (!d.hum) d.hum = ctx.audio.startLoop('liftdrone_rotor_loop', { position: d.pos, doppler: true, fadeIn: 0.2 }) ?? null;
+    this.pose(d, h, s, dt);
+    const win = d.frame.mount('winch', _d);
+    const dragFrom = -h.drag / DRAG_SPEED;
+    if (h.c.phase === 'cuffed') {
+      if (h.drag > 0 && s >= dragFrom) {
+        // Out from under the roof on the line, dragged across the floor to where the pass takes him.
+        if (!h.limp && !e.downed) this.goLimp(h, _yank.copy(h.dir).multiplyScalar(4));
+        this.dragPoint(h, (s - dragFrom) * DRAG_SPEED, this.anchor);
+        this.tug(h, 0.25, dt);
+      } else hookAt(h.at, h.dir, s, h.load);
+      if (s >= 0) this.snatch(h);
+    }
+    if (h.c.phase === 'hooked') {
+      this.anchor.copy(win);
+      if (!this.tug(h, LINE, dt)) return this.offHook(h, d);
+    }
+    this.drawLine(d, win, h.load);
+    if (s > AFTER || (s > 1 && d.pos.distanceTo(this.w.player.position) > GONE_RANGE)) return this.finish(h, d);
+    return false;
+  }
+
+  /** The hook takes him, on the pass, without slowing. Paid for here, once. */
+  private snatch(h: Held): void {
+    const { ctx } = this.w;
+    const e = h.c.s.e;
+    if (!h.c.hook()) return;
+    if (!h.limp && !e.downed) this.goLimp(h, _yank.copy(h.dir).multiplyScalar(SPEED * 0.5).setY(7));
+    ctx.audio.play('liftdrone_snatch', { position: h.at });
+    ctx.audio.play('cuff_click', { position: h.at, pitch: 0.7, volume: 1.2 });
+    const wallet: Wallet | null | undefined = ctx.contracts?.wallet;
     const paid = h.c.secure(wallet, BOUNTY[h.c.s.rank]);
     if (paid === null) return;
     if (wallet) {
@@ -553,94 +480,110 @@ export class Airlift {
     ctx.events.emit('prisoner:secured', { enemy: e, bounty: paid });
   }
 
-  /** Shot or knocked off the hook alive: he falls, and waits on the floor for another drone. */
-  private offHook(d: Drone, h: Held): boolean {
+  /** Gore takes him: a living ragdoll, down for as long as he is on the line. With no room for one, he hangs as he stands. */
+  private goLimp(h: Held, velocity: THREE.Vector3): void {
+    const { ctx } = this.w;
     const e = h.c.s.e;
-    if (e.pinned && !e.downed) return false;
-    e.pinned = e.carried = false;
-    if (!e.downed) {
+    this.harness(h.c.s, h.bob);
+    h.limp = ctx.gore.knockdown?.(e.char, { velocity, impact: { dir: UP, strength: 1 }, lie: LIE, rise: 1.2, hurt: 1 }) === true;
+    if (e.attack) finishAttack(e, this.w, true);
+    e.velocity.set(0, 0, 0);
+    e.push.set(0, 0, 0);
+    e.reel.set(0, 0, 0);
+    e.stagger = e.fallIn = 0;
+    if (h.limp) {
+      e.downed = e.airborne = true;
+      e.ballistic = false;
+      e.verticalSpeed = e.flightLeft = 0;
+      return;
+    }
+    e.pinned = e.carried = true;
+    h.bobVel.copy(velocity);
+    pose(e, 'bound');
+  }
+
+  /**
+   * The line pulls the load toward `anchor`, no further from it than `length`. The ragdoll's chest is pulled by its velocity and the
+   * joints bring the rest; with no ragdoll, a weight swings and he stands under it. False once he has come off it.
+   */
+  private tug(h: Held, length: number, dt: number): boolean {
+    const e = h.c.s.e;
+    this.length = length;
+    if (h.limp) {
+      const chest = this.w.ctx.gore.tug?.(e.char, this.pull);
+      if (!chest) return false;
+      h.load.copy(chest);
+    } else {
+      if (!e.pinned) return false;
+      h.bobVel.y -= 9.8 * dt;
+      rope(h.bob, h.bobVel, this.anchor, length, PULL);
+      h.bob.addScaledVector(h.bobVel, dt);
+      h.load.copy(h.bob);
+      e.position.set(h.bob.x, Math.max(h.bob.y - e.def.chest - 0.12, e.groundY), h.bob.z);
+      (e.char.anim as { resetFeet?(): void }).resetFeet?.();
+    }
+    // Caught on something the line cannot pull him through: let go of him.
+    h.snagged = h.load.distanceTo(this.anchor) > length + SNAG ? h.snagged + dt : 0;
+    return h.snagged < 0.5;
+  }
+
+  /** Off the line alive: he lies where he fell, gets up in his cuffs, and waits for another pass. Paid already, he is not paid again. */
+  private offHook(h: Held, d: Drone): boolean {
+    const e = h.c.s.e;
+    if (!h.limp) {
+      e.pinned = e.carried = false;
       e.airborne = true;
       e.verticalSpeed = 0;
     }
     pose(e, 'cuffed');
     h.c.drop();
-    h.padded = false;
-    h.tries = 0;
-    this.letGo(d);
+    h.limp = false;
+    h.planned = false;
+    h.drone = null;
+    this.park(d);
+    return false;
+  }
+
+  /** Out of sight. The man is gone from the round: no kill, and the bounty was paid as he left the floor. */
+  private finish(h: Held, d: Drone): boolean {
+    const s = h.c.s;
+    this.park(d);
+    h.drone = null;
+    if (!h.c.leave()) return false;
+    if (s.e.alive) this.w.enemies.withdraw(s.e);
+    else this.gone(s);
     return true;
   }
 
-  /** Nobody on the line any more. The drone winds it in and goes home. */
-  private letGo(d: Drone): void {
-    d.held = null;
-    if (d.leg === 'lower' || d.leg === 'haul') d.leg = 'climb';
-  }
-
-  private reelIn(d: Drone, dt: number): void {
-    d.line = Math.max(0, d.line - REEL * 2 * dt);
-    if (d.line > 0) this.swing(d, dt);
-    else if (d.winch) {
-      d.winch.stop(0.2);
-      d.winch = null;
-    }
-  }
-
-  /** Out of sight. The man is gone from the round: no kill, and the bounty was paid when he left the floor. */
-  private finish(d: Drone): void {
-    const h = d.held;
-    this.park(d);
-    if (!h) return;
-    const s = h.c.s;
-    // Given up on before it had him (he never got out from under a roof): he stays, cuffed, and the next drone tries.
-    if (!h.c.leave()) return;
-    if (s.e.alive) this.w.enemies.withdraw(s.e);
-    else this.gone(s);
-  }
-
   private park(d: Drone): void {
-    if (d.held) d.held.c.drone = false;
-    d.held = null;
     d.busy = false;
-    d.line = 0;
     d.frame.hide();
     d.rope.visible = d.hook.visible = false;
-    d.hum?.stop(0.5);
-    d.winch?.stop(0.2);
-    d.hum = d.winch = null;
+    d.hum?.stop(0.3);
+    d.hum = null;
   }
 
-  /** Leans into what it is doing, turns to where it is going, and its sound goes with it. */
-  private pose(d: Drone, dt: number): void {
-    const speed = Math.hypot(d.vel.x, d.vel.z);
-    if (speed > 2) d.heading = dampAngle(d.heading, Math.atan2(d.vel.x, d.vel.z), 1.6, dt);
-    const fx = Math.sin(d.heading), fz = Math.cos(d.heading);
-    // Tilt toward the push and a little into the wind of its own speed.
-    const tx = d.push.x * 0.045 + d.vel.x * 0.018;
-    const tz = d.push.z * 0.045 + d.vel.z * 0.018;
-    d.pitch = damp(d.pitch, clamp(tx * fx + tz * fz, -0.4, 0.4), 5, dt);
-    d.roll = damp(d.roll, clamp(-tx * fz + tz * fx, -0.4, 0.4), 5, dt);
-    _f.set(fx, -Math.tan(d.pitch), fz);
-    d.frame.fly(d.pos, _f, d.roll);
+  /** Leaning hard into a pass this fast, nose down in the dive and up into the climb. */
+  private pose(d: Drone, h: Held, s: number, dt: number): void {
+    const climb = 2 * SWOOP * s + (s > 0 ? 2 * CLIMB * s : 0);
+    const pitch = clamp(0.38 - climb * 0.012, 0.1, 0.55);
+    _f.copy(h.dir).setY(-Math.tan(pitch));
+    d.frame.fly(d.pos, _f, Math.sin(h.age * 3) * 0.06);
     d.frame.update(dt);
     d.hum?.setPosition(d.pos);
-    d.hum?.setPitch(d.held?.c.phase === 'hooked' ? 0.92 : 1, 0.6);
-    d.winch?.setPosition(d.pos);
   }
 
-  private drawLine(d: Drone): void {
-    const show = d.line > 0.05 && (d.leg === 'lower' || d.leg === 'haul' || d.leg === 'climb' || d.leg === 'outbound');
-    d.rope.visible = d.hook.visible = show;
-    if (!show) return;
-    const win = d.frame.mount('winch', _c);
-    _a.subVectors(win, d.bob);
+  private drawLine(d: Drone, win: THREE.Vector3, load: THREE.Vector3): void {
+    d.rope.visible = d.hook.visible = true;
+    _a.subVectors(win, load);
     const len = _a.length();
     if (len < 1e-3) return;
     _a.divideScalar(len);
     _q.setFromUnitVectors(UP, _a);
-    d.hook.position.copy(d.bob);
+    d.hook.position.copy(load);
     d.hook.quaternion.copy(_q);
     // The line runs from the top of the hook's shank to the drum.
-    d.rope.position.copy(d.bob).addScaledVector(_a, 0.22);
+    d.rope.position.copy(load).addScaledVector(_a, 0.22);
     d.rope.quaternion.copy(_q);
     d.rope.scale.set(1, Math.max(0.01, len - 0.22), 1);
   }

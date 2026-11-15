@@ -1,13 +1,59 @@
 /**
- * One capture as a state machine, with no three.js in it, so a test can walk it: cuffing, cuffed and waiting for a drone, hooked, and
- * gone. airlift.ts flies the drone and calls the transitions; this only says which are allowed, and pays the bounty exactly once.
+ * One capture, with no three.js in it, so a test can walk it: the E key on a kneeling man, the state machine (cuffing, cuffed, hooked,
+ * gone), when the drone's pass snatches him, the line he hangs on, and the bounty paid exactly once. airlift.ts flies the drone and
+ * calls the transitions; this only says which are allowed.
  */
 import type { Soldier } from './soldier';
 
 export type CapturePhase = 'cuffing' | 'cuffed' | 'hooked' | 'gone';
 
-/** Seconds of getting his wrists behind him and the cuffs on, before he is waiting for the drone. */
-export const CUFFING_SECONDS = 1.1;
+/** Seconds of holding E on a kneeling man that make it a capture and not a question. */
+export const CUFF_HOLD = 0.4;
+/** Seconds of getting his wrists behind him and the cuffs on: the first click, the second, and done. */
+export const CLICKS = [0.3, 0.55] as const;
+export const CUFFING_SECONDS = 0.7;
+/** Seconds from the cuffs going on to the hook taking him off the floor, when he is out in the open. */
+export const SNATCH_AT = 1.5;
+/** Metres a second he is dragged along the floor on the line, out from under a roof to where the drone can reach him. */
+export const DRAG_SPEED = 13;
+
+/** What a press of E on a kneeling man comes to: nothing yet, a question (or letting him go, once questioned), or cuffs. */
+export type Gesture = 'question' | 'letGo' | 'cuff' | null;
+
+/**
+ * The key, read every frame while it is down and once on the frame it comes up. `held` is seconds down so far. Held long enough, it
+ * cuffs him at once, without waiting for the key to come up; a tap is a question, or for a man already questioned, letting him go.
+ */
+export function gesture(held: number, down: boolean, questioned: boolean): Gesture {
+  if (held >= CUFF_HOLD) return 'cuff';
+  if (down) return null;
+  return questioned ? 'letGo' : 'question';
+}
+
+/** Seconds from the cuffs going on to the snatch, for a man who has `drag` metres to be dragged first (0 in the open). */
+export const snatchTime = (drag: number): number => Math.max(SNATCH_AT, CUFFING_SECONDS + drag / DRAG_SPEED);
+
+export interface Vec {
+  x: number;
+  y: number;
+  z: number;
+}
+
+/**
+ * A weight on a line from `anchor`, by its velocity, as a ragdoll's chest is held: what is past `length` is pulled back in at `pull`
+ * per second, and any speed outward along the line goes. Slack, nothing changes. Writes `v`. True when the line is taut.
+ */
+export function rope(p: Vec, v: Vec, anchor: Vec, length: number, pull: number): boolean {
+  const dx = p.x - anchor.x, dy = p.y - anchor.y, dz = p.z - anchor.z;
+  const d = Math.hypot(dx, dy, dz);
+  if (d <= length || d < 1e-6) return false;
+  const nx = dx / d, ny = dy / d, nz = dz / d;
+  const out = Math.max(0, v.x * nx + v.y * ny + v.z * nz) + (d - length) * pull;
+  v.x -= nx * out;
+  v.y -= ny * out;
+  v.z -= nz * out;
+  return true;
+}
 
 /** Where a bounty goes. Outpost Defense's `Defense` is one; a mode without credits has none. */
 export interface Wallet {
@@ -20,7 +66,7 @@ export class Capture {
   t = 0;
   /** A drone is assigned to him. */
   drone = false;
-  /** Lifted off the floor and paid for. Once per man, whatever happens to him after. */
+  /** Snatched off the floor and paid for. Once per man, whatever happens to him after. */
   secured = false;
 
   constructor(readonly s: Soldier) {}

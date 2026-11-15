@@ -117,10 +117,8 @@ export class Soldier {
   released = false;
   /** The player has him by the collar. See prisoners.ts. */
   collared = false;
-  /** In cuffs, waiting for the drone or on its hook. Nothing he does is his own any more. See airlift.ts. */
+  /** In cuffs, waiting for the drone or on its line. Nothing he does is his own any more. See airlift.ts. */
   cuffed = false;
-  /** Cuffed under a roof, and being walked out to open sky along `route`. */
-  led = false;
   /** Already questioned. A man has one chance to talk. */
   questioned = false;
   /** He has been shot on his knees. Nothing makes him give up a second time. */
@@ -204,7 +202,7 @@ export class Soldier {
     this.fate = 'none';
     this.surrendered = this.released = false;
     this.surrenderedAt = 0;
-    this.collared = this.cuffed = this.led = false;
+    this.collared = this.cuffed = false;
     this.questioned = this.refused = false;
     this.hitAt = -99;
     this.judgeAt = this.watchedAt = 0;

@@ -213,7 +213,7 @@ const BEATS: readonly Beat[] = [
       {
         when: { event: 'enemy:surrendered' },
         run: [
-          { do: 'hint', text: 'Hands up. Walk up and {interact} to question him; hold {interact} to grab him, and hold it again to cuff him.', seconds: 8 },
+          { do: 'hint', text: 'Hands up. Walk up and {interact} to question him; hold {interact} to cuff him.', seconds: 8 },
           council('prisoners'),
         ],
       },
