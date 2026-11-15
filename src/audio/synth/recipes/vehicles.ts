@@ -138,7 +138,8 @@ export const vehicles = [
   // Cuffs closing: a ratchet of three teeth and a bright ring off the steel. The hook latching plays it lower.
   r('cuff_click', { dur: 0.35, n: 2, mix: 'foley', over: { volume: 0.7, near: 3, far: 30 }, expect: { attackMs: [0, 8] } }, s => {
     for (let i = 0; i < 3; i++) s.at(i * 0.035, () => click(s, s.r(3200, 3800), 1 - i * 0.18, 0.008));
-    s.at(0.07, () => modal(s, { f0: s.r(2400, 2700), modes: MODES.bar, decay: 0.08, level: 0.3, strike: 0.2 }));
+    // After the last tooth (0.07), not on it: stacked, the two outweighed the first tooth and moved the attack.
+    s.at(0.08, () => modal(s, { f0: s.r(2400, 2700), modes: MODES.bar, decay: 0.08, level: 0.3, strike: 0.2 }));
   }),
   r('gunship_turbine_loop', { dur: 1, mix: 'loop3d', loop: true, over: { volume: 0.42, maxVoices: 3, near: 6, far: 120 } }, s => {
     s.osc('sine', 2100).am(s.wander(2, 0.1)).out(0.09);
