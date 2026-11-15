@@ -627,7 +627,7 @@ export type Action =
   | 'melee' | 'grenade' | 'interact' | 'weaponNext' | 'weaponPrev' | 'weaponLast'
   | 'weapon1' | 'weapon2' | 'weapon3' | 'weapon4' | 'weapon5' | 'weapon6' | 'weapon7' | 'weapon8' | 'weapon9' | 'weapon0'
   | 'streak' | 'callinWarthog' | 'callinDoorGunner' | 'callinChopper' | 'callinOrbital' | 'callinAc130' | 'callinBlackSun' | 'callinNuke' | 'sonar' | 'stim'
-  | 'nextWave' | 'shop' | 'pause' | 'scoreboard' | 'debugFps' | 'debugOverlay';
+  | 'nextWave' | 'pause' | 'scoreboard' | 'debugFps' | 'debugOverlay';
 
 export interface InputSystem extends GameSystem {
   isDown(action: Action): boolean;

@@ -8,7 +8,8 @@ import { CACHE_ORDER } from '../../progression/data';
 import { STARTING_WEAPONS, WEAPONS } from '../../weapons/data';
 import { makeRange, type Range } from '../../weapons/testkit';
 import { BOUNTY, ECONOMY, killPay, wavePay } from '../defense/data';
-import { BOSS_PAY, MOD_WARES, WEAPON_WARES } from './data';
+import { DEFAULT_BINDINGS } from '../../input/bindings';
+import { BOSS_PAY, MOD_WARES, SUPPLY_BREAK, WEAPON_WARES } from './data';
 import { CrucibleShop } from '.';
 import { modOffers, soldWeapons, weaponOffers, type ShopView } from './rules';
 
@@ -85,6 +86,37 @@ describe('credits', () => {
     c.hook();
     expect(c.secure(shop, BOUNTY.regular)).toBe(BOUNTY.regular);
     expect(shop.credits).toBe(BOUNTY.regular);
+  });
+});
+
+describe('the break', () => {
+  it('is stretched to the supply break once a wave is cleared, and L calls the next wave in', () => {
+    waves.phase = 'clearing';
+    r.ctx.events.emit('wave:clear', { wave: 3, bonus: 0 });
+    waves.phase = 'intermission';
+    waves.nextWaveIn = 8;
+    shop.update();
+    expect(waves.nextWaveIn).toBe(SUPPLY_BREAK);
+    // Once only: the break then runs down.
+    waves.nextWaveIn = 10;
+    shop.update();
+    expect(waves.nextWaveIn).toBe(10);
+    r.input.simulate('nextWave', true);
+    shop.update();
+    r.input.simulate('nextWave', false);
+    expect(waves.nextWaveIn).toBe(3);
+  });
+
+  it('has no key of its own: the shop opens only at a supply pod (progression/pickups/pods.test.ts)', () => {
+    expect(Object.keys(DEFAULT_BINDINGS)).not.toContain('shop');
+    let opened = 0;
+    r.ctx.events.on('shop:open', () => opened++);
+    for (const code of ['interact', 'nextWave', 'reload'] as const) {
+      r.input.simulate(code, true);
+      shop.update();
+      r.input.simulate(code, false);
+    }
+    expect(opened).toBe(0);
   });
 });
 

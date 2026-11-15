@@ -269,20 +269,29 @@ in the field outlined and lit, with two sappers, on the minimap as red bombs (`w
 ## The Crucible's shop
 
 `src/contracts/shop/`, section 10 of `docs/proposals/weapons-update.md`. In the Crucible's own game (`SHOP_ON`: the `crucible` contract,
-not a mission, the range or a sandbox; `?shop=0` turns it off) the weapon caches stop (`progression/index.ts` sends no pods) and the guns
-they brought are sold here instead. Outpost Defense's economy, reused: the pay is its `killPay`, `wavePay` and `paysFor`, the menu pauses
+not a mission, the range or a sandbox; `?shop=0` brings the old cache pickups back) the weapon caches stop and the guns they brought are
+sold here instead, and the drop pods bring the shop: a **supply pod** every break (`progression/pickups/pods.ts`, supply mode). Outpost Defense's economy, reused: the pay is its `killPay`, `wavePay` and `paysFor`, the menu pauses
 the run as its shops do (`Hud.openDefense`), and the HUD's credits are its look (`ui/hud/shop.ts` on its classes).
 
 | File | Job |
 |---|---|
 | `shop/data.ts` | `SHOP_ON`, `BOSS_PAY`, `WEAPON_WARES` and `MOD_WARES` (price, the wave to clear, the catalogue's line), `SHOP_COPY` |
 | `shop/rules.ts` | Pure: `weaponOffers(view)`, `modOffers(view)`, `offerFor`, each row's lock and why it cannot be had |
-| `shop/index.ts` | `CrucibleShop` on `ctx.contracts.shop`: credits, the shop key, `buy(act)`; `window.__shop` |
+| `shop/index.ts` | `CrucibleShop` on `ctx.contracts.shop`: credits, the break stretched to `SUPPLY_BREAK`, L, `buy(act)`; `window.__shop` |
+| `progression/pickups/pods.ts` | `DropPods` with `supply`: a pod every break, nearer, with a beacon, E at it emits `shop:open`, gone with the break |
 | `ui/screens/procurement.ts`, `ui/backdrop/gunstage.ts` | The menu, and the gun turning in a lit studio drawn in place of the world (`Renderer.backdrop`) |
 
-**Reaching it.** A break between waves, anywhere on the map: press **I** (`shop`, rebindable) and the run pauses under the menu; the
-break's countdown waits. During a wave the key says `THE SHOP OPENS BETWEEN WAVES`. The HUD shows the credits under the wave plate and
-`I: SHOP` in a break, and a wave's pay line ends with it.
+**Reaching it: the supply pod, and only there.** Each wave cleared sends one drop pod (the cache's: the same landing logic and spots,
+the 3 s warning ring, the 1.7 s fall, the impact that flattens what is under it, the doors at 1.3 s), amber, called `SUPPLY POD` on the
+feed, marked over it and on the minimap as caches were, with a column of amber light 70 m tall over its spot from the moment it is
+called, so the run starts before it lands. It prefers a spot
+25 to 110 m from the player (`SUPPLY`), else any. It carries no gun and is not a pickup: once its doors are open, within 4 m, the prompt
+`E SHOP` hangs over it and **E** (interact) opens the menu; walking into it does nothing. The break with the shop on is at least
+`SUPPLY_BREAK`, 25 s (the rules' own 8 s, 12 before a boss, would end before the pod opens at about 6 s): about 19 s to get there and
+shop. Walking there is on the clock; the menu itself pauses the run as Outpost Defense's shops do, and the countdown waits under it.
+When the break ends the pod is gone, reached or not, so there is no shop in a wave. **L** (`nextWave`) calls the next wave in early
+(its countdown to 3 s), as in Outpost Defense. The HUD shows the credits under the wave plate and, in a break, `Shop: the supply pod, E
+at it · L: START NOW`. There is no pod in the 3 s before wave 1, when nothing has been earned.
 
 **Credits.** 10 a kill, 15 a headshot (Outpost Defense's), a boss 300 more; an ally's or a gift's kill pays nothing. A wave cleared pays
 125 + 25 x wave. Everything killed in waves 1 and 2 (24 and 28 men, a fifth to the head) is about 900: the Judge (600) or the Rivet
@@ -312,7 +321,7 @@ its row then fits it or takes it off, free, in any break and never in a wave. A 
 its price, `Owned`, `Fitted`, or a padlock and the wave it waits for. The row in focus turns on the right (the first-person model at rest,
 cloned from the rig's `allDefs`, 0.42 rad/s, lit by a key, a cool rim and a studio environment), over a card: name, key and role, four
 bars (damage a trigger pull, rate, magazine, reload; a mod lights what it adds in green), the catalogue's line, the price and what Enter
-does or why not. Enter or a click buys; Esc, I or *Back to the fight* goes back. While it is up the renderer draws at the menu's rate.
+does or why not. Enter or a click buys; Esc, E or *Back to the fight* goes back. While it is up the renderer draws at the menu's rate.
 
 ## Unlocks
 

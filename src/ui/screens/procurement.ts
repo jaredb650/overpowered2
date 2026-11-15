@@ -5,7 +5,7 @@
  * showing what it adds.
  *
  * Keys: up and down pick a row, left and right turn the page, Enter or a click buys (or fits and takes off a mod bought), Esc,
- * the shop key or Close goes back to the fight.
+ * E or Close goes back to the fight.
  */
 import type { Ctx } from '../../core/contracts';
 import type { ModId, WeaponId } from '../../core/gameplay';
@@ -104,7 +104,8 @@ export class ProcurementScreen implements Screen {
     this.note = new Label(note);
     addEventListener('keydown', e => {
       if (this.hud.screens.name !== 'procurement' || e.repeat) return;
-      if (e.code === 'KeyI') this.leave();
+      // E opened it at the pod, so it shuts it too.
+      if (e.code === 'KeyE') this.leave();
     });
   }
 

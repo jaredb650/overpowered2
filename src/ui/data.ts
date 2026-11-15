@@ -348,7 +348,7 @@ export const KEY_GROUPS: readonly { title: string; rows: readonly [Action, strin
     rows: [
       ['streak', 'Airstrike'], ['callinWarthog', 'Warthog'], ['callinDoorGunner', 'Door Gunner'], ['callinChopper', 'Attack Chopper'], ['callinOrbital', 'Orbital Lance'],
       ['callinAc130', 'AC-130'], ['callinBlackSun', 'Black Sun'], ['callinNuke', 'Tactical Nuke'], ['scoreboard', 'Run stats'],
-      ['nextWave', 'Next wave now (Defense)'], ['shop', 'Shop (Crucible, in a break)'],
+      ['nextWave', 'Next wave now (Defense, Crucible shop)'],
     ],
   },
 ];

@@ -1,6 +1,10 @@
 /**
  * Weapon caches: a drop pod falls from the sky every second wave. It marks its landing zone first, hits hard enough to
  * flatten whatever is under it, then opens and waits. The map is big and this is what pulls the player across it.
+ *
+ * Supply pods (`supply`, where the Crucible sells its guns: contracts/shop): the same pod at the start of every break, but it is
+ * not a pickup. It carries no gun and lands nearer (`SUPPLY`), with a beacon of light over its spot from the call; once open, E within reach opens
+ * the shop (`shop:open`), and it is gone when the break ends, whoever reached it.
  */
 import * as THREE from 'three';
 import type { Ctx, EmitterHandle } from '../../core/contracts';
@@ -16,6 +20,18 @@ const COLLECT_RADIUS = 3;
 const REFILL_FRACTION = 0.5;
 const DOOR_OPEN = 1.5;
 const MIN_SPOT_DISTANCE = 30;
+
+/** The supply pod: its colour, and the spots it prefers, near enough to run to in a break (12.5 m/s on foot). */
+export const SUPPLY = {
+  color: '#ffb400',
+  label: 'SUPPLY POD',
+  /** Metres from the player to the spot it would rather land on. */
+  near: 25,
+  far: 110,
+  /** Metres from the pod at which E opens the shop. */
+  reach: COLLECT_RADIUS + 1,
+  beaconHeight: 70,
+} as const;
 
 const _up = new THREE.Vector3(0, 1, 0);
 const _p = new THREE.Vector3();
@@ -74,8 +90,12 @@ export class DropPods {
   private readonly pods: Pod[] = [];
   private readonly probe: GroundProbe;
   private readonly nextDoorAngles = [0, TAU / 3, (2 * TAU) / 3];
+  /** Supply mode: the pod that is open and within reach now, if any; and the prompt over it. */
+  private near: Pod | null = null;
+  private unprompt: (() => void) | null = null;
+  private readonly beacons: THREE.Mesh[] = [];
 
-  constructor(private readonly ctx: Ctx, materials: ModelMaterials) {
+  constructor(private readonly ctx: Ctx, materials: ModelMaterials, readonly supply = false) {
     this.probe = new GroundProbe(ctx);
     for (let i = 0; i < 2; i++) {
       const group = materials.group(hull());
@@ -91,6 +111,19 @@ export class DropPods {
         group.add(pivot);
         doors.push(hinge);
       }
+      if (supply) {
+        // A column of light over its landing spot from the moment it is called, seen across the map: where to run.
+        const beacon = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.22, 0.6, SUPPLY.beaconHeight, 10, 1, true),
+          new THREE.MeshBasicMaterial({
+            color: new THREE.Color(SUPPLY.color).multiplyScalar(2.4), transparent: true, opacity: 0.32, blending: THREE.AdditiveBlending,
+            depthWrite: false, side: THREE.DoubleSide, fog: false, toneMapped: false,
+          }),
+        );
+        beacon.visible = false;
+        ctx.render.scene.add(beacon);
+        this.beacons.push(beacon);
+      }
       group.visible = false;
       ctx.render.scene.add(group);
       const entry = { kind: 'weaponCache' as const, position: new THREE.Vector3(), active: false };
@@ -101,12 +134,18 @@ export class DropPods {
     }
   }
 
-  /** Every second wave clear sends one. */
+  /** Every second wave clear sends one. A supply pod comes every break. */
   onWaveClear(wave: number): void {
-    if (wave % D.everyWaves === 0) this.call();
+    if (this.supply || wave % D.everyWaves === 0) this.call();
+  }
+
+  /** Supply mode: an open pod within `SUPPLY.reach` of the player. */
+  get supplyNear(): boolean {
+    return this.near !== null;
   }
 
   private nextWeapon(): WeaponId | null {
+    if (this.supply) return null;
     const owned = this.ctx.weapons.owned;
     for (const id of CACHE_ORDER) {
       if (owned.has(id)) continue;
@@ -128,7 +167,8 @@ export class DropPods {
         fallback ??= spot;
         continue;
       }
-      if (spot.distanceTo(me) >= MIN_SPOT_DISTANCE) return spot;
+      const d = spot.distanceTo(me);
+      if (this.supply ? d >= SUPPLY.near && d <= SUPPLY.far : d >= MIN_SPOT_DISTANCE) return spot;
       fallback = spot;
     }
     return fallback;
@@ -146,14 +186,41 @@ export class DropPods {
     pod.entry.position.copy(spot);
     if (!Number.isNaN(floor)) pod.entry.position.y = floor;
     pod.entry.active = true;
-    pod.ring.setColor(COLOR, 2);
-    pod.marker = hud.marker(_p.copy(pod.entry.position).setY(pod.entry.position.y + 3), PICKUP_LOOK.weaponCache.label, COLOR);
+    this.beacons[this.pods.indexOf(pod)]?.position.copy(pod.entry.position).setY(pod.entry.position.y + SUPPLY.beaconHeight / 2 + 1);
+    this.beaconOf(pod, true);
+    const color = this.supply ? SUPPLY.color : COLOR;
+    pod.ring.setColor(color, 2);
+    pod.marker = hud.marker(_p.copy(pod.entry.position).setY(pod.entry.position.y + 3), this.supply ? SUPPLY.label : PICKUP_LOOK.weaponCache.label, color);
     audio.play('cache_incoming');
-    hud.feed('WEAPON CACHE INBOUND', COLOR);
+    hud.feed(this.supply ? 'SUPPLY POD INBOUND: THE SHOP IS IN IT UNTIL THE BREAK ENDS' : 'WEAPON CACHE INBOUND', color);
   }
 
   update(dt: number): void {
+    // A supply pod lasts the break it came in.
+    if (this.supply && this.ctx.waves.phase !== 'intermission') for (const pod of this.pods) if (pod.phase !== 'spent') this.retire(pod);
     for (const pod of this.pods) if (pod.phase !== 'spent') this.step(pod, dt);
+    if (this.supply) this.readSupply();
+  }
+
+  /** Supply mode: the prompt at an open pod within reach, and E there opens the shop. */
+  private readSupply(): void {
+    const { player, input, hud, events } = this.ctx;
+    let near: Pod | null = null;
+    if (player.alive) {
+      for (const pod of this.pods) {
+        if (pod.phase === 'open' && player.position.distanceTo(_p.copy(pod.entry.position).setY(pod.entry.position.y + 0.5)) < SUPPLY.reach) near = pod;
+      }
+    }
+    if (near !== this.near) {
+      this.unprompt?.();
+      this.unprompt = null;
+      this.near = near;
+      if (near) {
+        const key = input.labelFor?.('interact') ?? 'E';
+        this.unprompt = hud.follow(_p.copy(near.entry.position).setY(near.entry.position.y + 1.4).clone(), `${key} SHOP`, SUPPLY.color);
+      }
+    }
+    if (near && input.pressed('interact')) events.emit('shop:open', {});
   }
 
   private step(pod: Pod, dt: number): void {
@@ -189,7 +256,9 @@ export class DropPods {
         break;
       }
       case 'open': {
-        this.ctx.render.lights.flash(_p.copy(target).setY(target.y + 2), COLOR, 6, 12, 0.09);
+        this.ctx.render.lights.flash(_p.copy(target).setY(target.y + 2), this.supply ? SUPPLY.color : COLOR, 6, 12, 0.09);
+        // A supply pod waits for E (readSupply) and the break's end, not for the player to walk in.
+        if (this.supply) break;
         if (this.ctx.player.position.distanceTo(_p.copy(target).setY(target.y + 0.5)) < COLLECT_RADIUS + 1) this.collect(pod);
         else if (pod.timer >= D.life) this.retire(pod);
         break;
@@ -223,7 +292,7 @@ export class DropPods {
     });
     audio.play('cache_land', { position: p });
     fx.dust(p, _up, 4);
-    fx.ring(p, _up, COLOR, D.impactRadius * 2);
+    fx.ring(p, _up, this.supply ? SUPPLY.color : COLOR, D.impactRadius * 2);
     render.decals.add('crack', p, _up, D.impactRadius * 1.1, rand(0, TAU));
     const d = player.position.distanceTo(p);
     camera.addTrauma(Math.max(0, 0.6 - d / 90));
@@ -263,6 +332,17 @@ export class DropPods {
     pod.ring.hide();
     pod.trail?.stop();
     pod.trail = null;
+    this.beaconOf(pod, false);
+    if (this.near === pod) {
+      this.unprompt?.();
+      this.unprompt = null;
+      this.near = null;
+    }
+  }
+
+  private beaconOf(pod: Pod, on: boolean): void {
+    const b = this.beacons[this.pods.indexOf(pod)];
+    if (b) b.visible = on;
   }
 
   clear(): void {

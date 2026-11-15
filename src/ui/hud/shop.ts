@@ -1,6 +1,6 @@
 /**
  * The Crucible's shop on the HUD (contracts/shop), under the wave plate as Outpost Defense's credits are, in their look: the
- * credits, and in a break the key that opens the shop.
+ * credits, and in a break where the shop is (the supply pod, marked on the map) and the key that starts the next wave now.
  */
 import type { Ctx } from '../../core/contracts';
 import { Label, Shown, div, span } from '../dom';
@@ -25,6 +25,9 @@ export class ShopHud {
     if (!shop) return;
     this.credits.set(shop.credits.toLocaleString('en-US'));
     this.hintShown.set(shop.inBreak);
-    if (shop.inBreak) this.hint.set(`${this.ctx.input.labelFor?.('shop') ?? 'I'}: SHOP`);
+    if (shop.inBreak) {
+      const early = this.ctx.waves.nextWaveIn > 3 ? `  ·  ${this.ctx.input.labelFor?.('nextWave') ?? 'L'}: START NOW` : '';
+      this.hint.set(`Shop: the supply pod, ${this.ctx.input.labelFor?.('interact') ?? 'E'} at it${early}`);
+    }
   }
 }

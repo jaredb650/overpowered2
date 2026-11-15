@@ -20,6 +20,13 @@ const query = typeof location === 'undefined' ? null : new URLSearchParams(locat
 export const SHOP_ON: boolean =
   query !== null && ACTIVE.def.id === 'crucible' && MISSION_ID === null && !ON_RANGE && !query.has('sandbox') && query.get('shop') !== '0';
 
+/**
+ * Seconds of a break with the shop on, at least: the supply pod takes about 6 s to land and open (progression's DROP_POD), and then
+ * there has to be time to run to it, up to 110 m (`SUPPLY.far`), and shop. The Crucible's own 8 s break would never reach it. L ends a
+ * break early, as in Outpost Defense.
+ */
+export const SUPPLY_BREAK = 25;
+
 /** A boss's kill on top of the ordinary pay: a Juggernaut or a Titan is a wave's work. */
 export const BOSS_PAY = 300;
 

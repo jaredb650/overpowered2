@@ -99,7 +99,8 @@ class Progression implements ProgressionSystem {
     this.frost = new FrostNova(ctx);
     this.stimKit = new Stims(ctx);
     this.pickupsManager = new Pickups(ctx, materials, this.stimKit);
-    this.pods = new DropPods(ctx, materials);
+    // Where the Crucible sells its guns, the pods bring its shop every break instead (contracts/shop).
+    this.pods = new DropPods(ctx, materials, SHOP_ON);
     this.pickupsManager.onGrant(id => this.perks.grant(id));
     this.perks.listen({
       onEffectStart: id => this.effectStarted(id),
@@ -121,8 +122,7 @@ class Progression implements ProgressionSystem {
     events.on('wave:clear', e => {
       if (e.bonus > 0) this.scoreKeeper.add(e.bonus, 'wave');
       this.scoreKeeper.persist();
-      // The Crucible's shop sells what the caches brought (contracts/shop).
-      if (!SHOPS_SELL && !SHOP_ON) this.pods.onWaveClear(e.wave);
+      if (!SHOPS_SELL) this.pods.onWaveClear(e.wave);
     });
     events.on('player:slam', e => this.onSlam(e.impact, e.position));
     events.on('player:died', () => this.onDeath());

@@ -1,19 +1,19 @@
 /**
- * The Crucible's shop at run time (docs/proposals/weapons-update.md, section 10): the credits, the key that opens the menu in a
- * break, and buying. `ctx.contracts.shop` on a page where it is on (`SHOP_ON`), null elsewhere. The rules are rules.ts and the
- * prices data.ts; the pay is Outpost Defense's (defense/data.ts). The menu is ui/screens/procurement.ts, over a paused run as
- * Outpost Defense's shops are.
+ * The Crucible's shop at run time (docs/proposals/weapons-update.md, section 10): the credits, the break's length, and buying.
+ * `ctx.contracts.shop` on a page where it is on (`SHOP_ON`), null elsewhere. The rules are rules.ts and the prices data.ts; the pay
+ * is Outpost Defense's (defense/data.ts). The only way in is the supply pod each break brings (progression/pickups/pods.ts): E at it
+ * emits `shop:open`, and the menu (ui/screens/procurement.ts) goes up over the paused run as Outpost Defense's shops do.
  */
 import type { Ctx } from '../../core/contracts';
 import { DEV_TOOLS } from '../../core/devflags';
 import type { ModId, WeaponSystem } from '../../core/gameplay';
 import { killPay, paysFor, wavePay } from '../defense/data';
-import { BOSS_PAY, SHOP_ON } from './data';
+import { BOSS_PAY, SHOP_ON, SUPPLY_BREAK } from './data';
 import { modOffers, offerFor, weaponOffers, type ShopAct, type ShopOffer, type ShopView } from './rules';
 
 declare module '../../core/contracts' {
   interface GameEvents {
-    /** The HUD puts the Crucible's shop up and pauses the run under it. */
+    /** E at a supply pod: the HUD puts the Crucible's shop up and pauses the run under it. */
     'shop:open': Record<string, never>;
   }
 }
@@ -41,6 +41,8 @@ export class CrucibleShop {
   credits = 0;
   /** Credits earned this run, for the tests. */
   earned = 0;
+  /** A wave has just been cleared: the break that follows is lengthened to `SUPPLY_BREAK` once it has begun. */
+  private stretch = false;
 
   constructor(private readonly ctx: Ctx) {}
 
@@ -52,21 +54,28 @@ export class CrucibleShop {
     events.on('wave:clear', e => {
       const pay = wavePay(e.wave);
       this.earn(pay);
-      const key = this.ctx.input.labelFor?.('shop') ?? 'I';
-      this.ctx.hud.feed(`+${pay} CREDITS: WAVE ${e.wave} CLEARED. ${key}: SHOP`, FEED);
+      this.stretch = true;
+      this.ctx.hud.feed(`+${pay} CREDITS: WAVE ${e.wave} CLEARED`, FEED);
     });
     if (DEV_TOOLS && typeof window !== 'undefined') (window as unknown as { __shop: CrucibleShop }).__shop = this;
   }
 
   reset(): void {
     this.credits = this.earned = 0;
+    this.stretch = false;
   }
 
   update(): void {
-    const { input, player } = this.ctx;
-    if (!input.pressed('shop') || !player.alive) return;
-    if (this.inBreak) this.ctx.events.emit('shop:open', {});
-    else this.ctx.hud.feed('THE SHOP OPENS BETWEEN WAVES', FEED);
+    const waves = this.ctx.waves as { nextWaveIn: number };
+    // The waves set the break's length as it begins, after `wave:clear`: it is stretched here, once, the frame after.
+    if (this.stretch && this.inBreak) {
+      this.stretch = false;
+      waves.nextWaveIn = Math.max(waves.nextWaveIn, SUPPLY_BREAK);
+    }
+    if (this.inBreak && waves.nextWaveIn > 3 && this.ctx.input.pressed('nextWave')) {
+      waves.nextWaveIn = 3;
+      this.ctx.hud.feed('NEXT WAVE CALLED IN', '#ff8a3a');
+    }
   }
 
   earn(amount: number): void {

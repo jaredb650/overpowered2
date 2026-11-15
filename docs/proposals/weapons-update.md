@@ -83,7 +83,7 @@ A surrendered enemy can be captured: his hands are cuffed behind his back, and a
 rope, picks him up and flies off with him. In modes with credits it pays: "BOUNTY SECURED".
 
 ## 10. The Crucible shop
-**Built 2026-11-15.** In a break, I opens Procurement over the paused run: kills pay Outpost Defense's rates, the caches' guns are sold from their waves (Deuce 6, Ultramag 14, Lance 18), the gun turns in a lit studio with a catalogue line; the suppressor, red dot and Sabot Raufoss mods, and lab rows for each; see `docs/notes/contracts.md`, The Crucible's shop.
+**Built 2026-11-15.** Each break drops a supply pod (the caches' pods, 25 to 110 m off, a beacon over it, gone with the break, which is 25 s); E at it opens Procurement over the paused run, the only way in (owner, after play): kills pay Outpost Defense's rates, the caches' guns are sold from their waves (Deuce 6, Ultramag 14, Lance 18), the gun turns in a lit studio with a catalogue line; the suppressor, red dot and Sabot Raufoss mods, and lab rows for each; see `docs/notes/contracts.md`, The Crucible's shop.
 - **Weapon caches stop being pickups** in the Crucible and become a shop. Kills pay credits.
 - Credits buy new weapons and weapon mods. Some weapons need a minimum wave before they can be bought, like Killing Floor.
 - The menu looks good: each weapon turns as a 3D model, with a short lore-style description in a deadpan, bleak, funny voice.

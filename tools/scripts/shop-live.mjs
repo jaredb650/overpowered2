@@ -1,7 +1,7 @@
 // The Crucible's shop (weapons-update plan section 10) in the real game, and the three mods.
 //
-// SHOP_STEP=menu (default), in the Crucible: the break's HUD line, the shop on its key with a gun turning (two stills a moment
-// apart), a locked gun, the mods page, buying the suppressor, and the suppressed SMG firing.
+// SHOP_STEP=menu (default), in the Crucible: a supply pod falling under its beacon, landed, its E prompt, the shop opened from it with a gun
+// turning (two stills a moment apart), a locked gun, the mods page, buying the suppressor, and the suppressed SMG firing.
 //   node tools/shot.mjs --port 5261 --url "/?autostart=1" --script tools/scripts/shop-live.mjs --wait 500 --timeout 240 --dpr 2 --w 1440 --h 900 --out tools/out/shop/menu.png
 //
 // SHOP_STEP=range, on the Test Range with the lab: the panel's mod rows, the Harrow's red dot aimed, and a Sabot Raufoss round
@@ -57,9 +57,60 @@ async function menu(page, h) {
     ctx.contracts.shop.credits = 7400;
     for (const e of [...ctx.enemies.alive]) e.health = 0;
   });
-  await h.sleep(1500);
-  await h.shot('break-hud');
-  await h.press('KeyI', 80);
+  // A supply pod, sent as a wave's clear sends one (its own landing logic, so the spot changes from run to run).
+  out.pod = await page.evaluate(async () => {
+    const { ctx } = window.__op2;
+    const pods = ctx.progression.pods;
+    const me = ctx.player.position.clone();
+    pods.call();
+    const spot = pods.entries.find(e => e.active).position.clone();
+    window.sh.pod = spot;
+    return { spot: spot.toArray().map(n => Math.round(n)), from: me.toArray().map(n => Math.round(n)), metres: Math.round(spot.distanceTo(me)) };
+  });
+  // The player `dist` m off the pod, facing it: the first of eight bearings where he stands on its floor (the map is cluttered,
+  // and a spot in a pit or by a wall puts some of them inside a building or on its roof).
+  // With `sky`, under open sky too.
+  const look = (dist, pitch, sky = false) => page.evaluate(async ([dist, pitch, sky]) => {
+    const { ctx } = window.__op2;
+    const P = ctx.player;
+    const s = window.sh.pod;
+    const a0 = Math.atan2(P.position.x - s.x, P.position.z - s.z);
+    for (let k = 0; k < 8; k++) {
+      const a = a0 + (k * Math.PI) / 4;
+      const at = s.clone();
+      at.x += Math.sin(a) * dist;
+      at.z += Math.cos(a) * dist;
+      at.y = s.y + 1;
+      P.teleport(at, a);
+      P.pitch = pitch;
+      await window.sh.frames(8);
+      const open = !sky || ctx.progression.pods.probe.headroom(at.x, at.y + 1, at.z, 60) >= 60;
+      if (Math.abs(P.position.y - at.y) < 0.8 && open) return k;
+    }
+    return -1;
+  }, [dist, pitch, sky]);
+  // Caught mid-fall, about 28 m up, looked up at from 12 m off (farther, the map's roofs and walls get in the way), its beacon
+  // already over the spot. Only the pods stop for the still.
+  out.fallingFrom = await look(12, 0.95, true);
+  out.falling = await page.evaluate(async () => {
+    const pods = window.__op2.ctx.progression.pods;
+    const pod = pods.pods.find(p => p.phase !== 'spent');
+    for (let i = 0; i < 900 && !(pod.phase === 'falling' && pod.group.position.y - window.sh.pod.y < 28); i++) await window.sh.frame();
+    pods.update = () => {};
+    return Math.round(pod.group.position.y - window.sh.pod.y);
+  });
+  await h.sleep(300);
+  await h.shot('pod-falling');
+  await page.evaluate(() => delete window.__op2.ctx.progression.pods.update);
+  out.landed = await until(page, h, () => window.__op2.ctx.progression.pods.pods.some(p => p.phase === 'open'), 120);
+  out.landedFrom = await look(10, 0.28);
+  await h.sleep(600);
+  await h.shot('pod-landed');
+  out.promptFrom = await look(3, -0.12);
+  out.near = await until(page, h, () => window.__op2.ctx.progression.pods.supplyNear, 40);
+  await h.sleep(400);
+  await h.shot('pod-prompt');
+  await h.press('KeyE', 80);
   await h.sleep(1200);
   out.opened = await page.evaluate(() => window.sh.state());
   // Down to the Judge, a gun turning, twice a moment apart.

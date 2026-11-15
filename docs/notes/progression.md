@@ -22,11 +22,10 @@
 | `callins/antiAir.ts`, `crash.ts` | The enemy fights the aircraft: hunters, the lock, missiles, flares, rounds on the door gunner; a shot-down aircraft's fall and wreck |
 | `src/vehicles/seat.ts` | The gunner's seat: the view, the parked body, aiming, marking enemies, always handing control back |
 | `src/vehicles/emplacement.ts` | Mounted guns on the ground, manned through the same seat. See the end of `vehicles.md` |
-| `src/vehicles/emplacement.ts` | Mounted guns on the ground, manned through the same seat. See the end of `vehicles.md` |
 | `src/vehicles/pilot.ts`, `skyline.ts`, `targets.ts` | The Harrow's autopilot, the height of the map, finding the fight |
 | `src/vehicles/hud.ts`, `gunner.css` | The overlay that replaces the on-foot HUD in a seat |
 | `src/vehicles/attackModel.ts`, `utilityModel.ts`, `guns.ts`, `loft.ts` | Both airframes, the M134 and the chin cannon, the hull lofter |
-| `pickups/pickups.ts`, `pods.ts`, `models.ts` | Drops, map items, capsules, drop pods |
+| `pickups/pickups.ts`, `pods.ts`, `models.ts` | Drops, map items, capsules, drop pods (weapon caches; the Crucible shop's supply pods) |
 
 ## Public API
 
