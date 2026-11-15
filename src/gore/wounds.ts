@@ -53,6 +53,8 @@ const BITES: Record<string, Bite> = {
   harrow: REVOLVER, rivet: SMALL, sabot: LANCE,
   // Key 8's second gun: a heavy machine gun round goes in bigger than the Judge's and comes out bigger still.
   piledriver: { ...REVOLVER, entry: 0.018, exit: 0.075, limbExit: 0.065, breaks: 2.2 },
+  // The heaviest pistol round: the Judge's hole, a bigger way out, and it breaks what it hits.
+  ultramag: { ...REVOLVER, entry: 0.016, exit: 0.068, limbExit: 0.06, breaks: 2 },
 };
 
 const _dir = new THREE.Vector3();

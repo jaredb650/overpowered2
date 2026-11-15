@@ -792,14 +792,18 @@ export class Weapons implements WeaponSystem, Guard {
       s.cooldown = (this.burstLeft > 0 ? burst.gap : burst.recover) / Math.max(this.modifiers.fireRate, 0.01);
       return;
     }
-    if (this.pressBuffer <= 0 || s.cooldown > 0) return;
+    // Right click on a double gun pulls both triggers. On the Deuce's last shell it is one barrel, as a left click.
+    const both = s.def.altBoth !== undefined && this.ctx.input.pressed('aim');
+    if ((this.pressBuffer <= 0 && !both) || s.cooldown > 0) return;
     if (!this.canShoot(s)) {
-      this.dryFire();
+      if (both) {
+        if (!this.startReload()) this.wentDry();
+      } else this.dryFire();
       this.pressBuffer = 0;
       return;
     }
     this.pressBuffer = 0;
-    this.shootGun(s, false);
+    this.shootGun(s, false, both);
     s.cooldown = this.interval(s.def);
   }
 
@@ -1080,10 +1084,13 @@ export class Weapons implements WeaponSystem, Guard {
     return s;
   }
 
-  private shootGun(s: Slot, left: boolean): void {
+  private shootGun(s: Slot, left: boolean, both = false): void {
     const def = s.def;
-    this.consume(s);
-    this.shotFeedback(def, left);
+    // A double gun fires its barrels in turn, from the one still loaded; `both` fires the two together when it can.
+    const barrel = def.altBoth ? Math.max(0, def.magSize - s.ammo.mag) : 0;
+    const two = both && (s.ammo.mag >= 2 || this.modifiers.bottomlessMag) ? def.altBoth : undefined;
+    this.consume(s, two ? 2 : 1);
+    this.shotFeedback(def, left, two ? two.kick : 1, barrel);
     if (def.slow !== undefined) this.handling.shot();
     if (def.climb && CLIMB_ON) this.climb(def.climb, lerp(1, TUNING.ads.climb, this.aim));
     // By what the row says leaves the barrel, never by which gun it is: a family member picks its own.
@@ -1098,7 +1105,7 @@ export class Weapons implements WeaponSystem, Guard {
     const m = this.modifiers;
     const shot = this.fillShot(def, def.damage * m.damage);
     const scatter = def.pellets > 1;
-    const pellets = Math.round(def.pellets * (scatter ? m.pellets : 1));
+    const pellets = Math.round(def.pellets * (two ? 2 : 1) * (scatter ? m.pellets : 1));
     if (scatter) {
       shot.killStop = HIT_STOP.shotgunKill;
       const t = TUNING.shotgun;
@@ -1111,8 +1118,34 @@ export class Weapons implements WeaponSystem, Guard {
       }
     }
     for (let i = 0; i < pellets; i++) {
+      // Both barrels: the second half of the pellets leaves the other one.
+      if (two && i === pellets >> 1) this.secondBarrel(def, two);
       const dir = def.spread > 0 ? randomInCone(fwd, this.coneOf(def), this.dir) : fwd;
       this.combat.fireRay(eye, dir, shot);
+    }
+  }
+
+  /** The other barrel of a both-barrels shot: its flash, the shot heard again a hair late, and the shove back. */
+  private secondBarrel(def: WeaponDef, two: NonNullable<WeaponDef['altBoth']>): void {
+    const c = this.ctx;
+    const at = this.muzzle(false, 1);
+    c.fx.muzzleFlash(this.flashPoint(at), this.flashDir.set(0, 0, -1).applyQuaternion(c.render.camera.quaternion), def.muzzle);
+    c.audio.play(def.sounds[0]!.id, { delay: two.echo, pitch: two.echoPitch, pitchJitter: 0.02 });
+    this.shoveBack(two.push, two.ground);
+  }
+
+  /**
+   * Shoves the player back along the aim at `push` m/s: all of it in the air, where it steers a jump; on the ground
+   * `ground` of it along the floor, so a shot at your feet does not lift you.
+   */
+  private shoveBack(push: number, ground: number): void {
+    const { player } = this.ctx;
+    const f = player.forward;
+    if (player.grounded) {
+      player.velocity.x -= f.x * push * ground;
+      player.velocity.z -= f.z * push * ground;
+    } else {
+      player.velocity.addScaledVector(f, -push);
     }
   }
 
@@ -1171,16 +1204,7 @@ export class Weapons implements WeaponSystem, Guard {
     p.gib = true;
     p.explosion = { radius: t.radius, damage: def.damage, kind: 'shell', instakill: true, selfDamage: 0 };
     this.combat.spawnProjectile(p);
-    // The shot shoves the player back along it: all of it in the air, where it steers a jump; on the ground, a short
-    // shove along the floor, so a shot at your feet does not lift you.
-    const { player } = this.ctx;
-    const f = player.forward;
-    if (player.grounded) {
-      player.velocity.x -= f.x * t.push * t.groundPush;
-      player.velocity.z -= f.z * t.push * t.groundPush;
-    } else {
-      player.velocity.addScaledVector(f, -t.push);
-    }
+    this.shoveBack(t.push, t.groundPush);
   }
 
   private shootStake(def: WeaponDef): void {

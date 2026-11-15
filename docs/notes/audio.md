@@ -294,6 +294,14 @@ places on the ladder (0.246 and 0.285), remeasured. The ids they replace on the 
 (`smg_fire`, `shotgun_fire`, `thresher_fire`, `harrow_fire`, `rivet_fire`, `revolver_fire`, `piledriver_fire`) stay in
 the catalog.
 
+**The new guns' shots** (2026-11-15, the owner's own recordings, weapons-update plan section 8). `dbshotgun_shot` is one
+barrel of the Deuce, the double-barrel on key 2, at 0.25 on the ladder (just over the pump's 0.234; loudness 0.234). Right
+click fires both barrels: `Weapons` plays it once and again 22 ms later at 0.95 pitch, so it is two triggers pulled together
+and not one louder shot; `perFrame` 2 lets the second through. `ultramag_shot` is the Ultramag on key 6, `gunHeavy` at
+0.25, over the Judge's 0.24 (loudness 0.48). Both were WAV inside an `.mp3` name: mixed to mono, resampled to 44.1 kHz, the
+first 39 and 67 ms of dead air cut, faded out by 0.9 s and encoded at 160 kbit/s as the other gun files. The Deuce's break-open
+reload uses `revolver_open`, `reload_shell_in` twice and `revolver_close`; the Ultramag's is the magazine foley.
+
 ## Sample packs
 
 Real recordings from free libraries. Sources, authors and licences for every file are in `docs/CREDITS.md`. One id holds all its variants, and pitch

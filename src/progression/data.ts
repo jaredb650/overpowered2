@@ -496,9 +496,11 @@ export const DROP_POD = {
 
 /**
  * Unlock order for caches, one every DROP_POD.everyWaves. The explosive autocannon is the Sabot's upgrade on key 4: it
- * was a starting weapon, so it comes early, in the second cache (wave 4), and pushes the rest back one cache.
+ * was a starting weapon, so it comes early, in the second cache (wave 4), and pushes the rest back one cache. The Deuce
+ * comes third (wave 6), the super shotgun once the pump has done its work; the Ultramag seventh (wave 14), after the Judge
+ * has had its run.
  */
-export const CACHE_ORDER: readonly WeaponId[] = (['judge', 'autocannon', 'lance', 'buzzsaw', 'kiln', 'stakegun', 'rivet', 'piledriver'] as WeaponId[])
+export const CACHE_ORDER: readonly WeaponId[] = (['judge', 'autocannon', 'deuce', 'lance', 'buzzsaw', 'kiln', 'ultramag', 'stakegun', 'rivet', 'piledriver'] as WeaponId[])
   // `?slot4=old`: the autocannon is a starting weapon again, so no cache brings it. `?slot8=old` has no Piledriver.
   .filter(id => !(SLOT4_OLD && id === 'autocannon') && !(SLOT8_OLD && id === 'piledriver'));
 

@@ -86,6 +86,12 @@ export interface WeaponDef {
   ads?: { readonly zoom: number; readonly time: number };
   /** Right click fires `rounds` this far apart, then waits `recover` before the next shot: the Rivet's burst. Instead of ADS. */
   altBurst?: { readonly rounds: number; readonly gap: number; readonly recover: number };
+  /**
+   * Right click fires both barrels at once, the Deuce's: twice the pellets, `kick` times the recoil and shake, the shot heard
+   * a second time `echo` s later at `echoPitch`, and the player shoved back at `push` m/s (`ground` of it along the floor
+   * when standing). Instead of ADS.
+   */
+  altBoth?: { readonly kick: number; readonly push: number; readonly ground: number; readonly echo: number; readonly echoPitch: number };
   /** Hit-stop on a kill, seconds. */
   killStop?: number;
   /**
@@ -212,6 +218,21 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     climb: { pitch: 0.011, yaw: 0.0035 },
     ads: { zoom: 0.35, time: 0.25 },
   },
+  // The Deuce: a sawn-down double-barrel, the super shotgun. Two shells, each a harder and wider blast than the pump's, and
+  // gone past a room's length. Left click fires a barrel, right click both: sixteen pellets and a shove back. It breaks open
+  // to reload, so its spent shells come out by hand (`casing` null).
+  deuce: {
+    ...BASE, id: 'deuce', name: 'DEUCE', slot: 2, base: 'shotgun', mode: 'semi',
+    magSize: 2, reserve: 24, maxReserve: 48, reloadTime: 1.5, drawTime: 0.24,
+    interval: 0.3, damage: 26, pellets: 8, spread: 0.075, severMult: 2.6, force: 22,
+    falloff: { from: 9, to: 26, floor: 0.3 },
+    muzzle: 'shotgun', tracer: 'bullet',
+    sounds: [{ id: 'dbshotgun_shot', pitchJitter: 0.03 }],
+    reloadFoley: [[0.05, 'revolver_open'], [0.42, 'reload_shell_in'], [0.58, 'reload_shell_in'], [0.8, 'revolver_close']],
+    drawSound: 'weapon_draw_heavy',
+    recoil: 1.15, kick: 0.022, shake: 0.03, fovPunch: 2.2,
+    altBoth: { kick: 1.8, push: 4.5, ground: 0.6, echo: 0.022, echoPitch: 0.95 },
+  },
   rocket: {
     ...BASE, id: 'rocket', name: 'ROCKET', slot: 3, mode: 'semi', round: 'rocket',
     magSize: 1, reserve: 10, maxReserve: 20, reloadTime: 1.5, drawTime: 0.26,
@@ -324,6 +345,18 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     recoil: 1, kick: 0.0062, shake: 0.006, fovPunch: 0.3,
     // Right click is a three-round burst, as a Glock's burst mode: no ADS.
     altBurst: { rounds: 3, gap: 0.06, recover: 0.32 },
+  },
+  // The hardest-hitting pistol in the game: seven heavy rounds on a long slide. Each one shoves what it hits (`force` 120,
+  // near the Sabot's, so a hit staggers and a kill is thrown), and the gun kicks hard enough to want a moment between them.
+  ultramag: {
+    ...BASE, id: 'ultramag', name: 'ULTRAMAG', slot: 6, base: 'judge', mode: 'semi',
+    magSize: 7, reserve: 42, maxReserve: 84, reloadTime: 1.3, drawTime: 0.2,
+    interval: 0.36, damage: 150, severMult: 2, force: 120, headshotMult: 2.5, armour: 'medium',
+    killStop: HEAVY_KILL_STOP, impactScale: 1.8,
+    muzzle: 'revolver', tracer: 'heavy', casing: 'pistol',
+    sounds: [{ id: 'ultramag_shot', pitchJitter: 0.02 }],
+    recoil: 1.2, kick: 0.04, shake: 0.036, fovPunch: 2.8,
+    ads: { zoom: 0.38, time: 0.2 },
   },
   // Right click toggles beam and ball. A tap is a rail shot or a plasma ball, a full charge a sustained beam or a giant
   // ball: TUNING.lance. The cell holds twelve: a ball takes one, a rail shot three, a giant ball four, a beam six.

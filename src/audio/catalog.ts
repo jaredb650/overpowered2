@@ -216,6 +216,9 @@ const gunShots: SoundDef[] = [
   shot('pump_shotgun_shot', 'guns/pump_shotgun_shot.mp3', 'gun', 0.234, 0.3, { send: 0.2 }),
   shot('hmg_shot', 'guns/hmg_shot.mp3', 'gun', 0.225, 0.25, { send: 0.3 }),
   shot('revolver_shot', 'guns/revolver_shot.mp3', 'gunHeavy', 0.24, 0.254),
+  // The Deuce's barrel and the Ultramag (2026-11-15). Both barrels at once is this played twice, a hair apart.
+  shot('dbshotgun_shot', 'guns/dbshotgun_shot.mp3', 'gun', 0.25, 0.234, { send: 0.22, perFrame: 2 }),
+  shot('ultramag_shot', 'guns/ultramag_shot.mp3', 'gunHeavy', 0.25, 0.48),
   shot('sabot_shot', 'guns/sabot_shot.mp3', 'gunHeavy', 0.246, 0.219, { send: 0.32 }),
   shot('autocannon_blast', 'guns/autocannon_blast.mp3', 'gun', 0.43, 0.26, { send: 0.22 }),
 ];

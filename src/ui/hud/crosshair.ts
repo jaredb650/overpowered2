@@ -63,6 +63,12 @@ const RETICLES: Record<WeaponId, Reticle> = {
     arms: four(poly('-1.3,-17 1.3,-17 1.3,-5 -1.3,-5')),
     diagonal: true, gap: 1, kick: 4.5, speedGap: 0, trueCone: true,
   },
+  // The pump's corner brackets doubled: one for each barrel, the same true cone.
+  deuce: {
+    core: DOT,
+    arms: four(poly('3,-14 14,-14 14,-3 11.6,-3 11.6,-11.6 3,-11.6') + poly('7,-19 19,-19 19,-7 16.6,-7 16.6,-16.6 7,-16.6')),
+    diagonal: true, gap: 1, kick: 9, speedGap: 0, trueCone: true,
+  },
   rocket: {
     core: poly('0,-7 8,3 5,5 0,-1.6 -5,5 -8,3'),
     arms: ['', poly('14,-1.25 34,-1.25 34,1.25 14,1.25'), turned(`${tick(2, 7, 12)}${tick(2, 5, 19)}${tick(2, 3, 26)}`, 180), poly('-14,-1.25 -34,-1.25 -34,1.25 -14,1.25')],
@@ -99,6 +105,8 @@ const RETICLES: Record<WeaponId, Reticle> = {
   },
   // Small and open: a dot in a ring of four short ticks.
   rivet: { core: DOT, arms: four(tick(4, 1.25, 2)), gap: 5, kick: 3.6, speedGap: 2 },
+  // The heavy pistol: four thick short bars around a dot, thrown wide by every round.
+  ultramag: { core: DOT, arms: four(tick(6, 1.9, 3)), gap: 6, kick: 10, speedGap: 2 },
   lance: {
     core: DOT,
     arms: ['', poly('9,-1 62,-1 62,1 9,1'), '', poly('-9,-1 -62,-1 -62,1 -9,1')],

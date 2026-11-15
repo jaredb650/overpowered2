@@ -67,7 +67,7 @@ function receiver(m: Mesher): void {
   });
 }
 
-function stock(m: Mesher): void {
+export function stock(m: Mesher): void {
   const front = curve([[0.022, -0.017], [0.024, -0.052], [0.036, -0.088], [0.05, -0.12]], 5);
   const under = curve([[0.098, -0.12], [0.098, -0.09], [0.116, -0.062], [0.17, -0.056], [0.28, -0.08], [0.35, -0.112]], 6);
   const comb = curve([[0.35, 0.04], [0.26, 0.034], [0.15, 0.036], [0.092, 0.034], [0.072, 0.012]], 5);

@@ -1,7 +1,8 @@
 /** Weapon families: what a number key, the wheel and Q draw. Every weapon is its own unlock: nothing comes with a base. */
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { WeaponId } from '../core/gameplay';
-import { TUNING, WEAPONS, WEAPON_ORDER } from './data';
+import { CACHE_ORDER } from '../progression/data';
+import { STARTING_WEAPONS, TUNING, WEAPONS, WEAPON_ORDER } from './data';
 import { SLOT_ORDER, familyOf, familyOfSlot, inPlay, membersOf, pressSlot, wheelSlot } from './families';
 import { makeRange, type Range } from './testkit';
 
@@ -10,11 +11,11 @@ const all = new Set<WeaponId>(WEAPON_ORDER);
 describe('family table', () => {
   it('groups by number key, base first', () => {
     expect(familyOfSlot(1)).toEqual(['smg', 'harrow']);
-    expect(familyOfSlot(2)).toEqual(['shotgun', 'thresher']);
+    expect(familyOfSlot(2)).toEqual(['shotgun', 'thresher', 'deuce']);
     expect(familyOfSlot(3)).toEqual(['rocket', 'quiver']);
     // The Sabot is first on key 4: the explosive autocannon is its upgrade.
     expect(familyOfSlot(4)).toEqual(['sabot', 'autocannon']);
-    expect(familyOfSlot(6)).toEqual(['judge', 'rivet']);
+    expect(familyOfSlot(6)).toEqual(['judge', 'rivet', 'ultramag']);
     // Key 5: the katana alone. The four swung beside it are switched off (`?melee=four` brings them back).
     expect(familyOfSlot(5)).toEqual(['sword']);
     for (const id of ['knife', 'crowbar', 'shovel', 'baton'] as WeaponId[]) expect(inPlay(id), id).toBe(false);
@@ -31,8 +32,8 @@ describe('family table', () => {
       if (base) expect(WEAPONS[base].slot, id).toBe(WEAPONS[id].slot);
     }
     expect(membersOf('smg')).toEqual(['harrow']);
-    expect(membersOf('judge')).toEqual(['rivet']);
-    expect(membersOf('shotgun')).toEqual(['thresher']);
+    expect(membersOf('judge')).toEqual(['rivet', 'ultramag']);
+    expect(membersOf('shotgun')).toEqual(['thresher', 'deuce']);
     expect(membersOf('rocket')).toEqual(['quiver']);
     // The autocannon is earned on its own, from a weapon cache: owning the Sabot does not bring it.
     expect(membersOf('sabot')).toEqual([]);
@@ -100,7 +101,7 @@ describe('families in the weapon system', () => {
 
   it('a pickup gives that weapon only, never the rest of its key', () => {
     // A rack, a drop pod, a cache and the Outpost's shop all hand a weapon over through give.
-    const pairs: [WeaponId, WeaponId][] = [['shotgun', 'thresher'], ['rocket', 'quiver'], ['smg', 'harrow'], ['judge', 'rivet'], ['buzzsaw', 'piledriver']];
+    const pairs: [WeaponId, WeaponId][] = [['shotgun', 'thresher'], ['rocket', 'quiver'], ['smg', 'harrow'], ['judge', 'rivet'], ['buzzsaw', 'piledriver'], ['shotgun', 'deuce'], ['judge', 'ultramag']];
     for (const [base, member] of pairs) {
       r.weapons.setLoadout(['sword'], 0);
       r.weapons.give(base);
@@ -174,6 +175,64 @@ describe('families in the weapon system', () => {
     expect(ground.y).toBe(0);
     expect(ground.z).toBeCloseTo(t.push * t.groundPush * Math.SQRT1_2, 5);
     P.forward.set(0, 0, -1);
+  });
+
+  it('the Deuce and the Ultramag are each their own unlock, from a cache of their own', () => {
+    for (const id of ['deuce', 'ultramag'] as WeaponId[]) {
+      expect(STARTING_WEAPONS, id).not.toContain(id);
+      expect(r.weapons.owned.has(id), id).toBe(false);
+      expect(CACHE_ORDER.filter(c => c === id), id).toHaveLength(1);
+      r.weapons.give(id);
+      expect(r.weapons.owned.has(id), id).toBe(true);
+    }
+    // Each came alone: the Judge and the Rivet are not owned for the Ultramag's cache.
+    expect(r.weapons.owned.has('judge')).toBe(false);
+    expect(r.weapons.owned.has('rivet')).toBe(false);
+  });
+
+  it('the Deuce fires one barrel on a left click and both at once on a right click, then shoves the player back', () => {
+    const d = WEAPONS.deuce;
+    const two = d.altBoth!;
+    r.weapons.give('deuce');
+    r.weapons.switchTo('deuce');
+    r.run(0.6);
+    expect(r.weapons.current).toBe('deuce');
+    let pellets = 0;
+    const fire = r.combat.fireRay.bind(r.combat);
+    r.combat.fireRay = (...args: Parameters<typeof fire>) => { pellets++; return fire(...args); };
+    const P = r.player;
+    const pull = (button: 'fire' | 'aim') => {
+      pellets = 0;
+      r.record.sounds.length = 0;
+      P.velocity.set(0, 0, 0);
+      r.tap(button);
+      r.run(1 / 60);
+      return P.velocity.clone();
+    };
+
+    // One barrel: one shell, one shot's pellets, no shove.
+    const one = pull('fire');
+    expect(pellets).toBe(d.pellets);
+    expect(r.weapons.ammo('deuce').mag).toBe(1);
+    expect(r.record.sounds.filter(id => id === 'dbshotgun_shot')).toHaveLength(1);
+    expect(one.length()).toBe(0);
+    // With one shell left, a right click fires the one; empty, it breaks open and reloads by itself.
+    r.run(d.interval + 0.05);
+    pull('aim');
+    expect(pellets).toBe(d.pellets);
+    expect(r.weapons.ammo('deuce').mag).toBe(0);
+    r.run(d.reloadTime + 0.5);
+    expect(r.weapons.ammo('deuce').mag).toBe(2);
+
+    // Both: both shells, twice the pellets, the shot heard twice, and a shove back along the aim.
+    P.forward.set(0, 0, -1);
+    P.grounded = false;
+    const both = pull('aim');
+    expect(pellets).toBe(d.pellets * 2);
+    expect(r.weapons.ammo('deuce').mag).toBe(0);
+    expect(r.record.sounds.filter(id => id === 'dbshotgun_shot')).toHaveLength(2);
+    expect(both.z).toBeCloseTo(two.push, 5);
+    P.grounded = true;
   });
 
   it('pressing the key again cycles, another key returns to the member last held', () => {

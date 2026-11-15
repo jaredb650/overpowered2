@@ -303,6 +303,10 @@ function makeDecals(): { texture: THREE.CanvasTexture; regions: Record<string, R
   place('cal20', 256, 40, text('20x102 HEI', TECH, 2));
   place('piledriver', 384, 64, text('PILEDRIVER', STENCIL, 3));
   place('cal127', 256, 40, text('12.7x99 API', TECH, 2));
+  // The double-barrel and the heavy pistol on keys 2 and 6.
+  place('deuce', 256, 64, text('DEUCE', STENCIL, 8));
+  place('ultramag', 384, 64, text('ULTRAMAG', STENCIL, 4));
+  place('cal50m', 256, 40, text('.50 MAG HV', TECH, 2));
   // Stencil paint is never clean. Knock specks out of everything drawn so far.
   const rng = mulberry32(77);
   g.globalCompositeOperation = 'destination-out';

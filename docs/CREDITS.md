@@ -27,6 +27,8 @@ newer recordings that replaced the armour update's two cannon shots. `armour_sto
 `armour_stopped_2.mp3` and `armour_stopped_3.mp3`, the owner's own as well. `plate_destroyed` plays one of three takes the
 same way: `plate_destroyed_1.mp3`, `plate_destroyed_2.mp3` and `plate_destroyed_3.mp3`, also the owner's own AI-generated sounds.
 `bullet_snap.mp3` and `bullet_crack.mp3` in `public/audio/sfx` (an enemy sniper's near miss) are the owner's own AI-generated sounds as well.
+`dbshotgun_shot.mp3` (the Deuce, the double-barrel) and `ultramag_shot.mp3` (the Ultramag) in `public/audio/sfx/guns` are the owner's own
+AI-generated sounds too, trimmed and mixed down to mono.
 
 The sounds in `public/audio/sfx/gore2` are the owner's own AI-generated sounds too, trimmed and mixed down to mono for the game
 (the human death lines also cut through a radio filter). Nothing in them is third-party material: `wound_minor_1.mp3`,

@@ -53,6 +53,11 @@ export const WEAPONS: Record<WeaponId, WeaponInfo> = {
     role: `Drum shotgun. ${def.thresher.pellets} pellets of ${def.thresher.damage}, ${def.thresher.magSize} shells, ${Math.round(1 / def.thresher.interval)} a second held`,
     note: 'Press 2 again to swap with the pump. It climbs as it fires: hold it down. The pump is still the harder single hit.',
   },
+  deuce: {
+    name: 'Deuce', key: '2',
+    role: `Double-barrel shotgun. ${def.deuce.pellets} pellets of ${def.deuce.damage} a barrel, ${def.deuce.magSize} shells`,
+    note: `Press 2 again to step to it. Right click fires both barrels at once: twice the pellets, and it shoves you back. Weak past ${def.deuce.falloff!.from} m.`,
+  },
   rocket: {
     name: 'Rocket', key: '3',
     role: `${def.rocket.damage} damage, ${TUNING.rocket.radius} m blast, one in the tube`,
@@ -109,6 +114,11 @@ export const WEAPONS: Record<WeaponId, WeaponInfo> = {
     name: 'Rivet', key: '6',
     role: `Pistol. ${def.rivet.damage} damage, ${def.rivet.magSize} rounds, as fast as you can click`,
     note: `Press 6 again to swap with the Judge. Out in a blink, headshots count triple, weak past ${def.rivet.falloff!.from} m.`,
+  },
+  ultramag: {
+    name: 'Ultramag', key: '6',
+    role: `Heavy pistol. ${def.ultramag.damage} damage, ${def.ultramag.magSize} rounds, the hardest-hitting pistol there is`,
+    note: 'Press 6 again to step to it. Every hit shoves the man it lands on, and a kill is thrown. Right click aims.',
   },
   lance: {
     name: 'Lance', key: '7',

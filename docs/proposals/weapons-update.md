@@ -67,6 +67,8 @@ surfaces it hits and keeps burning there.
 Built 2026-11-15: an arcing hose of burning globs, splashes into pooled patches on floors and walls that burn 7 s and light anyone in them; see `docs/notes/weapons.md`.
 
 ## 8. New weapons
+**Built 2026-11-15.** The **Deuce** (key 2, after the Thresher) and the **Ultramag** (key 6, after the Rivet), each its own unlock from its own cache (third and seventh); the owner's two shots wired, both barrels heard twice 22 ms apart.
+
 - **Double-barrel shotgun** (key 2): a super shotgun. Fire shoots one barrel, alt fire both at once.
 - **Ultramag** (key 6): a heavy semi-auto pistol, the hardest-hitting pistol in the game, with big knockback on targets. It
   looks like a futuristic take on a long-slide magnum pistol, with the slide visibly cycling on every shot. ADS, no special alt

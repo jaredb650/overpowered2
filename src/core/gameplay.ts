@@ -24,7 +24,9 @@ export type WeaponId =
   // Key 5 beside the sword: knife, crowbar, shovel, baton. Swung by the same code, src/weapons/melee.
   | 'knife' | 'crowbar' | 'shovel' | 'baton'
   // The heavy machine gun beside the rotary cannon on key 8.
-  | 'piledriver';
+  | 'piledriver'
+  // The double-barrel on key 2 and the heavy pistol on key 6 (docs/proposals/weapons-update.md section 8).
+  | 'deuce' | 'ultramag';
 
 export type Team = 'player' | 'enemy';
 
