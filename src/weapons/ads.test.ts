@@ -37,7 +37,7 @@ function pelletAngles(shots: number): number[] {
   };
   for (let i = 0; i < shots; i++) {
     r.tap('fire');
-    r.run(WEAPONS.shotgun.interval + 0.05);
+    r.run(WEAPONS.shotgun.interval + 0.3); // past the refire and the kick settling, so the cone measured is the sight's alone
   }
   r.weapons.refillMagazines();
   return angles;
