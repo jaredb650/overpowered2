@@ -494,21 +494,30 @@ describe('the Commander', () => {
 
 describe('the pump shotgun', () => {
   it('racks after each shot, back then forward, while the pump moves', () => {
+    const { interval, cycleFoley } = WEAPONS.shotgun;
+    const [[backAt], [forwardAt]] = cycleFoley!;
+    expect(forwardAt).toBeLessThan(interval); // the pump is home before the next shot can go
     r.wall(-30, 1);
     r.weapons.give('shotgun');
     r.weapons.switchTo('shotgun');
     r.run(0.6);
     expect(r.weapons.current).toBe('shotgun');
-    r.record.sounds.length = 0;
-    r.input.simulate('fire', true);
-    r.run(1 / 60);
-    r.input.simulate('fire', false);
-    r.run(0.3);
-    expect(r.record.sounds).toContain('pump_shotgun_shot');
-    expect(r.record.sounds).not.toContain('pump_rack_back');
-    r.run(0.5);
-    const back = r.record.sounds.indexOf('pump_rack_back');
-    expect(back).toBeGreaterThan(-1);
-    expect(r.record.sounds.indexOf('pump_rack_forward')).toBeGreaterThan(back);
+    // The spent shell goes into the sound log so its moment can be read against the rack.
+    const shell = (): void => void r.record.sounds.push('shell');
+    r.ctx.fx = new Proxy(r.ctx.fx, { get: (t, k) => (k === 'shellCasing' ? shell : Reflect.get(t, k)) });
+    const pump = (): string[] => r.record.sounds.filter((id) => id.startsWith('pump') || id === 'shell');
+    for (let shot = 0; shot < 2; shot++) {
+      r.record.sounds.length = 0;
+      r.input.simulate('fire', true);
+      r.run(1 / 60);
+      r.input.simulate('fire', false);
+      expect(pump()).toEqual(['pump_shotgun_shot']); // the shell stays in until the pump comes back
+      r.run(backAt - 0.05);
+      expect(pump()).toEqual(['pump_shotgun_shot']);
+      r.run(forwardAt - backAt);
+      expect(pump()).toEqual(['pump_shotgun_shot', 'shell', 'pump_rack_back']);
+      r.run(interval - forwardAt + 0.05);
+      expect(pump()).toEqual(['pump_shotgun_shot', 'shell', 'pump_rack_back', 'pump_rack_forward']);
+    }
   });
 });
