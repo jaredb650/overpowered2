@@ -96,9 +96,9 @@ export default async function prisoners(page, h) {
     ctx.input.simulate('interact', false);
     ctx.time.pushScale('photo', 0.2, 0.01, 0.01);
     const held = window.__held(window.__men[1]);
-    // Ten metres out to the side of the pass and a little behind where it takes him.
+    // Eight metres out to the side of the pass, a little ahead of where it takes him.
     const side = { x: held.dir.z, z: -held.dir.x };
-    window.__stand(held.at.x + side.x * 10 - held.dir.x * 3, held.at.z + side.z * 10 - held.dir.z * 3);
+    window.__stand(held.at.x + side.x * 8 + held.dir.x * 2, held.at.z + side.z * 8 + held.dir.z * 2);
     window.__look(held.at.x, held.at.y + 2, held.at.z);
   });
   const s = () => page.evaluate(() => {
@@ -116,21 +116,21 @@ export default async function prisoners(page, h) {
   await until(async () => true, 1, 1);
   const t0 = Date.now();
   while (Date.now() - t0 < 20000 && (await s()) < -0.4) {
-    await frame(0.4);
+    await frame(0.3);
     await h.sleep(15);
   }
-  await frame(0.4);
+  await frame(0.3);
   await shot('zip');
   out.zip = await s();
   while (Date.now() - t0 < 25000 && (await s()) < 0.05) await h.sleep(15);
   await frame(0.25);
   await shot('yank');
   out.yank = await s();
-  while (Date.now() - t0 < 30000 && (await s()) < 0.7) {
-    await frame(0.35);
+  while (Date.now() - t0 < 30000 && (await s()) < 0.4) {
+    await frame(0.2);
     await h.sleep(15);
   }
-  await frame(0.35);
+  await frame(0.2);
   await shot('ragdoll');
   out.ragdoll = await page.evaluate(() => {
     const held = window.__held(window.__men[1]);
