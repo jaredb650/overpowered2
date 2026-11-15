@@ -315,6 +315,21 @@ const stacks: SoundDef[] = [
   stack('spade_flat', [{ id: 'hit_punch', pitch: 0.66 }, { id: 'metal_clang', pitch: 0.72, duration: 0.42, volume: 0.6 }]),
   stack('spade_wall', [{ id: 'metal_clang', pitch: 0.8, duration: 0.5, volume: 0.8 }, { id: 'impact_concrete', pitch: 0.8, volume: 0.6 }]),
   stack('baton_hit', [{ id: 'hit_punch', pitch: 1.12 }, { id: 'wet_slap', pitch: 0.85, volume: 0.35 }]),
+  // The katana's stab and combo moves: stand-ins built from its own recordings and synth layers, until real ones come.
+  stack('katana_stab', [{ id: 'sword_swing', pitch: 1.35, duration: 0.2, volume: 0.75 }, { id: 'sword_sweep', pitch: 2, duration: 0.16, volume: 0.45 }]),
+  stack('katana_cleave', [{ id: 'sword_windup', pitch: 2.2, duration: 0.2, volume: 0.5 }, { id: 'sword_swing', pitch: 0.78, delay: 0.16, duration: 0.35 }]),
+  stack('katana_cleave_land', [{ id: 'sword_slam', pitch: 1.1 }, { id: 'impact_concrete', pitch: 0.7, volume: 0.8 }]),
+  stack('katana_tornado', [
+    { id: 'sword_sweep', pitch: 0.9, duration: 0.32 },
+    { id: 'sword_sweep', pitch: 1.25, delay: 0.16, duration: 0.34, volume: 0.85 },
+    { id: 'sword_swing', pitch: 0.85, delay: 0.05, volume: 0.6 },
+  ]),
+  stack('katana_wave', [
+    { id: 'sword_windup', pitch: 3, duration: 0.14, volume: 0.5 },
+    { id: 'sword_sweep', pitch: 0.8, delay: 0.05, duration: 0.5 },
+    { id: 'sword_swing', pitch: 1.1, delay: 0.05, volume: 0.7 },
+  ]),
+  stack('katana_shing', [{ id: 'sword_deflect', pitch: 0.75, volume: 0.45 }]),
   // The Lance's giant ball leaving and going off: stand-ins stacked from its own sounds and the Hellfire's blast.
   stack('lance_giant', [{ id: 'lance_thunder', pitch: 0.7, volume: 0.8 }, { id: 'lance_plasma', pitch: 0.45 }, { id: 'railgun_fire', pitch: 0.55, volume: 0.5 }]),
   stack('lance_nova', [{ id: 'hellfirerocket_explode' }, { id: 'lance_thunder', pitch: 0.6, volume: 0.9 }, { id: 'plasma_burst', pitch: 0.55 }]),

@@ -1,8 +1,8 @@
 /**
  * Every number of key 5: how far each blade and club reaches, the swings it has, what it does to a body. Tune here;
  * `Melee.ts` reads this and nothing else. The row in WEAPONS holds what every weapon has (damage, force, draw), this
- * holds what only a swung one has. The katana's specials, its guard, charged sweep and finisher blast, are `SWORD` in
- * ../data.ts, apart from the reach of its sweep, which is here.
+ * holds what only a swung one has. The katana's specials, its stab, its combo moves and its dashes, are `KATANA` below; its
+ * guard is `SWORD.windup` in ../data.ts.
  *
  * Reach is meters from the eye to the nearest surface of a body, with the swing's own step in it, so a 2.2 m reach and a
  * 0.8 m step cut a body whose front is 3 m away. A body is an upright capsule; see sweep.ts for what a swing touches.
@@ -10,11 +10,12 @@
 import type { DamageType, DecalKind } from '../../core/contracts';
 import type { SwordMove, WeaponId } from '../../core/gameplay';
 import { SWORD, type ShapedCharge } from '../data';
+import type { KatanaMove } from './combo';
 
 /**
  * `?blade=old` puts the katana back as it was before reach was measured: a 5 m cone of 120 degrees from the eye, a lunge
- * from 10 m on every swing whether the player is moving or not, and an 8 m charged sweep. The four new weapons do not
- * change with it.
+ * from 10 m on every swing whether the player is moving or not. Its slashes only: the stab and the combo moves keep their
+ * own reach. The four new weapons do not change with it.
  */
 export const BLADE_OLD = typeof location !== 'undefined' && new URLSearchParams(location.search).get('blade') === 'old';
 
@@ -213,11 +214,66 @@ export const MELEE: Record<MeleeId, MeleeDef> = {
   },
 };
 
-/** The katana's dash and its charged sweep. Specials, with their own reach, apart from the swings above. */
+/** A combo move: the name the HUD calls when it is done, and its swing. */
+export interface KatanaMoveDef {
+  name: string;
+  swing: MeleeSwing;
+}
+
+/** The katana's specials: the stab on right click, its two dashes and the combo moves (inputs in combo.ts). */
 export const KATANA = {
   dash: { range: 7, from: 7, cone: 0.93, speed: 30, seconds: 0.15, fov: 5 } as DashDef,
-  /** The charged sweep (`SWORD.area`), flat and wide: a long step into a full extension. */
-  area: { reach: 3.2, arc: (160 * Math.PI) / 180, width: 0.6 },
+  /** Right click: straight down the crosshair, narrow, a meter past the longest slash. No charge. */
+  stab: {
+    move: 'stab', seconds: 0.26, mult: 1.2, sweep: [0, 1], reach: 3.2, arc: 0.3, width: 0.3, thrust: true, force: 130, fling: 70,
+    shake: 0.014, hitStop: 0.045, killStop: 0.08, kick: [-0.01, 0, 0], fov: -2, sound: 'katana_stab',
+  } as MeleeSwing,
+  /**
+   * A stab in a chain, at a body past the slashes' reach and inside `range` (eye to his front) in the cone: the player dashes
+   * at him, the stab is aimed at him, and it lands on arrival, `stop` meters from his front. From idle the stab never dashes.
+   */
+  lock: { range: 6, cone: 0.9, speed: 28, seconds: 0.22, stop: 1.1, fov: 4 },
+  moves: {
+    // Two slashes, then a stab: overhead and straight down, through a man and into the floor.
+    cleave: {
+      name: 'CLEAVE',
+      swing: {
+        move: 'cleave', seconds: 0.5, impact: 0.36, mult: 2.6, sweep: [0, -1], reach: 2.8, arc: 1.7, width: 0.4, force: 170,
+        shake: 0.06, hitStop: 0.08, killStop: 0.13, kick: [-0.05, 0, 0.004], fov: -3, sound: 'katana_cleave',
+      },
+    },
+    // Three slashes, then a stab: a full turn, everything around.
+    tornado: {
+      name: 'TORNADO',
+      swing: {
+        move: 'spin', seconds: 0.5, mult: 1.5, sweep: [-1, 0], reach: 2.7, arc: Math.PI * 2, width: 0.75, fling: 130,
+        shake: 0.04, hitStop: 0.05, killStop: 0.09, kick: [0, -0.06, 0.035], fov: 4, sound: 'katana_tornado',
+      },
+    },
+    // Two stabs, then a slash: the cut leaves the blade and flies.
+    wave: {
+      name: 'FLYING SLASH',
+      swing: {
+        move: 'wave', seconds: 0.42, impact: 0.12, mult: 1.2, sweep: [-1, 0.06], reach: 2.2, arc: 2.5, width: 0.5,
+        shake: 0.03, hitStop: 0.04, killStop: 0.07, kick: [-0.012, -0.035, 0.02], fov: 2.5, sound: 'katana_wave',
+      },
+    },
+    // A slash, then two stabs: six stabs in half a second, the last throwing the body off the blade.
+    flurry: {
+      name: 'FLURRY',
+      swing: {
+        move: 'flurry', seconds: 0.55, mult: 0.55, sweep: [0, 1], reach: 3.0, arc: 0.45, width: 0.3, thrust: true, force: 45, fling: 160,
+        shake: 0.012, hitStop: 0.022, killStop: 0.06, kick: [-0.004, 0, 0], fov: -1.5, sound: 'katana_stab',
+      },
+    },
+  } as Record<KatanaMove, KatanaMoveDef>,
+  /** The flurry's stabs, evenly through its swing. */
+  flurryStabs: 6,
+  /**
+   * The flying slash: a crescent `half` meters either side of its line and `tall` thick, at `speed` out to `range`. It cuts
+   * every body it crosses for `mult` of the row's damage, and bursts on the wall it meets.
+   */
+  wave: { speed: 34, range: 32, half: 1.7, tall: 0.6, mult: 1.6, force: 90, burst: { radius: 3.5, damage: 90 } },
 };
 
 /** Which of the weapon ids are swung. */

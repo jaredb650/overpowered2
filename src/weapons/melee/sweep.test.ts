@@ -127,8 +127,9 @@ describe('every melee swing', () => {
 
   it('the katana cuts no further than 3 m to the front of a body, its step included', () => {
     for (const s of MELEE.sword.chain) expect(s.reach + MELEE.sword.step).toBeLessThanOrEqual(3.0 + 1e-9);
-    // Its specials have their own reach: the charged sweep a long step, the dash a run.
-    expect(KATANA.area.reach).toBeLessThanOrEqual(3.5);
+    // Its specials have their own reach: the stab a meter past the slashes, the dash a run.
+    expect(KATANA.stab.reach).toBeGreaterThan(Math.max(...MELEE.sword.chain.map(s => s.reach)) + 0.8);
+    expect(KATANA.stab.reach).toBeLessThanOrEqual(3.5);
     expect(KATANA.dash.range).toBeLessThan(10);
   });
 

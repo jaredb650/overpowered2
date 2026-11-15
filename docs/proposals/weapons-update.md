@@ -59,6 +59,7 @@ at every locked enemy in quick succession. Three charges, three locks at most.
 - **Combo moves** from chains of slashes and stabs, for example: slash, slash, stab is a downward cleave; other chains give a
   tornado slash and a flying energy slash that cuts everything along its line and bursts on a wall. Default: four or five moves,
   each with a clear input and a clear look.
+Built 2026-11-15, the katana: right click stabs (and dashes at a body just out of reach in a chain), the slam is gone, combos CLEAVE, TORNADO, FLYING SLASH, FLURRY; see `docs/notes/weapons.md`.
 
 ## 7. The Kiln: napalm
 Not a puff of fire: an arcing hose of burning liquid, like a real M2 flamethrower. The stream arcs, splashes, sticks to the

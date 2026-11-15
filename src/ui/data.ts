@@ -78,7 +78,7 @@ export const WEAPONS: Record<WeaponId, WeaponInfo> = {
     role: BLADE_OLD
       ? `Hold left click for a three-swing chain that lunges up to ${SWORD.lunge.range} m`
       : `Hold left click for a three-swing chain that reaches about ${swordReach()} m. Running at someone, it dashes up to ${KATANA.dash.range} m`,
-    note: `Hold right click to block bullets, release to sweep. Right click on swing 2 or 3 is the finisher blast.${MELEE_FOUR_ON ? ' Press 5 again for the other blades and clubs.' : ''}`,
+    note: `Right click stabs, further than a slash; in a chain it dashes at someone just out of reach. Hold it to block bullets. Combos: slash slash stab CLEAVE, slash slash slash stab TORNADO, stab stab slash FLYING SLASH, slash stab stab FLURRY.${MELEE_FOUR_ON ? ' Press 5 again for the other blades and clubs.' : ''}`,
   },
   knife: {
     name: 'Shiv', key: '5',
@@ -303,6 +303,7 @@ const SOURCE_NAMES: Readonly<Record<string, string>> = {
   ac130_25mm: 'AC-130 25mm', ac130_40mm: 'AC-130 40mm', ac130_105mm: 'AC-130 105mm', ac130_hellfire: 'AC-130 Hellfire',
   sentinel: 'Sentinels', chain_storm: 'Chain Storm', chain_reaction: 'Chain Reaction', skyfall: 'Skyfall', slam: 'Ground slam',
   grenade: 'Frag', sword_finisher: 'Sword finisher', sword_deflect: 'Deflected shot', drop_pod: 'Drop pod',
+  sword_stab: 'Sword stab', sword_cleave: 'Cleave', sword_tornado: 'Tornado', sword_wave: 'Flying slash', sword_flurry: 'Flurry',
   barrel: 'Barrel', tank: 'Tank', lava: 'Lava', crusher: 'Crusher', electric: 'Electric floor',
 };
 

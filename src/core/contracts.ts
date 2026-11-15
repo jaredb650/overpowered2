@@ -452,7 +452,7 @@ export type MuzzleKind = 'smg' | 'rifle' | 'shotgun' | 'rocket' | 'autocannon' |
 export type TracerKind = 'bullet' | 'heavy' | 'hellfire' | 'bloodthirst' | 'berserk' | 'plasma' | 'rail' | 'enemy' | 'carbine' | 'pistol' | 'sabot' | 'snipe';
 export type ExplosionKind = 'rocket' | 'grenade' | 'hellfire' | 'hellfireBullet' | 'shell' | 'plasma' | 'plasmaBurst' | 'enemy' | 'barrel' | 'nuke' | 'finisher';
 export type BeamKind = 'rail' | 'lance' | 'laser' | 'sniper' | 'heal';
-export type SlashKind = 'light' | 'heavy' | 'sweep' | 'finisher';
+export type SlashKind = 'light' | 'heavy' | 'sweep' | 'finisher' | 'wave';
 export type EmitterPreset =
   | 'stumpSpray' | 'bloodTrail' | 'rocketTrail' | 'smokeTrail' | 'fireTrail' | 'sparkTrail'
   | 'shellTrail' | 'hellfireTrail' | 'airstrikeTrail' | 'burning';

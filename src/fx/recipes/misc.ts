@@ -167,6 +167,8 @@ const SLASHES: Record<SlashKind, SlashFx> = {
   heavy: { color: hot(0xff3a00, 1.1), width: 0.6, life: 0.28, sheet: 0.85, wipe: 0.36, edge: 7 },
   sweep: { color: hot(0x88ccff, 0.9), width: 0.5, life: 0.26, sheet: 0.7, wipe: 0.4, edge: 6 },
   finisher: { color: hot(0xdfeeff, 0.85), width: 0.7, life: 0.34, sheet: 0.85, wipe: 0.32, edge: 9 },
+  // The katana's flying slash, drawn whole at once and again every meter or so of its flight.
+  wave: { color: hot(0x66e0ff, 1.2), width: 0.5, life: 0.13, sheet: 0.9, wipe: 0.06, edge: 9 },
 };
 
 /** Crescent on the swing plane: `normal` is the plane, `startDir` the blade at the start of the swing. */

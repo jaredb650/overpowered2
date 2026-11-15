@@ -5,11 +5,10 @@
  *
  * Light swings land on the frame of the click, as in the first game, and stay live for `liveFraction` of the swing, so a
  * body the player runs onto is still struck. A body just past reach is stepped into, a short pull of `step` meters. Only
- * the katana dashes: out of a run at someone ahead (KATANA.dash). Its guard, charged sweep and finisher (SWORD) are its own.
+ * the katana dashes: out of a run at someone ahead (KATANA.dash), and on a stab in a chain at someone just past its slashes
+ * (KATANA.lock). Its right click is a stab, held it is the guard, and chains of slashes and stabs spell its combo moves
+ * (combo.ts): the cleave, the tornado, the flying slash and the flurry.
  *
- * Decisions the first game left to accident (docs/original/04 section 17):
- *  - Wind-up charge matters: a tap is a weak sweep, 0.3 s of hold is the full one.
- *  - The finisher ends the chain, so its 650 ms loop is gone.
  *  - Blood Thirst and every other damage modifier applies to every attack.
  *  - Everything runs on player time, so swings stay full speed in SLOWMO.
  */
@@ -17,15 +16,18 @@ import * as THREE from 'three';
 import { CG, type Ctx, type DamageType, type SlashKind } from '../../core/contracts';
 import type { EnemyInstance, WeaponId, WeaponModifiers } from '../../core/gameplay';
 import type { GoreRegion } from '../../characters/rig';
-import { clamp, lerp, rand } from '../../core/math';
+import { clamp, rand } from '../../core/math';
 import { rigInfo } from '../../gore/rigInfo';
 import type { Combat, GuardResult } from '../Combat';
 import { SWORD, WEAPONS } from '../data';
 import { closestOnSegment } from '../geometry';
+import { readCombo, type KatanaMove } from './combo';
 import { BLADE_OLD, BODY_RADIUS, DOWNED_HEIGHT, KATANA, MELEE, REACH_DOWN, isMelee, type MeleeDef, type MeleeId, type MeleeSwing } from './data';
 import { swingTouches, sweepDirection, type BodyShape, type SwingFrame, type SwingShape } from './sweep';
 
-type State = 'idle' | 'swing' | 'windup' | 'area' | 'finisher';
+type State = 'idle' | 'swing' | 'guard';
+/** What the katana's swing in progress is, past a plain slash. */
+type Special = 'stab' | KatanaMove | null;
 
 const UP = new THREE.Vector3(0, 1, 0);
 const MAX_LIST = 48;
@@ -36,7 +38,18 @@ const STOP_MAX = 0.13;
 const LIGHT_ARC = 2.1;
 /** Radians the crescent is opened toward the camera. The sweep's radius is big enough that more would bury its tips in the floor. */
 const LIGHT_TILT = 0.5;
-const AREA_TILT = 0.22;
+/** A stab in a chain locks on to a body past this: the longest of the katana's slashes. */
+const SLASH_REACH = Math.max(...MELEE.sword.chain.map(s => s.reach));
+/** Meters of flight between two drawings of the flying slash. */
+const WAVE_DRAW = 0.55;
+/** Meters out before the flying slash is drawn at all: any nearer, it fills the view. */
+const WAVE_SHOWN = 2;
+/** The flying slash drawn: radians of its crescent, its radius, and how far it is opened toward the camera. */
+const WAVE_ARC = 2.0;
+const WAVE_RADIUS = 2.4;
+const WAVE_TILT = 0.95;
+const STAB_GLOW = 0xbfeeff;
+const WAVE_GLOW = 0x66e0ff;
 /** A slice costs about 5 ms. Past this many on one frame the rest fall as ragdolls, so a big cleave cannot blow the frame. */
 const MAX_SLICES_PER_FRAME = 3;
 /** Meters inside its reach a step or a dash leaves a body, so the swing still live on arrival lands. */
@@ -76,13 +89,24 @@ export class Melee {
   private next = 0;
   private swing: MeleeSwing = MELEE.sword.chain[0]!;
   private swingIndex = 0;
-  /** The swing in progress is the right click's. */
-  private heavyOn = false;
   private fireBuffer = 0;
   private aimBuffer = 0;
-  private power = 1;
-  private blasted = false;
   private quick = false;
+  /** The katana's chain of inputs toward a combo move, and the special in progress. */
+  private combo = '';
+  private special: Special = null;
+  /** The body a stab in a chain locked on to: the swing is aimed at him, wherever the crosshair is. */
+  private aimAt: EnemyInstance | null = null;
+  /** The flurry's stab last struck, 0 up. */
+  private jab = 0;
+
+  /** The flying slash in flight: where its leading edge is, its line, the way it lies across it, its plane, who it has cut. */
+  private readonly wave = {
+    on: false, travelled: 0, drawn: 0,
+    pos: new THREE.Vector3(), dir: new THREE.Vector3(), across: new THREE.Vector3(), normal: new THREE.Vector3(),
+    struck: [] as EnemyInstance[],
+  };
+  private readonly tip = new THREE.Vector3();
 
   /** A step or the katana's dash: who it pulls toward, for how long, how fast, and how close to their middle it stops. */
   private lungeTarget: EnemyInstance | null = null;
@@ -133,9 +157,9 @@ export class Melee {
     this.next = 0;
   }
 
-  /** The finisher has been committed to and not landed. Switching now would drop the blast. */
+  /** The cleave has been swung and not landed. Switching now would drop it. */
   get committed(): boolean {
-    return this.state === 'finisher' && !this.blasted;
+    return this.state === 'swing' && this.special === 'cleave' && !this.landed;
   }
 
   get step(): number {
@@ -148,17 +172,21 @@ export class Melee {
   }
 
   cancel(): void {
+    if (this.state === 'guard') this.ctx.viewmodel.setCharge(0);
     this.state = 'idle';
     this.timer = 0;
     this.fireBuffer = this.aimBuffer = 0;
     this.next = 0;
     this.quick = false;
-    this.heavyOn = false;
+    this.combo = '';
+    this.special = null;
     this.lungeTarget = null;
+    this.aimAt = null;
   }
 
   reset(): void {
     this.cancel();
+    this.wave.on = false;
     this.clock = 0;
     this.lastAttackAt = -10;
   }
@@ -168,6 +196,7 @@ export class Melee {
     this.equip(id);
     this.next = 0;
     this.quick = true;
+    this.special = null;
     this.startLight();
   }
 
@@ -179,6 +208,7 @@ export class Melee {
   tick(dt: number): void {
     this.clock += dt;
     this.holdLunge(dt);
+    if (this.wave.on) this.flyWave(dt);
   }
 
   /** Quick strikes run with no button logic: one swing and hand the gun back. */
@@ -203,11 +233,13 @@ export class Melee {
     if (this.timer < this.impactAt) return;
     const first = !this.landed;
     this.landed = true;
-    if (this.live()) this.swingScan();
+    if (first) this.landFx();
+    // The flurry strikes once a stab, at each stab (jabs), not for as long as it is live.
+    if (this.special === 'flurry' ? first : this.live()) this.swingScan();
     if (first) this.wallHit();
   }
 
-  private get guarded(): boolean {
+  private get katana(): boolean {
     return this.id === 'sword';
   }
 
@@ -225,45 +257,34 @@ export class Melee {
 
     switch (this.state) {
       case 'idle':
-        // A fresh click beats a held button on either side; a held LMB auto-chains, as in the first game.
+        // A fresh click beats a held button on either side; a held LMB auto-chains, as in the first game. The katana's
+        // right click stabs on the press, and held past the stab it guards.
         if (this.fireBuffer > 0) this.startLight();
-        else if (this.guarded && (this.aimBuffer > 0 || aimDown)) this.startWindup();
+        else if (this.katana && this.aimBuffer > 0) this.startStab();
+        else if (this.katana && aimDown) this.startGuard();
         else if (heavy && (this.aimBuffer > 0 || aimDown)) this.startHeavy(heavy);
         else if (fireDown) this.startLight();
         break;
 
       case 'swing':
         this.timer += dt;
+        if (this.special === 'flurry') this.jabs();
         this.landSwing();
         if (this.timer >= this.length) {
-          // The finisher needs swing 2 or 3 behind it. A press during swing 1 falls through to a wind-up.
-          const canFinish = this.guarded && !this.heavyOn && this.swingIndex >= 1;
-          if (canFinish && (this.aimBuffer > 0 || aimDown)) this.startFinisher();
+          this.special = null;
+          if (this.katana && this.aimBuffer > 0) this.startStab();
           else if (this.fireBuffer > 0 || fireDown) this.startLight();
           else if (heavy && (this.aimBuffer > 0 || aimDown)) this.startHeavy(heavy);
           else this.state = 'idle';
         }
         break;
 
-      case 'windup': {
+      case 'guard':
         this.timer += dt;
-        this.ctx.viewmodel.setCharge(clamp(this.timer / SWORD.windup.full));
-        if (!aimDown) this.startArea();
-        break;
-      }
-
-      case 'area':
-        this.timer += dt;
-        if (this.timer < this.length * 0.5) this.areaScan();
-        if (this.timer >= this.length) this.state = 'idle';
-        break;
-
-      case 'finisher':
-        this.timer += dt;
-        if (!this.blasted && this.timer >= this.seconds(SWORD.finisher.delay)) this.finisherBlast();
-        if (this.timer >= this.length) {
+        if (!aimDown || this.fireBuffer > 0) {
+          this.ctx.viewmodel.setCharge(0);
           this.state = 'idle';
-          this.next = 0;
+          if (this.fireBuffer > 0) this.startLight();
         }
         break;
     }
@@ -281,11 +302,11 @@ export class Melee {
     this.hitCount = this.killCount = 0;
     this.fireBuffer = this.aimBuffer = 0;
     this.pulled = false;
+    this.aimAt = null;
   }
 
   /** Builds the swing plane from the view. `sx`, `sy` is the blade's direction across the screen. */
-  private setPlane(sx: number, sy: number): void {
-    const fwd = this.ctx.player.forward;
+  private setPlane(sx: number, sy: number, fwd = this.ctx.player.forward): void {
     sweepDirection(fwd, sx, sy, this.sweepDir);
     this.planeNormal.crossVectors(fwd, this.sweepDir).normalize();
   }
@@ -301,144 +322,362 @@ export class Melee {
    * placed so its apex crosses the view `apex` meters ahead with both tips trailing off the edges of the screen.
    */
   private crescent(arc: number, apex: number, radius: number, tilt: number, kind: SlashKind): void {
-    const { player, fx } = this.ctx;
-    const fwd = player.forward;
-    const reach = this.vC.copy(fwd).multiplyScalar(Math.cos(tilt)).addScaledVector(this.planeNormal, Math.sin(tilt));
-    const normal = this.vD.crossVectors(reach, this.sweepDir);
+    const { player } = this.ctx;
     // Led by the player's velocity, or a fast mover outruns their own swing.
-    const center = this.vA.copy(player.eye).addScaledVector(fwd, apex).addScaledVector(reach, -radius).addScaledVector(player.velocity, 0.08);
+    this.tip.copy(player.eye).addScaledVector(player.forward, apex).addScaledVector(player.velocity, 0.08);
+    this.drawCrescent(this.tip, player.forward, this.planeNormal, this.sweepDir, arc, radius, tilt, kind);
+  }
+
+  /** A crescent whose apex is at `tip`, ahead along `fwd`, sweeping along `sweep`, opened by `tilt` toward `side`. */
+  private drawCrescent(
+    tip: THREE.Vector3, fwd: THREE.Vector3, side: THREE.Vector3, sweep: THREE.Vector3, arc: number, radius: number, tilt: number,
+    kind: SlashKind,
+  ): void {
+    const reach = this.vC.copy(fwd).multiplyScalar(Math.cos(tilt)).addScaledVector(side, Math.sin(tilt));
+    const normal = this.vD.crossVectors(reach, sweep);
+    const center = this.vA.copy(tip).addScaledVector(reach, -radius);
     const half = arc / 2;
-    const start = this.vB.copy(reach).multiplyScalar(Math.cos(half)).addScaledVector(this.sweepDir, -Math.sin(half));
-    fx.slash(center, normal, start, arc, radius, kind);
+    const start = this.vB.copy(reach).multiplyScalar(Math.cos(half)).addScaledVector(sweep, -Math.sin(half));
+    this.ctx.fx.slash(center, normal, start, arc, radius, kind);
+  }
+
+  /** A new attack outside the combo window starts the chain and the combo again. Answers whether it was chained. */
+  private chainOn(): boolean {
+    const chained = this.clock - this.lastAttackAt <= this.def.comboWindow;
+    if (!chained) {
+      this.next = 0;
+      this.combo = '';
+    }
+    this.lastAttackAt = this.clock;
+    return chained;
   }
 
   private startLight(): void {
     const d = this.def;
-    if (this.clock - this.lastAttackAt > d.comboWindow) this.next = 0;
+    this.chainOn();
+    if (this.katana && !this.quick) {
+      const read = readCombo(this.combo, 's');
+      this.combo = read.chain;
+      if (read.move) return this.startMove(read.move, null);
+    }
     this.swingIndex = this.next % d.chain.length;
     this.next = (this.swingIndex + 1) % d.chain.length;
-    this.lastAttackAt = this.clock;
-    this.heavyOn = false;
+    this.special = null;
     this.beginSwing(d.chain[this.swingIndex]!);
   }
 
+  /**
+   * The katana's right click. It leaves the slashes' place in the chain alone, so a stab between slashes extends it. In a
+   * chain it locks on to a body just past the slashes and dashes at him.
+   */
+  private startStab(): void {
+    const chained = this.chainOn();
+    const read = readCombo(this.combo, 't');
+    this.combo = read.chain;
+    const lock = chained && read.move !== 'tornado' ? this.lockOn() : null;
+    if (read.move) return this.startMove(read.move, lock);
+    this.special = 'stab';
+    this.beginSwing(KATANA.stab, lock);
+  }
+
+  /** A combo move: it ends the chain, so the next slash is the first again. */
+  private startMove(move: KatanaMove, lock: EnemyInstance | null): void {
+    const m = KATANA.moves[move];
+    this.next = 0;
+    this.special = move;
+    this.jab = 0;
+    this.beginSwing(m.swing, lock);
+    this.ctx.hud.callout?.(m.name);
+    this.ctx.audio.play('katana_shing', { pitchJitter: 0.03 });
+  }
+
   private startHeavy(swing: MeleeSwing): void {
-    this.heavyOn = true;
     // The heavy ends the chain: the next click starts it again.
     this.next = 0;
     this.lastAttackAt = this.clock;
+    this.special = null;
     this.beginSwing(swing);
   }
 
-  private beginSwing(swing: MeleeSwing): void {
+  private beginSwing(swing: MeleeSwing, lock: EnemyInstance | null = null): void {
     const c = this.ctx;
     this.swing = swing;
     const seconds = this.seconds(swing.seconds);
     this.beginAttack('swing', seconds);
-    this.setPlane(swing.sweep[0], swing.sweep[1]);
+    this.aimAt = lock;
+    if (swing.move === 'spin') {
+      // A full turn on the level, whatever the look: the plane is flat, and a kill is cut across the waist.
+      const f = this.vA.set(c.player.forward.x, 0, c.player.forward.z);
+      if (f.lengthSq() < 1e-6) f.set(-Math.sin(c.player.yaw), 0, -Math.cos(c.player.yaw));
+      this.setPlane(swing.sweep[0], swing.sweep[1], f.normalize());
+      this.planeNormal.copy(UP);
+    } else this.setPlane(swing.sweep[0], swing.sweep[1]);
     c.viewmodel.swing(swing.move, seconds);
     c.audio.play(swing.sound, { pitch: swing.pitch ?? 1, pitchJitter: 0.05 });
-    if (this.id === 'sword') {
+    if (this.katana && this.special === null) {
       const extra = SWORD.chain[this.swingIndex]?.extra;
       if (extra) c.audio.play(extra);
-      this.crescent(LIGHT_ARC, 2.2, 2.5 + this.swingIndex * 0.25, LIGHT_TILT, this.swingIndex === 2 ? 'heavy' : 'light');
-    } else if (this.def.type === 'slash' && !swing.thrust) {
-      // A short blade leaves a short, low trail. Clubs leave none: a crescent says edge.
-      this.crescent(1.6, 1.3, 1.5, LIGHT_TILT, 'light');
     }
     if (swing.fov) c.camera.fovPunch(swing.fov, 0.14);
     c.camera.kick(swing.kick[0], swing.kick[1], swing.kick[2]);
 
-    this.approach(swing);
+    this.approach(swing, lock);
     this.impactAt = seconds * (swing.impact ?? 0);
     this.landed = false;
     this.landSwing();
     this.emitFired();
   }
 
-  private startWindup(): void {
-    const c = this.ctx;
-    this.beginAttack('windup', 0);
-    c.viewmodel.swing('windup', SWORD.windup.full);
-    c.audio.play('sword_windup');
+  /** Right click held past the stab: the blade across the body. Its first moments parry (SWORD.windup). */
+  private startGuard(): void {
+    this.beginAttack('guard', 0);
+    this.ctx.viewmodel.swing('windup', 0.3);
+    this.ctx.viewmodel.setCharge(1);
   }
 
-  private startArea(): void {
+  /** What the blade draws as its blow lands: the crescent, the stab's thrust, each move's own. */
+  private landFx(): void {
     const c = this.ctx;
-    const a = SWORD.area;
-    this.power = lerp(SWORD.windup.tapPower, 1, clamp(this.timer / SWORD.windup.full));
-    const seconds = this.seconds(a.seconds);
-    this.beginAttack('area', seconds);
-    c.viewmodel.setCharge(0);
-    this.setPlane(-1, 0);
-    c.viewmodel.swing('area', seconds);
-    c.audio.play('sword_swing');
-    c.audio.play('sword_sweep');
-    const reach = BLADE_OLD ? a.reach : KATANA.area.reach + 0.6;
-    this.crescent(a.halfArc * 2, BLADE_OLD ? 3 : 2.4, reach * lerp(0.6, 0.92, this.power), AREA_TILT, 'sweep');
-    // Shakes on a whiff too: the first game's 15x contrast lives on the swing, not the contact.
-    this.combat.feel.shake(a.shake * this.power);
-    c.camera.fovPunch(4 * this.power, 0.2);
-    c.camera.kick(0, -0.03, 0.025);
-    this.areaScan();
-    this.emitFired();
+    if (!this.katana) {
+      // A short blade leaves a short, low trail. Clubs leave none: a crescent says edge.
+      if (this.def.type === 'slash' && !this.swing.thrust) this.crescent(1.6, 1.3, 1.5, LIGHT_TILT, 'light');
+      return;
+    }
+    switch (this.special) {
+      case null:
+        this.crescent(LIGHT_ARC, 2.2, 2.5 + this.swingIndex * 0.25, LIGHT_TILT, this.swingIndex === 2 ? 'heavy' : 'light');
+        break;
+      case 'stab':
+      case 'flurry':
+        this.stabFx(this.special === 'stab' ? 1 : 0.6);
+        break;
+      case 'cleave':
+        this.cleaveFx();
+        break;
+      case 'tornado': {
+        const p = c.player.position;
+        const flat = this.vB.set(c.player.forward.x, 0, c.player.forward.z).normalize();
+        // Well under the eye, so the rings read as rings and not as a line across the view.
+        const at = this.vA.set(p.x, p.y + 0.55, p.z).addScaledVector(c.player.velocity, 0.08);
+        c.fx.slash(at, UP, flat, Math.PI * 2, 2.7, 'sweep');
+        at.y += 0.4;
+        c.fx.slash(at, UP, flat, Math.PI * 2, 2.2, 'light');
+        at.y = p.y + 0.08;
+        c.fx.ring(at, UP, 0x88ccff, 3);
+        c.fx.dust(at, UP, 2);
+        this.combat.feel.shake(0.025);
+        break;
+      }
+      case 'wave':
+        this.crescent(2.4, 2.3, 2.8, LIGHT_TILT, 'light');
+        this.launchWave();
+        break;
+    }
   }
 
-  private startFinisher(): void {
+  /** The stab: speed lines down the blade and a ring where its point stops. */
+  private stabFx(size: number): void {
     const c = this.ctx;
-    const f = SWORD.finisher;
-    const seconds = this.seconds(f.seconds);
-    this.beginAttack('finisher', seconds);
-    this.blasted = false;
-    this.setPlane(0, -1);
-    c.viewmodel.swing('finisher', seconds);
-    c.audio.play('sword_swing');
-    c.audio.play('sword_slam');
-    this.crescent(2.6, 2.4, 3.2, LIGHT_TILT, 'finisher');
-    c.camera.kick(0.03, 0, 0);
-    this.emitFired();
+    const eye = c.player.eye;
+    const fwd = this.aimAt ? this.vB.subVectors(this.aimAt.center, eye).normalize() : c.player.forward;
+    const reach = Math.min(this.swing.reach, c.physics.raycast(eye, fwd, this.swing.reach, CG.World)?.distance ?? Infinity);
+    this.tip.copy(eye).addScaledVector(fwd, reach);
+    c.fx.ring(this.tip, fwd, STAB_GLOW, 0.7 * size);
+    this.tip.copy(eye).addScaledVector(fwd, 0.4);
+    if (size >= 1) c.fx.dashStreaks(this.tip, fwd);
   }
 
-  private finisherBlast(): void {
+  /** The cleave's blow: a tall crescent straight down, and the floor ahead split where the blade goes in. */
+  private cleaveFx(): void {
     const c = this.ctx;
-    const f = SWORD.finisher;
-    this.blasted = true;
-    this.next = 0;
     const { player } = c;
-    const fwd = player.forward;
-    // Lands on what the blade would strike: the floor ahead, or a wall if one is closer.
-    const at = this.vA;
-    const reach = c.physics.raycast(player.eye, fwd, f.ahead, CG.World);
-    if (reach) at.copy(reach.point).addScaledVector(reach.normal, 0.2);
-    else at.copy(player.eye).addScaledVector(fwd, f.ahead);
-    const floor = c.physics.raycast(at, this.vB.set(0, -1, 0), 8, CG.World);
-    if (floor && !reach) at.copy(floor.point).addScaledVector(floor.normal, 0.2);
+    this.crescent(2.4, 2.4, 3.2, 0.35, 'finisher');
+    const flat = this.vB.set(player.forward.x, 0, player.forward.z);
+    if (flat.lengthSq() < 1e-6) return;
+    flat.normalize();
+    const from = this.tip.copy(player.eye).addScaledVector(flat, 2.2);
+    const floor = c.physics.raycast(from, this.vC.set(0, -1, 0), 4, CG.World);
+    if (!floor) return;
+    c.fx.slam(floor.point, 0.65);
+    c.render.decals.add('slash', floor.point, floor.normal, 2.2, Math.atan2(flat.x, flat.z));
+    c.fx.sparks(floor.point, floor.normal, 22, 0xfff2cc);
+    c.audio.play('katana_cleave_land', { position: floor.point, pitchJitter: 0.05 });
+    this.combat.feel.shake(0.05);
+    c.camera.kick(-0.025, 0, 0);
+  }
 
-    c.camera.fovPunch(-6, 0.22);
-    c.camera.kick(-0.05, 0, 0);
-    c.render.post.flash(0xffffff, 0.45, 0.16);
-    c.render.post.radialBlur(0.3, 0.2);
+  /** The flurry's stabs past the first: each one strikes anew, a little off the line, rising in pitch. */
+  private jabs(): void {
+    const n = KATANA.flurryStabs;
+    const j = Math.min(n - 1, Math.floor(this.timer / (this.length / n)));
+    if (j <= this.jab) return;
+    this.jab = j;
+    this.struck.length = 0;
+    const c = this.ctx;
+    c.audio.play('katana_stab', { pitch: 1 + j * 0.06, pitchJitter: 0.04, volume: 0.8 });
+    c.camera.kick(-0.004, rand(-0.006, 0.006), rand(-0.006, 0.006));
+    this.stabFx(j === n - 1 ? 1 : 0.6);
+    this.swingScan();
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // The flying slash
+  // -------------------------------------------------------------------------------------------
+
+  private launchWave(): void {
+    const { player } = this.ctx;
+    const w = this.wave;
+    w.on = true;
+    w.travelled = 0;
+    w.drawn = WAVE_DRAW;
+    w.struck.length = 0;
+    // It lies on the plane of the cut that threw it, so it slices on that plane too.
+    w.dir.copy(player.forward);
+    w.across.copy(this.sweepDir);
+    w.normal.copy(this.planeNormal);
+    w.pos.copy(player.eye).addScaledVector(w.dir, 1.2).addScaledVector(UP, -0.15);
+  }
+
+  /** One frame of flight: cut what it crossed, draw it, and burst on a wall or fade at the end of its range. */
+  private flyWave(dt: number): void {
+    const c = this.ctx;
+    const W = KATANA.wave;
+    const w = this.wave;
+    let step = Math.min(W.speed * dt, W.range - w.travelled);
+    const wall = c.physics.raycast(w.pos, w.dir, step, CG.World);
+    if (wall) step = wall.distance;
+    this.waveScan(step);
+    w.drawn += step;
+    if (w.travelled >= WAVE_SHOWN && w.drawn >= WAVE_DRAW) {
+      w.drawn = 0;
+      this.drawCrescent(w.pos, w.dir, w.normal, w.across, WAVE_ARC, WAVE_RADIUS, WAVE_TILT, 'wave');
+    }
+    w.pos.addScaledVector(w.dir, step);
+    w.travelled += step;
+    if (wall) this.waveBurst(wall.point, wall.normal);
+    else if (w.travelled >= W.range - 1e-3) {
+      w.on = false;
+      c.fx.ring(w.pos, w.dir, WAVE_GLOW, 1.4);
+    }
+  }
+
+  /** Every body the flying slash crossed this frame: inside its width and its thickness, between here and `step` on. */
+  private waveScan(step: number): void {
+    const c = this.ctx;
+    const W = KATANA.wave;
+    const w = this.wave;
+    const mid = this.vA.copy(w.pos).addScaledVector(w.dir, step / 2);
+    const n = Math.min(c.enemies.query(mid, W.half + step / 2 + 2, this.list) || 0, MAX_LIST);
+    let slices = MAX_SLICES_PER_FRAME;
+    for (let i = 0; i < n; i++) {
+      const e = this.list[i]!;
+      if (!e.alive || w.struck.includes(e)) continue;
+      const r = this.radiusOf(e);
+      const rel = this.vB.subVectors(e.position, w.pos);
+      const along = rel.dot(w.dir);
+      if (along < -r || along > step + r) continue;
+      if (Math.abs(rel.dot(w.across)) > W.half + r) continue;
+      // The height of the slash where it crosses him, against his feet and his head.
+      const y = w.pos.y + w.dir.y * along;
+      const height = e.char.rig.height;
+      if (y < e.position.y - W.tall || y > e.position.y + height + W.tall) continue;
+      w.struck.push(e);
+      const at = this.contact.set(e.position.x, clamp(y, e.position.y + 0.3, e.position.y + height - 0.15), e.position.z);
+      this.waveCut(e, at, slices-- > 0);
+    }
+  }
+
+  private waveCut(e: EnemyInstance, at: THREE.Vector3, slice: boolean): void {
+    const c = this.ctx;
+    const W = KATANA.wave;
+    const row = WEAPONS.sword;
+    const dir = this.wave.dir;
+    const o = this.combat.strikeOptions('slash', 'sword_wave');
+    o.force = W.force;
+    o.headshotMult = row.headshotMult;
+    o.severMult = this.modifiers.alwaysSever ? 1000 : row.canSever ? row.severMult : 0;
+    o.quiet = true;
+    if (slice) o.slicePlaneNormal = this.wave.normal;
+    const res = this.combat.strike(e, at, this.vD.copy(dir).negate(), dir, undefined, undefined, row.damage * W.mult * this.modifiers.damage, o);
+    const d = this.def;
+    if (res.blocked || e.machine) {
+      c.fx.sparks(at, this.vD, d.sparks + 8, 0xfff2cc);
+      c.audio.play(res.blocked ? d.armourSound : d.machine, { position: at, pitchJitter: 0.08 });
+    } else {
+      c.audio.play(d.flesh, { position: at, pitchJitter: 0.04 });
+      c.audio.play('flesh_slice', { position: at });
+      c.fx.bloodHit(at, dir, res.killed ? 1.6 : 1.1);
+      if (res.killed) c.fx.bloodJet(at, dir, 1);
+    }
+    c.hud.hitMarker(res.killed ? 'kill' : 'body');
+    this.combat.feel.stop(res.killed ? 0.045 : 0.025, true);
+  }
+
+  /** The flying slash meets a wall: it goes off there, and cuts the wall. */
+  private waveBurst(point: THREE.Vector3, normal: THREE.Vector3): void {
+    const c = this.ctx;
+    const B = KATANA.wave.burst;
+    const w = this.wave;
+    w.on = false;
+    const at = this.vA.copy(point).addScaledVector(normal, 0.25);
+    c.render.decals.add('slash', point, normal, 2.6, 0);
+    c.fx.ring(at, normal, WAVE_GLOW, 3);
     this.combat.explode(at, {
-      radius: f.radius, damage: f.damage * this.modifiers.damage, kind: 'finisher', source: 'sword_finisher', team: 'player',
-      selfDamage: 0, playerPush: 0, normal: floor?.normal,
+      radius: B.radius, damage: B.damage * this.modifiers.damage, kind: 'finisher', source: 'sword_wave', team: 'player',
+      selfDamage: 0, playerPush: 0, normal, scale: 0.9, shake: 0.06,
     });
-    this.combat.feel.stop(f.hitStop, true);
-    // Heavy shake is never distance-scaled for the sword: the player is always at the blast.
-    this.combat.feel.shake(f.shake);
   }
 
   // -------------------------------------------------------------------------------------------
   // Closing the gap
   // -------------------------------------------------------------------------------------------
 
-  /** A step for a body just out of reach, or, with the katana out of a run, the dash. */
-  private approach(swing: MeleeSwing): void {
-    if (this.id === 'sword' && BLADE_OLD) {
+  /** A step for a body just out of reach, or, with the katana, the dash out of a run or the lock of a stab in a chain. */
+  private approach(swing: MeleeSwing, lock: EnemyInstance | null): void {
+    if (lock) {
+      const L = KATANA.lock;
+      this.pull(lock, L.speed, L.seconds, L.stop + this.radiusOf(lock));
+      const c = this.ctx;
+      c.camera.fovPunch(L.fov, 0.18);
+      c.audio.play('blade_dash', { pitchJitter: 0.04 });
+      c.fx.dashStreaks(c.player.eye, c.player.forward);
+      return;
+    }
+    // The tornado turns where it stands and the flying slash leaves the blade: neither steps in.
+    if (this.special === 'tornado' || this.special === 'wave') return;
+    if (this.katana && BLADE_OLD) {
       this.lungeOld();
       return;
     }
-    if (this.id === 'sword' && !this.heavyOn && this.dash(swing)) return;
+    if (this.katana && this.special === null && this.dash(swing)) return;
     this.stepIn(swing);
+  }
+
+  /** The body a stab in a chain locks on to: past every slash's reach, inside the lock's range and cone, in sight. */
+  private lockOn(): EnemyInstance | null {
+    const L = KATANA.lock;
+    const c = this.ctx;
+    const eye = c.player.eye;
+    const fwd = c.player.forward;
+    const n = Math.min(c.enemies.query(eye, L.range + 2, this.list) || 0, MAX_LIST);
+    let best: EnemyInstance | null = null;
+    let bestScore = 0;
+    for (let i = 0; i < n; i++) {
+      const e = this.list[i]!;
+      if (!e.alive) continue;
+      const to = this.vA.subVectors(e.center, eye);
+      const dist = to.length();
+      const radius = this.radiusOf(e);
+      const surface = dist - radius;
+      if (surface <= SLASH_REACH || surface > L.range) continue;
+      const dot = to.dot(fwd) / dist;
+      const score = dot / dist;
+      if (dot < L.cone || score <= bestScore) continue;
+      if (c.physics.raycast(eye, to.divideScalar(dist), surface, CG.World)) continue;
+      best = e;
+      bestScore = score;
+    }
+    return best;
   }
 
   /** The nearest body the swing would reach with the step taken, and not without it, pulled toward. */
@@ -601,6 +840,15 @@ export class Melee {
     f.eye.copy(this.ctx.player.eye);
     f.forward.copy(this.ctx.player.forward);
     f.sweep.copy(this.sweepDir);
+    if (this.aimAt?.alive) {
+      // Locked on: the swing goes at him, wherever the crosshair has drifted.
+      f.forward.subVectors(this.aimAt.center, f.eye).normalize();
+      sweepDirection(f.forward, swing.sweep[0], swing.sweep[1], f.sweep);
+    } else if (swing.move === 'spin') {
+      f.forward.y = 0;
+      if (f.forward.lengthSq() < 1e-6) f.forward.crossVectors(this.sweepDir, UP);
+      f.forward.normalize();
+    }
   }
 
   /** Meters from the eye to where the current shape meets `e`, or -1. Leaves the struck point in `contact`. */
@@ -628,7 +876,7 @@ export class Melee {
     const row = WEAPONS[this.id];
     const n = this.hitCount;
     const k = this.killCount;
-    const source = this.id === 'sword' ? 'sword' : this.id;
+    const source = this.special ? `sword_${this.special}` : this.id;
     const damage = row.damage * swing.mult * this.modifiers.damage;
     if (this.id === 'sword' && BLADE_OLD) this.scanCone(SWORD.reach, SWORD.halfArc, damage, source, row.force);
     else {
@@ -643,34 +891,6 @@ export class Melee {
     // Only on contact, and only once per swing: this restraint is what makes the heavy attacks land.
     if (n === 0) this.combat.feel.shake(swing.shake);
     this.ctx.hud.hitMarker(kills > 0 ? 'kill' : 'body');
-  }
-
-  private areaScan(): void {
-    const c = this.ctx;
-    const a = SWORD.area;
-    const n = this.hitCount;
-    const k = this.killCount;
-    const damage = a.damage * this.power * this.modifiers.damage;
-    if (BLADE_OLD) this.scanCone(a.reach * lerp(0.7, 1, this.power), a.halfArc, damage, 'sword_area', a.force);
-    else {
-      const s = this.shape;
-      const A = KATANA.area;
-      s.reach = A.reach * lerp(0.7, 1, this.power);
-      s.arc = A.arc;
-      s.width = A.width;
-      s.thrust = false;
-      s.pointBlank = this.def.pointBlank;
-      s.dip = REACH_DOWN;
-      this.frame.eye.copy(c.player.eye);
-      this.frame.forward.copy(c.player.forward);
-      this.frame.sweep.copy(this.sweepDir);
-      this.scan(damage, 'sword_area', a.force);
-    }
-    if (this.hitCount === n) return;
-    const kills = this.killCount - k;
-    const extra = this.hitCount - n - 1;
-    this.combat.feel.stop(Math.min((kills > 0 ? a.killStop : a.hitStop) + extra * STOP_PER_EXTRA, STOP_MAX), true);
-    c.hud.hitMarker(kills > 0 ? 'kill' : 'body');
   }
 
   /** Every body the current shape touches and the eye can see, struck once a swing. */
@@ -746,11 +966,11 @@ export class Melee {
     const swing = this.swing;
     const row = WEAPONS[this.id];
     const eye = c.player.eye;
-    const type: DamageType = this.state === 'area' ? 'slash' : swing.type ?? d.type;
+    const type: DamageType = swing.type ?? d.type;
     const blunt = type === 'melee';
     const ray = this.vD.copy(dir);
     let hit: ReturnType<Ctx['gore']['raycastCharacter']> = null;
-    if (blunt && !swing.thrust && this.state === 'swing') {
+    if (blunt && !swing.thrust) {
       // A club's flat swing comes in from the side: at the arm on that side, then the middle if the ray passes the body.
       const right = this.vC.set(-dir.z, 0, dir.x);
       if (right.lengthSq() > 1e-8) {
@@ -766,23 +986,25 @@ export class Melee {
     hit ??= c.gore.raycastCharacter(e.char, eye, ray, eye.distanceTo(near) + 1.5);
     let region: GoreRegion | undefined = hit?.region;
     let bone = hit?.bone;
-    if (!hit || (region === 'head' && !d.heads)) {
+    // The cleave goes through the man, not the arm in its way.
+    if (!hit || (region === 'head' && !d.heads) || this.special === 'cleave') {
       region = 'chest';
       bone = undefined;
     }
     let amount = damage;
-    if (d.bonus && this.state === 'swing' && this.openTo(e, dir, d.bonus.behind)) amount *= d.bonus.mult;
+    if (d.bonus && this.openTo(e, dir, d.bonus.behind)) amount *= d.bonus.mult;
 
     const point = hit ? hit.point : near;
     const o = this.combat.strikeOptions(type, source);
     o.force = force ?? swing.force ?? row.force;
     o.headshotMult = row.headshotMult;
-    const sever = this.state === 'swing' ? swing.sever ?? row.severMult : row.severMult;
+    const sever = swing.sever ?? row.severMult;
     // A blow takes nothing off, Butcher or not: a club breaks what it lands on. A blade under Butcher takes everything.
     o.severMult = blunt ? 0 : this.modifiers.alwaysSever ? 1000 : row.canSever ? sever : 0;
     o.charge = d.armour;
     o.quiet = true;
-    if (d.slices && this.slicesLeft > 0) o.slicePlaneNormal = this.planeNormal;
+    // A stab goes in, it does not split: the body comes off the blade whole.
+    if (d.slices && this.slicesLeft > 0 && !swing.thrust) o.slicePlaneNormal = this.planeNormal;
     else if (d.beheads && type === 'slash' && region === 'head' && this.neckOf(e)) {
       // An edge on the head takes it at the neck: the cut goes across the neck, whichever way the swing went.
       o.slicePlaneNormal = this.neckNormal;
@@ -801,7 +1023,8 @@ export class Melee {
     if (res.killed) {
       this.killCount++;
       if (o.slicePlaneNormal) this.slicesLeft--;
-      if (swing.fling && this.state === 'swing') this.fling(e, push, swing.fling);
+      // The flurry throws only on its last stab.
+      if (swing.fling && (this.special !== 'flurry' || this.jab === KATANA.flurryStabs - 1)) this.fling(e, push, swing.fling);
     }
     if (e.machine) {
       c.fx.sparks(point, this.vD, d.sparks, 0xfff2cc);
@@ -814,6 +1037,8 @@ export class Melee {
       if (this.id === 'sword' || res.killed) c.audio.play('flesh_slice', { position: point });
       c.fx.bloodHit(point, push, res.killed ? 1.6 : 1.1);
       if (res.killed && d.slices) c.fx.bloodJet(point, push, 1);
+      // Run through: the point comes out of his back.
+      if (this.special === 'stab' && res.killed) c.fx.ring(this.vA.copy(point).addScaledVector(dir, 0.35), dir, STAB_GLOW, 0.4);
     } else {
       // A blow: little blood, a lot of weight. The bone, if one goes, is gore's sound.
       c.fx.bloodHit(point, push, res.killed ? 0.8 : 0.45);
@@ -866,7 +1091,7 @@ export class Melee {
    * the blade just stops it. The katana's alone.
    */
   guard(incoming: THREE.Vector3): GuardResult {
-    if (this.state !== 'windup') return 'none';
+    if (this.state !== 'guard') return 'none';
     const w = SWORD.windup;
     if (-incoming.dot(this.ctx.player.forward) < w.cone) return 'none';
     const parry = this.timer <= w.parryWindow;

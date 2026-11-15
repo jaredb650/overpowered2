@@ -137,16 +137,143 @@ describe('katana reach', () => {
     expect(far.hits.length).toBe(0);
   });
 
-  it('the charged sweep reaches its own 3.2 m and not the old 8', () => {
-    const near = ahead(KATANA.area.reach - 0.3, 0.6);
-    const far = ahead(6.5);
-    r.input.simulate('aim', true);
-    r.run(0.4);
-    r.input.simulate('aim', false);
-    r.run(0.3);
-    expect(near.hits.length).toBe(1);
-    expect(near.hits[0]!.source).toBe('sword_area');
+  it('the stab on right click: no charge, a meter past a slash, and no dash from idle', () => {
+    const d = ahead(3.0);
+    click('aim');
+    expect(d.hits.length).toBe(1);
+    expect(d.hits[0]!.source).toBe('sword_stab');
+    expect(d.hits[0]!.amount).toBeCloseTo(WEAPONS.sword.damage * KATANA.stab.mult, 5);
+    // A stab goes in, it does not split.
+    expect(d.hits[0]!.slicePlaneNormal).toBeUndefined();
+
+    hold('sword');
+    const slashed = ahead(3.0);
+    click();
+    walk(0.4);
+    expect(slashed.hits.length).toBe(0);
+
+    hold('sword');
+    const far = ahead(4.5);
+    click('aim');
+    walk(0.4);
     expect(far.hits.length).toBe(0);
+    expect(-r.player.position.z).toBeLessThan(0.05);
+  });
+
+  it('a stab in a chain locks on to a body just past the slashes, dashes at him and stabs him', () => {
+    // Off the crosshair, but inside the lock's cone: the stab goes at him, not where the crosshair points.
+    const d = ahead(4.5, 0.6);
+    click();
+    walk(0.28);
+    expect(d.hits.length).toBe(0);
+    click('aim');
+    expect(-r.player.velocity.z).toBeGreaterThan(15);
+    walk(0.4);
+    expect(d.hits.length).toBe(1);
+    expect(d.hits[0]!.source).toBe('sword_stab');
+    expect(-r.player.position.z).toBeGreaterThan(2);
+    expect(-r.player.position.z).toBeLessThan(4.5);
+
+    // Past the lock's range, or outside its cone, nothing pulls.
+    hold('sword');
+    const past = ahead(KATANA.lock.range + 1);
+    const wide = ahead(4, 3);
+    click();
+    walk(0.28);
+    click('aim');
+    walk(0.4);
+    expect(past.hits.length + wide.hits.length).toBe(0);
+    expect(Math.hypot(r.player.position.x, r.player.position.z)).toBeLessThan(0.5);
+  });
+
+  it('a stab between slashes keeps the chain going', () => {
+    click();
+    walk(0.3);
+    click('aim');
+    walk(0.3);
+    expect(r.weapons.swordStep).toBe(1);
+    click();
+    walk(0.05);
+    expect(r.weapons.swordStep).toBe(2);
+  });
+
+  /** Presses `inputs` in order, `s` a slash and `t` a stab, each as the last swing ends. Returns the moves the HUD called. */
+  function combo(inputs: string): string[] {
+    const called: string[] = [];
+    r.ctx.hud.callout = name => called.push(name);
+    try {
+      for (const k of inputs) {
+        click(k === 's' ? 'fire' : 'aim');
+        walk(0.3);
+      }
+      walk(0.6);
+    } finally {
+      r.ctx.hud.callout = undefined;
+    }
+    return called;
+  }
+
+  it('slash, slash, stab is the cleave: a heavy blow straight down', () => {
+    const d = ahead(1.6);
+    expect(combo('sst')).toEqual(['CLEAVE']);
+    const blow = d.hits.find(h => h.source === 'sword_cleave');
+    expect(blow?.amount).toBeCloseTo(WEAPONS.sword.damage * KATANA.moves.cleave.swing.mult, 5);
+    // Down through him: the cut plane is upright.
+    expect(Math.abs(blow!.slicePlaneNormal!.y)).toBeLessThan(0.1);
+  });
+
+  it('three slashes and a stab is the tornado: everything all round, cut across', () => {
+    const front = ahead(1.0);
+    const back = r.enemies.add(0, 1.8);
+    const side = r.enemies.add(2.2, 0);
+    expect(combo('ssst')).toEqual(['TORNADO']);
+    for (const d of [back, side]) {
+      const h = d.hits.find(x => x.source === 'sword_tornado');
+      expect(h, 'struck by the tornado').toBeDefined();
+      expect(Math.abs(h!.slicePlaneNormal!.y)).toBeGreaterThan(0.99);
+    }
+    expect(front.hits.some(h => h.source === 'sword_tornado')).toBe(true);
+  });
+
+  it('stab, stab, slash is the flying slash: it cuts everyone down its line and bursts on the wall', () => {
+    const x = 80;
+    r.player.position.set(x, 0, 0);
+    r.player.eye.set(x, 1.6, 0);
+    r.wall(-20, 0.5, 'concrete', x, 4);
+    const line = [8, 12, 16].map(z => r.enemies.add(x + (z === 12 ? 1 : 0), -z));
+    const off = r.enemies.add(x + 4, -10);
+    const blasts = r.record.explosions;
+    expect(combo('tts')).toEqual(['FLYING SLASH']);
+    walk(0.4);
+    for (const d of line) expect(d.hits.filter(h => h.source === 'sword_wave').length).toBeGreaterThan(0);
+    expect(off.hits.length).toBe(0);
+    expect(r.record.explosions).toBe(blasts + 1);
+    expect(r.record.blasts.at(-1)!.z).toBeGreaterThan(-20.5);
+  });
+
+  it('slash, stab, stab is the flurry: six stabs on one body', () => {
+    const d = ahead(2.0);
+    expect(combo('stt')).toEqual(['FLURRY']);
+    expect(d.hits.filter(h => h.source === 'sword_flurry').length).toBe(KATANA.flurryStabs);
+  });
+
+  it('held fire and mashed stabs never spell a move', () => {
+    ahead(1.5);
+    expect(combo('ssssss')).toEqual([]);
+    hold('sword');
+    ahead(1.5);
+    expect(combo('tttt')).toEqual([]);
+  });
+
+  it('right click held past the stab is the guard: a parry as it comes up, a block after', () => {
+    r.input.simulate('aim', true);
+    walk(0.4);
+    expect(r.weapons.guard(new THREE.Vector3(0, 0, 1))).toBe('parry');
+    walk(0.4);
+    expect(r.weapons.guard(new THREE.Vector3(0, 0, 1))).toBe('block');
+    r.input.simulate('aim', false);
+    walk(0.05);
+    expect(r.weapons.guard(new THREE.Vector3(0, 0, 1))).toBe('none');
   });
 });
 

@@ -138,8 +138,11 @@ export interface PaintView {
   readonly max: number;
 }
 
-/** `heavy` is the right click of a melee weapon with no guard. Each model reads the moves as its own swings. */
-export type SwordMove = 'light1' | 'light2' | 'light3' | 'windup' | 'area' | 'finisher' | 'block' | 'heavy';
+/**
+ * `heavy` is the right click of a melee weapon with no guard. Each model reads the moves as its own swings. `windup` is the
+ * katana's guard, held; `stab` its right click; `cleave`, `spin`, `wave` and `flurry` its combo moves.
+ */
+export type SwordMove = 'light1' | 'light2' | 'light3' | 'windup' | 'block' | 'heavy' | 'stab' | 'cleave' | 'spin' | 'wave' | 'flurry';
 
 /** First-person arms and weapons. WeaponSystem drives it; it never changes game state. */
 export interface ViewmodelRig extends GameSystem {
@@ -576,6 +579,8 @@ export interface HudSystem extends GameSystem {
   feed(text: string, color?: string): void;
   /** Crosshair hit marker. */
   hitMarker(kind: 'body' | 'head' | 'kill' | 'armor' | 'armorThrough' | 'armorBroken'): void;
+  /** The name of a move just done, called out small under the crosshair, as a fighting game does. Optional for stand-ins. */
+  callout?(text: string): void;
   /** Score text that floats up from a world position. */
   floatText(position: THREE.Vector3, text: string, color?: string): void;
   /** A world position marker, e.g. a weapon cache or powerup. Returns a remover. */

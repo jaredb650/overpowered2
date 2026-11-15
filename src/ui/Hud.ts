@@ -33,6 +33,7 @@ import { Scoreboard } from './hud/scoreboard';
 import { SonarChip } from './hud/sonar';
 import { Stragglers } from './hud/stragglers';
 import { NowPlaying } from './hud/nowplaying';
+import { Callout } from './hud/callout';
 import { Screens, type ScreenName } from './screens/Screens';
 import { Flythrough } from './screens/flythrough';
 import { MenuBackdrop } from './backdrop/MenuBackdrop';
@@ -96,6 +97,7 @@ export class Hud implements HudSystem {
   private comms: CommsFeed;
   private sonar: SonarChip;
   private crosshair: Crosshair;
+  private callouts: Callout;
   private worldLayer: WorldLayer;
   private boss: BossBar;
   private bannerLanes: Banner;
@@ -146,6 +148,7 @@ export class Hud implements HudSystem {
     this.comms = new CommsFeed();
     this.sonar = new SonarChip(ctx);
     this.crosshair = new Crosshair(ctx);
+    this.callouts = new Callout();
     this.boss = new BossBar();
     this.bannerLanes = new Banner();
     this.scope = new Scope(ctx, this.settings);
@@ -165,6 +168,7 @@ export class Hud implements HudSystem {
       this.scope.el,
       this.targeting.el,
       this.crosshair.el,
+      this.callouts.el,
       this.defense?.ring,
       div('col-left',
         this.tally.el,
@@ -587,6 +591,10 @@ export class Hud implements HudSystem {
 
   hitMarker(kind: HitKind): void {
     this.crosshair.hit(kind);
+  }
+
+  callout(text: string): void {
+    this.callouts.show(text);
   }
 
   floatText(position: THREE.Vector3, text: string, color?: string): void {

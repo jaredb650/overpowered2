@@ -722,22 +722,13 @@ export const SWORD = {
     /** Leaves this much gap in front of the target. */
     stopShort: 1.5,
   },
+  /** The guard: right click held past the stab. The stab, the dashes and the combo moves are KATANA in melee/data.ts. */
   windup: {
-    full: 0.3,
-    /** A tap is still an area attack, but a weak one. */
-    tapPower: 0.55,
-    /** The press that starts blocking parries for this long. */
+    /** The guard parries for this long after it comes up. */
     parryWindow: 0.24,
     /** Cos of the block cone. */
     cone: 0.35,
     parryDamage: 3,
-  },
-  area: {
-    seconds: 0.4, damage: 100, reach: 8, halfArc: (80 * Math.PI) / 180, shake: 0.15,
-    hitStop: 0.07, killStop: 0.1, force: 110,
-  },
-  finisher: {
-    seconds: 0.35, delay: 0.2, damage: 250, radius: 8, ahead: 3, shake: 0.15, hitStop: 0.12, force: 150,
   },
   quickMelee: { recover: 0.1 },
 } as const;

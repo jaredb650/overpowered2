@@ -176,9 +176,16 @@ const ARCS: Record<'light1' | 'light2' | 'light3', readonly [Pose, Pose, Pose]> 
   light3: [[0.34, -0.12, -0.42, 0.36, -1.2, -1.57], [0.04, -0.18, -0.58, 0.5, 0, -1.57], [-0.26, -0.18, -0.46, 0.36, 1.2, -1.57]],
 };
 
-const AREA: readonly [Pose, Pose, Pose] = [[0.38, -0.12, -0.36, 0.3, -1.45, -1.57], [0.02, -0.18, -0.62, 0.42, 0.1, -1.57], [-0.42, -0.22, -0.38, 0.3, 1.9, -1.57]];
-const SLAM_TOP: Pose = [0.12, 0.2, -0.32, 2.0, -0.1, -0.1];
-const SLAM_END: Pose = [0.1, -0.11, -0.42, -0.6, 0.15, -0.35];
+/** The tornado: one flat sweep that leaves the screen on the left, then the blade comes round again from the right. */
+const SPIN: readonly [Pose, Pose, Pose] = [[0.38, -0.12, -0.36, 0.3, -1.45, -1.57], [0.02, -0.18, -0.62, 0.42, 0.1, -1.57], [-0.42, -0.22, -0.38, 0.3, 1.9, -1.57]];
+/** The cleave: over the head, then straight down into the floor. */
+const CLEAVE_TOP: Pose = [0.12, 0.2, -0.32, 2.0, -0.1, -0.1];
+const CLEAVE_END: Pose = [0.1, -0.11, -0.42, -0.6, 0.15, -0.35];
+/** The stab: drawn back at the hip, then out from low right, the point crossing the crosshair, so the blade's length shows. */
+const STAB: readonly [Pose, Pose, Pose] = [[0.22, -0.25, -0.28, 0.1, 0.22, -0.3], [0.17, -0.21, -0.5, 0.2, 0.3, -0.2], [0.15, -0.2, -0.6, 0.22, 0.34, -0.15]];
+/** Cleave and stab land at these shares of their moves, as their rows in KATANA say. */
+const CLEAVE_HIT = 0.36;
+const WAVE_HIT = 0.12;
 
 const cur = new Float64Array(6);
 const from = new Float64Array(6);
@@ -220,31 +227,44 @@ function clip(a: Anim): void {
     if (p < 0.14) mix(cur, from, cur, inOut(p / 0.14));
     if (back > 0) mix(cur, cur, REST, inOut(back));
   } else if (move === 'windup') {
-    const w = a.charge;
-    set(cur, COCK);
-    mix(cur, from, cur, outCubic(clamp(p * 1.6)));
-    // The arm starts to shake as the charge tops out.
-    const tremble = w * w * 0.0065;
-    cur[0] = cur[0]! + Math.sin(a.time * 71) * tremble;
-    cur[1] = cur[1]! + Math.sin(a.time * 83 + 1) * tremble;
-    cur[4] = cur[4]! + Math.sin(a.time * 59) * tremble * 1.5;
-    heat = w * w * 0.16;
-  } else if (move === 'area') {
-    // 80 ms into line, then one flat sweep. It leaves the screen on the left, and comes home from below.
-    arc(cur, AREA, inOut(seg(p, 0.2, 1) * 0.5 + seg(p, 0.2, 1) ** 2 * 0.5));
-    if (p < 0.2) mix(cur, from, cur, outCubic(p / 0.2));
-    if (back > 0) {
-      mix(cur, cur, REST, inOut(back));
-      cur[1] = cur[1]! - Math.sin(back * Math.PI) * 0.22;
-    }
-  } else if (move === 'finisher') {
-    // Up in 70 ms, down to land exactly on the blast at p = 0.571, then the blade stays driven into the floor.
-    if (p < 0.2) mix(cur, from, SLAM_TOP, outCubic(p / 0.2));
-    else mix(cur, SLAM_TOP, SLAM_END, inCubic(seg(p, 0.2, 0.571)));
-    const shudder = p > 0.571 ? (1 - seg(p, 0.571, 1)) * 0.012 : 0;
+    // The guard: across the body while the button is held, and home again when it is let go.
+    if (a.charge > 0) mix(cur, from, COCK, outCubic(clamp(p * 1.6)));
+    else mix(cur, cur, REST, 1 - Math.exp(-16 * a.dt));
+  } else if (move === 'stab') {
+    arc(cur, STAB, outQuad(clamp(p * 2.4)));
+    if (p < 0.1) mix(cur, from, cur, inOut(p / 0.1));
+    if (back > 0) mix(cur, cur, REST, inOut(back));
+  } else if (move === 'flurry') {
+    // Six stabs, each a little off the last one's line. The last stays out.
+    const n = 6;
+    const j = Math.min(n - 1, Math.floor(p * n));
+    const f = j === n - 1 ? Math.min(1, (p * n - j) / 0.4) : (p * n) % 1;
+    const k = f < 0.4 ? outQuad(f / 0.4) : 1 - inOut((f - 0.4) / 0.6);
+    mix(cur, STAB[0], STAB[2], k);
+    cur[0] = cur[0]! + Math.sin(j * 12.9898) * 0.05;
+    cur[1] = cur[1]! + Math.sin(j * 78.233) * 0.035;
+    if (p < 0.06) mix(cur, from, cur, inOut(p / 0.06));
+    if (back > 0) mix(cur, cur, REST, inOut(back));
+  } else if (move === 'spin') {
+    if (p < 0.5) arc(cur, SPIN, inOut(p / 0.5));
+    else arc(cur, SPIN, Math.min(0.5, ((p - 0.5) / 0.35) * 0.5));
+    if (p < 0.08) mix(cur, from, cur, outCubic(p / 0.08));
+    heat = 0.5 * (1 - seg(p, 0.5, 1));
+    if (back > 0) mix(cur, cur, REST, inOut(back));
+  } else if (move === 'wave') {
+    // A short gather while the blade fills with light, then the flat cut that throws it.
+    if (p < WAVE_HIT) mix(cur, from, ARCS.light3[0], outCubic(p / WAVE_HIT));
+    else arc(cur, ARCS.light3, outQuad(seg(p, WAVE_HIT, 1)));
+    heat = p < WAVE_HIT ? p / WAVE_HIT : 1 - seg(p, WAVE_HIT, 0.7);
+    if (back > 0) mix(cur, cur, REST, inOut(back));
+  } else if (move === 'cleave') {
+    // Up over the head, down to land exactly on the blow, then the blade stays driven into the floor.
+    if (p < 0.22) mix(cur, from, CLEAVE_TOP, outCubic(p / 0.22));
+    else mix(cur, CLEAVE_TOP, CLEAVE_END, inCubic(seg(p, 0.22, CLEAVE_HIT)));
+    const shudder = p > CLEAVE_HIT ? (1 - seg(p, CLEAVE_HIT, 1)) * 0.012 : 0;
     cur[1] = cur[1]! + Math.sin(a.time * 90) * shudder;
     cur[3] = cur[3]! + Math.sin(a.time * 77) * shudder;
-    heat = seg(p, 0.05, 0.42);
+    heat = seg(p, 0.05, CLEAVE_HIT);
     if (back > 0) mix(cur, cur, REST, inOut(back));
   } else {
     set(cur, REST);

@@ -58,7 +58,7 @@ export default async function anim(page, h) {
         await snap(`${id}-${i}`);
       }
     } else if (mode === 'sword') {
-      const moves = JSON.parse(process.env.VM_MOVES ?? '[["light1",0.25],["light2",0.3],["light3",0.35],["area",0.4],["finisher",0.35]]');
+      const moves = JSON.parse(process.env.VM_MOVES ?? '[["light1",0.25],["light2",0.3],["light3",0.35],["stab",0.26],["cleave",0.5],["spin",0.5],["wave",0.42],["flurry",0.55]]');
       for (const [move, T] of moves) {
         await page.evaluate(([m, t]) => window.__vm.rig.swing(m, t), [move, T]);
         let at = 0;

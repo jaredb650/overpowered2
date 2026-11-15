@@ -20,7 +20,7 @@ import { noop } from '../core/stubs';
 import { Physics } from '../physics/Physics';
 import { MOVE } from '../player/tuning';
 import type { Combat } from '../weapons/Combat';
-import { createCombat, createWeapons, SWORD, TUNING, WEAPONS } from '../weapons';
+import { createCombat, createWeapons, TUNING, WEAPONS } from '../weapons';
 import { HIT_STOP, LANCE_OLD, SHAPED_CHARGE } from '../weapons/data';
 import { MELEE_FOUR_ON } from '../weapons/families';
 import { BLADE_OLD, KATANA, MELEE } from '../weapons/melee/data';
@@ -1102,101 +1102,70 @@ const tests: Record<string, (r: Rig) => void> = {
       void d;
     }
   },
-  'sword: area sweep charges and reaches its own 3.2 m'(r) {
-    if (BLADE_OLD) return check('the measured reach: not with ?blade=old', true);
+  'sword: the stab reaches past a slash, and in a chain dashes at a body just past it'(r) {
     clean(r, 'sword');
-    const mid = r.enemies.add(0, -3.2);
-    const close = r.enemies.add(0.4, -1.9);
+    const at3 = r.enemies.add(0, -3.35);
     r.player.eye.y = 1;
     r.input.simulate('aim', true);
-    run(r, 0.02, 60);
+    run(r, 0.016, 60);
     r.input.simulate('aim', false);
     run(r, 0.3, 60);
-    check('tap: weak and short', near(close.hits[0]?.amount ?? 0, 100 * SWORD.windup.tapPower, 8) && mid.hits.length === 0, `${close.hits[0]?.amount?.toFixed(1)} / mid ${mid.hits.length}`);
+    check('a stab at 3 m lands', at3.hits[0]?.source === 'sword_stab', at3.hits[0]?.source);
     clean(r, 'sword');
-    const far = r.enemies.add(0, -(KATANA.area.reach + 0.1));
-    const past = r.enemies.add(0.5, -(KATANA.area.reach + 1.4));
+    const far = r.enemies.add(0, -4.85);
     r.player.eye.y = 1;
     r.input.simulate('aim', true);
-    run(r, 0.4, 60);
+    run(r, 0.016, 60);
     r.input.simulate('aim', false);
     run(r, 0.3, 60);
-    check('charged: full damage at full reach', far.hits[0]?.amount === 100, far.hits[0]?.amount);
-    check('and nothing past it', past.hits.length === 0, past.hits.length);
-  },
-  'sword (blade=old): area sweep charges and reaches further'(r) {
-    if (!BLADE_OLD) return check('runs with ?blade=old only', true);
+    check('from idle, no dash and no reach at 4.5 m', far.hits.length === 0, far.hits.length);
     clean(r, 'sword');
-    const near7 = r.enemies.add(0, -7.5);
-    const close = r.enemies.add(0, -4);
+    const locked = r.enemies.add(0, -4.85);
     r.player.eye.y = 1;
-    r.input.simulate('aim', true);
-    run(r, 0.02, 60);
-    r.input.simulate('aim', false);
-    run(r, 0.3, 60);
-    check('tap: weak and short', near(close.hits[0]?.amount ?? 0, 100 * SWORD.windup.tapPower, 8) && near7.hits.length === 0, `${close.hits[0]?.amount?.toFixed(1)} / far ${near7.hits.length}`);
-    clean(r, 'sword');
-    const far = r.enemies.add(0, -7.5);
-    r.player.eye.y = 1;
-    r.input.simulate('aim', true);
-    run(r, 0.4, 60);
-    r.input.simulate('aim', false);
-    run(r, 0.3, 60);
-    check('charged: full damage at full reach', far.hits[0]?.amount === 100, far.hits[0]?.amount);
-  },
-  'sword: finisher needs swing 2, blasts 200 ms later, ends the chain'(r) {
-    clean(r, 'sword');
-    const d = r.enemies.add(0, -3);
-    r.player.eye.y = 1;
+    let z = 0;
+    const move = (): void => {
+      z += r.player.velocity.z / 60;
+      r.player.place(0, z);
+      r.player.eye.y = 1;
+    };
     r.input.simulate('fire', true);
     run(r, 0.016, 60);
     r.input.simulate('fire', false);
-    run(r, 0.3, 60);
-    r.input.simulate('fire', true);
-    run(r, 0.016, 60);
-    r.input.simulate('fire', false);
+    run(r, 0.27, 60, move);
     r.input.simulate('aim', true);
-    run(r, 0.05, 60);
+    run(r, 0.016, 60, move);
     r.input.simulate('aim', false);
-    const before = d.hits.length;
-    let blastAt = -1;
-    let t = 0;
-    run(r, 0.9, 60, f => {
-      t = f / 60;
-      if (blastAt < 0 && d.hits.length > before) blastAt = t;
-    });
-    const blast = d.hits[before];
-    check('finisher explosive', blast?.type === 'explosive' && blast?.source === 'sword_finisher', blast?.source);
-    check('it landed', blast !== undefined, d.hits.length);
+    run(r, 0.4, 60, move);
+    check('in a chain, the stab dashes in and lands', locked.hits[0]?.source === 'sword_stab' && z < -2, `${locked.hits[0]?.source} z ${z.toFixed(2)}`);
+  },
+  'sword: slash, slash, stab is the cleave, and it ends the chain'(r) {
+    clean(r, 'sword');
+    const d = r.enemies.add(0, -2.2);
+    r.player.eye.y = 1;
+    for (const action of ['fire', 'fire', 'aim'] as const) {
+      r.input.simulate(action, true);
+      run(r, 0.016, 60);
+      r.input.simulate(action, false);
+      run(r, 0.3, 60);
+    }
+    run(r, 0.4, 60);
+    const blow = d.hits.find(h => h.source === 'sword_cleave');
+    check('the cleave landed', blow !== undefined, d.hits.map(h => h.source).join());
+    check('it hits for its multiple', near(blow?.amount ?? 0, WEAPONS.sword.damage * KATANA.moves.cleave.swing.mult, 1), blow?.amount);
     check('resets the chain', r.weapons.swordStep === 0, r.weapons.swordStep);
-    check('finisher shake is heavy', Math.max(...r.record.trauma) > 0.8, Math.max(...r.record.trauma).toFixed(2));
-    check('finisher hit-stop', Math.max(...r.record.stops) >= SWORD.finisher.hitStop, r.record.stops.join());
-
-    clean(r, 'sword');
-    r.input.simulate('fire', true);
-    run(r, 0.016, 60);
-    r.input.simulate('fire', false);
-    r.input.simulate('aim', true);
-    run(r, 0.05, 60);
-    r.input.simulate('aim', false);
-    run(r, 0.6, 60);
-    check('RMB on swing 1 is no finisher', !r.record.sounds.includes('sword_slam'), '');
+    check('cleave hit-stop', Math.max(...r.record.stops) >= KATANA.moves.cleave.swing.hitStop, r.record.stops.join());
   },
-  'sword: switch during a committed finisher waits for the blast'(r) {
+  'sword: a switch during the cleave\'s wind-up waits for the blow'(r) {
     clean(r, 'sword');
-    r.input.simulate('fire', true);
-    run(r, 0.016, 60);
-    r.input.simulate('fire', false);
-    run(r, 0.3, 60);
-    r.input.simulate('fire', true);
-    run(r, 0.016, 60);
-    r.input.simulate('fire', false);
-    r.input.simulate('aim', true);
-    run(r, 0.32, 60);
-    r.input.simulate('aim', false);
+    for (const action of ['fire', 'fire', 'aim'] as const) {
+      r.input.simulate(action, true);
+      run(r, 0.016, 60);
+      r.input.simulate(action, false);
+      if (action === 'fire') run(r, 0.3, 60);
+    }
     r.weapons.switchTo('smg');
     check('still holding the sword', r.weapons.current === 'sword', r.weapons.current);
-    run(r, 0.3, 60);
+    run(r, 0.4, 60);
     check('switches once it has landed', r.weapons.current === 'smg', r.weapons.current);
   },
   'sword: guard parries early and blocks late'(r) {
@@ -1206,8 +1175,9 @@ const tests: Record<string, (r: Rig) => void> = {
     const dir = new THREE.Vector3(0, 0, 1);
     const d = r.enemies.add(0, -20);
     r.player.eye.y = 1.2;
+    // The press stabs; held past the stab, it guards.
     r.input.simulate('aim', true);
-    run(r, 0.05, 60);
+    run(r, 0.35, 60);
     r.ctx.combat.fireRay(from, dir, shot);
     check('parry takes no damage', r.player.damage.length === 0, r.player.damage.length);
     check('parry sends it back on the crosshair', d.hits.length === 1 && d.hits[0]!.source === 'sword_deflect', d.hits.length);
@@ -1220,7 +1190,7 @@ const tests: Record<string, (r: Rig) => void> = {
     check('no guard, no block', r.player.damage.length === 1, r.player.damage.length);
     r.player.aim(0, 0, 1);
     r.input.simulate('aim', true);
-    run(r, 0.05, 60);
+    run(r, 0.35, 60);
     r.ctx.combat.fireRay(from, dir, shot);
     check('guard only works facing the shot', r.player.damage.length === 2, r.player.damage.length);
   },

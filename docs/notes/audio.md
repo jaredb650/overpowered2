@@ -79,6 +79,12 @@ One call, all layers start on the same audio frame.
 | `spade_flat` | `hit_punch` at 0.66 + `metal_clang` at 0.72, cut at 420 ms. The face of the spade on anything |
 | `spade_wall` | `metal_clang` at 0.8, cut at 500 ms + `impact_concrete` at 0.8 |
 | `baton_hit` | `hit_punch` at 1.12 + `wet_slap` at 0.85, a third volume |
+| `katana_stab` | Stand-in. `sword_swing` at 1.35, cut at 200 ms + `sword_sweep` at 2, cut at 160 ms, under half volume. The katana's stab, and each stab of the flurry played rising |
+| `katana_cleave` | Stand-in. `sword_windup` at 2.2, cut at 200 ms, half volume + `sword_swing` at 0.78, 160 ms later. The cleave going up and coming down |
+| `katana_cleave_land` | Stand-in. `sword_slam` at 1.1 + `impact_concrete` at 0.7. The cleave going into the floor |
+| `katana_tornado` | Stand-in. `sword_sweep` at 0.9, then at 1.25 160 ms later + `sword_swing` at 0.85. The tornado's full turn |
+| `katana_wave` | Stand-in. `sword_windup` at 3, cut at 140 ms + `sword_sweep` at 0.8 + `sword_swing` at 1.1. The flying slash leaving the blade; its burst on a wall is the `finisher` explosion's own sound |
+| `katana_shing` | Stand-in. `sword_deflect` at 0.75, under half volume. The ring under a combo move's callout |
 | `lance_giant` | Stand-in. `lance_thunder` at 0.7 + `lance_plasma` at 0.45 + `railgun_fire` at 0.55, half volume. The Lance's giant ball leaving |
 | `lance_nova` | Stand-in. `hellfirerocket_explode` + `lance_thunder` at 0.6 + `plasma_burst` at 0.55, in 3D. The giant ball's plasma blast |
 
