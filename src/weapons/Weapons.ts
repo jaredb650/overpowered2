@@ -37,8 +37,6 @@ const SLOT_ACTIONS = [
 ] as const;
 
 const UP = new THREE.Vector3(0, 1, 0);
-/** Half-width of the Rocket's laser dot, metres. */
-const DOT = 0.1;
 /** `?reach=0` takes range falloff out of every gun: the SMG and the Rivet hit as hard at 100 m as at 10. */
 const REACH_ON = typeof location === 'undefined' || new URLSearchParams(location.search).get('reach') !== '0';
 /** Seconds a rate boost cuts off a reload. Capped so Berserk does not turn reloads into a blink. */
@@ -1615,7 +1613,8 @@ export class Weapons implements WeaponSystem, Guard {
 
   /**
    * The Rocket's right click toggles its laser. While it is up, the dot sits where the crosshair points (the first wall or
-   * body on the eye line) and every rocket it fired steers for it; it is drawn as a thin red line from the muzzle and a dot.
+   * body on the eye line) and every rocket it fired steers for it; it is drawn as a thin red line from the muzzle. The dot is
+   * the crosshair's (ui/hud/crosshair.ts), so it holds one size at any range.
    */
   private updateLaser(): void {
     const c = this.ctx;
@@ -1636,9 +1635,6 @@ export class Weapons implements WeaponSystem, Guard {
     L.at.copy(eye).addScaledVector(forward, Math.max(0, reach - 0.04));
     L.on = true;
     c.fx.beam(this.muzzle(false), L.at, 'laser');
-    // The dot: a short fat stroke across the view, which the line layer draws as a glowing spot.
-    const side = this.right.crossVectors(forward, UP).normalize().multiplyScalar(DOT);
-    c.fx.beam(this.v.copy(L.at).sub(side), this.w.copy(L.at).add(side), 'laser', DOT * 2);
   }
 
   // -------------------------------------------------------------------------------------------

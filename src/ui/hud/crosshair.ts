@@ -12,6 +12,7 @@ import { Flag, Label, Meter, Shown, div, markup, span } from '../dom';
 import type { HudState } from '../state';
 import { LANCE_OLD, WEAPONS } from '../../weapons/data';
 import { LANCE_LOOK, MARKS } from '../../weapons/lance';
+import { ROCKET_LASER } from '../../weapons/laser';
 import { LockMarkers } from './locks';
 import { crosshairRead } from '../../allies/rules';
 
@@ -43,6 +44,14 @@ const tick = (len: number, w: number, r = 0) => poly(`${-w},${-r - len} ${w},${-
 const four = (shape: string) => [turned(shape, 0), turned(shape, 90), turned(shape, 180), turned(shape, 270)] as const;
 const DOT = '<rect x="-1.6" y="-1.6" width="3.2" height="3.2"/>';
 const DIAMOND = poly('0,-3.2 3.2,0 0,3.2 -3.2,0');
+
+/**
+ * The Rocket's core while its laser is on: four corner ticks round a clear centre, and in it the laser's dot, a red core in a
+ * soft glow, the same size at any range. Inline styles, so a hostile read tints the ticks and leaves the dot red.
+ */
+const LASER_CORE = [0, 90, 180, 270].map(a => turned(poly('-10,-10 -5.5,-10 -5.5,-8.6 -8.6,-8.6 -8.6,-5.5 -10,-5.5'), a)).join('') +
+  '<circle r="5.5" style="fill:#ff2010;opacity:0.3;stroke:none"/><circle r="3.6" style="fill:#ff2010;opacity:0.45;stroke:none"/>' +
+  '<circle r="2.2" style="fill:#ff3a22;stroke:#000;stroke-width:0.7"/>';
 
 const ARC_E = poly('23,-17 26,-18.5 31,-9 32.4,0 31,9 26,18.5 23,17 27.6,8.6 29,0 27.6,-8.6');
 const ARC_W = turned(ARC_E, 180);
@@ -224,6 +233,8 @@ export class Crosshair {
   private nextArc = 0;
   private weapon: WeaponId | null = null;
   private def: Reticle = RETICLES.smg;
+  /** The Rocket's core is showing LASER_CORE. */
+  private laser = false;
   private bloom = 0;
   private gapQ = NaN;
   private spin = 0;
@@ -352,6 +363,7 @@ export class Crosshair {
     const def = RETICLES[id];
     this.def = def;
     this.core.replaceChildren(markup(svgWrap(def.core)));
+    this.laser = false;
     for (let i = 0; i < 4; i++) {
       const shape = def.arms[i]!;
       this.arms[i]!.replaceChildren(...(shape ? [markup(svgWrap(shape))] : []));
@@ -387,6 +399,11 @@ export class Crosshair {
 
   update(s: HudState, dt: number, heat: number): void {
     if (s.weapon !== this.weapon) this.setWeapon(s.weapon);
+    const laser = ROCKET_LASER.on && WEAPONS[s.weapon].laser === true;
+    if (laser !== this.laser) {
+      this.laser = laser;
+      this.core.replaceChildren(markup(svgWrap(laser ? LASER_CORE : this.def.core)));
+    }
 
     const hidden = s.scoped || s.targeting !== null;
     // Aimed down sights, the gun's own sight is the crosshair. The ammo and combo readouts stay.
