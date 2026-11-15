@@ -22,6 +22,7 @@ import { Painter, angleOff, type PaintCandidate } from './swarm';
 import { isMelee } from './melee/data';
 import { Melee } from './melee/Melee';
 import { LANCE_ON, Lance } from './lance';
+import { ROCKET_LASER } from './laser';
 
 interface Slot {
   def: WeaponDef;
@@ -35,6 +36,8 @@ const SLOT_ACTIONS = [
 ] as const;
 
 const UP = new THREE.Vector3(0, 1, 0);
+/** Half-width of the Rocket's laser dot, metres. */
+const DOT = 0.1;
 /** `?reach=0` takes range falloff out of every gun: the SMG and the Rivet hit as hard at 100 m as at 10. */
 const REACH_ON = typeof location === 'undefined' || new URLSearchParams(location.search).get('reach') !== '0';
 /** Seconds a rate boost cuts off a reload. Capped so Berserk does not turn reloads into a blink. */
@@ -253,6 +256,7 @@ export class Weapons implements WeaponSystem, Guard {
     this.occupied = 0;
     this.sword.reset();
     this.lance.reset();
+    ROCKET_LASER.sight = ROCKET_LASER.on = false;
     this.drawLeft = 0;
     this.ctx.viewmodel.equip?.(this.current, 0.01);
   }
@@ -438,6 +442,8 @@ export class Weapons implements WeaponSystem, Guard {
   private frame(): void {
     const c = this.ctx;
     const dt = c.time.playerDt;
+    // Guidance is on only on a frame the launcher is up with its sight on, so a holster, a death or a switch lets go.
+    ROCKET_LASER.on = false;
     this.sword.tick(dt);
     this.updateAim(dt);
     if (c.player.alive === false) return;
@@ -456,6 +462,7 @@ export class Weapons implements WeaponSystem, Guard {
     this.readSwitch();
     this.updateGrenade(dt);
     this.updateZoom();
+    this.updateLaser();
     this.updateDrySwap(dt);
 
     if (this.sword.inQuickStrike) {
@@ -1168,6 +1175,7 @@ export class Weapons implements WeaponSystem, Guard {
     p.tracer = undefined;
     p.homing = undefined;
     p.fuse = undefined;
+    p.wired = undefined;
     p.trail = trail;
     p.gib = false;
     p.severMult = this.modifiers.alwaysSever ? 1000 : def.canSever ? def.severMult : 0;
@@ -1189,6 +1197,7 @@ export class Weapons implements WeaponSystem, Guard {
     const kind: ExplosionKind = hell ? 'hellfire' : 'rocket';
     const damage = def.damage * m.damage;
     const p = this.fillProjectile('rocket', def, TUNING.rocket.speed, damage, hell ? 'hellfire' : 'smoke');
+    p.wired = def.laser === true;
     p.gib = true;
     p.killStop = HIT_STOP.heavyKill;
     p.explosion = {
@@ -1306,6 +1315,10 @@ export class Weapons implements WeaponSystem, Guard {
       return;
     }
     if (!p.painting) {
+      if (input.pressed('aim') && s.cooldown <= 0) {
+        this.squareSalvo(s);
+        return;
+      }
       if (this.pressBuffer <= 0 || s.cooldown > 0) return;
       if (!this.canShoot(s)) {
         this.dryFire();
@@ -1346,6 +1359,17 @@ export class Weapons implements WeaponSystem, Guard {
     this.salvoClock = 0;
     this.salvoDumb = aimed === 0;
     this.stepSalvo(s, 0);
+  }
+
+  /** Right click: every loaded tube at once, straight and unguided, four abreast in a 2 by 2 block. No marks. */
+  private squareSalvo(s: Slot): void {
+    if (!this.canShoot(s)) {
+      if (!this.startReload()) this.wentDry();
+      return;
+    }
+    const n = this.salvoRounds(s);
+    for (let i = 0; i < n; i++) this.fireMissile(s, i, true);
+    s.cooldown = TUNING.quiver.recover;
   }
 
   /** One tube after another, `interval` apart, on the player's clock. */
@@ -1412,7 +1436,7 @@ export class Weapons implements WeaponSystem, Guard {
     this.inView.push(slot);
   }
 
-  private fireMissile(s: Slot, index: number): void {
+  private fireMissile(s: Slot, index: number, square = false): void {
     const c = this.ctx;
     const def = s.def;
     const t = TUNING.quiver;
@@ -1433,7 +1457,11 @@ export class Weapons implements WeaponSystem, Guard {
     const sx = barrel % 2 === 0 ? -1 : 1;
     const sy = barrel < 2 ? 1 : -1;
     const dir = this.dir.copy(fwd);
-    if (this.salvoDumb) {
+    if (square) {
+      // Each from its own corner of the block, its line a hair outward, so the square holds and opens slowly with range.
+      p.origin.addScaledVector(right, sx * t.square * 0.5).addScaledVector(up, sy * t.square * 0.5);
+      dir.addScaledVector(right, sx * t.squareSpread).addScaledVector(up, sy * t.squareSpread).normalize();
+    } else if (this.salvoDumb) {
       // Centred a touch above the crosshair, so the low pair does not go into the floor a few metres out.
       dir.addScaledVector(right, sx * t.fan * 0.5).addScaledVector(up, (sy + 1) * t.fan * 0.4).normalize();
       randomInCone(dir, t.dumbSpread, dir);
@@ -1442,10 +1470,10 @@ export class Weapons implements WeaponSystem, Guard {
       dir.addScaledVector(right, sx * t.fan).addScaledVector(up, sy * t.fan * 0.7 + t.fan * 0.6).normalize();
     }
     p.velocity.copy(dir).multiplyScalar(t.launchSpeed);
-    p.target = this.salvoDumb ? null : this.salvoTargets[index] ?? null;
+    p.target = square || this.salvoDumb ? null : this.salvoTargets[index] ?? null;
     p.turnRate = t.turnRate;
     p.steerDelay = t.steerDelay;
-    p.weave = t.weave;
+    p.weave = square ? 0 : t.weave;
     p.accel = t.accel;
     p.topSpeed = t.topSpeed;
     p.size = t.size;
@@ -1496,6 +1524,38 @@ export class Weapons implements WeaponSystem, Guard {
     const w = this.aim;
     c.camera.setAim?.(1 - (def.ads?.zoom ?? 0) * w, lerp(1, this.aimSensitivity, w));
     c.viewmodel.setAim?.(w);
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // Laser sight
+  // -------------------------------------------------------------------------------------------
+
+  /**
+   * The Rocket's right click toggles its laser. While it is up, the dot sits where the crosshair points (the first wall or
+   * body on the eye line) and every rocket it fired steers for it; it is drawn as a thin red line from the muzzle and a dot.
+   */
+  private updateLaser(): void {
+    const c = this.ctx;
+    if (!WEAPONS[this.current].laser) return;
+    const L = ROCKET_LASER;
+    if (c.input.pressed('aim')) {
+      L.sight = !L.sight;
+      c.audio.play('rocket_laser', { pitch: L.sight ? 1.15 : 0.85 });
+    }
+    if (!L.sight) return;
+    const { eye, forward } = c.player;
+    let reach: number = TUNING.rocket.laserRange;
+    const wall = c.physics.raycast(eye, forward, reach, CG.World);
+    if (wall) reach = wall.distance;
+    const body = c.enemies.raycast(eye, forward, reach);
+    if (body) reach = body.distance;
+    // A hair short of the surface, so the dot is not inside it.
+    L.at.copy(eye).addScaledVector(forward, Math.max(0, reach - 0.04));
+    L.on = true;
+    c.fx.beam(this.muzzle(false), L.at, 'laser');
+    // The dot: a short fat stroke across the view, which the line layer draws as a glowing spot.
+    const side = this.right.crossVectors(forward, UP).normalize().multiplyScalar(DOT);
+    c.fx.beam(this.v.copy(L.at).sub(side), this.w.copy(L.at).add(side), 'laser', DOT * 2);
   }
 
   // -------------------------------------------------------------------------------------------

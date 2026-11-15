@@ -8,6 +8,7 @@ import type { HudState } from '../state';
 import { TUNING, WEAPONS as WEAPON_DEFS } from '../../weapons/data';
 import { SLOT_ORDER, familyOf, familyOfSlot } from '../../weapons/families';
 import { LANCE_LOOK, LANCE_ON } from '../../weapons/lance';
+import { ROCKET_LASER } from '../../weapons/laser';
 
 const MAX_GRENADE_PIPS = TUNING.grenade.max;
 
@@ -157,6 +158,8 @@ export class Arms {
     }
     // The Lance wears its mode, which right click toggles, on its name.
     if (s.weapon === 'lance' && LANCE_ON) this.name.set(`${WEAPONS.lance.name} · ${LANCE_LOOK.ball ? 'BALL' : 'BEAM'}`);
+    // The Rocket's laser sight, which right click toggles.
+    if (WEAPON_DEFS[s.weapon].laser) this.name.set(ROCKET_LASER.sight ? `${WEAPONS[s.weapon].name} · LASER` : WEAPONS[s.weapon].name);
 
     const melee = s.magSize === 0;
     const count = s.bottomless && !melee ? '∞' : melee ? '–' : String(s.mag);

@@ -12,6 +12,7 @@ import { SHAPED_CHARGE, SURFACE_SOUND, TUNING } from './data';
 import { closestSegmentPoints } from './geometry';
 import { damageKept, loadBudget, makeBudget, passBody, passWall, type Budget } from './penetration';
 import { retarget, turnToward, weave } from './swarm';
+import { ROCKET_LASER } from './laser';
 import { ProjectileVisuals } from './ProjectileVisuals';
 
 const MAX_PROJECTILES = 256;
@@ -109,6 +110,8 @@ export interface Projectile {
   age: number;
   /** Drawn size. */
   size: number;
+  /** Steers for ROCKET_LASER while it is on. */
+  wired: boolean;
   blastScale: number | undefined;
   blastShake: number | undefined;
 }
@@ -123,7 +126,7 @@ function createProjectile(): Projectile {
     explosive: false, blastRadius: 0, blastDamage: 0, blastKind: 'rocket', blastInstakill: false,
     blastSelf: undefined, blastPush: undefined, pinned: false, lastHit: -1,
     budget: makeBudget(), baseDamage: 0, armorPiercing: false,
-    target: null, turnRate: 0, line: new THREE.Vector3(), steerDelay: 0, weave: 0, weavePhase: 0, accel: 0, topSpeed: 0, age: 0, size: 1,
+    target: null, turnRate: 0, line: new THREE.Vector3(), steerDelay: 0, weave: 0, weavePhase: 0, accel: 0, topSpeed: 0, age: 0, size: 1, wired: false,
     blastScale: undefined, blastShake: undefined,
   };
 }
@@ -246,6 +249,7 @@ export class Projectiles {
     p.topSpeed = spec.topSpeed ?? 0;
     p.age = 0;
     p.size = spec.size ?? 1;
+    p.wired = spec.wired ?? false;
     p.visualHold = 0;
     p.visualOffset.set(0, 0, 0);
     if (spec.visualFrom) {
@@ -307,7 +311,9 @@ export class Projectiles {
   private step(p: Projectile, dt: number): void {
     const c = this.ctx;
     p.age += dt;
-    if (p.turnRate > 0) this.guide(p, dt);
+    if (p.wired) {
+      if (ROCKET_LASER.on) this.wire(p, dt);
+    } else if (p.turnRate > 0) this.guide(p, dt);
     else if (p.homing > 0) this.steer(p, dt);
     if (p.gravity > 0) p.velocity.y -= p.gravity * dt;
 
@@ -359,6 +365,14 @@ export class Projectiles {
     to.sub(p.position).normalize().multiplyScalar(speed);
     p.velocity.lerp(to, 1 - Math.exp(-p.homing * dt));
     p.velocity.setLength(speed);
+  }
+
+  /** Wire guidance, HL2's: the nose turns toward wherever the laser dot is now, at `laserTurn`, so it arcs onto it. */
+  private wire(p: Projectile, dt: number): void {
+    const want = this.want.subVectors(ROCKET_LASER.at, p.position);
+    const dist = want.length();
+    if (dist < 1e-3) return;
+    turnToward(p.velocity, want.divideScalar(dist), TUNING.rocket.laserTurn * dt);
   }
 
   /**

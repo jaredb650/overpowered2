@@ -39,6 +39,7 @@ Today a pickup unlocks its whole number key: the pump shotgun also gives the Thr
 Every weapon is its own unlock.
 
 ## 4. New alt fires
+**Rocket and Quiver built 2026-11-15.** The Rocket has no ADS: right click toggles a laser sight and rockets in flight turn toward the crosshair at 2.4 rad/s; the Quiver's right click fires all four at once, straight, in a 0.6 m square opening 0.012 rad a tube; see docs/notes/weapons.md, The Rocket's laser and The Quiver.
 - **Rocket**: no ADS. Alt fire switches on a laser sight; the rocket follows wherever the crosshair points, like the AC-130's
   glide bomb.
 - **Quiver**: alt fire is dumb fire: all four rockets at once, flying straight in a 2 by 2 square. No lock in this mode.

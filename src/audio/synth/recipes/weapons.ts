@@ -107,6 +107,11 @@ export const weapons = [
   r('quiver_full', { dur: 0.42, mix: 'reward', over: { volume: 0.36 } }, s => {
     [0, 0.09, 0.18].forEach(t => s.at(t, () => s.osc('square', 1760, 0.07).lp(4200).env(perc(0.065, 0.7, 0.002)).out(0.55)));
   }),
+  // Right click on the Rocket: the laser sight switched, a small hard click. Played higher on, lower off.
+  r('rocket_laser', { dur: 0.08, mix: 'reward', over: { volume: 0.3 } }, s => {
+    click(s, 2600, 0.8, 0.004);
+    s.osc('square', 1500, 0.03).lp(4200).env(perc(0.025, 0.6, 0.001)).out(0.35);
+  }),
   r('quiver_cancel', { dur: 0.3, mix: 'reward', over: { volume: 0.28 }, expect: { trend: -1 } }, s => {
     s.osc('square', [[0, 900], [0.24, 300]], 0.26).lp(2400).env(perc(0.24, 0.7, 0.004)).out(0.6);
   }),

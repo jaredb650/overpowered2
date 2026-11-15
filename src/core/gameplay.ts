@@ -344,6 +344,8 @@ export interface ProjectileSpec {
   topSpeed?: number;
   /** Scales the drawn body. */
   size?: number;
+  /** The Rocket's: steers for the laser dot while the sight is on, flies straight while it is off (weapons/laser.ts). */
+  wired?: boolean;
 }
 
 export interface CombatSystem extends GameSystem {

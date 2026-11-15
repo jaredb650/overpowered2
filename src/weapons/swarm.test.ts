@@ -8,6 +8,7 @@ import type { MissileTarget } from '../core/gameplay';
 import { TUNING, WEAPONS } from './data';
 import { Painter, angleOff, heavy, nextMark, retarget, stackOn, turnToward, weave, type PaintCandidate } from './swarm';
 import { makeRange, type Dummy, type Range } from './testkit';
+import { ROCKET_LASER } from './laser';
 
 const v = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
 const target = (x: number, z: number, extra: Partial<MissileTarget> = {}): MissileTarget & { alive: boolean } =>
@@ -378,6 +379,119 @@ describe('the Quiver in the weapon system', () => {
     r.run(3);
     const dealt = hitsBy(lone).reduce((n, h) => n + h.amount, 0);
     expect(dealt).toBeGreaterThan(WEAPONS.rocket.damage * 2 * 3);
+  });
+
+  it('right click fires all four at once, straight, in a 2 by 2 square that opens a little with range, and locks nothing', () => {
+    r.enemies.add(0, -25);
+    draw();
+    r.tap('aim');
+    const m = missiles();
+    expect(m.length).toBe(4);
+    expect(r.weapons.ammo('quiver').mag).toBe(0);
+    expect(r.weapons.paint!.marks.length).toBe(0);
+    expect(m.every(p => p.target === null && p.weave === 0)).toBe(true);
+    // Across the line of flight (-Z) the four sit on the corners of a square `square` a side.
+    const corners = () => m.map(p => `${Math.sign(Math.round(p.position.x * 10))},${Math.sign(Math.round((p.position.y - 1) * 10))}`).sort();
+    expect(corners()).toEqual(['-1,-1', '-1,1', '1,-1', '1,1']);
+    const width = () => Math.max(...m.map(p => p.position.x)) - Math.min(...m.map(p => p.position.x));
+    expect(width()).toBeCloseTo(T.square, 1);
+    const heading = m.map(p => p.velocity.clone().normalize());
+    r.run(0.4);
+    // Straight: each still on the line it left on, a few hundredths of a radian off the crosshair.
+    for (let i = 0; i < 4; i++) expect(m[i]!.velocity.clone().normalize().angleTo(heading[i]!)).toBeLessThan(1e-3);
+    for (const h of heading) expect(h.angleTo(new THREE.Vector3(0, 0, -1))).toBeLessThan(T.squareSpread * 2);
+    expect(width()).toBeGreaterThan(T.square);
+    expect(width()).toBeLessThan(T.square * 3);
+  });
+
+  it('right click with two tubes loaded fires the two', () => {
+    draw();
+    r.weapons.ammo('quiver').mag = 2;
+    r.tap('aim');
+    expect(missiles().length).toBe(2);
+    expect(r.weapons.ammo('quiver').mag).toBe(0);
+  });
+});
+
+describe('the Rocket\'s laser', () => {
+  let r: Range;
+  beforeEach(async () => {
+    r = await makeRange();
+    r.reset();
+    r.tap('weapon3');
+    r.run(0.5);
+    expect(r.weapons.current).toBe('rocket');
+  });
+  const rockets = () => r.combat.projectiles.active.filter(p => p.source === 'rocket');
+
+  it('has no sights: right click toggles the laser, with a click, and the view stays as it is', () => {
+    expect(WEAPONS.rocket.ads).toBeUndefined();
+    r.tap('aim');
+    expect(ROCKET_LASER.sight).toBe(true);
+    expect(ROCKET_LASER.on).toBe(true);
+    expect(r.record.sounds).toContain('rocket_laser');
+    r.run(0.4);
+    expect(r.weapons.aim).toBe(0);
+    r.tap('aim');
+    expect(ROCKET_LASER.sight).toBe(false);
+    expect(ROCKET_LASER.on).toBe(false);
+  });
+
+  it('the dot sits where the crosshair meets the first wall', () => {
+    r.wall(-30, 1);
+    r.tap('aim');
+    expect(ROCKET_LASER.at.z).toBeCloseTo(-29.5, 0);
+  });
+
+  it('a rocket in flight turns toward where the crosshair points now, no faster than its turn rate', () => {
+    r.tap('aim');
+    r.tap('fire');
+    const p = rockets()[0]!;
+    const start = p.velocity.clone().normalize();
+    // Swing the aim hard right: the rocket comes round in an arc, not at once.
+    r.player.forward.set(1, 0, -1).normalize();
+    r.run(0.1);
+    const turned = p.velocity.clone().normalize().angleTo(start);
+    expect(turned).toBeGreaterThan(0.05);
+    expect(turned).toBeLessThanOrEqual(TUNING.rocket.laserTurn * 0.15 + 1e-3);
+    r.run(0.8);
+    expect(p.velocity.x).toBeGreaterThan(0);
+    // Heading for the dot down the new line.
+    const want = ROCKET_LASER.at.clone().sub(p.position).normalize();
+    expect(p.velocity.clone().normalize().angleTo(want)).toBeLessThan(0.15);
+  });
+
+  it('with the laser off it flies straight, and switching off or putting the launcher away leaves a rocket on its line', () => {
+    r.tap('fire');
+    const p = rockets()[0]!;
+    r.player.forward.set(1, 0, -1).normalize();
+    r.run(0.3);
+    expect(p.velocity.x).toBeCloseTo(0, 5);
+
+    r.player.forward.set(0, 0, -1);
+    r.run(WEAPONS.rocket.reloadTime + 0.5);
+    r.tap('aim');
+    r.tap('fire');
+    const q = rockets().find(x => x !== p)!;
+    r.tap('aim');
+    r.player.forward.set(1, 0, -1).normalize();
+    r.run(0.3);
+    expect(q.velocity.x).toBeCloseTo(0, 5);
+
+    // The sight is still up, but a launcher put away guides nothing.
+    r.player.forward.set(0, 0, -1);
+    r.run(WEAPONS.rocket.reloadTime + 0.5);
+    r.tap('aim');
+    r.tap('fire');
+    const w = rockets().find(x => x !== p && x !== q)!;
+    expect(w).toBeDefined();
+    r.run(0.05);
+    r.tap('weapon1');
+    r.player.forward.set(1, 0, -1).normalize();
+    r.run(0.3);
+    expect(ROCKET_LASER.sight).toBe(true);
+    expect(ROCKET_LASER.on).toBe(false);
+    expect(w.velocity.x).toBeCloseTo(0, 5);
   });
 });
 

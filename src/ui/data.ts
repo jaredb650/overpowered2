@@ -61,12 +61,12 @@ export const WEAPONS: Record<WeaponId, WeaponInfo> = {
   rocket: {
     name: 'Rocket', key: '3',
     role: `${def.rocket.damage} damage, ${TUNING.rocket.radius} m blast, one in the tube`,
-    note: 'Direct hits gib. Fire at your feet to rocket jump, for very little health.',
+    note: 'Direct hits gib. Right click: a laser sight, and rockets in flight follow the crosshair while it is on. Fire at your feet to rocket jump, for very little health.',
   },
   quiver: {
     name: 'Quiver', key: '3',
     role: `Four tubes. Hold to paint up to ${TUNING.quiver.marks} targets, let go and the missiles home on them`,
-    note: `Press 3 again to swap with the rocket. A tap fires all four straight. Each blast is ${TUNING.quiver.radius} m; all four on one target is a lot.`,
+    note: `Press 3 again to swap with the rocket. A tap fires all four straight; right click fires all four at once in a square. Each blast is ${TUNING.quiver.radius} m; all four on one target is a lot.`,
   },
   sabot: {
     name: 'Sabot', key: '4',

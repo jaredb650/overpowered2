@@ -79,6 +79,8 @@ export interface WeaponDef {
   headHops?: number;
   /** Right click raises the scope, as on the autocannon. */
   scope?: boolean;
+  /** Right click toggles a laser sight, and its rockets in flight steer for the crosshair while it is on. See laser.ts. */
+  laser?: boolean;
   /**
    * Aim down sights on right click, for a gun whose right button does nothing else. `zoom` is the share the view narrows by,
    * `time` the seconds the gun takes to come up to the eye. What ADS does to spread, recoil and speed is `TUNING.ads`.
@@ -241,7 +243,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     sounds: [{ id: 'rocket_fire', pitchJitter: 0.03 }],
     reloadFoley: [[0.15, 'reload_rocket'], [0.8, 'reload_bolt']], drawSound: 'weapon_draw_heavy',
     recoil: 1, kick: 0.022, shake: 0.04, fovPunch: 2.2,
-    ads: { zoom: 0.42, time: 0.3 },
+    laser: true,
   },
   // Four tubes in a block. Hold to paint up to four marks, let go and they leave one tube after another and home on them.
   // Each is a small ROCKET: the same blast rules for the player, a third of the reach. How it flies is TUNING.quiver.
@@ -483,7 +485,11 @@ export const TUNING = {
     /** Fraction of max reserve every owned gun is lifted to when a wave clears. */
     waveFloor: 0.2,
   },
-  rocket: { speed: 40, radius: 8, selfDamage: 0.14, playerPush: 27 },
+  rocket: {
+    speed: 40, radius: 8, selfDamage: 0.14, playerPush: 27,
+    /** Laser guidance: radians a second the nose turns toward the dot (a 17 m circle at `speed`, so it arcs), and the dot's reach. */
+    laserTurn: 2.4, laserRange: 400,
+  },
   /**
    * The Quiver. Hold to paint, let go to fire. A mark lands every `paintEvery` on the enemy nearest the crosshair inside
    * `cone` that is in sight and not yet marked; with nobody new in view it stacks on one already marked, a boss or a
@@ -509,6 +515,12 @@ export const TUNING = {
     fan: 0.05,
     /** Cone of a dumb salvo, fired with no marks, around each tube's own line. */
     dumbSpread: 0.04,
+    /**
+     * Right click: all four at once, straight and unguided, in a 2 by 2 block `square` metres a side, each line opening
+     * `squareSpread` radians outward from the block's centre, so the square widens with range (1.8 m a side at 50 m).
+     */
+    square: 0.6,
+    squareSpread: 0.012,
     /**
      * Radians the line a missile steers for swings either side of its mark, side to side and half that up and down. It is
      * the heading's offset, so it is also about how far the heading swings: at 0.22 a low missile dived into the floor.
