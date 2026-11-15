@@ -89,7 +89,7 @@ export interface WeaponDef {
   ads?: { readonly zoom: number; readonly time: number };
   /** Right click fires `rounds` this far apart, then waits `recover` before the next shot: the Rivet's burst. Instead of ADS. */
   altBurst?: { readonly rounds: number; readonly gap: number; readonly recover: number };
-  /** Hold right click to charge rounds, paint a head for each, and fan them off: the Judge's. See fan.ts. Instead of ADS. */
+  /** Hold right click to charge rounds and paint heads, let go to fan them off: the Judge's. See fan.ts. Instead of ADS. */
   altFan?: FanSpec;
   /**
    * Right click fires both barrels at once, the Deuce's: twice the pellets, `kick` times the recoil and shake, the shot heard
@@ -341,8 +341,9 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     sounds: [{ id: 'revolver_shot', pitchJitter: 0.02 }],
     reloadFoley: [[0.04, 'revolver_open'], [0.34, 'revolver_load'], [0.74, 'revolver_close'], [0.9, 'revolver_cock']],
     recoil: 1, kick: 0.03, shake: 0.03, fovPunch: 2.4,
-    // Right click fans the hammer, so no ADS: up to three bars of 0.4 s, 1.5 s to paint a head a bar, a shot every 0.1 s.
-    altFan: { bars: 3, perBar: 0.4, drain: 1.5, gap: 0.1, cone: 0.07, range: 90, recover: 0.35 },
+    // Right click fans the hammer, so no ADS: up to three bars of 0.4 s, heads painted while held (0.35 s more on a man for
+    // another lock on him), a shot a bar every 0.1 s on release with the world at half speed.
+    altFan: { bars: 3, perBar: 0.4, stack: 0.35, gap: 0.1, cone: 0.07, range: 90, recover: 0.35, slow: 0.5 },
   },
   // The Judge is six slow verdicts. This is fifteen quick ones: out first, as fast as the finger, and nothing at long range.
   rivet: {

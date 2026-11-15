@@ -34,7 +34,7 @@ export const weapons = [
       .env([[0, 0.0001], [0.02, 1], [1, 0.0001]]).out(0.55);
     s.osc('sine', [[0, 6100], [1, 1700]], 0.7).env(perc(0.55, 0.3)).out();
   }),
-  // The Judge's fanning: a bar charged, a head locked, and the tension while the bars drain (bent up by Weapons.fanHooks).
+  // The Judge's fanning: a bar charged, a head locked, and the tension under the hold (a step higher a bar, Weapons.fanBar).
   r('judge_fan_tick', { dur: 0.14, mix: 'reward', over: { volume: 0.3, maxVoices: 3 } }, s => {
     click(s, 2600, 0.6, 0.006);
     s.osc('square', 1320, 0.06).lp(3000).env(perc(0.05, 0.6, 0.002)).out(0.5);

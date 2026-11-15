@@ -50,6 +50,9 @@ const MAX_IN_VIEW = 32;
 const SPIN_PITCH = 0.45;
 /** Seconds of `minigun_spindown` that are the run-down from full spin, before the cluster stops. See its recipe. */
 const SPIN_RUNDOWN = 1.1;
+/** The Judge's fanning: its key on the world clock's slow motion, and the share of a shot's kick each fanned round gives. */
+const FAN_SLOWMO = 'judgeFan';
+const FAN_KICK = 0.6;
 /** Seconds between two reports in `minigun_fire_loop`: a gun firing faster than that (`?slot8=old`) plays it faster. */
 const FIRE_LOOP_STEP = 0.04;
 
@@ -142,20 +145,21 @@ export class Weapons implements WeaponSystem, Guard {
   private readonly paintables: MissileTarget[] = [];
   private readonly look = (): readonly PaintCandidate[] => this.gatherInView();
 
-  /** The Judge's fanning: bars charged on right click, a lock a bar, then a headshot at each. See fan.ts. */
+  /** The Judge's fanning: bars charged on right click, heads painted while it is held, a shot a bar on release. See fan.ts. */
   private readonly fan = new Fan();
   private fanSlot: Slot | null = null;
+  /** A round has left in this fan, so the gun recovers when it ends. */
+  private fanFired = false;
   /** Seconds the off hand stays up on the hammer after the last fanned shot. */
   private fanHand = 0;
   private readonly fanHooks: FanHooks = {
-    look: locked => this.fanLook(locked),
+    look: () => this.fanLook(),
     head: (e, out) => this.combat.headOf(e, out),
-    bar: n => this.ctx.audio.play('judge_fan_tick', { pitch: 1 + (n - 1) * 0.14 }),
-    release: () => this.setLoop('judge_fan_tension'),
-    drain: k => this.loop?.setPitch(lerp(1, 1.9, k), 0.05),
-    lock: n => this.ctx.audio.play('judge_fan_lock', { pitch: 1 + (n - 1) * 0.12 }),
-    shoot: lock => this.fanShot(lock.enemy),
-    end: fired => this.fanEnd(fired),
+    bar: n => this.fanBar(n),
+    lock: (_n, onHim) => this.ctx.audio.play('judge_fan_lock', { pitch: 1 + (onHim - 1) * 0.18 }),
+    release: () => this.fanRelease(),
+    shoot: lock => this.fanShot(lock),
+    end: () => this.fanEnd(),
   };
 
   /** The player's pose as the rig sampled it, one system after this one, last frame. See flashPoint. */
@@ -1448,6 +1452,8 @@ export class Weapons implements WeaponSystem, Guard {
   private stopPaint(): void {
     if (this.painter.painting || this.salvoLeft > 0 || this.fan.busy) this.ctx.viewmodel.setCharge(0);
     this.fan.cancel();
+    this.ctx.time.popScale(FAN_SLOWMO);
+    this.fanFired = false;
     this.fanHand = 0;
     this.painter.cancel();
     this.salvoLeft = 0;
@@ -1571,8 +1577,8 @@ export class Weapons implements WeaponSystem, Guard {
     return this.fan.busy;
   }
 
-  /** The unlocked head nearest the crosshair inside the fan's cone, with nothing solid between it and the eye. */
-  private fanLook(locked: readonly FanLock[]): FanLock['enemy'] | null {
+  /** The head nearest the crosshair inside the fan's cone, with nothing solid between it and the eye. */
+  private fanLook(): FanLock['enemy'] | null {
     const c = this.ctx;
     const t = WEAPONS[this.current].altFan!;
     const eye = c.player.eye;
@@ -1580,10 +1586,9 @@ export class Weapons implements WeaponSystem, Guard {
     const alive = c.enemies.alive;
     let best: FanLock['enemy'] | null = null;
     let bestAngle = Infinity;
-    outer: for (let i = 0; i < alive.length; i++) {
+    for (let i = 0; i < alive.length; i++) {
       const e = alive[i]!;
       if (!e.alive) continue;
-      for (let k = 0; k < locked.length; k++) if (locked[k]!.enemy === e) continue outer;
       const head = this.combat.headOf(e, this.v);
       const angle = angleOff(eye, c.player.forward, head, t.range, cos);
       if (angle < 0 || angle >= bestAngle) continue;
@@ -1596,20 +1601,40 @@ export class Weapons implements WeaponSystem, Guard {
     return best;
   }
 
-  /** One slap of the hammer: a round at his head from the eye, whatever the crosshair is on now. */
-  private fanShot(target: FanLock['enemy']): void {
+  /** A bar charged: a tick, and the tension under the hold, a step higher each bar. */
+  private fanBar(n: number): void {
+    this.ctx.audio.play('judge_fan_tick', { pitch: 1 + (n - 1) * 0.14 });
+    this.setLoop('judge_fan_tension');
+    this.loop?.setPitch(1 + (n - 1) * 0.35, 0.08);
+  }
+
+  /** Let go: the world slows for the dump, but only for a fan with someone painted. A blind dump runs at normal speed. */
+  private fanRelease(): void {
+    if (this.fan.marks.length > 0) this.ctx.time.pushScale(FAN_SLOWMO, this.fanSlot!.def.altFan!.slow, 0.05, 0.15);
+  }
+
+  /** One slap of the hammer: a round into the lock's head from the eye, or down the crosshair with the gun's own cone. */
+  private fanShot(lock: FanLock | null): void {
+    const c = this.ctx;
     const s = this.fanSlot!;
     const def = s.def;
     // The tension breaks on the first shot.
     if (this.loopKind === 'judge_fan_tension') this.endContinuous();
+    this.fanFired = true;
     this.consume(s);
-    this.shotFeedback(def, false);
-    this.combat.fireAtHead(this.ctx.player.eye, target, this.fillShot(def, def.damage * this.modifiers.damage));
+    this.shotFeedback(def, false, FAN_KICK);
+    const shot = this.fillShot(def, def.damage * this.modifiers.damage);
+    const eye = c.player.eye;
+    if (lock) this.combat.fireAtHead(eye, lock.enemy, shot);
+    else this.combat.fireRay(eye, def.spread > 0 ? randomInCone(c.player.forward, this.coneOf(def), this.dir) : c.player.forward, shot);
   }
 
-  private fanEnd(fired: boolean): void {
+  /** The fan is over, fired or let go of: the slow motion and the tension end here, whatever ended it. */
+  private fanEnd(): void {
+    this.ctx.time.popScale(FAN_SLOWMO);
     if (this.loopKind === 'judge_fan_tension') this.endContinuous();
-    if (!fired) return;
+    if (!this.fanFired) return;
+    this.fanFired = false;
     const t = this.fanSlot!.def.altFan!;
     this.fanSlot!.cooldown = t.recover / Math.max(this.modifiers.fireRate, 0.01);
     this.fanHand = t.recover;
