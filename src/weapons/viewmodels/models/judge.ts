@@ -214,8 +214,8 @@ function buildJudge(kit: Kit): Model {
   model.hand('loaderHold', [0, -0.002, 0.038], [-0.2, 0.1, -0.97], [0.5, 0.8, -0.3], 'loader');
   model.hand('craneHold', [-0.06, 0.0, -0.01], [-0.1, 0.3, -0.95], [0.9, -0.3, -0.2], 'crane');
   // Fanning: the flat of the off hand held over the top strap, and swept back across the hammer spur on each shot.
-  model.hand('fanHold', [-0.01, 0.12, 0.0], [0, 0, -1], [1, -0.25, 0]);
-  model.hand('fanSlap', [-0.005, 0.085, 0.08], [0, 0, -1], [1, -0.35, 0]);
+  model.hand('fanHold', [-0.01, 0.088, 0.035], [0, 0, -1], [1, -0.25, 0]);
+  model.hand('fanSlap', [-0.005, 0.072, 0.088], [0, 0, -1], [1, -0.35, 0]);
   return model;
 }
 
