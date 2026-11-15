@@ -209,9 +209,9 @@ const TRACERS: Record<TracerKind, TracerFx> = {
   enemy: { color: hot(0xff3020, 3), width: 0.022, speed: 170, length: 6, core: 3.5, minPx: 1.4 },
   carbine: { color: hot(0xffe0a0, 3), width: 0.02, speed: 700, length: 20, core: 6, minPx: 1.3 },
   pistol: { color: hot(0xffd070, 3), width: 0.011, speed: 480, length: 6, core: 6, minPx: 1 },
-  // Thick and fast enough that its far segments, past each wall, are drawn before the eye can tell them apart.
-  sabot: { color: hot(0x9fd0ff, 3.4), width: 0.11, speed: 1400, length: 70, core: 9, minPx: 3 },
-  snipe: { color: hot(0xff1040, 3.4), width: 0.035, speed: 1400, length: 70, core: 6, minPx: 2.5 },
+  // 12 km/s: a 240 m shot crosses in 20 ms, a frame or so, so the dart reads as instant and every segment past each wall lands together.
+  sabot: { color: hot(0x9fd0ff, 3.4), width: 0.05, speed: 12000, length: 120, core: 9, minPx: 2 },
+  snipe: { color: hot(0xff1040, 3.4), width: 0.035, speed: 12000, length: 120, core: 6, minPx: 2 },
 };
 
 export function tracer(core: FxCore, from: THREE.Vector3, to: THREE.Vector3, kind: TracerKind): void {
