@@ -302,6 +302,16 @@ and not one louder shot; `perFrame` 2 lets the second through. `ultramag_shot` i
 first 39 and 67 ms of dead air cut, faded out by 0.9 s and encoded at 160 kbit/s as the other gun files. The Deuce's break-open
 reload uses `revolver_open`, `reload_shell_in` twice and `revolver_close`; the Ultramag's is the magazine foley.
 
+**The Stakegun's and the Raufoss round's** (2026-11-15, the owner's own recordings, weapons-update plan section 4; all four
+were WAV inside an `.mp3` name, mixed to mono at 44.1 kHz and encoded at 160 kbit/s as the gun files). `stakegun_shot`
+replaces the synthesized `stake_fire` (kept in the catalog): 0.24 on the ladder, the `gun` mix it had (loudness 0.191).
+`stakegun_string` is the string drawn back, on the foley mix at the pump's level (0.054; loudness 0.072): its 0.30 to 0.89 s,
+the creak building to the latch, sped to 1.25 with its pitch kept (0.47 s), so cued 0.04 s after a shot its click lands on
+the ram coming home at 0.46 s, and at 0.6 of a reload on the lever's rack. `stake_beep` is an exploding bolt's countdown,
+one beep a cue (0.15 s of tone, lifted 24 dB), 3D on `enemyFx` at 0.08 (loudness 0.373), four voices, played four times,
+quickening, each 0.06 higher. `raufoss_detonation` is a Raufoss round bursting, `blastSmall` at 0.1 (loudness 0.133), its
+first 0.75 s faded out; at the Piledriver's eight a second it is held to three voices and one start a frame.
+
 ## Sample packs
 
 Real recordings from free libraries. Sources, authors and licences for every file are in `docs/CREDITS.md`. One id holds all its variants, and pitch
@@ -347,7 +357,7 @@ Rendered at load. x4 means four rendered variants behind one id.
 - **Cannon bursts:** `cannon_burst` x4 (a 20 mm round going off where it lands: a dry crack and a knock, 0.1 s, in 3D at the burst, up to 5 voices)
 - **Piledriver (the heavy machine gun on key 8):** `piledriver_fire` x3 (a crack over a 56 Hz blow that takes 0.2 s to go, the bolt running home after it), `piledriver_charge` (the charging handle hauled back and let go, in its reload)
 - **Kiln:** `flame_ignite`, `flame_hose_loop` (the napalm hose: a pressurised hiss, a low roar and the fuel sputtering; synthesized stand-in), `flame_splash` (a glob landing: a wet slap and a sizzle, 3D, 3 voices, at most one per 0.13 s; stand-in), `flame_stop`, `flame_burn_loop` (a burning body, 3D). `flame_loop`, the old puff stream's, is kept but no longer played
-- **Stakegun:** `stake_fire`, `stake_reload`, `stake_hit_wall`, `stake_hit_flesh`, `stake_twang`
+- **Stakegun:** `stake_fire` (replaced by the owner's `stakegun_shot`), `stake_reload`, `stake_hit_wall`, `stake_hit_flesh`, `stake_twang`
 - **Grenades:** `grenade_pin`, `grenade_throw`, `grenade_bounce` x3, `grenade_explode` x2
 - **Reload foley:** `reload_mag_out`, `reload_mag_in`, `reload_bolt`, `reload_shell_in` x3, `reload_pump`, `reload_rocket`, `reload_cell`
 - **Handling:** `weapon_dry`, `weapon_draw`, `weapon_draw_heavy`, `weapon_draw_blade`, `weapon_holster`

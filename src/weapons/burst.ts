@@ -65,7 +65,7 @@ export class Bursts {
     // A bigger round is a touch louder and lower.
     s.volume = 0.8 + 0.2 * scale;
     s.pitch = 1 / Math.sqrt(scale);
-    c.audio.play('cannon_burst', s);
+    c.audio.play(burst.sound ?? 'cannon_burst', s);
 
     const t = TUNING.burst;
     const eye = c.player.parked ? Infinity : c.player.eye.distanceTo(point);

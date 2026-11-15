@@ -19,6 +19,7 @@ import { Fan, type FanHooks, type FanLock } from './fan';
 import { familyOf, familyOfSlot, membersOf, pressSlot, wheelSlot } from './families';
 import { Handling, holdSpeed } from './handling';
 import { PIERCE_ON } from './penetration';
+import { Raufoss } from './raufoss';
 import { Painter, angleOff, type PaintCandidate } from './swarm';
 import { isMelee } from './melee/data';
 import { Melee } from './melee/Melee';
@@ -123,6 +124,9 @@ export class Weapons implements WeaponSystem, Guard {
   private quickReturn = 0;
   /** Rounds left in an `altBurst` under way. */
   private burstLeft = 0;
+  /** The guns with their `altAmmo` loaded. A new run starts on the standard rounds. */
+  private readonly altLoaded = new Set<WeaponId>();
+  private raufossRounds: Raufoss | null = null;
   /** Seconds left of `occupy`. */
   private occupied = 0;
 
@@ -271,6 +275,7 @@ export class Weapons implements WeaponSystem, Guard {
     this.occupied = 0;
     this.sword.reset();
     this.lance.reset();
+    this.altLoaded.clear();
     ROCKET_LASER.sight = ROCKET_LASER.on = false;
     this.drawLeft = 0;
     this.ctx.viewmodel.equip?.(this.current, 0.01);
@@ -321,6 +326,27 @@ export class Weapons implements WeaponSystem, Guard {
 
   get swordStep(): number {
     return this.sword.step;
+  }
+
+  /** The `altAmmo` label of the gun in hand while it is loaded, else ''. The HUD wears it on the gun's name. */
+  get ammoMode(): string {
+    const alt = WEAPONS[this.current].altAmmo;
+    return alt && this.altLoaded.has(this.current) ? alt.label : '';
+  }
+
+  /** Right click on a gun with two kinds of round: the other kind, a click, and its name under the crosshair. */
+  private toggleAmmo(id: WeaponId, label: string): void {
+    const c = this.ctx;
+    const on = !this.altLoaded.has(id);
+    if (on) this.altLoaded.add(id);
+    else this.altLoaded.delete(id);
+    const o = this.playOptions;
+    o.position = undefined;
+    o.volume = 1;
+    o.pitch = on ? 1.25 : 0.9;
+    o.pitchJitter = 0;
+    c.audio.play('reload_bolt', o);
+    c.hud.callout?.(on ? label : 'STANDARD');
   }
 
   /** The Quiver's marks while it is in hand, or the Judge's locks. */
@@ -509,6 +535,8 @@ export class Weapons implements WeaponSystem, Guard {
       this.startQuickMelee();
       return;
     }
+    const alt = WEAPONS[this.current].altAmmo;
+    if (alt && c.input.pressed('aim')) this.toggleAmmo(this.current, alt.label);
     this.updateReload(dt);
     this.updateGun(dt);
     this.applyHandling(dt);
@@ -1146,7 +1174,8 @@ export class Weapons implements WeaponSystem, Guard {
       // Both barrels: the second half of the pellets leaves the other one.
       if (two && i === pellets >> 1) this.secondBarrel(def, two);
       const dir = def.spread > 0 ? randomInCone(fwd, this.coneOf(def), this.dir) : fwd;
-      this.combat.fireRay(eye, dir, shot);
+      if (this.altLoaded.has(def.id)) (this.raufossRounds ??= new Raufoss(c, this.combat)).fire(eye, dir, shot);
+      else this.combat.fireRay(eye, dir, shot);
     }
   }
 
@@ -1240,7 +1269,14 @@ export class Weapons implements WeaponSystem, Guard {
     const p = this.fillProjectile('stake', def, t.speed, damage, 'none');
     p.gravity = t.gravity;
     p.killStop = HIT_STOP.stakeKill;
-    if (this.modifiers.explosiveRounds) p.explosion = { radius: TUNING.hellfireRounds.radius, damage, kind: 'hellfireBullet' };
+    if (this.altLoaded.has(def.id)) {
+      // The exploding bolt: a fuse makes it stick where it lands and go off, as a grenade, `fuse` s later.
+      const b = t.bomb;
+      p.damage = b.direct * this.modifiers.damage;
+      p.force = b.force;
+      p.fuse = b.fuse;
+      p.explosion = { radius: b.radius * this.modifiers.blastRadius, damage: b.damage * this.modifiers.damage, kind: 'grenade' };
+    } else if (this.modifiers.explosiveRounds) p.explosion = { radius: TUNING.hellfireRounds.radius, damage, kind: 'hellfireBullet' };
     this.combat.spawnProjectile(p);
   }
 

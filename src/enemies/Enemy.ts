@@ -56,6 +56,7 @@ export class Enemy implements EnemyInstance {
   isBoss = false;
   frozen = 0;
   burning = 0;
+  bolted = 0;
 
   /** Multipliers from the wave this enemy spawned in. */
   damageMul = 1;
@@ -243,7 +244,7 @@ export class Enemy implements EnemyInstance {
     this.alive = false;
     this.score = 0;
     this.isBoss = false;
-    this.frozen = this.burning = 0;
+    this.frozen = this.burning = this.bolted = 0;
     this.damageMul = this.speedMul = 1;
     this.dist = this.pathDist = 999;
     this.hasLos = this.inView = false;

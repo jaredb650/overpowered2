@@ -4,6 +4,7 @@
  */
 import * as THREE from 'three';
 import { clamp, rand, TAU, wrapAngle } from '../core/math';
+import type { EnemyInstance } from '../core/gameplay';
 import type { Behaviour } from './brain';
 import type { Enemy } from './Enemy';
 import type { AiWorld } from './aiWorld';
@@ -366,6 +367,42 @@ export function panic(): Behaviour {
       _p.set(e.position.x + Math.sin(a) * 6, e.position.y, e.position.z + Math.cos(a) * 6);
       if (w.ctx.world.nav.nearest(_p, 4, _p)) e.moveTarget.copy(_p);
       e.char.anim.play('stagger', 1.5);
+    },
+  };
+}
+
+const _friends: EnemyInstance[] = [];
+
+/**
+ * An exploding bolt in him (EnemyInstance.bolted): he forgets the fight and runs screaming to the nearest friend, which
+ * is the worst thing he could do for his friends.
+ */
+export function bolted(): Behaviour {
+  return {
+    name: 'bolted',
+    score: (e, w) => (e.bolted > w.now && !e.def.machine && e.maim.legs === 2 ? 6 : 0),
+    enter(e, w) {
+      e.mode = 'point';
+      e.face = 'move';
+      e.pace = 1.25;
+      e.timerA = 0;
+      e.moveTarget.copy(e.position);
+      say(e, w, 'vox_scream');
+    },
+    think(e, w) {
+      if (w.now < e.timerA) return;
+      e.timerA = w.now + 0.25;
+      const n = w.enemies.query(e.position, 30, _friends);
+      let best = Infinity;
+      for (let i = 0; i < n; i++) {
+        const f = _friends[i]!;
+        const d = f.position.distanceToSquared(e.position);
+        if (f !== e && f.alive && d < best) {
+          best = d;
+          e.moveTarget.copy(f.position);
+        }
+      }
+      _friends.length = 0;
     },
   };
 }

@@ -55,6 +55,8 @@ export class HudState {
   spread = 0;
   /** Which swing of the sword chain comes next, 0 when idle. */
   swordStep = 0;
+  /** The second kind of round loaded in the gun in hand, by its name, or ''. */
+  ammoMode = '';
 
   score = 0;
   kills = 0;
@@ -122,6 +124,7 @@ export class HudState {
     this.charge = num(w.charge, 0);
     this.spread = WEAPONS[this.weapon].spread;
     this.swordStep = num(w.swordStep, 0);
+    this.ammoMode = str<string>(w.ammoMode, '');
 
     const g = ctx.progression as unknown as Record<string, unknown>;
     this.score = num(g.score, 0);

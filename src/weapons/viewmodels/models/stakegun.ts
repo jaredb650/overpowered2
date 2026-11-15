@@ -178,8 +178,9 @@ function clip(a: Anim): void {
   const t = a.sinceFire;
   const p = a.reload;
 
-  // Ram drives forward on the frame of the shot, then the piston resets and the next stake rolls down off the rack.
-  const drive = t < 0.42 ? 1 - inOut(seg(t, 0.06, 0.34)) : 0;
+  // Ram drives forward on the frame of the shot, then the piston resets and the next stake rolls down off the rack. The
+  // reset is the string drawn back (`stakegun_string`, cued 0.04 s after the shot), home on its click at 0.46 s.
+  const drive = t < 0.5 ? 1 - inOut(seg(t, 0.06, 0.45)) : 0;
   const hidden = t < 0.46;
   P.ram!.position.z -= drive * 0.2;
   const loaded = a.mag > 0;

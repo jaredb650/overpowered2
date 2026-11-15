@@ -221,6 +221,13 @@ const gunShots: SoundDef[] = [
   shot('ultramag_shot', 'guns/ultramag_shot.mp3', 'gunHeavy', 0.25, 0.48),
   shot('sabot_shot', 'guns/sabot_shot.mp3', 'gunHeavy', 0.246, 0.219, { send: 0.32 }),
   shot('autocannon_blast', 'guns/autocannon_blast.mp3', 'gun', 0.43, 0.26, { send: 0.22 }),
+  // The Stakegun (2026-11-15): its shot, the string drawn back after each shot and on a reload (foley, at the pump's
+  // level), and an exploding bolt's countdown beep, 3D.
+  shot('stakegun_shot', 'guns/stakegun_shot.mp3', 'gun', 0.24, 0.191, { send: 0.22 }),
+  shot('stakegun_string', 'guns/stakegun_string.mp3', 'foley', 0.054, 0.072),
+  shot('stake_beep', 'guns/stake_beep.mp3', 'enemyFx', 0.08, 0.373, { priority: 7, maxVoices: 4, perFrame: 2, near: 6, far: 60, pitchJitter: 0 }),
+  // A Raufoss round bursting, up to eight a second from the Piledriver: three voices, one start a frame, oldest out.
+  shot('raufoss_detonation', 'guns/raufoss_detonation.mp3', 'blastSmall', 0.1, 0.133, { maxVoices: 3, perFrame: 1 }),
 ];
 
 /**

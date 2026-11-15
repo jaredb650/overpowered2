@@ -28,6 +28,8 @@ const ON_COURSE = PROXIMITY + 1;
 /** Rings and puffs hold this spacing during a hit-stop, when the clock runs but the shell barely moves. */
 const MIN_TRAIL_SPACING = 0.5;
 const MAX_PENDING_PINS = 8;
+/** Metres an exploding bolt's centre stands back out of what it stuck in: its nose in, the shaft and its light out. */
+const BOLT_SINK = 0.28;
 /** Bodies one penetrating round can meet in a single step. */
 const MAX_SWEEP = 12;
 /** The `plasma` trail: metres of path between its sparks and between its rings, and seconds of flight before either. */
@@ -88,6 +90,17 @@ export interface Projectile {
   blastPush: number | undefined;
   /** Stake only: it has already nailed something, so it just carries on to the wall. */
   pinned: boolean;
+  /**
+   * An exploding bolt (a stake with a `fuse`) that has stuck: `resting`, and goes with this bone when it stuck in a body,
+   * at `stuckLocal` along `stuckAxis` in its space. `stuckNormal` is the face of a wall it is in, zero in a body.
+   */
+  stuckBone: THREE.Object3D | null;
+  stuckLocal: THREE.Vector3;
+  stuckAxis: THREE.Vector3;
+  stuckNormal: THREE.Vector3;
+  /** Beeps it has given, and seconds left of the light that blinks with each. */
+  beeps: number;
+  blink: number;
   /** Direct damage already spent on this enemy, so a stake does not hit one body twice. */
   lastHit: number;
   /** Penetration it has left. `full` 0 on everything that stops where it lands. */
@@ -123,6 +136,7 @@ function createProjectile(): Projectile {
     trail: 'none', ringClock: 0, smokeClock: 0, lastTrail: new THREE.Vector3(),
     visualOffset: new THREE.Vector3(), visualHold: 0, whizzed: false, resting: false, spin: 0,
     gib: false, severMult: 1, force: 0, headshotMult: 2, killStop: 0,
+    stuckBone: null, stuckLocal: new THREE.Vector3(), stuckAxis: new THREE.Vector3(), stuckNormal: new THREE.Vector3(), beeps: 0, blink: 0,
     explosive: false, blastRadius: 0, blastDamage: 0, blastKind: 'rocket', blastInstakill: false,
     blastSelf: undefined, blastPush: undefined, pinned: false, lastHit: -1,
     budget: makeBudget(), baseDamage: 0, armorPiercing: false,
@@ -151,6 +165,7 @@ export class Projectiles {
   private readonly w = new THREE.Vector3();
   private readonly exit = new THREE.Vector3();
   private readonly exitNormal = new THREE.Vector3();
+  private readonly inverse = new THREE.Matrix4();
   private readonly nearby: EnemyInstance[] = [];
   /** A missile's retarget candidates: the enemies near it, then every live vehicle and aircraft. */
   private readonly candidates: MissileTarget[] = [];
@@ -277,6 +292,7 @@ export class Projectiles {
     p.live = false;
     // A pooled missile must not keep a dead enemy reachable.
     p.target = null;
+    p.stuckBone = null;
     const last = this.live.pop()!;
     if (index < this.live.length) this.live[index] = last;
     this.free.push(p);
@@ -289,6 +305,7 @@ export class Projectiles {
       const p = this.live[i]!;
       p.life -= dt;
       if (p.kind === 'grenade') this.stepGrenade(p, dt);
+      else if (p.resting) this.stepBomb(p, dt);
       else this.step(p, dt);
       if (p.live && p.life <= 0) this.expire(p);
       if (!p.live) {
@@ -514,6 +531,10 @@ export class Projectiles {
     const res = this.strikeDirect(p, enemy, point, normal, dir, bone, region);
 
     if (p.kind === 'stake') {
+      if (p.fuse > 0) {
+        this.stickBomb(p, point, dir, null, enemy, bone);
+        return;
+      }
       if (p.explosive) this.explode(p, undefined);
       this.stakeThrough(p, enemy, res, point, dir);
       p.lastHit = enemy.uid;
@@ -544,7 +565,8 @@ export class Projectiles {
   }
 
   private sweepCorpses(p: Projectile, dir: THREE.Vector3, limit: number): void {
-    if (p.pinned) return;
+    // An exploding bolt goes past the dead to stick in the living, or in the wall.
+    if (p.pinned || p.fuse > 0) return;
     const hit = this.ctx.gore.raycastCorpses(p.position, dir, limit);
     if (hit) this.nail(p, hit, hit.point, dir);
   }
@@ -614,6 +636,7 @@ export class Projectiles {
     switch (p.kind) {
       case 'stake':
         this.stakeLands(p, wall);
+        if (p.resting) return;
         break;
       case 'bullet':
         c.fx.impact(wall.point, wall.normal, wall.surface, 0.7);
@@ -655,16 +678,69 @@ export class Projectiles {
 
   private stakeLands(p: Projectile, wall: RayHit): void {
     const c = this.ctx;
-    this.visuals.stick(wall.point, this.dir, TUNING.stake.stuckSeconds);
+    const bomb = p.fuse > 0;
+    if (!bomb) this.visuals.stick(wall.point, this.dir, TUNING.stake.stuckSeconds);
     c.fx.impact(wall.point, wall.normal, wall.surface, 1.2);
     c.render.decals.add('crack', wall.point, wall.normal, 0.5, rand(0, 6.28));
     c.audio.play('stake_hit_wall', { position: wall.point });
     c.world.objects?.damageExplosive(wall.collider, p.damage, p.source);
+    if (bomb) {
+      this.stickBomb(p, wall.point, this.dir, wall.normal, null, undefined);
+      return;
+    }
     if (p.explosive) this.explode(p, wall.normal);
     if (p.pinned) {
       c.audio.play('stake_twang', { position: wall.point });
       this.combat.feel.stop(0.03);
     }
+  }
+
+  /**
+   * An exploding bolt sticks: in the wall at `normal`, or in `enemy` by `bone`, where it rides his body, alive or a
+   * ragdoll, until it goes off. Sunk nose first as a stake in a wall is, most of the shaft showing.
+   */
+  private stickBomb(
+    p: Projectile, point: THREE.Vector3, dir: THREE.Vector3, normal: THREE.Vector3 | null, enemy: EnemyInstance | null,
+    bone: number | undefined,
+  ): void {
+    p.resting = true;
+    p.age = 0;
+    p.beeps = 0;
+    p.blink = 0;
+    p.life = p.fuse + 1;
+    p.position.copy(point).addScaledVector(dir, -BOLT_SINK);
+    p.velocity.copy(dir).multiplyScalar(0.01);
+    if (normal) p.stuckNormal.copy(normal);
+    else p.stuckNormal.set(0, 0, 0);
+    const b = enemy && bone !== undefined ? enemy.char.bones[bone] : undefined;
+    p.stuckBone = b ?? null;
+    if (!b || !enemy) return;
+    const inv = this.inverse.copy(b.matrixWorld).invert();
+    p.stuckLocal.copy(p.position).applyMatrix4(inv);
+    p.stuckAxis.copy(dir).transformDirection(inv);
+    enemy.bolted = this.ctx.time.elapsed + p.fuse;
+  }
+
+  /** A stuck exploding bolt: it follows its bone, beeps quicker and quicker, then goes off. */
+  private stepBomb(p: Projectile, dt: number): void {
+    const b = p.stuckBone;
+    if (b) {
+      p.position.copy(p.stuckLocal).applyMatrix4(b.matrixWorld);
+      p.velocity.copy(p.stuckAxis).transformDirection(b.matrixWorld).multiplyScalar(0.01);
+    }
+    p.age += dt;
+    p.blink -= dt;
+    const beeps = TUNING.stake.bomb.beeps;
+    while (p.beeps < beeps.length && p.age >= beeps[p.beeps]!) {
+      const c = this.ctx;
+      c.audio.play('stake_beep', { position: p.position, pitch: 1 + 0.06 * p.beeps });
+      c.render.lights.flash(p.position, 0xff2a1a, 3, 3, 0.09);
+      p.blink = 0.09;
+      p.beeps++;
+    }
+    if (p.age < p.fuse) return;
+    this.explode(p, p.stuckNormal.lengthSq() > 0 ? p.stuckNormal : undefined);
+    p.live = false;
   }
 
   private stepGrenade(p: Projectile, dt: number): void {

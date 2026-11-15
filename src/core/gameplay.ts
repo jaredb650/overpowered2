@@ -41,6 +41,8 @@ export interface BurstSpec {
   readonly damage: number;
   /** Scales the flash, the dust and the sparks. Unset is 1, the round fired on foot. */
   readonly scale?: number;
+  /** Its own sound id. Unset is `cannon_burst`. */
+  readonly sound?: string;
 }
 
 /** Written by perks and powerups. WeaponSystem reads it every shot. Defaults are all neutral. */
@@ -389,6 +391,8 @@ export interface EnemyInstance {
   burning: number;
   /** Sparks where anything else would bleed. */
   readonly machine: boolean;
+  /** World time an exploding bolt stuck in him goes off, while it is in him. He runs to his friends. */
+  bolted?: number;
 }
 
 export interface EnemyRayHit {

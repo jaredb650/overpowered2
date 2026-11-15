@@ -47,6 +47,7 @@ Every weapon is its own unlock.
   enemies too, so a stuck man who runs back to his friends takes them with him.
 - **Piledriver**: alt fire switches to **Raufoss** rounds. Each one bursts small where it hits, then throws a cone of 3 to 4
   pellets out the far side: through cover, or through the man it hit into the men behind him.
+**Stakegun and Piledriver built 2026-11-15.** Right click on either loads the other round and back (a click, the name called out and worn on the gun's), never fires, and takes the place of their ADS. Exploding bolts stick in a wall, the floor or a man and ride him alive or dead, beep four times quickening and go off 1.1 s after, a 5.5 m, 170 grenade blast; a man with one in him runs to his nearest friend. Raufoss rounds stop on what they strike for 1.25 times the round, burst small (1.3 m) and throw four pellets of 0.4 of the round in a 0.09 rad cone out of the far side of cover up to 1.2 m thick or of the man; a reusable `Raufoss.fire` for the Sabot's mod. See docs/notes/weapons.md, Exploding bolts and Raufoss rounds.
 
 ## 5. The Judge's fanning
 **Built 2026-11-15.** Right click replaces the Judge's ADS: bars of 0.4 s up to three and the rounds loaded, a 1.5 s drain to paint a head a bar, then a sure headshot at each lock 0.1 s apart (cover in the line takes it); no lock spends nothing; see docs/notes/weapons.md, The Judge's fanning.

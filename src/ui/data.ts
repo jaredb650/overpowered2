@@ -139,7 +139,7 @@ export const WEAPONS: Record<WeaponId, WeaponInfo> = {
   piledriver: {
     name: 'Piledriver', key: '8',
     role: `Heavy machine gun. ${def.piledriver.damage} damage, ${def.piledriver.magSize} on the belt, ${Math.round(1 / def.piledriver.interval)} a second`,
-    note: `Press 8 again to swap with the ${def.buzzsaw.name.charAt(0) + def.buzzsaw.name.slice(1).toLowerCase()}. Goes through walls, ${def.piledriver.penetration} m of them in all, and everyone in line. Takes limbs off and can burst what it kills. It kicks, and it slows you a little.`,
+    note: `Press 8 again to swap with the ${def.buzzsaw.name.charAt(0) + def.buzzsaw.name.slice(1).toLowerCase()}. Goes through walls, ${def.piledriver.penetration} m of them in all, and everyone in line. Takes limbs off and can burst what it kills. It kicks, and it slows you a little. Right click loads Raufoss rounds: each bursts where it hits and throws a cone of fragments out of the far side, through cover or through the man it hit.`,
   },
   kiln: {
     name: 'Kiln', key: '9',
@@ -149,7 +149,7 @@ export const WEAPONS: Record<WeaponId, WeaponInfo> = {
   stakegun: {
     name: 'Stakegun', key: '0',
     role: `Rebar stakes, ${def.stakegun.damage} damage`,
-    note: 'Pins bodies and limbs to walls.',
+    note: 'Pins bodies and limbs to walls. Right click loads exploding bolts: one sticks in a wall or a man, beeps for a second and goes off.',
   },
 };
 

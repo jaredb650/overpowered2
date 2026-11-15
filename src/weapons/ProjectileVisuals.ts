@@ -102,7 +102,7 @@ const Y = new THREE.Vector3(0, 1, 0);
 const WHITE = new THREE.Color(1, 1, 1);
 
 export class ProjectileVisuals {
-  private readonly layers: Record<ProjectileKind | 'cone' | 'flare', Layer>;
+  private readonly layers: Record<ProjectileKind | 'cone' | 'flare' | 'blink', Layer>;
   private readonly tints = new WeakMap<Projectile, THREE.Color>();
   private readonly stuck: StuckStake[] = [];
   private stuckHead = 0;
@@ -124,6 +124,8 @@ export class ProjectileVisuals {
       bullet: layer(new THREE.CapsuleGeometry(0.035, 1, 2, 6), basic(WHITE.clone()), CAPACITY.bullet),
       plasma: layer(new THREE.IcosahedronGeometry(0.2, 0), basic(WHITE.clone()), CAPACITY.plasma),
       stake: layer(stakeBody(), basic(hdr(0x9aa4ad, 1)), CAPACITY.stake + TUNING.stake.maxStuck),
+      // An exploding bolt's light, on its tail, lit with each beep.
+      blink: layer(new THREE.IcosahedronGeometry(0.07, 1), basic(hdr(0xff1008, 4)), CAPACITY.stake),
     };
     for (const k of ['bullet', 'plasma'] as const) {
       this.layers[k].mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(CAPACITY[k] * 3), 3);
@@ -230,6 +232,7 @@ export class ProjectileVisuals {
         break;
       case 'stake':
         this.put(L.stake, pos, this.quat, 1, 1, 1);
+        if (p.blink > 0) this.put(L.blink, pos.addScaledVector(this.dir, -0.4), this.quat, 1, 1, 1);
         break;
       case 'bullet': {
         const at = this.put(L.bullet, pos, this.quat, 1, clamp(speed / 60, 0.2, 1.6), 1);

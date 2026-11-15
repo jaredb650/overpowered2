@@ -97,6 +97,11 @@ export interface WeaponDef {
    * when standing). Instead of ADS.
    */
   altBoth?: { readonly kick: number; readonly push: number; readonly ground: number; readonly echo: number; readonly echoPitch: number };
+  /**
+   * Right click loads the other ammo, and back: the Stakegun's exploding bolts (TUNING.stake.bomb), the Piledriver's
+   * Raufoss rounds (TUNING.raufoss). It never fires. `label` is what the HUD calls it while it is loaded. Instead of ADS.
+   */
+  altAmmo?: { readonly label: string };
   /** Hit-stop on a kill, seconds. */
   killStop?: number;
   /**
@@ -408,7 +413,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     reloadFoley: [[0.05, 'reload_mag_out'], [0.5, 'reload_mag_in'], [0.8, 'piledriver_charge']], drawSound: 'weapon_draw_heavy',
     recoil: 1, kick: 0.016, shake: 0.045, fovPunch: 1.3,
     climb: { pitch: 0.0028, yaw: 0.0016 },
-    ads: { zoom: 0.38, time: 0.3 },
+    altAmmo: { label: 'RAUFOSS' },
   },
   kiln: {
     ...BASE, id: 'kiln', name: 'KILN', slot: 9, mode: 'stream',
@@ -424,10 +429,13 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     magSize: 5, reserve: 20, maxReserve: 40, reloadTime: 1.6, drawTime: 0.24,
     interval: 0.55, damage: 140, severMult: 2.6, force: 110,
     muzzle: 'rifle', tracer: 'heavy',
-    sounds: [{ id: 'stake_fire', pitchJitter: 0.03 }],
-    reloadFoley: [[0.1, 'stake_reload'], [0.84, 'reload_bolt']],
+    sounds: [{ id: 'stakegun_shot', pitchJitter: 0.03 }],
+    // The string drawn back: after a shot it ends on the ram coming home (stakegun.ts clip, 0.46 s), on a reload on the
+    // lever's rack (0.86 of it).
+    cycleFoley: [[0.04, 'stakegun_string']],
+    reloadFoley: [[0.1, 'stake_reload'], [0.6, 'stakegun_string']],
     recoil: 1, kick: 0.024, shake: 0.024, fovPunch: 1.4,
-    ads: { zoom: 0.42, time: 0.24 },
+    altAmmo: { label: 'EXPLODING BOLTS' },
   },
 };
 
@@ -716,6 +724,22 @@ export const TUNING = {
     speed: 120, gravity: 7, stuckSeconds: 24, maxStuck: 40,
     /** Gore drags a pinned bone at 26 m/s for 0.3 s. Past that it would hang off the wall on nothing. */
     pinReach: 7.5,
+    /**
+     * The exploding bolt (right click). It sticks in what it hits, a wall, the floor or a man, and goes with him, alive or
+     * dead, for `fuse` seconds, beeping at each of `beeps` (seconds after it stuck) and blinking, then goes off as a
+     * grenade does. `direct` is what the bolt itself does to the man it sticks in, little, so he lives to run to his friends.
+     */
+    bomb: { fuse: 1.1, beeps: [0, 0.45, 0.75, 0.95], radius: 5.5, damage: 170, direct: 25, force: 20 },
+  },
+  /**
+   * A Raufoss round: it stops on the first thing it strikes and bursts there (`burst`, fragments to anyone else close), the
+   * body it struck taking `direct` times the round, then `pellets` fragments go on out of the far side in a cone of `cone`
+   * radians: through the cover it struck, up to `wall` metres of it, or out of the back of the man. Each pellet is `share`
+   * of the round, up to `range` metres. The Piledriver's right click; the Crucible will sell it for the Sabot.
+   */
+  raufoss: {
+    direct: 1.25, burst: { radius: 1.3, damage: 22, sound: 'raufoss_detonation' },
+    pellets: 4, share: 0.4, cone: 0.09, range: 30, wall: 1.2, force: 14,
   },
   grenade: {
     fuse: 2.6, throwSpeed: 25, throwUp: 6.5, inherit: 0.75, gravity: -22, restitution: 0.42, friction: 0.72,

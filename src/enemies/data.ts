@@ -17,7 +17,7 @@ import type { Enemy } from './Enemy';
 import type { AiWorld } from './aiWorld';
 import { flamer, gun, lunge, melee, rocket, shotgun, sniperShot, stream, hasGun } from './attacks';
 import {
-  advance, backOff, crawl, dodge, engage, flank, headbuttCharge, keepAway, lost, panic, plant, press, relocate,
+  advance, backOff, bolted, crawl, dodge, engage, flank, headbuttCharge, keepAway, lost, panic, plant, press, relocate,
   rushWhenDisarmed, seekCover, shieldWall, support, surround, wriggle, type Band,
 } from './behaviours';
 import { fuse, hover, pounce, skitterPounce, wallCling } from './roles';
@@ -109,7 +109,7 @@ export interface EnemyDef {
   onLimbLost?(e: Enemy, w: AiWorld, region: GoreRegion): void;
 }
 
-const maimedBehaviours = (): Behaviour[] => [crawl(), wriggle(), headbuttCharge(), rushWhenDisarmed(), panic(), lost()];
+const maimedBehaviours = (): Behaviour[] => [crawl(), wriggle(), headbuttCharge(), rushWhenDisarmed(), panic(), bolted(), lost()];
 
 /** Attacks every body falls back on once limbs are missing. */
 export const maimedAttacks = (damage: number): AttackDef[] => [
