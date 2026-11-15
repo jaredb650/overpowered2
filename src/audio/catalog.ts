@@ -197,7 +197,7 @@ function shot(id: string, file: string, mix: MixClass, level: number, loud: numb
 }
 
 /**
- * The gun sound update (sfx/guns, the owner's own generated recordings) and the two cannon shots from the armour update.
+ * The gun sound update (sfx/guns, the owner's own generated recordings), the Sabot and autocannon shots among them.
  * One ladder, about 6 dB from bottom to top: light guns at the old SMG's level (0.14), shotguns at the old shotgun's
  * (0.23), the heavy single shots on top. A gun that fires fast sits a little under one that fires once.
  */
@@ -212,8 +212,8 @@ const gunShots: SoundDef[] = [
   shot('pump_shotgun_shot', 'guns/pump_shotgun_shot.mp3', 'gun', 0.234, 0.3, { send: 0.2 }),
   shot('hmg_shot', 'guns/hmg_shot.mp3', 'gun', 0.225, 0.25, { send: 0.3 }),
   shot('revolver_shot', 'guns/revolver_shot.mp3', 'gunHeavy', 0.24, 0.254),
-  shot('sabot_shot', 'armour/sabot_shot.mp3', 'gunHeavy', 0.246, 0.374, { send: 0.32 }),
-  shot('autocannon_blast', 'armour/autocannon_blast.mp3', 'gun', 0.285, 0.658, { send: 0.22 }),
+  shot('sabot_shot', 'guns/sabot_shot.mp3', 'gunHeavy', 0.246, 0.219, { send: 0.32 }),
+  shot('autocannon_blast', 'guns/autocannon_blast.mp3', 'gun', 0.285, 0.26, { send: 0.22 }),
 ];
 
 /**

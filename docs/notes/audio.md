@@ -247,7 +247,8 @@ Random-pick groups: `bullet_hit` (the four samples), `sword_hit`, `player_footst
   `armour_through` 0.17, `plate_destroyed` 0.17 (three takes), `headshot_crack` 0.17, `headshot_puff` 0.18, `armour_broken` 0.2, `vehicle_weak_point` 0.26 (all
   2D, over the hit markers' 0.066 to 0.114), then in the world `sabot_shield_pierce` 0.24, `sabot_on_vehicle` 0.26 and
   `armour_crunch` 0.36, heard to 120 m. The crunch plays whenever a direct rocket or shell tears armour off a body
-- Guns: `sabot_shot` (replaces `sabot_fire` on the Sabot), `autocannon_blast` (replaces `autocannon_shot` on the autocannon)
+- Guns: `sabot_shot` (replaces `sabot_fire` on the Sabot), `autocannon_blast` (replaces `autocannon_shot` on the autocannon).
+  Their files moved to `sfx/guns` on 2026-11-14 with the owner's newer recordings (see the gun sound update)
 
 **The wound and gore update** (`sfx/gore2`, the owner's own generated recordings; plan and wiring in
 `docs/proposals/gore-sounds.md`). Every file trimmed of lead-in silence, mono, 44.1 kHz, peaks to -1 dB; the long 2D ones cut
@@ -272,7 +273,9 @@ file's measured loudness. The ladder runs about 6 dB from the bottom to the top:
 `pump_shotgun_shot` (shotgun) at the old shotgun's level, `revolver_shot` (Judge), `sabot_shot`, and `autocannon_blast`
 on top. The pump shotgun racks between shots with `pump_rack_back` and `pump_rack_forward`, the two strokes cut out of
 the first game's `shotgun_fire`, played by `cycleFoley` at 0.14 s and 0.26 s after the shot to land on the viewmodel's
-pump. The files were trimmed of dead air, mixed to mono and peak-normalised to -1 dB. The ids they replace on the guns
+pump. The files were trimmed of dead air, mixed to mono and peak-normalised to -1 dB. On 2026-11-14 the Sabot and the
+autocannon took the owner's newer recordings (`guns/sabot_shot.mp3`, `guns/autocannon_blast.mp3`), same ids, same
+places on the ladder (0.246 and 0.285), remeasured. The ids they replace on the guns
 (`smg_fire`, `shotgun_fire`, `thresher_fire`, `harrow_fire`, `rivet_fire`, `revolver_fire`, `piledriver_fire`) stay in
 the catalog.
 
