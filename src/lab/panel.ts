@@ -3,11 +3,13 @@ import { MISSIONS } from '../campaign/missions';
 import type { VehicleKind } from '../campaign/types';
 import { CONTRACTS, type ContractId } from '../contracts/data';
 import { ON_RANGE } from '../core/devflags';
-import type { CallInId, EnemyId, PerkId, PowerupId, WeaponId } from '../core/gameplay';
+import type { CallInId, EnemyId, ModId, PerkId, PowerupId, WeaponId } from '../core/gameplay';
 import { ENEMIES } from '../enemies/data';
 import { CALLIN_ORDER, CALLINS, EFFECTS, POWERUPS } from '../progression/data';
 import { WEAPONS, WEAPON_ORDER } from '../weapons/data';
 import { inPlay } from '../weapons/families';
+import { MODS, MOD_ORDER } from '../weapons/mods';
+import type { ModCheat } from './mods';
 import type { AiMode, LabSettings } from './settings';
 
 /** Body animation for moves, its camera part, first-person legs, and vaulting cover with no key. */
@@ -83,6 +85,8 @@ export interface PanelActions {
   refillReserves(): void;
   /** Grenades to the carry limit: the arsenal box's floor is the only other way in. */
   maxGrenades(): void;
+  /** A weapon mod: hand it over, or fit it (granting it first) or take it off. */
+  mod(id: ModId, act: ModCheat): void;
   /** Draws the Quiver and stands five of the selected enemy in a loose arc ahead, to paint. */
   swarm(): void;
   /** Stands the selected enemy at 1.5, 2.5, 3.5, 5 and 8 m ahead, for a melee weapon's reach; `backs` turns them away. */
@@ -119,6 +123,7 @@ export class LabPanel {
   private readonly speedButtons: HTMLButtonElement[] = [];
   private readonly typeButtons = new Map<EnemyId, HTMLButtonElement>();
   private readonly aiButtons = new Map<AiMode, HTMLButtonElement>();
+  private readonly modButtons = new Map<ModId, { grant: HTMLButtonElement; fit: HTMLButtonElement }>();
 
   /** `vehicles`: this map runs them. The Crucible does not, and a row of buttons that do nothing is a trap. */
   constructor(private readonly s: LabSettings, private readonly on: PanelActions, private readonly vehicles = true) {
@@ -253,6 +258,16 @@ export class LabPanel {
     this.button(heavy, `${WEAPONS.piledriver.name}: the same`, () => this.on.heavy('piledriver'));
     this.button(heavy, 'Door gun: board it now', () => this.on.doorGun());
     this.el.append(heavy);
+    // A row a mod: grant it, and fit or take it off, anywhere, so a mod is tried without the Crucible's shop.
+    this.el.append(el('h2', '', 'WEAPON MODS'));
+    for (const id of MOD_ORDER) {
+      const row = el('div', 'lab-row');
+      const grant = this.button(row, `${WEAPONS[MODS[id].weapon].name}: ${MODS[id].name}`, () => this.on.mod(id, 'grant'));
+      const fit = this.button(row, 'Fit', () => this.on.mod(id, 'fit'));
+      grant.title = 'Grant it, unfitted';
+      this.modButtons.set(id, { grant, fit });
+      this.el.append(row);
+    }
     if (ON_RANGE) {
       const row = el('div', 'lab-row');
       this.button(row, 'Piercing gallery: stand me there, fill the bays', () => this.on.gallery());
@@ -365,6 +380,16 @@ export class LabPanel {
     this.pauseButton.textContent = paused ? 'Resume' : 'Pause';
     this.pauseButton.classList.toggle('on', paused);
     this.speedButtons.forEach((b, i) => b.classList.toggle('on', SPEEDS[i] === this.s.speed));
+  }
+
+  /** Lit while held; the second button says what a press does now. */
+  syncMods(held: ReadonlySet<ModId>, fitted: ReadonlySet<ModId>): void {
+    for (const [id, b] of this.modButtons) {
+      b.grant.classList.toggle('on', held.has(id));
+      const label = fitted.has(id) ? 'Remove' : 'Fit';
+      if (b.fit.textContent !== label) b.fit.textContent = label;
+      b.fit.classList.toggle('on', fitted.has(id));
+    }
   }
 
   setStatus(text: string): void {

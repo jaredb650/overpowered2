@@ -28,6 +28,9 @@ export type WeaponId =
   // The double-barrel on key 2 and the heavy pistol on key 6 (docs/proposals/weapons-update.md section 8).
   | 'deuce' | 'ultramag';
 
+/** A weapon mod (src/weapons/mods.ts): the SMG's suppressor, the Harrow's red dot, the Sabot's Raufoss rounds. */
+export type ModId = 'suppressor' | 'reddot' | 'raufoss';
+
 export type Team = 'player' | 'enemy';
 
 /**
@@ -116,6 +119,8 @@ export interface WeaponSystem extends GameSystem {
   slotMember?(slot: number): WeaponId;
   /** What a painting launcher has marked so far, for the HUD. Unset on a weapon system that has none. */
   readonly paint?: PaintView;
+  /** Weapon mods fitted now (src/weapons/mods.ts), for the viewmodels. Unset on a weapon system that has none. */
+  readonly fitted?: ReadonlySet<ModId>;
 }
 
 /**

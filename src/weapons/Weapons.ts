@@ -9,11 +9,12 @@ import * as THREE from 'three';
 import { ACTIVE } from '../contracts/select';
 import { CG, type Ctx, type ExplosionKind, type LoopHandle } from '../core/contracts';
 import type {
-  AmmoState, MissileTarget, PaintView, ProjectileSpec, ProjectileTrail, ShotSpec, WeaponId, WeaponModifiers, WeaponSystem,
+  AmmoState, MissileTarget, ModId, PaintView, ProjectileSpec, ProjectileTrail, ShotSpec, WeaponId, WeaponModifiers, WeaponSystem,
 } from '../core/gameplay';
 import { clamp, damp, invLerp, lerp, randomInCone, smoothstep, wrapAngle } from '../core/math';
 import { MOVE } from '../player/tuning';
 import type { Combat, Guard, GuardResult } from './Combat';
+import { MODS, MOD_ORDER, moddedDef } from './mods';
 import { HIT_STOP, STARTING_WEAPONS, SWORD, TUNING, WEAPONS, WEAPON_ORDER, type SoundLayer, type WeaponDef } from './data';
 import { Fan, type FanHooks, type FanLock } from './fan';
 import { familyOf, familyOfSlot, membersOf, pressSlot, wheelSlot } from './families';
@@ -59,6 +60,9 @@ const FIRE_LOOP_STEP = 0.04;
 export class Weapons implements WeaponSystem, Guard {
   current: WeaponId = 'smg';
   readonly owned = new Set<WeaponId>();
+  /** Weapon mods held (bought at the Crucible's shop, or the lab's), and the ones fitted now. A run starts with none. */
+  readonly mods = new Set<ModId>();
+  readonly fitted = new Set<ModId>();
   grenades: number = TUNING.grenade.start;
   modifiers: WeaponModifiers = {
     damage: 1, fireRate: 1, bottomlessMag: false, pellets: 1, explosiveRounds: false, blastRadius: 1, instakillBlast: false,
@@ -280,6 +284,8 @@ export class Weapons implements WeaponSystem, Guard {
     this.sword.reset();
     this.lance.reset();
     this.altLoaded.clear();
+    this.mods.clear();
+    for (const id of MOD_ORDER) this.fitMod(id, false);
     ROCKET_LASER.sight = ROCKET_LASER.on = false;
     this.drawLeft = 0;
     this.ctx.viewmodel.equip?.(this.current, 0.01);
@@ -335,7 +341,25 @@ export class Weapons implements WeaponSystem, Guard {
   /** The `altAmmo` label of the gun in hand while it is loaded, else ''. The HUD wears it on the gun's name. */
   get ammoMode(): string {
     const alt = WEAPONS[this.current].altAmmo;
+    if (this.slots[this.current].def.raufoss) return 'RAUFOSS';
     return alt && this.altLoaded.has(this.current) ? alt.label : '';
+  }
+
+  /** Hands over a mod, unfitted. */
+  grantMod(id: ModId): void {
+    this.mods.add(id);
+  }
+
+  /**
+   * Fits a mod held (`on`) or takes it off, and the gun fires its patched row (mods.ts) from the next shot. Returns whether it is
+   * fitted now. The rule that it never changes in a fight is the shop's: the lab fits one anywhere.
+   */
+  fitMod(id: ModId, on: boolean): boolean {
+    if (on && this.mods.has(id)) this.fitted.add(id);
+    else this.fitted.delete(id);
+    const weapon = MODS[id].weapon;
+    this.slots[weapon].def = moddedDef(weapon, this.fitted);
+    return this.fitted.has(id);
   }
 
   /** Right click on a gun with two kinds of round: the other kind, a click, and its name under the crosshair. */
@@ -1178,7 +1202,7 @@ export class Weapons implements WeaponSystem, Guard {
       // Both barrels: the second half of the pellets leaves the other one.
       if (two && i === pellets >> 1) this.secondBarrel(def, two);
       const dir = def.spread > 0 ? randomInCone(fwd, this.coneOf(def), this.dir) : fwd;
-      if (this.altLoaded.has(def.id)) (this.raufossRounds ??= new Raufoss(c, this.combat)).fire(eye, dir, shot);
+      if (def.raufoss || this.altLoaded.has(def.id)) (this.raufossRounds ??= new Raufoss(c, this.combat)).fire(eye, dir, shot);
       else this.combat.fireRay(eye, dir, shot);
     }
   }

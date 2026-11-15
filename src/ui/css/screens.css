@@ -284,3 +284,56 @@
 .scr-shop .sh-side > .rl-hint { margin-top: -0.6rem; }
 .scr-loadout .sh-side > .mi:not(.mi-small) { font-size: 3.8rem; }
 .scr-loadout .sh-side > .mi.off { color: var(--dim); }
+
+/* --- The Crucible's shop: a rail of rows on the left, the gun turning in the studio behind, its card under it --- */
+
+.scr-proc { background: linear-gradient(90deg, rgba(4, 6, 9, 0.55), rgba(4, 6, 9, 0) 40%); }
+.pc-side { position: absolute; left: 0; top: 0; bottom: 0; width: 36rem; display: flex; flex-direction: column; padding: 2.6rem 0 2rem;
+  background: rgba(11, 17, 24, 0.86); border-right: 0.0625rem solid rgba(157, 176, 189, 0.16); }
+.pc-form { margin: 0 2.6rem; color: var(--dim); font-size: 1rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.pc-title { margin: 0.1rem 2.6rem 1rem; font: 4.6rem/1 var(--display); color: var(--ink); text-shadow: var(--edge-big); }
+.pc-cr { display: flex; align-items: baseline; gap: 0.7rem; margin: 0 2.6rem; }
+.pc-cr-t { color: var(--steel); font-size: 1.1rem; font-weight: 700; }
+.pc-cr-n { font: 3.4rem/1.05 var(--display); color: var(--amber); text-shadow: var(--edge); }
+.pc-phase { margin: 0.2rem 2.6rem 1.2rem; color: var(--cold); font-size: 1.05rem; }
+.pc-tabs { display: flex; gap: 0.2rem; margin: 0 1.4rem 0.6rem; }
+.pc-tab { padding: 0 1.2rem; font-size: 2.2rem; }
+.pc-list { display: flex; flex-direction: column; overflow-y: auto; min-height: 0; flex: 0 1 auto; }
+.pc-row { display: grid; grid-template-columns: 6.6rem 1fr auto; align-items: center; gap: 0.8rem; height: 3.6rem; padding: 0 1.6rem 0 1.4rem;
+  border-bottom: 0.0625rem solid rgba(157, 176, 189, 0.14); cursor: pointer; }
+.pc-ico { display: flex; align-items: center; justify-content: center; color: var(--ink); }
+.pc-ico .ico { width: 6rem; height: 2rem; fill: currentColor; }
+.pc-k { font: 1.9rem/1 var(--display); color: var(--ink); letter-spacing: 0.01em; }
+.pc-v { display: flex; align-items: center; gap: 0.4rem; font: 1.7rem/1 var(--display); color: var(--amber); }
+.pc-lock { width: 1.1rem; height: 1.3rem; fill: currentColor; }
+.pc-row.locked .pc-k, .pc-row.locked .pc-ico { color: var(--dim); }
+.pc-row.locked .pc-v { color: var(--steel); font-size: 1.4rem; }
+.pc-row.poor .pc-v { color: var(--blood); }
+.pc-row.owned .pc-v { color: var(--steel); }
+.pc-row.fitted { box-shadow: inset 0.35rem 0 0 var(--friend); }
+.pc-row.fitted .pc-v { color: var(--friend); }
+.pc-row.focus { background: var(--ink); }
+.pc-row.focus .pc-k, .pc-row.focus .pc-v, .pc-row.focus .pc-ico { color: #000; }
+.pc-note { min-height: 1.5rem; margin: 1rem 2.6rem 0.2rem; color: var(--amber); font-size: 1.1rem; }
+.pc-terms { margin: auto 2.6rem 0.8rem; color: var(--dim); font-size: 0.95rem; font-style: italic; }
+
+.pc-card { position: absolute; left: 41rem; right: 3.5rem; bottom: 3rem; display: grid; grid-template-columns: 1fr 26rem; column-gap: 3rem;
+  padding: 1.8rem 2.2rem; background: rgba(7, 10, 14, 0.8); border-top: 0.25rem solid var(--hot); }
+.pc-name { grid-column: 1 / -1; font: 4rem/1 var(--display); color: var(--ink); text-shadow: var(--edge); }
+.pc-role { grid-column: 1 / -1; margin: 0.3rem 0 1.2rem; color: var(--steel); font-size: 1.1rem; }
+.pc-lore { grid-column: 1; grid-row: 3 / 5; margin: 0; max-width: 56ch; color: var(--ink); font-size: 1.35rem; line-height: 1.45; font-style: italic; }
+.pc-stats { grid-column: 2; grid-row: 3; display: flex; flex-direction: column; gap: 0.45rem; }
+.pc-stat { display: grid; grid-template-columns: 6.5rem 1fr 6.5rem; align-items: center; gap: 0.7rem; }
+.pc-stat-k { color: var(--steel); font-size: 1rem; font-weight: 700; }
+.pc-stat-v { color: var(--ink); font-size: 1.05rem; text-align: right; white-space: nowrap; }
+.pc-bar { position: relative; height: 0.7rem; background: rgba(157, 176, 189, 0.18); }
+.pc-fill, .pc-gain { position: absolute; top: 0; bottom: 0; left: 0; }
+.pc-fill { background: var(--ink); }
+.pc-gain { background: var(--friend); }
+.pc-buy { grid-column: 2; grid-row: 4; display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin-top: 1.2rem;
+  padding-top: 0.9rem; border-top: 0.0625rem solid rgba(157, 176, 189, 0.2); }
+.pc-price { font: 3rem/1 var(--display); color: var(--amber); }
+.pc-state { color: var(--steel); font-size: 1.1rem; text-align: right; }
+.pc-buy.ready .pc-state { color: var(--friend); font-weight: 700; }
+.pc-buy.poor .pc-state { color: var(--blood); }
+.pc-buy.locked .pc-price { color: var(--dim); }

@@ -74,6 +74,11 @@ const MUZZLES: Record<MuzzleKind, MuzzleFx> = {
     color: hot(0xff5522, 1.9), size: 0.3, points: 5, inner: 0.22, petals: 1, petalLength: 0.6, life: FLASH,
     light: 0xff6030, lightPower: 3, lightRadius: 6, wisp: 0, sparks: 0,
   },
+  // The SMG through its suppressor: a small dim star at the can's mouth, barely a light, no petals and no wisp.
+  suppressed: {
+    color: hot(0xffd890, 1.3), size: 0.08, points: 4, inner: 0.35, petals: 0, petalLength: 0, life: FLASH,
+    light: 0xffc070, lightPower: 0.8, lightRadius: 3, wisp: 0.02, sparks: 0,
+  },
   // Harrow: a four-point cross with long side jets, whiter than the SMG's star, so the two read apart on slot 1.
   carbine: {
     color: hot(0xffe0a0, 2.4), size: 0.3, points: 4, inner: 0.14, petals: 3, petalLength: 0.85, life: FLASH,

@@ -33,6 +33,11 @@ The panel's `Mounted gun` button places a mounted gun under the crosshair, or le
 
 **The piercing gallery** is behind the spawn on the range, along the +Z wall: five walls across a lane that runs down +X, with a bay behind each. Near to far they are 0.3 and 0.6 m of panel, 1.0 and 1.6 m of concrete, and a 0.1 m steel sheet, which are a thin partition, the two normal interior walls, an outer wall, and cover. Yellow ticks on the floor in front of each count its thickness in 10 cm. The lane is open on its -Z side, so the bays can be walked into and the far faces looked at. `GALLERY` in `range.ts` is the layout.
 
+**Weapon mods.** Under the weapons, `WEAPON MODS` has a row a mod (`src/weapons/mods.ts`): the first button grants it unfitted and is
+lit while it is held, the second fits it (granting it first if need be) or, reading `Remove`, takes it off. Anywhere and at any time,
+in a wave too: the rule that a mod never changes in a fight is the Crucible shop's, not the weapons'. A restart takes them back. The
+helper is `src/lab/mods.ts` (`modCheat`), tested in `src/lab/mods.test.ts`. The arsenal box and `Give all weapons` hand out no mods.
+
 **Grants.** The panel has buttons for all 8 call-ins, straight to the inventory, every perk and powerup, and the combo. Each call-in is used with its usual key. Combos and perks start off on the range, so a combo set there shows but pays nothing until that box is ticked. Under `?dev=1` it is on: set 15, make a kill, and Airstrike, Warthog and Berserk arrive. A perk with `retrigger: 'ignore'` does nothing on a second press while it runs.
 
 Settings live in localStorage, one copy for the range, one for `?dev=1` and one for the dev server's other pages, so a test never leaks into a run. God mode and every weapon hold through a restart, a mission's loadout and a checkpoint redeploy. A hotkey the player has bound to a game action is the game's, and with the panel open over a menu the menu does not hear the keys.

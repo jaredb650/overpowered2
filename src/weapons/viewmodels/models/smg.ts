@@ -82,6 +82,27 @@ function barrel(m: Mesher): void {
   });
 }
 
+/** Where the suppressor's mouth is, the muzzle while it is on. */
+const CAN_END = -0.478;
+
+/**
+ * The shop's suppressor (weapons/mods.ts): a matte can threaded over the flash hider, 21 cm long and 3.8 cm across, with a
+ * knurled collar and three bands. A part of its own, hidden until the mod is fitted (the rig's `mods`).
+ */
+function suppressor(m: Mesher): void {
+  m.part('suppressor', [0, 0.04, -0.262], () => {
+    m.use(F.anodized);
+    // The collar that takes the hider, then the can proper, rounded at its nose onto a recessed bore.
+    m.lathe([[0.0112, 0.004, 0], [0.0146, 0.004], [0.0146, -0.012], [0.0186, -0.018], [0.0189, -0.205], [0.0168, -0.214], [0.0062, -0.216, 0]], 26);
+    m.at([0, 0, -0.004], null, () => knurl(m, 0.0149, 0.014, F.steelDark, 22, 0.0005));
+    m.use(F.steelDark);
+    for (const z of [-0.03, -0.11, -0.19]) m.at([0, 0, z], null, () => m.cyl(0.0192, 0.003, 26));
+    m.use(F.black);
+    m.lathe([[0.0062, -0.2155, 0], [0.0048, -0.22, 0], [0, -0.2205, 0]], 14);
+    m.at([-0.0189, 0, -0.1], [0, -Math.PI / 2, 0], () => m.decal('serial', 0.05, 0.0055, 0x8f949a));
+  });
+}
+
 function sight(m: Mesher): void {
   const y0 = 0.0737;
   m.at([0, y0, 0.012], null, () => {
@@ -257,6 +278,7 @@ function buildSmg(kit: Kit): Model {
   sight(m);
   stock(m);
   magazine(m);
+  suppressor(m);
 
   m.part('bolt', [0, 0.04, 0.046], () => {
     m.use(F.steel);
@@ -282,6 +304,7 @@ function buildSmg(kit: Kit): Model {
     screens: { ammo: [192, 72] },
   });
   model.socket('muzzle', [0, 0.04, -0.332]);
+  model.socket('muzzleCan', [0, 0.04, CAN_END]);
   model.socket('eject', [0.02, 0.043, 0.045]);
   model.hand('gripR', [0.018, -0.052, 0.07], [0, -0.96, 0.27], [-0.3, -0.25, -0.92]);
   model.hand('gripL', [-0.001, 0.0095, -0.19], [-0.55, 0.15, -0.8], [0.8, 0.05, -0.55]);
@@ -362,6 +385,7 @@ export function smgDefs(kit: Kit): { right: ViewDef; left: ViewDef } {
     right: { socket: 'gripR', pose: HANDS.grip },
     left: { socket: 'gripL', pose: HANDS.support },
     heatPerShot: 0.007,
+    mods: { suppressor: { part: 'suppressor', muzzle: 'muzzleCan' } },
     animate: a => clip(a, false),
     readout: a => drawCount(a, 'ammo', 2, 5),
   };
@@ -373,6 +397,7 @@ export function smgDefs(kit: Kit): { right: ViewDef; left: ViewDef } {
     recoil,
     right: null,
     left: { socket: 'gripAk', pose: HANDS.grip },
+    mods: { suppressor: { part: 'suppressor', muzzle: 'muzzleCan' } },
     animate: a => clip(a, true),
     readout: a => drawCount(a, 'ammo', 2, 5),
   };

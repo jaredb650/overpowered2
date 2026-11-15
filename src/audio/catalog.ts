@@ -210,6 +210,8 @@ const gunShots: SoundDef[] = [
   { ...sample('guns/pump_rack_back.mp3', 'foley', 0.16), id: 'pump_rack_back' },
   { ...sample('guns/pump_rack_forward.mp3', 'foley', 0.16), id: 'pump_rack_forward' },
   shot('smg_shot', 'guns/smg_shot.mp3', 'gun', 0.143, 0.105),
+  // The SMG with its suppressor (the owner's, 2026-11-15): about 2 dB under the bare SMG, and less of it in the room.
+  shot('smg_suppressed_shot', 'guns/smg_suppressed_shot.mp3', 'gun', 0.11, 0.17, { send: 0.08 }),
   shot('pistol_shot', 'guns/pistol_shot.mp3', 'gun', 0.138, 0.145),
   shot('harrow_shot', 'guns/harrow_shot.mp3', 'gun', 0.165, 0.381, { send: 0.2 }),
   shot('auto_shotgun_shot', 'guns/auto_shotgun_shot.mp3', 'gun', 0.204, 0.259, { send: 0.18 }),

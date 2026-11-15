@@ -17,6 +17,7 @@ import type {
 import type { Flight } from '../vehicles/flight';
 import { ALLY_SOURCE } from '../allies/data';
 import { ACTIVE } from '../contracts/select';
+import { SHOP_ON } from '../contracts/shop/data';
 import { CallInManager } from './callins/manager';
 import type { Frame } from '../frame/seat';
 import { aboveFloor } from './callins/shared';
@@ -120,7 +121,8 @@ class Progression implements ProgressionSystem {
     events.on('wave:clear', e => {
       if (e.bonus > 0) this.scoreKeeper.add(e.bonus, 'wave');
       this.scoreKeeper.persist();
-      if (!SHOPS_SELL) this.pods.onWaveClear(e.wave);
+      // The Crucible's shop sells what the caches brought (contracts/shop).
+      if (!SHOPS_SELL && !SHOP_ON) this.pods.onWaveClear(e.wave);
     });
     events.on('player:slam', e => this.onSlam(e.impact, e.position));
     events.on('player:died', () => this.onDeath());

@@ -266,6 +266,54 @@ in the field outlined and lit, with two sappers, on the minimap as red bombs (`w
   a tube and a beacon, no men.
 - **Bosses beat on a wall standing still**; there is no animation for it, only dust.
 
+## The Crucible's shop
+
+`src/contracts/shop/`, section 10 of `docs/proposals/weapons-update.md`. In the Crucible's own game (`SHOP_ON`: the `crucible` contract,
+not a mission, the range or a sandbox; `?shop=0` turns it off) the weapon caches stop (`progression/index.ts` sends no pods) and the guns
+they brought are sold here instead. Outpost Defense's economy, reused: the pay is its `killPay`, `wavePay` and `paysFor`, the menu pauses
+the run as its shops do (`Hud.openDefense`), and the HUD's credits are its look (`ui/hud/shop.ts` on its classes).
+
+| File | Job |
+|---|---|
+| `shop/data.ts` | `SHOP_ON`, `BOSS_PAY`, `WEAPON_WARES` and `MOD_WARES` (price, the wave to clear, the catalogue's line), `SHOP_COPY` |
+| `shop/rules.ts` | Pure: `weaponOffers(view)`, `modOffers(view)`, `offerFor`, each row's lock and why it cannot be had |
+| `shop/index.ts` | `CrucibleShop` on `ctx.contracts.shop`: credits, the shop key, `buy(act)`; `window.__shop` |
+| `ui/screens/procurement.ts`, `ui/backdrop/gunstage.ts` | The menu, and the gun turning in a lit studio drawn in place of the world (`Renderer.backdrop`) |
+
+**Reaching it.** A break between waves, anywhere on the map: press **I** (`shop`, rebindable) and the run pauses under the menu; the
+break's countdown waits. During a wave the key says `THE SHOP OPENS BETWEEN WAVES`. The HUD shows the credits under the wave plate and
+`I: SHOP` in a break, and a wave's pay line ends with it.
+
+**Credits.** 10 a kill, 15 a headshot (Outpost Defense's), a boss 300 more; an ally's or a gift's kill pays nothing. A wave cleared pays
+125 + 25 x wave. Everything killed in waves 1 and 2 (24 and 28 men, a fifth to the head) is about 900: the Judge (600) or the Rivet
+(350) in the break before wave 3, not the autocannon (`shop.test.ts`). A new run starts at 0 and with no mods. `ctx.contracts.wallet` is
+the page's purse, Outpost Defense's or this one, and a prisoner's bounty goes into it (`enemies/outpost/airlift.ts`); the swarm never
+surrenders, so in the Crucible's own game it only pays where the Crucible's rules are played with prisoners.
+
+| Weapon | Price | After wave | | Mod (its gun) | Price | After wave |
+|---|---|---|---|---|---|---|
+| Rivet | 350 | 2 | | Suppressor (SMG) | 900 | any |
+| Judge | 600 | 2 | | Red dot sight (Harrow) | 500 | any |
+| Autocannon | 1,800 | 4 | | Raufoss rounds (Sabot) | 2,400 | 10 |
+| Deuce | 1,400 | 6 | | | | |
+| Trommel | 2,600 | 8 | | | | |
+| Kiln | 2,200 | 10 | | | | |
+| Stakegun | 2,000 | 12 | | | | |
+| Ultramag | 1,700 | 14 | | | | |
+| Piledriver | 3,200 | 16 | | | | |
+| Lance | 4,500 | 18 | | | | |
+
+The waves follow where each gun's cache landed (one every second wave, `CACHE_ORDER`), the Rivet brought forward as the cheap sidearm and
+the Lance moved last. A gun no cache brings on the page (`?slot8=old`'s Piledriver) is not sold. The starting guns are issued, not sold.
+Buying a gun is `weapons.give(id)`: that gun and no other, a full magazine and reserve, the unlock banner. A mod bought is fitted at once;
+its row then fits it or takes it off, free, in any break and never in a wave. A mod needs its gun.
+
+**The menu.** Weapons and Mods pages on a rail at the left (left and right turn them, or click), a row a ware with its silhouette and
+its price, `Owned`, `Fitted`, or a padlock and the wave it waits for. The row in focus turns on the right (the first-person model at rest,
+cloned from the rig's `allDefs`, 0.42 rad/s, lit by a key, a cool rim and a studio environment), over a card: name, key and role, four
+bars (damage a trigger pull, rate, magazine, reload; a mod lights what it adds in green), the catalogue's line, the price and what Enter
+does or why not. Enter or a click buys; Esc, I or *Back to the fight* goes back. While it is up the renderer draws at the menu's rate.
+
 ## Unlocks
 
 Endless Humans has `locked: true`. `unlocks.ts` holds one flag, `op2_campaign_beaten` in localStorage, set when a mission with `unlocks` is won from its first beat. A win reached through `?beat=` beats nothing. `?unlock=1` opens it for that page and any it moves on to. The menu shows a shut contract and refuses to start it. A URL or `?autostart=1` still reaches it, because every bot and sandbox on the Kill House goes in that way.

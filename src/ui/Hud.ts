@@ -45,6 +45,8 @@ import { crucibleRules, refreshRules } from '../contracts/crucible';
 import { ACTIVE } from '../contracts/select';
 import { CommanderHud } from './commander';
 import { DefenseHud } from './hud/defense';
+import { ShopHud } from './hud/shop';
+import { SHOP_ON } from '../contracts/shop/data';
 import type { ShopId } from '../contracts/defense/data';
 
 /** What the HUD needs from core/Game.ts. Read lazily, because Game publishes itself after systems are built. */
@@ -116,6 +118,8 @@ export class Hud implements HudSystem {
   private commander: CommanderHud | null;
   /** Outpost Defense's credits and shops. Null on every other contract. */
   private defense: DefenseHud | null;
+  /** The Crucible shop's credits, where this page's Crucible sells its guns. */
+  private shop: ShopHud | null;
 
   private seatPanel: SeatPanel | null = null;
   private pickupPoints: MinimapPoint[] = [];
@@ -159,6 +163,7 @@ export class Hud implements HudSystem {
     this.scoreboard = new Scoreboard(this.report);
     this.commander = ACTIVE.def.ai === 'outpost' ? new CommanderHud(ctx, this.settings) : null;
     this.defense = ACTIVE.def.economy ? new DefenseHud(ctx) : null;
+    this.shop = SHOP_ON ? new ShopHud(ctx) : null;
     // A mission has an ending of its own to get through after he falls.
     if (this.commander) this.commander.onFulfilled = () => { if (!MISSION_ID) this.fulfilled(); };
 
@@ -173,6 +178,7 @@ export class Hud implements HudSystem {
       div('col-left',
         this.tally.el,
         this.defense?.el,
+        this.shop?.el,
         this.perks.el,
         div('fill'),
         this.comms.el,
@@ -247,6 +253,7 @@ export class Hud implements HudSystem {
     });
     events.on('music:track', e => this.nowPlaying.show(e.title, e.original));
     events.on('defense:open', e => this.openDefense(e.screen));
+    events.on('shop:open', () => this.openDefense('procurement'));
     events.on('comms:line', e => this.comms.push(e.text, e.kind === 'ally' ? 'var(--friend)' : COMMS_FEAR.has(e.kind) ? 'var(--amber)' : 'var(--cold)', e.speaker ?? e.squad));
     applySettings(this.ctx, this.settings);
     applyQuality(this.ctx, this.settings);
@@ -383,14 +390,14 @@ export class Hud implements HudSystem {
   }
 
   /** Outpost Defense's loadout or a shop: the run waits under it, as under pause, and Resume brings it back. */
-  private openDefense(screen: 'loadout' | ShopId): void {
+  private openDefense(screen: 'loadout' | ShopId | 'procurement'): void {
     const game = this.game;
     if (!game || this.deathClock > 0 || (game.state !== 'playing' && game.state !== 'paused')) return;
     game.setState('paused');
     this.lockAfter = null;
     this.ctx.input.releaseLock?.();
     this.scoreboard.setHeld(false);
-    if (screen === 'loadout') this.screens.show('loadout');
+    if (screen === 'loadout' || screen === 'procurement') this.screens.show(screen);
     else this.screens.shop(screen);
   }
 
@@ -527,6 +534,7 @@ export class Hud implements HudSystem {
     this.boss.update(s, dt);
     this.commander?.nameBoss(this.boss.el);
     this.defense?.update();
+    this.shop?.update();
     this.bannerLanes.update(dt);
     this.scope.update(s, dt);
     this.targeting.update(s, dt);

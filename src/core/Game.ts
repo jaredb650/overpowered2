@@ -125,7 +125,9 @@ export class Game {
       c.hud.update?.();
     }
     // Behind a screen nothing moves but a slow dolly, so a laptop sitting on the menu should not pay for full rate.
-    if (this.state === 'playing' || c.time.frame % (this.state === 'menu' ? 2 : 4) === 0) c.render.render();
+    // A screen with a moving picture of its own (the Crucible shop's turning gun) gets the menu's rate.
+    const moving = (c.render as { backdrop?: { still: boolean } | null }).backdrop?.still === false;
+    if (this.state === 'playing' || c.time.frame % (this.state === 'menu' || moving ? 2 : 4) === 0) c.render.render();
     c.input.endFrame?.();
   }
 

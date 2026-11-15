@@ -52,6 +52,8 @@ export const DEFAULT_BINDINGS: Readonly<Bindings> = {
   stim: ['KeyY'],
   // Outpost Defense: call the next wave in before the break runs out. L is free and away from the movement keys.
   nextWave: ['KeyL'],
+  // The Crucible's shop, in a break. I for inventory; B, the old buy key, is the Black Sun's.
+  shop: ['KeyI'],
   pause: ['Escape'],
   scoreboard: ['Tab'],
   debugFps: ['F3'],

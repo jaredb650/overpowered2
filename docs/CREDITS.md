@@ -32,6 +32,8 @@ AI-generated sounds too, trimmed and mixed down to mono.
 `stakegun_shot.mp3`, `stakegun_string.mp3` and `stake_beep.mp3` (the Stakegun, its string and an exploding bolt's beep) and
 `raufoss_detonation.mp3` (a Raufoss round bursting) in `public/audio/sfx/guns` are the owner's own AI-generated sounds as well,
 trimmed and mixed down to mono.
+`smg_suppressed_shot.mp3` (the SMG with the Crucible shop's suppressor) in `public/audio/sfx/guns` is the owner's own AI-generated
+sound too (`suppressor (1).mp3`), mixed down to mono and faded out.
 
 The sounds in `public/audio/sfx/gore2` are the owner's own AI-generated sounds too, trimmed and mixed down to mono for the game
 (the human death lines also cut through a radio filter). Nothing in them is third-party material: `wound_minor_1.mp3`,

@@ -102,6 +102,8 @@ export interface WeaponDef {
    * Raufoss rounds (TUNING.raufoss). It never fires. `label` is what the HUD calls it while it is loaded. Instead of ADS.
    */
   altAmmo?: { readonly label: string };
+  /** Every round is a Raufoss round, with no switch: the Sabot with its shop mod (mods.ts). */
+  raufoss?: boolean;
   /** Hit-stop on a kill, seconds. */
   killStop?: number;
   /**

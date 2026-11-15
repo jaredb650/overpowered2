@@ -448,7 +448,7 @@ export interface CorpseHit {
 // Effects
 // ---------------------------------------------------------------------------------------------
 
-export type MuzzleKind = 'smg' | 'rifle' | 'shotgun' | 'rocket' | 'autocannon' | 'plasma' | 'railgun' | 'minigun' | 'revolver' | 'flame' | 'enemy' | 'carbine' | 'pistol' | 'sabot' | 'snipe' | 'quiver' | 'rotary' | 'hmg';
+export type MuzzleKind = 'smg' | 'rifle' | 'shotgun' | 'rocket' | 'autocannon' | 'plasma' | 'railgun' | 'minigun' | 'revolver' | 'flame' | 'enemy' | 'carbine' | 'pistol' | 'sabot' | 'snipe' | 'quiver' | 'rotary' | 'hmg' | 'suppressed';
 export type TracerKind = 'bullet' | 'heavy' | 'hellfire' | 'bloodthirst' | 'berserk' | 'plasma' | 'rail' | 'enemy' | 'carbine' | 'pistol' | 'sabot' | 'snipe';
 export type ExplosionKind = 'rocket' | 'grenade' | 'hellfire' | 'hellfireBullet' | 'shell' | 'plasma' | 'plasmaBurst' | 'enemy' | 'barrel' | 'nuke' | 'finisher';
 export type BeamKind = 'rail' | 'lance' | 'laser' | 'sniper' | 'heal';
@@ -627,7 +627,7 @@ export type Action =
   | 'melee' | 'grenade' | 'interact' | 'weaponNext' | 'weaponPrev' | 'weaponLast'
   | 'weapon1' | 'weapon2' | 'weapon3' | 'weapon4' | 'weapon5' | 'weapon6' | 'weapon7' | 'weapon8' | 'weapon9' | 'weapon0'
   | 'streak' | 'callinWarthog' | 'callinDoorGunner' | 'callinChopper' | 'callinOrbital' | 'callinAc130' | 'callinBlackSun' | 'callinNuke' | 'sonar' | 'stim'
-  | 'nextWave' | 'pause' | 'scoreboard' | 'debugFps' | 'debugOverlay';
+  | 'nextWave' | 'shop' | 'pause' | 'scoreboard' | 'debugFps' | 'debugOverlay';
 
 export interface InputSystem extends GameSystem {
   isDown(action: Action): boolean;

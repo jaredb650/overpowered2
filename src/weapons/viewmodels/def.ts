@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { clamp } from '../../core/math';
 import { POSE_SIZE } from './arms';
 import type { Model } from './kit/model';
-import type { SwordMove } from '../../core/gameplay';
+import type { ModId, SwordMove } from '../../core/gameplay';
 
 export type Tuple3 = readonly [number, number, number];
 
@@ -52,6 +52,19 @@ export interface ViewDef {
   heatPerShot?: number;
   /** Radians per second at full charge, for spinning barrels. */
   spinMax?: number;
+  /** What each weapon mod (src/weapons/mods.ts) looks like on this gun while it is fitted. */
+  mods?: Partial<Record<ModId, ModLook>>;
+}
+
+/** A fitted mod on the gun: its part (hidden until fitted), and the sight or muzzle it puts in place of the gun's own. */
+export interface ModLook {
+  part: string;
+  /** Replace `sight`, `rear` (null for an optic: level) and `relief` while fitted. */
+  sight?: Tuple3;
+  rear?: Tuple3 | null;
+  relief?: number;
+  /** The socket the flash and tracers leave from while fitted. */
+  muzzle?: string;
 }
 
 const MAX_STEPS = 10;

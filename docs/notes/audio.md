@@ -312,6 +312,12 @@ one beep a cue (0.15 s of tone, lifted 24 dB), 3D on `enemyFx` at 0.08 (loudness
 quickening, each 0.06 higher. `raufoss_detonation` is a Raufoss round bursting, `blastSmall` at 0.1 (loudness 0.133), its
 first 0.75 s faded out; at the Piledriver's eight a second it is held to three voices and one start a frame.
 
+**The suppressed SMG** (2026-11-15, the owner's `suppressor (1).mp3`, weapons-update plan section 10). `smg_suppressed_shot` is the
+SMG's shot while the Crucible shop's suppressor is fitted (`weapons/mods.ts` patches the SMG's `sounds`). It was a 1 s stereo WAV at
+40 kHz inside an `.mp3` name, with no lead-in to cut (the report starts on the first sample): mixed to mono at 44.1 kHz, peaks to
+-1 dB, faded out from 0.6 s and cut at 0.9 s, 160 kbit/s. On the `gun` mix at 0.11 on the ladder (loudness 0.17), about 2 dB under the
+bare SMG's 0.143, with less of it in the reverb (`send` 0.08 for the mix's 0.15).
+
 ## Sample packs
 
 Real recordings from free libraries. Sources, authors and licences for every file are in `docs/CREDITS.md`. One id holds all its variants, and pitch

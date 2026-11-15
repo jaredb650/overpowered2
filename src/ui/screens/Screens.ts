@@ -14,22 +14,25 @@ import { PauseScreen } from './pause';
 import { RulesScreen } from './rules';
 import { SettingsScreen } from './settingsScreen';
 import { ShopScreen } from './shop';
+import { ProcurementScreen } from './procurement';
 import { LoadoutScreen } from './loadout';
 import type { ShopId } from '../../contracts/defense/data';
 import { SplashScreen } from './splash';
 
 /**
  * 'rules' is the Crucible's, reached only from the main menu, and its Back goes straight there. 'loadout' and 'shop' are
- * Outpost Defense's, over a paused run.
+ * Outpost Defense's, over a paused run; 'procurement' is the Crucible's shop, the same way.
  */
 export type ScreenName =
-  | 'loading' | 'splash' | 'menu' | 'pause' | 'gameover' | 'complete' | 'guide' | 'settings' | 'rules' | 'loadout' | 'shop' | 'none';
+  | 'loading' | 'splash' | 'menu' | 'pause' | 'gameover' | 'complete' | 'guide' | 'settings' | 'rules' | 'loadout' | 'shop' | 'procurement' | 'none';
 
 export interface Screen {
   readonly el: HTMLElement;
   /** Sets up focus and fresh content each time the screen opens. */
   open(nav: Nav): void;
   update?(dt: number): void;
+  /** Runs as another screen (or none) takes its place. */
+  closed?(): void;
 }
 
 export class Screens {
@@ -59,6 +62,7 @@ export class Screens {
       rules: new RulesScreen(ctx, hud),
       loadout: new LoadoutScreen(ctx, hud),
       shop: this.shopScreen,
+      procurement: new ProcurementScreen(ctx, hud),
     };
     this.el = div('screens');
     for (const s of Object.values(this.screens)) {
@@ -79,7 +83,10 @@ export class Screens {
     if (name === 'guide' || name === 'settings') {
       if (this.current !== 'guide' && this.current !== 'settings') this.returnTo = this.current === 'none' ? 'menu' : this.current;
     }
-    if (this.current !== 'none') this.screens[this.current].el.style.display = 'none';
+    if (this.current !== 'none') {
+      this.screens[this.current].el.style.display = 'none';
+      if (this.current !== name) this.screens[this.current].closed?.();
+    }
     this.current = name;
     this.el.classList.toggle('live', name !== 'none');
     if (name === 'none') return;

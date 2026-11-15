@@ -7,10 +7,10 @@
 import * as THREE from 'three';
 import { clamp, damp, lerp, smoothstep, wrapAngle } from '../../core/math';
 import { CG, type Ctx, type MovePose, type RayHit } from '../../core/contracts';
-import type { CallInId, PerkId, PowerupId, SwordMove, ViewmodelRig, WeaponId } from '../../core/gameplay';
+import type { CallInId, ModId, PerkId, PowerupId, SwordMove, ViewmodelRig, WeaponId } from '../../core/gameplay';
 import { Arm } from './arms';
 import { inQuad, outBack, outCubic } from './curves';
-import { Anim, HandCtl, type ViewDef } from './def';
+import { Anim, HandCtl, type ModLook, type ViewDef } from './def';
 import { Kit } from './kit/kit';
 import { VmMaterials } from './kit/materials';
 import type { Model } from './kit/model';
@@ -424,7 +424,8 @@ export class Rig implements ViewmodelRig {
     const isLeft = left && this.akimboW > 0.01;
     const def = isLeft ? this.defLeft : this.def;
     const sockets = def?.model.sockets;
-    const s = (barrel > 0 ? sockets?.[BARRELS[barrel] ?? ''] : undefined) ?? sockets?.muzzle;
+    const can = def ? this.look(def)?.muzzle : undefined;
+    const s = (barrel > 0 ? sockets?.[BARRELS[barrel] ?? ''] : undefined) ?? (can ? sockets?.[can] : undefined) ?? sockets?.muzzle;
     if (!s) return out;
     _a.setFromMatrixPosition(s.matrixWorld);
     this.settleMuzzle(_a, isLeft);
@@ -533,6 +534,7 @@ export class Rig implements ViewmodelRig {
     a.left.begin(def.left);
     this.readAmmo(def);
     def.animate(a);
+    this.dressMods(def);
     this.composeGun(def, a);
     this.gun.updateMatrixWorld(true);
 
@@ -564,6 +566,7 @@ export class Rig implements ViewmodelRig {
         b.right.begin(null);
         b.left.begin(dl.left);
         dl.animate(b);
+        this.dressMods(dl);
         this.composeLeftGun(dl, b);
         this.gunL.updateMatrixWorld(true);
       }
@@ -723,11 +726,13 @@ export class Rig implements ViewmodelRig {
 
     // Aim down sights: the sight comes onto the eye line, square to the view. x goes in before the hand-off's mirror, which
     // multiplies it by the gun's side, so the sight is centred from either hand. Sway falls to `ADS_SWAY` of itself.
-    const sight = def.sight;
+    // A fitted optic (the Harrow's red dot) brings its own sight picture.
+    const fit = this.look(def);
+    const sight = fit?.sight ?? def.sight;
     const aim = sight ? this.aimW : 0;
     if (sight && aim > 0) {
       // Iron sights: pitch so the rear lines up with the front, then put the front on the eye line.
-      const rear = def.rear;
+      const rear = fit?.rear !== undefined ? fit.rear : def.rear;
       const pitch = rear ? Math.atan2(rear[1] - sight[1], rear[2] - sight[2]) : 0;
       const c = Math.cos(pitch);
       const s = Math.sin(pitch);
@@ -735,7 +740,7 @@ export class Rig implements ViewmodelRig {
       const z = sight[1] * s + sight[2] * c;
       p.x = lerp(p.x, -sight[0] * this.gunSide, aim);
       p.y = lerp(p.y, -y, aim);
-      p.z = lerp(p.z, -(def.relief ?? RELIEF) - z, aim);
+      p.z = lerp(p.z, -(fit?.relief ?? def.relief ?? RELIEF) - z, aim);
       r.set(lerp(r.x, pitch, aim), r.y * (1 - aim), r.z * (1 - aim));
     }
     const sway = 1 - (1 - ADS_SWAY) * aim;
@@ -1098,6 +1103,26 @@ export class Rig implements ViewmodelRig {
     g.font = '700 22px "Courier New", monospace';
     g.fillText(`${String(Math.round(this.a.speed)).padStart(2, '0')} M/S`, 8, 88);
     texture.needsUpdate = true;
+  }
+
+  /** The fitted mod's look on `def`, if one is fitted (`weapons.fitted`). A gun takes one mod. */
+  private look(def: ViewDef): ModLook | undefined {
+    const mods = def.mods;
+    const fitted = this.ctx.weapons.fitted;
+    if (!mods || !fitted) return undefined;
+    for (const id in mods) if (fitted.has(id as ModId)) return mods[id as ModId];
+    return undefined;
+  }
+
+  /** Every mod part shows only while its mod is fitted. After `resetParts`, which shows every part. */
+  private dressMods(def: ViewDef): void {
+    const mods = def.mods;
+    if (!mods) return;
+    const fitted = this.ctx.weapons.fitted;
+    for (const id in mods) {
+      const part = def.model.parts[mods[id as ModId]!.part];
+      if (part) part.visible = fitted?.has(id as ModId) === true;
+    }
   }
 
   get currentDef(): ViewDef | null {
