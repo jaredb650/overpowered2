@@ -2,6 +2,8 @@
 
 Status: proposal, 2026-11-15. Written from the owner's notes, after research (section 2) and a read of the code as it is (section 3).
 Nothing is built. Open details are marked **Q** with the default I would pick; the ones only the owner can settle are in section 12.
+Updated the same day with the owner's answers: what they call you and how they talk by nerve (4.9), temperaments (4.10), a
+personality and type lines per enemy type (4.11, 5.5), names (4.7), and a rare clone-death memory (4.6). Section 12 marks what is settled.
 
 ## 1. The goal
 
@@ -228,8 +230,21 @@ Per side: `deathsSeen`.
 
 - Second contact: "It's back", "There it is again".
 - Third and later, or with dead squadmates: "That's the one that got Marsh", "Not this time".
-- After the player dies and is redeployed, men alive who saw it: "We killed you. We watched you die", "There's another one". This is the
-  story's clone, said by the enemy, and it costs one fact.
+- After the player dies and is redeployed, a man alive who saw it may say so: "We killed you. We watched you die", "There's another
+  one". This is the story's clone, said by the enemy, and it costs one fact.
+
+**The clone line is rare** (owner: "remember you dying sometimes but shouldn't constantly comment on it"). It is a surprise, never a
+greeting:
+
+| | Rule |
+|---|---|
+| Who | One man alive who saw the death (`deathsSeen`), on his squad's first contact with the new clone. Never more than one man |
+| Chance | 20% per life |
+| Cooldown | Never two lives running, and at least 8 minutes of play since the last one |
+| Lines | Every row is `once` a run. When the pool is spent, the line is gone for the run |
+| Register | By the speaker's nerve, like everything else (4.9): steady "Contact. Same subject as the gate. Confirm we dropped him?"; scared "We killed it. I watched us kill it. Why is it walking?" |
+
+So a run with ten deaths hears it once or twice. The same-life "it's back" lines above are a different thing and keep their own gaps.
 
 ### 4.7 Names
 
@@ -237,11 +252,21 @@ Every man gets a first or last name from his faction's pool when he enlists, nev
 he dies ("Marsh! Marsh is down!"), when he is hit, when they send him somewhere ("Novak, left side"), and the radio reports it. The
 leader's death names him too ("They got the sergeant", "Reyes is dead, I have the squad").
 
-| Faction | Pool | Feed |
+Names are random (owner: "random names"): drawn from the faction's pool when the man spawns, never two alike alive in a mission, and a
+dead man's name rests for the rest of the mission so a new "Marsh" never walks in after the old one died.
+
+| Faction (code) | Pool | Feed |
 |---|---|---|
-| The garrison (Outpost) | Short soldier surnames: Marsh, Novak, Okafor, Pike, Brandt, Sully, Hale... (16) | `Cpl Marsh · Alpha` |
-| Holdfast militia | Dockside first names and nicknames: Big Teo, Ma Corran, Wick, Anya, Fitch... (16) | `Wick · Holdfast` |
-| Bailiffs (allies) | Surname and a staff number: Grell 4471... (12) | `Grell, 9th Recoveries` |
+| The garrison (Outpost; `src/enemies/outpost/`) | Short soldier surnames: Marsh, Novak, Okafor, Pike, Brandt, Sully, Hale, Reyes, Dennis, Kowal, Achebe, Lund, Ferro, Tash, Varga, Quill (16) | `Cpl Marsh · Alpha` |
+| Holdfast militia (Foreclosure; `missions/foreclosure.ts`) | Dockside first names and nicknames: Big Teo, Little Teo, Ma Corran, Wick, Anya, Fitch, Old Baz, Juno, Mags, Dray, Ossie, Pell, Rook, Sabine, Hatch, Coll (16) | `Wick · Holdfast` |
+| Bailiffs (allies; `src/allies/`) | Surname and a staff number: Grell 4471, Ambry 0912, Voss 3306, Teague 1180, Mott 5521, Penner 2049, Lusk 6614, Dorne 8802, Fenwick 0337, Haber 4190, Stile 9055, Ibsen 7730 (12) | `Grell, 9th Recoveries` |
+| Later missions | The Sump's dead do not talk. The bank and the grid get a pool when their plans are written | |
+
+**Buddies and grief.** At spawn each man is paired with the next man in his squad's roster (an odd one out joins the leader's pair).
+Any friend's death gets the grief line from whoever is near; a buddy's death gets it every time (unless he is mute or dead), costs
+him twice the usual `FEAR.allyDown`, and uses the buddy rows, which are more personal ("Marsh! I had him, I had him right here").
+The grief line follows the speaker's register (4.9): steady "Marsh is down. I need a medic on Marsh, now"; scared "It killed Marsh.
+Oh Christ, it just took him apart". A hothead's buddy dying sets him off instead (4.10).
 
 **Q**: names or callsigns on the feed? Default: name, rank, squad, as above. The Commander's eight `NAMES` stay his.
 
@@ -259,6 +284,83 @@ Most of this exists. What changes:
 - **The crawl talks.** A crawling man under his `screams` clock says one of "oh god" lines instead of only screaming, and a friend
   near shouts his name and "hold on" (the existing `rescue`).
 
+### 4.9 What they call you, and how they talk
+
+The owner's answer: confident men call you "subject", "tango" or "enemy"; scared men call you "that thing", "it" or "that monster".
+Confident men talk like professionals on a radio; as they get scared they start swearing. Both follow the man's nerve state (4.4),
+shifted by his temperament (4.10).
+
+| Nerve | They call you | Pronoun | How they talk | Example |
+|---|---|---|---|---|
+| confident | tango, hostile, the subject | he | Professional and a little smug. Clean words, short sentences | "Tango's hit. He's slowing, push him." |
+| steady | tango, hostile, enemy, the subject | he | Professional radio voice: callsign, place, distance, what they are doing. No swearing | "Alpha-2, hostile at the north stores, forty metres. Engaging." |
+| shaken | slips from "he" to "it" mid-line | he, then it | Informal. The first swears ("hell", "bloody", "Christ"). Questions | "Where the hell did he... where did it go? It was right there." |
+| panicked | that thing, it, that monster | it | Swearing, broken sentences, shouting over each other | "That thing walked straight through Novak! Shoot it! Shoot the f... thing!" |
+| broken | it, and "you" when begging | it, you | Begging or bargaining (4.8) | "Please. You don't have to. Please." |
+
+**The switch from "he" to "it" is the tell.** A player who listens hears a man start to break before his behaviour shows it, and a
+squad that was saying "tango" a minute ago saying "that monster" is the rampage paying off.
+
+By faction:
+
+| Faction | Steady and confident | Shaken and panicked |
+|---|---|---|
+| Garrison | tango, hostile, enemy, the subject (the Commander's briefing word) | it, that thing, that monster |
+| Holdfast militia | him, the goggles, the tax man, and "hostile" said badly, because they have heard soldiers say it on the news | it, that thing, the monster |
+| Bailiffs (allies) | the contractor. They are never afraid of you; they call enemies "subjects" | (no change) |
+
+**How it is written.** No new machinery: rows are written whole for each register and picked by the existing `who.states` (5.1). There
+is no `{you}` slot, because the pronoun and the grammar change with the word. Today's `comms.ts` lines all say "it", which under this
+rule is the scared word, so stage 1 ports them into the shaken and panicked rows and writes professional versions for steady and
+confident. The examples in 5.3 are mostly scared-register lines for the same reason.
+
+Swearing (section 12, question 5): none in the professional register, a little when shaken, full when panicked, written in full in the
+real line set. A hothead (4.10) is the exception.
+
+### 4.10 Temperament
+
+Each man rolls one temperament at spawn, weighted by his rank (`outpost/rank.ts`). Rank stays what it is (aim, grenade cooking,
+surrender); temperament is how he holds up and how he sounds. It is never shown: the player hears it.
+
+| Temperament | Nerve | How he talks | What he does differently |
+|---|---|---|---|
+| **green** | Fear losses x1.4. Shaken at 70 instead of 60 | Leaves the professional voice first. Asks questions nobody can answer | Peeks less, first to run, first to beg |
+| **steady** | As `morale.ts` today | As written in 4.9 | As now |
+| **veteran** | Fear losses x0.7. Shaken at 50, panicked at 25 | Stays one register more professional than his state. Dry. Swears late and quietly | Holds when others run. Squad nerve counts him double while he lives |
+| **hothead** | Fear losses x0.8, but confident at 75 instead of 85, and from shaken he drops straight to panicked | Swears in every register, steady included. Taunts most | `rush` priced 20% lower again. A buddy's death makes him confident and angry for 6 s (a rush) instead of shaken. **Q**: default yes |
+
+| Rank | green | steady | veteran | hothead |
+|---|---|---|---|---|
+| conscript | 60% | 25% | 0 | 15% |
+| regular | 25% | 55% | 5% | 15% |
+| veteran | 5% | 35% | 45% | 15% |
+| elite | 0 | 20% | 65% | 15% |
+
+The rule table gets one more `who` field, `temperaments?`, so a row can be a hothead's or a veteran's.
+
+### 4.11 Enemy types: personality and behaviour
+
+The owner's answer: "type specific behaviors and also each enemy type maybe has its own personality too". The types that talk are the
+seven humans that fill squads in `outpost/doctrine.ts`, each with its Outpost role (`ROLE_OF`). Foreclosure's militia uses the same
+seven. The swarm (husk, stalker, leaper, bomber, burner, skitter, drone, juggernaut, titan) keeps its sounds and never talks
+(section 11).
+
+Each type has a personality (how its lines are written) and a few type lines tied to something the type already does. As with
+tactics, **a type line is only said by the act it names**, so it doubles as a warning the player can learn.
+
+| Type (role) | What it does | Personality | Type lines and when | Behaviour |
+|---|---|---|---|---|
+| Trooper (rifle) | SMG or rifle, holds 9 to 24 m, most of every squad | The everyman. Talks most, complains, thinks about home and pay | Reload, moving up, the generic set | None new. He is the baseline the others are written against |
+| Gunner (shotgun) | Pushes in to 3 to 10 m | Eager. Likes it close and says so | "Going in close" when he starts the push | The push call goes out as the advance starts, so the player knows a shotgun is coming round the corner |
+| Brute (machine gun) | Base of fire, plates that come off | Big, slow, calm, fond of his gun. Takes it personally when a plate goes | "Spinning up" at the start of the 1.05 s windup; a plate line when one is shot off | The spin-up call is the tell for the burst. He leads the base-of-fire call (4.5), as already planned |
+| Riot (shield) | Frontal shield, leads pushes | Stoic. Few words, all orders. The wall | "Shield up, stack on me" when `shieldWall` starts; a line when the shield arm goes | **Q**: the nearest two men fall in behind his shield on the call. Default yes, as part of stage 8 |
+| Rocketeer (rocket) | Rockets, keeps distance, a pack that can be shot | A fussy technician. Safety first, by the book, terrified of his own pack | "Watch the backblast" at the start of the 0.95 s windup; "Ordnance down range" as it fires; a pack line when it is hit | **Q**: a friend within 3 m behind him steps aside on the backblast call. Default yes. The call warns the player as much as his friends |
+| Sniper (marksman) | Laser, a 1.9 s charged shot, relocates | Quiet, patient, superior. Counts things | "He's in my sights" as the charge starts (with the laser); "Relocating" on `relocate` | The line is said once per target per minute, so it reads as a warning, not a ticker. Scared, it turns: he feels watched through his own scope |
+| Warden (medic) | Shields and buffs nearby men, the Outpost's medic (`assignAid`) | The calm one, half medic and half preacher. The squad's spine. His chant is the `vox_warden_chant` voice | "Stay close, I've got you" when he buffs or reaches a wounded man; prayer-like lines at low nerve | **Q**: men inside his support radius lose fear at x0.8, and his death costs the squad as much as the leader's. Default yes. That makes him the priority target the design already says he is |
+
+Type rows use the existing `who.roles` in 5.1. The personality sits on top of temperament: a green rocketeer is a nervous technician,
+a veteran rocketeer a calm one, but both say "watch the backblast".
+
 ## 5. The dialogue system
 
 ### 5.1 The rule table
@@ -274,7 +376,7 @@ interface ChatterRule {
   emotion: ChatterEmotion;
   channel: 'shout' | 'radio' | 'scream';
   when?: Criteria;       // plain predicates over the facts, below
-  who?: { roles?: Role[]; ranks?: Rank[]; states?: MoraleState[]; leader?: boolean; radio?: boolean };
+  who?: { roles?: Role[]; ranks?: Rank[]; temperaments?: Temperament[]; states?: MoraleState[]; leader?: boolean; radio?: boolean; buddy?: boolean }; // buddy: the speaker was the dead man's pair (4.7)
   weight?: number;       // more criteria already win; this breaks ties
   gap?: number;          // seconds before this row again. Default 40
   once?: boolean;        // once a run
@@ -313,8 +415,9 @@ test can feed facts and read the line.
 
 ### 5.3 Line categories and examples
 
-Written for this game: the garrison calls the player "it" (as built), Holdfast knows it is a man in goggles from the news, and the
-Bailiffs are deadpan clerks with rifles. Swearing is written as it would be said. Every line here is new.
+Written for this game: the garrison says "tango" when steady and "it" when scared (4.9), Holdfast knows it is a man in goggles from
+the news, and the Bailiffs are deadpan clerks with rifles. Most lines here are the scared register, as today's are. Swearing is
+written as it would be said. Every line here is new. Type lines are in 5.5.
 
 **Contact, and contact again**
 
@@ -445,6 +548,25 @@ Every row carries an emotion, so the TTS can be steered per line, the same way `
 | `hushed` | ambush, searching close | Whisper |
 | `grief` | a name after a death | Breaking |
 
+### 5.5 Example lines per type
+
+**Design samples only.** These show each type's personality in both registers, so the owner can judge the voices. They are not the
+line set: the real rows, with ids, concepts, criteria and 4 to 6 per concept per register, are written at stage 8 (section 8) and
+reviewed then. Every line is ours. Holdfast's militia gets its own wording of the same types ("Mind your backs, it's going off!" for
+its rocketeer), written with its rule set at stage 7.
+
+Professional is steady and confident (they say "he", "tango"); scared is shaken and panicked (they say "it", "that thing").
+
+| Type | Professional | Scared |
+|---|---|---|
+| **Trooper** | "Changing mags. Cover me." · "Alpha-3 moving up to the trucks." · "Hostile, two o'clock, behind the generator." · "Tango's gone quiet. Holding." | "I'm dry, I'm dry, somebody shoot it!" · "We still get paid if it kills us, right? Right?" · "This is not gate duty. This is not bloody gate duty." · "Where the hell is it? Where's it gone?" |
+| **Gunner** | "Going in close. Cover the door." · "On him. Two metres." · "Room's clear. Next." · "Tango's in the corridor. He's mine." | "I'm not going in there. You go in there." · "Point blank! I hit it point blank!" · "Get it off me, get it off me!" · "Six shells. Six shells and it's still coming." |
+| **Brute** | "Spinning up." · "Lane's mine. Nobody walk in front." · "Tango in the open. Thank you, tango." · "Plate's gone. Fine. Got another." | "That was my good plate." · "Why isn't it going down? Why isn't it going down?" · "I'm empty. Christ, it's still standing." · "Somebody tell me it's dead. Somebody lie to me." |
+| **Riot** | "Shield up. Stack on me." · "Moving. Stay behind." · "Shield holding." · "On my mark. Go." | "The shield! It took the shield, and the arm!" · "It's going round, it's going round the shield!" · "Behind me, damn it! Get behind me!" · "This thing was rated for rifles. Rifles!" |
+| **Rocketeer** | "Watch the backblast!" · "Ordnance down range." · "Clear behind? Clear behind. Firing." · "Splash. Checking." · "Last rocket. Make it count." | "It hit my pack! It hit my pack, get away from me!" · "Missed. How did I miss? It's huge!" · "I'm not firing at it this close, I'll take us all with it!" · "Who's behind me? Who the f... is behind me?" |
+| **Sniper** | "He's in my sights." · "Relocating." · "Holding on the gap. He'll show." · "Tango down. Correction: tango up." · "Range forty-nine. No wind." | "It looked at me. Through the scope, it looked right at me." · "I hit it clean. It just kept walking." · "Moving, moving, it knows where I am!" · "Nobody said it could follow the laser back." |
+| **Warden** | "Stay close. I've got you." · "Hold still, this'll sting." · "Wounded at the stores. Moving to him." · "Steady. Breathe. Back in it." | "Stay close. Please, just stay close." · "I can't patch this. Nobody can patch this." · "Keep it away from the wounded. Please." · "Give me strength. Give me a bigger gun." |
+
 ## 6. Phase 1 on screen
 
 ### 6.1 The bubble
@@ -549,18 +671,19 @@ Each stage is playable on its own and ends with a URL. One agent per stage, comm
 
 | # | Stage | What the owner gets | Size | Model, effort | Tokens |
 |---|---|---|---|---|---|
-| 1 | **The rule table** | `comms.ts` asks rules instead of pools; every existing line ported with an id, faction and emotion; names on every man and on the feed; row gaps and the repeat test | M | Opus, medium | 0.3 to 0.5M |
+| 1 | **The rule table** | `comms.ts` asks rules instead of pools; every existing line ported with an id, faction and emotion, into the scared rows, with professional rows written beside them (4.9); random names and buddies on every man and on the feed; row gaps and the repeat test | M | Opus, medium | 0.3 to 0.5M |
 | 2 | **Bubbles** | Lines over heads, the three-bubble cap, the setting | S to M | Opus, medium | 0.2 to 0.4M |
-| 3 | **The read and the reactions** | Fast, still, streaks, hurting the player, "you again", the redeploy line, the near-miss flinch | M | Opus, high | 0.4 to 0.6M |
+| 3 | **The read and the reactions** | Fast, still, streaks, hurting the player, "you again", the rare redeploy line (4.6), the near-miss flinch | M | Opus, high | 0.4 to 0.6M |
 | 4 | **Radiomen** | One per squad with the antenna, linked squads only, heading reports driving another squad's cut-off, support calls, "get his radio" | M to L | Opus, high | 0.6 to 0.9M |
 | 5 | **Nerve and call and answer** | The confident state, squad nerve, taunts, two-man tactic calls | M | Opus, high | 0.4 to 0.6M |
 | 6 | **The wounded** | Begging at gunpoint, the warned last-stand grenade, the crawl talking | S | Opus, medium | 0.2 to 0.3M |
 | 7 | **Holdfast and the Bailiffs** | Their rule sets; `war.ts` `CALLS` moved into rows; allies get lines | M | Opus, medium | 0.3 to 0.5M |
-| 8 | **Voices** (when the owner says) | Script, generator, six voices, radio bus, the `<audio>` pool, a 20-line test first | M, plus the owner's listening | Opus, medium | 0.3 to 0.5M, plus the model's cost |
+| 8 | **Types and temperaments** | Temperaments on every man (4.10), the seven types' personalities and type lines (4.11), the real line set that replaces 5.5's samples, and the small type behaviours: the backblast step-aside, the riot stack, the warden's calm | M | Opus, high | 0.4 to 0.6M |
+| 9 | **Voices** (when the owner says) | Script, generator, six voices, radio bus, the `<audio>` pool, a 20-line test first | M, plus the owner's listening | Opus, medium | 0.3 to 0.5M, plus the model's cost |
 
 Stages 1 and 2 first and alone: they are the whole phase 1 look with today's behaviour, and the owner can judge whether bubbles help
 before anything else moves. 3 and 6 can run beside each other after 1. 4 and 5 touch `squad.ts` and `index.ts` and should not run at the
-same time. **Total for phase 1:** about 2.4 to 3.8M tokens, a little more than the air support update.
+same time. 8 comes after 5, since temperaments change nerve. **Total for phase 1:** about 2.8 to 4.4M tokens, a little more than the air support update.
 
 ## 9. Cost
 
@@ -580,10 +703,10 @@ Nothing here adds geometry except the radioman's antenna, a few dozen triangles 
 ## 10. Rules for every stage
 
 - `outpost.test.ts`, `planner.test.ts`, `capture.test.ts`, `commander.test.ts` and `war.test.ts` pass unchanged. The men fight as they
-  do: only stages 4 and 5 change behaviour, and each says what it changed with a bench run (`human-bench.ts`, `outpost-sim.ts`).
+  do: only stages 4, 5 and 8 change behaviour, and each says what it changed with a bench run (`human-bench.ts`, `outpost-sim.ts`).
 - No line is said by a drill that is not starting. A test checks every tactic concept is only fired from its drill's start.
 - All lines are ours. No line copied from another game.
-- No voice, no service calls before stage 8.
+- No voice, no service calls before stage 9. No TTS and no ElevenLabs until the owner says.
 
 ## 11. Left out
 
@@ -594,22 +717,28 @@ Nothing here adds geometry except the radioman's antenna, a few dozen triangles 
 
 ## 12. Questions for the owner
 
-1. **What do they call you?** Default: the garrison keeps "it" (as built: they think you are a monster), Holdfast says "him" and "the
-   goggles" (they have seen the news), the Bailiffs say "the contractor".
+Answered by the owner on 2026-11-15: 1, 5, 6 (in part) and 8, plus the types and personalities (13). The rest stand at their defaults
+until he says otherwise.
+
+1. **What do they call you?** **Answered:** by nerve. Confident or steady: "subject", "tango", "enemy", "hostile". Shaken or
+   panicked: "that thing", "it", "that monster". Holdfast keeps "him" and "the goggles" when steady; the Bailiffs keep "the
+   contractor" (4.9).
 2. **Is the radioman marked?** Default: yes, a whip antenna on his back you can pick out at 30 m, and a radio mark on his lines. Hidden
    makes killing him luck, not a choice.
 3. **Can a man pick the radio back up?** Default: yes, once per squad, announced ("Get his radio!"), and only if the body is out of
    your view. It turns the body into bait.
 4. **Do you hear their radio across the map?** Default: yes, radio traffic in the feed map-wide, marked as radio; shouts only within
    40 m. Killing a radioman takes his squad off your feed, which is how you know it worked.
-5. **How much swearing?** Default: real swearing, written and later spoken in full, a few lines per concept, mostly when shaken or
-   worse. The examples here spell it as "f..." only because it is a doc.
-6. **Names or callsigns on the feed?** Default: `Cpl Marsh · Alpha`. The callsign alone is easier to read in a big fight; the name is
+5. **How much swearing?** **Answered:** it rises with fear. High morale talks like a professional on the radio, with no swearing;
+   shaken men start to swear and panicked men swear in full. Hotheads swear at any nerve (4.9, 4.10). Written in full in the line
+   set; the examples here spell it as "f..." only because it is a doc.
+6. **Names or callsigns on the feed?** **Answered in part:** every man has a random name from his faction's pool, and friends grieve
+   by name (4.7). Still open, the feed format. Default: `Cpl Marsh · Alpha`. The callsign alone is easier to read in a big fight; the name is
    what makes "Marsh is down" land.
 7. **How mean, how often, when they are winning?** Default: taunts only with you under half health or after 25 damage in 8 s, at most
    one every 12 s side-wide, and they stop the moment Dread climbs.
-8. **Do they remember the clone?** Default: yes. Men who saw you die say so after the redeploy ("We watched you die"). It is the story's
-   hint, said by the enemy.
+8. **Do they remember the clone?** **Answered:** sometimes, never constantly. One man who saw you die may say so after a redeploy,
+   at 20% a life, never two lives running and not within 8 minutes of the last, each line once a run (4.6).
 9. **Does sparing a begging man mean anything?** Default: no new rule. Begging is a reaction; the existing surrender, questioning and
    execution rules stay the only mechanics.
 10. **Bubbles: on, and how many?** Default: on, three at most, only for men you can see within 35 m, with a setting for feed only or
@@ -618,3 +747,7 @@ Nothing here adds geometry except the radioman's antenna, a few dozen triangles 
     and Chatterbox run locally, you pick by ear, then the full batch. Nothing generated before you say so.
 12. **Where first?** Default: wherever the Outpost brain runs (the Outpost mission, `?contract=outpost`, Outpost Defense's
     attackers), then Holdfast and the Bailiffs in Foreclosure as stage 7.
+13. **Types and personalities.** **Answered:** type-specific lines and behaviours, and a personality per type (owner's examples: the
+    sniper's "he's in my sights", the rocketeer's "ordnance down range" and "watch the backblast"). Seven talking types with a
+    personality each and temperaments on top (4.10, 4.11), samples in 5.5. Still open, the four small behaviours that come with them,
+    all default yes: the hothead's rush when his buddy dies, the riot stack, the backblast step-aside, the warden's calm.
