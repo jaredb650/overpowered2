@@ -77,6 +77,12 @@ export interface PanelActions {
   setSpeed(speed: number): void;
   /** Hands the player this weapon and draws it. */
   weapon(id: WeaponId): void;
+  /** Every weapon in play, as the arsenal box hands out, with no bottomless mag. */
+  giveAll(): void;
+  /** Every reserve to its max. Magazines are left as they are. */
+  refillReserves(): void;
+  /** Grenades to the carry limit: the arsenal box's floor is the only other way in. */
+  maxGrenades(): void;
   /** Draws the Quiver and stands five of the selected enemy in a loose arc ahead, to paint. */
   swarm(): void;
   /** Stands the selected enemy at 1.5, 2.5, 3.5, 5 and 8 m ahead, for a melee weapon's reach; `backs` turns them away. */
@@ -143,7 +149,7 @@ export class LabPanel {
     return b;
   }
 
-  private check(parent: HTMLElement, label: string, key: 'god' | 'arsenal' | 'overlay' | 'gibbing' | 'explosiveDeaths' | 'progression' | 'muscles'): void {
+  private check(parent: HTMLElement, label: string, key: 'god' | 'arsenal' | 'reserves' | 'overlay' | 'gibbing' | 'explosiveDeaths' | 'progression' | 'muscles'): void {
     const row = el('label', 'lab-check');
     const box = el('input');
     box.type = 'checkbox';
@@ -218,6 +224,12 @@ export class LabPanel {
   private playerSection(): void {
     this.el.append(el('h2', '', 'PLAYER'));
     this.check(this.el, 'Every weapon, infinite ammo', 'arsenal');
+    this.check(this.el, 'Infinite reserves, mags still reload', 'reserves');
+    const kit = el('div', 'lab-row');
+    this.button(kit, 'Give all weapons', () => this.on.giveAll());
+    this.button(kit, 'Refill reserves', () => this.on.refillReserves());
+    this.button(kit, 'Max grenades', () => this.on.maxGrenades());
+    this.el.append(kit);
     this.check(this.el, 'God mode', 'god');
     // Every weapon by name, in key order: a family's members sit side by side.
     this.el.append(el('h2', '', 'DRAW A WEAPON'));

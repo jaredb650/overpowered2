@@ -188,12 +188,12 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
   shotgun: {
     ...BASE, id: 'shotgun', name: 'SHOTGUN', slot: 2, mode: 'semi',
     magSize: 6, reserve: 36, maxReserve: 72, reloadTime: 1.25, drawTime: 0.2,
-    // A deliberate pump: 0.85 s a shell (owner, 2026-11-15: it fired near semi-auto at 0.3).
-    interval: 0.85, damage: 23, pellets: 6, spread: 0.05, severMult: 2.4, force: 18,
+    // A deliberate pump: 0.55 s a shell (owner, 2026-11-15: 0.3 was near semi-auto, 0.85 too slow).
+    interval: 0.55, damage: 23, pellets: 6, spread: 0.05, severMult: 2.4, force: 18,
     muzzle: 'shotgun', tracer: 'bullet', casing: 'shotgun',
     sounds: [{ id: 'pump_shotgun_shot', pitchJitter: 0.04 }],
-    // On the viewmodel's pump (shotgun.ts clip): back by 0.42 s after the shot, home again by 0.72 s.
-    cycleFoley: [[0.4, 'pump_rack_back'], [0.7, 'pump_rack_forward']],
+    // On the viewmodel's pump (shotgun.ts clip): back by 0.27 s after the shot, home again by 0.47 s.
+    cycleFoley: [[0.26, 'pump_rack_back'], [0.45, 'pump_rack_forward']],
     reloadFoley: [[0.1, 'reload_shell_in'], [0.32, 'reload_shell_in'], [0.54, 'reload_shell_in'], [0.86, 'reload_pump']],
     recoil: 1, kick: 0.014, shake: 0.02, fovPunch: 1.6,
     ads: { zoom: 0.34, time: 0.2 },

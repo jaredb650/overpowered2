@@ -16,7 +16,7 @@ import { DEV_ASKED, DevFlags, ON_RANGE } from '../core/devflags';
 import type { Game } from '../core/Game';
 import type { WeaponId } from '../core/gameplay';
 import { MAX_ALIVE } from '../enemies/waves';
-import { WEAPON_ORDER } from '../weapons/data';
+import { TUNING, WEAPON_ORDER } from '../weapons/data';
 import { inPlay } from '../weapons/families';
 import { AimOverlay } from './overlay';
 import { ANIM } from '../player/moveAnim';
@@ -24,7 +24,7 @@ import { MOVE } from '../player/tuning';
 import { LabPanel, type MoveSwitch } from './panel';
 import { PARKOUR } from './parkour';
 import { GALLERY } from './range';
-import { applyFlags, loadSettings, saveSettings } from './settings';
+import { applyFlags, holdReserves, loadSettings, saveSettings } from './settings';
 import { LabSpawner } from './spawn';
 
 const SCALE_ID = 'lab';
@@ -81,6 +81,9 @@ export class Lab {
       step: n => this.step(n),
       setSpeed: s => this.setSpeed(s),
       weapon: id => this.draw(id),
+      giveAll: () => this.giveAll(),
+      refillReserves: () => ctx.weapons.addAmmo(1),
+      maxGrenades: () => ctx.weapons.addGrenades(TUNING.grenade.max),
       gallery: () => this.gallery(),
       heavy: id => this.heavy(id),
       doorGun: () => ctx.progression.boardCallIn('doorGunner'),
@@ -127,11 +130,13 @@ export class Lab {
   }
 
   private applyPlayer(): void {
-    const { player, weapons } = this.ctx;
-    player.modifiers.invulnerable = this.settings.god;
-    if (!this.settings.arsenal) return;
-    // Straight into the set: `give` would raise an unlock banner for each one, on every boot.
-    for (const id of WEAPON_ORDER) if (inPlay(id)) (weapons.owned as Set<WeaponId>).add(id);
+    this.ctx.player.modifiers.invulnerable = this.settings.god;
+    if (this.settings.arsenal) this.giveAll();
+  }
+
+  /** Every weapon in play, straight into the set: `give` would raise an unlock banner for each one, on every boot. */
+  giveAll(): void {
+    for (const id of WEAPON_ORDER) if (inPlay(id)) (this.ctx.weapons.owned as Set<WeaponId>).add(id);
   }
 
   get open(): boolean {
@@ -334,10 +339,11 @@ export class Lab {
       if (settings.god) ctx.player.modifiers.invulnerable = true;
       // Progression rewrites the modifiers every frame, after weapons have read them.
       if (settings.arsenal) {
-        for (const id of WEAPON_ORDER) if (inPlay(id)) (ctx.weapons.owned as Set<WeaponId>).add(id);
+        this.giveAll();
         ctx.weapons.modifiers.bottomlessMag = true;
         if (ctx.weapons.grenades < GRENADE_FLOOR) ctx.weapons.addGrenades(GRENADE_FLOOR);
       }
+      holdReserves(settings, ctx.weapons);
     }
     if (ctx.input.locked) this.tookMouse = false;
     this.overlay.update(settings.overlay);
