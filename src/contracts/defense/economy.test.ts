@@ -252,3 +252,22 @@ describe('the contract', () => {
     expect(pickContract(null, 'range').def.id).toBe('crucible');
   });
 });
+
+describe('implants at the Infirmary', () => {
+  const kit = (over: Partial<NonNullable<ShopView['implants']>> = {}) => ({
+    implants: { owned: new Set(['bloodthirst'] as const), fitted: new Set(['bloodthirst'] as const), slots: 1, cleared: 0, ...over },
+  });
+
+  it('sells them at the Crucible\'s prices and wave locks, and refits one bought for nothing', () => {
+    const list = offers('infirmary', view(kit({ cleared: 4 })));
+    const hellfire = find(list, { kind: 'implant', id: 'hellfire' });
+    expect(hellfire.price).toBe(1600);
+    expect(hellfire.why).toBeNull();
+    expect(hellfire.detail).toBe('Replaces BLOOD THIRST');
+    expect(find(list, { kind: 'implant', id: 'berserk' }).why).toBe('Released after wave 6');
+    expect(find(list, { kind: 'implant', id: 'butcher' }).why).toBe('No free slot');
+    expect(find(list, { kind: 'slot', id: 2 }).why).toBe('Released after wave 5');
+    expect(find(list, { kind: 'implant', id: 'bloodthirst' }).price).toBe(0);
+    expect(offers('infirmary', view()).some(o => o.section === 'Implants')).toBe(false);
+  });
+});

@@ -6,6 +6,8 @@
  */
 import type { Ctx } from '../../core/contracts';
 import { SHOPS, type ShopId } from '../../contracts/defense/data';
+import { EFFECTS } from '../../progression/data';
+import { CLASS_NAMES, IMPLANTS } from '../../progression/implants';
 import type { Offer } from '../../contracts/defense/economy';
 import {
   AMMO_ICON, GATE_ICON, GRENADE_ICON, MORTAR_ICON, MOUNT_ICON, REBUILD_ICON, STIM_ICON, WALL_ICON, callInIcon, troopIcon, weaponIcon,
@@ -34,6 +36,13 @@ function offerIcon(o: Offer): HTMLElement {
     case 'repair': return cell('s', o.label.startsWith('Gate') ? GATE_ICON : WALL_ICON);
     case 'stim': return cell('s', STIM_ICON);
     case 'rebuild': return cell('s', REBUILD_ICON);
+    // An implant: its class in its colour, as the Crucible's procurement shows it.
+    case 'implant': {
+      const c = span('sp-ico s sp-cls', CLASS_NAMES[IMPLANTS[a.id].class]);
+      c.style.color = EFFECTS[a.id].color;
+      return c;
+    }
+    case 'slot': return span('sp-ico s sp-cls', 'Slot');
   }
 }
 

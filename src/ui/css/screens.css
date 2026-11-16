@@ -257,6 +257,7 @@
 .sp-irow { grid-template-columns: 6.2rem 14rem 1fr 6rem; }
 .sp-ico { position: relative; display: flex; align-items: center; justify-content: center; height: 2.6rem; color: var(--ink); }
 .sp-ico .ico { fill: currentColor; }
+.sp-cls { font: 1rem/1 var(--display); letter-spacing: 0.06em; text-transform: uppercase; }
 .sp-ico.w .ico { width: 5.7rem; height: 1.9rem; }
 .sp-ico.t .ico { width: 3.2rem; height: 2.4rem; }
 .sp-ico.s .ico { width: 2.3rem; height: 2.3rem; }
@@ -301,6 +302,19 @@
 .pc-row.focus .pc-k, .pc-row.focus .pc-v, .pc-row.focus .pc-ico { color: #000; }
 .pc-note { min-height: 1.5rem; margin: 1rem 2.6rem 0.2rem; color: var(--amber); font-size: 1.1rem; }
 .pc-terms { margin: auto 2.6rem 0.8rem; color: var(--dim); font-size: 0.95rem; font-style: italic; }
+/* The implants page: three slot boxes and the standard-issue core over the rows; the class in the icon's place, in the implant's colour. */
+.pc-imp-head { margin: 0 1.4rem 0.6rem; }
+.pc-slots { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.4rem; }
+.pc-slot { display: flex; flex-direction: column; gap: 0.2rem; padding: 0.45rem 0.7rem; border: 0.0625rem dashed rgba(157, 176, 189, 0.35); }
+.pc-slot.open { border-style: solid; }
+.pc-slot.worn { border-color: var(--imp, var(--friend)); box-shadow: inset 0 -0.2rem 0 var(--imp, var(--friend)); }
+.pc-slot-n { color: var(--steel); font-size: 0.85rem; font-weight: 700; }
+.pc-slot-v { font: 1.3rem/1 var(--display); color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pc-slot:not(.open) .pc-slot-v { color: var(--dim); }
+.pc-core { display: block; margin-top: 0.5rem; color: var(--steel); font-size: 0.95rem; line-height: 1.35; }
+.pc-cls { font: 1rem/1 var(--display); letter-spacing: 0.06em; text-transform: uppercase; }
+.pc-line { display: grid; grid-template-columns: 6.5rem 1fr; gap: 0.7rem; align-items: baseline; }
+.pc-line-v { color: var(--ink); font-size: 1.05rem; line-height: 1.3; }
 
 .pc-card { position: absolute; left: 41rem; right: 3.5rem; bottom: 3rem; display: grid; grid-template-columns: 1fr 26rem; column-gap: 3rem;
   padding: 1.8rem 2.2rem; background: rgba(7, 10, 14, 0.8); border-top: 0.25rem solid var(--hot); }

@@ -53,6 +53,8 @@
   `ui/backdrop/bodystage.ts`), and `wearOnViewmodel` puts the Gun part on the first-person left arm whenever the loadout changes.
   Sandbox: `/?sandbox=implants&fit=hellfire,butcher&preview=skyfall&yaw=0.5`.
 - The HUD's combo ladder shows Berserk and Chain Storm only when fitted (`rungShown`).
+- **Bought** in the Crucible's and Endless Humans' supply-pod shop, on Procurement's Implants page (`implantOffers` in
+  `contracts/shop/rules.ts`, `CrucibleShop.buy`), and at Outpost Defense's Infirmary (`contracts/defense/economy.ts`).
 - `?implants=0` (dev) is the old game: every perk earnable, the old Berserk, no caps and no rearm on the four above.
 - Lab: an IMPLANTS section with a row an implant: grant it, or fit it (opening every slot; the class rule still holds) or take it off.
 

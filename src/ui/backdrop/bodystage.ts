@@ -20,16 +20,18 @@ import type { Backdrop } from '../../render/Renderer';
 
 const ARCHETYPE = 'contractor';
 const FOV = 26;
-/** Where he stands on the screen, as a share of its width and height: right of the list, as the gun does. */
-const SPOT = { x: 0.665, y: 0.42 } as const;
+/** Where he stands on the screen, as a share of its width and height: right of the list and above the card, as the gun does. */
+const SPOT = { x: 0.665, y: 0.36 } as const;
 
 /** What the camera looks at for each view, in his own space, how much of the screen's height it fills, and how he turns. */
 const VIEWS: Readonly<Record<ImplantClass | 'all', { at: THREE.Vector3; span: number; yaw: number; swing: number }>> = {
-  all: { at: new THREE.Vector3(0, 0.98, 0), span: 2.15, yaw: 0, swing: -1 },
+  // The whole man above the shop's card, which takes the bottom quarter of the screen.
+  all: { at: new THREE.Vector3(0, 0.98, 0), span: 2.75, yaw: 0, swing: -1 },
   // His left arm, the one the first-person view shows, three-quarters on, so the back of the forearm faces the lens.
-  gun: { at: new THREE.Vector3(0.3, 1.1, 0.02), span: 0.82, yaw: -1.2, swing: 0.45 },
-  kill: { at: new THREE.Vector3(0, 1.69, 0.03), span: 0.5, yaw: 0.15, swing: 0.75 },
-  move: { at: new THREE.Vector3(0, 0.36, -0.04), span: 0.95, yaw: 1.0, swing: 0.6 },
+  gun: { at: new THREE.Vector3(0.3, 1.1, 0.02), span: 1.0, yaw: -1.2, swing: 0.45 },
+  kill: { at: new THREE.Vector3(0, 1.69, 0.03), span: 0.78, yaw: 0.15, swing: 0.75 },
+  // The aim sits low on the shins, which puts it high on the screen, so his boots clear the card.
+  move: { at: new THREE.Vector3(0, 0.3, -0.04), span: 1.3, yaw: 1.0, swing: 0.6 },
 };
 /** Radians a second he turns on the whole-loadout view; the close views swing to and fro instead. */
 const TURN = 0.4;

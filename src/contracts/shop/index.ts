@@ -9,7 +9,8 @@ import { DEV_TOOLS } from '../../core/devflags';
 import type { ModId, WeaponSystem } from '../../core/gameplay';
 import { killPay, paysFor, wavePay } from '../defense/data';
 import { BOSS_PAY, SHOP_ON, SUPPLY_BREAK } from './data';
-import { modOffers, offerFor, weaponOffers, type ShopAct, type ShopOffer, type ShopView } from './rules';
+import type { Loadout } from '../../progression/implants';
+import { implantOffers, modOffers, offerFor, weaponOffers, type ShopAct, type ShopOffer, type ShopView } from './rules';
 
 declare module '../../core/contracts' {
   interface GameEvents {
@@ -94,7 +95,17 @@ export class CrucibleShop {
     return {
       credits: this.credits, inBreak: this.inBreak, cleared: this.inBreak ? waves.wave : waves.wave - 1,
       owned: w.owned, mods: w.mods, fitted: w.fitted,
+      implants: this.loadout.owned, implantsFitted: this.loadout.fitted, slots: this.loadout.slots,
     };
+  }
+
+  /** Progression's implant loadout (progression/implants.ts), which the interface does not carry. */
+  get loadout(): Loadout {
+    return (this.ctx.progression as unknown as { loadout: Loadout }).loadout;
+  }
+
+  implantOffers(): ShopOffer[] {
+    return implantOffers(this.view());
   }
 
   weaponOffers(): ShopOffer[] {
@@ -106,15 +117,24 @@ export class CrucibleShop {
   }
 
   /**
-   * Buys a gun (exactly that one), buys and fits a mod, or fits or takes off a mod already bought, free. Returns why not, or
-   * null once it is done.
+   * Buys a gun (exactly that one), buys and fits a mod or an implant, or fits or takes off one already bought, free; or buys the
+   * next implant slot. Returns why not, or null once it is done.
    */
   buy(act: ShopAct): string | null {
     const offer = offerFor(act, this.view());
     if (!offer) return 'Not sold';
     if (offer.why) return offer.why;
     const w = this.weapons;
-    if (act.kind === 'weapon') {
+    if (act.kind === 'slot') {
+      this.loadout.openSlot();
+    } else if (act.kind === 'implant') {
+      // Fitting one takes off the one of its class (Loadout.fit); progression ends a removed effect and arms the new one.
+      if (offer.owned) {
+        this.loadout.fit(act.id, !offer.fitted);
+        return null;
+      }
+      this.loadout.fit(act.id, true);
+    } else if (act.kind === 'weapon') {
       w.give(act.id);
     } else if (offer.owned) {
       w.fitMod(act.id, !offer.fitted);

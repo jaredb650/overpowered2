@@ -3,11 +3,15 @@
  * sold, at what price, and why a row cannot be had now. No three.js and no ctx. index.ts takes the snapshot and carries out.
  */
 import type { ModId, WeaponId } from '../../core/gameplay';
+import { IMPLANTS, IMPLANT_ORDER, SLOT_WARES, type ImplantId } from '../../progression/implants';
 import { inPlay } from '../../weapons/families';
 import { MODS, MOD_ORDER } from '../../weapons/mods';
 import { MOD_WARES, WEAPON_WARES, WEAPON_WARE_ORDER, type Ware } from './data';
 
-export type ShopAct = { kind: 'weapon'; id: WeaponId } | { kind: 'mod'; id: ModId };
+export type ShopAct =
+  | { kind: 'weapon'; id: WeaponId } | { kind: 'mod'; id: ModId }
+  /** An implant (progression/implants.ts), and an implant slot by its number, 2 or 3. */
+  | { kind: 'implant'; id: ImplantId } | { kind: 'slot'; id: number };
 
 export interface ShopView {
   credits: number;
@@ -18,6 +22,10 @@ export interface ShopView {
   owned: ReadonlySet<WeaponId>;
   mods: ReadonlySet<ModId>;
   fitted: ReadonlySet<ModId>;
+  /** Implants bought this run, fitted now, and the slots open. */
+  implants: ReadonlySet<ImplantId>;
+  implantsFitted: ReadonlySet<ImplantId>;
+  slots: number;
 }
 
 export interface ShopOffer {
@@ -31,6 +39,8 @@ export interface ShopOffer {
   locked: boolean;
   /** Why the row does nothing now, or null. */
   why: string | null;
+  /** An implant: the one of its class fitted now, which Enter takes off to fit this one. */
+  replaces?: ImplantId | null;
 }
 
 const between = (v: ShopView): string | null => (v.inBreak ? null : 'Between waves only');
@@ -69,8 +79,36 @@ export function modOffers(v: ShopView): ShopOffer[] {
   });
 }
 
+/**
+ * The two slots for sale, then every implant by class (docs/proposals/implants.md). A slot is bought in order. An implant bought is
+ * fitted or taken off with the same row, free; one of a class already fitted takes that one's place; a new class needs a free slot.
+ */
+export function implantOffers(v: ShopView): ShopOffer[] {
+  const slots: ShopOffer[] = [];
+  for (let n = 2; n <= SLOT_WARES.length; n++) {
+    const ware = SLOT_WARES[n - 1]!;
+    const owned = v.slots >= n;
+    const locked = !owned && lockOf(ware, v);
+    const why = owned ? 'Open' : locked ? lockLine(ware) : v.slots < n - 1 ? `Open slot ${n - 1} first` : between(v) ?? afford(ware.price, v);
+    slots.push({ act: { kind: 'slot', id: n }, ware, owned, fitted: false, locked, why });
+  }
+  const implants = IMPLANT_ORDER.map((id): ShopOffer => {
+    const d = IMPLANTS[id];
+    const ware: Ware = { price: d.price, wave: d.wave, lore: d.lore };
+    const owned = v.implants.has(id);
+    const fitted = v.implantsFitted.has(id);
+    const locked = !owned && lockOf(ware, v);
+    let replaces: ImplantId | null = null;
+    for (const f of v.implantsFitted) if (f !== id && IMPLANTS[f].class === d.class) replaces = f;
+    const full = !fitted && !replaces && v.implantsFitted.size >= v.slots;
+    const why = locked ? lockLine(ware) : between(v) ?? (full ? 'No free slot' : owned ? null : afford(ware.price, v));
+    return { act: { kind: 'implant', id }, ware, owned, fitted, locked, why, replaces };
+  });
+  return [...slots, ...implants];
+}
+
 /** The row for `act`, as the menu shows it. */
 export function offerFor(act: ShopAct, v: ShopView): ShopOffer | undefined {
-  const list = act.kind === 'weapon' ? weaponOffers(v) : modOffers(v);
-  return list.find(o => o.act.id === act.id);
+  const list = act.kind === 'weapon' ? weaponOffers(v) : act.kind === 'mod' ? modOffers(v) : implantOffers(v);
+  return list.find(o => o.act.kind === act.kind && o.act.id === act.id);
 }

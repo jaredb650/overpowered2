@@ -13,7 +13,8 @@ import { BOUNTY, ECONOMY, killPay, wavePay } from '../defense/data';
 import { DEFAULT_BINDINGS } from '../../input/bindings';
 import { BOSS_PAY, MOD_WARES, SHOP_CONTRACTS, SUPPLY_BREAK, WEAPON_WARES } from './data';
 import { CrucibleShop } from '.';
-import { issued, listedWeapons, modOffers, weaponOffers, type ShopView } from './rules';
+import { implantOffers, issued, listedWeapons, modOffers, weaponOffers, type ShopView } from './rules';
+import { IMPLANTS, Loadout } from '../../progression/implants';
 
 let r: Range;
 let shop: CrucibleShop;
@@ -24,6 +25,8 @@ beforeEach(async () => {
   r.reset();
   const ctx = r.ctx as Ctx & { waves: unknown };
   ctx.waves = waves as unknown as Ctx['waves'];
+  // The shop's view reads progression's implant loadout.
+  ctx.progression = { loadout: new Loadout() } as unknown as Ctx['progression'];
   waves.wave = 0;
   waves.phase = 'intermission';
   shop = new CrucibleShop(ctx);
@@ -43,7 +46,8 @@ function breakAfter(cleared: number, credits = 100_000): void {
 }
 
 const view = (over: Partial<ShopView> = {}): ShopView => ({
-  credits: 100_000, inBreak: true, cleared: 0, owned: new Set(STARTING_WEAPONS), mods: new Set(), fitted: new Set(), ...over,
+  credits: 100_000, inBreak: true, cleared: 0, owned: new Set(STARTING_WEAPONS), mods: new Set(), fitted: new Set(),
+  implants: new Set(['bloodthirst']), implantsFitted: new Set(['bloodthirst']), slots: 1, ...over,
 });
 
 describe('credits', () => {
@@ -200,5 +204,47 @@ describe('buying', () => {
     waves.wave = 2;
     expect(shop.buy({ kind: 'mod', id: 'suppressor' })).toBe('Between waves only');
     expect(r.weapons.fitted.has('suppressor')).toBe(false);
+  });
+});
+
+describe('implants', () => {
+  const implant = (v: ShopView, id: string) => implantOffers(v).find(o => o.act.kind === 'implant' && o.act.id === id)!;
+  const slot = (v: ShopView, n: number) => implantOffers(v).find(o => o.act.kind === 'slot' && o.act.id === n)!;
+
+  it('sells each implant from its wave, at its price; one of a fitted class replaces it, a new class needs a slot', () => {
+    expect(implant(view(), 'hellfire').why).toBe('Released after wave 4');
+    const v = view({ cleared: 4 });
+    expect(implant(v, 'hellfire').why).toBeNull();
+    expect(implant(v, 'hellfire').replaces).toBe('bloodthirst');
+    expect(implant(v, 'hellfire').ware.price).toBe(IMPLANTS.hellfire.price);
+    expect(implant(v, 'skyfall').why).toBe('No free slot');
+    expect(implant(view({ cleared: 4, slots: 2 }), 'skyfall').why).toBeNull();
+    expect(implant(view({ cleared: 4, credits: 100 }), 'hellfire').why).toBe('Need 1500 more');
+    expect(implant(view({ cleared: 4, inBreak: false }), 'hellfire').why).toBe('Between waves only');
+  });
+
+  it('sells slot 2 after wave 5 and slot 3 after wave 12, in order', () => {
+    expect(slot(view({ cleared: 4 }), 2).why).toBe('Released after wave 5');
+    expect(slot(view({ cleared: 5 }), 2).why).toBeNull();
+    expect(slot(view({ cleared: 12 }), 3).why).toBe('Open slot 2 first');
+    expect(slot(view({ cleared: 12, slots: 2 }), 3).why).toBeNull();
+    expect(slot(view({ cleared: 12, slots: 2 }), 2).owned).toBe(true);
+  });
+
+  it('buys and fits through the loadout, charges once, and refits free', () => {
+    const loadout = shop.loadout;
+    breakAfter(6, 10_000);
+    expect(shop.buy({ kind: 'implant', id: 'berserk' })).toBeNull();
+    expect([...loadout.fitted]).toEqual(['berserk']);
+    expect(shop.credits).toBe(10_000 - IMPLANTS.berserk.price);
+    expect(shop.buy({ kind: 'implant', id: 'bloodthirst' })).toBeNull();
+    expect([...loadout.fitted]).toEqual(['bloodthirst']);
+    expect(shop.credits).toBe(10_000 - IMPLANTS.berserk.price);
+    expect(shop.buy({ kind: 'implant', id: 'butcher' })).toBe('No free slot');
+    expect(shop.buy({ kind: 'slot', id: 2 })).toBeNull();
+    expect(loadout.slots).toBe(2);
+    expect(shop.buy({ kind: 'implant', id: 'butcher' })).toBeNull();
+    expect(new Set(loadout.fitted)).toEqual(new Set(['bloodthirst', 'butcher']));
+    expect(shop.credits).toBe(10_000 - IMPLANTS.berserk.price - 1500 - IMPLANTS.butcher.price);
   });
 });

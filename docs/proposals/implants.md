@@ -1,6 +1,6 @@
 # Proposal: cyber implants (a loadout of streak power-ups)
 
-Status: approved with every default, 2026-11-15. Built outside the shop the same day (see "Built" at the end); the shop's Implants page is next. Every number about today's game is read from the code named next to it. Timings for
+Status: approved with every default, 2026-11-15, and built the same day (see "Built" at the end). Every number about today's game is read from the code named next to it. Timings for
 how fast a player gets there are worked out from the thresholds and wave sizes, not measured in a browser.
 
 ## Summary
@@ -369,5 +369,14 @@ HDR glow in the perk's colour that the bloom picks up), so a part is three draw 
 - **Campaign:** the default loadout (core and Blood Thirst). No mission sets its own yet.
 - Old high scores are kept.
 
-Not built yet: the shop's Implants tab (procurement, `implantOffers` in `rules.ts`, `buy` for `implant` and `slot`), the HUD shop
-card, and Outpost Defense's implant section. The rules they need are in `Loadout` already.
+- **The shop's Implants tab** (`src/ui/screens/procurement.ts`): the third page beside Weapons and Mods. Three slot boxes and the
+  core line over the rows; the two slots for sale, then the implants by class, each with its class in its colour, its price, its lock,
+  "Fitted", or "Replaces Blood Thirst". The contractor stands in the studio (`BodyStage`) wearing the loadout, the row in focus put on
+  him and the camera closing on its region; the card gives the part, the trigger, what it does and the rearm. Enter buys and fits,
+  refits free, takes off, or opens the next slot. Rules: `implantOffers` in `contracts/shop/rules.ts`; `CrucibleShop.buy` takes
+  `kind: 'implant'` and `kind: 'slot'`.
+- **Outpost Defense** sells them at the Infirmary, at the same prices and wave locks (`implants` in `contracts/defense/economy.ts`,
+  built on `implantOffers`), refitted free in a break. Its pre-wave loadout screen has no implant section: before wave 1 there is
+  nothing to buy, and Blood Thirst is already fitted.
+
+Not built: a mission setting its own loadout (every mission runs the default), and the Infirmary's rows do not show the contractor.

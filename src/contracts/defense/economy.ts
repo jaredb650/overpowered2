@@ -6,7 +6,9 @@
 import { ALLY_TYPES, type AllyType } from '../../allies/data';
 import type { StructureStage } from '../../core/contracts';
 import type { CallInId, WeaponId } from '../../core/gameplay';
-import { CALLINS, CALLIN_ORDER } from '../../progression/data';
+import { CALLINS, CALLIN_ORDER, EFFECTS } from '../../progression/data';
+import { IMPLANTS, type ImplantId } from '../../progression/implants';
+import { implantOffers } from '../shop/rules';
 import { WEAPONS, WEAPON_ORDER } from '../../weapons/data';
 import { FORT_POSTS, type FortPost } from '../../world/map/fort/plan';
 import {
@@ -26,7 +28,10 @@ export type Act =
   | { kind: 'mount'; index: number }
   | { kind: 'repair'; index: number }
   | { kind: 'stim' }
-  | { kind: 'rebuild'; shop: ShopId };
+  | { kind: 'rebuild'; shop: ShopId }
+  /** An implant, bought and fitted or refitted free, and an implant slot by number (docs/proposals/implants.md). */
+  | { kind: 'implant'; id: ImplantId }
+  | { kind: 'slot'; id: number };
 
 export interface Offer {
   section: string;
@@ -67,6 +72,8 @@ export interface ShopView {
   /** The player's mortar teams posted, and the posts there are for them (none off the fort). */
   mortars: number;
   mortarsMax: number;
+  /** The implant loadout and the last wave cleared, for the Infirmary's implants. Unset: none sold. */
+  implants?: { owned: ReadonlySet<ImplantId>; fitted: ReadonlySet<ImplantId>; slots: number; cleared: number };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -226,7 +233,28 @@ function infirmary(v: ShopView): Offer[] {
     section: 'Magazine', label: 'Basic ammo, every gun', detail: 'Half a reserve for each basic gun', price: BASIC_REFILL_PRICE,
     why: basics.length === 0 ? 'No basic guns' : !room ? 'Full' : need(BASIC_REFILL_PRICE, v), act: { kind: 'refill' },
   });
-  return out;
+  return [...out, ...implants(v)];
+}
+
+/** Implants and their slots, at the Crucible's prices and wave locks (contracts/shop/rules.ts), fitted and refitted in a break. */
+function implants(v: ShopView): Offer[] {
+  const i = v.implants;
+  if (!i) return [];
+  const rows = implantOffers({
+    credits: v.credits, inBreak: v.inBreak, cleared: i.cleared, owned: v.owned, mods: new Set(), fitted: new Set(),
+    implants: i.owned, implantsFitted: i.fitted, slots: i.slots,
+  });
+  return rows.map((o): Offer => {
+    const a = o.act;
+    const imp = a.kind === 'implant' ? a.id : null;
+    const name = imp ? EFFECTS[imp].label.replace(/!$/, '') : `Implant slot ${a.id}`;
+    const detail = imp ? (o.fitted ? 'Fitted. Enter takes it off' : o.replaces ? `Replaces ${EFFECTS[o.replaces].label.replace(/!$/, '')}` : IMPLANTS[imp].does)
+      : o.owned ? 'Open' : 'One more implant, of a class not fitted';
+    return {
+      section: 'Implants', label: name, detail, price: o.owned ? 0 : o.ware.price, why: o.owned && !imp ? 'Open' : o.why,
+      act: imp ? { kind: 'implant', id: imp } : { kind: 'slot', id: a.id as number },
+    };
+  });
 }
 
 /** Everything `shop` sells, in menu order, each with why it cannot be bought now. A lost shop offers only its rebuild. */

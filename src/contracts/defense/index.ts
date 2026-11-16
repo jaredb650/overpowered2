@@ -24,6 +24,7 @@ import {
   ECONOMY, LOADOUT_MELEE, SHOPS, SHOP_ORDER, WEAPON_PRICES, killPay, paysFor, placeholderPreview, wavePay, type ShopId,
 } from './data';
 import { ShopState, checkLoadout, offers, sameAct, startPosts, type Act, type Offer, type ShopView } from './economy';
+import type { Loadout } from '../../progression/implants';
 import { outward } from './field';
 import { Garrison } from './garrison';
 import { Keepers, type KeeperPoint } from './keepers';
@@ -436,7 +437,15 @@ export class Defense {
       lost: id => this.shops[id].lost,
       mortars: this.mortars.count,
       mortarsMax: this.mortars.max,
+      implants: this.loadout && {
+        owned: this.loadout.owned, fitted: this.loadout.fitted, slots: this.loadout.slots, cleared: this.inBreak ? this.waves.wave : this.waves.wave - 1,
+      },
     };
+  }
+
+  /** Progression's implant loadout (progression/implants.ts), which the interface does not carry. A stand-in progression has none. */
+  private get loadout(): Loadout | undefined {
+    return (this.ctx.progression as unknown as { loadout?: Loadout }).loadout;
   }
 
   offers(shop: ShopId): Offer[] {
@@ -494,6 +503,13 @@ export class Defense {
       }
       case 'ally':
         return this.hire(act.type);
+      case 'implant': {
+        // Only sold where there is a loadout (`view`).
+        const l = this.loadout!;
+        return l.fit(act.id, !l.fitted.has(act.id)) ? null : 'No free slot';
+      }
+      case 'slot':
+        return this.loadout!.openSlot() ? null : 'Every slot is open';
       case 'rebuild':
         this.shops[act.shop].restore();
         this.paint();
