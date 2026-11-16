@@ -8,6 +8,7 @@
 import type { AmmoLoad, ExplosionKind, MuzzleKind, SurfaceKind, TracerKind } from '../core/contracts';
 import type { BurstSpec, SwordMove, WeaponId } from '../core/gameplay';
 import type { FanSpec } from './fan';
+import type { SmartSpec } from './smartaim';
 
 /** `paint` is the Quiver's: hold to mark targets, let go to fire the salvo at them. Its numbers are `TUNING.quiver`. */
 /** Light: stopped, wears the plate a little. Medium: stopped, breaks the plate. Heavy: wears it hard, and half gets through. */
@@ -25,6 +26,8 @@ export const AMMO = {
 } as const;
 
 export type FireMode = 'auto' | 'semi' | 'charge' | 'spin' | 'stream' | 'melee' | 'paint';
+/** What a `select` gun's selector is on (hold R): full auto, bursts, or one round a pull. */
+export type FireSelect = 'auto' | 'burst' | 'semi';
 export type CasingKind = 'pistol' | 'rifle' | 'shotgun' | 'cannon';
 
 /** Ids come from docs/notes/audio.md. Levels are balanced there, so `volume` is only for gameplay scaling. */
@@ -101,8 +104,13 @@ export interface WeaponDef {
    * `time` the seconds the gun takes to come up to the eye. What ADS does to spread, recoil and speed is `TUNING.ads`.
    */
   ads?: { readonly zoom: number; readonly time: number };
-  /** Right click fires `rounds` this far apart, then waits `recover` before the next shot: the Rivet's burst. Instead of ADS. */
-  altBurst?: { readonly rounds: number; readonly gap: number; readonly recover: number };
+  /**
+   * A pull of the trigger fires `rounds` at the row's `interval`, then waits `recover` before the next pull: the Autoraffica's
+   * burst. Letting go does not cut it short.
+   */
+  pullBurst?: { readonly rounds: number; readonly recover: number };
+  /** Hold R (`hold` s) to switch the smart aim on or off; a shorter press reloads. The Autoraffica's. See smartaim.ts. */
+  smart?: SmartSpec;
   /** Hold right click to charge rounds and paint heads, let go to fan them off: the Judge's. See fan.ts. Instead of ADS. */
   altFan?: FanSpec;
   /**
@@ -119,11 +127,14 @@ export interface WeaponDef {
   /** Every round is a Raufoss round, with no switch: the Sabot with its shop mod (mods.ts). */
   raufoss?: boolean;
   /**
-   * Hold R for `hold` seconds to switch fire: full auto or bursts of `burst.rounds` at the row's `interval`, then `burst.recover`
-   * before the next. A shorter press is a reload, on its release. With `launcher` fitted, the hold raises or lowers the
-   * launcher instead. The Gimlet's.
+   * Hold R for `hold` seconds to step the selector through `modes`, the first the default: full auto, bursts of `burst.rounds`
+   * at the row's `interval` then `burst.recover` before the next, or one round a pull. A shorter press is a reload, on its
+   * release. With `launcher` fitted, the hold raises or lowers the launcher instead and the rifle is full auto. The Gimlet's
+   * and the Harrow's.
    */
-  select?: { readonly hold: number; readonly burst: { readonly rounds: number; readonly recover: number } };
+  select?: {
+    readonly hold: number; readonly modes: readonly FireSelect[]; readonly burst?: { readonly rounds: number; readonly recover: number };
+  };
   /** An under-barrel launcher is fitted (the Gimlet's mod): hold R raises it, and then it fires `LAUNCHER`'s round. */
   launcher?: boolean;
   /** Hit-stop on a kill, seconds. */
@@ -229,7 +240,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     // A climb the SMG does not have: a held magazine walks up about 4 degrees, a burst a third of one.
     climb: { pitch: 0.0022, yaw: 0.0012 },
     ads: { zoom: 0.35, time: 0.2 },
-    select: { hold: 0.3, burst: { rounds: 3, recover: 0.22 } },
+    select: { hold: 0.3, modes: ['auto', 'burst', 'semi'], burst: { rounds: 3, recover: 0.22 } },
   },
   // The SMG's big brother: 500 rounds a minute to its 800, twice the round, and all of it at any range. It goes through one body, or a
   // sheet of cover, and takes limbs.
@@ -242,6 +253,8 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     sounds: [{ id: 'harrow_shot', pitchJitter: 0.03 }],
     recoil: 1, kick: 0.0058, shake: 0.01, fovPunch: 0.5, impactScale: 1.25,
     ads: { zoom: 0.4, time: 0.2 },
+    // Hold R: full auto or one round a pull.
+    select: { hold: 0.3, modes: ['auto', 'semi'] },
   },
   shotgun: {
     ...BASE, id: 'shotgun', name: 'SHOTGUN', slot: 2, mode: 'semi',
@@ -408,8 +421,8 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     sounds: [{ id: 'pistol_shot', pitchJitter: 0.04 }],
     reloadFoley: [[0.05, 'reload_mag_out'], [0.5, 'reload_mag_in'], [0.82, 'reload_bolt']],
     recoil: 1, kick: 0.0062, shake: 0.006, fovPunch: 0.3,
-    // Right click is a three-round burst, as a Glock's burst mode: no ADS.
-    altBurst: { rounds: 3, gap: 0.06, recover: 0.32 },
+    // A plain pistol: right click aims. Its three-round burst went to the Autoraffica (2026-11-15).
+    ads: { zoom: 0.34, time: 0.15 },
   },
   // The hardest-hitting pistol in the game: seven heavy rounds on a long slide. Each one shoves what it hits (`force` 120,
   // near the Sabot's, so a hit staggers and a kill is thrown), and the gun kicks hard enough to want a moment between them.
@@ -422,6 +435,25 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     sounds: [{ id: 'ultramag_shot', pitchJitter: 0.02 }],
     recoil: 1.2, kick: 0.04, shake: 0.036, fovPunch: 2.8,
     ads: { zoom: 0.38, time: 0.2 },
+  },
+  // A machine pistol with its suppressor built in: every pull is three rounds in a fifth of a second (1200 a minute), always
+  // quiet. Hold R for the smart aim: a circle on the HUD, and a head inside it takes the crosshair and every round after it.
+  autoraffica: {
+    ...BASE, id: 'autoraffica', name: 'AUTORAFFICA', slot: 6, base: 'judge', mode: 'semi',
+    magSize: 21, reserve: 126, maxReserve: 252, reloadTime: 1.1, drawTime: 0.16,
+    interval: 0.05, damage: 24, canSever: false, force: 6, headshotMult: 3,
+    falloff: { from: 30, to: 65, floor: 0.5 },
+    muzzle: 'suppressed', tracer: 'pistol', casing: 'pistol',
+    sounds: [{ id: 'autoraffica_shot', pitchJitter: 0.03 }],
+    reloadFoley: [[0.05, 'reload_mag_out'], [0.5, 'reload_mag_in'], [0.84, 'reload_bolt']],
+    recoil: 0.7, kick: 0.0045, shake: 0.004, fovPunch: 0.2,
+    // A burst walks up about a third of a degree, for the player to pull down; a locked burst goes to the head regardless.
+    climb: { pitch: 0.002, yaw: 0.0008 },
+    ads: { zoom: 0.34, time: 0.16 },
+    pullBurst: { rounds: 3, recover: 0.3 },
+    // A circle of 0.14 rad (8 degrees) out to 70 m; a lock lasts 2 s on a man, then he is passed over for 0.6 s. Locked, a held
+    // trigger is full auto at 800 a minute, each round to a head; unlocked, one round a pull.
+    smart: { hold: 0.3, cone: 0.14, keep: 1.25, range: 70, track: 2, rest: 0.6, grace: 0.2, interval: 0.075 },
   },
   // Right click toggles beam and ball. A tap is a rail shot or a plasma ball, a full charge a sustained beam or a giant
   // ball: TUNING.lance. The cell holds twelve: a ball takes one, a rail shot three, a giant ball four, a beam six.

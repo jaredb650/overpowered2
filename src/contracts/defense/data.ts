@@ -92,6 +92,8 @@ export const WEAPON_PRICES: Partial<Record<WeaponId, WeaponPrice>> = {
   buzzsaw: { price: 2600, loadout: 'primary', ammo: 'specialty', box: 260 },
   rivet: { price: 400, loadout: 'secondary', ammo: 'basic', box: 50 },
   judge: { price: 650, loadout: 'secondary', ammo: 'basic', box: 60 },
+  // The machine pistol with the smart aim: the dearest secondary.
+  autoraffica: { price: 950, loadout: 'secondary', ammo: 'basic', box: 70 },
   quiver: { price: 1600, explosive: true, ammo: 'explosive', box: 260 },
   rocket: { price: 3000, explosive: true, ammo: 'explosive', box: 450 },
   autocannon: { price: 2600, explosive: true, ammo: 'explosive', box: 420 },

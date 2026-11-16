@@ -182,6 +182,14 @@ export class Anim {
   alt = false;
   /** 0 to 1 as the sights come up to the eye, so a clip can hold still what would spoil the sight picture. */
   aim = 0;
+  /**
+   * The Autoraffica's smart aim (weapons.smartAim), eased by the rig: `smart` 0 to 1 while it is on, `lock` 0 to 1 while a head
+   * is locked, and the head's bearing off the view's centre, radians: `lockYaw` to the left, `lockPitch` up.
+   */
+  smart = 0;
+  lock = 0;
+  lockYaw = 0;
+  lockPitch = 0;
 
   /** The weapon's glow material. */
   glow(name: string, level: number): void {

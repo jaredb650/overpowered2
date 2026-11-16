@@ -24,8 +24,8 @@ const smg = WEAPONS.smg;
 const ACOG = { zoom: 0.69, time: 0.24 } as const;
 const DOT = { zoom: 0.4, time: 0.2 } as const;
 
-/** The guns that take AP and HP rounds: the SMG, the two rifles and the three pistols. */
-export const AMMO_GUNS: readonly WeaponId[] = ['smg', 'gimlet', 'harrow', 'rivet', 'ultramag', 'judge', 'awl'];
+/** The guns that take AP and HP rounds: the SMG, the rifles and the four pistols. */
+export const AMMO_GUNS: readonly WeaponId[] = ['smg', 'gimlet', 'harrow', 'rivet', 'ultramag', 'autoraffica', 'judge', 'awl'];
 
 /** AP: less to flesh, most of it through a plate, one more body. HP: more to flesh, nothing through a plate, no further. */
 function rounds(gun: WeaponId, load: AmmoLoad): ModDef {
@@ -71,12 +71,14 @@ export const MODS: Readonly<Record<ModId, ModDef>> = {
   rivetAp: rounds('rivet', 'ap'), rivetHp: rounds('rivet', 'hp'),
   ultramagAp: rounds('ultramag', 'ap'), ultramagHp: rounds('ultramag', 'hp'),
   judgeAp: rounds('judge', 'ap'), judgeHp: rounds('judge', 'hp'),
+  autorafficaAp: rounds('autoraffica', 'ap'), autorafficaHp: rounds('autoraffica', 'hp'),
 };
 
 export const MOD_ORDER: readonly ModId[] = [
   'awlAcog', 'awlCan', 'awlAp', 'awlHp',
   'suppressor', 'smgAp', 'smgHp', 'gimletAcog', 'gimletDot', 'gimletCan', 'gimletGl', 'gimletAp', 'gimletHp',
   'reddot', 'harrowAcog', 'harrowAp', 'harrowHp', 'raufoss', 'rivetAp', 'rivetHp', 'ultramagAp', 'ultramagHp', 'judgeAp', 'judgeHp',
+  'autorafficaAp', 'autorafficaHp',
 ];
 
 /** Held and fitted at the start of every run: the Gimlet's ACOG and suppressor. The shop takes them off and puts them back. */

@@ -10,13 +10,14 @@ import { ACTIVE } from '../contracts/select';
 import { survivalLoadout } from '../contracts/loadouts';
 import { CG, type Ctx, type ExplosionKind, type LoopHandle } from '../core/contracts';
 import type {
-  AmmoState, MissileTarget, ModId, PaintView, ProjectileSpec, ProjectileTrail, ShotSpec, WeaponId, WeaponModifiers, WeaponSystem,
+  AmmoState, EnemyInstance, MissileTarget, ModId, PaintView, ProjectileSpec, ProjectileTrail, ShotSpec, SmartAimView, WeaponId,
+  WeaponModifiers, WeaponSystem,
 } from '../core/gameplay';
 import { clamp, damp, invLerp, lerp, randomInCone, smoothstep, wrapAngle } from '../core/math';
 import { MOVE } from '../player/tuning';
 import type { Combat, Guard, GuardResult } from './Combat';
 import { ISSUED, MODS, MOD_ORDER, moddedDef } from './mods';
-import { HIT_STOP, LAUNCHER, SWORD, TUNING, WEAPONS, WEAPON_ORDER, type SoundLayer, type WeaponDef } from './data';
+import { HIT_STOP, LAUNCHER, SWORD, TUNING, WEAPONS, WEAPON_ORDER, type FireSelect, type SoundLayer, type WeaponDef } from './data';
 import { Fan, type FanHooks, type FanLock } from './fan';
 import { familyOf, familyOfSlot, membersOf, pressSlot, wheelSlot } from './families';
 import { Handling, holdSpeed } from './handling';
@@ -28,6 +29,7 @@ import { isMelee } from './melee/data';
 import { Melee } from './melee/Melee';
 import { LANCE_ON, Lance } from './lance';
 import { ROCKET_LASER } from './laser';
+import { SmartAim, type SmartHooks } from './smartaim';
 
 interface Slot {
   def: WeaponDef;
@@ -35,6 +37,9 @@ interface Slot {
   cooldown: number;
   ammo: AmmoState;
 }
+
+/** The selector's click, a step higher for each mode further from full auto. */
+const SELECT_PITCH: Readonly<Record<FireSelect, number>> = { auto: 0.92, burst: 1.12, semi: 1.25 };
 
 const SLOT_ACTIONS = [
   'weapon0', 'weapon1', 'weapon2', 'weapon3', 'weapon4', 'weapon5', 'weapon6', 'weapon7', 'weapon8', 'weapon9',
@@ -133,7 +138,7 @@ export class Weapons implements WeaponSystem, Guard {
 
   private akimboOn = false;
   private quickReturn = 0;
-  /** Rounds left in an `altBurst` under way. */
+  /** Rounds left in a burst under way (`pullBurst`, or a `select` gun's). */
   private burstLeft = 0;
   /** The guns with their `altAmmo` loaded. A new run starts on the standard rounds. */
   private readonly altLoaded = new Set<WeaponId>();
@@ -143,10 +148,19 @@ export class Weapons implements WeaponSystem, Guard {
     def: LAUNCHER, cooldown: 0, ammo: { mag: 1, magSize: 1, reserve: LAUNCHER.reserve, maxReserve: LAUNCHER.maxReserve },
   };
   private glUp = false;
-  /** A `select` gun fires bursts (hold R). Kept across a switch, cleared by a reset. */
-  private burstOn = false;
-  /** Seconds R has been held on a `select` gun, or -1: a press shorter than its `hold` is a reload on the release. */
+  /** What each `select` gun's selector is on (hold R), unset for its first mode. Kept across a switch, cleared by a reset. */
+  private readonly selector = new Map<WeaponId, FireSelect>();
+  /** Seconds R has been held on a `select` or `smart` gun, or -1: a press shorter than its `hold` is a reload on the release. */
   private rHeld = -1;
+  /** The Autoraffica's smart aim (hold R): switched on, kept across a switch, off at a reset; and its lock. See smartaim.ts. */
+  private smartOn = false;
+  private readonly smart = new SmartAim();
+  private readonly smartHooks: SmartHooks = {
+    look: (cone, skip) => this.headNear(cone, WEAPONS[this.current].smart!.range, skip),
+    holds: (e, cone) => this.headSeen(e, WEAPONS[this.current].smart!.range, Math.cos(cone)) >= 0,
+    head: (e, out) => this.combat.headOf(e, out),
+    locked: () => this.ctx.audio.play('judge_fan_lock', { pitch: 1.7, volume: 0.45 }),
+  };
   /** Seconds left of `occupy`. */
   private occupied = 0;
 
@@ -309,7 +323,9 @@ export class Weapons implements WeaponSystem, Guard {
     this.mods.clear();
     for (const id of MOD_ORDER) this.fitMod(id, false);
     this.issueMods();
-    this.glUp = this.burstOn = false;
+    this.glUp = this.smartOn = false;
+    this.selector.clear();
+    this.smart.drop();
     this.rHeld = -1;
     this.glSlot.cooldown = 0;
     this.glSlot.ammo.mag = LAUNCHER.magSize;
@@ -366,6 +382,11 @@ export class Weapons implements WeaponSystem, Guard {
     return this.sword.step;
   }
 
+  /** The Autoraffica's smart aim: on, its circle and its lock. The HUD and the viewmodel read it. */
+  get smartAim(): SmartAimView {
+    return this.smart;
+  }
+
   /** The Gimlet's launcher is up: its shots, its reload and its count on the HUD. */
   get launcherUp(): boolean {
     return this.glUp;
@@ -376,10 +397,9 @@ export class Weapons implements WeaponSystem, Guard {
     return this.glUp ? this.glSlot : this.slots[this.current];
   }
 
-  /** A `select` gun fires bursts now: not with a launcher fitted, whose hold R raises it instead. */
-  private get bursting(): boolean {
-    const def = this.slots[this.current].def;
-    return this.burstOn && def.select !== undefined && !def.launcher;
+  /** A gun's selector: its first mode until hold R steps it on; full auto with a launcher fitted, whose hold R raises it. */
+  private selectOf(def: WeaponDef): FireSelect {
+    return def.select && !def.launcher ? this.selector.get(def.id) ?? def.select.modes[0]! : 'auto';
   }
 
   /**
@@ -392,7 +412,13 @@ export class Weapons implements WeaponSystem, Guard {
     if (this.glUp) return 'LAUNCHER';
     // An ammo mod (AP or HP) comes first, beside the Gimlet's bursts.
     const load = def.load ? def.load.toUpperCase() : '';
-    if (this.bursting) return load ? `${load} · BURST` : 'BURST';
+    const sel = this.selectOf(def);
+    if (sel !== 'auto') return load ? `${load} · ${sel.toUpperCase()}` : sel.toUpperCase();
+    // The Autoraffica: its bursts, or the smart aim and whether it holds a head.
+    if (def.smart) {
+      const mode = this.smart.on ? (this.smart.target ? 'SMART · LOCK' : 'SMART') : 'BURST';
+      return load ? `${load} · ${mode}` : mode;
+    }
     if (def.raufoss) return 'RAUFOSS';
     return load || (alt && this.altLoaded.has(this.current) ? alt.label : '');
   }
@@ -415,6 +441,8 @@ export class Weapons implements WeaponSystem, Guard {
       this.fitted.add(id);
     } else this.fitted.delete(id);
     this.slots[weapon].def = moddedDef(weapon, this.fitted);
+    // Fitting or taking off the launcher puts the rifle back on full auto.
+    if (MODS[id].patch.launcher) this.selector.delete(weapon);
     if (weapon === this.current) this.clearScope(false);
     if (!this.slots[this.current].def.launcher) this.glUp = false;
     return this.fitted.has(id);
@@ -579,6 +607,8 @@ export class Weapons implements WeaponSystem, Guard {
     const dt = c.time.playerDt;
     // Guidance is on only on a frame the launcher is up with its sight on, so a holster, a death or a switch lets go.
     ROCKET_LASER.on = false;
+    this.smart.on = this.smartOn && WEAPONS[this.current].smart !== undefined && !this.holstered && c.player.alive !== false;
+    if (!this.smart.on) this.smart.drop();
     this.sword.tick(dt);
     this.updateAim(dt);
     if (c.player.alive === false) return;
@@ -631,6 +661,7 @@ export class Weapons implements WeaponSystem, Guard {
     const alt = WEAPONS[this.current].altAmmo;
     if (alt && c.input.pressed('aim')) this.toggleAmmo(this.current, alt.label);
     this.updateReload(dt);
+    if (this.smart.on) this.smart.update(dt, WEAPONS[this.current].smart!, this.smartHooks);
     this.updateGun(dt);
     this.applyHandling(dt);
   }
@@ -762,8 +793,9 @@ export class Weapons implements WeaponSystem, Guard {
   private updateReload(dt: number): void {
     this.updateCycle(dt);
     const { input } = this.ctx;
-    const select = WEAPONS[this.current].select;
-    // A `select` gun reads R on its release: held past `hold` it switches (`select`), let go sooner it reloads.
+    const def = WEAPONS[this.current];
+    const select = def.select ?? def.smart;
+    // A `select` or `smart` gun reads R on its release: held past `hold` it switches (`select`), let go sooner it reloads.
     let tap = false;
     if (select) {
       if (input.pressed('reload') && !this.reloading) this.rHeld = 0;
@@ -784,10 +816,10 @@ export class Weapons implements WeaponSystem, Guard {
         return;
       }
       this.reloadLeft -= dt;
-      const def = this.held.def;
+      const held = this.held.def;
       const progress = this.reloadProgress;
-      while (this.reloadCue < def.reloadFoley.length && progress >= def.reloadFoley[this.reloadCue]![0]) {
-        this.ctx.audio.play(def.reloadFoley[this.reloadCue]![1]);
+      while (this.reloadCue < held.reloadFoley.length && progress >= held.reloadFoley[this.reloadCue]![0]) {
+        this.ctx.audio.play(held.reloadFoley[this.reloadCue]![1]);
         this.reloadCue++;
       }
       if (this.reloadLeft <= 0) this.endReload(true);
@@ -835,14 +867,24 @@ export class Weapons implements WeaponSystem, Guard {
    * auto. A click, and the mode called out under the crosshair.
    */
   private select(): void {
-    if (this.slots[this.current].def.launcher) {
+    if (WEAPONS[this.current].smart) {
+      this.smartOn = !this.smartOn;
+      this.burstLeft = 0;
+      this.ctx.audio.play('fire_select', { pitch: this.smartOn ? 1.3 : 0.92 });
+      this.ctx.hud.callout?.(this.smartOn ? 'SMART' : 'BURST');
+      return;
+    }
+    const def = this.slots[this.current].def;
+    if (def.launcher) {
       this.raiseLauncher(!this.glUp);
       return;
     }
-    this.burstOn = !this.burstOn;
+    const modes = def.select!.modes;
+    const next = modes[(modes.indexOf(this.selectOf(def)) + 1) % modes.length]!;
+    this.selector.set(def.id, next);
     this.burstLeft = 0;
-    this.ctx.audio.play('fire_select', { pitch: this.burstOn ? 1.12 : 0.92 });
-    this.ctx.hud.callout?.(this.burstOn ? 'BURST' : 'AUTO');
+    this.ctx.audio.play('fire_select', { pitch: SELECT_PITCH[next] });
+    this.ctx.hud.callout?.(next.toUpperCase());
   }
 
   /** Brings the launcher to bear, or back to the rifle: a moment's handling (`LAUNCHER.drawTime`), never during a reload. */
@@ -882,7 +924,7 @@ export class Weapons implements WeaponSystem, Guard {
     if (def.altFan && this.updateFan(s, dt)) return;
     switch (def.mode) {
       case 'auto': this.updateAuto(s, held); break;
-      case 'semi': this.updateSemi(s); break;
+      case 'semi': this.updateSemi(s, held); break;
       case 'charge':
         if (LANCE_ON) this.lance.update(s, dt, held);
         else this.updateCharge(s, dt, held);
@@ -962,8 +1004,13 @@ export class Weapons implements WeaponSystem, Guard {
   }
 
   private updateAuto(s: Slot, held: boolean): void {
-    if (this.bursting) {
-      this.updateBurst(s, s.def.select!.burst);
+    const sel = this.selectOf(s.def);
+    if (sel === 'burst') {
+      this.updateBurst(s, s.def.select!.burst!);
+      return;
+    }
+    if (sel === 'semi') {
+      this.updateSemi(s, held);
       return;
     }
     if (!held) return;
@@ -981,7 +1028,7 @@ export class Weapons implements WeaponSystem, Guard {
   }
 
   /** A pull fires `rounds` at the row's rate, then waits `recover`. Letting go does not cut a burst short. */
-  private updateBurst(s: Slot, burst: NonNullable<WeaponDef['select']>['burst']): void {
+  private updateBurst(s: Slot, burst: { readonly rounds: number; readonly recover: number }): void {
     if (this.burstLeft === 0) {
       if (this.pressBuffer <= 0 || s.cooldown > 0) return;
       if (!this.canShoot(s)) {
@@ -1001,20 +1048,11 @@ export class Weapons implements WeaponSystem, Guard {
     if (!this.canShoot(s)) this.burstLeft = 0;
   }
 
-  private updateSemi(s: Slot): void {
-    const burst = s.def.altBurst;
-    if (burst && (this.burstLeft > 0 || this.ctx.input.pressed('aim'))) {
-      if (s.cooldown > 0) return;
-      if (!this.canShoot(s)) {
-        if (this.burstLeft === 0 && !this.startReload()) this.wentDry();
-        this.burstLeft = 0;
-        return;
-      }
-      if (this.burstLeft === 0) this.burstLeft = burst.rounds;
-      this.pressBuffer = 0;
-      this.shootGun(s, false);
-      this.burstLeft--;
-      s.cooldown = (this.burstLeft > 0 ? burst.gap : burst.recover) / Math.max(this.modifiers.fireRate, 0.01);
+  private updateSemi(s: Slot, held: boolean): void {
+    if (s.def.smart && this.smart.on) {
+      if (this.updateSmartFire(s, held)) return;
+    } else if (s.def.pullBurst) {
+      this.updateBurst(s, s.def.pullBurst);
       return;
     }
     // Right click on a double gun pulls both triggers. On the Deuce's last shell it is one barrel, as a left click.
@@ -1030,6 +1068,32 @@ export class Weapons implements WeaponSystem, Guard {
     this.pressBuffer = 0;
     this.shootGun(s, false, both);
     s.cooldown = this.interval(s.def);
+  }
+
+  /**
+   * Smart aim with a head locked: the trigger held is full auto at the smart aim's `interval`, each round into the locked
+   * head, the lock handing on as each man dies, until no head is left in the circle. Unlocked it is the semi-auto trigger
+   * (false: `updateSemi` fires one round a pull).
+   */
+  private updateSmartFire(s: Slot, held: boolean): boolean {
+    if (!this.smart.target) return false;
+    if (!held && this.pressBuffer <= 0) {
+      if (s.cooldown < 0) s.cooldown = 0;
+      return true;
+    }
+    if (s.cooldown > 0) return true;
+    if (!this.canShoot(s)) {
+      this.dryFire();
+      this.pressBuffer = 0;
+      return true;
+    }
+    this.pressBuffer = 0;
+    const interval = s.def.smart!.interval / Math.max(this.modifiers.fireRate, 0.01);
+    while (s.cooldown <= 0 && this.canShoot(s) && this.smart.target?.alive) {
+      this.shootGun(s, false);
+      s.cooldown += interval;
+    }
+    return true;
   }
 
   private updateCharge(s: Slot, dt: number, held: boolean): void {
@@ -1351,6 +1415,8 @@ export class Weapons implements WeaponSystem, Guard {
       if (two && i === pellets >> 1) this.secondBarrel(def, two);
       const dir = def.spread > 0 ? randomInCone(fwd, this.coneOf(def), this.dir) : fwd;
       if (def.raufoss || this.altLoaded.has(def.id)) (this.raufossRounds ??= new Raufoss(c, this.combat)).fire(eye, dir, shot);
+      // The smart aim's lock: the round into his head, as the Judge's fanned shot (cover in the line takes it).
+      else if (this.smart.target) this.combat.fireAtHead(eye, this.smart.target, shot);
       else this.combat.fireRay(eye, dir, shot);
     }
   }
@@ -1769,26 +1835,38 @@ export class Weapons implements WeaponSystem, Guard {
 
   /** The head nearest the crosshair inside the fan's cone, with nothing solid between it and the eye. */
   private fanLook(): FanLock['enemy'] | null {
-    const c = this.ctx;
     const t = WEAPONS[this.current].altFan!;
-    const eye = c.player.eye;
-    const cos = Math.cos(t.cone);
-    const alive = c.enemies.alive;
-    let best: FanLock['enemy'] | null = null;
+    return this.headNear(t.cone, t.range, null);
+  }
+
+  /** The head nearest the crosshair inside `cone` and `range` with nothing solid between it and the eye, but `skip`'s. */
+  private headNear(cone: number, range: number, skip: EnemyInstance | null): EnemyInstance | null {
+    const cos = Math.cos(cone);
+    const alive = this.ctx.enemies.alive;
+    let best: EnemyInstance | null = null;
     let bestAngle = Infinity;
     for (let i = 0; i < alive.length; i++) {
       const e = alive[i]!;
-      if (!e.alive) continue;
-      const head = this.combat.headOf(e, this.v);
-      const angle = angleOff(eye, c.player.forward, head, t.range, cos);
+      if (e === skip) continue;
+      const angle = this.headSeen(e, range, cos);
       if (angle < 0 || angle >= bestAngle) continue;
-      const dir = this.w.subVectors(head, eye);
-      const dist = dir.length();
-      if (c.physics.raycast(eye, dir.divideScalar(dist), dist, CG.World)) continue;
       best = e;
       bestAngle = angle;
     }
     return best;
+  }
+
+  /** His head's angle off the crosshair while he lives, is inside the cone (`cos`) and `range` and in plain sight; else -1. */
+  private headSeen(e: EnemyInstance, range: number, cos: number): number {
+    if (!e.alive) return -1;
+    const c = this.ctx;
+    const eye = c.player.eye;
+    const head = this.combat.headOf(e, this.v);
+    const angle = angleOff(eye, c.player.forward, head, range, cos);
+    if (angle < 0) return -1;
+    const dir = this.w.subVectors(head, eye);
+    const dist = dir.length();
+    return c.physics.raycast(eye, dir.divideScalar(dist), dist, CG.World) ? -1 : angle;
   }
 
   /** A bar charged: a tick, and the tension under the hold, a step higher each bar. */

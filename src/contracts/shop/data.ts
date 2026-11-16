@@ -64,7 +64,7 @@ const WEAPON_CATALOGUE: Readonly<Partial<Record<WeaponId, Ware>>> = {
   },
   rivet: {
     price: 350, wave: 2,
-    lore: 'Compact, semi-automatic and inexpensive, like the contractor. Right click fires three, for those who were going to miss anyway.',
+    lore: 'Compact, semi-automatic and inexpensive, like the contractor. It does nothing else, which is also like the contractor.',
   },
   judge: {
     price: 600, wave: 2,
@@ -101,6 +101,10 @@ const WEAPON_CATALOGUE: Readonly<Partial<Record<WeaponId, Ware>>> = {
   stakegun: {
     price: 2000, wave: 12,
     lore: 'Fires a steel stake, which stays in. The exploding kind also stays in, briefly. Not for use near anything you would miss.',
+  },
+  autoraffica: {
+    price: 2100, wave: 12,
+    lore: 'Three rounds a pull through a silencer it was born with. Hold R and it finds the head for you: the Council has been automating the contractor for years, and is pleased to report progress.',
   },
   ultramag: {
     price: 1700, wave: 14,
@@ -247,6 +251,14 @@ export const MOD_WARES: Readonly<Record<ModId, Ware>> = {
   judgeHp: {
     price: 600, wave: 0,
     lore: 'Hollow-point slugs for the Judge: the harshest sentence in the catalogue, unless the accused is wearing a plate, in which case it is a warning.',
+  },
+  autorafficaAp: {
+    price: 500, wave: 2,
+    lore: 'Armour-piercing rounds for the Autoraffica. The gun already picks the head; these see that the helmet does not object.',
+  },
+  autorafficaHp: {
+    price: 500, wave: 0,
+    lore: 'Hollow-points for the Autoraffica, three at a time, all in the same place. The Council calls this efficiency. The coroner calls it one hole.',
   },
 };
 

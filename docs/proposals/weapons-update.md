@@ -29,7 +29,8 @@ HMG the **Piledriver** (key 8), the flamethrower the **Kiln** (key 9), the spear
 - **Trommel**: longer barrels, a big gatling cannon.
 - **Piledriver**: recoils straight back when firing, not tilting up.
 - **Melee**: every melee weapon except the katana is switched off.
-- **Rivet alt fire**: a three-round burst.
+- **Rivet alt fire**: a three-round burst. (Taken back 2026-11-15: the burst went to the Autoraffica, section 14, and the Rivet
+  is a plain pistol that aims on right click.)
 - **Judge**: the headshot ricochet is switched off (the fanning in section 5 replaces it).
 
 ## 3. Picking up a weapon gives that weapon only
@@ -153,6 +154,40 @@ starting at the tube square and closing over the last 12 m to one fixed aim poin
 puffs per rocket per frame, so the braid stays legible at lower frame rates. The collision/fuse/damage/blast pipeline
 is unchanged. Focused tests cover bolt timing and fire-rate floor, stats, optics/mods, independent unlock, helix geometry,
 swept wall impacts and projectile reuse. Captures: `tools/out/scout/`, DPR 2 at 1440×900; scripted stills only.
+
+## 14. The Autoraffica, a machine pistol with smart aim
+**Built 2026-11-15.** Owner: a burst-fire service pistol with a giant square integrated suppressor, cyberpunk, in the spirit of a
+famous film cop's sidearm (an original design, no copied marks); a rapid three-round burst a pull, always suppressed; hold R for a smart
+aim whose circle locks a head and snaps the crosshair onto it, the gun seen to aim itself; key 6 with the pistols, its own unlock, a
+cache and a shop row; the Rivet loses its right-click burst; AP and HP rounds as the other pistols.
+
+Defaults chosen: key 6 after the Ultramag, `base` the Judge. 24 a round, three a pull 0.05 s apart (1200 a minute), 0.3 s after, 21
+rounds, 1.1 s reload, headshots times 3, half damage from 30 to 65 m, no limbs, a light round to a plate; ADS on right click. The
+owner's `newAutoRafficaShot.mp3` is its report (`autoraffica_shot`, docs/notes/audio.md). Smart aim, decided:
+- **Toggle, not hold:** R held 0.3 s switches it, as the Gimlet's selector; a tap reloads. The owner can ask for a hold instead.
+- **The circle:** 0.14 rad (8 degrees) round the crosshair, out to 70 m. The head nearest the crosshair inside it takes the lock.
+- **Line of sight:** no lock through world geometry, and a lock out of sight lets go after 0.2 s. A round at a locked head is the
+  Judge's `fireAtHead`, so cover or a man in the way takes it.
+- **How long it holds:** while he lives and stays inside 1.25 times the circle, 2 s at most; then he is passed over for 0.6 s.
+- **Switching:** never to a nearer head while a lock holds; at once to the next head in the circle when he dies, so the rest of a
+  burst goes on to the next man.
+Shops: the Crucible's 2,100 after wave 12 (AP 500 after wave 2, HP 500), Outpost Defense's 950 (secondary). Its cache is the ninth
+(wave 18), after the Stakegun. See docs/notes/weapons.md, The Autoraffica, and docs/notes/viewmodels.md.
+
+**Revised 2026-11-16 after the owner saw it in the game.** The gun is longer and slimmer (42 cm, a can 2.9 cm wide and 5 cm tall),
+and the sights are a clean three-dot notch and post on a line clear of the can, aligned on the point of impact. The fire rules
+changed: with smart aim on and a head locked, a held trigger is full auto (800 a minute), each round to a head in the circle, on to
+the next as each dies, until none is left; with no lock it is semi-auto; with smart aim off it is the three-round burst. The HUD
+calls `SMART`, `BURST` and `SMART · LOCK`. The owner's `newAutoRafficaShot.mp3` replaces the stand-in shot. Fire selectors
+beside it: the Gimlet's hold R steps auto, burst, semi (with the launcher fitted it is the launcher, the rifle always auto, and
+fitting or taking it off resets the rifle to auto); the Harrow's hold R toggles auto and semi.
+
+| Gun | Fire modes | Hold R |
+|---|---|---|
+| SMG | Full auto | Reloads (no selector) |
+| Gimlet | Auto, burst of three, semi; auto only with the launcher fitted | Steps auto, burst, semi; with the launcher, launcher and rifle |
+| Harrow | Auto, semi | Toggles auto and semi |
+| Autoraffica | Burst of three (manual); smart aim: full auto while a head is locked, semi with none | Toggles smart aim |
 
 ## Sounds
 

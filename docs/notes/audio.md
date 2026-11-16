@@ -342,6 +342,13 @@ to -1 dB, 160 kbit/s. `awl_shot` is on the `gun` mix at 0.21 on the ladder (loud
 0.165 and under the Sabot's 0.246, with more of the room (`send` 0.26); `awl_suppressed_shot` at 0.155 (loudness 0.461), about
 2.6 dB under, as the Gimlet's can is, with `send` 0.08.
 
+**The Autoraffica's shot** (2026-11-16, the owner's `newAutoRafficaShot.mp3`, weapons-update plan section 14; the older
+`autoRafficaShotSuppressed.mp3` is not used). `autoraffica_shot` is every round of the machine pistol, which is always suppressed. It
+was a 1 s stereo WAV at 40 kHz inside an `.mp3` name with no lead-in to cut (a click from the first sample, the report at 45 to
+90 ms): mixed to mono at 44.1 kHz, faded out from 0.4 s and cut at 0.6 s (the tail is under -50 dB by then), peaks to -1 dB,
+160 kbit/s. On the `gun` mix at 0.1 on the ladder (loudness 0.243), under the suppressed SMG's 0.11 and the bare pistol's 0.138,
+since a pull is three of it in a tenth of a second; `send` 0.08 as the other suppressed shots.
+
 ## Sample packs
 
 Real recordings from free libraries. Sources, authors and licences for every file are in `docs/CREDITS.md`. One id holds all its variants, and pitch
@@ -378,6 +385,10 @@ Rendered at load. x4 means four rendered variants behind one id.
 ### Weapons
 
 - **Gimlet** (the carbine on key 1, 2026-11-15): a synthesized stand-in, to swap for a real one: `fire_select` (R held: the selector to bursts at 1.12 and back to auto at 0.92, the launcher's grip taken at 0.8 and let go at 1, a detent click and a small clack, foley). The launcher's reload is `revolver_open`, `reload_shell_in` and `revolver_close`; its grenade goes off as a hand grenade, `grenade_explode`
+- **Autoraffica** (the machine pistol on key 6, 2026-11-15, weapons-update plan section 14): its shot is the owner's `autoraffica_shot`
+  (see Sample packs, the Autoraffica's shot), three a pull 50 ms apart; the can is part of the gun, so there is no bare shot. Stand-ins
+  from what is already here, to swap for real ones: hold R plays `fire_select` at 1.3 to switch the smart aim on and 0.92 off; each
+  head the smart aim locks plays the Judge's `judge_fan_lock` at 1.7 and 0.45 volume. The reload is the magazine foley
 - **Judge:** `revolver_fire` x3, `revolver_cock`, `revolver_open`, `revolver_load`, `revolver_close`, `revolver_ricochet` (the head-to-head ricochet, unheard since the ricochet went off). Synthesized stand-ins for the fanning (right click), to swap for real ones: `judge_fan_tick` (a bar charged, 0.14 higher each bar, on the reward mix), `judge_fan_lock` (a head locked: a small clink and a ping, 0.18 higher for each further lock on the same man), `judge_fan_tension` (the loop under the hold: a trembling tone, a step higher each bar, cut on the first shot); each fanned shot is the Judge's own `revolver_shot`
 - **Harrow, Rivet, Sabot:** `harrow_fire` x3 (rifle: crack, chest thump, a tail), `rivet_fire` x3 (pistol: all crack and slide), `sabot_fire` x2 (the cannon with a tearing dart and no shell at the far end)
 - **Thresher:** `thresher_punch` x3 (the layer under `thresher_fire`: a chest punch and the bolt slamming home 50 ms on), `drum_out`, `drum_in` (a steel drum with shells rattling in it)

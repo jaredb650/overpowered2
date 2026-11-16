@@ -41,12 +41,12 @@ export const WEAPONS: Record<WeaponId, WeaponInfo> = {
   gimlet: {
     name: 'Gimlet', key: '1',
     role: `Carbine. ${def.gimlet.damage} damage, ${def.gimlet.magSize} rounds, ${Math.round(1 / def.gimlet.interval)} a second, a 4x ACOG`,
-    note: `Press 1 again to step to it. Keeps ${def.gimlet.falloff!.floor * 100}% of its round past ${def.gimlet.falloff!.to} m. Hold R: bursts of three, or the launcher if fitted. Tap R reloads.`,
+    note: `Press 1 again to step to it. Keeps ${def.gimlet.falloff!.floor * 100}% of its round past ${def.gimlet.falloff!.to} m. Hold R: auto, bursts of three, semi; with the launcher fitted, the launcher (the rifle on auto). Tap R reloads.`,
   },
   harrow: {
     name: 'Harrow', key: '1',
     role: `Battle rifle. ${def.harrow.damage} damage, ${def.harrow.magSize} rounds, ${Math.round(1 / def.harrow.interval)} a second`,
-    note: 'Press 1 again to swap with the SMG. Full damage at any range. Goes through one body or a sheet of cover, and takes limbs off.',
+    note: 'Press 1 again to swap with the SMG. Full damage at any range. Goes through one body or a sheet of cover, and takes limbs off. Hold R: auto or semi.',
   },
   shotgun: {
     name: 'Shotgun', key: '2',
@@ -123,12 +123,17 @@ export const WEAPONS: Record<WeaponId, WeaponInfo> = {
   rivet: {
     name: 'Rivet', key: '6',
     role: `Pistol. ${def.rivet.damage} damage, ${def.rivet.magSize} rounds, as fast as you can click`,
-    note: `Press 6 again to swap with the Judge. Out in a blink, headshots count triple, weak past ${def.rivet.falloff!.from} m.`,
+    note: `Press 6 again to swap with the Judge. Out in a blink, headshots count triple, weak past ${def.rivet.falloff!.from} m. Right click aims.`,
   },
   ultramag: {
     name: 'Ultramag', key: '6',
     role: `Heavy pistol. ${def.ultramag.damage} damage, ${def.ultramag.magSize} rounds, the hardest-hitting pistol there is`,
     note: 'Press 6 again to step to it. Every hit shoves the man it lands on, and a kill is thrown. Right click aims.',
+  },
+  autoraffica: {
+    name: 'Autoraffica', key: '6',
+    role: `Machine pistol. Three rounds of ${def.autoraffica.damage} a pull, ${def.autoraffica.magSize} in the magazine, always suppressed`,
+    note: 'Press 6 again to step to it. Hold R for smart aim: a head inside the circle takes the crosshair, and holding the trigger is full auto into every head in it; with none, one round a pull. Tap R reloads. Right click aims.',
   },
   lance: {
     name: 'Lance', key: '7',

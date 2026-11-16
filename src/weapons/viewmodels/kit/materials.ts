@@ -319,6 +319,8 @@ function makeDecals(): { texture: THREE.CanvasTexture; regions: Record<string, R
   place('gimlet', 320, 64, text('GIMLET', STENCIL, 6));
   place('cal556', 256, 40, text('5.56x45 NATO', TECH, 2));
   place('optic4x', 192, 40, text('4x32', TECH, 2));
+  // The machine pistol beside them on key 6.
+  place('autoraffica', 448, 56, text('AUTORAFFICA', STENCIL, 3));
   // Stencil paint is never clean. Knock specks out of everything drawn so far.
   const rng = mulberry32(77);
   g.globalCompositeOperation = 'destination-out';

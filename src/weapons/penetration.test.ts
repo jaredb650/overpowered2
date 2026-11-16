@@ -383,24 +383,21 @@ describe('the guns', () => {
     expect(WEAPONS.rivet.drawTime).toBeLessThan(WEAPONS.judge.drawTime);
   });
 
-  it('Rivet: right click is a three-round burst, then a pause, and no ADS', () => {
-    const b = WEAPONS.rivet.altBurst!;
+  it('Rivet: a plain pistol, one round a click; right click aims and fires nothing (its burst went to the Autoraffica)', () => {
+    expect(WEAPONS.rivet.pullBurst).toBeUndefined();
+    expect(WEAPONS.rivet.ads).toBeDefined();
     r.weapons.give('rivet');
     draw('weapon6');
     const d = r.enemies.add(0, -10);
     r.tap('aim');
-    r.run(b.gap * (b.rounds - 1) + 0.05);
-    expect(d.hits.length).toBe(b.rounds);
-    expect(r.weapons.ammo('rivet').mag).toBe(WEAPONS.rivet.magSize - b.rounds);
-    expect(r.weapons.aim).toBe(0);
-    // A click inside the pause does nothing; one after it is the next burst.
-    r.tap('aim');
-    r.run(0.05);
-    expect(d.hits.length).toBe(b.rounds);
-    r.run(b.recover);
-    r.tap('aim');
-    r.run(b.gap * (b.rounds - 1) + 0.05);
-    expect(d.hits.length).toBe(b.rounds * 2);
+    r.run(0.4);
+    expect(d.hits.length).toBe(0);
+    expect(r.weapons.ammo('rivet').mag).toBe(WEAPONS.rivet.magSize);
+    expect(r.weapons.aim).toBeGreaterThan(0.9);
+    r.tap('fire');
+    r.run(0.3);
+    expect(d.hits.length).toBe(1);
+    expect(r.weapons.ammo('rivet').mag).toBe(WEAPONS.rivet.magSize - 1);
   });
 
   it('SMG and Harrow: the rifle reaches, the SMG fades with range', () => {

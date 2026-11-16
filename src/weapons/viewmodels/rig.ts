@@ -58,6 +58,7 @@ const DEVICE: Record<CallInId, 'walkie' | 'designator'> = {
 };
 
 const _p = new THREE.Vector3();
+const _smart = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _s = new THREE.Vector3();
 /** Socket names of a gun's barrels after the first, which is `muzzle`. */
@@ -538,6 +539,7 @@ export class Rig implements ViewmodelRig {
     a.mods = this.ctx.weapons.fitted ?? null;
     a.alt = this.ctx.weapons.launcherUp === true;
     a.aim = this.aimW;
+    this.readSmart(a, dt);
     def.animate(a);
     this.dressMods(def);
     this.composeGun(def, a);
@@ -1129,6 +1131,22 @@ export class Rig implements ViewmodelRig {
     g.font = '700 22px "Courier New", monospace';
     g.fillText(`${String(Math.round(this.a.speed)).padStart(2, '0')} M/S`, 8, 88);
     texture.needsUpdate = true;
+  }
+
+  /** The smart aim's state for the clip, eased: on, locked, and the locked head's bearing off the view's centre. */
+  private readSmart(a: Anim, dt: number): void {
+    const v = this.ctx.weapons.smartAim;
+    const lock = v?.on ? v.lock : null;
+    // Aimed down sights the gun holds still on its sights: the smart aim's turn would throw the sight picture off.
+    const free = 1 - this.aimW;
+    a.smart = damp(a.smart, v?.on ? free : 0, 10, dt);
+    a.lock = damp(a.lock, lock ? free : 0, 22, dt);
+    if (!lock) return;
+    const cam = this.ctx.render.camera;
+    _smart.copy(lock).applyMatrix4(cam.matrixWorldInverse);
+    const ahead = Math.max(-_smart.z, 0.1);
+    a.lockYaw = damp(a.lockYaw, Math.atan2(-_smart.x, ahead), 26, dt);
+    a.lockPitch = damp(a.lockPitch, Math.atan2(_smart.y, ahead), 26, dt);
   }
 
   /** The look of the fitted mod on `def` that sets `key` (`weapons.fitted`): its optic's sight, its can's muzzle. */

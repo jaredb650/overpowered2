@@ -15,7 +15,7 @@ describe('family table', () => {
     expect(familyOfSlot(3)).toEqual(['rocket', 'quiver']);
     // The Sabot is first on key 4: the explosive autocannon is its upgrade.
     expect(familyOfSlot(4)).toEqual(['sabot', 'awl', 'autocannon']);
-    expect(familyOfSlot(6)).toEqual(['judge', 'rivet', 'ultramag']);
+    expect(familyOfSlot(6)).toEqual(['judge', 'rivet', 'ultramag', 'autoraffica']);
     // Key 5: the katana alone. The four swung beside it are switched off (`?melee=four` brings them back).
     expect(familyOfSlot(5)).toEqual(['sword']);
     for (const id of ['knife', 'crowbar', 'shovel', 'baton'] as WeaponId[]) expect(inPlay(id), id).toBe(false);
@@ -32,7 +32,7 @@ describe('family table', () => {
       if (base) expect(WEAPONS[base].slot, id).toBe(WEAPONS[id].slot);
     }
     expect(membersOf('smg')).toEqual(['gimlet', 'harrow']);
-    expect(membersOf('judge')).toEqual(['rivet', 'ultramag']);
+    expect(membersOf('judge')).toEqual(['rivet', 'ultramag', 'autoraffica']);
     expect(membersOf('shotgun')).toEqual(['thresher', 'deuce']);
     expect(membersOf('rocket')).toEqual(['quiver']);
     // The autocannon is earned on its own, from a weapon cache: owning the Sabot does not bring it.
@@ -105,7 +105,7 @@ describe('families in the weapon system', () => {
 
   it('a pickup gives that weapon only, never the rest of its key', () => {
     // A rack, a drop pod, a cache and the Outpost's shop all hand a weapon over through give.
-    const pairs: [WeaponId, WeaponId][] = [['shotgun', 'thresher'], ['rocket', 'quiver'], ['smg', 'harrow'], ['judge', 'rivet'], ['buzzsaw', 'piledriver'], ['shotgun', 'deuce'], ['judge', 'ultramag']];
+    const pairs: [WeaponId, WeaponId][] = [['shotgun', 'thresher'], ['rocket', 'quiver'], ['smg', 'harrow'], ['judge', 'rivet'], ['buzzsaw', 'piledriver'], ['shotgun', 'deuce'], ['judge', 'ultramag'], ['judge', 'autoraffica']];
     for (const [base, member] of pairs) {
       r.weapons.setLoadout(['sword'], 0);
       r.weapons.give(base);

@@ -27,6 +27,7 @@ import { swordDef } from './sword';
 import { thresherDef } from './thresher';
 import { trommelDef } from './trommel';
 import { ultramagDef } from './ultramag';
+import { autorafficaDef } from './autoraffica';
 import { SLOT8_OLD } from '../../data';
 
 export interface OffhandSet {
@@ -45,7 +46,7 @@ export function buildDefs(kit: Kit): Record<string, ViewDef> {
     buzzsaw: SLOT8_OLD ? buzzsawDef(kit) : trommelDef(kit), piledriver: piledriverDef(kit),
     // Family members: the second weapon on a number key. One line here and one row in WEAPONS is the whole of adding one.
     harrow: harrowDef(kit), rivet: rivetDef(kit), sabot: sabotDef(kit), awl: awlDef(kit), thresher: thresherDef(kit), quiver: quiverDef(kit),
-    deuce: deuceDef(kit), ultramag: ultramagDef(kit), gimlet: gimletDef(kit),
+    deuce: deuceDef(kit), ultramag: ultramagDef(kit), gimlet: gimletDef(kit), autoraffica: autorafficaDef(kit),
     // Key 5 beside the sword. Their swings are one clip, models/melee.ts, with each one's own poses.
     knife: knifeDef(kit), crowbar: crowbarDef(kit), shovel: shovelDef(kit), baton: batonDef(kit),
   };

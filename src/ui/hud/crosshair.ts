@@ -6,7 +6,7 @@
  */
 import * as THREE from 'three';
 import type { Ctx } from '../../core/contracts';
-import type { WeaponId } from '../../core/gameplay';
+import type { SmartAimView, WeaponId } from '../../core/gameplay';
 import { clamp, damp, wrapAngle } from '../../core/math';
 import { Flag, Label, Meter, Shown, div, markup, span } from '../dom';
 import type { HudState } from '../state';
@@ -119,6 +119,8 @@ const RETICLES: Record<WeaponId, Reticle> = {
   rivet: { core: DOT, arms: four(tick(4, 1.25, 2)), gap: 5, kick: 3.6, speedGap: 2 },
   // The heavy pistol: four thick short bars around a dot, thrown wide by every round.
   ultramag: { core: DOT, arms: four(tick(6, 1.9, 3)), gap: 6, kick: 10, speedGap: 2 },
+  // The machine pistol: a dot in an X of four short ticks, opened by the burst. Smart aim draws its circle round it.
+  autoraffica: { core: DOT, arms: four(tick(5, 1.3, 1.5)), diagonal: true, gap: 6, kick: 2.6, speedGap: 2 },
   lance: {
     core: DOT,
     arms: ['', poly('9,-1 62,-1 62,1 9,1'), '', poly('-9,-1 -62,-1 -62,1 -9,1')],
@@ -225,6 +227,11 @@ class DamageArc {
 }
 
 const _toSource = new THREE.Vector3();
+const _head = new THREE.Vector3();
+
+/** The smart aim's circle, a dark rim under a light one so it reads on sky and on concrete, with four ticks. Sized in px. */
+const SMART_RING = '<svg class="xh-smart-svg" viewBox="-50 -50 100 100" aria-hidden="true"><circle class="rim" r="49"/><circle r="49"/>' +
+  '<path d="M0 -49V-42 M49 0H42 M0 49V42 M-49 0H-42"/></svg>';
 
 export class Crosshair {
   readonly el: HTMLElement;
@@ -264,6 +271,15 @@ export class Crosshair {
   private heat = -1;
   private aimClock = 0;
   private locks: LockMarkers;
+  /** The Autoraffica's smart aim: its circle, the reticle's offset onto the locked head in px, and the lock's colour. */
+  private reticle: HTMLElement;
+  private smartRing: HTMLElement;
+  private smartShown: Shown;
+  private smartLocked: Flag;
+  private ringR = -1;
+  private snapX = 0;
+  private snapY = 0;
+  private snapQ = '';
 
   constructor(private readonly ctx: Ctx) {
     this.armsHost = div('xh-arms');
@@ -307,7 +323,10 @@ export class Crosshair {
       kill: new HitMarker('kill'),
     };
     const reticle = div('xh-reticle', this.armsHost, this.core);
+    this.reticle = reticle;
+    this.smartRing = div('xh-smart', markup(SMART_RING));
     this.el = div('xh',
+      this.smartRing,
       reticle,
       this.comboHost,
       magHost,
@@ -333,6 +352,8 @@ export class Crosshair {
     this.chargeShown = new Shown(chargeHost);
     this.locks = new LockMarkers(ctx);
     this.el.append(this.locks.el);
+    this.smartShown = new Shown(this.smartRing);
+    this.smartLocked = new Flag(this.el, 'smart-lock');
   }
 
   /** Reads a fired weapon: the reticle jumps on the frame of the shot. */
@@ -407,8 +428,11 @@ export class Crosshair {
     }
 
     const hidden = s.scoped || s.targeting !== null;
-    // Aimed down sights, the gun's own sight is the crosshair. The ammo and combo readouts stay.
-    this.hide.set(hidden || s.aim > 0.5);
+    const smart = (this.ctx.weapons as { smartAim?: SmartAimView } | undefined)?.smartAim;
+    const smartOn = !hidden && smart?.on === true;
+    // Aimed down sights, the gun's own sight is the crosshair. The ammo and combo readouts stay. Smart aim keeps it: it is the lock.
+    this.hide.set(hidden || (s.aim > 0.5 && !smartOn));
+    this.updateSmart(smartOn ? smart! : null, dt);
     this.aimCheck(dt);
 
     this.bloom = damp(this.bloom, 0, 13, dt);
@@ -475,6 +499,42 @@ export class Crosshair {
     this.hits.kill.update(dt);
     this.updateArcs(dt);
     this.locks.update(dt, s.targeting !== null);
+  }
+
+  /**
+   * The smart aim: the circle a head must be inside (its `cone`, at the camera's FOV), and the reticle swung onto the locked
+   * head and kept there, red, and back to the middle when the lock goes. The swing is a fast damp, so it reads as a snap.
+   */
+  private updateSmart(v: SmartAimView | null, dt: number): void {
+    this.smartShown.set(v !== null);
+    let x = 0;
+    let y = 0;
+    const camera = this.ctx.render.camera;
+    if (v && camera instanceof THREE.PerspectiveCamera) {
+      const r = (Math.tan(v.cone) / Math.tan((camera.fov * Math.PI) / 360)) * (innerHeight / 2);
+      if (Math.abs(r - this.ringR) > 0.5) {
+        this.ringR = r;
+        const st = this.smartRing.style;
+        st.width = st.height = `${(r * 2).toFixed(1)}px`;
+        st.left = st.top = `${(-r).toFixed(1)}px`;
+      }
+      if (v.lock) {
+        _head.copy(v.lock).project(camera);
+        // Behind the eye, project() mirrors the point onto the screen.
+        if (_head.z < 1) {
+          x = _head.x * (innerWidth / 2);
+          y = -_head.y * (innerHeight / 2);
+        }
+      }
+    }
+    this.smartLocked.set(v?.lock != null);
+    this.snapX = damp(this.snapX, x, 34, dt);
+    this.snapY = damp(this.snapY, y, 34, dt);
+    const q = Math.abs(this.snapX) + Math.abs(this.snapY) < 0.3 ? '' : `translate3d(${this.snapX.toFixed(1)}px,${this.snapY.toFixed(1)}px,0)`;
+    if (q !== this.snapQ) {
+      this.snapQ = q;
+      this.reticle.style.transform = q;
+    }
   }
 
   private updateArcs(dt: number): void {

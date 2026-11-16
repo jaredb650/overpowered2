@@ -97,7 +97,7 @@ describe('issued mods', () => {
 });
 
 describe('R on the Gimlet', () => {
-  it('a tap reloads, on the release; a hold switches to bursts of three and back, with no reload', () => {
+  it('a tap reloads, on the release; a hold steps auto, bursts of three, semi and back to auto, with no reload', () => {
     draw();
     r.weapons.ammo('gimlet').mag = 10;
     r.input.simulate('reload', true);
@@ -130,13 +130,52 @@ describe('R on the Gimlet', () => {
     r.run(0.4);
     expect(r.weapons.ammo('gimlet').mag).toBe(21);
 
+    // Semi: a held trigger is one round, each pull another.
     holdR(0.4);
-    expect(r.weapons.ammoMode).toBe('');
-    expect(callouts).toEqual(['BURST', 'AUTO']);
+    expect(r.weapons.ammoMode).toBe('SEMI');
     r.input.simulate('fire', true);
     r.run(1);
     r.input.simulate('fire', false);
-    expect(r.weapons.ammo('gimlet').mag).toBeLessThan(21 - 10);
+    r.run(0.2);
+    expect(r.weapons.ammo('gimlet').mag).toBe(20);
+    r.tap('fire');
+    r.run(0.2);
+    expect(r.weapons.ammo('gimlet').mag).toBe(19);
+
+    holdR(0.4);
+    expect(r.weapons.ammoMode).toBe('');
+    expect(callouts).toEqual(['BURST', 'SEMI', 'AUTO']);
+    expect(r.record.sounds.filter(id => id === 'fire_select').length).toBe(3);
+    r.input.simulate('fire', true);
+    r.run(1);
+    r.input.simulate('fire', false);
+    expect(r.weapons.ammo('gimlet').mag).toBeLessThan(19 - 10);
+  });
+
+  it('the Harrow: a hold toggles full auto and semi, with the click and the callout; a tap still reloads', () => {
+    draw('harrow');
+    expect(WEAPONS.harrow.select!.modes).toEqual(['auto', 'semi']);
+    holdR(WEAPONS.harrow.select!.hold + 0.05);
+    expect(r.weapons.ammoMode).toBe('SEMI');
+    expect(callouts).toEqual(['SEMI']);
+    expect(r.record.sounds).toContain('fire_select');
+    r.weapons.ammo('harrow').mag = 24;
+    r.input.simulate('fire', true);
+    r.run(1);
+    r.input.simulate('fire', false);
+    r.run(0.2);
+    expect(r.weapons.ammo('harrow').mag).toBe(23);
+    holdR(0.4);
+    expect(r.weapons.ammoMode).toBe('');
+    expect(callouts).toEqual(['SEMI', 'AUTO']);
+    r.input.simulate('fire', true);
+    r.run(0.6);
+    r.input.simulate('fire', false);
+    expect(r.weapons.ammo('harrow').mag).toBeLessThan(23 - 3);
+    r.weapons.ammo('harrow').mag = 10;
+    r.tap('reload');
+    r.run(1 / 60);
+    expect(r.weapons.reloading).toBe(true);
   });
 
   it('leaves R alone on every other gun: a press reloads at once', () => {
@@ -182,13 +221,18 @@ describe('the under-barrel launcher', () => {
     expect(r.weapons.ammo('gimlet').mag).toBe(5);
   });
 
-  it('a held R takes it down again, and with it fitted the hold never switches to bursts', () => {
+  it('a held R takes it down again, and with it fitted the hold never switches the rifle off full auto', () => {
     holdR(0.4);
     r.run(0.3);
     holdR(0.4);
     expect(r.weapons.launcherUp).toBe(false);
     expect(r.weapons.ammoMode).toBe('');
     expect(callouts).toEqual(['LAUNCHER', 'RIFLE']);
+    r.weapons.ammo('gimlet').mag = 30;
+    r.input.simulate('fire', true);
+    r.run(0.5);
+    r.input.simulate('fire', false);
+    expect(r.weapons.ammo('gimlet').mag).toBeLessThan(30 - 4);
     r.run(0.3);
     r.weapons.ammo('gimlet').mag = 20;
     r.tap('reload');
@@ -213,5 +257,20 @@ describe('the under-barrel launcher', () => {
     holdR(0.4);
     r.weapons.fitMod('gimletGl', false);
     expect(r.weapons.launcherUp).toBe(false);
+  });
+
+  it('fitting it puts the rifle on full auto; taking it off brings the selector back, starting from auto', () => {
+    r.weapons.fitMod('gimletGl', false);
+    r.run(0.1);
+    holdR(0.4);
+    holdR(0.4);
+    expect(r.weapons.ammoMode).toBe('SEMI');
+    r.weapons.fitMod('gimletGl', true);
+    expect(r.weapons.ammoMode).toBe('');
+    r.weapons.fitMod('gimletGl', false);
+    expect(r.weapons.ammoMode).toBe('');
+    callouts.length = 0;
+    holdR(0.4);
+    expect(callouts).toEqual(['BURST']);
   });
 });

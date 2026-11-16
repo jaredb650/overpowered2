@@ -26,8 +26,9 @@ export type WeaponId =
   | 'knife' | 'crowbar' | 'shovel' | 'baton'
   // The heavy machine gun beside the rotary cannon on key 8.
   | 'piledriver'
-  // The double-barrel on key 2 and the heavy pistol on key 6 (docs/proposals/weapons-update.md section 8).
-  | 'deuce' | 'ultramag'
+  // The double-barrel on key 2 and the heavy pistol on key 6 (docs/proposals/weapons-update.md section 8), and the machine
+  // pistol with the smart aim beside it (section 14).
+  | 'deuce' | 'ultramag' | 'autoraffica'
   // The carbine on key 1, between the SMG and the Harrow (docs/proposals/weapons-update.md section 11).
   | 'gimlet' | 'awl';
 
@@ -37,7 +38,7 @@ export type WeaponId =
  */
 export type ModId = 'awlAcog' | 'awlCan' | 'awlAp' | 'awlHp' | 'suppressor' | 'reddot' | 'raufoss' | 'harrowAcog' | 'gimletAcog' | 'gimletDot' | 'gimletCan' | 'gimletGl'
   | 'smgAp' | 'smgHp' | 'gimletAp' | 'gimletHp' | 'harrowAp' | 'harrowHp'
-  | 'rivetAp' | 'rivetHp' | 'ultramagAp' | 'ultramagHp' | 'judgeAp' | 'judgeHp';
+  | 'rivetAp' | 'rivetHp' | 'ultramagAp' | 'ultramagHp' | 'judgeAp' | 'judgeHp' | 'autorafficaAp' | 'autorafficaHp';
 
 export type Team = 'player' | 'enemy';
 
@@ -131,6 +132,18 @@ export interface WeaponSystem extends GameSystem {
   readonly fitted?: ReadonlySet<ModId>;
   /** The Gimlet's under-barrel launcher is up (hold R): the shots and the reload are its. Unset on a weapon system that has none. */
   readonly launcherUp?: boolean;
+  /** The Autoraffica's smart aim, for the HUD's circle and the gun turning to the head. Unset on a weapon system that has none. */
+  readonly smartAim?: SmartAimView;
+}
+
+/** The Autoraffica's smart aim (src/weapons/smartaim.ts), as the HUD and the viewmodel read it. */
+export interface SmartAimView {
+  /** Switched on (hold R) with the gun in hand. */
+  readonly on: boolean;
+  /** Radians off the crosshair a head may be and take the lock: the circle the HUD draws. */
+  readonly cone: number;
+  /** The middle of the locked man's head, kept up to date, or null with no lock. */
+  readonly lock: THREE.Vector3 | null;
 }
 
 /**
