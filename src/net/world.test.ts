@@ -9,6 +9,7 @@ import type { CoopSession } from './index';
 import { Lobby } from './lobby';
 import type { NetRoom } from './room';
 import { CoopWorld } from './world';
+import { planGib } from '../gore/torso';
 import { decodeWorld, encodeWorld, type WorldEvent } from './worldProtocol';
 import { RULES } from '../enemies/outpost/chatter/lines';
 import type { CommsLine } from '../enemies/outpost/events';
@@ -176,6 +177,29 @@ describe('host-authoritative world over the mocked lobby transport', () => {
     vi.advanceTimersByTime(101); game.hw.update(); game.relay.flush();
     expect(game.guest.manager.spawn).toHaveBeenCalledOnce();
     game.hw.dispose(); game.gw.dispose();
+  });
+  it('breaks a gibbed trunk on the guest the way the host did, and hangs the guts the host hung', () => {
+    const game = pair(); const enemy = game.host.manager.spawn('trooper', new THREE.Vector3(0, 0, -10));
+    game.hw.update(); game.relay.flush();
+    // The host's gore writes what it chose on the damage before the events go out (Gore.wound, Gore.gib).
+    const pellet: DamageInfo = { amount: 30, type: 'pellet', point: new THREE.Vector3(0.1, 1.05, -9.85), dir: new THREE.Vector3(0, 0, -1), force: 0, source: 'shotgun', region: 'abdomen', spill: true };
+    game.host.ctx.events.emit('enemy:hit', { enemy, damage: pellet, result: { dealt: 30, killed: false, headshot: false, severed: [], blocked: false } }); game.relay.flush();
+    const wounded = vi.mocked(game.guest.ctx.gore.wound).mock.calls[0]![1];
+    expect(wounded.spill).toBe(true);
+    game.hw.dispose(); game.gw.dispose();
+    for (const force of [300, 900, 1700]) {
+      const game = pair(); const enemy = game.host.manager.spawn('trooper', new THREE.Vector3(0, 0, -10));
+      game.hw.update(); game.relay.flush();
+      const blast: DamageInfo = { amount: 400, type: 'explosive', point: new THREE.Vector3(0.31, 1.13, -9.62 + force * 1e-4), dir: new THREE.Vector3(0, 0, -1), force, source: 'rocket', gib: true };
+      const host = planGib(blast, force);
+      blast.torso = host.mode;
+      game.host.ctx.events.emit('enemy:killed', { enemy, damage: blast, gibbed: true, headshot: false } as never); game.relay.flush();
+      const replayed = (vi.mocked(game.guest.manager.replayDeath).mock.calls.at(-1) as unknown as [unknown, DamageInfo])[1];
+      expect(replayed.torso).toBe(host.mode);
+      // Same pieces, organs, ribcage and guts from the same damage.
+      expect(planGib(replayed, replayed.force)).toEqual(host);
+      game.hw.dispose(); game.gw.dispose();
+    }
   });
   it('sends the host\'s chatter as ids, so every guest sees the same man say the same words', () => {
     const game = pair(); const enemy = game.host.manager.spawn('trooper', new THREE.Vector3(0, 0, -10));

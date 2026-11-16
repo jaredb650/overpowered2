@@ -69,6 +69,13 @@ export interface DamageInfo {
   vaporize?: boolean;
   /** The round's ammo mod (src/weapons/mods.ts): AP gets through plates, HP does not even try. See AMMO in src/weapons/data.ts. */
   load?: AmmoLoad;
+  /**
+   * How a killing hit broke the trunk (src/gore/torso.ts), written by whoever chose it so a co-op guest replaying the kill
+   * makes the same choice: cracked into pieces, torn at the waist, or blown out with the body left whole.
+   */
+  torso?: 'crack' | 'waist' | 'blowout';
+  /** Set by gore on the hit that opened the belly and left the guts hanging out, so a co-op guest's replay hangs them too. */
+  spill?: boolean;
 }
 
 /** A gun's ammo mod: armour-piercing, hollow-point or +P (ball rules, more damage). Unset is standard ball. */
@@ -319,7 +326,7 @@ export interface CharacterInstance {
    */
   spawnSevered(boneIndex: number): SeveredLimb;
   /** CPU-skinned copy of the current pose in world space, for plane slicing. Caller owns the geometry. */
-  bakePose(): THREE.BufferGeometry;
+  bakePose(bind?: boolean): THREE.BufferGeometry;
   /** Returns the instance to its pool, restored to pristine state. */
   release(): void;
 }
@@ -407,8 +414,18 @@ export interface GoreSystem extends GameSystem {
   sever(char: CharacterInstance, region: GoreRegion, damage: DamageInfo, velocity?: THREE.Vector3): SeverResult | null;
   /** Hands the character to physics. The instance stays owned by GoreSystem until it despawns. */
   ragdoll(char: CharacterInstance, options?: RagdollOptions): void;
-  /** Blows the character into limbs, chunks and mist. Releases the instance. */
-  gib(char: CharacterInstance, center: THREE.Vector3, force: number): void;
+  /**
+   * Blows the character into limbs, the trunk's broken pieces, organs and mist. Releases the instance. `damage`, the killing
+   * hit, chooses how the trunk breaks (and is told: `damage.torso`).
+   */
+  gib(char: CharacterInstance, center: THREE.Vector3, force: number, damage?: DamageInfo): void;
+  /**
+   * A big round through the trunk of a body about to die: its far side opened to the ribs and spine, pieces and blood out of
+   * it, and guts hanging from an opened belly. The body stays; the caller kills it as it would have. Optional for stand-ins.
+   */
+  blowOut?(char: CharacterInstance, damage: DamageInfo): void;
+  /** Prepares what gibs need for every loaded archetype, at load, so the first one in a fight costs no more than the rest. */
+  warm?(): void;
   /** Bisects the character along a world plane into two physics halves. Releases the instance. */
   slice(char: CharacterInstance, point: THREE.Vector3, normal: THREE.Vector3, damage: DamageInfo): void;
   /**
@@ -549,6 +566,8 @@ export interface FxSystem extends GameSystem {
    * coordinate, 1 where a strand starts; see weapons/Flames). Drawn until the next call. 0 hides it.
    */
   hose?(chain: Float32Array, count: number): void;
+  /** Gore's arterial spurts this frame, as `hose`: every strand in one chain, drawn in blood until the next call. */
+  bloodHose?(chain: Float32Array, count: number): void;
   /** One frame of a burning napalm patch on `normal`. `heat` 0..1 thins it as it dies down. */
   napalm?(position: THREE.Vector3, normal: THREE.Vector3, radius: number, heat: number): void;
   /** A glob of napalm splashing on a surface. */

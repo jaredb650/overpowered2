@@ -2,7 +2,8 @@
 
 `src/gore/`, `src/physics/`, sandbox at `/?sandbox=gore&scenario=<name>`.
 
-Scenarios: `ragdoll limbs crawl headshot headpartial explosion slice shootcorpse stairs stress rigs idle`. `rigs` works on any rig, including skitter and drone. Add `arch=trooper` for another
+Scenarios: `ragdoll limbs crawl headshot headpartial explosion slice shootcorpse stairs stress rigs idle`, and the torso
+breaks: `crack blowout guts spurt ribcage`. `rigs` works on any rig, including skitter and drone. Add `arch=trooper` for another
 archetype, `dummy=1` for the capsule TestDummy, `cam=x,y,z,tx,ty,tz` for the camera. Time is fixed at 1/60, so runs repeat.
 `window.__gore` has `hold()`, `step(n)` and `sheet(frames, columns)`, which draws a contact sheet over the page.
 
@@ -251,6 +252,56 @@ Wounds add `gore.wound`, and `wound`, `fracture`, `isFractured`, `skinMaterial`,
 The rest are additive, in `contracts.ts`. `PhysicsSystem`: `preStep`, `radialListeners`, `raycastInto`, `anchorBody`, `stepMs`.
 `GoreSystem`: optional `velocity` on `sever` and `headshot`. `CorpseHit`: `bone`, `region`. `SeverResult`: `torso`, plus the
 `TorsoHalf` interface. On the concrete `Gore`: `owns`, `blast`, `stats`, `limbCenter`.
+
+## Torso breaks, organs, guts and spurts
+
+`torso.ts`, `organs.ts`, `rope.ts`, `spurt.ts`. Proposal and audit: `docs/proposals/torso-gore.md`. Sandbox:
+`scenario=crack|blowout|guts|spurt|ribcage`.
+
+| Kill | What the trunk does |
+|---|---|
+| Gib from a blast, force over `TorsoTuning.waistUnder` (420) | **Crack**: 3 or 5 capped pieces, 6 over `six` (1500), flying out from the trunk. The whole ribcage (six fragments) bursts from where it sat, 4 organs, 1 or 2 loose strands of gut, a strand hanging off the pelvis |
+| Gib at or under 420, or a fifth of the rest | **Waist tear**: chest and pelvis apart, gut hanging from the pelvis, liver and stomach, one loose strand |
+| A killing Sabot, Awl, Ultramag or Piledriver round in the chest or belly, or a shotgun from 3 m | **Blow-out**: the body stays and drops; its far side opened (two stacked craters, the interior shows ribs and spine), meat, two rib fragments and an organ thrown out along the round, gut left hanging from an opened belly |
+| A head burst, a limb or head cut off, a partial head | **Spurt** from the stump (or the head's wound): a beating jet of blood, the Kiln's hose in blood |
+| A shotgun in the belly from 4.5 m, a big round through it, a blast at belly height of 45% of health or more, alive or dead | A **loop of gut** hangs from the wound for as long as the body lasts, dragged behind when he crawls |
+| A waist cut (sword, blast outcome `waist`) | A strand from each half; the top half drags its own |
+| The Lance | Unchanged: it vaporizes |
+
+Plates still on a body fly off before a gib or a blow-out (`DamageModel.platesOff`). Machines still scrap.
+
+**The kit.** A trunk is never cut in a fight. `Gore.warm`, called by `Game` after the characters load, borrows one instance
+of each flesh humanoid archetype, hides its head and limbs (their caps close the holes), bakes it in bind pose
+(`bakePose(true)`), and cuts it with five fixed planes into every way it breaks (`buildKit`: about 6 to 28 ms an archetype,
+157 ms for all thirteen at load). The faces are pushed in and out along their planes so they read as torn, with bone discs
+for the spine, the ring of ribs and the sternum. A gib places each piece on its chest or hips bone (`placePiece`) and throws
+it as a `SliceField` half with a convex hull; the geometry is the kit's and is shared, never disposed. `SliceField.warm`
+draws one piece out of sight at load, so its programs compile there.
+
+**The ribcage** (`buildRibcage`) is twelve rib pairs, costal cartilage, the sternum and a spine section in the chest bone's
+frame, every rib broken at random near each end, so the six fragments fit back together. They spawn in place and burst.
+
+**Guts** are verlet strands, 11 points 11.5 cm apart, drawn together as one tube mesh updated in place (`RopeField`). A strand
+finds the floor under its middle four times a second, slides on it, and drops blood as its end drags. A loose one lies
+14 s and shrinks away; a hanging one goes when its body leaves the scene.
+
+**Spurts** (`SpurtField`) fire globs at 34 a second that fall under gravity, drawn by `fx.bloodHose` (`HoseLayer` with
+`BLOOD_HOSE`). The push beats (`heartbeat`), falls with the pressure over three quarters of the stump's time, and stops. A
+landing glob hands one of the blood field's own drops to the floor, which stains it.
+
+**Caps.** Organs: lung 12, liver, heart and stomach 8 each; ribcage fragments 8 of each kind, all inside `ChunkTuning.maxBodies`
+(72 live bodies), oldest first. Trunk pieces count as halves (`SliceTuning.maxHalves`, 20 live, now shared with the sword).
+Guts 14 strands, spurts 8, oldest given back. Past `TorsoTuning.fullPerFrame` (3) gibs in one frame a gib is three pieces, two
+organs, a strand and no ribcage.
+
+**Co-op.** The host's gore writes its choice on the damage before the events go out: `damage.torso` on a gib or blow-out,
+`damage.spill` on the hit that hung the guts. A guest's replay honours them, and the rest of the plan is seeded from the
+damage's point and source (`planGib`), so a guest throws the same pieces, organs, ribs and strands.
+
+**Measured** (Crucible, wave 1, three gibs forced through the kill path and a rocket blast every 0.8 s, 24 s, dpr 2 at
+1440x900, A/B against the old burst in the same build, two runs each, load from other agents high): gib call p50 9 to 10 ms
+against 6 to 8, first gib of a run 42 to 72 ms against 43 to 50; gore update p50 0.3 ms against 0.1, p95 1.6 to 2.0 against
+1.3 to 1.6; frame p50 19.8 to 21.9 ms against 17.3 to 21.4, inside the run-to-run spread; draw calls peak +45 to +75.
 
 ## Wounds
 

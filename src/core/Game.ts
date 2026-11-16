@@ -87,6 +87,8 @@ export class Game {
     onProgress(BOOT.army, 'Waking the army');
     await breathe();
     await c.characters.load?.();
+    // Gore cuts each body's trunk into the pieces it breaks into now, not on the first gib of a fight.
+    c.gore.warm?.();
     await c.coop?.init();
     onProgress(1, 'Ready');
     await breathe();

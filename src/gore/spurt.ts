@@ -1,0 +1,241 @@
+/**
+ * Arterial spurts: the Kiln's hose (fx/layers/hose.ts, commit a7789c9) in blood, out of a neck or a limb's stump. Each
+ * spurt fires a chain of globs that fall under gravity, drawn as one rope that bends as the body moves. It beats: a
+ * strong pulse and an echo, the pause stretching and the push falling as the pressure goes, until it stops. Where a glob
+ * lands it leaves blood, through the blood field's own drops.
+ *
+ * Pooled: `SpurtTuning.max` at once across the world, the oldest given back first.
+ */
+import * as THREE from 'three';
+import { CG, type Ctx, type RayHit } from '../core/contracts';
+import { clamp } from '../core/math';
+import type { BloodField } from './blood';
+
+export const SpurtTuning = {
+  max: 8,
+  /** Globs each spurt can have in the air, and how many it fires a second. */
+  globs: 30,
+  rate: 34,
+  /** Seconds a glob lives if it lands on nothing. */
+  life: 0.9,
+  /** Jet speed in m/s at no pressure and at full, on a strong beat. */
+  slow: 1.2,
+  fast: 5.2,
+  gravity: 9.81,
+  /** One heartbeat in seconds at the start; it stretches by this share as the pressure goes. */
+  beat: 0.62,
+  stretch: 0.9,
+  /** Globs further apart than this are two strands. */
+  gap: 0.35,
+};
+
+const STRIDE = 6;
+const G = 8;
+
+class Spurt {
+  alive = false;
+  serial = 0;
+  target: THREE.Object3D | null = null;
+  owner: THREE.Object3D | null = null;
+  readonly offset = new THREE.Vector3();
+  readonly axis = new THREE.Vector3();
+  /** A lean of its own, so a neck does not jet straight up and fall back down its own column. */
+  readonly lean = new THREE.Vector3();
+  started = 0;
+  ends = 0;
+  power = 1;
+  acc = 0;
+  /** Glob ring: x y z vx vy vz age alive. */
+  readonly globs = new Float32Array(SpurtTuning.globs * G);
+  head = 0;
+  fired = 0;
+  floor = -1e4;
+  nextGround = 0;
+  emitting = false;
+  readonly nozzle = new THREE.Vector3();
+  readonly lastNozzle = new THREE.Vector3();
+  hasLast = false;
+  drops = 0;
+}
+
+const _a = new THREE.Vector3();
+const _d = new THREE.Vector3();
+const _q = new THREE.Quaternion();
+const _down = new THREE.Vector3(0, -1, 0);
+const _hit: RayHit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, surface: 'concrete', collider: null };
+
+/** How hard the heart is pushing at `phase` (0..1) of a beat: a strong pulse, then a smaller echo. */
+export function heartbeat(phase: number): number {
+  return 0.55 + 0.45 * Math.exp(-phase * 6) + 0.2 * Math.exp(-Math.abs(phase - 0.32) * 18);
+}
+
+export class SpurtField {
+  private readonly spurts: Spurt[] = Array.from({ length: SpurtTuning.max }, () => new Spurt());
+  private serial = 0;
+  private readonly chain = new Float32Array(SpurtTuning.max * (SpurtTuning.globs + 1) * STRIDE);
+  private drawn = false;
+
+  constructor(private readonly ctx: Ctx, private readonly blood: BloodField) {}
+
+  /**
+   * A spurt out of `target` at `offset`, along `axis` (both in its frame), for `seconds`. `owner` is the body's root: when
+   * it leaves the scene the spurt stops. `power` scales the push: 1 a limb, more for a neck.
+   */
+  start(target: THREE.Object3D, offset: THREE.Vector3, axis: THREE.Vector3, owner: THREE.Object3D, seconds: number, power = 1): void {
+    let s = this.spurts.find(o => !o.alive);
+    if (!s) {
+      s = this.spurts[0]!;
+      for (const o of this.spurts) if (o.serial < s.serial) s = o;
+    }
+    s.alive = true;
+    s.serial = ++this.serial;
+    s.target = target;
+    s.owner = owner;
+    s.offset.copy(offset);
+    s.axis.copy(axis).normalize();
+    s.lean.set(Math.sin(s.serial * 2.4), 0, Math.cos(s.serial * 2.4)).multiplyScalar(0.8);
+    s.started = this.ctx.time.elapsed;
+    s.ends = s.started + seconds;
+    s.power = power;
+    s.acc = 0;
+    s.fired = 0;
+    s.nextGround = 0;
+    s.floor = -1e4;
+    s.hasLast = false;
+    s.drops = 0;
+    for (let i = 0; i < SpurtTuning.globs; i++) s.globs[i * G + 7] = 0;
+  }
+
+  /** Spurts still pumping. */
+  get pumping(): number {
+    let n = 0;
+    for (const s of this.spurts) if (s.alive && s.emitting) n++;
+    return n;
+  }
+
+  /** Spurts with anything still in the air. */
+  get live(): number {
+    let n = 0;
+    for (const s of this.spurts) if (s.alive) n++;
+    return n;
+  }
+
+  update(dt: number): void {
+    const now = this.ctx.time.elapsed;
+    const t = SpurtTuning;
+    let count = 0;
+    const c = this.chain;
+    for (const s of this.spurts) {
+      if (!s.alive) continue;
+      const gone = s.owner !== null && s.owner.parent === null;
+      const life = clamp((now - s.started) / Math.max(1e-3, s.ends - s.started));
+      const pressure = (1 - life) ** 1.3;
+      s.emitting = !gone && now < s.ends && s.target !== null;
+      if (s.emitting) {
+        s.target!.updateWorldMatrix(true, false);
+        s.nozzle.copy(s.offset).applyMatrix4(s.target!.matrixWorld);
+        s.target!.getWorldQuaternion(_q);
+        // The cut end whips about: two slow sways out of step, so the jet never holds still.
+        const k = now - s.started;
+        _d.copy(s.axis).applyQuaternion(_q).add(s.lean);
+        _d.x += Math.sin(k * 7.3 + s.serial) * 0.18;
+        _d.y += Math.sin(k * 5.1 + s.serial * 2) * 0.14;
+        _d.z += Math.cos(k * 6.2 + s.serial) * 0.18;
+        _d.normalize();
+        // The body's own motion goes into every glob, so a jet from a falling man falls with him.
+        _a.set(0, 0, 0);
+        if (s.hasLast && dt > 0) _a.subVectors(s.nozzle, s.lastNozzle).divideScalar(dt).clampLength(0, 6);
+        s.lastNozzle.copy(s.nozzle);
+        s.hasLast = true;
+        const period = t.beat * (1 + life * t.stretch);
+        const phase = ((now - s.started) / period) % 1;
+        const speed = (t.slow + (t.fast - t.slow) * pressure) * heartbeat(phase) * s.power;
+        s.acc += dt * t.rate;
+        while (s.acc >= 1) {
+          s.acc -= 1;
+          const g = s.head * G;
+          s.head = (s.head + 1) % t.globs;
+          s.globs[g] = s.nozzle.x;
+          s.globs[g + 1] = s.nozzle.y;
+          s.globs[g + 2] = s.nozzle.z;
+          s.globs[g + 3] = _d.x * speed + _a.x;
+          s.globs[g + 4] = _d.y * speed + _a.y;
+          s.globs[g + 5] = _d.z * speed + _a.z;
+          s.globs[g + 6] = 0;
+          s.globs[g + 7] = 1;
+          s.fired++;
+        }
+      }
+      if (now >= s.nextGround) {
+        s.nextGround = now + 0.3;
+        _a.copy(s.emitting ? s.nozzle : s.lastNozzle);
+        _a.y += 0.3;
+        if (this.ctx.physics.raycastInto(_a, _down, 4, CG.World, _hit)) s.floor = _hit.point.y;
+      }
+      // Fly, and land.
+      let any = false;
+      s.drops = 0;
+      for (let i = 0; i < t.globs; i++) {
+        const g = i * G;
+        if (s.globs[g + 7] === 0) continue;
+        s.globs[g + 4] = s.globs[g + 4]! - t.gravity * dt;
+        s.globs[g] = s.globs[g]! + s.globs[g + 3]! * dt;
+        s.globs[g + 1] = s.globs[g + 1]! + s.globs[g + 4]! * dt;
+        s.globs[g + 2] = s.globs[g + 2]! + s.globs[g + 5]! * dt;
+        s.globs[g + 6] = s.globs[g + 6]! + dt;
+        if (s.globs[g + 1]! <= s.floor) {
+          s.globs[g + 7] = 0;
+          // A drop of the blood field's where it lands, which stains the floor there. One a spurt a frame is plenty.
+          if (s.drops++ === 0) this.blood.droplet(s.globs[g]!, s.floor + 0.05, s.globs[g + 2]!, s.globs[g + 3]! * 0.1, -0.5, s.globs[g + 5]! * 0.1, 0.05 + 0.07 * pressure * s.power);
+          continue;
+        }
+        if (s.globs[g + 6]! > t.life) {
+          s.globs[g + 7] = 0;
+          continue;
+        }
+        any = true;
+      }
+      if (!any && !s.emitting) {
+        s.alive = false;
+        continue;
+      }
+      // The chain, newest first: the nozzle, then each glob in the order it left.
+      let first = true;
+      let lx = 0, ly = 0, lz = 0;
+      const put = (x: number, y: number, z: number, age: number, serial: number) => {
+        const o = count * STRIDE;
+        const split = !first && Math.hypot(x - lx, y - ly, z - lz) > t.gap;
+        c[o] = x;
+        c[o + 1] = y;
+        c[o + 2] = z;
+        c[o + 3] = age;
+        c[o + 4] = serial * 0.35;
+        c[o + 5] = first || split ? 1 : 0;
+        lx = x;
+        ly = y;
+        lz = z;
+        first = false;
+        count++;
+      };
+      if (s.emitting) put(s.nozzle.x, s.nozzle.y, s.nozzle.z, 0, s.fired);
+      for (let k = 1; k <= t.globs; k++) {
+        const i = (s.head - k + t.globs) % t.globs;
+        const g = i * G;
+        if (s.globs[g + 7] === 0) {
+          // A glob gone in the middle of the chain is a break in it.
+          first = true;
+          continue;
+        }
+        put(s.globs[g]!, s.globs[g + 1]!, s.globs[g + 2]!, s.globs[g + 6]!, s.fired - k);
+      }
+    }
+    if (count > 0 || this.drawn) this.ctx.fx.bloodHose?.(c, count);
+    this.drawn = count > 0;
+  }
+
+  clear(): void {
+    for (const s of this.spurts) s.alive = false;
+    if (this.drawn) this.ctx.fx.bloodHose?.(this.chain, 0);
+    this.drawn = false;
+  }
+}

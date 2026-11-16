@@ -2,6 +2,8 @@
  * Gore test room. A row of characters and scripted scenarios at /?sandbox=gore&scenario=<name>.
  *
  *   scenario   headshot | headpartial | limbs | crawl | explosion | slice | ragdoll | shootcorpse | stairs | stress | rigs | idle
+ *              torso breaks (src/gore/torso.ts): crack (waist, five and six pieces), blowout (chest and belly), guts (a man
+ *              opened at the belly, standing, then a waist cut crawling), spurt (a neck and a stump), ribcage (whole, then burst)
  *              side by side, hard limits on the left and muscles on the right, under identical input:
  *              limit | zerog | fall | stairsab | blast | lineup
  *              collapse: dropped, collapsing, collapsing on the move. twitch: still on the left, twitching on the right
@@ -183,7 +185,86 @@ const LINEUP_HITS: readonly [number, number][] = [
   [B.chest, 400], [B.upperArmR, 200], [B.head, 300], [B.hips, 120], [B.thighR, 340],
 ];
 
+/** A heavy round from the camera's side into `bone`, as the Sabot's: wounds it, blows it out, drops it. */
+function blowOut(s: Stage, c: CharacterInstance, bone: number, from: THREE.Vector3): void {
+  const a = s.aim(c, bone, from);
+  if (!a) return;
+  const d = { ...s.damage(a.hit, a.dir, 300, 'bullet', 260), source: 'sabot' };
+  s.gore.wound(c, d, 1);
+  s.gore.blowOut(c, d);
+  s.gore.ragdoll(c, { impulses: [{ bone: a.hit.bone, point: a.hit.point.clone(), impulse: a.dir.clone().multiplyScalar(60) }] });
+}
+
 const scenarios: Record<string, Scenario> = {
+  crack: {
+    camera: [0, 2.6, 11, 0, 0.5, 4],
+    setup(s) {
+      // Facing the camera, the blast behind them, so what it throws comes out across the open floor.
+      for (let i = -1; i <= 1; i++) s.place(i * 2.2, 1);
+    },
+    frame(s, f) {
+      if (f !== 20) return;
+      const r = s.row;
+      for (const [c, force] of [[r[0]!, 300], [r[1]!, 900], [r[2]!, 1700]] as const) {
+        const center = c.root.position.clone().add(v(0.2, 0.5, -0.9));
+        // No fireball: it would hide what the blast does to the body, which is what this is for.
+        s.gore.gib(c, center, force, { amount: 200, type: 'explosive', point: center, dir: v(0, 0, 1), force, source: 'rocket' });
+      }
+    },
+  },
+  blowout: {
+    camera: [2.6, 1.4, 1.2, 0, 1, 0],
+    setup(s) {
+      // Shot through from his right, so his left side, toward the camera, is the side blown out.
+      s.place(0, -0.7);
+      s.place(0, 0.9);
+    },
+    frame(s, f) {
+      if (f !== 20) return;
+      blowOut(s, s.row[0]!, B.chest, v(-6, 1.4, -0.7));
+      blowOut(s, s.row[1]!, B.spine, v(-6, 1.05, 0.9));
+    },
+  },
+  guts: {
+    camera: [1.8, 1.2, 3.4, 0.3, 0.6, 0],
+    setup(s) {
+      s.place(-0.6, 0);
+      s.place(1.2, -0.5);
+    },
+    frame(s, f) {
+      if (f !== 20) return;
+      const [a, b] = s.row;
+      const hit = s.aim(a!, B.spine, v(-0.6, 1.1, 2));
+      if (hit) s.gore.wound(a!, { ...s.damage(hit.hit, hit.dir, 30, 'pellet'), source: 'shotgun', spill: true }, 0.4);
+      const cut = s.aim(b!, B.spine, EYE);
+      if (cut) s.gore.sever(b!, 'abdomen', s.damage(cut.hit, cut.dir, 80, 'slash', 60));
+      s.gore.ragdoll(b!);
+    },
+  },
+  spurt: {
+    camera: [1.6, 1.6, 3.4, 0, 1.1, 0],
+    setup(s) {
+      s.place(-0.7, 0, 0.5);
+      s.place(0.9, 0, -0.4);
+    },
+    frame(s, f) {
+      if (f !== 20) return;
+      const [a, b] = s.row;
+      const head = s.aim(a!, B.head, v(-0.7, 1.7, 9));
+      if (head) s.gore.headshot(a!, s.damage(head.hit, head.dir, 60), undefined, 'burst');
+      s.sever(b!, 'armL', B.upperArmL, v(3, 1.5, 4));
+    },
+  },
+  ribcage: {
+    camera: [0.55, 1.45, 1.1, 0, 1.3, 0],
+    setup(s) {
+      s.place(3, 0);
+    },
+    frame(s, f) {
+      // A whole one in the air, put in place with nothing to throw it: the frame after, it is still whole. Then it drops.
+      if (f === 2) s.gore.chunks.burstRibs(v(0, 1.25, 0), new THREE.Quaternion(), 1, v(0, 0, 1), ['ribsUL', 'ribsLL', 'ribsUR', 'ribsLR', 'sternum', 'spine'], 0, 0);
+    },
+  },
   idle: {
     camera: [0, 1.6, 6, 0, 1, 0],
     setup(s) {

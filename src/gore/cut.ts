@@ -81,9 +81,13 @@ class Side {
   readonly edgeB: Int32Array;
   readonly edgeT: Float32Array;
   edgeCount = 0;
+  /** 1 per triangle that was already cap in the source: a piece cut again keeps its old cut faces. */
+  readonly capTri: Uint8Array;
+  capFlag = 0;
 
   constructor(vertexCap: number, indexCap: number, edgeCap: number, sourceVertices: number) {
     this.index = new Uint32Array(indexCap);
+    this.capTri = new Uint8Array(Math.ceil(indexCap / 3));
     this.source = new Int32Array(vertexCap);
     this.remap = new Int32Array(sourceVertices).fill(-1);
     this.edgeA = new Int32Array(edgeCap);
@@ -120,6 +124,7 @@ class Side {
     this.index[n] = a;
     this.index[n + 1] = b;
     this.index[n + 2] = c;
+    this.capTri[n / 3] = this.capFlag;
     this.indexCount = n + 3;
   }
 
@@ -127,11 +132,12 @@ class Side {
   sourceVertices = 0;
 
   /** Fills attribute arrays for everything the triangle pass used, leaving room for the cap. */
-  gather(list: readonly Attr[], capVertices: number): void {
+  gather(list: readonly Attr[], capVertices: number, srcColor: THREE.TypedArray | null): void {
     const total = this.vertexCount + capVertices;
     const n = this.vertexCount;
     this.sourceVertices = n;
     this.capColor = new Float32Array(total * 3);
+    if (srcColor) gatherAttribute(this.capColor, srcColor, 3, this.source, n, this.edgeA, this.edgeB, this.edgeT);
     this.attrs = list.map(a => {
       const dst = new (a.src.constructor as new (n: number) => THREE.TypedArray)(total * a.size);
       gatherAttribute(dst, a.src, a.size, this.source, n, this.edgeA, this.edgeB, this.edgeT);
@@ -204,6 +210,8 @@ export function cutMesh(
   normal: THREE.Vector3,
   crossings: readonly BoneCrossing[] = [],
   weld: Int32Array | null = null,
+  /** Separate pieces kept per side. 1 keeps each side one rigid piece, whatever islands it holds. */
+  maxPieces = MAX_PIECES,
 ): CutResult {
   const position = geometry.getAttribute('position') as THREE.BufferAttribute;
   const count = position.count;
@@ -316,10 +324,13 @@ export function cutMesh(
     }
   };
 
+  // A piece cut before has its cap as a second group: those triangles stay cap on both sides of this cut.
+  const oldCap = geometry.groups.length > 1 ? geometry.groups[1]!.start : Infinity;
   for (let t = 0; t < indexCount; t += 3) {
     const a = idx ? idx[t]! : t;
     const b = idx ? idx[t + 1]! : t + 1;
     const c = idx ? idx[t + 2]! : t + 2;
+    above.capFlag = below.capFlag = t >= oldCap ? 1 : 0;
     const sa = dist[a]! > 0;
     const sb = dist[b]! > 0;
     const sc = dist[c]! > 0;
@@ -358,10 +369,12 @@ export function cutMesh(
     }
   }
 
+  above.capFlag = below.capFlag = 0;
   let capVertices = crossings.length * 17;
   for (const l of loops) capVertices += l.x.length * 2;
-  above.gather(list, capVertices);
-  below.gather(list, capVertices);
+  const srcColor = oldCap < Infinity ? (geometry.getAttribute('color')?.array as THREE.TypedArray | undefined) ?? null : null;
+  above.gather(list, capVertices, srcColor);
+  below.gather(list, capVertices, srcColor);
 
   const planeO = _p.copy(_n).multiplyScalar(offset);
   const cap = { px: planeO.x, py: planeO.y, pz: planeO.z, ux, uy, uz, vx, vy, vz, nx, ny, nz };
@@ -369,8 +382,8 @@ export function cutMesh(
   const belowCap = buildCap(below, list, outers, holesOf, cap, crossings, 1, skinBelow);
 
   return {
-    above: pieces(above, list, aboveCap, weld, count),
-    below: pieces(below, list, belowCap, weld, count),
+    above: pieces(above, list, aboveCap, weld, count, maxPieces),
+    below: pieces(below, list, belowCap, weld, count, maxPieces),
     loops: outers.length,
   };
 }
@@ -602,7 +615,7 @@ function find(parent: Int32Array, i: number): number {
 }
 
 /** Splits a side into its connected pieces, largest first. */
-function pieces(side: Side, list: readonly Attr[], cap: CapInfo, weld: Int32Array | null, sourceCount: number): CutSide[] {
+function pieces(side: Side, list: readonly Attr[], cap: CapInfo, weld: Int32Array | null, sourceCount: number, maxPieces: number): CutSide[] {
   const n = side.vertexCount;
   if (n === 0 || side.indexCount === 0) return [];
   const parent = new Int32Array(n);
@@ -646,7 +659,7 @@ function pieces(side: Side, list: readonly Attr[], cap: CapInfo, weld: Int32Arra
   const roots: number[] = [];
   for (let i = 0; i < n; i++) if (sizes[i]! > 0) roots.push(i);
   roots.sort((a, b) => sizes[b]! - sizes[a]!);
-  const kept = roots.filter((r, i) => i === 0 || (i < MAX_PIECES && sizes[r]! >= MIN_PIECE_TRIANGLES));
+  const kept = roots.filter((r, i) => i === 0 || (i < maxPieces && sizes[r]! >= MIN_PIECE_TRIANGLES));
   if (kept.length === 1) return [finish(side, list, cap, null, 0, rootOf)];
   // Slivers too small to bother with ride along with the largest piece.
   const slot = new Uint8Array(n);
@@ -682,13 +695,18 @@ function finish(
     return m;
   };
   let write = 0;
-  for (let t = 0; t < total; t += 3) {
-    if (slot && slot[rootOf[src[t]!]!] !== which) continue;
-    index[write++] = use(src[t]!);
-    index[write++] = use(src[t + 1]!);
-    index[write++] = use(src[t + 2]!);
-    if (t < cap.start) skinCount += 3;
-    else capCount += 3;
+  // Two passes, skin then cap, since a piece cut a second time has old cap triangles among its skin.
+  for (let pass = 0; pass < 2; pass++) {
+    for (let t = 0; t < total; t += 3) {
+      if (slot && slot[rootOf[src[t]!]!] !== which) continue;
+      const isCap = t >= cap.start || side.capTri[t / 3] === 1;
+      if (isCap !== (pass === 1)) continue;
+      index[write++] = use(src[t]!);
+      index[write++] = use(src[t + 1]!);
+      index[write++] = use(src[t + 2]!);
+      if (isCap) capCount += 3;
+      else skinCount += 3;
+    }
   }
   if (!local) vertexCount = side.vertexCount;
 

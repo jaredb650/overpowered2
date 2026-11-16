@@ -11,6 +11,18 @@ import type { ArchetypeDef } from './archetypes';
 
 /** Near-zero rather than zero, so decomposing a collapsed bone's matrix stays finite. */
 export const COLLAPSED = 1e-5;
+
+/** `n` identity 4x4 matrices back to back, cached by count. */
+const identityCache = new Map<number, Float32Array>();
+function identities(n: number): Float32Array {
+  let m = identityCache.get(n);
+  if (!m) {
+    m = new Float32Array(n * 16);
+    for (let i = 0; i < n; i++) m[i * 16] = m[i * 16 + 5] = m[i * 16 + 10] = m[i * 16 + 15] = 1;
+    identityCache.set(n, m);
+  }
+  return m;
+}
 /** Hit flash intensity lost per second of world time. */
 const FLASH_DECAY = 7;
 
@@ -424,7 +436,7 @@ export class Character implements CharacterInstance {
     book.adopt(this.book);
   }
 
-  bakePose(): THREE.BufferGeometry {
+  bakePose(bind = false): THREE.BufferGeometry {
     this.root.updateMatrixWorld(true);
     this.skeleton.update();
     const model = this.a.model;
@@ -437,7 +449,8 @@ export class Character implements CharacterInstance {
     const nrm = A.normal.array as Int8Array;
     const si = A.skinIndex!.array as Uint8Array;
     const sw = A.skinWeight!.array as Uint8Array;
-    const bm = this.skeleton.boneMatrices as Float32Array;
+    // In bind, every bone matrix is the identity: the copy is in the model's own space, as it was baked.
+    const bm = bind ? identities(this.skeleton.bones.length) : this.skeleton.boneMatrices as Float32Array;
     const e = new Float64Array(12);
     const live = new Uint8Array(n);
     for (let i = 0; i < n; i++) {

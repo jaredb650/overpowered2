@@ -8,15 +8,20 @@ import type RAPIER from '@dimforge/rapier3d-compat';
 import { CG, type Ctx } from '../core/contracts';
 import { groups } from '../physics/Physics';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { clamp, mulberry32, TAU } from '../core/math';
+import { clamp, mulberry32, rand, TAU } from '../core/math';
 import type { BloodField } from './blood';
 import { ImpactTuning, type ImpactEvents } from './impacts';
+import { buildOrgans, buildRibcage, ORGANS, type OrganKind, type RibKind } from './organs';
 
-export type ChunkKind = 'meat' | 'viscera' | 'bone' | 'cranium' | 'jaw' | 'brain' | 'eye' | 'scrap';
+export type ChunkKind = 'meat' | 'viscera' | 'bone' | 'cranium' | 'jaw' | 'brain' | 'eye' | 'scrap' | OrganKind | RibKind;
 
 export const ChunkTuning = {
   /** Slots per kind. A new piece reclaims the oldest in that kind. */
-  capacity: { meat: 96, viscera: 40, bone: 48, cranium: 24, jaw: 16, brain: 16, eye: 16, scrap: 48 } as Record<ChunkKind, number>,
+  capacity: {
+    meat: 96, viscera: 40, bone: 48, cranium: 24, jaw: 16, brain: 16, eye: 16, scrap: 48,
+    // Organs and the ribcage's six fragments: eight trunks' worth, the oldest given back first.
+    lung: 12, liver: 8, heart: 8, stomach: 8, ribsUL: 8, ribsLL: 8, ribsUR: 8, ribsLR: 8, sternum: 8, spine: 8,
+  } as Record<ChunkKind, number>,
   /** Bodies alive at once across all kinds. Past this, new pieces take the oldest body's place. */
   maxBodies: 72,
   /** Seconds at rest before the body is dropped. */
@@ -51,6 +56,8 @@ interface Chunk {
   splats: number;
   /** World time this piece may next be heard landing. */
   nextThud: number;
+  /** An organ's wobble after a landing, 1 down to 0. */
+  wob: number;
   alive: boolean;
   readonly p: THREE.Vector3;
   readonly q: THREE.Quaternion;
@@ -195,8 +202,11 @@ function buildKit(): { geometry: Map<ChunkKind, THREE.BufferGeometry>; pieces: K
   return { geometry: new Map([['cranium', cranium.g], ['jaw', jaw.g], ['brain', brain.g], ['eye', eye()]]), pieces };
 }
 
-/** A kit piece's collider half-size against its head radius. A plain lump uses 0.72 of its size. */
-const KIT_BOX: Partial<Record<ChunkKind, number>> = { cranium: 0.42, jaw: 0.3, brain: 0.3, eye: 0.17 };
+/** A kit piece's collider half-size against its head radius (a ribcage fragment's: its body's scale). A plain lump uses 0.72 of its size. */
+const KIT_BOX: Partial<Record<ChunkKind, number>> = {
+  cranium: 0.42, jaw: 0.3, brain: 0.3, eye: 0.17, ribsUL: 0.055, ribsLL: 0.055, ribsUR: 0.055, ribsLR: 0.055, sternum: 0.035, spine: 0.045,
+};
+const ORGAN_SET: ReadonlySet<ChunkKind> = new Set(ORGANS);
 
 /** Curved plate: a fragment of cranium, thin with a rough broken edge. Now only scrap, for machines. */
 function shard(seed: number): THREE.BufferGeometry {
@@ -224,6 +234,8 @@ export class ChunkField {
   private ready = false;
   private readonly impactDir = new THREE.Vector3();
   private kit: KitPiece[] = [];
+  /** Where each ribcage fragment sits in the chest bone's frame, for a 1.85 m body. */
+  private readonly ribAt = new Map<ChunkKind, THREE.Vector3>();
 
   constructor(private readonly ctx: Ctx, private readonly blood: BloodField, private readonly impacts: ImpactEvents) {}
 
@@ -250,7 +262,7 @@ export class ChunkField {
       this.meshes.set(kind, mesh);
       this.ring.set(kind, 0);
       const slots: Chunk[] = Array.from({ length: cap }, (_, slot) => ({
-        kind, slot, body: null, size: 0, bulk: 0, sx: 1, sy: 1, sz: 1, born: 0, still: 0, restedAt: -1, speed: 0, splats: 0, nextThud: 0, alive: false,
+        kind, slot, body: null, size: 0, bulk: 0, sx: 1, sy: 1, sz: 1, born: 0, still: 0, restedAt: -1, speed: 0, splats: 0, nextThud: 0, wob: 0, alive: false,
         p: new THREE.Vector3(), q: new THREE.Quaternion(), v: new THREE.Vector3(),
       }));
       this.slots.set(kind, slots);
@@ -268,6 +280,38 @@ export class ChunkField {
     make('brain', kit.geometry.get('brain')!, wet(0.22, 1));
     make('eye', kit.geometry.get('eye')!, wet(0.15, 1));
     make('scrap', shard(41), wet(0.4, 0));
+    // Organs shade smooth: swollen and wet, not faceted like torn meat.
+    const organ = wet(0.16, 1);
+    (organ as THREE.MeshPhysicalMaterial).flatShading = false;
+    for (const [kind, g] of buildOrgans()) make(kind, g, organ);
+    const ribs = wet(0.42, 0.35);
+    (ribs as THREE.MeshPhysicalMaterial).flatShading = false;
+    for (const [kind, g] of buildRibcage()) {
+      const c = centred(g);
+      this.ribAt.set(kind, c.at);
+      make(kind, c.g, ribs);
+    }
+  }
+
+  /**
+   * One whole ribcage bursting: each of `kinds` starts where it sits in the chest (`at`, turned `turn`, at `scale` of a 1.85 m
+   * body) and flies out from the middle of it and on along `dir`. All six together read as a ribcage for a frame.
+   */
+  burstRibs(at: THREE.Vector3, turn: THREE.Quaternion, scale: number, dir: THREE.Vector3, kinds: readonly RibKind[], push: number, pop = 1): void {
+    this.ensure();
+    for (const kind of kinds) {
+      const local = this.ribAt.get(kind)!;
+      const p = _p.copy(local).multiplyScalar(scale).applyQuaternion(turn);
+      // Out from the cage's middle, a little above the chest bone.
+      const out = _o.set(p.x, (local.y - 0.1) * scale * 0.6, p.z).normalize();
+      p.add(at);
+      const out2 = rand(2, 3.6) * pop;
+      this.spawn(
+        kind, p.x, p.y, p.z,
+        out.x * out2 + dir.x * push * rand(0.6, 1), out.y * out2 + dir.y * push + rand(1.5, 3.5) * pop, out.z * out2 + dir.z * push * rand(0.6, 1),
+        scale, turn, 10 * pop,
+      );
+    }
   }
 
   /**
@@ -339,6 +383,7 @@ export class ChunkField {
     c.speed = Math.hypot(vx, vy, vz);
     c.splats = 0;
     c.nextThud = 0;
+    c.wob = 0;
     c.alive = true;
     this.live.push(c);
   }
@@ -351,6 +396,7 @@ export class ChunkField {
       c.body = null;
     }
     c.restedAt = this.ctx.time.elapsed;
+    c.wob = 0;
     const at = this.live.indexOf(c);
     if (at >= 0) {
       this.live[at] = this.live[this.live.length - 1]!;
@@ -369,7 +415,9 @@ export class ChunkField {
 
   private write(c: Chunk, scale: number): void {
     const s = c.size * scale;
-    _m.compose(c.p, c.q, _s.set(s * c.sx, s * c.sy, s * c.sz));
+    // A landed organ wobbles: squashed and spread, then back, a few times over.
+    const w = c.wob > 0 ? Math.sin(c.wob * 26) * c.wob * 0.28 : 0;
+    _m.compose(c.p, c.q, _s.set(s * c.sx * (1 + w * 0.6), s * c.sy * (1 - w), s * c.sz * (1 + w * 0.6)));
     const mesh = this.meshes.get(c.kind)!;
     mesh.setMatrixAt(c.slot, _m);
     mesh.instanceMatrix.needsUpdate = true;
@@ -388,6 +436,8 @@ export class ChunkField {
       const speed = c.v.length();
       const lost = c.speed - speed;
       // A sharp loss of speed is a bounce. Stain where it hit, a few times at most per piece.
+      if (lost > t.impactSpeed * 0.5 && ORGAN_SET.has(c.kind)) c.wob = 1;
+      if (c.wob > 0) c.wob = Math.max(0, c.wob - dt * 1.6);
       if (lost > t.impactSpeed && c.splats < 3 && c.kind !== 'scrap') {
         c.splats++;
         this.blood.stainBelow(c.p, 0.14 + c.bulk * 2.2, 'blood', 0.8);
@@ -419,6 +469,13 @@ export class ChunkField {
 
   get bodies(): number {
     return this.live.length;
+  }
+
+  /** Pieces of a kind in the world, moving or lying still. For checks. */
+  aliveOf(kind: ChunkKind): number {
+    let n = 0;
+    for (const c of this.slots.get(kind) ?? []) if (c.alive) n++;
+    return n;
   }
 
   /** Speed of the fastest piece in flight. For checks. */

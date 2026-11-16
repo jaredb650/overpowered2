@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { COMMON_VERT, OUTPUT_FRAG } from '../gpu/glsl';
-import { FIRE } from '../palette';
+import { BLOOD, FIRE } from '../palette';
 import { ORDER, type FxUniforms } from './shared';
 
 /**
@@ -16,7 +16,6 @@ import { ORDER, type FxUniforms } from './shared';
 const SUB = 3;
 /** Chain points the ribbon can take: every glob and the nozzle. */
 const MAX_IN = 74;
-const MAX_OUT = MAX_IN * SUB;
 const STRIDE = 6;
 
 const VERT = /* glsl */ `
@@ -80,6 +79,72 @@ void main() {
 }
 `;
 
+/**
+ * Blood instead of fire (gore's arterial spurts): a dark liquid rope with a wet highlight down one side, tearing into
+ * beads as it ages and falls. Covers what is behind it, as a liquid does.
+ */
+const BLOOD_FRAG = /* glsl */ `
+uniform float uTime;
+uniform vec3 uFogColor;
+uniform vec3 uDeep;
+uniform vec3 uBright;
+varying vec4 vS;
+varying float vFog;
+
+float hash21(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453123); }
+float vnoise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  float a = hash21(i), b = hash21(i + vec2(1.0, 0.0)), c = hash21(i + vec2(0.0, 1.0)), d = hash21(i + vec2(1.0, 1.0));
+  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
+void main() {
+  float x = abs(vS.x);
+  float k = clamp(vS.z / 0.55, 0.0, 1.0);
+  float n = vnoise(vec2(vS.y * 0.9, vS.x * 2.0)) * 0.6 + vnoise(vec2(vS.y * 2.7 - uTime * 4.0, vS.x * 3.5)) * 0.4;
+  float edge = mix(0.95, 0.7, k) + (n - 0.5) * mix(0.15, 0.6, k);
+  float a = 1.0 - smoothstep(edge - 0.12, edge, x);
+  // An old stretch breaks into beads along its length.
+  float bead = smoothstep(0.32, 0.55, vnoise(vec2(vS.y * 1.6, 3.1)) + 0.55 - k);
+  a *= mix(1.0, bead, k);
+  if (a <= 0.02) discard;
+  float lit = 1.0 - smoothstep(0.0, 0.22, abs(vS.x + 0.38));
+  vec3 col = mix(uDeep, uBright, n * 0.7 + (1.0 - x) * 0.3);
+  col += vec3(0.42, 0.13, 0.12) * lit * (1.0 - k * 0.5);
+  col = mix(col, uFogColor, vFog);
+  gl_FragColor = vec4(col * a, a);
+  ${OUTPUT_FRAG}
+}
+`;
+
+/** What a hose looks like. The Kiln's is the default; `BLOOD_HOSE` is gore's. */
+export interface HoseStyle {
+  name: string;
+  fragment: string;
+  uniforms: Record<string, { value: unknown }>;
+  width(age: number): number;
+  /** Chain points it can take, across every strand. */
+  points: number;
+}
+
+/** Metres across, by age: a thumb-thick jet out of the wound that spreads a little as it flies. */
+export function bloodHoseWidth(age: number): number {
+  return 0.04 + 0.05 * Math.min(1, age / 0.45);
+}
+
+export const BLOOD_HOSE: HoseStyle = {
+  name: 'fx.bloodHose',
+  fragment: BLOOD_FRAG,
+  uniforms: {
+    uDeep: { value: new THREE.Vector3(BLOOD.arterial.r * 1.8, BLOOD.arterial.g * 2, BLOOD.arterial.b * 2) },
+    uBright: { value: new THREE.Vector3(0.5, 0.014, 0.018) },
+  },
+  width: bloodHoseWidth,
+  points: 256,
+};
+
 const _p = new THREE.Vector3();
 const _q = new THREE.Vector3();
 const _t = new THREE.Vector3();
@@ -100,14 +165,23 @@ export function hoseWidth(age: number): number {
 export class HoseLayer {
   readonly mesh: THREE.Mesh;
   private readonly geometry = new THREE.BufferGeometry();
-  private readonly pos = new Float32Array(MAX_OUT * 2 * 3);
-  private readonly strip = new Float32Array(MAX_OUT * 2 * 4);
-  private readonly index = new Uint16Array(MAX_OUT * 6);
+  private readonly maxIn: number;
+  private readonly maxOut: number;
+  private readonly pos: Float32Array;
+  private readonly strip: Float32Array;
+  private readonly index: Uint16Array;
   /** The resampled centre line, x y z age serial per point. */
-  private readonly line = new Float32Array(MAX_OUT * 5);
+  private readonly line: Float32Array;
+  private readonly width: (age: number) => number;
   private count = 0;
 
-  constructor(scene: THREE.Scene, uniforms: FxUniforms) {
+  constructor(scene: THREE.Scene, uniforms: FxUniforms, style?: HoseStyle) {
+    const MAX_OUT = (this.maxOut = (this.maxIn = style?.points ?? MAX_IN) * SUB);
+    this.pos = new Float32Array(MAX_OUT * 2 * 3);
+    this.strip = new Float32Array(MAX_OUT * 2 * 4);
+    this.index = new Uint16Array(MAX_OUT * 6);
+    this.line = new Float32Array(MAX_OUT * 5);
+    this.width = style?.width ?? hoseWidth;
     const g = this.geometry;
     g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage));
     g.setAttribute('aS', new THREE.BufferAttribute(this.strip, 4).setUsage(THREE.DynamicDrawUsage));
@@ -115,8 +189,8 @@ export class HoseLayer {
     g.setDrawRange(0, 0);
     const material = new THREE.ShaderMaterial({
       vertexShader: VERT,
-      fragmentShader: FRAG,
-      uniforms: {
+      fragmentShader: style?.fragment ?? FRAG,
+      uniforms: style ? { ...uniforms, ...style.uniforms } : {
         ...uniforms,
         uRed: { value: new THREE.Vector3(FIRE.red.r, FIRE.red.g, FIRE.red.b) },
         uOrange: { value: new THREE.Vector3(FIRE.orange.r, FIRE.orange.g, FIRE.orange.b).multiplyScalar(1.3) },
@@ -135,13 +209,13 @@ export class HoseLayer {
     mesh.frustumCulled = false;
     mesh.visible = false;
     mesh.renderOrder = ORDER.hose;
-    mesh.name = 'fx.hose';
+    mesh.name = style?.name ?? 'fx.hose';
     scene.add(mesh);
   }
 
   /** Rebuilds the ribbon from `chain` (see FxSystem.hose), facing `eye`. */
   draw(chain: Float32Array, count: number, eye: THREE.Vector3): void {
-    const n = Math.min(count, MAX_IN);
+    const n = Math.min(count, this.maxIn);
     let verts = 0;
     let tris = 0;
     let s = 0;
@@ -207,6 +281,7 @@ export class HoseLayer {
     const S = this.strip;
     const I = this.index;
     const first = verts;
+    const MAX_OUT = this.maxOut;
     for (let i = 0; i < m && verts + 2 <= MAX_OUT * 2; i++) {
       const o = i * 5;
       _p.set(L[o]!, L[o + 1]!, L[o + 2]!);
@@ -221,7 +296,7 @@ export class HoseLayer {
       const age = L[o + 3]!;
       // The open end tapers off instead of stopping square.
       const tip = i === m - 1 ? 0.35 : 1;
-      const w = hoseWidth(age) * 0.5 * tip;
+      const w = this.width(age) * 0.5 * tip;
       for (let side = -1; side <= 1; side += 2) {
         _q.copy(_p).addScaledVector(_s, w * side);
         P[verts * 3] = _q.x;

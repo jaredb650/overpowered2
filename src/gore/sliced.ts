@@ -14,8 +14,8 @@ import { RagTuning } from './rag';
 import { rigInfo } from './rigInfo';
 
 export const SliceTuning = {
-  /** Half pairs kept. Past this the oldest sinks. */
-  maxHalves: 12,
+  /** Halves and broken trunk pieces kept (torso.ts). Past this the oldest sinks. */
+  maxHalves: 20,
   /** Seconds the two halves hang together before the upper one lets go. */
   holdSeconds: 0.14,
   /** Speed along the cut once it lets go, m/s. */
@@ -39,6 +39,8 @@ export class Half {
   releaseAt = 0;
   sinking = -1;
   pooled = false;
+  /** A trunk piece's geometry belongs to its archetype's kit, so it is never disposed with the piece. */
+  shared = false;
   speed = 0;
   /** World time this half may next be heard landing. */
   nextThud = 0;
@@ -99,7 +101,8 @@ export class SliceField {
   private cap(): THREE.Material {
     if (this.capMaterial) return this.capMaterial;
     const m = new THREE.MeshPhysicalMaterial({
-      map: fleshTexture(), vertexColors: true, roughness: 0.28, metalness: 0, clearcoat: 0.6, clearcoatRoughness: 0.3,
+      // No canvas in Node, where the tests cut bodies: the vertex colours carry the cut face alone there.
+      map: typeof document === 'undefined' ? null : fleshTexture(), vertexColors: true, roughness: 0.28, metalness: 0, clearcoat: 0.6, clearcoatRoughness: 0.3,
     });
     this.capMaterial = this.ctx.render.materials?.patch ? this.ctx.render.materials.patch(m) ?? m : m;
     return this.capMaterial;
@@ -204,6 +207,59 @@ export class SliceField {
     this.halves.push(half);
   }
 
+  /**
+   * A broken piece of a trunk (torso.ts), thrown from where it sits at `p`, `q`. Its geometry is the kit's and stays. `v`
+   * is at full gravity: under the tempo dial it is slowed by its square root, as a limb's throw is, so it lands as far.
+   */
+  throwPiece(side: CutSide, skin: THREE.Material, p: THREE.Vector3, q: THREE.Quaternion, v: THREE.Vector3, spin: number): Half {
+    const { R, world } = this.ctx.physics;
+    const mesh = new THREE.Mesh(side.geometry, [skin, this.cap()]);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.position.copy(p);
+    mesh.quaternion.copy(q);
+    this.ctx.render.scene.add(mesh);
+    const k = Math.sqrt(RagTuning.gravityScale);
+    const body = world.createRigidBody(
+      R.RigidBodyDesc.dynamic()
+        .setTranslation(p.x, p.y, p.z)
+        .setRotation(q)
+        .setLinvel(v.x * k, v.y * k, v.z * k)
+        .setAngvel({ x: rand(-spin, spin) * k, y: rand(-spin, spin) * k, z: rand(-spin, spin) * k })
+        .setGravityScale(RagTuning.gravityScale)
+        .setLinearDamping(0.1)
+        .setAngularDamping(0.6),
+    );
+    const collider = R.ColliderDesc.convexHull(side.hull) ?? R.ColliderDesc.cuboid(side.max.x, side.max.y, side.max.z);
+    world.createCollider(
+      collider.setDensity(SliceTuning.density).setFriction(0.7).setRestitution(0.05)
+        .setCollisionGroups(groups(CG.Ragdoll, CG.World | CG.Ragdoll | CG.Gib)),
+      body,
+    );
+    const half = new Half(mesh, side);
+    half.shared = true;
+    half.body = body;
+    half.emitter = this.ctx.fx.attachEmitter(mesh, 'stumpSpray', side.capCenter, 2.5) ?? null;
+    this.halves.push(half);
+    this.enforce();
+    return half;
+  }
+
+  /**
+   * Draws one piece out of sight for a frame, so the programs a cut piece is drawn with (the skin's unskinned variant, the
+   * cut face) compile at load and not on the first gib or slice of a fight.
+   */
+  warm(side: CutSide, skin: THREE.Material): void {
+    const mesh = new THREE.Mesh(side.geometry, [skin, this.cap()]);
+    mesh.position.y = -500;
+    mesh.frustumCulled = false;
+    mesh.onAfterRender = () => {
+      mesh.onAfterRender = () => {};
+      queueMicrotask(() => mesh.removeFromParent());
+    };
+    this.ctx.render.scene.add(mesh);
+  }
+
   private enforce(): void {
     let live = 0;
     for (const h of this.halves) if (h.sinking < 0) live++;
@@ -270,7 +326,7 @@ export class SliceField {
   private remove(h: Half): void {
     this.freeze(h);
     h.mesh.removeFromParent();
-    h.side.geometry.dispose();
+    if (!h.shared) h.side.geometry.dispose();
   }
 
   /** Ray against each half's local bounding box. Halves are too irregular to bother with more. */

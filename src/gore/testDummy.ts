@@ -257,7 +257,7 @@ export class TestDummy implements CharacterInstance {
     };
   }
 
-  bakePose(): THREE.BufferGeometry {
+  bakePose(bind = false): THREE.BufferGeometry {
     const { geometry } = bake(this.rig);
     this.root.updateMatrixWorld(true);
     this.skeleton.update();
@@ -276,7 +276,9 @@ export class TestDummy implements CharacterInstance {
     for (let i = 0; i < src.count; i++) {
       const b = si.getX(i);
       live[i] = this.hidden[b] === 1 ? 0 : 1;
-      m.multiplyMatrices(this.bones[b]!.matrixWorld, this.skeleton.boneInverses[b]!);
+      // The baked capsules are already in the model's bind space, so a bind copy takes them as they are.
+      if (bind) m.identity();
+      else m.multiplyMatrices(this.bones[b]!.matrixWorld, this.skeleton.boneInverses[b]!);
       v.fromBufferAttribute(src, i).applyMatrix4(m);
       pos.set([v.x, v.y, v.z], i * 3);
       n3.getNormalMatrix(m);

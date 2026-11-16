@@ -19,6 +19,7 @@ import { KNOCK_PASS, MASS_PASS, STAND_PASS, STRENGTH_PASS, WEIGHT_PASS, type Lim
 import { standBudget, StandTuning } from '../gore/stand';
 import { STRUGGLE_PASS } from '../gore/reflex';
 import { bursts, HEAVY_ROUND } from './wounds/rules';
+import { blowsOut } from '../gore/torso';
 import { BLAST, OUTCOME_COUNT, OUTCOMES, rollBlast, tearsWaist, type BlastBody, type BlastRoll, type OutcomeRule } from './blast';
 import { CHECK_CARRY, CHECK_MIN, CHECK_TOPPLE_MAX, CHECK_TOPPLE_MIN, checkStrength, SLIDE_KICK, SLIDE_TOPPLE } from './contact';
 import { ENEMIES, LIMB_SIZE, REGION_DAMAGE } from './data';
@@ -678,6 +679,15 @@ export class DamageModel {
     }
   }
 
+  /** Every plate still on him flies off ahead of what is about to happen to the body under it. */
+  private platesOff(e: Enemy, dir: THREE.Vector3): void {
+    for (const plate of e.plates) {
+      if (plate.hp <= 0) continue;
+      plate.hp = 0;
+      this.m.debris.launch(plate, dir);
+    }
+  }
+
   /** A blast chips whichever plate is left. */
   private blastPlate(e: Enemy): Plate | null {
     for (let i = 0; i < e.plates.length; i++) {
@@ -804,7 +814,8 @@ export class DamageModel {
       gibbed = true;
       if (shatter) ctx.fx.sparks(e.center, _n.set(0, 1, 0), 40, 0xa0e8ff);
       else if (!e.def.machine) ctx.audio.play('gib_squelch', { position: e.center, pitchJitter: 0.1 });
-      ctx.gore.gib(e.char, e.center, force);
+      this.platesOff(e, _n.copy(e.center).sub(d.point).setY(0.4).normalize());
+      ctx.gore.gib(e.char, e.center, force, d);
     } else if (d.slicePlaneNormal) {
       sliced = true;
       ctx.gore.slice(e.char, d.point, d.slicePlaneNormal, d);
@@ -830,6 +841,12 @@ export class DamageModel {
       ctx.gore.headshot(e.char, d, deathVelocity(e, _dying, this.w.now));
     } else {
       if (blownUp && !DevFlags.explosiveDeaths) this.blastMaim(e, d);
+      // A big round through the trunk opens its far side (src/gore/torso.ts). A co-op guest does what the host did.
+      const guest = ctx.coop?.world && !ctx.coop.hosting;
+      if (!e.def.machine && !blast && DevFlags.gibbing && (guest ? d.torso === 'blowout' : blowsOut(d, e.position.distanceTo(player.position)))) {
+        this.platesOff(e, d.dir);
+        ctx.gore.blowOut?.(e.char, d);
+      }
       if (blast) this.blastDeath(e, d, res, blast);
       else if (DevFlags.gibbing && !e.def.machine && tearsWaist(d, region, force)) this.sever(e, 'abdomen', d, res);
       const twitch = body ? (slowly ? SLOW_TWITCH : SUDDEN_TWITCH) : undefined;

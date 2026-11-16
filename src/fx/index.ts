@@ -26,6 +26,7 @@ import { muzzleFlash, tracer } from './recipes/muzzle';
 import { hose, napalm, napalmSplash } from './recipes/napalm';
 
 const _c: Rgb = { r: 0, g: 0, b: 0 };
+const _eye = new THREE.Vector3();
 
 const CASINGS = {
   pistol: { size: 0.017, color: CHIP.brass, bounce: 0.44 },
@@ -246,6 +247,12 @@ class Fx implements FxSystem {
 
   hose(chain: Float32Array, count: number): void {
     hose(this.core, chain, count);
+  }
+
+  bloodHose(chain: Float32Array, count: number): void {
+    // The camera can ride on a rig, so its world position and not its local one.
+    const m = this.core.ctx.render.camera.matrixWorld.elements;
+    this.core.bloodHose.draw(chain, count, _eye.set(m[12]!, m[13]!, m[14]!));
   }
 
   napalm(position: THREE.Vector3, normal: THREE.Vector3, radius: number, heat: number): void {

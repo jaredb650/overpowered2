@@ -5,7 +5,7 @@ import { ArcLayer } from './layers/arcs';
 import { BloodLayer, type BloodWall } from './layers/blood';
 import { ChipLayer, type ChipShape } from './layers/chips';
 import { FlashLayer } from './layers/flashes';
-import { HoseLayer } from './layers/hose';
+import { BLOOD_HOSE, HoseLayer } from './layers/hose';
 import { LensLayer } from './layers/lens';
 import { LineLayer } from './layers/lines';
 import { PuffLayer } from './layers/puffs';
@@ -65,6 +65,8 @@ export class FxCore {
   readonly lens: LensLayer | null;
   readonly shimmer: ShimmerLayer;
   readonly hose: HoseLayer;
+  /** Gore's arterial spurts: the same rope in blood, every strand of them in one chain. */
+  readonly bloodHose: HoseLayer;
 
   /** Colours the layers use on every shock or ring, kept here so recipes do not build one. */
   readonly shockColor = hot(0xdfeeff, 0.22);
@@ -113,6 +115,7 @@ export class FxCore {
     this.slashes = new SlashLayer(scene, u);
     this.shimmer = new ShimmerLayer(scene, u);
     this.hose = new HoseLayer(scene, u);
+    this.bloodHose = new HoseLayer(scene, { ...u, uTime: u.uTimeBlood }, BLOOD_HOSE);
 
     // A stubbed render has a proxy here. Only a real scene can hold objects.
     const hasView = viewScene instanceof THREE.Scene;
@@ -199,6 +202,7 @@ export class FxCore {
     this.slashes.ring.warm();
     this.shimmer.ring.warm();
     this.hose.warm();
+    this.bloodHose.warm();
     this.lens?.warm();
     // A decal of no size: there is nothing to see, but the pass and its program run.
     this.ctx.render.decals.add('blood', this.probe.set(0, -1e4, 0), this.down, 0);
@@ -245,6 +249,7 @@ export class FxCore {
     this.slashes.sync(now);
     this.shimmer.sync(now);
     this.hose.sync();
+    this.bloodHose.sync();
     const pn = u.uTimePlayer.value;
     this.muzzle.sync(pn);
     this.muzzleView?.sync(pn);
@@ -299,6 +304,7 @@ export class FxCore {
     this.slashes.ring.clear();
     this.shimmer.ring.clear();
     this.hose.clear();
+    this.bloodHose.clear();
     this.lens?.clear();
     for (const e of this.events) e.live = false;
     this.booked = 0;

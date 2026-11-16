@@ -26,7 +26,13 @@ import { Stand, StandTuning, strengthBudget } from './stand';
 import { Crawler } from './crawl';
 import { HUMAN_MASS, markSevered, markSubtree, MAX_BONES, rigInfo, type RigInfo } from './rigInfo';
 import { SliceField } from './sliced';
-import { WoundPlanner } from './wounds';
+import { WoundPlanner, WoundTuning } from './wounds';
+import { RopeField } from './rope';
+import { SpurtField } from './spurt';
+import { blowsOut, buildKit, kitPieces, placePiece, planGib, seedOf, spillsGuts, TorsoTuning, TRUNK_EXITS, type GibPlan, type TorsoKit } from './torso';
+import { mulberry32 } from '../core/math';
+import { WoundKind } from '../characters/anatomy/wounds';
+import type { OrganKind, RibKind } from './organs';
 
 /**
  * The baked stand-ins for the head on a partial head wound (docs/proposals/partial-head-wounds.md), by archetype: the side
@@ -203,6 +209,11 @@ const GIB_REGIONS: readonly GoreRegion[] = ['head', 'armL', 'armR', 'legL', 'leg
 const GIB_LOWER: Partial<Record<GoreRegion, GoreRegion>> = {
   armL: 'forearmL', armR: 'forearmR', legL: 'shinL', legR: 'shinR',
 };
+/** An organ's size, metres across on a 1.85 m body, and where in the trunk it starts: 0 the hips, 1 the chest. */
+const ORGAN_SIZE: Record<OrganKind, number> = { lung: 0.1, liver: 0.095, heart: 0.06, stomach: 0.078 };
+const ORGAN_AT: Record<OrganKind, number> = { lung: 1.1, liver: 0.6, heart: 1, stomach: 0.55 };
+/** The two ribcage fragments a blow-out throws, by the side the round came out of (his left is +X). */
+const BLOWN_RIBS: Record<string, readonly RibKind[]> = { L: ['ribsLL', 'ribsUL'], R: ['ribsLR', 'ribsUR'] };
 
 /** A character that has died and is in our care. */
 class DeadBody {
@@ -354,6 +365,14 @@ export class Gore implements GoreSystem {
   readonly blood: BloodField;
   readonly chunks: ChunkField;
   readonly sliced: SliceField;
+  /** Guts: loose strands from a gib, and strands hanging from opened bellies (rope.ts). */
+  readonly ropes: RopeField;
+  /** Arterial jets out of necks and stumps (spurt.ts). */
+  readonly spurts: SpurtField;
+  /** Each archetype's trunk, cut once into the pieces it breaks into (torso.ts). */
+  private readonly kits = new Map<string, TorsoKit>();
+  private gibFrame = -1;
+  private gibsThisFrame = 0;
   private readonly impacts: ImpactEvents;
   private readonly wounds: WoundPlanner;
   /** Next body to look at for its level of detail. One a frame is plenty for things that lie still. */
@@ -375,6 +394,9 @@ export class Gore implements GoreSystem {
     this.chunks.ensure();
     this.wounds = new WoundPlanner(ctx, isMachine, (char, bone) => this.owned.get(char)?.rag?.breakJoint(bone));
     this.sliced = new SliceField(ctx, this.blood, this.impacts);
+    this.ropes = new RopeField(ctx, this.blood);
+    this.ropes.ensure();
+    this.spurts = new SpurtField(ctx, this.blood);
   }
 
   init(): void {
@@ -1051,6 +1073,12 @@ export class Gore implements GoreSystem {
     const limb = this.addLimb(char, piece, bone, _mask, _seeds, body?.rag?.active ? body.rag.killedInAir : undefined);
     char.hideLimb(bone);
     const torso = region === 'abdomen' && !body && canCrawl(char) ? this.startCrawl(limb) : undefined;
+    if (region === 'abdomen' && canCrawl(char)) {
+      // Guts out of both halves: the top half drags its own behind it as it crawls.
+      const scale = char.rig.height / 1.85;
+      this.ropes.hang(piece.bones[bone]!, _v5.set(0, -0.02 * scale, 0.04 * scale), piece.root, scale);
+      this.ropes.hang(char.bones[0]!, _v5.set(0, 0.1 * scale, 0.05 * scale), char.root, scale * 0.8);
+    }
 
     const regions: GoreRegion[] = [];
     for (let i = 0; i < info.count; i++) {
@@ -1129,10 +1157,45 @@ export class Gore implements GoreSystem {
   }
 
   wound(char: CharacterInstance, damage: DamageInfo, severity: number): boolean {
+    this.gutShot(char, damage, severity);
     this.wounds.onBody(char, damage, severity);
     const broke = this.wounds.broke;
     if (!isMachine(char)) this.blood.onHit(char, damage, severity);
     return broke;
+  }
+
+  /**
+   * A belly opened wide enough (`spillsGuts`) leaves a strand of gut hanging out of it, for as long as the body lasts: off a
+   * man on his feet, and dragged behind one crawling. One a body. Tells the damage (`spill`), so a co-op guest hangs it too.
+   */
+  private gutShot(char: CharacterInstance, damage: DamageInfo, severity: number): void {
+    if (WoundTuning.level === 0 || isMachine(char) || !canCrawl(char) || char.severed.has('abdomen')) return;
+    char.root.updateMatrixWorld(true);
+    const hips = char.bones[HumanoidBone.hips]!;
+    const chest = char.bones[CHEST]!;
+    const low = _v.setFromMatrixPosition(hips.matrixWorld).y - 0.08;
+    const high = _v2.setFromMatrixPosition(chest.matrixWorld).y;
+    // A blast has no bone of its own: it counts as the belly when it arrives at belly height.
+    const belly = damage.bone === HumanoidBone.spine || damage.bone === HumanoidBone.hips
+      || (damage.type === 'explosive' && damage.point.y > low && damage.point.y < high);
+    const eye = this.ctx.player?.eye;
+    const dist = eye?.isVector3 === true ? damage.point.distanceTo(eye) : Infinity;
+    if (!spillsGuts(damage, belly, severity, dist) || this.ropes.hangingFrom(char.root) > 0) return;
+    damage.spill = true;
+    this.eviscerate(char, damage.point, damage.dir);
+  }
+
+  /** A strand of gut out of the front of the belly, where `at` opened it, hanging from the spine. */
+  private eviscerate(char: CharacterInstance, at: THREE.Vector3, dir: THREE.Vector3): void {
+    const spine = char.bones[HumanoidBone.spine]!;
+    spine.updateWorldMatrix(true, false);
+    const scale = char.rig.height / 1.85;
+    // A loop out of the hole: both ends a little inside it, a hand apart, the rest hanging.
+    _v4.copy(at).addScaledVector(dir, 0.02);
+    spine.worldToLocal(_v4);
+    this.ropes.hang(spine, _v4, char.root, scale, _v3.copy(_v4).add(_v2.set(0.1 * scale, -0.02 * scale, 0)));
+    // `dir` may be one of the scratch vectors just used: the spray goes out and down whatever it was.
+    this.blood.spray(at, _down, 6, 2, 0.6, 0.08);
   }
 
   private woundEffects(char: CharacterInstance, bone: number, at: THREE.Vector3, damage: DamageInfo): void {
@@ -1172,6 +1235,8 @@ export class Gore implements GoreSystem {
     s.power = power;
     s.machine = isMachine(char);
     s.emitter = this.ctx.fx.attachEmitter(parent, s.machine ? 'sparkTrail' : 'stumpSpray', s.offset, GoreTuning.stumpSeconds) ?? null;
+    // The jet itself: a rope of blood out of the stump that beats and dies away.
+    if (!s.machine) this.spurts.start(parent, s.offset, s.axis, char.root, (s.ends - s.started) * 0.75, Math.min(1.35, power));
   }
 
   private updateStumps(): void {
@@ -1354,6 +1419,10 @@ export class Gore implements GoreSystem {
     }
     fx.bloodHit(at, _v3, 1.4);
     fx.bloodMist(at, 0.22);
+    // What is left of the head pumps out of the wound, up and back the way the round came.
+    head.updateWorldMatrix(true, false);
+    head.getWorldQuaternion(_q2).invert();
+    this.spurts.start(head, head.worldToLocal(_v4.copy(at)), _v5.copy(_v3).applyQuaternion(_q2), char.root, 3, 0.85);
     this.bleed(char, at, damage.dir, 7, 6, 0.5);
     this.blood.spray(at, _v3, 8, 6, 0.4, 0.1);
     char.setBloodiness(0.3);
@@ -1363,7 +1432,7 @@ export class Gore implements GoreSystem {
   // Gibs
   // -------------------------------------------------------------------------------------------
 
-  gib(char: CharacterInstance, center: THREE.Vector3, force: number): void {
+  gib(char: CharacterInstance, center: THREE.Vector3, force: number, damage?: DamageInfo): void {
     if (!DevFlags.gibbing) {
       this.ragdoll(char);
       return;
@@ -1388,7 +1457,8 @@ export class Gore implements GoreSystem {
     // Speed comes from impulse over a body's mass, with a floor so a gib never looks like a stumble.
     const t = GoreTuning;
     const launch = clamp(push / t.gibForcePerSpeed, t.gibSpeedMin, t.gibSpeedMax) * DevFlags.force;
-    const damage: DamageInfo = {
+    const killing = damage;
+    damage = {
       amount: 999, type: 'explosive', point: chest.clone(), dir: blastDir.clone(), force: 1, source: 'gib',
     };
     if (body?.rag?.active) body.rag.writeSeeds(_seeds);
@@ -1423,25 +1493,186 @@ export class Gore implements GoreSystem {
       limb.rag.muscle?.kick(_v2, 1);
     }
 
-    if (machine) this.scrapBurst(chest, blastDir, launch);
-    else this.fleshBurst(chest, hips, blastDir, launch, push);
+    if (machine) {
+      this.scrapBurst(chest, blastDir, launch);
+    } else {
+      // Past `fullPerFrame` gibs this frame, the smallest version: the trunk's pieces are still there, little else is.
+      const now = this.ctx.time.elapsed;
+      if (this.gibFrame !== now) {
+        this.gibFrame = now;
+        this.gibsThisFrame = 0;
+      }
+      const full = this.gibsThisFrame++ < TorsoTuning.fullPerFrame;
+      const plan = planGib(killing ?? damage, push, full);
+      // Told, so a co-op guest replaying this kill breaks the trunk the same way.
+      if (killing) killing.torso = plan.mode;
+      const broke = this.breakTrunk(char, plan, chest, blastDir, launch);
+      this.spill(char, plan, chest, hips, blastDir, launch);
+      this.fleshBurst(chest, hips, blastDir, launch, push, broke ? (full ? 5 : 2) : 13);
+    }
 
     if (body) this.dropBody(body);
     char.release();
     this.enforceBudget();
   }
 
-  /** The torso does not survive as a piece: it comes apart into everything it was holding. */
-  private fleshBurst(chest: THREE.Vector3, hips: THREE.Vector3, blastDir: THREE.Vector3, launch: number, push: number): void {
+  /**
+   * Cuts every flesh humanoid's kit now, at load, so no gib in play pays for a cut. Each archetype's spare instance is
+   * borrowed while nobody is fighting, cut, and given back pristine.
+   */
+  warm(): void {
+    const library = this.ctx.characters;
+    if (!library?.archetypes) return;
+    let warmed = false;
+    for (const id of library.archetypes()) {
+      if (this.kits.has(id)) continue;
+      let char: CharacterInstance;
+      try {
+        char = library.spawn(id);
+      } catch {
+        continue;
+      }
+      if (canCrawl(char)) {
+        const kit = this.kitFor(char);
+        if (!warmed) this.sliced.warm(kit.waist[0]!.side, char.skinMaterial);
+        warmed = true;
+      }
+      char.release();
+    }
+  }
+
+  /** The kit for this archetype, cut on its first gib if `warm` did not (torso.ts). Hides the trunk's exits. */
+  kitFor(char: CharacterInstance): TorsoKit {
+    let kit = this.kits.get(char.archetype);
+    if (!kit) {
+      for (const b of TRUNK_EXITS) char.hideLimb(b);
+      kit = buildKit(char);
+      this.kits.set(char.archetype, kit);
+    }
+    return kit;
+  }
+
+  /**
+   * The trunk breaks into its kit's pieces where it stands, and they fly. False when it cannot: no flesh humanoid trunk
+   * left to break (a machine, a skitter, legs whose top half has already gone).
+   */
+  private breakTrunk(char: CharacterInstance, plan: GibPlan, chest: THREE.Vector3, blastDir: THREE.Vector3, launch: number): boolean {
+    if (!canCrawl(char) || char.severed.has('abdomen') || char.severed.has('chest')) return false;
+    for (const b of TRUNK_EXITS) char.hideLimb(b);
+    const kit = this.kitFor(char);
+    const rnd = mulberry32(plan.seed);
+    const scale = char.rig.height / 1.85;
+    const waist = plan.mode === 'waist';
+    let hung = false;
+    for (const piece of kitPieces(kit, plan)) {
+      placePiece(char, piece, _v3, _q);
+      // Out from the middle of the trunk and on with the blast: a waist tear parts, a crack flies.
+      _v2.copy(_v3).sub(chest);
+      _v2.y *= 0.5;
+      if (_v2.lengthSq() < 1e-4) _v2.copy(blastDir);
+      _v2.normalize().multiplyScalar(launch * (waist ? 0.2 : 0.45) * (0.7 + rnd() * 0.5)).addScaledVector(blastDir, launch * (waist ? 0.35 : 0.4));
+      _v2.y += (waist ? 1 : 2) + rnd() * 2.5;
+      const half = this.sliced.throwPiece(piece.side, char.skinMaterial, _v3, _q, _v2, waist ? 3 : 7);
+      // The guts hang out of the pelvis's broken face.
+      if (plan.hang && !hung && piece.bone === HumanoidBone.hips) {
+        hung = true;
+        this.ropes.hang(half.mesh, piece.side.capCenter, half.mesh, scale);
+      }
+    }
+    return true;
+  }
+
+  /** What was inside: the ribcage bursting where it was, organs, and loose strands of gut, as the plan says. */
+  private spill(char: CharacterInstance, plan: GibPlan, chest: THREE.Vector3, hips: THREE.Vector3, blastDir: THREE.Vector3, launch: number): void {
+    const rnd = mulberry32(plan.seed ^ 0x9e3779b9);
+    const scale = char.rig.height / 1.85;
+    if (plan.ribs.length > 0 && canCrawl(char)) {
+      const bone = char.bones[CHEST]!;
+      bone.updateWorldMatrix(true, false);
+      bone.getWorldQuaternion(_q);
+      this.chunks.burstRibs(_v.setFromMatrixPosition(bone.matrixWorld), _q, scale, blastDir, plan.ribs, launch * 0.45);
+    }
+    for (const organ of plan.organs) {
+      _v3.copy(hips).lerp(chest, ORGAN_AT[organ]);
+      _v3.x += (rnd() - 0.5) * 0.12 * scale;
+      _v3.z += (rnd() - 0.5) * 0.08 * scale;
+      _v2.set(rnd() - 0.5, rnd() * 0.5, rnd() - 0.5).addScaledVector(blastDir, 1.2).normalize().multiplyScalar(launch * (0.3 + rnd() * 0.35));
+      _v2.y += 1 + rnd() * 3;
+      _q.setFromAxisAngle(_v4.set(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5).normalize(), rnd() * 6.28);
+      this.chunks.spawn(organ, _v3.x, _v3.y, _v3.z, _v2.x, _v2.y, _v2.z, ORGAN_SIZE[organ] * scale, _q, 9);
+    }
+    for (let i = 0; i < plan.ropes; i++) {
+      _v3.copy(hips).lerp(chest, 0.3);
+      _v2.set(rnd() - 0.5, 0.3, rnd() - 0.5).addScaledVector(blastDir, 1).normalize().multiplyScalar(launch * (0.2 + rnd() * 0.2));
+      _v2.y += 1.5;
+      this.ropes.spill(_v3, _v2, scale, plan.seed + i);
+    }
+  }
+
+  /**
+   * A big round through the trunk (`blowsOut`): the body stays, and the far side opens on the ribs and the spine, with
+   * pieces, two of the ribcage's fragments, an organ and blood thrown out of it. An opened belly is left with its guts out.
+   */
+  blowOut(char: CharacterInstance, damage: DamageInfo): void {
+    if (isMachine(char) || !canCrawl(char) || char.severed.has('abdomen')) return;
+    const { fx } = this.ctx;
+    damage.torso = 'blowout';
+    char.root.updateMatrixWorld(true);
+    const belly = damage.bone === HumanoidBone.spine || damage.bone === HumanoidBone.hips || damage.region === 'abdomen';
+    const bone = belly ? HumanoidBone.spine : CHEST;
+    const scale = char.rig.height / 1.85;
+    const rnd = mulberry32(seedOf(damage));
+    const dir = _v5.copy(damage.dir).normalize();
+    // Out the far side: the chord through the trunk from where it went in, across the bone's centre.
+    const middle = _v.setFromMatrixPosition(char.bones[bone]!.matrixWorld);
+    if (bone === CHEST) middle.y += 0.1 * scale;
+    const exit = _v2.copy(damage.point).addScaledVector(dir, Math.max(0.12 * scale, 2 * _v3.copy(middle).sub(damage.point).dot(dir))).clone();
+    if (WoundTuning.level > 0) {
+      const into = _v3.copy(dir).negate();
+      // Two craters over each other: a wide ragged mouth and a deep middle, so the inside shows to the spine.
+      char.wound({ kind: WoundKind.crater, bone, point: exit, dir: into, radius: 0.105 * scale, depth: 0.2 * scale, ragged: 1 });
+      char.wound({ kind: WoundKind.exit, bone, point: exit, dir: into, radius: 0.15 * scale, depth: 0.08 * scale, ragged: 1 });
+      char.wound({ kind: WoundKind.crater, bone, point: damage.point, dir, radius: 0.04 * scale, depth: 0.1 * scale, ragged: 0.8 });
+    }
+    // What came out with it, along the round.
+    for (let i = 0; i < 5; i++) {
+      randomInCone(dir, 0.45, _v4).multiplyScalar(rand(4, 8));
+      _v4.y += rand(0.5, 2.5);
+      this.chunks.spawn('meat', exit.x, exit.y, exit.z, _v4.x, _v4.y, _v4.z, rand(0.03, 0.06) * scale);
+    }
+    char.root.getWorldQuaternion(_q);
+    const side = _v4.set(1, 0, 0).applyQuaternion(_q).dot(dir) >= 0 ? 'L' : 'R';
+    for (const kind of BLOWN_RIBS[side]!.slice(0, 2)) {
+      randomInCone(dir, 0.35, _v4).multiplyScalar(4 + rnd() * 3);
+      _v4.y += 1 + rnd() * 2;
+      _q2.setFromAxisAngle(_v3.set(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5).normalize(), rnd() * 6.28);
+      this.chunks.spawn(kind, exit.x, exit.y, exit.z, _v4.x, _v4.y, _v4.z, scale * 0.85, _q2, 12);
+    }
+    const organ: OrganKind = belly ? (rnd() < 0.5 ? 'liver' : 'stomach') : rnd() < 0.7 ? 'lung' : 'heart';
+    randomInCone(dir, 0.3, _v4).multiplyScalar(3 + rnd() * 2);
+    _v4.y += 1.2;
+    this.chunks.spawn(organ, exit.x, exit.y, exit.z, _v4.x, _v4.y, _v4.z, ORGAN_SIZE[organ] * scale, undefined, 9);
+    if (belly && this.ropes.hangingFrom(char.root) === 0) this.eviscerate(char, exit, _v3.copy(dir).negate());
+    fx.bloodHit(exit, dir, 1.8);
+    fx.bloodMist(exit, 0.35);
+    fx.bloodSpray?.(exit, dir, 1);
+    this.blood.splatterAlong(exit, dir, 12, 9, 0.75);
+    this.blood.spray(exit, dir, 12, 9, 0.35, 0.14);
+    char.setBloodiness(0.6);
+  }
+
+  /** Torn meat, gut and bone off a trunk, `meat` lumps of it, with the blood. The trunk's own pieces are `breakTrunk`'s. */
+  private fleshBurst(chest: THREE.Vector3, hips: THREE.Vector3, blastDir: THREE.Vector3, launch: number, push: number, meat: number): void {
     const { fx, audio } = this.ctx;
-    for (let i = 0; i < 13; i++) {
+    const few = meat < 13;
+    for (let i = 0; i < meat; i++) {
       randomUnit(_v2);
       _v3.copy(chest).addScaledVector(_v2, 0.18);
       _v2.addScaledVector(blastDir, 1.1).normalize().multiplyScalar(launch * rand(0.5, 1.1));
       _v2.y += rand(1, 7);
       this.chunks.spawn('meat', _v3.x, _v3.y, _v3.z, _v2.x, _v2.y, _v2.z, rand(0.05, 0.13));
     }
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < (few ? 1 : 5); i++) {
       randomUnit(_v2);
       _v3.copy(hips).addScaledVector(_v2, 0.12);
       _v3.y += 0.12;
@@ -1449,7 +1680,7 @@ export class Gore implements GoreSystem {
       _v2.y += rand(1, 5);
       this.chunks.spawn('viscera', _v3.x, _v3.y, _v3.z, _v2.x, _v2.y, _v2.z, rand(0.06, 0.1));
     }
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < (few ? 2 : 5); i++) {
       randomUnit(_v2);
       _v3.copy(chest).addScaledVector(_v2, 0.15);
       _v2.addScaledVector(blastDir, 1.2).normalize().multiplyScalar(launch * rand(0.6, 1.2));
@@ -1935,6 +2166,8 @@ export class Gore implements GoreSystem {
 
     this.updateBodyLod();
     this.updateStumps();
+    this.spurts.update(dt);
+    this.ropes.update(dt);
     this.blood.update(dt);
     this.chunks.update(dt);
     this.sliced.update(dt);
@@ -2043,6 +2276,8 @@ export class Gore implements GoreSystem {
     this.blood.clear();
     this.chunks.clear();
     this.sliced.clear();
+    this.ropes.clear();
+    this.spurts.clear();
   }
 
   reset(): void {
@@ -2055,7 +2290,7 @@ export class Gore implements GoreSystem {
   }
 
   /** Counts for the debug overlay and budget checks. */
-  stats(): { ragdolls: number; corpses: number; limbs: number; liveLimbs: number; limbSpeed: number; chunkBodies: number; rays: number; halves: number; jointGap: number; collapses: number; knockdowns: number; stumbles: number; standing: number } {
+  stats(): { ragdolls: number; corpses: number; limbs: number; liveLimbs: number; limbSpeed: number; chunkBodies: number; rays: number; halves: number; jointGap: number; collapses: number; knockdowns: number; stumbles: number; standing: number; guts: number; spurts: number } {
     let ragdolls = 0;
     let corpses = 0;
     let jointGap = 0;
@@ -2077,6 +2312,7 @@ export class Gore implements GoreSystem {
     return {
       ragdolls, corpses, limbs: this.limbs.length, liveLimbs, limbSpeed, chunkBodies: this.chunks.bodies,
       rays: this.blood.raysUsed, halves: this.sliced.count, jointGap, collapses: this.collapsing(), knockdowns: this.knockedDown(), stumbles: this.stumbling(), standing: this.standing(),
+      guts: this.ropes.live, spurts: this.spurts.live,
     };
   }
 }
