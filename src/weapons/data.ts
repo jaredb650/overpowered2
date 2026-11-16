@@ -168,6 +168,8 @@ export interface WeaponDef {
   tracer: TracerKind;
   casing: CasingKind | null;
   sounds: readonly SoundLayer[];
+  /** A spun gun's barrage and drive loops are heard at this pitch, under what its rate sets: the Trommel's 12 mm rechamber. */
+  loopPitch?: number;
   reloadFoley: readonly ReloadCue[];
   /** Sounds after each shot, at seconds after it, for a gun that is cycled by hand between shots. */
   cycleFoley?: readonly ReloadCue[];
@@ -735,11 +737,12 @@ export const TUNING = {
      * vaporized, or burns for `burn` seconds if it lives. The cell pays `cost` over the beam, so it is never empty mid-beam.
      * The player is shoved back at `push` m/s², the camera takes `trauma` a second, and the next press waits `recover`.
      * `width` and `sheath` are the metres across of its drawn core and the glow round it, times `thick` as it leaves the
-     * gun, narrowing to `thin` at its end as it runs out (`beamGirth`).
+     * gun, narrowing to `thin` at its end as it runs out (`beamGirth`). Drawn twice as wide on 2026-11-16 (was 0.4 and 0.6,
+     * owner: a massive beam); `radius`, what it strikes, is as it was, and already about the width of the core as it leaves.
      */
     beam: {
       cost: 6, seconds: 1, dps: 3000, tick: 0.05, radius: 0.45, range: 400, burn: 6, push: 4.5, trauma: 1.1, recover: 0.35,
-      width: 0.4, sheath: 0.6, thick: 2.2, thin: 0.12,
+      width: 0.8, sheath: 1.2, thick: 2.2, thin: 0.12,
     },
     /**
      * The ball mode's full charge: a slow ball of `size` metres across that bursts on whatever it touches, or at the end

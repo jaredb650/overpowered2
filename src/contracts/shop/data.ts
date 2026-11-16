@@ -217,6 +217,14 @@ export const MOD_WARES: Readonly<Record<ModId, Ware>> = {
     price: 1200, wave: 4,
     lore: 'A 40 mm launcher under the barrel. Hold R to bring it to bear. One round, then a reload, then usually a silence.',
   },
+  sabotBrake: {
+    price: 900, wave: 4,
+    lore: 'A brake on the Sabot\'s muzzle, so the gun stops arguing with your shoulder sooner and the next dart goes a quarter earlier. The shoulder was not consulted.',
+  },
+  trommel12: {
+    price: 3000, wave: 12,
+    lore: 'The Trommel rebarrelled for heavy machine-gun rounds: three barrels, the Piledriver\'s round, the Trommel\'s appetite. Walls are now a formality.',
+  },
   raufoss: {
     price: 2400, wave: 10,
     lore: 'Every dart now bursts where it lands and sends what is left out of the far side. Cover has been reclassified as a suggestion.',

@@ -271,14 +271,14 @@ const MODE_SOUND = { pitch: 1 };
 const AT = { position: undefined as THREE.Vector3 | undefined };
 const UP = new THREE.Vector3(0, 1, 0);
 const BASIS = new THREE.Matrix4();
-/** Narrow at the muzzle and full width five metres out, so it leaves the gun as a line and does not fill the view. */
+/** Under half width at the muzzle and full width four metres out, so it leaves the gun fat but does not fill the view. */
 const RIBBON_VERT = /* glsl */ `
 uniform float uLen;
 varying vec2 vUv;
 void main() {
   vUv = uv;
   vec3 p = position;
-  p.x *= mix(0.3, 1.0, clamp(p.y * uLen / 5.0, 0.0, 1.0));
+  p.x *= mix(0.4, 1.0, clamp(p.y * uLen / 4.0, 0.0, 1.0));
   gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
 }`;
 /** The Orbital Lance's beam (progression/callins/orbital.ts) across a ribbon: a hot core, a rim colour round it, pulses racing down. */
@@ -294,8 +294,9 @@ void main() {
   float x = 1.0 - abs(vUv.x * 2.0 - 1.0);
   float d = vUv.y * uLen;
   float pulse = 0.7 + 0.3 * sin(d * 0.9 - uTime * 46.0) * sin(d * 0.23 + uTime * 17.0);
-  // A solid white-hot band down the middle, a blue corona falling away round it.
-  vec3 c = uRim * pow(x, 1.6) * pulse + uCore * (smoothstep(0.5, 0.9, x) + 0.3 * pow(x, 3.0));
+  // A solid white-hot band down the middle, a blue corona falling away round it. The band takes most of the core's width
+  // (it was the middle tenth, 2026-11-16), so the beam reads as a column and not a line.
+  vec3 c = uRim * pow(x, 1.2) * pulse + uCore * (smoothstep(0.3, 0.7, x) + 0.3 * pow(x, 2.0));
   gl_FragColor = vec4(c * uPower, 1.0);
 }`;
 /** Newton-seconds a beam tick pushes a body with: it burns, it does not throw. */

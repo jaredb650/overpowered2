@@ -236,7 +236,9 @@ const gunShots: SoundDef[] = [
   shot('ultramag_shot', 'guns/ultramag_shot.mp3', 'gunHeavy', 0.2, 0.34),
   // Through its suppressor (the owner's, 2026-11-16): about 2.5 dB under the bare shot, with less of it in the room.
   shot('ultramag_suppressed_shot', 'guns/ultramag_suppressed_shot.mp3', 'gun', 0.15, 0.198, { send: 0.08 }),
-  shot('sabot_shot', 'guns/sabot_shot.mp3', 'gunHeavy', 0.246, 0.219, { send: 0.32 }),
+  // The Sabot (owner, 2026-11-16): the loudest of the small arms, over the Deuce's 0.25 and the Judge's 0.24, level with the
+  // rocket's blast (0.271), under the bigger explosions (0.3 and up) and the autocannon's 0.43.
+  shot('sabot_shot', 'guns/sabot_shot.mp3', 'gunHeavy', 0.27, 0.219, { send: 0.32 }),
   shot('autocannon_blast', 'guns/autocannon_blast.mp3', 'gun', 0.43, 0.26, { send: 0.22 }),
   // The Stakegun (2026-11-15): its shot, the string drawn back after each shot and on a reload (foley, at the pump's
   // level), and an exploding bolt's countdown beep, 3D.

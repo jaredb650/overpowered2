@@ -202,11 +202,14 @@ function cannonBarrel(m: Mesher): void {
   m.part('spring', [0, C_BORE, C_FRONT], () => m.at([0, 0, -SPRING / 2], null, () => coil(m, 0.039, 0.0036, SPRING, 9, F.steel)));
 }
 
-/** A heavy, short ranging sight on a bracket off the right flank, so the clip and the barrel's run stay in view. */
+/**
+ * A heavy, short ranging sight on a bracket off the left flank, the eye's side of a gun carried on the right, so the clip
+ * and the barrel's run stay in view. It was on the right flank until 2026-11-16 (owner).
+ */
 function cannonSight(m: Mesher): void {
   m.use(F.anodized);
-  m.at([C_HALF + 0.017, 0.13, 0.06], null, () => m.box(0.034, 0.04, 0.09, 0.003, 0.006));
-  m.at([0.12, 0.156, 0.04], null, () => {
+  m.at([-(C_HALF + 0.017), 0.13, 0.06], null, () => m.box(0.034, 0.04, 0.09, 0.003, 0.006));
+  m.at([-0.12, 0.156, 0.04], null, () => {
     m.use(F.anodized);
     for (const z of [-0.035, 0.05]) m.at([0, 0, z], null, () => m.lathe([[0.031, 0.012, 0], [0.036, 0.012], [0.036, -0.012], [0.031, -0.012, 0]], 26));
     m.use(F.polymer);
@@ -414,15 +417,47 @@ function sabotBarrel(m: Mesher): void {
       const r = 0.0138 + 0.0022 * Math.cos(a * flutes) ** 2 - v * 0.0012;
       out.set(Math.cos(a) * r, Math.sin(a) * r, -0.42 + v * (zEnd + 0.42));
     }, { wrapU: true, flip: true });
-    // A slim slotted brake.
-    m.use(F.barrelBlack);
-    m.lathe([[0.0145, zEnd + 0.006, 0], [0.019, zEnd], [0.019, zEnd - 0.07], [0.017, zEnd - 0.078], [0.009, zEnd - 0.078, 0]], 22, { chamfer: 0.001 });
-    m.use(F.black);
-    m.mirror(() => {
-      for (let i = 0; i < 3; i++) m.at([0.0188, 0, zEnd - 0.016 - i * 0.02], null, () => m.box(0.0012, 0.009, 0.012, 0.0003));
+    // A slim slotted brake. Its own part, so the T brake (mod `sabotBrake`) takes its place.
+    m.part('slimBrake', [0, 0, 0], () => {
+      m.use(F.barrelBlack);
+      m.lathe([[0.0145, zEnd + 0.006, 0], [0.019, zEnd], [0.019, zEnd - 0.07], [0.017, zEnd - 0.078], [0.009, zEnd - 0.078, 0]], 22, { chamfer: 0.001 });
+      m.use(F.black);
+      m.mirror(() => {
+        for (let i = 0; i < 3; i++) m.at([0.0188, 0, zEnd - 0.016 - i * 0.02], null, () => m.box(0.0012, 0.009, 0.012, 0.0003));
+      });
     });
+    sabotBrake(m, zEnd);
     m.use(AP_BLUE);
     m.at([0, 0, -0.44], null, () => m.lathe([[0.0162, 0.008, 0], [0.0168, 0.007], [0.0168, -0.007], [0.0162, -0.008, 0]], 22, { chamfer: 0.0004 }));
+  });
+}
+
+/** The mod `sabotBrake`: the autocannon's T brake cut down to the dart's barrel. Three wide baffles open to the sides. */
+function sabotBrake(m: Mesher, zEnd: number): void {
+  m.part('brake', [0, 0, 0], () => {
+    // The collar it clamps on by, over the barrel's end.
+    m.use(F.barrelBlack);
+    m.lathe([[0.0145, zEnd + 0.018, 0], [0.0215, zEnd + 0.012], [0.0215, zEnd - 0.024], [0.0175, zEnd - 0.03, 0]], 24, { chamfer: 0.001 });
+    m.use(F.steelDark);
+    m.mirror(() => m.at([0.0213, 0, zEnd - 0.006], [0, Math.PI / 2, 0], () => rivet(m, 0.0026, F.steel)));
+    const baffle = (w: number, h: number, depth: number) => {
+      m.front(poly([[-w, -h * 0.55], [w, -h * 0.55], [w + 0.006, 0], [w, h * 0.55], [-w, h * 0.55], [-w - 0.006, 0]], 0.0024), depth, { bevel: 0.0018, holes: [circle(0, 0, 0.0115, 22)] });
+    };
+    m.use(F.barrelBlack);
+    for (let i = 0; i < 3; i++) m.at([0, 0, zEnd - 0.042 - i * 0.034], null, () => baffle(0.05 - i * 0.002, 0.05, 0.012));
+    // Top and bottom straps tie the baffles, so between them the gas goes out to the sides only.
+    m.use(F.parkerized);
+    for (const y of [-0.0258, 0.0258]) m.at([0, y, zEnd - 0.076], null, () => m.box(0.046, 0.0092, 0.11, 0.0016, 0.003));
+    m.mirror(() => {
+      for (let i = 0; i < 3; i++) m.at([0.016, 0.0305, zEnd - 0.042 - i * 0.034], [-Math.PI / 2, 0, 0], () => rivet(m, 0.0022));
+    });
+    m.use(F.black);
+    m.at([0, 0, zEnd - 0.078], null, () => m.lathe([[0.0115, 0.06, 0], [0.0115, -0.06, 0]], 18));
+    // A blue witness band on the collar, the Sabot's colour.
+    m.use(AP_BLUE);
+    m.at([0, 0, zEnd + 0.004], null, () => m.lathe([[0.0218, 0.004, 0], [0.0218, -0.004, 0]], 24, { chamfer: 0.0005 }));
+    m.use(F.barrelBlack);
+    m.lathe([[0.0115, zEnd - 0.128, 0], [0.019, zEnd - 0.132], [0.019, zEnd - 0.146], [0.016, zEnd - 0.15], [0.0115, zEnd - 0.15, 0]], 22);
   });
 }
 
@@ -511,6 +546,7 @@ function buildSabot(kit: Kit): Model {
     screens: { ammo: [176, 88] },
   });
   model.socket('muzzle', [0, S_BORE, S_FRONT - 1.06]);
+  model.socket('muzzleBrake', [0, S_BORE, S_FRONT - 1.14]);
   model.socket('eject', [S_HALF, 0.05, -0.02]);
   model.hand('gripR', [0.018, -0.056, 0.07], [0, -0.96, 0.27], [-0.3, -0.25, -0.92]);
   model.support('gripL', [-0.002, S_BORE - 0.028, -0.36]);
@@ -580,6 +616,8 @@ export function autocannonDef(kit: Kit): ViewDef {
     model: buildCannon(kit),
     pos: [0.25, -0.31, -0.47],
     rot: [0.012, 0.05, 0],
+    // The sight's eyepiece, so the scope comes up through it.
+    scopeEye: [-0.12, 0.156, 0.21],
     // Back into the shoulder with a slight tip, not a muzzle flip (owner, 2026-11-13); harder still on 2026-11-15.
     recoil: { back: 0.21, lift: 0.016, pitch: 0.06, yaw: 0.022, roll: 0.07, omega: 24, zeta: 0.48 },
     right: { socket: 'gripR', pose: HANDS.grip },
@@ -604,5 +642,6 @@ export function sabotDef(kit: Kit): ViewDef {
     heatPerShot: 0.2,
     animate: sabotAnim,
     readout: a => drawCount(a, 'ammo', 1, 5, '#5ac8ff'),
+    mods: { sabotBrake: { part: 'brake', hides: 'slimBrake', muzzle: 'muzzleBrake' } },
   };
 }

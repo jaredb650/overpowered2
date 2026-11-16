@@ -296,7 +296,7 @@ on top. The pump shotgun racks between shots with `pump_rack_back` and `pump_rac
 the first game's `shotgun_fire`, played by `cycleFoley` at 0.14 s and 0.26 s after the shot to land on the viewmodel's
 pump. The files were trimmed of dead air, mixed to mono and peak-normalised to -1 dB. On 2026-11-14 the Sabot and the
 autocannon took the owner's newer recordings (`guns/sabot_shot.mp3`, `guns/autocannon_blast.mp3`), same ids, same
-places on the ladder (0.246 and 0.285), remeasured. The ids they replace on the guns
+places on the ladder (0.246 and 0.285), remeasured. On 2026-11-16 the owner had the Sabot's shot raised to the loudest of the small arms: 0.27 on the ladder (loudness 0.219; the report measures it at 0.27): over the Deuce's 0.25 and the Judge's 0.24, level with the rocket's blast (0.271), under the tank, vehicle and nuke blasts (0.3) and the autocannon's 0.43. Its muzzle-brake mod keeps the same shot. The ids they replace on the guns
 (`smg_fire`, `shotgun_fire`, `thresher_fire`, `harrow_fire`, `rivet_fire`, `revolver_fire`, `piledriver_fire`) stay in
 the catalog.
 

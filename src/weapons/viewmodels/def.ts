@@ -41,6 +41,8 @@ export interface ViewDef {
   /** The rear sight, for iron sights: the gun is pitched so it lines up with `sight`. Unset on an optic: level. */
   rear?: Tuple3;
   relief?: number;
+  /** A scoped gun's eyepiece, off its middle: the scope coming up brings it onto the eye line. Unset: the gun's middle. */
+  scopeEye?: Tuple3;
   recoil: RecoilSpec;
   right: HandBind | null;
   left: HandBind | null;

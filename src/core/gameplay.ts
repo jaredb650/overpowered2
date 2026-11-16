@@ -39,6 +39,8 @@ export type WeaponId =
 export type ModId = 'awlAcog' | 'awlCan' | 'awlAp' | 'awlHp' | 'suppressor' | 'reddot' | 'raufoss' | 'harrowAcog' | 'gimletAcog' | 'gimletDot' | 'gimletCan' | 'gimletGl'
   // The Ultramag's suppressor, reflex sight, laser module and extended magazine.
   | 'ultramagCan' | 'ultramagDot' | 'ultramagLam' | 'ultramagMag'
+  // The heavy guns' mods: the Trommel's 12 mm rechamber and the Sabot's muzzle brake.
+  | 'trommel12' | 'sabotBrake'
   | 'smgAp' | 'smgHp' | 'gimletAp' | 'gimletHp' | 'harrowAp' | 'harrowHp'
   | 'rivetAp' | 'rivetHp' | 'ultramagAp' | 'ultramagHp' | 'judgeAp' | 'judgeHp' | 'autorafficaAp' | 'autorafficaHp'
   | 'smgPlusP' | 'gimletPlusP' | 'harrowPlusP' | 'rivetPlusP' | 'ultramagPlusP' | 'judgePlusP' | 'autorafficaPlusP' | 'awlPlusP'

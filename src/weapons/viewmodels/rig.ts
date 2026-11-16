@@ -863,10 +863,12 @@ export class Rig implements ViewmodelRig {
     r.x += k * DRAW_PITCH;
     r.z += k * DRAW_ROLL * m;
 
-    // Scope: the gun comes up to the eye just before the overlay takes over.
+    // Scope: the gun comes up to the eye just before the overlay takes over. A gun with a `scopeEye` (the autocannon's sight,
+    // off its left flank) brings that onto the eye line; one without brings its middle in.
     const sc = this.scopeW;
-    p.x -= sc * def.pos[0] * 0.9 * m;
-    p.y += sc * 0.05;
+    const eye = def.scopeEye;
+    p.x -= sc * (eye ? def.pos[0] + eye[0] : def.pos[0] * 0.9) * m;
+    p.y += sc * (eye ? -(def.pos[1] + eye[1]) : 0.05);
     r.y -= sc * def.rot[1] * m;
 
     this.gun.position.copy(p);

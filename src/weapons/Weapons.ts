@@ -1174,7 +1174,7 @@ export class Weapons implements WeaponSystem, Guard {
   private ceaseFire(): void {
     if (!this.fireLoop) return;
     this.setFireLoop(null);
-    this.ctx.audio.play('minigun_fire');
+    this.ctx.audio.play('minigun_fire', { pitch: this.slots[this.current].def.loopPitch ?? 1 });
   }
 
   private updateSpin(s: Slot, dt: number, held: boolean): void {
@@ -1193,7 +1193,7 @@ export class Weapons implements WeaponSystem, Guard {
     this.spin = Math.min(1, this.spin + dt / t.spinUp);
     viewmodel.setCharge(this.spin);
     // The drive is heard coming up with the barrels: the loop is written at full speed and turned with them.
-    this.loop?.setPitch(lerp(SPIN_PITCH, 1, this.spin), 0.04);
+    this.loop?.setPitch(lerp(SPIN_PITCH, 1, this.spin) * (s.def.loopPitch ?? 1), 0.04);
     this.loop?.setVolume(lerp(0.45, 1, this.spin), 0.04);
     if (!held || this.spin < t.fireAt) {
       this.ceaseFire();
@@ -1208,7 +1208,7 @@ export class Weapons implements WeaponSystem, Guard {
     const rate = lerp(t.minRate, 1, invLerp(t.fireAt, 1, this.spin));
     // The loop is cut to the full rate. Turned with the rate, the barrage is heard winding up into it, and a perk that
     // speeds the gun speeds its sound.
-    this.fireLoop?.setPitch(clamp((rate * this.modifiers.fireRate * FIRE_LOOP_STEP) / s.def.interval, 0.4, 2), 0.05);
+    this.fireLoop?.setPitch(clamp(((s.def.loopPitch ?? 1) * rate * this.modifiers.fireRate * FIRE_LOOP_STEP) / s.def.interval, 0.4, 2), 0.05);
     const interval = this.interval(s.def) / rate;
     while (s.cooldown <= 0 && this.canShoot(s)) {
       this.shootGun(s, false);

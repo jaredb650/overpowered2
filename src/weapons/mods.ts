@@ -20,6 +20,7 @@ export interface ModDef {
 }
 
 const smg = WEAPONS.smg;
+const hmg = WEAPONS.piledriver;
 /** An ACOG's view: four times the hip view's magnification (90 to 28 degrees), twice the red dot's. See docs/notes/weapons.md. */
 const ACOG = { zoom: 0.69, time: 0.24 } as const;
 const DOT = { zoom: 0.4, time: 0.2 } as const;
@@ -56,6 +57,17 @@ export const MODS: Readonly<Record<ModId, ModDef>> = {
   harrowAcog: { id: 'harrowAcog', weapon: 'harrow', name: 'ACOG', patch: { ads: ACOG }, slot: 'sight' },
   // Every dart is a Raufoss round (raufoss.ts), as the Piledriver's held R loads. The Sabot's right click stays its scope.
   raufoss: { id: 'raufoss', weapon: 'sabot', name: 'Raufoss rounds', patch: { raufoss: true } },
+  // A T-shaped brake on the dart's barrel: less kick to wait out, so the next dart is a quarter sooner (0.45 to 0.36 s).
+  sabotBrake: { id: 'sabotBrake', weapon: 'sabot', name: 'Muzzle brake', patch: { interval: WEAPONS.sabot.interval / 1.25 } },
+  // Three heavy barrels where there were six: the Piledriver's round at the Trommel's rate. Spin-up, cone and slow are the
+  // Trommel's; the round no longer bursts. The barrage is heard a step lower (`loopPitch`).
+  trommel12: {
+    id: 'trommel12', weapon: 'buzzsaw', name: '12 mm rechamber',
+    patch: {
+      damage: hmg.damage, severMult: hmg.severMult, force: hmg.force, headshotMult: hmg.headshotMult, penetration: hmg.penetration,
+      bodyCost: hmg.bodyCost, gib: hmg.gib, killStop: hmg.killStop, impactScale: hmg.impactScale, burst: undefined, loopPitch: 0.8,
+    },
+  },
   // The Gimlet's. It is issued with the ACOG and the can on (`ISSUED`); the red dot swaps for the ACOG.
   gimletAcog: { id: 'gimletAcog', weapon: 'gimlet', name: 'ACOG', patch: { ads: ACOG }, slot: 'sight' },
   gimletDot: { id: 'gimletDot', weapon: 'gimlet', name: 'Red dot sight', patch: { ads: DOT }, slot: 'sight' },
@@ -98,6 +110,7 @@ export const MOD_ORDER: readonly ModId[] = [
   'suppressor', 'smgAp', 'smgHp', 'smgPlusP', 'gimletAcog', 'gimletDot', 'gimletCan', 'gimletGl', 'gimletAp', 'gimletHp', 'gimletPlusP',
   'reddot', 'harrowAcog', 'harrowAp', 'harrowHp', 'harrowPlusP', 'raufoss', 'rivetAp', 'rivetHp', 'rivetPlusP', 'ultramagAp', 'ultramagHp', 'ultramagPlusP', 'judgeAp', 'judgeHp', 'judgePlusP',
   'autorafficaAp', 'autorafficaHp', 'autorafficaPlusP', 'autorafficaMag',
+  'sabotBrake', 'trommel12',
   'ultramagCan', 'ultramagDot', 'ultramagLam', 'ultramagMag',
   'smgMag', 'gimletShort', 'rivetMag', 'piledriverBox',
 ];
