@@ -27,6 +27,12 @@ export const SpurtTuning = {
   stretch: 0.9,
   /** Globs further apart than this are two strands. */
   gap: 0.35,
+  /**
+   * Rays a frame, across every spurt, along the globs' paths: wherever one meets a wall, the floor or a prop, the jet
+   * stains it (`BloodField.bleedAt`), one stain a spurt per `stainEvery` seconds, so a sweeping jet paints a trail.
+   */
+  raysPerFrame: 20,
+  stainEvery: 0.08,
 };
 
 const STRIDE = 6;
@@ -56,10 +62,13 @@ class Spurt {
   readonly lastNozzle = new THREE.Vector3();
   hasLast = false;
   drops = 0;
+  nextStain = 0;
 }
 
 const _a = new THREE.Vector3();
 const _d = new THREE.Vector3();
+const _o = new THREE.Vector3();
+const _r = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _down = new THREE.Vector3(0, -1, 0);
 const _hit: RayHit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, surface: 'concrete', collider: null };
@@ -74,6 +83,9 @@ export class SpurtField {
   private serial = 0;
   private readonly chain = new Float32Array(SpurtTuning.max * (SpurtTuning.globs + 1) * STRIDE);
   private drawn = false;
+  private firstSpurt = 0;
+  /** Stains laid so far, for checks. */
+  stains = 0;
 
   constructor(private readonly ctx: Ctx, private readonly blood: BloodField) {}
 
@@ -103,6 +115,7 @@ export class SpurtField {
     s.floor = -1e4;
     s.hasLast = false;
     s.drops = 0;
+    s.nextStain = 0;
     for (let i = 0; i < SpurtTuning.globs; i++) s.globs[i * G + 7] = 0;
   }
 
@@ -125,7 +138,11 @@ export class SpurtField {
     const t = SpurtTuning;
     let count = 0;
     const c = this.chain;
-    for (const s of this.spurts) {
+    let rays = t.raysPerFrame;
+    // Each frame a different spurt asks first, so the ray budget is shared out over them.
+    this.firstSpurt = (this.firstSpurt + 1) % this.spurts.length;
+    for (let si = 0; si < this.spurts.length; si++) {
+      const s = this.spurts[(si + this.firstSpurt) % this.spurts.length]!;
       if (!s.alive) continue;
       const gone = s.owner !== null && s.owner.parent === null;
       const life = clamp((now - s.started) / Math.max(1e-3, s.ends - s.started));
@@ -178,11 +195,27 @@ export class SpurtField {
       for (let i = 0; i < t.globs; i++) {
         const g = i * G;
         if (s.globs[g + 7] === 0) continue;
+        _o.set(s.globs[g]!, s.globs[g + 1]!, s.globs[g + 2]!);
         s.globs[g + 4] = s.globs[g + 4]! - t.gravity * dt;
         s.globs[g] = s.globs[g]! + s.globs[g + 3]! * dt;
         s.globs[g + 1] = s.globs[g + 1]! + s.globs[g + 4]! * dt;
         s.globs[g + 2] = s.globs[g + 2]! + s.globs[g + 5]! * dt;
         s.globs[g + 6] = s.globs[g + 6]! + dt;
+        // Along this frame's step: what the jet hits, it stains, and that glob is spent.
+        if (rays > 0) {
+          rays--;
+          _r.set(s.globs[g]! - _o.x, s.globs[g + 1]! - _o.y, s.globs[g + 2]! - _o.z);
+          const len = _r.length();
+          if (len > 1e-4 && this.ctx.physics.raycastInto(_o, _r.multiplyScalar(1 / len), len + 0.03, CG.World, _hit)) {
+            s.globs[g + 7] = 0;
+            if (now >= s.nextStain) {
+              s.nextStain = now + t.stainEvery;
+              this.blood.bleedAt(_hit.point, _hit.normal, 0.1 + 0.45 * pressure * s.power);
+              this.stains++;
+            }
+            continue;
+          }
+        }
         if (s.globs[g + 1]! <= s.floor) {
           s.globs[g + 7] = 0;
           // A drop of the blood field's where it lands, which stains the floor there. One a spurt a frame is plenty.

@@ -154,10 +154,32 @@ describe('a gib on real Rapier', () => {
     const s = gore.stats();
     expect(s.chunkBodies).toBeLessThanOrEqual(ChunkTuning.maxBodies);
     expect(s.guts).toBeLessThanOrEqual(RopeTuning.max);
-    // Halves past the cap sink, and are gone once sunk.
+    // Past the hard cap the oldest sink at once; past the soft cap only once they have been seen a while.
     step(Math.ceil(SliceTuning.sinkSeconds * 60) + 2);
+    expect(gore.stats().halves).toBeLessThanOrEqual(SliceTuning.hardCap);
+    step(Math.ceil((SliceTuning.minShown + SliceTuning.sinkSeconds) * 60) + 40);
     expect(gore.stats().halves).toBeLessThanOrEqual(SliceTuning.maxHalves);
     for (const k of [...ORGANS, ...RIB_KINDS]) expect(gore.chunks.aliveOf(k)).toBeLessThanOrEqual(ChunkTuning.capacity[k]);
+  });
+
+  it('starts nothing under the floor, even out of a body lying on it, and nothing falls through', () => {
+    const char = spawn(0, 0);
+    // Lying face down: the trunk's bones a hand above the floor.
+    char.root.rotation.x = Math.PI / 2;
+    char.root.position.set(0, 0.12, 0);
+    char.root.updateMatrixWorld(true);
+    const hips = v(0, 0, 0).setFromMatrixPosition(char.bones[B.hips]!.matrixWorld);
+    gore.gib(char, hips.clone().add(v(0, -0.3, 0)), 1600, blast(hips.clone(), 1600));
+    step(240);
+    const chunks = (gore.chunks as unknown as { all: { alive: boolean; p: THREE.Vector3 }[] }).all.filter(c => c.alive);
+    expect(chunks.length).toBeGreaterThan(10);
+    for (const c of chunks) expect(c.p.y).toBeGreaterThan(-0.02);
+    const halves = (gore.sliced as unknown as { halves: { mesh: THREE.Mesh; sinking: number }[] }).halves;
+    expect(halves.length).toBeGreaterThan(0);
+    for (const h of halves) {
+      expect(h.sinking).toBe(-1);
+      expect(h.mesh.position.y).toBeGreaterThan(-0.02);
+    }
   });
 });
 
@@ -226,6 +248,8 @@ describe('a spurt', () => {
     expect(gore.spurts.pumping).toBe(1);
     step(60);
     expect(gore.spurts.pumping).toBe(1);
+    // Where it lands, it stains.
+    expect(gore.spurts.stains).toBeGreaterThan(0);
     // Its time is three quarters of the stump's, then its last globs land.
     step(Math.ceil(4.5 * 1.0 * 0.75 * 60) + Math.ceil(SpurtTuning.life * 60) + 10);
     expect(gore.spurts.pumping).toBe(0);

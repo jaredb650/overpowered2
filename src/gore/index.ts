@@ -1508,9 +1508,13 @@ export class Gore implements GoreSystem {
       const plan = planGib(killing ?? damage, push, full);
       // Told, so a co-op guest replaying this kill breaks the trunk the same way.
       if (killing) killing.torso = plan.mode;
-      const broke = this.breakTrunk(char, plan, chest, blastDir, launch);
-      this.spill(char, plan, chest, hips, blastDir, launch);
+      // Nothing out of this trunk starts under the floor it stood or lay on.
+      const floor = this.floorUnder(hips);
+      this.chunks.floor = floor;
+      const broke = this.breakTrunk(char, plan, chest, blastDir, launch, floor);
+      this.spill(char, plan, chest, hips, blastDir, launch, floor);
       this.fleshBurst(chest, hips, blastDir, launch, push, broke ? (full ? 6 : 3) : 13);
+      this.chunks.floor = -Infinity;
     }
 
     if (body) this.dropBody(body);
@@ -1558,7 +1562,14 @@ export class Gore implements GoreSystem {
    * The trunk breaks into its kit's pieces where it stands, and they fly. False when it cannot: no flesh humanoid trunk
    * left to break (a machine, a skitter, legs whose top half has already gone).
    */
-  private breakTrunk(char: CharacterInstance, plan: GibPlan, chest: THREE.Vector3, blastDir: THREE.Vector3, launch: number): boolean {
+  /** Height of the world under `at`, looking from a little above it; minus infinity over nothing. */
+  private floorUnder(at: THREE.Vector3): number {
+    _v4.copy(at);
+    _v4.y += 0.6;
+    return this.ctx.physics.raycastInto(_v4, _down, 4, CG.World, _ground) ? _ground.point.y : -Infinity;
+  }
+
+  private breakTrunk(char: CharacterInstance, plan: GibPlan, chest: THREE.Vector3, blastDir: THREE.Vector3, launch: number, floor: number): boolean {
     if (!canCrawl(char) || char.severed.has('abdomen') || char.severed.has('chest')) return false;
     for (const b of TRUNK_EXITS) char.hideLimb(b);
     const kit = this.kitFor(char);
@@ -1568,11 +1579,21 @@ export class Gore implements GoreSystem {
     let hung = false;
     for (const piece of kitPieces(kit, plan)) {
       placePiece(char, piece, _v3, _q);
+      // A body lying down has its pieces half in the floor: lift each until its lowest corner clears it.
+      let low = Infinity;
+      for (let k = 0; k < 8; k++) {
+        _v5.set(k & 1 ? piece.side.max.x : piece.side.min.x, k & 2 ? piece.side.max.y : piece.side.min.y, k & 4 ? piece.side.max.z : piece.side.min.z);
+        low = Math.min(low, _v5.applyQuaternion(_q).y);
+      }
+      _v3.y = Math.max(_v3.y, floor + 0.01 - low);
       // Out from the middle of the trunk and on with the blast: a waist tear parts, a crack flies.
       _v2.copy(_v3).sub(chest);
       _v2.y *= 0.5;
       if (_v2.lengthSq() < 1e-4) _v2.copy(blastDir);
-      _v2.normalize().multiplyScalar(launch * (waist ? 0.2 : 0.45) * (0.7 + rnd() * 0.5)).addScaledVector(blastDir, launch * (waist ? 0.35 : 0.4));
+      // The heavy pieces land within a few metres, where the gib was: thrown at full launch they scattered 8 to 12 m
+      // and lay out of sight across the floor, small and far.
+      const near = Math.min(launch, TorsoTuning.pieceSpeed);
+      _v2.normalize().multiplyScalar(near * (waist ? 0.25 : 0.55) * (0.7 + rnd() * 0.5)).addScaledVector(blastDir, near * (waist ? 0.35 : 0.45));
       _v2.y += (waist ? 1 : 2) + rnd() * 2.5;
       const half = this.sliced.throwPiece(piece.side, char.skinMaterial, _v3, _q, _v2, waist ? 3 : 7);
       // The guts hang out of the pelvis's broken face.
@@ -1585,7 +1606,7 @@ export class Gore implements GoreSystem {
   }
 
   /** What was inside: the ribcage bursting where it was, organs, and loose strands of gut, as the plan says. */
-  private spill(char: CharacterInstance, plan: GibPlan, chest: THREE.Vector3, hips: THREE.Vector3, blastDir: THREE.Vector3, launch: number): void {
+  private spill(char: CharacterInstance, plan: GibPlan, chest: THREE.Vector3, hips: THREE.Vector3, blastDir: THREE.Vector3, launch: number, floor: number): void {
     const rnd = mulberry32(plan.seed ^ 0x9e3779b9);
     const scale = char.rig.height / 1.85;
     if (plan.ribs.length > 0 && canCrawl(char)) {
@@ -1594,19 +1615,20 @@ export class Gore implements GoreSystem {
       bone.getWorldQuaternion(_q);
       // As wide as his chest: a broad archetype's ribcage is broader, so it fills the trunk it bursts out of.
       const cage = scale * clamp((char.rig.bones[CHEST]!.hit?.radius ?? 0.16) / 0.16, 1, 1.4);
-      this.chunks.burstRibs(_v.setFromMatrixPosition(bone.matrixWorld), _q, cage, blastDir, plan.ribs, launch * 0.45);
+      this.chunks.burstRibs(_v.setFromMatrixPosition(bone.matrixWorld), _q, cage, blastDir, plan.ribs, Math.min(launch, TorsoTuning.pieceSpeed) * 0.45);
     }
     for (const organ of plan.organs) {
       _v3.copy(hips).lerp(chest, ORGAN_AT[organ]);
       _v3.x += (rnd() - 0.5) * 0.12 * scale;
       _v3.z += (rnd() - 0.5) * 0.08 * scale;
-      _v2.set(rnd() - 0.5, rnd() * 0.5, rnd() - 0.5).addScaledVector(blastDir, 1.2).normalize().multiplyScalar(launch * (0.3 + rnd() * 0.35));
+      _v2.set(rnd() - 0.5, rnd() * 0.5, rnd() - 0.5).addScaledVector(blastDir, 1.2).normalize().multiplyScalar(Math.min(launch, TorsoTuning.pieceSpeed) * (0.3 + rnd() * 0.35));
       _v2.y += 1 + rnd() * 3;
       _q.setFromAxisAngle(_v4.set(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5).normalize(), rnd() * 6.28);
       this.chunks.spawn(organ, _v3.x, _v3.y, _v3.z, _v2.x, _v2.y, _v2.z, ORGAN_SIZE[organ] * scale, _q, 9);
     }
     for (let i = 0; i < plan.ropes; i++) {
       _v3.copy(hips).lerp(chest, 0.3);
+      _v3.y = Math.max(_v3.y, floor + 0.25);
       _v2.set(rnd() - 0.5, 0.3, rnd() - 0.5).addScaledVector(blastDir, 1).normalize().multiplyScalar(launch * (0.2 + rnd() * 0.2));
       _v2.y += 1.5;
       this.ropes.spill(_v3, _v2, scale, plan.seed + i);

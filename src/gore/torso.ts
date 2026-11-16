@@ -33,6 +33,8 @@ export const TorsoTuning = {
   jag: 0.016,
   /** Gibs a frame that get everything. Past this, three pieces, two organs, no ribcage. */
   fullPerFrame: 3,
+  /** The most a trunk piece, an organ or the ribcage is thrown at, m/s, whatever the blast: they land in sight. */
+  pieceSpeed: 7,
 };
 
 /** One gib's choice, made from the damage alone, so a co-op guest replaying the same kill makes the same one. */
@@ -219,6 +221,40 @@ function jagNoise(x: number, y: number, z: number): number {
   return ((h ^ (h >>> 16)) & 0xffff) / 32767.5 - 1;
 }
 
+/**
+ * Points for a piece's convex hull: its extreme vertex along each of 26 directions, then an even sample of the rest. The
+ * cut's own sample is every nth vertex, which misses the corners a piece lands on, so the mesh sank a few centimetres
+ * into the floor past its hull.
+ */
+function hullPoints(g: THREE.BufferGeometry): Float32Array {
+  const a = g.getAttribute('position').array as Float32Array;
+  const n = a.length / 3;
+  const picks = new Set<number>();
+  for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
+    if (dx === 0 && dy === 0 && dz === 0) continue;
+    let best = -Infinity;
+    let at = 0;
+    for (let i = 0; i < n; i++) {
+      const d = a[i * 3]! * dx + a[i * 3 + 1]! * dy + a[i * 3 + 2]! * dz;
+      if (d > best) {
+        best = d;
+        at = i;
+      }
+    }
+    picks.add(at);
+  }
+  const stride = Math.max(1, Math.floor(n / 70));
+  for (let i = 0; i < n; i += stride) picks.add(i);
+  const out = new Float32Array(picks.size * 3);
+  let k = 0;
+  for (const i of picks) {
+    out[k++] = a[i * 3]!;
+    out[k++] = a[i * 3 + 1]!;
+    out[k++] = a[i * 3 + 2]!;
+  }
+  return out;
+}
+
 /** Pushes every vertex on a cut plane in or out along it, so a break is torn rather than sliced. */
 function roughen(side: CutSide, planes: readonly Plane[], amount: number): void {
   const pos = side.geometry.getAttribute('position') as THREE.BufferAttribute;
@@ -295,6 +331,7 @@ export function buildKit(char: CharacterInstance): TorsoKit {
     let out = made.get(side);
     if (!out) {
       roughen(side, all, TorsoTuning.jag * s);
+      side.hull = hullPoints(side.geometry);
       made.set(side, (out = { side, bone: split2(side.origin.y) }));
     }
     return out;

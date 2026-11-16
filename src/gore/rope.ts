@@ -16,17 +16,18 @@ export const RopeTuning = {
   points: 11,
   /** Metres between points on a 1.85 m body: a strand about 1.2 m long. */
   segment: 0.115,
-  radius: 0.027,
+  /** Thick enough to read at 10 m: a loop of bowel is about this, swollen. */
+  radius: 0.04,
   gravity: 14,
   iterations: 6,
   /** Velocity kept a step in the air, and the share of its sideways motion a point on the floor keeps. */
   damping: 0.99,
   floorKeep: 0.35,
-  /** Seconds a loose strand lies, then shrinks away over `shrink`. */
-  linger: 14,
+  /** Seconds a loose strand lies, then shrinks away over `shrink`. One mesh for all of them, so they can lie a while. */
+  linger: 30,
   shrink: 1,
-  /** Seconds between looks for the floor, and metres a strand's end drags between drops of blood. */
-  groundEvery: 0.25,
+  /** Points a strand looks under for the floor each frame, in turn, and metres its end drags between drops of blood. */
+  groundPerFrame: 3,
   trailEvery: 0.3,
   /** Seconds it bleeds as it moves. */
   trailFor: 8,
@@ -55,8 +56,9 @@ class Rope {
   readonly endOffset = new THREE.Vector3();
   /** The body's root. A hanging strand goes when that leaves the scene. */
   owner: THREE.Object3D | null = null;
-  floor = -1e4;
-  nextGround = 0;
+  /** The floor under each point, found a few points a frame: a strand over a step or a stair lies on each tread. */
+  readonly floors = new Float32Array(RopeTuning.points).fill(-1e4);
+  groundAt = 0;
   segment = RopeTuning.segment;
   thick = 1;
   trail = 0;
@@ -89,8 +91,9 @@ export class RopeField {
     const nor = (this.nor = new Float32Array(n * 3));
     const col = new Float32Array(n * 3);
     const index: number[] = [];
-    const pale = new THREE.Color(0xc98078);
-    const dark = new THREE.Color(0x7a2a38);
+    // Pale and pink, so it reads on dark concrete and metal; the blood is in stripes, not all over.
+    const pale = new THREE.Color(0xf0b0a6);
+    const dark = new THREE.Color(0xa0485a);
     const blood = new THREE.Color(0x5a080c);
     const c = new THREE.Color();
     for (let r = 0; r < RopeTuning.max; r++) {
@@ -101,7 +104,7 @@ export class RopeField {
           const v = base + i * RADIAL + j;
           // Pinched rings darker, and a stripe of blood down one side that wanders round it.
           c.copy(pale).lerp(dark, i % 2 === 1 ? 0.55 : rnd() * 0.25);
-          if (Math.abs(((j + i * 0.3) % RADIAL) - 2) < 1.8 && rnd() < 0.85) c.lerp(blood, 0.5 + rnd() * 0.35);
+          if (Math.abs(((j + i * 0.3) % RADIAL) - 2) < 1.1 && rnd() < 0.8) c.lerp(blood, 0.45 + rnd() * 0.3);
           col[v * 3] = c.r;
           col[v * 3 + 1] = c.g;
           col[v * 3 + 2] = c.b;
@@ -118,7 +121,11 @@ export class RopeField {
     g.setAttribute('color', new THREE.BufferAttribute(col, 3));
     g.setIndex(index);
     const { render } = this.ctx;
-    const m = new THREE.MeshPhysicalMaterial({ vertexColors: true, roughness: 0.2, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.15, side: THREE.DoubleSide });
+    const m = new THREE.MeshPhysicalMaterial({
+      vertexColors: true, roughness: 0.2, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.15, side: THREE.DoubleSide,
+      // A little of its own pink, so it reads on dark floors from across a room.
+      emissive: new THREE.Color(0x4a1414),
+    });
     const mat = render.materials?.patch ? render.materials.patch(m) ?? m : m;
     const mesh = (this.mesh = new THREE.Mesh(g, mat));
     mesh.frustumCulled = false;
@@ -141,8 +148,8 @@ export class RopeField {
     r.target = null;
     r.owner = null;
     r.looped = false;
-    r.nextGround = 0;
-    r.floor = -1e4;
+    r.groundAt = 0;
+    r.floors.fill(-1e4);
     r.segment = RopeTuning.segment * scale;
     r.thick = scale;
     r.trail = 0;
@@ -251,19 +258,23 @@ export class RopeField {
         r.alive = false;
         continue;
       }
-      if (now >= r.nextGround) {
-        r.nextGround = now + t.groundEvery;
-        const m = (P >> 1) * 3;
-        _p.set(r.x[m]!, r.x[m + 1]! + 0.6, r.x[m + 2]!);
-        if (this.ctx.physics.raycastInto(_p, _down, 4, CG.World, _hit)) r.floor = _hit.point.y;
-      }
       if (r.restAt >= 0) continue;
       const x = r.x, px = r.px;
+      // From above the strand's highest point, so a point already pushed under a floor still finds that floor.
+      let top = -Infinity;
+      for (let i = 1; i < P * 3; i += 3) top = Math.max(top, x[i]!);
+      for (let k = 0; k < t.groundPerFrame; k++) {
+        const i = r.groundAt;
+        r.groundAt = (r.groundAt + 1) % P;
+        _p.set(x[i * 3]!, top + 0.4, x[i * 3 + 2]!);
+        if (this.ctx.physics.raycastInto(_p, _down, top + 4 - x[i * 3 + 1]!, CG.World, _hit)) r.floors[i] = _hit.point.y;
+      }
       const g = t.gravity * h * h;
       // Something hanging off a body never hangs dead still: a slow sway, strongest at the bottom of the loop.
       const swayX = r.target ? Math.sin(now * 1.3 + r.serial * 1.7) * t.sway * h * h : 0;
       const swayZ = r.target ? Math.cos(now * 0.9 + r.serial) * t.sway * 0.6 * h * h : 0;
-      const floor = r.floor + t.radius * r.thick;
+      // The tube is drawn up to 1.18 radius out: the centre line rides that far up, so none of it is in the floor.
+      const lift = t.radius * r.thick * 1.2;
       let motion = 0;
       for (let i = 0; i < P; i++) {
         const o = i * 3;
@@ -311,6 +322,7 @@ export class RopeField {
         }
         for (let i = 0; i < P; i++) {
           const o = i * 3;
+          const floor = r.floors[i]! + lift;
           if (x[o + 1]! >= floor) continue;
           x[o + 1] = floor;
           // On the floor it slides and drags, it does not skate.

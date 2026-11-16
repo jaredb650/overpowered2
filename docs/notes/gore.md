@@ -299,7 +299,20 @@ swelling and pinching along its length. The push beats (`heartbeat`), falls with
 the stump's time, and stops. A
 landing glob hands one of the blood field's own drops to the floor, which stains it.
 
-**Caps.** Organs: lung 12, liver, heart and stomach 8 each; ribcage fragments 8 of each kind, all inside `ChunkTuning.maxBodies`
+**On the floor** (playtest, 2026-11-16: "they clip through the floor"). Measured in live Crucible waves at eye height on
+concrete, raised metal, stairs and the grate, standing and lying bodies: no piece, strand or trunk piece ever ended under
+the physics floor or fell through a concrete one, before or after. What hid them: trunk pieces, organs and ribs thrown at the
+full gib launch (to 15 m/s) scattered 8 to 12 m, small and dark on a dark floor; meat and organs went after 14 s; and 7% of the
+Crucible's floor is drawn 2 to 30 cm above its collider (rubber mats, steel plates, kerbs: a world issue, not fixed here),
+which swallows what lands there. Now: trunk pieces, organs and ribs fly at most `TorsoTuning.pieceSpeed` (7 m/s) and land
+near; organs and ribs lie twice the meat's linger; pieces, organs and ribs glow faintly in their own colour; every gore body
+has CCD; nothing starts below the floor under the gib (`ChunkField.floor`, the trunk pieces lifted by their lowest corner);
+chunks and organs rest on boxes from their own shape; trunk pieces' hulls take each piece's extreme points; halves past the cap
+sink only after 8 s in sight (`minShown`, hard cap 44). Strands find the floor under each point in turn and ride a radius
+above it, are 4 cm thick, paler, faintly lit and lie 30 s. The jet stains whatever it meets: 20 rays a frame along its globs,
+one `bleedAt` a spurt per 0.08 s (a decapitation near a wall left 35 to 38 stains on the wall and floor in 5 s).
+
+**Caps.** Organs: lung 16, liver, heart and stomach 10 each; ribcage fragments 12 of each kind, all inside `ChunkTuning.maxBodies`
 (72 live bodies), oldest first. Trunk pieces count as halves (`SliceTuning.maxHalves`, 20 live, now shared with the sword).
 Guts 14 strands, spurts 8, oldest given back. Past `TorsoTuning.fullPerFrame` (3) gibs in one frame a gib is three pieces, two
 organs, a strand and no ribcage.

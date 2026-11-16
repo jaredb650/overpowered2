@@ -14,8 +14,13 @@ import { RagTuning } from './rag';
 import { rigInfo } from './rigInfo';
 
 export const SliceTuning = {
-  /** Halves and broken trunk pieces kept (torso.ts). Past this the oldest sinks. */
-  maxHalves: 20,
+  /**
+   * Halves and broken trunk pieces kept (torso.ts). Past this the oldest sinks, but only once it has lain `minShown`
+   * seconds: a crowd blown up in one go keeps every piece in sight a while. Past `hardCap` the oldest go whatever.
+   */
+  maxHalves: 28,
+  minShown: 8,
+  hardCap: 44,
   /** Seconds the two halves hang together before the upper one lets go. */
   holdSeconds: 0.14,
   /** Speed along the cut once it lets go, m/s. */
@@ -39,6 +44,7 @@ export class Half {
   releaseAt = 0;
   sinking = -1;
   pooled = false;
+  born = 0;
   /** A trunk piece's geometry belongs to its archetype's kit, so it is never disposed with the piece. */
   shared = false;
   speed = 0;
@@ -185,7 +191,8 @@ export class SliceField {
         .setTranslation(side.origin.x, side.origin.y, side.origin.z)
         .setGravityScale(SliceTuning.holdGravity * RagTuning.gravityScale)
         .setLinearDamping(0.1)
-        .setAngularDamping(0.6),
+        .setAngularDamping(0.6)
+        .setCcdEnabled(true),
     );
     const collider = R.ColliderDesc.convexHull(side.hull)
       ?? R.ColliderDesc.cuboid(side.max.x, side.max.y, side.max.z);
@@ -198,6 +205,7 @@ export class SliceField {
       body,
     );
     const half = new Half(mesh, side);
+    half.born = this.ctx.time.elapsed;
     half.body = body;
     half.releaseAt = this.ctx.time.elapsed + SliceTuning.holdSeconds;
     if (upper) half.slide.copy(slide).multiplyScalar(SliceTuning.slideSpeed);
@@ -228,7 +236,8 @@ export class SliceField {
         .setAngvel({ x: rand(-spin, spin) * k, y: rand(-spin, spin) * k, z: rand(-spin, spin) * k })
         .setGravityScale(RagTuning.gravityScale)
         .setLinearDamping(0.1)
-        .setAngularDamping(0.6),
+        .setAngularDamping(0.6)
+        .setCcdEnabled(true),
     );
     const collider = R.ColliderDesc.convexHull(side.hull) ?? R.ColliderDesc.cuboid(side.max.x, side.max.y, side.max.z);
     world.createCollider(
@@ -237,6 +246,7 @@ export class SliceField {
       body,
     );
     const half = new Half(mesh, side);
+    half.born = this.ctx.time.elapsed;
     half.shared = true;
     half.body = body;
     half.emitter = this.ctx.fx.attachEmitter(mesh, 'stumpSpray', side.capCenter, 2.5) ?? null;
@@ -263,9 +273,11 @@ export class SliceField {
   private enforce(): void {
     let live = 0;
     for (const h of this.halves) if (h.sinking < 0) live++;
+    const now = this.ctx.time.elapsed;
     for (let i = 0; i < this.halves.length && live > SliceTuning.maxHalves; i++) {
       const h = this.halves[i]!;
       if (h.sinking >= 0) continue;
+      if (now - h.born < SliceTuning.minShown && live <= SliceTuning.hardCap) break;
       this.freeze(h);
       h.sinking = this.ctx.time.elapsed;
       live--;
@@ -283,8 +295,15 @@ export class SliceField {
     }
   }
 
+  private nextEnforce = 0;
+
   update(dt: number): void {
     const now = this.ctx.time.elapsed;
+    // Pieces kept past the cap while they were fresh go once they have been seen.
+    if (now >= this.nextEnforce) {
+      this.nextEnforce = now + 0.5;
+      this.enforce();
+    }
     const t = SliceTuning;
     // Landings are heard as they would be at full gravity: slower under the dial by its square root, like a body's.
     const heard = 1 / Math.sqrt(RagTuning.gravityScale);
@@ -361,7 +380,8 @@ export class SliceField {
         .setTranslation(h.mesh.position.x, h.mesh.position.y, h.mesh.position.z)
         .setRotation(h.mesh.quaternion)
         .setLinearDamping(0.1)
-        .setAngularDamping(0.6),
+        .setAngularDamping(0.6)
+        .setCcdEnabled(true),
     );
     const collider = R.ColliderDesc.convexHull(h.side.hull)
       ?? R.ColliderDesc.cuboid(h.side.max.x, h.side.max.y, h.side.max.z);

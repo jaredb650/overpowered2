@@ -11,7 +11,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { clamp, mulberry32, rand, TAU } from '../core/math';
 import type { BloodField } from './blood';
 import { ImpactTuning, type ImpactEvents } from './impacts';
-import { buildFlesh, buildOrgans, buildRibcage, ORGANS, type OrganKind, type RibKind } from './organs';
+import { buildFlesh, buildOrgans, buildRibcage, ORGANS, RIB_KINDS, type OrganKind, type RibKind } from './organs';
 
 export type ChunkKind = 'meat' | 'viscera' | 'bone' | 'cranium' | 'jaw' | 'brain' | 'eye' | 'scrap' | OrganKind | RibKind;
 
@@ -20,7 +20,7 @@ export const ChunkTuning = {
   capacity: {
     meat: 96, viscera: 40, bone: 48, cranium: 24, jaw: 16, brain: 16, eye: 16, scrap: 48,
     // Organs and the ribcage's six fragments: eight trunks' worth, the oldest given back first.
-    lung: 12, liver: 8, heart: 8, stomach: 8, ribsUL: 8, ribsLL: 8, ribsUR: 8, ribsLR: 8, sternum: 8, spine: 8,
+    lung: 16, liver: 10, heart: 10, stomach: 10, ribsUL: 12, ribsLL: 12, ribsUR: 12, ribsLR: 12, sternum: 12, spine: 12,
   } as Record<ChunkKind, number>,
   /** Bodies alive at once across all kinds. Past this, new pieces take the oldest body's place. */
   maxBodies: 72,
@@ -207,6 +207,7 @@ const KIT_BOX: Partial<Record<ChunkKind, number>> = {
   cranium: 0.42, jaw: 0.3, brain: 0.3, eye: 0.17, ribsUL: 0.055, ribsLL: 0.055, ribsUR: 0.055, ribsLR: 0.055, sternum: 0.035, spine: 0.045,
 };
 const ORGAN_SET: ReadonlySet<ChunkKind> = new Set(ORGANS);
+const LASTING: ReadonlySet<ChunkKind> = new Set([...ORGANS, ...RIB_KINDS]);
 
 /** Curved plate: a fragment of cranium, thin with a rough broken edge. Now only scrap, for machines. */
 function shard(seed: number): THREE.BufferGeometry {
@@ -234,9 +235,15 @@ export class ChunkField {
   private ready = false;
   private readonly impactDir = new THREE.Vector3();
   private kit: KitPiece[] = [];
-  /** Where each ribcage fragment sits in the chest bone's frame, for a 1.85 m body, and its half size. */
+  /** Where each ribcage fragment sits in the chest bone's frame, for a 1.85 m body. */
   private readonly ribAt = new Map<ChunkKind, THREE.Vector3>();
-  private readonly ribBox = new Map<ChunkKind, THREE.Vector3>();
+  /** Half size of each soft or curved piece's own shape, for a collider it lies on instead of sinking through. */
+  private readonly extent = new Map<ChunkKind, THREE.Vector3>();
+  /**
+   * The floor under the gib being thrown, set by gore around one: nothing starts below it. A body lying down puts its
+   * organs and ribs under the floor, and pieces started inside the floor are pushed out through it as often as up.
+   */
+  floor = -Infinity;
 
   constructor(private readonly ctx: Ctx, private readonly blood: BloodField, private readonly impacts: ImpactEvents) {}
 
@@ -245,9 +252,11 @@ export class ChunkField {
     if (this.ready) return;
     this.ready = true;
     const { render } = this.ctx;
-    const wet = (roughness: number, clearcoat: number) => {
+    const wet = (roughness: number, clearcoat: number, glow = 0) => {
       const m = new THREE.MeshPhysicalMaterial({
         vertexColors: true, flatShading: true, roughness, metalness: 0, clearcoat, clearcoatRoughness: 0.2,
+        // A breath of its own colour: in a dark, blue-lit map, dark red and bone on dark floor read as nothing.
+        emissive: glow ? new THREE.Color(glow) : undefined,
       });
       return render.materials?.patch ? render.materials.patch(m) ?? m : m;
     };
@@ -271,13 +280,20 @@ export class ChunkField {
     };
     // Soft torn flesh, smooth-shaded and wet (organs.ts): faceted lumps read as red gems.
     const flesh = buildFlesh();
-    const meat = wet(0.24, 0.9);
+    const meat = wet(0.24, 0.9, 0x180304);
     (meat as THREE.MeshPhysicalMaterial).flatShading = false;
     make('meat', flesh.get('meat')!, meat);
     make('viscera', flesh.get('viscera')!, meat);
     const splinter = wet(0.45, 0.3);
     (splinter as THREE.MeshPhysicalMaterial).flatShading = false;
     make('bone', flesh.get('bone')!, splinter);
+    // Organs, flesh and ribs rest on boxes of their own bounds (most of them: a round thing sits a little into a box).
+    for (const kind of [...ORGANS, ...RIB_KINDS, 'meat', 'viscera', 'bone'] as ChunkKind[]) {
+      const g = this.meshes.get(kind)?.geometry;
+      if (!g) continue;
+      g.computeBoundingBox();
+      this.extent.set(kind, g.boundingBox!.getSize(new THREE.Vector3()).multiplyScalar(RIB_KINDS.includes(kind as RibKind) ? 0.45 : 0.4));
+    }
     const kit = buildKit();
     this.kit = kit.pieces;
     const shell = wet(0.5, 0.2);
@@ -288,16 +304,14 @@ export class ChunkField {
     make('eye', kit.geometry.get('eye')!, wet(0.15, 1));
     make('scrap', shard(41), wet(0.4, 0));
     // Organs shade smooth: swollen and wet, not faceted like torn meat.
-    const organ = wet(0.16, 1);
+    const organ = wet(0.16, 1, 0x240607);
     (organ as THREE.MeshPhysicalMaterial).flatShading = false;
     for (const [kind, g] of buildOrgans()) make(kind, g, organ);
-    const ribs = wet(0.42, 0.35);
+    const ribs = wet(0.42, 0.35, 0x1e1a14);
     (ribs as THREE.MeshPhysicalMaterial).flatShading = false;
     for (const [kind, g] of buildRibcage()) {
       const c = centred(g);
       this.ribAt.set(kind, c.at);
-      c.g.computeBoundingBox();
-      this.ribBox.set(kind, c.g.boundingBox!.getSize(new THREE.Vector3()).multiplyScalar(0.5));
       make(kind, c.g, ribs);
     }
   }
@@ -359,6 +373,17 @@ export class ChunkField {
 
     if (this.live.length >= ChunkTuning.maxBodies) this.dropBody(this.live[0]!);
 
+    const extent = this.extent.get(kind);
+    const box = KIT_BOX[kind];
+    const hx = size * (box ?? 0.72);
+    // The kit's pieces fit together into a head or a ribcage, so they keep their shape.
+    c.sx = box === undefined ? 0.75 + Math.random() * 0.5 : 1;
+    c.sy = box === undefined ? 0.75 + Math.random() * 0.5 : 1;
+    c.sz = box === undefined ? 0.75 + Math.random() * 0.5 : 1;
+    // Never started under the floor of the gib it came out of, however it is turned: a body lying down turns its
+    // ribcage on its side, and a piece started half in a thin floor is pushed out of either face of it.
+    const reach = extent ? Math.max(extent.x * c.sx, extent.y * c.sy, extent.z * c.sz) * size : hx;
+    y = Math.max(y, this.floor + reach + 0.01);
     const body = world.createRigidBody(
       R.RigidBodyDesc.dynamic()
         .setTranslation(x, y, z)
@@ -366,16 +391,14 @@ export class ChunkField {
         .setLinvel(vx, vy, vz)
         .setAngvel({ x: (Math.random() - 0.5) * spin, y: (Math.random() - 0.5) * spin, z: (Math.random() - 0.5) * spin })
         .setLinearDamping(0.1)
-        .setAngularDamping(0.9),
+        .setAngularDamping(0.9)
+        // Small and thrown at up to 15 m/s: without it a piece crosses a thin floor between two steps and is gone.
+        .setCcdEnabled(true),
     );
     // Thin plates and long bones need a box. A sphere would roll forever.
-    const box = KIT_BOX[kind];
-    const hx = size * (box ?? 0.72);
-    // A ribcage fragment rests on its own bounds, a little inside them, so it lies on the floor and not in it.
-    const extent = this.ribBox.get(kind);
     world.createCollider(
       (extent
-        ? R.ColliderDesc.cuboid(extent.x * size * 0.8, extent.y * size * 0.8, extent.z * size * 0.8)
+        ? R.ColliderDesc.cuboid(extent.x * size * c.sx, extent.y * size * c.sy, extent.z * size * c.sz)
         : R.ColliderDesc.cuboid(hx, kind === 'cranium' ? hx * 0.5 : hx, hx))
         .setDensity(1100)
         .setFriction(ChunkTuning.friction)
@@ -386,10 +409,6 @@ export class ChunkField {
     c.body = body;
     c.size = size;
     c.bulk = box === undefined ? size : hx;
-    // The kit's pieces fit together into a head, so they keep their shape.
-    c.sx = box === undefined ? 0.75 + Math.random() * 0.5 : 1;
-    c.sy = box === undefined ? 0.75 + Math.random() * 0.5 : 1;
-    c.sz = box === undefined ? 0.75 + Math.random() * 0.5 : 1;
     c.born = this.ctx.time.elapsed;
     c.still = 0;
     c.restedAt = -1;
@@ -473,7 +492,8 @@ export class ChunkField {
     for (let i = 0; i < all.length; i++) {
       const c = all[i]!;
       if (!c.alive || c.restedAt < 0) continue;
-      const age = now - c.restedAt - t.linger;
+      // The organs and the ribcage are what a gib is read by: they lie twice as long as torn meat.
+      const age = now - c.restedAt - t.linger * (LASTING.has(c.kind) ? 2 : 1);
       if (age <= 0) continue;
       if (age >= t.shrink) this.retire(c);
       else this.write(c, 1 - age / t.shrink);
