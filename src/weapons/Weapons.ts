@@ -454,8 +454,6 @@ export class Weapons implements WeaponSystem, Guard {
     }
     // Fitting or taking off the launcher puts the rifle back on full auto.
     if (MODS[id].patch.launcher) this.selector.delete(weapon);
-    // Fitting or taking off the launcher puts the rifle back on full auto.
-    if (MODS[id].patch.launcher) this.selector.delete(weapon);
     if (weapon === this.current) this.clearScope(false);
     if (!this.slots[this.current].def.launcher) this.glUp = false;
     return this.fitted.has(id);
