@@ -200,6 +200,12 @@ slanted slots and ringed ports, ribs cut back along the rake. Still 42 cm and sl
 before. New mod: the **extended magazine**, 30 rounds for 21 and 1.25 s to change for 1.1, the Crucible's 800 after wave 4,
 with a lab row.
 
+**Rebuilt 2026-11-16 (owner: "full Auto 9").** The shroud is now the film gun's casket in our own design: a squared band with
+three big through-ports round the barrel, and under it a deep finned wedge hanging well below the barrel line at the heel and
+tapering to the nose, a stepped nose and a chamfered keel; bright brushed steel over a black frame and grip, the burst pistol's
+foregrip folded under the heel; sights raised on the shroud (an enlarged rear block, a post on a tall ramp). No marks or text
+from the film.
+
 ## Sounds
 
 New sounds use a synthesized or existing stand-in until the owner supplies real ones. Every stand-in is listed in
