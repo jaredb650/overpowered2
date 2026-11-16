@@ -102,4 +102,82 @@ describe('The Office', () => {
     expect(route(V(47, plan.LV.f2, 0), up)).toBeLessThan(120);
     expect(route(V(60, plan.LV.roof, 4), lobby)).toBeLessThan(200);
   });
+
+  describe('the breakables', () => {
+    const props = () => world.objects.props;
+    const step = (seconds: number) => { for (let t = 0; t < seconds; t += 1 / 60) props().update(1 / 60); };
+    const of = (kind: string) => props().props.filter(p => p.kind === kind);
+    const booms: { radius: number; damage: number }[] = [];
+
+    it('places every kind, in a budget of draws', () => {
+      const kinds = new Set(props().props.map(p => p.kind));
+      for (const k of ['monitor', 'chair', 'plant', 'divider', 'pane', 'copier', 'rack', 'cooler', 'extinguisher', 'vending', 'microwave', 'generator', 'gasline']) {
+        expect(kinds.has(k as never), k).toBe(true);
+      }
+      expect(props().count).toBeGreaterThan(300);
+      let meshes = 0;
+      props().root.traverse(o => { if ((o as THREE.InstancedMesh).isInstancedMesh && !o.name.startsWith('debris')) meshes++; });
+      expect(meshes).toBeLessThan(45);
+      console.info('breakables', JSON.stringify({ props: props().count, meshes, panes: of('pane').length, chairs: of('chair').length }));
+    });
+
+    it('breaks a monitor on a round: its collider goes, its wreck stays', () => {
+      const m = of('monitor')[0]!;
+      const collider = m.collider!;
+      expect(world.objects.damageExplosive(collider, 5, 'test')).toBe(false);
+      expect(m.alive).toBe(true);
+      world.objects.damageExplosive(collider, 20, 'test');
+      expect(m.alive).toBe(false);
+      expect(m.collider).toBeNull();
+    });
+
+    it('shatters a storefront pane and opens the nav through it', () => {
+      const pane = of('pane').find(p => Math.abs(p.spec.z - plan.B.z1) < 0.1 && p.spec.y < 2)!;
+      const before = Array.from(nav().blocked).reduce((a, b) => a + b, 0);
+      world.objects.damageExplosive(pane.collider!, 50, 'test');
+      expect(pane.alive).toBe(false);
+      expect(Array.from(nav().blocked).reduce((a, b) => a + b, 0)).toBeLessThan(before);
+    });
+
+    it('chains: one server rack takes the row with it, and every blast is a real one', () => {
+      const off = (world as unknown as { ctx: Ctx }).ctx;
+      const listener = (e: { radius: number; damage: number }) => booms.push(e);
+      off.events.on('world:explosion', listener);
+      const racks = of('rack').filter(p => p.spec.y === 0);
+      const first = racks[0]!;
+      world.objects.damageExplosivesInRadius(first.p.clone().setY(1), 1.5, 1000, 'test');
+      step(4);
+      const down = racks.filter(p => !p.alive).length;
+      expect(down).toBeGreaterThan(racks.length * 0.8);
+      expect(booms.length).toBeGreaterThanOrEqual(down);
+      expect(booms.every(b => b.radius >= 2 && b.damage >= 20)).toBe(true);
+      // The burnt racks still stand: their colliders and their nav blocks stay.
+      expect(racks.every(p => p.alive || p.collider)).toBe(true);
+    });
+
+    it('sets off the gas line valve by valve, and not the server room through its wall', () => {
+      world.objects.reset();
+      const yard = of('gasline').filter(p => p.spec.x < -28);
+      const racks = of('rack').filter(p => p.spec.y === 0);
+      world.objects.damageExplosive(yard[0]!.collider!, 100, 'test');
+      step(3);
+      expect(yard.every(p => !p.alive)).toBe(true);
+      expect(racks.every(p => p.alive)).toBe(true);
+    });
+
+    it('caps the chairs that tumble at once, and settles them', () => {
+      const chairs = of('chair').filter(p => p.alive && p.collider);
+      for (const c of chairs.slice(0, 40)) world.objects.damageExplosive(c.collider!, 5, 'test');
+      const moving = (props() as unknown as { moving: unknown[] }).moving.length;
+      expect(moving).toBeLessThanOrEqual(24);
+      for (let t = 0; t < 8; t += 1 / 60) { physics.step(1 / 60); props().update(1 / 60); }
+      expect((props() as unknown as { moving: unknown[] }).moving.length).toBe(0);
+      expect(chairs.slice(0, 40).every(c => c.collider)).toBe(true);
+    });
+
+    it('puts everything back on a new run', () => {
+      world.objects.reset();
+      expect(props().props.every(p => p.alive && p.collider)).toBe(true);
+    });
+  });
 });

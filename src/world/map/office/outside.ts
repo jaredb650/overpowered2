@@ -43,7 +43,7 @@ function boundary(b: Builder): void {
     for (let y = 4.2; y < h - 1; y += 3.4) {
       for (let u = 2; u < len - 1; u += 3) {
         const lit = k.rng();
-        g.use(lit > 0.75 ? 'emissiveWhite' : lit > 0.68 ? 'emissiveOrange' : 'steelDark').tint(lit > 0.68 ? 0.22 : 0.5);
+        g.use(lit > 0.75 ? 'emissiveWhite' : lit > 0.68 ? 'emissiveOrange' : 'steelDark').tint(lit > 0.68 ? 0.06 : 0.5);
         if (along) g.box(x0 + u, y, fz, 1, 0.8, 0.01, face === 's' ? FACE.nz : FACE.pz);
         else g.box(fx, y, z0 + u, 0.01, 0.8, 1, face === 'e' ? FACE.nx : FACE.px);
       }

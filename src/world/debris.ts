@@ -11,7 +11,7 @@ import { CG, type Ctx } from '../core/contracts';
 import { groups } from '../physics/Physics';
 import { Geo, type Mat } from './kit/geo';
 
-export type DebrisMat = 'plywood' | 'rust' | 'steelDark' | 'concrete';
+export type DebrisMat = 'plywood' | 'rust' | 'steelDark' | 'concrete' | 'plaster' | 'glass' | 'dirt';
 const MATS: readonly DebrisMat[] = ['plywood', 'rust', 'steelDark', 'concrete'];
 
 export const DebrisTuning = {
@@ -25,7 +25,7 @@ export const DebrisTuning = {
   /** Seconds a still piece lies about, then how long it takes to shrink away. */
   linger: 16,
   shrink: 1.2,
-  density: { plywood: 500, rust: 1400, steelDark: 2000, concrete: 2200 } as Record<DebrisMat, number>,
+  density: { plywood: 500, rust: 1400, steelDark: 2000, concrete: 2200, plaster: 900, glass: 2500, dirt: 1500 } as Record<DebrisMat, number>,
   restitution: 0.18,
   friction: 0.85,
 };
@@ -61,7 +61,8 @@ export class Debris {
   private time = 0;
   private ready = false;
 
-  constructor(private readonly ctx: Ctx, private readonly material: (m: Mat) => THREE.Material) {
+  /** `mats` are the materials this pool throws; the walls' own four by default. */
+  constructor(private readonly ctx: Ctx, private readonly material: (m: Mat) => THREE.Material, private readonly mats: readonly DebrisMat[] = MATS) {
     this.root.name = 'debris';
     ctx.physics.radialListeners?.add((c, r, s) => this.blast(c, r, s));
   }
@@ -86,7 +87,7 @@ export class Debris {
   private ensure(): void {
     if (this.ready) return;
     this.ready = true;
-    for (const mat of MATS) {
+    for (const mat of this.mats) {
       const geo = new Geo();
       geo.use(mat).box(0, 0, 0, 0.5, 0.5, 0.5);
       const b = [...geo.buckets.values()][0]!;
@@ -122,7 +123,7 @@ export class Debris {
   }
 
   /** Throws one box of `half` extents from `pos`, turned `q`, at `vel`, spinning up to `spin` rad/s about each axis. */
-  throw(mat: DebrisMat, pos: THREE.Vector3, q: THREE.Quaternion, half: THREE.Vector3, vel: THREE.Vector3, spin: number, tint?: number, again?: Piece): void {
+  throw(mat: DebrisMat, pos: THREE.Vector3, q: THREE.Quaternion, half: THREE.Vector3, vel: THREE.Vector3, spin: number, tint?: number | readonly [number, number, number], again?: Piece): void {
     this.ensure();
     const { R, world } = this.ctx.physics;
     let c: Piece;
@@ -166,7 +167,7 @@ export class Debris {
     const mesh = this.meshes.get(mat)!;
     mesh.visible = true;
     if (tint !== undefined) {
-      mesh.setColorAt(c.slot, _c.setScalar(tint));
+      mesh.setColorAt(c.slot, typeof tint === 'number' ? _c.setScalar(tint) : _c.setRGB(tint[0], tint[1], tint[2]));
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     }
     this.write(c, 1);

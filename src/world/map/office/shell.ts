@@ -2,9 +2,9 @@
 import { FACE } from '../../kit/geo';
 import type { Kit } from '../../kit/kit';
 import type { MapSpec } from '../spec';
-import { Builder, CEILING, cut } from './build';
+import { Builder, CEILING, cut, paneSplit } from './build';
 import {
-  B, CEIL, CURB, ESCAPE, INNER, LIFT, LIFT_WALLS, LV, OUTER, PARAPET, rect, ROOMS, type Rect, SKYLIGHTS, STAIR_A, STAIR_R, T_OUT, TOWER,
+  B, BRIDGE, CEIL, CURB, ESCAPE, INNER, LIFT, LIFT_WALLS, LV, OUTER, PARAPET, rect, ROOMS, type Rect, SKYLIGHTS, STAIR_A, STAIR_R, T_OUT, TOWER,
   floorY,
 } from './plan';
 
@@ -159,8 +159,45 @@ function fireEscape(b: Builder): void {
   for (const x of [11, 16, 25, 27.5]) b.k.beam(x, (x < 20 ? LV.f2 : LV.roof) - 0.25, B.z0 - T_OUT / 2, x, (x < 20 ? LV.f2 : LV.roof) - 0.25, E.z0, 0.06, 0.1);
 }
 
+/**
+ * Glass, every pane a breakable: the outside windows and storefront, the meeting rooms' partitions, the skybridge and the skylights.
+ * Panes sit between the mullions the walls drew.
+ */
+function glass(spec: MapSpec): void {
+  const put = (alongX: boolean, at: number, u0: number, u1: number, y0: number, y1: number) => {
+    const u = (u0 + u1) / 2, w = u1 - u0 - 0.06, h = y1 - y0 - 0.04;
+    if (w < 0.2 || h < 0.2) return;
+    if (alongX) spec.breakable('pane', u, (y0 + y1) / 2, at, 0, w, h);
+    else spec.breakable('pane', at, (y0 + y1) / 2, u, Math.PI / 2, w, h);
+  };
+  for (const w of OUTER) for (const h of w.holes) {
+    if (h.kind !== 'pane') continue;
+    for (const [u0, u1] of paneSplit(h)) put(w.axis === 'x', w.at, u0, u1, h.y0 ?? w.y0, h.y1);
+  }
+  for (const w of INNER) {
+    if (!w.glass) continue;
+    const n = Math.round((w.to - w.from) / 1.6);
+    for (let i = 0; i < n; i++) {
+      let a = w.from + ((w.to - w.from) * i) / n, c = w.from + ((w.to - w.from) * (i + 1)) / n;
+      for (const h of w.holes) {
+        const h0 = h.at - h.w / 2 - 0.05, h1 = h.at + h.w / 2 + 0.05;
+        if (h1 <= a || h0 >= c) continue;
+        if (h0 - a > c - h1) c = h0; else a = h1;
+      }
+      put(w.axis === 'x', w.at, a, c, w.y0 + 0.08, w.y1 - 0.12);
+    }
+  }
+  const x0 = BRIDGE.x0 + T_OUT / 2, x1 = BRIDGE.x1 - 0.15;
+  for (const z of [BRIDGE.z0, BRIDGE.z1]) for (let i = 0; i < 4; i++) put(true, z, x0 + ((x1 - x0) * i) / 4, x0 + ((x1 - x0) * (i + 1)) / 4, LV.f2 + 1, BRIDGE.roof - 0.35);
+  for (const r of SKYLIGHTS) for (const i of [0, 1]) for (const j of [0, 1]) {
+    const w = (r.x1 - r.x0) / 2, d = (r.z1 - r.z0) / 2;
+    spec.breakable('pane', r.x0 + w * (i + 0.5), LV.roof + CURB, r.z0 + d * (j + 0.5), 0, w - 0.06, d - 0.06, true);
+  }
+}
+
 export function authorShell(k: Kit, spec: MapSpec): void {
   const b = new Builder(k, spec);
+  glass(spec);
   floors(b);
   walls(b);
   stairs(b);

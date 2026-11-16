@@ -228,5 +228,5 @@ export const PICKUPS_OUT: readonly (readonly [number, number, number])[] = [
   [-2, LV.roof, 6], [22, LV.roof, 10], [62, LV.roof, -4], [46, LV.roof, 6],
 ];
 export const PICKUPS_IN: readonly (readonly [number, number, number])[] = [
-  [0, 0, 10], [-21, 0, 4], [-21, 0, -12], [21, 0, 0], [8, LV.f2, 12], [21, LV.f2, -10], [-21, LV.f2, 3], [47, LV.f2, 0], [46, 0, -6],
+  [0, 0, 10], [-21, 0, 4], [-21, 0, -12], [21, 0, 0], [11.5, LV.f2, 8], [25, LV.f2, -13], [-21, LV.f2, 3], [47, LV.f2, 0], [46, 0, -6],
 ];
