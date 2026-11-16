@@ -6,6 +6,8 @@ export default async function flight(page, helpers) {
     const player = ctx.player;
     const Vector = player.position.constructor;
     window.flight = {
+      cameraUpdate: ctx.camera.update.bind(ctx.camera),
+      viewUpdate: ctx.viewmodel.update.bind(ctx.viewmodel),
       async wait(seconds) {
         const end = ctx.time.playerElapsed + seconds;
         while (ctx.time.playerElapsed < end) await new Promise(resolve => requestAnimationFrame(resolve));
@@ -19,19 +21,25 @@ export default async function flight(page, helpers) {
         ctx.time.paused = true;
       },
       place() {
+        ctx.camera.update = this.cameraUpdate;
+        ctx.viewmodel.update = this.viewUpdate;
+        ctx.viewmodel.root.visible = true;
         player.teleport(new Vector(-25, 7, -4), -Math.PI / 2);
         player.pitch = 0;
         player.velocity.set(0, 0, 0);
         player.park(player.position.clone());
+        player.forward.set(1, 0, 0);
       },
       observe(centre, distance) {
         const eye = centre.clone().add(new Vector(-2, 1, distance));
-        player.teleport(eye.clone().add(new Vector(0, -1.53, 0)), 0);
-        const delta = centre.clone().sub(eye);
-        player.yaw = Math.atan2(-delta.x, -delta.z);
-        player.pitch = Math.asin(delta.y / delta.length());
-        player.velocity.set(0, 0, 0);
-        ctx.viewmodel.setScoped(true);
+        ctx.camera.update = () => {};
+        ctx.viewmodel.update = () => {};
+        ctx.viewmodel.root.visible = false;
+        ctx.render.camera.position.copy(eye);
+        ctx.render.camera.lookAt(centre);
+        ctx.render.camera.fov = 90;
+        ctx.render.camera.updateProjectionMatrix();
+        ctx.render.camera.updateMatrixWorld();
       },
     };
     ctx.time.paused = false;
