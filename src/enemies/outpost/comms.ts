@@ -1,62 +1,18 @@
 /**
  * Radio chatter as events. Section 19 ships recorded voices later, so a line is a kind plus text and nothing here plays
- * speech: the kind is what a voice bank will key on.
+ * speech. Every call site says a kind; the rule table (chatter/) picks the row by who is talking and how scared he is, and
+ * the row's id is what a voice bank will key on (docs/proposals/squad-chatter.md).
  *
- * The lines are written to be stacked: the same kind comes up many times in a run, so each stays short and plain.
+ * In co-op only the host decides: guests hear its lines as `chatter` events (src/net/world.ts) and say nothing of their own.
  */
 import * as THREE from 'three';
 import type { AiWorld } from '../aiWorld';
 import { say } from '../attacks';
+import { FACTION, NAME_LIST, speakerTag } from './chatter/names';
+import { ChatterMemory, URGENT, lineText, type ChatterFacts } from './chatter/rules';
+import { RULES } from './chatter/lines';
 import type { CommsKind, CommsLine } from './events';
 import type { Soldier } from './soldier';
-
-const LINES: Record<CommsKind, readonly string[]> = {
-  contact: ['Contact!', 'Contact front!', 'Eyes on! Eyes on it!', 'Got it, moving in the open!', 'There! There!'],
-  lost: ['Lost visual.', 'Where did it go?', 'I have nothing. Anyone?', 'It was right there.'],
-  noise: ['You hear that?', 'Movement. Somewhere close.', 'Shots fired, close.', 'Stay sharp, something is moving.'],
-  manDown: ['Man down!', 'He\'s down! He\'s down!', 'We lost one!', 'Oh God. He\'s gone.'],
-  leaderDown: ['Sarge is down!', 'They got the sergeant!', 'We lost the lead!'],
-  takingCommand: ['I have the squad! On me!', 'I\'m in command! Hold it together!', 'Form on me!'],
-  medic: ['Medic!', 'I need a medic here!', 'Got wounded, need help!'],
-  reloading: ['Reloading!', 'Changing mag!', 'I\'m dry!', 'Cover me, reloading!'],
-  moving: ['Moving!', 'Bounding!', 'Team two, go!', 'Next cover, go go!'],
-  covering: ['Covering!', 'Suppressing!', 'Keep its head down!', 'I\'ve got you, move!'],
-  flanking: ['Flanking left!', 'Going wide!', 'Get round it!', 'Hit it from the side!'],
-  frag: ['Frag out!', 'Grenade!', 'Throwing!'],
-  flash: ['Flash out!', 'Banger going in!', 'Eyes!'],
-  breach: ['Stack up!', 'On the door!', 'Breaching, breaching!', 'Go, go, go!'],
-  fallback: ['Fall back!', 'Back, get back!', 'Pull out, by teams!', 'We can\'t hold this!'],
-  regroup: ['Rally on me!', 'Regroup!', 'Form up!'],
-  fear: ['What IS that thing?', 'It doesn\'t stop!', 'Bullets don\'t do anything!', 'That\'s not a man!', 'Did you see what it did to him?'],
-  panic: ['I\'m not dying here!', 'Run! Just run!', 'Oh God, oh God, oh God!', 'Get away from me!'],
-  surrender: ['Don\'t shoot!', 'I give up! I give up!', 'Please, please!', 'I have a family!', 'I\'m unarmed!'],
-  fix: ['All units, Command has a fix. Sending it now.', 'Thermal has a rough position. Move.'],
-  squadGone: ['We\'ve lost a whole squad!', 'They\'re all dead! All of them!', 'Nobody\'s left out there!'],
-  hit: ['I\'m hit!', 'I\'m hit, I\'m hit!', 'Agh! My leg!', 'It got me!', 'Ah, Christ!'],
-  dying: ['I can\'t feel my legs!', 'Don\'t leave me!', 'Tell them I tried.', 'Oh God, there\'s so much blood.', 'I don\'t want to die here.'],
-  beg: ['Please. Please, no.', 'Don\'t. I\'m done, I\'m done.', 'I have kids!', 'Just leave me.'],
-  scream: ['Help me! Somebody!', 'Medic! MEDIC!', 'Oh God, it hurts!', 'Don\'t leave me out here!', 'Get me out of here!'],
-  rescue: ['I\'m going for him!', 'Cover me, I\'ll get him!', 'Hold on, I\'m coming!', 'We don\'t leave him!'],
-  lastStand: ['Come on then!', 'You\'re coming with me!', 'Taking you with me!'],
-  // The Commander's men speak from src/enemies/commander/lines.ts, through `relay`.
-  order: [],
-  // The player's own men on the fort, from src/contracts/defense/radio.ts.
-  ally: [],
-  pinning: ['Keep it pinned!', 'Hold it there! Don\'t let it up!', 'Rounds on that corner, keep them on it!', 'Nobody stops firing!'],
-  flushing: ['Flush it out!', 'It\'s dug in! Frag it!', 'Grenade on that position, move it!', 'Get it out of there!'],
-  rushing: ['Everyone in! Now!', 'Go, go, go! Push!', 'All of you, on it, now!', 'Close it down!'],
-  cutoff: ['It\'s running! Cut it off!', 'Get ahead of it!', 'Block that exit!', 'It\'s heading for the door! Beat it there!'],
-  ambushSet: ['On the door. Not a sound.', 'Set up here. Wait for it.', 'Weapons on the frame. Nobody fires till I say.', 'Quiet. Let it come to us.'],
-  spring: ['Now! Now! Now!', 'Light it up!', 'Open fire!', 'Take it! Take it!'],
-  opening: ['It\'s reloading! Push!', 'It\'s dry! Move, move!', 'Now, while it\'s changing mags!'],
-  wounded: ['It\'s hurt! Stay on it!', 'That hit it! Finish it!', 'It\'s bleeding! Don\'t let up!'],
-  dry: ['I\'m out! I\'m out!', 'That\'s my last mag!', 'Nothing left! Anyone got a mag?'],
-  refused: ['It shot me! It shot me!', 'It doesn\'t take prisoners! Run!', 'It doesn\'t care! Run!'],
-  hostage: ['Hold fire! It\'s got one of ours!', 'Check fire, check fire!', 'Don\'t hit him! Get round the side!'],
-  clearShot: ['He\'s gone anyway. Take the shot.', 'Sorry, son. Fire.', 'Shoot through him. That\'s an order.'],
-  obey: ['Copy.', 'Copy that, moving.', 'Understood, sir.', 'On it.', 'Doing it now.'],
-  behindUs: ['It\'s behind us!', 'Rear! Rear! Turn around!', 'It came round the back!'],
-};
 
 /** Seconds before the same kind of line can come again. */
 const KIND_GAP: Partial<Record<CommsKind, number>> = {
@@ -66,9 +22,6 @@ const KIND_GAP: Partial<Record<CommsKind, number>> = {
 const DEFAULT_KIND_GAP = 2.5;
 /** Spacing between any two lines, so the feed stays readable. A casualty cuts in regardless. */
 const LINE_GAP = 1.3;
-const URGENT: ReadonlySet<CommsKind> = new Set<CommsKind>(['manDown', 'leaderDown', 'takingCommand', 'squadGone', 'frag', 'flash', 'surrender', 'lastStand', 'spring', 'refused', 'hostage']);
-/** Lines that come out as a scream, not a voice on the radio. */
-const SCREAMED: ReadonlySet<CommsKind> = new Set<CommsKind>(['panic', 'surrender', 'scream', 'dying', 'beg', 'lastStand', 'refused']);
 /** What radio silence takes off the air. A man on fire does not keep radio discipline. */
 const DISCIPLINED: ReadonlySet<CommsKind> = new Set<CommsKind>([
   'contact', 'lost', 'noise', 'moving', 'covering', 'flanking', 'breach', 'fallback', 'regroup', 'fix', 'reloading', 'takingCommand', 'frag', 'flash',
@@ -78,58 +31,71 @@ const DISCIPLINED: ReadonlySet<CommsKind> = new Set<CommsKind>([
 export class Comms {
   private nextLineAt = 0;
   private readonly kindAt = new Map<CommsKind, number>();
-  private readonly lastLine = new Map<CommsKind, number>();
-  private readonly line: CommsLine = { kind: 'contact', text: '', squad: '', speaker: null, enemy: null, position: new THREE.Vector3() };
+  readonly memory = new ChatterMemory();
+  private readonly facts: ChatterFacts = { faction: FACTION, state: 'steady', role: null, rank: null, leader: false, buddy: false, flags: { dead: false } };
+  private readonly line: CommsLine = { kind: 'contact', text: '', squad: '', speaker: null, enemy: null, position: new THREE.Vector3(), row: -1, name: -1, dead: -1 };
 
   constructor(private readonly w: AiWorld) {}
 
   reset(): void {
     this.nextLineAt = 0;
     this.kindAt.clear();
-    this.lastLine.clear();
+    this.memory.reset();
   }
 
-  /** Never the same line twice running: a man repeating himself reads as a bug, not as panic. */
-  private next(kind: CommsKind): string {
-    const lines = LINES[kind];
-    const last = this.lastLine.get(kind) ?? -1;
-    const i = (last + 1 + Math.floor(Math.random() * (lines.length - 1))) % lines.length;
-    this.lastLine.set(kind, i);
-    return lines[i]!;
+  /** A guest's men only move their lips to the host's words. */
+  private get deaf(): boolean {
+    const coop = this.w.ctx.coop;
+    return !!coop?.world && !coop.hosting;
   }
 
-  /** `s` is who says it. Null is Command on the radio, heard everywhere. */
-  say(kind: CommsKind, s: Soldier | null): void {
-    const { w, line } = this;
+  /** `s` is who says it. Null is Command on the radio, heard everywhere. `dead` is the man whose death it is about. */
+  say(kind: CommsKind, s: Soldier | null, dead: Soldier | null = null): void {
+    const { w, line, facts } = this;
     const now = w.now;
+    if (this.deaf) return;
     // A hole in the lung or the throat takes the voice with it, and a man in an ambush is not going to give it away.
     if (s?.injuries.mute || s?.silent) return;
     if (DISCIPLINED.has(kind) && w.enemies.outpost!.doctrine.radioSilence) return;
     if (now < (this.kindAt.get(kind) ?? 0)) return;
     if (now < this.nextLineAt && !URGENT.has(kind)) return;
     this.kindAt.set(kind, now + (KIND_GAP[kind] ?? DEFAULT_KIND_GAP));
+    facts.state = s?.state ?? 'steady';
+    facts.role = s?.role ?? null;
+    facts.rank = s?.rank ?? null;
+    facts.leader = s?.isLeader ?? false;
+    facts.buddy = !!s && !!dead && (dead.buddy === s || s.buddy === dead);
+    facts.flags.dead = !!dead && dead.name >= 0;
+    // Every row on its gap is silence, which keeps the kind's gap like a line would.
+    const row = this.memory.pick(kind, facts, now);
+    if (row < 0) return;
     this.nextLineAt = now + LINE_GAP;
     line.kind = kind;
-    line.text = this.next(kind);
+    line.row = row;
+    line.name = s?.name ?? -1;
+    line.dead = facts.flags.dead ? dead!.name : -1;
+    line.text = lineText(row, line.dead >= 0 ? NAME_LIST[line.dead]! : null);
     line.squad = s ? s.squad.name : 'Command';
-    line.speaker = s ? s.titled : null;
+    line.speaker = s ? speakerTag(s.name, s.rankDef.label, s.squad.name) : null;
     line.enemy = s ? s.e : null;
     if (s) line.position.copy(s.e.center);
     else line.position.copy(w.player.position);
     w.ctx.events.emit('comms:line', line);
     // A dying man's voice is audio's `vox_dying_human`, from the same moment's `enemy:condition`.
-    if (s && kind !== 'dying') say(s.e, w, SCREAMED.has(kind) ? 'vox_scream' : s.e.def.voice.attack, 0.45);
+    if (s && kind !== 'dying') say(s.e, w, RULES[row]!.channel === 'scream' ? 'vox_scream' : s.e.def.voice.attack, 0.45);
   }
 
   /** Words the caller chose, on the same feed. `who` names a voice that belongs to nobody on the map. */
   relay(text: string, s: Soldier | null, who: string | null): void {
     const { w, line } = this;
-    if (s?.injuries.mute) return;
+    if (s?.injuries.mute || this.deaf) return;
     this.nextLineAt = w.now + LINE_GAP;
     line.kind = 'order';
     line.text = text;
+    line.row = line.dead = -1;
+    line.name = s?.name ?? -1;
     line.squad = s ? s.squad.name : 'Command';
-    line.speaker = who ?? (s ? s.titled : null);
+    line.speaker = who ?? (s ? speakerTag(s.name, s.rankDef.label, s.squad.name) : null);
     line.enemy = s ? s.e : null;
     if (s) line.position.copy(s.e.center);
     else line.position.copy(w.player.position);

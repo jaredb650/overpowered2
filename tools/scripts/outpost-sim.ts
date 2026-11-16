@@ -106,7 +106,7 @@ if (scenario === 'roles') {
 
 const log: unknown[] = [];
 const on = (type: string, fn: (e: any) => unknown) => ctx.events.on(type, (e: unknown) => log.push({ t: +ctx.time.elapsed.toFixed(2), type, ...(fn(e) as object) }));
-on('comms:line', e => ({ kind: e.kind, text: e.text, who: e.speaker ?? e.squad }));
+on('comms:line', e => ({ kind: e.kind, text: e.text, who: e.speaker ?? e.squad, row: e.row }));
 on('enemy:broken', e => ({ uid: e.enemy.uid, fate: e.fate }));
 on('enemy:surrendered', e => ({ uid: e.enemy.uid }));
 on('enemy:wounded', e => ({ uid: e.enemy.uid, zone: e.zone, label: e.label }));

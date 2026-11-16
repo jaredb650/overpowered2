@@ -433,6 +433,37 @@
   white-space: nowrap;
   text-shadow: var(--edge), -0.05rem -0.05rem 0 #000;
 }
+/* Speech bubbles (hud/bubbles.ts). The anchor sits over the man's head; the box hangs above it on a short tail. */
+.bb-layer { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.bb { position: absolute; left: 0; top: 0; width: 0; height: 0; transform-origin: 0 0; will-change: transform; }
+.bb-box {
+  position: absolute;
+  left: 0;
+  bottom: 0.45rem;
+  translate: -50% 0;
+  width: max-content;
+  /* 24 characters of text, plus the padding and the edge. */
+  max-width: calc(24ch + 1.1rem);
+  padding: 0.18rem 0.45rem 0.2rem;
+  background: var(--plate-solid);
+  border-left: 0.1875rem solid var(--c);
+  color: var(--ink);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.25;
+}
+.bb-box::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -0.4rem;
+  translate: -50% 0;
+  border: 0.4rem solid transparent;
+  border-top-color: var(--plate-solid);
+  border-bottom: 0;
+}
+.bb-t { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.bb.scream .bb-t { color: var(--amber); text-transform: uppercase; }
 .mk { position: absolute; left: 0; top: 0; width: 0; height: 0; will-change: transform; }
 .mk-pin {
   position: absolute;

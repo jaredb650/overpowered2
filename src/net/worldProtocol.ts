@@ -24,7 +24,9 @@ export type WorldEvent =
   | { t: 'sever'; uid: number; region: GoreRegion; damage: WireDamage }
   | { t: 'hurt'; amount: number; from: Vec; type: string; source: string; life: number }
   | { t: 'life'; slot: number; alive: boolean; life: number }
-  | { t: 'ray'; from: Vec; to: Vec };
+  | { t: 'ray'; from: Vec; to: Vec }
+  /** A line the host's rule table chose (src/enemies/outpost/chatter). Ids only: row, speaker, his name, rank and squad, and the dead man's name. */
+  | { t: 'chatter'; uid: number; line: number; name: number; dead: number; rank: number; squad: string };
 
 export function encodeWorld(frame: WorldFrame): ArrayBuffer {
   const buffer = new ArrayBuffer(HEADER_BYTES + frame.enemies.length * ENEMY_BYTES);

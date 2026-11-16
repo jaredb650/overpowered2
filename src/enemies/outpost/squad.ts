@@ -30,7 +30,7 @@ import {
 } from './planner';
 import type { Rank } from './rank';
 import { Route } from './routes';
-import type { Grenade, Soldier, Urgency } from './soldier';
+import { soldierOf, type Grenade, type Soldier, type Urgency } from './soldier';
 
 export type SquadMode = 'advance' | 'engage' | 'stack' | 'fallback' | 'regroup' | 'rush' | 'flush' | 'cutoff' | 'ambush';
 
@@ -264,6 +264,19 @@ export class OutpostSquad implements Squad {
     s.silent = this.lying;
     this.strength = Math.max(this.strength, this.members.length);
     if (!this.leader || this.outranks(s.role, this.leader.role)) this.leader = s;
+    this.pair(s);
+  }
+
+  /** The last man without a pair of his own takes the newcomer. With none, the newcomer pairs one way with the leader. */
+  private pair(s: Soldier): void {
+    for (let i = this.members.length - 2; i >= 0; i--) {
+      const m = this.members[i]!;
+      if (m.buddy?.buddy === m && m.buddy.squad === this) continue;
+      m.buddy = s;
+      s.buddy = m;
+      return;
+    }
+    s.buddy = this.leader === s ? null : this.leader;
   }
 
   private teamSize(team: 0 | 1): number {
@@ -301,15 +314,19 @@ export class OutpostSquad implements Squad {
   onLoss(kill: KillEvent, wasLeader: boolean): void {
     const { outpost: o } = this;
     const now = o.w.now;
+    const dead = soldierOf(kill.enemy) ?? null;
     this.lossTimes.push(now);
     if (wasLeader && this.leader) {
       this.stunnedUntil = now + LEADERLESS_SECONDS;
-      o.comms.say('leaderDown', this.leader);
+      o.comms.say('leaderDown', this.leader, dead);
       for (const m of this.members) o.scare(m, FEAR.leaderDown);
       this.leader.morale += 12;
       o.comms.say('takingCommand', this.leader);
     } else if (this.members.length > 0) {
-      o.comms.say('manDown', this.members[0]!);
+      // His pair says it if he can. Who speaks changes, never what anyone does.
+      const buddy = dead?.buddy;
+      const voice = buddy && buddy.squad === this && buddy.fighting && !buddy.injuries.mute && this.members.includes(buddy) ? buddy : this.members[0]!;
+      o.comms.say('manDown', voice, dead);
     }
     while (this.lossTimes.length > 0 && now - this.lossTimes[0]! > RAPID_SECONDS) this.lossTimes.shift();
     if (this.lossTimes.length >= Math.ceil(this.strength * RAPID_SHARE) && this.members.length > 0) {

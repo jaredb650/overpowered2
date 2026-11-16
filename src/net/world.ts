@@ -6,6 +6,11 @@ import type { EnemyManager } from '../enemies/EnemyManager';
 import type { PlayerSense } from '../enemies/aiWorld';
 import type { Foe } from '../enemies/outpost/soldier';
 import { soldierOf } from '../enemies/outpost/soldier';
+import { RULES } from '../enemies/outpost/chatter/lines';
+import { NAME_LIST, speakerTag } from '../enemies/outpost/chatter/names';
+import { lineText } from '../enemies/outpost/chatter/rules';
+import type { CommsLine } from '../enemies/outpost/events';
+import { RANKS, type Rank } from '../enemies/outpost/rank';
 import { HELMET } from '../enemies/wounds/armour';
 import { Route, RouteFinder, type NavGrid } from '../enemies/outpost/routes';
 import { closestSegmentPoints } from '../weapons/geometry';
@@ -15,6 +20,8 @@ import { decodeWorld, encodeWorld, ENEMY_IDS, packDamage, REGIONS, SNAPSHOT_MS, 
 import type { CoopSession } from './index';
 
 interface Replica { enemy: Enemy; from: EnemyFrame; to: EnemyFrame; at: number }
+const RANK_IDS = Object.keys(RANKS) as Rank[];
+const nameId = (id: unknown): number => typeof id === 'number' && Number.isInteger(id) && NAME_LIST[id] !== undefined ? id : -1;
 interface PlayerTarget { id: string; player: PlayerSystem; life: RespawnClock; foe: Foe }
 
 export class CoopWorld {
@@ -41,6 +48,7 @@ export class CoopWorld {
   private firedAt = -Infinity;
   private weapon = '';
   private delayed: { at: number; run: () => void }[] = [];
+  private readonly heard: CommsLine = { kind: 'contact', text: '', squad: '', speaker: null, enemy: null, position: new THREE.Vector3(), row: -1, name: -1, dead: -1 };
   targetPlayer: PlayerSystem | null = null;
   receivingDamage = false;
 
@@ -55,6 +63,13 @@ export class CoopWorld {
       this.off.push(ctx.events.on('enemy:killed', event => this.broadcast({ t: 'kill', uid: event.enemy.uid, id: event.enemy.id,
         at: event.enemy.position.toArray() as Vec, yaw: event.enemy.yaw, damage: packDamage(event.damage), gib: event.gibbed })));
       this.off.push(ctx.events.on('enemy:severed', event => this.broadcast({ t: 'sever', uid: event.enemy.uid, region: event.region, damage: packDamage(event.damage) })));
+      // Every player hears the same man say the same words. Lines a caller wrote by hand stay the host's.
+      this.off.push(ctx.events.on('comms:line', line => {
+        if (line.row === undefined || line.row < 0) return;
+        const rank = line.enemy ? soldierOf(line.enemy)?.rank : undefined;
+        this.broadcast({ t: 'chatter', uid: line.enemy?.uid ?? 0, line: line.row, name: line.name ?? -1, dead: line.dead ?? -1,
+          rank: rank ? RANK_IDS.indexOf(rank) : -1, squad: line.squad });
+      }));
     }
   }
 
@@ -175,12 +190,31 @@ export class CoopWorld {
         else { this.ctx.gore.wound(enemy.char, damage, 0.6); this.ctx.fx.bloodHit(damage.point, damage.dir); enemy.char.hitFlash(0.4); }
         break;
       }
+      case 'chatter': this.hear(value); break;
       case 'sever': {
         const enemy = this.replicas.get(value.uid)?.enemy;
         if (enemy && !enemy.char.severed.has(value.region)) this.ctx.gore.sever(enemy.char, value.region, this.unpack(value.damage));
         break;
       }
     }
+  }
+
+  private hear(value: Extract<WorldEvent, { t: 'chatter' }>): void {
+    const row = Number.isInteger(value.line) ? RULES[value.line] : undefined;
+    if (!row || typeof value.squad !== 'string' || value.squad.length > 16) return;
+    const line = this.heard;
+    const enemy = value.uid ? this.replicas.get(value.uid)?.enemy ?? null : null;
+    const rank = RANK_IDS[value.rank];
+    line.kind = row.concept;
+    line.row = value.line;
+    line.name = nameId(value.name);
+    line.dead = nameId(value.dead);
+    line.text = lineText(value.line, line.dead >= 0 ? NAME_LIST[line.dead]! : null);
+    line.squad = value.uid ? value.squad : 'Command';
+    line.speaker = value.uid ? speakerTag(line.name, rank ? RANKS[rank].label : '', value.squad) : null;
+    line.enemy = enemy;
+    line.position.copy(enemy?.center ?? this.ctx.player.position);
+    this.ctx.events.emit('comms:line', line);
   }
 
   private visible(origin: Vec, target: Vec): boolean {

@@ -11,7 +11,7 @@ import type { HudSystem, PickupKind, SeatPanel } from '../core/gameplay';
 import { div } from './dom';
 import { HudState } from './state';
 import { RunReport } from './runreport';
-import { applyQuality, applySettings, loadSettings, type Settings } from './settings';
+import { applyQuality, applySettings, CHATTER_BUBBLES, CHATTER_OFF, loadSettings, type Settings } from './settings';
 import { CALLINS, WEAPONS, sourceName } from './data';
 import { pickupColor } from './icons';
 import { Vitals } from './hud/vitals';
@@ -24,6 +24,7 @@ import { CallIns } from './hud/callins';
 import { CommsFeed, KillFeed, StyleLane } from './hud/feed';
 import { Crosshair, type HitKind } from './hud/crosshair';
 import { WorldLayer } from './hud/worldlayer';
+import { Bubbles } from './hud/bubbles';
 import { BossBar } from './hud/boss';
 import { Banner } from './hud/banner';
 import { LowFrame, Scope, Targeting } from './hud/overlays';
@@ -101,6 +102,7 @@ export class Hud implements HudSystem {
   private crosshair: Crosshair;
   private callouts: Callout;
   private worldLayer: WorldLayer;
+  private bubbles: Bubbles;
   private boss: BossBar;
   private bannerLanes: Banner;
   private scope: Scope;
@@ -139,6 +141,7 @@ export class Hud implements HudSystem {
     this.root.classList.add('op');
 
     this.worldLayer = new WorldLayer(ctx);
+    this.bubbles = new Bubbles(ctx);
     this.stragglers = new Stragglers(this.worldLayer);
     this.vitals = new Vitals(ctx);
     this.arms = new Arms(ctx);
@@ -170,6 +173,7 @@ export class Hud implements HudSystem {
     this.hud = div('hud',
       this.lowFrame.el,
       this.worldLayer.el,
+      this.bubbles.el,
       this.scope.el,
       this.targeting.el,
       this.crosshair.el,
@@ -254,7 +258,13 @@ export class Hud implements HudSystem {
     events.on('music:track', e => this.nowPlaying.show(e.title, e.original));
     events.on('defense:open', e => this.openDefense(e.screen));
     events.on('shop:open', () => this.openDefense('procurement'));
-    events.on('comms:line', e => this.comms.push(e.text, e.kind === 'ally' ? 'var(--friend)' : COMMS_FEAR.has(e.kind) ? 'var(--amber)' : 'var(--cold)', e.speaker ?? e.squad));
+    events.on('comms:line', e => {
+      const chatter = e.kind === 'ally' ? 0 : this.settings.chatter;
+      if (chatter === CHATTER_OFF) return;
+      const color = e.kind === 'ally' ? 'var(--friend)' : COMMS_FEAR.has(e.kind) ? 'var(--amber)' : 'var(--cold)';
+      this.comms.push(e.text, color, e.speaker ?? e.squad);
+      if (chatter === CHATTER_BUBBLES) this.bubbles.say(e, color);
+    });
     applySettings(this.ctx, this.settings);
     applyQuality(this.ctx, this.settings);
   }
@@ -307,6 +317,7 @@ export class Hud implements HudSystem {
     this.feedLane.clear();
     this.styleLane.clear();
     this.comms.clear();
+    this.bubbles.reset();
     this.sonar.reset();
     this.crosshair.reset();
     this.worldLayer.reset();
@@ -538,6 +549,7 @@ export class Hud implements HudSystem {
     this.crosshair.update(s, dt, this.combo.tier);
     this.seatPanel?.update();
     this.worldLayer.update(dt);
+    this.bubbles.update(playing ? dt : 0);
     this.boss.update(s, dt);
     this.commander?.nameBoss(this.boss.el);
     if (!ctx.coop?.freeRoam) {

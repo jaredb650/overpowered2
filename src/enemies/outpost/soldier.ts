@@ -44,6 +44,10 @@ export class Soldier {
   rankDef: RankDef = RANKS.regular;
   /** Number in the squad, for 'Alpha-2'. */
   seat = 0;
+  /** His name, an id into chatter/names.ts `NAME_LIST`. -1 until he enlists. */
+  name = -1;
+  /** His pair in the squad, who takes his death hardest (squad-chatter 4.7). The odd man out pairs one way with the leader. */
+  buddy: Soldier | null = null;
   /** Which of the squad's two fire teams. One moves while the other covers. */
   team: 0 | 1 = 0;
 
@@ -168,6 +172,8 @@ export class Soldier {
     this.rank = 'regular';
     this.rankDef = RANKS.regular;
     this.seat = 0;
+    this.name = -1;
+    this.buddy = null;
     this.team = 0;
     this.morale = this.baseMorale = 100;
     this.state = 'steady';

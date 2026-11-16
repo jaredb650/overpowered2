@@ -14,6 +14,10 @@ const BASE_SENSITIVITY = 0.002;
 
 export const GORE_LEVELS = ['Low', 'Full', 'Excessive'] as const;
 export const QUALITY_LEVELS = ['Low', 'Medium', 'High', 'Ultra'] as const;
+/** Enemy chatter (docs/proposals/squad-chatter.md, 6.3). Off stops the text only: no tactic depends on a line being shown. */
+export const CHATTER_LEVELS = ['Bubbles and feed', 'Feed only', 'Off'] as const;
+export const CHATTER_BUBBLES = 0;
+export const CHATTER_OFF = 2;
 
 export interface Settings {
   /** Multiplier on the default mouse speed. */
@@ -33,11 +37,13 @@ export interface Settings {
   aimSensitivity: number;
   /** Floating text over a hit enemy: an index into HIT_TEXT_LEVELS. */
   hitText: number;
+  /** Enemy lines: an index into CHATTER_LEVELS. */
+  chatter: number;
 }
 
 export const DEFAULTS: Readonly<Settings> = {
   sensitivity: 1, fov: 90, invertY: false, master: 0.8, sfx: 1, music: 0.7, quality: 2, gore: 1, holdToHop: false,
-  aimHold: false, aimSensitivity: TUNING.ads.sensitivity, hitText: 0,
+  aimHold: false, aimSensitivity: TUNING.ads.sensitivity, hitText: 0, chatter: CHATTER_BUBBLES,
 };
 
 export const SENSITIVITY_RANGE = [0.1, 4] as const;
@@ -55,6 +61,7 @@ function sanitize(s: Settings): void {
   s.quality = clamp(Math.round(s.quality), 0, QUALITY_LEVELS.length - 1);
   s.gore = clamp(Math.round(s.gore), 0, GORE_LEVELS.length - 1);
   s.hitText = clamp(Math.round(s.hitText), 0, HIT_TEXT_LEVELS.length - 1);
+  s.chatter = clamp(Math.round(s.chatter), 0, CHATTER_LEVELS.length - 1);
 }
 
 export function loadSettings(): Settings {

@@ -26,11 +26,16 @@ export interface CommsLine {
   text: string;
   /** 'Alpha', 'Bravo'. */
   squad: string;
-  /** 'Alpha-2'. Null for Command itself. */
+  /** 'Cpl Marsh · Alpha'. Null for Command itself. */
   speaker: string | null;
   enemy: EnemyInstance | null;
   /** Where it was said from. Shared and reused: copy it to keep it. */
   position: THREE.Vector3;
+  /** The rule table's row (chatter/lines.ts `RULES`), or -1 for words a caller chose. Absent from lines outside the Outpost's brain. */
+  row?: number;
+  /** The speaker's and the dead man's name ids (chatter/names.ts `NAME_LIST`), or -1. */
+  name?: number;
+  dead?: number;
 }
 
 declare module '../../core/contracts' {

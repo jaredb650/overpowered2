@@ -681,6 +681,14 @@ Each stage is playable on its own and ends with a URL. One agent per stage, comm
 | 8 | **Types and temperaments** | Temperaments on every man (4.10), the seven types' personalities and type lines (4.11), the real line set that replaces 5.5's samples, and the small type behaviours: the backblast step-aside, the riot stack, the warden's calm | M | Opus, high | 0.4 to 0.6M |
 | 9 | **Voices** (when the owner says) | Script, generator, six voices, radio bus, the `<audio>` pool, a 20-line test first | M, plus the owner's listening | Opus, medium | 0.3 to 0.5M, plus the model's cost |
 
+**Built, 2026-11-16: stages 1 and 2.** The table is `src/enemies/outpost/chatter/` (`lines.ts` rows, `rules.ts` matcher and memory,
+`names.ts` pools and the roll); `comms.ts` asks it. 154 old lines ported word for word into the scared rows; 158 professional rows, 16
+shaken and 27 panicked rows, 9 named grief rows beside them. Every man has a name and a buddy; the buddy grieves first (who speaks only:
+no fear change until stage 5). Holdfast draws its own names but borrows the garrison's rows until stage 7. `NOTHING` in `lines.ts` is the
+silence weight. Bubbles are `src/ui/hud/bubbles.ts`; the setting is Settings > Video > Enemy chatter. Co-op: the host sends each line as a
+`chatter` event (row, speaker uid, name ids, rank, squad) and guests say nothing of their own. A 10 minute `outpost-sim.ts` hunter and
+spree run each had no row inside its 40 s gap and no table line over 4 times (the Commander's hand-written relays are outside the table).
+
 Stages 1 and 2 first and alone: they are the whole phase 1 look with today's behaviour, and the owner can judge whether bubbles help
 before anything else moves. 3 and 6 can run beside each other after 1. 4 and 5 touch `squad.ts` and `index.ts` and should not run at the
 same time. 8 comes after 5, since temperaments change nerve. **Total for phase 1:** about 2.8 to 4.4M tokens, a little more than the air support update.

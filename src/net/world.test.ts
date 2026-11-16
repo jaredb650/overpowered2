@@ -10,6 +10,8 @@ import { Lobby } from './lobby';
 import type { NetRoom } from './room';
 import { CoopWorld } from './world';
 import { decodeWorld, encodeWorld, type WorldEvent } from './worldProtocol';
+import { RULES } from '../enemies/outpost/chatter/lines';
+import type { CommsLine } from '../enemies/outpost/events';
 
 class Relay {
   readonly rooms: Room[] = [];
@@ -173,6 +175,26 @@ describe('host-authoritative world over the mocked lobby transport', () => {
     game.relay.flush(); expect(game.guest.manager.replayDeath).toHaveBeenCalledOnce();
     vi.advanceTimersByTime(101); game.hw.update(); game.relay.flush();
     expect(game.guest.manager.spawn).toHaveBeenCalledOnce();
+    game.hw.dispose(); game.gw.dispose();
+  });
+  it('sends the host\'s chatter as ids, so every guest sees the same man say the same words', () => {
+    const game = pair(); const enemy = game.host.manager.spawn('trooper', new THREE.Vector3(0, 0, -10));
+    game.hw.update(); game.relay.flush();
+    const heard: CommsLine[] = [];
+    game.guest.ctx.events.on('comms:line', line => heard.push({ ...line }));
+    const row = RULES.findIndex(r => r.id === 'ch.garrison.manDown.namedPro.1');
+    game.host.ctx.events.emit('comms:line', { kind: 'manDown', text: '', squad: 'Alpha', speaker: 'Cpl Marsh · Alpha', enemy, position: enemy.center.clone(), row, name: 0, dead: 1 });
+    game.relay.flush();
+    const packet = game.relay.packets.filter(p => p.lane === 'action').map(p => (p.data as { data: WorldEvent }).data).find(e => e.t === 'chatter');
+    expect(packet).toEqual({ t: 'chatter', uid: enemy.uid, line: row, name: 0, dead: 1, rank: -1, squad: 'Alpha' });
+    expect(heard).toHaveLength(1);
+    expect(heard[0]).toMatchObject({ kind: 'manDown', text: 'Novak is down. Keep firing.', row, name: 0, dead: 1, squad: 'Alpha' });
+    expect(heard[0]!.enemy).toBe(game.guest.ctx.enemies.alive[0]);
+    // Hand-written words stay on the host, and a guest cannot be fed a row that does not exist.
+    game.host.ctx.events.emit('comms:line', { kind: 'order', text: 'Words.', squad: 'Command', speaker: null, enemy: null, position: new THREE.Vector3(), row: -1 });
+    game.hostRoom.channel('action').send({ match: 'world-test', data: { t: 'chatter', uid: 0, line: RULES.length, name: 0, dead: -1, rank: 0, squad: 'Alpha' } });
+    game.relay.flush();
+    expect(heard).toHaveLength(1);
     game.hw.dispose(); game.gw.dispose();
   });
   it('selects guests, computes enemy hits and respawns dead players without stopping host simulation', () => {

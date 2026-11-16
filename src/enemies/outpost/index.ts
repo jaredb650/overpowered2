@@ -37,6 +37,7 @@ import type { Enemy } from '../Enemy';
 import type { EnemyManager } from '../EnemyManager';
 import { TargetTrack } from './aim';
 import { SOLDIER_BEHAVIOURS } from './behaviours';
+import { FACTION, NameRoll } from './chatter/names';
 import { Comms } from './comms';
 import { CoverMap, type CoverSpot, type SpotReading } from './cover';
 import { CALLSIGNS, defaultDoctrine, fireRules, MAX_SQUAD, ROLE_OF, ROLES, type Doctrine } from './doctrine';
@@ -163,6 +164,8 @@ export class Outpost {
   private fixedGrade: Rank | null = null;
   private readonly dropped: DroppedWeapons;
   private readonly pool = new Pool<Soldier>(() => new Soldier(), s => s.clear());
+  /** Every man's name, never two alike alive. */
+  readonly names = new NameRoll();
   private readonly leaving: Soldier[] = [];
   private gates: THREE.Vector3[] = [];
   private readonly gateUsedAt = new Map<THREE.Vector3, number>();
@@ -238,6 +241,7 @@ export class Outpost {
     }
     this.soldiers.length = 0;
     this.flushLeaving();
+    this.names.reset();
     this.squads.length = 0;
     this.forming = this.gate = null;
     this.squadSerial = this.prisoners = 0;
@@ -368,6 +372,7 @@ export class Outpost {
       squad = this.forming!;
       this.forming = null;
     }
+    s.name = this.names.draw(FACTION);
     squad.join(s);
     this.commission(s, squad);
     e.squad = squad;
@@ -481,6 +486,7 @@ export class Outpost {
   /** Soldiers leave the roster a frame late, because `enemy:killed` still reads them after the body has gone. */
   private flushLeaving(): void {
     for (const s of this.leaving) {
+      this.names.free(s.name);
       // The pool can hand his body to a new man before this runs, and that man keeps his place.
       if (soldierOf(s.e) === s) discharge(s.e);
       this.pool.release(s);
@@ -907,6 +913,7 @@ export class Outpost {
     const s = soldierOf(k.enemy);
     if (!s) return;
     const { dread, w } = this;
+    this.names.died(s.name);
     const severed = k.severedCount;
     dread.onKill({ gibbed: k.gibbed, sliced: k.sliced, headshot: k.headshot, severed }, w.now);
     const brutal = k.gibbed || k.sliced || k.headshot || severed > 0;
