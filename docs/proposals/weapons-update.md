@@ -153,14 +153,14 @@ and plate rules, HP's plate stop and no penetration. Suppressed and unsuppressed
 see audio notes. Ball uses the Sabot vapor recipe parameterized down to 28% width with fewer wisps and no shock puff.
 
 The Quiver's simultaneous right-click salvo now braids four physical paths around one flight line: 0.7 m radius, 15 m pitch,
-Validation on 2026-11-16: `npx tsc --noEmit` passes in the shared tree and isolated checkout. Ten focused files, run one at a
-time, pass 145 tests: Awl 9, its model 3, helix 6, families 22, swarm 32, mods 10, ADS 11, heavy 34, vapor budget 2, shop 16.
-One initial ADS hook hit the default 10-second timeout while other jobs were running; it passes with `--hookTimeout=60000`.
-
 starting at the tube square and closing over the last 12 m to one fixed aim point. Smoke is sampled every 0.4 m, at most eight
 puffs per rocket per frame, so the braid stays legible at lower frame rates. The collision/fuse/damage/blast pipeline
 is unchanged. Focused tests cover bolt timing and fire-rate floor, stats, optics/mods, independent unlock, helix geometry,
 swept wall impacts and projectile reuse. Captures: `tools/out/scout/`, DPR 2 at 1440×900; scripted stills only.
+
+Validation on 2026-11-16: `npx tsc --noEmit` passes in the shared tree and isolated checkout. Ten focused files, run one at a
+time, pass 145 tests: Awl 9, its model 3, helix 6, families 22, swarm 32, mods 10, ADS 11, heavy 34, vapor budget 2, shop 16.
+One initial ADS hook hit the default 10-second timeout while other jobs were running; it passes with `--hookTimeout=60000`.
 
 ## 14. The Autoraffica, a machine pistol with smart aim
 **Built 2026-11-15.** Owner: a burst-fire service pistol with a giant square integrated suppressor, cyberpunk, in the spirit of a
