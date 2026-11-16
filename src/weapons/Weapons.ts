@@ -2002,7 +2002,7 @@ export class Weapons implements WeaponSystem, Guard {
     const def = this.held.def;
     if (this.rescope) {
       // Aim pressed (toggle) or let go (hold) during the cycle keeps it out; otherwise it is back in as the bolt locks.
-      if (!def.scope || c.input.pressed('aim') || (this.aimHold && !c.input.isDown('aim'))) this.rescope = false;
+      if (!def.scope || (!this.aimHold && c.input.pressed('aim')) || (this.aimHold && !c.input.isDown('aim'))) this.rescope = false;
       else if (!(def.cycleTime && this.held.cooldown > 0) && !this.reloading && this.drawLeft <= 0) {
         this.rescope = false;
         this.zoomed = true;
@@ -2010,10 +2010,13 @@ export class Weapons implements WeaponSystem, Guard {
         c.camera.setZoom(def.scopeFov ?? t.scopeFov);
       }
     }
-    if (def.scope && c.input.pressed('aim') && !this.reloading && this.drawLeft <= 0 && !(def.cycleTime && this.held.cooldown > 0)) {
-      this.zoomed = !this.zoomed;
-      c.audio.play('autocannon_zoom');
-      c.camera.setZoom(this.zoomed ? (def.scopeFov ?? t.scopeFov) : null);
+    if (def.scope && (this.aimHold || c.input.pressed('aim')) && !this.reloading && this.drawLeft <= 0 && !(def.cycleTime && this.held.cooldown > 0)) {
+      const zoomed = this.aimHold ? c.input.isDown('aim') : !this.zoomed;
+      if (zoomed !== this.zoomed) {
+        this.zoomed = zoomed;
+        c.audio.play('autocannon_zoom');
+        c.camera.setZoom(this.zoomed ? (def.scopeFov ?? t.scopeFov) : null);
+      }
     }
     this.zoom = damp(this.zoom, this.zoomed ? 1 : 0, t.zoomRate, c.time.realDt);
     const shown = this.zoomed && this.zoom > t.scopeShowAt;
