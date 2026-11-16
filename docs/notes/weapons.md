@@ -21,7 +21,9 @@ The full-screen scope drops out after the shot, so the hand operation can be see
 locks (`Weapons.rescope`): no click needed. Pressing aim during the cycle (the scope is a toggle) keeps it out; with
 hold-to-aim on, so does letting go of the button. A weapon switch, a reload or anything else that clears the scope cancels it.
 
-Its own circular scope and fine duplex reticle use 32-degree FOV (about 3.5x at a 90-degree hip FOV), versus the Sabot's 20.
+Its own circular scope and fine duplex reticle use 14.2500327-degree FOV (8x at a 90-degree hip FOV), versus the Sabot's unchanged 20.
+Magnification is `tan(hip FOV / 2) / tan(scope FOV / 2)`, the HUD's convention; mouse look scales by its inverse
+(0.125 at 8x). The scope was 32 degrees (about 3.5x) before the owner increased it on 2026-11-16.
 `awlAcog` swaps the scope for the reusable four-power ACOG and ordinary ADS, and removing it restores the scout scope.
 `awlCan` fits a suppressor, swaps the flash/report and leaves the ballistics alone. `awlAp` and `awlHp` use section 12's
 shared `rounds` API: AP 144 damage and 1.2 m penetration; HP 270 and no penetration; only one ammo mod at a time. All four

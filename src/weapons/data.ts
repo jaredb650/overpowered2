@@ -359,7 +359,8 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     magSize: 5, reserve: 50, maxReserve: 100, reloadTime: 1.65, drawTime: 0.22,
     interval: 0.65, damage: 180, severMult: 2, force: 28, headshotMult: 3, armour: 'medium',
     penetration: 0.8, muzzle: 'rifle', tracer: 'scout', casing: 'rifle',
-    scope: true, scopeFov: 32,
+    // Eight times the 90-degree hip view: tan(90 / 2) / tan(scopeFov / 2) = 8.
+    scope: true, scopeFov: 2 * Math.atan(1 / 8) * 180 / Math.PI,
     sounds: [{ id: 'awl_shot', pitchJitter: 0.02 }],
     // The bolt at 0.65 s (was 0.95, every cue scaled with it): lift, pull with the case out, push, lock.
     cycleTime: 0.65, cycleEject: 1,

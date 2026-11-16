@@ -35,7 +35,10 @@ describe('the Awl scout', () => {
     expect(WEAPONS.awl.damage * WEAPONS.awl.headshotMult).toBeLessThan(WEAPONS.sabot.damage * WEAPONS.sabot.headshotMult);
     expect(WEAPONS.awl.penetration).toBeLessThan(WEAPONS.sabot.penetration);
     expect(WEAPONS.awl.armorPiercing).not.toBe(true);
-    expect(WEAPONS.awl.scopeFov).toBeGreaterThan(TUNING.autocannon.scopeFov);
+    expect(WEAPONS.awl.scopeFov).toBeCloseTo(14.2500327, 6);
+    expect(Math.tan(Math.PI / 4) / Math.tan(WEAPONS.awl.scopeFov! * Math.PI / 360)).toBeCloseTo(8, 10);
+    expect(TUNING.autocannon.scopeFov).toBe(20);
+    expect(WEAPONS.awl.scopeFov).toBeLessThan(TUNING.autocannon.scopeFov);
   });
 
   it('lifts, draws back, goes forward and locks; the case flies on pull-back, not lift', () => {
@@ -116,23 +119,33 @@ describe('the Awl scout', () => {
 
   it('scopes at its own FOV, drops out for the visible bolt, and swaps to the shared ACOG and back', () => {
     const zoom = vi.fn();
+    const aim = vi.fn();
     range.ctx.camera.setZoom = zoom;
+    range.ctx.camera.setAim = aim;
     range.tap('aim');
     range.run(0.4);
     expect(range.weapons.scoped).toBe(true);
-    expect(zoom).toHaveBeenCalledWith(32);
+    expect(zoom).toHaveBeenLastCalledWith(WEAPONS.awl.scopeFov);
     range.tap('fire');
     expect(range.weapons.scoped).toBe(false);
     range.run(1);
+    expect(range.weapons.scoped).toBe(true);
+    expect(zoom).toHaveBeenLastCalledWith(WEAPONS.awl.scopeFov);
     fit('awlAcog');
     range.tap('aim');
     range.run(0.4);
     expect(range.weapons.aim).toBeGreaterThan(0.99);
     expect(range.weapons.scoped).toBe(false);
+    expect(moddedDef('awl', range.weapons.fitted).ads).toEqual({ zoom: 0.69, time: 0.24 });
+    expect(aim).toHaveBeenLastCalledWith(expect.closeTo(0.31, 10), TUNING.ads.sensitivity);
+    const acogFov = 90 * (1 - moddedDef('awl', range.weapons.fitted).ads!.zoom);
+    expect(acogFov).toBeCloseTo(27.9);
+    expect(1 / Math.tan(acogFov * Math.PI / 360)).toBeCloseTo(4, 1);
     fit('awlAcog', false);
     range.tap('aim');
     range.run(0.4);
     expect(range.weapons.scoped).toBe(true);
+    expect(zoom).toHaveBeenLastCalledWith(WEAPONS.awl.scopeFov);
   });
 
   it('goes back into the scope as the bolt locks, unless aim was pressed or let go during the cycle', () => {

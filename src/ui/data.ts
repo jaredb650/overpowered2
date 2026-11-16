@@ -76,7 +76,7 @@ export const WEAPONS: Record<WeaponId, WeaponInfo> = {
   awl: {
     name: 'Awl', key: '4',
     role: `Bolt-action scout. ${def.awl.damage} damage, ${def.awl.magSize} rounds, triple damage to the head`,
-    note: 'Key 4 beside the Sabot. Right click: 3.5x scout scope. Every shot needs the bolt closed before another. ACOG, suppressor and AP/HP in Procurement.',
+    note: 'Key 4 beside the Sabot. Right click: 8x scout scope. Every shot needs the bolt closed before another. ACOG, suppressor and AP/HP in Procurement.',
   },
   sabot: {
     name: 'Sabot', key: '4',
