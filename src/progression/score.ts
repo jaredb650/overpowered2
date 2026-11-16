@@ -42,7 +42,7 @@ export class ScoreKeeper {
   private label = '';
 
   constructor(private readonly ctx: Ctx) {
-    this.storedHighScore = ACTIVE.ranked ? readHighScore(ACTIVE.def) : 0;
+    this.storedHighScore = ACTIVE.ranked ? readHighScore(ACTIVE.def, ACTIVE.map) : 0;
     this.highScore = this.storedHighScore;
     // Closing the tab mid-wave is the last chance to keep a record set since the last wave clear.
     window.addEventListener('pagehide', () => this.persist());
@@ -177,7 +177,7 @@ export class ScoreKeeper {
   persist(): void {
     if (this.highScore <= this.storedHighScore) return;
     this.storedHighScore = this.highScore;
-    if (ACTIVE.ranked) writeHighScore(ACTIVE.def, this.highScore);
+    if (ACTIVE.ranked) writeHighScore(ACTIVE.def, this.highScore, ACTIVE.map);
   }
 
   reset(): void {

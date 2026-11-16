@@ -19,6 +19,7 @@ const FALLBACK: Partial<Record<Mat, [number, number?, number?, number?]>> = {
   concrete: [0x6f7782], concreteDark: [0x444b55], asphalt: [0x2c3036], steel: [0x7c8894, 0.7, 0.45], steelDark: [0x39414b, 0.7, 0.5],
   rust: [0x4f4640, 0.4], grate: [0x3b4249, 0.7], hazard: [0x8a8f97], panel: [0x59626e, 0.3], tile: [0x77808c, 0.1, 0.25], dirt: [0x3d3b39],
   glass: [0x8fb5c9, 0.1, 0.1], rubber: [0x17191c], paintRed: [0xa32a24], paintYellow: [0xa38a24], paintWhite: [0xb9c1cc],
+  plaster: [0xdcdcd8, 0, 0.92], carpet: [0x9aa0a8, 0, 1],
 };
 const FALLBACK_EMISSIVE: Partial<Record<Mat, number>> = {
   emissiveCyan: 0x4fd7ff, emissiveMagenta: 0xe24bff, emissiveOrange: 0xff7a26, emissiveRed: 0xff2a24, emissiveWhite: 0xdce9ff, lava: 0xff5a14,

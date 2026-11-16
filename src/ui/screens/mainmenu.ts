@@ -15,7 +15,7 @@
 import { storedRulesCustom } from '../../contracts/crucible';
 import { CONTRACTS, COUNCIL_OFFICE, NOTICE_FOOTER, NOTICE_TITLE, type ContractDef } from '../../contracts/data';
 import { readHighScore } from '../../contracts/scores';
-import { ACTIVE, contractSearch } from '../../contracts/select';
+import { ACTIVE, contractSearch, playsOn } from '../../contracts/select';
 import { isShut } from '../../contracts/unlocks';
 import { hasStarter, selectedStarter, saveStarter } from '../../contracts/starter';
 import { starterCards } from './starter';
@@ -35,10 +35,16 @@ export const SURVIVAL_MAPS: readonly { name: string; map: MapId }[] = [
   { name: 'Crucible', map: 'crucible' },
   { name: 'Kill House', map: 'killhouse' },
   { name: 'Outpost', map: 'fort' },
+  { name: 'Office', map: 'office' },
 ];
 
-/** The survival modes that play on a map: every contract there that is not a mission. */
-export const modesOn = (map: MapId): ContractDef[] => CONTRACTS.filter(c => !c.mission && c.map === map);
+/** The survival modes that play on a map: every contract there, or also there (`alsoOn`), that is not a mission. */
+export const modesOn = (map: MapId): ContractDef[] => CONTRACTS.filter(c => !c.mission && playsOn(c, map));
+
+/** A contract on one of its maps: what a leaf of the tree plays. */
+interface Mode { contract: ContractDef; map: MapId }
+const mode = (contract: ContractDef, map: MapId = contract.map): Mode => ({ contract, map });
+const here = (m: Mode): boolean => m.contract === ACTIVE.def && m.map === ACTIVE.map;
 
 const isCrucible = (contract: ContractDef | null): boolean => contract?.id === 'crucible';
 
@@ -74,7 +80,7 @@ export class MainMenu implements Screen {
       this.hud.screens.show('rules');
     });
     this.rules.el.classList.add('mi-small');
-    this.rules.focused = () => this.show(CONTRACTS.find(isCrucible)!);
+    this.rules.focused = () => this.show(mode(CONTRACTS.find(isCrucible)!));
 
     this.root = this.makeLevel('', null, [
       [menuButton('Play', () => this.enter(play)), null],
@@ -83,17 +89,17 @@ export class MainMenu implements Screen {
     ]);
     const play: Level = this.makeLevel('Play', this.root, []);
     this.playLevel = play;
-    const campaign = this.makeLevel('Play / Campaign', play, CAMPAIGN.map((c, i) => [this.leaf(`${i + 1} ${c.name}`, c), c]));
+    const campaign = this.makeLevel('Play / Campaign', play, CAMPAIGN.map((c, i) => [this.leaf(`${i + 1} ${c.name}`, mode(c)), mode(c)]));
     const survival = this.makeLevel('Play / Survival', play, []);
     const mapLevels: Level[] = [];
     for (const { name, map } of SURVIVAL_MAPS) {
       const modes = modesOn(map);
-      const level = this.makeLevel(`Play / Survival / ${name}`, survival, modes.map(c => [this.leaf(c.name, c), c]));
+      const level = this.makeLevel(`Play / Survival / ${name}`, survival, modes.map(c => [this.leaf(c.name, mode(c, map)), mode(c, map)]));
       mapLevels.push(level);
       if (map === 'crucible') this.crucibleModes = level;
       const item = menuButton(name, () => this.enter(level));
       this.playable.push({ item, contracts: modes });
-      this.addItem(survival, item, modes[0] ?? null);
+      this.addItem(survival, item, modes[0] ? mode(modes[0], map) : null);
     }
     const multiplayer = menuButton('Multiplayer', () => this.hud.screens.show('coop'));
     for (const item of [menuButton('Campaign', () => this.enter(campaign)), menuButton('Survival', () => this.enter(survival)), multiplayer]) {
@@ -109,14 +115,14 @@ export class MainMenu implements Screen {
     this.el = div('scr scr-menu', this.crumb, this.list, this.brief, span('mm-sub', 'OVERDRIVE'), wordmark());
   }
 
-  private makeLevel(crumb: string, up: Level | null, items: [NavItem, ContractDef | null][]): Level {
+  private makeLevel(crumb: string, up: Level | null, items: [NavItem, Mode | null][]): Level {
     const level: Level = { crumb, up, items: [], at: 0 };
     for (const [item, shows] of items) this.addItem(level, item, shows);
     return level;
   }
 
   /** Focus by keyboard or the mouse passing over shows the item's notice, or none. Undefined, as on Back, leaves the notice as it is. */
-  private addItem(level: Level, item: NavItem, shows: ContractDef | null | undefined): void {
+  private addItem(level: Level, item: NavItem, shows: Mode | null | undefined): void {
     if (shows !== undefined) {
       item.focused = () => this.show(shows);
       // pointermove, as Nav takes focus on it: a list redrawn under a resting mouse must not change the notice.
@@ -127,9 +133,9 @@ export class MainMenu implements Screen {
     level.items.push(item);
   }
 
-  private leaf(label: string, contract: ContractDef): NavItem {
-    const item = menuButton(label, () => this.play(contract));
-    this.playable.push({ item, contracts: [contract] });
+  private leaf(label: string, m: Mode): NavItem {
+    const item = menuButton(label, () => this.play(m));
+    this.playable.push({ item, contracts: [m.contract] });
     return item;
   }
 
@@ -167,20 +173,21 @@ export class MainMenu implements Screen {
     items[nav.index]?.focused?.();
   }
 
-  /** The record of the contract on screen. The one in play may be ahead of what storage holds. */
-  private highScore(contract: ContractDef): number {
+  /** The record of the mode on screen. The one in play may be ahead of what storage holds. */
+  private highScore(m: Mode): number {
     const live = this.ctx.progression.highScore;
-    return contract === ACTIVE.def && typeof live === 'number' ? live : readHighScore(contract);
+    return here(m) && typeof live === 'number' ? live : readHighScore(m.contract, m.map);
   }
 
-  private show(contract: ContractDef | null): void {
-    this.brief.style.display = contract ? '' : 'none';
-    if (contract) this.paint(contract);
+  private show(m: Mode | null): void {
+    this.brief.style.display = m ? '' : 'none';
+    if (m) this.paint(m);
   }
 
-  private paint(contract: ContractDef): void {
-    const { briefing } = contract;
-    const high = this.highScore(contract);
+  private paint(m: Mode): void {
+    const { contract } = m;
+    const briefing = contract.alsoOn?.[m.map] ?? contract.briefing;
+    const high = this.highScore(m);
     this.notice.replaceChildren(
       span('nt-office', COUNCIL_OFFICE),
       div('nt-head', span('nt-title', NOTICE_TITLE), span('nt-ref', briefing.ref)),
@@ -192,11 +199,12 @@ export class MainMenu implements Screen {
     if (high > 0) this.notice.append(div('nt-high', span('nt-high-k', 'High score'), span('nt-high-v', high.toLocaleString('en-US'))));
     if (isCrucible(contract) && storedRulesCustom()) this.notice.append(div('nt-rules', 'Custom rules are on. Runs on them are unranked and set no record.'));
     if (isShut(contract)) this.notice.append(div('nt-lock', 'Locked. Finish the Campaign to open this account.'));
-    else if (contract !== ACTIVE.def) this.notice.append(div('nt-move', 'Starting it reloads the page to reach this site.'));
+    else if (!here(m)) this.notice.append(div('nt-move', 'Starting it reloads the page to reach this site.'));
   }
 
   /** A contract's map cannot be built under a running world, so another contract means another page load. */
-  private play(contract: ContractDef): void {
+  private play(m: Mode): void {
+    const { contract, map } = m;
     if (isShut(contract)) this.ctx.audio.play?.('ui_error');
     else if (hasStarter(contract.id)) {
       let gun = selectedStarter(contract.id);
@@ -204,15 +212,15 @@ export class MainMenu implements Screen {
       const cards = starterCards(gun, picked => { gun = picked; saveStarter(gun); });
       level.items.push(...cards, menuButton('Deploy', () => {
         saveStarter(gun);
-        const params = new URLSearchParams(contractSearch(contract.id, location.search));
+        const params = new URLSearchParams(contractSearch(contract.id, location.search, map));
         params.set('starter', gun);
         location.search = params.toString();
       }), this.backButton(level));
       this.enter(level);
-      this.paint(contract);
+      this.paint(m);
     }
-    else if (contract === ACTIVE.def) this.hud.startRun();
-    else location.search = contractSearch(contract.id, location.search);
+    else if (here(m)) this.hud.startRun();
+    else location.search = contractSearch(contract.id, location.search, map);
   }
 
   returnToPlay(): void { this.fromCoop = true; }

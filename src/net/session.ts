@@ -15,6 +15,7 @@ export function deployMatch(code: string, password: string, lobby: Lobby, match:
   const params = new URLSearchParams(location.search);
   for (const flag of ['map', 'join', 'deploy', 'autostart', 'sandbox']) params.delete(flag);
   params.set('contract', match.mode);
+  if (match.map) params.set('map', match.map);
   params.set('starter', handoff.starter!);
   location.search = params.toString();
 }
@@ -27,11 +28,12 @@ export async function reconnectMatch(): Promise<void> {
     const data = JSON.parse(raw) as Handoff;
     if (!validMatch(data.match) || typeof data.code !== 'string' || !/^[A-Z2-9]{6}$/.test(data.code)
       || typeof data.password !== 'string' || typeof data.name !== 'string' || typeof data.hosting !== 'boolean'
-      || new URLSearchParams(location.search).get('contract') !== data.match.mode) return;
+      || new URLSearchParams(location.search).get('contract') !== data.match.mode
+      || (new URLSearchParams(location.search).get('map') ?? undefined) !== data.match.map) return;
     const { openLobby } = await import('./trystero');
     resumedMatch = data.match;
     resumedLobby = new Lobby(openLobby(data.code, data.password), data.hosting, data.name, BUILD, true, isStarter(data.starter) ? data.starter : selectedStarter(data.match.mode));
-    if (data.hosting) resumedLobby.startMatch(data.match.mode, data.match.id);
+    if (data.hosting) resumedLobby.startMatch(data.match.mode, data.match.id, data.match.map);
   } catch (error) {
     console.warn('[coop] Could not resume the room', error);
   }

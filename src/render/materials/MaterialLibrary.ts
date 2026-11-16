@@ -68,6 +68,9 @@ const MATERIALS: Record<WorldMaterialName, MaterialSpec> = {
   emissiveRed: { color: 0x050303, roughness: 0.35, metalness: 0, emissive: 0xff1810, emissiveIntensity: 9 },
   emissiveWhite: { color: 0x050505, roughness: 0.35, metalness: 0, emissive: 0xe8f2ff, emissiveIntensity: 12 },
   lava: { set: 'lava', macro: 0.1 },
+  // Clean office surfaces: painted drywall with no texture to stain it, and a low-pile carpet. Both take their colour from vertex tint.
+  plaster: { color: 0xdcdcd8, roughness: 0.92, metalness: 0 },
+  carpet: { set: 'rubber', color: 0x9aa0a8, macro: 0.12, normalScale: 0.35, roughness: 1, metalness: 0 },
 };
 
 export class WorldMaterials implements MaterialLibrary {

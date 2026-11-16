@@ -32,10 +32,14 @@ export interface ChatLine {
 
 export const COOP_MODES = ['crucible', 'outpost', 'defense'] as const;
 export type CoopMode = typeof COOP_MODES[number];
-export interface Match { id: string; mode: CoopMode }
+/** Maps a mode may be played on besides its own (`ContractDef.alsoOn`). */
+export const COOP_MAPS = ['office'] as const;
+export type CoopMap = typeof COOP_MAPS[number];
+export interface Match { id: string; mode: CoopMode; map?: CoopMap }
 export const validMatch = (m: unknown): m is Match => !!m && typeof m === 'object'
   && typeof (m as Match).id === 'string' && /^[a-zA-Z0-9-]{1,64}$/.test((m as Match).id)
-  && COOP_MODES.includes((m as Match).mode);
+  && COOP_MODES.includes((m as Match).mode)
+  && ((m as Match).map === undefined || COOP_MAPS.includes((m as Match).map!));
 
 type Msg =
   | { t: 'start'; match: Match }
@@ -156,11 +160,12 @@ export class Lobby {
   }
 
   /** Only the host picks the mode. Guests acknowledge before the host changes page. */
-  startMatch(mode: CoopMode, id: string = crypto.randomUUID()): boolean {
+  startMatch(mode: CoopMode, id: string = crypto.randomUUID(), map?: CoopMap): boolean {
     if (!this.hosting || this.phase !== 'open' || this.match || !COOP_MODES.includes(mode)) return false;
+    if (map !== undefined && !COOP_MAPS.includes(map)) return false;
     for (const player of this.players) player.starter ??= defaultStarter(mode);
     this.broadcast();
-    this.match = { id, mode };
+    this.match = map ? { id, mode, map } : { id, mode };
     this.starting = new Set(this.players.filter(p => !p.host).map(p => p.id));
     for (const peer of this.starting) this.ch.send({ t: 'start', match: this.match }, peer);
     this.finishStart();

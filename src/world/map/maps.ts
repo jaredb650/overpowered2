@@ -9,6 +9,8 @@ import { LEVEL as HOLDFAST_LEVEL } from './holdfast/plan';
 import { LEVEL as FORT_LEVEL } from './fort/plan';
 import { authorKillHouse, KILLHOUSE_EXTENT, KILLHOUSE_STAGES } from './killhouse';
 import { authorOutpost, OUTPOST_EXTENT, OUTPOST_STAGES } from './outpost';
+import { authorOffice, OFFICE_BOUNDS, OFFICE_HUB, OFFICE_STAGES } from './office';
+import { LV as OFFICE_LEVEL } from './office/plan';
 import { authorRange, RANGE, RANGE_STAGES } from '../../lab/range';
 import { KH } from './killhouse/plan';
 import { LEVEL, RING } from './layout';
@@ -16,7 +18,7 @@ import type { MapSpec } from './spec';
 import type { MapZone } from '../../core/contracts';
 import { ACTIVE } from '../../contracts/select';
 
-export type MapId = 'crucible' | 'killhouse' | 'outpost' | 'fort' | 'holdfast' | 'range';
+export type MapId = 'crucible' | 'killhouse' | 'outpost' | 'fort' | 'holdfast' | 'office' | 'range';
 
 export interface MapDef {
   id: MapId;
@@ -125,6 +127,22 @@ const holdfast: MapDef = {
   readyLabel: 'Hanging out the washing',
 };
 
+const OF = OFFICE_BOUNDS;
+const office: MapDef = {
+  id: 'office',
+  bounds: box(OF.x0, -4, OF.z0, OF.x1, 40, OF.z1),
+  // 148 m at 1 m is under the volume's 200 cells; 32 m tall is under its 48.
+  lightBounds: box(OF.x0, -2, OF.z0, OF.x1, 30, OF.z1),
+  lightCell: 1,
+  minimapExtent: Math.max(-OF.x0, OF.x1, -OF.z0, OF.z1),
+  navHub: OFFICE_HUB,
+  // The ground, the first floor and both roofs. Desks, planters, cover, the canopy and the scaffold are no floor.
+  nav: { mutual: true, levels: Object.values(OFFICE_LEVEL) },
+  stages: OFFICE_STAGES,
+  author: authorOffice,
+  readyLabel: 'Filing the paperwork',
+};
+
 const range: MapDef = {
   id: 'range',
   bounds: box(-RANGE.halfX - 2, -4, -RANGE.halfZ - 2, RANGE.halfX + 2, 34, RANGE.halfZ + 2),
@@ -136,7 +154,7 @@ const range: MapDef = {
   readyLabel: 'Switching on the lights',
 };
 
-const MAPS: Record<MapId, MapDef> = { crucible, killhouse, outpost, fort, holdfast, range };
+const MAPS: Record<MapId, MapDef> = { crucible, killhouse, outpost, fort, holdfast, office, range };
 
 /** The map of the page's contract, or whatever `?map=` names. contracts/select.ts has the rules. */
 export function selectMap(): MapDef {

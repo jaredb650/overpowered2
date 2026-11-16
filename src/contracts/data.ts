@@ -79,6 +79,11 @@ export interface ContractDef {
   economy?: boolean;
   /** localStorage key of this contract's high score. */
   scoreKey: string;
+  /**
+   * Other maps these rules also play on, each with its own notice. The rules, shop, guns, waves and AI are the contract's own; the
+   * score is kept apart, under `scoreKey` plus the map (contracts/scores.ts). The menu lists the mode under each map.
+   */
+  alsoOn?: Partial<Record<MapId, Briefing>>;
 }
 
 /** Every notice ends the same way. */
@@ -169,6 +174,23 @@ export const CONTRACTS: readonly ContractDef[] = [
     },
     // The name the one shared table had, so the record set before contracts existed stays with the game it was set in.
     scoreKey: 'op2_highscore',
+    alsoOn: {
+      office: {
+        ref: 'Form 7741-O',
+        subject: 'All occupants of Regional Processing Office 9, living or otherwise',
+        body: [
+          'The branch was overrun during a routine audit. The audit is continuing. Staff have been reclassified as occupants.',
+          'You are authorised to remove them in full, on every floor, in the car park and on the roof. Furniture is not a protected class.',
+          'Breakages will be itemised. Copiers are known to be volatile. Please do not use the lift.',
+        ],
+        terms: [
+          ['Site', 'Regional Processing Office 9, two floors and grounds'],
+          ['Occupants', 'Husks, machines, former staff'],
+          ['Morale', 'None on record'],
+          ['Appeals', 'Take a number'],
+        ],
+      },
+    },
   },
   {
     id: 'outpost',
@@ -196,6 +218,23 @@ export const CONTRACTS: readonly ContractDef[] = [
       ],
     },
     scoreKey: 'op2_highscore.outpost',
+    alsoOn: {
+      office: {
+        ref: 'Form 7742-O',
+        subject: 'Building security at Regional Processing Office 9, and their replacements',
+        body: [
+          'A notice was addressed to the building. Security declined to sign for it on the building\'s behalf, and have barricaded the lobby.',
+          'They are trained, armed and paid by the hour, and they know the floor plan. Further shifts are on their way.',
+          'Damage to Council property will be deducted from your fee. The Council owns the property. The Council sets the fee.',
+        ],
+        terms: [
+          ['Site', 'Regional Processing Office 9, two floors and grounds'],
+          ['Occupants', 'Humans, in squads, by the shift'],
+          ['Morale', 'Present. Unionised'],
+          ['Appeals', 'Take a number'],
+        ],
+      },
+    },
   },
   {
     id: 'defense',

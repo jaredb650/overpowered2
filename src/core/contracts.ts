@@ -175,7 +175,7 @@ export interface LightVolumeBakeInput {
 export type WorldMaterialName =
   | 'concrete' | 'concreteDark' | 'asphalt' | 'steel' | 'steelDark' | 'rust' | 'grate' | 'hazard' | 'panel' | 'tile'
   | 'dirt' | 'glass' | 'rubber' | 'paintRed' | 'paintYellow' | 'paintWhite'
-  | 'emissiveCyan' | 'emissiveMagenta' | 'emissiveOrange' | 'emissiveRed' | 'emissiveWhite' | 'lava';
+  | 'emissiveCyan' | 'emissiveMagenta' | 'emissiveOrange' | 'emissiveRed' | 'emissiveWhite' | 'lava' | 'plaster' | 'carpet';
 
 export interface MaterialLibrary {
   /** Shared PBR world material. World-space UVs at 1 unit = 1 meter, per the tiling in the texture set. */

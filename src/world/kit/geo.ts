@@ -15,12 +15,13 @@ export const MATERIALS: readonly Mat[] = [
   'concrete', 'concreteDark', 'asphalt', 'steel', 'steelDark', 'rust', 'grate', 'hazard', 'panel', 'tile',
   'dirt', 'glass', 'rubber', 'paintRed', 'paintYellow', 'paintWhite',
   'emissiveCyan', 'emissiveMagenta', 'emissiveOrange', 'emissiveRed', 'emissiveWhite', 'lava', 'signs', 'stencil', 'plywood',
+  'plaster', 'carpet',
 ];
 
 /** Chunks across the map per material. */
 const CHUNKS_ACROSS: Partial<Record<Mat, number>> = {
   concrete: 5, concreteDark: 5, steel: 5, steelDark: 5, panel: 4, asphalt: 3, rust: 3, tile: 3, dirt: 3, grate: 3,
-  hazard: 2, glass: 2, rubber: 2,
+  hazard: 2, glass: 2, rubber: 2, plaster: 3, carpet: 2,
 };
 const MAP_MIN = -180;
 const MAP_SIZE = 360;

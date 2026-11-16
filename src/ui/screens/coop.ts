@@ -10,7 +10,7 @@ import { starterCards } from './starter';
 import type { Ctx } from '../../core/contracts';
 import { BUILD } from '../../net/build';
 import {
-  COOP_MODES, CODE_LENGTH, Lobby, MAX_PLAYERS, NAME_MAX, CHAT_MAX, cleanCode, inviteLink, loadCallsign, newCode, saveCallsign, type LobbyError,
+  type CoopMap, type CoopMode, CODE_LENGTH, Lobby, MAX_PLAYERS, NAME_MAX, CHAT_MAX, cleanCode, inviteLink, loadCallsign, newCode, saveCallsign, type LobbyError,
 } from '../../net/lobby';
 import { div, h, span } from '../dom';
 import { deployMatch } from '../../net/session';
@@ -23,7 +23,11 @@ import '../css/coop.css';
 /** The code an invite link carried, read once at load. */
 export const INVITE: string = typeof location === 'undefined' ? '' : cleanCode(new URLSearchParams(location.search).get('join') ?? '');
 
-const MODES = ['The Crucible', 'Endless Humans', 'Outpost Defense'];
+/** What the host can start: a mode on its own map, or on a map it also plays on. */
+const MODES: readonly { label: string; mode: CoopMode; map?: CoopMap }[] = [
+  { label: 'The Crucible', mode: 'crucible' }, { label: 'Endless Humans', mode: 'outpost' }, { label: 'Outpost Defense', mode: 'defense' },
+  { label: 'Crucible: Office', mode: 'crucible', map: 'office' }, { label: 'Humans: Office', mode: 'outpost', map: 'office' },
+];
 const NO_TURN = 'Some networks (strict routers, mobile data, some offices) cannot connect yet: the relay server that fixes that is not set up.';
 
 type Page = 'start' | 'host' | 'join' | 'lobby';
@@ -96,15 +100,15 @@ export class CoopScreen implements Screen {
       this.chatInput.value = '';
     });
 
-    this.startItem = menuButton('Start', () => this.lobby?.startMatch(COOP_MODES[this.mode]!));
+    this.startItem = menuButton('Start', () => this.lobby?.startMatch(MODES[this.mode]!.mode, undefined, MODES[this.mode]!.map));
     this.readyItem = menuButton('Ready', () => this.lobby?.setReady(!this.lobby.me?.ready));
     const copy = h('button', 'co-copy', 'Copy');
     copy.type = 'button';
     copy.addEventListener('click', () => this.copy());
     this.modes = div('co-modes',
       span('nt-k', 'Mode'),
-      div('co-mode-row', ...MODES.map((m, i) => {
-        const button = h('button', i === 0 ? 'co-mode on' : 'co-mode', m);
+      div('co-mode-row', ...MODES.map(({ label }, i) => {
+        const button = h('button', i === 0 ? 'co-mode on' : 'co-mode', label);
         button.type = 'button';
         button.addEventListener('keydown', e => {
           if (e.key === 'Enter' || e.key === ' ') e.stopPropagation();

@@ -12,11 +12,12 @@ describe('the main menu tree', () => {
       ['Crucible', ['crucible']],
       ['Kill House', ['outpost']],
       ['Outpost', ['defense']],
+      ['Office', ['crucible', 'outpost']],
     ]);
   });
 
   it('reaches every contract, so a new row cannot fall off the menu', () => {
     const reached = [...CAMPAIGN, ...SURVIVAL_MAPS.flatMap(({ map }) => modesOn(map))];
-    expect(reached.map(c => c.id).sort()).toEqual(CONTRACTS.map(c => c.id).sort());
+    expect([...new Set(reached.map(c => c.id))].sort()).toEqual(CONTRACTS.map(c => c.id).sort());
   });
 });
