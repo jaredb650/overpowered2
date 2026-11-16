@@ -1,6 +1,8 @@
 # Proposal: co-op with friends
 
-Status: research and proposal, 2026-11-15. Nothing is built. Prices were checked on official pages the same day (section 7).
+Status: research and proposal, 2026-11-15. Prices were checked on official pages the same day (section 7).
+
+**Stage 0 built** (2026-11-15): the lobby, on trystero 0.27.0 with Nostr. Host with a password, join by code or invite link, names, ready, chat, the build check, and wrong-password errors on both ends. No TURN yet. See `docs/notes/coop.md`.
 
 ## Verdict
 

@@ -62,7 +62,7 @@ interface PickupSource {
 }
 
 /** The screens that show the helicopter behind them. The rest of the menu keeps the map: the Crucible's rules are about it. */
-const HELI_SCREENS: ReadonlySet<ScreenName> = new Set<ScreenName>(['splash', 'menu', 'guide', 'settings']);
+const HELI_SCREENS: ReadonlySet<ScreenName> = new Set<ScreenName>(['splash', 'menu', 'guide', 'settings', 'coop']);
 const MENU_BG = new URLSearchParams(location.search).get('menubg');
 const REDUCED_MOTION = typeof matchMedia === 'function' ? matchMedia('(prefers-reduced-motion: reduce)') : null;
 

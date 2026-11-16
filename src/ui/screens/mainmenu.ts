@@ -3,7 +3,7 @@
  *
  *   Play > Campaign > the missions, in order
  *        > Survival > a map > what plays on it
- *        > Multiplayer (coming soon, does nothing)
+ *        > Multiplayer, the co-op lobby (coop.ts)
  *   Guide, Settings
  *
  * Esc, Backspace or Back goes up a level. A mission or mode shows the Council's notice for it while it has focus, and choosing
@@ -90,9 +90,7 @@ export class MainMenu implements Screen {
       this.playable.push({ item, contracts: modes });
       this.addItem(survival, item, modes[0] ?? null);
     }
-    const multiplayer = menuButton('Multiplayer', () => this.ctx.audio.play?.('ui_error'));
-    multiplayer.el.classList.add('off');
-    multiplayer.el.append(span('mi-soon', 'Coming soon'));
+    const multiplayer = menuButton('Multiplayer', () => this.hud.screens.show('coop'));
     for (const item of [menuButton('Campaign', () => this.enter(campaign)), menuButton('Survival', () => this.enter(survival)), multiplayer]) {
       this.addItem(play, item, null);
     }

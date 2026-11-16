@@ -32,7 +32,7 @@ Play          Campaign      1 The Outpost, 2 Foreclosure       (the contracts wi
               Survival      Crucible     The Crucible  + Crucible rules
                             Kill House   Endless Humans
                             Outpost      Outpost Defense       ("Outpost" is the fort, map `fort`)
-              Multiplayer   greyed, "Coming soon", does nothing
+              Multiplayer   the co-op lobby, its own screen (ui/screens/coop.ts, docs/notes/coop.md)
 Guide
 Settings
 ```

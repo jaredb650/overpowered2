@@ -18,13 +18,15 @@ import { ProcurementScreen } from './procurement';
 import { LoadoutScreen } from './loadout';
 import type { ShopId } from '../../contracts/defense/data';
 import { SplashScreen } from './splash';
+import { CoopScreen } from './coop';
 
 /**
  * 'rules' is the Crucible's, reached only from the main menu, and its Back goes straight there. 'loadout' and 'shop' are
  * Outpost Defense's, over a paused run; 'procurement' is the Crucible's shop, the same way.
  */
 export type ScreenName =
-  | 'loading' | 'splash' | 'menu' | 'pause' | 'gameover' | 'complete' | 'guide' | 'settings' | 'rules' | 'loadout' | 'shop' | 'procurement' | 'none';
+  | 'loading' | 'splash' | 'menu' | 'pause' | 'gameover' | 'complete' | 'guide' | 'settings' | 'rules' | 'loadout' | 'shop' | 'procurement' | 'coop'
+  | 'none';
 
 export interface Screen {
   readonly el: HTMLElement;
@@ -63,6 +65,7 @@ export class Screens {
       loadout: new LoadoutScreen(ctx, hud),
       shop: this.shopScreen,
       procurement: new ProcurementScreen(ctx, hud),
+      coop: new CoopScreen(ctx, hud),
     };
     this.el = div('screens');
     for (const s of Object.values(this.screens)) {
@@ -71,6 +74,8 @@ export class Screens {
     }
     addEventListener('keydown', e => {
       if (this.current === 'none' || this.current === 'loading' || e.repeat) return;
+      // Typing in the lobby's fields must not drive the menu.
+      if (e.target instanceof HTMLInputElement) return;
       if (this.nav.key(e)) e.preventDefault();
     });
   }

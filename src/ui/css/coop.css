@@ -1,0 +1,58 @@
+/* --- Co-op lobby (ui/screens/coop.ts): the main menu's notice, holding fields, the player list and the chat --- */
+
+.co-brief { bottom: 3rem; display: flex; flex-direction: column; justify-content: flex-start; }
+.co-panel { max-height: 100%; overflow: hidden; display: flex; flex-direction: column; }
+.co-panel > div:only-child { display: flex; flex-direction: column; min-height: 0; }
+
+.co-field { display: grid; grid-template-columns: 8rem 1fr; align-items: center; gap: 1rem; margin: 0.5rem 0; }
+.co-input {
+  width: 100%;
+  padding: 0.35rem 0.6rem;
+  border: 0.0625rem solid rgba(157, 176, 189, 0.45);
+  border-radius: 0;
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--ink);
+  font: 600 1.15rem/1.3 var(--mono);
+  user-select: text;
+  outline: none;
+}
+.co-input:focus { border-color: var(--amber); }
+.co-input::placeholder { color: var(--dim); }
+
+.co-err { margin: 0.7rem 0 0.3rem; padding: 0.4rem 0.6rem; background: rgba(255, 28, 43, 0.16); border-left: 0.2rem solid var(--blood); font-size: 1.1rem; line-height: 1.35; }
+.co-note { margin-top: 0.6rem; color: var(--steel); font-size: 1rem; line-height: 1.35; }
+.co-wait { color: var(--amber); }
+
+.co-invite { display: grid; grid-template-columns: 8rem 1fr; align-items: baseline; gap: 0.2rem 1rem; padding-bottom: 0.6rem; border-bottom: 0.0625rem solid rgba(157, 176, 189, 0.28); }
+.co-code { font: 3rem/1 var(--display); letter-spacing: 0.12em; color: var(--amber); }
+.co-link-row { display: flex; align-items: baseline; gap: 0.8rem; min-width: 0; }
+.co-link { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 1rem; color: var(--steel); user-select: text; }
+.co-copy {
+  flex: none;
+  appearance: none;
+  border: 0;
+  padding: 0.1rem 0.7rem;
+  background: var(--ink);
+  color: #000;
+  font: 1.3rem/1.2 var(--display);
+  cursor: inherit;
+}
+.co-copy:hover { background: var(--hot); }
+.co-copied { flex: none; color: var(--friend); font-size: 1rem; }
+
+.co-players { display: flex; flex-direction: column; margin: 0.6rem 0; }
+.co-player { display: flex; align-items: baseline; gap: 0.7rem; padding: 0.25rem 0; border-bottom: 0.0625rem solid rgba(157, 176, 189, 0.18); }
+.co-pname { font: 1.9rem/1.15 var(--display); }
+.co-tag { padding: 0 0.4rem; background: rgba(157, 176, 189, 0.22); font-size: 0.9rem; }
+.co-tag.host { background: var(--amber); color: #000; }
+.co-ready { margin-left: auto; color: var(--dim); font-size: 1rem; }
+.co-player.ready .co-ready { color: var(--friend); }
+
+.co-modes { margin: 0.4rem 0 0.2rem; }
+.co-mode-row { display: flex; gap: 0.5rem; margin-top: 0.3rem; }
+.co-mode { padding: 0.15rem 0.6rem; border: 0.0625rem solid rgba(157, 176, 189, 0.3); color: var(--dim); font: 1.3rem/1.2 var(--display); }
+.co-mode.on { border-color: var(--steel); color: var(--steel); }
+
+.co-chat { flex: 1 1 auto; min-height: 6rem; max-height: 14rem; overflow-y: auto; margin: 0.7rem 0 0.4rem; padding: 0.3rem 0.5rem; background: rgba(0, 0, 0, 0.35); font-size: 1.05rem; line-height: 1.4; user-select: text; }
+.co-line.sys { color: var(--amber); }
+.co-from { color: var(--cold); }

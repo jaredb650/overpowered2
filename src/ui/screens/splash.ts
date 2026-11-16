@@ -8,6 +8,7 @@ import type { Ctx } from '../../core/contracts';
 import { div, span } from '../dom';
 import type { Hud } from '../Hud';
 import type { Nav } from './nav';
+import { INVITE } from './coop';
 import { wordmark } from './parts';
 import type { Screen } from './Screens';
 
@@ -30,7 +31,8 @@ export class SplashScreen implements Screen {
         return;
       }
       this.ctx.audio.music?.('menu');
-      this.hud.screens.show('menu');
+      // An invite link goes straight to joining that lobby.
+      this.hud.screens.show(INVITE ? 'coop' : 'menu');
     };
     nav.set([{ el: this.el, activate: enter }]);
     nav.back = null;
