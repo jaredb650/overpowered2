@@ -94,8 +94,11 @@ start (the host decides; guests get `chatter` and `chatcut` events).
   stack ("Shield's down, scatter!") with a small morale hit. A last man merged into another squad is greeted ("You're Echo now.").
   Deferred: the other offers (gun pinning the player for a cross-squad flank, warden drags, rocket on hard cover, sniper spotting), which
   need the squad planner to accept outside work.
-- **I (voices), test batch only, 2026-11-16.** Owner's choice: option B on Eleven v3 (`eleven_v3`), every line in each of his three
-  voices (trooper1, trooper2, trooper3). `tools/scripts/chatter-voices.mjs` renders a job list offline, skips files that exist (resume), and
+- **I (voices), 2026-11-16.** Owner's choice: option B on Eleven v3 (`eleven_v3`), every line in two of his voices, trooper2 and
+  trooper3 (trooper1 dropped: ElevenLabs wanted it verified). Built and wired: see `docs/notes/audio.md`, "Squad comms voices".
+  2,383 clips per voice (739 fixed rows and 84 slot rows by the lean plan), 87,923 credits billed in all (2 takes redone: crying that ran
+  on), 55.5 MB as mono 24 kHz 32 kbps MP3 in `public/audio/chatter`, fetched one clip at a time when said. The history of the test
+  batch follows. `tools/scripts/chatter-voices.mjs` renders a job list offline, skips files that exist (resume), and
   logs each take's billed cost; the key is read at run time from `~/.config/op2/elevenlabs.key` and sent only as the `xi-api-key` header.
   Takes are named `<row id>[~<slot values>].t<voice>.<ext>`. The audio tag comes from the row's emotion ([shouting], [panicked],
   [whispers], [crying], [screaming] for pain screams, [exhausted] for the dying); stability 0.5 for steady professional lines, 0.0 for the

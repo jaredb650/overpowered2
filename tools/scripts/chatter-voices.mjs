@@ -121,11 +121,18 @@ let halt = null;
 async function take(j) {
   if (blocked.has(j.voice) || halt) return;
   for (let attempt = 0; attempt < 5; attempt++) {
-    const r = await api(`/v1/text-to-speech/${ids[j.voice]}?output_format=${format}`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'audio/mpeg' },
-      body: JSON.stringify({ text: j.text, model_id: 'eleven_v3', voice_settings: { stability: j.stability ?? 0.5 } }),
-    });
+    let r;
+    try {
+      r = await api(`/v1/text-to-speech/${ids[j.voice]}?output_format=${format}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', accept: 'audio/mpeg' },
+        body: JSON.stringify({ text: j.text, model_id: 'eleven_v3', voice_settings: { stability: j.stability ?? 0.5 } }),
+      });
+    } catch {
+      // A dropped connection is the network, not the account: wait and try the same take again.
+      await sleep(3000 * (attempt + 1));
+      continue;
+    }
     if (!r.ok) {
       const body = clean((await r.text()).slice(0, 300));
       // Out of credits or over quota: stop now, never retry into it.

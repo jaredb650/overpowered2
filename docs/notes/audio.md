@@ -988,3 +988,13 @@ then the master's trial passes. Memory stays near 500 MB.
   secure context, so plain `http://` on a LAN address takes the blocking path. `localhost` and https are fine.
 - **Thresholds in `foley.ts` date from a 17 m/s run speed.** `runSpeed` is 12.5 now. Wind still starts at 13 m/s, so running stays quiet
   and earned speed gets the wind, which suits the retune, but it has not been judged by ear.
+
+## Squad comms voices
+
+The enemy soldiers' spoken lines are not catalogue sounds and have no ids here. They live in `public/audio/chatter/` (one MP3 per row,
+blank values and voice: `<row id>[~<values>].t2.mp3`), listed in its `manifest.json`, and play through `src/ui/hud/voices.ts`: three
+pooled `<audio>` elements, fetched only when a line is said, routed into their own small Web Audio graph (a 300 Hz to 3.2 kHz band and a
+soft clip for radio lines, level and pan by distance for shouts out to 45 m). A cut-off stops a clip in 30 ms; a critical line (frag,
+flash, rocket, a pulled pin) plays over the rest, which drop to 35%. The level is Settings > Audio > Enemy voices, under master and
+effects. Where a line has a take, the synth grunt the comms used to make for it (`vox_scream` or the archetype's attack voice) is not
+played, so a man never has two voices.
