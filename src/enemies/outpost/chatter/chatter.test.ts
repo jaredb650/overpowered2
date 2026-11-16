@@ -11,13 +11,14 @@ import { enlist, Soldier } from '../soldier';
 import { listenForWounds } from './reactions';
 import { GUN_DOWN_HOLD, listenToEachOther } from './listeners';
 import { cardinal, contactReport, radioLoss } from './radio';
+import { breaking, revenge, tickOutcomes } from './outcomes';
 import * as THREE from 'three';
 import { OutpostSquad } from '../squad';
 import { RULES } from './lines';
 import { NAME_LIST, NAME_POOLS, NameRoll, callName, poolOf, speakerTag } from './names';
 import { ChatterMemory, SPEAK_RATE, TIER_OF, rowsFor, type ChatterFacts, type Tier } from './rules';
 
-vi.mock('../../attacks', () => ({ say: vi.fn() }));
+vi.mock('../../attacks', async original => ({ ...(await original<object>()), say: vi.fn() }));
 
 const TIERS: readonly Tier[] = ['high', 'medium', 'low', 'desperate'];
 const CONCEPTS = [...new Set(RULES.map(r => r.concept))];
@@ -469,5 +470,77 @@ describe('the radio net', () => {
     charlie.members.length = 0;
     radioLoss(o as unknown as Outpost, charlie, null);
     expect(comms.say.mock.calls.at(-1)![0]).toBe('squadWiped');
+  });
+});
+
+describe('morale outcomes', () => {
+  function setup() {
+    const timers: (() => void)[] = [];
+    const comms = { say: vi.fn(), after: (_: number, run: () => void) => timers.push(run) };
+    const spawnProjectile = vi.fn();
+    const o = {
+      comms, soldiers: [] as Soldier[],
+      w: { telegraphs: { zone: vi.fn() }, ctx: { player: { health: 100, maxHealth: 100 }, audio: { play: vi.fn() }, combat: { spawnProjectile } } },
+    };
+    const squad = new OutpostSquad(1, 'Alpha', o as unknown as Outpost);
+    const man = () => {
+      const s = new Soldier();
+      squad.join(s);
+      s.e = { alive: true, dist: 5, hasLos: true, damageMul: 1, center: new THREE.Vector3(), char: { anim: { play: vi.fn() } } } as unknown as Soldier['e'];
+      o.soldiers.push(s);
+      return s;
+    };
+    return { o: o as unknown as Outpost, comms, timers, spawnProjectile, squad, man };
+  }
+
+  it('rarely, and said aloud, a man refuses to break; otherwise a runner says he is going', () => {
+    const { o, comms, man } = setup();
+    const s = man();
+    s.rank = 'elite';
+    let random = vi.spyOn(Math, 'random').mockReturnValue(0.01);
+    expect(breaking(o, s, 'flee')).toBe(true);
+    expect(comms.say).toHaveBeenLastCalledWith('holdout', s);
+    expect(s.holdout).toBe(true);
+    random.mockRestore();
+    const t = man();
+    random = vi.spyOn(Math, 'random').mockReturnValue(0.99);
+    expect(breaking(o, t, 'flee')).toBe(false);
+    expect(comms.say).toHaveBeenLastCalledWith('flee', t);
+    random.mockRestore();
+  });
+
+  it('a fake surrender is shouted, then the pin, then the grenade a second later', () => {
+    const { o, comms, timers, spawnProjectile, man } = setup();
+    const s = man();
+    s.surrendered = true;
+    s.surrenderedAt = 0;
+    s.grenades = 1;
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0.01);
+    tickOutcomes(o, 5);
+    random.mockRestore();
+    expect(comms.say).toHaveBeenCalledWith('fakeOut', s);
+    expect(spawnProjectile).not.toHaveBeenCalled();
+    for (const t of timers) t();
+    expect(spawnProjectile).toHaveBeenCalledOnce();
+    // Rolled once: never again for him.
+    tickOutcomes(o, 10);
+    expect(comms.say.mock.calls.filter(c => c[0] === 'fakeOut')).toHaveLength(1);
+  });
+
+  it('takes a buddy\'s death out on the player, sometimes, and talks big while his nerve goes', () => {
+    const { o, comms, squad, man } = setup();
+    const a = man();
+    const b = man();
+    const open = vi.spyOn(squad, 'opening');
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0.01);
+    revenge(o, a, b);
+    expect(comms.say).toHaveBeenLastCalledWith('revenge', a, b);
+    expect(open).toHaveBeenCalled();
+    a.bravado = true;
+    a.state = 'shaken';
+    a.sees = true;
+    tickOutcomes(o, 1);
+    random.mockRestore();
+    expect(comms.say).toHaveBeenLastCalledWith('taunt', a, null, { flags: { bravado: true } });
   });
 });

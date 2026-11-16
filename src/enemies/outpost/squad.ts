@@ -32,6 +32,7 @@ import type { Rank } from './rank';
 import { Route } from './routes';
 import { soldierOf, type Grenade, type Soldier, type Urgency } from './soldier';
 import { contactReport, radioLoss } from './chatter/radio';
+import { revenge } from './chatter/outcomes';
 
 export type SquadMode = 'advance' | 'engage' | 'stack' | 'fallback' | 'regroup' | 'rush' | 'flush' | 'cutoff' | 'ambush';
 
@@ -337,6 +338,8 @@ export class OutpostSquad implements Squad {
       // The squad's anchor: losing him is said, and the men hear it (chatter/listeners.ts).
       if (dead?.role === 'machinegun') o.comms.say('gunDown', voice, dead);
     }
+    const pal = dead?.buddy;
+    if (pal && pal.squad === this && this.members.includes(pal)) revenge(o, pal, dead!);
     radioLoss(o, this, dead);
     while (this.lossTimes.length > 0 && now - this.lossTimes[0]! > RAPID_SECONDS) this.lossTimes.shift();
     if (this.lossTimes.length >= Math.ceil(this.strength * RAPID_SHARE) && this.members.length > 0) {

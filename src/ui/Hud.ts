@@ -266,6 +266,7 @@ export class Hud implements HudSystem {
       if (chatter === CHATTER_BUBBLES) this.bubbles.say(e, color);
       // A critical warning gets a cue whatever the setting: the player has to act on it.
       if (e.kind === 'flash' && e.enemy) this.bubbles.warn(e.position, 'FLASH INCOMING');
+      if (e.kind === 'fakeOut' && e.enemy) this.bubbles.warn(e.position, 'GRENADE', 1.4);
       this.debug.chatter(e);
     });
     events.on('comms:cut', e => {

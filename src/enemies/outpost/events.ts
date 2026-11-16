@@ -25,7 +25,8 @@ export type CommsKind =
   | 'plateHeld' | 'plateGone' | 'pierced' | 'artery' | 'gut' | 'limbLost' | 'downed'
   | 'set' | 'playerHit'
   | 'rocketOut' | 'gunDown' | 'hold'
-  | 'contactReport' | 'copy' | 'status' | 'squadWiped' | 'sayAgain' | 'radioCheck' | 'radioLost' | 'radioGrab';
+  | 'contactReport' | 'copy' | 'status' | 'squadWiped' | 'sayAgain' | 'radioCheck' | 'radioLost' | 'radioGrab'
+  | 'flee' | 'holdout' | 'fakeOut' | 'revenge' | 'taunt';
 
 export interface CommsLine {
   kind: CommsKind;

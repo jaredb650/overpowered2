@@ -40,6 +40,7 @@ import { SOLDIER_BEHAVIOURS } from './behaviours';
 import { FACTION, NameRoll } from './chatter/names';
 import { listenForWounds } from './chatter/reactions';
 import { listenToEachOther } from './chatter/listeners';
+import { BRAVADO, breaking, tickOutcomes } from './chatter/outcomes';
 import { Comms } from './comms';
 import { CoverMap, type CoverSpot, type SpotReading } from './cover';
 import { CALLSIGNS, defaultDoctrine, fireRules, MAX_SQUAD, ROLE_OF, ROLES, type Doctrine } from './doctrine';
@@ -379,6 +380,7 @@ export class Outpost {
     squad.join(s);
     this.commission(s, squad);
     this.names.enlist(s, FACTION, s.role, s.rank, squad.leader === s, squad.members.map(m => m.nick));
+    s.bravado = Math.random() < BRAVADO;
     e.squad = squad;
     e.behaviours = SOLDIER_BEHAVIOURS;
     e.attacks = soldierAttacks(e.id);
@@ -773,15 +775,20 @@ export class Outpost {
       s.state = moraleState(s.morale, dread);
       this.captives.judge(s, now);
       if (s.state === was || !s.fighting) continue;
-      if (s.state === 'broken') this.collapse(s, this.captives.fateOf(s, now));
+      if (s.state === 'broken') {
+        // Rarely, and by rank, he refuses to break: said, and kept to.
+        const fate = this.captives.fateOf(s, now);
+        if (!breaking(this, s, fate)) this.collapse(s, fate);
+      }
       else if (s.state === 'panicked') this.comms.say('panic', s);
       else if (s.state === 'shaken' && was === 'steady') this.comms.say('fear', s);
     }
+    tickOutcomes(this, now);
   }
 
   /** He is finished as a soldier: the gun goes down and he runs, or he gives up. */
   collapse(s: Soldier, fate: 'surrender' | 'flee'): void {
-    if (!s.fighting || this.commander.feign(s)) return;
+    if (!s.fighting || s.holdout || this.commander.feign(s)) return;
     const { w } = this;
     const e = s.e;
     if (e.attack) finishAttack(e, w, true);

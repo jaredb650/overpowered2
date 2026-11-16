@@ -73,6 +73,12 @@ start (the host decides; guests get `chatter` and `chatcut` events).
   radio check, over." and, unless a survivor grabs the set (60%), "We lost Charlie." with a small morale hit. Radio lines carry the
   speaker's designation on the feed and a RADIO mark on the bubble. Lines only: what the side knows still travels as before. Deferred:
   the radioman's antenna prop, linked-squad intel, and a real static sound (needs an audio catalogue entry).
+- **F.** `chatter/outcomes.ts`. A man who breaks and runs says so ("I'm out!"). Rarely, by rank (conscript 2%, regular 5%, veteran 12%,
+  elite 20%), he refuses instead: "I'm not going down without a fight." He then never breaks or surrenders again. Once per surrendered man
+  close (10 m) and in sight, 6% if he still has a grenade: he shouts, the pin sound plays with a GRENADE cue, and the grenade drops a
+  second later (`dropGrenade`, with its danger ring). A buddy's death turns the survivor 35% of the time: "That's for {dead}!", nerve back
+  and a 3 s squad push. A quarter of the men have bravado and talk big while shaken or panicked; with the player under half health a
+  steady man taunts. Taunts are the lowest priority (idle) and one every 12 s at most.
 
 ## 1. The goal
 

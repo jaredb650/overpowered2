@@ -50,6 +50,12 @@ export class Soldier {
   nick = -1;
   /** The others know his name. Nobody shouts the name of a man they never learned. */
   known = false;
+  /** Chose to fight on when his nerve went: never breaks again, never surrenders (chatter/outcomes.ts). */
+  holdout = false;
+  /** Talks big while his nerve goes. */
+  bravado = false;
+  /** On his knees, already rolled for the fake surrender. */
+  fakeRolled = false;
   /** His pair in the squad, who takes his death hardest (squad-chatter 4.7). The odd man out pairs one way with the leader. */
   buddy: Soldier | null = null;
   /** Which of the squad's two fire teams. One moves while the other covers. */
@@ -177,7 +183,7 @@ export class Soldier {
     this.rankDef = RANKS.regular;
     this.seat = 0;
     this.name = this.desig = this.nick = -1;
-    this.known = false;
+    this.known = this.holdout = this.bravado = this.fakeRolled = false;
     this.buddy = null;
     this.team = 0;
     this.morale = this.baseMorale = 100;
