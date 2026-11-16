@@ -318,6 +318,13 @@ SMG's shot while the Crucible shop's suppressor is fitted (`weapons/mods.ts` pat
 -1 dB, faded out from 0.6 s and cut at 0.9 s, 160 kbit/s. On the `gun` mix at 0.11 on the ladder (loudness 0.17), about 2 dB under the
 bare SMG's 0.143, with less of it in the reverb (`send` 0.08 for the mix's 0.15).
 
+**The Gimlet's shots** (2026-11-15, the owner's `m4Shot.mp3` and `suppressedM4Shot.mp3`, weapons-update plan section 11).
+`gimlet_shot` is the carbine bare, `gimlet_suppressed_shot` through its can (the `gimletCan` mod, fitted as it is issued; the
+SMG's suppressor keeps `smg_suppressed_shot`). Both were 1 s stereo WAV at 40 kHz inside an `.mp3` name: mixed to mono at
+44.1 kHz, the lead-in cut (97 and 11 ms), faded out from 0.6 s and cut at 0.9 s, 160 kbit/s. `gimlet_shot` is on the `gun` mix
+at 0.155 on the ladder (loudness 0.206), between the SMG's 0.143 and the Harrow's 0.165; `gimlet_suppressed_shot` at 0.115
+(loudness 0.118), about 2 dB under the bare SMG with `send` 0.08, as the suppressed SMG.
+
 ## Sample packs
 
 Real recordings from free libraries. Sources, authors and licences for every file are in `docs/CREDITS.md`. One id holds all its variants, and pitch
@@ -353,6 +360,7 @@ Rendered at load. x4 means four rendered variants behind one id.
 
 ### Weapons
 
+- **Gimlet** (the carbine on key 1, 2026-11-15): synthesized stand-ins, to swap for real ones: `launcher_thump` (the under-barrel launcher's shot: a hollow low pop, a puff of gas and the breech's clack, no crack, on the `gun` mix), `fire_select` (R held: the selector to bursts at 1.12 and back to auto at 0.92, the launcher's grip taken at 0.8 and let go at 1, a detent click and a small clack, foley). The launcher's reload is `revolver_open`, `reload_shell_in` and `revolver_close`; its grenade goes off as a hand grenade, `grenade_explode`
 - **Judge:** `revolver_fire` x3, `revolver_cock`, `revolver_open`, `revolver_load`, `revolver_close`, `revolver_ricochet` (the head-to-head ricochet, unheard since the ricochet went off). Synthesized stand-ins for the fanning (right click), to swap for real ones: `judge_fan_tick` (a bar charged, 0.14 higher each bar, on the reward mix), `judge_fan_lock` (a head locked: a small clink and a ping, 0.18 higher for each further lock on the same man), `judge_fan_tension` (the loop under the hold: a trembling tone, a step higher each bar, cut on the first shot); each fanned shot is the Judge's own `revolver_shot`
 - **Harrow, Rivet, Sabot:** `harrow_fire` x3 (rifle: crack, chest thump, a tail), `rivet_fire` x3 (pistol: all crack and slide), `sabot_fire` x2 (the cannon with a tearing dart and no shell at the far end)
 - **Thresher:** `thresher_punch` x3 (the layer under `thresher_fire`: a chest punch and the bolt slamming home 50 ms on), `drum_out`, `drum_in` (a steel drum with shells rattling in it)

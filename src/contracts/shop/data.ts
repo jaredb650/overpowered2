@@ -57,6 +57,10 @@ export const WEAPON_WARES: Readonly<Partial<Record<WeaponId, Ware>>> = {
     price: 250, wave: 1,
     lore: 'A short knife for the contractor who likes to be close enough to apologise. Works best from behind, like most Council policy.',
   },
+  gimlet: {
+    price: 450, wave: 1,
+    lore: 'A carbine with a four-power sight, so you can read the name tag before you file it. Supplied suppressed: the Council prefers its incidents quiet.',
+  },
   rivet: {
     price: 350, wave: 2,
     lore: 'Compact, semi-automatic and inexpensive, like the contractor. Right click fires three, for those who were going to miss anyway.',
@@ -155,6 +159,27 @@ export const MOD_WARES: Readonly<Record<ModId, Ware>> = {
   reddot: {
     price: 500, wave: 0,
     lore: 'A red dot on the Harrow, so you always know where the round is going. The Council regrets it cannot offer its contractors the same.',
+  },
+  harrowAcog: {
+    price: 700, wave: 2,
+    lore: 'Four-power magnification for the Harrow. The target appears four times larger, and in the Council\'s experience so does the paperwork.',
+  },
+  // The Gimlet's ACOG and suppressor are issued fitted (weapons/mods.ts ISSUED): price 0, listed so they can be taken off.
+  gimletAcog: {
+    price: 0, wave: 0,
+    lore: 'Issued with the Gimlet. Four-power, for confirming at a distance what you already suspected up close.',
+  },
+  gimletDot: {
+    price: 250, wave: 0,
+    lore: 'A red dot in the ACOG\'s place, for contractors who would rather see the room than the man across it. The ACOG is kept on file.',
+  },
+  gimletCan: {
+    price: 0, wave: 0,
+    lore: 'Issued with the Gimlet. Take it off and everyone hears you, which some contractors mistake for leadership.',
+  },
+  gimletGl: {
+    price: 1200, wave: 4,
+    lore: 'A 40 mm launcher under the barrel. Hold R to bring it to bear. One round, then a reload, then usually a silence.',
   },
   raufoss: {
     price: 2400, wave: 10,

@@ -14,8 +14,8 @@ import type {
 import { clamp, damp, invLerp, lerp, randomInCone, smoothstep, wrapAngle } from '../core/math';
 import { MOVE } from '../player/tuning';
 import type { Combat, Guard, GuardResult } from './Combat';
-import { MODS, MOD_ORDER, moddedDef } from './mods';
-import { HIT_STOP, STARTING_WEAPONS, SWORD, TUNING, WEAPONS, WEAPON_ORDER, type SoundLayer, type WeaponDef } from './data';
+import { ISSUED, MODS, MOD_ORDER, moddedDef } from './mods';
+import { HIT_STOP, LAUNCHER, STARTING_WEAPONS, SWORD, TUNING, WEAPONS, WEAPON_ORDER, type SoundLayer, type WeaponDef } from './data';
 import { Fan, type FanHooks, type FanLock } from './fan';
 import { familyOf, familyOfSlot, membersOf, pressSlot, wheelSlot } from './families';
 import { Handling, holdSpeed } from './handling';
@@ -134,6 +134,15 @@ export class Weapons implements WeaponSystem, Guard {
   /** The guns with their `altAmmo` loaded. A new run starts on the standard rounds. */
   private readonly altLoaded = new Set<WeaponId>();
   private raufossRounds: Raufoss | null = null;
+  /** The Gimlet's under-barrel launcher: its own magazine of one, and whether it is up (hold R). */
+  private readonly glSlot: Slot = {
+    def: LAUNCHER, cooldown: 0, ammo: { mag: 1, magSize: 1, reserve: LAUNCHER.reserve, maxReserve: LAUNCHER.maxReserve },
+  };
+  private glUp = false;
+  /** A `select` gun fires bursts (hold R). Kept across a switch, cleared by a reset. */
+  private burstOn = false;
+  /** Seconds R has been held on a `select` gun, or -1: a press shorter than its `hold` is a reload on the release. */
+  private rHeld = -1;
   /** Seconds left of `occupy`. */
   private occupied = 0;
 
@@ -212,6 +221,15 @@ export class Weapons implements WeaponSystem, Guard {
       interval: def => this.interval(def),
     });
     for (const id of STARTING_WEAPONS) this.own(id);
+    this.issueMods();
+  }
+
+  /** The mods every run starts with held and fitted (mods.ts `ISSUED`). */
+  private issueMods(): void {
+    for (const id of ISSUED) {
+      this.grantMod(id);
+      this.fitMod(id, true);
+    }
   }
 
   /** Adds a weapon, and only that one: a family member is its own unlock. Returns true when the weapon is new. */
@@ -286,6 +304,12 @@ export class Weapons implements WeaponSystem, Guard {
     this.altLoaded.clear();
     this.mods.clear();
     for (const id of MOD_ORDER) this.fitMod(id, false);
+    this.issueMods();
+    this.glUp = this.burstOn = false;
+    this.rHeld = -1;
+    this.glSlot.cooldown = 0;
+    this.glSlot.ammo.mag = LAUNCHER.magSize;
+    this.glSlot.ammo.reserve = LAUNCHER.reserve;
     ROCKET_LASER.sight = ROCKET_LASER.on = false;
     this.drawLeft = 0;
     this.ctx.viewmodel.equip?.(this.current, 0.01);
@@ -338,9 +362,30 @@ export class Weapons implements WeaponSystem, Guard {
     return this.sword.step;
   }
 
-  /** The `altAmmo` label of the gun in hand while it is loaded, else ''. The HUD wears it on the gun's name. */
+  /** The Gimlet's launcher is up: its shots, its reload and its count on the HUD. */
+  get launcherUp(): boolean {
+    return this.glUp;
+  }
+
+  /** What the trigger and R work now: the gun in hand, or its launcher while that is up. */
+  private get held(): Slot {
+    return this.glUp ? this.glSlot : this.slots[this.current];
+  }
+
+  /** A `select` gun fires bursts now: not with a launcher fitted, whose hold R raises it instead. */
+  private get bursting(): boolean {
+    const def = this.slots[this.current].def;
+    return this.burstOn && def.select !== undefined && !def.launcher;
+  }
+
+  /**
+   * The `altAmmo` label of the gun in hand while it is loaded, else '': the HUD wears it on the gun's name. The Gimlet's is
+   * its launcher or its bursts.
+   */
   get ammoMode(): string {
     const alt = WEAPONS[this.current].altAmmo;
+    if (this.glUp) return 'LAUNCHER';
+    if (this.bursting) return 'BURST';
     if (this.slots[this.current].def.raufoss) return 'RAUFOSS';
     return alt && this.altLoaded.has(this.current) ? alt.label : '';
   }
@@ -355,10 +400,14 @@ export class Weapons implements WeaponSystem, Guard {
    * fitted now. The rule that it never changes in a fight is the shop's: the lab fits one anywhere.
    */
   fitMod(id: ModId, on: boolean): boolean {
-    if (on && this.mods.has(id)) this.fitted.add(id);
-    else this.fitted.delete(id);
     const weapon = MODS[id].weapon;
+    if (on && this.mods.has(id)) {
+      // One optic to a gun: a sight fitted takes the other off.
+      if (MODS[id].sight) for (const m of MOD_ORDER) if (m !== id && MODS[m].weapon === weapon && MODS[m].sight) this.fitted.delete(m);
+      this.fitted.add(id);
+    } else this.fitted.delete(id);
     this.slots[weapon].def = moddedDef(weapon, this.fitted);
+    if (!this.slots[this.current].def.launcher) this.glUp = false;
     return this.fitted.has(id);
   }
 
@@ -383,8 +432,9 @@ export class Weapons implements WeaponSystem, Guard {
     return def.mode === 'paint' ? this.painter : def.altFan ? this.fan : undefined;
   }
 
-  ammo(id: WeaponId = this.current): AmmoState {
-    return this.slots[id].ammo;
+  /** The gun's rounds; with no id, what the trigger works now, which is the launcher's while it is up. */
+  ammo(id?: WeaponId): AmmoState {
+    return id === undefined ? this.held.ammo : this.slots[id].ammo;
   }
 
   give(id: WeaponId): void {
@@ -427,6 +477,7 @@ export class Weapons implements WeaponSystem, Guard {
 
   addAmmo(fraction: number): void {
     for (const id of WEAPON_ORDER) this.addReserve(this.slots[id], fraction);
+    this.addReserve(this.glSlot, fraction);
   }
 
   addGrenades(count: number): void {
@@ -445,10 +496,13 @@ export class Weapons implements WeaponSystem, Guard {
       const a = this.slots[id].ammo;
       a.reserve = Math.max(a.reserve, Math.ceil(a.maxReserve * TUNING.ammo.waveFloor));
     }
+    const g = this.glSlot.ammo;
+    if (this.fitted.has('gimletGl')) g.reserve = Math.max(g.reserve, Math.ceil(g.maxReserve * TUNING.ammo.waveFloor));
   }
 
   refillMagazines(): void {
     for (const id of WEAPON_ORDER) this.slots[id].ammo.mag = this.slots[id].def.magSize;
+    this.glSlot.ammo.mag = LAUNCHER.magSize;
     if (this.reloading) this.endReload(false);
   }
 
@@ -493,6 +547,7 @@ export class Weapons implements WeaponSystem, Guard {
     this.drySwap = -1;
     this.quickReturn = 0;
     this.burstLeft = 0;
+    this.rHeld = -1;
     this.ctx.viewmodel.setCharge(0);
   }
 
@@ -523,6 +578,7 @@ export class Weapons implements WeaponSystem, Guard {
       const s = this.slots[id];
       if (s.cooldown > 0) s.cooldown -= dt;
     }
+    if (this.glSlot.cooldown > 0) this.glSlot.cooldown -= dt;
     this.syncAkimbo();
 
     if (this.holstered) return;
@@ -626,6 +682,8 @@ export class Weapons implements WeaponSystem, Guard {
     this.drySwap = -1;
     this.quickReturn = 0;
     this.burstLeft = 0;
+    this.rHeld = -1;
+    this.glUp = false;
     this.current = id;
     this.slotLast.set(WEAPONS[id].slot, id);
     this.lastWeapon = from;
@@ -654,7 +712,7 @@ export class Weapons implements WeaponSystem, Guard {
   // -------------------------------------------------------------------------------------------
 
   private startReload(): boolean {
-    const s = this.slots[this.current];
+    const s = this.held;
     const a = s.ammo;
     if (s.def.mode === 'melee' || this.reloading || a.mag >= a.magSize || a.reserve <= 0) return false;
     if (this.modifiers.bottomlessMag) return false;
@@ -694,6 +752,21 @@ export class Weapons implements WeaponSystem, Guard {
   private updateReload(dt: number): void {
     this.updateCycle(dt);
     const { input } = this.ctx;
+    const select = WEAPONS[this.current].select;
+    // A `select` gun reads R on its release: held past `hold` it switches (`select`), let go sooner it reloads.
+    let tap = false;
+    if (select) {
+      if (input.pressed('reload') && !this.reloading) this.rHeld = 0;
+      if (this.rHeld >= 0) {
+        if (!input.isDown('reload')) {
+          this.rHeld = -1;
+          tap = true;
+        } else if ((this.rHeld += dt) >= select.hold) {
+          this.rHeld = -1;
+          this.select();
+        }
+      }
+    } else tap = input.pressed('reload');
     if (this.reloading) {
       // A bottomless mag makes the wait pointless. The first game made you sit through it.
       if (this.modifiers.bottomlessMag) {
@@ -701,7 +774,7 @@ export class Weapons implements WeaponSystem, Guard {
         return;
       }
       this.reloadLeft -= dt;
-      const def = WEAPONS[this.current];
+      const def = this.held.def;
       const progress = this.reloadProgress;
       while (this.reloadCue < def.reloadFoley.length && progress >= def.reloadFoley[this.reloadCue]![0]) {
         this.ctx.audio.play(def.reloadFoley[this.reloadCue]![1]);
@@ -710,7 +783,7 @@ export class Weapons implements WeaponSystem, Guard {
       if (this.reloadLeft <= 0) this.endReload(true);
       return;
     }
-    if (input.pressed('reload')) {
+    if (tap) {
       this.startReload();
       return;
     }
@@ -724,7 +797,7 @@ export class Weapons implements WeaponSystem, Guard {
   }
 
   private endReload(fill: boolean): void {
-    const s = this.slots[this.current];
+    const s = this.held;
     this.reloadLeft = 0;
     if (fill) {
       const a = s.ammo;
@@ -747,9 +820,43 @@ export class Weapons implements WeaponSystem, Guard {
     return def.interval / Math.max(this.modifiers.fireRate, 0.01);
   }
 
+  /**
+   * R held on a `select` gun: with a launcher fitted it is raised or lowered, else the gun switches between bursts and full
+   * auto. A click, and the mode called out under the crosshair.
+   */
+  private select(): void {
+    if (this.slots[this.current].def.launcher) {
+      this.raiseLauncher(!this.glUp);
+      return;
+    }
+    this.burstOn = !this.burstOn;
+    this.burstLeft = 0;
+    this.ctx.audio.play('fire_select', { pitch: this.burstOn ? 1.12 : 0.92 });
+    this.ctx.hud.callout?.(this.burstOn ? 'BURST' : 'AUTO');
+  }
+
+  /** Brings the launcher to bear, or back to the rifle: a moment's handling (`LAUNCHER.drawTime`), never during a reload. */
+  private raiseLauncher(up: boolean): void {
+    if (this.glUp === up) return;
+    const g = this.glSlot.ammo;
+    if (up && g.mag === 0 && g.reserve === 0 && !this.modifiers.bottomlessMag) {
+      this.ctx.audio.play('weapon_dry');
+      this.ctx.hud.callout?.('NO GRENADES');
+      return;
+    }
+    this.glUp = up;
+    this.burstLeft = 0;
+    this.pressBuffer = 0;
+    this.aimOn = false;
+    this.drawLeft = Math.max(this.drawLeft, LAUNCHER.drawTime);
+    this.autoReload = this.held.ammo.mag === 0 && this.held.ammo.reserve > 0 ? LAUNCHER.drawTime + TUNING.autoReloadDelay : -1;
+    this.ctx.audio.play('fire_select', { pitch: up ? 0.8 : 1 });
+    this.ctx.hud.callout?.(up ? 'LAUNCHER' : 'RIFLE');
+  }
+
   private updateGun(dt: number): void {
     const { input } = this.ctx;
-    const s = this.slots[this.current];
+    const s = this.held;
     const def = s.def;
     const held = input.isDown('fire');
     // A press stays live for as long as the button is held, so a click during a reload fires on its first legal frame.
@@ -804,6 +911,8 @@ export class Weapons implements WeaponSystem, Guard {
     s.ammo.mag = Math.max(0, s.ammo.mag - rounds);
     if (s.ammo.mag > 0) return;
     if (s.ammo.reserve > 0) this.autoReload = TUNING.autoReloadDelay;
+    // The last grenade gone: back on the rifle, which still has rounds.
+    else if (s === this.glSlot) this.raiseLauncher(false);
     else this.wentDry();
   }
 
@@ -843,6 +952,10 @@ export class Weapons implements WeaponSystem, Guard {
   }
 
   private updateAuto(s: Slot, held: boolean): void {
+    if (this.bursting) {
+      this.updateBurst(s, s.def.select!.burst);
+      return;
+    }
     if (!held) return;
     if (!this.canShoot(s)) {
       this.dryFire();
@@ -855,6 +968,27 @@ export class Weapons implements WeaponSystem, Guard {
       if (akimbo) this.leftNext = !this.leftNext;
       s.cooldown += interval;
     }
+  }
+
+  /** A pull fires `rounds` at the row's rate, then waits `recover`. Letting go does not cut a burst short. */
+  private updateBurst(s: Slot, burst: NonNullable<WeaponDef['select']>['burst']): void {
+    if (this.burstLeft === 0) {
+      if (this.pressBuffer <= 0 || s.cooldown > 0) return;
+      if (!this.canShoot(s)) {
+        this.dryFire();
+        this.pressBuffer = 0;
+        return;
+      }
+      this.pressBuffer = 0;
+      this.burstLeft = burst.rounds;
+      s.cooldown = Math.min(s.cooldown, 0);
+    }
+    while (this.burstLeft > 0 && s.cooldown <= 0 && this.canShoot(s)) {
+      this.shootGun(s, false);
+      this.burstLeft--;
+      s.cooldown += this.burstLeft > 0 ? this.interval(s.def) : burst.recover / Math.max(this.modifiers.fireRate, 0.01);
+    }
+    if (!this.canShoot(s)) this.burstLeft = 0;
   }
 
   private updateSemi(s: Slot): void {
@@ -1168,7 +1302,8 @@ export class Weapons implements WeaponSystem, Guard {
   private shootGun(s: Slot, left: boolean, both = false): void {
     const def = s.def;
     // A double gun fires its barrels in turn, from the one still loaded; `both` fires the two together when it can.
-    const barrel = def.altBoth ? Math.max(0, def.magSize - s.ammo.mag) : 0;
+    // The launcher's flash leaves its own tube: the viewmodel's `muzzle1`.
+    const barrel = def.altBoth ? Math.max(0, def.magSize - s.ammo.mag) : def.round === 'grenade' ? 1 : 0;
     const two = both && (s.ammo.mag >= 2 || this.modifiers.bottomlessMag) ? def.altBoth : undefined;
     this.consume(s, two ? 2 : 1);
     this.shotFeedback(def, left, two ? two.kick : 1, barrel);
@@ -1179,6 +1314,7 @@ export class Weapons implements WeaponSystem, Guard {
       case 'rocket': this.shootRocket(def); return;
       case 'shell': this.shootShell(def); return;
       case 'stake': this.shootStake(def); return;
+      case 'grenade': this.shootGrenade(def); return;
     }
     const c = this.ctx;
     const eye = c.player.eye;
@@ -1289,6 +1425,19 @@ export class Weapons implements WeaponSystem, Guard {
     p.explosion = { radius: t.radius, damage: def.damage, kind: 'shell', instakill: true, selfDamage: 0 };
     this.combat.spawnProjectile(p);
     this.shoveBack(t.push, t.groundPush);
+  }
+
+  /** The launcher's 40 mm: an arcing round that goes off on whatever it touches, a hit on a man first. TUNING.launcher. */
+  private shootGrenade(def: WeaponDef): void {
+    const t = TUNING.launcher;
+    const m = this.modifiers;
+    const p = this.fillProjectile('shell', def, t.speed, def.damage * m.damage, 'smoke');
+    p.gravity = t.gravity;
+    p.lifetime = t.life;
+    p.gib = true;
+    p.killStop = HIT_STOP.heavyKill;
+    p.explosion = { radius: t.radius * m.blastRadius, damage: t.blast * m.damage, kind: 'grenade' };
+    this.combat.spawnProjectile(p);
   }
 
   private shootStake(def: WeaponDef): void {
@@ -1675,7 +1824,8 @@ export class Weapons implements WeaponSystem, Guard {
    */
   private updateAim(dt: number): void {
     const c = this.ctx;
-    const def = WEAPONS[this.current];
+    // The row as fitted: an optic changes the zoom.
+    const def = this.slots[this.current].def;
     const p = c.player;
     const busy = this.holstered || this.occupied > 0 || p.alive === false;
     // A press while holstered is a call-in's cancel, not ours.
@@ -1683,7 +1833,8 @@ export class Weapons implements WeaponSystem, Guard {
     const moving = p.dashing === true || p.sliding === true;
     if (moving) this.aimOn = false;
     const wants = this.aimHold ? c.input.isDown('aim') : this.aimOn;
-    const blocked = busy || moving || !def.ads || this.reloading || this.drawLeft > 0 || this.akimboOn
+    // The launcher is fired from the shoulder over its own leaf, not through the rifle's sight.
+    const blocked = busy || moving || !def.ads || this.glUp || this.reloading || this.drawLeft > 0 || this.akimboOn
       || this.sword.inQuickStrike || this.quickReturn > 0;
     const up = wants && !blocked;
     this.aimT = clamp(this.aimT + (up ? dt : -dt) / (def.ads?.time ?? 0.2));

@@ -59,6 +59,8 @@ const ARC_W = turned(ARC_E, 180);
 const RETICLES: Record<WeaponId, Reticle> = {
   // Pixel-accurate, so the tightest reticle in the game: the gap barely moves.
   smg: { core: DOT, arms: four(tick(8, 1.25)), gap: 5, kick: 1.1, speedGap: 3 },
+  // Between the two: the SMG's dot, the arms a touch heavier, a chevron's point under it for the ACOG it wears.
+  gimlet: { core: DOT + poly('0,4.5 3.5,8.5 2.2,9.6 0,7.1 -2.2,9.6 -3.5,8.5'), arms: four(tick(9, 1.4)), gap: 6.5, kick: 2, speedGap: 3 },
   // The SMG's cross with heavier, longer arms set wider: the same family, a bigger round.
   harrow: { core: DOT, arms: four(tick(11, 1.6)), gap: 8, kick: 3.2, speedGap: 3 },
   shotgun: {

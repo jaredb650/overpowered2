@@ -43,7 +43,7 @@ export interface WeaponDef {
   /** How the trigger works, and with it which code fires the gun. A second member of a family is whatever its row says here. */
   mode: FireMode;
   /** What leaves the barrel, for a gun that does not fire a hitscan round. Unset is hitscan. */
-  round?: 'rocket' | 'shell' | 'stake';
+  round?: 'rocket' | 'shell' | 'stake' | 'grenade';
   magSize: number;
   /** Rounds in reserve at the start of a run or when unlocked. */
   reserve: number;
@@ -104,6 +104,14 @@ export interface WeaponDef {
   altAmmo?: { readonly label: string };
   /** Every round is a Raufoss round, with no switch: the Sabot with its shop mod (mods.ts). */
   raufoss?: boolean;
+  /**
+   * Hold R for `hold` seconds to switch fire: full auto or bursts of `burst.rounds` at the row's `interval`, then `burst.recover`
+   * before the next. A shorter press is a reload, on its release. With `launcher` fitted, the hold raises or lowers the
+   * launcher instead. The Gimlet's.
+   */
+  select?: { readonly hold: number; readonly burst: { readonly rounds: number; readonly recover: number } };
+  /** An under-barrel launcher is fitted (the Gimlet's mod): hold R raises it, and then it fires `LAUNCHER`'s round. */
+  launcher?: boolean;
   /** Hit-stop on a kill, seconds. */
   killStop?: number;
   /**
@@ -190,6 +198,23 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     reloadFoley: [[0.02, 'smg_reload']],
     recoil: 1, kick: 0.0016, shake: 0.004,
     ads: { zoom: 0.35, time: 0.16 },
+  },
+  // The carbine between them: the SMG's rate and magazine with a heavier round, short of the Harrow's 50, that keeps most of
+  // itself out to the far side of the Outpost (`falloff` 60 to 140 m, to 0.75 of itself where the SMG halves past 35). It comes
+  // with an ACOG and a suppressor fitted (mods.ts `ISSUED`). Hold R for bursts of three, or, with the launcher fitted, the launcher.
+  gimlet: {
+    ...BASE, id: 'gimlet', name: 'GIMLET', slot: 1, base: 'smg', mode: 'auto',
+    magSize: 30, reserve: 210, maxReserve: 420, reloadTime: 1.2, drawTime: 0.2,
+    // 800 rounds a minute, the SMG's.
+    interval: 0.075, damage: 40, severMult: 1.4, force: 10,
+    falloff: { from: 60, to: 140, floor: 0.75 },
+    muzzle: 'rifle', tracer: 'carbine', casing: 'rifle',
+    sounds: [{ id: 'gimlet_shot', pitchJitter: 0.03 }],
+    recoil: 0.9, kick: 0.0034, shake: 0.007, fovPunch: 0.3, impactScale: 1.1,
+    // A climb the SMG does not have: a held magazine walks up about 4 degrees, a burst a third of one.
+    climb: { pitch: 0.0022, yaw: 0.0012 },
+    ads: { zoom: 0.35, time: 0.2 },
+    select: { hold: 0.3, burst: { rounds: 3, recover: 0.22 } },
   },
   // The SMG's big brother: 500 rounds a minute to its 800, twice the round, and all of it at any range. It goes through one body, or a
   // sheet of cover, and takes limbs.
@@ -440,6 +465,21 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     recoil: 1, kick: 0.024, shake: 0.024, fovPunch: 1.4,
     altAmmo: { label: 'EXPLODING BOLTS' },
   },
+};
+
+/**
+ * The Gimlet's under-barrel launcher (its `gimletGl` mod): a 40 mm grenade a pull, single shot, loaded by hand. Not a row of
+ * WEAPONS (no key, no unlock): `Weapons` keeps it as a second magazine on the Gimlet and fires it while it is up. Its round is
+ * `TUNING.launcher`; `damage` is a direct hit, before the blast.
+ */
+export const LAUNCHER: WeaponDef = {
+  ...BASE, id: 'gimlet', name: 'GIMLET', slot: 1, mode: 'semi', round: 'grenade',
+  magSize: 1, reserve: 6, maxReserve: 12, reloadTime: 1.6, drawTime: 0.25,
+  interval: 0.4, damage: 60, force: 60,
+  muzzle: 'rifle', tracer: 'heavy',
+  sounds: [{ id: 'launcher_thump', pitchJitter: 0.04 }],
+  reloadFoley: [[0.06, 'revolver_open'], [0.5, 'reload_shell_in'], [0.8, 'revolver_close']],
+  recoil: 1.4, kick: 0.03, shake: 0.03, fovPunch: 1.4,
 };
 
 if (SLOT4_OLD) WEAPONS.sabot.base = 'autocannon';
@@ -744,6 +784,12 @@ export const TUNING = {
     direct: 1.25, burst: { radius: 1.3, damage: 22, sound: 'raufoss_detonation' },
     pellets: 4, share: 0.4, cone: 0.09, range: 30, wall: 1.2, force: 14,
   },
+  /**
+   * The Gimlet's launcher grenade: it leaves at `speed` and falls at `gravity`, so a flat shot from the eye lands about 30 m out
+   * and one aimed 10 degrees up about 100, and goes off on whatever it touches: `blast` inside `radius`, as a hand grenade's
+   * (EXPLOSIONS.grenade), smaller.
+   */
+  launcher: { speed: 55, gravity: 9.8, life: 8, radius: 5.5, blast: 170 },
   grenade: {
     fuse: 2.6, throwSpeed: 25, throwUp: 6.5, inherit: 0.75, gravity: -22, restitution: 0.42, friction: 0.72,
     radius: 7, damage: 190, start: 3, max: 6, cookSound: 0.8,

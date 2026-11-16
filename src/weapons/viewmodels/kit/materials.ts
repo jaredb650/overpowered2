@@ -24,6 +24,14 @@ export interface VmUniforms {
   uFrost: { value: number };
   /** Seconds, for crawling heat. */
   uClock: { value: number };
+  /**
+   * A magnified optic aimed (the ACOG): the eyepiece's clear circle in normalized device coordinates (x, y, radius in units of
+   * the screen's half height) and the view depth of the eyepiece. Gun surfaces deeper than it inside the circle are not drawn,
+   * so the eyepiece shows the world the camera's zoom magnifies and not the rail and barrel under it. Radius 0 is off.
+   */
+  uScope: { value: THREE.Vector4 };
+  /** The view's width over its height, for that circle. */
+  uScopeAspect: { value: number };
 }
 
 // --- Detail textures -----------------------------------------------------------------------------
@@ -307,6 +315,10 @@ function makeDecals(): { texture: THREE.CanvasTexture; regions: Record<string, R
   place('deuce', 256, 64, text('DEUCE', STENCIL, 8));
   place('ultramag', 384, 64, text('ULTRAMAG', STENCIL, 4));
   place('cal50m', 256, 40, text('.50 MAG HV', TECH, 2));
+  // The carbine on key 1 and its ACOG.
+  place('gimlet', 320, 64, text('GIMLET', STENCIL, 6));
+  place('cal556', 256, 40, text('5.56x45 NATO', TECH, 2));
+  place('optic4x', 192, 40, text('4x32', TECH, 2));
   // Stencil paint is never clean. Knock specks out of everything drawn so far.
   const rng = mulberry32(77);
   g.globalCompositeOperation = 'destination-out';
@@ -336,6 +348,8 @@ varying vec4 vSurf;
 varying float vKind;
 varying vec3 vOP;
 varying vec3 vON;
+varying vec4 vScopeClip;
+varying float vScopeZ;
 `;
 
 const VERT_BODY = /* glsl */`
@@ -354,6 +368,10 @@ uniform float uPerkHeat;
 uniform float uBerserk;
 uniform float uFrost;
 uniform float uClock;
+uniform vec4 uScope;
+uniform float uScopeAspect;
+varying vec4 vScopeClip;
+varying float vScopeZ;
 varying vec4 vAlb;
 varying vec4 vSurf;
 varying float vKind;
@@ -535,9 +553,16 @@ function inject(shader: THREE.WebGLProgramParametersWithUniforms, uniforms: Reco
   lightBand(shader);
   shader.vertexShader = shader.vertexShader
     .replace('#include <common>', `#include <common>\n${VERT_DECL}`)
-    .replace('#include <begin_vertex>', `#include <begin_vertex>\n${VERT_BODY}`);
+    .replace('#include <begin_vertex>', `#include <begin_vertex>\n${VERT_BODY}`)
+    .replace('#include <project_vertex>', '#include <project_vertex>\nvScopeClip = gl_Position;\nvScopeZ = -mvPosition.z;');
   shader.fragmentShader = shader.fragmentShader
     .replace('#include <common>', `#include <common>\nuniform mat3 normalMatrix;\n${FRAG_DECL}`)
+    .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
+if (uScope.z > 0.0 && vScopeZ > uScope.w) {
+  vec2 q = vScopeClip.xy / vScopeClip.w - uScope.xy;
+  q.x *= uScopeAspect;
+  if (dot(q, q) < uScope.z * uScope.z) discard;
+}`)
     .replace('#include <color_fragment>', `#include <color_fragment>\n${FRAG_SURFACE}`)
     .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = clamp(vmRough, 0.05, 1.0);')
     .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\nmetalnessFactor = clamp(vmMetal, 0.0, 1.0);')
@@ -570,6 +595,8 @@ export class VmMaterials {
       uBerserk: { value: 0 },
       uFrost: { value: 0 },
       uClock: { value: 0 },
+      uScope: { value: new THREE.Vector4() },
+      uScopeAspect: { value: 1 },
     };
 
     const hardUniforms = { ...this.uniforms, tDetail: { value: detail }, tDetailN: { value: normal } } as unknown as Record<string, THREE.IUniform>;

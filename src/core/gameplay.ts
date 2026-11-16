@@ -26,10 +26,15 @@ export type WeaponId =
   // The heavy machine gun beside the rotary cannon on key 8.
   | 'piledriver'
   // The double-barrel on key 2 and the heavy pistol on key 6 (docs/proposals/weapons-update.md section 8).
-  | 'deuce' | 'ultramag';
+  | 'deuce' | 'ultramag'
+  // The carbine on key 1, between the SMG and the Harrow (docs/proposals/weapons-update.md section 11).
+  | 'gimlet';
 
-/** A weapon mod (src/weapons/mods.ts): the SMG's suppressor, the Harrow's red dot, the Sabot's Raufoss rounds. */
-export type ModId = 'suppressor' | 'reddot' | 'raufoss';
+/**
+ * A weapon mod (src/weapons/mods.ts): the SMG's suppressor, the Harrow's red dot and ACOG, the Sabot's Raufoss rounds, and the
+ * Gimlet's ACOG, red dot, suppressor and under-barrel launcher.
+ */
+export type ModId = 'suppressor' | 'reddot' | 'raufoss' | 'harrowAcog' | 'gimletAcog' | 'gimletDot' | 'gimletCan' | 'gimletGl';
 
 export type Team = 'player' | 'enemy';
 
@@ -121,6 +126,8 @@ export interface WeaponSystem extends GameSystem {
   readonly paint?: PaintView;
   /** Weapon mods fitted now (src/weapons/mods.ts), for the viewmodels. Unset on a weapon system that has none. */
   readonly fitted?: ReadonlySet<ModId>;
+  /** The Gimlet's under-barrel launcher is up (hold R): the shots and the reload are its. Unset on a weapon system that has none. */
+  readonly launcherUp?: boolean;
 }
 
 /**

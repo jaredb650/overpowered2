@@ -95,6 +95,22 @@ rope, picks him up and flies off with him. In modes with credits it pays: "BOUNT
 - **The cheat panel** (owner, 2026-11-15) gets a row per mod to grant it and fit or remove it, so mods can be tested without the
   shop. Everything the "all weapons + infinite ammo" cheat does not hand out gets a way in from the panel.
 
+## 11. The Gimlet, a carbine
+**Built 2026-11-15.** Owner: a starter weapon between the SMG and the Harrow, good at range (the Outpost's men far off are hard to see
+and hit, and the sniper costs too much) and still good up close; 800 to 900 a minute, 30 rounds, more damage than the SMG and a little
+less than the Harrow; an ACOG and a suppressor by default, swappable in the shop; an M203-style launcher as a mod; the Harrow gets the
+ACOG as a mod. Names offered: **Gimlet** (the tool that bores a small hole, and "gimlet-eyed": sharp-sighted), Tine, Awl.
+
+Defaults chosen: key 1 between the SMG and the Harrow; 40 damage at 800 a minute, 30 rounds, 1.2 s reload, `falloff` 60 to 140 m to
+0.75 (the SMG halves from 35 to 80), no penetration, a light climb. The ACOG is 4x the hip view (ADS zoom 0.69: 90 to 28 degrees; the
+red dot is 2x, the Sabot's scope 5.7x), a sight picture in the view: the eyepiece frames the zoomed world with the world seen round
+it, no black overlay. Hold R (0.3 s): bursts of three or full auto, or with the launcher fitted the launcher up or down; a tap reloads
+what is in use; the mode is called under the crosshair. The launcher: one 40 mm round, 6 spare, 55 m/s with gravity, 5.5 m and 170 on
+contact, 1.6 s reload. Shops: the Crucible's 450 after wave 1, Outpost Defense's 650 (primary); mods in the Crucible: Gimlet red dot
+250, launcher 1,200 after wave 4, Harrow ACOG 700 after wave 2; the Gimlet's ACOG and can are issued (listed at 0, fitted, free to
+take off). Not in a weapon cache (`CACHE_ORDER`): the shops are where it comes from. The owner's `m4Shot` and `suppressedM4Shot`
+are its two shots; the launcher's thump and the selector click are synthesized stand-ins. See docs/notes/weapons.md, The Gimlet.
+
 ## Sounds
 New sounds use a synthesized or existing stand-in until the owner supplies real ones. Every stand-in is listed in
 `docs/notes/audio.md` so it can be swapped. Needed: Lance beam and giant ball, vaporize, double-barrel shots, Ultramag shot and

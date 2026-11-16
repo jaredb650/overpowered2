@@ -172,7 +172,7 @@ export class Arms {
     this.empty.set(!s.bottomless && !melee && s.mag === 0);
     this.lowAmmo.set(!s.bottomless && !melee && s.mag > 0 && ratio <= 0.33);
     // A gun with a second kind of round, which right click loads (or a mod fits: the Sabot's Raufoss), wears it on its name.
-    if (WEAPON_DEFS[s.weapon].altAmmo || s.weapon === 'sabot') this.name.set(s.ammoMode ? `${WEAPONS[s.weapon].name} · ${s.ammoMode}` : WEAPONS[s.weapon].name);
+    if (WEAPON_DEFS[s.weapon].altAmmo || WEAPON_DEFS[s.weapon].select || s.weapon === 'sabot') this.name.set(s.ammoMode ? `${WEAPONS[s.weapon].name} · ${s.ammoMode}` : WEAPONS[s.weapon].name);
 
     this.reloadRow.set(s.reloading);
     if (s.reloading) this.reload.set(s.reloadProgress);

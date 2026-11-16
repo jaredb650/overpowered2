@@ -96,6 +96,7 @@ One change outside this system: `Player.rideGround` in `src/player/Player.ts` ad
 
 | Key | Base | Member | The member's job |
 |---|---|---|---|
+| 1 | SMG | **Gimlet**, carbine | Between the two (2026-11-15): 40 damage at the SMG's 800 a minute, 30 rounds, 1.2 s reload, no penetration. Keeps 0.75 of its round from 140 m (`falloff` 60 to 140), where the SMG halves past 35. A real climb (`climb` 0.0022 up, 0.0012 aside a round). Issued with an ACOG and a suppressor fitted; hold R for bursts of three or the launcher. Not issued: bought, 450 in the Crucible's shop after wave 1, 650 in Outpost Defense's. See "The Gimlet" |
 | 1 | SMG | **Harrow**, battle rifle | 50 damage at 500 a minute (8.3 a second) against 25 at 800 (13.3): a quarter more damage a second, in bigger pieces. Both rates set by the owner on 2026-11-13. Full damage at any range, where the SMG now fades from 35 m to half at 80. Goes through one body or 0.5 m of cover. Kicks 3.6 times as hard. Takes limbs (`severMult` 1.8) |
 | 2 | Shotgun | **Thresher**, drum shotgun | Full auto, 5 shells a second, 20 in the drum. 4 pellets of 20 to the pump's 6 of 23, so the pump stays the hard single hit. The pump fires one shell every 0.55 s (0.3 was near semi-auto; 0.85, tried on 2026-11-15, too slow), so the Thresher outdoes it held. Real climb (`climb`), a 2.7 s drum reload. Takes limbs like the pump (`severMult` 2.4, the point-blank rule) |
 | 2 | Shotgun | **Deuce**, double-barrel | The third on the key. Two shells, a barrel every 0.3 s: 8 pellets of 26 a barrel (208, to the pump's 138), a wider cone (0.075 to 0.05), full damage to 9 m and 0.3 of it by 26. Right click fires both (`altBoth`). Breaks open to reload, 1.5 s. Its own cache, the third (wave 6). See "The Deuce" |
@@ -142,6 +143,34 @@ Weapon ids still written in `Weapons.ts`, each for a reason: `smg` for akimbo, b
 **The Thresher.** `mode: 'auto'` with `pellets` 4, so it is a scatter gun with the point-blank rule and the pellet perks like the pump. `climb` moves the aim itself, up 0.011 rad and up to 0.0035 to a side a shell, and does not spring back, so a held burst walks up for the player to pull down; `kick` springs back on top as for every gun. `?climb=0` takes the climb out. Its `force` is 16, the least that clears `BLAST.pointBlankForce` (100) once the point-blank rule has multiplied it, so a trunk kill up close can tear a body in two as the pump's can. Its gore and reactions are the pump's through the pellet type, with nothing added in `src/gore` or `src/enemies`.
 
 **The Deuce.** `mode: 'semi'`, `magSize` 2, `pellets` 8, so it is a scatter gun with the pump's point-blank rule and pellet perks. A left click fires the loaded barrel, right then left (`Weapons.shootGun` asks the viewmodel for `muzzle` or `muzzle1` by the shells left). A right click is `altBoth`: with both loaded it takes both shells and fires 16 pellets in one pull, half from each barrel with a flash at each, recoil, kick, shake and FOV punch times 1.8, and shoves the player back at 4.5 m/s along the aim (0.6 of it along the floor on the ground, all of it in the air, the autocannon's rule through `shoveBack`). With one loaded it fires that one; empty, it reloads. Its sound is played a second time 22 ms after the first at 0.95 pitch, so both barrels are heard as two triggers. `casing` is null: the empties come out by hand on the break-open. `falloff` 9 to 26 m, down to 0.3: a room gun.
+
+**The Gimlet** (2026-11-15, docs/proposals/weapons-update.md section 11). A plain `auto` row with `ads`, `climb` and `select`, on key 1
+between the SMG and the Harrow (the key steps SMG, Gimlet, Harrow). Its stats against its neighbours:
+
+| | SMG | Gimlet | Harrow |
+|---|---|---|---|
+| Damage | 25 | 40 | 50 |
+| Rate | 800 a minute | 800 | 500 |
+| Damage a second | 333 | 533 | 417 |
+| Magazine, reload | 30, 1.0 s | 30, 1.2 s | 24, 1.35 s |
+| Reach | half from 80 m (35 to 80) | 0.75 from 140 m (60 to 140) | full at any range |
+| Through | nothing | nothing | a body or 0.5 m of cover |
+| Kick, climb | 0.0016, none | 0.0034, 0.0022 a round | 0.0058, none |
+| Sight | irons, 0.35 | ACOG 4x (0.69), or red dot 2x (0.4), or irons 0.35 | irons 0.4; red dot or ACOG mods |
+
+The owner asked for more damage than the SMG and a little less than the Harrow at 800 to 900 a minute, so it puts out more a second
+than the Harrow does; the Harrow keeps its reach, its penetration, its limbs and its armour class (`medium`; the Gimlet's 40 is a light
+round to a plate). Spread is 0 on every rifle here, so what wins at range is the falloff and the optic, not a cone. **R** (`select`):
+a press shorter than `hold` (0.3 s) reloads on its release; held to 0.3 s it switches and plays `fire_select` with the mode called
+under the crosshair (`hud.callout`) and worn on the HUD's name. With no launcher it toggles bursts of three (`updateBurst`: a pull
+fires three at the row's rate, letting go does not cut it short, then 0.22 s) and full auto (`BURST`, `AUTO`). With the launcher
+fitted it raises and lowers it instead (`LAUNCHER`, `RIFLE`), and the rifle fires full auto. A hold during a reload is ignored.
+**The launcher** (`gimletGl`, M203-style) is a second magazine on the gun (`Weapons.glSlot`, the `LAUNCHER` row in data.ts, not in
+WEAPONS): one round, 6 in reserve (12 at most), a 1.6 s reload by hand, 0.25 s to bring it to bear. While it is up the trigger, R and
+`ammo()` with no id are its (the HUD counts grenades), ADS is off, and its round is `TUNING.launcher`: a `shell` projectile at 55 m/s
+falling at 9.8, so a flat shot lands about 30 m out, that strikes a man for 60 and goes off on contact as a hand grenade's blast,
+5.5 m and 170 (`kind: 'grenade'`, so its self-damage rules too; there is no arming distance). The last grenade gone puts the rifle
+back; raising it with none says `NO GRENADES`. Ammo pickups, the wave floor and refills reach it. `src/weapons/gimlet.test.ts`.
 
 **The Ultramag.** A plain `semi` row with `ads`: 150 a round, `armour: 'medium'` like the Judge (a plate stops it and is wrecked), `force` 120. In `src/enemies/reactions.ts` a hit's shock is its push over the body's mass plus its share of health, so 120 N·s on an 85 kg man is 1.4 of shock before the damage, past a Trooper's stagger (0.75) on any hit and into his fall (1.7) on many; the Judge's 40 is 0.47. The same number is the impulse on the ragdoll when it kills. Its wound is the Judge's with a bigger exit (`BITES` in `src/gore/wounds.ts`).
 
@@ -241,12 +270,19 @@ Pixels from the gun at 1280x720, median / max, from `RL_GROUP=view`. Old is the 
 (`docs/notes/contracts.md`, The Crucible's shop), or from the lab's rows anywhere. `Weapons.mods` holds the ones bought,
 `Weapons.fitted` the ones on; `grantMod(id)` and `fitMod(id, on)` (it refuses a mod not held). A mod is a patch over its gun's row:
 `fitMod` swaps that slot's row for `moddedDef(gun, fitted)`, so every shot reads the patched row with no branch of its own, and
-`Weapons.reset` takes every mod off with the run. The viewmodel side is the gun's `ViewDef.mods` (`docs/notes/viewmodels.md`).
+`Weapons.reset` takes every mod off with the run and then grants and fits the issued ones (`ISSUED`: the Gimlet's ACOG and
+suppressor), so the shop lists them as held, to take off and put back. A mod with `sight` is an optic: a gun takes one, so fitting it
+takes off the other (`fitMod`). The viewmodel side is the gun's `ViewDef.mods` (`docs/notes/viewmodels.md`).
 
 | Mod | Gun | What it does |
 |---|---|---|
 | Suppressor | SMG | `interval` for 900 rounds a minute (800 + 100), `damage` 27.5 (25 x 1.1), `sounds` `smg_suppressed_shot`, `muzzle` `suppressed` (a small dim star, 0.08 m to the SMG's 0.2, a fifth of the light). The flash and tracers leave from the can's mouth, 14.6 cm further out |
 | Red dot sight | Harrow | Nothing in the row: an optic on the dust cover and its dot as the ADS sight |
+| ACOG (`harrowAcog`) | Harrow | `ads` zoom 0.69: the view 4x the hip's (90 to 28 degrees), twice the red dot's; the ACOG on the dust cover (viewmodels/models/optics.ts) |
+| ACOG (`gimletAcog`) | Gimlet | The same. Issued fitted |
+| Red dot sight (`gimletDot`) | Gimlet | `ads` zoom 0.4. Takes the ACOG's place |
+| Suppressor (`gimletCan`) | Gimlet | `sounds` `gimlet_suppressed_shot`, `muzzle` `suppressed`; nothing else. Issued fitted |
+| Grenade launcher (`gimletGl`) | Gimlet | `launcher: true`: hold R raises it. See "The Gimlet" |
 | Raufoss rounds | Sabot | `raufoss: true`: every dart is `Raufoss.fire` with the Sabot's own round (600: 750 direct, four pellets of 240), as the Piledriver's right click. The Sabot's right click stays its scope. The HUD calls it `SABOT · RAUFOSS` |
 
 `src/weapons/mods.test.ts`.
@@ -366,8 +402,13 @@ nice npx vitest run src/weapons/melee/sweep.test.ts --testTimeout=60000   # 24: 
 nice npx vitest run src/weapons/melee/melee.test.ts --testTimeout=60000   # 26: the katana's reach, step, wall, dash, stab, lock, combo moves and guard on real Rapier; the four's damage, type, bonus (back, reeling, down), plate, chain, key 5, a Skitter at the feet, Butcher
 nice npx vitest run src/weapons/melee/combo.test.ts --testTimeout=60000   # 4: the katana's combo inputs
 nice npx vitest run src/weapons/altammo.test.ts --testTimeout=60000       # 7: the right click toggle, exploding bolts in a moving man and a wall, Raufoss through cover and through a man
+nice npx vitest run src/weapons/gimlet.test.ts --testTimeout=60000        # 11: the stats against the SMG and Harrow, reach, the ACOG's power, issued mods, one optic, R tapped and held, bursts, the launcher
 nice npx vitest run src/weapons/lance.test.ts --testTimeout=60000         # 52: the charge and the cell, the chain's pool, a tap, each stage, the sweep and its corpses, the bursts at 30/60/144, walls, armour, the FOV punch, what cancels it
 
+node tools/shot.mjs --url "/?map=range" --script tools/scripts/gimlet-live.mjs --wait 500 --timeout 240 \
+  --dpr 2 --w 1440 --h 900 --out tools/out/carbine/live.png   # the Gimlet: hip, the ACOG at a man 55 m down the range, the red dot, the
+                                                             # launcher fitted, up and reloading, the Harrow's ACOG. GIMLET_ONLY=hip,acog,dot,launcher,harrow;
+                                                             # GIMLET_ONLY=shop with --url "/?autostart=1": Procurement's two pages
 node tools/shot.mjs --url "/?map=range" --script tools/scripts/families-live.mjs --wait 500 --timeout 280 \
   --dpr 2 --w 1440 --h 900 --out tools/out/fam/live.png      # real keys and real enemies on the range's piercing gallery.
                                                              # FAM_ONLY=keys,gallery,holes,tracer,shield,hellfire,lance,reach,exits,cost

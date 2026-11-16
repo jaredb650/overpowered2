@@ -6,6 +6,7 @@ import { autocannonDef, sabotDef } from './autocannon';
 import { batonDef } from './baton';
 import { crowbarDef } from './crowbar';
 import { deuceDef } from './deuce';
+import { gimletDef } from './gimlet';
 import { buzzsawDef } from './buzzsaw';
 import { buildDesignator, buildGrenade, buildStim, buildWalkie } from './devices';
 import { harrowDef } from './harrow';
@@ -43,7 +44,7 @@ export function buildDefs(kit: Kit): Record<string, ViewDef> {
     buzzsaw: SLOT8_OLD ? buzzsawDef(kit) : trommelDef(kit), piledriver: piledriverDef(kit),
     // Family members: the second weapon on a number key. One line here and one row in WEAPONS is the whole of adding one.
     harrow: harrowDef(kit), rivet: rivetDef(kit), sabot: sabotDef(kit), thresher: thresherDef(kit), quiver: quiverDef(kit),
-    deuce: deuceDef(kit), ultramag: ultramagDef(kit),
+    deuce: deuceDef(kit), ultramag: ultramagDef(kit), gimlet: gimletDef(kit),
     // Key 5 beside the sword. Their swings are one clip, models/melee.ts, with each one's own poses.
     knife: knifeDef(kit), crowbar: crowbarDef(kit), shovel: shovelDef(kit), baton: batonDef(kit),
   };

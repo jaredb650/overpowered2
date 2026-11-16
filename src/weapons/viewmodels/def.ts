@@ -54,6 +54,14 @@ export interface ViewDef {
   spinMax?: number;
   /** What each weapon mod (src/weapons/mods.ts) looks like on this gun while it is fitted. */
   mods?: Partial<Record<ModId, ModLook>>;
+  /** A part (flip-up irons) shown only while none of `mods` that brings a sight is fitted. */
+  irons?: string;
+}
+
+/** Whether `def` shows its `irons` with `fitted` on: no optic among them. */
+export function ironsUp(def: ViewDef, fitted: ReadonlySet<ModId> | null | undefined): boolean {
+  for (const id in def.mods) if (def.mods[id as ModId]!.sight && fitted?.has(id as ModId)) return false;
+  return true;
 }
 
 /** A fitted mod on the gun: its part (hidden until fitted), and the sight or muzzle it puts in place of the gun's own. */
@@ -65,6 +73,13 @@ export interface ModLook {
   relief?: number;
   /** The socket the flash and tracers leave from while fitted. */
   muzzle?: string;
+  /**
+   * A part of the optic hidden once the gun is up at the eye (past `INNER_AT` of the aim): a magnified sight's tube and
+   * objective, which would show through its eyepiece as a tunnel. Aimed, the eyepiece frames the picture and nothing else.
+   */
+  inner?: string;
+  /** A magnified optic's eyepiece: a socket at the middle of its back glass and its clear radius. See VmUniforms.uScope. */
+  eye?: { readonly socket: string; readonly radius: number };
 }
 
 const MAX_STEPS = 10;
@@ -161,6 +176,10 @@ export class Anim {
   model: Model | null = null;
   /** Horizontal player speed. */
   speed = 0;
+  /** Weapon mods fitted now (src/weapons/mods.ts), for a clip that dresses itself by them. */
+  mods: ReadonlySet<ModId> | null = null;
+  /** The gun's second barrel is in use: the Gimlet's launcher is up. */
+  alt = false;
 
   /** The weapon's glow material. */
   glow(name: string, level: number): void {

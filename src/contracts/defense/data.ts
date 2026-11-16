@@ -79,6 +79,8 @@ export interface WeaponPrice {
 /** Every gun the shops sell. Melee is not sold: the loadout carries a Shiv. */
 export const WEAPON_PRICES: Partial<Record<WeaponId, WeaponPrice>> = {
   harrow: { price: 900, loadout: 'primary', ammo: 'basic', box: 90 },
+  // The carbine: an early buy, under the Harrow, issued with its ACOG and suppressor.
+  gimlet: { price: 650, loadout: 'primary', ammo: 'basic', box: 80 },
   smg: { price: 1100, loadout: 'primary', ammo: 'basic', box: 60 },
   thresher: { price: 800, loadout: 'primary', ammo: 'basic', box: 80 },
   shotgun: { price: 1000, loadout: 'primary', ammo: 'basic', box: 70 },

@@ -12,6 +12,7 @@ import { knurl, screwX, serrations } from '../kit/details';
 import { bump, hold, inOut, inQuad, outCubic, seg, thud } from '../curves';
 import { fill, pullTrigger } from './common';
 import type { Anim, ViewDef } from '../def';
+import { OPTIC_GLOWS, acog, acogShade, redDot } from './optics';
 import { HANDS } from '../poses';
 
 const BORE = 0.046;
@@ -137,39 +138,8 @@ function barrel(m: Mesher): void {
   });
 }
 
-/** The red dot's axis and the dot itself, in the model's frame: the ADS sight while it is fitted. */
-const DOT_Y = 0.1135;
-const DOT_Z = -0.0512;
-
-/**
- * The shop's red dot sight (weapons/mods.ts): a micro tube optic on a riser clamped to the dust cover, a red dot on its front
- * lens. The irons stay and sit under the dot, low in the tube. A part of its own, hidden until the mod is fitted.
- */
-function redDot(m: Mesher): void {
-  m.part('reddot', [0, 0.079, -0.03], () => {
-    // Clamp over the dust cover, with its cross bolt, and the riser.
-    m.use(F.anodized);
-    m.at([0, 0.004, 0], null, () => m.box(0.033, 0.008, 0.042, 0.0012, 0.0016));
-    m.mirror(() => m.at([0.0172, 0.003, 0.006], [0, Math.PI / 2, 0], () => { m.use(F.steelDark); m.cyl(0.0042, 0.004, 12); }));
-    m.use(F.anodized);
-    m.at([0, 0.0135, -0.002], null, () => m.box(0.02, 0.012, 0.034, 0.0016, 0.002));
-    // The tube, hollow so it can be looked through, with rubber at both ends.
-    m.at([0, DOT_Y - 0.079, -0.006], null, () => {
-      m.use(F.anodized);
-      m.pipe(0.0172, 0.0138, 0.046, 28);
-      m.use(F.rubber);
-      for (const z of [0.0215, -0.0215]) m.at([0, 0, z], null, () => m.pipe(0.0182, 0.0138, 0.005, 28));
-      // Turrets: elevation on top, windage on the right, each under a cap.
-      m.use(F.anodizedGrey);
-      m.at([0, 0.0205, 0.002], [Math.PI / 2, 0, 0], () => m.cyl(0.0068, 0.008, 16));
-      m.at([0.0205, 0, 0.002], [0, Math.PI / 2, 0], () => m.cyl(0.0068, 0.008, 16));
-      m.at([0.0248, 0, 0.002], [0, Math.PI / 2, 0], () => knurl(m, 0.007, 0.002, F.steelDark, 16, 0.0004));
-      // The front lens, tinted, and the dot floating on it facing the shooter.
-      m.glass(() => m.at([0, 0, -0.016], null, () => m.cyl(0.0138, 0.0008, 28, 0)));
-    });
-    m.glow('dot', () => m.at([0, DOT_Y - 0.079, DOT_Z + 0.03], null, () => m.cyl(0.00055, 0.0002, 12, 0)));
-  });
-}
+/** Where an optic clamps: the top of the dust cover, over the port. */
+const OPTIC_AT = [0, 0.079, -0.03] as const;
 
 function magazine(m: Mesher): void {
   // Part space: origin at the mouth of the well, feed lips up. It leans forward, so it rocks in.
@@ -202,14 +172,16 @@ function magazine(m: Mesher): void {
   });
 }
 
-function buildHarrow(kit: Kit): Model {
+function buildHarrow(kit: Kit): { model: Model; mods: ViewDef['mods'] } {
   const m = kit.mesher();
   m.bevel = 0.0014;
   receiver(m);
   furniture(m);
   barrel(m);
   magazine(m);
-  redDot(m);
+  // The shop's optics (weapons/mods.ts), each a part hidden until fitted. The irons stay and sit low under either.
+  const dot = redDot(m, OPTIC_AT);
+  const scope = acog(m, OPTIC_AT);
 
   // Carrier in the port, and the handle it throws back and forth on the left.
   m.part('bolt', [0.0178, 0.052, -0.03], () => {
@@ -229,14 +201,15 @@ function buildHarrow(kit: Kit): Model {
     m.side(poly([[-0.0035, 0.002], [0.0035, 0.002], [0.002, -0.009, 0.002], [0.0038, -0.0225, 0.0015], [0.0005, -0.0235, 0.001], [-0.0035, -0.0095, 0.003]], 0.001), 0.0068, { bevel: 0.0007 });
   });
 
-  const model = new Model(m, kit.mats, { glows: { sight: [0x7dff5a, 6], dot: [0xff2414, 9] } });
+  const model = new Model(m, kit.mats, { glows: { sight: [0x7dff5a, 6], ...OPTIC_GLOWS } });
+  acogShade(model);
   model.socket('muzzle', [0, BORE, MUZZLE - 0.004]);
   model.socket('eject', [0.021, 0.054, -0.03]);
   model.hand('gripR', [0.018, -0.054, 0.072], [0, -0.96, 0.27], [-0.3, -0.25, -0.92]);
   model.hand('gripL', [-0.001, 0.013, -0.3], [-0.55, 0.15, -0.8], [0.8, 0.05, -0.55]);
   model.hand('magHold', [-0.02, -0.07, -0.004], [-0.3, 0.1, -0.95], [0.9, -0.1, -0.35], 'mag');
   model.hand('chargeHold', [-0.022, 0.0, 0.004], [-0.5, -0.2, -0.8], [0.8, -0.3, -0.5], 'charge');
-  return model;
+  return { model, mods: { reddot: dot, harrowAcog: scope } };
 }
 
 /** How far the carrier and its handle run. */
@@ -252,7 +225,8 @@ function clip(a: Anim): void {
   P.charge!.position.z += run;
   pullTrigger(a, 0.08, 0.3);
   P.follower!.position.y -= fill(a) * 0.1;
-  a.glow('sight', 1);
+  // Under the ACOG the post would sit lit under the chevron: it goes dark.
+  a.glow('sight', a.mods?.has('harrowAcog') ? 0 : 1);
   // The muzzle walks up and right over a burst, which the spring alone would not show.
   a.gunR.z -= a.sinceFire < 0.2 ? bump(a.sinceFire, 0, 0.2) * 0.012 : 0;
 
@@ -301,9 +275,10 @@ function clip(a: Anim): void {
 }
 
 export function harrowDef(kit: Kit): ViewDef {
+  const { model, mods } = buildHarrow(kit);
   return {
     id: 'harrow',
-    model: buildHarrow(kit),
+    model,
     pos: [0.14, -0.136, -0.43],
     rot: [0.022, 0.08, 0],
     // ADS: the hooded post's tip through the rear aperture.
@@ -313,8 +288,8 @@ export function harrowDef(kit: Kit): ViewDef {
     right: { socket: 'gripR', pose: HANDS.grip },
     left: { socket: 'gripL', pose: HANDS.support },
     heatPerShot: 0.016,
-    // With the red dot fitted: its dot on the eye line, level, further out, so the tube frames it.
-    mods: { reddot: { part: 'reddot', sight: [0, DOT_Y, DOT_Z], rear: null, relief: 0.26 } },
+    // A fitted optic brings its own sight picture: the red dot's dot, the ACOG's chevron.
+    mods,
     animate: clip,
   };
 }

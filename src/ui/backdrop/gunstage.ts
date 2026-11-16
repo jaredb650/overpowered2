@@ -10,7 +10,7 @@ import type { Ctx } from '../../core/contracts';
 import type { ModId, WeaponId } from '../../core/gameplay';
 import type { Backdrop } from '../../render/Renderer';
 import { WEAPONS } from '../../weapons/data';
-import { Anim, type ViewDef } from '../../weapons/viewmodels/def';
+import { Anim, ironsUp, type ViewDef } from '../../weapons/viewmodels/def';
 
 interface RendererHook {
   backdrop: Backdrop | null;
@@ -79,6 +79,8 @@ export class GunStage {
       const part = root.getObjectByName(look.part);
       if (part) part.visible = mods.has(mod as ModId);
     }
+    const irons = def.irons ? root.getObjectByName(def.irons) : undefined;
+    if (irons) irons.visible = ironsUp(def, mods);
   }
 
   update(dt: number): void {

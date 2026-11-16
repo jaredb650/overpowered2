@@ -10,7 +10,7 @@ import { CG, type Ctx, type MovePose, type RayHit } from '../../core/contracts';
 import type { CallInId, ModId, PerkId, PowerupId, SwordMove, ViewmodelRig, WeaponId } from '../../core/gameplay';
 import { Arm } from './arms';
 import { inQuad, outBack, outCubic } from './curves';
-import { Anim, HandCtl, type ModLook, type ViewDef } from './def';
+import { Anim, HandCtl, ironsUp, type ModLook, type ViewDef } from './def';
 import { Kit } from './kit/kit';
 import { VmMaterials } from './kit/materials';
 import type { Model } from './kit/model';
@@ -62,6 +62,8 @@ const _q = new THREE.Quaternion();
 const _s = new THREE.Vector3();
 /** Socket names of a gun's barrels after the first, which is `muzzle`. */
 const BARRELS: readonly string[] = ['muzzle', 'muzzle1', 'muzzle2', 'muzzle3'];
+/** Aim past which a magnified optic's `inner` part is hidden (ModLook.inner). */
+const INNER_AT = 0.85;
 const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
 const _qa = new THREE.Quaternion();
@@ -424,7 +426,7 @@ export class Rig implements ViewmodelRig {
     const isLeft = left && this.akimboW > 0.01;
     const def = isLeft ? this.defLeft : this.def;
     const sockets = def?.model.sockets;
-    const can = def ? this.look(def)?.muzzle : undefined;
+    const can = def ? this.look(def, 'muzzle')?.muzzle : undefined;
     const s = (barrel > 0 ? sockets?.[BARRELS[barrel] ?? ''] : undefined) ?? (can ? sockets?.[can] : undefined) ?? sockets?.muzzle;
     if (!s) return out;
     _a.setFromMatrixPosition(s.matrixWorld);
@@ -533,6 +535,8 @@ export class Rig implements ViewmodelRig {
     a.right.begin(def.right);
     a.left.begin(def.left);
     this.readAmmo(def);
+    a.mods = this.ctx.weapons.fitted ?? null;
+    a.alt = this.ctx.weapons.launcherUp === true;
     def.animate(a);
     this.dressMods(def);
     this.composeGun(def, a);
@@ -727,7 +731,7 @@ export class Rig implements ViewmodelRig {
     // Aim down sights: the sight comes onto the eye line, square to the view. x goes in before the hand-off's mirror, which
     // multiplies it by the gun's side, so the sight is centred from either hand. Sway falls to `ADS_SWAY` of itself.
     // A fitted optic (the Harrow's red dot) brings its own sight picture.
-    const fit = this.look(def);
+    const fit = this.look(def, 'sight');
     const sight = fit?.sight ?? def.sight;
     const aim = sight ? this.aimW : 0;
     if (sight && aim > 0) {
@@ -1056,7 +1060,28 @@ export class Rig implements ViewmodelRig {
     this.frost = damp(this.frost, this.frostLeft > 0 ? 1 : 0, this.frostLeft > 0 ? 7 : 0.9, dt);
     u.uFrost.value = this.frost;
     u.uGunHeat.value = Math.max(this.a.heat, this.a.bladeHeat);
+    this.maskScope();
     this.pollDevices();
+  }
+
+  /**
+   * Aimed through a magnified optic, the gun's surfaces behind its eyepiece and inside its clear circle are not drawn
+   * (VmUniforms.uScope): the circle shows the world at the camera's zoom, the reticle and the eyepiece's dark rim.
+   */
+  private maskScope(): void {
+    const scope = this.mats.uniforms.uScope.value;
+    scope.z = 0;
+    const def = this.def;
+    const eye = def && this.aimW >= INNER_AT ? this.look(def, 'sight')?.eye : undefined;
+    const s = eye ? def!.model.sockets[eye.socket] : undefined;
+    if (!eye || !s) return;
+    const cam = this.ctx.render.viewCamera;
+    _a.setFromMatrixPosition(s.matrixWorld).applyMatrix4(cam.matrixWorldInverse);
+    const depth = -_a.z;
+    if (depth <= 0) return;
+    _a.applyMatrix4(cam.projectionMatrix);
+    scope.set(_a.x, _a.y, eye.radius / depth / Math.tan((cam.fov * Math.PI) / 360), depth + 0.003);
+    this.mats.uniforms.uScopeAspect.value = cam.aspect;
   }
 
   /** Grenades and call-ins have no rig calls; their public state is enough to drive the off-hand. */
@@ -1105,12 +1130,12 @@ export class Rig implements ViewmodelRig {
     texture.needsUpdate = true;
   }
 
-  /** The fitted mod's look on `def`, if one is fitted (`weapons.fitted`). A gun takes one mod. */
-  private look(def: ViewDef): ModLook | undefined {
+  /** The look of the fitted mod on `def` that sets `key` (`weapons.fitted`): its optic's sight, its can's muzzle. */
+  private look(def: ViewDef, key: 'sight' | 'muzzle'): ModLook | undefined {
     const mods = def.mods;
     const fitted = this.ctx.weapons.fitted;
     if (!mods || !fitted) return undefined;
-    for (const id in mods) if (fitted.has(id as ModId)) return mods[id as ModId];
+    for (const id in mods) if (fitted.has(id as ModId) && mods[id as ModId]![key] !== undefined) return mods[id as ModId];
     return undefined;
   }
 
@@ -1120,9 +1145,14 @@ export class Rig implements ViewmodelRig {
     if (!mods) return;
     const fitted = this.ctx.weapons.fitted;
     for (const id in mods) {
-      const part = def.model.parts[mods[id as ModId]!.part];
+      const look = mods[id as ModId]!;
+      const part = def.model.parts[look.part];
       if (part) part.visible = fitted?.has(id as ModId) === true;
+      const inner = look.inner ? def.model.parts[look.inner] : undefined;
+      if (inner) inner.visible = this.aimW < INNER_AT;
     }
+    const irons = def.irons ? def.model.parts[def.irons] : undefined;
+    if (irons) irons.visible = ironsUp(def, fitted);
   }
 
   get currentDef(): ViewDef | null {

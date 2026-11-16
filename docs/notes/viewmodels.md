@@ -95,6 +95,25 @@ the dust cover, rubber at both ends, two turrets, a tinted front lens and a 1.1 
 dot on the eye line level (`rear: null`) at `relief` 0.26, and the irons sit under the dot at the bottom of the tube. The Crucible's shop
 shows the same parts on its turning clone of the model. Stills: `tools/out/shop/`.
 
+**Optics** (`models/optics.ts`, 2026-11-15). The red dot and the ACOG are built onto any gun's rail with one call (`redDot(m, at)`,
+`acog(m, at)`, `at` the top of the rail under the clamp), each a part of its own, and return the `ModLook` (sight, `rear: null`, relief)
+the gun lists in its `mods`; `OPTIC_GLOWS` goes in the model's glows and `acogShade(model)` after the model is built. The Harrow takes
+both, the Gimlet both. A gun takes several mods at once now: `Rig.look(def, 'sight' | 'muzzle')` reads the fitted mod that sets that
+field, so the Gimlet's ACOG and can work together. A gun's `irons` part (the Gimlet's flip-ups) shows only while no optic is fitted
+(`ironsUp`, in the rig and the shop's turntable). **The ACOG** is a 4x32 on its own mount: a forged body, a short wide eyepiece with a
+rubber cup, a flared objective bell, two capped turrets, and a red chevron (glow `chevron`) on a black post with four drop bars (glow
+`stadia`, unlit black). Its magnification is the camera's: the row's `ads.zoom` 0.69 (mods.ts), 90 to 28 degrees, four times the hip
+view. Aimed past 0.85 (`INNER_AT`), the body ahead of the eyepiece (`acogFront`, the look's `inner`) is hidden and the gun's own
+surfaces behind the eyepiece inside its clear circle are not drawn: `Rig.maskScope` projects the eyepiece socket (`acogEye`) and its
+radius into `VmUniforms.uScope`, and the `vm-hard` shader discards a fragment deeper than it inside the circle. So the eyepiece shows
+the zoomed world, the reticle and the rim `acogShade` darkens, the ring round it stays solid, and the world is seen round the ring.
+The clear circle is about 45 percent of the screen's height at `EYE_RELIEF` 0.06 m. **The Gimlet** (`models/gimlet.ts`): a flat-top
+carbine, the rail the length of the upper and the handguard, a curved polymer thirty, collapsible stock, A2 birdcage; parts `can`
+(muzzle `muzzleCan`), `gl` (the launcher, its barrel `glTube` sliding forward on its reload, `glRound` in the hand, muzzle socket
+`muzzle1`), `irons`, `reddot`, `acog`. `Anim.alt` is the launcher up (`weapons.launcherUp`): the clip rolls the gun onto its side and
+lifts the muzzle, and plays the launcher's reload; `Anim.mods` puts the off hand on the launcher's barrel while it is fitted.
+Stills: `tools/out/carbine/`.
+
 **Scope.** The gun lifts and hides past `scopeW` 0.9. The overlay arrives before that, so the gun can be seen inside it for about 100 ms. The reticle in the overlay is per gun (`RETICLES` in `src/ui/hud/overlays.ts`, see `docs/notes/weapons.md`); the small glowing one in each model's eyepiece is drawn to match it.
 
 **Aim down sights.** `Weapons` sets the eased weight through `setAim`. A `ViewDef` with `sight` (the point of the sight in the model's frame: the post's tip, the reflex dot, the optic's reticle) is posed by `composeGun` so that point sits on the eye line `relief` metres out, square to the view; with `rear` too the gun is pitched so the rear sight lines up (`atan2` of the two, a few hundredths of a radian; the Piledriver's ladder is 0.04). The x goes in before the hand-off's mirror, multiplied by the gun's side, so on a right-side wall run the gun is aimed centred from the left hand. Breathing, bob, wall lean, look lag and body inertia fall to `ADS_SWAY` (0.2); the body layer and recoil springs do not (the weapon system already scales recoil). The Judge's notch is painted, not cut, so its insert sits on the blade. The Rocket's optic body is hollow along its bore (it was solid, with a black disc in the eyepiece) so it can be aimed through: a hole wider than the cap's bevel allows makes `prism` fail to cut it, which is why the bore is 16 mm. Contact sheet: `tools/scripts/ads-vm.mjs` on `/?sandbox=viewmodels&manual=1&engine=1` (a red cross marks the centre; `ADS_SIGHT` overrides a sight live), `&pose=ads` for one gun.

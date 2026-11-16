@@ -185,7 +185,7 @@ export class ProcurementScreen implements Screen {
     c.lore.set(o.ware.lore);
     this.bars(DEFS[id], mod ? moddedDef(id, new Set([mod])) : DEFS[id]);
     const verb = o.act.kind === 'mod' && o.owned ? (o.fitted ? 'Take off' : 'Fit') : 'Buy';
-    c.price.set(o.owned ? (o.act.kind === 'mod' ? 'Bought' : issued(o.ware) ? 'Issued' : 'Owned') : credits(o.ware.price));
+    c.price.set(o.owned ? (issued(o.ware) ? 'Issued' : o.act.kind === 'mod' ? 'Bought' : 'Owned') : credits(o.ware.price));
     c.state.set(o.why ?? `Enter: ${verb}`);
     c.buy.classList.toggle('locked', o.locked);
     c.buy.classList.toggle('ready', o.why === null);

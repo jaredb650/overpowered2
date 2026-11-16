@@ -38,6 +38,11 @@ export const WEAPONS: Record<WeaponId, WeaponInfo> = {
     role: `${def.smg.damage} damage, ${def.smg.magSize} rounds, ${Math.round(1 / def.smg.interval)} a second, dead accurate`,
     note: `Akimbo during Berserk: both guns fire.${def.smg.falloff ? ` Fades past ${def.smg.falloff.from} m.` : ''}`,
   },
+  gimlet: {
+    name: 'Gimlet', key: '1',
+    role: `Carbine. ${def.gimlet.damage} damage, ${def.gimlet.magSize} rounds, ${Math.round(1 / def.gimlet.interval)} a second, a 4x ACOG`,
+    note: `Press 1 again to step to it. Keeps ${def.gimlet.falloff!.floor * 100}% of its round past ${def.gimlet.falloff!.to} m. Hold R: bursts of three, or the launcher if fitted. Tap R reloads.`,
+  },
   harrow: {
     name: 'Harrow', key: '1',
     role: `Battle rifle. ${def.harrow.damage} damage, ${def.harrow.magSize} rounds, ${Math.round(1 / def.harrow.interval)} a second`,

@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { WeaponId } from '../core/gameplay';
 import { TUNING, WEAPONS } from './data';
-import { MODS, moddedDef } from './mods';
+import { ISSUED, MODS, moddedDef } from './mods';
 import { makeRange, type Range } from './testkit';
 
 let r: Range;
@@ -63,12 +63,12 @@ describe('the SMG suppressor', () => {
     expect(r.record.sounds).toContain('smg_shot');
   });
 
-  it('goes with the run: a new one starts with no mods', () => {
+  it('goes with the run: a new one starts with only the issued mods (the Gimlet\'s)', () => {
     r.weapons.grantMod('suppressor');
     r.weapons.fitMod('suppressor', true);
     r.reset();
-    expect(r.weapons.mods.size).toBe(0);
-    expect(r.weapons.fitted.size).toBe(0);
+    expect([...r.weapons.mods]).toEqual([...ISSUED]);
+    expect([...r.weapons.fitted]).toEqual([...ISSUED]);
     draw('smg');
     burst();
     expect(r.record.sounds).toContain('smg_shot');
