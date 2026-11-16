@@ -13,21 +13,24 @@ export class PauseScreen implements Screen {
   private hintLabel: Label;
   private hintShown: Shown;
   private items;
+  private restart;
+  private title = span('pz-title', 'Paused');
 
-  constructor(private readonly hud: Hud) {
+  constructor(private readonly hud: Hud, private readonly isCoop: () => boolean = () => false) {
+    this.restart = menuButton(MISSION_ID ? 'Restart mission' : 'Restart run', () => this.hud.startRun());
     this.items = [
       menuButton('Resume', () => this.hud.resume()),
       menuButton('Guide', () => this.hud.screens.show('guide')),
       menuButton('Settings', () => this.hud.screens.show('settings')),
       ...(MISSION_ID ? [menuButton('Restart from checkpoint', () => this.hud.restartCheckpoint())] : []),
-      menuButton(MISSION_ID ? 'Restart mission' : 'Restart run', () => this.hud.startRun()),
+      this.restart,
       menuButton('Quit to menu', () => this.hud.quitToMenu()),
     ];
     const hint = span('pz-hint');
     this.stats = div('stats');
     this.el = div('scr scr-pause',
       div('pz-left',
-        span('pz-title', 'Paused'),
+        this.title,
         div('mm-list', ...this.items.map(i => i.el)),
         hint,
       ),
@@ -39,7 +42,10 @@ export class PauseScreen implements Screen {
   }
 
   open(nav: Nav): void {
-    nav.set(this.items);
+    const coop = this.isCoop();
+    this.title.textContent = coop ? 'Co-op menu · world live' : 'Paused';
+    this.restart.el.style.display = coop ? 'none' : '';
+    nav.set(this.items.filter(i => !coop || i !== this.restart));
     nav.back = () => this.hud.resume();
     nav.left = nav.right = null;
     this.hintShown.set(false);

@@ -50,8 +50,9 @@
 
 .co-modes { margin: 0.4rem 0 0.2rem; }
 .co-mode-row { display: flex; gap: 0.5rem; margin-top: 0.3rem; }
-.co-mode { padding: 0.15rem 0.6rem; border: 0.0625rem solid rgba(157, 176, 189, 0.3); color: var(--dim); font: 1.3rem/1.2 var(--display); }
-.co-mode.on { border-color: var(--steel); color: var(--steel); }
+.co-mode { appearance: none; background: transparent; cursor: pointer; padding: 0.15rem 0.6rem; border: 0.0625rem solid rgba(157, 176, 189, 0.3); color: var(--dim); font: 1.3rem/1.2 var(--display); }
+.co-mode.on { border-color: var(--amber); color: var(--amber); }
+.co-mode:focus-visible { outline: 0.125rem solid var(--amber); outline-offset: 0.125rem; }
 
 .co-chat { flex: 1 1 auto; min-height: 6rem; max-height: 14rem; overflow-y: auto; margin: 0.7rem 0 0.4rem; padding: 0.3rem 0.5rem; background: rgba(0, 0, 0, 0.35); font-size: 1.05rem; line-height: 1.4; user-select: text; }
 .co-line.sys { color: var(--amber); }

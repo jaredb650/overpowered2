@@ -3,14 +3,15 @@
  * notice on the right. Four pages: start, host (pick a password), join (code and password), and the lobby itself.
  *
  * An invite link (`?join=CODE`) opens the join page with the code filled in, straight from the splash.
- * Co-op play itself is stage 1 and later, so the host's mode picker is shown and shut.
+ * Stage 1 starts an enemy-free match on the host's selected map.
  */
 import type { Ctx } from '../../core/contracts';
 import { BUILD } from '../../net/build';
 import {
-  CODE_LENGTH, Lobby, MAX_PLAYERS, NAME_MAX, CHAT_MAX, cleanCode, inviteLink, loadCallsign, newCode, saveCallsign, type LobbyError,
+  COOP_MODES, CODE_LENGTH, Lobby, MAX_PLAYERS, NAME_MAX, CHAT_MAX, cleanCode, inviteLink, loadCallsign, newCode, saveCallsign, type LobbyError,
 } from '../../net/lobby';
 import { div, h, span } from '../dom';
+import { deployMatch } from '../../net/session';
 import type { Hud } from '../Hud';
 import type { Nav, NavItem } from './nav';
 import { menuButton, wordmark } from './parts';
@@ -51,6 +52,9 @@ export class CoopScreen implements Screen {
   private page: Page = 'start';
   private lobby: Lobby | null = null;
   private code = '';
+  private mode = 0;
+  private roomPassword = '';
+  private startItem: NavItem;
   /** The last thing that went wrong, shown on the page it sends the player back to. */
   private message = '';
   private invite = INVITE;
@@ -89,14 +93,26 @@ export class CoopScreen implements Screen {
       this.chatInput.value = '';
     });
 
+    this.startItem = menuButton('Start', () => this.lobby?.startMatch(COOP_MODES[this.mode]!));
     this.readyItem = menuButton('Ready', () => this.lobby?.setReady(!this.lobby.me?.ready));
     const copy = h('button', 'co-copy', 'Copy');
     copy.type = 'button';
     copy.addEventListener('click', () => this.copy());
     this.modes = div('co-modes',
       span('nt-k', 'Mode'),
-      div('co-mode-row', ...MODES.map((m, i) => span(i === 0 ? 'co-mode on' : 'co-mode', m))),
-      div('co-note', 'Co-op gameplay comes in the next stage. For now the lobby is all there is.'),
+      div('co-mode-row', ...MODES.map((m, i) => {
+        const button = h('button', i === 0 ? 'co-mode on' : 'co-mode', m);
+        button.type = 'button';
+        button.addEventListener('keydown', e => {
+          if (e.key === 'Enter' || e.key === ' ') e.stopPropagation();
+        });
+        button.addEventListener('click', () => {
+          this.mode = i;
+          this.modes.querySelectorAll('.co-mode').forEach((el, n) => el.classList.toggle('on', n === i));
+        });
+        return button;
+      })),
+      div('co-note', 'Free roam: no enemies or waves. Shooting and enemy sync come in stage 2.'),
     );
     this.lobbyPanel = div('',
       span('nt-office', 'Co-op lobby'),
@@ -143,7 +159,7 @@ export class CoopScreen implements Screen {
       items = [
         menuButton('Host a lobby', () => this.go('host')),
         menuButton('Join a lobby', () => this.go('join')),
-        back('Back', () => this.hud.screens.show('menu')),
+        back('Back', () => this.hud.screens.playMenu()),
       ];
     } else if (page === 'host') {
       this.crumb.textContent = 'Play / Multiplayer / Host';
@@ -153,12 +169,12 @@ export class CoopScreen implements Screen {
       items = [menuButton('Join', () => this.submit()), back('Back', () => this.go('start'))];
     } else {
       this.crumb.textContent = `Play / Multiplayer / ${this.code}`;
-      items = [this.readyItem, menuButton('Copy link', () => this.copy()), back('Leave', () => this.leave())];
+      items = [...(this.lobby?.hosting ? [this.startItem] : []), this.readyItem, menuButton('Copy link', () => this.copy()), back('Leave', () => this.leave())];
     }
     this.list.replaceChildren(...items.map(i => i.el));
     if (this.nav) {
       this.nav.set(items, 0);
-      this.nav.back = page === 'start' ? () => this.hud.screens.show('menu') : page === 'lobby' ? () => this.leave() : () => this.go('start');
+      this.nav.back = page === 'start' ? () => this.hud.screens.playMenu() : page === 'lobby' ? () => this.leave() : () => this.go('start');
     }
     this.paint();
     if (page === 'host') this.password.focus();
@@ -173,7 +189,7 @@ export class CoopScreen implements Screen {
         span('nt-office', 'Co-op'),
         div('nt-head', span('nt-title', 'Multiplayer')),
         p('Play with up to three friends, browser to browser. One of you hosts a lobby and picks a password. The others join with its code, or the invite link, and that password.'),
-        p('This is the first stage: the lobby, names, ready and chat. Playing a mode together comes next.'),
+        p('Choose a mode in the lobby and walk its map together. This stage has no enemies; each player keeps their own movement and guns.'),
         err,
         div('co-note', NO_TURN),
       );
@@ -247,6 +263,15 @@ export class CoopScreen implements Screen {
     const { openLobby } = await import('../../net/trystero');
     const name = this.name.value.trim() || loadCallsign();
     const lobby = new Lobby(openLobby(this.code, password), hosting, name);
+    this.roomPassword = password;
+    lobby.onMatch = match => {
+      try { deployMatch(this.code, this.roomPassword, lobby, match); }
+      catch {
+        lobby.leave();
+        this.lobby = null;
+        this.go('start', 'Co-op needs tab storage to load the map. Enable session storage and host again.');
+      }
+    };
     lobby.onChange = () => (lobby.phase === 'closed' ? this.ended(lobby) : this.paintLobby());
     this.lobby = lobby;
     this.go('lobby');
@@ -272,7 +297,13 @@ export class CoopScreen implements Screen {
 
   private leave(): void {
     this.lobby?.leave();
+    this.lobby = null;
+    this.roomPassword = '';
     this.go('start');
+  }
+
+  showMessage(message: string): void {
+    this.go('start', message);
   }
 
   private async copy(): Promise<void> {

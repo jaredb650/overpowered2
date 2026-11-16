@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DOOR_AFTER_MS, HOST_WAIT_MS, Lobby, cleanCode, inviteLink, newCode } from './lobby';
+import { encodePose, type Pose } from './pose';
 import type { NetError, NetRoom } from './room';
 
 /**
@@ -35,7 +36,7 @@ class Hub {
   deliver(from: FakeRoom, name: string, data: unknown, to?: string): void {
     for (const r of this.rooms) {
       if (r === from || r.roomId !== from.roomId || r.password !== from.password || (to && r.id !== to)) continue;
-      const copy = JSON.parse(JSON.stringify(data));
+      const copy = structuredClone(data);
       this.later(() => r.message(name, copy, from.id));
     }
   }
@@ -231,6 +232,100 @@ describe('co-op lobby', () => {
     hub.flush();
     expect(g.players).toHaveLength(3);
     expect(h.players.find(p => p.name === 'THIRD')?.ready).toBe(false);
+  });
+});
+
+describe('match start and live room', () => {
+  let hub: Hub;
+  let n = 0;
+  const open = (host: boolean, name: string, deployed = false) => {
+    const id = `m${n++}`;
+    return new Lobby({ main: hub.open('MATCH', 'pw', id), door: () => hub.open('MATCH-door', 'MATCH', id) }, host, name, 'same', deployed);
+  };
+  beforeEach(() => { vi.useFakeTimers(); hub = new Hub(); });
+  afterEach(() => vi.useRealTimers());
+  it.each(['crucible', 'outpost', 'defense'] as const)('only the host starts %s, guests save before host deploys, duplicate starts do not reset', mode => {
+    const h = open(true, 'HOST');
+    const g = open(false, 'GUEST');
+    const third = open(false, 'THIRD');
+    hub.flush();
+    const order: string[] = [];
+    h.onMatch = () => order.push('host');
+    g.onMatch = () => order.push('guest');
+    third.onMatch = () => order.push('third');
+    expect(g.startMatch(mode, 'match-1')).toBe(false);
+    expect(h.startMatch(mode, 'match-1')).toBe(true);
+    expect(order).toEqual([]);
+    hub.flush();
+    expect(order).toEqual(['guest', 'third', 'host']);
+    expect(g.match).toEqual({ id: 'match-1', mode });
+    expect(third.match).toEqual(h.match);
+    expect(h.startMatch(mode, 'match-2')).toBe(false);
+    const late = open(false, 'LATE');
+    const lateStart = vi.fn();
+    late.onMatch = lateStart;
+    hub.flush();
+    expect(lateStart).toHaveBeenCalledWith(h.match);
+    expect(order).toEqual(['guest', 'third', 'host']);
+  });
+  it('relays host and guest poses, stamps guest identity and ignores unadmitted peers', () => {
+    const h = open(true, 'HOST'), g = open(false, 'GUEST'), g2 = open(false, 'THIRD');
+    hub.flush();
+    h.startMatch('crucible', 'test'); hub.flush();
+    const hp = vi.fn(), gp = vi.fn(), g2p = vi.fn();
+    h.onPose = hp; g.onPose = gp; g2.onPose = g2p;
+    const p: Pose = { seq: 1, position: [1, 2, 3], velocity: [4, 5, 6], yaw: 0, pitch: 0, move: 'slide', weapon: 'pistol' };
+    g.sendPose(p); hub.flush();
+    expect(hp).toHaveBeenCalledWith(g.you, p);
+    expect(g2p).toHaveBeenCalledWith(g.you, p);
+    expect(gp).not.toHaveBeenCalled();
+    h.sendPose(p); hub.flush();
+    expect(gp).toHaveBeenCalledWith('host', p);
+    const room = (g as unknown as { room: FakeRoom }).room;
+    hub.deliver(room, 'pose', encodePose({ ...p, seq: 2 }, 0)); hub.flush();
+    expect(g2p).toHaveBeenLastCalledWith(g.you, { ...p, seq: 2 });
+    expect(gp).toHaveBeenCalledTimes(1); // guest ignores direct packets from another guest
+    const rogue = hub.open('MATCH', 'pw', 'unadmitted'); hub.flush();
+    hub.deliver(rogue, 'pose', encodePose(p, 0)); hub.flush();
+    expect(hp).toHaveBeenCalledTimes(2);
+  });
+  it('keeps a running match when a guest leaves, recycles its slot, and ends it when the host leaves', () => {
+    const h = open(true, 'HOST'), g = open(false, 'GUEST'), g2 = open(false, 'THIRD');
+    hub.flush(); h.startMatch('defense', 'test'); hub.flush();
+    const slot = h.players.find(p => p.id === g.you)!.slot;
+    g.leave(); hub.flush();
+    expect(g2.match?.mode).toBe('defense');
+    expect(g2.chat.at(-1)?.text).toBe('GUEST left.');
+    expect(g2.players.some(p => p.id === g.you)).toBe(false);
+    const replacement = open(false, 'REPLACEMENT'); hub.flush();
+    expect(h.players.find(p => p.id === replacement.you)?.slot).toBe(slot);
+    h.leave(); hub.flush();
+    expect(g2.phase).toBe('closed');
+    expect(replacement.error).toBe('host-left');
+    const receive = vi.fn(); g2.onPose = receive;
+    g2.sendPose({ seq: 2, position: [0, 0, 0], velocity: [0, 0, 0], yaw: 0, pitch: 0, move: 'walk', weapon: 'pistol' });
+    hub.flush(); expect(receive).not.toHaveBeenCalled();
+  });
+  it('a reloading guest ignores the old host page and adopts only the deployed host', () => {
+    const oldHost = open(true, 'HOST'), oldGuest = open(false, 'GUEST'); hub.flush();
+    oldHost.startMatch('crucible', 'handoff'); hub.flush();
+    oldGuest.leave(); hub.flush();
+    const returning = open(false, 'GUEST', true); hub.flush();
+    expect(returning.phase).toBe('connecting');
+    expect(oldHost.players.map(p => p.name)).toEqual(['HOST']);
+    oldHost.leave(); hub.flush();
+    expect(returning.error).toBeNull();
+    const deployedHost = open(true, 'HOST', true);
+    deployedHost.startMatch('crucible', 'handoff'); hub.flush();
+    expect(returning.phase).toBe('open');
+    expect(returning.match).toEqual({ id: 'handoff', mode: 'crucible' });
+    deployedHost.leave(); hub.flush();
+    expect(returning.error).toBe('host-left');
+  });
+  it('rejects guest-forged starts', () => {
+    const h = open(true, 'HOST'), g = open(false, 'GUEST'), g2 = open(false, 'THIRD'); hub.flush();
+    hub.deliver((g2 as unknown as { room: FakeRoom }).room, 'lobby', { t: 'start', match: { id: 'fake', mode: 'defense' } });
+    hub.flush(); expect(h.match).toBeNull(); expect(g.match).toBeNull();
   });
 });
 

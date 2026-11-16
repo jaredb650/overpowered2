@@ -63,6 +63,8 @@ export class MainMenu implements Screen {
   private nav: Nav | null = null;
   /** Back from the rules screen, so focus lands where it left. */
   private fromRules = false;
+  private fromCoop = false;
+  private playLevel!: Level;
 
   constructor(private readonly ctx: Ctx, private readonly hud: Hud) {
     this.rules = menuButton('Crucible rules', () => {
@@ -78,6 +80,7 @@ export class MainMenu implements Screen {
       [menuButton('Settings', () => this.hud.screens.show('settings')), null],
     ]);
     const play: Level = this.makeLevel('Play', this.root, []);
+    this.playLevel = play;
     const campaign = this.makeLevel('Play / Campaign', play, CAMPAIGN.map((c, i) => [this.leaf(`${i + 1} ${c.name}`, c), c]));
     const survival = this.makeLevel('Play / Survival', play, []);
     const mapLevels: Level[] = [];
@@ -197,13 +200,16 @@ export class MainMenu implements Screen {
     else location.search = contractSearch(contract.id, location.search);
   }
 
+  returnToPlay(): void { this.fromCoop = true; }
+
   open(nav: Nav): void {
     for (const { item, contracts } of this.playable) item.el.classList.toggle('off', contracts.every(isShut));
     this.nav = nav;
     nav.left = nav.right = null;
     this.root.at = 0;
-    this.level = this.fromRules ? this.crucibleModes : this.root;
+    this.level = this.fromCoop ? this.playLevel : this.fromRules ? this.crucibleModes : this.root;
     this.paintLevel(this.fromRules ? 1 : 0);
     this.fromRules = false;
+    this.fromCoop = false;
   }
 }

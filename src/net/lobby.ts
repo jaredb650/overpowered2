@@ -8,6 +8,7 @@
  * will not connect, so it is never silence.
  */
 import { BUILD } from './build';
+import { decodePose, encodePose, type Pose } from './pose';
 import type { Channel, LobbyRooms, NetError, NetRoom } from './room';
 
 export type LobbyError = 'password' | 'version' | 'host-left' | 'no-host' | 'connect' | 'full';
@@ -18,6 +19,7 @@ export interface LobbyPlayer {
   name: string;
   ready: boolean;
   host: boolean;
+  slot: number;
 }
 
 /** `from` null is the lobby's own line: joins, leaves, warnings. */
@@ -26,8 +28,17 @@ export interface ChatLine {
   text: string;
 }
 
+export const COOP_MODES = ['crucible', 'outpost', 'defense'] as const;
+export type CoopMode = typeof COOP_MODES[number];
+export interface Match { id: string; mode: CoopMode }
+export const validMatch = (m: unknown): m is Match => !!m && typeof m === 'object'
+  && typeof (m as Match).id === 'string' && /^[a-zA-Z0-9-]{1,64}$/.test((m as Match).id)
+  && COOP_MODES.includes((m as Match).mode);
+
 type Msg =
-  | { t: 'hello'; v: string; name: string; host: boolean }
+  | { t: 'start'; match: Match }
+  | { t: 'started'; id: string }
+  | { t: 'hello'; v: string; name: string; host: boolean; deployed?: boolean }
   | { t: 'set'; name: string; ready: boolean }
   | { t: 'lobby'; you: string; players: LobbyPlayer[] }
   | { t: 'chat'; from: string | null; text: string };
@@ -58,6 +69,13 @@ export class Lobby {
   you = '';
   chat: ChatLine[] = [];
   onChange: () => void = () => {};
+  match: Match | null = null;
+  onMatch: (match: Match) => void = () => {};
+  onPose: (id: string, pose: Pose) => void = () => {};
+  private starting = new Set<string>();
+  private started = false;
+  private readonly poses: Channel<ArrayBuffer>;
+
 
   private readonly ch: Channel<Msg>;
   private hostId: string | null = null;
@@ -71,19 +89,36 @@ export class Lobby {
   private failed = new Set<string>();
   private atDoor = new Set<string>();
 
-  constructor(private readonly rooms: LobbyRooms, readonly hosting: boolean, private name: string, private readonly build = BUILD) {
+  constructor(private readonly rooms: LobbyRooms, readonly hosting: boolean, private name: string, private readonly build = BUILD, private readonly deployed = false) {
     const room = (this.room = rooms.main);
     this.ch = room.channel<Msg>('lobby');
+    this.poses = room.channel<ArrayBuffer>('pose');
+    this.poses.on((data, from) => {
+      if (this.phase !== 'open' || !this.match) return;
+      const decoded = decodePose(data);
+      if (!decoded) return;
+      if (this.hosting) {
+        const player = this.players.find(p => p.id === from && !p.host);
+        if (!player) return;
+        this.onPose(player.id, decoded.pose);
+        // Never trust a guest's claimed slot. Only the host stamps identities on relayed poses.
+        const stamped = encodePose(decoded.pose, player.slot);
+        for (const p of this.players) if (!p.host && p.id !== from) this.poses.send(stamped, p.id);
+      } else if (from === this.hostId) {
+        const player = this.players.find(p => p.slot === decoded.slot && p.id !== this.you);
+        if (player) this.onPose(player.id, decoded.pose);
+      }
+    });
     if (hosting) {
       this.phase = 'open';
       this.you = HOST_ID;
-      this.players = [{ id: HOST_ID, name, ready: false, host: true }];
+      this.players = [{ id: HOST_ID, name, ready: false, host: true, slot: 0 }];
       this.openDoor();
     } else {
       this.wait = setTimeout(() => this.close('no-host'), HOST_WAIT_MS);
       this.knock = setTimeout(() => this.openDoor(), DOOR_AFTER_MS);
     }
-    room.onPeerJoin(id => this.ch.send({ t: 'hello', v: build, name: this.name, host: hosting }, id));
+    room.onPeerJoin(id => this.ch.send({ t: 'hello', v: build, name: this.name, host: hosting, deployed }, id));
     room.onPeerLeave(id => this.peerLeft(id));
     room.onError((error, peerId) => this.netError(error, peerId));
     this.ch.on((msg, from) => {
@@ -112,6 +147,31 @@ export class Lobby {
     else if (this.hostId) this.ch.send({ t: 'chat', from: null, text: line }, this.hostId);
   }
 
+  /** Only the host picks the mode. Guests acknowledge before the host changes page. */
+  startMatch(mode: CoopMode, id: string = crypto.randomUUID()): boolean {
+    if (!this.hosting || this.phase !== 'open' || this.match || !COOP_MODES.includes(mode)) return false;
+    this.match = { id, mode };
+    this.starting = new Set(this.players.filter(p => !p.host).map(p => p.id));
+    for (const peer of this.starting) this.ch.send({ t: 'start', match: this.match }, peer);
+    this.finishStart();
+    return true;
+  }
+
+  sendPose(pose: Pose): void {
+    if (this.phase !== 'open' || !this.match || !this.me) return;
+    const data = encodePose(pose, this.me.slot);
+    if (this.hosting) {
+      for (const p of this.players) if (!p.host) this.poses.send(data, p.id);
+    } else if (this.hostId) this.poses.send(data, this.hostId);
+  }
+
+  private finishStart(): void {
+    if (this.match && !this.starting.size && !this.started) {
+      this.started = true;
+      this.onMatch(this.match);
+    }
+  }
+
   leave(): void {
     this.close(null);
   }
@@ -135,14 +195,20 @@ export class Lobby {
   }
 
   private hello(msg: Extract<Msg, { t: 'hello' }>, from: string): void {
+    // During the page handoff an early guest can meet the old host while a later guest is still acknowledging.
+    // Reconnected guests only adopt the host's new page; the old lobby never admits those returning peers.
+    if ((!this.hosting && this.deployed && !msg.deployed) || (this.hosting && this.match && !this.deployed && msg.deployed)) return;
     const sameBuild = msg.v === this.build;
     if (this.hosting) {
       if (msg.host || this.players.some(p => p.id === from)) return;
       const name = clean(msg.name, NAME_MAX) || 'PLAYER';
       // The guest sees the mismatch on its own side and stops; the host only notes it.
       if (!sameBuild) return this.post(null, `${name} could not join: different game version. They need to reload.`);
-      this.players.push({ id: from, name, ready: false, host: false });
+      if (this.players.length >= MAX_PLAYERS) return;
+      const slot = [1, 2, 3].find(s => !this.players.some(p => p.slot === s))!;
+      this.players.push({ id: from, name, ready: false, host: false, slot });
       this.post(null, `${name} joined.`);
+      if (this.match) this.ch.send({ t: 'start', match: this.match }, from);
       return;
     }
     if (!msg.host || this.hostId) return;
@@ -160,7 +226,10 @@ export class Lobby {
   private fromGuest(msg: Msg, from: string): void {
     const player = this.players.find(p => p.id === from);
     if (!player) return;
-    if (msg.t === 'set') {
+    if (msg.t === 'started' && msg.id === this.match?.id) {
+      this.starting.delete(from);
+      this.finishStart();
+    } else if (msg.t === 'set') {
       player.name = clean(msg.name, NAME_MAX) || player.name;
       player.ready = msg.ready === true;
       this.broadcast();
@@ -171,13 +240,21 @@ export class Lobby {
   }
 
   private fromHost(msg: Msg): void {
-    if (msg.t === 'lobby' && Array.isArray(msg.players)) {
+    if (msg.t === 'start' && validMatch(msg.match)) {
+      // A duplicate start (or a late join) must never reset a live run.
+      if (this.match && this.match.id !== msg.match.id) return;
+      const fresh = !this.match;
+      this.match = msg.match;
+      this.ch.send({ t: 'started', id: msg.match.id }, this.hostId!);
+      if (fresh) this.onMatch(msg.match);
+    } else if (msg.t === 'lobby' && Array.isArray(msg.players)) {
       this.you = clean(msg.you, 64);
       this.players = msg.players.slice(0, 8).map(p => ({
         id: clean(p?.id, 64),
         name: clean(p?.name, NAME_MAX) || 'PLAYER',
         ready: p?.ready === true,
         host: p?.host === true,
+        slot: Number.isInteger(p?.slot) && p.slot >= 0 && p.slot < MAX_PLAYERS ? p.slot : -1,
       }));
       this.onChange();
     } else if (msg.t === 'chat') {
@@ -195,6 +272,8 @@ export class Lobby {
     if (!player) return;
     this.players = this.players.filter(p => p !== player);
     this.post(null, `${player.name} left.`);
+    this.starting.delete(id);
+    this.finishStart();
   }
 
   private openDoor(): void {

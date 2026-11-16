@@ -50,7 +50,7 @@ export class Screens {
   constructor(ctx: Ctx, hud: Hud, settings: Settings) {
     this.nav = new Nav(ctx);
     this.loadingScreen = adoptLoading();
-    this.pauseScreen = new PauseScreen(hud);
+    this.pauseScreen = new PauseScreen(hud, () => !!ctx.coop);
     this.shopScreen = new ShopScreen(ctx, hud);
     this.screens = {
       loading: this.loadingScreen,
@@ -98,6 +98,16 @@ export class Screens {
     const screen = this.screens[name];
     screen.el.style.display = '';
     screen.open(this.nav);
+  }
+
+  playMenu(): void {
+    (this.screens.menu as MainMenu).returnToPlay();
+    this.show('menu');
+  }
+
+  coopEnded(message: string): void {
+    this.show('coop');
+    (this.screens.coop as CoopScreen).showMessage(message);
   }
 
   /** Outpost Defense's buy menu for one shop. */

@@ -299,6 +299,9 @@ export class Hud implements HudSystem {
     this.vitals.reset(this.state);
     this.tach.reset();
     this.tally.reset();
+    this.tally.el.style.display = this.ctx.coop?.freeRoam ? 'none' : '';
+    if (this.shop) this.shop.el.style.display = this.ctx.coop?.freeRoam ? 'none' : '';
+    if (this.defense) this.defense.el.style.display = this.ctx.coop?.freeRoam ? 'none' : '';
     this.combo.reset();
     this.perks.reset();
     this.feedLane.clear();
@@ -415,7 +418,9 @@ export class Hud implements HudSystem {
   quitToMenu(): void {
     this.lockAfter = null;
     this.ctx.input.releaseLock?.();
+    this.ctx.coop?.leave();
     this.game?.clearRun();
+    this.ctx.coop = undefined;
     this.game?.setState('menu');
     this.screens.show('menu');
   }
@@ -533,8 +538,10 @@ export class Hud implements HudSystem {
     this.worldLayer.update(dt);
     this.boss.update(s, dt);
     this.commander?.nameBoss(this.boss.el);
-    this.defense?.update();
-    this.shop?.update();
+    if (!ctx.coop?.freeRoam) {
+      this.defense?.update();
+      this.shop?.update();
+    }
     this.bannerLanes.update(dt);
     this.scope.update(s, dt);
     this.targeting.update(s, dt);

@@ -4,6 +4,8 @@ Status: research and proposal, 2026-11-15. Prices were checked on official pages
 
 **Stage 0 built** (2026-11-15): the lobby, on trystero 0.27.0 with Nostr. Host with a password, join by code or invite link, names, ready, chat, the build check, and wrong-password errors on both ends. No TURN yet. See `docs/notes/coop.md`.
 
+**Stage 1 built** (2026-11-15): host-selected Crucible / Endless Humans / Outpost Defense free roam, binary poses at 20 Hz through the host, tinted Bailiff bodies with callsigns and 100 ms interpolation, live Esc menus, and match departure handling. Enemy/world and shooting synchronization remain stage 2. See `docs/notes/coop.md`.
+
 ## Verdict
 
 1. **Feasible, but a big job:** about 3 to 5 months of steady work for everything. Survival co-op is the first half of that.
@@ -137,7 +139,7 @@ Effort is in days of focused work. These are rough estimates for this codebase, 
 | Stage | What gets built | Result | Effort |
 |---|---|---|---|
 | **0. Lobby and connection** | trystero room with a password. "Host co-op" and "Join" on the main menu. Invite link `?join=<code>`. Player names, ping, the build-hash check. The TURN Worker. A test page that sends pings | Friends see each other in a lobby | 3 to 5 days |
-| **1. Two players walking** | The host picks map and mode, and guests load the same one. Each guest sends its pose at 30 Hz. `RemotePlayer` bodies with interpolation. No enemies yet (waves off) | Running around the Crucible together | 1 to 1.5 weeks |
+| **1. Two players walking** | The host picks map and mode, and guests load the same one. Each guest sends its pose at 20 Hz. `RemotePlayer` bodies with interpolation. No enemies yet (waves off) | Running around the Crucible together | 1 to 1.5 weeks |
 | **2. Shooting and enemy sync** | Guests skip AI, waves and the director. The host sends an enemy snapshot at 20 Hz: id, type, position, yaw, aim, locomotion and stance, health band, and wound and posture flags. Reliable events: spawn, hit, wound, sever, kill (with the impulse), surrender, explosion, pickup. Guest hit claims. Remote players as enemy targets. Damage to guests. Cosmetic copies of other players' rockets and grenades. Ragdolls and gore run locally on each screen from the kill event | Shooting the same enemies together | 3 to 5 weeks |
 | **3. The Crucible in co-op** | Wave and break sync. Downed and revive. Per-player credits and the supply-pod shop with no pause. Per-player combos and call-ins (strikes first, the AC-130 after). The slow-mo and hit-stop rules. Enemy count scaled (x1.5 for 2 players, x2 for 4, under the 48 cap). Co-op scores | **The first real fun, about 6 to 9 weeks in** | 1.5 to 2 weeks |
 | **4. Endless Humans, then Outpost Defense** | Endless Humans: human squads' states (surrender, downed and crawling men, prisoners, executions), the Commander's between-round box shown to all, and targeting the most dangerous player. Outpost Defense: allies' sync (they are bodies like enemies), split and shared money, fort shops, repairs, tanks and choppers, and everyone at the loadout screen before the first wave | All three survival modes | 2 to 4 weeks |

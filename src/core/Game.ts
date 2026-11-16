@@ -12,6 +12,8 @@ import { GameTime } from './time';
 import { noop } from './stubs';
 import type { Ctx, GameEvents, GameState, GameSystem } from './contracts';
 import './gameplay';
+import type {} from '../net';
+import { reconnectMatch, resumedLobby, resumedMatch } from '../net/session';
 
 type Factory = (...args: never[]) => unknown;
 type Progress = (fraction: number, label: string, crawl?: Crawl) => void;
@@ -51,6 +53,7 @@ export class Game {
   state: GameState = 'boot';
   private ordered: GameSystem[] = [];
   private fps = 0;
+  private deferredCoopInit: GameSystem[] = [];
   private cpuMs = 0;
 
   constructor(ctx: Ctx) {
@@ -70,7 +73,10 @@ export class Game {
     this.ordered = this.frameOrder();
     onProgress(BOOT.systems, 'Wiring the systems');
     await breathe();
-    for (const sys of [c.render, c.physics, c.input, ...this.ordered]) await sys.init?.(c);
+    for (const sys of [c.render, c.physics, c.input, ...this.ordered]) {
+      if (!this.freeRoamSkips(sys)) await sys.init?.(c);
+      else this.deferredCoopInit.push(sys);
+    }
     onProgress(BOOT.world, 'Surveying the site');
     await breathe();
     await c.world.build?.((f, label) => {
@@ -81,15 +87,23 @@ export class Game {
     onProgress(BOOT.army, 'Waking the army');
     await breathe();
     await c.characters.load?.();
+    await c.coop?.init();
     onProgress(1, 'Ready');
     await breathe();
+  }
+
+  /** Stage 2 replaces this with host-only AI/waves and guest snapshot receivers. */
+  private freeRoamSkips(sys: GameSystem): boolean {
+    const c = this.ctx;
+    return !!c.coop?.freeRoam && (sys === c.enemies || sys === c.allies || sys === c.waves || sys === c.contracts || sys === c.campaign);
   }
 
   setState(to: GameState): void {
     const from = this.state;
     if (from === to) return;
     this.state = to;
-    this.ctx.time.paused = to !== 'playing';
+    if (this.ctx.coop) this.ctx.coop.localPaused = to !== 'playing';
+    this.ctx.time.paused = to !== 'playing' && !(to === 'paused' && this.ctx.coop);
     this.ctx.events.emit('game:state', { from, to });
   }
 
@@ -97,24 +111,33 @@ export class Game {
   clearRun(): void {
     const c = this.ctx;
     c.time.clearScales();
-    for (const sys of this.ordered) sys.reset?.();
+    for (const sys of this.ordered) if (!this.freeRoamSkips(sys)) sys.reset?.();
     c.render.reset?.();
   }
 
   /** Starts a fresh run. */
   newRun(): void {
     const c = this.ctx;
+    // A solo run after leaving co-op gets the normal systems, initialized once against the already-built map.
+    if (!c.coop && this.deferredCoopInit.length) {
+      for (const sys of this.deferredCoopInit) sys.init?.(c);
+      this.deferredCoopInit.length = 0;
+    }
     c.time.clearScales();
-    for (const sys of this.ordered) sys.reset?.();
+    for (const sys of this.ordered) if (!this.freeRoamSkips(sys)) sys.reset?.();
     c.events.emit('run:start', {});
-    c.waves.start?.();
+    if (!c.coop?.freeRoam) c.waves.start?.();
     this.setState('playing');
   }
 
   private frame(): void {
     const c = this.ctx;
-    if (this.state === 'playing') {
+    if (this.state === 'playing' || (this.state === 'paused' && c.coop)) {
       for (const sys of this.ordered) {
+        if (this.freeRoamSkips(sys)) continue;
+        // Menus release local controls while the room, bodies, world and physics keep ticking.
+        if (this.state === 'paused' && c.coop
+          && (sys === c.player || sys === c.weapons || sys === c.viewmodel || sys === c.combat || sys === c.progression)) continue;
         if (sys === c.gore) c.physics.step(c.time.dt);
         sys.update?.();
       }
@@ -124,10 +147,11 @@ export class Game {
       c.audio.update?.();
       c.hud.update?.();
     }
+    c.coop?.update();
     // Behind a screen nothing moves but a slow dolly, so a laptop sitting on the menu should not pay for full rate.
     // A screen with a moving picture of its own (the Crucible shop's turning gun) gets the menu's rate.
     const moving = (c.render as { backdrop?: { still: boolean } | null }).backdrop?.still === false;
-    if (this.state === 'playing' || c.time.frame % (this.state === 'menu' || moving ? 2 : 4) === 0) c.render.render();
+    if (this.state === 'playing' || c.coop || c.time.frame % (this.state === 'menu' || moving ? 2 : 4) === 0) c.render.render();
     c.input.endFrame?.();
   }
 
@@ -205,6 +229,10 @@ export async function createCtx(canvas: HTMLCanvasElement, onProgress: Progress 
   ctx.contracts = await build('contracts', 'createContracts', 'contracts', ctx);
   ctx.hud = await build('ui', 'createHud', 'hud', ctx);
   ctx.campaign = await build('campaign', 'createCampaign', 'campaign', ctx);
+  if (resumedLobby && resumedMatch) {
+    const { CoopSession } = await import('../net');
+    ctx.coop = new CoopSession(ctx, resumedLobby, resumedMatch);
+  }
   return ctx;
 }
 
@@ -214,6 +242,7 @@ export async function createCtx(canvas: HTMLCanvasElement, onProgress: Progress 
  * read window.__op2.
  */
 export async function startGame(params: URLSearchParams): Promise<void> {
+  await reconnectMatch();
   showLoading();
   const report: Progress = (f, label, crawl) => loadingScreen.set(f, label, crawl);
   const canvas = document.getElementById('game') as HTMLCanvasElement;
@@ -223,7 +252,18 @@ export async function startGame(params: URLSearchParams): Promise<void> {
   await game.init(report);
   game.run();
   if (DEV_TOOLS) await build('lab', 'createLab', 'lab', ctx, game);
-  if (params.get('autostart') || ON_RANGE) game.newRun();
+  if (ctx.coop) {
+    const hud = ctx.hud as Ctx['hud'] & { startRun(): void; quitToMenu(): void; screens: { coopEnded(message: string): void } };
+    ctx.coop.onEnded = message => {
+      hud.quitToMenu();
+      hud.screens.coopEnded(message);
+    };
+    if (ctx.coop.lobby.phase === 'closed') ctx.coop.onEnded('The host left or the room could not reconnect.');
+    else {
+      hud.startRun();
+      ctx.coop.begin();
+    }
+  } else if (params.get('autostart') || ON_RANGE) game.newRun();
   else {
     game.setState('menu');
     ctx.hud.showScreen?.('splash');
