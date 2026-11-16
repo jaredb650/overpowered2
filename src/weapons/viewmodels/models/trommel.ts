@@ -182,8 +182,8 @@ function barrels(m: Mesher): void {
 
 /**
  * The 12 mm rechamber (mod `trommel12`): three barrels, thick-walled where the six were wide-bored, after the three-barrel
- * .50-calibre miniguns (the Dillon 503D on the M134D's pattern): a round rotor, a barrel clamp part way down, and a round
- * shroud over the muzzles with the crowns standing just out of it.
+ * .50-calibre miniguns: a round rotor, a barrel clamp part way down, and the GAU-19's triangular muzzle device over all three
+ * muzzles (owner, 2026-11-16; it was a round shroud).
  */
 const B3 = 3;
 const B3_C = 0.027;
@@ -193,10 +193,13 @@ const B3_BORE = 0.0068;
 const B3_WALL = B3_R + 0.0075;
 const b3Angle = (i: number): number => Math.PI / 2 + (i / B3) * Math.PI * 2;
 
-/** The rounded triangle round the three barrels: each corner's arc centred on a barrel, so the wall is even all round. */
-function trefoil(wall: number): V2[] {
+/**
+ * The rounded triangle round the three barrels. At `round` 1 each corner's arc is centred on a barrel, so the wall is even all
+ * round; under 1 the corners are tighter and stand further out past the barrels, a plainer triangle.
+ */
+function trefoil(wall: number, round = 1.05): V2[] {
   const d = B3_C + 2 * wall;
-  return poly([0, 1, 2].map(i => [Math.cos(b3Angle(i)) * d, Math.sin(b3Angle(i)) * d] as [number, number]), wall * 1.05, 6);
+  return poly([0, 1, 2].map(i => [Math.cos(b3Angle(i)) * d, Math.sin(b3Angle(i)) * d] as [number, number]), wall * round, 6);
 }
 
 function b3Holes(r: number): V2[][] {
@@ -214,7 +217,7 @@ function rechamber(m: Mesher): void {
       for (let i = 0; i < B3; i++) {
         const a = b3Angle(i);
         m.at([Math.cos(a) * B3_C, Math.sin(a) * B3_C, 0], null, () => {
-          // A fat breech, a heavy straight run, and a crowned muzzle standing out of the shroud.
+          // A fat breech, a heavy straight run, and a crowned muzzle just inside the muzzle device.
           m.use(F.barrel);
           m.lathe([[0.022, 0.0, 0], [0.022, -0.05], [B3_R, -0.058], [B3_R, zf + 0.008], [0.0172, zf + 0.002], [0.0118, zf], [B3_BORE, zf + 0.003, 0]], 18);
           m.use(F.black);
@@ -242,25 +245,26 @@ function rechamber(m: Mesher): void {
           m.at([Math.cos(a) * 0.027, Math.sin(a) * 0.027, -0.0135], [Math.PI, 0, 0], () => rivet(m, 0.0032, F.steel));
         }
       });
-      // The front shroud: a round sleeve over the last of the barrels, a bulkhead holding them at its mouth, slotted down
-      // its length between amber inset lines.
-      const z0 = zf + 0.19;
-      const z1 = zf + 0.012;
+      // The muzzle device, the GAU-19's: a deep rounded triangle over all three muzzles, a bore at each corner, ported down
+      // each flat, a proud lip at the face and a flange at the back with a thin amber line across each flat. A corner stands
+      // up at rest, so from the hip it reads as a ridge and a triangle and not as a can.
+      const W = B3_WALL + 0.006;
+      const flat = B3_C / 2 + W;
       m.use(F.barrelBlack);
-      m.lathe([[0.0565, z0, 0], [0.0595, z0 - 0.005], [0.0595, z1 + 0.006], [0.0575, z1], [0.0525, z1], [0.0525, z0, 0]], 40, { chamfer: 0.0012 });
+      m.at([0, 0, zf + 0.063], null, () => m.front(trefoil(W, 0.55), 0.15, { bevel: 0.003, holes: b3Holes(0.0128), smooth: 30 }));
       m.use(F.steelDark);
-      m.at([0, 0, z1 + 0.012], null, () => m.front(circle(0, 0, 0.0528, 40), 0.016, { bevel: 0.0016, holes: b3Holes(B3_R + 0.0004), smooth: 30 }));
-      m.at([0, 0, z0 - 0.008], null, () => m.front(circle(0, 0, 0.0528, 40), 0.012, { bevel: 0.0012, holes: b3Holes(B3_R + 0.0004), smooth: 30 }));
-      m.use(F.black);
-      for (let i = 0; i < 6; i++) {
-        const a = ((i + 0.5) / 6) * Math.PI * 2;
-        m.at([Math.cos(a) * 0.0594, Math.sin(a) * 0.0594, (z0 + z1) / 2 + 0.006], [0, 0, a], () => m.box(0.0016, 0.013, 0.1, 0.0005, 0.005));
+      m.at([0, 0, zf - 0.007], null, () => m.front(trefoil(W + 0.0015, 0.55), 0.01, { bevel: 0.0018, holes: b3Holes(0.0128), smooth: 30 }));
+      m.at([0, 0, zf + 0.132], null, () => m.front(trefoil(W + 0.003, 0.55), 0.012, { bevel: 0.0018, holes: b3Holes(B3_R + 0.0004), smooth: 30 }));
+      for (let i = 0; i < B3; i++) {
+        const a = b3Angle(i) + Math.PI / 3;
+        const c = Math.cos(a);
+        const n = Math.sin(a);
+        m.use(F.black);
+        for (let k = 0; k < 3; k++) m.at([c * flat, n * flat, zf + 0.022 + k * 0.03], [0, 0, a], () => m.box(0.0018, 0.025, 0.02, 0.0006, 0.004));
+        m.glow('status', () => m.at([c * (flat + 0.0003), n * (flat + 0.0003), zf + 0.116], [0, 0, a], () => m.box(0.0008, 0.034, 0.0018, 0)));
       }
-      m.glow('status', () => {
-        for (const z of [z0 - 0.016, z1 + 0.018]) m.at([0, 0, z], null, () => m.lathe([[0.0599, 0.0012, 0], [0.0599, -0.0012, 0]], 40, { chamfer: 0 }));
-      });
       m.use(F.steel);
-      m.at([0, 0, z1 + 0.004], [Math.PI, 0, 0], () => hexBolt(m, 0.0066, F.steel));
+      m.at([0, 0, zf - 0.012], [Math.PI, 0, 0], () => hexBolt(m, 0.0062, F.steel));
     });
   });
 }
@@ -322,7 +326,7 @@ function buildTrommel(kit: Kit): Model {
   const model = new Model(m, kit.mats, { glows: { status: [0xffb43a, 5] }, screens: { ammo: [176, 96] } });
   model.socket('muzzle', [0, AXIS + R_CLUSTER, NOSE - LENGTH]);
   model.socket('eject', [HALF + 0.006, 0.04, -0.1]);
-  model.socket('muzzle3', [0, AXIS + B3_C, NOSE - LENGTH - 0.004]);
+  model.socket('muzzle3', [0, AXIS + B3_C, NOSE - LENGTH - 0.016]);
   model.hand('gripR', [0.018, -0.058, 0.07], [0, -0.96, 0.27], [-0.3, -0.25, -0.92]);
   model.foregrip('gripL', [-0.018, -0.068, -0.126]);
   model.hand('canHold', [-0.062, 0.0, 0.03], [-0.1, 0.1, -0.98], [0.9, 0.05, -0.2], 'can');
