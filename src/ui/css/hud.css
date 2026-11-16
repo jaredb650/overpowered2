@@ -125,10 +125,17 @@
 .ci.cooling { background: var(--plate); color: var(--c); }
 .ci-wait { margin-left: 0.4rem; font: 800 1.1rem/1 var(--mono); }
 
-/* --- Sonar --- */
+/* --- Brain chip (key T): Sonar, Thermal, Focus --- */
 
 .sn { position: relative; flex: none; }
 .sn-fill { position: absolute; left: 0; right: 0; bottom: 0; height: 0.2rem; background: var(--c); transform: scaleX(0); transform-origin: 0 50%; }
+/* On a lit plate the bar (the focus meter) reads dark. */
+.sn:not(.cooling) .sn-fill { background: rgba(0, 0, 0, 0.55); }
+/* Two chips fitted: which is in hand. */
+.sn-pips { display: flex; gap: 0.18rem; margin-left: 0.45rem; }
+.sn-pips:empty { display: none; }
+.sn-pip { width: 0.32rem; height: 0.32rem; box-sizing: border-box; border: 1px solid currentColor; opacity: 0.55; }
+.sn-pip.on { background: currentColor; opacity: 1; }
 
 /* --- Arms --- */
 

@@ -4,6 +4,7 @@
  */
 import type { ModId, WeaponId } from '../../core/gameplay';
 import { IMPLANTS, IMPLANT_ORDER, SLOT_WARES, type ImplantId } from '../../progression/implants';
+import { CHIPS, CHIP_ORDER, CHIP_SLOT, type ChipId } from '../chips';
 import { inPlay } from '../../weapons/families';
 import { MODS, MOD_ORDER } from '../../weapons/mods';
 import { MOD_WARES, WEAPON_WARES, WEAPON_WARE_ORDER, type Ware } from './data';
@@ -11,7 +12,9 @@ import { MOD_WARES, WEAPON_WARES, WEAPON_WARE_ORDER, type Ware } from './data';
 export type ShopAct =
   | { kind: 'weapon'; id: WeaponId } | { kind: 'mod'; id: ModId }
   /** An implant (progression/implants.ts), and an implant slot by its number, 2 or 3. */
-  | { kind: 'implant'; id: ImplantId } | { kind: 'slot'; id: number };
+  | { kind: 'implant'; id: ImplantId } | { kind: 'slot'; id: number }
+  /** A brain chip (contracts/chips.ts), and the second chip slot. */
+  | { kind: 'chip'; id: ChipId } | { kind: 'chipSlot'; id: 2 };
 
 export interface ShopView {
   credits: number;
@@ -26,6 +29,10 @@ export interface ShopView {
   implants: ReadonlySet<ImplantId>;
   implantsFitted: ReadonlySet<ImplantId>;
   slots: number;
+  /** Brain chips bought this run, fitted now in slot order, and the chip slots open. */
+  chips: ReadonlySet<ChipId>;
+  chipsFitted: readonly ChipId[];
+  chipSlots: number;
 }
 
 export interface ShopOffer {
@@ -41,6 +48,8 @@ export interface ShopOffer {
   why: string | null;
   /** An implant: the one of its class fitted now, which Enter takes off to fit this one. */
   replaces?: ImplantId | null;
+  /** A chip: the one in the last slot, which fitting this takes out when every slot is full. */
+  replacesChip?: ChipId | null;
 }
 
 const between = (v: ShopView): string | null => (v.inBreak ? null : 'Between waves only');
@@ -107,8 +116,34 @@ export function implantOffers(v: ShopView): ShopOffer[] {
   return [...slots, ...implants];
 }
 
+/**
+ * The second chip slot, then the chips, under the implants on the same page. A chip bought is fitted or taken out with the same
+ * row, free; with every slot full it takes the last slot's place.
+ */
+export function chipOffers(v: ShopView): ShopOffer[] {
+  const slotWare: Ware = CHIP_SLOT;
+  const open = v.chipSlots >= 2;
+  const slotLocked = !open && lockOf(slotWare, v);
+  const slot: ShopOffer = {
+    act: { kind: 'chipSlot', id: 2 }, ware: slotWare, owned: open, fitted: false, locked: slotLocked,
+    why: open ? 'Open' : slotLocked ? lockLine(slotWare) : between(v) ?? afford(slotWare.price, v),
+  };
+  const chips = CHIP_ORDER.map((id): ShopOffer => {
+    const d = CHIPS[id];
+    const ware: Ware = { price: d.price, wave: d.wave, lore: d.lore };
+    const owned = v.chips.has(id);
+    const fitted = v.chipsFitted.includes(id);
+    const locked = !owned && lockOf(ware, v);
+    const replacesChip = fitted || v.chipsFitted.length < v.chipSlots ? null : v.chipsFitted[v.chipSlots - 1] ?? null;
+    const why = locked ? lockLine(ware) : between(v) ?? (owned ? null : afford(ware.price, v));
+    return { act: { kind: 'chip', id }, ware, owned, fitted, locked, why, replacesChip };
+  });
+  return [slot, ...chips];
+}
+
 /** The row for `act`, as the menu shows it. */
 export function offerFor(act: ShopAct, v: ShopView): ShopOffer | undefined {
-  const list = act.kind === 'weapon' ? weaponOffers(v) : act.kind === 'mod' ? modOffers(v) : implantOffers(v);
+  const list = act.kind === 'weapon' ? weaponOffers(v) : act.kind === 'mod' ? modOffers(v)
+    : act.kind === 'chip' || act.kind === 'chipSlot' ? chipOffers(v) : implantOffers(v);
   return list.find(o => o.act.kind === act.kind && o.act.id === act.id);
 }

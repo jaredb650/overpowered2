@@ -1,6 +1,7 @@
 /**
- * Sonar ping, key T (DESIGN 14.5). The left hand taps the helmet, and on contact a ring goes out and every enemy shows
- * through walls as it is reached. It costs nothing, so its whole job is that no round is ever held up by a lost straggler.
+ * Sonar ping, the issued brain chip on key T (DESIGN 14.5, chips.ts). The left hand taps the helmet, and on contact a ring
+ * goes out and every enemy shows through walls as it is reached. It costs nothing, so its whole job is that no round is ever
+ * held up by a lost straggler.
  *
  * Runs on the player's clock: it is the player's own kit, so SLOWMO does not stretch it and a hit-stop does.
  */
@@ -33,12 +34,13 @@ export class Sonar implements SonarState {
     return Math.max(0, this.limit - this.since);
   }
 
-  update(): void {
-    const { enemies, input, time } = this.ctx;
+  /** `press`: T worked the Sonar chip this frame (chips.ts reads the key). */
+  update(press = false): void {
+    const { enemies, time } = this.ctx;
     const dt = time.playerDt;
     this.since += dt;
     this.limit = sonarCooldown(enemies.remaining);
-    if (input.pressed('sonar')) this.press();
+    if (press) this.press();
     if (this.lead > 0) {
       this.lead -= dt;
       if (this.lead <= 0) this.ping();

@@ -12,6 +12,7 @@ import { MODS, MOD_ORDER } from '../weapons/mods';
 import type { ModCheat } from './mods';
 import { CLASS_NAMES, IMPLANTS, IMPLANT_ORDER, type ImplantId } from '../progression/implants';
 import type { ImplantCheat } from './implants';
+import { CHIPS, CHIP_ORDER, type ChipId } from '../contracts/chips';
 import type { AiMode, LabSettings } from './settings';
 
 /** Body animation for moves, its camera part, first-person legs, and vaulting cover with no key. */
@@ -91,6 +92,8 @@ export interface PanelActions {
   mod(id: ModId, act: ModCheat): void;
   /** An implant: hand it over, or fit it (granting it, opening every slot, and replacing its class) or take it off. */
   implant(id: ImplantId, act: ImplantCheat): void;
+  /** A brain chip: hand it over, or fit it (into a free slot, else in place of the last) or take it out; or open chip slot 2. */
+  chip(id: ChipId | 'slot', act: ImplantCheat): void;
   /** Draws the Quiver and stands five of the selected enemy in a loose arc ahead, to paint. */
   swarm(): void;
   /** Stands the selected enemy at 1.5, 2.5, 3.5, 5 and 8 m ahead, for a melee weapon's reach; `backs` turns them away. */
@@ -129,6 +132,8 @@ export class LabPanel {
   private readonly aiButtons = new Map<AiMode, HTMLButtonElement>();
   private readonly modButtons = new Map<ModId, { grant: HTMLButtonElement; fit: HTMLButtonElement }>();
   private readonly implantButtons = new Map<ImplantId, { grant: HTMLButtonElement; fit: HTMLButtonElement }>();
+  private readonly chipButtons = new Map<ChipId, { grant: HTMLButtonElement; fit: HTMLButtonElement }>();
+  private chipSlotButton: HTMLButtonElement | null = null;
 
   /** `vehicles`: this map runs them. The Crucible does not, and a row of buttons that do nothing is a trap. */
   constructor(private readonly s: LabSettings, private readonly on: PanelActions, private readonly vehicles = true) {
@@ -312,7 +317,18 @@ export class LabPanel {
       this.implantButtons.set(id, { grant, fit });
       this.el.append(row);
     }
-    this.el.append(el('h2', '', 'PERKS'));
+    this.el.append(el('h2', '', 'BRAIN CHIPS (T)'));
+    for (const id of CHIP_ORDER) {
+      const row = el('div', 'lab-row');
+      const grant = this.button(row, `Chip: ${CHIPS[id].name}`, () => this.on.chip(id, 'grant'));
+      const fit = this.button(row, 'Fit', () => this.on.chip(id, 'fit'));
+      grant.title = 'Grant it, unfitted';
+      this.chipButtons.set(id, { grant, fit });
+      this.el.append(row);
+    }
+    const slotRow = el('div', 'lab-row');
+    this.chipSlotButton = this.button(slotRow, 'Open chip slot 2', () => this.on.chip('slot', 'fit'));
+    this.el.append(slotRow, el('h2', '', 'PERKS'));
     const perks = el('div', 'lab-grid wide');
     for (const id of PERKS) this.button(perks, EFFECTS[id].label, () => this.on.grant(id));
     this.el.append(perks, el('h2', '', 'POWERUPS'));
@@ -415,6 +431,17 @@ export class LabPanel {
       if (b.fit.textContent !== label) b.fit.textContent = label;
       b.fit.classList.toggle('on', fitted.has(id));
     }
+  }
+
+  /** Lit while owned; the second button says what a press does now. */
+  syncChips(owned: ReadonlySet<ChipId>, fitted: readonly ChipId[], slots: number): void {
+    for (const [id, b] of this.chipButtons) {
+      b.grant.classList.toggle('on', owned.has(id));
+      const label = fitted.includes(id) ? 'Remove' : 'Fit';
+      if (b.fit.textContent !== label) b.fit.textContent = label;
+      b.fit.classList.toggle('on', fitted.includes(id));
+    }
+    this.chipSlotButton?.classList.toggle('on', slots >= 2);
   }
 
   setStatus(text: string): void {

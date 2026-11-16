@@ -10,7 +10,8 @@ import type { ModId, WeaponSystem } from '../../core/gameplay';
 import { killPay, paysFor, wavePay } from '../defense/data';
 import { BOSS_PAY, SHOP_ON, SUPPLY_BREAK } from './data';
 import type { Loadout } from '../../progression/implants';
-import { implantOffers, modOffers, offerFor, weaponOffers, type ShopAct, type ShopOffer, type ShopView } from './rules';
+import { ChipRack } from '../chips';
+import { chipOffers, implantOffers, modOffers, offerFor, weaponOffers, type ShopAct, type ShopOffer, type ShopView } from './rules';
 
 declare module '../../core/contracts' {
   interface GameEvents {
@@ -45,7 +46,8 @@ export class CrucibleShop {
   /** A wave has just been cleared: the break that follows is lengthened to `SUPPLY_BREAK` once it has begun. */
   private stretch = false;
 
-  constructor(private readonly ctx: Ctx) {}
+  /** `chips`: the run's brain chips (contracts/chips.ts), bought and fitted here. */
+  constructor(private readonly ctx: Ctx, readonly chips = new ChipRack()) {}
 
   init(): void {
     const { events } = this.ctx;
@@ -96,6 +98,7 @@ export class CrucibleShop {
       credits: this.credits, inBreak: this.inBreak, cleared: this.inBreak ? waves.wave : waves.wave - 1,
       owned: w.owned, mods: w.mods, fitted: w.fitted,
       implants: this.loadout.owned, implantsFitted: this.loadout.fitted, slots: this.loadout.slots,
+      chips: this.chips.owned, chipsFitted: this.chips.fitted, chipSlots: this.chips.slots,
     };
   }
 
@@ -106,6 +109,10 @@ export class CrucibleShop {
 
   implantOffers(): ShopOffer[] {
     return implantOffers(this.view());
+  }
+
+  chipOffers(): ShopOffer[] {
+    return chipOffers(this.view());
   }
 
   weaponOffers(): ShopOffer[] {
@@ -127,6 +134,11 @@ export class CrucibleShop {
     const w = this.weapons;
     if (act.kind === 'slot') {
       this.loadout.openSlot();
+    } else if (act.kind === 'chipSlot') {
+      this.chips.openSlot();
+    } else if (act.kind === 'chip') {
+      this.chips.fit(act.id, !offer.fitted);
+      if (offer.owned) return null;
     } else if (act.kind === 'implant') {
       // Fitting one takes off the one of its class (Loadout.fit); progression ends a removed effect and arms the new one.
       if (offer.owned) {
@@ -153,4 +165,4 @@ export class CrucibleShop {
 }
 
 /** Only where the Crucible sells its guns. */
-export const createShop = (ctx: Ctx): CrucibleShop | null => (SHOP_ON ? new CrucibleShop(ctx) : null);
+export const createShop = (ctx: Ctx, chips?: ChipRack): CrucibleShop | null => (SHOP_ON ? new CrucibleShop(ctx, chips) : null);

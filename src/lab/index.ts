@@ -24,6 +24,7 @@ import { MOVE } from '../player/tuning';
 import { modCheat, type ModHands } from './mods';
 import { implantCheat } from './implants';
 import type { Loadout } from '../progression/implants';
+import type { ChipRack } from '../contracts/chips';
 import { LabPanel, type MoveSwitch } from './panel';
 import { PARKOUR } from './parkour';
 import { GALLERY } from './range';
@@ -102,6 +103,13 @@ export class Lab {
         implantCheat(this.loadout, id, act);
         this.panel.syncImplants(this.loadout.owned, this.loadout.fitted);
       },
+      chip: (id, act) => {
+        const rack = this.chips;
+        if (id === 'slot') rack.openSlot();
+        else if (act === 'grant') rack.grant(id);
+        else rack.fit(id, !rack.fitted.includes(id));
+        this.panel.syncChips(rack.owned, rack.fitted, rack.slots);
+      },
       move: (key, on) => this.moveSwitch(key, on),
       jump: (contract, beat) => {
         const next = new URLSearchParams(contractSearch(contract, location.search));
@@ -153,6 +161,11 @@ export class Lab {
   /** Progression's implant loadout (src/progression/implants.ts), which the interface does not carry. */
   private get loadout(): Loadout {
     return (this.ctx.progression as unknown as { loadout: Loadout }).loadout;
+  }
+
+  /** The run's brain chips (src/contracts/chips.ts), which the interface does not carry. */
+  private get chips(): ChipRack {
+    return (this.ctx.contracts as unknown as { chips: { rack: ChipRack } }).chips.rack;
   }
 
   /** The weapons' mods (src/weapons/mods.ts), which the interface does not carry. */
@@ -346,6 +359,7 @@ export class Lab {
     // A restart or the shop changes them too.
     this.panel.syncMods(this.modHands.mods, this.modHands.fitted);
     this.panel.syncImplants(this.loadout.owned, this.loadout.fitted);
+    this.panel.syncChips(this.chips.owned, this.chips.fitted, this.chips.slots);
     const { enemies, time } = this.ctx;
     const stats = this.game.stats();
     const world = this.paused ? 'paused' : `${time.slowmo.toFixed(2)}x`;

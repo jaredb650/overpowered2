@@ -95,7 +95,7 @@ describe.each(SHOP_CONTRACTS)('%s issuance and purchases', contract => {
   const wares = weaponWares(contract);
   const view: ShopView = {
     credits: 100_000, inBreak: true, cleared: 0, owned: new Set(start), mods: new Set(), fitted: new Set(),
-    implants: new Set(), implantsFitted: new Set(), slots: 1,
+    implants: new Set(), implantsFitted: new Set(), slots: 1, chips: new Set(['sonar']), chipsFitted: ['sonar'], chipSlots: 1,
   };
 
   it('marks exactly the actual starting weapons Issued, at no price or wave lock', () => {

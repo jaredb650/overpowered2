@@ -8,7 +8,7 @@
  *  - Stims: playerDt. Ordnance and the Black Sun's pull: dt, because they push things in the simulated world.
  */
 import * as THREE from 'three';
-import type { Ctx } from '../core/contracts';
+import type { Ctx, GradeName } from '../core/contracts';
 import { DevFlags } from '../core/devflags';
 import type { DamageInfo } from '../core/contracts';
 import type {
@@ -93,6 +93,11 @@ class Progression implements ProgressionSystem {
   private readonly listed: { kind: PickupKind; position: THREE.Vector3; active: boolean }[] = [];
 
   constructor(private readonly ctx: Ctx) {}
+
+  /** Holds a grade over the perks' (perks.ts): a seat's sensor, or the Thermal brain chip (contracts/chips.ts). Null lets go. */
+  holdGrade(grade: GradeName | null): void {
+    this.perks.holdGrade(grade);
+  }
 
   init(): void {
     const { ctx } = this;

@@ -2,6 +2,7 @@
  * The mission's hands in the real game. Every method here is the plainest thing that works with what the game has today, and any of
  * them can be replaced with `campaign.provide`, as `vehicle` is by the system that has the vehicles.
  */
+import { CHIPS, type ChipId, type ChipRack } from '../contracts/chips';
 import * as THREE from 'three';
 import type { Ally, AllyType } from '../allies';
 import type { Ctx, GameEvents, MusicState } from '../core/contracts';
@@ -487,6 +488,13 @@ export class GameHost implements MissionHost {
       case 'wreck':
         if (arg) this.courier.burn(this.runner.mission.marks[arg]!);
         return;
+      // A brain chip fitted for the mission (contracts/chips.ts): `{ do: 'call', name: 'chip', arg: 'thermal' }`. A mission
+      // starts on Sonar alone.
+      case 'chip': {
+        const chips = (ctx.contracts as unknown as { chips?: { rack: ChipRack } }).chips;
+        if (arg && Object.hasOwn(CHIPS, arg)) chips?.rack.fit(arg as ChipId, true);
+        return;
+      }
       default:
         console.warn(`[campaign] nothing provides the call "${name}"`);
     }

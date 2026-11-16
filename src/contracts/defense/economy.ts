@@ -244,7 +244,7 @@ function implants(v: ShopView): Offer[] {
   if (!i) return [];
   const rows = implantOffers({
     credits: v.credits, inBreak: v.inBreak, cleared: i.cleared, owned: v.owned, mods: new Set(), fitted: new Set(),
-    implants: i.owned, implantsFitted: i.fitted, slots: i.slots,
+    implants: i.owned, implantsFitted: i.fitted, slots: i.slots, chips: new Set(), chipsFitted: [], chipSlots: 1,
   });
   return rows.map((o): Offer => {
     const a = o.act;

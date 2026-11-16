@@ -48,7 +48,8 @@ function breakAfter(cleared: number, credits = 100_000): void {
 
 const view = (over: Partial<ShopView> = {}): ShopView => ({
   credits: 100_000, inBreak: true, cleared: 0, owned: new Set(STARTING_WEAPONS), mods: new Set(), fitted: new Set(),
-  implants: new Set(['bloodthirst']), implantsFitted: new Set(['bloodthirst']), slots: 1, ...over,
+  implants: new Set(['bloodthirst']), implantsFitted: new Set(['bloodthirst']), slots: 1,
+  chips: new Set(['sonar']), chipsFitted: ['sonar'], chipSlots: 1, ...over,
 });
 
 describe('credits', () => {

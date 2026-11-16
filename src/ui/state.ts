@@ -5,6 +5,7 @@
  * callable objects rather than numbers, so every read here is typed-checked once and falls back to a neutral value.
  * That keeps the HUD alive at every stage of the build, and it makes this the only file that knows field names.
  */
+import type { ChipBadge } from '../contracts/chips';
 import { familyOfSlot } from '../weapons/families';
 import { rulesCustom } from '../contracts/crucible';
 import { MOVE } from '../player/tuning';
@@ -87,6 +88,8 @@ export class HudState {
   sonarLimit = 1;
   /** Seconds the enemies stay lit. */
   sonarLive = 0;
+  /** Key T's badge: the brain chip in hand and its state (contracts/chips.ts). Null on a page without contracts. */
+  chip: Readonly<ChipBadge> | null = null;
 
   read(ctx: Ctx): void {
     const p = ctx.player as unknown as Record<string, unknown>;
@@ -155,6 +158,8 @@ export class HudState {
     this.sonarWait = num(sonar?.wait, 0);
     this.sonarLimit = Math.max(num(sonar?.limit, 1), 0.001);
     this.sonarLive = num(sonar?.live, 0);
+    const chip = (ctx.contracts as { chips?: { badge?: ChipBadge } } | undefined)?.chips?.badge;
+    this.chip = typeof chip?.name === 'string' ? chip : null;
   }
 
   hasCallIn(ctx: Ctx, id: CallInId): boolean {

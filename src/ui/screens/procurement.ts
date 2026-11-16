@@ -3,7 +3,8 @@
  * mods and implants, on the left; the gun in focus turns in a lit studio drawn in place of the world (backdrop/gunstage.ts), with
  * its card under it: name, role, stats bars, the catalogue's line, and the price or why not. A mod shows fitted on its gun, its bars
  * showing what it adds. On the implants page the contractor stands in the studio instead (backdrop/bodystage.ts), wearing the
- * loadout with the implant in focus put on him, and the slots and the standard-issue core are listed over the rows.
+ * loadout with the implant in focus put on him, and the slots and the standard-issue core are listed over the rows. The brain
+ * chips for key T (contracts/chips.ts) are sold under the implants on the same page: they are hardware in the head too.
  *
  * Keys: up and down pick a row, left and right turn the page, Enter or a click buys (or fits and takes off a mod bought), Esc,
  * E or Close goes back to the fight.
@@ -16,6 +17,7 @@ import { WEAPONS as DEFS, type WeaponDef } from '../../weapons/data';
 import { MODS, moddedDef } from '../../weapons/mods';
 import { EFFECTS } from '../../progression/data';
 import { CLASS_NAMES, CLASS_REGION, CORE_COPY, IMPLANTS, SLOT_WARES, type ImplantId } from '../../progression/implants';
+import { CHIPS, CHIP_SLOTS } from '../../contracts/chips';
 import { BodyStage } from '../backdrop/bodystage';
 import { GunStage } from '../backdrop/gunstage';
 import { WEAPONS as INFO } from '../data';
@@ -61,8 +63,9 @@ export class ProcurementScreen implements Screen {
   private readonly stage: GunStage;
   private readonly body: BodyStage;
   private readonly list: HTMLElement;
-  /** The implants page's head: the three slots, and the core. */
+  /** The implants page's head: the three slots, the two chip slots, and the core. */
   private readonly slotStrip: HTMLElement;
+  private readonly chipStrip: HTMLElement;
   private readonly implantHead: HTMLElement;
   private readonly tabs: Record<Page, HTMLElement>;
   private readonly wallet: Label;
@@ -86,7 +89,8 @@ export class ProcurementScreen implements Screen {
     };
     this.tabs = { weapons: tab('weapons', 'Weapons'), mods: tab('mods', 'Mods'), implants: tab('implants', 'Implants') };
     this.slotStrip = div('pc-slots');
-    this.implantHead = div('pc-imp-head', this.slotStrip, span('pc-core', CORE_COPY));
+    this.chipStrip = div('pc-slots pc-chips');
+    this.implantHead = div('pc-imp-head', this.slotStrip, this.chipStrip, span('pc-core', CORE_COPY));
     const wallet = span('pc-cr-n');
     const phase = span('pc-phase');
     const note = span('pc-note');
@@ -174,7 +178,8 @@ export class ProcurementScreen implements Screen {
     const shop = this.shop;
     if (!shop) return;
     for (const p of PAGES) this.tabs[p].classList.toggle('on', p === this.page);
-    this.offers = this.page === 'weapons' ? shop.weaponOffers() : this.page === 'mods' ? shop.modOffers() : shop.implantOffers();
+    this.offers = this.page === 'weapons' ? shop.weaponOffers() : this.page === 'mods' ? shop.modOffers()
+      : [...shop.implantOffers(), ...shop.chipOffers()];
     this.implantHead.style.display = this.page === 'implants' ? '' : 'none';
     if (this.page === 'implants') this.slots();
     const items: NavItem[] = this.offers.map(o => this.row(o));
@@ -201,6 +206,54 @@ export class ProcurementScreen implements Screen {
       if (id) box.style.setProperty('--imp', EFFECTS[id].color);
       return box;
     }));
+    const rack = this.shop!.chips;
+    this.chipStrip.replaceChildren(...Array.from({ length: CHIP_SLOTS }, (_, i) => {
+      const id = rack.fitted[i];
+      const open = i < rack.slots;
+      const text = open ? (id ? CHIPS[id].name : 'Empty') : 'For sale';
+      const box = div('pc-slot', span('pc-slot-n', `Chip ${i + 1}`), span('pc-slot-v', text));
+      box.classList.toggle('open', open);
+      box.classList.toggle('worn', !!id);
+      if (id) box.style.setProperty('--imp', CHIPS[id].color);
+      return box;
+    }));
+  }
+
+  /** A chip's row or the chip slot's, as an implant's. */
+  private chipRow(o: ShopOffer): NavItem {
+    const chip = o.act.kind === 'chip' ? o.act.id : null;
+    const right = o.fitted ? 'Fitted' : o.locked ? `Wave ${o.ware.wave}`
+      : o.replacesChip && o.why === null ? `Replaces ${CHIPS[o.replacesChip].name}`
+        : o.owned ? (chip ? 'Fit' : 'Open') : credits(o.ware.price);
+    const ico = span('pc-ico pc-cls', chip ? 'Chip' : 'Slot');
+    if (chip) ico.style.color = CHIPS[chip].color;
+    const label = chip ? `${CHIPS[chip].name} chip` : 'Chip slot 2';
+    const el = div('pc-row', ico, span('pc-k', label), span('pc-v', o.locked ? markup(LOCK_ICON) : null, right));
+    el.classList.toggle('locked', o.locked);
+    el.classList.toggle('owned', o.owned && !o.fitted);
+    el.classList.toggle('fitted', o.fitted);
+    el.classList.toggle('poor', o.why?.startsWith('Need') === true);
+    return { el, activate: () => this.buy(o), focused: () => this.select(o) };
+  }
+
+  /** A chip in focus: him as he is, and its card. */
+  private selectChip(o: ShopOffer): void {
+    const chip = o.act.kind === 'chip' ? o.act.id : null;
+    this.body.show(this.shop!.loadout.fitted, null);
+    const c = this.card;
+    const line = (k: string, v: string) => div('pc-line', span('pc-stat-k', k), span('pc-line-v', v));
+    c.name.set(chip ? `${CHIPS[chip].name} chip` : 'Chip slot 2');
+    c.role.set(chip ? `Brain chip, key ${this.ctx.input.labelFor('sonar')}. Bought and fitted here, used whenever you like.`
+      : `A second chip. Tap ${this.ctx.input.labelFor('sonar')} to use the one in hand, hold it to change.`);
+    c.stats.replaceChildren(...(chip ? [line('Does', CHIPS[chip].does)] : []));
+    c.lore.set(o.ware.lore);
+    const verb = o.fitted ? 'Take out' : o.replacesChip ? `${o.owned ? 'Fit' : 'Buy'}, replacing ${CHIPS[o.replacesChip].name}`
+      : o.owned ? 'Fit' : chip ? 'Buy and fit' : 'Buy';
+    c.price.set(o.owned ? (issued(o.ware) ? 'Issued' : chip ? 'Bought' : 'Open') : credits(o.ware.price));
+    c.state.set(o.why ?? `Enter: ${verb}`);
+    c.buy.classList.toggle('locked', o.locked);
+    c.buy.classList.toggle('ready', o.why === null);
+    c.buy.classList.toggle('poor', o.why?.startsWith('Need') === true);
   }
 
   /** An implant's row or a slot's: its class in the icon's place, in the implant's colour. */
@@ -222,6 +275,7 @@ export class ProcurementScreen implements Screen {
 
   private row(o: ShopOffer): NavItem {
     if (o.act.kind === 'implant' || o.act.kind === 'slot') return this.implantRow(o);
+    if (o.act.kind === 'chip' || o.act.kind === 'chipSlot') return this.chipRow(o);
     const gun = o.act.kind === 'weapon' ? o.act.id : MODS[o.act.id].weapon;
     const label = o.act.kind === 'weapon' ? INFO[o.act.id].name : MODS[o.act.id].name;
     const right = o.fitted ? 'Fitted' : o.owned ? (o.act.kind === 'mod' ? 'Fit' : issued(o.ware) ? 'Issued' : 'Owned')
@@ -270,6 +324,10 @@ export class ProcurementScreen implements Screen {
       this.selectImplant(o);
       return;
     }
+    if (o.act.kind === 'chip' || o.act.kind === 'chipSlot') {
+      this.selectChip(o);
+      return;
+    }
     const mod = o.act.kind === 'mod' ? o.act.id : null;
     const id: WeaponId = mod ? MODS[mod].weapon : (o.act.id as WeaponId);
     // A mod shows fitted on its gun; a gun shows as it would come to you, with what you have fitted on it.
@@ -307,13 +365,16 @@ export class ProcurementScreen implements Screen {
     const why = shop.buy(o.act);
     const act = o.act;
     const name = act.kind === 'weapon' ? INFO[act.id].name : act.kind === 'mod' ? MODS[act.id].name
-      : act.kind === 'implant' ? implantName(act.id) : `Implant slot ${act.id}`;
+      : act.kind === 'implant' ? implantName(act.id) : act.kind === 'chip' ? `${CHIPS[act.id].name} chip`
+        : act.kind === 'chipSlot' ? 'Chip slot 2' : `Implant slot ${act.id}`;
     if (why) {
       this.note.set(why);
       this.ctx.audio.play?.('ui_error');
     } else {
-      const fitted = act.kind === 'mod' ? this.ctx.weapons.fitted?.has(act.id) : act.kind === 'implant' && shop.loadout.fitted.has(act.id);
-      this.note.set(act.kind === 'weapon' || act.kind === 'slot' ? `Bought: ${name}` : fitted ? `Fitted: ${name}` : `Taken off: ${name}`);
+      const fitted = act.kind === 'mod' ? this.ctx.weapons.fitted?.has(act.id) : act.kind === 'chip' ? shop.chips.fitted.includes(act.id)
+        : act.kind === 'implant' && shop.loadout.fitted.has(act.id);
+      const bought = act.kind === 'weapon' || act.kind === 'slot' || act.kind === 'chipSlot';
+      this.note.set(bought ? `Bought: ${name}` : fitted ? `Fitted: ${name}` : `Taken off: ${name}`);
       this.ctx.audio.play?.('ui_confirm');
     }
     const keep = this.offers.findIndex(x => x.act === this.focusAct);

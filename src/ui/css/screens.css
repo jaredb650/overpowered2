@@ -305,6 +305,7 @@
 /* The implants page: three slot boxes and the standard-issue core over the rows; the class in the icon's place, in the implant's colour. */
 .pc-imp-head { margin: 0 1.4rem 0.6rem; }
 .pc-slots { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.4rem; }
+.pc-chips { margin-top: 0.4rem; }
 .pc-slot { display: flex; flex-direction: column; gap: 0.2rem; padding: 0.45rem 0.7rem; border: 0.0625rem dashed rgba(157, 176, 189, 0.35); }
 .pc-slot.open { border-style: solid; }
 .pc-slot.worn { border-color: var(--imp, var(--friend)); box-shadow: inset 0 -0.2rem 0 var(--imp, var(--friend)); }

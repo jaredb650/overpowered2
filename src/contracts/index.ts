@@ -8,10 +8,13 @@ import { BackShots } from './rewards';
 import { createShop, type CrucibleShop } from './shop';
 import { ACTIVE } from './select';
 import { Sonar } from './sonar';
+import { Chips } from './chips';
 
 class Contracts implements ContractSystem {
   readonly def: ContractDef = ACTIVE.def;
   readonly sonar: Sonar;
+  /** Key T's brain chips (chips.ts): Sonar, and Thermal and Focus from the shop. */
+  readonly chips: Chips;
   readonly defense: Defense | null;
   /** Outpost Defense's radio: the Commander, the Council and the player's men. Only the fort has sides to name. */
   readonly radio: DefenseRadio | null;
@@ -20,9 +23,10 @@ class Contracts implements ContractSystem {
 
   constructor(private readonly ctx: Ctx) {
     this.sonar = new Sonar(ctx);
+    this.chips = new Chips(ctx, this.sonar);
     this.defense = createDefense(ctx);
     this.radio = this.defense && ACTIVE.map === 'fort' ? new DefenseRadio(ctx) : null;
-    this.shop = createShop(ctx);
+    this.shop = createShop(ctx, this.chips.rack);
   }
 
   /** The purse a prisoner's bounty and any other credits go into on this page. */
@@ -39,14 +43,14 @@ class Contracts implements ContractSystem {
   }
 
   update(): void {
-    this.sonar.update();
+    this.chips.update();
     this.defense?.update();
     this.radio?.update();
     this.shop?.update();
   }
 
   reset(): void {
-    this.sonar.reset();
+    this.chips.reset();
     this.defense?.reset();
     this.radio?.reset();
     this.shop?.reset();
