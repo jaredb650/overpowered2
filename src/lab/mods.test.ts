@@ -27,6 +27,7 @@ describe('mod cheat rows', () => {
     modCheat(w, 'raufoss', 'fit');
     expect(w.mods.has('raufoss')).toBe(true);
     expect(w.fitted.has('raufoss')).toBe(true);
+    w.give('sabot');
     w.switchTo('sabot');
     r.run(0.6);
     expect(w.ammoMode).toBe('RAUFOSS');
