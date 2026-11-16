@@ -180,6 +180,8 @@ export class Anim {
   mods: ReadonlySet<ModId> | null = null;
   /** The gun's second barrel is in use: the Gimlet's launcher is up. */
   alt = false;
+  /** 0 to 1 as the sights come up to the eye, so a clip can hold still what would spoil the sight picture. */
+  aim = 0;
 
   /** The weapon's glow material. */
   glow(name: string, level: number): void {

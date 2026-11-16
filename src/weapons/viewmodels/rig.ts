@@ -537,6 +537,7 @@ export class Rig implements ViewmodelRig {
     this.readAmmo(def);
     a.mods = this.ctx.weapons.fitted ?? null;
     a.alt = this.ctx.weapons.launcherUp === true;
+    a.aim = this.aimW;
     def.animate(a);
     this.dressMods(def);
     this.composeGun(def, a);
