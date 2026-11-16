@@ -8,7 +8,7 @@
  * TURN: `fetchTurn` (turn.ts) asks the owner's Worker for short-lived relay credentials before joining. Without it the
  * browsers have STUN only, and a friend behind a strict router or mobile data gets the 'connect' error.
  */
-import { joinRoom, type Room } from 'trystero';
+import { getRelaySockets, joinRoom, type Room } from 'trystero';
 import { MAX_PLAYERS } from './lobby';
 import type { LobbyRooms, NetError, NetRoom } from './room';
 import { fetchTurn, type IceServer } from './turn';
@@ -22,11 +22,47 @@ export async function openLobby(code: string, password: string): Promise<LobbyRo
   return { main: openRoom(code, password, turn), door: () => openRoom(`${code}-door`, code, turn) };
 }
 
+/** ICE candidate kinds: host (LAN), srflx (public address via STUN), relay (TURN). */
+const kinds = (types: string[]): string => ['host', 'srflx', 'prflx', 'relay'].map(t => `${t} ${types.filter(x => x === t).length}`).join(', ');
+
+/**
+ * trystero's peer connections, watched: how many have met a peer (an offer or answer came back) and are still connecting,
+ * and, when one connects or fails, which candidate kinds each side had. No srflx means STUN failed; srflx on both sides and
+ * still failed means a NAT that needs TURN.
+ */
+function watchedPeers(): { Peer: typeof RTCPeerConnection; trying(): number } {
+  const met = new Set<RTCPeerConnection>();
+  class Peer extends RTCPeerConnection {
+    constructor(config?: RTCConfiguration) {
+      super(config);
+      this.addEventListener('signalingstatechange', () => void (this.remoteDescription && met.add(this)));
+      this.addEventListener('iceconnectionstatechange', () => {
+        const state = this.iceConnectionState;
+        if (state !== 'connected' && state !== 'failed') return;
+        this.getStats().then(stats => {
+          const ours: string[] = [], theirs: string[] = [];
+          stats.forEach(stat => {
+            if (stat.type === 'local-candidate') ours.push(stat.candidateType);
+            else if (stat.type === 'remote-candidate') theirs.push(stat.candidateType);
+          });
+          (state === 'failed' ? console.warn : console.info)(`[coop] Peer connection ${state}. Our candidates: ${kinds(ours)}. Theirs: ${kinds(theirs)}.`);
+        }).catch(() => {});
+      });
+    }
+  }
+  const trying = (): number => {
+    for (const pc of met) if (pc.connectionState !== 'new' && pc.connectionState !== 'connecting') met.delete(pc);
+    return met.size;
+  };
+  return { Peer, trying };
+}
+
 export function openRoom(code: string, password: string, turn: IceServer[] = []): NetRoom {
+  const peers = watchedPeers();
   const room: Room = joinRoom(
     // identity 'none': a fresh key per visit, nothing stored, and two tabs of one browser are two players.
     { appId: APP_ID, password, identity: 'none', maxUsers: MAX_PLAYERS, relayConfig: { redundancy: RELAY_REDUNDANCY },
-      ...(turn.length ? { turnConfig: turn } : {}) },
+      rtcPolyfill: peers.Peer, ...(turn.length ? { turnConfig: turn } : {}) },
     code,
   );
   return {
@@ -55,5 +91,6 @@ export function openRoom(code: string, password: string, turn: IceServer[] = [])
         if (error) handler(error, 'peerId' in e ? e.peerId : undefined);
       }),
     leave: () => void room.leave().catch(() => {}),
+    status: () => ({ relays: Object.values(getRelaySockets()).some(socket => socket.readyState === WebSocket.OPEN), trying: peers.trying() }),
   };
 }

@@ -60,6 +60,7 @@ export default async function (host, { sleep, outDir }) {
   await guest.locator('.co-player').nth(1).waitFor({ state: 'visible', timeout: 60000 });
   await guest.locator('.co-field input').first().fill('GUEST-TWO');
   await guest.locator('.co-field input').first().press('Enter');
+  await guest.locator('.mi', { hasText: 'Ready: no' }).click();
   await sleep(600);
   progress('both in lobby');
   await shot(host, 'lobby');

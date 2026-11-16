@@ -19,3 +19,12 @@ it.each(['smg', 'gimlet', 'harrow'])('hands the local %s choice to the next page
   expect(at.search).not.toContain('private');
   expect(JSON.parse(setItem.mock.calls[0]![1])).toMatchObject({ starter: gun, hosting: false });
 });
+
+it('prefers the local pick over a host list that has not caught up', () => {
+  const at = { search: '', pathname: '/' };
+  vi.stubGlobal('sessionStorage', { setItem: vi.fn() });
+  vi.stubGlobal('location', at);
+  const lobby = { starter: 'gimlet', me: { name: 'GUEST', starter: 'smg' }, hosting: false } as unknown as Lobby;
+  deployMatch('ABC234', 'private', lobby, { id: 'test', mode: 'crucible' });
+  expect(new URLSearchParams(at.search).get('starter')).toBe('gimlet');
+});

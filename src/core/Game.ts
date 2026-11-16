@@ -13,7 +13,7 @@ import { noop } from './stubs';
 import type { Ctx, GameEvents, GameState, GameSystem } from './contracts';
 import './gameplay';
 import type { Room } from '../net';
-import { reconnectMatch, resumedLobby, resumedMatch } from '../net/session';
+import { reconnectMatch, resumeFailed, resumedLobby, resumedMatch } from '../net/session';
 
 type Factory = (...args: never[]) => unknown;
 type Progress = (fraction: number, label: string, crawl?: Crawl) => void;
@@ -306,6 +306,9 @@ export async function startGame(params: URLSearchParams): Promise<void> {
       hud.startRun();
       ctx.coop.begin();
     }
+  } else if (resumeFailed) {
+    game.setState('menu');
+    (ctx.hud as Ctx['hud'] & { screens: { coopEnded(message: string): void } }).screens.coopEnded(resumeFailed);
   } else if (params.get('autostart') || ON_RANGE) game.newRun();
   else {
     game.setState('menu');

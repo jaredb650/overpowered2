@@ -9,9 +9,13 @@ export let resumedLobby: Lobby | null = null;
 export let resumedMatch: Match | null = null;
 /** The room the match was played in, so leaving the match lands back in its lobby rather than the main menu. */
 export let resumedRoom: { code: string; password: string } | null = null;
+/** Why a match handoff found on this page could not be used: shown on Multiplayer, never a silent splash. */
+export let resumeFailed = '';
 
 export function deployMatch(code: string, password: string, lobby: Lobby, match: Match): void {
-  const handoff: Handoff = { code, password, name: lobby.me?.name ?? 'PLAYER', hosting: lobby.hosting, match, starter: lobby.me?.starter ?? selectedStarter(match.mode) };
+  const handoff: Handoff = { code, password, name: lobby.me?.name ?? 'PLAYER', hosting: lobby.hosting, match,
+    // This player's own pick first: the host's list can lag a pick made as the count ran out.
+    starter: lobby.starter ?? lobby.me?.starter ?? selectedStarter(match.mode) };
   // If storage is blocked, fail on the lobby page rather than reloading into an unrelated single-player run.
   sessionStorage.setItem(KEY, JSON.stringify(handoff));
   const params = new URLSearchParams(location.search);
@@ -27,6 +31,7 @@ export async function reconnectMatch(): Promise<void> {
     const raw = sessionStorage.getItem(KEY);
     if (!raw) return;
     sessionStorage.removeItem(KEY);
+    resumeFailed = 'The co-op match could not be carried over to this page. Join the lobby again.';
     const data = JSON.parse(raw) as Handoff;
     if (!validMatch(data.match) || typeof data.code !== 'string' || !/^[A-Z2-9]{6}$/.test(data.code)
       || typeof data.password !== 'string' || typeof data.name !== 'string' || typeof data.hosting !== 'boolean'
@@ -37,8 +42,10 @@ export async function reconnectMatch(): Promise<void> {
     resumedRoom = { code: data.code, password: data.password };
     resumedLobby = new Lobby(await openLobby(data.code, data.password), data.hosting, data.name, BUILD, true, isStarter(data.starter) ? data.starter : selectedStarter(data.match.mode));
     if (data.hosting) resumedLobby.startMatch(data.match.mode, data.match.id, data.match.map);
+    resumeFailed = '';
   } catch (error) {
     console.warn('[coop] Could not resume the room', error);
+    resumeFailed = 'Could not reconnect to the co-op room on this page. Check you are online, then join the lobby again.';
   }
 }
 

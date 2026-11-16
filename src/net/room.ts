@@ -20,6 +20,8 @@ export interface NetRoom {
   /** `peerId` is the far side, where there is one. */
   onError(handler: (error: NetError, peerId?: string) => void): void;
   leave(): void;
+  /** How the network side is doing: any matchmaking relay open, and how many peers are mid-connection. Absent in tests. */
+  status?(): { relays: boolean; trying: number };
 }
 
 /**

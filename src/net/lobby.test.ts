@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { COUNTDOWN_S, DOOR_AFTER_MS, HOST_WAIT_MS, Lobby, PING_MS, SILENCE_MS, cleanCode, inviteLink, newCode } from './lobby';
+import { COUNTDOWN_S, DOOR_AFTER_MS, HOST_WAIT_MS, Lobby, PING_MS, RELAY_WAIT_MS, SILENCE_MS, cleanCode, inviteLink, newCode } from './lobby';
 import { encodePose, type Pose } from './pose';
 import type { NetError, NetRoom } from './room';
 
@@ -278,6 +278,7 @@ describe('co-op lobby', () => {
 
   it('counts down for everyone before it starts, and a second press cancels', () => {
     const h = host(); const g = guest(); hub.flush();
+    g.setReady(true); hub.flush();
     let started = 0; h.onMatch = () => started++;
     expect(h.countdown('crucible')).toBe(true); hub.flush();
     expect(g.count).toBe(COUNTDOWN_S);
@@ -289,6 +290,52 @@ describe('co-op lobby', () => {
     expect(started).toBe(0);
     h.countdown('crucible'); vi.advanceTimersByTime(COUNTDOWN_S * 1000); hub.flush();
     expect(h.match?.mode).toBe('crucible');
+  });
+
+  it('never starts with a guest not ready: Start is refused with who, and going unready or a join stops the count', () => {
+    const h = host(); const g = guest(); hub.flush();
+    let started = 0; h.onMatch = () => started++;
+    expect(h.countdown('crucible')).toBe(false); hub.flush();
+    expect(h.count).toBe(0); expect(g.chat.at(-1)?.text).toBe('Waiting for GUEST to ready up.');
+    g.setReady(true); hub.flush();
+    expect(h.countdown('crucible')).toBe(true); hub.flush();
+    // The guest goes back to picking a gun as the count runs: it stops for everyone, and nothing starts.
+    vi.advanceTimersByTime(2000); g.setStarter('gimlet'); g.setReady(false); hub.flush();
+    expect(h.count).toBe(0); expect(g.count).toBe(0);
+    expect(g.chat.at(-1)?.text).toBe('Start cancelled: GUEST not ready.');
+    vi.advanceTimersByTime(10_000); hub.flush();
+    expect(started).toBe(0); expect(g.match).toBeNull();
+    g.setReady(true); hub.flush();
+    h.countdown('crucible'); hub.flush();
+    guest('pw', 'b1', 'LATE'); hub.flush();
+    expect(h.count).toBe(0); expect(h.chat.at(-1)?.text).toBe('Start cancelled: LATE not ready.');
+  });
+
+  it("a guest's own pick goes with it into the match even when the host's list has not caught up", () => {
+    const h = host(); const g = guest(); hub.flush();
+    g.setReady(true); g.setStarter('harrow'); hub.flush();
+    h.startMatch('crucible', 'late-pick');
+    // Picked as the count ran out, before the start reached the guest: the host's list keeps the old gun, the guest's own pick
+    // is the new one, and deployMatch (starter.test.ts) hands that one on.
+    g.setStarter('gimlet'); hub.flush();
+    expect(g.me!.starter).toBe('harrow');
+    expect(g.starter).toBe('gimlet');
+  });
+
+  it('names the stage a join stalled at: relays, the host connection, or no lobby', () => {
+    const at = (status: { relays: boolean; trying: number }) => {
+      const r = rooms('pw');
+      (r.main as FakeRoom & { status(): typeof status }).status = () => status;
+      return new Lobby(r, false, 'G', 'b1');
+    };
+    const noRelay = at({ relays: false, trying: 0 });
+    const stuck = at({ relays: true, trying: 1 });
+    const nobody = at({ relays: true, trying: 0 });
+    expect([noRelay.stage, stuck.stage, nobody.stage]).toEqual(['relays', 'connecting', 'looking']);
+    vi.advanceTimersByTime(RELAY_WAIT_MS + 1);
+    expect(noRelay.error).toBe('relays'); expect(stuck.phase).toBe('connecting');
+    vi.advanceTimersByTime(HOST_WAIT_MS);
+    expect(stuck.error).toBe('connect'); expect(nobody.error).toBe('no-host');
   });
 
   it('a second host on the same code steps aside', () => {

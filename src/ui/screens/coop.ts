@@ -10,7 +10,7 @@ import { starterCards } from './starter';
 import type { Ctx } from '../../core/contracts';
 import { BUILD } from '../../net/build';
 import {
-  type CoopMap, type CoopMode, CODE_LENGTH, Lobby, MAX_PLAYERS, NAME_MAX, CHAT_MAX, cleanCode, inviteLink, loadCallsign, newCode, saveCallsign, type LobbyError,
+  type CoopMap, type CoopMode, type JoinStage, CODE_LENGTH, Lobby, MAX_PLAYERS, NAME_MAX, CHAT_MAX, cleanCode, inviteLink, loadCallsign, newCode, saveCallsign, type LobbyError,
 } from '../../net/lobby';
 import { div, h, span } from '../dom';
 import { deployMatch } from '../../net/session';
@@ -41,6 +41,16 @@ const MODE_NOTE: Record<CoopMode, string> = {
   campaign: 'The Outpost together. The host runs the mission; everyone hears the Commander, rides the door guns in on the same Packmule, and goes back to the last checkpoint if all of you go down.',
   foreclosure: 'Foreclosure together. The host runs the mission and the Bailiffs; everyone rides and fights it, and goes back to the last checkpoint if all of you go down.',
 };
+
+/** What a guest's join is doing, on the status line until it is in. */
+const STAGE: Record<JoinStage, string> = {
+  relays: 'Contacting lobby servers…', looking: 'Looking for lobby…', connecting: 'Connecting to host…', version: 'Checking version…', joined: 'Joined',
+};
+
+/** Phones and touch-only tablets: no keyboard and mouse to play with, and too little memory for a map. */
+export const PHONE = typeof navigator !== 'undefined' && typeof matchMedia === 'function'
+  && (/Android|iPhone|iPod|Mobile/i.test(navigator.userAgent) || !matchMedia('(any-pointer: fine)').matches);
+export const PHONE_TEXT = 'OVERPOWERED 2 needs a computer with keyboard and mouse.';
 
 type Page = 'start' | 'host' | 'join' | 'lobby';
 
@@ -117,7 +127,8 @@ export class CoopScreen implements Screen {
       this.chatInput.value = '';
     });
 
-    this.startItem = menuButton('Start', () => this.lobby?.countdown(MODES[this.mode]!.mode, MODES[this.mode]!.map));
+    // Refused while a guest is not ready; the lobby's chat line says who.
+    this.startItem = menuButton('Start', () => this.lobby && !this.lobby.countdown(MODES[this.mode]!.mode, MODES[this.mode]!.map) && this.ctx.audio.play?.('ui_error'));
     this.rejoinItem = menuButton('Rejoin match', () => this.lobby?.away(true));
     this.readyItem = menuButton('Ready', () => this.lobby?.setReady(!this.lobby.me?.ready));
     const copy = h('button', 'co-copy', 'Copy');
@@ -210,7 +221,8 @@ export class CoopScreen implements Screen {
   }
 
   private paint(): void {
-    const err = this.message ? div('co-err', this.message) : '';
+    const message = this.message || (PHONE ? PHONE_TEXT : '');
+    const err = message ? div('co-err', message) : '';
     const p = (text: string) => h('p', 'nt-p', text);
     if (this.page === 'start') {
       this.panel.replaceChildren(
@@ -253,11 +265,14 @@ export class CoopScreen implements Screen {
     this.lobbyPanel.querySelector('.co-code')!.textContent = this.code;
     this.lobbyPanel.querySelector('.co-link')!.textContent = link;
     const n = lobby.players.length;
+    const trying = lobby.hosting ? lobby.trying : 0;
+    const waiting = lobby.hosting ? lobby.notReady.length : 0;
     this.status.textContent = lobby.phase === 'connecting'
-      ? 'Connecting...'
+      ? STAGE[lobby.stage]
       : lobby.count ? `Starting in ${lobby.count}${lobby.hosting ? ' · Start again to cancel' : ''}`
       : lobby.awayFrom ? 'The match is still on · Rejoin match to go back'
-      : lobby.hosting ? `Hosting · ${n} of ${MAX_PLAYERS}` : `Connected · ${n} of ${MAX_PLAYERS}`;
+      : lobby.hosting ? `Hosting · ${n} of ${MAX_PLAYERS}${n === 1 && !trying ? ' · Waiting for players…' : ''}${trying ? ` · ${trying} trying to connect` : ''}${waiting ? ` · ${waiting} not ready` : ''}`
+      : `Connected · ${n} of ${MAX_PLAYERS}`;
     this.status.classList.toggle('co-wait', lobby.phase === 'connecting' || lobby.count > 0);
     this.startItem.el.querySelector('.mi-t')!.textContent = lobby.count ? `Cancel (${lobby.count})` : 'Start';
     this.players.replaceChildren(
@@ -285,6 +300,7 @@ export class CoopScreen implements Screen {
 
   private async submit(): Promise<void> {
     if (this.lobby) return;
+    if (PHONE) return this.fail(`${PHONE_TEXT} Open the invite link on a computer.`);
     const password = this.password.value;
     if (this.page === 'join') {
       const code = cleanCode(this.joinCode.value);
@@ -397,14 +413,14 @@ export class CoopScreen implements Screen {
 export function errorText(error: LobbyError, theirBuild: string, code: string): string {
   switch (error) {
     case 'password': return 'Wrong password. Check it with the host and try again.';
-    case 'version': return `Your friend has a different version of the game (theirs ${theirBuild}, yours ${BUILD}). Both of you reload the page, then try again.`;
+    case 'version': return `Version mismatch: the host has ${theirBuild}, you have ${BUILD}. Both of you hard reload (Ctrl+Shift+R, or Cmd+Shift+R on a Mac), then try again.`;
     case 'host-left': return 'The host left, so the lobby is closed.';
-    case 'no-host': return `No lobby answered on code ${code}. Check the code and password with the host; an old invite link points at a lobby that has closed. If both are right, ${turnConfigured() ? 'the host may have left.' : "your networks may not be able to connect directly: set up TURN or try a different network."}`;
+    case 'no-host': return `Lobby not found: nobody answered on code ${code}. Check the code and password with the host; an old invite link points at a lobby that has closed. If both are right, ${turnConfigured() ? 'the host may have left.' : "your networks may not be able to connect directly: set up TURN or try a different network."}`;
     case 'connect': return turnConfigured()
-      ? 'Found the lobby, but could not connect even through the relay server. Try a different network.'
-      : "Found the lobby, but your networks can't connect directly. Set up TURN (docs/notes/coop.md) or try a different network.";
+      ? 'Connecting to host failed: found the lobby, but could not connect even through the relay server. Try a different network.'
+      : "Connecting to host failed: couldn't reach the host directly, because your network or theirs blocks peer-to-peer (mobile data and strict routers do). It needs the relay server; host: see TURN setup in docs/notes/coop.md. Another network may work meanwhile.";
     case 'full': return 'That lobby is full: four players.';
-    case 'relays': return 'Could not reach any of the matchmaking relays. Check your internet connection (a VPN or firewall can block them), then try again.';
+    case 'relays': return 'Contacting lobby servers failed: could not reach any of the matchmaking relays. Check your internet connection (a VPN or firewall can block them), then try again.';
     case 'lost': return 'Lost the connection to the host: nothing heard for 20 seconds. Their game may have closed or their network dropped.';
     case 'code-taken': return 'That code was already in use by another lobby. Host again for a fresh code.';
   }

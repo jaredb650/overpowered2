@@ -87,12 +87,16 @@ export async function startPair(host, { mode, password, out, progress, sleep, st
   await guest.goto(invite);
   await joinFromSplash(guest, password);
   await guest.locator('.co-field input').first().fill('GUEST-TWO'); await guest.locator('.co-field input').first().press('Enter');
+  await readyUp(guest);
   if (!startNow) return { guest, invite };
   await sleep(600);
   await button(host, mode).click(); await button(host, 'Start').click();
   progress(`countdown to ${mode}`);
   return { guest, invite };
 }
+
+/** The host's Start waits for every guest to be ready. */
+export const readyUp = page => page.locator('.mi', { hasText: 'Ready: no' }).click();
 
 export async function joinFromSplash(page, password) {
   await page.locator('.scr-splash').waitFor({ state: 'visible', timeout: 120000 }); await page.locator('.scr-splash').click();

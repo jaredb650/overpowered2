@@ -8,9 +8,11 @@ part disagree (respawn timers, free roam, the pose and snapshot formats), this t
 ## Playing with friends
 
 1. Play > Multiplayer > Host a lobby. Pick a password. Send your friends the invite link (Copy link) and tell them the password.
-2. Each friend opens the link, clicks once, types the password, Join. Up to four of you. Everyone can set a callsign and pick a starter gun.
-3. The host picks a mode (the Crucible, Endless Humans, Outpost Defense, either on the Office, or mission 1 or 2) and presses Start.
-   A five-second countdown runs on every screen; Start again cancels it.
+2. Each friend opens the link **on a computer** (phones and touch-only tablets are told the game needs keyboard and mouse, and cannot
+   join), clicks once, types the password, Join. Up to four of you. Everyone can set a callsign and pick a starter gun.
+3. Everyone presses Ready. The host picks a mode (the Crucible, Endless Humans, Outpost Defense, either on the Office, or mission 1 or 2)
+   and presses Start: refused, with a line naming who, until every friend is ready. A five-second countdown runs on every screen;
+   Start again cancels it, and so does a friend going unready (back to pick a gun) or joining.
 4. Play. Tab shows the team board, Enter opens chat, E beside a downed friend revives them. Esc opens a menu over the live game.
 5. When everyone is down (or the mission is won) the final board shows and everyone lands back in the same lobby. The host's
    "End match (all to lobby)" does the same at any time; a friend's "Leave match (to lobby)" steps out while the others play on,
@@ -65,7 +67,19 @@ a co-op run), `EnemyManager.placeReplica` (posture), `allies/fire.ts` (garrison 
 - **Ping and heartbeat.** The host pings every guest every 2 s; the round trip shows in the lobby, on the teammates strip and on the Tab
   board. A peer silent for 20 s is gone even if WebRTC has not noticed (a closed lid, dropped Wi-Fi): the host drops the guest, a guest
   stops with "Lost the connection to the host".
-- **Start.** The host's Start counts down 5 s for everyone (`countdown`); Start again cancels. Ready is shown but holds nobody back.
+- **Start.** The host's Start counts down 5 s for everyone (`countdown`); Start again cancels. It waits for every guest to be ready, and a
+  guest going unready or a new guest stops the count (`holdCount`). The match handoff takes each player's own starter pick (`Lobby.starter`),
+  so a pick made as the count ran out is the gun they get even if the host's list had not caught up.
+- **Joining, in stages.** A guest's status line reads Contacting lobby servers… (no Nostr relay socket open yet), Looking for lobby…,
+  Connecting to host… (an offer or answer came back: WebRTC/ICE under way), Checking version…, then Connected. No relay in 10 s stops
+  with 'relays'; at 30 s the stage that stalled names the error ('connect' when a host was found but never connected, else 'no-host').
+  Every peer connection logs `[coop] Peer connection connected|failed. Our candidates: host n, srflx n, prflx n, relay n. Theirs: ...`
+  to the console: no srflx means STUN failed; srflx on both sides and still failed means a NAT only TURN gets through. The host's line
+  shows "Waiting for players…", "n trying to connect" and "n not ready", and a lobby line "A player failed to connect (network)".
+- **Relays and STUN (checked 2026-11-16).** trystero 0.27 picks 8 of its 30 public Nostr relays from the app id; 7 of ours answered,
+  `nostr.chaima.info` returns 404. One dead relay blocks nothing: every peer announces and listens on all 8, and any one shared relay
+  that works is enough. STUN is trystero's default, three Google servers and Cloudflare's: two independent providers, enough, since
+  more STUN servers do not get through a NAT that STUN cannot; that needs TURN.
 - **Callsign** is stored in `localStorage` under `op2_coop_name`. The first default is a random `VIPER-27`.
 
 ## Connectivity: TURN setup (once, by the owner)
@@ -181,10 +195,12 @@ hints, banners, doors, music, cutscenes, guns and grenades handed out, pickups d
 | Guest disconnects | Body and tag go, a feed line says so, the run goes on; the host drops a silent guest after 20 s |
 | Guest rejoins mid-match, even mid-wave | The invite link and password; the host sends the match, the guest loads the map and gets the full enemy state from the next snapshot (every snapshot is complete), team cards within 250 ms, their purse and score back by callsign, and in a mission the catch-up above |
 | Wrong password | Told on both ends, never silence (the door) |
-| Version mismatch | "Your friend has a different version... both reload" |
+| Version mismatch | "Version mismatch: the host has X, you have Y. Both of you hard reload (Ctrl+Shift+R, or Cmd+Shift+R on a Mac)" |
+| A phone or touch-only tablet | "OVERPOWERED 2 needs a computer with keyboard and mouse" on Multiplayer; Join and Host refuse |
+| A match handoff that fails on the new page | Multiplayer with why ("could not be carried over" or "could not reconnect"), never a silent splash |
 | Lobby full | The fifth player is told at once ("That lobby is full: four players") |
 | Code reused by another host | The newer empty lobby steps aside with "That code was already in use" |
-| Stale invite link | "No lobby answered on code X ... an old invite link points at a lobby that has closed" after 30 s |
+| Stale invite link | "Lobby not found: nobody answered on code X ... an old invite link points at a lobby that has closed" after 30 s |
 | No relay reachable | "Could not reach any of the matchmaking relays. Check your internet connection (a VPN or firewall can block them)" |
 | Networks cannot link | The TURN message above |
 | Host tab hidden or minimised | See below |

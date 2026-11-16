@@ -5,7 +5,8 @@
  * Joining: every peer says hello with its build id on connect. A guest that meets a host on another build stops with
  * 'version'. A wrong password stops it with 'password', told by trystero or, through the door (room.ts), by the host.
  * A guest that hears from no host in HOST_WAIT_MS stops with 'no-host': a wrong code, a host who left, or a network that
- * will not connect, so it is never silence.
+ * will not connect, so it is never silence. While it waits, `stage` says how far it got (relays, the lobby, the host's
+ * connection, the version check), and a timeout names the stage that stalled.
  */
 import { BUILD } from './build';
 import { defaultStarter, isStarter, type StarterGun } from '../contracts/starter';
@@ -14,6 +15,8 @@ import type { Channel, LobbyRooms, NetError, NetRoom } from './room';
 
 export type LobbyError = 'password' | 'version' | 'host-left' | 'no-host' | 'connect' | 'full' | 'relays' | 'lost' | 'code-taken';
 export type LobbyPhase = 'connecting' | 'open' | 'closed';
+/** How far a guest's join got: the relays, then the lobby, then a connection to the host, then its version. */
+export type JoinStage = 'relays' | 'looking' | 'connecting' | 'version' | 'joined';
 
 export interface LobbyPlayer {
   id: string;
@@ -72,6 +75,8 @@ export const NAME_MAX = 16;
 export const CHAT_MAX = 160;
 const CHAT_KEEP = 40;
 export const HOST_WAIT_MS = 30_000;
+/** No matchmaking relay open by then: nothing else can work, so say so rather than wait out HOST_WAIT_MS. */
+export const RELAY_WAIT_MS = 10_000;
 /** How long a guest waits in the main room before it asks at the door. A right password is in within about three. */
 export const DOOR_AFTER_MS = 5_000;
 export const PING_MS = 2_000;
@@ -121,6 +126,10 @@ export class Lobby {
   private hostId: string | null = null;
   private ready = false;
   private wait: ReturnType<typeof setTimeout> | null = null;
+  private relayWait: ReturnType<typeof setTimeout> | null = null;
+  /** Guest: peers connected whose hello has not come yet (the host, while its version is checked). */
+  private unheard = new Set<string>();
+  private lastStage: JoinStage = 'looking';
   private knock: ReturnType<typeof setTimeout> | null = null;
   private readonly room: NetRoom;
   private door: NetRoom | null = null;
@@ -129,7 +138,8 @@ export class Lobby {
   private failed = new Set<string>();
   private atDoor = new Set<string>();
 
-  constructor(private readonly rooms: LobbyRooms, readonly hosting: boolean, private name: string, private readonly build = BUILD, private readonly deployed = false, private starter?: StarterGun) {
+  /** `starter` is this player's own pick, which the match handoff uses even if the host's list has not caught up. */
+  constructor(private readonly rooms: LobbyRooms, readonly hosting: boolean, private name: string, private readonly build = BUILD, private readonly deployed = false, public starter?: StarterGun) {
     const room = (this.room = rooms.main);
     this.ch = room.channel<Msg>('lobby');
     this.poses = room.channel<ArrayBuffer>('pose');
@@ -156,10 +166,12 @@ export class Lobby {
       this.players = [{ id: HOST_ID, name, ready: false, host: true, slot: 0, starter }];
       this.openDoor();
     } else {
-      this.wait = setTimeout(() => this.close('no-host'), HOST_WAIT_MS);
+      // The stage that stalled is the reason: no relay, a host found but never connected, or no lobby at all.
+      this.wait = setTimeout(() => this.close(this.stage === 'relays' ? 'relays' : this.stage === 'connecting' ? 'connect' : 'no-host'), HOST_WAIT_MS);
+      this.relayWait = setTimeout(() => this.stage === 'relays' && this.close('relays'), RELAY_WAIT_MS);
       this.knock = setTimeout(() => this.openDoor(), DOOR_AFTER_MS);
     }
-    room.onPeerJoin(id => this.ch.send({ t: 'hello', v: build, name: this.name, host: hosting, deployed, starter: this.starter, born: this.born }, id));
+    room.onPeerJoin(id => (this.phase === 'connecting' && this.unheard.add(id), this.ch.send({ t: 'hello', v: build, name: this.name, host: hosting, deployed, starter: this.starter, born: this.born }, id)));
     room.onPeerLeave(id => this.peerLeft(id));
     room.onError((error, peerId) => this.netError(error, peerId));
     this.ch.on((msg, from) => {
@@ -171,6 +183,10 @@ export class Lobby {
 
   /** Every PING_MS: the host pings each guest, and either side drops a peer that has gone silent. */
   heartbeat(now = performance.now()): void {
+    if (this.phase === 'connecting' && this.stage !== this.lastStage) {
+      this.lastStage = this.stage;
+      this.onChange();
+    }
     // Also called every game frame, which a hidden tab's worker keeps ticking when its timers are throttled.
     if (this.phase !== 'open' || now < this.nextBeat) return;
     this.nextBeat = now + PING_MS - 50;
@@ -187,6 +203,23 @@ export class Lobby {
       this.ch.send({ t: 'ping', n: now }, p.id);
     }
     this.broadcast();
+  }
+
+  get stage(): JoinStage {
+    if (this.phase === 'open') return 'joined';
+    if (this.unheard.size) return 'version';
+    const status = this.room.status?.();
+    return !status ? 'looking' : !status.relays ? 'relays' : status.trying ? 'connecting' : 'looking';
+  }
+
+  /** Host: browsers that found the lobby and are still connecting to it. */
+  get trying(): number {
+    return this.room.status?.().trying ?? 0;
+  }
+
+  /** Host: the guests the start waits on. */
+  get notReady(): LobbyPlayer[] {
+    return this.players.filter(p => !p.host && !p.ready);
   }
 
   get me(): LobbyPlayer | undefined {
@@ -231,8 +264,9 @@ export class Lobby {
   }
 
   /**
-   * Host: Start counts down COUNTDOWN_S seconds out loud for everyone, then starts. Pressed again, it cancels. A guest who
-   * is not ready yet sees the count and can still ready up; nobody is held back by it.
+   * Host: Start counts down COUNTDOWN_S seconds out loud for everyone, then starts. Pressed again, it cancels. It waits for
+   * every guest to be ready (false, with a line naming who), and a guest who stops being ready, or joins, stops the count:
+   * nobody is carried into a match from the middle of picking a gun.
    */
   countdown(mode: CoopMode, map?: CoopMap, seconds = COUNTDOWN_S): boolean {
     if (!this.hosting || this.phase !== 'open' || this.match) return false;
@@ -240,6 +274,10 @@ export class Lobby {
       this.stopCount();
       this.post(null, 'Start cancelled.');
       return true;
+    }
+    if (this.notReady.length) {
+      this.post(null, `Waiting for ${this.names(this.notReady)} to ready up.`);
+      return false;
     }
     this.count = seconds;
     const tick = () => {
@@ -253,6 +291,17 @@ export class Lobby {
       this.startMatch(mode, undefined, map);
     }, 1000);
     return true;
+  }
+
+  private names(players: LobbyPlayer[]): string {
+    return players.map(p => p.name).join(', ');
+  }
+
+  /** Host: a count running while someone is not ready stops, with why. */
+  private holdCount(): void {
+    if (!this.count || !this.notReady.length) return;
+    this.stopCount();
+    this.post(null, `Start cancelled: ${this.names(this.notReady)} not ready.`);
   }
 
   private stopCount(): void {
@@ -379,9 +428,11 @@ export class Lobby {
       // A guest back from the page handoff is not news; one arriving mid-match is.
       if (!msg.deployed) this.post(null, this.match ? `${name} joined the match in progress.` : `${name} joined.`);
       else this.broadcast();
+      this.holdCount();
       if (this.match) this.ch.send({ t: 'start', match: this.match }, from);
       return;
     }
+    this.unheard.delete(from);
     if (!msg.host || this.hostId) return;
     if (!sameBuild) {
       this.theirBuild = clean(msg.v, 40);
@@ -405,6 +456,7 @@ export class Lobby {
       player.ready = msg.ready === true;
       if (!this.match) player.starter = isStarter(msg.starter) ? msg.starter : undefined;
       this.broadcast();
+      this.holdCount();
     } else if (msg.t === 'chat') {
       const text = clean(msg.text, CHAT_MAX);
       if (text) this.post(player.name, text);
@@ -459,6 +511,7 @@ export class Lobby {
 
   private peerLeft(id: string): void {
     if (!this.hosting) {
+      this.unheard.delete(id);
       if (id === this.hostId) this.close('host-left');
       return;
     }
@@ -501,7 +554,7 @@ export class Lobby {
         if (this.atDoor.has(peerId)) this.doorCh?.send({ t: 'wrong' }, peerId);
       }
       if (error === 'password') this.post(null, 'Someone tried to join with the wrong password.');
-      else if (error === 'connect') this.post(null, 'A player found the lobby but your networks could not connect directly. Set up TURN (docs/notes/coop.md) or try another network.');
+      else if (error === 'connect') this.post(null, 'A player failed to connect (network): they found the lobby, but your networks could not connect directly. Set up TURN (docs/notes/coop.md) or try another network.');
       else if (error === 'relays' && this.players.length === 1) this.close('relays');
       return;
     }
@@ -530,7 +583,8 @@ export class Lobby {
 
   private clearWait(): void {
     if (this.wait) clearTimeout(this.wait);
-    this.wait = null;
+    if (this.relayWait) clearTimeout(this.relayWait);
+    this.wait = this.relayWait = null;
   }
 
   private close(error: LobbyError | null): void {
