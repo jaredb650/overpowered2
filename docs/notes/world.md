@@ -5,7 +5,7 @@ Then call `world.update()` once per frame in the world slot, and `world.reset()`
 
 ## Maps
 
-`src/world/map/maps.ts` holds one `MapDef` row per map, and `World` only reads that row. `?map=crucible`, `?map=killhouse`, `?map=outpost` or `?map=fort` (Outpost Defense's fort: `docs/notes/fort.md`) picks one.
+`src/world/map/maps.ts` holds one `MapDef` row per map, and `World` only reads that row. `?map=crucible`, `?map=killhouse`, `?map=outpost`, `?map=fort` (Outpost Defense's fort: `docs/notes/fort.md`) or `?map=office` (both survival modes: The Office below) picks one.
 The default is `crucible`, the swarm game. The Kill House is the map of Endless Humans, picked from the menu under Play / Survival. `selectMap()` takes
 the map from `ACTIVE` in `contracts/select.ts`: `docs/notes/contracts.md` has the URL rules. Add `&map=killhouse` to any sandbox that builds a world.
 
@@ -447,3 +447,91 @@ It runs in a worker alongside nav, so total load is about 7-8 s idle.
 - **Enemy width:** nav clearance assumes a body about 0.8 m wide. `NavGraph.clearance` holds distance to edges, but `NavQuery` does not expose it, so very large enemies can catch on corners.
 - **Spawn sightlines:** one or two ground/gate pairs still have a clear line by the verifier's ray, out of 126 spawns. The count moves slightly as the map changes. Air spawns are not line-of-sight tested.
 - **Lava** is a static surface with the library's animated material. It has no flow direction or level change.
+
+# The Office
+
+Regional Processing Office 9, a branch of the Office of Societal Compliance, at `/?map=office`: a two-floor office, its plaza and street,
+the service yard, the alley, a three-level car park joined to the first floor by a skybridge, and a tower over the roof. Both survival
+modes play here (`ContractDef.alsoOn`, `docs/notes/contracts.md`): Play / Survival / Office / The Crucible or Endless Humans.
+`docs/proposals/office-map.md` is the plan and draws the layout. Files: `src/world/map/office/`.
+
+| File | Holds |
+|---|---|
+| `plan.ts` | Every number: floors (0, 4.4, 8.8, the nav levels), rooms, every wall and hole, entrances, flyers, pickups |
+| `build.ts` | `Builder`: walls cut into strips at every hole on any floor, slabs with holes, finishes, frames, the plan's walls and doors |
+| `shell.ts` | Slabs, walls, glass partitions, stairs, the lift shaft, the roof, the tower, the fire escape, every glass pane |
+| `outside.ts` | Ground, boundary facades and containment, skyline, plaza, yard, alley, car park, skybridge |
+| `props.ts`, `rooms.ts` | Furniture that stays, ceilings, lights, signs, and where every breakable stands |
+| `parkour.ts` | The scaffold, the two gondolas and the sign over the gap |
+| `office-map.test.ts` | The proof sheet: budget, nav, pods, floors, breakables and the four parkour lines played by the real Player |
+
+Why it is built the way it is:
+
+- **Walls are centred on whole metres.** Nav cells are 1 m with centres on the half metre, so a wall blocks the cells on both sides of its
+  line and no drop link (two cells out, no wall test) reaches through one. Anything with a collider upstairs is at least 0.5 m tall for the
+  same reason: a lower box would let the nav drop a man through the slab beside it.
+- **A stair's foot needs a clear approach along its own line.** A thin stair collider blocks the cells beside it, so the roof stair starts
+  2.6 m clear of the wall at its foot. The first version started against it and the stair was unreachable from below.
+- **Glass and dividers block the nav while they stand.** They go up after the nav sample (`Breakables.attach`) and mark their cells, as
+  walls do; a broken pane clears them, so the lobby's storefront is a way in once it has been shot out.
+- **The minimap is one picture of two floors.** Ground-floor walls are drawn where they are solid at foot height, so every doorway shows;
+  walls that only stand upstairs, the car park's decks and the glass are thin.
+- **Emissive ignores vertex tint.** Far windows, monitors and the fountain use `emissiveDim` and `screen`; `plaster` and `carpet` are clean
+  office surfaces. Breakables' tints are converted to linear, which vertex colours are.
+
+## Breakables
+
+`src/world/breakables.ts`, owned by `world/objects.ts`. A map places them as `MapSpec.breakables` (`spec.breakable(kind, x, y, z, yaw, w, h, flat)`);
+any map can. A round reaches one through `Objects.damageExplosive`, a blast through `damageExplosivesInRadius`, so rockets, grenades,
+barrels and melee all work on them unchanged.
+
+| Kind | Health | What it does |
+|---|---|---|
+| monitor | 12 | sparks, glass and plastic; the dead screen stays on the desk |
+| chair | 60 | a hit or a blast throws it as a Rapier body; it settles where it lands, collider and all, and can be thrown again |
+| plant | 10 | the pot shatters, soil sprays, the plant lies in the dirt |
+| divider, pane | 30, 8 | fall or shatter in pieces; their nav cells open |
+| microwave, cooler, extinguisher | 20, 20, 15 | a pop (2 m), a burst (2.5 m), a burst and a white cloud (3 m) |
+| copier, rack, vending | 60, 70, 90 | spark at half; explode (4.5 m, 5 m, 5 m); the wreck stays and blocks, a rack keeps sparking |
+| generator, gasline | 100, 40 | explode (9 m, 7 m); a gas line goes valve by valve |
+
+An explosion raises `world:explosion` like a barrel (Combat hurts enemies and the player and throws bodies, chairs and debris), then after
+`BreakTuning.chainDelay` hurts the other world objects in reach: a rack row ripples down the row. A wall between a blast and a prop passes
+`BreakTuning.throughWall` of it, so the gas main outside does not set off the server room. Caps: `BreakTuning.chairs` tumbling at once, `chain`
+queued blasts, one burning spark every `sparkEvery`; flying pieces share a capped `Debris` pool of their own materials. `reset()` puts
+everything back. Each kind is one instanced mesh per material, whole and wrecked (wrecks drawn only once one exists): 445 props in 37 meshes.
+
+## Proving it
+
+```
+nice npx vitest run src/world/map/office --testTimeout=60000
+nice npx vitest run src/contracts/office.test.ts
+OP2_SKIP=1 OP2_VIEWS=lobby,open,server,plaza node tools/shot.mjs --port 5293 --url "/?sandbox=map&map=office" --script tools/scripts/killhouse-verify.mjs --out tools/out/office/v.png --wait 1500 --dpr 2 --w 1440 --h 900
+node tools/shot.mjs --port 5293 --url "/?contract=outpost&map=office&autostart=1&dev=1" --script tools/scripts/office-live.mjs --dpr 2 --w 1440 --h 900 --wait 500 --timeout 300 --out tools/out/office/live.png
+OFFICE_BOOM=server node tools/shot.mjs --port 5293 --url "/?contract=crucible&map=office&autostart=1&dev=1" --script tools/scripts/office-boom.mjs --dpr 2 --w 1440 --h 900 --wait 500 --out tools/out/office/boom.png
+node tools/shot.mjs --port 5293 --url "/" --script tools/scripts/office-menu.mjs --dpr 2 --w 1440 --h 900 --wait 500 --out tools/out/office/menu.png
+```
+
+| Check | Result |
+|---|---|
+| Static | 114k triangles, 511 colliders, 125 baked lights, 61 meshes; nav 18.0k nodes on three levels |
+| Nav | Every entrance and every room reaches the lobby and back; the floors join by stair A, the roof stair, the fire escape and the skybridge |
+| Supply pod | 14 spots outside, all under open sky, one within 60 m of every room; it lands in both modes |
+| Breakables | 445 props, 37 meshes. A rack row chains; the gas line goes valve by valve and not through the server room's wall; chairs cap at 24 and settle; reset restores all |
+| Parkour | Planter, canopy, gondola, in at the window; yard, T1, T3, the Director's bay, the parapet; a plain jump falls into the lane, the sign's wall run lands on the car park roof; the AC unit to the tower's perch |
+| Swarm, lobby, 60 s at 1440x900 at 2x | 24 alive, 23 within 6 m, nothing stuck. 182 draws, 594k triangles median; frames 16.7 ms median, 33 ms p95 |
+| Squads, lobby, 60 s | 8 men, 7 in cover at once, closest 1.2 m, through the lobby's columns. 176 draws, 415k triangles; 16.7 / 33 ms |
+| Kill House, same runs | Swarm 142 draws, 521k triangles; squads 137 draws, 369k. Frames the same |
+
+## Known limitations
+
+- **Nobody has played it.** Every number is a bot's. Whether the lines read, whether the server room is too dark, whether the chains are
+  too generous: the owner's hands.
+- **Draws run about 40 over the Kill House** (inside the Outpost's 151 to 196). The breakables are 37 meshes; merging kinds into a
+  BatchedMesh would take most of that back, untried because the world's material patch has not been checked against it.
+- **The squads hold long.** In Endless Humans a squad that has not seen the player can hold its gate for 40 s before it moves: the AI's,
+  not the map's, but the Office's long approaches make it show.
+- **Drones fly straight.** Flyers enter over open sky; indoors they meet the same walls they meet on every map.
+- **The extinguisher's cloud is only a look.** It does not block an enemy's sight.
+- **The tower is out of bounds by being solid**, and its gondola is a perch with no way on but back down.
+

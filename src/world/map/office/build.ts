@@ -102,9 +102,22 @@ export class Builder {
     const edges = [...new Set([w.from, w.to, ...w.holes.flatMap(h => [h.at - h.w / 2, h.at + h.w / 2])])]
       .filter(u => u >= w.from && u <= w.to).sort((a, b) => a - b);
     const g = this.g;
+    // On the plan a wall is drawn where it is solid at foot height on its lowest floor, so every doorway shows. One that only
+    // stands upstairs is a thin line: the minimap is one picture of two floors.
+    const foot = w.y0 + 0.5;
+    const half = w.y0 >= FLOORS[1] - 0.01 ? 0.07 : t + SKIN;
+    let run: number | null = null;
+    const endRun = (u: number) => {
+      if (run === null) return;
+      this.plan.walls.push({ ax: alongX ? run : w.at, az: alongX ? w.at : run, bx: alongX ? u : w.at, bz: alongX ? w.at : u, half });
+      run = null;
+    };
     for (let i = 0; i < edges.length - 1; i++) {
       const u0 = edges[i]!, u1 = edges[i + 1]!, um = (u0 + u1) / 2;
       if (u1 - u0 < 0.01) continue;
+      const open = w.holes.some(h => Math.abs(h.at - um) < h.w / 2 && (h.y0 ?? w.y0) <= foot && h.y1 > foot);
+      if (open) endRun(u0);
+      else run ??= u0;
       const cuts = w.holes.filter(h => Math.abs(h.at - um) < h.w / 2).map(h => [h.y0 ?? w.y0, h.y1] as const).sort((a, b) => a[0] - b[0]);
       let y = w.y0;
       const spans: [number, number][] = [];
@@ -134,8 +147,8 @@ export class Builder {
         g.tint(1);
       }
     }
+    endRun(edges[edges.length - 1]!);
     for (const h of w.holes) this.frame(w, h, t, out);
-    this.plan.walls.push({ ax: alongX ? w.from : w.at, az: alongX ? w.at : w.from, bx: alongX ? w.to : w.at, bz: alongX ? w.at : w.to, half: t + SKIN });
   }
 
   /**

@@ -16,6 +16,11 @@
 
 Add a row to `CONTRACTS`: map, faction, wave source, AI rule set, wound rules, rewards, briefing, score key. The menu, the high score table, the map choice and the URL all follow from the row: a row with a `mission` lands under Play / Campaign, any other under Play / Survival on its map. A survival row on a map the menu has not listed also needs that map in `SURVIVAL_MAPS` (`ui/screens/mainmenu.ts`), and `mainmenu.test.ts` says so. `ContractId` needs the new id, and a new rule set needs its id added to the union it belongs to. Nothing else in this folder changes.
 
+**A mode on another map.** `alsoOn` lists maps a contract also plays on, each with its own notice: the Crucible and Endless Humans both have
+`office`. The rules, shop, starting guns, waves and AI stay the contract's own; `ACTIVE.ranked` is true there, and the record is kept apart
+under `scoreKey` plus the map (`scores.ts`, `scoreKeyOf`). The menu lists the mode under each of its maps and `contractSearch` carries the map.
+Co-op's `Match` carries one of `COOP_MAPS` the same way. `contracts/office.test.ts` holds all of this.
+
 ## Reading the contract
 
 ```ts
@@ -40,6 +45,8 @@ ACTIVE.ranked;                                  // false on a map the contract d
 | `/?map=range` | The Crucible's rules. No contract owns it | Test Range | Not kept |
 | `/?contract=defense` | Outpost Defense: the economy, shops and loadout. On the Test Range until the fort map lands | Test Range | Kept |
 | `/?contract=crucible&map=killhouse` | The Crucible's rules | Kill House | Not kept |
+| `/?map=office` | The Crucible: the first contract that also plays there | Office | Kept, its own |
+| `/?contract=outpost&map=office` | Endless Humans | Office | Kept, its own |
 
 `/` is always the default contract. There is no remembered choice, so the URL is the only state and a sandbox can never open on the wrong map.
 

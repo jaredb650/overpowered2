@@ -8,6 +8,15 @@ import { B, BRIDGE, CANOPY, LV, PARK, rect, type Rect, type Rgb, SITE, STREET_Z,
 const PLAZA: Rgb = [0.62, 0.64, 0.68];
 const RAW = { mat: 'concrete' as Mat, tint: [0.62, 0.62, 0.64] as Rgb };
 
+/** The outside on the minimap, under the rooms: where you are, at a glance. */
+function chart(b: Builder): void {
+  b.fill(rect(SITE.x0, STREET_Z, SITE.x1, SITE.z1), [0.22, 0.22, 0.26], 'STREET');
+  b.fill(rect(SITE.x0, B.z1, SITE.x1, STREET_Z), [0.3, 0.42, 0.5], 'PLAZA');
+  b.fill(rect(SITE.x0, B.z0, B.x0, B.z1), [0.42, 0.36, 0.26], 'YARD');
+  b.fill(rect(SITE.x0, SITE.z0, SITE.x1, B.z0), [0.26, 0.28, 0.34], 'ALLEY');
+  b.fill(rect(PARK.x0, PARK.z0, PARK.x1, PARK.z1), [0.36, 0.4, 0.3], 'CAR PARK');
+}
+
 function ground(b: Builder): void {
   // One collider under the whole site, so no sprint crosses a seam.
   b.solid(SITE.x0 - 4, -2, SITE.z0 - 4, SITE.x1 + 4, 0, SITE.z1 + 4);
@@ -73,15 +82,15 @@ function boundary(b: Builder): void {
 /** Towers on the skyline, far beyond the walls: no colliders, a few hundred triangles, lit windows. */
 function skyline(b: Builder): void {
   const g = b.g, k = b.k;
-  // The city's ground out to the horizon, under the site's own finishes.
-  g.use('asphalt').tint(0.32, 0.33, 0.36).gridStep(-320, -0.03, 320, 640, 0, 0, 0, 0, -640, 40);
+  // The city's ground out to the horizon, under the site's own finishes. paintWhite is not cut into chunks: one draw for all of this.
+  g.use('paintWhite').tint(0.05, 0.055, 0.065).gridStep(-320, -0.03, 320, 640, 0, 0, 0, 0, -640, 40);
   g.tint(1);
   const spots: [number, number, number, number, number][] = [
     [-150, -120, 30, 26, 120], [-60, -160, 34, 30, 160], [40, -150, 26, 26, 140], [140, -110, 30, 30, 110], [180, 10, 24, 30, 90],
     [150, 120, 30, 26, 130], [40, 170, 34, 30, 100], [-70, 150, 28, 28, 150], [-170, 60, 26, 30, 95], [-180, -40, 30, 24, 120],
   ];
   for (const [x, z, w, d, h] of spots) {
-    g.use('steelDark').tint(0.24, 0.27, 0.34).box(x, h / 2, z, w / 2, h / 2, d / 2, FACE.sides | FACE.py);
+    g.use('paintWhite').tint(0.05, 0.06, 0.08).box(x, h / 2, z, w / 2, h / 2, d / 2, FACE.sides | FACE.py);
     for (let y = 8; y < h - 4; y += 6) {
       if (k.rng() < 0.35) continue;
       g.use(k.rng() > 0.6 ? 'emissiveDim' : 'screen').tint(1);
@@ -325,6 +334,8 @@ function skybridge(b: Builder): void {
 
 export function authorOutside(k: Kit, spec: MapSpec): void {
   const b = new Builder(k, spec);
+  // Outside first, so the rooms are drawn over it.
+  spec.plan!.fills.unshift(...(() => { const before = spec.plan!.fills.length; chart(b); return spec.plan!.fills.splice(before); })());
   ground(b);
   boundary(b);
   skyline(b);

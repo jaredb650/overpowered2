@@ -23,7 +23,7 @@ export const ROOF_HOLES: readonly Rect[] = [
 function floors(b: Builder): void {
   for (const r of ROOMS) {
     for (const p of r.floor === 'g' ? [r] : cut(r, F2_HOLES)) b.finish(r.mat, r.tint, p, floorY(r.floor) + 0.006, 2);
-    b.fill(r, r.paint);
+    if (r.floor === 'g') b.fill(r, r.paint);
   }
   b.finish('concreteDark', [0.5, 0.5, 0.52], LIFT, LV.g + 0.006);
   // The first floor, its underside the ground floor's ceiling. Its top is the rooms' finishes.
@@ -82,7 +82,7 @@ function glassWall(b: Builder, w: (typeof INNER)[number]): void {
     put(h.at - h.w / 2, h.at + h.w / 2, h.y1, h.y1 + 0.08, 0.07);
     b.plan.doors.push({ x: alongX ? h.at : w.at, z: alongX ? w.at : h.at, dx: alongX ? 0 : 1, dz: alongX ? 1 : 0, w: h.w });
   }
-  b.plan.walls.push({ ax: alongX ? w.from : w.at, az: alongX ? w.at : w.from, bx: alongX ? w.to : w.at, bz: alongX ? w.at : w.to, half: 0.08 });
+  b.plan.walls.push({ ax: alongX ? w.from : w.at, az: alongX ? w.at : w.from, bx: alongX ? w.to : w.at, bz: alongX ? w.at : w.to, half: 0.05 });
 }
 
 function stairs(b: Builder): void {

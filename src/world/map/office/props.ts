@@ -23,7 +23,8 @@ export function at(b: Builder, x: number, y: number, z: number, yaw: number, fn:
 /** A local box, bevelled, painted. With `solid` it gets a collider in the same frame. */
 function part(b: Builder, mat: Mat, tint: Rgb, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, solid = false, bev = 0.02): void {
   b.g.use(mat).tint(tint[0], tint[1], tint[2]);
-  if (bev > 0) b.g.bevel((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, (x1 - x0) / 2, (y1 - y0) / 2, (z1 - z0) / 2, bev);
+  // Under 6 mm a bevel does not show, and it is 44 triangles where a box is 12.
+  if (bev > 0.006) b.g.bevel((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, (x1 - x0) / 2, (y1 - y0) / 2, (z1 - z0) / 2, bev);
   else b.g.box((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, (x1 - x0) / 2, (y1 - y0) / 2, (z1 - z0) / 2);
   b.g.tint(1);
   if (solid) b.k.collide((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, (x1 - x0) / 2, (y1 - y0) / 2, (z1 - z0) / 2, mat === 'plywood' ? 'concrete' : 'metal');

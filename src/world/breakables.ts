@@ -110,7 +110,9 @@ const lin = (v: number): number => v ** 2.2;
 const tint = (g: Geo, r: number, gr = r, b = r): Geo => g.tint(lin(r), lin(gr), lin(b));
 const B = (g: Geo, mat: Mat, c: Rgb, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, bev = 0.015) => {
   tint(g.use(mat), c[0], c[1], c[2]);
-  g.bevel((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, (x1 - x0) / 2, (y1 - y0) / 2, (z1 - z0) / 2, bev);
+  // Small parts are plain boxes: a bevel is 44 triangles, a box 12, and there are hundreds of each prop.
+  if (bev <= 0.006) g.box((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, (x1 - x0) / 2, (y1 - y0) / 2, (z1 - z0) / 2);
+  else g.bevel((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, (x1 - x0) / 2, (y1 - y0) / 2, (z1 - z0) / 2, bev);
 };
 const burnt = (c: Rgb, w: boolean): Rgb => (w ? [c[0] * 0.22, c[1] * 0.2, c[2] * 0.2] : c);
 const PLASTIC: Rgb = [0.12, 0.13, 0.15];
@@ -129,7 +131,7 @@ const MODELS: Record<BreakKind, Model> = {
   chair(g) {
     B(g, 'plaster', PLASTIC, -0.26, 0.42, -0.24, 0.26, 0.5, 0.24, 0.03);
     B(g, 'plaster', PLASTIC, -0.24, 0.55, -0.28, 0.24, 1.0, -0.22, 0.03);
-    B(g, 'plaster', [0.3, 0.32, 0.36], -0.03, 0.08, -0.03, 0.03, 0.42, 0.03, 0.01);
+    B(g, 'plaster', [0.3, 0.32, 0.36], -0.03, 0.08, -0.03, 0.03, 0.42, 0.03, 0);
     for (let i = 0; i < 5; i++) {
       const a = (i / 5) * Math.PI * 2;
       g.push(Math.sin(a) * 0.14, 0.04, Math.cos(a) * 0.14, -a);
@@ -199,13 +201,13 @@ const MODELS: Record<BreakKind, Model> = {
     g.use('emissiveDim').tint(1).box(-0.11, 1.15, 0.471, 0.3, 0.58, 0.002);
     tint(g.use('emissiveCyan'), 0.5).box(0.33, 1.4, 0.46, 0.1, 0.25, 0.012);
     for (let r = 0; r < 5; r++) for (let c = 0; c < 4; c++) {
-      B(g, 'plaster', CANS[c]!, -0.38 + c * 0.14, 0.62 + r * 0.22, 0.36, -0.28 + c * 0.14, 0.78 + r * 0.22, 0.44, 0.01);
+      B(g, 'plaster', CANS[c]!, -0.38 + c * 0.14, 0.62 + r * 0.22, 0.36, -0.28 + c * 0.14, 0.78 + r * 0.22, 0.44, 0);
     }
   },
   generator(g, w) {
     B(g, 'plaster', burnt([0.66, 0.6, 0.12], w), -1.4, 0.12, -0.7, 1.4, 1.5, 0.7, 0.05);
     B(g, 'plaster', burnt([0.3, 0.3, 0.32], w), -1.45, 0, -0.75, 1.45, 0.14, 0.75, 0.02);
-    for (let i = 0; i < 10; i++) B(g, 'plaster', burnt([0.2, 0.2, 0.2], w), -1.2 + i * 0.22, 0.4, 0.7, -1.12 + i * 0.22, 1.2, 0.72, 0.005);
+    for (let i = 0; i < 10; i++) B(g, 'plaster', burnt([0.2, 0.2, 0.2], w), -1.2 + i * 0.22, 0.4, 0.7, -1.12 + i * 0.22, 1.2, 0.72, 0);
     tint(g.use('plaster'), 0.2, 0.2, 0.22).cyl(1.0, 1.5, 0, 1.0, 2.2, 0, 0.1, 0.1, 8);
     if (!w) tint(g.use('emissiveRed'), 0.8).box(-1.1, 1.3, 0.715, 0.06, 0.04, 0.005);
   },
@@ -288,7 +290,16 @@ class Look {
     }
   }
   set(i: number, m: THREE.Matrix4): void {
-    for (const mesh of this.meshes) { mesh.setMatrixAt(i, m); mesh.instanceMatrix.needsUpdate = true; }
+    const shown = m !== _hide;
+    for (const mesh of this.meshes) {
+      mesh.setMatrixAt(i, m);
+      mesh.instanceMatrix.needsUpdate = true;
+      // A wreck mesh draws nothing until the first wreck: hidden slots still cost their triangles.
+      if (shown) mesh.visible = true;
+    }
+  }
+  hideAll(): void {
+    for (const mesh of this.meshes) mesh.visible = false;
   }
   /** Bounds over every slot, so a kind that does not move can be culled as a whole. */
   fit(moves: boolean): void {
@@ -344,6 +355,7 @@ export class Breakables {
       this.looks.set(kind, { whole, wreck });
     }
     for (const p of this.props) this.show(p);
+    for (const l of this.looks.values()) l.wreck?.hideAll();
     // Wrecks start hidden, so their bounds are unknown: they are never culled. Nothing whole moves but a chair.
     for (const [kind, l] of this.looks) { l.whole.fit(kind === 'chair'); l.wreck?.fit(true); }
     if (specs.length) ctx.physics.radialListeners?.add((c, r, s) => this.shove(c, r, s));
@@ -703,6 +715,7 @@ export class Breakables {
       this.show(p);
       if (this.attached) this.stand(p);
     }
+    for (const l of this.looks.values()) l.wreck?.hideAll();
     this.debris.clear();
   }
 }

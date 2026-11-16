@@ -32,13 +32,15 @@ Play          Campaign      1 The Outpost, 2 Foreclosure       (the contracts wi
               Survival      Crucible     The Crucible  + Crucible rules
                             Kill House   Endless Humans
                             Outpost      Outpost Defense       ("Outpost" is the fort, map `fort`)
+                            Office       The Crucible, Endless Humans   (both modes on map `office`: ContractDef.alsoOn)
               Multiplayer   the co-op lobby, its own screen (ui/screens/coop.ts, docs/notes/coop.md)
 Guide
 Settings
 ```
 
-Survival is map, then mode: `SURVIVAL_MAPS` lists the maps and `modesOn(map)` is every contract on that map without a mission, so a second
-mode on a map shows up beside the first. `mainmenu.test.ts` fails if a contract is reachable from nowhere: a survival contract on a new map
+Survival is map, then mode: `SURVIVAL_MAPS` lists the maps and `modesOn(map)` is every contract on that map, or also on it (`alsoOn`), without a
+mission, so a second mode on a map shows up beside the first. A leaf is a contract on one map: its notice is that map's, and choosing it
+loads that map. `mainmenu.test.ts` fails if a contract is reachable from nowhere: a survival contract on a new map
 needs a row in `SURVIVAL_MAPS`. Each level ends in Back, and Esc or Backspace goes up a level too; coming back up lands on the item that led
 down. A mission or mode shows its Council notice on the right while it has focus (keys, or the mouse moving over it), a map shows its first
 mode's, and the levels above show none. Choosing a mission or mode plays it: at once on this page's contract, by a page load otherwise.
