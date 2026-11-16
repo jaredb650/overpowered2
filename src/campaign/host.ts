@@ -76,6 +76,8 @@ export class GameHost implements MissionHost {
   private tagging: string | null = null;
   private bossTag: string | null = null;
   private rideDone: (() => void) | null = null;
+  /** Where a circling ride's missile comes from, once `comeAbout` has been called. Null keeps it circling. */
+  private launcher: THREE.Vector3 | null = null;
   private level = 1;
   /** The player's Bailiffs, and each battle's. A man leaves these lists as he dies, before the pool can hand him out again. */
   readonly squadMen: Ally[] = [];
@@ -308,9 +310,13 @@ export class GameHost implements MissionHost {
     this.film.play(scene, done);
   }
 
-  /** A route is flown as written, and calls its marks as `ride:<mark>`. With no route it is the ordinary call-in, circling for its time. */
-  ride(seat: CallInId, route: readonly Mark[], done: () => void): void {
+  /**
+   * A route is flown as written, and calls its marks as `ride:<mark>`. `circle` circles over the fight first, until `comeAbout`. With no
+   * route it is the ordinary call-in, circling for its time.
+   */
+  ride(seat: CallInId, route: readonly Mark[], done: () => void, circle = false): void {
     this.rideDone = done;
+    this.launcher = null;
     if (route.length < 2 || seat !== 'doorGunner') {
       this.ctx.progression.boardCallIn(seat);
       return;
@@ -319,6 +325,7 @@ export class GameHost implements MissionHost {
     this.ctx.progression.boardFlight({
       marks: route.map(m => ({ x: m.at[0], y: m.at[1], z: m.at[2], hold: m.hold ?? 0, name: names.get(m) ?? '', hit: m.hit ?? false })),
       reached: name => this.runner.signal(`ride:${name}`),
+      loiter: circle ? () => this.launcher : undefined,
     });
   }
 
@@ -437,6 +444,10 @@ export class GameHost implements MissionHost {
         ctx.audio.play('glass_break', { position: _v.set(...at) });
         return;
       }
+      // A circling ride heads for its route, with the missile to come from the `arg` mark.
+      case 'comeAbout':
+        if (arg) this.launcher = new THREE.Vector3(...this.runner.mission.marks[arg]!.at);
+        return;
       case 'mark':
         if (arg) this.manager.vehicles?.target(arg);
         return;
@@ -528,6 +539,7 @@ export class GameHost implements MissionHost {
     this.tagging = null;
     this.bossTag = null;
     this.rideDone = null;
+    this.launcher = null;
     this.squadMen.length = 0;
     this.battles.clear();
     this.arrivalClock = 0;

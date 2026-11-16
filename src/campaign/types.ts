@@ -116,6 +116,8 @@ export type Trigger =
   | { left: number; tag: string }
   /** The tag's first living body has this share of its health or less. For bosses. */
   | { below: number; tag: string }
+  /** True until the trigger inside has come true once: for a fallback that must not fire after the thing it stands in for. */
+  | { not: Trigger }
   /** A signal: from a `signal` step, or `campaign.signal(name)` from any system. */
   | { signal: string }
   /** A game event. `where` compares fields of the payload. */
@@ -182,8 +184,13 @@ export type Step =
   | { do: 'signal'; name: string }
   /** Holds the script until the shots run out or the player skips. A skip clears the radio queue. */
   | { do: 'cutscene'; id: string }
-  /** Into a gunner's seat, holding the script until the player is back in their body. `route` is a flight path, and a ride raises `ride:<mark>` as it reaches each one. */
-  | { do: 'ride'; seat: CallInId; route?: string }
+  /**
+   * Into a gunner's seat, holding the script until the player is back in their body. `route` is a flight path, and a ride raises
+   * `ride:<mark>` as it reaches each one. `circle` flies the call-in's own circle over the fight first, until a `comeAbout` call (its
+   * `arg` the launcher's mark), then the route from wherever it is: the leg into its `hit` mark raises `ride:lock` as the missile
+   * locks on, `ride:launch` as it comes off the rail, and `ride:<hit mark>` as it lands.
+   */
+  | { do: 'ride'; seat: CallInId; route?: string; circle?: boolean }
   /**
    * The AC-130 circling the mark, flown by the player from the first second: no crew on the guns, nothing earned, its usual lease.
    * Holds the script until the lease runs out and the player is back in their body.
@@ -335,7 +342,7 @@ export interface MissionHost {
   drop(item: PickupKind, at: Mark): void;
   /** `skipped` says the player pressed through it. */
   cutscene(id: string, scene: Cutscene, done: (skipped: boolean) => void): void;
-  ride(seat: CallInId, route: readonly Mark[], done: () => void): void;
+  ride(seat: CallInId, route: readonly Mark[], done: () => void, circle?: boolean): void;
   sortie(over: Mark, done: () => void): void;
   frame(act: FrameAct, at: Mark, done: () => void): void;
   /** `at` null: anyone missing joins where the player stands. */

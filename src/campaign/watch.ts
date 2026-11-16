@@ -103,6 +103,17 @@ export function arm(trigger: Trigger, facts: WatchFacts): Watch {
   if ('ammo' in trigger) {
     return { test: () => facts.host.rounds(trigger.ammo) < trigger.under, close: noop };
   }
+  if ('not' in trigger) {
+    const inner = arm(trigger.not, facts);
+    let happened = false;
+    return {
+      test(dt) {
+        if (inner.test(dt)) happened = true;
+        return !happened;
+      },
+      close: () => inner.close(),
+    };
+  }
   // Every part is tested every frame, so a clock inside an `any` keeps running after a neighbour has come true.
   const parts = ('all' in trigger ? trigger.all : trigger.any).map(t => arm(t, facts));
   const need = 'all' in trigger ? parts.length : 1;

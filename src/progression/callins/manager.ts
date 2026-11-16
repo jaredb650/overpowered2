@@ -356,7 +356,7 @@ export class CallInManager {
     events.emit('callin:used', { id, position: id === 'ac130' ? this.order.point : player.position });
   }
 
-  /** Onto a mission's fixed flight in the Packmule. Nothing on the ground can hold this one up. */
+  /** Onto a mission's ride in the Packmule: a fixed flight, or its circle first (`Flight.loiter`). Nothing on the ground can hold this one up. */
   boardFlight(flight: Flight): void {
     const { audio, weapons } = this.ctx;
     if (this.targeting.id) this.targeting.exit();
@@ -365,7 +365,7 @@ export class CallInManager {
       this.holstered = true;
       weapons.setHolstered(true);
     }
-    const strike = new DoorGunner(this.kit, this.seats, this.packmule, flight);
+    const strike = new DoorGunner(this.kit, this.seats, this.packmule, flight, false, this.antiAir);
     this.strikes.push(strike);
     this.flying.set(strike, 'doorGunner');
   }

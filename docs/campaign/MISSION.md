@@ -211,13 +211,15 @@ Each beat's id is what `?beat=` takes. Lengths are for a first-time player. Men 
 
 ### Door gunner: `insertion`
 
-- **Where:** the Packmule's left door, flying `routes.insertion`: in from the south-west, east along the apron, north up the east side, west behind the north wall, south down the west side, down into the cut. Anticlockwise, so the left door faces the wire. Hovers on the marks with a `hold`, about 2:15 in all.
+- **Where:** the Packmule's left door. It flies the Door Gunner call-in's own circle (`ride` with `circle`): the left-hand lap over the thickest knot of men, sliding after them as they move, so the gun is always on somebody and it never parks. When every man of the ride is down it comes about onto `routes.insertion` from wherever it is: `fly7` north-west of the wall, south down the west side to `fly8`, then burning down `fly9` into the cut at `fly10`.
 - **Player:** mows down the defenders. Infinite belt, no way to die, no way to leave.
-- **Enemies:** 27 over the lap, never all at once. `in.wall` 4 on the south wall, holding. `in.apron` 6. `in.yard` 4 and `in.road` 4 at the gate. `in.ring` 4 with a rocketeer. `in.north` 5.
+- **Enemies:** 27, in four lots, each sent as the last thins out (kills 6, 13 and 19), or on its clock (30, 55 and 80 s) for a player who is not shooting. `in.wall` 4 on the south wall, holding, and `in.apron` 6. `in.yard` 4 and `in.road` 4 at the gate. `in.ring` 4 with a rocketeer. `in.north` 5.
+- **The hot zone:** the leg from `fly7` into `fly8`. It cannot be flown before every man of the six squads is gone (`cleared`), because the aircraft only comes about then. As it turns onto the leg the lock tone starts (2.4 s) from a launcher on the citadel roof (`roofWest`), then anti-air's own missile, the bright one with the heavy smoke trail, goes up off the roof nearly straight, bends over and hits it 2.5 s later as it comes to a hover on `fly8`: a column of smoke seen side-on, not a dot coming head-on. It waits on `fly8` for the hit, so the burning run to the cut always starts from the same place, and calls the hit itself after 5 s if the missile is lost. Through the lock and the flight the sight is drawn (not locked) onto the launcher and then the missile, and may rise over the gun's own stop to follow it; the left door faces the roof on that leg, so the player sees it come. The pilot's flares go, too late.
+- **Fallback:** at 1:40 anyone still alive is hiding. The circle is already over them, the seat shows them through walls, the last three carry the HUD's straggler markers (`stragglers.ts`), and the pilot says so. At 2:05 they are given up (`sweep`), which clears the ride and brings the aircraft about: it can never wait on a man nobody can reach. Both are `{ not: { signal: 'in.about' } }`, so neither fires once it has come about.
 - **Next:** the ride ends at the cut.
 - **Teaches:** that these men scatter, drag each other and shoot back; and that bullets do nothing to the tank parked in the yard at (20, -6). That tank is Bulwark. The player will remember the spark, and will meet it again in the gate.
-- **Length:** 2:15.
-- **Job:** the power trip, so that losing it hurts. A missile takes it away.
+- **Length:** as long as the shooting takes: 1:14 and 1:37 in two bot runs with the gun always on someone, 2:48 in one where nobody fired (the sweep at 2:05, then the way down). The come-about to the cut is 20 to 30 s, depending on how far the circle is from `fly7`. Men who surrender count as gone, so a prisoner can still be standing, marked, while it comes about.
+- **Job:** the power trip, so that losing it hurts. A missile takes it away, in plain sight.
 
 > **Pilot** *(urgent)*: Two minutes to the wire. Door's yours, contractor. Anything on that compound is billable.
 >
@@ -229,7 +231,13 @@ Each beat's id is what `?beat=` takes. Lengths are for a first-time player. Men 
 >
 > **Commander** *(smug)*: That is a main battle tank. You are not scratching the paint. Do carry on.
 >
-> **Pilot** *(urgent)*: Missile! Missile! We're hit! Putting her down outside the wire. Brace!
+> **Pilot** *(urgent)*: Rest of them have gone to ground. They show through walls. Bringing us round on them. *(the fallback, at 1:40)*
+>
+> **Pilot** *(urgent)*: That's the lot. Taking her round to the drop. *(the last man is down: it comes about)*
+>
+> **Pilot** *(urgent)*: Lock tone! Launcher on the roof! *(cuts in as it turns onto the hot zone)*
+>
+> **Pilot** *(urgent)*: Missile! Missile! We're hit! Putting her down outside the wire. Brace! *(cuts in as the missile comes off the rail; "We're hit!" is 2.35 s into the take, on the hit)*
 >
 > **Commander** *(smug)*: There. Now we can talk properly.
 
@@ -560,6 +568,7 @@ A beat opens by saving its checkpoint, then runs `start`. `cues` fire once each,
 | `{ signal: 'name' }` | Someone raised it: a `signal` step, or `ctx.campaign.signal(name)` |
 | `{ event: 'weapon:unlocked', where: { weapon: 'rocket' } }` | Any game event, compared field by field |
 | `{ all: [...] }`, `{ any: [...] }` | Combines them |
+| `{ not: trigger }` | True until the trigger inside has come true once: a fallback that must not fire after what it stands in for |
 
 **Steps.** `types.ts` has each one's fields.
 
@@ -608,9 +617,9 @@ The one rule: **every body counted under a tag must end in exactly one `unitGone
 | `cutscene` | Real, on `SeatView` keyframes | Extend, do not replace |
 | `speak` | The Commander's box, with a recording if `public/audio/voice/manifest.json` lists the line id | Voices |
 | `vehicle` | Real, from `VehicleSystem`. See docs/notes/vehicles.md | Vehicles |
-| `ride` | Real. A route is flown as written. With no route, the ordinary Door Gunner call-in, circling for its 45 s | Vehicles |
+| `ride` | Real. A route is flown as written. With `circle`, the call-in's own circle over the fight until `call comeAbout` (its `arg` the launcher's mark), then the route from wherever it is, raising `ride:lock`, `ride:launch` and `ride:<hit mark>` for the missile. With no route, the ordinary Door Gunner call-in, circling for its 45 s | Vehicles |
 | `boss` | `commander.person.summon()`: he falls from the sky as he does on the Kill House | Bosses |
-| `call` | A console warning | Whoever owns the name: `lights`, `commanderToRoof`, `mark` (a HUD marker rides every vehicle under that tag), `quiet` (the Commander's box closes as a fight opens) |
+| `call` | A console warning | Whoever owns the name: `lights`, `commanderToRoof`, `mark` (a HUD marker rides every vehicle under that tag), `quiet` (the Commander's box closes as a fight opens), `comeAbout` (a circling ride heads down) |
 
 ### Testing it
 

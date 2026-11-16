@@ -78,6 +78,14 @@ const SHOOTERS: ReadonlySet<EnemyId> = new Set<EnemyId>(['trooper', 'gunner', 'b
 const HUNTERS: ReadonlySet<EnemyId> = new Set(ANTI_AIR.hunters);
 const M = ANTI_AIR.missile;
 const D = ANTI_AIR.decoy;
+/** Metres out a mission's missile sees the pilot's flares go: inside `decoy.least`, so they are seen and do nothing. */
+const SURE_POP = D.least - 4;
+/**
+ * A mission's missile goes up nearly straight, leaning this much toward the aircraft, and its turn builds over `SURE_RISE`
+ * seconds, so the one it is fired at sees a column of smoke climb and bend over onto it, not a dot coming head-on.
+ */
+const SURE_LEAN = 0.3;
+const SURE_RISE = 1;
 
 /** What anti-air draws with: the gunship's spark renderer, its own instance. Narrowed so a test can hand in a stand-in. */
 export type Sky = Pick<Ac130Rounds, 'flash' | 'flare' | 'update' | 'clear'>;
@@ -110,6 +118,8 @@ export interface Hunt {
   readonly lockFor: number;
   beepIn: number;
   missile: Missile | null;
+  /** A mission's missile (`fire`): it goes for its aircraft whatever that is doing, and no flare pulls it off. */
+  readonly sure?: boolean;
 }
 
 const _to = new THREE.Vector3();
@@ -183,6 +193,23 @@ export class AntiAir {
     return best;
   }
 
+  /**
+   * A mission's set piece: a lock on `target` from `from`, then the missile, the same one any hunter fires. The aircraft need not be
+   * huntable, and the pilot's flares go too late. Nobody need stand at `from`.
+   */
+  fire(from: THREE.Vector3, target: Aircraft, lock: number): Hunt {
+    // shortcut: the launcher is a stand-in that never dies; a man there would have to be kept out of the door gun's way.
+    const enemy = { alive: true, isBoss: false, uid: -1, id: 'rocketeer', center: from.clone() } as unknown as EnemyInstance;
+    const h: Hunt = { enemy, target, boss: false, lock, lockFor: lock, beepIn: 0, missile: null, sure: true };
+    this.hunts.push(h);
+    return h;
+  }
+
+  /** Still worth flying at: a mission's missile only asks that its aircraft is still up at all. */
+  private live(h: Hunt, a: Aircraft): boolean {
+    return h.sure ? this.aircraft.includes(a) : this.up(a);
+  }
+
   /** One man, picked at random from everyone who can reach an aircraft. */
   private pick(): void {
     let chosen: EnemyInstance | null = null;
@@ -226,7 +253,7 @@ export class AntiAir {
       return;
     }
     const { enemy, target } = h;
-    if (!enemy.alive || !this.up(target) || target.position.distanceTo(enemy.center) > ANTI_AIR.range * 1.2) {
+    if (!this.live(h, target) || (!h.sure && (!enemy.alive || target.position.distanceTo(enemy.center) > ANTI_AIR.range * 1.2))) {
       this.end(h);
       return;
     }
@@ -248,13 +275,15 @@ export class AntiAir {
     body.position.copy(enemy.center).setY(enemy.center.y + (enemy.isBoss ? 2 : 0.9));
     render.scene.add(body);
     // Off the rail steeply up and leaning toward the aircraft, so the climb reads before the turn.
-    _dir.subVectors(target.position, body.position).setY(0).normalize().add(_to.set(0, 1.6, 0)).normalize();
+    _dir.subVectors(target.position, body.position).setY(0).normalize();
+    if (h.sure) _dir.multiplyScalar(SURE_LEAN);
+    _dir.add(_to.set(0, h.sure ? 1 : 1.6, 0)).normalize();
     const auto = target.autoFlares;
     const late = chance(ANTI_AIR.late);
     const range = late ? ANTI_AIR.lateAt : ANTI_AIR.react;
     h.missile = {
       body, velocity: _dir.clone().multiplyScalar(M.boost), target, decoy: null, age: 0, smokeIn: 0,
-      reactAt: auto ? rand(range[0], range[1]) : -1, reacted: false,
+      reactAt: h.sure ? SURE_POP : auto ? rand(range[0], range[1]) : -1, reacted: false,
     };
     fx.attachEmitter(body, 'airstrikeTrail');
     fx.muzzleFlash(body.position, _dir, 'rocket');
@@ -269,7 +298,7 @@ export class AntiAir {
     const { body, velocity } = m;
     const p = body.position;
     m.age += dt;
-    if (m.target && !this.up(m.target)) {
+    if (m.target && !this.live(h, m.target)) {
       this.burst(h, m);
       return;
     }
@@ -283,7 +312,8 @@ export class AntiAir {
     _dir.copy(velocity).normalize();
     _to.subVectors(aim, p).normalize();
     const angle = _dir.angleTo(_to);
-    if (angle > 1e-4) _dir.lerp(_to, Math.min(1, (M.turn * dt) / angle)).normalize();
+    const turn = h.sure ? M.turn * Math.min(1, m.age / SURE_RISE) : M.turn;
+    if (angle > 1e-4) _dir.lerp(_to, Math.min(1, (turn * dt) / angle)).normalize();
     velocity.copy(_dir).multiplyScalar(speed);
     p.addScaledVector(velocity, dt);
     this.sky.flash(p, 0.8, 0.14, 9, 18, 11, 5);
@@ -349,7 +379,7 @@ export class AntiAir {
     }
     for (const h of this.hunts) {
       const m = h.missile;
-      if (!m || m.target !== a || m.decoy || m.body.position.distanceTo(a.position) <= D.least) continue;
+      if (!m || h.sure || m.target !== a || m.decoy || m.body.position.distanceTo(a.position) <= D.least) continue;
       m.decoy = pick(fresh);
       m.target = null;
     }

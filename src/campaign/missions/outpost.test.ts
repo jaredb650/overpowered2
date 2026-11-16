@@ -312,6 +312,81 @@ describe('the Outpost', () => {
     expect(host.log).toContain('release mess.floor');
   });
 
+  describe('the door gun ride', () => {
+    const INTRO = ['in.wall', 'in.apron', 'in.yard', 'in.road', 'in.ring', 'in.north'];
+    const books = (run: MissionRunner): Record<string, string> => run.describe().tags as Record<string, string>;
+    /** Kills one man under any intro tag that still has one, and says which. */
+    const killOne = (run: MissionRunner): boolean => {
+      for (const [tag, left] of Object.entries(books(run))) {
+        if (!INTRO.includes(tag) || left.startsWith('0/')) continue;
+        run.unitGone(tag, true, 'door_gun');
+        return true;
+      }
+      return false;
+    };
+    const ride = (): { host: FakeHost; run: MissionRunner; tick: (s: number) => void } => {
+      const host = new FakeHost();
+      const run = new MissionRunner(OUTPOST, host);
+      run.start('insertion');
+      return { host, run, tick: s => { for (let t = 0; t < s; t += FRAME) run.update(FRAME); } };
+    };
+
+    it('keeps the hot zone shut until every man of it is dead, then comes about once', () => {
+      const { host, run, tick } = ride();
+      // Kill them as they come, one every few seconds, all but the last.
+      for (let i = 0; i < 26; i++) {
+        tick(3);
+        expect(killOne(run), `man ${i}`).toBe(true);
+      }
+      tick(2);
+      expect(INTRO.every(tag => books(run)[tag])).toBe(true);
+      expect(host.log).not.toContain('call comeAbout');
+      expect(killOne(run)).toBe(true);
+      expect(killOne(run)).toBe(false);
+      tick(1);
+      expect(host.log.filter(l => l === 'call comeAbout').length).toBe(1);
+      expect(host.said).toContain('mission.radio.in.clear');
+      expect(host.said).not.toContain('mission.radio.in.ground');
+      tick(60);
+      expect(host.log.filter(l => l === 'call comeAbout').length).toBe(1);
+      expect(host.log).not.toContain('sweep');
+    });
+
+    it('says the stragglers, then gives them up, so the ride can never wait on a man nobody can reach', () => {
+      const { host, run, tick } = ride();
+      // Nobody shoots. Every lot still comes on, on its clock.
+      tick(99);
+      expect(INTRO.every(tag => books(run)[tag])).toBe(true);
+      expect(host.said).not.toContain('mission.radio.in.ground');
+      tick(2);
+      expect(host.said).toContain('mission.radio.in.ground');
+      expect(host.log).not.toContain('sweep');
+      // The sweep takes everyone off the books, as the real one does.
+      host.sweep = () => {
+        host.log.push('sweep');
+        for (const [tag, left] of Object.entries(books(run))) for (let n = Number(left.split('/')[0]); n > 0; n--) run.unitGone(tag, false, '');
+      };
+      tick(25);
+      expect(host.log).toContain('sweep');
+      expect(host.log).toContain('call comeAbout');
+    });
+
+    it('says the lock, the missile and the hit as the aircraft raises them, cutting in, once each', () => {
+      const { host, run, tick } = ride();
+      while (killOne(run) || !INTRO.every(tag => books(run)[tag])) tick(1);
+      tick(1);
+      for (const signal of ['ride:fly7', 'ride:lock', 'ride:launch', 'ride:launch', 'ride:fly8']) {
+        run.signal(signal);
+        tick(0.5);
+      }
+      const said = host.said.filter(id => ['mission.radio.in.lock', 'mission.radio.in.missile', 'mission.cmd.in.talk'].includes(id));
+      expect(said).toEqual(['mission.radio.in.lock', 'mission.radio.in.missile', 'mission.cmd.in.talk']);
+      const cue = (line: string) => OUTPOST.beats[1]!.cues!.find(c => c.run.some(s => s.do === 'say' && s.line === line))!;
+      expect(cue('mission.radio.in.lock').run[0]).toMatchObject({ now: true });
+      expect(cue('mission.radio.in.missile').run[0]).toMatchObject({ now: true });
+    });
+  });
+
   it('says in the plan exactly what it says in the game', () => {
     const plan = readFileSync('docs/campaign/MISSION.md', 'utf8');
     for (const line of OUTPOST.lines) expect(plan, line.id).toContain(line.text);

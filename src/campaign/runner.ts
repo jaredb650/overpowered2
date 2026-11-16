@@ -498,7 +498,7 @@ export class MissionRunner implements WatchFacts {
         const latch = this.hold(run);
         host.ride(step.seat, this.route(step.route), () => {
           latch.open = true;
-        });
+        }, step.circle === true);
         return;
       }
       case 'sortie': {

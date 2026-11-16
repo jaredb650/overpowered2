@@ -131,22 +131,17 @@ export const MARKS: Readonly<Record<string, Mark>> = {
   skyWest: at(-60, 34, 40),
   skyEast: at(60, 34, 40),
 
-  // The Packmule's lap. Left door to the wire the whole way, so the lap runs anticlockwise from above.
-  fly0: at(-200, 60, 150),
-  fly1: at(-90, 36, 58),
-  fly2: hold(0, 32, 48, 20),
-  fly3: hold(92, 34, 40, 14),
-  fly4: at(98, 36, -40),
-  fly5: hold(60, 38, -104, 18),
-  fly6: at(-60, 38, -104),
-  fly7: hold(-98, 34, -40, 18),
-  fly8: { ...at(-92, 30, 40), hit: true },
+  // The Packmule's way down, once its circle over the fight comes about. South down the west side, so the left door faces the wire
+  // and the roof the missile comes off. fly7 to fly8 is the hot zone: the lock starts as it turns onto it, and it waits on fly8 for
+  // the hit, so the burning run to the cut always starts there.
+  fly7: at(-98, 34, -22),
+  fly8: { ...hold(-92, 30, 40, 1), hit: true },
   fly9: at(-52, 18, 80),
   fly10: at(-32, 2, 86),
 };
 
 export const ROUTES: Readonly<Record<string, readonly string[]>> = {
-  insertion: ['fly0', 'fly1', 'fly2', 'fly3', 'fly4', 'fly5', 'fly6', 'fly7', 'fly8', 'fly9', 'fly10'],
+  insertion: ['fly7', 'fly8', 'fly9', 'fly10'],
   eastRoad: ['eastEdge', 'eastRoad', 'eastStop'],
   westRoad: ['westEdge', 'westRoad', 'westStop'],
   tankEast: ['eastEdge', 'eastRoad', 'tankEastStop'],

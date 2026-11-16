@@ -7,15 +7,21 @@
  * The circle is an OrbitPath, and its centre slides slowly after the fight, so a lap stays a lap. Rounds are hitscan:
  * at this range a real one lands in a tenth of a second, and they go through combat like any gun, with the tracer
  * starting from the real muzzle.
+ *
+ * A mission's ride is either a fixed flight along its marks, or (`Flight.loiter`) this same circle over the fight, crewed by the
+ * player with no way out, until the mission says come about: then it flies its marks from wherever it is. The leg into the `hit`
+ * mark is the hot zone: as it turns onto it, anti-air's own missile locks on from the mission's launcher, comes up and hits, and the
+ * rest of the marks are flown burning. It waits on the hit mark for the missile, so the crash always starts from the same place.
  */
 import * as THREE from 'three';
 import type { EmitterHandle, LoopHandle } from '../../core/contracts';
 import type { ShotSpec } from '../../core/gameplay';
 import { clamp, damp, rand, randomInCone, TAU } from '../../core/math';
 import type { UtilityMount } from '../../vehicles/utilityModel';
-import { FlightPath, type Flight } from '../../vehicles/flight';
+import { FlightPath, type Flight, type FlightMark } from '../../vehicles/flight';
 import type { SeatRig } from '../../vehicles/seat';
 import { OrbitPath } from './airframe';
+import type { AntiAir, Hunt } from './antiAir';
 import { GunnerStrike, type Ride } from './gunnerStrike';
 import { DOOR as D, SMALL_MAP } from './heliData';
 import type { StrikeKit } from './shared';
@@ -25,6 +31,15 @@ const G = D.gun;
 const RING_SAMPLES = 16;
 /** Seconds ahead along the flight, which covers the spiral in. */
 const PATH_AHEAD = 1.5;
+/** A mission's circle holds until it is told to come about. */
+const FOREVER = 1e6;
+/** Metres ahead of the aircraft the come-about's second mark is put, so the new flight leaves along the old one's heading. */
+const ABOUT_AHEAD = 15;
+/** Seconds of lock tone on the mission's missile, and longest it may wait on the hit mark for it before the hit is called anyway. */
+const MISSION_LOCK = 2.4;
+const MISSION_WAIT = 5;
+/** How fast the roll follows the flight on a mission's circle, so the come-about does not snap the horizon. */
+const ROLL_RATE = 3;
 
 const _pos = new THREE.Vector3();
 const _fwd = new THREE.Vector3();
@@ -44,10 +59,22 @@ const SPIN_PITCH = 0.45;
 const SPIN_RUNDOWN = 1.1;
 
 export class DoorGunner extends GunnerStrike<UtilityMount> {
-  private readonly path: OrbitPath | FlightPath;
-  /** The same thing as `path` on an ordinary call, and null on a fixed flight. */
-  private readonly orbit: OrbitPath | null;
+  private path: OrbitPath | FlightPath;
+  /** The same thing as `path` on an ordinary call or a mission's circle, and null on a fixed flight. */
+  private orbit: OrbitPath | null;
+  /** The marks `path` flies, once it is a fixed flight. */
+  private marks: readonly FlightMark[] = [];
+  /** Strike-clock time the fixed flight began: 0, or the moment a mission's circle came about. */
+  private since = 0;
   private nextMark = 1;
+  /** Where a mission's missile comes from, once its circle has come about. */
+  private launcher: THREE.Vector3 | null = null;
+  /** That missile, once it is fired, whether it is off the rail, and whether it has landed. */
+  private hunt: Hunt | null = null;
+  private launched = false;
+  private missileHit = false;
+  private waited = 0;
+  private rolled = 0;
   private sunk = 0;
   private burning: EmitterHandle | null = null;
   private readonly limit: number;
@@ -59,24 +86,37 @@ export class DoorGunner extends GunnerStrike<UtilityMount> {
   private fireLoop: LoopHandle | null = null;
   private readonly belt = { name: G.name, ammo: G.rounds, max: G.rounds };
 
-  constructor(kit: StrikeKit, rig: SeatRig, ride: Ride<UtilityMount>, private readonly flight: Flight | null = null, ai = false) {
+  constructor(
+    kit: StrikeKit,
+    rig: SeatRig,
+    ride: Ride<UtilityMount>,
+    private readonly flight: Flight | null = null,
+    ai = false,
+    /** Fires a mission's missile. Only a ride that loiters needs it. */
+    private readonly antiAir: AntiAir | null = null,
+  ) {
     super(kit, rig, D, ride, 'door', 'door_gun', ai);
     const { bounds } = kit.ctx.world;
     const small = (bounds.max.x - bounds.min.x) / 2 < SMALL_MAP;
     this.limit = small ? D.limit.small : D.limit.large;
     this.clearance = small ? D.clearance.small : D.clearance.large;
-    if (flight) {
+    if (flight && !flight.loiter) {
       this.scripted = true;
       this.orbit = null;
+      this.marks = flight.marks;
       this.path = new FlightPath(flight.marks, D.flightSpeed);
-      const end = flight.marks[flight.marks.length - 1]!;
-      this.seat.fixed(_pos.set(end.x, end.y, end.z));
     } else {
+      this.scripted = flight !== null;
       // A copy, because the hold is cut short the moment the aircraft heads home.
-      this.orbit = this.path = new OrbitPath({ ...(small ? D.small : D.large), holdSeconds: D.aiSeconds + D.boardSeconds });
+      const holdSeconds = flight ? FOREVER : D.aiSeconds + D.boardSeconds;
+      this.orbit = this.path = new OrbitPath({ ...(small ? D.small : D.large), holdSeconds });
       const { center } = this.orbit;
       center.set(clamp(this.fight.x, -this.limit, this.limit), 0, clamp(this.fight.z, -this.limit, this.limit));
       this.orbit.begin(center, Math.atan2(center.z, center.x) + 2.4);
+    }
+    if (flight) {
+      const end = flight.marks[flight.marks.length - 1]!;
+      this.seat.fixed(_pos.set(end.x, end.y, end.z));
     }
     this.seat.weapons.push(this.belt);
     this.fly(0);
@@ -103,13 +143,66 @@ export class DoorGunner extends GunnerStrike<UtilityMount> {
   }
 
   protected fly(dt: number): void {
-    const { frame, path, clock, seat, orbit } = this;
+    if (this.orbit && this.flight) this.comeAbout();
+    const { frame, path, seat, orbit } = this;
     if (orbit && !this.homebound) this.drift(orbit, dt);
-    path.at(clock, _pos);
-    path.heading(clock, _fwd);
+    const t = orbit ? this.clock : this.waitForHit(dt);
+    path.at(t, _pos);
+    path.heading(t, _fwd);
     if (seat.stage === 'left' && !orbit) this.settle(dt);
-    frame.fly(_pos, _fwd, path.roll(clock));
-    if (!orbit) this.follow();
+    // A mission's ride changes paths in the air, and the roll follows rather than snapping to the new one.
+    this.rolled = this.flight?.loiter ? damp(this.rolled, path.roll(t), ROLL_RATE, dt) : path.roll(t);
+    frame.fly(_pos, _fwd, this.rolled);
+    if (!orbit) this.follow(t);
+    this.guideSight();
+  }
+
+  /** A mission's circle, told to come about: onto the marks from here, along the heading it has. */
+  private comeAbout(): void {
+    const from = this.flight!.loiter!();
+    if (!from) return;
+    const { position } = this.frame.root;
+    this.orbit!.heading(this.clock, _fwd).setY(0).normalize();
+    const here = (x: number, y: number, z: number): FlightMark => ({ x, y, z, hold: 0, name: '', hit: false });
+    this.marks = [
+      here(position.x, position.y, position.z),
+      here(position.x + _fwd.x * ABOUT_AHEAD, position.y, position.z + _fwd.z * ABOUT_AHEAD),
+      ...this.flight!.marks,
+    ];
+    this.path = new FlightPath(this.marks, D.flightSpeed, true);
+    this.orbit = null;
+    this.since = this.clock;
+    this.nextMark = 2;
+    this.launcher = from.clone();
+  }
+
+  /**
+   * Seconds into the fixed flight. On a mission's ride it stops on the hit mark until the missile lands, so the rest of the flight
+   * starts from there whatever the missile did, and calls the hit itself if the missile is lost.
+   */
+  private waitForHit(dt: number): number {
+    let t = this.clock - this.since;
+    const hit = this.launcher ? this.marks.findIndex(m => m.hit) : -1;
+    if (hit < 0 || this.missileHit) return t;
+    const path = this.path as FlightPath;
+    const holdEnd = path.arrival(hit) + this.marks[hit]!.hold;
+    if (t <= holdEnd) return t;
+    this.since += t - holdEnd;
+    t = holdEnd;
+    this.waited += dt;
+    if (this.waited >= MISSION_WAIT) this.hitBy();
+    return t;
+  }
+
+  /** The sight goes to the launcher through the lock, then rides the missile in. */
+  private guideSight(): void {
+    const { hunt, seat } = this;
+    if (!hunt) return;
+    if (hunt.missile && !this.launched) {
+      this.launched = true;
+      this.flight!.reached('launch');
+    }
+    seat.guide = this.missileHit ? null : hunt.missile?.body.position ?? hunt.enemy.center;
   }
 
   /** Down the last of the way, onto whatever the flight ended over. */
@@ -119,17 +212,42 @@ export class DoorGunner extends GunnerStrike<UtilityMount> {
     _pos.y = Math.max(_pos.y - this.sunk, floor);
   }
 
-  /** Calls each mark as it comes up, and gets out at the last. */
-  private follow(): void {
-    const { flight, seat, clock } = this;
+  /** Calls each mark as it comes up, and gets out at the last. On a mission's ride the hit is the missile's, and is called when it lands. */
+  private follow(t: number): void {
+    const { flight, seat, marks, launcher } = this;
     const path = this.path as FlightPath;
-    const marks = flight!.marks;
-    while (this.nextMark < marks.length && clock >= path.arrival(this.nextMark)) {
+    while (this.nextMark < marks.length && t >= path.arrival(this.nextMark)) {
       const mark = marks[this.nextMark++]!;
+      if (mark.hit && launcher) continue;
       if (mark.hit) this.struckDown();
       flight!.reached(mark.name);
+      // Onto the leg into the hit mark: the hot zone.
+      if (launcher && !this.hunt && marks[this.nextMark]?.hit) this.lockOn(launcher);
     }
-    if (clock >= path.ends && seat.stage === 'seated') seat.leave();
+    if (t >= path.ends && seat.stage === 'seated') seat.leave();
+  }
+
+  /** The lock from the launcher, and the missile after it. With no anti-air to fire it, the hit is called on the hit mark. */
+  private lockOn(from: THREE.Vector3): void {
+    if (!this.antiAir) return;
+    this.hunt = this.antiAir.fire(from, this, MISSION_LOCK);
+    this.flight!.reached('lock');
+  }
+
+  /** The mission's missile landed, or was lost: either way the aircraft is hit here. */
+  private hitBy(): void {
+    if (this.missileHit) return;
+    this.missileHit = true;
+    this.seat.guide = null;
+    this.struckDown();
+    const mark = this.marks.find(m => m.hit);
+    if (mark) this.flight!.reached(mark.name);
+  }
+
+  override hit(): boolean {
+    if (!this.launcher) return super.hit();
+    this.hitBy();
+    return false;
   }
 
   /** The rest of the flight is a controlled fall with fire coming out of it. */

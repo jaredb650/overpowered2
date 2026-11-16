@@ -24,6 +24,9 @@ export const OUTPOST_LINES: readonly Line[] = [
   // Insertion
   pilot('in.wire', 'Two minutes to the wire. Door\'s yours, contractor. Anything on that compound is billable.'),
   pilot('in.armour', 'That\'s armour in the yard. Save your belt, it just bounces.'),
+  pilot('in.ground', 'Rest of them have gone to ground. They show through walls. Bringing us round on them.'),
+  pilot('in.clear', 'That\'s the lot. Taking her round to the drop.'),
+  pilot('in.lock', 'Lock tone! Launcher on the roof!'),
   pilot('in.missile', 'Missile! Missile! We\'re hit! Putting her down outside the wire. Brace!'),
   pilot('in.rental', 'This is as far as the rental goes. Good luck with the paperwork.'),
   commander('in.hello', 'smug', 'Good afternoon. This is the Commander of this outpost. You are firing on a recognised military installation.'),

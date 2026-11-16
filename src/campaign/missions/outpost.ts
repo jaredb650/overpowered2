@@ -14,6 +14,9 @@ const pilot = (id: string, wait = false): Step => say(`radio.${id}`, wait);
 /** An order given as a door shuts, which cannot wait its turn: it cuts in, and is said again on every try. */
 const order = (id: string): Step => ({ do: 'say', line: `mission.cmd.${id}`, now: true, again: true });
 
+/** Every squad the door gun is sent against. The ride heads down only once all of them are gone. */
+const INTRO = ['in.wall', 'in.apron', 'in.yard', 'in.road', 'in.ring', 'in.north'];
+
 /** The kit a checkpoint promises, as the player gets further. */
 const KIT = {
   issued: { weapons: ['smg', 'sword'], grenades: 0 },
@@ -68,7 +71,7 @@ const BEATS: readonly Beat[] = [
       { do: 'vehicle', tag: 'in.parked', kind: 'tank', at: 'yardTank', state: 'parked' },
       { do: 'squad', tag: 'in.wall', men: ['trooper', 'trooper', 'brute', 'trooper'], at: 'wallWest', orders: 'hold' },
       { do: 'squad', tag: 'in.apron', men: ['trooper', 'gunner', 'trooper', 'gunner', 'trooper', 'trooper'], at: 'apronEast' },
-      { do: 'ride', seat: 'doorGunner', route: 'insertion' },
+      { do: 'ride', seat: 'doorGunner', route: 'insertion', circle: true },
       // The men the door gun did not reach have gone to ground. On foot, the player starts against four, not a garrison.
       { do: 'sweep' },
       { do: 'call', name: 'crash' },
@@ -76,10 +79,12 @@ const BEATS: readonly Beat[] = [
       { do: 'place', at: 'lzWake' },
       { do: 'signal', name: 'landed' },
     ],
+    // The Packmule circles over whoever is left, as the call-in does. Each lot comes on as the last thins out, so the gun always has
+    // somebody under it; the clocks are for a player who is not shooting.
     cues: [
       { when: { any: [{ kills: 1 }, { after: 8 }] }, run: [commander('in.hello')] },
       {
-        when: { any: [{ signal: 'ride:fly2' }, { after: 22 }] },
+        when: { any: [{ kills: 6 }, { after: 30 }] },
         run: [
           commander('in.door'),
           { do: 'squad', tag: 'in.yard', men: ['trooper', 'gunner', 'trooper', 'warden'], at: 'yardWest' },
@@ -87,15 +92,24 @@ const BEATS: readonly Beat[] = [
         ],
       },
       {
-        when: { any: [{ signal: 'ride:fly3' }, { after: 50 }] },
+        when: { any: [{ kills: 13 }, { after: 55 }] },
         run: [pilot('in.armour'), commander('in.tank'), { do: 'squad', tag: 'in.ring', men: ['trooper', 'rocketeer', 'trooper', 'trooper'], at: 'ringEast' }],
       },
       {
-        when: { any: [{ signal: 'ride:fly5' }, { after: 80 }] },
+        when: { any: [{ kills: 19 }, { after: 80 }] },
         run: [{ do: 'squad', tag: 'in.north', men: ['trooper', 'brute', 'trooper', 'gunner', 'trooper'], at: 'ringWest' }],
       },
-      // The fallback sits between the hit at fly8 (about 135 s) and the crash (about 140 s). At 120 s the gun was still firing.
-      { when: { any: [{ signal: 'ride:fly8' }, { after: 137 }] }, run: [pilot('in.missile'), commander('in.talk')] },
+      // The hot zone opens only now: every man of the ride is down, and the pilot turns for the cut.
+      { when: { cleared: INTRO }, run: [pilot('in.clear'), { do: 'call', name: 'comeAbout', arg: 'roofWest' }, { do: 'signal', name: 'in.about' }] },
+      // Whoever is still alive this late is hiding. The circle already goes after them and the seat shows them through walls; then
+      // they are given up, which clears the ride, so it can never wait on a man nobody can reach.
+      { when: { all: [{ after: 100 }, { not: { signal: 'in.about' } }] }, run: [pilot('in.ground')] },
+      { when: { all: [{ after: 125 }, { not: { signal: 'in.about' } }] }, run: [{ do: 'sweep' }] },
+      // The missile set piece, said over what is seen: the lock as it turns onto the hot zone, then "Missile! Missile!" off the rail,
+      // which brings "We're hit!" in on the hit itself.
+      { when: { signal: 'ride:lock' }, run: [{ do: 'say', line: 'mission.radio.in.lock', now: true }] },
+      { when: { signal: 'ride:launch' }, run: [{ do: 'say', line: 'mission.radio.in.missile', now: true }] },
+      { when: { signal: 'ride:fly8' }, run: [commander('in.talk')] },
     ],
     until: { signal: 'landed' },
   },

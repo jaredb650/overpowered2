@@ -8,6 +8,8 @@ import { CG, type Ctx, type RayHit } from '../../core/contracts';
 import type { EnemyId, EnemyInstance, ExplosionSpec } from '../../core/gameplay';
 import { CALLIN_HOLD } from '../../input/bindings';
 import { makeBudget, loadBudget, type Raycaster } from '../../weapons/penetration';
+import type { Flight } from '../../vehicles/flight';
+import { MARKS, ROUTES } from '../../campaign/missions/outpost.places';
 import { CALLINS } from '../data';
 import { Ac130, Phosphorus, type Ac130Rig } from './ac130';
 import { AC130 } from './ac130Data';
@@ -747,5 +749,102 @@ describe('hits, rounds and the crash', () => {
       }
       expect(w.log.hurt).toBe(0);
     }
+  });
+});
+
+// --- A mission's ride: the call-in's circle, then the marks, the hot zone and the missile (the Outpost's insertion) ----------
+
+describe('a circling mission ride', () => {
+  const xyz = (name: string): THREE.Vector3 => new THREE.Vector3(...MARKS[name]!.at);
+  const LAUNCHER = xyz('roofWest');
+
+  function ride(w: World, withAntiAir = true): { strike: DoorGunner; aa: AntiAir; heard: string[]; release: () => void; tick: (s: number, until?: () => boolean) => number } {
+    const heard: string[] = [];
+    let launcher: THREE.Vector3 | null = null;
+    const flight: Flight = {
+      marks: ROUTES.insertion!.map(name => {
+        const m = MARKS[name]!;
+        return { x: m.at[0], y: m.at[1], z: m.at[2], hold: m.hold ?? 0, name, hit: m.hit ?? false };
+      }),
+      reached: name => heard.push(name),
+      loiter: () => launcher,
+    };
+    const aa = antiAir(w);
+    const gun = {
+      point() {}, snap() {}, turn() {}, recoil() {}, hide() {},
+      muzzle: (out: THREE.Vector3) => out.set(0, 30, 0), bore: (out: THREE.Vector3) => out.set(0, -1, 0),
+    };
+    const strike = new DoorGunner({ ctx: w.ctx } as StrikeKit, seatRig() as never, { frame: frame(), gun } as never, flight, false, withAntiAir ? aa : null);
+    const tick = (seconds: number, until?: () => boolean): number => {
+      for (let t = 0; t < seconds; t += DT) {
+        strike.update(DT);
+        aa.update(DT, [strike]);
+        if (until?.()) return t;
+      }
+      return seconds;
+    };
+    return { strike, aa, heard, release: () => (launcher = LAUNCHER.clone()), tick };
+  }
+
+  it('circles over the fight with no way out, and never fires the missile while anyone is left', () => {
+    const w = world();
+    w.enemies[0]!.position.set(40, 0, 40);
+    w.enemies[0]!.center.set(40, 1.2, 40);
+    const { strike, aa, heard, tick } = ride(w);
+    let nearest = Infinity;
+    let missiles = 0;
+    tick(120, () => {
+      nearest = Math.min(nearest, Math.hypot(strike.position.x - 40, strike.position.z - 40));
+      missiles += aa.hunts.length;
+      return false;
+    });
+    // The call-in's circle, on its large plan, round the man and not the marks.
+    expect(nearest).toBeLessThan(DOOR.large.radius + 6);
+    expect(missiles).toBe(0);
+    expect(heard).toEqual([]);
+    expect(strike.flown).toBe(true);
+    expect(strike.huntable).toBe(false);
+    expect(w.log.unparks).toBe(0);
+  });
+
+  it('comes about when told, locks on in the hot zone, and is hit once, by the missile, on the hit mark', () => {
+    const w = world();
+    const { strike, aa, heard, release, tick } = ride(w);
+    tick(20);
+    release();
+    // Onto the marks from where it is: the approach, and the lock as it turns onto the leg into the hit.
+    expect(tick(40, () => heard.includes('lock'))).toBeLessThan(40);
+    expect(heard[0]).toBe('fly7');
+    expect(aa.hunts.length).toBe(1);
+    expect(aa.hunts[0]!.sure).toBe(true);
+    const locked = tick(10, () => heard.includes('launch'));
+    expect(locked).toBeGreaterThan(2);
+    expect(locked).toBeLessThan(2.6);
+    expect(w.log.sounds).toContain('aa_lock');
+    expect(w.log.sounds).toContain('aa_launch');
+    // "Missile! Missile!" is said off the rail, and its "We're hit!" comes 2.3 s into the take.
+    const flight = tick(10, () => heard.includes('fly8'));
+    expect(flight).toBeGreaterThan(1.6);
+    expect(flight).toBeLessThan(3.2);
+    expect(strike.position.distanceTo(xyz('fly8'))).toBeLessThan(6);
+    // Its flares go, too late; it burns the rest of the way to the cut, and gets out there.
+    expect(strike.flares).toBe(DOOR.armour.flares - 1);
+    tick(30, () => w.log.unparks > 0);
+    expect(heard).toEqual(['fly7', 'lock', 'launch', 'fly8', 'fly9', 'fly10']);
+    expect(w.log.unparks).toBe(1);
+    expect(strike.position.distanceTo(xyz('fly10'))).toBeLessThan(4);
+    // Once: no second hunt, and the hit that brought it down was not the call-in's crash.
+    tick(5);
+    expect(aa.hunts.length).toBe(0);
+    expect(w.log.blasts.filter(b => b.source.endsWith('_crash'))).toEqual([]);
+  });
+
+  it('is still hit on the mark if the missile never comes', () => {
+    const w = world();
+    const { heard, release, tick } = ride(w, false);
+    tick(20);
+    release();
+    tick(60, () => w.log.unparks > 0);
+    expect(heard).toEqual(['fly7', 'fly8', 'fly9', 'fly10']);
   });
 });

@@ -74,6 +74,10 @@ const SHELL_HEIGHT = 0.9;
 const SHELL_SPIN = 0.6;
 const CUT_FLASH = 0.5;
 const CUT_SECONDS = 0.16;
+/** How hard `guide` draws the sight, as a rate: most of the way in half a second, and the mouse can still fight it. */
+const GUIDE_RATE = 4;
+/** Highest the sight goes while guided, over the gun's own stop: a missile comes up from below the horizon and over it. */
+const GUIDE_TOP = 0.35;
 
 const _up = new THREE.Vector3();
 const _nose = new THREE.Vector3();
@@ -181,6 +185,8 @@ export class GunnerSeat {
   marks: readonly MissileTarget[] = [];
   readonly view: SeatView = { position: new THREE.Vector3(), yaw: 0, pitch: 0, roll: 0, shake: 1 };
 
+  /** A point the sight is drawn toward, for a set piece the player must not miss: a missile coming in. Null on every ordinary seat. */
+  guide: THREE.Vector3 | null = null;
   /** Nothing to leave by: the seat is the mission's until it says otherwise. */
   noWayOut = false;
   private parkAt: THREE.Vector3 | null = null;
@@ -279,7 +285,7 @@ export class GunnerSeat {
     this.left = Math.max(0, this.left - dt);
     this.zoom();
     if (this.locked || this.spotted) this.holdGround(pivot);
-    this.steer(frame);
+    this.steer(frame, dt);
     this.placeEye(pivot);
     this.horizon(frame);
     this.sight();
@@ -300,17 +306,23 @@ export class GunnerSeat {
     this.pitch += (Math.atan2(_to.y, Math.hypot(_to.x, _to.z)) - this.pitch) * lock;
   }
 
-  private steer(frame: THREE.Quaternion): void {
+  private steer(frame: THREE.Quaternion, dt: number): void {
     const { input, player } = this.ctx;
     const p = this.plan;
     const look = input.frameLook;
     const scale = player.sensitivity * player.lookScale;
     this.yaw -= look.x * scale;
     this.pitch -= look.y * scale * (player.invertY ? -1 : 1);
+    if (this.guide) {
+      _to.subVectors(this.guide, this.view.position);
+      const k = 1 - Math.exp(-GUIDE_RATE * dt);
+      this.yaw += wrapAngle(Math.atan2(-_to.x, -_to.z) - this.yaw) * k;
+      this.pitch += (Math.atan2(_to.y, Math.hypot(_to.x, _to.z)) - this.pitch) * k;
+    }
     _nose.set(0, 0, 1).applyQuaternion(frame);
     const middle = Math.atan2(-_nose.x, -_nose.z) + p.arcCenter;
     this.yaw = middle + clamp(wrapAngle(this.yaw - middle), -p.arcHalf, p.arcHalf);
-    this.pitch = clamp(this.pitch, p.pitchMin, p.pitchMax);
+    this.pitch = clamp(this.pitch, p.pitchMin, this.guide ? Math.max(p.pitchMax, GUIDE_TOP) : p.pitchMax);
   }
 
   private zoom(): void {

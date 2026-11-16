@@ -14,6 +14,7 @@ function eachTrigger(trigger: Trigger, fn: (t: Trigger) => void): void {
   fn(trigger);
   if ('all' in trigger) for (const t of trigger.all) eachTrigger(t, fn);
   if ('any' in trigger) for (const t of trigger.any) eachTrigger(t, fn);
+  if ('not' in trigger) eachTrigger(trigger.not, fn);
 }
 
 /** A beat that leaves for itself or somewhere earlier before anything can stop it would spin the runner for ever. */

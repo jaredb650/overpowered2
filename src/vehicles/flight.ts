@@ -23,6 +23,11 @@ export interface Flight {
   readonly marks: readonly FlightMark[];
   /** It has got to a mark. */
   reached(name: string): void;
+  /**
+   * Set, it first flies the door gunner call-in's own circle over the fight, for as long as this returns null. Then it comes about
+   * onto the marks from wherever it is, and the leg into the `hit` mark is the hot zone: a missile from the point returned here.
+   */
+  loiter?(): THREE.Vector3 | null;
 }
 
 interface Leg {
@@ -53,7 +58,8 @@ export class FlightPath {
   private readonly legs: Leg[] = [];
   private readonly arrivals: number[] = [];
 
-  constructor(marks: readonly FlightMark[], speed: number) {
+  /** `moving` starts it at speed, for a flight that takes over from one already under way. */
+  constructor(marks: readonly FlightMark[], speed: number, moving = false) {
     this.curve = new THREE.CatmullRomCurve3(marks.map(m => new THREE.Vector3(m.x, m.y, m.z)), false, 'centripetal');
     const last = Math.max(marks.length - 1, 1);
     let clock = 0;
@@ -61,7 +67,7 @@ export class FlightPath {
     for (let i = 0; i + 1 < marks.length; i++) {
       const a = marks[i]!;
       const b = marks[i + 1]!;
-      const easeIn = a.hold > 0 || i === 0;
+      const easeIn = a.hold > 0 || (i === 0 && !moving);
       const easeOut = b.hold > 0 || i + 2 === marks.length;
       const metres = Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z);
       const seconds = (metres / speed) * (easeIn || easeOut ? EASED : 1);
