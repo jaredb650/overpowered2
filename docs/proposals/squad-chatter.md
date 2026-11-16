@@ -60,6 +60,12 @@ start (the host decides; guests get `chatter` and `chatcut` events).
   "Set!" when a man ends a bound in contact (`behaviours.ts`); the gun suppresses in its own words, the shotgun pushes in its own; "Tagged
   him!" from the man whose round hit the player. A flash call puts FLASH INCOMING under the crosshair with a compass arrow to the
   thrower, for 1.6 s, whatever the chatter setting. Deferred: a call when the player throws a grenade (no throw event exists yet).
+- **D.** `chatter/listeners.ts`: a spoken line is an event the men act on (host only). "Frag out!" and "Flash out!" send anyone within
+  6.5 m (4 m) of the landing spot straight away from it; the rocketeer now calls every shot at the start of his wind-up and anyone in the
+  back blast (4 m behind, 2.5 m either side) steps out; a downed man's call or a scream brings the aid round forward, and his buddy is
+  preferred as the rescuer (`assignAid`); the machine gunner's death is said ("Gun's down!"), the squad holds for 2.5 s and loses some
+  nerve, and someone answers "Hold position!". The flash that blinds the player was already the squads' cue to rush; the call is now
+  "He's blind, push!". Behaviour changed here; the 10 minute hunter run with and without the listeners stays within its usual seed spread.
 
 ## 1. The goal
 

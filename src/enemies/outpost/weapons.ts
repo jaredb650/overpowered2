@@ -279,6 +279,12 @@ const launcher = rocket({ name: 'rocket', range: [8, 54], damage: 44, radius: 5,
 const rocketShot: AttackDef = {
   ...launcher,
   requires: canAimFoe,
+  // He announces every shot, so the player can dodge and the men behind him can move.
+  begin(e, w) {
+    launcher.begin?.(e, w);
+    const s = soldierOf(e);
+    if (s) s.squad.outpost.comms.say('rocketOut', s);
+  },
   fire(e, w) {
     const s = soldierOf(e);
     if (!s) return;

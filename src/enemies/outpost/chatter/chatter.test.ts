@@ -9,6 +9,8 @@ import type { Outpost } from '../index';
 import type { MoraleState } from '../morale';
 import { enlist, Soldier } from '../soldier';
 import { listenForWounds } from './reactions';
+import { GUN_DOWN_HOLD, listenToEachOther } from './listeners';
+import * as THREE from 'three';
 import { OutpostSquad } from '../squad';
 import { RULES } from './lines';
 import { NAME_LIST, NAME_POOLS, NameRoll, callName, poolOf, speakerTag } from './names';
@@ -47,9 +49,12 @@ describe('the rule table', () => {
   it('has something for every man to say, whatever his tier', () => {
     for (const concept of CONCEPTS) {
       for (const tier of TIERS) {
-        const n = rowsFor(concept, 'garrison').filter(i => Object.keys(RULES[i]!.criteria).length === 0 && RULES[i]!.morale_tier.includes(tier)).length;
+        // A concept only one role says (the rocketeer's "Rocket out!") is checked as that role.
+        const rows = rowsFor(concept, 'garrison');
+        const role = rows.every(i => RULES[i]!.unit) ? RULES[rows[0]!]!.unit![0]! : 'rifle';
+        const n = rows.filter(i => Object.keys(RULES[i]!.criteria).length === 0 && RULES[i]!.morale_tier.includes(tier) && (!RULES[i]!.unit || RULES[i]!.unit!.includes(role))).length;
         expect(n, `${concept} ${tier}`).toBeGreaterThanOrEqual(3);
-        expect(new ChatterMemory().pick(concept, facts(tier), 0, () => 0.99), `${concept} ${tier}`).toBeGreaterThanOrEqual(0);
+        expect(new ChatterMemory().pick(concept, { ...facts(tier), role }, 0, () => 0.99), `${concept} ${tier}`).toBeGreaterThanOrEqual(0);
       }
     }
   });
@@ -341,5 +346,61 @@ describe('comms: who speaks, and when a line is cut', () => {
     comms.say('contact', man(new OutpostSquad(1, 'Alpha', {} as Outpost), soldiers, 0, 'steady'));
     comms.relay('Words.', null, 'Command');
     expect(heard).toHaveLength(0);
+  });
+});
+
+describe('men hear each other', () => {
+  function setup() {
+    const events = new EventBus<GameEvents>();
+    const soldiers: Soldier[] = [];
+    const w = { now: 0, ctx: { events, world: { nav: { nearest: () => true } } } } as unknown as AiWorld;
+    const o = { w, soldiers, order: vi.fn(), scare: vi.fn(), callForAid: vi.fn() };
+    listenToEachOther(w, o as unknown as Outpost);
+    const squad = new OutpostSquad(1, 'Alpha', o as unknown as Outpost);
+    const at = (x: number, z: number) => {
+      const s = new Soldier();
+      squad.join(s);
+      s.e = { position: new THREE.Vector3(x, 0, z), yaw: 0 } as unknown as Soldier['e'];
+      enlist(s.e, s);
+      soldiers.push(s);
+      return s;
+    };
+    const hear = (kind: CommsKind, s: Soldier) => events.emit('comms:line', { kind, text: '', squad: 'Alpha', speaker: '', enemy: s.e, position: s.e.position } as never);
+    return { o, squad, at, hear };
+  }
+
+  it('gets clear of a frag\'s landing spot, away from it and never onto it', () => {
+    const { o, at, hear } = setup();
+    const thrower = at(0, -20);
+    const near = at(2, 0);
+    at(20, 0);
+    thrower.throwAt.set(0, 0, 0);
+    hear('frag', thrower);
+    expect(o.order).toHaveBeenCalledOnce();
+    const [who, dest] = o.order.mock.calls[0]!;
+    expect(who).toBe(near);
+    expect(dest.length()).toBeGreaterThan(6.5);
+    expect(dest.x).toBeGreaterThan(2);
+  });
+
+  it('steps out of the back blast when the rocket is called', () => {
+    const { o, at, hear } = setup();
+    const tube = at(0, 0);
+    const behind = at(0.5, -2);
+    at(0, 3);
+    hear('rocketOut', tube);
+    expect(o.order).toHaveBeenCalledOnce();
+    expect(o.order.mock.calls[0]![0]).toBe(behind);
+  });
+
+  it('holds when the gun goes down, and hears a call for help at once', () => {
+    const { o, squad, at, hear } = setup();
+    const hold = vi.spyOn(squad, 'hold');
+    const voice = at(0, 0);
+    hear('gunDown', voice);
+    expect(hold).toHaveBeenCalledWith(GUN_DOWN_HOLD);
+    expect(o.scare).toHaveBeenCalled();
+    hear('downed', voice);
+    expect(o.callForAid).toHaveBeenCalledOnce();
   });
 });

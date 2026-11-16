@@ -39,6 +39,7 @@ import { TargetTrack } from './aim';
 import { SOLDIER_BEHAVIOURS } from './behaviours';
 import { FACTION, NameRoll } from './chatter/names';
 import { listenForWounds } from './chatter/reactions';
+import { listenToEachOther } from './chatter/listeners';
 import { Comms } from './comms';
 import { CoverMap, type CoverSpot, type SpotReading } from './cover';
 import { CALLSIGNS, defaultDoctrine, fireRules, MAX_SQUAD, ROLE_OF, ROLES, type Doctrine } from './doctrine';
@@ -193,6 +194,7 @@ export class Outpost {
     this.intel = new Intel(w.ctx.physics);
     this.comms = new Comms(w);
     listenForWounds(w, this.comms);
+    listenToEachOther(w, this);
     this.dropped = new DroppedWeapons(w.ctx);
     this.waves = new OutpostWaves(w.ctx, this, manager);
     this.wounds = new WoundSystem(w, this, manager);
@@ -460,14 +462,19 @@ export class Outpost {
   }
 
   /** The whole side hears it at once. The nearest man in the fight says so. */
-  seizeOpening(kind: 'opening' | 'wounded', seconds: number): void {
+  seizeOpening(kind: 'opening' | 'wounded', seconds: number, flags?: Record<string, boolean>): void {
     let voice: Soldier | null = null;
     for (const q of this.squads) {
       if (!q.inContact || q.directed) continue;
       q.opening(seconds);
       if (!voice) voice = q.leader;
     }
-    if (voice) this.comms.say(kind, voice);
+    if (voice) this.comms.say(kind, voice, null, flags ? { flags } : null);
+  }
+
+  /** A call for help was heard: the next aid round is now, not in half a second. */
+  callForAid(): void {
+    this.aidAt = 0;
   }
 
   private onPlayerHurt(): void {
@@ -1015,7 +1022,8 @@ export class Outpost {
       for (const s of this.soldiers) {
         if (!this.canHelp(s)) continue;
         // A medic comes from further away than anybody else.
-        const d = s.e.position.distanceToSquared(hurt.e.position) * (s.role === 'medic' ? 0.25 : 1);
+        // So does his buddy: he heard his name.
+        const d = s.e.position.distanceToSquared(hurt.e.position) * (s.role === 'medic' || s === hurt.buddy ? 0.25 : 1);
         if (d < bestD) {
           bestD = d;
           best = s;
@@ -1068,7 +1076,7 @@ export class Outpost {
       for (const s of this.soldiers) {
         if (s.fighting && s.e.position.distanceToSquared(_b) < FLASH_FRIENDLY * FLASH_FRIENDLY) s.injuries.concussedUntil = Math.max(s.injuries.concussedUntil, now + 1.5);
       }
-      if (this.suppression.flash(_b)) this.seizeOpening('opening', BLIND_OPENING);
+      if (this.suppression.flash(_b)) this.seizeOpening('opening', BLIND_OPENING, { blind: true });
     }
   }
 }

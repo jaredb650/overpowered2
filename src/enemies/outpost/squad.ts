@@ -328,6 +328,8 @@ export class OutpostSquad implements Squad {
       const voice = buddy && buddy.squad === this && buddy.fighting && !buddy.injuries.mute && this.members.includes(buddy) ? buddy : this.members[0]!;
       // A body taken apart is said as one.
       o.comms.say('manDown', voice, dead, { flags: { brutal: kill.gibbed || kill.headshot || kill.severedCount > 0 } });
+      // The squad's anchor: losing him is said, and the men hear it (chatter/listeners.ts).
+      if (dead?.role === 'machinegun') o.comms.say('gunDown', voice, dead);
     }
     while (this.lossTimes.length > 0 && now - this.lossTimes[0]! > RAPID_SECONDS) this.lossTimes.shift();
     if (this.lossTimes.length >= Math.ceil(this.strength * RAPID_SHARE) && this.members.length > 0) {
@@ -425,6 +427,11 @@ export class OutpostSquad implements Squad {
   }
 
   /** Somebody saw a moment worth having: the threat reloading, blinded or hurt. */
+  /** Hold where they are and think again after `seconds`: the gun is gone and nobody moves until somebody decides. */
+  hold(seconds: number): void {
+    this.stunnedUntil = Math.max(this.stunnedUntil, this.outpost.w.now + seconds);
+  }
+
   opening(seconds: number): void {
     this.openUntil = Math.max(this.openUntil, this.outpost.w.now + seconds);
   }

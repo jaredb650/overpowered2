@@ -23,7 +23,8 @@ export type CommsKind =
   // The squad comms system's own (docs/design/squad-comms.md).
   | 'ack'
   | 'plateHeld' | 'plateGone' | 'pierced' | 'artery' | 'gut' | 'limbLost' | 'downed'
-  | 'set' | 'playerHit';
+  | 'set' | 'playerHit'
+  | 'rocketOut' | 'gunDown' | 'hold';
 
 export interface CommsLine {
   kind: CommsKind;
