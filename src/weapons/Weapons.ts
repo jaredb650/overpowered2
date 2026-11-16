@@ -380,14 +380,17 @@ export class Weapons implements WeaponSystem, Guard {
 
   /**
    * The `altAmmo` label of the gun in hand while it is loaded, else '': the HUD wears it on the gun's name. The Gimlet's is
-   * its launcher or its bursts.
+   * its launcher or its bursts; an ammo mod's is AP or HP.
    */
   get ammoMode(): string {
+    const def = this.slots[this.current].def;
     const alt = WEAPONS[this.current].altAmmo;
     if (this.glUp) return 'LAUNCHER';
-    if (this.bursting) return 'BURST';
-    if (this.slots[this.current].def.raufoss) return 'RAUFOSS';
-    return alt && this.altLoaded.has(this.current) ? alt.label : '';
+    // An ammo mod (AP or HP) comes first, beside the Gimlet's bursts.
+    const load = def.load ? def.load.toUpperCase() : '';
+    if (this.bursting) return load ? `${load} · BURST` : 'BURST';
+    if (def.raufoss) return 'RAUFOSS';
+    return load || (alt && this.altLoaded.has(this.current) ? alt.label : '');
   }
 
   /** Hands over a mod, unfitted. */
@@ -402,8 +405,9 @@ export class Weapons implements WeaponSystem, Guard {
   fitMod(id: ModId, on: boolean): boolean {
     const weapon = MODS[id].weapon;
     if (on && this.mods.has(id)) {
-      // One optic to a gun: a sight fitted takes the other off.
-      if (MODS[id].sight) for (const m of MOD_ORDER) if (m !== id && MODS[m].weapon === weapon && MODS[m].sight) this.fitted.delete(m);
+      // One optic and one kind of round to a gun: fitting one takes the other of its slot off.
+      const slot = MODS[id].slot;
+      if (slot) for (const m of MOD_ORDER) if (m !== id && MODS[m].weapon === weapon && MODS[m].slot === slot) this.fitted.delete(m);
       this.fitted.add(id);
     } else this.fitted.delete(id);
     this.slots[weapon].def = moddedDef(weapon, this.fitted);
@@ -1294,6 +1298,7 @@ export class Weapons implements WeaponSystem, Guard {
     s.penetrateKeep = undefined;
     s.penetrateWalls = undefined;
     s.armorPiercing = def.armorPiercing ?? false;
+    s.load = def.load;
     s.falloff = REACH_ON ? def.falloff : undefined;
     s.cleave = 0;
     return s;

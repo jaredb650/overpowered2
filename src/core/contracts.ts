@@ -67,7 +67,12 @@ export interface DamageInfo {
   armorPiercing?: boolean;
   /** A kill floats up and burns away to ash (GoreSystem.vaporize): the Lance's beam and giant ball. */
   vaporize?: boolean;
+  /** The round's ammo mod (src/weapons/mods.ts): AP gets through plates, HP does not even try. See AMMO in src/weapons/data.ts. */
+  load?: AmmoLoad;
 }
+
+/** A gun's ammo mod: armour-piercing or hollow-point. Unset is standard ball. */
+export type AmmoLoad = 'ap' | 'hp';
 
 export interface RayHit {
   point: THREE.Vector3;
@@ -449,7 +454,7 @@ export interface CorpseHit {
 // ---------------------------------------------------------------------------------------------
 
 export type MuzzleKind = 'smg' | 'rifle' | 'shotgun' | 'rocket' | 'autocannon' | 'plasma' | 'railgun' | 'minigun' | 'revolver' | 'flame' | 'enemy' | 'carbine' | 'pistol' | 'sabot' | 'snipe' | 'quiver' | 'rotary' | 'hmg' | 'suppressed';
-export type TracerKind = 'bullet' | 'heavy' | 'hellfire' | 'bloodthirst' | 'berserk' | 'plasma' | 'rail' | 'enemy' | 'carbine' | 'pistol' | 'sabot' | 'snipe';
+export type TracerKind = 'bullet' | 'heavy' | 'hellfire' | 'bloodthirst' | 'berserk' | 'plasma' | 'rail' | 'enemy' | 'carbine' | 'pistol' | 'sabot' | 'snipe' | 'ap' | 'hp';
 export type ExplosionKind = 'rocket' | 'grenade' | 'hellfire' | 'hellfireBullet' | 'shell' | 'plasma' | 'plasmaBurst' | 'enemy' | 'barrel' | 'nuke' | 'finisher';
 export type BeamKind = 'rail' | 'lance' | 'laser' | 'sniper' | 'heal';
 export type SlashKind = 'light' | 'heavy' | 'sweep' | 'finisher' | 'wave';

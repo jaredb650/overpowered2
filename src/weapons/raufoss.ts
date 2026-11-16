@@ -1,7 +1,8 @@
 /**
  * The Raufoss round: a round effect, not a gun. It stops on the first thing it strikes and bursts there, small, then
  * throws a cone of pellets out of the far side: through the cover it struck, or out of the back of the man it hit and into
- * the men behind him. It forgives a miss on a man behind cover, and shreds a line of them.
+ * the men behind him. It forgives a miss on a man behind cover, and shreds a line of them. On a man's armour (a plate, a
+ * helmet, a shield) it bursts just behind it, inside him: the pellets are a point-blank blast into his body, past the plate.
  *
  * The Piledriver fires it on right click. The Crucible will sell it fitted to the Sabot: whatever gun carries it hands
  * `fire` the round it would have fired. Every number is TUNING.raufoss.
@@ -31,6 +32,7 @@ const SLOTS = 8;
 export class Raufoss {
   private readonly struck: StruckList = {
     count: 0, walls: 0, points: Array.from({ length: SLOTS }, () => new THREE.Vector3()), enemies: new Array(SLOTS).fill(null),
+    armoured: new Array(SLOTS).fill(false),
   };
   private readonly pellet: ShotSpec = { damage: 0, source: '', team: 'player' };
   private readonly at = new THREE.Vector3();
@@ -38,6 +40,7 @@ export class Raufoss {
   private readonly exit = new THREE.Vector3();
   private readonly exitNormal = new THREE.Vector3();
   private readonly dir = new THREE.Vector3();
+  private readonly from = new THREE.Vector3();
 
   constructor(private readonly ctx: Ctx, private readonly combat: Combat) {}
 
@@ -74,6 +77,11 @@ export class Raufoss {
     }
     this.combat.bursts.at(this.at, this.normal, t.burst, shot.source, enemy);
     if (!through) return;
+    // His armour took it: it bursts behind the plate, and every pellet goes into him.
+    if (enemy && list.armoured![0] && enemy.alive) {
+      this.inside(enemy, dir, damage * t.share, shot, t);
+      return;
+    }
 
     const p = this.pellet;
     p.damage = damage * t.share;
@@ -95,5 +103,22 @@ export class Raufoss {
       this.combat.fireRay(this.exit, randomInCone(dir, t.cone, this.dir), p);
     }
     p.struck = undefined;
+  }
+
+  /** The pellets as a point-blank blast into `enemy` behind the armour that stopped the round, where it struck him. */
+  private inside(enemy: EnemyInstance, dir: THREE.Vector3, damage: number, shot: ShotSpec, t: RaufossTuning): void {
+    const hit = this.ctx.enemies.raycast(this.from.copy(this.at).addScaledVector(dir, -0.3), dir, 0.6);
+    const bone = hit?.enemy === enemy ? hit.bone : undefined;
+    const region = hit?.enemy === enemy ? hit.region : undefined;
+    for (let i = 0; i < t.pellets && enemy.alive; i++) {
+      const o = this.combat.strikeOptions('pellet', shot.source);
+      o.force = t.force;
+      o.severMult = shot.severMult ?? 1;
+      o.headshotMult = 1.5;
+      // Behind the plate: it is not in their way, and it goes with them.
+      o.pierces = true;
+      o.quiet = i > 0;
+      this.combat.strike(enemy, this.at, this.normal, dir, bone, region, damage, o);
+    }
   }
 }

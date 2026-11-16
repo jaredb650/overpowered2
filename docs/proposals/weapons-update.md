@@ -111,6 +111,21 @@ contact, 1.6 s reload. Shops: the Crucible's 450 after wave 1, Outpost Defense's
 take off). Not in a weapon cache (`CACHE_ORDER`): the shops are where it comes from. The owner's `m4Shot` and `suppressedM4Shot`
 are its two shots and `glShot` its launcher's; the selector click is a synthesized stand-in. See docs/notes/weapons.md, The Gimlet.
 
+## 12. AP and HP rounds, and Raufoss on a plate
+**Built 2026-11-15.** Owner: AP and HP ammo mods for the SMG, the Gimlet, the Harrow, the Rivet, the Ultramag and the Judge; AP gets
+through armour and plates for less on flesh, HP is devastating on flesh and very poor on armour; ball stays the default; one ammo slot
+a gun beside the optic and the muzzle; bought and fitted in the shop, never in a fight; a lab row each, a catalogue line each; the
+round on the HUD's name and a tint on the tracer. And a Raufoss round that strikes a man's plate bursts just behind it, inside him,
+not on his far side.
+
+Defaults chosen (every number `AMMO` in `src/weapons/data.ts`): AP 0.8 of the round, 0.75 of that through any plate (which it wears as
+a heavy round does), 0.4 m more penetration (one more body). HP 1.5 of the round, stopped by any plate, wearing it by 0.15 of itself,
+no penetration. A Riot's shield stops both and bosses take both as ball. The mod's `slot: 'ammo'` takes the other off its gun. Tracers
+`ap` (cold blue-white) and `hp` (short dull red). Prices: SMG 400, Gimlet 500, Harrow 600, Rivet 300, Ultramag 700, Judge 600, each kind;
+HP from the start, AP after wave 2. HUD: `GIMLET · AP`, `GIMLET · HP · BURST`. Raufoss: the pellets are struck into the man where
+the round hit, through his plate, when his armour took the round and he lived. See docs/notes/weapons.md, Weapon mods and Raufoss
+rounds.
+
 ## Sounds
 New sounds use a synthesized or existing stand-in until the owner supplies real ones. Every stand-in is listed in
 `docs/notes/audio.md` so it can be swapped. Needed: Lance beam and giant ball, vaporize, double-barrel shots, Ultramag shot and

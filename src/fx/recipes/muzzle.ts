@@ -217,6 +217,9 @@ const TRACERS: Record<TracerKind, TracerFx> = {
   // 12 km/s: a 240 m shot crosses in 20 ms, a frame or so, so the dart reads as instant and every segment past each wall lands together.
   sabot: { color: hot(0x9fd0ff, 3.4), width: 0.05, speed: 12000, length: 120, core: 9, minPx: 2 },
   snipe: { color: hot(0xff1040, 3.4), width: 0.035, speed: 12000, length: 120, core: 6, minPx: 2 },
+  // The ammo mods' (mods.ts): AP a cold blue-white streak, quick and thin; HP a short dull red.
+  ap: { color: hot(0xb8dcff, 3), width: 0.016, speed: 760, length: 18, core: 6, minPx: 1.2 },
+  hp: { color: hot(0xff5030, 3), width: 0.02, speed: 460, length: 8, core: 4.5, minPx: 1.2 },
 };
 
 export function tracer(core: FxCore, from: THREE.Vector3, to: THREE.Vector3, kind: TracerKind): void {

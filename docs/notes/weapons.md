@@ -263,7 +263,7 @@ Pixels from the gun at 1280x720, median / max, from `RL_GROUP=view`. Old is the 
 - *The Trommel* is the BUZZSAW reworked: a 20 mm rotary cannon. The saw was three things and all three are gone: the name, the sound (a 300 Hz sawtooth under a 50 Hz barrage, now a low drive and 25 blows a second; `docs/notes/audio.md`), and the look (thin barrels behind a red toothed disc, and a reticle that spun; `docs/notes/viewmodels.md`). 25 rounds a second for 50, 32 damage for 13, so 800 a second for 650. `force` 34 is over the 30 a body can die on its feet under and over the 15 that floors a body hit in the head, so what it kills is knocked down and a head hit that does not kill puts a man on the floor, where the Buzzsaw's 6 did neither: both come from the number in the row, through `src/enemies` as it stands. By the tables an arm is gone in one round on a Trooper in the swarm (83 against a pool of 35; `severMult` 2.6), and in two on the Outpost's men, whose limbs wear at 0.3. Big brass (`casing: 'cannon'`), a `heavy` tracer on every round, and the `rotary` flash. Belt of 120, 240 carried, 360 at most.
 - *Its spin.* `TUNING.buzzsaw`: 0.7 s to full, firing from 0.8 of that (0.56 s), the rate climbing from 0.45 of full over the rest, 1.1 s to run down. Right click spins it with no round leaving, as before. `Weapons` turns the spin loop's pitch and level with the barrels and the fire loop's pitch with the rate, plays the run-down from part way in for a gun let go part way up, and plays `minigun_fire`, the last round's report, when the barrage stops.
 - *Its shake.* 0.03 a round in the first game's units, which at 25 a second holds the camera at 0.41 trauma: about 0.9 degrees of pitch and 1.1 of roll, re-rolled every 50 ms. The SMG's is 0.004. A kick of 0.0042 rad a round that settles at about a quarter of a degree of climb, a little FOV punch on each, and the viewmodel's own hammering on top (`viewmodels.md`). Shake is on the view only: rounds leave along the look.
-- *Raufoss rounds.* The Piledriver's right click (`altAmmo`, as Exploding bolts above; `PILEDRIVER · RAUFOSS`). A round effect in `raufoss.ts`, `Raufoss.fire(origin, dir, shot, tuning)`, so another gun can fire it: the Crucible will sell it for the Sabot. The round goes through nothing: it strikes the first body or wall and stops, the body taking 1.25 times the round (112). There it bursts as the Trommel's round does (`burst.ts`, 1.3 m, fragments of 22 to anyone else near, its own sound `raufoss_detonation`), then throws four pellets of 0.4 of the round (36) in a 0.09 rad cone, out to 30 m: out of the far face of the wall it struck, if that is 1.2 m or less (`wallExit`; the ground and a bunker stop them), or out of the man's back and on, the ray passing over him. So it shreds a man behind cover it never saw and the man behind the one it hit. `altammo.test.ts`.
+- *Raufoss rounds.* The Piledriver's right click (`altAmmo`, as Exploding bolts above; `PILEDRIVER · RAUFOSS`). A round effect in `raufoss.ts`, `Raufoss.fire(origin, dir, shot, tuning)`, so another gun can fire it: the Crucible will sell it for the Sabot. The round goes through nothing: it strikes the first body or wall and stops, the body taking 1.25 times the round (112). There it bursts as the Trommel's round does (`burst.ts`, 1.3 m, fragments of 22 to anyone else near, its own sound `raufoss_detonation`), then throws four pellets of 0.4 of the round (36) in a 0.09 rad cone, out to 30 m: out of the far face of the wall it struck, if that is 1.2 m or less (`wallExit`; the ground and a bunker stop them), or out of the man's back and on, the ray passing over him. So it shreds a man behind cover it never saw and the man behind the one it hit. *On armour* (2026-11-15, plan section 12): when the round is taken by a man's plate, helmet or shield (the ray's `StruckList.armoured`: the strike came back blocked or with an `armour` outcome), and he lives, it bursts just behind it, inside him: the four pellets are struck into his body where the round hit (`Raufoss.inside`, `combat.strike` with `pierces`, so the plate does not stop them and goes with them), a point-blank blast of 144 from the Piledriver and 960 from the Sabot, and nothing comes out of his back. Before, the pellets left from his front and passed over him, so a plated man took only the direct hit and the burst went off on the far side of him. Killed by the round itself, he is passed over as before. `altammo.test.ts`.
 - *The Piledriver* is the row under it: `mode: 'auto'`, no spin. 90 damage every 0.12 s, pushing with 48 N·s. At `severMult` 5 a round is 450 on a corpse, over the 420 a dead waist lasts, so one round cuts a dead body in two and the next bursts a half; measured at 38, 48 and 85 N·s, what a round throws is the pieces it cut, as far at 38 as at 85, so 48 was chosen for the living: a Brute staggers on its second round, not on every one. It is a heavy round to everything that asks (60 or more): it carries on through a plate it breaks and knocks a body cold with a head hit it lives through. `kick` 0.016 and a real `climb`, a quarter of the Thresher's. 50 on the belt, 3 s to change it.
 
 **Weapon mods** (`mods.ts`, weapons-update plan section 10). Bought and fitted at the Crucible's shop between waves
@@ -271,8 +271,9 @@ Pixels from the gun at 1280x720, median / max, from `RL_GROUP=view`. Old is the 
 `Weapons.fitted` the ones on; `grantMod(id)` and `fitMod(id, on)` (it refuses a mod not held). A mod is a patch over its gun's row:
 `fitMod` swaps that slot's row for `moddedDef(gun, fitted)`, so every shot reads the patched row with no branch of its own, and
 `Weapons.reset` takes every mod off with the run and then grants and fits the issued ones (`ISSUED`: the Gimlet's ACOG and
-suppressor), so the shop lists them as held, to take off and put back. A mod with `sight` is an optic: a gun takes one, so fitting it
-takes off the other (`fitMod`). The viewmodel side is the gun's `ViewDef.mods` (`docs/notes/viewmodels.md`).
+suppressor), so the shop lists them as held, to take off and put back. A mod's `slot` is `sight` (an optic) or `ammo` (a kind of
+round): a gun takes one of each, so fitting one takes off the other of its slot (`fitMod`), and a suppressed AP Gimlet with its ACOG is
+three mods on one gun. The viewmodel side is the gun's `ViewDef.mods` (`docs/notes/viewmodels.md`).
 
 | Mod | Gun | What it does |
 |---|---|---|
@@ -284,8 +285,29 @@ takes off the other (`fitMod`). The viewmodel side is the gun's `ViewDef.mods` (
 | Suppressor (`gimletCan`) | Gimlet | `sounds` `gimlet_suppressed_shot`, `muzzle` `suppressed`; nothing else. Issued fitted |
 | Grenade launcher (`gimletGl`) | Gimlet | `launcher: true`: hold R raises it. See "The Gimlet" |
 | Raufoss rounds | Sabot | `raufoss: true`: every dart is `Raufoss.fire` with the Sabot's own round (600: 750 direct, four pellets of 240), as the Piledriver's right click. The Sabot's right click stays its scope. The HUD calls it `SABOT · RAUFOSS` |
+| AP rounds (`smgAp`, `gimletAp`, `harrowAp`, `rivetAp`, `ultramagAp`, `judgeAp`) | SMG, Gimlet, Harrow, Rivet, Ultramag, Judge | `load: 'ap'`, `damage` x0.8, `penetration` +0.4 m (one more body), `tracer` `ap` (cold blue-white). On a plate (`armourHit`) it is worn by the whole round, as a heavy round wears it, and 0.75 of the round gets through, whatever the gun's class. The HUD calls it `· AP` |
+| HP rounds (`smgHp` ... `judgeHp`) | The same six | `load: 'hp'`, `damage` x1.5, `penetration` 0 (it stays in the first body), `tracer` `hp` (short, dull red). A plate stops it whatever the gun's class and is worn by only 0.15 of the round, so the Harrow, Judge and Ultramag lose their plate-wrecking round. The HUD calls it `· HP` |
 
 `src/weapons/mods.test.ts`.
+
+*AP and HP rounds* (plan section 12). Every number is `AMMO` in `data.ts`; the load rides the shot (`ShotSpec.load`, filled from the row
+in `fillShot`) to every body it strikes (`StrikeOptions.load`, `DamageInfo.load`), the Judge's fanned heads and ricochets too, and
+`armourHit` in `src/enemies/damage.ts` reads it over the class. Bosses keep their soak and a Riot's shield stops both, as it stops ball.
+Against a plate bigger than one round, a round from each (head x2 on a Trooper's 21 helmet in brackets):
+
+| Gun | Ball: flesh / through a plate | AP: flesh / through / wear | HP: flesh / through / wear |
+|---|---|---|---|
+| SMG | 25 / 0, wear 12.5 | 20 / 15 / 20 | 37.5 / 0 / 5.6 |
+| Gimlet | 40 / 0, wear 20 | 32 / 24 / 32 | 60 / 0 / 9 |
+| Harrow | 50 / 0, plate wrecked | 40 / 30 / 40 (a helmeted head: 60) | 75 / 0 / 11 |
+| Rivet | 30 / 0, wear 15 | 24 / 18 / 24 | 45 / 0 / 6.8 |
+| Ultramag | 150 / 0, plate wrecked | 120 / 90 / 120 | 225 / 0 / 34 |
+| Judge | 120 / 0, plate wrecked | 96 / 72 / 96 | 180 / 0 / 27 |
+
+So against bare men HP is half again the gun; against plates it is a bad joke; AP pays a fifth on bare men and never spends a round
+on a plate. On the Harrow, whose ball already wrecks a plate, AP is the round that does not need a first shot to clear the way, kills
+a helmeted man through his helmet, and goes through two men where ball goes through one. Shops: the Crucible and Endless Humans, HP
+from the start and AP after wave 2 (`MOD_WARES`); a lab row each. `src/enemies/armour.test.ts`, `src/weapons/mods.test.ts`.
 
 **Bursts.** `burst` in a row, `burst.ts` for the rule, `src/fx/recipes/cannon.ts` for the look. A 20 mm round goes off where it lands: a white core the size of a grapefruit with a few rays, a pop of fire about 20 cm across that is gone in a tenth of a second, sparks and a puff of dust, a short light for every other one, a scorch for one in three, and `cannon_burst` at the point. Fifteen particle records and two flash sprites, where the smallest explosion in the game, the Hellfire round's, is sixty and a 2 m fireball. Fragments reach `radius` (0.45 m) from the burst to a body's skin, taken as 0.25 m off the line from its feet to its head, and do `damage` (10) at the burst falling to half at the edge, as one quiet `bullet` strike with a push of 8 N·s; cover between the burst and the body stops them. The body the round itself struck gets the round and no fragments. Bodies have to be nearly touching for it to reach from one to the next: it is the look and the sound of an explosive round far more than it is splash, which is what was asked. `?burst=0` takes bursts out everywhere.
 
@@ -401,7 +423,7 @@ nice npx vitest run src/weapons/heavy.test.ts --testTimeout=60000         # 33: 
 nice npx vitest run src/weapons/melee/sweep.test.ts --testTimeout=60000   # 24: reach, arc, slab, thrust, point blank, nothing behind, every swing of key 5 held to its reach, reaching down
 nice npx vitest run src/weapons/melee/melee.test.ts --testTimeout=60000   # 26: the katana's reach, step, wall, dash, stab, lock, combo moves and guard on real Rapier; the four's damage, type, bonus (back, reeling, down), plate, chain, key 5, a Skitter at the feet, Butcher
 nice npx vitest run src/weapons/melee/combo.test.ts --testTimeout=60000   # 4: the katana's combo inputs
-nice npx vitest run src/weapons/altammo.test.ts --testTimeout=60000       # 7: the right click toggle, exploding bolts in a moving man and a wall, Raufoss through cover and through a man
+nice npx vitest run src/weapons/altammo.test.ts --testTimeout=60000       # 8: the right click toggle, exploding bolts in a moving man and a wall, Raufoss through cover, through a man, and inside a plated man
 nice npx vitest run src/weapons/gimlet.test.ts --testTimeout=60000        # 11: the stats against the SMG and Harrow, reach, the ACOG's power, issued mods, one optic, R tapped and held, bursts, the launcher
 nice npx vitest run src/weapons/lance.test.ts --testTimeout=60000         # 52: the charge and the cell, the chain's pool, a tap, each stage, the sweep and its corpses, the bursts at 30/60/144, walls, armour, the FOV punch, what cancels it
 

@@ -3,7 +3,7 @@
  * numbers, feedback and kill credit have one code path instead of the first game's seven.
  */
 import * as THREE from 'three';
-import { CG, type CorpseHit, type Ctx, type DamageInfo, type DamageType, type ExplosionKind, type ExplosionOptions, type SurfaceKind } from '../core/contracts';
+import { CG, type AmmoLoad, type CorpseHit, type Ctx, type DamageInfo, type DamageType, type ExplosionKind, type ExplosionOptions, type SurfaceKind } from '../core/contracts';
 import type {
   CombatSystem, DamageResult, EnemyInstance, ExplosionSpec, ProjectileSpec, ShotResult, ShotSpec, StruckList,
 } from '../core/gameplay';
@@ -103,6 +103,8 @@ export interface StrikeOptions {
   pierces: boolean;
   /** Its kill is vaporized. */
   vaporize: boolean;
+  /** The gun's ammo mod, AP or HP (DamageInfo.load). */
+  load: AmmoLoad | undefined;
 }
 
 interface QueuedBlast {
@@ -147,7 +149,7 @@ export class Combat implements CombatSystem {
 
   private readonly opts: StrikeOptions = {
     type: 'bullet', source: '', force: 0, severMult: 1, headshotMult: 2, gib: false,
-    slicePlaneNormal: undefined, explosionId: undefined, killStop: 0, quiet: false, reach: undefined, blastKind: undefined, charge: undefined, pierces: false, vaporize: false,
+    slicePlaneNormal: undefined, explosionId: undefined, killStop: 0, quiet: false, reach: undefined, blastKind: undefined, charge: undefined, pierces: false, vaporize: false, load: undefined,
   };
 
   // Scratch. Each is used within one function and never held across a call that could re-enter it.
@@ -243,6 +245,7 @@ export class Combat implements CombatSystem {
     d.pierces = undefined;
     d.armorPiercing = undefined;
     d.vaporize = undefined;
+    d.load = undefined;
     return d;
   }
 
@@ -286,6 +289,7 @@ export class Combat implements CombatSystem {
     o.charge = undefined;
     o.pierces = false;
     o.vaporize = false;
+    o.load = undefined;
     return o;
   }
 
@@ -313,6 +317,7 @@ export class Combat implements CombatSystem {
     d.reach = o.reach;
     d.blastKind = o.blastKind;
     d.vaporize = o.vaporize || undefined;
+    d.load = o.load;
     if (o.charge && enemy.armor > 0) {
       d.amount *= o.charge.direct;
       d.pierces = true;
@@ -489,6 +494,7 @@ export class Combat implements CombatSystem {
         o.killStop = spec.killStop ?? 0;
         o.gib = spec.gib ?? false;
         o.pierces = spec.armorPiercing ?? false;
+        o.load = spec.load;
         const splits = cleave > 0 && h.region !== 'head';
         // Vertical, through the line of the shot, so the two halves fall away either side of it.
         if (splits) o.slicePlaneNormal = this.vE.crossVectors(st.dir, UP).normalize();
@@ -498,6 +504,7 @@ export class Combat implements CombatSystem {
         const list = spec.struck;
         if (list && list.count < list.points.length) {
           list.points[list.count]!.copy(h.point);
+          if (list.armoured) list.armoured[list.count] = res.blocked || res.armour !== undefined;
           list.enemies[list.count++] = h.enemy;
         }
         if (res.headshot) r.headshot = true;
@@ -726,6 +733,7 @@ export class Combat implements CombatSystem {
     o.severMult = spec.severMult ?? 1;
     o.headshotMult = spec.headshotMult ?? 2;
     o.killStop = spec.killStop ?? 0;
+    o.load = spec.load;
     this.strike(target, head, this.vA.copy(dir).negate(), dir, this.boneIndex(target, 'head'), 'head', spec.damage, o);
   }
 
@@ -752,6 +760,7 @@ export class Combat implements CombatSystem {
       o.force = spec.force ?? 0;
       o.severMult = spec.severMult ?? 1;
       o.headshotMult = spec.headshotMult ?? 2;
+      o.load = spec.load;
       this.strike(target, head, this.vA.copy(dir).negate(), dir, this.boneIndex(target, 'head'), 'head', dealt, o);
       this.feel.stop(HIT_STOP.judgeHeadshot, true);
       at.copy(head);
@@ -798,6 +807,7 @@ export class Combat implements CombatSystem {
       const o = this.strikeOptions(spec.type ?? 'bullet', spec.source);
       o.force = spec.force ?? 0;
       o.severMult = spec.severMult ?? 1;
+      o.load = spec.load;
       this.strike(target, to, this.vA.copy(dir).negate(), dir, undefined, undefined, dealt, o);
       at.copy(to);
       dealt *= 0.8;

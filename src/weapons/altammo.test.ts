@@ -148,4 +148,24 @@ describe('Raufoss rounds', () => {
     expect(back.hits.length).toBe(rauf.pellets);
     for (const h of back.hits) expect(h.type).toBe('pellet');
   });
+
+  it('on a man\'s plate, burst just behind it: the pellet cone lands in his body, past the plate, and nobody behind', () => {
+    const front = r.enemies.add(0, -8);
+    front.armor = 50;
+    const back = r.enemies.add(0, -11);
+    draw('piledriver');
+    r.tap('aim');
+    fire();
+    // The round itself on the plate, then every pellet into him through it.
+    expect(front.hits.length).toBe(1 + rauf.pellets);
+    expect(front.hits[0]!.pierces).toBeFalsy();
+    const pellets = front.hits.slice(1);
+    for (const h of pellets) {
+      expect(h.type).toBe('pellet');
+      expect(h.pierces).toBe(true);
+      expect(h.amount).toBeCloseTo(WEAPONS.piledriver.damage * rauf.share, 5);
+    }
+    expect(front.maxHealth - front.health).toBeCloseTo(rauf.pellets * WEAPONS.piledriver.damage * rauf.share, 5);
+    expect(back.hits.length).toBe(0);
+  });
 });

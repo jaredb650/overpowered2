@@ -305,8 +305,8 @@ only pays where the Crucible's rules are played with prisoners. Outpost Defense 
 | Shiv (`?melee=four`) | 250 | 1 | | Suppressor (SMG) | 900 | any |
 | Rivet | 350 | 2 | | Red dot sight (Harrow) | 500 | any |
 | Judge | 600 | 2 | | Raufoss rounds (Sabot) | 2,400 | 10 |
-| Cosh (`?melee=four`) | 300 | 3 | | | | |
-| Autocannon | 1,800 | 4 | | | | |
+| Cosh (`?melee=four`) | 300 | 3 | | HP rounds (SMG, Gimlet, Harrow, Rivet, Ultramag, Judge) | 400, 500, 600, 300, 700, 600 | any |
+| Autocannon | 1,800 | 4 | | AP rounds (the same six) | the same | 2 |
 | Prybar (`?melee=four`) | 450 | 5 | | | | |
 | Deuce | 1,400 | 6 | | | | |
 | Spade (`?melee=four`) | 500 | 7 | | | | |

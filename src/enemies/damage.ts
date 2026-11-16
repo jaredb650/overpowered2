@@ -9,7 +9,7 @@
  */
 import * as THREE from 'three';
 import { DroneBone, HumanoidBone as B, type GoreRegion } from '../characters/rig';
-import { DEFAULT_FORCE, HEAD_VOLLEY, type DamageInfo, type DamageType, type HeadOutcome } from '../core/contracts';
+import { DEFAULT_FORCE, HEAD_VOLLEY, type AmmoLoad, type DamageInfo, type DamageType, type HeadOutcome } from '../core/contracts';
 import { DevFlags } from '../core/devflags';
 import type { DamageResult, KillEvent } from '../core/gameplay';
 import { chance, clamp, lerp, pick, rand, smoothstep } from '../core/math';
@@ -22,7 +22,7 @@ import { bursts, HEAVY_ROUND } from './wounds/rules';
 import { BLAST, OUTCOME_COUNT, OUTCOMES, rollBlast, tearsWaist, type BlastBody, type BlastRoll, type OutcomeRule } from './blast';
 import { CHECK_CARRY, CHECK_MIN, CHECK_TOPPLE_MAX, CHECK_TOPPLE_MIN, checkStrength, SLIDE_KICK, SLIDE_TOPPLE } from './contact';
 import { ENEMIES, LIMB_SIZE, REGION_DAMAGE } from './data';
-import { WEAPONS, type ArmourClass } from '../weapons/data';
+import { AMMO, WEAPONS, type ArmourClass } from '../weapons/data';
 import type { WeaponId } from '../core/gameplay';
 import { say } from './attacks';
 import { finishAttack } from './brain';
@@ -198,9 +198,12 @@ export function classOf(source: string, round: number): ArmourClass {
 /**
  * One round on one plate. `round` is the round's own damage, `amount` what it would do where it struck. Light is stopped
  * and wears the plate by half the round; medium is stopped but wrecks the plate; heavy wears it by the round (twice for
- * a shredder) and half of what it would have done gets through either way.
+ * a shredder) and half of what it would have done gets through either way. An ammo mod (`load`, AMMO) overrides the class:
+ * AP wears it as heavy and gets `AMMO.ap.plate` through, HP is stopped and barely marks it.
  */
-export function armourHit(cls: ArmourClass, plateHp: number, round: number, amount: number, shred = 1): { wear: number; through: number } {
+export function armourHit(cls: ArmourClass, plateHp: number, round: number, amount: number, shred = 1, load?: AmmoLoad): { wear: number; through: number } {
+  if (load === 'ap') return { wear: round * shred, through: amount * AMMO.ap.plate };
+  if (load === 'hp') return { wear: round * AMMO.hp.wear, through: 0 };
   if (cls === 'medium') return { wear: plateHp, through: 0 };
   if (cls === 'light') return { wear: round * LIGHT_WEAR, through: 0 };
   return { wear: round * shred, through: amount * 0.5 };
@@ -412,7 +415,7 @@ export class DamageModel {
         through = (amount - absorbed) * 0.5;
       } else {
         // One rule in every mode, by the class of the round (docs/proposals/armour-and-headshots-plan.md, section 2).
-        ({ wear, through } = armourHit(this.armourClass(plate, d), plate.hp, d.amount, amount, shred));
+        ({ wear, through } = armourHit(this.armourClass(plate, d), plate.hp, d.amount, amount, shred, d.load));
       }
       e.armor = Math.max(0, e.armor - Math.min(wear, plate.hp));
       plate.hp -= wear;

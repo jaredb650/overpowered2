@@ -10,7 +10,7 @@ import type RAPIER from '@dimforge/rapier3d-compat';
 import type { GoreRegion } from '../characters/rig';
 import type { ContractDef } from '../contracts/data';
 import type { Flight } from '../vehicles/flight';
-import type { CharacterInstance, DamageInfo, DamageType, ExplosionKind, GameSystem, MuzzleKind, TracerKind } from './contracts';
+import type { AmmoLoad, CharacterInstance, DamageInfo, DamageType, ExplosionKind, GameSystem, MuzzleKind, TracerKind } from './contracts';
 
 // ---------------------------------------------------------------------------------------------
 // Weapons and combat
@@ -31,10 +31,12 @@ export type WeaponId =
   | 'gimlet';
 
 /**
- * A weapon mod (src/weapons/mods.ts): the SMG's suppressor, the Harrow's red dot and ACOG, the Sabot's Raufoss rounds, and the
- * Gimlet's ACOG, red dot, suppressor and under-barrel launcher.
+ * A weapon mod (src/weapons/mods.ts): the SMG's suppressor, the Harrow's red dot and ACOG, the Sabot's Raufoss rounds, the
+ * Gimlet's ACOG, red dot, suppressor and under-barrel launcher, and AP and HP rounds for the SMG, the rifles and the pistols.
  */
-export type ModId = 'suppressor' | 'reddot' | 'raufoss' | 'harrowAcog' | 'gimletAcog' | 'gimletDot' | 'gimletCan' | 'gimletGl';
+export type ModId = 'suppressor' | 'reddot' | 'raufoss' | 'harrowAcog' | 'gimletAcog' | 'gimletDot' | 'gimletCan' | 'gimletGl'
+  | 'smgAp' | 'smgHp' | 'gimletAp' | 'gimletHp' | 'harrowAp' | 'harrowHp'
+  | 'rivetAp' | 'rivetHp' | 'ultramagAp' | 'ultramagHp' | 'judgeAp' | 'judgeHp';
 
 export type Team = 'player' | 'enemy';
 
@@ -230,6 +232,8 @@ export interface ShotSpec {
   penetrateWalls?: number;
   /** Goes through armour plates as if they were not there. */
   armorPiercing?: boolean;
+  /** The gun's ammo mod, carried onto every body it strikes (DamageInfo.load). */
+  load?: AmmoLoad;
   /** An enemy ray's near-miss sound past the player. Defaults to `bullet_whizz`. */
   whizz?: string;
   /** Damage holds to `from` meters of flight, then falls in a line to `floor` of itself at `to`. */
@@ -265,6 +269,8 @@ export interface StruckList {
   walls: number;
   readonly points: THREE.Vector3[];
   readonly enemies: (EnemyInstance | null)[];
+  /** Given, whether armour (a plate, a helmet, a shield) took the round on each body, beside `enemies`. A Raufoss round reads it. */
+  readonly armoured?: boolean[];
 }
 
 export interface ShotResult {

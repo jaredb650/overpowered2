@@ -31,4 +31,13 @@ describe('mod cheat rows', () => {
     r.run(0.6);
     expect(w.ammoMode).toBe('RAUFOSS');
   });
+
+  it('fits an ammo mod, and fitting HP takes AP off its gun', () => {
+    const w = r.weapons;
+    modCheat(w, 'harrowAp', 'fit');
+    modCheat(w, 'harrowHp', 'fit');
+    expect(w.fitted.has('harrowHp')).toBe(true);
+    expect(w.fitted.has('harrowAp')).toBe(false);
+    expect(w.mods.has('harrowAp')).toBe(true);
+  });
 });

@@ -8,6 +8,7 @@ import type { HudState } from '../state';
 import { TUNING, WEAPONS as WEAPON_DEFS } from '../../weapons/data';
 import { SLOT_ORDER, familyOf, familyOfSlot } from '../../weapons/families';
 import { LANCE_LOOK, LANCE_ON } from '../../weapons/lance';
+import { AMMO_GUNS } from '../../weapons/mods';
 import { ROCKET_LASER } from '../../weapons/laser';
 
 const MAX_GRENADE_PIPS = TUNING.grenade.max;
@@ -171,8 +172,8 @@ export class Arms {
     this.infinite.set(s.bottomless && !melee);
     this.empty.set(!s.bottomless && !melee && s.mag === 0);
     this.lowAmmo.set(!s.bottomless && !melee && s.mag > 0 && ratio <= 0.33);
-    // A gun with a second kind of round, which right click loads (or a mod fits: the Sabot's Raufoss), wears it on its name.
-    if (WEAPON_DEFS[s.weapon].altAmmo || WEAPON_DEFS[s.weapon].select || s.weapon === 'sabot') this.name.set(s.ammoMode ? `${WEAPONS[s.weapon].name} · ${s.ammoMode}` : WEAPONS[s.weapon].name);
+    // A gun with a second kind of round, which right click loads (or a mod fits: the Sabot's Raufoss, AP and HP), wears it on its name.
+    if (WEAPON_DEFS[s.weapon].altAmmo || WEAPON_DEFS[s.weapon].select || s.weapon === 'sabot' || AMMO_GUNS.includes(s.weapon)) this.name.set(s.ammoMode ? `${WEAPONS[s.weapon].name} · ${s.ammoMode}` : WEAPONS[s.weapon].name);
 
     this.reloadRow.set(s.reloading);
     if (s.reloading) this.reload.set(s.reloadProgress);

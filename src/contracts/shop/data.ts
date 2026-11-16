@@ -184,6 +184,54 @@ export const MOD_WARES: Readonly<Record<ModId, Ware>> = {
   raufoss: {
     price: 2400, wave: 10,
     lore: 'Every dart now bursts where it lands and sends what is left out of the far side. Cover has been reclassified as a suggestion.',
+  },  // AP and HP rounds (weapons/mods.ts, AMMO in weapons/data.ts): one of the two to a gun, or ball, its default, with neither.
+  smgAp: {
+    price: 400, wave: 2,
+    lore: 'Steel-cored rounds for the SMG. They go through the plate and arrive a little tired. The Council can relate.',
+  },
+  smgHp: {
+    price: 400, wave: 0,
+    lore: 'Hollow-points for the SMG. Ruinous to a man in a shirt, polite to a man in a plate. Find out which before you commit.',
+  },
+  gimletAp: {
+    price: 500, wave: 2,
+    lore: 'Armour-piercing rounds for the Gimlet. A helmet is now a hat. The man under it is still a man, for slightly less time.',
+  },
+  gimletHp: {
+    price: 500, wave: 0,
+    lore: 'Hollow-points for the Gimlet: half again as bad for the body and no use at all against a plate. Know your audience.',
+  },
+  harrowAp: {
+    price: 600, wave: 2,
+    lore: 'The Harrow already breaks plates. These go through them without stopping to break anything, and then through the next man as well.',
+  },
+  harrowHp: {
+    price: 600, wave: 0,
+    lore: 'Hollow-points for the Harrow. Each round stays in the first man it meets, who will not be writing to thank you.',
+  },
+  rivetAp: {
+    price: 300, wave: 2,
+    lore: 'Armour-piercing rounds for the Rivet. Fifteen small arguments a plate cannot win, only lose slowly.',
+  },
+  rivetHp: {
+    price: 300, wave: 0,
+    lore: 'Hollow-points for the Rivet. At the range it is any good at, nobody is wearing enough.',
+  },
+  ultramagAp: {
+    price: 700, wave: 2,
+    lore: 'A penetrator for the Ultramag. The plate is a formality. The man behind it is a second formality.',
+  },
+  ultramagHp: {
+    price: 700, wave: 0,
+    lore: 'The largest hollow-point the Council would sign for. Against flesh, a closing statement. Against a plate, a loud knock.',
+  },
+  judgeAp: {
+    price: 600, wave: 2,
+    lore: 'Armour-piercing slugs for the Judge. The verdict goes straight through the appeal.',
+  },
+  judgeHp: {
+    price: 600, wave: 0,
+    lore: 'Hollow-point slugs for the Judge: the harshest sentence in the catalogue, unless the accused is wearing a plate, in which case it is a warning.',
   },
 };
 

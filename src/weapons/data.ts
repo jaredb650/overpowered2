@@ -5,13 +5,24 @@
  * units because the 60x spread between an SMG shot and a Hellfire rocket is the feel worth protecting.
  * Feel.shake converts them to camera trauma.
  */
-import type { ExplosionKind, MuzzleKind, SurfaceKind, TracerKind } from '../core/contracts';
+import type { AmmoLoad, ExplosionKind, MuzzleKind, SurfaceKind, TracerKind } from '../core/contracts';
 import type { BurstSpec, SwordMove, WeaponId } from '../core/gameplay';
 import type { FanSpec } from './fan';
 
 /** `paint` is the Quiver's: hold to mark targets, let go to fire the salvo at them. Its numbers are `TUNING.quiver`. */
 /** Light: stopped, wears the plate a little. Medium: stopped, breaks the plate. Heavy: wears it hard, and half gets through. */
 export type ArmourClass = 'light' | 'medium' | 'heavy';
+
+/**
+ * The ammo mods (mods.ts, docs/proposals/weapons-update.md section 12), over any class. `flesh` is the round against ball.
+ * AP: a plate lets `plate` of it through and is worn by the whole round, as a heavy round wears one; it goes through one more
+ * body (`penetration` m more budget). HP: any plate stops it and is worn by only `wear` of it, so it never wrecks one; it
+ * stays in the first body it meets (no penetration). Shields and bosses take both as they take ball.
+ */
+export const AMMO = {
+  ap: { flesh: 0.8, plate: 0.75, penetration: 0.4 },
+  hp: { flesh: 1.5, wear: 0.15 },
+} as const;
 
 export type FireMode = 'auto' | 'semi' | 'charge' | 'spin' | 'stream' | 'melee' | 'paint';
 export type CasingKind = 'pistol' | 'rifle' | 'shotgun' | 'cannon';
@@ -74,6 +85,8 @@ export interface WeaponDef {
    * over it. Medium is a rifle-class round: the plate stops it but is wrecked doing so. Pellets are counted per blast.
    */
   armour?: ArmourClass;
+  /** An ammo mod is loaded (mods.ts): AP or HP, over `armour`. See AMMO. Unset is ball. */
+  load?: AmmoLoad;
   /** Damage holds to `from` meters, then falls in a line to `floor` of itself at `to`. Unset: full damage at any range. */
   falloff?: { readonly from: number; readonly to: number; readonly floor: number };
   /** After a headshot the round jumps to this many more heads, as the Judge's does. */
