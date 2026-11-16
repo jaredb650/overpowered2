@@ -12,6 +12,7 @@ import { listenForWounds } from './reactions';
 import { GUN_DOWN_HOLD, listenToEachOther } from './listeners';
 import { cardinal, contactReport, radioLoss } from './radio';
 import { breaking, revenge, tickOutcomes } from './outcomes';
+import { HABIT_AT, PlayerMemory, rememberPlayer } from './memory';
 import * as THREE from 'three';
 import { OutpostSquad } from '../squad';
 import { RULES } from './lines';
@@ -411,7 +412,7 @@ describe('the radio net', () => {
   function net() {
     const timers: (() => void)[] = [];
     const comms = { say: vi.fn(), after: (_: number, run: () => void) => timers.push(run) };
-    const o = { w: { player: { position: new THREE.Vector3(0, 0, 40) } }, squads: [] as OutpostSquad[], comms, scare: vi.fn() };
+    const o = { w: { player: { position: new THREE.Vector3(0, 0, 40) } }, squads: [] as OutpostSquad[], comms, scare: vi.fn(), memory: new PlayerMemory() };
     const squad = (name: string, roles: string[], z: number) => {
       const q = new OutpostSquad(o.squads.length + 1, name, o as unknown as Outpost);
       for (const role of roles) {
@@ -479,7 +480,7 @@ describe('morale outcomes', () => {
     const comms = { say: vi.fn(), after: (_: number, run: () => void) => timers.push(run) };
     const spawnProjectile = vi.fn();
     const o = {
-      comms, soldiers: [] as Soldier[],
+      comms, soldiers: [] as Soldier[], memory: new PlayerMemory(),
       w: { telegraphs: { zone: vi.fn() }, ctx: { player: { health: 100, maxHealth: 100 }, audio: { play: vi.fn() }, combat: { spawnProjectile } } },
     };
     const squad = new OutpostSquad(1, 'Alpha', o as unknown as Outpost);
@@ -534,7 +535,7 @@ describe('morale outcomes', () => {
     const open = vi.spyOn(squad, 'opening');
     const random = vi.spyOn(Math, 'random').mockReturnValue(0.01);
     revenge(o, a, b);
-    expect(comms.say).toHaveBeenLastCalledWith('revenge', a, b);
+    expect(comms.say).toHaveBeenLastCalledWith('revenge', a, b, null);
     expect(open).toHaveBeenCalled();
     a.bravado = true;
     a.state = 'shaken';
@@ -542,5 +543,33 @@ describe('morale outcomes', () => {
     tickOutcomes(o, 1);
     random.mockRestore();
     expect(comms.say).toHaveBeenLastCalledWith('taunt', a, null, { flags: { bravado: true } });
+  });
+});
+
+describe('memory of the player, this match only', () => {
+  it('notices a habit once, adapts, says why, and forgets it all with the run', () => {
+    const events = new EventBus<GameEvents>();
+    const comms = { say: vi.fn() };
+    const doctrine = { spacing: 2.2, stacks: true, keepOut: 0 };
+    const o = { w: { ctx: { events }, player: { position: new THREE.Vector3() } }, memory: new PlayerMemory(), doctrine, comms, squads: [] as OutpostSquad[] };
+    const squad = new OutpostSquad(1, 'Alpha', o as unknown as Outpost);
+    const lead = new Soldier();
+    squad.join(lead);
+    Object.defineProperty(squad, 'inContact', { value: true });
+    o.squads.push(squad);
+    rememberPlayer(o as unknown as Outpost);
+    const kill = () => {
+      const s = new Soldier();
+      s.e = { position: new THREE.Vector3() } as unknown as Soldier['e'];
+      enlist(s.e, s);
+      events.emit('enemy:killed', { enemy: s.e, headshot: false, damage: { source: 'smg', type: 'explosive' } } as never);
+    };
+    for (let i = 0; i < HABIT_AT * 2; i++) kill();
+    expect(comms.say.mock.calls.filter(c => c[0] === 'habit')).toEqual([['habit', lead, null, { flags: { blasts: true } }]]);
+    expect(doctrine.spacing).toBeGreaterThan(5);
+    expect(doctrine.stacks).toBe(false);
+    o.memory.reset();
+    expect(o.memory.counts.blasts).toBe(0);
+    expect(o.memory.noticed.size).toBe(0);
   });
 });

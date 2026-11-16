@@ -62,6 +62,7 @@ export function contactReport(o: Outpost, squad: OutpostSquad): void {
 export function radioLoss(o: Outpost, squad: OutpostSquad, dead: Soldier | null): void {
   const left = squad.members.filter(m => m.fighting).length;
   if (left === 0) {
+    o.memory.wiped.push(squad.name);
     const r = listener(o, squad);
     if (r) o.comms.say('squadWiped', r, null, { slots: { squad: squad.name } });
     return;

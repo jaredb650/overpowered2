@@ -33,6 +33,7 @@ import { Route } from './routes';
 import { soldierOf, type Grenade, type Soldier, type Urgency } from './soldier';
 import { contactReport, radioLoss } from './chatter/radio';
 import { revenge } from './chatter/outcomes';
+import { AGAIN_AFTER } from './chatter/memory';
 
 export type SquadMode = 'advance' | 'engage' | 'stack' | 'fallback' | 'regroup' | 'rush' | 'flush' | 'cutoff' | 'ambush';
 
@@ -423,7 +424,8 @@ export class OutpostSquad implements Squad {
     this.knownAt = now;
     if (seen) {
       if (now - this.seenAt > CALLOUT_GAP) {
-        o.comms.say('contact', s);
+        // Found again after a long while, or by a man who has watched him kill: chatter/memory.ts.
+        o.comms.say('contact', s, null, { flags: { again: this.seenAt > 0 && now - this.seenAt > AGAIN_AFTER, survivor: s.witnessed > 0 } });
         contactReport(o, this);
       }
       this.seenAt = now;

@@ -41,6 +41,7 @@ import { FACTION, NameRoll } from './chatter/names';
 import { listenForWounds } from './chatter/reactions';
 import { listenToEachOther } from './chatter/listeners';
 import { BRAVADO, breaking, tickOutcomes } from './chatter/outcomes';
+import { PlayerMemory, rememberPlayer } from './chatter/memory';
 import { Comms } from './comms';
 import { CoverMap, type CoverSpot, type SpotReading } from './cover';
 import { CALLSIGNS, defaultDoctrine, fireRules, MAX_SQUAD, ROLE_OF, ROLES, type Doctrine } from './doctrine';
@@ -169,6 +170,8 @@ export class Outpost {
   private readonly pool = new Pool<Soldier>(() => new Soldier(), s => s.clear());
   /** Every man's name, never two alike alive. */
   readonly names = new NameRoll();
+  /** What the side remembers of the player this match. */
+  readonly memory = new PlayerMemory();
   private readonly leaving: Soldier[] = [];
   private gates: THREE.Vector3[] = [];
   private readonly gateUsedAt = new Map<THREE.Vector3, number>();
@@ -196,6 +199,7 @@ export class Outpost {
     this.comms = new Comms(w);
     listenForWounds(w, this.comms);
     listenToEachOther(w, this);
+    rememberPlayer(this);
     this.dropped = new DroppedWeapons(w.ctx);
     this.waves = new OutpostWaves(w.ctx, this, manager);
     this.wounds = new WoundSystem(w, this, manager);
@@ -247,6 +251,7 @@ export class Outpost {
     this.soldiers.length = 0;
     this.flushLeaving();
     this.names.reset();
+    this.memory.reset();
     this.squads.length = 0;
     this.forming = this.gate = null;
     this.squadSerial = this.prisoners = 0;
@@ -938,7 +943,10 @@ export class Outpost {
     const fear = s.surrendered ? FEAR.execution : FEAR.allyDown + (brutal ? FEAR.brutal : 0);
     const r2 = WITNESS_RANGE * WITNESS_RANGE;
     for (const o of this.soldiers) {
-      if (o.fighting && (o.squad === s.squad || o.e.position.distanceToSquared(k.enemy.position) < r2)) this.scare(o, fear);
+      if (o.fighting && (o.squad === s.squad || o.e.position.distanceToSquared(k.enemy.position) < r2)) {
+        this.scare(o, fear);
+        o.witnessed++;
+      }
     }
     // His own side's rounds and grenades are not an execution, whoever he was held in front of.
     const source = k.damage.source;

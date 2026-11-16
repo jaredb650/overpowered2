@@ -49,7 +49,9 @@ export function breaking(o: Outpost, s: Soldier, fate: 'surrender' | 'flee'): bo
 export function revenge(o: Outpost, survivor: Soldier, dead: Soldier): void {
   if (!survivor.fighting || Math.random() >= REVENGE) return;
   survivor.morale = Math.min(survivor.baseMorale, survivor.morale + 15);
-  o.comms.say('revenge', survivor, dead);
+  // A squad wiped earlier this match is the bigger grudge, when there is one.
+  const lost = o.memory.wiped.at(-1);
+  o.comms.say('revenge', survivor, dead, lost ? { flags: { squadLost: true }, slots: { lost } } : null);
   survivor.squad.opening(REVENGE_PUSH);
 }
 

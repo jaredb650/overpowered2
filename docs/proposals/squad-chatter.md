@@ -79,6 +79,13 @@ start (the host decides; guests get `chatter` and `chatcut` events).
   second later (`dropGrenade`, with its danger ring). A buddy's death turns the survivor 35% of the time: "That's for {dead}!", nerve back
   and a 3 s squad push. A quarter of the men have bravado and talk big while shaken or panicked; with the player under half health a
   steady man taunts. Taunts are the lowest priority (idle) and one every 12 s at most.
+- **G.** `chatter/memory.ts` (`Outpost.memory`), per match and side-wide, cleared with the run; no persistent named enemies, no
+  promotions, so nothing like the patented Nemesis pattern. The player's kills are counted by kind: headshots, from above, explosives, the
+  blade, shots in the back. At 4 of a kind, one leader in contact says it once a match ("He's going for heads, keep your visors down!").
+  Explosives and the blade also change what the men do, and the line says that change: they spread out and stop stacking (spacing 5.5),
+  or riflemen keep 7 m away (the Commander's own answers, applied if he has not already). A squad that finds him again after 12 s says so
+  ("You again."); a man who has watched friends die to him warns the others; revenge names a squad wiped earlier this match ("This is for
+  Delta!").
 
 ## 1. The goal
 
