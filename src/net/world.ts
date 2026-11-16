@@ -16,19 +16,38 @@ import { HELMET } from '../enemies/wounds/armour';
 import { Route, RouteFinder, type NavGrid } from '../enemies/outpost/routes';
 import { closestSegmentPoints } from '../weapons/geometry';
 import { EXPLOSIONS, WEAPONS } from '../weapons/data';
-import { ClaimValidator, RespawnClock, selectTarget } from './authority';
+import type { KillEvent } from '../core/gameplay';
+import type { ExplosionKind } from '../core/contracts';
+import { ClaimValidator, claimKind, selectTarget } from './authority';
+import { isMelee } from '../weapons/melee/data';
+import { Team, TeamLife } from './team';
 import { decodeWorld, encodeWorld, ENEMY_IDS, packDamage, REGIONS, SNAPSHOT_MS, validVec, type EnemyFrame, type Vec, type WireDamage, type WorldEvent, type WorldFrame } from './worldProtocol';
 import type { CoopSession } from './index';
 
 interface Replica { enemy: Enemy; from: EnemyFrame; to: EnemyFrame; at: number }
 const RANK_IDS = Object.keys(RANKS) as Rank[];
 const nameId = (id: unknown): number => typeof id === 'number' && Number.isInteger(id) && NAME_LIST[id] !== undefined ? id : -1;
-interface PlayerTarget { id: string; player: PlayerSystem; life: RespawnClock; foe: Foe }
+interface PlayerTarget { id: string; player: PlayerSystem; life: TeamLife; foe: Foe }
+/** Slow-mo every player shares: the host's world slows, so it slows on every screen. Everything else (hit-stop, the fan) is dropped. */
+const SHARED_SLOW = /^(slowmo|timeWarp|bossDeath|coop:)/;
+/** Explosions mirrored to other screens per second, at most: an AC-130 or a rotary of explosive rounds stays affordable. */
+const BOOMS_PER_SECOND = 24;
 
 export class CoopWorld {
   readonly stats = { snapshotBytes: 0, eventBytes: 0, snapshotPackets: 0, eventPackets: 0, accepted: 0, rejected: 0, since: performance.now() };
-  readonly lives = new Map<string, RespawnClock>();
+  readonly team: Team;
   readonly validator = new ClaimValidator();
+  /** Host: who killed each enemy that died lately (lobby id), for kill pay and score (`notMine`). */
+  private readonly killedBy = new Map<number, { id: string; at: number }>();
+  /** Host: the last player to land a claim on each enemy, for a kill by bleeding or fire after the hit. */
+  private readonly lastHitter = new Map<number, string>();
+  /** Host: the guest whose claim is being applied right now. */
+  private applying: string | null = null;
+  private booms = 0;
+  private boomSecond = 0;
+  /** Host: slow-mo a guest's perk asked for, by request id, until when. */
+  private readonly slows = new Map<string, number>();
+  private replaying = false;
   private readonly replicas = new Map<number, Replica>();
   private readonly dead = new Set<number>();
   private readonly selections = new Map<number, string>();
@@ -56,13 +75,27 @@ export class CoopWorld {
   constructor(private readonly ctx: Ctx, private readonly session: CoopSession) {
     this.sendSnapshot = session.lobby.gameplay<ArrayBuffer>('world', data => this.receiveSnapshot(data));
     this.sendAction = session.lobby.gameplay<WorldEvent>('action', (data, from) => this.receive(data, from));
+    this.team = new Team(ctx, session, (event, to) => this.broadcast(event, to));
     this.off.push(ctx.events.on('weapon:fired', event => this.fire(event.weapon, event.origin, event.dir)));
-    this.off.push(ctx.events.on('player:died', () => this.died(session.lobby.you)));
+    this.off.push(ctx.events.on('callin:used', event => this.broadcast({ t: 'callin', id: event.id, slot: session.lobby.me?.slot })));
+    if (!session.hosting) {
+      this.off.push(ctx.events.on('perk:start', e => { if (e.id === 'slowmo' || e.id === 'timeWarp') this.broadcast({ t: 'slow', id: e.id, on: true }); }));
+      this.off.push(ctx.events.on('perk:end', e => { if (e.id === 'slowmo' || e.id === 'timeWarp') this.broadcast({ t: 'slow', id: e.id, on: false }); }));
+    }
     if (session.hosting) {
+      // Registered before any system's own listener (systems listen in init, after this): who killed it is known first.
+      this.off.push(ctx.events.on('enemy:killed', event => {
+        const id = this.applying ?? (Object.hasOwn(WEAPONS, event.damage.source) || /^(grenade|sword)/.test(event.damage.source) ? session.lobby.you
+          : this.lastHitter.get(event.enemy.uid) ?? session.lobby.you);
+        this.killedBy.set(event.enemy.uid, { id, at: performance.now() });
+      }));
       this.off.push(ctx.events.on('enemy:hit', event => this.broadcast({ t: 'hitfx', uid: event.enemy.uid, damage: packDamage(event.damage),
         health: event.enemy.health, armor: event.enemy.armor, blocked: event.result.blocked })));
-      this.off.push(ctx.events.on('enemy:killed', event => this.broadcast({ t: 'kill', uid: event.enemy.uid, id: event.enemy.id,
-        at: event.enemy.position.toArray() as Vec, yaw: event.enemy.yaw, damage: packDamage(event.damage), gib: event.gibbed })));
+      this.off.push(ctx.events.on('enemy:killed', event => {
+        const by = this.session.lobby.players.find(p => p.id === this.killedBy.get(event.enemy.uid)?.id)?.slot ?? -1;
+        this.broadcast({ t: 'kill', uid: event.enemy.uid, id: event.enemy.id, at: event.enemy.position.toArray() as Vec, yaw: event.enemy.yaw,
+          damage: packDamage(event.damage), gib: event.gibbed, by, head: event.headshot });
+      }));
       this.off.push(ctx.events.on('enemy:severed', event => this.broadcast({ t: 'sever', uid: event.enemy.uid, region: event.region, damage: packDamage(event.damage) })));
       // Every player hears the same man say the same words. Lines a caller wrote by hand stay the host's.
       this.off.push(ctx.events.on('comms:line', line => {
@@ -76,16 +109,31 @@ export class CoopWorld {
   }
 
   private get manager(): EnemyManager { return this.ctx.enemies as EnemyManager; }
+
+  /**
+   * Not this player's: a kill (by uid) or a hit landed by a teammate. Score, combo, perks, kill pay and the run report skip it,
+   * so each player's own browser pays and scores only what they did. Solo and guests' own replays read false.
+   */
+  notMine(enemy?: { uid: number }): boolean {
+    if (this.applying !== null) return true;
+    const killer = enemy ? this.killedBy.get(enemy.uid)?.id : undefined;
+    return killer !== undefined && killer !== this.session.lobby.you;
+  }
+
+  /** Before the clock ticks: the host keeps the slow-mo everyone shares, a guest keeps none (its world is the host's). */
+  clock(): void {
+    const time = this.ctx.time;
+    if (!this.session.hosting) return time.clearScales();
+    const now = performance.now();
+    for (const [id, until] of this.slows) if (now >= until) { time.popScale(id); this.slows.delete(id); }
+    time.keepScales(id => SHARED_SLOW.test(id));
+  }
   begin(): void {
     this.ready = true;
     if (this.pendingSnapshot) this.receiveSnapshot(this.pendingSnapshot);
     this.pendingSnapshot = null;
   }
-  private life(id: string): RespawnClock {
-    let life = this.lives.get(id);
-    if (!life) this.lives.set(id, life = new RespawnClock());
-    return life;
-  }
+  private life(id: string): TeamLife { return this.team.life(id); }
   private broadcast(event: WorldEvent, to?: string): void {
     const recipients = this.sendAction(event, to);
     this.stats.eventBytes += new TextEncoder().encode(JSON.stringify({ match: this.session.match.id, data: event })).byteLength * recipients;
@@ -110,7 +158,9 @@ export class CoopWorld {
       return { dealt: 0, blocked: false, killed: false, headshot: false, severed: [] };
     }
     const weapon = this.ctx.weapons.current;
-    if (performance.now() - this.firedAt > Math.max(100, WEAPONS[weapon].interval * 1000) || this.weapon !== weapon) this.fire(weapon, this.ctx.player.eye, this.ctx.player.forward);
+    // Only a gun's hit needs the shot it came from; a blast or a call-in's damage never draws a phantom tracer.
+    if (claimKind(damage.source, damage.type) === 'shot'
+      && (performance.now() - this.firedAt > Math.max(100, WEAPONS[weapon].interval * 1000) || this.weapon !== weapon)) this.fire(weapon, this.ctx.player.eye, this.ctx.player.forward);
     this.broadcast({ t: 'hit', shot: this.shot, target: enemy.uid, weapon, origin: this.ctx.player.eye.toArray() as Vec, damage: packDamage(damage) });
     const body = enemy as Enemy;
     const region = damage.region ?? 'chest';
@@ -125,9 +175,32 @@ export class CoopWorld {
     return { dealt: blocked ? 0 : damage.amount, blocked, killed: false, headshot: damage.region === 'head', severed: [], armour: armoured ? blocked ? 'stopped' : 'through' : undefined };
   }
   private receive(value: WorldEvent, from: string): void {
-    if (!this.ready || !value || typeof value !== 'object') return;
+    if (!this.ready || !value || typeof value !== 'object' || typeof value.t !== 'string') return;
+    try { this.handle(value, from); }
+    catch (error) { console.warn('[coop] Dropped an event that could not be applied', value.t, error); }
+  }
+
+  private handle(value: WorldEvent, from: string): void {
     const now = performance.now();
+    if (this.team.receive(value, from)) return;
+    if (value.t === 'boom') return this.boomIn(value, from);
+    if (value.t === 'callin') {
+      const player = this.session.hosting ? this.session.lobby.players.find(p => p.id === from) : this.session.lobby.players.find(p => p.slot === value.slot);
+      const name = typeof value.id === 'string' ? value.id.replace(/[^a-zA-Z]/g, '').replace(/([A-Z])/g, ' $1').toUpperCase().slice(0, 24) : '';
+      if (player && name) this.ctx.hud.feed(`${player.name} called in ${name}`, '#ffc14a');
+      if (this.session.hosting && player) {
+        this.validator.callIn(from, now);
+        for (const peer of this.session.lobby.players) if (!peer.host && peer.id !== from) this.broadcast({ ...value, slot: player.slot }, peer.id);
+      }
+      return;
+    }
     if (this.session.hosting) {
+      if (value.t === 'slow' && (value.id === 'slowmo' || value.id === 'timeWarp')) {
+        const id = `coop:${from}:${value.id}`;
+        if (value.on) { this.ctx.time.pushScale(id, 0.25, 0.18, 0.4); this.slows.set(id, now + 8000); }
+        else { this.ctx.time.popScale(id); this.slows.delete(id); }
+        return;
+      }
       const remote = this.session.remotes.get(from);
       if (!remote || !remote.buffer.sample(now)) return;
       const eye = remote.char.root.position.clone().add(new THREE.Vector3(0, 1.6, 0));
@@ -144,30 +217,21 @@ export class CoopWorld {
         const damage = this.unpack(value.damage);
         if (damage.bone !== undefined && damage.bone >= enemy.char.rig.bones.length) damage.bone = undefined;
         this.targetPlayer = this.players().find(player => player.id === from)?.player ?? this.ctx.player;
+        this.lastHitter.set(enemy.uid, from);
+        this.applying = from;
         try { this.manager.applyDamage(enemy, damage); }
-        finally { this.targetPlayer = null; }
-      } else if (value.t === 'life' && value.alive === false && value.life === this.life(from).life) this.died(from);
+        finally { this.targetPlayer = null; this.applying = null; }
+      }
       return;
     }
     switch (value.t) {
       case 'fire': this.drawFire(value); break;
       case 'ray': this.ctx.fx.tracer(new THREE.Vector3(...value.from), new THREE.Vector3(...value.to), 'enemy'); break;
       case 'hurt': {
-        if (this.life(this.session.lobby.you).accepts(value.life)) {
+        if (this.life(this.session.lobby.you).accepts(value.life) && Number.isFinite(value.amount) && value.amount > 0 && value.amount < 10000 && validVec(value.from)) {
           this.receivingDamage = true;
           try { this.ctx.player.takeDamage({ amount: value.amount, from: new THREE.Vector3(...value.from), type: value.type as PlayerDamage['type'], source: value.source }); }
           finally { this.receivingDamage = false; }
-        }
-        break;
-      }
-      case 'life': {
-        const player = this.session.lobby.players.find(player => player.slot === value.slot);
-        if (!player) break;
-        const life = this.life(player.id);
-        if (!value.alive && value.life === life.life) life.die(now);
-        if (value.alive && value.life === life.life + 1 && life.down) {
-          life.update(Infinity);
-          if (player.id === this.session.lobby.you) this.respawn();
         }
         break;
       }
@@ -179,7 +243,12 @@ export class CoopWorld {
           enemy = this.manager.spawn(value.id, new THREE.Vector3(...value.at)) ?? undefined;
           if (enemy) { enemy.uid = value.uid; enemy.yaw = value.yaw; }
         }
-        if (enemy) this.manager.replayDeath(enemy, this.unpack(value.damage), value.gib);
+        if (enemy) {
+          const damage = this.unpack(value.damage);
+          this.manager.replayDeath(enemy, damage, value.gib);
+          // My own kill: my browser pays, scores and counts it, as the host's does its own.
+          if (value.by === this.session.lobby.me?.slot) this.ownKill(enemy, damage, value.gib === true, value.head === true);
+        }
         this.replicas.delete(value.uid);
         break;
       }
@@ -204,6 +273,36 @@ export class CoopWorld {
         break;
       }
     }
+  }
+
+  private ownKill(enemy: Enemy, damage: DamageInfo, gibbed: boolean, headshot: boolean): void {
+    const p = this.ctx.player;
+    const event: KillEvent = { enemy, damage, headshot, gibbed, sliced: !!damage.slicePlaneNormal, severedCount: enemy.char.severed.size,
+      playerAirborne: !p.grounded, playerSliding: p.sliding, playerWallRunning: p.wallRunning, playerSpeed: p.speed,
+      distance: enemy.position.distanceTo(p.position), explosionId: damage.explosionId ?? null };
+    this.ctx.events.emit('enemy:killed', event);
+  }
+
+  /** Someone else's explosion, drawn and heard here. It hurts nobody: whatever it did, the host has already counted. */
+  private boomIn(value: Extract<WorldEvent, { t: 'boom' }>, from: string): void {
+    if (!validVec(value.at) || !Object.hasOwn(EXPLOSIONS, value.kind) || !Number.isFinite(value.radius) || value.radius <= 0 || value.radius > 60) return;
+    if (this.session.hosting) {
+      if (!this.spendBoom()) return;
+      const slot = this.session.lobby.players.find(p => p.id === from)?.slot;
+      for (const peer of this.session.lobby.players) if (!peer.host && peer.id !== from) this.broadcast({ ...value, slot }, peer.id);
+    }
+    const at = new THREE.Vector3(...value.at);
+    const kind = value.kind as ExplosionKind;
+    this.ctx.fx.explosion(at, { radius: value.radius, kind });
+    for (const sound of EXPLOSIONS[kind as keyof typeof EXPLOSIONS].sounds) this.ctx.audio.play(sound.id, { ...sound, position: at });
+    const near = this.ctx.player.eye.distanceTo(at);
+    if (near < value.radius * 4) this.ctx.camera.addTrauma(0.35 * (1 - near / (value.radius * 4)));
+  }
+
+  private spendBoom(): boolean {
+    const second = Math.floor(performance.now() / 1000);
+    if (second !== this.boomSecond) { this.boomSecond = second; this.booms = 0; }
+    return ++this.booms <= BOOMS_PER_SECOND;
   }
 
   private hear(value: Extract<WorldEvent, { t: 'chatter' }>): void {
@@ -243,10 +342,15 @@ export class CoopWorld {
     const origin = new THREE.Vector3(...event.origin), dir = new THREE.Vector3(...event.dir).normalize();
     const wall = this.ctx.physics.raycast(origin, dir, 100, CG.World);
     const end = wall?.point ?? origin.clone().addScaledVector(dir, 100);
-    this.ctx.fx.tracer(origin, end, 'bullet');
-    this.ctx.fx.muzzleFlash(origin, dir, def.muzzle);
-    for (const sound of def.sounds) this.ctx.audio.play(sound.id, { ...sound, position: origin, volume: (sound.volume ?? 1) * 0.65 });
     const remote = [...this.session.remotes.values()].find(remote => remote.player.slot === event.slot);
+    // Flash and tracer leave the friend's own gun; the shot itself is still traced from their eye, as they aimed it.
+    const muzzle = remote ? remote.muzzle(new THREE.Vector3()) : origin;
+    if (!isMelee(event.weapon) && !/^sword/.test(event.weapon)) {
+      this.ctx.fx.tracer(muzzle, end, 'bullet');
+      this.ctx.fx.muzzleFlash(muzzle, dir, def.muzzle);
+    }
+    // Positional: a friend's gun is heard from where they stand.
+    for (const sound of def.sounds) this.ctx.audio.play(sound.id, { ...sound, position: muzzle, volume: (sound.volume ?? 1) * 0.65 });
     remote?.char.anim.play('shoot', 1.4);
   }
 
@@ -446,6 +550,10 @@ export class CoopWorld {
     this.broadcast({ t: 'ray', from: from.toArray() as Vec, to: to.toArray() as Vec });
   }
   blast(center: THREE.Vector3, spec: ExplosionSpec): void {
+    // Every explosion this game makes is drawn on the others': the host's for everyone, a guest's through the host.
+    if (!spec.worldObject && this.ready && this.spendBoom()) {
+      this.broadcast({ t: 'boom', at: center.toArray() as Vec, kind: spec.kind, radius: spec.radius, slot: this.session.lobby.me?.slot });
+    }
     if (!this.session.hosting || spec.team !== 'enemy') return;
     const def = EXPLOSIONS[spec.kind];
     for (const target of this.players()) {
@@ -455,35 +563,14 @@ export class CoopWorld {
       this.hurt(target.id, { amount: spec.damage * (1 - distance / spec.radius * (1 - def.edgeDamage)), from: center, type: 'explosive', source: spec.source });
     }
   }
-  private died(id: string): void {
-    const life = this.life(id);
-    if (!life.die(performance.now())) return;
-    const player = this.session.lobby.players.find(player => player.id === id);
-    this.broadcast({ t: 'life', slot: player?.slot ?? 0, alive: false, life: life.life });
-    if (id === this.session.lobby.you) this.ctx.hud.feed('Respawning in 3.5 seconds…', '#ffb33d');
-  }
-  private respawn(): void {
-    this.ctx.player.reset?.();
-    const spawns = this.ctx.world.playerSpawns;
-    const spawn = spawns[(this.session.lobby.me?.slot ?? 0) % spawns.length];
-    if (spawn) this.ctx.player.teleport(spawn.position, spawn.yaw);
-    this.ctx.hud.feed('Back in the fight.', '#79f1ad');
-  }
   update(): void {
     if (!this.ready) return;
     const now = performance.now();
-    for (const roster of this.session.lobby.players) {
-      const life = this.life(roster.id);
-      if (this.session.hosting && life.update(now)) {
-        if (roster.id === this.session.lobby.you) this.respawn();
-        this.broadcast({ t: 'life', slot: roster.slot, alive: true, life: life.life });
-      }
-      const remote = this.session.remotes.get(roster.id);
-      if (remote) remote.char.root.visible = !life.down && !!remote.buffer.sample(now);
-    }
+    this.team.update(now, this.ctx.time.realDt);
     for (const id of this.adapters.keys()) if (!this.session.lobby.players.some(player => player.id === id)) {
-      this.adapters.delete(id); this.lives.delete(id); this.validator.forget(id);
+      this.adapters.delete(id); this.validator.forget(id);
     }
+    for (const [uid, kill] of this.killedBy) if (now - kill.at > 3000) this.killedBy.delete(uid);
     const due = this.delayed.filter(event => event.at <= now);
     this.delayed = this.delayed.filter(event => event.at > now);
     for (const event of due) event.run();
@@ -497,6 +584,7 @@ export class CoopWorld {
     this.stats.snapshotPackets += recipients;
     const alive = new Set(this.manager.alive.map(enemy => enemy.uid));
     for (const uid of this.selections.keys()) if (!alive.has(uid)) { this.selections.delete(uid); this.sight.delete(uid); this.routes.delete(uid); }
+    for (const uid of this.lastHitter.keys()) if (!alive.has(uid)) this.lastHitter.delete(uid);
   }
   selfDestruct(enemy: Enemy): void {
     if (!this.session.hosting) return;
@@ -505,6 +593,7 @@ export class CoopWorld {
   }
   dispose(): void {
     for (const off of this.off) off();
+    this.team.dispose();
     for (const replica of this.replicas.values()) if (replica.enemy.alive) this.manager.withdraw(replica.enemy);
     this.replicas.clear(); this.delayed = [];
   }

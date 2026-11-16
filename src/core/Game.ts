@@ -12,7 +12,7 @@ import { GameTime } from './time';
 import { noop } from './stubs';
 import type { Ctx, GameEvents, GameState, GameSystem } from './contracts';
 import './gameplay';
-import type {} from '../net';
+import type { Room } from '../net';
 import { reconnectMatch, resumedLobby, resumedMatch } from '../net/session';
 
 type Factory = (...args: never[]) => unknown;
@@ -97,7 +97,8 @@ export class Game {
   private freeRoamSkips(sys: GameSystem): boolean {
     const c = this.ctx;
     if (!c.coop) return false;
-    if (sys === c.allies || sys === c.contracts || sys === c.campaign) return true;
+    // The shop and its credits are each player's own, so a world-running mode keeps its contract on every browser.
+    if (sys === c.allies || sys === c.campaign || (sys === c.contracts && (c.coop.freeRoam || !c.coop.world))) return true;
     if (c.coop.freeRoam) return sys === c.enemies || sys === c.waves;
     return sys === c.waves && !c.coop.hosting;
   }
@@ -155,7 +156,9 @@ export class Game {
     // Behind a screen nothing moves but a slow dolly, so a laptop sitting on the menu should not pay for full rate.
     // A screen with a moving picture of its own (the Crucible shop's turning gun) gets the menu's rate.
     const moving = (c.render as { backdrop?: { still: boolean } | null }).backdrop?.still === false;
-    if (this.state === 'playing' || c.coop || c.time.frame % (this.state === 'menu' || moving ? 2 : 4) === 0) c.render.render();
+    // A hidden co-op tab is ticked by a worker (run) and draws nothing: there is nobody to see it.
+    const hidden = typeof document !== 'undefined' && document.hidden;
+    if (!hidden && (this.state === 'playing' || c.coop || c.time.frame % (this.state === 'menu' || moving ? 2 : 4) === 0)) c.render.render();
     c.input.endFrame?.();
   }
 
@@ -163,9 +166,9 @@ export class Game {
     let last = performance.now();
     let windowStart = last;
     let frames = 0;
-    const tick = (now: number) => {
-      requestAnimationFrame(tick);
-      if (this.ctx.coop?.world) this.ctx.time.clearScales();
+    const step = (now: number) => {
+      // Co-op: the host keeps only the slow-mo everyone shares, a guest none (net/world.ts clock()).
+      this.ctx.coop?.world?.clock();
       this.ctx.time.tick((now - last) / 1000);
       last = now;
       const t0 = performance.now();
@@ -178,7 +181,12 @@ export class Game {
         frames = 0;
       }
     };
+    const tick = (now: number) => {
+      requestAnimationFrame(tick);
+      step(now);
+    };
     requestAnimationFrame(tick);
+    keepTickingWhenHidden(() => !!this.ctx.coop, () => step(performance.now()));
   }
 
   stats(): Record<string, unknown> {
@@ -192,6 +200,33 @@ export class Game {
       enemies: c.enemies.alive?.length,
     };
   }
+}
+
+/**
+ * A hidden tab gets no animation frames, and its timers are throttled to once a second. In co-op that would freeze the
+ * host's world for everyone (and a guest's body and pose for the others). A dedicated worker's timer is not throttled the
+ * same way, and its messages wake the page, so while hidden in co-op the game steps at 30 Hz on them, without drawing.
+ * Chosen over silent keep-alive audio (unreliable once the audio context suspends, and the game suspends it when hidden)
+ * and over pausing everyone (the friends would sit frozen whenever the host alt-tabs).
+ */
+function keepTickingWhenHidden(active: () => boolean, step: () => void): void {
+  if (typeof document === 'undefined' || typeof Worker === 'undefined') return;
+  let worker: Worker | null = null;
+  const sync = () => {
+    const want = document.hidden && active();
+    if (want && !worker) {
+      try {
+        const url = URL.createObjectURL(new Blob(['setInterval(() => postMessage(0), 33);'], { type: 'text/javascript' }));
+        worker = new Worker(url);
+        URL.revokeObjectURL(url);
+        worker.onmessage = () => { if (document.hidden && active()) step(); else sync(); };
+      } catch { worker = null; }
+    } else if (!want && worker) {
+      worker.terminate();
+      worker = null;
+    }
+  };
+  document.addEventListener('visibilitychange', sync);
 }
 
 /** Where each boot stage starts on the loading bar, sized from measured timings so the bar moves at a steady rate. */
@@ -258,12 +293,12 @@ export async function startGame(params: URLSearchParams): Promise<void> {
   game.run();
   if (DEV_TOOLS) await build('lab', 'createLab', 'lab', ctx, game);
   if (ctx.coop) {
-    const hud = ctx.hud as Ctx['hud'] & { startRun(): void; quitToMenu(): void; screens: { coopEnded(message: string): void } };
-    ctx.coop.onEnded = message => {
+    const hud = ctx.hud as Ctx['hud'] & { startRun(): void; quitToMenu(): void; screens: { coopEnded(message: string, room: Room | null): void } };
+    ctx.coop.onEnded = (message, room) => {
       hud.quitToMenu();
-      hud.screens.coopEnded(message);
+      hud.screens.coopEnded(message, room);
     };
-    if (ctx.coop.lobby.phase === 'closed') ctx.coop.onEnded('The host left or the room could not reconnect.');
+    if (ctx.coop.lobby.phase === 'closed') ctx.coop.onEnded('The host left or the room could not reconnect.', null);
     else {
       hud.startRun();
       ctx.coop.begin();

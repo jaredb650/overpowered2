@@ -57,7 +57,8 @@ describe('co-op flag and single-player lifecycle', () => {
     const g = new Game(c); await init(g); g.newRun();
     expect(c.enemies.init).toHaveBeenCalledOnce();
     expect(c.waves.start).toHaveBeenCalledTimes(hosting ? 1 : 0);
-    expect(c.contracts.init).not.toHaveBeenCalled();
+    // Each player's own shop and credits run on every browser in a world mode.
+    expect(c.contracts.init).toHaveBeenCalledOnce();
     g.setState('paused'); c.time.tick(0.05); frame(g);
     expect(c.enemies.update).toHaveBeenCalledOnce();
     expect(c.waves.update).toHaveBeenCalledTimes(hosting ? 1 : 0);

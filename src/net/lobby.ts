@@ -12,7 +12,7 @@ import { defaultStarter, isStarter, type StarterGun } from '../contracts/starter
 import { decodePose, encodePose, type Pose } from './pose';
 import type { Channel, LobbyRooms, NetError, NetRoom } from './room';
 
-export type LobbyError = 'password' | 'version' | 'host-left' | 'no-host' | 'connect' | 'full';
+export type LobbyError = 'password' | 'version' | 'host-left' | 'no-host' | 'connect' | 'full' | 'relays' | 'lost' | 'code-taken';
 export type LobbyPhase = 'connecting' | 'open' | 'closed';
 
 export interface LobbyPlayer {
@@ -22,6 +22,10 @@ export interface LobbyPlayer {
   host: boolean;
   slot: number;
   starter?: StarterGun;
+  /** Round trip to the host in ms, measured by the host. The host's own is 0. */
+  ping?: number;
+  /** Back in the lobby page while the match goes on without them. */
+  away?: boolean;
 }
 
 /** `from` null is the lobby's own line: joins, leaves, warnings. */
@@ -44,10 +48,20 @@ export const validMatch = (m: unknown): m is Match => !!m && typeof m === 'objec
 type Msg =
   | { t: 'start'; match: Match }
   | { t: 'started'; id: string }
-  | { t: 'hello'; v: string; name: string; host: boolean; deployed?: boolean; starter?: StarterGun }
+  | { t: 'hello'; v: string; name: string; host: boolean; deployed?: boolean; starter?: StarterGun; born?: number }
   | { t: 'set'; name: string; ready: boolean; starter?: StarterGun }
   | { t: 'lobby'; you: string; players: LobbyPlayer[] }
-  | { t: 'chat'; from: string | null; text: string };
+  | { t: 'chat'; from: string | null; text: string }
+  /** Host to guest and back: the round trip is the ping, and any message at all is the heartbeat. */
+  | { t: 'ping'; n: number }
+  | { t: 'pong'; n: number }
+  /** The host already has four. */
+  | { t: 'full' }
+  /** The start countdown, in whole seconds; 0 is cancelled. */
+  | { t: 'count'; n: number }
+  /** Host: the match is over, everyone back to the lobby page. Guest: I left the match for the lobby page (`back` false) or want back in. */
+  | { t: 'end' }
+  | { t: 'away'; back: boolean };
 
 /** Through the door: the host saw this guest's password fail. */
 type DoorMsg = { t: 'wrong' };
@@ -59,6 +73,10 @@ const CHAT_KEEP = 40;
 export const HOST_WAIT_MS = 30_000;
 /** How long a guest waits in the main room before it asks at the door. A right password is in within about three. */
 export const DOOR_AFTER_MS = 5_000;
+export const PING_MS = 2_000;
+/** Silence after which a peer is gone, even if WebRTC has not noticed yet (a closed lid, a dropped Wi-Fi). */
+export const SILENCE_MS = 20_000;
+export const COUNTDOWN_S = 5;
 /** The host's own row. Guests are listed by their peer id. */
 const HOST_ID = 'host';
 
@@ -78,8 +96,23 @@ export class Lobby {
   match: Match | null = null;
   onMatch: (match: Match) => void = () => {};
   onPose: (id: string, pose: Pose) => void = () => {};
+  /** Every chat line as it arrives, for the in-game feed. */
+  onLine: (line: ChatLine) => void = () => {};
+  /** Seconds left on the host's start countdown, 0 when none runs. */
+  count = 0;
+  /** Guest: the match the host is still playing after this guest went back to the lobby page. */
+  awayFrom: Match | null = null;
+  /** Host ended the match: everyone's game goes back to the lobby page. */
+  onEnd: () => void = () => {};
   private starting = new Set<string>();
   private started = false;
+  private readonly heard = new Map<string, number>();
+  private pings = new Map<string, number>();
+  private beat: ReturnType<typeof setInterval> | null = null;
+  private nextBeat = 0;
+  /** When this lobby opened, so of two hosts on one code the newer one steps aside. */
+  private readonly born = Date.now() + Math.random();
+  private counter: ReturnType<typeof setInterval> | null = null;
   private readonly poses: Channel<ArrayBuffer>;
 
 
@@ -100,16 +133,17 @@ export class Lobby {
     this.ch = room.channel<Msg>('lobby');
     this.poses = room.channel<ArrayBuffer>('pose');
     this.poses.on((data, from) => {
+      this.heard.set(from, performance.now());
       if (this.phase !== 'open' || !this.match) return;
       const decoded = decodePose(data);
       if (!decoded) return;
       if (this.hosting) {
-        const player = this.players.find(p => p.id === from && !p.host);
+        const player = this.players.find(p => p.id === from && !p.host && !p.away);
         if (!player) return;
         this.onPose(player.id, decoded.pose);
         // Never trust a guest's claimed slot. Only the host stamps identities on relayed poses.
         const stamped = encodePose(decoded.pose, player.slot);
-        for (const p of this.players) if (!p.host && p.id !== from) this.poses.send(stamped, p.id);
+        for (const p of this.players) if (!p.host && !p.away && p.id !== from) this.poses.send(stamped, p.id);
       } else if (from === this.hostId) {
         const player = this.players.find(p => p.slot === decoded.slot && p.id !== this.you);
         if (player) this.onPose(player.id, decoded.pose);
@@ -124,12 +158,34 @@ export class Lobby {
       this.wait = setTimeout(() => this.close('no-host'), HOST_WAIT_MS);
       this.knock = setTimeout(() => this.openDoor(), DOOR_AFTER_MS);
     }
-    room.onPeerJoin(id => this.ch.send({ t: 'hello', v: build, name: this.name, host: hosting, deployed, starter: this.starter }, id));
+    room.onPeerJoin(id => this.ch.send({ t: 'hello', v: build, name: this.name, host: hosting, deployed, starter: this.starter, born: this.born }, id));
     room.onPeerLeave(id => this.peerLeft(id));
     room.onError((error, peerId) => this.netError(error, peerId));
     this.ch.on((msg, from) => {
-      if (this.phase !== 'closed' && msg && typeof msg === 'object') this.receive(msg, from);
+      this.heard.set(from, performance.now());
+      if (this.phase !== 'closed' && msg && typeof msg === 'object' && typeof msg.t === 'string') this.receive(msg, from);
     });
+    this.beat = setInterval(() => this.heartbeat(), PING_MS);
+  }
+
+  /** Every PING_MS: the host pings each guest, and either side drops a peer that has gone silent. */
+  heartbeat(now = performance.now()): void {
+    // Also called every game frame, which a hidden tab's worker keeps ticking when its timers are throttled.
+    if (this.phase !== 'open' || now < this.nextBeat) return;
+    this.nextBeat = now + PING_MS - 50;
+    if (!this.hosting) {
+      if (this.hostId && now - (this.heard.get(this.hostId) ?? now) > SILENCE_MS) this.close('lost');
+      return;
+    }
+    for (const p of this.players) {
+      if (p.host) continue;
+      const last = this.heard.get(p.id) ?? now;
+      if (!this.heard.has(p.id)) this.heard.set(p.id, now);
+      if (now - last > SILENCE_MS) { this.peerLeft(p.id); continue; }
+      this.pings.set(p.id, now);
+      this.ch.send({ t: 'ping', n: now }, p.id);
+    }
+    this.broadcast();
   }
 
   get me(): LobbyPlayer | undefined {
@@ -163,6 +219,7 @@ export class Lobby {
   startMatch(mode: CoopMode, id: string = crypto.randomUUID(), map?: CoopMap): boolean {
     if (!this.hosting || this.phase !== 'open' || this.match || !COOP_MODES.includes(mode)) return false;
     if (map !== undefined && !COOP_MAPS.includes(map)) return false;
+    this.stopCount();
     for (const player of this.players) player.starter ??= defaultStarter(mode);
     this.broadcast();
     this.match = map ? { id, mode, map } : { id, mode };
@@ -172,30 +229,91 @@ export class Lobby {
     return true;
   }
 
+  /**
+   * Host: Start counts down COUNTDOWN_S seconds out loud for everyone, then starts. Pressed again, it cancels. A guest who
+   * is not ready yet sees the count and can still ready up; nobody is held back by it.
+   */
+  countdown(mode: CoopMode, map?: CoopMap, seconds = COUNTDOWN_S): boolean {
+    if (!this.hosting || this.phase !== 'open' || this.match) return false;
+    if (this.count) {
+      this.stopCount();
+      this.post(null, 'Start cancelled.');
+      return true;
+    }
+    this.count = seconds;
+    const tick = () => {
+      for (const p of this.players) if (!p.host) this.ch.send({ t: 'count', n: this.count }, p.id);
+      this.onChange();
+    };
+    tick();
+    this.counter = setInterval(() => {
+      if (--this.count > 0) return tick();
+      this.stopCount();
+      this.startMatch(mode, undefined, map);
+    }, 1000);
+    return true;
+  }
+
+  private stopCount(): void {
+    if (this.counter) clearInterval(this.counter);
+    this.counter = null;
+    const was = this.count;
+    this.count = 0;
+    if (was) for (const p of this.players) if (!p.host) this.ch.send({ t: 'count', n: 0 }, p.id);
+  }
+
+  /** Host: the match is over for everyone, and the room stays open for the next one. */
+  endMatch(): void {
+    if (!this.hosting || !this.match) return;
+    this.match = null;
+    this.started = false;
+    this.starting.clear();
+    for (const p of this.players) {
+      p.away = false;
+      if (!p.host) this.ch.send({ t: 'end' }, p.id);
+    }
+    this.broadcast();
+  }
+
+  /** Guest: back to the lobby page while the host plays on (`back` false), or back into that match (`back` true). */
+  away(back: boolean): void {
+    if (this.hosting || !this.hostId || this.phase !== 'open') return;
+    if (!back && this.match) { this.awayFrom = this.match; this.match = null; }
+    if (back) this.awayFrom = null;
+    this.ch.send({ t: 'away', back }, this.hostId);
+  }
+
   sendPose(pose: Pose): void {
     if (this.phase !== 'open' || !this.match || !this.me) return;
     const data = encodePose(pose, this.me.slot);
     if (this.hosting) {
-      for (const p of this.players) if (!p.host) this.poses.send(data, p.id);
+      for (const p of this.players) if (!p.host && !p.away) this.poses.send(data, p.id);
     } else if (this.hostId) this.poses.send(data, this.hostId);
   }
 
   gameplay<T>(name: 'world' | 'action', receive: (data: T, from: string) => void): (data: T, to?: string) => number {
     const channel = this.room.channel<{ match: string; data: T } | ArrayBuffer | Uint8Array>(name);
     channel.on((message, from) => {
+      this.heard.set(from, performance.now());
       if (this.phase !== 'open' || !this.match) return;
       const binary = message instanceof ArrayBuffer ? message : message instanceof Uint8Array ? message.slice().buffer : null;
       if (!binary && (message as { match: string } | null)?.match !== this.match.id) return;
-      if (this.hosting ? this.players.some(player => !player.host && player.id === from) : from === this.hostId) receive((binary ?? (message as { data: T }).data) as T, from);
+      if (this.hosting ? this.players.some(player => !player.host && !player.away && player.id === from) : from === this.hostId) receive((binary ?? (message as { data: T }).data) as T, from);
     });
     return (data, to) => {
       if (this.phase !== 'open' || !this.match) return 0;
       const message = data instanceof ArrayBuffer ? data : { match: this.match.id, data };
-      const recipients = this.hosting ? this.players.filter(player => !player.host && (!to || player.id === to)).map(player => player.id)
+      const recipients = this.hosting ? this.players.filter(player => !player.host && !player.away && (!to || player.id === to)).map(player => player.id)
         : this.hostId ? [this.hostId] : [];
       for (const id of recipients) channel.send(message, id);
       return recipients.length;
     };
+  }
+
+  /** Who answers for which peer id: lets the game drop lanes from guests who have gone back to the lobby. */
+  inMatch(id: string): boolean {
+    const p = this.players.find(player => player.id === id);
+    return !!p && !p.away;
   }
 
   private finishStart(): void {
@@ -207,6 +325,16 @@ export class Lobby {
 
   leave(): void {
     this.close(null);
+  }
+
+  /** Host: a line from the lobby itself (amber, no name), for everyone. */
+  notice(text: string): void {
+    if (this.hosting && this.phase === 'open') this.post(null, clean(text, CHAT_MAX));
+  }
+
+  /** The players' round trips, as the host measured them. */
+  pingOf(id: string): number | undefined {
+    return this.players.find(p => p.id === id)?.ping;
   }
 
   /** Sends this player's own name and ready, kept here: the list from the host can lag a change still on its way. */
@@ -234,14 +362,22 @@ export class Lobby {
     if ((!this.hosting && this.deployed && !msg.deployed) || (this.hosting && this.match && !this.deployed && msg.deployed)) return;
     const sameBuild = msg.v === this.build;
     if (this.hosting) {
-      if (msg.host || this.players.some(p => p.id === from)) return;
+      // Two hosts on one code: the newer, still empty lobby steps aside so guests are never split between them.
+      if (msg.host) return void (!this.deployed && this.players.length === 1 && !this.match && Number(msg.born) < this.born && this.close('code-taken'));
+      if (this.players.some(p => p.id === from)) return;
       const name = clean(msg.name, NAME_MAX) || 'PLAYER';
       // The guest sees the mismatch on its own side and stops; the host only notes it.
       if (!sameBuild) return this.post(null, `${name} could not join: different game version. They need to reload.`);
-      if (this.players.length >= MAX_PLAYERS) return;
+      if (this.players.length >= MAX_PLAYERS) {
+        this.ch.send({ t: 'full' }, from);
+        return this.post(null, `${name} could not join: the lobby is full.`);
+      }
       const slot = [1, 2, 3].find(s => !this.players.some(p => p.slot === s))!;
       this.players.push({ id: from, name, ready: false, host: false, slot, starter: isStarter(msg.starter) ? msg.starter : undefined });
-      this.post(null, `${name} joined.`);
+      this.heard.set(from, performance.now());
+      // A guest back from the page handoff is not news; one arriving mid-match is.
+      if (!msg.deployed) this.post(null, this.match ? `${name} joined the match in progress.` : `${name} joined.`);
+      else this.broadcast();
       if (this.match) this.ch.send({ t: 'start', match: this.match }, from);
       return;
     }
@@ -271,10 +407,29 @@ export class Lobby {
     } else if (msg.t === 'chat') {
       const text = clean(msg.text, CHAT_MAX);
       if (text) this.post(player.name, text);
+    } else if (msg.t === 'pong' && msg.n === this.pings.get(from)) {
+      player.ping = Math.round(Math.min(9999, Math.max(0, performance.now() - msg.n)));
+    } else if (msg.t === 'away' && typeof msg.back === 'boolean') {
+      if (player.away === !msg.back) return;
+      player.away = !msg.back;
+      this.post(null, msg.back ? `${player.name} is back in the match.` : `${player.name} went back to the lobby.`);
+      if (msg.back && this.match) this.ch.send({ t: 'start', match: this.match }, from);
     }
   }
 
   private fromHost(msg: Msg): void {
+    if (msg.t === 'ping' && Number.isFinite(msg.n)) return this.ch.send({ t: 'pong', n: msg.n }, this.hostId!);
+    if (msg.t === 'full') return this.close('full');
+    if (msg.t === 'count' && Number.isInteger(msg.n) && msg.n >= 0 && msg.n <= 30) {
+      this.count = msg.n;
+      return this.onChange();
+    }
+    if (msg.t === 'end') {
+      this.match = this.awayFrom = null;
+      this.started = false;
+      this.onEnd();
+      return this.onChange();
+    }
     if (msg.t === 'start' && validMatch(msg.match)) {
       // A duplicate start (or a late join) must never reset a live run.
       if (this.match && this.match.id !== msg.match.id) return;
@@ -288,6 +443,8 @@ export class Lobby {
         id: clean(p?.id, 64),
         name: clean(p?.name, NAME_MAX) || 'PLAYER',
         ready: p?.ready === true,
+        ping: Number.isFinite(p?.ping) ? Math.max(0, Math.min(9999, Math.round(p.ping!))) : undefined,
+        away: p?.away === true,
         starter: isStarter(p?.starter) ? p.starter : undefined,
         host: p?.host === true,
         slot: Number.isInteger(p?.slot) && p.slot >= 0 && p.slot < MAX_PLAYERS ? p.slot : -1,
@@ -306,6 +463,7 @@ export class Lobby {
     }
     const player = this.players.find(p => p.id === id);
     if (!player) return;
+    this.heard.delete(id);
     this.players = this.players.filter(p => p !== player);
     this.post(null, `${player.name} left.`);
     this.starting.delete(id);
@@ -342,7 +500,8 @@ export class Lobby {
         if (this.atDoor.has(peerId)) this.doorCh?.send({ t: 'wrong' }, peerId);
       }
       if (error === 'password') this.post(null, 'Someone tried to join with the wrong password.');
-      else if (error === 'connect') this.post(null, 'A player found the lobby but could not connect. Their network may need a relay server.');
+      else if (error === 'connect') this.post(null, 'A player found the lobby but your networks could not connect directly. Set up TURN (docs/notes/coop.md) or try another network.');
+      else if (error === 'relays' && this.players.length === 1) this.close('relays');
       return;
     }
     // Once in, another guest's bad password or bad network is not this player's problem.
@@ -359,6 +518,7 @@ export class Lobby {
   private addLine(from: string | null, text: string, notify = true): void {
     this.chat.push({ from, text });
     if (this.chat.length > CHAT_KEEP) this.chat.shift();
+    this.onLine({ from, text });
     if (notify) this.onChange();
   }
 
@@ -376,6 +536,9 @@ export class Lobby {
     if (this.phase === 'closed') return;
     this.phase = 'closed';
     this.error = error;
+    if (this.beat) clearInterval(this.beat);
+    this.beat = null;
+    this.stopCount();
     this.clearWait();
     this.shutDoor();
     this.room.leave();

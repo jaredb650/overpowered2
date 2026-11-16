@@ -10,7 +10,8 @@ export interface Channel<T> {
 }
 
 /** What can go wrong that the player must hear about. */
-export type NetError = 'password' | 'connect' | 'full';
+/** 'relays': no public Nostr relay answered, so nobody can be found at all. */
+export type NetError = 'password' | 'connect' | 'full' | 'relays';
 
 export interface NetRoom {
   channel<T>(name: string): Channel<T>;

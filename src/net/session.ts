@@ -7,6 +7,8 @@ interface Handoff { code: string; password: string; name: string; hosting: boole
 const KEY = 'op2_coop_match';
 export let resumedLobby: Lobby | null = null;
 export let resumedMatch: Match | null = null;
+/** The room the match was played in, so leaving the match lands back in its lobby rather than the main menu. */
+export let resumedRoom: { code: string; password: string } | null = null;
 
 export function deployMatch(code: string, password: string, lobby: Lobby, match: Match): void {
   const handoff: Handoff = { code, password, name: lobby.me?.name ?? 'PLAYER', hosting: lobby.hosting, match, starter: lobby.me?.starter ?? selectedStarter(match.mode) };
@@ -32,7 +34,8 @@ export async function reconnectMatch(): Promise<void> {
       || (new URLSearchParams(location.search).get('map') ?? undefined) !== data.match.map) return;
     const { openLobby } = await import('./trystero');
     resumedMatch = data.match;
-    resumedLobby = new Lobby(openLobby(data.code, data.password), data.hosting, data.name, BUILD, true, isStarter(data.starter) ? data.starter : selectedStarter(data.match.mode));
+    resumedRoom = { code: data.code, password: data.password };
+    resumedLobby = new Lobby(await openLobby(data.code, data.password), data.hosting, data.name, BUILD, true, isStarter(data.starter) ? data.starter : selectedStarter(data.match.mode));
     if (data.hosting) resumedLobby.startMatch(data.match.mode, data.match.id, data.match.map);
   } catch (error) {
     console.warn('[coop] Could not resume the room', error);
@@ -43,5 +46,6 @@ export async function reconnectMatch(): Promise<void> {
 export function clearSession(): void {
   resumedLobby = null;
   resumedMatch = null;
+  resumedRoom = null;
   try { sessionStorage.removeItem(KEY); } catch { /* blocked storage */ }
 }

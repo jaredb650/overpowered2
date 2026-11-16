@@ -3,6 +3,7 @@ import type { Ctx } from '../../core/contracts';
 import { adoptLoading } from '../boot';
 import { div } from '../dom';
 import type { Hud } from '../Hud';
+import type { Room } from '../../net';
 import type { Settings } from '../settings';
 import { Nav } from './nav';
 import { GameOverScreen } from './gameover';
@@ -50,7 +51,7 @@ export class Screens {
   constructor(ctx: Ctx, hud: Hud, settings: Settings) {
     this.nav = new Nav(ctx);
     this.loadingScreen = adoptLoading();
-    this.pauseScreen = new PauseScreen(hud, () => !!ctx.coop);
+    this.pauseScreen = new PauseScreen(hud, () => !!ctx.coop, () => !!ctx.coop?.hosting);
     this.shopScreen = new ShopScreen(ctx, hud);
     this.screens = {
       loading: this.loadingScreen,
@@ -105,9 +106,12 @@ export class Screens {
     this.show('menu');
   }
 
-  coopEnded(message: string): void {
+  /** Out of a co-op match: back on the lobby page of the same room when it is still open, else Multiplayer with why. */
+  coopEnded(message: string, room: Room | null = null): void {
     this.show('coop');
-    (this.screens.coop as CoopScreen).showMessage(message);
+    const screen = this.screens.coop as CoopScreen;
+    if (room) screen.adopt(room.lobby, room.code, room.password, message);
+    else screen.showMessage(message);
   }
 
   /** Outpost Defense's buy menu for one shop. */

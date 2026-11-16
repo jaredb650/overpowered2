@@ -323,7 +323,7 @@ export class Hud implements HudSystem {
     this.tach.reset();
     this.tally.reset();
     this.tally.el.style.display = this.ctx.coop?.freeRoam ? 'none' : '';
-    if (this.shop) this.shop.el.style.display = this.ctx.coop ? 'none' : '';
+    if (this.shop) this.shop.el.style.display = this.ctx.coop?.freeRoam ? 'none' : '';
     if (this.defense) this.defense.el.style.display = this.ctx.coop ? 'none' : '';
     this.combo.reset();
     this.perks.reset();
@@ -420,7 +420,8 @@ export class Hud implements HudSystem {
 
   /** Outpost Defense's loadout or a shop: the run waits under it, as under pause, and Resume brings it back. */
   private openDefense(screen: 'loadout' | ShopId | 'procurement'): void {
-    if (this.ctx.coop) return;
+    // Co-op: only the Crucible's supply pod, each player's own, and it never pauses (setState keeps a co-op world live).
+    if (this.ctx.coop && (screen !== 'procurement' || !this.ctx.coop.world)) return;
     const game = this.game;
     if (!game || this.deathClock > 0 || (game.state !== 'playing' && game.state !== 'paused')) return;
     game.setState('paused');
@@ -445,11 +446,18 @@ export class Hud implements HudSystem {
   quitToMenu(): void {
     this.lockAfter = null;
     this.ctx.input.releaseLock?.();
-    this.ctx.coop?.leave();
+    // Co-op lands back in its lobby: the host ends the match for everyone, a guest steps out while the others play on.
+    const room = this.ctx.coop?.leave(true) ?? null;
     this.game?.clearRun();
     this.ctx.coop = undefined;
     this.game?.setState('menu');
     this.screens.show('menu');
+    if (room) this.screens.coopEnded('', room);
+  }
+
+  /** Co-op's own HUD (net/coopHud.ts) goes in with the rest, and hides with it. */
+  mount(el: HTMLElement): void {
+    this.hud.append(el);
   }
 
   private requestLock(after: 'run' | 'resume'): void {

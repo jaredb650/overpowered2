@@ -41,6 +41,7 @@ export class RunReport {
       this.hits++;
     });
     on.on('enemy:killed', e => {
+      if (ctx.coop?.world?.notMine(e.enemy)) return;
       // Every sword move is the sword, in a table of what did the killing.
       const source = e.damage.source.startsWith('sword') ? 'sword' : e.damage.source;
       this.weaponKills.set(source, (this.weaponKills.get(source) ?? 0) + 1);

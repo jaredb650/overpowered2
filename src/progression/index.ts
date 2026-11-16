@@ -122,9 +122,10 @@ class Progression implements ProgressionSystem {
 
     const { events } = ctx;
     // An ally's hits and kills (src/allies) pay nothing, move no combo and feed no perk: they are not the player's.
-    events.on('enemy:killed', e => { if (DevFlags.progression && !ALLY_SOURCE.test(e.damage.source)) this.onKill(e); });
-    events.on('enemy:hit', e => { if (DevFlags.progression && !ALLY_SOURCE.test(e.damage.source)) this.onHit(e.enemy, e.damage, e.result); });
-    events.on('enemy:severed', e => { if (DevFlags.progression && !ALLY_SOURCE.test(e.damage.source)) this.onSevered(e.enemy, e.damage); });
+    // Nor is a co-op teammate's (net/world.ts notMine): their own browser scores it.
+    events.on('enemy:killed', e => { if (DevFlags.progression && !ALLY_SOURCE.test(e.damage.source) && !ctx.coop?.world?.notMine(e.enemy)) this.onKill(e); });
+    events.on('enemy:hit', e => { if (DevFlags.progression && !ALLY_SOURCE.test(e.damage.source) && !ctx.coop?.world?.notMine()) this.onHit(e.enemy, e.damage, e.result); });
+    events.on('enemy:severed', e => { if (DevFlags.progression && !ALLY_SOURCE.test(e.damage.source) && !ctx.coop?.world?.notMine()) this.onSevered(e.enemy, e.damage); });
     // A prisoner caught in a strike's splash is not the player's choice, so it earns nothing.
     events.on('enemy:executed', e => { if (DevFlags.progression && !ASSIST_SOURCES.test(e.kill.damage.source)) this.onExecuted(e.kill.enemy); });
     events.on('enemy:wounded', e => {
@@ -462,10 +463,9 @@ class Progression implements ProgressionSystem {
     this.callInsManager.update(real);
     this.stimKit.update(time.playerDt);
     this.frost.update(time.dt);
-    if (!this.ctx.coop?.world || this.ctx.coop.hosting) {
-      this.pickupsManager.update(real, this.perks.isActive('magnet'));
-      this.pods.update(real);
-    }
+    // In co-op every player has their own pickups, caches and supply pod: what one picks up is theirs alone.
+    this.pickupsManager.update(real, this.perks.isActive('magnet'));
+    this.pods.update(real);
 
     if (this.perks.isActive('regen')) {
       this.regenTick -= real;
@@ -499,7 +499,7 @@ class Progression implements ProgressionSystem {
     this.pickupsManager.clear();
     this.pods.clear();
     this.stimKit.reset();
-    if (!this.ctx.coop?.world || this.ctx.coop.hosting) this.pickupsManager.layout();
+    this.pickupsManager.layout();
     this.ctx.events.emit('combo:changed', { combo: 0 });
   }
 }

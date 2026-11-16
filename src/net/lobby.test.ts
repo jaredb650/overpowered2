@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DOOR_AFTER_MS, HOST_WAIT_MS, Lobby, cleanCode, inviteLink, newCode } from './lobby';
+import { COUNTDOWN_S, DOOR_AFTER_MS, HOST_WAIT_MS, Lobby, PING_MS, SILENCE_MS, cleanCode, inviteLink, newCode } from './lobby';
 import { encodePose, type Pose } from './pose';
 import type { NetError, NetRoom } from './room';
 
@@ -243,6 +243,61 @@ describe('co-op lobby', () => {
     expect(g.error).toBe('no-host');
   });
 
+  it('measures each guest\'s ping and shows it to everyone', () => {
+    const h = host(); const g = guest(); hub.flush();
+    vi.advanceTimersByTime(PING_MS); hub.flush();
+    vi.advanceTimersByTime(PING_MS); hub.flush();
+    expect(h.players[1]!.ping).toBeTypeOf('number');
+    expect(g.players[1]!.ping).toBe(h.players[1]!.ping);
+  });
+
+  it('drops a silent guest, and a guest stops with lost when the host goes silent', () => {
+    const h = host(); const g = guest(); hub.flush();
+    // The guest stops answering (a closed lid): nothing from it reaches the host.
+    (g as unknown as { ch: { send(): void } }).ch.send = () => {};
+    vi.advanceTimersByTime(SILENCE_MS + PING_MS * 2); hub.flush();
+    expect(h.players).toHaveLength(1);
+    expect(h.chat.at(-1)?.text).toBe('GUEST left.');
+  });
+
+  it('a guest stops with lost when the host goes silent', () => {
+    const h = host(); const g = guest(); hub.flush();
+    expect(g.phase).toBe('open');
+    (h as unknown as { ch: { send(): void } }).ch.send = () => {};
+    vi.advanceTimersByTime(SILENCE_MS + PING_MS * 2); hub.flush();
+    expect(g.phase).toBe('closed'); expect(g.error).toBe('lost');
+  });
+
+  it('a fifth player is told the lobby is full, at once', () => {
+    const h = host(); guest(); guest('pw', 'b1', 'G2'); guest('pw', 'b1', 'G3'); hub.flush();
+    expect(h.players).toHaveLength(4);
+    const fifth = guest('pw', 'b1', 'G4'); hub.flush();
+    expect(fifth.phase).toBe('closed'); expect(fifth.error).toBe('full');
+    expect(h.players).toHaveLength(4);
+  });
+
+  it('counts down for everyone before it starts, and a second press cancels', () => {
+    const h = host(); const g = guest(); hub.flush();
+    let started = 0; h.onMatch = () => started++;
+    expect(h.countdown('crucible')).toBe(true); hub.flush();
+    expect(g.count).toBe(COUNTDOWN_S);
+    vi.advanceTimersByTime(2000); hub.flush();
+    expect(g.count).toBe(COUNTDOWN_S - 2);
+    h.countdown('crucible'); hub.flush();
+    expect(h.count).toBe(0); expect(g.count).toBe(0);
+    vi.advanceTimersByTime(10_000); hub.flush();
+    expect(started).toBe(0);
+    h.countdown('crucible'); vi.advanceTimersByTime(COUNTDOWN_S * 1000); hub.flush();
+    expect(h.match?.mode).toBe('crucible');
+  });
+
+  it('a second host on the same code steps aside', () => {
+    const first = host(); hub.flush();
+    const second = host(); hub.flush();
+    expect([first.phase, second.phase].filter(p => p === 'closed')).toHaveLength(1);
+    expect([first.error, second.error]).toContain('code-taken');
+  });
+
   it("drops a guest's forged lobby list and junk", () => {
     const h = host();
     const g = guest();
@@ -347,6 +402,25 @@ describe('match start and live room', () => {
     deployedHost.leave(); hub.flush();
     expect(returning.error).toBe('host-left');
   });
+  it('ends a match back to the lobby for everyone, and a guest can step out and back in', () => {
+    const h = open(true, 'HOSTY'); const g = open(false, 'GUEST'); hub.flush();
+    h.startMatch('crucible', 'one'); hub.flush();
+    expect(g.match?.id).toBe('one');
+    // The guest steps out to the lobby page while the host plays on.
+    g.away(false); hub.flush();
+    expect(g.match).toBeNull(); expect(g.awayFrom?.id).toBe('one');
+    expect(h.players[1]!.away).toBe(true); expect(g.players[1]!.away).toBe(true);
+    let back = 0; g.onMatch = () => back++;
+    g.away(true); hub.flush();
+    expect(back).toBe(1); expect(g.match?.id).toBe('one'); expect(h.players[1]!.away).toBe(false);
+    // The host ends it: everyone is back in the open lobby and a new match can start.
+    let ended = 0; g.onEnd = () => ended++;
+    h.endMatch(); hub.flush();
+    expect(ended).toBe(1); expect(g.match).toBeNull(); expect(h.match).toBeNull();
+    expect(h.startMatch('crucible', 'two')).toBe(true); hub.flush();
+    expect(g.match?.id).toBe('two');
+  });
+
   it('rejects guest-forged starts', () => {
     const h = open(true, 'HOST'), g = open(false, 'GUEST'), g2 = open(false, 'THIRD'); hub.flush();
     hub.deliver((g2 as unknown as { room: FakeRoom }).room, 'lobby', { t: 'start', match: { id: 'fake', mode: 'defense' } });

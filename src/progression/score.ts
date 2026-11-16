@@ -177,7 +177,8 @@ export class ScoreKeeper {
   persist(): void {
     if (this.highScore <= this.storedHighScore) return;
     this.storedHighScore = this.highScore;
-    if (ACTIVE.ranked) writeHighScore(ACTIVE.def, this.highScore, ACTIVE.map);
+    // A co-op run is a team's, not a solo record.
+    if (ACTIVE.ranked && !this.ctx.coop) writeHighScore(ACTIVE.def, this.highScore, ACTIVE.map);
   }
 
   reset(): void {

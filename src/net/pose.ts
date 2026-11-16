@@ -2,7 +2,8 @@
 export const POSE_HZ = 20;
 export const POSE_MS = 1000 / POSE_HZ;
 export const INTERPOLATION_MS = 100;
-export const MOVES = ['walk', 'sprint', 'crouch', 'slide', 'airborne', 'wallrun'] as const;
+/** `wallrun` is a wall on the left, `wallrunR` on the right. `downed` is co-op's crawl, `revive` kneeling over a friend. */
+export const MOVES = ['walk', 'sprint', 'crouch', 'slide', 'airborne', 'wallrun', 'downed', 'mantle', 'wallrunR', 'revive'] as const;
 export type Move = typeof MOVES[number];
 export interface Pose {
   seq: number;
@@ -64,6 +65,12 @@ export class PoseBuffer {
     if (this.frames.length > 32) this.frames.shift();
     return true;
   }
+  /** Nothing new for `ms`: a frozen tab, a dropped link. The body is hidden rather than left standing as a statue. */
+  stale(now: number, ms = 3000): boolean {
+    const last = this.frames.at(-1);
+    return !last || now - last.at > ms;
+  }
+
   sample(now: number): Pose | null {
     const target = now - INTERPOLATION_MS;
     while (this.frames.length > 2 && this.frames[1]!.at <= target) this.frames.shift();

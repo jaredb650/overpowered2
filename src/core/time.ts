@@ -57,6 +57,13 @@ export class GameTime {
     if (r) r.releasing = true;
   }
 
+  /** Co-op's host: drops every slow-mo request `keep` refuses, and any hit-stop. The world is everyone's, so only shared slow-mo stays. */
+  keepScales(keep: (id: string) => boolean): void {
+    for (const id of this.requests.keys()) if (!keep(id)) this.requests.delete(id);
+    this.hitStopLeft = 0;
+    this.hitStopScale = 1;
+  }
+
   clearScales(): void {
     this.requests.clear();
     this.hitStopLeft = 0;

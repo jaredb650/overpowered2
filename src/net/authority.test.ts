@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { ClaimValidator, RespawnClock, selectTarget } from './authority';
+import { ClaimValidator, claimKind, selectTarget } from './authority';
+import { BLEED_MS, TeamLife, cleanCard, wiped } from './team';
 import type { HitClaim, Vec } from './worldProtocol';
 
 const eye: Vec = [0, 1.6, 0], target: Vec = [0, 1, -10];
@@ -56,14 +57,61 @@ describe('all-player enemy target selection', () => {
   });
 });
 
-describe('death and respawn epochs', () => {
-  it('starts one real-time countdown, respawns once and ignores stale damage', () => {
-    const life = new RespawnClock();
+describe('blast and call-in claims', () => {
+  const blast = (source: string): HitClaim => ({ ...claim(), damage: { ...claim().damage, type: 'explosive', source, amount: 300 } });
+  it('sorts claims by what made them', () => {
+    expect(claimKind('smg', 'bullet')).toBe('shot');
+    expect(claimKind('rocket', 'explosive')).toBe('blast');
+    expect(claimKind('airstrike', 'explosive')).toBe('assist');
+    expect(claimKind('ac130_105', 'explosive')).toBe('assist');
+  });
+  it('takes a grenade round a corner without a shot, but not a flood', () => {
+    const validator = new ClaimValidator();
+    expect(validator.validate('guest', blast('grenade'), 1000, eye, target, () => false)).toBe(true);
+    let accepted = 0;
+    for (let i = 0; i < 400; i++) if (validator.validate('guest', blast('grenade'), 1500, eye, target, () => true)) accepted++;
+    expect(accepted).toBeLessThan(200);
+    expect(validator.validate('guest', blast('grenade'), 2500, eye, target, () => true)).toBe(true);
+  });
+  it('takes a call-in only from a guest who called one in lately', () => {
+    const validator = new ClaimValidator();
+    expect(validator.validate('guest', blast('airstrike'), 1000, eye, target, () => false)).toBe(false);
+    validator.callIn('guest', 1000);
+    const far = blast('airstrike'); far.damage.point = [0, 1, -600];
+    expect(validator.validate('guest', far, 2000, eye, [0, 1, -600], () => false)).toBe(true);
+    expect(validator.validate('guest', blast('airstrike'), 400_000, eye, target, () => false)).toBe(false);
+    // A drop pod lands on its own clock.
+    expect(validator.validate('guest', blast('drop_pod'), 500_000, eye, target, () => false)).toBe(true);
+  });
+});
+
+describe('down, revive, bleed-out and respawn', () => {
+  it('goes down once, revives only from down, bleeds out on time and respawns the dead', () => {
+    const life = new TeamLife();
     expect(life.accepts(0)).toBe(true);
-    expect(life.die(100)).toBe(true); expect(life.die(150)).toBe(false);
-    expect(life.accepts(0)).toBe(false); expect(life.update(3599)).toBe(false);
-    expect(life.update(3600)).toBe(true); expect(life.update(5000)).toBe(false);
+    expect(life.fall(100)).toBe(true); expect(life.fall(150)).toBe(false);
+    expect(life.accepts(0)).toBe(false);
+    expect(life.revive()).toBe(true); expect(life.life).toBe(1); expect(life.revive()).toBe(false);
     expect(life.accepts(0)).toBe(false); expect(life.accepts(1)).toBe(true);
-    expect(life.die(6000)).toBe(true); expect(life.update(9500)).toBe(true); expect(life.life).toBe(2);
+    expect(life.fall(1000)).toBe(true);
+    expect(life.bleed(1000 + BLEED_MS - 1)).toBe(false);
+    expect(life.bleed(1000 + BLEED_MS)).toBe(true); expect(life.state).toBe('dead');
+    expect(life.revive()).toBe(false);
+    expect(life.respawn()).toBe(true); expect(life.state).toBe('up'); expect(life.life).toBe(2);
+    expect(life.respawn()).toBe(false);
+  });
+  it('wipes only when nobody at all is up', () => {
+    const a = new TeamLife(), b = new TeamLife();
+    expect(wiped([])).toBe(false);
+    a.fall(0);
+    expect(wiped([a, b])).toBe(false);
+    b.fall(0); b.bleed(BLEED_MS);
+    expect(wiped([a, b])).toBe(true);
+  });
+  it('clamps a card from another browser and refuses a bad slot', () => {
+    expect(cleanCard({ slot: 9 })).toBeNull();
+    expect(cleanCard('x')).toBeNull();
+    const card = cleanCard({ slot: 1, state: 'zombie', hp: -5, credits: 1e12, kills: NaN, max: 0, bleed: 99 })!;
+    expect(card).toMatchObject({ slot: 1, state: 'up', hp: 0, credits: 1e9, kills: 0, max: 100, bleed: 60 });
   });
 });

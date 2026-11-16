@@ -15,12 +15,19 @@ export interface EnemyFrame {
 export const WAVE_PHASES: readonly WavePhase[] = ['intermission', 'spawning', 'clearing', 'boss'];
 export interface WorldFrame { seq: number; wave: number; phase?: WavePhase; nextWaveIn?: number; enemies: EnemyFrame[] }
 export type WireDamage = Omit<DamageInfo, 'point' | 'dir' | 'slicePlaneNormal'> & { point: Vec; dir: Vec; slicePlaneNormal?: Vec };
+export type LifeState = 'up' | 'down' | 'dead';
+/** What one player shows the others: the teammates strip and the Tab board (team.ts). Clamped on arrival (`cleanCard`). */
+export interface Card {
+  slot: number; state: LifeState; bleed: number; life: number; hp: number; max: number; armor: number;
+  kills: number; score: number; credits: number; downs: number; revives: number; ping: number;
+}
 export interface HitClaim { t: 'hit'; shot: number; target: number; weapon: string; origin: Vec; damage: WireDamage }
 export type WorldEvent =
   | HitClaim
   | { t: 'fire'; shot: number; weapon: string; origin: Vec; dir: Vec; slot?: number }
   | { t: 'hitfx'; uid: number; damage: WireDamage; health: number; armor: number; blocked: boolean }
-  | { t: 'kill'; uid: number; id: EnemyId; at: Vec; yaw: number; damage: WireDamage; gib: boolean }
+  /** `by` is the killer's slot (-1 the world's own), `head` the host's headshot verdict: the killer's browser pays itself. */
+  | { t: 'kill'; uid: number; id: EnemyId; at: Vec; yaw: number; damage: WireDamage; gib: boolean; by?: number; head?: boolean }
   | { t: 'sever'; uid: number; region: GoreRegion; damage: WireDamage }
   | { t: 'hurt'; amount: number; from: Vec; type: string; source: string; life: number }
   | { t: 'life'; slot: number; alive: boolean; life: number }
@@ -28,7 +35,29 @@ export type WorldEvent =
   /** A line the host's rule table chose (src/enemies/outpost/chatter). Ids only: row, speaker, his name, rank and squad, and the dead man's name. */
   | { t: 'chatter'; uid: number; line: number; name: number; dead: number; rank: number; squad: string; slots?: Record<string, string>; voice?: number }
   /** The speaker `uid` was cut off `at` characters into his line. */
-  | { t: 'chatcut'; uid: number; at: number; radio?: boolean };
+  | { t: 'chatcut'; uid: number; at: number; radio?: boolean }
+  // --- Stage 3: the team (team.ts) ---
+  /** Guest to host: my card, 4 Hz. Host to guests: everyone's, 4 Hz, with the host's word on life, bleed and ping. */
+  | { t: 'card'; card: Card }
+  | { t: 'team'; list: Card[] }
+  /** Guest to host: I held E over this downed player. */
+  | { t: 'revive'; slot: number }
+  /** Host: this player is up again, revived (`by` the reviver's slot) or respawned at a new wave. */
+  | { t: 'up'; slot: number; life: number; how: 'revive' | 'respawn'; by: number }
+  /** Host: the waves' own events, replayed on guests so their shops, pods, banners and ammo follow the host's waves. */
+  | { t: 'wave'; kind: 'start' | 'clear'; wave: number; total: number; boss: boolean; bonus: number }
+  /** Host: nobody is up. The run is over for everyone; the cards are the final board. */
+  | { t: 'over'; wave: number; cards: Card[] }
+  /** Host to a rejoining guest: the purse and score they left with. */
+  | { t: 'restore'; credits: number; score: number; kills: number }
+  /** An explosion someone else's game made: drawn and heard here, never damaging (the host already counted it). */
+  | { t: 'boom'; at: Vec; kind: string; radius: number; slot?: number }
+  /** Someone called a strike or an aircraft in: a feed line for the others. */
+  | { t: 'callin'; id: string; slot?: number }
+  /** Guest to host: my slow-mo perk started (`on`) or ended. The host slows the world for everyone. */
+  | { t: 'slow'; id: string; on: boolean }
+  /** Host to guests: the host's tab went to the background (`on`) or came back. */
+  | { t: 'hidden'; on: boolean };
 
 export function encodeWorld(frame: WorldFrame): ArrayBuffer {
   const buffer = new ArrayBuffer(HEADER_BYTES + frame.enemies.length * ENEMY_BYTES);

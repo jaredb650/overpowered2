@@ -52,7 +52,7 @@ export class CrucibleShop {
   init(): void {
     const { events } = this.ctx;
     events.on('enemy:killed', e => {
-      if (paysFor(e.damage.source)) this.earn(killPay(e.headshot) + (e.enemy.isBoss ? BOSS_PAY : 0));
+      if (paysFor(e.damage.source) && !this.ctx.coop?.world?.notMine(e.enemy)) this.earn(killPay(e.headshot) + (e.enemy.isBoss ? BOSS_PAY : 0));
     });
     events.on('wave:clear', e => {
       const pay = wavePay(e.wave);

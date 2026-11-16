@@ -288,7 +288,7 @@ export class Weapons implements WeaponSystem, Guard {
       }
     });
     events.on('enemy:killed', e => {
-      if (e.damage.source.startsWith('sword') || isMelee(e.damage.source)) this.feedGun();
+      if ((e.damage.source.startsWith('sword') || isMelee(e.damage.source)) && !this.ctx.coop?.world?.notMine(e.enemy)) this.feedGun();
     });
     // Outpost Defense sells ammunition, so a wave's end gives none.
     events.on('wave:clear', () => { if (!ACTIVE.def.economy) this.liftReserves(); });

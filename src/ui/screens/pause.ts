@@ -16,7 +16,9 @@ export class PauseScreen implements Screen {
   private restart;
   private title = span('pz-title', 'Paused');
 
-  constructor(private readonly hud: Hud, private readonly isCoop: () => boolean = () => false) {
+  private quit = menuButton('Quit to menu', () => this.hud.quitToMenu());
+
+  constructor(private readonly hud: Hud, private readonly isCoop: () => boolean = () => false, private readonly isCoopHost: () => boolean = () => false) {
     this.restart = menuButton(MISSION_ID ? 'Restart mission' : 'Restart run', () => this.hud.startRun());
     this.items = [
       menuButton('Resume', () => this.hud.resume()),
@@ -24,7 +26,7 @@ export class PauseScreen implements Screen {
       menuButton('Settings', () => this.hud.screens.show('settings')),
       ...(MISSION_ID ? [menuButton('Restart from checkpoint', () => this.hud.restartCheckpoint())] : []),
       this.restart,
-      menuButton('Quit to menu', () => this.hud.quitToMenu()),
+      this.quit,
     ];
     const hint = span('pz-hint');
     this.stats = div('stats');
@@ -45,6 +47,8 @@ export class PauseScreen implements Screen {
     const coop = this.isCoop();
     this.title.textContent = coop ? 'Co-op menu · world live' : 'Paused';
     this.restart.el.style.display = coop ? 'none' : '';
+    // Co-op leaves for the lobby page, never the main menu.
+    this.quit.el.querySelector('.mi-t')!.textContent = !coop ? 'Quit to menu' : this.isCoopHost() ? 'End match (all to lobby)' : 'Leave match (to lobby)';
     nav.set(this.items.filter(i => !coop || i !== this.restart));
     nav.back = () => this.hud.resume();
     nav.left = nav.right = null;

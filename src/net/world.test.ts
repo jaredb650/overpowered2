@@ -60,7 +60,7 @@ function context() {
     alive.push(enemy); return enemy;
   });
   const player = { position: new THREE.Vector3(0, 0, 0), eye: new THREE.Vector3(0, 1.6, 0), forward: new THREE.Vector3(0, 0, -1),
-    velocity: new THREE.Vector3(), alive: true, health: 100, grounded: true,
+    velocity: new THREE.Vector3(), alive: true, health: 100, maxHealth: 100, armor: 0, grounded: true, downed: false, parked: false,
     reset: vi.fn(() => { player.alive = true; player.health = 100; }), teleport: vi.fn(),
     takeDamage: vi.fn((damage: PlayerDamage) => {
       player.health -= damage.amount;
@@ -71,7 +71,9 @@ function context() {
     applyDamage: vi.fn(), replayDeath: vi.fn((enemy: Enemy) => { enemy.alive = false; alive.splice(alive.indexOf(enemy), 1); }),
     placeReplica: vi.fn() };
   const ctx = { events, player, enemies: manager, weapons: { current: 'smg' }, waves: { wave: 1 }, physics: { raycast: vi.fn(() => null) },
-    world: { playerSpawns: [{ position: new THREE.Vector3(4, 0, 4), yaw: 0 }] }, hud: { feed: vi.fn() }, time: { dt: 0.016 },
+    world: { playerSpawns: [{ position: new THREE.Vector3(4, 0, 4), yaw: 0 }] }, hud: { feed: vi.fn(), follow: vi.fn(() => () => {}), callout: vi.fn() },
+    time: { dt: 0.016, realDt: 0.016, frame: 0 }, progression: { kills: 0, score: 0, headshots: 0, resume: vi.fn() }, contracts: { wallet: { credits: 0 } },
+    camera: { setSeat: vi.fn(), addTrauma: vi.fn() }, input: { pressed: vi.fn(() => false), isDown: vi.fn(() => false) },
     fx: { tracer: vi.fn(), muzzleFlash: vi.fn(), bloodHit: vi.fn(), impact: vi.fn() }, gore: { wound: vi.fn(), sever: vi.fn() },
     audio: { play: vi.fn() }, combat: { fireRay: vi.fn(), explode: vi.fn() } } as unknown as Ctx;
   return { ctx, manager, player };
@@ -86,7 +88,8 @@ function pair(beginGuest = true) {
   relay.flush(); hostLobby.startMatch('crucible', 'world-test'); relay.flush();
   const host = context(), guest = context();
   const root = new THREE.Group(); root.position.set(0, 0, -5);
-  const remote = { player: guestLobby.me, char: { root, anim: { play: vi.fn() } }, buffer: { sample: () => ({ velocity: [0, 0, 0], yaw: 0 }) } };
+  const remote = { player: guestLobby.me, char: { root, anim: { play: vi.fn() } }, buffer: { sample: () => ({ velocity: [0, 0, 0], yaw: 0 }) },
+    setTag: vi.fn(), muzzle: (v: THREE.Vector3) => v.copy(root.position) };
   const hs = { lobby: hostLobby, hosting: true, match: hostLobby.match, remotes: new Map([[guestLobby.you, remote]]) } as unknown as CoopSession;
   const gs = { lobby: guestLobby, hosting: false, match: guestLobby.match, remotes: new Map() } as unknown as CoopSession;
   const hw = new CoopWorld(host.ctx, hs), gw = new CoopWorld(guest.ctx, gs);
@@ -116,7 +119,7 @@ describe('host-authoritative world over the mocked lobby transport', () => {
     }
     game.relay.flush();
     expect(game.host.manager.applyDamage).not.toHaveBeenCalled();
-    expect(game.relay.packets.filter(packet => packet.lane === 'action')).toHaveLength(0);
+    expect(game.relay.packets.filter(packet => packet.lane === 'action' && (packet.data as { data: WorldEvent }).data.t === 'hit')).toHaveLength(0);
     game.hw.dispose(); game.gw.dispose();
   });
   it('tracks a renamed remote through a replacement character root', () => {
@@ -227,24 +230,148 @@ describe('host-authoritative world over the mocked lobby transport', () => {
     expect(heard).toHaveLength(1);
     game.hw.dispose(); game.gw.dispose();
   });
-  it('selects guests, computes enemy hits and respawns dead players without stopping host simulation', () => {
+  it('selects guests, computes enemy hits, downs a guest instead of killing them, and drops stale damage', () => {
     const game = pair(); const enemy = game.host.manager.spawn('husk', new THREE.Vector3(0, 0, -6));
     const sense = new PlayerSense(); game.hw.select(enemy, sense);
     expect(sense.position.z).toBe(-5); expect(game.hw.isRemoteTarget()).toBe(true);
     const hit = game.hw.enemyRay(new THREE.Vector3(0, 1, -10), new THREE.Vector3(0, 1, 2), 150, 'trooper');
     expect(hit).not.toBeNull(); game.relay.flush();
     expect(game.guest.player.alive).toBe(false);
-    expect(game.hw.lives.get(game.guestLobby.you)?.down).toBe(true);
-    game.hw.update(); game.relay.flush();
-    vi.advanceTimersByTime(3500); game.hw.update(); game.relay.flush();
-    expect(game.guest.player.reset).toHaveBeenCalledOnce(); expect(game.guest.player.alive).toBe(true);
+    expect(game.guest.player.downed).toBe(true);
+    expect(game.hw.team.lives.get(game.guestLobby.you)?.state).toBe('down');
+    // Down is not a target: the enemy turns to the host.
+    game.hw.select(enemy, sense);
+    expect(game.hw.isRemoteTarget()).toBe(false);
+    // Damage meant for the life before is dropped.
     const stale: WorldEvent = { t: 'hurt', life: 0, amount: 200, from: [0, 1, -10], type: 'bullet', source: 'trooper' };
     game.hostRoom.channel('action').send({ match: 'world-test', data: stale }); game.relay.flush();
-    expect(game.guest.player.health).toBe(100);
-    game.host.ctx.events.emit('player:died', { source: 'husk' });
-    vi.advanceTimersByTime(3500); game.hw.update(); game.relay.flush();
-    expect(game.host.player.reset).toHaveBeenCalledOnce();
+    expect(game.guest.player.takeDamage).toHaveBeenCalledTimes(1);
+    expect(game.hw.stats.snapshotPackets).toBe(0);
+    game.hw.update(); game.relay.flush();
     expect(game.hw.stats.snapshotPackets).toBeGreaterThan(0);
+    game.hw.dispose(); game.gw.dispose();
+  });
+});
+
+describe('stage 3: the team, the economy and what else crosses the wire', () => {
+  beforeEach(() => vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] }));
+  afterEach(() => vi.useRealTimers());
+  const send = (game: ReturnType<typeof pair>, from: 'host' | 'guest', data: WorldEvent) => {
+    (from === 'host' ? game.hostRoom : game.guestRoom).channel('action').send({ match: 'world-test', data }); game.relay.flush();
+  };
+  it("pays the killer: a guest's kill is not the host's, and the guest replays it as its own", () => {
+    const game = pair();
+    const enemy = game.host.manager.spawn('husk', new THREE.Vector3(0, 0, -10));
+    game.hw.update(); game.relay.flush();
+    const guestKills: unknown[] = [];
+    game.guest.ctx.events.on('enemy:killed', e => guestKills.push(e));
+    // The host applies the guest's claim; the kill it causes is attributed to the guest.
+    let duringKill: boolean | null = null;
+    game.host.manager.applyDamage.mockImplementation((target: Enemy) => {
+      target.alive = false;
+      game.host.ctx.events.emit('enemy:killed', { enemy: target, damage: { source: 'smg', point: target.center, dir: new THREE.Vector3(0, 0, -1), amount: 99, type: 'bullet', force: 1 }, headshot: true, gibbed: false } as never);
+    });
+    game.host.ctx.events.on('enemy:killed', e => { duringKill = game.hw.notMine(e.enemy); });
+    game.guest.ctx.events.emit('weapon:fired', { weapon: 'smg', origin: new THREE.Vector3(0, 1.6, -5), dir: new THREE.Vector3(0, 0, -1) } as never);
+    game.relay.flush();
+    game.gw.claim(game.guest.ctx.enemies.alive[0]!, { amount: 99, type: 'bullet', source: 'smg', point: game.guest.ctx.enemies.alive[0]!.center.clone(), dir: new THREE.Vector3(0, 0, -1), force: 1 });
+    game.relay.flush();
+    expect(game.host.manager.applyDamage).toHaveBeenCalledOnce();
+    expect(duringKill).toBe(true);
+    expect(guestKills).toHaveLength(1);
+    expect((guestKills[0] as { headshot: boolean }).headshot).toBe(true);
+    // The host's own kill is its own, and is not replayed as a guest's.
+    const own = game.host.manager.spawn('husk', new THREE.Vector3(0, 0, -12));
+    game.host.ctx.events.emit('enemy:killed', { enemy: own, damage: { source: 'smg', point: own.center, dir: new THREE.Vector3(), amount: 1, type: 'bullet', force: 1 }, headshot: false, gibbed: false } as never);
+    expect(duringKill).toBe(false);
+    game.relay.flush();
+    expect(guestKills).toHaveLength(1);
+    expect(enemy.uid).toBeGreaterThan(0);
+    game.hw.dispose(); game.gw.dispose();
+  });
+  it('a guest revive only counts beside the downed player, and the revived get up where they lay', () => {
+    const game = pair();
+    game.host.ctx.events.emit('player:died', { source: 'husk' });
+    expect(game.hw.team.lives.get('host')?.state).toBe('down');
+    // The guest's body (pose) is 5 m away: too far.
+    send(game, 'guest', { t: 'revive', slot: 0 });
+    expect(game.hw.team.lives.get('host')?.state).toBe('down');
+    game.host.player.position.set(0, 0, -3);
+    send(game, 'guest', { t: 'revive', slot: 0 });
+    expect(game.hw.team.lives.get('host')?.state).toBe('up');
+    expect(game.host.player.alive).toBe(true); expect(game.host.player.health).toBe(40);
+    // A forged revive of someone who is up does nothing.
+    send(game, 'guest', { t: 'revive', slot: 0 });
+    expect(game.hw.team.lives.get('host')?.life).toBe(1);
+    game.hw.dispose(); game.gw.dispose();
+  });
+  it('bleeds out, wipes when nobody is up, and tells everyone', () => {
+    const game = pair();
+    const overs: number[] = [];
+    game.gw.team.onOver = (_cards, wave) => overs.push(wave);
+    game.host.ctx.events.emit('player:died', { source: 'husk' });
+    game.hw.update(); game.relay.flush();
+    expect(overs).toEqual([]);
+    game.guest.player.alive = false; game.guest.ctx.events.emit('player:died', { source: 'husk' }); game.relay.flush();
+    game.hw.update(); game.relay.flush();
+    expect(overs).toEqual([1]);
+    expect(game.gw.team.final?.length).toBe(2);
+    game.hw.dispose(); game.gw.dispose();
+  });
+  it('replays the waves on guests, respawns the dead with the next wave, and restores a rejoining purse', () => {
+    const game = pair();
+    const waves: string[] = [];
+    game.guest.ctx.events.on('wave:start', e => waves.push(`start ${e.wave}`));
+    game.guest.ctx.events.on('wave:clear', e => waves.push(`clear ${e.wave} ${e.bonus}`));
+    game.host.ctx.events.emit('wave:clear', { wave: 3, bonus: 500 }); game.relay.flush();
+    const life = game.hw.team.lives.get(game.guestLobby.you) ?? game.hw.team.life(game.guestLobby.you);
+    life.fall(0); life.bleed(Infinity);
+    game.host.ctx.events.emit('wave:start', { wave: 4, total: 20, boss: false }); game.relay.flush();
+    expect(waves).toEqual(['clear 3 500', 'start 4']);
+    expect(life.state).toBe('up');
+    expect(game.guest.player.teleport).toHaveBeenCalled();
+    send(game, 'host', { t: 'restore', credits: 1234, score: 5000, kills: 12 });
+    expect(game.guest.ctx.contracts.wallet).toMatchObject({ credits: 1234 });
+    expect(game.guest.ctx.progression.resume).toHaveBeenCalledWith(5000, 12, 0);
+    game.hw.dispose(); game.gw.dispose();
+  });
+  it("draws another player's explosion without damage, and relays it once", () => {
+    const game = pair();
+    const fx = game.host.ctx.fx as unknown as { explosion: ReturnType<typeof vi.fn> };
+    fx.explosion = vi.fn(); (game.guest.ctx.fx as unknown as { explosion: unknown }).explosion = vi.fn();
+    (game.host.ctx.camera as unknown as { addTrauma: unknown }).addTrauma = vi.fn();
+    send(game, 'guest', { t: 'boom', at: [0, 0, -20], kind: 'rocket', radius: 6 });
+    expect(fx.explosion).toHaveBeenCalledOnce();
+    expect(game.host.ctx.combat.explode).not.toHaveBeenCalled();
+    send(game, 'guest', { t: 'boom', at: [0, 0, -20], kind: 'notakind', radius: 6 });
+    send(game, 'guest', { t: 'boom', at: [0, 0, -20], kind: 'rocket', radius: 1e9 });
+    expect(fx.explosion).toHaveBeenCalledOnce();
+    game.hw.dispose(); game.gw.dispose();
+  });
+  it("slows the host's world for a guest's slow-mo, and only as long as it should", () => {
+    const game = pair();
+    const time = { pushScale: vi.fn(), popScale: vi.fn(), keepScales: vi.fn(), clearScales: vi.fn() };
+    Object.assign(game.host.ctx.time, time); Object.assign(game.guest.ctx.time, { clearScales: vi.fn() });
+    game.guest.ctx.events.emit('perk:start', { id: 'slowmo', seconds: 5, label: '', color: '' }); game.relay.flush();
+    expect(time.pushScale).toHaveBeenCalledWith(expect.stringMatching(/^coop:/), 0.25, 0.18, 0.4);
+    game.hw.clock();
+    const keep = time.keepScales.mock.calls[0]![0] as (id: string) => boolean;
+    expect([keep('slowmo'), keep('bossDeath'), keep('coop:x:slowmo'), keep('fanSlowmo'), keep('focus')]).toEqual([true, true, true, false, false]);
+    vi.advanceTimersByTime(9000); game.hw.clock();
+    expect(time.popScale).toHaveBeenCalled();
+    game.gw.clock();
+    expect(game.guest.ctx.time.clearScales).toHaveBeenCalled();
+    game.hw.dispose(); game.gw.dispose();
+  });
+  it('survives junk from a peer: wrong types, missing fields, huge numbers', () => {
+    const game = pair();
+    const junk: unknown[] = [null, 7, 'x', [], { t: 9 }, { t: 'kill' }, { t: 'hurt', amount: 'lots' }, { t: 'team', list: 'no' }, { t: 'team', list: [{ slot: 'a' }] },
+      { t: 'up', slot: 99, life: 1 }, { t: 'wave', kind: 'start', wave: -1 }, { t: 'over', cards: 3 }, { t: 'restore', credits: 'x' }, { t: 'boom', at: 'here' },
+      { t: 'callin', id: 42 }, { t: 'hitfx', uid: 'q' }, { t: 'sever', uid: 1, region: 'soul' }, { t: 'chatter', line: 1e9 }, { t: 'card', card: null },
+      { t: 'revive', slot: -4 }, { t: 'slow', id: 'x', on: 'yes' }, { t: 'hit', target: 'all' }, { t: 'life', alive: 'no' }];
+    for (const data of junk) { send(game, 'host', data as WorldEvent); send(game, 'guest', data as WorldEvent); }
+    expect(game.host.player.alive).toBe(true); expect(game.guest.player.alive).toBe(true);
+    expect(game.hw.team.final).toBeNull();
     game.hw.dispose(); game.gw.dispose();
   });
 });

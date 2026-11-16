@@ -30,6 +30,8 @@ const DOWN = new THREE.Vector3(0, -1, 0);
  * ticks, so a lock of exactly the move's length can end a frame early; the move gives the hands back itself when it ends.
  */
 const ARMS_SLACK = 0.25;
+/** Metres a second a downed co-op player crawls. */
+const CRAWL_SPEED = 1.3;
 const NEUTRAL_MODIFIERS: PlayerModifiers = { speed: 1, jump: 1, damageTaken: 1, invulnerable: false, infiniteDash: false };
 
 export class Player implements PlayerSystem {
@@ -70,6 +72,8 @@ export class Player implements PlayerSystem {
   /** Stuck to a wall after a climb with W still held, sliding down it, gun out. */
   clinging = false;
   alive = true;
+  /** Co-op (src/net/team.ts): at 0 health but not out. Looks around and crawls until a teammate revives or the bleed-out ends. */
+  downed = false;
   dashCharges = T.dashCharges;
   /** -1 wall on the left of the view, +1 on the right, 0 none. */
   wallSide = 0;
@@ -325,7 +329,7 @@ export class Player implements PlayerSystem {
       return;
     }
 
-    if (this.alive) {
+    if (this.alive || this.downed) {
       const scale = this.sensitivity * this.lookScale;
       const turn = -look.x * scale;
       this.yaw += this.clinging ? this.limitWallLook(turn) : turn;
@@ -456,7 +460,8 @@ export class Player implements PlayerSystem {
       return;
     }
     if (!this.alive) {
-      this.deadTick(h);
+      if (this.downed) this.crawlTick(h);
+      else this.deadTick(h);
       return;
     }
 
@@ -1987,6 +1992,15 @@ export class Player implements PlayerSystem {
 
   // --- Death ---------------------------------------------------------------------------------------------------
 
+  /** Co-op's downed crawl: the move keys at a crawl, nothing else. */
+  private crawlTick(h: number): void {
+    this.computeWish();
+    if (this.grounded) approachVector(this.v, this.wishX * CRAWL_SPEED, this.v.y, this.wishZ * CRAWL_SPEED, T.stopDecel * h);
+    else this.v.y -= T.gravity * h;
+    this.moveAndCollide(h);
+    this.categorize();
+  }
+
   private deadTick(h: number): void {
     if (this.grounded) approachVector(this.v, 0, 0, 0, T.stopDecel * 0.5 * h);
     else this.v.y -= T.gravity * h;
@@ -2151,6 +2165,7 @@ export class Player implements PlayerSystem {
     this.parked = false;
     this.parkGrace = 0;
     this.alive = true;
+    this.downed = false;
     this.health = this.maxHealth = T.maxHealth;
     this.armor = 0;
     this.lastDamageT = 0;
