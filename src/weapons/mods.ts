@@ -43,7 +43,7 @@ function rounds(gun: WeaponId, load: AmmoLoad): ModDef {
 export const MODS: Readonly<Record<ModId, ModDef>> = {
   awlAcog: { id: 'awlAcog', weapon: 'awl', name: 'ACOG', slot: 'sight', patch: { scope: false, ads: ACOG } },
   awlAp: rounds('awl', 'ap'), awlHp: rounds('awl', 'hp'),
-  awlCan: { id: 'awlCan', weapon: 'awl', name: 'Suppressor', patch: { muzzle: 'suppressed', sounds: [{ id: 'gimlet_suppressed_shot', pitch: 0.8, pitchJitter: 0.02 }] } },
+  awlCan: { id: 'awlCan', weapon: 'awl', name: 'Suppressor', patch: { muzzle: 'suppressed', sounds: [{ id: 'awl_suppressed_shot', pitchJitter: 0.02 }] } },
   // +100 rounds a minute (800 to 900) and a tenth more a round; its own quieter report and a small dim flash.
   suppressor: {
     id: 'suppressor', weapon: 'smg', name: 'Suppressor',

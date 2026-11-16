@@ -133,7 +133,7 @@ describe('the Awl scout', () => {
     }
     fit('awlCan');
     range.tap('fire');
-    expect(range.record.sounds).toContain('gimlet_suppressed_shot');
+    expect(range.record.sounds).toContain('awl_suppressed_shot');
     expect(moddedDef('awl', range.weapons.fitted).muzzle).toBe('suppressed');
     expect(moddedDef('awl', range.weapons.fitted).damage).toBe(180);
     expect(moddedDef('awl', range.weapons.fitted).tracer).toBe('scout');

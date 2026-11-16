@@ -5,11 +5,11 @@ falls behind the catalogue, or if any call site in `src/` uses an id that does n
 
 ## How to call it
 
-The Awl scout currently borrows existing samples, not newly recorded assets: `harrow_shot` at pitch 0.88 for its unsuppressed
-shot, `gimlet_suppressed_shot` at 0.8 with `awlCan`; `reload_bolt` at 0.12 and 0.84 s for lift/lock, `pump_rack_back` at
-0.30 s for extraction/ejection, `pump_rack_forward` at 0.65 s for chambering. These are stand-ins to replace with a scout
-report, a suppressed scout report and separate bolt lift/pull/push/lock recordings. Magazine reload uses the existing
-`reload_mag_out`, `reload_mag_in`, `reload_bolt`; the scope uses `autocannon_zoom`, the draw `weapon_draw`. No new audio ids.
+The Awl scout fires the owner's own recordings, `awl_shot` bare and `awl_suppressed_shot` with `awlCan` (see "The Awl's shots"
+below). Its bolt still borrows existing samples: `reload_bolt` at 0.12 and 0.84 s for lift/lock, `pump_rack_back` at
+0.30 s for extraction/ejection, `pump_rack_forward` at 0.65 s for chambering. These are stand-ins to replace with separate
+bolt lift/pull/push/lock recordings. Magazine reload uses the existing `reload_mag_out`, `reload_mag_in`, `reload_bolt`; the
+scope uses `autocannon_zoom`, the draw `weapon_draw`.
 
 ```ts
 ctx.audio.play('smg_fire');                                      // 2D (the player's own sounds)
@@ -333,6 +333,14 @@ at 0.155 on the ladder (loudness 0.206), between the SMG's 0.143 and the Harrow'
 launcher's shot (the owner's `glShot.mp3`, a real 192 kbit/s stereo MP3): mixed to mono, the first 49 ms of lead-in cut, faded out
 from 0.5 s and cut at 0.7 s, peaks under -1 dB, 160 kbit/s. On the `gun` mix at 0.19 on the ladder (loudness 0.27), over the bare
 Gimlet's 0.155 and under the shotguns' 0.2 to 0.25: one heavy round where the rifle is many light ones.
+
+**The Awl's shots** (2026-11-16, the owner's `scoutShot.mp3` and `scoutSuppressedShot.mp3`). `awl_shot` replaces the stand-in
+`harrow_shot` at pitch 0.88, `awl_suppressed_shot` (the `awlCan` mod) the stand-in `gimlet_suppressed_shot` at 0.8; both play at
+pitch 1. `scoutShot` was a 1 s stereo WAV at 40 kHz inside an `.mp3` name, `scoutSuppressedShot` a real 192 kbit/s stereo MP3 that
+starts on the report: mixed to mono at 44.1 kHz, the bare one's 97 ms of lead-in cut, faded out from 0.6 s and cut at 0.9 s, peaks
+to -1 dB, 160 kbit/s. `awl_shot` is on the `gun` mix at 0.21 on the ladder (loudness 0.24), a sniper's crack over the Harrow's
+0.165 and under the Sabot's 0.246, with more of the room (`send` 0.26); `awl_suppressed_shot` at 0.155 (loudness 0.461), about
+2.6 dB under, as the Gimlet's can is, with `send` 0.08.
 
 ## Sample packs
 

@@ -325,7 +325,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     interval: 0.95, damage: 180, severMult: 2, force: 28, headshotMult: 3, armour: 'medium',
     penetration: 0.8, muzzle: 'rifle', tracer: 'scout', casing: 'rifle',
     scope: true, scopeFov: 32,
-    sounds: [{ id: 'harrow_shot', pitch: 0.88, pitchJitter: 0.02 }],
+    sounds: [{ id: 'awl_shot', pitchJitter: 0.02 }],
     cycleTime: 0.95, cycleEject: 1,
     cycleFoley: [[0.12, 'reload_bolt'], [0.3, 'pump_rack_back'], [0.65, 'pump_rack_forward'], [0.84, 'reload_bolt']],
     recoil: 1, kick: 0.014, shake: 0.014, fovPunch: 1.1, impactScale: 1.3,

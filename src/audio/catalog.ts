@@ -218,8 +218,14 @@ const gunShots: SoundDef[] = [
   // the bare SMG, with less of it in the room, as the SMG's suppressor is.
   shot('gimlet_shot', 'guns/gimlet_shot.mp3', 'gun', 0.155, 0.206, { send: 0.2 }),
   shot('gimlet_suppressed_shot', 'guns/gimlet_suppressed_shot.mp3', 'gun', 0.115, 0.118, { send: 0.08 }),
+  // The Autoraffica (the owner's, 2026-11-16): a suppressed pistol fired three at a time, so under the suppressed SMG.
+  shot('autoraffica_shot', 'guns/autoraffica_shot.mp3', 'gun', 0.1, 0.243, { send: 0.08 }),
   // Its under-barrel launcher (the owner's, 2026-11-15): a heavier report than the rifle, under the shotguns.
   shot('launcher_thump', 'guns/launcher_thump.mp3', 'gun', 0.19, 0.27, { send: 0.2 }),
+  // The Awl (the owner's, 2026-11-16): a scout rifle's crack over the Harrow's 0.165 and under the Sabot's 0.246, with more of
+  // the room; through its can about 2.6 dB under, as the Gimlet's is.
+  shot('awl_shot', 'guns/awl_shot.mp3', 'gun', 0.21, 0.24, { send: 0.26 }),
+  shot('awl_suppressed_shot', 'guns/awl_suppressed_shot.mp3', 'gun', 0.155, 0.461, { send: 0.08 }),
   shot('auto_shotgun_shot', 'guns/auto_shotgun_shot.mp3', 'gun', 0.204, 0.259, { send: 0.18 }),
   shot('pump_shotgun_shot', 'guns/pump_shotgun_shot.mp3', 'gun', 0.234, 0.3, { send: 0.2 }),
   shot('hmg_shot', 'guns/hmg_shot.mp3', 'gun', 0.225, 0.25, { send: 0.3 }),
