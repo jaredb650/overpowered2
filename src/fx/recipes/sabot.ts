@@ -20,9 +20,16 @@ interface WakeFx {
   ring: Rgb;
 }
 
-export type WakeKind = 'sabot' | 'snipe';
+export type WakeKind = 'sabot' | 'snipe' | 'scout';
+
+export const WAKE_PROFILES = {
+  sabot: { width: 1, life: 1, opacity: 1, particles: 1, shock: 1 },
+  snipe: { width: 1, life: 1, opacity: 1, particles: 1, shock: 1 },
+  scout: { width: 0.28, life: 0.65, opacity: 0.5, particles: 0.4, shock: 0 },
+} as const;
 
 const WAKES: Record<WakeKind, WakeFx> = {
+  scout: { needle: hot(0xd6e1eb, 1.5), needleCore: 3, sheath: hot(0xa1b6cb, 0.15), vapor: hot(0xdfe6ee, 0.75), ring: hot(0xd8ecff, 1) },
   sabot: { needle: hot(0xbfe0ff, 4), needleCore: 12, sheath: hot(0x6fa8ff, 0.4), vapor: hot(0xdfe6ee, 0.95), ring: hot(0xd8ecff, 2.6) },
   // The enemy Sniper's laser is 0xff1040: the round that follows it is the same crimson, and its vapor has a rose cast.
   snipe: { needle: hot(0xff1040, 4), needleCore: 7, sheath: hot(0xff1040, 0.4), vapor: hot(0xf0c4cc, 0.95), ring: hot(0xff5070, 2.6) },
@@ -79,10 +86,11 @@ function spacing(eye: THREE.Vector3, from: THREE.Vector3, d: number): number {
 /** One segment of the round's flight: from the muzzle or a wall's far face, to what stopped it or the next wall. */
 export function wake(core: FxCore, from: THREE.Vector3, to: THREE.Vector3, kind: WakeKind): void {
   const f = WAKES[kind];
-  core.lines.beam(from, to, f.needle, 0.016, core.now, 0.16, f.needleCore, 1.6);
-  core.lines.beam(from, to, f.sheath, 0.03, core.now, 0.25, 1, 2);
+  const profile = WAKE_PROFILES[kind];
+  core.lines.beam(from, to, f.needle, 0.016 * profile.width, core.now, 0.16 * profile.life, f.needleCore, 1.6 * profile.width);
+  core.lines.beam(from, to, f.sheath, 0.03 * profile.width, core.now, 0.25 * profile.life, 1, 2 * profile.width);
   // The condensation thread: a hair of vapor that narrows to nothing. No pixel floor, so it fades rather than holding a line.
-  core.lines.beam(from, to, f.vapor, 0.012, core.now, 0.9, 0.3, 0);
+  core.lines.beam(from, to, f.vapor, 0.012 * profile.width, core.now, 0.9 * profile.life, 0.3, 0);
 
   _dir.subVectors(to, from);
   const dist = _dir.length();
@@ -93,7 +101,7 @@ export function wake(core: FxCore, from: THREE.Vector3, to: THREE.Vector3, kind:
 
   let want = 0;
   for (let d = 0; d < dist && want < PER_SEGMENT; d += spacing(eye, from, d)) want++;
-  const n = budget.take(core.now, want);
+  const n = budget.take(core.now, Math.ceil(want * profile.particles));
   if (n === 0) return;
   const stretch = want / n;
 
@@ -113,26 +121,26 @@ export function wake(core: FxCore, from: THREE.Vector3, to: THREE.Vector3, kind:
     // Out from the line (u) and round it (w): the wisps spread a few centimeters and the thread twists one way.
     const ux = _t.x * ca + _b.x * sa, uy = _t.y * ca + _b.y * sa, uz = _t.z * ca + _b.z * sa;
     const vx = _b.x * ca - _t.x * sa, vy = _b.y * ca - _t.y * sa, vz = _b.z * ca - _t.z * sa;
-    const out = rand(0.02, 0.06) * (0.6 + near);
-    const curl = rand(0.02, 0.05);
+    const out = rand(0.02, 0.06) * (0.6 + near) * profile.width;
+    const curl = rand(0.02, 0.05) * profile.width;
     // A slow kink along the length, a few meters long, so the hanging trail bends like a real one instead of staying ruled.
-    const kink = Math.sin(phase + d * 0.22) * 0.03;
+    const kink = Math.sin(phase + d * 0.22) * 0.03 * profile.width;
     const drag = rand(0.05, 0.15) * near;
     // The shooter must still see: near the eye the vapor is thinner and clears in under a second, or a mag of darts is two
     // seconds of haze on the crosshair. Past 15 m it hangs at full size.
     const e = Math.min(Math.max((eye.distanceTo(_p.copy(from).addScaledVector(_dir, d)) - 3) / 12, 0), 1);
     const clear = 0.3 + 0.7 * e;
-    const life = (0.65 + 0.45 * near) * rand(0.9, 1.1) * (0.6 + 0.4 * e);
-    const size = (0.07 + 0.07 * near) * rand(0.8, 1.25) * clear;
+    const life = (0.65 + 0.45 * near) * rand(0.9, 1.1) * (0.6 + 0.4 * e) * profile.life;
+    const size = (0.07 + 0.07 * near) * rand(0.8, 1.25) * clear * profile.width;
     const px = from.x + _dir.x * d + ux * 0.01, py = from.y + _dir.y * d + uy * 0.01, pz = from.z + _dir.z * d + uz * 0.01;
     const qx = ux * out + vx * curl + _dir.x * drag + _t.x * kink + wx;
     const qy = uy * out + vy * curl + _dir.y * drag + _t.y * kink;
     const qz = uz * out + vz * curl + _dir.z * drag + _t.z * kink + wz;
     // Lit wisps, premultiplied: down the line from the shooter's eye they stack to a grey body. Additive glows stacked to a white ball.
-    s.begin(f.vapor, 0.35 * (0.6 + 0.4 * e), core.birth, life, 0.025 * clear, size, 1.1, 0.03, 0.55, SmokeMode.Lit);
+    s.begin(f.vapor, 0.35 * (0.6 + 0.4 * e) * profile.opacity, core.birth, life, 0.025 * clear * profile.width, size, 1.1, 0.03, 0.55, SmokeMode.Lit);
     s.add(px, py, pz, qx, qy, qz, rand(-0.8, 0.8));
   }
-  airBurst(core, to, f);
+  if (profile.shock > 0) airBurst(core, to, f);
 }
 
 /** Where the round stops or leaves a wall: the air it pushed ahead of it, let go. */

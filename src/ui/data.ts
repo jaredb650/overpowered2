@@ -71,7 +71,12 @@ export const WEAPONS: Record<WeaponId, WeaponInfo> = {
   quiver: {
     name: 'Quiver', key: '3',
     role: `Four tubes. Hold to paint up to ${TUNING.quiver.marks} targets, let go and the missiles home on them`,
-    note: `Press 3 again to swap with the rocket. A tap fires all four straight; right click fires all four at once in a square. Each blast is ${TUNING.quiver.radius} m; all four on one target is a lot.`,
+    note: `Press 3 again to swap with the rocket. A tap fires all four straight; right click braids all four in a helix onto the aim point. Each blast is ${TUNING.quiver.radius} m; all four on one target is a lot.`,
+  },
+  awl: {
+    name: 'Awl', key: '4',
+    role: `Bolt-action scout. ${def.awl.damage} damage, ${def.awl.magSize} rounds, triple damage to the head`,
+    note: 'Key 4 beside the Sabot. Right click: 3.5x scout scope. Every shot needs the bolt closed before another. ACOG, suppressor and AP/HP in Procurement.',
   },
   sabot: {
     name: 'Sabot', key: '4',

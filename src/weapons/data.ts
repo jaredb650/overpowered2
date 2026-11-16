@@ -93,6 +93,7 @@ export interface WeaponDef {
   headHops?: number;
   /** Right click raises the scope, as on the autocannon. */
   scope?: boolean;
+  scopeFov?: number;
   /** Right click toggles a laser sight, and its rockets in flight steer for the crosshair while it is on. See laser.ts. */
   laser?: boolean;
   /**
@@ -156,6 +157,8 @@ export interface WeaponDef {
   reloadFoley: readonly ReloadCue[];
   /** Sounds after each shot, at seconds after it, for a gun that is cycled by hand between shots. */
   cycleFoley?: readonly ReloadCue[];
+  cycleTime?: number;
+  cycleEject?: number;
   drawSound: string;
   /** Viewmodel recoil strength passed to viewmodel.fire. */
   recoil: number;
@@ -315,6 +318,17 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     sounds: [{ id: 'sabot_shot', pitchJitter: 0.02 }],
     drawSound: 'weapon_draw_heavy', scope: true,
     recoil: 1.1, kick: 0.034, shake: 0.034, fovPunch: 3.4, killStop: HEAVY_KILL_STOP, impactScale: 2.2,
+  },
+  awl: {
+    ...BASE, id: 'awl', name: 'AWL', slot: 4, base: 'sabot', mode: 'semi',
+    magSize: 5, reserve: 50, maxReserve: 100, reloadTime: 1.65, drawTime: 0.22,
+    interval: 0.95, damage: 180, severMult: 2, force: 28, headshotMult: 3, armour: 'medium',
+    penetration: 0.8, muzzle: 'rifle', tracer: 'scout', casing: 'rifle',
+    scope: true, scopeFov: 32,
+    sounds: [{ id: 'harrow_shot', pitch: 0.88, pitchJitter: 0.02 }],
+    cycleTime: 0.95, cycleEject: 1,
+    cycleFoley: [[0.12, 'reload_bolt'], [0.3, 'pump_rack_back'], [0.65, 'pump_rack_forward'], [0.84, 'reload_bolt']],
+    recoil: 1, kick: 0.014, shake: 0.014, fovPunch: 1.1, impactScale: 1.3,
   },
   // The upgrade on key 4: a shoulder-fired 20 mm-class cannon fed by a clip of three shells from the top. Not owned with
   // the Sabot: a weapon cache brings it (CACHE_ORDER in progression), so it has no `base`. Reserve is in whole clips,
@@ -581,12 +595,10 @@ export const TUNING = {
     fan: 0.05,
     /** Cone of a dumb salvo, fired with no marks, around each tube's own line. */
     dumbSpread: 0.04,
-    /**
-     * Right click: all four at once, straight and unguided, in a 2 by 2 block `square` metres a side, each line opening
-     * `squareSpread` radians outward from the block's centre, so the square widens with range (1.8 m a side at 50 m).
-     */
     square: 0.6,
-    squareSpread: 0.012,
+    helixRadius: 0.7,
+    helixPitch: 15,
+    helixConvergence: 12,
     /**
      * Radians the line a missile steers for swings either side of its mark, side to side and half that up and down. It is
      * the heading's offset, so it is also about how far the heading swings: at 0.22 a low missile dived into the floor.

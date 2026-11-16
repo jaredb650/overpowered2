@@ -14,7 +14,7 @@ describe('family table', () => {
     expect(familyOfSlot(2)).toEqual(['shotgun', 'thresher', 'deuce']);
     expect(familyOfSlot(3)).toEqual(['rocket', 'quiver']);
     // The Sabot is first on key 4: the explosive autocannon is its upgrade.
-    expect(familyOfSlot(4)).toEqual(['sabot', 'autocannon']);
+    expect(familyOfSlot(4)).toEqual(['sabot', 'awl', 'autocannon']);
     expect(familyOfSlot(6)).toEqual(['judge', 'rivet', 'ultramag']);
     // Key 5: the katana alone. The four swung beside it are switched off (`?melee=four` brings them back).
     expect(familyOfSlot(5)).toEqual(['sword']);
@@ -36,7 +36,7 @@ describe('family table', () => {
     expect(membersOf('shotgun')).toEqual(['thresher', 'deuce']);
     expect(membersOf('rocket')).toEqual(['quiver']);
     // The autocannon is earned on its own, from a weapon cache: owning the Sabot does not bring it.
-    expect(membersOf('sabot')).toEqual([]);
+    expect(membersOf('sabot')).toEqual(['awl']);
     expect(WEAPONS.autocannon.base).toBeUndefined();
     expect(membersOf('sword')).toEqual([]);
   });
@@ -56,7 +56,8 @@ describe('family table', () => {
     expect(pressSlot(1, 'gimlet', all, undefined)).toBe('harrow');
     expect(pressSlot(1, 'harrow', all, undefined)).toBe('smg');
     expect(pressSlot(2, 'shotgun', all, undefined)).toBe('thresher');
-    expect(pressSlot(4, 'sabot', all, undefined)).toBe('autocannon');
+    expect(pressSlot(4, 'sabot', all, undefined)).toBe('awl');
+    expect(pressSlot(4, 'awl', all, undefined)).toBe('autocannon');
     expect(pressSlot(4, 'autocannon', all, undefined)).toBe('sabot');
     // The katana alone: key 5 again does nothing, even with the four owned.
     expect(pressSlot(5, 'sword', all, undefined)).toBeNull();

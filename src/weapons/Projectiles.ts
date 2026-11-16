@@ -12,10 +12,13 @@ import { SHAPED_CHARGE, SURFACE_SOUND, TUNING } from './data';
 import { closestSegmentPoints } from './geometry';
 import { damageKept, loadBudget, makeBudget, passBody, passWall, type Budget } from './penetration';
 import { retarget, turnToward, weave } from './swarm';
+import { helixOffset, type HelixSpec } from './helix';
 import { ROCKET_LASER } from './laser';
 import { ProjectileVisuals } from './ProjectileVisuals';
 
 const MAX_PROJECTILES = 256;
+const UP = new THREE.Vector3(0, 1, 0);
+const HELIX_SMOKE_STEP = 0.4;
 const PLAYER_RADIUS = 0.45;
 const WHIZZ_RADIUS = 3;
 const GRENADE_RADIUS = 0.11;
@@ -117,6 +120,11 @@ export interface Projectile {
   steerDelay: number;
   weave: number;
   weavePhase: number;
+  helix: HelixSpec | null;
+  helixTravel: number;
+  helixRight: THREE.Vector3;
+  helixUp: THREE.Vector3;
+  helixOffset: THREE.Vector3;
   accel: number;
   topSpeed: number;
   /** Seconds since launch. */
@@ -142,6 +150,7 @@ function createProjectile(): Projectile {
     budget: makeBudget(), baseDamage: 0, armorPiercing: false,
     target: null, turnRate: 0, line: new THREE.Vector3(), steerDelay: 0, weave: 0, weavePhase: 0, accel: 0, topSpeed: 0, age: 0, size: 1, wired: false,
     blastScale: undefined, blastShake: undefined,
+    helix: null, helixTravel: 0, helixRight: new THREE.Vector3(), helixUp: new THREE.Vector3(), helixOffset: new THREE.Vector3(),
   };
 }
 
@@ -260,6 +269,14 @@ export class Projectiles {
     p.steerDelay = spec.steerDelay ?? 0;
     p.weave = spec.weave ?? 0;
     p.weavePhase = rand(0, 6.28);
+    p.helix = spec.helix ? { ...spec.helix } : null;
+    p.helixTravel = 0;
+    p.helixOffset.set(0, 0, 0);
+    if (p.helix) {
+      p.helixRight.crossVectors(p.line, UP).normalize();
+      p.helixUp.crossVectors(p.helixRight, p.line).normalize();
+      helixOffset(p.helixOffset, p.helixRight, p.helixUp, p.helix, 0);
+    }
     p.accel = spec.accel ?? 0;
     p.topSpeed = spec.topSpeed ?? 0;
     p.age = 0;
@@ -337,7 +354,15 @@ export class Projectiles {
     const speed = p.velocity.length();
     if (speed < 1e-3) return;
     const dir = this.dir.copy(p.velocity).divideScalar(speed);
-    const len = speed * dt;
+    let len = speed * dt;
+    if (p.helix) {
+      p.helixTravel += len;
+      const next = helixOffset(this.want, p.helixRight, p.helixUp, p.helix, p.helixTravel);
+      dir.multiplyScalar(len).add(next).sub(p.helixOffset);
+      p.helixOffset.copy(next);
+      len = dir.length();
+      if (len > 0) dir.divideScalar(len);
+    }
     if (len <= 0) return;
 
     const wall = c.physics.raycast(p.position, dir, len, CG.World);
@@ -857,6 +882,17 @@ export class Projectiles {
         }
         break;
       case 'swarm':
+        if (p.helix) {
+          const gap = p.lastTrail.distanceTo(p.position);
+          const samples = Math.min(8, Math.floor(gap / HELIX_SMOKE_STEP));
+          if (samples === 0) break;
+          for (let sample = 1; sample <= samples; sample++) {
+            at.lerpVectors(p.lastTrail, p.position, sample * HELIX_SMOKE_STEP / gap);
+            fx.smoke(at, 0xd2d0cc, 0.2, 0.9);
+          }
+          p.lastTrail.lerp(p.position, samples * HELIX_SMOKE_STEP / gap);
+          break;
+        }
         // Thin and quick, so four of them are four lines and not one cloud.
         if (p.smokeClock >= 0.035 && p.position.distanceToSquared(p.lastTrail) > 0.09) {
           p.smokeClock = 0;

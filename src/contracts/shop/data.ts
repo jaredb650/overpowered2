@@ -138,6 +138,10 @@ const WEAPON_CATALOGUE: Readonly<Partial<Record<WeaponId, Ware>>> = {
     price: 2400, wave: 8,
     lore: 'Four missiles that find their own way to the target, which is more than the Council expects of its contractors.',
   },
+  awl: {
+    price: 950, wave: 2,
+    lore: 'Five rounds and a bolt you operate yourself. The Council has identified the missing automation as a saving.',
+  },
   sabot: {
     price: 1800, wave: 6,
     lore: 'Darts through armour, through walls and through whatever the walls were for. Supplied with the Council\'s condolences to the walls.',
@@ -159,6 +163,10 @@ export const WEAPON_WARE_ORDER = Object.keys(WEAPON_CATALOGUE) as WeaponId[];
 
 /** The mods for sale (src/weapons/mods.ts). Bought once, then fitted or taken off here, free, in any break. */
 export const MOD_WARES: Readonly<Record<ModId, Ware>> = {
+  awlAcog: { price: 600, wave: 2, lore: 'Four-power glass instead of the scout scope. Less tunnel. The same end of it.' },
+  awlAp: { price: 450, wave: 2, lore: 'Less to the man, more through his plate. Procurement calls this targeting.' },
+  awlHp: { price: 450, wave: 2, lore: 'More to the man, nothing through his plate. Please read the dress code.' },
+  awlCan: { price: 500, wave: 2, lore: 'For sending a personal message without notifying the entire department.' },
   suppressor: {
     price: 900, wave: 0,
     lore: 'Quieter, faster and a tenth more lethal: the Council\'s working definition of good manners. Complaints about the noise will not be received.',

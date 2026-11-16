@@ -383,7 +383,7 @@ describe('the Quiver in the weapon system', () => {
     expect(dealt).toBeGreaterThan(WEAPONS.rocket.damage * 2 * 3);
   });
 
-  it('right click fires all four at once, straight, in a 2 by 2 square that opens a little with range, and locks nothing', () => {
+  it('right click braids four unguided rockets around one flight line and converges on the aimed body', () => {
     r.enemies.add(0, -25);
     draw();
     r.tap('aim');
@@ -395,15 +395,19 @@ describe('the Quiver in the weapon system', () => {
     // Across the line of flight (-Z) the four sit on the corners of a square `square` a side.
     const corners = () => m.map(p => `${Math.sign(Math.round(p.position.x * 10))},${Math.sign(Math.round((p.position.y - 1) * 10))}`).sort();
     expect(corners()).toEqual(['-1,-1', '-1,1', '1,-1', '1,1']);
-    const width = () => Math.max(...m.map(p => p.position.x)) - Math.min(...m.map(p => p.position.x));
-    expect(width()).toBeCloseTo(T.square, 1);
-    const heading = m.map(p => p.velocity.clone().normalize());
-    r.run(0.4);
-    // Straight: each still on the line it left on, a few hundredths of a radian off the crosshair.
-    for (let i = 0; i < 4; i++) expect(m[i]!.velocity.clone().normalize().angleTo(heading[i]!)).toBeLessThan(1e-3);
-    for (const h of heading) expect(h.angleTo(new THREE.Vector3(0, 0, -1))).toBeLessThan(T.squareSpread * 2);
-    expect(width()).toBeGreaterThan(T.square);
-    expect(width()).toBeLessThan(T.square * 3);
+    const start = m[0]!.helixOffset.clone();
+    expect(m.every(p => p.helix?.pitch === T.helixPitch)).toBe(true);
+    r.run(0.15);
+    expect(m[0]!.helixOffset.angleTo(start)).toBeGreaterThan(0.5);
+    const centre = m.reduce((sum, rocket) => sum.add(rocket.position), new THREE.Vector3()).multiplyScalar(0.25);
+    expect(centre.x).toBeCloseTo(0, 5);
+    expect(centre.y).toBeCloseTo(1, 5);
+    const radii = m.map(p => Math.hypot(p.position.x, p.position.y - 1));
+    for (const radius of radii) expect(radius).toBeCloseTo(radii[0]!, 5);
+    expect(radii[0]).toBeLessThanOrEqual(T.helixRadius);
+    r.run(1);
+    expect(r.record.explosions).toBe(4);
+    expect(missiles()).toHaveLength(0);
   });
 
   it('right click with two tubes loaded fires the two', () => {

@@ -87,6 +87,7 @@ export const WEAPON_PRICES: Partial<Record<WeaponId, WeaponPrice>> = {
   stakegun: { price: 1100, loadout: 'primary', ammo: 'specialty', box: 220 },
   kiln: { price: 1200, loadout: 'primary', ammo: 'specialty', box: 200 },
   sabot: { price: 1400, loadout: 'primary', ammo: 'specialty', box: 300 },
+  awl: { price: 950, loadout: 'primary', ammo: 'basic', box: 110 },
   piledriver: { price: 1800, loadout: 'primary', ammo: 'specialty', box: 280 },
   buzzsaw: { price: 2600, loadout: 'primary', ammo: 'specialty', box: 260 },
   rivet: { price: 400, loadout: 'secondary', ammo: 'basic', box: 50 },

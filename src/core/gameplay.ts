@@ -10,6 +10,7 @@ import type RAPIER from '@dimforge/rapier3d-compat';
 import type { GoreRegion } from '../characters/rig';
 import type { ContractDef } from '../contracts/data';
 import type { Flight } from '../vehicles/flight';
+import type { HelixSpec } from '../weapons/helix';
 import type { AmmoLoad, CharacterInstance, DamageInfo, DamageType, ExplosionKind, GameSystem, MuzzleKind, TracerKind } from './contracts';
 
 // ---------------------------------------------------------------------------------------------
@@ -28,13 +29,13 @@ export type WeaponId =
   // The double-barrel on key 2 and the heavy pistol on key 6 (docs/proposals/weapons-update.md section 8).
   | 'deuce' | 'ultramag'
   // The carbine on key 1, between the SMG and the Harrow (docs/proposals/weapons-update.md section 11).
-  | 'gimlet';
+  | 'gimlet' | 'awl';
 
 /**
  * A weapon mod (src/weapons/mods.ts): the SMG's suppressor, the Harrow's red dot and ACOG, the Sabot's Raufoss rounds, the
  * Gimlet's ACOG, red dot, suppressor and under-barrel launcher, and AP and HP rounds for the SMG, the rifles and the pistols.
  */
-export type ModId = 'suppressor' | 'reddot' | 'raufoss' | 'harrowAcog' | 'gimletAcog' | 'gimletDot' | 'gimletCan' | 'gimletGl'
+export type ModId = 'awlAcog' | 'awlCan' | 'awlAp' | 'awlHp' | 'suppressor' | 'reddot' | 'raufoss' | 'harrowAcog' | 'gimletAcog' | 'gimletDot' | 'gimletCan' | 'gimletGl'
   | 'smgAp' | 'smgHp' | 'gimletAp' | 'gimletHp' | 'harrowAp' | 'harrowHp'
   | 'rivetAp' | 'rivetHp' | 'ultramagAp' | 'ultramagHp' | 'judgeAp' | 'judgeHp';
 
@@ -359,6 +360,7 @@ export interface ProjectileSpec {
   steerDelay?: number;
   /** Radians the path weaves either side of the line to its target, fading as it closes. */
   weave?: number;
+  helix?: HelixSpec;
   /** Metres a second added each second, up to `topSpeed`. */
   accel?: number;
   topSpeed?: number;

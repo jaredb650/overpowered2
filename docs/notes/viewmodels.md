@@ -2,6 +2,24 @@
 
 First-person weapons, arms and off-hand items. `src/weapons/viewmodels/**`, sandbox at `/?sandbox=viewmodels`. `createViewmodels(ctx)` from `src/weapons/viewmodels/index.ts` returns the `Rig`, which implements `ViewmodelRig`. It never changes game state.
 
+## Awl scout viewmodel
+
+`models/awl.ts`: original scout silhouette, informed by Steyr Scout reference photographs, without branding. A slim olive
+synthetic stock with a raised comb, rubber recoil pad and spare-magazine recess; a short genuinely fluted barrel; two folded
+bipod legs recessed alongside the fore-end; a slim long-eye-relief scope mounted ahead of the action. The bolt body and
+flattened handle are one animated part; `boltHold` is parented to it, so the right hand follows lift, 95 mm rearward travel,
+return and lock. The left hand stays under the fore-end. The gun moves 10 cm forward during the operation to keep the hand
+and action legible. Reload removes the five-round box magazine with the left hand.
+
+The default scope has its own HUD view, not the ACOG's eyepiece mask. `awlAcog` reuses `models/optics.ts`, its shader eye,
+shade and ADS sight point, hiding the forward scout optic; `awlCan` adds a muzzle socket and suppressor. No shared hand
+solver, hand meshes or Ultramag files are changed. The model builds at 16,238 triangles / 16 draws before hidden mod parts.
+
+Reproduce captures with `tools/scripts/scout-capture.mjs`, port 5274, DPR 2, 1440×900: `?sandbox=viewmodels&manual=1&weapon=awl`
+for exact bolt frames; `?map=range` for hip, the scout scope, ACOG and suppressor. `tools/scripts/scout-flight.mjs` captures
+the thin vapor and Quiver helix with the shooter parked in clear air and the clock frozen before moving the observer. Output is
+`tools/out/scout/`. These are scripted stills, not a human playtest.
+
 | File | What it is |
 |---|---|
 | `rig.ts` | The frame: motion sampling, springs, the gun's pose layers, arm solve, light on the gun, wrist readout, `muzzle()`, `ejectPort()` |

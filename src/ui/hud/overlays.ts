@@ -15,6 +15,14 @@ const RANGE_RATE = 1 / 10;
  * port, so 10 units are 1rem.
  */
 const RETICLES: Partial<Record<WeaponId, { tag: string; svg: string }>> = {
+  awl: {
+    tag: 'scout',
+    svg: `<svg class="sc-ret" viewBox="-300 -300 600 600" fill="none" stroke="currentColor">
+      <path stroke-width="1.5" d="M-210 0H-8M8 0H210M0 -210V-8M0 8V210"/>
+      <path stroke-width="5" d="M-300 0H-210M210 0H300M0 210V300"/>
+      <path stroke-width="2" d="M-8 48H8M-12 96H12M-16 144H16"/><circle r="2" fill="currentColor" stroke="none"/>
+    </svg>`,
+  },
   // Heavy and simple for a lobbed shell: thick posts, a chevron to lay on the target, and a drop ladder under it.
   autocannon: {
     tag: 'shells',

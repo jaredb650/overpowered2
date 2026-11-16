@@ -126,7 +126,36 @@ HP from the start, AP after wave 2. HUD: `GIMLET · AP`, `GIMLET · HP · BURST`
 the round hit, through his plate, when his armour took the round and he lived. See docs/notes/weapons.md, Weapon mods and Raufoss
 rounds.
 
+## 13. The Awl scout and the Quiver's helix
+
+**Built.** The Awl is an original bolt-action scout inspired by the Steyr Scout's forward long-eye-relief scope, slim synthetic
+stock, integral folded bipod and short fluted barrel. No copied branding. Alternate names: **Tine**, **Rook**. It is on key 4
+beside the Sabot, but an independent unlock: its own cache (eleventh), a Procurement row at 950 after wave 2 and an Outpost
+Defense primary at 950. Catalogue: “Five rounds and a bolt you operate yourself. The Council has identified the missing
+automation as a saving.”
+
+180 damage, 3x headshots, five-round magazine, 50 spare, 0.8 m penetration, medium armour class, no armour bypass, no falloff,
+0.95 s hand cycle and 1.65 s reload. Below the Sabot's 600 damage/5 m penetration/armour bypass. The right hand visibly lifts,
+pulls, pushes and locks the bolt; the spent case ejects on the 0.30 s pull cue, not at the shot or lift. Fire-rate boosts
+cannot skip the cycle, nor can a reload. Its circular scope is 32-degree FOV (3.5x at 90 degrees) versus the Sabot's 20.
+
+Four mods, in both Procurement and the cheat panel: reusable ACOG (600), suppressor (500), AP/HP (450 each), all wave 2.
+AP/HP integrate the shared API landed in `9345e6c`: mutually exclusive, 0.8x/1.5x flesh damage, AP's additional body budget
+and plate rules, HP's plate stop and no penetration. Suppressed and unsuppressed shot/bolt samples are explicit stand-ins;
+see audio notes. Ball uses the Sabot vapor recipe parameterized down to 28% width with fewer wisps and no shock puff.
+
+The Quiver's simultaneous right-click salvo now braids four physical paths around one flight line: 0.7 m radius, 15 m pitch,
+Validation on 2026-11-16: `npx tsc --noEmit` passes in the shared tree and isolated checkout. Ten focused files, run one at a
+time, pass 145 tests: Awl 9, its model 3, helix 6, families 22, swarm 32, mods 10, ADS 11, heavy 34, vapor budget 2, shop 16.
+One initial ADS hook hit the default 10-second timeout while other jobs were running; it passes with `--hookTimeout=60000`.
+
+starting at the tube square and closing over the last 12 m to one fixed aim point. Smoke is sampled every 0.4 m, at most eight
+puffs per rocket per frame, so the braid stays legible at lower frame rates. The collision/fuse/damage/blast pipeline
+is unchanged. Focused tests cover bolt timing and fire-rate floor, stats, optics/mods, independent unlock, helix geometry,
+swept wall impacts and projectile reuse. Captures: `tools/out/scout/`, DPR 2 at 1440×900; scripted stills only.
+
 ## Sounds
+
 New sounds use a synthesized or existing stand-in until the owner supplies real ones. Every stand-in is listed in
 `docs/notes/audio.md` so it can be swapped. Needed: Lance beam and giant ball, vaporize, double-barrel shots, Ultramag shot and
 slide, Raufoss burst, sticky bolt beep and blast, napalm hose, Judge fanning, katana moves, the drone and the cuffs.

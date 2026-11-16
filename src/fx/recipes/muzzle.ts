@@ -216,6 +216,7 @@ const TRACERS: Record<TracerKind, TracerFx> = {
   pistol: { color: hot(0xffd070, 3), width: 0.011, speed: 480, length: 6, core: 6, minPx: 1 },
   // 12 km/s: a 240 m shot crosses in 20 ms, a frame or so, so the dart reads as instant and every segment past each wall lands together.
   sabot: { color: hot(0x9fd0ff, 3.4), width: 0.05, speed: 12000, length: 120, core: 9, minPx: 2 },
+  scout: { color: hot(0xd6e1eb, 1.5), width: 0.006, speed: 900, length: 24, core: 3, minPx: 0.6 },
   snipe: { color: hot(0xff1040, 3.4), width: 0.035, speed: 12000, length: 120, core: 6, minPx: 2 },
   // The ammo mods' (mods.ts): AP a cold blue-white streak, quick and thin; HP a short dull red.
   ap: { color: hot(0xb8dcff, 3), width: 0.016, speed: 760, length: 18, core: 6, minPx: 1.2 },
@@ -225,5 +226,5 @@ const TRACERS: Record<TracerKind, TracerFx> = {
 export function tracer(core: FxCore, from: THREE.Vector3, to: THREE.Vector3, kind: TracerKind): void {
   const f = TRACERS[kind];
   core.lines.tracer(from, to, f.color, f.width, core.birth, f.speed, f.length, f.core, f.minPx);
-  if (kind === 'sabot' || kind === 'snipe') wake(core, from, to, kind);
+  if (kind === 'sabot' || kind === 'snipe' || kind === 'scout') wake(core, from, to, kind);
 }

@@ -22,6 +22,7 @@ import { familyOf, familyOfSlot, membersOf, pressSlot, wheelSlot } from './famil
 import { Handling, holdSpeed } from './handling';
 import { PIERCE_ON } from './penetration';
 import { Raufoss } from './raufoss';
+import { helixOffset } from './helix';
 import { Painter, angleOff, type PaintCandidate } from './swarm';
 import { isMelee } from './melee/data';
 import { Melee } from './melee/Melee';
@@ -414,6 +415,7 @@ export class Weapons implements WeaponSystem, Guard {
       this.fitted.add(id);
     } else this.fitted.delete(id);
     this.slots[weapon].def = moddedDef(weapon, this.fitted);
+    if (weapon === this.current) this.clearScope(false);
     if (!this.slots[this.current].def.launcher) this.glUp = false;
     return this.fitted.has(id);
   }
@@ -722,6 +724,7 @@ export class Weapons implements WeaponSystem, Guard {
     const s = this.held;
     const a = s.ammo;
     if (s.def.mode === 'melee' || this.reloading || a.mag >= a.magSize || a.reserve <= 0) return false;
+    if (s.def.cycleTime && s.cooldown > 0) return false;
     if (this.modifiers.bottomlessMag) return false;
     // A salvo in the air finishes before the tubes are opened.
     if (this.salvoLeft > 0 || this.fan.phase === 'fire') return false;
@@ -750,8 +753,8 @@ export class Weapons implements WeaponSystem, Guard {
     }
     this.cycleAt += dt;
     while (this.cycleCue < cues.length && this.cycleAt >= cues[this.cycleCue]![0]) {
-      // The first cue is the rack coming back: that is when the spent shell flies.
-      if (this.cycleCue === 0 && WEAPONS[this.current].casing) this.eject(WEAPONS[this.current]);
+      // The pull-back cue ejects: the first rack cue by default, or the bolt gun's chosen cue.
+      if (this.cycleCue === (WEAPONS[this.current].cycleEject ?? 0) && WEAPONS[this.current].casing) this.eject(WEAPONS[this.current]);
       this.ctx.audio.play(cues[this.cycleCue++]![1]);
     }
   }
@@ -824,7 +827,7 @@ export class Weapons implements WeaponSystem, Guard {
   // -------------------------------------------------------------------------------------------
 
   private interval(def: WeaponDef): number {
-    return def.interval / Math.max(this.modifiers.fireRate, 0.01);
+    return Math.max(def.cycleTime ?? 0, def.interval / Math.max(this.modifiers.fireRate, 0.01));
   }
 
   /**
@@ -917,7 +920,7 @@ export class Weapons implements WeaponSystem, Guard {
     if (this.modifiers.bottomlessMag) return;
     s.ammo.mag = Math.max(0, s.ammo.mag - rounds);
     if (s.ammo.mag > 0) return;
-    if (s.ammo.reserve > 0) this.autoReload = TUNING.autoReloadDelay;
+    if (s.ammo.reserve > 0) this.autoReload = Math.max(TUNING.autoReloadDelay, s.def.cycleTime ?? 0);
     // The last grenade gone: back on the rifle, which still has rounds.
     else if (s === this.glSlot) this.raiseLauncher(false);
     else this.wentDry();
@@ -1241,6 +1244,7 @@ export class Weapons implements WeaponSystem, Guard {
     c.fx.muzzleFlash(this.flashPoint(at), this.flashDir.set(0, 0, -1).applyQuaternion(c.render.camera.quaternion), def.muzzle);
     this.layerSounds(def.sounds);
     if (def.cycleFoley) {
+      if (def.cycleTime) this.clearScope(false);
       this.cycleAt = 0;
       this.cycleCue = 0;
       this.cycleGun = def.id;
@@ -1600,7 +1604,6 @@ export class Weapons implements WeaponSystem, Guard {
     this.stepSalvo(s, 0);
   }
 
-  /** Right click: every loaded tube at once, straight and unguided, four abreast in a 2 by 2 block. No marks. */
   private squareSalvo(s: Slot): void {
     if (!this.canShoot(s)) {
       if (!this.startReload()) this.wentDry();
@@ -1701,9 +1704,14 @@ export class Weapons implements WeaponSystem, Guard {
     const sy = barrel < 2 ? 1 : -1;
     const dir = this.dir.copy(fwd);
     if (square) {
-      // Each from its own corner of the block, its line a hair outward, so the square holds and opens slowly with range.
-      p.origin.addScaledVector(right, sx * t.square * 0.5).addScaledVector(up, sy * t.square * 0.5);
-      dir.addScaledVector(right, sx * t.squareSpread).addScaledVector(up, sy * t.squareSpread).normalize();
+      const wall = c.physics.raycast(p.origin, fwd, t.range, CG.World);
+      const body = c.enemies.raycast(p.origin, fwd, wall?.distance ?? t.range);
+      p.helix = {
+        phase: Math.atan2(sy, sx), reach: Math.max(0.1, body?.distance ?? wall?.distance ?? t.range),
+        radius: t.helixRadius, pitch: t.helixPitch, startRadius: t.square / Math.SQRT2, convergence: t.helixConvergence,
+      };
+      p.origin.add(helixOffset(this.dir, right, up, p.helix, 0));
+      dir.copy(fwd);
     } else if (this.salvoDumb) {
       // Centred a touch above the crosshair, so the low pair does not go into the floor a few metres out.
       dir.addScaledVector(right, sx * t.fan * 0.5).addScaledVector(up, (sy + 1) * t.fan * 0.4).normalize();
@@ -1717,6 +1725,7 @@ export class Weapons implements WeaponSystem, Guard {
     p.turnRate = t.turnRate;
     p.steerDelay = t.steerDelay;
     p.weave = square ? 0 : t.weave;
+    if (!square) p.helix = undefined;
     p.accel = t.accel;
     p.topSpeed = t.topSpeed;
     p.size = t.size;
@@ -1843,7 +1852,7 @@ export class Weapons implements WeaponSystem, Guard {
     const wants = this.aimHold ? c.input.isDown('aim') : this.aimOn;
     // The launcher is fired from the shoulder over its own leaf, not through the rifle's sight.
     const blocked = busy || moving || !def.ads || this.glUp || this.reloading || this.drawLeft > 0 || this.akimboOn
-      || this.sword.inQuickStrike || this.quickReturn > 0;
+      || this.sword.inQuickStrike || this.quickReturn > 0 || (!!def.cycleTime && this.held.cooldown > 0);
     const up = wants && !blocked;
     this.aimT = clamp(this.aimT + (up ? dt : -dt) / (def.ads?.time ?? 0.2));
     const w = this.aim;
@@ -1888,10 +1897,11 @@ export class Weapons implements WeaponSystem, Guard {
   private updateZoom(): void {
     const c = this.ctx;
     const t = TUNING.autocannon;
-    if (WEAPONS[this.current].scope && c.input.pressed('aim') && !this.reloading && this.drawLeft <= 0) {
+    const def = this.held.def;
+    if (def.scope && c.input.pressed('aim') && !this.reloading && this.drawLeft <= 0 && !(def.cycleTime && this.held.cooldown > 0)) {
       this.zoomed = !this.zoomed;
       c.audio.play('autocannon_zoom');
-      c.camera.setZoom(this.zoomed ? t.scopeFov : null);
+      c.camera.setZoom(this.zoomed ? (def.scopeFov ?? t.scopeFov) : null);
     }
     this.zoom = damp(this.zoom, this.zoomed ? 1 : 0, t.zoomRate, c.time.realDt);
     const shown = this.zoomed && this.zoom > t.scopeShowAt;
@@ -2001,6 +2011,7 @@ export class Weapons implements WeaponSystem, Guard {
 
 /** Clears what only a guided missile sets, on the one spec every projectile of the player's is filled into. */
 function unguided(p: ProjectileSpec): void {
+  p.helix = undefined;
   p.target = undefined;
   p.turnRate = undefined;
   p.steerDelay = undefined;

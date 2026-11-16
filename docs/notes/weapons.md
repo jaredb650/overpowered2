@@ -2,6 +2,42 @@
 
 `src/weapons/**` except `viewmodels/`, sandbox at `/?sandbox=range`. `createCombat(ctx)` and `createWeapons(ctx)` from `src/weapons/index.ts`.
 
+## The Awl scout
+
+Key 4's family order is Sabot, Awl, Autocannon. The scout is independently earned, not bundled with the Sabot.
+
+`awl`, key 4 immediately after the Sabot: a separately unlocked bolt-action scout, not an anti-materiel rifle. Five rounds,
+50 reserve (100 maximum), 180 damage, triple headshot damage (540), 0.8 m penetration, medium-class against plates rather
+than armour bypass, no falloff, 0.95 s minimum between shots, 1.65 s magazine reload. The Sabot remains 600/1,200 damage,
+5 m penetration and armour bypass; the Harrow is 50/100, 0.5 m and automatic. Its own cache is appended to `CACHE_ORDER`
+(eleventh cache); Procurement sells it for 950 after wave 2, Outpost Defense for 950 as a primary with basic ammo (110 a box).
+
+The bolt follows `cycleFoley`: lift 0.10–0.24 s; pull 0.24–0.40 s, eject at 0.30; forward 0.56–0.74; lock 0.78–0.90;
+the hand is back on the grip at 0.95. `cycleEject` selects the pull-back cue rather than the lift cue; unset keeps the pump's
+first-cue eject. `cycleTime` is a floor under fire-rate bonuses, and blocks magazine reload until the bolt closes. The last
+case cycles before auto-reload. The full-screen scope drops out after the shot, so the hand operation can be seen.
+
+Its own circular scope and fine duplex reticle use 32-degree FOV (about 3.5x at a 90-degree hip FOV), versus the Sabot's 20.
+`awlAcog` swaps the scope for the reusable four-power ACOG and ordinary ADS, and removing it restores the scout scope.
+`awlCan` fits a suppressor, swaps the flash/report and leaves the ballistics alone. `awlAp` and `awlHp` use section 12's
+shared `rounds` API: AP 144 damage and 1.2 m penetration; HP 270 and no penetration; only one ammo mod at a time. All four
+are in Procurement and the cheat panel. AP/HP use their shared coloured tracers; ball and suppressed ball use `scout`.
+
+The ball round reuses `fx/recipes/sabot.ts` through `WAKE_PROFILES.scout`: 0.28 of the wake width, 0.65 lifetime, 0.5 opacity,
+0.4 vapor-particle budget, no terminal shock ring or air puff. The Sabot and enemy Sniper retain their existing profiles.
+
+## Quiver helix salvo
+
+Right click still fires every loaded tube at once, with no target lock. The four start at the 0.6 m square's corners and
+corkscrew around the eye's flight line: 0.7 m maximum radius, one turn per 15 m, easing from the tube radius over the first
+4 m. Their radii close smoothly over the final 12 m to the same launch-time wall/body aim point (150 m if unobstructed).
+It is dumb-fire: moving the crosshair after launch does not steer it. Two loaded tubes keep their own phases.
+
+`helix.ts` computes distance-based offsets. `Projectiles.step` sweeps the resulting displacement through the same world/body
+collision, fuse, direct-hit and blast code as before; acceleration, damage, blast radius, ammo and reload are unchanged.
+Pool spawn and the shared projectile-spec reset clear helix state. Tests cover phase, pitch, convergence, four swept wall
+hits at 20 fps, damage numbers and reuse. Smoke follows the actual curved positions, so its trails braid with the bodies.
+
 | File | What it is |
 |---|---|
 | `data.ts` | Every number. `WEAPONS`, `TUNING`, `SWORD`, `EXPLOSIONS`, `HIT_STOP`. Tune here; the code reads this and nothing else |
@@ -100,7 +136,7 @@ One change outside this system: `Player.rideGround` in `src/player/Player.ts` ad
 | 1 | SMG | **Harrow**, battle rifle | 50 damage at 500 a minute (8.3 a second) against 25 at 800 (13.3): a quarter more damage a second, in bigger pieces. Both rates set by the owner on 2026-11-13. Full damage at any range, where the SMG now fades from 35 m to half at 80. Goes through one body or 0.5 m of cover. Kicks 3.6 times as hard. Takes limbs (`severMult` 1.8) |
 | 2 | Shotgun | **Thresher**, drum shotgun | Full auto, 5 shells a second, 20 in the drum. 4 pellets of 20 to the pump's 6 of 23, so the pump stays the hard single hit. The pump fires one shell every 0.55 s (0.3 was near semi-auto; 0.85, tried on 2026-11-15, too slow), so the Thresher outdoes it held. Real climb (`climb`), a 2.7 s drum reload. Takes limbs like the pump (`severMult` 2.4, the point-blank rule) |
 | 2 | Shotgun | **Deuce**, double-barrel | The third on the key. Two shells, a barrel every 0.3 s: 8 pellets of 26 a barrel (208, to the pump's 138), a wider cone (0.075 to 0.05), full damage to 9 m and 0.3 of it by 26. Right click fires both (`altBoth`). Breaks open to reload, 1.5 s. Its own cache, the third (wave 6). See "The Deuce" |
-| 3 | Rocket | **Quiver**, four-tube box launcher | Hold to paint up to four marks, let go and four guided missiles leave a tube apart; right click fires all four at once, straight, in a square. See "The Quiver". The Rocket's right click is its laser sight, see "The Rocket's laser" |
+| 3 | Rocket | **Quiver**, four-tube box launcher | Hold to paint up to four marks, let go and four guided missiles leave a tube apart; right click braids all four in a helix onto the fixed aim point. See "The Quiver". The Rocket's right click is its laser sight, see "The Rocket's laser" |
 | 4 | **Sabot**, slim anti-armour sniper rifle | Autocannon, shoulder-fired 20 mm cannon: the upgrade | The Sabot is first on the key and comes from the start: hitscan, 600 damage, no blast, through plates and through a Riot's shield, budget 5 m, bodies at 0.12 m each; 5 darts, one every 0.45 s. The autocannon fires an explosive `shell` from a clip of 3, one every 0.3 s, and carries 42 more (84 at most; the Sabot 30 and 60, both doubled on 2026-11-15). Each shell shoves the player back along the shot, `TUNING.autocannon.push` (7 m/s) in the air and `groundPush` (0.6) of it along the floor on the ground. It has no `base`: a weapon cache brings it, the second one, after wave 4 (`CACHE_ORDER`), and its feed line says "PRESS 4 AGAIN". Each has its own reticle (see "Scope") |
 | 5 | Sword | (**Shiv**, **Prybar**, **Spade**, **Cosh**: switched off) | The katana alone since 2026-11-15. The four are off the key, loadouts, pickups, the guide and the lab (`inPlay` in `families.ts`); `?melee=four` puts them back. See "Key 5" |
 | 6 | Judge | **Rivet**, pistol | 30 damage as fast as the trigger (9.5 a second), 15 rounds, out in 0.1 s. Headshots times 3. Half damage past 55 m, and no limbs. The Judge is six slow verdicts, this is the gun that is already up. Right click is a three-round burst (`altBurst`: 0.06 s apart, then 0.32 s), so it has no ADS. The Judge's headshot ricochet is off (no `headHops`); its right click is the fanning, see "The Judge's fanning" |
@@ -134,7 +170,7 @@ Weapon ids still written in `Weapons.ts`, each for a reason: `smg` for akimbo, b
 - *Release.* Every missile gets a target: the live marks in the order painted, the spares on the same rule as a stacked mark. No live mark is a dumb salvo. The four leave `interval` (0.1 s) apart on the player's clock, tube 0 top left, 1 top right, 2 bottom left, 3 bottom right, each from its own muzzle socket with its own flash, sound, recoil and backblast (`Weapons.backblast`: smoke and sparks behind the shoulder). Each tube points `fan` off the crosshair, outward, and aimed ones a touch up, so the four leave in a fan; a dumb salvo is centred a little above the crosshair with `dumbSpread` on top, so the low pair does not go into the floor.
 - *Flight.* `Projectiles.guide`: it leaves at 24 m/s and speeds up at 80 to 58. Straight for `steerDelay`, then it turns its nose at `turnRate` (3.6 rad/s, about a 16 m circle at full speed) toward its mark's `center` plus `aimLift`, weaving about that line by `weave` (0.1 rad side to side, half that up and down), fading inside 12 m. With no mark it weaves about a fixed `line`, its launch heading, never its current one, which would spiral. A mark that dies hands the missile to the nearest live enemy, vehicle or aircraft (`vehicles.paintable`) within `retargetRange` (45 m) and 70 degrees of its heading; with nobody it flies on straight. A guided missile's near-miss fuse is for its own mark only: it passes close by others and only a body square in its path stops it. The plain rocket's fuse is unchanged.
 - *Blast.* Each is a small ROCKET: kind `rocket`, so the player's own blast follows the ROCKET's rules (self-damage, cap, rocket-jump push), 110 direct and 90 over `radius` 3.5 m against the ROCKET's 100 over 8, with the shaped charge on armour. Measured live: one salvo took 520 off a Juggernaut where four ROCKETs took 260, and killed a 1000-health tank from full.
-- *Square salvo.* Right click, when not painting (2026-11-15): every loaded tube at once, `Weapons.squareSalvo`, so four rockets of ammo or what is left. Each leaves from its own corner of a 2 by 2 block `square` (0.6 m) a side around the eye line, its line opened `squareSpread` (0.012 rad) outward from the block's centre, so the square holds and widens slowly (about 1.8 m a side at 50 m). No marks, no target, no weave: they fly straight on `guide`'s fixed `line`, with the plain rocket's near-miss fuse. Right click while painting still lets go of the marks.
+- *Helix salvo.* Right click, when not painting: every loaded tube at once, `Weapons.squareSalvo`, so four rockets of ammo or what is left. Each leaves its corner of the 0.6 m tube square, then corkscrews around the shared line at 0.7 m maximum radius and 15 m per turn, closing over the last 12 m to the launch-time aim point. No marks, no target or homing weave, and the plain rocket's near-miss fuse. Right click while painting still lets go of the marks. See "Quiver helix salvo" for the geometry and tests.
 - *Reload.* All four in one 2.8 s reload, which waits until the salvo has left.
 - *Pooling.* Missiles are the projectile pool, trails the fx smoke pool, lock markers four pooled DOM elements (`ui/hud/locks.ts`). Nothing is built while painting or firing.
 
@@ -417,7 +453,7 @@ Measured over 80 s of the real game, with the bot holding the trigger on the SMG
 
 ```
 nice npx vitest run src/weapons/families.test.ts --testTimeout=60000      # 16: the table, the keys, the wheel, ownership, per-member ammo, the dry-gun order
-nice npx vitest run src/weapons/swarm.test.ts --testTimeout=60000        # 32: painting, stacking, release, turn, retarget, weave, the fuse, the Quiver's square salvo, the Rocket's laser, the Thresher
+nice npx vitest run src/weapons/swarm.test.ts --testTimeout=60000        # 32: painting, stacking, release, turn, retarget, weave, the fuse, the Quiver's helix salvo, the Rocket's laser, the Thresher
 nice npx vitest run src/weapons/penetration.test.ts --testTimeout=60000   # 48: budget, the per-wall rule, wall probe, hitscan, bursts, every gun, the Lance, projectiles at 30/60/144
 nice npx vitest run src/weapons/heavy.test.ts --testTimeout=60000         # 33: key 8's table, the cannon's rate and bursts, fragments, the heavy machine gun through walls, the slowdown and its moves, the door gun
 nice npx vitest run src/weapons/melee/sweep.test.ts --testTimeout=60000   # 24: reach, arc, slab, thrust, point blank, nothing behind, every swing of key 5 held to its reach, reaching down

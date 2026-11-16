@@ -5,6 +5,12 @@ falls behind the catalogue, or if any call site in `src/` uses an id that does n
 
 ## How to call it
 
+The Awl scout currently borrows existing samples, not newly recorded assets: `harrow_shot` at pitch 0.88 for its unsuppressed
+shot, `gimlet_suppressed_shot` at 0.8 with `awlCan`; `reload_bolt` at 0.12 and 0.84 s for lift/lock, `pump_rack_back` at
+0.30 s for extraction/ejection, `pump_rack_forward` at 0.65 s for chambering. These are stand-ins to replace with a scout
+report, a suppressed scout report and separate bolt lift/pull/push/lock recordings. Magazine reload uses the existing
+`reload_mag_out`, `reload_mag_in`, `reload_bolt`; the scope uses `autocannon_zoom`, the draw `weapon_draw`. No new audio ids.
+
 ```ts
 ctx.audio.play('smg_fire');                                      // 2D (the player's own sounds)
 ctx.audio.play('impact_metal', { position: hitPoint });          // 3D, distance filter and reverb are automatic

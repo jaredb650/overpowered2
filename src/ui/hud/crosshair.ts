@@ -98,6 +98,7 @@ const RETICLES: Record<WeaponId, Reticle> = {
     gap: 0, kick: 8, speedGap: 2,
   },
   // The autocannon's frame with the box opened into a pair of brackets: nothing to blast, only a line to thread.
+  awl: { core: DOT, arms: four(tick(7, 1)), gap: 5, kick: 4, speedGap: 2 },
   sabot: {
     core: `${DOT}${poly('-7,-7 -3,-7 -3,-5.4 -5.4,-5.4 -5.4,5.4 -3,5.4 -3,7 -7,7')}${poly('7,-7 3,-7 3,-5.4 5.4,-5.4 5.4,5.4 3,5.4 3,7 7,7')}`,
     arms: [tick(26, 0.9, 12), poly('12,-1.5 40,-1.5 40,1.5 12,1.5'), turned(tick(26, 0.9, 12), 180), poly('-12,-1.5 -40,-1.5 -40,1.5 -12,1.5')],
