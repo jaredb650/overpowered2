@@ -158,8 +158,11 @@ const WEAPON_CATALOGUE: Readonly<Partial<Record<WeaponId, Ware>>> = {
 
 export function weaponWares(contract: ContractId): Readonly<Partial<Record<WeaponId, Ware>>> {
   const starting = new Set(survivalLoadout(contract));
+  // Kill House / Endless Humans: compress the catalogue's weapon progression into waves 0–9. The cap also
+  // covers future weapons with later catalogue locks; the Crucible and all non-weapon wares keep their locks.
   return Object.fromEntries(Object.entries(WEAPON_CATALOGUE).map(([id, ware]) =>
-    [id, starting.has(id as WeaponId) ? { ...ware, price: 0, wave: 0 } : ware]));
+    [id, starting.has(id as WeaponId) ? { ...ware, price: 0, wave: 0 }
+      : contract === 'outpost' ? { ...ware, wave: Math.min(9, Math.ceil(ware.wave / 2)) } : ware]));
 }
 
 export const WEAPON_WARES = weaponWares(ACTIVE.def.id);
