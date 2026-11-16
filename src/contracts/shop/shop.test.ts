@@ -5,13 +5,15 @@ import type { EnemyInstance, KillEvent, WavePhase, WeaponId } from '../../core/g
 import { Capture, CUFFING_SECONDS } from '../../enemies/outpost/capture';
 import type { Soldier } from '../../enemies/outpost/soldier';
 import { CACHE_ORDER } from '../../progression/data';
-import { STARTING_WEAPONS, WEAPONS } from '../../weapons/data';
+import { STARTING_WEAPONS, WEAPONS, WEAPON_ORDER } from '../../weapons/data';
+import { inPlay } from '../../weapons/families';
+import { CONTRACTS } from '../data';
 import { makeRange, type Range } from '../../weapons/testkit';
 import { BOUNTY, ECONOMY, killPay, wavePay } from '../defense/data';
 import { DEFAULT_BINDINGS } from '../../input/bindings';
-import { BOSS_PAY, MOD_WARES, SUPPLY_BREAK, WEAPON_WARES } from './data';
+import { BOSS_PAY, MOD_WARES, SHOP_CONTRACTS, SUPPLY_BREAK, WEAPON_WARES } from './data';
 import { CrucibleShop } from '.';
-import { modOffers, soldWeapons, weaponOffers, type ShopView } from './rules';
+import { issued, listedWeapons, modOffers, weaponOffers, type ShopView } from './rules';
 
 let r: Range;
 let shop: CrucibleShop;
@@ -72,7 +74,8 @@ describe('credits', () => {
       const n = (10 + 2 * w) * 2;
       credits += Math.round(n * 0.8) * killPay(false) + Math.round(n * 0.2) * killPay(true) + wavePay(w);
     }
-    const cheapest = Math.min(...soldWeapons().filter(id => WEAPON_WARES[id]!.wave <= 2).map(id => WEAPON_WARES[id]!.price));
+    const forSale = listedWeapons().filter(id => !issued(WEAPON_WARES[id]!));
+    const cheapest = Math.min(...forSale.filter(id => WEAPON_WARES[id]!.wave <= 2).map(id => WEAPON_WARES[id]!.price));
     expect(credits).toBeGreaterThanOrEqual(cheapest);
     expect(credits).toBeGreaterThanOrEqual(WEAPON_WARES.judge!.price);
     // and not the whole catalogue.
@@ -121,15 +124,30 @@ describe('the break', () => {
 });
 
 describe('locks', () => {
-  it('sells every gun the caches brought, and none of the starting ones', () => {
-    expect(new Set(soldWeapons())).toEqual(new Set(CACHE_ORDER));
-    for (const id of STARTING_WEAPONS) expect(soldWeapons()).not.toContain(id);
+  it('opens in every endless survival game but Outpost Defense, which has its own shops', () => {
+    const endless = CONTRACTS.filter(c => !c.mission && !c.economy).map(c => c.id);
+    expect([...SHOP_CONTRACTS].sort()).toEqual(endless.sort());
+    expect(SHOP_CONTRACTS).toContain('outpost');
+    expect(SHOP_CONTRACTS).not.toContain('defense');
+  });
+
+  it('lists every player weapon: the caches\' guns for sale, the issued ones as issued, each with a price, a wave and a line', () => {
+    expect(new Set(listedWeapons())).toEqual(new Set(WEAPON_ORDER.filter(inPlay)));
+    expect(listedWeapons()).toContain('piledriver');
+    expect(listedWeapons()).toContain('kiln');
+    for (const id of CACHE_ORDER) expect(issued(WEAPON_WARES[id]!)).toBe(false);
+    for (const id of STARTING_WEAPONS) expect(issued(WEAPON_WARES[id]!)).toBe(true);
+    for (const id of Object.keys(WEAPON_WARES) as WeaponId[]) expect(WEAPON_WARES[id]!.lore.length).toBeGreaterThan(40);
+    const rows = weaponOffers(view({ cleared: 0, credits: 0 }));
+    expect(rows.find(o => o.act.id === 'smg')!.why).toBe('Issued');
+    expect(rows.find(o => o.act.id === 'piledriver')!.why).toBe(`Released after wave ${WEAPON_WARES.piledriver!.wave}`);
+    expect(rows.find(o => o.act.id === 'kiln')!.locked).toBe(true);
   });
 
   it('holds each gun back until its wave is cleared: the Deuce 6, the Ultramag 14, the Lance last', () => {
     expect(WEAPON_WARES.deuce!.wave).toBe(6);
     expect(WEAPON_WARES.ultramag!.wave).toBe(14);
-    expect(Math.max(...soldWeapons().map(id => WEAPON_WARES[id]!.wave))).toBe(WEAPON_WARES.lance!.wave);
+    expect(Math.max(...listedWeapons().map(id => WEAPON_WARES[id]!.wave))).toBe(WEAPON_WARES.lance!.wave);
     const at = (cleared: number, id: WeaponId) => weaponOffers(view({ cleared })).find(o => o.act.id === id)!;
     expect(at(5, 'deuce').locked).toBe(true);
     expect(at(5, 'deuce').why).toBe('Released after wave 6');

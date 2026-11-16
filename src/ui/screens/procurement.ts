@@ -10,7 +10,7 @@
 import type { Ctx } from '../../core/contracts';
 import type { ModId, WeaponId } from '../../core/gameplay';
 import { SHOP_COPY } from '../../contracts/shop/data';
-import type { ShopOffer } from '../../contracts/shop/rules';
+import { issued, type ShopOffer } from '../../contracts/shop/rules';
 import { WEAPONS as DEFS, type WeaponDef } from '../../weapons/data';
 import { MODS, moddedDef } from '../../weapons/mods';
 import { GunStage } from '../backdrop/gunstage';
@@ -157,7 +157,7 @@ export class ProcurementScreen implements Screen {
   private row(o: ShopOffer): NavItem {
     const gun = o.act.kind === 'weapon' ? o.act.id : MODS[o.act.id].weapon;
     const label = o.act.kind === 'weapon' ? INFO[o.act.id].name : MODS[o.act.id].name;
-    const right = o.fitted ? 'Fitted' : o.owned ? (o.act.kind === 'mod' ? 'Fit' : 'Owned')
+    const right = o.fitted ? 'Fitted' : o.owned ? (o.act.kind === 'mod' ? 'Fit' : issued(o.ware) ? 'Issued' : 'Owned')
       : o.locked ? `Wave ${o.ware.wave}` : credits(o.ware.price);
     const el = div('pc-row',
       span('pc-ico', markup(weaponIcon(gun))),
@@ -185,7 +185,7 @@ export class ProcurementScreen implements Screen {
     c.lore.set(o.ware.lore);
     this.bars(DEFS[id], mod ? moddedDef(id, new Set([mod])) : DEFS[id]);
     const verb = o.act.kind === 'mod' && o.owned ? (o.fitted ? 'Take off' : 'Fit') : 'Buy';
-    c.price.set(o.owned ? (o.act.kind === 'mod' ? 'Bought' : 'Owned') : credits(o.ware.price));
+    c.price.set(o.owned ? (o.act.kind === 'mod' ? 'Bought' : issued(o.ware) ? 'Issued' : 'Owned') : credits(o.ware.price));
     c.state.set(o.why ?? `Enter: ${verb}`);
     c.buy.classList.toggle('locked', o.locked);
     c.buy.classList.toggle('ready', o.why === null);

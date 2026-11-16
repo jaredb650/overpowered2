@@ -182,9 +182,12 @@ orders and the kneeling prompt skip him, and `MAX_PRISONERS` never lets him go. 
   he is dragged out to it along the line at 13 m/s as a ragdoll across the floor: straight if nothing is in the way at his height, or
   along a route through the door (18 m at most). The snatch waits for the drag, which keeps it within 2 s of the first click. With no
   such floor at all, the pass goes over him anyway (a shortcut; nothing on the maps does this).
-- **The bounty** is paid as he is yanked off the floor, once (`Capture.secure`): `BOUNTY` in `contracts/defense/data.ts`, 40, 60, 90,
-  150 credits by rank, into `ctx.contracts.wallet` (Outpost Defense's purse, or the Crucible's), with a `+N BOUNTY SECURED` float (the
-  Hit text setting) and a `BOUNTY SECURED +N CREDITS` feed line. With no wallet, the feed line `BOUNTY SECURED` only.
+- **The bounty** is paid as he is yanked off the floor, once (`Capture.secure`): `BOUNTY` in `contracts/defense/data.ts`, 120, 180,
+  270, 450 credits by rank (the owner tripled them from 40/60/90/150), into `ctx.contracts.wallet` (Outpost Defense's purse, or the
+  supply-pod shop's in Endless Humans and the Crucible), with a `+N BOUNTY SECURED` float (the Hit text setting) and a
+  `BOUNTY SECURED +N CREDITS` feed line. With no wallet, the feed line `BOUNTY SECURED` only. In Outpost Defense a player who kills
+  every man of waves 1 to 3 is 75 credits short of the first rocketeer (1,200), so one conscript taken alive instead of killed (+110)
+  hires him a break early; the kills-only pacing (`economy.test.ts`) is unchanged, and taking a man alive is meant to pay.
 - **Four drones** in the air at most (`MAX_DRONES`): a pass takes about six seconds, so that keeps every snatch on time however fast
   the player cuffs. Off the line alive (shot loose, or snagged 5 m past it for half a second), he lies there, gets up in his cuffs and
   waits for the next pass; paid already, he is not paid again. Killed, the drone flies on with the empty hook.

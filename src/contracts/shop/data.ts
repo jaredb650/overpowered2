@@ -3,22 +3,31 @@
  * the tests and the menu read it as the runtime does. The pay is Outpost Defense's (defense/data.ts): the same kill and wave
  * rates, the same rule on whose kills pay.
  *
- * In the Crucible the weapon caches stop: the guns they brought are sold here instead, each from a wave on, roughly where its
- * cache used to land (progression's CACHE_ORDER, one every second wave), and the Lance last.
+ * In every endless survival game but Outpost Defense (`SHOP_CONTRACTS`) the weapon caches stop: the guns they brought are sold here
+ * instead, each from a wave on, roughly where its cache used to land (progression's CACHE_ORDER, one every second wave), and the
+ * Lance last. Every other player weapon is listed too, so the catalogue is the whole arsenal: the issued guns as issued.
  */
 import { MISSION_ID } from '../../campaign/select';
 import { ON_RANGE } from '../../core/devflags';
 import type { ModId, WeaponId } from '../../core/gameplay';
+import type { ContractId } from '../data';
 import { ACTIVE } from '../select';
 
 const query = typeof location === 'undefined' ? null : new URLSearchParams(location.search);
 
 /**
- * This page's Crucible sells its guns: the Crucible's own game, not a mission, the range or a sandbox. `?shop=0` brings the
+ * The endless survival games that sell their guns from a supply pod: the Crucible and Endless Humans. Outpost Defense
+ * (`defense`) has its own shops, and the Campaign and Foreclosure are missions.
+ */
+export const SHOP_CONTRACTS: readonly ContractId[] = ['crucible', 'outpost'];
+
+/**
+ * This page sells its guns: one of `SHOP_CONTRACTS`' own games, not a mission, the range or a sandbox. `?shop=0` brings the
  * weapon caches back.
  */
 export const SHOP_ON: boolean =
-  query !== null && ACTIVE.def.id === 'crucible' && MISSION_ID === null && !ON_RANGE && !query.has('sandbox') && query.get('shop') !== '0';
+  query !== null && SHOP_CONTRACTS.includes(ACTIVE.def.id) && MISSION_ID === null && !ON_RANGE && !query.has('sandbox')
+  && query.get('shop') !== '0';
 
 /**
  * Seconds of a break with the shop on, at least: the supply pod takes about 6 s to land and open (progression's DROP_POD), and then
@@ -31,7 +40,7 @@ export const SUPPLY_BREAK = 25;
 export const BOSS_PAY = 300;
 
 export interface Ware {
-  /** Credits. */
+  /** Credits. 0: issued, never sold. */
   price: number;
   /** The wave that has to be cleared before it is sold. 0: from the start. */
   wave: number;
@@ -39,8 +48,15 @@ export interface Ware {
   lore: string;
 }
 
-/** The guns for sale, in the menu's order. The run's starting guns are not sold: they are issued. */
+/**
+ * Every player weapon, in the menu's order: for sale by the wave it waits for, then the run's starting guns, which are issued (price
+ * 0, never sold). The Shiv, Cosh, Prybar and Spade are listed only where they are in play (`?melee=four`, weapons/families.ts).
+ */
 export const WEAPON_WARES: Readonly<Partial<Record<WeaponId, Ware>>> = {
+  knife: {
+    price: 250, wave: 1,
+    lore: 'A short knife for the contractor who likes to be close enough to apologise. Works best from behind, like most Council policy.',
+  },
   rivet: {
     price: 350, wave: 2,
     lore: 'Compact, semi-automatic and inexpensive, like the contractor. Right click fires three, for those who were going to miss anyway.',
@@ -49,13 +65,25 @@ export const WEAPON_WARES: Readonly<Partial<Record<WeaponId, Ware>>> = {
     price: 600, wave: 2,
     lore: 'Six chambers, one opinion. The Judge has never been overturned on appeal, chiefly because nobody has survived to file one.',
   },
+  baton: {
+    price: 300, wave: 3,
+    lore: 'Puts people on the floor without quite finishing them, which makes them a bounty rather than a statistic. The Council accepts both.',
+  },
   autocannon: {
     price: 1800, wave: 4,
     lore: 'Twenty millimetres of shoulder-fired dispute resolution. The recoil is a feature. Please brace against something the Council does not own.',
   },
+  crowbar: {
+    price: 450, wave: 5,
+    lore: 'Opens crates, doors and kneecaps. For the purposes of this tool, plate armour is a door.',
+  },
   deuce: {
     price: 1400, wave: 6,
     lore: 'Two barrels, because one was occasionally not enough and three failed the fire inspection. Reloading is left as an exercise for the contractor.',
+  },
+  shovel: {
+    price: 500, wave: 7,
+    lore: 'For the work and for afterwards. The edge takes heads off, and the face throws what it kills, which saves on digging.',
   },
   buzzsaw: {
     price: 2600, wave: 8,
@@ -80,6 +108,39 @@ export const WEAPON_WARES: Readonly<Partial<Record<WeaponId, Ware>>> = {
   lance: {
     price: 4500, wave: 18,
     lore: 'Directed energy for the senior contractor. Targets are not so much killed as removed from the records, the floor and the air.',
+  },
+  // Issued: every run starts with these, so they are listed, never sold.
+  smg: {
+    price: 0, wave: 0,
+    lore: 'Issued to every contractor, along with the paperwork and the life insurance. Of the three, only the submachine gun is guaranteed to work.',
+  },
+  harrow: {
+    price: 0, wave: 0,
+    lore: 'A battle rifle with no respect for cover. Issued so the Council can say it gave you a fair chance.',
+  },
+  shotgun: {
+    price: 0, wave: 0,
+    lore: 'Several opinions per pull, all delivered at once and at conversational range. The pump is the pause for reflection.',
+  },
+  thresher: {
+    price: 0, wave: 0,
+    lore: 'A drum-fed shotgun for contractors who found the pump too contemplative. It climbs as it fires. So does the invoice.',
+  },
+  rocket: {
+    price: 0, wave: 0,
+    lore: 'The Council\'s insurers asked that it be listed as a last resort. It is listed here as a first one.',
+  },
+  quiver: {
+    price: 0, wave: 0,
+    lore: 'Four missiles that find their own way to the target, which is more than the Council expects of its contractors.',
+  },
+  sabot: {
+    price: 0, wave: 0,
+    lore: 'Darts through armour, through walls and through whatever the walls were for. Issued with the Council\'s condolences to the walls.',
+  },
+  sword: {
+    price: 0, wave: 0,
+    lore: 'Issued because the blade, unlike the ammunition, is not billed. It stops bullets, which the Council regards as a perk rather than a benefit.',
   },
 };
 

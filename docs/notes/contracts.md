@@ -268,9 +268,9 @@ in the field outlined and lit, with two sappers, on the minimap as red bombs (`w
 
 ## The Crucible's shop
 
-`src/contracts/shop/`, section 10 of `docs/proposals/weapons-update.md`. In the Crucible's own game (`SHOP_ON`: the `crucible` contract,
-not a mission, the range or a sandbox; `?shop=0` brings the old cache pickups back) the weapon caches stop and the guns they brought are
-sold here instead, and the drop pods bring the shop: a **supply pod** every break (`progression/pickups/pods.ts`, supply mode). Outpost Defense's economy, reused: the pay is its `killPay`, `wavePay` and `paysFor`, the menu pauses
+`src/contracts/shop/`, section 10 of `docs/proposals/weapons-update.md`. In every endless survival game but Outpost Defense
+(`SHOP_CONTRACTS`: the Crucible and Endless Humans, `crucible` and `outpost`; `SHOP_ON` on their own game, not a mission, the range or a
+sandbox; `?shop=0` brings the old cache pickups back) the weapon caches stop and the guns they brought are sold here instead, and the drop pods bring the shop: a **supply pod** every break (`progression/pickups/pods.ts`, supply mode). Outpost Defense's economy, reused: the pay is its `killPay`, `wavePay` and `paysFor`, the menu pauses
 the run as its shops do (`Hud.openDefense`), and the HUD's credits are its look (`ui/hud/shop.ts` on its classes).
 
 | File | Job |
@@ -296,29 +296,41 @@ at it · L: START NOW`. There is no pod in the 3 s before wave 1, when nothing h
 **Credits.** 10 a kill, 15 a headshot (Outpost Defense's), a boss 300 more; an ally's or a gift's kill pays nothing. A wave cleared pays
 125 + 25 x wave. Everything killed in waves 1 and 2 (24 and 28 men, a fifth to the head) is about 900: the Judge (600) or the Rivet
 (350) in the break before wave 3, not the autocannon (`shop.test.ts`). A new run starts at 0 and with no mods. `ctx.contracts.wallet` is
-the page's purse, Outpost Defense's or this one, and a prisoner's bounty goes into it (`enemies/outpost/airlift.ts`); the swarm never
-surrenders, so in the Crucible's own game it only pays where the Crucible's rules are played with prisoners.
+the page's purse, Outpost Defense's or this one, and a prisoner's bounty goes into it (`enemies/outpost/airlift.ts`, 120 to 450 by
+rank): in Endless Humans that is a capture paying 12 to 45 kills' worth. The swarm never surrenders, so in the Crucible's own game it
+only pays where the Crucible's rules are played with prisoners. Outpost Defense keeps its own shops and is not on the list.
 
 | Weapon | Price | After wave | | Mod (its gun) | Price | After wave |
 |---|---|---|---|---|---|---|
-| Rivet | 350 | 2 | | Suppressor (SMG) | 900 | any |
-| Judge | 600 | 2 | | Red dot sight (Harrow) | 500 | any |
-| Autocannon | 1,800 | 4 | | Raufoss rounds (Sabot) | 2,400 | 10 |
+| Shiv (`?melee=four`) | 250 | 1 | | Suppressor (SMG) | 900 | any |
+| Rivet | 350 | 2 | | Red dot sight (Harrow) | 500 | any |
+| Judge | 600 | 2 | | Raufoss rounds (Sabot) | 2,400 | 10 |
+| Cosh (`?melee=four`) | 300 | 3 | | | | |
+| Autocannon | 1,800 | 4 | | | | |
+| Prybar (`?melee=four`) | 450 | 5 | | | | |
 | Deuce | 1,400 | 6 | | | | |
+| Spade (`?melee=four`) | 500 | 7 | | | | |
 | Trommel | 2,600 | 8 | | | | |
 | Kiln | 2,200 | 10 | | | | |
 | Stakegun | 2,000 | 12 | | | | |
 | Ultramag | 1,700 | 14 | | | | |
 | Piledriver | 3,200 | 16 | | | | |
 | Lance | 4,500 | 18 | | | | |
+| SMG, Harrow, Shotgun, Thresher, Rocket, Quiver, Sabot, Sword | Issued | | | | | |
 
 The waves follow where each gun's cache landed (one every second wave, `CACHE_ORDER`), the Rivet brought forward as the cheap sidearm and
-the Lance moved last. A gun no cache brings on the page (`?slot8=old`'s Piledriver) is not sold. The starting guns are issued, not sold.
+the Lance moved last. **Every player weapon is listed** (`listedWeapons`: every weapon `inPlay` on the page, weapons/families.ts), so the
+catalogue is the whole arsenal and nothing is a secret: what cannot be bought yet shows a padlock and the wave it waits for. The
+starting guns are issued (price 0), listed last as `Issued`, never sold. A weapon not in play on the page (`?slot8=old`'s Piledriver,
+the melee four without `?melee=four`) is not listed. The owner once asked where the Piledriver and the Kiln were: they were always
+rows 6 and 9, locked and greyed until waves 10 and 16; there is no second page.
 Buying a gun is `weapons.give(id)`: that gun and no other, a full magazine and reserve, the unlock banner. A mod bought is fitted at once;
 its row then fits it or takes it off, free, in any break and never in a wave. A mod needs its gun.
 
 **The menu.** Weapons and Mods pages on a rail at the left (left and right turn them, or click), a row a ware with its silhouette and
-its price, `Owned`, `Fitted`, or a padlock and the wave it waits for. The row in focus turns on the right (the first-person model at rest,
+its price, `Owned`, `Issued`, `Fitted`, or a padlock and the wave it waits for. Rows are 2.4 rem, so the 18 weapon rows all fit at
+1440x900 with none cut; on a wider window, where the page is shorter in rem, the list scrolls with a thin bar showing and the row in
+focus is scrolled to. The row in focus turns on the right (the first-person model at rest,
 cloned from the rig's `allDefs`, 0.42 rad/s, lit by a key, a cool rim and a studio environment), over a card: name, key and role, four
 bars (damage a trigger pull, rate, magazine, reload; a mod lights what it adds in green), the catalogue's line, the price and what Enter
 does or why not. Enter or a click buys; Esc, E or *Back to the fight* goes back. While it is up the renderer draws at the menu's rate.

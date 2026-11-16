@@ -3,7 +3,7 @@
  * sold, at what price, and why a row cannot be had now. No three.js and no ctx. index.ts takes the snapshot and carries out.
  */
 import type { ModId, WeaponId } from '../../core/gameplay';
-import { CACHE_ORDER } from '../../progression/data';
+import { inPlay } from '../../weapons/families';
 import { MODS, MOD_ORDER } from '../../weapons/mods';
 import { MOD_WARES, WEAPON_WARES, WEAPON_WARE_ORDER, type Ware } from './data';
 
@@ -38,15 +38,21 @@ const afford = (price: number, v: ShopView): string | null => (price > v.credits
 const lockOf = (w: Ware, v: ShopView): boolean => w.wave > v.cleared;
 const lockLine = (w: Ware): string => `Released after wave ${w.wave}`;
 
-/** The guns the caches used to bring, in the menu's order. A gun no cache brings on this page (`?slot8=old`) is not sold. */
-export const soldWeapons = (): WeaponId[] => WEAPON_WARE_ORDER.filter(id => CACHE_ORDER.includes(id));
+/** Issued with every run, never sold: listed so the catalogue is the whole arsenal. */
+export const issued = (w: Ware): boolean => w.price === 0;
+
+/**
+ * Every weapon a player can hold on this page, in the menu's order: the guns for sale and the issued ones. A weapon not in play
+ * here (`?slot8=old`'s Piledriver, the melee four without `?melee=four`) is not listed.
+ */
+export const listedWeapons = (): WeaponId[] => WEAPON_WARE_ORDER.filter(inPlay);
 
 export function weaponOffers(v: ShopView): ShopOffer[] {
-  return soldWeapons().map(id => {
+  return listedWeapons().map(id => {
     const ware = WEAPON_WARES[id]!;
     const owned = v.owned.has(id);
     const locked = lockOf(ware, v);
-    const why = owned ? 'Owned' : locked ? lockLine(ware) : between(v) ?? afford(ware.price, v);
+    const why = owned ? (issued(ware) ? 'Issued' : 'Owned') : locked ? lockLine(ware) : between(v) ?? afford(ware.price, v);
     return { act: { kind: 'weapon', id }, ware, owned, fitted: false, locked, why };
   });
 }

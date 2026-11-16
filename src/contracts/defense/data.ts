@@ -51,10 +51,11 @@ export const killPay = (headshot: boolean): number => ECONOMY.kill + (headshot ?
 export const wavePay = (wave: number): number => ECONOMY.waveBase + ECONOMY.waveStep * wave;
 
 /**
- * Credits for a prisoner cuffed and lifted out by the drone (enemies/outpost/airlift.ts), by his rank. Four to ten kills' worth: he
- * had to be broken, walked up to, grabbed and cuffed with his friends still about.
+ * Credits for a prisoner cuffed and lifted out by the drone (enemies/outpost/airlift.ts), by his rank. Twelve to forty-five kills' worth
+ * (the owner tripled them, 2026-11-15): he had to be broken, walked up to, grabbed and cuffed with his friends still about, and the
+ * pay should make that worth the risk. A conscript is a Rivet's third, an elite a Judge's three quarters.
  */
-export const BOUNTY: Readonly<Record<Rank, number>> = { conscript: 40, regular: 60, veteran: 90, elite: 150 };
+export const BOUNTY: Readonly<Record<Rank, number>> = { conscript: 120, regular: 180, veteran: 270, elite: 450 };
 
 // ---------------------------------------------------------------------------------------------
 // Weapons and ammunition
