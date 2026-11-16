@@ -139,6 +139,8 @@ export class AllyGuns {
       _end.copy(wall.point);
     } else _end.copy(from).addScaledVector(dir, limit);
     if (tracer) fx.tracer(from, _end, g.tracer);
+    // Co-op: the guests see the garrison shoot (net/world.ts).
+    if (tracer) this.ctx.coop?.world?.allyShot(from, _end);
   }
 
   private take(): Rocket | null {

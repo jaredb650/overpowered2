@@ -6,11 +6,17 @@ export const ENEMY_IDS: readonly EnemyId[] = ['husk', 'trooper', 'gunner', 'brut
 export const REGIONS: readonly GoreRegion[] = ['head', 'chest', 'abdomen', 'armL', 'forearmL', 'armR', 'forearmR', 'legL', 'shinL', 'legR', 'shinR'];
 export const SNAPSHOT_MS = 100;
 export const HEADER_BYTES = 12;
-export const ENEMY_BYTES = 44;
+export const ENEMY_BYTES = 45;
+/** A man's posture (characters/animation/postures.ts), so a guest sees him with his hands up, cuffed, cowering or in cover. */
+export const POSTURES = ['stand', 'crouch', 'cover', 'peek', 'leanLeft', 'leanRight', 'handsUp', 'kneel', 'cower', 'flee', 'drag', 'revive', 'downed',
+  'hunched', 'pistol', 'cuffed', 'bound'] as const;
+export type PostureId = typeof POSTURES[number];
+/** Flag bit: he has surrendered and can be cuffed (Endless Humans). */
+export const CAPTURABLE = 128;
 export type Vec = [number, number, number];
 export interface EnemyFrame {
   uid: number; id: EnemyId; position: Vec; velocity: Vec; yaw: number; health: number; maxHealth: number; armor: number;
-  flags: number; animation: number; severed: number; plates: number;
+  flags: number; animation: number; severed: number; plates: number; posture?: PostureId;
 }
 export const WAVE_PHASES: readonly WavePhase[] = ['intermission', 'spawning', 'clearing', 'boss'];
 export interface WorldFrame { seq: number; wave: number; phase?: WavePhase; nextWaveIn?: number; enemies: EnemyFrame[] }
@@ -51,18 +57,29 @@ export type WorldEvent =
   /** Host to a rejoining guest: the purse and score they left with. */
   | { t: 'restore'; credits: number; score: number; kills: number }
   /** An explosion someone else's game made: drawn and heard here, never damaging (the host already counted it). */
-  | { t: 'boom'; at: Vec; kind: string; radius: number; slot?: number }
+  | { t: 'boom'; at: Vec; kind: string; radius: number; slot?: number; damage?: number; source?: string }
   /** Someone called a strike or an aircraft in: a feed line for the others. */
   | { t: 'callin'; id: string; slot?: number }
   /** Guest to host: my slow-mo perk started (`on`) or ended. The host slows the world for everyone. */
   | { t: 'slow'; id: string; on: boolean }
   /** Host to guests: the host's tab went to the background (`on`) or came back. */
-  | { t: 'hidden'; on: boolean };
+  | { t: 'hidden'; on: boolean }
+  // --- Stage 4: Endless Humans and Outpost Defense ---
+  /** Guest to host: I held E on this surrendered man. The host cuffs him for me; the bounty comes back as `credit`. */
+  | { t: 'capture'; uid: number }
+  /** Host to one guest: credits earned on the host's side for them (a prisoner's bounty). */
+  | { t: 'credit'; amount: number; why: string }
+  /** Host: the trucks, humvees and tanks, 5 Hz. Drawn on guests; hurt only on the host. */
+  /** Host: the garrison, 5 Hz: [id, type index, x, y, z, yaw, state 0 up 1 down 2 dead, posture index]. Drawn on guests. */
+  | { t: 'allies'; list: number[][] }
+  /** Host: one of the garrison fired, for the guests' tracers. */
+  | { t: 'ashot'; from: Vec; to: Vec }
+  | { t: 'vehicles'; list: { id: number; kind: string; p: Vec; q: [number, number, number, number]; turret: number }[] };
 
 export function encodeWorld(frame: WorldFrame): ArrayBuffer {
   const buffer = new ArrayBuffer(HEADER_BYTES + frame.enemies.length * ENEMY_BYTES);
   const view = new DataView(buffer);
-  view.setUint16(0, 0xc202, true);
+  view.setUint16(0, 0xc203, true);
   view.setUint32(2, frame.seq, true);
   view.setUint16(6, frame.wave, true);
   view.setUint16(8, frame.enemies.length, true);
@@ -83,6 +100,7 @@ export function encodeWorld(frame: WorldFrame): ArrayBuffer {
     view.setFloat32(offset + 32, enemy.armor, true);
     enemy.velocity.forEach((value, axis) => view.setInt16(offset + 36 + axis * 2, Math.round(Math.max(-327, Math.min(327, value)) * 100), true));
     view.setUint16(offset + 42, enemy.severed, true);
+    view.setUint8(offset + 44, Math.max(0, POSTURES.indexOf(enemy.posture ?? 'stand')));
   }
   return buffer;
 }
@@ -91,7 +109,7 @@ export function decodeWorld(data: unknown): WorldFrame | null {
   const bytes = data instanceof ArrayBuffer ? new Uint8Array(data) : data instanceof Uint8Array ? data : null;
   if (!bytes || bytes.byteLength < HEADER_BYTES) return null;
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  if (view.getUint16(0, true) !== 0xc202) return null;
+  if (view.getUint16(0, true) !== 0xc203) return null;
   const count = view.getUint16(8, true);
   if (count > 48 || bytes.byteLength !== HEADER_BYTES + count * ENEMY_BYTES) return null;
   const enemies: EnemyFrame[] = [];
@@ -107,7 +125,8 @@ export function decodeWorld(data: unknown): WorldFrame | null {
     ids.add(uid);
     const wounds = view.getUint16(offset + 42, true);
     enemies.push({ uid, id, position, yaw, health, maxHealth, armor, flags: view.getUint8(offset + 5), animation: view.getUint8(offset + 6),
-      velocity: [0, 1, 2].map(axis => view.getInt16(offset + 36 + axis * 2, true) / 100) as Vec, severed: wounds & 2047, plates: view.getUint8(offset + 7) });
+      velocity: [0, 1, 2].map(axis => view.getInt16(offset + 36 + axis * 2, true) / 100) as Vec, severed: wounds & 2047, plates: view.getUint8(offset + 7),
+      posture: POSTURES[view.getUint8(offset + 44)] ?? 'stand' });
   }
   const phase = WAVE_PHASES[view.getUint8(10)];
   if (!phase) return null;

@@ -98,7 +98,9 @@ export class Game {
     const c = this.ctx;
     if (!c.coop) return false;
     // The shop and its credits are each player's own, so a world-running mode keeps its contract on every browser.
-    if (sys === c.allies || sys === c.campaign || (sys === c.contracts && (c.coop.freeRoam || !c.coop.world))) return true;
+    // The allies are the host's: it runs them, and guests draw them (net/world.ts).
+    if (sys === c.campaign || (sys === c.allies && (c.coop.freeRoam || !c.coop.hosting))
+      || (sys === c.contracts && (c.coop.freeRoam || !c.coop.world))) return true;
     if (c.coop.freeRoam) return sys === c.enemies || sys === c.waves;
     return sys === c.waves && !c.coop.hosting;
   }

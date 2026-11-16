@@ -184,7 +184,7 @@ export class Defense {
   init(): void {
     const { events } = this.ctx;
     events.on('enemy:killed', e => {
-      if (paysFor(e.damage.source)) this.earn(killPay(e.headshot));
+      if (paysFor(e.damage.source) && !this.ctx.coop?.world?.notMine(e.enemy)) this.earn(killPay(e.headshot));
     });
     events.on('wave:clear', e => {
       const pay = wavePay(e.wave);
@@ -278,7 +278,8 @@ export class Defense {
     this.hookBreak();
     this.readCounter();
     // E goes to a counter, a man in front of the player or a mounted gun before a wall.
-    this.repair.update(dt, this.prompted !== null || Number.isFinite(ctx.allies?.focusDistance ?? Infinity) || this.gunNear());
+    // Co-op: the walls are the host's to mend; a guest's repair would only mend their own copy.
+    if (!ctx.coop?.world || ctx.coop.hosting) this.repair.update(dt, this.prompted !== null || Number.isFinite(ctx.allies?.focusDistance ?? Infinity) || this.gunNear());
     if (this.inBreak && ctx.input.pressed('nextWave')) this.startNow();
     this.mortars.update(!this.inBreak);
     if (ON_FORT && ctx.allies) {
@@ -631,6 +632,8 @@ export class Defense {
     if (player.alive && !player.parked && !ally) {
       let best = REACH;
       for (const k of this.kiosks) {
+        // Co-op: troops and work crews serve the host's fort, so only the host hires them.
+        if (k.id === 'barracks' && this.ctx.coop?.world && !this.ctx.coop.hosting) continue;
         const p = k.root.position;
         const d = Math.hypot(player.position.x - p.x, player.position.z - p.z);
         if (d < best && Math.abs(player.position.y - p.y) < 1.5) {

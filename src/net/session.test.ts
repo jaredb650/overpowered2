@@ -4,6 +4,11 @@ vi.mock('./remote', () => ({ PROPS: ['smg'], RemotePlayer: class {
   dispose = vi.fn(); push = vi.fn(); update = vi.fn();
   constructor(_ctx: unknown, readonly player: unknown) { made(this); }
 } }));
+// The world (enemies, team) has its own tests; here it is a stand-in, so these cover the session's roster, tags and poses.
+vi.mock('./world', () => ({ CoopWorld: class {
+  team = { roster: () => [], reviving: false, onOver: () => {}, restore: vi.fn() };
+  begin = vi.fn(); update = vi.fn(); dispose = vi.fn();
+} }));
 import type { Ctx } from '../core/contracts';
 import { CoopSession } from './index';
 import type { Lobby, LobbyPlayer } from './lobby';

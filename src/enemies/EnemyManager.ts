@@ -861,11 +861,12 @@ export class EnemyManager implements EnemySystem {
     return this.model.apply(enemy as Enemy, damage);
   }
 
-  placeReplica(enemy: Enemy, dt: number, downed: boolean): void {
+  /** A co-op guest's copy of a host enemy, in the posture the host's snapshot says (net/world.ts). */
+  placeReplica(enemy: Enemy, dt: number, posture: string): void {
     this.place(enemy);
     enemy.dist = enemy.position.distanceTo(this.ctx.player.position);
     enemy.inView = true;
-    (enemy.char.anim as unknown as { setPosture?(posture: string): void }).setPosture?.(downed ? 'downed' : 'stand');
+    (enemy.char.anim as unknown as { setPosture?(posture: string): void }).setPosture?.(posture);
     this.animate(enemy, dt);
     enemy.char.root.updateMatrixWorld(true);
   }

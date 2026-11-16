@@ -101,12 +101,12 @@ export async function joinFromSplash(page, password) {
 }
 
 /** Both pages in the match with the world and the other player's body up. */
-export async function inMatch(pages, contract) {
+export async function inMatch(pages, contract, play = true) {
   for (const page of pages) {
     await page.waitForURL(new RegExp(`contract=${contract}`), { timeout: 90000 });
     await page.waitForFunction(() => window.__op2?.ctx.coop?.world && window.__op2.ctx.coop.remotes.size >= 1
       && [...window.__op2.ctx.coop.remotes.values()].some(r => r.char.root.visible), null, { timeout: 150000 });
-    await page.evaluate(() => { window.__op2.game.setState('playing'); });
+    if (play) await page.evaluate(() => { window.__op2.game.setState('playing'); });
   }
 }
 

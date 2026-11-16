@@ -8,7 +8,7 @@ import { CoopWorld } from './world';
 import { CoopHud } from './coopHud';
 
 /** The modes whose world the host runs. The others are free roam: everyone walks the map, nothing else. */
-export const WORLD_MODES: readonly Match['mode'][] = ['crucible'];
+export const WORLD_MODES: readonly Match['mode'][] = ['crucible', 'outpost', 'defense'];
 
 /** Where a player lands after the match: the same room, on its lobby page. */
 export interface Room { lobby: Lobby; code: string; password: string }
@@ -47,7 +47,8 @@ export class CoopSession implements GameSystem {
   }
   get hosting(): boolean { return this.lobby.hosting; }
   async init(): Promise<void> {
-    await this.ctx.characters.load(['bailiff']);
+    // The Bailiffs: the friends' own bodies, and the host's garrison drawn on guests.
+    await this.ctx.characters.load(['bailiff', 'bailiffHeavy']);
     const lib = this.ctx.characters as Ctx['characters'] & { prop(id: string): Promise<unknown> };
     // Every gun a friend may hold; a prop that fails to load leaves that friend holding the last one.
     await Promise.all(PROPS.map(id => Promise.resolve().then(() => lib.prop(id)).catch(() => undefined)));

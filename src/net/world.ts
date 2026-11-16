@@ -21,7 +21,15 @@ import type { ExplosionKind } from '../core/contracts';
 import { ClaimValidator, claimKind, selectTarget } from './authority';
 import { isMelee } from '../weapons/melee/data';
 import { Team, TeamLife } from './team';
-import { decodeWorld, encodeWorld, ENEMY_IDS, packDamage, REGIONS, SNAPSHOT_MS, validVec, type EnemyFrame, type Vec, type WireDamage, type WorldEvent, type WorldFrame } from './worldProtocol';
+import { CAPTURABLE, decodeWorld, encodeWorld, ENEMY_IDS, packDamage, POSTURES, REGIONS, SNAPSHOT_MS, validVec, type EnemyFrame, type PostureId, type Vec, type WireDamage, type WorldEvent, type WorldFrame } from './worldProtocol';
+import type { GroundModel } from '../enemies/vehicles/models';
+import type { Vehicle } from '../enemies/vehicles/vehicle';
+import { ALLY_TYPES, type AllyType } from '../allies/data';
+import type { CharacterInstance } from '../core/contracts';
+
+const ALLY_KINDS = Object.keys(ALLY_TYPES) as AllyType[];
+/** Garrison tracers mirrored per second, at most. */
+const ASHOTS_PER_SECOND = 30;
 import type { CoopSession } from './index';
 
 interface Replica { enemy: Enemy; from: EnemyFrame; to: EnemyFrame; at: number }
@@ -32,6 +40,17 @@ interface PlayerTarget { id: string; player: PlayerSystem; life: TeamLife; foe: 
 const SHARED_SLOW = /^(slowmo|timeWarp|bossDeath|coop:)/;
 /** Explosions mirrored to other screens per second, at most: an AC-130 or a rotary of explosive rounds stays affordable. */
 const BOOMS_PER_SECOND = 24;
+
+/** The posture a man is held in by his animator (postures.ts), as the snapshot carries it. */
+function postureOf(enemy: Enemy): PostureId {
+  const name = (enemy.char.anim as unknown as { posture?: { name?: string } }).posture?.name;
+  return (POSTURES as readonly string[]).includes(name ?? '') ? name as PostureId : 'stand';
+}
+/** A man who has given up and can still be cuffed. */
+function capturable(enemy: Enemy): boolean {
+  const s = soldierOf(enemy);
+  return !!s && s.surrendered && !s.released && !s.collared && !s.cuffed && s.fate === 'surrender';
+}
 
 export class CoopWorld {
   readonly stats = { snapshotBytes: 0, eventBytes: 0, snapshotPackets: 0, eventPackets: 0, accepted: 0, rejected: 0, since: performance.now() };
@@ -47,7 +66,16 @@ export class CoopWorld {
   private boomSecond = 0;
   /** Host: slow-mo a guest's perk asked for, by request id, until when. */
   private readonly slows = new Map<string, number>();
-  private replaying = false;
+  /** Host: who cuffed each prisoner (lobby id), so the bounty reaches them. */
+  private readonly captors = new Map<number, string>();
+  /** Guest: seconds E has been held on a surrendered man, and the prompt over him. */
+  private captureHeld = -1;
+  private capturePrompt: { uid: number; off: () => void } | null = null;
+  /** Host: an id for each vehicle; guest: the drawn copies. */
+  private readonly vehicleIds = new WeakMap<Vehicle, number>();
+  private vehicleSerial = 0;
+  private nextVehicles = 0;
+  private readonly puppets = new Map<number, { model: GroundModel; from: THREE.Vector3; to: THREE.Vector3; q: THREE.Quaternion; turret: number; at: number; kind: string }>();
   private readonly replicas = new Map<number, Replica>();
   private readonly dead = new Set<number>();
   private readonly selections = new Map<number, string>();
@@ -105,6 +133,15 @@ export class CoopWorld {
           rank: rank ? RANK_IDS.indexOf(rank) : -1, squad: line.squad, voice: line.voice ?? -1, ...(line.slots ? { slots: line.slots } : {}) });
       }));
       this.off.push(ctx.events.on('comms:cut', cut => this.broadcast({ t: 'chatcut', uid: cut.enemy.uid, at: cut.at, radio: cut.radio })));
+      // A guest's prisoner: the host's purse was paid by the drone, so the bounty goes on to the guest who cuffed him.
+      this.off.push(ctx.events.on('prisoner:secured', e => {
+        const captor = this.captors.get(e.enemy.uid);
+        this.captors.delete(e.enemy.uid);
+        if (!captor || captor === session.lobby.you || !(e.bounty > 0)) return;
+        const wallet = ctx.contracts?.wallet as { credits?: number; earned?: number } | null | undefined;
+        if (wallet && typeof wallet.credits === 'number') { wallet.credits -= e.bounty; if (typeof wallet.earned === 'number') wallet.earned -= e.bounty; }
+        this.broadcast({ t: 'credit', amount: e.bounty, why: 'PRISONER BOUNTY' }, captor);
+      }));
     }
   }
 
@@ -203,6 +240,7 @@ export class CoopWorld {
       }
       const remote = this.session.remotes.get(from);
       if (!remote || !remote.buffer.sample(now)) return;
+      if (value.t === 'capture') return this.captureFor(from, remote.char.root.position, value.uid);
       const eye = remote.char.root.position.clone().add(new THREE.Vector3(0, 1.6, 0));
       if (value.t === 'fire' && validVec(value.origin) && validVec(value.dir) && new THREE.Vector3(...value.origin).distanceTo(eye) < 7
         && !this.life(from).down && this.validator.acceptFire(from, value.shot, value.weapon, now)) {
@@ -262,6 +300,15 @@ export class CoopWorld {
         break;
       }
       case 'chatter': this.hear(value); break;
+      case 'credit': {
+        const amount = Number.isFinite(value.amount) ? Math.max(0, Math.min(1e6, Math.round(value.amount))) : 0;
+        const wallet = this.ctx.contracts?.wallet;
+        if (amount && wallet) { wallet.earn(amount); this.ctx.hud.feed(`+${amount} CREDITS: ${String(value.why).slice(0, 24).toUpperCase()}`, '#ffc14a'); }
+        break;
+      }
+      case 'vehicles': this.drawVehicles(value); break;
+      case 'allies': this.drawAllies(value); break;
+      case 'ashot': if (validVec(value.from) && validVec(value.to)) this.ctx.fx.tracer(new THREE.Vector3(...value.from), new THREE.Vector3(...value.to), 'bullet'); break;
       case 'chatcut': {
         const enemy = this.replicas.get(value.uid)?.enemy;
         if (enemy && Number.isInteger(value.at) && value.at >= 0) this.ctx.events.emit('comms:cut', { enemy, at: value.at, radio: value.radio === true });
@@ -293,6 +340,10 @@ export class CoopWorld {
     }
     const at = new THREE.Vector3(...value.at);
     const kind = value.kind as ExplosionKind;
+    // A guest's rocket on a truck: vehicles live only on the host, so its blast is applied to them here.
+    if (this.session.hosting && Number.isFinite(value.damage) && value.damage! > 0 && typeof value.source === 'string') {
+      this.ctx.enemies.vehicles?.blast(at, { radius: value.radius, damage: Math.min(3000, value.damage!), kind, source: value.source.slice(0, 32), team: 'player' });
+    }
     this.ctx.fx.explosion(at, { radius: value.radius, kind });
     for (const sound of EXPLOSIONS[kind as keyof typeof EXPLOSIONS].sounds) this.ctx.audio.play(sound.id, { ...sound, position: at });
     const near = this.ctx.player.eye.distanceTo(at);
@@ -358,7 +409,8 @@ export class CoopWorld {
     return { uid: enemy.uid, id: enemy.id, position: enemy.position.toArray() as Vec, velocity: enemy.velocity.toArray() as Vec,
       yaw: enemy.yaw, health: enemy.health, maxHealth: enemy.maxHealth, armor: enemy.armor,
       flags: (enemy.airborne ? 1 : 0) | (enemy.downed ? 2 : 0) | (enemy.frozen > 0 ? 4 : 0) | (enemy.burning > 0 ? 8 : 0)
-        | (enemy.shield ? 16 : 0) | (enemy.ward > 0 ? 32 : 0) | (enemy.entrance === 'boss' ? 64 : 0),
+        | (enemy.shield ? 16 : 0) | (enemy.ward > 0 ? 32 : 0) | (enemy.entrance === 'boss' ? 64 : 0) | (capturable(enemy) ? CAPTURABLE : 0),
+      posture: postureOf(enemy),
       animation: enemy.attack ? enemy.attackPhase === 'windup' ? 1 : 2 : enemy.stagger > 0 ? 3 : 0,
       severed: REGIONS.reduce((mask, region, index) => mask | (enemy.char.severed.has(region) ? 1 << index : 0), 0),
       plates: enemy.plates.reduce((mask, plate, index) => mask | (plate.hp > 0 ? 1 << index : 0), 0) };
@@ -411,13 +463,19 @@ export class CoopWorld {
   }
   updateGuests(): void {
     const now = performance.now();
+    for (const puppet of this.puppets.values()) {
+      const root = puppet.model.root;
+      root.position.lerpVectors(puppet.from, puppet.to, Math.min(1, (now - puppet.at) / 200));
+      root.quaternion.slerp(puppet.q, 0.25);
+      if (puppet.model.turret) puppet.model.turret.rotation.y = puppet.turret;
+    }
     for (const replica of this.replicas.values()) {
       const alpha = Math.max(0, Math.min(1, (now - replica.at) / SNAPSHOT_MS));
       const { enemy, from, to } = replica;
       enemy.position.fromArray(from.position).lerp(new THREE.Vector3(...to.position), alpha);
       enemy.yaw = from.yaw + Math.atan2(Math.sin(to.yaw - from.yaw), Math.cos(to.yaw - from.yaw)) * alpha;
       enemy.velocity.fromArray(to.velocity);
-      this.manager.placeReplica(enemy, this.ctx.time.dt, (to.flags & 2) !== 0);
+      this.manager.placeReplica(enemy, this.ctx.time.dt, (to.flags & 2) !== 0 ? 'downed' : to.posture ?? 'stand');
     }
   }
 
@@ -552,7 +610,8 @@ export class CoopWorld {
   blast(center: THREE.Vector3, spec: ExplosionSpec): void {
     // Every explosion this game makes is drawn on the others': the host's for everyone, a guest's through the host.
     if (!spec.worldObject && this.ready && this.spendBoom()) {
-      this.broadcast({ t: 'boom', at: center.toArray() as Vec, kind: spec.kind, radius: spec.radius, slot: this.session.lobby.me?.slot });
+      this.broadcast({ t: 'boom', at: center.toArray() as Vec, kind: spec.kind, radius: spec.radius, slot: this.session.lobby.me?.slot,
+        ...(spec.team === 'player' && !this.session.hosting ? { damage: spec.damage, source: spec.source } : {}) });
     }
     if (!this.session.hosting || spec.team !== 'enemy') return;
     const def = EXPLOSIONS[spec.kind];
@@ -567,6 +626,9 @@ export class CoopWorld {
     if (!this.ready) return;
     const now = performance.now();
     this.team.update(now, this.ctx.time.realDt);
+    if (!this.session.hosting) this.captureKey(this.ctx.time.realDt);
+    else if (now >= this.nextVehicles) { this.nextVehicles = now + 200; this.sendVehicles(); this.sendAllies(); }
+    if (!this.session.hosting) this.animateAllies(this.ctx.time.realDt);
     for (const id of this.adapters.keys()) if (!this.session.lobby.players.some(player => player.id === id)) {
       this.adapters.delete(id); this.validator.forget(id);
     }
@@ -586,6 +648,165 @@ export class CoopWorld {
     for (const uid of this.selections.keys()) if (!alive.has(uid)) { this.selections.delete(uid); this.sight.delete(uid); this.routes.delete(uid); }
     for (const uid of this.lastHitter.keys()) if (!alive.has(uid)) this.lastHitter.delete(uid);
   }
+  /** Host: a guest held E on a surrendered man beside them. He is cuffed as if by the host, and the bounty is theirs. */
+  private captureFor(from: string, at: THREE.Vector3, uid: unknown): void {
+    const enemy = this.ctx.enemies.alive.find(e => e.uid === uid) as Enemy | undefined;
+    const soldier = enemy ? soldierOf(enemy) : null;
+    if (!enemy || !soldier || !capturable(enemy) || enemy.position.distanceTo(at) > 4.5) return;
+    // The drone's own cuff (airlift.ts), not the prisoners' key path, which would also drop whatever the host is holding.
+    const airlift = (this.manager as unknown as { outpost?: { captives?: { airlift?: { cuff(s: unknown): void } } } }).outpost?.captives?.airlift;
+    if (!airlift) return;
+    this.captors.set(enemy.uid, from);
+    airlift.cuff(soldier);
+    const name = this.session.lobby.players.find(p => p.id === from)?.name ?? 'A teammate';
+    this.ctx.hud.feed(`${name} cuffed a prisoner`, '#79f1ad');
+  }
+
+  /** Guest: hold E on a surrendered man in reach and in view, and the host cuffs him for you. */
+  private captureKey(dt: number): void {
+    const { player, input, hud } = this.ctx;
+    let best: Replica | null = null;
+    let bestD = 3.1;
+    if (player.alive && !player.parked) for (const replica of this.replicas.values()) {
+      if (!(replica.to.flags & CAPTURABLE)) continue;
+      const d = replica.enemy.position.distanceTo(player.position);
+      if (d >= bestD) continue;
+      const toward = replica.enemy.center.clone().sub(player.eye).normalize();
+      if (toward.dot(player.forward) < 0.55) continue;
+      best = replica; bestD = d;
+    }
+    const uid = best?.enemy.uid ?? -1;
+    if (this.capturePrompt && this.capturePrompt.uid !== uid) { this.capturePrompt.off(); this.capturePrompt = null; }
+    if (!best) { this.captureHeld = -1; return; }
+    if (!this.capturePrompt) this.capturePrompt = { uid, off: hud.follow(best.enemy.center, `HOLD ${input.labelFor?.('interact') ?? 'E'} CUFF`, '#ffc14a') };
+    if (input.pressed('interact')) this.captureHeld = 0;
+    if (this.captureHeld < 0) return;
+    if (!input.isDown('interact')) { this.captureHeld = -1; return; }
+    this.captureHeld += dt;
+    if (this.captureHeld >= 0.6) { this.captureHeld = -1; this.broadcast({ t: 'capture', uid }); }
+  }
+
+  /** Host: where every truck, humvee and tank is, for the guests to draw. */
+  private sendVehicles(): void {
+    const live = (this.ctx.enemies.vehicles as unknown as { live?: Vehicle[] } | undefined)?.live;
+    if (!live?.length && !this.puppetsSent) return;
+    this.puppetsSent = !!live?.length;
+    const list = (live ?? []).filter(v => v.alive && ['humvee', 'truck', 'tank'].includes(v.def.kind)).slice(0, 16).map(v => {
+      let id = this.vehicleIds.get(v);
+      if (id === undefined) this.vehicleIds.set(v, id = ++this.vehicleSerial);
+      return { id, kind: v.def.kind, p: v.position.toArray() as Vec, q: v.quaternion.toArray() as [number, number, number, number],
+        turret: (v as unknown as { turretYaw?: number }).turretYaw ?? 0 };
+    });
+    this.broadcast({ t: 'vehicles', list });
+  }
+  private puppetsSent = false;
+  private readonly allyIds = new WeakMap<object, number>();
+  private allySerial = 0;
+  private alliesSent = false;
+  private ashots = 0;
+  private ashotSecond = 0;
+  private readonly allyBodies = new Map<number, { char: CharacterInstance; type: AllyType; from: THREE.Vector3; to: THREE.Vector3; yaw: number; state: number; posture: string; at: number }>();
+
+  /** Host: an ally fired. Guests draw the tracer; it hurts nothing there. */
+  allyShot(from: THREE.Vector3, to: THREE.Vector3): void {
+    if (!this.session.hosting || !this.ready) return;
+    const second = Math.floor(performance.now() / 1000);
+    if (second !== this.ashotSecond) { this.ashotSecond = second; this.ashots = 0; }
+    if (++this.ashots <= ASHOTS_PER_SECOND) this.broadcast({ t: 'ashot', from: from.toArray() as Vec, to: to.toArray() as Vec });
+  }
+
+  /** Host: where the garrison stands, for the guests to draw. */
+  private sendAllies(): void {
+    const allies = (this.ctx.allies as unknown as { allies?: { body: Enemy; type: AllyType; state: string }[] } | undefined)?.allies;
+    if (!allies?.length && !this.alliesSent) return;
+    this.alliesSent = !!allies?.length;
+    const round = (n: number) => Math.round(n * 100) / 100;
+    const list = (allies ?? []).filter(a => a.state !== 'dead').slice(0, 24).map(a => {
+      let id = this.allyIds.get(a);
+      if (id === undefined) this.allyIds.set(a, id = ++this.allySerial);
+      const p = a.body.position;
+      return [id, ALLY_KINDS.indexOf(a.type), round(p.x), round(p.y), round(p.z), round(a.body.yaw), a.state === 'down' ? 1 : 0, POSTURES.indexOf(postureOf(a.body))];
+    });
+    this.broadcast({ t: 'allies', list });
+  }
+
+  /** Guest: the host's garrison as bodies only: no AI, no colliders, moved toward each update. */
+  private drawAllies(value: Extract<WorldEvent, { t: 'allies' }>): void {
+    if (!Array.isArray(value.list)) return;
+    const seen = new Set<number>();
+    const now = performance.now();
+    const lib = this.ctx.characters as Ctx['characters'] & { arm?(c: CharacterInstance, kit: readonly { model: string; socket: string }[], stance: string): void };
+    for (const row of value.list.slice(0, 24)) {
+      if (!Array.isArray(row) || row.length !== 8 || !row.every(Number.isFinite)) continue;
+      const [id, typeIndex, x, y, z, yaw, state, posture] = row as number[];
+      const type = ALLY_KINDS[typeIndex!];
+      if (!type || !validVec([x, y, z])) continue;
+      seen.add(id!);
+      let body = this.allyBodies.get(id!);
+      if (!body || body.type !== type) {
+        body?.char.release();
+        let char: CharacterInstance;
+        try { char = this.ctx.characters.spawn(ALLY_TYPES[type].wears.model); } catch { continue; }
+        lib.arm?.(char, ALLY_TYPES[type].wears.kit, ALLY_TYPES[type].wears.stance);
+        this.ctx.render.scene.add(char.root);
+        char.root.position.set(x!, y!, z!);
+        body = { char, type, from: new THREE.Vector3(x, y, z), to: new THREE.Vector3(x, y, z), yaw: yaw!, state: 0, posture: 'stand', at: now };
+        this.allyBodies.set(id!, body);
+      }
+      body.from.copy(body.char.root.position);
+      body.to.set(x!, y!, z!);
+      body.yaw = yaw!;
+      body.state = state!;
+      body.posture = state === 1 ? 'downed' : POSTURES[posture!] ?? 'stand';
+      body.at = now;
+    }
+    for (const [id, body] of this.allyBodies) if (!seen.has(id)) { body.char.release(); this.allyBodies.delete(id); }
+  }
+
+  private animateAllies(dt: number): void {
+    const now = performance.now();
+    for (const body of this.allyBodies.values()) {
+      const root = body.char.root;
+      const before = root.position.clone();
+      root.position.lerpVectors(body.from, body.to, Math.min(1, (now - body.at) / 200));
+      root.rotation.y = body.yaw;
+      root.visible = true;
+      const speed = dt > 0 ? Math.min(8, before.distanceTo(root.position) / dt) : 0;
+      (body.char.anim as unknown as { setPosture?(p: string): void }).setPosture?.(body.posture);
+      body.char.anim.setLocomotion({ speed, moveX: 0, moveZ: speed > 0.1 ? 1 : 0, aimYaw: 0, aimPitch: 0, grounded: true });
+      body.char.anim.update(dt, 0);
+      root.updateMatrixWorld(true);
+    }
+  }
+
+  /** Guest: the host's vehicles as models only, moved toward each update over the next 200 ms. */
+  private drawVehicles(value: Extract<WorldEvent, { t: 'vehicles' }>): void {
+    if (!Array.isArray(value.list)) return;
+    const fleet = (this.ctx.enemies.vehicles as unknown as { fleet?: { ground(kind: string): GroundModel } } | undefined)?.fleet;
+    const seen = new Set<number>();
+    const now = performance.now();
+    for (const v of value.list.slice(0, 16)) {
+      if (!v || !Number.isInteger(v.id) || !['humvee', 'truck', 'tank'].includes(v.kind) || !validVec(v.p) || !Array.isArray(v.q) || v.q.length !== 4 || !v.q.every(Number.isFinite)) continue;
+      seen.add(v.id);
+      let puppet = this.puppets.get(v.id);
+      if (!puppet || puppet.kind !== v.kind) {
+        if (!fleet) continue;
+        puppet?.model.root.removeFromParent();
+        const model = fleet.ground(v.kind);
+        model.root.position.fromArray(v.p);
+        puppet = { model, from: new THREE.Vector3(...v.p), to: new THREE.Vector3(...v.p), q: new THREE.Quaternion(), turret: 0, at: now, kind: v.kind };
+        this.puppets.set(v.id, puppet);
+      }
+      puppet.from.copy(puppet.model.root.position);
+      puppet.to.fromArray(v.p);
+      puppet.q.fromArray(v.q);
+      puppet.turret = Number.isFinite(v.turret) ? v.turret : 0;
+      puppet.at = now;
+      puppet.model.root.visible = true;
+    }
+    for (const [id, puppet] of this.puppets) if (!seen.has(id)) { puppet.model.root.removeFromParent(); this.puppets.delete(id); }
+  }
+
   selfDestruct(enemy: Enemy): void {
     if (!this.session.hosting) return;
     this.broadcast({ t: 'kill', uid: enemy.uid, id: enemy.id, at: enemy.position.toArray() as Vec, yaw: enemy.yaw, gib: true,
@@ -594,6 +815,11 @@ export class CoopWorld {
   dispose(): void {
     for (const off of this.off) off();
     this.team.dispose();
+    this.capturePrompt?.off();
+    for (const puppet of this.puppets.values()) puppet.model.root.removeFromParent();
+    this.puppets.clear();
+    for (const body of this.allyBodies.values()) body.char.release();
+    this.allyBodies.clear();
     for (const replica of this.replicas.values()) if (replica.enemy.alive) this.manager.withdraw(replica.enemy);
     this.replicas.clear(); this.delayed = [];
   }

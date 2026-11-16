@@ -9,7 +9,7 @@ export const COLORS = [0x39e0ff, 0xffb33d, 0xc69bff, 0x79f1ad];
 type Stance = 'rifle' | 'pistol' | 'shoulder' | 'heavy' | 'blades';
 type Kit = { model: string; socket: string }[];
 /** The third-person props a friend's gun is drawn with: the nearest of the baked kit the allies and enemies carry. */
-export const PROPS = ['smg', 'shotgun', 'launcher', 'minigun', 'pistol', 'sniperRifle', 'blade', 'flamer'] as const;
+export const PROPS = ['smg', 'shotgun', 'launcher', 'minigun', 'pistol', 'sniperRifle', 'blade', 'flamer', 'riotShield'] as const;
 const LOOKS: Record<string, [Kit, Stance]> = {
   smg: [[{ model: 'smg', socket: 'handR' }], 'rifle'],
   shotgun: [[{ model: 'shotgun', socket: 'handR' }], 'rifle'],

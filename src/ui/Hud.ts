@@ -324,7 +324,7 @@ export class Hud implements HudSystem {
     this.tally.reset();
     this.tally.el.style.display = this.ctx.coop?.freeRoam ? 'none' : '';
     if (this.shop) this.shop.el.style.display = this.ctx.coop?.freeRoam ? 'none' : '';
-    if (this.defense) this.defense.el.style.display = this.ctx.coop ? 'none' : '';
+    if (this.defense) this.defense.el.style.display = this.ctx.coop?.freeRoam ? 'none' : '';
     this.combo.reset();
     this.perks.reset();
     this.feedLane.clear();
@@ -420,8 +420,8 @@ export class Hud implements HudSystem {
 
   /** Outpost Defense's loadout or a shop: the run waits under it, as under pause, and Resume brings it back. */
   private openDefense(screen: 'loadout' | ShopId | 'procurement'): void {
-    // Co-op: only the Crucible's supply pod, each player's own, and it never pauses (setState keeps a co-op world live).
-    if (this.ctx.coop && (screen !== 'procurement' || !this.ctx.coop.world)) return;
+    // Co-op: each player's own shops and loadout, and none of them pauses (setState keeps a co-op world live).
+    if (this.ctx.coop && !this.ctx.coop.world) return;
     const game = this.game;
     if (!game || this.deathClock > 0 || (game.state !== 'playing' && game.state !== 'paused')) return;
     game.setState('paused');
