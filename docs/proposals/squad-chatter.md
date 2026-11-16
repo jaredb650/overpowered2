@@ -1,9 +1,46 @@
 # Proposal: squad chatter
 
+**Superseded in part, 2026-11-16:** the owner's own design, `docs/design/squad-comms.md` (Nov 15, 2026), is the primary spec. Where
+the two differ, the owner's wins. Section 0 maps it to what is built and lists every change.
+
 Status: proposal, 2026-11-15. Written from the owner's notes, after research (section 2) and a read of the code as it is (section 3).
 Nothing is built. Open details are marked **Q** with the default I would pick; the ones only the owner can settle are in section 12.
 Updated the same day with the owner's answers: what they call you and how they talk by nerve (4.9), temperaments (4.10), a
 personality and type lines per enemy type (4.11, 5.5), names (4.7), and a rare clone-death memory (4.6). Section 12 marks what is settled.
+
+## 0. Reconciled with the owner's design (2026-11-16)
+
+Stages 1 and 2 of section 8 are built (commit 1c77a28): the rule table, names and buddies, bubbles, the setting, the co-op line
+event. The owner's `docs/design/squad-comms.md` then became the spec. What it changes:
+
+| Topic | Owner's design | Built in 1c77a28 | Change |
+|---|---|---|---|
+| Line data | JSON/CSV rows: id, concept, criteria, unit, personality, morale_tier, text, priority, cooldown, radio, interruptible | TS tables expanded into rows | Rows move to `chatter/lines.json` with those fields (plus emotion, channel, weight) |
+| Morale tiers | High, Medium, Low, Broken (Desperate) | Two registers: professional (steady) and scared (shaken and below) | Four tiers. High = confident and steady, Medium = shaken, Low = panicked, Desperate = broken |
+| What they call you | High/Medium: subject, tango, target, hostile. Low: that thing, it, that piece of shit, the freak. Desperate: just "him" and swearing | Shaken already said "it" | Shaken (Medium) keeps tango and swears a little; "it" starts at Low; Desperate says "him" |
+| Names | Space setting: designations (K-17, Seven), short hard surnames (Voss, Kade), personality nicknames (Brick, Patch, Spark, Kid). Formal designation on the radio, nickname between buddies. Only some men are "known" | One surname per man | Garrison men get a designation, a surname and sometimes a nickname. Radio lines say the designation, buddies the nickname, the rest the surname, and only known men are named at all. Holdfast keeps its grounded dockside names. **Owner:** which faction is the "human SWAT-style" one? None exists yet; it would keep grounded surnames |
+| Callsigns | NATO alphabet | NATO already (`CALLSIGNS`, Alpha to Hotel) | None |
+| Priority | critical > tactical > emotional > idle; higher cuts lower; death or a big hit cuts the speaker mid-word, shown as "Bravo, he's head—" | A side-wide line gap with an urgent bypass | Four tiers per row; one speaker per squad at a time; a higher tier cuts a lower one; death or a big hit cuts his own line. Bubbles type out at speaking pace so a cut lands mid-word; the feed line is rewritten to the cut text |
+| Response chains | Follow-up concepts ("Frag out!" → "Moving!") | None | Chains looked up when due, said by another man |
+| Debug overlay | Which rule fired and why (facts and score) | None | F4 info overlay gains the last chatter picks: row id, score, tier, facts |
+| Interrupt on death | Fatal hit: no line, the cut-off is the cue | None | Built in stage A |
+| Fight to the death | Never default; last stand rare and announced | Last stand on 45% of the wounded with a sidearm or grenade | Unchanged here; stage F adds the announced choice |
+| Voices | ZONOS3-Mini later | Same | Unchanged: only when the owner says |
+
+The build order (section 8) is replaced by the owner's priorities. Every stage ends playable and carries its lines to co-op guests from the
+start (the host decides; guests get `chatter` and `chatcut` events).
+
+| Stage | What |
+|---|---|
+| A | Interrupts and cut-offs, priority tiers, the debug overlay, space-setting names in two registers, callsigns, response chains, lines as JSON |
+| B | Armour and wound lines on the existing armour and wound events: plates held, plate gone, went right through, artery, gut, limb off; crawling pain lines that call the buddy by name; witness lines |
+| C | Tactics said, then done (suppress, flank, bound, push, hold, reload and covering); grenade and flash calls with a HUD cue for an incoming flash; clock and cardinal calls; player-status calls |
+| D | Men hear lines: frag out clears the landing spot, "he's blind" pushes, man down brings a drag, rocket out clears the back blast |
+| E | Radio net: a radio operator per squad, contact reports, the "Charlie, radio check" chain when he dies mid-sentence, squad-wiped reports |
+| F | Morale outcomes: flee, surrender, the rare announced last stand, the rare fake surrender with a grenade (pin-pull and HUD cue), revenge, bravado |
+| G | Per-match memory and habits: adapt, then explain. Per match and squad-level only, never a persistent nemesis hierarchy |
+| H | Cross-squad offers and claims, and the riot shield wall |
+| I | Voices, only when the owner says |
 
 ## 1. The goal
 
