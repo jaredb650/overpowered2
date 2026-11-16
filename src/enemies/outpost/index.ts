@@ -42,6 +42,7 @@ import { listenForWounds } from './chatter/reactions';
 import { listenToEachOther } from './chatter/listeners';
 import { BRAVADO, breaking, tickOutcomes } from './chatter/outcomes';
 import { PlayerMemory, rememberPlayer } from './chatter/memory';
+import { Offers } from './chatter/offers';
 import { Comms } from './comms';
 import { CoverMap, type CoverSpot, type SpotReading } from './cover';
 import { CALLSIGNS, defaultDoctrine, fireRules, MAX_SQUAD, ROLE_OF, ROLES, type Doctrine } from './doctrine';
@@ -172,6 +173,8 @@ export class Outpost {
   readonly names = new NameRoll();
   /** What the side remembers of the player this match. */
   readonly memory = new PlayerMemory();
+  /** Tactics offered across squad borders: the shield wall. */
+  readonly offers = new Offers();
   private readonly leaving: Soldier[] = [];
   private gates: THREE.Vector3[] = [];
   private readonly gateUsedAt = new Map<THREE.Vector3, number>();
@@ -252,6 +255,7 @@ export class Outpost {
     this.flushLeaving();
     this.names.reset();
     this.memory.reset();
+    this.offers.reset();
     this.squads.length = 0;
     this.forming = this.gate = null;
     this.squadSerial = this.prisoners = 0;
@@ -789,6 +793,7 @@ export class Outpost {
       else if (s.state === 'shaken' && was === 'steady') this.comms.say('fear', s);
     }
     tickOutcomes(this, now);
+    this.offers.tick(this, now);
   }
 
   /** He is finished as a soldier: the gun goes down and he runs, or he gives up. */
@@ -964,6 +969,7 @@ export class Outpost {
       if (q === squad || !q.absorb(last)) continue;
       squad.leave(last);
       last.e.squad = q;
+      if (q.leader && q.leader !== last) this.comms.say('merge', q.leader, null, { slots: { squad: q.name } });
       return;
     }
   }

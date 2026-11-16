@@ -13,6 +13,7 @@ import { GUN_DOWN_HOLD, listenToEachOther } from './listeners';
 import { cardinal, contactReport, radioLoss } from './radio';
 import { breaking, revenge, tickOutcomes } from './outcomes';
 import { HABIT_AT, PlayerMemory, rememberPlayer } from './memory';
+import { Offers } from './offers';
 import * as THREE from 'three';
 import { OutpostSquad } from '../squad';
 import { RULES } from './lines';
@@ -571,5 +572,48 @@ describe('memory of the player, this match only', () => {
     o.memory.reset();
     expect(o.memory.counts.blasts).toBe(0);
     expect(o.memory.noticed.size).toBe(0);
+  });
+});
+
+describe('the shield wall: an offer across squads', () => {
+  it('calls it, takes claims from any squad, breaks the shotguns out close, and scatters when the shield goes', () => {
+    const comms = { say: vi.fn() };
+    const o = { w: { player: { position: new THREE.Vector3(0, 0, -15) }, ctx: { world: { nav: { nearest: () => true } } } }, soldiers: [] as Soldier[], comms, order: vi.fn(), scare: vi.fn() };
+    const squad = (n: number) => {
+      const q = new OutpostSquad(n, n === 1 ? 'Alpha' : 'Bravo', o as unknown as Outpost);
+      Object.defineProperty(q, 'inContact', { value: true });
+      return q;
+    };
+    const alpha = squad(1);
+    const bravo = squad(2);
+    const man = (q: OutpostSquad, role: Soldier['role'], x: number) => {
+      const s = new Soldier();
+      s.role = role;
+      q.join(s);
+      // Facing -z, at the player.
+      s.e = { alive: true, shield: role === 'shield', dist: 15, yaw: Math.PI, position: new THREE.Vector3(x, 0, 0) } as unknown as Soldier['e'];
+      o.soldiers.push(s);
+      return s;
+    };
+    const wall = man(alpha, 'shield', 0);
+    const rifle = man(bravo, 'rifle', 3);
+    const gun = man(bravo, 'shotgun', -3);
+    const offers = new Offers();
+    offers.tick(o as unknown as Outpost, 0);
+    expect(comms.say.mock.calls.map(c => c[0])).toEqual(['shieldUp', 'stackOn', 'shieldPush']);
+    expect(offers.cover[0]!.claims).toEqual([rifle, gun]);
+    // His stack is placed behind him: +z, away from the player.
+    const placed = o.order.mock.calls.filter(c => c[0] !== wall);
+    expect(placed.length).toBe(2);
+    for (const c of placed) expect(c[1].z).toBeGreaterThan(0);
+    (wall.e as { dist: number }).dist = 5;
+    offers.tick(o as unknown as Outpost, 1);
+    expect(comms.say).toHaveBeenCalledWith('breakOut', gun);
+    expect(offers.cover[0]!.claims).toEqual([rifle]);
+    (wall.e as { shield: boolean }).shield = false;
+    offers.tick(o as unknown as Outpost, 2);
+    expect(comms.say).toHaveBeenLastCalledWith('shieldDown', rifle);
+    expect(o.scare).toHaveBeenCalled();
+    expect(offers.cover).toHaveLength(0);
   });
 });

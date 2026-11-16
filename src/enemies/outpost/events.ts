@@ -27,7 +27,8 @@ export type CommsKind =
   | 'rocketOut' | 'gunDown' | 'hold'
   | 'contactReport' | 'copy' | 'status' | 'squadWiped' | 'sayAgain' | 'radioCheck' | 'radioLost' | 'radioGrab'
   | 'flee' | 'holdout' | 'fakeOut' | 'revenge' | 'taunt'
-  | 'habit';
+  | 'habit'
+  | 'shieldUp' | 'stackOn' | 'shieldPush' | 'breakOut' | 'shieldFlanked' | 'shieldDown' | 'merge';
 
 export interface CommsLine {
   kind: CommsKind;

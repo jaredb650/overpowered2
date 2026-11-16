@@ -25,6 +25,7 @@ import type { Soldier } from './soldier';
 const KIND_GAP: Partial<Record<CommsKind, number>> = {
   fix: 24, contact: 4, lost: 8, noise: 10, moving: 5, covering: 6, reloading: 4, flanking: 8, fear: 7, panic: 5, surrender: 6, regroup: 6, fallback: 6,
   set: 6, playerHit: 10, rocketOut: 2.5, gunDown: 4, hold: 6,
+  shieldUp: 8, stackOn: 4, shieldPush: 10, breakOut: 4, shieldFlanked: 6, shieldDown: 3, merge: 4,
   habit: 3, flee: 4, holdout: 2, fakeOut: 1, revenge: 4, taunt: 12,
   contactReport: 12, copy: 3, status: 10, squadWiped: 4, sayAgain: 1, radioCheck: 1, radioLost: 1, radioGrab: 1, hit: 3, dying: 6, plateHeld: 15, plateGone: 4, pierced: 10, artery: 5, gut: 5, limbLost: 1, downed: 6, beg: 5, scream: 4, rescue: 6, lastStand: 5, pinning: 7, flushing: 6, rushing: 5, cutoff: 6, opening: 8, wounded: 7, dry: 5, hostage: 5, clearShot: 5,
 };
@@ -43,7 +44,7 @@ const PAIN: ReadonlySet<CommsKind> = new Set<CommsKind>(['hit', 'scream', 'dying
 /** Lines that bring an answer from another man in the squad, after the call has been said. */
 /** Radio calls that another squad's operator answers. */
 export const NET_CHAIN: Partial<Record<CommsKind, CommsKind>> = { contactReport: 'copy', status: 'copy' };
-export const CHAIN: Partial<Record<CommsKind, CommsKind>> = { frag: 'ack', flash: 'ack', reloading: 'covering', gunDown: 'hold', rocketOut: 'ack' };
+export const CHAIN: Partial<Record<CommsKind, CommsKind>> = { frag: 'ack', flash: 'ack', reloading: 'covering', gunDown: 'hold', rocketOut: 'ack', merge: 'ack' };
 /** A hit this big stops a sentence: a share of his health, or a limb. */
 const BIG_HIT = 0.3;
 /** Metres of height that make "above us" or "under us", and the speeds that make "charging" and "too fast". */

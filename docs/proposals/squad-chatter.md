@@ -86,6 +86,14 @@ start (the host decides; guests get `chatter` and `chatcut` events).
   or riflemen keep 7 m away (the Commander's own answers, applied if he has not already). A squad that finds him again after 12 s says so
   ("You again."); a man who has watched friends die to him warns the others; revenge names a squad wiped earlier this match ("This is for
   Delta!").
+- **H.** `chatter/offers.ts` (`Outpost.offers`): an offer is something a unit gives, claimed by men nearby of the right role from any
+  squad, led by the giver, with a 20 s timeout, every claim said. Built: the riot shield's cover. In contact with the player within 30 m he
+  calls "Shield up, stack on me"; up to three riflemen or shotgunners within 12 m claim it ("Moving with you!") and are placed behind him
+  every half second (riflemen at his shoulders); he walks at the player ("Pushing!"); within 7 m the shotgunners break out ("Now!") and are
+  not taken back; a player more than 75 degrees off his face is called ("He's going around the shield!"); the shield gone scatters the
+  stack ("Shield's down, scatter!") with a small morale hit. A last man merged into another squad is greeted ("You're Echo now.").
+  Deferred: the other offers (gun pinning the player for a cross-squad flank, warden drags, rocket on hard cover, sniper spotting), which
+  need the squad planner to accept outside work.
 
 ## 1. The goal
 
