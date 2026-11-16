@@ -234,6 +234,8 @@ const gunShots: SoundDef[] = [
   shot('dbshotgun_shot', 'guns/dbshotgun_shot.mp3', 'gun', 0.25, 0.234, { send: 0.22, perFrame: 2 }),
   // The Ultramag (the owner's newer shot, 2026-11-16): the hardest-hitting pistol, over the Rivet's 0.138, under every shotgun.
   shot('ultramag_shot', 'guns/ultramag_shot.mp3', 'gunHeavy', 0.2, 0.34),
+  // Through its suppressor (the owner's, 2026-11-16): about 2.5 dB under the bare shot, with less of it in the room.
+  shot('ultramag_suppressed_shot', 'guns/ultramag_suppressed_shot.mp3', 'gun', 0.15, 0.198, { send: 0.08 }),
   shot('sabot_shot', 'guns/sabot_shot.mp3', 'gunHeavy', 0.246, 0.219, { send: 0.32 }),
   shot('autocannon_blast', 'guns/autocannon_blast.mp3', 'gun', 0.43, 0.26, { send: 0.22 }),
   // The Stakegun (2026-11-15): its shot, the string drawn back after each shot and on a reload (foley, at the pump's

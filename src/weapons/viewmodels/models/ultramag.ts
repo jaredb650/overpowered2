@@ -6,18 +6,28 @@
  *
  * Every shot runs the slide far back and lets it hang there: the case leaves through the port, the next round climbs out of
  * the magazine, and the slide strips it forward into the chamber you can see through the port. Origin at the top of the grip.
+ *
+ * Its mods (weapons/mods.ts), each a part shown while fitted, all four stacking: a square suppressor on a barrel stub, its top
+ * under the sight line; a chunky reflex sight on the slide ahead of the rear sight, close to the eye for a wide window; a laser module
+ * under the dust cover; and an extended magazine standing out of the grip. Authored a tenth larger than it is built: the whole
+ * mesh is scaled by `S` before it becomes a model, so every number below is in the authored size and `k()` scales the rest.
  */
 import { Kit } from '../kit/kit';
 import { Model } from '../kit/model';
 import { F } from '../kit/finishes';
-import { Kind, type Finish, type Mesher } from '../kit/mesher';
-import { circle, curve, poly, type P2, type V2 } from '../kit/shapes';
+import { Kind, type Finish, type Mesher, type PartNode, type V3 } from '../kit/mesher';
+import { circle, curve, poly, rect, slotRow, type P2, type V2 } from '../kit/shapes';
 import { screwX } from '../kit/details';
 import { hold, inOut, inQuad, outCubic, outQuad, seg, thud } from '../curves';
 import type { Anim, ViewDef } from '../def';
 import { HANDS } from '../poses';
 import { pullTrigger, round } from './common';
+import { OPTIC_GLOWS } from './optics';
 
+/** Built size against authored: the owner found it too big for the hands at full size. */
+const S = 0.9;
+/** An authored point at the built size. */
+const k = (v: V3): V3 => [v[0] * S, v[1] * S, v[2] * S];
 const BORE = 0.0475;
 const MUZZLE = -0.335;
 /** Slide underside and top, and its half width. */
@@ -47,6 +57,14 @@ const FEED_Y = 0.017;
 const FEED_Z = BREECH + TRAVEL - 0.002;
 const MAG_Y = 0.014;
 const MAG_Z = 0.056;
+/** The suppressor: from the muzzle face forward, its half width and half height round the bore (its top stays under SIGHT_Y). */
+const CAN_LEN = 0.165;
+const CAN_W = 0.0185;
+const CAN_H = 0.0182;
+/** The reflex sight on the slide just ahead of the rear sight, as an optic cut has it: its centre along the slide, and its dot. */
+const RMR_Z = 0.057;
+const DOT_Y = SY1 + 0.02;
+const DOT_Z = RMR_Z - 0.008;
 
 const NITRIDE: Finish = { color: 0x737b85, rough: 0.32, metal: 0.9, wear: 0.18, kind: Kind.brushed };
 const FRAME: Finish = { color: 0x1e2024, rough: 0.5, metal: 0.55, wear: 0.3 };
@@ -98,6 +116,7 @@ function slide(m: Mesher): void {
       m.front(rail, BREECH - PORT + 0.002, { capFront: false, capBack: false });
     });
     serrations(m, -0.268, -0.212, 11);
+    reflex(m);
     serrations(m, 0.052, 0.1, 10);
     // Rear face: anti-glare grooves across it and a small firing-pin cap, nothing to catch the eye under the sights.
     m.use(F.black);
@@ -260,16 +279,115 @@ function magazine(m: Mesher): void {
       m.mirror(() => m.at([0.0105, 0.001, 0.004], null, () => m.box(0.003, 0.006, 0.04, 0.0006)));
     });
     // Base pad: frame black with a red sole, standing proud under the grip.
-    m.at([0, -0.166, 0.042], [-0.1, 0, 0], () => {
+    const pad = () => {
       m.use(FRAME);
       m.side(poly([[-0.036, 0.006], [0.036, 0.006], [0.04, -0.004], [-0.034, -0.005]], 0.003), 0.037, { bevel: 0.0018 });
       m.use(RED);
       m.at([0, -0.0058, 0.002], null, () => m.box(0.03, 0.0018, 0.062, 0.0006));
+    };
+    m.at([0, -0.166, 0.042], [-0.1, 0, 0], pad);
+    // The extended magazine (four more rounds): a ribbed sleeve hangs under the stock pad, a window on the stack in it, and a
+    // second pad under that. Built onto the stock one, so the shop's studio, which poses the gun without its clip, shows it right.
+    m.part('magExt', [0, 0, 0], () => {
+      m.at([0, 0, 0], [-0.26, 0, 0], () => {
+        m.use(FRAME);
+        m.side(poly([[-0.03, -0.168], [0.03, -0.168], [0.03, -0.222], [-0.03, -0.222]], 0.003), 0.03, { bevel: 0.0016, holes: [rect(-0.012, -0.214, 0.006, -0.18, 0.003)] });
+        m.use(F.brass);
+        for (let index = 0; index < 3; index++) m.at([0, -0.186 - index * 0.0122, -0.003], null, () => m.box(0.026, 0.0105, 0.02, 0.003));
+        m.use(RED);
+        m.mirror(() => {
+          for (let index = 0; index < 3; index++) m.at([0.0152, -0.176 - index * 0.006, 0.019], null, () => m.box(0.0012, 0.0024, 0.018, 0.0005));
+        });
+      });
+      m.at([0, -0.2185, 0.0582], [-0.1, 0, 0], pad);
     });
     // The rest of the stack under the top round, so the well is never empty when the top one climbs out.
     m.part('stack', [0, FEED_Y - MAG_Y - 0.0144, FEED_Z - MAG_Z + 0.004], () => round(m, ROUND_R, CASE, BULLET));
     m.part('feedRound', [0, FEED_Y - MAG_Y, FEED_Z - MAG_Z], () => round(m, ROUND_R, CASE, BULLET));
   });
+}
+
+/** A square suppressor in the slide's colours on a stub of barrel: black body, grey ends, vented flanks over a red line. */
+function suppressor(m: Mesher): void {
+  m.part('can', [0, BORE, MUZZLE], () => {
+    m.use(F.barrel);
+    m.at([0, 0, -0.006], null, () => m.cyl(0.0106, 0.014, 18, 0.0004));
+    const section = (w: number, h: number, c: number) => poly([[-w, -h], [w, -h], [w, h - c], [w - c, h], [-w + c, h], [-w, h - c]], 0.0016);
+    // Rear collar, ribbed for the hand that screws it on.
+    m.use(NITRIDE);
+    m.at([0, 0, -0.019], null, () => m.front(section(CAN_W - 0.0015, CAN_H - 0.0015, 0.006), 0.016, { bevel: 0.0014 }));
+    m.use(F.black);
+    m.mirror(() => {
+      for (let index = 0; index < 5; index++) m.at([CAN_W - 0.0014, 0, -0.0135 - index * 0.0028], null, () => m.box(0.0006, CAN_H * 1.3, 0.0012, 0.0002));
+    });
+    // Body: a dark core, flanks with slanted vents through to it, a flat top with a channel down its middle.
+    const z0 = -0.027;
+    const z1 = -CAN_LEN + 0.012;
+    m.use(FRAME);
+    m.at([0, 0, (z0 + z1) / 2], null, () => m.front(section(CAN_W - 0.0032, CAN_H - 0.0006, 0.006), z0 - z1, { bevel: 0.0012 }));
+    m.use(NITRIDE);
+    m.mirror(() => m.at([CAN_W - 0.0016, 0, 0], null, () => m.side(poly([
+      [z0, -CAN_H + 0.002], [z0, CAN_H - 0.0075], [z1, CAN_H - 0.0075], [z1, -CAN_H + 0.002],
+    ], 0.0015), 0.0032, { bevel: 0.0008, holes: slotRow(z0 - 0.014, -0.002, z1 + 0.014, -0.002, 7, 0.016, 0.0042, 1.25) })));
+    m.use(F.black);
+    m.mirror(() => m.at([CAN_W - 0.0034, -0.002, (z0 + z1) / 2], null, () => m.box(0.0006, 0.02, z0 - z1 - 0.01, 0.0002)));
+    m.glow('accent', () => m.mirror(() => m.at([CAN_W - 0.0033, -CAN_H + 0.0045, (z0 + z1) / 2], null, () => m.box(0.0004, 0.0011, z0 - z1 - 0.016, 0))));
+    m.use(NITRIDE);
+    m.mirror(() => m.at([0.0068, CAN_H - 0.0004, (z0 + z1) / 2], null, () => m.box(0.0072, 0.0016, z0 - z1, 0.0005)));
+    // Front cap and its bore.
+    m.at([0, 0, -CAN_LEN + 0.006], null, () => m.front(section(CAN_W, CAN_H, 0.0065), 0.012, { bevel: 0.0016, holes: [circle(0, 0, 0.0072, 18)] }));
+    m.use(F.black);
+    m.at([0, 0, -CAN_LEN + 0.016], null, () => m.cyl(0.0074, 0.002, 18, 0));
+    m.mirror(() => screwX(m, CAN_W + 0.0001, CAN_H - 0.009, -CAN_LEN + 0.006, 1, 0.0018, F.steelDark));
+  });
+}
+
+/**
+ * A chunky reflex sight (an RMR's shape at the gun's scale) on the slide, riding it: a slanted hood over a wide window, a
+ * rear frame, the base on the slide's flat, a button on each flank, the dot floating at the window's middle.
+ */
+function reflex(m: Mesher): void {
+  m.part('rmr', [0, SY1, RMR_Z], () => {
+    const w = 0.0205;
+    const win = rect(-0.0145, DOT_Y - SY1 - 0.0105, 0.0145, DOT_Y - SY1 + 0.0095, 0.004);
+    m.use(FRAME);
+    // Base on the slide's top flat, and the low body between the two frames.
+    m.at([0, 0.0025, 0], null, () => m.box(w * 2, 0.005, 0.046, 0.0014, 0.003));
+    m.side(poly([[0.022, 0.003], [0.022, 0.0095], [-0.022, 0.0095], [-0.022, 0.003]], 0.001), w * 2, { bevel: 0.0014 });
+    // Front hood: thick, its face raked back; the rear frame thinner. Both carry the window.
+    const hood = poly([[-w, 0.003], [w, 0.003], [w, 0.026, 0.006], [w - 0.008, 0.033, 0.005], [-w + 0.008, 0.033, 0.005], [-w, 0.026, 0.006]], 0.002);
+    m.at([0, 0, -0.016], null, () => m.front(hood, 0.013, { bevel: 0.0018, holes: [win] }));
+    m.at([0, 0, 0.019], null, () => m.front(hood, 0.007, { bevel: 0.0014, holes: [win] }));
+    // The bridge over the window from hood to rear frame, clear of the window's top edge, and the flanks under the window.
+    m.at([0, DOT_Y - SY1 + 0.0113, 0.0015], null, () => m.box(0.025, 0.0032, 0.03, 0.0012));
+    m.mirror(() => m.at([w - 0.0015, 0.0105, 0.0015], null, () => m.box(0.003, 0.006, 0.03, 0.0008)));
+    m.use(NITRIDE);
+    m.mirror(() => m.at([w + 0.0004, 0.006, -0.002], null, () => m.box(0.0012, 0.004, 0.03, 0.0004)));
+    m.use(STAINLESS);
+    m.mirror(() => m.at([w + 0.0008, 0.0155, -0.016], null, () => m.box(0.0016, 0.006, 0.008, 0.0006)));
+    m.mirror(() => screwX(m, w + 0.0002, 0.006, 0.016, 1, 0.0016, F.steelDark));
+    m.glass(() => m.at([0, 0, -0.0105], null, () => m.front(win, 0.0008, { bevel: 0 })));
+    m.glow('dot', () => m.at([0, DOT_Y - SY1, DOT_Z - RMR_Z + 0.0004], null, () => m.cyl(0.0007, 0.0002, 12, 0)));
+  });
+}
+
+/** A laser module under the dust cover: a squared housing on a clamp, the lens and its pinpoint, two pressure pads. */
+function laser(m: Mesher): void {
+  m.part('lam', [0, -0.028, -0.236], () => m.scaled(1.25, () => {
+    m.use(FRAME);
+    m.at([0, -0.003, 0], null, () => m.box(0.03, 0.006, 0.062, 0.0012, 0.002));
+    m.side(poly([[0.032, -0.005], [0.032, -0.02, 0.004], [-0.026, -0.022, 0.004], [-0.034, -0.012, 0.004], [-0.034, -0.005]], 0.0015), 0.028, { bevel: 0.0018 });
+    m.use(NITRIDE);
+    m.mirror(() => m.at([0.0142, 0, 0], null, () => m.side(poly([[0.026, -0.008], [0.026, -0.018], [-0.022, -0.019], [-0.026, -0.012], [-0.026, -0.008]], 0.0012), 0.0016, { bevel: 0.0005 })));
+    m.use(STAINLESS);
+    m.mirror(() => m.at([0.0148, -0.0135, 0.02], null, () => m.box(0.0016, 0.006, 0.008, 0.0005)));
+    // The lens in a black bezel on the front face, and beside it the dark eye of the second emitter.
+    m.use(F.black);
+    m.at([-0.006, -0.0135, -0.0345], null, () => m.cyl(0.0058, 0.003, 18, 0.0005));
+    m.at([0.0075, -0.0135, -0.0345], null, () => m.cyl(0.0034, 0.003, 14, 0.0004));
+    m.glass(() => m.at([-0.006, -0.0135, -0.0362], null, () => m.cyl(0.0046, 0.0006, 18, 0)));
+    m.glow('laser', () => m.at([-0.006, -0.0135, -0.0366], null, () => m.cyl(0.0011, 0.0003, 10, 0)));
+  }));
 }
 
 function buildUltramag(kit: Kit): Model {
@@ -281,6 +399,8 @@ function buildUltramag(kit: Kit): Model {
   barrel(m);
   slide(m);
   magazine(m);
+  suppressor(m);
+  laser(m);
   // Hooked hammer, cocked: the spur curls back over the web of the hand.
   m.part('hammer', [0, 0.013, 0.111], () => {
     m.use(STAINLESS);
@@ -295,14 +415,25 @@ function buildUltramag(kit: Kit): Model {
     m.use(STAINLESS);
     m.side(poly([[-0.0035, 0.002], [0.004, 0.002], [0.0015, -0.012, 0.004], [0.006, -0.027, 0.002], [0.0025, -0.0285, 0.001], [-0.004, -0.014, 0.005]], 0.001), 0.0068, { bevel: 0.0008 });
   });
-  const model = new Model(m, kit.mats, { glows: { sight: [0xff6a1a, 7], rear: [0xffe2c4, 2], accent: [0xff2a1c, 3.2] } });
-  model.socket('muzzle', [0, BORE, MUZZLE - 0.004]);
-  model.socket('eject', [SW + 0.004, BORE + 0.014, -0.022]);
-  model.hand('gripR', [0.024, -0.07, 0.077], [0, -0.96, 0.27], [-0.3, -0.25, -0.92]);
-  model.pistolSupport('gripL', [-0.034, -0.072, 0.07]);
-  model.hand('magHold', [-0.017, -0.1, 0.022], [-0.3, 0.1, -0.95], [0.9, -0.1, -0.35], 'mag');
-  model.hand('boltHold', [-0.023, 0.0, 0.07], [-0.5, -0.2, -0.8], [0.8, -0.3, -0.5], 'slide');
+  shrink(m.tree, S);
+  const model = new Model(m, kit.mats, {
+    glows: { sight: [0xff6a1a, 7], rear: [0xffe2c4, 2], accent: [0xff2a1c, 3.2], laser: [0xff3020, 7], dot: OPTIC_GLOWS.dot },
+  });
+  model.socket('muzzle', k([0, BORE, MUZZLE - 0.004]));
+  model.socket('muzzleCan', k([0, BORE, MUZZLE - CAN_LEN - 0.002]));
+  model.socket('eject', k([SW + 0.004, BORE + 0.014, -0.022]));
+  model.hand('gripR', k([0.024, -0.07, 0.077]), [0, -0.96, 0.27], [-0.3, -0.25, -0.92]);
+  model.pistolSupport('gripL', k([-0.034, -0.072, 0.07]));
+  model.hand('magHold', k([-0.017, -0.1, 0.022]), [-0.3, 0.1, -0.95], [0.9, -0.1, -0.35], 'mag');
+  model.hand('boltHold', k([-0.023, 0.0, 0.07]), [-0.5, -0.2, -0.8], [0.8, -0.3, -0.5], 'slide');
   return model;
+}
+
+/** Scales a built mesh tree about the origin: every vertex and every part's pivot. Normals keep under a uniform scale. */
+function shrink(node: PartNode, s: number): void {
+  node.pivot.multiplyScalar(s);
+  for (const layer of node.layers.values()) for (let i = 0; i < layer.p.length; i++) layer.p[i] = layer.p[i]! * s;
+  for (const child of node.children) shrink(child, s);
 }
 
 /** Fire-cycle timing, seconds after the shot: back, hang, home. Done well inside the 0.36 s interval. */
@@ -329,8 +460,8 @@ function clip(a: Anim): void {
     lift = inOut(seg(reload, 0.76, 0.8));
     feeding = reload >= 0.76 && reload < 0.92;
   }
-  parts.slide!.position.z += back * TRAVEL;
-  parts.weight!.position.z -= back * 0.026;
+  parts.slide!.position.z += back * TRAVEL * S;
+  parts.weight!.position.z -= back * 0.026 * S;
   parts.hammer!.rotation.x += back * 0.42;
   const cartridge = parts.feedRound!;
   // At rest the slide covers the top round, so it can always show while there is one.
@@ -341,13 +472,14 @@ function clip(a: Anim): void {
     // open top with the gun held level; then the breech face strips it forward, down onto the line and home.
     const home = 1 - back;
     const ramp = inOut(seg(home, 0, 0.4));
-    cartridge.position.y += lift * (BORE + 0.002 - FEED_Y) - ramp * 0.002;
-    cartridge.position.z -= home * TRAVEL;
+    cartridge.position.y += (lift * (BORE + 0.002 - FEED_Y) - ramp * 0.002) * S;
+    cartridge.position.z -= home * TRAVEL * S;
     cartridge.rotation.x += 0.16 * lift * (1 - inOut(seg(home, 0.15, 0.55)));
   }
   pullTrigger(a, 0.06, 0.36);
   a.glow('sight', 1);
-  a.glow('rear', 1);
+  // The irons' rear dots go dark under a fitted optic, so only its dot shows.
+  a.glow('rear', a.mods?.has('ultramagDot') ? 0 : 1);
   a.glow('accent', 1 + (fired ? (1 - Math.min(1, time / HOME_END)) * 1.6 : 0));
   if (fired) {
     // A magnum's flip: the muzzle snaps up and the gun drives back into the hand in 20 ms, then eases down to level, never
@@ -392,7 +524,14 @@ export function ultramagDef(kit: Kit): ViewDef {
   return {
     id: 'ultramag', model: buildUltramag(kit),
     pos: [0.13, -0.138, -0.41], rot: [0.02, 0.06, 0],
-    sight: [0, SIGHT_Y, POST_Z + 0.0042], rear: [0, SIGHT_Y, REAR_Z], relief: 0.7,
+    sight: k([0, SIGHT_Y, POST_Z + 0.0042]), rear: k([0, SIGHT_Y, REAR_Z]), relief: 0.66,
+    mods: {
+      ultramagCan: { part: 'can', muzzle: 'muzzleCan' },
+      // Level, the dot on the eye line, the eye close for a window about 10 degrees wide with the rear blade under it.
+      ultramagDot: { part: 'rmr', sight: k([0, DOT_Y, DOT_Z]), rear: null, relief: 0.14 },
+      ultramagLam: { part: 'lam' },
+      ultramagMag: { part: 'magExt' },
+    },
     // Damped near critical, so the kick settles without the muzzle dipping below level on the rebound. Straight up and back:
     // no yaw, no roll.
     recoil: { back: 0.05, lift: 0.022, pitch: 0.19, yaw: 0, roll: 0, omega: 24, zeta: 0.8 },

@@ -310,7 +310,10 @@ stereo WAV inside an `.mp3` name), same id and file: mixed to mono at 44.1 kHz, 
 ahead of the blast, which now starts within 2 ms) under a 2 ms fade-in, faded out from 0.7 s and cut at 1.1 s, peaks at -1 dB,
 160 kbit/s. `gunHeavy` at 0.2 on the ladder (loudness 0.34): the hardest-hitting pistol, over the Rivet's 0.138 and the
 Autoraffica's 0.1, under every shotgun (the Thresher's 0.204, the pump's 0.234, the Deuce's 0.25). The owner's
-`silencedAutoMag.mp3` is kept back for a suppressor on it. The Deuce's break-open
+`silencedAutoMag.mp3` became `ultramag_suppressed_shot`, its shot with the suppressor mod (2026-11-16): 1 s of 16-bit 40 kHz
+stereo WAV inside an `.mp3` name, mixed to mono at 44.1 kHz, the first 97 ms of silence cut under a 1 ms fade-in, faded out from
+0.55 s and cut at 0.8 s, peaks at -1 dB, 160 kbit/s. On the `gun` mix at 0.15 on the ladder (loudness 0.198), about 2.5 dB under
+the bare shot with `send` 0.08, as the other cans. The Deuce's break-open
 reload uses `revolver_open`, `reload_shell_in` twice and `revolver_close`; the Ultramag's is the magazine foley.
 
 **The Stakegun's and the Raufoss round's** (2026-11-15, the owner's own recordings, weapons-update plan section 4; all four

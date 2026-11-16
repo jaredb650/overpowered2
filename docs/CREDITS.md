@@ -30,6 +30,8 @@ same way: `plate_destroyed_1.mp3`, `plate_destroyed_2.mp3` and `plate_destroyed_
 `dbshotgun_shot.mp3` (the Deuce, the double-barrel) and `ultramag_shot.mp3` (the Ultramag) in `public/audio/sfx/guns` are the owner's own
 AI-generated sounds too, trimmed and mixed down to mono. The Ultramag's is the owner's newer shot (`NEWULTRAMAG.mp3`), trimmed,
 mixed down to mono and faded out.
+`ultramag_suppressed_shot.mp3` (the Ultramag through its suppressor) in `public/audio/sfx/guns` is the owner's own sound too
+(`silencedAutoMag.mp3`), trimmed, mixed down to mono and faded out.
 `stakegun_shot.mp3`, `stakegun_string.mp3` and `stake_beep.mp3` (the Stakegun, its string and an exploding bolt's beep) and
 `raufoss_detonation.mp3` (a Raufoss round bursting) in `public/audio/sfx/guns` are the owner's own AI-generated sounds as well,
 trimmed and mixed down to mono.

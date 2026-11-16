@@ -71,6 +71,12 @@ export const MODS: Readonly<Record<ModId, ModDef>> = {
   harrowAp: rounds('harrow', 'ap'), harrowHp: rounds('harrow', 'hp'),
   rivetAp: rounds('rivet', 'ap'), rivetHp: rounds('rivet', 'hp'),
   ultramagAp: rounds('ultramag', 'ap'), ultramagHp: rounds('ultramag', 'hp'),
+  // The Ultramag's: a square can with its own quieter report; a reflex sight on the slide (the look is the sight); a laser module
+  // that has it fire a quarter faster (0.36 s to 0.288 s between shots, inside the slide's 0.245 s cycle); 11 rounds, not 7.
+  ultramagCan: { id: 'ultramagCan', weapon: 'ultramag', name: 'Suppressor', patch: { muzzle: 'suppressed', sounds: [{ id: 'ultramag_suppressed_shot', pitchJitter: 0.02 }] } },
+  ultramagDot: { id: 'ultramagDot', weapon: 'ultramag', name: 'Reflex sight', patch: {}, slot: 'sight' },
+  ultramagLam: { id: 'ultramagLam', weapon: 'ultramag', name: 'Laser module', patch: { interval: WEAPONS.ultramag.interval / 1.25 } },
+  ultramagMag: { id: 'ultramagMag', weapon: 'ultramag', name: 'Extended magazine', patch: { magSize: 11, reloadTime: 1.4 } },
   judgeAp: rounds('judge', 'ap'), judgeHp: rounds('judge', 'hp'),
   autorafficaAp: rounds('autoraffica', 'ap'), autorafficaHp: rounds('autoraffica', 'hp'),
   // A longer magazine out of the grip: 30 where it was 21, and a beat longer to change.
@@ -85,6 +91,7 @@ export const MOD_ORDER: readonly ModId[] = [
   'suppressor', 'smgAp', 'smgHp', 'smgPlusP', 'gimletAcog', 'gimletDot', 'gimletCan', 'gimletGl', 'gimletAp', 'gimletHp', 'gimletPlusP',
   'reddot', 'harrowAcog', 'harrowAp', 'harrowHp', 'harrowPlusP', 'raufoss', 'rivetAp', 'rivetHp', 'rivetPlusP', 'ultramagAp', 'ultramagHp', 'ultramagPlusP', 'judgeAp', 'judgeHp', 'judgePlusP',
   'autorafficaAp', 'autorafficaHp', 'autorafficaPlusP', 'autorafficaMag',
+  'ultramagCan', 'ultramagDot', 'ultramagLam', 'ultramagMag',
 ];
 
 /** Held and fitted at the start of every run: the Gimlet's ACOG and suppressor. The shop takes them off and puts them back. */

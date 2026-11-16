@@ -1,5 +1,7 @@
 // Ultramag renders: first-person idle beside the Rivet, the fire cycle stepped frame by frame (first person and a close
 // camera over the port), the reload, then the shop studio from the left, the right and three-quarters behind.
+// UMAG_MODS=ultramagCan,ultramagDot fits mods for the first-person shots; UMAG_STUDIO="none;ultramagCan;all" picks the studio
+// sets (each a comma list, `all` the four), each shot from the left and three-quarters behind.
 //   node tools/shot.mjs --port 5276 --dpr 2 --w 1440 --h 900 --wait 4000 \
 //     --url "/?sandbox=viewmodels&manual=1&engine=1&weapon=ultramag" --script tools/scripts/ultramag-shots.mjs --out tools/out/ultramag2/u.png
 const CYCLE = [['back', 0.02], ['open', 0.045], ['rise', 0.1], ['strip', 0.165], ['chamber', 0.205], ['home', 0.26]];
@@ -18,6 +20,9 @@ export default async function ultramagShots(page, helpers) {
     view.ammo.magSize = 7;
     view.ammo.mag = 7;
   });
+  const KIT = ['ultramagCan', 'ultramagDot', 'ultramagLam', 'ultramagMag'];
+  const fitted = (process.env.UMAG_MODS ?? '').split(',').filter(Boolean);
+  await page.evaluate(ids => { window.__vm.fakeWeapons.fitted = new Set(ids); }, fitted);
   const equip = async id => {
     await page.evaluate(weapon => window.__vm.rig.equip(weapon, 0.01), id);
     await step(0.6);
@@ -27,6 +32,9 @@ export default async function ultramagShots(page, helpers) {
     await shot('fp-rivet');
     await equip('ultramag');
     await shot('fp-idle');
+    await page.evaluate(() => { window.__vm.rig.setAim(1); window.__vm.step(0.8); });
+    await shot('fp-ads');
+    await page.evaluate(() => { window.__vm.rig.setAim(0); window.__vm.step(0.8); });
   }
   const fireCycle = async (prefix, setup) => {
     await equip('ultramag');
@@ -103,7 +111,6 @@ export default async function ultramagShots(page, helpers) {
       view.ammo.mag = 7;
       const stage = new GunStage({ ...view.ctx, viewmodel: view.rig });
       stage.active = true;
-      stage.show('ultramag', new Set());
       stage.update(0);
       const c = stage.camera;
       c.setViewOffset(innerWidth, innerHeight, 0, 0, innerWidth, innerHeight);
@@ -115,14 +122,19 @@ export default async function ultramagShots(page, helpers) {
       table.rotation.set(pitch, yaw, 0);
       window.__vm.ctx.render.render();
     }, [y, x]);
-    await turn(Math.PI / 2);
-    await shot('studio-left');
-    await turn(-Math.PI / 2);
-    await shot('studio-right');
-    await turn(-Math.PI / 2 + 0.75, 0.42);
-    await shot('studio-three-quarter');
-    await turn(Math.PI / 2 - 0.6, 0.3);
-    await shot('studio-front-left');
+    for (const set of (process.env.UMAG_STUDIO ?? 'none').split(';')) {
+      const ids = set === 'all' ? KIT : set === 'none' ? [] : set.split(',');
+      const label = set === 'none' ? 'bare' : set === 'all' ? 'kit' : ids.map(id => id.replace('ultramag', '').toLowerCase()).join('-');
+      await page.evaluate(list => window.__stage.show('ultramag', new Set(list)), ids);
+      await turn(Math.PI / 2);
+      await shot(`studio-${label}-left`);
+      await turn(-Math.PI / 2 + 0.75, 0.42);
+      await shot(`studio-${label}-three-quarter`);
+      if (set === 'all' || set === 'none') {
+        await turn(-Math.PI / 2);
+        await shot(`studio-${label}-right`);
+      }
+    }
   }
   return { hipPitch, dpr: await page.evaluate(() => devicePixelRatio), cost: await page.evaluate(() => {
     const model = window.__vm.rig.allDefs.ultramag.model;
@@ -140,6 +152,7 @@ async function adsShots(page, helpers) {
   }
   await page.mouse.click(300, 400);
   await helpers.sleep(300);
+  await page.evaluate(ids => { window.__umagMods = ids; }, (process.env.UMAG_MODS ?? '').split(',').filter(Boolean));
   const still = async name => {
     await page.evaluate(() => { window.__op2.ctx.time.paused = true; });
     await helpers.sleep(150);
@@ -156,6 +169,7 @@ async function adsShots(page, helpers) {
     ctx.render.renderer.setPixelRatio(2);
     ctx.weapons.give('ultramag');
     ctx.weapons.switchTo('ultramag');
+    for (const id of window.__umagMods ?? []) { ctx.weapons.grantMod(id); ctx.weapons.fitMod(id, true); }
     await wait(0.8);
     ctx.input.consumeLook();
     // The range's back wall stands at z = -16: from (0, 4) facing -z it is 20 m off, a chest-high point on it the target.
@@ -171,6 +185,8 @@ async function adsShots(page, helpers) {
       const cam = ctx.render.camera;
       const view = ctx.render.viewCamera;
       const def = ctx.viewmodel.allDefs.ultramag;
+      // A fitted optic brings its own sight point and, level, no rear.
+      const optic = (window.__umagMods ?? []).map(id => def.mods?.[id]).find(look => look?.sight);
       const root = def.model.root;
       root.updateMatrixWorld(true);
       const ndc = local => {
@@ -183,7 +199,7 @@ async function adsShots(page, helpers) {
         return [Math.round(v.x * innerWidth / 2 * 10) / 10, Math.round(v.y * innerHeight / 2 * 10) / 10, Math.round(h.distanceTo(P.eye) * 10) / 10];
       });
       const r = n => Math.round(n * 100) / 100;
-      return { player: [r(P.position.x), r(P.position.z), r(P.yaw)], aim: Math.round(ctx.weapons.aim * 1000) / 1000, fov: Math.round(cam.fov * 100) / 100, frontDotPx: ndc(def.sight), rearNotchPx: ndc(def.rear), hitsPx: hits };
+      return { player: [r(P.position.x), r(P.position.z), r(P.yaw)], aim: Math.round(ctx.weapons.aim * 1000) / 1000, fov: Math.round(cam.fov * 100) / 100, frontDotPx: ndc(optic ? optic.sight : def.sight), rearNotchPx: optic ? null : ndc(def.rear), hitsPx: hits };
     };
   });
   await still('ads-hip');

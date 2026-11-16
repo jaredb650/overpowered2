@@ -244,6 +244,22 @@ export const MOD_WARES: Readonly<Record<ModId, Ware>> = {
     price: 700, wave: 0,
     lore: 'The largest hollow-point the Council would sign for. Against flesh, a closing statement. Against a plate, a loud knock.',
   },
+  ultramagCan: {
+    price: 600, wave: 0,
+    lore: 'A square suppressor for the Ultramag, because round ones were felt to be a little forgiving. It is quieter. Nobody said quiet.',
+  },
+  ultramagDot: {
+    price: 500, wave: 0,
+    lore: 'A reflex sight on the slide. Put the dot on the problem and the problem is resolved. Procurement prefers the word resolved.',
+  },
+  ultramagLam: {
+    price: 900, wave: 4,
+    lore: 'A laser module. The Council cannot explain why it makes the gun fire faster, and has stopped asking, as the numbers are good.',
+  },
+  ultramagMag: {
+    price: 500, wave: 0,
+    lore: 'Eleven rounds where there were seven. The extra four are for the people who heard the first seven.',
+  },
   judgeAp: {
     price: 600, wave: 2,
     lore: 'Armour-piercing slugs for the Judge. The verdict goes straight through the appeal.',

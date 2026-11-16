@@ -37,6 +37,8 @@ export type WeaponId =
  * Gimlet's ACOG, red dot, suppressor and under-barrel launcher, and AP and HP rounds for the SMG, the rifles and the pistols.
  */
 export type ModId = 'awlAcog' | 'awlCan' | 'awlAp' | 'awlHp' | 'suppressor' | 'reddot' | 'raufoss' | 'harrowAcog' | 'gimletAcog' | 'gimletDot' | 'gimletCan' | 'gimletGl'
+  // The Ultramag's suppressor, reflex sight, laser module and extended magazine.
+  | 'ultramagCan' | 'ultramagDot' | 'ultramagLam' | 'ultramagMag'
   | 'smgAp' | 'smgHp' | 'gimletAp' | 'gimletHp' | 'harrowAp' | 'harrowHp'
   | 'rivetAp' | 'rivetHp' | 'ultramagAp' | 'ultramagHp' | 'judgeAp' | 'judgeHp' | 'autorafficaAp' | 'autorafficaHp'
   | 'smgPlusP' | 'gimletPlusP' | 'harrowPlusP' | 'rivetPlusP' | 'ultramagPlusP' | 'judgePlusP' | 'autorafficaPlusP' | 'awlPlusP'
