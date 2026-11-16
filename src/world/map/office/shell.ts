@@ -130,12 +130,12 @@ function tower(k: Kit, b: Builder): void {
   for (let i = 2; i < floors; i++) {
     for (let x = T.x0 + 0.75; x < T.x1 - 0.5; x += 1.5) {
       if (k.rng() > 0.22) continue;
-      const lit = k.rng() > 0.4 ? 'emissiveWhite' : 'emissiveCyan';
+      const lit = k.rng() > 0.4 ? 'emissiveDim' : 'screen';
       g.use(lit).box(x, LV.roof + i * 3.6 + 1.7, T.z1 + 0.01, 0.66, 1.3, 0.01, FACE.pz);
     }
     for (let z = T.z0 + 0.75; z < T.z1 - 0.5; z += 1.5) {
       if (k.rng() > 0.18) continue;
-      g.use('emissiveWhite').box(T.x1 + 0.01, LV.roof + i * 3.6 + 1.7, z, 0.01, 1.3, 0.66, FACE.px);
+      g.use('emissiveDim').box(T.x1 + 0.01, LV.roof + i * 3.6 + 1.7, z, 0.01, 1.3, 0.66, FACE.px);
     }
   }
   // Its name, high on the south face, where the whole plaza reads it.

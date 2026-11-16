@@ -23,6 +23,7 @@ const FALLBACK: Partial<Record<Mat, [number, number?, number?, number?]>> = {
 };
 const FALLBACK_EMISSIVE: Partial<Record<Mat, number>> = {
   emissiveCyan: 0x4fd7ff, emissiveMagenta: 0xe24bff, emissiveOrange: 0xff7a26, emissiveRed: 0xff2a24, emissiveWhite: 0xdce9ff, lava: 0xff5a14,
+  emissiveDim: 0x6a5a46, screen: 0x3c5c6a,
 };
 
 export class World implements WorldSystem {

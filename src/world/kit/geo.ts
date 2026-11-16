@@ -15,7 +15,7 @@ export const MATERIALS: readonly Mat[] = [
   'concrete', 'concreteDark', 'asphalt', 'steel', 'steelDark', 'rust', 'grate', 'hazard', 'panel', 'tile',
   'dirt', 'glass', 'rubber', 'paintRed', 'paintYellow', 'paintWhite',
   'emissiveCyan', 'emissiveMagenta', 'emissiveOrange', 'emissiveRed', 'emissiveWhite', 'lava', 'signs', 'stencil', 'plywood',
-  'plaster', 'carpet',
+  'plaster', 'carpet', 'emissiveDim', 'screen',
 ];
 
 /** Chunks across the map per material. */
@@ -27,7 +27,7 @@ const MAP_MIN = -180;
 const MAP_SIZE = 360;
 
 export const MAT_INDEX = new Map<Mat, number>(MATERIALS.map((m, i) => [m, i]));
-const emissiveMats = new Set<Mat>(['emissiveCyan', 'emissiveMagenta', 'emissiveOrange', 'emissiveRed', 'emissiveWhite', 'lava', 'signs']);
+const emissiveMats = new Set<Mat>(['emissiveCyan', 'emissiveMagenta', 'emissiveOrange', 'emissiveRed', 'emissiveWhite', 'lava', 'signs', 'emissiveDim', 'screen']);
 export const isEmissive = (m: Mat) => emissiveMats.has(m);
 
 export class Bucket {

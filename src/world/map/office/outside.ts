@@ -43,7 +43,7 @@ function boundary(b: Builder): void {
     for (let y = 4.2; y < h - 1; y += 3.4) {
       for (let u = 2; u < len - 1; u += 3) {
         const lit = k.rng();
-        g.use(lit > 0.75 ? 'emissiveWhite' : lit > 0.68 ? 'emissiveOrange' : 'steelDark').tint(lit > 0.68 ? 0.06 : 0.5);
+        g.use(lit > 0.68 ? 'emissiveDim' : 'steelDark').tint(0.5);
         if (along) g.box(x0 + u, y, fz, 1, 0.8, 0.01, face === 's' ? FACE.nz : FACE.pz);
         else g.box(fx, y, z0 + u, 0.01, 0.8, 1, face === 'e' ? FACE.nx : FACE.px);
       }
@@ -84,7 +84,7 @@ function skyline(b: Builder): void {
     g.use('steelDark').tint(0.24, 0.27, 0.34).box(x, h / 2, z, w / 2, h / 2, d / 2, FACE.sides | FACE.py);
     for (let y = 8; y < h - 4; y += 6) {
       if (k.rng() < 0.35) continue;
-      g.use(k.rng() > 0.6 ? 'emissiveWhite' : 'emissiveCyan').tint(0.1);
+      g.use(k.rng() > 0.6 ? 'emissiveDim' : 'screen').tint(1);
       g.box(x, y, z, w / 2 + 0.05, 0.12, d / 2 + 0.05, FACE.sides);
     }
     if (k.rng() > 0.4) g.use('emissiveRed').tint(1).box(x, h + 1, z, 0.4, 1, 0.4, FACE.all);
@@ -116,7 +116,10 @@ function plaza(b: Builder): void {
   const C = CANOPY;
   b.box('steelDark', [0.42, 0.46, 0.52], C.x0, C.top - 0.3, C.z0 + T_OUT / 2, C.x1, C.top, C.z1, 0.04, 'metal');
   g.use('emissiveCyan').box((C.x0 + C.x1) / 2, C.top - 0.31, C.z1 - 0.1, (C.x1 - C.x0) / 2 - 0.2, 0.01, 0.04, FACE.ny);
-  for (const x of [C.x0 + 0.4, C.x1 - 0.4]) b.box('steel', [0.6, 0.62, 0.66], x - 0.15, 0, C.z1 - 0.55, x + 0.15, C.top - 0.3, C.z1 - 0.25, 0.03, 'metal');
+  b.box('steel', [0.6, 0.62, 0.66], C.x0 + 0.25, 0, C.z1 - 0.55, C.x0 + 0.55, C.top - 0.3, C.z1 - 0.25, 0.03, 'metal');
+  // A stone fin under the canopy's east end: cover on the plaza, and the face the plaza climb goes up.
+  b.box('concreteDark', [0.5, 0.52, 0.56], C.x1 - 0.4, 0, C.z0 + T_OUT / 2, C.x1, C.top - 0.3, C.z1, 0.03);
+  b.block(C.x1 - 0.4, C.z0, C.x1, C.z1);
   k.light(5, 3.0, 20.6, 0xcfe6ff, 30, 11);
   // Planters: low cover, and the first step of the plaza climb.
   const planter = (x0: number, z0: number, x1: number, z1: number) => {
@@ -129,7 +132,7 @@ function plaza(b: Builder): void {
     g.tint(1);
     b.block(x0, z0, x1, z1);
   };
-  planter(12.5, 23, 15.5, 25);
+  planter(11.4, 19.2, 14.4, 21.4);
   planter(-6.5, 23, -3.5, 25);
   for (const x of [-46, -20, 30, 56]) planter(x - 3, 27, x + 3, 29);
   for (const x of [-34, 44]) planter(x - 1.5, 36, x + 1.5, 40);
@@ -138,7 +141,7 @@ function plaza(b: Builder): void {
   const F = { x: 5, z: 34, r: 5 };
   k.collidePrism(F.x, F.z, 0, 0.6, F.r, 18, 'concrete');
   g.use('concrete').tint(0.66).lathe([F.r, 0, F.r, 0.6, F.r - 0.4, 0.6, F.r - 0.4, 0.3], F.x, 0, F.z, 36, false);
-  g.use('emissiveCyan').tint(0.1).lathe([F.r - 0.4, 0.3, 0, 0.3], F.x, 0, F.z, 36, false);
+  g.use('screen').tint(1).lathe([F.r - 0.4, 0.3, 0, 0.3], F.x, 0, F.z, 36, false);
   g.use('concreteDark').tint(0.8).bevel(F.x, 2.2, F.z, 0.6, 2.2, 0.6, 0.1);
   g.use('emissiveMagenta').tint(1).box(F.x, 3.6, F.z + 0.61, 0.4, 0.05, 0.01, FACE.pz);
   g.tint(1);

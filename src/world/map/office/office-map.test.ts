@@ -4,14 +4,18 @@
  */
 import * as THREE from 'three';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
-import { CG, type Ctx } from '../../../core/contracts';
+import { type Action, CG, type Ctx } from '../../../core/contracts';
 
 type WorldT = import('../../World').World;
 type Plan = typeof import('./plan');
+type Rig = ReturnType<typeof import('../outpost/proof').rigOf>;
+type Parkour = typeof import('./parkour');
 
 let world: WorldT;
 let plan: Plan;
 let physics: Ctx['physics'];
+let rig: Rig;
+let parkour: Parkour;
 
 const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
 const UP = V(0, 1, 0);
@@ -24,12 +28,15 @@ beforeAll(async () => {
   const { World } = await import('../../World');
   const { createHeadlessGame } = await import('../../../player/testkit/headless');
   plan = await import('./plan');
+  parkour = await import('./parkour');
+  const proof = await import('../outpost/proof');
   const game = await createHeadlessGame(() => {});
   (game.ctx as unknown as { weapons: unknown }).weapons = { occupy: () => {} };
   physics = game.ctx.physics;
   world = new World(game.ctx);
   (game.ctx as Ctx).world = world;
   await world.build();
+  rig = proof.rigOf(game);
   (physics as unknown as { flushQueries(): void }).flushQueries();
 }, 180000);
 
@@ -178,6 +185,118 @@ describe('The Office', () => {
     it('puts everything back on a new run', () => {
       world.objects.reset();
       expect(props().props.every(p => p.alive && p.collider)).toBe(true);
+    });
+  });
+
+  // -----------------------------------------------------------------------------------------------
+  // The parkour lines, played: the real Player, keys pressed as a person would.
+  // -----------------------------------------------------------------------------------------------
+  describe('the parkour lines', () => {
+    const ALL: readonly Action[] = ['forward', 'back', 'left', 'right', 'jump', 'dash', 'slide'];
+    type Body = Rig['player'] & { climbing: boolean; clinging: boolean; position: THREE.Vector3; yaw: number };
+    const body = () => rig.player as Body;
+    const frames = (n: number) => { for (let i = 0; i < n; i++) rig.step(); };
+    const hold = (a: Action, down = true) => rig.input.simulate(a, down);
+    const tap = (a: Action) => { hold(a); rig.step(); hold(a, false); };
+    const until = (done: () => boolean, seconds: number): boolean => {
+      for (let t = 0; t < seconds; t += 1 / 60) { if (done()) return true; rig.step(); }
+      return done();
+    };
+    const face = (x: number, z: number) => { const p = body().position; body().yaw = Math.atan2(-(x - p.x), -(z - p.z)); };
+    function place(x: number, y: number, z: number, lx: number, lz: number): void {
+      for (const a of ALL) hold(a, false);
+      rig.input.consumeLook();
+      rig.player.reset();
+      rig.player.teleport(V(x, y + 0.05, z), 0);
+      face(lx, lz);
+      frames(6);
+    }
+    /** Runs toward (x, z) with W held, steering, pressing jump once when `jumpAt` says so, until `done`. */
+    function run(x: number, z: number, jumpAt: () => boolean, done: () => boolean, seconds = 4, second?: () => boolean): void {
+      hold('forward');
+      let jumped = false, again = false;
+      until(() => {
+        face(x, z);
+        if (!jumped && jumpAt()) { tap('jump'); jumped = true; }
+        else if (jumped && !again && second?.()) { tap('jump'); again = true; }
+        return done();
+      }, seconds);
+      hold('forward', false);
+    }
+    /** A jump at the face ahead with W held: the climb, and the mantle at its top. */
+    function climbAhead(seconds = 3): void {
+      hold('forward');
+      tap('jump');
+      until(() => body().climbing, 1);
+      until(() => !body().climbing && !body().clinging && body().grounded, seconds);
+      hold('forward', false);
+    }
+    const on = (y: number) => Math.abs(body().position.y - y) < 0.25 && body().grounded;
+
+    it('climbs the plaza: planter, canopy, gondola, in at the broken window', () => {
+      // Off the planter, up the fin under the canopy's east end.
+      place(12.2, 0.9, 20.3, 0, 20.3);
+      climbAhead();
+      expect(on(plan.CANOPY.top), `canopy, at ${body().position.toArray().map(v => v.toFixed(2))}`).toBe(true);
+      // Along the canopy and over the 2 m gap onto the gondola.
+      place(6, plan.CANOPY.top, 21.4, 20, 18.9);
+      run(16, 18.9, () => body().position.x > 10.3, () => body().position.x > 14 && body().grounded, 4);
+      expect(on(parkour.GONDOLA.y), `gondola, at ${body().position.toArray().map(v => v.toFixed(2))}`).toBe(true);
+      // In over the sill.
+      run(20, 15, () => body().position.z < 18.6, () => body().position.z < 17 && body().grounded, 4);
+      expect(body().position.z < 17.4 && body().position.y < plan.LV.f2 + 1.3, `inside, at ${body().position.toArray().map(v => v.toFixed(2))}`).toBe(true);
+    });
+
+    it('climbs the scaffold to the Director\'s bay and to the roof', () => {
+      const S = parkour.SCAFFOLD, x = (S.x0 + S.x1) / 2;
+      place(S.x0 - 1.2, 0, 1, S.x1, 1);
+      climbAhead();
+      expect(on(2.2), `T1, at ${body().position.toArray().map(v => v.toFixed(2))}`).toBe(true);
+      // Up the end of the third tier, a jump and a climb.
+      place(x, 2.2, -1.2, x, -6);
+      climbAhead(4);
+      expect(on(6.6), `T3, at ${body().position.toArray().map(v => v.toFixed(2))}`).toBe(true);
+      // Down to the first floor's run and in at the bay.
+      place(x, 6.6, -6, x, -12);
+      run(x, -12, () => false, () => body().position.z < -11 && body().grounded, 4);
+      run(-26, -12, () => false, () => body().position.x > -26.5, 4);
+      expect(on(plan.LV.f2), `bay, at ${body().position.toArray().map(v => v.toFixed(2))}`).toBe(true);
+      // From the third tier up the wall to the roof.
+      place(S.x1 - 0.5, 6.6, -5, S.x1 + 3, -5);
+      climbAhead(4);
+      expect(body().position.y, `roof, at ${body().position.toArray().map(v => v.toFixed(2))}`).toBeGreaterThan(plan.LV.roof - 0.1);
+    });
+
+    it('runs the sign across the gap to the car park roof, which a plain jump cannot cross', () => {
+      const S = parkour.SIGN;
+      // A run and one jump well away from the sign falls into the lane.
+      place(18, plan.LV.roof, 2, 40, 2);
+      run(46, 2, () => body().position.x > 26.6, () => body().grounded && body().position.x > 29.5, 4);
+      expect(body().position.y, 'a plain jump falls').toBeLessThan(plan.LV.f2 + 0.5);
+      // Along the sign's face: a jump over the parapet, then strafing into the wall as the run takes.
+      place(18, plan.LV.roof, S.z + 0.7, 46, S.z + 0.7);
+      let ran = false, jumped = false, again = false, f = 0;
+      const trace: string[] = [];
+      hold('forward');
+      until(() => {
+        const p = body().position;
+        face(46, S.z + 0.7);
+        if (!jumped && p.x > 26.6) { tap('jump'); jumped = true; hold('left'); }
+        if (jumped && !again && p.x > 38) { tap('jump'); again = true; }
+        if (f++ % 6 === 0) trace.push(`${p.toArray().map(v => v.toFixed(1)).join(',')} g${+body().grounded} w${+body().wallRunning}`);
+        ran ||= body().wallRunning;
+        return body().grounded && p.x > 30;
+      }, 5);
+      hold('forward', false);
+      hold('left', false);
+      expect(ran, `wall ran: ${trace.join(' | ')}`).toBe(true);
+      expect(on(plan.LV.roof) && body().position.x > plan.PARK.x0, `car park roof, at ${body().position.toArray().map(v => v.toFixed(2))}`).toBe(true);
+    });
+
+    it('reaches the perch on the tower from the AC unit', () => {
+      place(-17, 11, -4.2, -17, -9);
+      climbAhead();
+      expect(on(parkour.PERCH.y), `perch, at ${body().position.toArray().map(v => v.toFixed(2))}`).toBe(true);
     });
   });
 });

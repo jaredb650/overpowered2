@@ -7,6 +7,7 @@ import type { SpawnPoint } from '../../../core/contracts';
 import type { Kit } from '../../kit/kit';
 import type { MapSpec } from '../spec';
 import { authorOutside } from './outside';
+import { authorParkour } from './parkour';
 import { authorRooms } from './rooms';
 import { BOUNDS, ENTRANCES, FLYERS, LV, PICKUPS_IN, PICKUPS_OUT, ROOMS, SKY, floorY } from './plan';
 import { authorShell } from './shell';
@@ -15,6 +16,7 @@ export const OFFICE_STAGES = [
   { label: 'Pouring the slabs', run: (k: Kit, spec: MapSpec) => { start(spec); authorShell(k, spec); } },
   { label: 'Laying the plaza', run: authorOutside },
   { label: 'Furnishing the floors', run: authorRooms },
+  { label: 'Hanging the scaffold', run: authorParkour },
 ] as const;
 
 function start(spec: MapSpec): void {
@@ -87,7 +89,12 @@ function views(spec: MapSpec): void {
   look('park0', 42, 0, 18, 60, 1, -14);
   look('park1', 42, LV.f2, -16, 62, LV.f2 + 1, 16);
   look('parkRoof', 68, LV.roof, 18, 30, LV.roof + 2, -14);
-  look('gap', 22, LV.roof, -15, 44, LV.roof + 1, -15);
+  look('gap', 20, LV.roof, -12.2, 44, LV.roof + 2, -13.6);
+  spec.view('scaffold', -46, 6, 10, -30, 3, -4);
+  spec.view('climb', 22, 3, 32, 12, 4, 19);
+  look('perch', -10, LV.roof, 6, -17, 13, -7);
+  look('perchView', -17, 13, -7.2, 5, 2, 30);
+  spec.view('gapSide', 34, 12, 4, 34, 9, -14);
 }
 
 export function authorOffice(_k: Kit, spec: MapSpec): void {

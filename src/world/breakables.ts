@@ -124,7 +124,7 @@ const MODELS: Record<BreakKind, Model> = {
     B(g, 'plaster', PLASTIC, -0.04, 0, -0.06, 0.04, 0.14, 0);
     B(g, 'plaster', PLASTIC, -0.14, 0, -0.12, 0.14, 0.015, 0.06, 0.005);
     if (w) { B(g, 'plaster', [0.05, 0.05, 0.06], -0.25, 0.15, 0.03, 0.25, 0.43, 0.034, 0); g.pop(); return; }
-    tint(g.use('emissiveCyan'), 0.32, 0.5, 0.6).box(0, 0.29, 0.031, 0.25, 0.14, 0.002);
+    g.use('screen').tint(1).box(0, 0.29, 0.031, 0.25, 0.14, 0.002);
   },
   chair(g) {
     B(g, 'plaster', PLASTIC, -0.26, 0.42, -0.24, 0.26, 0.5, 0.24, 0.03);
@@ -196,7 +196,7 @@ const MODELS: Record<BreakKind, Model> = {
     B(g, 'plaster', burnt([0.62, 0.08, 0.1], w), -0.5, 0, -0.45, 0.5, 1.9, 0.45, 0.03);
     B(g, 'plaster', w ? [0.03, 0.03, 0.03] : [0.08, 0.09, 0.12], -0.42, 0.55, 0.45, 0.2, 1.75, 0.47, 0.005);
     if (w) return;
-    tint(g.use('emissiveWhite'), 0.25).box(-0.11, 1.15, 0.471, 0.3, 0.58, 0.002);
+    g.use('emissiveDim').tint(1).box(-0.11, 1.15, 0.471, 0.3, 0.58, 0.002);
     tint(g.use('emissiveCyan'), 0.5).box(0.33, 1.4, 0.46, 0.1, 0.25, 0.012);
     for (let r = 0; r < 5; r++) for (let c = 0; c < 4; c++) {
       B(g, 'plaster', CANS[c]!, -0.38 + c * 0.14, 0.62 + r * 0.22, 0.36, -0.28 + c * 0.14, 0.78 + r * 0.22, 0.44, 0.01);
