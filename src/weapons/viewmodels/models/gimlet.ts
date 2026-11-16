@@ -1,6 +1,6 @@
 /**
  * The Gimlet: a carbine on key 1 between the SMG and the Harrow. A flat-top upper on a lower with a curved thirty-round
- * magazine, a free-float handguard railed on top, a collapsible stock on its buffer tube, an A2 birdcage. Black anodizing and
+ * magazine, a short skeleton handguard (see `handguard`) that bares the pencil barrel and its gas block, a collapsible stock on its buffer tube, an A2 birdcage. Black anodizing and
  * polymer, where the Harrow is parkerized and walnut. It is issued with an ACOG and a can (weapons/mods.ts), and can take a red dot
  * in the ACOG's place and an M203-style launcher under the handguard. Its flip-up irons show only with no optic on.
  * Origin at the top of the grip.
@@ -8,9 +8,9 @@
 import { Kit } from '../kit/kit';
 import { Model } from '../kit/model';
 import { F } from '../kit/finishes';
-import type { Mesher } from '../kit/mesher';
-import { curve, poly, rect } from '../kit/shapes';
-import { knurl, screwX, serrations } from '../kit/details';
+import type { Finish, Mesher } from '../kit/mesher';
+import { curve, poly, rect, type P2 } from '../kit/shapes';
+import { hexX, knurl, screwX, serrations } from '../kit/details';
 import { damp } from '../../../core/math';
 import { bump, hold, inOut, inQuad, outCubic, seg, thud } from '../curves';
 import { fill, pullTrigger } from './common';
@@ -22,9 +22,13 @@ const BORE = 0.046;
 /** The top of the rail, which runs from the back of the upper to the front of the handguard. */
 const RAIL = 0.082;
 const RAIL_BACK = 0.104;
-const RAIL_FRONT = -0.405;
+const RAIL_FRONT = -0.31;
 const GUARD_REAR = -0.15;
-const GUARD_FRONT = -0.41;
+const GUARD_FRONT = -0.322;
+/** The low gas block on the bare barrel ahead of the handguard. */
+const GAS = -0.352;
+/** The front post's clamp, at the end of the rail. */
+const POST = RAIL_FRONT + 0.009;
 const HIDER = -0.528;
 const MUZZLE = -0.578;
 /** The irons' line, front post to rear aperture: level. */
@@ -90,15 +94,7 @@ function furniture(m: Mesher): void {
   m.use(F.polymer);
   m.at([0, -0.1225, 0.075], null, () => m.box(0.03, 0.005, 0.056, 0.0013, 0.003));
 
-  // The free-float handguard: an eight-sided tube under the rail, with M-LOK slots down its flanks.
-  const oct: [number, number][] = [[-0.0125, 0.073], [0.0125, 0.073], [0.0245, 0.061], [0.0245, 0.035], [0.0125, 0.022], [-0.0125, 0.022], [-0.0245, 0.035], [-0.0245, 0.061]];
-  m.use(F.anodized);
-  m.at([0, 0, (GUARD_REAR + GUARD_FRONT) / 2], null, () => m.front(poly(oct, 0.002), GUARD_REAR - GUARD_FRONT, { bevel: 0.0014 }));
-  m.use(F.black);
-  m.mirror(() => {
-    for (let i = 0; i < 5; i++) m.at([0.0246, 0.048, GUARD_REAR - 0.03 - i * 0.048], null, () => m.box(0.0008, 0.0072, 0.03, 0.0005));
-  });
-  for (let i = 0; i < 4; i++) m.at([0, 0.0215, GUARD_REAR - 0.05 - i * 0.055], null, () => m.box(0.012, 0.0008, 0.03, 0.0004));
+  handguard(m);
   // The barrel nut ring where the guard meets the upper.
   m.use(F.anodizedGrey);
   m.at([0, BORE, GUARD_REAR + 0.003], null, () => m.cyl(0.021, 0.006, 24));
@@ -115,10 +111,68 @@ function furniture(m: Mesher): void {
   m.at([0, 0.035, 0.358], null, () => m.box(0.042, 0.082, 0.012, 0.004, 0.006));
 }
 
+/** Burnt-orange hard anodizing on the handguard's armour, against the black gun. */
+const ACCENT: Finish = { color: 0xc4561c, rough: 0.38, metal: 0.5, wear: 0.6 };
+
+/**
+ * A short skeleton handguard that stops well back of the muzzle, so the pencil barrel and its gas block show. Two side plates
+ * in burnt-orange anodizing, with a raked nose and big forward-leaning cuts the barrel shows through, under a black faceted spine
+ * and the rail. Asymmetric: the left (the side you see) carries a black armour plate and a cyan line inset the length of the
+ * guard; the right a heat sink.
+ */
+function handguard(m: Mesher): void {
+  const R = GUARD_REAR;
+  const N = GUARD_FRONT;
+  // Side profile (z, y): flat under the launcher's clamp, then raked up into a chisel nose.
+  const plate = poly([[R, 0.06], [N + 0.02, 0.06, 0.003], [N, 0.05, 0.002], [N, 0.038, 0.002], [N + 0.03, 0.024, 0.004], [R, 0.024]], 0.0015);
+  const lean = (z: number, len: number, y0 = 0.03, y1 = 0.053): P2[] => [[z, y0], [z - len, y0], [z - len - 0.008, y1], [z - 0.008, y1]];
+  const cuts = [lean(-0.198, 0.03), lean(-0.238, 0.03), lean(-0.278, 0.012, 0.034)].map(c => poly(c, 0.0022));
+  m.use(ACCENT);
+  m.mirror(() => m.at([0.0215, 0, 0], null, () => m.side(plate, 0.004, { bevel: 0.0009, holes: cuts })));
+  // The faceted spine under the rail, and the floor.
+  m.use(F.anodized);
+  const spine = poly([[-0.0125, 0.0745], [0.0125, 0.0745], [0.0236, 0.065], [0.0236, 0.0575], [-0.0236, 0.0575], [-0.0236, 0.065]], 0.0012);
+  m.at([0, 0, (R + RAIL_FRONT) / 2], null, () => m.front(spine, R - RAIL_FRONT + 0.002, { bevel: 0.0018 }));
+  m.at([0, 0.0255, 0], null, () => m.top(rect(-0.0196, N + 0.03, 0.0196, R, 0.002), 0.003, { bevel: 0.0008 }));
+
+  // The nose: a faceted collar capping the plates round the barrel, bolted through them.
+  const collar = poly([[-0.012, 0.033], [0.012, 0.033], [0.0228, 0.041], [0.0228, 0.053], [0.013, 0.061], [-0.013, 0.061], [-0.0228, 0.053], [-0.0228, 0.041]], 0.0015);
+  m.use(F.anodized);
+  m.at([0, 0, N - 0.001], null, () => m.front(collar, 0.008, { bevel: 0.0014, holes: [poly([[-0.0075, BORE - 0.0105], [0.0075, BORE - 0.0105], [0.0112, BORE], [0.0075, BORE + 0.0105], [-0.0075, BORE + 0.0105], [-0.0112, BORE]], 0.002)] }));
+  m.mirror(() => hexX(m, 0.0235, 0.045, N + 0.012, 1, 0.0026));
+
+  // Left: a black armour plate, its front raked like the cuts, held by four exposed screws.
+  m.use(F.anodized);
+  m.at([-0.0252, 0, 0], null, () => m.side(poly([[R - 0.003, 0.0275], [R - 0.003, 0.0535], [-0.198, 0.0535, 0.004], [-0.19, 0.0275, 0.003]], 0.002), 0.0034, { bevel: 0.0011 }));
+  m.use(F.black);
+  m.at([-0.0268, 0.0405, -0.174], [0, -Math.PI / 2, 0], () => m.decal('serial', 0.026, 0.0034, 0x8f949a));
+  for (const [y, z] of [[0.031, -0.157], [0.05, -0.157], [0.031, -0.188], [0.05, -0.198]] as const) screwX(m, -0.0269, y, z, -1, 0.0017);
+  // The line: a cyan strip in a black channel along the top of the plate, stepping down with the nose.
+  const strip = (h: number): P2[] => [[R - 0.008, 0.0566 + h], [N + 0.026 - h, 0.0566 + h], [N + 0.012 - h, 0.0496 + h], [N + 0.012 + h, 0.0496 - h], [N + 0.026 + h, 0.0566 - h], [R - 0.008, 0.0566 - h]];
+  m.use(F.black);
+  m.at([-0.0236, 0, 0], null, () => m.side(poly(strip(0.0017), 0.0006), 0.0008, { bevel: 0.0002 }));
+  m.glow('guard', () => m.at([-0.0241, 0, 0], null, () => m.side(poly(strip(0.0008), 0.0003), 0.0006, { bevel: 0 })));
+
+  // Right: a heat sink of fins over a black pocket.
+  m.use(F.black);
+  m.at([0.0238, 0.0405, -0.174], null, () => m.box(0.0012, 0.024, 0.038, 0.0004));
+  m.use(F.anodizedGrey);
+  for (let i = 0; i < 7; i++) m.at([0.0252, 0.0405, -0.157 - i * 0.0055], null, () => m.box(0.0034, 0.022, 0.0018, 0.0005));
+}
+
+/** The gas block on the bare barrel, and its tube running back under the spine. */
+function gasBlock(m: Mesher): void {
+  m.use(F.barrelBlack);
+  m.at([0, 0, GAS], null, () => m.front(poly([[-0.0118, BORE - 0.0128], [0.0118, BORE - 0.0128], [0.0128, BORE + 0.006], [0.0072, 0.067], [-0.0072, 0.067], [-0.0128, BORE + 0.006]], 0.002), 0.016, { bevel: 0.0014 }));
+  m.mirror(() => m.at([0.0128, BORE - 0.004, GAS], [0, Math.PI / 2, 0], () => m.cyl(0.0022, 0.0016, 10)));
+  m.use(F.steelDark);
+  m.at([0, 0.0615, (GAS + GUARD_FRONT + 0.01) / 2], null, () => m.cyl(0.0024, GUARD_FRONT + 0.01 - GAS, 10));
+}
+
 function barrel(m: Mesher): void {
   m.at([0, BORE, 0], null, () => {
     m.use(F.barrel);
-    m.lathe([[0.0102, GUARD_REAR, 0], [0.0102, GUARD_FRONT - 0.02], [0.0092, GUARD_FRONT - 0.024], [0.0092, HIDER, 0]], 20);
+    m.lathe([[0.0102, GUARD_REAR, 0], [0.0102, GAS + 0.004], [0.0092, GAS], [0.0092, HIDER, 0]], 20);
     // The A2 birdcage: a sleeve with slots on the top and sides and a closed bottom, so the muzzle does not kick up dust.
     m.use(F.barrelBlack);
     m.lathe([[0.0092, HIDER + 0.002, 0], [0.0112, HIDER], [0.0112, MUZZLE + 0.004], [0.0098, MUZZLE], [0.0058, MUZZLE, 0]], 20);
@@ -135,7 +189,7 @@ function irons(m: Mesher): void {
   m.part('irons', [0, RAIL, 0], () => {
     m.use(F.anodized);
     // Front: a hooded post on a clamp at the end of the rail.
-    m.at([0, 0.004, -0.385], null, () => {
+    m.at([0, 0.004, POST], null, () => {
       m.box(0.02, 0.008, 0.016, 0.0012);
       m.mirror(() => m.at([0.0075, 0.012, 0], null, () => m.box(0.0028, 0.018, 0.01, 0.0008)));
       m.at([0, 0.0175, 0], null, () => m.box(0.0018, 0.008, 0.0016, 0.0004));
@@ -174,7 +228,7 @@ function launcher(m: Mesher): void {
     m.use(F.anodized);
     // Receiver, with the clamp up into the handguard.
     m.at([0, 0.002, -0.03], null, () => m.box(0.042, 0.034, 0.075, 0.003, 0.004));
-    m.at([0, 0.022, -0.06], null, () => m.box(0.03, 0.01, 0.13, 0.0016, 0.002));
+    m.at([0, 0.022, -0.05], null, () => m.box(0.03, 0.01, 0.11, 0.0016, 0.002));
     // Its trigger and the strap guard round it.
     m.use(F.steelDark);
     m.at([0, -0.026, -0.008], [0.25, 0, 0], () => m.box(0.005, 0.016, 0.005, 0.0008));
@@ -238,6 +292,7 @@ function buildGimlet(kit: Kit): Built {
   lower(m);
   furniture(m);
   barrel(m);
+  gasBlock(m);
   irons(m);
   magazine(m);
   suppressor(m);
@@ -262,7 +317,7 @@ function buildGimlet(kit: Kit): Built {
     m.side(poly([[-0.0035, 0.002], [0.0035, 0.002], [0.002, -0.009, 0.002], [0.0038, -0.0225, 0.0015], [0.0005, -0.0235, 0.001], [-0.0035, -0.0095, 0.003]], 0.001), 0.0062, { bevel: 0.0007 });
   });
 
-  const model = new Model(m, kit.mats, { glows: { sight: [0x7dff5a, 6], ...OPTIC_GLOWS } });
+  const model = new Model(m, kit.mats, { glows: { sight: [0x7dff5a, 6], guard: [0x2ff0d0, 4], ...OPTIC_GLOWS } });
   acogShade(model);
   model.socket('muzzle', [0, BORE, MUZZLE - 0.004]);
   model.socket('muzzleCan', [0, BORE, CAN_END]);
@@ -270,7 +325,7 @@ function buildGimlet(kit: Kit): Built {
   model.socket('muzzle1', [0, GL_Y, GL_MUZZLE]);
   model.socket('eject', [0.02, 0.054, -0.012]);
   model.hand('gripR', [0.018, -0.054, 0.072], [0, -0.96, 0.27], [-0.3, -0.25, -0.92]);
-  model.support('gripL', [-0.001, 0.016, -0.3]);
+  model.support('gripL', [-0.001, 0.016, -0.25]);
   // With the launcher on, the off hand holds its barrel, its fingers under the belly.
   model.support('glHold', [-0.001, GL_Y - 0.03, -0.29]);
   model.hand('glBreech', [-0.022, GL_Y - 0.01, GUARD_REAR - 0.12], [-0.5, -0.2, -0.8], [0.8, -0.3, -0.5]);
@@ -385,7 +440,7 @@ export function gimletDef(kit: Kit): ViewDef {
     pos: [0.135, -0.13, -0.42],
     rot: [0.022, 0.08, 0],
     // ADS with no optic: the post through the aperture, level. An optic brings its own (`mods`).
-    sight: [0, IRONS, -0.385], rear: [0, IRONS, 0.088], relief: 0.6,
+    sight: [0, IRONS, POST], rear: [0, IRONS, 0.088], relief: 0.6,
     recoil: { back: 0.028, lift: 0.002, pitch: 0.011, yaw: 0.006, roll: 0.009, omega: 46, zeta: 0.58 },
     right: { socket: 'gripR', pose: HANDS.grip },
     left: { socket: 'gripL', pose: HANDS.support },
