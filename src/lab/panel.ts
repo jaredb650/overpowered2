@@ -320,14 +320,14 @@ export class LabPanel {
     this.el.append(el('h2', '', 'BRAIN CHIPS (T)'));
     for (const id of CHIP_ORDER) {
       const row = el('div', 'lab-row');
-      const grant = this.button(row, `Chip: ${CHIPS[id].name}`, () => this.on.chip(id, 'grant'));
+      const grant = this.button(row, `Brain chip: ${CHIPS[id].name}`, () => this.on.chip(id, 'grant'));
       const fit = this.button(row, 'Fit', () => this.on.chip(id, 'fit'));
       grant.title = 'Grant it, unfitted';
       this.chipButtons.set(id, { grant, fit });
       this.el.append(row);
     }
     const slotRow = el('div', 'lab-row');
-    this.chipSlotButton = this.button(slotRow, 'Open chip slot 2', () => this.on.chip('slot', 'fit'));
+    this.chipSlotButton = this.button(slotRow, 'Open brain chip slot 2', () => this.on.chip('slot', 'fit'));
     this.el.append(slotRow, el('h2', '', 'PERKS'));
     const perks = el('div', 'lab-grid wide');
     for (const id of PERKS) this.button(perks, EFFECTS[id].label, () => this.on.grant(id));

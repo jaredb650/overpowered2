@@ -7,7 +7,7 @@
 | `data.ts` | `CONTRACTS`, the Council's copy, `SONAR`. No three.js, so anything can read it |
 | `select.ts` | `ACTIVE`: which contract and map this page runs. The URL rules, and the route to another contract |
 | `scores.ts` | One high score per contract in localStorage |
-| `sonar.ts` | Key T's Sonar chip: cooldown, ping, reveal |
+| `sonar.ts` | Key T's Sonar brain chip: cooldown, ping, reveal |
 | `chips.ts` | Key T's brain chips: the slots, tap and hold, Thermal, Focus, the HUD badge |
 | `rewards.ts` | The back-shot bonus |
 | `index.ts` | The system: `def`, `sonar`, frame update, reset |
@@ -410,12 +410,12 @@ Rendering is in `docs/notes/render.md`. The minimap pulses every enemy while the
 
 ## Brain chips (key T)
 
-`chips.ts`. T is a brain chip slot; Sonar is the issued chip and `sonar.ts` is unchanged, except that `Chips` reads the key and
+`chips.ts`. T is a brain chip slot; Sonar is the issued brain chip and `sonar.ts` is unchanged, except that `Chips` reads the key and
 hands it the press. Every number is in `THERMAL`, `FOCUS`, `CHIPS` and `CHIP_SLOT`.
 
-- **One chip fitted:** T works it on the press, as Sonar always has.
-- **Two fitted:** a tap (released before `HOLD_SWITCH`, 0.32 s) works the chip in hand; holding T moves to the next, with a
-  `hud.callout` (`THERMAL CHIP`) and `ui_click`, and works nothing. A toggled chip stays on when the hand moves away from it.
+- **One brain chip fitted:** T works it on the press, as Sonar always has.
+- **Two fitted:** a tap (released before `HOLD_SWITCH`, 0.32 s) works the brain chip in hand; holding T moves to the next, with a
+  `hud.callout` (`THERMAL BRAIN CHIP`) and `ui_click`, and works nothing. A toggled brain chip stays on when the hand moves away from it.
 - **Thermal** (1,400, after wave 3): the AC-130's black-hot view on foot, toggled, no limit. The canvas gets the gunship's CSS
   inversion, dimmed for the ground (`grayscale(1) invert(1) brightness(0.6) contrast(1.3)`: from below, the night sky inverts to
   white and the HUD's white text vanished on it), progression holds the `thermal` grade (`Progression.holdGrade`, the seats' hold),
@@ -424,14 +424,14 @@ hands it the press. Every number is in `THERMAL`, `FOCUS`, `CHIPS` and `CHIP_SLO
   studio get it back clean, and play puts it up again.
 - **Focus** (2,200, after wave 6): `time.pushScale('focus', 0.35)` while on; the player keeps full speed, as in SLOWMO. A 4 s
   meter on `playerDt`, refilled in 18 s after a 1.5 s rest; it needs a quarter of the meter to start and stops itself dry. In co-op
-  it does nothing (`NO FOCUS IN CO-OP`): one player's clock may not slow another's (`coop.md`), and Game clears scales there anyway.
-- **Slots:** one; the second is 1,600 after wave 4. A chip fitted with every slot full takes the last slot's place.
-- **Shop:** Procurement's Implants page, under the implants (`chipOffers` in `shop/rules.ts`), with two chip boxes under the
+  it does nothing (`NO FOCUS BRAIN CHIP IN CO-OP`): one player's clock may not slow another's (`coop.md`), and Game clears scales there anyway.
+- **Slots:** one; the second is 1,600 after wave 4. A brain chip fitted with every slot full takes the last slot's place.
+- **Shop:** Procurement's Implants page, under the implants (`chipOffers` in `shop/rules.ts`), with two brain chip boxes under the
   implant slots. Outpost Defense's Infirmary does not sell them yet. Purchases last one run; `reset` puts Sonar back alone.
 - **Missions:** Sonar alone, unless the script fits one: `{ do: 'call', name: 'chip', arg: 'thermal' }` (`campaign/host.ts`).
-- **HUD:** `ui/hud/sonar.ts` draws the badge from `chips.badge`: the chip's name, then Sonar's seconds, Thermal's ON or OFF, or
-  Focus's meter as a percentage and a bar; two pips with two chips fitted.
-- **Cheat panel:** BRAIN CHIPS rows grant, fit or remove each chip, and open chip slot 2.
+- **HUD:** `ui/hud/sonar.ts` draws the badge from `chips.badge`: `BRAIN · SONAR`, `BRAIN · THERMAL` or `BRAIN · FOCUS` (compact brain chip labels), then Sonar's seconds, Thermal's ON or OFF, or
+  Focus's meter as a percentage and a bar; two pips with two brain chips fitted.
+- **Cheat panel:** BRAIN CHIPS rows grant, fit or remove each brain chip, and open Brain chip slot 2.
 - **Thermal's cost** on the 8 GB M1, at dpr 2, 1440x900, 14 enemies in range (`tools/scripts/brainchip-live.mjs`, step `cost`):
   the frozen frame's GPU time, best of 8, went from 18.5 to 20.5 ms and from 22.3 to 24.5 ms in two runs, about 2 ms for the
   silhouette pass (the same pass Sonar draws for its 4 s) and the grade. The CSS filter is the compositor's and shows only in
@@ -450,7 +450,7 @@ It is a second hit and not a multiplier on the first because the first has alrea
 
 ## Comms feed
 
-`comms:line` (`CommsLine` in `enemies/outpost/events.ts`) goes to `CommsFeed` in `ui/hud/feed.ts`: four lines at most, six seconds each, above the sonar chip. The speaker shows, or the squad when the speaker is null. `fear`, `panic`, `surrender` and `squadGone` show amber, the player's own men (`ally`, Outpost Defense's `radio.ts`) green (`--friend`), everything else cold. Text only for now.
+`comms:line` (`CommsLine` in `enemies/outpost/events.ts`) goes to `CommsFeed` in `ui/hud/feed.ts`: four lines at most, six seconds each, above the Sonar brain chip. The speaker shows, or the squad when the speaker is null. `fear`, `panic`, `surrender` and `squadGone` show amber, the player's own men (`ally`, Outpost Defense's `radio.ts`) green (`--friend`), everything else cold. Text only for now.
 
 ## Tuning knobs
 

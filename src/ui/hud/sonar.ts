@@ -22,7 +22,7 @@ export class SonarChip {
 
   constructor(private readonly ctx: Ctx) {
     const key = span('ci-key');
-    const name = span('ci-name sn-name', 'Sonar');
+    const name = span('ci-name sn-name', 'BRAIN · SONAR');
     const wait = span('ci-wait');
     const refill = div('sn-fill');
     this.pips = div('sn-pips');
@@ -48,7 +48,7 @@ export class SonarChip {
       this.show(ready, ready ? '' : String(Math.ceil(s.sonarWait)), ready ? 0 : 1 - s.sonarWait / s.sonarLimit, 'Sonar');
       return;
     }
-    this.name.set(chip.name);
+    this.name.set(chip.name === 'No brain chip' ? 'NO BRAIN CHIP' : `BRAIN · ${chip.name.toUpperCase()}`);
     this.setColor(chip.color);
     const key = chip.count < 2 ? '' : `${chip.index}/${chip.count}`;
     if (key !== this.pipKey) {

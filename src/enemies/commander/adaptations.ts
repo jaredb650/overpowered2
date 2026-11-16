@@ -41,7 +41,7 @@ export interface AdaptationDef {
 export const ADAPTATIONS: readonly AdaptationDef[] = [
   { id: 'mortars', habit: 'camping', from: 2, tell: 'A spotter with a red designator paints the player. Red smoke lands, then shells', counterplay: 'Move out of the smoke. Kill the spotter and the tubes go blind; kill the crew and they stop' },
   { id: 'snipers', habit: 'camping', from: 2, tell: 'A laser and a muzzle glint from a perch behind the player, with a charge-up whine', counterplay: 'Break the line. Sonar shows the perch. Hunt him' },
-  { id: 'jammers', habit: 'sonar', from: 2, tell: 'A soldier with a whip antenna on his back. The chip reads JAMMED, and the ping lights him through any wall', counterplay: 'Kill the operator and sonar comes back at once' },
+  { id: 'jammers', habit: 'sonar', from: 2, tell: 'A soldier with a whip antenna on his back. The brain chip reads JAMMED, and the ping lights him through any wall', counterplay: 'Kill the operator and sonar comes back at once' },
   { id: 'decoys', habit: 'sonar', from: 3, tell: 'Ghost blips never move and flicker. Each one is a blinking box on the floor', counterplay: 'Watch which blips move. Shoot the box' },
   { id: 'hiders', habit: 'sonar', from: 3, tell: 'A radio click at about 14 m. Foil on their backs. Inside 10 m a ping still finds them, faintly', counterplay: 'Ping close. Grenade the room first. They break cover if the rest of the wave dies' },
   { id: 'mines', habit: 'routes', from: 2, tell: 'A red blink on the floor and a click when you step on it, half a second before it goes', counterplay: 'Shoot it, blast it, or keep moving: the fuse is long enough to clear it at a run' },

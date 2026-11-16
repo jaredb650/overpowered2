@@ -309,7 +309,7 @@ export const ENEMY_GUIDE: readonly { id: EnemyId; wave: number; role: string; ti
 ];
 
 export const ENEMY_NOTE = 'Bumping a body costs nothing: every hit you take is a telegraphed attack. Maimed enemies keep coming, so finish them. With three left in a wave they all show on your HUD. ' +
-  `The sonar ping shows every enemy through walls for ${SONAR.reveal} s, every ${SONAR.cooldown} s, or every ${SONAR.lastCooldown} s with ${SONAR.lastEnemies} or fewer left. Sonar is the issued brain chip on its key; the shop sells Thermal, Focus and a second chip slot (hold the key to change chips).`;
+  `The sonar ping shows every enemy through walls for ${SONAR.reveal} s, every ${SONAR.cooldown} s, or every ${SONAR.lastCooldown} s with ${SONAR.lastEnemies} or fewer left. Sonar is the issued brain chip on its key; the shop sells Thermal, Focus and a second brain chip slot (hold the key to change brain chips).`;
 
 /** `action` shows the player's own key. `keys` is for anything that is not one key. */
 export const MOVEMENT_GUIDE: readonly { action?: Action; keys?: string; name: string; body: string }[] = [

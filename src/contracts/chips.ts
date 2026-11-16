@@ -74,7 +74,7 @@ export const CHIPS: Readonly<Record<ChipId, ChipDef>> = {
   focus: {
     id: 'focus', name: 'Focus', price: 2200, wave: 6, color: '#ffc14a',
     does: `Tap: the world at ${FOCUS.scale}x while you move at full speed, on a ${FOCUS.seconds} s meter that refills in ${FOCUS.refill} s. Tap again to stop.`,
-    lore: 'A chip that makes everyone else slow. It cannot make them stupid; the Council sells that separately, to the other side.',
+    lore: 'A brain chip that makes everyone else slow. It cannot make them stupid; the Council sells that separately, to the other side.',
   },
 };
 
@@ -83,7 +83,7 @@ export const CHIP_ORDER: readonly ChipId[] = ['sonar', 'thermal', 'focus'];
 /** The second chip slot, for sale. The first is issued. */
 export const CHIP_SLOT = {
   price: 1600, wave: 4,
-  lore: 'A second socket behind the ear. Hold T to change chips. The Council notes that two chips are twice as productive and asks that you do not reach for both at once.',
+  lore: 'A second socket behind the ear. Hold T to change brain chips. The Council notes that two brain chips are twice as productive and asks that you do not reach for both at once.',
 } as const;
 
 export const CHIP_SLOTS = 2;
@@ -226,7 +226,7 @@ export class Chips {
     if (n < 2) return;
     this.index = (this.index + 1) % n;
     this.ctx.audio.play('ui_click');
-    this.ctx.hud.callout?.(`${CHIPS[this.current!].name.toUpperCase()} CHIP`);
+    this.ctx.hud.callout?.(`${CHIPS[this.current!].name.toUpperCase()} BRAIN CHIP`);
   }
 
   setThermal(on: boolean): void {
@@ -241,7 +241,7 @@ export class Chips {
     if (on && (this.ctx.coop || !this.ctx.player.alive || this.meter < FOCUS.start)) {
       // Co-op: one player's clock cannot slow the other's (docs/notes/coop.md), so Focus does nothing there.
       audio.play('ui_error');
-      if (this.ctx.coop) this.ctx.hud.callout?.('NO FOCUS IN CO-OP');
+      if (this.ctx.coop) this.ctx.hud.callout?.('NO FOCUS BRAIN CHIP IN CO-OP');
       return;
     }
     this.focus = on;
@@ -303,7 +303,7 @@ export class Chips {
     b.count = this.rack.fitted.length;
     b.index = this.index;
     if (cur === null) {
-      Object.assign(b, { name: 'No chip', color: 'var(--dim)', lit: false, text: '', fill: 0 });
+      Object.assign(b, { name: 'No brain chip', color: 'var(--dim)', lit: false, text: '', fill: 0 });
       return;
     }
     b.name = CHIPS[cur].name;

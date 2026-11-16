@@ -211,7 +211,7 @@ export class ProcurementScreen implements Screen {
       const id = rack.fitted[i];
       const open = i < rack.slots;
       const text = open ? (id ? CHIPS[id].name : 'Empty') : 'For sale';
-      const box = div('pc-slot', span('pc-slot-n', `Chip ${i + 1}`), span('pc-slot-v', text));
+      const box = div('pc-slot', span('pc-slot-n', `Brain chip ${i + 1}`), span('pc-slot-v', text));
       box.classList.toggle('open', open);
       box.classList.toggle('worn', !!id);
       if (id) box.style.setProperty('--imp', CHIPS[id].color);
@@ -225,9 +225,9 @@ export class ProcurementScreen implements Screen {
     const right = o.fitted ? 'Fitted' : o.locked ? `Wave ${o.ware.wave}`
       : o.replacesChip && o.why === null ? `Replaces ${CHIPS[o.replacesChip].name}`
         : o.owned ? (chip ? 'Fit' : 'Open') : credits(o.ware.price);
-    const ico = span('pc-ico pc-cls', chip ? 'Chip' : 'Slot');
+    const ico = span('pc-ico pc-cls', chip ? 'Brain chip' : 'Slot');
     if (chip) ico.style.color = CHIPS[chip].color;
-    const label = chip ? `${CHIPS[chip].name} chip` : 'Chip slot 2';
+    const label = chip ? `${CHIPS[chip].name} brain chip` : 'Brain chip slot 2';
     const el = div('pc-row', ico, span('pc-k', label), span('pc-v', o.locked ? markup(LOCK_ICON) : null, right));
     el.classList.toggle('locked', o.locked);
     el.classList.toggle('owned', o.owned && !o.fitted);
@@ -242,9 +242,9 @@ export class ProcurementScreen implements Screen {
     this.body.show(this.shop!.loadout.fitted, null);
     const c = this.card;
     const line = (k: string, v: string) => div('pc-line', span('pc-stat-k', k), span('pc-line-v', v));
-    c.name.set(chip ? `${CHIPS[chip].name} chip` : 'Chip slot 2');
+    c.name.set(chip ? `${CHIPS[chip].name} brain chip` : 'Brain chip slot 2');
     c.role.set(chip ? `Brain chip, key ${this.ctx.input.labelFor('sonar')}. Bought and fitted here, used whenever you like.`
-      : `A second chip. Tap ${this.ctx.input.labelFor('sonar')} to use the one in hand, hold it to change.`);
+      : `A second brain chip. Tap ${this.ctx.input.labelFor('sonar')} to use the one in hand, hold it to change.`);
     c.stats.replaceChildren(...(chip ? [line('Does', CHIPS[chip].does)] : []));
     c.lore.set(o.ware.lore);
     const verb = o.fitted ? 'Take out' : o.replacesChip ? `${o.owned ? 'Fit' : 'Buy'}, replacing ${CHIPS[o.replacesChip].name}`
@@ -365,8 +365,8 @@ export class ProcurementScreen implements Screen {
     const why = shop.buy(o.act);
     const act = o.act;
     const name = act.kind === 'weapon' ? INFO[act.id].name : act.kind === 'mod' ? MODS[act.id].name
-      : act.kind === 'implant' ? implantName(act.id) : act.kind === 'chip' ? `${CHIPS[act.id].name} chip`
-        : act.kind === 'chipSlot' ? 'Chip slot 2' : `Implant slot ${act.id}`;
+      : act.kind === 'implant' ? implantName(act.id) : act.kind === 'chip' ? `${CHIPS[act.id].name} brain chip`
+        : act.kind === 'chipSlot' ? 'Brain chip slot 2' : `Implant slot ${act.id}`;
     if (why) {
       this.note.set(why);
       this.ctx.audio.play?.('ui_error');

@@ -121,7 +121,7 @@ describe('two slots: tap uses, hold switches', () => {
     expect(r.events).toContain('sonar:tap');
     r.hold(HOLD_SWITCH + 0.1);
     expect(r.chips.current).toBe('thermal');
-    expect(r.callouts).toEqual(['THERMAL CHIP']);
+    expect(r.callouts).toEqual(['THERMAL BRAIN CHIP']);
     expect(r.sounds).toContain('ui_click');
     expect(r.chips.thermal).toBe(false);
     expect(r.chips.badge).toMatchObject({ name: 'Thermal', text: 'OFF', count: 2, index: 1 });
@@ -234,7 +234,7 @@ describe('Focus', () => {
     r.run(FOCUS.delay + 1);
     r.frame('down');
     expect(r.chips.focus).toBe(false);
-    expect(r.callouts).toContain('NO FOCUS IN CO-OP');
+    expect(r.callouts).toContain('NO FOCUS BRAIN CHIP IN CO-OP');
   });
 });
 
