@@ -54,6 +54,12 @@ start (the host decides; guests get `chatter` and `chatcut` events).
   gut), `enemy:severed` (arm or leg while alive) and `enemy:condition` (downed), and the man says it. Nothing in the gore or damage code
   changed. A crawling or dying man calls his buddy by name (`{buddy}`); the leader counts the casualties; a body taken apart is said as
   one (`brutal`). His own pain cuts his own line, but a second wound waits for the first scream.
+- **C.** `comms.ts` reads where the player is from the speaker whenever a line is said: `{clock}` (12 ahead, 3 his right), and the
+  facts `above`, `below`, `behind`, `charging`, `fleeing`, `fast`, `playerHurt`. Contact rows say the clock and the specific rows win
+  ("He's above us, on the roof!", "On our six!", "He's coming right at us!"); lost rows say he is running, too fast, or hurt and hiding.
+  "Set!" when a man ends a bound in contact (`behaviours.ts`); the gun suppresses in its own words, the shotgun pushes in its own; "Tagged
+  him!" from the man whose round hit the player. A flash call puts FLASH INCOMING under the crosshair with a compass arrow to the
+  thrower, for 1.6 s, whatever the chatter setting. Deferred: a call when the player throws a grenade (no throw event exists yet).
 
 ## 1. The goal
 

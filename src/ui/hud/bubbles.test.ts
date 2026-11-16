@@ -118,3 +118,12 @@ it('stacks bubbles that would overlap', () => {
   const [a, b] = bubbles.pool.filter(x => x.enemy);
   expect(Math.abs(a!.y - b!.y)).toBeGreaterThanOrEqual(24 * 1.1 - 0.01);
 });
+
+it('shows a critical warning under the crosshair, with an arrow to where it came from, and lets it go', () => {
+  const { bubbles } = setup();
+  bubbles.warn(new THREE.Vector3(5, 1.6, -10), 'FLASH INCOMING');
+  bubbles.update(0.1);
+  expect(bubbles.warnEl.style.visibility).toBe('');
+  bubbles.update(2);
+  expect(bubbles.warnEl.style.visibility).toBe('hidden');
+});

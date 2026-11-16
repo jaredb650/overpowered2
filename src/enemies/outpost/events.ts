@@ -22,7 +22,8 @@ export type CommsKind =
   | 'pinning' | 'flushing' | 'rushing' | 'cutoff' | 'ambushSet' | 'spring' | 'opening' | 'wounded' | 'dry' | 'refused' | 'hostage' | 'clearShot' | 'obey' | 'behindUs'
   // The squad comms system's own (docs/design/squad-comms.md).
   | 'ack'
-  | 'plateHeld' | 'plateGone' | 'pierced' | 'artery' | 'gut' | 'limbLost' | 'downed';
+  | 'plateHeld' | 'plateGone' | 'pierced' | 'artery' | 'gut' | 'limbLost' | 'downed'
+  | 'set' | 'playerHit';
 
 export interface CommsLine {
   kind: CommsKind;

@@ -24,6 +24,7 @@ const SMALLEST = 0.75;
 const LIFT = 0.35;
 /** How long a cut-off line hangs where he was. */
 const CUT_HOLD = 1.3;
+const WARN_SECONDS = 1.6;
 
 interface Bubble {
   el: HTMLElement;
@@ -67,6 +68,12 @@ export class Bubbles {
   readonly el: HTMLElement;
   readonly pool: Bubble[] = [];
   private clock = 0;
+  /** The critical-warning cue under the crosshair: what is coming, and an arrow to where it came from. */
+  readonly warnEl: HTMLElement;
+  private readonly warnArrow: HTMLElement;
+  private readonly warnText: HTMLElement;
+  private readonly warnFrom = new THREE.Vector3();
+  warnLife = 0;
 
   constructor(private readonly ctx: Ctx) {
     this.el = div('bb-layer');
@@ -81,6 +88,20 @@ export class Bubbles {
         x: 0, y: 0, w: 0, h: 0, shown: false, rayAt: 0, seen: false,
       });
     }
+    this.warnArrow = div('bb-warn-arrow');
+    this.warnText = span('bb-warn-t');
+    this.warnEl = div('bb-warn', this.warnArrow, this.warnText);
+    this.warnEl.style.visibility = 'hidden';
+    this.el.append(this.warnEl);
+  }
+
+  /** A critical warning the player must act on (a flashbang coming in), with an arrow to where it came from. */
+  warn(from: THREE.Vector3, label: string, seconds = WARN_SECONDS): void {
+    this.warnFrom.copy(from);
+    this.warnText.textContent = label;
+    this.warnLife = seconds;
+    this.warnEl.style.visibility = '';
+    this.warnEl.animate?.([{ transform: 'translateX(-50%) scale(1.3)' }, { transform: 'translateX(-50%)' }], 160);
   }
 
   get live(): number {
@@ -174,6 +195,13 @@ export class Bubbles {
     if (!(camera instanceof THREE.Camera)) return;
     const w = innerWidth / 2;
     const h = innerHeight / 2;
+    if (this.warnLife > 0) {
+      this.warnLife -= dt;
+      if (this.warnLife <= 0) this.warnEl.style.visibility = 'hidden';
+      // A compass bearing, like a hit indicator: up is ahead of the camera, down behind it.
+      _view.copy(this.warnFrom).applyMatrix4(camera.matrixWorldInverse);
+      this.warnArrow.style.transform = `rotate(${Math.atan2(_view.x, -_view.z).toFixed(3)}rad)`;
+    }
     for (const b of this.pool) {
       if (!b.enemy) continue;
       b.life -= dt;
@@ -223,5 +251,7 @@ export class Bubbles {
 
   reset(): void {
     for (const b of this.pool) this.drop(b);
+    this.warnLife = 0;
+    this.warnEl.style.visibility = 'hidden';
   }
 }

@@ -8,12 +8,15 @@
  *   enemy:wounded    an artery (carotid, inner thigh) -> artery, the gut or pelvis -> gut
  *   enemy:severed    an arm or a leg, while he lives -> limbLost, with the `arm` or `leg` fact
  *   enemy:condition  downed -> downed
+ *   player:damaged   a bullet from a man's own gun -> playerHit ("Tagged him!")
  */
 import type { GoreRegion } from '../../../characters/rig';
 import type { AiWorld } from '../../aiWorld';
 import type { Comms } from '../comms';
 import { soldierOf, type Soldier } from '../soldier';
 
+/** How far a shot's origin may be from a man's chest and still be his. */
+const TAGGED_REACH = 2.5;
 const ARTERY = new Set(['carotid', 'innerThigh']);
 const GUT = new Set(['gut', 'pelvis']);
 const ARM: ReadonlySet<GoreRegion> = new Set<GoreRegion>(['armL', 'forearmL', 'armR', 'forearmR']);
@@ -44,6 +47,20 @@ export function listenForWounds(w: AiWorld, comms: Comms): void {
     const s = live(enemy);
     if (!s || !(ARM.has(region) || LEG.has(region))) return;
     comms.say('limbLost', s, null, { flags: { arm: ARM.has(region), leg: LEG.has(region) } });
+  });
+  // "Tagged him!": the man whose round it was, if he can be told from where it came.
+  events.on('player:damaged', ({ from, type }) => {
+    if (!from || type !== 'bullet') return;
+    let best: Soldier | null = null;
+    let near = TAGGED_REACH * TAGGED_REACH;
+    for (const s of w.enemies.outpost?.soldiers ?? []) {
+      const d = s.fighting ? s.e.center.distanceToSquared(from) : Infinity;
+      if (d < near) {
+        near = d;
+        best = s;
+      }
+    }
+    if (best) comms.say('playerHit', best);
   });
   events.on('enemy:condition', ({ enemy, condition }) => {
     const s = live(enemy);

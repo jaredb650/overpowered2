@@ -264,6 +264,8 @@ export class Hud implements HudSystem {
       const color = e.kind === 'ally' ? 'var(--friend)' : COMMS_FEAR.has(e.kind) ? 'var(--amber)' : 'var(--cold)';
       this.comms.push(e.text, color, e.speaker ?? e.squad, e.enemy);
       if (chatter === CHATTER_BUBBLES) this.bubbles.say(e, color);
+      // A critical warning gets a cue whatever the setting: the player has to act on it.
+      if (e.kind === 'flash' && e.enemy) this.bubbles.warn(e.position, 'FLASH INCOMING');
       this.debug.chatter(e);
     });
     events.on('comms:cut', e => {

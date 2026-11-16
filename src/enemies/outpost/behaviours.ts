@@ -204,7 +204,11 @@ const move: Behaviour = {
     if (sprinting) s.sprintLeft -= dt;
     else s.sprintLeft = Math.min(SPRINT_SECONDS, s.sprintLeft + dt * SPRINT_RECOVERY);
     e.pace = sprinting ? paceFor(e, SPRINT_SPEED) : s.urgency === 0 ? WALK_SHARE : 1;
-    if (walkRoute(e, s, w)) s.task = 'hold';
+    if (walkRoute(e, s, w)) {
+      s.task = 'hold';
+      // "Set!": the bound is done, and the player hears it land.
+      if (s.squad.inContact) w.enemies.outpost!.comms.say('set', s);
+    }
   },
   exit(e) {
     const s = soldierOf(e);

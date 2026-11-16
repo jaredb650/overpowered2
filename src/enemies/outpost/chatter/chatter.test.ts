@@ -95,7 +95,7 @@ describe('not repeating', () => {
       const before = last.get(row);
       if (before !== undefined) expect(t - before, RULES[row]!.id).toBeGreaterThanOrEqual(RULES[row]!.cooldown);
       last.set(row, t);
-      const pool = rowsFor(concept, 'garrison').filter(i => RULES[i]!.morale_tier.includes(tier) && Object.keys(RULES[i]!.criteria).length === 0);
+      const pool = rowsFor(concept, 'garrison').filter(i => RULES[i]!.morale_tier.includes(tier) && Object.keys(RULES[i]!.criteria).length === 0 && !RULES[i]!.unit);
       if (m.said[row]! > 1) expect(pool.every(i => m.said[i]! > 0), RULES[row]!.id).toBe(true);
     }
     expect(lines).toBeGreaterThan(500);
@@ -174,9 +174,9 @@ describe('comms: who speaks, and when a line is cut', () => {
     events.on('comms:cut', c => cuts.push({ at: c.at }));
     const soldiers: Soldier[] = [];
     const w = {
-      now: 0, player: { position: { x: 0, y: 0, z: 0 } },
+      now: 0, player: { position: { x: 0, y: 0, z: -10 }, velocity: { x: 0, y: 0, z: 0 }, speed: 0 },
       enemies: { outpost: { doctrine: { radioSilence: false }, soldiers } },
-      ctx: { events, coop: hosting ? undefined : { world: {}, hosting: false } },
+      ctx: { events, player: { health: 100, maxHealth: 100 }, coop: hosting ? undefined : { world: {}, hosting: false } },
     } as unknown as AiWorld;
     return { w, events, heard, cuts, soldiers, comms: new Comms(w) };
   }
@@ -186,7 +186,9 @@ describe('comms: who speaks, and when a line is cut', () => {
     s.name = name;
     s.known = known;
     s.state = state;
-    s.e = { alive: true, maxHealth: 100, center: { x: 0, y: 1, z: 0 }, position: { distanceToSquared: () => 1 }, def: { voice: { attack: 'x' } } } as unknown as Soldier['e'];
+    s.e = {
+      alive: true, maxHealth: 100, yaw: 0, center: { x: 0, y: 1, z: 0 }, position: { x: 0, y: 0, z: 0, distanceToSquared: () => 1 }, def: { voice: { attack: 'x' } },
+    } as unknown as Soldier['e'];
     soldiers.push(s);
     return s;
   }
@@ -277,6 +279,8 @@ describe('comms: who speaks, and when a line is cut', () => {
 
   it('gives the armour, wound and gore events a voice, and has a crawling man call his buddy by name', () => {
     const { w, events, heard, soldiers, comms } = world();
+    // No moment left unsaid by chance.
+    const quiet = vi.spyOn(Math, 'random').mockReturnValue(0.99);
     listenForWounds(w, comms);
     const squad = new OutpostSquad(1, 'Alpha', {} as Outpost);
     const voss = man(squad, soldiers, 0, 'steady');
@@ -306,6 +310,30 @@ describe('comms: who speaks, and when a line is cut', () => {
     comms.say('scream', kade);
     expect(heard.at(-1)!.text).toContain('Voss');
     expect(heard.at(-1)!.slots).toEqual({ buddy: 'Voss' });
+    quiet.mockRestore();
+  });
+
+  it('calls where the player is by the clock, from where the speaker faces', () => {
+    const { w, heard, soldiers, comms } = world();
+    const voss = man(new OutpostSquad(1, 'Alpha', {} as Outpost), soldiers, 0, 'steady');
+    // He faces +z; his right is -x, so the player at -x is at three o'clock.
+    (w.player.position as { x: number; z: number }).x = -10;
+    (w.player.position as { x: number; z: number }).z = 0;
+    for (let i = 0; i < 30; i++) {
+      w.now = i * 50;
+      comms.say('contact', voss);
+    }
+    const clocked = heard.filter(l => l.slots?.clock);
+    expect(clocked.length).toBeGreaterThan(0);
+    for (const l of clocked) expect(l.text).toContain("3 o'clock");
+    // Behind him: the rear rows win over the plain ones.
+    (w.player.position as { x: number; z: number }).x = 0;
+    (w.player.position as { x: number; z: number }).z = -10;
+    w.now = 5000;
+    const quiet = vi.spyOn(Math, 'random').mockReturnValue(0.99);
+    comms.say('contact', voss);
+    quiet.mockRestore();
+    expect(RULES[heard.at(-1)!.row!]!.criteria).toEqual({ behind: true });
   });
 
   it('keeps a co-op guest quiet: the host decides every line', () => {
