@@ -127,6 +127,11 @@ HP from the start, AP after wave 2. HUD: `GIMLET · AP`, `GIMLET · HP · BURST`
 the round hit, through his plate, when his armour took the round and he lived. See docs/notes/weapons.md, Weapon mods and Raufoss
 rounds.
 
+**+P added 2026-11-16.** Every AP/HP weapon (SMG, Gimlet, Harrow, Rivet, Ultramag, Judge, Autoraffica, Awl) now also takes
++P in the same exclusive ammo slot: 1.2x damage on every hit, ball penetration and plate rules, no specialist armour/flesh
+behaviour. This sits below HP's 1.5x flesh damage and leaves AP's plate passage/extra penetration useful. Shop: 50 below
+each gun's AP/HP price, all wave 0; lab grant/fit/remove rows, HUD `· +P`, subtle warm-white tracer. No model changes.
+
 ## 13. The Awl scout and the Quiver's helix
 
 **Built.** The Awl is an original bolt-action scout inspired by the Steyr Scout's forward long-eye-relief scope, slim synthetic

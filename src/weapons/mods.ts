@@ -24,18 +24,19 @@ const smg = WEAPONS.smg;
 const ACOG = { zoom: 0.69, time: 0.24 } as const;
 const DOT = { zoom: 0.4, time: 0.2 } as const;
 
-/** The guns that take AP and HP rounds: the SMG, the rifles and the four pistols. */
+/** The guns that take AP, HP and +P rounds: the SMG, the rifles and the four pistols. */
 export const AMMO_GUNS: readonly WeaponId[] = ['smg', 'gimlet', 'harrow', 'rivet', 'ultramag', 'autoraffica', 'judge', 'awl'];
 
-/** AP: less to flesh, most of it through a plate, one more body. HP: more to flesh, nothing through a plate, no further. */
+/** AP and HP specialise in plates and flesh; +P multiplies damage and keeps ball penetration and plate rules. */
 function rounds(gun: WeaponId, load: AmmoLoad): ModDef {
   const row = WEAPONS[gun];
   const ap = load === 'ap';
   return {
-    id: `${gun}${ap ? 'Ap' : 'Hp'}` as ModId, weapon: gun, name: ap ? 'AP rounds' : 'HP rounds', slot: 'ammo',
+    id: `${gun}${ap ? 'Ap' : load === 'hp' ? 'Hp' : 'PlusP'}` as ModId, weapon: gun,
+    name: load === 'plusP' ? '+P rounds' : `${load.toUpperCase()} rounds`, slot: 'ammo',
     patch: {
       load, tracer: load, damage: row.damage * AMMO[load].flesh,
-      penetration: ap ? row.penetration + AMMO.ap.penetration : 0,
+      penetration: load === 'hp' ? 0 : row.penetration + (ap ? AMMO.ap.penetration : 0),
     },
   };
 }
@@ -72,13 +73,16 @@ export const MODS: Readonly<Record<ModId, ModDef>> = {
   ultramagAp: rounds('ultramag', 'ap'), ultramagHp: rounds('ultramag', 'hp'),
   judgeAp: rounds('judge', 'ap'), judgeHp: rounds('judge', 'hp'),
   autorafficaAp: rounds('autoraffica', 'ap'), autorafficaHp: rounds('autoraffica', 'hp'),
+  smgPlusP: rounds('smg', 'plusP'), gimletPlusP: rounds('gimlet', 'plusP'), harrowPlusP: rounds('harrow', 'plusP'),
+  rivetPlusP: rounds('rivet', 'plusP'), ultramagPlusP: rounds('ultramag', 'plusP'), judgePlusP: rounds('judge', 'plusP'),
+  autorafficaPlusP: rounds('autoraffica', 'plusP'), awlPlusP: rounds('awl', 'plusP'),
 };
 
 export const MOD_ORDER: readonly ModId[] = [
-  'awlAcog', 'awlCan', 'awlAp', 'awlHp',
-  'suppressor', 'smgAp', 'smgHp', 'gimletAcog', 'gimletDot', 'gimletCan', 'gimletGl', 'gimletAp', 'gimletHp',
-  'reddot', 'harrowAcog', 'harrowAp', 'harrowHp', 'raufoss', 'rivetAp', 'rivetHp', 'ultramagAp', 'ultramagHp', 'judgeAp', 'judgeHp',
-  'autorafficaAp', 'autorafficaHp',
+  'awlAcog', 'awlCan', 'awlAp', 'awlHp', 'awlPlusP',
+  'suppressor', 'smgAp', 'smgHp', 'smgPlusP', 'gimletAcog', 'gimletDot', 'gimletCan', 'gimletGl', 'gimletAp', 'gimletHp', 'gimletPlusP',
+  'reddot', 'harrowAcog', 'harrowAp', 'harrowHp', 'harrowPlusP', 'raufoss', 'rivetAp', 'rivetHp', 'rivetPlusP', 'ultramagAp', 'ultramagHp', 'ultramagPlusP', 'judgeAp', 'judgeHp', 'judgePlusP',
+  'autorafficaAp', 'autorafficaHp', 'autorafficaPlusP',
 ];
 
 /** Held and fitted at the start of every run: the Gimlet's ACOG and suppressor. The shop takes them off and puts them back. */
@@ -87,6 +91,11 @@ export const ISSUED: readonly ModId[] = ['gimletAcog', 'gimletCan'];
 /** `id`'s row with every fitted mod of its own patched over it, or the row itself when none is. */
 export function moddedDef(id: WeaponId, fitted: ReadonlySet<ModId>): WeaponDef {
   let def = WEAPONS[id];
-  for (const m of MOD_ORDER) if (fitted.has(m) && MODS[m].weapon === id) def = { ...def, ...MODS[m].patch };
+  for (const m of MOD_ORDER) if (fitted.has(m) && MODS[m].weapon === id) {
+    const patch = MODS[m].patch;
+    // +P multiplies the fitted gun's damage, including the SMG suppressor's boost in its separate slot.
+    const damage = patch.load === 'plusP' ? def.damage * AMMO.plusP.flesh : patch.damage ?? def.damage;
+    def = { ...def, ...patch, damage };
+  }
   return def;
 }

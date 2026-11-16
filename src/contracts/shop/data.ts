@@ -203,7 +203,7 @@ export const MOD_WARES: Readonly<Record<ModId, Ware>> = {
   raufoss: {
     price: 2400, wave: 10,
     lore: 'Every dart now bursts where it lands and sends what is left out of the far side. Cover has been reclassified as a suggestion.',
-  },  // AP and HP rounds (weapons/mods.ts, AMMO in weapons/data.ts): one of the two to a gun, or ball, its default, with neither.
+  },  // AP, HP and +P rounds (weapons/mods.ts, AMMO in weapons/data.ts): one ammo mod to a gun, or ball with none.
   smgAp: {
     price: 400, wave: 2,
     lore: 'Steel-cored rounds for the SMG. They go through the plate and arrive a little tired. The Council can relate.',
@@ -260,6 +260,14 @@ export const MOD_WARES: Readonly<Record<ModId, Ware>> = {
     price: 500, wave: 0,
     lore: 'Hollow-points for the Autoraffica, three at a time, all in the same place. The Council calls this efficiency. The coroner calls it one hole.',
   },
+  smgPlusP: { price: 350, wave: 0, lore: 'Twenty percent more damage from the SMG. The Council has raised the pressure without raising the salary.' },
+  gimletPlusP: { price: 450, wave: 0, lore: 'Overpressure rounds for the Gimlet. A general increase in damage, filed under routine maintenance.' },
+  harrowPlusP: { price: 550, wave: 0, lore: 'The Harrow, with twenty percent more round. Procurement has declined to call it a promotion.' },
+  rivetPlusP: { price: 250, wave: 0, lore: 'More pressure in the Rivet. The same fifteen complaints, submitted with greater force.' },
+  ultramagPlusP: { price: 650, wave: 0, lore: 'Overpressure for the Ultramag. The Council reviewed the existing damage and found room for growth.' },
+  judgePlusP: { price: 550, wave: 0, lore: 'The same verdict, twenty percent harder. Sentencing guidelines have been updated accordingly.' },
+  autorafficaPlusP: { price: 450, wave: 0, lore: 'More damage from every Autoraffica round. The automation budget has been redirected into pressure.' },
+  awlPlusP: { price: 400, wave: 0, lore: 'Overpressure rounds for the Awl. Five rounds still. Procurement insists this counts as doing more with less.' },
 };
 
 /** The menu's heading and its small print. */

@@ -221,6 +221,7 @@ const TRACERS: Record<TracerKind, TracerFx> = {
   // The ammo mods' (mods.ts): AP a cold blue-white streak, quick and thin; HP a short dull red.
   ap: { color: hot(0xb8dcff, 3), width: 0.016, speed: 760, length: 18, core: 6, minPx: 1.2 },
   hp: { color: hot(0xff5030, 3), width: 0.02, speed: 460, length: 8, core: 4.5, minPx: 1.2 },
+  plusP: { color: hot(0xffeed6, 2), width: 0.013, speed: 600, length: 11, core: 5, minPx: 1.1 },
 };
 
 export function tracer(core: FxCore, from: THREE.Vector3, to: THREE.Vector3, kind: TracerKind): void {

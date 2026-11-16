@@ -23,6 +23,8 @@ export type ArmourClass = 'light' | 'medium' | 'heavy';
 export const AMMO = {
   ap: { flesh: 0.8, plate: 0.75, penetration: 0.4 },
   hp: { flesh: 1.5, wear: 0.15 },
+  // +P: 20% more on every hit, below HP's 50% flesh gain; ball penetration and plate rules, with no specialist bonus.
+  plusP: { flesh: 1.2 },
 } as const;
 
 export type FireMode = 'auto' | 'semi' | 'charge' | 'spin' | 'stream' | 'melee' | 'paint';
@@ -88,7 +90,7 @@ export interface WeaponDef {
    * over it. Medium is a rifle-class round: the plate stops it but is wrecked doing so. Pellets are counted per blast.
    */
   armour?: ArmourClass;
-  /** An ammo mod is loaded (mods.ts): AP or HP, over `armour`. See AMMO. Unset is ball. */
+  /** An ammo mod is loaded (mods.ts): AP/HP override `armour`; +P keeps ball rules. See AMMO. Unset is ball. */
   load?: AmmoLoad;
   /** Damage holds to `from` meters, then falls in a line to `floor` of itself at `to`. Unset: full damage at any range. */
   falloff?: { readonly from: number; readonly to: number; readonly floor: number };

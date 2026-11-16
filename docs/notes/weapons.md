@@ -347,6 +347,16 @@ three mods on one gun. The viewmodel side is the gun's `ViewDef.mods` (`docs/not
 | AP rounds (`smgAp`, `gimletAp`, `harrowAp`, `rivetAp`, `ultramagAp`, `judgeAp`) | SMG, Gimlet, Harrow, Rivet, Ultramag, Judge | `load: 'ap'`, `damage` x0.8, `penetration` +0.4 m (one more body), `tracer` `ap` (cold blue-white). On a plate (`armourHit`) it is worn by the whole round, as a heavy round wears it, and 0.75 of the round gets through, whatever the gun's class. The HUD calls it `· AP` |
 | HP rounds (`smgHp` ... `judgeHp`) | The same six | `load: 'hp'`, `damage` x1.5, `penetration` 0 (it stays in the first body), `tracer` `hp` (short, dull red). A plate stops it whatever the gun's class and is worn by only 0.15 of the round, so the Harrow, Judge and Ultramag lose their plate-wrecking round. The HUD calls it `· HP` |
 
+**+P rounds** (2026-11-16) share that ammo slot with AP/HP on every `AMMO_GUNS` weapon: SMG, Gimlet, Harrow, Rivet,
+Ultramag, Judge, Autoraffica and Awl (`<gun>PlusP`). `AMMO.plusP.flesh = 1.2` multiplies every hit's damage, including
+headshots and hits on plates, with ball's penetration and ordinary armour class/rules. A plate that stops ball still stops
++P; medium rounds still wreck a plate and light rounds wear it by half their damage. There is no AP/HP plate override,
+shield bypass or flesh-specific bonus. Twenty percent is a general upgrade below HP's 50% flesh bonus, while AP still
+trades 20% of flesh damage for plate passage and 0.4 m of extra penetration. The SMG suppressor's damage bonus stacks with +P.
+Shop prices (all wave 0): SMG 350, Gimlet 450, Harrow 550, Rivet 250, Ultramag 650, Judge 550, Autoraffica 450, Awl 400;
+each is 50 below its AP/HP version. The lab's generated rows grant, fit and remove each; HUD `· +P` keeps selector/smart
+labels beside it. Its tracer is a thin warm-white streak; no model changes. Tests: `src/weapons/plusP.test.ts`.
+
 `src/weapons/mods.test.ts`.
 
 *AP and HP rounds* (plan section 12). Every number is `AMMO` in `data.ts`; the load rides the shot (`ShotSpec.load`, filled from the row

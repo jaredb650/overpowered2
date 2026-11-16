@@ -413,7 +413,7 @@ export class Weapons implements WeaponSystem, Guard {
     const alt = WEAPONS[this.current].altAmmo;
     if (this.glUp) return 'LAUNCHER';
     // An ammo mod (AP or HP) comes first, beside the Gimlet's bursts.
-    const load = def.load ? def.load.toUpperCase() : '';
+    const load = def.load === 'plusP' ? '+P' : def.load ? def.load.toUpperCase() : '';
     const sel = this.selectOf(def);
     if (sel !== 'auto') return load ? `${load} · ${sel.toUpperCase()}` : sel.toUpperCase();
     // The Autoraffica: its bursts, or the smart aim and whether it holds a head.
