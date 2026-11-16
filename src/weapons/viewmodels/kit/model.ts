@@ -11,6 +11,7 @@ const _x = new THREE.Vector3();
 const _y = new THREE.Vector3();
 const _z = new THREE.Vector3();
 const _v = new THREE.Vector3();
+const _w = new THREE.Vector3();
 const _m = new THREE.Matrix4();
 
 export interface ScreenHandle {
@@ -127,8 +128,26 @@ export class Model {
     return s;
   }
 
+  /** `hand` by the way the palm faces instead of the hand's +X, which is palm x fingers for either hand. */
+  grasp(name: string, contact: V3, palm: V3, fingers: V3, part?: string): THREE.Object3D {
+    const side = _w.set(palm[0], palm[1], palm[2]).cross(_v.set(fingers[0], fingers[1], fingers[2]));
+    return this.hand(name, contact, [side.x, side.y, side.z], fingers, part);
+  }
+
+  /**
+   * Left hand under a handguard, `contact` the middle of its underside. The guard lies across the palm from the heel
+   * to the base of the index finger: fingers forward and to the right, up the far side, thumb forward along the near side.
+   */
   support(name: string, contact: V3, part?: string): THREE.Object3D {
-    return this.hand(name, [contact[0] - 0.012, contact[1] + 0.002, contact[2]], [0, 0, -1], [0.94, -0.34, 0], part);
+    return this.grasp(name, [contact[0] - 0.004, contact[1] - 0.004, contact[2]], [0.26, 0.97, 0], [0.87, 0.15, -0.5], part);
+  }
+
+  /**
+   * Left hand of a two-handed pistol grip, `contact` where its palm presses the left grip panel: the heel fills the
+   * panel, the fingers go forward and down round the firing hand's, the thumb lies forward under the slide.
+   */
+  pistolSupport(name: string, contact: V3, part?: string): THREE.Object3D {
+    return this.grasp(name, contact, [1, 0.25, 0], [0.35, -0.45, -0.82], part);
   }
 
   foregrip(name: string, contact: V3, part?: string): THREE.Object3D {

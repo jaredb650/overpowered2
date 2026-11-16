@@ -56,7 +56,7 @@ describe('hand frames and support grips', () => {
     expect(tips[0]!.z).toBeCloseTo(tips[1]!.z, 8);
   });
 
-  it('cups a handguard from the near underside, with fingers up the far side and thumb forward', () => {
+  it('holds a handguard across the palm, fingers forward and up the far side, thumb forward along the near side', () => {
     const model = new Model(kit.mesher(), kit.mats);
     const socket = model.support('support', [0, 0, 0]);
     const arm = arms[1]!;
@@ -66,26 +66,63 @@ describe('hand frames and support grips', () => {
     arm.applyPose();
     arm.mesh.updateMatrixWorld(true);
     const palm = new THREE.Vector3(0, -1, 0).applyQuaternion(socket.quaternion);
-    expect(palm.y).toBeGreaterThan(0.9);
-    expect(palm.x).toBeGreaterThan(0.3);
-    for (const bone of [9, 12, 15, 18]) {
-      const tip = arm.bones[bone]!.getWorldPosition(new THREE.Vector3());
-      expect(tip.x).toBeGreaterThan(0.015);
-      expect(tip.y).toBeGreaterThan(0.015);
-    }
+    const fingers = new THREE.Vector3(0, 0, -1).applyQuaternion(socket.quaternion);
+    expect(palm.y).toBeGreaterThan(0.7);
+    // Diagonal across the guard, 60 degrees off the bore, so the forearm behind it can come from below and to the left.
+    expect(fingers.z).toBeLessThan(-0.4);
+    expect(fingers.x).toBeGreaterThan(0.7);
+    // Middle knuckles out on the far side, last knuckles up it.
+    for (const bone of [8, 11, 14, 17]) expect(arm.bones[bone]!.getWorldPosition(new THREE.Vector3()).x).toBeGreaterThan(0.015);
+    for (const bone of [9, 12, 15, 18]) expect(arm.bones[bone]!.getWorldPosition(new THREE.Vector3()).y).toBeGreaterThan(0.015);
     const thumb = arm.bones[6]!.getWorldPosition(new THREE.Vector3());
-    expect(thumb.z).toBeLessThan(-0.035);
-    expect(thumb.x).toBeLessThan(0.06);
-    expect(thumb.y).toBeGreaterThan(0.04);
+    expect(thumb.z).toBeLessThan(-0.06);
+    expect(thumb.x).toBeLessThan(-0.03);
+    expect(thumb.y).toBeGreaterThan(0.015);
   });
 
-  it.each(['smg', 'gimlet', 'harrow', 'shotgun', 'thresher', 'deuce', 'sabot', 'kiln', 'stakegun'])('%s uses the shared palm-up support frame', id => {
+  it.each(['smg', 'gimlet', 'harrow', 'shotgun', 'thresher', 'deuce', 'sabot', 'kiln', 'stakegun'])('%s uses the shared handguard frame', id => {
     const def = defs[id]!;
     expect(def.left!.pose).toBe(HANDS.support);
     const socket = def.model.sockets[def.left!.socket]!;
     const palm = new THREE.Vector3(0, -1, 0).applyQuaternion(socket.quaternion);
-    expect(palm.y).toBeGreaterThan(0.9);
-    expect(palm.x).toBeGreaterThan(0.3);
+    const fingers = new THREE.Vector3(0, 0, -1).applyQuaternion(socket.quaternion);
+    expect(palm.y).toBeGreaterThan(0.7);
+    expect(fingers.x).toBeGreaterThan(0.4);
+  });
+
+  it.each(['judge', 'rivet', 'ultramag', 'autoraffica'])('%s holds thumbs forward: support palm on the left panel, fingers down round the firing hand', id => {
+    const def = defs[id]!;
+    expect(def.left!.pose).toBe(HANDS.pistolSupport);
+    const socket = def.model.sockets[def.left!.socket]!;
+    const palm = new THREE.Vector3(0, -1, 0).applyQuaternion(socket.quaternion);
+    const fingers = new THREE.Vector3(0, 0, -1).applyQuaternion(socket.quaternion);
+    expect(palm.x).toBeGreaterThan(0.9);
+    expect(fingers.y).toBeLessThan(-0.3);
+    expect(fingers.z).toBeLessThan(-0.6);
+    expect(socket.position.x).toBeLessThan(def.model.sockets.gripR!.position.x);
+  });
+
+  it('puts both palms on the same side of the sword hilt, thumbs toward the blade', () => {
+    const { gripR, gripL } = defs.sword!.model.sockets;
+    const palm = (q: THREE.Quaternion) => new THREE.Vector3(0, -1, 0).applyQuaternion(q);
+    expect(palm(gripR!.quaternion).dot(palm(gripL!.quaternion))).toBeGreaterThan(0.95);
+    // +X is the right hand's little finger and the left hand's thumb.
+    expect(new THREE.Vector3(1, 0, 0).applyQuaternion(gripR!.quaternion).z).toBeGreaterThan(0.9);
+    expect(new THREE.Vector3(1, 0, 0).applyQuaternion(gripL!.quaternion).z).toBeLessThan(-0.9);
+  });
+
+  it('turns the forearm onto the hand on a grip, and leaves a reach alone', () => {
+    const arm = new Arm(kit, -1);
+    const wrist = new THREE.Vector3(0.1, -0.12, -0.55);
+    const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, -1), new THREE.Vector3(0.55, 0.15, -0.82).normalize());
+    const bend = (relief: number) => {
+      arm.solve(wrist, q, new THREE.Vector3(-0.44, -0.62, -0.02), new THREE.Vector3(-0.55, -0.85, 0.1), relief);
+      const fore = wrist.clone().sub(arm.bones[1]!.position).normalize();
+      return fore.angleTo(new THREE.Vector3(0, 0, -1).applyQuaternion(q));
+    };
+    const plain = bend(0);
+    expect(bend(1)).toBeLessThan(plain * 0.6);
+    expect(arm.bones[1]!.position.y).toBeLessThan(wrist.y);
   });
 
   it.each(['autocannon', 'buzzsaw', 'piledriver', 'rocket', 'quiver', 'lance'])('%s keeps the palm against its vertical foregrip', id => {
@@ -101,11 +138,11 @@ describe('hand frames and support grips', () => {
     expect(defs.deuce!.model.sockets.foreL!.parent).toBe(defs.deuce!.model.parts.barrels);
   });
 
-  it('keeps the same palm-up grip when the Gimlet switches to its launcher', () => {
+  it('keeps the same handguard grip when the Gimlet switches to its launcher', () => {
     const socket = defs.gimlet!.model.sockets.glHold!;
     const palm = new THREE.Vector3(0, -1, 0).applyQuaternion(socket.quaternion);
-    expect(palm.y).toBeGreaterThan(0.9);
-    expect(palm.x).toBeGreaterThan(0.3);
+    expect(palm.y).toBeGreaterThan(0.7);
+    expect(new THREE.Vector3(0, 0, -1).applyQuaternion(socket.quaternion).x).toBeGreaterThan(0.4);
   });
 });
 

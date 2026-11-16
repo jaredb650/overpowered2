@@ -299,7 +299,7 @@ function buildUltramag(kit: Kit): Model {
   model.socket('muzzle', [0, BORE, MUZZLE - 0.004]);
   model.socket('eject', [SW + 0.004, BORE + 0.014, -0.022]);
   model.hand('gripR', [0.024, -0.07, 0.077], [0, -0.96, 0.27], [-0.3, -0.25, -0.92]);
-  model.hand('gripL', [-0.028, -0.082, 0.068], [-0.05, 0.3, -0.95], [0.86, -0.42, -0.25]);
+  model.pistolSupport('gripL', [-0.034, -0.072, 0.07]);
   model.hand('magHold', [-0.017, -0.1, 0.022], [-0.3, 0.1, -0.95], [0.9, -0.1, -0.35], 'mag');
   model.hand('boltHold', [-0.023, 0.0, 0.07], [-0.5, -0.2, -0.8], [0.8, -0.3, -0.5], 'slide');
   return model;
@@ -397,7 +397,7 @@ export function ultramagDef(kit: Kit): ViewDef {
     // no yaw, no roll.
     recoil: { back: 0.05, lift: 0.022, pitch: 0.19, yaw: 0, roll: 0, omega: 24, zeta: 0.8 },
     right: { socket: 'gripR', pose: HANDS.grip },
-    left: { socket: 'gripL', pose: HANDS.support },
+    left: { socket: 'gripL', pose: HANDS.pistolSupport },
     heatPerShot: 0.06, animate: clip,
   };
 }

@@ -209,7 +209,7 @@ function buildJudge(kit: Kit): Model {
   model.socket('eject', [-0.03, 0.03, -0.01]);
   model.hand('gripR', [0.0205, -0.07, 0.066], [0, -0.96, 0.27], [-0.3, -0.25, -0.92]);
   // The off hand wraps under the shooting hand, thumbs forward along the frame.
-  model.hand('gripL', [-0.024, -0.082, 0.06], [-0.05, 0.3, -0.95], [0.86, -0.42, -0.25]);
+  model.pistolSupport('gripL', [-0.03, -0.07, 0.062]);
   model.hand('latchHold', [-0.03, 0.0, 0.0], [-0.5, -0.2, -0.8], [0.8, -0.3, -0.5], 'latch');
   model.hand('loaderHold', [0, -0.002, 0.038], [-0.2, 0.1, -0.97], [0.5, 0.8, -0.3], 'loader');
   model.hand('craneHold', [-0.06, 0.0, -0.01], [-0.1, 0.3, -0.95], [0.9, -0.3, -0.2], 'crane');
@@ -318,7 +318,7 @@ export function judgeDef(kit: Kit): ViewDef {
     sight: [0, 0.0825, -0.2875], rear: [0, 0.0841, 0.016], relief: 0.42,
     recoil: { back: 0.05, lift: 0.03, pitch: 0.27, yaw: 0.02, roll: 0.05, omega: 19, zeta: 0.56 },
     right: { socket: 'gripR', pose: HANDS.grip },
-    left: { socket: 'gripL', pose: HANDS.support },
+    left: { socket: 'gripL', pose: HANDS.pistolSupport },
     heatPerShot: 0.05,
     animate: clip,
   };

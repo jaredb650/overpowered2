@@ -16,7 +16,11 @@ export const HANDS = {
   }),
   /** Cradling a handguard from below. */
   support: pose({
-    thumb: [0.65, -0.2, 0.7, 0.5], index: [0.95, 1.0, 0.6, 0.02], middle: [1.0, 1.05, 0.65, 0], ring: [1.03, 1.08, 0.67, -0.01], pinky: [1.08, 1.1, 0.7, -0.02],
+    thumb: [0.1, -0.3, 0.15, 0.1], index: [0.72, 1.0, 0.45, 0.45], middle: [0.75, 1.05, 0.5, 0.35], ring: [0.77, 1.08, 0.55, 0.25], pinky: [0.81, 1.1, 0.6, 0.15],
+  }),
+  /** The left hand of a two-handed pistol grip: fingers round the firing hand's, thumb straight along the frame. */
+  pistolSupport: pose({
+    thumb: [0, 0, 0.1, 0.05], index: [0.75, 0.85, 0.45, 0.02], middle: [0.8, 0.9, 0.5, 0], ring: [0.85, 0.92, 0.5, -0.02], pinky: [0.9, 0.95, 0.55, -0.04],
   }),
   /** Fist around a vertical bar. */
   foregrip: pose({

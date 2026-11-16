@@ -219,7 +219,7 @@ function buildAutoraffica(kit: Kit): Model {
   model.socket('muzzle', [0, BORE, MUZZLE]);
   model.socket('eject', [0.016, BORE + 0.006, 0.0]);
   model.hand('gripR', [0.0205, -0.068, 0.067], [0, -0.96, 0.27], [-0.3, -0.25, -0.92]);
-  model.hand('gripL', [-0.025, -0.08, 0.058], [-0.05, 0.3, -0.95], [0.86, -0.42, -0.25]);
+  model.pistolSupport('gripL', [-0.031, -0.072, 0.062]);
   model.hand('magHold', [-0.016, -0.11, 0.012], [-0.3, 0.1, -0.95], [0.9, -0.1, -0.35], 'mag');
   return model;
 }
@@ -295,7 +295,7 @@ export function autorafficaDef(kit: Kit): ViewDef {
     sight: [0, SIGHT_Y, FRONT_Z], rear: [0, SIGHT_Y, REAR_Z - 0.0035], relief: 0.62,
     recoil: { back: 0.022, lift: 0.008, pitch: 0.07, yaw: 0.012, roll: 0.016, omega: 36, zeta: 0.6 },
     right: { socket: 'gripR', pose: HANDS.grip },
-    left: { socket: 'gripL', pose: HANDS.support },
+    left: { socket: 'gripL', pose: HANDS.pistolSupport },
     heatPerShot: 0.015,
     animate: clip,
     readout: a => drawCount(a, 'count', 2, 7, '#36d6ff'),

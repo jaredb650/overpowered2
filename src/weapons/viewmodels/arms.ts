@@ -17,6 +17,10 @@ import { screw } from './kit/details';
 
 export const UPPER_LEN = 0.3;
 export const FORE_LEN = 0.27;
+/** How far the forearm turns from the plain two-bone solve onto the line of the hand: 0 none, 1 a straight wrist. */
+const WRIST_RELIEF = 0.6;
+/** The relieved forearm still rises into the wrist at least this steeply (the sine), so its sleeve stays low in the view. */
+const MIN_RISE = 0.1;
 
 const B = { upper: 0, fore: 1, twist: 2, hand: 3, thumb: 4, index: 7, middle: 10, ring: 13, pinky: 16 } as const;
 const BONE_COUNT = 19;
@@ -508,9 +512,10 @@ export class Arm {
 
   /**
    * Two-bone IK from a shoulder to a wrist target. When the target is out of reach the shoulder slides toward it
-   * rather than stretching the forearm; the shoulder is off-screen so the player never sees it move.
+   * rather than stretching the forearm; the shoulder is off-screen so the player never sees it move. `relief`, 0 to 1,
+   * is how much of WRIST_RELIEF to use: the rig gives it while the hand holds its grip, not in a reload's reach.
    */
-  solve(wrist: THREE.Vector3, wristQ: THREE.Quaternion, shoulder: THREE.Vector3, pole: THREE.Vector3): void {
+  solve(wrist: THREE.Vector3, wristQ: THREE.Quaternion, shoulder: THREE.Vector3, pole: THREE.Vector3, relief = 0): void {
     const hand = this.bones[B.hand]!;
     hand.position.copy(wrist);
     hand.quaternion.copy(wristQ);
@@ -530,6 +535,15 @@ export class Arm {
     // Perpendicular component of the pole gives the elbow's bend direction.
     _x.copy(pole).addScaledVector(dir, -pole.dot(dir)).normalize();
     _e.copy(s).addScaledVector(dir, a).addScaledVector(_x, h);
+    // The shoulders sit far below the view, so the plain solve brings the forearm up nearly vertical and the wrist took
+    // 50 to 70 degrees of bend on every grip. Turn the forearm part way onto the hand's own line, unless the hand points
+    // back down the arm or down at the floor, where following it would lift the elbow and the sleeve across the view.
+    _y.set(0, 0, -1).applyQuaternion(wristQ);
+    _b.subVectors(wrist, _e).normalize();
+    let w = WRIST_RELIEF * relief * THREE.MathUtils.smoothstep(_b.dot(_y), -0.6, 0.2);
+    if (_y.y < MIN_RISE) w = _b.y > MIN_RISE ? Math.min(w, (_b.y - MIN_RISE) / (_b.y - _y.y)) : 0;
+    _b.lerp(_y, w).normalize();
+    _e.copy(wrist).addScaledVector(_b, -FORE_LEN);
 
     // Forearm runs elbow to wrist. Its roll follows the hand so the sleeve twists rather than shears.
     const fore = this.bones[B.fore]!;

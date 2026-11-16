@@ -133,7 +133,7 @@ function buildRivet(kit: Kit): Model {
   model.socket('eject', [0.018, BORE + 0.008, -0.02]);
   model.hand('gripR', [0.0195, -0.068, 0.066], [0, -0.96, 0.27], [-0.3, -0.25, -0.92]);
   // The off hand wraps the shooting hand, thumbs forward under the slide.
-  model.hand('gripL', [-0.023, -0.08, 0.058], [-0.05, 0.3, -0.95], [0.86, -0.42, -0.25]);
+  model.pistolSupport('gripL', [-0.03, -0.07, 0.062]);
   model.hand('magHold', [-0.014, -0.1, 0.012], [-0.3, 0.1, -0.95], [0.9, -0.1, -0.35], 'mag');
   return model;
 }
@@ -201,7 +201,7 @@ export function rivetDef(kit: Kit): ViewDef {
     sight: [0, 0.0602, -0.1272], rear: [0, 0.061, 0.048], relief: 0.3,
     recoil: { back: 0.024, lift: 0.01, pitch: 0.12, yaw: 0.014, roll: 0.03, omega: 38, zeta: 0.5 },
     right: { socket: 'gripR', pose: HANDS.grip },
-    left: { socket: 'gripL', pose: HANDS.support },
+    left: { socket: 'gripL', pose: HANDS.pistolSupport },
     heatPerShot: 0.02,
     animate: clip,
   };

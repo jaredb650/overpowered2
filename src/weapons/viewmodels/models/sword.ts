@@ -152,7 +152,8 @@ function buildSword(kit: Kit): Model {
   const model = new Model(m, kit.mats);
   model.socket('muzzle', [0, spineY(BLADE_LEN), GUARD_Z - BLADE_LEN]);
   model.hand('gripR', [0.0158, 0, -0.052], [0, 0, 1], [-0.32, -0.95, 0]);
-  model.hand('gripL', [-0.0158, 0, 0.098], [0, 0, -1], [0.32, -0.95, 0]);
+  // Both palms on the same side of the hilt and both thumbs toward the blade; the fingers wrap it the opposite way.
+  model.grasp('gripL', [0.0158, 0, 0.098], [-0.95, 0.32, 0], [0.32, 0.95, 0]);
   return model;
 }
 

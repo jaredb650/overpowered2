@@ -107,6 +107,8 @@ export class Rig implements ViewmodelRig {
   private readonly gunL = new THREE.Group();
   private armR!: Arm;
   private armL!: Arm;
+  /** Written by `resolveHand`. */
+  private held = 0;
   private defs: Record<string, ViewDef> = {};
   private def: ViewDef | null = null;
   private defLeft: ViewDef | null = null;
@@ -919,12 +921,15 @@ export class Rig implements ViewmodelRig {
     return model.sockets[name] ?? this.anchors[name] ?? this.offhand.sockets[name] ?? null;
   }
 
+  /** Sets `held`: the share of the result that is the hand's own grip socket, against a clip's reach for a magazine. */
   private resolveHand(h: HandCtl, model: Model, outP: THREE.Vector3, outQ: THREE.Quaternion): boolean {
+    this.held = 0;
     if (!h.base) return false;
     const base = this.socket(model, h.base);
     if (!base) return false;
     base.updateWorldMatrix(true, false);
     base.matrixWorld.decompose(outP, outQ, _s);
+    this.held = 1;
     for (let i = 0; i < h.steps; i++) {
       const s = this.socket(model, h.names[i]!);
       if (!s) continue;
@@ -933,6 +938,7 @@ export class Rig implements ViewmodelRig {
       const w = h.weights[i]!;
       outP.lerp(_p, w);
       outQ.slerp(_q, w);
+      this.held += ((h.names[i] === h.base ? 1 : 0) - this.held) * w;
     }
     outP.add(h.nudge);
     return true;
@@ -943,6 +949,7 @@ export class Rig implements ViewmodelRig {
     const shown = this.gun.visible;
     const off = this.offhand;
     const rightOk = shown && this.resolveHand(a.right, def.model, _a, _qa);
+    const heldR = this.held;
     const mv = this.move;
     // In the hand-off the left hand takes the right hand's grip, mirrored across the gun, while the right goes to the wall.
     const sw = rightOk ? this.swapW : 0;
@@ -964,10 +971,11 @@ export class Rig implements ViewmodelRig {
       }
       this.fingers(this.armR, hand, dt);
       this.armR.applyPose();
-      this.armR.solve(_a, _qa, SHOULDER_R, POLE_R);
+      this.armR.solve(_a, _qa, SHOULDER_R, POLE_R, heldR * (1 - ww));
     }
 
     let leftOk = shown && this.resolveHand(a.left, def.model, _b, _qb);
+    let heldL = this.held;
     let hand = a.left;
     const gw = smoothstep(0.15, 0.6, sw);
     if (gw > 0) {
@@ -978,6 +986,7 @@ export class Rig implements ViewmodelRig {
       }
       _b.lerp(_c, gw);
       _qb.slerp(_qc, gw);
+      heldL += (heldR - heldL) * gw;
       const out = this.swapHand.pose;
       for (let i = 0; i < out.length; i++) out[i] = hand.pose[i]! + (a.right.pose[i]! - hand.pose[i]!) * gw;
       this.swapHand.trigger = a.right.trigger * gw;
@@ -989,6 +998,7 @@ export class Rig implements ViewmodelRig {
         if (!leftOk) { _b.copy(_p); _qb.copy(_q); leftOk = true; }
         _b.lerp(_p, k);
         _qb.slerp(_q, k);
+        heldL += (this.held - heldL) * k;
         hand = this.a2.left;
       }
     }
@@ -1018,7 +1028,7 @@ export class Rig implements ViewmodelRig {
     if (leftOk) {
       this.fingers(this.armL, hand, dt);
       this.armL.applyPose();
-      this.armL.solve(_b, _qb, SHOULDER_L, POLE_L);
+      this.armL.solve(_b, _qb, SHOULDER_L, POLE_L, heldL * (1 - ow) * (1 - mw));
     }
   }
 
