@@ -8,14 +8,18 @@ Key 4's family order is Sabot, Awl, Autocannon. The scout is independently earne
 
 `awl`, key 4 immediately after the Sabot: a separately unlocked bolt-action scout, not an anti-materiel rifle. Five rounds,
 50 reserve (100 maximum), 180 damage, triple headshot damage (540), 0.8 m penetration, medium-class against plates rather
-than armour bypass, no falloff, 0.95 s minimum between shots, 1.65 s magazine reload. The Sabot remains 600/1,200 damage,
+than armour bypass, no falloff, 0.65 s minimum between shots (0.95 until 2026-11-16), 1.65 s magazine reload. The Sabot remains 600/1,200 damage,
 5 m penetration and armour bypass; the Harrow is 50/100, 0.5 m and automatic. Its own cache is appended to `CACHE_ORDER`
 (eleventh cache); Procurement sells it for 950 after wave 2, Outpost Defense for 950 as a primary with basic ammo (110 a box).
 
-The bolt follows `cycleFoley`: lift 0.10–0.24 s; pull 0.24–0.40 s, eject at 0.30; forward 0.56–0.74; lock 0.78–0.90;
-the hand is back on the grip at 0.95. `cycleEject` selects the pull-back cue rather than the lift cue; unset keeps the pump's
-first-cue eject. `cycleTime` is a floor under fire-rate bonuses, and blocks magazine reload until the bolt closes. The last
-case cycles before auto-reload. The full-screen scope drops out after the shot, so the hand operation can be seen.
+The bolt follows `cycleFoley`, sped from 0.95 s to 0.65 s on 2026-11-16 with every cue scaled by the same 0.684: lift
+0.068–0.164 s; pull 0.164–0.274 s, eject at 0.205; forward 0.383–0.506; lock 0.534–0.616; the hand is back on the grip at
+0.65, which is the refire (`interval` and `cycleTime` both 0.65). `boltPose` in `models/awl.ts` runs on the same clock.
+`cycleEject` selects the pull-back cue rather than the lift cue; unset keeps the pump's first-cue eject. `cycleTime` is a
+floor under fire-rate bonuses, and blocks magazine reload until the bolt closes. The last case cycles before auto-reload.
+The full-screen scope drops out after the shot, so the hand operation can be seen, and comes back on its own as the bolt
+locks (`Weapons.rescope`): no click needed. Pressing aim during the cycle (the scope is a toggle) keeps it out; with
+hold-to-aim on, so does letting go of the button. A weapon switch, a reload or anything else that clears the scope cancels it.
 
 Its own circular scope and fine duplex reticle use 32-degree FOV (about 3.5x at a 90-degree hip FOV), versus the Sabot's 20.
 `awlAcog` swaps the scope for the reusable four-power ACOG and ordinary ADS, and removing it restores the scout scope.

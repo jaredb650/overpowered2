@@ -34,18 +34,19 @@ function pose(seconds: number, acog = false): Anim {
 describe('Awl viewmodel', () => {
   it('has the forward scout scope, integral bipod, removable magazine and separate bolt', () => {
     for (const name of ['scoutScope', 'bipod', 'mag', 'bolt', 'acog', 'can']) expect(def.model.parts[name]).toBeDefined();
-    expect(def.model.parts.scoutScope!.position.z).toBeLessThan(-0.2);
+    // Its eyepiece ahead of the bolt handle, the body out over the barrel.
+    expect(def.model.parts.scoutScope!.position.z).toBeLessThan(-0.12);
     expect(def.model.sockets.boltHold!.parent).toBe(def.model.parts.bolt);
     expect(def.model.triangles).toBeGreaterThan(1000);
     expect(def.model.triangles).toBeLessThan(30000);
   });
 
   it('rotates the bolt before drawing it back and follows it with the right hand', () => {
-    const anim = pose(0.42);
+    const anim = pose(0.3);
     expect(def.model.parts.bolt!.rotation.z).toBeCloseTo(1.12);
     expect(def.model.parts.bolt!.position.z).toBeCloseTo(0.14);
     expect(anim.right.names.slice(0, anim.right.steps)).toContain('boltHold');
-    pose(0.96);
+    pose(0.66);
     expect(def.model.parts.bolt!.rotation.z).toBeCloseTo(0);
     expect(def.model.parts.bolt!.position.z).toBeCloseTo(0.045);
   });

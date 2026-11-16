@@ -6,8 +6,8 @@ falls behind the catalogue, or if any call site in `src/` uses an id that does n
 ## How to call it
 
 The Awl scout fires the owner's own recordings, `awl_shot` bare and `awl_suppressed_shot` with `awlCan` (see "The Awl's shots"
-below). Its bolt still borrows existing samples: `reload_bolt` at 0.12 and 0.84 s for lift/lock, `pump_rack_back` at
-0.30 s for extraction/ejection, `pump_rack_forward` at 0.65 s for chambering. These are stand-ins to replace with separate
+below). Its bolt still borrows existing samples: `reload_bolt` at 0.082 and 0.575 s for lift/lock, `pump_rack_back` at
+0.205 s for extraction/ejection, `pump_rack_forward` at 0.445 s for chambering (the 0.65 s bolt of 2026-11-16). These are stand-ins to replace with separate
 bolt lift/pull/push/lock recordings. Magazine reload uses the existing `reload_mag_out`, `reload_mag_in`, `reload_bolt`; the
 scope uses `autocannon_zoom`, the draw `weapon_draw`.
 

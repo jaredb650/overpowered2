@@ -4,21 +4,36 @@ First-person weapons, arms and off-hand items. `src/weapons/viewmodels/**`, sand
 
 ## Awl scout viewmodel
 
-`models/awl.ts`: original scout silhouette, informed by Steyr Scout reference photographs, without branding. A slim olive
-synthetic stock with a raised comb, rubber recoil pad and spare-magazine recess; a short genuinely fluted barrel; two folded
-bipod legs recessed alongside the fore-end; a slim long-eye-relief scope mounted ahead of the action. The bolt body and
-flattened handle are one animated part; `boltHold` is parented to it, so the right hand follows lift, 95 mm rearward travel,
-return and lock. The left hand stays under the fore-end. The gun moves 10 cm forward during the operation to keep the hand
-and action legible. Reload removes the five-round box magazine with the left hand.
+`models/awl.ts`, remodelled 2026-11-16 after the owner called the first one terrible (flat boxes, no silhouette). Our own
+take on the Steyr Scout, no logos. What it keeps from the Scout: a slim synthetic stock with a dead-straight comb; a spare
+magazine carried in the butt; bipod legs folded into the fore-end as its lower half; a short barrel; a rail running from
+the receiver tang forward past the action, so a long-eye-relief scope sits out over the barrel; a roller safety on the tang
+and a flush polymer box magazine ahead of a big moulded guard. What it adds: a skeletal butt whose window holds that spare
+magazine (top round showing), a fluted barrel with a ported cap, long windows through the fore-end under the barrel channel,
+and the legs sweeping up to a raked nose.
 
-The default scope has its own HUD view, not the ACOG's eyepiece mask. `awlAcog` reuses `models/optics.ts`, its shader eye,
-shade and ADS sight point, hiding the forward scout optic; `awlCan` adds a muzzle socket and suppressor. No shared hand
-solver, hand meshes or Ultramag files are changed. The model builds at 16,238 triangles / 16 draws before hidden mod parts.
+- **Form.** Every big piece is a bevelled side profile (`Mesher.side`, the kit's extruder; a `THREE.ExtrudeGeometry` with
+  bevel in effect): fore-end, butt, grip, guard, legs, scope rings. Receiver sections are `front` profiles (flat flanks,
+  chamfered shoulders, flat crown), the port an open C so the bolt shows. The scope is one turned body, eyecup to objective
+  bell, with a faceted saddle, knurled turrets and coated lenses under glass. Barrel and bolt are fluted outlines.
+- **A trap found here:** a profile corner whose radius is under the prism's bevel folds the inset cap over itself, and the
+  triangulation then fills any hole (the butt window rendered solid). Keep every convex corner's radius at or above the bevel.
+- **Materials.** Sage polymer stock (`0x5a604e`, barely any wear: polymer does not chip to bare metal), stippled grip panels
+  in the same colour, dark gunmetal action, rail, scope and can, the barrel's own brushed finish, a bright brushed-steel bolt,
+  rubber pad and feet. One amber glow (`accent`): an inset line down each flank of the front ring and the elevation cap's index.
+- **Parts and sockets.** `bolt` (pivot on the bore, lifts 1.12 rad, runs 95 mm), `trigger`, `mag`, `bipod`, `scoutScope`
+  (also the row's `irons`, so the shop's studio drops it with the ACOG on, as the gun does), `acog` and `can` from
+  `optics.ts`. Hands: `gripR`, `gripL` by the shared `model.support` frame under the legs, `boltHold` on the bolt's knob,
+  `magHold`. The bolt runs on `boltPose`, the row's 0.65 s cycle (lift 0.068–0.164 s, pull to 0.274 with the case out at
+  0.205, push 0.383–0.506, lock 0.534–0.616).
+- **Cost.** 29,402 triangles and 17 draws with the hidden ACOG and can; about 22,700 drawn as issued. The test caps it at 30,000.
 
-Reproduce captures with `tools/scripts/scout-capture.mjs`, port 5274, DPR 2, 1440×900: `?sandbox=viewmodels&manual=1&weapon=awl`
-for exact bolt frames; `?map=range` for hip, the scout scope, ACOG and suppressor. `tools/scripts/scout-flight.mjs` captures
-the thin vapor and Quiver helix with the shooter parked in clear air and the clock frozen before moving the observer. Output is
-`tools/out/scout/`. These are scripted stills, not a human playtest.
+Captures at port 5277, DPR 2, 1440×900, into `tools/out/awl2/`: `awl-studio-right.png` (side profile), `awl-studio-three-quarter.png`,
+`awl-fp-hip.png`, `live-scope.png` (the scope aimed), `live-acog.png` and `awl-studio-acog-can.png`, `awl-bolt-strip.png` (0, 90,
+140, 205, 300, 420, 500, 580 and 660 ms), `awl-close-*.png` close cameras with the arms hidden. The sandbox set is
+`tools/scripts/awl-shots.mjs` on `?sandbox=viewmodels&manual=1&engine=1&weapon=awl`; the live set is
+`tools/scripts/scout-capture.mjs` on `?map=range`. Run the dev server with `OP2_NO_HMR=1` when other agents are editing, or
+their saves reload the page mid-capture. These are scripted stills, not a human playtest.
 
 | File | What it is |
 |---|---|

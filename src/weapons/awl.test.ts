@@ -42,10 +42,19 @@ describe('the Awl scout', () => {
     const eject = vi.fn();
     range.ctx.fx = new Proxy(range.ctx.fx, { get: (target, key) => key === 'shellCasing' ? eject : Reflect.get(target, key) });
     expect(boltPose(0).lift).toBe(0);
-    expect(boltPose(0.24)).toMatchObject({ lift: 1, back: 0 });
-    expect(boltPose(0.42)).toMatchObject({ lift: 1, back: 1 });
-    expect(boltPose(0.76)).toMatchObject({ lift: 1, back: 0 });
-    expect(boltPose(0.96)).toEqual({ lift: 0, back: 0, hand: 0 });
+    expect(boltPose(0.164)).toMatchObject({ lift: 1, back: 0 });
+    expect(boltPose(0.3)).toMatchObject({ lift: 1, back: 1 });
+    expect(boltPose(0.52)).toMatchObject({ lift: 1, back: 0 });
+    expect(boltPose(0.66)).toEqual({ lift: 0, back: 0, hand: 0 });
+    // The model's bolt and the row's cues are one clock: the case flies mid-pull, the hand is back by the refire.
+    const [lift, pull, push, lock] = WEAPONS.awl.cycleFoley!.map(([at]) => at);
+    expect(WEAPONS.awl.cycleTime).toBe(0.65);
+    expect(boltPose(lift!).lift).toBeGreaterThan(0);
+    expect(boltPose(pull!).back).toBeGreaterThan(0.2);
+    expect(boltPose(pull!).back).toBeLessThan(0.8);
+    expect(boltPose(push!).back).toBeLessThan(1);
+    expect(boltPose(lock!).lift).toBeLessThan(1);
+    expect(boltPose(WEAPONS.awl.cycleTime!).hand).toBe(0);
     range.tap('fire');
     range.run(0.15);
     expect(range.record.sounds).toContain('reload_bolt');
@@ -61,12 +70,12 @@ describe('the Awl scout', () => {
   it('cannot refire or reload before the bolt closes, even under a fire-rate boost', () => {
     range.weapons.modifiers.fireRate = 10;
     range.tap('fire');
-    range.run(0.45);
+    range.run(0.5);
     range.tap('fire');
     range.tap('reload');
     expect(range.weapons.reloading).toBe(false);
     expect(range.weapons.ammo('awl').mag).toBe(4);
-    range.run(0.5);
+    range.run(0.15);
     range.tap('fire');
     expect(range.weapons.ammo('awl').mag).toBe(3);
   });
@@ -79,7 +88,7 @@ describe('the Awl scout', () => {
     range.run(0.25);
     range.tap('fire');
     expect(range.weapons.ammo('awl').mag).toBe(4);
-    range.run(0.55);
+    range.run(0.2);
     range.tap('fire');
     expect(range.weapons.ammo('awl').mag).toBe(3);
   });
@@ -124,6 +133,41 @@ describe('the Awl scout', () => {
     range.tap('aim');
     range.run(0.4);
     expect(range.weapons.scoped).toBe(true);
+  });
+
+  it('goes back into the scope as the bolt locks, unless aim was pressed or let go during the cycle', () => {
+    const scopeUp = () => {
+      range.tap('aim');
+      range.run(0.4);
+      expect(range.weapons.scoped).toBe(true);
+    };
+    // Toggled: in, shot, out for the bolt, back in on its own once it locks.
+    scopeUp();
+    range.tap('fire');
+    expect(range.weapons.scoped).toBe(false);
+    range.run(0.5);
+    expect(range.weapons.scoped).toBe(false);
+    range.run(0.4);
+    expect(range.weapons.scoped).toBe(true);
+    // Aim pressed during the cycle: it stays out.
+    range.tap('fire');
+    range.run(0.2);
+    range.tap('aim');
+    range.run(1);
+    expect(range.weapons.scoped).toBe(false);
+    // Hold to aim: held through the cycle it comes back; let go during it, it stays out.
+    range.weapons.aimHold = true;
+    range.input.simulate('aim', true);
+    range.run(0.4);
+    expect(range.weapons.scoped).toBe(true);
+    range.tap('fire');
+    range.input.simulate('aim', true);
+    range.run(1);
+    expect(range.weapons.scoped).toBe(true);
+    range.tap('fire');
+    range.input.simulate('aim', false);
+    range.run(1);
+    expect(range.weapons.scoped).toBe(false);
   });
 
   it('lists every mod for Procurement and the cheat panel; the suppressor changes only its report and muzzle', () => {

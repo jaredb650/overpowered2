@@ -335,12 +335,13 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
   awl: {
     ...BASE, id: 'awl', name: 'AWL', slot: 4, base: 'sabot', mode: 'semi',
     magSize: 5, reserve: 50, maxReserve: 100, reloadTime: 1.65, drawTime: 0.22,
-    interval: 0.95, damage: 180, severMult: 2, force: 28, headshotMult: 3, armour: 'medium',
+    interval: 0.65, damage: 180, severMult: 2, force: 28, headshotMult: 3, armour: 'medium',
     penetration: 0.8, muzzle: 'rifle', tracer: 'scout', casing: 'rifle',
     scope: true, scopeFov: 32,
     sounds: [{ id: 'awl_shot', pitchJitter: 0.02 }],
-    cycleTime: 0.95, cycleEject: 1,
-    cycleFoley: [[0.12, 'reload_bolt'], [0.3, 'pump_rack_back'], [0.65, 'pump_rack_forward'], [0.84, 'reload_bolt']],
+    // The bolt at 0.65 s (was 0.95, every cue scaled with it): lift, pull with the case out, push, lock.
+    cycleTime: 0.65, cycleEject: 1,
+    cycleFoley: [[0.082, 'reload_bolt'], [0.205, 'pump_rack_back'], [0.445, 'pump_rack_forward'], [0.575, 'reload_bolt']],
     recoil: 1, kick: 0.014, shake: 0.014, fovPunch: 1.1, impactScale: 1.3,
   },
   // The upgrade on key 4: a shoulder-fired 20 mm-class cannon fed by a clip of three shells from the top. Not owned with

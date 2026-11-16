@@ -121,6 +121,8 @@ export class Weapons implements WeaponSystem, Guard {
   private loopKind = '';
 
   private zoomed = false;
+  /** A bolt gun's shot took it out of its scope: back in when the bolt closes, unless aim was let go meanwhile. */
+  private rescope = false;
   private zoom = 0;
   private scopeShown = false;
 
@@ -1308,7 +1310,11 @@ export class Weapons implements WeaponSystem, Guard {
     c.fx.muzzleFlash(this.flashPoint(at), this.flashDir.set(0, 0, -1).applyQuaternion(c.render.camera.quaternion), def.muzzle);
     this.layerSounds(def.sounds);
     if (def.cycleFoley) {
-      if (def.cycleTime) this.clearScope(false);
+      if (def.cycleTime) {
+        const was = this.zoomed;
+        this.clearScope(false);
+        this.rescope = was;
+      }
       this.cycleAt = 0;
       this.cycleCue = 0;
       this.cycleGun = def.id;
@@ -1976,6 +1982,16 @@ export class Weapons implements WeaponSystem, Guard {
     const c = this.ctx;
     const t = TUNING.autocannon;
     const def = this.held.def;
+    if (this.rescope) {
+      // Aim pressed (toggle) or let go (hold) during the cycle keeps it out; otherwise it is back in as the bolt locks.
+      if (!def.scope || c.input.pressed('aim') || (this.aimHold && !c.input.isDown('aim'))) this.rescope = false;
+      else if (!(def.cycleTime && this.held.cooldown > 0) && !this.reloading && this.drawLeft <= 0) {
+        this.rescope = false;
+        this.zoomed = true;
+        c.audio.play('autocannon_zoom');
+        c.camera.setZoom(def.scopeFov ?? t.scopeFov);
+      }
+    }
     if (def.scope && c.input.pressed('aim') && !this.reloading && this.drawLeft <= 0 && !(def.cycleTime && this.held.cooldown > 0)) {
       this.zoomed = !this.zoomed;
       c.audio.play('autocannon_zoom');
@@ -1992,6 +2008,7 @@ export class Weapons implements WeaponSystem, Guard {
   private clearScope(audible: boolean): void {
     if (this.zoomed && audible) this.ctx.audio.play('autocannon_zoom');
     this.zoomed = false;
+    this.rescope = false;
     this.zoom = 0;
     if (this.scopeShown) this.ctx.viewmodel.setScoped(false);
     this.scopeShown = false;
