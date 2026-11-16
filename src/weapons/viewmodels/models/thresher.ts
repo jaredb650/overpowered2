@@ -191,7 +191,7 @@ function buildThresher(kit: Kit): Model {
   model.socket('muzzle', [0, BORE, MUZZLE - 0.004]);
   model.socket('eject', [0.026, 0.062, -0.06]);
   model.hand('gripR', [0.018, -0.054, 0.072], [0, -0.96, 0.27], [-0.3, -0.25, -0.92]);
-  model.hand('gripL', [-0.004, -0.004, -0.3], [-0.55, 0.15, -0.8], [0.8, 0.05, -0.55]);
+  model.support('gripL', [-0.004, -0.004, -0.3]);
   model.hand('drumHold', [-0.04, DRUM_Y, 0.0], [-0.95, 0.1, -0.2], [0.1, -0.2, -0.95], 'drum');
   model.hand('chargeHold', [-0.022, 0.0, 0.004], [-0.5, -0.2, -0.8], [0.8, -0.3, -0.5], 'charge');
   return model;

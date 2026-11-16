@@ -108,7 +108,7 @@ export class Model {
   /**
    * Socket for a hand, authored by contact instead of by wrist. `contact` is where the middle of the palm presses
    * on the gun. `side` is the direction of the hand's +X (toward the pinky on a right hand, the thumb on a left).
-   * `fingers` is the direction the fingers leave the palm.
+   * `fingers` is the direction the fingers leave the palm. The palm faces -Y; +Y is the armoured back.
    */
   hand(name: string, contact: V3, side: V3, fingers: V3, part?: string): THREE.Object3D {
     const z = _z.set(-fingers[0], -fingers[1], -fingers[2]).normalize();
@@ -125,6 +125,14 @@ export class Model {
     (part ? this.parts[part]! : this.root).add(s);
     this.sockets[name] = s;
     return s;
+  }
+
+  support(name: string, contact: V3, part?: string): THREE.Object3D {
+    return this.hand(name, [contact[0] - 0.012, contact[1] + 0.002, contact[2]], [0, 0, -1], [0.94, -0.34, 0], part);
+  }
+
+  foregrip(name: string, contact: V3, part?: string): THREE.Object3D {
+    return this.hand(name, contact, [0, 1, 0], [0, 0, -1], part);
   }
 
   /** Back to the rest pose. Animation clips then write offsets on top. */

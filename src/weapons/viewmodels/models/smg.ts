@@ -307,7 +307,7 @@ function buildSmg(kit: Kit): Model {
   model.socket('muzzleCan', [0, 0.04, CAN_END]);
   model.socket('eject', [0.02, 0.043, 0.045]);
   model.hand('gripR', [0.018, -0.052, 0.07], [0, -0.96, 0.27], [-0.3, -0.25, -0.92]);
-  model.hand('gripL', [-0.001, 0.0095, -0.19], [-0.55, 0.15, -0.8], [0.8, 0.05, -0.55]);
+  model.support('gripL', [-0.001, 0.0095, -0.19]);
   model.hand('gripAk', [-0.018, -0.052, 0.07], [0, 0.96, -0.27], [0.3, -0.25, -0.92]);
   model.hand('magHold', [-0.018, -0.06, -0.006], [-0.3, 0.1, -0.95], [0.9, -0.1, -0.35], 'mag');
   model.hand('chargeHold', [-0.016, 0.0, 0.004], [-0.5, -0.2, -0.8], [0.8, -0.3, -0.5], 'charge');

@@ -219,7 +219,7 @@ function buildBuzzsaw(kit: Kit): Model {
   model.socket('muzzle', [0, AXIS + R_BARREL, -0.17 - 0.5]);
   model.socket('eject', [0.05, 0.04, -0.09]);
   model.hand('gripR', [0.018, -0.056, 0.07], [0, -0.96, 0.27], [-0.3, -0.25, -0.92]);
-  model.hand('gripL', [-0.018, -0.066, -0.12], [0.02, -0.98, 0.2], [0.34, -0.18, -0.92]);
+  model.foregrip('gripL', [-0.018, -0.066, -0.12]);
   model.hand('canHold', [-0.05, 0.0, 0.02], [-0.1, 0.1, -0.98], [0.9, 0.05, -0.2], 'can');
   model.hand('crankHold', [-0.018, 0, -0.044], [-0.5, -0.2, -0.8], [0.8, -0.3, -0.5], 'crank');
   return model;

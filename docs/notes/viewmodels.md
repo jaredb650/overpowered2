@@ -60,6 +60,18 @@ Key 8 is two files. **The Trommel** (`models/trommel.ts`, registered under the i
 
 ## How things work
 
+### Hand frames and contact
+
+The procedural glove's palm faces **-Y**, its armoured back is **+Y**, and its fingers run along **-Z**. **+X is the right hand's pinky side but the left hand's thumb side.** The mesh and finger rotations mirror across X; sockets are proper rotations, never reflected scene nodes. Positive thumb opposition now turns into the palm, not back through the dorsal armour. This correction applies to both hands and every finger pose, including devices and reloads.
+
+Use `model.support(name, undersideContact, part?)` with `HANDS.support` for a left hand around a horizontal handguard. The shared frame places the palm 12 mm toward the near side and 2 mm up from the supplied underside contact, cupped upward and inward, with the fingers curling up the far side and the thumb forward over the near/top edge. The SMG, Gimlet, Harrow, pump, Thresher, Deuce, Sabot, Kiln and Stakegun use it. The pump and Deuce retain their moving-part parents; the Stakegun uses the support finger pose rather than a vertical-bar fist.
+
+Use `model.foregrip(name, nearSideContact, part?)` with `HANDS.foregrip` for a vertical front grip. Its left thumb points up (+Y in gun space), fingers leave forward (-Z), and the palm faces into the grip (+X). The old front-grip sockets pointed the thumb down and the palm away from the gun, putting the dorsal side against it. The Autocannon, Trommel, original Buzzsaw, Piledriver, rockets, Quiver and Lance share this frame. Right-hand trigger sockets and reload contacts keep their authored frames.
+
+The sonar tap uses that same left-hand convention: its +X thumb side points screen-left, -Y palm toward the face, and -Z fingers up toward the visor. The thumb rests outward to the left instead of folding across the palm. Its timing, finger contact and device-interruption rules are unchanged.
+
+Third-person hands use a different bind frame: fingers continue the elbow-to-wrist direction and the thumb is forward (+Z in character space), as baked by `tools/bake/parts/body.ts`. `Limb.setHand` transfers the twist component around the forearm axis to the forearm before setting the hand's remaining swing, without changing the wrist target or held-object orientation. This is used by the menu cigar pose and the gameplay animator's gun/shield hands; `setEnd` remains unchanged for feet. The helicopter also had backward scene-specific hand rotations: the cigar's rest/lip roll hints and the right thigh-rest pitch now keep the fingers aligned with the forearm. No character rebake, bone-axis changes or implant attachment changes are required.
+
 **Arms.** Shoulders are deliberately far under the frustum and out to the sides (`SHOULDER_R`, `SHOULDER_L`), not where a body would have them. The arms are shorter than most poses ask for, and a true shoulder slides the limb up past the eye as a huge sleeve. The IK also had a scratch-vector bug where the shoulder was overwritten by the hand's up vector. That was the source of the fat stump in early shots.
 
 **The body layer.** `ctx.player.moveAnim` (`MovePose`, from `src/player/moveAnim.ts`, described in docs/notes/player.md) says what a move does to the weapon, the left hand and the legs. The rig only applies it, so it works for any weapon and no model file knows about it:
@@ -207,5 +219,5 @@ VM_STEPS=perks,callins node tools/shot.mjs --url "/?sandbox=range&live=1&load=hu
 - **The Trommel's spin rate is tuned for 60 fps.** At 24 rad/s it advances a little over a third of a barrel a frame, so it reads as turning. At other refresh rates it can stroboscope. The Buzzsaw's 30 was half a barrel a frame.
 - **The Trommel and the Piledriver were checked as stills only**: a turntable each (`tools/out/heavy/i-*.png`), each at rest and firing in the real game, and four frames of the Piledriver's reload. Nobody has seen the hammering or the recoil in motion, and the Trommel's reload was not looked at again on the new model. Both guns sit low and right and hide the hands at the hip: the left hand is behind the can or the belt box.
 - **The hand-off was judged from stills only** (`tools/out/handoff/sheet.png`): every weapon in the left hand, the hand-off both ways at half way, a burst, a sword swing and the cling. The light in the range's corridor is dark, so how the left hand sits on the darker guns is hard to read. Nobody has seen it in motion. The wall hand is placed for the screen, as on the left.
-- **A hand target's palm is its +Y, and +X is the little finger side.** The comment on `Model.hand` reads the other way round. The sonar tap first came out backwards on that.
+- **The Berserk sleeve still occupies much of the SMG's lower-left view, slightly higher after the corrected support grip.** Grip changes retain the forearm twist bone and hand bone used by all three Gun implants; they do not resize or redesign the sleeve.
 - Grenade and call-in models live on the left hand only. Throwing during a reload borrows the hand and the clip keeps running.

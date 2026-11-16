@@ -270,9 +270,9 @@ function buildGimlet(kit: Kit): Built {
   model.socket('muzzle1', [0, GL_Y, GL_MUZZLE]);
   model.socket('eject', [0.02, 0.054, -0.012]);
   model.hand('gripR', [0.018, -0.054, 0.072], [0, -0.96, 0.27], [-0.3, -0.25, -0.92]);
-  model.hand('gripL', [-0.001, 0.016, -0.3], [-0.55, 0.15, -0.8], [0.8, 0.05, -0.55]);
+  model.support('gripL', [-0.001, 0.016, -0.3]);
   // With the launcher on, the off hand holds its barrel, its fingers under the belly.
-  model.hand('glHold', [-0.001, GL_Y - 0.03, -0.29], [-0.55, 0.15, -0.8], [0.8, 0.05, -0.55]);
+  model.support('glHold', [-0.001, GL_Y - 0.03, -0.29]);
   model.hand('glBreech', [-0.022, GL_Y - 0.01, GUARD_REAR - 0.12], [-0.5, -0.2, -0.8], [0.8, -0.3, -0.5]);
   model.hand('magHold', [-0.02, -0.07, -0.004], [-0.3, 0.1, -0.95], [0.9, -0.1, -0.35], 'mag');
   model.hand('chargeHold', [-0.02, 0.0, 0.006], [-0.5, -0.2, -0.8], [0.8, -0.3, -0.5], 'charge');

@@ -188,7 +188,7 @@ function buildQuiver(kit: Kit): Model {
   TUBES.forEach(([x, y], i) => model.socket(i === 0 ? 'muzzle' : `muzzle${i}`, [x, AXIS + y, FACE - 0.03]));
   model.socket('eject', [0, AXIS, REAR + 0.03]);
   model.hand('gripR', [0.018, -0.052, 0.07], [0, -0.96, 0.27], [-0.3, -0.25, -0.92]);
-  model.hand('gripL', [-0.018, AXIS - HALF - 0.07, -0.27], [0.02, -0.98, 0.2], [0.34, -0.18, -0.92]);
+  model.foregrip('gripL', [-0.018, AXIS - HALF - 0.07, -0.27]);
   model.hand('leverHold', [-0.034, 0.016, 0.0], [-0.5, -0.2, -0.8], [0.8, -0.3, -0.5], 'lever');
   // The palm on a round's tail, for the push into its tube.
   TUBES.forEach((_, i) => model.hand(`load${i}`, [-0.012, -0.03, 0.2], [-0.2, 0.3, -0.93], [0.9, 0.2, -0.3], `round${i}`));

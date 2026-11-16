@@ -44,10 +44,10 @@ const POSE = {
    * camera's line, so its length shows instead of foreshortening to the ember.
    */
   restCigar: new THREE.Vector3(0.85, 0.35, -0.4),
-  restRoll: new THREE.Vector3(0, 0, -1),
+  restRoll: new THREE.Vector3(0, -1, 0),
   /** At the lips: the cigar's direction in head space, out of the left corner of the mouth so the hand is off to the side and not over the mouth, and the roll that keeps the fist under it. */
   lipCigar: new THREE.Vector3(0.8, -0.35, 0.5),
-  lipRoll: new THREE.Vector3(0, -1, 0.2),
+  lipRoll: new THREE.Vector3(0, 0, 1),
   /** Head yaw and pitch: down the cabin, out of the door, and on the exhale. */
   gaze: { yaw: 0.22, pitch: 0.22 },
   door: { yaw: -1.05, pitch: -0.04 },
@@ -209,7 +209,7 @@ export class Smoker {
     this.target.copy(P.handR);
     this.target.z += sh * 0.08;
     this.armR.solve(shoulderR, this.chestQ, this.target, P.elbowR);
-    this.armR.setEnd(qEuler(_q, 1.25, -0.3, -0.25));
+    this.armR.setHand(qEuler(_q, -0.65, -0.3, -0.25));
 
     // Left arm: the cigar hand. Rest pose past the knee; the drag pose worked back from the cigar at the lips.
     basisQuat(_q, _v.copy(P.restCigar).normalize(), P.restRoll);
@@ -230,7 +230,7 @@ export class Smoker {
     const shoulderL = _v.copy(this.offsets[H.upperArmL]!).applyQuaternion(this.chestQ).add(this.chestPos);
     const pole = _v2.lerpVectors(P.elbowL, P.elbowLips, k);
     this.armL.solve(shoulderL, this.chestQ, this.target, pole);
-    this.armL.setEnd(this.handQ);
+    this.armL.setHand(this.handQ);
 
     // The cigar follows the hand bone.
     const hand = b[H.handL]!;

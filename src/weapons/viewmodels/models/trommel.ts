@@ -237,7 +237,7 @@ function buildTrommel(kit: Kit): Model {
   model.socket('muzzle', [0, AXIS + R_CLUSTER, NOSE - LENGTH]);
   model.socket('eject', [HALF + 0.006, 0.04, -0.1]);
   model.hand('gripR', [0.018, -0.058, 0.07], [0, -0.96, 0.27], [-0.3, -0.25, -0.92]);
-  model.hand('gripL', [-0.018, -0.068, -0.126], [0.02, -0.98, 0.2], [0.34, -0.18, -0.92]);
+  model.foregrip('gripL', [-0.018, -0.068, -0.126]);
   model.hand('canHold', [-0.062, 0.0, 0.03], [-0.1, 0.1, -0.98], [0.9, 0.05, -0.2], 'can');
   model.hand('crankHold', [-0.022, 0, -0.053], [-0.5, -0.2, -0.8], [0.8, -0.3, -0.5], 'crank');
   return model;

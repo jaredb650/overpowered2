@@ -188,7 +188,7 @@ function buildKiln(kit: Kit): Model {
   model.socket('muzzle', [0, WAND_Y, -0.56]);
   model.socket('eject', [0, WAND_Y, 0]);
   model.hand('gripR', [0.018, -0.042, 0.07], [0, -0.96, 0.27], [-0.3, -0.25, -0.92]);
-  model.hand('gripL', [-0.002, WAND_Y - 0.0185, -0.265], [-0.55, 0.15, -0.8], [0.8, 0.05, -0.55]);
+  model.support('gripL', [-0.002, WAND_Y - 0.0185, -0.265]);
   model.hand('tankHold', [-0.044, -0.024, -0.02], [-0.3, 0.1, -0.95], [0.9, 0.3, -0.2], 'tank');
   model.hand('valveHold', [-0.022, 0, 0], [0.1, 0.9, -0.4], [0.7, -0.1, -0.7], 'valve');
   return model;

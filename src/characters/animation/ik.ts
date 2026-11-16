@@ -24,6 +24,9 @@ const seg = new THREE.Vector3();
 const qa = new THREE.Quaternion();
 const qb = new THREE.Quaternion();
 const qinv = new THREE.Quaternion();
+const handAxis = new THREE.Vector3();
+const handLocal = new THREE.Quaternion();
+const handTwist = new THREE.Quaternion();
 
 export class Limb {
   readonly l1: number;
@@ -80,6 +83,16 @@ export class Limb {
   /** Points the end bone at a character-space rotation. Call after solve(). */
   setEnd(q: THREE.Quaternion): void {
     this.c.quaternion.copy(qinv.copy(this.lowerQ).invert()).multiply(q);
+  }
+
+  setHand(q: THREE.Quaternion): void {
+    handLocal.copy(qinv.copy(this.lowerQ).invert()).multiply(q);
+    handAxis.copy(this.c.position).normalize();
+    const along = handLocal.x * handAxis.x + handLocal.y * handAxis.y + handLocal.z * handAxis.z;
+    handTwist.set(handAxis.x * along, handAxis.y * along, handAxis.z * along, handLocal.w).normalize();
+    this.b.quaternion.multiply(handTwist);
+    this.lowerQ.multiply(handTwist);
+    this.setEnd(q);
   }
 
   relaxEnd(): void {

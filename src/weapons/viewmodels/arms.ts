@@ -37,7 +37,7 @@ const THUMB_LEN = [0.05, 0.037, 0.031] as const;
 /** Flexing the thumb folds it across the palm, around this axis. */
 const THUMB_FLEX = new THREE.Vector3(0.3, -0.92, 0.22).normalize();
 /** Opposition swings it under the palm. */
-const THUMB_OPPOSE = new THREE.Vector3(0.82, 0.1, -0.56).normalize();
+const THUMB_OPPOSE = new THREE.Vector3(-0.82, -0.1, 0.56).normalize();
 
 /** Per finger: base curl, middle curl, tip curl, spread. Thumb: oppose, flex, middle curl, tip curl. */
 export interface HandPose {

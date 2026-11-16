@@ -1207,13 +1207,13 @@ export class HumanoidAnimator implements CharacterAnimation {
       if (armed && h.side < 0) {
         // Hand orientation: the socket on the hand must line up with the weapon.
         qB.copy(this.weaponQ).multiply(qC.copy(this.grip!.socketRot).invert());
-        h.limb.setEnd(qB);
+        h.limb.setHand(qB);
       } else if (armed && h.side > 0 && this.grip!.foregrip) {
         qB.copy(this.weaponQ).multiply(qC.copy(this.grip!.socketRot).invert());
-        h.limb.setEnd(qB);
+        h.limb.setHand(qB);
       } else if (h.side > 0 && this.shieldRot) {
         qEuler(qB, 0, this.aimYaw * 0.7, 0).multiply(qC.copy(this.shieldRot).invert());
-        h.limb.setEnd(qB);
+        h.limb.setHand(qB);
       } else if (lod <= 1) {
         h.limb.relaxEnd();
       }

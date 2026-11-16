@@ -206,7 +206,7 @@ function buildHarrow(kit: Kit): { model: Model; mods: ViewDef['mods'] } {
   model.socket('muzzle', [0, BORE, MUZZLE - 0.004]);
   model.socket('eject', [0.021, 0.054, -0.03]);
   model.hand('gripR', [0.018, -0.054, 0.072], [0, -0.96, 0.27], [-0.3, -0.25, -0.92]);
-  model.hand('gripL', [-0.001, 0.013, -0.3], [-0.55, 0.15, -0.8], [0.8, 0.05, -0.55]);
+  model.support('gripL', [-0.001, 0.013, -0.3]);
   model.hand('magHold', [-0.02, -0.07, -0.004], [-0.3, 0.1, -0.95], [0.9, -0.1, -0.35], 'mag');
   model.hand('chargeHold', [-0.022, 0.0, 0.004], [-0.5, -0.2, -0.8], [0.8, -0.3, -0.5], 'charge');
   return { model, mods: { reddot: dot, harrowAcog: scope } };

@@ -135,7 +135,7 @@ function buildDeuce(kit: Kit): Model {
   model.socket('muzzle1', [-BX, BORE, MUZZLE - 0.002]);
   model.socket('eject', [0, BORE + 0.01, BREECH]);
   model.hand('gripR', [0.019, -0.06, 0.07], [0, -0.96, 0.27], [-0.3, -0.25, -0.92]);
-  model.hand('foreL', [-0.004, BORE - R - 0.012 - HY, -0.21 - HZ], [-0.55, 0.15, -0.8], [0.8, 0.05, -0.55], 'barrels');
+  model.support('foreL', [-0.004, BORE - R - 0.012 - HY, -0.21 - HZ], 'barrels');
   model.hand('shellHold', [-0.017, 0.0, -0.03], [-0.3, 0.1, -0.95], [0.9, -0.1, -0.35], 'shellIn');
   return model;
 }

@@ -16,7 +16,7 @@ export const HANDS = {
   }),
   /** Cradling a handguard from below. */
   support: pose({
-    thumb: [0.55, 0.35, 0.35, 0.25], index: [0.62, 0.8, 0.45, 0.04], middle: [0.72, 0.88, 0.5, 0], ring: [0.78, 0.9, 0.52, -0.02], pinky: [0.85, 0.92, 0.55, -0.05],
+    thumb: [0.65, -0.2, 0.7, 0.5], index: [0.95, 1.0, 0.6, 0.02], middle: [1.0, 1.05, 0.65, 0], ring: [1.03, 1.08, 0.67, -0.01], pinky: [1.08, 1.1, 0.7, -0.02],
   }),
   /** Fist around a vertical bar. */
   foregrip: pose({
@@ -40,7 +40,7 @@ export const HANDS = {
   }),
   /** Two fingers out, the rest folded: a tap on the helmet. */
   tap: pose({
-    thumb: [0.9, 0.5, 0.45, 0.3], index: [0.08, 0.14, 0.1, 0.05], middle: [0.1, 0.16, 0.12, -0.02], ring: [1.15, 1.4, 0.9, 0], pinky: [1.2, 1.4, 0.9, -0.02],
+    thumb: [0.1, -0.1, 0.15, 0.1], index: [0.08, 0.14, 0.1, 0.05], middle: [0.1, 0.16, 0.12, -0.02], ring: [1.15, 1.4, 0.9, 0], pinky: [1.2, 1.4, 0.9, -0.02],
   }),
   /** Around a sphere the size of a fist. */
   ball: pose({

@@ -20,7 +20,7 @@ const REST_LOW = new THREE.Vector3(-0.24, -0.5, -0.32);
 /** Where the wrist goes for a sonar tap, at the left edge of the visor. */
 const TAP_AT = new THREE.Vector3(-0.21, -0.05, -0.3);
 const TAP_FINGERS = new THREE.Vector3(0.2, 0.88, 0.42).normalize();
-const TAP_SIDE = new THREE.Vector3(0.37, 0.38, -0.83);
+const TAP_SIDE = new THREE.Vector3(-1, 0, 0);
 /** The fingers land at SONAR.tapLead, stay for the press, and the hand is gone by the end. */
 const TAP_PRESS = 0.1;
 const TAP_SECONDS = 0.56;

@@ -223,7 +223,7 @@ function buildPiledriver(kit: Kit): Model {
   model.socket('muzzle', [0, BORE, MUZZLE - 0.006]);
   model.socket('eject', [HALF + 0.004, 0.05, -0.04]);
   model.hand('gripR', [0.018, -0.056, 0.074], [0, -0.96, 0.27], [-0.3, -0.25, -0.92]);
-  model.hand('gripL', [-0.018, BORE - 0.1, -0.31], [0.02, -0.98, 0.2], [0.34, -0.18, -0.92]);
+  model.foregrip('gripL', [-0.018, BORE - 0.1, -0.31]);
   model.hand('boxHold', [-0.046, 0.0, 0.03], [-0.1, 0.1, -0.98], [0.9, 0.05, -0.2], 'box');
   model.hand('coverHold', [-0.02, 0.02, 0.12], [-0.3, 0.4, -0.86], [0.85, 0.3, -0.42], 'cover');
   model.hand('chargeHold', [-0.034, 0.0, 0.006], [-0.5, -0.2, -0.8], [0.8, -0.3, -0.5], 'charge');

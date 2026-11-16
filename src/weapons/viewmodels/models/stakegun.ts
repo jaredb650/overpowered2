@@ -165,7 +165,7 @@ function buildStakegun(kit: Kit): Model {
   model.socket('muzzle', [0, CHANNEL_Y + 0.006, -0.325]);
   model.socket('eject', [0.04, 0.1, 0.1]);
   model.hand('gripR', [0.018, -0.046, 0.07], [0, -0.96, 0.27], [-0.3, -0.25, -0.92]);
-  model.hand('gripL', [-0.004, -0.058, -0.17], [-0.55, 0.15, -0.8], [0.8, 0.05, -0.55]);
+  model.support('gripL', [-0.004, -0.058, -0.17]);
   model.hand('stakeHold', [-0.012, 0, -0.14], [-0.2, 0.1, -0.97], [0.9, -0.1, -0.2], 'stake');
   model.hand('leverHold', [-0.03, 0, 0.0], [-0.5, -0.2, -0.8], [0.8, -0.3, -0.5], 'lever');
   return model;
@@ -242,7 +242,7 @@ export function stakegunDef(kit: Kit): ViewDef {
     sight: [0.024, 0.1325, -0.2], relief: 0.42,
     recoil: { back: 0.07, lift: 0.012, pitch: 0.095, yaw: 0.012, roll: 0.03, omega: 32, zeta: 0.5 },
     right: { socket: 'gripR', pose: HANDS.grip },
-    left: { socket: 'gripL', pose: HANDS.foregrip },
+    left: { socket: 'gripL', pose: HANDS.support },
     animate: clip,
     readout: a => drawCount(a, 'ammo', 1, 5, '#ffd24a'),
   };

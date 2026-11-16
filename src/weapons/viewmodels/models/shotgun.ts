@@ -210,7 +210,7 @@ function buildShotgun(kit: Kit): Model {
   model.socket('muzzle', [0, BORE, -0.702]);
   model.socket('eject', [0.022, 0.03, -0.065]);
   model.hand('gripR', [0.019, -0.06, 0.07], [0, -0.96, 0.27], [-0.3, -0.25, -0.92]);
-  model.hand('pumpL', [-0.002, -0.0235, -0.012], [-0.55, 0.15, -0.8], [0.8, 0.05, -0.55], 'pump');
+  model.support('pumpL', [-0.002, -0.0235, -0.012], 'pump');
   model.hand('shellHold', [-0.017, 0.0, -0.03], [-0.3, 0.1, -0.95], [0.9, -0.1, -0.35], 'shell');
   return model;
 }

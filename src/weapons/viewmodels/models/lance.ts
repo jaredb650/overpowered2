@@ -227,7 +227,7 @@ function buildLance(kit: Kit): Model {
   model.socket('muzzle', [0, BORE, RAIL_Z1 - 0.03]);
   model.socket('eject', [0.036, 0.09, 0.05]);
   model.hand('gripR', [0.018, -0.046, 0.07], [0, -0.96, 0.27], [-0.3, -0.25, -0.92]);
-  model.hand('gripL', [-0.018, BORE - 0.112, -0.27], [0.02, -0.98, 0.2], [0.34, -0.18, -0.92]);
+  model.foregrip('gripL', [-0.018, BORE - 0.112, -0.27]);
   model.hand('cellHold', [-0.03, 0, 0.0], [-0.1, 0.1, -0.98], [0.9, 0.05, -0.2], 'cell');
   model.hand('boltHold', [-0.022, 0, 0.0], [-0.5, -0.2, -0.8], [0.8, -0.3, -0.5], 'bolt');
   return model;

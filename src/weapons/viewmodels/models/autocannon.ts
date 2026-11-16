@@ -275,7 +275,7 @@ function buildCannon(kit: Kit): Model {
   model.socket('muzzle', [0, C_BORE, C_FRONT - 0.87]);
   model.socket('eject', [C_HALF, 0.1, 0.0]);
   model.hand('gripR', [0.018, -0.056, 0.07], [0, -0.96, 0.27], [-0.3, -0.25, -0.92]);
-  model.hand('gripL', [-0.02, -0.088, -0.24], [0.02, -0.98, 0.2], [0.34, -0.18, -0.92]);
+  model.foregrip('gripL', [-0.02, -0.088, -0.24]);
   // Over the clip's bar from above, fingers down its far side.
   model.hand('clipHold', [-0.012, (CLIP_ROUNDS.length - 1) * C_PITCH + 0.04, 0.09], [-0.85, -0.33, -0.2], [0.35, -0.5, -0.8], 'clip');
   model.hand('chargeHold', [-0.04, 0, 0.012], [-0.5, -0.2, -0.8], [0.8, -0.3, -0.5], 'charge');
@@ -513,7 +513,7 @@ function buildSabot(kit: Kit): Model {
   model.socket('muzzle', [0, S_BORE, S_FRONT - 1.06]);
   model.socket('eject', [S_HALF, 0.05, -0.02]);
   model.hand('gripR', [0.018, -0.056, 0.07], [0, -0.96, 0.27], [-0.3, -0.25, -0.92]);
-  model.hand('gripL', [-0.002, S_BORE - 0.028, -0.36], [-0.55, 0.15, -0.8], [0.8, 0.05, -0.55]);
+  model.support('gripL', [-0.002, S_BORE - 0.028, -0.36]);
   model.hand('coverHold', [-0.04, -0.02, 0], [-0.1, 0.1, -0.98], [0.75, 0.6, -0.1], 'cover');
   model.hand('beltHold', [-0.016, -0.06, 0.01], [-0.1, 0.1, -0.98], [0.9, 0.1, -0.2], 'belt');
   model.hand('chargeHold', [-0.024, 0, 0.006], [-0.5, -0.2, -0.8], [0.8, -0.3, -0.5], 'charge');

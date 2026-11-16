@@ -181,6 +181,21 @@ describe('Smoker', () => {
     }
     smoker.dispose();
   });
+
+  it('keeps both wrists within a natural swing and puts cigar-hand roll in the forearm', () => {
+    const body = standIn();
+    const smoker = new Smoker(body as never, null);
+    for (const shift of [0, 1]) for (const look of [0, 1]) for (const hand of [0, 0.25, 0.5, 0.75, 1]) {
+      smoker.update({ hand, draw: hand, ember: 1, exhale: 0, look, shift }, 3, new THREE.Vector2(0.02, -0.02));
+      for (const index of [H.handL, H.handR]) {
+        const bone = body.bones[index]!;
+        const axis = bone.position.clone().normalize();
+        expect(axis.angleTo(axis.clone().applyQuaternion(bone.quaternion))).toBeLessThan(1.25);
+        expect(Math.abs(new THREE.Vector3(bone.quaternion.x, bone.quaternion.y, bone.quaternion.z).dot(axis))).toBeLessThan(1e-8);
+      }
+    }
+    smoker.dispose();
+  });
 });
 
 describe('MenuBackdrop', () => {
