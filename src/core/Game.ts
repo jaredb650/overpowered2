@@ -92,10 +92,12 @@ export class Game {
     await breathe();
   }
 
-  /** Stage 2 replaces this with host-only AI/waves and guest snapshot receivers. */
   private freeRoamSkips(sys: GameSystem): boolean {
     const c = this.ctx;
-    return !!c.coop?.freeRoam && (sys === c.enemies || sys === c.allies || sys === c.waves || sys === c.contracts || sys === c.campaign);
+    if (!c.coop) return false;
+    if (sys === c.allies || sys === c.contracts || sys === c.campaign) return true;
+    if (c.coop.freeRoam) return sys === c.enemies || sys === c.waves;
+    return sys === c.waves && !c.coop.hosting;
   }
 
   setState(to: GameState): void {
@@ -126,7 +128,7 @@ export class Game {
     c.time.clearScales();
     for (const sys of this.ordered) if (!this.freeRoamSkips(sys)) sys.reset?.();
     c.events.emit('run:start', {});
-    if (!c.coop?.freeRoam) c.waves.start?.();
+    if (!c.coop || (!c.coop.freeRoam && c.coop.hosting)) c.waves.start?.();
     this.setState('playing');
   }
 
@@ -137,7 +139,7 @@ export class Game {
         if (this.freeRoamSkips(sys)) continue;
         // Menus release local controls while the room, bodies, world and physics keep ticking.
         if (this.state === 'paused' && c.coop
-          && (sys === c.player || sys === c.weapons || sys === c.viewmodel || sys === c.combat || sys === c.progression)) continue;
+          && (sys === c.player || sys === c.weapons || sys === c.viewmodel || (!c.coop.world && (sys === c.combat || sys === c.progression)))) continue;
         if (sys === c.gore) c.physics.step(c.time.dt);
         sys.update?.();
       }
@@ -161,6 +163,7 @@ export class Game {
     let frames = 0;
     const tick = (now: number) => {
       requestAnimationFrame(tick);
+      if (this.ctx.coop?.world) this.ctx.time.clearScales();
       this.ctx.time.tick((now - last) / 1000);
       last = now;
       const t0 = performance.now();

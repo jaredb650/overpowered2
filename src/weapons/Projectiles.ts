@@ -627,8 +627,15 @@ export class Projectiles {
   private sweepPlayer(p: Projectile, dir: THREE.Vector3, limit: number): boolean {
     const c = this.ctx;
     const player = c.player;
-    if (!player.alive) return false;
     const end = this.end.copy(p.position).addScaledVector(dir, limit);
+    const remoteHit = c.coop?.world?.enemyRay(p.position, end, p.explosive ? 0 : p.damage, p.source, false);
+    if (remoteHit) {
+      p.position.copy(remoteHit);
+      if (p.explosive) this.explode(p, undefined);
+      p.live = false;
+      return true;
+    }
+    if (!player.alive) return false;
     const hit = closestSegmentPoints(p.position, end, player.position, player.eye);
     if (hit.dist2 < PLAYER_RADIUS * PLAYER_RADIUS) {
       p.position.lerp(end, hit.s);

@@ -4,9 +4,11 @@ import { Lobby, type Match } from './lobby';
 import { POSE_MS, type Move } from './pose';
 import { RemotePlayer } from './remote';
 import { clearSession } from './session';
+import { CoopWorld } from './world';
 
 export class CoopSession implements GameSystem {
-  readonly freeRoam = true;
+  readonly freeRoam: boolean;
+  readonly world: CoopWorld | null;
   localPaused = false;
   readonly remotes = new Map<string, RemotePlayer>();
   private ready = false;
@@ -18,6 +20,8 @@ export class CoopSession implements GameSystem {
   onEnded: (message: string) => void = () => {};
 
   constructor(private readonly ctx: Ctx, readonly lobby: Lobby, readonly match: Match) {
+    this.freeRoam = match.mode !== 'crucible';
+    this.world = this.freeRoam ? null : new CoopWorld(ctx, this);
     lobby.onChange = () => this.roster();
     lobby.onPose = (id, pose) => this.remotes.get(id)?.push(pose, performance.now());
   }
@@ -32,6 +36,7 @@ export class CoopSession implements GameSystem {
   begin(): void {
     this.begun = true;
     this.roster();
+    if (!this.closed) this.world?.begin();
   }
   private roster(): void {
     if (this.closed || !this.ready || !this.begun) return;
@@ -58,6 +63,7 @@ export class CoopSession implements GameSystem {
     if (this.closed || !this.ready) return;
     const now = performance.now();
     for (const remote of this.remotes.values()) remote.update(now, this.ctx.time.realDt);
+    this.world?.update();
     if (now < this.nextPose || !this.lobby.match) return;
     this.nextPose = now >= this.nextPose + POSE_MS ? now + POSE_MS : this.nextPose + POSE_MS; // Never catch up by bursting a backlog after a stalled/background tab.
     const p = this.ctx.player;
@@ -69,6 +75,7 @@ export class CoopSession implements GameSystem {
   leave(): void {
     if (this.closed) return;
     this.closed = true;
+    this.world?.dispose();
     for (const remote of this.remotes.values()) remote.dispose();
     this.remotes.clear();
     this.lobby.onChange = () => {};

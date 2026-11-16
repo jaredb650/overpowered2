@@ -849,6 +849,14 @@ export class Combat implements CombatSystem {
     const limit = wall ? wall.distance : max;
     st.end.copy(st.origin).addScaledVector(st.dir, limit);
 
+    const remoteHit = c.coop?.world?.enemyRay(st.origin, st.end, spec.damage, spec.source);
+    if (remoteHit) {
+      st.end.copy(remoteHit);
+      r.hitEnemy = true;
+      if (spec.tracer) c.fx.tracer(st.from, st.end, spec.tracer);
+      return;
+    }
+
     const player = c.player;
     if (player.alive) {
       const eye = player.eye;
@@ -915,6 +923,7 @@ export class Combat implements CombatSystem {
   }
 
   spawnProjectile(spec: ProjectileSpec): void {
+    if (spec.team === 'enemy') this.ctx.coop?.world?.projectile(spec.origin, spec.velocity.clone().normalize());
     if (spec.kind === 'flame') {
       this.flames.spawn(spec);
       return;
@@ -1092,6 +1101,7 @@ export class Combat implements CombatSystem {
 
   private blastPlayer(center: THREE.Vector3, spec: ExplosionSpec): void {
     const c = this.ctx;
+    c.coop?.world?.blast(center, spec);
     const player = c.player;
     if (!player.alive) return;
     const def = EXPLOSIONS[spec.kind];

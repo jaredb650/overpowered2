@@ -1,6 +1,7 @@
 # Co-op
 
-The plan is `docs/proposals/coop.md`. Stages 0 and 1 are built: a password lobby and players walking together in enemy-free matches.
+The plan is `docs/proposals/coop.md`. Stages 0–2 are built: a password lobby, remote players, and host-authoritative Crucible combat.
+The historical stage 1 sections below describe its enemy-free baseline, not the current Crucible.
 
 ## Files
 
@@ -163,3 +164,161 @@ checkout supplied the typecheck evidence. The only request failure in the succes
 no game/page exceptions were reported by any successful run.
 The final reconnect-generation smoke passed after the multi-guest handoff fix (`stage1-evidence-crucible-smoke.json`).
 The shared checkout's typecheck was repeated once the other agents' shop/defense edits settled and passed too.
+
+## Stage 2: Crucible shooting and enemies
+
+Only **The Crucible** enables stage 2. The host runs the original enemy manager, wave director, damage model and progression.
+Guests initialize the normal character library and enemy manager for visuals and bone hit tests, but run no enemy AI, wave director,
+status damage, reinforcements or navigation simulation. Their local controller, guns, ammo, recoil, muzzle flashes, sounds and tracers
+are immediate. `src/net/world.ts` owns the replication, combat admission, player-target adapters and respawn timers. Solo code paths
+keep their original behavior. Co-op contracts/allies/campaign remain gated off, so neither co-op peer can use the shop.
+Guest pickup layout, pickup spawning/collection and pod updates are disabled until their authoritative replication is built.
+
+The small integration hooks are in `Game`, `EnemyManager`, enemy steering/damage, Combat's enemy rays/explosions/projectile spawning,
+projectile player sweeps, Player's guest-damage gate, and the HUD/progression death handlers. Crucible combat and projectiles continue
+under Esc; only local controls and viewmodel updates stop. Co-op clears local hit-stop and slow-motion requests before clock ticks,
+instead of allowing one player's perk or boss death to silently slow their own simulation. Shared slow-mo rules remain stage 3.
+
+### Enemy snapshot lane
+
+The host sends a **10 Hz** `world` action, binary all the way through trystero, not an ArrayBuffer nested in JSON. The receiver
+accepts ArrayBuffer and trystero's Uint8Array, including offset views. Sequence numbers reject duplicates/older packets across wrap.
+Each frame is **12 + 44 × live enemies bytes**; the 48-enemy cap is **2,124 bytes**, or **21,240 B/s per guest at 10 Hz** before
+transport overhead. The host sends one copy to each guest. Interpolation is over the next 100 ms of receiver time, with no unbounded
+extrapolation. A missing enemy is removed after a 500 ms grace for its death event. Killed IDs are tombstoned against stale snapshots.
+
+| Offset | Type | Meaning |
+|---|---|---|
+| 0 | u16 | Magic/version `0xc202`, little endian |
+| 2 | u32 | Snapshot sequence |
+| 6 | u16 | Wave |
+| 8 | u16 | Enemy count, at most 48 |
+| 10 | u8 | Wave phase: intermission/spawning/clearing/boss |
+| 11 | u8 | Rounded-up seconds to next wave, capped at 255 |
+
+Each 44-byte record:
+
+| Offset | Type | Meaning |
+|---|---|---|
+| 0 | u32 | Host-assigned enemy UID |
+| 4 | u8 | Archetype index, fixed table in `worldProtocol.ts` |
+| 5 | u8 | Airborne, downed, frozen, burning, shield, ward, boss-entry immunity bits |
+| 6 | u8 | Locomotion / attack windup / attack active / stagger state |
+| 7 | u8 | Intact plate mask, including all eight Juggernaut plates |
+| 8 | 3 × f32 | Feet position |
+| 20 | f32 | Facing yaw |
+| 24 | f32 | Health |
+| 28 | f32 | Max health |
+| 32 | f32 | Remaining armour |
+| 36 | 3 × i16 | Velocity in centimetres/second |
+| 42 | u16 | Eleven-region sever mask |
+
+The guest uses each archetype's normal mesh/rig/props and procedural animator, including downed posture, frost/burn skin and missing
+limbs. Wounds and death effects use the normal gore system, which owns local ragdolls, droplets and blood decals. Bones and corpse
+physics are cosmetic and need not match. The coarse attack/stagger/downed states do not synchronize every muscle, catch step or
+get-up clip; a full living-knockdown interpolation pass is still needed. Late joiners get living state, not historical corpse piles.
+
+### Reliable game events and hit claims
+
+`action` carries JSON `{ match, data }`. Only admitted peers in the current match are accepted. Guests accept only their host's
+events; the host stamps roster slots on forwarded fire and never accepts guest-forged enemy kills, wounds, player-hurt or world events. Messages contain
+game state only. Passwords, storage contents, device information and account data are never in these lanes. Nostr remains encrypted
+signaling; WebRTC carries game traffic. trystero's channels are reliable/ordered; congestion/backpressure and an unreliable world
+lane remain future work.
+
+| `data.t` | Fields | Direction |
+|---|---|---|
+| `fire` | shot sequence, weapon, origin, direction; host-stamped slot | Guest→host→other guests, or host→guests |
+| `hit` | shot, target UID, weapon, origin, complete damage inputs | Guest→host only |
+| `hitfx` | UID, damage inputs, final health/armour, blocked | Host→guests |
+| `sever` | UID, region, damage inputs | Host→guests |
+| `kill` | UID, archetype, position/yaw, damage inputs, gib flag | Host→guests |
+| `ray` | Enemy shot origin/end | Host→guests, cosmetic |
+| `hurt` | Amount, source position, type/source, life generation | Host→one guest |
+| `life` | Slot, alive flag, life generation | Guest death acknowledgement→host; host→guests |
+
+Damage vectors are arrays. Other inputs retain the existing `DamageInfo` names: amount/type/source, region/bone, force, ammo `load`,
+sever/headshot multipliers, penetration flags, blast reach/kind, explosion ID and optional slice plane. No second AP/HP or Raufoss
+damage implementation exists: accepted claims call the host's normal `applyDamage`. Guests return a local predicted plate stop to
+their firing code, so Raufoss's existing behind-the-plate pellet path also submits its component hits. The host is the only side
+that spends armour/health. Prediction does not kill a guest's replica before the host confirms it.
+
+The loose friends-only validator requires a known weapon, admitted living sender, monotonically increasing/rate-limited fire,
+the matching recent shot, bounded finite inputs, a plausible hit point and origin, a 350 m maximum range, world line of sight
+with a 1 m cover tolerance, and a bounded number of component hits per shot. It deliberately does not implement rewind, anti-cheat,
+inventory proofs or exact server-side projectile replay. Late impact/continuous attacks may use a new rate-limited claim group.
+Remote teammates show their firing tracer, muzzle flash and positional sound, but still hold the generic Bailiff SMG: first-person
+weapons are code-built viewmodels rather than a complete matching third-person prop set.
+
+### Targets and respawn
+
+The host selects the nearest living player per enemy, with 20% hysteresis before switching. It refreshes the AI's PlayerSense for
+that enemy and supplies a player adapter (and `Soldier.foe` where a soldier exists) without moving or simulating a friend's
+controller. Remote-target walking can reuse the existing RouteFinder around cover, with one bounded search per frame. Enemy rays
+and projectile sweeps test all living player segments; blasts also reach guests. The host sends the resulting damage to a guest's
+own normal health/armour code. Cosmetic replay on a guest cannot independently hurt that guest.
+
+A local death is acknowledged to the host. Host-owned real-time timers respawn either player after **3.5 seconds**, using the
+existing player reset and a slot-selected map spawn, while enemies, physics, networking and the other players continue. Guns/ammo
+are retained. Life generations reject delayed damage from a previous life. There is no revive, downed team wipe, checkpoint,
+respawn protection, host migration or persistent player-health reconciliation yet. Other modes still use the stage 1 free-roam gate.
+
+### Stage 2 verification
+
+Isolated verification on 2026-11-16: `npx tsc --noEmit`, `npx vite build`, and **75 tests in 12 files** passed, one file per run.
+Focused tests: `src/net/worldProtocol.test.ts`, `authority.test.ts`, `world.test.ts`, plus the existing pose/lobby/session and
+`src/core/coop.test.ts`. The new mocked-relay tests exercise raw binary transport, host identity, actual damage-input delivery,
+out-of-order and boot-time snapshots, wound/sever/death replay, guest targeting/damage, renamed remote bodies, rejection of
+cosmetic secondary damage, respawn epochs and a live host during death. `src/net/economy.test.ts` checks that only solo/host
+progression ticks pickups and pods; guests cannot generate their own economy. Existing
+armour/headshot/blast/contact tests guard the solo damage and contact paths. Run each file separately with
+`nice npx vitest run <file> --testTimeout=60000`.
+
+The two-page real WebRTC proof is `tools/scripts/coop-stage2.mjs`. Use your own server on 5268 with HMR disabled and a private Vite
+`cacheDir` (concurrent dev servers otherwise invalidate each other's optimized dependencies); wait for any other
+`node tools/shot.mjs` process first. Run one Chrome with two pages, 1440×900 CSS pixels and DPR 2:
+
+```sh
+node tools/shot.mjs --port 5268 --dpr 2 --w 1440 --h 900 --wait 500 --timeout 600 \
+  --script tools/scripts/coop-stage2.mjs --out tools/out/coop/stage2-final.png
+```
+
+The proof caps each test page at 15 animation frames per second to fit two full worlds on the shared 8 GB machine. This is a
+harness setting, not a production frame limit or a game performance benchmark. It measures a ten-second live wave with host fire before
+arranging controlled normal enemy spawns for an actual guest mouse-trigger kill. After the traffic sample and wave screenshots,
+it stops the wave feed and withdraws the crowd so the subsequent combat assertions isolate one ordinary enemy at a time:
+enemy-AI damage to that guest, guest and host deaths/respawns, and live Esc. It records payload counters and WebRTC data-channel
+bytes, not an estimate from object sizes alone. `tools/out/coop/stage2-evidence.json` is the evidence receipt; screenshots use
+`tools/out/coop/stage2-*.png`.
+
+The completed run passed all **nine assertions**, with no browser console, page, request or script errors. It started the Crucible
+over the real password lobby/WebRTC path, rendered a host wave on both peers, fired the guest's local SMG through mouse input
+(16 rounds; two accepted host damage claims; no rejected claims), and confirmed the same enemy UID dead on both. The host's ordinary
+enemy AI damaged the guest from **100 to 88 health**. Both guest and host died and respawned while the other peer's world clock
+continued. Esc left the clock and simulation live. The ten captured PNGs are **2880×1800** (1440×900 CSS, DPR 2); wave, kill, damage
+and menu screenshots were visually inspected. The screenshot helper dismisses a focus-loss menu before non-menu captures; it does
+not freeze the game. Pickups and powers visible in this combat receipt were not an economy-sync assertion; the final guest-economy
+guard is covered by its separate unit test.
+
+Measured **10.0785 seconds**, early wave 1 with **17–20 enemies**, one host and one guest:
+
+| Traffic | Bytes per second |
+|---|---:|
+| Host enemy snapshot payload | 3,905 |
+| Host action-event JSON payload, including shooting | 990 |
+| Host total DataChannel application bytes, including poses and trystero framing | 5,989 |
+| Guest total DataChannel application bytes | 792 |
+
+The observed snapshot send rate was **4.86 Hz** under the shared-machine load and test frame cap, not a claim that production
+is limited to that rate. The production cap is 10 Hz. At the 48-enemy cap, snapshots alone are at most **21,240 B/s per guest**,
+or **63,720 B/s host upload for three guests** before events, poses and framing. DataChannel counters exclude DTLS/SCTP/UDP/IP
+overhead. This is a bounded snapshot budget and a measured two-peer smoke test, not a four-machine throughput/latency benchmark.
+
+### Remaining stage 3 work
+
+- Replace timed respawn with downed/revive rules, player corpse presentation, team wipes and deliberate respawn/loadout policies.
+- Share and arbitrate pickups, powerups, credits, shop access, score/kill attribution and per-player rewards. Currently the host
+  earns combat progression, while guests are shooters with their local issued kit; pickups and world props are not replicated.
+- Synchronize call-ins, perk effects and a shared slow-mo policy; provide a host-hidden-tab banner/pause protocol.
+- Finish living knockdown/get-up transitions, matching third-person weapons, projectile/explosion presentation and late-join state.
+- Add TURN, real multi-machine/four-player latency testing, transport backpressure, and production concurrency/disconnect hardening.

@@ -167,7 +167,7 @@ export class EnemyManager implements EnemySystem {
   constructor(private readonly ctx: Ctx) {
     const self = this;
     this.w = {
-      ctx,
+      ctx: new Proxy(ctx, { get: (target, key) => key === 'player' ? target.coop?.world?.targetPlayer ?? target.player : Reflect.get(target, key) }),
       get director() { return self.director; },
       get telegraphs() { return self.telegraphs; },
       enemies: this,
@@ -384,6 +384,13 @@ export class EnemyManager implements EnemySystem {
     const { ctx, w, director } = this;
     const dt = ctx.time.dt;
     w.now = ctx.time.elapsed;
+    if (ctx.coop?.world && !ctx.coop.hosting) {
+      ctx.coop.world.updateGuests();
+      this.updateDying(dt);
+      this.debris.update(dt);
+      this.flushRecycle();
+      return;
+    }
     this.sensePlayer();
     director.beginFrame();
     director.updateSight(this.alive);
@@ -399,6 +406,10 @@ export class EnemyManager implements EnemySystem {
       const e = list[i]!;
       if (e.alive) this.updateEnemy(e, dt);
     }
+    if (ctx.coop?.world) {
+      ctx.coop.world.targetPlayer = null;
+      this.sensePlayer();
+    }
     this.updateDying(dt);
     this.updateStrikes();
     this.telegraphs.update(dt);
@@ -408,7 +419,7 @@ export class EnemyManager implements EnemySystem {
 
   private sensePlayer(): void {
     const p = this.player;
-    const src = this.ctx.player;
+    const src = this.w.ctx.player;
     p.position.copy(src.position);
     p.eye.copy(src.eye);
     p.chest.copy(src.position);
@@ -425,6 +436,7 @@ export class EnemyManager implements EnemySystem {
 
   private updateEnemy(e: Enemy, dt: number): void {
     const { w, player } = this;
+    this.ctx.coop?.world?.select(e, player);
     this.perceive(e, dt);
     this.updateStatus(e, dt);
     if (!e.alive) return;
@@ -844,7 +856,23 @@ export class EnemyManager implements EnemySystem {
   }
 
   applyDamage(enemy: EnemyInstance, damage: DamageInfo): DamageResult {
+    if (this.ctx.coop?.world && !this.ctx.coop.hosting) return this.ctx.coop.world.claim(enemy, damage);
+    if (this.ctx.coop?.world) this.sensePlayer();
     return this.model.apply(enemy as Enemy, damage);
+  }
+
+  placeReplica(enemy: Enemy, dt: number, downed: boolean): void {
+    this.place(enemy);
+    enemy.dist = enemy.position.distanceTo(this.ctx.player.position);
+    enemy.inView = true;
+    (enemy.char.anim as unknown as { setPosture?(posture: string): void }).setPosture?.(downed ? 'downed' : 'stand');
+    this.animate(enemy, dt);
+    enemy.char.root.updateMatrixWorld(true);
+  }
+
+  replayDeath(enemy: Enemy, damage: DamageInfo, gib: boolean): void {
+    if (gib) damage.gib = true;
+    this.model.kill(enemy, damage, damage.region ?? 'chest', null);
   }
 
   emitHit(e: Enemy, d: DamageInfo, res: DamageResult): void {
@@ -1011,6 +1039,7 @@ export class EnemyManager implements EnemySystem {
   /** The enemy's own blast. It is not a kill: nobody earned it. */
   selfDestruct(e: Enemy): void {
     if (!e.alive) return;
+    this.ctx.coop?.world?.selfDestruct(e);
     const { ctx } = this;
     const t = e.def.tank;
     e.alive = false;

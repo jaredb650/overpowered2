@@ -51,6 +51,7 @@ export function leapTo(e: Enemy, target: THREE.Vector3, seconds: number, apex = 
 }
 
 function flowInto(e: Enemy, w: AiWorld, out: THREE.Vector3): void {
+  if (w.ctx.coop?.world?.steer(e, out)) return;
   const nav = w.ctx.world.nav;
   if (nav.flowDirection(e.position, out)) return;
   // Knocked off the graph or dropped outside it: head for the nearest walkable cell, then the player.

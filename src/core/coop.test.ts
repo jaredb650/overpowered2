@@ -51,4 +51,18 @@ describe('co-op flag and single-player lifecycle', () => {
     expect(c.waves.start).toHaveBeenCalledOnce();
     g.newRun(); expect(c.enemies.init).toHaveBeenCalledOnce(); expect(c.waves.start).toHaveBeenCalledTimes(2);
   });
+  it.each([true, false])('Crucible host=%s initializes replica visuals but only the host starts waves', async hosting => {
+    const c = context(true);
+    Object.assign(c.coop!, { freeRoam: false, hosting, world: {} });
+    const g = new Game(c); await init(g); g.newRun();
+    expect(c.enemies.init).toHaveBeenCalledOnce();
+    expect(c.waves.start).toHaveBeenCalledTimes(hosting ? 1 : 0);
+    expect(c.contracts.init).not.toHaveBeenCalled();
+    g.setState('paused'); c.time.tick(0.05); frame(g);
+    expect(c.enemies.update).toHaveBeenCalledOnce();
+    expect(c.waves.update).toHaveBeenCalledTimes(hosting ? 1 : 0);
+    expect(c.physics.step).toHaveBeenCalledWith(0.05);
+    expect(c.coop!.update).toHaveBeenCalledOnce();
+    expect(c.combat.update).toHaveBeenCalledOnce();
+  });
 });

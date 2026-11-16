@@ -6,6 +6,13 @@ Status: research and proposal, 2026-11-15. Prices were checked on official pages
 
 **Stage 1 built** (2026-11-15): host-selected Crucible / Endless Humans / Outpost Defense free roam, binary poses at 20 Hz through the host, tinted Bailiff bodies with callsigns and 100 ms interpolation, live Esc menus, and match departure handling. Enemy/world and shooting synchronization remain stage 2. See `docs/notes/coop.md`.
 
+**Stage 2 built** (2026-11-16): the Crucible host now runs the waves and enemies. Guests render interpolated binary enemy snapshots,
+shoot locally and submit sanity-checked hit claims through the host's existing damage model, including AP/HP and Raufoss plate hits.
+Deaths, severing, wounds and enemy fire are events; enemies select among living players and host-computed damage reaches guests.
+Players respawn after 3.5 seconds without stopping the world. Shops stay disabled; Endless Humans and Outpost Defense stay free roam.
+Stage 3 still needs real downed/revive rules, shared pickups/economy, player rewards, shop integration and synchronized powerups/call-ins.
+Remote weapon props are still the generic SMG. See `docs/notes/coop.md` for the wire format, measurements and verification limits.
+
 ## Verdict
 
 1. **Feasible, but a big job:** about 3 to 5 months of steady work for everything. Survival co-op is the first half of that.

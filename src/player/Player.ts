@@ -2007,6 +2007,7 @@ export class Player implements PlayerSystem {
   }
 
   takeDamage(damage: PlayerDamage): void {
+    if (this.ctx.coop?.world && !this.ctx.coop.hosting && !this.ctx.coop.world.allowsLocalDamage(damage)) return;
     if (!this.alive || this.modifiers.invulnerable || (this.parked && !this.exposed) || this.parkGrace > 0) return;
     if (this.interceptor?.(damage)) return;
     const amount = damage.amount * this.modifiers.damageTaken;

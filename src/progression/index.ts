@@ -364,7 +364,7 @@ class Progression implements ProgressionSystem {
     // Before the death grade goes on, because leaving a seat releases the seat's own.
     this.callInsManager.onDeath();
     this.perks.clear();
-    this.perks.showDeath();
+    if (!this.ctx.coop?.world) this.perks.showDeath();
     this.sentinels.stop();
     this.ctx.time.popScale('slowmo');
     this.ctx.time.popScale('timeWarp');
@@ -468,8 +468,10 @@ class Progression implements ProgressionSystem {
     this.sentinels.update(time.playerDt);
     this.stimKit.update(time.playerDt);
     this.frost.update(time.dt);
-    this.pickupsManager.update(real, this.perks.isActive('magnet'));
-    this.pods.update(real);
+    if (!this.ctx.coop?.world || this.ctx.coop.hosting) {
+      this.pickupsManager.update(real, this.perks.isActive('magnet'));
+      this.pods.update(real);
+    }
 
     if (this.perks.isActive('regen')) {
       this.regenTick -= real;
@@ -504,7 +506,7 @@ class Progression implements ProgressionSystem {
     this.pickupsManager.clear();
     this.pods.clear();
     this.stimKit.reset();
-    this.pickupsManager.layout();
+    if (!this.ctx.coop?.world || this.ctx.coop.hosting) this.pickupsManager.layout();
     this.ctx.events.emit('combo:changed', { combo: 0 });
   }
 }

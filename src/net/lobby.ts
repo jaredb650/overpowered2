@@ -165,6 +165,24 @@ export class Lobby {
     } else if (this.hostId) this.poses.send(data, this.hostId);
   }
 
+  gameplay<T>(name: 'world' | 'action', receive: (data: T, from: string) => void): (data: T, to?: string) => number {
+    const channel = this.room.channel<{ match: string; data: T } | ArrayBuffer | Uint8Array>(name);
+    channel.on((message, from) => {
+      if (this.phase !== 'open' || !this.match) return;
+      const binary = message instanceof ArrayBuffer ? message : message instanceof Uint8Array ? message.slice().buffer : null;
+      if (!binary && (message as { match: string } | null)?.match !== this.match.id) return;
+      if (this.hosting ? this.players.some(player => !player.host && player.id === from) : from === this.hostId) receive((binary ?? (message as { data: T }).data) as T, from);
+    });
+    return (data, to) => {
+      if (this.phase !== 'open' || !this.match) return 0;
+      const message = data instanceof ArrayBuffer ? data : { match: this.match.id, data };
+      const recipients = this.hosting ? this.players.filter(player => !player.host && (!to || player.id === to)).map(player => player.id)
+        : this.hostId ? [this.hostId] : [];
+      for (const id of recipients) channel.send(message, id);
+      return recipients.length;
+    };
+  }
+
   private finishStart(): void {
     if (this.match && !this.starting.size && !this.started) {
       this.started = true;
