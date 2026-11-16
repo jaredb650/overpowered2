@@ -20,6 +20,9 @@
 .scr-menu .wm-2 { position: absolute; left: 100%; bottom: 1.6rem; font-size: 0.68em; line-height: 1.1; }
 .mm-list { display: flex; flex-direction: column; align-items: flex-start; gap: 0.2rem; }
 .scr-menu .mm-list { position: absolute; left: 0; top: 7rem; }
+/* Where in the menu tree the list is: Play / Survival / Kill House. */
+.mm-crumb { position: absolute; left: 3.4rem; top: 3.6rem; font: 2.6rem/1 var(--display); color: var(--amber); text-shadow: var(--edge-big); }
+.mi-soon { margin-left: 1.2rem; font-size: 0.4em; color: var(--steel); vertical-align: 0.6em; }
 .mi {
   display: block;
   appearance: none;
@@ -38,23 +41,8 @@
 .mi.mi-small { font-size: 2.1rem; padding: 0 1.4rem 0 3rem; text-shadow: var(--edge); }
 .mi.mi-small.focus { text-shadow: none; }
 
-/* The contract select, and the notice each one comes with. It has to clear the wordmark along the bottom. */
+/* The notice of the mission or mode with focus. It has to clear the wordmark along the bottom. */
 .mm-brief { position: absolute; right: 3.4rem; top: 3rem; width: 50rem; }
-.mm-tabs { display: flex; gap: 0.2rem; }
-.mm-tab {
-  appearance: none;
-  border: 0;
-  margin: 0;
-  flex: 1 1 0;
-  padding: 0.25rem 1rem;
-  background: var(--plate);
-  color: var(--steel);
-  font: 2.2rem/1.2 var(--display);
-  text-align: left;
-  cursor: inherit;
-}
-.mm-tab.on { background: var(--amber); color: #000; }
-.mm-tab.focus { background: var(--hot); color: #000; }
 
 .nt { padding: 1.1rem 1.4rem 1rem; background: rgba(7, 10, 14, 0.88); border-top: 0.2rem solid var(--amber); }
 .nt-office { display: block; color: var(--steel); font-size: 1rem; }
@@ -217,10 +205,6 @@
 .go-pn { font: 1.6rem/1 var(--display); }
 .go-none { color: var(--dim); }
 
-/* A contract still shut. */
-.mm-tab.lock { color: var(--dim); white-space: nowrap; }
-.mm-tab.lock::before { content: ''; display: inline-block; width: 0.7rem; height: 0.56rem; margin-right: 0.5rem; background: currentColor; box-shadow: 0 -0.3rem 0 -0.12rem currentColor; vertical-align: 0.06rem; }
-.mm-tab.lock.on { color: #000; }
 .nt-lock, .nt-rules { margin-top: 0.5rem; padding: 0.3rem 0.6rem 0.22rem; background: rgba(157, 176, 189, 0.14); color: var(--amber); font-size: 1rem; font-weight: 600; }
 /* The Crucible's rules button sits under its notice, with the notice's text edge. */
 .mm-brief > .mi-small { margin-top: 0.5rem; padding-left: 1.4rem; }

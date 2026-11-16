@@ -95,6 +95,13 @@ export default async function missionLive(page, h) {
     }
     return { men: ctx.enemies.alive.length, range: Math.round(near), belt: s.left };
   });
+  /** Clicks down the menu tree, as in menuPath('Play', 'Campaign'). */
+  const menuPath = async (...labels) => {
+    for (const label of labels) {
+      await page.locator('.scr-menu .mm-list .mi').filter({ has: page.getByText(label, { exact: true }) }).click();
+      await h.sleep(300);
+    }
+  };
   const errors = [];
   page.on('pageerror', e => errors.push(String(e)));
   // A low-priority browser on a busy machine can miss a screenshot. That is not the mission failing, so the run goes on without it.
@@ -522,11 +529,12 @@ export default async function missionLive(page, h) {
       await page.locator('.scr-complete').getByText('Menu', { exact: true }).click();
       await h.sleep(1200);
       await h.shot('unlock-1');
-      log.push({ tabs: await page.evaluate(() => [...document.querySelectorAll('.mm-tab')].map(t => `${t.textContent}${t.classList.contains('lock') ? ' [locked]' : ''}`)) });
-      await page.locator('.mm-tab').filter({ hasText: 'Endless Humans' }).click();
-      await h.sleep(500);
+      await menuPath('Play', 'Campaign');
+      log.push({ campaign: await page.evaluate(() => [...document.querySelectorAll('.scr-menu .mm-list .mi')].map(t => `${t.textContent}${t.classList.contains('off') ? ' [locked]' : ''}`)) });
+      await menuPath('Back', 'Survival', 'Kill House');
+      log.push({ killHouse: await page.evaluate(() => [...document.querySelectorAll('.scr-menu .mm-list .mi')].map(t => `${t.textContent}${t.classList.contains('off') ? ' [locked]' : ''}`)) });
       await h.shot('unlock-2');
-      await page.locator('.scr-menu').getByText('Play', { exact: true }).click();
+      await menuPath('Endless Humans');
       await page.waitForURL(/contract=outpost/, { timeout: 15000 });
       await page.waitForFunction(() => document.querySelector('.sp-go')?.textContent.includes('Endless') && document.querySelector('.scr-splash')?.style.display === '', null, { timeout: 60000 });
       await h.shot('unlock-3');
@@ -542,17 +550,19 @@ export default async function missionLive(page, h) {
       await page.waitForFunction(() => document.querySelector('.scr-menu')?.style.display === '', null, { timeout: 8000 });
       await h.sleep(800);
       await h.shot('menu-0');
-      log.push({ tabs: await page.evaluate(() => [...document.querySelectorAll('.mm-tab')].map(t => `${t.textContent}${t.classList.contains('on') ? ' [on]' : ''}${t.classList.contains('lock') ? ' [locked]' : ''}`)) });
-      await page.locator('.mm-tab').filter({ hasText: 'Endless Humans' }).click();
-      await h.sleep(500);
+      await menuPath('Play', 'Survival', 'Kill House');
+      log.push({ killHouse: await page.evaluate(() => [...document.querySelectorAll('.scr-menu .mm-list .mi')].map(t => `${t.textContent}${t.classList.contains('off') ? ' [locked]' : ''}`)) });
       await h.shot('menu-1');
-      await page.locator('.scr-menu').getByText('Play', { exact: true }).click();
+      await menuPath('Endless Humans');
       await h.sleep(600);
       log.push({ stayed: await page.evaluate(() => location.search) });
-      await page.locator('.mm-tab').filter({ hasText: 'Campaign' }).click();
-      await page.locator('.scr-menu').getByText('Play', { exact: true }).click();
+      await page.keyboard.press('Escape');
+      await page.keyboard.press('Escape');
+      await menuPath('Campaign');
+      log.push({ campaign: await page.evaluate(() => [...document.querySelectorAll('.scr-menu .mm-list .mi')].map(t => `${t.textContent}${t.classList.contains('off') ? ' [locked]' : ''}`)) });
+      await menuPath('1 The Outpost');
       await page.waitForURL(/contract=campaign/, { timeout: 15000 });
-      await page.waitForFunction(() => document.querySelector('.sp-go')?.textContent.includes('Campaign') && document.querySelector('.scr-splash')?.style.display === '', null, { timeout: 90000 });
+      await page.waitForFunction(() => document.querySelector('.sp-go')?.textContent.includes('The Outpost') && document.querySelector('.scr-splash')?.style.display === '', null, { timeout: 90000 });
       await h.shot('menu-2');
       await page.mouse.click(600, 400);
       await until(d => d.beat === 'briefing', 10, 'briefing');

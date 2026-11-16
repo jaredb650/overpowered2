@@ -41,7 +41,9 @@ export default async function crucibleRulesLive(page, h) {
   const menuState = () => page.evaluate(() => {
     const b = [...document.querySelectorAll('.mm-brief > .mi')].find(e => /rules/i.test(e.textContent));
     return {
-      tabs: [...document.querySelectorAll('.mm-tab')].map(t => `${t.textContent}${t.classList.contains('on') ? ' [on]' : ''}${t.classList.contains('focus') ? ' [focus]' : ''}`),
+      crumb: document.querySelector('.mm-crumb')?.textContent ?? null,
+      list: [...document.querySelectorAll('.scr-menu .mm-list .mi')].map(t => `${t.textContent}${t.classList.contains('focus') ? ' [focus]' : ''}`),
+      notice: document.querySelector('.mm-brief')?.style.display === 'none' ? null : document.querySelector('.nt-ref')?.textContent ?? null,
       focus: document.querySelector('.scr-menu .focus')?.textContent ?? null,
       rulesButton: b ? (getComputedStyle(b).display !== 'none' ? 'shown' : 'hidden') : 'missing',
       customNote: document.querySelector('.nt-rules')?.textContent ?? null,
@@ -74,6 +76,13 @@ export default async function crucibleRulesLive(page, h) {
   };
   const sideButton = text => page.locator('.scr-rules .sh-side .mi').filter({ hasText: text });
   const menuButtonNamed = text => page.locator('.scr-menu .mm-list .mi').filter({ has: page.getByText(text, { exact: true }) });
+  /** Clicks down the menu tree, as in menuPath('Play', 'Survival', 'Crucible'). */
+  const menuPath = async (...labels) => {
+    for (const label of labels) {
+      await menuButtonNamed(label).click();
+      await h.sleep(250);
+    }
+  };
 
   /** Everything off the screen, cut, or on top of something else. */
   const layout = sel => page.evaluate(sel => {
@@ -87,7 +96,7 @@ export default async function crucibleRulesLive(page, h) {
     const offscreen = all.filter(e => { const r = e.getBoundingClientRect(); return r.right > vw + 0.5 || r.bottom > vh + 0.5 || r.left < -0.5 || r.top < -0.5; }).map(e => `${name(e)} [${box(e)}]`);
     const clipped = all.filter(e => e.children.length === 0 && e.clientWidth > 0 && (e.scrollWidth > e.clientWidth + 1 || e.scrollHeight > e.clientHeight + 2))
       .map(e => `${name(e)} content ${e.scrollWidth}x${e.scrollHeight} box ${e.clientWidth}x${e.clientHeight}`);
-    const blocks = [...root.querySelectorAll('.row, .gd-h, .rl-col-note, .sh-title, .rl-sub, .rl-state, .rl-plan, .rl-hint, .rl-warn, .set-note, .mi, .nt, .mm-tabs, .mm-list, .mm-sub')].filter(visible);
+    const blocks = [...root.querySelectorAll('.row, .gd-h, .rl-col-note, .sh-title, .rl-sub, .rl-state, .rl-plan, .rl-hint, .rl-warn, .set-note, .mi, .nt, .mm-crumb, .mm-list, .mm-sub')].filter(visible);
     const overlaps = [];
     for (let i = 0; i < blocks.length; i++) for (let j = i + 1; j < blocks.length; j++) {
       const A = blocks[i], B = blocks[j];
@@ -235,10 +244,9 @@ export default async function crucibleRulesLive(page, h) {
   };
 
   const startCrucibleFromMenu = async () => {
-    await page.locator('.mm-tab').filter({ hasText: 'The Crucible' }).click();
-    await h.sleep(400);
+    await menuPath('Play', 'Survival', 'Crucible');
     await record();
-    await menuButtonNamed('Play').click();
+    await menuButtonNamed('The Crucible').click();
     await page.waitForFunction(() => window.__op2.game.state === 'playing', null, { timeout: 15000 });
     await page.waitForFunction(() => window.__rec.starts.length > 0, null, { timeout: 20000 });
     await h.sleep(300);
@@ -250,29 +258,24 @@ export default async function crucibleRulesLive(page, h) {
       await toMenu();
       await h.shot('menu-0');
       log.push({ menuAtStart: await menuState(), layout: await layout('.scr-menu') });
-      // Right on Play turns the tabs.
-      await key('ArrowRight');
+      // Play, Survival, Crucible by keys: Enter, Down, Enter, Enter.
+      await key('Enter');
+      await key('ArrowDown');
+      await key('Enter');
+      await key('Enter');
       await h.sleep(300);
       const crucibleMenu = await menuState();
       await h.shot('menu-crucible');
-      log.push({ afterRight: crucibleMenu, layout: await layout('.scr-menu') });
-      // Up from Play wraps to the rules button.
-      await key('ArrowUp');
-      log.push({ upFromPlay: await menuState() });
-      await key('ArrowDown');
-      log.push({ downBackTo: await focusText() });
-      // Down from Play through the list: what each press focuses, and which tab that leaves selected.
+      log.push({ crucibleModes: crucibleMenu, layout: await layout('.scr-menu') });
+      // Down through the Crucible's level: the mode, the rules button, Back, and round.
       const walk = [];
-      for (let i = 0; i < 7; i++) {
+      for (let i = 0; i < 4; i++) {
         await key('ArrowDown');
         const m = await menuState();
-        walk.push(`${m.focus} | on: ${m.tabs.find(t => t.includes('[on]'))} | rules ${m.rulesButton}`);
+        walk.push(`${m.focus} | notice ${m.notice} | rules ${m.rulesButton}`);
       }
       log.push({ downWalk: walk });
-      // Back to Play, the Crucible tab by Right, then Up to the button.
-      for (let i = 0; i < 10 && (await focusText()) !== 'Play'; i++) await key('ArrowUp');
-      for (let i = 0; i < 4 && !(await menuState()).tabs.some(t => t.startsWith('The Crucible') && t.includes('[on]')); i++) await key('ArrowRight');
-      await key('ArrowUp');
+      for (let i = 0; i < 4 && (await focusText()) !== 'Crucible rules'; i++) await key('ArrowDown');
       const onButton = await focusText();
       await key('Enter');
       await h.sleep(500);
@@ -436,8 +439,7 @@ export default async function crucibleRulesLive(page, h) {
       await page.evaluate(k => localStorage.setItem(k, '50'), HIGH);
       await page.reload({ waitUntil: 'load' });
       await toMenu();
-      await page.locator('.mm-tab').filter({ hasText: 'The Crucible' }).click();
-      await h.sleep(300);
+      await menuPath('Play', 'Survival', 'Crucible');
       await page.locator('.mm-brief > .mi').filter({ hasText: 'Crucible rules' }).click();
       await waitScreen('rules');
       await h.sleep(300);
@@ -486,8 +488,7 @@ export default async function crucibleRulesLive(page, h) {
         await page.reload({ waitUntil: 'load' });
       }
       await toMenu();
-      await page.locator('.mm-tab').filter({ hasText: 'The Crucible' }).click();
-      await h.sleep(300);
+      await menuPath('Play', 'Survival', 'Crucible');
       const menuBefore = await menuState();
       await page.locator('.mm-brief > .mi').filter({ hasText: 'Crucible rules' }).click();
       await waitScreen('rules');

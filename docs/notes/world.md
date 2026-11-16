@@ -6,7 +6,7 @@ Then call `world.update()` once per frame in the world slot, and `world.reset()`
 ## Maps
 
 `src/world/map/maps.ts` holds one `MapDef` row per map, and `World` only reads that row. `?map=crucible`, `?map=killhouse`, `?map=outpost` or `?map=fort` (Outpost Defense's fort: `docs/notes/fort.md`) picks one.
-The default is `crucible`, the swarm game. The Kill House is the map of The Outpost contract, picked from the menu. `selectMap()` takes
+The default is `crucible`, the swarm game. The Kill House is the map of Endless Humans, picked from the menu under Play / Survival. `selectMap()` takes
 the map from `ACTIVE` in `contracts/select.ts`: `docs/notes/contracts.md` has the URL rules. Add `&map=killhouse` to any sandbox that builds a world.
 
 **"No climb" surfaces.** Wrap any builder calls in `kit.noClimb(() => ...)` and every collider they make refuses the player's

@@ -23,6 +23,30 @@ so it shows over the menu as well as in a run, and it never takes a click. It re
 that shows it, so nothing has to hide it again. Its CSS is `css/nowplaying.css`, imported by the widget. Audio decides what plays:
 see "Music" in `docs/notes/audio.md`.
 
+## Main menu
+
+`ui/screens/mainmenu.ts`. A tree, one level on the left at a time, with the path above it (`Play / Survival / Kill House`):
+
+```
+Play          Campaign      1 The Outpost, 2 Foreclosure       (the contracts with a mission, in CONTRACTS order)
+              Survival      Crucible     The Crucible  + Crucible rules
+                            Kill House   Endless Humans
+                            Outpost      Outpost Defense       ("Outpost" is the fort, map `fort`)
+              Multiplayer   greyed, "Coming soon", does nothing
+Guide
+Settings
+```
+
+Survival is map, then mode: `SURVIVAL_MAPS` lists the maps and `modesOn(map)` is every contract on that map without a mission, so a second
+mode on a map shows up beside the first. `mainmenu.test.ts` fails if a contract is reachable from nowhere: a survival contract on a new map
+needs a row in `SURVIVAL_MAPS`. Each level ends in Back, and Esc or Backspace goes up a level too; coming back up lands on the item that led
+down. A mission or mode shows its Council notice on the right while it has focus (keys, or the mouse moving over it), a map shows its first
+mode's, and the levels above show none. Choosing a mission or mode plays it: at once on this page's contract, by a page load otherwise.
+One still shut (Foreclosure, Endless Humans and Outpost Defense until the Outpost is won; `?unlock=0` shows that on the dev server) is
+greyed, its notice says why, and choosing it only plays the error sound; a map whose modes are all shut is greyed too. The menu opens on
+the root each time, except back from the Crucible rules, which lands on their button. The URL flags are untouched (`contracts/select.ts`).
+`tools/scripts/menu-tree.mjs` walks every level by mouse and keys and screenshots each (`tools/out/menu/`).
+
 ## Main menu background
 
 `ui/backdrop/`. Behind the splash, the main menu, the guide and the settings: the contractor (the player, `contractor` in
@@ -80,8 +104,8 @@ Under the crosshair, `xh-charge` in `hud/crosshair.ts`: the rotary cannon's spin
 | page load | | loading | `ui/boot.ts`, before anything heavy is fetched |
 | loading | boot done | splash | The click is the audio gesture |
 | splash | click, Enter, Space | menu | |
-| menu | Play, on the page's contract | playing | `startRun`: run starts at once, the lock lands a moment later. Edges from the press are dropped, so it cannot jump or fire on frame one |
-| menu | Play, on another contract | page load, then splash | The splash reads `Click to deploy` and that click goes straight into the run. See `docs/notes/contracts.md` |
+| menu | A mission or mode, on the page's contract | playing | `startRun`: run starts at once, the lock lands a moment later. Edges from the press are dropped, so it cannot jump or fire on frame one |
+| menu | A mission or mode, on another contract | page load, then splash | The splash reads `Click to deploy` and that click goes straight into the run. See `docs/notes/contracts.md` |
 | playing | Esc, or the lock going for any reason | paused | `updateLock` watches `input.locked`, so Alt-Tab and anything else counts, not only `pressed('pause')` |
 | paused | Resume, Enter | playing | Stays paused until the lock is really back. Retries for 1.7 s to get past Chrome's refusal right after Esc |
 | paused | Esc | playing, or a hint | Esc is not a gesture to Chrome. With no live gesture the hint says to click; with a recent click it resumes |

@@ -90,7 +90,7 @@ export const NOTICE_FOOTER = 'Failure to exterminate within the permitted period
 export const CONTRACTS: readonly ContractDef[] = [
   {
     id: 'campaign',
-    name: 'Campaign',
+    name: 'The Outpost',
     map: 'outpost',
     faction: 'humans',
     waves: 'squads',

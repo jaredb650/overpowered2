@@ -716,7 +716,7 @@ Each stage says what the player gets, what to build and where, targets that can 
 **Build.**
 - `ending` in `sump.ts`: a film up the Bore on the cutscene player. The Council reads the Notice of Recovery and its deductions in text. `radio.end.walk` (recorded). The last line on the feed.
 - Redeploy lines: `council.redeploy.fee`, `cmd.redeploy.another` and `cmd.redeploy.told` (all recorded) until he is dead, then `council.redeploy.keep` (recorded) and the Remainder in text.
-- The menu: the contract's tab and notice, shut until `op2_campaign_beaten`, with a line saying what opens it. The mission complete screen.
+- The menu: the contract's row under Play / Campaign and its notice, shut until `op2_campaign_beaten`, with a line saying what opens it. The mission complete screen.
 - `docs/campaign/SUMP.md` finished, in the form of `MISSION.md`: the shape, the site, every beat, every line in its place. A test, as the Outpost has, that the plan says exactly what the game says.
 - `tools/scripts/voice-script.ts` writes `docs/voice/sump-script.md` and `.csv`, so the new lines are ready to record whenever the owner chooses. Nothing is generated.
 - A pacing pass with the bot's times against section 1's table. A budget pass: `WAR_BEAT` for all 16 beats, in one table in `SUMP.md`.

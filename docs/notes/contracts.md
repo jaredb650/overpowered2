@@ -13,7 +13,7 @@
 
 ## Adding a society
 
-Add a row to `CONTRACTS`: map, faction, wave source, AI rule set, wound rules, rewards, briefing, score key. The menu, the high score table, the map choice and the URL all follow from the row. `ContractId` needs the new id, and a new rule set needs its id added to the union it belongs to. Nothing else in this folder changes.
+Add a row to `CONTRACTS`: map, faction, wave source, AI rule set, wound rules, rewards, briefing, score key. The menu, the high score table, the map choice and the URL all follow from the row: a row with a `mission` lands under Play / Campaign, any other under Play / Survival on its map. A survival row on a map the menu has not listed also needs that map in `SURVIVAL_MAPS` (`ui/screens/mainmenu.ts`), and `mainmenu.test.ts` says so. `ContractId` needs the new id, and a new rule set needs its id added to the union it belongs to. Nothing else in this folder changes.
 
 ## Reading the contract
 
@@ -66,7 +66,7 @@ breaks and the player's mortar teams. Locked with Endless Humans until the campa
 | `defense/keepers.ts` | `Keepers`: a shopkeeper behind each counter |
 | `ui/hud/defense.ts` | Credits, the next wave's line in a break with `L: START NOW`, the three shops (red while lost), under the wave plate; the progress ring under the crosshair while boarding up |
 
-**Start it.** `/?contract=defense` (or `/?map=fort`), or Outpost Defense on the menu: the fort. `?contract=defense&map=range` is the old
+**Start it.** `/?contract=defense` (or `/?map=fort`), or Play / Survival / Outpost / Outpost Defense on the menu: the fort. `?contract=defense&map=range` is the old
 Test Range stand-in (counters behind the spawn, Endless Humans' squads as waves, no mortar posts); a bare `?map=range` stays the lab's.
 
 **How to play it.** Pick a primary and a secondary, deploy, and use the 20 s break: the Barracks is in the outer ring's south band, the
