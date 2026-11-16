@@ -223,40 +223,63 @@ function stock(m: Mesher): void {
   m.at([0, 0.012, 0.218], null, () => m.side(poly([[-0.009, 0.042], [0.009, 0.04], [0.012, -0.062, 0.006], [-0.009, -0.058, 0.005]], 0.002), 0.03, { bevel: 0.002 }));
 }
 
+/** How far the stock magazine and the extended one (the shop's, 45 rounds) reach below the well. */
+const MAG_FOOT = -0.135;
+const EXT_FOOT = -0.2;
+
+/**
+ * One magazine body down to `foot`, in the mag's part space: polymer with ribs, a witness window with the brass stack and its
+ * follower, and the base pad. The extended one's lower length is a grey sleeve with grip bands, flared into a bumper pad.
+ */
+function magBody(m: Mesher, foot: number, follower: string, ext: boolean): void {
+  m.use(F.polymer);
+  m.side(poly([[-0.02, 0.03], [0.02, 0.03], [0.021, foot, 0.003], [-0.021, foot, 0.003]], 0.002), 0.0235, { bevel: 0.0012 });
+  // Reinforcing ribs along the spine.
+  m.use(F.polymerGrey);
+  m.mirror(() => {
+    m.at([0.0122, 0, 0], null, () => {
+      m.side(poly([[-0.0185, -0.008], [-0.0115, -0.008], [-0.012, foot + 0.003], [-0.0195, foot + 0.003]], 0.001), 0.0018, { bevel: 0.0005 });
+      m.side(poly([[0.0115, -0.008], [0.0185, -0.008], [0.0195, foot + 0.003], [0.012, foot + 0.003]], 0.001), 0.0018, { bevel: 0.0005 });
+    });
+  });
+  // Witness window: brass stack behind clear polymer, and the follower climbs as the mag empties. The same on both: the
+  // extended one's sleeve is solid.
+  m.use(F.black);
+  m.at([-0.0121, -0.07, 0], [0, -Math.PI / 2, 0], () => m.prism(rect(-0.0085, -0.056, 0.0085, 0.056, 0.002), 0.0012, { bevel: 0 }));
+  m.use(F.brass);
+  for (let i = 0; i < 15; i++) m.at([-0.0108, -0.0135 - i * 0.0074, 0], null, () => m.cyl(0.0034, 0.015, 8));
+  m.part(follower, [-0.0122, -0.02, 0], () => {
+    m.use(F.polymerGrey);
+    m.box(0.0014, 0.0075, 0.015, 0.0005);
+  });
+  m.glass(() => m.at([-0.0132, -0.07, 0], [0, -Math.PI / 2, 0], () => m.prism(rect(-0.0085, -0.056, 0.0085, 0.056, 0.002), 0.0006, { bevel: 0 })));
+  if (ext) {
+    // The sleeve over the last 7 cm, stepped proud of the body, three bands across it, then a flared pad with a rubber floor.
+    m.use(F.polymerGrey);
+    const sleeve = poly([[-0.0218, -0.142], [0.0218, -0.142], [0.0226, foot + 0.004, 0.002], [-0.0226, foot + 0.004, 0.002]], 0.0015);
+    m.side(sleeve, 0.0262, { bevel: 0.0013, holes: [] });
+    m.use(F.anodized);
+    for (let i = 0; i < 3; i++) m.at([0, -0.156 - i * 0.011, 0], null, () => m.box(0.0462, 0.0036, 0.0274, 0.0012));
+    m.use(F.anodized);
+    m.at([0, foot - 0.006, 0.0015], null, () => m.side(poly([[-0.03, 0.006], [0.029, 0.006], [0.031, -0.004, 0.003], [-0.033, -0.004, 0.003]], 0.0015), 0.031, { bevel: 0.0016 }));
+    m.use(F.rubber);
+    m.at([0, foot - 0.0115, 0.0015], null, () => m.box(0.058, 0.0035, 0.026, 0.0012, 0.003));
+    m.at([0, foot - 0.008, -0.03], null, () => m.box(0.014, 0.006, 0.012, 0.0015));
+    return;
+  }
+  // Base pad with a pull tab.
+  m.use(F.anodized);
+  m.at([0, foot - 0.0045, 0], null, () => m.box(0.0285, 0.009, 0.0475, 0.0016, 0.003));
+  m.at([0, foot - 0.01, -0.024], null, () => { m.use(F.rubber); m.box(0.012, 0.003, 0.008, 0.0009); });
+}
+
 function magazine(m: Mesher): void {
-  // Lives in part space: origin at the magwell mouth, feed lips up.
+  // Lives in part space: origin at the magwell mouth, feed lips up. The stock thirty and the shop's forty-five (`smgMag`) are
+  // both in it, one shown at a time (ModLook.hides), so the reload carries whichever is fitted.
   m.part('mag', [0, -0.012, -0.068], () => {
     m.at([0, 0, 0], [0.07, 0, 0], () => {
-      const body = poly([[-0.02, 0.03], [0.02, 0.03], [0.021, -0.135, 0.003], [-0.021, -0.135, 0.003]], 0.002);
-      m.use(F.polymer);
-      m.side(body, 0.0235, {
-        bevel: 0.0012,
-        holes: [],
-      });
-      // Reinforcing ribs along the spine.
-      m.use(F.polymerGrey);
-      m.mirror(() => {
-        m.at([0.0122, 0, 0], null, () => {
-          m.side(poly([[-0.0185, -0.008], [-0.0115, -0.008], [-0.012, -0.132], [-0.0195, -0.132]], 0.001), 0.0018, { bevel: 0.0005 });
-          m.side(poly([[0.0115, -0.008], [0.0185, -0.008], [0.0195, -0.132], [0.012, -0.132]], 0.001), 0.0018, { bevel: 0.0005 });
-        });
-      });
-      // Witness window: brass stack behind clear polymer, and the follower climbs as the mag empties.
-      m.use(F.black);
-      m.at([-0.0121, -0.07, 0], [0, -Math.PI / 2, 0], () => m.prism(rect(-0.0085, -0.056, 0.0085, 0.056, 0.002), 0.0012, { bevel: 0 }));
-      m.use(F.brass);
-      for (let i = 0; i < 15; i++) {
-        m.at([-0.0108, -0.0135 - i * 0.0074, 0], null, () => m.cyl(0.0034, 0.015, 8));
-      }
-      m.part('follower', [-0.0122, -0.02, 0], () => {
-        m.use(F.polymerGrey);
-        m.box(0.0014, 0.0075, 0.015, 0.0005);
-      });
-      m.glass(() => m.at([-0.0132, -0.07, 0], [0, -Math.PI / 2, 0], () => m.prism(rect(-0.0085, -0.056, 0.0085, 0.056, 0.002), 0.0006, { bevel: 0 })));
-      // Base pad with a pull tab.
-      m.use(F.anodized);
-      m.at([0, -0.1395, 0], null, () => m.box(0.0285, 0.009, 0.0475, 0.0016, 0.003));
-      m.at([0, -0.145, -0.024], null, () => { m.use(F.rubber); m.box(0.012, 0.003, 0.008, 0.0009); });
+      m.part('magStd', [0, 0, 0], () => magBody(m, MAG_FOOT, 'follower', false));
+      m.part('magExt', [0, 0, 0], () => magBody(m, EXT_FOOT, 'followerExt', true));
       // Feed lips and the top round.
       m.use(F.steelDark);
       m.mirror(() => m.at([0.0098, 0.0295, 0], null, () => m.box(0.0024, 0.0065, 0.038, 0.0006)));
@@ -323,6 +346,7 @@ function clip(a: Anim, left: boolean): void {
   parts.charge!.position.z += boltTravel * 0.25;
   pullTrigger(a);
   parts.follower!.position.y += (1 - fill(a)) * 0.098;
+  parts.followerExt!.position.y += (1 - fill(a)) * 0.098;
   a.glow('sight', 0.9 + 0.1 * Math.sin(a.time * 17));
 
   // Draw flair: the off hand slaps the charging handle on the way up.
@@ -372,6 +396,8 @@ function clip(a: Anim, left: boolean): void {
   hand.shape(HANDS.pinch, hold(p, 0.7, 0.75, 0.88, 0.93));
 }
 
+const SMG_MODS: ViewDef['mods'] = { suppressor: { part: 'suppressor', muzzle: 'muzzleCan' }, smgMag: { part: 'magExt', hides: 'magStd' } };
+
 export function smgDefs(kit: Kit): { right: ViewDef; left: ViewDef } {
   const recoil = { back: 0.0145, lift: 0.0017, pitch: 0.0135, yaw: 0.0035, roll: 0.0055, omega: 62, zeta: 0.62 };
   const right: ViewDef = {
@@ -385,7 +411,7 @@ export function smgDefs(kit: Kit): { right: ViewDef; left: ViewDef } {
     right: { socket: 'gripR', pose: HANDS.grip },
     left: { socket: 'gripL', pose: HANDS.support },
     heatPerShot: 0.007,
-    mods: { suppressor: { part: 'suppressor', muzzle: 'muzzleCan' } },
+    mods: SMG_MODS,
     animate: a => clip(a, false),
     readout: a => drawCount(a, 'ammo', 2, 5),
   };
@@ -397,7 +423,7 @@ export function smgDefs(kit: Kit): { right: ViewDef; left: ViewDef } {
     recoil,
     right: null,
     left: { socket: 'gripAk', pose: HANDS.grip },
-    mods: { suppressor: { part: 'suppressor', muzzle: 'muzzleCan' } },
+    mods: SMG_MODS,
     animate: a => clip(a, true),
     readout: a => drawCount(a, 'ammo', 2, 5),
   };

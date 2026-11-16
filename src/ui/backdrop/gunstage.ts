@@ -78,6 +78,10 @@ export class GunStage {
     for (const [mod, look] of Object.entries(def.mods ?? {})) {
       const part = root.getObjectByName(look.part);
       if (part) part.visible = mods.has(mod as ModId);
+      const own = look.hides ? root.getObjectByName(look.hides) : undefined;
+      if (own) own.visible = !mods.has(mod as ModId);
+      const moved = look.moves ? root.getObjectByName(look.moves.part) : undefined;
+      if (moved) moved.position.z = (moved.userData.restZ ??= moved.position.z) + (mods.has(mod as ModId) ? look.moves!.z : 0);
     }
     const irons = def.irons ? root.getObjectByName(def.irons) : undefined;
     if (irons) irons.visible = ironsUp(def, mods);

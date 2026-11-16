@@ -154,7 +154,7 @@ export const WEAPONS: Record<WeaponId, WeaponInfo> = {
   piledriver: {
     name: 'Piledriver', key: '8',
     role: `Heavy machine gun. ${def.piledriver.damage} damage, ${def.piledriver.magSize} on the belt, ${Math.round(1 / def.piledriver.interval)} a second`,
-    note: `Press 8 again to swap with the ${def.buzzsaw.name.charAt(0) + def.buzzsaw.name.slice(1).toLowerCase()}. Goes through walls, ${def.piledriver.penetration} m of them in all, and everyone in line. Takes limbs off and can burst what it kills. It kicks, and it slows you a little. Right click loads Raufoss rounds: each bursts where it hits and throws a cone of fragments out of the far side, through cover or through the man it hit.`,
+    note: `Press 8 again to swap with the ${def.buzzsaw.name.charAt(0) + def.buzzsaw.name.slice(1).toLowerCase()}. Goes through walls, ${def.piledriver.penetration} m of them in all, and everyone in line. Takes limbs off and can burst what it kills. It kicks, and it slows you a little. Hold R for Raufoss rounds, and again for ball: each bursts where it hits and throws a cone of fragments out of the far side, through cover or through the man it hit. Tap R reloads. Right click aims.`,
   },
   kiln: {
     name: 'Kiln', key: '9',

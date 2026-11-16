@@ -123,9 +123,10 @@ export interface WeaponDef {
   altBoth?: { readonly kick: number; readonly push: number; readonly ground: number; readonly echo: number; readonly echoPitch: number };
   /**
    * Right click loads the other ammo, and back: the Stakegun's exploding bolts (TUNING.stake.bomb), the Piledriver's
-   * Raufoss rounds (TUNING.raufoss). It never fires. `label` is what the HUD calls it while it is loaded. Instead of ADS.
+   * Raufoss rounds (TUNING.raufoss). It never fires. `label` is what the HUD calls it while it is loaded. Instead of ADS, unless
+   * `hold` is set: then R held that long switches it, as a `select` gun's selector, a tap still reloads, and right click aims.
    */
-  altAmmo?: { readonly label: string };
+  altAmmo?: { readonly label: string; readonly hold?: number };
   /** Every round is a Raufoss round, with no switch: the Sabot with its shop mod (mods.ts). */
   raufoss?: boolean;
   /**
@@ -232,7 +233,8 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
   // with an ACOG and a suppressor fitted (mods.ts `ISSUED`). Hold R for bursts of three, or, with the launcher fitted, the launcher.
   gimlet: {
     ...BASE, id: 'gimlet', name: 'GIMLET', slot: 1, base: 'smg', mode: 'auto',
-    magSize: 30, reserve: 210, maxReserve: 420, reloadTime: 1.2, drawTime: 0.2,
+    // A reload 15% quicker than its first 1.2 s (owner, 2026-11-16); the clip and its foley are fractions of it, so they keep up.
+    magSize: 30, reserve: 210, maxReserve: 420, reloadTime: 1.02, drawTime: 0.2,
     // 800 rounds a minute, the SMG's.
     interval: 0.075, damage: 40, severMult: 1.4, force: 10,
     falloff: { from: 60, to: 140, floor: 0.75 },
@@ -502,7 +504,9 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     reloadFoley: [[0.05, 'reload_mag_out'], [0.5, 'reload_mag_in'], [0.8, 'piledriver_charge']], drawSound: 'weapon_draw_heavy',
     recoil: 1, kick: 0.016, shake: 0.045, fovPunch: 1.3,
     climb: { pitch: 0.0028, yaw: 0.0016 },
-    altAmmo: { label: 'RAUFOSS' },
+    // Hold R for Raufoss and back (owner, 2026-11-16), so right click aims down the ladder again.
+    altAmmo: { label: 'RAUFOSS', hold: 0.3 },
+    ads: { zoom: 0.3, time: 0.3 },
   },
   kiln: {
     ...BASE, id: 'kiln', name: 'KILN', slot: 9, mode: 'stream',
@@ -836,7 +840,7 @@ export const TUNING = {
    * A Raufoss round: it stops on the first thing it strikes and bursts there (`burst`, fragments to anyone else close), the
    * body it struck taking `direct` times the round, then `pellets` fragments go on out of the far side in a cone of `cone`
    * radians: through the cover it struck, up to `wall` metres of it, or out of the back of the man. Each pellet is `share`
-   * of the round, up to `range` metres. The Piledriver's right click; the Crucible will sell it for the Sabot.
+   * of the round, up to `range` metres. The Piledriver's, on R held; the Crucible sells it for the Sabot.
    */
   raufoss: {
     direct: 1.25, burst: { radius: 1.3, damage: 22, sound: 'raufoss_detonation' },

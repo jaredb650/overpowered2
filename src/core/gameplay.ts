@@ -42,7 +42,9 @@ export type ModId = 'awlAcog' | 'awlCan' | 'awlAp' | 'awlHp' | 'suppressor' | 'r
   | 'smgAp' | 'smgHp' | 'gimletAp' | 'gimletHp' | 'harrowAp' | 'harrowHp'
   | 'rivetAp' | 'rivetHp' | 'ultramagAp' | 'ultramagHp' | 'judgeAp' | 'judgeHp' | 'autorafficaAp' | 'autorafficaHp'
   | 'smgPlusP' | 'gimletPlusP' | 'harrowPlusP' | 'rivetPlusP' | 'ultramagPlusP' | 'judgePlusP' | 'autorafficaPlusP' | 'awlPlusP'
-  | 'autorafficaMag';
+  | 'autorafficaMag'
+  // Extended magazines for the SMG, the Rivet and the Piledriver (a box), and the Gimlet's short barrel.
+  | 'smgMag' | 'rivetMag' | 'piledriverBox' | 'gimletShort';
 
 export type Team = 'player' | 'enemy';
 

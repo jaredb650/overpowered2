@@ -4,7 +4,7 @@
  * the men behind him. It forgives a miss on a man behind cover, and shreds a line of them. On a man's armour (a plate, a
  * helmet, a shield) it bursts just behind it, inside him: the pellets are a point-blank blast into his body, past the plate.
  *
- * The Piledriver fires it on right click. The Crucible will sell it fitted to the Sabot: whatever gun carries it hands
+ * The Piledriver fires it once R held loads it. The Crucible will sell it fitted to the Sabot: whatever gun carries it hands
  * `fire` the round it would have fired. Every number is TUNING.raufoss.
  */
 import * as THREE from 'three';

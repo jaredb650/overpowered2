@@ -156,6 +156,19 @@ the dust cover, rubber at both ends, two turrets, a tinted front lens and a 1.1 
 dot on the eye line level (`rear: null`) at `relief` 0.26, and the irons sit under the dot at the bottom of the tube. The Crucible's shop
 shows the same parts on its turning clone of the model. Stills: `tools/out/shop/`.
 
+A mod that stands in for part of the gun names it in `hides` (hidden while fitted, in the rig and the shop's studio), and one that
+shifts another mod's part names it in `moves` (`{ part, z }`, added along the bore while fitted; the studio keeps the rest position
+in `userData.restZ`). **Extended magazines** (2026-11-16): the SMG's, the Rivet's and the Piledriver's box are a second body inside the
+`mag` (`box`) part, `magExt` (`boxExt`) beside `magStd` (`boxStd`), so the reload carries whichever is fitted with no change to
+the clip. The SMG's 45 runs 6.5 cm further down, a grey sleeve with three anodized bands and a flared bumper pad under the stock
+witness window (its own follower, `followerExt`); the Rivet's 22 stands 4 cm out of the grip in a ribbed sleeve with a brass
+witness slot and a flared base; the Piledriver's box keeps its lid at the same height, so the belt climbs out the same way, and is
+twice the volume, deeper and longer forward, with a window down its face onto the folded belt and a lid latch. **The Gimlet's
+short barrel** (`shortBarrel`, hides `barrel`): the pencil barrel from the gas block forward is a part, and the short one ends at
+the launcher's mouth with a burnt-orange jam nut and a stubby four-prong hider; its `moves` brings the `can` back 8.2 cm onto it,
+and `muzzleCan` is a socket on the can, so the flash leaves the can's mouth wherever it is. Stills: `tools/out/mods-b/`
+(`tools/scripts/mags-b-shots.mjs`).
+
 **Optics** (`models/optics.ts`, 2026-11-15). The red dot and the ACOG are built onto any gun's rail with one call (`redDot(m, at)`,
 `acog(m, at)`, `at` the top of the rail under the clamp), each a part of its own, and return the `ModLook` (sight, `rear: null`, relief)
 the gun lists in its `mods`; `OPTIC_GLOWS` goes in the model's glows and `acogShade(model)` after the model is built. The Harrow takes

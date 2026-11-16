@@ -16,7 +16,7 @@ export interface ModDef {
   /** What it changes in the gun's row. */
   patch: Partial<WeaponDef>;
   /** A gun takes one of each: an optic, and a kind of round. Fitting one takes off any other of its slot on the same gun. */
-  slot?: 'sight' | 'ammo';
+  slot?: 'sight' | 'ammo' | 'mag' | 'barrel';
 }
 
 const smg = WEAPONS.smg;
@@ -54,7 +54,7 @@ export const MODS: Readonly<Record<ModId, ModDef>> = {
   reddot: { id: 'reddot', weapon: 'harrow', name: 'Red dot sight', patch: {}, slot: 'sight' },
   // The ACOG (viewmodels/models/optics.ts), the Gimlet's own, for the Harrow: the view narrows to it.
   harrowAcog: { id: 'harrowAcog', weapon: 'harrow', name: 'ACOG', patch: { ads: ACOG }, slot: 'sight' },
-  // Every dart is a Raufoss round (raufoss.ts), as the Piledriver's right click loads. The Sabot's right click stays its scope.
+  // Every dart is a Raufoss round (raufoss.ts), as the Piledriver's held R loads. The Sabot's right click stays its scope.
   raufoss: { id: 'raufoss', weapon: 'sabot', name: 'Raufoss rounds', patch: { raufoss: true } },
   // The Gimlet's. It is issued with the ACOG and the can on (`ISSUED`); the red dot swaps for the ACOG.
   gimletAcog: { id: 'gimletAcog', weapon: 'gimlet', name: 'ACOG', patch: { ads: ACOG }, slot: 'sight' },
@@ -66,6 +66,13 @@ export const MODS: Readonly<Record<ModId, ModDef>> = {
   },
   // The M203: hold R raises it (Weapons.select), and it fires LAUNCHER's grenade.
   gimletGl: { id: 'gimletGl', weapon: 'gimlet', name: 'Grenade launcher', patch: { launcher: true } },
+  // A short barrel cut back to the launcher's mouth: the gas port nearer the muzzle cycles it 15% faster (800 to 920 a minute,
+  // a short carbine's real gain). The can screws onto it and the launcher still fits, so it stacks with both.
+  gimletShort: { id: 'gimletShort', weapon: 'gimlet', name: 'Short barrel', slot: 'barrel', patch: { interval: WEAPONS.gimlet.interval / 1.15 } },
+  // Extended magazines: more rounds and nothing else. The Piledriver's is a box twice the size, 100 rounds of belt where it was 50.
+  smgMag: { id: 'smgMag', weapon: 'smg', name: 'Extended magazine', slot: 'mag', patch: { magSize: 45 } },
+  rivetMag: { id: 'rivetMag', weapon: 'rivet', name: 'Extended magazine', slot: 'mag', patch: { magSize: 22 } },
+  piledriverBox: { id: 'piledriverBox', weapon: 'piledriver', name: 'Extended box', slot: 'mag', patch: { magSize: 100 } },
   smgAp: rounds('smg', 'ap'), smgHp: rounds('smg', 'hp'),
   gimletAp: rounds('gimlet', 'ap'), gimletHp: rounds('gimlet', 'hp'),
   harrowAp: rounds('harrow', 'ap'), harrowHp: rounds('harrow', 'hp'),
@@ -92,6 +99,7 @@ export const MOD_ORDER: readonly ModId[] = [
   'reddot', 'harrowAcog', 'harrowAp', 'harrowHp', 'harrowPlusP', 'raufoss', 'rivetAp', 'rivetHp', 'rivetPlusP', 'ultramagAp', 'ultramagHp', 'ultramagPlusP', 'judgeAp', 'judgeHp', 'judgePlusP',
   'autorafficaAp', 'autorafficaHp', 'autorafficaPlusP', 'autorafficaMag',
   'ultramagCan', 'ultramagDot', 'ultramagLam', 'ultramagMag',
+  'smgMag', 'gimletShort', 'rivetMag', 'piledriverBox',
 ];
 
 /** Held and fitted at the start of every run: the Gimlet's ACOG and suppressor. The shop takes them off and puts them back. */

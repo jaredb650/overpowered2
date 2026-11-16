@@ -1178,6 +1178,10 @@ export class Rig implements ViewmodelRig {
       const look = mods[id as ModId]!;
       const part = def.model.parts[look.part];
       if (part) part.visible = fitted?.has(id as ModId) === true;
+      const own = look.hides && fitted?.has(id as ModId) ? def.model.parts[look.hides] : undefined;
+      if (own) own.visible = false;
+      const moved = look.moves && fitted?.has(id as ModId) ? def.model.parts[look.moves.part] : undefined;
+      if (moved) moved.position.z += look.moves!.z;
       const inner = look.inner ? def.model.parts[look.inner] : undefined;
       if (inner) inner.visible = this.aimW < INNER_AT;
     }

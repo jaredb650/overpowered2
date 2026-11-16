@@ -672,7 +672,7 @@ export class Weapons implements WeaponSystem, Guard {
       return;
     }
     const alt = WEAPONS[this.current].altAmmo;
-    if (alt && c.input.pressed('aim')) this.toggleAmmo(this.current, alt.label);
+    if (alt && !alt.hold && c.input.pressed('aim')) this.toggleAmmo(this.current, alt.label);
     this.updateReload(dt);
     if (this.smart.on) this.smart.update(dt, WEAPONS[this.current].smart!, this.smartHooks);
     this.updateGun(dt);
@@ -807,16 +807,17 @@ export class Weapons implements WeaponSystem, Guard {
     this.updateCycle(dt);
     const { input } = this.ctx;
     const def = WEAPONS[this.current];
-    const select = def.select ?? def.smart;
-    // A `select` or `smart` gun reads R on its release: held past `hold` it switches (`select`), let go sooner it reloads.
+    // A `select`, `smart` or held `altAmmo` gun reads R on its release: held past `hold` it switches (`select`), let go sooner it
+    // reloads.
+    const hold = (def.select ?? def.smart ?? def.altAmmo)?.hold;
     let tap = false;
-    if (select) {
+    if (hold !== undefined) {
       if (input.pressed('reload') && !this.reloading) this.rHeld = 0;
       if (this.rHeld >= 0) {
         if (!input.isDown('reload')) {
           this.rHeld = -1;
           tap = true;
-        } else if ((this.rHeld += dt) >= select.hold) {
+        } else if ((this.rHeld += dt) >= hold) {
           this.rHeld = -1;
           this.select();
         }
@@ -880,6 +881,11 @@ export class Weapons implements WeaponSystem, Guard {
    * auto. A click, and the mode called out under the crosshair.
    */
   private select(): void {
+    const alt = WEAPONS[this.current].altAmmo;
+    if (alt) {
+      this.toggleAmmo(this.current, alt.label);
+      return;
+    }
     if (WEAPONS[this.current].smart) {
       this.smartOn = !this.smartOn;
       this.burstLeft = 0;

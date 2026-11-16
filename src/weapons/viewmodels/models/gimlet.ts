@@ -9,7 +9,7 @@ import { Kit } from '../kit/kit';
 import { Model } from '../kit/model';
 import { F } from '../kit/finishes';
 import type { Finish, Mesher } from '../kit/mesher';
-import { curve, poly, rect, type P2 } from '../kit/shapes';
+import { curve, poly, rect, type P2, type V2 } from '../kit/shapes';
 import { hexX, knurl, screwX, serrations } from '../kit/details';
 import { damp } from '../../../core/math';
 import { bump, hold, inOut, inQuad, outCubic, seg, thud } from '../curves';
@@ -31,6 +31,9 @@ const GAS = -0.352;
 const POST = RAIL_FRONT + 0.009;
 const HIDER = -0.528;
 const MUZZLE = -0.578;
+/** The short barrel's: its muzzle level with the launcher's, so the two still fit together. */
+const HIDER_S = -0.446;
+const MUZZLE_S = -0.482;
 /** The irons' line, front post to rear aperture: level. */
 const IRONS = 0.106;
 /** Where an optic clamps on the rail, over the port. */
@@ -172,7 +175,12 @@ function gasBlock(m: Mesher): void {
 function barrel(m: Mesher): void {
   m.at([0, BORE, 0], null, () => {
     m.use(F.barrel);
-    m.lathe([[0.0102, GUARD_REAR, 0], [0.0102, GAS + 0.004], [0.0092, GAS], [0.0092, HIDER, 0]], 20);
+    // Breech to the gas block, which both barrels share; the rest is the long barrel's part or the short one's.
+    m.lathe([[0.0102, GUARD_REAR, 0], [0.0102, GAS + 0.004], [0.0092, GAS], [0.0092, GAS - 0.01, 0]], 20);
+  });
+  m.part('barrel', [0, BORE, 0], () => {
+    m.use(F.barrel);
+    m.lathe([[0.0092, GAS - 0.006, 0], [0.0092, HIDER, 0]], 20);
     // The A2 birdcage: a sleeve with slots on the top and sides and a closed bottom, so the muzzle does not kick up dust.
     m.use(F.barrelBlack);
     m.lathe([[0.0092, HIDER + 0.002, 0], [0.0112, HIDER], [0.0112, MUZZLE + 0.004], [0.0098, MUZZLE], [0.0058, MUZZLE, 0]], 20);
@@ -181,6 +189,33 @@ function barrel(m: Mesher): void {
       m.at([Math.sin(a) * 0.011, Math.cos(a) * 0.011, (HIDER + MUZZLE) / 2], [0, 0, -a], () => m.box(0.0028, 0.0012, 0.03, 0));
     }
     m.lathe([[0.0058, MUZZLE + 0.0005, 0], [0.0052, MUZZLE + 0.03, 0], [0, MUZZLE + 0.031, 0]], 14);
+  });
+}
+
+/**
+ * The shop's short barrel (`gimletShort`): cut back to the launcher's mouth, so a hand's width less pencil barrel shows ahead
+ * of the gas block. A burnt-orange jam nut, the handguard's colour, then a stubby four-prong hider the can threads over.
+ */
+function shortBarrel(m: Mesher): void {
+  m.part('shortBarrel', [0, BORE, 0], () => {
+    m.use(F.barrel);
+    m.lathe([[0.0092, GAS - 0.006, 0], [0.0092, HIDER_S, 0]], 20);
+    m.use(ACCENT);
+    m.lathe([[0.0092, HIDER_S + 0.008, 0], [0.0118, HIDER_S + 0.0075], [0.0122, HIDER_S + 0.004], [0.0122, HIDER_S + 0.001], [0.0092, HIDER_S, 0]], 6);
+    m.use(F.barrelBlack);
+    m.lathe([[0.0092, HIDER_S + 0.001, 0], [0.0108, HIDER_S], [0.0108, MUZZLE_S + 0.016], [0.0102, MUZZLE_S + 0.012]], 20);
+    // Four prongs, the slots between them open to the muzzle.
+    for (let i = 0; i < 4; i++) {
+      m.at([0, 0, MUZZLE_S + 0.006], [0, 0, (i / 4) * Math.PI * 2 + Math.PI / 4], () => {
+        const p: V2[] = [];
+        const sweep = 0.55;
+        for (let k = 0; k <= 6; k++) { const t = -sweep + (k / 6) * sweep * 2; p.push([Math.cos(t) * 0.0102, Math.sin(t) * 0.0102]); }
+        for (let k = 6; k >= 0; k--) { const t = -sweep + (k / 6) * sweep * 2; p.push([Math.cos(t) * 0.0064, Math.sin(t) * 0.0064]); }
+        m.prism(p, 0.012, { bevel: 0.0007, smooth: 30 });
+      });
+    }
+    m.use(F.black);
+    m.lathe([[0.0064, MUZZLE_S + 0.012, 0], [0.0052, MUZZLE_S + 0.03, 0], [0, MUZZLE_S + 0.031, 0]], 14);
   });
 }
 
@@ -205,9 +240,10 @@ function irons(m: Mesher): void {
 
 /** The shop's suppressor: a long can over the birdcage, its mouth the muzzle while it is on. */
 const CAN_END = -0.71;
+const CAN_AT = HIDER + 0.012;
 
 function suppressor(m: Mesher): void {
-  m.part('can', [0, BORE, HIDER + 0.012], () => {
+  m.part('can', [0, BORE, CAN_AT], () => {
     m.use(F.anodized);
     m.lathe([[0.0118, 0.004, 0], [0.0152, 0.004], [0.0152, -0.012], [0.0192, -0.019], [0.0195, -0.182], [0.0172, -0.19], [0.0064, -0.194, 0]], 26);
     m.at([0, 0, -0.004], null, () => knurl(m, 0.0155, 0.014, F.steelDark, 22, 0.0005));
@@ -292,6 +328,7 @@ function buildGimlet(kit: Kit): Built {
   lower(m);
   furniture(m);
   barrel(m);
+  shortBarrel(m);
   gasBlock(m);
   irons(m);
   magazine(m);
@@ -320,7 +357,9 @@ function buildGimlet(kit: Kit): Built {
   const model = new Model(m, kit.mats, { glows: { sight: [0x7dff5a, 6], guard: [0x2ff0d0, 4], ...OPTIC_GLOWS } });
   acogShade(model);
   model.socket('muzzle', [0, BORE, MUZZLE - 0.004]);
-  model.socket('muzzleCan', [0, BORE, CAN_END]);
+  // On the can, so it goes back with it onto the short barrel.
+  model.socket('muzzleCan', [0, 0, CAN_END - CAN_AT], [0, 0, 0], 'can');
+  model.socket('muzzleShort', [0, BORE, MUZZLE_S - 0.004]);
   // The launcher's mouth: its shot is fired as barrel 1 (Weapons.shootGun).
   model.socket('muzzle1', [0, GL_Y, GL_MUZZLE]);
   model.socket('eject', [0.02, 0.054, -0.012]);
@@ -331,7 +370,9 @@ function buildGimlet(kit: Kit): Built {
   model.hand('glBreech', [-0.022, GL_Y - 0.01, GUARD_REAR - 0.12], [-0.5, -0.2, -0.8], [0.8, -0.3, -0.5]);
   model.hand('magHold', [-0.02, -0.07, -0.004], [-0.3, 0.1, -0.95], [0.9, -0.1, -0.35], 'mag');
   model.hand('chargeHold', [-0.02, 0.0, 0.006], [-0.5, -0.2, -0.8], [0.8, -0.3, -0.5], 'charge');
-  return { model, mods: { gimletAcog: scope, gimletDot: dot, gimletCan: { part: 'can', muzzle: 'muzzleCan' }, gimletGl: { part: 'gl' } } };
+  return { model, mods: { gimletAcog: scope, gimletDot: dot, gimletCan: { part: 'can', muzzle: 'muzzleCan' }, gimletGl: { part: 'gl' },
+    // After the can, so with both on the flash leaves the can's mouth, and the can comes back onto the stub.
+    gimletShort: { part: 'shortBarrel', hides: 'barrel', muzzle: 'muzzleShort', moves: { part: 'can', z: HIDER_S - HIDER } } } };
 }
 
 const BOLT_TRAVEL = 0.05;

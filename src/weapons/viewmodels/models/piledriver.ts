@@ -151,6 +151,35 @@ function barrel(m: Mesher): void {
   });
 }
 
+/** A belt box `h` tall and `len` long, centred on its part, 7.8 cm wide. The big one has a window onto the belt and a latch. */
+function beltBox(m: Mesher, h: number, len: number, big: boolean): void {
+  m.use(F.olive);
+  m.box(0.078, h, len, 0.003, 0.006);
+  m.use(F.oliveDark);
+  const ribs = big ? [-0.1, -0.02, 0.1] : [-0.06, 0, 0.06];
+  for (const z of ribs) m.at([-0.04, 0, z], null, () => m.box(0.0036, h - 0.012, 0.014, 0.001));
+  m.at([0, h / 2 + 0.002, 0], null, () => m.box(0.08, 0.006, len + 0.002, 0.0016, 0.003));
+  m.at([-0.0405, h / 2 - 0.045, big ? 0.04 : 0], [0, -Math.PI / 2, 0], () => m.decal('cal127', 0.1, 0.0156, 0xd8d0a0));
+  m.use(F.webbing);
+  m.at([0, h / 2 + 0.0065, 0.0], null, () => m.box(0.022, 0.003, len + 0.004, 0.001));
+  if (!big) return;
+  // The window: a slot down the outer face between two ribs, the folded belt's outer rounds stacked in it, nose forward.
+  m.use(F.black);
+  m.at([-0.0392, -0.008, -0.056], null, () => m.box(0.002, h - 0.05, 0.044, 0.0006));
+  for (let i = 0; i < 8; i++) {
+    m.at([-0.0388, h / 2 - 0.04 - i * PITCH, -0.052], null, () => {
+      m.use(F.brass);
+      m.cyl(0.0064, 0.03, 12);
+      m.use(F.copper);
+      m.at([0, 0, -0.019], null, () => m.lathe([[0.0062, 0.004, 0], [0.0052, -0.003], [0.0026, -0.009], [0, -0.0105, 0]], 12));
+    });
+  }
+  m.use(F.steelDark);
+  // A lid latch on the front face, and the strap's buckle.
+  m.at([0, h / 2 - 0.012, -len / 2 - 0.003], null, () => m.box(0.026, 0.016, 0.006, 0.0012, 0.002));
+  m.at([0, h / 2 + 0.0075, len / 2 - 0.03], null, () => m.box(0.028, 0.004, 0.014, 0.001));
+}
+
 function feed(m: Mesher): void {
   // Feed cover: hinged at its front edge, thrown open to lay a belt.
   m.part('cover', [0, 0.098, -0.142], () => {
@@ -164,16 +193,12 @@ function feed(m: Mesher): void {
     m.at([0, 0.01, 0.13], null, () => m.box(0.022, 0.008, 0.008, 0.0012));
   });
 
-  // Belt box: olive steel, hung on the left on a bracket, with a lid and a strap.
+  // Belt box: olive steel, hung on the left on a bracket, with a lid and a strap. The shop's box (`piledriverBox`, 100 rounds) is
+  // in the same part, shown in the stock one's place (ModLook.hides): its lid at the same height, so the belt climbs out of it the
+  // same way, but twice the volume, deeper and longer forward, with a window down its face onto the folded belt.
   m.part('box', [-(HALF + 0.05), -0.02, -0.085], () => {
-    m.use(F.olive);
-    m.box(0.078, 0.134, 0.168, 0.003, 0.006);
-    m.use(F.oliveDark);
-    for (const z of [-0.06, 0, 0.06]) m.at([-0.04, 0, z], null, () => m.box(0.0036, 0.122, 0.014, 0.001));
-    m.at([0, 0.069, 0], null, () => m.box(0.08, 0.006, 0.17, 0.0016, 0.003));
-    m.at([-0.0405, 0.022, 0], [0, -Math.PI / 2, 0], () => m.decal('cal127', 0.1, 0.0156, 0xd8d0a0));
-    m.use(F.webbing);
-    m.at([0, 0.0735, 0.0], null, () => m.box(0.022, 0.003, 0.172, 0.001));
+    m.part('boxStd', [0, 0, 0], () => beltBox(m, 0.134, 0.168, false));
+    m.part('boxExt', [0, 0.067 - 0.1, -0.026], () => beltBox(m, 0.2, 0.22, true));
     m.use(F.steelDark);
     m.at([0.045, 0.03, 0], null, () => m.box(0.012, 0.05, 0.1, 0.0014));
   });
@@ -320,6 +345,7 @@ export function piledriverDef(kit: Kit): ViewDef {
     right: { socket: 'gripR', pose: HANDS.grip },
     left: { socket: 'gripL', pose: HANDS.foregrip },
     heatPerShot: 0.03,
+    mods: { piledriverBox: { part: 'boxExt', hides: 'boxStd' } },
     animate: clip,
   };
 }

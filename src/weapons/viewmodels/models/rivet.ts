@@ -7,7 +7,7 @@ import { Kit } from '../kit/kit';
 import { Model } from '../kit/model';
 import { F } from '../kit/finishes';
 import type { Finish, Mesher } from '../kit/mesher';
-import { curve, poly, slotRow, type V2 } from '../kit/shapes';
+import { curve, poly, rect, slotRow, type V2 } from '../kit/shapes';
 import { screwX } from '../kit/details';
 import { bump, hold, inOut, inQuad, outCubic, seg, thud } from '../curves';
 import type { Anim, ViewDef } from '../def';
@@ -98,18 +98,42 @@ function slide(m: Mesher): void {
   });
 }
 
+/** How far the stock fifteen and the shop's twenty-two (`rivetMag`) reach below the mouth of the well. */
+const MAG_FOOT = -0.118;
+const EXT_FOOT = -0.158;
+
 function magazine(m: Mesher): void {
-  // Part space: origin at the mouth of the well. It follows the rake of the grip.
+  // Part space: origin at the mouth of the well. It follows the rake of the grip. The stock magazine and the extended one are
+  // both in it, one shown at a time (ModLook.hides), so the reload carries whichever is fitted.
   m.part('mag', [0, -0.01, 0.052], () => {
     m.at([0, 0, 0], [-0.19, 0, 0], () => {
-      m.use(F.steelDark);
-      m.side(poly([[-0.017, 0.022], [0.017, 0.022], [0.017, -0.118, 0.003], [-0.017, -0.118, 0.003]], 0.0015), 0.021, { bevel: 0.0012 });
-      // Witness holes down the back.
-      m.use(F.black);
-      for (let i = 0; i < 5; i++) m.at([0, -0.03 - i * 0.017, 0.0172], null, () => m.cyl(0.0022, 0.0012, 8, 0));
-      // Extended pad: the three extra rounds live in it.
-      m.use(F.polymerGrey);
-      m.at([0, -0.126, 0.003], null, () => m.box(0.03, 0.018, 0.046, 0.003, 0.005));
+      m.part('magStd', [0, 0, 0], () => {
+        m.use(F.steelDark);
+        m.side(poly([[-0.017, 0.022], [0.017, 0.022], [0.017, MAG_FOOT, 0.003], [-0.017, MAG_FOOT, 0.003]], 0.0015), 0.021, { bevel: 0.0012 });
+        // Witness holes down the back.
+        m.use(F.black);
+        for (let i = 0; i < 5; i++) m.at([0, -0.03 - i * 0.017, 0.0172], null, () => m.cyl(0.0022, 0.0012, 8, 0));
+        // Extended pad: the three extra rounds live in it.
+        m.use(F.polymerGrey);
+        m.at([0, -0.126, 0.003], null, () => m.box(0.03, 0.018, 0.046, 0.003, 0.005));
+      });
+      m.part('magExt', [0, 0, 0], () => {
+        // A longer steel body standing a hand's width out of the grip, under a polymer sleeve that the grip's flare runs
+        // into, ribbed for the off hand's fingers, and a flared base with a brass witness strip so the extra seven show.
+        m.use(F.steelDark);
+        m.side(poly([[-0.017, 0.022], [0.017, 0.022], [0.017, EXT_FOOT, 0.003], [-0.017, EXT_FOOT, 0.003]], 0.0015), 0.021, { bevel: 0.0012 });
+        m.use(F.black);
+        for (let i = 0; i < 7; i++) m.at([0, -0.03 - i * 0.017, 0.0172], null, () => m.cyl(0.0022, 0.0012, 8, 0));
+        m.use(F.polymerGrey);
+        m.side(poly([[-0.0196, -0.112], [0.0204, -0.112], [0.0212, EXT_FOOT - 0.004, 0.003], [-0.0212, EXT_FOOT - 0.004, 0.003]], 0.0015), 0.0262, { bevel: 0.0014 });
+        m.use(F.polymer);
+        for (let i = 0; i < 3; i++) m.at([0, -0.124 - i * 0.01, 0.0005], null, () => m.box(0.0438, 0.0028, 0.0272, 0.001));
+        m.at([0, EXT_FOOT - 0.009, 0.004], null, () => m.side(poly([[-0.027, 0.006], [0.025, 0.006], [0.027, -0.004, 0.003], [-0.029, -0.004, 0.003]], 0.0015), 0.031, { bevel: 0.0015 }));
+        m.use(F.black);
+        m.at([-0.0132, -0.136, 0.0005], [0, -Math.PI / 2, 0], () => m.prism(rect(-0.0065, -0.012, 0.0065, 0.012, 0.0015), 0.0012, { bevel: 0 }));
+        m.use(F.brass);
+        for (let i = 0; i < 3; i++) m.at([-0.0128, -0.128 - i * 0.008, 0.0005], null, () => m.cyl(0.0028, 0.011, 8));
+      });
       m.use(F.steel);
       m.mirror(() => m.at([0.0078, 0.0225, 0], null, () => m.box(0.0022, 0.005, 0.03, 0.0005)));
       m.at([0, 0.025, -0.004], [0.06, 0, 0], () => round(m, 0.0052, 0.018, 0.012));
@@ -203,6 +227,7 @@ export function rivetDef(kit: Kit): ViewDef {
     right: { socket: 'gripR', pose: HANDS.grip },
     left: { socket: 'gripL', pose: HANDS.pistolSupport },
     heatPerShot: 0.02,
+    mods: { rivetMag: { part: 'magExt', hides: 'magStd' } },
     animate: clip,
   };
 }

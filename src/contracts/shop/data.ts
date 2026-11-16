@@ -158,11 +158,8 @@ const WEAPON_CATALOGUE: Readonly<Partial<Record<WeaponId, Ware>>> = {
 
 export function weaponWares(contract: ContractId): Readonly<Partial<Record<WeaponId, Ware>>> {
   const starting = new Set(survivalLoadout(contract));
-  // Kill House / Endless Humans: compress the catalogue's weapon progression into waves 0–9. The cap also
-  // covers future weapons with later catalogue locks; the Crucible and all non-weapon wares keep their locks.
   return Object.fromEntries(Object.entries(WEAPON_CATALOGUE).map(([id, ware]) =>
-    [id, starting.has(id as WeaponId) ? { ...ware, price: 0, wave: 0 }
-      : contract === 'outpost' ? { ...ware, wave: Math.min(9, Math.ceil(ware.wave / 2)) } : ware]));
+    [id, starting.has(id as WeaponId) ? { ...ware, price: 0, wave: 0 } : ware]));
 }
 
 export const WEAPON_WARES = weaponWares(ACTIVE.def.id);
@@ -185,6 +182,23 @@ export const MOD_WARES: Readonly<Record<ModId, Ware>> = {
   harrowAcog: {
     price: 700, wave: 2,
     lore: 'Four-power magnification for the Harrow. The target appears four times larger, and in the Council\'s experience so does the paperwork.',
+  },
+  // Extended magazines and the Gimlet's short barrel (weapons/mods.ts): a mag slot and a barrel slot, beside the optic and the round.
+  smgMag: {
+    price: 500, wave: 1,
+    lore: 'Forty-five rounds where there were thirty. The Council found that most contractors reload at the worst possible moment and has moved that moment back.',
+  },
+  rivetMag: {
+    price: 300, wave: 2,
+    lore: 'Twenty-two rounds for the Rivet, seven more chances to make the first one count. The magazine now leaves the grip by a hand\'s width, like the contractor\'s confidence.',
+  },
+  piledriverBox: {
+    price: 1800, wave: 16,
+    lore: 'A box twice the size: a hundred rounds of belt before you stop. The Council has not been able to find a reason to stop. It has stopped looking.',
+  },
+  gimletShort: {
+    price: 800, wave: 3,
+    lore: 'Ten centimetres off the Gimlet\'s barrel and fifteen percent on its rate of fire. The can screws back onto the stub and the launcher still fits under it. Procurement searched for a catch and has filed none.',
   },
   // The Gimlet's ACOG and suppressor are issued fitted (weapons/mods.ts ISSUED): price 0, listed so they can be taken off.
   gimletAcog: {

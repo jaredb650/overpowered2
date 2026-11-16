@@ -1,4 +1,4 @@
-/** Right click's second kind of round: the Stakegun's exploding bolts and the Piledriver's Raufoss rounds. */
+/** A second kind of round: the Stakegun's exploding bolts on right click, the Piledriver's Raufoss rounds on R held. */
 import * as THREE from 'three';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { WeaponId } from '../core/gameplay';
@@ -16,6 +16,21 @@ function draw(id: WeaponId): void {
   r.weapons.switchTo(id);
   r.run(0.6);
   expect(r.weapons.current).toBe(id);
+}
+
+/** R held past its hold, then let go. */
+function holdR(seconds: number): void {
+  r.input.simulate('reload', true);
+  r.run(seconds);
+  r.input.simulate('reload', false);
+  r.run(1 / 60);
+}
+
+/** The Piledriver in hand with its Raufoss rounds loaded: R held. */
+function raufoss(): void {
+  draw('piledriver');
+  holdR(WEAPONS.piledriver.altAmmo!.hold! + 0.05);
+  expect(r.weapons.ammoMode).toBe('RAUFOSS');
 }
 
 /** One round: the trigger down for a frame. */
@@ -43,10 +58,25 @@ describe('the toggle', () => {
     expect(r.weapons.ammo('stakegun').mag).toBe(WEAPONS.stakegun.magSize);
     r.tap('aim');
     expect(r.weapons.ammoMode).toBe('');
-    draw('piledriver');
-    r.tap('aim');
-    expect(r.weapons.ammoMode).toBe('RAUFOSS');
+  });
+
+  it('on the Piledriver R held loads Raufoss and back, a tap still reloads, and right click aims', () => {
+    raufoss();
+    expect(r.record.sounds).toContain('reload_bolt');
     expect(r.weapons.ammo('piledriver').mag).toBe(WEAPONS.piledriver.magSize);
+    expect(r.weapons.reloading).toBe(false);
+    holdR(WEAPONS.piledriver.altAmmo!.hold! + 0.05);
+    expect(r.weapons.ammoMode).toBe('');
+    r.tap('aim');
+    expect(r.weapons.ammoMode).toBe('');
+    r.run(WEAPONS.piledriver.ads!.time + 0.1);
+    expect(r.weapons.aim).toBe(1);
+    r.tap('aim');
+    r.run(0.5);
+    r.weapons.ammo('piledriver').mag = 10;
+    holdR(0.1);
+    expect(r.weapons.reloading).toBe(true);
+    expect(r.weapons.ammoMode).toBe('');
   });
 });
 
@@ -109,8 +139,7 @@ describe('Raufoss rounds', () => {
   it('burst on cover and throw their pellets out of the far side into the man behind it', () => {
     r.wall(-8, 0.3);
     const behind = r.enemies.add(0, -12);
-    draw('piledriver');
-    r.tap('aim');
+    raufoss();
     fire();
     expect(r.weapons.ammo('piledriver').mag).toBe(WEAPONS.piledriver.magSize - 1);
     expect(r.combat.bursts.stats.bursts).toBe(1);
@@ -129,8 +158,7 @@ describe('Raufoss rounds', () => {
   it('burst on a wall too thick to pass and stop there', () => {
     r.wall(-8, 2);
     const behind = r.enemies.add(0, -12);
-    draw('piledriver');
-    r.tap('aim');
+    raufoss();
     fire();
     expect(r.combat.bursts.stats.bursts).toBe(1);
     expect(r.record.tracers.filter(t => t.kind === 'bullet').length).toBe(0);
@@ -140,8 +168,7 @@ describe('Raufoss rounds', () => {
   it('on a man, hit him hard and come out of his back into the man behind', () => {
     const front = r.enemies.add(0, -8);
     const back = r.enemies.add(0, -11);
-    draw('piledriver');
-    r.tap('aim');
+    raufoss();
     fire();
     expect(front.hits.length).toBe(1);
     expect(front.hits[0]!.amount).toBeCloseTo(WEAPONS.piledriver.damage * rauf.direct, 5);
@@ -153,8 +180,7 @@ describe('Raufoss rounds', () => {
     const front = r.enemies.add(0, -8);
     front.armor = 50;
     const back = r.enemies.add(0, -11);
-    draw('piledriver');
-    r.tap('aim');
+    raufoss();
     fire();
     // The round itself on the plate, then every pellet into him through it.
     expect(front.hits.length).toBe(1 + rauf.pellets);

@@ -46,10 +46,10 @@ function pelletAngles(shots: number): number[] {
 describe('aim down sights', () => {
   it('is on the guns whose right button does nothing else, and only them', () => {
     const ads = (Object.keys(WEAPONS) as WeaponId[]).filter(id => WEAPONS[id].ads);
-    expect(ads).toEqual(['smg', 'gimlet', 'harrow', 'shotgun', 'thresher', 'rivet', 'ultramag', 'autoraffica']);
-    // The Deuce's right click is both barrels, the Judge's its fanning, the Rocket's its laser, the Piledriver's and Stakegun's
-    // their other round. The Rivet aims again since its burst went to the Autoraffica, whose burst is the trigger's.
-    for (const id of ['rocket', 'sabot', 'autocannon', 'lance', 'buzzsaw', 'quiver', 'sword', 'knife', 'kiln', 'deuce', 'judge', 'piledriver', 'stakegun'] as WeaponId[]) {
+    expect(ads).toEqual(['smg', 'gimlet', 'harrow', 'shotgun', 'thresher', 'rivet', 'ultramag', 'autoraffica', 'piledriver']);
+    // The Deuce's right click is both barrels, the Judge's its fanning, the Rocket's its laser, the Stakegun's its other round
+    // (the Piledriver's went to R held and it aims). The Rivet aims again since its burst went to the Autoraffica, whose burst is the trigger's.
+    for (const id of ['rocket', 'sabot', 'autocannon', 'lance', 'buzzsaw', 'quiver', 'sword', 'knife', 'kiln', 'deuce', 'judge', 'stakegun'] as WeaponId[]) {
       expect(WEAPONS[id].ads, id).toBeUndefined();
     }
   });

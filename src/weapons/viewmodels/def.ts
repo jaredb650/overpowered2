@@ -67,6 +67,10 @@ export function ironsUp(def: ViewDef, fitted: ReadonlySet<ModId> | null | undefi
 /** A fitted mod on the gun: its part (hidden until fitted), and the sight or muzzle it puts in place of the gun's own. */
 export interface ModLook {
   part: string;
+  /** A part of the gun's own that the mod takes the place of, hidden while it is fitted: the Trommel's six barrels. */
+  hides?: string;
+  /** Another part this mod moves along the bore while fitted, metres (+ is back): the Gimlet's short barrel brings its can back. */
+  moves?: { readonly part: string; readonly z: number };
   /** Replace `sight`, `rear` (null for an optic: level) and `relief` while fitted. */
   sight?: Tuple3;
   rear?: Tuple3 | null;
