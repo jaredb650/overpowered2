@@ -40,4 +40,13 @@ describe('mod cheat rows', () => {
     expect(w.fitted.has('harrowAp')).toBe(false);
     expect(w.mods.has('harrowAp')).toBe(true);
   });
+
+  it('fits the Autoraffica\'s extended magazine from its row: 30 rounds a magazine, and off again', () => {
+    const w = r.weapons;
+    modCheat(w, 'autorafficaMag', 'fit');
+    expect(w.fitted.has('autorafficaMag')).toBe(true);
+    expect(w.ammo('autoraffica').magSize).toBe(30);
+    modCheat(w, 'autorafficaMag', 'fit');
+    expect(w.ammo('autoraffica').magSize).toBe(21);
+  });
 });

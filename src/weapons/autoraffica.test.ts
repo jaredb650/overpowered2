@@ -80,6 +80,29 @@ describe('the Autoraffica on paper', () => {
   });
 });
 
+describe('the extended magazine', () => {
+  it('holds 30 where the gun holds 21: a reload fills it, and taking it off puts the rounds over 21 back in the reserve', () => {
+    const ext = MODS.autorafficaMag;
+    expect(ext.weapon).toBe('autoraffica');
+    expect(MOD_ORDER).toContain('autorafficaMag');
+    expect(MOD_WARES.autorafficaMag.price).toBeGreaterThan(0);
+    expect(MOD_WARES.autorafficaMag.wave).toBeGreaterThan(0);
+    r.weapons.grantMod('autorafficaMag');
+    r.weapons.fitMod('autorafficaMag', true);
+    const a = r.weapons.ammo('autoraffica');
+    expect(a.magSize).toBe(30);
+    expect(a.mag).toBe(A.magSize);
+    r.tap('reload');
+    r.run(ext.patch.reloadTime! + 0.2);
+    expect(a.mag).toBe(30);
+    const total = a.mag + a.reserve;
+    r.weapons.fitMod('autorafficaMag', false);
+    expect(a.magSize).toBe(A.magSize);
+    expect(a.mag).toBe(A.magSize);
+    expect(a.mag + a.reserve).toBe(total);
+  });
+});
+
 describe('the burst', () => {
   it('fires three rounds a pull at its rate, then waits; a pull inside the wait fires nothing more', () => {
     const d = r.enemies.add(0, -10);

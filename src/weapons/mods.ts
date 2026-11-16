@@ -73,6 +73,8 @@ export const MODS: Readonly<Record<ModId, ModDef>> = {
   ultramagAp: rounds('ultramag', 'ap'), ultramagHp: rounds('ultramag', 'hp'),
   judgeAp: rounds('judge', 'ap'), judgeHp: rounds('judge', 'hp'),
   autorafficaAp: rounds('autoraffica', 'ap'), autorafficaHp: rounds('autoraffica', 'hp'),
+  // A longer magazine out of the grip: 30 where it was 21, and a beat longer to change.
+  autorafficaMag: { id: 'autorafficaMag', weapon: 'autoraffica', name: 'Extended magazine', patch: { magSize: 30, reloadTime: 1.25 } },
   smgPlusP: rounds('smg', 'plusP'), gimletPlusP: rounds('gimlet', 'plusP'), harrowPlusP: rounds('harrow', 'plusP'),
   rivetPlusP: rounds('rivet', 'plusP'), ultramagPlusP: rounds('ultramag', 'plusP'), judgePlusP: rounds('judge', 'plusP'),
   autorafficaPlusP: rounds('autoraffica', 'plusP'), awlPlusP: rounds('awl', 'plusP'),
@@ -82,7 +84,7 @@ export const MOD_ORDER: readonly ModId[] = [
   'awlAcog', 'awlCan', 'awlAp', 'awlHp', 'awlPlusP',
   'suppressor', 'smgAp', 'smgHp', 'smgPlusP', 'gimletAcog', 'gimletDot', 'gimletCan', 'gimletGl', 'gimletAp', 'gimletHp', 'gimletPlusP',
   'reddot', 'harrowAcog', 'harrowAp', 'harrowHp', 'harrowPlusP', 'raufoss', 'rivetAp', 'rivetHp', 'rivetPlusP', 'ultramagAp', 'ultramagHp', 'ultramagPlusP', 'judgeAp', 'judgeHp', 'judgePlusP',
-  'autorafficaAp', 'autorafficaHp', 'autorafficaPlusP',
+  'autorafficaAp', 'autorafficaHp', 'autorafficaPlusP', 'autorafficaMag',
 ];
 
 /** Held and fitted at the start of every run: the Gimlet's ACOG and suppressor. The shop takes them off and puts them back. */

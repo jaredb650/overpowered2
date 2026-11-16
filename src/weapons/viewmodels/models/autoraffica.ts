@@ -43,99 +43,147 @@ const REAR_Z = 0.05;
 /** Gunmetal with a blue cast for the can and slide; the frame is black. */
 const GUNMETAL: Finish = { color: 0x565c66, rough: 0.34, metal: 0.9, wear: 0.12, kind: 3 };
 const GUNMETAL_DARK: Finish = { color: 0x2c3036, rough: 0.42, metal: 0.85, wear: 0.08 };
+/** The frame and grip: black polymer, less worn at the edges than the house's. */
+const FRAME: Finish = { ...F.polymer, wear: 0.08 };
 
 function frame(m: Mesher): void {
-  m.use(F.polymer);
-  // Dust cover into the can's back, and the beavertail.
+  m.use(FRAME);
+  // Dust cover, running into the can's heel.
   m.side(poly([
-    [0.068, 0.002], [0.078, 0.018, 0.006], [0.06, 0.0185, 0.003], [-0.054, 0.0185, 0.002], [-0.056, -0.006, 0.002], [-0.03, -0.01, 0.003],
+    [0.064, 0.002], [0.066, 0.0185, 0.002], [-0.054, 0.0185, 0.002], [-0.056, -0.006, 0.002], [-0.03, -0.01, 0.003],
   ], 0.002), 0.024, { bevel: 0.0013 });
-  // Slide stop, and the fire selector on the left over the grip: a lever with a red dot at its tip.
+  // The beavertail: the frame's tang swept up and back over the web of the hand, under the hammer.
+  m.side(poly([
+    [0.058, 0.004], [0.08, 0.004, 0.006], [0.093, 0.0105, 0.005], [0.095, 0.0165, 0.003], [0.089, 0.0195, 0.003], [0.075, 0.0175, 0.005], [0.062, 0.0185],
+  ], 0.002), 0.022, { bevel: 0.0024, smooth: 50 });
+  // Slide stop, takedown lever, and the fire selector on the left over the grip: a lever with a red dot at its tip.
   m.use(GUNMETAL_DARK);
-  m.at([-0.0128, 0.012, 0.012], null, () => m.box(0.0024, 0.005, 0.028, 0.0008));
+  m.at([-0.0128, 0.012, 0.012], null, () => m.side(poly([[0.026, -0.0025], [0.024, 0.0025, 0.001], [-0.012, 0.003, 0.0015], [-0.014, -0.002, 0.001]], 0.0005), 0.0024, { bevel: 0.0006 }));
+  m.at([-0.0126, 0.008, -0.034], null, () => m.side(poly([[0.004, -0.004], [0.004, 0.004, 0.002], [-0.006, 0.003, 0.002], [-0.006, -0.002]], 0.0005), 0.002, { bevel: 0.0005 }));
   m.at([-0.0158, 0.004, 0.05], [0.5, 0, 0], () => m.box(0.003, 0.004, 0.022, 0.0009));
   m.use(F.bureauRed);
   m.at([-0.0172, 0.0, 0.041], null, () => m.box(0.0006, 0.0028, 0.0028, 0.0003));
   m.mirror(() => screwX(m, 0.0124, 0.007, 0.046, 1, 0.0019, GUNMETAL_DARK));
 
-  // Grip: raked as a service pistol's, flat panels with two screws each.
-  const front = curve([[0.022, -0.01], [0.024, -0.034], [0.029, -0.056], [0.033, -0.078], [0.038, -0.1], [0.042, -0.118]], 5);
-  const back = curve([[0.098, -0.118], [0.097, -0.088], [0.091, -0.05], [0.079, -0.016], [0.066, 0.016]], 5);
-  const outline: V2[] = [...front, [0.044, -0.124], [0.096, -0.124], ...back];
-  m.use(F.polymer);
+  // Grip: the service pistol's, a straight front strap raked back, the back strap curving up into the beavertail, a flared
+  // heel; tall panels with rounded corners and two screws each.
+  const front = curve([[0.022, -0.01], [0.025, -0.036], [0.029, -0.062], [0.034, -0.09], [0.04, -0.118]], 5);
+  const back = curve([[0.097, -0.12], [0.095, -0.09], [0.088, -0.052], [0.077, -0.018], [0.07, 0.004], [0.062, 0.014]], 6);
+  const outline: V2[] = [...front, [0.042, -0.124], [0.098, -0.125], ...back];
+  m.use(FRAME);
   m.side(outline, 0.03, { bevel: 0.0045, smooth: 46 });
   m.use(F.polymerStipple);
   m.mirror(() => {
-    m.at([0.0153, 0, 0], null, () => m.side(poly([[0.035, -0.02], [0.074, -0.018], [0.09, -0.112], [0.048, -0.114]], 0.005), 0.0024, { bevel: 0.0009 }));
-    screwX(m, 0.0167, -0.03, 0.06, 1, 0.0022, GUNMETAL_DARK);
-    screwX(m, 0.0167, -0.1, 0.074, 1, 0.0022, GUNMETAL_DARK);
+    m.at([0.0153, 0, 0], null, () => m.side(poly([[0.033, -0.016, 0.006], [0.07, -0.012, 0.008], [0.088, -0.112, 0.006], [0.046, -0.116, 0.006]], 0.004), 0.0024, { bevel: 0.0009 }));
+    screwX(m, 0.0167, -0.028, 0.058, 1, 0.0022, GUNMETAL_DARK);
+    screwX(m, 0.0167, -0.104, 0.07, 1, 0.0022, GUNMETAL_DARK);
   });
-  // Trigger guard, squared and hooked, its front under the can.
-  m.use(F.polymer);
-  m.side(poly([[-0.034, -0.006], [-0.046, -0.012, 0.004], [-0.048, -0.04, 0.004], [-0.042, -0.044, 0.003], [0.016, -0.044, 0.008], [0.032, -0.014, 0.004], [0.032, -0.006]], 0.002), 0.011, {
-    bevel: 0.001,
-    holes: [poly([[-0.034, -0.0115], [-0.041, -0.015, 0.003], [-0.042, -0.036, 0.004], [0.012, -0.038, 0.005], [0.025, -0.013, 0.003]], 0.002)],
+  // The burst pistol's trigger guard: deep and rounded behind, its front swept forward into a hook for the off hand's finger.
+  m.use(FRAME);
+  m.side(poly([
+    [-0.034, -0.006], [-0.05, -0.012, 0.006], [-0.054, -0.034, 0.004], [-0.064, -0.046, 0.003], [-0.06, -0.051, 0.002],
+    [-0.046, -0.049, 0.005], [0.012, -0.047, 0.01], [0.032, -0.016, 0.005], [0.032, -0.006],
+  ], 0.002), 0.011, {
+    bevel: 0.0012,
+    holes: [poly([[-0.034, -0.0115], [-0.043, -0.016, 0.004], [-0.045, -0.036, 0.006], [0.01, -0.04, 0.008], [0.025, -0.014, 0.004]], 0.002)],
   });
 }
 
-/** The suppressor: plates round a hollow, so the barrel shows through the slots. */
+/** The can's face is raked: its top runs `RAKE` further forward than its foot. Where the face is at height `y`. */
+const RAKE = 0.014;
+const faceZ = (y: number) => CAN_FRONT + (RAKE * (CAN_TOP - y)) / (CAN_TOP - CAN_FOOT);
+
+/**
+ * The suppressor, the shroud of the film cop's gun in spirit: flank plates round a hollow, so the barrel shows through the
+ * ports, under a chamfered top cap and over a chamfered keel; a raked face; ribs down the lower flanks, each cut back along
+ * the rake. Origin at the top of the grip.
+ */
 function can(m: Mesher): void {
   const zMid = (CAN_BACK + CAN_FRONT) / 2;
   const len = CAN_BACK - CAN_FRONT;
-  const yMid = (CAN_TOP + CAN_FOOT) / 2;
+  const h = CAN_HALF;
+  const rake = Math.atan2(RAKE, CAN_TOP - CAN_FOOT);
   m.use(GUNMETAL);
-  // The flanks: four long slots ahead of three round ports up top over the barrel, a chamfered nose and heel.
-  const flank = poly([[CAN_BACK, CAN_TOP - 0.002], [CAN_FRONT + 0.004, CAN_TOP - 0.002], [CAN_FRONT, CAN_TOP - 0.006], [CAN_FRONT, CAN_FOOT + 0.004],
-    [CAN_FRONT + 0.006, CAN_FOOT], [CAN_BACK - 0.008, CAN_FOOT], [CAN_BACK, CAN_FOOT + 0.008]], 0.002);
+  // The flanks: four slanted slots and three round ports over the barrel, raked at the nose, chamfered at the heel.
+  const flank = poly([[CAN_BACK, CAN_TOP - 0.0045], [faceZ(CAN_TOP - 0.0045) + 0.001, CAN_TOP - 0.0045], [faceZ(CAN_FOOT + 0.0045) + 0.001, CAN_FOOT + 0.0045],
+    [CAN_BACK - 0.012, CAN_FOOT + 0.0045], [CAN_BACK, CAN_FOOT + 0.014]], 0.0015);
+  const slant = (z: number, y: number, l: number, w: number): V2[] =>
+    poly([[z, y - w / 2], [z - l, y - w / 2], [z - l - w * 0.8, y + w / 2], [z - w * 0.8, y + w / 2]], 0.0012);
   const holes = [
-    ...slotRow(-0.074, BORE, -0.2, BORE, 4, 0.03, 0.0056, 0),
-    ...[0, 1, 2].map(i => circle(-0.228 - i * 0.02, BORE, 0.0038, 16)),
+    ...[0, 1, 2, 3].map(i => slant(-0.094 - i * 0.034, BORE, 0.026, 0.0062)),
+    ...[0, 1, 2].map(i => circle(-0.235 - i * 0.02, BORE, 0.0042, 18)),
   ];
-  m.mirror(() => m.at([CAN_HALF - PLATE / 2, 0, 0], null, () => m.side(flank, PLATE, { bevel: 0.0009, holes })));
-  // Top plate with a row of short cross vents, foot plate, and the two ends.
-  m.at([0, CAN_TOP - 0.0018, 0], null, () => m.top(rect(-CAN_HALF + 0.001, CAN_FRONT + 0.002, CAN_HALF - 0.001, CAN_BACK, 0.0025), 0.0036, {
-    bevel: 0.001, holes: slotRow(0, -0.08, 0, -0.24, 7, 0.016, 0.0032, 0),
-  }));
-  m.at([0, CAN_FOOT + 0.0018, zMid - 0.002], null, () => m.box(CAN_HALF * 2 - 0.002, 0.0036, len - 0.01, 0.001));
-  m.at([0, yMid, CAN_FRONT + 0.0024], null, () => m.box(CAN_HALF * 2 - 0.001, CAN_TOP - CAN_FOOT - 0.004, 0.0048, 0.0014));
-  m.at([0, yMid + 0.002, CAN_BACK - 0.002], null, () => m.box(CAN_HALF * 2 - 0.002, CAN_TOP - CAN_FOOT - 0.01, 0.004, 0.001));
-  // Inside: a dark baffle stack under the barrel, so the slots look into a gun and not into the far wall.
+  m.mirror(() => m.at([h - PLATE / 2, 0, 0], null, () => m.side(flank, PLATE, { bevel: 0.0009, holes })));
+  // A port's bore, a darker ring set into each round port.
+  m.use(GUNMETAL_DARK);
+  m.mirror(() => {
+    for (let i = 0; i < 3; i++) m.at([h - PLATE / 2, BORE, -0.235 - i * 0.02], [0, Math.PI / 2, 0], () => m.lathe([[0.0048, 0.0018, 0], [0.0048, -0.0018], [0.0042, -0.0018, 0]], 18));
+  });
+  // The top cap, chamfered along both edges, its front cut to the rake; seven short vents let into it.
+  m.use(GUNMETAL);
+  const capLen = CAN_BACK - faceZ(CAN_TOP) - 0.001;
+  m.at([0, 0, CAN_BACK - capLen / 2], null, () => m.front(poly([
+    [-h, CAN_TOP - 0.0062], [h, CAN_TOP - 0.0062], [h, CAN_TOP - 0.0034, 0.0006], [h - 0.0034, CAN_TOP, 0.0006], [-h + 0.0034, CAN_TOP, 0.0006], [-h, CAN_TOP - 0.0034, 0.0006],
+  ], 0.0004), capLen, { bevel: 0.0012 }));
   m.use(F.black);
-  m.at([0, 0.012, zMid], null, () => m.box(CAN_HALF * 2 - PLATE * 2 - 0.001, 0.026, len - 0.01, 0.001));
-  // Three ribs down the lower flanks, ending short of the face.
+  for (let i = 0; i < 7; i++) m.at([0, CAN_TOP + 0.0001, -0.08 - i * 0.026], null, () => m.box(0.014, 0.0006, 0.0034, 0));
+  // The keel under it: chamfered, stepped up at the heel where the guard comes through.
+  m.use(GUNMETAL_DARK);
+  const keelBack = CAN_BACK - 0.014;
+  const keelFront = faceZ(CAN_FOOT) + 0.002;
+  m.at([0, 0, (keelBack + keelFront) / 2], null, () => m.front(poly([
+    [-h + 0.0034, CAN_FOOT], [h - 0.0034, CAN_FOOT], [h, CAN_FOOT + 0.0034, 0.0006], [h, CAN_FOOT + 0.0062], [-h, CAN_FOOT + 0.0062], [-h, CAN_FOOT + 0.0034, 0.0006],
+  ], 0.0004), keelBack - keelFront, { bevel: 0.0012 }));
+  // The raked face, its corners chamfered as the cap's and keel's, and the heel plate.
+  m.use(GUNMETAL);
+  const hh = (CAN_TOP - CAN_FOOT) / 2 / Math.cos(rake);
+  m.at([0, (CAN_TOP + CAN_FOOT) / 2, faceZ((CAN_TOP + CAN_FOOT) / 2) + 0.0022], [-rake, 0, 0], () => m.front(poly([
+    [-h + 0.0034, -hh], [h - 0.0034, -hh], [h, -hh + 0.0034], [h, hh - 0.0034], [h - 0.0034, hh], [-h + 0.0034, hh], [-h, hh - 0.0034], [-h, -hh + 0.0034],
+  ], 0.0004), 0.0044, { bevel: 0.0014 }));
+  m.at([0, (CAN_TOP + CAN_FOOT) / 2 + 0.003, CAN_BACK - 0.002], null, () => m.box(h * 2 - 0.002, CAN_TOP - CAN_FOOT - 0.014, 0.004, 0.001));
+  // Inside: a dark baffle stack under the barrel, so the ports look into a gun and not into the far wall.
+  m.use(F.black);
+  m.at([0, 0.013, zMid], null, () => m.box(h * 2 - PLATE * 2 - 0.001, 0.026, len - 0.012, 0.001));
+  // Three ribs down each lower flank, each cut back along the rake at the nose and sloped at the heel.
   m.use(GUNMETAL_DARK);
   m.mirror(() => {
     for (let i = 0; i < 3; i++) {
-      m.at([CAN_HALF + 0.001, 0.0135 - i * 0.0062, zMid - 0.004], null, () => m.box(0.0024, 0.0028, len - 0.03, 0.0007));
+      const y = 0.0145 - i * 0.0064;
+      const zf = faceZ(y) + 0.007 + i * 0.002;
+      m.at([h + 0.0011, 0, 0], null, () => m.side(poly([
+        [CAN_BACK - 0.006 - i * 0.003, y + 0.0015], [zf, y + 0.0015], [zf + 0.004, y - 0.0015], [CAN_BACK - 0.003 - i * 0.003, y - 0.0015],
+      ], 0.0003), 0.0024, { bevel: 0.0006 }));
     }
   });
-  // A thin cyan line between the slots and the ribs.
-  m.glow('accent', () => m.mirror(() => m.at([CAN_HALF + 0.0002, 0.0236, zMid + 0.004], null, () => m.box(0.0008, 0.0011, len - 0.03, 0))));
-  // The face: the muzzle high on it, the sensor eye under it in a dark bezel.
-  m.at([0, BORE, CAN_FRONT], null, () => {
+  // A thin cyan line set between the ports and the ribs.
+  m.glow('accent', () => m.mirror(() => m.at([h + 0.0002, 0.0236, zMid + 0.006], null, () => m.box(0.0008, 0.0011, len - 0.04, 0))));
+  // The muzzle high on the face, the sensor eye low in a dark bezel, both square to the rake.
+  m.at([0, BORE, faceZ(BORE)], null, () => {
     m.use(GUNMETAL_DARK);
-    m.lathe([[0.0094, 0.0005, 0], [0.0094, -0.01], [0.0082, -0.012], [0.0052, -0.012, 0]], 20);
+    m.lathe([[0.0094, 0.0015, 0], [0.0094, -0.009], [0.0082, -0.011], [0.0052, -0.011, 0]], 20);
     m.use(F.black);
-    m.lathe([[0.0052, -0.0119, 0], [0.0046, -0.005, 0], [0, -0.0045, 0]], 16);
+    m.lathe([[0.0052, -0.0109, 0], [0.0046, -0.004, 0], [0, -0.0035, 0]], 16);
   });
-  m.use(F.black);
-  m.at([0, 0.009, CAN_FRONT - 0.0004], null, () => m.front(rect(-0.0075, -0.0042, 0.0075, 0.0042, 0.0018), 0.0018, { bevel: 0.0005 }));
-  m.glow('eye', () => m.at([0, 0.009, CAN_FRONT - 0.0014], null, () => m.cyl(0.0026, 0.0012, 14, 0)));
-  // The front sight: a ramp off the can's top up to a thin square post, its top on the sight line, a red dot under the top.
+  m.at([0, 0.009, faceZ(0.009) - 0.0004], [-rake, 0, 0], () => {
+    m.use(F.black);
+    m.front(poly([[-0.008, -0.0046], [0.008, -0.0046], [0.009, 0.0034], [0.007, 0.0046], [-0.007, 0.0046], [-0.009, 0.0034]], 0.0012), 0.0018, { bevel: 0.0005 });
+    m.glow('eye', () => m.at([0, 0, -0.001], null, () => m.cyl(0.0026, 0.0012, 14, 0)));
+  });
+  // The front sight: a ramp off the cap up to a thin square post, its top on the sight line, a green dot under the top.
   m.use(GUNMETAL_DARK);
   m.side(poly([[FRONT_Z + 0.026, CAN_TOP], [FRONT_Z + 0.004, SIGHT_Y - 0.007, 0.002], [FRONT_Z - 0.005, SIGHT_Y - 0.007, 0.001], [FRONT_Z - 0.007, CAN_TOP]], 0.0006), 0.008, { bevel: 0.0008 });
   m.use(F.blued);
   m.side(poly([[FRONT_Z + 0.0016, SIGHT_Y - 0.008], [FRONT_Z + 0.0016, SIGHT_Y], [FRONT_Z - 0.003, SIGHT_Y], [FRONT_Z - 0.004, SIGHT_Y - 0.008]], 0.0002), 0.0032, { bevel: 0.0003 });
   m.glow('sight', () => m.at([0, SIGHT_Y - 0.0026, FRONT_Z + 0.0019], null, () => m.cyl(0.001, 0.0006, 10, 0)));
   // The count on the left flank, in a black bezel; the name stencilled ahead of it, between the line and the ribs.
-  m.at([-CAN_HALF - 0.0004, 0.028, -0.072], [0, -Math.PI / 2, 0], () => {
+  m.at([-h - 0.0004, 0.028, -0.072], [0, -Math.PI / 2, 0], () => {
     m.use(F.polymer);
     m.prism(rect(-0.016, -0.0052, 0.016, 0.0052, 0.0014), 0.0016, { bevel: 0.0005, holes: [rect(-0.0142, -0.0038, 0.0142, 0.0038, 0.0005)] });
     m.use(F.black);
     m.at([0, 0, -0.0004], null, () => m.prism(rect(-0.0146, -0.0042, 0.0146, 0.0042, 0.0005), 0.0008, { bevel: 0 }));
     m.at([0, 0, 0.0002], null, () => m.screen('count', 0.0282, 0.0078));
   });
-  m.at([-CAN_HALF - 0.0003, 0.0195, -0.2], [0, -Math.PI / 2, 0], () => m.decal('autoraffica', 0.058, 0.0062, 0xaab1ba));
+  m.at([-h - 0.0003, 0.0195, -0.2], [0, -Math.PI / 2, 0], () => m.decal('autoraffica', 0.058, 0.0062, 0xaab1ba));
 }
 
 function barrel(m: Mesher): void {
@@ -154,8 +202,16 @@ function slide(m: Mesher): void {
   m.part('slide', [0, BORE, SLIDE_Z], () => {
     const top = SIGHT_Y - 0.0125 - BORE;
     m.use(GUNMETAL);
-    // A long slim slide, its nose tucked into the can's back, chamfered along its top edges.
-    m.side(poly([[0.068, -0.0175], [0.07, top - 0.006, 0.002], [0.064, top, 0.002], [-0.05, top, 0.002], [-0.052, -0.0175]], 0.0015), 0.024, { bevel: 0.0024 });
+    // The service pistol's open-top slide: a full-height rear with a rounded tail, then the top cut away down to two thin walls
+    // either side of the barrel, rising again at the nose, which tucks into the can's heel.
+    m.side(poly([[0.068, -0.0175], [0.071, top - 0.008, 0.003], [0.066, top, 0.003], [0.014, top, 0.002], [0.006, top - 0.006, 0.003], [0.006, -0.0175]], 0.0015), 0.024, { bevel: 0.0026 });
+    m.mirror(() => m.at([0.0104, 0, 0], null, () => m.side(poly([
+      [0.009, -0.0175], [0.009, 0.0025], [-0.04, 0.0005, 0.003], [-0.048, 0.006, 0.002], [-0.053, 0.004, 0.001], [-0.053, -0.0175],
+    ], 0.0008), 0.0032, { bevel: 0.0008 })));
+    m.at([0, -0.0128, -0.022], null, () => m.box(0.018, 0.0095, 0.062, 0.0008));
+    // The safety lever on each side of the tail, the service pistol's.
+    m.use(GUNMETAL_DARK);
+    m.mirror(() => m.at([0.0126, top - 0.006, 0.058], null, () => m.side(poly([[0.007, -0.0025], [0.007, 0.0025, 0.002], [-0.008, 0.0035, 0.0025], [-0.009, -0.002, 0.001]], 0.0005), 0.0026, { bevel: 0.0006 })));
     // The rear sight: a low squared blade across the back, its top on the sight line, a clean notch the post shows in, and a
     // dot either side level with the post's.
     m.use(GUNMETAL_DARK);
@@ -166,14 +222,12 @@ function slide(m: Mesher): void {
       [-0.008, y0], [0.008, y0], [0.008, y1, 0.0008], [0.0022, y1], [0.0022, ny], [-0.0022, ny], [-0.0022, y1], [-0.008, y1, 0.0008],
     ], 0.0002), 0.007, { bevel: 0.0005 }));
     m.glow('sight', () => m.mirror(() => m.at([0.0052, y1 - 0.0026, REAR_Z - SLIDE_Z + 0.0037], null, () => m.cyl(0.0009, 0.0006, 10, 0))));
-    m.use(F.black);
-    // Ejection port on the right, serrations either side at the back.
-    m.at([0.0119, 0.0, -0.012], null, () => m.box(0.0014, 0.011, 0.034, 0));
+    // Serrations either side at the back, under the safety.
     m.use(GUNMETAL_DARK);
     m.mirror(() => {
-      for (let i = 0; i < 6; i++) m.at([0.0122, -0.005, 0.03 + i * 0.0056], [0.26, 0, 0], () => m.box(0.0012, 0.018, 0.0024, 0.0004));
+      for (let i = 0; i < 6; i++) m.at([0.0122, -0.008, 0.024 + i * 0.0052], [0.26, 0, 0], () => m.box(0.0012, 0.014, 0.0024, 0.0004));
     });
-    m.glow('accent', () => m.mirror(() => m.at([0.0121, -0.012, -0.004], null, () => m.box(0.0008, 0.001, 0.084, 0))));
+    m.glow('accent', () => m.mirror(() => m.at([0.0121, -0.0125, 0.0], null, () => m.box(0.0008, 0.001, 0.09, 0))));
   });
 }
 
@@ -189,6 +243,17 @@ function magazine(m: Mesher): void {
       m.at([0, -0.156, 0.002], null, () => m.box(0.03, 0.01, 0.044, 0.003, 0.004));
       m.use(F.steel);
       m.at([0, 0.026, -0.004], [0.06, 0, 0], () => round(m, 0.0048, 0.019, 0.011));
+      // The extended magazine (its mod): a sleeve 5.6 cm on below the floorplate, which becomes its collar, witness holes down it,
+      // a cyan line, and a heavier base pad.
+      m.part('magExt', [0, -0.161, 0], () => {
+        m.use(GUNMETAL_DARK);
+        m.side(poly([[-0.0175, 0.0], [0.0175, 0.0], [0.0175, -0.052, 0.003], [-0.0175, -0.052, 0.003]], 0.0012), 0.022, { bevel: 0.001 });
+        m.use(F.black);
+        for (let i = 0; i < 3; i++) m.at([0, -0.012 - i * 0.014, 0.0175], null, () => m.cyl(0.0021, 0.0012, 8, 0));
+        m.glow('accent', () => m.mirror(() => m.at([0.0111, -0.026, 0], null, () => m.box(0.0006, 0.04, 0.0008, 0))));
+        m.use(F.polymer);
+        m.at([0, -0.056, 0.003], null, () => m.side(poly([[-0.026, 0.004], [0.026, 0.004], [0.024, -0.005, 0.003], [-0.023, -0.006, 0.003]], 0.001), 0.03, { bevel: 0.0018 }));
+      });
     });
   });
 }
@@ -201,11 +266,11 @@ function buildAutoraffica(kit: Kit): Model {
   can(m);
   slide(m);
   magazine(m);
-  // An exposed ring hammer behind the slide, rocked back by it on every round.
+  // The service pistol's exposed hammer: a round spur with a hole through it, over the beavertail, rocked back on every round.
   m.part('hammer', [0, 0.024, 0.072], () => {
     m.use(GUNMETAL_DARK);
-    m.side(poly([[-0.004, -0.004], [0.004, -0.006], [0.007, 0.01, 0.003], [0.012, 0.018, 0.004], [0.004, 0.02, 0.003], [-0.003, 0.008]], 0.001), 0.007, {
-      bevel: 0.0007, holes: [circle(0.0055, 0.0142, 0.002, 10)],
+    m.side(poly([[-0.004, -0.004], [0.005, -0.006], [0.008, 0.009, 0.003], [0.0165, 0.0185, 0.007], [0.0095, 0.027, 0.006], [0.0005, 0.022, 0.003], [-0.004, 0.009]], 0.001), 0.0078, {
+      bevel: 0.0009, holes: [circle(0.0088, 0.0182, 0.003, 16)],
     });
   });
   m.part('trigger', [0, -0.006, -0.012], () => {
@@ -298,6 +363,8 @@ export function autorafficaDef(kit: Kit): ViewDef {
     left: { socket: 'gripL', pose: HANDS.pistolSupport },
     heatPerShot: 0.015,
     animate: clip,
+    // The extended magazine: the sleeve under the floorplate.
+    mods: { autorafficaMag: { part: 'magExt' } },
     readout: a => drawCount(a, 'count', 2, 7, '#36d6ff'),
   };
 }

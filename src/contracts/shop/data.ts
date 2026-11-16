@@ -256,6 +256,10 @@ export const MOD_WARES: Readonly<Record<ModId, Ware>> = {
     price: 500, wave: 2,
     lore: 'Armour-piercing rounds for the Autoraffica. The gun already picks the head; these see that the helmet does not object.',
   },
+  autorafficaMag: {
+    price: 800, wave: 4,
+    lore: 'Thirty rounds where there were twenty-one, for contractors whose smart aim finds more heads than they brought bullets. The extra length is load-bearing.',
+  },
   autorafficaHp: {
     price: 500, wave: 0,
     lore: 'Hollow-points for the Autoraffica, three at a time, all in the same place. The Council calls this efficiency. The coroner calls it one hole.',

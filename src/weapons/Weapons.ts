@@ -443,6 +443,17 @@ export class Weapons implements WeaponSystem, Guard {
       this.fitted.add(id);
     } else this.fitted.delete(id);
     this.slots[weapon].def = moddedDef(weapon, this.fitted);
+    // A magazine mod changes what the gun holds: rounds over the new size go back to the reserve.
+    const a = this.slots[weapon].ammo;
+    if (a.magSize !== this.slots[weapon].def.magSize) {
+      a.magSize = this.slots[weapon].def.magSize;
+      if (a.mag > a.magSize) {
+        a.reserve += a.mag - a.magSize;
+        a.mag = a.magSize;
+      }
+    }
+    // Fitting or taking off the launcher puts the rifle back on full auto.
+    if (MODS[id].patch.launcher) this.selector.delete(weapon);
     // Fitting or taking off the launcher puts the rifle back on full auto.
     if (MODS[id].patch.launcher) this.selector.delete(weapon);
     if (weapon === this.current) this.clearScope(false);

@@ -194,6 +194,12 @@ fitting or taking it off resets the rifle to auto); the Harrow's hold R toggles 
 | Harrow | Auto, semi | Toggles auto and semi |
 | Autoraffica | Burst of three (manual); smart aim: full auto while a head is locked, semi with none | Toggles smart aim |
 
+**Restyled 2026-11-16 (owner): closer to the film cop's gun.** A burst-fire service pistol behind (open-top slide, round
+hammer, beavertail, the grip's curves, a hooked guard) and the shroud in front given form: chamfered cap and keel, raked face,
+slanted slots and ringed ports, ribs cut back along the rake. Still 42 cm and slim; the sights, smart-aim cant and slide cycle as
+before. New mod: the **extended magazine**, 30 rounds for 21 and 1.25 s to change for 1.1, the Crucible's 800 after wave 4,
+with a lab row.
+
 ## Sounds
 
 New sounds use a synthesized or existing stand-in until the owner supplies real ones. Every stand-in is listed in
