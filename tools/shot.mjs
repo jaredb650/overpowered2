@@ -105,7 +105,7 @@ if (!absolute) {
 const url = absolute ? opt.url : `${base}${opt.url ?? '/'}`;
 
 const browser = await chromium.launch({
-  channel: 'chrome',
+  channel: 'chromium', // Playwright's own Chromium: the real Chrome app run headless hijacks the owner's Chrome (no windows open)
   headless: true,
   args: [
     '--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist', '--use-gl=angle',
