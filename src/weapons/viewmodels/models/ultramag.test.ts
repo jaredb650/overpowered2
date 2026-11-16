@@ -9,9 +9,11 @@ import type { VmMaterials } from '../kit/materials';
 import { ultramagDef } from './ultramag';
 
 let def: ViewDef;
+let hardMaterial: THREE.Material;
 
 beforeAll(() => {
   const material = new THREE.MeshStandardMaterial();
+  hardMaterial = material;
   const mats = {
     hard: material,
     decal: material,
@@ -156,6 +158,19 @@ describe('Ultramag viewmodel', () => {
     expect(toBlade).toBeGreaterThan(0.05);
     const bladeDrop = dot.sight![1] - (def.rear![1] + 0.0052 * S);
     expect(bladeDrop / toBlade).toBeGreaterThan((0.0105 * S) / dot.relief!);
+  });
+
+  it('leaves the reflex sight\'s window open from the aimed eye: nothing but its glass and its dot in the way', () => {
+    pose(99, 7, -1, 0);
+    const dot = def.mods!.ultramagDot!;
+    const eye = new THREE.Vector3(dot.sight![0], dot.sight![1], dot.sight![2] + dot.relief!);
+    // Across the window, 10 mm wide and 7 mm high around the dot at the built size: the test's materials have no glass.
+    for (const [dx, dy] of [[0, 0.002], [0.008, 0.005], [-0.008, 0.005], [0.008, -0.006], [-0.008, -0.006], [0, 0.007]]) {
+      const target = new THREE.Vector3(dot.sight![0] + dx, dot.sight![1] + dy, dot.sight![2]);
+      const ray = new THREE.Raycaster(eye, target.sub(eye).normalize());
+      const hits = ray.intersectObject(def.model.root, true).filter(h => (h.object as THREE.Mesh).material === hardMaterial);
+      expect(hits.length, `${dx}, ${dy}`).toBe(0);
+    }
   });
 
   it('resets deterministically and stays within budget', () => {

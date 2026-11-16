@@ -354,12 +354,13 @@ function reflex(m: Mesher): void {
     // Base on the slide's top flat, and the low body between the two frames.
     m.at([0, 0.0025, 0], null, () => m.box(w * 2, 0.005, 0.046, 0.0014, 0.003));
     m.side(poly([[0.022, 0.003], [0.022, 0.0095], [-0.022, 0.0095], [-0.022, 0.003]], 0.001), w * 2, { bevel: 0.0014 });
-    // Front hood: thick, its face raked back; the rear frame thinner. Both carry the window.
-    const hood = poly([[-w, 0.003], [w, 0.003], [w, 0.026, 0.006], [w - 0.008, 0.033, 0.005], [-w + 0.008, 0.033, 0.005], [-w, 0.026, 0.006]], 0.002);
+    // Front hood: thick, its face raked back; the rear frame thinner. Both carry the window. The band over the window is 5 mm
+    // and more: a bevel insets the face's outline and widens the window's, and where the two cross the face fills the window in.
+    const hood = poly([[-w, 0.003], [w, 0.003], [w, 0.028, 0.006], [w - 0.007, 0.036, 0.005], [-w + 0.007, 0.036, 0.005], [-w, 0.028, 0.006]], 0.002);
     m.at([0, 0, -0.016], null, () => m.front(hood, 0.013, { bevel: 0.0018, holes: [win] }));
     m.at([0, 0, 0.019], null, () => m.front(hood, 0.007, { bevel: 0.0014, holes: [win] }));
     // The bridge over the window from hood to rear frame, clear of the window's top edge, and the flanks under the window.
-    m.at([0, DOT_Y - SY1 + 0.0113, 0.0015], null, () => m.box(0.025, 0.0032, 0.03, 0.0012));
+    m.at([0, DOT_Y - SY1 + 0.0138, 0.0015], null, () => m.box(0.026, 0.0032, 0.03, 0.0012));
     m.mirror(() => m.at([w - 0.0015, 0.0105, 0.0015], null, () => m.box(0.003, 0.006, 0.03, 0.0008)));
     m.use(NITRIDE);
     m.mirror(() => m.at([w + 0.0004, 0.006, -0.002], null, () => m.box(0.0012, 0.004, 0.03, 0.0004)));
@@ -477,9 +478,10 @@ function clip(a: Anim): void {
     cartridge.rotation.x += 0.16 * lift * (1 - inOut(seg(home, 0.15, 0.55)));
   }
   pullTrigger(a, 0.06, 0.36);
-  a.glow('sight', 1);
-  // The irons' rear dots go dark under a fitted optic, so only its dot shows.
-  a.glow('rear', a.mods?.has('ultramagDot') ? 0 : 1);
+  // The irons' three dots go dark under a fitted optic, so only its dot shows in the window.
+  const irons = a.mods?.has('ultramagDot') ? 0 : 1;
+  a.glow('sight', irons);
+  a.glow('rear', irons);
   a.glow('accent', 1 + (fired ? (1 - Math.min(1, time / HOME_END)) * 1.6 : 0));
   if (fired) {
     // A magnum's flip: the muzzle snaps up and the gun drives back into the hand in 20 ms, then eases down to level, never
