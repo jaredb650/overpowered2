@@ -101,7 +101,7 @@ Speed feedback: FOV rises with speed (+18 degrees at 45 m/s), wind audio, edge s
 
 Feel requirements from the first game: 0.25 s or less to top speed, momentum persists when keys are released in the air, landing with a queued jump costs nothing.
 
-Keys: WASD, Space jump, Shift dash, Ctrl/C slide and slam, R reload, Q last weapon, G grenade, E interact, F quick melee, 1-0 weapons, wheel cycles, X airstrike, Z Warthog, V/B/N higher call-ins, Esc pause, Tab stats, F3 fps, F4 debug.
+Keys: WASD, Space jump, Shift dash, Ctrl/C slide and slam, R reload, Q stim, G grenade, E interact, F quick melee, 1-0 weapons, wheel cycles, X airstrike, Z Warthog, V/B/N higher call-ins, Esc pause, Tab stats, F3 fps, F4 debug. Last weapon is unbound by default and can be assigned in Settings; Y is free.
 
 ## 7. Weapons
 

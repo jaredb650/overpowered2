@@ -17,6 +17,8 @@ import { createPlayer, createCameraRig, MOVE, VIEW, FEEDBACK } from '../player';
 - `simulate(action, down)` and `simulateLook(dx, dy)` drive everything without pointer lock. Simulated state survives blur.
 - `consumeLook()` belongs to the player. Everything else reads `input.frameLook` (this frame's motion, consumes nothing).
 - Rebinding: `bindingsFor`, `labelFor`, `rebind`, `conflicts`, `resetBindings`, `captureNext`. Stored in `localStorage`.
+- Defaults: Q injects a stim; last weapon has no key until bound in Settings. Y is free. Settings and the Guide show `Unbound` for an empty binding; HUD prompts read the current binding, including after returning from Settings.
+- Bindings save as a full map in `op2.bindings.v2`, with `op2.bindings.v1` read as a legacy fallback. A legacy stim/last-weapon pair still at Y/Q (including missing entries) adopts Q/unbound. If either action differs, both legacy bindings stay as saved to avoid stealing a custom key. Other actions are untouched. Explicit v2 choices, even Y/Q, are preserved; restoring defaults clears both storage keys.
 - Added actions: `callinWarthog`, `callinDoorGunner` (J), `callinChopper` (H), `callinOrbital`, `callinBlackSun`, `callinNuke`. `streak` is the airstrike key (X).
 - Losing pointer lock fires `pressed('pause')`, because Chrome swallows the Esc keydown that ended the lock.
 
@@ -28,7 +30,7 @@ import { createPlayer, createCameraRig, MOVE, VIEW, FEEDBACK } from '../player';
 - `moveAnim`: the body layer's pose for this frame (`MovePose` in contracts). CameraRig and the viewmodel rig read it. Nothing else should need to.
 - Motion: `launch(v)` replaces vertical speed and adds horizontal. `push(v)` adds on all axes. `teleport(p, yaw?)` clears motion.
 - Health: `takeDamage`, `heal(amount, overheal?)`, `addArmor`. Armor absorbs 2/3 of a hit; `true` and `hazard` damage skip it.
-  Health pickups are stims carried in `progression.stims`, injected on the stim key (Y): see Stims in `docs/notes/progression.md`.
+  Health pickups are stims carried in `progression.stims`, injected on the stim key (Q by default): see Stims in `docs/notes/progression.md`.
 - `modifiers`: `speed`, `jump`, `damageTaken`, `invulnerable`, `infiniteDash`. `reset()` restores them in place.
 - `holdToHop`: off by default. On, holding Space hops on every landing. No menu writes it yet: see Known limitations.
 - Settings that reach the weapons (`ui/settings.ts`, saved with the rest): *Aim down sights* Toggle (default, for a trackpad) or Hold writes `Weapons.aimHold`; *Aim sensitivity* (0.3 to 1.5, default 0.8) writes `Weapons.aimSensitivity`, which `CameraRig.setAim` multiplies into `lookScale` while aimed. Aimed, the player walks (`TUNING.ads.speed`, 5 m/s), so a wall run has to be taken before aiming; aimed on one keeps its speed (docs/notes/weapons.md).

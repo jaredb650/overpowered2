@@ -159,6 +159,85 @@ describe('look and wheel', () => {
 });
 
 describe('rebinding', () => {
+  it('defaults to Q for stims, leaves Y free, and keeps last weapon unbound but bindable', async () => {
+    const { input } = await make();
+    expect(input.bindingsFor('stim')).toEqual(['KeyQ']);
+    expect(input.labelFor('stim')).toBe('Q');
+    expect(input.bindingsFor('weaponLast')).toEqual([]);
+    expect(input.labelFor('weaponLast')).toBe('');
+    expect(input.conflicts('KeyQ')).toEqual(['stim']);
+    expect(input.conflicts('KeyY')).toEqual([]);
+    key('keydown', 'KeyQ');
+    expect(input.pressed('stim')).toBe(true);
+    expect(input.isDown('weaponLast')).toBe(false);
+    expect(input.pressed('weaponLast')).toBe(false);
+    expect(input.released('weaponLast')).toBe(false);
+    key('keyup', 'KeyQ');
+    input.endFrame();
+    key('keydown', 'KeyY');
+    expect(input.pressed('stim')).toBe(false);
+    input.rebind('weaponLast', ['KeyK']);
+    key('keydown', 'KeyK');
+    expect(input.pressed('weaponLast')).toBe(true);
+    input.rebind('weaponLast', []);
+    expect(input.labelFor('weaponLast')).toBe('');
+    expect(input.isDown('weaponLast')).toBe(false);
+    input.dispose();
+    const restored = await make();
+    expect(restored.input.bindingsFor('weaponLast')).toEqual([]);
+    restored.input.dispose();
+  });
+
+  it.each([false, true])('migrates untouched legacy pairs, full map: %s', async full => {
+    const { DEFAULT_BINDINGS } = await import('./bindings');
+    storage.set('op2.bindings.v1', JSON.stringify(full
+      ? { ...DEFAULT_BINDINGS, stim: ['KeyY'], weaponLast: ['KeyQ'], jump: ['KeyK'] }
+      : { jump: ['KeyK'] }));
+    const { input } = await make();
+    expect(input.bindingsFor('stim')).toEqual(['KeyQ']);
+    expect(input.bindingsFor('weaponLast')).toEqual([]);
+    expect(input.bindingsFor('jump')).toEqual(['KeyK']);
+    input.rebind('reload', ['KeyU']);
+    expect(JSON.parse(storage.get('op2.bindings.v2')!)).toMatchObject({ stim: ['KeyQ'], weaponLast: [] });
+    input.resetBindings();
+    expect(storage.has('op2.bindings.v1')).toBe(false);
+    expect(storage.has('op2.bindings.v2')).toBe(false);
+    input.dispose();
+  });
+
+  it.each([
+    { stim: ['KeyU'], weaponLast: ['KeyQ'] },
+    { stim: ['KeyY'], weaponLast: ['KeyK'] },
+    { stim: [], weaponLast: ['KeyQ'] },
+    { stim: ['KeyY', 'KeyU'], weaponLast: [] },
+  ])('preserves customized legacy pairs: %j', async pair => {
+    storage.set('op2.bindings.v1', JSON.stringify(pair));
+    const { input } = await make();
+    expect(input.bindingsFor('stim')).toEqual(pair.stim);
+    expect(input.bindingsFor('weaponLast')).toEqual(pair.weaponLast);
+    input.dispose();
+  });
+
+  it('preserves deliberately rebound legacy keys after a v2 save', async () => {
+    storage.set('op2.bindings.v1', JSON.stringify({ stim: ['KeyU'], weaponLast: [] }));
+    const first = await make();
+    first.input.rebind('stim', ['KeyY']);
+    first.input.rebind('weaponLast', ['KeyQ']);
+    first.input.dispose();
+    const second = await make();
+    expect(second.input.bindingsFor('stim')).toEqual(['KeyY']);
+    expect(second.input.bindingsFor('weaponLast')).toEqual(['KeyQ']);
+    second.input.dispose();
+  });
+
+  it.each(['null', '[]', 'broken'])('uses new defaults for corrupt legacy storage: %s', async raw => {
+    storage.set('op2.bindings.v1', raw);
+    const { input } = await make();
+    expect(input.bindingsFor('stim')).toEqual(['KeyQ']);
+    expect(input.bindingsFor('weaponLast')).toEqual([]);
+    input.dispose();
+  });
+
   it('rebinds, persists, and restores defaults', async () => {
     const first = await make();
     first.input.rebind('jump', ['KeyJ']);

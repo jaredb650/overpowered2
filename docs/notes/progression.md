@@ -297,7 +297,7 @@ kill drops roll a stim far less often while the kit is full. Mega Health is unch
 once, and the Commander's bait. It stays because it is a different decision (go out and get it now) from a stim (spend one when you
 choose), and the bait trap needs something worth walking into a crossfire for.
 
-The stim key (`stim`, Y by default) injects one: heal 30 (a health pack gave 25; a little more for the second it costs). The injection
+The stim key (`stim`, Q by default) injects one: heal 30 (a health pack gave 25; a little more for the second it costs). The injection
 is 1 s on the player's clock. `weapons.occupy(1)` stops and blocks fire, aim, reload, melee, grenades and switching, and a cooking
 grenade is thrown. `holdSpeed` (the heavy guns' clamp) holds ground speed to 45% of run speed. The heal lands at 0.5 s, when the needle
 goes in. Damage does not cancel it; dying does. Refused with `ui_error` and a feed line at full health or with none left. Ignored while

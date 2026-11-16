@@ -111,6 +111,7 @@ export class Vitals {
   }
 
   update(s: HudState, dt: number): void {
+    this.refreshStimKey();
     const frac = s.health / s.maxHealth;
     this.hp.set(Math.ceil(Math.max(0, s.health)));
     this.hpBar.update(Math.min(1, frac), dt);
@@ -151,13 +152,16 @@ export class Vitals {
     this.numEl.style.transform = q === 0 ? '' : `scale(${1 + q / 170}) translateX(${(q / 50) * -0.35}rem)`;
   }
 
-  reset(s: HudState): void {
-    this.lastHealth = s.health;
-    this.lastStims = -1;
-    // Bindings can change in settings, so the key relabels on the way back into a run.
+  private refreshStimKey(): void {
     const input = this.ctx.input as unknown as { labelFor?: (a: string) => unknown };
     const label = typeof input.labelFor === 'function' ? input.labelFor('stim') : '';
     this.stimKey.set(typeof label === 'string' ? label : '');
+  }
+
+  reset(s: HudState): void {
+    this.lastHealth = s.health;
+    this.lastStims = -1;
+    this.refreshStimKey();
     this.hpBar.reset(1);
     this.apBar.reset(0);
     this.hitPunch = 0;

@@ -28,7 +28,7 @@ export const DEFAULT_BINDINGS: Readonly<Bindings> = {
   interact: ['KeyE'],
   weaponNext: [WHEEL_DOWN],
   weaponPrev: [WHEEL_UP],
-  weaponLast: ['KeyQ'],
+  weaponLast: [],
   weapon1: ['Digit1'],
   weapon2: ['Digit2'],
   weapon3: ['Digit3'],
@@ -48,8 +48,7 @@ export const DEFAULT_BINDINGS: Readonly<Bindings> = {
   callinBlackSun: ['KeyB'],
   callinNuke: ['KeyN'],
   sonar: ['KeyT'],
-  // Q and F are taken (last weapon, melee); Y is the nearest free key to the left hand.
-  stim: ['KeyY'],
+  stim: ['KeyQ'],
   // Outpost Defense: call the next wave in before the break runs out. L is free and away from the movement keys.
   nextWave: ['KeyL'],
   pause: ['Escape'],
@@ -60,18 +59,30 @@ export const DEFAULT_BINDINGS: Readonly<Bindings> = {
 
 export const ACTIONS = Object.keys(DEFAULT_BINDINGS) as Action[];
 
-const STORAGE_KEY = 'op2.bindings.v1';
+const STORAGE_KEY = 'op2.bindings.v2';
+const LEGACY_STORAGE_KEY = 'op2.bindings.v1';
 
 /** Stored bindings merged over the defaults, so actions added in a later version still get a key. */
 export function loadBindings(): Bindings {
   const merged = { ...DEFAULT_BINDINGS } as Bindings;
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const current = localStorage.getItem(STORAGE_KEY);
+    const raw = current ?? localStorage.getItem(LEGACY_STORAGE_KEY);
     if (!raw) return merged;
     const stored = JSON.parse(raw) as Partial<Record<string, unknown>>;
+    if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return merged;
+    if (current === null) {
+      merged.stim = ['KeyY'];
+      merged.weaponLast = ['KeyQ'];
+    }
     for (const action of ACTIONS) {
       const codes = stored[action];
       if (Array.isArray(codes) && codes.every(c => typeof c === 'string')) merged[action] = codes as string[];
+    }
+    if (current === null && merged.stim.length === 1 && merged.stim[0] === 'KeyY'
+      && merged.weaponLast.length === 1 && merged.weaponLast[0] === 'KeyQ') {
+      merged.stim = DEFAULT_BINDINGS.stim;
+      merged.weaponLast = DEFAULT_BINDINGS.weaponLast;
     }
   } catch {
     // Blocked storage or a corrupt entry falls back to defaults.
@@ -90,6 +101,7 @@ export function saveBindings(bindings: Bindings): void {
 export function clearStoredBindings(): void {
   try {
     localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(LEGACY_STORAGE_KEY);
   } catch {
     // Nothing stored, nothing to clear.
   }
