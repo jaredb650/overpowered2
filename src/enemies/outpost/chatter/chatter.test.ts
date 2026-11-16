@@ -10,6 +10,7 @@ import type { MoraleState } from '../morale';
 import { enlist, Soldier } from '../soldier';
 import { listenForWounds } from './reactions';
 import { GUN_DOWN_HOLD, listenToEachOther } from './listeners';
+import { cardinal, contactReport, radioLoss } from './radio';
 import * as THREE from 'three';
 import { OutpostSquad } from '../squad';
 import { RULES } from './lines';
@@ -402,5 +403,71 @@ describe('men hear each other', () => {
     expect(o.scare).toHaveBeenCalled();
     hear('downed', voice);
     expect(o.callForAid).toHaveBeenCalledOnce();
+  });
+});
+
+describe('the radio net', () => {
+  function net() {
+    const timers: (() => void)[] = [];
+    const comms = { say: vi.fn(), after: (_: number, run: () => void) => timers.push(run) };
+    const o = { w: { player: { position: new THREE.Vector3(0, 0, 40) } }, squads: [] as OutpostSquad[], comms, scare: vi.fn() };
+    const squad = (name: string, roles: string[], z: number) => {
+      const q = new OutpostSquad(o.squads.length + 1, name, o as unknown as Outpost);
+      for (const role of roles) {
+        const s = new Soldier();
+        s.role = role as Soldier['role'];
+        s.e = { position: new THREE.Vector3(0, 0, z) } as unknown as Soldier['e'];
+        q.join(s);
+      }
+      o.squads.push(q);
+      return q;
+    };
+    return { o, timers, comms, squad };
+  }
+
+  it('reads the compass with north as -z', () => {
+    expect([cardinal(0, -1), cardinal(1, 0), cardinal(0, 1), cardinal(-1, 0), cardinal(1, -1)]).toEqual(['north', 'east', 'south', 'west', 'north-east']);
+  });
+
+  it('gives the radio to the first rifleman who is not the leader, and reports contact to the nearest other squad', () => {
+    const { o, comms, squad } = net();
+    const charlie = squad('Charlie', ['machinegun', 'rifle', 'rifle'], 0);
+    squad('Bravo', ['shotgun', 'rifle'], 10);
+    const op = charlie.radioman!;
+    expect(op.role).toBe('rifle');
+    expect(op).not.toBe(charlie.leader);
+    contactReport(o as unknown as Outpost, charlie);
+    expect(comms.say).toHaveBeenCalledWith('contactReport', op, null, { slots: { squad: 'Charlie', to: 'Bravo', range: '40 metres', cardinal: 'south' } });
+  });
+
+  it('looks for a dead operator on the net, and loses the squad when nobody answers', () => {
+    const { o, timers, comms, squad } = net();
+    const charlie = squad('Charlie', ['rifle', 'rifle'], 0);
+    const bravo = squad('Bravo', ['rifle', 'rifle'], 10);
+    const op = charlie.radioman!;
+    charlie.leave(op);
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0.99);
+    radioLoss(o as unknown as Outpost, charlie, op);
+    for (const t of timers) t();
+    random.mockRestore();
+    expect(comms.say.mock.calls.map(c => c[0])).toEqual(['sayAgain', 'radioCheck', 'radioLost']);
+    expect(comms.say.mock.calls[0]![1]).toBe(bravo.radioman);
+    expect(o.scare).toHaveBeenCalled();
+  });
+
+  it('has a survivor pick the set up, or reports the squad wiped', () => {
+    const { o, timers, comms, squad } = net();
+    const charlie = squad('Charlie', ['rifle', 'rifle', 'rifle'], 0);
+    squad('Bravo', ['rifle', 'rifle'], 10);
+    const op = charlie.radioman!;
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0.1);
+    radioLoss(o as unknown as Outpost, charlie, op);
+    for (const t of timers) t();
+    random.mockRestore();
+    expect(comms.say.mock.calls.at(-1)![0]).toBe('radioGrab');
+    expect(charlie.radioman).not.toBe(op);
+    charlie.members.length = 0;
+    radioLoss(o as unknown as Outpost, charlie, null);
+    expect(comms.say.mock.calls.at(-1)![0]).toBe('squadWiped');
   });
 });

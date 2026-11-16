@@ -218,7 +218,7 @@ describe('host-authoritative world over the mocked lobby transport', () => {
     const cuts: { enemy: unknown; at: number }[] = [];
     game.guest.ctx.events.on('comms:cut', cut => cuts.push(cut));
     game.host.ctx.events.emit('comms:cut', { enemy, at: 7 }); game.relay.flush();
-    expect(cuts).toEqual([{ enemy: game.guest.ctx.enemies.alive[0], at: 7 }]);
+    expect(cuts).toEqual([{ enemy: game.guest.ctx.enemies.alive[0], at: 7, radio: false }]);
     // Hand-written words stay on the host, and a guest cannot be fed a row that does not exist.
     game.host.ctx.events.emit('comms:line', { kind: 'order', text: 'Words.', squad: 'Command', speaker: null, enemy: null, position: new THREE.Vector3(), row: -1 });
     game.hostRoom.channel('action').send({ match: 'world-test', data: { t: 'chatter', uid: 0, line: RULES.length, name: 0, dead: -1, rank: 0, squad: 'Alpha' } });

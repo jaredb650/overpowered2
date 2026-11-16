@@ -18,12 +18,14 @@ import { ChatterMemory, RANK, SPEAK_RATE, TIER_OF, URGENT, airtime, lineText, pr
 import { RULES } from './chatter/lines';
 import type { CommsKind, CommsLine } from './events';
 import type { OutpostSquad } from './squad';
+import { listener } from './chatter/radio';
 import type { Soldier } from './soldier';
 
 /** Seconds before the same kind of line can come again. */
 const KIND_GAP: Partial<Record<CommsKind, number>> = {
   fix: 24, contact: 4, lost: 8, noise: 10, moving: 5, covering: 6, reloading: 4, flanking: 8, fear: 7, panic: 5, surrender: 6, regroup: 6, fallback: 6,
-  set: 6, playerHit: 10, rocketOut: 2.5, gunDown: 4, hold: 6, hit: 3, dying: 6, plateHeld: 15, plateGone: 4, pierced: 10, artery: 5, gut: 5, limbLost: 1, downed: 6, beg: 5, scream: 4, rescue: 6, lastStand: 5, pinning: 7, flushing: 6, rushing: 5, cutoff: 6, opening: 8, wounded: 7, dry: 5, hostage: 5, clearShot: 5,
+  set: 6, playerHit: 10, rocketOut: 2.5, gunDown: 4, hold: 6,
+  contactReport: 12, copy: 3, status: 10, squadWiped: 4, sayAgain: 1, radioCheck: 1, radioLost: 1, radioGrab: 1, hit: 3, dying: 6, plateHeld: 15, plateGone: 4, pierced: 10, artery: 5, gut: 5, limbLost: 1, downed: 6, beg: 5, scream: 4, rescue: 6, lastStand: 5, pinning: 7, flushing: 6, rushing: 5, cutoff: 6, opening: 8, wounded: 7, dry: 5, hostage: 5, clearShot: 5,
 };
 const DEFAULT_KIND_GAP = 2.5;
 /** Spacing between any two lines, so the feed stays readable. A casualty cuts in regardless. */
@@ -33,10 +35,13 @@ const DISCIPLINED: ReadonlySet<CommsKind> = new Set<CommsKind>([
   'contact', 'lost', 'noise', 'moving', 'covering', 'flanking', 'breach', 'fallback', 'regroup', 'fix', 'reloading', 'takingCommand', 'frag', 'flash',
   'pinning', 'flushing', 'rushing', 'cutoff', 'ambushSet', 'opening', 'wounded', 'dry', 'obey', 'behindUs', 'ack',
   'set', 'playerHit', 'rocketOut', 'hold',
+  'contactReport', 'copy', 'status',
 ]);
 /** A man's own pain cuts whatever he was saying. */
 const PAIN: ReadonlySet<CommsKind> = new Set<CommsKind>(['hit', 'scream', 'dying', 'limbLost', 'artery', 'gut', 'downed', 'plateGone']);
 /** Lines that bring an answer from another man in the squad, after the call has been said. */
+/** Radio calls that another squad's operator answers. */
+export const NET_CHAIN: Partial<Record<CommsKind, CommsKind>> = { contactReport: 'copy', status: 'copy' };
 export const CHAIN: Partial<Record<CommsKind, CommsKind>> = { frag: 'ack', flash: 'ack', reloading: 'covering', gunDown: 'hold', rocketOut: 'ack' };
 /** A hit this big stops a sentence: a share of his health, or a limb. */
 const BIG_HIT = 0.3;
@@ -62,6 +67,8 @@ interface Talk {
   text: string;
   /** His own pain: a second wound waits for the first scream to end. */
   pain: boolean;
+  /** On the radio: a cut dies in static. */
+  radio: boolean;
 }
 
 interface Pending {
@@ -80,6 +87,7 @@ export class Comms {
   /** Who is talking for each squad (null for Command), and until when. */
   private readonly talks = new Map<OutpostSquad | null, Talk>();
   private readonly pending: Pending[] = [];
+  private readonly timers: { at: number; run: () => void }[] = [];
   private readonly facts: ChatterFacts = { faction: FACTION, tier: 'high', role: null, flags: {} };
   private readonly slots: Record<string, string> = {};
   private readonly line: CommsLine = {
@@ -100,6 +108,12 @@ export class Comms {
     this.memory.reset();
     this.talks.clear();
     this.pending.length = 0;
+    this.timers.length = 0;
+  }
+
+  /** Something to decide `seconds` from now, on the AI clock: the radio's calls into silence. */
+  after(seconds: number, run: () => void): void {
+    this.timers.push({ at: this.w.now + seconds, run });
   }
 
   /** A guest's men only move their lips to the host's words. */
@@ -117,12 +131,18 @@ export class Comms {
     this.talks.delete(key);
     const at = Math.floor((this.w.now - talk.from) / SPEAK_RATE);
     if (at >= talk.text.length || !talk.s) return;
-    this.w.ctx.events.emit('comms:cut', { enemy: talk.s.e, at });
+    this.w.ctx.events.emit('comms:cut', { enemy: talk.s.e, at, radio: talk.radio });
   }
 
   /** Lines that waited for their turn, looked up again now it has come. */
   update(): void {
     const now = this.w.now;
+    for (let i = this.timers.length - 1; i >= 0; i--) {
+      const t = this.timers[i]!;
+      if (now < t.at) continue;
+      this.timers.splice(i, 1);
+      t.run();
+    }
     if (this.pending.length === 0) return;
     // In the order they fell due, so an answer keeps its place behind the call.
     this.pending.sort((a, b) => a.at - b.at);
@@ -209,13 +229,16 @@ export class Comms {
     for (const f in facts.flags) if (facts.flags[f]) flags += ` ${f}`;
     line.why = `${rule.id}  ${why.score} pts, ${why.rivals} tied  ${facts.tier}${facts.role ? ` ${facts.role}` : ''}${flags}  ${rule.priority}`;
     const until = now + airtime(line.text);
-    this.talks.set(key, { s, from: now, until, priority: rule.priority, interruptible: rule.interruptible, text: line.text, pain: PAIN.has(kind) });
+    this.talks.set(key, { s, from: now, until, priority: rule.priority, interruptible: rule.interruptible, text: line.text, pain: PAIN.has(kind), radio: rule.radio });
     w.ctx.events.emit('comms:line', line);
     // A dying man's voice is audio's `vox_dying_human`, from the same moment's `enemy:condition`.
     if (s && kind !== 'dying') say(s.e, w, rule.channel === 'scream' ? 'vox_scream' : s.e.def.voice.attack, 0.45);
     const answer = CHAIN[kind];
     const by = s && answer ? this.answerer(s) : null;
     if (by) this.queue(answer!, by, null, null, until + 0.1);
+    const net = NET_CHAIN[kind];
+    const op = s && net && w.enemies.outpost ? listener(w.enemies.outpost, s.squad) : null;
+    if (op) this.queue(net!, op, null, { slots: { squad: s!.squad.name, to: op.squad.name } }, until + 0.3);
   }
 
   /**
@@ -281,7 +304,7 @@ export class Comms {
     line.enemy = s ? s.e : null;
     if (s) {
       line.position.copy(s.e.center);
-      this.talks.set(s.squad, { s, from: w.now, until: w.now + airtime(text), priority: 'tactical', interruptible: true, text, pain: false });
+      this.talks.set(s.squad, { s, from: w.now, until: w.now + airtime(text), priority: 'tactical', interruptible: true, text, pain: false, radio: false });
     } else line.position.copy(w.player.position);
     w.ctx.events.emit('comms:line', line);
   }

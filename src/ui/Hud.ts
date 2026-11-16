@@ -269,8 +269,8 @@ export class Hud implements HudSystem {
       this.debug.chatter(e);
     });
     events.on('comms:cut', e => {
-      this.comms.cut(e.enemy, e.at);
-      this.bubbles.cut(e.enemy, e.at);
+      this.comms.cut(e.enemy, e.at, e.radio);
+      this.bubbles.cut(e.enemy, e.at, e.radio);
     });
     applySettings(this.ctx, this.settings);
     applyQuality(this.ctx, this.settings);

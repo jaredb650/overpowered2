@@ -134,6 +134,7 @@ export class Bubbles {
     bubble.pinned = false;
     bubble.rayAt = 0;
     bubble.el.classList.toggle('scream', row?.channel === 'scream');
+    bubble.el.classList.toggle('radio', row?.radio === true);
     bubble.el.style.setProperty('--c', color);
     bubble.el.style.visibility = '';
     // Measured once with every word in it, then held at that size while the words come, so the box never jitters.
@@ -151,11 +152,11 @@ export class Bubbles {
   }
 
   /** He was cut off `at` characters in: the words stop there, with a dash, and hang where he was. */
-  cut(enemy: EnemyInstance, at: number): void {
+  cut(enemy: EnemyInstance, at: number, radio = false): void {
     const b = this.pool.find(x => x.enemy === enemy && !x.pinned);
     if (!b || at >= b.full.length) return;
     b.pinned = true;
-    b.text.textContent = cutText(b.full, at);
+    b.text.textContent = cutText(b.full, at, radio);
     b.typed = b.full.length;
     b.life = CUT_HOLD;
     headOf(enemy, b.anchor);

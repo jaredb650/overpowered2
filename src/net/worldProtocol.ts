@@ -28,7 +28,7 @@ export type WorldEvent =
   /** A line the host's rule table chose (src/enemies/outpost/chatter). Ids only: row, speaker, his name, rank and squad, and the dead man's name. */
   | { t: 'chatter'; uid: number; line: number; name: number; dead: number; rank: number; squad: string; slots?: Record<string, string> }
   /** The speaker `uid` was cut off `at` characters into his line. */
-  | { t: 'chatcut'; uid: number; at: number };
+  | { t: 'chatcut'; uid: number; at: number; radio?: boolean };
 
 export function encodeWorld(frame: WorldFrame): ArrayBuffer {
   const buffer = new ArrayBuffer(HEADER_BYTES + frame.enemies.length * ENEMY_BYTES);

@@ -73,11 +73,11 @@ class Lane {
   }
 
   /** The newest line `owner` said ends `at` characters in, with a dash. */
-  cut(owner: unknown, at: number): void {
+  cut(owner: unknown, at: number, radio = false): void {
     for (let i = this.live.length - 1; i >= 0; i--) {
       const line = this.live[i]!;
       if (line.owner !== owner) continue;
-      if (at < line.full.length) line.text.textContent = cutText(line.full, at);
+      if (at < line.full.length) line.text.textContent = cutText(line.full, at, radio);
       return;
     }
   }

@@ -24,7 +24,8 @@ export type CommsKind =
   | 'ack'
   | 'plateHeld' | 'plateGone' | 'pierced' | 'artery' | 'gut' | 'limbLost' | 'downed'
   | 'set' | 'playerHit'
-  | 'rocketOut' | 'gunDown' | 'hold';
+  | 'rocketOut' | 'gunDown' | 'hold'
+  | 'contactReport' | 'copy' | 'status' | 'squadWiped' | 'sayAgain' | 'radioCheck' | 'radioLost' | 'radioGrab';
 
 export interface CommsLine {
   kind: CommsKind;
@@ -51,7 +52,7 @@ declare module '../../core/contracts' {
   interface GameEvents {
     'comms:line': CommsLine;
     /** The man talking was killed or badly hit `at` characters into his line: it ends there, with a dash. */
-    'comms:cut': { enemy: EnemyInstance; at: number };
+    'comms:cut': { enemy: EnemyInstance; at: number; radio: boolean };
     /** Morale ran out. The weapon is on the floor and `fate` says what happens next. */
     'enemy:broken': { enemy: EnemyInstance; fate: 'flee' | 'surrender' };
     /** Hands up, on the knees. No longer a threat, and no longer counted for the wave. */

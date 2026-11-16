@@ -163,5 +163,5 @@ export function lineText(row: number, slots: Readonly<Record<string, string>> = 
   return RULES[row]!.text.replace(/\{(\w+)\}/g, (_, k: string) => slots[k] ?? (k === 'dead' ? 'him' : ''));
 }
 
-/** What was said before a cut at `at` characters, with the dash. */
-export const cutText = (text: string, at: number): string => `${text.slice(0, Math.max(1, at)).trimEnd()}—`;
+/** What was said before a cut at `at` characters, with the dash, and on the radio the static after it. */
+export const cutText = (text: string, at: number, radio = false): string => `${text.slice(0, Math.max(1, at)).trimEnd()}—${radio ? ' *kssht*' : ''}`;

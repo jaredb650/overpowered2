@@ -31,6 +31,7 @@ import {
 import type { Rank } from './rank';
 import { Route } from './routes';
 import { soldierOf, type Grenade, type Soldier, type Urgency } from './soldier';
+import { contactReport, radioLoss } from './chatter/radio';
 
 export type SquadMode = 'advance' | 'engage' | 'stack' | 'fallback' | 'regroup' | 'rush' | 'flush' | 'cutoff' | 'ambush';
 
@@ -207,6 +208,8 @@ export class OutpostSquad implements Squad {
   /** Where silent men point their guns. */
   readonly watch = new THREE.Vector3();
 
+  /** Who carries the squad's radio (chatter/radio.ts). Null when it died with him and nobody picked it up. */
+  radioman: Soldier | null = null;
   private stunnedUntil = 0;
   private readonly axis = new Route();
   private readonly rally = new THREE.Vector3();
@@ -265,6 +268,9 @@ export class OutpostSquad implements Squad {
     this.strength = Math.max(this.strength, this.members.length);
     if (!this.leader || this.outranks(s.role, this.leader.role)) this.leader = s;
     this.pair(s);
+    // The first rifleman who is not the leader carries the radio; the leader only until somebody else can.
+    const r = this.radioman;
+    if (!r || !this.members.includes(r) || r === this.leader || r.role !== 'rifle') this.radioman = this.members.find(m => m.role === 'rifle' && m !== this.leader) ?? this.leader;
   }
 
   /** The last man without a pair of his own takes the newcomer. With none, the newcomer pairs one way with the leader. */
@@ -331,6 +337,7 @@ export class OutpostSquad implements Squad {
       // The squad's anchor: losing him is said, and the men hear it (chatter/listeners.ts).
       if (dead?.role === 'machinegun') o.comms.say('gunDown', voice, dead);
     }
+    radioLoss(o, this, dead);
     while (this.lossTimes.length > 0 && now - this.lossTimes[0]! > RAPID_SECONDS) this.lossTimes.shift();
     if (this.lossTimes.length >= Math.ceil(this.strength * RAPID_SHARE) && this.members.length > 0) {
       // A squad cut down this fast leaves survivors who have just watched it happen.
@@ -412,7 +419,10 @@ export class OutpostSquad implements Squad {
     this.threat.copy(at);
     this.knownAt = now;
     if (seen) {
-      if (now - this.seenAt > CALLOUT_GAP) o.comms.say('contact', s);
+      if (now - this.seenAt > CALLOUT_GAP) {
+        o.comms.say('contact', s);
+        contactReport(o, this);
+      }
       this.seenAt = now;
       this.trail.copy(o.track.velocity);
     } else if (stale > 6) o.comms.say('noise', s);

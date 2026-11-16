@@ -70,7 +70,7 @@ export class CoopWorld {
         this.broadcast({ t: 'chatter', uid: line.enemy?.uid ?? 0, line: line.row, name: line.name ?? -1, dead: line.dead ?? -1,
           rank: rank ? RANK_IDS.indexOf(rank) : -1, squad: line.squad, ...(line.slots ? { slots: line.slots } : {}) });
       }));
-      this.off.push(ctx.events.on('comms:cut', cut => this.broadcast({ t: 'chatcut', uid: cut.enemy.uid, at: cut.at })));
+      this.off.push(ctx.events.on('comms:cut', cut => this.broadcast({ t: 'chatcut', uid: cut.enemy.uid, at: cut.at, radio: cut.radio })));
     }
   }
 
@@ -194,7 +194,7 @@ export class CoopWorld {
       case 'chatter': this.hear(value); break;
       case 'chatcut': {
         const enemy = this.replicas.get(value.uid)?.enemy;
-        if (enemy && Number.isInteger(value.at) && value.at >= 0) this.ctx.events.emit('comms:cut', { enemy, at: value.at });
+        if (enemy && Number.isInteger(value.at) && value.at >= 0) this.ctx.events.emit('comms:cut', { enemy, at: value.at, radio: value.radio === true });
         break;
       }
       case 'sever': {

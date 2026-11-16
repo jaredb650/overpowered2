@@ -66,6 +66,13 @@ start (the host decides; guests get `chatter` and `chatcut` events).
   preferred as the rescuer (`assignAid`); the machine gunner's death is said ("Gun's down!"), the squad holds for 2.5 s and loses some
   nerve, and someone answers "Hold position!". The flash that blinds the player was already the squads' cue to rush; the call is now
   "He's blind, push!". Behaviour changed here; the 10 minute hunter run with and without the listeners stays within its usual seed spread.
+- **E.** `chatter/radio.ts`: each squad's first rifleman who is not the leader carries the radio (`OutpostSquad.radioman`). After a
+  squad's "Contact!" he puts a contact report on the net (the nearest other squad's callsign, range to 10 m, eight-point compass with
+  north -z), and another squad's operator answers "Copy." Down to two men, he reports it. A squad wiped is reported by its neighbour. When
+  the operator dies his line ends in static ("Bravo, this is— *kssht*"), then another operator calls "Charlie, say again?", "Charlie,
+  radio check, over." and, unless a survivor grabs the set (60%), "We lost Charlie." with a small morale hit. Radio lines carry the
+  speaker's designation on the feed and a RADIO mark on the bubble. Lines only: what the side knows still travels as before. Deferred:
+  the radioman's antenna prop, linked-squad intel, and a real static sound (needs an audio catalogue entry).
 
 ## 1. The goal
 
