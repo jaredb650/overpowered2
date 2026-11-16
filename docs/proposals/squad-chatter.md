@@ -50,6 +50,10 @@ start (the host decides; guests get `chatter` and `chatcut` events).
   Chains: frag and flash bring "Moving!"-type answers, reloading brings "Covering!" from his buddy. Names: designation, surname, nickname
   and a `known` flag (`chatter/names.ts`). Bubbles type at 0.05 s a letter and hold a cut line where the man fell; the feed line is
   rewritten to the cut. F4 shows the last six picks with row id, score, ties, tier, facts and priority.
+- **B.** `chatter/reactions.ts` listens to `enemy:hit` (armour stopped, broken, through or AP past a plate), `enemy:wounded` (artery,
+  gut), `enemy:severed` (arm or leg while alive) and `enemy:condition` (downed), and the man says it. Nothing in the gore or damage code
+  changed. A crawling or dying man calls his buddy by name (`{buddy}`); the leader counts the casualties; a body taken apart is said as
+  one (`brutal`). His own pain cuts his own line, but a second wound waits for the first scream.
 
 ## 1. The goal
 

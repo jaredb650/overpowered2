@@ -7,7 +7,8 @@ import { Comms } from '../comms';
 import type { CommsKind, CommsLine } from '../events';
 import type { Outpost } from '../index';
 import type { MoraleState } from '../morale';
-import { Soldier } from '../soldier';
+import { enlist, Soldier } from '../soldier';
+import { listenForWounds } from './reactions';
 import { OutpostSquad } from '../squad';
 import { RULES } from './lines';
 import { NAME_LIST, NAME_POOLS, NameRoll, callName, poolOf, speakerTag } from './names';
@@ -33,7 +34,7 @@ describe('the rule table', () => {
     for (const r of RULES) {
       for (const k of ['id', 'concept', 'criteria', 'unit', 'personality', 'morale_tier', 'text', 'priority', 'cooldown', 'radio', 'interruptible']) expect(r, r.id).toHaveProperty(k);
     }
-    const ported = RULES.filter(r => r.id.includes('.scared.') && !r.id.includes('.ack.'));
+    const ported = RULES.filter(r => r.id.includes('.scared.'));
     expect(ported).toHaveLength(154);
     for (const r of ported) expect(r.morale_tier, r.id).toContain('low');
     expect(ported.find(r => r.concept === 'fear')!.text).toBe('What IS that thing?');
@@ -246,21 +247,65 @@ describe('comms: who speaks, and when a line is cut', () => {
     const b = man(squad, soldiers, 1, 'steady');
     comms.say('flanking', a);
     w.now = 0.2;
-    comms.say('frag', b);
+    comms.say('lastStand', b);
     expect(cuts).toHaveLength(1);
-    expect(heard.at(-1)!.kind).toBe('frag');
+    expect(heard.at(-1)!.kind).toBe('lastStand');
     w.now = 0.3;
     comms.say('manDown', a, null);
-    expect(heard.at(-1)!.kind).toBe('frag');
-    // Said once the frag call is over: looked up again when it is due.
-    for (let t = 0.4; t < 6; t += 0.1) {
+    expect(heard.at(-1)!.kind).toBe('lastStand');
+    // Said once the critical call is over: looked up again when it is due.
+    for (let t = 0.4; t < 5; t += 0.1) {
       w.now = t;
       comms.update();
     }
-    const kinds = heard.map(l => l.kind);
-    expect(kinds).toContain('manDown');
-    // "Frag out!" brings an answer from another man.
-    expect(kinds).toContain('ack' satisfies CommsKind);
+    expect(heard.map(l => l.kind)).toEqual(['flanking', 'lastStand', 'manDown']);
+  });
+
+  it('answers a call: "Frag out!" brings a word from another man once it is said', () => {
+    const { w, heard, soldiers, comms } = world();
+    const squad = new OutpostSquad(1, 'Alpha', {} as Outpost);
+    man(squad, soldiers, 0, 'steady');
+    const b = man(squad, soldiers, 1, 'steady');
+    comms.say('frag', b);
+    for (let t = 0.1; t < 5; t += 0.1) {
+      w.now = t;
+      comms.update();
+    }
+    expect(heard.map(l => l.kind)).toEqual(['frag', 'ack' satisfies CommsKind]);
+    expect(heard[1]!.speaker).not.toBe(heard[0]!.speaker);
+  });
+
+  it('gives the armour, wound and gore events a voice, and has a crawling man call his buddy by name', () => {
+    const { w, events, heard, soldiers, comms } = world();
+    listenForWounds(w, comms);
+    const squad = new OutpostSquad(1, 'Alpha', {} as Outpost);
+    const voss = man(squad, soldiers, 0, 'steady');
+    const kade = man(squad, soldiers, 1, 'panicked');
+    for (const s of [voss, kade]) {
+      (s.e as unknown as { plates: { hp: number }[] }).plates = [{ hp: 10 }];
+      (s.injuries as unknown as { condition: string }).condition = 'healthy';
+      enlist(s.e, s);
+      s.fate = 'none';
+    }
+    const said = () => RULES[heard.at(-1)!.row!]!;
+    const hit = (s: Soldier, armour: string) => events.emit('enemy:hit', { enemy: s.e, damage: { source: 'smg' }, result: { killed: false, dealt: 5, severed: [], armour } } as never);
+    w.now = 10;
+    hit(voss, 'stopped');
+    expect(said().concept).toBe('plateHeld');
+    w.now = 20;
+    hit(voss, 'broken');
+    expect(said().concept).toBe('plateGone');
+    w.now = 30;
+    events.emit('enemy:severed', { enemy: kade.e, region: 'forearmR' } as never);
+    expect(said().concept).toBe('limbLost');
+    expect(said().criteria).toEqual({ arm: true });
+    w.now = 40;
+    events.emit('enemy:wounded', { enemy: voss.e, zone: 'carotid' } as never);
+    expect(said().concept).toBe('artery');
+    w.now = 50;
+    comms.say('scream', kade);
+    expect(heard.at(-1)!.text).toContain('Voss');
+    expect(heard.at(-1)!.slots).toEqual({ buddy: 'Voss' });
   });
 
   it('keeps a co-op guest quiet: the host decides every line', () => {

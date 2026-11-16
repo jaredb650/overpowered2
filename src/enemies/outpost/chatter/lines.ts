@@ -19,4 +19,4 @@ export const RULES: readonly ChatterRule[] = data as unknown as ChatterRule[];
  * How often a concept is better left unsaid: the chance a moment passes in silence. Silence still keeps the concept's gap.
  * Only the drills that come round every few seconds need it.
  */
-export const NOTHING: Partial<Record<CommsKind, number>> = { moving: 0.3, fix: 0.2, contact: 0.15 };
+export const NOTHING: Partial<Record<CommsKind, number>> = { moving: 0.3, fix: 0.2, contact: 0.15, plateHeld: 0.3 };

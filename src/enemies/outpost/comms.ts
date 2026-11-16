@@ -23,7 +23,7 @@ import type { Soldier } from './soldier';
 /** Seconds before the same kind of line can come again. */
 const KIND_GAP: Partial<Record<CommsKind, number>> = {
   fix: 24, contact: 4, lost: 8, noise: 10, moving: 5, covering: 6, reloading: 4, flanking: 8, fear: 7, panic: 5, surrender: 6, regroup: 6, fallback: 6,
-  hit: 3, dying: 6, beg: 5, scream: 4, rescue: 6, lastStand: 5, pinning: 7, flushing: 6, rushing: 5, cutoff: 6, opening: 8, wounded: 7, dry: 5, hostage: 5, clearShot: 5,
+  hit: 3, dying: 6, plateHeld: 15, plateGone: 4, pierced: 10, artery: 5, gut: 5, limbLost: 1, downed: 6, beg: 5, scream: 4, rescue: 6, lastStand: 5, pinning: 7, flushing: 6, rushing: 5, cutoff: 6, opening: 8, wounded: 7, dry: 5, hostage: 5, clearShot: 5,
 };
 const DEFAULT_KIND_GAP = 2.5;
 /** Spacing between any two lines, so the feed stays readable. A casualty cuts in regardless. */
@@ -34,13 +34,19 @@ const DISCIPLINED: ReadonlySet<CommsKind> = new Set<CommsKind>([
   'pinning', 'flushing', 'rushing', 'cutoff', 'ambushSet', 'opening', 'wounded', 'dry', 'obey', 'behindUs', 'ack',
 ]);
 /** A man's own pain cuts whatever he was saying. */
-const PAIN: ReadonlySet<CommsKind> = new Set<CommsKind>(['hit', 'scream', 'dying']);
+const PAIN: ReadonlySet<CommsKind> = new Set<CommsKind>(['hit', 'scream', 'dying', 'limbLost', 'artery', 'gut', 'downed', 'plateGone']);
 /** Lines that bring an answer from another man in the squad, after the call has been said. */
 export const CHAIN: Partial<Record<CommsKind, CommsKind>> = { frag: 'ack', flash: 'ack', reloading: 'covering' };
 /** A hit this big stops a sentence: a share of his health, or a limb. */
 const BIG_HIT = 0.3;
 /** A line waiting for its squad's turn is dropped if the turn is this late. */
 const STALE = 4;
+
+/** What a call site knows that the rows may ask about: blanks to fill and facts of the moment. */
+export interface SayWith {
+  slots?: Record<string, string>;
+  flags?: Record<string, boolean>;
+}
 
 interface Talk {
   s: Soldier | null;
@@ -49,13 +55,15 @@ interface Talk {
   priority: Priority;
   interruptible: boolean;
   text: string;
+  /** His own pain: a second wound waits for the first scream to end. */
+  pain: boolean;
 }
 
 interface Pending {
   kind: CommsKind;
   s: Soldier;
   dead: Soldier | null;
-  slots: Record<string, string> | null;
+  with: SayWith | null;
   at: number;
   wanted: number;
 }
@@ -117,20 +125,20 @@ export class Comms {
       const p = this.pending.shift()!;
       const roster = this.w.enemies.outpost?.soldiers;
       if (now - p.wanted > STALE || !p.s.e.alive || (roster && !roster.includes(p.s))) continue;
-      this.say(p.kind, p.s, p.dead, p.slots, p.wanted);
+      this.say(p.kind, p.s, p.dead, p.with, p.wanted);
     }
   }
 
-  private queue(kind: CommsKind, s: Soldier, dead: Soldier | null, slots: Record<string, string> | null, at: number, wanted = this.w.now): void {
+  private queue(kind: CommsKind, s: Soldier, dead: Soldier | null, extra: SayWith | null, at: number, wanted = this.w.now): void {
     if (this.pending.some(p => p.s === s && p.kind === kind) || this.pending.length >= 12) return;
-    this.pending.push({ kind, s, dead, slots, at, wanted });
+    this.pending.push({ kind, s, dead, with: extra, at, wanted });
   }
 
   /**
-   * `s` is who says it. Null is Command on the radio, heard everywhere. `dead` is the man it is about. `slots` fill the row's other
-   * blanks ({clock}, {squad}...). `wanted` is when a line that had to wait was first wanted.
+   * `s` is who says it. Null is Command on the radio, heard everywhere. `dead` is the man it is about. `extra` fills the row's other
+   * blanks ({clock}, {squad}...) and adds facts of the moment. `wanted` is when a line that had to wait was first wanted.
    */
-  say(kind: CommsKind, s: Soldier | null, dead: Soldier | null = null, slots: Record<string, string> | null = null, wanted: number | null = null): void {
+  say(kind: CommsKind, s: Soldier | null, dead: Soldier | null = null, extra: SayWith | null = null, wanted: number | null = null): void {
     const { w, line, facts } = this;
     const now = w.now;
     if (this.deaf) return;
@@ -144,17 +152,23 @@ export class Comms {
     let cut = false;
     if (talk && now < talk.until) {
       // His own pain cuts his own line; anything else of his waits until he has finished. Another man cuts in only with a higher call.
-      if (talk.s === s ? PAIN.has(kind) : RANK[priority] > RANK[talk.priority] && talk.interruptible) {
+      if (talk.s === s ? PAIN.has(kind) && !talk.pain : RANK[priority] > RANK[talk.priority] && talk.interruptible) {
         this.cut(key, talk);
         cut = true;
       } else {
-        if (s) this.queue(kind, s, dead, slots, talk.until + 0.15, wanted ?? now);
+        if (s) this.queue(kind, s, dead, extra, talk.until + 0.15, wanted ?? now);
         return;
       }
     }
     if (now < this.nextLineAt && !URGENT.has(kind) && !cut) return;
     this.kindAt.set(kind, now + (KIND_GAP[kind] ?? DEFAULT_KIND_GAP));
     const buddies = !!s && !!dead && (dead.buddy === s || s.buddy === dead);
+    for (const f in facts.flags) facts.flags[f] = false;
+    if (extra?.flags) Object.assign(facts.flags, extra.flags);
+    // His pair, if still on his feet in the squad: the crawling man calls him by name.
+    const mate = s?.buddy;
+    const pal = !!s && !!mate && mate !== s && mate.e.alive && mate.fighting && s.squad.members.includes(mate);
+    facts.flags.buddyAlive = pal;
     facts.tier = TIER_OF[s?.state ?? 'steady'];
     facts.role = s?.role ?? null;
     facts.flags.leader = s?.isLeader ?? false;
@@ -171,9 +185,12 @@ export class Comms {
     line.name = s ? (rule.radio && s.desig >= 0 ? s.desig : s.name) : -1;
     line.dead = facts.flags.dead ? callName(dead!, rule.radio, buddies) : -1;
     for (const k in this.slots) delete this.slots[k];
-    if (slots) Object.assign(this.slots, slots);
+    if (extra?.slots) Object.assign(this.slots, extra.slots);
+    if (pal && rule.text.includes('{buddy}')) this.slots.buddy = NAME_LIST[callName(mate!, false, true)]!;
+    // Everything but {dead} goes to co-op guests as words; {dead} goes as a name id.
+    const sent: Record<string, string> = { ...this.slots };
     if (line.dead >= 0) this.slots.dead = NAME_LIST[line.dead]!;
-    line.slots = slots;
+    line.slots = Object.keys(sent).length > 0 ? sent : null;
     line.text = lineText(row, this.slots);
     line.squad = s ? s.squad.name : 'Command';
     line.speaker = s ? speakerTag(line.name, s.rankDef.label, s.squad.name) : null;
@@ -185,7 +202,7 @@ export class Comms {
     for (const f in facts.flags) if (facts.flags[f]) flags += ` ${f}`;
     line.why = `${rule.id}  ${why.score} pts, ${why.rivals} tied  ${facts.tier}${facts.role ? ` ${facts.role}` : ''}${flags}  ${rule.priority}`;
     const until = now + airtime(line.text);
-    this.talks.set(key, { s, from: now, until, priority: rule.priority, interruptible: rule.interruptible, text: line.text });
+    this.talks.set(key, { s, from: now, until, priority: rule.priority, interruptible: rule.interruptible, text: line.text, pain: PAIN.has(kind) });
     w.ctx.events.emit('comms:line', line);
     // A dying man's voice is audio's `vox_dying_human`, from the same moment's `enemy:condition`.
     if (s && kind !== 'dying') say(s.e, w, rule.channel === 'scream' ? 'vox_scream' : s.e.def.voice.attack, 0.45);
@@ -227,7 +244,7 @@ export class Comms {
     line.enemy = s ? s.e : null;
     if (s) {
       line.position.copy(s.e.center);
-      this.talks.set(s.squad, { s, from: w.now, until: w.now + airtime(text), priority: 'tactical', interruptible: true, text });
+      this.talks.set(s.squad, { s, from: w.now, until: w.now + airtime(text), priority: 'tactical', interruptible: true, text, pain: false });
     } else line.position.copy(w.player.position);
     w.ctx.events.emit('comms:line', line);
   }

@@ -38,6 +38,7 @@ import type { EnemyManager } from '../EnemyManager';
 import { TargetTrack } from './aim';
 import { SOLDIER_BEHAVIOURS } from './behaviours';
 import { FACTION, NameRoll } from './chatter/names';
+import { listenForWounds } from './chatter/reactions';
 import { Comms } from './comms';
 import { CoverMap, type CoverSpot, type SpotReading } from './cover';
 import { CALLSIGNS, defaultDoctrine, fireRules, MAX_SQUAD, ROLE_OF, ROLES, type Doctrine } from './doctrine';
@@ -191,6 +192,7 @@ export class Outpost {
     this.cover = new CoverMap(w.ctx.physics);
     this.intel = new Intel(w.ctx.physics);
     this.comms = new Comms(w);
+    listenForWounds(w, this.comms);
     this.dropped = new DroppedWeapons(w.ctx);
     this.waves = new OutpostWaves(w.ctx, this, manager);
     this.wounds = new WoundSystem(w, this, manager);

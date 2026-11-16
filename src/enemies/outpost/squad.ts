@@ -326,7 +326,8 @@ export class OutpostSquad implements Squad {
       // His pair says it if he can. Who speaks changes, never what anyone does.
       const buddy = dead?.buddy;
       const voice = buddy && buddy.squad === this && buddy.fighting && !buddy.injuries.mute && this.members.includes(buddy) ? buddy : this.members[0]!;
-      o.comms.say('manDown', voice, dead);
+      // A body taken apart is said as one.
+      o.comms.say('manDown', voice, dead, { flags: { brutal: kill.gibbed || kill.headshot || kill.severedCount > 0 } });
     }
     while (this.lossTimes.length > 0 && now - this.lossTimes[0]! > RAPID_SECONDS) this.lossTimes.shift();
     if (this.lossTimes.length >= Math.ceil(this.strength * RAPID_SHARE) && this.members.length > 0) {
