@@ -279,14 +279,24 @@ it as a `SliceField` half with a convex hull; the geometry is the kit's and is s
 draws one piece out of sight at load, so its programs compile there.
 
 **The ribcage** (`buildRibcage`) is twelve rib pairs, costal cartilage, the sternum and a spine section in the chest bone's
-frame, every rib broken at random near each end, so the six fragments fit back together. They spawn in place and burst.
+frame, every rib broken at random near each end, so the six fragments fit back together. Off-white bone, blood in patches
+and at the breaks, ribs about 2 cm by 1.2 cm so they read on the floor. Scaled to the body and widened to its chest (up to
+1.4 times), they spawn in place and burst; each rests on a box of 0.8 of its own bounds, so it lies on the floor, not in it.
+
+**Loose flesh** (`buildFlesh`): meat is a soft lumpy blob with a ragged flap or two, dark red to pink with fat and sinew
+streaks, smooth-shaded and wet; gut a pale bent sausage; bone a splinter, marrow red at the break. Bursts throw mostly small
+meat now (3 to 10 cm, most near 3), six of them with a broken trunk, so the pieces, ribs and organs carry the read.
 
 **Guts** are verlet strands, 11 points 11.5 cm apart, drawn together as one tube mesh updated in place (`RopeField`). A strand
 finds the floor under its middle four times a second, slides on it, and drops blood as its end drags. A loose one lies
-14 s and shrinks away; a hanging one goes when its body leaves the scene.
+14 s and shrinks away; a hanging one goes when its body leaves the scene. A gut-shot loop is held at both ends 28 cm apart
+across the belly with 1.25 times the slack (`loopSlack`), so it hangs as a heavy U to the shins, and sways a little
+(`sway`), most at its bottom.
 
 **Spurts** (`SpurtField`) fire globs at 34 a second that fall under gravity, drawn by `fx.bloodHose` (`HoseLayer` with
-`BLOOD_HOSE`). The push beats (`heartbeat`), falls with the pressure over three quarters of the stump's time, and stops. A
+`BLOOD_HOSE`), shaded in its shader as a round glossy rope: dark at the edges, brighter down the core, a tight highlight,
+swelling and pinching along its length. The push beats (`heartbeat`), falls with the pressure over three quarters of
+the stump's time, and stops. A
 landing glob hands one of the blood field's own drops to the floor, which stains it.
 
 **Caps.** Organs: lung 12, liver, heart and stomach 8 each; ribcage fragments 8 of each kind, all inside `ChunkTuning.maxBodies`
@@ -300,7 +310,8 @@ damage's point and source (`planGib`), so a guest throws the same pieces, organs
 
 **Measured** (Crucible, wave 1, three gibs forced through the kill path and a rocket blast every 0.8 s, 24 s, dpr 2 at
 1440x900, A/B against the old burst in the same build, two runs each, load from other agents high): gib call p50 9 to 10 ms
-against 6 to 8, first gib of a run 42 to 72 ms against 43 to 50; gore update p50 0.3 ms against 0.1, p95 1.6 to 2.0 against
+against 6 to 8, first gib of a run 42 to 72 ms against 43 to 50 (after the polish pass, two runs: p50 7.3 and 10.2 ms, first
+48 and 57 ms); gore update p50 0.3 ms against 0.1, p95 1.6 to 2.0 against
 1.3 to 1.6; frame p50 19.8 to 21.9 ms against 17.3 to 21.4, inside the run-to-run spread; draw calls peak +45 to +75.
 
 ## Wounds

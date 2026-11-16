@@ -80,8 +80,8 @@ void main() {
 `;
 
 /**
- * Blood instead of fire (gore's arterial spurts): a dark liquid rope with a wet highlight down one side, tearing into
- * beads as it ages and falls. Covers what is behind it, as a liquid does.
+ * Blood instead of fire (gore's arterial spurts): a dark glossy rope, shaded as if round, brighter down its core, swelling
+ * and pinching along its length and tearing into beads as it ages and falls. Covers what is behind it, as a liquid does.
  */
 const BLOOD_FRAG = /* glsl */ `
 uniform float uTime;
@@ -101,18 +101,27 @@ float vnoise(vec2 p) {
 }
 
 void main() {
-  float x = abs(vS.x);
   float k = clamp(vS.z / 0.55, 0.0, 1.0);
-  float n = vnoise(vec2(vS.y * 0.9, vS.x * 2.0)) * 0.6 + vnoise(vec2(vS.y * 2.7 - uTime * 4.0, vS.x * 3.5)) * 0.4;
-  float edge = mix(0.95, 0.7, k) + (n - 0.5) * mix(0.15, 0.6, k);
-  float a = 1.0 - smoothstep(edge - 0.12, edge, x);
+  // The stream swells and pinches along its length, more as it ages and breaks up.
+  float swell = vnoise(vec2(vS.y * 1.1, 1.7)) * 0.6 + vnoise(vec2(vS.y * 3.3 - uTime * 2.0, 5.3)) * 0.4;
+  float radius = mix(0.62, 0.38, k) + swell * mix(0.42, 0.55, k);
+  float x = vS.x / radius;
+  float ax = abs(x);
+  float n = vnoise(vec2(vS.y * 2.7 - uTime * 4.0, vS.x * 3.5));
+  float a = 1.0 - smoothstep(0.82, 1.0, ax + (n - 0.5) * 0.25 * k);
   // An old stretch breaks into beads along its length.
   float bead = smoothstep(0.32, 0.55, vnoise(vec2(vS.y * 1.6, 3.1)) + 0.55 - k);
   a *= mix(1.0, bead, k);
   if (a <= 0.02) discard;
-  float lit = 1.0 - smoothstep(0.0, 0.22, abs(vS.x + 0.38));
-  vec3 col = mix(uDeep, uBright, n * 0.7 + (1.0 - x) * 0.3);
-  col += vec3(0.42, 0.13, 0.12) * lit * (1.0 - k * 0.5);
+  // Shaded as the round rope it stands for: a normal across it, a light from above and to the side, a tight wet
+  // highlight and a darker edge where it turns away.
+  vec3 nrm = normalize(vec3(x, 0.0, sqrt(max(0.0, 1.0 - min(ax, 1.0) * min(ax, 1.0)))));
+  vec3 light = normalize(vec3(-0.45, 0.35, 0.82));
+  float diffuse = 0.35 + 0.65 * max(0.0, dot(nrm, light));
+  float spec = pow(max(0.0, dot(reflect(-light, nrm), vec3(0.0, 0.0, 1.0))), 40.0);
+  float core = 1.0 - smoothstep(0.0, 0.5, ax);
+  vec3 col = mix(uDeep, uBright, core * core * 0.9 + n * 0.1) * diffuse;
+  col += vec3(1.0, 0.7, 0.68) * spec * 0.9 * (1.0 - k * 0.5);
   col = mix(col, uFogColor, vFog);
   gl_FragColor = vec4(col * a, a);
   ${OUTPUT_FRAG}
@@ -131,15 +140,15 @@ export interface HoseStyle {
 
 /** Metres across, by age: a thumb-thick jet out of the wound that spreads a little as it flies. */
 export function bloodHoseWidth(age: number): number {
-  return 0.04 + 0.05 * Math.min(1, age / 0.45);
+  return 0.06 + 0.06 * Math.min(1, age / 0.45);
 }
 
 export const BLOOD_HOSE: HoseStyle = {
   name: 'fx.bloodHose',
   fragment: BLOOD_FRAG,
   uniforms: {
-    uDeep: { value: new THREE.Vector3(BLOOD.arterial.r * 1.8, BLOOD.arterial.g * 2, BLOOD.arterial.b * 2) },
-    uBright: { value: new THREE.Vector3(0.5, 0.014, 0.018) },
+    uDeep: { value: new THREE.Vector3(BLOOD.arterial.r * 0.35, BLOOD.arterial.g * 0.5, BLOOD.arterial.b * 0.5) },
+    uBright: { value: new THREE.Vector3(0.3, 0.008, 0.011) },
   },
   width: bloodHoseWidth,
   points: 256,

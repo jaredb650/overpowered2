@@ -1190,10 +1190,12 @@ export class Gore implements GoreSystem {
     const spine = char.bones[HumanoidBone.spine]!;
     spine.updateWorldMatrix(true, false);
     const scale = char.rig.height / 1.85;
-    // A loop out of the hole: both ends a little inside it, a hand apart, the rest hanging.
+    // A loop out of the hole, its two ends a little inside it and spread across the belly, so it hangs as a heavy U.
     _v4.copy(at).addScaledVector(dir, 0.02);
     spine.worldToLocal(_v4);
-    this.ropes.hang(spine, _v4, char.root, scale, _v3.copy(_v4).add(_v2.set(0.1 * scale, -0.02 * scale, 0)));
+    _v3.copy(_v4).add(_v2.set(0.15 * scale, -0.03 * scale, 0));
+    _v4.x -= 0.13 * scale;
+    this.ropes.hang(spine, _v4, char.root, scale, _v3);
     // `dir` may be one of the scratch vectors just used: the spray goes out and down whatever it was.
     this.blood.spray(at, _down, 6, 2, 0.6, 0.08);
   }
@@ -1508,7 +1510,7 @@ export class Gore implements GoreSystem {
       if (killing) killing.torso = plan.mode;
       const broke = this.breakTrunk(char, plan, chest, blastDir, launch);
       this.spill(char, plan, chest, hips, blastDir, launch);
-      this.fleshBurst(chest, hips, blastDir, launch, push, broke ? (full ? 5 : 2) : 13);
+      this.fleshBurst(chest, hips, blastDir, launch, push, broke ? (full ? 6 : 3) : 13);
     }
 
     if (body) this.dropBody(body);
@@ -1590,7 +1592,9 @@ export class Gore implements GoreSystem {
       const bone = char.bones[CHEST]!;
       bone.updateWorldMatrix(true, false);
       bone.getWorldQuaternion(_q);
-      this.chunks.burstRibs(_v.setFromMatrixPosition(bone.matrixWorld), _q, scale, blastDir, plan.ribs, launch * 0.45);
+      // As wide as his chest: a broad archetype's ribcage is broader, so it fills the trunk it bursts out of.
+      const cage = scale * clamp((char.rig.bones[CHEST]!.hit?.radius ?? 0.16) / 0.16, 1, 1.4);
+      this.chunks.burstRibs(_v.setFromMatrixPosition(bone.matrixWorld), _q, cage, blastDir, plan.ribs, launch * 0.45);
     }
     for (const organ of plan.organs) {
       _v3.copy(hips).lerp(chest, ORGAN_AT[organ]);
@@ -1646,7 +1650,7 @@ export class Gore implements GoreSystem {
       randomInCone(dir, 0.35, _v4).multiplyScalar(4 + rnd() * 3);
       _v4.y += 1 + rnd() * 2;
       _q2.setFromAxisAngle(_v3.set(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5).normalize(), rnd() * 6.28);
-      this.chunks.spawn(kind, exit.x, exit.y, exit.z, _v4.x, _v4.y, _v4.z, scale * 0.85, _q2, 12);
+      this.chunks.spawn(kind, exit.x, exit.y, exit.z, _v4.x, _v4.y, _v4.z, scale, _q2, 12);
     }
     const organ: OrganKind = belly ? (rnd() < 0.5 ? 'liver' : 'stomach') : rnd() < 0.7 ? 'lung' : 'heart';
     randomInCone(dir, 0.3, _v4).multiplyScalar(3 + rnd() * 2);
@@ -1670,7 +1674,8 @@ export class Gore implements GoreSystem {
       _v3.copy(chest).addScaledVector(_v2, 0.18);
       _v2.addScaledVector(blastDir, 1.1).normalize().multiplyScalar(launch * rand(0.5, 1.1));
       _v2.y += rand(1, 7);
-      this.chunks.spawn('meat', _v3.x, _v3.y, _v3.z, _v2.x, _v2.y, _v2.z, rand(0.05, 0.13));
+      // Mostly small: a few big lumps would steal the eye from the trunk's pieces, the ribs and the organs.
+      this.chunks.spawn('meat', _v3.x, _v3.y, _v3.z, _v2.x, _v2.y, _v2.z, 0.03 + 0.07 * Math.random() ** 2.2);
     }
     for (let i = 0; i < (few ? 1 : 5); i++) {
       randomUnit(_v2);
@@ -1678,7 +1683,7 @@ export class Gore implements GoreSystem {
       _v3.y += 0.12;
       _v2.addScaledVector(blastDir, 1).normalize().multiplyScalar(launch * rand(0.3, 0.8));
       _v2.y += rand(1, 5);
-      this.chunks.spawn('viscera', _v3.x, _v3.y, _v3.z, _v2.x, _v2.y, _v2.z, rand(0.06, 0.1));
+      this.chunks.spawn('viscera', _v3.x, _v3.y, _v3.z, _v2.x, _v2.y, _v2.z, rand(0.05, 0.08));
     }
     for (let i = 0; i < (few ? 2 : 5); i++) {
       randomUnit(_v2);

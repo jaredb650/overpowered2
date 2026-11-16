@@ -11,7 +11,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { clamp, mulberry32, rand, TAU } from '../core/math';
 import type { BloodField } from './blood';
 import { ImpactTuning, type ImpactEvents } from './impacts';
-import { buildOrgans, buildRibcage, ORGANS, type OrganKind, type RibKind } from './organs';
+import { buildFlesh, buildOrgans, buildRibcage, ORGANS, type OrganKind, type RibKind } from './organs';
 
 export type ChunkKind = 'meat' | 'viscera' | 'bone' | 'cranium' | 'jaw' | 'brain' | 'eye' | 'scrap' | OrganKind | RibKind;
 
@@ -234,8 +234,9 @@ export class ChunkField {
   private ready = false;
   private readonly impactDir = new THREE.Vector3();
   private kit: KitPiece[] = [];
-  /** Where each ribcage fragment sits in the chest bone's frame, for a 1.85 m body. */
+  /** Where each ribcage fragment sits in the chest bone's frame, for a 1.85 m body, and its half size. */
   private readonly ribAt = new Map<ChunkKind, THREE.Vector3>();
+  private readonly ribBox = new Map<ChunkKind, THREE.Vector3>();
 
   constructor(private readonly ctx: Ctx, private readonly blood: BloodField, private readonly impacts: ImpactEvents) {}
 
@@ -268,9 +269,15 @@ export class ChunkField {
       this.slots.set(kind, slots);
       this.all.push(...slots);
     };
-    make('meat', lump(11, 1, 0.75, 0x4a0606, 0xc41a1a), wet(0.3, 0.7));
-    make('viscera', lump(23, 1, 0.45, 0x7a1420, 0xd8455a, 1.5), wet(0.2, 1));
-    make('bone', lump(5, 0, 0.55, 0xb9a98a, 0xeee4cd, 2.2), wet(0.55, 0.15));
+    // Soft torn flesh, smooth-shaded and wet (organs.ts): faceted lumps read as red gems.
+    const flesh = buildFlesh();
+    const meat = wet(0.24, 0.9);
+    (meat as THREE.MeshPhysicalMaterial).flatShading = false;
+    make('meat', flesh.get('meat')!, meat);
+    make('viscera', flesh.get('viscera')!, meat);
+    const splinter = wet(0.45, 0.3);
+    (splinter as THREE.MeshPhysicalMaterial).flatShading = false;
+    make('bone', flesh.get('bone')!, splinter);
     const kit = buildKit();
     this.kit = kit.pieces;
     const shell = wet(0.5, 0.2);
@@ -289,6 +296,8 @@ export class ChunkField {
     for (const [kind, g] of buildRibcage()) {
       const c = centred(g);
       this.ribAt.set(kind, c.at);
+      c.g.computeBoundingBox();
+      this.ribBox.set(kind, c.g.boundingBox!.getSize(new THREE.Vector3()).multiplyScalar(0.5));
       make(kind, c.g, ribs);
     }
   }
@@ -362,8 +371,12 @@ export class ChunkField {
     // Thin plates and long bones need a box. A sphere would roll forever.
     const box = KIT_BOX[kind];
     const hx = size * (box ?? 0.72);
+    // A ribcage fragment rests on its own bounds, a little inside them, so it lies on the floor and not in it.
+    const extent = this.ribBox.get(kind);
     world.createCollider(
-      R.ColliderDesc.cuboid(hx, kind === 'cranium' ? hx * 0.5 : hx, hx)
+      (extent
+        ? R.ColliderDesc.cuboid(extent.x * size * 0.8, extent.y * size * 0.8, extent.z * size * 0.8)
+        : R.ColliderDesc.cuboid(hx, kind === 'cranium' ? hx * 0.5 : hx, hx))
         .setDensity(1100)
         .setFriction(ChunkTuning.friction)
         .setRestitution(ChunkTuning.restitution)

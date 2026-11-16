@@ -230,6 +230,8 @@ const scenarios: Record<string, Scenario> = {
     setup(s) {
       s.place(-0.6, 0);
       s.place(1.2, -0.5);
+      // Something for the top half to crawl at: gore drags a crawler toward the player.
+      (s.ctx as { player: unknown }).player = { position: v(2.6, 0, 3.2), eye: v(2.6, 1.6, 3.2) };
     },
     frame(s, f) {
       if (f !== 20) return;

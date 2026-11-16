@@ -15,7 +15,7 @@ export type RibKind = 'ribsUL' | 'ribsLL' | 'ribsUR' | 'ribsLR' | 'sternum' | 's
 export const ORGANS: readonly OrganKind[] = ['lung', 'liver', 'heart', 'stomach'];
 export const RIB_KINDS: readonly RibKind[] = ['ribsUL', 'ribsLL', 'ribsUR', 'ribsLR', 'sternum', 'spine'];
 
-const BONE = new THREE.Color(0xd9c7a3);
+const BONE = new THREE.Color(0xe6dac4);
 const CARTILAGE = new THREE.Color(0xa99a90);
 const BLOOD = new THREE.Color(0x6e0a0c);
 const MARROW = new THREE.Color(0x8a1414);
@@ -154,13 +154,14 @@ function ribStretch(b: Builder, i: number, side: number, s0: number, s1: number,
   const path: THREE.Vector3[] = [];
   for (let k = 0; k <= steps; k++) path.push(ribPoint(i, s0 + (s1 - s0) * (k / steps), side, new THREE.Vector3()));
   const bone = RIB_BONE[i]!;
-  const thick = i < 2 ? 0.0055 : 0.0042;
-  band(b, path, thick, i < 2 ? 0.009 : 0.0072, (k, out) => {
+  const thick = i < 2 ? 0.0075 : 0.006;
+  band(b, path, thick, i < 2 ? 0.012 : 0.0098, (k, out) => {
     const s = s0 + (s1 - s0) * (k / steps);
     const base = s > bone ? CARTILAGE : BONE;
     // Blood soaks in toward each broken end.
-    const end = Math.min(k, steps - k) <= 1 ? 0.55 : 0;
-    bloodied(base, rnd(), end, out);
+    // Off-white bone with blood in patches, soaked toward each broken end.
+    const end = Math.min(k, steps - k) <= 1 ? 0.6 : 0;
+    bloodied(base, rnd() * 0.88, end, out);
   }, rnd);
 }
 
@@ -231,8 +232,8 @@ export function buildRibcage(seed = 71): Map<RibKind, THREE.BufferGeometry> {
  * A smooth wet blob of radius about 1: an icosphere welded so it shades round, lumpy by `rough`, pushed into shape by
  * `shape` and coloured by `pick`. Noise is keyed by position so the welded surface stays closed.
  */
-function blob(seed: number, rough: number, shape: (p: THREE.Vector3) => void, pick: (p: THREE.Vector3, k: number, out: THREE.Color) => void): THREE.BufferGeometry {
-  const base = new THREE.IcosahedronGeometry(1, 3);
+function blob(seed: number, rough: number, shape: (p: THREE.Vector3) => void, pick: (p: THREE.Vector3, k: number, out: THREE.Color) => void, detail = 3): THREE.BufferGeometry {
+  const base = new THREE.IcosahedronGeometry(1, detail);
   base.deleteAttribute('uv');
   base.deleteAttribute('normal');
   const g = mergeVertices(base);
@@ -298,5 +299,60 @@ export function buildOrgans(): Map<OrganKind, THREE.BufferGeometry> {
     p.y = p.y * 0.62 + p.x * p.x * 0.38;
     p.z *= 0.58;
   }, (p, k, c) => c.copy(STOMACH_A).lerp(STOMACH_B, clamp(Math.abs(Math.sin(p.x * 6 + p.z * 4)) * 0.35 + (k - 0.6), 0, 0.7))));
+  return out;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Torn flesh
+// ---------------------------------------------------------------------------------------------
+
+const MEAT_DARK = new THREE.Color(0x3e0408);
+const MEAT_RAW = new THREE.Color(0x9a1622);
+const MEAT_PINK = new THREE.Color(0xc8606a);
+const FAT_STREAK = new THREE.Color(0xd9bf86);
+const SINEW = new THREE.Color(0xe2b7b4);
+
+/**
+ * The loose pieces every burst throws: torn meat (soft and lumpy, a ragged flap or two, dark red to pink with fat and
+ * sinew streaked through it), a loop of gut, and a splinter of bone. Smooth-shaded and wet, so they read as flesh and not
+ * as red gems. One shape each; instances stretch and turn them so no two match.
+ */
+export function buildFlesh(): Map<'meat' | 'viscera' | 'bone', THREE.BufferGeometry> {
+  const out = new Map<'meat' | 'viscera' | 'bone', THREE.BufferGeometry>();
+  const rnd = mulberry32(91);
+  // Torn: most of the surface swollen and soft, a few vertices pulled out into flaps and strings.
+  const flaps = Array.from({ length: 4 }, () => new THREE.Vector3(rnd() * 2 - 1, rnd() * 2 - 1, rnd() * 2 - 1).normalize());
+  out.set('meat', blob(13, 0.35, p => {
+    const dir = _w.copy(p).normalize();
+    let pull = 0;
+    for (const f of flaps) pull = Math.max(pull, dir.dot(f));
+    // A flap is a thin lip of tissue: out along it, and flattened across.
+    const flap = Math.max(0, pull - 0.86) * 4.5;
+    p.multiplyScalar(1 + flap * 0.9 + (Math.sin(p.x * 11 + p.z * 7) * 0.5 + 0.5) * 0.06);
+    p.y *= 0.72;
+  }, (p, k, c) => {
+    const streak = Math.sin(p.x * 7.5 + p.y * 12 + p.z * 4 + k * 1.5);
+    c.copy(MEAT_DARK).lerp(MEAT_RAW, clamp(0.45 + k * 0.7, 0, 1)).lerp(MEAT_PINK, clamp((p.y + 0.2) * 0.8 * k, 0, 0.6));
+    if (streak > 0.93) c.lerp(FAT_STREAK, 0.6);
+    else if (streak < -0.92) c.lerp(SINEW, 0.6);
+    // Small and many: 96 of them are drawn every frame, so fewer vertices than an organ.
+  }, 2));
+  // Gut: a short bent sausage, pale and pink, bloodied.
+  out.set('viscera', blob(29, 0.15, p => {
+    const t = p.x;
+    p.set(p.x * 1.6, p.y * 0.42 + t * t * 0.45, p.z * 0.42);
+  }, (p, k, c) => c.copy(MEAT_PINK).lerp(SINEW, k * 0.4).lerp(MEAT_RAW, Math.abs(Math.sin(p.x * 9)) > 0.8 ? 0.5 : 0), 2));
+  // Bone: a splinter, thick at the break and sharp at the far end, marrow red where it snapped.
+  const bone = new THREE.CylinderGeometry(0.25, 0.4, 2.2, 7, 3);
+  const pos = bone.getAttribute('position');
+  for (let i = 0; i < pos.count; i++) {
+    const y = pos.getY(i);
+    const k = rnd();
+    // The top end splinters to a point off to one side; the bottom is jagged.
+    if (y > 1) pos.setXYZ(i, pos.getX(i) * 0.25 + 0.12, y + k * 0.3, pos.getZ(i) * 0.25);
+    else if (y < -1) pos.setY(i, y - k * 0.35);
+  }
+  bone.computeVertexNormals();
+  out.set('bone', tinted(bone, 97, (_x, y, _z, k, c) => (y < -1.05 ? c.copy(MARROW) : bloodied(BONE, k, y < -0.6 ? 0.35 : 0, c))));
   return out;
 }

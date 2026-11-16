@@ -30,6 +30,9 @@ export const RopeTuning = {
   trailEvery: 0.3,
   /** Seconds it bleeds as it moves. */
   trailFor: 8,
+  /** A hanging loop's length against a strand's, and how far it sways, in metres a second squared at its bottom. */
+  loopSlack: 1.25,
+  sway: 0.6,
 };
 
 const RADIAL = 7;
@@ -181,7 +184,12 @@ export class RopeField {
     r.owner = owner;
     r.offset.copy(offset);
     r.looped = endOffset !== undefined;
-    if (endOffset) r.endOffset.copy(endOffset);
+    if (endOffset) {
+      r.endOffset.copy(endOffset);
+      // A loop has slack to spare: it sags low and heavy between its two ends instead of hanging as two straight strands.
+      r.segment *= RopeTuning.loopSlack;
+      r.thick *= 1.15;
+    }
     target.updateWorldMatrix(true, false);
     _a.copy(offset).applyMatrix4(target.matrixWorld);
     const P = RopeTuning.points;
@@ -252,6 +260,9 @@ export class RopeField {
       if (r.restAt >= 0) continue;
       const x = r.x, px = r.px;
       const g = t.gravity * h * h;
+      // Something hanging off a body never hangs dead still: a slow sway, strongest at the bottom of the loop.
+      const swayX = r.target ? Math.sin(now * 1.3 + r.serial * 1.7) * t.sway * h * h : 0;
+      const swayZ = r.target ? Math.cos(now * 0.9 + r.serial) * t.sway * 0.6 * h * h : 0;
       const floor = r.floor + t.radius * r.thick;
       let motion = 0;
       for (let i = 0; i < P; i++) {
@@ -260,9 +271,10 @@ export class RopeField {
         px[o] = x[o]!;
         px[o + 1] = x[o + 1]!;
         px[o + 2] = x[o + 2]!;
-        x[o] = x[o]! + vx;
+        const reach = r.looped ? Math.sin((i / (P - 1)) * Math.PI) : i / (P - 1);
+        x[o] = x[o]! + vx + swayX * reach;
         x[o + 1] = x[o + 1]! + vy - g;
-        x[o + 2] = x[o + 2]! + vz;
+        x[o + 2] = x[o + 2]! + vz + swayZ * reach;
         motion += Math.abs(vx) + Math.abs(vy) + Math.abs(vz);
       }
       if (r.target) {
