@@ -303,9 +303,14 @@ the catalog.
 **The new guns' shots** (2026-11-15, the owner's own recordings, weapons-update plan section 8). `dbshotgun_shot` is one
 barrel of the Deuce, the double-barrel on key 2, at 0.25 on the ladder (just over the pump's 0.234; loudness 0.234). Right
 click fires both barrels: `Weapons` plays it once and again 22 ms later at 0.95 pitch, so it is two triggers pulled together
-and not one louder shot; `perFrame` 2 lets the second through. `ultramag_shot` is the Ultramag on key 6, `gunHeavy` at
-0.25, over the Judge's 0.24 (loudness 0.48). Both were WAV inside an `.mp3` name: mixed to mono, resampled to 44.1 kHz, the
-first 39 and 67 ms of dead air cut, faded out by 0.9 s and encoded at 160 kbit/s as the other gun files. The Deuce's break-open
+and not one louder shot; `perFrame` 2 lets the second through. `ultramag_shot` is the Ultramag on key 6. Both were WAV inside
+an `.mp3` name: mixed to mono, resampled to 44.1 kHz, the first 39 and 67 ms of dead air cut, faded out by 0.9 s and encoded at
+160 kbit/s as the other gun files. On 2026-11-16 the Ultramag took the owner's newer shot (`NEWULTRAMAG.mp3`, 2 s of 16-bit 40 kHz
+stereo WAV inside an `.mp3` name), same id and file: mixed to mono at 44.1 kHz, the first 24 ms cut (a faint scrap and a pre-click
+ahead of the blast, which now starts within 2 ms) under a 2 ms fade-in, faded out from 0.7 s and cut at 1.1 s, peaks at -1 dB,
+160 kbit/s. `gunHeavy` at 0.2 on the ladder (loudness 0.34): the hardest-hitting pistol, over the Rivet's 0.138 and the
+Autoraffica's 0.1, under every shotgun (the Thresher's 0.204, the pump's 0.234, the Deuce's 0.25). The owner's
+`silencedAutoMag.mp3` is kept back for a suppressor on it. The Deuce's break-open
 reload uses `revolver_open`, `reload_shell_in` twice and `revolver_close`; the Ultramag's is the magazine foley.
 
 **The Stakegun's and the Raufoss round's** (2026-11-15, the owner's own recordings, weapons-update plan section 4; all four

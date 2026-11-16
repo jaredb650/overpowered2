@@ -10,7 +10,8 @@ export default async function ultramagShots(page, helpers) {
   await page.waitForFunction(() => !!window.__vm, { timeout: 60000 });
   const step = seconds => page.evaluate(value => window.__vm.step(value), seconds);
   const shot = async name => { await helpers.sleep(80); await helpers.shot(name); };
-  const only = (process.env.UMAG_ONLY ?? 'fp,cycle,close,reload,studio').split(',');
+  const only = (process.env.UMAG_ONLY ?? 'fp,cycle,hip,close,reload,studio').split(',');
+  let hipPitch = null;
   await page.evaluate(() => {
     const view = window.__vm;
     view.ctx.render.renderer.setPixelRatio(2);
@@ -40,6 +41,33 @@ export default async function ultramagShots(page, helpers) {
     await step(0.5);
   };
   if (only.includes('cycle')) await fireCycle('fire');
+  // The hip shot's recoil: stills at fixed times, and the muzzle's pitch against rest every 1/120 s through the interval.
+  if (only.includes('hip')) {
+    await equip('ultramag');
+    const pitch = () => page.evaluate(() => {
+      const root = window.__vm.rig.allDefs.ultramag.model.root;
+      root.updateMatrixWorld(true);
+      const e = root.matrixWorld.elements;
+      return Math.asin(Math.max(-1, Math.min(1, -e[9] / Math.hypot(e[8], e[9], e[10]))));
+    });
+    const rest = await pitch();
+    await page.evaluate(() => { window.__vm.ammo.mag = 6; window.__vm.rig.fire(1); });
+    let previous = 0;
+    for (const ms of [0, 40, 90, 160, 240]) {
+      await step(Math.max(ms / 1000 - previous, 1 / 240));
+      previous = Math.max(ms / 1000, previous + 1 / 240);
+      await shot(`hip-${ms}`);
+    }
+    await step(0.5);
+    await page.evaluate(() => { window.__vm.ammo.mag = 6; window.__vm.rig.fire(1); });
+    const trace = [];
+    for (let i = 0; i <= 43; i++) {
+      trace.push(Math.round((await pitch() - rest) * 1000));
+      await step(1 / 120);
+    }
+    await step(0.3);
+    hipPitch = { mradUp: trace, min: Math.min(...trace), max: Math.max(...trace) };
+  }
   // A close camera above and right of the port, behind the muzzle: what the eye would see with the gun held up to it.
   const closeCam = () => page.evaluate(() => {
     const view = window.__vm;
@@ -96,7 +124,7 @@ export default async function ultramagShots(page, helpers) {
     await turn(Math.PI / 2 - 0.6, 0.3);
     await shot('studio-front-left');
   }
-  return { dpr: await page.evaluate(() => devicePixelRatio), cost: await page.evaluate(() => {
+  return { hipPitch, dpr: await page.evaluate(() => devicePixelRatio), cost: await page.evaluate(() => {
     const model = window.__vm.rig.allDefs.ultramag.model;
     return { triangles: model.triangles, draws: model.draws };
   }) };

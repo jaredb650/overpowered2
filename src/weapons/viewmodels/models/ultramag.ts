@@ -13,7 +13,7 @@ import { F } from '../kit/finishes';
 import { Kind, type Finish, type Mesher } from '../kit/mesher';
 import { circle, curve, poly, type P2, type V2 } from '../kit/shapes';
 import { screwX } from '../kit/details';
-import { bump, hold, inOut, inQuad, outCubic, outQuad, seg, thud } from '../curves';
+import { hold, inOut, inQuad, outCubic, outQuad, seg, thud } from '../curves';
 import type { Anim, ViewDef } from '../def';
 import { HANDS } from '../poses';
 import { pullTrigger, round } from './common';
@@ -337,11 +337,11 @@ function clip(a: Anim): void {
   cartridge.visible = reload >= 0.2 ? reload >= 0.52 : a.mag > 0;
   parts.stack!.visible = reload >= 0.2 ? reload >= 0.52 : a.mag > 1;
   if (feeding) {
-    // The spring throws it up nearly to the bore line, nose high, while the slide hangs; then the breech face strips it
-    // forward, levels it and drives it home.
+    // The spring throws it up a touch over the bore line, nose high, while the slide hangs, where the eye sees it through the
+    // open top with the gun held level; then the breech face strips it forward, down onto the line and home.
     const home = 1 - back;
     const ramp = inOut(seg(home, 0, 0.4));
-    cartridge.position.y += lift * (BORE - 0.006 - FEED_Y) + ramp * 0.006;
+    cartridge.position.y += lift * (BORE + 0.002 - FEED_Y) - ramp * 0.002;
     cartridge.position.z -= home * TRAVEL;
     cartridge.rotation.x += 0.16 * lift * (1 - inOut(seg(home, 0.15, 0.55)));
   }
@@ -350,14 +350,12 @@ function clip(a: Anim): void {
   a.glow('rear', 1);
   a.glow('accent', 1 + (fired ? (1 - Math.min(1, time / HOME_END)) * 1.6 : 0));
   if (fired) {
-    // Roll the gun a touch so the port faces the eye while the round goes in.
-    // Not while aiming: the sight picture stays put and only the recoil moves it.
-    const reveal = hold(time, 0.01, 0.06, HOME_START + 0.03, HOME_END + 0.03) * (1 - a.aim);
-    // and dip the muzzle while the slide hangs, so the eye looks down into the port.
-    a.gunR.x += bump(time, 0, 0.12) * 0.05 - reveal * 0.2;
-    a.gunR.y += reveal * 0.06;
-    a.gunR.z += reveal * 0.3 + bump(time, 0, 0.18) * 0.04;
-    a.gunP.z += bump(time, 0, 0.12) * 0.014;
+    // A magnum's flip: the muzzle snaps up and the gun drives back into the hand in 20 ms, then eases down to level, never
+    // below it. On top of the rig's recoil spring; half of it while aiming, so the sights come back sooner.
+    const flip = (time < 0.02 ? outQuad(time / 0.02) : Math.exp(-(time - 0.02) / 0.07)) * (1 - a.aim * 0.5);
+    a.gunR.x += flip * 0.12;
+    a.gunP.z += flip * 0.022;
+    a.gunP.y += flip * 0.006;
   }
   if (a.draw < 1) {
     const lower = 1 - outCubic(a.draw);
@@ -395,7 +393,9 @@ export function ultramagDef(kit: Kit): ViewDef {
     id: 'ultramag', model: buildUltramag(kit),
     pos: [0.13, -0.138, -0.41], rot: [0.02, 0.06, 0],
     sight: [0, SIGHT_Y, POST_Z + 0.0042], rear: [0, SIGHT_Y, REAR_Z], relief: 0.7,
-    recoil: { back: 0.042, lift: 0.02, pitch: 0.17, yaw: 0.016, roll: 0.035, omega: 24, zeta: 0.56 },
+    // Damped near critical, so the kick settles without the muzzle dipping below level on the rebound. Straight up and back:
+    // no yaw, no roll.
+    recoil: { back: 0.05, lift: 0.022, pitch: 0.19, yaw: 0, roll: 0, omega: 24, zeta: 0.8 },
     right: { socket: 'gripR', pose: HANDS.grip },
     left: { socket: 'gripL', pose: HANDS.support },
     heatPerShot: 0.06, animate: clip,

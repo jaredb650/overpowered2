@@ -72,13 +72,13 @@ describe('Ultramag viewmodel', () => {
     const start = position('feedRound');
     pose(0.12);
     const popped = position('feedRound');
-    expect(popped.y).toBeGreaterThan(start.y + 0.009);
+    expect(popped.y).toBeGreaterThan(BORE);
     expect(popped.z).toBeCloseTo(start.z);
     const mid = pose(0.19);
     const stripped = position('feedRound');
     expect(mid.parts.feedRound!.visible).toBe(true);
     expect(stripped.z).toBeLessThan(popped.z - 0.02);
-    expect(stripped.y).toBeGreaterThan(popped.y);
+    expect(Math.abs(stripped.y - BORE)).toBeLessThan(0.003);
     pose(0.244);
     const chambered = position('feedRound');
     expect(chambered.y).toBeCloseTo(BORE, 2);
