@@ -17,6 +17,7 @@ import { Flames } from './Flames';
 import { closestOnSegment, closestSegmentPoints } from './geometry';
 import { damageKept, loadBudget, makeBudget, passBody, passWall, perWall, type Budget } from './penetration';
 import { Projectiles } from './Projectiles';
+import { CAPS, IMPLANTS_ON } from '../progression/implants';
 
 const MAX_RANGE = 800;
 /** Walls passed plus bounces. A sabot through a row of sheet metal is what needs the room. */
@@ -135,6 +136,8 @@ export class Combat implements CombatSystem {
   private readonly stack: RayState[] = [];
   private rayDepth = 0;
   private exploding = false;
+  /** Hellfire's bullet blasts this frame, against `CAPS.blastsPerFrame`. */
+  private bulletBlasts = 0;
   private explosionSerial = 0;
   private readonly queue: QueuedBlast[] = [];
   private queueLen = 0;
@@ -208,6 +211,7 @@ export class Combat implements CombatSystem {
 
   update(): void {
     const dt = this.ctx.time.dt;
+    this.bulletBlasts = 0;
     this.drainBlasts();
     this.projectiles.update(dt);
     this.flames.update(dt);
@@ -638,6 +642,8 @@ export class Combat implements CombatSystem {
   }
 
   private bulletBlast(point: THREE.Vector3, normal: THREE.Vector3, damage: number, spec: ShotSpec): void {
+    // Past the cap the round has hit as a plain one, at Hellfire's 1.25x, with no blast: this is where the lag was.
+    if (IMPLANTS_ON && ++this.bulletBlasts > CAPS.blastsPerFrame) return;
     const blast = this.scratchBlast;
     blast.radius = spec.blastRadius!;
     blast.damage = damage;

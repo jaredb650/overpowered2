@@ -5,6 +5,7 @@
 import { damp } from '../../core/math';
 import { Flag, Label, Meter, Num, Shown, div, span } from '../dom';
 import { LADDER } from '../data';
+import { rungShown } from '../../progression/implants';
 import type { HudState } from '../state';
 
 /** Combo at which each heat tier starts. Tiers line up with the ladder's rewards. */
@@ -84,7 +85,8 @@ export class Combo {
     this.urgent.set(s.comboTimer < 0.3);
 
     let index = LADDER.length;
-    for (let i = LADDER.length - 1; i >= 0; i--) if (s.combo < LADDER[i]!.combo) index = i;
+    // Berserk and Chain Storm are implants: no rung for one not fitted.
+    for (let i = LADDER.length - 1; i >= 0; i--) if (s.combo < LADDER[i]!.combo && rungShown(LADDER[i]!.name)) index = i;
     if (index !== this.ladderIndex) {
       this.ladderIndex = index;
       const rung = LADDER[index];

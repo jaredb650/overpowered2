@@ -5,6 +5,7 @@
 | File | What it is |
 |---|---|
 | `data.ts` | Every number. Tune here |
+| `implants.ts` | The implant loadout: classes, prices, slots, caps, the default, `Loadout`. Pure, no three.js. See "Implants" below |
 | `index.ts` | The kill flow: counters, ladder, style gate, assists, frame update, reset |
 | `perks.ts` | Activation, countdowns, stacking, the one writer of `weapons.modifiers` and `player.modifiers`, grade choice |
 | `counters.ts` | `TimeWindow` (sliding) and `Combo` (gap-based) |
@@ -27,6 +28,34 @@
 | `src/vehicles/attackModel.ts`, `utilityModel.ts`, `guns.ts`, `loft.ts` | Both airframes, the M134 and the chin cannon, the hull lofter |
 | `pickups/pickups.ts`, `pods.ts`, `models.ts` | Drops, map items, capsules, drop pods (weapon caches; the Crucible shop's supply pods) |
 
+## Implants
+
+`docs/proposals/implants.md` is the design. Built 2026-11-15:
+
+- **Core, always on:** SLOWMO, Adrenaline, Geneva Suggestion (`CORE`).
+- **Implants, one a class:** Gun (Blood Thirst, Hellfire, Berserk), Kill (Butcher, Chain Reaction, Chain Storm), Move (Skyfall, Overdrive).
+  Progression grants an implant's perk only when it is fitted (`Loadout.allows`, checked in `tryGrant` in `index.ts`). The lab's
+  perk buttons and `progression.grant()` still grant anything.
+- **Slots:** 1 open, 2 for 1,500 after wave 5, 3 for 3,000 after wave 12 (`SLOT_WARES`). Every run starts on the default: the core
+  and Blood Thirst in slot 1 (`Progression.reset` calls `loadout.reset()`). Purchases last one run.
+- **Rearm:** 30 s after any implant's effect ends (`CAPS.rearm`; the style perks had it already). Blood Thirst's and Hellfire's
+  windows now clear when they fire, and Berserk's and Chain Storm's combo rung moves on even while the perk runs. Before, all four
+  re-armed on the first kill after they ended, which in a swarm meant always on.
+- **Berserk, toned:** invulnerable, dual SMGs and bottomless as before; 2x damage (was 5x), 1.5x fire rate (3x), 1.4x speed (2x),
+  no extra pellets (3x).
+- **One capsule at a time:** a new capsule ends the one running, silently (`PerkRunner.grant`). Frost Nova is one-shot and ends
+  nothing.
+- **Bullet blasts:** at most 6 Hellfire bullet blasts a frame (`Combat.bulletBlast`). Past that a round hits as a plain one at
+  Hellfire's 1.25x. The stake's exploding round is a projectile and is not counted.
+- **Taking one off** (shop or lab) ends its effect silently; putting one on clears its kill window (`loadoutChanged`).
+- **The look:** each implant is a part on the contractor (`src/characters/implants.ts`): Gun on the left forearm, Kill a visor,
+  Move on both shins, the core a spine. `dressBody` dresses the baked contractor (the menu's, from `lastWorn()`; the shop's studio,
+  `ui/backdrop/bodystage.ts`), and `wearOnViewmodel` puts the Gun part on the first-person left arm whenever the loadout changes.
+  Sandbox: `/?sandbox=implants&fit=hellfire,butcher&preview=skyfall&yaw=0.5`.
+- The HUD's combo ladder shows Berserk and Chain Storm only when fitted (`rungShown`).
+- `?implants=0` (dev) is the old game: every perk earnable, the old Berserk, no caps and no rearm on the four above.
+- Lab: an IMPLANTS section with a row an implant: grant it, or fit it (opening every slot; the class rule still holds) or take it off.
+
 ## Public API
 
 The contract is `ProgressionSystem` in `core/gameplay.ts`.
@@ -41,7 +70,7 @@ Events out: `perk:start`, `perk:end`, `callin:ready`, `callin:used`, `combo:chan
 
 **First-game thresholds are untouched:** Blood Thirst 4 in 5 s, Hellfire 10 in 10 s, Airstrike combo 8, Warthog 12, Berserk 15, Adrenaline 3 sword kills in 3 s, SLOWMO 3 headshots in 3 s.
 
-**Stacking.** Damage, fire rate, pellets and speed multiply across effects (`STACK`), with speed capped at 3.5x. Modifiers are rebuilt from the active list every frame, so nothing can go stale. Retrigger is per effect: `ignore` keeps the counter so the perk re-arms on the first kill after it ends (the first game's near-permanent Blood Thirst), `refresh` restarts it, `stack` adds and restarts (Adrenaline, to 3).
+**Stacking.** Damage, fire rate, pellets and speed multiply across effects (`STACK`), with speed capped at 3.5x and, since implants, damage at 6x, fire rate at 2x (Berserk's akimbo SMG counted as 2x) and pellets at 2x (`CAPS` in `implants.ts`). Modifiers are rebuilt from the active list every frame, so nothing can go stale. Retrigger is per effect: `ignore` keeps the counter so the perk re-arms on the first kill after it ends (the first game's near-permanent Blood Thirst), `refresh` restarts it, `stack` adds and restarts (Adrenaline, to 3).
 
 **Style perks changed from DESIGN section 9.** Pacing was the problem: a perfect bot fired five perks in 15 s of wave 1, and they crowded out the rewards at combo 20 and above.
 

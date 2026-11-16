@@ -12,6 +12,9 @@ import type { Ctx, GradeName } from '../core/contracts';
 import type { ActiveEffect, PowerupId } from '../core/gameplay';
 import { clamp, invLerp } from '../core/math';
 import { EFFECTS, POWERUPS, SHOT_LAYERS, STACK, TRACER_ORDER, type EffectDef, type EffectId } from './data';
+import { CAPS, IMPLANTS_ON } from './implants';
+
+const isCapsule = (id: EffectId): boolean => POWERUPS.includes(id as PowerupId);
 
 export interface EffectListener {
   onEffectStart?(id: EffectId): void;
@@ -67,6 +70,10 @@ export class PerkRunner {
       return;
     }
 
+    // One capsule at a time: a new one ends the one running, silently, and shows its own banner. A one-shot never runs, so it ends nothing.
+    if (IMPLANTS_ON && def.seconds > 0 && isCapsule(id)) {
+      for (let i = this.effects.length - 1; i >= 0; i--) if (isCapsule(this.effects[i]!.id)) this.end(i, false);
+    }
     for (const l of this.listeners) l.onEffectStart?.(id);
     // One-shot powerups fire through the listener and never join the list.
     if (def.seconds <= 0) {
@@ -116,6 +123,14 @@ export class PerkRunner {
     if (audible) this.ctx.audio.play(POWERUPS.includes(id as PowerupId) ? 'powerup_end' : 'perk_end');
   }
 
+  /** Ends one effect silently, if it runs: an implant taken off in the shop. */
+  stop(id: EffectId): void {
+    const i = this.effects.findIndex(e => e.id === id);
+    if (i < 0) return;
+    this.end(i, false);
+    this.applyModifiers();
+  }
+
   /** Ends everything silently. For death and for a new run. */
   clear(): void {
     for (let i = this.effects.length - 1; i >= 0; i--) this.end(i, false);
@@ -150,6 +165,13 @@ export class PerkRunner {
     w.fireRate = (berserk ? STACK.fireRate.berserk : 1) * (haste ? STACK.fireRate.haste : 1) * (1 + geneva * STACK.genevaFireRatePerStack);
     w.bottomlessMag = bloodthirst || berserk;
     w.pellets = (bloodthirst ? STACK.pellets.bloodthirst : 1) * (berserk ? STACK.pellets.berserk : 1);
+    if (IMPLANTS_ON) {
+      w.damage = Math.min(w.damage, CAPS.damage);
+      // Akimbo halves the SMG's interval (Weapons.updateAuto), so it counts as 2x against the cap.
+      const akimbo = berserk && weapons.current === 'smg' ? 2 : 1;
+      w.fireRate = Math.min(w.fireRate, CAPS.fireRate / akimbo);
+      w.pellets = Math.min(w.pellets, CAPS.pellets);
+    }
     w.explosiveRounds = hellfire;
     w.blastRadius = hellfire ? STACK.hellfireBlast : 1;
     w.instakillBlast = hellfire;

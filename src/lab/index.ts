@@ -22,6 +22,8 @@ import { AimOverlay } from './overlay';
 import { ANIM } from '../player/moveAnim';
 import { MOVE } from '../player/tuning';
 import { modCheat, type ModHands } from './mods';
+import { implantCheat } from './implants';
+import type { Loadout } from '../progression/implants';
 import { LabPanel, type MoveSwitch } from './panel';
 import { PARKOUR } from './parkour';
 import { GALLERY } from './range';
@@ -96,6 +98,10 @@ export class Lab {
         modCheat(this.modHands, id, act);
         this.panel.syncMods(this.modHands.mods, this.modHands.fitted);
       },
+      implant: (id, act) => {
+        implantCheat(this.loadout, id, act);
+        this.panel.syncImplants(this.loadout.owned, this.loadout.fitted);
+      },
       move: (key, on) => this.moveSwitch(key, on),
       jump: (contract, beat) => {
         const next = new URLSearchParams(contractSearch(contract, location.search));
@@ -142,6 +148,11 @@ export class Lab {
   /** Every weapon in play, straight into the set: `give` would raise an unlock banner for each one, on every boot. */
   giveAll(): void {
     for (const id of WEAPON_ORDER) if (inPlay(id)) (this.ctx.weapons.owned as Set<WeaponId>).add(id);
+  }
+
+  /** Progression's implant loadout (src/progression/implants.ts), which the interface does not carry. */
+  private get loadout(): Loadout {
+    return (this.ctx.progression as unknown as { loadout: Loadout }).loadout;
   }
 
   /** The weapons' mods (src/weapons/mods.ts), which the interface does not carry. */
@@ -334,6 +345,7 @@ export class Lab {
     this.statusClock = STATUS_REFRESH;
     // A restart or the shop changes them too.
     this.panel.syncMods(this.modHands.mods, this.modHands.fitted);
+    this.panel.syncImplants(this.loadout.owned, this.loadout.fitted);
     const { enemies, time } = this.ctx;
     const stats = this.game.stats();
     const world = this.paused ? 'paused' : `${time.slowmo.toFixed(2)}x`;

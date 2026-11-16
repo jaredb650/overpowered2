@@ -10,6 +10,8 @@ import { WEAPONS, WEAPON_ORDER } from '../weapons/data';
 import { inPlay } from '../weapons/families';
 import { MODS, MOD_ORDER } from '../weapons/mods';
 import type { ModCheat } from './mods';
+import { CLASS_NAMES, IMPLANTS, IMPLANT_ORDER, type ImplantId } from '../progression/implants';
+import type { ImplantCheat } from './implants';
 import type { AiMode, LabSettings } from './settings';
 
 /** Body animation for moves, its camera part, first-person legs, and vaulting cover with no key. */
@@ -87,6 +89,8 @@ export interface PanelActions {
   maxGrenades(): void;
   /** A weapon mod: hand it over, or fit it (granting it first) or take it off. */
   mod(id: ModId, act: ModCheat): void;
+  /** An implant: hand it over, or fit it (granting it, opening every slot, and replacing its class) or take it off. */
+  implant(id: ImplantId, act: ImplantCheat): void;
   /** Draws the Quiver and stands five of the selected enemy in a loose arc ahead, to paint. */
   swarm(): void;
   /** Stands the selected enemy at 1.5, 2.5, 3.5, 5 and 8 m ahead, for a melee weapon's reach; `backs` turns them away. */
@@ -124,6 +128,7 @@ export class LabPanel {
   private readonly typeButtons = new Map<EnemyId, HTMLButtonElement>();
   private readonly aiButtons = new Map<AiMode, HTMLButtonElement>();
   private readonly modButtons = new Map<ModId, { grant: HTMLButtonElement; fit: HTMLButtonElement }>();
+  private readonly implantButtons = new Map<ImplantId, { grant: HTMLButtonElement; fit: HTMLButtonElement }>();
 
   /** `vehicles`: this map runs them. The Crucible does not, and a row of buttons that do nothing is a trap. */
   constructor(private readonly s: LabSettings, private readonly on: PanelActions, private readonly vehicles = true) {
@@ -297,7 +302,17 @@ export class LabPanel {
     this.el.append(el('h2', '', 'CALL-INS TO INVENTORY'));
     const calls = el('div', 'lab-grid wide');
     for (const id of CALLIN_ORDER) this.button(calls, CALLINS[id].name, () => this.on.grantCallIn(id));
-    this.el.append(calls, el('h2', '', 'PERKS'));
+    // A row an implant, as the mods have: the perk buttons below still grant any perk, fitted or not.
+    this.el.append(calls, el('h2', '', 'IMPLANTS'));
+    for (const id of IMPLANT_ORDER) {
+      const row = el('div', 'lab-row');
+      const grant = this.button(row, `${CLASS_NAMES[IMPLANTS[id].class]}: ${EFFECTS[id].label}`, () => this.on.implant(id, 'grant'));
+      const fit = this.button(row, 'Fit', () => this.on.implant(id, 'fit'));
+      grant.title = 'Grant it, unfitted';
+      this.implantButtons.set(id, { grant, fit });
+      this.el.append(row);
+    }
+    this.el.append(el('h2', '', 'PERKS'));
     const perks = el('div', 'lab-grid wide');
     for (const id of PERKS) this.button(perks, EFFECTS[id].label, () => this.on.grant(id));
     this.el.append(perks, el('h2', '', 'POWERUPS'));
@@ -386,6 +401,16 @@ export class LabPanel {
   syncMods(held: ReadonlySet<ModId>, fitted: ReadonlySet<ModId>): void {
     for (const [id, b] of this.modButtons) {
       b.grant.classList.toggle('on', held.has(id));
+      const label = fitted.has(id) ? 'Remove' : 'Fit';
+      if (b.fit.textContent !== label) b.fit.textContent = label;
+      b.fit.classList.toggle('on', fitted.has(id));
+    }
+  }
+
+  /** Lit while owned; the second button says what a press does now. */
+  syncImplants(owned: ReadonlySet<ImplantId>, fitted: ReadonlySet<ImplantId>): void {
+    for (const [id, b] of this.implantButtons) {
+      b.grant.classList.toggle('on', owned.has(id));
       const label = fitted.has(id) ? 'Remove' : 'Fit';
       if (b.fit.textContent !== label) b.fit.textContent = label;
       b.fit.classList.toggle('on', fitted.has(id));

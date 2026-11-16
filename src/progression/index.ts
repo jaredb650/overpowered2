@@ -27,7 +27,11 @@ import {
   AIMED_ASSISTS, ASSIST_COMBO_EVERY, ASSIST_SOURCES, CHAIN_REACTION_KILLS, COMBO_PERKS, COMBO_WINDOW, EFFECTS, OVERDRIVE_MIN_SPEED, REGEN, SKYFALL,
   SLOWMO_SAME_HEAD_GAP, STYLE_GATE, STYLE_PERKS, VAMPIRE_HEAL, WINDOWS, type EffectId, type StylePerk,
 } from './data';
+
+const STYLE: ReadonlySet<EffectId> = new Set(STYLE_PERKS);
 import { FrostNova } from './frost';
+import { CAPS, IMPLANTS_ON, IMPLANT_ORDER, Loadout, isImplant, saveWorn, type ImplantId } from './implants';
+import { wearOnViewmodel } from '../characters/implants';
 import { ModelMaterials } from './modelkit';
 import { PerkRunner } from './perks';
 import { Pickups } from './pickups/pickups';
@@ -82,7 +86,11 @@ class Progression implements ProgressionSystem {
   private readonly severedAt = new Map<number, number>();
   /** realElapsed before which no style perk may start. */
   private styleOpenAt = 0;
-  private readonly styleRearmAt = new Map<StylePerk, number>();
+  /** realElapsed before which each implant may not start again. */
+  private readonly rearmAt = new Map<ImplantId, number>();
+  /** What this run has bought and fitted (implants.ts). Progression grants only a perk that is core or fitted. */
+  readonly loadout = new Loadout();
+  private readonly wasFitted = new Set<ImplantId>();
   /** Scratch for the HUD's combined pickup list. */
   private readonly listed: { kind: PickupKind; position: THREE.Vector3; active: boolean }[] = [];
 
@@ -108,6 +116,7 @@ class Progression implements ProgressionSystem {
     });
     this.resetComboRungs();
     this.resetStyleGate();
+    this.loadout.onChange(() => this.loadoutChanged());
 
     const { events } = ctx;
     // An ally's hits and kills (src/allies) pay nothing, move no combo and feed no perk: they are not the player's.
@@ -241,9 +250,10 @@ class Progression implements ProgressionSystem {
     // Check order from the first game, with the new rungs folded in behind each original.
     if (!SHOPS_SELL) this.callInsManager.offer(combo);
     for (const rung of COMBO_PERKS) {
-      if (combo >= this.comboAt.get(rung.perk)! && !this.perks.isActive(rung.perk)) {
+      // With implants the rung moves on even while the perk runs: one Berserk no longer re-arms on the next kill after it.
+      if (combo >= this.comboAt.get(rung.perk)! && (IMPLANTS_ON || !this.perks.isActive(rung.perk))) {
         this.comboAt.set(rung.perk, combo + rung.rearm);
-        this.perks.grant(rung.perk);
+        this.tryGrant(rung.perk, now);
       }
     }
     if (!assist) this.feedWindows(e, now);
@@ -256,30 +266,39 @@ class Progression implements ProgressionSystem {
 
   /** Everything a kill does for the perk windows. Only the player's own kills come here. */
   private feedWindows(e: KillEvent, now: number): void {
-    if (this.windows.bloodthirst.push(now) >= WINDOWS.bloodthirst.need) this.perks.grant('bloodthirst');
-    if (this.windows.hellfire.push(now) >= WINDOWS.hellfire.need) this.perks.grant('hellfire');
+    this.tripWindow('bloodthirst', now);
+    this.tripWindow('hellfire', now);
     if (SWORD.test(e.damage.source)) this.tripWindow('adrenaline', now);
     if (e.playerAirborne && this.hang >= STYLE_GATE.hangTime) this.tripStyle('skyfall', now);
     if (e.playerSpeed / Math.max(this.ctx.player.modifiers.speed, 1) > OVERDRIVE_MIN_SPEED) this.tripStyle('overdrive', now);
     this.countExplosion(e, now);
   }
 
-  private tripWindow(id: 'adrenaline' | 'slowmo', now: number): void {
+  private tripWindow(id: 'bloodthirst' | 'hellfire' | 'adrenaline' | 'slowmo', now: number): void {
     const rule = WINDOWS[id];
     if (this.windows[id].push(now) < rule.need) return;
-    if (rule.clears) this.windows[id].clear();
-    this.perks.grant(id);
+    // A window that clears keeps its kills while the perk cannot start, so it lands on the first good kill after.
+    if (this.tryGrant(id, now) && rule.clears) this.windows[id].clear();
   }
 
   private tripStyle(id: Exclude<StylePerk, 'chainReaction'>, now: number): void {
     // The window keeps its kills while the gate is shut, so the perk lands on the first good kill after it opens.
-    if (this.windows[id].push(now) >= WINDOWS[id].need && this.grantStyle(id, now)) this.windows[id].clear();
+    if (this.windows[id].push(now) >= WINDOWS[id].need && this.tryGrant(id, now)) this.windows[id].clear();
   }
 
-  /** Starts a style perk if the gate allows it. See STYLE_GATE. */
-  private grantStyle(id: StylePerk, now: number): boolean {
-    if (now < this.styleOpenAt || now < this.styleRearmAt.get(id)! || this.perks.isActive(id)) return false;
-    this.styleOpenAt = now + STYLE_GATE.spacing;
+  /**
+   * Starts a perk if the loadout and the gates allow it: core always; an implant only fitted, not running, and 30 s after it
+   * last ended; a style perk also not inside STYLE_GATE.spacing of another. True if it started (or, for core, retriggered).
+   */
+  private tryGrant(id: EffectId, now: number): boolean {
+    if (!this.loadout.allows(id)) return false;
+    if (isImplant(id)) {
+      if (this.perks.isActive(id) || now < this.rearmAt.get(id)!) return false;
+      if (STYLE.has(id)) {
+        if (now < this.styleOpenAt) return false;
+        this.styleOpenAt = now + STYLE_GATE.spacing;
+      }
+    }
     this.perks.grant(id);
     return true;
   }
@@ -291,7 +310,7 @@ class Progression implements ProgressionSystem {
       this.explosionId = e.explosionId;
       this.explosionKills = 0;
     }
-    if (++this.explosionKills >= CHAIN_REACTION_KILLS) this.grantStyle('chainReaction', now);
+    if (++this.explosionKills >= CHAIN_REACTION_KILLS) this.tryGrant('chainReaction', now);
   }
 
   private onHit(enemy: EnemyInstance, damage: DamageInfo, result: DamageResult): void {
@@ -381,7 +400,8 @@ class Progression implements ProgressionSystem {
 
   private effectEnded(id: EffectId): void {
     const { audio, player, time } = this.ctx;
-    if (this.styleRearmAt.has(id as StylePerk)) this.styleRearmAt.set(id as StylePerk, time.realElapsed + STYLE_GATE.rearm);
+    // Before implants only the style perks had a rearm.
+    if (isImplant(id) && (IMPLANTS_ON || STYLE.has(id))) this.rearmAt.set(id, time.realElapsed + (IMPLANTS_ON ? CAPS.rearm : STYLE_GATE.rearm));
     switch (id) {
       case 'slowmo':
         time.popScale('slowmo');
@@ -405,7 +425,27 @@ class Progression implements ProgressionSystem {
 
   private resetStyleGate(): void {
     this.styleOpenAt = 0;
-    for (const id of STYLE_PERKS) this.styleRearmAt.set(id, 0);
+    for (const id of IMPLANT_ORDER) this.rearmAt.set(id, 0);
+  }
+
+  /**
+   * The shop or the cheat panel changed the loadout (the run is paused under either). An effect taken off ends silently; one
+   * put on arms with its kill window empty. The arm on the viewmodel changes with it, and the menu remembers it.
+   */
+  private loadoutChanged(): void {
+    const { fitted } = this.loadout;
+    for (const id of IMPLANT_ORDER) {
+      const on = fitted.has(id);
+      if (!on && this.perks.isActive(id) && IMPLANTS_ON) this.perks.stop(id);
+      if (on && !this.wasFitted.has(id)) {
+        if (id in this.windows) this.windows[id as keyof typeof this.windows].clear();
+        if (id === 'chainReaction') this.explosionKills = 0;
+      }
+    }
+    this.wasFitted.clear();
+    for (const id of fitted) this.wasFitted.add(id);
+    wearOnViewmodel(this.ctx, this.loadout.ofClass('gun'));
+    saveWorn(fitted);
   }
 
   // --- Frame -----------------------------------------------------------------------------------
@@ -443,6 +483,8 @@ class Progression implements ProgressionSystem {
 
   reset(): void {
     this.perks.clear();
+    // Every run starts on the default loadout: purchases last one run, as guns and mods do.
+    this.loadout.reset();
     this.scoreKeeper.reset();
     this.comboCounter.clear();
     for (const w of Object.values(this.windows)) w.clear();

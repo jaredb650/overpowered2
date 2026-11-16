@@ -5,6 +5,7 @@
 import type { GradeName } from '../core/contracts';
 import type { CallInId, PerkId, PickupKind, PowerupId, WeaponId } from '../core/gameplay';
 import { SLOT4_OLD, SLOT8_OLD } from '../weapons/data';
+import { IMPLANTS_ON } from './implants';
 
 export type EffectId = PerkId | PowerupId;
 
@@ -105,15 +106,19 @@ export const EFFECTS: Readonly<Record<EffectId, EffectDef>> = {
   timeWarp: power('timeWarp', 'TIME WARP', 'THE WORLD CRAWLS', '#e0b3ff', 5, 'slowmo'),
 };
 
-/** Stacking, in one place. Damage and speed multiply across effects, which is what lets a good run feel like cheating. */
+/**
+ * Stacking, in one place. Damage and speed multiply across effects, which is what lets a good run feel like cheating; the caps
+ * (implants.ts `CAPS`) stop it at 6x. Berserk is toned for implants (proposal section 4): 2x damage, 1.5x fire rate, 1.4x speed and
+ * no extra pellets, where it was 5x, 3x, 2x and 3x. `?implants=0` has the old numbers back.
+ */
 export const STACK = {
-  damage: { bloodthirst: 2, berserk: 5, quad: 4 },
-  fireRate: { berserk: 3, haste: 1.5 },
-  /** 12 pellets with Blood Thirst, 18 with Berserk, 36 with both, as in the first game. */
-  pellets: { bloodthirst: 2, berserk: 3 },
+  damage: { bloodthirst: 2, berserk: IMPLANTS_ON ? 2 : 5, quad: 4 },
+  fireRate: { berserk: IMPLANTS_ON ? 1.5 : 3, haste: 1.5 },
+  /** 12 pellets with Blood Thirst. Berserk's 3x (36 with both, as in the first game) is only on `?implants=0`. */
+  pellets: { bloodthirst: 2, berserk: IMPLANTS_ON ? 1 : 3 },
   /** Added per stack on top of 1. The first game aimed at 10% and landed on 3%. */
   adrenalinePerStack: 0.15,
-  speed: { berserk: 2, haste: 1.5 },
+  speed: { berserk: IMPLANTS_ON ? 1.4 : 2, haste: 1.5 },
   /** Beyond this the controller's ground acceleration outruns collision substeps. */
   maxSpeed: 3.5,
   /** Hellfire rockets: 8 x 2.5 = 20 m, instakill. */
@@ -145,8 +150,9 @@ export const COMBO_WINDOW = 5;
 
 /** Sliding-window triggers. `clears` empties the window on activation, as the first game did for sword and headshots. */
 export const WINDOWS = {
-  bloodthirst: { need: 4, span: 5, clears: false },
-  hellfire: { need: 10, span: 10, clears: false },
+  // These two never cleared, so in a swarm they re-armed on the first kill after they ended. Implants clear them.
+  bloodthirst: { need: 4, span: 5, clears: IMPLANTS_ON },
+  hellfire: { need: 10, span: 10, clears: IMPLANTS_ON },
   adrenaline: { need: 3, span: 3, clears: true },
   slowmo: { need: 3, span: 3, clears: true },
   butcher: { need: 5, span: 4, clears: true },
@@ -196,7 +202,8 @@ export const GIFT_SOURCES = /^(mortar|mine|tripwire|claymore|rigged|deadman)/;
 
 /**
  * Combo perks. Berserk no longer resets the combo, so each rung climbs by `rearm` after firing.
- * That keeps the first game's cadence of one Berserk per 15 kills.
+ * That keeps the first game's cadence of one Berserk per 15 kills. With implants the rung climbs even while the perk runs,
+ * so one Berserk can no longer chain into the next on the first kill after it ends.
  */
 export const COMBO_PERKS: readonly { perk: PerkId; at: number; rearm: number }[] = [
   { perk: 'berserk', at: 15, rearm: 15 },

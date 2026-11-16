@@ -14,6 +14,8 @@ import * as THREE from 'three';
 import type { Ctx, LoopHandle } from '../../core/contracts';
 import type { Character } from '../../characters/Character';
 import type { Backdrop } from '../../render/Renderer';
+import { dressBody, undressBody } from '../../characters/implants';
+import { lastWorn } from '../../progression/implants';
 import { Cabin, sunThroughDoor } from './cabin';
 import { Outside } from './outside';
 import { SmokeRhythm, type BackdropMode, type SmokerPose } from './rhythm';
@@ -194,6 +196,8 @@ export class MenuBackdrop {
       body.mesh.frustumCulled = false;
       body.mesh.castShadow = false;
       this.body = body;
+      // He wears what the last run wore (progression/implants.ts).
+      dressBody(body, lastWorn());
       const mouth = lib.sockets(ARCHETYPE).mouth?.pos;
       this.smoker = new Smoker(body, mouth ? [mouth[0]!, mouth[1]!, mouth[2]!] : null);
       this.scene.add(body.root, this.smoker.cigar);
@@ -331,6 +335,7 @@ export class MenuBackdrop {
     for (const o of this.owned) o.dispose();
     this.owned.length = 0;
     if (this.body) {
+      undressBody(this.body);
       this.body.mesh.material = this.body.a.material;
       this.body.release();
       this.lib.unload?.(ARCHETYPE);

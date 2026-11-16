@@ -1,6 +1,6 @@
 # Proposal: cyber implants (a loadout of streak power-ups)
 
-Status: design only, 2026-11-15. Nothing is built. Every number about today's game is read from the code named next to it. Timings for
+Status: approved with every default, 2026-11-15. Built outside the shop the same day (see "Built" at the end); the shop's Implants page is next. Every number about today's game is read from the code named next to it. Timings for
 how fast a player gets there are worked out from the thresholds and wave sizes, not measured in a browser.
 
 ## Summary
@@ -312,3 +312,62 @@ Each question has the answer I'll build with if you don't say otherwise.
 | 10 | Does Outpost Defense sell implants in its loadout screen and shops too? | **Yes,** at the same prices and wave locks |
 | 11 | Every new run starts on the default loadout, since purchases don't carry over? | **Yes** |
 | 12 | Crucible high scores were set under the old stacking, and runs will now score lower. Keep the old records, or start a new table? | **Keep them.** Say so in the patch notes |
+
+## 7. How they look (owner, 2026-11-15)
+
+"I want the implants to change your character's look... That is the implant, and it should show your char model with the implants in
+the menu." So each implant is a piece of hardware on the contractor, on the part of him its class is about. Code:
+`src/characters/implants.ts`.
+
+| Class | Region | Why |
+|---|---|---|
+| Gun | **Left forearm** (and, for Berserk, the hand and shoulder) | The guns' implants are in the arm that holds the gun. The left, because it is the forearm the first-person view shows on every two-handed gun; the right is off the bottom of the screen |
+| Kill | **Head: a visor** over his smoked one | How he sees what to kill |
+| Move | **Both shins** | How he moves |
+| Core | **A spine down his back** | Always there, so small: six vertebra plates over a red line, and a port at the neck |
+
+| Implant | Part | Look |
+|---|---|---|
+| Blood Thirst | Haemal Feed forearm | Two glass lines of blood (crimson glow) from wrist to elbow on a carbon spine, a vial in a steel cage on the back of the wrist, a band at each end |
+| Hellfire | Kiln forearm with heat vents | A sleeve of seven dark radiator fins over an orange glow that shows between them, two exhaust pipes down the sides |
+| Berserk | Rampart heavy forearm | A thick armoured sleeve with rounded plates layered over it, two red seams, a lit red core on the back plate, a knuckle plate on the hand and stacked plates over the shoulder |
+| Butcher | Cleaver slit visor | A black visor band with one narrow pink-red slit across it, and a blade crest fore and aft over the crown, its edge lit |
+| Chain Reaction | Cascade lens visor | A visor band with five round amber lenses in a row (the middle one larger) and a fuse can at the temple |
+| Chain Storm | Tempest crown visor | A visor with a violet glow bar, and a coil at each temple: a rod with four brass rings and a lit tip |
+| Skyfall | Calf thrusters | A pod on the outside of each calf: domed top, lit strip and vents, a steel bell nozzle with the burner lit inside and a short blue flame, and a lit stabiliser ring at the ankle |
+| Overdrive | Sprinter blades | A carbon blade behind each calf from the back of the knee round under the heel, a yellow line down both faces, and an actuator drum on the outside of the knee with its rim lit |
+
+**Built the way the game builds things:** three.js primitives merged into three meshes a part (lit metal, lit painted plate, unlit
+HDR glow in the perk's colour that the bloom picks up), so a part is three draw calls at most. Nothing is baked.
+
+**How they attach.** Parts mount on bones, never into a model:
+- *The baked contractor* (main menu, shop studio): `dressBody(body, worn)` builds every part once per body and mounts it on its bone as
+  a prop until reset (`Character.attachProp`), then only shows and hides. A part is designed in a canonical frame (forearm: wrist at
+  the origin, +Y to the elbow, +Z the back of the arm) and placed by a matrix worked out from the model's bind positions, so it follows
+  the bone however he is posed. `undressBody` frees the geometry when the menu or the studio gives the model back.
+- *First person:* `wearOnViewmodel(ctx, gun)` builds the three Gun forearms once on the viewmodel's left arm (`armL`, read past the
+  interface as the shop's gun studio reads `allDefs`): on the forearm's twist bone, starting past the wrist computer so its readout
+  stays in sight, facing the side the camera sees; Berserk's knuckle plate on the hand bone. The materials go through the renderer's
+  patch, as the viewmodel's own do. Progression calls it whenever the loadout changes. Nothing in `src/weapons/viewmodels/` changed.
+- *Where he is seen:* the shop's Implants page (`BodyStage`, `ui/backdrop/bodystage.ts`: the lit studio the Weapons page uses, him
+  turning, the row in focus put on him and the camera closing on its region), the first-person left arm, and the main menu's
+  contractor, who wears the last run's loadout (`lastWorn()`, kept in localStorage).
+
+## Built
+
+2026-11-15. Everything outside the shop's files:
+- **Loadout and rules:** `src/progression/implants.ts` (classes, prices, wave locks, lore, slots, `Loadout`, `CAPS`). Progression
+  grants only core or fitted perks; every run starts on the default.
+- **Rearm and the windows:** 30 s rearm on every implant; Blood Thirst's and Hellfire's windows clear when they fire; Berserk's and
+  Chain Storm's rungs move on while they run.
+- **Berserk** toned as section 4. **Caps** as section 5: damage 6x, fire rate 2x with akimbo counted, pellets 2x, one capsule at a
+  time, 6 bullet blasts a frame.
+- **The combo ladder** on the HUD shows Berserk and Chain Storm only when fitted.
+- **The parts, the studio, the menu and the first-person arm** as section 7.
+- **Lab rows:** IMPLANTS, a row each: grant, and fit or remove.
+- **`?implants=0`** as section 3.5.
+- **Campaign:** the default loadout (core and Blood Thirst). No mission sets its own yet.
+- Old high scores are kept.
+
+Not built yet: the shop's Implants tab (procurement, `implantOffers` in `rules.ts`, `buy` for `implant` and `slot`), the HUD shop
+card, and Outpost Defense's implant section. The rules they need are in `Loadout` already.

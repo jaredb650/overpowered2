@@ -32,7 +32,11 @@ function standIn() {
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.1), material);
   root.add(mesh);
   const released = vi.fn();
-  return { rig, root, bones, mesh, a: { material }, release: released, released };
+  // Bind positions and props, for the implant parts the backdrop puts on him (characters/implants.ts).
+  const bindPositions = rig.bones.map(() => new THREE.Vector3());
+  rig.bones.forEach((b, i) => bindPositions[i]!.set(...b.offset).add(b.parent >= 0 ? bindPositions[b.parent]! : new THREE.Vector3()));
+  const attachProp = (bone: number, prop: THREE.Object3D) => bones[bone]!.add(prop);
+  return { rig, root, bones, mesh, a: { material, bindPositions }, attachProp, release: released, released };
 }
 
 describe('backdropMode', () => {
@@ -199,7 +203,7 @@ describe('MenuBackdrop', () => {
   const settle = () => new Promise(r => setTimeout(r, 0));
 
   it('builds on demand, hands itself to the renderer, and steps aside when hidden or switched to the map', async () => {
-    const { bd, hook } = setup();
+    const { bd, hook, body } = setup();
     bd.update(1 / 60, true, 'map', false);
     expect(bd.built).toBe(false);
     expect(hook.backdrop).toBeNull();
@@ -210,6 +214,10 @@ describe('MenuBackdrop', () => {
     expect(hook.backdrop?.scene).toBe(bd.scene);
     expect(hook.backdrop?.still).toBe(false);
     expect(bd.stats().body).toBe(true);
+    // He wears the last run's implants: the default (Blood Thirst) with no run behind him, and the core's spine always.
+    expect(body.root.getObjectByName('implant:bloodthirst')?.visible).toBe(true);
+    expect(body.root.getObjectByName('implant:core')?.visible).toBe(true);
+    expect(body.root.getObjectByName('implant:berserk')?.visible).toBe(false);
     bd.update(1 / 60, false, 'heli', false);
     expect(hook.backdrop).toBeNull();
     // Hidden, not freed: a trip to the rules screen does not reload the model.
