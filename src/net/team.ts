@@ -106,6 +106,9 @@ export class Team {
   /** Host: a guest's purse by callsign, so a player who drops and rejoins gets their credits and score back. */
   private readonly purses = new Map<string, Card>();
   onOver: (cards: Card[], wave: number, won: boolean) => void = () => {};
+  /** Host: a guest's world is up (its first card came in): the moment to hand it what it missed while loading. */
+  onArrived: (id: string) => void = () => {};
+  private readonly arrived = new Set<string>();
 
   constructor(private readonly ctx: Ctx, private readonly session: CoopSession, private readonly send: (event: WorldEvent, to?: string) => void) {
     this.off.push(ctx.events.on('player:died', () => this.fell(session.lobby.you)));
@@ -229,6 +232,11 @@ export class Team {
             Object.assign(card, { state: life.state, life: life.life, bleed: this.bleedLeft(life), ping: lobby.pingOf(from) ?? 0 });
             this.cards.set(card.slot, card);
             const name = lobby.players.find(p => p.id === from)?.name;
+            if (!this.arrived.has(from)) {
+              this.arrived.add(from);
+              this.restore(from);
+              this.onArrived(from);
+            }
             if (name) this.purses.set(name, card);
           }
           return true;

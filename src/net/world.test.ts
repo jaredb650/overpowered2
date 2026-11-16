@@ -428,3 +428,19 @@ describe('stage 5: a mission run by the host and mirrored to guests', () => {
     game.hw.dispose(); game.gw.dispose();
   });
 });
+
+describe('a rejoining player', () => {
+  beforeEach(() => vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] }));
+  afterEach(() => vi.useRealTimers());
+  it('gets their purse back once their world is up and talking', () => {
+    const game = pair();
+    const card = (credits: number) => ({ slot: 1, state: 'up', bleed: 0, life: 0, hp: 100, max: 100, armor: 0, kills: 3, score: 300, credits, downs: 0, revives: 0, ping: 0 });
+    game.guestRoom.channel('action').send({ match: 'world-test', data: { t: 'card', card: card(250) } }); game.relay.flush();
+    // The same callsign comes back on a new page: its first card is an empty purse.
+    (game.hw.team as unknown as { arrived: Set<string> }).arrived.clear();
+    (game.guest.ctx.contracts.wallet as unknown as { credits: number }).credits = 0;
+    game.guestRoom.channel('action').send({ match: 'world-test', data: { t: 'card', card: card(0) } }); game.relay.flush();
+    expect(game.guest.ctx.contracts.wallet).toMatchObject({ credits: 250 });
+    game.hw.dispose(); game.gw.dispose();
+  });
+});

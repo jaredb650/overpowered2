@@ -27,6 +27,7 @@ export class CoopSession implements GameSystem {
   private seen = new Map<string, string>();
   private hidden = false;
   private firstRoster = true;
+  cpuMs = 0;
   private readonly offDoc: (() => void)[] = [];
   /** Why the match ended under this player, and whether the room is still there to go back to. */
   onEnded: (message: string, room: Room | null) => void = () => {};
@@ -86,7 +87,6 @@ export class CoopSession implements GameSystem {
     for (const [id, name] of this.seen) if (!players.some(p => p.id === id)) this.ctx.hud.feed(`${name} left.`, '#ffb33d');
     for (const p of players) if (!this.seen.has(p.id) && !this.firstRoster) {
       this.ctx.hud.feed(`${p.name} joined.`, '#79f1ad');
-      if (this.hosting) { this.world?.team.restore(p.id); this.world?.mission.catchUp(p.id); }
     }
     this.seen = new Map(players.map(p => [p.id, p.name]));
     this.firstRoster = false;
@@ -108,6 +108,8 @@ export class CoopSession implements GameSystem {
     this.lobby.heartbeat(now);
     for (const remote of this.remotes.values()) remote.update(now, this.ctx.time.realDt);
     this.world?.update();
+    // What co-op itself costs a frame (bodies, snapshots, events), averaged, for the measurements in docs/notes/coop.md.
+    this.cpuMs += (performance.now() - now - this.cpuMs) * 0.05;
     if (this.world && this.hud) this.hud.update(this.world.team.roster(), now);
     if (now < this.nextPose || !this.lobby.match) return;
     this.nextPose = now >= this.nextPose + POSE_MS ? now + POSE_MS : this.nextPose + POSE_MS; // Never catch up by bursting a backlog after a stalled/background tab.

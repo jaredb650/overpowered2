@@ -107,6 +107,7 @@ export class CoopWorld {
     this.sendAction = session.lobby.gameplay<WorldEvent>('action', (data, from) => this.receive(data, from));
     this.team = new Team(ctx, session, (event, to) => this.broadcast(event, to));
     // A mission's rides are everyone's: each guest's door gun counts through the host as a call-in.
+    this.team.onArrived = id => this.mission.catchUp(id);
     this.mission = new CoopMission(ctx, session, (event, to) => this.broadcast(event, to), this.team,
       () => { for (const p of session.lobby.players) if (!p.host) this.validator.callIn(p.id, performance.now()); });
     this.off.push(ctx.events.on('weapon:fired', event => this.fire(event.weapon, event.origin, event.dir)));
