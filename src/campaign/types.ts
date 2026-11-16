@@ -307,6 +307,8 @@ export type BattleOrder = Extract<Step, { do: 'battle' }>;
 export interface MissionHost {
   /** Writes the player's feet into `out`. */
   playerAt(out: { x: number; y: number; z: number }): void;
+  /** Co-op: every living player's feet, for zones that any of them can enter (net/mission.ts). Unset alone. */
+  crowd?(): readonly { x: number; y: number; z: number }[];
   /** Calls `fn` for each `name` until the returned function runs. */
   listen(name: keyof GameEvents, fn: (payload: unknown) => void): () => void;
 

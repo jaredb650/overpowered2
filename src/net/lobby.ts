@@ -34,7 +34,8 @@ export interface ChatLine {
   text: string;
 }
 
-export const COOP_MODES = ['crucible', 'outpost', 'defense'] as const;
+/** The survival modes, then the campaign's missions (`campaign` is the Outpost, mission 1). */
+export const COOP_MODES = ['crucible', 'outpost', 'defense', 'campaign', 'foreclosure'] as const;
 export type CoopMode = typeof COOP_MODES[number];
 /** Maps a mode may be played on besides its own (`ContractDef.alsoOn`). */
 export const COOP_MAPS = ['office'] as const;

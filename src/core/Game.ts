@@ -99,7 +99,8 @@ export class Game {
     if (!c.coop) return false;
     // The shop and its credits are each player's own, so a world-running mode keeps its contract on every browser.
     // The allies are the host's: it runs them, and guests draw them (net/world.ts).
-    if (sys === c.campaign || (sys === c.allies && (c.coop.freeRoam || !c.coop.hosting))
+    // A mission runs on the host; a guest's campaign only draws what the host's mirrors to it (net/mission.ts).
+    if ((sys === c.campaign && (c.coop.freeRoam || !c.coop.world)) || (sys === c.allies && (c.coop.freeRoam || !c.coop.hosting))
       || (sys === c.contracts && (c.coop.freeRoam || !c.coop.world))) return true;
     if (c.coop.freeRoam) return sys === c.enemies || sys === c.waves;
     return sys === c.waves && !c.coop.hosting;

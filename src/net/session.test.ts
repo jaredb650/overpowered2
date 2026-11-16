@@ -7,6 +7,7 @@ vi.mock('./remote', () => ({ PROPS: ['smg'], RemotePlayer: class {
 // The world (enemies, team) has its own tests; here it is a stand-in, so these cover the session's roster, tags and poses.
 vi.mock('./world', () => ({ CoopWorld: class {
   team = { roster: () => [], reviving: false, onOver: () => {}, restore: vi.fn() };
+  mission = { catchUp: vi.fn() };
   begin = vi.fn(); update = vi.fn(); dispose = vi.fn();
 } }));
 import type { Ctx } from '../core/contracts';

@@ -108,12 +108,14 @@ export class CoopHud {
   }
 
   /** The run is over: everyone's board, and (host) the way back to the lobby. */
-  showEnd(rows: Row[], wave: number, now: number): void {
+  showEnd(rows: Row[], wave: number, now: number, won = false): void {
     this.endAt = now + 15_000;
     this.closeChat();
+    const big = div('cq-big', won ? 'MISSION COMPLETE' : 'TEAM WIPED');
+    if (won) big.style.color = '#79f1ad';
     this.end.replaceChildren(
-      div('cq-big', 'TEAM WIPED'),
-      div('cq-sub', `The run ended on wave ${wave}.`),
+      big,
+      div('cq-sub', won ? 'The Council thanks you all for your service.' : `The run ended on wave ${wave}.`),
       this.table(rows, 'FINAL BOARD'),
       div('cq-foot', ''),
     );

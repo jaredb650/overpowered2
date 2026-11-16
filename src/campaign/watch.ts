@@ -46,7 +46,15 @@ export function arm(trigger: Trigger, facts: WatchFacts): Watch {
   if ('zone' in trigger) {
     const zone = facts.zone(trigger.zone);
     const want = !trigger.outside;
-    return { test: () => inside(zone, facts.feet) === want, close: noop };
+    return {
+      test: () => {
+        // Co-op (net/mission.ts): any living player in the zone counts, and outside means everyone has left.
+        const crowd = facts.host.crowd?.();
+        if (!crowd?.length) return inside(zone, facts.feet) === want;
+        return want ? crowd.some(p => inside(zone, p)) : crowd.every(p => !inside(zone, p));
+      },
+      close: noop,
+    };
   }
   if ('after' in trigger) {
     let left = trigger.after;

@@ -21,6 +21,7 @@ import type { ExplosionKind } from '../core/contracts';
 import { ClaimValidator, claimKind, selectTarget } from './authority';
 import { isMelee } from '../weapons/melee/data';
 import { Team, TeamLife } from './team';
+import { CoopMission } from './mission';
 import { CAPTURABLE, decodeWorld, encodeWorld, ENEMY_IDS, packDamage, POSTURES, REGIONS, SNAPSHOT_MS, validVec, type EnemyFrame, type PostureId, type Vec, type WireDamage, type WorldEvent, type WorldFrame } from './worldProtocol';
 import type { GroundModel } from '../enemies/vehicles/models';
 import type { Vehicle } from '../enemies/vehicles/vehicle';
@@ -55,6 +56,7 @@ function capturable(enemy: Enemy): boolean {
 export class CoopWorld {
   readonly stats = { snapshotBytes: 0, eventBytes: 0, snapshotPackets: 0, eventPackets: 0, accepted: 0, rejected: 0, since: performance.now() };
   readonly team: Team;
+  readonly mission: CoopMission;
   readonly validator = new ClaimValidator();
   /** Host: who killed each enemy that died lately (lobby id), for kill pay and score (`notMine`). */
   private readonly killedBy = new Map<number, { id: string; at: number }>();
@@ -104,6 +106,9 @@ export class CoopWorld {
     this.sendSnapshot = session.lobby.gameplay<ArrayBuffer>('world', data => this.receiveSnapshot(data));
     this.sendAction = session.lobby.gameplay<WorldEvent>('action', (data, from) => this.receive(data, from));
     this.team = new Team(ctx, session, (event, to) => this.broadcast(event, to));
+    // A mission's rides are everyone's: each guest's door gun counts through the host as a call-in.
+    this.mission = new CoopMission(ctx, session, (event, to) => this.broadcast(event, to), this.team,
+      () => { for (const p of session.lobby.players) if (!p.host) this.validator.callIn(p.id, performance.now()); });
     this.off.push(ctx.events.on('weapon:fired', event => this.fire(event.weapon, event.origin, event.dir)));
     this.off.push(ctx.events.on('callin:used', event => this.broadcast({ t: 'callin', id: event.id, slot: session.lobby.me?.slot })));
     if (!session.hosting) {
@@ -167,6 +172,7 @@ export class CoopWorld {
   }
   begin(): void {
     this.ready = true;
+    this.mission.begin();
     if (this.pendingSnapshot) this.receiveSnapshot(this.pendingSnapshot);
     this.pendingSnapshot = null;
   }
@@ -262,6 +268,7 @@ export class CoopWorld {
       }
       return;
     }
+    if (this.mission.receive(value)) return;
     switch (value.t) {
       case 'fire': this.drawFire(value); break;
       case 'ray': this.ctx.fx.tracer(new THREE.Vector3(...value.from), new THREE.Vector3(...value.to), 'enemy'); break;
@@ -626,6 +633,7 @@ export class CoopWorld {
     if (!this.ready) return;
     const now = performance.now();
     this.team.update(now, this.ctx.time.realDt);
+    this.mission.update();
     if (!this.session.hosting) this.captureKey(this.ctx.time.realDt);
     else if (now >= this.nextVehicles) { this.nextVehicles = now + 200; this.sendVehicles(); this.sendAllies(); }
     if (!this.session.hosting) this.animateAllies(this.ctx.time.realDt);

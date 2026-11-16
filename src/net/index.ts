@@ -8,7 +8,7 @@ import { CoopWorld } from './world';
 import { CoopHud } from './coopHud';
 
 /** The modes whose world the host runs. The others are free roam: everyone walks the map, nothing else. */
-export const WORLD_MODES: readonly Match['mode'][] = ['crucible', 'outpost', 'defense'];
+export const WORLD_MODES: readonly Match['mode'][] = ['crucible', 'outpost', 'defense', 'campaign', 'foreclosure'];
 
 /** Where a player lands after the match: the same room, on its lobby page. */
 export interface Room { lobby: Lobby; code: string; password: string }
@@ -61,8 +61,8 @@ export class CoopSession implements GameSystem {
       this.hud = new CoopHud(this.ctx, this);
       this.hud.onEndDone = () => this.backToLobby();
     }
-    if (this.world) this.world.team.onOver = (cards, wave) => this.hud?.showEnd(this.world!.team.roster().filter(r => cards.some(c => c.slot === r.card.slot))
-      .map(r => ({ ...r, card: cards.find(c => c.slot === r.card.slot)! })), wave, performance.now());
+    if (this.world) this.world.team.onOver = (cards, wave, won) => this.hud?.showEnd(this.world!.team.roster().filter(r => cards.some(c => c.slot === r.card.slot))
+      .map(r => ({ ...r, card: cards.find(c => c.slot === r.card.slot)! })), wave, performance.now(), won);
     this.roster();
     if (!this.closed) this.world?.begin();
   }
@@ -86,7 +86,7 @@ export class CoopSession implements GameSystem {
     for (const [id, name] of this.seen) if (!players.some(p => p.id === id)) this.ctx.hud.feed(`${name} left.`, '#ffb33d');
     for (const p of players) if (!this.seen.has(p.id) && !this.firstRoster) {
       this.ctx.hud.feed(`${p.name} joined.`, '#79f1ad');
-      if (this.hosting) this.world?.team.restore(p.id);
+      if (this.hosting) { this.world?.team.restore(p.id); this.world?.mission.catchUp(p.id); }
     }
     this.seen = new Map(players.map(p => [p.id, p.name]));
     this.firstRoster = false;

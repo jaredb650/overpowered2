@@ -84,7 +84,8 @@ class Campaign implements CampaignSystem {
     events.on('run:start', () => {
       this.opening ??= 'fresh';
     });
-    events.on('player:died', () => this.runner.down());
+    // Co-op: one player down is the team's to revive; only everyone down goes back to the checkpoint (net/team.ts).
+    events.on('player:died', () => { if (!this.ctx.coop?.world) this.runner.down(); });
     events.on('vehicle:destroyed', () => {
       this.vehicles++;
     });
@@ -152,6 +153,8 @@ class Campaign implements CampaignSystem {
     this.opening = null;
     this.host.clear();
     this.ui.reset();
+    // A co-op guest's mission is the host's (net/mission.ts): its own runner never starts.
+    if (this.ctx.coop?.world && !this.ctx.coop.hosting) return;
     // shortcut: a mission's corpse cap under the gore setting's, applied each run; a settings change mid-run lifts it until the next.
     const { corpses } = this.runner.mission;
     if (corpses !== undefined) GoreTuning.maxCorpses = Math.min(GoreTuning.maxCorpses, corpses);

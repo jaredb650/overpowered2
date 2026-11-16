@@ -18,6 +18,7 @@ import { ALLY } from '../allies/data';
 import { COLORS } from './remote';
 import type { CoopSession } from './index';
 import type { Card, LifeState, WorldEvent } from './worldProtocol';
+import { spread } from './mission';
 
 /** Down to dead. The allies bleed for longer; a friend should be reached in a wave, not after it. */
 export const BLEED_MS = 30_000;
@@ -104,7 +105,7 @@ export class Team {
   private readonly off: (() => void)[] = [];
   /** Host: a guest's purse by callsign, so a player who drops and rejoins gets their credits and score back. */
   private readonly purses = new Map<string, Card>();
-  onOver: (cards: Card[], wave: number) => void = () => {};
+  onOver: (cards: Card[], wave: number, won: boolean) => void = () => {};
 
   constructor(private readonly ctx: Ctx, private readonly session: CoopSession, private readonly send: (event: WorldEvent, to?: string) => void) {
     this.off.push(ctx.events.on('player:died', () => this.fell(session.lobby.you)));
@@ -115,6 +116,13 @@ export class Team {
         for (const [id, life] of this.lives) if (life.state === 'dead' && life.respawn()) this.up(id, 'respawn');
       }));
       this.off.push(ctx.events.on('wave:clear', e => this.send({ t: 'wave', kind: 'clear', wave: e.wave, total: 0, boss: false, bonus: e.bonus })));
+      // A mission won is the end of the run for everyone, with the board.
+      this.off.push(ctx.events.on('campaign:complete', () => {
+        this.broadcastCards();
+        const cards = [...this.cards.values()];
+        this.send({ t: 'over', wave: this.ctx.waves.wave, cards, won: true });
+        this.over(cards, this.ctx.waves.wave, true);
+      }));
     }
   }
 
@@ -153,12 +161,20 @@ export class Team {
     this.broadcastCards();
   }
 
-  /** Host: a revive or a respawn. The player's own browser puts them back on their feet. */
-  private up(id: string, how: 'revive' | 'respawn', by?: string): void {
+  /** Host: a checkpoint (or the team's redeploy): everyone down or dead gets up beside the host. */
+  respawnAll(): void {
+    if (!this.session.hosting) return;
+    const at = this.ctx.player.position;
+    for (const [id, life] of this.lives) if (life.respawn()) this.up(id, 'respawn', undefined, [at.x, at.y, at.z], this.ctx.player.yaw);
+  }
+
+  /** Host: a revive or a respawn. The player's own browser puts them back on their feet: at the map's spawn, or beside `at`. */
+  private up(id: string, how: 'revive' | 'respawn', by?: string, at?: [number, number, number], yaw = 0): void {
     const slot = this.session.lobby.players.find(p => p.id === id)?.slot;
     if (slot === undefined) return;
     const life = this.life(id);
-    const event: WorldEvent = { t: 'up', slot, life: life.life, how, by: by ? this.session.lobby.players.find(p => p.id === by)?.slot ?? -1 : -1 };
+    const event: WorldEvent = { t: 'up', slot, life: life.life, how, by: by ? this.session.lobby.players.find(p => p.id === by)?.slot ?? -1 : -1,
+      ...(at ? { at, yaw } : {}) };
     this.send(event);
     this.applyUp(event);
   }
@@ -186,7 +202,9 @@ export class Team {
         p.health = p.maxHealth;
         const spawns = this.ctx.world.playerSpawns;
         const spawn = spawns[(lobby.me?.slot ?? 0) % Math.max(1, spawns.length)];
-        if (spawn) this.ctx.player.teleport(spawn.position, spawn.yaw);
+        const at = Array.isArray(event.at) && event.at.length === 3 && event.at.every(Number.isFinite) ? event.at : null;
+        if (at) this.ctx.player.teleport(new THREE.Vector3(...spread(at, Number.isFinite(event.yaw) ? event.yaw! : 0, lobby.me?.slot ?? 0)), event.yaw);
+        else if (spawn) this.ctx.player.teleport(spawn.position, spawn.yaw);
         this.ctx.hud.feed('BACK IN THE FIGHT', '#79f1ad');
       }
     } else if (event.how === 'revive') {
@@ -246,7 +264,7 @@ export class Team {
         if (value.kind === 'start') this.ctx.events.emit('wave:start', { wave: value.wave, total: int(value.total, 1000), boss: value.boss === true });
         else if (value.kind === 'clear') this.ctx.events.emit('wave:clear', { wave: value.wave, bonus: int(value.bonus, 1e7) });
         return true;
-      case 'over': this.over(Array.isArray(value.cards) ? value.cards.map(cleanCard).filter((c): c is Card => !!c) : [], int(value.wave, 1e5)); return true;
+      case 'over': this.over(Array.isArray(value.cards) ? value.cards.map(cleanCard).filter((c): c is Card => !!c) : [], int(value.wave, 1e5), value.won === true); return true;
       case 'restore': {
         const progression = this.ctx.progression;
         progression.resume(int(value.score, 1e9), int(value.kills, 1e6), progression.headshots);
@@ -333,6 +351,7 @@ export class Team {
         }
       }
       for (const id of this.lives.keys()) if (!lobby.players.some(p => p.id === id)) this.lives.delete(id);
+      if (wiped(lives) && this.checkpoint()) return;
       if (wiped(lives)) {
         this.broadcastCards();
         const cards = [...this.cards.values()];
@@ -429,13 +448,26 @@ export class Team {
     if (view) view.visible = true;
   }
 
-  /** Everyone is down: the run is over for the whole team. */
-  private over(cards: Card[], wave: number): void {
+  /**
+   * Host, in a mission: everyone down sends the whole team back to the last checkpoint, as one player's death does alone.
+   * False off a mission, or with no checkpoint to go back to.
+   */
+  private checkpoint(): boolean {
+    const campaign = this.ctx.campaign as unknown as { active?: boolean; restart?(): boolean };
+    if (!campaign?.active || !campaign.restart) return false;
+    if (!campaign.restart()) return false;
+    this.ctx.hud.feed('EVERYONE DOWN · BACK TO THE CHECKPOINT', DOWN_COLOR);
+    this.respawnAll();
+    return true;
+  }
+
+  /** Everyone is down (or the mission is won): the run is over for the whole team. */
+  private over(cards: Card[], wave: number, won = false): void {
     if (this.final) return;
     this.final = cards.sort((a, b) => b.score - a.score);
     this.overWave = wave;
     this.stopWatching();
-    this.onOver(this.final, wave);
+    this.onOver(this.final, wave, won);
   }
 
   /** The strip and the board read this: every player in slot order, with the colour of their tag. */

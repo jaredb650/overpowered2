@@ -28,6 +28,7 @@ export const INVITE: string = typeof location === 'undefined' ? '' : cleanCode(n
 const MODES: readonly { label: string; mode: CoopMode; map?: CoopMap }[] = [
   { label: 'The Crucible', mode: 'crucible' }, { label: 'Endless Humans', mode: 'outpost' }, { label: 'Outpost Defense', mode: 'defense' },
   { label: 'Crucible: Office', mode: 'crucible', map: 'office' }, { label: 'Humans: Office', mode: 'outpost', map: 'office' },
+  { label: 'Mission 1: The Outpost', mode: 'campaign' }, { label: 'Mission 2: Foreclosure', mode: 'foreclosure' },
 ];
 const NO_TURN = turnConfigured()
   ? 'If a friend cannot connect, the game falls back on its relay server (TURN) by itself.'
@@ -36,7 +37,9 @@ const NO_TURN = turnConfigured()
 const MODE_NOTE: Record<CoopMode, string> = {
   crucible: 'The Crucible together: the host runs the waves, each of you earns and spends your own credits at your own supply pod, and a downed friend can be revived with E. Everyone down ends the run.',
   outpost: 'Endless Humans together: squads, surrender and capture. Whoever takes a prisoner gets the bounty.',
-  defense: 'Outpost Defense together: hold the fort. The host runs the waves and the garrison.',
+  defense: 'Outpost Defense together: hold the fort. The host runs the waves, the garrison, the Barracks and the walls; each of you has your own loadout, credits, Armoury and Infirmary.',
+  campaign: 'The Outpost together. The host runs the mission; everyone hears the Commander, rides the door guns in on the same Packmule, and goes back to the last checkpoint if all of you go down.',
+  foreclosure: 'Foreclosure together. The host runs the mission and the Bailiffs; everyone rides and fights it, and goes back to the last checkpoint if all of you go down.',
 };
 
 type Page = 'start' | 'host' | 'join' | 'lobby';

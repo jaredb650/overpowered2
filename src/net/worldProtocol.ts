@@ -49,11 +49,11 @@ export type WorldEvent =
   /** Guest to host: I held E over this downed player. */
   | { t: 'revive'; slot: number }
   /** Host: this player is up again, revived (`by` the reviver's slot) or respawned at a new wave. */
-  | { t: 'up'; slot: number; life: number; how: 'revive' | 'respawn'; by: number }
+  | { t: 'up'; slot: number; life: number; how: 'revive' | 'respawn'; by: number; at?: Vec; yaw?: number }
   /** Host: the waves' own events, replayed on guests so their shops, pods, banners and ammo follow the host's waves. */
   | { t: 'wave'; kind: 'start' | 'clear'; wave: number; total: number; boss: boolean; bonus: number }
   /** Host: nobody is up. The run is over for everyone; the cards are the final board. */
-  | { t: 'over'; wave: number; cards: Card[] }
+  | { t: 'over'; wave: number; cards: Card[]; won?: boolean }
   /** Host to a rejoining guest: the purse and score they left with. */
   | { t: 'restore'; credits: number; score: number; kills: number }
   /** An explosion someone else's game made: drawn and heard here, never damaging (the host already counted it). */
@@ -72,6 +72,11 @@ export type WorldEvent =
   /** Host: the trucks, humvees and tanks, 5 Hz. Drawn on guests; hurt only on the host. */
   /** Host: the garrison, 5 Hz: [id, type index, x, y, z, yaw, state 0 up 1 down 2 dead, posture index]. Drawn on guests. */
   | { t: 'allies'; list: number[][] }
+  // --- Stage 5: campaign (mission.ts) ---
+  /** Host: a mission host op every guest plays on its own inert mission host. Data only; callbacks stay on the host. */
+  | { t: 'mission'; op: string; args: unknown[] }
+  /** Host: a gate is closing; a guest far from `at` is brought there. */
+  | { t: 'gather'; at: Vec; yaw: number }
   /** Host: one of the garrison fired, for the guests' tracers. */
   | { t: 'ashot'; from: Vec; to: Vec }
   | { t: 'vehicles'; list: { id: number; kind: string; p: Vec; q: [number, number, number, number]; turret: number }[] };
