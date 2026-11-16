@@ -12,6 +12,9 @@ import { B, type Hole, type Rect, type Rgb, SKIN, T_IN, type WallLine } from './
 export const DRYWALL: Rgb = [0.86, 0.86, 0.84];
 export const CLAD: Rgb = [0.3, 0.34, 0.4];
 export const CEILING: Rgb = [0.74, 0.76, 0.78];
+export const WAINSCOT: Rgb = [0.42, 0.48, 0.56];
+const DADO = 1.05;
+const FLOORS = [0, 4.4] as const;
 
 /** Pane widths a window hole is cut into, mullion to mullion. Breakable panes and the frames both use it. */
 export function paneSplit(h: Hole, most = 2.4): [number, number][] {
@@ -122,6 +125,7 @@ export class Builder {
         g.use(look.mat).tint(look.tint[0], look.tint[1], look.tint[2]);
         if (alongX) g.slab(um, cy, w.at, hu, hy, t, 2.4, drawn);
         else g.slab(w.at, cy, um, t, hy, hu, 2.4, drawn);
+        if (look.mat === 'plaster') this.dado(alongX, w.at, t, um, hu, v0, v1, out ? inFace : FACE.pz | FACE.nz | FACE.px | FACE.nx);
         if (out) {
           g.use('panel').tint(CLAD[0], CLAD[1], CLAD[2]);
           if (alongX) g.slab(um, cy, w.at, hu, hy, t, 3, outFace);
@@ -132,6 +136,28 @@ export class Builder {
     }
     for (const h of w.holes) this.frame(w, h, t, out);
     this.plan.walls.push({ ax: alongX ? w.from : w.at, az: alongX ? w.at : w.from, bx: alongX ? w.to : w.at, bz: alongX ? w.at : w.to, half: t + SKIN });
+  }
+
+  /**
+   * Two-tone drywall: a painted lower band, a rail on it and a dark skirting, on each face of a strip that reaches a floor. Strips
+   * stop at holes, so the band never crosses a doorway.
+   */
+  private dado(alongX: boolean, at: number, t: number, um: number, hu: number, v0: number, v1: number, faces: number): void {
+    const g = this.g;
+    for (const f of FLOORS) {
+      const a = Math.max(v0, f), top = Math.min(v1, f + DADO);
+      if (top - a < 0.05 || a > f + 0.01) continue;
+      const side = (y0: number, y1: number, d: number, mat: Mat, tint: Rgb) => {
+        g.use(mat).tint(tint[0], tint[1], tint[2]);
+        const cy = (y0 + y1) / 2, hy = (y1 - y0) / 2;
+        if (alongX) g.box(um, cy, at, hu, hy, t + d, faces & (FACE.pz | FACE.nz));
+        else g.box(at, cy, um, t + d, hy, hu, faces & (FACE.px | FACE.nx));
+      };
+      side(a, top, 0.004, 'plaster', WAINSCOT);
+      side(a, Math.min(top, a + 0.1), 0.012, 'steelDark', [0.18, 0.19, 0.21]);
+      if (top >= f + DADO - 0.01) side(top - 0.03, top + 0.03, 0.015, 'steel', [0.6, 0.62, 0.66]);
+      g.tint(1);
+    }
   }
 
   /** Jambs and a head round a hole; a door's floor plate and its place on the plan; a window's sill and mullions. */

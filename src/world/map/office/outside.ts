@@ -43,7 +43,7 @@ function boundary(b: Builder): void {
     for (let y = 4.2; y < h - 1; y += 3.4) {
       for (let u = 2; u < len - 1; u += 3) {
         const lit = k.rng();
-        g.use(lit > 0.75 ? 'emissiveWhite' : lit > 0.68 ? 'emissiveOrange' : 'steelDark').tint(lit > 0.68 ? 1 : 0.5);
+        g.use(lit > 0.75 ? 'emissiveWhite' : lit > 0.68 ? 'emissiveOrange' : 'steelDark').tint(lit > 0.68 ? 0.22 : 0.5);
         if (along) g.box(x0 + u, y, fz, 1, 0.8, 0.01, face === 's' ? FACE.nz : FACE.pz);
         else g.box(fx, y, z0 + u, 0.01, 0.8, 1, face === 'e' ? FACE.nx : FACE.px);
       }
@@ -84,7 +84,7 @@ function skyline(b: Builder): void {
     g.use('steelDark').tint(0.24, 0.27, 0.34).box(x, h / 2, z, w / 2, h / 2, d / 2, FACE.sides | FACE.py);
     for (let y = 8; y < h - 4; y += 6) {
       if (k.rng() < 0.35) continue;
-      g.use(k.rng() > 0.6 ? 'emissiveWhite' : 'emissiveCyan').tint(0.22);
+      g.use(k.rng() > 0.6 ? 'emissiveWhite' : 'emissiveCyan').tint(0.1);
       g.box(x, y, z, w / 2 + 0.05, 0.12, d / 2 + 0.05, FACE.sides);
     }
     if (k.rng() > 0.4) g.use('emissiveRed').tint(1).box(x, h + 1, z, 0.4, 1, 0.4, FACE.all);

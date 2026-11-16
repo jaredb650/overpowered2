@@ -93,7 +93,7 @@ describe('The Office', () => {
   });
 
   it('joins the floors more than one way', () => {
-    const up = V(8, plan.LV.f2, 12), roof = V(0, plan.LV.roof, 10), lobby = V(5, 0, 10);
+    const up = V(11.5, plan.LV.f2, 8), roof = V(0, plan.LV.roof, 10), lobby = V(5, 0, 10);
     expect(onNav(up)).toBe(true);
     expect(onNav(roof)).toBe(true);
     expect(route(lobby, up)).toBeLessThan(120);

@@ -225,7 +225,7 @@ export const FLYERS: readonly (readonly [number, number, number])[] = [
 export const PICKUPS_OUT: readonly (readonly [number, number, number])[] = [
   [-10, 0, 32], [22, 0, 32], [5, 0, 42], [-40, 0, 38], [46, 0, 38],
   [-48, 0, -4], [-40, 0, 12], [-40, 0, -30], [20, 0, -30], [56, 0, -30],
-  [-2, LV.roof, 2], [22, LV.roof, 12], [62, LV.roof, -4], [46, LV.roof, 6],
+  [-2, LV.roof, 6], [22, LV.roof, 10], [62, LV.roof, -4], [46, LV.roof, 6],
 ];
 export const PICKUPS_IN: readonly (readonly [number, number, number])[] = [
   [0, 0, 10], [-21, 0, 4], [-21, 0, -12], [21, 0, 0], [8, LV.f2, 12], [21, LV.f2, -10], [-21, LV.f2, 3], [47, LV.f2, 0], [46, 0, -6],

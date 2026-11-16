@@ -32,6 +32,23 @@ export interface ExplosiveSpec {
   kind: 'barrel' | 'tank';
 }
 
+/** Props that break: world/breakables.ts has what each one does. */
+export type BreakKind =
+  | 'monitor' | 'chair' | 'plant' | 'divider' | 'pane' | 'copier' | 'rack' | 'cooler' | 'extinguisher' | 'vending' | 'microwave'
+  | 'generator' | 'gasline';
+
+/** One breakable prop: its foot (a pane's middle), turn, and for dividers and panes the width and height. `flat` lays a pane down. */
+export interface BreakableSpec {
+  kind: BreakKind;
+  x: number;
+  y: number;
+  z: number;
+  yaw: number;
+  w?: number;
+  h?: number;
+  flat?: boolean;
+}
+
 export interface CrusherSpec {
   x: number;
   z: number;
@@ -117,6 +134,8 @@ export class MapSpec {
   readonly emplacements: EmplacementSpec[] = [];
   /** Walls, gates and shacks that blasts wear down: see src/world/structures.ts. */
   readonly structures: StructureSpec[] = [];
+  /** Props that break, spark and explode: world/breakables.ts. They go up after the nav sample, as walls do. */
+  readonly breakables: BreakableSpec[] = [];
 
   zone(id: string, name: string, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number): void {
     this.zones.push({ id, name, bounds: new THREE.Box3(new THREE.Vector3(x0, y0, z0), new THREE.Vector3(x1, y1, z1)) });
@@ -192,6 +211,10 @@ export class MapSpec {
   private segment(kind: 'wall' | 'gate', ax: number, az: number, bx: number, bz: number, y: number, style?: WallStyle): void {
     const length = Math.hypot(bx - ax, bz - az);
     this.structures.push({ kind, x: (ax + bx) / 2, y, z: (az + bz) / 2, yaw: Math.atan2(-(bz - az), bx - ax), length, ...(style ? { style } : {}) });
+  }
+
+  breakable(kind: BreakKind, x: number, y: number, z: number, yaw = 0, w?: number, h?: number, flat?: boolean): void {
+    this.breakables.push({ kind, x, y, z, yaw, ...(w !== undefined ? { w } : {}), ...(h !== undefined ? { h } : {}), ...(flat ? { flat } : {}) });
   }
 
   view(name: string, px: number, py: number, pz: number, lx: number, ly: number, lz: number): void {

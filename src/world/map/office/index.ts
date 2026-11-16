@@ -7,36 +7,19 @@ import type { SpawnPoint } from '../../../core/contracts';
 import type { Kit } from '../../kit/kit';
 import type { MapSpec } from '../spec';
 import { authorOutside } from './outside';
-import { BOUNDS, CEIL, ENTRANCES, FLYERS, LV, PICKUPS_IN, PICKUPS_OUT, ROOMS, SKY, floorY } from './plan';
+import { authorRooms } from './rooms';
+import { BOUNDS, ENTRANCES, FLYERS, LV, PICKUPS_IN, PICKUPS_OUT, ROOMS, SKY, floorY } from './plan';
 import { authorShell } from './shell';
 
 export const OFFICE_STAGES = [
   { label: 'Pouring the slabs', run: (k: Kit, spec: MapSpec) => { start(spec); authorShell(k, spec); } },
   { label: 'Laying the plaza', run: authorOutside },
-  { label: 'Switching on the lights', run: lights },
+  { label: 'Furnishing the floors', run: authorRooms },
 ] as const;
 
 function start(spec: MapSpec): void {
   spec.reactor = null;
   spec.plan = { fills: [], walls: [], blocks: [], decks: [], gates: [], doors: [] };
-}
-
-/** Room light on a grid well clear of the walls, so nothing burns a hot spot into the drywall. */
-function lights(k: Kit): void {
-  for (const r of ROOMS) {
-    if (r.lux <= 0) {
-      k.light((r.x0 + r.x1) / 2, floorY(r.floor) + 2.6, (r.z0 + r.z1) / 2, 0x2f7dff, 16, 9);
-      continue;
-    }
-    const w = r.x1 - r.x0, d = r.z1 - r.z0;
-    const nx = Math.max(1, Math.round(w / 8)), nz = Math.max(1, Math.round(d / 8));
-    const y = (r.floor === 'g' ? CEIL.g : CEIL.f2) - 1;
-    for (let i = 0; i < nx; i++) for (let j = 0; j < nz; j++) {
-      k.light(r.x0 + (w * (i + 0.5)) / nx, y, r.z0 + (d * (j + 0.5)) / nz, r.light, r.lux, Math.max(9, Math.min(15, Math.max(w / nx, d / nz) * 1.3)));
-    }
-  }
-  // Moonlit roof.
-  k.light(10, LV.roof + 5, 6, 0x9fb8ff, 30, 22);
 }
 
 /** Smallest first: a point takes the first zone it is in. */
