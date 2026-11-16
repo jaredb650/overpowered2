@@ -78,6 +78,8 @@ export class GunStage {
     for (const [mod, look] of Object.entries(def.mods ?? {})) {
       const part = root.getObjectByName(look.part);
       if (part) part.visible = mods.has(mod as ModId);
+      const also = look.also ? root.getObjectByName(look.also) : undefined;
+      if (also) also.visible = mods.has(mod as ModId);
       const own = look.hides ? root.getObjectByName(look.hides) : undefined;
       if (own) own.visible = !mods.has(mod as ModId);
       const moved = look.moves ? root.getObjectByName(look.moves.part) : undefined;

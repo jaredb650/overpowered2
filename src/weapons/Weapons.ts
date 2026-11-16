@@ -1400,12 +1400,14 @@ export class Weapons implements WeaponSystem, Guard {
 
   private shootGun(s: Slot, left: boolean, both = false): void {
     const def = s.def;
-    // A double gun fires its barrels in turn, from the one still loaded; `both` fires the two together when it can.
-    // The launcher's flash leaves its own tube: the viewmodel's `muzzle1`.
+    // A break-open gun fires its barrels in turn, from the next one loaded; `both` fires every loaded one together (the
+    // Deuce's two, the quad's four). The launcher's flash leaves its own tube: the viewmodel's `muzzle1`.
     const barrel = def.altBoth ? Math.max(0, def.magSize - s.ammo.mag) : def.round === 'grenade' ? 1 : 0;
-    const two = both && (s.ammo.mag >= 2 || this.modifiers.bottomlessMag) ? def.altBoth : undefined;
-    this.consume(s, two ? 2 : 1);
-    this.shotFeedback(def, left, two ? two.kick : 1, barrel);
+    const loaded = both && def.altBoth ? (this.modifiers.bottomlessMag ? def.magSize : s.ammo.mag) : 1;
+    const two = loaded >= 2 ? def.altBoth : undefined;
+    const barrels = two ? loaded : 1;
+    this.consume(s, barrels);
+    this.shotFeedback(def, left, two ? 1 + (two.kick - 1) * (barrels - 1) : 1, barrel);
     if (def.slow !== undefined) this.handling.shot();
     if (def.climb && CLIMB_ON) this.climb(def.climb, lerp(1, TUNING.ads.climb, this.aim));
     // By what the row says leaves the barrel, never by which gun it is: a family member picks its own.
@@ -1421,7 +1423,7 @@ export class Weapons implements WeaponSystem, Guard {
     const m = this.modifiers;
     const shot = this.fillShot(def, def.damage * m.damage);
     const scatter = def.pellets > 1;
-    const pellets = Math.round(def.pellets * (two ? 2 : 1) * (scatter ? m.pellets : 1));
+    const pellets = Math.round(def.pellets * barrels * (scatter ? m.pellets : 1));
     if (scatter) {
       shot.killStop = HIT_STOP.shotgunKill;
       const t = TUNING.shotgun;
@@ -1433,9 +1435,10 @@ export class Weapons implements WeaponSystem, Guard {
         shot.killStop = HIT_STOP.shotgunPointBlank;
       }
     }
+    let next = 1;
     for (let i = 0; i < pellets; i++) {
-      // Both barrels: the second half of the pellets leaves the other one.
-      if (two && i === pellets >> 1) this.secondBarrel(def, two);
+      // Barrels together: each one's share of the pellets leaves it, with its own flash, report and shove.
+      if (two && next < barrels && i >= (pellets * next) / barrels) this.secondBarrel(def, two, barrel + next, next++);
       const dir = def.spread > 0 ? randomInCone(fwd, this.coneOf(def), this.dir) : fwd;
       if (def.raufoss || this.altLoaded.has(def.id)) (this.raufossRounds ??= new Raufoss(c, this.combat)).fire(eye, dir, shot);
       // The smart aim's lock: the round into his head, as the Judge's fanned shot (cover in the line takes it).
@@ -1444,12 +1447,12 @@ export class Weapons implements WeaponSystem, Guard {
     }
   }
 
-  /** The other barrel of a both-barrels shot: its flash, the shot heard again a hair late, and the shove back. */
-  private secondBarrel(def: WeaponDef, two: NonNullable<WeaponDef['altBoth']>): void {
+  /** The `k`th barrel after the first of a barrels-together shot: its flash, the shot heard again `k` echoes late, the shove. */
+  private secondBarrel(def: WeaponDef, two: NonNullable<WeaponDef['altBoth']>, barrel: number, k: number): void {
     const c = this.ctx;
-    const at = this.muzzle(false, 1);
+    const at = this.muzzle(false, barrel);
     c.fx.muzzleFlash(this.flashPoint(at), this.flashDir.set(0, 0, -1).applyQuaternion(c.render.camera.quaternion), def.muzzle);
-    c.audio.play(def.sounds[0]!.id, { delay: two.echo, pitch: two.echoPitch, pitchJitter: 0.02 });
+    c.audio.play(def.sounds[0]!.id, { delay: two.echo * k, pitch: two.echoPitch, pitchJitter: 0.02 });
     this.shoveBack(two.push, two.ground);
   }
 

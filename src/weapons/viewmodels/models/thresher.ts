@@ -132,12 +132,13 @@ function barrel(m: Mesher): void {
 }
 
 function drum(m: Mesher): void {
-  // Part space: origin at the mouth of the well. The drum hangs below on a neck, its axle across the gun.
+  // Part space: origin at the mouth of the well. The drum hangs below on a neck, its axle along the bore and its winding
+  // face toward the shooter. (It faced left, its axle across the gun, until 2026-11-16.)
   m.part('drum', [0, 0.004, DRUM_Z], () => {
     m.use(F.steelDark);
     // The neck that feeds into the gun.
     m.at([0, -0.022, 0], null, () => m.box(0.03, 0.04, 0.05, 0.002, 0.004));
-    m.at([0, DRUM_Y, 0], [0, Math.PI / 2, 0], () => {
+    m.at([0, DRUM_Y, 0], [0, Math.PI, 0], () => {
       m.use(F.parkerized);
       m.lathe([[DRUM_R - 0.006, DRUM_W / 2, 0], [DRUM_R, DRUM_W / 2 - 0.004], [DRUM_R, -DRUM_W / 2 + 0.004], [DRUM_R - 0.006, -DRUM_W / 2, 0]], 40, { chamfer: 0.0016 });
       // Pressed rings on the face, and the winding key in its middle.
@@ -162,7 +163,7 @@ function drum(m: Mesher): void {
         m.at([Math.cos(a) * (DRUM_R - 0.012), Math.sin(a) * (DRUM_R - 0.012), -DRUM_W / 2 - 0.0006], [Math.PI, 0, 0], () => rivet(m, 0.0018));
       }
     });
-    m.at([-DRUM_W / 2 - 0.0012, DRUM_Y + 0.04, 0], [0, -Math.PI / 2, 0], () => m.decal('drum20', 0.05, 0.008, 0xd8c35a));
+    m.at([0, DRUM_Y + 0.052, DRUM_W / 2 + 0.0022], null, () => m.decal('drum20', 0.05, 0.008, 0xd8c35a));
   });
 }
 
@@ -192,7 +193,8 @@ function buildThresher(kit: Kit): Model {
   model.socket('eject', [0.026, 0.062, -0.06]);
   model.hand('gripR', [0.018, -0.054, 0.072], [0, -0.96, 0.27], [-0.3, -0.25, -0.92]);
   model.support('gripL', [-0.004, -0.004, -0.3]);
-  model.hand('drumHold', [-0.04, DRUM_Y, 0.0], [-0.95, 0.1, -0.2], [0.1, -0.2, -0.95], 'drum');
+  // The palm on the drum's left rim, fingers forward round it.
+  model.grasp('drumHold', [-DRUM_R - 0.006, DRUM_Y + 0.01, 0.0], [1, 0.15, 0], [0, -0.3, -0.95], 'drum');
   model.hand('chargeHold', [-0.022, 0.0, 0.004], [-0.5, -0.2, -0.8], [0.8, -0.3, -0.5], 'charge');
   return model;
 }

@@ -141,7 +141,7 @@ One change outside this system: `Player.rideGround` in `src/player/Player.ts` ad
 | 1 | SMG | **Gimlet**, carbine | Between the two (2026-11-15): 40 damage at the SMG's 800 a minute, 30 rounds, 1.02 s reload (1.2 s until the owner cut it by 15%, 2026-11-16), no penetration. Keeps 0.75 of its round from 140 m (`falloff` 60 to 140), where the SMG halves past 35. A real climb (`climb` 0.0022 up, 0.0012 aside a round). Issued with an ACOG and a suppressor fitted; hold R for bursts of three or the launcher. Not issued: bought, 450 in the Crucible's shop after wave 1, 650 in Outpost Defense's. See "The Gimlet" |
 | 1 | SMG | **Harrow**, battle rifle | 50 damage at 500 a minute (8.3 a second) against 25 at 800 (13.3): a quarter more damage a second, in bigger pieces. Both rates set by the owner on 2026-11-13. Full damage at any range, where the SMG now fades from 35 m to half at 80. Goes through one body or 0.5 m of cover. Kicks 3.6 times as hard. Takes limbs (`severMult` 1.8). Hold R (2026-11-16, the owner): full auto or semi (`select.modes`, as the Gimlet's selector); a tap reloads |
 | 2 | Shotgun | **Thresher**, drum shotgun | Full auto, 5 shells a second, 20 in the drum. 4 pellets of 20 to the pump's 6 of 23, so the pump stays the hard single hit. The pump fires one shell every 0.55 s (0.3 was near semi-auto; 0.85, tried on 2026-11-15, too slow), so the Thresher outdoes it held. Real climb (`climb`), a 2.7 s drum reload. Takes limbs like the pump (`severMult` 2.4, the point-blank rule) |
-| 2 | Shotgun | **Deuce**, double-barrel | The third on the key. Two shells, a barrel every 0.3 s: 8 pellets of 26 a barrel (208, to the pump's 138), a wider cone (0.075 to 0.05), full damage to 9 m and 0.3 of it by 26. Right click fires both (`altBoth`). Breaks open to reload, 1.5 s. Its own cache, the third (wave 6). See "The Deuce" |
+| 2 | Shotgun | **Deuce**, double-barrel | The third on the key. Two shells, a barrel every 0.3 s: 8 pellets of 26 a barrel (208, to the pump's 138), a wider cone (0.075 to 0.05), full damage to 9 m and 0.3 of it by 26. Right click fires both (`altBoth`). Breaks open to reload, 1.5 s. Its own cache, the third (wave 6). See "The Deuce". Mods: quad barrels, speed loader |
 | 3 | Rocket | **Quiver**, four-tube box launcher | Hold to paint up to four marks, let go and four guided missiles leave a tube apart; right click braids all four in a helix onto the fixed aim point. See "The Quiver". The Rocket's right click is its laser sight, see "The Rocket's laser" |
 | 4 | **Sabot**, slim anti-armour sniper rifle | Autocannon, shoulder-fired 20 mm cannon: the upgrade | The Sabot is first on the key and comes from the start: hitscan, 600 damage, no blast, through plates and through a Riot's shield, budget 5 m, bodies at 0.12 m each; 5 darts, one every 0.45 s. The autocannon fires an explosive `shell` from a clip of 3, one every 0.3 s, and carries 42 more (84 at most; the Sabot 30 and 60, both doubled on 2026-11-15). Each shell shoves the player back along the shot, `TUNING.autocannon.push` (7 m/s) in the air and `groundPush` (0.6) of it along the floor on the ground. It has no `base`: a weapon cache brings it, the second one, after wave 4 (`CACHE_ORDER`), and its feed line says "PRESS 4 AGAIN". Each has its own reticle (see "Scope") |
 | 5 | Sword | (**Shiv**, **Prybar**, **Spade**, **Cosh**: switched off) | The katana alone since 2026-11-15. The four are off the key, loadouts, pickups, the guide and the lab (`inPlay` in `families.ts`); `?melee=four` puts them back. See "Key 5" |
@@ -385,6 +385,21 @@ gas port nearer the muzzle, and nothing else, so it stacks with the issued
 can (the can screws onto the stub and the flash leaves its mouth) and with the launcher: the short barrel is cut to the launcher's
 mouth, not past it, so the two still fit together. Its burst and semi modes use the same faster `interval`. Tests:
 `src/weapons/extmods.test.ts`.
+
+**The shotgun and Judge mods** (2026-11-16, the owner's). Four more slots, one each to a gun: `barrel`, `loader`, `choke`, `hammer`,
+`grip`. A mod whose numbers depend on another on the same gun has an `adjust(def)` (mods.ts) worked out after every fitted patch, so
+the pairs stack in either order. *Quad barrels* (`deuceQuad`, 1,600 after wave 8): a second pair stacked on the first, `magSize` 4.
+A left click is still one barrel (`muzzle`, `muzzle1`, then the upper `muzzle2`, `muzzle3`); `altBoth` fires every loaded barrel at
+once, each with its share of the pellets, its own flash, its own shove and the owner's double blast again `echo` (22 ms) later, so
+four are heard 0, 22, 44 and 66 ms apart. Each barrel past the first adds `kick` - 1 to the shot's strength and `push` to the shove;
+the quad's row sets them to 1.4 and 3.5 m/s (the plain Deuce's 1.8 and 4.5: a heavier gun), so four together are 2.2 and 10.5 m/s, three 1.8 and 7.
+*Speed loader* (`deuceLoader`, 600 after wave 6): two shells a hand. The break-open reload is `breakLoad(inserts)` in data.ts:
+open and the empties out by 0.39 s, 0.24 s a hand in, 0.63 s to close from the last one, its cues at the same seconds. Plain: two
+singles, 1.5 s, as before. Speed loader: one clip, 1.26 s. Quad: four singles, 1.98 s. Both: two clips, 1.5 s, the plain double's
+time. *Choke* (`shotgunChoke`, 400 after wave 1): the pump's `spread` 0.05 to 0.03, so the six pellets hold together further out.
+*Extended hammer* (`judgeHammer`, 500 after wave 2): the fan's `perBar` 0.4 to 0.28 s. *Comfort grip* (`judgeGrip`, 900 after wave 4):
+the fan's `bars` 3 to 6, one a chamber; the crosshair's bar splits into as many segments as the fitted gun charges. Neither changes a
+plain shot. Tests: `src/weapons/shotmods.test.ts`.
 
 `src/weapons/mods.test.ts`.
 

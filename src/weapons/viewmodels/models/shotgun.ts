@@ -1,6 +1,7 @@
 /**
  * The Breacher: a pump twelve-gauge. Parkerized receiver, oiled walnut, a corn-cob forend on a real slide, a slatted
  * heat shield you can see the barrel through, and a toothed breaching choke. The side saddle carries spare shells.
+ * Its mod (src/weapons/mods.ts) is a long choke tube in the breaching choke's place, for a tighter group.
  */
 import { Kit } from '../kit/kit';
 import { Model } from '../kit/model';
@@ -90,24 +91,27 @@ function barrel(m: Mesher): void {
     m.use(F.barrel);
     m.lathe([[0.0145, -0.17, 0], [0.0145, -0.205], [0.0118, -0.215], [0.0115, -0.635, 0]], 22);
     // Breaching choke: a fat ported sleeve that ends in four teeth.
-    m.use(F.parkerized);
-    m.lathe([[0.0115, -0.625, 0], [0.0145, -0.628], [0.0145, -0.668], [0.0138, -0.671], [0.0098, -0.671, 0]], 22);
-    m.use(F.black);
-    m.lathe([[0.0098, -0.671, 0], [0.009, -0.7, 0], [0, -0.7005, 0]], 16);
-    m.use(F.parkerized);
-    for (let i = 0; i < 4; i++) {
-      m.at([0, 0, -0.681], [0, 0, (i / 4) * Math.PI * 2 + Math.PI / 4], () => {
-        const p: V2[] = [];
-        for (let k = 0; k <= 5; k++) { const t = -0.46 + (k / 5) * 0.92; p.push([Math.cos(t) * 0.0143, Math.sin(t) * 0.0143]); }
-        for (let k = 5; k >= 0; k--) { const t = -0.46 + (k / 5) * 0.92; p.push([Math.cos(t) * 0.0104, Math.sin(t) * 0.0104]); }
-        m.prism(p, 0.022, { bevel: 0.0008, smooth: 30 });
-      });
-    }
-    m.use(F.black);
-    for (let i = 0; i < 6; i++) {
-      const a = (i / 6) * Math.PI * 2 + 0.3;
-      m.at([Math.cos(a) * 0.0138, Math.sin(a) * 0.0138, -0.648], [0, 0, a], () => m.box(0.002, 0.0038, 0.022, 0.0003));
-    }
+    m.part('breacher', [0, 0, 0], () => {
+      m.use(F.parkerized);
+      m.lathe([[0.0115, -0.625, 0], [0.0145, -0.628], [0.0145, -0.668], [0.0138, -0.671], [0.0098, -0.671, 0]], 22);
+      m.use(F.black);
+      m.lathe([[0.0098, -0.671, 0], [0.009, -0.7, 0], [0, -0.7005, 0]], 16);
+      m.use(F.parkerized);
+      for (let i = 0; i < 4; i++) {
+        m.at([0, 0, -0.681], [0, 0, (i / 4) * Math.PI * 2 + Math.PI / 4], () => {
+          const p: V2[] = [];
+          for (let k = 0; k <= 5; k++) { const t = -0.46 + (k / 5) * 0.92; p.push([Math.cos(t) * 0.0143, Math.sin(t) * 0.0143]); }
+          for (let k = 5; k >= 0; k--) { const t = -0.46 + (k / 5) * 0.92; p.push([Math.cos(t) * 0.0104, Math.sin(t) * 0.0104]); }
+          m.prism(p, 0.022, { bevel: 0.0008, smooth: 30 });
+        });
+      }
+      m.use(F.black);
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2 + 0.3;
+        m.at([Math.cos(a) * 0.0138, Math.sin(a) * 0.0138, -0.648], [0, 0, a], () => m.box(0.002, 0.0038, 0.022, 0.0003));
+      }
+    });
+    choke(m);
     // Heat shield: real slats, so the blued barrel shows through.
     m.use(F.parkerized);
     const a0 = -0.42;
@@ -124,6 +128,28 @@ function barrel(m: Mesher): void {
       m.side(poly([[0.014, 0], [-0.008, 0], [-0.011, 0.0085, 0.002], [0.002, 0.0085, 0.002]], 0.001), 0.0036, { bevel: 0.0006 });
       m.glow('sight', () => m.at([0, 0.0088, -0.0045], null, () => m.cyl(0.0014, 0.007, 8, 0)));
     });
+  });
+}
+
+/**
+ * The choke mod: a long extended tube screwed in where the breaching choke was, in bright steel. A knurled collar to turn
+ * it by, a brass ring that marks the constriction, ported over the top so the muzzle stays down, and a bore you can see
+ * narrow at the crown. In the barrel's frame, on the bore.
+ */
+function choke(m: Mesher): void {
+  m.part('choke', [0, 0, 0], () => {
+    m.use(F.steel);
+    m.lathe([[0.0112, -0.622, 0], [0.0136, -0.624], [0.0138, -0.662], [0.0148, -0.664], [0.0148, -0.69], [0.0134, -0.694], [0.0134, -0.744], [0.0124, -0.752], [0.0092, -0.752, 0]], 26, { chamfer: 0.0006 });
+    m.at([0, 0, -0.677], null, () => knurl(m, 0.0151, 0.022, F.steelDark, 26, 0.0007));
+    m.use(F.brass);
+    m.at([0, 0, -0.7], null, () => m.lathe([[0.0136, 0.0018, 0], [0.0137, 0], [0.0136, -0.0018, 0]], 26));
+    // Bore: wide at the crown, then the step down where the choke squeezes the shot.
+    m.use(F.black);
+    m.lathe([[0.0092, -0.752, 0], [0.0088, -0.735], [0.0074, -0.722], [0.0072, -0.7], [0, -0.6995, 0]], 18);
+    // Ports: three slots a side, angled up off the top.
+    for (const a of [Math.PI / 2 - 0.5, Math.PI / 2 + 0.5]) {
+      for (let i = 0; i < 3; i++) m.at([Math.cos(a) * 0.0131, Math.sin(a) * 0.0131, -0.712 - i * 0.012], [0, 0, a], () => m.box(0.0018, 0.0034, 0.0075, 0.0003));
+    }
   });
 }
 
@@ -208,6 +234,7 @@ function buildShotgun(kit: Kit): Model {
     screens: { ammo: [240, 22] },
   });
   model.socket('muzzle', [0, BORE, -0.702]);
+  model.socket('muzzleChoke', [0, BORE, -0.756]);
   model.socket('eject', [0.022, 0.03, -0.065]);
   model.hand('gripR', [0.019, -0.06, 0.07], [0, -0.96, 0.27], [-0.3, -0.25, -0.92]);
   model.support('pumpL', [-0.002, -0.0235, -0.012], 'pump');
@@ -291,6 +318,7 @@ export function shotgunDef(kit: Kit): ViewDef {
     heatPerShot: 0.09,
     animate: clip,
     readout: a => drawCount(a, 'ammo', 0, 6, '#9cff3a'),
+    mods: { shotgunChoke: { part: 'choke', hides: 'breacher', muzzle: 'muzzleChoke' } },
   };
 }
 

@@ -116,9 +116,10 @@ export interface WeaponDef {
   /** Hold right click to charge rounds and paint heads, let go to fan them off: the Judge's. See fan.ts. Instead of ADS. */
   altFan?: FanSpec;
   /**
-   * Right click fires both barrels at once, the Deuce's: twice the pellets, `kick` times the recoil and shake, the shot heard
-   * a second time `echo` s later at `echoPitch`, and the player shoved back at `push` m/s (`ground` of it along the floor
-   * when standing). Instead of ADS.
+   * Right click fires every loaded barrel at once, the Deuce's: their pellets together, and for two `kick` times the recoil and
+   * shake, the shot heard a second time `echo` s later at `echoPitch`, and the player shoved back at `push` m/s (`ground` of it
+   * along the floor when standing). Each barrel past the second adds `kick` - 1 again, another echo and another push: the quad
+   * barrels (mods.ts). Instead of ADS.
    */
   altBoth?: { readonly kick: number; readonly push: number; readonly ground: number; readonly echo: number; readonly echoPitch: number };
   /**
@@ -187,6 +188,22 @@ export interface WeaponDef {
 
 /** Same number as HIT_STOP.heavyKill, which is declared after the table that needs it. */
 const HEAVY_KILL_STOP = 0.05;
+
+/**
+ * The Deuce's break-open reload in seconds: open and the empties thrown by `open`, a hand to the belt and back every `insert`
+ * (a shell, or two on the speed loader), and `close` from the last one home to the end. viewmodels/models/deuce.ts times its
+ * clip by these.
+ */
+export const BREAK = { lever: 0.075, open: 0.39, insert: 0.24, close: 0.63 } as const;
+
+/** The reload of a break-open gun loaded in `inserts` goes: 1.5 s for the plain Deuce's two shells. */
+export function breakLoad(inserts: number): Pick<WeaponDef, 'reloadTime' | 'reloadFoley'> {
+  const t = BREAK.open + BREAK.insert * inserts + BREAK.close;
+  const cues: ReloadCue[] = [[BREAK.lever / t, 'revolver_open']];
+  for (let i = 1; i <= inserts; i++) cues.push([(BREAK.open + BREAK.insert * i) / t, 'reload_shell_in']);
+  cues.push([(t - 0.3) / t, 'revolver_close']);
+  return { reloadTime: t, reloadFoley: cues };
+}
 
 const MAG_RELOAD: readonly ReloadCue[] = [[0.05, 'reload_mag_out'], [0.55, 'reload_mag_in'], [0.82, 'reload_bolt']];
 
@@ -294,12 +311,11 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
   // to reload, so its spent shells come out by hand (`casing` null).
   deuce: {
     ...BASE, id: 'deuce', name: 'DEUCE', slot: 2, base: 'shotgun', mode: 'semi',
-    magSize: 2, reserve: 24, maxReserve: 48, reloadTime: 1.5, drawTime: 0.24,
+    magSize: 2, reserve: 24, maxReserve: 48, ...breakLoad(2), drawTime: 0.24,
     interval: 0.3, damage: 26, pellets: 8, spread: 0.075, severMult: 2.6, force: 22,
     falloff: { from: 9, to: 26, floor: 0.3 },
     muzzle: 'shotgun', tracer: 'bullet',
     sounds: [{ id: 'dbshotgun_shot', pitchJitter: 0.03 }],
-    reloadFoley: [[0.05, 'revolver_open'], [0.42, 'reload_shell_in'], [0.58, 'reload_shell_in'], [0.8, 'revolver_close']],
     drawSound: 'weapon_draw_heavy',
     recoil: 1.15, kick: 0.022, shake: 0.03, fovPunch: 2.2,
     altBoth: { kick: 1.8, push: 4.5, ground: 0.6, echo: 0.022, echoPitch: 0.95 },

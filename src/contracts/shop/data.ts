@@ -293,6 +293,27 @@ export const MOD_WARES: Readonly<Record<ModId, Ware>> = {
     price: 600, wave: 0,
     lore: 'Hollow-point slugs for the Judge: the harshest sentence in the catalogue, unless the accused is wearing a plate, in which case it is a warning.',
   },
+  // The Deuce's quad barrels and speed loader (they stack), the pump's choke, the Judge's hammer and grip (they stack).
+  deuceQuad: {
+    price: 1600, wave: 8,
+    lore: 'Two more barrels on top of the first two. The fire inspection that failed three has not been told about four. Right click fires all of them, which the manual calls optimism.',
+  },
+  deuceLoader: {
+    price: 600, wave: 6,
+    lore: 'A clip that puts two shells in at once. The hand still goes in, it just spends less time there reconsidering.',
+  },
+  shotgunChoke: {
+    price: 400, wave: 1,
+    lore: 'A tube that narrows the end of the pump\'s barrel, so the pellets arrive together and further away. The Council admires a group that stays on message.',
+  },
+  judgeHammer: {
+    price: 500, wave: 2,
+    lore: 'A longer hammer spur, quicker under the palm. The Judge now reaches its verdict in less time, which the Council has welcomed as reform.',
+  },
+  judgeGrip: {
+    price: 900, wave: 4,
+    lore: 'A fuller grip, so the hand stays on through all six chambers. Six verdicts in one sitting. Appeals will be heard by nobody.',
+  },
   autorafficaAp: {
     price: 500, wave: 2,
     lore: 'Armour-piercing rounds for the Autoraffica. The gun already picks the head; these see that the helmet does not object.',

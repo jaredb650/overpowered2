@@ -39,6 +39,8 @@ export type WeaponId =
 export type ModId = 'awlAcog' | 'awlCan' | 'awlAp' | 'awlHp' | 'suppressor' | 'reddot' | 'raufoss' | 'harrowAcog' | 'gimletAcog' | 'gimletDot' | 'gimletCan' | 'gimletGl'
   // The Ultramag's suppressor, reflex sight, laser module and extended magazine.
   | 'ultramagCan' | 'ultramagDot' | 'ultramagLam' | 'ultramagMag'
+  // The Deuce's quad barrels and speed loader, the pump's choke, the Judge's extended hammer and comfort grip.
+  | 'deuceQuad' | 'deuceLoader' | 'shotgunChoke' | 'judgeHammer' | 'judgeGrip'
   // The heavy guns' mods: the Trommel's 12 mm rechamber and the Sabot's muzzle brake.
   | 'trommel12' | 'sabotBrake'
   | 'smgAp' | 'smgHp' | 'gimletAp' | 'gimletHp' | 'harrowAp' | 'harrowHp'

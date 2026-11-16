@@ -2,6 +2,7 @@
  * The Judge: a heavy-frame revolver. Bright stainless, a vent rib and full underlug, walnut grips, and a real cylinder
  * on a crane: it indexes one chamber per shot, swings out, kicks its empties and takes a speedloader. Origin at the
  * top of the grip. Nothing on this gun hides what it is doing, which is the whole appeal.
+ * Two mods (src/weapons/mods.ts): an extended hammer spur for the fanning palm, and a fuller rubber grip with finger grooves.
  */
 import { Kit } from '../kit/kit';
 import { Model } from '../kit/model';
@@ -97,24 +98,50 @@ function barrel(m: Mesher): void {
 }
 
 function grip(m: Mesher): void {
-  const front = curve([[0.022, -0.012], [0.024, -0.034], [0.032, -0.052], [0.03, -0.072], [0.036, -0.094], [0.042, -0.122]], 5);
-  const back = curve([[0.094, -0.122], [0.098, -0.09], [0.09, -0.05], [0.074, -0.018], [0.05, 0.03]], 5);
-  const outline: V2[] = [...front, [0.048, -0.13], [0.09, -0.13], ...back];
-  m.use(F.walnutDark);
-  m.side(outline, 0.034, { bevel: 0.0048, smooth: 42 });
-  m.use(F.walnut);
-  m.mirror(() => m.at([0.0155, 0, 0], null, () => m.side(poly([[0.034, -0.02], [0.074, -0.018], [0.086, -0.052], [0.086, -0.112], [0.052, -0.116], [0.04, -0.08]], 0.005), 0.0046, { bevel: 0.0018 })));
-  m.use({ ...F.walnutDark, kind: 2 });
-  m.mirror(() => m.at([0.0178, 0, 0], null, () => m.side(poly([[0.042, -0.03], [0.07, -0.03], [0.08, -0.06], [0.08, -0.1], [0.056, -0.104], [0.046, -0.076]], 0.004), 0.002, { bevel: 0.0007 })));
-  // Brass medallion and butt cap.
-  m.mirror(() => m.at([0.0198, -0.016, 0.054], [0, Math.PI / 2, 0], () => { m.use(F.brass); m.cyl(0.0058, 0.0014, 16, 0.0004); }));
-  m.use(STAINLESS);
-  m.at([0, -0.131, 0.07], null, () => m.box(0.03, 0.004, 0.05, 0.0012, 0.003));
+  m.part('gripStd', [0, 0, 0], () => {
+    const front = curve([[0.022, -0.012], [0.024, -0.034], [0.032, -0.052], [0.03, -0.072], [0.036, -0.094], [0.042, -0.122]], 5);
+    const back = curve([[0.094, -0.122], [0.098, -0.09], [0.09, -0.05], [0.074, -0.018], [0.05, 0.03]], 5);
+    const outline: V2[] = [...front, [0.048, -0.13], [0.09, -0.13], ...back];
+    m.use(F.walnutDark);
+    m.side(outline, 0.034, { bevel: 0.0048, smooth: 42 });
+    m.use(F.walnut);
+    m.mirror(() => m.at([0.0155, 0, 0], null, () => m.side(poly([[0.034, -0.02], [0.074, -0.018], [0.086, -0.052], [0.086, -0.112], [0.052, -0.116], [0.04, -0.08]], 0.005), 0.0046, { bevel: 0.0018 })));
+    m.use({ ...F.walnutDark, kind: 2 });
+    m.mirror(() => m.at([0.0178, 0, 0], null, () => m.side(poly([[0.042, -0.03], [0.07, -0.03], [0.08, -0.06], [0.08, -0.1], [0.056, -0.104], [0.046, -0.076]], 0.004), 0.002, { bevel: 0.0007 })));
+    // Brass medallion and butt cap.
+    m.mirror(() => m.at([0.0198, -0.016, 0.054], [0, Math.PI / 2, 0], () => { m.use(F.brass); m.cyl(0.0058, 0.0014, 16, 0.0004); }));
+    m.use(STAINLESS);
+    m.at([0, -0.131, 0.07], null, () => m.box(0.03, 0.004, 0.05, 0.0012, 0.003));
+  });
+  comfortGrip(m);
   // Trigger guard.
   m.use(STAINLESS);
   m.side(poly([[-0.024, -0.008], [-0.032, -0.02, 0.006], [-0.02, -0.036, 0.008], [0.015, -0.036, 0.008], [0.03, -0.012, 0.004], [0.03, -0.006]], 0.002), 0.0105, {
     bevel: 0.001,
     holes: [poly([[-0.021, -0.012], [-0.026, -0.019, 0.005], [-0.017, -0.031, 0.005], [0.011, -0.031, 0.005], [0.023, -0.012, 0.003]], 0.002)],
+  });
+}
+
+/**
+ * The comfort grip mod: a wraparound rubber grip, fuller everywhere the hand is. Three finger grooves down the front strap,
+ * a swell under the palm at the back, a flared base that runs a centimetre lower, stippled side panels and a stainless
+ * butt cap, so the hand stays planted through six slaps of the hammer. Barely wider, so the hands sit where they did.
+ */
+function comfortGrip(m: Mesher): void {
+  m.part('gripComfort', [0, 0, 0], () => {
+    const front = curve([[0.022, -0.012], [0.023, -0.03], [0.031, -0.043], [0.025, -0.056], [0.034, -0.071], [0.028, -0.085], [0.037, -0.1], [0.032, -0.114], [0.04, -0.136]], 5);
+    const back = curve([[0.1, -0.136], [0.103, -0.104], [0.099, -0.066], [0.082, -0.024], [0.05, 0.03]], 5);
+    m.use(F.rubber);
+    m.side([...front, [0.044, -0.142], [0.098, -0.142], ...back], 0.037, { bevel: 0.0058, smooth: 46 });
+    m.use(F.polymerStipple);
+    m.mirror(() => m.at([0.0168, 0, 0], null, () => m.side(poly([[0.04, -0.022], [0.078, -0.024], [0.092, -0.06], [0.092, -0.118], [0.05, -0.124], [0.042, -0.07]], 0.006), 0.0042, { bevel: 0.0016 })));
+    // A raised rib down each groove's ridge, so the fingers find their places.
+    m.use(F.rubber);
+    for (const [z, y] of [[0.0262, -0.056], [0.0292, -0.085], [0.0332, -0.114]] as const) m.at([0, y, z], null, () => m.box(0.03, 0.0035, 0.004, 0.0015));
+    m.use(STAINLESS);
+    m.at([0, -0.1435, 0.071], null, () => m.box(0.034, 0.004, 0.056, 0.0014, 0.004));
+    m.use(STAINLESS_DARK);
+    m.mirror(() => screwX(m, 0.0212, -0.09, 0.07, 1, 0.0022, STAINLESS_DARK));
   });
 }
 
@@ -196,9 +223,20 @@ function buildJudge(kit: Kit): Model {
   grip(m);
   cylinder(m);
   m.part('hammer', [0, 0.04, 0.05], () => {
-    m.use(STAINLESS_DARK);
-    m.side(poly([[-0.008, -0.004], [0.0, -0.008], [0.004, 0.004], [0.006, 0.02, 0.002], [0.016, 0.03, 0.003], [0.02, 0.026, 0.002], [0.01, 0.014, 0.002], [-0.002, 0.014]], 0.001), 0.0075, { bevel: 0.0007 });
-    for (let i = 0; i < 4; i++) { m.use(F.steelDark); m.at([0, 0.0305 - i * 0.002, 0.0145 + i * 0.0018], null, () => m.box(0.0078, 0.0006, 0.0014, 0.0001)); }
+    m.part('spur', [0, 0, 0], () => {
+      m.use(STAINLESS_DARK);
+      m.side(poly([[-0.008, -0.004], [0.0, -0.008], [0.004, 0.004], [0.006, 0.02, 0.002], [0.016, 0.03, 0.003], [0.02, 0.026, 0.002], [0.01, 0.014, 0.002], [-0.002, 0.014]], 0.001), 0.0075, { bevel: 0.0007 });
+      for (let i = 0; i < 4; i++) { m.use(F.steelDark); m.at([0, 0.0305 - i * 0.002, 0.0145 + i * 0.0018], null, () => m.box(0.0078, 0.0006, 0.0014, 0.0001)); }
+    });
+    // The extended hammer mod: the spur run on back and up into a wide checkered pad, where the fanning palm lands.
+    m.part('spurLong', [0, 0, 0], () => {
+      m.use(STAINLESS_DARK);
+      m.side(poly([[-0.008, -0.004], [0.0, -0.008], [0.004, 0.004], [0.007, 0.019, 0.003], [0.024, 0.036, 0.004], [0.034, 0.034, 0.003], [0.03, 0.027, 0.003], [0.012, 0.013, 0.003], [-0.002, 0.014]], 0.001), 0.0075, { bevel: 0.0007 });
+      m.use(F.steel);
+      m.at([0, 0.0352, 0.029], [0.18, 0, 0], () => m.box(0.0145, 0.003, 0.013, 0.0011));
+      m.use(F.steelDark);
+      for (let i = 0; i < 5; i++) m.at([0, 0.0372 - i * 0.0005, 0.0238 + i * 0.0026], [0.18, 0, 0], () => m.box(0.0138, 0.0006, 0.0012, 0.0001));
+    });
   });
   m.part('trigger', [0, -0.006, -0.006], () => {
     m.use(STAINLESS_DARK);
@@ -321,6 +359,7 @@ export function judgeDef(kit: Kit): ViewDef {
     left: { socket: 'gripL', pose: HANDS.pistolSupport },
     heatPerShot: 0.05,
     animate: clip,
+    mods: { judgeHammer: { part: 'spurLong', hides: 'spur' }, judgeGrip: { part: 'gripComfort', hides: 'gripStd' } },
   };
 }
 

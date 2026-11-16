@@ -6,17 +6,19 @@
  */
 import * as THREE from 'three';
 import type { Ctx } from '../../core/contracts';
-import type { SmartAimView, WeaponId } from '../../core/gameplay';
+import type { ModId, SmartAimView, WeaponId } from '../../core/gameplay';
 import { clamp, damp, wrapAngle } from '../../core/math';
 import { Flag, Label, Meter, Shown, div, markup, span } from '../dom';
 import type { HudState } from '../state';
 import { LANCE_OLD, WEAPONS } from '../../weapons/data';
 import { LANCE_LOOK, MARKS } from '../../weapons/lance';
+import { moddedDef } from '../../weapons/mods';
 import { ROCKET_LASER } from '../../weapons/laser';
 import { LockMarkers } from './locks';
 import { crosshairRead } from '../../allies/rules';
 
 /** The Lance's marks as shares of its charge: a notch on the bar at each short of full, and the bar steps colour as each is reached. */
+const NONE: ReadonlySet<ModId> = new Set();
 const CHARGE_STAGES: readonly number[] = LANCE_OLD ? [] : MARKS;
 
 const poly = (pts: string) => `<polygon points="${pts}"/>`;
@@ -265,8 +267,10 @@ export class Crosshair {
   /** The Lance in ball mode: the bar goes green. */
   private chargeBall: Flag;
   private chargeSteps: Flag[] = [];
-  /** The Judge's fanning: the bar split in three, one a round. */
+  /** The Judge's fanning: the bar split a segment a round, three or with the comfort grip six. */
   private chargePips: Flag;
+  private readonly pips: HTMLElement[] = [];
+  private pipBars = 0;
   private comboHost: HTMLElement;
   private heat = -1;
   private aimClock = 0;
@@ -307,9 +311,9 @@ export class Crosshair {
     }
     this.chargeStaged = new Flag(chargeHost, 'staged');
     this.chargeBall = new Flag(chargeHost, 'ball');
-    for (const at of [1 / 3, 2 / 3]) {
+    for (let i = 0; i < 5; i++) {
       const pip = div('xh-charge-pip');
-      pip.style.left = `${at * 100}%`;
+      this.pips.push(pip);
       chargeHost.append(pip);
     }
     this.chargePips = new Flag(chargeHost, 'pips');
@@ -490,7 +494,15 @@ export class Crosshair {
       this.chargeStaged.set(staged && CHARGE_STAGES.length > 0);
       this.chargeBall.set(staged && LANCE_LOOK.ball);
       for (let i = 0; i < this.chargeSteps.length; i++) this.chargeSteps[i]!.set(staged && s.charge >= CHARGE_STAGES[i]! - 1e-6);
-      this.chargePips.set(WEAPONS[s.weapon].altFan !== undefined);
+      const fan = WEAPONS[s.weapon].altFan ? moddedDef(s.weapon, this.ctx.weapons.fitted ?? NONE).altFan!.bars : 0;
+      this.chargePips.set(fan > 0);
+      if (fan !== this.pipBars) {
+        this.pipBars = fan;
+        this.pips.forEach((pip, i) => {
+          pip.style.left = `${((i + 1) / fan) * 100}%`;
+          pip.style.visibility = i < fan - 1 ? '' : 'hidden';
+        });
+      }
     }
 
     this.hits.body.update(dt);

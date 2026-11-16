@@ -6,7 +6,7 @@
  */
 import type { AmmoLoad } from '../core/contracts';
 import type { ModId, WeaponId } from '../core/gameplay';
-import { AMMO, WEAPONS, type WeaponDef } from './data';
+import { AMMO, WEAPONS, breakLoad, type WeaponDef } from './data';
 
 export interface ModDef {
   id: ModId;
@@ -16,7 +16,9 @@ export interface ModDef {
   /** What it changes in the gun's row. */
   patch: Partial<WeaponDef>;
   /** A gun takes one of each: an optic, and a kind of round. Fitting one takes off any other of its slot on the same gun. */
-  slot?: 'sight' | 'ammo' | 'mag' | 'barrel';
+  slot?: 'sight' | 'ammo' | 'mag' | 'barrel' | 'choke' | 'hammer' | 'grip' | 'loader';
+  /** What it changes worked out from the row as every fitted mod's `patch` left it: a mod that stacks with another on the same part. */
+  adjust?: (def: WeaponDef) => Partial<WeaponDef>;
 }
 
 const smg = WEAPONS.smg;
@@ -103,6 +105,19 @@ export const MODS: Readonly<Record<ModId, ModDef>> = {
   smgPlusP: rounds('smg', 'plusP'), gimletPlusP: rounds('gimlet', 'plusP'), harrowPlusP: rounds('harrow', 'plusP'),
   rivetPlusP: rounds('rivet', 'plusP'), ultramagPlusP: rounds('ultramag', 'plusP'), judgePlusP: rounds('judge', 'plusP'),
   autorafficaPlusP: rounds('autoraffica', 'plusP'), awlPlusP: rounds('awl', 'plusP'),
+  // The Deuce's: two more barrels over the first two, so four shells, a barrel a left click and every loaded one on a right
+  // click; each barrel past the first adds `kick` - 1 to the recoil and `push` to the shove. Loaded a shell at a time, 1.98 s.
+  deuceQuad: {
+    id: 'deuceQuad', weapon: 'deuce', name: 'Quad barrels', slot: 'barrel',
+    patch: { magSize: 4, ...breakLoad(4), altBoth: { ...WEAPONS.deuce.altBoth!, kick: 1.4, push: 3.5 } },
+  },
+  // Two shells a hand: the double loads in one go (1.26 s), the quad in two (1.5 s, the plain double's time).
+  deuceLoader: { id: 'deuceLoader', weapon: 'deuce', name: 'Speed loader', slot: 'loader', patch: {}, adjust: d => breakLoad(d.magSize / 2) },
+  // The pump's: a tighter cone, 0.05 to 0.03, so the pellets stay together further out.
+  shotgunChoke: { id: 'shotgunChoke', weapon: 'shotgun', name: 'Choke', slot: 'choke', patch: { spread: 0.03 } },
+  // The Judge's fanning: a bar every 0.28 s where it was 0.4, and up to six bars, a chamber each, where it was three.
+  judgeHammer: { id: 'judgeHammer', weapon: 'judge', name: 'Extended hammer', slot: 'hammer', patch: {}, adjust: d => ({ altFan: { ...d.altFan!, perBar: 0.28 } }) },
+  judgeGrip: { id: 'judgeGrip', weapon: 'judge', name: 'Comfort grip', slot: 'grip', patch: {}, adjust: d => ({ altFan: { ...d.altFan!, bars: 6 } }) },
 };
 
 export const MOD_ORDER: readonly ModId[] = [
@@ -113,6 +128,7 @@ export const MOD_ORDER: readonly ModId[] = [
   'sabotBrake', 'trommel12',
   'ultramagCan', 'ultramagDot', 'ultramagLam', 'ultramagMag',
   'smgMag', 'gimletShort', 'rivetMag', 'piledriverBox',
+  'deuceQuad', 'deuceLoader', 'shotgunChoke', 'judgeHammer', 'judgeGrip',
 ];
 
 /** Held and fitted at the start of every run: the Gimlet's ACOG and suppressor. The shop takes them off and puts them back. */
@@ -127,5 +143,6 @@ export function moddedDef(id: WeaponId, fitted: ReadonlySet<ModId>): WeaponDef {
     const damage = patch.load === 'plusP' ? def.damage * AMMO.plusP.flesh : patch.damage ?? def.damage;
     def = { ...def, ...patch, damage };
   }
+  for (const m of MOD_ORDER) if (fitted.has(m) && MODS[m].weapon === id && MODS[m].adjust) def = { ...def, ...MODS[m].adjust!(def) };
   return def;
 }
