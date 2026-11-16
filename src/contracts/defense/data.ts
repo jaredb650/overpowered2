@@ -149,9 +149,11 @@ export const CALLIN_PRICES: Record<CallInId, number> = {
   airstrike: 600,
   warthog: 900,
   doorGunner: 1500,
+  sentry: 1800,
   attackChopper: 2000,
   orbital: 2400,
   ac130: 3200,
+  frame: 4000,
   blackSun: 4500,
   nuke: 8000,
 };

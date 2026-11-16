@@ -1,0 +1,174 @@
+/**
+ * The Distraint Frame as a call-in (combo 35). No mark: it comes down on its jets a few metres ahead of the player, the way a
+ * supply pod lands, stands open, and E beside it puts the player in (`Frame.board`, src/frame/seat.ts) for `FRAME_DROP.seconds`.
+ * Then the seat puts the player out beside it and it is gone. Left alone for `wait` seconds, it is taken back.
+ *
+ * Everything the Frame does once crewed is the Frame's own: the guns, the blows, the seat and its way out.
+ */
+import * as THREE from 'three';
+import { lerp, rand, TAU } from '../../core/math';
+import type { Frame } from '../../frame/seat';
+import { CALLINS, FRAME_DROP as D } from '../data';
+import { GroundRing } from './ground';
+import { aboveFloor, type Strike, type StrikeKit } from './shared';
+
+const COLOR = CALLINS.frame.color;
+/** Headroom a landing spot needs: the hull's top is 6.2 m over the feet. */
+const ROOM = 7;
+const FALL = D.height / D.speed;
+
+const _up = new THREE.Vector3(0, 1, 0);
+const _down = new THREE.Vector3(0, -1, 0);
+const _p = new THREE.Vector3();
+const _at = new THREE.Vector3();
+
+type Phase = 'warning' | 'falling' | 'waiting' | 'crewed';
+
+export class FrameDrop implements Strike {
+  private phase: Phase = 'warning';
+  private t = 0;
+  private readonly feet = new THREE.Vector3();
+  private readonly yaw: number;
+  private readonly ring: GroundRing;
+  private flameIn = 0;
+  private unmark: (() => void) | null = null;
+  private unprompt: (() => void) | null = null;
+
+  constructor(private readonly kit: StrikeKit, private readonly frame: Frame) {
+    const { ctx } = kit;
+    this.yaw = ctx.player.yaw;
+    this.spot(this.feet);
+    this.ring = new GroundRing(ctx);
+    this.ring.setColor(COLOR, 2);
+    this.unmark = ctx.hud.marker(_p.copy(this.feet).setY(this.feet.y + 7), CALLINS.frame.name, COLOR);
+    ctx.audio.play('cache_incoming');
+  }
+
+  /** Ahead of the player on open ground with the sky over it, else where the player stands. */
+  private spot(out: THREE.Vector3): void {
+    const { ctx, probe } = this.kit;
+    const { player, world } = ctx;
+    _p.set(-Math.sin(this.yaw), 0, -Math.cos(this.yaw)).multiplyScalar(D.ahead).add(player.position);
+    if (!world.nav.nearest(_p, 12, out) || probe.headroom(out.x, out.y + 1, out.z, ROOM) < ROOM) out.copy(player.position);
+    const floor = probe.heightAt(out.x, out.y + 2, out.z, 40);
+    if (!Number.isNaN(floor)) out.y = floor;
+  }
+
+  update(dt: number): boolean {
+    this.t += dt;
+    switch (this.phase) {
+      case 'warning':
+        this.showRing();
+        if (this.t >= D.warn) this.next('falling');
+        break;
+      case 'falling': {
+        const k = Math.min(1, this.t / FALL);
+        // Slowing at the end on its jets, so it lands rather than arrives.
+        const y = lerp(this.feet.y + D.height, this.feet.y, 1 - (1 - k) * (1 - k));
+        this.frame.stand(_at.copy(this.feet).setY(y), this.yaw);
+        this.showRing();
+        this.burn(dt, k);
+        if (k >= 1) this.land();
+        break;
+      }
+      case 'waiting':
+        if (this.t >= D.wait) {
+          this.gone();
+          return true;
+        }
+        this.offer();
+        break;
+      case 'crewed':
+        if (!this.frame.occupied) {
+          this.gone();
+          return true;
+        }
+        break;
+    }
+    return false;
+  }
+
+  private next(phase: Phase): void {
+    this.phase = phase;
+    this.t = 0;
+  }
+
+  private showRing(): void {
+    this.ring.show(this.feet, D.impactRadius);
+    this.ring.setOpacity(0.6 + Math.sin(this.t * 9) * 0.3);
+    this.ring.tick(this.t);
+  }
+
+  /** The jets under it on the way down, hardest at the end. */
+  private burn(dt: number, k: number): void {
+    const { fx } = this.kit.ctx;
+    this.flameIn -= dt;
+    if (this.flameIn > 0) return;
+    this.flameIn = 0.04;
+    for (const s of [-1, 1]) {
+      _p.set(Math.cos(this.yaw) * s * 1.1, 3.4, -Math.sin(this.yaw) * s * 1.1).add(_at);
+      fx.flame(_p, _down, 1 + k * 1.5);
+    }
+    if (k > 0.6) fx.smoke(_p.copy(this.feet), 0x9a9690, 2.4, 1.4);
+  }
+
+  private land(): void {
+    const { audio, camera, combat, fx, player, render } = this.kit.ctx;
+    const p = this.feet;
+    this.next('waiting');
+    this.frame.stand(p, this.yaw);
+    this.ring.hide();
+    combat.explode(aboveFloor(p), {
+      radius: D.impactRadius, damage: D.impactDamage, kind: 'rocket', source: 'drop_pod', team: 'player', selfDamage: 0, playerPush: 14,
+    });
+    fx.slam(p, 2.4);
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * TAU;
+      fx.dust(_p.set(p.x + Math.cos(a) * 3, p.y, p.z + Math.sin(a) * 3), _up, 2);
+    }
+    render.decals.add('crack', p, _up, 9, rand(0, TAU));
+    audio.play('titan_stomp', { position: p, pitch: 0.85 });
+    audio.play('land_hard', { position: p, pitch: 0.45 });
+    audio.play('metal_groan', { position: p, pitch: 0.7 });
+    camera.addTrauma(Math.max(0, 0.8 - player.position.distanceTo(p) / 60));
+  }
+
+  /** The prompt while the player is beside it, and E climbs in. */
+  private offer(): void {
+    const { hud, input, player } = this.kit.ctx;
+    const near = player.alive && Math.hypot(player.position.x - this.feet.x, player.position.z - this.feet.z) < D.reach
+      && Math.abs(player.position.y - this.feet.y) < 3;
+    if (near && !this.unprompt) {
+      this.unprompt = hud.follow(_p.copy(this.feet).setY(this.feet.y + 2.4).clone(), `${input.labelFor?.('interact') ?? 'E'} BOARD`, COLOR);
+    } else if (!near && this.unprompt) {
+      this.unprompt();
+      this.unprompt = null;
+    }
+    if (!near || !input.pressed('interact')) return;
+    this.unprompt?.();
+    this.unprompt = null;
+    this.unmark?.();
+    this.unmark = null;
+    this.frame.board(this.feet, this.yaw, D.seconds);
+    this.next('crewed');
+  }
+
+  /** Taken back: a cloud of smoke where it stood, and nothing in it. */
+  private gone(): void {
+    const { audio, fx } = this.kit.ctx;
+    const p = this.frame.walker.feet;
+    _p.copy(this.phase === 'crewed' ? p : this.feet);
+    for (let i = 0; i < 6; i++) fx.smoke(_at.copy(_p).setY(_p.y + 1 + i * 0.9), 0x8a8680, 3.5, 2.5);
+    audio.play('steam_burst', { position: _p, pitch: 0.6 });
+    this.frame.hide();
+  }
+
+  dispose(): void {
+    this.ring.dispose();
+    this.unmark?.();
+    this.unmark = null;
+    this.unprompt?.();
+    this.unprompt = null;
+    this.frame.hide();
+  }
+}

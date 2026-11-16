@@ -22,6 +22,10 @@ off and compare (question 2).
 
 There is no way out by key (`noWayOut`), as the plan's default has it. Death or a new run takes the player out.
 
+**As a call-in** (key K, combo 35, `progression/callins/frameDrop.ts`): it lands on its jets 9 m ahead of the player, stands empty
+(`Frame.stand`), and E within 4.5 m boards it with `board(feet, yaw, 45)`. When the seat's 45 s run down, `update` calls `leave()`,
+the player is put down beside it and the Frame is gone. See "The AA sentry and the Frame" in `docs/notes/progression.md`.
+
 ## Files
 
 | File | Holds |

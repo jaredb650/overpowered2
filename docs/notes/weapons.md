@@ -63,7 +63,7 @@ hits at 20 fps, damage numbers and reuse. Smoke follows the actual curved positi
 ## Using it
 
 ```ts
-ctx.combat.fireRay(origin, dir, { damage: 40, source: 'sentinel', team: 'player', tracer: 'bullet' });  // ShotResult
+ctx.combat.fireRay(origin, dir, { damage: 40, source: 'sentry', team: 'player', tracer: 'bullet' });  // ShotResult
 ctx.combat.spawnProjectile({ origin, velocity, kind: 'rocket', team: 'enemy', damage, source, explosion: {...} });
 ctx.combat.explode(point, { radius: 8, damage: 100, kind: 'rocket', source: 'airstrike', team: 'player' });
 ctx.combat.enemyMuzzle(muzzle, dir, 'enemy');

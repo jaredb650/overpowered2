@@ -5,7 +5,7 @@
  * Clock choices, all on ctx.time:
  *  - Perks, combo, kill windows, strike timelines, pickups: realDt. The first game's ran on the wall clock, so the
  *    ladder feels the same in SLOWMO and rockets still pile up mid-air. update() stops with the game, so pause holds it.
- *  - Sentinels: playerDt. Ordnance and the Black Sun's pull: dt, because they push things in the simulated world.
+ *  - Stims: playerDt. Ordnance and the Black Sun's pull: dt, because they push things in the simulated world.
  */
 import * as THREE from 'three';
 import type { Ctx } from '../core/contracts';
@@ -37,7 +37,6 @@ import { PerkRunner } from './perks';
 import { Pickups } from './pickups/pickups';
 import { DropPods } from './pickups/pods';
 import { ScoreKeeper } from './score';
-import { Sentinels } from './sentinels';
 import { Stims } from './stims';
 
 const COMBO_PITCH_STEP = 0.015;
@@ -69,7 +68,6 @@ class Progression implements ProgressionSystem {
   /** Next combo at which each combo perk fires. */
   private readonly comboAt = new Map<PerkId, number>();
   private callInsManager!: CallInManager;
-  private sentinels!: Sentinels;
   private chains!: ChainEffects;
   private frost!: FrostNova;
   private pickupsManager!: Pickups;
@@ -102,7 +100,6 @@ class Progression implements ProgressionSystem {
     this.perks = new PerkRunner(ctx);
     this.scoreKeeper = new ScoreKeeper(ctx);
     this.callInsManager = new CallInManager(ctx, materials, grade => this.perks.holdGrade(grade));
-    this.sentinels = new Sentinels(ctx, materials);
     this.chains = new ChainEffects(ctx);
     this.frost = new FrostNova(ctx);
     this.stimKit = new Stims(ctx);
@@ -365,7 +362,6 @@ class Progression implements ProgressionSystem {
     this.callInsManager.onDeath();
     this.perks.clear();
     if (!this.ctx.coop?.world) this.perks.showDeath();
-    this.sentinels.stop();
     this.ctx.time.popScale('slowmo');
     this.ctx.time.popScale('timeWarp');
   }
@@ -382,9 +378,6 @@ class Progression implements ProgressionSystem {
       case 'timeWarp':
         audio.play('time_warp_in');
         time.pushScale('timeWarp', 0.25, 0.18, 0.4);
-        break;
-      case 'sentinels':
-        this.sentinels.start();
         break;
       case 'frostNova':
         this.frost.cast();
@@ -409,9 +402,6 @@ class Progression implements ProgressionSystem {
       case 'timeWarp':
         audio.play('time_warp_out');
         time.popScale('timeWarp');
-        break;
-      case 'sentinels':
-        this.sentinels.stop();
         break;
       case 'skyfall':
         player.modifiers.infiniteDash = false;
@@ -465,7 +455,6 @@ class Progression implements ProgressionSystem {
     this.scoreKeeper.update(real);
     this.chains.update(real);
     this.callInsManager.update(real);
-    this.sentinels.update(time.playerDt);
     this.stimKit.update(time.playerDt);
     this.frost.update(time.dt);
     if (!this.ctx.coop?.world || this.ctx.coop.hosting) {
@@ -500,7 +489,6 @@ class Progression implements ProgressionSystem {
     this.lastHeadAt = -Infinity;
     this.severedAt.clear();
     this.callInsManager.clear();
-    this.sentinels.clear();
     this.chains.clear();
     this.frost.clear();
     this.pickupsManager.clear();

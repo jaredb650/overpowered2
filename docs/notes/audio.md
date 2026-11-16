@@ -140,7 +140,7 @@ A player's round on a living body is three layers, all starting on the frame of 
 | `hit_confirm` | `reactions.ts`, from `enemy:hit` | The confirmation: `wet_slap`'s 1-4 kHz crunch. Flesh only, and not on a kill | 2D |
 
 Only `bullet` and `pellet` rounds from the player's own guns (`WEAPONS`) get the second and third, and those are strikes Combat plays aloud.
-Sentinels and call-ins keep Combat's layer alone, so they never spend the gap a trigger pull needs. `reactions.ts` holds the frame's hit and
+The AA sentry and call-ins keep Combat's layer alone, so they never spend the gap a trigger pull needs. `reactions.ts` holds the frame's hit and
 plays it from `update`, which runs after Weapons and Combat, so every pellet of a trigger pull has landed by then. A headshot is left to
 `headshot`: it drops a body hit held on its frame, whichever pellet came first, and holds off body hits for one gap after. Combat's wet layer
 still plays for a body pellet on that frame, as it always has. A blocked round is `impact_armor` alone. On a kill `hit_marker_kill` is the 2D
@@ -413,7 +413,6 @@ Rendered at load. x4 means four rendered variants behind one id.
 - **Handling:** `weapon_dry`, `weapon_draw`, `weapon_draw_heavy`, `weapon_draw_blade`, `weapon_holster`
 - **Casings:** `casing_brass` x4, `casing_shotgun` x3, `casing_heavy` x3
 - **Sword extras:** `sword_block` (raise guard), `sword_deflect` x3 (bullet blocked), `sword_windup` (heavy charge), `sword_sweep` (RMB area sweep)
-- **Sentinels:** `sentinel_fire` x3, `sentinel_orbit_loop`
 
 ### Impacts and destruction
 
@@ -450,7 +449,7 @@ Rendered at load. x4 means four rendered variants behind one id.
 
 ### Perks, call-ins, powerups
 
-- **Perk stingers:** `perk_bloodthirst` (= `perk_bloodthirsty`), `perk_sentinels`, `perk_chainStorm`, `perk_butcher`, `perk_skyfall`, `perk_chainReaction`, `perk_overdrive`, `perk_warthog`, `perk_end`
+- **Perk stingers:** `perk_bloodthirst` (= `perk_bloodthirsty`), `perk_chainStorm`, `perk_butcher`, `perk_skyfall`, `perk_chainReaction`, `perk_overdrive`, `perk_warthog`, `perk_end`
 - **Call-ins:** `callin_ready`, `callin_target_loop`, `callin_confirm`, `callin_cancel`, `callin_denied`, `aa_lock`, `aa_launch`, `missile_incoming` x3, `orbital_charge`, `orbital_beam_loop`, `orbital_strike`, `blacksun_open`, `blacksun_loop`, `blacksun_implode`, `nuke_siren`, `nuke_incoming`, `nuke_blast`, `nuke_tail`, `siren_loop`
 - **Chain Storm:** `lightning_arc` x4, `lightning_strike` x3, `electric_buzz_loop`
 - **Powerups:** `powerup_quad`, `powerup_haste`, `powerup_vampire`, `powerup_ricochet`, `powerup_shock`, `powerup_ghost`, `powerup_magnet`, `powerup_regen`, `powerup_frostNova`, `powerup_timeWarp`, `powerup_end`, `powerup_spawn`, `powerup_idle_loop`, `vampire_drain`, `magnet_pull`, `frost_nova_blast`, `time_warp_in`, `time_warp_out`

@@ -10,12 +10,13 @@
 | `perks.ts` | Activation, countdowns, stacking, the one writer of `weapons.modifiers` and `player.modifiers`, grade choice |
 | `counters.ts` | `TimeWindow` (sliding) and `Combo` (gap-based) |
 | `score.ts` | Scoring, style labels, multi-kills, high score |
-| `chains.ts`, `frost.ts`, `sentinels.ts` | Chain Storm and Chain Reaction, Frost Nova, the drones. The drones (Sentinels) are off the combo ladder since 2026-11-13: nothing grants them in a run, and the guide hides them. `COMBO_PERKS` in `data.ts` says how to put them back |
+| `chains.ts`, `frost.ts` | Chain Storm and Chain Reaction, Frost Nova. The Sentinels (three orbiting gun drones, combo 20) were taken off the ladder on 2026-11-13 and removed on 2026-11-16; the AA sentry call-in has their rung |
 | `callins/manager.ts` | Ownership, cooldowns, keys, the holster, running strikes |
 | `callins/targeting.ts` | Aim solve, confirm, cancel, the Warthog drag |
 | `callins/ground.ts` | `GroundRing`, `GroundStrip` and `GroundProbe` |
 | `callins/bodies.ts` | `BodyQuery`: bodies in a ball, and waking resting corpses |
 | `callins/airstrike.ts`, `warthog.ts`, `orbital.ts`, `blacksun.ts`, `nuke.ts` | The strikes. `ordnance.ts` is the hero missiles |
+| `callins/sentry.ts`, `frameDrop.ts` | The AA sentry (its model, `SentryRig`, and the strike) and the Distraint Frame dropped as a call-in. See "The AA sentry and the Frame" |
 | `callins/ac130.ts`, `ac130Guns.ts`, `ac130Rounds.ts`, `ac130Model.ts`, `ac130Data.ts` | The gunship: the seat, views, impacts and white phosphorus; the four guns and the crew; what is in the air; the airframe; its numbers |
 | `callins/airframe.ts`, `radio.ts` | Shared by aircraft call-ins. See "Building another aircraft" |
 | `callins/gunnerStrike.ts`, `attackChopper.ts`, `doorGunner.ts`, `heliData.ts` | The two helicopters: the flight and the AI crew they share, each one's flying and guns, their numbers |
@@ -68,7 +69,7 @@ Events out: `perk:start`, `perk:end`, `callin:ready`, `callin:used`, `combo:chan
 
 ## The rules, all in `data.ts`
 
-**Clocks.** Perks, combo, windows, strike timelines and pickups run on `realDt`, as the first game's wall clock did. Ordnance and the Black Sun's pull run on `dt`. Sentinels run on `playerDt`. All of it stops with `update()`, so pause holds it.
+**Clocks.** Perks, combo, windows, strike timelines and pickups run on `realDt`, as the first game's wall clock did. Ordnance and the Black Sun's pull run on `dt`. Stims run on `playerDt`. All of it stops with `update()`, so pause holds it.
 
 **First-game thresholds are untouched:** Blood Thirst 4 in 5 s, Hellfire 10 in 10 s, Airstrike combo 8, Warthog 12, Berserk 15, Adrenaline 3 sword kills in 3 s, SLOWMO 3 headshots in 3 s.
 
@@ -87,7 +88,7 @@ Events out: `perk:start`, `perk:end`, `callin:ready`, `callin:used`, `combo:chan
 
 SLOWMO: hits on one head inside 0.35 s count once. At 10 rounds a second a burst is not three good shots.
 
-**Assist kills.** Kills from `ASSIST_SOURCES` (the five strikes, sentinels, Chain Storm, Chain Reaction, drop pods) pay score and drops and keep the combo alive, but climb it at half rate and feed no perk window. Before this one Airstrike was worth up to 30 rungs, and a nuke's own bodies fired Berserk, Hellfire and Overdrive at once.
+**Assist kills.** Kills from `ASSIST_SOURCES` (the five strikes, the AA sentry, Chain Storm, Chain Reaction, drop pods) pay score and drops and keep the combo alive, but climb it at half rate and feed no perk window. Before this one Airstrike was worth up to 30 rungs, and a nuke's own bodies fired Berserk, Hellfire and Overdrive at once.
 
 **Measured pacing**, real waves, real time, from the first kill. "Human" is a bot with 0.3 s reaction, aim error and eased turning. Still better than most people, and one run each.
 
@@ -99,7 +100,7 @@ SLOWMO: hits on one head inside 0.35 s count once. At 10 rounds a second a burst
 
 **Geneva Suggestion.** `enemy:executed` pays `STYLE.geneva` on top of the kill, through the usual multipliers, and starts the `geneva` effect, which stacks to 5 and scales damage and fire rate per stack (`STACK.geneva*`). It has no grade and borrows `style_bonus` for its sound. See `docs/notes/contracts.md`.
 
-**Grades.** One grade shows at a time, the highest in `GRADE_RANK`: Berserk, SLOWMO, Time Warp, Hellfire, Overdrive, Chain Storm, Blood Thirst, Butcher, Chain Reaction, Skyfall, Adrenaline. Sentinels and the other capsules have no grade. SLOWMO outranks Hellfire on purpose: see Known limitations. Death sets the `death` grade, which nothing else did.
+**Grades.** One grade shows at a time, the highest in `GRADE_RANK`: Berserk, SLOWMO, Time Warp, Hellfire, Overdrive, Chain Storm, Blood Thirst, Butcher, Chain Reaction, Skyfall, Adrenaline. The capsules have no grade. SLOWMO outranks Hellfire on purpose: see Known limitations. Death sets the `death` grade, which nothing else did.
 
 ## Call-ins
 
@@ -117,6 +118,25 @@ The walkie and designator are the viewmodel's `Offhand`, driven by `progression.
 | AC-130 | Inbound 0 to 9, on station to 129, gone by 141 | No mark: tap or hold the key. See below |
 | Black Sun | Grows 1 s, pulls to 6.2, collapses, implodes at 6.75 | Dragged by the feet, walls hold them, crush within 3.5 m from T+2.6. Corpses orbit at 10 m. Implosion radius 28, bodies leave at about 55 m/s. Uses `finisher`, so the nuke keeps its own recipe |
 | Nuke | Siren 6 s, missile for the last 2.8 s, white, front at 105 m/s | Kills every enemy it reaches, bosses within a few frames despite their per-hit cap. Sky, ash, cloud and moonlight stay for 45 s, gone by 70 s |
+
+### The AA sentry and the Frame
+
+**AA sentry** (`sentry`, key I, combo 20, cooldown 75 s, Outpost Defense 1,800; numbers in `SENTRY`). The Sentinels' old rung. Key,
+then click a spot: a 4 m ring for 1.2 s, the pod falls from 120 m (from under any roof over the spot), lands for 120 in 4 m
+(`drop_pod`), and the twin 20 mm rises out of its column in 1.4 s. On station 60 s, then it stows and blows its own mount. It
+engages only what flies, out to 85 m with a clear line: the enemy's missiles first (a missile held in the sight 0.45 s bursts:
+its `target` and `decoy` are cleared and anti-air bursts it on its next step), then the nearest `drone`, sticking to a target until
+another is a fifth nearer. 3.2 rad/s slew, fires within 0.06 rad: 9 rounds a second from alternate barrels, 45 each through
+`combat.fireRay` with `heavy` tracers, source `sentry`, an assist. A man on the ground is never its target; a round can still
+hit one that stands in the line. The model is one rig built at load (`SentryRig`): octagonal column and skirt on four splayed
+feet, a turning housing with an ammunition box either side, a cradle with the fire-control head, two barrels that kick.
+
+**Distraint Frame** (`frame`, key K, combo 35, cooldown 180 s, Outpost Defense 4,000; numbers in `FRAME_DROP`). No mark. It lands
+9 m ahead of the player (where the player stands if that spot has no 7 m of sky), on its jets in 2 s after a 1.6 s ring: 220 in
+7 m, a slam and a crack. It stands empty (`Frame.stand`) with a marker; within 4.5 m, E boards it (`Frame.board(feet, yaw, 45)`).
+The seat's timer runs, and at 0 the Frame puts the player out beside it (`seat.ts`) and is gone in smoke. Unboarded for 30 s, it
+is taken back. Its kills are the Frame's own sources (`frame_*`), not assists, so they climb the combo at the full rate; nothing
+hurts it while crewed (stage 5 of Foreclosure has not given it health yet). The body is the stage 3 stand-in of boxes.
 
 Two traps, both fixed here, that any new blast or pull should know:
 
@@ -340,13 +360,13 @@ Drops 30% per kill, weighted toward what the player lacks, capped at 24, expire 
 | Pickups | Mega 100 to 200 then decays, Heavy Armor +100, Health +25 and left alone at full health. Drops 13 in 40 kills, all on the floor. (Before stims: a health pickup is now one stim) |
 | Stims (Test Range, 2026-11-14) | Refused at full health. 28 to 58 at 0.50 s, one stim spent. Fire held through the second: 0 rounds, then 4 in the 0.3 s after |
 | Caches | Wave 2 and wave 4 clears each sent a pod. `weapons.give` unlocked Judge then Lance (before the autocannon went second in the list) |
-| Perks | Sentinels killed 10 of 10, Chain Storm 10 of 12 by arc, Chain Reaction 9 of 10 by blast, Butcher severed, Skyfall slam, Overdrive follows speed, Adrenaline 1.45x at 3 stacks |
+| Perks | Sentinels (since removed) killed 10 of 10, Chain Storm 10 of 12 by arc, Chain Reaction 9 of 10 by blast, Butcher severed, Skyfall slam, Overdrive follows speed, Adrenaline 1.45x at 3 stacks |
 | Reset | Nuke sky, four strikes, ten effects, a pod and a capsule, then death, then a new run: every modifier neutral, time scale 1, grade neutral, moon restored, no extra scene objects, and nothing landed in the next 9 s |
 | High score | 7725 in localStorage, read back after a reload. Now one per contract: see `docs/notes/contracts.md`. `op2_highscore` is The Crucible's |
 | Air support part 1, Kill House, Retina (`tools/scripts/airsupport-live.mjs`, 2026-11-14) | `views`: TV, white-hot, black-hot, the filter cleared on return to TV. `rounds`: HE, AP and flak from the seat. `wp`: cloud up, 3 enemies burning, player untouched. `bomb`: ramp, guiding, blast on the crosshair, 3 kills (men under the Kill House decks are behind cover, as for any blast). `ai`: J and M held, player kept the gun; 21 door gun kills, the gunship crew switched to WP. `handover`: H tapped, E, the Harrow killed 16 more with the player on the ground; a second H was refused on cooldown. No aircraft round reached `takeDamage` in any run |
 | AC-130, Kill House, real AI, stationary player, 6 extra enemies every 12 s (`tools/scripts/ac130-live.mjs`, `AC_MODE=full`). Before the air support update: the siege had phases and Hellfires, and that script still calls it through the old mark | 75 kills: 25mm 34, 40mm 24, 105mm 9, Hellfire 8. Wall hits: 25mm 52 of 653, 40mm 8 of 82, Hellfire 0 of 7, 105mm 5 of 11. All 37 radio lines in order. Airframe hidden at the end, cooldown still running |
 | AC-130 never harms (`AC_MODE=safe`, Range) | Mortal player, husks only, in the box for 145 s: 106 kills, health 100 to 100, nothing from the ship reached `takeDamage`, all 13 pushes were husk melee. Run before the 105 bubble went from 14 m to 9 m, which does not touch the blast spec |
-| AC-130 on the Crucible (`AC_MODE=roof`) | Under a 4 m Transit roof, final build: 96 kills in 100 s, with rounds arriving inside it. Scrapyard: 96 kills. The ship set off no barrels in either run, while Sentinels set off 3 nearby in an earlier one |
+| AC-130 on the Crucible (`AC_MODE=roof`) | Under a 4 m Transit roof, final build: 96 kills in 100 s, with rounds arriving inside it. Scrapyard: 96 kills. The ship set off no barrels in either run, while Sentinels (since removed) set off 3 nearby in an earlier one |
 | AC-130 reset (`AC_MODE=reset`) | New run with six rounds in the air: airframe and rounds gone on the reset frame, no explosion or radio line in the next 12 s, cooldown 0, no strike left |
 | AC-130 frame cost | All of progression during the siege: median 0.1 ms, p99 0.9 ms, worst 3 ms |
 | Seats, full flights (`tools/scripts/seat-live.mjs`, a bot holding the sight on enemies) | Door Gunner, Kill House: 1800 rounds, WINCHESTER, control back, 16 kills. Attack Chopper, Crucible: 37 kills, combo to 19. Both maps and the Range, no console errors |

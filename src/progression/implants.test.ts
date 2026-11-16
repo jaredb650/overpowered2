@@ -198,7 +198,6 @@ const { stand } = vi.hoisted(() => ({
   },
 }));
 vi.mock('./callins/manager', stand('CallInManager'));
-vi.mock('./sentinels', stand('Sentinels'));
 vi.mock('./pickups/pickups', stand('Pickups'));
 vi.mock('./pickups/pods', stand('DropPods'));
 vi.mock('./frost', stand('FrostNova'));

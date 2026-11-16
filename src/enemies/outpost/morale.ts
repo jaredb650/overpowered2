@@ -95,7 +95,7 @@ export function killDread(k: KillBrutality): number {
 /** Spikes by perk and call-in id. Section 14.3 names Berserk and Hellfire as the two that make men run. */
 export const DREAD_SPIKES: Readonly<Record<string, number>> = {
   berserk: 45, hellfire: 35, bloodthirst: 12, butcher: 15, overdrive: 10, chainStorm: 15, skyfall: 8,
-  airstrike: 18, warthog: 22, orbital: 30, blackSun: 35, nuke: 50,
+  airstrike: 18, warthog: 22, orbital: 30, blackSun: 35, nuke: 50, frame: 40,
 };
 
 export class Dread {

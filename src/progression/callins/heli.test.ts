@@ -33,6 +33,8 @@ describe('the helicopters on the ladder', () => {
     }
     expect(DEFAULT_BINDINGS.callinChopper).toEqual([`Key${CALLINS.attackChopper.key}`]);
     expect(DEFAULT_BINDINGS.callinDoorGunner).toEqual([`Key${CALLINS.doorGunner.key}`]);
+    expect(DEFAULT_BINDINGS.callinSentry).toEqual([`Key${CALLINS.sentry.key}`]);
+    expect(DEFAULT_BINDINGS.callinFrame).toEqual([`Key${CALLINS.frame.key}`]);
   });
 
   it('credit kills at the strike rate', () => {

@@ -6,7 +6,7 @@ how fast a player gets there are worked out from the thresholds and wave sizes, 
 ## Summary
 
 **How many are there?** 12 power-ups that you earn by killing. 11 of them can fire in normal play; Sentinels were taken off the ladder on
-2026-11-13. On top of those, 10 capsule power-ups (Quad, Haste, Frost Nova and the rest) spawn on a timer and you walk to them. All 22
+2026-11-13 and removed on 2026-11-16 (the AA sentry call-in took combo 20). On top of those, 10 capsule power-ups (Quad, Haste, Frost Nova and the rest) spawn on a timer and you walk to them. All 22
 run on the same code and stack with each other.
 
 | Group | Count | What they are |
@@ -46,7 +46,7 @@ are written each frame by `PerkRunner.applyModifiers` in `src/progression/perks.
 | 3 | **Adrenaline** | 3 sword or melee kills in 3 s | +15% speed per stack, up to 3 stacks | 5 s | stack (3) |
 | 4 | **Berserk** | Combo 15, then every 15 more | Invulnerable, 5x damage, 3x fire rate, 3x shotgun pellets, bottomless magazine, dual SMGs (akimbo), 2x speed | 10 s | ignore |
 | 5 | **SLOWMO** | 3 headshots on different heads in 3 s | World at 0.25x speed, the player at full speed | 5 s | ignore |
-| 6 | **Sentinels** | Off the ladder since 2026-11-13 (owner: they blocked the view and stole kills). Lab and sandbox only | 3 drones, each firing 6 shots a second at 30 damage, out to 55 m (`src/progression/sentinels.ts`) | 20 s | refresh |
+| 6 | **Sentinels** | Off the ladder since 2026-11-13 (owner: they blocked the view and stole kills), removed 2026-11-16: the AA sentry call-in has combo 20 | 3 drones, each firing 6 shots a second at 30 damage, out to 55 m (`src/progression/sentinels.ts`) | 20 s | refresh |
 | 7 | **Chain Storm** | Combo 30, then every 30 more | Every kill throws 3 lightning arcs at 80 damage, 3 hops deep (`src/progression/chains.ts`) | 12 s | refresh |
 | 8 | **Butcher** | Limbs shot off 5 different enemies in 4 s (style perk) | Every hit severs a limb | 8 s | ignore |
 | 9 | **Skyfall** | 4 kills in 6 s while off the ground at least 0.35 s (style perk) | Unlimited air dash; a ground slam explodes (7 to 16 m, 220 damage) | 8 s | ignore |
@@ -154,7 +154,7 @@ appear in the same frame.
 **Probably not the cause:**
 - **Lights.** The pool is a fixed 8 real lights fed from at most 64 requests (`src/render/DynamicLightPool.ts`).
 - **Particle buffers.** These are fixed-size rings (`src/fx/core.ts`), so the GPU work is bounded. The CPU work per blast is not.
-- **Sentinels.** They are off the ladder.
+- **Sentinels.** Removed (2026-11-16).
 
 ## 3. The proposal
 
@@ -207,7 +207,7 @@ Weapons cost 250 to 4,500 (`WEAPON_WARES` in `src/contracts/shop/data.ts`). The 
 | Hellfire | Gun | 1,600 | after wave 4 | 10 kills in 10 s | Window clears when it fires; 30 s cooldown; the blast budget (section 5) |
 | Berserk | Gun | 2,400 | after wave 6 | Combo 15, then every 15 | Toned down (section 4); 30 s cooldown; the combo rung moves on even if it was running |
 | Chain Storm | Kill | 2,800 | after wave 10 | Combo 30, then every 30 | 30 s cooldown; the same rung fix |
-| Sentinels | (not sold) | | | | Stays parked, as the owner decided on 2026-11-13 |
+| Sentinels | (not sold) | | | | Removed on 2026-11-16; the AA sentry call-in replaces them |
 
 Hellfire at wave 4 sits against the Autocannon (1,800, wave 4). Berserk at wave 6 sits against the Deuce (1,400, wave 6). That is the
 choice the shop should ask the player to make.
@@ -307,7 +307,7 @@ Each question has the answer I'll build with if you don't say otherwise.
 | 5 | Capsules: keep them as map pickups, but only one at a time, with a new one replacing the old? | **Yes.** They stay outside the implant system |
 | 6 | Caps: damage 6x, fire rate 2x, pellets 2x, 6 bullet blasts a frame, 30 s re-arm? | **Yes.** Tune after a playtest |
 | 7 | Do call-ins stay on the combo ladder in the Crucible and Endless Humans, as they are today? | **Yes, unchanged.** They are a separate pass if they need one |
-| 8 | Do Sentinels stay parked, not sold? | **Yes** |
+| 8 | Do Sentinels stay parked, not sold? | **Yes** (removed 2026-11-16, replaced by the AA sentry call-in) |
 | 9 | Campaign: does each mission set its own loadout, defaulting to the core plus Blood Thirst? | **Yes** |
 | 10 | Does Outpost Defense sell implants in its loadout screen and shops too? | **Yes,** at the same prices and wave locks |
 | 11 | Every new run starts on the default loadout, since purchases don't carry over? | **Yes** |

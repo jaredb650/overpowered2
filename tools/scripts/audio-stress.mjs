@@ -119,7 +119,7 @@ async function install({ meter }) {
   const perksFor = {
     rockets: ['hellfire'],
     slowmo: ['slowmo', 'berserk'],
-    everything: ['bloodthirst', 'hellfire', 'berserk', 'chainStorm', 'sentinels', 'butcher', 'chainReaction', 'adrenaline', 'overdrive'],
+    everything: ['bloodthirst', 'hellfire', 'berserk', 'chainStorm', 'butcher', 'chainReaction', 'adrenaline', 'overdrive'],
   };
   const weaponFor = { smg: 'smg', buzzsaw: 'buzzsaw', rockets: 'rocket', slowmo: 'smg', everything: 'buzzsaw', after: 'smg' };
   log.firing = true;

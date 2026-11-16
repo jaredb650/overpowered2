@@ -55,6 +55,7 @@ const FILL_DARK = 1.5;
 /** Call-ins and the device that goes with them; progression's targeting state drives this. */
 const DEVICE: Record<CallInId, 'walkie' | 'designator'> = {
   airstrike: 'walkie', warthog: 'walkie', doorGunner: 'walkie', attackChopper: 'walkie', orbital: 'designator', ac130: 'walkie', blackSun: 'designator', nuke: 'designator',
+  sentry: 'designator', frame: 'walkie',
 };
 
 const _p = new THREE.Vector3();

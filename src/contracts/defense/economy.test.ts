@@ -60,7 +60,7 @@ describe('credits', () => {
   });
 
   it('prices call-ins climbing with their power', () => {
-    const order: CallInId[] = ['airstrike', 'warthog', 'doorGunner', 'attackChopper', 'orbital', 'ac130', 'blackSun', 'nuke'];
+    const order: CallInId[] = ['airstrike', 'warthog', 'doorGunner', 'sentry', 'attackChopper', 'orbital', 'ac130', 'frame', 'blackSun', 'nuke'];
     for (let i = 1; i < order.length; i++) expect(CALLIN_PRICES[order[i]!]).toBeGreaterThan(CALLIN_PRICES[order[i - 1]!]);
   });
 });

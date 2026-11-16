@@ -513,14 +513,4 @@ export const weapons = [
     whoosh(s, { from: 380, to: 2500, dur: 0.56, q: 0.9, peakAt: 0.45 });
     whoosh(s, { from: 1400, to: 5200, dur: 0.46, q: 1.4, level: 0.5, peakAt: 0.5, color: 'white' });
   }),
-
-  r('sentinel_fire', { dur: 0.22, n: 3, mix: 'gun', over: { volume: 0.34, maxVoices: 6, perFrame: 3, near: 8, far: 70 }, expect: { attackMs: [0, 6] } }, s => {
-    laser(s, s.r(2300, 2900), s.r(420, 600), 0.14, 0.9);
-    s.noise('white', 0.02).hp(3000).env(perc(0.006, 0.5)).out();
-  }),
-  r('sentinel_orbit_loop', { dur: 2, mix: 'loop3d', loop: true, over: { volume: 0.2, near: 3, far: 28 } }, s => {
-    s.osc('sine', 164).am(s.lfo(4, 0.22)).out(0.4);
-    s.osc('triangle', 328, undefined, 7).lp(1200).out(0.2);
-    s.noise('pink').bp(2000, 8).am(s.wander(2, 0.5)).out(0.26);
-  }),
 ];

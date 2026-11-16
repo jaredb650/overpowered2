@@ -46,7 +46,6 @@
 
 /* Slowmo is the still one. It had no animation in the first game, and that is the joke. */
 
-.pk[data-id='sentinels'] { animation: op-pk-orbit 1.2s linear infinite; }
 @keyframes op-pk-orbit {
   0% { transform: translate(0.14rem, 0); }
   25% { transform: translate(0, 0.14rem); }

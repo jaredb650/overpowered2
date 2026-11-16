@@ -1,5 +1,5 @@
 import { perc, swell, type Synth } from '../dsl';
-import { MODES, bell, blast, boom, brass, clank, click, hz, laser, modal, riser, steps, thump, whoosh, zap } from '../instruments';
+import { MODES, bell, blast, boom, brass, clank, click, hz, modal, riser, steps, thump, whoosh, zap } from '../instruments';
 import { r } from '../recipe';
 
 /** A perk stinger: a hit, a chord and one signature element. Stereo, because stingers are played 2D. */
@@ -25,12 +25,6 @@ export const perks = [
     s.at(0.1, () => s.osc('sawtooth', [[0, 88], [0.9, 118]], 2.4).lp(1500, 2).am(s.lfo(62, 0.6, 'square')).env(swell(0.1, 2.3, 1.2, 0.7)).out(0.65));
     whoosh(s, { from: 300, to: 2600, dur: 2.2, q: 1, level: 0.55, peakAt: 0.55 });
   }, [38, 45, 50]),
-  stinger('perk_sentinels', 2.6, s => {
-    [0, 0.13, 0.26].forEach((t, i) => s.at(t, () => {
-      laser(s, 3000 - i * 400, 900, 0.3, 0.42);
-      s.osc('sine', [[0, 300], [0.5, 900 + i * 300]], 1.2).env(perc(1, 0.28, 0.02)).out(1, [-0.6, 0, 0.6][i]);
-    }));
-  }, [50, 57, 62, 69], 3400),
   stinger('perk_chainStorm', 2.8, s => {
     zap(s, 1.2, 0.8, 110);
     s.at(0.25, () => zap(s, 0.8, 0.5, 170));

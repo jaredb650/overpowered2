@@ -511,9 +511,9 @@ export interface WaveSystem extends GameSystem {
 
 export type PerkId =
   | 'bloodthirst' | 'hellfire' | 'berserk' | 'adrenaline' | 'slowmo'
-  | 'sentinels' | 'chainStorm' | 'butcher' | 'skyfall' | 'chainReaction' | 'overdrive' | 'geneva';
+  | 'chainStorm' | 'butcher' | 'skyfall' | 'chainReaction' | 'overdrive' | 'geneva';
 
-export type CallInId = 'airstrike' | 'warthog' | 'doorGunner' | 'attackChopper' | 'orbital' | 'ac130' | 'blackSun' | 'nuke';
+export type CallInId = 'airstrike' | 'warthog' | 'doorGunner' | 'sentry' | 'attackChopper' | 'orbital' | 'ac130' | 'frame' | 'blackSun' | 'nuke';
 
 export type PowerupId =
   | 'quad' | 'haste' | 'vampire' | 'ricochet' | 'shock' | 'ghost' | 'magnet' | 'regen' | 'frostNova' | 'timeWarp';

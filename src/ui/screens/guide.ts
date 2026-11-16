@@ -68,7 +68,7 @@ const chip = (color: string, text: string) => {
 };
 
 function perksPanel(): HTMLElement {
-  // A perk nothing can earn (Sentinels, off the combo ladder) is not listed.
+  // A perk nothing can earn (off the combo ladder) is not listed.
   const perkIds = (Object.keys(PERKS) as PerkId[]).filter(id => PERKS[id].trigger !== 'Off');
   return div('gd-panel',
     div('gd-list', ...perkIds.map(id => div('gd-prow', chip(PERKS[id].color, PERKS[id].name), span('gd-trigger', PERKS[id].trigger), span('gd-body', PERKS[id].reward)))),

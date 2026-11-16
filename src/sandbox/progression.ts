@@ -204,9 +204,10 @@ async function headless(): Promise<void> {
   check('Hellfire at kill 10 (10 in 10 s)', seen.hellfire === 10, seen.hellfire);
   check('Warthog at combo 12', seen.warthog === 12, seen.warthog);
   check('Berserk at combo 15', seen.berserk === 15, seen.berserk);
-  check('Sentinels at combo 20', seen.sentinels === 20, seen.sentinels);
+  check('AA Sentry at combo 20', seen.sentry === 20, seen.sentry);
   check('Orbital at combo 25', seen.orbital === 25, seen.orbital);
   check('Chain Storm at combo 30', seen.chainStorm === 30, seen.chainStorm);
+  check('Distraint Frame at combo 35', seen.frame === 35, seen.frame);
   check('Black Sun at combo 40', seen.blackSun === 40, seen.blackSun);
   check('Nuke at combo 50', seen.nuke === 50, seen.nuke);
   check('Berserk does not reset the combo', prog.combo === 50, prog.combo);
@@ -462,7 +463,7 @@ async function headless(): Promise<void> {
   fresh();
   for (let i = 0; i < 48; i++) kill({ source: 'nuke', playerAirborne: true, playerSpeed: 30, explosionId: 2 });
   step(0.05);
-  check('A nuke starts no style perk', prog.effects.every(e => e.id === 'berserk' || e.id === 'sentinels'), prog.effects.map(e => e.id).join());
+  check('A nuke starts no style perk', prog.effects.every(e => e.id === 'berserk'), prog.effects.map(e => e.id).join());
 
   // --- SLOWMO counts heads, not rounds ---------------------------------------------------------
   fresh();
@@ -605,7 +606,6 @@ async function headless(): Promise<void> {
   press('streak');
   press('fire');
   prog.grant('hellfire');
-  prog.grant('sentinels');
   kill();
   step(1);
   prog.reset?.();
@@ -618,7 +618,7 @@ async function headless(): Promise<void> {
 
   // --- Everything grants and ends cleanly -------------------------------------------------------
   const all: (PerkId | PowerupId)[] = [
-    'bloodthirst', 'hellfire', 'berserk', 'adrenaline', 'slowmo', 'sentinels', 'chainStorm', 'butcher', 'skyfall', 'chainReaction',
+    'bloodthirst', 'hellfire', 'berserk', 'adrenaline', 'slowmo', 'chainStorm', 'butcher', 'skyfall', 'chainReaction',
     'overdrive', 'quad', 'haste', 'vampire', 'ricochet', 'shock', 'ghost', 'magnet', 'regen', 'frostNova', 'timeWarp',
   ];
   fresh();

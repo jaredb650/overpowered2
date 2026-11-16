@@ -47,6 +47,9 @@ export const DEFAULT_BINDINGS: Readonly<Bindings> = {
   callinAc130: ['KeyM'],
   callinBlackSun: ['KeyB'],
   callinNuke: ['KeyN'],
+  // The AA sentry and the Distraint Frame. Y stays free: it was the stim key, and an old customised map may still have it there.
+  callinSentry: ['KeyI'],
+  callinFrame: ['KeyK'],
   sonar: ['KeyT'],
   stim: ['KeyQ'],
   // Outpost Defense: call the next wave in before the break runs out. L is free and away from the movement keys.

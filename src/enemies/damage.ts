@@ -189,7 +189,7 @@ export const PILEDRIVER_SHRED = 2;
 /** A light round wears a plate by this share of its own damage: an SMG round takes about half of a trooper's helmet. */
 export const LIGHT_WEAR = 0.5;
 
-/** A gun's own class, else light under HEAVY_ROUND damage and heavy at or over it (melee, call-in guns, sentinels). */
+/** A gun's own class, else light under HEAVY_ROUND damage and heavy at or over it (melee, call-in guns, the sentry). */
 export function classOf(source: string, round: number): ArmourClass {
   const def = Object.hasOwn(WEAPONS, source) ? WEAPONS[source as WeaponId] : null;
   return def?.armour ?? (round >= HEAVY_ROUND ? 'heavy' : 'light');

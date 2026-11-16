@@ -12,7 +12,7 @@ describe('stage-two pickup authority', () => {
     const pickups = { update: vi.fn() }, pods = { update: vi.fn() };
     Object.assign(progression, {
       perks: { update: vi.fn(), isActive: () => false }, scoreKeeper: { update: vi.fn() }, chains: { update: vi.fn() },
-      callInsManager: { update: vi.fn() }, sentinels: { update: vi.fn() }, stimKit: { update: vi.fn() },
+      callInsManager: { update: vi.fn() }, stimKit: { update: vi.fn() },
       frost: { update: vi.fn() }, pickupsManager: pickups, pods,
     });
     progression.update?.();

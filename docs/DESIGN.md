@@ -180,7 +180,7 @@ The ladder is the best system in the first game. Keep its thresholds, snowball s
 | 10 kills in 10 s | **Hellfire** 5 s: explosive rounds, huge instakill rockets |
 | Combo 12 | **Warthog** (Z): 50-shell strafe along a chosen line |
 | Combo 15 | **Berserk** 10 s: 5x damage, 3x fire rate, unlimited ammo, invulnerable, 2x speed, akimbo. Does not reset the combo |
-| Combo 20 | **Sentinels** 20 s: three orbiting gun drones |
+| Combo 20 | **AA Sentry** call-in: a twin 20 mm dropped on a mark, a minute on station, shoots only drones and missiles (was the Sentinels, removed 2026-11-16) |
 | Combo 25 | **Orbital Lance** (V): steer a burning beam for 6 s |
 | Combo 30 | **Chain Storm** 12 s: every kill arcs lightning |
 | Combo 40 | **Black Sun** (B): singularity that drags enemies and corpses in, then implodes |

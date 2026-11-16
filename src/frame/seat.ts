@@ -10,7 +10,8 @@
  * hull on its legs, a stomp drops it hard. The guns and the blows are `weapons.ts`.
  *
  * Keys: WASD walk, mouse look, Space jets (hold to hover), crouch in the air stomps, Shift charges, F backhands, LMB the
- * rotary, RMB the 40 mm (R for the round), G held paints for the pod, Q smoke, the wheel zooms. No way out by choice.
+ * rotary, RMB the 40 mm (R for the round), G held paints for the pod, Q smoke, the wheel zooms. No way out by choice; a
+ * call-in's Frame (progression/callins/frameDrop.ts) puts the player out when its `seconds` run down.
  */
 import * as THREE from 'three';
 import type { Ctx, LoopHandle, PlayerDamage } from '../core/contracts';
@@ -79,15 +80,15 @@ export class Frame {
     return this.seat !== null && this.seat.stage !== 'left';
   }
 
-  /** Into a fresh Frame standing on `feet`, facing `yaw`: full jets, full guns, three smoke. The way a beat in it starts. */
-  board(feet: THREE.Vector3, yaw: number): void {
+  /** Into a fresh Frame standing on `feet`, facing `yaw`: full jets, full guns, three smoke, out after `seconds`. The way a beat in it starts. */
+  board(feet: THREE.Vector3, yaw: number, seconds = Infinity): void {
     const { audio, player } = this.ctx;
     if (this.seat) this.leave(true);
     this.walker.place(feet, yaw);
     this.guns.reset();
     this.dip = this.dipV = 0;
     this.swing = -1;
-    const seat = new GunnerSeat(this.ctx, this.rig, framePlan());
+    const seat = new GunnerSeat(this.ctx, this.rig, { ...framePlan(), seconds });
     seat.fixed(this.walker.feet);
     seat.weapons.push(...this.guns.rows, this.jetRow, this.chargeRow);
     this.seat = seat;
@@ -113,6 +114,22 @@ export class Frame {
     this.ctx.player.teleport(_at);
   }
 
+  /** Standing empty on `feet`, facing `yaw`, seen from outside: a call-in's Frame coming down or waiting for its pilot. */
+  stand(feet: THREE.Vector3, yaw: number): void {
+    if (this.seat) return;
+    this.body.pose(feet, yaw, yaw, 0, 0, 0, 0, false, this.eye);
+    for (const [gun, place] of [[this.rotaryGun, FRAME_PLACES.rotary], [this.cannonGun, FRAME_PLACES.cannon]] as const) {
+      this.body.place(place, _pivot);
+      gun.snap(yaw, -0.35);
+      gun.point(_pivot, yaw, -0.35, 0);
+    }
+  }
+
+  /** An empty Frame gone from the scene. */
+  hide(): void {
+    if (!this.seat) this.release();
+  }
+
   /** A new run: out and gone, nothing left in the air. */
   clear(): void {
     this.seat?.leave(true);
@@ -126,6 +143,10 @@ export class Frame {
     if (seat.stage === 'left') {
       // Death or a new run emptied the seat: this only notices.
       this.release();
+      return;
+    }
+    if (seat.left <= 0) {
+      this.leave();
       return;
     }
     const { input, player, camera } = this.ctx;

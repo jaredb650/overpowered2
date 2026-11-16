@@ -86,7 +86,6 @@ export const EFFECTS: Readonly<Record<EffectId, EffectDef>> = {
   adrenaline: perk('adrenaline', 'ADRENALINE', 'ADRENALINE', 'FASTER', '#00ff00', 5, 'stack', 'adrenaline', MINOR, 3),
   berserk: perk('berserk', 'BERSERK!', 'BERSERK', 'YOU CANNOT DIE', '#ff0000', 10, 'ignore', 'berserk', HUGE),
   slowmo: perk('slowmo', 'SLOWMO', 'SLOWMO', 'THE WORLD CRAWLS', '#00ffff', 5, 'ignore', 'slowmo', MAJOR),
-  sentinels: perk('sentinels', 'SENTINELS', 'SENTINELS', 'THREE GUNS ON YOUR SIDE', '#7fd4ff', 20, 'refresh', null, HUGE),
   chainStorm: perk('chainStorm', 'CHAIN STORM', 'CHAIN STORM', 'EVERY KILL ARCS', '#8a7dff', 12, 'refresh', 'slowmo', HUGE),
   butcher: perk('butcher', 'BUTCHER', 'BUTCHER', 'EVERY HIT SEVERS', '#ff2f55', 8, 'ignore', 'bloodthirst', MINOR),
   skyfall: perk('skyfall', 'SKYFALL', 'SKYFALL', 'UNLIMITED AIR DASH // SLAM DETONATES', '#49b6ff', 8, 'ignore', 'overdrive', MINOR),
@@ -196,7 +195,7 @@ export const STYLE_GATE = {
 export const ASSIST_COMBO_EVERY = 2;
 /** Assist sources where the player does the aiming. */
 export const AIMED_ASSISTS = /^(chopper|door_gun)/;
-export const ASSIST_SOURCES = /^(airstrike|warthog|chopper|door_gun|orbital|ac130|black_sun|nuke|sentinel|chain_storm|chain_reaction|drop_pod|mortar|mine|tripwire|claymore|rigged|deadman)/;
+export const ASSIST_SOURCES = /^(airstrike|warthog|chopper|door_gun|orbital|ac130|black_sun|nuke|sentry|chain_storm|chain_reaction|drop_pod|mortar|mine|tripwire|claymore|rigged|deadman)/;
 /** The Commander's own ordnance. A man killed by it was a present from the other side. */
 export const GIFT_SOURCES = /^(mortar|mine|tripwire|claymore|rigged|deadman)/;
 
@@ -207,9 +206,8 @@ export const GIFT_SOURCES = /^(mortar|mine|tripwire|claymore|rigged|deadman)/;
  */
 export const COMBO_PERKS: readonly { perk: PerkId; at: number; rearm: number }[] = [
   { perk: 'berserk', at: 15, rearm: 15 },
-  // Sentinels (combo 20) were taken off the ladder on 2026-11-13 at the owner's word: they blocked the view and stole
-  // kills. The perk itself still works; put `{ perk: 'sentinels', at: 20, rearm: 20 }` back here (and in LADDER,
-  // ui/data.ts) to restore it.
+  // Combo 20 was the Sentinels' until 2026-11-13 (they blocked the view and stole kills); the anti-drone sentry, a call-in,
+  // has it now (CALLINS.sentry).
   { perk: 'chainStorm', at: 30, rearm: 30 },
 ];
 
@@ -243,6 +241,11 @@ export const CALLINS: Readonly<Record<CallInId, CallInDef>> = {
     id: 'doorGunner', combo: 18, cooldown: 120, name: 'DOOR GUNNER', key: 'J', color: '#ffc14a', radius: 0,
     hint: 'PACKMULE INBOUND',
   },
+  // The Sentinels' old rung. It shoots only what flies, so it steals no kills on the ground; held until the drones come.
+  sentry: {
+    id: 'sentry', combo: 20, cooldown: 75, name: 'AA SENTRY', key: 'I', color: '#7fd4ff', radius: 4,
+    hint: 'CLICK TO DROP THE SENTRY // RMB CANCEL',
+  },
   attackChopper: {
     id: 'attackChopper', combo: 22, cooldown: 150, name: 'ATTACK CHOPPER', key: 'H', color: '#ff5a3c', radius: 0,
     hint: 'HARROW INBOUND',
@@ -258,6 +261,12 @@ export const CALLINS: Readonly<Record<CallInId, CallInDef>> = {
     id: 'ac130', combo: 28, cooldown: 180, name: 'AC-130', key: 'M', color: '#ffb52e', radius: 34,
     hint: 'CLICK TO MARK THE BOX // RMB CANCEL',
   },
+  // The Distraint Frame (src/frame), dropped beside the player for `FRAME_DROP.seconds`. Past Chain Storm and the AC-130 because
+  // nothing hurts it while it is crewed; under Black Sun because its kills are the player's own and climb at the full rate.
+  frame: {
+    id: 'frame', combo: 35, cooldown: 180, name: 'DISTRAINT FRAME', key: 'K', color: '#ff2a1a', radius: 0,
+    hint: 'FRAME INBOUND',
+  },
   blackSun: {
     id: 'blackSun', combo: 40, cooldown: 90, name: 'BLACK SUN', key: 'B', color: '#a56bff', radius: 36,
     hint: 'CLICK TO OPEN THE SINGULARITY // RMB CANCEL',
@@ -269,7 +278,7 @@ export const CALLINS: Readonly<Record<CallInId, CallInDef>> = {
 };
 
 /** Original check order on one kill, extended upward. */
-export const CALLIN_ORDER: readonly CallInId[] = ['airstrike', 'warthog', 'doorGunner', 'attackChopper', 'orbital', 'ac130', 'blackSun', 'nuke'];
+export const CALLIN_ORDER: readonly CallInId[] = ['airstrike', 'warthog', 'doorGunner', 'sentry', 'attackChopper', 'orbital', 'ac130', 'frame', 'blackSun', 'nuke'];
 
 // ---------------------------------------------------------------------------------------------
 // Call-in timelines (seconds after the confirming click)
@@ -385,16 +394,34 @@ export const NUKE = {
 // Perks with world effects
 // ---------------------------------------------------------------------------------------------
 
-export const SENTINEL = {
-  count: 3,
-  orbitRadius: 2.4,
-  orbitHeight: 0.5,
-  orbitSpeed: 1.8,
-  range: 55,
-  damage: 30,
-  /** Shots per second per drone. */
-  fireRate: 6,
-  scanRate: 6,
+/** The anti-drone sentry (callins/sentry.ts): a twin 20 mm on a drop pod that shoots only what flies. */
+export const SENTRY = {
+  /** Seconds of warning ring, then the fall from `height` at `speed`, as a supply pod falls. */
+  warn: 1.2, height: 120, speed: 90,
+  /** Seconds to unfold after landing, then on station, then to power down. */
+  unfold: 1.4, life: 60,
+  /** Metres it engages out to. */
+  range: 85,
+  /** Radians a second the mount slews, and how close the barrels must be (radians) before it opens up. */
+  slew: 3.2, onTarget: 0.06,
+  /** Rounds a second from the pair, damage each, and the spread (radians each way). */
+  rate: 9, damage: 45, spread: 0.012,
+  /** Seconds a missile must be held in the sight before a round reaches it and it bursts. */
+  missileTrack: 0.45,
+  scanEvery: 0.15,
+  /** The landing: a pod's blow, smaller. */
+  impactRadius: 4, impactDamage: 120,
+} as const;
+
+/** The Distraint Frame as a call-in (callins/frameDrop.ts). */
+export const FRAME_DROP = {
+  /** Metres ahead of the player it aims to land, and the fall. */
+  ahead: 9, height: 140, speed: 70, warn: 1.6,
+  /** Seconds it stands open for the player before it is taken back, and seconds of the fight once in. */
+  wait: 30, seconds: 45,
+  /** Metres from the hull at which E boards it. */
+  reach: 4.5,
+  impactRadius: 7, impactDamage: 220,
 } as const;
 
 export const CHAIN_STORM = {

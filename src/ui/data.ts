@@ -185,7 +185,7 @@ export interface CallInInfo {
   note: string;
 }
 
-export const CALLIN_ORDER: readonly CallInId[] = ['airstrike', 'warthog', 'doorGunner', 'attackChopper', 'orbital', 'ac130', 'blackSun', 'nuke'];
+export const CALLIN_ORDER: readonly CallInId[] = ['airstrike', 'warthog', 'doorGunner', 'sentry', 'attackChopper', 'orbital', 'ac130', 'frame', 'blackSun', 'nuke'];
 
 const callIn = (id: CallInId, name: string, action: Action, note: string): CallInInfo => ({
   name, action, note, combo: CALLIN_DEFS[id].combo, color: CALLIN_DEFS[id].color, radius: CALLIN_DEFS[id].radius,
@@ -195,9 +195,11 @@ export const CALLINS: Record<CallInId, CallInInfo> = {
   airstrike: callIn('airstrike', 'Airstrike', 'streak', '15 rockets across the mark, then a finale.'),
   warthog: callIn('warthog', 'Warthog', 'callinWarthog', '50 shells along a line. Hold the click and drag to set its heading.'),
   doorGunner: callIn('doorGunner', 'Door Gunner', 'callinDoorGunner', 'No mark needed. You take the 20 mm gun in the door of a circling helicopter until the belt or the time runs out. Its rounds burst where they land and go through roofs and walls.'),
+  sentry: callIn('sentry', 'AA Sentry', 'callinSentry', 'A twin 20 mm on a drop pod. It locks onto drones and missiles and shoots them down, and leaves the ground to you. A minute on station.'),
   attackChopper: callIn('attackChopper', 'Attack Chopper', 'callinChopper', 'No mark needed. You take the gunner seat, the pilot finds the fight, and you have a cannon and rockets until they run out.'),
   orbital: callIn('orbital', 'Orbital Lance', 'callinOrbital', 'A burning beam you steer for 6 seconds.'),
   ac130: callIn('ac130', 'AC-130', 'callinAc130', 'A gunship circles the mark for two minutes and shells it while you fight.'),
+  frame: callIn('frame', 'Distraint Frame', 'callinFrame', 'No mark needed. A walking gun platform lands beside you; E climbs in. Rotary, 40 mm, rockets and a stomp, and nothing hurts it, for 45 seconds.'),
   blackSun: callIn('blackSun', 'Black Sun', 'callinBlackSun', 'Drags enemies and corpses in, then implodes.'),
   nuke: callIn('nuke', 'Tactical Nuke', 'callinNuke', 'Six seconds of siren, then it whites out the map.'),
 };
@@ -224,7 +226,6 @@ export const PERKS: Record<PerkId, PerkInfo> = {
   bloodthirst: perk('bloodthirst', 'Blood Thirst', within(WINDOWS.bloodthirst, 'kills'), `${STACK.damage.bloodthirst}x damage, bottomless mags, double pellets`),
   hellfire: perk('hellfire', 'Hellfire', within(WINDOWS.hellfire, 'kills'), 'Explosive rounds, huge instakill rockets'),
   berserk: perk('berserk', 'Berserk', comboAt('berserk'), `${STACK.damage.berserk}x damage, ${STACK.fireRate.berserk}x fire rate, ${STACK.speed.berserk}x speed, akimbo, no damage taken`),
-  sentinels: perk('sentinels', 'Sentinels', comboAt('sentinels'), 'Three gun drones orbit you'),
   chainStorm: perk('chainStorm', 'Chain Storm', comboAt('chainStorm'), 'Every kill arcs lightning'),
   adrenaline: perk('adrenaline', 'Adrenaline', within(WINDOWS.adrenaline, 'melee kills'), `+${STACK.adrenalinePerStack * 100}% speed, stacks to 3`),
   slowmo: perk('slowmo', 'Slowmo', within(WINDOWS.slowmo, 'headshots'), 'The world at quarter speed, you at full speed'),
@@ -268,10 +269,12 @@ export const LADDER: readonly { combo: number; name: string; color: string }[] =
   { combo: 12, name: 'Warthog', color: CALLINS.warthog.color },
   { combo: 15, name: 'Berserk', color: PERKS.berserk.color },
   { combo: 18, name: 'Door Gunner', color: CALLINS.doorGunner.color },
+  { combo: 20, name: 'AA Sentry', color: CALLINS.sentry.color },
   { combo: 22, name: 'Attack Chopper', color: CALLINS.attackChopper.color },
   { combo: 25, name: 'Orbital Lance', color: CALLINS.orbital.color },
   { combo: 28, name: 'AC-130', color: CALLINS.ac130.color },
   { combo: 30, name: 'Chain Storm', color: PERKS.chainStorm.color },
+  { combo: 35, name: 'Distraint Frame', color: CALLINS.frame.color },
   { combo: 40, name: 'Black Sun', color: CALLINS.blackSun.color },
   { combo: 50, name: 'Tactical Nuke', color: CALLINS.nuke.color },
 ];
@@ -326,7 +329,7 @@ export const MOVEMENT_GUIDE: readonly { action?: Action; keys?: string; name: st
 const SOURCE_NAMES: Readonly<Record<string, string>> = {
   airstrike: 'Airstrike', warthog: 'Warthog', orbital: 'Orbital Lance', black_sun: 'Black Sun', nuke: 'Tactical Nuke',
   ac130_25mm: 'AC-130 25mm', ac130_40mm: 'AC-130 40mm', ac130_105mm: 'AC-130 105mm', ac130_hellfire: 'AC-130 Hellfire',
-  sentinel: 'Sentinels', chain_storm: 'Chain Storm', chain_reaction: 'Chain Reaction', skyfall: 'Skyfall', slam: 'Ground slam',
+  sentry: 'AA Sentry', chain_storm: 'Chain Storm', chain_reaction: 'Chain Reaction', skyfall: 'Skyfall', slam: 'Ground slam',
   grenade: 'Frag', sword_finisher: 'Sword finisher', sword_deflect: 'Deflected shot', drop_pod: 'Drop pod',
   sword_stab: 'Sword stab', sword_cleave: 'Cleave', sword_tornado: 'Tornado', sword_wave: 'Flying slash', sword_flurry: 'Flurry',
   barrel: 'Barrel', tank: 'Tank', lava: 'Lava', crusher: 'Crusher', electric: 'Electric floor',
@@ -362,7 +365,8 @@ export const KEY_GROUPS: readonly { title: string; rows: readonly [Action, strin
     title: 'Call in',
     rows: [
       ['streak', 'Airstrike'], ['callinWarthog', 'Warthog'], ['callinDoorGunner', 'Door Gunner'], ['callinChopper', 'Attack Chopper'], ['callinOrbital', 'Orbital Lance'],
-      ['callinAc130', 'AC-130'], ['callinBlackSun', 'Black Sun'], ['callinNuke', 'Tactical Nuke'], ['scoreboard', 'Run stats'],
+      ['callinAc130', 'AC-130'], ['callinBlackSun', 'Black Sun'], ['callinNuke', 'Tactical Nuke'],
+      ['callinSentry', 'AA Sentry'], ['callinFrame', 'Distraint Frame'], ['scoreboard', 'Run stats'],
       ['nextWave', 'Next wave now (Defense, Crucible shop)'],
     ],
   },

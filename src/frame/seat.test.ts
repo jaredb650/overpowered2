@@ -137,6 +137,17 @@ describe('the way out', () => {
     expect(log.carried).toHaveLength(0);
   });
 
+  it('puts the player out beside it when a call-in\'s seconds run down', () => {
+    frame.board(new THREE.Vector3(0, 0, 0), 0, 1);
+    log.teleported = 0;
+    frames(50);
+    expect(frame.occupied).toBe(true);
+    frames(20);
+    expect(frame.occupied).toBe(false);
+    expect(log.teleported).toBe(1);
+    expect(player.interceptor).toBeNull();
+  });
+
   it('leaves by a script with the body put down beside it', () => {
     frame.leave();
     expect(frame.occupied).toBe(false);

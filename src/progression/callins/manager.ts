@@ -27,12 +27,14 @@ import { AntiAir } from './antiAir';
 import { AttackChopper } from './attackChopper';
 import { BlackSun, blackSunMaterials } from './blacksun';
 import { DoorGunner } from './doorGunner';
+import { FrameDrop } from './frameDrop';
 import { GroundProbe, groundMaterials } from './ground';
 import type { Ride } from './gunnerStrike';
 import { Nuke, NukeAftermath, nukeFrontMaterial } from './nuke';
 import { Orbital, orbitalMaterials } from './orbital';
 import { Ordnance } from './ordnance';
 import { isAircraft, TapOrHold, type Aircraft, type Strike, type StrikeKit, type StrikeOrder } from './shared';
+import { Sentry, SentryRig } from './sentry';
 import { Targeting } from './targeting';
 import { Warthog, warthogModel } from './warthog';
 
@@ -45,6 +47,8 @@ const KEYS: Readonly<Record<CallInId, Action>> = {
   ac130: 'callinAc130',
   blackSun: 'callinBlackSun',
   nuke: 'callinNuke',
+  sentry: 'callinSentry',
+  frame: 'callinFrame',
 };
 
 /**
@@ -79,7 +83,7 @@ export class CallInManager {
   shut = false;
   readonly targeting: Targeting;
   private readonly kit: StrikeKit;
-  private readonly cooldowns: Record<CallInId, number> = { airstrike: 0, warthog: 0, doorGunner: 0, attackChopper: 0, orbital: 0, ac130: 0, blackSun: 0, nuke: 0 };
+  private readonly cooldowns: Record<CallInId, number> = { airstrike: 0, warthog: 0, doorGunner: 0, sentry: 0, attackChopper: 0, orbital: 0, ac130: 0, frame: 0, blackSun: 0, nuke: 0 };
   private readonly strikes: Strike[] = [];
   private readonly aftermath: NukeAftermath;
   private readonly gunship: Ac130Rig;
@@ -104,6 +108,8 @@ export class CallInManager {
   private calling = false;
   /** The enemy's side of the air war: hunters, their missiles, the flares, the rounds that reach a door gunner. */
   private readonly antiAir: AntiAir;
+  /** The one AA sentry: its cooldown outlasts its minute on station. */
+  private readonly sentryRig: SentryRig;
   private readonly aircraft: Aircraft[] = [];
 
   constructor(private readonly ctx: Ctx, materials: ModelMaterials, holdGrade: (grade: GradeName | null) => void) {
@@ -121,6 +127,7 @@ export class CallInManager {
     this.harrow = { frame: new Airframe(materials, scene, ATTACK_AIRFRAME), gun: new Gun(materials, scene, CHIN_CANNON) };
     this.packmule = { frame: new Airframe(materials, scene, UTILITY_AIRFRAME), gun: new Gun(materials, scene, M134) };
     this.antiAir = new AntiAir(ctx, new Ac130Rounds(ctx, materials), this.seats.prisoners);
+    this.sentryRig = new SentryRig(materials, scene);
     this.emplacements = new Emplacements(ctx, materials, this.seats, () => this.holster());
     // The map is built by the first run, and its guns stay for every run after.
     const unlisten = ctx.events.on('run:start', () => {
@@ -240,6 +247,9 @@ export class CallInManager {
         if (SEATED.has(id)) {
           this.pressing = id;
           this.tapHold.press();
+        } else if (id === 'frame') {
+          // No mark: it lands ahead of the player, who walks to it.
+          this.board(id, true);
         } else {
           this.enter(id);
         }
@@ -348,7 +358,7 @@ export class CallInManager {
   private takeOff(id: CallInId, ai: boolean): void {
     const { audio, events, hud, player } = this.ctx;
     audio.play('callin_confirm');
-    if (ai) hud.feed(`${CALLINS[id].name} SENT IN`, CALLINS[id].color);
+    if (ai) hud.feed(`${CALLINS[id].name} ${id === 'frame' ? 'INBOUND' : 'SENT IN'}`, CALLINS[id].color);
     else this.holster();
     const strike = this.launch(id, ai);
     this.strikes.push(strike);
@@ -429,6 +439,8 @@ export class CallInManager {
       case 'ac130': return new Ac130(this.kit, this.order, this.gunship, this.seats, ai);
       case 'blackSun': return new BlackSun(this.kit, this.order);
       case 'nuke': return new Nuke(this.kit, this.order, this.aftermath);
+      case 'sentry': return new Sentry(this.kit, this.order, this.sentryRig, this.antiAir);
+      case 'frame': return new FrameDrop(this.kit, this.frame);
     }
   }
 

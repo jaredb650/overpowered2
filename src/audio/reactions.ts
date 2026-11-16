@@ -251,7 +251,7 @@ export class Reactions {
    * itself, so for a moment nothing else lands under it, and a blocked round is armor's sound alone.
    */
   private bodyHit(enemy: EnemyInstance, damage: DamageInfo, result: DamageResult, now: number): void {
-    // The player's own guns only. Sentinels and call-ins hit with Combat's sound, and must not spend the gap a trigger pull needs.
+    // The player's own guns only. Sentries and call-ins hit with Combat's sound, and must not spend the gap a trigger pull needs.
     if (result.blocked || !BODY_HIT_TYPES.has(damage.type) || !Object.hasOwn(WEAPONS, damage.source)) return;
     if (result.headshot) {
       // Pellets land in any order, so a body pellet ahead of this one on the frame is let go as well.

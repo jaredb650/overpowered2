@@ -41,7 +41,7 @@ describe('catalogue', () => {
 
   it('covers every id built from a string', () => {
     const surfaces: SurfaceKind[] = ['concrete', 'metal', 'grate', 'dirt', 'glass', 'flesh', 'armor', 'energy', 'lava'];
-    const perks: PerkId[] = ['bloodthirst', 'hellfire', 'berserk', 'adrenaline', 'slowmo', 'sentinels', 'chainStorm', 'butcher', 'skyfall', 'chainReaction', 'overdrive'];
+    const perks: PerkId[] = ['bloodthirst', 'hellfire', 'berserk', 'adrenaline', 'slowmo', 'chainStorm', 'butcher', 'skyfall', 'chainReaction', 'overdrive'];
     const powerups: PowerupId[] = ['quad', 'haste', 'vampire', 'ricochet', 'shock', 'ghost', 'magnet', 'regen', 'frostNova', 'timeWarp'];
     const pickups: PickupKind[] = ['health', 'ammo', 'armor', 'megaHealth', 'heavyArmor', 'weaponCache', ...powerups];
     const zones = ROOM_IDS as readonly string[];
@@ -90,8 +90,8 @@ describe('catalogue', () => {
   it('renders what a run reaches first before what it reaches last', () => {
     const rank = (id: string) => renderRank(CATALOG.get(id)!, 0);
     expect(rank('impact_concrete')).toBeLessThan(rank('limb_sever'));
-    expect(rank('limb_sever')).toBeLessThan(rank('perk_sentinels'));
-    expect(rank('perk_sentinels')).toBeLessThan(rank('titan_roar'));
+    expect(rank('limb_sever')).toBeLessThan(rank('perk_chainStorm'));
+    expect(rank('perk_chainStorm')).toBeLessThan(rank('titan_roar'));
     expect(renderRank(CATALOG.get('impact_concrete')!, 1)).toBeLessThan(rank('limb_sever'));
   });
 });
@@ -432,7 +432,7 @@ describe('body hit reactions', () => {
     r.hit('sword', 'slash', 75, 60);
     r.hit('kiln', 'fire', 9, 1);
     r.hit('rocket', 'explosive', 100, 90, { killed: true });
-    r.hit('sentinel', 'bullet', 20, 5);
+    r.hit('sentry', 'bullet', 20, 5);
     r.hit('trooper', 'bullet', 10, 0);
     r.frames(10);
     expect(r.count('hit_punch')).toBe(0);
