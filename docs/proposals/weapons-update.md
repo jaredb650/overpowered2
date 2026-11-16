@@ -134,6 +134,11 @@ rounds.
 behaviour. This sits below HP's 1.5x flesh damage and leaves AP's plate passage/extra penetration useful. Shop: 50 below
 each gun's AP/HP price, all wave 0; lab grant/fit/remove rows, HUD `· +P`, subtle warm-white tracer. No model changes.
 
+**Harrow tuned 2026-11-16:** ball 50 → 60 damage, 500 → 600 rpm (0.12 → 0.1 s), 417 → 600 DPS.
+Its ammo now reads: AP 48 flesh / 36 through plate / 48 wear (72 on a helmeted head), HP 90 flesh / 0 through / 13.5 wear,
+and +P 72 damage / 720 DPS with ball's plate-wrecking medium class. AP is 60 × 0.8 × 0.75 = 36 through plate, not 45;
+75% applies after the AP damage penalty. Ball/+P keep 0.5 m penetration, AP 0.9 m and HP none. No other gun or ammo multiplier changed.
+
 ## 13. The Awl scout and the Quiver's helix
 
 **Built.** The Awl is an original bolt-action scout inspired by the Steyr Scout's forward long-eye-relief scope, slim synthetic
@@ -193,7 +198,7 @@ fitting or taking it off resets the rifle to auto); the Harrow's hold R toggles 
 |---|---|---|
 | SMG | Full auto | Reloads (no selector) |
 | Gimlet | Auto, burst of three, semi; auto only with the launcher fitted | Steps auto, burst, semi; with the launcher, launcher and rifle |
-| Harrow | Auto, semi | Toggles auto and semi |
+| Harrow | Auto, semi; both capped by the 0.1 s interval (600 rpm), 60 damage | Toggles auto and semi |
 | Autoraffica | Burst of three (manual); smart aim: full auto while a head is locked, semi with none | Toggles smart aim |
 
 **Restyled 2026-11-16 (owner): closer to the film cop's gun.** A burst-fire service pistol behind (open-top slide, round

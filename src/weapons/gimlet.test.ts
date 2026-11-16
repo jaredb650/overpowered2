@@ -38,6 +38,20 @@ function reach(id: WeaponId, m: number): number {
 }
 
 describe('the Gimlet on paper', () => {
+  it('the Harrow does 60 damage at 600 rpm, above the Gimlet in DPS, with its rifle penetration unchanged', () => {
+    const harrow = WEAPONS.harrow;
+    expect(harrow.damage).toBe(60);
+    expect(harrow.interval).toBe(0.1);
+    expect(60 / harrow.interval).toBe(600);
+    expect(harrow.damage / harrow.interval).toBe(600);
+    expect(harrow.damage / harrow.interval).toBeGreaterThan(WEAPONS.gimlet.damage / WEAPONS.gimlet.interval);
+    expect(harrow.armour).toBe('medium');
+    expect(harrow.penetration).toBe(0.5);
+    expect(moddedDef('harrow', new Set(['harrowAp'])).damage).toBe(48);
+    expect(moddedDef('harrow', new Set(['harrowHp'])).damage).toBe(90);
+    expect(moddedDef('harrow', new Set(['harrowPlusP'])).damage).toBe(72);
+  });
+
   it('sits between the SMG and the Harrow: more round than the SMG, less than the Harrow, 800 to 900 a minute, thirty in the magazine', () => {
     const g = WEAPONS.gimlet;
     expect(g.damage).toBeGreaterThan(WEAPONS.smg.damage);
@@ -176,6 +190,18 @@ describe('R on the Gimlet', () => {
     r.tap('reload');
     r.run(1 / 60);
     expect(r.weapons.reloading).toBe(true);
+  });
+
+  it('the Harrow semi selector uses the same 0.1 s cap as auto, not a separate old rate', () => {
+    draw('harrow');
+    holdR(0.4);
+    expect(r.weapons.ammoMode).toBe('SEMI');
+    r.tap('fire');
+    r.tap('fire');
+    expect(r.weapons.ammo('harrow').mag).toBe(23);
+    r.run(0.04);
+    r.tap('fire');
+    expect(r.weapons.ammo('harrow').mag).toBe(22);
   });
 
   it('leaves R alone on every other gun: a press reloads at once', () => {

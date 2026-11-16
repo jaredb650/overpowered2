@@ -247,7 +247,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     recoil: 1, kick: 0.0016, shake: 0.004,
     ads: { zoom: 0.35, time: 0.16 },
   },
-  // The carbine between them: the SMG's rate and magazine with a heavier round, short of the Harrow's 50, that keeps most of
+  // The carbine between them: the SMG's rate and magazine with a heavier round, short of the Harrow's 60, that keeps most of
   // itself out to the far side of the Outpost (`falloff` 60 to 140 m, to 0.75 of itself where the SMG halves past 35). It comes
   // with an ACOG and a suppressor fitted (mods.ts `ISSUED`). Hold R for bursts of three, or, with the launcher fitted, the launcher.
   gimlet: {
@@ -265,12 +265,12 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     ads: { zoom: 0.35, time: 0.2 },
     select: { hold: 0.3, modes: ['auto', 'burst', 'semi'], burst: { rounds: 3, recover: 0.22 } },
   },
-  // The SMG's big brother: 500 rounds a minute to its 800, twice the round, and all of it at any range. It goes through one body, or a
+  // The SMG's big brother: 600 rounds a minute to its 800, 60 damage, and all of it at any range. It goes through one body, or a
   // sheet of cover, and takes limbs.
   harrow: {
     ...BASE, id: 'harrow', name: 'HARROW', slot: 1, base: 'smg', mode: 'auto',
     magSize: 24, reserve: 144, maxReserve: 288, reloadTime: 1.35, drawTime: 0.22,
-    interval: 0.12, damage: 50, severMult: 1.8, canSever: true, force: 14, headshotMult: 2, armour: 'medium',
+    interval: 0.1, damage: 60, severMult: 1.8, canSever: true, force: 14, headshotMult: 2, armour: 'medium',
     penetration: 0.5,
     muzzle: 'carbine', tracer: 'carbine', casing: 'rifle',
     sounds: [{ id: 'harrow_shot', pitchJitter: 0.03 }],

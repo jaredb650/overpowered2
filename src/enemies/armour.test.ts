@@ -80,8 +80,8 @@ describe('AP and HP rounds (weapons-update plan section 12)', () => {
     const ap = moddedDef('harrow', new Set<ModId>(['harrowAp']));
     const apHit = armourHit('medium', HELMET, ap.damage, ap.damage * 2, 1, 'ap');
     expect(apHit.through).toBeGreaterThanOrEqual(trooper * 0.85);
-    // And on a plate too big to wreck, ball is stopped every time; AP is 30 a round through it.
-    expect(armourHit('medium', 1000, ap.damage, ap.damage, 1, 'ap').through).toBeCloseTo(30, 6);
+    // And on a plate too big to wreck, ball is stopped every time; AP is 36 a round through it.
+    expect(armourHit('medium', 1000, ap.damage, ap.damage, 1, 'ap').through).toBeCloseTo(36, 6);
   });
 
   it('a medium gun with HP no longer wrecks the plate it hits', () => {

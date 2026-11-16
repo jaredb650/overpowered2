@@ -124,7 +124,7 @@ Five keys are loaded from the start: SMG, Shotgun, Rocket launcher, Sabot and Sw
 
 | Slot | Beside | Weapon | Role |
 |---|---|---|---|
-| 1 | SMG | **Harrow** (battle rifle) | 50 dmg, 24 mag, 6.7 rps. Full damage at any range, where the SMG fades from 35 m to half at 80. Through one body or thin cover. Takes limbs |
+| 1 | SMG | **Harrow** (battle rifle) | 60 dmg, 24 mag, 10 rps (600 rpm). Full damage at any range, where the SMG fades from 35 m to half at 80. Through one body or thin cover. Takes limbs |
 | 2 | Shotgun | **Thresher** (drum shotgun) | Full auto, 20-shell drum, 5 shells a second, 4 pellets x 20 against the pump's 6. Climbs as it fires and does not spring back; the pump stays the hard single hit |
 | 3 | Rocket launcher | **Quiver** (four-tube launcher) | Hold to paint up to 4 marks (one every 0.2 s, spares stack on a boss, a vehicle or the nearest), let go and four missiles leave 0.1 s apart and home on them. 110 + 90 splash over 3.5 m each. A tap fires all four straight |
 | 4 | Sabot | **Autocannon** (the upgrade, from a weapon cache) | Original. 30mm, 200 m/s, instakill blast radius 5, 5 mag, RMB scope. Ring trail, tracer cone |

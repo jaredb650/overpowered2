@@ -100,7 +100,7 @@ code would sever the head or burst it, it gets the new Fallout-style burst.
 | The katana's slice | Unchanged: it can take a head cleanly |
 | A dead body's damaged head, shot again | Can come off or burst |
 
-Defaults taken for the open questions: the Harrow (50) is severe, so a partial wound; the katana keeps its clean cut.
+Defaults taken for the open questions: the Harrow (now 60, originally 50) is severe, so a partial wound; the katana keeps its clean cut.
 Machines are out of it.
 
 ### Build order

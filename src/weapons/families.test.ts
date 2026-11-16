@@ -309,7 +309,7 @@ describe('families in the weapon system', () => {
     r.input.simulate('fire', false);
     // 800 a minute, give or take the round on the first frame.
     expect(Math.abs(smg - 1 / WEAPONS.smg.interval)).toBeLessThanOrEqual(1);
-    // 500 a minute.
+    // 600 a minute.
     expect(Math.abs(e.hits.length - 1 / WEAPONS.harrow.interval)).toBeLessThanOrEqual(1);
     expect(e.hits.length).toBeLessThan(smg);
     expect(e.hits[0]!.amount).toBeGreaterThan(smgDamage * 1.5);

@@ -78,7 +78,7 @@ ctx.weapons.slotMember(1);          // 'smg' or 'harrow': what key 1 draws now
 ctx.weapons.paint;                  // the Quiver's marks while it is in hand (PaintView), else undefined
 ctx.weapons.smartAim;               // the Autoraffica's smart aim (SmartAimView): on, its circle `cone`, the locked head or null
 ctx.combat.spawnProjectile({ ..., kind: 'rocket', target, turnRate: 3.6, steerDelay: 0.14, weave: 0.1 }); // a guided missile
-ctx.combat.fireRay(eye, dir, { damage: 50, source: 'harrow', team: 'player', penetrate: 0.5 });   // through a body or a sheet
+ctx.combat.fireRay(eye, dir, { damage: 60, source: 'harrow', team: 'player', penetrate: 0.5 });   // through a body or a sheet
 ctx.combat.spawnProjectile({ ..., kind: 'bullet', penetrate: 3, bodyCost: 0.2 });                  // the same budget, with travel time
 ctx.combat.fireRay(eye, dir, { damage: 32, source: 'buzzsaw', team: 'player', burst: { radius: 0.45, damage: 10 } }); // a 20 mm round: it bursts where it lands
 ```
@@ -141,7 +141,7 @@ One change outside this system: `Player.rideGround` in `src/player/Player.ts` ad
 | Key | Base | Member | The member's job |
 |---|---|---|---|
 | 1 | SMG | **Gimlet**, carbine | Between the two (2026-11-15): 40 damage at the SMG's 800 a minute, 30 rounds, 1.02 s reload (1.2 s until the owner cut it by 15%, 2026-11-16), no penetration. Keeps 0.75 of its round from 140 m (`falloff` 60 to 140), where the SMG halves past 35. A real climb (`climb` 0.0022 up, 0.0012 aside a round). Issued with an ACOG and a suppressor fitted; hold R for bursts of three or the launcher. Not issued: bought, 450 in the Crucible's shop after wave 1, 650 in Outpost Defense's. See "The Gimlet" |
-| 1 | SMG | **Harrow**, battle rifle | 50 damage at 500 a minute (8.3 a second) against 25 at 800 (13.3): a quarter more damage a second, in bigger pieces. Both rates set by the owner on 2026-11-13. Full damage at any range, where the SMG now fades from 35 m to half at 80. Goes through one body or 0.5 m of cover. Kicks 3.6 times as hard. Takes limbs (`severMult` 1.8). Hold R (2026-11-16, the owner): full auto or semi (`select.modes`, as the Gimlet's selector); a tap reloads |
+| 1 | SMG | **Harrow**, battle rifle | 60 damage at 600 a minute (10 a second), 600 DPS against the SMG's 25 at 800 (333 DPS). Harrow tuned by the owner on 2026-11-16. Full damage at any range, where the SMG now fades from 35 m to half at 80. Goes through one body or 0.5 m of cover. Kicks 3.6 times as hard. Takes limbs (`severMult` 1.8). Hold R (2026-11-16, the owner): full auto or semi (`select.modes`, as the Gimlet's selector); a tap reloads. Semi uses the same 0.1 s interval cap |
 | 2 | Shotgun | **Thresher**, drum shotgun | Full auto, 5 shells a second, 20 in the drum. 4 pellets of 20 to the pump's 6 of 23, so the pump stays the hard single hit. The pump fires one shell every 0.55 s (0.3 was near semi-auto; 0.85, tried on 2026-11-15, too slow), so the Thresher outdoes it held. Real climb (`climb`), a 2.7 s drum reload. Takes limbs like the pump (`severMult` 2.4, the point-blank rule) |
 | 2 | Shotgun | **Deuce**, double-barrel | The third on the key. Two shells, a barrel every 0.3 s: 8 pellets of 26 a barrel (208, to the pump's 138), a wider cone (0.075 to 0.05), full damage to 9 m and 0.3 of it by 26. Right click fires both (`altBoth`). Breaks open to reload, 1.5 s. Its own cache, the third (wave 6). See "The Deuce". Mods: quad barrels, speed loader |
 | 3 | Rocket | **Quiver**, four-tube box launcher | Hold to paint up to four marks, let go and four guided missiles leave a tube apart; right click braids all four in a helix onto the fixed aim point. See "The Quiver". The Rocket's right click is its laser sight, see "The Rocket's laser" |
@@ -194,17 +194,17 @@ between the SMG and the Harrow (the key steps SMG, Gimlet, Harrow). Its stats ag
 
 | | SMG | Gimlet | Harrow |
 |---|---|---|---|
-| Damage | 25 | 40 | 50 |
-| Rate | 800 a minute | 800 | 500 |
-| Damage a second | 333 | 533 | 417 |
+| Damage | 25 | 40 | 60 |
+| Rate | 800 a minute | 800 | 600 |
+| Damage a second | 333 | 533 | 600 |
 | Magazine, reload | 30, 1.0 s | 30, 1.02 s | 24, 1.35 s |
 | Reach | half from 80 m (35 to 80) | 0.75 from 140 m (60 to 140) | full at any range |
 | Through | nothing | nothing | a body or 0.5 m of cover |
 | Kick, climb | 0.0016, none | 0.0034, 0.0022 a round | 0.0058, none |
 | Sight | irons, 0.35 | ACOG 4x (0.69), or red dot 2x (0.4), or irons 0.35 | irons 0.4; red dot or ACOG mods |
 
-The owner asked for more damage than the SMG and a little less than the Harrow at 800 to 900 a minute, so it puts out more a second
-than the Harrow does; the Harrow keeps its reach, its penetration, its limbs and its armour class (`medium`; the Gimlet's 40 is a light
+The owner asked for more damage than the SMG and a little less than the Harrow at 800 to 900 a minute. The Harrow's 2026-11-16 tune
+raises it from 417 to 600 DPS, above the Gimlet's 533; the Harrow keeps its reach, its penetration, its limbs and its armour class (`medium`; the Gimlet's 40 is a light
 round to a plate). Spread is 0 on every rifle here, so what wins at range is the falloff and the optic, not a cone. **R** (`select`):
 a press shorter than `hold` (0.3 s) reloads on its release; held to 0.3 s it switches and plays `fire_select` with the mode called
 under the crosshair (`hud.callout`) and worn on the HUD's name. With no launcher it steps the selector (`select.modes`, kept per
@@ -374,6 +374,7 @@ headshots and hits on plates, with ball's penetration and ordinary armour class/
 +P; medium rounds still wreck a plate and light rounds wear it by half their damage. There is no AP/HP plate override,
 shield bypass or flesh-specific bonus. Twenty percent is a general upgrade below HP's 50% flesh bonus, while AP still
 trades 20% of flesh damage for plate passage and 0.4 m of extra penetration. The SMG suppressor's damage bonus stacks with +P.
+Harrow +P is 72 damage (720 DPS), still plate-wrecking with 0.5 m penetration; ball is 60, AP 48 and HP 90.
 Shop prices (all wave 0): SMG 350, Gimlet 450, Harrow 550, Rivet 250, Ultramag 650, Judge 550, Autoraffica 450, Awl 400;
 each is 50 below its AP/HP version. The lab's generated rows grant, fit and remove each; HUD `· +P` keeps selector/smart
 labels beside it. Its tracer is a thin warm-white streak; no model changes. Tests: `src/weapons/plusP.test.ts`.
@@ -414,13 +415,14 @@ Against a plate bigger than one round, a round from each (head x2 on a Trooper's
 |---|---|---|---|
 | SMG | 25 / 0, wear 12.5 | 20 / 15 / 20 | 37.5 / 0 / 5.6 |
 | Gimlet | 40 / 0, wear 20 | 32 / 24 / 32 | 60 / 0 / 9 |
-| Harrow | 50 / 0, plate wrecked | 40 / 30 / 40 (a helmeted head: 60) | 75 / 0 / 11 |
+| Harrow | 60 / 0, plate wrecked | 48 / 36 / 48 (a helmeted head: 72) | 90 / 0 / 13.5 |
 | Rivet | 30 / 0, wear 15 | 24 / 18 / 24 | 45 / 0 / 6.8 |
 | Ultramag | 150 / 0, plate wrecked | 120 / 90 / 120 | 225 / 0 / 34 |
 | Judge | 120 / 0, plate wrecked | 96 / 72 / 96 | 180 / 0 / 27 |
 
 So against bare men HP is half again the gun; against plates it is a bad joke; AP pays a fifth on bare men and never spends a round
-on a plate. On the Harrow, whose ball already wrecks a plate, AP is the round that does not need a first shot to clear the way, kills
+on a plate. Harrow AP passes 60 × 0.8 × 0.75 = 36 through a plate, not 45: the 20% flesh penalty applies before plate passage.
+On the Harrow, whose ball already wrecks a plate, AP is the round that does not need a first shot to clear the way, kills
 a helmeted man through his helmet, and goes through two men where ball goes through one. Shops: the Crucible and Endless Humans, HP
 from the start and AP after wave 2 (`MOD_WARES`); a lab row each. `src/enemies/armour.test.ts`, `src/weapons/mods.test.ts`.
 
@@ -617,7 +619,7 @@ Families and penetration, with `families-live.mjs` on the Test Range, real keys 
 | Harrow at the same Riot | Blocked by the shield, as every round that is not armour-piercing |
 | Hellfire Rounds from the real perk, a Trooper 8 m out | First burst 7.8 m out, on him, for the SMG, the Harrow and the Sabot. The Harrow and the Sabot went on and burst again where they stopped, 26 m out |
 | Lance, full charge down the gallery | Bays behind the 0.3 and 0.6 m walls dead, the third wall stopped it. The gallery cannot tell its rule from a 1.6 m total; the tests can |
-| Reach, one round each at 50 m | SMG 21, Harrow 50, Rivet 18 |
+| Reach, one round each at 50 m (historical, before the 2026-11-16 Harrow tune) | SMG 21, Harrow 50 (now 60), Rivet 18 |
 | Exits through the 0.3 m panel: three darts square on, at 32 and at 46 degrees, and one Harrow round | Four pale craters on the far face, round and whole at every angle, the Harrow's the smallest; from nearly edge on the 46 degree one lies flat. The near face has four dark pinholes. `tools/out/fam2/fix-exits-*.png` |
 | `?families=0&pierce=0` | Keys stay on SMG, Autocannon, Judge. No gun goes through anything |
 

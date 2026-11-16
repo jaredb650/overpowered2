@@ -305,7 +305,7 @@ export default async function familiesLive(page, h) {
       const V = window.V;
       await window.wipe();
       const sabot = { damage: 600, source: 'sabot', team: 'player', tracer: 'sabot', penetrate: 5, bodyCost: 0.12, impactScale: 2.2, force: 140, armorPiercing: true };
-      const harrow = { damage: 50, source: 'harrow', team: 'player', tracer: 'carbine', penetrate: 0.5, impactScale: 1.25, force: 14 };
+      const harrow = { damage: 60, source: 'harrow', team: 'player', tracer: 'carbine', penetrate: 0.5, impactScale: 1.25, force: 14 };
       const mark = (z0, slope, y, spec) => {
         const dir = new V(1, 0, slope).normalize();
         const origin = new V(1.5, y, z0);
