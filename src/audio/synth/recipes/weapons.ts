@@ -408,15 +408,8 @@ export const weapons = [
     modal(s, { f0: 3200, modes: MODES.bar, decay: 0.09, level: 0.8, strike: 0.5 });
     s.at(0.07, () => click(s, 2600, 0.4, 0.006));
   }),
-  // The Gimlet's (2026-11-15), stand-ins until the owner supplies real ones. The M203's hollow thoomp: a low pop out of a short
-  // tube, a puff of gas, the breech's clack, and no crack (the round is slow). And the selector or the launcher's grip taken
-  // when R is held: a detent click and a small clack.
-  r('launcher_thump', { dur: 0.7, mix: 'gun', over: { volume: 0.62, send: 0.18 }, expect: { attackMs: [0, 10], minSub: 0.03 } }, s => {
-    thump(s, 62, 0.2, 1, 3.2);
-    s.osc('sine', [[0, 260], [0.08, 130]], 0.12).env(perc(0.1, 0.7, 0.001)).out(0.8);
-    s.noise('pink', 0.32).bp([[0, 900], [0.25, 260]], 0.8).env(perc(0.22, 0.75, 0.002)).out(0.7);
-    clank(s, 1150, 0.45, 0.05);
-  }),
+  // The Gimlet's selector, or the launcher's grip taken, when R is held: a detent click and a small clack. A stand-in until the
+  // owner supplies a real one.
   r('fire_select', { dur: 0.16, mix: 'foley', over: { volume: 0.5 } }, s => {
     click(s, 2900, 0.9, 0.005);
     s.at(0.045, () => clank(s, 1700, 0.45, 0.03));

@@ -36,6 +36,8 @@ trimmed and mixed down to mono.
 sound too (`suppressor (1).mp3`), mixed down to mono and faded out.
 `gimlet_shot.mp3` and `gimlet_suppressed_shot.mp3` (the Gimlet carbine, bare and suppressed) in `public/audio/sfx/guns` are the
 owner's own AI-generated sounds as well (`m4Shot.mp3` and `suppressedM4Shot.mp3`), trimmed, mixed down to mono and faded out.
+`launcher_thump.mp3` (the Gimlet's under-barrel grenade launcher) in `public/audio/sfx/guns` is the owner's own sound too
+(`glShot.mp3`), trimmed, mixed down to mono and faded out.
 
 The sounds in `public/audio/sfx/gore2` are the owner's own AI-generated sounds too, trimmed and mixed down to mono for the game
 (the human death lines also cut through a radio filter). Nothing in them is third-party material: `wound_minor_1.mp3`,

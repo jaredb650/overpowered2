@@ -109,7 +109,7 @@ what is in use; the mode is called under the crosshair. The launcher: one 40 mm 
 contact, 1.6 s reload. Shops: the Crucible's 450 after wave 1, Outpost Defense's 650 (primary); mods in the Crucible: Gimlet red dot
 250, launcher 1,200 after wave 4, Harrow ACOG 700 after wave 2; the Gimlet's ACOG and can are issued (listed at 0, fitted, free to
 take off). Not in a weapon cache (`CACHE_ORDER`): the shops are where it comes from. The owner's `m4Shot` and `suppressedM4Shot`
-are its two shots; the launcher's thump and the selector click are synthesized stand-ins. See docs/notes/weapons.md, The Gimlet.
+are its two shots and `glShot` its launcher's; the selector click is a synthesized stand-in. See docs/notes/weapons.md, The Gimlet.
 
 ## Sounds
 New sounds use a synthesized or existing stand-in until the owner supplies real ones. Every stand-in is listed in

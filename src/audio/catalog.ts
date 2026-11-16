@@ -218,6 +218,8 @@ const gunShots: SoundDef[] = [
   // the bare SMG, with less of it in the room, as the SMG's suppressor is.
   shot('gimlet_shot', 'guns/gimlet_shot.mp3', 'gun', 0.155, 0.206, { send: 0.2 }),
   shot('gimlet_suppressed_shot', 'guns/gimlet_suppressed_shot.mp3', 'gun', 0.115, 0.118, { send: 0.08 }),
+  // Its under-barrel launcher (the owner's, 2026-11-15): a heavier report than the rifle, under the shotguns.
+  shot('launcher_thump', 'guns/launcher_thump.mp3', 'gun', 0.19, 0.27, { send: 0.2 }),
   shot('auto_shotgun_shot', 'guns/auto_shotgun_shot.mp3', 'gun', 0.204, 0.259, { send: 0.18 }),
   shot('pump_shotgun_shot', 'guns/pump_shotgun_shot.mp3', 'gun', 0.234, 0.3, { send: 0.2 }),
   shot('hmg_shot', 'guns/hmg_shot.mp3', 'gun', 0.225, 0.25, { send: 0.3 }),
