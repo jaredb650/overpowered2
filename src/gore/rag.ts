@@ -797,10 +797,11 @@ export class Rag {
     this.pushed = true;
   }
 
-  /** The body that carries `bone`: its own, or the nearest above it. */
+  /** The body that carries `bone`: its own, the nearest above it, or the first body if the bone is missing. */
   partFor(bone: number): RagPart {
     const defs = this.source.rig.bones;
     for (let b = bone; b >= 0; b = defs[b]!.parent) {
+      if (!defs[b]) break;
       const part = this.partOf[b];
       if (part) return part;
     }

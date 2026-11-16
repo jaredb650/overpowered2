@@ -7,7 +7,7 @@
  */
 import * as THREE from 'three';
 import { ARCHETYPES } from '../characters/archetypes';
-import type { GoreRegion } from '../characters/rig';
+import { HumanoidBone, type GoreRegion } from '../characters/rig';
 import {
   CG, DEFAULT_FORCE, type CapsuleHit, type CharacterInstance, type CorpseHit, type Ctx, type DamageInfo, type EmitterHandle,
   HEAD_VOLLEY, type GoreSystem, type HeadOutcome, type RagdollOptions, type RayHit, type SeveredLimb, type SeverResult,
@@ -193,6 +193,10 @@ const CORPSE_KNOCK_GAP = 0.07;
 const machines = new Set(ARCHETYPES.filter(a => a.stumps === 'machine').map(a => a.id));
 /** Drones and skitters spark where everything else bleeds. */
 const isMachine = (char: CharacterInstance): boolean => machines.has(char.archetype);
+const humanoidBones = Object.entries(HumanoidBone);
+/** Regions are shared by every rig; only flesh humanoids have a torso that can crawl. */
+const canCrawl = (char: CharacterInstance): boolean => !isMachine(char)
+  && humanoidBones.every(([name, bone]) => char.rig.bones[bone]?.name === name);
 
 /** Which limbs a gib throws as real parts, in order. */
 const GIB_REGIONS: readonly GoreRegion[] = ['head', 'armL', 'armR', 'legL', 'legR'];
@@ -1046,7 +1050,7 @@ export class Gore implements GoreSystem {
     // Cut from a chain in flight, the limb falls as that chain does: its seed is that chain's speed, already on the dial.
     const limb = this.addLimb(char, piece, bone, _mask, _seeds, body?.rag?.active ? body.rag.killedInAir : undefined);
     char.hideLimb(bone);
-    const torso = region === 'abdomen' && !body ? this.startCrawl(limb) : undefined;
+    const torso = region === 'abdomen' && !body && canCrawl(char) ? this.startCrawl(limb) : undefined;
 
     const regions: GoreRegion[] = [];
     for (let i = 0; i < info.count; i++) {
