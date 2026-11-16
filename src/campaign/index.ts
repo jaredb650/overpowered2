@@ -15,6 +15,8 @@
 import type { Ctx } from '../core/contracts';
 import type { EnemyInstance } from '../core/gameplay';
 import { recordCampaignBeaten } from '../contracts/unlocks';
+import { selectedStarter } from '../contracts/starter';
+import { missionWithStarter } from './starter';
 import { GoreTuning } from '../gore';
 import type { CampaignSystem, MissionResult } from './events';
 import './events';
@@ -63,7 +65,8 @@ class Campaign implements CampaignSystem {
   result: MissionResult | null = null;
 
   constructor(private readonly ctx: Ctx, id: string) {
-    const mission = MISSIONS[id];
+    const source = MISSIONS[id];
+    const mission = source && (id === 'outpost' || id === 'foreclosure' ? missionWithStarter(source, selectedStarter(id === 'outpost' ? 'campaign' : 'foreclosure')) : source);
     if (!mission) throw new Error(`no mission ${id}`);
     for (const problem of validateMission(mission)) console.warn(`[campaign] ${mission.id}: ${problem}`);
     this.ui = new CampaignHud(ctx);

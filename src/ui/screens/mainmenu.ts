@@ -17,6 +17,8 @@ import { CONTRACTS, COUNCIL_OFFICE, NOTICE_FOOTER, NOTICE_TITLE, type ContractDe
 import { readHighScore } from '../../contracts/scores';
 import { ACTIVE, contractSearch } from '../../contracts/select';
 import { isShut } from '../../contracts/unlocks';
+import { hasStarter, selectedStarter, saveStarter } from '../../contracts/starter';
+import { starterCards } from './starter';
 import type { Ctx } from '../../core/contracts';
 import type { MapId } from '../../world/map/maps';
 import { div, h, span } from '../dom';
@@ -196,6 +198,19 @@ export class MainMenu implements Screen {
   /** A contract's map cannot be built under a running world, so another contract means another page load. */
   private play(contract: ContractDef): void {
     if (isShut(contract)) this.ctx.audio.play?.('ui_error');
+    else if (hasStarter(contract.id)) {
+      let gun = selectedStarter(contract.id);
+      const level = this.makeLevel(`${this.level.crumb} / Starter gun`, this.level, []);
+      const cards = starterCards(gun, picked => { gun = picked; saveStarter(gun); });
+      level.items.push(...cards, menuButton('Deploy', () => {
+        saveStarter(gun);
+        const params = new URLSearchParams(contractSearch(contract.id, location.search));
+        params.set('starter', gun);
+        location.search = params.toString();
+      }), this.backButton(level));
+      this.enter(level);
+      this.paint(contract);
+    }
     else if (contract === ACTIVE.def) this.hud.startRun();
     else location.search = contractSearch(contract.id, location.search);
   }

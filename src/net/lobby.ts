@@ -8,6 +8,7 @@
  * will not connect, so it is never silence.
  */
 import { BUILD } from './build';
+import { defaultStarter, isStarter, type StarterGun } from '../contracts/starter';
 import { decodePose, encodePose, type Pose } from './pose';
 import type { Channel, LobbyRooms, NetError, NetRoom } from './room';
 
@@ -20,6 +21,7 @@ export interface LobbyPlayer {
   ready: boolean;
   host: boolean;
   slot: number;
+  starter?: StarterGun;
 }
 
 /** `from` null is the lobby's own line: joins, leaves, warnings. */
@@ -38,8 +40,8 @@ export const validMatch = (m: unknown): m is Match => !!m && typeof m === 'objec
 type Msg =
   | { t: 'start'; match: Match }
   | { t: 'started'; id: string }
-  | { t: 'hello'; v: string; name: string; host: boolean; deployed?: boolean }
-  | { t: 'set'; name: string; ready: boolean }
+  | { t: 'hello'; v: string; name: string; host: boolean; deployed?: boolean; starter?: StarterGun }
+  | { t: 'set'; name: string; ready: boolean; starter?: StarterGun }
   | { t: 'lobby'; you: string; players: LobbyPlayer[] }
   | { t: 'chat'; from: string | null; text: string };
 
@@ -89,7 +91,7 @@ export class Lobby {
   private failed = new Set<string>();
   private atDoor = new Set<string>();
 
-  constructor(private readonly rooms: LobbyRooms, readonly hosting: boolean, private name: string, private readonly build = BUILD, private readonly deployed = false) {
+  constructor(private readonly rooms: LobbyRooms, readonly hosting: boolean, private name: string, private readonly build = BUILD, private readonly deployed = false, private starter?: StarterGun) {
     const room = (this.room = rooms.main);
     this.ch = room.channel<Msg>('lobby');
     this.poses = room.channel<ArrayBuffer>('pose');
@@ -112,13 +114,13 @@ export class Lobby {
     if (hosting) {
       this.phase = 'open';
       this.you = HOST_ID;
-      this.players = [{ id: HOST_ID, name, ready: false, host: true, slot: 0 }];
+      this.players = [{ id: HOST_ID, name, ready: false, host: true, slot: 0, starter }];
       this.openDoor();
     } else {
       this.wait = setTimeout(() => this.close('no-host'), HOST_WAIT_MS);
       this.knock = setTimeout(() => this.openDoor(), DOOR_AFTER_MS);
     }
-    room.onPeerJoin(id => this.ch.send({ t: 'hello', v: build, name: this.name, host: hosting, deployed }, id));
+    room.onPeerJoin(id => this.ch.send({ t: 'hello', v: build, name: this.name, host: hosting, deployed, starter: this.starter }, id));
     room.onPeerLeave(id => this.peerLeft(id));
     room.onError((error, peerId) => this.netError(error, peerId));
     this.ch.on((msg, from) => {
@@ -132,6 +134,12 @@ export class Lobby {
 
   setName(name: string): void {
     this.name = clean(name, NAME_MAX) || this.name;
+    this.change();
+  }
+
+  setStarter(starter: StarterGun): void {
+    if (!isStarter(starter) || this.match) return;
+    this.starter = starter;
     this.change();
   }
 
@@ -150,6 +158,8 @@ export class Lobby {
   /** Only the host picks the mode. Guests acknowledge before the host changes page. */
   startMatch(mode: CoopMode, id: string = crypto.randomUUID()): boolean {
     if (!this.hosting || this.phase !== 'open' || this.match || !COOP_MODES.includes(mode)) return false;
+    for (const player of this.players) player.starter ??= defaultStarter(mode);
+    this.broadcast();
     this.match = { id, mode };
     this.starting = new Set(this.players.filter(p => !p.host).map(p => p.id));
     for (const peer of this.starting) this.ch.send({ t: 'start', match: this.match }, peer);
@@ -200,9 +210,10 @@ export class Lobby {
     if (this.hosting && me) {
       me.name = this.name;
       me.ready = this.ready;
+      if (!this.match) me.starter = this.starter;
       this.broadcast();
     } else if (this.hostId) {
-      this.ch.send({ t: 'set', name: this.name, ready: this.ready }, this.hostId);
+      this.ch.send({ t: 'set', name: this.name, ready: this.ready, starter: this.starter }, this.hostId);
     }
   }
 
@@ -224,7 +235,7 @@ export class Lobby {
       if (!sameBuild) return this.post(null, `${name} could not join: different game version. They need to reload.`);
       if (this.players.length >= MAX_PLAYERS) return;
       const slot = [1, 2, 3].find(s => !this.players.some(p => p.slot === s))!;
-      this.players.push({ id: from, name, ready: false, host: false, slot });
+      this.players.push({ id: from, name, ready: false, host: false, slot, starter: isStarter(msg.starter) ? msg.starter : undefined });
       this.post(null, `${name} joined.`);
       if (this.match) this.ch.send({ t: 'start', match: this.match }, from);
       return;
@@ -250,6 +261,7 @@ export class Lobby {
     } else if (msg.t === 'set') {
       player.name = clean(msg.name, NAME_MAX) || player.name;
       player.ready = msg.ready === true;
+      if (!this.match) player.starter = isStarter(msg.starter) ? msg.starter : undefined;
       this.broadcast();
     } else if (msg.t === 'chat') {
       const text = clean(msg.text, CHAT_MAX);
@@ -271,6 +283,7 @@ export class Lobby {
         id: clean(p?.id, 64),
         name: clean(p?.name, NAME_MAX) || 'PLAYER',
         ready: p?.ready === true,
+        starter: isStarter(p?.starter) ? p.starter : undefined,
         host: p?.host === true,
         slot: Number.isInteger(p?.slot) && p.slot >= 0 && p.slot < MAX_PLAYERS ? p.slot : -1,
       }));

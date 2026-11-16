@@ -1,0 +1,15 @@
+.starter-card { display: flex; align-items: center; gap: 1rem; width: 100%; padding: .8rem 1rem; margin: .35rem 0; text-align: left; color: var(--muted, #a6b1bd); background: rgba(10, 17, 24, .88); border: 1px solid #3a4651; cursor: pointer; font: inherit; }
+.starter-card.selected { color: #f4c56b; border-color: #d9a34d; background: rgba(65, 47, 21, .8); }
+.starter-card.focus, .starter-card:hover, .starter-card:focus-visible { outline: 2px solid #e5eaf0; outline-offset: 2px; }
+.starter-icon { width: 6rem; flex-shrink: 0; }
+.starter-icon .ico { width: 100%; height: 2.5rem; fill: currentColor; }
+.starter-copy { display: flex; flex-direction: column; gap: .3rem; }
+.starter-name { font-size: 1.5rem; text-transform: uppercase; }
+.starter-stats { font-size: .78rem; white-space: nowrap; }
+.starter-lobby { margin: .75rem 0; }
+.starter-lobby .starter-card { padding: .4rem .6rem; }
+.starter-lobby .starter-name { font-size: 1rem; }
+.starter-lobby .starter-icon { width: 4rem; }
+
+.scr-menu .mm-list:has(.starter-card) { left: 3.4rem; width: 38rem; }
+.mm-list:has(.starter-card) > .mi { padding-left: 1rem; }

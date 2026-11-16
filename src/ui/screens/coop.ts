@@ -5,6 +5,8 @@
  * An invite link (`?join=CODE`) opens the join page with the code filled in, straight from the splash.
  * Stage 1 starts an enemy-free match on the host's selected map.
  */
+import { saveStarter, starterPreference } from '../../contracts/starter';
+import { starterCards } from './starter';
 import type { Ctx } from '../../core/contracts';
 import { BUILD } from '../../net/build';
 import {
@@ -70,6 +72,7 @@ export class CoopScreen implements Screen {
   private readyItem: NavItem;
   private lobbyPanel: HTMLElement;
   private modes: HTMLElement;
+  private starter = div('starter-lobby');
 
   constructor(private readonly ctx: Ctx, private readonly hud: Hud) {
     this.el = div('scr scr-menu scr-coop', this.crumb, this.list, div('mm-brief co-brief', this.panel), span('mm-sub', 'OVERDRIVE'), wordmark());
@@ -124,6 +127,7 @@ export class CoopScreen implements Screen {
       this.players,
       field('Your name', this.name),
       this.modes,
+      this.starter,
       this.chatLog,
       this.chatInput,
     );
@@ -236,6 +240,7 @@ export class CoopScreen implements Screen {
           span('co-pname', pl.name),
           pl.host ? span('co-tag host', 'Host') : null,
           pl.id === lobby.you ? span('co-tag', 'You') : null,
+          span('co-tag', pl.starter?.toUpperCase() ?? 'Mode default'),
           span('co-ready', pl.ready ? 'Ready' : 'Not ready'),
         ))),
     );
@@ -263,6 +268,14 @@ export class CoopScreen implements Screen {
     const { openLobby } = await import('../../net/trystero');
     const name = this.name.value.trim() || loadCallsign();
     const lobby = new Lobby(openLobby(this.code, password), hosting, name);
+    const preference = starterPreference();
+    if (preference) lobby.setStarter(preference);
+    const cards = starterCards(preference, gun => { saveStarter(gun); lobby.setStarter(gun); });
+    for (const card of cards) {
+      card.el.addEventListener('click', card.activate!);
+      card.el.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') e.stopPropagation(); });
+    }
+    this.starter.replaceChildren(span('nt-k', 'Your starter · untouched uses the mode default'), ...cards.map(card => card.el));
     this.roomPassword = password;
     lobby.onMatch = match => {
       try { deployMatch(this.code, this.roomPassword, lobby, match); }

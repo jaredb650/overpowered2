@@ -100,6 +100,31 @@ describe('co-op lobby', () => {
   const host = (password = 'pw', build = 'b1') => new Lobby(rooms(password), true, 'HOSTY', build);
   const guest = (password = 'pw', build = 'b1', name = 'GUEST') => new Lobby(rooms(password), false, name, build);
 
+  it('carries independent starters through joining, changes and the match handoff', () => {
+    const h = host();
+    h.setStarter('gimlet');
+    const g = guest();
+    g.setStarter('harrow');
+    hub.flush();
+    expect(h.players.map(p => p.starter)).toEqual(['gimlet', 'harrow']);
+    expect(g.players.map(p => p.starter)).toEqual(['gimlet', 'harrow']);
+    g.setStarter('smg');
+    hub.flush();
+    const chosen: string[] = [];
+    h.onMatch = () => chosen.push(h.me!.starter!);
+    g.onMatch = () => chosen.push(g.me!.starter!);
+    h.startMatch('outpost', 'starters');
+    hub.flush();
+    expect(chosen.sort()).toEqual(['gimlet', 'smg']);
+  });
+
+  it('uses the selected mode’s gun for players who leave the starter untouched', () => {
+    const h = host(); const g = guest(); hub.flush();
+    h.startMatch('outpost', 'defaults'); hub.flush();
+    expect(h.players.map(p => p.starter)).toEqual(['harrow', 'harrow']);
+    expect(g.me!.starter).toBe('harrow');
+  });
+
   it('a guest joins, sees both players and the host marked, and chat goes both ways', () => {
     const h = host();
     const g = guest();

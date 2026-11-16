@@ -494,3 +494,14 @@ Real headless Chrome through `tools/shot.mjs` at `--dpr 2 --w 1440 --h 900`, on 
 - **SSR can catch a silhouette** on a wet floor, because SSR reads last frame's HDR image.
 - **The ring only runs over surfaces.** Looking straight up in the open Kill House shows none of it.
 - **`faction`, `waves` and `wounds` are read by nothing yet.** The Outpost keys off `ACTIVE.def.ai` for all of it, and swaps its wave loop in behind `ctx.waves`. They are in the table because a contract is defined by them, and the first second-faction contract will need to split them.
+
+### Starter gun
+
+Before deploying into the Crucible, Endless Humans, The Outpost or Foreclosure, the menu opens a starter-gun level: SMG,
+Gimlet or Harrow, each with its silhouette, damage, fire rate and magazine size. Deploy keeps all other issued equipment.
+The first choice defaults to the mode's original gun (Harrow for Endless Humans, SMG otherwise); `op2_starter` remembers
+an explicit choice in localStorage, with blocked-storage fallback. `?starter=smg|gimlet|harrow` overrides the saved choice.
+Procurement marks that gun Issued and sells the other two at their usual price and wave. The Gimlet retains its issued
+ACOG and suppressor. Campaign startup adapts both the opening kit and every checkpoint before mission validation, retaining
+scripted pickups and Foreclosure's guaranteed same-key replacement rule. Each co-op lobby member chooses independently;
+the roster and tab handoff carry their gun. Outpost Defense keeps its own pre-wave selection.
