@@ -39,11 +39,13 @@ export interface Settings {
   hitText: number;
   /** Enemy lines: an index into CHATTER_LEVELS. */
   chatter: number;
+  /** The enemy voices' level, 0 to 1, under master and effects. */
+  voices: number;
 }
 
 export const DEFAULTS: Readonly<Settings> = {
   sensitivity: 1, fov: 90, invertY: false, master: 0.8, sfx: 1, music: 0.7, quality: 2, gore: 1, holdToHop: false,
-  aimHold: false, aimSensitivity: TUNING.ads.sensitivity, hitText: 0, chatter: CHATTER_BUBBLES,
+  aimHold: false, aimSensitivity: TUNING.ads.sensitivity, hitText: 0, chatter: CHATTER_BUBBLES, voices: 1,
 };
 
 export const SENSITIVITY_RANGE = [0.1, 4] as const;
@@ -62,6 +64,7 @@ function sanitize(s: Settings): void {
   s.gore = clamp(Math.round(s.gore), 0, GORE_LEVELS.length - 1);
   s.hitText = clamp(Math.round(s.hitText), 0, HIT_TEXT_LEVELS.length - 1);
   s.chatter = clamp(Math.round(s.chatter), 0, CHATTER_LEVELS.length - 1);
+  s.voices = clamp(s.voices);
 }
 
 export function loadSettings(): Settings {

@@ -19,6 +19,7 @@ import { RULES } from './chatter/lines';
 import type { CommsKind, CommsLine } from './events';
 import type { OutpostSquad } from './squad';
 import { listener } from './chatter/radio';
+import { clipFor } from './chatter/voices';
 import type { Soldier } from './soldier';
 
 /** Seconds before the same kind of line can come again. */
@@ -93,7 +94,7 @@ export class Comms {
   private readonly facts: ChatterFacts = { faction: FACTION, tier: 'high', role: null, flags: {} };
   private readonly slots: Record<string, string> = {};
   private readonly line: CommsLine = {
-    kind: 'contact', text: '', squad: '', speaker: null, enemy: null, position: new THREE.Vector3(), row: -1, name: -1, dead: -1, slots: null, why: '',
+    kind: 'contact', text: '', squad: '', speaker: null, enemy: null, position: new THREE.Vector3(), row: -1, name: -1, dead: -1, slots: null, why: '', voice: -1,
   };
 
   constructor(private readonly w: AiWorld) {
@@ -225,6 +226,7 @@ export class Comms {
     line.squad = s ? s.squad.name : 'Command';
     line.speaker = s ? speakerTag(line.name, s.rankDef.label, s.squad.name) : null;
     line.enemy = s ? s.e : null;
+    line.voice = s?.voice ?? -1;
     if (s) line.position.copy(s.e.center);
     else line.position.copy(w.player.position);
     const why = this.memory.why;
@@ -235,7 +237,8 @@ export class Comms {
     this.talks.set(key, { s, from: now, until, priority: rule.priority, interruptible: rule.interruptible, text: line.text, pain: PAIN.has(kind), radio: rule.radio });
     w.ctx.events.emit('comms:line', line);
     // A dying man's voice is audio's `vox_dying_human`, from the same moment's `enemy:condition`.
-    if (s && kind !== 'dying') say(s.e, w, rule.channel === 'scream' ? 'vox_scream' : s.e.def.voice.attack, 0.45);
+    // His recorded voice says it, when it can; the synth grunt only stands in where there is no take.
+    if (s && kind !== 'dying' && !clipFor(row, this.slots, s.voice)) say(s.e, w, rule.channel === 'scream' ? 'vox_scream' : s.e.def.voice.attack, 0.45);
     const answer = CHAIN[kind];
     const by = s && answer ? this.answerer(s) : null;
     if (by) this.queue(answer!, by, null, null, until + 0.1);
@@ -300,6 +303,7 @@ export class Comms {
     line.text = text;
     line.row = line.dead = -1;
     line.slots = null;
+    line.voice = s?.voice ?? -1;
     line.why = 'relay (words a caller chose)';
     line.name = s?.name ?? -1;
     line.squad = s ? s.squad.name : 'Command';

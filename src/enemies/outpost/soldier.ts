@@ -58,6 +58,8 @@ export class Soldier {
   fakeRolled = false;
   /** Friends he has watched the player kill. A man who has seen it warns the others. */
   witnessed = 0;
+  /** His voice for life, an index into chatter/voices.ts `VOICES`: dealt by his first squad, never changed. -1 until then. */
+  voice = -1;
   /** His pair in the squad, who takes his death hardest (squad-chatter 4.7). The odd man out pairs one way with the leader. */
   buddy: Soldier | null = null;
   /** Which of the squad's two fire teams. One moves while the other covers. */
@@ -188,6 +190,7 @@ export class Soldier {
     this.known = this.holdout = this.bravado = this.fakeRolled = false;
     this.buddy = null;
     this.witnessed = 0;
+    this.voice = -1;
     this.team = 0;
     this.morale = this.baseMorale = 100;
     this.state = 'steady';

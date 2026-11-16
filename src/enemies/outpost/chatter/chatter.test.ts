@@ -14,6 +14,7 @@ import { cardinal, contactReport, radioLoss } from './radio';
 import { breaking, revenge, tickOutcomes } from './outcomes';
 import { HABIT_AT, PlayerMemory, rememberPlayer } from './memory';
 import { Offers } from './offers';
+import { VOICE_COUNT } from './voices';
 import * as THREE from 'three';
 import { OutpostSquad } from '../squad';
 import { RULES } from './lines';
@@ -615,5 +616,56 @@ describe('the shield wall: an offer across squads', () => {
     expect(comms.say).toHaveBeenLastCalledWith('shieldDown', rifle);
     expect(o.scare).toHaveBeenCalled();
     expect(offers.cover).toHaveLength(0);
+  });
+});
+
+describe('one voice per man, for life', () => {
+  it('deals the voices in turn through a squad, and buddies never share one', () => {
+    const squad = new OutpostSquad(1, 'Alpha', {} as Outpost);
+    const men = Array.from({ length: 6 }, () => new Soldier());
+    for (const s of men) squad.join(s);
+    expect(men.map(s => s.voice)).toEqual([0, 1, 0, 1, 0, 1]);
+    for (const s of men) if (s.buddy?.buddy === s) expect(s.voice).not.toBe(s.buddy.voice);
+    expect(VOICE_COUNT).toBe(2);
+  });
+
+  it('never changes his voice: not across many lines, a new squad, or the radio', () => {
+    const events = new EventBus<GameEvents>();
+    const heard: CommsLine[] = [];
+    events.on('comms:line', l => heard.push({ ...l }));
+    const soldiers: Soldier[] = [];
+    const w = {
+      now: 0, player: { position: { x: 0, y: 0, z: -10 }, velocity: { x: 0, y: 0, z: 0 }, speed: 0 },
+      enemies: { outpost: { doctrine: { radioSilence: false }, soldiers, squads: [] } },
+      ctx: { events, player: { health: 100, maxHealth: 100 } },
+    } as unknown as AiWorld;
+    const comms = new Comms(w);
+    const alpha = new OutpostSquad(1, 'Alpha', {} as Outpost);
+    const bravo = new OutpostSquad(2, 'Bravo', {} as Outpost);
+    const body = () => ({ alive: true, maxHealth: 100, yaw: 0, center: { x: 0, y: 1, z: 0 }, position: { x: 0, y: 0, z: 0, distanceToSquared: () => 1 }, def: { voice: { attack: 'x' } } }) as unknown as Soldier['e'];
+    const recruit = () => {
+      const m = new Soldier();
+      m.e = body();
+      soldiers.push(m);
+      return m;
+    };
+    const s = recruit();
+    alpha.join(recruit());
+    alpha.join(s);
+    const voice = s.voice;
+    const kinds = ['contact', 'moving', 'hit', 'scream', 'reloading', 'covering', 'frag', 'manDown', 'set', 'flanking'] as const;
+    for (let i = 0; i < 60; i++) {
+      w.now = i * 7;
+      if (i === 20) {
+        // Merged into another squad that already has a man of each voice.
+        alpha.leave(s);
+        bravo.join(recruit());
+        bravo.join(s);
+      }
+      if (i === 40) s.squad.radioman = s;
+      comms.say(kinds[i % kinds.length]!, s);
+    }
+    expect(heard.length).toBeGreaterThan(20);
+    expect(new Set(heard.map(l => l.voice))).toEqual(new Set([voice]));
   });
 });

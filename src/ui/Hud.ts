@@ -25,6 +25,7 @@ import { CommsFeed, KillFeed, StyleLane } from './hud/feed';
 import { Crosshair, type HitKind } from './hud/crosshair';
 import { WorldLayer } from './hud/worldlayer';
 import { Bubbles } from './hud/bubbles';
+import { ChatterVoices } from './hud/voices';
 import { BossBar } from './hud/boss';
 import { Banner } from './hud/banner';
 import { LowFrame, Scope, Targeting } from './hud/overlays';
@@ -103,6 +104,7 @@ export class Hud implements HudSystem {
   private callouts: Callout;
   private worldLayer: WorldLayer;
   private bubbles: Bubbles;
+  private voices: ChatterVoices;
   private boss: BossBar;
   private bannerLanes: Banner;
   private scope: Scope;
@@ -142,6 +144,7 @@ export class Hud implements HudSystem {
 
     this.worldLayer = new WorldLayer(ctx);
     this.bubbles = new Bubbles(ctx);
+    this.voices = new ChatterVoices(ctx, this.settings);
     this.stragglers = new Stragglers(this.worldLayer);
     this.vitals = new Vitals(ctx);
     this.arms = new Arms(ctx);
@@ -264,6 +267,7 @@ export class Hud implements HudSystem {
       const color = e.kind === 'ally' ? 'var(--friend)' : COMMS_FEAR.has(e.kind) ? 'var(--amber)' : 'var(--cold)';
       this.comms.push(e.text, color, e.speaker ?? e.squad, e.enemy);
       if (chatter === CHATTER_BUBBLES) this.bubbles.say(e, color);
+      if (e.kind !== 'ally') this.voices.say(e);
       // A critical warning gets a cue whatever the setting: the player has to act on it.
       if (e.kind === 'flash' && e.enemy) this.bubbles.warn(e.position, 'FLASH INCOMING');
       if (e.kind === 'fakeOut' && e.enemy) this.bubbles.warn(e.position, 'GRENADE', 1.4);
@@ -271,6 +275,7 @@ export class Hud implements HudSystem {
     });
     events.on('comms:cut', e => {
       this.comms.cut(e.enemy, e.at, e.radio);
+      this.voices.cut(e.enemy);
       this.bubbles.cut(e.enemy, e.at, e.radio);
     });
     applySettings(this.ctx, this.settings);
@@ -326,6 +331,7 @@ export class Hud implements HudSystem {
     this.styleLane.clear();
     this.comms.clear();
     this.bubbles.reset();
+    this.voices.reset();
     this.sonar.reset();
     this.crosshair.reset();
     this.worldLayer.reset();
@@ -558,6 +564,7 @@ export class Hud implements HudSystem {
     this.seatPanel?.update();
     this.worldLayer.update(dt);
     this.bubbles.update(playing ? dt : 0);
+    this.voices.update(dt, !playing);
     this.boss.update(s, dt);
     this.commander?.nameBoss(this.boss.el);
     if (!ctx.coop?.freeRoam) {

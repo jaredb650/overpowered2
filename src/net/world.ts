@@ -9,6 +9,7 @@ import { soldierOf } from '../enemies/outpost/soldier';
 import { RULES } from '../enemies/outpost/chatter/lines';
 import { NAME_LIST, speakerTag } from '../enemies/outpost/chatter/names';
 import { lineText } from '../enemies/outpost/chatter/rules';
+import { VOICE_COUNT } from '../enemies/outpost/chatter/voices';
 import type { CommsLine } from '../enemies/outpost/events';
 import { RANKS, type Rank } from '../enemies/outpost/rank';
 import { HELMET } from '../enemies/wounds/armour';
@@ -68,7 +69,7 @@ export class CoopWorld {
         if (line.row === undefined || line.row < 0) return;
         const rank = line.enemy ? soldierOf(line.enemy)?.rank : undefined;
         this.broadcast({ t: 'chatter', uid: line.enemy?.uid ?? 0, line: line.row, name: line.name ?? -1, dead: line.dead ?? -1,
-          rank: rank ? RANK_IDS.indexOf(rank) : -1, squad: line.squad, ...(line.slots ? { slots: line.slots } : {}) });
+          rank: rank ? RANK_IDS.indexOf(rank) : -1, squad: line.squad, voice: line.voice ?? -1, ...(line.slots ? { slots: line.slots } : {}) });
       }));
       this.off.push(ctx.events.on('comms:cut', cut => this.broadcast({ t: 'chatcut', uid: cut.enemy.uid, at: cut.at, radio: cut.radio })));
     }
@@ -221,6 +222,8 @@ export class CoopWorld {
     if (line.dead >= 0) slots.dead = NAME_LIST[line.dead]!;
     line.slots = value.slots ?? null;
     line.why = '';
+    // The same man in the same voice on every machine.
+    line.voice = Number.isInteger(value.voice) && value.voice! >= 0 && value.voice! < VOICE_COUNT ? value.voice! : -1;
     line.text = lineText(value.line, slots);
     line.squad = value.uid ? value.squad : 'Command';
     line.speaker = value.uid ? speakerTag(line.name, rank ? RANKS[rank].label : '', value.squad) : null;

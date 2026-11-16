@@ -207,17 +207,18 @@ describe('host-authoritative world over the mocked lobby transport', () => {
     const heard: CommsLine[] = [];
     game.guest.ctx.events.on('comms:line', line => heard.push({ ...line }));
     const row = RULES.findIndex(r => r.id === 'ch.garrison.manDown.namedPro.1');
-    game.host.ctx.events.emit('comms:line', { kind: 'manDown', text: '', squad: 'Alpha', speaker: 'Cpl Marsh · Alpha', enemy, position: enemy.center.clone(), row, name: 0, dead: 1 });
+    game.host.ctx.events.emit('comms:line', { kind: 'manDown', text: '', squad: 'Alpha', speaker: 'Cpl Marsh · Alpha', enemy, position: enemy.center.clone(), row, name: 0, dead: 1, voice: 1 });
     game.relay.flush();
     const packet = game.relay.packets.filter(p => p.lane === 'action').map(p => (p.data as { data: WorldEvent }).data).find(e => e.t === 'chatter');
-    expect(packet).toEqual({ t: 'chatter', uid: enemy.uid, line: row, name: 0, dead: 1, rank: -1, squad: 'Alpha' });
+    expect(packet).toEqual({ t: 'chatter', uid: enemy.uid, line: row, name: 0, dead: 1, rank: -1, squad: 'Alpha', voice: 1 });
     expect(heard).toHaveLength(1);
-    expect(heard[0]).toMatchObject({ kind: 'manDown', text: 'Kade is down. Keep firing.', row, name: 0, dead: 1, squad: 'Alpha' });
+    // Same man, same voice, on every machine.
+    expect(heard[0]).toMatchObject({ kind: 'manDown', text: 'Kade is down. Keep firing.', row, name: 0, dead: 1, squad: 'Alpha', voice: 1 });
     expect(heard[0]!.enemy).toBe(game.guest.ctx.enemies.alive[0]);
     // Cut off mid-word on the host: every guest sees the same dash at the same letter.
     const cuts: { enemy: unknown; at: number }[] = [];
     game.guest.ctx.events.on('comms:cut', cut => cuts.push(cut));
-    game.host.ctx.events.emit('comms:cut', { enemy, at: 7 }); game.relay.flush();
+    game.host.ctx.events.emit('comms:cut', { enemy, at: 7, radio: false }); game.relay.flush();
     expect(cuts).toEqual([{ enemy: game.guest.ctx.enemies.alive[0], at: 7, radio: false }]);
     // Hand-written words stay on the host, and a guest cannot be fed a row that does not exist.
     game.host.ctx.events.emit('comms:line', { kind: 'order', text: 'Words.', squad: 'Command', speaker: null, enemy: null, position: new THREE.Vector3(), row: -1 });

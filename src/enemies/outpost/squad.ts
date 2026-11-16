@@ -34,6 +34,7 @@ import { soldierOf, type Grenade, type Soldier, type Urgency } from './soldier';
 import { contactReport, radioLoss } from './chatter/radio';
 import { revenge } from './chatter/outcomes';
 import { AGAIN_AFTER } from './chatter/memory';
+import { VOICE_COUNT } from './chatter/voices';
 
 export type SquadMode = 'advance' | 'engage' | 'stack' | 'fallback' | 'regroup' | 'rush' | 'flush' | 'cutoff' | 'ambush';
 
@@ -270,6 +271,11 @@ export class OutpostSquad implements Squad {
     this.strength = Math.max(this.strength, this.members.length);
     if (!this.leader || this.outranks(s.role, this.leader.role)) this.leader = s;
     this.pair(s);
+    // His voice, once and for life: the other one from his buddy's, or dealt in turn, so a squad sounds like several men.
+    if (s.voice < 0) {
+      const b = s.buddy;
+      s.voice = b && b.buddy === s && b.voice >= 0 ? (b.voice + 1) % VOICE_COUNT : (this.members.length - 1) % VOICE_COUNT;
+    }
     // The first rifleman who is not the leader carries the radio; the leader only until somebody else can.
     const r = this.radioman;
     if (!r || !this.members.includes(r) || r === this.leader || r.role !== 'rifle') this.radioman = this.members.find(m => m.role === 'rifle' && m !== this.leader) ?? this.leader;

@@ -166,7 +166,8 @@ export class SettingsScreen implements Screen {
     const gore = new Stepper('Gore', GORE_LEVELS, () => s.gore, v => { s.gore = v; }, tick);
     const hitText = new Stepper('Hit text', HIT_TEXT_LEVELS, () => s.hitText, v => { s.hitText = v; }, tick);
     const chatter = new Stepper('Enemy chatter', CHATTER_LEVELS, () => s.chatter, v => { s.chatter = v; }, tick);
-    const general = [sensitivity, fov, invert, hop, aimMode, aimSens, master, sfx, music, quality, gore, hitText, chatter];
+    const voices = new Slider('Enemy voices', 0, 1, 0.05, () => s.voices, v => { s.voices = v; }, pct, tick);
+    const general = [sensitivity, fov, invert, hop, aimMode, aimSens, master, sfx, music, voices, quality, gore, hitText, chatter];
     this.refreshers = general.map(r => () => r.refresh());
     const keys = this.keyRows();
     const resetKeys = menuButton('Reset keys', () => this.resetKeys());
@@ -176,7 +177,7 @@ export class SettingsScreen implements Screen {
       {
         el: div('gd-panel', div('set-list',
           span('gd-h', 'Controls and view'), sensitivity.el, fov.el, invert.el, hop.el, aimMode.el, aimSens.el,
-          span('gd-h', 'Audio'), master.el, sfx.el, music.el,
+          span('gd-h', 'Audio'), master.el, sfx.el, music.el, voices.el,
           span('gd-h', 'Video'), quality.el, gore.el, hitText.el, chatter.el,
         )),
         rows: general,

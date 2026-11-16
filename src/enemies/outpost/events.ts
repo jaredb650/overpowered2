@@ -49,6 +49,8 @@ export interface CommsLine {
   slots?: Record<string, string> | null;
   /** Why this row won, for the debug overlay. Empty on a co-op guest. */
   why?: string;
+  /** The speaker's voice for life (chatter/voices.ts), or -1. */
+  voice?: number;
 }
 
 declare module '../../core/contracts' {
