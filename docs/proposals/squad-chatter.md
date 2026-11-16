@@ -94,6 +94,16 @@ start (the host decides; guests get `chatter` and `chatcut` events).
   stack ("Shield's down, scatter!") with a small morale hit. A last man merged into another squad is greeted ("You're Echo now.").
   Deferred: the other offers (gun pinning the player for a cross-squad flank, warden drags, rocket on hard cover, sniper spotting), which
   need the squad planner to accept outside work.
+- **I (voices), test batch only, 2026-11-16.** Owner's choice: option B on Eleven v3 (`eleven_v3`), every line in each of his three
+  voices (trooper1, trooper2, trooper3). `tools/scripts/chatter-voices.mjs` renders a job list offline, skips files that exist (resume), and
+  logs each take's billed cost; the key is read at run time from `~/.config/op2/elevenlabs.key` and sent only as the `xi-api-key` header.
+  Takes are named `<row id>[~<slot values>].t<voice>.<ext>`. The audio tag comes from the row's emotion ([shouting], [panicked],
+  [whispers], [crying], [screaming] for pain screams, [exhausted] for the dying); stability 0.5 for steady professional lines, 0.0 for the
+  rest. Slot plan (lean): {dead} and {buddy} by the 12 nicknames, {clock} by 12, {squad} and {lost} by the 8 callsigns, {cardinal} by 8,
+  {count} one and two, {range} "50 metres", {to} "All units": 2,383 takes per voice. When voices are on, the game picks those values so
+  text and audio agree. Wiring waits for the owner to approve the test batch: one voice per man for life, dealt round-robin in a squad so
+  buddies differ, kept when he grabs the radio, sent to co-op guests with his names; an `<audio>` pool with a radio filter bus, instant
+  stop on a cut, warnings mixed over chatter.
 
 ## 1. The goal
 
