@@ -262,8 +262,13 @@ export class Hud implements HudSystem {
       const chatter = e.kind === 'ally' ? 0 : this.settings.chatter;
       if (chatter === CHATTER_OFF) return;
       const color = e.kind === 'ally' ? 'var(--friend)' : COMMS_FEAR.has(e.kind) ? 'var(--amber)' : 'var(--cold)';
-      this.comms.push(e.text, color, e.speaker ?? e.squad);
+      this.comms.push(e.text, color, e.speaker ?? e.squad, e.enemy);
       if (chatter === CHATTER_BUBBLES) this.bubbles.say(e, color);
+      this.debug.chatter(e);
+    });
+    events.on('comms:cut', e => {
+      this.comms.cut(e.enemy, e.at);
+      this.bubbles.cut(e.enemy, e.at);
     });
     applySettings(this.ctx, this.settings);
     applyQuality(this.ctx, this.settings);

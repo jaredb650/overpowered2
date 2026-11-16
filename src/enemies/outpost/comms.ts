@@ -1,17 +1,23 @@
 /**
- * Radio chatter as events. Section 19 ships recorded voices later, so a line is a kind plus text and nothing here plays
- * speech. Every call site says a kind; the rule table (chatter/) picks the row by who is talking and how scared he is, and
- * the row's id is what a voice bank will key on (docs/proposals/squad-chatter.md).
+ * What the men say, as events. Every call site says a concept; the rule table (chatter/) picks the row by who is talking and how
+ * scared he is (docs/design/squad-comms.md). Nothing here plays speech: a row's id is what the voices will key on.
  *
- * In co-op only the host decides: guests hear its lines as `chatter` events (src/net/world.ts) and say nothing of their own.
+ * Speech is physical. One man talks for his squad at a time, for the line's airtime. A line of a higher priority (critical >
+ * tactical > emotional > idle) cuts the one in the air; a lower one waits its turn and is looked up again when it is due, so a
+ * moment that has passed is simply not said. Death, a big hit or a lost limb cuts a man mid-word (`comms:cut`), and his own pain
+ * always cuts his own line. Some lines bring an answer from another man (`CHAIN`).
+ *
+ * In co-op only the host decides: guests hear its lines as `chatter` and `chatcut` events (src/net/world.ts) and say nothing of
+ * their own.
  */
 import * as THREE from 'three';
 import type { AiWorld } from '../aiWorld';
 import { say } from '../attacks';
-import { FACTION, NAME_LIST, speakerTag } from './chatter/names';
-import { ChatterMemory, URGENT, lineText, type ChatterFacts } from './chatter/rules';
+import { FACTION, NAME_LIST, callName, speakerTag } from './chatter/names';
+import { ChatterMemory, RANK, SPEAK_RATE, TIER_OF, URGENT, airtime, lineText, priorityOf, type ChatterFacts, type Priority } from './chatter/rules';
 import { RULES } from './chatter/lines';
 import type { CommsKind, CommsLine } from './events';
+import type { OutpostSquad } from './squad';
 import type { Soldier } from './soldier';
 
 /** Seconds before the same kind of line can come again. */
@@ -25,22 +31,62 @@ const LINE_GAP = 1.3;
 /** What radio silence takes off the air. A man on fire does not keep radio discipline. */
 const DISCIPLINED: ReadonlySet<CommsKind> = new Set<CommsKind>([
   'contact', 'lost', 'noise', 'moving', 'covering', 'flanking', 'breach', 'fallback', 'regroup', 'fix', 'reloading', 'takingCommand', 'frag', 'flash',
-  'pinning', 'flushing', 'rushing', 'cutoff', 'ambushSet', 'opening', 'wounded', 'dry', 'obey', 'behindUs',
+  'pinning', 'flushing', 'rushing', 'cutoff', 'ambushSet', 'opening', 'wounded', 'dry', 'obey', 'behindUs', 'ack',
 ]);
+/** A man's own pain cuts whatever he was saying. */
+const PAIN: ReadonlySet<CommsKind> = new Set<CommsKind>(['hit', 'scream', 'dying']);
+/** Lines that bring an answer from another man in the squad, after the call has been said. */
+export const CHAIN: Partial<Record<CommsKind, CommsKind>> = { frag: 'ack', flash: 'ack', reloading: 'covering' };
+/** A hit this big stops a sentence: a share of his health, or a limb. */
+const BIG_HIT = 0.3;
+/** A line waiting for its squad's turn is dropped if the turn is this late. */
+const STALE = 4;
+
+interface Talk {
+  s: Soldier | null;
+  from: number;
+  until: number;
+  priority: Priority;
+  interruptible: boolean;
+  text: string;
+}
+
+interface Pending {
+  kind: CommsKind;
+  s: Soldier;
+  dead: Soldier | null;
+  slots: Record<string, string> | null;
+  at: number;
+  wanted: number;
+}
 
 export class Comms {
   private nextLineAt = 0;
   private readonly kindAt = new Map<CommsKind, number>();
   readonly memory = new ChatterMemory();
-  private readonly facts: ChatterFacts = { faction: FACTION, state: 'steady', role: null, rank: null, leader: false, buddy: false, flags: { dead: false } };
-  private readonly line: CommsLine = { kind: 'contact', text: '', squad: '', speaker: null, enemy: null, position: new THREE.Vector3(), row: -1, name: -1, dead: -1 };
+  /** Who is talking for each squad (null for Command), and until when. */
+  private readonly talks = new Map<OutpostSquad | null, Talk>();
+  private readonly pending: Pending[] = [];
+  private readonly facts: ChatterFacts = { faction: FACTION, tier: 'high', role: null, flags: {} };
+  private readonly slots: Record<string, string> = {};
+  private readonly line: CommsLine = {
+    kind: 'contact', text: '', squad: '', speaker: null, enemy: null, position: new THREE.Vector3(), row: -1, name: -1, dead: -1, slots: null, why: '',
+  };
 
-  constructor(private readonly w: AiWorld) {}
+  constructor(private readonly w: AiWorld) {
+    const events = w.ctx.events;
+    events.on('enemy:killed', k => this.silence(k.enemy));
+    events.on('enemy:hit', h => {
+      if (h.result.dealt >= BIG_HIT * h.enemy.maxHealth || h.result.severed.length > 0) this.silence(h.enemy);
+    });
+  }
 
   reset(): void {
     this.nextLineAt = 0;
     this.kindAt.clear();
     this.memory.reset();
+    this.talks.clear();
+    this.pending.length = 0;
   }
 
   /** A guest's men only move their lips to the host's words. */
@@ -49,8 +95,42 @@ export class Comms {
     return !!coop?.world && !coop.hosting;
   }
 
-  /** `s` is who says it. Null is Command on the radio, heard everywhere. `dead` is the man whose death it is about. */
-  say(kind: CommsKind, s: Soldier | null, dead: Soldier | null = null): void {
+  /** Whoever is saying something with this body stops, mid-word. */
+  silence(enemy: unknown): void {
+    for (const [key, talk] of this.talks) if (talk.s?.e === enemy) this.cut(key, talk);
+  }
+
+  private cut(key: OutpostSquad | null, talk: Talk): void {
+    this.talks.delete(key);
+    const at = Math.floor((this.w.now - talk.from) / SPEAK_RATE);
+    if (at >= talk.text.length || !talk.s) return;
+    this.w.ctx.events.emit('comms:cut', { enemy: talk.s.e, at });
+  }
+
+  /** Lines that waited for their turn, looked up again now it has come. */
+  update(): void {
+    const now = this.w.now;
+    if (this.pending.length === 0) return;
+    // In the order they fell due, so an answer keeps its place behind the call.
+    this.pending.sort((a, b) => a.at - b.at);
+    while (this.pending.length > 0 && this.pending[0]!.at <= now) {
+      const p = this.pending.shift()!;
+      const roster = this.w.enemies.outpost?.soldiers;
+      if (now - p.wanted > STALE || !p.s.e.alive || (roster && !roster.includes(p.s))) continue;
+      this.say(p.kind, p.s, p.dead, p.slots, p.wanted);
+    }
+  }
+
+  private queue(kind: CommsKind, s: Soldier, dead: Soldier | null, slots: Record<string, string> | null, at: number, wanted = this.w.now): void {
+    if (this.pending.some(p => p.s === s && p.kind === kind) || this.pending.length >= 12) return;
+    this.pending.push({ kind, s, dead, slots, at, wanted });
+  }
+
+  /**
+   * `s` is who says it. Null is Command on the radio, heard everywhere. `dead` is the man it is about. `slots` fill the row's other
+   * blanks ({clock}, {squad}...). `wanted` is when a line that had to wait was first wanted.
+   */
+  say(kind: CommsKind, s: Soldier | null, dead: Soldier | null = null, slots: Record<string, string> | null = null, wanted: number | null = null): void {
     const { w, line, facts } = this;
     const now = w.now;
     if (this.deaf) return;
@@ -58,31 +138,77 @@ export class Comms {
     if (s?.injuries.mute || s?.silent) return;
     if (DISCIPLINED.has(kind) && w.enemies.outpost!.doctrine.radioSilence) return;
     if (now < (this.kindAt.get(kind) ?? 0)) return;
-    if (now < this.nextLineAt && !URGENT.has(kind)) return;
+    const key = s?.squad ?? null;
+    const talk = this.talks.get(key);
+    const priority = priorityOf(kind);
+    let cut = false;
+    if (talk && now < talk.until) {
+      // His own pain cuts his own line; anything else of his waits until he has finished. Another man cuts in only with a higher call.
+      if (talk.s === s ? PAIN.has(kind) : RANK[priority] > RANK[talk.priority] && talk.interruptible) {
+        this.cut(key, talk);
+        cut = true;
+      } else {
+        if (s) this.queue(kind, s, dead, slots, talk.until + 0.15, wanted ?? now);
+        return;
+      }
+    }
+    if (now < this.nextLineAt && !URGENT.has(kind) && !cut) return;
     this.kindAt.set(kind, now + (KIND_GAP[kind] ?? DEFAULT_KIND_GAP));
-    facts.state = s?.state ?? 'steady';
+    const buddies = !!s && !!dead && (dead.buddy === s || s.buddy === dead);
+    facts.tier = TIER_OF[s?.state ?? 'steady'];
     facts.role = s?.role ?? null;
-    facts.rank = s?.rank ?? null;
-    facts.leader = s?.isLeader ?? false;
-    facts.buddy = !!s && !!dead && (dead.buddy === s || s.buddy === dead);
-    facts.flags.dead = !!dead && dead.name >= 0;
-    // Every row on its gap is silence, which keeps the kind's gap like a line would.
+    facts.flags.leader = s?.isLeader ?? false;
+    facts.flags.buddy = buddies;
+    // A man nobody learned the name of goes down as "man down", unless it is his buddy or the leader saying it.
+    facts.flags.dead = !!dead && dead.name >= 0 && (dead.known || buddies || facts.flags.leader || dead.wasLeader);
+    // Every row on its cooldown is silence, which keeps the kind's gap like a line would.
     const row = this.memory.pick(kind, facts, now);
     if (row < 0) return;
+    const rule = RULES[row]!;
     this.nextLineAt = now + LINE_GAP;
     line.kind = kind;
     line.row = row;
-    line.name = s?.name ?? -1;
-    line.dead = facts.flags.dead ? dead!.name : -1;
-    line.text = lineText(row, line.dead >= 0 ? NAME_LIST[line.dead]! : null);
+    line.name = s ? (rule.radio && s.desig >= 0 ? s.desig : s.name) : -1;
+    line.dead = facts.flags.dead ? callName(dead!, rule.radio, buddies) : -1;
+    for (const k in this.slots) delete this.slots[k];
+    if (slots) Object.assign(this.slots, slots);
+    if (line.dead >= 0) this.slots.dead = NAME_LIST[line.dead]!;
+    line.slots = slots;
+    line.text = lineText(row, this.slots);
     line.squad = s ? s.squad.name : 'Command';
-    line.speaker = s ? speakerTag(s.name, s.rankDef.label, s.squad.name) : null;
+    line.speaker = s ? speakerTag(line.name, s.rankDef.label, s.squad.name) : null;
     line.enemy = s ? s.e : null;
     if (s) line.position.copy(s.e.center);
     else line.position.copy(w.player.position);
+    const why = this.memory.why;
+    let flags = '';
+    for (const f in facts.flags) if (facts.flags[f]) flags += ` ${f}`;
+    line.why = `${rule.id}  ${why.score} pts, ${why.rivals} tied  ${facts.tier}${facts.role ? ` ${facts.role}` : ''}${flags}  ${rule.priority}`;
+    const until = now + airtime(line.text);
+    this.talks.set(key, { s, from: now, until, priority: rule.priority, interruptible: rule.interruptible, text: line.text });
     w.ctx.events.emit('comms:line', line);
     // A dying man's voice is audio's `vox_dying_human`, from the same moment's `enemy:condition`.
-    if (s && kind !== 'dying') say(s.e, w, RULES[row]!.channel === 'scream' ? 'vox_scream' : s.e.def.voice.attack, 0.45);
+    if (s && kind !== 'dying') say(s.e, w, rule.channel === 'scream' ? 'vox_scream' : s.e.def.voice.attack, 0.45);
+    const answer = CHAIN[kind];
+    const by = s && answer ? this.answerer(s) : null;
+    if (by) this.queue(answer!, by, null, null, until + 0.1);
+  }
+
+  /** Who answers a man: his buddy if he can, otherwise the nearest of his squad still fighting. */
+  private answerer(s: Soldier): Soldier | null {
+    const b = s.buddy;
+    if (b && b !== s && b.squad === s.squad && b.fighting && s.squad.members.includes(b)) return b;
+    let best: Soldier | null = null;
+    let near = Infinity;
+    for (const m of s.squad.members) {
+      if (m === s || !m.fighting) continue;
+      const d = m.e.position.distanceToSquared(s.e.position);
+      if (d < near) {
+        near = d;
+        best = m;
+      }
+    }
+    return best;
   }
 
   /** Words the caller chose, on the same feed. `who` names a voice that belongs to nobody on the map. */
@@ -93,12 +219,16 @@ export class Comms {
     line.kind = 'order';
     line.text = text;
     line.row = line.dead = -1;
+    line.slots = null;
+    line.why = 'relay (words a caller chose)';
     line.name = s?.name ?? -1;
     line.squad = s ? s.squad.name : 'Command';
     line.speaker = who ?? (s ? speakerTag(s.name, s.rankDef.label, s.squad.name) : null);
     line.enemy = s ? s.e : null;
-    if (s) line.position.copy(s.e.center);
-    else line.position.copy(w.player.position);
+    if (s) {
+      line.position.copy(s.e.center);
+      this.talks.set(s.squad, { s, from: w.now, until: w.now + airtime(text), priority: 'tactical', interruptible: true, text });
+    } else line.position.copy(w.player.position);
     w.ctx.events.emit('comms:line', line);
   }
 }

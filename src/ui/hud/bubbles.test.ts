@@ -77,7 +77,23 @@ it('gives a man one bubble, which his next line takes over', () => {
   bubbles.say(line(marsh), 'var(--cold)');
   bubbles.say(line(marsh, 'moving', 'Moving.'), 'var(--cold)');
   expect(bubbles.live).toBe(1);
-  expect(bubbles.pool.find(b => b.enemy === marsh)!.text.textContent).toBe('Moving.');
+  expect(bubbles.pool.find(b => b.enemy === marsh)!.full).toBe('Moving.');
+});
+
+it('types the words at speaking pace, and a cut stops them mid-word with a dash, held where he fell', () => {
+  const { bubbles } = setup();
+  const marsh = man(0, 15);
+  bubbles.say(line(marsh, 'contact', 'Bravo, he is heading north.'), 'var(--cold)');
+  const b = bubbles.pool.find(x => x.enemy === marsh)!;
+  bubbles.update(0.3);
+  expect(b.text.textContent).toBe('Bravo,');
+  bubbles.cut(marsh, 12);
+  expect(b.text.textContent).toBe('Bravo, he is—');
+  (marsh as { alive: boolean }).alive = false;
+  bubbles.update(0.5);
+  expect(bubbles.live).toBe(1);
+  bubbles.update(1);
+  expect(bubbles.live).toBe(0);
 });
 
 it('lasts as long as the line takes to say, and goes when he does', () => {

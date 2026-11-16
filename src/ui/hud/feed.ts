@@ -1,5 +1,6 @@
 /** Kill feed under the minimap, the style lane under the combo and the radio above the call-ins. All small capped pools, oldest out. */
 import { COLLAPSE, div, span } from '../dom';
+import { cutText } from '../../enemies/outpost/chatter/rules';
 
 interface Line {
   el: HTMLElement;
@@ -7,6 +8,9 @@ interface Line {
   text: HTMLElement;
   life: number;
   leaving: boolean;
+  /** Who said it, so a cut-off can find his line. */
+  owner: unknown;
+  full: string;
 }
 
 const LEAVE = 0.11;
@@ -23,16 +27,18 @@ class Lane {
       const text = span('ln-t');
       const el = div(lineCls, speaker, text);
       el.style.display = 'none';
-      this.free.push({ el, speaker, text, life: 0, leaving: false });
+      this.free.push({ el, speaker, text, life: 0, leaving: false, owner: null, full: '' });
     }
   }
 
-  push(text: string, color: string | undefined, speaker = ''): void {
+  push(text: string, color: string | undefined, speaker = '', owner: unknown = null): void {
     if (this.live.length >= this.cap) this.drop(this.live.shift()!);
     const line = this.free.pop();
     if (!line) return;
     line.speaker.textContent = speaker;
     line.text.textContent = text;
+    line.owner = owner;
+    line.full = text;
     line.life = this.life;
     line.leaving = false;
     line.el.style.setProperty('--c', color ?? 'var(--ink)');
@@ -63,6 +69,16 @@ class Lane {
         this.live.splice(i, 1);
         this.drop(line);
       }
+    }
+  }
+
+  /** The newest line `owner` said ends `at` characters in, with a dash. */
+  cut(owner: unknown, at: number): void {
+    for (let i = this.live.length - 1; i >= 0; i--) {
+      const line = this.live[i]!;
+      if (line.owner !== owner) continue;
+      if (at < line.full.length) line.text.textContent = cutText(line.full, at);
+      return;
     }
   }
 

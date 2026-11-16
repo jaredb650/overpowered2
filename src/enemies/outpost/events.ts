@@ -19,7 +19,9 @@ export type CommsKind =
   | 'contact' | 'lost' | 'noise' | 'manDown' | 'leaderDown' | 'takingCommand' | 'medic' | 'reloading' | 'moving' | 'covering'
   | 'flanking' | 'frag' | 'flash' | 'breach' | 'fallback' | 'regroup' | 'fear' | 'panic' | 'surrender' | 'fix' | 'squadGone'
   | 'hit' | 'dying' | 'beg' | 'scream' | 'rescue' | 'lastStand' | 'order' | 'ally'
-  | 'pinning' | 'flushing' | 'rushing' | 'cutoff' | 'ambushSet' | 'spring' | 'opening' | 'wounded' | 'dry' | 'refused' | 'hostage' | 'clearShot' | 'obey' | 'behindUs';
+  | 'pinning' | 'flushing' | 'rushing' | 'cutoff' | 'ambushSet' | 'spring' | 'opening' | 'wounded' | 'dry' | 'refused' | 'hostage' | 'clearShot' | 'obey' | 'behindUs'
+  // The squad comms system's own (docs/design/squad-comms.md).
+  | 'ack';
 
 export interface CommsLine {
   kind: CommsKind;
@@ -33,14 +35,20 @@ export interface CommsLine {
   position: THREE.Vector3;
   /** The rule table's row (chatter/lines.ts `RULES`), or -1 for words a caller chose. Absent from lines outside the Outpost's brain. */
   row?: number;
-  /** The speaker's and the dead man's name ids (chatter/names.ts `NAME_LIST`), or -1. */
+  /** The name ids (chatter/names.ts `NAME_LIST`) the feed tag and the {dead} slot used, or -1. */
   name?: number;
   dead?: number;
+  /** The row's other blanks as filled ({clock}, {squad}...), or null. */
+  slots?: Record<string, string> | null;
+  /** Why this row won, for the debug overlay. Empty on a co-op guest. */
+  why?: string;
 }
 
 declare module '../../core/contracts' {
   interface GameEvents {
     'comms:line': CommsLine;
+    /** The man talking was killed or badly hit `at` characters into his line: it ends there, with a dash. */
+    'comms:cut': { enemy: EnemyInstance; at: number };
     /** Morale ran out. The weapon is on the floor and `fate` says what happens next. */
     'enemy:broken': { enemy: EnemyInstance; fate: 'flee' | 'surrender' };
     /** Hands up, on the knees. No longer a threat, and no longer counted for the wave. */

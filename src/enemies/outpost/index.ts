@@ -372,9 +372,9 @@ export class Outpost {
       squad = this.forming!;
       this.forming = null;
     }
-    s.name = this.names.draw(FACTION);
     squad.join(s);
     this.commission(s, squad);
+    this.names.enlist(s, FACTION, s.role, s.rank, squad.leader === s, squad.members.map(m => m.nick));
     e.squad = squad;
     e.behaviours = SOLDIER_BEHAVIOURS;
     e.attacks = soldierAttacks(e.id);
@@ -411,6 +411,7 @@ export class Outpost {
     const { w } = this;
     const now = w.now;
     this.flushLeaving();
+    this.comms.update();
     this.dread.update(dt);
     this.track.update(dt, w.player.velocity);
     this.watchPlayer(dt);
@@ -486,7 +487,7 @@ export class Outpost {
   /** Soldiers leave the roster a frame late, because `enemy:killed` still reads them after the body has gone. */
   private flushLeaving(): void {
     for (const s of this.leaving) {
-      this.names.free(s.name);
+      this.names.free(s);
       // The pool can hand his body to a new man before this runs, and that man keeps his place.
       if (soldierOf(s.e) === s) discharge(s.e);
       this.pool.release(s);
@@ -913,7 +914,7 @@ export class Outpost {
     const s = soldierOf(k.enemy);
     if (!s) return;
     const { dread, w } = this;
-    this.names.died(s.name);
+    this.names.died(s);
     const severed = k.severedCount;
     dread.onKill({ gibbed: k.gibbed, sliced: k.sliced, headshot: k.headshot, severed }, w.now);
     const brutal = k.gibbed || k.sliced || k.headshot || severed > 0;

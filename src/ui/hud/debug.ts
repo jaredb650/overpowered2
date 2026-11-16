@@ -2,6 +2,8 @@
 import type { Ctx } from '../../core/contracts';
 import { Label, Shown, div, h } from '../dom';
 import type { HudState } from '../state';
+import type { CommsLine } from '../../enemies/outpost/events';
+import { RULES } from '../../enemies/outpost/chatter/lines';
 
 const REFRESH = 0.25;
 
@@ -28,6 +30,8 @@ export class DebugOverlays {
   private showFps = false;
   private showInfo = false;
   private clock = 0;
+  /** The last few chatter lines and why their rows won: the rule tuning view (docs/design/squad-comms.md, "Build plan" 4). */
+  private readonly said: string[] = [];
 
   constructor(private readonly ctx: Ctx) {
     const fps = div('dbg-fps');
@@ -39,6 +43,13 @@ export class DebugOverlays {
     this.infoShown = new Shown(info, 'block');
     this.fpsShown.set(false);
     this.infoShown.set(false);
+  }
+
+  chatter(line: CommsLine): void {
+    if (line.row === undefined) return;
+    const row = line.row >= 0 ? RULES[line.row] : undefined;
+    this.said.push(`${(line.speaker ?? line.squad).padEnd(20).slice(0, 20)} ${line.why || (row ? `${row.id}  (host decided)` : 'relay')}`);
+    if (this.said.length > 6) this.said.shift();
   }
 
   toggleFps(): void {
@@ -75,6 +86,7 @@ export class DebugOverlays {
         `draws    ${stats.drawCalls ?? '-'}`,
         `tris     ${typeof stats.triangles === 'number' ? stats.triangles.toLocaleString('en-US') : '-'}`,
         `timescale ${this.ctx.time.scale.toFixed(2)}`,
+        ...(this.said.length ? ['', 'chatter: speaker, row, score, ties, tier, facts, priority', ...this.said] : []),
       ].join('\n'));
     }
   }

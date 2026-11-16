@@ -68,8 +68,9 @@ export class CoopWorld {
         if (line.row === undefined || line.row < 0) return;
         const rank = line.enemy ? soldierOf(line.enemy)?.rank : undefined;
         this.broadcast({ t: 'chatter', uid: line.enemy?.uid ?? 0, line: line.row, name: line.name ?? -1, dead: line.dead ?? -1,
-          rank: rank ? RANK_IDS.indexOf(rank) : -1, squad: line.squad });
+          rank: rank ? RANK_IDS.indexOf(rank) : -1, squad: line.squad, ...(line.slots ? { slots: line.slots } : {}) });
       }));
+      this.off.push(ctx.events.on('comms:cut', cut => this.broadcast({ t: 'chatcut', uid: cut.enemy.uid, at: cut.at })));
     }
   }
 
@@ -191,6 +192,11 @@ export class CoopWorld {
         break;
       }
       case 'chatter': this.hear(value); break;
+      case 'chatcut': {
+        const enemy = this.replicas.get(value.uid)?.enemy;
+        if (enemy && Number.isInteger(value.at) && value.at >= 0) this.ctx.events.emit('comms:cut', { enemy, at: value.at });
+        break;
+      }
       case 'sever': {
         const enemy = this.replicas.get(value.uid)?.enemy;
         if (enemy && !enemy.char.severed.has(value.region)) this.ctx.gore.sever(enemy.char, value.region, this.unpack(value.damage));
@@ -209,7 +215,13 @@ export class CoopWorld {
     line.row = value.line;
     line.name = nameId(value.name);
     line.dead = nameId(value.dead);
-    line.text = lineText(value.line, line.dead >= 0 ? NAME_LIST[line.dead]! : null);
+    const slots: Record<string, string> = {};
+    // Only short words for known blanks: the host's slots fill a row, they never carry text of their own.
+    for (const [k, v] of Object.entries(value.slots ?? {})) if (/^[a-z]{1,12}$/.test(k) && typeof v === 'string' && v.length <= 32) slots[k] = v;
+    if (line.dead >= 0) slots.dead = NAME_LIST[line.dead]!;
+    line.slots = value.slots ?? null;
+    line.why = '';
+    line.text = lineText(value.line, slots);
     line.squad = value.uid ? value.squad : 'Command';
     line.speaker = value.uid ? speakerTag(line.name, rank ? RANKS[rank].label : '', value.squad) : null;
     line.enemy = enemy;

@@ -42,6 +42,15 @@ start (the host decides; guests get `chatter` and `chatcut` events).
 | H | Cross-squad offers and claims, and the riot shield wall |
 | I | Voices, only when the owner says |
 
+**Built so far** (each stage its own commit):
+
+- **A.** Lines are `chatter/lines.json` (the owner's fields). Tiers High/Medium/Low/Desperate. `comms.ts`: one speaker per squad for the
+  line's airtime; a higher priority from another man cuts the line in the air; the speaker's own later lines wait their turn and are looked
+  up again when due (dropped after 4 s); death, a hit of 30% of his health or a lost limb cuts him (`comms:cut`, co-op `chatcut`).
+  Chains: frag and flash bring "Moving!"-type answers, reloading brings "Covering!" from his buddy. Names: designation, surname, nickname
+  and a `known` flag (`chatter/names.ts`). Bubbles type at 0.05 s a letter and hold a cut line where the man fell; the feed line is
+  rewritten to the cut. F4 shows the last six picks with row id, score, ties, tier, facts and priority.
+
 ## 1. The goal
 
 Human enemies should feel like people having a very bad day. They see you, tell each other, make a plan and say it out loud, then
