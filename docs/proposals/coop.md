@@ -13,6 +13,13 @@ Players respawn after 3.5 seconds without stopping the world. Shops stay disable
 Stage 3 still needs real downed/revive rules, shared pickups/economy, player rewards, shop integration and synchronized powerups/call-ins.
 Remote weapon props are still the generic SMG. See `docs/notes/coop.md` for the wire format, measurements and verification limits.
 
+**Stages 3, 4 and 5 built** (2026-11-16): the Crucible fully playable (down and revive, spectate, wipe, each player's own purse, loot and
+supply pod, kill pay to the killer, a shared wave bonus, shared slow-mo, call-ins, real weapon props and poses, team HUD); Endless Humans
+(postures, a guest's capture and bounty, vehicles) and Outpost Defense (own loadouts and shops, the host's fort and garrison drawn on
+guests) on any map, the Office included; the campaign's two missions with the host's runner mirrored to guests. TURN through a
+Cloudflare Worker with a config slot, 8 relays, ping, heartbeats, rejoin with your purse, a hidden host tab that keeps ticking.
+No host migration. See `docs/notes/coop.md`, which has the owner's TURN setup and every decision.
+
 ## Verdict
 
 1. **Feasible, but a big job:** about 3 to 5 months of steady work for everything. Survival co-op is the first half of that.

@@ -49,7 +49,8 @@ export class ClaimValidator {
     const def = WEAPONS[claim.weapon as WeaponId];
     const shot = this.shots.get(peer);
     if (kind === 'shot' && (!shot || claim.shot !== shot.shot || claim.weapon !== shot.weapon || now - shot.at > 8000)) return false;
-    if (kind === 'assist' && now - (this.called.get(peer) ?? -Infinity) > CALLIN_WINDOW_MS && !/^(drop_pod|mine|tripwire|claymore)/.test(damage.source)) return false;
+    // Pods, mines and Outpost Defense's bought mortars work on their own clock, with no call-in announced.
+    if (kind === 'assist' && now - (this.called.get(peer) ?? -Infinity) > CALLIN_WINDOW_MS && !/^(drop_pod|mine|tripwire|claymore|mortar)/.test(damage.source)) return false;
     if (kind !== 'shot') {
       const second = Math.floor(now / 1000);
       const area = this.area.get(peer) ?? { second, count: 0 };
