@@ -39,6 +39,10 @@ vec4 op2Extra(int i) {
 float op2Run(vec3 d) {
   return length(vec3(d.x, d.y < 0.0 ? d.y * 0.42 : d.y, d.z));
 }
+// A wetter body runs further: at full bloodiness the stain reaches three times as far below a wound.
+float op2RunWet(vec3 d, float wet) {
+  return length(vec3(d.x, d.y < 0.0 ? d.y * mix(0.42, 0.14, wet) : d.y, d.z));
+}
 // Distance from the wound's line, in metres and measured square to its axis, so that a gash follows a curved body
 // when its two ends are only a chord across it. Writes how far below the entry point p lies, and the offset from
 // the line. The radius narrows to nothing at the ends of a gash.
@@ -86,12 +90,13 @@ int op2Region() {
 export const WOUND_VERTEX_LOOP = /* glsl */ `
 {
   int op2Count = int(op2Extra(OP2_INFO).x);
+  float op2Wet = op2Extra(${EXTRA_PARAMS}).x;
   int op2Bit = op2Region();
   for (int i = 0; i < OP2_MAX_WOUNDS; i++) {
     if (i >= op2Count) break;
     int base = OP2_WOUND_BASE + i * OP2_WOUND_TEXELS;
     vec4 t0 = op2Extra(base);
-    float reach = t0.w + aEdge * 0.01 - op2Run(transformed - t0.xyz);
+    float reach = t0.w + aEdge * 0.01 - op2RunWet(transformed - t0.xyz, op2Wet);
     if (reach <= 0.0) continue;
     op2Near = max(op2Near, reach);
     vec4 t2 = op2Extra(base + 2);

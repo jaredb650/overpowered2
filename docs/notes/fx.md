@@ -56,6 +56,31 @@ Faceted chips stay for explosions. The 20 yellow headshot chips and their flash 
 - **Decals.** `decals.splat(position, normal, size, velocity)` is added by module augmentation in `render/Decals.ts`. Length over width is one over the sine of the impact angle, capped at 4.5. The blot sits back, a tail draws out ahead and side spatter bends forward. All blood cells get a per-decal warp so the few atlas shapes never match, the regrade to deep red, and dry over about a minute. The old emissive floor is gone: blood must not glow.
 - Gore's `meat`, `viscera`, `bone`, `skull` and `brain` are real bodies, so `gibBurst` and `headBurst` no longer throw FX giblets or chunks.
 
+### Sprays, drips, runs and pools (2026-11-16)
+
+The owner asked for Overgrowth's blood: drips, spills, sprays on the walls. It is all strands and decals already in place; nothing adds
+geometry or a draw call.
+
+- **Exit spray** (`bloodSpray(position, dir, weight, radial?)`, `recipes/blood.ts`). What leaves the far side of a body with the round and
+  paints what is behind it. `weight` is the body-hit sounds' `hitWeight` (0..1), so a round sounds and sprays as heavy as it is. Under
+  `SPRAY_HEAVY` (0.45; the SMG and Rivet) it is two mist puffs, a fat strand and two or three fine ones: a mark a hand across. Over it
+  (pellets as a blast, the Judge, the Trommel, a stake) a fan of up to ten strands that widens with weight, and a splash: the fat strand's
+  stain is `sprayMark(weight)` (0.25 to 1.35 m of quad, the blot about a third of it), stretched along the shot by the angle it lands at. A
+  blast (`radial`) is `SPRAY_RADIAL` (6) fans in a dome leaning along the blast, one wall ray each. Every mark is a booked stain, so it lands
+  where and when its strand does, and the spray is seen to cross to the wall. Gore fires it (`BloodField.onHit`); see `docs/notes/gore.md`.
+- **Drips** (`bloodDrip(position, velocity?, size?)`). One short bead with a 3.5 cm trail, falling at gravity with light drag, and a spot of
+  `0.75 x` a strand's stain where it lands: 3 to 6 cm. One floor ray. Gore drips wounds, the dead and flying meat through it, inside its
+  own budget.
+- **Runs** (`decals.run(position, normal, size)`, `render/Decals.ts`). Blood running down a wall from a stain: one decal, a long thin quad
+  hung from the stain (0.18 to 1.4 m long, 1.4 to 8 cm wide), drawn in the shader (flag 2 in `aDecal.z`). Its front creeps down over one
+  to two seconds and slows, stopping at 55 to 100% of the quad, with a bead at its head; it wanders, thins and dries like any blood decal.
+  `splat` feeds runs by itself from any wall stain (normal within `RUN_WALL` of flat) of `RUN_FROM` (0.16 m) and up, surely from
+  `RUN_SURE` (0.6), up to three for a big splash. A drop's spot never runs. The depth test keeps a run off a ledge or a floor below.
+- **Pools** spread slowly: the shader grows them most of the way over four seconds (it was one) and keeps creeping, and gore lays three
+  stages per corpse, not five.
+- **Queued stains are directional.** `BloodField`'s ray queue (the wall behind a kill, a blast's splatter) goes through `splat` with the
+  ray as the velocity, so those stains stretch along their flight and can run, like FX's.
+
 | Strands and puffs per effect | Before | After |
 |---|---|---|
 | `bloodHit` | 28 | 9 |
@@ -93,6 +118,8 @@ fx.pickupSparkle(pos, color?)
 fx.spawnIn(pos, color?, height?)
 fx.wallSparks(pos, normal, along)
 fx.lensBlood(amount)                         // also fires itself on gibs and head bursts within 3 m
+fx.bloodSpray?(pos, dir, weight, radial?)    // a hit's exit spray onto what is behind; see Sprays, drips, runs and pools
+fx.bloodDrip?(pos, velocity?, size?)         // one drop that lands as a small spot
 fx.heatShimmer(pos, radius, seconds)
 fx.burst?.(pos, normal, scale?)              // a 20 mm round going off: see below. Optional on the contract
 fx.muzzleFlash(pos, dir, kind, view?)
@@ -133,6 +160,8 @@ Camera shake and hit-stop are not done here. Callers own those. Explosions do fi
 | `recipes/blood.ts` | Strand counts, speed, width, trail, drag per effect. `emitters.ts` for stumps and trails |
 | `layers/blood.ts` | `uLift` (how bright blood reads), `uMinPx` (thinnest strand before it pales), the 0.5 cap |
 | `stains.ts` `STAIN_SCALE` | Stain size against strand width |
+| `recipes/blood.ts` `SPRAY_HEAVY`, `sprayMark`, `SPRAY_RADIAL`, `DRIP_HALF`, `DRIP_STAIN` | Where a spray turns from mist to splash, its biggest mark, a blast's fans; a drip's width and spot |
+| `render/Decals.ts` `RUN_FROM`, `RUN_SURE`, `RUN_WALL`, the run branch of `FRAG_MAIN` | Which wall stains run and how many; how a run grows, thins and beads. Pool growth is the line above it |
 | `recipes/explosions.ts` `RECIPES` | Counts, reach, shock, smoke, light per kind. `plasmaBurst` is the Lance's (`docs/notes/weapons.md`, "The Lance"): a white-blue star, a short plasma fireball at half the radius, a shock sphere, a floor ring and a scorch, 20 chips and 12 sparks, 53 particles in all against a shell's 115, because a full beam sets one off at every body it struck, a few hundredths of a second apart. `/?sandbox=fx&effect=plasmaBurst` |
 | `recipes/impacts.ts` `SURFACES` | Per-surface chips, dust, sparks, pop |
 | `recipes/muzzle.ts` `MUZZLES`, `TRACERS` | Star shape, size, life, light. Tracer width, speed, length. `carbine`, `pistol` and `sabot` are the Harrow, Rivet and Sabot's own (`docs/notes/weapons.md`), and `quiver` one tube of the Quiver lighting, smaller than the rocket's and over in 40 ms so four in 0.3 s read as four (the Thresher uses `shotgun`): the sabot and `snipe` tracers run at 12 km/s, so a 240 m shot crosses in about a frame and reads as instant, and the pieces of it either side of a wall are on screen together. `rotary` is the 20 mm rotary cannon's (the Trommel on key 8): a fat orange ball with three tongues, 0.32 m where the old `minigun` star is 0.17, and no bigger, because at 25 a second it is on screen most of the time beside the crosshair. `hmg` is the Piledriver's: a four-point cross with long side jets off the brake |
@@ -207,5 +236,9 @@ Cap behaviour, from a browser run: 12,000 chips in one call clamps to 9,000 live
 - **A world-space flash near a viewmodel** relies on the 3 m rule in `recipes/muzzle.ts`. An enemy firing from under 3 m away has its flash drawn in the view scene, which looks right but ignores world depth.
 - **A strand can stop in mid-air** when the wall ahead of a jet is narrower than the jet, because the landing test uses that wall's plane. The stain then fails the decal depth test and nothing is left behind. Rare, and it was never worth a second ray.
 - **Blood in near-total darkness is hard to see,** on purpose. So is everything else there.
-- **Gore's stains are not directional yet.** They use `decals.add`. Only drops that come through FX are elongated. See the gore change in Measured.
+- **Gore's queued stains are directional now** (2026-11-16). Pools and smears still use `decals.add`, as they should.
+- **A decal shows only where the render mesh lies on the collider.** Decals test depth against the plane the ray found, within 3 cm. Where
+  the collider is not where the mesh is (an invisible blocker: the spot `transit_hall` has one along its east side), sprays, runs and
+  bullet holes alike draw nothing.
+- **Runs do not follow a wall round a corner or over a lip,** and a run on a wall that ends above the floor stops at the edge.
 - **Not verified on the owner's screen.** Everything here ran headless on a loaded machine with dynamic resolution off. Blood flying through hit-stop is correct by construction but has not been judged in motion.

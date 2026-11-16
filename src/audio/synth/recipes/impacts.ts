@@ -39,7 +39,8 @@ export const impacts = [
     slap(s, 1, s.r(800, 1200));
     wetBurst(s, 8, 0.16, 460, 0.45);
   }),
-  r('impact_armor', { dur: 0.42, n: 4, mix: 'impact', over: { volume: 0.5, priority: 5 }, expect: sharp }, s => {
+  // A round turned by a plate, where it struck: out of the impact family, so a wall of bullet holes cannot thin it.
+  r('impact_armor', { dur: 0.42, n: 4, mix: 'impact', over: { volume: 0.7, priority: 5, family: undefined, familyMax: undefined, near: 9, far: 110 }, expect: sharp }, s => {
     clank(s, s.r(980, 1420), 1, 0.11);
     thump(s, 150, 0.07, 0.6, 2);
     s.grains(0.18, t => 220 * Math.exp(-t * 18), 0.001).hp(3600).out(0.7);
@@ -99,7 +100,7 @@ export const impacts = [
   r('metal_clang', { dur: 0.9, n: 4, mix: 'impact', over: { volume: 0.46, send: 0.22 }, expect: sharp }, plateClang),
   // The same plate for a living machine being shot, through `machine_hit`, which cuts it at 0.22 s. Its voices are its own
   // and as wide as `hit_punch`'s, and one a frame, so a shotgun blast on a drone is one clank.
-  r('machine_clang', { dur: 0.9, n: 4, mix: 'impact', over: { volume: 0.42, send: 0.16, priority: 5, maxVoices: 3, perFrame: 1, family: undefined, familyMax: undefined, near: 10, far: 150, pitchJitter: 0.07 }, expect: sharp }, plateClang),
+  r('machine_clang', { dur: 0.9, n: 4, mix: 'impact', over: { volume: 0.6, send: 0.16, priority: 5, maxVoices: 3, perFrame: 1, family: undefined, familyMax: undefined, near: 14, far: 150, pitchJitter: 0.07 }, expect: sharp }, plateClang),
   r('concrete_crumble', { dur: 1.3, n: 3, mix: 'impact', over: { volume: 0.5, send: 0.2 } }, s => {
     s.noise('brown', 0.9).lp(900).env(perc(0.7, 1, 0.03)).gain(2).out(0.8);
     s.grains(1.2, t => 110 * Math.exp(-t * 2.7) + 6, 0.004, t => 1 - t / 1.3).bp(1000, 0.8).drive(2).out(1.6);

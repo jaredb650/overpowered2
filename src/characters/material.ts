@@ -235,7 +235,7 @@ float sWoundH = 0.0;
       if (i >= wounds) break;
       int base = OP2_WOUND_BASE + i * OP2_WOUND_TEXELS;
       vec4 t0 = op2Extra(base);
-      float run = op2Run(vBind - t0.xyz);
+      float run = op2RunWet(vBind - t0.xyz, blood);
       if (run > t0.w) continue;
       vec4 t2 = op2Extra(base + 2);
       float coded = t2.w;
@@ -253,7 +253,10 @@ float sWoundH = 0.0;
       if (past > t0.w) continue;
       // Fire seals what it burns.
       if (kind != OP2_DENT && kind != OP2_BURN) {
-        stain = max(stain, smoothstep(1.0, 0.25, (op2Run(off) + past * 2.0) / (t1.w * OP2_STAIN_RADII + OP2_STAIN_MARGIN) + (tear + tearBig) * 0.2));
+        // Below the wound it runs in rivulets, longer the wetter the body: stripes that hang down the bind pose.
+        float below = smoothstep(0.0, 0.05, -off.y) * blood;
+        float rivulet = texture2D(tDetail, vec2(vBind.x * 4.1 + vBind.z * 3.3, vBind.y * 0.11 + t0.x)).a - 0.5;
+        stain = max(stain, smoothstep(1.0, 0.25, (op2RunWet(off, blood) + past * 2.0) / (t1.w * OP2_STAIN_RADII + OP2_STAIN_MARGIN) + (tear + tearBig) * 0.2 * (1.0 - below) - rivulet * 1.6 * below));
       }
       if (kind == OP2_BURN) {
         scorch = max(scorch, smoothstep(1.15, 0.55, (dist + past * 2.0) / t1.w + tear * 0.35));

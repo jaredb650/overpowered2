@@ -126,3 +126,82 @@ export function headBurst(core: FxCore, position: THREE.Vector3, dir: THREE.Vect
   }
   spatter(core, position, 0.7);
 }
+
+/**
+ * What comes out of the far side of a body with the round, and paints the wall or floor behind it. `weight` (0..1, the
+ * same scale as the body-hit sounds' `hitWeight`) sets the class: a light round is a fine mist and a small mark, a
+ * shotgun or a heavy round a fan of strands and a splash up to a metre across, stretched along the shot. `radial` is a
+ * blast: a burst in every direction, leaning along `dir`, the way the blast went. Every mark lands where and when its
+ * strand does (`StainQueue`), so the spray is seen to travel to the wall.
+ */
+export function bloodSpray(core: FxCore, position: THREE.Vector3, dir: THREE.Vector3, weight: number, radial = false): void {
+  const w = clamp(weight, 0, 1);
+  const { x, y, z } = position;
+  const floor = core.floorAt(x, y, z);
+  if (radial) {
+    for (let i = 0; i < SPRAY_RADIAL; i++) {
+      _v.set(rand(-1, 1), rand(-0.35, 0.8), rand(-1, 1)).normalize().addScaledVector(dir, 0.8).normalize();
+      const b = core.blood.begin(core.bloodNow, floor, core.wallAlong(x, y, z, _v.x, _v.y, _v.z), BLOOD_TONE.arterial);
+      sprayFan(core, x, y, z, _v.x, _v.y, _v.z, 0.7 + w * 0.3, 3, 0.35 + 0.35 * w, i * 0.01);
+      if (i < 2) b.mist(x, y, z, _v.x * 5, _v.y * 5, _v.z * 5, 0.2, 0.35, 7, 0.5);
+    }
+    return;
+  }
+  const b = core.blood.begin(core.bloodNow, floor, core.wallAlong(x, y, z, dir.x, dir.y, dir.z), BLOOD_TONE.wound);
+  // A light round leaves mostly mist. It still reads at range: the layer grows a far puff.
+  const mists = w < SPRAY_HEAVY ? 2 : 1;
+  for (let i = 0; i < mists; i++) {
+    b.mist(x, y, z, dir.x * rand(3, 5) + rand(-0.5, 0.5), dir.y * 4 + rand(-0.3, 0.6), dir.z * rand(3, 5) + rand(-0.5, 0.5),
+      0.09 + 0.1 * w, rand(0.25, 0.4), 6, 0.55, i * 0.02);
+  }
+  sprayFan(core, x, y, z, dir.x, dir.y, dir.z, w, 2 + Math.round(w * 8), sprayMark(w), 0);
+}
+
+/** Where the bulk of a spray lands, as the quad edge of its biggest mark (the blot fills about a third): a hand's width for a light round, half a metre of blot for the heaviest. */
+export function sprayMark(weight: number): number {
+  const w = clamp(weight, 0, 1);
+  return 0.25 + 1.1 * w ** 1.3;
+}
+
+/** A light round is a mist under this weight; at or over it, a splash. */
+export const SPRAY_HEAVY = 0.45;
+/** Directions a blast's spray goes in. Each costs a ray for its wall. */
+export const SPRAY_RADIAL = 6;
+
+/** One fat strand straight down the line that leaves the big mark, and a fan round it that widens with weight. */
+function sprayFan(
+  core: FxCore, x: number, y: number, z: number, dx: number, dy: number, dz: number, w: number, count: number, mark: number, delay: number,
+): void {
+  const b = core.blood;
+  const speed = 9 + 8 * w;
+  const l = b.add(x, y, z, dx * speed, dy * speed + 0.4, dz * speed, 0.006 + 0.01 * w, 0.06, 0.5, delay);
+  core.stains.book(core.bloodNow + delay + l.time, l, mark);
+  const jitter = 1 + 2.6 * w;
+  for (let i = 0; i < count; i++) {
+    const v = speed * rand(0.55, 1);
+    const half = (0.005 + 0.008 * w) * rand(0.6, 1.3);
+    const wait = delay + i * 0.008;
+    const s = b.add(
+      x, y, z, dx * v + rand(-jitter, jitter), dy * v + rand(-jitter * 0.6, jitter), dz * v + rand(-jitter, jitter),
+      half, 0.07 * rand(0.6, 1.2), rand(0.8, 1.5), wait,
+    );
+    core.stains.book(core.bloodNow + wait + s.time, s, half * STAIN_SCALE);
+  }
+}
+
+/**
+ * One drop falling from a wound, a gib or a body: a short bead that lands and leaves a spot a few centimetres across.
+ * `velocity` is what it leaves with, which off a still body is next to nothing. One floor ray.
+ */
+export function bloodDrip(core: FxCore, position: THREE.Vector3, velocity: THREE.Vector3 | undefined, size = 1): void {
+  const { x, y, z } = position;
+  const b = core.blood.begin(core.bloodNow, core.floorAt(x, y, z), null, BLOOD_TONE.venous);
+  const half = DRIP_HALF * clamp(size, 0.3, 3) * rand(0.75, 1.25);
+  const l = b.add(x, y, z, velocity?.x ?? 0, (velocity?.y ?? 0) - 0.2, velocity?.z ?? 0, half, 0.035, 0.3);
+  core.stains.book(core.bloodNow + l.time, l, half * STAIN_SCALE * DRIP_STAIN);
+}
+
+/** Half width of a drip, m. */
+const DRIP_HALF = 0.0055;
+/** A drip's spot against what a strand of its width leaves: a falling drop hits square and does not spread far. */
+const DRIP_STAIN = 0.75;

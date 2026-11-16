@@ -284,15 +284,16 @@ const packs: SoundDef[] = [
   pack('body_drag', 3, 'body_scrape', 0.24, { maxVoices: 2, near: 3, far: 30 }),
   // The wet of a body hit. One a frame: a second wet layer under the same blast added only level, and at point blank
   // that was enough to push the limiter. The curve keeps a hit at 30 m at 0.25 of point blank, where 5 to 55 m left it at 0.12.
-  pack('bullet_body', 6, 'blood_splat', 0.38, { ...BODY_HIT, maxVoices: 3, priority: 5, near: 8, far: 110 }),
+  // Raised 3 dB up close and 4 to 5 dB at 10 to 30 m on 2026-11-16 (0.38, near 8), at the owner's word that hits went unheard.
+  pack('bullet_body', 6, 'blood_splat', 0.54, { ...BODY_HIT, maxVoices: 3, priority: 5, near: 12, far: 110 }),
   // Its weight: the limb_thud recordings pitched up 1.05 to 1.55 by the round, a short 120-400 Hz punch with a 5 ms attack,
   // which is the band the SMG leaves open. Wide, because this is what says a hit landed 30 m away.
-  pack('hit_punch', 5, 'body_thud', 0.38, { ...BODY_HIT, maxVoices: 3, priority: 6, near: 12, far: 160, send: 0.08, pitchJitter: 0.05 }, 'limb_thud'),
+  pack('hit_punch', 5, 'body_thud', 0.54, { ...BODY_HIT, maxVoices: 3, priority: 6, near: 16, far: 160, send: 0.08, pitchJitter: 0.05 }, 'limb_thud'),
   // A corpse or a loose limb being shot: the same recordings under texture's rules, in the family landings fill, so a
   // pile of bodies under fire thins itself and never takes a living hit's start or its voices. `corpse_body` is what
   // `bullet_body` was on corpses before hits had layers.
-  pack('corpse_body', 6, 'blood_splat', 0.42, { maxVoices: 4, priority: 4 }, 'bullet_body'),
-  pack('corpse_punch', 5, 'body_thud', 0.38, { maxVoices: 2, priority: 3, perFrame: 1, near: 8, far: 110, send: 0.08, pitchJitter: 0.05 }, 'limb_thud'),
+  pack('corpse_body', 6, 'blood_splat', 0.52, { maxVoices: 4, priority: 4 }, 'bullet_body'),
+  pack('corpse_punch', 5, 'body_thud', 0.48, { maxVoices: 2, priority: 3, perFrame: 1, near: 8, far: 110, send: 0.08, pitchJitter: 0.05 }, 'limb_thud'),
   // The confirmation, played 2D: wet_slap's 1-4 kHz crunch, 7 to 11 dB under the SMG shot at any range. The fifth
   // recording is 6 dB quieter and half sub, so it is left to the landings.
   pack('hit_confirm', 4, 'gib_land', 0.15, { ...BODY_HIT, maxVoices: 2, priority: 7, send: 0.04, pitchJitter: 0.04 }, 'wet_slap'),

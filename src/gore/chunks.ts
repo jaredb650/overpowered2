@@ -30,6 +30,10 @@ export const ChunkTuning = {
   impactSpeed: 3.5,
 };
 
+/** Seconds a flying piece of meat drips for, and its drops a second. */
+const GIB_DRIP_FOR = 2.5;
+const GIB_DRIPS = 3;
+
 interface Chunk {
   kind: ChunkKind;
   slot: number;
@@ -387,6 +391,10 @@ export class ChunkField {
       if (lost > t.impactSpeed && c.splats < 3 && c.kind !== 'scrap') {
         c.splats++;
         this.blood.stainBelow(c.p, 0.14 + c.bulk * 2.2, 'blood', 0.8);
+      }
+      // Meat drips as it flies and for a moment after, inside the blood budget's drops a frame.
+      if (c.kind !== 'scrap' && c.kind !== 'bone' && now - c.born < GIB_DRIP_FOR && Math.random() < dt * GIB_DRIPS) {
+        this.blood.drip(c.p, _o.copy(c.v).multiplyScalar(0.3), 0.8 + c.bulk * 8);
       }
       if (c.kind !== 'scrap') {
         const scale = clamp(c.bulk / ImpactTuning.organFullSize, ImpactTuning.organFloor, 1);

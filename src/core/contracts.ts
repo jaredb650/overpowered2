@@ -498,6 +498,13 @@ export interface FxSystem extends GameSystem {
   headBurst(position: THREE.Vector3, dir: THREE.Vector3): void;
   /** Whole-body gore burst used by gibs. */
   gibBurst(position: THREE.Vector3, dir: THREE.Vector3, force: number): void;
+  /**
+   * The exit spray of a hit, painting what is behind the body. `weight` 0..1 is the round's (`hitWeight` in
+   * audio/reactions): a light round mists, a heavy one splashes; `radial` is a blast's burst. See docs/notes/fx.md.
+   */
+  bloodSpray?(position: THREE.Vector3, dir: THREE.Vector3, weight: number, radial?: boolean): void;
+  /** One drop falling from a wound or gib, leaving a small spot where it lands. `size` 1 is a plain drop. */
+  bloodDrip?(position: THREE.Vector3, velocity?: THREE.Vector3, size?: number): void;
 
   /** Continuous emitter that follows `target`. `preset` picks the look. */
   attachEmitter(target: THREE.Object3D, preset: EmitterPreset, offset?: THREE.Vector3, seconds?: number): EmitterHandle;

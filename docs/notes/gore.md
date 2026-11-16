@@ -287,10 +287,42 @@ Breaking: each hit on a limb adds `damage x breaks` to `char.stress` for that jo
 | `relax`, `role`, `collider` | `rig.ts` | Resting pose per joint, what each joint is for, and what a bone rests on where that is not its hit capsule |
 | `RagTuning` | `rag.ts` | The tempo dial (`gravityScale`) and when a body killed in the air takes it, joint damping, death tone, hard limit strength and fade-in, rest damping, collider slimming, heel feet, speed clamps (one impulse on one body, a blast, a shove), blast lift, how far a broken joint opens |
 | `swingShape()` | `rag.ts` | Asymmetric hip and shoulder reach |
-| `BloodTuning` | `blood.ts` | Rays per frame (24), droplet and pool caps, smear spacing |
+| `BloodTuning` | `blood.ts` | Rays per frame (24), droplet and pool caps, smear spacing, the queued stains' speed, bleeders (32), drops (6) and sprays (6) a frame, how much wetter a hit makes a body |
 | `ChunkTuning` | `chunks.ts` | Slots per kind, live bodies (72), linger, bounce |
 | `SliceTuning` | `sliced.ts` | Hold before the halves part, slide speed, half cap |
 | `CrawlTuning` | `crawl.ts` | Stroke time, reach, haul, lift |
+
+## Blood that stays
+
+`blood.ts`, `BloodField`, which `Gore` holds as `this.blood`. FX draws blood in the air; this decides where blood is left. The new parts
+(2026-11-16), for anyone in gore who wants to leave blood:
+
+```ts
+blood.bleedAt(point, normal, amount);           // blood on a surface now, no ray: amount 1 is a hand-sized stain; a big one on a wall runs
+blood.drip(point, velocity?, size?);            // one drop that falls and leaves a spot. False when the frame's 6 drops are spent
+blood.bleed(bone, worldPoint, seconds, every?, owner?);  // a wound that drips for `seconds`, pinned to `bone`, slowing as it clots
+blood.onHit(char, damage, severity, bone?, point?);      // what a round leaves outside a body; Gore calls it, see below
+```
+
+- `bleed` is the drip emitter: the point is kept in the bone's frame, so drops follow the body as it moves, falls and lies. `every` is the
+  seconds between drops at first (0.4); they come up to three times slower and smaller as the wound ages. It stops by itself when `owner`
+  (pass `char.root`) leaves the scene or is hidden. 32 at once, the oldest taken. Drops are `fx.bloodDrip`, a strand that lands as a stain,
+  and all callers share `dripsPerFrame` (6), so a pile of bodies costs what six drops do.
+- `bleedAt` puts a stain of `0.12 + 0.3 sqrt(amount)` m (quad edge) straight onto the surface. On a wall `decals.splat` grows a run down
+  from it once it is 0.16 m or more. Use it where something wet touches a surface: a stump on the floor, an organ against a wall.
+- `onHit` runs on every round into a living body (`Gore.wound`) and into the dead (`damageCorpse`), never on machines. It fires
+  `fx.bloodSpray` at the hit along the shot with the round's `hitWeight` (`sprayOf`: bullets and pellets by weight, a blast radial, nothing
+  for fire, shock or blades), makes the body wetter (`setBloodiness`, +0.1 and 1.1 times the share of health a hit took), and starts a
+  dripping wound on the bone for 4 to 17 s. A shotgun's pellets on one body within 50 ms are one spray and one wound; they only add wet.
+  `spraysPerFrame` (6) keeps a grenade into a crowd from spraying off every body.
+- A co-op guest gets all of it from the wound event alone: `net/world.ts` calls `gore.wound` for each `hit`, which is all `onHit` needs. No
+  extra traffic.
+- Flying meat drips (`chunks.ts`): every piece but scrap and bone, three drops a second for its first 2.5 s, from the same budget.
+- Wet bodies run: the skin shader stretches each wound's stain further down the body with bloodiness, to three times as far at 1, broken
+  into rivulets (`op2RunWet` in `characters/anatomy/glsl.ts`, the stain in `characters/material.ts`).
+
+Tests: `blood.test.ts` (spray classes, one spray a shotgun blast, the spray, bleeder and drop budgets, decal cap and runs). Renders:
+`tools/scripts/gore-b.mjs` (scenes `spray runs pool wet drips bench`, header has the command) and `tools/scripts/gore-b-wet.mjs`.
 
 ## Forces
 
@@ -613,7 +645,7 @@ Shared 8 GB M1 under load average around 18, so treat these as upper bounds.
   the TestDummy.
 - **The library pools 96 instances per archetype** and takes the oldest back when it runs out. Gore detects that and lets
   go, so a corpse whose instance went back simply disappears. 48 live enemies plus 40 corpses of one archetype is 88, inside it.
-- Pools grow as stacked decals, since `DecalSystem` has no resize. 5 per corpse.
+- Pools grow as stacked decals, since `DecalSystem` has no resize: 3 per corpse, each spreading over about four seconds in the shader.
 - **`Physics.radialImpulse` moves what it finds.** It collects bodies inside Rapier's query and applies the impulses afterwards. A chunk at rest has given back its body, so a blast only reaches chunks in flight.
 - **Get-ups assume flat ground.** Feet and hands are keyed relative to the root, and the root sits on the floor under the chest. On a ramp or stairs a foot will sink or float a little. Not tried. A body beside a wall can stand with the wall inside its stand point, and `trackProgress` walks it out.
 - **A burn emitter sits on the chest bone** (`EnemyManager`), so it goes down with the body. Only a rig with no chest carries

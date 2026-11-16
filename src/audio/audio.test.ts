@@ -304,6 +304,21 @@ describe('body hits', () => {
     expect(attenuation(60, def('hit_punch').near, def('hit_punch').far)).toBeGreaterThan(0.15);
   });
 
+  it('plays the hits from where they landed at the raised levels of 2026-11-16, and keeps the 2D confirm as it was', () => {
+    const level = (id: string) => ({ volume: def(id).volume, near: def(id).near, far: def(id).far });
+    expect(level('bullet_body')).toEqual({ volume: 0.54, near: 12, far: 110 });
+    expect(level('hit_punch')).toEqual({ volume: 0.54, near: 16, far: 160 });
+    expect(level('machine_clang')).toEqual({ volume: 0.6, near: 14, far: 150 });
+    expect(level('impact_armor')).toEqual({ volume: 0.7, near: 9, far: 110 });
+    // A plate's clank is no longer one of the wall impacts' twelve, which could thin it.
+    expect(def('impact_armor').family).toBeUndefined();
+    expect(def('corpse_body').volume).toBe(0.52);
+    expect(def('corpse_punch').volume).toBe(0.48);
+    expect(def('hit_confirm').volume).toBe(0.15);
+    // Nearby hits are at full level out to 12 m, where they began to fall away at 8.
+    expect(attenuation(12, def('bullet_body').near, def('bullet_body').far)).toBe(1);
+  });
+
   it('gives body hits their own voices, one transient a frame, above landings and below blasts', () => {
     const living = ['bullet_body', 'hit_punch', 'hit_confirm', 'machine_clang'];
     for (const id of living) {
@@ -678,7 +693,7 @@ describe.skipIf(!report)('real renders', () => {
    * Levels from the report's own measurements of the recordings each layer reuses. A pack's level is its mean loudness
    * matched by `trimFor`, as the bank does at load. A 3D voice in front plays a mono buffer 3 dB down, as the panner does.
    */
-  it('puts a body hit under the gun and the headshot up close, and keeps it heard at 30 m', () => {
+  it('puts a body hit over the gun up close, under the headshot, and keeps it heard at 30 m', () => {
     const line = (id: string) => report!.lines.find(l => l.id === id)!;
     const mixLoud = (id: string) => (line(id) as unknown as { mixLoud: number }).mixLoud;
     const packLevel = (id: string, recordings: string, count: number) => {
@@ -703,12 +718,13 @@ describe.skipIf(!report)('real renders', () => {
     // The confirmation alone stays well under the gun and the headshot, at any weight.
     expect(confirm * bodyHitLevels(smgWeight).confirmVolume).toBeLessThan(smg * 0.4);
     expect(confirm * bodyHitLevels(1).confirmVolume).toBeLessThan(smg * 0.6);
-    expect(hit(1, 3)).toBeLessThan(headshot);
-    // Up close an SMG hit is about the shot's own size. Today's was 3 dB under it.
-    expect(hit(smgWeight, 3) / smg).toBeGreaterThan(0.8);
-    expect(hit(smgWeight, 3) / smg).toBeLessThan(1.25);
-    // At 30 m it is under 9 dB down, where the old wet hit alone was 21 dB down.
-    expect(hit(smgWeight, 30) / smg).toBeGreaterThan(0.35);
+    // The heaviest rounds may land over it up close (2026-11-16): a headshot drops the body hit on its frame, so they never meet.
+    expect(hit(smgWeight, 3)).toBeLessThan(headshot);
+    // Up close an SMG hit reads over its own shot, by 2 to 6 dB. Before 2026-11-16 it was level with it, and went unheard.
+    expect(hit(smgWeight, 3) / smg).toBeGreaterThan(1.25);
+    expect(hit(smgWeight, 3) / smg).toBeLessThan(2);
+    // At 30 m it is under 4.5 dB down, where it was 7 dB down and the old wet hit alone 21 dB down.
+    expect(hit(smgWeight, 30) / smg).toBeGreaterThan(0.6);
     expect((wet / lookup('bullet_body')!.volume) * 0.42 * 0.8 * attenuation(30, 5, 55) * front / smg).toBeLessThan(0.1);
     // A heavier round is a heavier hit at every range.
     for (const d of [3, 10, 30, 60]) expect(hit(weightOf('judge'), d), `${d} m`).toBeGreaterThan(hit(smgWeight, d) * 1.15);

@@ -1130,7 +1130,9 @@ export class Gore implements GoreSystem {
 
   wound(char: CharacterInstance, damage: DamageInfo, severity: number): boolean {
     this.wounds.onBody(char, damage, severity);
-    return this.wounds.broke;
+    const broke = this.wounds.broke;
+    if (!isMachine(char)) this.blood.onHit(char, damage, severity);
+    return broke;
   }
 
   private woundEffects(char: CharacterInstance, bone: number, at: THREE.Vector3, damage: DamageInfo): void {
@@ -1651,6 +1653,7 @@ export class Gore implements GoreSystem {
       // sizes a flinch by build itself (`HumanoidAnimator.flinch`), so this one is not scaled by mass again.
       muscle?.collapse?.flinch(hit.bone, damage.dir, MuscleTuning.collapseFlinch * joltOf(forceOf(damage), HUMAN_MASS));
       this.wounds.onBody(char, damage, damage.amount / CORPSE_HEALTH, hit.bone, hit.point);
+      if (!machine) this.blood.onHit(char, damage, damage.amount / CORPSE_HEALTH, hit.bone, hit.point);
       this.corpseSound(hit.point, damage, machine, false);
       target.damage[hit.bone] = target.damage[hit.bone]! + damage.amount * (damage.severMult ?? 1);
       // Damage on a bone counts toward the nearest severable joint at or above it.

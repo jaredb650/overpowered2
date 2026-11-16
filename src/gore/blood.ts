@@ -7,8 +7,9 @@
  * a little further between checks and the queue waits, so the cost per frame stays flat.
  */
 import * as THREE from 'three';
-import { CG, type Ctx, type DecalKind, type RayHit } from '../core/contracts';
-import { TAU, randomInCone } from '../core/math';
+import { hitWeight } from '../audio/reactions';
+import { CG, type CharacterInstance, type Ctx, type DamageInfo, type DecalKind, type RayHit } from '../core/contracts';
+import { clamp, TAU, randomInCone } from '../core/math';
 
 export const BloodTuning = {
   /** Raycasts per frame across droplets, queued splats and smears. */
@@ -23,7 +24,39 @@ export const BloodTuning = {
   dropletLife: 2.2,
   /** How far a dragged body travels between smear marks. */
   smearSpacing: 0.42,
+  /** Speed a queued stain is taken to arrive at, along its ray, so it stretches along it like a drop that flew there. */
+  queuedSpeed: 7,
+  /** Wounds dripping at once. One more takes the oldest's place. */
+  maxBleeders: 32,
+  /** Exit sprays a frame. A grenade into a crowd sprays off the first few bodies, not all of them. */
+  spraysPerFrame: 6,
+  /** Drops a frame across every bleeder, gib and caller. Past it a drop waits for the next frame. */
+  dripsPerFrame: 6,
+  /** How much wetter a body gets per hit, plus its share of health that hit took. */
+  wetPerHit: 0.1,
 };
+
+/**
+ * A round's spray: its weight on the body-hit scale (`hitWeight`), and whether it is a blast's burst. Pure, so the
+ * classes can be tested: a light round mists, a shotgun or heavy round splashes, a blast bursts every way.
+ */
+export function sprayOf(d: Pick<DamageInfo, 'amount' | 'type' | 'force'>): { weight: number; radial: boolean } | null {
+  if (d.type === 'explosive') return { weight: clamp(0.6 + d.amount / 400), radial: true };
+  if (d.type !== 'bullet' && d.type !== 'pellet') return null;
+  return { weight: hitWeight(d.amount, d.type, d.force), radial: false };
+}
+
+/** A wound that drips for a while, from a point fixed on a bone. */
+interface Bleeder {
+  target: THREE.Object3D | null;
+  owner: THREE.Object3D | null;
+  local: THREE.Vector3;
+  until: number;
+  next: number;
+  /** Seconds between drops at the start. It slows as the wound clots. */
+  every: number;
+  start: number;
+}
 
 interface Pool {
   x: number; y: number; z: number;
@@ -44,9 +77,11 @@ interface QueuedRay {
   kind: DecalKind;
 }
 
-const POOL_STAGES = 5;
+const POOL_STAGES = 3;
 
 const _splat = new THREE.Vector3();
+const _at = new THREE.Vector3();
+const _inv = new THREE.Matrix4();
 
 export class BloodField {
   private readonly px = new Float32Array(BloodTuning.maxDroplets);
@@ -73,6 +108,19 @@ export class BloodField {
   private poolAt = 0;
   private rays = 0;
   raysUsed = 0;
+  private readonly bleeders: Bleeder[] = Array.from({ length: BloodTuning.maxBleeders }, () => ({
+    target: null, owner: null, local: new THREE.Vector3(), until: 0, next: 0, every: 1, start: 0,
+  }));
+  private bleederAt = 0;
+  private drips = 0;
+  private sprays = 0;
+  /** Drops let fall since the last `clear`. For checks. */
+  dripped = 0;
+  /** How wet each body is, 0..1, as `setBloodiness` has it. */
+  private readonly wet = new WeakMap<CharacterInstance, number>();
+  /** The last body a spray came off, and when: a shotgun's pellets on one body are one spray. */
+  private sprayChar: CharacterInstance | null = null;
+  private sprayAt = -1;
 
   private readonly hit: RayHit = {
     point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, surface: 'concrete', collider: null,
@@ -158,7 +206,7 @@ export class BloodField {
 
   /**
    * A pool that spreads over a few seconds. Decals have no update call, so growth is a short run of larger
-   * overlapping decals. Five of them stay well inside the budget at the 40 corpse cap.
+   * overlapping decals, each spreading slowly in the shader. Three of them stay well inside the budget at the 40 corpse cap.
    */
   pool(point: THREE.Vector3, size: number, seconds: number): void {
     if (this.rays >= BloodTuning.raysPerFrame * 2) return;
@@ -179,6 +227,80 @@ export class BloodField {
     p.rotation = Math.random() * TAU;
   }
 
+  /**
+   * Leaves blood on a surface at once, no ray: `point` on it, `normal` its normal, `amount` 0..1+ about how much (1 is
+   * a hand-sized stain). A wall stain this big runs down the wall (`decals.run`).
+   */
+  bleedAt(point: THREE.Vector3, normal: THREE.Vector3, amount: number): void {
+    if (!(amount > 0)) return;
+    // Arriving straight in: a round mark. The size curve keeps a trickle a spot and a gush a splash.
+    _splat.copy(normal).multiplyScalar(-1);
+    this.ctx.render.decals.splat(point, normal, 0.12 + 0.3 * Math.sqrt(amount), _splat);
+  }
+
+  /** One drop falling from `point`, leaving a spot where it lands. Inside a per-frame budget; false when it was skipped. */
+  drip(point: THREE.Vector3, velocity?: THREE.Vector3, size = 1): boolean {
+    if (this.drips >= BloodTuning.dripsPerFrame) return false;
+    this.drips++;
+    this.dripped++;
+    this.ctx.fx.bloodDrip?.(point, velocity, size);
+    return true;
+  }
+
+  /**
+   * A wound that drips for `seconds`: `point` in world space is pinned to `target` (a bone), so the drops follow it as
+   * the body moves, falls and lies. `every` is the seconds between drops at first; the wound slows as it clots. It
+   * stops by itself when `owner` (the body's root) leaves the scene. Capped at `maxBleeders`, oldest first.
+   */
+  bleed(target: THREE.Object3D, point: THREE.Vector3, seconds: number, every = 0.4, owner: THREE.Object3D | null = null): void {
+    const b = this.bleeders[this.bleederAt]!;
+    this.bleederAt = (this.bleederAt + 1) % BloodTuning.maxBleeders;
+    target.updateWorldMatrix(true, false);
+    b.target = target;
+    b.owner = owner;
+    b.local.copy(point).applyMatrix4(_inv.copy(target.matrixWorld).invert());
+    const now = this.ctx.time.elapsed;
+    b.start = now;
+    b.until = now + seconds;
+    b.every = every;
+    b.next = now + every * (0.3 + Math.random() * 0.7);
+  }
+
+  /** Wounds dripping now. For checks. */
+  get bleeding(): number {
+    const now = this.ctx.time.elapsed;
+    let n = 0;
+    for (const b of this.bleeders) if (b.target && now < b.until) n++;
+    return n;
+  }
+
+  /**
+   * What a hit on a body leaves outside it: the spray off its far side onto what is behind, a wound that drips, and a
+   * wetter body. Called for every round on the living and the dead, and on a co-op guest from the wound event alone.
+   */
+  onHit(char: CharacterInstance, d: DamageInfo, severity: number, bone = d.bone ?? -1, point = d.point): void {
+    if (d.type === 'fire' || d.type === 'shock' || d.type === 'true') return;
+    const now = this.ctx.time.elapsed;
+    // The rest of a shotgun's pellets on one body are the same hit: one splash, one dripping wound.
+    const again = d.type === 'pellet' && this.sprayChar === char && now - this.sprayAt < 0.05;
+    const s = clamp(severity, 0, 1);
+    const wet = Math.min(1, (this.wet.get(char) ?? 0) + (again ? s * 0.5 : BloodTuning.wetPerHit + s * 1.1));
+    this.wet.set(char, wet);
+    char.setBloodiness(wet);
+    if (again) return;
+    this.sprayChar = char;
+    this.sprayAt = now;
+    const spray = sprayOf(d);
+    if (spray && this.sprays < BloodTuning.spraysPerFrame) {
+      this.sprays++;
+      this.ctx.fx.bloodSpray?.(point, d.dir, spray.weight, spray.radial);
+    }
+    if (bone < 0) return;
+    const target = char.bones[bone];
+    // A bigger wound drips faster and for longer.
+    if (target) this.bleed(target, point, 4 + 10 * s + 3 * Math.random(), 0.55 - 0.35 * s, char.root);
+  }
+
   /** Marks the floor under a dragged body. The caller spaces these out by distance. */
   smear(point: THREE.Vector3, moveX: number, moveZ: number, size: number): void {
     if (!this.budgetLeft) return;
@@ -197,13 +319,19 @@ export class BloodField {
       if (this.cast(q.ox, q.oy, q.oz, q.dx, q.dy, q.dz, q.maxDist)) {
         // Blood thins out with distance from the wound.
         const fall = 1 - 0.55 * Math.min(1, this.hit.distance / q.maxDist);
-        this.ctx.render.decals.add(q.kind, this.hit.point, this.hit.normal, q.size * fall, Math.random() * TAU);
+        const v = BloodTuning.queuedSpeed;
+        // Blood flew down the ray to get here, so it stretches along it and can run down a wall.
+        if (q.kind === 'blood') this.ctx.render.decals.splat(this.hit.point, this.hit.normal, q.size * fall, _splat.set(q.dx * v, q.dy * v, q.dz * v));
+        else this.ctx.render.decals.add(q.kind, this.hit.point, this.hit.normal, q.size * fall, Math.random() * TAU);
       }
     }
 
     this.updateDroplets(dt);
 
     const now = this.ctx.time.elapsed;
+    this.drips = 0;
+    this.sprays = 0;
+    this.updateBleeders(now);
     for (let i = 0; i < BloodTuning.maxPools; i++) {
       const p = this.pools[i]!;
       if (p.stage >= POOL_STAGES || now < p.nextAt) continue;
@@ -214,6 +342,22 @@ export class BloodField {
       this.ctx.render.decals.add('bloodPool', this.t, this.n, (p.size * p.stage) / POOL_STAGES, p.rotation + p.stage * 0.9);
     }
     this.raysUsed = this.rays;
+  }
+
+  private updateBleeders(now: number): void {
+    for (let i = 0; i < BloodTuning.maxBleeders; i++) {
+      const b = this.bleeders[i]!;
+      if (!b.target || now < b.next) continue;
+      if (now >= b.until || (b.owner && (!b.owner.parent || !b.owner.visible))) {
+        b.target = null;
+        continue;
+      }
+      // Clotting: drops come slower as the wound ages, and smaller.
+      const age = (now - b.start) / Math.max(b.until - b.start, 0.01);
+      _at.copy(b.local).applyMatrix4(b.target.matrixWorld);
+      if (!this.drip(_at, undefined, 1.2 - 0.5 * age)) continue;
+      b.next = now + b.every * (1 + 2 * age) * (0.6 + Math.random() * 0.8);
+    }
   }
 
   private updateDroplets(dt: number): void {
@@ -253,6 +397,8 @@ export class BloodField {
   clear(): void {
     this.life.fill(0);
     this.queueLen = 0;
+    for (const b of this.bleeders) b.target = null;
+    this.dripped = 0;
     for (const p of this.pools) p.stage = POOL_STAGES;
   }
 }

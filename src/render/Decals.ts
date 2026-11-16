@@ -5,6 +5,8 @@ import type { BakedSet } from './materials/TextureBaker';
 
 export const MAX_DECALS = 2048;
 
+const _at = new THREE.Vector3();
+
 /** First atlas cell and variant count per kind. Matches surface_decals. */
 const CELLS: Record<DecalKind, readonly [number, number]> = {
   // One hole, not two: the second cell went to the exit crater. At 12 cm and any rotation the two could not be told apart.
@@ -18,8 +20,15 @@ const CELLS: Record<DecalKind, readonly [number, number]> = {
   crack: [14, 2],
 };
 const GROW_POOL = 1;
+/** Pool flag 2: a run of blood down a wall, drawn in the shader and grown from its top over a second or two. */
+const GROW_RUN = 2;
 /** Length over width of the most glancing stain. Past this a drop has skimmed off, not landed. */
 const MAX_STRETCH = 4.5;
+/** A wall stain this big (quad edge, m) or bigger can start a run down the wall, and is sure to from `RUN_SURE`. */
+const RUN_FROM = 0.16;
+const RUN_SURE = 0.6;
+/** A surface counts as a wall for runs while its normal is this flat. */
+const RUN_WALL = 0.55;
 
 declare module '../core/contracts' {
   interface DecalSystem {
@@ -28,6 +37,11 @@ declare module '../core/contracts' {
      * impact says, with its spatter thrown ahead of it. `size` is the edge of the quad before stretching.
      */
     splat(position: THREE.Vector3, normal: THREE.Vector3, size: number, velocity: THREE.Vector3): void;
+    /**
+     * Blood running down a wall from `position`, as wide as a stain of `size` would feed. Grows downward over a second
+     * or two. Does nothing on a floor or ceiling. `splat` calls it by itself for big enough wall stains.
+     */
+    run(position: THREE.Vector3, normal: THREE.Vector3, size: number): void;
   }
 }
 
@@ -68,13 +82,36 @@ float opZ = opProj.y / (texelFetch(opDepth, ivec2(gl_FragCoord.xy), 0).r * 2.0 -
 if (abs(opZ - vViewPosition.z) > 0.03 + vViewPosition.z * 0.0025) discard;
 vec2 opP = vOpUv;
 float opAge = max(opWorldTime - vOpDecal.y, 0.0);
-if (vOpDecal.z >= 1.0) {
-  // Pools spread out over a second, then keep creeping a little.
-  float grow = 0.2 + 0.72 * (1.0 - exp(-opAge * 2.6)) + min(opAge * 0.006, 0.08);
+if (vOpDecal.z >= 1.0 && vOpDecal.z < 2.0) {
+  // Pools spread slowly: most of the way in about four seconds, then keep creeping a little.
+  float grow = 0.16 + 0.76 * (1.0 - exp(-opAge * 0.6)) + min(opAge * 0.004, 0.08);
   opP = (opP - 0.5) / grow + 0.5;
 }
 float opCell = vOpDecal.x;
 bool opBlood = opCell > 3.5 && opCell < 11.5;
+vec4 opA;
+vec4 opS;
+if (vOpDecal.z >= 2.0) {
+  // A run down a wall. +X is down: the top sits in the stain that feeds it. The front creeps down over a second or
+  // two and slows, with a bead of blood at its head, and the run thins and wanders on the way.
+  float seed = fract(vOpDecal.z) * 57.0;
+  float aspect = vOpDecal.w;
+  float reach = 0.55 + 0.45 * fract(seed * 0.37);
+  float front = reach * (1.0 - exp(-opAge * (1.3 + fract(seed * 0.71) * 1.2)));
+  float x = opP.x;
+  float across = (opP.y - 0.5) * 2.0 + (sin(x * 9.0 + seed) * 0.5 + sin(x * 23.0 - seed * 1.7) * 0.25) * 0.3;
+  float halfW = mix(0.78, 0.32, x) * (0.85 + 0.15 * sin(x * 31.0 + seed * 3.0));
+  float bead = 0.9 - length(vec2((x - front) * aspect * 2.0, across * 0.85));
+  float body = x < front ? halfW - abs(across) : -1.0;
+  float f = max(body, bead * 0.75);
+  float aa = max(fwidth(f), 0.002);
+  float cover = clamp(f / aa + 0.5, 0.0, 1.0) * smoothstep(0.0, 0.04, x);
+  if (cover < 0.004) discard;
+  float thick = clamp(1.0 - abs(across) / max(halfW, 0.05), 0.0, 1.0);
+  opA = vec4(mix(vec3(0.6, 0.007, 0.015), vec3(0.27, 0.0, 0.006), thick), cover);
+  // A rounded bead of liquid: the normal rolls across it.
+  opS = vec4(0.5, 0.5 + clamp(across / max(halfW, 0.05), -1.0, 1.0) * 0.3 * thick, 0.1, 0.0);
+} else {
 if (opBlood) {
   vec2 q = opP * 2.0 - 1.0;
   float stretch = vOpDecal.w;
@@ -96,9 +133,10 @@ if (opBlood) {
 }
 if (opP.x < 0.0 || opP.y < 0.0 || opP.x > 1.0 || opP.y > 1.0) discard;
 vec2 opAtlas = (vec2(mod(opCell, 4.0), floor(opCell / 4.0)) + opP) * 0.25;
-vec4 opA = texture2D(opDecalA, opAtlas);
+opA = texture2D(opDecalA, opAtlas);
 if (opA.a < 0.004) discard;
-vec4 opS = texture2D(opDecalS, opAtlas);
+opS = texture2D(opDecalS, opAtlas);
+}
 // Fresh blood is dark and wet. Over a minute it goes darker still and loses its shine.
 float opDry = opBlood ? smoothstep(5.0, 70.0, opAge) : 0.0;
 vec3 opTint = opA.rgb * vec3(0.42, 0.5, 0.5) * (1.0 - 0.45 * opDry);
@@ -215,6 +253,7 @@ export class Decals implements DecalSystem {
     const into = -(velocity.x * nx + velocity.y * ny + velocity.z * nz);
     let tx = velocity.x + nx * into, ty = velocity.y + ny * into, tz = velocity.z + nz * into;
     const skim = Math.hypot(tx, ty, tz);
+    this.feedRun(position, normal, ny, size);
     if (speed < 0.01 || skim < 0.01) {
       this.add('blood', position, normal, size);
       return;
@@ -234,10 +273,54 @@ export class Decals implements DecalSystem {
     );
   }
 
+  /** A big enough stain on a wall runs. Bigger stains feed more runs. */
+  private feedRun(position: THREE.Vector3, normal: THREE.Vector3, ny: number, size: number): void {
+    if (Math.abs(ny) > RUN_WALL || size < RUN_FROM) return;
+    const odds = (size - RUN_FROM) / (RUN_SURE - RUN_FROM);
+    let runs = Math.floor(odds) + (Math.random() < odds % 1 ? 1 : 0);
+    runs = Math.min(runs, 3);
+    for (let i = 0; i < runs; i++) {
+      _at.copy(position);
+      if (i > 0) _at.y += (Math.random() - 0.5) * size * 0.3;
+      this.run(_at, normal, size * (i === 0 ? 1 : 0.6));
+    }
+  }
+
+  run(position: THREE.Vector3, normal: THREE.Vector3, size: number): void {
+    const inv = 1 / Math.hypot(normal.x, normal.y, normal.z);
+    const nx = normal.x * inv, ny = normal.y * inv, nz = normal.z * inv;
+    if (Math.abs(ny) > RUN_WALL) return;
+    // Down the wall: gravity with the part into the wall taken out.
+    let dx = ny * nx, dy = -1 + ny * ny, dz = ny * nz;
+    const dl = Math.hypot(dx, dy, dz);
+    dx /= dl;
+    dy /= dl;
+    dz /= dl;
+    const long = Math.min(Math.max(size * (2 + Math.random() * 3.5), 0.18), 1.4);
+    const wide = Math.min(Math.max(size * (0.08 + Math.random() * 0.1), 0.014), 0.08);
+    // Off to one side of the stain and starting inside it, so it reads as running out of it.
+    const side = (Math.random() - 0.5) * size * 0.45;
+    // Across it: the normal crossed with down, so the quad faces out of the wall.
+    const sx = ny * dz - nz * dy, sy = nz * dx - nx * dz, sz = nx * dy - ny * dx;
+    const start = long * 0.5 - size * 0.12;
+    _at.set(
+      position.x + dx * start + sx * side,
+      position.y + dy * start + sy * side,
+      position.z + dz * start + sz * side,
+    );
+    this.write(
+      'bloodSmear', _at, nx, ny, nz,
+      dx * long, dy * long, dz * long,
+      sx * wide, sy * wide, sz * wide,
+      long / wide, GROW_RUN,
+    );
+  }
+
   /** Writes one instance. `a` and `b` are the quad's edges, already scaled. */
   private write(
     kind: DecalKind, position: THREE.Vector3, nx: number, ny: number, nz: number,
     ax: number, ay: number, az: number, bx: number, by: number, bz: number, stretch: number,
+    flag = kind === 'bloodPool' ? GROW_POOL : 0,
   ): void {
     const i = this.cursor;
     const m = this.matrices;
@@ -262,8 +345,8 @@ export class Decals implements DecalSystem {
     const d = i * 4;
     this.data[d] = first + Math.floor(Math.random() * variants);
     this.data[d + 1] = this.now;
-    // Whole part: pool flag. Fraction: this decal's own seed for the shader.
-    this.data[d + 2] = (kind === 'bloodPool' ? GROW_POOL : 0) + Math.random() * 0.99;
+    // Whole part: pool or run flag. Fraction: this decal's own seed for the shader.
+    this.data[d + 2] = flag + Math.random() * 0.99;
     this.data[d + 3] = stretch;
 
     if (this.dirtyStart < 0) this.dirtyStart = i;

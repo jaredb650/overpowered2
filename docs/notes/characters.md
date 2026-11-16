@@ -221,6 +221,11 @@ Corpses keep their LOD up to date through `Gore.updateBodyLod`, one body a frame
 
 **Regions.** In the A-pose an arm lies inside a chest wound's slot. Each wound carries which parts it may touch, as bits, and each vertex belongs to one part by its heaviest bone. Near a shoulder or hip a wound takes in both.
 
+**Wet bodies run.** A wound's stain reaches further below it than above (`op2Run`), and with bloodiness further still: three times as far at 1
+(`op2RunWet`, used by the skin and by the vertex test of which wounds are near), broken into rivulets by a stripe of the detail noise that
+hangs down the bind pose. A man shot again and again (gore's `BloodField.onHit` raises bloodiness with each round) streams blood down
+from every hole. `tools/scripts/gore-b-wet.mjs` shows the same holes at 0, 0.35, 0.7 and 1.
+
 **Fractures.** `fracture(bone, 'hyper')` bends a hinge past straight, the wrong way: `bone` is the forearm for an elbow, the shin for a knee. `'limp'` kills a ball joint, with the hinge below it hanging slack. A verlet point on the end of the limb swings by its own weight from wherever the joint is carried, after the animator has run, by wrapping `anim.update`, so it holds through every animator. In a ragdoll the joint opens instead: `Rag.breakJoint`, and `JointMuscle.broken` takes the muscles off it. Bone ends are parts of the interior that stay collapsed to a point until the bit for their joint is set.
 
 Warm-up: `CharacterLibraryImpl.warmWounds` draws one wounded body out of sight on the first frame, so the first hit of a game compiles nothing. Measured: program count 95 before and after the first wound, and that frame's `render()` took 2.2 ms.

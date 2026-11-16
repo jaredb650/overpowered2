@@ -135,8 +135,8 @@ A player's round on a living body is three layers, all starting on the frame of 
 
 | Layer | Who plays it | What it is | Where |
 |---|---|---|---|
-| `bullet_body` (`machine_hit` on a drone or skitter) | `Combat.strike` | The material: the owner's wet hit, or a plate clank | 3D, near 8 m, far 110 m (`machine_clang`: 10 m, 150 m) |
-| `hit_punch` | `reactions.ts`, from `enemy:hit` | The weight: the `limb_thud` recordings pitched up, a 120-400 Hz punch with a 5 ms attack | 3D, near 12 m, far 160 m |
+| `bullet_body` (`machine_hit` on a drone or skitter) | `Combat.strike` | The material: the owner's wet hit, or a plate clank | 3D, near 12 m, far 110 m (`machine_clang`: 14 m, 150 m) |
+| `hit_punch` | `reactions.ts`, from `enemy:hit` | The weight: the `limb_thud` recordings pitched up, a 120-400 Hz punch with a 5 ms attack | 3D, near 16 m, far 160 m |
 | `hit_confirm` | `reactions.ts`, from `enemy:hit` | The confirmation: `wet_slap`'s 1-4 kHz crunch. Flesh only, and not on a kill | 2D |
 
 Only `bullet` and `pellet` rounds from the player's own guns (`WEAPONS`) get the second and third, and those are strikes Combat plays aloud.
@@ -148,8 +148,8 @@ confirmation, as it already stood in for `hit_marker`, and the punch keeps the k
 
 **The dead.** Corpses and loose limbs (`gore/index.ts`) are struck on the same frames as the living, often by the same pellets, so they have
 ids of their own and cannot take a living hit's start on the frame or its voices. Flesh gets `corpse_body` on every round, which is the old
-`bullet_body` (`flesh` family, near 5 m, far 55 m, 0.42) at the old 0.4, or 0.3 on a limb. Under it, `corpse_punch` (the `limb_thud`
-recordings, `flesh` family, priority 3, 2 voices) at 0.5 and pitch 1.3, or 0.4 and 1.5 on a limb, only for the player's guns. A wreck gets
+`bullet_body` (`flesh` family, near 5 m, far 55 m, 0.52 since 2026-11-16, was 0.42) at the old 0.4, or 0.3 on a limb. Under it, `corpse_punch` (the `limb_thud`
+recordings, `flesh` family, priority 3, 2 voices, 0.48, was 0.38) at 0.5 and pitch 1.3, or 0.4 and 1.5 on a limb, only for the player's guns. A wreck gets
 `metal_clang` cut at 220 ms under the world's voices, from any source. The punch and the clank are spaced `CORPSE_KNOCK_GAP`, 70 ms, so a
 rotary cannon's sweep over a pile of bodies is a beat like it is on the living.
 
@@ -169,8 +169,37 @@ counts double, so a point-blank shotgun lands as one of the heaviest things in t
 | Stakegun, 140 and push 110 | 0.97 | 1.18, 1.06 | 0.99, 0.91 | 70 ms |
 | Full Lance, point-blank shotgun, autocannon shell | 1 | 1.20, 1.05 | 1.00, 0.90 | 70 ms |
 
-A machine's `hit_punch` is 0.6 of that and 0.85 of the pitch, under the clank. Catalogue levels: `bullet_body` 0.38 (was 0.42, played at
-0.8, so 1 dB louder up close), `hit_punch` 0.38, `hit_confirm` 0.15, `machine_clang` 0.42.
+A machine's `hit_punch` is 0.6 of that and 0.85 of the pitch, under the clank. Catalogue levels: `bullet_body` 0.54, `hit_punch` 0.54,
+`hit_confirm` 0.15, `machine_clang` 0.6. See "Louder hits" below for what they were.
+
+**Louder hits (2026-11-16).** The owner: "sometimes I don't hear bullets hitting dudes". Every sound played where a round lands on a man
+went up; the 2D `hit_confirm` stays as it was. `src/audio/audio.test.ts` asserts the new levels.
+
+| Id | What | Before | After |
+|---|---|---|---|
+| `bullet_body` | Wet hit on the living | 0.38, near 8 m | 0.54, near 12 m (+3.1 dB, full level 4 m further out) |
+| `hit_punch` | The round's weight on the living | 0.38, near 12 m | 0.54, near 16 m (+3.1 dB) |
+| `machine_clang` | A drone or skitter struck | 0.42, near 10 m | 0.6, near 14 m (+3.1 dB) |
+| `impact_armor` | A round a plate turned | 0.5, near 5 m, far 80 m, in the `impact` family | 0.7, near 9 m, far 110 m, no family (+2.9 dB; wall impacts can no longer thin it) |
+| `corpse_body` | Wet hit on the dead | 0.42 | 0.52 (+1.9 dB) |
+| `corpse_punch` | Weight on the dead | 0.38 | 0.48 (+2 dB) |
+| `hit_confirm` | 2D confirmation | 0.15 | 0.15, unchanged |
+
+All layers of a living hit together, against the SMG shot, as in the table below and from the same report measurements (dB):
+
+| | 3 m | 10 m | 20 m | 30 m | 40 m | 60 m |
+|---|---|---|---|---|---|---|
+| SMG, before | +0.5 | -0.5 | -4.9 | -7.2 | -8.5 | -9.7 |
+| SMG, after | +3.4 | +3.4 | +0.2 | -3.0 | -5.2 | -7.9 |
+| Shotgun, after | +4.5 | +4.5 | +1.7 | -1.4 | -3.4 | -5.9 |
+| Judge, after | +4.7 | +4.7 | +2.0 | -1.1 | -3.1 | -5.5 |
+| Stakegun, after | +5.3 | +5.3 | +2.7 | -0.4 | -2.4 | -4.7 |
+
+A hit now stands over its own gun up close, which is what was asked; it used to sit under it. What it gives up: the `headshot` stack
+(+3.7 dB) is still over an SMG hit at 3 m (+3.4) but under a shotgun, Judge or stake hit there. They never sound together, since a headshot
+drops the body hit on its frame, but the margin that made a headshot stand out is gone for heavy guns up close. The point-blank peak
+before the limiter rises about 3 dB with it (0.72 at worst before), so a point-blank shotgun hit will now pull the limiter by 1 to 2 dB for
+a moment. Both are for the owner's ears.
 
 **Why hits were quiet.** Measured from the files with `analyze.ts`, mixed as the engine mixes them:
 
@@ -933,6 +962,7 @@ then the master's trial passes. Memory stays near 500 MB.
 - **The renderer's reverb is one eight-line network with no modulation**, good for sends and not much else, and there is no time-stretch: a
   break slice played slower is also lower.
 - **Key 8's sounds were balanced by measurement and have not been heard.** The Trommel's four are the old minigun ids with new recipes, which the door gun plays too. The first version of the spin sounds measured a centroid of 104 to 127 Hz with up to 87% of its energy under 120 Hz, a rumble a laptop cannot play, and was rebuilt: the report now reads `minigun_spin_loop` 264 Hz with 20% sub, `minigun_spinup` rising from 136 to 497, `minigun_spindown` falling from 344 to 118, `minigun_fire_loop` 548 Hz with 45% sub against the SMG shot's 621, `piledriver_fire` 450 Hz with 67% sub and 0.65 s long, `cannon_burst` 1.1 to 1.25 kHz and 0.2 s. Whether that is deep and violent, and whether a loop turned from 0.45 to 1 reads as a spin-up, is for ears. The fire loop is cut at 25 rounds a second and turned to the gun's rate, so the door gun's 30 play it a fifth sharp and `?slot8=old` plays it an octave up.
+- **The louder hits of 2026-11-16 were set by measurement, not heard**, on the report re-rendered that day. The owner should play a wave.
 - **The body hits were tuned by measurement, in Node, with no browser run.** The pitch and level choices need the owner's ears, the Buzzsaw's
   beat of 9 most of all. `tools/out/audio-report.json` predates them: it has no line for `machine_clang`, so the "covers every synthesized
   id" check in `audio.test.ts` fails until the report is run again, and none for `hit_punch`, `hit_confirm`, `corpse_body` and
