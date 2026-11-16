@@ -7,6 +7,7 @@
  */
 import * as THREE from 'three';
 import { ACTIVE } from '../contracts/select';
+import { survivalLoadout } from '../contracts/loadouts';
 import { CG, type Ctx, type ExplosionKind, type LoopHandle } from '../core/contracts';
 import type {
   AmmoState, MissileTarget, ModId, PaintView, ProjectileSpec, ProjectileTrail, ShotSpec, WeaponId, WeaponModifiers, WeaponSystem,
@@ -15,7 +16,7 @@ import { clamp, damp, invLerp, lerp, randomInCone, smoothstep, wrapAngle } from 
 import { MOVE } from '../player/tuning';
 import type { Combat, Guard, GuardResult } from './Combat';
 import { ISSUED, MODS, MOD_ORDER, moddedDef } from './mods';
-import { HIT_STOP, LAUNCHER, STARTING_WEAPONS, SWORD, TUNING, WEAPONS, WEAPON_ORDER, type SoundLayer, type WeaponDef } from './data';
+import { HIT_STOP, LAUNCHER, SWORD, TUNING, WEAPONS, WEAPON_ORDER, type SoundLayer, type WeaponDef } from './data';
 import { Fan, type FanHooks, type FanLock } from './fan';
 import { familyOf, familyOfSlot, membersOf, pressSlot, wheelSlot } from './families';
 import { Handling, holdSpeed } from './handling';
@@ -57,8 +58,10 @@ const FAN_KICK = 0.6;
 /** Seconds between two reports in `minigun_fire_loop`: a gun firing faster than that (`?slot8=old`) plays it faster. */
 const FIRE_LOOP_STEP = 0.04;
 
+const STARTING_LOADOUT = survivalLoadout(ACTIVE.def.id);
+
 export class Weapons implements WeaponSystem, Guard {
-  current: WeaponId = 'smg';
+  current: WeaponId = STARTING_LOADOUT[0]!;
   readonly owned = new Set<WeaponId>();
   /** Weapon mods held (bought at the Crucible's shop, or the lab's), and the ones fitted now. A run starts with none. */
   readonly mods = new Set<ModId>();
@@ -76,7 +79,7 @@ export class Weapons implements WeaponSystem, Guard {
   readonly lance: Lance;
   private lastWeapon: WeaponId = 'shotgun';
   /** The gun a sword kill feeds: whatever was in hand before the blade came out. */
-  private lastGun: WeaponId = 'smg';
+  private lastGun: WeaponId = STARTING_LOADOUT[0]!;
   private pendingSwitch: WeaponId | null = null;
   /** The member last held on each number key, which is the one the key draws. */
   private readonly slotLast = new Map<number, WeaponId>();
@@ -220,7 +223,7 @@ export class Weapons implements WeaponSystem, Guard {
       projectile: (kind, def, speed, damage, trail) => this.fillProjectile(kind, def, speed, damage, trail),
       interval: def => this.interval(def),
     });
-    for (const id of STARTING_WEAPONS) this.own(id);
+    for (const id of STARTING_LOADOUT) this.own(id);
     this.issueMods();
   }
 
@@ -279,7 +282,7 @@ export class Weapons implements WeaponSystem, Guard {
     this.stopEverything();
     this.owned.clear();
     this.slotLast.clear();
-    for (const id of STARTING_WEAPONS) this.own(id);
+    for (const id of STARTING_LOADOUT) this.own(id);
     for (const id of WEAPON_ORDER) {
       const s = this.slots[id];
       s.cooldown = 0;
@@ -293,9 +296,9 @@ export class Weapons implements WeaponSystem, Guard {
     m.ricochet = 0;
     m.tracer = null;
     m.shotLayers.length = 0;
-    this.current = 'smg';
+    this.current = STARTING_LOADOUT[0]!;
     this.lastWeapon = 'shotgun';
-    this.lastGun = 'smg';
+    this.lastGun = STARTING_LOADOUT[0]!;
     this.pendingSwitch = null;
     this.holstered = false;
     this.occupied = 0;

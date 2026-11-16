@@ -33,7 +33,7 @@ const CONVENIENCES: readonly (keyof LabSettings)[] = ['spawn', 'ai', 'row'];
 
 /** Perks start off on the range because a stray Hellfire is exactly what stops a body being studied. */
 const DEFAULTS: LabSettings = {
-  spawn: 'trooper', ai: 'off', row: 5, god: ON_RANGE, arsenal: ON_RANGE, reserves: false, speed: 1, overlay: ON_RANGE,
+  spawn: 'trooper', ai: 'off', row: 5, god: ON_RANGE, arsenal: false, reserves: false, speed: 1, overlay: ON_RANGE,
   gibbing: true, explosiveDeaths: true, progression: !ON_RANGE, muscles: true, force: 1,
 };
 

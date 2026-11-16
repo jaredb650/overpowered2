@@ -57,9 +57,9 @@ export const issued = (w: Ware): boolean => w.price === 0;
  */
 export const listedWeapons = (): WeaponId[] => WEAPON_WARE_ORDER.filter(inPlay);
 
-export function weaponOffers(v: ShopView): ShopOffer[] {
+export function weaponOffers(v: ShopView, wares = WEAPON_WARES): ShopOffer[] {
   return listedWeapons().map(id => {
-    const ware = WEAPON_WARES[id]!;
+    const ware = wares[id]!;
     const owned = v.owned.has(id);
     const locked = lockOf(ware, v);
     const why = owned ? (issued(ware) ? 'Issued' : 'Owned') : locked ? lockLine(ware) : between(v) ?? afford(ware.price, v);

@@ -192,6 +192,8 @@ describe('the Quiver in the weapon system', () => {
   beforeEach(async () => {
     r = await makeRange();
     r.reset();
+    r.weapons.give('rocket');
+    r.weapons.give('quiver');
   });
   const draw = () => {
     r.tap('weapon3');
@@ -208,7 +210,7 @@ describe('the Quiver in the weapon system', () => {
     r.input.simulate('fire', false);
   };
 
-  it('comes with the rocket, on key 3, with its own four rounds', () => {
+  it('is bought separately from the rocket, on key 3, with its own four rounds', () => {
     expect(r.weapons.owned.has('quiver')).toBe(true);
     expect(r.weapons.ammo('quiver').mag).toBe(4);
     draw();
@@ -418,6 +420,7 @@ describe('the Rocket\'s laser', () => {
   beforeEach(async () => {
     r = await makeRange();
     r.reset();
+    r.weapons.give('rocket');
     r.tap('weapon3');
     r.run(0.5);
     expect(r.weapons.current).toBe('rocket');
@@ -500,6 +503,7 @@ describe('the Thresher', () => {
   beforeEach(async () => {
     r = await makeRange();
     r.reset();
+    r.weapons.give('thresher');
   });
   const draw = () => {
     r.tap('weapon2');
@@ -509,7 +513,7 @@ describe('the Thresher', () => {
     expect(r.weapons.current).toBe('thresher');
   };
 
-  it('comes with the shotgun on key 2 and fires five shells a second, held', () => {
+  it('is bought separately from the shotgun on key 2 and fires five shells a second, held', () => {
     expect(r.weapons.owned.has('thresher')).toBe(true);
     const d = r.enemies.add(0, -8);
     draw();

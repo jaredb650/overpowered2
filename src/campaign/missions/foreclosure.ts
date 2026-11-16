@@ -22,8 +22,8 @@ const radio = (id: string, wait = false): Step => say(`radio.${id}`, wait);
 const KIT = {
   issued: { weapons: ['smg', 'shotgun', 'sword'], grenades: 2 },
   launcher: { weapons: ['smg', 'shotgun', 'rocket', 'sword'], grenades: 2 },
-  quay: { weapons: ['smg', 'thresher', 'shotgun', 'rocket', 'sword'], grenades: 3 },
-  deck: { weapons: ['smg', 'thresher', 'shotgun', 'rocket', 'autocannon', 'sword'], grenades: 3 },
+  quay: { weapons: ['smg', 'thresher', 'rocket', 'sword'], grenades: 3 },
+  deck: { weapons: ['smg', 'thresher', 'rocket', 'autocannon', 'sword'], grenades: 3 },
 } as const satisfies Record<string, Loadout>;
 
 /** The 14th Recoveries: six land, one is lost in the market, one in the stacks, and four hold the Slip. */

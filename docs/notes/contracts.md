@@ -42,6 +42,46 @@ ACTIVE.ranked;                                  // false on a map the contract d
 
 `/` is always the default contract. There is no remembered choice, so the URL is the only state and a sandbox can never open on the wrong map.
 
+## Starting weapons
+
+One weapon per number key at spawn. Purchases and pickups may add another member later: cycling a key still works, and the lab's
+**Give all weapons** button and explicit **Arsenal** cheat still grant every weapon in play. These are not restrictions on inventory.
+
+The inventory below records the old starts at `9345e6c`, before this change; the source locations are from that revision.
+
+| Mode | Before | Now | Original source |
+|---|---|---|---|
+| The Outpost campaign | SMG, Sword; no grenades | Unchanged | `src/campaign/missions/outpost.ts:19`, deployed by `src/campaign/host.ts:492` |
+| Foreclosure campaign | SMG, pump Shotgun, Sword; 2 grenades | Unchanged | `src/campaign/missions/foreclosure.ts:23` |
+| The Crucible | SMG + Harrow (1), Shotgun + Thresher (2), Rocket + Quiver (3), Sabot (4), Sword (5) | SMG (1), pump Shotgun (2), Sword (5), Rivet (6) | `src/weapons/data.ts:525`, `src/weapons/Weapons.ts:223` and `:282` |
+| Endless Humans (`outpost`) | The same eight-weapon survival kit | Harrow (1), pump Shotgun (2), Sword (5), Rivet (6) | The same shared weapon constructor/reset |
+| Outpost Defense | Loadout-screen primary + secondary + Sword; defaults Harrow, Rivet, Sword | Unchanged; selection additionally rejects shared number keys | `src/contracts/defense/data.ts:103`, `src/contracts/defense/index.ts:387` |
+| Test Range (`?map=range`) | Every weapon in play: the range enabled Arsenal by default | The selected contract's small survival kit; Arsenal off on a fresh range | `src/lab/settings.ts:36`, `src/lab/index.ts:145` and `:149` |
+| Mission development stub (`?mission=stub`) | SMG, Sword; no grenades | Unchanged | `src/campaign/missions/stub.ts:21` |
+| Unranked map overrides / no mission | Shared survival kit before mission or Defense deployment | The selected contract's small survival kit; default SMG, Shotgun, Rivet, Sword | `src/weapons/Weapons.ts:223`, `src/contracts/select.ts:35` |
+
+`contracts/loadouts.ts` chooses **one** key-1 gun, deterministically: SMG in the Crucible, Harrow in Endless Humans. The Gimlet is
+the early alternative for sale (450, after wave 1), not a second issued gun. The gun in hand on construction and reset is that
+mode's primary, so Endless Humans does not start holding an unowned SMG. `?families=0` hides the Harrow and Rivet: that legacy
+page instead issues the SMG and Judge, still one per key. `?slot4=old` changes key 4's order, not the starting kit, and never
+adds either heavy weapon. A range with an explicitly saved Arsenal setting still honours that cheat.
+
+Campaign scripts keep their weapons and grenade counts. The Outpost's wreck still supplies its Rocket mid-mission, its shotgun
+and armoury racks still work, and its checkpoint kits still promise the next fight's required weapon. Foreclosure's later quay/deck
+checkpoint kits now carry the Thresher **instead of** also spawning with the pump; its live pickup can still add the Thresher to
+an existing inventory. Mission validation permits a checkpoint to substitute another guaranteed pickup on the same key, but
+still rejects losing a key's weapon without an earned replacement. The mission-1 arrival sequence is untouched.
+
+Defense's screen remains authoritative: one paid primary, one paid pistol, the free Sword, no explosives at deployment. Every
+accepted primary/secondary pairing is tested against the weapons' actual number keys. Its prices and budget do not change.
+The `?sandbox=` pages are diagnostic fixtures, not deployable contracts: UI/progression mocks and scripted firing scenarios may
+deliberately own many guns. The explicit live firing harness remains available for weapon testing.
+
+With `?shop=0`, caches still skip guns already owned. Their existing order is kept and the SMG/Harrow/Gimlet alternatives,
+Thresher, Rocket, Sabot and Quiver are appended, so removing issue never removes access. Hidden legacy-family weapons are
+filtered out. `contracts/loadouts.test.ts` checks every contract, every mission checkpoint, every accepted Defense pairing,
+both survival shops' issue sets, every purchase's wave gate and complete cache coverage.
+
 ## Outpost Defense
 
 `src/contracts/defense/`, pieces 5, 7 and 8 of `docs/proposals/outpost-defense.md`. The contract row `defense` (`economy: true`, `map: 'fort'`)
@@ -294,8 +334,8 @@ When the break ends the pod is gone, reached or not, so there is no shop in a wa
 at it · L: START NOW`. There is no pod in the 3 s before wave 1, when nothing has been earned.
 
 **Credits.** 10 a kill, 15 a headshot (Outpost Defense's), a boss 300 more; an ally's or a gift's kill pays nothing. A wave cleared pays
-125 + 25 x wave. Everything killed in waves 1 and 2 (24 and 28 men, a fifth to the head) is about 900: the Judge (600) or the Rivet
-(350) in the break before wave 3, not the autocannon (`shop.test.ts`). A new run starts at 0 and with no mods. `ctx.contracts.wallet` is
+125 + 25 x wave. Everything killed in waves 1 and 2 (24 and 28 men, a fifth to the head) is about 900: the Judge (600) or the Harrow
+(700, in the Crucible) in the break before wave 3, not the autocannon (`shop.test.ts`). The Rivet is now issued. A new run starts at 0. `ctx.contracts.wallet` is
 the page's purse, Outpost Defense's or this one, and a prisoner's bounty goes into it (`enemies/outpost/airlift.ts`, 120 to 450 by
 rank): in Endless Humans that is a capture paying 12 to 45 kills' worth. The swarm never surrenders, so in the Crucible's own game it
 only pays where the Crucible's rules are played with prisoners. Outpost Defense keeps its own shops and is not on the list.
@@ -303,7 +343,7 @@ only pays where the Crucible's rules are played with prisoners. Outpost Defense 
 | Weapon | Price | After wave | | Mod (its gun) | Price | After wave |
 |---|---|---|---|---|---|---|
 | Shiv (`?melee=four`) | 250 | 1 | | Suppressor (SMG) | 900 | any |
-| Rivet | 350 | 2 | | Red dot sight (Harrow) | 500 | any |
+| Rivet | Issued | 0 | | Red dot sight (Harrow) | 500 | any |
 | Judge | 600 | 2 | | Raufoss rounds (Sabot) | 2,400 | 10 |
 | Cosh (`?melee=four`) | 300 | 3 | | HP rounds (SMG, Gimlet, Harrow, Rivet, Ultramag, Judge) | 400, 500, 600, 300, 700, 600 | any |
 | Autocannon | 1,800 | 4 | | AP rounds (the same six) | the same | 2 |
@@ -316,12 +356,22 @@ only pays where the Crucible's rules are played with prisoners. Outpost Defense 
 | Ultramag | 1,700 | 14 | | | | |
 | Piledriver | 3,200 | 16 | | | | |
 | Lance | 4,500 | 18 | | | | |
-| SMG, Harrow, Shotgun, Thresher, Rocket, Quiver, Sabot, Sword | Issued | | | | | |
+| SMG | Issued in Crucible; 350 in Endless Humans | 0 / 1 | | | | |
+| Harrow | 700 in Crucible; issued in Endless Humans | 2 / 0 | | | | |
+| Gimlet | 450 | 1 | | | | |
+| Thresher | 1,000 | 3 | | | | |
+| Rocket | 1,500 | 4 | | | | |
+| Sabot | 1,800 | 6 | | | | |
+| Quiver | 2,400 | 8 | | | | |
+| Pump Shotgun, Sword | Issued in both | 0 | | | | |
 
-The waves follow where each gun's cache landed (one every second wave, `CACHE_ORDER`), the Rivet brought forward as the cheap sidearm and
-the Lance moved last. **Every player weapon is listed** (`listedWeapons`: every weapon `inPlay` on the page, weapons/families.ts), so the
+The original cache weapons keep their shop gates, with the Lance last; the removed issue is priced between the early sidearms
+and the heavy weapons. **Every player weapon is listed** (`listedWeapons`: every weapon `inPlay` on the page, weapons/families.ts), so the
 catalogue is the whole arsenal and nothing is a secret: what cannot be bought yet shows a padlock and the wave it waits for. The
-starting guns are issued (price 0), listed last as `Issued`, never sold. A weapon not in play on the page (`?slot8=old`'s Piledriver,
+starting guns alone are issued (price 0, wave 0), labelled `Issued`, never sold. `weaponWares` derives that state from the same
+per-contract loadout the weapon system uses; a purchased alternative says `Owned`, not `Issued`. On `?families=0`, the Judge
+replaces the hidden Rivet as the issued pistol. Every catalogue entry retains its line, price and gate when it is not issued.
+A weapon not in play on the page (`?slot8=old`'s Piledriver,
 the melee four without `?melee=four`) is not listed. The owner once asked where the Piledriver and the Kiln were: they were always
 rows 6 and 9, locked and greyed until waves 10 and 16; there is no second page.
 Buying a gun is `weapons.give(id)`: that gun and no other, a full magazine and reserve, the unlock banner. A mod bought is fitted at once;

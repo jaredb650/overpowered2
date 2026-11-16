@@ -3,6 +3,7 @@
  * that promises less than the player has been handed by then. Returns what is wrong, as sentences. Empty is good.
  */
 import { MAX_HOSTILE } from '../enemies/outpost/doctrine';
+import { WEAPONS } from '../weapons/data';
 import type { Mission, Script, Step, Trigger } from './types';
 
 function eachStep(script: Script | undefined, fn: (step: Step) => void): void {
@@ -152,7 +153,11 @@ export function validateMission(m: Mission): string[] {
     const where = `beat ${beat.id}`;
     if (beat.checkpoint) {
       if (!m.marks[beat.checkpoint.at]) problems.push(`${where}: no mark ${beat.checkpoint.at}`);
-      for (const w of given) if (!beat.checkpoint.loadout.weapons.includes(w)) problems.push(`${where}: its checkpoint takes away the ${w}`);
+      const weapons = beat.checkpoint.loadout.weapons;
+      for (const weapon of given) {
+        const replaced = weapons.some(id => given.has(id) && WEAPONS[id].slot === WEAPONS[weapon].slot);
+        if (!replaced) problems.push(`${where}: its checkpoint takes away the ${weapon}`);
+      }
     }
     const scripts = [beat.start, ...(beat.cues ?? []).map(c => c.run)];
     for (const script of scripts) {

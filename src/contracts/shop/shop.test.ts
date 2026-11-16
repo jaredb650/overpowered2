@@ -140,7 +140,7 @@ describe('locks', () => {
     expect(new Set(listedWeapons())).toEqual(new Set(WEAPON_ORDER.filter(inPlay)));
     expect(listedWeapons()).toContain('piledriver');
     expect(listedWeapons()).toContain('kiln');
-    for (const id of CACHE_ORDER) expect(issued(WEAPON_WARES[id]!)).toBe(false);
+    for (const id of CACHE_ORDER.filter(id => !STARTING_WEAPONS.includes(id))) expect(issued(WEAPON_WARES[id]!)).toBe(false);
     for (const id of STARTING_WEAPONS) expect(issued(WEAPON_WARES[id]!)).toBe(true);
     for (const id of Object.keys(WEAPON_WARES) as WeaponId[]) expect(WEAPON_WARES[id]!.lore.length).toBeGreaterThan(40);
     // Every mod for sale has its line, the AP and HP rounds among them.
@@ -166,8 +166,9 @@ describe('locks', () => {
   });
 
   it('the Raufoss rounds wait for their wave too, and every mod for its gun', () => {
-    expect(modOffers(view({ cleared: MOD_WARES.raufoss.wave - 1 })).find(o => o.act.id === 'raufoss')!.locked).toBe(true);
-    expect(modOffers(view({ cleared: MOD_WARES.raufoss.wave })).find(o => o.act.id === 'raufoss')!.why).toBeNull();
+    const owned = new Set<WeaponId>([...STARTING_WEAPONS, 'sabot']);
+    expect(modOffers(view({ owned, cleared: MOD_WARES.raufoss.wave - 1 })).find(o => o.act.id === 'raufoss')!.locked).toBe(true);
+    expect(modOffers(view({ owned, cleared: MOD_WARES.raufoss.wave })).find(o => o.act.id === 'raufoss')!.why).toBeNull();
     expect(modOffers(view({ owned: new Set<WeaponId>(['harrow']) })).find(o => o.act.id === 'suppressor')!.why).toBe('Needs its gun');
   });
 });

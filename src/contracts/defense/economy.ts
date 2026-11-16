@@ -131,7 +131,9 @@ export function checkLoadout(primary: WeaponId | null, secondary: WeaponId | nul
   const left = budget - cost;
   const why = !primary ? 'Pick a primary'
     : !secondary ? 'Pick a secondary'
-      : loadoutRefusal(primary, 'primary') ?? loadoutRefusal(secondary, 'secondary') ?? (left < 0 ? `Over budget by ${-left}` : null);
+      : loadoutRefusal(primary, 'primary') ?? loadoutRefusal(secondary, 'secondary')
+        ?? (WEAPONS[primary].slot === WEAPONS[secondary].slot ? 'One weapon per key' : null)
+        ?? (left < 0 ? `Over budget by ${-left}` : null);
   return { cost, left, why };
 }
 

@@ -12,6 +12,7 @@ import { ON_RANGE } from '../../core/devflags';
 import type { ModId, WeaponId } from '../../core/gameplay';
 import type { ContractId } from '../data';
 import { ACTIVE } from '../select';
+import { survivalLoadout } from '../loadouts';
 
 const query = typeof location === 'undefined' ? null : new URLSearchParams(location.search);
 
@@ -52,7 +53,7 @@ export interface Ware {
  * Every player weapon, in the menu's order: for sale by the wave it waits for, then the run's starting guns, which are issued (price
  * 0, never sold). The Shiv, Cosh, Prybar and Spade are listed only where they are in play (`?melee=four`, weapons/families.ts).
  */
-export const WEAPON_WARES: Readonly<Partial<Record<WeaponId, Ware>>> = {
+const WEAPON_CATALOGUE: Readonly<Partial<Record<WeaponId, Ware>>> = {
   knife: {
     price: 250, wave: 1,
     lore: 'A short knife for the contractor who likes to be close enough to apologise. Works best from behind, like most Council policy.',
@@ -113,42 +114,48 @@ export const WEAPON_WARES: Readonly<Partial<Record<WeaponId, Ware>>> = {
     price: 4500, wave: 18,
     lore: 'Directed energy for the senior contractor. Targets are not so much killed as removed from the records, the floor and the air.',
   },
-  // Issued: every run starts with these, so they are listed, never sold.
   smg: {
-    price: 0, wave: 0,
-    lore: 'Issued to every contractor, along with the paperwork and the life insurance. Of the three, only the submachine gun is guaranteed to work.',
+    price: 350, wave: 1,
+    lore: 'A submachine gun, paperwork and life insurance are available separately. Only the submachine gun is guaranteed to work.',
   },
   harrow: {
-    price: 0, wave: 0,
-    lore: 'A battle rifle with no respect for cover. Issued so the Council can say it gave you a fair chance.',
+    price: 700, wave: 2,
+    lore: 'A battle rifle with no respect for cover. The Council considers a fair chance an optional expense.',
   },
   shotgun: {
-    price: 0, wave: 0,
+    price: 600, wave: 1,
     lore: 'Several opinions per pull, all delivered at once and at conversational range. The pump is the pause for reflection.',
   },
   thresher: {
-    price: 0, wave: 0,
+    price: 1000, wave: 3,
     lore: 'A drum-fed shotgun for contractors who found the pump too contemplative. It climbs as it fires. So does the invoice.',
   },
   rocket: {
-    price: 0, wave: 0,
+    price: 1500, wave: 4,
     lore: 'The Council\'s insurers asked that it be listed as a last resort. It is listed here as a first one.',
   },
   quiver: {
-    price: 0, wave: 0,
+    price: 2400, wave: 8,
     lore: 'Four missiles that find their own way to the target, which is more than the Council expects of its contractors.',
   },
   sabot: {
-    price: 0, wave: 0,
-    lore: 'Darts through armour, through walls and through whatever the walls were for. Issued with the Council\'s condolences to the walls.',
+    price: 1800, wave: 6,
+    lore: 'Darts through armour, through walls and through whatever the walls were for. Supplied with the Council\'s condolences to the walls.',
   },
   sword: {
-    price: 0, wave: 0,
+    price: 250, wave: 0,
     lore: 'Issued because the blade, unlike the ammunition, is not billed. It stops bullets, which the Council regards as a perk rather than a benefit.',
   },
 };
 
-export const WEAPON_WARE_ORDER = Object.keys(WEAPON_WARES) as WeaponId[];
+export function weaponWares(contract: ContractId): Readonly<Partial<Record<WeaponId, Ware>>> {
+  const starting = new Set(survivalLoadout(contract));
+  return Object.fromEntries(Object.entries(WEAPON_CATALOGUE).map(([id, ware]) =>
+    [id, starting.has(id as WeaponId) ? { ...ware, price: 0, wave: 0 } : ware]));
+}
+
+export const WEAPON_WARES = weaponWares(ACTIVE.def.id);
+export const WEAPON_WARE_ORDER = Object.keys(WEAPON_CATALOGUE) as WeaponId[];
 
 /** The mods for sale (src/weapons/mods.ts). Bought once, then fitted or taken off here, free, in any break. */
 export const MOD_WARES: Readonly<Record<ModId, Ware>> = {

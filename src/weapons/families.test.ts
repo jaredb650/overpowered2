@@ -92,11 +92,13 @@ describe('families in the weapon system', () => {
   beforeEach(async () => {
     r = await makeRange();
     r.reset();
+    r.weapons.setLoadout(['smg', 'harrow', 'shotgun', 'thresher', 'rocket', 'quiver', 'sabot', 'sword'], 0);
   });
   const settle = () => r.run(0.4);
 
-  it('a run starts with the weapons it names, members too, and the Sabot without its upgrade', () => {
-    expect([...r.weapons.owned].sort()).toEqual(['harrow', 'quiver', 'rocket', 'sabot', 'shotgun', 'smg', 'sword', 'thresher']);
+  it('a run starts with one weapon per key, not the rest of each family', () => {
+    r.reset();
+    expect([...r.weapons.owned].sort()).toEqual(['rivet', 'shotgun', 'smg', 'sword']);
     expect(r.weapons.owned.has('autocannon')).toBe(false);
   });
 
@@ -297,6 +299,7 @@ describe('families in the weapon system', () => {
     const smg = d.hits.length;
     const smgDamage = d.hits[0]!.amount;
     r.reset();
+    r.weapons.give('harrow');
     const e = r.enemies.add(0, -10);
     r.tap('weapon1');
     settle();
@@ -337,6 +340,7 @@ describe('families in the weapon system', () => {
 
     // With the rotary cannon owned, which heads the list, a dry Harrow still hands over to the SMG on its own key.
     r.reset();
+    r.weapons.give('harrow');
     r.weapons.give('buzzsaw');
     r.tap('weapon1');
     settle();

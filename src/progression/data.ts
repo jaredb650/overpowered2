@@ -4,7 +4,7 @@
  */
 import type { GradeName } from '../core/contracts';
 import type { CallInId, PerkId, PickupKind, PowerupId, WeaponId } from '../core/gameplay';
-import { SLOT4_OLD, SLOT8_OLD } from '../weapons/data';
+import { inPlay } from '../weapons/families';
 import { IMPLANTS_ON } from './implants';
 
 export type EffectId = PerkId | PowerupId;
@@ -508,8 +508,8 @@ export const DROP_POD = {
  * has had its run.
  */
 export const CACHE_ORDER: readonly WeaponId[] = (['judge', 'autocannon', 'deuce', 'lance', 'buzzsaw', 'kiln', 'ultramag', 'stakegun', 'rivet', 'piledriver'] as WeaponId[])
-  // `?slot4=old`: the autocannon is a starting weapon again, so no cache brings it. `?slot8=old` has no Piledriver.
-  .filter(id => !(SLOT4_OLD && id === 'autocannon') && !(SLOT8_OLD && id === 'piledriver'));
+  .concat(['gimlet', 'harrow', 'smg', 'thresher', 'rocket', 'sabot', 'quiver'])
+  .filter(inPlay);
 
 export const PICKUP_LOOK: Readonly<Record<PickupKind, { label: string; color: string }>> = {
   health: { label: 'STIM', color: '#33ff66' },

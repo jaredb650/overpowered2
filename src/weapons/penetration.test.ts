@@ -261,6 +261,10 @@ describe('hitscan', () => {
 });
 
 describe('the guns', () => {
+  beforeEach(() => {
+    r.weapons.give('harrow');
+    r.weapons.give('sabot');
+  });
   const pull = (seconds = 0.1) => {
     r.input.simulate('fire', true);
     r.run(seconds);
@@ -284,6 +288,7 @@ describe('the guns', () => {
     expect(line[0]!.hits[0]!.severMult).toBe(WEAPONS.harrow.severMult);
 
     r.reset();
+    r.weapons.give('harrow');
     draw('weapon1');
     r.wall(-10, 0.25, 'metal');
     r.wall(-30, 0.6);
@@ -418,6 +423,7 @@ describe('the guns', () => {
 
     r.reset();
     r.weapons.modifiers.explosiveRounds = true;
+    r.weapons.give('sabot');
     draw('weapon4');
     r.enemies.add(0, -10);
     pull();

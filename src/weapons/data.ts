@@ -177,9 +177,8 @@ const BASE = {
 } as const;
 
 /**
- * `?slot4=old` puts key 4 back as the families stream left it: the explosive autocannon first and from the start, the Sabot
- * beside it and owned with it, and no autocannon in a weapon cache. `?families=0` implies it, so that switch still gives
- * the game from before families: key 4 is the explosive autocannon alone, from the start.
+ * `?slot4=old` puts the explosive autocannon first on key 4, with the Sabot beside it. Neither is issued at spawn.
+ * `?families=0` implies it: key 4 is the explosive autocannon alone, still bought or found in a cache.
  */
 export const SLOT4_OLD = typeof location !== 'undefined' && (() => {
   const q = new URLSearchParams(location.search);
@@ -519,11 +518,10 @@ if (LANCE_OLD) {
 export const WEAPON_ORDER: readonly WeaponId[] = (Object.keys(WEAPONS) as WeaponId[]).map(id =>
   SLOT4_OLD && id === 'sabot' ? 'autocannon' : SLOT4_OLD && id === 'autocannon' ? 'sabot' : id);
 /**
- * Key 4 starts with the Sabot. The explosive autocannon beside it is earned: see CACHE_ORDER in src/progression/data.ts.
- * Every weapon is its own unlock, so the members a run has always started with are named here.
+ * The default survival kit: one weapon per key. contracts/loadouts.ts picks the contract's primary; the rest are bought or cached.
  */
 export const STARTING_WEAPONS: readonly WeaponId[] = [
-  'smg', 'harrow', 'shotgun', 'thresher', 'rocket', 'quiver', ...(SLOT4_OLD ? ['autocannon', 'sabot'] as const : ['sabot'] as const), 'sword',
+  'smg', 'shotgun', 'rivet', 'sword',
 ];
 
 /** Per-weapon behaviour that does not fit every row of the table. */
