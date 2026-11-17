@@ -8,6 +8,7 @@ afterEach(() => {
 describe.each([
   '?contract=crucible&starter=gimlet', '?contract=outpost&starter=smg', '?contract=crucible&starter=harrow',
   '?contract=crucible', '?contract=outpost', '?contract=outpost&families=0', '?contract=crucible&slot4=old', '?map=range',
+  '?contract=defense', '?contract=campaign', '?contract=foreclosure', '?map=killhouse',
 ])('runtime start on %s', search => {
   it('equips and resets the actual issued kit, with only one member on each key', async () => {
     vi.stubGlobal('location', { search });
@@ -22,6 +23,7 @@ describe.each([
     expect([...range.weapons.owned]).toEqual(start);
     expect(range.weapons.current).toBe(start[0]);
     if (start.includes('gimlet')) expect([...range.weapons.fitted]).toEqual(expect.arrayContaining(['gimletAcog', 'gimletCan']));
+    expect([...range.weapons.fitted]).toContain('smgLight');
     expect(new Set(start.map(id => WEAPONS[id].slot)).size).toBe(start.length);
     expect(listedWeapons().filter(id => issued(WEAPON_WARES[id]!)).sort()).toEqual([...start].sort());
     range.tap('weapon1');
@@ -29,11 +31,16 @@ describe.each([
     range.tap('weapon1');
     expect(range.weapons.current).toBe(start[0]);
     if (start.includes('gimlet')) expect([...range.weapons.fitted]).toEqual(expect.arrayContaining(['gimletAcog', 'gimletCan']));
+    expect([...range.weapons.fitted]).toContain('smgLight');
+    // A campaign checkpoint swaps the guns, never the mods.
+    range.weapons.setLoadout(['smg', 'shotgun'], 0);
+    expect([...range.weapons.fitted]).toContain('smgLight');
     range.weapons.give('quiver');
     range.reset();
     expect([...range.weapons.owned]).toEqual(start);
     expect(range.weapons.current).toBe(start[0]);
     if (start.includes('gimlet')) expect([...range.weapons.fitted]).toEqual(expect.arrayContaining(['gimletAcog', 'gimletCan']));
+    expect([...range.weapons.fitted]).toContain('smgLight');
   });
 });
 

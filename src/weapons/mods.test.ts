@@ -114,10 +114,10 @@ describe('AP and HP rounds', () => {
     const w = r.weapons;
     for (const id of ['gimletAp', 'gimletHp'] as const) w.grantMod(id);
     expect(w.fitMod('gimletAp', true)).toBe(true);
-    expect([...w.fitted].sort()).toEqual(['gimletAcog', 'gimletAp', 'gimletCan']);
+    expect([...w.fitted].sort()).toEqual(['gimletAcog', 'gimletAp', 'gimletCan', 'smgLight']);
     expect(w.fitMod('gimletHp', true)).toBe(true);
     expect(w.fitted.has('gimletAp')).toBe(false);
-    expect([...w.fitted].sort()).toEqual(['gimletAcog', 'gimletCan', 'gimletHp']);
+    expect([...w.fitted].sort()).toEqual(['gimletAcog', 'gimletCan', 'gimletHp', 'smgLight']);
     expect(MODS.gimletHp.slot).toBe('ammo');
   });
 

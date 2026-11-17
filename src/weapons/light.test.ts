@@ -5,7 +5,7 @@ import type { WeaponId } from '../core/gameplay';
 import { MOD_WARES } from '../contracts/shop/data';
 import { modOffers, type ShopView } from '../contracts/shop/rules';
 import { WEAPONS } from './data';
-import { LIGHT_GUNS, MODS, MOD_ORDER, lightOf, moddedDef } from './mods';
+import { ISSUED, LIGHT_GUNS, MODS, MOD_ORDER, lightOf, moddedDef } from './mods';
 import { Kit } from './viewmodels/kit/kit';
 import type { VmMaterials } from './viewmodels/kit/materials';
 import { buildDefs } from './viewmodels/models';
@@ -29,11 +29,22 @@ describe('weapon light', () => {
       expect(MODS[id].weapon).toBe(gun);
       expect(MOD_ORDER).toContain(id);
       expect(moddedDef(gun, new Set([id]))).toEqual(WEAPONS[gun]);
-      expect(MOD_WARES[id]).toMatchObject({ price: 150, wave: 0 });
+      // The SMG's is issued fitted (mods.ts ISSUED): free, so its row reads Issued.
+      expect(MOD_WARES[id]).toMatchObject({ price: gun === 'smg' ? 0 : 150, wave: 0 });
       const offer = modOffers(view([gun])).find(o => o.act.kind === 'mod' && o.act.id === id)!;
       expect(offer.locked, gun).toBe(false);
       expect(offer.why, gun).toBeNull();
     }
+  });
+
+  it('comes fitted on the SMG only, and its row reads Issued: owned, fitted, taken off and refitted for nothing', () => {
+    expect(ISSUED.filter(id => id.endsWith('Light'))).toEqual(['smgLight']);
+    const v = view(['smg']);
+    const owned = { ...v, mods: new Set(['smgLight' as const]), fitted: new Set(['smgLight' as const]) };
+    const fitted = modOffers(owned).find(o => o.act.kind === 'mod' && o.act.id === 'smgLight')!;
+    expect(fitted).toMatchObject({ owned: true, fitted: true, why: null });
+    const off = modOffers({ ...owned, fitted: new Set() }).find(o => o.act.kind === 'mod' && o.act.id === 'smgLight')!;
+    expect(off).toMatchObject({ owned: true, fitted: false, why: null });
   });
 
   it('is a part on every eligible gun\'s viewmodel, hidden until fitted', () => {

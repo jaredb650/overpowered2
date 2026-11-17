@@ -143,8 +143,8 @@ export const MOD_ORDER: readonly ModId[] = [
   ...LIGHT_GUNS.map(lightOf),
 ];
 
-/** Held and fitted at the start of every run: the Gimlet's ACOG and suppressor. The shop takes them off and puts them back. */
-export const ISSUED: readonly ModId[] = ['gimletAcog', 'gimletCan'];
+/** Held and fitted at the start of every run: the Gimlet's ACOG and suppressor, the SMG's light. The shop takes them off and puts them back. */
+export const ISSUED: readonly ModId[] = ['gimletAcog', 'gimletCan', 'smgLight'];
 
 /** `id`'s row with every fitted mod of its own patched over it, or the row itself when none is. */
 export function moddedDef(id: WeaponId, fitted: ReadonlySet<ModId>): WeaponDef {

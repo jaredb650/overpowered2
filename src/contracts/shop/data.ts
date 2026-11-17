@@ -381,7 +381,8 @@ const MOD_CATALOGUE: Readonly<Record<ModId, Ware>> = {
   autorafficaPlusP: { price: 450, wave: 0, lore: 'More damage from every Autoraffica round. The automation budget has been redirected into pressure.' },
   awlPlusP: { price: 400, wave: 0, lore: 'Overpressure rounds for the Awl. Five rounds still. Procurement insists this counts as doing more with less.' },
   // The weapon light (weapons/mods.ts LIGHT_GUNS): one a gun, cheap and sold from the start. Always on; there is no switch.
-  smgLight: { price: 150, wave: 0, lore: 'A light under the SMG, always on. The dark corners of the building are now just corners, and so is everyone standing in them.' },
+  // Issued fitted (weapons/mods.ts ISSUED): price 0, listed so it can be taken off.
+  smgLight: { price: 0, wave: 0, lore: 'Issued with the SMG: a light under it, always on. The dark corners of the building are now just corners, and so is everyone standing in them.' },
   gimletLight: { price: 150, wave: 0, lore: 'A light on the Gimlet\'s left rail, where the launcher cannot argue with it. It does not switch off. Neither, the Council notes, does the contractor.' },
   harrowLight: { price: 150, wave: 0, lore: 'The Harrow already goes through walls. This lets you see the wall first, as a courtesy.' },
   awlLight: { price: 150, wave: 0, lore: 'A light on the Awl, for the scout who has run out of daylight. Five rounds, one beam, no excuses.' },

@@ -85,7 +85,7 @@ describe('the Gimlet short barrel', () => {
 
     fit('gimletGl');
     fit('gimletShort');
-    expect([...r.weapons.fitted].sort()).toEqual(['gimletAcog', 'gimletCan', 'gimletGl', 'gimletShort']);
+    expect([...r.weapons.fitted].sort()).toEqual(['gimletAcog', 'gimletCan', 'gimletGl', 'gimletShort', 'smgLight']);
   });
 
   /** Rounds the Gimlet puts out in a second of held fire. */

@@ -13,7 +13,7 @@ export function starterCards(selected: StarterGun | undefined, pick: (gun: Start
     icon.innerHTML = weaponIcon(gun);
     const el = h('button', 'starter-card', icon, div('starter-copy',
       span('starter-name', def.name),
-      span('starter-stats', `${def.damage} DMG · ${Math.round(60 / def.interval)} RPM · ${def.magSize} RDS${gun === 'gimlet' ? ' · 4× + suppressor' : ''}`),
+      span('starter-stats', `${def.damage} DMG · ${Math.round(60 / def.interval)} RPM · ${def.magSize} RDS${gun === 'gimlet' ? ' · 4× + suppressor' : gun === 'smg' ? ' · weapon light' : ''}`),
     ));
     el.type = 'button';
     el.setAttribute('aria-label', `Starter: ${def.name}`);
