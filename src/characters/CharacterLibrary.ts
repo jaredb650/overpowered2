@@ -12,6 +12,7 @@ import { parseModel, type LoadedModel } from './model';
 import type { HumanoidAnimator } from './animation/index';
 import type { Manifest, Socket } from './format';
 import { ACTIVE } from '../contracts/select';
+import { fetchAsset } from '../core/fetchAsset';
 
 const BASE = 'assets/characters/';
 /**
@@ -48,10 +49,8 @@ interface Entry extends ArchetypeData {
 }
 
 async function loadTexture(url: string, srgb: boolean): Promise<THREE.Texture> {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Missing ${url}`);
   // Metalness and emissive live in alpha, so the browser must not premultiply it into the colour.
-  const bitmap = await createImageBitmap(await res.blob(), { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
+  const bitmap = await createImageBitmap(await fetchAsset(url, r => r.blob()), { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
   const tex = new THREE.Texture(bitmap);
   tex.flipY = false;
   tex.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
@@ -74,7 +73,7 @@ export class CharacterLibraryImpl implements CharacterLibrary {
   constructor(private readonly ctx: Ctx) {}
 
   private getManifest(): Promise<Manifest> {
-    this.manifest ??= fetch(`${BASE}manifest.json`).then(r => r.json() as Promise<Manifest>);
+    this.manifest ??= fetchAsset(`${BASE}manifest.json`, r => r.json() as Promise<Manifest>);
     return this.manifest;
   }
 
@@ -85,8 +84,7 @@ export class CharacterLibraryImpl implements CharacterLibrary {
         const manifest = await this.getManifest();
         const file = MILITIA.has(id) ? `militia/${id}.bin` : manifest.models[id]?.file;
         if (!file) throw new Error(`Model "${id}" is not baked. Run tools/bake/bake.ts ${id}`);
-        const res = await fetch(`${BASE}${file}`);
-        const model = parseModel(await res.arrayBuffer());
+        const model = parseModel(await fetchAsset(`${BASE}${file}`, r => r.arrayBuffer()));
         this.detail ??= createDetailTexture();
         const atlas = model.meta.atlas;
         const dir = BASE + file.slice(0, file.lastIndexOf('/') + 1);

@@ -17,7 +17,7 @@ import { deployMatch } from '../../net/session';
 import { turnConfigured } from '../../net/turn';
 import type { Hud } from '../Hud';
 import type { Nav, NavItem } from './nav';
-import { menuButton, wordmark } from './parts';
+import { menuButton } from './parts';
 import type { Screen } from './Screens';
 import '../css/coop.css';
 
@@ -106,7 +106,7 @@ export class CoopScreen implements Screen {
   private starter = div('starter-lobby');
 
   constructor(private readonly ctx: Ctx, private readonly hud: Hud) {
-    this.el = div('scr scr-menu scr-coop', this.crumb, this.list, div('mm-brief co-brief', this.panel), span('mm-sub', 'OVERDRIVE'), wordmark());
+    this.el = div('scr scr-menu scr-coop', this.crumb, this.list, div('mm-brief co-brief', this.panel));
     this.name.value = loadCallsign();
     this.name.placeholder = 'Callsign';
     this.joinCode.placeholder = 'ABC123';
@@ -379,7 +379,7 @@ export class CoopScreen implements Screen {
     this.ctx.audio.play?.('ui_error');
     const retry = error === 'password' || error === 'no-host' || error === 'connect' || error === 'relays' || error === 'lost';
     if (retry) this.joinCode.value = this.code;
-    this.go(retry ? 'join' : 'start', errorText(error, lobby.theirBuild, this.code));
+    this.go(retry ? 'join' : 'start', errorText(error, lobby.theirBuild, this.code, lobby.connectAdvice));
   }
 
   private leave(): void {
@@ -410,13 +410,14 @@ export class CoopScreen implements Screen {
   }
 }
 
-export function errorText(error: LobbyError, theirBuild: string, code: string): string {
+/** `advice`: with 'connect', what the failed connection's candidates say (ice.ts), in place of the generic network line. */
+export function errorText(error: LobbyError, theirBuild: string, code: string, advice = ''): string {
   switch (error) {
     case 'password': return 'Wrong password. Check it with the host and try again.';
     case 'version': return `Version mismatch: the host has ${theirBuild}, you have ${BUILD}. Both of you hard reload (Ctrl+Shift+R, or Cmd+Shift+R on a Mac), then try again.`;
     case 'host-left': return 'The host left, so the lobby is closed.';
     case 'no-host': return `Lobby not found: nobody answered on code ${code}. Check the code and password with the host; an old invite link points at a lobby that has closed. If both are right, ${turnConfigured() ? 'the host may have left.' : "your networks may not be able to connect directly: set up TURN or try a different network."}`;
-    case 'connect': return turnConfigured()
+    case 'connect': return advice ? `Connecting to host failed. ${advice}` : turnConfigured()
       ? 'Connecting to host failed: found the lobby, but could not connect even through the relay server. Try a different network.'
       : "Connecting to host failed: couldn't reach the host directly, because your network or theirs blocks peer-to-peer (mobile data and strict routers do). It needs the relay server; host: see TURN setup in docs/notes/coop.md. Another network may work meanwhile.";
     case 'full': return 'That lobby is full: four players.';

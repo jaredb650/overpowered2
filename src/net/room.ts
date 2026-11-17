@@ -2,6 +2,7 @@
  * The one seam between the game and the network. `trystero.ts` is the real one; tests pass a fake. Stage 1 adds its own
  * channels here (a binary one for poses and snapshots) without touching the lobby.
  */
+import type { IceReport } from './ice';
 
 /** A named message lane to the other players. `to` leaves it to everyone. */
 export interface Channel<T> {
@@ -20,8 +21,11 @@ export interface NetRoom {
   /** `peerId` is the far side, where there is one. */
   onError(handler: (error: NetError, peerId?: string) => void): void;
   leave(): void;
-  /** How the network side is doing: any matchmaking relay open, and how many peers are mid-connection. Absent in tests. */
-  status?(): { relays: boolean; trying: number };
+  /**
+   * How the network side is doing: any matchmaking relay open, how many peers are mid-connection, and the candidates of
+   * the latest connection that did not connect (ice.ts). Absent in tests.
+   */
+  status?(): { relays: boolean; trying: number; ice?: IceReport };
 }
 
 /**

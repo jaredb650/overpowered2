@@ -11,6 +11,8 @@ export let resumedMatch: Match | null = null;
 export let resumedRoom: { code: string; password: string } | null = null;
 /** Why a match handoff found on this page could not be used: shown on Multiplayer, never a silent splash. */
 export let resumeFailed = '';
+/** The handoff this page read, kept so a failed boot can put it back (restoreHandoff). */
+let consumed: string | null = null;
 
 export function deployMatch(code: string, password: string, lobby: Lobby, match: Match): void {
   const handoff: Handoff = { code, password, name: lobby.me?.name ?? 'PLAYER', hosting: lobby.hosting, match,
@@ -31,6 +33,7 @@ export async function reconnectMatch(): Promise<void> {
     const raw = sessionStorage.getItem(KEY);
     if (!raw) return;
     sessionStorage.removeItem(KEY);
+    consumed = raw;
     resumeFailed = 'The co-op match could not be carried over to this page. Join the lobby again.';
     const data = JSON.parse(raw) as Handoff;
     if (!validMatch(data.match) || typeof data.code !== 'string' || !/^[A-Z2-9]{6}$/.test(data.code)
@@ -47,6 +50,11 @@ export async function reconnectMatch(): Promise<void> {
     console.warn('[coop] Could not resume the room', error);
     resumeFailed = 'Could not reconnect to the co-op room on this page. Check you are online, then join the lobby again.';
   }
+}
+
+/** The boot failed after this page took the handoff: put it back, so a reload lands in the same match, not a solo run. */
+export function restoreHandoff(): void {
+  try { if (consumed) sessionStorage.setItem(KEY, consumed); } catch { /* blocked storage: the reload starts solo */ }
 }
 
 /** Kept only for the current tab's lifetime. Quit clears it and the live room. */

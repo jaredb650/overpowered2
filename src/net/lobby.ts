@@ -12,6 +12,7 @@ import { BUILD } from './build';
 import { defaultStarter, isStarter, type StarterGun } from '../contracts/starter';
 import { decodePose, encodePose, type Pose } from './pose';
 import type { Channel, LobbyRooms, NetError, NetRoom } from './room';
+import { iceAdvice } from './ice';
 
 export type LobbyError = 'password' | 'version' | 'host-left' | 'no-host' | 'connect' | 'full' | 'relays' | 'lost' | 'code-taken';
 export type LobbyPhase = 'connecting' | 'open' | 'closed';
@@ -92,6 +93,8 @@ const clean = (value: unknown, max: number): string =>
 export class Lobby {
   phase: LobbyPhase = 'connecting';
   error: LobbyError | null = null;
+  /** With a 'connect' error: what the failed connection's candidates say, or '' (ice.ts). */
+  connectAdvice = '';
   /** The other side's build, when `error` is 'version'. */
   theirBuild = '';
   players: LobbyPlayer[] = [];
@@ -554,7 +557,7 @@ export class Lobby {
         if (this.atDoor.has(peerId)) this.doorCh?.send({ t: 'wrong' }, peerId);
       }
       if (error === 'password') this.post(null, 'Someone tried to join with the wrong password.');
-      else if (error === 'connect') this.post(null, 'A player failed to connect (network): they found the lobby, but your networks could not connect directly. Set up TURN (docs/notes/coop.md) or try another network.');
+      else if (error === 'connect') this.post(null, `A player failed to connect (network): they found the lobby, but your networks could not connect directly. ${iceAdvice(this.room.status?.().ice, 'host') || 'Set up TURN (docs/notes/coop.md) or try another network.'}`);
       else if (error === 'relays' && this.players.length === 1) this.close('relays');
       return;
     }
@@ -591,6 +594,8 @@ export class Lobby {
     if (this.phase === 'closed') return;
     this.phase = 'closed';
     this.error = error;
+    // Read before leaving: the candidates of the connection that failed say why (ice.ts).
+    if (error === 'connect') this.connectAdvice = iceAdvice(this.room.status?.().ice, this.hosting ? 'host' : 'guest');
     if (this.beat) clearInterval(this.beat);
     this.beat = null;
     this.stopCount();

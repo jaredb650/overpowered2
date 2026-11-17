@@ -12,6 +12,7 @@ import { getRelaySockets, joinRoom, type Room } from 'trystero';
 import { MAX_PLAYERS } from './lobby';
 import type { LobbyRooms, NetError, NetRoom } from './room';
 import { fetchTurn, type IceServer } from './turn';
+import { addCandidate, noKinds, type IceKinds, type IceReport } from './ice';
 
 export const APP_ID = 'overpowered-2-coop';
 export const RELAY_REDUNDANCY = 8;
@@ -22,39 +23,41 @@ export async function openLobby(code: string, password: string): Promise<LobbyRo
   return { main: openRoom(code, password, turn), door: () => openRoom(`${code}-door`, code, turn) };
 }
 
-/** ICE candidate kinds: host (LAN), srflx (public address via STUN), relay (TURN). */
-const kinds = (types: string[]): string => ['host', 'srflx', 'prflx', 'relay'].map(t => `${t} ${types.filter(x => x === t).length}`).join(', ');
+const kinds = (k: IceKinds): string => `host ${k.host} (${k.mdns} as .local), srflx ${k.srflx}, relay ${k.relay}`;
 
 /**
  * trystero's peer connections, watched: how many have met a peer (an offer or answer came back) and are still connecting,
- * and, when one connects or fails, which candidate kinds each side had. No srflx means STUN failed; srflx on both sides and
- * still failed means a NAT that needs TURN.
+ * and the candidates each side offered: ours as we gather them, theirs as the handshake hands them to addIceCandidate.
+ * `ice()` is the latest connection that got candidates from a peer and never connected: the one an error is about.
  */
-function watchedPeers(): { Peer: typeof RTCPeerConnection; trying(): number } {
+function watchedPeers(): { Peer: typeof RTCPeerConnection; trying(): number; ice(): IceReport | undefined } {
   const met = new Set<RTCPeerConnection>();
+  let latest: (IceReport & { connected: boolean }) | undefined;
   class Peer extends RTCPeerConnection {
+    report = { ours: noKinds(), theirs: noKinds(), connected: false };
     constructor(config?: RTCConfiguration) {
       super(config);
       this.addEventListener('signalingstatechange', () => void (this.remoteDescription && met.add(this)));
+      this.addEventListener('icecandidate', e => addCandidate(this.report.ours, e.candidate?.candidate));
       this.addEventListener('iceconnectionstatechange', () => {
         const state = this.iceConnectionState;
+        if (state === 'connected' || state === 'completed') this.report.connected = true;
         if (state !== 'connected' && state !== 'failed') return;
-        this.getStats().then(stats => {
-          const ours: string[] = [], theirs: string[] = [];
-          stats.forEach(stat => {
-            if (stat.type === 'local-candidate') ours.push(stat.candidateType);
-            else if (stat.type === 'remote-candidate') theirs.push(stat.candidateType);
-          });
-          (state === 'failed' ? console.warn : console.info)(`[coop] Peer connection ${state}. Our candidates: ${kinds(ours)}. Theirs: ${kinds(theirs)}.`);
-        }).catch(() => {});
+        (state === 'failed' ? console.warn : console.info)(`[coop] Peer connection ${state}. Our candidates: ${kinds(this.report.ours)}. Theirs: ${kinds(this.report.theirs)}.`);
       });
+    }
+    // shortcut: candidates inside the SDP itself are not counted; trystero trickles them all, so none are there.
+    override addIceCandidate(candidate?: RTCIceCandidateInit | null): Promise<void> {
+      addCandidate(this.report.theirs, candidate?.candidate);
+      if (!this.report.connected) latest = this.report;
+      return super.addIceCandidate(candidate ?? undefined);
     }
   }
   const trying = (): number => {
     for (const pc of met) if (pc.connectionState !== 'new' && pc.connectionState !== 'connecting') met.delete(pc);
     return met.size;
   };
-  return { Peer, trying };
+  return { Peer, trying, ice: () => (latest && !latest.connected ? latest : undefined) };
 }
 
 export function openRoom(code: string, password: string, turn: IceServer[] = []): NetRoom {
@@ -91,6 +94,6 @@ export function openRoom(code: string, password: string, turn: IceServer[] = [])
         if (error) handler(error, 'peerId' in e ? e.peerId : undefined);
       }),
     leave: () => void room.leave().catch(() => {}),
-    status: () => ({ relays: Object.values(getRelaySockets()).some(socket => socket.readyState === WebSocket.OPEN), trying: peers.trying() }),
+    status: () => ({ relays: Object.values(getRelaySockets()).some(socket => socket.readyState === WebSocket.OPEN), trying: peers.trying(), ice: peers.ice() }),
   };
 }

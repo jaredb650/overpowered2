@@ -10,6 +10,7 @@ import { loudness } from './analyze';
 import { renderRank, sampleDefs, type SoundDef } from './catalog';
 import type { Mixer } from './mixer';
 import { ROOM_IDS } from './reverb';
+import { fetchAsset } from '../core/fetchAsset';
 import { finishVariant, startVariant, trimFor, type RawRender } from './synth/render';
 
 /** Per-id live state. */
@@ -141,9 +142,7 @@ export class SoundBank {
     const decoded: AudioBuffer[] = [];
     for (const file of files) {
       try {
-        const response = await fetch(`${this.baseUrl}audio/sfx/${file}`);
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        decoded.push(await this.ac.decodeAudioData(await response.arrayBuffer()));
+        decoded.push(await this.ac.decodeAudioData(await fetchAsset(`${this.baseUrl}audio/sfx/${file}`, r => r.arrayBuffer())));
       } catch (err) {
         console.warn(`[audio] sample failed: ${file}`, err);
       }
