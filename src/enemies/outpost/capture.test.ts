@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BOUNTY } from '../../contracts/defense/data';
-import { Capture, CLICKS, CUFF_HOLD, CUFFING_SECONDS, gesture, holdFill, rope, snatchTime, TAP_MAX, type Wallet } from './capture';
+import { Capture, CLICKS, CUFF_HOLD, CUFFING_SECONDS, gesture, holdFill, rope, snatchTime, type Wallet } from './capture';
 import type { Soldier } from './soldier';
 
 const man = {} as Soldier;
@@ -15,43 +15,23 @@ function cuffed(): Capture {
 }
 
 describe('the E key on a kneeling man', () => {
-  /** Walks a press of `seconds` frame by frame at 60 fps, then lets it up: every gesture it came to. */
-  function press(seconds: number, questioned = false): string[] {
-    const out: string[] = [];
-    let held = 0;
-    for (; held < seconds; held += 1 / 60) {
-      const g = gesture(held, true, questioned);
-      if (g) return [...out, g];
-    }
-    const g = gesture(held, false, questioned);
-    return g ? [...out, g] : out;
-  }
-
-  it('questions him on a quick tap, and never starts a capture', () => {
-    expect(press(0.1)).toEqual(['question']);
-    expect(press(TAP_MAX - 0.03)).toEqual(['question']);
-    expect(holdFill(TAP_MAX - 0.01)).toBe(0);
+  it('cuffs him on a hold of 0.4 s, without waiting for the key to come up', () => {
+    expect(CUFF_HOLD).toBe(0.4);
+    expect(gesture(CUFF_HOLD - 0.05, true, false)).toBe(null);
+    expect(gesture(CUFF_HOLD, true, false)).toBe('cuff');
+    expect(gesture(CUFF_HOLD, true, true)).toBe('cuff');
   });
 
-  it('cuffs him on a hold of about a second, without waiting for the key to come up, and never questions him', () => {
-    expect(CUFF_HOLD).toBeGreaterThanOrEqual(1);
-    expect(CUFF_HOLD).toBeLessThanOrEqual(1.5);
-    expect(press(CUFF_HOLD + 1)).toEqual(['cuff']);
-    expect(press(CUFF_HOLD + 1, true)).toEqual(['cuff']);
+  it('questions him on a tap, and lets him go on a tap once questioned', () => {
+    expect(gesture(0.1, false, false)).toBe('question');
+    expect(gesture(0.1, false, true)).toBe('letGo');
+    // Any press let up short of the cuffs is a tap.
+    expect(gesture(CUFF_HOLD - 0.05, false, true)).toBe('letGo');
   });
 
-  it('does nothing for a hold let go before the cuffs: not a question, not a capture', () => {
-    expect(press(TAP_MAX + 0.05)).toEqual(['cancel']);
-    expect(press(CUFF_HOLD - 0.1)).toEqual(['cancel']);
-  });
-
-  it('a man already questioned has nothing more to say: a tap does nothing', () => {
-    expect(press(0.1, true)).toEqual(['cancel']);
-  });
-
-  it('fills the ring from the end of a tap to the cuffs', () => {
-    expect(holdFill(TAP_MAX)).toBe(0);
-    expect(holdFill((TAP_MAX + CUFF_HOLD) / 2)).toBeCloseTo(0.5);
+  it('fills the ring over the hold, full at the cuffs', () => {
+    expect(holdFill(0)).toBe(0);
+    expect(holdFill(CUFF_HOLD / 2)).toBeCloseTo(0.5);
     expect(holdFill(CUFF_HOLD)).toBe(1);
     expect(holdFill(CUFF_HOLD + 5)).toBe(1);
   });

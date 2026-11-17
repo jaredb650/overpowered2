@@ -154,12 +154,12 @@ A man weighs five signs: squad half gone, nobody within 14 m, the side down to a
 | Shot and lives | `refused`: gets up and runs for a gate, and will not surrender again. Witnesses are frightened |
 | Friends firing within 24 m | After 4 s kneeling, goes for his gun if it is within 7 m (55%), otherwise bolts. Not with the player within 4 m |
 | Unwatched 6 s, player over 12 m away | Rolls `rearms`, again every 15 s. If it hits he goes for his gun, rejoins the nearest squad and fights |
-| Tap E (up within `TAP_MAX`, 0.22 s) | Questioned, once. `talks` says whether it is true. True: every squad marked and shown through walls for 9 s, and he names the worst of it, an ambush first. A lie: a marker on empty ground. Questioned, a tap does nothing more |
-| Hold E (`CUFF_HOLD`, 1.2 s) | Past the tap, the hold ring fills round the crosshair (`ui/hud/holdRing.ts`, revive's too); at the end, cuffed at once: hands behind his back, cuffs on, on his knees, and the drone snatches him (below). Questioned or not. Let go between, nothing happens |
+| Tap E | Questioned, once. `talks` says whether it is true. True: every squad marked and shown through walls for 9 s, and he names the worst of it, an ambush first. A lie: a marker on empty ground |
+| Tap E again | Let go. He walks out, and each man freed adds 6% to the next man's odds, up to 24%, never for elites |
+| Hold E (0.4 s) | Cuffed at once: hands behind his back, cuffs on, on his knees, and the drone snatches him (below). Questioned or not. The hold ring round the crosshair (`ui/hud/holdRing.ts`, revive's too) fills over the hold |
 
-The prompt over him is `Tap [E] to question · Hold [E] to capture`, with the player's own bind, and `Hold [E] to capture` once he is
-questioned or for a co-op guest, whose E only captures. Letting a man go by hand (6% on the next man's odds a man freed, up to 24%, never
-for elites) is out of reach since the tap/hold split (owner, 2026-11-17): `letGo` and the mercy odds stay for the human shield.
+The prompt over him is `Tap [E] to question · Hold [E] to capture`, then `Tap [E] to release · Hold [E] to capture` once he is
+questioned, with the player's own bind. A co-op guest's E only captures: `Hold [E] to capture`, a 0.6 s hold (`net/world.ts`).
 
 The human shield (hold E: him by the collar, in front of the player, bullets from the front hitting him, his friends holding fire) is
 switched off for now (owner, 2026-11-15): `HOSTAGES` in `prisoners.ts`. Its code (`grab`, `carry`, `intercept`, `stopsFire`) is left
