@@ -9,6 +9,7 @@
  * A run takes its rules when it starts (Hud.startRun calls refreshRules), so every reader agrees from the reset to the end.
  */
 import { MISSION_ID } from '../campaign/select';
+import { cheatsOn } from '../core/cheats';
 import { ON_RANGE } from '../core/devflags';
 import { DEFAULT_RULES, diffRules, isCustom, sanitizeRules, type CrucibleRules } from '../enemies/rules';
 import { ACTIVE } from './select';
@@ -70,5 +71,5 @@ export function refreshRules(apply: boolean = RULES_APPLY): CrucibleRules {
 /** The rules of the run in play. The standard ones on any page they do not apply to. */
 export const crucibleRules = (): CrucibleRules => current;
 
-/** The run in play is on custom rules, so it is unranked. Sanitizing hands back DEFAULT_RULES itself for the standard set. */
-export const rulesCustom = (): boolean => current !== DEFAULT_RULES;
+/** The run in play is on custom rules, or the cheats are on (core/cheats.ts), so it is unranked. Sanitizing hands back DEFAULT_RULES itself for the standard set. */
+export const rulesCustom = (): boolean => current !== DEFAULT_RULES || cheatsOn();

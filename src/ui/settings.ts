@@ -48,7 +48,12 @@ export const DEFAULTS: Readonly<Settings> = {
   aimHold: false, aimSensitivity: TUNING.ads.sensitivity, hitText: 0, chatter: CHATTER_BUBBLES, voices: 1,
 };
 
-export const SENSITIVITY_RANGE = [0.1, 4] as const;
+/** Raised from 4 to 10 for low-DPI mice. Values saved under the old cap (0.1 to 4) are inside the new range and load unchanged. */
+export const SENSITIVITY_RANGE = [0.1, 10] as const;
+/** The slider track is squared, so the low end (where a normal mouse lives) keeps fine control and the top gets the reach. */
+export const SENSITIVITY_CURVE = 2;
+export const sliderToValue = (t: number, min: number, max: number, curve = 1): number => min + (max - min) * clamp(t) ** curve;
+export const valueToSlider = (v: number, min: number, max: number, curve = 1): number => clamp((v - min) / (max - min)) ** (1 / curve);
 export const FOV_RANGE = [70, 120] as const;
 export const AIM_SENSITIVITY_RANGE = [0.3, 1.5] as const;
 

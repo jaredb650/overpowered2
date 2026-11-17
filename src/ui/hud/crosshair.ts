@@ -14,6 +14,7 @@ import { LANCE_OLD, WEAPONS } from '../../weapons/data';
 import { LANCE_LOOK, MARKS } from '../../weapons/lance';
 import { moddedDef } from '../../weapons/mods';
 import { ROCKET_LASER } from '../../weapons/laser';
+import { healPrompt } from './healPrompt';
 import { LockMarkers } from './locks';
 import { crosshairRead } from '../../allies/rules';
 
@@ -260,6 +261,8 @@ export class Crosshair {
   private magShown: Shown;
   private prompt: Label;
   private promptShown: Shown;
+  private heal: Label;
+  private healShown: Shown;
   private charge: Meter;
   private chargeShown: Shown;
   /** The Lance's bar: notches shown, and one flag a stage reached. */
@@ -299,6 +302,8 @@ export class Crosshair {
     const magHost = div('xh-tick xh-tick-mag', magFill);
     const prompt = span('xh-prompt-t');
     const promptHost = div('xh-prompt', prompt);
+    const heal = span('xh-prompt-t');
+    const healHost = div('xh-prompt xh-heal', heal);
     const chargeFill = div('xh-charge-fill');
     const chargeHost = div('xh-charge', chargeFill);
     for (let i = 0; i < CHARGE_STAGES.length; i++) {
@@ -336,6 +341,7 @@ export class Crosshair {
       magHost,
       chargeHost,
       promptHost,
+      healHost,
       this.hits.body.el, this.hits.armor.el, this.hits.armorThrough.el, this.hits.armorBroken.el, this.hits.head.el, this.hits.kill.el,
     );
     for (let i = 0; i < MAX_ARCS; i++) {
@@ -352,6 +358,8 @@ export class Crosshair {
     this.magShown = new Shown(magHost);
     this.prompt = new Label(prompt);
     this.promptShown = new Shown(promptHost);
+    this.heal = new Label(heal);
+    this.healShown = new Shown(healHost);
     this.charge = new Meter(chargeFill);
     this.chargeShown = new Shown(chargeHost);
     this.locks = new LockMarkers(ctx);
@@ -485,6 +493,12 @@ export class Crosshair {
     const dry = !melee && !s.bottomless && s.mag === 0 && !s.reloading;
     this.promptShown.set(dry && !hidden);
     if (dry) this.prompt.set(s.reserve > 0 ? 'reload' : 'no ammo');
+
+    const input = this.ctx.input as unknown as { labelFor?: (a: string) => unknown };
+    const stimKey = typeof input.labelFor === 'function' ? input.labelFor('stim') : '';
+    const healText = hidden ? null : healPrompt(s, typeof stimKey === 'string' ? stimKey : '');
+    this.healShown.set(healText !== null);
+    if (healText !== null) this.heal.set(healText);
 
     const charging = s.charge > 0.01 && !hidden;
     this.chargeShown.set(charging);

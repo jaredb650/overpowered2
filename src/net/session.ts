@@ -1,3 +1,4 @@
+import { onBeforeChunkReload } from '../core/chunkRetry';
 import { report, reportLobby } from '../core/report';
 /** Tab-local map handoff. Passwords never enter URLs or game messages. The room reconnects before the heavy map boot. */
 import { Lobby, validMatch, type Match } from './lobby';
@@ -60,6 +61,8 @@ export async function reconnectMatch(): Promise<void> {
 export function restoreHandoff(): void {
   try { if (consumed) sessionStorage.setItem(KEY, consumed); } catch { /* blocked storage: the reload starts solo */ }
 }
+
+onBeforeChunkReload(restoreHandoff);
 
 /** Kept only for the current tab's lifetime. Quit clears it and the live room. */
 export function clearSession(): void {

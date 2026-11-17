@@ -8,6 +8,7 @@
 import * as THREE from 'three';
 import type { Ctx, GameState } from '../core/contracts';
 import type { HudSystem, PickupKind, SeatPanel } from '../core/gameplay';
+import { cheatsOn, onCheats } from '../core/cheats';
 import { div } from './dom';
 import { HudState } from './state';
 import { RunReport } from './runreport';
@@ -173,6 +174,10 @@ export class Hud implements HudSystem {
     // A mission has an ending of its own to get through after he falls.
     if (this.commander) this.commander.onFulfilled = () => { if (!MISSION_ID) this.fulfilled(); };
 
+    // A reminder while the cheats are on: every run is unranked (core/cheats.ts).
+    const cheatTag = div('hud-cheats', 'CHEATS');
+    cheatTag.classList.toggle('on', cheatsOn());
+    onCheats(on => cheatTag.classList.toggle('on', on));
     this.hud = div('hud',
       this.lowFrame.el,
       this.worldLayer.el,
@@ -207,6 +212,7 @@ export class Hud implements HudSystem {
       this.scoreboard.el,
       this.commander?.el,
       this.debug.el,
+      cheatTag,
     );
     this.hud.style.display = 'none';
     this.root.append(this.hud);

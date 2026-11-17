@@ -1,6 +1,7 @@
 import { reporter } from '../../core/report';
 /** Settings: general, keys and privacy. Values apply and save the moment they change. */
 import type { Action, Ctx } from '../../core/contracts';
+import { cheatsOn, isCheatPassword, setCheats } from '../../core/cheats';
 import { clamp } from '../../core/math';
 import { labelForCode } from '../../input/bindings';
 import { HIT_TEXT_LEVELS } from '../../progression/data';
@@ -8,7 +9,8 @@ import { KEY_GROUPS } from '../data';
 import { Label, Meter, div, h, span } from '../dom';
 import type { Hud } from '../Hud';
 import {
-  AIM_SENSITIVITY_RANGE, CHATTER_LEVELS, DEFAULTS, FOV_RANGE, GORE_LEVELS, QUALITY_LEVELS, SENSITIVITY_RANGE, applyQuality, applySettings, saveSettings,
+  AIM_SENSITIVITY_RANGE, CHATTER_LEVELS, DEFAULTS, FOV_RANGE, GORE_LEVELS, QUALITY_LEVELS, SENSITIVITY_CURVE, SENSITIVITY_RANGE, applyQuality, applySettings,
+  saveSettings, sliderToValue, valueToSlider,
   type Settings,
 } from '../settings';
 import type { Nav, NavItem } from './nav';
@@ -42,6 +44,8 @@ export class Slider implements NavItem {
     private readonly write: (v: number) => void,
     private readonly format: (v: number) => string,
     private readonly tick: () => void,
+    /** Above 1, the track is bent so the low end gets more of it (ui/settings.ts). */
+    private readonly curve = 1,
   ) {
     const fill = div('sl-fill');
     const value = span('row-v');
@@ -63,7 +67,7 @@ export class Slider implements NavItem {
 
   private fromPointer(x: number): void {
     const r = this.track.getBoundingClientRect();
-    this.set(this.min + clamp((x - r.left) / r.width) * (this.max - this.min));
+    this.set(sliderToValue((x - r.left) / r.width, this.min, this.max, this.curve));
   }
 
   private set(v: number): void {
@@ -77,13 +81,17 @@ export class Slider implements NavItem {
 
   refresh(): void {
     const v = this.read();
-    this.fill.set((v - this.min) / (this.max - this.min));
+    this.fill.set(valueToSlider(v, this.min, this.max, this.curve));
     this.text.set(this.format(v));
     this.el.setAttribute('aria-valuenow', String(v));
   }
 
   adjust(dir: -1 | 1): boolean {
-    this.set(this.read() + dir * this.step);
+    const v = this.read();
+    // A bent track moves a 40th of its length a press; at the low end that rounds back to where it was, so it steps by `step`.
+    const next = sliderToValue(valueToSlider(v, this.min, this.max, this.curve) + dir / 40, this.min, this.max, this.curve);
+    const moved = this.curve === 1 || Math.round(next / this.step) === Math.round(v / this.step) ? v + dir * this.step : next;
+    this.set(moved);
     return true;
   }
 }
@@ -127,6 +135,72 @@ class Stepper implements NavItem {
   }
 }
 
+/** Enable cheats asks for the password in the row itself; once they are on, the same row turns them off (core/cheats.ts). */
+export class CheatRow implements NavItem {
+  readonly el: HTMLElement;
+  private readonly input = h('input', 'co-input cheat-pass');
+  private readonly state = span('st-val');
+  private asking = false;
+
+  constructor(private readonly say: (text: string) => void, private readonly play: (id: string) => void) {
+    this.input.type = 'text';
+    this.input.hidden = true;
+    this.input.maxLength = 40;
+    this.input.placeholder = 'Password';
+    this.input.spellcheck = false;
+    this.input.autocomplete = 'off';
+    this.input.addEventListener('click', e => e.stopPropagation());
+    this.input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') this.submit();
+      else if (e.key === 'Escape') {
+        e.stopPropagation();
+        this.cancel();
+      }
+    });
+    this.el = div('row', span('row-k', 'Cheats'), div('stepper', this.input, this.state));
+    this.refresh();
+  }
+
+  refresh(): void {
+    this.state.textContent = cheatsOn() ? 'Disable cheats' : this.asking ? 'Enter' : 'Enable cheats';
+  }
+
+  cancel(): void {
+    this.asking = false;
+    this.input.hidden = true;
+    this.input.value = '';
+    this.input.blur();
+    this.refresh();
+  }
+
+  private submit(): void {
+    if (!isCheatPassword(this.input.value)) {
+      this.say('Wrong password.');
+      this.play('ui_back');
+      return;
+    }
+    this.cancel();
+    setCheats(true);
+    this.say('Cheats on. ` opens the panel in a run. Runs are unranked.');
+    this.play('ui_confirm');
+    this.refresh();
+  }
+
+  activate(): void {
+    if (cheatsOn()) {
+      setCheats(false);
+      this.say('Cheats off.');
+      this.refresh();
+    } else if (this.asking) this.submit();
+    else {
+      this.asking = true;
+      this.input.hidden = false;
+      this.input.focus();
+      this.refresh();
+    }
+  }
+}
+
 export class SettingsScreen implements Screen {
   readonly el: HTMLElement;
   private tabs: NavItem[];
@@ -154,7 +228,7 @@ export class SettingsScreen implements Screen {
     };
     const s = settings;
     const pct = (v: number) => `${Math.round(v * 100)}`;
-    const sensitivity = new Slider('Mouse sensitivity', ...SENSITIVITY_RANGE, 0.05, () => s.sensitivity, v => { s.sensitivity = v; }, v => v.toFixed(2), tick);
+    const sensitivity = new Slider('Mouse sensitivity', ...SENSITIVITY_RANGE, 0.05, () => s.sensitivity, v => { s.sensitivity = v; }, v => v.toFixed(2), tick, SENSITIVITY_CURVE);
     const fov = new Slider('Field of view', ...FOV_RANGE, 1, () => s.fov, v => { s.fov = v; }, v => `${v}`, tick);
     const invert = new Stepper('Invert mouse', ['Off', 'On'], () => (s.invertY ? 1 : 0), v => { s.invertY = v === 1; }, tick);
     const hop = new Stepper('Hold jump to hop', ['Off', 'On'], () => (s.holdToHop ? 1 : 0), v => { s.holdToHop = v === 1; }, tick);
@@ -169,6 +243,7 @@ export class SettingsScreen implements Screen {
     const chatter = new Stepper('Enemy chatter', CHATTER_LEVELS, () => s.chatter, v => { s.chatter = v; }, tick);
     const voices = new Slider('Enemy voices', 0, 1, 0.05, () => s.voices, v => { s.voices = v; }, pct, tick);
     const reports = new Stepper('Anonymous error reports', ['Off', 'On'], () => reporter.enabled() ? 1 : 0, v => reporter.setEnabled(v === 1), () => {});
+    this.cheatRow = new CheatRow(text => this.note.set(text), id => this.ctx.audio.play?.(id));
     const general = [sensitivity, fov, invert, hop, aimMode, aimSens, master, sfx, music, voices, quality, gore, hitText, chatter];
     this.refreshers = [...general, reports].map(r => () => r.refresh());
     const keys = this.keyRows();
@@ -181,8 +256,9 @@ export class SettingsScreen implements Screen {
           span('gd-h', 'Controls and view'), sensitivity.el, fov.el, invert.el, hop.el, aimMode.el, aimSens.el,
           span('gd-h', 'Audio'), master.el, sfx.el, music.el, voices.el,
           span('gd-h', 'Video'), quality.el, gore.el, hitText.el, chatter.el,
+          span('gd-h', 'Cheats'), this.cheatRow.el,
         )),
-        rows: general,
+        rows: [...general, this.cheatRow],
       },
       { el: div('gd-panel', keys.el, resetKeys.el), rows: keyRows },
       { el: div('gd-panel', span('gd-h', 'Privacy'), reports.el,
@@ -218,6 +294,7 @@ export class SettingsScreen implements Screen {
   }
 
   private defaultsItem: NavItem;
+  private cheatRow: CheatRow;
 
   private keyLabel(action: Action): string {
     const r = this.ctx.input as unknown as Rebinder;
@@ -311,6 +388,7 @@ export class SettingsScreen implements Screen {
       if (nav.index < this.tabs.length) nav.focus(this.tabs.length);
     };
     nav.index = 0;
+    this.cheatRow.cancel();
     this.select(0);
     for (const fn of this.keyRefreshers) fn();
   }

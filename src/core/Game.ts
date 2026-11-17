@@ -12,6 +12,8 @@ import { DEV_TOOLS, ON_RANGE } from './devflags';
 import { EventBus } from './events';
 import { GameTime } from './time';
 import { noop } from './stubs';
+import { cheatsOn, onCheats } from './cheats';
+import { importRetry } from './chunkRetry';
 import type { Ctx, GameEvents, GameState, GameSystem } from './contracts';
 import './gameplay';
 import type { Room } from '../net';
@@ -37,7 +39,7 @@ const breathe = () => new Promise<void>(done => {
 async function factory(dir: string, name: string): Promise<Factory | null> {
   const load = modules[`../${dir}/index.ts`];
   if (!load) return null;
-  const mod = await load();
+  const mod = await importRetry(load);
   return mod[name] ?? null;
 }
 
@@ -248,7 +250,7 @@ export async function createCtx(canvas: HTMLCanvasElement, onProgress: Progress 
     await breathe();
   };
   await step(BOOT.physics, 'Loading the engine');
-  const { Physics } = await import('../physics/Physics');
+  const { Physics } = await importRetry(() => import('../physics/Physics'));
   const ctx = {
     time: new GameTime(),
     events: new EventBus<GameEvents>(),
@@ -277,7 +279,7 @@ export async function createCtx(canvas: HTMLCanvasElement, onProgress: Progress 
   ctx.hud = await build('ui', 'createHud', 'hud', ctx);
   ctx.campaign = await build('campaign', 'createCampaign', 'campaign', ctx);
   if (resumedLobby && resumedMatch) {
-    const { CoopSession } = await import('../net');
+    const { CoopSession } = await importRetry(() => import('../net'));
     ctx.coop = new CoopSession(ctx, resumedLobby, resumedMatch);
   }
   return ctx;
@@ -298,7 +300,15 @@ export async function startGame(params: URLSearchParams): Promise<void> {
   (window as unknown as { __op2: unknown }).__op2 = { ctx, game, stats: () => game.stats() };
   await game.init(report);
   game.run();
-  if (DEV_TOOLS) await build('lab', 'createLab', 'lab', ctx, game);
+  // The lab loads where dev tools are on, and on any page once Settings > Enable cheats has been unlocked (core/cheats.ts).
+  let labLoaded = false;
+  const loadLab = async () => {
+    if (labLoaded) return;
+    labLoaded = true;
+    await build('lab', 'createLab', 'lab', ctx, game);
+  };
+  if (DEV_TOOLS || cheatsOn()) await loadLab();
+  onCheats(on => { if (on) loadLab().catch(() => { labLoaded = false; }); });
   if (ctx.coop) {
     const hud = ctx.hud as Ctx['hud'] & { startRun(): void; quitToMenu(): void; screens: { coopEnded(message: string, room: Room | null): void } };
     ctx.coop.onEnded = (message, room) => {

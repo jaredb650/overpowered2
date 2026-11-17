@@ -134,7 +134,7 @@ export class Tally {
     const shown = s.customRules ? CUSTOM : beating ? s.score : s.highScore;
     if (shown !== this.highShown) {
       this.highShown = shown;
-      this.high.set(s.customRules ? 'custom rules' : beating ? 'new high' : `high ${s.highScore.toLocaleString('en-US')}`);
+      this.high.set(s.customRules ? 'unranked' : beating ? 'new high' : `high ${s.highScore.toLocaleString('en-US')}`);
     }
   }
 

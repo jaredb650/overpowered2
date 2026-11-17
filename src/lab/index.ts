@@ -12,7 +12,8 @@
 import * as THREE from 'three';
 import type { Ctx } from '../core/contracts';
 import { contractSearch } from '../contracts/select';
-import { DEV_ASKED, DevFlags, ON_RANGE } from '../core/devflags';
+import { cheatsOn, onCheats } from '../core/cheats';
+import { DEV_ASKED, DEV_TOOLS, DevFlags, ON_RANGE } from '../core/devflags';
 import type { Game } from '../core/Game';
 import type { WeaponId } from '../core/gameplay';
 import { MAX_ALIVE } from '../enemies/waves';
@@ -25,10 +26,10 @@ import { modCheat, type ModHands } from './mods';
 import { implantCheat } from './implants';
 import type { Loadout } from '../progression/implants';
 import type { ChipRack } from '../contracts/chips';
-import { LabPanel, type MoveSwitch } from './panel';
+import { LabPanel, type MoveSwitch, type PanelActions } from './panel';
 import { PARKOUR } from './parkour';
 import { GALLERY } from './range';
-import { applyFlags, holdReserves, loadSettings, saveSettings } from './settings';
+import { applyFlags, holdReserves, loadSettings, resetCheats, saveSettings } from './settings';
 import { LabSpawner } from './spawn';
 
 const SCALE_ID = 'lab';
@@ -42,6 +43,10 @@ const RANGE_FOG = 0.0012;
 const _at = new THREE.Vector3();
 /** Meters from the eye to the front of each body the melee reach test stands. */
 const MELEE_LINE: readonly number[] = [1.5, 2.5, 3.5, 5, 8];
+
+/** Panel actions that act on the shared world, which a co-op match leaves to the host's own waves. */
+const WORLD_ACTIONS = ['spawn', 'vehicle', 'emplacement', 'wall', 'killAll', 'clearBodies', 'togglePause', 'step', 'setSpeed', 'swarm', 'melee',
+  'lance', 'gallery', 'heavy', 'doorGun', 'parkour', 'jump'] as const;
 
 const isField = (t: EventTarget | null): boolean => t instanceof HTMLElement && /^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName);
 
@@ -70,7 +75,7 @@ export class Lab {
     if (ON_RANGE) (ctx.render as unknown as { fog: { density: number } }).fog.density = RANGE_FOG;
     this.spawner = new LabSpawner(ctx);
     this.overlay = new AimOverlay(ctx);
-    this.panel = new LabPanel(this.settings, {
+    const actions: PanelActions = {
       changed: () => this.changed(),
       spawn: n => this.spawn(n),
       vehicle: kind => this.spawner.vehicle(kind, this.settings.ai),
@@ -117,7 +122,10 @@ export class Lab {
         next.set('beat', beat);
         location.search = next.toString();
       },
-    }, (ctx.enemies as unknown as { vehicles?: unknown }).vehicles != null);
+    };
+    // In co-op the host owns the world: what changes it (spawns, kills, time, a reload) is off. The player's own kit stays.
+    if (ctx.coop) for (const key of WORLD_ACTIONS) (actions as unknown as Record<string, () => void>)[key] = () => {};
+    this.panel = new LabPanel(this.settings, actions, (ctx.enemies as unknown as { vehicles?: unknown }).vehicles != null);
     this.hint.className = 'lab-hint';
     this.hint.textContent = 'Click for the mouse. F1 or ` opens the panel.';
     this.hint.style.display = 'none';
@@ -134,6 +142,16 @@ export class Lab {
       if (e.to !== 'playing' || e.from === 'paused') return;
       if (ON_RANGE) ctx.waves.reset?.();
       this.applyPlayer();
+    });
+    // Settings > Disable cheats: close the panel and put every cheat back, as a page load would.
+    onCheats(on => {
+      if (on || DEV_TOOLS) return;
+      this.setOpen(false);
+      this.paused = false;
+      resetCheats(this.settings);
+      this.changed();
+      ctx.player.modifiers.invulnerable = false;
+      ctx.weapons.modifiers.bottomlessMag = false;
     });
     window.addEventListener('keydown', e => this.onKey(e), true);
     document.getElementById('game')!.addEventListener('mousedown', () => {
@@ -310,6 +328,7 @@ export class Lab {
   }
 
   private onKey(e: KeyboardEvent): void {
+    if (!DEV_TOOLS && !cheatsOn()) return;
     if (e.code === 'F1' || e.code === 'Backquote') {
       e.preventDefault();
       e.stopPropagation();
@@ -327,7 +346,7 @@ export class Lab {
       if (!(e.target instanceof Node && this.panel.el.contains(e.target))) e.stopPropagation();
       return;
     }
-    if (e.repeat || !this.armed || isField(e.target) || this.game.state !== 'playing') return;
+    if (e.repeat || !this.armed || isField(e.target) || this.game.state !== 'playing' || this.ctx.coop) return;
     // A key the player has bound to the game is the game's.
     if ((this.ctx.input as unknown as Bindings).conflicts?.(e.code)?.length) return;
     switch (e.code) {
@@ -344,6 +363,7 @@ export class Lab {
   private updateTime(): void {
     const { time } = this.ctx;
     let scale = this.paused ? 0 : this.settings.speed;
+    if (this.ctx.coop) scale = 1;
     if (this.steps > 0) {
       this.steps--;
       scale = Math.min(1, STEP_SECONDS / Math.max(time.realDt, 1 / 240));

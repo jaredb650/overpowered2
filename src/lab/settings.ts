@@ -57,6 +57,11 @@ export function saveSettings(s: LabSettings): void {
   }
 }
 
+/** Cheats off: everything but the spawn picks goes back to its default, as on a page that did not ask for the lab. */
+export function resetCheats(s: LabSettings): void {
+  for (const k of Object.keys(DEFAULTS) as (keyof LabSettings)[]) if (!CONVENIENCES.includes(k)) (s as unknown as Record<string, unknown>)[k] = DEFAULTS[k];
+}
+
 export function applyFlags(s: LabSettings): void {
   DevFlags.gibbing = s.gibbing;
   DevFlags.explosiveDeaths = s.explosiveDeaths;

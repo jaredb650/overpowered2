@@ -1,3 +1,4 @@
+import { chunkBootDone, importRetry, installChunkRecovery } from './core/chunkRetry';
 import { classifyError } from './core/errors';
 import { report, reporter, startReporting } from './core/report';
 import { installGlobalCapture } from './core/capture';
@@ -5,6 +6,7 @@ import { showFatalError } from './ui/errorReport';
 
 startReporting();
 installGlobalCapture(showFatalError);
+installChunkRecovery(showFatalError);
 const bootStarted = performance.now();
 /**
  * Entry point.
@@ -24,12 +26,12 @@ async function boot(): Promise<void> {
     return;
   }
   // One tab runs the game; another waits behind "Play here instead" (core/oneTab.ts).
-  await (await import('./core/oneTab')).claimTab();
-  const { startGame } = await import('./core/Game');
+  await (await importRetry(() => import('./core/oneTab'))).claimTab();
+  const { startGame } = await importRetry(() => import('./core/Game'));
   await startGame(params);
 }
 
-boot().then(() => report('BOOT_OK', { durationMs: performance.now() - bootStarted })).catch(async err => {
+boot().then(() => { chunkBootDone(); report('BOOT_OK', { durationMs: performance.now() - bootStarted }); }).catch(async err => {
   console.error(err);
   // A co-op match's handoff was read on the way in: put it back so Reload rejoins the match. Loaded already, so no fetch.
   await import('./net/session').then(s => s.restoreHandoff()).catch(() => {});

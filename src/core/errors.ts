@@ -1,6 +1,7 @@
 /** The tag is a triage hint, not proof of who caused a particular failure. */
 export const ERRORS = {
   ASSET_FETCH_FAILED: ['A download was interrupted. Check your connection, then reload.', 'network'],
+  CODE_CHUNK_FAILED: ['A part of the game did not download. Check your connection, then reload.', 'network'],
   ASSET_404: ['A game file is missing. Reload to get the latest version.', 'us'],
   WEBGL_UNAVAILABLE: ['3D graphics could not start. Enable hardware acceleration or try another browser.', 'device'],
   OUT_OF_MEMORY: ['The game ran out of memory. Close other tabs and reload with lower graphics settings.', 'device'],
@@ -31,6 +32,7 @@ export type ErrorCode = keyof typeof ERRORS;
 export function classifyError(error: unknown): ErrorCode {
   const e = error as { message?: string; network?: boolean; reason?: string; status?: number } | null;
   const text = `${e?.message ?? error} ${e?.reason ?? ''}`;
+  if ((error as Error | null)?.name === 'ChunkError') return 'CODE_CHUNK_FAILED';
   if (e?.status === 404 || /\b404\b/.test(text)) return 'ASSET_404';
   if (/out of memory|allocation failed|memory access out of bounds/i.test(text)) return 'OUT_OF_MEMORY';
   if (/context lost/i.test(text)) return 'WEBGL_CONTEXT_LOST';
