@@ -59,6 +59,11 @@ const DEVICE: Record<CallInId, 'walkie' | 'designator'> = {
 };
 
 const _p = new THREE.Vector3();
+/**
+ * The weapon light's beam: a 23 degree half-cone with a soft edge, out to 30 m. Falling off as 1/d, not 1/d^2: at 1/d^2 enough to
+ * light a dark room 10 m off burnt out a desk 1.5 m off in a lit one (tools/scripts/light-live.mjs).
+ */
+const TORCH_BEAM = { color: 0xfff1dc, candela: 140, decay: 1, range: 30, cone: 0.4, soft: 0.6 } as const;
 const _smart = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _s = new THREE.Vector3();
@@ -191,6 +196,11 @@ export class Rig implements ViewmodelRig {
   private moonOpen = 1;
   private moonProbe = 0;
   private moonClock = 0;
+  /**
+   * The weapon light's beam (weapons/mods.ts LIGHT_GUNS): one spotlight made at boot and kept in the world, dark while no fitted
+   * light is in hand. Adding or taking away a light recompiles every lit shader; a dark one costs a skipped branch (patch.ts).
+   */
+  private readonly torch = new THREE.SpotLight(TORCH_BEAM.color, 0, TORCH_BEAM.range, TORCH_BEAM.cone, TORCH_BEAM.soft, TORCH_BEAM.decay);
 
   // Perk looks.
   private perkHeat = 0;
@@ -244,6 +254,7 @@ export class Rig implements ViewmodelRig {
     this.moveHand.base = 'move';
 
     render.viewScene.add(this.root);
+    render.scene?.add(this.torch, this.torch.target);
 
     // Over the left shoulder, so the top and the camera-side bevels of every gun catch it.
     this.fill.position.set(-0.55, 0.85, 0.6);
@@ -588,6 +599,19 @@ export class Rig implements ViewmodelRig {
     this.updateLooks(dt);
     this.updateMoon(dt);
     this.updateWrist(dt);
+    this.updateLight(def);
+  }
+
+  /** From the muzzle to the point 20 m down the line of sight, while the gun in hand has its light fitted. */
+  private updateLight(def: ViewDef): void {
+    const t = this.torch;
+    t.intensity = this.holsterW < 1 && this.ctx.weapons.fitted?.has(`${def.id}Light` as ModId) ? TORCH_BEAM.candela : 0;
+    if (t.intensity === 0) return;
+    this.muzzle(t.position);
+    // muzzle() leaves the look in _q.
+    t.target.position.set(0, 0, -20).applyQuaternion(_q).add(this.ctx.player.eye);
+    t.updateMatrixWorld();
+    t.target.updateMatrixWorld();
   }
 
   private updateMoon(dt: number): void {

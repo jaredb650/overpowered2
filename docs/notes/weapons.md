@@ -489,6 +489,21 @@ How each gets there, all through the data a hit carries and the systems that alr
 
 Measured over 80 s of the real game, with the bot holding the trigger on the SMG and only collecting what it runs over: reserve fell from 360 to 180 by wave 2, then 5 ammo pickups took it to the 720 cap, across 59 kills and 3 waves. It never went dry. The old wave-2 dry-out came from a 240 reserve running out before the first pickup, with a bot that does not chase drops, so the fix there was the bigger SMG reserve and the fallbacks, not more drops. One pickup is 180 SMG rounds and the economy now leans generous. If that turns out too loose, cut `PICKUP.ammo` in progression before touching the reserves.
 
+**The weapon light** (`<gun>Light` in `mods.ts`, `LIGHT_GUNS`: SMG, Gimlet, Harrow, Awl, pump, Thresher, Deuce, Judge, Rivet,
+Ultramag, Autoraffica; not the heavies or the Sabot). One mod a gun, as every mod is; it changes nothing in the row. 150 credits from
+wave 0 in the Crucible and Endless Humans (Office and Kill House included: they sell from `MOD_WARES`). Always on while fitted and in
+hand: there is no key. The beam is one `THREE.SpotLight` the viewmodel rig makes at boot and keeps in the world scene
+(`rig.ts` `torch`, `updateLight`), at intensity 0 while no fitted light is held, because adding or taking away a light recompiles every
+lit shader (measured: 2 to 4.8 s on the first frame after taking it out). It runs from the muzzle to the point 20 m down the line of
+sight: 140 cd, 23-degree half-cone, penumbra 0.6, out to 30 m, falling off as 1/d (at 1/d^2, enough to light the server room burnt out
+a desk 1.5 m away in the lit office). `materials/patch.ts` skips the BRDF where the spot is dark or out of its cone. No shadow: the engine
+does not run three's shadow maps, so one would mean turning them on with a depth pass of its own. Cost, GPU-synced best-of-10 in the
+Office server room at 1440x900 (`tools/scripts/light-live.mjs`): 16.46 ms with no spotlight, 16.47 dark, 15.3 on, all within noise.
+The part is `models/light.ts` (`weaponLight`, glow `torch`): on the left rail of the long guns ahead of the off hand, under the Deuce's
+barrels (inside `barrels`, so it breaks open with them), under the Judge's barrel and the Rivet's dust cover, and on the left of the
+Ultramag's dust cover, since the laser has its rail. Stills: `tools/scripts/light-shots.mjs`, `tools/out/light/`. Co-op: not shown on
+a friend's body; the pose lane carries the gun's id, not its mods.
+
 ## Tuning
 
 | Want | Change |

@@ -23,6 +23,7 @@ import type { Anim, ViewDef } from '../def';
 import { HANDS } from '../poses';
 import { pullTrigger, round } from './common';
 import { OPTIC_GLOWS } from './optics';
+import { TORCH, weaponLight } from './light';
 
 /** Built size against authored: the owner found it too big for the hands at full size. */
 const S = 0.9;
@@ -402,6 +403,8 @@ function buildUltramag(kit: Kit): Model {
   magazine(m);
   suppressor(m);
   laser(m);
+  // The shop's weapon light (weapons/mods.ts LIGHT_GUNS), hidden until fitted: on the dust cover's left, as the laser has the rail.
+  weaponLight(m, [-0.0333, -0.0089, -0.2396], -Math.PI / 2, 0.95);
   // Hooked hammer, cocked: the spur curls back over the web of the hand.
   m.part('hammer', [0, 0.013, 0.111], () => {
     m.use(STAINLESS);
@@ -418,7 +421,7 @@ function buildUltramag(kit: Kit): Model {
   });
   shrink(m.tree, S);
   const model = new Model(m, kit.mats, {
-    glows: { sight: [0xff6a1a, 7], rear: [0xffe2c4, 2], accent: [0xff2a1c, 3.2], laser: [0xff3020, 7], dot: OPTIC_GLOWS.dot },
+    glows: { sight: [0xff6a1a, 7], rear: [0xffe2c4, 2], accent: [0xff2a1c, 3.2], laser: [0xff3020, 7], dot: OPTIC_GLOWS.dot, torch: TORCH },
   });
   model.socket('muzzle', k([0, BORE, MUZZLE - 0.004]));
   model.socket('muzzleCan', k([0, BORE, MUZZLE - CAN_LEN - 0.002]));
@@ -533,6 +536,7 @@ export function ultramagDef(kit: Kit): ViewDef {
       ultramagDot: { part: 'rmr', sight: k([0, DOT_Y, DOT_Z]), rear: null, relief: 0.14 },
       ultramagLam: { part: 'lam' },
       ultramagMag: { part: 'magExt' },
+      ultramagLight: { part: 'light' },
     },
     // Damped near critical, so the kick settles without the muzzle dipping below level on the rebound. Straight up and back:
     // no yaw, no roll.

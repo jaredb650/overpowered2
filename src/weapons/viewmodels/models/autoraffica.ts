@@ -20,6 +20,7 @@ import { bump, hold, inOut, inQuad, outCubic, outQuad, seg, thud } from '../curv
 import type { Anim, ViewDef } from '../def';
 import { HANDS } from '../poses';
 import { drawCount, pullTrigger, round } from './common';
+import { TORCH, weaponLight } from './light';
 
 const BORE = 0.036;
 const SLIDE_Z = 0;
@@ -278,8 +279,10 @@ function buildAutoraffica(kit: Kit): Model {
     m.use(F.steelDark);
     m.side(poly([[-0.0035, 0.002], [0.0035, 0.002], [0.0025, -0.008, 0.001], [0.004, -0.02, 0.001], [0.0, -0.021, 0.001], [-0.0035, -0.009, 0.002]], 0.001), 0.0064, { bevel: 0.0007 });
   });
+  // The shop's weapon light (weapons/mods.ts LIGHT_GUNS), hidden until fitted. The shroud's left, at its nose.
+  weaponLight(m, [-0.0285, 0.035, -0.2856], -Math.PI / 2, 0.85);
   const model = new Model(m, kit.mats, {
-    glows: { sight: [0x7dff6a, 6], accent: [0x36d6ff, 3], eye: [0xff2a3a, 6] },
+    glows: { sight: [0x7dff6a, 6], accent: [0x36d6ff, 3], eye: [0xff2a3a, 6], torch: TORCH },
     screens: { count: [192, 54] },
   });
   model.socket('muzzle', [0, BORE, MUZZLE]);
@@ -365,7 +368,7 @@ export function autorafficaDef(kit: Kit): ViewDef {
     heatPerShot: 0.015,
     animate: clip,
     // The extended magazine: the sleeve under the floorplate.
-    mods: { autorafficaMag: { part: 'magExt' } },
+    mods: { autorafficaMag: { part: 'magExt' }, autorafficaLight: { part: 'light' } },
     readout: a => drawCount(a, 'count', 2, 7, '#36d6ff'),
   };
 }

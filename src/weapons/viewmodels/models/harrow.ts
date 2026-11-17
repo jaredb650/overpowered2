@@ -14,6 +14,7 @@ import { fill, pullTrigger } from './common';
 import type { Anim, ViewDef } from '../def';
 import { OPTIC_GLOWS, acog, acogShade, redDot } from './optics';
 import { HANDS } from '../poses';
+import { TORCH, weaponLight } from './light';
 
 const BORE = 0.046;
 const GUARD_REAR = -0.165;
@@ -201,7 +202,9 @@ function buildHarrow(kit: Kit): { model: Model; mods: ViewDef['mods'] } {
     m.side(poly([[-0.0035, 0.002], [0.0035, 0.002], [0.002, -0.009, 0.002], [0.0038, -0.0225, 0.0015], [0.0005, -0.0235, 0.001], [-0.0035, -0.0095, 0.003]], 0.001), 0.0068, { bevel: 0.0007 });
   });
 
-  const model = new Model(m, kit.mats, { glows: { sight: [0x7dff5a, 6], ...OPTIC_GLOWS } });
+  // The shop's weapon light (weapons/mods.ts LIGHT_GUNS), hidden until fitted. The handguard's left, at its front.
+  weaponLight(m, [-0.037, 0.044, -0.3595], -Math.PI / 2);
+  const model = new Model(m, kit.mats, { glows: { sight: [0x7dff5a, 6], torch: TORCH, ...OPTIC_GLOWS } });
   acogShade(model);
   model.socket('muzzle', [0, BORE, MUZZLE - 0.004]);
   model.socket('eject', [0.021, 0.054, -0.03]);
@@ -209,7 +212,7 @@ function buildHarrow(kit: Kit): { model: Model; mods: ViewDef['mods'] } {
   model.support('gripL', [-0.001, 0.013, -0.3]);
   model.hand('magHold', [-0.02, -0.07, -0.004], [-0.3, 0.1, -0.95], [0.9, -0.1, -0.35], 'mag');
   model.hand('chargeHold', [-0.022, 0.0, 0.004], [-0.5, -0.2, -0.8], [0.8, -0.3, -0.5], 'charge');
-  return { model, mods: { reddot: dot, harrowAcog: scope } };
+  return { model, mods: { reddot: dot, harrowAcog: scope, harrowLight: { part: 'light' } } };
 }
 
 /** How far the carrier and its handle run. */

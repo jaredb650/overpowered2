@@ -19,6 +19,7 @@ import type { Anim, ViewDef } from '../def';
 import { HANDS } from '../poses';
 import { pullTrigger } from './common';
 import { acog, acogShade, OPTIC_GLOWS } from './optics';
+import { TORCH, weaponLight } from './light';
 
 const BORE = 0.047;
 const MUZZLE = -0.61;
@@ -400,7 +401,9 @@ function build(kit: Kit): { model: Model; mods: ViewDef['mods'] } {
   scoutScope(m);
   const optic = acog(m, [0, RAIL_TOP, -0.105]);
   suppressor(m);
-  const model = new Model(m, kit.mats, { glows: { ...OPTIC_GLOWS, accent: [0xff9a2e, 3] } });
+  // The shop's weapon light (weapons/mods.ts LIGHT_GUNS), hidden until fitted. The fore-end's left, at its tip.
+  weaponLight(m, [-0.0332, 0.012, -0.3615], -Math.PI / 2);
+  const model = new Model(m, kit.mats, { glows: { ...OPTIC_GLOWS, accent: [0xff9a2e, 3], torch: TORCH } });
   acogShade(model);
   model.socket('muzzle', [0, BORE, MUZZLE]);
   model.socket('muzzleCan', [0, BORE, MUZZLE + 0.036 - 0.178]);
@@ -409,7 +412,7 @@ function build(kit: Kit): { model: Model; mods: ViewDef['mods'] } {
   model.support('gripL', [-0.001, BELLY - 0.002, -0.29]);
   model.hand('boltHold', [0.056, -0.03, 0.05], [0, -1, 0], [0, 0, -1], 'bolt');
   model.hand('magHold', [-0.02, -0.012, 0], [-0.3, 0.1, -0.95], [0.9, -0.1, -0.35], 'mag');
-  return { model, mods: { awlAcog: optic, awlCan: { part: 'can', muzzle: 'muzzleCan' } } };
+  return { model, mods: { awlAcog: optic, awlCan: { part: 'can', muzzle: 'muzzleCan' }, awlLight: { part: 'light' } } };
 }
 
 function clip(anim: Anim): void {

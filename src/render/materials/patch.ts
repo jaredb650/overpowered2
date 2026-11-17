@@ -186,7 +186,10 @@ function lightLoopChunk(): string {
   );
   const start = chunk.indexOf('#if ( NUM_POINT_LIGHTS > 0 ) && defined( RE_Direct )');
   const end = chunk.indexOf('#endif', chunk.indexOf('#pragma unroll_loop_end', start)) + '#endif'.length;
-  return `${chunk.slice(0, start)}${POINT_LIGHT_LOOP}${chunk.slice(end)}`;
+  // The weapon light is one spotlight, dark or out of its cone for most pixels: skip the BRDF there, as the point loop does.
+  const call = chunk.indexOf('RE_Direct(', chunk.indexOf('#if ( NUM_SPOT_LIGHTS > 0 )'));
+  const spot = `${chunk.slice(end, call)}if ( directLight.visible ) ${chunk.slice(call)}`;
+  return `${chunk.slice(0, start)}${POINT_LIGHT_LOOP}${spot}`;
 }
 
 function envChunk(): string {

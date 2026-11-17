@@ -138,7 +138,7 @@ describe('Ultramag viewmodel', () => {
 
   it('shows each mod as a part, the extended magazine riding with the magazine', () => {
     for (const [id, look] of Object.entries(def.mods ?? {})) expect(def.model.parts[look!.part], id).toBeDefined();
-    expect(Object.keys(def.mods ?? {}).sort()).toEqual(['ultramagCan', 'ultramagDot', 'ultramagLam', 'ultramagMag']);
+    expect(Object.keys(def.mods ?? {}).sort()).toEqual(['ultramagCan', 'ultramagDot', 'ultramagLam', 'ultramagLight', 'ultramagMag']);
     expect(def.model.parts.magExt!.parent).toBe(def.model.parts.mag);
     // The reflex sight rides the slide, so it cycles with it.
     expect(def.model.parts.rmr!.parent).toBe(def.model.parts.slide);

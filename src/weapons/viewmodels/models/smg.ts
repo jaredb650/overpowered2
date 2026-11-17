@@ -12,6 +12,7 @@ import { bump, hold, inOut, inQuad, outCubic, seg, thud } from '../curves';
 import { drawCount, fill, pullTrigger } from './common';
 import type { Anim, ViewDef } from '../def';
 import { HANDS } from '../poses';
+import { TORCH, weaponLight } from './light';
 
 export const SMG_BORE_Y = 0.04;
 
@@ -322,8 +323,11 @@ function buildSmg(kit: Kit): Model {
     m.side(poly([[-0.0035, 0.002], [0.0035, 0.002], [0.002, -0.009, 0.002], [0.0038, -0.0205, 0.0015], [0.0005, -0.0215, 0.001], [-0.0035, -0.0095, 0.003]], 0.001), 0.0065, { bevel: 0.0007 });
   });
 
+  // The shop's weapon light (weapons/mods.ts LIGHT_GUNS), hidden until fitted. On the handguard's left, ahead of the off hand.
+  weaponLight(m, [-0.0367, 0.045, -0.2175], -Math.PI / 2);
+
   const model = new Model(m, kit.mats, {
-    glows: { sight: [0x35e8ff, 7] },
+    glows: { sight: [0x35e8ff, 7], torch: TORCH },
     screens: { ammo: [192, 72] },
   });
   model.socket('muzzle', [0, 0.04, -0.332]);
@@ -396,7 +400,9 @@ function clip(a: Anim, left: boolean): void {
   hand.shape(HANDS.pinch, hold(p, 0.7, 0.75, 0.88, 0.93));
 }
 
-const SMG_MODS: ViewDef['mods'] = { suppressor: { part: 'suppressor', muzzle: 'muzzleCan' }, smgMag: { part: 'magExt', hides: 'magStd' } };
+const SMG_MODS: ViewDef['mods'] = {
+  suppressor: { part: 'suppressor', muzzle: 'muzzleCan' }, smgMag: { part: 'magExt', hides: 'magStd' }, smgLight: { part: 'light' },
+};
 
 export function smgDefs(kit: Kit): { right: ViewDef; left: ViewDef } {
   const recoil = { back: 0.0145, lift: 0.0017, pitch: 0.0135, yaw: 0.0035, roll: 0.0055, omega: 62, zeta: 0.62 };

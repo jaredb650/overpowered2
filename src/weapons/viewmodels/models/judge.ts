@@ -15,6 +15,7 @@ import { bump, hold, inOut, inQuad, outCubic, seg, thud } from '../curves';
 import type { Anim, ViewDef } from '../def';
 import { HANDS } from '../poses';
 import { pullTrigger, round } from './common';
+import { TORCH, weaponLight } from './light';
 
 const BORE = 0.05;
 /** Cylinder axis sits below the bore by the chamber circle's radius. */
@@ -242,7 +243,9 @@ function buildJudge(kit: Kit): Model {
     m.use(STAINLESS_DARK);
     m.side(poly([[-0.0035, 0.002], [0.0035, 0.002], [0.002, -0.009, 0.002], [0.0038, -0.0195, 0.0015], [0.0005, -0.0205, 0.001], [-0.0035, -0.0095, 0.003]], 0.001), 0.0065, { bevel: 0.0007 });
   });
-  const model = new Model(m, kit.mats, { glows: { sight: [0xff6a1a, 7] } });
+  // The shop's weapon light (weapons/mods.ts LIGHT_GUNS), hidden until fitted. Under the barrel, ahead of the cylinder.
+  weaponLight(m, [0, -0.002, -0.278], 0, 0.85);
+  const model = new Model(m, kit.mats, { glows: { sight: [0xff6a1a, 7], torch: TORCH } });
   model.socket('muzzle', [0, BORE, -0.323]);
   model.socket('eject', [-0.03, 0.03, -0.01]);
   model.hand('gripR', [0.0205, -0.07, 0.066], [0, -0.96, 0.27], [-0.3, -0.25, -0.92]);
@@ -359,7 +362,7 @@ export function judgeDef(kit: Kit): ViewDef {
     left: { socket: 'gripL', pose: HANDS.pistolSupport },
     heatPerShot: 0.05,
     animate: clip,
-    mods: { judgeHammer: { part: 'spurLong', hides: 'spur' }, judgeGrip: { part: 'gripComfort', hides: 'gripStd' } },
+    mods: { judgeHammer: { part: 'spurLong', hides: 'spur' }, judgeGrip: { part: 'gripComfort', hides: 'gripStd' }, judgeLight: { part: 'light' } },
   };
 }
 

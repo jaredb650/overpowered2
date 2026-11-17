@@ -17,6 +17,7 @@ import { fill, pullTrigger } from './common';
 import type { Anim, ViewDef } from '../def';
 import { HANDS } from '../poses';
 import { OPTIC_GLOWS, acog, acogShade, redDot } from './optics';
+import { TORCH, weaponLight } from './light';
 
 const BORE = 0.046;
 /** The top of the rail, which runs from the back of the upper to the front of the handguard. */
@@ -354,7 +355,9 @@ function buildGimlet(kit: Kit): Built {
     m.side(poly([[-0.0035, 0.002], [0.0035, 0.002], [0.002, -0.009, 0.002], [0.0038, -0.0225, 0.0015], [0.0005, -0.0235, 0.001], [-0.0035, -0.0095, 0.003]], 0.001), 0.0062, { bevel: 0.0007 });
   });
 
-  const model = new Model(m, kit.mats, { glows: { sight: [0x7dff5a, 6], guard: [0x2ff0d0, 4], ...OPTIC_GLOWS } });
+  // The shop's weapon light (weapons/mods.ts LIGHT_GUNS), hidden until fitted. The left rail at the handguard's front, clear of the launcher.
+  weaponLight(m, [-0.0385, 0.034, -0.2815], -Math.PI / 2);
+  const model = new Model(m, kit.mats, { glows: { sight: [0x7dff5a, 6], guard: [0x2ff0d0, 4], torch: TORCH, ...OPTIC_GLOWS } });
   acogShade(model);
   model.socket('muzzle', [0, BORE, MUZZLE - 0.004]);
   // On the can, so it goes back with it onto the short barrel.
@@ -370,7 +373,7 @@ function buildGimlet(kit: Kit): Built {
   model.hand('glBreech', [-0.022, GL_Y - 0.01, GUARD_REAR - 0.12], [-0.5, -0.2, -0.8], [0.8, -0.3, -0.5]);
   model.hand('magHold', [-0.02, -0.07, -0.004], [-0.3, 0.1, -0.95], [0.9, -0.1, -0.35], 'mag');
   model.hand('chargeHold', [-0.02, 0.0, 0.006], [-0.5, -0.2, -0.8], [0.8, -0.3, -0.5], 'charge');
-  return { model, mods: { gimletAcog: scope, gimletDot: dot, gimletCan: { part: 'can', muzzle: 'muzzleCan' }, gimletGl: { part: 'gl' },
+  return { model, mods: { gimletAcog: scope, gimletDot: dot, gimletCan: { part: 'can', muzzle: 'muzzleCan' }, gimletGl: { part: 'gl' }, gimletLight: { part: 'light' },
     // After the can, so with both on the flash leaves the can's mouth, and the can comes back onto the stub.
     gimletShort: { part: 'shortBarrel', hides: 'barrel', muzzle: 'muzzleShort', moves: { part: 'can', z: HIDER_S - HIDER } } } };
 }

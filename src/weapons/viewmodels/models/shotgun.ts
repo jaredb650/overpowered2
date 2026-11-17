@@ -13,6 +13,7 @@ import { bump, hold, inOut, seg, thud } from '../curves';
 import type { Anim, ViewDef } from '../def';
 import { HANDS } from '../poses';
 import { drawCount, pullTrigger, shell12 } from './common';
+import { TORCH, weaponLight } from './light';
 
 const BORE = 0.03;
 const TUBE = 0.0;
@@ -229,8 +230,11 @@ function buildShotgun(kit: Kit): Model {
   // The shell in the hand during a reload. Its part origin is the head of the shell.
   m.part('shell', [0, -0.03, -0.1], () => shell12(m, F.red));
 
+  // The shop's weapon light (weapons/mods.ts LIGHT_GUNS), hidden until fitted. A barrel clamp on the left, ahead of the pump's travel.
+  weaponLight(m, [-0.0315, 0.022, -0.5], -Math.PI / 2);
+
   const model = new Model(m, kit.mats, {
-    glows: { sight: [0x9cff3a, 6] },
+    glows: { sight: [0x9cff3a, 6], torch: TORCH },
     screens: { ammo: [240, 22] },
   });
   model.socket('muzzle', [0, BORE, -0.702]);
@@ -318,7 +322,7 @@ export function shotgunDef(kit: Kit): ViewDef {
     heatPerShot: 0.09,
     animate: clip,
     readout: a => drawCount(a, 'ammo', 0, 6, '#9cff3a'),
-    mods: { shotgunChoke: { part: 'choke', hides: 'breacher', muzzle: 'muzzleChoke' } },
+    mods: { shotgunChoke: { part: 'choke', hides: 'breacher', muzzle: 'muzzleChoke' }, shotgunLight: { part: 'light' } },
   };
 }
 

@@ -13,6 +13,7 @@ import { bump, hold, inOut, inQuad, outCubic, seg, thud } from '../curves';
 import type { Anim, ViewDef } from '../def';
 import { HANDS } from '../poses';
 import { pullTrigger, round } from './common';
+import { TORCH, weaponLight } from './light';
 
 const BORE = 0.034;
 const SLIDE_Z = -0.04;
@@ -152,7 +153,9 @@ function buildRivet(kit: Kit): Model {
     m.use(F.steelDark);
     m.side(poly([[-0.0035, 0.002], [0.0035, 0.002], [0.002, -0.009, 0.002], [0.0038, -0.02, 0.0015], [0.0005, -0.021, 0.001], [-0.0035, -0.0095, 0.003]], 0.001), 0.0062, { bevel: 0.0007 });
   });
-  const model = new Model(m, kit.mats, { glows: { sight: [0xff7a1a, 7] } });
+  // The shop's weapon light (weapons/mods.ts LIGHT_GUNS), hidden until fitted. Under the dust cover.
+  weaponLight(m, [0, -0.0165, -0.1156], 0, 0.85);
+  const model = new Model(m, kit.mats, { glows: { sight: [0xff7a1a, 7], torch: TORCH } });
   model.socket('muzzle', [0, BORE, MUZZLE - 0.006]);
   model.socket('eject', [0.018, BORE + 0.008, -0.02]);
   model.hand('gripR', [0.0195, -0.068, 0.066], [0, -0.96, 0.27], [-0.3, -0.25, -0.92]);
@@ -227,7 +230,7 @@ export function rivetDef(kit: Kit): ViewDef {
     right: { socket: 'gripR', pose: HANDS.grip },
     left: { socket: 'gripL', pose: HANDS.pistolSupport },
     heatPerShot: 0.02,
-    mods: { rivetMag: { part: 'magExt', hides: 'magStd' } },
+    mods: { rivetMag: { part: 'magExt', hides: 'magStd' }, rivetLight: { part: 'light' } },
     animate: clip,
   };
 }

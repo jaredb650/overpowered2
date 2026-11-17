@@ -44,6 +44,14 @@ function rounds(gun: WeaponId, load: AmmoLoad): ModDef {
   };
 }
 
+/**
+ * The guns that take a weapon light: every rifle, shotgun and pistol, not the heavies or the Sabot. Always on while fitted (no key
+ * for it), it is the rig's one spotlight (viewmodels/rig.ts `updateLight`) and changes nothing in the row.
+ */
+export const LIGHT_GUNS = ['smg', 'gimlet', 'harrow', 'awl', 'shotgun', 'thresher', 'deuce', 'judge', 'rivet', 'ultramag', 'autoraffica'] as const satisfies readonly WeaponId[];
+export const lightOf = (gun: (typeof LIGHT_GUNS)[number]): ModId => `${gun}Light`;
+const light = (gun: (typeof LIGHT_GUNS)[number]): ModDef => ({ id: lightOf(gun), weapon: gun, name: 'Weapon light', patch: {} });
+
 export const MODS: Readonly<Record<ModId, ModDef>> = {
   awlAcog: { id: 'awlAcog', weapon: 'awl', name: 'ACOG', slot: 'sight', patch: { scope: false, ads: ACOG } },
   awlAp: rounds('awl', 'ap'), awlHp: rounds('awl', 'hp'),
@@ -118,6 +126,9 @@ export const MODS: Readonly<Record<ModId, ModDef>> = {
   // The Judge's fanning: a bar every 0.28 s where it was 0.4, and up to six bars, a chamber each, where it was three.
   judgeHammer: { id: 'judgeHammer', weapon: 'judge', name: 'Extended hammer', slot: 'hammer', patch: {}, adjust: d => ({ altFan: { ...d.altFan!, perBar: 0.28 } }) },
   judgeGrip: { id: 'judgeGrip', weapon: 'judge', name: 'Comfort grip', slot: 'grip', patch: {}, adjust: d => ({ altFan: { ...d.altFan!, bars: 6 } }) },
+  smgLight: light('smg'), gimletLight: light('gimlet'), harrowLight: light('harrow'), awlLight: light('awl'),
+  shotgunLight: light('shotgun'), thresherLight: light('thresher'), deuceLight: light('deuce'),
+  judgeLight: light('judge'), rivetLight: light('rivet'), ultramagLight: light('ultramag'), autorafficaLight: light('autoraffica'),
 };
 
 export const MOD_ORDER: readonly ModId[] = [
@@ -129,6 +140,7 @@ export const MOD_ORDER: readonly ModId[] = [
   'ultramagCan', 'ultramagDot', 'ultramagLam', 'ultramagMag',
   'smgMag', 'gimletShort', 'rivetMag', 'piledriverBox',
   'deuceQuad', 'deuceLoader', 'shotgunChoke', 'judgeHammer', 'judgeGrip',
+  ...LIGHT_GUNS.map(lightOf),
 ];
 
 /** Held and fitted at the start of every run: the Gimlet's ACOG and suppressor. The shop takes them off and puts them back. */

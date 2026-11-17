@@ -18,6 +18,7 @@ import { BREAK } from '../../data';
 import { HANDS } from '../poses';
 import { pullTrigger, shell12 } from './common';
 import { stock } from './shotgun';
+import { TORCH, weaponLight } from './light';
 
 const BORE = 0.034;
 /** Each barrel's axis sits this far either side of the middle: the two touch along the rib. */
@@ -76,6 +77,8 @@ function barrels(m: Mesher): void {
   m.part('barrels', [0, HY, HZ], () => {
     const y = BORE - HY;
     const z = (v: number) => v - HZ;
+    // The shop's weapon light (weapons/mods.ts LIGHT_GUNS), hidden until fitted: clamped under the barrels, so it drops with them.
+    weaponLight(m, [0, 0.005 - HY, z(-0.41)]);
     m.mirror(() => m.at([BX, y, 0], null, () => {
       m.use(F.barrel);
       m.lathe([[R, z(BREECH), 0], [R, z(-0.09)], [R - 0.0016, z(-0.13)], [R - 0.0022, z(MUZZLE + 0.012)], [R - 0.001, z(MUZZLE + 0.008)], [R - 0.001, z(MUZZLE), 0.0008], [0.0095, z(MUZZLE), 0]], 26);
@@ -262,7 +265,7 @@ function buildDeuce(kit: Kit): Model {
     m.side(poly([[-0.0035, 0.002], [0.0035, 0.002], [0.002, -0.009, 0.002], [0.0038, -0.0205, 0.0015], [0.0005, -0.0215, 0.001], [-0.0035, -0.0095, 0.003]], 0.001), 0.0065, { bevel: 0.0007 });
   });
 
-  const model = new Model(m, kit.mats, { glows: { sight: [0xffb43a, 5] } });
+  const model = new Model(m, kit.mats, { glows: { sight: [0xffb43a, 5], torch: TORCH } });
   // Right barrel first, on the front trigger; the left on the rear. Weapons asks for `muzzle1` on the second shot, and on
   // the quad `muzzle2` and `muzzle3`, the upper pair's.
   model.socket('muzzle', [BX, BORE, MUZZLE - 0.002]);
@@ -390,6 +393,6 @@ export function deuceDef(kit: Kit): ViewDef {
     left: { socket: 'foreL', pose: HANDS.support },
     heatPerShot: 0.05,
     animate: clip,
-    mods: { deuceQuad: { part: 'quad', also: 'quadTop', hides: 'top' }, deuceLoader: { part: 'carrier' } },
+    mods: { deuceQuad: { part: 'quad', also: 'quadTop', hides: 'top' }, deuceLoader: { part: 'carrier' }, deuceLight: { part: 'light' } },
   };
 }

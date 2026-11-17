@@ -360,6 +360,18 @@ export const MOD_WARES: Readonly<Record<ModId, Ware>> = {
   judgePlusP: { price: 550, wave: 0, lore: 'The same verdict, twenty percent harder. Sentencing guidelines have been updated accordingly.' },
   autorafficaPlusP: { price: 450, wave: 0, lore: 'More damage from every Autoraffica round. The automation budget has been redirected into pressure.' },
   awlPlusP: { price: 400, wave: 0, lore: 'Overpressure rounds for the Awl. Five rounds still. Procurement insists this counts as doing more with less.' },
+  // The weapon light (weapons/mods.ts LIGHT_GUNS): one a gun, cheap and sold from the start. Always on; there is no switch.
+  smgLight: { price: 150, wave: 0, lore: 'A light under the SMG, always on. The dark corners of the building are now just corners, and so is everyone standing in them.' },
+  gimletLight: { price: 150, wave: 0, lore: 'A light on the Gimlet\'s left rail, where the launcher cannot argue with it. It does not switch off. Neither, the Council notes, does the contractor.' },
+  harrowLight: { price: 150, wave: 0, lore: 'The Harrow already goes through walls. This lets you see the wall first, as a courtesy.' },
+  awlLight: { price: 150, wave: 0, lore: 'A light on the Awl, for the scout who has run out of daylight. Five rounds, one beam, no excuses.' },
+  shotgunLight: { price: 150, wave: 0, lore: 'A light under the pump, so the opinion reaches the right face. Always on: the Council did not budget for a switch.' },
+  thresherLight: { price: 150, wave: 0, lore: 'Lights whatever the Thresher is about to rearrange. Procurement files it as before-and-after documentation.' },
+  deuceLight: { price: 150, wave: 0, lore: 'A light on the Deuce, for confirming in the dark that both barrels were necessary. They were.' },
+  judgeLight: { price: 150, wave: 0, lore: 'A light under the Judge. The court now sees the accused before sentencing, a reform long requested by nobody.' },
+  rivetLight: { price: 150, wave: 0, lore: 'The cheapest light in the catalogue on the cheapest pistol in it. The dark is not defeated, only reduced.' },
+  ultramagLight: { price: 150, wave: 0, lore: 'A light for the Ultramag that shares the rail with the laser, if you bought both. The polished slide makes it look twice the price.' },
+  autorafficaLight: { price: 150, wave: 0, lore: 'A light on the Autoraffica. The smart aim already finds heads in the dark. This is so you can watch.' },
 };
 
 /** The menu's heading and its small print. */
