@@ -15,6 +15,7 @@ import { LANCE_LOOK, MARKS } from '../../weapons/lance';
 import { moddedDef } from '../../weapons/mods';
 import { ROCKET_LASER } from '../../weapons/laser';
 import { healPrompt } from './healPrompt';
+import type { AdsZoom } from '../../weapons/adsZoom';
 import { LockMarkers } from './locks';
 import { crosshairRead } from '../../allies/rules';
 
@@ -263,6 +264,13 @@ export class Crosshair {
   private promptShown: Shown;
   private heal: Label;
   private healShown: Shown;
+  /** The held-breath zoom (weapons/adsZoom.ts): a thin bar while it holds or cools, and "Hold [key] to focus" at first. */
+  private breath: Meter;
+  private breathShown: Shown;
+  private breathCool: Flag;
+  private focus: Label;
+  private focusShown: Shown;
+  private focusCool: Flag;
   private charge: Meter;
   private chargeShown: Shown;
   /** The Lance's bar: notches shown, and one flag a stage reached. */
@@ -304,6 +312,10 @@ export class Crosshair {
     const promptHost = div('xh-prompt', prompt);
     const heal = span('xh-prompt-t');
     const healHost = div('xh-prompt xh-heal', heal);
+    const breathFill = div('xh-breath-fill');
+    const breathHost = div('xh-breath', breathFill);
+    const focus = span('xh-prompt-t');
+    const focusHost = div('xh-prompt xh-focus', focus);
     const chargeFill = div('xh-charge-fill');
     const chargeHost = div('xh-charge', chargeFill);
     for (let i = 0; i < CHARGE_STAGES.length; i++) {
@@ -342,6 +354,8 @@ export class Crosshair {
       chargeHost,
       promptHost,
       healHost,
+      breathHost,
+      focusHost,
       this.hits.body.el, this.hits.armor.el, this.hits.armorThrough.el, this.hits.armorBroken.el, this.hits.head.el, this.hits.kill.el,
     );
     for (let i = 0; i < MAX_ARCS; i++) {
@@ -360,6 +374,12 @@ export class Crosshair {
     this.promptShown = new Shown(promptHost);
     this.heal = new Label(heal);
     this.healShown = new Shown(healHost);
+    this.breath = new Meter(breathFill);
+    this.breathShown = new Shown(breathHost);
+    this.breathCool = new Flag(breathHost, 'cool');
+    this.focus = new Label(focus);
+    this.focusShown = new Shown(focusHost);
+    this.focusCool = new Flag(focusHost, 'cool');
     this.charge = new Meter(chargeFill);
     this.chargeShown = new Shown(chargeHost);
     this.locks = new LockMarkers(ctx);
@@ -499,6 +519,18 @@ export class Crosshair {
     const healText = hidden ? null : healPrompt(s, typeof stimKey === 'string' ? stimKey : '');
     this.healShown.set(healText !== null);
     if (healText !== null) this.heal.set(healText);
+
+    // Shown through a scope too: the breath is the scope's as much as the sights'.
+    const zoom = (this.ctx.weapons as { adsZoom?: AdsZoom } | undefined)?.adsZoom;
+    const dashKey = typeof input.labelFor === 'function' ? input.labelFor('dash') : '';
+    const cooling = !!zoom && zoom.cool > 0;
+    this.breathShown.set(!!zoom && zoom.aimed && (zoom.on || cooling));
+    if (zoom) this.breath.set(zoom.breath);
+    this.breathCool.set(cooling);
+    const hint = !!zoom && zoom.aimed && !zoom.on && zoom.hint && typeof dashKey === 'string' && dashKey !== '';
+    this.focusShown.set(hint);
+    if (hint) this.focus.set(`Hold [${dashKey as string}] to focus`);
+    this.focusCool.set(cooling);
 
     const charging = s.charge > 0.01 && !hidden;
     this.chargeShown.set(charging);

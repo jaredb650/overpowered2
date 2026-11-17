@@ -430,7 +430,9 @@ export class Player implements PlayerSystem {
       this.jumpBufferT = T.jumpBuffer;
       this.jumpFresh = true;
     }
-    if (input.pressed('dash')) this.dashBufferT = T.dashBuffer;
+    // Aimed down sights or scoped, the dash key is the weapon's further zoom (weapons/adsZoom.ts), not a dash.
+    const aimHeld = (this.ctx as { weapons?: { aimHeld?: boolean } }).weapons?.aimHeld === true;
+    if (input.pressed('dash') && !aimHeld) this.dashBufferT = T.dashBuffer;
     if (input.pressed('slide')) this.slideLatch = true;
     if (!this.slideHeld) this.slideQueued = false;
   }

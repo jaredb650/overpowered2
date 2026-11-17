@@ -137,7 +137,7 @@ describe('the Awl scout', () => {
     expect(range.weapons.aim).toBeGreaterThan(0.99);
     expect(range.weapons.scoped).toBe(false);
     expect(moddedDef('awl', range.weapons.fitted).ads).toEqual({ zoom: 0.69, time: 0.24 });
-    expect(aim).toHaveBeenLastCalledWith(expect.closeTo(0.31, 10), TUNING.ads.sensitivity);
+    expect(aim).toHaveBeenLastCalledWith(expect.closeTo(0.31, 10), TUNING.ads.sensitivity, 1);
     const acogFov = 90 * (1 - moddedDef('awl', range.weapons.fitted).ads!.zoom);
     expect(acogFov).toBeCloseTo(27.9);
     expect(1 / Math.tan(acogFov * Math.PI / 360)).toBeCloseTo(4, 1);

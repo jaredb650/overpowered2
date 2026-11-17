@@ -402,6 +402,13 @@
 .lk.full .lk-label { color: var(--amber); }
 .xh-heal { top: 6.4rem; animation: op-heal 1.4s ease-in-out infinite alternate; }
 @keyframes op-heal { from { opacity: 1; } to { opacity: 0.55; } }
+/* The held-breath zoom: a thin bar draining below and right of centre, clear of a scope's stadia, dim while it refills; its
+   hint dims with it. */
+.xh-breath { position: absolute; left: 1.6rem; top: 1.6rem; width: 4rem; height: 0.14rem; background: var(--plate); }
+.xh-breath-fill { width: 100%; height: 100%; background: var(--ink); transform-origin: 0 50%; }
+.xh-breath.cool { opacity: 0.45; }
+.xh-focus { top: 5.3rem; }
+.xh-focus.cool { opacity: 0.4; }
 .xh-prompt-t { display: inline-block; padding: 0 0.5rem; background: var(--amber); color: #000; font-weight: 800; }
 .xh-charge { position: absolute; left: -4rem; top: 3.2rem; width: 8rem; height: 0.32rem; background: var(--plate); }
 .xh-charge-fill { width: 100%; height: 100%; background: var(--cold); transform-origin: 0 50%; }

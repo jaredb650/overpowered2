@@ -16,6 +16,7 @@ import type {
 import { clamp, damp, invLerp, lerp, randomInCone, smoothstep, wrapAngle } from '../core/math';
 import { MOVE } from '../player/tuning';
 import type { Combat, Guard, GuardResult } from './Combat';
+import { AdsZoom } from './adsZoom';
 import { ISSUED, MODS, MOD_ORDER, moddedDef } from './mods';
 import { HIT_STOP, LAUNCHER, SWORD, TUNING, WEAPONS, WEAPON_ORDER, type FireSelect, type SoundLayer, type WeaponDef } from './data';
 import { Fan, type FanHooks, type FanLock } from './fan';
@@ -133,6 +134,10 @@ export class Weapons implements WeaponSystem, Guard {
   private aimOn = false;
   /** 0 to 1, linear over the gun's `ads.time`. `aim` is it eased. */
   private aimT = 0;
+  /** Hold the dash key while aimed: a further zoom on one breath (adsZoom.ts). Read by the crosshair. */
+  readonly adsZoom = new AdsZoom();
+  /** Aim held on a gun that aims, or its scope up: the dash key is the zoom's then, and the player does not dash. */
+  aimHeld = false;
 
   private cooking = false;
   private cookLeft = 0;
@@ -1958,7 +1963,9 @@ export class Weapons implements WeaponSystem, Guard {
     const up = wants && !blocked;
     this.aimT = clamp(this.aimT + (up ? dt : -dt) / (def.ads?.time ?? 0.2));
     const w = this.aim;
-    c.camera.setAim?.(1 - (def.ads?.zoom ?? 0) * w, lerp(1, this.aimSensitivity, w));
+    this.aimHeld = (!!def.ads && wants && !busy) || this.zoomed || this.rescope;
+    this.adsZoom.update(c.time.realDt, up || this.scopeShown, c.input.isDown('dash'));
+    c.camera.setAim?.(1 - (def.ads?.zoom ?? 0) * w, lerp(1, this.aimSensitivity, w), this.adsZoom.mag);
     c.viewmodel.setAim?.(w);
   }
 

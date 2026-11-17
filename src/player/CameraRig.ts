@@ -12,6 +12,7 @@
 import * as THREE from 'three';
 import type { CameraRig, Ctx, SeatView } from '../core/contracts';
 import { clamp, damp, lerp, rand, smoothstep } from '../core/math';
+import { adsZoomFov } from '../weapons/adsZoom';
 import { ANIM } from './moveAnim';
 import { settle, springStep, type SpringState } from './moveMath';
 import { FEEDBACK, VIEW } from './tuning';
@@ -39,6 +40,7 @@ export class CameraRigSystem implements CameraRig {
   /** Aim down sights, as the weapon blends it: see `setAim`. */
   private aimFov = 1;
   private aimLook = 1;
+  private aimFocus = 1;
   private punches: Punch[] = Array.from({ length: MAX_PUNCHES }, () => ({ degrees: 0, left: 0, duration: 1 }));
 
   private trauma = 0;
@@ -123,9 +125,10 @@ export class CameraRigSystem implements CameraRig {
     if (fov !== null) this.lastZoomFov = fov;
   }
 
-  setAim(fovScale: number, lookScale: number): void {
+  setAim(fovScale: number, lookScale: number, focus = 1): void {
     this.aimFov = fovScale;
     this.aimLook = lookScale;
+    this.aimFocus = focus;
   }
 
   setBaseFov(degrees: number): void {
@@ -256,13 +259,16 @@ export class CameraRigSystem implements CameraRig {
     const free = this.baseFov + this.speedFov + punch;
     this.zoomBlend = damp(this.zoomBlend, this.zoomFov === null ? 0 : 1, VIEW.zoomRate, real);
     if (this.zoomFov === null && this.zoomBlend < 0.001) this.zoomBlend = 0;
-    this.fov = lerp(free, this.lastZoomFov, this.zoomBlend) * this.aimFov;
+    const aimed = lerp(free, this.lastZoomFov, this.zoomBlend) * this.aimFov;
+    this.fov = adsZoomFov(aimed, this.aimFocus);
 
     // The same mouse motion should move the same distance on screen at any zoom. Only the scope changes it:
     // speed FOV must not change aim feel while running.
     const zoomed = lerp(this.baseFov, this.lastZoomFov, this.zoomBlend);
     // Aim down sights scales the mouse by the ADS sensitivity setting alone, not by its narrower view.
     player.lookScale = (Math.tan((zoomed * DEG) / 2) / Math.tan((this.baseFov * DEG) / 2)) * this.aimLook;
+    // The held-breath zoom slows the mouse as a scope does: by how much narrower it made the view.
+    if (this.fov !== aimed) player.lookScale *= Math.tan((this.fov * DEG) / 2) / Math.tan((aimed * DEG) / 2);
   }
 
   private updateShake(real: number): void {
@@ -286,7 +292,7 @@ export class CameraRigSystem implements CameraRig {
     this.roll = this.wallRoll = 0;
     this.zoomFov = null;
     this.zoomBlend = 0;
-    this.aimFov = this.aimLook = 1;
+    this.aimFov = this.aimLook = this.aimFocus = 1;
     for (const p of this.punches) p.left = 0;
   }
 }
