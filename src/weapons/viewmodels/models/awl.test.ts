@@ -38,7 +38,8 @@ describe('Awl viewmodel', () => {
     expect(def.model.parts.scoutScope!.position.z).toBeLessThan(-0.12);
     expect(def.model.sockets.boltHold!.parent).toBe(def.model.parts.bolt);
     expect(def.model.triangles).toBeGreaterThan(1000);
-    expect(def.model.triangles).toBeLessThan(30000);
+    // Every mod part is built in, hidden until fitted: the gun, the ACOG, the can and the weapon light came to about 32,600.
+    expect(def.model.triangles).toBeLessThan(34000);
   });
 
   it('rotates the bolt before drawing it back and follows it with the right hand', () => {

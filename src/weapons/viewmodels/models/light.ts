@@ -40,7 +40,10 @@ function body(m: Mesher): void {
     [0.0099, -0.0405, 0], [0.0099, -0.0392, 0], [0, -0.0392, 0],
   ], 28);
   m.use(F.black);
-  for (const z of [-0.0275, -0.031, -0.0345]) m.at([0, 0, z], null, () => m.pipe(0.0126, 0.0118, 0.0009, 28));
+  // Open bands, not pipes: their bore sits inside the head, so an inner wall would only add hidden triangles.
+  for (const z of [-0.0275, -0.031, -0.0345]) {
+    m.at([0, 0, z], null, () => m.lathe([[0.0118, 0.00045], [0.0126, 0.00045], [0.0126, -0.00045], [0.0118, -0.00045]], 28));
+  }
   // Reflector, LED and lens: the LED is the only light-coloured thing on the gun.
   m.use(F.chrome);
   m.at([0, 0, -0.0389], null, () => m.cyl(0.0098, 0.0008, 24, 0));
