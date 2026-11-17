@@ -13,6 +13,7 @@ import type { ModId, WeaponId } from '../../core/gameplay';
 import type { ContractId } from '../data';
 import { ACTIVE } from '../select';
 import { survivalLoadout } from '../loadouts';
+import { MOVE } from '../../player/tuning';
 
 const query = typeof location === 'undefined' ? null : new URLSearchParams(location.search);
 
@@ -107,7 +108,7 @@ const WEAPON_CATALOGUE: Readonly<Partial<Record<WeaponId, Ware>>> = {
     lore: 'Three rounds a pull through a silencer it was born with. Hold R and it finds the head for you: the Council has been automating the contractor for years, and is pleased to report progress.',
   },
   ultramag: {
-    price: 1700, wave: 14,
+    price: 1200, wave: 4,
     lore: 'The hardest-hitting pistol in the catalogue, for when the argument has to end in one sentence. The slide is polished so the last thing they see is themselves.',
   },
   piledriver: {
@@ -167,6 +168,28 @@ export function weaponWares(contract: ContractId): Readonly<Partial<Record<Weapo
 
 export const WEAPON_WARES = weaponWares(ACTIVE.def.id);
 export const WEAPON_WARE_ORDER = Object.keys(WEAPON_CATALOGUE) as WeaponId[];
+
+/**
+ * Resupply at the pod, bought as often as it is wanted and shut while it would do nothing: every carried gun's reserve to full,
+ * health to full, or `SUPPLY_ARMOR` more armour up to the player's most (player/tuning.ts `maxArmor`).
+ */
+export type SupplyId = 'ammo' | 'heal' | 'armor';
+export const SUPPLY_ARMOR = 100;
+export const SUPPLY_ORDER: readonly SupplyId[] = ['ammo', 'heal', 'armor'];
+export const SUPPLY_WARES: Readonly<Record<SupplyId, Ware & { name: string; does: string }>> = {
+  ammo: {
+    price: 250, wave: 0, name: 'Ammunition', does: 'Every gun you carry, reserve to full',
+    lore: 'A full reserve for everything you carry. The Council bills by the crate and not by the round, so please do try to hit something.',
+  },
+  heal: {
+    price: 150, wave: 0, name: 'Field dressing', does: 'Health to full',
+    lore: 'Gauze, staples and a form confirming you were fine all along. It works faster than waiting, which is all the Council will say for it.',
+  },
+  armor: {
+    price: 300, wave: 0, name: 'Armour plate', does: `${SUPPLY_ARMOR} armour, up to ${MOVE.maxArmor}. Takes two thirds of every hit`,
+    lore: 'A plate for the vest. It takes two thirds of every hit until it has had enough, which the Council considers a fair share.',
+  },
+};
 
 /** The mods for sale (src/weapons/mods.ts). Bought once, then fitted or taken off here, free, in any break. */
 export const MOD_WARES: Readonly<Record<ModId, Ware>> = {

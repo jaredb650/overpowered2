@@ -361,7 +361,7 @@ only pays where the Crucible's rules are played with prisoners. Outpost Defense 
 | Trommel | 2,600 | 8 | | | | |
 | Kiln | 2,200 | 10 | | | | |
 | Stakegun | 2,000 | 12 | | | | |
-| Ultramag | 1,700 | 14 | | | | |
+| Ultramag | 1,200 | 4 | | | | |
 | Piledriver | 3,200 | 16 | | | | |
 | Lance | 4,500 | 18 | | | | |
 | SMG | Issued in Crucible; 350 in Endless Humans | 0 / 1 | | | | |
@@ -372,6 +372,13 @@ only pays where the Crucible's rules are played with prisoners. Outpost Defense 
 | Sabot | 1,800 | 6 | | | | |
 | Quiver | 2,400 | 8 | | | | |
 | Pump Shotgun, Sword | Issued in both | 0 | | | | |
+
+**Resupply** (`SUPPLY_WARES`, 2026-11-17): three rows at the head of the Weapons page, bought as often as wanted between waves and
+shut (`Full`) while they would do nothing. **Ammunition** 250: every carried gun's reserve to full. **Field dressing** 150: health to
+full (regeneration gets there too, slower). **Armour plate** 300: 100 armour, up to the player's 200, the pickups' armour (two thirds
+of every hit, reset with the player). Priced against a break's pay (about 550 after wave 3, 700 after 5, 1,000 after 10). In co-op
+each player buys at their own pod, and it works for a guest: health and armour are each browser's own, the host only sends hits.
+The Ultramag came down from 1,700 after wave 14 to 1,200 after wave 4 (2026-11-17, owner: it took far too long), 2 in Endless Humans.
 
 The original cache weapons keep their shop gates, with the Lance last; the removed issue is priced between the early sidearms
 and the heavy weapons. **Every player weapon is listed** (`listedWeapons`: every weapon `inPlay` on the page, weapons/families.ts), so the

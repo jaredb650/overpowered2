@@ -38,7 +38,7 @@ describe('Kill House weapon locks', () => {
     const locks = {
       knife: 1, gimlet: 1, rivet: 2, judge: 2, baton: 3, autocannon: 4, crowbar: 5,
       deuce: 6, shovel: 7, buzzsaw: 8, kiln: 10, stakegun: 12, autoraffica: 12,
-      ultramag: 14, piledriver: 16, lance: 18, smg: 1, harrow: 2, shotgun: 1,
+      ultramag: 4, piledriver: 16, lance: 18, smg: 1, harrow: 2, shotgun: 1,
       thresher: 3, rocket: 4, quiver: 8, awl: 2, sabot: 6, sword: 0,
     };
     const starting = new Set(survivalLoadout('crucible'));

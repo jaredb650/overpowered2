@@ -11,11 +11,11 @@
  */
 import type { Ctx } from '../../core/contracts';
 import type { ModId, WeaponId } from '../../core/gameplay';
-import { SHOP_COPY } from '../../contracts/shop/data';
+import { SHOP_COPY, SUPPLY_WARES, type SupplyId } from '../../contracts/shop/data';
 import { issued, type ShopOffer } from '../../contracts/shop/rules';
 import { WEAPONS as DEFS, type WeaponDef } from '../../weapons/data';
 import { MODS, moddedDef } from '../../weapons/mods';
-import { EFFECTS } from '../../progression/data';
+import { EFFECTS, PICKUP_LOOK } from '../../progression/data';
 import { CLASS_NAMES, CLASS_REGION, CORE_COPY, IMPLANTS, SLOT_WARES, type ImplantId } from '../../progression/implants';
 import { CHIPS, CHIP_SLOTS } from '../../contracts/chips';
 import { BodyStage } from '../backdrop/bodystage';
@@ -38,6 +38,10 @@ const implantName = (id: ImplantId): string =>
 const LOCK_ICON = '<svg class="pc-lock" viewBox="0 0 12 14" aria-hidden="true"><path d="M3 6V4a3 3 0 0 1 6 0v2h1.5v8h-9V6Zm1.6 0h2.8V4a1.4 1.4 0 0 0-2.8 0Z"/></svg>';
 
 const credits = (n: number): string => n.toLocaleString('en-US');
+/** A resupply row's tag and its colour: the pickups' own. */
+const SUPPLY_TAG: Readonly<Record<SupplyId, [string, string]>> = {
+  ammo: ['Ammo', PICKUP_LOOK.ammo.color], heal: ['Health', PICKUP_LOOK.health.color], armor: ['Armour', PICKUP_LOOK.armor.color],
+};
 const log01 = (v: number, lo: number, hi: number): number => Math.min(1, Math.max(0.04, Math.log(v / lo) / Math.log(hi / lo)));
 
 /** One bar: what it measures, how full, and the number on it. */
@@ -147,11 +151,13 @@ export class ProcurementScreen implements Screen {
 
   /** The gun's studio or the contractor's, whichever the page wants, or neither. */
   private studio(on: boolean): void {
-    const body = on && this.page === 'implants';
+    // A resupply row shows the contractor, not a gun.
+    const body = on && (this.page === 'implants' || this.focusAct?.kind === 'supply');
+    const gun = on && !body;
     // Down first, so the one going up is the one the renderer keeps.
-    this.stage.active = false;
-    this.body.active = false;
-    this.stage.active = on && !body;
+    if (!gun) this.stage.active = false;
+    if (!body) this.body.active = false;
+    this.stage.active = gun;
     this.body.active = body;
   }
 
@@ -178,7 +184,7 @@ export class ProcurementScreen implements Screen {
     const shop = this.shop;
     if (!shop) return;
     for (const p of PAGES) this.tabs[p].classList.toggle('on', p === this.page);
-    this.offers = this.page === 'weapons' ? shop.weaponOffers() : this.page === 'mods' ? shop.modOffers()
+    this.offers = this.page === 'weapons' ? [...shop.supplyOffers(), ...shop.weaponOffers()] : this.page === 'mods' ? shop.modOffers()
       : [...shop.implantOffers(), ...shop.chipOffers()];
     this.implantHead.style.display = this.page === 'implants' ? '' : 'none';
     if (this.page === 'implants') this.slots();
@@ -273,7 +279,39 @@ export class ProcurementScreen implements Screen {
     return { el, activate: () => this.buy(o), focused: () => this.select(o) };
   }
 
+  /** A resupply row: its tag in the pickup's colour, and the price, or Full. */
+  private supplyRow(id: SupplyId, o: ShopOffer): NavItem {
+    const [tag, color] = SUPPLY_TAG[id];
+    const ico = span('pc-ico pc-cls', tag);
+    ico.style.color = color;
+    const el = div('pc-row', ico, span('pc-k', SUPPLY_WARES[id].name), span('pc-v', o.why === 'Full' ? 'Full' : credits(o.ware.price)));
+    el.classList.toggle('owned', o.why === 'Full');
+    el.classList.toggle('poor', o.why?.startsWith('Need') === true);
+    return { el, activate: () => this.buy(o), focused: () => this.select(o) };
+  }
+
+  /** A resupply in focus: the contractor, what it does, and where he stands now. */
+  private selectSupply(id: SupplyId, o: ShopOffer): void {
+    this.body.show(this.shop!.loadout.fitted, null);
+    const p = this.ctx.player;
+    const c = this.card;
+    const line = (k: string, v: string) => div('pc-line', span('pc-stat-k', k), span('pc-line-v', v));
+    const short = [...this.ctx.weapons.owned].filter(g => { const a = this.ctx.weapons.ammo(g); return a.reserve < a.maxReserve; }).length;
+    const now = id === 'heal' ? `${Math.ceil(p.health)} of ${p.maxHealth} health` : id === 'armor' ? `${Math.ceil(p.armor)} armour`
+      : short === 0 ? 'Every reserve full' : `${short} gun${short === 1 ? '' : 's'} short of a full reserve`;
+    c.name.set(SUPPLY_WARES[id].name);
+    c.role.set('Resupply. Bought as often as it is needed, between waves.');
+    c.stats.replaceChildren(line('Does', SUPPLY_WARES[id].does), line('Now', now));
+    c.lore.set(o.ware.lore);
+    c.price.set(credits(o.ware.price));
+    c.state.set(o.why ?? 'Enter: Buy');
+    c.buy.classList.toggle('locked', false);
+    c.buy.classList.toggle('ready', o.why === null);
+    c.buy.classList.toggle('poor', o.why?.startsWith('Need') === true);
+  }
+
   private row(o: ShopOffer): NavItem {
+    if (o.act.kind === 'supply') return this.supplyRow(o.act.id, o);
     if (o.act.kind === 'implant' || o.act.kind === 'slot') return this.implantRow(o);
     if (o.act.kind === 'chip' || o.act.kind === 'chipSlot') return this.chipRow(o);
     const gun = o.act.kind === 'weapon' ? o.act.id : MODS[o.act.id].weapon;
@@ -320,6 +358,11 @@ export class ProcurementScreen implements Screen {
   /** The row in focus: its gun on the turntable, and its card. */
   private select(o: ShopOffer): void {
     this.focusAct = o.act;
+    this.studio(true);
+    if (o.act.kind === 'supply') {
+      this.selectSupply(o.act.id, o);
+      return;
+    }
     if (o.act.kind === 'implant' || o.act.kind === 'slot') {
       this.selectImplant(o);
       return;
@@ -364,7 +407,7 @@ export class ProcurementScreen implements Screen {
     if (!shop) return;
     const why = shop.buy(o.act);
     const act = o.act;
-    const name = act.kind === 'weapon' ? INFO[act.id].name : act.kind === 'mod' ? MODS[act.id].name
+    const name = act.kind === 'supply' ? SUPPLY_WARES[act.id].name : act.kind === 'weapon' ? INFO[act.id].name : act.kind === 'mod' ? MODS[act.id].name
       : act.kind === 'implant' ? implantName(act.id) : act.kind === 'chip' ? `${CHIPS[act.id].name} brain chip`
         : act.kind === 'chipSlot' ? 'Brain chip slot 2' : `Implant slot ${act.id}`;
     if (why) {
@@ -373,7 +416,7 @@ export class ProcurementScreen implements Screen {
     } else {
       const fitted = act.kind === 'mod' ? this.ctx.weapons.fitted?.has(act.id) : act.kind === 'chip' ? shop.chips.fitted.includes(act.id)
         : act.kind === 'implant' && shop.loadout.fitted.has(act.id);
-      const bought = act.kind === 'weapon' || act.kind === 'slot' || act.kind === 'chipSlot';
+      const bought = act.kind === 'supply' || act.kind === 'weapon' || act.kind === 'slot' || act.kind === 'chipSlot';
       this.note.set(bought ? `Bought: ${name}` : fitted ? `Fitted: ${name}` : `Taken off: ${name}`);
       this.ctx.audio.play?.('ui_confirm');
     }

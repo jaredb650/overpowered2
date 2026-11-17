@@ -7,14 +7,16 @@ import { IMPLANTS, IMPLANT_ORDER, SLOT_WARES, type ImplantId } from '../../progr
 import { CHIPS, CHIP_ORDER, CHIP_SLOT, type ChipId } from '../chips';
 import { inPlay } from '../../weapons/families';
 import { MODS, MOD_ORDER } from '../../weapons/mods';
-import { MOD_WARES, WEAPON_WARES, WEAPON_WARE_ORDER, type Ware } from './data';
+import { MOD_WARES, SUPPLY_ORDER, SUPPLY_WARES, WEAPON_WARES, WEAPON_WARE_ORDER, type SupplyId, type Ware } from './data';
 
 export type ShopAct =
   | { kind: 'weapon'; id: WeaponId } | { kind: 'mod'; id: ModId }
   /** An implant (progression/implants.ts), and an implant slot by its number, 2 or 3. */
   | { kind: 'implant'; id: ImplantId } | { kind: 'slot'; id: number }
   /** A brain chip (contracts/chips.ts), and the second chip slot. */
-  | { kind: 'chip'; id: ChipId } | { kind: 'chipSlot'; id: 2 };
+  | { kind: 'chip'; id: ChipId } | { kind: 'chipSlot'; id: 2 }
+  /** Resupply at the pod: ammunition, health or armour, as often as it is wanted. */
+  | { kind: 'supply'; id: SupplyId };
 
 export interface ShopView {
   credits: number;
@@ -33,6 +35,8 @@ export interface ShopView {
   chips: ReadonlySet<ChipId>;
   chipsFitted: readonly ChipId[];
   chipSlots: number;
+  /** The resupplies that would do nothing now: every reserve, the health or the armour already full. */
+  full?: ReadonlySet<SupplyId>;
 }
 
 export interface ShopOffer {
@@ -141,9 +145,18 @@ export function chipOffers(v: ShopView): ShopOffer[] {
   return [slot, ...chips];
 }
 
+/** Ammunition, health and armour, at the head of the weapons page. Never owned: shut only while full, or out of a break. */
+export function supplyOffers(v: ShopView): ShopOffer[] {
+  return SUPPLY_ORDER.map(id => {
+    const ware = SUPPLY_WARES[id];
+    const why = between(v) ?? (v.full?.has(id) ? 'Full' : afford(ware.price, v));
+    return { act: { kind: 'supply', id }, ware, owned: false, fitted: false, locked: false, why };
+  });
+}
+
 /** The row for `act`, as the menu shows it. */
 export function offerFor(act: ShopAct, v: ShopView): ShopOffer | undefined {
-  const list = act.kind === 'weapon' ? weaponOffers(v) : act.kind === 'mod' ? modOffers(v)
+  const list = act.kind === 'supply' ? supplyOffers(v) : act.kind === 'weapon' ? weaponOffers(v) : act.kind === 'mod' ? modOffers(v)
     : act.kind === 'chip' || act.kind === 'chipSlot' ? chipOffers(v) : implantOffers(v);
   return list.find(o => o.act.kind === act.kind && o.act.id === act.id);
 }

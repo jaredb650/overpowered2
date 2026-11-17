@@ -283,7 +283,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     ...BASE, id: 'shotgun', name: 'SHOTGUN', slot: 2, mode: 'semi',
     magSize: 6, reserve: 36, maxReserve: 72, reloadTime: 1.25, drawTime: 0.2,
     // A deliberate pump: 0.55 s a shell (owner, 2026-11-15: 0.3 was near semi-auto, 0.85 too slow).
-    interval: 0.55, damage: 23, pellets: 6, spread: 0.05, severMult: 2.4, force: 18,
+    interval: 0.55, damage: 26, pellets: 6, spread: 0.05, severMult: 2.4, force: 20,
     muzzle: 'shotgun', tracer: 'bullet', casing: 'shotgun',
     sounds: [{ id: 'pump_shotgun_shot', pitchJitter: 0.04 }],
     // On the viewmodel's pump (shotgun.ts clip): back by 0.27 s after the shot, home again by 0.47 s.
@@ -293,12 +293,12 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     ads: { zoom: 0.34, time: 0.2 },
   },
   // The shotgun that does not stop: a drum of twenty, five a second. Fewer pellets a shell than the pump, so the pump stays
-  // the one hard hit, and a climb that walks the barrel up a burst for the player to hold down. `force` 16 is the least that
-  // clears BLAST.pointBlankForce (100) at point blank, so a trunk kill up close can tear a body in two as the pump's does.
+  // the one hard hit, and a climb that walks the barrel up a burst for the player to hold down. `force` 18 (16 is the least that
+  // clears BLAST.pointBlankForce (100) at point blank), so a trunk kill up close can tear a body in two as the pump's does.
   thresher: {
     ...BASE, id: 'thresher', name: 'THRESHER', slot: 2, base: 'shotgun', mode: 'auto',
     magSize: 20, reserve: 60, maxReserve: 120, reloadTime: 2.7, drawTime: 0.28,
-    interval: 0.2, damage: 20, pellets: 4, spread: 0.062, severMult: 2.4, force: 16,
+    interval: 0.2, damage: 22, pellets: 4, spread: 0.056, severMult: 2.4, force: 18,
     muzzle: 'shotgun', tracer: 'bullet', casing: 'shotgun',
     sounds: [{ id: 'auto_shotgun_shot', pitchJitter: 0.04 }],
     reloadFoley: [[0.04, 'drum_out'], [0.52, 'drum_in'], [0.84, 'reload_bolt']], drawSound: 'weapon_draw_heavy',
@@ -312,7 +312,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
   deuce: {
     ...BASE, id: 'deuce', name: 'DEUCE', slot: 2, base: 'shotgun', mode: 'semi',
     magSize: 2, reserve: 24, maxReserve: 48, ...breakLoad(2), drawTime: 0.24,
-    interval: 0.3, damage: 26, pellets: 8, spread: 0.075, severMult: 2.6, force: 22,
+    interval: 0.3, damage: 30, pellets: 8, spread: 0.075, severMult: 2.6, force: 25,
     falloff: { from: 9, to: 26, floor: 0.3 },
     muzzle: 'shotgun', tracer: 'bullet',
     sounds: [{ id: 'dbshotgun_shot', pitchJitter: 0.03 }],

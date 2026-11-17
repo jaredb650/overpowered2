@@ -230,8 +230,9 @@ const gunShots: SoundDef[] = [
   shot('pump_shotgun_shot', 'guns/pump_shotgun_shot.mp3', 'gun', 0.234, 0.3, { send: 0.2 }),
   shot('hmg_shot', 'guns/hmg_shot.mp3', 'gun', 0.225, 0.25, { send: 0.3 }),
   shot('revolver_shot', 'guns/revolver_shot.mp3', 'gunHeavy', 0.24, 0.254),
-  // The Deuce's barrel (2026-11-15). Both barrels at once is this played twice, a hair apart.
-  shot('dbshotgun_shot', 'guns/dbshotgun_shot.mp3', 'gun', 0.25, 0.234, { send: 0.22, perFrame: 2 }),
+  // The Deuce's barrel (the owner's newer shot, 2026-11-17). Both barrels at once is this played twice, a hair apart: 0.24 keeps
+  // the two together no hotter than the old shot's pair, and one barrel still over the pump.
+  shot('dbshotgun_shot', 'guns/dbshotgun_shot.mp3', 'gun', 0.24, 0.342, { send: 0.22, perFrame: 2 }),
   // The Ultramag (the owner's newer shot, 2026-11-16): the hardest-hitting pistol, over the Rivet's 0.138, under every shotgun.
   shot('ultramag_shot', 'guns/ultramag_shot.mp3', 'gunHeavy', 0.2, 0.34),
   // Through its suppressor (the owner's, 2026-11-16): about 2.5 dB under the bare shot, with less of it in the room.

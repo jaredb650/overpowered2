@@ -12,9 +12,10 @@ import { CONTRACTS } from '../data';
 import { makeRange, type Range } from '../../weapons/testkit';
 import { BOUNTY, ECONOMY, killPay, wavePay } from '../defense/data';
 import { DEFAULT_BINDINGS } from '../../input/bindings';
-import { BOSS_PAY, MOD_WARES, SHOP_CONTRACTS, SUPPLY_BREAK, WEAPON_WARES } from './data';
+import { BOSS_PAY, MOD_WARES, SHOP_CONTRACTS, SUPPLY_ARMOR, SUPPLY_BREAK, SUPPLY_WARES, WEAPON_WARES } from './data';
+import { MOVE } from '../../player/tuning';
 import { CrucibleShop } from '.';
-import { implantOffers, issued, listedWeapons, modOffers, weaponOffers, type ShopView } from './rules';
+import { implantOffers, issued, listedWeapons, modOffers, supplyOffers, weaponOffers, type ShopView } from './rules';
 import { IMPLANTS, Loadout } from '../../progression/implants';
 
 let r: Range;
@@ -153,17 +154,17 @@ describe('locks', () => {
     expect(rows.find(o => o.act.id === 'kiln')!.locked).toBe(true);
   });
 
-  it('holds each gun back until its wave is cleared: the Deuce 6, the Ultramag 14, the Lance last', () => {
+  it('holds each gun back until its wave is cleared: the Deuce 6, the Ultramag 4, the Lance last', () => {
     expect(WEAPON_WARES.deuce!.wave).toBe(6);
-    expect(WEAPON_WARES.ultramag!.wave).toBe(14);
+    expect(WEAPON_WARES.ultramag!.wave).toBe(4);
     expect(Math.max(...listedWeapons().map(id => WEAPON_WARES[id]!.wave))).toBe(WEAPON_WARES.lance!.wave);
     const at = (cleared: number, id: WeaponId) => weaponOffers(view({ cleared })).find(o => o.act.id === id)!;
     expect(at(5, 'deuce').locked).toBe(true);
     expect(at(5, 'deuce').why).toBe('Released after wave 6');
     expect(at(6, 'deuce').locked).toBe(false);
     expect(at(6, 'deuce').why).toBeNull();
-    expect(at(13, 'ultramag').locked).toBe(true);
-    expect(at(14, 'ultramag').why).toBeNull();
+    expect(at(3, 'ultramag').locked).toBe(true);
+    expect(at(4, 'ultramag').why).toBeNull();
   });
 
   it('the Raufoss rounds wait for their wave too, and every mod for its gun', () => {
@@ -210,6 +211,56 @@ describe('buying', () => {
     waves.wave = 2;
     expect(shop.buy({ kind: 'mod', id: 'suppressor' })).toBe('Between waves only');
     expect(r.weapons.fitted.has('suppressor')).toBe(false);
+  });
+});
+
+describe('resupply', () => {
+  /** The stand-in player, with health and armour capped as Player's are. */
+  const body = (health: number, armor = 0) => Object.assign(r.player, {
+    health, maxHealth: 100, armor,
+    heal(n: number) { this.health = Math.min(this.maxHealth, this.health + n); },
+    addArmor(n: number) { this.armor = Math.min(MOVE.maxArmor, this.armor + n); },
+  });
+
+  it('heals to full, plates up to the most armour, and fills every reserve, as often as bought, and refuses each while full', () => {
+    const p = body(40);
+    breakAfter(3, 10_000);
+    expect(shop.buy({ kind: 'supply', id: 'heal' })).toBeNull();
+    expect(p.health).toBe(100);
+    expect(shop.buy({ kind: 'supply', id: 'heal' })).toBe('Full');
+    expect(shop.credits).toBe(10_000 - SUPPLY_WARES.heal.price);
+    p.health = 70;
+    expect(shop.buy({ kind: 'supply', id: 'heal' })).toBeNull();
+    expect(p.health).toBe(100);
+
+    shop.credits = 10_000;
+    expect(shop.buy({ kind: 'supply', id: 'armor' })).toBeNull();
+    expect(p.armor).toBe(SUPPLY_ARMOR);
+    expect(shop.buy({ kind: 'supply', id: 'armor' })).toBeNull();
+    expect(p.armor).toBe(MOVE.maxArmor);
+    expect(shop.buy({ kind: 'supply', id: 'armor' })).toBe('Full');
+    expect(shop.credits).toBe(10_000 - 2 * SUPPLY_WARES.armor.price);
+
+    shop.credits = 10_000;
+    const guns = [...r.weapons.owned].filter(id => r.weapons.ammo(id).maxReserve > 0);
+    for (const id of guns) r.weapons.ammo(id).reserve = 0;
+    expect(shop.buy({ kind: 'supply', id: 'ammo' })).toBeNull();
+    for (const id of guns) expect(r.weapons.ammo(id).reserve, id).toBe(r.weapons.ammo(id).maxReserve);
+    expect(shop.buy({ kind: 'supply', id: 'ammo' })).toBe('Full');
+    expect(shop.credits).toBe(10_000 - SUPPLY_WARES.ammo.price);
+  });
+
+  it('sells nothing mid-wave or unpaid, and shows Full on the row', () => {
+    const p = body(40);
+    breakAfter(3, 100);
+    expect(shop.buy({ kind: 'supply', id: 'heal' })).toBe(`Need ${SUPPLY_WARES.heal.price - 100} more`);
+    breakAfter(3);
+    waves.phase = 'spawning';
+    expect(shop.buy({ kind: 'supply', id: 'heal' })).toBe('Between waves only');
+    expect(p.health).toBe(40);
+    const rows = supplyOffers(view({ full: new Set(['heal']) }));
+    expect(rows.map(o => o.why)).toEqual([null, 'Full', null]);
+    for (const o of rows) expect(o.ware.lore.length).toBeGreaterThan(40);
   });
 });
 

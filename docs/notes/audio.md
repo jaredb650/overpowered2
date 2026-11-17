@@ -329,6 +329,12 @@ places on the ladder (0.246 and 0.285), remeasured. On 2026-11-16 the owner had 
 (`smg_fire`, `shotgun_fire`, `thresher_fire`, `harrow_fire`, `rivet_fire`, `revolver_fire`, `piledriver_fire`) stay in
 the catalog.
 
+**The Deuce's newer shot** (2026-11-17): `dbshotgun_shot` took the owner's `newDBShotgunSound.mp3` (2 s of 16-bit 40 kHz stereo WAV inside
+an `.mp3` name), same id and file: mixed to mono at 44.1 kHz, the first 15 ms cut (a low scrap ahead of the blast, which now starts
+within 5 ms) under a 2 ms fade-in, faded out from 0.85 s and cut at 1.2 s, peaks at -1 dB, 160 kbit/s. Loudness 0.342 (the old file's
+0.234), at 0.24 on the ladder: over the pump's 0.234 and the Thresher's 0.204, and the two-barrel pair (the same 22 ms echo at 0.95
+pitch, unchanged) peaks no hotter than the old shot's pair did. The paragraph below is the first shot's history.
+
 **The new guns' shots** (2026-11-15, the owner's own recordings, weapons-update plan section 8). `dbshotgun_shot` is one
 barrel of the Deuce, the double-barrel on key 2, at 0.25 on the ladder (just over the pump's 0.234; loudness 0.234). Right
 click fires both barrels: `Weapons` plays it once and again 22 ms later at 0.95 pitch, so it is two triggers pulled together

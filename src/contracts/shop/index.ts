@@ -8,10 +8,11 @@ import type { Ctx } from '../../core/contracts';
 import { DEV_TOOLS } from '../../core/devflags';
 import type { ModId, WeaponSystem } from '../../core/gameplay';
 import { killPay, paysFor, wavePay } from '../defense/data';
-import { BOSS_PAY, SHOP_ON, SUPPLY_BREAK } from './data';
+import { BOSS_PAY, SHOP_ON, SUPPLY_ARMOR, SUPPLY_BREAK, type SupplyId } from './data';
+import { MOVE } from '../../player/tuning';
 import type { Loadout } from '../../progression/implants';
 import { ChipRack } from '../chips';
-import { chipOffers, implantOffers, modOffers, offerFor, weaponOffers, type ShopAct, type ShopOffer, type ShopView } from './rules';
+import { chipOffers, implantOffers, modOffers, offerFor, supplyOffers, weaponOffers, type ShopAct, type ShopOffer, type ShopView } from './rules';
 
 declare module '../../core/contracts' {
   interface GameEvents {
@@ -98,13 +99,31 @@ export class CrucibleShop {
       credits: this.credits, inBreak: this.inBreak, cleared: this.inBreak ? waves.wave : waves.wave - 1,
       owned: w.owned, mods: w.mods, fitted: w.fitted,
       implants: this.loadout.owned, implantsFitted: this.loadout.fitted, slots: this.loadout.slots,
-      chips: this.chips.owned, chipsFitted: this.chips.fitted, chipSlots: this.chips.slots,
+      chips: this.chips.owned, chipsFitted: this.chips.fitted, chipSlots: this.chips.slots, full: this.full(),
     };
   }
 
   /** Progression's implant loadout (progression/implants.ts), which the interface does not carry. */
   get loadout(): Loadout {
     return (this.ctx.progression as unknown as { loadout: Loadout }).loadout;
+  }
+
+  /**
+   * The resupplies with nothing to do: no carried gun short of its most reserve, health at its most, armour at its most. Each player's
+   * own health and armour are their own browser's (a guest's too: the host only sends the hits), so a guest's pod heals the guest.
+   */
+  private full(): Set<SupplyId> {
+    const { player } = this.ctx;
+    const w = this.weapons;
+    const out = new Set<SupplyId>();
+    if (![...w.owned].some(id => { const a = w.ammo(id); return a.reserve < a.maxReserve; })) out.add('ammo');
+    if (player.health >= player.maxHealth) out.add('heal');
+    if (player.armor >= MOVE.maxArmor) out.add('armor');
+    return out;
+  }
+
+  supplyOffers(): ShopOffer[] {
+    return supplyOffers(this.view());
   }
 
   implantOffers(): ShopOffer[] {
@@ -132,7 +151,12 @@ export class CrucibleShop {
     if (!offer) return 'Not sold';
     if (offer.why) return offer.why;
     const w = this.weapons;
-    if (act.kind === 'slot') {
+    if (act.kind === 'supply') {
+      const { player } = this.ctx;
+      if (act.id === 'ammo') for (const id of w.owned) { const a = w.ammo(id); a.reserve = a.maxReserve; }
+      else if (act.id === 'heal') player.heal(player.maxHealth - player.health);
+      else player.addArmor(SUPPLY_ARMOR);
+    } else if (act.kind === 'slot') {
       this.loadout.openSlot();
     } else if (act.kind === 'chipSlot') {
       this.chips.openSlot();
