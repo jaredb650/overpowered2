@@ -7,7 +7,11 @@ import { IMPLANTS, IMPLANT_ORDER, SLOT_WARES, type ImplantId } from '../../progr
 import { CHIPS, CHIP_ORDER, CHIP_SLOT, type ChipId } from '../chips';
 import { inPlay } from '../../weapons/families';
 import { MODS, MOD_ORDER } from '../../weapons/mods';
-import { MOD_WARES, SUPPLY_ORDER, SUPPLY_WARES, WEAPON_WARES, WEAPON_WARE_ORDER, type SupplyId, type Ware } from './data';
+import { ACTIVE } from '../select';
+import { MOD_WARES, SUPPLY_ORDER, SUPPLY_WARES, WEAPON_WARES, WEAPON_WARE_ORDER, lockWave, type SupplyId, type Ware } from './data';
+
+/** A ware from another module (implant, slot, chip) with its lock as this game releases it. */
+const released = (w: Ware): Ware => ({ ...w, wave: lockWave(ACTIVE.def.id, w.wave) });
 
 export type ShopAct =
   | { kind: 'weapon'; id: WeaponId } | { kind: 'mod'; id: ModId }
@@ -99,7 +103,7 @@ export function modOffers(v: ShopView): ShopOffer[] {
 export function implantOffers(v: ShopView): ShopOffer[] {
   const slots: ShopOffer[] = [];
   for (let n = 2; n <= SLOT_WARES.length; n++) {
-    const ware = SLOT_WARES[n - 1]!;
+    const ware = released(SLOT_WARES[n - 1]!);
     const owned = v.slots >= n;
     const locked = !owned && lockOf(ware, v);
     const why = owned ? 'Open' : locked ? lockLine(ware) : v.slots < n - 1 ? `Open slot ${n - 1} first` : between(v) ?? afford(ware.price, v);
@@ -107,7 +111,7 @@ export function implantOffers(v: ShopView): ShopOffer[] {
   }
   const implants = IMPLANT_ORDER.map((id): ShopOffer => {
     const d = IMPLANTS[id];
-    const ware: Ware = { price: d.price, wave: d.wave, lore: d.lore };
+    const ware = released({ price: d.price, wave: d.wave, lore: d.lore });
     const owned = v.implants.has(id);
     const fitted = v.implantsFitted.has(id);
     const locked = !owned && lockOf(ware, v);
@@ -125,7 +129,7 @@ export function implantOffers(v: ShopView): ShopOffer[] {
  * row, free; with every slot full it takes the last slot's place.
  */
 export function chipOffers(v: ShopView): ShopOffer[] {
-  const slotWare: Ware = CHIP_SLOT;
+  const slotWare = released(CHIP_SLOT);
   const open = v.chipSlots >= 2;
   const slotLocked = !open && lockOf(slotWare, v);
   const slot: ShopOffer = {
@@ -134,7 +138,7 @@ export function chipOffers(v: ShopView): ShopOffer[] {
   };
   const chips = CHIP_ORDER.map((id): ShopOffer => {
     const d = CHIPS[id];
-    const ware: Ware = { price: d.price, wave: d.wave, lore: d.lore };
+    const ware = released({ price: d.price, wave: d.wave, lore: d.lore });
     const owned = v.chips.has(id);
     const fitted = v.chipsFitted.includes(id);
     const locked = !owned && lockOf(ware, v);

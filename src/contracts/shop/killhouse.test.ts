@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { WeaponId } from '../../core/gameplay';
 import { survivalLoadout } from '../loadouts';
 import { weaponWares } from './data';
@@ -45,5 +45,43 @@ describe('Kill House weapon locks', () => {
     for (const [id, wave] of Object.entries(locks)) {
       expect(after[id as WeaponId]!.wave, id).toBe(starting.has(id as WeaponId) ? 0 : wave);
     }
+  });
+});
+
+describe('Endless Humans ends at its final wave', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.resetModules();
+  });
+
+  it('opens every shop row by the last break before the final wave, and the Crucible keeps its locks', async () => {
+    vi.resetModules(); // the static imports above already loaded the shop for the default contract
+    vi.stubGlobal('location', { search: '?contract=outpost' });
+    const { FINAL_WAVE } = await import('../../enemies/commander/adaptations');
+    const { weaponWares, modWares, SUPPLY_WARES } = await import('./data');
+    const { chipOffers, implantOffers, modOffers, supplyOffers, weaponOffers } = await import('./rules');
+    const { MOD_ORDER } = await import('../../weapons/mods');
+    // Wave FINAL_WAVE - 1 cleared: the last break there is. Nothing may stay shut or wait for a wave past it.
+    const last = FINAL_WAVE - 1;
+    const view = {
+      credits: 1e9, inBreak: true, cleared: last, owned: new Set<WeaponId>(), mods: new Set(), fitted: new Set(),
+      implants: new Set(), implantsFitted: new Set(), slots: 1, chips: new Set(), chipsFitted: [], chipSlots: 1,
+    } as Parameters<typeof modOffers>[0];
+    const rows = [
+      ...weaponOffers(view), ...modOffers(view), ...implantOffers(view), ...chipOffers(view), ...supplyOffers(view),
+    ];
+    expect(rows.length).toBeGreaterThan(MOD_ORDER.length);
+    for (const o of rows) {
+      expect(o.locked, `${o.act.kind} ${o.act.id}`).toBe(false);
+      expect(o.ware.wave, `${o.act.kind} ${o.act.id}`).toBeLessThanOrEqual(last);
+    }
+    for (const ware of [...Object.values(weaponWares('outpost')), ...Object.values(modWares('outpost')), ...Object.values(SUPPLY_WARES)]) {
+      expect(ware!.wave).toBeLessThanOrEqual(last);
+    }
+    // The late rows are spread over the breaks, not all dumped into the last one.
+    const lastBreak = rows.filter(o => o.ware.wave === last).length;
+    expect(lastBreak).toBeLessThan(rows.length / 4);
+    // The Crucible has no end, so its mods keep the catalogue's locks.
+    expect(Math.max(...Object.values(modWares('crucible')).map(w => w.wave))).toBeGreaterThanOrEqual(FINAL_WAVE);
   });
 });

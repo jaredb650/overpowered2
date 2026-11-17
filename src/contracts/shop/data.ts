@@ -11,6 +11,7 @@ import { MISSION_ID } from '../../campaign/select';
 import { ON_RANGE } from '../../core/devflags';
 import type { ModId, WeaponId } from '../../core/gameplay';
 import type { ContractId } from '../data';
+import { FINAL_WAVE } from '../../enemies/commander/adaptations';
 import { ACTIVE } from '../select';
 import { survivalLoadout } from '../loadouts';
 import { MOVE } from '../../player/tuning';
@@ -40,6 +41,14 @@ export const SUPPLY_BREAK = 25;
 
 /** A boss's kill on top of the ordinary pay: a Juggernaut or a Titan is a wave's work. */
 export const BOSS_PAY = 300;
+
+/**
+ * The wave a ware's catalogue lock lands on in `contract`. The Crucible is endless and keeps the catalogue's locks. Endless Humans
+ * ends at `FINAL_WAVE` (the Commander comes down himself), so the last break to shop in is after the wave before it: every lock is
+ * halved, rounded up, and capped there. Every shop ware (weapon, mod, implant, slot, chip) reads its lock through this.
+ */
+export const lockWave = (contract: ContractId, wave: number): number =>
+  contract === 'outpost' ? Math.min(FINAL_WAVE - 1, Math.ceil(wave / 2)) : wave;
 
 export interface Ware {
   /** Credits. 0: issued, never sold. */
@@ -159,11 +168,8 @@ const WEAPON_CATALOGUE: Readonly<Partial<Record<WeaponId, Ware>>> = {
 
 export function weaponWares(contract: ContractId): Readonly<Partial<Record<WeaponId, Ware>>> {
   const starting = new Set(survivalLoadout(contract));
-  // Kill House / Endless Humans: compress the catalogue's weapon progression into waves 0–9. The cap also
-  // covers future weapons with later catalogue locks; the Crucible and all non-weapon wares keep their locks.
   return Object.fromEntries(Object.entries(WEAPON_CATALOGUE).map(([id, ware]) =>
-    [id, starting.has(id as WeaponId) ? { ...ware, price: 0, wave: 0 }
-      : contract === 'outpost' ? { ...ware, wave: Math.min(9, Math.ceil(ware.wave / 2)) } : ware]));
+    [id, starting.has(id as WeaponId) ? { ...ware, price: 0, wave: 0 } : { ...ware, wave: lockWave(contract, ware.wave) }]));
 }
 
 export const WEAPON_WARES = weaponWares(ACTIVE.def.id);
@@ -192,7 +198,7 @@ export const SUPPLY_WARES: Readonly<Record<SupplyId, Ware & { name: string; does
 };
 
 /** The mods for sale (src/weapons/mods.ts). Bought once, then fitted or taken off here, free, in any break. */
-export const MOD_WARES: Readonly<Record<ModId, Ware>> = {
+const MOD_CATALOGUE: Readonly<Record<ModId, Ware>> = {
   awlAcog: { price: 600, wave: 2, lore: 'Four-power glass instead of the scout scope. Less tunnel. The same end of it.' },
   awlAp: { price: 450, wave: 2, lore: 'Less to the man, more through his plate. Procurement calls this targeting.' },
   awlHp: { price: 450, wave: 2, lore: 'More to the man, nothing through his plate. Please read the dress code.' },
@@ -373,6 +379,10 @@ export const MOD_WARES: Readonly<Record<ModId, Ware>> = {
   ultramagLight: { price: 150, wave: 0, lore: 'A light for the Ultramag that shares the rail with the laser, if you bought both. The polished slide makes it look twice the price.' },
   autorafficaLight: { price: 150, wave: 0, lore: 'A light on the Autoraffica. The smart aim already finds heads in the dark. This is so you can watch.' },
 };
+
+export const modWares = (contract: ContractId): Readonly<Record<ModId, Ware>> =>
+  Object.fromEntries(Object.entries(MOD_CATALOGUE).map(([id, ware]) => [id, { ...ware, wave: lockWave(contract, ware.wave) }])) as Record<ModId, Ware>;
+export const MOD_WARES = modWares(ACTIVE.def.id);
 
 /** The menu's heading and its small print. */
 export const SHOP_COPY = {

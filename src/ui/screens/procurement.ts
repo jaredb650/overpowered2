@@ -11,7 +11,8 @@
  */
 import type { Ctx } from '../../core/contracts';
 import type { ModId, WeaponId } from '../../core/gameplay';
-import { SHOP_COPY, SUPPLY_WARES, type SupplyId } from '../../contracts/shop/data';
+import { ACTIVE } from '../../contracts/select';
+import { SHOP_COPY, SUPPLY_WARES, lockWave, type SupplyId } from '../../contracts/shop/data';
 import { issued, type ShopOffer } from '../../contracts/shop/rules';
 import { WEAPONS as DEFS, type WeaponDef } from '../../weapons/data';
 import { MODS, moddedDef } from '../../weapons/mods';
@@ -205,7 +206,8 @@ export class ProcurementScreen implements Screen {
     this.slotStrip.replaceChildren(...SLOT_WARES.map((w, i) => {
       const id = fitted[i];
       const open = i < l.slots;
-      const text = open ? (id ? implantName(id) : 'Empty') : w.wave > cleared ? `Wave ${w.wave}` : credits(w.price);
+      const wave = lockWave(ACTIVE.def.id, w.wave);
+      const text = open ? (id ? implantName(id) : 'Empty') : wave > cleared ? `Wave ${wave}` : credits(w.price);
       const box = div('pc-slot', span('pc-slot-n', `Slot ${i + 1}`), span('pc-slot-v', text));
       box.classList.toggle('open', open);
       box.classList.toggle('worn', !!id);
