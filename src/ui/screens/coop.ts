@@ -33,9 +33,6 @@ const MODES: readonly { label: string; mode: CoopMode; map?: CoopMap }[] = [
   { label: 'Crucible: Office', mode: 'crucible', map: 'office' }, { label: 'Humans: Office', mode: 'outpost', map: 'office' },
   { label: 'Mission 1: The Outpost', mode: 'campaign' }, { label: 'Mission 2: Foreclosure', mode: 'foreclosure' },
 ];
-const NO_TURN = turnConfigured()
-  ? 'If a friend cannot connect, the game falls back on its relay server (TURN) by itself.'
-  : 'Some networks (strict routers, mobile data, some offices) cannot connect directly, and the relay server (TURN) that fixes that is not set up yet: docs/notes/coop.md says how.';
 /** What each mode is like together, under the picker. */
 const MODE_NOTE: Record<CoopMode, string> = {
   crucible: 'The Crucible together: the host runs the waves, each of you earns and spends your own credits at your own supply pod, and a downed friend can be revived with E. Everyone down ends the run.',
@@ -236,7 +233,6 @@ export class CoopScreen implements Screen {
         p('Play with up to three friends, browser to browser. One of you hosts a lobby and picks a password. The others join with its code, or the invite link, and that password.'),
         p('The host picks the mode and starts it. Each of you keeps your own guns, credits and loot; enemies, waves and the bosses are shared.'),
         err,
-        div('co-note', NO_TURN),
       );
     } else if (this.page === 'host') {
       this.panel.replaceChildren(
@@ -255,7 +251,6 @@ export class CoopScreen implements Screen {
         field('Code', this.joinCode),
         field('Password', this.password),
         err,
-        div('co-note', NO_TURN),
       );
     } else {
       this.panel.replaceChildren(this.lobbyPanel);
@@ -431,9 +426,9 @@ export function errorText(error: LobbyError, theirBuild: string, code: string, a
     case 'version': return `Version mismatch: the host has ${theirBuild}, you have ${BUILD}. Both of you hard reload (Ctrl+Shift+R, or Cmd+Shift+R on a Mac), then try again.`;
     case 'host-left': return 'The host left, so the lobby is closed.';
     case 'no-host': return `Lobby not found: nobody answered on code ${code}. Check the code and password with the host; an old invite link points at a lobby that has closed. If both are right, ${turnConfigured() ? 'the host may have left.' : "your networks may not be able to connect directly: set up TURN or try a different network."}`;
-    case 'connect': return advice ? `Connecting to host failed. ${advice}` : turnConfigured()
-      ? 'Connecting to host failed: found the lobby, but could not connect even through the relay server. Try a different network.'
-      : "Connecting to host failed: couldn't reach the host directly, because your network or theirs blocks peer-to-peer (mobile data and strict routers do). It needs the relay server; host: see TURN setup in docs/notes/coop.md. Another network may work meanwhile.";
+    case 'connect': return advice ? `Couldn't connect. ${advice}` : turnConfigured()
+      ? "Couldn't connect, even through the relay server. Have one player switch networks (e.g. a phone hotspot)."
+      : "Couldn't connect. One of your networks blocks direct connections. Have one player switch networks (e.g. a phone hotspot); a relay server (TURN) would fix it for good.";
     case 'full': return 'That lobby is full: four players.';
     case 'relays': return 'Contacting lobby servers failed: could not reach any of the matchmaking relays. Check your internet connection (a VPN or firewall can block them), then try again.';
     case 'lost': return 'Lost the connection to the host: nothing heard for 20 seconds. Their game may have closed or their network dropped.';

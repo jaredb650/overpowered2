@@ -19,15 +19,14 @@ describe('ICE candidates', () => {
 
   it('same network, both offer LAN addresses: the router or the Mac blocks it', () => {
     const text = iceAdvice({ ours: side(mdns(1), srflx(HOME)), theirs: side(mdns(2), srflx(HOME)) }, 'guest', false);
-    expect(text).toMatch(/same network/);
-    expect(text).toMatch(/Local Network/);
+    expect(text).toMatch(/^You may be on the same network as the host — some routers block that\. .*phone hotspot\)\.$/);
   });
 
   it('same network, one side hides its LAN address: names that side', () => {
     const report = { ours: side(mdns(1), srflx(HOME)), theirs: side(srflx(HOME)) };
     expect(iceAdvice(report, 'guest', false)).toMatch(/the host's browser hides/);
     expect(iceAdvice(report, 'host', false)).toMatch(/the guest's browser hides/);
-    expect(iceAdvice({ ours: report.theirs, theirs: report.ours }, 'guest', true)).toMatch(/your browser hides.*brave:\/\/settings\/privacy/);
+    expect(iceAdvice({ ours: report.theirs, theirs: report.ours }, 'guest', true)).toMatch(/same network.*Also, your browser hides local addresses: in Brave.*brave:\/\/settings\/privacy/);
     expect(iceAdvice({ ours: side(srflx(HOME)), theirs: side(srflx(HOME)) }, 'host', false)).toMatch(/you both hide/);
   });
 
@@ -37,7 +36,7 @@ describe('ICE candidates', () => {
   });
 
   it('a side with no addresses at all blocks peer-to-peer', () => {
-    expect(iceAdvice({ ours: noKinds(), theirs: side(srflx(HOME)) }, 'guest', true)).toMatch(/^Your browser offered no network addresses.*Brave/);
-    expect(iceAdvice({ ours: side(srflx(HOME)), theirs: noKinds() }, 'guest', false)).toMatch(/from the host/);
+    expect(iceAdvice({ ours: noKinds(), theirs: side(srflx(HOME)) }, 'guest', true)).toMatch(/^Your browser is blocking direct connections.*Brave/);
+    expect(iceAdvice({ ours: side(srflx(HOME)), theirs: noKinds() }, 'guest', false)).toMatch(/^The host's browser may be blocking/);
   });
 });

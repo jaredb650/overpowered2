@@ -66,7 +66,7 @@ function watchedPeers(): { Peer: typeof RTCPeerConnection; trying(): number; ice
 export function openRoom(code: string, password: string, turn: IceServer[] = []): NetRoom {
   const peers = watchedPeers();
   const room: Room = joinRoom(
-    // identity 'none': a fresh key per visit, nothing stored, and two tabs of one browser are two players.
+    // identity 'none': a fresh key per visit, nothing stored, and two browser profiles (or a private window) are two players. One browser runs one tab (core/oneTab.ts).
     { appId: APP_ID, password, identity: 'none', maxUsers: MAX_PLAYERS, relayConfig: { redundancy: RELAY_REDUNDANCY },
       rtcPolyfill: peers.Peer, ...(turn.length ? { turnConfig: turn } : {}) },
     code,

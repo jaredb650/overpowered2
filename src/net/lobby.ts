@@ -56,7 +56,7 @@ export const validMatch = (m: unknown): m is Match => !!m && typeof m === 'objec
 type Msg =
   | { t: 'start'; match: Match }
   | { t: 'started'; id: string }
-  | { t: 'hello'; v: string; name: string; host: boolean; deployed?: boolean; starter?: StarterGun; born?: number }
+  | { t: 'hello'; v: string; name: string; host: boolean; deployed?: boolean; starter?: StarterGun; born?: number; browser?: string }
   | { t: 'set'; name: string; ready: boolean; starter?: StarterGun }
   | { t: 'lobby'; you: string; players: LobbyPlayer[] }
   | { t: 'chat'; from: string | null; text: string }
@@ -124,6 +124,10 @@ export class Lobby {
   private nextBeat = 0;
   /** When this lobby opened, so of two hosts on one code the newer one steps aside. */
   private readonly born = Date.now() + Math.random();
+  /** This browser's id (localStorage), sent in hello so the host can tell a second tab or a reload from a new player. */
+  browser = BROWSER_ID;
+  /** Host: each guest's browser id. */
+  private readonly browsers = new Map<string, string>();
   private counter: ReturnType<typeof setInterval> | null = null;
   private readonly poses: Channel<ArrayBuffer>;
 
@@ -181,7 +185,7 @@ export class Lobby {
     }
     room.onPeerJoin(id => {
       if (this.phase === 'connecting') { this.unheard.add(id); report('COOP_STAGE', { stage: 'version' }); }
-      this.ch.send({ t: 'hello', v: build, name: this.name, host: hosting, deployed, starter: this.starter, born: this.born }, id);
+      this.ch.send({ t: 'hello', v: build, name: this.name, host: hosting, deployed, starter: this.starter, born: this.born, browser: this.browser }, id);
     });
     room.onPeerLeave(id => this.peerLeft(id));
     room.onError((error, peerId) => this.netError(error, peerId));
@@ -427,6 +431,11 @@ export class Lobby {
       // Two hosts on one code: the newer, still empty lobby steps aside so guests are never split between them.
       if (msg.host) return void (!this.deployed && this.players.length === 1 && !this.match && Number(msg.born) < this.born && this.close('code-taken'));
       if (this.players.some(p => p.id === from)) return;
+      // The same browser again (another tab, a reload): it replaces its old seat, never takes a second one.
+      const browser = typeof msg.browser === 'string' ? msg.browser.slice(0, 64) : '';
+      const twin = browser && this.players.find(p => this.browsers.get(p.id) === browser);
+      if (twin) this.peerLeft(twin.id);
+      if (browser) this.browsers.set(from, browser);
       const name = clean(msg.name, NAME_MAX) || 'PLAYER';
       // The guest sees the mismatch on its own side and stops; the host only notes it.
       if (!sameBuild) {
@@ -537,6 +546,7 @@ export class Lobby {
     if (!player) return;
     report('COOP_PEER_LEFT', { reason: 'peer-left-or-timeout' });
     this.heard.delete(id);
+    this.browsers.delete(id);
     this.players = this.players.filter(p => p !== player);
     this.post(null, `${player.name} left.`);
     this.starting.delete(id);
@@ -574,7 +584,7 @@ export class Lobby {
         if (this.atDoor.has(peerId)) this.doorCh?.send({ t: 'wrong' }, peerId);
       }
       if (error === 'password') this.post(null, 'Someone tried to join with the wrong password.');
-      else if (error === 'connect') this.post(null, `A player failed to connect (network): they found the lobby, but your networks could not connect directly. ${iceAdvice(this.room.status?.().ice, 'host') || 'Set up TURN (docs/notes/coop.md) or try another network.'}`);
+      else if (error === 'connect') this.post(null, `A player couldn't connect. ${iceAdvice(this.room.status?.().ice, 'host') || 'One of your networks blocks direct connections. Have one player switch networks (e.g. a phone hotspot).'}`);
       else if (error === 'relays' && this.players.length === 1) this.close('relays');
       return;
     }
@@ -635,6 +645,15 @@ export class Lobby {
 }
 
 // --- Codes, names, links ---
+
+/** One random id per browser, kept in localStorage; '' where there is none (tests), which turns the twin check off. */
+const BROWSER_ID: string = (() => {
+  try {
+    let id = localStorage.getItem('op2_browser');
+    if (!id) localStorage.setItem('op2_browser', (id = crypto.randomUUID()));
+    return id;
+  } catch { return ''; }
+})();
 
 /** No 0/O, 1/I/L: the code is read out over voice chat. */
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';

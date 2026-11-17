@@ -174,6 +174,21 @@ describe('co-op lobby', () => {
     expect(g.error).toBeNull();
   });
 
+  it('a second tab of the same browser replaces its old seat, never takes another', () => {
+    const h = host();
+    const first = guest();
+    first.browser = 'browser-1';
+    const other = guest('pw', 'b1', 'OTHER');
+    other.browser = 'browser-2';
+    hub.flush();
+    const second = guest('pw', 'b1', 'GUEST');
+    second.browser = 'browser-1';
+    hub.flush();
+    expect(h.players.map(p => p.name)).toEqual(['HOSTY', 'OTHER', 'GUEST']);
+    expect(h.players.filter(p => p.name === 'GUEST')).toHaveLength(1);
+    expect(second.phase).toBe('open');
+  });
+
   it('the host leaving closes every guest with host-left', () => {
     const h = host();
     const g = guest();

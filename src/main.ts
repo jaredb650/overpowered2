@@ -23,6 +23,8 @@ async function boot(): Promise<void> {
     await mod.default(params);
     return;
   }
+  // One tab runs the game; another waits behind "Play here instead" (core/oneTab.ts).
+  await (await import('./core/oneTab')).claimTab();
   const { startGame } = await import('./core/Game');
   await startGame(params);
 }

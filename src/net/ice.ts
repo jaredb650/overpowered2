@@ -30,25 +30,23 @@ const total = (k: IceKinds): number => k.host + k.srflx + k.relay;
 export type Side = 'host' | 'guest';
 
 /**
- * The likely cause in plain words, or '' when the candidates say nothing more than "needs TURN". `me` is the side
- * reading it; `brave` is whether this browser is Brave.
+ * The likely cause, short and plain (the counts go to the console), or '' when the candidates say nothing more than
+ * "needs TURN". `me` is the side reading it; `brave` is whether this browser is Brave. Keep "same network" in that case:
+ * the error screen keys on it.
  */
 export function iceAdvice(report: IceReport | undefined, me: Side, brave = !!(globalThis.navigator as { brave?: unknown } | undefined)?.brave): string {
   if (!report) return '';
   const { ours, theirs } = report;
   const them = me === 'host' ? 'the guest' : 'the host';
-  const braveFix = 'brave://settings/privacy, WebRTC IP handling policy, set to Default';
-  const hideFix = `In Brave: ${braveFix}. Otherwise turn off any "WebRTC leak" setting in a privacy extension.`;
-  if (!total(ours)) return `Your browser offered no network addresses at all, so it blocks peer-to-peer. ${brave ? `In Brave: ${braveFix}.` : hideFix}`;
-  if (!total(theirs)) return `No network addresses arrived from ${them}: their browser may block peer-to-peer. ${hideFix}`;
-  const hidden = [!ours.host && 'you', !theirs.host && them].filter(Boolean);
-  // Different networks: LAN addresses would not help anyway, and the old "needs TURN" text stands.
+  const braveTip = 'in Brave, set WebRTC IP handling policy to Default (brave://settings/privacy)';
+  if (!total(ours)) return `Your browser is blocking direct connections (a privacy setting or extension). Turn that off${brave ? `: ${braveTip}` : ''}, or try another browser.`;
+  if (!total(theirs)) return `${them[0].toUpperCase()}${them.slice(1)}'s browser may be blocking direct connections (a privacy setting or extension). They can turn that off, or try another browser.`;
+  // Different networks: LAN addresses would not help anyway, and the "needs TURN" text stands.
   if (!ours.publicIps.some(ip => theirs.publicIps.includes(ip))) return '';
-  if (hidden.length) {
-    const hider = hidden.length === 2 ? 'you both hide' : hidden[0] === 'you' ? 'your browser hides' : `${them}'s browser hides`;
-    const fix = hidden[0] === 'you' && brave ? `In Brave: ${braveFix}.` : hideFix;
-    return `You are on the same network, but ${hider} local network addresses, and most routers will not loop traffic back in. ${fix} Or use Chrome on both.`;
-  }
   // Seen 2026-11-17: owner and guest on one home Wi-Fi failed; a phone hotspot for one of them played fine.
-  return 'You are on the same network, and it will not connect your computers to each other. To play now: put one computer on a phone hotspot. To fix it: on each Mac, System Settings, Privacy & Security, Local Network, switch your browser on, then restart the browser. If that changes nothing, the router blocks it (Wi-Fi isolation, or no loop-back), and only the relay server (TURN) gets round it.';
+  const base = `You may be on the same network as ${them} — some routers block that. Check your router settings, or have one player switch networks (e.g. a phone hotspot).`;
+  const hidden = [!ours.host && 'you', !theirs.host && them].filter(Boolean);
+  if (!hidden.length) return base;
+  const hider = hidden.length === 2 ? 'you both hide' : hidden[0] === 'you' ? 'your browser hides' : `${them}'s browser hides`;
+  return `${base} Also, ${hider} local addresses${hidden[0] === 'you' && brave ? `: ${braveTip}` : ''}.`;
 }
