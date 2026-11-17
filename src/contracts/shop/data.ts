@@ -402,6 +402,12 @@ const MOD_CATALOGUE: Readonly<Record<ModId, Ware>> = {
   rivetLight: { price: 150, wave: 0, lore: 'The cheapest light in the catalogue on the cheapest pistol in it. The dark is not defeated, only reduced.' },
   ultramagLight: { price: 150, wave: 0, lore: 'A light for the Ultramag that shares the rail with the laser, if you bought both. The polished slide makes it look twice the price.' },
   autorafficaLight: { price: 150, wave: 0, lore: 'A light on the Autoraffica. The smart aim already finds heads in the dark. This is so you can watch.' },
+  // Akimbo (weapons/mods.ts AKIMBO_GUNS): a second gun, twice the rate and the rounds, twice the reload, no sights. Mid to late.
+  smgAkimbo: { price: 1500, wave: 8, lore: 'A second SMG for the other hand. Twice the rounds, twice the noise, half the aim. The Council has never once asked for aim.' },
+  rivetAkimbo: { price: 900, wave: 6, lore: 'Two Rivets, one for each hand and neither for the sights. Thirty small complaints a magazine change, filed in alternation.' },
+  ultramagAkimbo: { price: 2000, wave: 10, lore: 'A second Ultramag. The reflex sight comes off: you will be looking at both slides, and they will be looking back.' },
+  judgeAkimbo: { price: 1400, wave: 8, lore: 'Two Judges. The off hand is busy, so there is no fanning, only a second opinion every time the first one finishes.' },
+  autorafficaAkimbo: { price: 2400, wave: 14, lore: 'Two Autorafficas. The smart aim declines to work for both, so you will be finding the heads yourself, twice as fast.' },
 };
 
 export const modWares = (contract: ContractId): Readonly<Record<ModId, Ware>> =>

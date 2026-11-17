@@ -89,6 +89,10 @@ const _moonHit: RayHit = { point: new THREE.Vector3(), normal: new THREE.Vector3
 
 /** Eye relief when a ViewDef gives a sight and no `relief`. */
 const RELIEF = 0.2;
+/** Radians a Gun Kata shot snaps a gun toward its man, at most: past it the tracer does the pointing. */
+const KATA_SNAP = 0.55;
+/** An akimbo reload: both guns go down off the screen over this share of it, stay down, and come back up over the last. */
+const AK_DROP = 0.2;
 /** The share of breathing, bob, look lag and body inertia a gun keeps when fully aimed. */
 const ADS_SWAY = 0.2;
 
@@ -137,6 +141,8 @@ export class Rig implements ViewmodelRig {
   private aimW = 0;
   private akimbo = false;
   private akimboW = 0;
+  /** 0 to 1: how far down both guns are in an akimbo reload. */
+  private akDrop = 0;
   private reloadLeft = 0;
 
   // Springs.
@@ -230,12 +236,7 @@ export class Rig implements ViewmodelRig {
     this.defs = defs;
     for (const def of Object.values(defs)) {
       def.model.root.visible = false;
-      (def.id === 'smgLeft' ? this.gunL : this.gun).add(def.model.root);
-    }
-    this.defLeft = defs.smgLeft ?? null;
-    if (this.defLeft) {
-      this.recoilLP.tune(this.defLeft.recoil.omega, this.defLeft.recoil.zeta);
-      this.recoilLR.tune(this.defLeft.recoil.omega, this.defLeft.recoil.zeta);
+      (def.id.endsWith('Left') ? this.gunL : this.gun).add(def.model.root);
     }
 
     this.armR = new Arm(kit, 1);
@@ -339,6 +340,13 @@ export class Rig implements ViewmodelRig {
     const same = this.def === def;
     if (this.def && !same) this.def.model.root.visible = false;
     this.def = def;
+    // The gun's akimbo twin (models/index.ts `leftOf`), if it has one: shown while akimbo is on.
+    if (this.defLeft && !same) this.defLeft.model.root.visible = false;
+    this.defLeft = this.defs[`${id}Left`] ?? null;
+    if (this.defLeft) {
+      this.recoilLP.tune(this.defLeft.recoil.omega, this.defLeft.recoil.zeta);
+      this.recoilLR.tune(this.defLeft.recoil.omega, this.defLeft.recoil.zeta);
+    }
     def.model.root.visible = true;
     const a = this.a;
     a.parts = def.model.parts;
@@ -427,6 +435,13 @@ export class Rig implements ViewmodelRig {
 
   setAkimbo(on: boolean): void {
     this.akimbo = on;
+  }
+
+  kataSnap(left: boolean, yaw: number): void {
+    // Straight onto the recoil spring's yaw: the gun is there this frame and the spring brings it home in a tenth of a second.
+    const r = left ? this.recoilLR : this.recoilR;
+    r.y.x = clamp(yaw, -KATA_SNAP, KATA_SNAP);
+    r.y.v = 0;
   }
 
   setScoped(on: boolean): void {
@@ -543,6 +558,10 @@ export class Rig implements ViewmodelRig {
     this.sampleMotion(dt);
     this.stepTimers(dt);
     this.stepSprings(dt);
+    // Akimbo has no reload clip: the hands stay on the grips and both guns drop off the screen and come back (`akDrop`).
+    const akReload = this.akimbo && this.defLeft ? a.reload : -1;
+    this.akDrop = akReload >= 0 ? smoothstep(0, AK_DROP, akReload) * (1 - smoothstep(1 - AK_DROP, 1, akReload)) : 0;
+    if (akReload >= 0) a.reload = -1;
 
     a.gunP.set(0, 0, 0);
     a.gunR.set(0, 0, 0);
@@ -562,7 +581,7 @@ export class Rig implements ViewmodelRig {
     let akimboOn = false;
     const dl = this.defLeft;
     if (dl) {
-      this.akimboW = damp(this.akimboW, this.akimbo && def.id === 'smg' ? 1 : 0, 16, dt);
+      this.akimboW = damp(this.akimboW, this.akimbo ? 1 : 0, 16, dt);
       akimboOn = this.akimboW > 0.02;
       dl.model.root.visible = akimboOn;
       if (akimboOn) {
@@ -575,7 +594,7 @@ export class Rig implements ViewmodelRig {
         b.heat = Math.max(0, b.heat - dt * 0.3);
         b.parts = dl.model.parts;
         b.model = dl.model;
-        b.reload = a.reload;
+        b.reload = -1;
         b.draw = 1;
         if (b.mag !== this.lastMagLeft) {
           this.lastMagLeft = b.mag;
@@ -587,6 +606,8 @@ export class Rig implements ViewmodelRig {
         b.right.begin(null);
         b.left.begin(dl.left);
         dl.animate(b);
+        // A pistol's clip pulls the right hand's trigger; this gun's is the left's.
+        if (!dl.right) b.left.trigger = Math.max(b.left.trigger, b.right.trigger);
         this.dressMods(dl);
         this.composeLeftGun(dl, b);
         this.gunL.updateMatrixWorld(true);
@@ -595,6 +616,7 @@ export class Rig implements ViewmodelRig {
 
     this.offhand.update(dt);
     this.solveArms(def, dl, akimboOn, dt);
+    if (akReload >= 0) a.reload = akReload;
     this.legs.update(this.gun.visible ? this.move : null, this.ctx.player.pitch, dt);
     this.updateLooks(dt);
     this.updateMoon(dt);
@@ -881,7 +903,7 @@ export class Rig implements ViewmodelRig {
     // Draw and holster share one curve.
     const raise = a.draw < 1 ? 1 - outBack(a.draw, 1.2) : 0;
     const lower = inQuad(this.holsterW);
-    const k = Math.max(raise, lower);
+    const k = Math.max(raise, lower, this.akDrop);
     p.y += k * DRAW_Y;
     p.z += k * DRAW_Z;
     r.x += k * DRAW_PITCH;
@@ -912,6 +934,12 @@ export class Rig implements ViewmodelRig {
     r.x += this.lookR.x.x + this.moveR.x.x + this.recoilLR.x.x + b.gunR.x - rise * 0.8;
     r.y += this.lookR.y.x + this.moveR.y.x + this.recoilLR.y.x + b.gunR.y;
     r.z += this.lookR.z.x + this.moveR.z.x + this.recoilLR.z.x + b.gunR.z;
+    // An akimbo reload takes it down with the right one, as a holster does, mirrored.
+    const drop = this.akDrop;
+    p.y += drop * DRAW_Y;
+    p.z += drop * DRAW_Z;
+    r.x += drop * DRAW_PITCH;
+    r.z -= drop * DRAW_ROLL;
     const phase = this.ctx.player.stridePhase * Math.PI;
     p.x -= Math.cos(phase) * 0.0062 * this.bobW;
     p.y -= Math.abs(Math.cos(phase)) * 0.0078 * this.bobW;

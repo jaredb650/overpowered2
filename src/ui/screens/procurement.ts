@@ -56,7 +56,8 @@ const perPull = (d: WeaponDef): number => d.damage * Math.max(1, d.pellets);
 
 const STATS: readonly Stat[] = [
   { label: 'Damage', of: d => log01(perPull(d), 8, 1200), text: d => `${Math.round(perPull(d))}${d.pellets > 1 ? ` (${d.pellets}x)` : ''}` },
-  { label: 'Rate', of: d => log01(60 / d.interval, 40, 1800), text: d => `${Math.round(60 / d.interval)} rpm` },
+  // Akimbo's two guns in turn: twice one gun's rate.
+  { label: 'Rate', of: d => log01(60 / d.interval * (d.akimbo ? 2 : 1), 40, 1800), text: d => `${Math.round(60 / d.interval * (d.akimbo ? 2 : 1))} rpm` },
   { label: 'Magazine', of: d => log01(Math.max(1, d.magSize), 1, 200), text: d => String(d.magSize) },
   { label: 'Reload', of: d => Math.max(0.06, 1 - d.reloadTime / 2.6), text: d => `${d.reloadTime.toFixed(1)} s` },
 ];

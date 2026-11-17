@@ -53,7 +53,9 @@ export type ModId = 'awlAcog' | 'awlCan' | 'awlAp' | 'awlHp' | 'suppressor' | 'r
   | 'smgTape' | 'smgStock'
   // The weapon light, one a gun: every rifle, shotgun and pistol (weapons/mods.ts LIGHT_GUNS).
   | 'smgLight' | 'gimletLight' | 'harrowLight' | 'awlLight' | 'shotgunLight' | 'thresherLight' | 'deuceLight'
-  | 'judgeLight' | 'rivetLight' | 'ultramagLight' | 'autorafficaLight';
+  | 'judgeLight' | 'rivetLight' | 'ultramagLight' | 'autorafficaLight'
+  // Akimbo: a second gun of the same in the left hand (weapons/mods.ts AKIMBO_GUNS).
+  | 'smgAkimbo' | 'rivetAkimbo' | 'ultramagAkimbo' | 'judgeAkimbo' | 'autorafficaAkimbo';
 
 export type Team = 'player' | 'enemy';
 
@@ -149,7 +151,14 @@ export interface WeaponSystem extends GameSystem {
   readonly launcherUp?: boolean;
   /** The Autoraffica's smart aim, for the HUD's circle and the gun turning to the head. Unset on a weapon system that has none. */
   readonly smartAim?: SmartAimView;
+  /** Two guns in hand now: the akimbo mod or Berserk's SMGs. Unset on a weapon system that has none. */
+  readonly akimbo?: boolean;
+  /** The Gun Kata brain chip: a burst into every man in reach, or why not. Unset on a weapon system that has none. */
+  kata?(): KataResult;
 }
+
+/** What the Gun Kata brain chip got when it asked the guns: it went, or why it did not (and spent nothing). */
+export type KataResult = 'go' | 'noAkimbo' | 'noTargets' | 'busy';
 
 /** The Autoraffica's smart aim (src/weapons/smartaim.ts), as the HUD and the viewmodel read it. */
 export interface SmartAimView {
@@ -205,6 +214,8 @@ export interface ViewmodelRig extends GameSystem {
   /** 0..1 charge or spin level, for the Lance and Buzzsaw. */
   setCharge(amount: number): void;
   setAkimbo(on: boolean): void;
+  /** Gun Kata: snaps one gun `yaw` radians toward its man (+ left), then lets it spring back. Optional for stand-in rigs. */
+  kataSnap?(left: boolean, yaw: number): void;
   /** Hides the model while the scope overlay is up. */
   setScoped(on: boolean): void;
   /** 0..1 how far the gun is up at the eye, eased: aim down sights. Optional so stand-in rigs need not carry it. */
@@ -729,5 +740,7 @@ declare module './contracts' {
     'sonar:ping': { origin: THREE.Vector3 };
     /** The player started a stim injection. The heal lands `STIM.injectAt` seconds later. */
     'stim:inject': Record<string, never>;
+    /** The Gun Kata brain chip went (contracts/chips.ts): co-op tells the host to expect a burst (net/world.ts). */
+    'chip:kata': Record<string, never>;
   }
 }

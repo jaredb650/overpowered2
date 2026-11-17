@@ -31,7 +31,10 @@ export interface Card {
 export interface HitClaim { t: 'hit'; shot: number; target: number; weapon: string; origin: Vec; damage: WireDamage }
 export type WorldEvent =
   | HitClaim
-  | { t: 'fire'; shot: number; weapon: string; origin: Vec; dir: Vec; slot?: number }
+  /** `ak`: from two guns (the akimbo mod), so the host allows twice the gun's rate. */
+  | { t: 'fire'; shot: number; weapon: string; origin: Vec; dir: Vec; slot?: number; ak?: 1 }
+  /** Guest to host: my Gun Kata brain chip went. Its burst outruns the gun's rate for `KATA.window` s (authority.ts `kata`). */
+  | { t: 'kata' }
   | { t: 'hitfx'; uid: number; damage: WireDamage; health: number; armor: number; blocked: boolean }
   /** `by` is the killer's slot (-1 the world's own), `head` the host's headshot verdict: the killer's browser pays itself. */
   | { t: 'kill'; uid: number; id: EnemyId; at: Vec; yaw: number; damage: WireDamage; gib: boolean; by?: number; head?: boolean }

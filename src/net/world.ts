@@ -114,6 +114,8 @@ export class CoopWorld {
     this.off.push(ctx.events.on('weapon:fired', event => this.fire(event.weapon, event.origin, event.dir)));
     this.off.push(ctx.events.on('callin:used', event => this.broadcast({ t: 'callin', id: event.id, slot: session.lobby.me?.slot })));
     // Sonar is shared; Thermal and Focus are each player's own and never sent.
+    // A guest's Gun Kata: the host lets its burst through the fire-rate check (authority.ts `kata`).
+    if (!session.hosting) this.off.push(ctx.events.on('chip:kata', () => this.broadcast({ t: 'kata' })));
     this.off.push(ctx.events.on('sonar:ping', event => this.broadcast({ t: 'sonar', at: event.origin.toArray() as Vec, slot: session.lobby.me?.slot })));
     if (!session.hosting) {
       this.off.push(ctx.events.on('perk:start', e => { if (e.id === 'slowmo' || e.id === 'timeWarp') this.broadcast({ t: 'slow', id: e.id, on: true }); }));
@@ -198,7 +200,7 @@ export class CoopWorld {
     this.firedAt = now;
     this.weapon = weapon;
     this.broadcast({ t: 'fire', shot: this.shot, weapon, origin: origin.toArray() as Vec, dir: dir.toArray() as Vec,
-      slot: this.session.lobby.me?.slot });
+      slot: this.session.lobby.me?.slot, ...(this.ctx.weapons.akimbo ? { ak: 1 as const } : {}) });
   }
   claim(enemy: EnemyInstance, damage: DamageInfo): DamageResult {
     if (ENEMY_IDS.some(id => id === damage.source) || ['bleed', 'hazard', 'trample', 'coop'].includes(damage.source)) {
@@ -260,9 +262,10 @@ export class CoopWorld {
       const remote = this.session.remotes.get(from);
       if (!remote || !remote.buffer.sample(now)) return;
       if (value.t === 'capture') return this.captureFor(from, remote.char.root.position, value.uid);
+      if (value.t === 'kata') { this.validator.kata(from, now); return; }
       const eye = remote.char.root.position.clone().add(new THREE.Vector3(0, 1.6, 0));
       if (value.t === 'fire' && validVec(value.origin) && validVec(value.dir) && new THREE.Vector3(...value.origin).distanceTo(eye) < 7
-        && !this.life(from).down && this.validator.acceptFire(from, value.shot, value.weapon, now)) {
+        && !this.life(from).down && this.validator.acceptFire(from, value.shot, value.weapon, now, value.ak === 1)) {
         const event = { ...value, slot: remote.player.slot };
         this.drawFire(event);
         for (const peer of this.session.lobby.players) if (!peer.host && peer.id !== from) this.broadcast(event, peer.id);

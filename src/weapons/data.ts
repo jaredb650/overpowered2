@@ -118,6 +118,11 @@ export interface WeaponDef {
   /** Hold right click to charge rounds and paint heads, let go to fan them off: the Judge's. See fan.ts. Instead of ADS. */
   altFan?: FanSpec;
   /**
+   * Two of it, one a hand (the akimbo mod, weapons/mods.ts): a left click fires them in turn, so twice the rate, from two magazines
+   * at twice the reload. Right click is a zoom with no sights; it takes the Judge's fan and the Autoraffica's smart aim away.
+   */
+  akimbo?: boolean;
+  /**
    * Right click fires every loaded barrel at once, the Deuce's: their pellets together, and for two `kick` times the recoil and
    * shake, the shot heard a second time `echo` s later at `echoPitch`, and the player shoved back at `push` m/s (`ground` of it
    * along the floor when standing). Each barrel past the second adds `kick` - 1 again, another echo and another push: the quad

@@ -20,6 +20,8 @@ const LOOKS: Record<string, [Kit, Stance]> = {
   blade: [[{ model: 'blade', socket: 'handR' }], 'blades'],
   flamer: [[{ model: 'flamer', socket: 'handR' }], 'rifle'],
 };
+/** On the end of a pose's weapon id: two of it in hand, one a hand (the akimbo mod). */
+export const AKIMBO_TAG = '-ak';
 /** Weapon id to prop. Anything new and unlisted is drawn as the SMG. */
 export function propFor(weapon: string): keyof typeof LOOKS {
   if (/^(shotgun|thresher|deuce)/.test(weapon)) return 'shotgun';
@@ -78,11 +80,14 @@ export class RemotePlayer {
 
   private arm(weapon: string): void {
     const prop = propFor(weapon);
-    if (prop === this.prop) return;
-    this.prop = prop;
+    const two = weapon.endsWith(AKIMBO_TAG);
+    if (prop + (two ? AKIMBO_TAG : '') === this.prop) return;
+    this.prop = prop + (two ? AKIMBO_TAG : '');
     const lib = this.ctx.characters as Ctx['characters'] & { arm(c: CharacterInstance, kit: Kit, stance: Stance): void };
     const [kit, stance] = LOOKS[prop]!;
-    try { lib.arm(this.char, kit, stance); } catch { /* a prop that failed to load: keep what is held */ }
+    // Akimbo: the same prop in the left hand too, held at the side as the Stalker holds his second blade.
+    const held = two ? [...kit, { model: kit[0]!.model, socket: 'handL' }] : kit;
+    try { lib.arm(this.char, held, stance); } catch { /* a prop that failed to load: keep what is held */ }
   }
 
   /** The muzzle in the world, for flashes and tracers: the prop's own, or the right hand's height. */

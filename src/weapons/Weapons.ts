@@ -10,7 +10,7 @@ import { ACTIVE } from '../contracts/select';
 import { survivalLoadout } from '../contracts/loadouts';
 import { CG, type Ctx, type ExplosionKind, type LoopHandle } from '../core/contracts';
 import type {
-  AmmoState, EnemyInstance, MissileTarget, ModId, PaintView, ProjectileSpec, ProjectileTrail, ShotSpec, SmartAimView, WeaponId,
+  AmmoState, EnemyInstance, KataResult, MissileTarget, ModId, PaintView, ProjectileSpec, ProjectileTrail, ShotSpec, SmartAimView, WeaponId,
   WeaponModifiers, WeaponSystem,
 } from '../core/gameplay';
 import { clamp, damp, invLerp, lerp, randomInCone, smoothstep, wrapAngle } from '../core/math';
@@ -31,6 +31,8 @@ import { Melee } from './melee/Melee';
 import { LANCE_ON, Lance } from './lance';
 import { ROCKET_LASER } from './laser';
 import { SmartAim, type SmartHooks } from './smartaim';
+import { KATA, bearing, kataTargets } from './kata';
+import { soldierOf } from '../enemies/outpost/soldier';
 import { DroppedGuns } from './dropped';
 import { keepsAGun, type GunKit } from './handover';
 
@@ -148,6 +150,12 @@ export class Weapons implements WeaponSystem, Guard {
   private cookCue = 0;
 
   private akimboOn = false;
+  /** Gun Kata (kata.ts): the men still to be shot in this burst, the next one's index, and seconds to his shot. */
+  private readonly kataQueue: EnemyInstance[] = [];
+  private kataAt = 0;
+  private kataClock = 0;
+  private readonly kataFrom = new THREE.Vector3();
+  private readonly kataDir = new THREE.Vector3();
   private quickReturn = 0;
   /** Rounds left in a burst under way (`pullBurst`, or a `select` gun's). */
   private burstLeft = 0;
@@ -400,6 +408,16 @@ export class Weapons implements WeaponSystem, Guard {
     return this.smart;
   }
 
+  /** Two guns in hand: the akimbo mod, or Berserk's SMGs. */
+  get akimbo(): boolean {
+    return this.akimboOn;
+  }
+
+  /** Akimbo fires the two guns in turn, so a trigger's rate is twice one gun's. */
+  private get ak(): number {
+    return this.akimboOn ? 2 : 1;
+  }
+
   /** The Gimlet's launcher is up: its shots, its reload and its count on the HUD. */
   get launcherUp(): boolean {
     return this.glUp;
@@ -637,6 +655,7 @@ export class Weapons implements WeaponSystem, Guard {
   /** Stops every continuous thing. Called on death, pause and holster, so nothing keeps roaring in a menu. */
   private stopEverything(): void {
     this.aimOn = false;
+    this.kataQueue.length = 0;
     this.stopPaint();
     this.endContinuous();
     this.clearScope(false);
@@ -677,7 +696,8 @@ export class Weapons implements WeaponSystem, Guard {
     const dt = c.time.playerDt;
     // Guidance is on only on a frame the launcher is up with its sight on, so a holster, a death or a switch lets go.
     ROCKET_LASER.on = false;
-    this.smart.on = this.smartOn && WEAPONS[this.current].smart !== undefined && !this.holstered && c.player.alive !== false;
+    this.smart.on = this.smartOn && WEAPONS[this.current].smart !== undefined && !this.slots[this.current].def.akimbo && !this.holstered
+      && c.player.alive !== false;
     if (!this.smart.on) this.smart.drop();
     this.sword.tick(dt);
     this.updateAim(dt);
@@ -730,6 +750,10 @@ export class Weapons implements WeaponSystem, Guard {
     }
     const alt = WEAPONS[this.current].altAmmo;
     if (alt && !alt.hold && c.input.pressed('aim')) this.toggleAmmo(this.current, alt.label);
+    if (this.kataQueue.length > 0) {
+      this.updateKata(dt);
+      return;
+    }
     this.updateReload(dt);
     if (this.smart.on) this.smart.update(dt, WEAPONS[this.current].smart!, this.smartHooks);
     this.updateGun(dt);
@@ -737,10 +761,70 @@ export class Weapons implements WeaponSystem, Guard {
   }
 
   private syncAkimbo(): void {
-    const on = this.modifiers.akimbo && this.current === 'smg';
+    const on = (this.modifiers.akimbo && this.current === 'smg') || this.slots[this.current].def.akimbo === true;
     if (on === this.akimboOn) return;
     this.akimboOn = on;
     this.ctx.viewmodel.setAkimbo(on);
+  }
+
+  /**
+   * The Gun Kata brain chip (kata.ts): with two guns in hand, every man in `KATA.radius` and in sight, all the way round, gets a
+   * round in the head, a gun at a time, `KATA.step` apart, from the magazine. Spends nothing and returns why when it cannot go.
+   */
+  kata(): KataResult {
+    if (!this.akimboOn) return 'noAkimbo';
+    const c = this.ctx;
+    const s = this.slots[this.current];
+    if (this.kataQueue.length > 0 || this.holstered || this.occupied > 0 || this.drawLeft > 0 || this.reloading || !this.canShoot(s)
+      || c.player.alive === false) return 'busy';
+    const eye = c.player.eye;
+    const found = kataTargets(eye, c.player.forward, c.enemies.alive, e => e.center, (from, to) => {
+      const d = this.kataDir.subVectors(to, from);
+      const dist = d.length();
+      return dist < 0.1 || !c.physics.raycast(from, d.divideScalar(dist), dist, CG.World);
+    });
+    // A man with his hands up is a bounty, not a target.
+    for (const e of found) if (e.alive && !soldierOf(e)?.surrendered) this.kataQueue.push(e);
+    if (this.kataQueue.length === 0) return 'noTargets';
+    this.kataAt = 0;
+    this.kataClock = 0;
+    this.pressBuffer = 0;
+    this.burstLeft = 0;
+    this.aimOn = false;
+    return 'go';
+  }
+
+  private updateKata(dt: number): void {
+    const s = this.slots[this.current];
+    this.kataClock -= dt;
+    while (this.kataClock <= 0 && this.kataAt < this.kataQueue.length) {
+      const e = this.kataQueue[this.kataAt++]!;
+      if (!e.alive) continue;
+      // Dry: the kata ends there and the reload follows.
+      if (!this.canShoot(s)) break;
+      this.kataShot(s, e);
+      this.kataClock += KATA.step;
+    }
+    if (this.kataAt >= this.kataQueue.length || !this.canShoot(s)) this.kataQueue.length = 0;
+  }
+
+  /** One round of a kata into `e`'s head, from the next hand, that gun snapped toward him and its tracer from his side. */
+  private kataShot(s: Slot, e: EnemyInstance): void {
+    const c = this.ctx;
+    const left = this.leftNext;
+    this.leftNext = !left;
+    const eye = c.player.eye;
+    const head = this.combat.headOf(e, this.kataFrom);
+    const dir = this.kataDir.subVectors(head, eye).normalize();
+    const turn = bearing(eye, c.player.forward, head);
+    const yaw = turn > Math.PI ? turn - Math.PI * 2 : turn;
+    c.viewmodel.kataSnap?.(left, -yaw);
+    this.consume(s);
+    this.shotFeedback(s.def, left, 0.6, 0, dir);
+    const shot = this.fillShot(s.def, s.def.damage * this.modifiers.damage);
+    // Off to the side or behind, a tracer from the muzzle would cross the screen: it leaves from his side of the player instead.
+    if (Math.abs(yaw) > 0.6) shot.tracerFrom = this.kataFrom.copy(eye).addScaledVector(dir, 0.8).setY(eye.y - 0.3);
+    this.combat.fireAtHead(eye, e, shot);
   }
 
   private readSwitch(): void {
@@ -777,6 +861,7 @@ export class Weapons implements WeaponSystem, Guard {
     const from = this.current;
     this.aimOn = false;
     this.aimT = 0;
+    this.kataQueue.length = 0;
     this.stopPaint();
     this.endContinuous();
     this.clearScope(false);
@@ -944,6 +1029,12 @@ export class Weapons implements WeaponSystem, Guard {
       return;
     }
     if (WEAPONS[this.current].smart) {
+      // Two guns are two locks' worth of headshots at twice the rate: akimbo gives the smart aim up. Gun Kata is its aimbot.
+      if (this.slots[this.current].def.akimbo) {
+        this.ctx.audio.play('ui_error');
+        this.ctx.hud.callout?.('NO SMART AIM AKIMBO');
+        return;
+      }
       this.smartOn = !this.smartOn;
       this.burstLeft = 0;
       this.ctx.audio.play('fire_select', { pitch: this.smartOn ? 1.3 : 0.92 });
@@ -997,7 +1088,8 @@ export class Weapons implements WeaponSystem, Guard {
       return;
     }
 
-    if (def.altFan && this.updateFan(s, dt)) return;
+    // Akimbo: the off hand has its own gun, not the hammer, and right click is the zoom.
+    if (def.altFan && !def.akimbo && this.updateFan(s, dt)) return;
     switch (def.mode) {
       case 'auto': this.updateAuto(s, held); break;
       case 'semi': this.updateSemi(s, held); break;
@@ -1095,7 +1187,7 @@ export class Weapons implements WeaponSystem, Guard {
       return;
     }
     const akimbo = this.akimboOn;
-    const interval = this.interval(s.def) / (akimbo ? 2 : 1);
+    const interval = this.interval(s.def) / this.ak;
     while (s.cooldown <= 0 && this.canShoot(s)) {
       this.shootGun(s, akimbo && this.leftNext);
       if (akimbo) this.leftNext = !this.leftNext;
@@ -1116,10 +1208,12 @@ export class Weapons implements WeaponSystem, Guard {
       this.burstLeft = burst.rounds;
       s.cooldown = Math.min(s.cooldown, 0);
     }
+    // Akimbo: a pull's burst from one gun, the next pull's from the other, and half the wait between them.
     while (this.burstLeft > 0 && s.cooldown <= 0 && this.canShoot(s)) {
-      this.shootGun(s, false);
+      this.shootGun(s, this.akimboOn && this.leftNext);
       this.burstLeft--;
-      s.cooldown += this.burstLeft > 0 ? this.interval(s.def) : burst.recover / Math.max(this.modifiers.fireRate, 0.01);
+      s.cooldown += this.burstLeft > 0 ? this.interval(s.def) : burst.recover / Math.max(this.modifiers.fireRate, 0.01) / this.ak;
+      if (this.burstLeft === 0 && this.akimboOn) this.leftNext = !this.leftNext;
     }
     if (!this.canShoot(s)) this.burstLeft = 0;
   }
@@ -1142,8 +1236,9 @@ export class Weapons implements WeaponSystem, Guard {
       return;
     }
     this.pressBuffer = 0;
-    this.shootGun(s, false, both);
-    s.cooldown = this.interval(s.def);
+    this.shootGun(s, this.akimboOn && this.leftNext, both);
+    if (this.akimboOn) this.leftNext = !this.leftNext;
+    s.cooldown = this.interval(s.def) / this.ak;
   }
 
   /**
@@ -1373,7 +1468,7 @@ export class Weapons implements WeaponSystem, Guard {
   }
 
   /** The shared frame-of-the-shot beats: flash, light, sound, recoil, shake, brass, event. */
-  private shotFeedback(def: WeaponDef, left: boolean, shot = 1, barrel = 0): void {
+  private shotFeedback(def: WeaponDef, left: boolean, shot = 1, barrel = 0, dir?: THREE.Vector3): void {
     const c = this.ctx;
     // Aimed, the gun is in the shoulder: less kick, climb and shake. The flash and the sound are the same gun.
     const steady = lerp(1, TUNING.ads.recoil, this.aim);
@@ -1406,7 +1501,7 @@ export class Weapons implements WeaponSystem, Guard {
     const e = this.firedEvent;
     e.weapon = def.id;
     e.origin.copy(player.eye);
-    e.dir.copy(fwd);
+    e.dir.copy(dir ?? fwd);
     c.events.emit('weapon:fired', e);
   }
 
@@ -2012,7 +2107,7 @@ export class Weapons implements WeaponSystem, Guard {
     if (moving) this.aimOn = false;
     const wants = this.aimHold ? c.input.isDown('aim') : this.aimOn;
     // The launcher is fired from the shoulder over its own leaf, not through the rifle's sight.
-    const blocked = busy || moving || !def.ads || this.glUp || this.reloading || this.drawLeft > 0 || this.akimboOn
+    const blocked = busy || moving || !def.ads || this.glUp || this.reloading || this.drawLeft > 0
       || this.sword.inQuickStrike || this.quickReturn > 0 || (!!def.cycleTime && this.held.cooldown > 0);
     const up = wants && !blocked;
     this.aimT = clamp(this.aimT + (up ? dt : -dt) / (def.ads?.time ?? 0.2));
@@ -2020,7 +2115,8 @@ export class Weapons implements WeaponSystem, Guard {
     this.aimHeld = (!!def.ads && wants && !busy) || this.zoomed || this.rescope;
     this.adsZoom.update(c.time.realDt, up || this.scopeShown, c.input.isDown('dash'), def.breath);
     c.camera.setAim?.(1 - (def.ads?.zoom ?? 0) * w, lerp(1, this.aimSensitivity, w), this.adsZoom.mag);
-    c.viewmodel.setAim?.(w);
+    // Akimbo has no sights to look down: the view zooms and the guns stay at the hip.
+    c.viewmodel.setAim?.(this.akimboOn ? 0 : w);
   }
 
   // -------------------------------------------------------------------------------------------

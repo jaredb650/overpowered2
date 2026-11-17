@@ -2,6 +2,8 @@ import type { HitClaim, Vec } from './worldProtocol';
 import { REGIONS, validVec } from './worldProtocol';
 import { WEAPONS } from '../weapons/data';
 import type { WeaponId } from '../core/gameplay';
+import { AKIMBO_GUNS } from '../weapons/mods';
+import { KATA } from '../weapons/kata';
 
 const distance = (left: readonly number[], right: readonly number[]) => Math.hypot(...left.map((value, index) => value - right[index]!));
 export interface Target { id: string; alive: boolean; position: readonly number[] }
@@ -30,13 +32,29 @@ export class ClaimValidator {
   private readonly shots = new Map<string, { shot: number; weapon: string; at: number; hits: number }>();
   private readonly called = new Map<string, number>();
   private readonly area = new Map<string, { second: number; count: number }>();
+  /** When each guest's last Gun Kata began, by their word. */
+  private readonly katas = new Map<string, number>();
   /** The guest announced a call-in (`callin:used` on their side). */
   callIn(peer: string, now: number): void { this.called.set(peer, now); }
-  acceptFire(peer: string, shot: number, weapon: string, now: number): boolean {
+  /**
+   * The guest's Gun Kata began: for `KATA.window` s their shots may come as fast as the floor, as the burst fires every gun in hand
+   * at whoever is round them. Each shot is still a hit claim checked as any other. Taken once a brain chip charge (most of
+   * `KATA.cooldown`, for lag), so a guest cannot keep it open: false when it comes too soon.
+   */
+  kata(peer: string, now: number): boolean {
+    const last = this.katas.get(peer);
+    if (last !== undefined && now - last < KATA.cooldown * 800) return false;
+    this.katas.set(peer, now);
+    return true;
+  }
+  /** `akimbo`: the guest says two guns fired it, which halves the gap the gun's rate needs, on a gun that takes akimbo only. */
+  acceptFire(peer: string, shot: number, weapon: string, now: number, akimbo = false): boolean {
     if (!Number.isSafeInteger(shot) || shot < 0 || !Object.hasOwn(WEAPONS, weapon)) return false;
     const def = WEAPONS[weapon as WeaponId];
     const previous = this.shots.get(peer);
-    if (previous && (shot <= previous.shot || now - previous.at < Math.max(8, def.interval * 650))) return false;
+    const kata = now - (this.katas.get(peer) ?? -Infinity) < KATA.window * 1000;
+    const pace = kata ? 0 : def.interval * 650 / (akimbo && (AKIMBO_GUNS as readonly string[]).includes(weapon) ? 2 : 1);
+    if (previous && (shot <= previous.shot || now - previous.at < Math.max(8, pace))) return false;
     this.shots.set(peer, { shot, weapon, at: now, hits: 0 });
     return true;
   }
@@ -76,5 +94,5 @@ export class ClaimValidator {
     shot!.hits++;
     return true;
   }
-  forget(peer: string): void { this.shots.delete(peer); this.called.delete(peer); this.area.delete(peer); }
+  forget(peer: string): void { this.shots.delete(peer); this.called.delete(peer); this.area.delete(peer); this.katas.delete(peer); }
 }

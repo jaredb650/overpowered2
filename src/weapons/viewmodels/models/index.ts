@@ -1,4 +1,5 @@
 /** Registry of every first-person weapon and device. */
+import * as THREE from 'three';
 import type { Kit } from '../kit/kit';
 import type { Model } from '../kit/model';
 import type { ViewDef } from '../def';
@@ -29,6 +30,7 @@ import { trommelDef } from './trommel';
 import { ultramagDef } from './ultramag';
 import { autorafficaDef } from './autoraffica';
 import { SLOT8_OLD } from '../../data';
+import { HANDS } from '../poses';
 
 export interface OffhandSet {
   grenade: Model;
@@ -49,6 +51,28 @@ export function buildDefs(kit: Kit): Record<string, ViewDef> {
     deuce: deuceDef(kit), ultramag: ultramagDef(kit), gimlet: gimletDef(kit), autoraffica: autorafficaDef(kit),
     // Key 5 beside the sword. Their swings are one clip, models/melee.ts, with each one's own poses.
     knife: knifeDef(kit), crowbar: crowbarDef(kit), shovel: shovelDef(kit), baton: batonDef(kit),
+    // The akimbo mod's left-hand pistols (weapons/mods.ts AKIMBO_GUNS); the SMG's own `smgLeft` is above.
+    rivetLeft: leftOf(rivetDef(kit)), ultramagLeft: leftOf(ultramagDef(kit)), judgeLeft: leftOf(judgeDef(kit)),
+    autorafficaLeft: leftOf(autorafficaDef(kit)),
+  };
+}
+
+/**
+ * A pistol's akimbo twin: `def`, a build of its own, out on the left as far as the right one is on the right (and `gap` more, as
+ * akimbo pushes the right one out). The left hand holds it as the right holds its own: `gripR` mirrored across the gun (`gripAk`).
+ * No sights, as akimbo has no ADS.
+ */
+export function leftOf(def: ViewDef, gap = 0.03): ViewDef {
+  const r = def.model.sockets.gripR!;
+  const s = new THREE.Object3D();
+  s.name = 'gripAk';
+  s.position.set(-r.position.x, r.position.y, r.position.z);
+  s.quaternion.set(r.quaternion.x, -r.quaternion.y, -r.quaternion.z, r.quaternion.w);
+  r.parent!.add(s);
+  def.model.sockets.gripAk = s;
+  return {
+    ...def, id: `${def.id}Left`, pos: [-def.pos[0] - gap, def.pos[1], def.pos[2]], rot: [def.rot[0], -def.rot[1], -def.rot[2]],
+    sight: undefined, rear: undefined, right: null, left: { socket: 'gripAk', pose: HANDS.grip },
   };
 }
 

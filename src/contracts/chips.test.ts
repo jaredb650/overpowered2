@@ -244,13 +244,13 @@ describe('the shop', () => {
     implants: new Set(), implantsFitted: new Set(), slots: 1, chips: new Set(['sonar']), chipsFitted: ['sonar'], chipSlots: 1, ...over,
   });
 
-  it('sells the second slot, Thermal and Focus at their waves and prices; Sonar is issued', () => {
+  it('sells the second slot, Thermal, Focus and Gun Kata at their waves and prices; Sonar is issued', () => {
     const rows = chipOffers(view({ cleared: 0 }));
-    expect(rows.map(o => o.act.kind === 'chip' ? o.act.id : 'slot')).toEqual(['slot', 'sonar', 'thermal', 'focus']);
-    expect(rows.map(o => o.locked)).toEqual([true, false, true, true]);
+    expect(rows.map(o => o.act.kind === 'chip' ? o.act.id : 'slot')).toEqual(['slot', 'sonar', 'thermal', 'focus', 'kata']);
+    expect(rows.map(o => o.locked)).toEqual([true, false, true, true, true]);
     expect(rows[1]!.fitted && rows[1]!.ware.price === 0).toBe(true);
     const open = chipOffers(view());
-    expect(open.map(o => o.why)).toEqual([null, null, null, null]);
+    expect(open.map(o => o.why)).toEqual([null, null, null, null, null]);
     expect(open[2]!.replacesChip).toBe('sonar');
     expect(chipOffers(view({ cleared: CHIPS.thermal.wave - 1 }))[2]!.why).toMatch(/after wave/);
   });

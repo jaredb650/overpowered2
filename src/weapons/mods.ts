@@ -53,6 +53,22 @@ export const LIGHT_GUNS = ['smg', 'gimlet', 'harrow', 'awl', 'shotgun', 'threshe
 export const lightOf = (gun: (typeof LIGHT_GUNS)[number]): ModId => `${gun}Light`;
 const light = (gun: (typeof LIGHT_GUNS)[number]): ModDef => ({ id: lightOf(gun), weapon: gun, name: 'Weapon light', patch: {} });
 
+/**
+ * The guns that take akimbo: the SMG and the four pistols. A second one in the left hand (viewmodels/models/index.ts `leftOf`), the
+ * two fired in turn on a left click (Weapons.ts): twice the rate, two magazines, twice the reload. With no sights to look down,
+ * right click is a zoom on the crosshair (`AKIMBO_ADS`, the viewmodel stays at the hip), so it takes the optic's slot: the
+ * Ultramag's reflex sight and akimbo exclude each other. It takes the Judge's fan and the Autoraffica's smart aim away (Weapons.ts).
+ * The magazine and the reload are worked out last (`adjust`), so an extended magazine or mag tape doubles with them.
+ */
+export const AKIMBO_GUNS = ['smg', 'rivet', 'ultramag', 'judge', 'autoraffica'] as const satisfies readonly WeaponId[];
+export const akimboOf = (gun: (typeof AKIMBO_GUNS)[number]): ModId => `${gun}Akimbo`;
+/** Akimbo's right click: the view narrows by this share, as irons do, and the guns stay where they are. */
+export const AKIMBO_ADS = { zoom: 0.3, time: 0.15 } as const;
+const akimbo = (gun: (typeof AKIMBO_GUNS)[number]): ModDef => ({
+  id: akimboOf(gun), weapon: gun, name: 'Akimbo', slot: 'sight', patch: { akimbo: true, ads: AKIMBO_ADS },
+  adjust: d => ({ magSize: d.magSize * 2, reloadTime: d.reloadTime * 2 }),
+});
+
 export const MODS: Readonly<Record<ModId, ModDef>> = {
   awlAcog: { id: 'awlAcog', weapon: 'awl', name: 'ACOG', slot: 'sight', patch: { scope: false, ads: ACOG } },
   awlAp: rounds('awl', 'ap'), awlHp: rounds('awl', 'hp'),
@@ -136,6 +152,8 @@ export const MODS: Readonly<Record<ModId, ModDef>> = {
   smgLight: light('smg'), gimletLight: light('gimlet'), harrowLight: light('harrow'), awlLight: light('awl'),
   shotgunLight: light('shotgun'), thresherLight: light('thresher'), deuceLight: light('deuce'),
   judgeLight: light('judge'), rivetLight: light('rivet'), ultramagLight: light('ultramag'), autorafficaLight: light('autoraffica'),
+  smgAkimbo: akimbo('smg'), rivetAkimbo: akimbo('rivet'), ultramagAkimbo: akimbo('ultramag'), judgeAkimbo: akimbo('judge'),
+  autorafficaAkimbo: akimbo('autoraffica'),
 };
 
 export const MOD_ORDER: readonly ModId[] = [
@@ -148,6 +166,7 @@ export const MOD_ORDER: readonly ModId[] = [
   'smgMag', 'smgTape', 'smgStock', 'gimletShort', 'rivetMag', 'piledriverBox',
   'deuceQuad', 'deuceLoader', 'shotgunChoke', 'judgeHammer', 'judgeGrip',
   ...LIGHT_GUNS.map(lightOf),
+  ...AKIMBO_GUNS.map(akimboOf),
 ];
 
 /** Held and fitted at the start of every run: the Gimlet's ACOG and suppressor, the SMG's light. The shop takes them off and puts them back. */

@@ -2,7 +2,7 @@
 import type { Ctx, GameSystem } from '../core/contracts';
 import { Lobby, type ChatLine, type Match } from './lobby';
 import { POSE_MS, type Move } from './pose';
-import { PROPS, RemotePlayer } from './remote';
+import { AKIMBO_TAG, PROPS, RemotePlayer } from './remote';
 import { clearSession, resumedRoom } from './session';
 import { CoopWorld } from './world';
 import { CoopHud } from './coopHud';
@@ -120,7 +120,9 @@ export class CoopSession implements GameSystem {
       : p.wallRunning ? (p.wallSide > 0 ? 'wallrunR' : 'wallrun') : p.mantling || p.vaulting ? 'mantle' : p.sliding ? 'slide' : !p.grounded ? 'airborne'
       : p.crouched ? 'crouch' : p.speed > 8 ? 'sprint' : 'walk';
     this.lobby.sendPose({ seq: this.seq++ >>> 0, position: p.position.toArray(), velocity: this.localPaused ? [0, 0, 0] : p.velocity.toArray(),
-      yaw: Math.atan2(Math.sin(p.yaw), Math.cos(p.yaw)), pitch: p.pitch, move, weapon: this.ctx.weapons.current });
+      yaw: Math.atan2(Math.sin(p.yaw), Math.cos(p.yaw)), pitch: p.pitch, move,
+      // `-ak`: two of it in hand (the akimbo mod), drawn so on the others' screens (remote.ts).
+      weapon: this.ctx.weapons.akimbo ? `${this.ctx.weapons.current}${AKIMBO_TAG}` : this.ctx.weapons.current });
   }
 
   /** Host: the match is over for everyone, and they all land on the lobby page. */

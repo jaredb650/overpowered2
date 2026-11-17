@@ -11,8 +11,9 @@
 import type * as THREE from 'three';
 import type { Ctx, GradeName } from '../core/contracts';
 import type { Sonar } from './sonar';
+import { KATA } from '../weapons/kata';
 
-export type ChipId = 'sonar' | 'thermal' | 'focus';
+export type ChipId = 'sonar' | 'thermal' | 'focus' | 'kata';
 
 export interface ChipDef {
   id: ChipId;
@@ -76,9 +77,14 @@ export const CHIPS: Readonly<Record<ChipId, ChipDef>> = {
     does: `Tap: the world at ${FOCUS.scale}x while you move at full speed, on a ${FOCUS.seconds} s meter that refills in ${FOCUS.refill} s. Tap again to stop.`,
     lore: 'A brain chip that makes everyone else slow. It cannot make them stupid; the Council sells that separately, to the other side.',
   },
+  kata: {
+    id: 'kata', name: 'Gun Kata', price: 2600, wave: 10, color: '#ff3d6e',
+    does: `Tap, with two guns in hand (akimbo): a head shot into every man within ${KATA.radius} m and in sight, all the way round, in about a second, from your magazines. ${KATA.cooldown} s to recharge.`,
+    lore: 'Statistical analysis of ten thousand firefights, written behind the eyes. Every angle is covered, which the Council regards as the whole of management. Requires two guns. The Council requires two signatures.',
+  },
 };
 
-export const CHIP_ORDER: readonly ChipId[] = ['sonar', 'thermal', 'focus'];
+export const CHIP_ORDER: readonly ChipId[] = ['sonar', 'thermal', 'focus', 'kata'];
 
 /** The second chip slot, for sale. The first is issued. */
 export const CHIP_SLOT = {
@@ -165,6 +171,8 @@ export class Chips {
   meter = 1;
   /** Seconds until the meter refills. */
   private rest = 0;
+  /** Seconds until Gun Kata works again. */
+  kataWait = 0;
   /** Seconds T has been held, and whether this hold has moved chips already. */
   private held = 0;
   private switched = false;
@@ -214,6 +222,8 @@ export class Chips {
     if (tap && cur === null) this.ctx.audio.play('ui_error');
     if (tap && cur === 'thermal') this.setThermal(!this.thermal);
     if (tap && cur === 'focus') this.setFocus(!this.focus);
+    if (tap && cur === 'kata') this.kata();
+    this.kataWait = Math.max(0, this.kataWait - time.playerDt);
     this.sonar.update(tap && cur === 'sonar');
     this.updateThermal();
     this.updateFocus(time.playerDt);
@@ -252,6 +262,28 @@ export class Chips {
       time.popScale('focus');
       this.rest = FOCUS.delay;
     }
+  }
+
+  /** Gun Kata: the guns do it (weapons/kata.ts). Only a burst that went spends the charge; else the reason, and nothing spent. */
+  kata(): void {
+    const { audio, hud, render } = this.ctx;
+    if (this.kataWait > 0 || !this.ctx.player.alive) {
+      audio.play('ui_error');
+      return;
+    }
+    const got = this.ctx.weapons.kata?.() ?? 'noAkimbo';
+    if (got !== 'go') {
+      audio.play('ui_error');
+      hud.callout?.(got === 'noAkimbo' ? 'NEEDS AKIMBO' : got === 'noTargets' ? 'NO TARGETS IN SIGHT' : 'NOT NOW');
+      return;
+    }
+    this.kataWait = KATA.cooldown;
+    // A red breath over the screen and the brain chip's name: the burst itself is the tracers.
+    render.post.flash(CHIPS.kata.color, 0.28, 0.5);
+    render.post.chromatic(0.5, 0.35);
+    audio.play('ui_toggle', { pitch: 0.7 });
+    hud.callout?.('GUN KATA');
+    this.ctx.events.emit('chip:kata', {});
   }
 
   /** The canvas filter and the grade while on, and on foot; bodies in range lit. A gunner's seat has its own view. */
@@ -317,6 +349,10 @@ export class Chips {
       b.lit = this.thermal;
       b.text = this.thermal ? 'ON' : 'OFF';
       b.fill = 0;
+    } else if (cur === 'kata') {
+      b.lit = this.kataWait <= 0 && this.ctx.weapons.akimbo === true;
+      b.text = this.kataWait > 0 ? String(Math.ceil(this.kataWait)) : this.ctx.weapons.akimbo ? '' : 'AKIMBO';
+      b.fill = this.kataWait > 0 ? 1 - this.kataWait / KATA.cooldown : 0;
     } else {
       b.lit = this.focus || this.meter >= FOCUS.start;
       b.text = this.ctx.coop ? 'CO-OP' : `${Math.floor(this.meter * 100)}`;
@@ -339,6 +375,7 @@ export class Chips {
     this.focus = false;
     this.meter = 1;
     this.rest = 0;
+    this.kataWait = 0;
     this.held = 0;
     this.switched = false;
     this.view(false);

@@ -35,6 +35,8 @@ export class GunStage {
   private angle = 0;
   private env: THREE.WebGLRenderTarget | null = null;
   private on = false;
+  /** Akimbo is in the set shown: a second gun lies under the first (`twin`). */
+  private twinOn = false;
 
   constructor(private readonly ctx: Ctx) {
     this.scene.background = backdropTexture();
@@ -66,6 +68,7 @@ export class GunStage {
   show(id: WeaponId, mods: ReadonlySet<ModId>): void {
     const def = this.defs()[id];
     if (!def) return;
+    this.twinOn = mods.has(`${id}Akimbo` as ModId);
     if (this.shown !== id) {
       this.turntable.clear();
       const c = this.clone(id, def);
@@ -80,9 +83,45 @@ export class GunStage {
   update(dt: number): void {
     if (!this.on) return;
     this.angle += dt * TURN;
+    this.twin();
     // Side on, muzzle to the right, then round.
     this.turntable.rotation.y = -Math.PI / 2 + this.angle;
     this.aspect();
+  }
+
+  /**
+   * Akimbo: a copy of the gun on the turntable beside it and lower, so side on it shows under the first and the turntable never
+   * hides one behind the other. Its parts show and sit as the gun's do, so it wears the same mods. It shares the model's geometry
+   * and materials.
+   */
+  private twin(): void {
+    const holder = this.shown ? this.clones.get(this.shown)?.root : undefined;
+    if (!holder) return;
+    const gun = holder.children[0]!;
+    let copy = holder.children[1];
+    if (!this.twinOn) {
+      if (copy) holder.remove(copy);
+      holder.position.y = 0;
+      return;
+    }
+    if (!copy) {
+      // By the gun's measured length: a box of the model counts its hidden parts (a speedloader, a spare magazine) too.
+      const size = this.clones.get(this.shown!)!.size;
+      copy = gun.clone();
+      copy.position.x += size * 0.2;
+      copy.position.y -= size * 0.24;
+      holder.add(copy);
+      holder.position.y = -size * 0.04;
+    }
+    const from: THREE.Object3D[] = [];
+    gun.traverse(o => { from.push(o); });
+    let i = 0;
+    copy.traverse(o => {
+      const src = from[i++];
+      if (!src || o === copy) return;
+      o.visible = src.visible;
+      o.position.copy(src.position);
+    });
   }
 
   private defs(): Record<string, ViewDef> {
