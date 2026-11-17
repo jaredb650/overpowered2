@@ -145,6 +145,49 @@ describe('dropping a gun', () => {
     expect(r.weapons.dropped.list).toHaveLength(0);
   });
 
+  it('drops an akimbo SMG and takes it back still akimbo, both magazines and every SMG mod with it', () => {
+    r.weapons.setLoadout(['smg', 'shotgun'], 0);
+    for (const m of ['smgAkimbo', 'smgMag', 'smgTape'] as const) {
+      r.weapons.grantMod(m);
+      r.weapons.fitMod(m, true);
+    }
+    r.run(1);
+    expect(r.weapons.akimbo).toBe(true);
+    const a = r.weapons.ammo('smg');
+    expect(a.magSize).toBe(100);
+    a.mag = 87;
+    r.tap('dropWeapon');
+    expect(r.weapons.owned.has('smg')).toBe(false);
+    expect(r.weapons.akimbo).toBe(false);
+    const [gun] = r.weapons.dropped.list;
+    expect(gun!.fitted).toEqual(expect.arrayContaining(['smgAkimbo', 'smgMag', 'smgTape']));
+    expect(gun!.mag).toBe(87);
+    r.run(1);
+    r.tap('interact');
+    r.run(0.5);
+    expect(r.weapons.current).toBe('smg');
+    expect(r.weapons.akimbo).toBe(true);
+    expect(r.weapons.ammo('smg')).toMatchObject({ mag: 87, magSize: 100 });
+    // Over the wire too: the host's check lets a hundred-round pair through, not the stock SMG's sixty.
+    expect(cleanKit({ ...gun, at: undefined })!.mag).toBe(87);
+    expect(cleanKit({ weapon: 'smg', mods: ['smgAkimbo', 'smgMag'], fitted: ['smgAkimbo', 'smgMag'], mag: 500, reserve: 0 })!.mag).toBe(100);
+  });
+
+  it('will not drop a gun in the middle of a Gun Kata', () => {
+    r.weapons.setLoadout(['smg', 'shotgun'], 0);
+    r.weapons.grantMod('smgAkimbo');
+    r.weapons.fitMod('smgAkimbo', true);
+    r.run(1);
+    r.enemies.add(0, -8);
+    r.enemies.add(8, 0);
+    r.enemies.add(0, 8);
+    expect(r.weapons.kata()).toBe('go');
+    expect(r.weapons.dropHeld()).toBeNull();
+    expect(r.weapons.owned.has('smg')).toBe(true);
+    r.run(1);
+    expect(r.weapons.dropHeld()).not.toBeNull();
+  });
+
   it('rejects a kit with another gun\'s mods or impossible rounds', () => {
     expect(cleanKit({ weapon: 'deuce', mods: ['smgMag', 'deuceQuad'], fitted: ['smgMag', 'deuceQuad'], mag: 99, reserve: 1e9 }))
       .toMatchObject({ mods: ['deuceQuad'], fitted: ['deuceQuad'], mag: 4 });

@@ -573,10 +573,10 @@ export class Weapons implements WeaponSystem, Guard {
     return kit;
   }
 
-  /** The drop key's part: the gun in hand, unless the hands are busy with it (a reload, a draw, a swing, a grenade). */
+  /** The drop key's part: the gun in hand, unless the hands are busy with it (a reload, a draw, a swing, a grenade, a Gun Kata). */
   dropHeld(): GunKit | null {
     const busy = this.reloading || this.drawLeft > 0 || this.holstered || this.occupied > 0 || this.cooking || this.glUp || this.pendingSwitch !== null
-      || this.sword.committed || this.sword.inQuickStrike || this.quickReturn > 0 || this.salvoLeft > 0;
+      || this.sword.committed || this.sword.inQuickStrike || this.quickReturn > 0 || this.salvoLeft > 0 || this.kataQueue.length > 0;
     return busy ? null : this.part(this.current);
   }
 

@@ -68,6 +68,16 @@ describe('akimbo on paper', () => {
     expect(moddedDef('rivet', new Set<ModId>(['rivetMag', 'rivetAkimbo'])).magSize).toBe(44);
   });
 
+  it('keeps the SMG\'s mag tape: 30% off the doubled reload, on the long magazine too', () => {
+    const two = moddedDef('smg', new Set<ModId>(['smgAkimbo']));
+    const taped = moddedDef('smg', new Set<ModId>(['smgAkimbo', 'smgTape']));
+    expect(taped.reloadTime).toBeCloseTo(two.reloadTime * 0.7);
+    expect(taped.reloadTime).toBeCloseTo(WEAPONS.smg.reloadTime * 2 * 0.7);
+    const long = moddedDef('smg', new Set<ModId>(['smgAkimbo', 'smgMag', 'smgTape']));
+    expect(long.magSize).toBe(100);
+    expect(long.reloadTime).toBeCloseTo(moddedDef('smg', new Set<ModId>(['smgMag'])).reloadTime * 2 * 0.7);
+  });
+
   it('takes the optic slot: the Ultramag\'s reflex sight and akimbo take each other off', () => {
     draw('ultramag', false);
     for (const id of ['ultramagDot', 'ultramagAkimbo', 'ultramagLam', 'ultramagCan'] as ModId[]) r.weapons.grantMod(id);
@@ -123,6 +133,15 @@ describe('akimbo in the hand', () => {
     r.run(WEAPONS.smg.reloadTime * 0.6);
     expect(r.weapons.reloading).toBe(false);
     expect(a.mag).toBe(60);
+  });
+
+  it('reloads the taped pair in the taped time', () => {
+    draw('smg');
+    r.weapons.grantMod('smgTape');
+    r.weapons.fitMod('smgTape', true);
+    r.weapons.ammo('smg').mag = 5;
+    r.tap('reload');
+    expect(reloadSeconds.at(-1)).toBeCloseTo(WEAPONS.smg.reloadTime * 2 * 0.7);
   });
 
   it('aims as a zoom only: the view narrows and the guns stay at the hip, held or toggled', () => {

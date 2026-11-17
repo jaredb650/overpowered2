@@ -5,7 +5,7 @@
  */
 import type { ModId, WeaponId } from '../core/gameplay';
 import { WEAPONS } from './data';
-import { MODS } from './mods';
+import { MODS, moddedDef } from './mods';
 
 export interface GunKit {
   weapon: WeaponId;
@@ -38,8 +38,10 @@ export function cleanKit(raw: unknown): GunKit | null {
   if (!def || !Array.isArray(r.mods) || !Array.isArray(r.fitted)) return null;
   const mods = [...new Set(r.mods)].filter((m): m is ModId => typeof m === 'string' && Object.hasOwn(MODS, m) && MODS[m as ModId].weapon === weapon);
   const fitted = [...new Set(r.fitted)].filter((m): m is ModId => mods.includes(m as ModId));
-  // A mag mod can hold more than the stock magazine: twice the stock size is the most any is let through.
-  return { weapon, mods, fitted, mag: count(r.mag, Math.max(1, def.magSize) * 2), reserve: count(r.reserve, def.maxReserve) };
+  // A mag mod or akimbo holds more than the stock magazine: as much as the gun holds with the mods fitted (an akimbo SMG on the long
+  // magazine, 100), and never less than twice the stock size.
+  const most = Math.max(1, def.magSize * 2, moddedDef(weapon, new Set(fitted)).magSize);
+  return { weapon, mods, fitted, mag: count(r.mag, most), reserve: count(r.reserve, def.maxReserve) };
 }
 
 /** A dropped gun off the wire, or null. */
