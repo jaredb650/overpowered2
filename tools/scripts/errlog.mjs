@@ -6,6 +6,10 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pathToFileURL } from 'node:url';
 
+export const catalogTags = source => Object.fromEntries(
+  [...source.matchAll(/^  ([A-Z][A-Z0-9_]+): \[[^\n]*,\s*['"]([^'"]+)['"]\]/gm)].map(m => [m[1], m[2]]),
+);
+
 export async function main(args = process.argv.slice(2)) {
   const root = fileURLToPath(new URL('../../', import.meta.url));
   const source = await readFile(resolve(root, 'src/net/turn.ts'), 'utf8');
@@ -25,7 +29,7 @@ export async function main(args = process.argv.slice(2)) {
   if (args.includes('--raw')) { console.log(JSON.stringify(events, null, 2)); return; }
   // Use the same catalog the game ships, without requiring a TS runtime.
   const catalog = await readFile(resolve(root, 'src/core/errors.ts'), 'utf8');
-  const tags = Object.fromEntries([...catalog.matchAll(/^  ([A-Z_]+): \['.*', '([^']+)'\]/gm)].map(m => [m[1], m[2]]));
+  const tags = catalogTags(catalog);
   const groups = Map.groupBy(events, e => e.code);
   console.log(`${events.length} reports since ${endpoint.searchParams.get('since')}${events.length === limit ? ' (limit reached; narrow --since)' : ''}`);
   for (const [code, rows] of [...groups].sort((a, b) => b[1].length - a[1].length)) {
