@@ -1,7 +1,7 @@
 /**
  * The Crucible's shop (docs/proposals/weapons-update.md, section 10): every number and every line of its copy. No three.js, so
- * the tests and the menu read it as the runtime does. The pay is Outpost Defense's (defense/data.ts): the same kill and wave
- * rates, the same rule on whose kills pay.
+ * the tests and the menu read it as the runtime does. The Crucible pays Outpost Defense's kill and wave rates (defense/data.ts);
+ * Endless Humans pays its own (`ENDLESS_PAY`). Both keep Outpost Defense's rule on whose kills pay.
  *
  * In every endless survival game but Outpost Defense (`SHOP_CONTRACTS`) the weapon caches stop: the guns they brought are sold here
  * instead, each from a wave on, roughly where its cache used to land (progression's CACHE_ORDER, one every second wave), and the
@@ -13,6 +13,7 @@ import type { ModId, WeaponId } from '../../core/gameplay';
 import type { ContractId } from '../data';
 import { FINAL_WAVE } from '../../enemies/commander/adaptations';
 import { ACTIVE } from '../select';
+import { killPay, wavePay } from '../defense/data';
 import { survivalLoadout } from '../loadouts';
 import { MOVE } from '../../player/tuning';
 
@@ -41,6 +42,19 @@ export const SUPPLY_BREAK = 25;
 
 /** A boss's kill on top of the ordinary pay: a Juggernaut or a Titan is a wave's work. */
 export const BOSS_PAY = 300;
+
+/**
+ * Endless Humans' pay. Ten waves of men who shoot back, against the Crucible's thirty-odd bodies a wave, and every lock lands by
+ * the ninth break, so a man pays double and a cleared wave pays `wave` times its number: poor for the first breaks, a gun of
+ * choice by the fifth, the Lance within reach by the ninth (economy.test.ts walks the curve for a decent and a weak player).
+ */
+export const ENDLESS_PAY = { kill: 20, headshot: 10, wave: 160 } as const;
+
+/** Credits for one kill in `contract`. */
+export const killPayIn = (contract: ContractId, headshot: boolean): number =>
+  contract === 'outpost' ? ENDLESS_PAY.kill + (headshot ? ENDLESS_PAY.headshot : 0) : killPay(headshot);
+/** Credits for clearing `wave` in `contract`. */
+export const wavePayIn = (contract: ContractId, wave: number): number => (contract === 'outpost' ? ENDLESS_PAY.wave * wave : wavePay(wave));
 
 /**
  * The wave a ware's catalogue lock lands on in `contract`. The Crucible is endless and keeps the catalogue's locks. Endless Humans

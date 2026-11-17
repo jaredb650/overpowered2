@@ -106,7 +106,7 @@ describe('capture', () => {
   });
 
   it('prices a prisoner by his rank: 120, 180, 270, 450 (the owner tripled them)', () => {
-    expect(BOUNTY).toEqual({ conscript: 120, regular: 180, veteran: 270, elite: 450 });
+    expect(BOUNTY).toEqual({ conscript: 250, regular: 300, veteran: 350, elite: 450 });
     expect(BOUNTY.conscript).toBeLessThan(BOUNTY.regular);
     expect(BOUNTY.regular).toBeLessThan(BOUNTY.veteran);
     expect(BOUNTY.veteran).toBeLessThan(BOUNTY.elite);

@@ -341,11 +341,13 @@ When the break ends the pod is gone, reached or not, so there is no shop in a wa
 (its countdown to 3 s), as in Outpost Defense. The HUD shows the credits under the wave plate and, in a break, `Shop: the supply pod, E
 at it · L: START NOW`. There is no pod in the 3 s before wave 1, when nothing has been earned.
 
-**Credits.** 10 a kill, 15 a headshot (Outpost Defense's), a boss 300 more; an ally's or a gift's kill pays nothing. A wave cleared pays
-125 + 25 x wave. Everything killed in waves 1 and 2 (24 and 28 men, a fifth to the head) is about 900: the Judge (600) or the Harrow
+**Credits.** In the Crucible, 10 a kill, 15 a headshot (Outpost Defense's), a boss 300 more; an ally's or a gift's kill pays nothing. A
+wave cleared pays 125 + 25 x wave. Endless Humans pays its own rate (`ENDLESS_PAY` in `shop/data.ts`): 20 a kill, 30 a headshot, 160 x
+wave for a wave cleared, so a run that ends at wave 10 goes from a field dressing after wave 1 to a gun of choice by the fifth break
+and the Lance within reach by the ninth (`shop/economy.test.ts` walks a decent and a weak player through it). Everything killed in waves 1 and 2 (24 and 28 men, a fifth to the head) is about 900: the Judge (600) or the Harrow
 (700, in the Crucible) in the break before wave 3, not the autocannon (`shop.test.ts`). The Rivet is now issued. A new run starts at 0. `ctx.contracts.wallet` is
-the page's purse, Outpost Defense's or this one, and a prisoner's bounty goes into it (`enemies/outpost/airlift.ts`, 120 to 450 by
-rank): in Endless Humans that is a capture paying 12 to 45 kills' worth. The swarm never surrenders, so in the Crucible's own game it
+the page's purse, Outpost Defense's or this one, and a prisoner's bounty goes into it (`enemies/outpost/airlift.ts`, 250 to 450 by
+rank, about 300): in Endless Humans that is a capture paying ten kills' worth or more. The swarm never surrenders, so in the Crucible's own game it
 only pays where the Crucible's rules are played with prisoners. Outpost Defense keeps its own shops and is not on the list.
 
 | Weapon | Price | After wave | | Mod (its gun) | Price | After wave |

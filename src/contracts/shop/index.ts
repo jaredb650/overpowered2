@@ -1,14 +1,14 @@
 /**
  * The Crucible's shop at run time (docs/proposals/weapons-update.md, section 10): the credits, the break's length, and buying.
- * `ctx.contracts.shop` on a page where it is on (`SHOP_ON`), null elsewhere. The rules are rules.ts and the prices data.ts; the pay
- * is Outpost Defense's (defense/data.ts). The only way in is the supply pod each break brings (progression/pickups/pods.ts): E at it
+ * `ctx.contracts.shop` on a page where it is on (`SHOP_ON`), null elsewhere. The rules are rules.ts, the prices and the pay data.ts. The only way in is the supply pod each break brings (progression/pickups/pods.ts): E at it
  * emits `shop:open`, and the menu (ui/screens/procurement.ts) goes up over the paused run as Outpost Defense's shops do.
  */
 import type { Ctx } from '../../core/contracts';
 import { DEV_TOOLS } from '../../core/devflags';
 import type { ModId, WeaponSystem } from '../../core/gameplay';
-import { killPay, paysFor, wavePay } from '../defense/data';
-import { BOSS_PAY, SHOP_ON, SUPPLY_ARMOR, SUPPLY_BREAK, type SupplyId } from './data';
+import { paysFor } from '../defense/data';
+import { ACTIVE } from '../select';
+import { BOSS_PAY, killPayIn, SHOP_ON, SUPPLY_ARMOR, SUPPLY_BREAK, wavePayIn, type SupplyId } from './data';
 import { MOVE } from '../../player/tuning';
 import type { Loadout } from '../../progression/implants';
 import { ChipRack } from '../chips';
@@ -53,10 +53,10 @@ export class CrucibleShop {
   init(): void {
     const { events } = this.ctx;
     events.on('enemy:killed', e => {
-      if (paysFor(e.damage.source) && !this.ctx.coop?.world?.notMine(e.enemy)) this.earn(killPay(e.headshot) + (e.enemy.isBoss ? BOSS_PAY : 0));
+      if (paysFor(e.damage.source) && !this.ctx.coop?.world?.notMine(e.enemy)) this.earn(killPayIn(ACTIVE.def.id, e.headshot) + (e.enemy.isBoss ? BOSS_PAY : 0));
     });
     events.on('wave:clear', e => {
-      const pay = wavePay(e.wave);
+      const pay = wavePayIn(ACTIVE.def.id, e.wave);
       this.earn(pay);
       this.stretch = true;
       this.ctx.hud.feed(`+${pay} CREDITS: WAVE ${e.wave} CLEARED`, FEED);
