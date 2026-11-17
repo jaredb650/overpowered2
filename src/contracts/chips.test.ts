@@ -261,6 +261,7 @@ describe('the shop', () => {
       waves: { wave: 10, phase: 'intermission' },
       weapons: { owned: new Set(), mods: new Set(), fitted: new Set() },
       progression: { loadout: new Loadout() },
+      player: { health: 100, maxHealth: 100, armor: 0 },
     } as unknown as Ctx;
     const shop = new CrucibleShop(ctx, rack);
     shop.credits = 100;
