@@ -1,6 +1,7 @@
 import type { DamageInfo } from '../core/contracts';
 import type { EnemyId, WavePhase } from '../core/gameplay';
 import type { GoreRegion } from '../characters/rig';
+import type { WireGun } from '../weapons/handover';
 
 export const ENEMY_IDS: readonly EnemyId[] = ['husk', 'trooper', 'gunner', 'brute', 'stalker', 'riot', 'sniper', 'rocketeer', 'leaper', 'bomber', 'burner', 'warden', 'skitter', 'drone', 'juggernaut', 'titan'];
 export const REGIONS: readonly GoreRegion[] = ['head', 'chest', 'abdomen', 'armL', 'forearmL', 'armR', 'forearmR', 'legL', 'shinL', 'legR', 'shinR'];
@@ -69,6 +70,11 @@ export type WorldEvent =
   // --- Stage 4: Endless Humans and Outpost Defense ---
   /** Guest to host: I held E on this surrendered man. The host cuffs him for me; the bounty comes back as `credit`. */
   | { t: 'capture'; uid: number }
+  /**
+   * A gun on the ground (weapons/dropped.ts). Guest to host: `drop` (my gun, as a kit) or `take` (that one, by id). Host to all:
+   * `add` and `gone`; to the one who took it first: `give`.
+   */
+  | { t: 'gun'; op: 'drop' | 'take' | 'add' | 'gone' | 'give'; id?: number; gun?: WireGun }
   /** Host to one guest: credits earned on the host's side for them (a prisoner's bounty). */
   | { t: 'credit'; amount: number; why: string }
   /** Host: the trucks, humvees and tanks, 5 Hz. Drawn on guests; hurt only on the host. */

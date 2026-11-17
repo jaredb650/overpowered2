@@ -412,5 +412,5 @@ export const MOD_WARES = modWares(ACTIVE.def.id);
 export const SHOP_COPY = {
   title: 'Procurement',
   form: 'Form 7742-P',
-  terms: 'Purchases are final. So, statistically, is the purchaser.',
+  terms: 'Purchases are no longer final. The Council buys back at half price, which is more than it offers for the purchaser.',
 } as const;

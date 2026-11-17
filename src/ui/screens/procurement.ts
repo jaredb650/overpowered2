@@ -6,8 +6,8 @@
  * loadout with the implant in focus put on him, and the slots and the standard-issue core are listed over the rows. The brain
  * chips for key T (contracts/chips.ts) are sold under the implants on the same page: they are hardware in the head too.
  *
- * Keys: up and down pick a row, left and right turn the page, Enter or a click buys (or fits and takes off a mod bought), Esc,
- * E or Close goes back to the fight.
+ * Keys: up and down pick a row, left and right turn the page, Enter or a click buys (or fits and takes off a mod bought), X or
+ * Delete sells a gun owned back (twice: the first asks), Esc, E or Close goes back to the fight.
  */
 import type { Ctx } from '../../core/contracts';
 import type { ModId, WeaponId } from '../../core/gameplay';
@@ -15,7 +15,7 @@ import { ACTIVE } from '../../contracts/select';
 import { SHOP_COPY, SUPPLY_WARES, lockWave, type SupplyId } from '../../contracts/shop/data';
 import { issued, type ShopOffer } from '../../contracts/shop/rules';
 import { WEAPONS as DEFS, type WeaponDef } from '../../weapons/data';
-import { MODS, moddedDef } from '../../weapons/mods';
+import { MODS, MOD_ORDER, moddedDef } from '../../weapons/mods';
 import { EFFECTS, PICKUP_LOOK } from '../../progression/data';
 import { CLASS_NAMES, CLASS_REGION, CORE_COPY, IMPLANTS, SLOT_WARES, type ImplantId } from '../../progression/implants';
 import { CHIPS, CHIP_SLOTS } from '../../contracts/chips';
@@ -82,6 +82,10 @@ export class ProcurementScreen implements Screen {
   };
   private offers: ShopOffer[] = [];
   private focusAct: ShopOffer['act'] | null = null;
+  /** The row in focus, and the gun whose Sell has been pressed once and waits for the second press. */
+  private focused: ShopOffer | null = null;
+  private sellArmed: WeaponId | null = null;
+  private readonly sellBtn: HTMLButtonElement;
 
   constructor(private readonly ctx: Ctx, private readonly hud: Hud) {
     this.stage = new GunStage(ctx);
@@ -110,6 +114,9 @@ export class ProcurementScreen implements Screen {
     const stats = div('pc-stats');
     const buy = div('pc-buy', price, state);
     this.card = { name: new Label(name), role: new Label(role), lore: new Label(lore), price: new Label(price), state: new Label(state), stats, buy };
+    this.sellBtn = h('button', 'pc-sell');
+    this.sellBtn.type = 'button';
+    this.sellBtn.addEventListener('click', () => this.sellFocused());
     this.el = div('scr scr-proc',
       div('pc-side',
         span('pc-form', SHOP_COPY.form),
@@ -123,7 +130,7 @@ export class ProcurementScreen implements Screen {
         span('pc-terms', SHOP_COPY.terms),
         this.close.el,
       ),
-      div('pc-card', name, role, stats, lore, buy),
+      div('pc-card', name, role, stats, lore, buy, this.sellBtn),
     );
     this.wallet = new Label(wallet);
     this.phase = new Label(phase);
@@ -132,6 +139,7 @@ export class ProcurementScreen implements Screen {
       if (this.hud.screens.name !== 'procurement' || e.repeat) return;
       // E opened it at the pod, so it shuts it too.
       if (e.code === 'KeyE') this.leave();
+      if (e.code === 'KeyX' || e.code === 'Delete') this.sellFocused();
     });
   }
 
@@ -360,6 +368,9 @@ export class ProcurementScreen implements Screen {
   /** The row in focus: its gun on the turntable, and its card. */
   private select(o: ShopOffer): void {
     this.focusAct = o.act;
+    this.focused = o;
+    if (o.act.kind !== 'weapon' || o.act.id !== this.sellArmed) this.sellArmed = null;
+    this.sellLine(o);
     this.studio(true);
     if (o.act.kind === 'supply') {
       this.selectSupply(o.act.id, o);
@@ -389,6 +400,50 @@ export class ProcurementScreen implements Screen {
     c.buy.classList.toggle('locked', o.locked);
     c.buy.classList.toggle('ready', o.why === null);
     c.buy.classList.toggle('poor', o.why?.startsWith('Need') === true);
+  }
+
+  /** The Sell button under a gun owned: what it pays, or why it cannot be sold. Hidden on any other row. */
+  private sellLine(o: ShopOffer): void {
+    const b = this.sellBtn;
+    const show = o.act.kind === 'weapon' && o.owned;
+    b.style.display = show ? '' : 'none';
+    if (!show) return;
+    const armed = this.sellArmed === o.act.id;
+    const pay = credits(o.refund ?? 0);
+    const held = (this.ctx.weapons as { mods?: ReadonlySet<ModId> }).mods;
+    const mods = MOD_ORDER.filter(m => MODS[m].weapon === o.act.id && held?.has(m)).length;
+    const with_ = mods ? ` with ${mods} mod${mods === 1 ? '' : 's'}` : '';
+    b.textContent = o.sell ? `Cannot sell. ${o.sell}` : armed ? `Confirm: sell${with_} for ${pay}` : `X: Sell back${with_} for ${pay}`;
+    b.disabled = !!o.sell;
+    b.classList.toggle('armed', armed);
+  }
+
+  /** X, Delete or the button: the first press asks, the second sells the gun in focus back. */
+  private sellFocused(): void {
+    const o = this.focused;
+    const shop = this.shop;
+    if (!shop || !o || o.act.kind !== 'weapon' || !o.owned) return;
+    const id = o.act.id;
+    const name = INFO[id].name;
+    if (o.sell) {
+      this.note.set(o.sell);
+      this.ctx.audio.play?.('ui_error');
+      return;
+    }
+    const pay = credits(o.refund ?? 0);
+    if (this.sellArmed !== id) {
+      this.sellArmed = id;
+      this.note.set(`Again to sell the ${name} for ${pay}.`);
+      this.ctx.audio.play?.('ui_click');
+      this.sellLine(o);
+      return;
+    }
+    this.sellArmed = null;
+    const why = shop.sell(id);
+    this.note.set(why ?? `Sold: ${name}, +${pay}`);
+    this.ctx.audio.play?.(why ? 'ui_error' : 'ui_confirm');
+    const keep = this.offers.findIndex(x => x.act === this.focusAct);
+    this.refresh(Math.max(0, keep));
   }
 
   /** The bars for `now`, with what it adds over `base` lit. */

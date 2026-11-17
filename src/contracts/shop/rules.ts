@@ -7,6 +7,7 @@ import { IMPLANTS, IMPLANT_ORDER, SLOT_WARES, type ImplantId } from '../../progr
 import { CHIPS, CHIP_ORDER, CHIP_SLOT, type ChipId } from '../chips';
 import { inPlay } from '../../weapons/families';
 import { MODS, MOD_ORDER } from '../../weapons/mods';
+import { keepsAGun } from '../../weapons/handover';
 import { ACTIVE } from '../select';
 import { MOD_WARES, SUPPLY_ORDER, SUPPLY_WARES, WEAPON_WARES, WEAPON_WARE_ORDER, lockWave, type SupplyId, type Ware } from './data';
 
@@ -58,6 +59,9 @@ export interface ShopOffer {
   replaces?: ImplantId | null;
   /** A chip: the one in the last slot, which fitting this takes out when every slot is full. */
   replacesChip?: ChipId | null;
+  /** A gun owned: what selling it back pays, and why it cannot be sold now, or null. */
+  refund?: number;
+  sell?: string | null;
 }
 
 const between = (v: ShopView): string | null => (v.inBreak ? null : 'Between waves only');
@@ -80,8 +84,27 @@ export function weaponOffers(v: ShopView, wares = WEAPON_WARES): ShopOffer[] {
     const owned = v.owned.has(id);
     const locked = lockOf(ware, v);
     const why = owned ? (issued(ware) ? 'Issued' : 'Owned') : locked ? lockLine(ware) : between(v) ?? afford(ware.price, v);
-    return { act: { kind: 'weapon', id }, ware, owned, fitted: false, locked, why };
+    const sale = owned ? { refund: refundFor(id, v, wares), sell: sellWhy(id, v, wares) } : {};
+    return { act: { kind: 'weapon', id }, ware, owned, fitted: false, locked, why, ...sale };
   });
+}
+
+/** A gun sold back pays this share of its price and of every mod held for it, which go with it. */
+export const SELL_RATE = 0.5;
+
+/** What selling `id` back pays now: half its price and half its mods', rounded down. An issued gun pays nothing. */
+export function refundFor(id: WeaponId, v: ShopView, wares = WEAPON_WARES): number {
+  let paid = wares[id]!.price;
+  for (const m of MOD_ORDER) if (MODS[m].weapon === id && v.mods.has(m)) paid += MOD_WARES[m].price;
+  return issued(wares[id]!) ? 0 : Math.floor(paid * SELL_RATE);
+}
+
+/** Why `id` cannot be sold back now, or null: it must be owned, bought (not issued), not the last gun, and in a break. */
+export function sellWhy(id: WeaponId, v: ShopView, wares = WEAPON_WARES): string | null {
+  if (!v.owned.has(id)) return 'Not yours';
+  if (issued(wares[id]!)) return 'Issued: not yours to sell';
+  if (!keepsAGun(v.owned, id)) return 'Your last gun';
+  return between(v);
 }
 
 /** A mod bought is fitted or taken off with the same row, free. Either needs the gun, and a break. */

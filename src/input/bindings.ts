@@ -26,6 +26,8 @@ export const DEFAULT_BINDINGS: Readonly<Bindings> = {
   melee: ['KeyF'],
   grenade: ['KeyG'],
   interact: ['KeyE'],
+  // Throws the gun in hand down for anyone to take. U: G is the grenade, and Y is kept free for old maps' stim key.
+  dropWeapon: ['KeyU'],
   weaponNext: [WHEEL_DOWN],
   weaponPrev: [WHEEL_UP],
   weaponLast: [],

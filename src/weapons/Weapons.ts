@@ -31,6 +31,8 @@ import { Melee } from './melee/Melee';
 import { LANCE_ON, Lance } from './lance';
 import { ROCKET_LASER } from './laser';
 import { SmartAim, type SmartHooks } from './smartaim';
+import { DroppedGuns } from './dropped';
+import { keepsAGun, type GunKit } from './handover';
 
 interface Slot {
   def: WeaponDef;
@@ -84,6 +86,8 @@ export class Weapons implements WeaponSystem, Guard {
   private readonly sword: Melee;
   /** Slot 7's gun: tap for a plasma ball, hold for a beam. `?lance=old` leaves it idle and `updateCharge` fires instead. */
   readonly lance: Lance;
+  /** Guns dropped on the ground for anyone to take (dropped.ts). */
+  readonly dropped: DroppedGuns;
   private lastWeapon: WeaponId = 'shotgun';
   /** The gun a sword kill feeds: whatever was in hand before the blade came out. */
   private lastGun: WeaponId = STARTING_LOADOUT[0]!;
@@ -247,6 +251,7 @@ export class Weapons implements WeaponSystem, Guard {
     });
     for (const id of STARTING_LOADOUT) this.own(id);
     this.issueMods();
+    this.dropped = new DroppedGuns(ctx, this);
   }
 
   /** The mods every run starts with held and fitted (mods.ts `ISSUED`). */
@@ -339,6 +344,7 @@ export class Weapons implements WeaponSystem, Guard {
     this.glSlot.ammo.reserve = LAUNCHER.reserve;
     ROCKET_LASER.sight = ROCKET_LASER.on = false;
     this.drawLeft = 0;
+    this.dropped.reset();
     this.ctx.viewmodel.equip?.(this.current, 0.01);
   }
 
@@ -524,6 +530,53 @@ export class Weapons implements WeaponSystem, Guard {
     this.ctx.viewmodel.equip?.(first, 0.01);
   }
 
+  /**
+   * Takes a gun out of the arsenal (sold back, or dropped) with every mod held for it, and returns it as a kit; null when it is
+   * the last gun. The gun in hand is put away for another first.
+   */
+  part(id: WeaponId): GunKit | null {
+    if (!keepsAGun(this.owned, id)) return null;
+    const a = this.slots[id].ammo;
+    const mods = MOD_ORDER.filter(m => MODS[m].weapon === id && this.mods.has(m));
+    const kit: GunKit = { weapon: id, mods, fitted: mods.filter(m => this.fitted.has(m)), mag: a.mag, reserve: a.reserve };
+    if (this.current === id) {
+      this.switchTo([this.lastGun, this.lastWeapon, ...this.owned].find(o => o !== id && this.owned.has(o) && WEAPONS[o].mode !== 'melee')!);
+    }
+    this.owned.delete(id);
+    for (const m of mods) {
+      this.fitMod(m, false);
+      this.mods.delete(m);
+    }
+    if (this.slotLast.get(WEAPONS[id].slot) === id) this.slotLast.delete(WEAPONS[id].slot);
+    if (this.lastWeapon === id) this.lastWeapon = this.current;
+    if (this.lastGun === id) this.lastGun = this.current;
+    this.selector.delete(id);
+    this.altLoaded.delete(id);
+    return kit;
+  }
+
+  /** The drop key's part: the gun in hand, unless the hands are busy with it (a reload, a draw, a swing, a grenade). */
+  dropHeld(): GunKit | null {
+    const busy = this.reloading || this.drawLeft > 0 || this.holstered || this.occupied > 0 || this.cooking || this.glUp || this.pendingSwitch !== null
+      || this.sword.committed || this.sword.inQuickStrike || this.quickReturn > 0 || this.salvoLeft > 0;
+    return busy ? null : this.part(this.current);
+  }
+
+  /** A kit taken: the gun with its mods and rounds, drawn. One already owned takes the mods, and the rounds into its reserve. */
+  receive(kit: GunKit): void {
+    const id = kit.weapon;
+    const fresh = this.own(id);
+    for (const m of kit.mods) this.grantMod(m);
+    for (const m of kit.fitted) this.fitMod(m, true);
+    const a = this.slots[id].ammo;
+    if (fresh) {
+      a.mag = Math.min(kit.mag, a.magSize);
+      a.reserve = Math.min(a.maxReserve, kit.reserve + kit.mag - a.mag);
+      this.ctx.events.emit('weapon:unlocked', { weapon: id });
+      this.switchTo(id);
+    } else a.reserve = Math.min(a.maxReserve, a.reserve + kit.mag + kit.reserve);
+  }
+
   private addReserve(s: Slot, fraction: number): void {
     s.ammo.reserve = Math.min(s.ammo.maxReserve, s.ammo.reserve + Math.ceil(s.ammo.maxReserve * fraction));
   }
@@ -612,6 +665,7 @@ export class Weapons implements WeaponSystem, Guard {
     // The bursts a Lance beam booked go off whatever is in hand now, dead or holstered included.
     this.lance.tick();
     this.frame();
+    this.dropped.update(this.ctx.time.realDt);
     const p = this.ctx.player;
     this.rigEye.copy(p.eye);
     this.rigYaw = p.yaw;

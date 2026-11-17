@@ -27,6 +27,7 @@ import type { GroundModel } from '../enemies/vehicles/models';
 import type { Vehicle } from '../enemies/vehicles/vehicle';
 import { ALLY_TYPES, type AllyType } from '../allies/data';
 import type { CharacterInstance } from '../core/contracts';
+import type { DroppedGuns } from '../weapons/dropped';
 
 const ALLY_KINDS = Object.keys(ALLY_TYPES) as AllyType[];
 /** Garrison tracers mirrored per second, at most. */
@@ -107,7 +108,7 @@ export class CoopWorld {
     this.sendAction = session.lobby.gameplay<WorldEvent>('action', (data, from) => this.receive(data, from));
     this.team = new Team(ctx, session, (event, to) => this.broadcast(event, to));
     // A mission's rides are everyone's: each guest's door gun counts through the host as a call-in.
-    this.team.onArrived = id => this.mission.catchUp(id);
+    this.team.onArrived = id => { this.mission.catchUp(id); this.guns?.catchUp(id); };
     this.mission = new CoopMission(ctx, session, (event, to) => this.broadcast(event, to), this.team,
       () => { for (const p of session.lobby.players) if (!p.host) this.validator.callIn(p.id, performance.now()); });
     this.off.push(ctx.events.on('weapon:fired', event => this.fire(event.weapon, event.origin, event.dir)));
@@ -229,6 +230,7 @@ export class CoopWorld {
   private handle(value: WorldEvent, from: string): void {
     const now = performance.now();
     if (this.team.receive(value, from)) return;
+    if (value.t === 'gun') return this.gunIn(value, from);
     if (value.t === 'boom') return this.boomIn(value, from);
     if (value.t === 'callin') {
       const player = this.session.hosting ? this.session.lobby.players.find(p => p.id === from) : this.session.lobby.players.find(p => p.slot === value.slot);
@@ -667,6 +669,22 @@ export class CoopWorld {
     for (const uid of this.selections.keys()) if (!alive.has(uid)) { this.selections.delete(uid); this.sight.delete(uid); this.routes.delete(uid); }
     for (const uid of this.lastHitter.keys()) if (!alive.has(uid)) this.lastHitter.delete(uid);
   }
+  private get guns(): DroppedGuns | undefined {
+    return (this.ctx.weapons as unknown as { dropped?: DroppedGuns }).dropped;
+  }
+
+  /** A dropped gun's news (weapons/dropped.ts): a guest's drop or take goes to the host, the host's word to everyone. */
+  sendGun(event: Extract<WorldEvent, { t: 'gun' }>, to?: string): void {
+    this.broadcast(event, to);
+  }
+
+  private gunIn(value: Extract<WorldEvent, { t: 'gun' }>, from: string): void {
+    // The lobby lets a guest hear only the host (lobby.ts `gameplay`).
+    if (!this.session.hosting) return this.guns?.guestIn(value);
+    const remote = this.session.remotes.get(from);
+    if (remote) this.guns?.hostIn(value, from, remote.char.root.position, remote.player.name);
+  }
+
   /** Host: a guest held E on a surrendered man beside them. He is cuffed as if by the host, and the bounty is theirs. */
   private captureFor(from: string, at: THREE.Vector3, uid: unknown): void {
     const enemy = this.ctx.enemies.alive.find(e => e.uid === uid) as Enemy | undefined;

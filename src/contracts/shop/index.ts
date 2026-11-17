@@ -5,7 +5,7 @@
  */
 import type { Ctx } from '../../core/contracts';
 import { DEV_TOOLS } from '../../core/devflags';
-import type { ModId, WeaponSystem } from '../../core/gameplay';
+import type { ModId, WeaponId, WeaponSystem } from '../../core/gameplay';
 import { paysFor } from '../defense/data';
 import { ACTIVE } from '../select';
 import { BOSS_PAY, killPayIn, SHOP_ON, SUPPLY_ARMOR, SUPPLY_BREAK, wavePayIn, type SupplyId } from './data';
@@ -36,6 +36,7 @@ type ModWeapons = WeaponSystem & {
   readonly fitted: ReadonlySet<ModId>;
   grantMod(id: ModId): void;
   fitMod(id: ModId, on: boolean): boolean;
+  part(id: WeaponId): unknown;
 };
 
 const FEED = '#ffc14a';
@@ -180,6 +181,16 @@ export class CrucibleShop {
       w.fitMod(act.id, true);
     }
     this.credits -= offer.ware.price;
+    return null;
+  }
+
+  /** Sells a gun back (rules.ts `refundFor`), with every mod held for it. Returns why not, or null once it is done. */
+  sell(id: WeaponId): string | null {
+    const offer = weaponOffers(this.view()).find(o => o.act.id === id);
+    if (!offer?.owned) return 'Not yours';
+    if (offer.sell) return offer.sell;
+    if (!this.weapons.part(id)) return 'Your last gun';
+    this.credits += offer.refund ?? 0;
     return null;
   }
 
