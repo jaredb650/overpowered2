@@ -1,3 +1,11 @@
+import { classifyError } from './core/errors';
+import { report, reporter, startReporting } from './core/report';
+import { installGlobalCapture } from './core/capture';
+import { showFatalError } from './ui/errorReport';
+
+startReporting();
+installGlobalCapture(showFatalError);
+const bootStarted = performance.now();
 /**
  * Entry point.
  *   /                 -> the game
@@ -19,24 +27,12 @@ async function boot(): Promise<void> {
   await startGame(params);
 }
 
-boot().catch(async err => {
+boot().then(() => report('BOOT_OK', { durationMs: performance.now() - bootStarted })).catch(async err => {
   console.error(err);
   // A co-op match's handoff was read on the way in: put it back so Reload rejoins the match. Loaded already, so no fetch.
   await import('./net/session').then(s => s.restoreHandoff()).catch(() => {});
-  // AssetError.network: retries ran out. A lazy chunk that would not download is the same hiccup.
-  const network = err?.network === true || /Failed to fetch|dynamically imported module|NetworkError|Load failed/i.test(String(err?.message));
-  const el = document.createElement('div');
-  el.style.cssText = 'position:fixed;inset:0;padding:24px;background:#120000;color:#ff6a5a;font:14px monospace;white-space:pre-wrap;z-index:9999;overflow:auto';
-  const head = document.createElement('div');
-  head.style.cssText = 'font-size:22px;margin-bottom:16px';
-  head.textContent = network ? 'Network hiccup while loading.' : 'Boot failed';
-  const reload = document.createElement('button');
-  reload.textContent = 'Reload';
-  reload.style.cssText = 'font:18px monospace;padding:8px 24px;margin-bottom:24px;cursor:pointer';
-  reload.onclick = () => location.reload();
-  const detail = document.createElement('div');
-  detail.style.cssText = 'opacity:0.7';
-  detail.textContent = network ? String(err?.message ?? err) : String(err?.stack ?? err);
-  el.append(head, reload, detail);
-  document.body.appendChild(el);
+  const code = classifyError(err);
+  report(code, { error: err, stage: 'boot' });
+  reporter.flush();
+  showFatalError(code, err);
 });

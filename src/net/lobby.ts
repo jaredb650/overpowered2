@@ -1,3 +1,6 @@
+import { report, reporter } from '../core/report';
+import { coopErrorCode } from '../core/errors';
+import { turnConfigured } from './turn';
 /**
  * The co-op lobby: who is in, who is ready, and a chat line. The host's browser owns the list and sends it to each guest;
  * a guest only ever asks the host. Everything a peer sends is checked here, since it arrives from someone else's browser.
@@ -143,6 +146,8 @@ export class Lobby {
 
   /** `starter` is this player's own pick, which the match handoff uses even if the host's list has not caught up. */
   constructor(private readonly rooms: LobbyRooms, readonly hosting: boolean, private name: string, private readonly build = BUILD, private readonly deployed = false, public starter?: StarterGun) {
+    reporter.context({ role: hosting ? 'host' : 'guest' });
+    report('COOP_STAGE', { stage: hosting ? 'hosting' : 'relays' });
     const room = (this.room = rooms.main);
     this.ch = room.channel<Msg>('lobby');
     this.poses = room.channel<ArrayBuffer>('pose');
@@ -174,7 +179,10 @@ export class Lobby {
       this.relayWait = setTimeout(() => this.stage === 'relays' && this.close('relays'), RELAY_WAIT_MS);
       this.knock = setTimeout(() => this.openDoor(), DOOR_AFTER_MS);
     }
-    room.onPeerJoin(id => (this.phase === 'connecting' && this.unheard.add(id), this.ch.send({ t: 'hello', v: build, name: this.name, host: hosting, deployed, starter: this.starter, born: this.born }, id)));
+    room.onPeerJoin(id => {
+      if (this.phase === 'connecting') { this.unheard.add(id); report('COOP_STAGE', { stage: 'version' }); }
+      this.ch.send({ t: 'hello', v: build, name: this.name, host: hosting, deployed, starter: this.starter, born: this.born }, id);
+    });
     room.onPeerLeave(id => this.peerLeft(id));
     room.onError((error, peerId) => this.netError(error, peerId));
     this.ch.on((msg, from) => {
@@ -188,6 +196,7 @@ export class Lobby {
   heartbeat(now = performance.now()): void {
     if (this.phase === 'connecting' && this.stage !== this.lastStage) {
       this.lastStage = this.stage;
+      report('COOP_STAGE', { stage: this.lastStage });
       this.onChange();
     }
     // Also called every game frame, which a hidden tab's worker keeps ticking when its timers are throttled.
@@ -420,12 +429,17 @@ export class Lobby {
       if (this.players.some(p => p.id === from)) return;
       const name = clean(msg.name, NAME_MAX) || 'PLAYER';
       // The guest sees the mismatch on its own side and stops; the host only notes it.
-      if (!sameBuild) return this.post(null, `${name} could not join: different game version. They need to reload.`);
+      if (!sameBuild) {
+        report('COOP_VERSION_MISMATCH', { stage: 'host-version' });
+        return this.post(null, `${name} could not join: different game version. They need to reload.`);
+      }
       if (this.players.length >= MAX_PLAYERS) {
+        report('COOP_FULL', { stage: 'host-admission' });
         this.ch.send({ t: 'full' }, from);
         return this.post(null, `${name} could not join: the lobby is full.`);
       }
       const slot = [1, 2, 3].find(s => !this.players.some(p => p.slot === s))!;
+      report('COOP_CONNECTED', { stage: 'guest-joined' });
       this.players.push({ id: from, name, ready: false, host: false, slot, starter: isStarter(msg.starter) ? msg.starter : undefined });
       this.heard.set(from, performance.now());
       // A guest back from the page handoff is not news; one arriving mid-match is.
@@ -443,6 +457,7 @@ export class Lobby {
     }
     this.hostId = from;
     this.phase = 'open';
+    report('COOP_CONNECTED', { stage: 'joined' });
     this.clearWait();
     this.shutDoor();
     this.onChange();
@@ -520,6 +535,7 @@ export class Lobby {
     }
     const player = this.players.find(p => p.id === id);
     if (!player) return;
+    report('COOP_PEER_LEFT', { reason: 'peer-left-or-timeout' });
     this.heard.delete(id);
     this.players = this.players.filter(p => p !== player);
     this.post(null, `${player.name} left.`);
@@ -551,6 +567,7 @@ export class Lobby {
   }
 
   private netError(error: NetError, peerId?: string): void {
+    if (this.hosting) report(coopErrorCode(error, !!this.room.status?.().ice?.ours.publicIps.some(ip => this.room.status?.().ice?.theirs.publicIps.includes(ip)), turnConfigured()), { stage: 'host-peer-failure', reason: error, ice: this.reportIce() });
     if (this.hosting) {
       if (error === 'password' && peerId) {
         this.failed.add(peerId);
@@ -590,8 +607,19 @@ export class Lobby {
     this.wait = this.relayWait = null;
   }
 
+  /** Counts only: addresses and peer ids never enter the reporter. */
+  private reportIce(): string {
+    const ice = this.room.status?.().ice;
+    if (!ice) return 'unknown';
+    return (['ours', 'theirs'] as const).map(side => `${side}:host=${ice[side].host},mdns=${ice[side].mdns},srflx=${ice[side].srflx},relay=${ice[side].relay}`).join(';');
+  }
+
   private close(error: LobbyError | null): void {
     if (this.phase === 'closed') return;
+    const stage = this.stage;
+    const ice = this.room.status?.().ice;
+    const sameLan = !!ice?.ours.publicIps.some(ip => ice.theirs.publicIps.includes(ip));
+    report(error ? coopErrorCode(error, sameLan, turnConfigured()) : 'COOP_DISCONNECTED', { stage, reason: error ?? 'left', ice: this.reportIce() });
     this.phase = 'closed';
     this.error = error;
     // Read before leaving: the candidates of the connection that failed say why (ice.ts).

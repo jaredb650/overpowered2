@@ -1,3 +1,5 @@
+import { reportSolo } from './report';
+import { createFrameGuard } from './capture';
 /**
  * Composition root and main loop.
  *
@@ -55,6 +57,7 @@ export class Game {
   private fps = 0;
   private deferredCoopInit: GameSystem[] = [];
   private cpuMs = 0;
+  private guard = createFrameGuard();
 
   constructor(ctx: Ctx) {
     this.ctx = ctx;
@@ -126,6 +129,7 @@ export class Game {
   /** Starts a fresh run. */
   newRun(): void {
     const c = this.ctx;
+    if (!c.coop) reportSolo();
     // A solo run after leaving co-op gets the normal systems, initialized once against the already-built map.
     if (!c.coop && this.deferredCoopInit.length) {
       for (const sys of this.deferredCoopInit) sys.init?.(c);
@@ -146,23 +150,23 @@ export class Game {
         // Menus release local controls while the room, bodies, world and physics keep ticking.
         if (this.state === 'paused' && c.coop
           && (sys === c.player || sys === c.weapons || sys === c.viewmodel || (!c.coop.world && (sys === c.combat || sys === c.progression)))) continue;
-        if (sys === c.gore) c.physics.step(c.time.dt);
-        sys.update?.();
+        if (sys === c.gore) this.guard('physics', () => c.physics.step(c.time.dt));
+        this.guard(`system-${this.ordered.indexOf(sys)}-${sys.constructor.name}`, () => sys.update?.());
       }
     } else {
-      c.camera.update?.();
-      c.fx.update?.();
-      c.audio.update?.();
-      c.hud.update?.();
+      this.guard('camera', () => c.camera.update?.());
+      this.guard('fx', () => c.fx.update?.());
+      this.guard('audio', () => c.audio.update?.());
+      this.guard('hud', () => c.hud.update?.());
     }
-    c.coop?.update();
+    this.guard('coop', () => c.coop?.update());
     // Behind a screen nothing moves but a slow dolly, so a laptop sitting on the menu should not pay for full rate.
     // A screen with a moving picture of its own (the Crucible shop's turning gun) gets the menu's rate.
     const moving = (c.render as { backdrop?: { still: boolean } | null }).backdrop?.still === false;
     // A hidden co-op tab is ticked by a worker (run) and draws nothing: there is nobody to see it.
     const hidden = typeof document !== 'undefined' && document.hidden;
-    if (!hidden && (this.state === 'playing' || c.coop || c.time.frame % (this.state === 'menu' || moving ? 2 : 4) === 0)) c.render.render();
-    c.input.endFrame?.();
+    if (!hidden && (this.state === 'playing' || c.coop || c.time.frame % (this.state === 'menu' || moving ? 2 : 4) === 0)) this.guard('render', () => c.render.render());
+    this.guard('input', () => c.input.endFrame?.());
   }
 
   run(): void {
@@ -171,11 +175,11 @@ export class Game {
     let frames = 0;
     const step = (now: number) => {
       // Co-op: the host keeps only the slow-mo everyone shares, a guest none (net/world.ts clock()).
-      this.ctx.coop?.world?.clock();
+      this.guard('coop-clock', () => this.ctx.coop?.world?.clock());
       this.ctx.time.tick((now - last) / 1000);
       last = now;
       const t0 = performance.now();
-      this.frame();
+      this.guard('frame', () => this.frame());
       this.cpuMs = performance.now() - t0;
       frames++;
       if (now - windowStart >= 500) {

@@ -1,3 +1,6 @@
+import { errorPanel } from '../errorReport';
+import { coopErrorCode, type ErrorCode } from '../../core/errors';
+import { report, reportLobby, reportSolo } from '../../core/report';
 /**
  * Play > Multiplayer: host or join a co-op lobby (src/net/). The main menu's look: the crumb, the list on the left, a
  * notice on the right. Four pages: start, host (pick a password), join (code and password), and the lobby itself.
@@ -90,6 +93,7 @@ export class CoopScreen implements Screen {
   private noteEl = div('co-note co-back');
   /** The last thing that went wrong, shown on the page it sends the player back to. */
   private message = '';
+  private reportCode: ErrorCode | null = null;
   private invite = INVITE;
 
   private password = textInput(40, 'password');
@@ -186,6 +190,7 @@ export class CoopScreen implements Screen {
   private go(page: Page, message = ''): void {
     this.page = page;
     this.message = message;
+    if (!message) this.reportCode = null;
     if (page === 'host' || page === 'join') this.password.value = '';
     const back = (label: string, to: () => void) => {
       const item = menuButton(label, to);
@@ -222,7 +227,7 @@ export class CoopScreen implements Screen {
 
   private paint(): void {
     const message = this.message || (PHONE ? PHONE_TEXT : '');
-    const err = message ? div('co-err', message) : '';
+    const err = message ? (this.reportCode ? errorPanel(this.reportCode, message) : div('co-err', message)) : '';
     const p = (text: string) => h('p', 'nt-p', text);
     if (this.page === 'start') {
       this.panel.replaceChildren(
@@ -300,6 +305,7 @@ export class CoopScreen implements Screen {
 
   private async submit(): Promise<void> {
     if (this.lobby) return;
+    this.reportCode = null;
     if (PHONE) return this.fail(`${PHONE_TEXT} Open the invite link on a computer.`);
     const password = this.password.value;
     if (this.page === 'join') {
@@ -311,14 +317,18 @@ export class CoopScreen implements Screen {
     }
     if (!password) return this.fail('Type a password first.');
     const hosting = this.page === 'host';
+    await reportLobby(this.code, hosting ? 'host' : 'guest');
+    report('COOP_ATTEMPT', { stage: hosting ? 'host' : 'join' });
     // trystero is only fetched by someone who plays co-op.
-    const { openLobby } = await import('../../net/trystero');
     const name = this.name.value.trim() || loadCallsign();
     this.status.textContent = 'Connecting...';
     let rooms;
-    try { rooms = await openLobby(this.code, password); }
-    catch (error) {
-      console.warn('[coop] Could not open the room', error);
+    try {
+      const { openLobby } = await import('../../net/trystero');
+      rooms = await openLobby(this.code, password);
+    } catch (error) {
+      report('COOP_RELAYS_UNREACHABLE', { error, stage: 'open-room' });
+      this.reportCode = 'COOP_RELAYS_UNREACHABLE';
       return this.fail('Could not start the connection. Check you are online, then try again.');
     }
     const lobby = new Lobby(rooms, hosting, name);
@@ -376,6 +386,7 @@ export class CoopScreen implements Screen {
     this.lobby = null;
     const error = lobby.error;
     if (!error) return;
+    this.reportCode = coopErrorCode(error, /same network/i.test(lobby.connectAdvice), turnConfigured());
     this.ctx.audio.play?.('ui_error');
     const retry = error === 'password' || error === 'no-host' || error === 'connect' || error === 'relays' || error === 'lost';
     if (retry) this.joinCode.value = this.code;
@@ -387,10 +398,13 @@ export class CoopScreen implements Screen {
     this.lobby?.leave();
     this.lobby = null;
     this.roomPassword = '';
+    reportSolo();
     this.go('start');
   }
 
   showMessage(message: string): void {
+    this.reportCode = /host left/i.test(message) ? 'COOP_HOST_LEFT' : /kick|removed/i.test(message) ? 'COOP_KICKED' : /out of sync|desync/i.test(message) ? 'COOP_DESYNC' : 'COOP_DISCONNECTED';
+    if (this.reportCode === 'COOP_KICKED' || this.reportCode === 'COOP_DESYNC') report(this.reportCode, { stage: 'room-ended' });
     this.go('start', message);
   }
 

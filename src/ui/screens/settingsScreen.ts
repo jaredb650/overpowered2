@@ -1,4 +1,5 @@
-/** Settings: one general page and one for keys. Values apply and save the moment they change. */
+import { reporter } from '../../core/report';
+/** Settings: general, keys and privacy. Values apply and save the moment they change. */
 import type { Action, Ctx } from '../../core/contracts';
 import { clamp } from '../../core/math';
 import { labelForCode } from '../../input/bindings';
@@ -167,8 +168,9 @@ export class SettingsScreen implements Screen {
     const hitText = new Stepper('Hit text', HIT_TEXT_LEVELS, () => s.hitText, v => { s.hitText = v; }, tick);
     const chatter = new Stepper('Enemy chatter', CHATTER_LEVELS, () => s.chatter, v => { s.chatter = v; }, tick);
     const voices = new Slider('Enemy voices', 0, 1, 0.05, () => s.voices, v => { s.voices = v; }, pct, tick);
+    const reports = new Stepper('Anonymous error reports', ['Off', 'On'], () => reporter.enabled() ? 1 : 0, v => reporter.setEnabled(v === 1), () => {});
     const general = [sensitivity, fov, invert, hop, aimMode, aimSens, master, sfx, music, voices, quality, gore, hitText, chatter];
-    this.refreshers = general.map(r => () => r.refresh());
+    this.refreshers = [...general, reports].map(r => () => r.refresh());
     const keys = this.keyRows();
     const resetKeys = menuButton('Reset keys', () => this.resetKeys());
     resetKeys.el.classList.add('mi-small');
@@ -183,9 +185,12 @@ export class SettingsScreen implements Screen {
         rows: general,
       },
       { el: div('gd-panel', keys.el, resetKeys.el), rows: keyRows },
+      { el: div('gd-panel', span('gd-h', 'Privacy'), reports.el,
+        h('p', 'nt-p', 'Anonymous error reports help fix crashes and connection problems. Reports contain game version, browser and OS families, anonymous session and lobby identifiers, error codes and technical details. No names, passwords or network addresses are sent. Central reports expire after 30 days. The last 50 reports stay on this device for copying; switching this off clears that history.'),
+      ), rows: [reports] },
     ];
 
-    this.tabs = ['General', 'Keys'].map((label, i) => {
+    this.tabs = ['General', 'Keys', 'Privacy'].map((label, i) => {
       const el = h('button', 'tab', label);
       el.type = 'button';
       el.tabIndex = -1;

@@ -1,3 +1,5 @@
+import { classifyError } from './errors';
+import { report } from './report';
 /**
  * fetch for game files, built for flaky connections (a phone hotspot drops a request now and then): a network error,
  * a 5xx or a 429 gets up to `tries` attempts with a short growing pause; any other failure (404) throws at once.
@@ -20,10 +22,14 @@ export async function fetchAsset<T>(url: string, read: (response: Response) => P
       reason = `HTTP ${response.status}`;
       if (response.status !== 429 && response.status < 500) throw new AssetError(url, reason, false);
     } catch (error) {
-      if (error instanceof AssetError) throw error;
+      if (error instanceof AssetError) { report(classifyError(error), { error, stage: 'asset', reason: error.reason }); throw error; }
       reason = error instanceof Error ? error.message : String(error);
     }
-    if (attempt >= tries) throw new AssetError(url, reason, true);
+    if (attempt >= tries) {
+      const error = new AssetError(url, reason, true);
+      report(classifyError(error), { error, stage: 'asset', reason: /^HTTP \d+$/.test(reason) ? reason : 'download interrupted' });
+      throw error;
+    }
     console.warn(`[assets] ${url}: ${reason}, trying again`);
     await pause(500 * attempt);
   }

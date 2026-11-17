@@ -1,3 +1,4 @@
+import { report, reportLobby } from '../core/report';
 /** Tab-local map handoff. Passwords never enter URLs or game messages. The room reconnects before the heavy map boot. */
 import { Lobby, validMatch, type Match } from './lobby';
 import { BUILD } from './build';
@@ -40,6 +41,8 @@ export async function reconnectMatch(): Promise<void> {
       || typeof data.password !== 'string' || typeof data.name !== 'string' || typeof data.hosting !== 'boolean'
       || new URLSearchParams(location.search).get('contract') !== data.match.mode
       || (new URLSearchParams(location.search).get('map') ?? undefined) !== data.match.map) return;
+    await reportLobby(data.code, data.hosting ? 'host' : 'guest');
+    report('COOP_ATTEMPT', { stage: 'reconnect' });
     const { openLobby } = await import('./trystero');
     resumedMatch = data.match;
     resumedRoom = { code: data.code, password: data.password };
@@ -47,6 +50,7 @@ export async function reconnectMatch(): Promise<void> {
     if (data.hosting) resumedLobby.startMatch(data.match.mode, data.match.id, data.match.map);
     resumeFailed = '';
   } catch (error) {
+    report('COOP_DISCONNECTED', { error, stage: 'reconnect' });
     console.warn('[coop] Could not resume the room', error);
     resumeFailed = 'Could not reconnect to the co-op room on this page. Check you are online, then join the lobby again.';
   }

@@ -82,7 +82,7 @@ a co-op run), `EnemyManager.placeReplica` (posture), `allies/fire.ts` (garrison 
   more STUN servers do not get through a NAT that STUN cannot; that needs TURN.
 - **Callsign** is stored in `localStorage` under `op2_coop_name`. The first default is a random `VIPER-27`.
 
-## Connectivity: TURN setup (once, by the owner)
+## Cloudflare worker: relay + error log (TURN setup, once by the owner)
 
 Most pairs of home connections link directly. Strict routers, mobile data, some offices and some university networks do not; for those
 the browsers need a relay, TURN. Cloudflare's is free for the first 1,000 GB a month (shared with its SFU), then $0.05/GB; a 3-hour
@@ -99,13 +99,55 @@ Cloudflare Worker does that and the page only knows the Worker's address.
 5. Back on the Worker, open **Settings** > **Variables and Secrets** > **Add**:
    - Type **Secret**, name `TURN_KEY_ID`, value: the Turn Token ID from step 2.
    - Type **Secret**, name `TURN_KEY_API_TOKEN`, value: the API Token from step 2.
-   - Optional, type **Text**, name `ALLOWED_ORIGINS`, value: your game's address, e.g. `https://yourname.github.io` (only that page
-     may ask for credentials; leave it out to allow any page).
+   - Type **Secret**, name `LOG_READ_KEY`: generate a fresh random key (at least 32 random bytes) in your password manager. Keep it
+     there; the local reading tool uses the same value. Never paste it into this repo, a URL, or any `VITE_` variable.
+   - Type **Text**, name `ALLOWED_ORIGINS`, value: your game's **origin**, e.g. `https://jaredb650.github.io` (no project path).
+     If omitted it defaults to `https://jaredb650.github.io`. Local `http://localhost` and `http://127.0.0.1` on any port also work.
    Click **Deploy** (or **Save and deploy**).
 6. Copy the Worker's address from its overview, e.g. `https://op2-turn.yourname.workers.dev`. Open it in a browser tab: you should see
    JSON starting `{"iceServers":[`. If it says a variable is not set, recheck step 5.
 7. Put that address in the game: in `src/net/turn.ts` set `const WORKER_URL = 'https://op2-turn.yourname.workers.dev';`, commit and
    push. That is the only config slot; the address is not a secret (the key stays in the Worker). A build can also set `VITE_TURN_URL`.
+8. In Cloudflare's left menu open **Storage & databases** > **D1 SQL Database** > **Create database**, name it `op2-logs`, and create
+   it on the free plan. Open that database's **Console**, paste the contents of `tools/turn-worker/schema.sql`, and click **Execute**.
+   If the console accepts only one statement at a time, execute the `CREATE TABLE` first and then the `CREATE INDEX`.
+9. Return to **Workers & Pages** > `op2-turn` > **Bindings** > **Add binding** > **D1 database**. Variable name: **`LOG_DB`**.
+   Select **`op2-logs`**, click **Add binding**, and deploy the Worker again.
+10. Worker > **Settings** > **Triggers** > **Cron Triggers** > **Add**. Use **`0 * * * *`** (hourly) and save. The scheduled handler
+    deletes reports older than 30 days; writes also delete expired rows, and reads always exclude them. With no traffic, physical
+    deletion can lag expiry by up to an hour. D1 backups may follow Cloudflare's separate recovery window.
+11. On the owner's computer, create `~/.config/op2/` and save **only** the `LOG_READ_KEY` value in `~/.config/op2/errlog.key` using
+    a local editor. Make the directory private (`chmod 700 ~/.config/op2`) and the file private (`chmod 600 ~/.config/op2/errlog.key`).
+    The file is outside the checkout. Do not send its contents to players or put it in build/deploy settings.
+12. After the configured game is deployed, load it once and run from the repository: `node tools/scripts/errlog.mjs`. It reads the
+    public Worker address from `src/net/turn.ts` and the private local key, then lists code counts, likely fault category, platform
+    families and the three latest examples per code. `--since 2026-11-17T00:00:00Z --limit 1000` selects a window (maximum 1000 rows).
+    `--raw` prints JSON. A full limit means the summary is truncated; narrow the time window. Read access is read-only and uses an
+    Authorization header; the tool never prints the key. `VITE_TURN_URL` can override the address for a local configured build.
+
+### Anonymous diagnostics and limits
+
+The same public Worker address enables `POST /log` and key-protected `GET /logs`. Until it is filled in, reporting is a no-op.
+The client queues up to 150 events per page session, deduplicates repeated errors for a minute, and sends at most five per batch every
+five seconds or on exit. Each connection attempt resets deduplication so retrying is recorded. Delivery is best effort: closing or
+crashing the browser, an offline connection, an opt-out or a blocked Worker can prevent delivery. It cannot guarantee every crash.
+The last 50 reports are kept in localStorage for **Copy error report**, across reloads; this browser-local history does not expire on
+its own. **Settings > Privacy > Anonymous error reports > Off** stops collection and sending and clears this history and the
+pending queue immediately. Local copy still includes the current displayed technical error when reporting is off.
+
+Reports contain a random session id, build commit, contract, host/guest/solo role, SHA-256 lobby digest, coarse browser/OS and memory
+bucket, catalog code/message, trimmed stack frames and technical stage/candidate counts. No callsigns, chat, passwords, raw lobby
+codes, full user agents, GPU model or ICE addresses are sent. A lobby digest pairs host and guest; it is pseudonymous, not a strong
+secret (invite codes have a small search space). The Worker never stores IPs: it uses only ephemeral minute-window SHA-256 IP counters
+in isolate memory, capped at 30 write requests per minute per IP and 4096 counters; this is a best-effort abuse guard per isolate,
+not a global quota. `POST /log` caps streamed request bytes at 8192, accepts 1–5 strictly shaped events, and bounds field lengths.
+D1 retains reports for 30 days. Anonymous submissions are untrusted evidence; a fault tag is a triage hint, not proof of cause.
+Keep Cloudflare Worker **Observability > Logs** disabled if you do not want Cloudflare request diagnostics retained separately.
+
+The game isolates throwing frame systems and reports each system's first failure; remaining systems and future frames keep ticking.
+Boot failures and lost WebGL contexts show a friendly catalog message, Reload, and a Details disclosure with Copy error report.
+Join failures use the same panel and preserve the more specific ICE guidance under Details. Kick and desync codes are available in the
+catalog, but the current lobby protocol has no kick action or authoritative desync detector; those future call sites must use them.
 
 The game asks the Worker once before joining (4 s at most; it never blocks a lobby if the Worker is down), caches the answer for an hour
 in the tab, drops the port-53 entries that hang browsers, and passes the rest to trystero as `turnConfig`. The lobby's notes change to

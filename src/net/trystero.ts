@@ -1,3 +1,4 @@
+import { report } from '../core/report';
 /**
  * The room over trystero's default strategy, Nostr: peers find each other through public Nostr relays, then talk
  * browser to browser over WebRTC. The password encrypts the handshake, so without it nobody can join or see who is in.
@@ -37,7 +38,9 @@ function watchedPeers(): { Peer: typeof RTCPeerConnection; trying(): number; ice
     report = { ours: noKinds(), theirs: noKinds(), connected: false };
     constructor(config?: RTCConfiguration) {
       super(config);
-      this.addEventListener('signalingstatechange', () => void (this.remoteDescription && met.add(this)));
+      this.addEventListener('signalingstatechange', () => {
+        if (this.remoteDescription && !met.has(this)) { met.add(this); report('COOP_STAGE', { stage: 'peer-ice' }); }
+      });
       this.addEventListener('icecandidate', e => addCandidate(this.report.ours, e.candidate?.candidate));
       this.addEventListener('iceconnectionstatechange', () => {
         const state = this.iceConnectionState;
@@ -75,7 +78,7 @@ export function openRoom(code: string, password: string, turn: IceServer[] = [])
         send: (data: T, to?: string) => void action.send(data as never, to ? { target: to } : undefined).catch(() => {}),
         on: (handler: (data: T, from: string) => void) => void action.onMessage((data, context) => {
           // A peer's malformed message must never take the game down with it.
-          try { handler(data as T, context.peerId); } catch (error) { console.warn('[coop] Dropped a message that could not be read', error); }
+          try { handler(data as T, context.peerId); } catch (error) { report('UNCAUGHT_EXCEPTION', { error, stage: 'coop-message' }); console.warn('[coop] Dropped a message that could not be read', error); }
         }),
       };
     },
