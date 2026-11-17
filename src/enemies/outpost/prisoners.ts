@@ -16,7 +16,7 @@ import { chance, clamp } from '../../core/math';
 import type { AiWorld } from '../aiWorld';
 import { finishAttack } from '../brain';
 import { Airlift } from './airlift';
-import { gesture } from './capture';
+import { gesture, holdFill, TAP_MAX } from './capture';
 import type { Outpost } from './index';
 import { FEAR } from './morale';
 import { pose, type Soldier } from './soldier';
@@ -86,6 +86,8 @@ export class Prisoners {
   private heldAt = 0;
   private focus: Soldier | null = null;
   private keyHeld = -1;
+  /** The man the key went down on: turn to another and the hold starts over. */
+  private keyFor: Soldier | null = null;
   private unprompt: (() => void) | null = null;
   private prompted = '';
   private readonly marks: (() => void)[] = [];
@@ -432,9 +434,10 @@ export class Prisoners {
       if (this.unprompt) this.clearPrompt();
       return;
     }
-    const key = input.labelFor?.('interact') ?? 'E';
-    const hold = `HOLD ${key} ${HOSTAGES ? 'GRAB' : 'CUFF'}`;
-    const text = s === this.held ? `${key} LET GO   HOLD ${key} CUFF` : `${key} ${s.questioned ? 'LET GO' : 'QUESTION'}   ${hold}`;
+    const key = `[${input.labelFor?.('interact') ?? 'E'}]`;
+    const hold = `Hold ${key} to ${HOSTAGES ? 'grab' : 'capture'}`;
+    // A man already questioned has nothing more to say: the capture alone.
+    const text = s === this.held ? `${key} let go · Hold ${key} to capture` : s.questioned ? hold : `Tap ${key} to question · ${hold}`;
     if (text === this.prompted) return;
     this.clearPrompt();
     this.prompted = text;
@@ -458,11 +461,15 @@ export class Prisoners {
   }
 
   private keys(dt: number): void {
-    const { input } = this.w.ctx;
+    const { w } = this;
+    const { input } = w.ctx;
     const target = this.held ?? this.focus;
-    if (input.pressed('interact') && target) this.keyHeld = 0;
+    if (input.pressed('interact') && target) {
+      this.keyHeld = 0;
+      this.keyFor = target;
+    }
     if (this.keyHeld < 0) return;
-    if (!target) {
+    if (!target || target !== this.keyFor) {
       this.keyHeld = -1;
       return;
     }
@@ -477,13 +484,13 @@ export class Prisoners {
       return;
     }
     const g = gesture(this.keyHeld, down, target.questioned);
+    if (down && this.keyHeld >= TAP_MAX) w.ctx.hud.hold?.(holdFill(this.keyHeld));
     if (!g) return;
     this.keyHeld = -1;
     if (g === 'cuff') {
       if (HOSTAGES) this.grab(target);
       else this.cuff(target);
-    } else if (g === 'letGo') this.letGo(target);
-    else this.question(target);
+    } else if (g === 'question') this.question(target);
   }
 
   private letGo(s: Soldier): void {

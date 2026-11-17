@@ -407,16 +407,17 @@ export class Team {
     }
     const gesture = this.key.update(dt, input.pressed('interact'), input.isDown('interact'), true);
     this.reviving = this.key.held >= 0;
+    if (this.key.held >= 0) this.ctx.hud.hold?.(this.key.progress(true));
     if (gesture === 'revive') {
+      this.ctx.hud.hold?.(1);
       const id = this.idOf(target.slot);
       if (this.session.hosting) { if (id && this.life(id).revive()) this.up(id, 'revive', this.session.lobby.you); }
       else this.send({ t: 'revive', slot: target.slot });
     }
     // Above the name tag on the body, so the two never sit on each other.
     this.promptAt.copy(target.at).y += 1.9;
-    const key = input.labelFor?.('interact') ?? 'E';
-    const held = this.key.progress(true);
-    this.setPrompt(held > 0 ? `REVIVING ${target.name} ${Math.round(held * 100)}%` : `HOLD ${key} REVIVE ${target.name}`);
+    // The ring round the crosshair shows the hold, so the words stay put.
+    this.setPrompt(`Hold [${input.labelFor?.('interact') ?? 'E'}] to revive ${target.name}`);
   }
 
   private setPrompt(text: string): void {

@@ -7,8 +7,10 @@ import type { Soldier } from './soldier';
 
 export type CapturePhase = 'cuffing' | 'cuffed' | 'hooked' | 'gone';
 
-/** Seconds of holding E on a kneeling man that make it a capture and not a question. */
-export const CUFF_HOLD = 0.4;
+/** Seconds: E let up before this is a tap, a question. Held past it, it is a capture under way, and the ring starts to fill. */
+export const TAP_MAX = 0.22;
+/** Seconds of holding E on a kneeling man that make it a capture: a commitment, for a bounty of about 300 (contracts/defense/data.ts). */
+export const CUFF_HOLD = 1.2;
 /** Seconds of getting his wrists behind him and the cuffs on: the first click, the second, and done. */
 export const CLICKS = [0.3, 0.55] as const;
 export const CUFFING_SECONDS = 0.7;
@@ -17,18 +19,22 @@ export const SNATCH_AT = 1.5;
 /** Metres a second he is dragged along the floor on the line, out from under a roof to where the drone can reach him. */
 export const DRAG_SPEED = 13;
 
-/** What a press of E on a kneeling man comes to: nothing yet, a question (or letting him go, once questioned), or cuffs. */
-export type Gesture = 'question' | 'letGo' | 'cuff' | null;
+/** What E on a kneeling man comes to: nothing yet, a question, cuffs, or a hold let go too soon (nothing at all). */
+export type Gesture = 'question' | 'cuff' | 'cancel' | null;
 
 /**
- * The key, read every frame while it is down and once on the frame it comes up. `held` is seconds down so far. Held long enough, it
- * cuffs him at once, without waiting for the key to come up; a tap is a question, or for a man already questioned, letting him go.
+ * The key, read every frame while it is down and once on the frame it comes up. `held` is seconds down so far. Held to `CUFF_HOLD`,
+ * it cuffs him at once, without waiting for the key to come up. Let up before `TAP_MAX` it questions him, once: a man already
+ * questioned has nothing more to say. Let up anywhere else, it was a capture abandoned, and does nothing.
  */
 export function gesture(held: number, down: boolean, questioned: boolean): Gesture {
   if (held >= CUFF_HOLD) return 'cuff';
   if (down) return null;
-  return questioned ? 'letGo' : 'question';
+  return held < TAP_MAX && !questioned ? 'question' : 'cancel';
 }
+
+/** The capture ring's fill (ui/hud/holdRing.ts) for E held `held` seconds: none while it could still be a tap, then 0 to 1. */
+export const holdFill = (held: number): number => (held < TAP_MAX ? 0 : Math.min(1, (held - TAP_MAX) / (CUFF_HOLD - TAP_MAX)));
 
 /** Seconds from the cuffs going on to the snatch, for a man who has `drag` metres to be dragged first (0 in the open). */
 export const snatchTime = (drag: number): number => Math.max(SNATCH_AT, CUFFING_SECONDS + drag / DRAG_SPEED);

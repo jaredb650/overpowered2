@@ -637,6 +637,8 @@ export interface HudSystem extends GameSystem {
   hitMarker(kind: 'body' | 'head' | 'kill' | 'armor' | 'armorThrough' | 'armorBroken'): void;
   /** The name of a move just done, called out small under the crosshair, as a fighting game does. Optional for stand-ins. */
   callout?(text: string): void;
+  /** A hold under way (a capture, a revive): the ring round the crosshair at `fill`, 0 to 1, this frame; 1 is done. Optional for stand-ins. */
+  hold?(fill: number): void;
   /** Score text that floats up from a world position. */
   floatText(position: THREE.Vector3, text: string, color?: string): void;
   /** A world position marker, e.g. a weapon cache or powerup. Returns a remover. */

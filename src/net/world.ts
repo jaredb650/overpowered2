@@ -6,6 +6,7 @@ import type { EnemyManager } from '../enemies/EnemyManager';
 import type { PlayerSense } from '../enemies/aiWorld';
 import type { Foe } from '../enemies/outpost/soldier';
 import { soldierOf } from '../enemies/outpost/soldier';
+import { CUFF_HOLD, holdFill } from '../enemies/outpost/capture';
 import { RULES } from '../enemies/outpost/chatter/lines';
 import { NAME_LIST, speakerTag } from '../enemies/outpost/chatter/names';
 import { lineText } from '../enemies/outpost/chatter/rules';
@@ -697,12 +698,14 @@ export class CoopWorld {
     const uid = best?.enemy.uid ?? -1;
     if (this.capturePrompt && this.capturePrompt.uid !== uid) { this.capturePrompt.off(); this.capturePrompt = null; }
     if (!best) { this.captureHeld = -1; return; }
-    if (!this.capturePrompt) this.capturePrompt = { uid, off: hud.follow(best.enemy.center, `HOLD ${input.labelFor?.('interact') ?? 'E'} CUFF`, '#ffc14a') };
+    // The questions are the host's: a guest's E on a kneeling man is the capture alone, the same hold and ring.
+    if (!this.capturePrompt) this.capturePrompt = { uid, off: hud.follow(best.enemy.center, `Hold [${input.labelFor?.('interact') ?? 'E'}] to capture`, '#ffc14a') };
     if (input.pressed('interact')) this.captureHeld = 0;
     if (this.captureHeld < 0) return;
     if (!input.isDown('interact')) { this.captureHeld = -1; return; }
     this.captureHeld += dt;
-    if (this.captureHeld >= 0.6) { this.captureHeld = -1; this.broadcast({ t: 'capture', uid }); }
+    if (holdFill(this.captureHeld) > 0) hud.hold?.(holdFill(this.captureHeld));
+    if (this.captureHeld >= CUFF_HOLD) { this.captureHeld = -1; this.broadcast({ t: 'capture', uid }); }
   }
 
   /** Host: where every truck, humvee and tank is, for the guests to draw. */

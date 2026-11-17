@@ -549,3 +549,15 @@
 .df-fix-bg { fill: none; stroke: rgba(7, 10, 14, 0.55); stroke-width: 7; }
 .df-fix-arc { fill: none; stroke: var(--amber); stroke-width: 5; }
 .df-fix-t { padding: 0 0.35rem; background: var(--plate); color: var(--amber); font-size: 1rem; font-weight: 700; white-space: nowrap; }
+
+/* The hold ring (hud/holdRing.ts): round the crosshair while E is held on a capture or a revive, a tick flash when it is done. */
+.hr { position: absolute; left: -2.6rem; top: -2.6rem; width: 5.2rem; height: 5.2rem; pointer-events: none; }
+.hr-svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.hr-svg * { fill: none; vector-effect: non-scaling-stroke; }
+.hr-track { stroke: var(--plate); stroke-width: 6px; }
+.hr-arc { stroke: var(--amber); stroke-width: 3.4px; }
+.hr-tick { stroke: var(--ink); stroke-width: 3.4px; stroke-linecap: square; opacity: 0; }
+.hr.done .hr-arc { stroke: var(--ink); }
+.hr.done .hr-tick { opacity: 1; }
+.hr.done { animation: op-hold-done 0.35s ease-out; }
+@keyframes op-hold-done { from { transform: scale(1.25); } to { transform: scale(1); } }

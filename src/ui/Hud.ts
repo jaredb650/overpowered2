@@ -37,6 +37,7 @@ import { SonarChip } from './hud/sonar';
 import { Stragglers } from './hud/stragglers';
 import { NowPlaying } from './hud/nowplaying';
 import { Callout } from './hud/callout';
+import { HoldRing } from './hud/holdRing';
 import { Screens, type ScreenName } from './screens/Screens';
 import { Flythrough } from './screens/flythrough';
 import { MenuBackdrop } from './backdrop/MenuBackdrop';
@@ -103,6 +104,7 @@ export class Hud implements HudSystem {
   private sonar: SonarChip;
   private crosshair: Crosshair;
   private callouts: Callout;
+  private holdRing = new HoldRing();
   private worldLayer: WorldLayer;
   private bubbles: Bubbles;
   private voices: ChatterVoices;
@@ -159,6 +161,7 @@ export class Hud implements HudSystem {
     this.comms = new CommsFeed();
     this.sonar = new SonarChip(ctx);
     this.crosshair = new Crosshair(ctx);
+    this.crosshair.el.append(this.holdRing.el);
     this.callouts = new Callout();
     this.boss = new BossBar();
     this.bannerLanes = new Banner();
@@ -575,6 +578,7 @@ export class Hud implements HudSystem {
     this.comms.update(dt);
     this.sonar.update(s);
     this.crosshair.update(s, dt, this.combo.tier);
+    this.holdRing.update(dt);
     this.seatPanel?.update();
     this.worldLayer.update(dt);
     this.bubbles.update(playing ? dt : 0);
@@ -649,6 +653,10 @@ export class Hud implements HudSystem {
 
   hitMarker(kind: HitKind): void {
     this.crosshair.hit(kind);
+  }
+
+  hold(fill: number): void {
+    this.holdRing.ask(fill);
   }
 
   callout(text: string): void {
