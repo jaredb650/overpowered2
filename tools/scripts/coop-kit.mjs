@@ -13,7 +13,7 @@ export function kit(outDir, prefix, out, sleep) {
     const path = `${outDir}/${prefix}-${name}.png`;
     if (!keepMenu) await page.evaluate(() => { if (window.__op2?.game?.state === 'paused') window.__op2.game.setState('playing'); });
     await sleep(200);
-    await page.screenshot({ path, timeout: 45000 });
+    await page.screenshot({ path, timeout: 120000 });
     out.screenshots.push(path);
   };
   return { check, progress, shot };
@@ -96,11 +96,12 @@ export async function startPair(host, { mode, password, out, progress, sleep, st
 }
 
 /** The host's Start waits for every guest to be ready. */
-export const readyUp = page => page.locator('.mi', { hasText: 'Ready: no' }).click();
+export const readyUp = page => page.locator('.co-readybtn:not(.on)').click();
 
+/** An invite link opens straight on its password page, with no splash. */
 export async function joinFromSplash(page, password) {
-  await page.locator('.scr-splash').waitFor({ state: 'visible', timeout: 120000 }); await page.locator('.scr-splash').click();
-  await page.locator('input[type=password]').fill(password); await button(page, 'Join').click();
+  await page.locator('input[type=password]').waitFor({ state: 'visible', timeout: 300000 });
+  await page.locator('input[type=password]').fill(password); await button(page, 'Join lobby').click();
   await page.locator('.co-player').nth(1).waitFor({ state: 'visible', timeout: 90000 });
 }
 

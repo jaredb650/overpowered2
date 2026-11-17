@@ -534,7 +534,7 @@ export default async function missionLive(page, h) {
       await menuPath('Back', 'Survival', 'Kill House');
       log.push({ killHouse: await page.evaluate(() => [...document.querySelectorAll('.scr-menu .mm-list .mi')].map(t => `${t.textContent}${t.classList.contains('off') ? ' [locked]' : ''}`)) });
       await h.shot('unlock-2');
-      await menuPath('Endless Humans');
+      await menuPath('Endless Humans mode');
       await page.waitForURL(/contract=outpost/, { timeout: 15000 });
       await page.waitForFunction(() => document.querySelector('.sp-go')?.textContent.includes('Endless') && document.querySelector('.scr-splash')?.style.display === '', null, { timeout: 60000 });
       await h.shot('unlock-3');
@@ -553,7 +553,7 @@ export default async function missionLive(page, h) {
       await menuPath('Play', 'Survival', 'Kill House');
       log.push({ killHouse: await page.evaluate(() => [...document.querySelectorAll('.scr-menu .mm-list .mi')].map(t => `${t.textContent}${t.classList.contains('off') ? ' [locked]' : ''}`)) });
       await h.shot('menu-1');
-      await menuPath('Endless Humans');
+      await menuPath('Endless Humans mode');
       await h.sleep(600);
       log.push({ stayed: await page.evaluate(() => location.search) });
       await page.keyboard.press('Escape');

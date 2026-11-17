@@ -246,7 +246,7 @@ export default async function crucibleRulesLive(page, h) {
   const startCrucibleFromMenu = async () => {
     await menuPath('Play', 'Survival', 'Crucible');
     await record();
-    await menuButtonNamed('The Crucible').click();
+    await menuButtonNamed('Crucible mode').click();
     await page.waitForFunction(() => window.__op2.game.state === 'playing', null, { timeout: 15000 });
     await page.waitForFunction(() => window.__rec.starts.length > 0, null, { timeout: 20000 });
     await h.sleep(300);

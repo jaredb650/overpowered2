@@ -6,9 +6,9 @@ import { writeFileSync } from 'node:fs';
 import { button, calm, inMatch, kit, startPair, state } from './coop-kit.mjs';
 
 const MODES = {
-  humans: { label: 'Endless Humans', contract: 'outpost' },
-  defense: { label: 'Outpost Defense', contract: 'defense' },
-  office: { label: 'Crucible: Office', contract: 'crucible', map: 'office' },
+  humans: { label: 'Endless Humans mode', contract: 'outpost' },
+  defense: { label: 'Outpost Defense mode', contract: 'defense' },
+  office: { label: 'Office — Crucible mode', contract: 'crucible', map: 'office' },
 };
 
 export default async function (host, { sleep, outDir }) {

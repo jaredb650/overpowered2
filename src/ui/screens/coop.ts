@@ -5,10 +5,10 @@ import { report, reportLobby, reportSolo } from '../../core/report';
  * Play > Multiplayer: host or join a co-op lobby (src/net/). The main menu's look: the crumb, the list on the left, a
  * notice on the right. Four pages: start, host (pick a password), join (code and password), and the lobby itself.
  *
- * An invite link (`?join=CODE`) opens the join page with the code filled in, straight from the splash.
+ * An invite link (`?join=CODE`) skips the splash and opens on a page that only asks for the password.
  * Stage 1 starts an enemy-free match on the host's selected map.
  */
-import { saveStarter, starterPreference } from '../../contracts/starter';
+import { STARTERS, defaultStarter, saveStarter, starterPreference } from '../../contracts/starter';
 import { starterCards } from './starter';
 import type { Ctx } from '../../core/contracts';
 import { BUILD } from '../../net/build';
@@ -29,13 +29,13 @@ export const INVITE: string = typeof location === 'undefined' ? '' : cleanCode(n
 
 /** What the host can start: a mode on its own map, or on a map it also plays on. */
 const MODES: readonly { label: string; mode: CoopMode; map?: CoopMap }[] = [
-  { label: 'The Crucible', mode: 'crucible' }, { label: 'Endless Humans', mode: 'outpost' }, { label: 'Outpost Defense', mode: 'defense' },
-  { label: 'Crucible: Office', mode: 'crucible', map: 'office' }, { label: 'Humans: Office', mode: 'outpost', map: 'office' },
+  { label: 'Crucible mode', mode: 'crucible' }, { label: 'Endless Humans mode', mode: 'outpost' }, { label: 'Outpost Defense mode', mode: 'defense' },
+  { label: 'Office — Crucible mode', mode: 'crucible', map: 'office' }, { label: 'Office — Endless Humans mode', mode: 'outpost', map: 'office' },
   { label: 'Mission 1: The Outpost', mode: 'campaign' }, { label: 'Mission 2: Foreclosure', mode: 'foreclosure' },
 ];
 /** What each mode is like together, under the picker. */
 const MODE_NOTE: Record<CoopMode, string> = {
-  crucible: 'The Crucible together: the host runs the waves, each of you earns and spends your own credits at your own supply pod, and a downed friend can be revived with E. Everyone down ends the run.',
+  crucible: 'Crucible mode together: the host runs the waves, each of you earns and spends your own credits at your own supply pod, and a downed friend can be revived with E. Everyone down ends the run.',
   outpost: 'Endless Humans together: squads, surrender and capture. Whoever takes a prisoner gets the bounty.',
   defense: 'Outpost Defense together: hold the fort. The host runs the waves, the garrison, the Barracks and the walls; each of you has your own loadout, credits, Armoury and Infirmary.',
   campaign: 'The Outpost together. The host runs the mission; everyone hears the Commander, rides the door guns in on the same Packmule, and goes back to the last checkpoint if all of you go down.',
@@ -92,6 +92,17 @@ export class CoopScreen implements Screen {
   private message = '';
   private reportCode: ErrorCode | null = null;
   private invite = INVITE;
+  /** On the join page from an invite link: the code is known, so the page asks only for the password. */
+  private invited = false;
+  private joinButton = h('button', 'co-copy co-join', 'Join lobby');
+  /** What to do next: the host's who-is-not-ready line, or a guest's three steps. */
+  private guide = div('co-guide');
+  private forceItem: NavItem;
+  /** Force start asks twice: the first press arms it until then. */
+  private forceArmed = 0;
+  /** Points at READY once a guest has picked a gun and not readied yet. */
+  private callout = span('co-callout', 'Now press READY');
+  private picked = false;
 
   private password = textInput(40, 'password');
   private joinCode = textInput(CODE_LENGTH + 2);
@@ -131,7 +142,13 @@ export class CoopScreen implements Screen {
     // Refused while a guest is not ready; the lobby's chat line says who.
     this.startItem = menuButton('Start', () => this.lobby && !this.lobby.countdown(MODES[this.mode]!.mode, MODES[this.mode]!.map) && this.ctx.audio.play?.('ui_error'));
     this.rejoinItem = menuButton('Rejoin match', () => this.lobby?.away(true));
-    this.readyItem = menuButton('Ready', () => this.lobby?.setReady(!this.lobby.me?.ready));
+    this.forceItem = menuButton('Force start', () => this.force());
+    this.readyItem = menuButton('READY', () => this.lobby?.setReady(!this.lobby.me?.ready));
+    this.readyItem.el.classList.add('co-readybtn');
+    this.callout.setAttribute('aria-hidden', 'true');
+    this.readyItem.el.append(this.callout);
+    this.joinButton.type = 'button';
+    this.joinButton.addEventListener('click', () => this.submit());
     const copy = h('button', 'co-copy', 'Copy');
     copy.type = 'button';
     copy.addEventListener('click', () => this.copy());
@@ -147,6 +164,7 @@ export class CoopScreen implements Screen {
           this.mode = i;
           this.modes.querySelectorAll('.co-mode').forEach((el, n) => el.classList.toggle('on', n === i));
           this.modeNote.textContent = MODE_NOTE[MODES[i]!.mode];
+          this.lobby?.setPick(MODES[i]!.mode, MODES[i]!.map);
         });
         return button;
       })),
@@ -160,6 +178,7 @@ export class CoopScreen implements Screen {
         span('nt-k', 'Invite'), div('co-link-row', span('co-link', ''), copy, this.copied),
       ),
       this.noteEl,
+      this.guide,
       this.players,
       field('Your name', this.name),
       this.modes,
@@ -176,6 +195,7 @@ export class CoopScreen implements Screen {
     if (this.invite) {
       this.joinCode.value = this.invite;
       this.invite = '';
+      this.invited = true;
       history.replaceState(null, '', location.pathname);
       this.go('join');
     } else {
@@ -188,6 +208,7 @@ export class CoopScreen implements Screen {
     this.page = page;
     this.message = message;
     if (!message) this.reportCode = null;
+    if (page === 'start') this.invited = false;
     if (page === 'host' || page === 'join') this.password.value = '';
     const back = (label: string, to: () => void) => {
       const item = menuButton(label, to);
@@ -210,7 +231,10 @@ export class CoopScreen implements Screen {
       items = [menuButton('Join', () => this.submit()), back('Back', () => this.go('start'))];
     } else {
       this.crumb.textContent = `Play / Multiplayer / ${this.code}`;
-      items = [...(this.lobby?.hosting ? [this.startItem] : []), ...(this.lobby?.awayFrom ? [this.rejoinItem] : []), this.readyItem, menuButton('Copy link', () => this.copy()), back('Leave', () => this.leave())];
+      // The host does not ready up; Force start is there only while someone is not ready.
+      const hosting = this.lobby?.hosting;
+      items = [...(hosting ? [this.startItem, ...(this.lobby!.notReady.length ? [this.forceItem] : [])] : []), ...(this.lobby?.awayFrom ? [this.rejoinItem] : []),
+        ...(hosting ? [] : [this.readyItem]), menuButton('Copy link', () => this.copy()), back('Leave', () => this.leave())];
     }
     this.list.replaceChildren(...items.map(i => i.el));
     if (this.nav) {
@@ -243,6 +267,15 @@ export class CoopScreen implements Screen {
         err,
         div('co-note', 'Keep this tab in front while friends are in: a hidden tab stops answering.'),
       );
+    } else if (this.page === 'join' && this.invited) {
+      this.panel.replaceChildren(
+        span('nt-office', 'Co-op'),
+        div('nt-head', span('nt-title', `Joining lobby ${this.joinCode.value}`)),
+        p('Enter the password the host gave you, then press Join.'),
+        field('Password', this.password),
+        this.joinButton,
+        err,
+      );
     } else if (this.page === 'join') {
       this.panel.replaceChildren(
         span('nt-office', 'Co-op'),
@@ -271,10 +304,31 @@ export class CoopScreen implements Screen {
       ? STAGE[lobby.stage]
       : lobby.count ? `Starting in ${lobby.count}${lobby.hosting ? ' · Start again to cancel' : ''}`
       : lobby.awayFrom ? 'The match is still on · Rejoin match to go back'
-      : lobby.hosting ? `Hosting · ${n} of ${MAX_PLAYERS}${n === 1 && !trying ? ' · Waiting for players…' : ''}${trying ? ` · ${trying} trying to connect` : ''}${waiting ? ` · ${waiting} not ready` : ''}`
+      : lobby.hosting ? `Hosting · ${n} of ${MAX_PLAYERS}${trying ? ` · ${trying} trying to connect` : ''}`
       : `Connected · ${n} of ${MAX_PLAYERS}`;
     this.status.classList.toggle('co-wait', lobby.phase === 'connecting' || lobby.count > 0);
     this.startItem.el.querySelector('.mi-t')!.textContent = lobby.count ? `Cancel (${lobby.count})` : 'Start';
+    this.startItem.el.classList.toggle('off', !lobby.count && waiting > 0);
+    this.forceItem.el.querySelector('.mi-t')!.textContent = performance.now() < this.forceArmed ? 'Sure? Click again' : 'Force start';
+    const pick = MODES.find(m => m.mode === lobby.pick.mode && m.map === lobby.pick.map)?.label ?? '';
+    const ready = lobby.me?.ready === true;
+    const step = (text: string, state: string) => span(`co-step ${state}`, text);
+    const arrow = () => span('co-arrow', '→');
+    this.guide.style.display = lobby.phase === 'open' && !lobby.count && !lobby.awayFrom ? '' : 'none';
+    if (lobby.hosting) {
+      this.guide.replaceChildren(n === 1 ? 'Waiting for players. Send them the invite link and tell them the password.'
+        : waiting ? `Waiting for ${lobby.notReady.map(p => p.name).join(', ')} to ready up. Start unlocks when everyone is ready, or use Force start.`
+        : 'Everyone is ready. Press Start.');
+    } else {
+      this.guide.replaceChildren(step('1. Pick your weapon (optional)', ready ? 'done' : ''), arrow(), step('2. Press READY', ready ? 'done' : 'now'), arrow(),
+        step(`3. The host starts the match${pick ? `: ${pick}` : ''}`, ready ? 'now' : ''));
+    }
+    // An untouched pick is the mode's gun, which the host's mode decides (startMatch).
+    const mine = lobby.starter ?? defaultStarter(lobby.pick.mode);
+    this.starter.querySelectorAll('.starter-card').forEach((el, i) => {
+      el.classList.toggle('selected', STARTERS[i] === mine);
+      el.setAttribute('aria-pressed', String(STARTERS[i] === mine));
+    });
     this.players.replaceChildren(
       ...(lobby.phase === 'connecting'
         ? [div('co-note', 'Looking for the host. This can take up to half a minute.')]
@@ -282,17 +336,18 @@ export class CoopScreen implements Screen {
           span('co-pname', pl.name),
           pl.host ? span('co-tag host', 'Host') : null,
           pl.id === lobby.you ? span('co-tag', 'You') : null,
-          span('co-tag', pl.starter?.toUpperCase() ?? 'Mode default'),
+          span('co-tag', (pl.starter ?? defaultStarter(lobby.pick.mode)).toUpperCase()),
           pl.away ? span('co-tag', 'In lobby') : null,
           span('co-ping', pl.host ? '' : pl.ping === undefined ? '… ms' : `${pl.ping} ms`),
-          span('co-ready', pl.ready ? 'Ready' : 'Not ready'),
+          span('co-ready', pl.host ? 'Starts the match' : pl.ready ? '✓ READY' : 'NOT READY'),
         ))),
     );
     this.modes.style.display = lobby.hosting ? '' : 'none';
     this.noteEl.textContent = this.lobbyNote;
     this.noteEl.style.display = this.lobbyNote ? '' : 'none';
-    const ready = lobby.me?.ready === true;
-    this.readyItem.el.querySelector('.mi-t')!.textContent = ready ? 'Ready: yes' : 'Ready: no';
+    this.readyItem.el.querySelector('.mi-t')!.textContent = ready ? 'Cancel ready' : 'READY';
+    this.readyItem.el.classList.toggle('on', ready);
+    this.callout.style.display = this.picked && !ready && lobby.phase === 'open' && !lobby.count ? '' : 'none';
     const atBottom = this.chatLog.scrollTop + this.chatLog.clientHeight >= this.chatLog.scrollHeight - 4;
     this.chatLog.replaceChildren(...lobby.chat.map(c => div(c.from === null ? 'co-line sys' : 'co-line', c.from ? span('co-from', `${c.from}: `) : null, c.text)));
     if (atBottom) this.chatLog.scrollTop = this.chatLog.scrollHeight;
@@ -343,12 +398,14 @@ export class CoopScreen implements Screen {
   private attach(lobby: Lobby, password: string): void {
     const preference = starterPreference();
     if (preference) lobby.setStarter(preference);
-    const cards = starterCards(preference, gun => { saveStarter(gun); lobby.setStarter(gun); });
+    this.picked = false;
+    const cards = starterCards(preference, gun => { saveStarter(gun); lobby.setStarter(gun); this.picked = true; this.paintLobby(); });
     for (const card of cards) {
       card.el.addEventListener('click', card.activate!);
       card.el.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') e.stopPropagation(); });
     }
-    this.starter.replaceChildren(span('nt-k', 'Your starter · untouched uses the mode default'), ...cards.map(card => card.el));
+    this.starter.replaceChildren(span('nt-k', 'Your weapon · already picked for you, change it if you like'), ...cards.map(card => card.el));
+    if (lobby.hosting) lobby.setPick(MODES[this.mode]!.mode, MODES[this.mode]!.map);
     this.roomPassword = password;
     lobby.onMatch = match => {
       try { deployMatch(this.code, this.roomPassword, lobby, match); }
@@ -360,13 +417,27 @@ export class CoopScreen implements Screen {
     };
     lobby.onChange = () => {
       if (lobby.phase === 'closed') return this.ended(lobby);
-      // The rejoin item comes and goes with the match the host still plays.
-      if (this.page === 'lobby' && this.list.contains(this.rejoinItem.el) !== !!lobby.awayFrom) this.go('lobby');
+      // The rejoin item comes and goes with the match the host still plays, and Force start with whoever is not ready.
+      if (this.page === 'lobby' && (this.list.contains(this.rejoinItem.el) !== !!lobby.awayFrom
+        || (lobby.hosting && this.list.contains(this.forceItem.el) !== lobby.notReady.length > 0))) this.go('lobby');
       else this.paintLobby();
     };
     lobby.onEnd = () => {};
     this.lobby = lobby;
     this.go('lobby');
+  }
+
+  /** Host: pulls everyone in as they are. The first press only arms it. */
+  private force(): void {
+    const lobby = this.lobby;
+    if (!lobby) return;
+    if (performance.now() >= this.forceArmed) {
+      this.forceArmed = performance.now() + 4000;
+      setTimeout(() => this.paintLobby(), 4100);
+      return this.paintLobby();
+    }
+    this.forceArmed = 0;
+    lobby.forceStart(MODES[this.mode]!.mode, MODES[this.mode]!.map);
   }
 
   private fail(message: string): void {

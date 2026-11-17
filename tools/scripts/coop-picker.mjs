@@ -34,10 +34,9 @@ export default async function (host, { sleep, outDir }) {
     await guest.goto(link);
 
     if (phone) {
-      await guest.locator('.scr-splash').waitFor({ state: 'visible', timeout: 120000 });
-      await shot(guest, 'phone-splash', true);
-      await guest.locator('.scr-splash').tap();
-      await guest.locator('input[type=password]').fill('picker'); await button(guest, 'Join').tap();
+      await guest.locator('input[type=password]').waitFor({ state: 'visible', timeout: 120000 });
+      await shot(guest, 'phone-join-page', true);
+      await guest.locator('input[type=password]').fill('picker'); await button(guest, 'Join lobby').tap();
       await sleep(1500);
       const text = await guest.locator('.co-panel').textContent();
       await shot(guest, 'phone-join', true);
@@ -58,7 +57,7 @@ export default async function (host, { sleep, outDir }) {
     check(out.stages.some(t => /Looking for lobby|Contacting lobby servers|Connecting to host/.test(t)) && /Connected/.test(out.stages.at(-1)), 'the join showed its stages', out.stages);
     out.ice = out.console.filter(line => /Peer connection/.test(line));
     check(out.ice.length > 0, 'the guest logged the ICE candidate kinds', out.console);
-    await button(host, 'The Crucible').click();
+    await button(host, 'Crucible mode').click();
     // Start with the guest not ready: refused, and the host is told who it waits on.
     await button(host, 'Start').click(); await sleep(800);
     const refused = await host.evaluate(() => ({ count: window.__op2 && document.querySelector('.scr-coop .nt-ref')?.textContent, chat: document.querySelector('.co-chat')?.textContent ?? '' }));
@@ -69,7 +68,7 @@ export default async function (host, { sleep, outDir }) {
     await readyUp(guest); await sleep(800);
     await button(host, 'Start').click(); await sleep(1200);
     check(/Starting in/.test(await host.locator('.scr-coop .nt-ref').textContent()), 'with everyone ready the count runs');
-    await guest.locator('.mi', { hasText: 'Ready: yes' }).click(); await sleep(1500);
+    await guest.locator('.co-readybtn.on').click(); await sleep(1500);
     const stopped = await host.locator('.co-chat').textContent();
     check(/cancelled/i.test(stopped) && !/Starting in/.test(await host.locator('.scr-coop .nt-ref').textContent()), 'a guest going unready stops the count', stopped.slice(-200));
 

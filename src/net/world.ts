@@ -112,6 +112,8 @@ export class CoopWorld {
       () => { for (const p of session.lobby.players) if (!p.host) this.validator.callIn(p.id, performance.now()); });
     this.off.push(ctx.events.on('weapon:fired', event => this.fire(event.weapon, event.origin, event.dir)));
     this.off.push(ctx.events.on('callin:used', event => this.broadcast({ t: 'callin', id: event.id, slot: session.lobby.me?.slot })));
+    // Sonar is shared; Thermal and Focus are each player's own and never sent.
+    this.off.push(ctx.events.on('sonar:ping', event => this.broadcast({ t: 'sonar', at: event.origin.toArray() as Vec, slot: session.lobby.me?.slot })));
     if (!session.hosting) {
       this.off.push(ctx.events.on('perk:start', e => { if (e.id === 'slowmo' || e.id === 'timeWarp') this.broadcast({ t: 'slow', id: e.id, on: true }); }));
       this.off.push(ctx.events.on('perk:end', e => { if (e.id === 'slowmo' || e.id === 'timeWarp') this.broadcast({ t: 'slow', id: e.id, on: false }); }));
@@ -236,6 +238,14 @@ export class CoopWorld {
         this.validator.callIn(from, now);
         for (const peer of this.session.lobby.players) if (!peer.host && peer.id !== from) this.broadcast({ ...value, slot: player.slot }, peer.id);
       }
+      return;
+    }
+    if (value.t === 'sonar') {
+      const player = this.session.hosting ? this.session.lobby.players.find(p => p.id === from) : this.session.lobby.players.find(p => p.slot === value.slot);
+      if (!player || player.id === this.session.lobby.you || !validVec(value.at)) return;
+      this.ctx.hud.feed(`${player.name} used sonar`, '#39e0ff');
+      this.ctx.contracts?.sonar.share?.(new THREE.Vector3(...value.at));
+      if (this.session.hosting) for (const peer of this.session.lobby.players) if (!peer.host && peer.id !== from) this.broadcast({ ...value, slot: player.slot }, peer.id);
       return;
     }
     if (this.session.hosting) {

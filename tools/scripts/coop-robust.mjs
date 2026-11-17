@@ -12,7 +12,7 @@ export default async function (host, { sleep, outDir }) {
   let guest, invite;
   const lag = (page, net) => page.evaluate(net => { window.__coopNet = net; }, net);
   try {
-    ({ guest, invite } = await startPair(host, { mode: 'The Crucible', password: 'coop-robust', out, progress, sleep }));
+    ({ guest, invite } = await startPair(host, { mode: 'Crucible mode', password: 'coop-robust', out, progress, sleep }));
     await inMatch([host, guest], 'crucible');
     for (const page of [host, guest]) await page.evaluate(() => { window.__op2.ctx.player.modifiers.invulnerable = true; });
     await guest.waitForFunction(() => window.__op2.ctx.enemies.alive.length >= 12, null, { timeout: 90000 });

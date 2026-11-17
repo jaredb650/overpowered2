@@ -19,13 +19,13 @@ export default async function officeMenu(page, { sleep, shot }) {
   out.survival = await read();
   await shot('survival');
   await item('Office').click(); await sleep(300);
-  await item('The Crucible').hover(); await sleep(400);
+  await item('Crucible mode').hover(); await sleep(400);
   out.crucible = await read();
   await shot('crucible');
-  await item('Endless Humans').hover(); await sleep(400);
+  await item('Endless Humans mode').hover(); await sleep(400);
   out.humans = await read();
   await shot('humans');
-  await item('Endless Humans').click(); await sleep(400);
+  await item('Endless Humans mode').click(); await sleep(400);
   out.starter = await read();
   const deploy = item('Deploy');
   if (await deploy.count()) {

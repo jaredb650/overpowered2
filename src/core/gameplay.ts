@@ -605,6 +605,8 @@ export interface SonarState {
   readonly limit: number;
   /** Seconds the enemies stay lit. */
   readonly live: number;
+  /** A co-op teammate pinged from `origin`: everyone sees what it lights. */
+  share?(origin: THREE.Vector3): void;
 }
 
 /** The page's contract. Code that runs before systems exist reads `ACTIVE` from contracts/select.ts instead. */

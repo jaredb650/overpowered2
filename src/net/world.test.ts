@@ -363,12 +363,28 @@ describe('stage 3: the team, the economy and what else crosses the wire', () => 
     expect(game.guest.ctx.time.clearScales).toHaveBeenCalled();
     game.hw.dispose(); game.gw.dispose();
   });
+  it("shares a sonar ping both ways with a feed line, and never a teammate's thermal or focus", () => {
+    const game = pair();
+    const hostSonar = { share: vi.fn() }, guestSonar = { share: vi.fn() };
+    Object.assign(game.host.ctx.contracts!, { sonar: hostSonar }); Object.assign(game.guest.ctx.contracts!, { sonar: guestSonar });
+    game.guest.ctx.events.emit('sonar:ping', { origin: new THREE.Vector3(1, 2, 3) }); game.relay.flush();
+    expect(hostSonar.share).toHaveBeenCalledWith(new THREE.Vector3(1, 2, 3));
+    expect(game.host.ctx.hud.feed).toHaveBeenCalledWith('GUEST used sonar', expect.any(String));
+    expect(guestSonar.share).not.toHaveBeenCalled();
+    game.host.ctx.events.emit('sonar:ping', { origin: new THREE.Vector3(4, 5, 6) }); game.relay.flush();
+    expect(guestSonar.share).toHaveBeenCalledWith(new THREE.Vector3(4, 5, 6));
+    expect(game.guest.ctx.hud.feed).toHaveBeenCalledWith('HOST used sonar', expect.any(String));
+    expect(hostSonar.share).toHaveBeenCalledOnce();
+    const sent = game.relay.packets.filter(p => p.lane === 'action').map(p => (p.data as { data: WorldEvent }).data.t);
+    expect(sent.filter(t => t === 'sonar')).toHaveLength(2);
+    game.hw.dispose(); game.gw.dispose();
+  });
   it('survives junk from a peer: wrong types, missing fields, huge numbers', () => {
     const game = pair();
     const junk: unknown[] = [null, 7, 'x', [], { t: 9 }, { t: 'kill' }, { t: 'hurt', amount: 'lots' }, { t: 'team', list: 'no' }, { t: 'team', list: [{ slot: 'a' }] },
       { t: 'up', slot: 99, life: 1 }, { t: 'wave', kind: 'start', wave: -1 }, { t: 'over', cards: 3 }, { t: 'restore', credits: 'x' }, { t: 'boom', at: 'here' },
       { t: 'callin', id: 42 }, { t: 'hitfx', uid: 'q' }, { t: 'sever', uid: 1, region: 'soul' }, { t: 'chatter', line: 1e9 }, { t: 'card', card: null },
-      { t: 'revive', slot: -4 }, { t: 'slow', id: 'x', on: 'yes' }, { t: 'hit', target: 'all' }, { t: 'life', alive: 'no' }];
+      { t: 'sonar', at: 'here' }, { t: 'sonar', at: [1, 2, 3], slot: 9 }, { t: 'revive', slot: -4 }, { t: 'slow', id: 'x', on: 'yes' }, { t: 'hit', target: 'all' }, { t: 'life', alive: 'no' }];
     for (const data of junk) { send(game, 'host', data as WorldEvent); send(game, 'guest', data as WorldEvent); }
     expect(game.host.player.alive).toBe(true); expect(game.guest.player.alive).toBe(true);
     expect(game.hw.team.final).toBeNull();

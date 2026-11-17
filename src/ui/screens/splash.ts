@@ -24,6 +24,11 @@ export class SplashScreen implements Screen {
   open(nav: Nav): void {
     const deploy = takeDeploy();
     if (deploy) this.go.textContent = `Click to deploy: ${ACTIVE.def.name}`;
+    // An invite link skips the splash for its password page: typing the password or pressing Join is the gesture audio needs.
+    else if (INVITE) {
+      this.ctx.audio.music?.('menu');
+      return this.hud.screens.show('coop');
+    }
     const enter = () => {
       this.ctx.audio.unlock?.();
       if (deploy) {
@@ -31,8 +36,7 @@ export class SplashScreen implements Screen {
         return;
       }
       this.ctx.audio.music?.('menu');
-      // An invite link goes straight to joining that lobby.
-      this.hud.screens.show(INVITE ? 'coop' : 'menu');
+      this.hud.screens.show('menu');
     };
     nav.set([{ el: this.el, activate: enter }]);
     nav.back = null;

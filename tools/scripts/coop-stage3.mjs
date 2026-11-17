@@ -11,10 +11,10 @@ export default async function (host, { sleep, outDir }) {
   const { check, progress, shot } = kit(outDir, 'stage3', out, sleep);
   let guest;
   try {
-    ({ guest } = await startPair(host, { mode: 'The Crucible', password: 'coop-stage3', out, progress, sleep, startNow: false }));
+    ({ guest } = await startPair(host, { mode: 'Crucible mode', password: 'coop-stage3', out, progress, sleep, startNow: false }));
     await host.waitForFunction(() => /\d+ ms/.test(document.querySelector('.co-ping:not(:empty)')?.textContent ?? ''), null, { timeout: 15000 });
     await shot(host, 'lobby-ping', true);
-    await button(host, 'The Crucible').click(); await button(host, 'Start').click();
+    await button(host, 'Crucible mode').click(); await button(host, 'Start').click();
     await guest.waitForFunction(() => /Starting in/.test(document.querySelector('.scr-coop .nt-ref')?.textContent ?? ''), null, { timeout: 8000 });
     await shot(guest, 'lobby-countdown', true);
     check(true, 'Lobby shows ping and a start countdown on the guest');

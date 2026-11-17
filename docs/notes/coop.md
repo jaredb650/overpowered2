@@ -9,10 +9,13 @@ part disagree (respawn timers, free roam, the pose and snapshot formats), this t
 
 1. Play > Multiplayer > Host a lobby. Pick a password. Send your friends the invite link (Copy link) and tell them the password.
 2. Each friend opens the link **on a computer** (phones and touch-only tablets are told the game needs keyboard and mouse, and cannot
-   join), clicks once, types the password, Join. Up to four of you. Everyone can set a callsign and pick a starter gun.
-3. Everyone presses Ready. The host picks a mode (the Crucible, Endless Humans, Outpost Defense, either on the Office, or mission 1 or 2)
-   and presses Start: refused, with a line naming who, until every friend is ready. A five-second countdown runs on every screen;
-   Start again cancels it, and so does a friend going unready (back to pick a gun) or joining.
+   join). The link skips the splash and opens on "Joining lobby CODE" with the password field focused: type it, Join lobby. Up to
+   four of you. Everyone can set a callsign; the mode's starter gun (SMG, or the Harrow in Endless Humans) is already picked.
+3. A guest sees "1. Pick your weapon (optional) → 2. Press READY → 3. The host starts the match"; a pick points a callout at READY.
+   The host picks a mode (Crucible mode, Endless Humans mode, Outpost Defense mode, either of the first two on the Office, or mission
+   1 or 2), which guests see, and presses Start: dimmed and refused, with "Waiting for X to ready up", until every friend is ready.
+   A five-second countdown runs on every screen; Start again cancels it, and so does a friend going unready or joining. While
+   someone is not ready the host also has **Force start** (press twice): it starts at once, each guest on their pick or the mode's gun.
 4. Play. Tab shows the team board, Enter opens chat, E beside a downed friend revives them. Esc opens a menu over the live game.
 5. When everyone is down (or the mission is won) the final board shows and everyone lands back in the same lobby. The host's
    "End match (all to lobby)" does the same at any time; a friend's "Leave match (to lobby)" steps out while the others play on,
@@ -69,7 +72,12 @@ a co-op run), `EnemyManager.placeReplica` (posture), `allies/fire.ts` (garrison 
   stops with "Lost the connection to the host".
 - **Start.** The host's Start counts down 5 s for everyone (`countdown`); Start again cancels. It waits for every guest to be ready, and a
   guest going unready or a new guest stops the count (`holdCount`). The match handoff takes each player's own starter pick (`Lobby.starter`),
-  so a pick made as the count ran out is the gun they get even if the host's list had not caught up.
+  so a pick made as the count ran out is the gun they get even if the host's list had not caught up. `forceStart` skips the ready
+  check (a lobby line names who was not ready) and goes through the same `startMatch`. The host's mode pick rides on the lobby list
+  (`pick`), so a guest's untouched starter shows the gun `startMatch` will give it.
+- **Sonar is shared.** A player's `sonar:ping` goes out as `{ t: 'sonar', at }` (the host relays a guest's to the others); every other
+  player runs the same ring and reveal from that point (`Sonar.share`, their own cooldown untouched) with "<callsign> used sonar" in the
+  feed. Thermal is never sent, and Focus does nothing in co-op (`clock()` keeps only the shared slow-mo scales).
 - **Joining, in stages.** A guest's status line reads Contacting lobby servers… (no Nostr relay socket open yet), Looking for lobby…,
   Connecting to host… (an offer or answer came back: WebRTC/ICE under way), Checking version…, then Connected. No relay in 10 s stops
   with 'relays'; at 30 s the stage that stalled names the error ('connect' when a host was found but never connected, else 'no-host').

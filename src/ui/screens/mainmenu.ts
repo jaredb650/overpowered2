@@ -41,6 +41,9 @@ export const SURVIVAL_MAPS: readonly { name: string; map: MapId }[] = [
 /** The survival modes that play on a map: every contract there, or also there (`alsoOn`), that is not a mission. */
 export const modesOn = (map: MapId): ContractDef[] => CONTRACTS.filter(c => !c.mission && playsOn(c, map));
 
+/** A mode's name under a map: "The Crucible" is also a map, so its mode reads "Crucible mode" and never looks like a map. */
+export const modeName = (c: ContractDef): string => `${c.id === 'crucible' ? 'Crucible' : c.name} mode`;
+
 /** A contract on one of its maps: what a leaf of the tree plays. */
 interface Mode { contract: ContractDef; map: MapId }
 const mode = (contract: ContractDef, map: MapId = contract.map): Mode => ({ contract, map });
@@ -94,7 +97,7 @@ export class MainMenu implements Screen {
     const mapLevels: Level[] = [];
     for (const { name, map } of SURVIVAL_MAPS) {
       const modes = modesOn(map);
-      const level = this.makeLevel(`Play / Survival / ${name}`, survival, modes.map(c => [this.leaf(c.name, mode(c, map)), mode(c, map)]));
+      const level = this.makeLevel(`Play / Survival / ${name}`, survival, modes.map(c => [this.leaf(modeName(c), mode(c, map)), mode(c, map)]));
       mapLevels.push(level);
       if (map === 'crucible') this.crucibleModes = level;
       const item = menuButton(name, () => this.enter(level));

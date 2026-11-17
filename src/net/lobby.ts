@@ -48,6 +48,8 @@ export type CoopMode = typeof COOP_MODES[number];
 export const COOP_MAPS = ['office'] as const;
 export type CoopMap = typeof COOP_MAPS[number];
 export interface Match { id: string; mode: CoopMode; map?: CoopMap }
+/** The mode the host has selected, before any match: guests see it, and their untouched starter follows it. */
+export type ModePick = Omit<Match, 'id'>;
 export const validMatch = (m: unknown): m is Match => !!m && typeof m === 'object'
   && typeof (m as Match).id === 'string' && /^[a-zA-Z0-9-]{1,64}$/.test((m as Match).id)
   && COOP_MODES.includes((m as Match).mode)
@@ -58,7 +60,7 @@ type Msg =
   | { t: 'started'; id: string }
   | { t: 'hello'; v: string; name: string; host: boolean; deployed?: boolean; starter?: StarterGun; born?: number; browser?: string }
   | { t: 'set'; name: string; ready: boolean; starter?: StarterGun }
-  | { t: 'lobby'; you: string; players: LobbyPlayer[] }
+  | { t: 'lobby'; you: string; players: LobbyPlayer[]; pick?: ModePick }
   | { t: 'chat'; from: string | null; text: string }
   /** Host to guest and back: the round trip is the ping, and any message at all is the heartbeat. */
   | { t: 'ping'; n: number }
@@ -112,6 +114,8 @@ export class Lobby {
   onLine: (line: ChatLine) => void = () => {};
   /** Seconds left on the host's start countdown, 0 when none runs. */
   count = 0;
+  /** The host's selected mode (setPick); guests follow it from the host's list. */
+  pick: ModePick = { mode: 'crucible' };
   /** Guest: the match the host is still playing after this guest went back to the lobby page. */
   awayFrom: Match | null = null;
   /** Host ended the match: everyone's game goes back to the lobby page. */
@@ -253,6 +257,13 @@ export class Lobby {
     this.change();
   }
 
+  /** Host: the mode selected in the picker, sent to guests with the list. */
+  setPick(mode: CoopMode, map?: CoopMap): void {
+    if (!this.hosting) return;
+    this.pick = map ? { mode, map } : { mode };
+    this.broadcast();
+  }
+
   setReady(ready: boolean): void {
     this.ready = ready;
     this.change();
@@ -307,6 +318,16 @@ export class Lobby {
       this.startMatch(mode, undefined, map);
     }, 1000);
     return true;
+  }
+
+  /**
+   * Host: start now without waiting for the guests who are not ready, after the host confirmed it. They come in with the gun
+   * they picked, or the mode's (startMatch). Start with its ready check stays the normal way in.
+   */
+  forceStart(mode: CoopMode, map?: CoopMap): boolean {
+    if (!this.hosting || this.phase !== 'open' || this.match) return false;
+    if (this.notReady.length) this.post(null, `The host started without waiting for ${this.names(this.notReady)}.`);
+    return this.startMatch(mode, undefined, map);
   }
 
   private names(players: LobbyPlayer[]): string {
@@ -519,6 +540,8 @@ export class Lobby {
       if (fresh) this.onMatch(msg.match);
     } else if (msg.t === 'lobby' && Array.isArray(msg.players)) {
       this.you = clean(msg.you, 64);
+      const pick = msg.pick;
+      if (pick && COOP_MODES.includes(pick.mode) && (pick.map === undefined || COOP_MAPS.includes(pick.map))) this.pick = pick.map ? { mode: pick.mode, map: pick.map } : { mode: pick.mode };
       this.players = msg.players.slice(0, 8).map(p => ({
         id: clean(p?.id, 64),
         name: clean(p?.name, NAME_MAX) || 'PLAYER',
@@ -607,7 +630,7 @@ export class Lobby {
   }
 
   private broadcast(): void {
-    for (const p of this.players) if (p.id !== HOST_ID) this.ch.send({ t: 'lobby', you: p.id, players: this.players }, p.id);
+    for (const p of this.players) if (p.id !== HOST_ID) this.ch.send({ t: 'lobby', you: p.id, players: this.players, pick: this.pick }, p.id);
     this.onChange();
   }
 

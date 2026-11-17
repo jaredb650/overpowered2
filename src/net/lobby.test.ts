@@ -326,6 +326,32 @@ describe('co-op lobby', () => {
     expect(h.count).toBe(0); expect(h.chat.at(-1)?.text).toBe('Start cancelled: LATE not ready.');
   });
 
+  it("an untouched starter follows the host's mode, which every guest sees before the start", () => {
+    const h = host(); const g = guest(); hub.flush();
+    expect(g.pick).toEqual({ mode: 'crucible' });
+    h.setPick('outpost', 'office'); hub.flush();
+    expect(g.pick).toEqual({ mode: 'outpost', map: 'office' });
+    g.setReady(true); hub.flush();
+    h.startMatch('outpost', 'picked', 'office'); hub.flush();
+    expect(g.me!.starter).toBe('harrow');
+  });
+
+  it('force start pulls in a guest who is not ready, with the gun it picked or the mode default', () => {
+    const h = host(); const picker = guest('pw', 'b1', 'PICKER'); const idle = guest('pw', 'b1', 'IDLE'); hub.flush();
+    picker.setStarter('gimlet'); hub.flush();
+    const started: string[] = [];
+    for (const l of [h, picker, idle]) l.onMatch = m => started.push(m.id);
+    expect(h.countdown('crucible')).toBe(false);
+    expect(picker.forceStart('crucible')).toBe(false);
+    expect(h.forceStart('crucible')).toBe(true); hub.flush();
+    expect(started).toHaveLength(3);
+    expect(idle.chat.at(-1)?.text).toBe('The host started without waiting for PICKER, IDLE.');
+    expect([picker.match?.mode, idle.match?.mode]).toEqual(['crucible', 'crucible']);
+    expect(picker.starter).toBe('gimlet');
+    expect(idle.me!.starter).toBe('smg');
+    expect(h.forceStart('crucible')).toBe(false);
+  });
+
   it("a guest's own pick goes with it into the match even when the host's list has not caught up", () => {
     const h = host(); const g = guest(); hub.flush();
     g.setReady(true); g.setStarter('harrow'); hub.flush();

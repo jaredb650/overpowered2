@@ -60,6 +60,8 @@ export type WorldEvent =
   | { t: 'boom'; at: Vec; kind: string; radius: number; slot?: number; damage?: number; source?: string }
   /** Someone called a strike or an aircraft in: a feed line for the others. */
   | { t: 'callin'; id: string; slot?: number }
+  /** Someone's Sonar went out from `at`: everyone sees what it lights, with a feed line. */
+  | { t: 'sonar'; at: Vec; slot?: number }
   /** Guest to host: my slow-mo perk started (`on`) or ended. The host slows the world for everyone. */
   | { t: 'slow'; id: string; on: boolean }
   /** Host to guests: the host's tab went to the background (`on`) or came back. */

@@ -63,16 +63,22 @@ export class Sonar implements SonarState {
     events.emit('sonar:tap', {});
   }
 
-  private ping(): void {
+  /** A co-op teammate's ping (net/world.ts): the same ring and reveal from where they stood. This player's cooldown is untouched. */
+  share(origin: THREE.Vector3): void {
+    this.ping(origin);
+  }
+
+  /** `from` is a teammate's ping, which is theirs: it is not sent on again. */
+  private ping(from?: THREE.Vector3): void {
     const { audio, events, player, render, world } = this.ctx;
-    this.origin.copy(player.eye);
+    this.origin.copy(from ?? player.eye);
     this.live = SONAR.reveal;
     world.bounds.getSize(_size);
     const reach = Math.hypot(_size.x, _size.z) * SONAR.sweepShare;
     this.speed = reach / SONAR.sweepSeconds;
     audio.play('sonar_ping', { unaffectedByTime: true });
     render.sweep(this.origin, SONAR.ringColor, this.speed, reach);
-    events.emit('sonar:ping', { origin: this.origin });
+    if (!from) events.emit('sonar:ping', { origin: this.origin });
   }
 
   private reveal(): void {

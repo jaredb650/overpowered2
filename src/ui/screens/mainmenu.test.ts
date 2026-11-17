@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CONTRACTS } from '../../contracts/data';
-import { CAMPAIGN, SURVIVAL_MAPS, modesOn } from './mainmenu';
+import { CAMPAIGN, SURVIVAL_MAPS, modeName, modesOn } from './mainmenu';
 
 describe('the main menu tree', () => {
   it('lists the missions in order under Campaign', () => {
@@ -14,6 +14,10 @@ describe('the main menu tree', () => {
       ['Outpost', ['defense']],
       ['Office', ['crucible', 'outpost']],
     ]);
+  });
+
+  it('names modes as modes, so the Crucible under Office never reads as a map', () => {
+    expect(modesOn('office').map(modeName)).toEqual(['Crucible mode', 'Endless Humans mode']);
   });
 
   it('reaches every contract, so a new row cannot fall off the menu', () => {

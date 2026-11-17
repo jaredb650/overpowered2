@@ -177,7 +177,7 @@ export class RulesScreen implements Screen {
     this.el = div('scr scr-sheet scr-rules',
       div('sh-side',
         span('sh-title', 'Rules'),
-        span('rl-sub', 'The Crucible'),
+        span('rl-sub', 'Crucible mode'),
         state,
         div('rl-plan', span('rl-plan-k', 'Juggernaut'), planJ, span('rl-plan-k', 'Titan'), planT),
         span('rl-hint', 'Growing is one Juggernaut, and one more every 15 waves. A wave both bosses share brings the Titan alone.'),

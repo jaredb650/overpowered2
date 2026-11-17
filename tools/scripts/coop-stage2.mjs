@@ -78,9 +78,9 @@ export default async function (host, { sleep, outDir }) {
     progress('guest entered password; waiting for roster');
     await guest.locator('.co-player').nth(1).waitFor({ state: 'visible', timeout: 60000 });
     await guest.locator('.co-field input').first().fill('GUEST-TWO'); await guest.locator('.co-field input').first().press('Enter');
-    await guest.locator('.mi', { hasText: 'Ready: no' }).click();
+    await guest.locator('.co-readybtn:not(.on)').click();
     progress('both in lobby; starting Crucible');
-    await sleep(600); await button(host, 'The Crucible').click(); await button(host, 'Start').click();
+    await sleep(600); await button(host, 'Crucible mode').click(); await button(host, 'Start').click();
     await host.waitForURL(/contract=crucible/, { timeout: 60000 }); await guest.waitForURL(/contract=crucible/, { timeout: 60000 });
     progress('both loading Crucible');
     for (const page of [host, guest]) {

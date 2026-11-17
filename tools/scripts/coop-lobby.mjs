@@ -60,7 +60,7 @@ export default async function (host, { sleep, outDir }) {
   await name.press('Enter');
   await guest.locator('.co-chat + .co-input').fill('hello from the guest');
   await guest.keyboard.press('Enter');
-  await button(guest, 'Ready: no').click();
+  await guest.locator('.co-readybtn:not(.on)').click();
   await host.locator('.co-chat + .co-input').fill('welcome in');
   await host.keyboard.press('Enter');
   await sleep(2000);
