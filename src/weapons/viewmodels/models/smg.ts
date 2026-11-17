@@ -5,7 +5,7 @@
 import { Kit } from '../kit/kit';
 import { Model } from '../kit/model';
 import { F } from '../kit/finishes';
-import type { Mesher } from '../kit/mesher';
+import { Kind, type Mesher } from '../kit/mesher';
 import { curve, honeycomb, poly, rect, slot, type V2 } from '../kit/shapes';
 import { coil, knurl, rail, screwX } from '../kit/details';
 import { bump, hold, inOut, inQuad, outCubic, seg, thud } from '../curves';
@@ -217,16 +217,63 @@ function stock(m: Mesher): void {
     m.use(F.anodized);
     m.lathe([[0, 0.195, 0], [0.0135, 0.195], [0.0135, 0.1445], [0.0165, 0.143], [0.0165, 0.1375], [0.0145, 0.136], [0.0145, 0.1215, 0]], 20);
   });
-  m.use(F.polymer);
-  m.mirror(() => {
-    m.at([0.0125, 0.03, 0.165], null, () => m.cyl(0.0034, 0.1, 10));
+  // The issued wire stock: two rods and a plate. The shop's full stock (`smgStock`) takes its place on the same tube.
+  m.part('stockStd', [0, 0, 0], () => {
+    m.use(F.polymer);
+    m.mirror(() => {
+      m.at([0.0125, 0.03, 0.165], null, () => m.cyl(0.0034, 0.1, 10));
+    });
+    m.at([0, 0.012, 0.218], null, () => m.side(poly([[-0.009, 0.042], [0.009, 0.04], [0.012, -0.062, 0.006], [-0.009, -0.058, 0.005]], 0.002), 0.03, { bevel: 0.002 }));
   });
-  m.at([0, 0.012, 0.218], null, () => m.side(poly([[-0.009, 0.042], [0.009, 0.04], [0.012, -0.062, 0.006], [-0.009, -0.058, 0.005]], 0.002), 0.03, { bevel: 0.002 }));
+  m.part('stockFull', [0, 0, 0], () => {
+    // A grey polymer body round the tube with a lightening cut through it, a dark stippled cheek rest, a rubber butt pad.
+    m.use(F.polymerGrey);
+    const body = poly([[0.15, 0.057], [0.172, 0.0625, 0.006], [0.262, 0.0645, 0.004], [0.281, 0.061, 0.004], [0.283, -0.056, 0.005],
+      [0.272, -0.066, 0.006], [0.2, -0.012, 0.012], [0.163, 0.017, 0.008], [0.15, 0.02]], 0.002);
+    const cut = poly([[0.2, 0.032], [0.255, 0.032], [0.258, -0.038], [0.212, 0.002]], 0.007);
+    m.side(body, 0.032, { bevel: 0.0022, holes: [cut] });
+    m.use(F.polymerStipple);
+    m.at([0, 0.0655, 0], null, () => m.top(rect(-0.0135, 0.178, 0.0135, 0.258, 0.005), 0.004, { bevel: 0.0012 }));
+    m.use(F.rubber);
+    m.side(poly([[0.279, 0.066], [0.293, 0.064], [0.296, -0.058], [0.283, -0.068]], 0.004), 0.035, { bevel: 0.002 });
+    // Adjustment lever under the tube, a sling cup on each side, screws through the collar.
+    m.use(F.steelDark);
+    m.at([0, 0.014, 0.172], null, () => m.box(0.009, 0.006, 0.022, 0.0012));
+    m.mirror(() => {
+      m.at([0.0165, -0.034, 0.262], [0, Math.PI / 2, 0], () => m.cyl(0.0056, 0.003, 14));
+      m.use(F.black);
+      m.at([0.0176, -0.034, 0.262], [0, Math.PI / 2, 0], () => m.cyl(0.0032, 0.0012, 12));
+      m.use(F.steelDark);
+      screwX(m, 0.0165, 0.046, 0.158, 1);
+    });
+  });
 }
 
-/** How far the stock magazine and the extended one (the shop's, 45 rounds) reach below the well. */
+/** How far the stock magazine and the extended one (the shop's, 50 rounds) reach below the well. */
 const MAG_FOOT = -0.135;
-const EXT_FOOT = -0.2;
+const EXT_FOOT = -0.218;
+
+/** The shop's mag tape: matte olive gaffer cloth, and its pull tab folded back on itself, a shade of coyote. */
+const TAPE = { color: 0x4a5040, rough: 0.92, metal: 0, wear: 0, kind: Kind.fabric };
+const TAB = { color: 0x6c5f47, rough: 0.9, metal: 0, wear: 0, kind: Kind.fabric };
+
+/**
+ * Two wraps of tape round the magazine's upper body, above the long one's sleeve so they sit on either, and a pull tab off
+ * the front of the lower wrap where the off hand's fingers land. In the mag's part, so it goes out and back with the reload.
+ */
+function tape(m: Mesher): void {
+  m.part('tape', [0, 0, 0], () => {
+    const hole = rect(-0.0135, -0.0213, 0.0135, 0.0213, 0.0018);
+    for (const y of [-0.056, -0.096]) {
+      m.use(TAPE);
+      m.at([0, y, 0], null, () => m.top(rect(-0.0148, -0.0227, 0.0148, 0.0227, 0.0032), 0.0125, { bevel: 0.0006, holes: [hole] }));
+      // The wrap's end lapped over itself on the right face.
+      m.at([0.0151, y + 0.0003, 0.006], null, () => m.box(0.0008, 0.0122, 0.012, 0.0003));
+    }
+    m.use(TAB);
+    m.at([0, -0.096, -0.0222], null, () => m.side(poly([[0, 0.0055], [-0.012, 0.002, 0.003], [-0.014, -0.0085, 0.003], [0, -0.0055]], 0.001), 0.0105, { bevel: 0.0007 }));
+  });
+}
 
 /**
  * One magazine body down to `foot`, in the mag's part space: polymer with ribs, a witness window with the brass stack and its
@@ -275,12 +322,13 @@ function magBody(m: Mesher, foot: number, follower: string, ext: boolean): void 
 }
 
 function magazine(m: Mesher): void {
-  // Lives in part space: origin at the magwell mouth, feed lips up. The stock thirty and the shop's forty-five (`smgMag`) are
-  // both in it, one shown at a time (ModLook.hides), so the reload carries whichever is fitted.
+  // Lives in part space: origin at the magwell mouth, feed lips up. The stock thirty and the shop's fifty (`smgMag`) are
+  // both in it, one shown at a time (ModLook.hides), so the reload carries whichever is fitted, and the tape on it.
   m.part('mag', [0, -0.012, -0.068], () => {
     m.at([0, 0, 0], [0.07, 0, 0], () => {
       m.part('magStd', [0, 0, 0], () => magBody(m, MAG_FOOT, 'follower', false));
       m.part('magExt', [0, 0, 0], () => magBody(m, EXT_FOOT, 'followerExt', true));
+      tape(m);
       // Feed lips and the top round.
       m.use(F.steelDark);
       m.mirror(() => m.at([0.0098, 0.0295, 0], null, () => m.box(0.0024, 0.0065, 0.038, 0.0006)));
@@ -402,6 +450,7 @@ function clip(a: Anim, left: boolean): void {
 
 const SMG_MODS: ViewDef['mods'] = {
   suppressor: { part: 'suppressor', muzzle: 'muzzleCan' }, smgMag: { part: 'magExt', hides: 'magStd' }, smgLight: { part: 'light' },
+  smgTape: { part: 'tape' }, smgStock: { part: 'stockFull', hides: 'stockStd' },
 };
 
 export function smgDefs(kit: Kit): { right: ViewDef; left: ViewDef } {

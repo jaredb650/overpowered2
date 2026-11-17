@@ -49,6 +49,8 @@ export type ModId = 'awlAcog' | 'awlCan' | 'awlAp' | 'awlHp' | 'suppressor' | 'r
   | 'autorafficaMag'
   // Extended magazines for the SMG, the Rivet and the Piledriver (a box), and the Gimlet's short barrel.
   | 'smgMag' | 'rivetMag' | 'piledriverBox' | 'gimletShort'
+  // The SMG's mag tape and stock.
+  | 'smgTape' | 'smgStock'
   // The weapon light, one a gun: every rifle, shotgun and pistol (weapons/mods.ts LIGHT_GUNS).
   | 'smgLight' | 'gimletLight' | 'harrowLight' | 'awlLight' | 'shotgunLight' | 'thresherLight' | 'deuceLight'
   | 'judgeLight' | 'rivetLight' | 'ultramagLight' | 'autorafficaLight';

@@ -56,8 +56,11 @@ export class AdsZoom {
   /** The key is still down from a breath that ended: it has to come up before the next. */
   private latch = false;
   private readonly seen = load();
+  /** Seconds this breath lasts: `breath.hold` as it was taken (a stock's is longer, WeaponDef.breath). */
+  private hold: number = ADS_ZOOM.hold;
 
-  update(dt: number, aimed: boolean, key: boolean): void {
+  /** `breath`: the gun's hold and cooldown, seconds; ADS_ZOOM's own unless a mod changes them (the SMG's stock). */
+  update(dt: number, aimed: boolean, key: boolean, breath: { readonly hold: number; readonly cooldown: number } = ADS_ZOOM): void {
     // Counted as an aim starts: the aim that takes it past `hintShows` is the first without it.
     if (aimed && !this.aimed && this.hint) this.save('shows');
     this.aimed = aimed;
@@ -66,14 +69,15 @@ export class AdsZoom {
     const wants = aimed && key;
     if (this.on) {
       this.held += dt;
-      if (!wants || this.held >= ADS_ZOOM.hold) {
+      if (!wants || this.held >= this.hold) {
         this.on = false;
         this.latch = wants;
-        this.cool = this.coolFrom = ADS_ZOOM.cooldown * Math.min(1, this.held / ADS_ZOOM.hold);
+        this.cool = this.coolFrom = breath.cooldown * Math.min(1, this.held / this.hold);
       }
     } else if (wants && !this.latch && this.cool <= 0) {
       this.on = true;
       this.held = 0;
+      this.hold = breath.hold;
       this.save('uses');
     }
     this.t = clamp(this.t + (this.on ? dt : -dt) / ADS_ZOOM.ease);
@@ -91,7 +95,7 @@ export class AdsZoom {
 
   /** The bar: breath left while on, the cooldown refilling after. */
   get breath(): number {
-    if (this.on) return 1 - this.held / ADS_ZOOM.hold;
+    if (this.on) return 1 - this.held / this.hold;
     return this.coolFrom > 0 ? 1 - this.cool / this.coolFrom : 1;
   }
 

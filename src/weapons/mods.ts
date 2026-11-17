@@ -6,6 +6,7 @@
  */
 import type { AmmoLoad } from '../core/contracts';
 import type { ModId, WeaponId } from '../core/gameplay';
+import { ADS_ZOOM } from './adsZoom';
 import { AMMO, WEAPONS, breakLoad, type WeaponDef } from './data';
 
 export interface ModDef {
@@ -91,8 +92,14 @@ export const MODS: Readonly<Record<ModId, ModDef>> = {
   // A short barrel cut back to the launcher's mouth: the gas port nearer the muzzle cycles it 15% faster (800 to 920 a minute,
   // a short carbine's real gain). The can screws onto it and the launcher still fits, so it stacks with both.
   gimletShort: { id: 'gimletShort', weapon: 'gimlet', name: 'Short barrel', slot: 'barrel', patch: { interval: WEAPONS.gimlet.interval / 1.15 } },
-  // Extended magazines: more rounds and nothing else. The Piledriver's is a box twice the size, 100 rounds of belt where it was 50.
-  smgMag: { id: 'smgMag', weapon: 'smg', name: 'Extended magazine', slot: 'mag', patch: { magSize: 45 } },
+  // Extended magazines: more rounds and nothing else. The Piledriver's is a box twice the size, 100 rounds of belt where it was 50;
+  // the SMG's a 50-round stick where it was 30.
+  smgMag: { id: 'smgMag', weapon: 'smg', name: 'Extended magazine', slot: 'mag', patch: { magSize: 50 } },
+  // Cloth tape round the SMG's magazine with a pull tab: the hand finds it first time, and a reload is 30% quicker (1.0 to 0.7 s),
+  // well inside the Gimlet's 1.02 s. Its own slot, so it stacks with the long magazine.
+  smgTape: { id: 'smgTape', weapon: 'smg', name: 'Mag tape', slot: 'loader', patch: {}, adjust: d => ({ reloadTime: d.reloadTime * 0.7 }) },
+  // A full stock with a cheek rest: the held-breath zoom (adsZoom.ts) holds 60% longer (3.5 to 5.6 s) and cools 30% sooner (2.5 to 1.75 s).
+  smgStock: { id: 'smgStock', weapon: 'smg', name: 'Stock', patch: { breath: { hold: ADS_ZOOM.hold * 1.6, cooldown: ADS_ZOOM.cooldown * 0.7 } } },
   rivetMag: { id: 'rivetMag', weapon: 'rivet', name: 'Extended magazine', slot: 'mag', patch: { magSize: 22 } },
   piledriverBox: { id: 'piledriverBox', weapon: 'piledriver', name: 'Extended box', slot: 'mag', patch: { magSize: 100 } },
   smgAp: rounds('smg', 'ap'), smgHp: rounds('smg', 'hp'),
@@ -138,7 +145,7 @@ export const MOD_ORDER: readonly ModId[] = [
   'autorafficaAp', 'autorafficaHp', 'autorafficaPlusP', 'autorafficaMag',
   'sabotBrake', 'trommel12',
   'ultramagCan', 'ultramagDot', 'ultramagLam', 'ultramagMag',
-  'smgMag', 'gimletShort', 'rivetMag', 'piledriverBox',
+  'smgMag', 'smgTape', 'smgStock', 'gimletShort', 'rivetMag', 'piledriverBox',
   'deuceQuad', 'deuceLoader', 'shotgunChoke', 'judgeHammer', 'judgeGrip',
   ...LIGHT_GUNS.map(lightOf),
 ];

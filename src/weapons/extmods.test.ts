@@ -1,4 +1,4 @@
-/** Extended magazines (SMG 45, Rivet 22, the Piledriver's 100-round box) and the Gimlet's short barrel: the numbers, and the look. */
+/** Extended magazines (SMG 50, Rivet 22, the Piledriver's 100-round box) and the Gimlet's short barrel: the numbers, and the look. */
 import * as THREE from 'three';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ModId, WeaponId } from '../core/gameplay';
@@ -32,7 +32,7 @@ function fit(id: ModId, on = true): void {
 }
 
 describe('extended magazines', () => {
-  const MAGS: readonly [ModId, WeaponId, number][] = [['smgMag', 'smg', 45], ['rivetMag', 'rivet', 22], ['piledriverBox', 'piledriver', 100]];
+  const MAGS: readonly [ModId, WeaponId, number][] = [['smgMag', 'smg', 50], ['rivetMag', 'rivet', 22], ['piledriverBox', 'piledriver', 100]];
 
   it('hold more, in a mag slot, and change nothing else', () => {
     expect(WEAPONS.piledriver.magSize).toBe(50);
@@ -62,13 +62,13 @@ describe('extended magazines', () => {
     }
   });
 
-  it('the SMG fires all 45 on one magazine', () => {
+  it('the SMG fires all 50 on one magazine', () => {
     draw('smg');
     fit('smgMag');
     r.tap('reload');
     r.run(WEAPONS.smg.reloadTime + 0.3);
     r.input.simulate('fire', true);
-    r.run(45 * WEAPONS.smg.interval + 0.4);
+    r.run(50 * WEAPONS.smg.interval + 0.4);
     r.input.simulate('fire', false);
     expect(r.weapons.ammo('smg').mag).toBe(0);
   });
@@ -142,6 +142,16 @@ describe('the look', () => {
     const pd = piledriverDef(kit);
     const big = size(pd, 'boxExt'), small = size(pd, 'boxStd');
     expect(big.y * big.z).toBeGreaterThan(small.y * small.z * 1.8);
+  });
+
+  it('the SMG\'s tape rides in the magazine for the reload, and its full stock reaches past the wire one it hides', () => {
+    const smg = smgDefs(kit).right;
+    expect(smg.mods!.smgTape).toEqual({ part: 'tape' });
+    expect(smg.mods!.smgStock).toEqual({ part: 'stockFull', hides: 'stockStd' });
+    let up = smg.model.parts.tape!.parent;
+    while (up && up !== smg.model.parts.mag) up = up.parent;
+    expect(up).toBe(smg.model.parts.mag);
+    expect(size(smg, 'stockFull').y).toBeGreaterThan(size(smg, 'stockStd').y + 0.02);
   });
 
   it('the can moves back onto the short barrel, its mouth the muzzle, and the short muzzle is level with the launcher\'s', () => {

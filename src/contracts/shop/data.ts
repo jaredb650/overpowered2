@@ -230,9 +230,18 @@ const MOD_CATALOGUE: Readonly<Record<ModId, Ware>> = {
     lore: 'Four-power magnification for the Harrow. The target appears four times larger, and in the Council\'s experience so does the paperwork.',
   },
   // Extended magazines and the Gimlet's short barrel (weapons/mods.ts): a mag slot and a barrel slot, beside the optic and the round.
+  // The SMG's three cheap ones (weapons/mods.ts): the starter is kitted out in the first breaks. Mag and tape stack.
   smgMag: {
-    price: 500, wave: 1,
-    lore: 'Forty-five rounds where there were thirty. The Council found that most contractors reload at the worst possible moment and has moved that moment back.',
+    price: 300, wave: 1,
+    lore: 'Fifty rounds where there were thirty. The Council found that most contractors reload at the worst possible moment and has moved that moment back.',
+  },
+  smgTape: {
+    price: 200, wave: 0,
+    lore: 'Cloth tape round the SMG\'s magazine, with a tab to pull it by. The new one is in before the Gimlet\'s owner has found his. Procurement has filed it under stationery.',
+  },
+  smgStock: {
+    price: 350, wave: 1,
+    lore: 'A proper stock for the SMG, with a cheek rest. Aimed, you can now hold your breath sixty percent longer and have it back sooner. The Council notes that contractors who are not breathing raise fewer concerns.',
   },
   rivetMag: {
     price: 300, wave: 2,

@@ -1964,7 +1964,7 @@ export class Weapons implements WeaponSystem, Guard {
     this.aimT = clamp(this.aimT + (up ? dt : -dt) / (def.ads?.time ?? 0.2));
     const w = this.aim;
     this.aimHeld = (!!def.ads && wants && !busy) || this.zoomed || this.rescope;
-    this.adsZoom.update(c.time.realDt, up || this.scopeShown, c.input.isDown('dash'));
+    this.adsZoom.update(c.time.realDt, up || this.scopeShown, c.input.isDown('dash'), def.breath);
     c.camera.setAim?.(1 - (def.ads?.zoom ?? 0) * w, lerp(1, this.aimSensitivity, w), this.adsZoom.mag);
     c.viewmodel.setAim?.(w);
   }

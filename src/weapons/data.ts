@@ -106,6 +106,8 @@ export interface WeaponDef {
    * `time` the seconds the gun takes to come up to the eye. What ADS does to spread, recoil and speed is `TUNING.ads`.
    */
   ads?: { readonly zoom: number; readonly time: number };
+  /** The held-breath zoom's hold and cooldown, seconds, where they differ from ADS_ZOOM's (adsZoom.ts): the SMG's stock. */
+  breath?: { readonly hold: number; readonly cooldown: number };
   /**
    * A pull of the trigger fires `rounds` at the row's `interval`, then waits `recover` before the next pull: the Autoraffica's
    * burst. Letting go does not cut it short.

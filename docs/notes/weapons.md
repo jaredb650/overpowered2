@@ -380,7 +380,7 @@ each is 50 below its AP/HP version. The lab's generated rows grant, fit and remo
 labels beside it. Its tracer is a thin warm-white streak; no model changes. Tests: `src/weapons/plusP.test.ts`.
 
 **Extended magazines and the Gimlet's short barrel** (2026-11-16). Two more slots: `mag` and `barrel`, each one to a gun beside the
-optic and the round. `smgMag` (SMG, 30 to 45 rounds, 500 after wave 1), `rivetMag` (Rivet, 15 to 22, 300 after wave 2) and
+optic and the round. `smgMag` (SMG, 30 to 50 rounds, 300 after wave 1; it was 45 for 500 until 2026-11-17), `rivetMag` (Rivet, 15 to 22, 300 after wave 2) and
 `piledriverBox` (Piledriver, a box of 100 where the belt box holds 50, 1,800 after wave 16) change `magSize` and nothing else: no
 slower reload, as the owner asked for capacity only. `Weapons.fitMod` resizes the magazine (rounds over a smaller one go back to the
 reserve). `gimletShort` (Gimlet, 800 after wave 3) is `interval` / 1.15: 800 to 920 a minute, the short carbine's faster cycle from a
@@ -388,6 +388,13 @@ gas port nearer the muzzle, and nothing else, so it stacks with the issued
 can (the can screws onto the stub and the flash leaves its mouth) and with the launcher: the short barrel is cut to the launcher's
 mouth, not past it, so the two still fit together. Its burst and semi modes use the same faster `interval`. Tests:
 `src/weapons/extmods.test.ts`.
+
+**The SMG's tape and stock** (2026-11-17), to kit out the cheap starter early. `smgTape` (200 from the start, `loader` slot): cloth
+tape round the magazine with a pull tab, reload x0.7 as an `adjust` (1.0 to 0.7 s, the Gimlet's is 1.02), so it stacks with the
+50-round `smgMag` (the tape sits above the long mag's sleeve, on either mag, and rides out and back in the reload). `smgStock` (350
+after wave 1, no slot): a full stock in place of the wire one (`stockFull` hides `stockStd`), with `breath` on the row: the held-breath
+zoom (adsZoom.ts) holds 5.6 s where it held 3.5 and cools 1.75 s where it cooled 2.5; `Weapons` passes the row's `breath` to
+`AdsZoom.update`. Endless Humans locks: 0 and 1. Tests: `src/weapons/smgmods.test.ts`, shots: `tools/scripts/smgmods-shots.mjs`.
 
 **The shotgun and Judge mods** (2026-11-16, the owner's). Four more slots, one each to a gun: `barrel`, `loader`, `choke`, `hammer`,
 `grip`. A mod whose numbers depend on another on the same gun has an `adjust(def)` (mods.ts) worked out after every fitted patch, so
