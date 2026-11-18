@@ -49,7 +49,8 @@ describe('the Ultramag mods on paper', () => {
     expect(can.sounds[0]!.id).toBe('ultramag_suppressed_shot');
     expect(can.damage).toBe(bare.damage);
     expect(moddedDef('ultramag', new Set(['ultramagDot']))).toEqual(bare);
-    expect(MODS.ultramagDot.slot).toBe('sight');
+    // No slot: it stays on with akimbo, for the look (akimbo.test.ts).
+    expect(MODS.ultramagDot.slot).toBeUndefined();
     const lam = moddedDef('ultramag', new Set(['ultramagLam']));
     expect(60 / lam.interval).toBeCloseTo((60 / bare.interval) * 1.25);
     expect(lam.mode).toBe('semi');

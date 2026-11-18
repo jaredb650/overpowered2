@@ -436,7 +436,7 @@ const MOD_CATALOGUE: Readonly<Record<ModId, Ware>> = {
   flailPlusP: { price: 550, wave: 0, lore: 'Overpressure rounds for the Flail. Twenty percent more per round, a hundred rounds a box. Procurement did not do the sum.' },
   smgAkimbo: { price: 1500, wave: 8, lore: 'A second SMG for the other hand. Twice the rounds, twice the noise, half the aim. The Council has never once asked for aim.' },
   rivetAkimbo: { price: 900, wave: 6, lore: 'Two Rivets, one for each hand and neither for the sights. Thirty small complaints a magazine change, filed in alternation.' },
-  ultramagAkimbo: { price: 2000, wave: 10, lore: 'A second Ultramag. The reflex sight comes off: you will be looking at both slides, and they will be looking back.' },
+  ultramagAkimbo: { price: 2000, wave: 10, lore: 'A second Ultramag. The reflex sights stay on both slides, aimed at nothing. Procurement lists them under morale.' },
   judgeAkimbo: { price: 1400, wave: 8, lore: 'Two Judges. The off hand is busy, so there is no fanning, only a second opinion every time the first one finishes.' },
   autorafficaAkimbo: { price: 2400, wave: 14, lore: 'Two Autorafficas, two smart aims, each finding a head of its own. The Council asked whether this was necessary and was shown the results.' },
 };

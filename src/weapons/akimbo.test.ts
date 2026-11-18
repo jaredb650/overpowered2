@@ -86,16 +86,24 @@ describe('akimbo on paper', () => {
     expect(long.reloadTime).toBeCloseTo(moddedDef('smg', new Set<ModId>(['smgMag'])).reloadTime * 2 * 0.7);
   });
 
-  it('takes the optic slot: the Ultramag\'s reflex sight and akimbo take each other off', () => {
+  it('keeps the Ultramag\'s reflex sight on, for the look: it aims nothing, and no other akimbo gun has an optic to lose', () => {
     draw('ultramag', false);
     for (const id of ['ultramagDot', 'ultramagAkimbo', 'ultramagLam', 'ultramagCan'] as ModId[]) r.weapons.grantMod(id);
     r.weapons.fitMod('ultramagDot', true);
     r.weapons.fitMod('ultramagLam', true);
     r.weapons.fitMod('ultramagAkimbo', true);
-    expect(r.weapons.fitted.has('ultramagDot')).toBe(false);
+    expect(r.weapons.fitted.has('ultramagDot')).toBe(true);
     expect(r.weapons.fitted.has('ultramagLam')).toBe(true);
+    r.weapons.fitMod('ultramagDot', false);
     r.weapons.fitMod('ultramagDot', true);
-    expect(r.weapons.fitted.has('ultramagAkimbo')).toBe(false);
+    expect(r.weapons.fitted.has('ultramagAkimbo')).toBe(true);
+    // The dot changes nothing in the row: akimbo's zoom with the guns at the hip, with it or without.
+    expect(moddedDef('ultramag', new Set<ModId>(['ultramagAkimbo', 'ultramagDot']))).toEqual(moddedDef('ultramag', new Set<ModId>(['ultramagAkimbo'])));
+    // Akimbo still holds the optic slot, and on these five guns nothing else is in it.
+    for (const gun of AKIMBO_GUNS) {
+      const optics = MOD_ORDER.filter(m => MODS[m].weapon === gun && MODS[m].slot === 'sight');
+      expect(optics, gun).toEqual([`${gun}Akimbo`]);
+    }
   });
 });
 

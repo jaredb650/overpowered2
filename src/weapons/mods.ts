@@ -70,8 +70,8 @@ const light = (gun: (typeof LIGHT_GUNS)[number]): ModDef => ({ id: lightOf(gun),
 /**
  * The guns that take akimbo: the SMG and the four pistols. A second one in the left hand (viewmodels/models/index.ts `leftOf`), the
  * two fired in turn on a left click (Weapons.ts): twice the rate, two magazines, twice the reload. With no sights to look down,
- * right click is a zoom on the crosshair (`AKIMBO_ADS`, the viewmodel stays at the hip), so it takes the optic's slot: the
- * Ultramag's reflex sight and akimbo exclude each other. It takes the Judge's fan away; the Autoraffica's smart aim goes dual, a lock a
+ * right click is a zoom on the crosshair (`AKIMBO_ADS`, the viewmodel stays at the hip), so it takes the optic's slot. The
+ * Ultramag's reflex sight has no slot and stays on, on both guns, for the look: nothing aims through it. It takes the Judge's fan away; the Autoraffica's smart aim goes dual, a lock a
  * gun (Weapons.ts `smartL`).
  * The magazine and the reload are worked out last (`adjust`), so an extended magazine or mag tape doubles with them.
  */
@@ -159,7 +159,8 @@ export const MODS: Readonly<Record<ModId, ModDef>> = {
   // The Ultramag's: a square can with its own quieter report; a reflex sight on the slide (the look is the sight); a laser module
   // that has it fire a quarter faster (0.36 s to 0.288 s between shots, inside the slide's 0.245 s cycle); 11 rounds, not 7.
   ultramagCan: { id: 'ultramagCan', weapon: 'ultramag', name: 'Suppressor', slot: 'muzzle', patch: { muzzle: 'suppressed', sounds: [{ id: 'ultramag_suppressed_shot', pitchJitter: 0.02 }] } },
-  ultramagDot: { id: 'ultramagDot', weapon: 'ultramag', name: 'Reflex sight', patch: {}, slot: 'sight' },
+  // No slot: it changes nothing in the row, so it stays on with akimbo, on both slides, for the look alone.
+  ultramagDot: { id: 'ultramagDot', weapon: 'ultramag', name: 'Reflex sight', patch: {} },
   ultramagLam: { id: 'ultramagLam', weapon: 'ultramag', name: 'Laser module', patch: { interval: WEAPONS.ultramag.interval / 1.25 } },
   ultramagMag: { id: 'ultramagMag', weapon: 'ultramag', name: 'Extended magazine', patch: { magSize: 11, reloadTime: 1.4 } },
   // A race-gun compensator in the can's place (the muzzle slot): its ports throw the gas up, so it fires faster with less flip
