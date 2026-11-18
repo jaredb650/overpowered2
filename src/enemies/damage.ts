@@ -773,7 +773,8 @@ export class DamageModel {
 
   private lethal(e: Enemy, d: DamageInfo, res: DamageResult, region: GoreRegion, severNow: boolean, blast: BlastRoll | null = null): DamageResult {
     res.killed = true;
-    if (severNow && region !== 'head' && e.limbHp.has(region)) {
+    // A vaporizing kill burns the whole of him: no limb is thrown off first, to lie there bleeding.
+    if (severNow && !d.vaporize && region !== 'head' && e.limbHp.has(region)) {
       const left = (e.limbHp.get(region) ?? 0) - d.amount * (d.severMult ?? 1) * SEVER_FACTOR[d.type] * this.rules(e).limbWear;
       if (left <= 0) this.sever(e, region, d, res);
     }
@@ -808,7 +809,8 @@ export class DamageModel {
       e.boss.onDeath(e, this.w, d);
     } else if (e.def.id === 'drone') {
       this.m.startCrash(e);
-    } else if (d.vaporize && !shatter && ctx.gore.vaporize) {
+    } else if (d.vaporize && !d.slicePlaneNormal && !shatter && ctx.gore.vaporize) {
+      // A vaporizing cut (the energy blade) still cuts: its halves burn away (gore/sliced.ts), below.
       ctx.gore.vaporize(e.char, deathVelocity(e, _dying, this.w.now));
     } else if (DevFlags.gibbing && (shatter || (blownUp && DevFlags.explosiveDeaths))) {
       gibbed = true;

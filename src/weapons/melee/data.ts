@@ -276,6 +276,28 @@ export const KATANA = {
   wave: { speed: 34, range: 32, half: 1.7, tall: 0.6, mult: 1.6, force: 90, burst: { radius: 3.5, damage: 90 } },
 };
 
+/**
+ * The katana's energy blade (weapons/mods.ts `swordEnergy`): a blade of light on an emitter hilt, so nothing to swing but the
+ * hilt. Every swing, stab and combo move, and the window that chains them, takes 1/`speed` of the time. The dash out of a run
+ * and the stab's lock find a body `reach` times as far off, and pull the player `pull.speed` times as fast for `pull.seconds`
+ * times as long: the swing is shorter, and the blow must still land inside it at the far end of the reach.
+ * Thrusts (the stab, the flurry) reach `thrust` meters further. Its kills are vaporized: a slash still cuts the body in two and
+ * the halves burn away (gore/sliced.ts SliceTuning.vapor), anything else burns away whole; the cut is cauterized, so its hits and kills spit
+ * light and sparks, not blood. It goes through plates (`armour`, the prybar's rule), and its guard holds a wider cone (`cone`,
+ * cos) and parries for `parry` times as long.
+ */
+export const ENERGY = {
+  speed: 1.4,
+  reach: 1.5,
+  pull: { speed: 1.6, seconds: 1.15 },
+  thrust: 1,
+  armour: { direct: 1.25, splash: 1, most: Infinity } as ShapedCharge,
+  cone: 0.1,
+  parry: 2,
+  /** The idle hum: a loop, its volume, and its pitch at rest and in a swing. */
+  hum: { id: 'railgun_charge_loop', volume: 0.1, rest: 0.32, swing: 0.5 },
+} as const;
+
 /** Which of the weapon ids are swung. */
 export function isMelee(id: WeaponId | string): id is MeleeId {
   return id === 'sword' || id === 'knife' || id === 'crowbar' || id === 'shovel' || id === 'baton';

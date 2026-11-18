@@ -5,7 +5,12 @@
  *
  * Timings are the first game's (docs/original/04, section 8). The arcs are not: each move runs along the direction
  * melee/Melee.ts cuts in, so what the blade does, the crescent it draws and the plane it slices on all agree.
+ *
+ * The energy blade (weapons/mods.ts `swordEnergy`) is part `energy`, in place of the steel sword (`steel`): an emitter hilt on
+ * the tsuka's line, so the hands hold it as they hold the katana, and a curved blade of light in part `beam`, a white core and
+ * an added halo round it that flicker. It ignites out of the emitter on the draw, and leaves a trail of light on a swing.
  */
+import * as THREE from 'three';
 import { Kit } from '../kit/kit';
 import { Model } from '../kit/model';
 import { F } from '../kit/finishes';
@@ -144,12 +149,253 @@ function curveDisc(): V2[] {
   return out;
 }
 
+// ---------------------------------------------------------------------------------------------
+// The energy blade
+// ---------------------------------------------------------------------------------------------
+
+/** Where the light leaves the emitter, and how far it runs: to the steel blade's tip. */
+const EMIT_Z = GUARD_Z - 0.034;
+const BEAM_LEN = BLADE_LEN - 0.03;
+/** The beam's curve, its core's half height and half thickness, and the halo's, by meters out of the emitter. */
+const beamY = (s: number) => sori(s + 0.03);
+const beamTaper = (s: number) => (s < BEAM_LEN * 0.88 ? 1 : Math.sqrt(Math.max(0, 1 - ((s - BEAM_LEN * 0.88) / (BEAM_LEN * 0.12)) ** 2)));
+const CORE = { h: 0.0105, t: 0.0024 } as const;
+const HALO = { h: 0.03, t: 0.025 } as const;
+/** Linear colour of the halo, past 1 for the bloom, and of the core glow and the trim. */
+const HALO_COLOR = [0.2, 0.95, 4.2] as const;
+const GLOWS = { core: [0xc8f4ff, 6], trim: [0x4fd4ff, 3.5] } as const;
+/** The hilt's gunmetal: a machined body that has not been dropped yet, so little chipped edge. */
+const GUNMETAL: Finish = { color: 0x2c3036, rough: 0.38, metal: 0.7, wear: 0.12 };
+
+/** An oval of half widths `a`, `b`. */
+function oval(a: number, b: number, n = 24): V2[] {
+  const out: [number, number][] = [];
+  for (let i = 0; i < n; i++) out.push([Math.cos((i / n) * Math.PI * 2) * a, Math.sin((i / n) * Math.PI * 2) * b]);
+  return out;
+}
+
+/** The emitter hilt: a ribbed grip on the tsuka's oval, a vented shroud where the tsuba was, a slot the light leaves by. */
+function emitterHilt(m: Mesher): void {
+  const zs = GUARD_Z + 0.012;
+  const ze = POMMEL_Z - 0.012;
+  const a = 0.0142;
+  const b = 0.0176;
+  // The body under the grip, gunmetal.
+  m.use(GUNMETAL);
+  m.at([0, 0, (zs + ze) / 2], null, () => m.front(oval(a * 0.93, b * 0.93), ze - zs, { bevel: 0.0005, smooth: 50 }));
+  // Rubber rings: where the fingers go.
+  m.use(F.rubber);
+  const pitch = 0.031;
+  const n = Math.floor((ze - zs - 0.02) / pitch);
+  for (let i = 0; i < n; i++) m.at([0, 0, zs + 0.022 + i * pitch], null, () => m.front(oval(a, b), 0.022, { bevel: 0.0018, smooth: 50 }));
+  // A collar each end, brushed, and the pommel cap.
+  m.use(F.steel);
+  m.at([0, 0, zs - 0.002], null, () => m.front(oval(a * 1.12, b * 1.1), 0.012, { bevel: 0.0014, smooth: 50 }));
+  m.at([0, 0, ze + 0.004], null, () => m.front(oval(a * 1.1, b * 1.08), 0.014, { bevel: 0.0014, smooth: 50 }));
+  m.use(F.blued);
+  m.at([0, 0, ze + 0.018], null, () => m.front(oval(a * 1.02, b * 1.0), 0.016, { bevel: 0.003, smooth: 50 }));
+  // The cell's charge, a thin line round the pommel.
+  m.glow('trim', () => m.at([0, 0, ze + 0.0105], null, () => m.front(oval(a * 1.035, b * 1.025), 0.0014, { bevel: 0.0002, smooth: 50 })));
+  // The switch on the spine, by the right thumb, and its light.
+  m.use(F.steelDark);
+  m.at([0, b * 0.93 + 0.0012, GUARD_Z + 0.042], null, () => m.box(0.0075, 0.004, 0.016, 0.0012));
+  m.glow('trim', () => m.at([0, b * 0.93 + 0.0006, GUARD_Z + 0.056], null, () => m.box(0.0028, 0.0022, 0.0028, 0.0006)));
+
+  // The shroud where the tsuba was: a heavy oval with vents through it and fins down each side.
+  const vents: V2[][] = [];
+  for (let i = 0; i < 6; i++) {
+    const t = (i / 6) * Math.PI * 2 + Math.PI / 6;
+    vents.push(circle(Math.cos(t) * 0.0215, Math.sin(t) * 0.025, 0.0028, 10));
+  }
+  m.use(F.blued);
+  m.at([0, 0, GUARD_Z + 0.002], null, () => m.front(oval(0.0285, 0.0335, 32), 0.012, { bevel: 0.0022, holes: vents, smooth: 40 }));
+  m.use(F.steel);
+  m.at([0, 0, GUARD_Z - 0.0065], null, () => m.front(oval(0.0235, 0.028, 32), 0.006, { bevel: 0.0012, smooth: 40 }));
+  m.use(GUNMETAL);
+  m.mirror(() => m.at([0.026, 0, GUARD_Z + 0.004], null, () => m.box(0.005, 0.03, 0.03, 0.0016)));
+  m.glow('trim', () => m.mirror(() => m.at([0.0287, 0, GUARD_Z + 0.004], null, () => m.box(0.0008, 0.018, 0.0012, 0.0002))));
+  // The emitter: a tapered block with the slot in its face, and the light inside the slot.
+  m.use(F.steel);
+  m.at([0, beamY(0) * 0.5, GUARD_Z - 0.019], null, () => m.front(ellipseRect(0.0105, 0.021), 0.02, { bevel: 0.0024, holes: [ellipseRect(0.0042, 0.0135)], smooth: 40 }));
+  m.use(F.black);
+  m.at([0, beamY(0) * 0.5, GUARD_Z - 0.016], null, () => m.front(ellipseRect(0.0046, 0.014), 0.014, { bevel: 0.0003 }));
+  m.glow('core', () => m.at([0, beamY(0) * 0.5, EMIT_Z + 0.006], null, () => m.front(ellipseRect(0.0038, 0.0128), 0.002, { bevel: 0.0003 })));
+}
+
+/** The core of the beam: a flat curved lens of light, the katana's curve, to a point. Its own part, so it can ignite. */
+function beamCore(m: Mesher): void {
+  m.glow('core', () => m.surface(12, 48, (u, v, o) => {
+    const s = v * BEAM_LEN;
+    const ang = u * Math.PI * 2;
+    const k = beamTaper(s);
+    o.set(Math.cos(ang) * CORE.t * k, beamY(s) + Math.sin(ang) * CORE.h * k, -s);
+  }, { wrapU: true }));
+}
+
+/** The halo round the core: brightest where it faces the eye and gone at its silhouette, added over whatever is behind it. */
+function beamHalo(): THREE.Mesh {
+  const nu = 16;
+  const nv = 40;
+  const pos: number[] = [];
+  const nrm: number[] = [];
+  const along: number[] = [];
+  const idx: number[] = [];
+  for (let j = 0; j <= nv; j++) {
+    const s = (j / nv) * (BEAM_LEN + 0.012);
+    const k = beamTaper(Math.min(s, BEAM_LEN));
+    for (let i = 0; i <= nu; i++) {
+      const ang = (i / nu) * Math.PI * 2;
+      const c = Math.cos(ang);
+      const sn = Math.sin(ang);
+      pos.push(c * HALO.t * (0.5 + 0.5 * k), beamY(s) + sn * HALO.h * (0.4 + 0.6 * k), -s + 0.006);
+      nrm.push(c * HALO.h, sn * HALO.t, 0);
+      along.push(j / nv);
+    }
+  }
+  for (let j = 0; j < nv; j++) for (let i = 0; i < nu; i++) {
+    const a = j * (nu + 1) + i;
+    idx.push(a, a + 1, a + nu + 2, a, a + nu + 2, a + nu + 1);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+  g.setAttribute('aAlong', new THREE.Float32BufferAttribute(along, 1));
+  g.setIndex(idx);
+  g.computeBoundingSphere();
+  const mat = new THREE.ShaderMaterial({
+    uniforms: { uColor: { value: new THREE.Vector3(...HALO_COLOR) }, uPower: { value: 1 } },
+    vertexShader: /* glsl */ `
+      attribute float aAlong;
+      varying float vFace;
+      varying float vAlong;
+      void main() {
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        vFace = abs(dot(normalize(normalMatrix * normal), normalize(-mv.xyz)));
+        vAlong = aAlong;
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: /* glsl */ `
+      uniform vec3 uColor;
+      uniform float uPower;
+      varying float vFace;
+      varying float vAlong;
+      void main() {
+        float a = pow(vFace, 3.0) * smoothstep(0.0, 0.03, vAlong) * (1.0 - smoothstep(0.93, 1.0, vAlong));
+        gl_FragColor = vec4(uColor * a * uPower, 1.0);
+      }`,
+    blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, side: THREE.FrontSide,
+  });
+  const mesh = new THREE.Mesh(g, mat);
+  mesh.name = 'halo';
+  mesh.renderOrder = 3;
+  mesh.frustumCulled = false;
+  return mesh;
+}
+
+/** Seconds a point of the swing trail lasts, and the most it holds. */
+const TRAIL = { life: 0.11, max: 18, color: [0.18, 0.7, 2.0] } as const;
+const _tw = new THREE.Vector3();
+
+/**
+ * The light a swing leaves: a ribbon between where the beam's root and tip have been over the last `TRAIL.life` seconds, in
+ * the eye's frame, so it hangs where the blade passed in view. Sampled as it is drawn, from the beam's own place that frame.
+ * Kept beside the model, not in it, so the shop's studio clone of the model does not carry it. It ages on the viewmodel's
+ * clock (`clock.t`, set each frame), so a pause holds it where it is.
+ */
+function bladeTrail(beam: THREE.Object3D, clock: { t: number }): THREE.Mesh {
+  const n = TRAIL.max;
+  const pos = new Float32Array(n * 2 * 3);
+  const fade = new Float32Array(n * 2);
+  const idx: number[] = [];
+  for (let i = 0; i < n - 1; i++) {
+    const a = i * 2;
+    idx.push(a, a + 1, a + 3, a, a + 3, a + 2);
+  }
+  const g = new THREE.BufferGeometry();
+  const pAttr = new THREE.BufferAttribute(pos, 3).setUsage(THREE.DynamicDrawUsage);
+  const fAttr = new THREE.BufferAttribute(fade, 1).setUsage(THREE.DynamicDrawUsage);
+  g.setAttribute('position', pAttr);
+  g.setAttribute('aFade', fAttr);
+  g.setIndex(idx);
+  g.setDrawRange(0, 0);
+  const mat = new THREE.ShaderMaterial({
+    uniforms: { uColor: { value: new THREE.Vector3(...TRAIL.color) } },
+    vertexShader: /* glsl */ `
+      attribute float aFade;
+      varying float vFade;
+      void main() {
+        vFade = aFade;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }`,
+    fragmentShader: /* glsl */ `
+      uniform vec3 uColor;
+      varying float vFade;
+      void main() { gl_FragColor = vec4(uColor * vFade * vFade, 1.0); }`,
+    blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, side: THREE.DoubleSide,
+  });
+  const mesh = new THREE.Mesh(g, mat);
+  mesh.name = 'bladeTrail';
+  mesh.frustumCulled = false;
+  mesh.renderOrder = 4;
+  mesh.matrixAutoUpdate = false;
+  mesh.matrixWorldAutoUpdate = false;
+  // Points kept in the camera's frame, newest first: root, tip, and when.
+  const root: THREE.Vector3[] = [];
+  const tip: THREE.Vector3[] = [];
+  const when: number[] = [];
+  const shown = (): boolean => {
+    for (let o: THREE.Object3D | null = beam; o; o = o.parent) if (!o.visible) return false;
+    return true;
+  };
+  mesh.onBeforeRender = (_r, _s, camera) => {
+    const now = clock.t;
+    mesh.matrixWorld.copy(camera.matrixWorld);
+    // Drawn twice a frame (a shadow or a second pass) is still one sample.
+    if (shown() && (when.length === 0 || now - when[0]! > 0.004 || now < when[0]!)) {
+      const r = (root.length >= n ? root.pop()! : new THREE.Vector3());
+      const t = (tip.length >= n ? tip.pop()! : new THREE.Vector3());
+      if (when.length >= n) when.pop();
+      r.set(0, beamY(0.12), -0.12).applyMatrix4(beam.matrixWorld).applyMatrix4(camera.matrixWorldInverse);
+      t.set(0, beamY(BEAM_LEN * 0.97), -BEAM_LEN * 0.97).applyMatrix4(beam.matrixWorld).applyMatrix4(camera.matrixWorldInverse);
+      root.unshift(r);
+      tip.unshift(t);
+      when.unshift(now);
+    }
+    let count = 0;
+    for (let i = 0; i < when.length; i++) {
+      const age = (now - when[i]!) / TRAIL.life;
+      if (age >= 1 || age < 0 || !shown()) break;
+      // A blade at rest leaves nothing: only a point the tip has moved well away from shows.
+      _tw.subVectors(tip[i]!, tip[0]!);
+      const k = (1 - age) * Math.min(1, _tw.length() / 0.12) * (i === 0 ? 0 : 1);
+      root[i]!.toArray(pos, i * 6);
+      tip[i]!.toArray(pos, i * 6 + 3);
+      fade[i * 2] = k * 0.15;
+      fade[i * 2 + 1] = k;
+      count = i + 1;
+    }
+    g.setDrawRange(0, Math.max(0, count - 1) * 6);
+    pAttr.needsUpdate = true;
+    fAttr.needsUpdate = true;
+  };
+  return mesh;
+}
+
 function buildSword(kit: Kit): Model {
   const m = kit.mesher();
-  blade(m);
-  hilt(m);
-  guard(m);
-  const model = new Model(m, kit.mats);
+  m.part('steel', [0, 0, 0], () => {
+    blade(m);
+    hilt(m);
+    guard(m);
+  });
+  m.part('energy', [0, 0, 0], () => {
+    emitterHilt(m);
+    m.part('beam', [0, 0, EMIT_Z], () => beamCore(m));
+  });
+  const model = new Model(m, kit.mats, { glows: GLOWS });
+  model.parts.beam!.add(beamHalo());
+  // The core is a thin shell of light: seen from inside as well, its winding cannot hide it.
+  model.glows.core!.side = THREE.DoubleSide;
   model.socket('muzzle', [0, spineY(BLADE_LEN), GUARD_Z - BLADE_LEN]);
   model.hand('gripR', [0.0158, 0, -0.052], [0, 0, 1], [-0.32, -0.95, 0]);
   // Both palms on the same side of the hilt and both thumbs toward the blade; the fingers wrap it the opposite way.
@@ -207,6 +453,22 @@ function arc(out: Float64Array, c: readonly [Pose, Pose, Pose], t: number): void
     const mid = 2 * c[1][i]! - (c[0][i]! + c[2][i]!) / 2;
     out[i] = u * u * c[0][i]! + 2 * u * t * mid + t * t * c[2][i]!;
   }
+}
+
+/** The energy blade alive in hand: it ignites out of the emitter on the draw, flickers, and burns brighter through a swing. */
+function energize(model: Model, trail: THREE.Mesh, clock: { t: number }, a: Anim): void {
+  if (!trail.parent && model.root.parent) model.root.parent.add(trail);
+  clock.t = a.time;
+  if (!a.mods?.has('swordEnergy')) return;
+  const beam = model.parts.beam!;
+  beam.scale.z = Math.max(0.02, outCubic(clamp(a.draw)));
+  const t = a.time;
+  const swinging = a.swing && a.swing !== 'windup' && a.swingP < 1 ? 1 : 0;
+  const f = (1 + 0.05 * Math.sin(t * 61) + 0.035 * Math.sin(t * 147 + 1.3) + (Math.random() - 0.5) * 0.05) * (1 + 0.2 * swinging + 0.5 * a.bladeHeat);
+  const core = model.glows.core;
+  if (core) core.color.copy(core.userData.base as THREE.Color).multiplyScalar(f);
+  const halo = beam.getObjectByName('halo') as THREE.Mesh | undefined;
+  if (halo) (halo.material as THREE.ShaderMaterial).uniforms.uPower!.value = f;
 }
 
 function clip(a: Anim): void {
@@ -297,15 +559,22 @@ function clip(a: Anim): void {
 
 export function swordDef(kit: Kit): ViewDef {
   set(cur, REST);
+  const model = buildSword(kit);
+  const clock = { t: 0 };
+  const trail = bladeTrail(model.parts.beam!, clock);
   return {
     id: 'sword',
-    model: buildSword(kit),
+    model,
     pos: [REST[0], REST[1], REST[2]],
     rot: [REST[3], REST[4], REST[5]],
     recoil: { back: 0, lift: 0, pitch: 0, yaw: 0, roll: 0, omega: 40, zeta: 0.7 },
     right: { socket: 'gripR', pose: HANDS.hilt },
     left: { socket: 'gripL', pose: HANDS.hilt },
-    animate: clip,
+    mods: { swordEnergy: { part: 'energy', hides: 'steel' } },
+    animate: a => {
+      clip(a);
+      energize(model, trail, clock, a);
+    },
   };
 }
 

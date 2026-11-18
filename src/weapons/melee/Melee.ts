@@ -13,16 +13,17 @@
  *  - Everything runs on player time, so swings stay full speed in SLOWMO.
  */
 import * as THREE from 'three';
-import { CG, type Ctx, type DamageType, type SlashKind } from '../../core/contracts';
+import { CG, type Ctx, type DamageType, type LoopHandle, type SlashKind } from '../../core/contracts';
 import type { EnemyInstance, WeaponId, WeaponModifiers } from '../../core/gameplay';
 import type { GoreRegion } from '../../characters/rig';
 import { clamp, rand } from '../../core/math';
 import { rigInfo } from '../../gore/rigInfo';
-import type { Combat, GuardResult } from '../Combat';
+import { MOVE } from '../../player/tuning';
+import type { Combat, GuardResult, StrikeOptions } from '../Combat';
 import { SWORD, WEAPONS } from '../data';
 import { closestOnSegment } from '../geometry';
 import { readCombo, type KatanaMove } from './combo';
-import { BLADE_OLD, BODY_RADIUS, DOWNED_HEIGHT, KATANA, MELEE, REACH_DOWN, isMelee, type MeleeDef, type MeleeId, type MeleeSwing } from './data';
+import { BLADE_OLD, BODY_RADIUS, DOWNED_HEIGHT, ENERGY, KATANA, MELEE, REACH_DOWN, isMelee, type MeleeDef, type MeleeId, type MeleeSwing } from './data';
 import { swingTouches, sweepDirection, type BodyShape, type SwingFrame, type SwingShape } from './sweep';
 
 type State = 'idle' | 'swing' | 'guard';
@@ -49,6 +50,8 @@ const WAVE_ARC = 2.0;
 const WAVE_RADIUS = 2.4;
 const WAVE_TILT = 0.95;
 const STAB_GLOW = 0xbfeeff;
+/** The energy blade's light: what a cauterized cut spits instead of blood. */
+const ENERGY_GLOW = 0x8fe6ff;
 const WAVE_GLOW = 0x66e0ff;
 /** A slice costs about 5 ms. Past this many on one frame the rest fall as ragdolls, so a big cleave cannot blow the frame. */
 const MAX_SLICES_PER_FRAME = 3;
@@ -114,6 +117,8 @@ export class Melee {
   private lungeSpeed = 0;
   private lungeStop = 0;
   private lungeSeconds = 0;
+  /** Speed along the pull the player keeps on arrival: the energy blade's long fast pull ends at a run, not past the body. */
+  private lungeKeep = Infinity;
   /** Seconds into the swing its blow lands, and whether it has. */
   private impactAt = 0;
   private landed = false;
@@ -140,6 +145,9 @@ export class Melee {
   private readonly push = new THREE.Vector3();
   private readonly neck = new THREE.Vector3();
   private readonly neckNormal = new THREE.Vector3();
+  /** The energy blade's hum while it is out, and whether it is pitched up for a swing. */
+  private hum: LoopHandle | null = null;
+  private humUp = false;
 
   constructor(private readonly ctx: Ctx, private readonly combat: Combat, private readonly modifiers: WeaponModifiers) {}
 
@@ -163,12 +171,22 @@ export class Melee {
   }
 
   get step(): number {
-    return this.clock - this.lastAttackAt > this.def.comboWindow ? 0 : this.next;
+    return this.clock - this.lastAttackAt > this.comboWindow ? 0 : this.next;
+  }
+
+  /** The katana with the energy blade fitted (ENERGY). */
+  get energy(): boolean {
+    return this.id === 'sword' && this.ctx.weapons?.fitted?.has('swordEnergy') === true;
+  }
+
+  /** The energy blade's swings take 1/ENERGY.speed of the time, so its chain window shrinks with them. */
+  private get comboWindow(): number {
+    return this.def.comboWindow / (this.energy ? ENERGY.speed : 1);
   }
 
   /** Swing time shrinks with fire rate, but only by the square root: Berserk's 3x would blur the animation. */
   private seconds(base: number): number {
-    return base / Math.sqrt(Math.max(this.modifiers.fireRate, 0.1));
+    return base / Math.sqrt(Math.max(this.modifiers.fireRate, 0.1)) / (this.energy ? ENERGY.speed : 1);
   }
 
   cancel(): void {
@@ -186,6 +204,8 @@ export class Melee {
 
   reset(): void {
     this.cancel();
+    this.hum?.stop(0.1);
+    this.hum = null;
     this.wave.on = false;
     this.clock = 0;
     this.lastAttackAt = -10;
@@ -209,6 +229,26 @@ export class Melee {
     this.clock += dt;
     this.holdLunge(dt);
     if (this.wave.on) this.flyWave(dt);
+    this.humTick();
+  }
+
+  /** The energy blade hums while it is in hand, a little higher through a swing. */
+  private humTick(): void {
+    const H = ENERGY.hum;
+    const out = this.energy && this.ctx.weapons.current === 'sword';
+    if (!out) {
+      if (this.hum) this.hum.stop(0.15);
+      this.hum = null;
+      return;
+    }
+    if (!this.hum?.alive) {
+      this.hum = this.ctx.audio.startLoop?.(H.id, { volume: H.volume, pitch: H.rest, fadeIn: 0.25 }) ?? null;
+      this.humUp = false;
+    }
+    const up = this.state === 'swing';
+    if (up === this.humUp || !this.hum) return;
+    this.humUp = up;
+    this.hum.setPitch(up ? H.swing : H.rest, up ? 0.04 : 0.25);
   }
 
   /** Quick strikes run with no button logic: one swing and hand the gun back. */
@@ -343,7 +383,7 @@ export class Melee {
 
   /** A new attack outside the combo window starts the chain and the combo again. Answers whether it was chained. */
   private chainOn(): boolean {
-    const chained = this.clock - this.lastAttackAt <= this.def.comboWindow;
+    const chained = this.clock - this.lastAttackAt <= this.comboWindow;
     if (!chained) {
       this.next = 0;
       this.combo = '';
@@ -401,6 +441,9 @@ export class Melee {
 
   private beginSwing(swing: MeleeSwing, lock: EnemyInstance | null = null): void {
     const c = this.ctx;
+    const energy = this.energy;
+    // The energy blade's thrusts reach further: a copy a click, as a thrust is a click.
+    if (energy && swing.thrust) swing = { ...swing, reach: swing.reach + ENERGY.thrust };
     this.swing = swing;
     const seconds = this.seconds(swing.seconds);
     this.beginAttack('swing', seconds);
@@ -413,7 +456,9 @@ export class Melee {
       this.planeNormal.copy(UP);
     } else this.setPlane(swing.sweep[0], swing.sweep[1]);
     c.viewmodel.swing(swing.move, seconds);
-    c.audio.play(swing.sound, { pitch: swing.pitch ?? 1, pitchJitter: 0.05 });
+    c.audio.play(swing.sound, { pitch: (swing.pitch ?? 1) * (energy ? 1.12 : 1), pitchJitter: 0.05 });
+    // Light has no edge to whistle: the energy blade's swing is a zap over the cut of the air.
+    if (energy) c.audio.play('lance_plasma', { pitch: 1.35, volume: 0.35, pitchJitter: 0.08 });
     if (this.katana && this.special === null) {
       const extra = SWORD.chain[this.swingIndex]?.extra;
       if (extra) c.audio.play(extra);
@@ -597,6 +642,7 @@ export class Melee {
     o.headshotMult = row.headshotMult;
     o.severMult = this.modifiers.alwaysSever ? 1000 : row.canSever ? row.severMult : 0;
     o.quiet = true;
+    this.burn(o);
     if (slice) o.slicePlaneNormal = this.wave.normal;
     const res = this.combat.strike(e, at, this.vD.copy(dir).negate(), dir, undefined, undefined, row.damage * W.mult * this.modifiers.damage, o);
     const d = this.def;
@@ -606,8 +652,11 @@ export class Melee {
     } else {
       c.audio.play(d.flesh, { position: at, pitchJitter: 0.04 });
       c.audio.play('flesh_slice', { position: at });
-      c.fx.bloodHit(at, dir, res.killed ? 1.6 : 1.1);
-      if (res.killed) c.fx.bloodJet(at, dir, 1);
+      if (o.vaporize) this.sear(at, dir);
+      else {
+        c.fx.bloodHit(at, dir, res.killed ? 1.6 : 1.1);
+        if (res.killed) c.fx.bloodJet(at, dir, 1);
+      }
     }
     c.hud.hitMarker(res.killed ? 'kill' : 'body');
     this.combat.feel.stop(res.killed ? 0.045 : 0.025, true);
@@ -636,7 +685,8 @@ export class Melee {
   private approach(swing: MeleeSwing, lock: EnemyInstance | null): void {
     if (lock) {
       const L = KATANA.lock;
-      this.pull(lock, L.speed, L.seconds, L.stop + this.radiusOf(lock));
+      const e = this.energy;
+      this.pull(lock, L.speed * (e ? ENERGY.pull.speed : 1), L.seconds * (e ? ENERGY.pull.seconds : 1), L.stop + this.radiusOf(lock), e ? MOVE.runSpeed : Infinity);
       const c = this.ctx;
       c.camera.fovPunch(L.fov, 0.18);
       c.audio.play('blade_dash', { pitchJitter: 0.04 });
@@ -656,10 +706,11 @@ export class Melee {
   /** The body a stab in a chain locks on to: past every slash's reach, inside the lock's range and cone, in sight. */
   private lockOn(): EnemyInstance | null {
     const L = KATANA.lock;
+    const range = L.range * this.reachMult;
     const c = this.ctx;
     const eye = c.player.eye;
     const fwd = c.player.forward;
-    const n = Math.min(c.enemies.query(eye, L.range + 2, this.list) || 0, MAX_LIST);
+    const n = Math.min(c.enemies.query(eye, range + 2, this.list) || 0, MAX_LIST);
     let best: EnemyInstance | null = null;
     let bestScore = 0;
     for (let i = 0; i < n; i++) {
@@ -669,7 +720,7 @@ export class Melee {
       const dist = to.length();
       const radius = this.radiusOf(e);
       const surface = dist - radius;
-      if (surface <= SLASH_REACH || surface > L.range) continue;
+      if (surface <= SLASH_REACH || surface > range) continue;
       const dot = to.dot(fwd) / dist;
       const score = dot / dist;
       if (dot < L.cone || score <= bestScore) continue;
@@ -709,8 +760,14 @@ export class Melee {
    * The katana's own move: running at someone ahead, the swing carries the player to them at dash speed. Standing still it
    * never fires, so a swing never reaches further than a step.
    */
+  /** The energy blade's dash and lock find a body ENERGY.reach times as far. */
+  private get reachMult(): number {
+    return this.energy ? ENERGY.reach : 1;
+  }
+
   private dash(swing: MeleeSwing): boolean {
     const D = KATANA.dash;
+    const range = D.range * this.reachMult;
     const c = this.ctx;
     const player = c.player;
     const fwd = player.forward;
@@ -719,7 +776,7 @@ export class Melee {
     flat.normalize();
     if (player.velocity.dot(flat) < D.from) return false;
     const eye = player.eye;
-    const n = c.enemies.query(eye, D.range, this.list) || 0;
+    const n = c.enemies.query(eye, range, this.list) || 0;
     let best: EnemyInstance | null = null;
     let bestScore = 0;
     for (let i = 0; i < n; i++) {
@@ -727,7 +784,7 @@ export class Melee {
       if (!e.alive) continue;
       const to = this.vA.subVectors(e.center, eye);
       const dist = to.length();
-      if (dist < 1e-3 || dist > D.range) continue;
+      if (dist < 1e-3 || dist > range) continue;
       const dot = to.dot(fwd) / dist;
       if (dot < D.cone) continue;
       const score = dot / dist;
@@ -744,7 +801,8 @@ export class Melee {
     const stop = swing.reach - ARRIVE_INSIDE + radius;
     if (dist <= stop + swing.reach * 0.25) return false;
     if (c.physics.raycast(eye, to.divideScalar(dist), dist - radius, CG.World)) return false;
-    this.pull(best, D.speed, D.seconds, stop);
+    const e = this.energy;
+    this.pull(best, D.speed * (e ? ENERGY.pull.speed : 1), D.seconds * (e ? ENERGY.pull.seconds : 1), stop, e ? MOVE.runSpeed : Infinity);
     c.camera.fovPunch(D.fov, 0.18);
     c.audio.play('blade_dash', { pitchJitter: 0.04 });
     return true;
@@ -783,8 +841,9 @@ export class Melee {
     this.pull(best, L.speed, L.seconds, L.stopShort);
   }
 
-  private pull(target: EnemyInstance, speed: number, seconds: number, stop: number): void {
+  private pull(target: EnemyInstance, speed: number, seconds: number, stop: number, keep = Infinity): void {
     this.lungeTarget = target;
+    this.lungeKeep = keep;
     this.lungeSpeed = speed;
     this.lungeSeconds = seconds;
     this.lungeLeft = seconds;
@@ -807,6 +866,8 @@ export class Melee {
     const dist = to.length();
     if (!target.alive || this.lungeLeft <= 0 || dist <= this.lungeStop) {
       this.lungeTarget = null;
+      const along = dist > 1e-4 ? player.velocity.dot(to.divideScalar(dist)) : 0;
+      if (along > this.lungeKeep) player.velocity.addScaledVector(to, this.lungeKeep - along);
       return;
     }
     to.divideScalar(dist);
@@ -1003,6 +1064,7 @@ export class Melee {
     o.severMult = blunt ? 0 : this.modifiers.alwaysSever ? 1000 : row.canSever ? sever : 0;
     o.charge = d.armour;
     o.quiet = true;
+    this.burn(o);
     // A stab goes in, it does not split: the body comes off the blade whole.
     if (d.slices && this.slicesLeft > 0 && !swing.thrust) o.slicePlaneNormal = this.planeNormal;
     else if (d.beheads && type === 'slash' && region === 'head' && this.neckOf(e)) {
@@ -1035,8 +1097,11 @@ export class Melee {
     c.audio.play(d.flesh, { position: point, pitchJitter: 0.04 });
     if (type === 'slash') {
       if (this.id === 'sword' || res.killed) c.audio.play('flesh_slice', { position: point });
-      c.fx.bloodHit(point, push, res.killed ? 1.6 : 1.1);
-      if (res.killed && d.slices) c.fx.bloodJet(point, push, 1);
+      if (o.vaporize) this.sear(point, push);
+      else {
+        c.fx.bloodHit(point, push, res.killed ? 1.6 : 1.1);
+        if (res.killed && d.slices) c.fx.bloodJet(point, push, 1);
+      }
       // Run through: the point comes out of his back.
       if (this.special === 'stab' && res.killed) c.fx.ring(this.vA.copy(point).addScaledVector(dir, 0.35), dir, STAB_GLOW, 0.4);
     } else {
@@ -1044,6 +1109,21 @@ export class Melee {
       c.fx.bloodHit(point, push, res.killed ? 0.8 : 0.45);
       if (region === 'head') c.audio.play('head_thud', { position: point, pitchJitter: 0.06 });
     }
+  }
+
+  /**
+   * The energy blade's strike (ENERGY): its kills are vaporized, a slice's halves too, and it goes through plates.
+   */
+  private burn(o: StrikeOptions): void {
+    if (!this.energy) return;
+    o.vaporize = true;
+    o.charge = ENERGY.armour;
+  }
+
+  /** A cauterized cut: a spit of light and embers where the blood would be. */
+  private sear(at: THREE.Vector3, dir: THREE.Vector3): void {
+    this.ctx.fx.sparks(at, dir, 8, ENERGY_GLOW);
+    this.ctx.fx.embers(at, 4, 0.25);
   }
 
   /** The neck of a body, and the line from it to the head: where a beheading cut goes. False for a body with no head left. */
@@ -1093,8 +1173,9 @@ export class Melee {
   guard(incoming: THREE.Vector3): GuardResult {
     if (this.state !== 'guard') return 'none';
     const w = SWORD.windup;
-    if (-incoming.dot(this.ctx.player.forward) < w.cone) return 'none';
-    const parry = this.timer <= w.parryWindow;
+    const energy = this.energy;
+    if (-incoming.dot(this.ctx.player.forward) < (energy ? ENERGY.cone : w.cone)) return 'none';
+    const parry = this.timer <= w.parryWindow * (energy ? ENERGY.parry : 1);
     this.ctx.viewmodel.swing('block', 0.16);
     return parry ? 'parry' : 'block';
   }

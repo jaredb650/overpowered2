@@ -1856,7 +1856,9 @@ export class Gore implements GoreSystem {
     const body = this.owned.get(char);
     this.sliced.cut(char, point, normal, damage);
     this.ctx.audio.play('sword_flesh', { position: point, pitchJitter: 0.04 });
-    this.ctx.audio.play('blood_spill', { position: point, volume: 0.8 });
+    // A cauterized cut does not spill: its halves hiss as they burn away.
+    if (damage.vaporize) this.ctx.audio.play('lance_vaporize', { position: point, pitchJitter: 0.08 });
+    else this.ctx.audio.play('blood_spill', { position: point, volume: 0.8 });
     if (body) this.dropBody(body);
     char.release();
   }

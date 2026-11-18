@@ -121,6 +121,8 @@ export const MODS: Readonly<Record<ModId, ModDef>> = {
   // well inside the Gimlet's 1.02 s. Its own slot, so it stacks with the long magazine.
   smgTape: { id: 'smgTape', weapon: 'smg', name: 'Mag tape', slot: 'loader', patch: {}, adjust: d => ({ reloadTime: d.reloadTime * 0.7 }) },
   // A full stock with a cheek rest: the held-breath zoom (adsZoom.ts) holds 60% longer (3.5 to 5.6 s) and cools 30% sooner (2.5 to 1.75 s).
+  // The katana's: a blade of light on an emitter hilt (melee/data.ts ENERGY). Melee.ts reads it off the fitted set; the row is the katana's.
+  swordEnergy: { id: 'swordEnergy', weapon: 'sword', name: 'Energy blade', patch: {} },
   smgStock: { id: 'smgStock', weapon: 'smg', name: 'Stock', patch: { breath: { hold: ADS_ZOOM.hold * 1.6, cooldown: ADS_ZOOM.cooldown * 0.7 } } },
   rivetMag: { id: 'rivetMag', weapon: 'rivet', name: 'Extended magazine', slot: 'mag', patch: { magSize: 22 } },
   piledriverBox: { id: 'piledriverBox', weapon: 'piledriver', name: 'Extended box', slot: 'mag', patch: { magSize: 100 } },
@@ -181,7 +183,7 @@ export const MOD_ORDER: readonly ModId[] = [
   'autorafficaAp', 'autorafficaHp', 'autorafficaPlusP', 'autorafficaMag',
   'sabotBrake', 'trommel12',
   'ultramagCan', 'ultramagDot', 'ultramagLam', 'ultramagMag', 'ultramagComp',
-  'smgMag', 'smgTape', 'smgStock', 'gimletShort', 'rivetMag', 'piledriverBox',
+  'smgMag', 'smgTape', 'smgStock', 'swordEnergy', 'gimletShort', 'rivetMag', 'piledriverBox',
   'deuceQuad', 'deuceLoader', 'shotgunChoke', 'judgeHammer', 'judgeGrip',
   'flailDot', 'flailAcog', 'flailBox', 'flailAp', 'flailHp', 'flailPlusP',
   ...LIGHT_GUNS.map(lightOf),

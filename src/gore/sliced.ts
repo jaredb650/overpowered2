@@ -12,6 +12,7 @@ import type { ImpactEvents } from './impacts';
 import { cutMesh, weldTable, type BoneCrossing, type CutSide } from './cut';
 import { RagTuning } from './rag';
 import { rigInfo } from './rigInfo';
+import { sear, type Sear } from './sear';
 
 export const SliceTuning = {
   /**
@@ -34,7 +35,14 @@ export const SliceTuning = {
   maxSimTime: 7,
   sinkSeconds: 2.2,
   density: 900,
+  /**
+   * A vaporizing cut's halves (the energy blade, DamageInfo.vaporize): they fall apart as any halves do, then once `lift` of
+   * their time has gone they float up as the Lance's vaporized bodies do (VaporTuning's lift and drag), and are ash at the end
+   * of `seconds`: long enough that the cut reads first. An ember and a spark every `ashEvery`.
+   */
+  vapor: { seconds: [1.1, 1.4] as const, lift: 0.3, gravity: -0.03, drag: 1.3, rise: 0.6, ashEvery: 0.09 },
 };
+const _up = new THREE.Vector3(0, 1, 0);
 
 export class Half {
   body: RAPIER.RigidBody | null = null;
@@ -50,6 +58,12 @@ export class Half {
   speed = 0;
   /** World time this half may next be heard landing. */
   nextThud = 0;
+  /** Burning away (a vaporizing cut): when it started, how long it takes, its materials, whether it has lifted, the next spark. */
+  vapor = -1;
+  vaporFor = 0;
+  sear: Sear | null = null;
+  lifted = false;
+  ashAt = 0;
   readonly slide = new THREE.Vector3();
   readonly p = new THREE.Vector3();
   readonly q = new THREE.Quaternion();
@@ -171,15 +185,24 @@ export class SliceField {
     result.below.forEach((side, i) => this.spawn(side, skin, slide, n, -1, damage, !aboveIsUpper && i === 0));
 
     const at = _o.copy(point);
-    fx.bloodJet(at, _d.copy(damage.dir), 0.5);
-    this.blood.splatterAlong(at, damage.dir, 8, 7, 0.6);
-    this.blood.spray(at, damage.dir, 10, 9, 0.5, 0.12);
+    if (damage.vaporize) {
+      // Cauterized: no blood, a spit of molten sparks along the cut and a flash.
+      fx.sparks(at, n, 14, 0xffb060);
+      fx.sparks(at, _d.copy(n).negate(), 14, 0xffb060);
+      this.ctx.render.lights?.flash(at, 0xffa860, 4, 5, 0.25);
+    } else {
+      fx.bloodJet(at, _d.copy(damage.dir), 0.5);
+      this.blood.splatterAlong(at, damage.dir, 8, 7, 0.6);
+      this.blood.spray(at, damage.dir, 10, 9, 0.5, 0.12);
+    }
     this.enforce();
   }
 
   private spawn(side: CutSide, skin: THREE.Material, slide: THREE.Vector3, n: THREE.Vector3, sign: number, damage: DamageInfo, upper: boolean): void {
     const { R, world } = this.ctx.physics;
-    const mesh = new THREE.Mesh(side.geometry, [skin, this.cap()]);
+    // A half is placed unturned at its origin, so the cut lies through its cap's centre along `n` in its own frame too.
+    const burn = damage.vaporize ? sear(skin, this.cap(), n, side.capCenter) : null;
+    const mesh = new THREE.Mesh(side.geometry, burn ? burn.materials : [skin, this.cap()]);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     mesh.position.copy(side.origin);
@@ -211,7 +234,13 @@ export class SliceField {
     if (upper) half.slide.copy(slide).multiplyScalar(SliceTuning.slideSpeed);
     half.slide.addScaledVector(n, sign * SliceTuning.partSpeed);
     half.slide.addScaledVector(damage.dir, 0.4);
-    half.emitter = this.ctx.fx.attachEmitter(mesh, 'stumpSpray', side.capCenter, 3.5) ?? null;
+    if (burn) {
+      half.sear = burn;
+      half.vapor = this.ctx.time.elapsed;
+      half.vaporFor = rand(SliceTuning.vapor.seconds[0], SliceTuning.vapor.seconds[1]);
+      // It burns away before it would bleed or pool.
+      half.pooled = true;
+    } else half.emitter = this.ctx.fx.attachEmitter(mesh, 'stumpSpray', side.capCenter, 3.5) ?? null;
     this.halves.push(half);
   }
 
@@ -260,14 +289,21 @@ export class SliceField {
    * cut face) compile at load and not on the first gib or slice of a fight.
    */
   warm(side: CutSide, skin: THREE.Material): void {
-    const mesh = new THREE.Mesh(side.geometry, [skin, this.cap()]);
-    mesh.position.y = -500;
-    mesh.frustumCulled = false;
-    mesh.onAfterRender = () => {
-      mesh.onAfterRender = () => {};
-      queueMicrotask(() => mesh.removeFromParent());
-    };
-    this.ctx.render.scene.add(mesh);
+    // And the burning copies (sear.ts), so the energy blade's first cut does not compile them mid-swing.
+    const burn = sear(skin, this.cap(), _up, side.capCenter);
+    for (const materials of [[skin, this.cap()], burn.materials]) {
+      const mesh = new THREE.Mesh(side.geometry, materials);
+      mesh.position.y = -500;
+      mesh.frustumCulled = false;
+      mesh.onAfterRender = () => {
+        mesh.onAfterRender = () => {};
+        queueMicrotask(() => {
+          mesh.removeFromParent();
+          if (materials === burn.materials) for (const m of materials) m.dispose();
+        });
+      };
+      this.ctx.render.scene.add(mesh);
+    }
   }
 
   private enforce(): void {
@@ -319,6 +355,11 @@ export class SliceField {
         }
         continue;
       }
+      if (h.vapor >= 0 && this.burnAway(h, now)) {
+        this.remove(h);
+        this.halves.splice(i, 1);
+        continue;
+      }
       const body = h.body;
       if (!body) continue;
       if (h.releaseAt > 0 && now >= h.releaseAt) {
@@ -338,13 +379,46 @@ export class SliceField {
       h.age += dt;
       if (h.v.lengthSq() < t.calmSpeed * t.calmSpeed && h.releaseAt === 0) h.calm += dt;
       else h.calm = 0;
-      if (h.calm > t.settle || h.age > t.maxSimTime) this.freeze(h);
+      // A burning half floats until it is gone.
+      if (h.vapor < 0 && (h.calm > t.settle || h.age > t.maxSimTime)) this.freeze(h);
     }
+  }
+
+  /** One frame of a half burning away (`SliceTuning.vapor`). True when it is ash, and should go. */
+  private burnAway(h: Half, now: number): boolean {
+    const v = SliceTuning.vapor;
+    const k = (now - h.vapor) / h.vaporFor;
+    const { fx } = this.ctx;
+    const at = _v.copy(h.side.capCenter).applyQuaternion(h.mesh.quaternion).add(h.mesh.position);
+    if (k >= 1) {
+      fx.embers(at, 5, 0.4);
+      fx.sparks(at, _up, 4, 0xffb060);
+      return true;
+    }
+    h.sear!.k.value = k;
+    // Its shadow would stay whole while it burns: none once it starts to go.
+    if (k > 0.2) h.mesh.castShadow = false;
+    const body = h.body;
+    if (!h.lifted && k >= v.lift && body && h.releaseAt === 0) {
+      h.lifted = true;
+      body.setGravityScale(v.gravity, true);
+      body.setLinearDamping(v.drag);
+      body.linvel(h.v);
+      body.setLinvel({ x: h.v.x * 0.3, y: Math.max(h.v.y, 0) + v.rise * rand(0.8, 1.2), z: h.v.z * 0.3 }, true);
+    }
+    // A cut body is several pieces at once: a few embers a piece, not a body's worth each.
+    if (now >= h.ashAt) {
+      h.ashAt = now + v.ashEvery;
+      fx.embers(at, 1, 0.2);
+      fx.sparks(at, _up, 1, k < 0.5 ? 0xffc080 : 0x9fe0ff);
+    }
+    return false;
   }
 
   private remove(h: Half): void {
     this.freeze(h);
     h.mesh.removeFromParent();
+    if (h.sear) for (const m of h.sear.materials) m.dispose();
     if (!h.shared) h.side.geometry.dispose();
   }
 

@@ -348,6 +348,11 @@ const MOD_CATALOGUE: Readonly<Record<ModId, Ware>> = {
     price: 850, wave: 6,
     lore: 'A compensator for the Ultramag. The gas leaves through the top, so the muzzle stays down and the next round leaves sooner. Procurement asked where the gas goes. Up, it was told, and filed it.',
   },
+  // The katana's energy blade (weapons/melee/data.ts ENERGY): late, dear, and the katana is issued, so everyone can fit it.
+  swordEnergy: {
+    price: 2200, wave: 12,
+    lore: 'The katana\'s blade, replaced with light. It weighs nothing, so it swings faster, reaches further and cuts a man in two, after which neither half is a filing matter. The Council has stopped asking where the bodies go.',
+  },
   judgeAp: {
     price: 600, wave: 2,
     lore: 'Armour-piercing slugs for the Judge. The verdict goes straight through the appeal.',

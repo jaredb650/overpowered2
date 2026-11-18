@@ -53,6 +53,8 @@ export type ModId = 'awlAcog' | 'awlCan' | 'awlAp' | 'awlHp' | 'suppressor' | 'r
   | 'smgMag' | 'rivetMag' | 'piledriverBox' | 'gimletShort'
   // The SMG's mag tape and stock.
   | 'smgTape' | 'smgStock'
+  // The katana's energy blade (weapons/melee/data.ts ENERGY).
+  | 'swordEnergy'
   // The weapon light, one a gun: every rifle, shotgun and pistol (weapons/mods.ts LIGHT_GUNS).
   | 'smgLight' | 'gimletLight' | 'harrowLight' | 'awlLight' | 'shotgunLight' | 'thresherLight' | 'deuceLight'
   | 'judgeLight' | 'rivetLight' | 'ultramagLight' | 'autorafficaLight'
