@@ -2,6 +2,7 @@
  * Main menu, over the live flythrough. A tree, one level on screen at a time:
  *
  *   Play > Campaign > the missions, in order
+ *        > Training, the tutorial (docs/design/tutorial.md). A first launch's Play goes straight there; an invite link never does
  *        > Survival > a map > what plays on it
  *        > Multiplayer, the co-op lobby (coop.ts)
  *   Guide, Settings
@@ -17,6 +18,8 @@ import { CONTRACTS, COUNCIL_OFFICE, NOTICE_FOOTER, NOTICE_TITLE, type ContractDe
 import { readHighScore } from '../../contracts/scores';
 import { ACTIVE, contractSearch, playsOn } from '../../contracts/select';
 import { isShut } from '../../contracts/unlocks';
+import { isFirstLaunch, markPlayed } from '../../contracts/firstLaunch';
+import { INVITE } from './coop';
 import { hasStarter, selectedStarter, saveStarter } from '../../contracts/starter';
 import { starterCards } from './starter';
 import type { Ctx } from '../../core/contracts';
@@ -89,7 +92,7 @@ export class MainMenu implements Screen {
     this.rules.focused = () => this.show(mode(CONTRACTS.find(isCrucible)!));
 
     this.root = this.makeLevel('', null, [
-      [menuButton('Play', () => this.enter(play)), null],
+      [menuButton('Play', () => (!INVITE && isFirstLaunch() ? this.play(mode(TRAINING)) : this.enter(play))), null],
       [menuButton('Guide', () => this.hud.screens.show('guide')), null],
       [menuButton('Settings', () => this.hud.screens.show('settings')), null],
     ]);
@@ -111,6 +114,14 @@ export class MainMenu implements Screen {
     for (const item of [menuButton('Campaign', () => this.enter(campaign)), menuButton('Survival', () => this.enter(survival)), multiplayer]) {
       this.addItem(play, item, null);
     }
+    this.addItem(play, this.leaf('Training', mode(TRAINING)), mode(TRAINING));
+    // Anything played at all is a returning player from then on (contracts/firstLaunch.ts).
+    let played = false;
+    ctx.events.on('game:state', e => {
+      if (e.to !== 'playing' || played) return;
+      played = true;
+      markPlayed();
+    });
     for (const level of [play, campaign, survival, ...mapLevels]) this.addItem(level, this.backButton(level), undefined);
     this.level = this.root;
 
