@@ -126,6 +126,12 @@ export const MODS: Readonly<Record<ModId, ModDef>> = {
       bodyCost: hmg.bodyCost, gib: hmg.gib, killStop: hmg.killStop, impactScale: hmg.impactScale, burst: undefined, loopPitch: 0.8,
     },
   },
+  // Every shell a proximity-fused air burst that throws a cone of shrapnel down its line (flak.ts), in place of the 5 m instakill.
+  // The autocannon's one round, so no slot, as the Sabot's Raufoss.
+  autocannonFlak: { id: 'autocannonFlak', weapon: 'autocannon', name: 'Flak shells', patch: { flak: true } },
+  // Optics on a short rail behind the Piledriver's feed cover; the ladder folds. The view narrows as the other guns' do.
+  piledriverDot: { id: 'piledriverDot', weapon: 'piledriver', name: 'Red dot sight', slot: 'sight', patch: { ads: DOT } },
+  piledriverAcog: { id: 'piledriverAcog', weapon: 'piledriver', name: 'ACOG', slot: 'sight', patch: { ads: ACOG } },
   // The Gimlet's. It is issued with the ACOG and the can on (`ISSUED`); the red dot swaps for the ACOG.
   gimletAcog: { id: 'gimletAcog', weapon: 'gimlet', name: 'ACOG', patch: { ads: ACOG }, slot: 'sight' },
   gimletDot: { id: 'gimletDot', weapon: 'gimlet', name: 'Red dot sight', patch: { ads: DOT }, slot: 'sight' },
@@ -207,7 +213,7 @@ export const MOD_ORDER: readonly ModId[] = [
   'suppressor', 'smgAp', 'smgHp', 'smgPlusP', 'gimletAcog', 'gimletDot', 'gimletCan', 'gimletGl', 'gimletAp', 'gimletHp', 'gimletPlusP',
   'reddot', 'harrowAcog', 'harrowAp', 'harrowHp', 'harrowPlusP', 'raufoss', 'rivetAp', 'rivetHp', 'rivetPlusP', 'ultramagAp', 'ultramagHp', 'ultramagPlusP', 'judgeAp', 'judgeHp', 'judgePlusP',
   'autorafficaAp', 'autorafficaHp', 'autorafficaPlusP', 'autorafficaMag',
-  'sabotBrake', 'trommel12',
+  'sabotBrake', 'trommel12', 'autocannonFlak', 'piledriverDot', 'piledriverAcog',
   'ultramagCan', 'ultramagDot', 'ultramagLam', 'ultramagMag', 'ultramagComp',
   'smgMag', 'smgTape', 'smgStock', 'swordEnergy', 'gimletShort', 'rivetMag', 'piledriverBox',
   'deuceQuad', 'deuceLoader', 'shotgunChoke', 'judgeHammer', 'judgeGrip',

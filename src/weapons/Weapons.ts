@@ -24,6 +24,7 @@ import { familyOf, familyOfSlot, membersOf, pressSlot, wheelSlot } from './famil
 import { Handling, holdSpeed } from './handling';
 import { PIERCE_ON } from './penetration';
 import { Raufoss } from './raufoss';
+import { FLAK } from './flak';
 import { helixOffset } from './helix';
 import { Painter, angleOff, type PaintCandidate } from './swarm';
 import { isMelee } from './melee/data';
@@ -1727,6 +1728,12 @@ export class Weapons implements WeaponSystem, Guard {
     p.killStop = HIT_STOP.heavyKill;
     p.gib = true;
     p.explosion = { radius: t.radius, damage: def.damage, kind: 'shell', instakill: true, selfDamage: 0 };
+    if (def.flak) {
+      // Not the instakill shell: what it does is its burst's shrapnel (flak.ts), and a square hit is a hard knock, no more.
+      p.flak = true;
+      p.damage = FLAK.direct;
+      p.explosion = { radius: FLAK.radius, damage: FLAK.blast, kind: 'shell', selfDamage: 0, playerPush: 0 };
+    }
     this.combat.spawnProjectile(p);
     this.shoveBack(t.push, t.groundPush);
   }
@@ -2349,4 +2356,5 @@ function unguided(p: ProjectileSpec): void {
   p.accel = undefined;
   p.topSpeed = undefined;
   p.size = undefined;
+  p.flak = undefined;
 }

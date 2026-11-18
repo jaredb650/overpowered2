@@ -55,6 +55,8 @@ export type ModId = 'awlAcog' | 'awlCan' | 'awlAp' | 'awlHp' | 'suppressor' | 'r
   | 'smgMag' | 'rivetMag' | 'piledriverBox' | 'gimletShort'
   // The SMG's mag tape and stock.
   | 'smgTape' | 'smgStock'
+  // The autocannon's flak shells, and the Piledriver's red dot and ACOG.
+  | 'autocannonFlak' | 'piledriverDot' | 'piledriverAcog'
   // The katana's energy blade (weapons/melee/data.ts ENERGY).
   | 'swordEnergy'
   // The weapon light, one a gun: every rifle, shotgun and pistol (weapons/mods.ts LIGHT_GUNS).
@@ -421,6 +423,8 @@ export interface ProjectileSpec {
   size?: number;
   /** The Rocket's: steers for the laser dot while the sight is on, flies straight while it is off (weapons/laser.ts). */
   wired?: boolean;
+  /** The autocannon's flak shell: a proximity fuze and an air burst of shrapnel (weapons/flak.ts). */
+  flak?: boolean;
 }
 
 export interface CombatSystem extends GameSystem {

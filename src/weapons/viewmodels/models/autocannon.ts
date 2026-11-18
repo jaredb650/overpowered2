@@ -47,6 +47,28 @@ function shell(m: Mesher): void {
   m.lathe([[0.0085, -0.098, 0], [0.0055, -0.11], [0.0022, -0.119], [0, -0.12, 0]], 18, { chamfer: 0 });
 }
 
+/**
+ * A flak round (the `autocannonFlak` mod), as `shell` lies: the same case, an olive body under a red driving band and a white
+ * stripe, and a proximity fuze for a nose, a knurled steel collar, a black ogive ringed with its sensor window and an orange cap.
+ */
+function flakShell(m: Mesher): void {
+  m.use(F.brass);
+  m.lathe([[0, 0.1, 0], [0.0165, 0.1], [0.0165, 0.094], [0.0148, 0.092], [0.015, 0.088], [0.0152, -0.012], [0.0128, -0.028], [0.0118, -0.03, 0]], 18, { chamfer: 0.0006 });
+  m.use(F.oliveDark);
+  m.lathe([[0.0118, -0.03, 0], [0.0118, -0.04], [0.0116, -0.06], [0.0112, -0.068], [0.0108, -0.07, 0]], 18, { chamfer: 0.0004 });
+  m.use(F.enamelRed);
+  m.lathe([[0.0118, -0.04, 0], [0.0124, -0.0412], [0.0124, -0.0478], [0.0118, -0.049, 0]], 18, { chamfer: 0.0002 });
+  m.use(F.white);
+  m.lathe([[0.0117, -0.053, 0], [0.012, -0.0534], [0.012, -0.0556], [0.0117, -0.056, 0]], 18, { chamfer: 0 });
+  m.at([0, 0, -0.0735], null, () => knurl(m, 0.0108, 0.007, F.steel, 18, 0.0004));
+  m.use(F.black);
+  m.lathe([[0.0102, -0.077, 0], [0.0098, -0.086], [0.0084, -0.096], [0.0062, -0.105], [0.0042, -0.111, 0]], 18, { chamfer: 0.0003 });
+  m.use(F.steelDark);
+  m.lathe([[0.0095, -0.0885, 0], [0.0099, -0.089], [0.0097, -0.0915], [0.009, -0.092, 0]], 18, { chamfer: 0 });
+  m.use({ color: 0xff6a1a, rough: 0.35, metal: 0.1, wear: 0.2 });
+  m.lathe([[0.0042, -0.111, 0], [0.0034, -0.116], [0.0016, -0.1195], [0, -0.1205, 0]], 18, { chamfer: 0 });
+}
+
 /** Pistol grip, trigger guard and the housing they hang from. Both guns, so the right hand sits the same on each. */
 function lower(m: Mesher): void {
   m.use(F.parkerized);
@@ -92,6 +114,8 @@ const CLIP_Z = -0.07;
 const CLIP_SCALE = 1.18;
 const C_PITCH = 0.04;
 const CLIP_ROUNDS = ['r0', 'r1', 'r2'] as const;
+/** The same clip loaded with flak (the `autocannonFlak` mod's look): a set of its own, shown in the plain set's place. */
+const FLAK_ROUNDS = ['f0', 'f1', 'f2'] as const;
 /** How far the barrel runs back into the receiver on a shot, and the spring it runs back through. */
 const SLAM = 0.15;
 const SPRING = 0.16;
@@ -236,9 +260,12 @@ function cannonSight(m: Mesher): void {
 
 function cannonClip(m: Mesher): void {
   m.part('clip', [0, C_TOP, CLIP_Z], () => {
-    for (let i = 0; i < CLIP_ROUNDS.length; i++) {
-      m.part(CLIP_ROUNDS[i]!, [0, i * C_PITCH, 0.012], () => m.scaled(CLIP_SCALE, () => shell(m)));
-    }
+    m.part('heRounds', [0, 0, 0], () => {
+      for (let i = 0; i < CLIP_ROUNDS.length; i++) m.part(CLIP_ROUNDS[i]!, [0, i * C_PITCH, 0.012], () => m.scaled(CLIP_SCALE, () => shell(m)));
+    });
+    m.part('flakRounds', [0, 0, 0], () => {
+      for (let i = 0; i < FLAK_ROUNDS.length; i++) m.part(FLAK_ROUNDS[i]!, [0, i * C_PITCH, 0.012], () => m.scaled(CLIP_SCALE, () => flakShell(m)));
+    });
     // Charger: a spine behind the case heads, sprung cheeks with windows either side, a bar to lift it by.
     const top = (CLIP_ROUNDS.length - 1) * C_PITCH + 0.026;
     m.use(F.steelDark);
@@ -298,7 +325,7 @@ function cannonAnim(a: Anim): void {
 
   // The clip strips from the bottom: the round that fed is gone at once and the ones above drop into its place.
   const p = a.reload;
-  for (let i = 0; i < CLIP_ROUNDS.length; i++) P[CLIP_ROUNDS[i]!]!.visible = p >= 0.34 || i < a.mag;
+  for (let i = 0; i < CLIP_ROUNDS.length; i++) P[CLIP_ROUNDS[i]!]!.visible = P[FLAK_ROUNDS[i]!]!.visible = p >= 0.34 || i < a.mag;
   const spent = a.magSize - a.mag;
   if (p < 0 && spent > 0 && a.mag > 0) P.clip!.position.y += (1 - outCubic(seg(t, 0.07, 0.16))) * C_PITCH * (t < 0.16 ? 1 : 0);
 
@@ -625,6 +652,7 @@ export function autocannonDef(kit: Kit): ViewDef {
     heatPerShot: 0.22,
     animate: cannonAnim,
     readout: a => drawCount(a, 'ammo', 1, 3, '#ffb43a'),
+    mods: { autocannonFlak: { part: 'flakRounds', hides: 'heRounds' } },
   };
 }
 

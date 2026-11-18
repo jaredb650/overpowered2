@@ -77,13 +77,15 @@ export function shotFor(mode: LanceMode, level: number, mag: number, bottomless 
 }
 
 /**
- * How thick the beam is drawn `t` seconds in, as a share of its widths: chunky as it leaves, running out of energy into a
- * thin line by its end.
+ * How thick the beam is drawn `t` seconds in, as a share of its widths: chunky as it leaves and nearly as chunky for most of
+ * the second, then running out of energy into a thin line over its last `BEAM_FADE`.
  */
 export const beamGirth = (t: number): number => {
   const k = clamp(t / BEAM.seconds);
-  return Math.max(BEAM.thin, BEAM.thick * (1 - k) ** 1.4);
+  const fade = clamp((k - (1 - BEAM_FADE)) / BEAM_FADE);
+  return Math.max(BEAM.thin, BEAM.thick * (1 - 0.3 * k) * (1 - fade) + BEAM.thin * fade);
 };
+const BEAM_FADE = 0.15;
 
 /** Cells a beam `t` seconds old has paid: one at a time as it goes, the last at its end, so it is never empty mid-beam. */
 export const beamPaid = (t: number): number => Math.min(BEAM.cost, Math.floor((t / BEAM.seconds) * BEAM.cost + EPS));
@@ -267,6 +269,9 @@ const HUM_STEPS = 12;
 /** Reused, so a charge builds nothing. */
 const HUM_START = { pitch: HUM_LOW, volume: 0.3 };
 const TICK = { pitch: 1 };
+/** The beam's bass: a blast's punch as it leaves, and the Orbital Lance's roar an octave and more down under it while it pours. */
+const BEAM_PUNCH = { volume: 0.7, pitch: 0.75 };
+const RUMBLE = { volume: 0.9, pitch: 0.6, fadeIn: 0.03 };
 const MODE_SOUND = { pitch: 1 };
 const AT = { position: undefined as THREE.Vector3 | undefined };
 const UP = new THREE.Vector3(0, 1, 0);
@@ -278,7 +283,7 @@ varying vec2 vUv;
 void main() {
   vUv = uv;
   vec3 p = position;
-  p.x *= mix(0.4, 1.0, clamp(p.y * uLen / 4.0, 0.0, 1.0));
+  p.x *= mix(0.2, 1.0, clamp(p.y * uLen / 5.0, 0.0, 1.0));
   gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
 }`;
 /** The Orbital Lance's beam (progression/callins/orbital.ts) across a ribbon: a hot core, a rim colour round it, pulses racing down. */
@@ -296,9 +301,95 @@ void main() {
   float pulse = 0.7 + 0.3 * sin(d * 0.9 - uTime * 46.0) * sin(d * 0.23 + uTime * 17.0);
   // A solid white-hot band down the middle, a blue corona falling away round it. The band takes most of the core's width
   // (it was the middle tenth, 2026-11-16), so the beam reads as a column and not a line.
-  vec3 c = uRim * pow(x, 1.2) * pulse + uCore * (smoothstep(0.3, 0.7, x) + 0.3 * pow(x, 2.0));
+  // Wider again, and a white-hot centre on top of it (2026-11-17): the middle half burns white, its middle sixth past white.
+  vec3 c = uRim * pow(x, 1.2) * pulse + uCore * (smoothstep(0.15, 0.55, x) + 0.3 * pow(x, 2.0) + 1.5 * smoothstep(0.82, 0.97, x));
+  // Faded in off the muzzle, where the charge orb is: a ribbon that starts square on is a hard edge across the view.
+  gl_FragColor = vec4(c * uPower * smoothstep(0.0, 2.0, d), 1.0);
+}`;
+/**
+ * The full beam's outer shell: an open tube round the core, thin at the muzzle and full width `SHELL_TAPER` m out, its wall
+ * a turbulent swirl twisting down the line and racing away from the gun. Brightest where the tube is seen edge on, so from
+ * behind the gun it is streams of energy converging on the far end.
+ */
+const SHELL_VERT = /* glsl */ `
+uniform float uLen;
+varying vec2 vUv;
+varying vec3 vN;
+varying vec3 vView;
+void main() {
+  vUv = uv;
+  vec3 p = position;
+  p.xz *= mix(0.3, 1.0, clamp(p.y * uLen / 5.0, 0.0, 1.0));
+  vec4 mv = modelViewMatrix * vec4(p, 1.0);
+  vN = normalize(normalMatrix * normal);
+  vView = normalize(-mv.xyz);
+  gl_Position = projectionMatrix * mv;
+}`;
+const SHELL_FRAG = /* glsl */ `
+precision highp float;
+uniform vec3 uCore;
+uniform vec3 uRim;
+uniform float uTime;
+uniform float uPower;
+uniform float uLen;
+varying vec2 vUv;
+varying vec3 vN;
+varying vec3 vView;
+float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+// Value noise that wraps every \`period\` along x, so the tube has no seam.
+float wrapNoise(vec2 p, float period) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  float x0 = mod(i.x, period);
+  float x1 = mod(i.x + 1.0, period);
+  return mix(mix(hash(vec2(x0, i.y)), hash(vec2(x1, i.y)), f.x), mix(hash(vec2(x0, i.y + 1.0)), hash(vec2(x1, i.y + 1.0)), f.x), f.y);
+}
+void main() {
+  float d = vUv.y * uLen;
+  float a = vUv.x * 8.0 + d * 0.35 - uTime * 7.0;
+  float n = wrapNoise(vec2(a, d * 0.5 - uTime * 34.0), 8.0) * 0.6 + wrapNoise(vec2(a * 2.0, d * 1.3 - uTime * 58.0), 16.0) * 0.4;
+  float streak = smoothstep(0.42, 0.9, n);
+  float edge = pow(1.0 - abs(dot(normalize(vN), normalize(vView))), 1.4);
+  float ends = smoothstep(0.0, 0.8, d) * (1.0 - smoothstep(uLen - 3.0, uLen, d));
+  vec3 c = uRim * (0.18 + streak * 1.3) * edge + uCore * streak * streak * 0.5 * edge;
+  gl_FragColor = vec4(c * uPower * ends, 1.0);
+}`;
+/** A ball of light, white in the middle and its colour at the rim: the charge orb at the muzzle and the bloom where the beam lands. */
+const GLOW_VERT = /* glsl */ `
+varying vec3 vN;
+varying vec3 vView;
+void main() {
+  vec4 mv = modelViewMatrix * vec4(position, 1.0);
+  vN = normalize(normalMatrix * normal);
+  vView = normalize(-mv.xyz);
+  gl_Position = projectionMatrix * mv;
+}`;
+const GLOW_FRAG = /* glsl */ `
+precision highp float;
+uniform vec3 uCore;
+uniform vec3 uRim;
+uniform float uTime;
+uniform float uPower;
+varying vec3 vN;
+varying vec3 vView;
+void main() {
+  float f = abs(dot(normalize(vN), normalize(vView)));
+  float flick = 0.85 + 0.15 * sin(uTime * 53.0 + vN.x * 9.0) * sin(uTime * 31.0 + vN.y * 7.0);
+  vec3 c = uRim * pow(f, 1.6) * flick + uCore * pow(f, 5.0);
   gl_FragColor = vec4(c * uPower, 1.0);
 }`;
+/** The shell's width over the core's, the muzzle orb's radius and the impact bloom's, all times `beamGirth`. Metres. */
+const SHELL_WIDTH = 0.62;
+const ORB_RADIUS = 0.13;
+const BLOOM_RADIUS = 1.5;
+/** A strip `segments` long from y 0 to 1, its rows bunched at y 0 (the muzzle), where its taper is drawn. */
+function bunched<T extends THREE.BufferGeometry>(geo: T): T {
+  const pos = geo.attributes.position!;
+  // The walls stay square to the line, so their normals hold.
+  for (let i = 0; i < pos.count; i++) pos.setY(i, pos.getY(i) ** 2);
+  return geo;
+}
 /** Newton-seconds a beam tick pushes a body with: it burns, it does not throw. */
 const BURN_FORCE = 6;
 
@@ -362,7 +453,12 @@ export class Lance {
   private beamLoop: LoopHandle | null = null;
   private giantLoop: LoopHandle | null = null;
   /** The beam's column and the giant ball: the Orbital Lance's shader, in the gun's colours. Built on first use. */
-  private look: { column: THREE.Mesh; sheath: THREE.Mesh; orb: THREE.Mesh; halo: THREE.Mesh; orbMat: THREE.ShaderMaterial } | null = null;
+  private look: {
+    column: THREE.Mesh; sheath: THREE.Mesh; shell: THREE.Mesh; charge: THREE.Mesh; bloom: THREE.Mesh;
+    orb: THREE.Mesh; halo: THREE.Mesh; orbMat: THREE.ShaderMaterial;
+  } | null = null;
+  /** The bass under the beam: the Orbital Lance's roar, pitched down. */
+  private rumble: LoopHandle | null = null;
   private readonly end = new THREE.Vector3();
   private readonly burst: ExplosionSpec = {
     radius: 0, damage: 0, kind: 'plasmaBurst', source: DEF.id, team: 'player', selfDamage: 0, playerPush: 0,
@@ -807,13 +903,18 @@ export class Lance {
     b.scorched.set(Infinity, 0, 0);
     this.ensureLook();
     this.warm(false);
-    this.look!.column.visible = this.look!.sheath.visible = true;
+    const look = this.look!;
+    look.column.visible = look.sheath.visible = look.shell.visible = look.charge.visible = true;
     c.audio.play('lance_thunder');
+    c.audio.play('orbital_strike', BEAM_PUNCH);
     this.beamLoop = c.audio.startLoop?.('lance_beam_loop') ?? null;
-    c.render.post.flash(FLASH, 0.35, 0.18);
-    c.render.post.chromatic(0.9, 0.3);
-    c.render.post.radialBlur(0.3, 0.3);
-    c.camera.addTrauma(0.45);
+    this.rumble = c.audio.startLoop?.('orbital_beam_loop', RUMBLE) ?? null;
+    c.render.post.flash(FLASH, 0.5, 0.22);
+    c.render.post.chromatic(1.2, 0.35);
+    c.render.post.radialBlur(0.45, 0.35);
+    c.camera.addTrauma(0.9);
+    c.camera.fovPunch(8, 0.3);
+    c.camera.kick(0.05, rand(-0.01, 0.01), rand(-0.02, 0.02));
     this.stepBeam(0, true);
   }
 
@@ -857,10 +958,12 @@ export class Lance {
       b.tickIn += BEAM.tick;
       this.beamTick(eye, dir, power);
     }
-    c.camera.addTrauma(BEAM.trauma * power * dt);
+    // Trauma is a max and not a sum, so the beam holds it at a level the whole second, a violent one.
+    c.camera.addTrauma(BEAM.trauma * power);
     c.player.velocity.x -= dir.x * BEAM.push * dt;
     c.player.velocity.z -= dir.z * BEAM.push * dt;
     this.beamLoop?.setVolume(0.4 + 0.6 * power, 0.05);
+    this.rumble?.setVolume(RUMBLE.volume * power, 0.05);
     if (b.t >= BEAM.seconds) this.endBeam();
   }
 
@@ -892,16 +995,23 @@ export class Lance {
     this.list.length = 0;
     if (struck > 0) c.hud.hitMarker('body');
 
+    // The gun bucks in the hands every tick: up, and either way, on top of the held shake.
+    c.camera.kick(rand(0.006, 0.014) * power, rand(-0.008, 0.008) * power, rand(-0.01, 0.01) * power);
+    // The air boils along it, nearest first.
+    const len = b.from.distanceTo(b.to);
+    for (const k of [0.12, 0.45]) if (len * k > 2) fx.heatShimmer(this.v.lerpVectors(b.from, b.to, k), 1.4 + len * k * 0.03, 0.2);
     // The end of the line, and a bolt crackling off it somewhere along the first stretch.
     const at = b.to;
     if (b.wall) {
-      fx.sparks(at, b.normal, 10, 0xd8f4ff);
-      fx.embers(at, 4, 1);
-      fx.heatShimmer(at, 1.6, 0.25);
-      c.render.lights.flash(at, 0x8fd8ff, 14 * power, 9, 0.08);
+      fx.sparks(at, b.normal, 18, 0xd8f4ff);
+      fx.embers(at, 6, 1.4);
+      fx.heatShimmer(at, 2.6, 0.25);
+      if (Math.random() < 0.5) fx.ring(at, b.normal, RING, 3.2 * beamGirth(b.t));
+      c.render.lights.flash(at, 0x8fd8ff, 26 * power, 16, 0.08);
       if (b.scorched.distanceToSquared(at) > 0.45 * 0.45) {
         b.scorched.copy(at);
-        c.render.decals.add('scorch', at, b.normal, 1.4, rand(0, TAU));
+        c.render.decals.add('scorch', at, b.normal, 2.6, rand(0, TAU));
+        c.render.decals.add('crack', at, b.normal, 1.1, rand(0, TAU));
       }
       c.physics.radialImpulse(at, 2.5, 6);
     }
@@ -943,9 +1053,11 @@ export class Lance {
     if (b.slot && b.paid < BEAM.cost) this.host.consume(b.slot, BEAM.cost - b.paid);
     b.slot = null;
     LANCE_LOOK.beam = 0;
-    if (this.look) this.look.column.visible = this.look.sheath.visible = false;
+    if (this.look) this.look.column.visible = this.look.sheath.visible = this.look.shell.visible = this.look.charge.visible = this.look.bloom.visible = false;
     this.beamLoop?.stop(0.12);
     this.beamLoop = null;
+    this.rumble?.stop(0.4);
+    this.rumble = null;
     this.ctx.audio.play('railgun_beam');
   }
 
@@ -975,6 +1087,25 @@ export class Lance {
       mesh.quaternion.setFromRotationMatrix(BASIS);
       mesh.scale.set(width * 2 * flicker * beamGirth(b.t), len, 1);
     }
+    // The shell is round the line, so it needs no turning to the eye; its seam twists with the swirl.
+    const girth = beamGirth(b.t);
+    const shell = look.shell;
+    const shellMat = shell.material as THREE.ShaderMaterial;
+    shellMat.uniforms.uTime!.value = time;
+    shellMat.uniforms.uPower!.value = power;
+    shellMat.uniforms.uLen!.value = len;
+    shell.position.copy(b.from);
+    shell.quaternion.setFromUnitVectors(UP, dir);
+    const r = BEAM.width * SHELL_WIDTH * girth * (1 + Math.sin(time * 41) * 0.05);
+    shell.scale.set(r, len, r);
+    const glow = look.charge.material as THREE.ShaderMaterial;
+    glow.uniforms.uTime!.value = time;
+    glow.uniforms.uPower!.value = power;
+    look.charge.position.copy(b.from);
+    look.charge.scale.setScalar(ORB_RADIUS * (0.7 + 0.3 * girth / BEAM.thick) * flicker);
+    look.bloom.visible = b.wall;
+    look.bloom.position.copy(b.to).addScaledVector(b.normal, 0.3);
+    look.bloom.scale.setScalar(BLOOM_RADIUS * girth * (1 + Math.sin(time * 29) * 0.12));
   }
 
   /**
@@ -996,7 +1127,24 @@ export class Lance {
     const orb = orbitalMaterials().column;
     orb.uniforms.uRim!.value = new THREE.Color('#2dff7a').multiplyScalar(3);
     orb.uniforms.uCore!.value = new THREE.Color('#f0fff4').multiplyScalar(6);
-    const strip = new THREE.PlaneGeometry(0.5, 1).translate(0, 0.5, 0);
+    const strip = bunched(new THREE.PlaneGeometry(0.5, 1, 1, 24).translate(0, 0.5, 0));
+    const tube = bunched(new THREE.CylinderGeometry(1, 1, 1, 24, 32, true).translate(0, 0.5, 0));
+    const glowMat = new THREE.ShaderMaterial({
+      vertexShader: GLOW_VERT, fragmentShader: GLOW_FRAG, transparent: true, depthWrite: false, depthTest: false,
+      blending: THREE.AdditiveBlending, toneMapped: false, fog: false,
+      uniforms: {
+        uCore: { value: new THREE.Color('#ffffff').multiplyScalar(8) }, uRim: { value: new THREE.Color('#4aa8ff').multiplyScalar(4) },
+        uTime: { value: 0 }, uPower: { value: 0 },
+      },
+    });
+    const shellMat = new THREE.ShaderMaterial({
+      vertexShader: SHELL_VERT, fragmentShader: SHELL_FRAG, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide, toneMapped: false, fog: false,
+      uniforms: {
+        uCore: { value: new THREE.Color('#e8f6ff').multiplyScalar(2.5) }, uRim: { value: new THREE.Color('#3f8dff').multiplyScalar(3) },
+        uTime: { value: 0 }, uPower: { value: 0 }, uLen: { value: 1 },
+      },
+    });
     const ball = new THREE.IcosahedronGeometry(1, 3);
     const mesh = (geo: THREE.BufferGeometry, mat: THREE.Material): THREE.Mesh => {
       const m = new THREE.Mesh(geo, mat);
@@ -1006,7 +1154,8 @@ export class Lance {
       return m;
     };
     this.look = {
-      column: mesh(strip, ribbon('#f4fbff', '#5ab4ff', 22, 9)), sheath: mesh(strip, ribbon('#9fd8ff', '#2f7bff', 0, 6)),
+      column: mesh(strip, ribbon('#f4fbff', '#5ab4ff', 22, 9)), sheath: mesh(strip, ribbon('#9fd8ff', '#2f7bff', 0, 4.5)),
+      shell: mesh(tube, shellMat), charge: mesh(ball, glowMat), bloom: mesh(ball, glowMat),
       orb: mesh(ball, orb), halo: mesh(ball, orb), orbMat: orb,
     };
   }
@@ -1015,7 +1164,7 @@ export class Lance {
   private warm(on: boolean): void {
     const look = this.look;
     if (!look || this.beamState.active || this.giant.active) return;
-    for (const m of [look.column, look.sheath, look.orb, look.halo]) {
+    for (const m of [look.column, look.sheath, look.shell, look.charge, look.orb, look.halo]) {
       m.visible = on;
       if (!on) continue;
       m.position.copy(this.ctx.player.eye);
@@ -1024,6 +1173,8 @@ export class Lance {
     look.orbMat.uniforms.uPower!.value = 0;
     (look.column.material as THREE.ShaderMaterial).uniforms.uPower!.value = 0;
     (look.sheath.material as THREE.ShaderMaterial).uniforms.uPower!.value = 0;
+    (look.shell.material as THREE.ShaderMaterial).uniforms.uPower!.value = 0;
+    (look.charge.material as THREE.ShaderMaterial).uniforms.uPower!.value = 0;
   }
 
   // -------------------------------------------------------------------------------------------

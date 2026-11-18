@@ -137,6 +137,8 @@ export interface WeaponDef {
   altAmmo?: { readonly label: string; readonly hold?: number };
   /** Every round is a Raufoss round, with no switch: the Sabot with its shop mod (mods.ts). */
   raufoss?: boolean;
+  /** Every shell is a flak shell: a proximity fuze and an air burst of shrapnel (flak.ts). The autocannon with its shop mod. */
+  flak?: boolean;
   /**
    * Hold R for `hold` seconds to step the selector through `modes`, the first the default: full auto, bursts of `burst.rounds`
    * at the row's `interval` then `burst.recover` before the next, or one round a pull. A shorter press is a reload, on its
@@ -782,8 +784,10 @@ export const TUNING = {
      * owner: a massive beam); `radius`, what it strikes, is as it was, and already about the width of the core as it leaves.
      */
     beam: {
-      cost: 6, seconds: 1, dps: 3000, tick: 0.05, radius: 0.45, range: 400, burn: 6, push: 4.5, trauma: 1.1, recover: 0.35,
-      width: 0.8, sheath: 1.2, thick: 2.2, thin: 0.12,
+      // `trauma` is the shake held all the second at full power (a level: trauma is a max, not a sum). `width` and `sheath` are the
+      // core's and the glow's widths, drawn only: `radius` is what it strikes, so the damage is as it was (2026-11-17).
+      cost: 6, seconds: 1, dps: 3000, tick: 0.05, radius: 0.45, range: 400, burn: 6, push: 4.5, trauma: 0.62, recover: 0.35,
+      width: 1.15, sheath: 2.4, thick: 2.2, thin: 0.12,
     },
     /**
      * The ball mode's full charge: a slow ball of `size` metres across that bursts on whatever it touches, or at the end

@@ -295,6 +295,18 @@ const MOD_CATALOGUE: Readonly<Record<ModId, Ware>> = {
   raufoss: {
     price: 2400, wave: 10,
     lore: 'Every dart now bursts where it lands and sends what is left out of the far side. Cover has been reclassified as a suggestion.',
+  },
+  autocannonFlak: {
+    price: 2200, wave: 8,
+    lore: 'Proximity-fused shells for the autocannon. They go off a few metres short of whoever they were meant for and carry on as a cone of steel. Aim at the man and the man is the part that is missing. Crowds are now a single line item.',
+  },
+  piledriverDot: {
+    price: 600, wave: 16,
+    lore: 'A red dot on the Piledriver, on a rail behind the feed cover; the ladder folds away. Procurement asked what a sight adds to a gun that removes walls. The dot was the answer.',
+  },
+  piledriverAcog: {
+    price: 1000, wave: 17,
+    lore: 'Four-power glass on the Piledriver. You may now watch at four times the size the thing you are doing to the building. The Council has no comment on the building.',
   },  // AP, HP and +P rounds (weapons/mods.ts, AMMO in weapons/data.ts): one ammo mod to a gun, or ball with none.
   smgAp: {
     price: 400, wave: 2,

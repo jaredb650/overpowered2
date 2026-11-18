@@ -12,7 +12,8 @@ import { Model } from '../kit/model';
 import { F } from '../kit/finishes';
 import type { Mesher } from '../kit/mesher';
 import { curve, poly, rect, slotRow } from '../kit/shapes';
-import { hexX, knurl, screwX, serrations } from '../kit/details';
+import { hexX, knurl, rail, screwX, serrations } from '../kit/details';
+import { OPTIC_GLOWS, acog, acogShade, redDot } from './optics';
 import { bump, hold, inOut, inQuad, outCubic, seg, thud } from '../curves';
 import { pullTrigger, round } from './common';
 import type { Anim, ViewDef } from '../def';
@@ -27,6 +28,10 @@ const MUZZLE = -0.78;
 /** How far apart two rounds lie on the belt. */
 const PITCH = 0.0185;
 const BELT_ROUNDS = 7;
+/** The optics' rail: its foot on the receiver's top, its front clear of the feed cover's swing. Optics sit on its teeth. */
+const RAIL_BASE = 0.096;
+const RAIL_FRONT = -0.005;
+const RAIL_TOP = RAIL_BASE + 0.0074;
 
 function receiver(m: Mesher): void {
   m.use(F.parkerized);
@@ -62,10 +67,12 @@ function receiver(m: Mesher): void {
   m.use(F.steelDark);
   m.mirror(() => m.at([HALF - 0.004, 0.099, -0.09], null, () => m.box(0.006, 0.008, 0.078, 0.001)));
 
-  // Rear sight: a tall ladder, folded up, with a notch plate.
+  // A rail on the receiver behind the feed cover, for the shop's optics (weapons/mods.ts), clear of the cover's swing.
+  m.at([0, RAIL_BASE, 0], null, () => rail(m, RAIL_FRONT, 0.142, 0.0212, F.parkerized));
+  // Rear sight: a tall ladder, folded up, with a notch plate, its foot clamped over the rail. It folds away under an optic.
   m.use(F.blued);
-  m.at([0, 0.099, 0.118], null, () => {
-    m.box(0.036, 0.008, 0.026, 0.0012);
+  m.part('ladder', [0, 0.099, 0.118], () => {
+    m.at([0, 0.0012, 0], null, () => m.box(0.036, 0.0108, 0.026, 0.0012));
     m.mirror(() => m.at([0.013, 0.022, 0], null, () => m.box(0.0034, 0.04, 0.006, 0.0008)));
     m.at([0, 0.03, 0], null, () => m.box(0.03, 0.006, 0.004, 0.0008));
     m.at([0, 0.042, 0], null, () => m.box(0.03, 0.004, 0.004, 0.0008));
@@ -219,13 +226,17 @@ function feed(m: Mesher): void {
   });
 }
 
-function buildPiledriver(kit: Kit): Model {
+function buildPiledriver(kit: Kit): { model: Model; mods: NonNullable<ViewDef['mods']> } {
   const m = kit.mesher();
   m.bevel = 0.0016;
   receiver(m);
   jacket(m);
   barrel(m);
   feed(m);
+  // The red dot ahead of where the ladder stood; the ACOG further back, its objective out of the cover's way as it opens.
+  // Held further off the eye than a rifle's: at 0.26 m the buttpad under the eye fills the bottom of the picture.
+  const dot = { ...redDot(m, [0, RAIL_TOP, 0.075]), relief: 0.42 };
+  const scope = acog(m, [0, RAIL_TOP, 0.095]);
 
   m.part('bolt', [HALF - 0.0005, 0.05, -0.04], () => {
     m.use(F.steel);
@@ -244,7 +255,8 @@ function buildPiledriver(kit: Kit): Model {
     m.side(poly([[-0.0035, 0.002], [0.0035, 0.002], [0.002, -0.009, 0.002], [0.0038, -0.0225, 0.0015], [0.0005, -0.0235, 0.001], [-0.0035, -0.0095, 0.003]], 0.001), 0.0072, { bevel: 0.0007 });
   });
 
-  const model = new Model(m, kit.mats, { glows: { sight: [0xffb43a, 5] } });
+  const model = new Model(m, kit.mats, { glows: { sight: [0xffb43a, 5], ...OPTIC_GLOWS } });
+  acogShade(model);
   model.socket('muzzle', [0, BORE, MUZZLE - 0.006]);
   model.socket('eject', [HALF + 0.004, 0.05, -0.04]);
   model.hand('gripR', [0.018, -0.056, 0.074], [0, -0.96, 0.27], [-0.3, -0.25, -0.92]);
@@ -252,7 +264,7 @@ function buildPiledriver(kit: Kit): Model {
   model.hand('boxHold', [-0.046, 0.0, 0.03], [-0.1, 0.1, -0.98], [0.9, 0.05, -0.2], 'box');
   model.hand('coverHold', [-0.02, 0.02, 0.12], [-0.3, 0.4, -0.86], [0.85, 0.3, -0.42], 'cover');
   model.hand('chargeHold', [-0.034, 0.0, 0.006], [-0.5, -0.2, -0.8], [0.8, -0.3, -0.5], 'charge');
-  return model;
+  return { model, mods: { piledriverBox: { part: 'boxExt', hides: 'boxStd' }, piledriverDot: dot, piledriverAcog: scope } };
 }
 
 /** How far the barrel runs back in the jacket, and how far the bolt and the handle travel. */
@@ -332,9 +344,10 @@ function clip(a: Anim): void {
 }
 
 export function piledriverDef(kit: Kit): ViewDef {
+  const { model, mods } = buildPiledriver(kit);
   return {
     id: 'piledriver',
-    model: buildPiledriver(kit),
+    model,
     pos: [0.175, -0.168, -0.42],
     rot: [0.026, 0.075, 0],
     // ADS: the post's tip through the ladder's notch.
@@ -345,7 +358,8 @@ export function piledriverDef(kit: Kit): ViewDef {
     right: { socket: 'gripR', pose: HANDS.grip },
     left: { socket: 'gripL', pose: HANDS.foregrip },
     heatPerShot: 0.03,
-    mods: { piledriverBox: { part: 'boxExt', hides: 'boxStd' } },
+    mods,
+    irons: 'ladder',
     animate: clip,
   };
 }

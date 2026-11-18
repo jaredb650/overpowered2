@@ -15,6 +15,7 @@ import { retarget, turnToward, weave } from './swarm';
 import { helixOffset, type HelixSpec } from './helix';
 import { ROCKET_LASER } from './laser';
 import { ProjectileVisuals } from './ProjectileVisuals';
+import { flakBurst, flakFuze, nearestAhead } from './flak';
 
 const MAX_PROJECTILES = 256;
 const UP = new THREE.Vector3(0, 1, 0);
@@ -135,6 +136,8 @@ export interface Projectile {
   wired: boolean;
   blastScale: number | undefined;
   blastShake: number | undefined;
+  /** An autocannon flak shell: a proximity fuze, and its blast is the flak's air burst and cone (flak.ts). */
+  flak: boolean;
 }
 
 function createProjectile(): Projectile {
@@ -149,7 +152,7 @@ function createProjectile(): Projectile {
     blastSelf: undefined, blastPush: undefined, pinned: false, lastHit: -1,
     budget: makeBudget(), baseDamage: 0, armorPiercing: false,
     target: null, turnRate: 0, line: new THREE.Vector3(), steerDelay: 0, weave: 0, weavePhase: 0, accel: 0, topSpeed: 0, age: 0, size: 1, wired: false,
-    blastScale: undefined, blastShake: undefined,
+    blastScale: undefined, blastShake: undefined, flak: false,
     helix: null, helixTravel: 0, helixRight: new THREE.Vector3(), helixUp: new THREE.Vector3(), helixOffset: new THREE.Vector3(),
   };
 }
@@ -184,6 +187,7 @@ export class Projectiles {
   private readonly pendingPins: PendingPin[] = [];
   private pendingCount = 0;
   private readonly shotResult = { projectile: null as unknown as Projectile, at: 0 };
+  private readonly ahead: [number, number] = [Infinity, 0];
   private readonly blastSpec = {
     radius: 0, damage: 0, kind: 'rocket' as ExplosionKind, source: '', team: 'player' as Team,
     instakill: undefined as boolean | undefined, selfDamage: undefined as number | undefined,
@@ -282,6 +286,7 @@ export class Projectiles {
     p.age = 0;
     p.size = spec.size ?? 1;
     p.wired = spec.wired ?? false;
+    p.flak = spec.flak ?? false;
     p.visualHold = 0;
     p.visualOffset.set(0, 0, 0);
     if (spec.visualFrom) {
@@ -365,6 +370,7 @@ export class Projectiles {
     }
     if (len <= 0) return;
 
+    if (p.flak && this.flakFuze(p, dir, len)) return;
     const wall = c.physics.raycast(p.position, dir, len, CG.World);
     const limit = wall ? wall.distance : len;
 
@@ -827,7 +833,23 @@ export class Projectiles {
     }
   }
 
+  /** A flak shell's fuze over this step: true when it went off. */
+  private flakFuze(p: Projectile, dir: THREE.Vector3, len: number): boolean {
+    const wall = this.ctx.physics.raycast(p.position, dir, len + 1, CG.World);
+    const [along, off] = nearestAhead(this.ctx, p.position, dir, len, this.ahead);
+    const at = flakFuze(len, wall ? wall.distance : Infinity, along, off);
+    if (at < 0) return false;
+    p.position.addScaledVector(dir, at);
+    this.explode(p, undefined);
+    p.live = false;
+    return true;
+  }
+
   explode(p: Projectile, normal: THREE.Vector3 | undefined): void {
+    if (p.flak) {
+      flakBurst(this.ctx, this.combat, p.position, this.v.copy(p.velocity).normalize(), p.source);
+      return;
+    }
     const b = this.blastSpec;
     b.radius = p.blastRadius;
     b.damage = p.blastDamage;
