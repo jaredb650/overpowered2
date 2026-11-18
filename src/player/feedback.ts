@@ -6,7 +6,7 @@
  * wall-run scrape and the slam fall whistle.
  */
 import * as THREE from 'three';
-import type { Ctx, DamageInfo, PlayOptions } from '../core/contracts';
+import type { Ctx, DamageInfo, LoopHandle, PlayOptions } from '../core/contracts';
 import type { EnemyInstance } from '../core/gameplay';
 import { clamp, lerp, smoothstep } from '../core/math';
 import { ANIM } from './moveAnim';
@@ -15,6 +15,10 @@ import { FEEDBACK, MOVE } from './tuning';
 
 const FOOTSTEPS = ['player_footstep1', 'player_footstep2', 'player_footstep3'] as const;
 const UP = new THREE.Vector3(0, 1, 0);
+/** Jump Jet's nozzles, in the body's frame (metres right, up from the feet, back): either side of the spine, at the waist. */
+const JET_NOZZLE = { side: 0.08, up: 1.02, back: 0.3 } as const;
+/** Puffs a second from each nozzle. */
+const JET_PUFFS = 60;
 
 const MAX_SLAM_TARGETS = 48;
 
@@ -41,6 +45,10 @@ export class MovementFeedback {
   private readonly slamHits: EnemyInstance[] = [];
   private readonly gibs = Array.from({ length: GIB_SPOTS }, () => ({ at: new THREE.Vector3(), until: -1 }));
   private nextGib = 0;
+  private jetLoop: LoopHandle | null = null;
+  private jetPuffT = 0;
+  private readonly jetAt = new THREE.Vector3();
+  private readonly jetDir = new THREE.Vector3();
   private readonly slamDamage: DamageInfo = {
     amount: 0, type: 'crush', point: new THREE.Vector3(), dir: new THREE.Vector3(), force: 0, source: 'slam',
   };
@@ -144,12 +152,49 @@ export class MovementFeedback {
     }
 
     this.bodySounds(dt);
+    this.jet(dt);
     render.post.setSpeed(smoothstep(FEEDBACK.speedLinesFrom, FEEDBACK.speedLinesFull, p.velocity.length()));
     // A Gun Kata charging (contracts/chips.ts) borrows the low-health look: the edges close in and the colour drains with it.
     const focus = (this.ctx.contracts as { chips?: { kataFocus?: number } } | undefined)?.chips?.kataFocus ?? 0;
     render.post.setLowHealth(Math.max(p.alive ? 1 - clamp(p.health / 35) : 1, focus * 0.75));
     if (p.sliding || p.wallRunning) this.trail(dt);
     else this.trailDistance = 0;
+  }
+
+  /** Jump Jet: the thruster loop, a short flame from each nozzle, and a buzz through the view while it burns. */
+  private jet(dt: number): void {
+    const p = this.player;
+    const { audio, camera, fx } = this.ctx;
+    if (!p.jetting) {
+      if (this.jetLoop) {
+        this.jetLoop.stop(0.18);
+        this.jetLoop = null;
+        audio.play('flame_stop', { volume: 0.3, pitch: 1.5 });
+      }
+      return;
+    }
+    if (!this.jetLoop) {
+      // The Frame's jets are this loop at 0.55; a pack on a back is smaller and higher.
+      this.jetLoop = audio.startLoop('flame_loop', { fadeIn: 0.06, pitch: 1.3, volume: 0.75 });
+      audio.play('flame_ignite', { volume: 0.45, pitch: 1.4 });
+      camera.kick(-0.008, 0, 0);
+      camera.fovPunch(1.5, 0.25);
+      this.jetPuffT = 0;
+    }
+    // A dry tank coughs: the pitch sags over the last half second of fuel.
+    this.jetLoop.setPitch(1.3 - 0.25 * (1 - clamp(p.jetFuel / 0.5)), 0.05);
+    camera.addTrauma(0.05);
+    this.jetPuffT -= dt;
+    if (this.jetPuffT > 0) return;
+    this.jetPuffT = 1 / JET_PUFFS;
+    const s = Math.sin(p.yaw), c = Math.cos(p.yaw);
+    // Down, a touch back: long enough to show past the feet when the view looks down.
+    this.jetDir.set(s * 0.12, -1, c * 0.12).normalize();
+    for (const k of [-1, 1]) {
+      const n = JET_NOZZLE;
+      this.jetAt.set(p.position.x + s * n.back + c * n.side * k, p.position.y + n.up, p.position.z + c * n.back - s * n.side * k);
+      fx.jet?.(this.jetAt, this.jetDir, 2);
+    }
   }
 
   /**

@@ -37,6 +37,9 @@ export class HudState {
   dashCharges = MOVE.dashCharges;
   /** 0..1 progress of the charge currently refilling. */
   dashRefill = 0;
+  /** Jump Jet's tank, 0..1, or -1 with it not fitted. */
+  jetFuel = -1;
+  jetting = false;
 
   weapon: WeaponId = 'smg';
   mag = 0;
@@ -106,6 +109,8 @@ export class HudState {
     const charges = num(p.dashCharges, MOVE.dashCharges);
     this.dashCharges = Math.floor(charges);
     this.dashRefill = charges - this.dashCharges;
+    this.jetFuel = p.jumpJet === true ? Math.min(1, Math.max(0, num(p.jetFuel, 0) / MOVE.jetFuel)) : -1;
+    this.jetting = bool(p.jetting);
     const v = ctx.player.velocity;
     const vx = num(v?.x, 0);
     const vz = num(v?.z, 0);

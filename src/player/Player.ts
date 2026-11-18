@@ -85,6 +85,12 @@ export class Player implements PlayerSystem {
   airTime = 0;
   /** Highest horizontal speed reached since reset, for tests and the speedometer. */
   peakSpeed = 0;
+  /** Jump Jet fitted (progression sets it): a press in the air, or jump held, burns the jet instead of the double jump. */
+  jumpJet = false;
+  /** Seconds of burn left in the tank, 0 to `MOVE.jetFuel`. */
+  jetFuel: number = T.jetFuel;
+  /** Burning on the last tick. */
+  jetting = false;
 
   /** What the camera, the weapon, the free hand and the legs do for each move. Read by CameraRig and the viewmodel rig. */
   readonly moveAnim = new MoveAnim();
@@ -151,6 +157,14 @@ export class Player implements PlayerSystem {
   /** Thrown by something other than the player's legs. Pads are aimed, so air drag must leave them alone. */
   private flung = false;
   private hasDoubleJump = true;
+  /** The jet is lit until jump is let go or the tank runs dry. */
+  private jetLit = false;
+  /** Seconds since the jet last burned, for the refill's delay. */
+  private jetIdleT = 0;
+  /** Seconds burned since the ground: the climb fades with it, so the jet lifts once and then only holds. */
+  private jetBurnT = 0;
+  /** Seconds jump has been held since it was pressed, off the ground. */
+  private jumpHeldT = 0;
   private dashDirX = 0;
   private dashDirZ = 0;
   private dashEntrySpeed = 0;
@@ -429,6 +443,7 @@ export class Player implements PlayerSystem {
     if (input.pressed('jump')) {
       this.jumpBufferT = T.jumpBuffer;
       this.jumpFresh = true;
+      this.jumpHeldT = 0;
     }
     // Aimed down sights or scoped, the dash key is the weapon's further zoom (weapons/adsZoom.ts), not a dash.
     const aimHeld = (this.ctx as { weapons?: { aimHeld?: boolean } }).weapons?.aimHeld === true;
@@ -450,6 +465,7 @@ export class Player implements PlayerSystem {
     this.tickTimers(h);
     this.computeWish();
     this.preStepVy = this.v.y;
+    this.updateJet(h);
 
     if (this.mantling) {
       if (T.mantleTopJump > 0) this.holdJump();
@@ -489,6 +505,7 @@ export class Player implements PlayerSystem {
       if (this.sliding) this.slideForces(h);
       else this.groundForces(h);
     } else if (this.slamming) this.slamForces(h);
+    else if (this.jetting) this.jetForces(h);
     else this.airForces(h);
 
     this.applySoftCap(h);
@@ -586,9 +603,53 @@ export class Player implements PlayerSystem {
     } else if (this.findKickWall()) {
       this.tmp.copy(this.hit2.normal);
       this.wallKick(this.tmp);
+    } else if (this.jumpJet) {
+      // The press that would have been the double jump lights the jet. Just over the floor it is still a hop.
+      if (this.jetFuel > T.jetMinFuel && !this.willLandInBuffer()) {
+        this.jetLit = true;
+        this.jumpBufferT = 0;
+        if (this.slamming) this.slamming = false;
+      }
     } else if (this.hasDoubleJump && !this.willLandInBuffer()) {
       this.doubleJump();
     }
+  }
+
+  /**
+   * Jump Jet's tank and whether it burns this tick. It burns only in free air: a wall run, a climb, a dash, a slam and the
+   * ground all take over from it, and it carries on, if jump is still held, once they let go.
+   */
+  private updateJet(h: number): void {
+    const free = this.alive && !this.grounded && !this.wallRunning && !this.climbing && !this.clinging && !this.mantling
+      && !this.vaulting && this.dashT <= 0 && !this.slamming && this.recoverT <= 0;
+    this.jumpHeldT = this.jumpHeld && !this.grounded ? this.jumpHeldT + h : 0;
+    if (!this.jumpHeld || !this.jumpJet) this.jetLit = false;
+    // Held through a jump, it lights by itself. Not for hold-to-hop, where Space is held all the time.
+    else if (free && !this.holdToHop && this.jumpHeldT >= T.jetHoldDelay && this.jetFuel > T.jetMinFuel) this.jetLit = true;
+    this.jetting = this.jetLit && free && this.jetFuel > 0;
+    if (this.jetting) {
+      this.jetFuel = Math.max(0, this.jetFuel - h);
+      if (this.jetFuel === 0) this.jetLit = false;
+      this.jetIdleT = 0;
+      this.jetBurnT += h;
+      return;
+    }
+    this.jetIdleT += h;
+    const ground = this.grounded;
+    if (this.jetIdleT >= (ground ? T.jetGroundDelay : T.jetRechargeDelay)) {
+      this.jetFuel = Math.min(T.jetFuel, this.jetFuel + (h * T.jetFuel) / (ground ? T.jetGroundRefill : T.jetRefill));
+    }
+  }
+
+  /** The air's own control, a push along the keys, and the thrust in place of gravity: a climb that fades to a hover. */
+  private jetForces(h: number): void {
+    const v = this.v;
+    this.airForces(h);
+    v.y += T.gravity * h;
+    if (this.hasWish) quakeAccelerate(v, this.wishX, this.wishZ, T.jetAirSpeed * this.modifiers.speed, T.jetAirAccel, h);
+    const rise = T.jetRise * clamp(1 - this.jetBurnT / T.jetClimbTime);
+    // Faster up than the jet climbs (the jump that lit it), gravity still takes the excess.
+    v.y = v.y > rise ? Math.max(rise, v.y - T.gravity * h) : Math.min(rise, v.y + T.jetLift * h);
   }
 
   /**
@@ -870,6 +931,7 @@ export class Player implements PlayerSystem {
   private land(n: THREE.Vector3): void {
     const impact = Math.max(0, -Math.min(this.preStepVy, this.v.y));
     this.hasDoubleJump = true;
+    this.jetBurnT = 0;
     this.hasLastWall = false;
     this.flung = false;
     this.landGraceT = T.landGrace;
@@ -1560,6 +1622,7 @@ export class Player implements PlayerSystem {
     // readouts, FOV and Overdrive should not blink to zero for a tenth of a second.
     this.v.set(this.mantleDirX * speed, rise / this.mantleDuration, this.mantleDirZ * speed);
     this.hasDoubleJump = true;
+    this.jetBurnT = 0;
     this.ctx.events.emit('player:mantle', { height: rise });
     return true;
   }
@@ -1683,6 +1746,7 @@ export class Player implements PlayerSystem {
     this.jumpBufferT = this.coyoteT = this.landGraceT = this.landWeightT = 0;
     this.jumpFresh = this.heldJump = false;
     this.hasDoubleJump = true;
+    this.jetBurnT = 0;
     this.v.set(dx * speed, 0, dz * speed);
     this.ctx.events.emit('player:vault', { height: rise, seconds: this.vaultDuration });
     return true;
@@ -2130,6 +2194,9 @@ export class Player implements PlayerSystem {
     this.coyoteT = this.jumpBufferT = this.dashBufferT = this.noGroundT = this.landGraceT = this.landWeightT = 0;
     this.slideQueued = this.flung = this.wallPressed = false;
     this.hasDoubleJump = true;
+    this.jetFuel = T.jetFuel;
+    this.jetLit = this.jetting = false;
+    this.jetBurnT = 0;
     this.hasLastWall = false;
     this.stepSmooth = 0;
     this.eye.copy(position);

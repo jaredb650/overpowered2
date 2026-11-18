@@ -104,6 +104,27 @@ export const MOVE = {
   dashKeep: 18,
   dashBuffer: 0.08,
 
+  // Jump Jet (a Move implant): in place of the double jump, jump pressed again in the air or held burns a jet pack.
+  /** Seconds of burn in a full tank. */
+  jetFuel: 3,
+  /** Below this much fuel a press does not light it, so an empty tank does not stutter. */
+  jetMinFuel: 0.15,
+  /** Held from a jump this long, the jet lights by itself: a tap is still a plain jump. */
+  jetHoldDelay: 0.22,
+  /** The climb the jet aims for, which fades to a hover over `jetClimbTime` s of burn since the ground: about 6 m up, then a hold. */
+  jetRise: 7,
+  jetClimbTime: 1.6,
+  /** Net upward acceleration toward that climb, gravity already paid: a 2.2 g thrust. A 15 m/s fall stops in 0.4 s. */
+  jetLift: 38,
+  /** Air control while burning, on top of the air's own: up to this speed along the keys, so it crosses a gap from a standstill. */
+  jetAirSpeed: 10,
+  jetAirAccel: 2.5,
+  /** In the air, the tank waits this long after the burn, then fills in `jetRefill` s. On the ground both are shorter. */
+  jetRechargeDelay: 2,
+  jetRefill: 3,
+  jetGroundDelay: 0.5,
+  jetGroundRefill: 1.2,
+
   // Slide
   slideEntrySpeed: 9,
   slideBoost: 1.25,

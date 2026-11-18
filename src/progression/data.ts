@@ -5,7 +5,7 @@
 import type { GradeName } from '../core/contracts';
 import type { CallInId, PerkId, PickupKind, PowerupId, WeaponId } from '../core/gameplay';
 import { inPlay } from '../weapons/families';
-import { IMPLANTS_ON } from './implants';
+import { IMPLANTS_ON, JUMP_JET, type ImplantId } from './implants';
 
 export type EffectId = PerkId | PowerupId;
 
@@ -104,6 +104,10 @@ export const EFFECTS: Readonly<Record<EffectId, EffectDef>> = {
   frostNova: power('frostNova', 'FROST NOVA', 'THE FROZEN SHATTER', '#9fe8ff', 0),
   timeWarp: power('timeWarp', 'TIME WARP', 'THE WORLD CRAWLS', '#e0b3ff', 5, 'slowmo'),
 };
+
+/** An implant's name and colour: its effect's, or Jump Jet's own, which has none. */
+export const implantLabel = (id: ImplantId): string => (id === 'jumpJet' ? JUMP_JET.label : EFFECTS[id].label);
+export const implantColor = (id: ImplantId): string => (id === 'jumpJet' ? JUMP_JET.color : EFFECTS[id].color);
 
 /**
  * Stacking, in one place. Damage and speed multiply across effects, which is what lets a good run feel like cheating; the caps

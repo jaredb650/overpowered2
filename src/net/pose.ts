@@ -2,8 +2,11 @@
 export const POSE_HZ = 20;
 export const POSE_MS = 1000 / POSE_HZ;
 export const INTERPOLATION_MS = 100;
-/** `wallrun` is a wall on the left, `wallrunR` on the right. `downed` is co-op's crawl, `revive` kneeling over a friend. */
-export const MOVES = ['walk', 'sprint', 'crouch', 'slide', 'airborne', 'wallrun', 'downed', 'mantle', 'wallrunR', 'revive'] as const;
+/**
+ * `wallrun` is a wall on the left, `wallrunR` on the right. `downed` is co-op's crawl, `revive` kneeling over a friend. `jet` is
+ * airborne with Jump Jet burning. New moves go on the end, so the old ones keep their numbers.
+ */
+export const MOVES = ['walk', 'sprint', 'crouch', 'slide', 'airborne', 'wallrun', 'downed', 'mantle', 'wallrunR', 'revive', 'jet'] as const;
 export type Move = typeof MOVES[number];
 export interface Pose {
   seq: number;

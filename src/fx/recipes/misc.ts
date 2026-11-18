@@ -209,6 +209,23 @@ export function flame(core: FxCore, position: THREE.Vector3, dir: THREE.Vector3,
   }
 }
 
+/**
+ * A jet pack's burn from one nozzle: a hot cone about two and a half metres long, in `count` puffs. The caller paces it, so two
+ * nozzles and a co-op friend's share no rate.
+ */
+export function jet(core: FxCore, position: THREE.Vector3, dir: THREE.Vector3, count = 2): void {
+  const { x, y, z } = position;
+  const s = core.smoke;
+  const b = core.birth;
+  for (let i = 0; i < count; i++) {
+    const speed = rand(12, 16);
+    const r = Math.random();
+    const color = r < 0.45 ? FIRE.yellow : r < 0.8 ? FIRE.amber : FIRE.orange;
+    s.begin(color, 1, b, rand(0.13, 0.22), 0.05, rand(0.15, 0.26), 2.2, 1.5, 0.05, SmokeMode.Fire);
+    s.add(x, y, z, dir.x * speed + rand(-0.6, 0.6), dir.y * speed + rand(-0.6, 0.6), dir.z * speed + rand(-0.6, 0.6), rand(-3, 3));
+  }
+}
+
 /** Frozen enemy breaking apart: cold chips, no blood, a thin puff of frost. */
 export function frostShatter(core: FxCore, position: THREE.Vector3, dir: THREE.Vector3, scale = 1): void {
   const { x, y, z } = position;

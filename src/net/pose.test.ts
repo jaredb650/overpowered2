@@ -16,7 +16,7 @@ describe('pose wire format', () => {
   });
   it('drops malformed, truncated, wrong version, impossible and non-finite packets', () => {
     for (const data of [null, {}, 'pose', new ArrayBuffer(39), new ArrayBuffer(100)]) expect(decodePose(data)).toBeNull();
-    for (const [byte, value] of [[0, 2], [1, 4], [2, 10], [3, 0]]) {
+    for (const [byte, value] of [[0, 2], [1, 4], [2, MOVES.length], [3, 0]]) {
       const bytes = encodePose(pose(), 0);
       new DataView(bytes).setUint8(byte!, value!);
       expect(decodePose(bytes)).toBeNull();

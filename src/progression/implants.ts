@@ -15,7 +15,7 @@ const query = typeof location === 'undefined' ? null : new URLSearchParams(locat
 export const IMPLANTS_ON: boolean = query?.get('implants') !== '0';
 
 export type ImplantClass = 'gun' | 'kill' | 'move';
-export type ImplantId = 'bloodthirst' | 'hellfire' | 'berserk' | 'butcher' | 'chainReaction' | 'chainStorm' | 'skyfall' | 'overdrive';
+export type ImplantId = 'bloodthirst' | 'hellfire' | 'berserk' | 'butcher' | 'chainReaction' | 'chainStorm' | 'skyfall' | 'overdrive' | 'jumpJet';
 
 /** Always on, never fitted: cheap, tied to a basic skill, and they add no shots or explosions. */
 export const CORE: readonly PerkId[] = ['slowmo', 'adrenaline', 'geneva'];
@@ -67,10 +67,19 @@ export const IMPLANTS: Readonly<Record<ImplantId, ImplantDef>> = {
   overdrive: def('overdrive', 'move', 1000, 3, 'Overdrive sprinter blades',
     '5 kills in 10 s above 18 m/s', 'Damage climbs with your speed, to 3x. 10 s',
     'Carbon blades behind both calves and a drive at each knee. The faster you run, the harder you hit, which is also the Council\'s growth strategy.'),
+  jumpJet: def('jumpJet', 'move', 1800, 6, 'Jump Jet back pack',
+    'Always on', 'Jump again in the air, or hold it, to fly: up, a hover, across. 3 s of fuel, in place of the double jump',
+    'Two fuel cells on your back and a nozzle under each. The Council\'s position is that the stairs are still available.'),
 };
 
+/**
+ * Jump Jet is hardware, not a perk: always on while fitted, with no effect to start. Its name and colour, which the others take
+ * from their effect (`implantLabel` and `implantColor` in data.ts).
+ */
+export const JUMP_JET = { label: 'JUMP JET', color: '#3dffc8' } as const;
+
 /** In the shop's order: by class, then by price. */
-export const IMPLANT_ORDER: readonly ImplantId[] = ['bloodthirst', 'hellfire', 'berserk', 'butcher', 'chainReaction', 'chainStorm', 'skyfall', 'overdrive'];
+export const IMPLANT_ORDER: readonly ImplantId[] = ['bloodthirst', 'hellfire', 'berserk', 'butcher', 'chainReaction', 'chainStorm', 'skyfall', 'overdrive', 'jumpJet'];
 
 /** Slot 1 is open from the start; 2 and 3 are bought. */
 export const SLOT_WARES: readonly { price: number; wave: number; lore: string }[] = [

@@ -6,8 +6,10 @@ import type { KillEvent, ProgressionSystem } from '../core/gameplay';
 import { noop } from '../core/stubs';
 import { makeCtx } from '../sandbox/harness';
 import { makeRange } from '../weapons/testkit';
-import { STACK } from './data';
-import { CAPS, CORE, DEFAULT_FITTED, IMPLANTS, IMPLANTS_ON, Loadout, SLOT_WARES, rungShown } from './implants';
+import { EFFECTS, STACK, implantColor, implantLabel } from './data';
+import { lockWave } from '../contracts/shop/data';
+import { FINAL_WAVE } from '../enemies/commander/adaptations';
+import { CAPS, CORE, DEFAULT_FITTED, IMPLANTS, IMPLANTS_ON, IMPLANT_ORDER, Loadout, SLOT_WARES, rungShown } from './implants';
 import { implantCheat } from '../lab/implants';
 import { createProgression } from './index';
 import { PerkRunner } from './perks';
@@ -291,5 +293,43 @@ describe('progression with implants', () => {
     prog.reset();
     expect([...prog.loadout.fitted]).toEqual(['bloodthirst']);
     expect(prog.loadout.slots).toBe(1);
+  });
+});
+
+describe('Jump Jet', () => {
+  it('is a Move implant on the back, sold after wave 6 in the Crucible and by wave 9 in Endless Humans', () => {
+    const d = IMPLANTS.jumpJet;
+    expect(d.class).toBe('move');
+    expect(d.price).toBe(1800);
+    expect(IMPLANT_ORDER).toContain('jumpJet');
+    expect(lockWave('crucible', d.wave)).toBe(6);
+    expect(lockWave('outpost', d.wave)).toBeLessThanOrEqual(FINAL_WAVE - 1);
+    expect(d.lore.length).toBeGreaterThan(40);
+    // Not a perk: progression never grants it, and its name and colour are its own.
+    expect(implantLabel('jumpJet')).toBe('JUMP JET');
+    expect(implantColor('skyfall')).toBe(EFFECTS.skyfall.color);
+  });
+
+  it('replaces Skyfall or Overdrive in the Move class', () => {
+    const l = new Loadout();
+    l.openSlot();
+    l.fit('skyfall', true);
+    expect(l.replaces('jumpJet')).toBe('skyfall');
+    l.fit('jumpJet', true);
+    expect(new Set(l.fitted)).toEqual(new Set(['bloodthirst', 'jumpJet']));
+  });
+
+  it('puts the jet on the player while fitted, and takes it off with it and on a new run', () => {
+    const { prog, ctx } = progression();
+    const player = ctx.player as unknown as { jumpJet?: boolean };
+    expect(player.jumpJet).toBe(false);
+    prog.loadout.openSlot();
+    prog.loadout.fit('jumpJet', true);
+    expect(player.jumpJet).toBe(true);
+    prog.loadout.fit('jumpJet', false);
+    expect(player.jumpJet).toBe(false);
+    prog.loadout.fit('jumpJet', true);
+    prog.reset();
+    expect(player.jumpJet).toBe(false);
   });
 });

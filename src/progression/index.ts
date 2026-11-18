@@ -432,6 +432,7 @@ class Progression implements ProgressionSystem {
     const { fitted } = this.loadout;
     for (const id of IMPLANT_ORDER) {
       const on = fitted.has(id);
+      if (id === 'jumpJet') continue;
       if (!on && this.perks.isActive(id) && IMPLANTS_ON) this.perks.stop(id);
       if (on && !this.wasFitted.has(id)) {
         if (id in this.windows) this.windows[id as keyof typeof this.windows].clear();
@@ -441,6 +442,7 @@ class Progression implements ProgressionSystem {
     this.wasFitted.clear();
     for (const id of fitted) this.wasFitted.add(id);
     wearOnViewmodel(this.ctx, this.loadout.ofClass('gun'));
+    (this.ctx.player as { jumpJet?: boolean }).jumpJet = fitted.has('jumpJet');
     saveWorn(fitted);
   }
 

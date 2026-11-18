@@ -74,6 +74,12 @@ export class Tach {
   private needleQ = NaN;
   private peakQ = NaN;
   private fillQ: number[] = [];
+  /** Jump Jet's tank, beside the dash pips, only with it fitted. */
+  private jet: Flag;
+  private jetBurn: Flag;
+  private jetLow: Flag;
+  private jetFill: HTMLElement;
+  private jetQ = -1;
   private clock = 0;
 
   constructor() {
@@ -90,6 +96,12 @@ export class Tach {
       this.fill.push(refill);
       this.fillQ.push(-1);
     }
+    this.jetFill = div('jet-fill');
+    const jet = div('jet-gauge', span('jet-k', 'JET'), this.jetFill);
+    dash.append(jet);
+    this.jet = new Flag(jet, 'on');
+    this.jetBurn = new Flag(jet, 'burn');
+    this.jetLow = new Flag(jet, 'low');
     this.el = div('tach',
       markup(dialSvg()),
       this.peak,
@@ -133,7 +145,7 @@ export class Tach {
     this.over.set(s.speed >= OVERDRIVE_FLOOR);
     this.red.set(redline);
     this.state.set(
-      s.dashing ? 'dash' : s.wallRunning ? 'wall' : s.sliding ? 'slide' : s.grounded ? '' : 'air',
+      s.dashing ? 'dash' : s.jetting ? 'jet' : s.wallRunning ? 'wall' : s.sliding ? 'slide' : s.grounded ? '' : 'air',
     );
 
     for (let i = 0; i < this.dashes.length; i++) {
@@ -145,6 +157,17 @@ export class Tach {
         this.fillQ[i] = fq;
         this.fill[i]!.style.transform = `scaleX(${fq / 100})`;
       }
+    }
+
+    this.jet.set(s.jetFuel >= 0);
+    if (s.jetFuel >= 0) {
+      const jq = Math.round(s.jetFuel * 100);
+      if (jq !== this.jetQ) {
+        this.jetQ = jq;
+        this.jetFill.style.transform = `scaleX(${jq / 100})`;
+      }
+      this.jetBurn.set(s.jetting);
+      this.jetLow.set(s.jetFuel < 0.25);
     }
   }
 

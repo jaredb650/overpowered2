@@ -33,6 +33,9 @@ export function propFor(weapon: string): keyof typeof LOOKS {
   if (/^(kiln|flame|napalm)/.test(weapon)) return 'flamer';
   return 'smg';
 }
+const _at = new THREE.Vector3();
+const _dir = new THREE.Vector3();
+
 export class RemotePlayer {
   readonly buffer = new PoseBuffer();
   readonly char: CharacterInstance;
@@ -42,6 +45,8 @@ export class RemotePlayer {
   private original: THREE.Material | THREE.Material[];
 
   private prop = '';
+  /** Seconds to the next puff of a friend's Jump Jet. */
+  private jetIn = 0;
   /** Set by the team rules (team.ts): this friend is down, and is drawn on the floor whatever their pose says. */
   downed = false;
 
@@ -115,12 +120,28 @@ export class RemotePlayer {
     // A slide is a crouch carried at speed; a jump, a mantle and a wall run are the airborne gait.
     c.anim.setLocomotion({ speed, moveX: speed > 0.1 ? (p.velocity[0] * cos - p.velocity[2] * sin) / speed : 0,
       moveZ: speed > 0.1 ? (p.velocity[0] * sin + p.velocity[2] * cos) / speed : 0,
-      aimYaw: 0, aimPitch: down ? 0 : p.pitch, grounded: !['airborne', 'wallrun', 'wallrunR', 'mantle'].includes(p.move) });
+      aimYaw: 0, aimPitch: down ? 0 : p.pitch, grounded: !['airborne', 'wallrun', 'wallrunR', 'mantle', 'jet'].includes(p.move) });
     c.anim.update(dt, 0);
     c.root.updateMatrixWorld(true);
     // Above the head and clear of the HUD's own markers, which sit at chest height on what they mark.
     this.tag.copy(c.root.position).y += down ? 1.0 : p.move === 'crouch' || p.move === 'slide' ? 2.0 : 2.6;
     c.root.userData.weapon = p.weapon;
+    if (p.move === 'jet') this.jet(dt);
+  }
+
+  /** A friend's Jump Jet burning: the same short flames as the local pack's, from their back, at half the rate. */
+  private jet(dt: number): void {
+    this.jetIn -= dt;
+    if (this.jetIn > 0) return;
+    this.jetIn = 1 / 30;
+    const r = this.char.root;
+    // The body faces +Z in its own frame: its back is -Z.
+    const s = Math.sin(r.rotation.y), c = Math.cos(r.rotation.y);
+    _dir.set(-s * 0.25, -1, -c * 0.25).normalize();
+    for (const k of [-1, 1]) {
+      _at.set(r.position.x - s * 0.3 + c * 0.08 * k, r.position.y + 1.02, r.position.z - c * 0.3 - s * 0.08 * k);
+      this.ctx.fx.jet?.(_at, _dir, 2);
+    }
   }
 
   push(pose: Pose, now: number): void { this.buffer.push(pose, now); }

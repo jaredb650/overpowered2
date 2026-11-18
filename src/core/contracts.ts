@@ -539,6 +539,8 @@ export interface FxSystem extends GameSystem {
   slash(center: THREE.Vector3, normal: THREE.Vector3, startDir: THREE.Vector3, arc: number, radius: number, kind?: SlashKind): void;
   /** One frame of flamethrower stream. Call every frame while firing. */
   flame(position: THREE.Vector3, dir: THREE.Vector3, intensity?: number): void;
+  /** One nozzle of a jet pack: `count` short fire puffs along `dir`. The caller paces it. */
+  jet?(position: THREE.Vector3, dir: THREE.Vector3, count?: number): void;
   /** A frozen body breaking apart. */
   frostShatter(position: THREE.Vector3, dir: THREE.Vector3, scale?: number): void;
   /** Hot flakes that rise and wander. */

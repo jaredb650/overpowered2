@@ -113,11 +113,11 @@ export class CoopSession implements GameSystem {
     if (this.world && this.hud) this.hud.update(this.world.team.roster(), now);
     if (now < this.nextPose || !this.lobby.match) return;
     this.nextPose = now >= this.nextPose + POSE_MS ? now + POSE_MS : this.nextPose + POSE_MS; // Never catch up by bursting a backlog after a stalled/background tab.
-    const p = this.ctx.player as Ctx['player'] & { downed?: boolean; mantling?: boolean; vaulting?: boolean };
+    const p = this.ctx.player as Ctx['player'] & { downed?: boolean; mantling?: boolean; vaulting?: boolean; jetting?: boolean };
     const team = this.world?.team;
     const move: Move = p.downed ? 'downed' : team?.reviving ? 'revive'
       : this.localPaused ? (p.crouched ? 'crouch' : p.grounded ? 'walk' : 'airborne')
-      : p.wallRunning ? (p.wallSide > 0 ? 'wallrunR' : 'wallrun') : p.mantling || p.vaulting ? 'mantle' : p.sliding ? 'slide' : !p.grounded ? 'airborne'
+      : p.wallRunning ? (p.wallSide > 0 ? 'wallrunR' : 'wallrun') : p.mantling || p.vaulting ? 'mantle' : p.sliding ? 'slide' : p.jetting ? 'jet' : !p.grounded ? 'airborne'
       : p.crouched ? 'crouch' : p.speed > 8 ? 'sprint' : 'walk';
     this.lobby.sendPose({ seq: this.seq++ >>> 0, position: p.position.toArray(), velocity: this.localPaused ? [0, 0, 0] : p.velocity.toArray(),
       yaw: Math.atan2(Math.sin(p.yaw), Math.cos(p.yaw)), pitch: p.pitch, move,

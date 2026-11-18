@@ -16,7 +16,7 @@ import { SHOP_COPY, SUPPLY_WARES, lockWave, type SupplyId } from '../../contract
 import { issued, type ShopOffer } from '../../contracts/shop/rules';
 import { WEAPONS as DEFS, type WeaponDef } from '../../weapons/data';
 import { MODS, MOD_ORDER, moddedDef } from '../../weapons/mods';
-import { EFFECTS, PICKUP_LOOK } from '../../progression/data';
+import { EFFECTS, PICKUP_LOOK, implantColor, implantLabel } from '../../progression/data';
 import { CLASS_NAMES, CLASS_REGION, CORE_COPY, IMPLANTS, SLOT_WARES, type ImplantId } from '../../progression/implants';
 import { CHIPS, CHIP_SLOTS } from '../../contracts/chips';
 import { BodyStage } from '../backdrop/bodystage';
@@ -34,7 +34,7 @@ const PAGES: readonly Page[] = ['weapons', 'mods', 'implants'];
 
 /** "BERSERK!" to "Berserk", "CHAIN STORM" to "Chain Storm". */
 const implantName = (id: ImplantId): string =>
-  EFFECTS[id].label.replace(/!$/, '').toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+  implantLabel(id).replace(/!$/, '').toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
 
 const LOCK_ICON = '<svg class="pc-lock" viewBox="0 0 12 14" aria-hidden="true"><path d="M3 6V4a3 3 0 0 1 6 0v2h1.5v8h-9V6Zm1.6 0h2.8V4a1.4 1.4 0 0 0-2.8 0Z"/></svg>';
 
@@ -220,7 +220,7 @@ export class ProcurementScreen implements Screen {
       const box = div('pc-slot', span('pc-slot-n', `Slot ${i + 1}`), span('pc-slot-v', text));
       box.classList.toggle('open', open);
       box.classList.toggle('worn', !!id);
-      if (id) box.style.setProperty('--imp', EFFECTS[id].color);
+      if (id) box.style.setProperty('--imp', implantColor(id));
       return box;
     }));
     const rack = this.shop!.chips;
@@ -281,7 +281,7 @@ export class ProcurementScreen implements Screen {
       : o.replaces && o.why === null ? `Replaces ${implantName(o.replaces)}`
         : o.owned ? (imp ? 'Fit' : 'Open') : credits(o.ware.price);
     const ico = span('pc-ico pc-cls', imp ? CLASS_NAMES[IMPLANTS[imp].class] : 'Slot');
-    if (imp) ico.style.color = EFFECTS[imp].color;
+    if (imp) ico.style.color = implantColor(imp);
     const el = div('pc-row', ico, span('pc-k', label), span('pc-v', o.locked ? markup(LOCK_ICON) : null, right));
     el.classList.toggle('locked', o.locked);
     el.classList.toggle('owned', o.owned && !o.fitted);

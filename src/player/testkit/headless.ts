@@ -67,6 +67,9 @@ export async function createHeadlessGame(build?: (physics: Physics) => void): Pr
   } as unknown as Ctx;
   // noop proxies swallow writes, so the render stand-in has to be a plain object carrying real cameras.
   ctx.render = { camera: camera3, viewCamera: view3, post: noop('post'), lights: noop('lights') } as unknown as Ctx['render'];
+  // A loop is a handle the caller keeps: the proxy's undefined would be called next frame.
+  const audio = noop<Record<string, unknown>>('audio');
+  ctx.audio = new Proxy(audio, { get: (t, k) => (k === 'startLoop' ? () => noop('loop') : t[k as string]) }) as unknown as Ctx['audio'];
   if (build) build(physics);
   else addCourseToPhysics(physics, buildCourse());
   physics.flushQueries();

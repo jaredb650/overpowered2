@@ -6,7 +6,7 @@
 import { ALLY_TYPES, type AllyType } from '../../allies/data';
 import type { StructureStage } from '../../core/contracts';
 import type { CallInId, WeaponId } from '../../core/gameplay';
-import { CALLINS, CALLIN_ORDER, EFFECTS } from '../../progression/data';
+import { CALLINS, CALLIN_ORDER, implantLabel } from '../../progression/data';
 import { IMPLANTS, type ImplantId } from '../../progression/implants';
 import { implantOffers } from '../shop/rules';
 import { WEAPONS, WEAPON_ORDER } from '../../weapons/data';
@@ -249,8 +249,8 @@ function implants(v: ShopView): Offer[] {
   return rows.map((o): Offer => {
     const a = o.act;
     const imp = a.kind === 'implant' ? a.id : null;
-    const name = imp ? EFFECTS[imp].label.replace(/!$/, '') : `Implant slot ${a.id}`;
-    const detail = imp ? (o.fitted ? 'Fitted. Enter takes it off' : o.replaces ? `Replaces ${EFFECTS[o.replaces].label.replace(/!$/, '')}` : IMPLANTS[imp].does)
+    const name = imp ? implantLabel(imp).replace(/!$/, '') : `Implant slot ${a.id}`;
+    const detail = imp ? (o.fitted ? 'Fitted. Enter takes it off' : o.replaces ? `Replaces ${implantLabel(o.replaces).replace(/!$/, '')}` : IMPLANTS[imp].does)
       : o.owned ? 'Open' : 'One more implant, of a class not fitted';
     return {
       section: 'Implants', label: name, detail, price: o.owned ? 0 : o.ware.price, why: o.owned && !imp ? 'Open' : o.why,

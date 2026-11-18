@@ -18,7 +18,7 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { Ctx } from '../core/contracts';
-import { IMPLANTS, type ImplantId } from '../progression/implants';
+import { IMPLANTS, JUMP_JET, type ImplantId } from '../progression/implants';
 import { EFFECTS } from '../progression/data';
 import type { Character } from './Character';
 import { HumanoidBone as H } from './rig';
@@ -31,7 +31,7 @@ type V3 = readonly [number, number, number];
 const ACCENT: Readonly<Record<PartId, string>> = {
   bloodthirst: '#ff1a3a', hellfire: EFFECTS.hellfire.color, berserk: '#ff3018', butcher: EFFECTS.butcher.color,
   chainReaction: EFFECTS.chainReaction.color, chainStorm: '#9a8cff', skyfall: EFFECTS.skyfall.color, overdrive: EFFECTS.overdrive.color,
-  core: '#ff2a22',
+  jumpJet: JUMP_JET.color, core: '#ff2a22',
 };
 /** Glow strength: above 1 is HDR, which the bloom spreads. */
 const GLOW = 2.6;
@@ -365,6 +365,57 @@ function overdriveShin(b: Builder, s: Shin): void {
   b.plate('metal', 0.018, 0.1, 0.03, 0x30333a, [x - s.side * 0.004, -0.06, -0.02], [-0.1, 0, 0]);
 }
 
+/** A chamfered outline in XY, `w` by `h`, centred `oy` above the origin, corners cut by `c`. */
+function chamfered(w: number, h: number, c: number, oy = 0): THREE.Shape {
+  const x = w / 2, y = h / 2;
+  return new THREE.Shape([
+    [-x + c, -y], [x - c, -y], [x, -y + c], [x, y - c], [x - c, y], [-x + c, y], [-x, y - c], [-x, -y + c],
+  ].map(([u, v]) => new THREE.Vector2(u!, v! + oy)));
+}
+
+/**
+ * Jump Jet: two fuel cells on a mount plate across his back, a bell nozzle under each, a crossover pipe over the top. The plate
+ * is slotted down the middle, so the core's spine still shows between the cells.
+ */
+function jumpJetBack(b: Builder, back: number): void {
+  const a = ACCENT.jumpJet;
+  // The mount plate, bevelled, with the slot for the spine cut through it.
+  const plate = chamfered(0.24, 0.29, 0.04);
+  plate.holes.push(chamfered(0.056, 0.23, 0.014, 0.02));
+  const pz = back - 0.046;
+  b.add('plate', new THREE.ExtrudeGeometry(plate, { depth: 0.012, bevelEnabled: true, bevelSize: 0.004, bevelThickness: 0.004, bevelSegments: 2 }),
+    0x2a2e35, [0, 0.16, pz]);
+  const cz = back - 0.078;
+  const cell = new THREE.LatheGeometry([
+    [0.0, 0.0], [0.03, 0.0], [0.04, 0.008], [0.044, 0.024], [0.044, 0.25], [0.04, 0.268], [0.026, 0.282], [0.0, 0.288],
+  ].map(([r, y]) => new THREE.Vector2(r!, y!)), 24);
+  for (const k of [-1, 1]) {
+    const x = k * 0.079;
+    b.add('plate', cell.clone(), 0x3a3f48, [x, 0.02, cz]);
+    // Steel bands, and a lit line down the outer back of each cell, set into it.
+    for (const y of [0.07, 0.25]) b.add('metal', new THREE.TorusGeometry(0.0455, 0.0042, 6, 24), STEEL, [x, y, cz], [Math.PI / 2, 0, 0]);
+    const t = k * 0.65;
+    b.box('glow', 0.004, 0.13, 0.004, a, [x + Math.sin(t) * 0.0425, 0.16, cz - Math.cos(t) * 0.0425], [0, t, 0]);
+    // The clamp that holds the cell to the plate.
+    b.plate('metal', 0.03, 0.05, 0.026, DARK_STEEL, [k * 0.062, 0.16, cz + 0.03]);
+    // A valve on top.
+    b.cyl('metal', 0.011, 0.011, 0.02, STEEL, [x, 0.315, cz], [0, 0, 0], 12);
+    // The nozzle: a neck, then a bell, open, its burner lit inside and a thin lit lip.
+    b.cyl('metal', 0.022, 0.026, 0.02, DARK_STEEL, [x, 0.012, cz], [0, 0, 0], 18);
+    b.add('metal', new THREE.CylinderGeometry(0.022, 0.035, 0.05, 20, 1, true), 0x7a808a, [x, -0.022, cz]);
+    b.add('glow', new THREE.CircleGeometry(0.021, 18), a, [x, -0.004, cz], [Math.PI / 2, 0, 0]);
+    b.add('glow', new THREE.TorusGeometry(0.0352, 0.0018, 5, 24), a, [x, -0.047, cz], [Math.PI / 2, 0, 0]);
+  }
+  // The manifold between the nozzles, and the crossover pipe over the top.
+  b.add('metal', new THREE.ExtrudeGeometry(chamfered(0.1, 0.026, 0.008), { depth: 0.024, bevelEnabled: true, bevelSize: 0.003, bevelThickness: 0.003, bevelSegments: 1 }),
+    DARK_STEEL, [0, 0.03, cz - 0.012]);
+  const pipe = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(0.079, 0.3, cz), new THREE.Vector3(0.045, 0.34, cz + 0.006), new THREE.Vector3(-0.045, 0.34, cz + 0.006),
+    new THREE.Vector3(-0.079, 0.3, cz),
+  ]);
+  b.add('metal', new THREE.TubeGeometry(pipe, 24, 0.0055, 8), STEEL);
+}
+
 /** Standard issue: a spine down his back, vertebra plates over a red line. Small, because it is always there. */
 function coreChest(b: Builder, back: number): void {
   const a = ACCENT.core;
@@ -380,7 +431,7 @@ function coreChest(b: Builder, back: number): void {
 // --- Fitting them to the baked contractor ------------------------------------------------------------------------
 
 /** Where each part goes on the body. */
-const BODY_PARTS: Readonly<Record<PartId, readonly { bone: number; kind: 'fore' | 'hand' | 'upper' | 'head' | 'shinL' | 'shinR' | 'chest' }[]>> = {
+const BODY_PARTS: Readonly<Record<PartId, readonly { bone: number; kind: 'fore' | 'hand' | 'upper' | 'head' | 'shinL' | 'shinR' | 'chest' | 'back' }[]>> = {
   bloodthirst: [{ bone: H.foreArmL, kind: 'fore' }],
   hellfire: [{ bone: H.foreArmL, kind: 'fore' }],
   berserk: [{ bone: H.foreArmL, kind: 'fore' }, { bone: H.handL, kind: 'hand' }, { bone: H.upperArmL, kind: 'upper' }],
@@ -389,6 +440,7 @@ const BODY_PARTS: Readonly<Record<PartId, readonly { bone: number; kind: 'fore' 
   chainStorm: [{ bone: H.head, kind: 'head' }],
   skyfall: [{ bone: H.shinL, kind: 'shinL' }, { bone: H.shinR, kind: 'shinR' }],
   overdrive: [{ bone: H.shinL, kind: 'shinL' }, { bone: H.shinR, kind: 'shinR' }],
+  jumpJet: [{ bone: H.chest, kind: 'back' }],
   core: [{ bone: H.chest, kind: 'chest' }],
 };
 
@@ -437,6 +489,10 @@ function buildBodyPart(id: PartId, kind: string, body: Character): THREE.Group {
     const s: Shin = { len: bp[shin + 1]!.distanceTo(bp[shin]!), side: kind === 'shinL' ? 1 : -1 };
     if (id === 'skyfall') skyfallShin(b, s);
     else overdriveShin(b, s);
+  } else if (kind === 'back') {
+    jumpJetBack(b, BODY.back);
+    // Raised, so the cells' tops and the pipe show over his shoulders from the front: the menu's man faces the lens.
+    g.position.y = 0.08;
   } else {
     coreChest(b, BODY.back);
   }

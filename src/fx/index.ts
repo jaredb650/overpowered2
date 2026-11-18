@@ -193,6 +193,10 @@ class Fx implements FxSystem {
     misc.flame(this.core, position, dir, intensity);
   }
 
+  jet(position: THREE.Vector3, dir: THREE.Vector3, count?: number): void {
+    misc.jet(this.core, position, dir, count);
+  }
+
   frostShatter(position: THREE.Vector3, dir: THREE.Vector3, scale?: number): void {
     misc.frostShatter(this.core, position, dir, scale);
   }

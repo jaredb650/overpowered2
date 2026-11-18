@@ -5,7 +5,7 @@ import { CONTRACTS, type ContractId } from '../contracts/data';
 import { ON_RANGE } from '../core/devflags';
 import type { CallInId, EnemyId, ModId, PerkId, PowerupId, WeaponId } from '../core/gameplay';
 import { ENEMIES } from '../enemies/data';
-import { CALLIN_ORDER, CALLINS, EFFECTS, POWERUPS } from '../progression/data';
+import { CALLIN_ORDER, CALLINS, EFFECTS, POWERUPS, implantLabel } from '../progression/data';
 import { WEAPONS, WEAPON_ORDER } from '../weapons/data';
 import { inPlay } from '../weapons/families';
 import { MODS, MOD_ORDER } from '../weapons/mods';
@@ -314,7 +314,7 @@ export class LabPanel {
     this.el.append(calls, el('h2', '', 'IMPLANTS'));
     for (const id of IMPLANT_ORDER) {
       const row = el('div', 'lab-row');
-      const grant = this.button(row, `${CLASS_NAMES[IMPLANTS[id].class]}: ${EFFECTS[id].label}`, () => this.on.implant(id, 'grant'));
+      const grant = this.button(row, `${CLASS_NAMES[IMPLANTS[id].class]}: ${implantLabel(id)}`, () => this.on.implant(id, 'grant'));
       const fit = this.button(row, 'Fit', () => this.on.implant(id, 'fit'));
       grant.title = 'Grant it, unfitted';
       this.implantButtons.set(id, { grant, fit });

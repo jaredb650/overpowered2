@@ -24,7 +24,7 @@ const FOV = 26;
 const SPOT = { x: 0.665, y: 0.36 } as const;
 
 /** What the camera looks at for each view, in his own space, how much of the screen's height it fills, and how he turns. */
-const VIEWS: Readonly<Record<ImplantClass | 'all', { at: THREE.Vector3; span: number; yaw: number; swing: number }>> = {
+const VIEWS: Readonly<Record<ImplantClass | 'all' | 'back', { at: THREE.Vector3; span: number; yaw: number; swing: number }>> = {
   // The whole man above the shop's card, which takes the bottom quarter of the screen.
   all: { at: new THREE.Vector3(0, 0.98, 0), span: 2.75, yaw: 0, swing: -1 },
   // His left arm, the one the first-person view shows, three-quarters on, so the back of the forearm faces the lens.
@@ -32,6 +32,8 @@ const VIEWS: Readonly<Record<ImplantClass | 'all', { at: THREE.Vector3; span: nu
   kill: { at: new THREE.Vector3(0, 1.69, 0.03), span: 0.78, yaw: 0.15, swing: 0.75 },
   // The aim sits low on the shins, which puts it high on the screen, so his boots clear the card.
   move: { at: new THREE.Vector3(0, 0.3, -0.04), span: 1.3, yaw: 1.0, swing: 0.6 },
+  // Jump Jet is the one Move implant worn on the back: his back to the lens, three-quarters, so both cells and a nozzle show.
+  back: { at: new THREE.Vector3(0, 1.3, -0.2), span: 1.05, yaw: Math.PI - 0.5, swing: 0.45 },
 };
 /** Radians a second he turns on the whole-loadout view; the close views swing to and fro instead. */
 const TURN = 0.4;
@@ -61,7 +63,7 @@ export class BodyStage {
   private body: Character | null = null;
   private loading: Promise<void> | null = null;
   private worn: ImplantId[] = [];
-  private view: ImplantClass | 'all' = 'all';
+  private view: ImplantClass | 'all' | 'back' = 'all';
   private angle = 0;
   private clock = 0;
   /** The camera's eased aim and span. */
@@ -119,7 +121,7 @@ export class BodyStage {
       worn.push(preview);
     }
     this.worn = worn;
-    const view = preview ? IMPLANTS[preview].class : 'all';
+    const view = preview === 'jumpJet' ? 'back' : preview ? IMPLANTS[preview].class : 'all';
     if (view !== this.view) {
       this.view = view;
       this.clock = 0;

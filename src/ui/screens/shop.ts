@@ -6,7 +6,7 @@
  */
 import type { Ctx } from '../../core/contracts';
 import { SHOPS, type ShopId } from '../../contracts/defense/data';
-import { EFFECTS } from '../../progression/data';
+import { implantColor } from '../../progression/data';
 import { CLASS_NAMES, IMPLANTS } from '../../progression/implants';
 import type { Offer } from '../../contracts/defense/economy';
 import {
@@ -39,7 +39,7 @@ function offerIcon(o: Offer): HTMLElement {
     // An implant: its class in its colour, as the Crucible's procurement shows it.
     case 'implant': {
       const c = span('sp-ico s sp-cls', CLASS_NAMES[IMPLANTS[a.id].class]);
-      c.style.color = EFFECTS[a.id].color;
+      c.style.color = implantColor(a.id);
       return c;
     }
     case 'slot': return span('sp-ico s sp-cls', 'Slot');

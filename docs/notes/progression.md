@@ -54,6 +54,15 @@
   `ui/backdrop/bodystage.ts`), and `wearOnViewmodel` puts the Gun part on the first-person left arm whenever the loadout changes.
   Sandbox: `/?sandbox=implants&fit=hellfire,butcher&preview=skyfall&yaw=0.5`.
 - The HUD's combo ladder shows Berserk and Chain Storm only when fitted (`rungShown`).
+- **Jump Jet** (Move, 1800, after wave 6; Endless Humans after wave 3) is the one implant that is not a perk: always on while
+  fitted, `loadoutChanged` sets `player.jumpJet`. In place of the double jump, jump pressed again in the air, or held 0.22 s
+  from a jump, burns a back-mounted jet (`jetForces` and `updateJet` in `player/Player.ts`, numbers `jet*` in `player/tuning.ts`):
+  3 s of fuel, a climb at up to 7 m/s that fades to a hover over 1.6 s of burn since the ground (about 6 m up), extra air control
+  to 10 m/s. Let go and it coasts. It refills 2 s after the last burn, full in 3 s; on the ground 0.5 s, full in 1.2 s. A wall
+  run, climb, cling, dash, slam, mantle or vault takes over from it, and with jump still held it burns again once they end. The
+  HUD's tach shows the tank beside the dash pips. Sound `flame_loop` at 1.3 (the Frame's jets at 0.55), `flame_ignite`,
+  `flame_stop`; flames `fx.jet`. Co-op sends it as the `jet` pose, and friends draw the flames from the back. The part is a
+  twin-cell pack on the chest bone, slotted so the core's spine shows; the studio turns him round for it (`back` view).
 - **Bought** in the Crucible's and Endless Humans' supply-pod shop, on Procurement's Implants page (`implantOffers` in
   `contracts/shop/rules.ts`, `CrucibleShop.buy`), and at Outpost Defense's Infirmary (`contracts/defense/economy.ts`).
 - `?implants=0` (dev) is the old game: every perk earnable, the old Berserk, no caps and no rearm on the four above.
