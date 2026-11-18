@@ -12,6 +12,7 @@ import type { WeaponId } from '../../core/gameplay';
 import { lerp, pick, rand, smoothstep, TAU } from '../../core/math';
 import { GroundProbe, GroundRing } from '../callins/ground';
 import { aboveFloor } from '../callins/shared';
+import { SHOP_ANYTIME } from '../../contracts/shop/data';
 import { CACHE_ORDER, DROP_POD as D, PICKUP, PICKUP_LOOK } from '../data';
 import { ModelBuilder, type ModelMaterials } from '../modelkit';
 
@@ -196,8 +197,8 @@ export class DropPods {
   }
 
   update(dt: number): void {
-    // A supply pod lasts the break it came in.
-    if (this.supply && this.ctx.waves.phase !== 'intermission') for (const pod of this.pods) if (pod.phase !== 'spent') this.retire(pod);
+    // A supply pod lasts the break it came in. Retraining's stays (SHOP_ANYTIME).
+    if (this.supply && !SHOP_ANYTIME && this.ctx.waves.phase !== 'intermission') for (const pod of this.pods) if (pod.phase !== 'spent') this.retire(pod);
     for (const pod of this.pods) if (pod.phase !== 'spent') this.step(pod, dt);
     if (this.supply) this.readSupply();
   }

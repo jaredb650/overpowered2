@@ -12,7 +12,7 @@ import { clamp, damp } from '../../core/math';
 import { MOVE } from '../../player/tuning';
 import { div, h } from '../dom';
 import type { HudState } from '../state';
-import { REVEAL_AT } from './stragglers';
+import { REVEAL_AT, REVEALS } from './stragglers';
 import type { WorldLayer } from './worldlayer';
 
 const REDRAW = 1 / 30;
@@ -186,7 +186,7 @@ export class Minimap {
     }
 
     const n = Math.min(s.enemies.length, MAX_TRACKED);
-    const reveal = s.sonarLive > 0 || (s.phase !== 'intermission' && s.remaining <= REVEAL_AT);
+    const reveal = s.sonarLive > 0 || (REVEALS && s.phase !== 'intermission' && s.remaining <= REVEAL_AT);
     if (this.trailCount > 1) {
       g.fillStyle = ENEMY;
       for (let k = 1; k < this.trailCount; k++) {

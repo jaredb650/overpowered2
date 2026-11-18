@@ -11,7 +11,7 @@ import type { MapId } from '../world/map/maps';
  * `outpost` is Endless Humans. The id is older than the campaign, and URLs and score tables are keyed on it. `defense` is
  * Outpost Defense, Endless Humans' tower defense (docs/proposals/outpost-defense.md).
  */
-export type ContractId = 'campaign' | 'foreclosure' | 'crucible' | 'outpost' | 'defense';
+export type ContractId = 'campaign' | 'foreclosure' | 'crucible' | 'outpost' | 'defense' | 'retraining';
 
 /** Who lives there. Section 15's faction rules hang off this: pain, fear, bleeding, gib thresholds. */
 export type FactionId = 'swarm' | 'humans';
@@ -77,6 +77,8 @@ export interface ContractDef {
    * cache, kill drop or wave-end ammo floor hands out what the shops sell.
    */
   economy?: boolean;
+  /** The tutorial (docs/design/tutorial.md): reached from Play > Training and a first launch, never listed with the missions. */
+  training?: boolean;
   /** localStorage key of this contract's high score. */
   scoreKey: string;
   /**
@@ -263,6 +265,34 @@ export const CONTRACTS: readonly ContractDef[] = [
       ],
     },
     scoreKey: 'op2_highscore.defense',
+  },
+  {
+    id: 'retraining',
+    name: 'Retraining',
+    map: 'annex',
+    faction: 'humans',
+    waves: 'squads',
+    ai: 'outpost',
+    wounds: 'anatomy',
+    rewards: { backShot: 1.5 },
+    mission: 'retraining',
+    training: true,
+    briefing: {
+      ref: 'Form 7742-R',
+      subject: 'The contractor, selected for retraining',
+      body: [
+        'You have been selected for retraining. The reasons are on file. The file is not available to you.',
+        'Attendance is voluntary. You are free to leave at any time, through the door behind you. You are highly encouraged not to.',
+        'Live subjects are provided. They have been processed for your convenience.',
+      ],
+      terms: [
+        ['Site', 'The Retraining Annex'],
+        ['Subjects', 'Held, and some not'],
+        ['Duration', 'Brief, if you are'],
+        ['Attendance', 'Voluntary'],
+      ],
+    },
+    scoreKey: 'op2_highscore.retraining',
   },
 ];
 

@@ -30,8 +30,11 @@ export const SHOP_CONTRACTS: readonly ContractId[] = ['crucible', 'outpost'];
  * weapon caches back.
  */
 export const SHOP_ON: boolean =
-  query !== null && SHOP_CONTRACTS.includes(ACTIVE.def.id) && MISSION_ID === null && !ON_RANGE && !query.has('sandbox')
-  && query.get('shop') !== '0';
+  query !== null && ((SHOP_CONTRACTS.includes(ACTIVE.def.id) && MISSION_ID === null) || ACTIVE.def.training === true) && !ON_RANGE
+  && !query.has('sandbox') && query.get('shop') !== '0';
+
+/** Retraining's shop (docs/design/tutorial.md): open whenever its pod is, with every row released, because the lesson cannot wait for a wave. */
+export const SHOP_ANYTIME: boolean = ACTIVE.def.training === true;
 
 /**
  * Seconds of a break with the shop on, at least: the supply pod takes about 6 s to land and open (progression's DROP_POD), and then

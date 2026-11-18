@@ -28,7 +28,10 @@ import { menuButton, wordmark } from './parts';
 import type { Screen } from './Screens';
 
 /** The campaign's missions, in the order they are played. */
-export const CAMPAIGN: readonly ContractDef[] = CONTRACTS.filter(c => c.mission);
+export const CAMPAIGN: readonly ContractDef[] = CONTRACTS.filter(c => c.mission && !c.training);
+
+/** Retraining, the tutorial. */
+export const TRAINING: ContractDef = CONTRACTS.find(c => c.training)!;
 
 /** Survival's maps, in menu order. "Outpost" is the fort, Outpost Defense's map: the owner's name for it. */
 export const SURVIVAL_MAPS: readonly { name: string; map: MapId }[] = [

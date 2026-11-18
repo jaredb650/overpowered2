@@ -2,10 +2,12 @@
 import type { Mission } from '../types';
 import { FORECLOSURE } from './foreclosure';
 import { OUTPOST } from './outpost';
+import { RETRAINING } from './retraining';
 import { STUB } from './stub';
 
 export const MISSIONS: Readonly<Record<string, Mission>> = {
   stub: STUB,
   outpost: OUTPOST,
   foreclosure: FORECLOSURE,
+  retraining: RETRAINING,
 };

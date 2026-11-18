@@ -8,7 +8,7 @@ import { DEV_TOOLS } from '../../core/devflags';
 import type { ModId, WeaponId, WeaponSystem } from '../../core/gameplay';
 import { paysFor } from '../defense/data';
 import { ACTIVE } from '../select';
-import { BOSS_PAY, killPayIn, SHOP_ON, SUPPLY_ARMOR, SUPPLY_BREAK, wavePayIn, type SupplyId } from './data';
+import { BOSS_PAY, killPayIn, SHOP_ANYTIME, SHOP_ON, SUPPLY_ARMOR, SUPPLY_BREAK, wavePayIn, type SupplyId } from './data';
 import { MOVE } from '../../player/tuning';
 import type { Loadout } from '../../progression/implants';
 import { ChipRack } from '../chips';
@@ -89,7 +89,7 @@ export class CrucibleShop {
   }
 
   get inBreak(): boolean {
-    return this.ctx.waves.phase === 'intermission';
+    return SHOP_ANYTIME || this.ctx.waves.phase === 'intermission';
   }
 
   /** The run as the rules read it, now. */
@@ -97,7 +97,7 @@ export class CrucibleShop {
     const w = this.weapons;
     const waves = this.ctx.waves;
     return {
-      credits: this.credits, inBreak: this.inBreak, cleared: this.inBreak ? waves.wave : waves.wave - 1,
+      credits: this.credits, inBreak: this.inBreak, cleared: SHOP_ANYTIME ? Infinity : this.inBreak ? waves.wave : waves.wave - 1,
       owned: w.owned, mods: w.mods, fitted: w.fitted,
       implants: this.loadout.owned, implantsFitted: this.loadout.fitted, slots: this.loadout.slots,
       chips: this.chips.owned, chipsFitted: this.chips.fitted, chipSlots: this.chips.slots, full: this.full(),

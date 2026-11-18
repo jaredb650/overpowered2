@@ -124,7 +124,13 @@ export function validateMission(m: Mission): string[] {
   const noteName = (step: Step): void => {
     if ('at' in step && step.at) named.marks.add(step.at);
     if (step.do === 'door') named.doors.add(step.door);
-    if (step.do === 'call' && step.arg) named.marks.add(step.arg);
+    // A call's argument may name marks or zones for whoever provides it, several at once (`tut.held`'s `group:armour:a,b,c`).
+    if (step.do === 'call' && step.arg) {
+      for (const part of step.arg.split(/[,:]/)) {
+        named.marks.add(part);
+        named.zones.add(part);
+      }
+    }
     if (step.do === 'sortie') named.marks.add(step.over);
     if (step.do === 'battle') named.marks.add(step.from);
     if (step.do === 'vehicle' && step.holds) {

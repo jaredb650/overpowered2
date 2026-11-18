@@ -7,6 +7,8 @@ import type { WorldLayer } from './worldlayer';
 
 /** At or under this many left in the wave, every one of them is shown. */
 export const REVEAL_AT = 3;
+/** Retraining hides men on purpose, for the sonar to find: no free reveal there. */
+export const REVEALS = !ACTIVE.def.training;
 const COLOR = '#ff3b3b';
 /** Among the humans the heavy suit has one man in it, and the boss bar already calls him by name. */
 const nameOf = (e: EnemyInstance): string => (e.id === 'juggernaut' && ACTIVE.def.ai === 'outpost' ? 'The Commander' : ENEMY_NAMES[e.id] ?? 'Hostile');
@@ -28,7 +30,7 @@ export class Stragglers {
   }
 
   update(s: HudState): void {
-    const reveal = s.phase !== 'intermission' && s.remaining <= REVEAL_AT && s.enemies.length >= s.remaining;
+    const reveal = REVEALS && s.phase !== 'intermission' && s.remaining <= REVEAL_AT && s.enemies.length >= s.remaining;
     for (const slot of this.slots) {
       if (slot.enemy && (!reveal || !slot.enemy.alive)) this.clear(slot);
     }
