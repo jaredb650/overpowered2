@@ -151,10 +151,14 @@ export interface WeaponSystem extends GameSystem {
   readonly launcherUp?: boolean;
   /** The Autoraffica's smart aim, for the HUD's circle and the gun turning to the head. Unset on a weapon system that has none. */
   readonly smartAim?: SmartAimView;
+  /** The left gun's smart aim with the Autoraffica akimbo (a lock a gun): the HUD's second crosshair. Unset on a system that has none. */
+  readonly smartAimLeft?: SmartAimView;
   /** Two guns in hand now: the akimbo mod or Berserk's SMGs. Unset on a weapon system that has none. */
   readonly akimbo?: boolean;
   /** The Gun Kata brain chip: a burst into every man in reach, or why not. Unset on a weapon system that has none. */
   kata?(): KataResult;
+  /** Who a Gun Kata would shoot now, in order, written into `out`: the brain chip's red highlight while it charges. */
+  kataTargets?(out: EnemyInstance[]): EnemyInstance[];
 }
 
 /** What the Gun Kata brain chip got when it asked the guns: it went, or why it did not (and spent nothing). */

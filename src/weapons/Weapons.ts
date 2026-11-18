@@ -175,10 +175,20 @@ export class Weapons implements WeaponSystem, Guard {
   private smartOn = false;
   private readonly smart = new SmartAim();
   private readonly smartHooks: SmartHooks = {
-    look: (cone, skip) => this.headNear(cone, WEAPONS[this.current].smart!.range, skip),
+    look: (cone, skip) => this.headNear(cone, WEAPONS[this.current].smart!.range, skip, this.akimboOn ? this.smartL.target : null),
     holds: (e, cone) => this.headSeen(e, WEAPONS[this.current].smart!.range, Math.cos(cone)) >= 0,
     head: (e, out) => this.combat.headOf(e, out),
     locked: () => this.ctx.audio.play('judge_fan_lock', { pitch: 1.7, volume: 0.45 }),
+  };
+  /**
+   * Akimbo: the left gun's own smart aim, in the same circle. Each gun locks a head of its own, the other's only when his is the
+   * one head there (`splitLocks`), and fires into it: two heads at once at twice the rate.
+   */
+  private readonly smartL = new SmartAim();
+  private readonly smartHooksL: SmartHooks = {
+    ...this.smartHooks,
+    look: (cone, skip) => this.headNear(cone, WEAPONS[this.current].smart!.range, skip, this.smart.target),
+    locked: () => this.ctx.audio.play('judge_fan_lock', { pitch: 1.5, volume: 0.45 }),
   };
   /** Seconds left of `occupy`. */
   private occupied = 0;
@@ -346,6 +356,7 @@ export class Weapons implements WeaponSystem, Guard {
     this.glUp = this.smartOn = false;
     this.selector.clear();
     this.smart.drop();
+    this.smartL.drop();
     this.rHeld = -1;
     this.glSlot.cooldown = 0;
     this.glSlot.ammo.mag = LAUNCHER.magSize;
@@ -406,6 +417,11 @@ export class Weapons implements WeaponSystem, Guard {
   /** The Autoraffica's smart aim: on, its circle and its lock. The HUD and the viewmodel read it. */
   get smartAim(): SmartAimView {
     return this.smart;
+  }
+
+  /** The left gun's smart aim, on only with the Autoraffica akimbo: the HUD's second crosshair and the left gun's turn. */
+  get smartAimLeft(): SmartAimView {
+    return this.smartL;
   }
 
   /** Two guns in hand: the akimbo mod, or Berserk's SMGs. */
@@ -696,8 +712,9 @@ export class Weapons implements WeaponSystem, Guard {
     const dt = c.time.playerDt;
     // Guidance is on only on a frame the launcher is up with its sight on, so a holster, a death or a switch lets go.
     ROCKET_LASER.on = false;
-    this.smart.on = this.smartOn && WEAPONS[this.current].smart !== undefined && !this.slots[this.current].def.akimbo && !this.holstered
-      && c.player.alive !== false;
+    this.smart.on = this.smartOn && WEAPONS[this.current].smart !== undefined && !this.holstered && c.player.alive !== false;
+    this.smartL.on = this.smart.on && this.slots[this.current].def.akimbo === true;
+    if (!this.smartL.on) this.smartL.drop();
     if (!this.smart.on) this.smart.drop();
     this.sword.tick(dt);
     this.updateAim(dt);
@@ -755,7 +772,13 @@ export class Weapons implements WeaponSystem, Guard {
       return;
     }
     this.updateReload(dt);
-    if (this.smart.on) this.smart.update(dt, WEAPONS[this.current].smart!, this.smartHooks);
+    if (this.smart.on) {
+      this.smart.update(dt, WEAPONS[this.current].smart!, this.smartHooks);
+      if (this.smartL.on) {
+        this.smartL.update(dt, WEAPONS[this.current].smart!, this.smartHooksL);
+        this.splitLocks();
+      }
+    }
     this.updateGun(dt);
     this.applyHandling(dt);
   }
@@ -777,14 +800,7 @@ export class Weapons implements WeaponSystem, Guard {
     const s = this.slots[this.current];
     if (this.kataQueue.length > 0 || this.holstered || this.occupied > 0 || this.drawLeft > 0 || this.reloading || !this.canShoot(s)
       || c.player.alive === false) return 'busy';
-    const eye = c.player.eye;
-    const found = kataTargets(eye, c.player.forward, c.enemies.alive, e => e.center, (from, to) => {
-      const d = this.kataDir.subVectors(to, from);
-      const dist = d.length();
-      return dist < 0.1 || !c.physics.raycast(from, d.divideScalar(dist), dist, CG.World);
-    });
-    // A man with his hands up is a bounty, not a target.
-    for (const e of found) if (e.alive && !soldierOf(e)?.surrendered) this.kataQueue.push(e);
+    this.kataTargets(this.kataQueue);
     if (this.kataQueue.length === 0) return 'noTargets';
     this.kataAt = 0;
     this.kataClock = 0;
@@ -792,6 +808,22 @@ export class Weapons implements WeaponSystem, Guard {
     this.burstLeft = 0;
     this.aimOn = false;
     return 'go';
+  }
+
+  /**
+   * Who a Gun Kata would shoot now, in its order, into `out`: every man in reach and in sight all the way round, but a man with his
+   * hands up, who is a bounty and not a target. The brain chip lights these red while it charges, and the burst is these.
+   */
+  kataTargets(out: EnemyInstance[]): EnemyInstance[] {
+    const c = this.ctx;
+    out.length = 0;
+    const found = kataTargets(c.player.eye, c.player.forward, c.enemies.alive, e => e.center, (from, to) => {
+      const d = this.kataDir.subVectors(to, from);
+      const dist = d.length();
+      return dist < 0.1 || !c.physics.raycast(from, d.divideScalar(dist), dist, CG.World);
+    });
+    for (const e of found) if (e.alive && !soldierOf(e)?.surrendered) out.push(e);
+    return out;
   }
 
   private updateKata(dt: number): void {
@@ -1029,12 +1061,6 @@ export class Weapons implements WeaponSystem, Guard {
       return;
     }
     if (WEAPONS[this.current].smart) {
-      // Two guns are two locks' worth of headshots at twice the rate: akimbo gives the smart aim up. Gun Kata is its aimbot.
-      if (this.slots[this.current].def.akimbo) {
-        this.ctx.audio.play('ui_error');
-        this.ctx.hud.callout?.('NO SMART AIM AKIMBO');
-        return;
-      }
       this.smartOn = !this.smartOn;
       this.burstLeft = 0;
       this.ctx.audio.play('fire_select', { pitch: this.smartOn ? 1.3 : 0.92 });
@@ -1247,7 +1273,7 @@ export class Weapons implements WeaponSystem, Guard {
    * (false: `updateSemi` fires one round a pull).
    */
   private updateSmartFire(s: Slot, held: boolean): boolean {
-    if (!this.smart.target) return false;
+    if (!this.smart.target && !this.smartL.target) return false;
     if (!held && this.pressBuffer <= 0) {
       if (s.cooldown < 0) s.cooldown = 0;
       return true;
@@ -1259,12 +1285,31 @@ export class Weapons implements WeaponSystem, Guard {
       return true;
     }
     this.pressBuffer = 0;
-    const interval = s.def.smart!.interval / Math.max(this.modifiers.fireRate, 0.01);
-    while (s.cooldown <= 0 && this.canShoot(s) && this.smart.target?.alive) {
-      this.shootGun(s, false);
+    // Akimbo: the guns in turn, each into its own lock, at twice the rate.
+    const interval = s.def.smart!.interval / Math.max(this.modifiers.fireRate, 0.01) / this.ak;
+    while (s.cooldown <= 0 && this.canShoot(s) && (this.smart.target?.alive || this.smartL.target?.alive)) {
+      this.shootGun(s, this.akimboOn && this.leftNext);
+      if (this.akimboOn) this.leftNext = !this.leftNext;
       s.cooldown += interval;
     }
     return true;
+  }
+
+  /** The head a smart round from this hand goes into: the hand's own lock, else the other gun's. Null with smart aim off. */
+  private smartLock(left: boolean): EnemyInstance | null {
+    if (!this.smart.on) return null;
+    const own = left && this.smartL.on ? this.smartL.target : this.smart.target;
+    const other = left && this.smartL.on ? this.smart.target : this.smartL.target;
+    return own?.alive ? own : other?.alive ? other : null;
+  }
+
+  /** The left gun on the head the right one holds, with another head in the circle: it moves onto that one. */
+  private splitLocks(): void {
+    const t = this.smart.target;
+    if (!t || this.smartL.target !== t) return;
+    const spec = WEAPONS[this.current].smart!;
+    const other = this.headNear(spec.cone, spec.range, t);
+    if (other) this.smartL.take(other, this.smartHooksL);
   }
 
   private updateCharge(s: Slot, dt: number, held: boolean): void {
@@ -1594,7 +1639,7 @@ export class Weapons implements WeaponSystem, Guard {
       const dir = def.spread > 0 ? randomInCone(fwd, this.coneOf(def), this.dir) : fwd;
       if (def.raufoss || this.altLoaded.has(def.id)) (this.raufossRounds ??= new Raufoss(c, this.combat)).fire(eye, dir, shot);
       // The smart aim's lock: the round into his head, as the Judge's fanned shot (cover in the line takes it).
-      else if (this.smart.target) this.combat.fireAtHead(eye, this.smart.target, shot);
+      else if (this.smartLock(left)) this.combat.fireAtHead(eye, this.smartLock(left)!, shot);
       else this.combat.fireRay(eye, dir, shot);
     }
   }
@@ -2017,21 +2062,30 @@ export class Weapons implements WeaponSystem, Guard {
     return this.headNear(t.cone, t.range, null);
   }
 
-  /** The head nearest the crosshair inside `cone` and `range` with nothing solid between it and the eye, but `skip`'s. */
-  private headNear(cone: number, range: number, skip: EnemyInstance | null): EnemyInstance | null {
+  /**
+   * The head nearest the crosshair inside `cone` and `range` with nothing solid between it and the eye, but `skip`'s; `avoid`'s
+   * only when it is the one head there (the akimbo smart aim: the other gun's lock).
+   */
+  private headNear(cone: number, range: number, skip: EnemyInstance | null, avoid: EnemyInstance | null = null): EnemyInstance | null {
     const cos = Math.cos(cone);
     const alive = this.ctx.enemies.alive;
     let best: EnemyInstance | null = null;
     let bestAngle = Infinity;
+    let avoided = false;
     for (let i = 0; i < alive.length; i++) {
       const e = alive[i]!;
       if (e === skip) continue;
       const angle = this.headSeen(e, range, cos);
-      if (angle < 0 || angle >= bestAngle) continue;
+      if (angle < 0) continue;
+      if (e === avoid) {
+        avoided = true;
+        continue;
+      }
+      if (angle >= bestAngle) continue;
       best = e;
       bestAngle = angle;
     }
-    return best;
+    return best ?? (avoided ? avoid : null);
   }
 
   /** His head's angle off the crosshair while he lives, is inside the cone (`cos`) and `range` and in plain sight; else -1. */

@@ -85,6 +85,15 @@ export class SmartAim implements SmartAimView {
     if (t) hooks.head(t, this.head);
   }
 
+  /** Takes `e` at once: the akimbo pair's left gun moving off the head the right one holds, onto a head of its own. */
+  take(e: EnemyInstance, hooks: SmartHooks): void {
+    this.target = e;
+    this.held = 0;
+    this.lost = 0;
+    hooks.locked(e);
+    hooks.head(e, this.head);
+  }
+
   /** Lets go of everything: switched off, the gun put away, a new run. */
   drop(): void {
     this.target = null;

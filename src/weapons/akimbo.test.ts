@@ -39,6 +39,14 @@ function draw(id: WeaponId, akimbo = true): void {
   hands.length = 0;
 }
 
+/** Hold R past the smart aim's hold: it switches on, and the locks are taken. */
+function smartOn(): void {
+  r.input.simulate('reload', true);
+  r.run(WEAPONS.autoraffica.smart!.hold + 0.1);
+  r.input.simulate('reload', false);
+  r.run(0.1);
+}
+
 describe('akimbo on paper', () => {
   it('fits the SMG and every pistol, each with a shop row that lands by the break after wave 9 in Endless Humans', () => {
     expect([...AKIMBO_GUNS].sort()).toEqual(['autoraffica', 'judge', 'rivet', 'smg', 'ultramag']);
@@ -177,13 +185,49 @@ describe('akimbo in the hand', () => {
     expect(camAim.at(-1)).toBeCloseTo(1 - AKIMBO_ADS.zoom);
   });
 
-  it('will not switch the Autoraffica\'s smart aim on', () => {
+  it('keeps the Autoraffica\'s smart aim, dual: each gun locks a head of its own and fires into it', () => {
     draw('autoraffica');
-    r.input.simulate('reload', true);
-    r.run(0.5);
-    r.input.simulate('reload', false);
+    const a = r.enemies.add(-0.6, -10);
+    const b = r.enemies.add(0.6, -10);
+    smartOn();
+    expect(r.weapons.smartAim.on).toBe(true);
+    expect(r.weapons.smartAimLeft.on).toBe(true);
+    const right = (r.weapons.smartAim as unknown as { target: unknown }).target;
+    const left = (r.weapons.smartAimLeft as unknown as { target: unknown }).target;
+    expect(right).not.toBeNull();
+    expect(left).not.toBeNull();
+    expect(left).not.toBe(right);
+    expect(new Set([right, left])).toEqual(new Set([a, b]));
+    r.input.simulate('fire', true);
+    r.run(0.2);
+    r.input.simulate('fire', false);
+    expect(a.hits.length).toBeGreaterThan(0);
+    expect(b.hits.length).toBeGreaterThan(0);
+    for (const h of [...a.hits, ...b.hits]) expect(h.region).toBe('head');
+    // Twice the one-gun smart rate, a gun at a time.
+    const shots = a.hits.length + b.hits.length;
+    expect(shots).toBeGreaterThanOrEqual(Math.floor(0.2 / (WEAPONS.autoraffica.smart!.interval / 2)) - 1);
+    for (let i = 1; i < hands.length; i++) expect(hands[i]).toBe(!hands[i - 1]);
+  });
+
+  it('puts both guns on the one head when there is only one, and splits them when a second walks in', () => {
+    draw('autoraffica');
+    const a = r.enemies.add(0, -10);
+    smartOn();
+    const target = (v: unknown) => (v as { target: unknown }).target;
+    expect(target(r.weapons.smartAim)).toBe(a);
+    expect(target(r.weapons.smartAimLeft)).toBe(a);
+    const b = r.enemies.add(0.8, -10);
     r.run(0.1);
-    expect(r.weapons.smartAim.on).toBe(false);
-    expect(r.record.sounds).toContain('ui_error');
+    expect(new Set([target(r.weapons.smartAim), target(r.weapons.smartAimLeft)])).toEqual(new Set([a, b]));
+  });
+
+  it('keeps one smart aim and the plain semi trigger without akimbo', () => {
+    draw('autoraffica', false);
+    r.enemies.add(-0.6, -10);
+    r.enemies.add(0.6, -10);
+    smartOn();
+    expect(r.weapons.smartAim.on).toBe(true);
+    expect(r.weapons.smartAimLeft.on).toBe(false);
   });
 });

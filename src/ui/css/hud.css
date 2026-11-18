@@ -377,6 +377,12 @@
 .xh-smart-svg .rim { stroke: #000; stroke-width: 3.4px; opacity: 0.45; }
 .xh.smart-lock .xh-smart-svg :not(.rim) { stroke: var(--blood); opacity: 1; }
 .xh.smart-lock .xh-reticle .xh-svg * { fill: var(--blood); }
+.xh-twin { position: absolute; left: -11px; top: -11px; width: 22px; height: 22px; pointer-events: none; }
+.xh-twin .xh-svg path { fill: none; stroke: #fff; stroke-width: 1.8; }
+.xh-twin .xh-svg circle { fill: #fff; }
+.xh-twin .xh-svg * { filter: drop-shadow(0 0 1px #000); }
+.xh-twin.lock .xh-svg path { stroke: var(--blood); }
+.xh-twin.lock .xh-svg circle { fill: var(--blood); }
 .hm-body .xh-svg * { fill: #fff; }
 .hm-armor .xh-svg *, .hm-armorThrough .xh-svg *, .hm-armorBroken .xh-svg * { fill: var(--cold); }
 .hm-armorThrough .xh-svg .tick { fill: #fff; }

@@ -10,6 +10,7 @@
  */
 import type * as THREE from 'three';
 import type { Ctx, GradeName } from '../core/contracts';
+import type { EnemyInstance } from '../core/gameplay';
 import type { Sonar } from './sonar';
 import { KATA } from '../weapons/kata';
 
@@ -79,7 +80,7 @@ export const CHIPS: Readonly<Record<ChipId, ChipDef>> = {
   },
   kata: {
     id: 'kata', name: 'Gun Kata', price: 2600, wave: 10, color: '#ff3d6e',
-    does: `Tap, with two guns in hand (akimbo): a head shot into every man within ${KATA.radius} m and in sight, all the way round, in about a second, from your magazines. ${KATA.cooldown} s to recharge.`,
+    does: `Hold T, with two guns in hand (akimbo): every man within ${KATA.radius} m and in sight, all the way round, lights red, and at full charge (${KATA.charge} s) each gets a head shot, in about a second, from your magazines. Let go early and nothing is spent. ${KATA.cooldown} s to recharge. With two brain chips fitted, a tap moves on to the next.`,
     lore: 'Statistical analysis of ten thousand firefights, written behind the eyes. Every angle is covered, which the Council regards as the whole of management. Requires two guns. The Council requires two signatures.',
   },
 };
@@ -173,6 +174,15 @@ export class Chips {
   private rest = 0;
   /** Seconds until Gun Kata works again. */
   kataWait = 0;
+  /** Gun Kata's charge while T is held, 0 to 1; -1 when it is not charging. */
+  kataCharge = -1;
+  /** Why a press of T on Gun Kata could not start a charge, said once the hold is past a tap; null when it could. */
+  private kataNo: string | null = null;
+  /** Heartbeats played this charge. */
+  private beats = 0;
+  /** The men it would shoot now, lit red while it charges. */
+  readonly kataLit: EnemyInstance[] = [];
+  private readonly kataMeshes: THREE.Object3D[] = [];
   /** Seconds T has been held, and whether this hold has moved chips already. */
   private held = 0;
   private switched = false;
@@ -202,7 +212,11 @@ export class Chips {
     if (this.thermal && !this.rack.fitted.includes('thermal')) this.thermal = false;
     if (this.focus && !this.rack.fitted.includes('focus')) this.setFocus(false);
     let tap = false;
-    if (n < 2) {
+    if (this.kataCharge >= 0 && this.current !== 'kata') this.kataCharge = -1;
+    if (this.current === 'kata') {
+      // Gun Kata is held, not tapped: holding charges it, and with two brain chips a tap moves on.
+      this.kataKey(n);
+    } else if (n < 2) {
       tap = input.pressed('sonar');
     } else {
       if (input.pressed('sonar')) {
@@ -222,7 +236,6 @@ export class Chips {
     if (tap && cur === null) this.ctx.audio.play('ui_error');
     if (tap && cur === 'thermal') this.setThermal(!this.thermal);
     if (tap && cur === 'focus') this.setFocus(!this.focus);
-    if (tap && cur === 'kata') this.kata();
     this.kataWait = Math.max(0, this.kataWait - time.playerDt);
     this.sonar.update(tap && cur === 'sonar');
     this.updateThermal();
@@ -265,6 +278,78 @@ export class Chips {
   }
 
   /** Gun Kata: the guns do it (weapons/kata.ts). Only a burst that went spends the charge; else the reason, and nothing spent. */
+  /** T on Gun Kata: a press starts the charge (or says why not), a release calls it off, a quick one moves to the next chip. */
+  private kataKey(n: number): void {
+    const { input, time } = this.ctx;
+    if (input.pressed('sonar')) {
+      this.held = 0;
+      this.kataNo = this.kataWhyNot();
+      if (this.kataNo === null) this.startKata();
+      else if (n < 2) this.refuseKata();
+    }
+    if (input.isDown('sonar')) {
+      this.held += time.realDt;
+      // With two brain chips a short press is the switch, so the refusal waits until it is plainly a hold.
+      if (this.kataNo !== null && this.held >= HOLD_SWITCH) this.refuseKata();
+    }
+    if (input.released('sonar')) {
+      if (this.kataCharge >= 0) this.kataCharge = -1;
+      if (n >= 2 && this.held < HOLD_SWITCH) this.next();
+      this.kataNo = null;
+    }
+    if (this.kataCharge >= 0) this.chargeKata(time.realDt);
+  }
+
+  private kataWhyNot(): string | null {
+    if (!this.ctx.player.alive) return 'NOT NOW';
+    if (this.kataWait > 0) return `GUN KATA ${Math.ceil(this.kataWait)} S`;
+    return this.ctx.weapons.akimbo ? null : 'NEEDS AKIMBO';
+  }
+
+  private refuseKata(): void {
+    this.ctx.audio.play('ui_error');
+    this.ctx.hud.callout?.(this.kataNo ?? 'NOT NOW');
+    this.kataNo = null;
+  }
+
+  private startKata(): void {
+    this.kataCharge = 0;
+    this.beats = 0;
+  }
+
+  /**
+   * One frame of the charge: the men it would shoot lit red, a heartbeat that quickens, the edges of the screen closing in and the
+   * colour going (player/feedback.ts reads `kataFocus`), and at full charge the burst. Two guns gone, or the player, calls it off.
+   */
+  private chargeKata(dt: number): void {
+    const { audio, render, weapons } = this.ctx;
+    if (!weapons.akimbo || !this.ctx.player.alive) {
+      this.kataCharge = -1;
+      this.kataNo = weapons.akimbo ? 'NOT NOW' : 'NEEDS AKIMBO';
+      this.refuseKata();
+      return;
+    }
+    this.kataCharge = Math.min(1, this.kataCharge + dt / KATA.charge);
+    if (this.kataCharge >= this.beats * 0.4) {
+      audio.play('heartbeat', { pitch: 1 + this.beats * 0.18, volume: 0.6 + this.beats * 0.2 });
+      this.beats++;
+    }
+    const lit = weapons.kataTargets?.(this.kataLit) ?? this.kataLit;
+    const meshes = this.kataMeshes;
+    meshes.length = 0;
+    for (const e of lit) meshes.push(e.char.mesh);
+    render.highlight(meshes, KATA.red, 0.45 + 0.55 * this.kataCharge);
+    if (this.kataCharge >= 1) {
+      this.kataCharge = -1;
+      this.kata();
+    }
+  }
+
+  /** How far into a Gun Kata charge the player is, 0 to 1: the screen closes in with it. */
+  get kataFocus(): number {
+    return Math.max(0, this.kataCharge);
+  }
+
   kata(): void {
     const { audio, hud, render } = this.ctx;
     if (this.kataWait > 0 || !this.ctx.player.alive) {
@@ -349,6 +434,10 @@ export class Chips {
       b.lit = this.thermal;
       b.text = this.thermal ? 'ON' : 'OFF';
       b.fill = 0;
+    } else if (cur === 'kata' && this.kataCharge >= 0) {
+      b.lit = true;
+      b.text = 'HOLD';
+      b.fill = this.kataCharge;
     } else if (cur === 'kata') {
       b.lit = this.kataWait <= 0 && this.ctx.weapons.akimbo === true;
       b.text = this.kataWait > 0 ? String(Math.ceil(this.kataWait)) : this.ctx.weapons.akimbo ? '' : 'AKIMBO';
@@ -362,6 +451,7 @@ export class Chips {
 
   /** Death: the toggles go off. */
   private drop(): void {
+    this.kataCharge = -1;
     this.thermal = false;
     this.setFocus(false);
     this.view(false);
@@ -376,6 +466,8 @@ export class Chips {
     this.meter = 1;
     this.rest = 0;
     this.kataWait = 0;
+    this.kataCharge = -1;
+    this.kataNo = null;
     this.held = 0;
     this.switched = false;
     this.view(false);

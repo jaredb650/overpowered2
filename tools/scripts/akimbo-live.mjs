@@ -4,8 +4,9 @@
 //   OP2_NO_HMR=1 npx vite --port 5201 --strictPort &
 //   node tools/shot.mjs --port 5201 --url "/?autostart=1" --script tools/scripts/akimbo-live.mjs --wait 500 --timeout 300 \
 //     --dpr 2 --w 1440 --h 900 --quiet --out tools/out/akimbo/live.png
-// AK_STEPS (comma list, default all): guns, kata, shop.
-const STEPS = (process.env.AK_STEPS ?? 'guns,kata,shop').split(',');
+// AK_STEPS (comma list, default all): guns, kata, shop, dual (the Autoraffica pair's two smart locks), hands (a stim and a visor
+// tap with the left gun down), charge (Gun Kata charging, the men lit red).
+const STEPS = (process.env.AK_STEPS ?? 'guns,kata,shop,dual,hands,charge').split(',');
 function prelude() {
   const frame = () => new Promise(r => requestAnimationFrame(r));
   window.ak = {
@@ -18,6 +19,8 @@ function prelude() {
       const V = P.eye.constructor;
       ctx.waves.update = () => {};
       P.modifiers.invulnerable = true;
+      // A step before may have held the men still: they move again, and the dead are cleared.
+      delete ctx.enemies.update;
       for (const e of [...ctx.enemies.alive]) e.health = 0;
       ctx.enemies.killAll?.('bench');
       await this.frames(10);
@@ -50,6 +53,14 @@ function prelude() {
       return { gun: w.current, akimbo: w.akimbo, ammo: { ...w.ammo() }, fitted: [...w.fitted] };
     },
     aim(on) { window.__op2.ctx.input.simulate('aim', on); },
+    /** Pins the game clock (every dt reads 0) for a still at an exact moment, or lets it run again. Rendering goes on. */
+    hold(on) {
+      const t = window.__op2.ctx.time;
+      for (const k of ['realDt', 'dt', 'playerDt']) {
+        if (on) Object.defineProperty(t, k, { get: () => 0, set: () => {}, configurable: true });
+        else { delete t[k]; t[k] = 0; }
+      }
+    },
   };
 }
 
@@ -71,7 +82,103 @@ export default async function akimboLive(page, h) {
   if (STEPS.includes('guns')) await guns(page, h, out);
   if (STEPS.includes('kata')) await kata(page, h, out);
   if (STEPS.includes('shop')) await shop(page, h, out);
+  if (STEPS.includes('dual')) await dual(page, h, out);
+  if (STEPS.includes('hands')) await hands(page, h, out);
+  if (STEPS.includes('charge')) await charge(page, h, out);
   return out;
+}
+
+/** Two husks side by side ahead, held still, and the Autoraffica pair's smart aim on: a crosshair on each head. */
+async function dual(page, h, out) {
+  out.dualStage = await page.evaluate(async () => {
+    const { ctx } = window.__op2;
+    await window.ak.stage(0);
+    const P = ctx.player;
+    const V = P.eye.constructor;
+    const f = P.forward;
+    for (const side of [-1.3, 1.3]) {
+      const at = new V(P.eye.x + f.x * 15 - f.z * side, P.position.y, P.eye.z + f.z * 15 + f.x * side);
+      ctx.enemies.spawn('husk', at);
+    }
+    await window.ak.frames(30);
+    ctx.enemies.update = () => {};
+    return ctx.enemies.alive.length;
+  });
+  out.dualGun = await page.evaluate(() => window.ak.gun('autoraffica', 'autorafficaAkimbo'));
+  await h.sleep(900);
+  await page.evaluate(() => window.__op2.ctx.input.simulate('reload', true));
+  await h.sleep(700);
+  await page.evaluate(() => window.__op2.ctx.input.simulate('reload', false));
+  await h.sleep(600);
+  out.dual = await page.evaluate(() => {
+    const w = window.__op2.ctx.weapons;
+    const r = w.smartAim.target, l = w.smartAimLeft.target;
+    return { on: w.smartAim.on, left: w.smartAimLeft.on, right: r?.uid ?? null, leftUid: l?.uid ?? null, distinct: !!r && !!l && r !== l };
+  });
+  await h.shot('dual-locks');
+}
+
+/** The SMG pair, then a stim and a visor tap: the left gun goes down while the left hand works. */
+async function hands(page, h, out) {
+  await page.evaluate(() => window.ak.stage(0));
+  out.handsGun = await page.evaluate(() => window.ak.gun('smg', 'smgAkimbo'));
+  await h.sleep(1000);
+  // Each still on the frame the hand is furthest from the gun, the clock pinned there.
+  const at = (event, share) => page.evaluate(async ([event, share]) => {
+    const { ctx } = window.__op2;
+    const off = ctx.viewmodel.offhand;
+    ctx.events.emit(event, {});
+    let best = 0;
+    for (let i = 0; i < 400; i++) {
+      await window.ak.frame();
+      best = Math.max(best, off.leftWeight);
+      if (best >= share && off.leftWeight >= share) break;
+    }
+    window.ak.hold(true);
+    await window.ak.frames(3);
+    return { hand: off.leftWeight, leftGunDown: ctx.viewmodel.leftAway };
+  }, [event, share]);
+  out.stim = await at('stim:inject', 0.98);
+  await h.shot('hands-stim');
+  await page.evaluate(() => window.ak.hold(false));
+  await h.sleep(3000);
+  await h.shot('hands-after-stim');
+  out.visor = await at('sonar:tap', 0.9);
+  await h.shot('hands-visor');
+  await page.evaluate(() => window.ak.hold(false));
+}
+
+/** Men all round, the Gun Kata brain chip in hand, T held: the shot is mid-charge, the men in reach lit red. */
+async function charge(page, h, out) {
+  out.chargeStage = await page.evaluate(async () => {
+    const n = await window.ak.stage(9, 9);
+    window.__op2.ctx.enemies.update = () => {};
+    return n;
+  });
+  await page.evaluate(() => window.ak.gun('smg', 'smgAkimbo'));
+  await page.evaluate(() => {
+    const chips = window.__op2.ctx.contracts.chips;
+    chips.rack.fit('kata', true);
+    chips.index = chips.rack.fitted.indexOf('kata');
+    chips.kataWait = 0;
+  });
+  await h.sleep(900);
+  // T held to two thirds of the charge, then the clock pinned there for the still: the men stay lit, the burst waits.
+  out.charge = await page.evaluate(async () => {
+    const { ctx } = window.__op2;
+    const chips = ctx.contracts.chips;
+    ctx.input.simulate('sonar', true);
+    for (let i = 0; i < 400 && chips.kataCharge < 0.65; i++) await window.ak.frame();
+    window.ak.hold(true);
+    await window.ak.frames(3);
+    return { charge: chips.kataCharge, lit: chips.kataLit.length };
+  });
+  await h.shot('kata-charge');
+  await page.evaluate(() => window.ak.hold(false));
+  await until(page, h, () => window.__op2.ctx.contracts.chips.kataCharge < 0, 60, 50);
+  await page.evaluate(() => window.__op2.ctx.input.simulate('sonar', false));
+  await h.sleep(300);
+  await h.shot('kata-charge-burst');
 }
 
 async function guns(page, h, out) {

@@ -31,6 +31,15 @@ const STIM_NECK = new THREE.Vector3(-0.15, -0.12, -0.22);
 /** The needle's way in at the neck, in view space: back toward the camera and a little right. */
 const STIM_IN = new THREE.Vector3(0.25, 0.1, 1).normalize();
 
+/**
+ * How far an akimbo left gun is lowered (0 to 1, off the screen at 1) while the left hand is this system's: never less than the
+ * share of the hand gone from its grip, so the gun is down before the hand is off it and no third hand shows, and back up over a
+ * fifth of a second once the hand is home. `handGone` is `leftWeight`.
+ */
+export function leftGunAway(prev: number, handGone: number, dt: number): number {
+  return Math.max(handGone, damp(prev, handGone > 0.001 ? 1 : 0, 14, dt));
+}
+
 export class Offhand {
   readonly root = new THREE.Group();
   readonly ctl = new HandCtl();

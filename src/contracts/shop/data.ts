@@ -407,7 +407,7 @@ const MOD_CATALOGUE: Readonly<Record<ModId, Ware>> = {
   rivetAkimbo: { price: 900, wave: 6, lore: 'Two Rivets, one for each hand and neither for the sights. Thirty small complaints a magazine change, filed in alternation.' },
   ultramagAkimbo: { price: 2000, wave: 10, lore: 'A second Ultramag. The reflex sight comes off: you will be looking at both slides, and they will be looking back.' },
   judgeAkimbo: { price: 1400, wave: 8, lore: 'Two Judges. The off hand is busy, so there is no fanning, only a second opinion every time the first one finishes.' },
-  autorafficaAkimbo: { price: 2400, wave: 14, lore: 'Two Autorafficas. The smart aim declines to work for both, so you will be finding the heads yourself, twice as fast.' },
+  autorafficaAkimbo: { price: 2400, wave: 14, lore: 'Two Autorafficas, two smart aims, each finding a head of its own. The Council asked whether this was necessary and was shown the results.' },
 };
 
 export const modWares = (contract: ContractId): Readonly<Record<ModId, Ware>> =>

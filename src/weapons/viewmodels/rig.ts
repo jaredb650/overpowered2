@@ -16,7 +16,7 @@ import { VmMaterials } from './kit/materials';
 import type { Model } from './kit/model';
 import { buildDefs, buildOffhand, type OffhandSet } from './models';
 import { Legs } from './legs';
-import { Offhand } from './offhand';
+import { Offhand, leftGunAway } from './offhand';
 import { HANDS } from './poses';
 import { Spring, Spring3 } from './spring';
 
@@ -143,6 +143,8 @@ export class Rig implements ViewmodelRig {
   private akimboW = 0;
   /** 0 to 1: how far down both guns are in an akimbo reload. */
   private akDrop = 0;
+  /** 0 to 1: how far down the akimbo left gun is while the left hand does the off hand's work (offhand.ts `leftGunAway`). */
+  private leftAway = 0;
   private reloadLeft = 0;
 
   // Springs.
@@ -318,6 +320,7 @@ export class Rig implements ViewmodelRig {
     this.aimW = 0;
     this.akimbo = false;
     this.akimboW = 0;
+    this.leftAway = 0;
     this.perkHeat = 0;
     this.perkHeatOn = false;
     this.rage = 0;
@@ -339,6 +342,8 @@ export class Rig implements ViewmodelRig {
     if (!def) return;
     const same = this.def === def;
     if (this.def && !same) this.def.model.root.visible = false;
+    // A new gun's twin comes up from below with its draw: after a quick melee's blade too, which has none and takes the hand.
+    if (!same) this.akimboW = 0;
     this.def = def;
     // The gun's akimbo twin (models/index.ts `leftOf`), if it has one: shown while akimbo is on.
     if (this.defLeft && !same) this.defLeft.model.root.visible = false;
@@ -582,6 +587,8 @@ export class Rig implements ViewmodelRig {
     const dl = this.defLeft;
     if (dl) {
       this.akimboW = damp(this.akimboW, this.akimbo ? 1 : 0, 16, dt);
+      // A grenade, a call-in device, the visor tap, a stim: the left hand leaves its gun, so the gun goes down out of shot first.
+      this.leftAway = leftGunAway(this.leftAway, this.offhand.leftWeight, dt);
       akimboOn = this.akimboW > 0.02;
       dl.model.root.visible = akimboOn;
       if (akimboOn) {
@@ -605,6 +612,7 @@ export class Rig implements ViewmodelRig {
         dl.model.resetParts();
         b.right.begin(null);
         b.left.begin(dl.left);
+        this.readSmart(b, dt, this.ctx.weapons.smartAimLeft);
         dl.animate(b);
         // A pistol's clip pulls the right hand's trigger; this gun's is the left's.
         if (!dl.right) b.left.trigger = Math.max(b.left.trigger, b.right.trigger);
@@ -934,8 +942,8 @@ export class Rig implements ViewmodelRig {
     r.x += this.lookR.x.x + this.moveR.x.x + this.recoilLR.x.x + b.gunR.x - rise * 0.8;
     r.y += this.lookR.y.x + this.moveR.y.x + this.recoilLR.y.x + b.gunR.y;
     r.z += this.lookR.z.x + this.moveR.z.x + this.recoilLR.z.x + b.gunR.z;
-    // An akimbo reload takes it down with the right one, as a holster does, mirrored.
-    const drop = this.akDrop;
+    // An akimbo reload takes it down with the right one, as a holster does, mirrored; so does the left hand's own work.
+    const drop = Math.max(this.akDrop, this.leftAway);
     p.y += drop * DRAW_Y;
     p.z += drop * DRAW_Z;
     r.x += drop * DRAW_PITCH;
@@ -968,7 +976,7 @@ export class Rig implements ViewmodelRig {
     this.gunLRot.copy(r);
     _gunEuler.set(r.x, r.y, r.z);
     this.gunL.quaternion.setFromEuler(_gunEuler);
-    this.gunL.visible = this.gun.visible;
+    this.gunL.visible = this.gun.visible && drop < 0.995;
   }
 
   /** Finds a socket on the model, or a view-space anchor on the rig. */
@@ -1199,8 +1207,8 @@ export class Rig implements ViewmodelRig {
   }
 
   /** The smart aim's state for the clip, eased: on, locked, and the locked head's bearing off the view's centre. */
-  private readSmart(a: Anim, dt: number): void {
-    const v = this.ctx.weapons.smartAim;
+  /** `v`: the gun's smart aim, the left gun's own with the Autoraffica akimbo. */
+  private readSmart(a: Anim, dt: number, v = this.ctx.weapons.smartAim): void {
     const lock = v?.on ? v.lock : null;
     // Aimed down sights the gun holds still on its sights: the smart aim's turn would throw the sight picture off.
     const free = 1 - this.aimW;

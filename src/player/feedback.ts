@@ -145,7 +145,9 @@ export class MovementFeedback {
 
     this.bodySounds(dt);
     render.post.setSpeed(smoothstep(FEEDBACK.speedLinesFrom, FEEDBACK.speedLinesFull, p.velocity.length()));
-    render.post.setLowHealth(p.alive ? 1 - clamp(p.health / 35) : 1);
+    // A Gun Kata charging (contracts/chips.ts) borrows the low-health look: the edges close in and the colour drains with it.
+    const focus = (this.ctx.contracts as { chips?: { kataFocus?: number } } | undefined)?.chips?.kataFocus ?? 0;
+    render.post.setLowHealth(Math.max(p.alive ? 1 - clamp(p.health / 35) : 1, focus * 0.75));
     if (p.sliding || p.wallRunning) this.trail(dt);
     else this.trailDistance = 0;
   }

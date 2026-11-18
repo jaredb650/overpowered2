@@ -57,7 +57,8 @@ const light = (gun: (typeof LIGHT_GUNS)[number]): ModDef => ({ id: lightOf(gun),
  * The guns that take akimbo: the SMG and the four pistols. A second one in the left hand (viewmodels/models/index.ts `leftOf`), the
  * two fired in turn on a left click (Weapons.ts): twice the rate, two magazines, twice the reload. With no sights to look down,
  * right click is a zoom on the crosshair (`AKIMBO_ADS`, the viewmodel stays at the hip), so it takes the optic's slot: the
- * Ultramag's reflex sight and akimbo exclude each other. It takes the Judge's fan and the Autoraffica's smart aim away (Weapons.ts).
+ * Ultramag's reflex sight and akimbo exclude each other. It takes the Judge's fan away; the Autoraffica's smart aim goes dual, a lock a
+ * gun (Weapons.ts `smartL`).
  * The magazine and the reload are worked out last (`adjust`), so an extended magazine or mag tape doubles with them.
  */
 export const AKIMBO_GUNS = ['smg', 'rivet', 'ultramag', 'judge', 'autoraffica'] as const satisfies readonly WeaponId[];

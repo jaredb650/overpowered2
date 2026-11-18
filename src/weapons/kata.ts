@@ -12,6 +12,13 @@ export const KATA = {
   step: 0.085,
   /** Men in one kata at most. */
   most: 14,
+  /**
+   * Seconds T is held to charge it (contracts/chips.ts). Every man it would shoot is lit red meanwhile, and it goes by itself at
+   * full charge. Let go sooner and it is called off with nothing spent.
+   */
+  charge: 1.2,
+  /** The red they are lit with while it charges. */
+  red: '#ff1f2e',
   /** Seconds before the brain chip works again, from the tap (the burst is about one of them). */
   cooldown: 18,
   /**

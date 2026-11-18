@@ -119,7 +119,7 @@ export interface WeaponDef {
   altFan?: FanSpec;
   /**
    * Two of it, one a hand (the akimbo mod, weapons/mods.ts): a left click fires them in turn, so twice the rate, from two magazines
-   * at twice the reload. Right click is a zoom with no sights; it takes the Judge's fan and the Autoraffica's smart aim away.
+   * at twice the reload. Right click is a zoom with no sights; it takes the Judge's fan away. The Autoraffica's smart aim locks a head a gun.
    */
   akimbo?: boolean;
   /**

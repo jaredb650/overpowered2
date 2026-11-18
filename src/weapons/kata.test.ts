@@ -92,6 +92,22 @@ describe('Gun Kata in the hands', () => {
     expect(KATA.step * KATA.most).toBeLessThanOrEqual(1.5);
   });
 
+  it('shoots exactly the men the charge lit red', () => {
+    r.weapons.give('rivet');
+    r.weapons.switchTo('rivet');
+    r.weapons.grantMod('rivetAkimbo');
+    r.weapons.fitMod('rivetAkimbo', true);
+    r.run(0.6);
+    r.wall(-14, 1, 'concrete', 20, 2);
+    const all = [r.enemies.add(3, -6), r.enemies.add(-7, 4), r.enemies.add(0, 30), r.enemies.add(20, -18), r.enemies.add(5, 9)];
+    const lit = [...r.weapons.kataTargets([])];
+    expect(lit.length).toBe(3);
+    expect(r.weapons.kata()).toBe('go');
+    r.run(1);
+    expect(all.filter(m => m.hits.length > 0)).toEqual(expect.arrayContaining(lit));
+    expect(all.filter(m => m.hits.length > 0).length).toBe(lit.length);
+  });
+
   it('says so when nobody is in reach, and spends nothing', () => {
     r.weapons.give('rivet');
     r.weapons.switchTo('rivet');
@@ -104,33 +120,58 @@ describe('Gun Kata in the hands', () => {
 });
 
 describe('the Gun Kata brain chip', () => {
-  /** The chip on T with a stand-in arsenal that answers `answer`. */
-  function chipRig(answer: KataResult) {
-    const pressed = new Set<string>();
+  /** Stand-in men, with the meshes the highlight lights. */
+  const men = [0, 1, 2].map(i => ({ alive: true, char: { mesh: new THREE.Object3D() }, id: i }));
+  /**
+   * The chip on T with a stand-in arsenal that answers `answer`, and a second brain chip (Sonar) fitted when `two`. `inReach` is
+   * who the guns say a kata would shoot now.
+   */
+  function chipRig(answer: KataResult, two = false, inReach: unknown[] = men) {
+    const pressed = new Set<string>(), down = new Set<string>(), released = new Set<string>();
     const sounds: string[] = [], callouts: string[] = [], events: string[] = [], flashes: unknown[] = [];
+    const lit: unknown[][] = [];
     let asked = 0;
+    const weapons = {
+      akimbo: answer !== 'noAkimbo',
+      kata: () => (asked++, answer),
+      kataTargets: (out: unknown[]) => { out.length = 0; out.push(...inReach); return out; },
+    };
     const ctx = {
       time: new GameTime(),
-      input: { pressed: (a: string) => pressed.has(a), isDown: () => false, released: () => false, labelFor: () => 'T' },
+      input: { pressed: (a: string) => pressed.has(a), isDown: (a: string) => down.has(a), released: (a: string) => released.has(a), labelFor: () => 'T' },
       events: { on: () => {}, emit: (k: string) => events.push(k) },
       audio: { play: (id: string) => sounds.push(id) },
       hud: { callout: (t: string) => callouts.push(t) },
       player: { alive: true, parked: false, eye: new THREE.Vector3(), position: new THREE.Vector3() },
       enemies: { remaining: 10, alive: [] },
       world: { bounds: new THREE.Box3(new THREE.Vector3(-50, 0, -50), new THREE.Vector3(50, 10, 50)) },
-      render: { renderer: { domElement: { style: { filter: '' } } }, highlight: () => {}, sweep: () => {}, post: { flash: (...a: unknown[]) => flashes.push(a), chromatic: () => {} } },
+      render: {
+        renderer: { domElement: { style: { filter: '' } } }, sweep: () => {},
+        highlight: (meshes: unknown[]) => lit.push([...meshes]),
+        post: { flash: (...a: unknown[]) => flashes.push(a), chromatic: () => {} },
+      },
       progression: { holdGrade: () => {} },
-      weapons: { akimbo: answer !== 'noAkimbo', kata: () => (asked++, answer) },
+      weapons,
     } as unknown as Ctx;
     const chips = new Chips(ctx, new Sonar(ctx));
+    if (two) chips.rack.openSlot();
     chips.rack.fit('kata', true);
-    const tap = () => {
-      pressed.add('sonar');
+    chips.index = chips.rack.fitted.indexOf('kata');
+    const frame = (t: 'down' | 'held' | 'up' | 'none' = 'none') => {
+      pressed.clear();
+      released.clear();
+      if (t === 'down') { pressed.add('sonar'); down.add('sonar'); }
+      if (t === 'up') { released.add('sonar'); down.delete('sonar'); }
       ctx.time.tick(1 / 60);
       chips.update();
-      pressed.clear();
     };
-    return { chips, tap, sounds, callouts, events, flashes, asked: () => asked };
+    /** T down for `seconds` (held on after when `keep`), then up. */
+    const hold = (seconds: number, keep = false) => {
+      frame('down');
+      for (let i = 1; i < Math.round(seconds * 60); i++) frame('held');
+      if (!keep) frame('up');
+    };
+    return { chips, frame, hold, sounds, callouts, events, flashes, lit, weapons, asked: () => asked };
   }
 
   it('is sold, priced and locked to land by the break after wave 9 in Endless Humans', () => {
@@ -140,27 +181,86 @@ describe('the Gun Kata brain chip', () => {
     // After the cheapest akimbo it needs.
     expect(CHIPS.kata.wave).toBeGreaterThanOrEqual(Math.min(...['smgAkimbo', 'rivetAkimbo'].map(id => modWares('crucible')[id as 'smgAkimbo'].wave)));
     expect(CHIPS.kata.does).toMatch(/akimbo/i);
+    expect(CHIPS.kata.does).toMatch(/Hold T/);
+    expect(KATA.charge).toBeGreaterThanOrEqual(1);
+    expect(KATA.charge).toBeLessThanOrEqual(1.5);
   });
 
   it('says it needs akimbo, and keeps its charge, with one gun in hand', () => {
     const c = chipRig('noAkimbo');
-    c.tap();
+    c.hold(0.5);
     expect(c.callouts).toContain('NEEDS AKIMBO');
     expect(c.sounds).toContain('ui_error');
+    expect(c.chips.kataCharge).toBe(-1);
     expect(c.chips.kataWait).toBe(0);
     expect(c.chips.badge.text).toBe('AKIMBO');
+    expect(c.asked()).toBe(0);
     expect(c.events).not.toContain('chip:kata');
   });
 
-  it('goes with two: the charge is spent, the screen is tinted, the name called out and the host told', () => {
+  it('charges while T is held and goes by itself at full charge, not a frame before', () => {
     const c = chipRig('go');
-    c.tap();
+    c.hold(KATA.charge - 0.05, true);
+    expect(c.asked()).toBe(0);
+    expect(c.chips.kataCharge).toBeGreaterThan(0.9);
+    expect(c.chips.badge.fill).toBeCloseTo(c.chips.kataCharge);
+    expect(c.chips.kataFocus).toBeCloseTo(c.chips.kataCharge);
+    expect(c.sounds.filter(s => s === 'heartbeat').length).toBeGreaterThanOrEqual(3);
+    for (let i = 0; i < 6; i++) c.frame('held');
+    expect(c.asked()).toBe(1);
+    expect(c.chips.kataCharge).toBe(-1);
     expect(c.chips.kataWait).toBeCloseTo(KATA.cooldown, 1);
     expect(c.callouts).toContain('GUN KATA');
     expect(c.flashes.length).toBe(1);
     expect(c.events).toContain('chip:kata');
-    // Recharging: a tap does not reach the guns.
-    c.tap();
+    // Holding on after it went does nothing more, nor does a new hold while it recharges.
+    c.frame('held');
+    c.frame('up');
+    c.hold(KATA.charge + 0.2);
+    expect(c.asked()).toBe(1);
+  });
+
+  it('is called off with nothing spent when T is let go early', () => {
+    const c = chipRig('go');
+    c.hold(KATA.charge * 0.6);
+    expect(c.asked()).toBe(0);
+    expect(c.chips.kataCharge).toBe(-1);
+    expect(c.chips.kataWait).toBe(0);
+    expect(c.chips.kataFocus).toBe(0);
+    // And a full hold right after works.
+    c.hold(KATA.charge + 0.1);
+    expect(c.asked()).toBe(1);
+  });
+
+  it('is called off if the second gun goes mid-charge', () => {
+    const c = chipRig('go');
+    c.hold(0.4, true);
+    c.weapons.akimbo = false;
+    c.frame('held');
+    expect(c.chips.kataCharge).toBe(-1);
+    expect(c.callouts).toContain('NEEDS AKIMBO');
+    c.hold(KATA.charge + 0.1);
+    expect(c.asked()).toBe(0);
+  });
+
+  it('lights red exactly the men the burst would shoot, every frame of the charge', () => {
+    const c = chipRig('go', false, men.slice(0, 2));
+    c.hold(0.3, true);
+    expect(c.lit.length).toBeGreaterThan(10);
+    for (const frame of c.lit) expect(frame).toEqual(men.slice(0, 2).map(m => m.char.mesh));
+    // One walks out of reach: the next frame lights only the other.
+    (c.weapons as { kataTargets: (out: unknown[]) => unknown[] }).kataTargets = out => { out.length = 0; out.push(men[0]); return out; };
+    c.frame('held');
+    expect(c.lit.at(-1)).toEqual([men[0]!.char.mesh]);
+  });
+
+  it('with two brain chips: a tap moves on to the next, a hold charges', () => {
+    const c = chipRig('go', true);
+    c.hold(0.1);
+    expect(c.chips.current).not.toBe('kata');
+    c.chips.index = c.chips.rack.fitted.indexOf('kata');
+    c.hold(KATA.charge + 0.1);
+    expect(c.chips.current).toBe('kata');
     expect(c.asked()).toBe(1);
   });
 });
@@ -189,6 +289,11 @@ describe('the host and a guest\'s kata', () => {
     expect(v.kata('guest', 0)).toBe(true);
     expect(v.kata('guest', 3000)).toBe(false);
     expect(v.kata('guest', KATA.cooldown * 1000)).toBe(true);
+  });
+
+  it('takes the Autoraffica akimbo\'s dual smart fire, a round from each gun in turn at twice the smart rate', () => {
+    const gap = WEAPONS.autoraffica.smart!.interval * 1000 / 2;
+    expect(burst(new ClaimValidator(), 'autoraffica', gap, 40, 0, true)).toBe(40);
   });
 
   it('lets akimbo through at twice the gun\'s rate, on a gun that takes it only', () => {

@@ -233,6 +233,11 @@ class DamageArc {
 const _toSource = new THREE.Vector3();
 const _head = new THREE.Vector3();
 
+/** The akimbo smart aim's second crosshair: four corner brackets and a dot, 22 px. */
+const TWIN = '<svg class="xh-svg" viewBox="-11 -11 22 22" aria-hidden="true"><path d="M-9 -4V-9H-4M4 -9H9V-4M9 4V9H4M-4 9H-9V4"/>' +
+  '<circle r="1.6"/></svg>';
+/** Px left of the middle the second crosshair rests at with no lock. */
+const TWIN_REST = 16;
 /** The smart aim's circle, a dark rim under a light one so it reads on sky and on concrete, with four ticks. Sized in px. */
 const SMART_RING = '<svg class="xh-smart-svg" viewBox="-50 -50 100 100" aria-hidden="true"><circle class="rim" r="49"/><circle r="49"/>' +
   '<path d="M0 -49V-42 M49 0H42 M0 49V42 M-49 0H-42"/></svg>';
@@ -295,6 +300,13 @@ export class Crosshair {
   private snapX = 0;
   private snapY = 0;
   private snapQ = '';
+  /** The Autoraffica akimbo's left gun: its own crosshair in the circle, a bracket a little left of the middle, swung onto its lock. */
+  private twin!: HTMLElement;
+  private twinShown!: Shown;
+  private twinLocked!: Flag;
+  private twinX = 0;
+  private twinY = 0;
+  private twinQ = '';
 
   constructor(private readonly ctx: Ctx) {
     this.armsHost = div('xh-arms');
@@ -386,6 +398,10 @@ export class Crosshair {
     this.el.append(this.locks.el);
     this.smartShown = new Shown(this.smartRing);
     this.smartLocked = new Flag(this.el, 'smart-lock');
+    this.twin = div('xh-twin', markup(TWIN));
+    this.el.append(this.twin);
+    this.twinShown = new Shown(this.twin);
+    this.twinLocked = new Flag(this.twin, 'lock');
   }
 
   /** Reads a fired weapon: the reticle jumps on the frame of the shot. */
@@ -465,6 +481,8 @@ export class Crosshair {
     // Aimed down sights, the gun's own sight is the crosshair. The ammo and combo readouts stay. Smart aim keeps it: it is the lock.
     this.hide.set(hidden || (s.aim > 0.5 && !smartOn));
     this.updateSmart(smartOn ? smart! : null, dt);
+    const twin = (this.ctx.weapons as { smartAimLeft?: SmartAimView } | undefined)?.smartAimLeft;
+    this.updateTwin(smartOn && twin?.on === true ? twin : null, dt);
     this.aimCheck(dt);
 
     this.bloom = damp(this.bloom, 0, 13, dt);
@@ -592,6 +610,30 @@ export class Crosshair {
     if (q !== this.snapQ) {
       this.snapQ = q;
       this.reticle.style.transform = q;
+    }
+  }
+
+  /** The left gun's crosshair: at rest a little left of the middle, swung onto its own lock as the reticle is onto the right's. */
+  private updateTwin(v: SmartAimView | null, dt: number): void {
+    this.twinShown.set(v !== null);
+    if (!v) return;
+    let x = -TWIN_REST;
+    let y = 0;
+    const camera = this.ctx.render.camera;
+    if (v.lock && camera instanceof THREE.PerspectiveCamera) {
+      _head.copy(v.lock).project(camera);
+      if (_head.z < 1) {
+        x = _head.x * (innerWidth / 2);
+        y = -_head.y * (innerHeight / 2);
+      }
+    }
+    this.twinLocked.set(v.lock != null);
+    this.twinX = damp(this.twinX, x, 34, dt);
+    this.twinY = damp(this.twinY, y, 34, dt);
+    const q = `translate3d(${this.twinX.toFixed(1)}px,${this.twinY.toFixed(1)}px,0)`;
+    if (q !== this.twinQ) {
+      this.twinQ = q;
+      this.twin.style.transform = q;
     }
   }
 
