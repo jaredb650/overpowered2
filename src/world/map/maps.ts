@@ -12,13 +12,14 @@ import { authorOutpost, OUTPOST_EXTENT, OUTPOST_STAGES } from './outpost';
 import { authorOffice, OFFICE_BOUNDS, OFFICE_HUB, OFFICE_STAGES } from './office';
 import { LV as OFFICE_LEVEL } from './office/plan';
 import { authorRange, RANGE, RANGE_STAGES } from '../../lab/range';
+import { ANNEX_BOUNDS, ANNEX_HUB, ANNEX_STAGES, authorAnnex } from './annex';
 import { KH } from './killhouse/plan';
 import { LEVEL, RING } from './layout';
 import type { MapSpec } from './spec';
 import type { MapZone } from '../../core/contracts';
 import { ACTIVE } from '../../contracts/select';
 
-export type MapId = 'crucible' | 'killhouse' | 'outpost' | 'fort' | 'holdfast' | 'office' | 'range';
+export type MapId = 'crucible' | 'killhouse' | 'outpost' | 'fort' | 'holdfast' | 'office' | 'range' | 'annex';
 
 export interface MapDef {
   id: MapId;
@@ -154,7 +155,23 @@ const range: MapDef = {
   readyLabel: 'Switching on the lights',
 };
 
-const MAPS: Record<MapId, MapDef> = { crucible, killhouse, outpost, fort, holdfast, office, range };
+const AN = ANNEX_BOUNDS;
+const annex: MapDef = {
+  id: 'annex',
+  bounds: box(AN.x0, -8, AN.z0, AN.x1, 48, AN.z1),
+  // 470 m long at 2.4 m is under the volume's 200 cells.
+  lightBounds: box(AN.x0, -6, AN.z0, AN.x1, 30, AN.z1),
+  lightCell: 2.4,
+  minimapExtent: Math.max(-AN.z0, AN.z1) / 2 + 20,
+  navHub: ANNEX_HUB,
+  // The Yard is the only floor anyone walks on their own: the rest of the subjects are held where they stand.
+  nav: { mutual: true, levels: [0] },
+  stages: ANNEX_STAGES,
+  author: authorAnnex,
+  readyLabel: 'Issuing the contractor',
+};
+
+const MAPS: Record<MapId, MapDef> = { crucible, killhouse, outpost, fort, holdfast, office, range, annex };
 
 /** The map of the page's contract, or whatever `?map=` names. contracts/select.ts has the rules. */
 export function selectMap(): MapDef {
