@@ -17,12 +17,17 @@ export interface ModDef {
   /** What it changes in the gun's row. */
   patch: Partial<WeaponDef>;
   /** A gun takes one of each: an optic, and a kind of round. Fitting one takes off any other of its slot on the same gun. */
-  slot?: 'sight' | 'ammo' | 'mag' | 'barrel' | 'choke' | 'hammer' | 'grip' | 'loader';
+  slot?: 'sight' | 'ammo' | 'mag' | 'barrel' | 'choke' | 'hammer' | 'grip' | 'loader' | 'muzzle';
   /** What it changes worked out from the row as every fitted mod's `patch` left it: a mod that stacks with another on the same part. */
   adjust?: (def: WeaponDef) => Partial<WeaponDef>;
 }
 
 const smg = WEAPONS.smg;
+/**
+ * The Ultramag's compensator: 15% more shots a minute, and the muzzle climbs three quarters as far (the camera's kick, the rig's
+ * recoil spring and the clip's own flip, viewmodels/models/ultramag.ts); the slide's travel is untouched.
+ */
+export const COMP = { rate: 1.15, flip: 0.75 } as const;
 const hmg = WEAPONS.piledriver;
 /** An ACOG's view: four times the hip view's magnification (90 to 28 degrees), twice the red dot's. See docs/notes/weapons.md. */
 const ACOG = { zoom: 0.69, time: 0.24 } as const;
@@ -126,10 +131,16 @@ export const MODS: Readonly<Record<ModId, ModDef>> = {
   ultramagAp: rounds('ultramag', 'ap'), ultramagHp: rounds('ultramag', 'hp'),
   // The Ultramag's: a square can with its own quieter report; a reflex sight on the slide (the look is the sight); a laser module
   // that has it fire a quarter faster (0.36 s to 0.288 s between shots, inside the slide's 0.245 s cycle); 11 rounds, not 7.
-  ultramagCan: { id: 'ultramagCan', weapon: 'ultramag', name: 'Suppressor', patch: { muzzle: 'suppressed', sounds: [{ id: 'ultramag_suppressed_shot', pitchJitter: 0.02 }] } },
+  ultramagCan: { id: 'ultramagCan', weapon: 'ultramag', name: 'Suppressor', slot: 'muzzle', patch: { muzzle: 'suppressed', sounds: [{ id: 'ultramag_suppressed_shot', pitchJitter: 0.02 }] } },
   ultramagDot: { id: 'ultramagDot', weapon: 'ultramag', name: 'Reflex sight', patch: {}, slot: 'sight' },
   ultramagLam: { id: 'ultramagLam', weapon: 'ultramag', name: 'Laser module', patch: { interval: WEAPONS.ultramag.interval / 1.25 } },
   ultramagMag: { id: 'ultramagMag', weapon: 'ultramag', name: 'Extended magazine', patch: { magSize: 11, reloadTime: 1.4 } },
+  // A race-gun compensator in the can's place (the muzzle slot): its ports throw the gas up, so it fires faster with less flip
+  // (`COMP`). Worked out last, so it stacks with the laser's quarter: 0.36 s to 0.313, both 0.25, past the slide's 0.245 s cycle.
+  ultramagComp: {
+    id: 'ultramagComp', weapon: 'ultramag', name: 'Compensator', slot: 'muzzle', patch: {},
+    adjust: d => ({ interval: d.interval / COMP.rate, kick: d.kick * COMP.flip }),
+  },
   judgeAp: rounds('judge', 'ap'), judgeHp: rounds('judge', 'hp'),
   autorafficaAp: rounds('autoraffica', 'ap'), autorafficaHp: rounds('autoraffica', 'hp'),
   // A longer magazine out of the grip: 30 where it was 21, and a beat longer to change.
@@ -163,7 +174,7 @@ export const MOD_ORDER: readonly ModId[] = [
   'reddot', 'harrowAcog', 'harrowAp', 'harrowHp', 'harrowPlusP', 'raufoss', 'rivetAp', 'rivetHp', 'rivetPlusP', 'ultramagAp', 'ultramagHp', 'ultramagPlusP', 'judgeAp', 'judgeHp', 'judgePlusP',
   'autorafficaAp', 'autorafficaHp', 'autorafficaPlusP', 'autorafficaMag',
   'sabotBrake', 'trommel12',
-  'ultramagCan', 'ultramagDot', 'ultramagLam', 'ultramagMag',
+  'ultramagCan', 'ultramagDot', 'ultramagLam', 'ultramagMag', 'ultramagComp',
   'smgMag', 'smgTape', 'smgStock', 'gimletShort', 'rivetMag', 'piledriverBox',
   'deuceQuad', 'deuceLoader', 'shotgunChoke', 'judgeHammer', 'judgeGrip',
   ...LIGHT_GUNS.map(lightOf),

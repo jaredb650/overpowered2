@@ -1,9 +1,10 @@
 /** The Ultramag's mods: a suppressor, a reflex sight, a laser module and an extended magazine, all four on at once. */
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { ModId } from '../core/gameplay';
-import { MOD_WARES } from '../contracts/shop/data';
+import { MOD_WARES, modWares } from '../contracts/shop/data';
+import { FINAL_WAVE } from '../enemies/commander/adaptations';
 import { WEAPONS } from './data';
-import { MODS, MOD_ORDER, moddedDef } from './mods';
+import { COMP, MODS, MOD_ORDER, moddedDef } from './mods';
 import { makeRange, type Range } from './testkit';
 
 const KIT: readonly ModId[] = ['ultramagCan', 'ultramagDot', 'ultramagLam', 'ultramagMag'];
@@ -62,7 +63,29 @@ describe('the Ultramag mods on paper', () => {
     expect(all.interval).toBeCloseTo(WEAPONS.ultramag.interval / 1.25);
     expect(all.magSize).toBe(11);
     expect(all.load).toBe('ap');
-    for (const id of KIT) expect(MODS[id].slot === undefined || MODS[id].slot === 'sight').toBe(true);
+    for (const id of KIT) expect([undefined, 'sight', 'muzzle']).toContain(MODS[id].slot);
+  });
+
+  it('the compensator: the can\'s slot, 15% faster, three quarters of the flip, sold by the break after wave 9 in Endless Humans', () => {
+    const bare = WEAPONS.ultramag;
+    expect(MODS.ultramagComp.weapon).toBe('ultramag');
+    expect(MODS.ultramagComp.slot).toBe('muzzle');
+    expect(MODS.ultramagCan.slot).toBe('muzzle');
+    expect(MOD_ORDER).toContain('ultramagComp');
+    expect(COMP.rate).toBe(1.15);
+    expect(COMP.flip).toBe(0.75);
+    const comp = moddedDef('ultramag', new Set(['ultramagComp']));
+    expect(60 / comp.interval).toBeCloseTo((60 / bare.interval) * COMP.rate);
+    expect(comp.kick).toBeCloseTo(bare.kick * COMP.flip);
+    expect(comp.muzzle).toBe(bare.muzzle);
+    expect(comp.damage).toBe(bare.damage);
+    // With the laser module: both rates, and still past the slide's 0.245 s cycle.
+    const both = moddedDef('ultramag', new Set(['ultramagComp', 'ultramagLam']));
+    expect(both.interval).toBeCloseTo(bare.interval / 1.25 / COMP.rate);
+    expect(both.interval).toBeGreaterThan(0.245);
+    expect(MOD_WARES.ultramagComp.price).toBeGreaterThan(0);
+    expect(MOD_WARES.ultramagComp.lore.length).toBeGreaterThan(40);
+    expect(modWares('outpost').ultramagComp.wave).toBeLessThanOrEqual(FINAL_WAVE - 1);
   });
 });
 
@@ -71,6 +94,16 @@ describe('the Ultramag mods in the hand', () => {
     draw();
     fit([...KIT, 'ultramagHp']);
     for (const id of [...KIT, 'ultramagHp'] as ModId[]) expect(r.weapons.fitted.has(id), id).toBe(true);
+  });
+
+  it('swaps the compensator for the can, a muzzle at a time, and keeps the rest', () => {
+    draw();
+    fit(['ultramagCan', 'ultramagLam', 'ultramagComp']);
+    expect(r.weapons.fitted.has('ultramagComp')).toBe(true);
+    expect(r.weapons.fitted.has('ultramagCan')).toBe(false);
+    expect(r.weapons.fitted.has('ultramagLam')).toBe(true);
+    fit(['ultramagCan']);
+    expect(r.weapons.fitted.has('ultramagComp')).toBe(false);
   });
 
   it('fires the suppressed shot through the can', () => {

@@ -9,14 +9,14 @@
  *
  * Its mods (weapons/mods.ts), each a part shown while fitted, all four stacking: a square suppressor on a barrel stub, its top
  * under the sight line; a chunky reflex sight on the slide ahead of the rear sight, close to the eye for a wide window; a laser module
- * under the dust cover; and an extended magazine standing out of the grip. Authored a tenth larger than it is built: the whole
- * mesh is scaled by `S` before it becomes a model, so every number below is in the authored size and `k()` scales the rest.
+ * under the dust cover; and an extended magazine standing out of the grip. A compensator takes the can's place on the barrel.
+ * Authored a tenth larger than it is built: the whole mesh is scaled by `S` before it becomes a model, so every number below is in the authored size and `k()` scales the rest.
  */
 import { Kit } from '../kit/kit';
 import { Model } from '../kit/model';
 import { F } from '../kit/finishes';
 import { Kind, type Finish, type Mesher, type PartNode, type V3 } from '../kit/mesher';
-import { circle, curve, poly, rect, slotRow, type P2, type V2 } from '../kit/shapes';
+import { circle, curve, poly, rect, slot, slotRow, type P2, type V2 } from '../kit/shapes';
 import { screwX } from '../kit/details';
 import { hold, inOut, inQuad, outCubic, outQuad, seg, thud } from '../curves';
 import type { Anim, ViewDef } from '../def';
@@ -24,6 +24,7 @@ import { HANDS } from '../poses';
 import { pullTrigger, round } from './common';
 import { OPTIC_GLOWS } from './optics';
 import { TORCH, weaponLight } from './light';
+import { COMP } from '../../mods';
 
 /** Built size against authored: the owner found it too big for the hands at full size. */
 const S = 0.9;
@@ -63,6 +64,11 @@ const CAN_LEN = 0.165;
 const CAN_W = 0.0185;
 const CAN_H = 0.0182;
 /** The reflex sight on the slide just ahead of the rear sight, as an optic cut has it: its centre along the slide, and its dot. */
+/** The compensator: from the muzzle face forward, its half width, its top over the bore (the slide's, 4 mm under the sight line) and its foot. */
+const COMP_LEN = 0.08;
+const COMP_W = 0.0245;
+const COMP_TOP = SY1 - BORE + 0.0008;
+const COMP_FOOT = -0.0715;
 const RMR_Z = 0.057;
 const DOT_Y = SY1 + 0.02;
 const DOT_Z = RMR_Z - 0.008;
@@ -72,6 +78,8 @@ const FRAME: Finish = { color: 0x1e2024, rough: 0.5, metal: 0.55, wear: 0.3 };
 const STAINLESS: Finish = { color: 0xc3c8cd, rough: 0.22, metal: 1, wear: 0.05, kind: Kind.brushed };
 const RED: Finish = { color: 0xa8231c, rough: 0.4, metal: 0.55, wear: 0.55 };
 const RED_TEXTURE: Finish = { ...RED, rough: 0.62, kind: Kind.stipple };
+/** The compensator's machined titanium: warmer and brighter than the slide's nitride, duller than the stainless controls. */
+const COMP_TI: Finish = { color: 0xa9aaa6, rough: 0.27, metal: 1, wear: 0.08, kind: Kind.brushed };
 
 /** Slide section, seen from behind: flat sides, a steep facet, then a rounded top flat. */
 function slideSection(): V2[] {
@@ -344,6 +352,79 @@ function suppressor(m: Mesher): void {
 }
 
 /**
+ * A race-gun compensator on the same barrel stub as the can: a squared block in machined titanium flared past the slide and the
+ * dust cover, held by a red anodized clamp collar with two screws a side. Its top steps down in three stages toward the front
+ * with a chamfered port cut through each into a dark expansion chamber (a baffle under each step, the bore through them),
+ * slanted vents in the flanks, a lightening window cut clean through the foot under a thin red line. The top stays under the
+ * sights.
+ */
+function compensator(m: Mesher): void {
+  m.part('comp', [0, BORE, MUZZLE], () => {
+    m.use(F.barrel);
+    m.at([0, 0, -0.004], null, () => m.cyl(0.0106, 0.01, 18, 0.0004));
+    const z0 = -0.0006;
+    const zc = -0.012;
+    const z1 = -COMP_LEN;
+    const w = COMP_W;
+    const top = COMP_TOP;
+    /** Step boundaries along the bore behind the collar, and each step's top. */
+    const steps: [number, number, number][] = [[zc, -0.035, top], [-0.035, -0.058, top - 0.0035], [-0.058, z1, top - 0.007]];
+    const plate = 0.0036;
+    const wall = 0.0036;
+    const floor = -0.0125;
+    const cut = slot(-0.022, -0.045, -0.058, -0.045, 0.0068, 10);
+    // Flanks: the side silhouette up to under the top plates, the front raked back below the chamber, vents into the chamber
+    // and the foot's window.
+    const flank: P2[] = [
+      [zc + 0.0004, COMP_FOOT, 0], [zc + 0.0004, top - plate, 0],
+      [-0.035, top - plate, 0], [-0.035, top - 0.0035 - plate, 0], [-0.058, top - 0.0035 - plate, 0], [-0.058, top - 0.007 - plate, 0],
+      [z1, top - 0.007 - plate, 0], [z1, -0.03, 0.003], [z1 + 0.016, COMP_FOOT, 0.004],
+    ];
+    m.use(COMP_TI);
+    m.mirror(() => m.at([w - wall / 2, 0, 0], null, () => m.side(poly(flank, 0.0012), wall, {
+      bevel: 0.001, holes: [...slotRow(-0.017, -0.0005, z1 + 0.012, -0.0005, 4, 0.014, 0.0042, 1.2), cut],
+    })));
+    // Top plates over the full width, one a step, each with its port: the bevel chamfers the cut's rim.
+    for (const [a, b, y] of steps) {
+      const port = rect(-0.0118, b + (b === z1 ? 0.0095 : 0.0045), 0.0118, a - 0.0045, 0.003);
+      m.at([0, y - plate / 2, 0], null, () => m.top(poly([[-w, a, 0.0018], [w, a, 0.0018], [w, b, 0.0018], [-w, b, 0.0018]], 0.0016), plate, { bevel: 0.0012, holes: [port] }));
+    }
+    // The foot under the chamber between the flanks, raked with them and cut by the window; the chamber's floor is its top, dark.
+    const inner = w - wall + 0.0002;
+    m.side(poly([[zc, COMP_FOOT, 0], [zc, floor, 0], [z1, floor, 0], [z1, -0.03, 0.003], [z1 + 0.016, COMP_FOOT, 0.004]], 0.0012), inner * 2, { bevel: 0.0012, holes: [cut] });
+    m.use(F.black);
+    m.at([0, floor + 0.0004, (zc + z1) / 2], null, () => m.box(inner * 2 - 0.001, 0.0008, zc - z1 - 0.004, 0.0002));
+    // Front face round the bore, and a baffle under the forward edge of each of the first two steps.
+    m.use(COMP_TI);
+    m.at([0, 0, z1 + 0.0035], null, () => m.front(rect(-inner, floor, inner, top - 0.007 - plate + 0.0004, 0.0008), 0.007, { bevel: 0.0014, holes: [circle(0, 0, 0.0068, 20)] }));
+    m.use(F.steelDark);
+    for (const [z, y] of [[-0.035, top - 0.0035], [-0.058, top - 0.007]] as const) {
+      m.at([0, 0, z], [0.28, 0, 0], () => m.front(rect(-inner + 0.0004, floor + 0.001, inner - 0.0004, y - plate - 0.0012, 0.0006), 0.0018, { bevel: 0.0005, holes: [circle(0, 0, 0.006, 18)] }));
+    }
+    // The crown: a bright steel ring set into the front face round the bore.
+    m.use(STAINLESS);
+    m.at([0, 0, z1 - 0.0002], null, () => m.lathe([[0.0068, 0.0016, 0], [0.0092, 0.0012], [0.0096, -0.0006], [0.0068, -0.0006, 0]], 22));
+    // The clamp collar, red anodized, a step proud of the body all round, with the barrel through it, its split under the bore
+    // and two screws a side.
+    m.use(RED);
+    const lip = 0.0012;
+    m.at([0, 0, (z0 + zc) / 2], null, () => m.front(poly([
+      [-w - lip, COMP_FOOT - lip, 0.002], [w + lip, COMP_FOOT - lip, 0.002], [w + lip, top + 0.001, 0.0024], [-w - lip, top + 0.001, 0.0024],
+    ], 0.0016), z0 - zc, { bevel: 0.0014, holes: [circle(0, 0, 0.0108, 20)] }));
+    m.use(F.black);
+    m.at([0, COMP_FOOT - lip, (z0 + zc) / 2], null, () => m.box(0.0016, 0.001, z0 - zc + 0.0004, 0.0002));
+    m.mirror(() => {
+      screwX(m, w + lip + 0.0002, 0.006, (z0 + zc) / 2, 1, 0.0022, F.steelDark);
+      screwX(m, w + lip + 0.0002, -0.05, (z0 + zc) / 2, 1, 0.0022, F.steelDark);
+      // A black groove down the flank over the window with a thin red line in it.
+      m.use(F.black);
+      m.at([w + 0.0001, -0.0255, (zc + z1) / 2 + 0.002], null, () => m.box(0.0006, 0.003, zc - z1 - 0.012, 0.0002));
+      m.glow('accent', () => m.at([w + 0.0004, -0.0255, (zc + z1) / 2 + 0.002], null, () => m.box(0.0004, 0.001, zc - z1 - 0.016, 0)));
+    });
+  });
+}
+
+/**
  * A chunky reflex sight (an RMR's shape at the gun's scale) on the slide, riding it: a slanted hood over a wide window, a
  * rear frame, the base on the slide's flat, a button on each flank, the dot floating at the window's middle.
  */
@@ -402,6 +483,7 @@ function buildUltramag(kit: Kit): Model {
   slide(m);
   magazine(m);
   suppressor(m);
+  compensator(m);
   laser(m);
   // The shop's weapon light (weapons/mods.ts LIGHT_GUNS), hidden until fitted: on the dust cover's left, as the laser has the rail.
   weaponLight(m, [-0.0333, -0.0089, -0.2396], -Math.PI / 2, 0.95);
@@ -425,6 +507,9 @@ function buildUltramag(kit: Kit): Model {
   });
   model.socket('muzzle', k([0, BORE, MUZZLE - 0.004]));
   model.socket('muzzleCan', k([0, BORE, MUZZLE - CAN_LEN - 0.002]));
+  model.socket('muzzleComp', k([0, BORE, MUZZLE - COMP_LEN - 0.002]));
+  // The laser's lens (laser(): the part's pivot and its 1.25 scale), facing down the bore.
+  model.socket('laser', k([-0.0075, -0.028 - 0.0135 * 1.25, -0.236 - 0.0367 * 1.25]));
   model.socket('eject', k([SW + 0.004, BORE + 0.014, -0.022]));
   model.hand('gripR', k([0.024, -0.07, 0.077]), [0, -0.96, 0.27], [-0.3, -0.25, -0.92]);
   model.pistolSupport('gripL', k([-0.034, -0.072, 0.07]));
@@ -489,7 +574,9 @@ function clip(a: Anim): void {
   if (fired) {
     // A magnum's flip: the muzzle snaps up and the gun drives back into the hand in 20 ms, then eases down to level, never
     // below it. On top of the rig's recoil spring; half of it while aiming, so the sights come back sooner.
-    const flip = (time < 0.02 ? outQuad(time / 0.02) : Math.exp(-(time - 0.02) / 0.07)) * (1 - a.aim * 0.5);
+    // A compensator's ports hold it down (`COMP.flip`); the slide still runs its whole cycle.
+    const comp = a.mods?.has('ultramagComp') ? COMP.flip : 1;
+    const flip = (time < 0.02 ? outQuad(time / 0.02) : Math.exp(-(time - 0.02) / 0.07)) * (1 - a.aim * 0.5) * comp;
     a.gunR.x += flip * 0.12;
     a.gunP.z += flip * 0.022;
     a.gunP.y += flip * 0.006;
@@ -534,8 +621,9 @@ export function ultramagDef(kit: Kit): ViewDef {
       ultramagCan: { part: 'can', muzzle: 'muzzleCan' },
       // Level, the dot on the eye line, the eye close for a window about 10 degrees wide with the rear blade under it.
       ultramagDot: { part: 'rmr', sight: k([0, DOT_Y, DOT_Z]), rear: null, relief: 0.14 },
-      ultramagLam: { part: 'lam' },
+      ultramagLam: { part: 'lam', laser: 'laser' },
       ultramagMag: { part: 'magExt' },
+      ultramagComp: { part: 'comp', muzzle: 'muzzleComp', flip: COMP.flip },
       ultramagLight: { part: 'light' },
     },
     // Damped near critical, so the kick settles without the muzzle dipping below level on the rebound. Straight up and back:

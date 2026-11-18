@@ -340,6 +340,10 @@ const MOD_CATALOGUE: Readonly<Record<ModId, Ware>> = {
     price: 500, wave: 0,
     lore: 'Eleven rounds where there were seven. The extra four are for the people who heard the first seven.',
   },
+  ultramagComp: {
+    price: 850, wave: 6,
+    lore: 'A compensator for the Ultramag. The gas leaves through the top, so the muzzle stays down and the next round leaves sooner. Procurement asked where the gas goes. Up, it was told, and filed it.',
+  },
   judgeAp: {
     price: 600, wave: 2,
     lore: 'Armour-piercing slugs for the Judge. The verdict goes straight through the appeal.',

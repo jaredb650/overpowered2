@@ -81,6 +81,10 @@ export interface ModLook {
   relief?: number;
   /** The socket the flash and tracers leave from while fitted. */
   muzzle?: string;
+  /** Times the recoil spring's muzzle climb while fitted: a compensator's ports. */
+  flip?: number;
+  /** A laser module's emitter, a socket facing down the bore: while fitted a visible beam leaves it (viewmodels/lam.ts). */
+  laser?: string;
   /**
    * A part of the optic hidden once the gun is up at the eye (past `INNER_AT` of the aim): a magnified sight's tube and
    * objective, which would show through its eyepiece as a tunnel. Aimed, the eyepiece frames the picture and nothing else.

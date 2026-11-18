@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { beforeAll, describe, expect, it } from 'vitest';
 import type { ModId } from '../../../core/gameplay';
 import { WEAPONS } from '../../data';
-import { moddedDef } from '../../mods';
+import { COMP, moddedDef } from '../../mods';
 import { Anim, type ViewDef } from '../def';
 import { Kit } from '../kit/kit';
 import type { VmMaterials } from '../kit/materials';
@@ -138,7 +138,11 @@ describe('Ultramag viewmodel', () => {
 
   it('shows each mod as a part, the extended magazine riding with the magazine', () => {
     for (const [id, look] of Object.entries(def.mods ?? {})) expect(def.model.parts[look!.part], id).toBeDefined();
-    expect(Object.keys(def.mods ?? {}).sort()).toEqual(['ultramagCan', 'ultramagDot', 'ultramagLam', 'ultramagLight', 'ultramagMag']);
+    expect(Object.keys(def.mods ?? {}).sort()).toEqual(['ultramagCan', 'ultramagComp', 'ultramagDot', 'ultramagLam', 'ultramagLight', 'ultramagMag']);
+    // The laser's emitter faces down the bore, ahead of the module.
+    const laser = def.model.sockets[def.mods!.ultramagLam!.laser!]!;
+    expect(laser.position.z).toBeLessThan(-0.25);
+    expect(laser.position.y).toBeLessThan(def.model.sockets.muzzle!.position.y - 0.05);
     expect(def.model.parts.magExt!.parent).toBe(def.model.parts.mag);
     // The reflex sight rides the slide, so it cycles with it.
     expect(def.model.parts.rmr!.parent).toBe(def.model.parts.slide);
@@ -158,6 +162,31 @@ describe('Ultramag viewmodel', () => {
     expect(toBlade).toBeGreaterThan(0.05);
     const bladeDrop = dot.sight![1] - (def.rear![1] + 0.0052 * S);
     expect(bladeDrop / toBlade).toBeGreaterThan((0.0105 * S) / dot.relief!);
+  });
+
+  it('fits the compensator on the barrel past the muzzle, under the sight line, its own muzzle at its face', () => {
+    pose(99, 7, -1, 0);
+    const comp = new THREE.Box3().setFromObject(def.model.parts.comp!);
+    const muzzle = def.model.sockets.muzzle!.position.z;
+    expect(comp.max.y).toBeLessThan(def.sight![1] - 0.004);
+    expect(comp.min.z).toBeLessThan(muzzle - 0.06);
+    expect(comp.max.z).toBeLessThan(muzzle + 0.006);
+    expect(def.model.sockets.muzzleComp!.position.z).toBeLessThan(comp.min.z + 0.003);
+    expect(def.mods!.ultramagComp!.flip).toBe(COMP.flip);
+  });
+
+  it('flips less with the compensator, and the slide still runs its whole cycle in the stacked interval', () => {
+    for (const time of [0.01, 0.02, 0.06]) {
+      const bare = pose(time).gunR.x;
+      const comp = pose(time, 6, -1, 1, ['ultramagComp']).gunR.x;
+      expect(comp, String(time)).toBeCloseTo(bare * COMP.flip);
+      expect(comp).toBeGreaterThan(0);
+    }
+    expect(pose(0.08, 6, -1, 1, ['ultramagComp']).parts.slide!.position.z).toBeCloseTo(TRAVEL);
+    const interval = moddedDef('ultramag', new Set(['ultramagComp', 'ultramagLam'])).interval;
+    pose(interval - 0.002, 6, -1, 1, ['ultramagComp', 'ultramagLam']);
+    expect(def.model.parts.slide!.position.z).toBeCloseTo(0);
+    expect(position('feedRound').z).toBeCloseTo(FEED[1]);
   });
 
   it('leaves the reflex sight\'s window open from the aimed eye: nothing but its glass and its dot in the way', () => {
