@@ -67,14 +67,14 @@ describe('the Ultramag mods on paper', () => {
     for (const id of KIT) expect([undefined, 'sight', 'muzzle']).toContain(MODS[id].slot);
   });
 
-  it('the compensator: the can\'s slot, 15% faster, three quarters of the flip, sold by the break after wave 9 in Endless Humans', () => {
+  it('the compensator: the can\'s slot, 15% faster, under half the flip, sold by the break after wave 9 in Endless Humans', () => {
     const bare = WEAPONS.ultramag;
     expect(MODS.ultramagComp.weapon).toBe('ultramag');
     expect(MODS.ultramagComp.slot).toBe('muzzle');
     expect(MODS.ultramagCan.slot).toBe('muzzle');
     expect(MOD_ORDER).toContain('ultramagComp');
     expect(COMP.rate).toBe(1.15);
-    expect(COMP.flip).toBe(0.75);
+    expect(COMP.flip).toBe(0.45);
     const comp = moddedDef('ultramag', new Set(['ultramagComp']));
     expect(60 / comp.interval).toBeCloseTo((60 / bare.interval) * COMP.rate);
     expect(comp.kick).toBeCloseTo(bare.kick * COMP.flip);

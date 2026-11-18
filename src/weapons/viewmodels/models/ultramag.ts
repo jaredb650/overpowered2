@@ -64,11 +64,8 @@ const CAN_LEN = 0.165;
 const CAN_W = 0.0185;
 const CAN_H = 0.0182;
 /** The reflex sight on the slide just ahead of the rear sight, as an optic cut has it: its centre along the slide, and its dot. */
-/** The compensator: from the muzzle face forward, its half width, its top over the bore (the slide's, 4 mm under the sight line) and its foot. */
+/** The compensator's length from the muzzle face forward. Its section is the slide's over the frame's. */
 const COMP_LEN = 0.08;
-const COMP_W = 0.0245;
-const COMP_TOP = SY1 - BORE + 0.0008;
-const COMP_FOOT = -0.0715;
 const RMR_Z = 0.057;
 const DOT_Y = SY1 + 0.02;
 const DOT_Z = RMR_Z - 0.008;
@@ -78,8 +75,8 @@ const FRAME: Finish = { color: 0x1e2024, rough: 0.5, metal: 0.55, wear: 0.3 };
 const STAINLESS: Finish = { color: 0xc3c8cd, rough: 0.22, metal: 1, wear: 0.05, kind: Kind.brushed };
 const RED: Finish = { color: 0xa8231c, rough: 0.4, metal: 0.55, wear: 0.55 };
 const RED_TEXTURE: Finish = { ...RED, rough: 0.62, kind: Kind.stipple };
-/** The compensator's machined titanium: warmer and brighter than the slide's nitride, duller than the stainless controls. */
-const COMP_TI: Finish = { color: 0xa9aaa6, rough: 0.27, metal: 1, wear: 0.08, kind: Kind.brushed };
+/** The compensator's nitride: the slide's, a shade darker, so it reads as a part of its own. */
+const COMP_NITRIDE: Finish = { ...NITRIDE, color: 0x5d646d };
 
 /** Slide section, seen from behind: flat sides, a steep facet, then a rounded top flat. */
 function slideSection(): V2[] {
@@ -352,75 +349,76 @@ function suppressor(m: Mesher): void {
 }
 
 /**
- * A race-gun compensator on the same barrel stub as the can: a squared block in machined titanium flared past the slide and the
- * dust cover, held by a red anodized clamp collar with two screws a side. Its top steps down in three stages toward the front
- * with a chamfered port cut through each into a dark expansion chamber (a baffle under each step, the bore through them),
- * slanted vents in the flanks, a lightening window cut clean through the foot under a thin red line. The top stays under the
- * sights.
+ * A ramjet compensator on the same barrel stub as the can, carrying the gun's own lines forward: over the bore it is the slide's
+ * section (its flats, facets and corners) in a darker nitride, under it the frame's width and flute in the frame's black, its foot
+ * raked back with a lightening window cut through. Three deep ports cut down through the top, each deeper than the last toward
+ * the muzzle, their chambers dark, the rails beside them (the slide's facets) cut down with them so the steps show from the side.
+ * A steel crown round the bore.
  */
 function compensator(m: Mesher): void {
   m.part('comp', [0, BORE, MUZZLE], () => {
     m.use(F.barrel);
     m.at([0, 0, -0.004], null, () => m.cyl(0.0106, 0.01, 18, 0.0004));
-    const z0 = -0.0006;
-    const zc = -0.012;
-    const z1 = -COMP_LEN;
-    const w = COMP_W;
-    const top = COMP_TOP;
-    /** Step boundaries along the bore behind the collar, and each step's top. */
-    const steps: [number, number, number][] = [[zc, -0.035, top], [-0.035, -0.058, top - 0.0035], [-0.058, z1, top - 0.007]];
-    const plate = 0.0036;
-    const wall = 0.0036;
-    const floor = -0.0125;
-    const cut = slot(-0.022, -0.045, -0.058, -0.045, 0.0068, 10);
-    // Flanks: the side silhouette up to under the top plates, the front raked back below the chamber, vents into the chamber
-    // and the foot's window.
-    const flank: P2[] = [
-      [zc + 0.0004, COMP_FOOT, 0], [zc + 0.0004, top - plate, 0],
-      [-0.035, top - plate, 0], [-0.035, top - 0.0035 - plate, 0], [-0.058, top - 0.0035 - plate, 0], [-0.058, top - 0.007 - plate, 0],
-      [z1, top - 0.007 - plate, 0], [z1, -0.03, 0.003], [z1 + 0.016, COMP_FOOT, 0.004],
-    ];
-    m.use(COMP_TI);
-    m.mirror(() => m.at([w - wall / 2, 0, 0], null, () => m.side(poly(flank, 0.0012), wall, {
-      bevel: 0.001, holes: [...slotRow(-0.017, -0.0005, z1 + 0.012, -0.0005, 4, 0.014, 0.0042, 1.2), cut],
-    })));
-    // Top plates over the full width, one a step, each with its port: the bevel chamfers the cut's rim.
-    for (const [a, b, y] of steps) {
-      const port = rect(-0.0118, b + (b === z1 ? 0.0095 : 0.0045), 0.0118, a - 0.0045, 0.003);
-      m.at([0, y - plate / 2, 0], null, () => m.top(poly([[-w, a, 0.0018], [w, a, 0.0018], [w, b, 0.0018], [-w, b, 0.0018]], 0.0016), plate, { bevel: 0.0012, holes: [port] }));
-    }
-    // The foot under the chamber between the flanks, raked with them and cut by the window; the chamber's floor is its top, dark.
-    const inner = w - wall + 0.0002;
-    m.side(poly([[zc, COMP_FOOT, 0], [zc, floor, 0], [z1, floor, 0], [z1, -0.03, 0.003], [z1 + 0.016, COMP_FOOT, 0.004]], 0.0012), inner * 2, { bevel: 0.0012, holes: [cut] });
-    m.use(F.black);
-    m.at([0, floor + 0.0004, (zc + z1) / 2], null, () => m.box(inner * 2 - 0.001, 0.0008, zc - z1 - 0.004, 0.0002));
-    // Front face round the bore, and a baffle under the forward edge of each of the first two steps.
-    m.use(COMP_TI);
-    m.at([0, 0, z1 + 0.0035], null, () => m.front(rect(-inner, floor, inner, top - 0.007 - plate + 0.0004, 0.0008), 0.007, { bevel: 0.0014, holes: [circle(0, 0, 0.0068, 20)] }));
-    m.use(F.steelDark);
-    for (const [z, y] of [[-0.035, top - 0.0035], [-0.058, top - 0.007]] as const) {
-      m.at([0, 0, z], [0.28, 0, 0], () => m.front(rect(-inner + 0.0004, floor + 0.001, inner - 0.0004, y - plate - 0.0012, 0.0006), 0.0018, { bevel: 0.0005, holes: [circle(0, 0, 0.006, 18)] }));
-    }
-    // The crown: a bright steel ring set into the front face round the bore.
-    m.use(STAINLESS);
-    m.at([0, 0, z1 - 0.0002], null, () => m.lathe([[0.0068, 0.0016, 0], [0.0092, 0.0012], [0.0096, -0.0006], [0.0068, -0.0006, 0]], 22));
-    // The clamp collar, red anodized, a step proud of the body all round, with the barrel through it, its split under the bore
-    // and two screws a side.
-    m.use(RED);
-    const lip = 0.0012;
-    m.at([0, 0, (z0 + zc) / 2], null, () => m.front(poly([
-      [-w - lip, COMP_FOOT - lip, 0.002], [w + lip, COMP_FOOT - lip, 0.002], [w + lip, top + 0.001, 0.0024], [-w - lip, top + 0.001, 0.0024],
-    ], 0.0016), z0 - zc, { bevel: 0.0014, holes: [circle(0, 0, 0.0108, 20)] }));
-    m.use(F.black);
-    m.at([0, COMP_FOOT - lip, (z0 + zc) / 2], null, () => m.box(0.0016, 0.001, z0 - zc + 0.0004, 0.0002));
-    m.mirror(() => {
-      screwX(m, w + lip + 0.0002, 0.006, (z0 + zc) / 2, 1, 0.0022, F.steelDark);
-      screwX(m, w + lip + 0.0002, -0.05, (z0 + zc) / 2, 1, 0.0022, F.steelDark);
-      // A black groove down the flank over the window with a thin red line in it.
-      m.use(F.black);
-      m.at([w + 0.0001, -0.0255, (zc + z1) / 2 + 0.002], null, () => m.box(0.0006, 0.003, zc - z1 - 0.012, 0.0002));
-      m.glow('accent', () => m.at([w + 0.0004, -0.0255, (zc + z1) / 2 + 0.002], null, () => m.box(0.0004, 0.001, zc - z1 - 0.016, 0)));
+    m.at([0, -BORE, 0], null, () => compBody(m));
+  });
+}
+
+/** The compensator in the slide's frame (y from the frame's origin, z from the muzzle face). */
+function compBody(m: Mesher): void {
+  const z0 = -0.0008;
+  const z1 = -COMP_LEN;
+  const span = (a: number, b: number, fn: () => void) => m.at([0, 0, (a + b) / 2], null, fn);
+  /** The ports' half width, where their walls meet the facets, and each port's span and floor: deeper toward the muzzle. */
+  const pw = 0.0125;
+  const rim = 0.0651;
+  /** Each port's span, its floor, and how far down it cuts the rails beside it: all deeper toward the muzzle. */
+  const ports: [number, number, number, number][] = [
+    [-0.012, -0.028, BORE - 0.009, 0.0585], [-0.034, -0.051, BORE - 0.0135, 0.0555], [-0.057, -0.072, BORE - 0.018, 0.0525],
+  ];
+  const floor = Math.min(...ports.map(p => p[2]));
+  m.use(COMP_NITRIDE);
+  // Under the ports, the slide's section to the deepest floor, in one piece.
+  span(z0, z1, () => m.front(poly([[-SW + 0.0016, SY0], [SW - 0.0016, SY0], [SW, SY0 + 0.005], [SW, floor, 0], [-SW, floor, 0], [-SW, SY0 + 0.005]], 0.0016), z0 - z1, { bevel: 0.0018 }));
+  // Over it a rail each side, the slide's flank and facet; beside each port cut down, so the steps show in the side view.
+  const rail = poly([[pw, floor, 0], [SW, floor, 0], [SW, 0.053], [SW - 0.0042, 0.0635, 0.003], [pw, rim, 0.0006]], 0.0016);
+  const cutRail = (y: number) => poly([[pw, floor, 0], [SW, floor, 0], [SW, y, 0.0014], [pw, y, 0.0006]], 0.0016);
+  // Between the rails: the solid bars round the bore, and a floor under each port up to its depth.
+  const middle = (top: number) => poly([[-pw, floor, 0], [pw, floor, 0], [pw, rim, 0], [SW - 0.0085, SY1, 0.004], [-SW + 0.0085, SY1, 0.004], [-pw, rim, 0]].map(p => [p[0], Math.min(p[1], top), p[2]] as P2), 0.0016);
+  const bars: [number, number][] = [[z0, ports[0]![0]], [ports[0]![1], ports[1]![0]], [ports[1]![1], ports[2]![0]], [ports[2]![1], z1]];
+  for (const [a, b] of bars) {
+    span(a, b, () => {
+      m.front(middle(SY1 + 1), a - b, { bevel: 0.0016, holes: [circle(0, BORE, 0.0072, 20)] });
+      m.mirror(() => m.front(rail, a - b, { bevel: 0.0016 }));
     });
+  }
+  for (const [a, b, y, cut] of ports) {
+    span(a, b, () => {
+      if (y > floor + 0.0005) m.front(poly([[-pw, floor, 0], [pw, floor, 0], [pw, y, 0], [-pw, y, 0]], 0.001), a - b, { bevel: 0.0006 });
+      m.mirror(() => m.front(cutRail(cut), a - b, { bevel: 0.0012 }));
+    });
+  }
+  // The chambers' walls and floors in black, a rim's width down from the top so the chamfered edges stay bright.
+  m.use(F.black);
+  for (const [a, b, y, cut] of ports) {
+    const len = a - b - 0.0036;
+    const h = rim - y - 0.0035;
+    const side = cut - y - 0.0028;
+    m.mirror(() => m.at([pw - 0.0003, y + side / 2, (a + b) / 2], null, () => m.box(0.0006, side, len, 0.0001)));
+    for (const z of [a - 0.0003, b + 0.0003]) m.at([0, y + h / 2, z], null, () => m.box(pw * 2 - 0.0036, h, 0.0006, 0.0001));
+    m.at([0, y + 0.0003, (a + b) / 2], null, () => m.box(pw * 2 - 0.001, 0.0006, len, 0.0001));
+  }
+  // The crown: a bright steel ring set into the front face round the bore.
+  m.use(STAINLESS);
+  m.at([0, BORE, z1 - 0.0002], null, () => m.lathe([[0.0072, 0.0016, 0], [0.0094, 0.0012], [0.0098, -0.0006], [0.0072, -0.0006, 0]], 22));
+  // Under the slide: the frame's width and black, raked back at the front, the flute carried on, a window cut through, two screws.
+  const cut = slot(-0.018, -0.0145, -0.05, -0.0145, 0.0055, 10);
+  m.use(FRAME);
+  m.side(poly([[z0, SY0, 0.002], [z0, -0.028, 0.004], [z1 + 0.017, -0.028, 0.005], [z1, SY0 - 0.006, 0.005], [z1, SY0, 0.002]], 0.002), FW * 2, { bevel: 0.0016, holes: [cut] });
+  m.use(F.black);
+  m.mirror(() => {
+    m.at([FW + 0.0001, 0.0075, (z0 + z1) / 2 + 0.004], null, () => m.box(0.0006, 0.0034, z0 - z1 - 0.014, 0.0002));
+    screwX(m, FW + 0.0002, -0.0225, -0.006, 1, 0.0021, F.steelDark);
+    screwX(m, FW + 0.0002, -0.0065, -0.006, 1, 0.0021, F.steelDark);
   });
 }
 

@@ -1,6 +1,7 @@
-// The Ultramag's laser module beam in the real game: the Office's server room (the darkest room) and the lit open office, at
-// the hip and aimed, with the compensator on; a frame of the slide racking and of the reload; the akimbo pair with a beam each;
-// and what the beam costs a frame (the CPU of its ray and buffer write, and GPU-synced renders with the beam drawn and not).
+// The Ultramag's laser module in the real game, locked to the crosshair: the Office's server room (the darkest room) and the lit open
+// office. Stills at the hip, aimed (the dot over the sights), and with the akimbo pair; a short sequence turning hard while
+// strafing; and, every rendered frame through that motion, how far the dot sits from the screen's centre and how far each
+// beam's start sits from its emitter's pixel. Then what the laser costs a frame.
 //   node tools/shot.mjs --port 5207 --url "/?contract=crucible&map=office&autostart=1&dev=1" --dpr 2 --w 1440 --h 900 \
 //     --script tools/scripts/ultramag-lam-live.mjs --out tools/out/ulam/live.png --wait 500 --timeout 400
 const SPOTS = {
@@ -54,10 +55,63 @@ export default async function lamLive(page, h) {
       await wait(0.6);
     }
   };
-  const dot = () => page.evaluate(() => {
-    const lam = window.__op2.ctx.viewmodel.lam;
-    return [lam.dotOn(0), lam.dotOn(1)];
+  // Every rendered frame from now until stopped: the dot's offset from the centre and each beam start's from its emitter, in
+  // device pixels, measured after the frame drew with the cameras it drew with.
+  const measure = () => page.evaluate(() => {
+    const { ctx } = window.__op2;
+    const lam = ctx.viewmodel.lam;
+    const r = ctx.render;
+    const V = ctx.player.position.constructor;
+    const out = { frames: 0, dot: [], beam: [] };
+    window.__lamMeasure = out;
+    const tick = () => {
+      if (!window.__lamMeasure) return;
+      requestAnimationFrame(tick);
+      const W = r.renderer.domElement.width;
+      const H = r.renderer.domElement.height;
+      const px = v => [v.x * W / 2, v.y * H / 2];
+      out.frames++;
+      if (lam.hit) {
+        const [x, y] = px(lam.dotAt.clone().project(r.camera));
+        out.dot.push(Math.hypot(x, y));
+      }
+      const u = lam.mesh.material.uniforms;
+      for (const [slot, name] of [[0, 'uFrom0'], [1, 'uFrom1']]) {
+        const socket = lam.sockets[slot];
+        if (!socket || !(lam.strength[slot] > 0)) continue;
+        const [ax, ay] = px(u[name].value.clone().project(r.camera));
+        const [bx, by] = px(new V().setFromMatrixPosition(socket.matrixWorld).project(r.viewCamera));
+        out.beam.push(Math.hypot(ax - bx, ay - by));
+      }
+    };
+    requestAnimationFrame(tick);
   });
+  const stopMeasure = () => page.evaluate(() => {
+    const m = window.__lamMeasure;
+    delete window.__lamMeasure;
+    const stat = a => a.length ? { n: a.length, max: +Math.max(...a).toFixed(2), mean: +(a.reduce((s, v) => s + v, 0) / a.length).toFixed(2) } : null;
+    return { frames: m.frames, dotFromCentrePx: stat(m.dot), beamFromEmitterPx: stat(m.beam) };
+  });
+  // Turning hard (yaw at `rate` rad/s) while strafing right for `seconds`, stills along the way.
+  const turn = async (prefix, rate, seconds, shots) => {
+    await page.evaluate(() => window.__op2.ctx.input.simulate('right', true));
+    const step = seconds / shots;
+    for (let i = 0; i < shots; i++) {
+      await page.evaluate(async ([r, s]) => {
+        const { ctx } = window.__op2;
+        const frame = () => new Promise(res => requestAnimationFrame(res));
+        const end = ctx.time.playerElapsed + s;
+        let last = ctx.time.playerElapsed;
+        while (ctx.time.playerElapsed < end) {
+          await frame();
+          ctx.player.yaw += r * (ctx.time.playerElapsed - last);
+          last = ctx.time.playerElapsed;
+        }
+      }, [rate, step]);
+      await still(`${prefix}-${i + 1}`);
+    }
+    await page.evaluate(() => window.__op2.ctx.input.simulate('right', false));
+  };
   await page.evaluate(() => {
     const { ctx } = window.__op2;
     ctx.waves.update = () => {};
@@ -67,36 +121,28 @@ export default async function lamLive(page, h) {
     ctx.weapons.give('ultramag');
     ctx.weapons.switchTo('ultramag');
   });
-  const out = { fitted: await fit(['ultramagLam', 'ultramagComp']), dots: {} };
+  const out = { fitted: await fit(['ultramagLam', 'ultramagComp']), motion: {} };
   await wait(0.8);
   for (const spot of Object.keys(SPOTS)) {
     await go(spot);
     await still(`${spot}-hip`);
-    out.dots[`${spot}-hip`] = await dot();
     await aim(true);
-    await wait(0.7);
+    await wait(0.5);
     await still(`${spot}-ads`);
-    out.dots[`${spot}-ads`] = await dot();
     await aim(false);
     await wait(0.5);
   }
-  // The slide at full travel 60 ms after a shot, and the reload half done and racking: in the lit office, at its wall (a shot
-  // down the server room sets off a rack).
-  await go('open');
-  await page.evaluate(() => window.__op2.ctx.input.simulate('fire', true));
-  await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
-  await page.evaluate(() => window.__op2.ctx.input.simulate('fire', false));
-  await wait(0.06);
-  await still('open-rack');
-  await wait(0.5);
-  await page.evaluate(() => window.__op2.ctx.input.simulate('reload', true));
-  await wait(0.05);
-  await page.evaluate(() => window.__op2.ctx.input.simulate('reload', false));
-  await wait(0.35);
-  await still('open-reload-mid');
-  await wait(0.5);
-  await still('open-reload-rack');
-  await wait(1.2);
+  // Fast turns while strafing, at the hip and aimed, in the dark.
+  await go('server');
+  await measure();
+  await turn('server-turn', 2.4, 0.6, 4);
+  out.motion.hip = await stopMeasure();
+  await go('server');
+  await aim(true);
+  await measure();
+  await turn('server-turn-ads', -1.6, 0.45, 3);
+  out.motion.ads = await stopMeasure();
+  await aim(false);
 
   // Timing, frozen in the server room with the beam and its dot up.
   await go('server');
@@ -105,12 +151,16 @@ export default async function lamLive(page, h) {
     const r = ctx.render;
     const rig = ctx.viewmodel;
     const lam = rig.lam;
-    // The CPU side: the ray and the buffer write, as the rig does them a frame.
     const def = rig.def;
-    for (let i = 0; i < 200; i++) rig.updateLam(def, 0, 1);
+    // The CPU side a frame: the slot updates and the shot's ray (walls, then men).
+    const cam = r.camera;
+    const o = cam.position.clone();
+    const d = cam.getWorldDirection(o.clone());
+    const once = () => { rig.updateLam(def, 0, 1); lam.target(o.setFromMatrixPosition(cam.matrixWorld), cam.getWorldDirection(d), rig.lamCast); };
+    for (let i = 0; i < 200; i++) once();
     const c0 = performance.now();
     const calls = 5000;
-    for (let i = 0; i < calls; i++) rig.updateLam(def, 0, 1);
+    for (let i = 0; i < calls; i++) once();
     const cpuUs = ((performance.now() - c0) / calls) * 1000;
     const gl = r.renderer.getContext();
     const fbo = gl.createFramebuffer();
@@ -142,7 +192,7 @@ export default async function lamLive(page, h) {
     const best = { off: Infinity, on: Infinity };
     for (let k = 0; k < rounds; k++) {
       for (const v of ['off', 'on']) {
-        lam.mesh.visible = v === 'on';
+        lam.mesh.visible = lam.overlay.visible = v === 'on';
         for (let i = 0; i < 3; i++) { r.render(); sync(); }
         await raf();
         const t0 = performance.now();
@@ -150,18 +200,21 @@ export default async function lamLive(page, h) {
         best[v] = Math.min(best[v], (performance.now() - t0) / n);
       }
     }
-    lam.mesh.visible = true;
+    lam.mesh.visible = lam.overlay.visible = true;
     delete game.frame;
-    return { cpuUsPerGun: +cpuUs.toFixed(2), gpuMs: Object.fromEntries(Object.entries(best).map(([k, v]) => [k, +v.toFixed(2)])), size: [r.renderer.domElement.width, r.renderer.domElement.height] };
+    return { cpuUsPerFrame: +cpuUs.toFixed(2), gpuMs: Object.fromEntries(Object.entries(best).map(([k, v]) => [k, +v.toFixed(2)])), size: [r.renderer.domElement.width, r.renderer.domElement.height] };
   }, { n: 8, rounds: 8 });
 
-  // Akimbo: a beam and a dot from each gun.
+  // Akimbo: a beam from each gun to the one dot.
   out.akimbo = await fit(['ultramagAkimbo']);
   await wait(1);
   for (const spot of Object.keys(SPOTS)) {
     await go(spot);
     await still(`${spot}-akimbo`);
-    out.dots[`${spot}-akimbo`] = await dot();
   }
+  await go('server');
+  await measure();
+  await turn('server-akimbo-turn', 2.4, 0.4, 2);
+  out.motion.akimbo = await stopMeasure();
   return out;
 }

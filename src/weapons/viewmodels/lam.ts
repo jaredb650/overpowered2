@@ -1,18 +1,23 @@
 /**
- * A laser module's visible beam (a fitted mod's `ModLook.laser`): a thin red line from the emitter down the bore into the world,
- * fading out over `LAM.range`, and a small bright dot where it meets a wall within it, as a laser pointer's does. Looks only: the
- * shot still goes to the crosshair. Added, so a lit wall washes it out and a dark room shows it. One ray a gun a frame; every
- * beam and dot is a quad in one mesh with one material; no light. First person only: other players' guns show none.
+ * A laser module's visible beam (a fitted mod's `ModLook.laser`), locked to the crosshair. The dot sits where the camera's centre
+ * ray meets a wall or a man within `LAM.range` (the shot's own ray, `Combat.fireRay`, is the same look from the eye; the camera
+ * only adds a few centimetres of bob and the kick's spring), so it never leaves the centre pixel; a thin added red line runs to it
+ * from the emitter of each gun in hand. With nothing in range there is no dot and the lines fade out down that ray.
+ *
+ * All of it is placed as the frame is drawn (`onBeforeRender`), from the two cameras that draw it, and everything that moves is a
+ * uniform (uploaded at the draw, where a buffer write would only reach the next frame): the ray is cast from the camera as it is
+ * drawn, and the beam leaves the gun where the gun is on screen. Nothing trails. Aimed, the dot is drawn a second time in the view pass over the gun (`overlay`), on the
+ * sights, as the gun would otherwise hide it. One ray a frame, no light. First person only.
  */
 import * as THREE from 'three';
 import type { RayHit } from '../../core/contracts';
 
 export const LAM = {
-  /** How far the ray looks for a wall, metres; the beam fades out over it. */
+  /** How far the ray looks, metres; a beam with nothing at its end fades out over it. */
   range: 40,
   /** Linear colour, past 1 for the bloom: the emitter's red. */
   color: [1.8, 0.16, 0.04],
-  /** The beam's brightness, low so it reads as a haze line, and the dot's. */
+  /** The beams' brightness, low so they read as a haze line, and the dot's. */
   beam: 0.3,
   dot: 1,
   /** Beam width at the emitter and the dot's radius, metres, and the fewest pixels each is drawn at. */
@@ -20,13 +25,15 @@ export const LAM = {
   widthPx: 1.2,
   radius: 0.02,
   radiusPx: 6.5,
+  /** How far in front of the view camera the aimed dot is drawn, metres (inside its 12 m far plane). */
+  overlayDepth: 0.5,
 } as const;
 
 export type LaserCast = (from: THREE.Vector3, dir: THREE.Vector3, max: number, out: RayHit) => boolean;
 
-/** Where a beam from `from` along unit `dir` ends, into `end`: on the first wall within LAM.range (true: the dot shows), else at the range's end. */
+/** Where a ray from `from` along unit `dir` ends, into `end`: on the first surface within LAM.range (true: the dot shows), else at the range's end. */
 export function laserEnd(from: THREE.Vector3, dir: THREE.Vector3, cast: LaserCast, hit: RayHit, end: THREE.Vector3): boolean {
-  // A stand-in physics answers with a proxy, not a boolean: no wall.
+  // A stand-in physics answers with a proxy, not a boolean: nothing hit.
   if (cast(from, dir, LAM.range, hit) === true) {
     end.copy(hit.point);
     return true;
@@ -35,9 +42,27 @@ export function laserEnd(from: THREE.Vector3, dir: THREE.Vector3, cast: LaserCas
   return false;
 }
 
+/**
+ * Maps a point in the view scene (where the viewmodel is drawn) to the world point drawn on the same pixel. The two cameras share
+ * an eye and a depth axis, so only x and y scale, by the ratio of their FOV tangents (rig.ts `toWorld` does the same).
+ */
+export function viewToWorld(p: THREE.Vector3, camera: THREE.PerspectiveCamera, viewCamera: THREE.PerspectiveCamera, out: THREE.Vector3): THREE.Vector3 {
+  out.copy(p).applyMatrix4(viewCamera.matrixWorldInverse);
+  const k = Math.tan((camera.fov * Math.PI) / 360) / Math.tan((viewCamera.fov * Math.PI) / 360);
+  out.x *= k;
+  out.y *= k;
+  return out.applyMatrix4(camera.matrixWorld);
+}
+
 const VERT = /* glsl */ `
-attribute vec4 aA;
-attribute vec4 aB;
+attribute float aSlot;
+uniform vec3 uFrom0;
+uniform vec3 uFrom1;
+uniform vec3 uEnd;
+uniform vec3 uDot;
+uniform vec3 uStrength;
+uniform vec2 uShare;
+uniform float uRadius;
 uniform vec2 uRes;
 uniform float uPixelWorld;
 varying vec2 vUv;
@@ -46,25 +71,26 @@ varying float vPixel;
 varying float vStrength;
 varying float vDot;
 void main() {
-  vStrength = aA.w;
-  vDot = aB.w < 0.0 ? 1.0 : 0.0;
+  float strength = aSlot < 0.5 ? uStrength.x : aSlot < 1.5 ? uStrength.y : uStrength.z;
+  vStrength = strength;
+  vDot = aSlot > 1.5 ? 1.0 : 0.0;
   vUv = position.xy;
   vAlong = 0.0;
   vPixel = 0.0;
-  if (aA.w <= 0.0) {
+  if (strength <= 0.0) {
     gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
     return;
   }
-  if (aB.w < 0.0) {
+  if (aSlot > 1.5) {
     // The dot: a quad facing the eye, never under a few pixels across.
-    vec4 v = viewMatrix * vec4(aA.xyz, 1.0);
-    v.xy += position.xy * max(${LAM.radius}, uPixelWorld * -v.z * ${LAM.radiusPx});
+    vec4 v = viewMatrix * vec4(uDot, 1.0);
+    v.xy += position.xy * max(uRadius, uPixelWorld * -v.z * ${LAM.radiusPx.toFixed(2)});
     gl_Position = projectionMatrix * v;
     return;
   }
-  // The beam: a screen-facing strip from A to B, a pixel or so wide however far (fx/layers/lines.ts does the same).
-  vec4 va = viewMatrix * vec4(aA.xyz, 1.0);
-  vec4 vb = viewMatrix * vec4(aB.xyz, 1.0);
+  // A beam: a screen-facing strip from its emitter to the end, a pixel or so wide however far (as fx/layers/lines.ts).
+  vec4 va = viewMatrix * vec4(aSlot < 0.5 ? uFrom0 : uFrom1, 1.0);
+  vec4 vb = viewMatrix * vec4(uEnd, 1.0);
   const float nearZ = -0.05;
   if (vb.z > nearZ) vb = mix(vb, va, (nearZ - vb.z) / (va.z - vb.z));
   vec4 ca = projectionMatrix * va;
@@ -76,13 +102,13 @@ void main() {
   vec2 n = vec2(-d.y, d.x);
   float along = position.y * 0.5 + 0.5;
   vec4 c = mix(ca, cb, along);
-  float w = max(${LAM.width}, uPixelWorld * c.w * ${LAM.widthPx});
+  float w = max(${LAM.width.toFixed(4)}, uPixelWorld * c.w * ${LAM.widthPx.toFixed(2)});
   float px = w / (uPixelWorld * c.w);
   float quadPx = px + 1.0;
   c.xy += n * position.x * (quadPx * 2.0 / uRes.y) / aspect * c.w;
   gl_Position = c;
   vUv.x = position.x * quadPx / px;
-  vAlong = along * aB.w;
+  vAlong = along * (aSlot < 0.5 ? uShare.x : uShare.y);
   vPixel = 1.0 / px;
 }
 `;
@@ -118,84 +144,148 @@ void main() {
 /** Slots: the gun in the right hand, and the akimbo twin in the left. */
 const SLOTS = 2;
 const _hit: RayHit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, surface: 'concrete', collider: null };
-const _end = new THREE.Vector3();
-const _dot = new THREE.Vector3();
+const _p = new THREE.Vector3();
+const _o = new THREE.Vector3();
+const _d = new THREE.Vector3();
+const _v = new THREE.Vector3();
+
+function lamMaterial(overlay: boolean): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    vertexShader: VERT, fragmentShader: FRAG,
+    uniforms: {
+      uFrom0: { value: new THREE.Vector3() }, uFrom1: { value: new THREE.Vector3() }, uEnd: { value: new THREE.Vector3() },
+      uDot: { value: new THREE.Vector3() }, uStrength: { value: new THREE.Vector3() }, uShare: { value: new THREE.Vector2() },
+      uRadius: { value: LAM.radius }, uRes: { value: new THREE.Vector2(1280, 720) }, uPixelWorld: { value: 0.002 },
+      uColor: { value: new THREE.Vector3(...LAM.color) },
+    },
+    // The overlay is drawn over the gun: no depth test.
+    transparent: true, depthWrite: false, depthTest: !overlay, side: THREE.DoubleSide,
+    blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor,
+  });
+}
+
+type Uniforms = Record<string, THREE.IUniform>;
+const vec3 = (u: Uniforms, name: string) => u[name]!.value as THREE.Vector3;
+
+/** The camera's pixel size, for the beams' and the dot's pixel floor, read as it draws. */
+function pixelFloor(u: Uniforms, renderer: THREE.WebGLRenderer, camera: THREE.Camera): void {
+  const res = u.uRes!.value as THREE.Vector2;
+  renderer.getDrawingBufferSize(res);
+  u.uPixelWorld!.value = 2 / (res.y * (camera.projectionMatrix.elements[5] ?? 1));
+}
 
 export class LamBeams {
+  /** In the world scene: a beam a slot and the dot, in one draw. */
   readonly mesh: THREE.Mesh;
-  private readonly aA: THREE.BufferAttribute;
-  private readonly aB: THREE.BufferAttribute;
-  private readonly on = new Array<boolean>(SLOTS).fill(false);
+  /** In the view scene: the dot again, over the gun, while aimed. */
+  readonly overlay: THREE.Mesh;
+  /** The camera the viewmodel is drawn with, and the ray the dot is found with; set by the rig. Without them nothing is drawn. */
+  viewCamera: THREE.PerspectiveCamera | null = null;
+  cast: LaserCast | null = null;
+  /** 0 to 1, how far the gun is up at the eye: the dot moves from the world to over the gun. */
+  aim = 0;
+  /** Where the shot's ray ends this frame, whether something is there, and the dot (a touch back toward the eye). */
+  readonly end = new THREE.Vector3();
+  readonly dotAt = new THREE.Vector3();
+  hit = false;
+  private readonly sockets: (THREE.Object3D | null)[] = new Array<THREE.Object3D | null>(SLOTS).fill(null);
+  private readonly strength = new Array<number>(SLOTS).fill(0);
+  /** The world camera of this frame's world pass, for the view pass that follows it. */
+  private camera: THREE.PerspectiveCamera | null = null;
 
   constructor() {
-    // Per slot two quads, its beam then its dot.
-    const quads = SLOTS * 2;
+    // Three quads: beam 0, beam 1, the dot. Everything that moves is a uniform.
     const corners = [-1, -1, 1, -1, 1, 1, -1, 1];
-    const position = new Float32Array(quads * 12);
+    const position = new Float32Array(3 * 12);
+    const slot = new Float32Array(3 * 4);
     const index: number[] = [];
-    for (let q = 0; q < quads; q++) {
-      for (let v = 0; v < 4; v++) position.set([corners[v * 2]!, corners[v * 2 + 1]!, 0], (q * 4 + v) * 3);
-      const o = q * 4;
-      index.push(o, o + 1, o + 2, o, o + 2, o + 3);
+    for (let q = 0; q < 3; q++) {
+      for (let v = 0; v < 4; v++) {
+        position.set([corners[v * 2]!, corners[v * 2 + 1]!, 0], (q * 4 + v) * 3);
+        slot[q * 4 + v] = q;
+      }
+      index.push(q * 4, q * 4 + 1, q * 4 + 2, q * 4, q * 4 + 2, q * 4 + 3);
     }
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(position, 3));
-    this.aA = new THREE.BufferAttribute(new Float32Array(quads * 16), 4).setUsage(THREE.DynamicDrawUsage);
-    this.aB = new THREE.BufferAttribute(new Float32Array(quads * 16), 4).setUsage(THREE.DynamicDrawUsage);
-    geometry.setAttribute('aA', this.aA);
-    geometry.setAttribute('aB', this.aB);
+    geometry.setAttribute('aSlot', new THREE.BufferAttribute(slot, 1));
     geometry.setIndex(index);
-    const uRes = { value: new THREE.Vector2(1280, 720) };
-    const uPixelWorld = { value: 0.002 };
-    const material = new THREE.ShaderMaterial({
-      vertexShader: VERT, fragmentShader: FRAG,
-      uniforms: { uRes, uPixelWorld, uColor: { value: new THREE.Vector3(...LAM.color) } },
-      transparent: true, depthWrite: false, side: THREE.DoubleSide,
-      blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor,
-    });
-    this.mesh = new THREE.Mesh(geometry, material);
-    this.mesh.name = 'viewmodel.lam';
-    this.mesh.frustumCulled = false;
-    this.mesh.visible = false;
-    // Drawn with the tracers' beams (fx/layers/shared.ts ORDER.beams).
-    this.mesh.renderOrder = 22;
-    // The pixel floor is the camera's, read as it draws.
-    this.mesh.onBeforeRender = (renderer, _scene, camera) => {
-      renderer.getDrawingBufferSize(uRes.value);
-      uPixelWorld.value = 2 / (uRes.value.y * ((camera as THREE.PerspectiveCamera).projectionMatrix.elements[5] ?? 1));
+    const make = (overlay: boolean) => {
+      const mesh = new THREE.Mesh(geometry, lamMaterial(overlay));
+      mesh.name = overlay ? 'viewmodel.lamOverlay' : 'viewmodel.lam';
+      mesh.frustumCulled = false;
+      mesh.visible = false;
+      // With the tracers' beams (fx/layers/shared.ts ORDER.beams); the overlay after the gun.
+      mesh.renderOrder = overlay ? 999 : 22;
+      return mesh;
     };
+    this.mesh = make(false);
+    this.overlay = make(true);
+    this.mesh.onBeforeRender = (renderer, _scene, camera) => this.draw(renderer, camera as THREE.PerspectiveCamera);
+    this.overlay.onBeforeRender = (renderer, _scene, camera) => this.drawOverlay(renderer, camera as THREE.PerspectiveCamera);
   }
 
-  /** Slot `slot`'s beam from `from` along unit `dir` at `strength`, out to the first wall `cast` finds (its dot there) or the range. */
-  aim(slot: number, from: THREE.Vector3, dir: THREE.Vector3, strength: number, cast: LaserCast): void {
-    const wall = laserEnd(from, dir, cast, _hit, _end);
-    this.write(slot * 2, from, strength * LAM.beam, _end, from.distanceTo(_end) / LAM.range);
-    // Off the wall a touch toward the gun, so the dot is not cut by the surface it sits on.
-    if (wall) _dot.copy(_hit.point).addScaledVector(_hit.normal, 0.012).addScaledVector(dir, -0.01);
-    this.write(slot * 2 + 1, _dot, wall ? strength * LAM.dot : 0, _dot, -1);
-    this.on[slot] = strength > 0;
-    this.mesh.visible = this.on.includes(true);
+  /** Slot `slot`'s emitter, a socket in the view scene facing down the bore, at `strength`; null or 0 takes its beam away. */
+  set(slot: number, socket: THREE.Object3D | null, strength: number): void {
+    this.sockets[slot] = socket;
+    this.strength[slot] = socket ? strength : 0;
+    this.mesh.visible = this.overlay.visible = this.active;
   }
 
-  hide(slot: number): void {
-    if (!this.on[slot]) return;
-    this.write(slot * 2, _end, 0, _end, 0);
-    this.write(slot * 2 + 1, _end, 0, _end, -1);
-    this.on[slot] = false;
-    this.mesh.visible = this.on.includes(true);
+  get active(): boolean {
+    return this.strength.some(s => s > 0);
   }
 
-  /** Whether slot `slot`'s dot is lit: a wall within range. For tests. */
-  dotOn(slot: number): boolean {
-    return this.aA.getW(slot * 8 + 4) > 0;
+  /** The shot's ray this frame, from `from` along unit `dir`: where the beams end, and the dot on what `cast` finds. */
+  target(from: THREE.Vector3, dir: THREE.Vector3, cast: LaserCast): void {
+    this.hit = laserEnd(from, dir, cast, _hit, this.end);
+    // Back along the ray a touch, so the surface does not cut the dot; still on the same pixel.
+    this.dotAt.copy(this.end).addScaledVector(dir, -0.02);
   }
 
-  private write(quad: number, a: THREE.Vector3, strength: number, b: THREE.Vector3, w: number): void {
-    for (let v = 0; v < 4; v++) {
-      this.aA.setXYZW(quad * 4 + v, a.x, a.y, a.z, strength);
-      this.aB.setXYZW(quad * 4 + v, b.x, b.y, b.z, w);
+  /** The world pass: each beam from its emitter, mapped from the view scene with this frame's cameras, to the ray's end. */
+  draw(renderer: THREE.WebGLRenderer | null, camera: THREE.PerspectiveCamera): void {
+    this.camera = camera;
+    // The one ray a frame, down the centre of the camera as it is drawn.
+    if (this.cast && this.active) this.target(_o.setFromMatrixPosition(camera.matrixWorld), camera.getWorldDirection(_d), this.cast);
+    const u = (this.mesh.material as THREE.ShaderMaterial).uniforms;
+    if (renderer) pixelFloor(u, renderer, camera);
+    const strength = vec3(u, 'uStrength');
+    for (let slot = 0; slot < SLOTS; slot++) {
+      const socket = this.sockets[slot];
+      const on = socket && this.viewCamera ? this.strength[slot]! : 0;
+      strength.setComponent(slot, on * LAM.beam);
+      if (!on) continue;
+      const from = vec3(u, slot === 0 ? 'uFrom0' : 'uFrom1');
+      viewToWorld(_p.setFromMatrixPosition(socket!.matrixWorld), camera, this.viewCamera!, from);
+      (u.uShare!.value as THREE.Vector2).setComponent(slot, Math.min(1, from.distanceTo(this.end) / LAM.range));
     }
-    this.aA.needsUpdate = true;
-    this.aB.needsUpdate = true;
+    vec3(u, 'uEnd').copy(this.end);
+    vec3(u, 'uDot').copy(this.dotAt);
+    u.uRadius!.value = LAM.radius;
+    strength.z = this.hit ? Math.max(...this.strength) * LAM.dot * (1 - this.aim) : 0;
+  }
+
+  /** The view pass, aimed: the dot on the pixel the world's falls on, in front of the view camera, the same size on screen. */
+  drawOverlay(renderer: THREE.WebGLRenderer | null, viewCamera: THREE.PerspectiveCamera): void {
+    const u = (this.overlay.material as THREE.ShaderMaterial).uniforms;
+    const strength = vec3(u, 'uStrength');
+    strength.set(0, 0, 0);
+    const camera = this.camera;
+    if (!camera || !this.hit || this.aim <= 0.01) return;
+    if (renderer) pixelFloor(u, renderer, viewCamera);
+    _v.copy(this.dotAt).applyMatrix4(camera.matrixWorldInverse);
+    const depth = -_v.z;
+    if (depth <= 0.05) return;
+    const k = Math.tan((camera.fov * Math.PI) / 360) / Math.tan((viewCamera.fov * Math.PI) / 360);
+    const s = LAM.overlayDepth / depth;
+    vec3(u, 'uDot').set((_v.x * s) / k, (_v.y * s) / k, -LAM.overlayDepth).applyMatrix4(viewCamera.matrixWorld);
+    u.uRadius!.value = (LAM.radius * s) / k;
+    strength.z = Math.max(...this.strength) * LAM.dot * this.aim;
+  }
+
+  /** Whether the dot shows this frame: something in range on the centre ray and a beam on. For tests. */
+  dotOn(): boolean {
+    return this.hit && this.active;
   }
 }

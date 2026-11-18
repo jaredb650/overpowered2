@@ -24,10 +24,11 @@ export interface ModDef {
 
 const smg = WEAPONS.smg;
 /**
- * The Ultramag's compensator: 15% more shots a minute, and the muzzle climbs three quarters as far (the camera's kick, the rig's
- * recoil spring and the clip's own flip, viewmodels/models/ultramag.ts); the slide's travel is untouched.
+ * The Ultramag's compensator: 15% more shots a minute, and its ports throw the gas up and the muzzle down, so it climbs under half
+ * as far (the camera's kick, the rig's recoil spring and the clip's own flip, viewmodels/models/ultramag.ts). The slide's travel
+ * is untouched.
  */
-export const COMP = { rate: 1.15, flip: 0.75 } as const;
+export const COMP = { rate: 1.15, flip: 0.45 } as const;
 const hmg = WEAPONS.piledriver;
 const awl = WEAPONS.awl;
 /**

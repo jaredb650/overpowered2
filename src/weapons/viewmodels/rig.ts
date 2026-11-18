@@ -66,8 +66,6 @@ const _p = new THREE.Vector3();
  */
 const TORCH_BEAM = { color: 0xfff1dc, candela: 140, decay: 1, range: 30, cone: 0.4, soft: 0.6 } as const;
 const _smart = new THREE.Vector3();
-const _lamFrom = new THREE.Vector3();
-const _lamDir = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _s = new THREE.Vector3();
 /** Socket names of a gun's barrels after the first, which is `muzzle`. */
@@ -212,9 +210,17 @@ export class Rig implements ViewmodelRig {
    * light is in hand. Adding or taking away a light recompiles every lit shader; a dark one costs a skipped branch (patch.ts).
    */
   private readonly torch = new THREE.SpotLight(TORCH_BEAM.color, 0, TORCH_BEAM.range, TORCH_BEAM.cone, TORCH_BEAM.soft, TORCH_BEAM.decay);
-  /** A fitted laser module's beam and dot, a gun a slot (lam.ts), and the one ray a frame each costs. */
+  /** A fitted laser module's beams and dot (lam.ts), and the one ray a frame it costs: down the camera's centre, walls then men. */
   private readonly lam = new LamBeams();
-  private readonly lamCast: LaserCast = (from, dir, max, out) => this.ctx.physics.raycastInto(from, dir, max, CG.World, out);
+  private readonly lamCast: LaserCast = (from, dir, max, out) => {
+    const wall = this.ctx.physics.raycastInto(from, dir, max, CG.World, out) === true;
+    const man = this.ctx.enemies?.raycast(from, dir, wall ? out.distance : max);
+    if (!man) return wall;
+    out.point.copy(man.point);
+    out.normal.copy(man.normal);
+    out.distance = man.distance;
+    return true;
+  };
 
   // Perk looks.
   private perkHeat = 0;
@@ -264,6 +270,9 @@ export class Rig implements ViewmodelRig {
 
     render.viewScene.add(this.root);
     render.scene?.add(this.torch, this.torch.target, this.lam.mesh);
+    render.viewScene.add(this.lam.overlay);
+    this.lam.viewCamera = render.viewCamera;
+    this.lam.cast = this.lamCast;
 
     // Over the left shoulder, so the top and the camera-side bevels of every gun catch it.
     this.fill.position.set(-0.55, 0.85, 0.6);
@@ -641,24 +650,18 @@ export class Rig implements ViewmodelRig {
     this.updateWrist(dt);
     this.updateLight(def);
     this.updateLam(def, 0, a.draw);
-    if (dl && akimboOn) this.updateLam(dl, 1, this.akimboW);
-    else this.lam.hide(1);
+    this.updateLam(dl && akimboOn ? dl : null, 1, this.akimboW);
+    this.lam.aim = this.aimW;
   }
 
-  /** Slot `slot`'s laser beam: from the fitted module's emitter down the bore while its gun shows, at `strength`. */
-  private updateLam(def: ViewDef, slot: number, strength: number): void {
-    const id = this.holsterW < 1 ? this.look(def, 'laser')?.laser : undefined;
-    let s: THREE.Object3D | null | undefined = id ? def.model.sockets[id] : undefined;
-    const socket = s;
+  /** Slot `slot`'s laser: its fitted module's emitter while its gun shows, at `strength`. */
+  private updateLam(def: ViewDef | null, slot: number, strength: number): void {
+    const id = def && this.holsterW < 1 ? this.look(def, 'laser')?.laser : undefined;
+    let s: THREE.Object3D | null | undefined = id ? def!.model.sockets[id] : undefined;
+    const socket = s ?? null;
     // Every part over it shown: the module is fitted and its gun is in shot.
     for (; s; s = s.parent) if (!s.visible) break;
-    if (!socket || s) return this.lam.hide(slot);
-    _a.setFromMatrixPosition(socket.matrixWorld);
-    _lamDir.set(0, 0, -1).transformDirection(socket.matrixWorld).add(_a);
-    // Both ends through the view-to-world map, so the beam leaves the emitter on screen and runs down the barrel as drawn.
-    this.toWorld(_a, _lamFrom);
-    this.toWorld(_lamDir, _lamDir).sub(_lamFrom).normalize();
-    this.lam.aim(slot, _lamFrom, _lamDir, strength, this.lamCast);
+    this.lam.set(slot, s ? null : socket, strength);
   }
 
   /** From the muzzle to the point 20 m down the line of sight, while the gun in hand has its light fitted. */
