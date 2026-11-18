@@ -44,9 +44,12 @@ playwright-core (screenshots). No other runtime deps without a strong reason.
   goes to a background agent with a tight brief (files it may touch, these rules); the main agent briefs, reviews diffs, tests and
   screenshots, then reports. The owner fires off small tweaks mid-play; never make a new request wait on a long job. Don't run
   two agents on the same files at once: queue, or route the request to the agent already working there.
-- **Strongest agents only** ("don't pass it to shittier agents"): Opus, high effort, for every agent. Usage is not a concern.
-  If the host offers another provider (e.g. Codex via `delegate_task`), it is fine for research, specs, reviews, networking and
-  logic, but **never visual work** (gun models, hand poses): it was rejected twice.
+- **Strongest agents only** ("don't pass it to shittier agents"): **Fable 5.2**, high effort, for every agent (owner, 2026-11-18;
+  it was Opus before). Usage is not a concern. Ignore time estimates in agent-written docs: they run long. Another provider
+  (e.g. Codex via `delegate_task`) is fine for research, specs, reviews, networking and logic, but **never visual work** (gun
+  models, hand poses): it was rejected twice.
+- **Co-op overhaul in progress** on branch `coop-overhaul` (never pushed to `dev` until the owner merges): plan, rules and log in
+  `docs/notes/coop-overhaul.md`.
 - Missions: the owner loved mission 1 and hated Foreclosure v1 ("incoherent"). Wants a villain who controls the level and reacts,
   set pieces that force a way of playing, clear dialogue, a clear gated route through distinct places, enough enemies for the big
   tools. Write scripts plainly, villain-first; get the owner's OK on a script before building. Say "sections", not "beats".
@@ -122,7 +125,7 @@ https://jaredb650.github.io/overpowered2/ (GitHub Pages, `.github/workflows/page
 - **Leftovers on the owner's Mac** (not in a clone): uncommitted edits in `docs/notes/viewmodels.md`, `docs/notes/weapons.md`,
   `src/core/gameplay.ts`, `src/weapons/Weapons.ts`, `src/weapons/mods.ts` and an old stash. The owner hasn't decided; never stage them.
 - Commit message: one plain sentence of what changed and why, then the trailer
-  `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` (use the model that actually did the work). Do not push (see Pushing).
+  `Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>` (use the model that actually did the work). Do not push (see Pushing).
 
 ## Codebase map
 
