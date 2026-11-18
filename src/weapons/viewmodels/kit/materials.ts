@@ -321,6 +321,8 @@ function makeDecals(): { texture: THREE.CanvasTexture; regions: Record<string, R
   place('optic4x', 192, 40, text('4x32', TECH, 2));
   // The machine pistol beside them on key 6.
   place('autoraffica', 448, 56, text('AUTORAFFICA', STENCIL, 3));
+  // The light machine gun on key 1: a short strip, as it is all the atlas has left under the last row.
+  place('flail', 176, 26, text('FLAIL', '800 22px "Courier New", monospace', 5));
   // Stencil paint is never clean. Knock specks out of everything drawn so far.
   const rng = mulberry32(77);
   g.globalCompositeOperation = 'destination-out';

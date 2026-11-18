@@ -534,7 +534,7 @@ export const DROP_POD = {
  * comes third (wave 6), the super shotgun once the pump has done its work; the Ultramag seventh (wave 14), after the Judge
  * has had its run; the Autoraffica ninth (wave 18), its smart aim late enough to be a reward.
  */
-export const CACHE_ORDER: readonly WeaponId[] = (['judge', 'autocannon', 'deuce', 'lance', 'buzzsaw', 'kiln', 'ultramag', 'stakegun', 'autoraffica', 'rivet', 'piledriver', 'awl'] as WeaponId[])
+export const CACHE_ORDER: readonly WeaponId[] = (['judge', 'autocannon', 'deuce', 'lance', 'buzzsaw', 'kiln', 'ultramag', 'stakegun', 'autoraffica', 'rivet', 'piledriver', 'awl', 'flail'] as WeaponId[])
   .concat(['gimlet', 'harrow', 'smg', 'thresher', 'rocket', 'sabot', 'quiver'])
   .filter(inPlay);
 

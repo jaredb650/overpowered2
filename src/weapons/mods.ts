@@ -34,7 +34,7 @@ const ACOG = { zoom: 0.69, time: 0.24 } as const;
 const DOT = { zoom: 0.4, time: 0.2 } as const;
 
 /** The guns that take AP, HP and +P rounds: the SMG, the rifles and the four pistols. */
-export const AMMO_GUNS: readonly WeaponId[] = ['smg', 'gimlet', 'harrow', 'rivet', 'ultramag', 'autoraffica', 'judge', 'awl'];
+export const AMMO_GUNS: readonly WeaponId[] = ['smg', 'gimlet', 'harrow', 'rivet', 'ultramag', 'autoraffica', 'judge', 'awl', 'flail'];
 
 /** AP and HP specialise in plates and flesh; +P multiplies damage and keeps ball penetration and plate rules. */
 function rounds(gun: WeaponId, load: AmmoLoad): ModDef {
@@ -164,6 +164,12 @@ export const MODS: Readonly<Record<ModId, ModDef>> = {
   smgLight: light('smg'), gimletLight: light('gimlet'), harrowLight: light('harrow'), awlLight: light('awl'),
   shotgunLight: light('shotgun'), thresherLight: light('thresher'), deuceLight: light('deuce'),
   judgeLight: light('judge'), rivetLight: light('rivet'), ultramagLight: light('ultramag'), autorafficaLight: light('autoraffica'),
+  // The Flail's: a red dot or an ACOG on the feed cover's rail, one or the other; a box of 200 where it was 100, a beat longer to
+  // swap; and the rifles' three kinds of round.
+  flailDot: { id: 'flailDot', weapon: 'flail', name: 'Red dot sight', slot: 'sight', patch: { ads: DOT } },
+  flailAcog: { id: 'flailAcog', weapon: 'flail', name: 'ACOG', slot: 'sight', patch: { ads: ACOG } },
+  flailBox: { id: 'flailBox', weapon: 'flail', name: 'Large box', slot: 'mag', patch: { magSize: 200, reloadTime: 3.1 } },
+  flailAp: rounds('flail', 'ap'), flailHp: rounds('flail', 'hp'), flailPlusP: rounds('flail', 'plusP'),
   smgAkimbo: akimbo('smg'), rivetAkimbo: akimbo('rivet'), ultramagAkimbo: akimbo('ultramag'), judgeAkimbo: akimbo('judge'),
   autorafficaAkimbo: akimbo('autoraffica'),
 };
@@ -177,6 +183,7 @@ export const MOD_ORDER: readonly ModId[] = [
   'ultramagCan', 'ultramagDot', 'ultramagLam', 'ultramagMag', 'ultramagComp',
   'smgMag', 'smgTape', 'smgStock', 'gimletShort', 'rivetMag', 'piledriverBox',
   'deuceQuad', 'deuceLoader', 'shotgunChoke', 'judgeHammer', 'judgeGrip',
+  'flailDot', 'flailAcog', 'flailBox', 'flailAp', 'flailHp', 'flailPlusP',
   ...LIGHT_GUNS.map(lightOf),
   ...AKIMBO_GUNS.map(akimboOf),
 ];

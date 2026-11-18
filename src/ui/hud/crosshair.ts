@@ -67,6 +67,8 @@ const RETICLES: Record<WeaponId, Reticle> = {
   gimlet: { core: DOT + poly('0,4.5 3.5,8.5 2.2,9.6 0,7.1 -2.2,9.6 -3.5,8.5'), arms: four(tick(9, 1.4)), gap: 6.5, kick: 2, speedGap: 3 },
   // The SMG's cross with heavier, longer arms set wider: the same family, a bigger round.
   harrow: { core: DOT, arms: four(tick(11, 1.6)), gap: 8, kick: 3.2, speedGap: 3 },
+  // The Harrow's weight of arm on the SMG's length, set a touch wider: a box of rounds behind it.
+  flail: { core: DOT, arms: four(tick(9, 1.7)), gap: 7, kick: 2.4, speedGap: 3 },
   shotgun: {
     core: DOT,
     arms: four(poly('3,-14 14,-14 14,-3 11.6,-3 11.6,-11.6 3,-11.6')),

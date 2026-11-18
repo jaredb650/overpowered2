@@ -48,6 +48,11 @@ export const WEAPONS: Record<WeaponId, WeaponInfo> = {
     role: `Battle rifle. ${def.harrow.damage} damage, ${def.harrow.magSize} rounds, ${Math.round(1 / def.harrow.interval)} a second`,
     note: 'Press 1 again to swap with the SMG. Full damage at any range. Goes through one body or a sheet of cover, and takes limbs off. Hold R: auto or semi.',
   },
+  flail: {
+    name: 'Flail', key: '1',
+    role: `Light machine gun. ${def.flail.damage} damage, a box of ${def.flail.magSize}, ${Math.round(1 / def.flail.interval)} a second`,
+    note: `Press 1 again to step to it. Goes through a sheet of cover; keeps ${def.flail.falloff!.floor * 100}% of its round past ${def.flail.falloff!.to} m. Slow to raise, slower to reload.`,
+  },
   shotgun: {
     name: 'Shotgun', key: '2',
     role: `${def.shotgun.pellets} pellets of ${def.shotgun.damage}, semi-auto`,

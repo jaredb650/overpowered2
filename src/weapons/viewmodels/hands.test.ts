@@ -80,7 +80,7 @@ describe('hand frames and support grips', () => {
     expect(thumb.y).toBeGreaterThan(0.015);
   });
 
-  it.each(['smg', 'gimlet', 'harrow', 'shotgun', 'thresher', 'deuce', 'sabot', 'kiln', 'stakegun'])('%s uses the shared handguard frame', id => {
+  it.each(['smg', 'gimlet', 'harrow', 'flail', 'shotgun', 'thresher', 'deuce', 'sabot', 'kiln', 'stakegun'])('%s uses the shared handguard frame', id => {
     const def = defs[id]!;
     expect(def.left!.pose).toBe(HANDS.support);
     const socket = def.model.sockets[def.left!.socket]!;

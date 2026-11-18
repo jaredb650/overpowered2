@@ -377,6 +377,11 @@ launcher's shot (the owner's `glShot.mp3`, a real 192 kbit/s stereo MP3): mixed 
 from 0.5 s and cut at 0.7 s, peaks under -1 dB, 160 kbit/s. On the `gun` mix at 0.19 on the ladder (loudness 0.27), over the bare
 Gimlet's 0.155 and under the shotguns' 0.2 to 0.25: one heavy round where the rifle is many light ones.
 
+**The Flail's sounds** (2026-11-17, no files of its own yet). Its shot is `gimlet_shot` at pitch 0.9, the same 5.56 report a
+step heavier; its draw `weapon_draw_heavy`. The belt-fed reload is existing foley: `revolver_open` (feed cover up), `reload_mag_out`
+(box off), `reload_mag_in` (box on), `reload_shell_in` (belt laid on the tray), `revolver_close` (cover down), `reload_bolt` (the
+charging handle). A recorded LMG report would replace the stand-in.
+
 **The Awl's shots** (2026-11-16, the owner's `scoutShot.mp3` and `scoutSuppressedShot.mp3`). `awl_shot` replaces the stand-in
 `harrow_shot` at pitch 0.88, `awl_suppressed_shot` (the `awlCan` mod) the stand-in `gimlet_suppressed_shot` at 0.8; both play at
 pitch 1. `scoutShot` was a 1 s stereo WAV at 40 kHz inside an `.mp3` name, `scoutSuppressedShot` a real 192 kbit/s stereo MP3 that

@@ -9,6 +9,7 @@ import { batonDef } from './baton';
 import { crowbarDef } from './crowbar';
 import { deuceDef } from './deuce';
 import { gimletDef } from './gimlet';
+import { flailDef } from './flail';
 import { buzzsawDef } from './buzzsaw';
 import { buildDesignator, buildGrenade, buildStim, buildWalkie } from './devices';
 import { harrowDef } from './harrow';
@@ -49,6 +50,7 @@ export function buildDefs(kit: Kit): Record<string, ViewDef> {
     // Family members: the second weapon on a number key. One line here and one row in WEAPONS is the whole of adding one.
     harrow: harrowDef(kit), rivet: rivetDef(kit), sabot: sabotDef(kit), awl: awlDef(kit), thresher: thresherDef(kit), quiver: quiverDef(kit),
     deuce: deuceDef(kit), ultramag: ultramagDef(kit), gimlet: gimletDef(kit), autoraffica: autorafficaDef(kit),
+    flail: flailDef(kit),
     // Key 5 beside the sword. Their swings are one clip, models/melee.ts, with each one's own poses.
     knife: knifeDef(kit), crowbar: crowbarDef(kit), shovel: shovelDef(kit), baton: batonDef(kit),
     // The akimbo mod's left-hand pistols (weapons/mods.ts AKIMBO_GUNS); the SMG's own `smgLeft` is above.

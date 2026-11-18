@@ -10,7 +10,7 @@ const all = new Set<WeaponId>(WEAPON_ORDER);
 
 describe('family table', () => {
   it('groups by number key, base first', () => {
-    expect(familyOfSlot(1)).toEqual(['smg', 'gimlet', 'harrow']);
+    expect(familyOfSlot(1)).toEqual(['smg', 'gimlet', 'harrow', 'flail']);
     expect(familyOfSlot(2)).toEqual(['shotgun', 'thresher', 'deuce']);
     expect(familyOfSlot(3)).toEqual(['rocket', 'quiver']);
     // The Sabot is first on key 4: the explosive autocannon is its upgrade.
@@ -20,7 +20,7 @@ describe('family table', () => {
     expect(familyOfSlot(5)).toEqual(['sword']);
     for (const id of ['knife', 'crowbar', 'shovel', 'baton'] as WeaponId[]) expect(inPlay(id), id).toBe(false);
     expect(inPlay('sword')).toBe(true);
-    expect(familyOf('harrow')).toEqual(['smg', 'gimlet', 'harrow']);
+    expect(familyOf('harrow')).toEqual(['smg', 'gimlet', 'harrow', 'flail']);
   });
 
   it('every weapon in play is on exactly one key, and every member names a base on the same key', () => {
@@ -31,7 +31,7 @@ describe('family table', () => {
       const base = WEAPONS[id].base;
       if (base) expect(WEAPONS[base].slot, id).toBe(WEAPONS[id].slot);
     }
-    expect(membersOf('smg')).toEqual(['gimlet', 'harrow']);
+    expect(membersOf('smg')).toEqual(['gimlet', 'harrow', 'flail']);
     expect(membersOf('judge')).toEqual(['rivet', 'ultramag', 'autoraffica']);
     expect(membersOf('shotgun')).toEqual(['thresher', 'deuce']);
     expect(membersOf('rocket')).toEqual(['quiver']);
@@ -54,7 +54,8 @@ describe('family table', () => {
   it('the key of the slot in hand steps to the next member and wraps', () => {
     expect(pressSlot(1, 'smg', all, undefined)).toBe('gimlet');
     expect(pressSlot(1, 'gimlet', all, undefined)).toBe('harrow');
-    expect(pressSlot(1, 'harrow', all, undefined)).toBe('smg');
+    expect(pressSlot(1, 'harrow', all, undefined)).toBe('flail');
+    expect(pressSlot(1, 'flail', all, undefined)).toBe('smg');
     expect(pressSlot(2, 'shotgun', all, undefined)).toBe('thresher');
     expect(pressSlot(4, 'sabot', all, undefined)).toBe('awl');
     expect(pressSlot(4, 'awl', all, undefined)).toBe('autocannon');

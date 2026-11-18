@@ -30,7 +30,9 @@ export type WeaponId =
   // pistol with the smart aim beside it (section 14).
   | 'deuce' | 'ultramag' | 'autoraffica'
   // The carbine on key 1, between the SMG and the Harrow (docs/proposals/weapons-update.md section 11).
-  | 'gimlet' | 'awl';
+  | 'gimlet' | 'awl'
+  // The light machine gun on key 1, after the Harrow: a belt-fed box of 100.
+  | 'flail';
 
 /**
  * A weapon mod (src/weapons/mods.ts): the SMG's suppressor, the Harrow's red dot and ACOG, the Sabot's Raufoss rounds, the
@@ -55,7 +57,9 @@ export type ModId = 'awlAcog' | 'awlCan' | 'awlAp' | 'awlHp' | 'suppressor' | 'r
   | 'smgLight' | 'gimletLight' | 'harrowLight' | 'awlLight' | 'shotgunLight' | 'thresherLight' | 'deuceLight'
   | 'judgeLight' | 'rivetLight' | 'ultramagLight' | 'autorafficaLight'
   // Akimbo: a second gun of the same in the left hand (weapons/mods.ts AKIMBO_GUNS).
-  | 'smgAkimbo' | 'rivetAkimbo' | 'ultramagAkimbo' | 'judgeAkimbo' | 'autorafficaAkimbo';
+  | 'smgAkimbo' | 'rivetAkimbo' | 'ultramagAkimbo' | 'judgeAkimbo' | 'autorafficaAkimbo'
+  // The Flail's red dot and ACOG, its 200-round box, and AP, HP and +P rounds.
+  | 'flailDot' | 'flailAcog' | 'flailBox' | 'flailAp' | 'flailHp' | 'flailPlusP';
 
 export type Team = 'player' | 'enemy';
 

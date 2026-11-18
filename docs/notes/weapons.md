@@ -2,6 +2,19 @@
 
 `src/weapons/**` except `viewmodels/`, sandbox at `/?sandbox=range`. `createCombat(ctx)` and `createWeapons(ctx)` from `src/weapons/index.ts`.
 
+## The Flail light machine gun
+
+`flail`, last on key 1 (SMG, Gimlet, Harrow, Flail; `base: 'smg'`, its own unlock): an M249-style belt-fed LMG. 36 damage at
+800 a minute (0.075 s), between the SMG's 25 and the Harrow's 60; a box of 100 (300 reserve, 600 most), 0.2 m penetration (a
+sheet of cover), falloff 50 to 120 m down to 0.7, a light climb (0.0018 pitch, 0.0014 yaw a round), no spread. Heavy to handle:
+0.34 s draw, 0.3 s ADS at zoom 0.3, and a 2.8 s reload: cover up, box off, new box on, belt laid on the tray, cover down, the
+charging handle (its `reloadFoley` times the viewmodel's clip). Its own cache at the end of `CACHE_ORDER`'s first list;
+Procurement sells it for 1,600 after wave 7 (Endless Humans: wave 4), Outpost Defense for 1,500 as a primary, 150 a box.
+
+Mods: `flailDot` (red dot, 400) and `flailAcog` (ACOG, 700) share the sight slot, so one excludes the other, both wave 7;
+`flailBox`, the large box (1,200, wave 9; Endless Humans wave 5), 200 rounds and a 3.1 s reload, in the mag slot; AP, HP and
++P rounds as every `AMMO_GUNS` gun (600, 600, 550). Tests: `src/weapons/flail.test.ts`, `viewmodels/models/flail.test.ts`.
+
 ## The Awl scout
 
 Key 4's family order is Sabot, Awl, Autocannon. The scout is independently earned, not bundled with the Sabot.

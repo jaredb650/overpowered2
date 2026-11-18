@@ -286,6 +286,23 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     // Hold R: full auto or one round a pull.
     select: { hold: 0.3, modes: ['auto', 'semi'] },
   },
+  // The light machine gun, last on key 1: the SMG's 800 a minute with a round between the SMG's and the Harrow's, from a box of a
+  // hundred on a belt. It goes through a sheet of cover, climbs a little, and is slow to draw, to aim and above all to reload: the
+  // feed cover up, the box off, a new one on, the belt laid, the cover down, the handle racked. The shop sells a box of 200.
+  flail: {
+    ...BASE, id: 'flail', name: 'FLAIL', slot: 1, base: 'smg', mode: 'auto',
+    magSize: 100, reserve: 300, maxReserve: 600, reloadTime: 2.8, drawTime: 0.34,
+    interval: 0.075, damage: 36, severMult: 1.4, force: 11, penetration: 0.2,
+    falloff: { from: 50, to: 120, floor: 0.7 },
+    muzzle: 'rifle', tracer: 'carbine', casing: 'rifle',
+    sounds: [{ id: 'gimlet_shot', pitch: 0.9, pitchJitter: 0.03 }],
+    // Cover up, old box off, new box on, belt on the tray, cover down, the handle: viewmodels/models/flail.ts times its clip by these.
+    reloadFoley: [[0.07, 'revolver_open'], [0.17, 'reload_mag_out'], [0.49, 'reload_mag_in'], [0.6, 'reload_shell_in'], [0.69, 'revolver_close'], [0.84, 'reload_bolt']],
+    drawSound: 'weapon_draw_heavy',
+    recoil: 0.85, kick: 0.003, shake: 0.008, fovPunch: 0.3, impactScale: 1.1,
+    climb: { pitch: 0.0018, yaw: 0.0014 },
+    ads: { zoom: 0.3, time: 0.3 },
+  },
   shotgun: {
     ...BASE, id: 'shotgun', name: 'SHOTGUN', slot: 2, mode: 'semi',
     magSize: 6, reserve: 36, maxReserve: 72, reloadTime: 1.25, drawTime: 0.2,

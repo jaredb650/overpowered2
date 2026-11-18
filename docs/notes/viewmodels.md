@@ -2,6 +2,18 @@
 
 First-person weapons, arms and off-hand items. `src/weapons/viewmodels/**`, sandbox at `/?sandbox=viewmodels`. `createViewmodels(ctx)` from `src/weapons/viewmodels/index.ts` returns the `Rig`, which implements `ViewmodelRig`. It never changes game state.
 
+## Flail viewmodel
+
+`models/flail.ts`: receiver, feed cover hinged at its front (part `cover`, carrying the rail, the rear flip-up `irons` and both
+optics, so they ride up on a reload), a `box` part holding `boxStd` (the 100's coyote cloth pouch on a polymer frame) and `boxExt`
+(the 200's hard box with a window, `flailBox` hides the pouch), the `belt` (three rounds on the tray, six down the left flank), and a
+lit round count down the box face (`countStd`/`countExt`, scaled by the count left). Ceramic heat shield with an amber line in each
+vent (brightens with heat), cyan inset lines on receiver, cover and handguard. The off hand uses the shared handguard frame
+(`gripL`); the reload walks it `coverHold`, `boxHold`, `pouchL`, `boxHold`, `beltHold`, `coverHold`, `chargeHold`. 29,500
+triangles with every look built in (cap 31,000 in its test). The decal atlas was full: its stencil is a 176x26 strip in the last
+row. Stills: `tools/scripts/flail-shots.mjs` (sandbox) and `flail-live.mjs` (range: ADS with the zoom, a reload, a friend in third
+person, who holds the rifle prop as the Gimlet and Harrow do).
+
 ## Awl scout viewmodel
 
 `models/awl.ts`, remodelled 2026-11-16 after the owner called the first one terrible (flat boxes, no silhouette). Our own

@@ -166,6 +166,10 @@ const WEAPON_CATALOGUE: Readonly<Partial<Record<WeaponId, Ware>>> = {
     price: 2400, wave: 8,
     lore: 'Four missiles that find their own way to the target, which is more than the Council expects of its contractors.',
   },
+  flail: {
+    price: 1600, wave: 7,
+    lore: 'A light machine gun, light in the sense that one contractor can carry it and nobody else will. A hundred rounds a box. The Council bills the suppression separately.',
+  },
   awl: {
     price: 950, wave: 2,
     lore: 'Five rounds and a bolt you operate yourself. The Council has identified the missing automation as a saving.',
@@ -407,6 +411,16 @@ const MOD_CATALOGUE: Readonly<Record<ModId, Ware>> = {
   ultramagLight: { price: 150, wave: 0, lore: 'A light for the Ultramag that shares the rail with the laser, if you bought both. The polished slide makes it look twice the price.' },
   autorafficaLight: { price: 150, wave: 0, lore: 'A light on the Autoraffica. The smart aim already finds heads in the dark. This is so you can watch.' },
   // Akimbo (weapons/mods.ts AKIMBO_GUNS): a second gun, twice the rate and the rounds, twice the reload, no sights. Mid to late.
+  // The Flail's (weapons/mods.ts): one sight of two, the large box, and the rifles' rounds.
+  flailDot: { price: 400, wave: 7, lore: 'A red dot on the Flail\'s feed cover. It shows where the next hundred rounds are going, give or take the first one.' },
+  flailAcog: { price: 700, wave: 7, lore: 'Four-power glass for a machine gun, so the contractor can watch the cover he is removing at four times the size.' },
+  flailBox: {
+    price: 1200, wave: 9,
+    lore: 'Two hundred rounds in a box the size of a small filing cabinet. The reload is a little longer. The Council has noted that there is less of it.',
+  },
+  flailAp: { price: 600, wave: 7, lore: 'Armour-piercing rounds for the Flail. A hundred of them, so the plate gets the message even if it was not listening.' },
+  flailHp: { price: 600, wave: 7, lore: 'Hollow-points for the Flail: a hundred small objections to the unarmoured. To a plate, a hundred knocks at the door.' },
+  flailPlusP: { price: 550, wave: 0, lore: 'Overpressure rounds for the Flail. Twenty percent more per round, a hundred rounds a box. Procurement did not do the sum.' },
   smgAkimbo: { price: 1500, wave: 8, lore: 'A second SMG for the other hand. Twice the rounds, twice the noise, half the aim. The Council has never once asked for aim.' },
   rivetAkimbo: { price: 900, wave: 6, lore: 'Two Rivets, one for each hand and neither for the sights. Thirty small complaints a magazine change, filed in alternation.' },
   ultramagAkimbo: { price: 2000, wave: 10, lore: 'A second Ultramag. The reflex sight comes off: you will be looking at both slides, and they will be looking back.' },
