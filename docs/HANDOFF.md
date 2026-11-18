@@ -6,8 +6,8 @@ Update this file when the state below changes.
 ## Live vs local
 
 - **Public site** (https://jaredb650.github.io/overpowered2/): `origin/dev` is at **`42ab12d`**; game code is as of `da2ff4c`
-  ("First launch goes to Retraining; Play > Training for everyone else"). The Pages run for `42ab12d` was not checked (`gh` is not
-  signed in on the Linux machine). The docs-only commits below are on `origin/dev`:
+  ("First launch goes to Retraining; Play > Training for everyone else"). The Pages run for `42ab12d` succeeded
+  (2026-11-18). The docs-only commits below are on `origin/dev`:
   - `1c67d50` `docs/research/coop-netcode.md`: how co-op horde shooters (KF2, KF3, Source, DRG, Fatshark) make a guest feel like the host, and a staged plan for ours.
   - `2eb1896` `docs/notes/coop-audit.md`: root causes of the owner's co-op playtest reports, shooter-only effects, lag sources, fix list.
   - `74749c4` `docs/proposals/gore-ragdoll-proposals.md` + `docs/research/gore-audit.md`, `gore-techniques.md`, `ragdoll-techniques.md`.
