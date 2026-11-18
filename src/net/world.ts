@@ -15,7 +15,7 @@ import { RANKS, type Rank } from '../enemies/outpost/rank';
 import { HELMET } from '../enemies/wounds/armour';
 import { Route, RouteFinder, type NavGrid } from '../enemies/outpost/routes';
 import { closestSegmentPoints } from '../weapons/geometry';
-import { EXPLOSIONS, WEAPONS } from '../weapons/data';
+import { EXPLOSIONS, WEAPONS, bossHit } from '../weapons/data';
 import type { KillEvent } from '../core/gameplay';
 import type { ExplosionKind } from '../core/contracts';
 import { ClaimValidator, claimKind, selectTarget } from './authority';
@@ -276,6 +276,7 @@ export class CoopWorld {
         this.stats.accepted++;
         const damage = this.unpack(value.damage);
         if (damage.bone !== undefined && damage.bone >= enemy.char.rig.bones.length) damage.bone = undefined;
+        damage.amount = bossHit(enemy.isBoss, damage.amount);
         this.targetPlayer = this.players().find(player => player.id === from)?.player ?? this.ctx.player;
         this.lastHitter.set(enemy.uid, from);
         this.applying = from;

@@ -12,6 +12,7 @@ import { CoopWorld } from './world';
 import { planGib } from '../gore/torso';
 import { decodeWorld, encodeWorld, type WorldEvent } from './worldProtocol';
 import { RULES } from '../enemies/outpost/chatter/lines';
+import { TUNING } from '../weapons/data';
 import type { CommsLine } from '../enemies/outpost/events';
 
 class Relay {
@@ -165,6 +166,24 @@ describe('host-authoritative world over the mocked lobby transport', () => {
     game.host.ctx.physics.raycast = vi.fn(() => ({}) as never);
     game.gw.claim(replica, damage); game.relay.flush();
     expect(game.host.manager.applyDamage).toHaveBeenCalledTimes(3); expect(game.hw.stats.rejected).toBe(1);
+    game.hw.dispose(); game.gw.dispose();
+  });
+  it('turns a guest\'s instakill on a boss into the boss hit a host player gets', () => {
+    const game = pair();
+    const boss = game.host.manager.spawn('husk', new THREE.Vector3(0, 0, -10)); boss.isBoss = true;
+    game.host.manager.spawn('husk', new THREE.Vector3(2, 0, -10));
+    game.hw.update(); game.relay.flush();
+    game.guest.player.eye.set(0, 1.6, -5);
+    game.hw.validator.callIn(game.guestLobby.you, performance.now());
+    const [bossReplica, gruntReplica] = game.guest.ctx.enemies.alive;
+    const hit = (target: { center: THREE.Vector3 }, amount: number, source: string, type: string, blastKind?: string) =>
+      ({ amount, type, point: target.center.clone(), dir: new THREE.Vector3(0, -1, 0), force: 10, source, blastKind }) as DamageInfo;
+    game.gw.claim(bossReplica!, hit(bossReplica!, 99999, 'black_sun', 'explosive', 'finisher'));
+    game.gw.claim(bossReplica!, hit(bossReplica!, 999999, 'nuke', 'true'));
+    game.gw.claim(gruntReplica!, hit(gruntReplica!, 99999, 'black_sun', 'explosive', 'finisher'));
+    game.relay.flush();
+    expect(game.host.manager.applyDamage.mock.calls.map(([enemy, damage]) => [(enemy as Enemy).isBoss, (damage as DamageInfo).amount]))
+      .toEqual([[true, TUNING.autocannon.bossDamage], [true, TUNING.autocannon.bossDamage], [false, 99999]]);
     game.hw.dispose(); game.gw.dispose();
   });
   it('replicates wounds, severing and deaths once and never resurrects a killed id', () => {

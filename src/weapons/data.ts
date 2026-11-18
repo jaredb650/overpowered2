@@ -912,6 +912,9 @@ export const TUNING = {
   },
 } as const;
 
+/** Instakill values are for grunts. A boss takes a heavy hit, never the end of the fight: the host applies this to every hit, its own and a guest's. */
+export const bossHit = (boss: boolean, amount: number): number => boss && amount >= 9999 ? TUNING.autocannon.bossDamage : amount;
+
 // ---------------------------------------------------------------------------------------------
 // Sword
 // ---------------------------------------------------------------------------------------------

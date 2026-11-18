@@ -11,7 +11,7 @@ import type { GoreRegion } from '../characters/rig';
 import type { MuzzleKind } from '../core/contracts';
 import { clamp, rand } from '../core/math';
 import { BURST_ON, Bursts } from './burst';
-import { EXPLOSIONS, HIT_STOP, PENETRATION, SHAPED_CHARGE, SURFACE_SOUND, SWORD, TUNING, type ShapedCharge, type SoundLayer } from './data';
+import { EXPLOSIONS, HIT_STOP, PENETRATION, SHAPED_CHARGE, SURFACE_SOUND, SWORD, TUNING, bossHit, type ShapedCharge, type SoundLayer } from './data';
 import { Feel } from './Feel';
 import { Flames } from './Flames';
 import { Needles } from './needles';
@@ -34,7 +34,6 @@ const WALL_BLOOD_REACH = 5;
 const PLAYER_RADIUS = 0.45;
 const WHIZZ_RADIUS = 3;
 const SHOCK = { range: 9, targets: 3, damage: 0.4 };
-const INSTAKILL = 9999;
 /** Quad size of the crater a round leaves coming out of a wall, at impact scale 1. The pale spall is about half of it. */
 const EXIT_CRATER = 0.3;
 /** Rounds this heavy light the far face up as they leave it. */
@@ -310,8 +309,7 @@ export class Combat implements CombatSystem {
   ): DamageResult {
     const c = this.ctx;
     const d = this.nextDamage();
-    // Instakill values are for grunts. A boss takes a heavy hit, never the end of the fight.
-    d.amount = enemy.isBoss && amount >= INSTAKILL ? TUNING.autocannon.bossDamage : amount;
+    d.amount = bossHit(enemy.isBoss, amount);
     d.type = o.type;
     d.point.copy(point);
     d.dir.copy(dir);
