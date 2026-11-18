@@ -20,9 +20,13 @@ import { HANDS } from '../poses';
 import { pullTrigger } from './common';
 import { acog, acogShade, OPTIC_GLOWS } from './optics';
 import { TORCH, weaponLight } from './light';
+import { GREASE } from '../../mods';
 
 const BORE = 0.047;
 const MUZZLE = -0.61;
+/** The extended barrel's muzzle (`awlBarrel`), 12 cm on, and how far the can goes forward with it to sit over its brake. */
+const LONG = MUZZLE - 0.12;
+const CAN_SHIFT = LONG + 0.072 - (MUZZLE + 0.036);
 /** Receiver ends, and the integral rail: its base and top, and how far forward it runs past the action. */
 const REC_FRONT = -0.135;
 const REC_REAR = 0.1;
@@ -44,6 +48,8 @@ const GUNMETAL: Finish = { color: 0x2c2f34, rough: 0.4, metal: 0.65, wear: 0.18 
 const BARREL: Finish = { ...F.barrel, wear: 0.1 };
 const STAINLESS: Finish = { color: 0xc3c8cd, rough: 0.22, metal: 1, wear: 0.05, kind: Kind.brushed };
 const LENS: Finish = { color: 0x07090d, rough: 0.12, metal: 0.25, wear: 0 };
+/** The greased bolt's film: amber, wet and near mirror-smooth, laid in the flutes. */
+const GREASE_FILM: Finish = { color: 0x9a7424, rough: 0.04, metal: 0.55, wear: 0 };
 
 /**
  * The bolt after a shot, on the row's `cycleTime` of 0.65 s and its `cycleFoley` cues (data.ts): lift 0.068-0.164 s, pull
@@ -233,7 +239,9 @@ function barrel(m: Mesher): void {
     m.lathe([[0.0128, REC_FRONT - 0.004, 0], [0.0128, -0.19], [0.0099, -0.23], [0.0099, flutesFrom, 0]], 28);
     m.at([0, 0, (flutesFrom + flutesTo) / 2], null, () => m.front(fluted(0.0099, 0.0021), flutesFrom - flutesTo, { bevel: 0.0005, smooth: 60 }));
     m.lathe([[0.0099, flutesTo, 0], [0.0099, MUZZLE + 0.04], [0.009, MUZZLE + 0.036, 0]], 28);
-    // A short ported cap on the crown.
+  });
+  // A short ported cap on the crown. A part, so the extended barrel takes its place.
+  m.part('crown', [0, BORE, 0], () => {
     m.use(GUNMETAL);
     m.lathe([[0.009, MUZZLE + 0.037, 0], [0.0108, MUZZLE + 0.035], [0.0108, MUZZLE + 0.003], [0.0097, MUZZLE], [0.0052, MUZZLE, 0]], 28, { chamfer: 0.0008 });
     m.use(F.black);
@@ -241,6 +249,47 @@ function barrel(m: Mesher): void {
       for (const z of [MUZZLE + 0.011, MUZZLE + 0.022]) m.at([0.0101, 0, z], null, () => m.box(0.0018, 0.005, 0.0062, 0.0006));
     });
     m.lathe([[0.0052, MUZZLE + 0.0002, 0], [0.0046, MUZZLE + 0.03, 0], [0, MUZZLE + 0.031, 0]], 14);
+  });
+}
+
+/**
+ * The shop's extended barrel (`awlBarrel`): the barrel runs on 12 cm past the cap it replaces, to a gunmetal jam nut and a
+ * two-port brake, its ports open both sides, a dark inset under them and the receiver's amber line along each flank.
+ */
+function longBarrel(m: Mesher): void {
+  m.part('longBarrel', [0, BORE, 0], () => {
+    m.use(BARREL);
+    m.lathe([[0.0099, MUZZLE + 0.041, 0], [0.0099, LONG + 0.068], [0.0094, LONG + 0.064, 0]], 20);
+    m.use(GUNMETAL);
+    m.lathe([[0.0094, LONG + 0.068, 0], [0.0116, LONG + 0.066], [0.0121, LONG + 0.062], [0.0121, LONG + 0.055], [0.0112, LONG + 0.052, 0]], 18);
+    // The brake: a rear block, a baffle and the face, each with the bore through it; straps top and bottom between them.
+    const block = poly([[-0.0112, -0.0102], [0.0112, -0.0102], [0.0112, 0.0102], [-0.0112, 0.0102]], 0.003, 1);
+    const bore = [circle(0, 0, 0.0052, 12)];
+    for (const [z, len] of [[LONG + 0.041, 0.022], [LONG + 0.0195, 0.007], [LONG + 0.0035, 0.007]] as const) {
+      m.at([0, 0, z], null, () => m.front(block, len, { bevel: 0.0009, holes: bore }));
+    }
+    for (const y of [0.0092, -0.0092]) m.at([0, y, LONG + 0.022], null, () => m.box(0.0154, 0.002, 0.036, 0));
+    m.use(F.black);
+    m.mirror(() => m.at([0.0113, -0.0062, LONG + 0.043], null, () => m.box(0.0006, 0.0016, 0.015, 0.0002)));
+    m.glow('accent', () => m.mirror(() => m.at([0.0115, -0.0062, LONG + 0.043], null, () => m.box(0.0003, 0.0006, 0.013, 0))));
+    // The bore, dark down its first few centimetres.
+    m.lathe([[0.0052, LONG + 0.0002, 0], [0.0047, LONG + 0.03, 0], [0, LONG + 0.031, 0]], 12);
+  });
+}
+
+/**
+ * The shop's greased bolt (`awlBolt`): a wet amber film down the three flutes the port shows and over the front lugs. Its own
+ * part on the bolt's pivot, moved with the bolt (`clip`).
+ */
+function grease(m: Mesher): void {
+  m.part('grease', [0, BORE, 0.045], () => {
+    m.use(GREASE_FILM);
+    // Flute middles sit at -5 degrees and every 60 from there; these three face the port.
+    for (const deg of [-5, 55, -65]) {
+      const a = (deg * Math.PI) / 180;
+      m.at([Math.cos(a) * 0.0101, Math.sin(a) * 0.0101, -0.03], [0, 0, a], () => m.box(0.0007, 0.0026, 0.105, 0));
+    }
+    m.at([0, 0, -0.0915], null, () => m.lathe([[0.0109, 0.0006, 0], [0.0109, -0.0006, 0]], 16));
   });
 }
 
@@ -394,7 +443,9 @@ function build(kit: Kit): { model: Model; mods: ViewDef['mods'] } {
   grip(m);
   receiver(m);
   barrel(m);
+  longBarrel(m);
   bolt(m);
+  grease(m);
   trigger(m);
   magazine(m);
   bipod(m);
@@ -406,19 +457,31 @@ function build(kit: Kit): { model: Model; mods: ViewDef['mods'] } {
   const model = new Model(m, kit.mats, { glows: { ...OPTIC_GLOWS, accent: [0xff9a2e, 3], torch: TORCH } });
   acogShade(model);
   model.socket('muzzle', [0, BORE, MUZZLE]);
-  model.socket('muzzleCan', [0, BORE, MUZZLE + 0.036 - 0.178]);
+  // On the can, so it goes forward with it onto the extended barrel.
+  model.socket('muzzleCan', [0, 0, -0.178], [0, 0, 0], 'can');
+  model.socket('muzzleLong', [0, BORE, LONG]);
   model.socket('eject', [REC_W + 0.004, BORE + 0.006, -0.012]);
   model.hand('gripR', [0.018, -0.054, 0.108], [0, -0.96, 0.27], [-0.3, -0.25, -0.92]);
   model.support('gripL', [-0.001, BELLY - 0.002, -0.29]);
   model.hand('boltHold', [0.056, -0.03, 0.05], [0, -1, 0], [0, 0, -1], 'bolt');
   model.hand('magHold', [-0.02, -0.012, 0], [-0.3, 0.1, -0.95], [0.9, -0.1, -0.35], 'mag');
-  return { model, mods: { awlAcog: optic, awlCan: { part: 'can', muzzle: 'muzzleCan' }, awlLight: { part: 'light' } } };
+  return {
+    model, mods: {
+      awlAcog: optic, awlCan: { part: 'can', muzzle: 'muzzleCan' }, awlLight: { part: 'light' },
+      // After the can, so with both on the flash leaves the can's mouth, and the can goes on over the brake.
+      awlBarrel: { part: 'longBarrel', hides: 'crown', muzzle: 'muzzleLong', moves: { part: 'can', z: CAN_SHIFT } },
+      awlBolt: { part: 'grease' },
+    },
+  };
 }
 
 function clip(anim: Anim): void {
-  const bolt = boltPose(anim.sinceFire);
+  // The greased bolt runs the same pose sooner, on the row's shorter cycle (mods.ts GREASE).
+  const bolt = boltPose(anim.mods?.has('awlBolt') ? anim.sinceFire / GREASE : anim.sinceFire);
   anim.parts.bolt!.rotation.z += bolt.lift * 1.12;
   anim.parts.bolt!.position.z += bolt.back * 0.095;
+  anim.parts.grease!.rotation.z = anim.parts.bolt!.rotation.z;
+  anim.parts.grease!.position.z = anim.parts.bolt!.position.z;
   anim.parts.scoutScope!.visible = !anim.mods?.has('awlAcog');
   anim.glow('accent', 1);
   anim.right.to('boltHold', bolt.hand);

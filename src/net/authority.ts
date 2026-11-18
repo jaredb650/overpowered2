@@ -86,6 +86,7 @@ export class ClaimValidator {
       || !['bullet', 'pellet', 'explosive', 'slash', 'melee', 'fire', 'shock', 'crush', 'true'].includes(damage.type)
       || (damage.region !== undefined && !REGIONS.includes(damage.region))
       || (damage.load !== undefined && !['ap', 'hp'].includes(damage.load))
+      || (damage.armour !== undefined && !['light', 'medium', 'heavy'].includes(damage.armour))
       || (damage.bone !== undefined && (!Number.isInteger(damage.bone) || damage.bone < 0 || damage.bone > 255))
       || (damage.slicePlaneNormal !== undefined && !validVec(damage.slicePlaneNormal))) return false;
     for (const scalar of [damage.headshotMult, damage.severMult, damage.reach]) if (scalar !== undefined && (!Number.isFinite(scalar) || scalar < 0 || scalar > 1000)) return false;

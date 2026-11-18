@@ -221,6 +221,14 @@ const MOD_CATALOGUE: Readonly<Record<ModId, Ware>> = {
   awlAp: { price: 450, wave: 2, lore: 'Less to the man, more through his plate. Procurement calls this targeting.' },
   awlHp: { price: 450, wave: 2, lore: 'More to the man, nothing through his plate. Please read the dress code.' },
   awlCan: { price: 500, wave: 2, lore: 'For sending a personal message without notifying the entire department.' },
+  awlBarrel: {
+    price: 950, wave: 6,
+    lore: 'A longer barrel for the Awl. The round leaves faster, goes further into the queue, and treats armour as a suggestion. With AP, as a rumour.',
+  },
+  awlBolt: {
+    price: 700, wave: 4,
+    lore: 'The same bolt, greased. It runs a quarter sooner, which the Council has costed as a quarter more Awl for the price of a tin.',
+  },
   suppressor: {
     price: 900, wave: 0,
     lore: 'Quieter, faster and a tenth more lethal: the Council\'s working definition of good manners. Complaints about the noise will not be received.',

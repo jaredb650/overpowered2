@@ -29,6 +29,15 @@ const smg = WEAPONS.smg;
  */
 export const COMP = { rate: 1.15, flip: 0.75 } as const;
 const hmg = WEAPONS.piledriver;
+const awl = WEAPONS.awl;
+/**
+ * The Awl's extended barrel: more of the powder burns in the bore, so the round leaves faster. `penetration` m more budget (one
+ * more body), plates met as a heavy round (half of it gets past instead of none), and a longer, brighter vapor wake ('scoutLong').
+ * With AP it goes through plates as the Sabot's dart does: the piece it passes is torn off and the round lands in full.
+ */
+export const AWL_BARREL = { penetration: 0.4 } as const;
+/** The Awl's greased bolt: the whole cycle, every cue and the model's bolt with it, at this share: 0.65 s to 0.49 (92 to 123 a minute). */
+export const GREASE = 0.75;
 /** An ACOG's view: four times the hip view's magnification (90 to 28 degrees), twice the red dot's. See docs/notes/weapons.md. */
 const ACOG = { zoom: 0.69, time: 0.24 } as const;
 const DOT = { zoom: 0.4, time: 0.2 } as const;
@@ -79,6 +88,22 @@ export const MODS: Readonly<Record<ModId, ModDef>> = {
   awlAcog: { id: 'awlAcog', weapon: 'awl', name: 'ACOG', slot: 'sight', patch: { scope: false, ads: ACOG } },
   awlAp: rounds('awl', 'ap'), awlHp: rounds('awl', 'hp'),
   awlCan: { id: 'awlCan', weapon: 'awl', name: 'Suppressor', patch: { muzzle: 'suppressed', sounds: [{ id: 'awl_suppressed_shot', pitchJitter: 0.02 }] } },
+  // After the rounds in MOD_ORDER, so its wake shows over AP's streak and its budget adds to theirs (HP still stops in the first
+  // body). The can goes on over its brake, so the two stack.
+  awlBarrel: {
+    id: 'awlBarrel', weapon: 'awl', name: 'Extended barrel', slot: 'barrel', patch: { armour: 'heavy', tracer: 'scoutLong' },
+    adjust: d => ({
+      penetration: d.penetration > 0 ? d.penetration + AWL_BARREL.penetration : 0,
+      ...(d.load === 'ap' ? { armorPiercing: true } : {}),
+    }),
+  },
+  awlBolt: {
+    id: 'awlBolt', weapon: 'awl', name: 'Greased bolt',
+    patch: {
+      interval: awl.interval * GREASE, cycleTime: awl.cycleTime! * GREASE,
+      cycleFoley: awl.cycleFoley!.map(([at, id]) => [at * GREASE, id] as const),
+    },
+  },
   // +100 rounds a minute (800 to 900) and a tenth more a round; its own quieter report and a small dim flash.
   suppressor: {
     id: 'suppressor', weapon: 'smg', name: 'Suppressor',
@@ -177,7 +202,7 @@ export const MODS: Readonly<Record<ModId, ModDef>> = {
 };
 
 export const MOD_ORDER: readonly ModId[] = [
-  'awlAcog', 'awlCan', 'awlAp', 'awlHp', 'awlPlusP',
+  'awlAcog', 'awlCan', 'awlAp', 'awlHp', 'awlPlusP', 'awlBarrel', 'awlBolt',
   'suppressor', 'smgAp', 'smgHp', 'smgPlusP', 'gimletAcog', 'gimletDot', 'gimletCan', 'gimletGl', 'gimletAp', 'gimletHp', 'gimletPlusP',
   'reddot', 'harrowAcog', 'harrowAp', 'harrowHp', 'harrowPlusP', 'raufoss', 'rivetAp', 'rivetHp', 'rivetPlusP', 'ultramagAp', 'ultramagHp', 'ultramagPlusP', 'judgeAp', 'judgeHp', 'judgePlusP',
   'autorafficaAp', 'autorafficaHp', 'autorafficaPlusP', 'autorafficaMag',

@@ -69,6 +69,8 @@ export interface DamageInfo {
   vaporize?: boolean;
   /** The round's ammo mod (src/weapons/mods.ts): AP gets through plates, HP does not even try. See AMMO in src/weapons/data.ts. */
   load?: AmmoLoad;
+  /** How a plate takes the round, from the gun's modded row (the Awl's extended barrel). Unset: by its source (enemies/damage.ts classOf). */
+  armour?: 'light' | 'medium' | 'heavy';
   /**
    * How a killing hit broke the trunk (src/gore/torso.ts), written by whoever chose it so a co-op guest replaying the kill
    * makes the same choice: cracked into pieces, torn at the waist, or blown out with the body left whole.
@@ -471,7 +473,7 @@ export interface CorpseHit {
 // ---------------------------------------------------------------------------------------------
 
 export type MuzzleKind = 'smg' | 'rifle' | 'shotgun' | 'rocket' | 'autocannon' | 'plasma' | 'railgun' | 'minigun' | 'revolver' | 'flame' | 'enemy' | 'carbine' | 'pistol' | 'sabot' | 'snipe' | 'quiver' | 'rotary' | 'hmg' | 'suppressed';
-export type TracerKind = 'scout' | 'bullet' | 'heavy' | 'hellfire' | 'bloodthirst' | 'berserk' | 'plasma' | 'rail' | 'enemy' | 'carbine' | 'pistol' | 'sabot' | 'snipe' | 'ap' | 'hp' | 'plusP';
+export type TracerKind = 'scout' | 'bullet' | 'heavy' | 'hellfire' | 'bloodthirst' | 'berserk' | 'plasma' | 'rail' | 'enemy' | 'carbine' | 'pistol' | 'sabot' | 'snipe' | 'ap' | 'hp' | 'plusP' | 'scoutLong';
 export type ExplosionKind = 'rocket' | 'grenade' | 'hellfire' | 'hellfireBullet' | 'shell' | 'plasma' | 'plasmaBurst' | 'enemy' | 'barrel' | 'nuke' | 'finisher';
 export type BeamKind = 'rail' | 'lance' | 'laser' | 'sniper' | 'heal';
 export type SlashKind = 'light' | 'heavy' | 'sweep' | 'finisher' | 'wave';

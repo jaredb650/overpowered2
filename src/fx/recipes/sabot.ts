@@ -20,16 +20,19 @@ interface WakeFx {
   ring: Rgb;
 }
 
-export type WakeKind = 'sabot' | 'snipe' | 'scout';
+export type WakeKind = 'sabot' | 'snipe' | 'scout' | 'scoutLong';
 
 export const WAKE_PROFILES = {
   sabot: { width: 1, life: 1, opacity: 1, particles: 1, shock: 1 },
   snipe: { width: 1, life: 1, opacity: 1, particles: 1, shock: 1 },
   scout: { width: 0.28, life: 0.65, opacity: 0.5, particles: 0.4, shock: 0 },
+  // The extended barrel's: a thread half as wide again that hangs half as long again and reads twice as strong, still no shock.
+  scoutLong: { width: 0.42, life: 1, opacity: 0.9, particles: 0.7, shock: 0 },
 } as const;
 
 const WAKES: Record<WakeKind, WakeFx> = {
   scout: { needle: hot(0xd6e1eb, 1.5), needleCore: 3, sheath: hot(0xa1b6cb, 0.15), vapor: hot(0xdfe6ee, 0.75), ring: hot(0xd8ecff, 1) },
+  scoutLong: { needle: hot(0xe6f1ff, 2.6), needleCore: 6, sheath: hot(0xa8c4e0, 0.3), vapor: hot(0xe4eaf2, 0.9), ring: hot(0xd8ecff, 1) },
   sabot: { needle: hot(0xbfe0ff, 4), needleCore: 12, sheath: hot(0x6fa8ff, 0.4), vapor: hot(0xdfe6ee, 0.95), ring: hot(0xd8ecff, 2.6) },
   // The enemy Sniper's laser is 0xff1040: the round that follows it is the same crimson, and its vapor has a rose cast.
   snipe: { needle: hot(0xff1040, 4), needleCore: 7, sheath: hot(0xff1040, 0.4), vapor: hot(0xf0c4cc, 0.95), ring: hot(0xff5070, 2.6) },

@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ModId } from '../core/gameplay';
 import { CACHE_ORDER } from '../progression/data';
-import { MOD_WARES, WEAPON_WARES } from '../contracts/shop/data';
+import { MOD_WARES, WEAPON_WARES, modWares } from '../contracts/shop/data';
+import { armourHit } from '../enemies/damage';
 import { AMMO, TUNING, WEAPONS } from './data';
-import { AMMO_GUNS, MOD_ORDER, moddedDef } from './mods';
+import { AMMO_GUNS, AWL_BARREL, GREASE, MODS, MOD_ORDER, moddedDef } from './mods';
 import { WAKE_PROFILES } from '../fx/recipes/sabot';
 import { boltPose } from './viewmodels/models/awl';
 import { makeRange, type Range } from './testkit';
@@ -216,5 +217,101 @@ describe('the Awl scout', () => {
     expect(hp.muzzle).toBe('suppressed');
     fit('awlHp', false);
     expect(moddedDef('awl', range.weapons.fitted).damage).toBe(180);
+  });
+});
+
+describe('the Awl\'s extended barrel and greased bolt', () => {
+  const def = (...ids: ModId[]) => moddedDef('awl', new Set(ids));
+
+  it('are sold, mid-run in the Crucible and by wave 3 in Endless Humans, and listed for the cheat panel', () => {
+    for (const id of ['awlBarrel', 'awlBolt'] as const) {
+      expect(MOD_ORDER.filter(m => m === id)).toHaveLength(1);
+      expect(MOD_WARES[id].price).toBeGreaterThan(MOD_WARES.awlAp.price);
+      expect(MOD_WARES[id].lore.length).toBeGreaterThan(40);
+      expect(modWares('outpost')[id].wave).toBeLessThanOrEqual(9);
+    }
+    expect(MOD_WARES.awlBarrel).toMatchObject({ price: 950, wave: 6 });
+    expect(MOD_WARES.awlBolt).toMatchObject({ price: 700, wave: 4 });
+    expect(modWares('outpost').awlBarrel.wave).toBe(3);
+    expect(MODS.awlBarrel.slot).toBe('barrel');
+  });
+
+  it('the barrel: one body further, plates met as a heavy round, the long wake; with AP it goes through plates as a dart does', () => {
+    const long = def('awlBarrel');
+    expect(long.penetration).toBeCloseTo(0.8 + AWL_BARREL.penetration);
+    expect(long.armour).toBe('heavy');
+    expect(long.tracer).toBe('scoutLong');
+    expect(long.armorPiercing).toBeUndefined();
+    expect(long.damage).toBe(180);
+    // Ball through a plate: none of the head shot gets past it on the plain barrel, half on the long one.
+    expect(armourHit('medium', 21, 180, 540).through).toBe(0);
+    expect(armourHit(long.armour!, 21, 180, 540).through).toBe(270);
+    const ap = def('awlAp', 'awlBarrel');
+    expect(ap.load).toBe('ap');
+    expect(ap.penetration).toBeCloseTo(0.8 + AMMO.ap.penetration + AWL_BARREL.penetration);
+    expect(ap.armorPiercing).toBe(true);
+    expect(ap.tracer).toBe('scoutLong');
+    expect(def('awlAp').armorPiercing).toBeUndefined();
+    // HP still stays in the first body; the can stacks and keeps its report.
+    expect(def('awlHp', 'awlBarrel').penetration).toBe(0);
+    const can = def('awlCan', 'awlBarrel', 'awlAcog');
+    expect(can.muzzle).toBe('suppressed');
+    expect(can.tracer).toBe('scoutLong');
+    expect(can.ads).toEqual({ zoom: 0.69, time: 0.24 });
+    expect(WAKE_PROFILES.scoutLong.life).toBeGreaterThan(WAKE_PROFILES.scout.life);
+    expect(WAKE_PROFILES.scoutLong.opacity).toBeGreaterThan(WAKE_PROFILES.scout.opacity);
+  });
+
+  it('with AP, one round tears through two armoured men in line and lands in full on both; AP alone does not pierce', () => {
+    range.player.eye.y = 1.2;
+    const shoot = (...ids: ModId[]) => {
+      range.reset();
+      range.weapons.give('awl');
+      range.weapons.switchTo('awl');
+      range.run(0.4);
+      for (const id of ids) fit(id);
+      const men = [range.enemies.add(0, -10, 150), range.enemies.add(0, -14, 150)];
+      for (const man of men) man.armor = 40;
+      range.tap('fire');
+      return men;
+    };
+    const [a, b] = shoot('awlAp', 'awlBarrel');
+    expect(a!.hits[0]!.pierces).toBe(true);
+    expect(b!.hits[0]!.pierces).toBe(true);
+    expect(a!.health).toBeLessThan(150 - 100);
+    expect(b!.health).toBeLessThan(150 - 100);
+    expect(range.record.tracers.some(t => t.kind === 'scoutLong')).toBe(true);
+    const [c, d] = shoot('awlAp');
+    // The range's dummy plate stops whatever does not pierce (the real one lets AP's three quarters by): no dart rule without the barrel.
+    expect(c!.hits[0]!.pierces).toBeFalsy();
+    expect(c!.health).toBe(150);
+    expect(d!.health).toBe(150);
+    // Ball on the long barrel carries its heavy class onto the body, for the plate to take it as one.
+    const [e] = shoot('awlBarrel');
+    expect(e!.hits[0]!.armour).toBe('heavy');
+  });
+
+  it('the greased bolt: the whole cycle and every cue a quarter sooner, the case on the pull, the scope back as it locks', () => {
+    const greased = def('awlBolt');
+    expect(greased.cycleTime).toBeCloseTo(0.65 * GREASE);
+    expect(greased.interval).toBeCloseTo(0.65 * GREASE);
+    expect(greased.cycleFoley!.map(([at]) => at)).toEqual(WEAPONS.awl.cycleFoley!.map(([at]) => at * GREASE));
+    expect(60 / greased.interval).toBeGreaterThan(120);
+    // It stacks with the barrel and the rounds.
+    expect(def('awlBolt', 'awlBarrel', 'awlAp').cycleTime).toBeCloseTo(0.65 * GREASE);
+    const eject = vi.fn();
+    range.ctx.fx = new Proxy(range.ctx.fx, { get: (target, key) => key === 'shellCasing' ? eject : Reflect.get(target, key) });
+    fit('awlBolt');
+    range.tap('aim');
+    range.run(0.4);
+    expect(range.weapons.scoped).toBe(true);
+    range.tap('fire');
+    range.run(0.17);
+    expect(eject).toHaveBeenCalledOnce();
+    range.run(0.41);
+    // 0.58 s: back in the scope and ready, where the plain bolt is still going home (0.65 s).
+    expect(range.weapons.scoped).toBe(true);
+    range.tap('fire');
+    expect(range.weapons.ammo('awl').mag).toBe(3);
   });
 });

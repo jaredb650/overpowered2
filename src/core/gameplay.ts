@@ -49,6 +49,8 @@ export type ModId = 'awlAcog' | 'awlCan' | 'awlAp' | 'awlHp' | 'suppressor' | 'r
   | 'rivetAp' | 'rivetHp' | 'ultramagAp' | 'ultramagHp' | 'judgeAp' | 'judgeHp' | 'autorafficaAp' | 'autorafficaHp'
   | 'smgPlusP' | 'gimletPlusP' | 'harrowPlusP' | 'rivetPlusP' | 'ultramagPlusP' | 'judgePlusP' | 'autorafficaPlusP' | 'awlPlusP'
   | 'autorafficaMag'
+  // The Awl's extended barrel and greased bolt.
+  | 'awlBarrel' | 'awlBolt'
   // Extended magazines for the SMG, the Rivet and the Piledriver (a box), and the Gimlet's short barrel.
   | 'smgMag' | 'rivetMag' | 'piledriverBox' | 'gimletShort'
   // The SMG's mag tape and stock.
@@ -284,6 +286,8 @@ export interface ShotSpec {
   armorPiercing?: boolean;
   /** The gun's ammo mod, carried onto every body it strikes (DamageInfo.load). */
   load?: AmmoLoad;
+  /** The modded row's armour class, carried onto every body it strikes (DamageInfo.armour). */
+  armour?: 'light' | 'medium' | 'heavy';
   /** An enemy ray's near-miss sound past the player. Defaults to `bullet_whizz`. */
   whizz?: string;
   /** Damage holds to `from` meters of flight, then falls in a line to `floor` of itself at `to`. */

@@ -963,7 +963,9 @@ export class Weapons implements WeaponSystem, Guard {
 
   private updateCycle(dt: number): void {
     if (this.cycleAt < 0) return;
-    const cues = this.cycleGun === this.current ? WEAPONS[this.current].cycleFoley : undefined;
+    // The fitted row's cues: the Awl's greased bolt runs them sooner.
+    const def = this.held.def;
+    const cues = this.cycleGun === this.current ? def.cycleFoley : undefined;
     // Put away mid-cycle: the hand never finished the pump, so neither does the sound.
     if (!cues || this.cycleCue >= cues.length) {
       this.cycleAt = -1;
@@ -972,7 +974,7 @@ export class Weapons implements WeaponSystem, Guard {
     this.cycleAt += dt;
     while (this.cycleCue < cues.length && this.cycleAt >= cues[this.cycleCue]![0]) {
       // The pull-back cue ejects: the first rack cue by default, or the bolt gun's chosen cue.
-      if (this.cycleCue === (WEAPONS[this.current].cycleEject ?? 0) && WEAPONS[this.current].casing) this.eject(WEAPONS[this.current]);
+      if (this.cycleCue === (def.cycleEject ?? 0) && def.casing) this.eject(def);
       this.ctx.audio.play(cues[this.cycleCue++]![1]);
     }
   }
@@ -1590,6 +1592,7 @@ export class Weapons implements WeaponSystem, Guard {
     s.penetrateWalls = undefined;
     s.armorPiercing = def.armorPiercing ?? false;
     s.load = def.load;
+    s.armour = def.armour;
     s.falloff = REACH_ON ? def.falloff : undefined;
     s.cleave = 0;
     return s;

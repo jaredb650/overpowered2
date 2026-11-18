@@ -660,7 +660,7 @@ export class DamageModel {
       this.volley.set(plate, hits);
       return hits >= 2 ? 'medium' : 'light';
     }
-    return classOf(d.source, d.amount);
+    return d.armour ?? classOf(d.source, d.amount);
   }
 
   /** A very damaging round to the head: one of `HEAD_BURSTERS`, four pellets of a blast, or the Judge up close. */

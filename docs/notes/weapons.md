@@ -42,6 +42,17 @@ Magnification is `tan(hip FOV / 2) / tan(scope FOV / 2)`, the HUD's convention; 
 shared `rounds` API: AP 144 damage and 1.2 m penetration; HP 270 and no penetration; only one ammo mod at a time. All four
 are in Procurement and the cheat panel. AP/HP use their shared coloured tracers; ball and suppressed ball use `scout`.
 
+`awlBarrel` (950, wave 6; Endless Humans 3), the extended barrel, slot `barrel`: 12 cm more barrel and a two-port brake in place
+of the crown cap. +0.4 m penetration (0.8 to 1.2 ball, 1.6 AP; HP stays 0); plates met as a `heavy` round, so half of a ball
+round gets past instead of none (the class rides on the shot, `DamageInfo.armour`, since `classOf` only knows the unmodded row);
+with AP it is `armorPiercing`, the Sabot dart's rule: the plate it hits is torn off and the round lands in full, never blocked,
+so it goes through four men in line, armoured or not. Its tracer is `scoutLong` (2600 m/s, 70 m streak) with a stronger, longer
+wake (`WAKE_PROFILES.scoutLong`: width 0.42, life 1, opacity 0.9, particles 0.7), shown over AP's streak. It stacks with the
+can, which goes forward over the brake (`moves`), and with the ACOG. `awlBolt` (700, wave 4; Endless Humans 2), the greased bolt:
+`cycleTime`, `interval` and every `cycleFoley` cue times `GREASE` 0.75 (0.65 to 0.49 s, 92 to 123 a minute); the bolt's pose runs
+on the same clock, the scope comes back as it locks, and an amber film shows in the flutes. The cycle cues are read from the
+fitted row (Weapons.updateCycle), not WEAPONS.
+
 The ball round reuses `fx/recipes/sabot.ts` through `WAKE_PROFILES.scout`: 0.28 of the wake width, 0.65 lifetime, 0.5 opacity,
 0.4 vapor-particle budget, no terminal shock ring or air puff. The Sabot and enemy Sniper retain their existing profiles.
 

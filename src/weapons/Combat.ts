@@ -105,6 +105,8 @@ export interface StrikeOptions {
   vaporize: boolean;
   /** The gun's ammo mod, AP or HP (DamageInfo.load). */
   load: AmmoLoad | undefined;
+  /** The modded row's armour class (DamageInfo.armour). */
+  armour: 'light' | 'medium' | 'heavy' | undefined;
 }
 
 interface QueuedBlast {
@@ -149,7 +151,7 @@ export class Combat implements CombatSystem {
 
   private readonly opts: StrikeOptions = {
     type: 'bullet', source: '', force: 0, severMult: 1, headshotMult: 2, gib: false,
-    slicePlaneNormal: undefined, explosionId: undefined, killStop: 0, quiet: false, reach: undefined, blastKind: undefined, charge: undefined, pierces: false, vaporize: false, load: undefined,
+    slicePlaneNormal: undefined, explosionId: undefined, killStop: 0, quiet: false, reach: undefined, blastKind: undefined, charge: undefined, pierces: false, vaporize: false, load: undefined, armour: undefined,
   };
 
   // Scratch. Each is used within one function and never held across a call that could re-enter it.
@@ -246,6 +248,7 @@ export class Combat implements CombatSystem {
     d.armorPiercing = undefined;
     d.vaporize = undefined;
     d.load = undefined;
+    d.armour = undefined;
     return d;
   }
 
@@ -290,6 +293,7 @@ export class Combat implements CombatSystem {
     o.pierces = false;
     o.vaporize = false;
     o.load = undefined;
+    o.armour = undefined;
     return o;
   }
 
@@ -318,6 +322,7 @@ export class Combat implements CombatSystem {
     d.blastKind = o.blastKind;
     d.vaporize = o.vaporize || undefined;
     d.load = o.load;
+    d.armour = o.armour;
     if (o.charge && enemy.armor > 0) {
       d.amount *= o.charge.direct;
       d.pierces = true;
@@ -495,6 +500,7 @@ export class Combat implements CombatSystem {
         o.gib = spec.gib ?? false;
         o.pierces = spec.armorPiercing ?? false;
         o.load = spec.load;
+        o.armour = spec.armour;
         const splits = cleave > 0 && h.region !== 'head';
         // Vertical, through the line of the shot, so the two halves fall away either side of it.
         if (splits) o.slicePlaneNormal = this.vE.crossVectors(st.dir, UP).normalize();
