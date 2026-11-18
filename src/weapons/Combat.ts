@@ -14,6 +14,7 @@ import { BURST_ON, Bursts } from './burst';
 import { EXPLOSIONS, HIT_STOP, PENETRATION, SHAPED_CHARGE, SURFACE_SOUND, SWORD, TUNING, type ShapedCharge, type SoundLayer } from './data';
 import { Feel } from './Feel';
 import { Flames } from './Flames';
+import { Needles } from './needles';
 import { closestOnSegment, closestSegmentPoints } from './geometry';
 import { damageKept, loadBudget, makeBudget, passBody, passWall, perWall, type Budget } from './penetration';
 import { Projectiles } from './Projectiles';
@@ -134,6 +135,8 @@ export class Combat implements CombatSystem {
   readonly flames: Flames;
   /** Small cannon rounds going off where they land: `ShotSpec.burst`. Never a blast. See burst.ts. */
   readonly bursts: Bursts;
+  /** Flechettes standing in the walls they stopped in, for a moment. */
+  readonly needles: Needles;
 
   private readonly damageRing: DamageInfo[] = [];
   private damageHead = 0;
@@ -170,6 +173,7 @@ export class Combat implements CombatSystem {
     this.projectiles = new Projectiles(ctx, this);
     this.flames = new Flames(ctx, this);
     this.bursts = new Bursts(ctx, this);
+    this.needles = new Needles(ctx);
     for (let i = 0; i < DAMAGE_RING; i++) {
       this.damageRing.push({ amount: 0, type: 'bullet', point: new THREE.Vector3(), dir: new THREE.Vector3(), force: 0, source: '' });
     }
@@ -219,12 +223,14 @@ export class Combat implements CombatSystem {
     this.drainBlasts();
     this.projectiles.update(dt);
     this.flames.update(dt);
+    this.needles.update();
   }
 
   reset(): void {
     this.projectiles.clear();
     this.flames.clear();
     this.bursts.reset();
+    this.needles.clear();
     this.feel.reset();
     this.queueLen = 0;
     this.exploding = false;
@@ -353,6 +359,9 @@ export class Combat implements CombatSystem {
     if (!quiet) {
       // Armour that broke or let the round through has its own marker; the 2D armour sound comes from audio's enemy:hit.
       const armour = result.armour === 'broken' ? 'armorBroken' : result.armour === 'through' ? 'armorThrough' : null;
+      // A dart through a plate flashes white off it; an incendiary round spits fire where it goes in.
+      if (d.load === 'flechette' && armour) c.fx.sparks(point, normal, 2, 0xf2f8ff);
+      else if (d.load === 'api') c.fx.sparks(point, normal, 3, 0xff5a1e);
       if (result.headshot) {
         // You can hear whether it killed: the old headshot and a 2D puff over a little red mist, or a dry crack and nothing to see.
         if (result.killed) {
@@ -363,7 +372,7 @@ export class Combat implements CombatSystem {
         c.hud.hitMarker(result.killed ? 'kill' : armour ?? 'head');
         this.feel.stop(result.killed ? HIT_STOP.headshotKill : HIT_STOP.headshot);
       } else {
-        c.fx.bloodHit(point, dir, 1);
+        c.fx.bloodHit(point, dir, d.load === 'flechette' ? 0.35 : 1);
         // The material of the hit. Its weight by round, and the 2D confirmation, are layered by audio from the same enemy:hit.
         this.play(enemy.machine ? 'machine_hit' : 'bullet_body', point, 1, 0.06);
         c.hud.hitMarker(result.killed ? 'kill' : armour ?? 'body');
@@ -570,6 +579,8 @@ export class Combat implements CombatSystem {
       st.end.copy(wall.point);
       if (spec.tracer) c.fx.tracer(st.from, st.end, spec.tracer);
       this.impact(wall.point, wall.normal, wall.surface, scale);
+      if (spec.load === 'flechette') this.needles.stick(wall.point, st.dir);
+      else if (spec.load === 'api') c.fx.sparks(wall.point, wall.normal, 5, 0xff5a1e);
       c.world.objects?.damageExplosive(wall.collider, atWall, spec.source);
       const vehicle = c.enemies.vehicles?.shot(wall.collider, wall.point, atWall, spec.source) === true;
       left -= wall.distance;

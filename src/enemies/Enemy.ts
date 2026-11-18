@@ -213,6 +213,8 @@ export class Enemy implements EnemyInstance {
   blood = 0;
   /** HP per second lost through open stumps. */
   bleed = 0;
+  /** HP still to bleed from flechette holes (AMMO.flechette), drained in EnemyManager.updateStatus. */
+  darts = 0;
   burnTick = 0;
   burnEmitter: EmitterHandle | null = null;
   /** 0..1 how much of the skin has blackened. It stays after the fire goes out. */
@@ -292,7 +294,7 @@ export class Enemy implements EnemyInstance {
     this.plates = [];
     this.maim.legs = this.maim.arms = 2;
     this.maim.gunArm = this.maim.offArm = this.maim.head = true;
-    this.poise = this.stagger = this.blood = this.bleed = this.burnTick = this.charred = 0;
+    this.poise = this.stagger = this.blood = this.bleed = this.darts = this.burnTick = this.charred = 0;
     this.shock = this.reactAt = this.fallIn = this.fallStrength = this.fallBone = 0;
     this.reel.set(0, 0, 0);
     this.unmoved.set(0, 0, 0);

@@ -8,9 +8,9 @@
  * `fire` the round it would have fired. Every number is TUNING.raufoss.
  */
 import * as THREE from 'three';
-import { CG, type Ctx } from '../core/contracts';
+import { CG, type Ctx, type SurfaceKind } from '../core/contracts';
 import type { BurstSpec, EnemyInstance, ShotSpec, StruckList } from '../core/gameplay';
-import { randomInCone } from '../core/math';
+import { rand, randomInCone } from '../core/math';
 import type { Combat } from './Combat';
 import { TUNING } from './data';
 import { wallExit } from './penetration';
@@ -55,11 +55,14 @@ export class Raufoss {
     shot.penetrate = shot.pierce = shot.ricochet = shot.headHops = 0;
     shot.burst = shot.blastRadius = undefined;
     shot.struck = list;
+    // Its own tracer, fat and hot, so a Raufoss belt reads as one at a glance.
+    shot.tracer = 'raufoss';
     const res = this.combat.fireRay(origin, dir, shot);
     shot.struck = undefined;
 
     const enemy: EnemyInstance | null = list.count > 0 ? list.enemies[0]! : null;
     let through = true;
+    let surface: SurfaceKind | null = null;
     if (enemy) {
       this.at.copy(list.points[0]!);
       this.normal.copy(dir).negate();
@@ -70,12 +73,14 @@ export class Raufoss {
       if (!wall) return;
       this.at.copy(wall.point);
       this.normal.copy(wall.normal);
+      surface = wall.surface;
       // Thicker than `wall` it bursts on and no further: the ground, a bunker.
       through = wallExit(c.physics, wall.point, dir, t.wall, this.exit, this.exitNormal) >= 0;
       if (through) this.combat.exitWall(this.exit, dir, this.exitNormal, wall.surface, 0.8);
       this.exit.addScaledVector(dir, 0.02);
     }
     this.combat.bursts.at(this.at, this.normal, t.burst, shot.source, enemy);
+    this.flare(enemy, surface, dir);
     if (!through) return;
     // His armour took it: it bursts behind the plate, and every pellet goes into him.
     if (enemy && list.armoured![0] && enemy.alive) {
@@ -103,6 +108,30 @@ export class Raufoss {
       this.combat.fireRay(this.exit, randomInCone(dir, t.cone, this.dir), p);
     }
     p.struck = undefined;
+  }
+
+  /**
+   * What sells it, over the burst's own pop: the incendiary's white sparkle, embers and a ring, and a lower knock. On a surface a
+   * second, bigger pop, its debris and a scorch; on a body a hot red mist and a gout out of the far side. Looks and sound only.
+   */
+  private flare(enemy: EnemyInstance | null, surface: SurfaceKind | null, dir: THREE.Vector3): void {
+    const { fx, audio, render } = this.ctx;
+    const at = this.at;
+    const n = this.normal;
+    fx.sparks(at, n, 26, 0xfff3d0);
+    fx.sparks(at, n, 12, 0xff7a1e);
+    fx.embers(at, 10, 0.5);
+    fx.ring(at, n, 0xffc070, 3);
+    audio.play('cannon_burst', { position: at, pitch: 0.7, volume: 0.9, pitchJitter: 0.08 });
+    if (enemy) {
+      fx.bloodMist(at, 1.2);
+      fx.bloodHit(this.exit, dir, 1.6);
+      return;
+    }
+    fx.burst?.(at, n, 1.5);
+    fx.dust(at, n, 1.3);
+    if (surface) fx.impact(at, n, surface, 1.6);
+    render.decals.add('scorch', at, n, rand(0.4, 0.55), rand(0, 6.28));
   }
 
   /** The pellets as a point-blank blast into `enemy` behind the armour that stopped the round, where it struck him. */

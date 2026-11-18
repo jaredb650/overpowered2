@@ -7,7 +7,7 @@ import type { Soldier } from '../../enemies/outpost/soldier';
 import { CACHE_ORDER } from '../../progression/data';
 import { STARTING_WEAPONS, WEAPONS, WEAPON_ORDER } from '../../weapons/data';
 import { inPlay } from '../../weapons/families';
-import { AMMO_GUNS, MODS, MOD_ORDER } from '../../weapons/mods';
+import { AMMO_GUNS, API_GUNS, FLECHETTE_GUNS, MODS, MOD_ORDER } from '../../weapons/mods';
 import { CONTRACTS } from '../data';
 import { makeRange, type Range } from '../../weapons/testkit';
 import { BOUNTY, ECONOMY, killPay, wavePay } from '../defense/data';
@@ -147,7 +147,7 @@ describe('locks', () => {
     for (const id of Object.keys(WEAPON_WARES) as WeaponId[]) expect(WEAPON_WARES[id]!.lore.length).toBeGreaterThan(40);
     // Every mod for sale has its line, the AP and HP rounds among them.
     for (const id of MOD_ORDER) expect(MOD_WARES[id].lore.length, id).toBeGreaterThan(40);
-    expect(modOffers(view({})).filter(o => MODS[o.act.id as ModId].slot === 'ammo').length).toBe(AMMO_GUNS.length * 3);
+    expect(modOffers(view({})).filter(o => MODS[o.act.id as ModId].slot === 'ammo').length).toBe(AMMO_GUNS.length * 3 + FLECHETTE_GUNS.length + API_GUNS.length);
     const rows = weaponOffers(view({ cleared: 0, credits: 0 }));
     expect(rows.find(o => o.act.id === 'smg')!.why).toBe('Issued');
     expect(rows.find(o => o.act.id === 'piledriver')!.why).toBe(`Released after wave ${WEAPON_WARES.piledriver!.wave}`);

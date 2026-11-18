@@ -46,7 +46,7 @@ const DOT = { zoom: 0.4, time: 0.2 } as const;
 export const AMMO_GUNS: readonly WeaponId[] = ['smg', 'gimlet', 'harrow', 'rivet', 'ultramag', 'autoraffica', 'judge', 'awl', 'flail'];
 
 /** AP and HP specialise in plates and flesh; +P multiplies damage and keeps ball penetration and plate rules. */
-function rounds(gun: WeaponId, load: AmmoLoad): ModDef {
+function rounds(gun: WeaponId, load: Exclude<AmmoLoad, 'flechette' | 'api'>): ModDef {
   const row = WEAPONS[gun];
   const ap = load === 'ap';
   return {
@@ -66,6 +66,34 @@ function rounds(gun: WeaponId, load: AmmoLoad): ModDef {
 export const LIGHT_GUNS = ['smg', 'gimlet', 'harrow', 'awl', 'shotgun', 'thresher', 'deuce', 'judge', 'rivet', 'ultramag', 'autoraffica'] as const satisfies readonly WeaponId[];
 export const lightOf = (gun: (typeof LIGHT_GUNS)[number]): ModId => `${gun}Light`;
 const light = (gun: (typeof LIGHT_GUNS)[number]): ModDef => ({ id: lightOf(gun), weapon: gun, name: 'Weapon light', patch: {} });
+
+/** The guns that take flechettes: every one that fires pellets. The Judge fires one slug, so it does not. */
+export const FLECHETTE_GUNS = ['shotgun', 'thresher', 'deuce'] as const satisfies readonly WeaponId[];
+export const flechetteOf = (gun: (typeof FLECHETTE_GUNS)[number]): ModId => `${gun}Flechette`;
+/**
+ * Flechettes, the shotguns' AP (AMMO.flechette): 3.5 times the pellets, each a quarter of one, in the gun's own cone, with a
+ * needle of a tracer each, smaller marks on the wall, and a hiss over the report. The plate and bleed rules are enemies/damage.ts.
+ */
+function flechette(gun: (typeof FLECHETTE_GUNS)[number]): ModDef {
+  const row = WEAPONS[gun];
+  return {
+    id: flechetteOf(gun), weapon: gun, name: 'Flechettes', slot: 'ammo',
+    patch: {
+      load: 'flechette', tracer: 'flechette', pellets: Math.round(row.pellets * AMMO.flechette.pellets),
+      damage: row.damage * AMMO.flechette.flesh, impactScale: 0.4,
+      sounds: [...row.sounds, { id: 'bullet_flyby', volume: 0.55, pitch: 1.45, pitchJitter: 0.08 }],
+    },
+  };
+}
+
+/** The guns that take API rounds: the Harrow for now. Another gun takes them by joining this list (and ModId). */
+export const API_GUNS = ['harrow'] as const satisfies readonly WeaponId[];
+export const apiOf = (gun: (typeof API_GUNS)[number]): ModId => `${gun}Api`;
+/** API, armour-piercing incendiary: the gun's AP round (`rounds`), traced red, that sometimes sets the man alight (AMMO.api). */
+function incendiary(gun: (typeof API_GUNS)[number]): ModDef {
+  const ap = rounds(gun, 'ap');
+  return { ...ap, id: apiOf(gun), name: 'API rounds', patch: { ...ap.patch, load: 'api', tracer: 'api' } };
+}
 
 /**
  * The guns that take akimbo: the SMG and the four pistols. A second one in the left hand (viewmodels/models/index.ts `leftOf`), the
@@ -206,6 +234,8 @@ export const MODS: Readonly<Record<ModId, ModDef>> = {
   flailAp: rounds('flail', 'ap'), flailHp: rounds('flail', 'hp'), flailPlusP: rounds('flail', 'plusP'),
   smgAkimbo: akimbo('smg'), rivetAkimbo: akimbo('rivet'), ultramagAkimbo: akimbo('ultramag'), judgeAkimbo: akimbo('judge'),
   autorafficaAkimbo: akimbo('autoraffica'),
+  shotgunFlechette: flechette('shotgun'), thresherFlechette: flechette('thresher'), deuceFlechette: flechette('deuce'),
+  harrowApi: incendiary('harrow'),
 };
 
 export const MOD_ORDER: readonly ModId[] = [
@@ -220,6 +250,8 @@ export const MOD_ORDER: readonly ModId[] = [
   'flailDot', 'flailAcog', 'flailBox', 'flailAp', 'flailHp', 'flailPlusP',
   ...LIGHT_GUNS.map(lightOf),
   ...AKIMBO_GUNS.map(akimboOf),
+  ...FLECHETTE_GUNS.map(flechetteOf),
+  ...API_GUNS.map(apiOf),
 ];
 
 /** Held and fitted at the start of every run: the Gimlet's ACOG and suppressor, the SMG's light. The shop takes them off and puts them back. */

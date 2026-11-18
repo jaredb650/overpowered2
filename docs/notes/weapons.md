@@ -403,6 +403,27 @@ Shop prices (all wave 0): SMG 350, Gimlet 450, Harrow 550, Rivet 250, Ultramag 6
 each is 50 below its AP/HP version. The lab's generated rows grant, fit and remove each; HUD `· +P` keeps selector/smart
 labels beside it. Its tracer is a thin warm-white streak; no model changes. Tests: `src/weapons/plusP.test.ts`.
 
+**Flechettes, API rounds, and the Raufoss round's look** (2026-11-17). Numbers are `AMMO.flechette` and `AMMO.api` in `data.ts`.
+- *Flechettes* (`shotgunFlechette`, `thresherFlechette`, `deuceFlechette`; mods.ts `FLECHETTE_GUNS`, ammo slot): 3.5 times the
+  pellets (pump 6 to 21, Thresher 4 to 14, Deuce 8 to 28 a barrel) at 0.25 of a pellet each (6.5, 5.5, 7.5), in the gun's own
+  cone, which is never touched, choke included. A blast is 0.875 of buckshot on a bare man. On a plate a dart is worn as a heavy
+  round wears it and 0.9 of it gets through (`armourHit`), where buckshot's first pellet on each plate bounces and the second
+  wrecks it: one pump shell into a Brute's front got 52 to 94 through as buckshot and 114 to 127 as darts in the range. A dart in flesh
+  (not a boss or machine) leaves 0.25 of itself to bleed (`Enemy.darts`, drained by `drainDarts`: 1/2.5 of the pool a second,
+  never under 1 hp a second), and opens its own dripping wound (`BloodField.onHit`: a blast is one spray, a wound a dart). The
+  look: a thin cold needle of a tracer a dart (`flechette`), two white sparks off a plate it passes, smaller wall marks
+  (`impactScale` 0.4), a steel needle standing in the wall for 1.6 s (`needles.ts`, one InstancedMesh of 192), and a hiss
+  (`bullet_flyby` at 1.45 over the report). The Judge fires one slug, so it takes none. HUD `SHOTGUN · FLECHETTE`.
+- *API rounds* (`harrowApi`; mods.ts `API_GUNS`, `incendiary()`): the gun's AP round (`rounds(gun, 'ap')`: 48, +0.4 m, 0.75 through
+  a plate) with `load: 'api'` and a red tracer (`api`). A hit that reaches flesh sets the man alight 0.12 of the time for 4 s
+  (`ignites`, `DamageModel.ignite`, the Kiln's burning: the flames on his chest, the burn ticks, the spread and the run). Orange
+  sparks where it goes in. Another gun takes it by joining `API_GUNS` and `ModId`. HUD `HARROW · API`.
+- *Raufoss* keeps every number (`TUNING.raufoss`); it now looks it: its own tracer (`raufoss`, fat, white-hot), and over the
+  burst a white sparkle, embers, a shock ring and a lower `cannon_burst`; on a wall a second, bigger pop with debris and a
+  scorch, on a man a red mist and a gout out of his back (`Raufoss.flare`). Renders: `tools/scripts/ammo-live.mjs`.
+- Shop: pump flechettes 700 after wave 3, Thresher 900 after 4, Deuce 900 after 5, Harrow API 900 after 4 (Endless Humans halves
+  the wave). Tests: `src/weapons/flechette.test.ts`.
+
 **Extended magazines and the Gimlet's short barrel** (2026-11-16). Two more slots: `mag` and `barrel`, each one to a gun beside the
 optic and the round. `smgMag` (SMG, 30 to 50 rounds, 300 after wave 1; it was 45 for 500 until 2026-11-17), `rivetMag` (Rivet, 15 to 22, 300 after wave 2) and
 `piledriverBox` (Piledriver, a box of 100 where the belt box holds 50, 1,800 after wave 16) change `magSize` and nothing else: no

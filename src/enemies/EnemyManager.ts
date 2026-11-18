@@ -18,7 +18,7 @@ import { finishAttack, thinkAttacks, thinkBehaviours, tickAttack, type Behaviour
 import { updateContact } from './contact';
 import { archetypeById } from '../characters/archetypes';
 import { ENEMIES, LIMB_SIZE, waveScale, type Footfall } from './data';
-import { DamageModel, STRAY_TANK_DAMAGE, STRAY_TANK_RADIUS } from './damage';
+import { DamageModel, STRAY_TANK_DAMAGE, STRAY_TANK_RADIUS, drainDarts } from './damage';
 import { Director } from './director';
 import { Enemy } from './Enemy';
 import { updateMovement } from './movement';
@@ -585,8 +585,11 @@ export class EnemyManager implements EnemySystem {
       e.frozen -= dt;
       skin.setFrost(clamp(e.frozen * 2));
     }
-    if (e.bleed > 0) {
-      e.health -= e.bleed * dt;
+    // Flechette holes drain what they hold (damage.ts drainDarts), on top of any open stump.
+    const darts = drainDarts(e.darts, dt);
+    e.darts -= darts;
+    if (e.bleed > 0 || darts > 0) {
+      e.health -= e.bleed * dt + darts;
       if (e.health <= 0) {
         const t = this.statusDamage(e, 'bleed', 'true', 1);
         e.health = 0.01;

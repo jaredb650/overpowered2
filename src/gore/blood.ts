@@ -287,10 +287,14 @@ export class BloodField {
     const wet = Math.min(1, (this.wet.get(char) ?? 0) + (again ? s * 0.5 : BloodTuning.wetPerHit + s * 1.1));
     this.wet.set(char, wet);
     char.setBloodiness(wet);
-    if (again) return;
-    this.sprayChar = char;
-    this.sprayAt = now;
-    const spray = sprayOf(d);
+    // A flechette's darts are each their own small hole, dripping on its own: one spray for the blast, a wound a dart.
+    const dart = d.load === 'flechette';
+    if (again && !dart) return;
+    if (!again) {
+      this.sprayChar = char;
+      this.sprayAt = now;
+    }
+    const spray = again ? null : sprayOf(d);
     if (spray && this.sprays < BloodTuning.spraysPerFrame) {
       this.sprays++;
       this.ctx.fx.bloodSpray?.(point, d.dir, spray.weight, spray.radial);
@@ -298,7 +302,7 @@ export class BloodField {
     if (bone < 0) return;
     const target = char.bones[bone];
     // A bigger wound drips faster and for longer.
-    if (target) this.bleed(target, point, 4 + 10 * s + 3 * Math.random(), 0.55 - 0.35 * s, char.root);
+    if (target) this.bleed(target, point, dart ? 3 + 3 * Math.random() : 4 + 10 * s + 3 * Math.random(), dart ? 0.45 : 0.55 - 0.35 * s, char.root);
   }
 
   /** Marks the floor under a dragged body. The caller spaces these out by distance. */

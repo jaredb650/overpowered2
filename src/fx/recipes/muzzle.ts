@@ -224,6 +224,11 @@ const TRACERS: Record<TracerKind, TracerFx> = {
   ap: { color: hot(0xb8dcff, 3), width: 0.016, speed: 760, length: 18, core: 6, minPx: 1.2 },
   hp: { color: hot(0xff5030, 3), width: 0.02, speed: 460, length: 8, core: 4.5, minPx: 1.2 },
   plusP: { color: hot(0xffeed6, 2), width: 0.013, speed: 600, length: 11, core: 5, minPx: 1.1 },
+  // Flechettes: a swarm of needles, cold steel, thin and quicker than buckshot. API: AP's streak, red. Raufoss: fatter and
+  // whiter-hot than the Piledriver's ball.
+  flechette: { color: hot(0xe6f2ff, 3.4), width: 0.008, speed: 640, length: 12, core: 7, minPx: 1.1 },
+  api: { color: hot(0xff0c0c, 2), width: 0.024, speed: 760, length: 22, core: 3, minPx: 1.5 },
+  raufoss: { color: hot(0xffc860, 4.2), width: 0.05, speed: 400, length: 26, core: 9, minPx: 2 },
 };
 
 export function tracer(core: FxCore, from: THREE.Vector3, to: THREE.Vector3, kind: TracerKind): void {

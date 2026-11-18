@@ -435,6 +435,23 @@ const MOD_CATALOGUE: Readonly<Record<ModId, Ware>> = {
   rivetLight: { price: 150, wave: 0, lore: 'The cheapest light in the catalogue on the cheapest pistol in it. The dark is not defeated, only reduced.' },
   ultramagLight: { price: 150, wave: 0, lore: 'A light for the Ultramag that shares the rail with the laser, if you bought both. The polished slide makes it look twice the price.' },
   autorafficaLight: { price: 150, wave: 0, lore: 'A light on the Autoraffica. The smart aim already finds heads in the dark. This is so you can watch.' },
+  // Flechettes for the shotguns and API for the Harrow (weapons/mods.ts): ammo mods, one to a gun like AP, HP and +P.
+  shotgunFlechette: {
+    price: 700, wave: 3,
+    lore: 'Twenty-one steel darts a shell where there were six pellets. None of them is much on its own and none of them stops at the plate. The Council calls this distributed accountability.',
+  },
+  thresherFlechette: {
+    price: 900, wave: 4,
+    lore: 'Flechettes for the Thresher: fourteen darts a shell, five shells a second. The Council did the arithmetic once and has asked not to be shown it again.',
+  },
+  deuceFlechette: {
+    price: 900, wave: 5,
+    lore: 'Twenty-eight darts a barrel. Each leaves a small hole that goes on working after you have moved on. Procurement admires the follow-through.',
+  },
+  harrowApi: {
+    price: 900, wave: 4,
+    lore: 'Armour-piercing incendiary for the Harrow, traced in red. It goes through the plate and, about one time in eight, sets the man alight. The Council has filed this under initiative.',
+  },
   // Akimbo (weapons/mods.ts AKIMBO_GUNS): a second gun, twice the rate and the rounds, twice the reload, no sights. Mid to late.
   // The Flail's (weapons/mods.ts): one sight of two, the large box, and the rifles' rounds.
   flailDot: { price: 400, wave: 7, lore: 'A red dot on the Flail\'s feed cover. It shows where the next hundred rounds are going, give or take the first one.' },

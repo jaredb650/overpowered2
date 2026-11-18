@@ -220,7 +220,7 @@ export class CoopWorld {
     const flags = this.replicas.get(enemy.uid)?.to.flags ?? 0;
     const armoured = !!plate || shield || (flags & 96) !== 0;
     const blocked = (flags & 96) !== 0 || (shield && !damage.armorPiercing)
-      || (!!plate && !damage.pierces && !damage.armorPiercing && damage.load !== 'ap');
+      || (!!plate && !damage.pierces && !damage.armorPiercing && !['ap', 'api', 'flechette'].includes(damage.load!));
     return { dealt: blocked ? 0 : damage.amount, blocked, killed: false, headshot: damage.region === 'head', severed: [], armour: armoured ? blocked ? 'stopped' : 'through' : undefined };
   }
   private receive(value: WorldEvent, from: string): void {

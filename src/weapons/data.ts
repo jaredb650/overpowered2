@@ -25,6 +25,12 @@ export const AMMO = {
   hp: { flesh: 1.5, wear: 0.15 },
   // +P: 20% more on every hit, below HP's 50% flesh gain; ball penetration and plate rules, with no specialist bonus.
   plusP: { flesh: 1.2 },
+  // Flechettes, the shotguns' AP: `pellets` times the pellets in the same cone, each `flesh` of one, so a blast is 0.875 of
+  // buckshot on a bare man. A plate lets `plate` of a dart through and is worn by the whole dart. A dart in flesh bleeds on
+  // `bleed` of what it did, drained over about `bleedSeconds` (EnemyManager.updateStatus), and opens its own dripping wound.
+  flechette: { pellets: 3.5, flesh: 0.25, plate: 0.9, bleed: 0.25, bleedSeconds: 2.5 },
+  // API, armour-piercing incendiary: AP's round, and one that reaches flesh sets the man alight `ignite` of the time, `burn` s.
+  api: { ignite: 0.12, burn: 4 },
 } as const;
 
 export type FireMode = 'auto' | 'semi' | 'charge' | 'spin' | 'stream' | 'melee' | 'paint';

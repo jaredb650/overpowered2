@@ -203,12 +203,19 @@ export function classOf(source: string, round: number): ArmourClass {
  * AP wears it as heavy and gets `AMMO.ap.plate` through, HP is stopped and barely marks it.
  */
 export function armourHit(cls: ArmourClass, plateHp: number, round: number, amount: number, shred = 1, load?: AmmoLoad): { wear: number; through: number } {
-  if (load === 'ap') return { wear: round * shred, through: amount * AMMO.ap.plate };
+  if (load === 'ap' || load === 'api') return { wear: round * shred, through: amount * AMMO.ap.plate };
+  if (load === 'flechette') return { wear: round * shred, through: amount * AMMO.flechette.plate };
   if (load === 'hp') return { wear: round * AMMO.hp.wear, through: 0 };
   if (cls === 'medium') return { wear: plateHp, through: 0 };
   if (cls === 'light') return { wear: round * LIGHT_WEAR, through: 0 };
   return { wear: round * shred, through: amount * 0.5 };
 }
+/** Blood a hit of `amount` leaves to bleed on: a flechette's share (AMMO.flechette), none for any other round. */
+export const dartBleed = (load: AmmoLoad | undefined, amount: number): number => (load === 'flechette' ? amount * AMMO.flechette.bleed : 0);
+/** What of a flechette pool bleeds out over `dt`: 1 / AMMO.flechette.bleedSeconds of it a second, never under 1 hp a second, so it ends. */
+export const drainDarts = (pool: number, dt: number): number => Math.min(pool, Math.max(pool / AMMO.flechette.bleedSeconds, 1) * dt);
+/** Whether a round that reached flesh sets the man alight, for a roll in 0..1: an API round, AMMO.api.ignite of the time. */
+export const ignites = (load: AmmoLoad | undefined, roll: number): boolean => load === 'api' && roll < AMMO.api.ignite;
 export const STRAY_TANK_RADIUS = 0.8;
 /** Share of a shot tank's blast that reaches the player who shot it. Too close is a mistake, not a death sentence. */
 const TANK_SELF_DAMAGE = 0.35;
@@ -442,6 +449,9 @@ export class DamageModel {
     if (blast) amount = blast.amount;
 
     e.health -= amount;
+    // A dart's hole bleeds on (EnemyManager drains it); an incendiary round sometimes lights him. Not a boss or a machine.
+    if (!e.isBoss && !e.def.machine) e.darts += dartBleed(d.load, amount);
+    if (e.health > 0 && !e.def.fireproof && ignites(d.load, Math.random())) this.ignite(e, AMMO.api.burn);
     // Before the death is picked, so a killing shot leaves its mark on the body too.
     if (this.w.ctx.gore.wound(e.char, d, blast?.outcome === 'flesh' ? 1 : amount / e.maxHealth)) this.updateMaim(e);
     res.dealt = amount;
