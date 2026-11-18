@@ -6,10 +6,10 @@ import { MOD_WARES, WEAPON_WARES, modWares, weaponWares } from '../contracts/sho
 import { WEAPON_PRICES } from '../contracts/defense/data';
 import { WEAPONS } from './data';
 import { familyOfSlot } from './families';
-import { AMMO_GUNS, MODS, MOD_ORDER, moddedDef } from './mods';
+import { AMMO_GUNS, API_GUNS, MODS, MOD_ORDER, moddedDef } from './mods';
 import { makeRange, type Range } from './testkit';
 
-const FLAIL_MODS: readonly ModId[] = ['flailDot', 'flailAcog', 'flailBox', 'flailAp', 'flailHp', 'flailPlusP'];
+const FLAIL_MODS: readonly ModId[] = ['flailDot', 'flailAcog', 'flailBox', 'flailAp', 'flailHp', 'flailPlusP', 'flailApi'];
 
 let r: Range;
 beforeEach(async () => {
@@ -89,6 +89,19 @@ describe('the Flail on paper', () => {
     expect(AMMO_GUNS).toContain('flail');
     for (const id of ['flailAp', 'flailHp', 'flailPlusP'] as const) expect(MODS[id]).toMatchObject({ weapon: 'flail', slot: 'ammo' });
     expect(moddedDef('flail', new Set(['flailHp'])).damage).toBeCloseTo(WEAPONS.flail.damage * 1.5, 6);
+  });
+
+  it('takes API rounds: its AP round traced red that sets men alight, in the ammo slot so it swaps with the others', () => {
+    expect(API_GUNS).toContain('flail');
+    const api = moddedDef('flail', new Set(['flailApi']));
+    const ap = moddedDef('flail', new Set(['flailAp']));
+    expect(api).toMatchObject({ load: 'api', tracer: 'api', damage: ap.damage, penetration: ap.penetration });
+    expect(MODS.flailApi.slot).toBe('ammo');
+    draw();
+    fit('flailAp');
+    fit('flailApi');
+    expect(r.weapons.fitted.has('flailAp')).toBe(false);
+    expect(r.weapons.fitted.has('flailApi')).toBe(true);
   });
 });
 

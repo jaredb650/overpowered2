@@ -87,7 +87,7 @@ function flechette(gun: (typeof FLECHETTE_GUNS)[number]): ModDef {
 }
 
 /** The guns that take API rounds: the Harrow for now. Another gun takes them by joining this list (and ModId). */
-export const API_GUNS = ['harrow'] as const satisfies readonly WeaponId[];
+export const API_GUNS = ['harrow', 'flail'] as const satisfies readonly WeaponId[];
 export const apiOf = (gun: (typeof API_GUNS)[number]): ModId => `${gun}Api`;
 /** API, armour-piercing incendiary: the gun's AP round (`rounds`), traced red, that sometimes sets the man alight (AMMO.api). */
 function incendiary(gun: (typeof API_GUNS)[number]): ModDef {
@@ -235,7 +235,7 @@ export const MODS: Readonly<Record<ModId, ModDef>> = {
   smgAkimbo: akimbo('smg'), rivetAkimbo: akimbo('rivet'), ultramagAkimbo: akimbo('ultramag'), judgeAkimbo: akimbo('judge'),
   autorafficaAkimbo: akimbo('autoraffica'),
   shotgunFlechette: flechette('shotgun'), thresherFlechette: flechette('thresher'), deuceFlechette: flechette('deuce'),
-  harrowApi: incendiary('harrow'),
+  harrowApi: incendiary('harrow'), flailApi: incendiary('flail'),
 };
 
 export const MOD_ORDER: readonly ModId[] = [

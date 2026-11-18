@@ -63,7 +63,7 @@ export type ModId = 'awlAcog' | 'awlCan' | 'awlAp' | 'awlHp' | 'suppressor' | 'r
   | 'smgLight' | 'gimletLight' | 'harrowLight' | 'awlLight' | 'shotgunLight' | 'thresherLight' | 'deuceLight'
   | 'judgeLight' | 'rivetLight' | 'ultramagLight' | 'autorafficaLight'
   // Flechettes for every shotgun and API rounds for the Harrow (weapons/mods.ts FLECHETTE_GUNS, API_GUNS).
-  | 'shotgunFlechette' | 'thresherFlechette' | 'deuceFlechette' | 'harrowApi'
+  | 'shotgunFlechette' | 'thresherFlechette' | 'deuceFlechette' | 'harrowApi' | 'flailApi'
   // Akimbo: a second gun of the same in the left hand (weapons/mods.ts AKIMBO_GUNS).
   | 'smgAkimbo' | 'rivetAkimbo' | 'ultramagAkimbo' | 'judgeAkimbo' | 'autorafficaAkimbo'
   // The Flail's red dot and ACOG, its 200-round box, and AP, HP and +P rounds.

@@ -13,7 +13,8 @@ Procurement sells it for 1,600 after wave 7 (Endless Humans: wave 4), Outpost De
 
 Mods: `flailDot` (red dot, 400) and `flailAcog` (ACOG, 700) share the sight slot, so one excludes the other, both wave 7;
 `flailBox`, the large box (1,200, wave 9; Endless Humans wave 5), 200 rounds and a 3.1 s reload, in the mag slot; AP, HP and
-+P rounds as every `AMMO_GUNS` gun (600, 600, 550). Tests: `src/weapons/flail.test.ts`, `viewmodels/models/flail.test.ts`.
++P rounds as every `AMMO_GUNS` gun (600, 600, 550), and API (`API_GUNS`, 800, wave 7): its AP round traced red,
+igniting about one man in eight (AMMO.api). Tests: `src/weapons/flail.test.ts`, `viewmodels/models/flail.test.ts`.
 
 ## The Awl scout
 

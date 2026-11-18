@@ -448,6 +448,10 @@ const MOD_CATALOGUE: Readonly<Record<ModId, Ware>> = {
     price: 900, wave: 5,
     lore: 'Twenty-eight darts a barrel. Each leaves a small hole that goes on working after you have moved on. Procurement admires the follow-through.',
   },
+  flailApi: {
+    price: 800, wave: 7,
+    lore: 'Incendiary rounds for the Flail, traced red, a hundred to the box. About one man in eight catches. Over a full box the Council expects this to be most of them.',
+  },
   harrowApi: {
     price: 900, wave: 4,
     lore: 'Armour-piercing incendiary for the Harrow, traced in red. It goes through the plate and, about one time in eight, sets the man alight. The Council has filed this under initiative.',
