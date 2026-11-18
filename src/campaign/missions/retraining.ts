@@ -5,7 +5,7 @@
  * voluntary exit) is campaign/retraining.ts, reached through `tut.*` calls.
  */
 import {
-  CHIMNEY_TOP, JET_TOWER, DASH_LAND, DASH_PIT, DECK, DOORS, DUCT, EXIT, LEDGE, ROCKET_LEDGE, SLAM_PIT, SLOT,
+  BALCONY, CHIMNEY_TOP, JET_TOWER, DASH_LAND, DASH_PIT, DECK, DOORS, DUCT, EXIT, LEDGE, ROCKET_LEDGE, SHACKS, SLAM_PIT, SLOT, STAIRS_X, STAND,
   WALL_LAND, WALL_PIT,
 } from '../../world/map/annex/plan';
 import type { Checkpoint, DoorDef, Loadout, Mark, Mission, Script, Zone } from '../types';
@@ -35,6 +35,12 @@ function ring(prefix: string, cx: number, cz: number, r: number, n: number, y = 
 }
 const names = (prefix: string, n: number): string => Array.from({ length: n }, (_, i) => `${prefix}${i}`).join(',');
 
+/** Two subjects by every shack but the last, in its doorway and beside it, begging. */
+const TOWN_MARKS: Record<string, Mark> = Object.fromEntries(SHACKS.flatMap(([x, z], i) => [
+  [`town${i * 2}`, { at: [x, 0, z + 2.6] }],
+  [`town${i * 2 + 1}`, { at: [x + 2.6, 0, z + 1.4] }],
+]).slice(0, 20));
+
 export const RETRAINING: Mission = {
   id: 'retraining',
   title: 'Retraining',
@@ -53,6 +59,7 @@ export const RETRAINING: Mission = {
     slamPit: zone(-8, -1, SLAM_PIT.z0 - 2, 8, 3, SLAM_PIT.z1),
     ledgeTop: zone(-8, LEDGE - 0.5, ROCKET_LEDGE.z0, 8, LEDGE + 6, ROCKET_LEDGE.z1),
     jetTop: zone(JET_TOWER.x0, LEDGE + JET_TOWER.h - 0.5, JET_TOWER.z0, JET_TOWER.x1, LEDGE + JET_TOWER.h + 6, JET_TOWER.z1),
+    balcony: zone(STAND.x0, BALCONY - 1, STAND.z0, STAND.x1, BALCONY + 6, STAND.z1),
   },
   marks: {
     spawn: { at: [0, 0.3, 8.5], yaw: 0 },
@@ -89,7 +96,10 @@ export const RETRAINING: Mission = {
     yardDoor: { at: [0, 0, -273.5], yaw: 0 },
     yardA: { at: [-10, 0, -299] },
     shed: { at: [19, 0, -319] },
+    stairs: { at: [STAIRS_X, 0, -320] },
+    balcony: { at: [0, BALCONY, -341], yaw: 0 },
     ...ring('slam', SLAM_PIT.cx, SLAM_PIT.cz, 3.2, 5),
+    ...TOWN_MARKS,
   },
   routes: {},
   doors: {
@@ -439,6 +449,53 @@ export const RETRAINING: Mission = {
         },
       ],
       until: { event: 'prisoner:secured' },
+    },
+
+    // The finale.
+    {
+      id: 'balcony',
+      title: 'Graduation',
+      checkpoint: at('stairs', YARD_KIT),
+      start: [
+        { do: 'done', id: 'capture' },
+        cut('y.paid'),
+        tut('yield', 'off'),
+        tut('town', names('town', 20)),
+        say('n.balcony'),
+        { do: 'objective', id: 'balcony', text: 'Go up to the balcony', at: 'balcony' },
+      ],
+      until: { zone: 'balcony' },
+    },
+    {
+      id: 'nuke',
+      title: 'Graduation',
+      start: [
+        { do: 'done', id: 'balcony' },
+        cut('n.capable'),
+        say('n.access'),
+        { do: 'callins', held: false },
+        tut('callin', 'nuke'),
+        { do: 'objective', id: 'nuke', text: 'Call it in' },
+        { do: 'hint', text: '{callinNuke} to aim the Tactical Nuke, click to confirm.', seconds: 12 },
+      ],
+      cues: [{ when: { after: 9 }, run: [say('n.fraction')] }],
+      until: { event: 'callin:used', where: { id: 'nuke' } },
+    },
+    {
+      id: 'after',
+      title: 'Graduation',
+      start: [
+        { do: 'done', id: 'nuke' },
+        cut('n.anywhere'),
+        { do: 'wait', seconds: 9 },
+        say('n.after'),
+        { do: 'wait', seconds: 3 },
+        tut('home'),
+        say('n.door'),
+        { do: 'objective', id: 'leave', text: 'Leave through the door' },
+      ],
+      // Nothing in the mission ends it: the door does (retraining.ts), through the menu, so no mission-complete screen comes up.
+      until: { signal: 'never' },
     },
   ],
 };
