@@ -83,6 +83,43 @@ describe('blast and call-in claims', () => {
     // A drop pod lands on its own clock.
     expect(validator.validate('guest', blast('drop_pod'), 500_000, eye, target, () => false)).toBe(true);
   });
+  it('takes the instakills a guest really has, at the host\'s number, and no forged one', () => {
+    const kill = (source: string, blastKind: string, amount = 99999): HitClaim => {
+      const value = blast(source); value.damage.amount = amount; value.damage.blastKind = blastKind as never; return value;
+    };
+    const validator = new ClaimValidator();
+    // The autocannon's HE shell: a direct hit is a bullet at 99999 (under the gun's own cap), its 5 m splash an instakill blast.
+    expect(validator.acceptFire('guest', 1, 'autocannon', 1000)).toBe(true);
+    const direct = claim(); direct.weapon = 'autocannon'; direct.damage.source = 'autocannon'; direct.damage.amount = 99999;
+    expect(validator.validate('guest', direct, 1100, eye, target, () => true)).toBe(true);
+    const splash = kill('autocannon', 'shell', 123456);
+    expect(validator.validate('guest', splash, 1200, eye, target, () => false)).toBe(true);
+    expect(splash.damage.amount).toBe(99999);
+    // Not from a gun that makes them: a grenade, the wrong blast kind, or a shell past the shot's 8 s.
+    expect(validator.validate('guest', kill('grenade', 'grenade'), 1300, eye, target, () => true)).toBe(false);
+    expect(validator.validate('guest', kill('autocannon', 'hellfire'), 1300, eye, target, () => true)).toBe(false);
+    expect(validator.validate('guest', kill('autocannon', 'shell'), 9500, eye, target, () => true)).toBe(false);
+    // Hellfire rockets off the launcher that fired, not off a gun that fires none.
+    expect(validator.acceptFire('guest', 2, 'rocket', 10_000)).toBe(true);
+    expect(validator.validate('guest', kill('rocket', 'hellfire'), 10_100, eye, target, () => true)).toBe(true);
+    expect(validator.validate('guest', kill('rocket', 'rocket'), 10_100, eye, target, () => true)).toBe(false);
+    expect(validator.acceptFire('guest', 3, 'smg', 11_000)).toBe(true);
+    expect(validator.validate('guest', kill('smg', 'shell'), 11_100, eye, target, () => true)).toBe(false);
+    // Call-ins: the airstrike's finale, the Black Sun and the nuke, only once one was called in.
+    expect(validator.validate('guest', kill('airstrike', 'hellfire'), 12_000, eye, target, () => false)).toBe(false);
+    validator.callIn('guest', 12_000);
+    expect(validator.validate('guest', kill('airstrike', 'hellfire'), 12_100, eye, target, () => false)).toBe(true);
+    expect(validator.validate('guest', kill('black_sun', 'finisher'), 12_100, eye, target, () => false)).toBe(true);
+    expect(validator.validate('guest', kill('mech', 'hellfire'), 12_100, eye, target, () => false)).toBe(false);
+    const nuke = kill('nuke', 'x', 999999); nuke.damage.type = 'true'; delete nuke.damage.blastKind;
+    expect(validator.validate('guest', nuke, 12_200, eye, target, () => false)).toBe(true);
+    expect(nuke.damage.amount).toBe(999999);
+    // Under the cap nothing changes: an armoured man's shaped-charge share of the shell is the guest's number.
+    const armour = kill('autocannon', 'shell', 400);
+    validator.acceptFire('guest', 4, 'autocannon', 13_000);
+    expect(validator.validate('guest', armour, 13_100, eye, target, () => true)).toBe(true);
+    expect(armour.damage.amount).toBe(400);
+  });
 });
 
 describe('down, revive, bleed-out and respawn', () => {

@@ -27,6 +27,10 @@ export const claimKind = (source: string, type: string): 'shot' | 'blast' | 'ass
 const AREA_PER_SECOND = 160;
 /** How long after calling one in a guest's call-in may still be doing damage (a sentry stands for minutes). */
 const CALLIN_WINDOW_MS = 240_000;
+/** Combat's instakill number (an `instakill` blast) and the nuke's front: what the host applies for a kill it recognises. */
+const INSTAKILL = 99999, NUKE = 999999;
+/** The call-ins whose hit is a kill whatever it touches, by source, with the blast kind (the nuke's: its damage type) it comes as. */
+const CALLIN_KILLS: Readonly<Record<string, string>> = { airstrike: 'hellfire', black_sun: 'finisher', nuke: 'true' };
 
 export class ClaimValidator {
   private readonly shots = new Map<string, { shot: number; weapon: string; at: number; hits: number }>();
@@ -76,7 +80,10 @@ export class ClaimValidator {
       this.area.set(peer, area);
       if (++area.count > AREA_PER_SECOND) return false;
     }
-    const cap = kind === 'shot' ? Math.max(2000, def.damage * 24) : 20000;
+    let cap = kind === 'shot' ? Math.max(2000, def.damage * 24) : 20000;
+    // Over the cap only as a kill the guest really has; then the claim carries the host's number, not theirs.
+    const kill = damage.amount > cap ? this.instakill(peer, damage, kind, now) : undefined;
+    if (kill) damage.amount = cap = kill;
     const range = kind === 'assist' ? 800 : 350;
     if (!validVec(claim.origin) || !validVec(damage.point) || !validVec(damage.dir)
       || damage.source.length > 64
@@ -94,6 +101,22 @@ export class ClaimValidator {
     if (shot!.hits >= Math.max(64, def.pellets * 12) || !visible(eye, target)) return false;
     shot!.hits++;
     return true;
+  }
+  /**
+   * The number a claim over its cap may stand for, or undefined. A gun's instakill blast comes off the gun the guest last fired:
+   * the HE shell of a gun whose row is an instakill (the autocannon), or a Hellfire rocket off a launcher. A call-in's kill comes
+   * from a call-in announced lately (checked before this). Shots never need one: a gun's own cap is its damage times 24.
+   */
+  private instakill(peer: string, damage: HitClaim['damage'], kind: 'shot' | 'blast' | 'assist', now: number): number | undefined {
+    if (kind === 'assist') {
+      if (!Object.hasOwn(CALLIN_KILLS, damage.source) || CALLIN_KILLS[damage.source] !== (damage.blastKind ?? damage.type)) return undefined;
+      return damage.source === 'nuke' ? NUKE : INSTAKILL;
+    }
+    const shot = this.shots.get(peer);
+    if (kind !== 'blast' || !shot || shot.weapon !== damage.source || now - shot.at > 8000) return undefined;
+    const gun = WEAPONS[shot.weapon as WeaponId];
+    const hits = gun.round === 'shell' ? gun.damage >= INSTAKILL && damage.blastKind === 'shell' : gun.round === 'rocket' && damage.blastKind === 'hellfire';
+    return hits ? INSTAKILL : undefined;
   }
   forget(peer: string): void { this.shots.delete(peer); this.called.delete(peer); this.area.delete(peer); this.katas.delete(peer); }
 }
