@@ -47,6 +47,7 @@ import { Comms } from './comms';
 import { CoverMap, type CoverSpot, type SpotReading } from './cover';
 import { CALLSIGNS, defaultDoctrine, fireRules, MAX_SQUAD, ROLE_OF, ROLES, type Doctrine } from './doctrine';
 import { DroppedWeapons } from './dropped';
+import { bestRuns, type FleeCandidate } from './flight';
 import './events';
 import { Dread, DREAD_SPIKES, FEAR, moraleCeiling, moraleState, MONSTER_RANGE, RECOVER_AFTER, recoverRate, WITNESS_RANGE } from './morale';
 import { hear, Intel, sense, SENSE_INTERVAL } from './perception';
@@ -176,6 +177,7 @@ export class Outpost {
   /** Tactics offered across squad borders: the shield wall. */
   readonly offers = new Offers();
   private readonly leaving: Soldier[] = [];
+  private readonly runs: FleeCandidate[] = [];
   private gates: THREE.Vector3[] = [];
   private readonly gateUsedAt = new Map<THREE.Vector3, number>();
   private forming: OutpostSquad | null = null;
@@ -594,7 +596,37 @@ export class Outpost {
     return this.walkTo(s, to, null);
   }
 
-  /** Nearest way off the map that does not lead past the player. */
+  /** Every player on his feet, the host's own included: what a broken man runs from. */
+  playerEyes(): readonly THREE.Vector3[] {
+    return this.w.ctx.coop?.world?.playerEyes() ?? (this.w.player.alive ? [this.w.player.eye] : []);
+  }
+
+  private *fleePlaces(): Iterable<THREE.Vector3> {
+    for (const spot of this.cover.spots) yield spot.position;
+    yield* this.gates;
+  }
+
+  /** Somewhere to run: far from every player and out of their sight (flight.ts). False if there is nowhere he can get to. */
+  fleeTo(s: Soldier): boolean {
+    const eyes = this.playerEyes();
+    const runs = bestRuns(s.e.position, this.fleePlaces(), eyes, this.runs);
+    for (const r of runs) {
+      _a.copy(r.at).y += 1.3;
+      if (eyes.some(eye => this.w.director.clearLine(eye, _a))) r.score -= 25;
+    }
+    runs.sort((a, b) => b.score - a.score);
+    for (let i = 0; i < runs.length; i++) {
+      const at = runs[i]!.at;
+      if ((i === 0 && this.walkTo(s, at, this.intel)) || this.walkTo(s, at, null)) {
+        s.dest.copy(at);
+        s.stalls = 0;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** A released prisoner's way off the map, the nearest that does not lead past the player. */
   routeToGate(s: Soldier): boolean {
     const e = s.e;
     const p = this.w.player.position;
@@ -880,6 +912,22 @@ export class Outpost {
     this.manager.model.updateMaim(s.e);
   }
 
+  /** His own gun back from the floor wherever it is: a cornered man out of time fights with something (flight.ts). */
+  reclaimWeapon(s: Soldier): void {
+    s.scramble = s.droppedAt;
+    this.pickUpWeapon(s);
+    // shortcut: if the floor slot went to a newer drop the gun comes back unseen; fine for a man nobody is watching.
+    if (s.weapon !== 'none') return;
+    s.weapon = 'primary';
+    s.mag = s.def.mag;
+    (s.e.char.anim as unknown as PostureHost).rearm?.();
+  }
+
+  /** Dead at once, no wound clock: his own pistol (flight.ts). */
+  killOutright(e: Enemy, d: DamageInfo): void {
+    this.manager.model.kill(e, d, d.region ?? 'chest', null);
+  }
+
   /** Nothing left to fight with. The next morale tick takes him out of the squad. */
   breakNerve(s: Soldier): void {
     s.morale = Math.min(s.morale, 0);
@@ -920,7 +968,7 @@ export class Outpost {
     if (oldest) this.release(oldest);
   }
 
-  /** He got out: no kill, no score. False if he has not actually reached the gate. */
+  /** A released prisoner got out: no kill, no score. False if he has not actually reached the gate. Broken men never leave (flight.ts). */
   escape(s: Soldier): boolean {
     const e = s.e;
     if (e.position.distanceTo(s.dest) > REACHED_GATE) return false;
@@ -955,7 +1003,10 @@ export class Outpost {
     }
     // His own side's rounds and grenades are not an execution, whoever he was held in front of.
     const source = k.damage.source;
-    if (s.surrendered && !(source in ROLE_OF) && source !== 'frag' && !GIFT_SOURCES.test(source)) w.ctx.events.emit('enemy:executed', { kill: k });
+    if (s.surrendered && !(source in ROLE_OF) && source !== 'frag' && !GIFT_SOURCES.test(source)) {
+      this.captives.executed++;
+      w.ctx.events.emit('enemy:executed', { kill: k });
+    }
     else if (!s.surrendered) s.squad.onLoss(k, s.wasLeader);
     this.adoptOrphans(s.squad);
   }

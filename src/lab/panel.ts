@@ -73,6 +73,8 @@ export interface PanelActions {
   /** A destructible wall segment across the crosshair. */
   wall(): void;
   killAll(): void;
+  /** Endless Humans: every man's morale to nothing, so they break on the next morale tick and run (outpost/flight.ts). */
+  breakNerve(): void;
   clearBodies(): void;
   grant(id: PerkId | PowerupId): void;
   grantCallIn(id: CallInId): void;
@@ -232,6 +234,7 @@ export class LabPanel {
     this.button(clear, 'Mounted gun', () => this.on.emplacement());
     this.button(clear, 'Wall segment', () => this.on.wall());
     this.button(clear, 'Kill all', () => this.on.killAll());
+    this.button(clear, 'Break nerve', () => this.on.breakNerve());
     this.button(clear, 'Clear bodies', () => this.on.clearBodies());
     this.el.append(grid, modes, go, size, clear);
   }

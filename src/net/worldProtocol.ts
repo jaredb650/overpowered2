@@ -10,7 +10,7 @@ export const HEADER_BYTES = 12;
 export const ENEMY_BYTES = 45;
 /** A man's posture (characters/animation/postures.ts), so a guest sees him with his hands up, cuffed, cowering or in cover. */
 export const POSTURES = ['stand', 'crouch', 'cover', 'peek', 'leanLeft', 'leanRight', 'handsUp', 'kneel', 'cower', 'flee', 'drag', 'revive', 'downed',
-  'hunched', 'pistol', 'cuffed', 'bound'] as const;
+  'hunched', 'pistol', 'cuffed', 'bound', 'fumble', 'temple'] as const;
 export type PostureId = typeof POSTURES[number];
 /** Flag bit: he has surrendered and can be cuffed (Endless Humans). */
 export const CAPTURABLE = 128;

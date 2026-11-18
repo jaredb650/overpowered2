@@ -12,6 +12,7 @@ import { posted } from '../commander/behaviours';
 import type { Enemy } from '../Enemy';
 import { SIDEARM_MAG, WoundTuning } from '../wounds/rules';
 import type { SpotReading } from './cover';
+import { BREATH, CAUGHT_RANGE, CAUGHT_SECONDS, CHASED_RANGE, corner, CORNERED, FLEE_LIMIT, plotting, REPLAN_SECONDS, standOff } from './flight';
 import { PEEK_WAIT_BY_STATE } from './morale';
 import { pose, soldierOf, SPRINT_SECONDS, type Soldier } from './soldier';
 
@@ -27,8 +28,6 @@ const LAST_WAYPOINT = 0.45;
 const STALL_METRES = 0.5;
 const STALL_SECONDS = 1.3;
 const MAX_STALLS = 2;
-/** A man with the player this close and in sight gives up instead of running past him. */
-const CORNERED = 5;
 const KNEEL_DELAY = 0.75;
 const DRAG_SPEED = 1.7;
 const DRAG_OFFSET = 1.1;
@@ -301,8 +300,12 @@ const surrender: Behaviour = {
       pose(e, 'kneel');
     }
     const o = w.enemies.outpost!;
-    if (e.dist < 9) o.comms.say('surrender', s);
+    if (e.dist < 9 && !s.fake) o.comms.say('surrender', s);
     o.captives.look(s, w.now);
+  },
+  frame(e, w) {
+    const s = soldierOf(e)!;
+    if (s.stage === 'hide') plotting(w.enemies.outpost!, s, w.now);
   },
 };
 
@@ -328,28 +331,98 @@ const cuffed: Behaviour = {
   },
 };
 
+/** Running flat out, head down, wherever flight.ts says. */
+function run(e: Enemy, s: Soldier): void {
+  e.mode = 'point';
+  e.face = 'move';
+  e.pace = paceFor(e, SPRINT_SPEED);
+  pose(e, 'flee');
+  s.restUntil = 0;
+}
+
+/** Somewhere new to run to. Nowhere, and a player close and watching, and he is caught; nowhere and unseen, he waits and tries again. */
+function plan(e: Enemy, s: Soldier, w: AiWorld): void {
+  const o = w.enemies.outpost!;
+  s.plannedAt = w.now;
+  if (o.fleeTo(s)) return run(e, s);
+  if (e.hasLos && e.dist < CHASED_RANGE) corner(o, s, false);
+  else rest(e, s, w.now + 1.5);
+}
+
+/** A breather, crouched, looking back the way he came. */
+function rest(e: Enemy, s: Soldier, until: number): void {
+  e.mode = 'hold';
+  e.face = 'player';
+  pose(e, 'crouch');
+  s.restUntil = until;
+}
+
+/**
+ * A broken man. He never leaves: he runs about the map away from the players (flight.ts) until he is caught or has run long enough,
+ * and then does one thing about it. A released prisoner still walks out of a gate with his hands up.
+ */
 const flee: Behaviour = {
   name: 'flee',
   score: e => (soldierOf(e)?.fate === 'flee' ? 5 : 0),
   enter(e, w) {
     const s = soldierOf(e)!;
-    e.mode = 'point';
-    e.face = 'move';
-    e.pace = s.released ? WALK_SHARE : paceFor(e, SPRINT_SPEED);
-    pose(e, s.released ? 'handsUp' : 'flee');
-    if (!w.enemies.outpost!.routeToGate(s)) s.fate = 'surrender';
+    if (s.released) {
+      e.mode = 'point';
+      e.face = 'move';
+      e.pace = WALK_SHARE;
+      pose(e, 'handsUp');
+      if (!w.enemies.outpost!.routeToGate(s)) s.fate = 'surrender';
+      return;
+    }
+    if (s.fledAt < 0) s.fledAt = w.now;
+    s.caughtSince = -1;
+    if (s.corner === 'none') plan(e, s, w);
   },
   think(e, w) {
     const s = soldierOf(e)!;
+    if (s.released || s.corner !== 'none') return;
     const o = w.enemies.outpost!;
-    if (!s.released && !s.refused && e.dist < CORNERED && e.hasLos && o.doctrine.surrender) s.fate = 'surrender';
-    else if (!s.released) o.comms.say('panic', s);
+    const now = w.now;
+    if (now - s.fledAt > FLEE_LIMIT) return void corner(o, s, true);
+    const seen = e.hasLos && e.dist < CAUGHT_RANGE;
+    if (!seen) s.caughtSince = -1;
+    else if (s.caughtSince < 0) s.caughtSince = now;
+    if (e.hasLos && (e.dist < CORNERED || (seen && now - s.caughtSince > CAUGHT_SECONDS))) return void corner(o, s, false);
+    o.comms.say('panic', s);
+    if (e.hasLos && e.dist < CHASED_RANGE && now - s.plannedAt > REPLAN_SECONDS) plan(e, s, w);
   },
   frame(e, w) {
     const s = soldierOf(e)!;
     const o = w.enemies.outpost!;
-    // A man who stalled short of the gate must get there or give up: stood still, he would hold the wave open for ever.
-    if (walkRoute(e, s, w) && !o.escape(s) && !o.routeToGate(s)) s.fate = 'surrender';
+    if (s.released) {
+      // A man who stalled short of the gate must get there or give up: stood still, he would hold the wave open for ever.
+      if (walkRoute(e, s, w) && !o.escape(s) && !o.routeToGate(s)) s.fate = 'surrender';
+      return;
+    }
+    if (s.corner !== 'none') {
+      if (s.corner === 'self' || s.corner === 'cower' || s.corner === 'taunt') {
+        e.mode = 'hold';
+        e.face = 'player';
+      }
+      if (standOff(o, s, w.now)) {
+        if (s.corner === 'cower') pose(e, 'cower');
+        else if (s.corner === 'taunt') pose(e, 'stand');
+      } else plan(e, s, w);
+      return;
+    }
+    if (s.restUntil > 0) {
+      if (w.now >= s.restUntil) plan(e, s, w);
+      return;
+    }
+    // At the end of a run, or stuck: a breath if nobody can see him, straight on if somebody can.
+    if (walkRoute(e, s, w)) {
+      if (e.hasLos) plan(e, s, w);
+      else rest(e, s, w.now + rand(BREATH[0], BREATH[1]));
+    }
+  },
+  exit(e) {
+    const s = soldierOf(e);
+    if (s && s.corner !== 'self') s.corner = 'none';
   },
 };
 

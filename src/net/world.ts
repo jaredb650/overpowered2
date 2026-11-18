@@ -573,6 +573,8 @@ export class CoopWorld {
     const soldier = soldierOf(enemy);
     if (soldier) soldier.foe = target && target.id !== this.session.lobby.you ? target.foe : null;
   }
+  /** Every live player's eyes, for the host's fleeing men to run from (outpost/flight.ts). */
+  playerEyes(): THREE.Vector3[] { return this.players().filter(target => target.player.alive).map(target => target.player.eye); }
   isRemoteTarget(): boolean { return !!this.targetPlayer && this.targetPlayer !== this.ctx.player; }
   allowsLocalDamage(damage: PlayerDamage): boolean {
     return this.receivingDamage || damage.type === 'hazard' || Object.hasOwn(WEAPONS, damage.source) || damage.source === 'grenade';

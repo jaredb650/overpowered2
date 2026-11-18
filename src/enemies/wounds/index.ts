@@ -356,9 +356,9 @@ export class WoundSystem {
     else this.o.breakNerve(s);
   }
 
-  /** Backup. One-handed, and with whichever hand he has left. */
-  drawSidearm(s: Soldier, b: Injuries): void {
-    const right = !b.armR && !b.handR;
+  /** Backup. One-handed, and with whichever hand he has left, or `left` for the one that goes to his head (flight.ts). */
+  drawSidearm(s: Soldier, b: Injuries, left = false): void {
+    const right = !left && !b.armR && !b.handR;
     s.weapon = 'sidearm';
     s.spentSidearm = true;
     s.sidearmLeft = !right;

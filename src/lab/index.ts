@@ -16,6 +16,7 @@ import { cheatsOn, onCheats } from '../core/cheats';
 import { DEV_ASKED, DEV_TOOLS, DevFlags, ON_RANGE } from '../core/devflags';
 import type { Game } from '../core/Game';
 import type { WeaponId } from '../core/gameplay';
+import type { EnemyManager } from '../enemies/EnemyManager';
 import { MAX_ALIVE } from '../enemies/waves';
 import { TUNING, WEAPON_ORDER } from '../weapons/data';
 import { inPlay } from '../weapons/families';
@@ -45,7 +46,7 @@ const _at = new THREE.Vector3();
 const MELEE_LINE: readonly number[] = [1.5, 2.5, 3.5, 5, 8];
 
 /** Panel actions that act on the shared world, which a co-op match leaves to the host's own waves. */
-const WORLD_ACTIONS = ['spawn', 'vehicle', 'emplacement', 'wall', 'killAll', 'clearBodies', 'togglePause', 'step', 'setSpeed', 'swarm', 'melee',
+const WORLD_ACTIONS = ['spawn', 'vehicle', 'emplacement', 'wall', 'killAll', 'breakNerve', 'clearBodies', 'togglePause', 'step', 'setSpeed', 'swarm', 'melee',
   'lance', 'gallery', 'heavy', 'doorGun', 'parkour', 'jump'] as const;
 
 const isField = (t: EventTarget | null): boolean => t instanceof HTMLElement && /^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName);
@@ -82,6 +83,10 @@ export class Lab {
       emplacement: () => this.spawner.emplacement(),
       wall: () => this.spawner.wall(),
       killAll: () => this.spawner.killAll(),
+      breakNerve: () => {
+        const o = (ctx.enemies as unknown as EnemyManager).outpost;
+        if (o) for (const s of o.soldiers) o.breakNerve(s);
+      },
       clearBodies: () => this.spawner.clearBodies(),
       grant: id => ctx.progression.grant(id),
       grantCallIn: id => ctx.progression.grantCallIn(id),

@@ -12,6 +12,7 @@ import { listenForWounds } from './reactions';
 import { GUN_DOWN_HOLD, listenToEachOther } from './listeners';
 import { cardinal, contactReport, radioLoss } from './radio';
 import { breaking, revenge, tickOutcomes } from './outcomes';
+import { FAKE_RANGE, FUMBLE_SECONDS, plotting } from '../flight';
 import { HABIT_AT, PlayerMemory, rememberPlayer } from './memory';
 import { Offers } from './offers';
 import { VOICE_COUNT } from './voices';
@@ -413,7 +414,7 @@ describe('men hear each other', () => {
 describe('the radio net', () => {
   function net() {
     const timers: (() => void)[] = [];
-    const comms = { say: vi.fn(), after: (_: number, run: () => void) => timers.push(run) };
+    const comms = { say: vi.fn(), silence: vi.fn(), after: (_: number, run: () => void) => timers.push(run) };
     const o = { w: { player: { position: new THREE.Vector3(0, 0, 40) } }, squads: [] as OutpostSquad[], comms, scare: vi.fn(), memory: new PlayerMemory() };
     const squad = (name: string, roles: string[], z: number) => {
       const q = new OutpostSquad(o.squads.length + 1, name, o as unknown as Outpost);
@@ -479,11 +480,11 @@ describe('the radio net', () => {
 describe('morale outcomes', () => {
   function setup() {
     const timers: (() => void)[] = [];
-    const comms = { say: vi.fn(), after: (_: number, run: () => void) => timers.push(run) };
+    const comms = { say: vi.fn(), silence: vi.fn(), after: (_: number, run: () => void) => timers.push(run) };
     const spawnProjectile = vi.fn();
     const o = {
       comms, soldiers: [] as Soldier[], memory: new PlayerMemory(),
-      w: { telegraphs: { zone: vi.fn() }, ctx: { player: { health: 100, maxHealth: 100 }, audio: { play: vi.fn() }, combat: { spawnProjectile } } },
+      w: { now: 0, telegraphs: { zone: vi.fn(), glint: vi.fn() }, ctx: { player: { health: 100, maxHealth: 100 }, audio: { play: vi.fn() }, combat: { spawnProjectile } } },
     };
     const squad = new OutpostSquad(1, 'Alpha', o as unknown as Outpost);
     const man = () => {
@@ -512,8 +513,8 @@ describe('morale outcomes', () => {
     random.mockRestore();
   });
 
-  it('a fake surrender is shouted, then the pin, then the grenade a second later', () => {
-    const { o, comms, timers, spawnProjectile, man } = setup();
+  it('a fake surrender waits for the player to come close, fumbles at his vest (the tell), then the shout, the pin and the grenade', () => {
+    const { o, comms, spawnProjectile, man } = setup();
     const s = man();
     s.surrendered = true;
     s.surrenderedAt = 0;
@@ -521,13 +522,39 @@ describe('morale outcomes', () => {
     const random = vi.spyOn(Math, 'random').mockReturnValue(0.01);
     tickOutcomes(o, 5);
     random.mockRestore();
+    expect(s.fake).toBe('waiting');
+    // Not close enough to take him yet: nothing happens.
+    plotting(o, s, 5);
+    expect(s.fake).toBe('waiting');
+    s.e.dist = FAKE_RANGE - 1;
+    plotting(o, s, 6);
+    expect(s.fake).toBe('fumbling');
+    expect(o.w.telegraphs.glint).toHaveBeenCalledOnce();
+    expect(o.w.ctx.audio.play).toHaveBeenCalledWith('gear_rustle', expect.anything());
+    expect(comms.say).not.toHaveBeenCalledWith('fakeOut', s);
+    plotting(o, s, 6 + FUMBLE_SECONDS);
     expect(comms.say).toHaveBeenCalledWith('fakeOut', s);
     expect(spawnProjectile).not.toHaveBeenCalled();
-    for (const t of timers) t();
+    plotting(o, s, 6 + FUMBLE_SECONDS + 1);
     expect(spawnProjectile).toHaveBeenCalledOnce();
     // Rolled once: never again for him.
     tickOutcomes(o, 10);
+    expect(s.fake).toBe(null);
     expect(comms.say.mock.calls.filter(c => c[0] === 'fakeOut')).toHaveLength(1);
+  });
+
+  it('a man taken into cuffs while he fumbles never gets the pin out', () => {
+    const { o, comms, spawnProjectile, man } = setup();
+    const s = man();
+    s.surrendered = true;
+    s.grenades = 1;
+    s.fake = 'waiting';
+    s.e.dist = 2;
+    plotting(o, s, 1);
+    s.cuffed = true;
+    plotting(o, s, 1 + FUMBLE_SECONDS + 2);
+    expect(comms.say).not.toHaveBeenCalledWith('fakeOut', s);
+    expect(spawnProjectile).not.toHaveBeenCalled();
   });
 
   it('takes a buddy\'s death out on the player, sometimes, and talks big while his nerve goes', () => {

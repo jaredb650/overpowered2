@@ -83,6 +83,8 @@ export class Prisoners {
   held: Soldier | null = null;
   /** Men let go this run. Word gets round. */
   freed = 0;
+  /** Men shot on their knees this run. That gets round too (flight.ts). */
+  executed = 0;
   private heldAt = 0;
   private focus: Soldier | null = null;
   private keyHeld = -1;
@@ -105,7 +107,7 @@ export class Prisoners {
 
   reset(): void {
     this.held = this.focus = null;
-    this.freed = 0;
+    this.freed = this.executed = 0;
     this.keyHeld = -1;
     this.clearPrompt();
     this.clearMarks();
@@ -197,6 +199,9 @@ export class Prisoners {
       this.o.prisoners--;
     }
     s.released = false;
+    s.fake = null;
+    // Whatever he does next, a run starts a fresh clock.
+    s.fledAt = -1;
     s.e.thinkAt = 0;
     s.e.behaviourUntil = 0;
   }

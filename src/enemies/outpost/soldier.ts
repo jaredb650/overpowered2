@@ -56,6 +56,9 @@ export class Soldier {
   bravado = false;
   /** On his knees, already rolled for the fake surrender. */
   fakeRolled = false;
+  /** A fake surrender under way: kneeling and waiting for someone to come close, the hand at his vest, the pin out (flight.ts). */
+  fake: 'waiting' | 'fumbling' | 'pinned' | null = null;
+  fakeAt = 0;
   /** Friends he has watched the player kill. A man who has seen it warns the others. */
   witnessed = 0;
   /** His voice for life, an index into chatter/voices.ts `VOICES`: dealt by his first squad, never changed. -1 until then. */
@@ -139,6 +142,15 @@ export class Soldier {
   cuffed = false;
   /** Already questioned. A man has one chance to talk. */
   questioned = false;
+  /** Running (flight.ts): since when (-1 until he starts), last plan, a breather at the end of a run, a player on him since. */
+  fledAt = -1;
+  plannedAt = -99;
+  restUntil = 0;
+  caughtSince = -1;
+  /** Caught while running and not on his knees: how he is taking it, since when, and how far the pistol has got. */
+  corner: 'none' | 'cower' | 'taunt' | 'self' = 'none';
+  cornerAt = 0;
+  selfStage = 0;
   /** He has been shot on his knees. Nothing makes him give up a second time. */
   refused = false;
   /** Last time a round hit him, so that the shot itself can never be what makes him give up. */
@@ -188,6 +200,8 @@ export class Soldier {
     this.seat = 0;
     this.name = this.desig = this.nick = -1;
     this.known = this.holdout = this.bravado = this.fakeRolled = false;
+    this.fake = null;
+    this.fakeAt = 0;
     this.buddy = null;
     this.witnessed = 0;
     this.voice = -1;
@@ -227,6 +241,10 @@ export class Soldier {
     this.surrenderedAt = 0;
     this.collared = this.cuffed = false;
     this.questioned = this.refused = false;
+    this.fledAt = this.caughtSince = -1;
+    this.plannedAt = -99;
+    this.restUntil = this.cornerAt = this.selfStage = 0;
+    this.corner = 'none';
     this.hitAt = -99;
     this.judgeAt = this.watchedAt = 0;
     this.wasLeader = false;

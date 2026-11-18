@@ -488,7 +488,7 @@ export class Units {
     }
   }
 
-  /** It worked or nobody came, and either way he has left his squad. He runs for a gate like any other broken man. */
+  /** It worked or nobody came, and either way he has left his squad. He runs like any other broken man (outpost/flight.ts). */
   private leaveFeign(u: Unit): void {
     const s = u.s;
     this.c.props.remove(s.e.char, 'grenade');
