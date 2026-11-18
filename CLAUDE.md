@@ -17,11 +17,13 @@ playwright-core (screenshots). No other runtime deps without a strong reason.
 
 ## Setup on a fresh machine
 
-- **Node 22** (the Pages CI uses 22). `npm ci`.
+- **Node 22** (the Pages CI uses 22). `npm ci`. On the Linux dev machine Node 22 comes from nvm; non-interactive shells need
+  `export NVM_DIR="$HOME/.nvm"; . "$NVM_DIR/nvm.sh"; nvm use 22` first (the system node is 18).
 - Dev server: `npm run dev` (Vite, 127.0.0.1, port 5173, `strictPort: false`). Agents use their own port, see Safety.
 - Build: `npm run build` (= `tsc --noEmit && vite build`). Typecheck alone: `npx tsc --noEmit`.
-- Tests: **one file at a time**, never the whole suite (too heavy for the owner's 8 GB machine, and slow anywhere):
-  `nice npx vitest run src/weapons/flail.test.ts --testTimeout=60000`. Judge a failure in a clean worktree
+- Tests: run the **whole suite** (`npx vitest run --testTimeout=60000`, ~20 s on the Linux dev machine), or one file while
+  iterating (`npx vitest run src/weapons/flail.test.ts`). Known failure at `42ab12d`: `src/core/devflags.test.ts` expects the Range
+  to start with `arsenal` on, but `src/lab/settings.ts` defaults it off (stale test). Judge a failure in a clean worktree
   (`git worktree add <scratch>/wt-x HEAD`, symlink `node_modules`, apply your diff) before blaming your change.
 - Screenshots: `npx playwright-core install chromium` once, then `tools/shot.mjs` (see Tools).
 - **Music:** `public/audio/music/` (the owner's placeholder songs, commercial releases, ~360 MB) is git-ignored and absent in a
@@ -54,7 +56,7 @@ playwright-core (screenshots). No other runtime deps without a strong reason.
 **Push only when the owner says "push".** Every push to `dev` rebuilds and publishes the friends' site
 https://jaredb650.github.io/overpowered2/ (GitHub Pages, `.github/workflows/pages.yml`). Commit locally otherwise. Procedure:
 1. Pin the exact SHA to push; check it fast-forwards `origin/dev` (`git merge-base --is-ancestor origin/dev <sha>`).
-2. In a clean worktree at that SHA: `npx tsc --noEmit`, `npm run build`, and the relevant Vitest files one at a time.
+2. In a clean worktree at that SHA: `npx tsc --noEmit`, `npm run build`, and the whole Vitest suite.
 3. Audit `dist/`: under `audio/music` only `manifest.json`; no secrets or keys; no file over 5 MB.
 4. `git push origin <sha>:dev`; wait for the Pages run to finish (`gh run list --workflow pages.yml`).
 5. Grep the live JS chunk for a string from the change to prove it shipped.
