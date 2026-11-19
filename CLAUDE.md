@@ -79,8 +79,11 @@ https://jaredb650.github.io/overpowered2/ (GitHub Pages, `.github/workflows/page
 - Player text says **"brain chip"**, never just "chip". Brain chips (key T): Sonar, Thermal, Focus, Gun Kata (`src/contracts/chips.ts`).
 - **Enemies never despawn** (flee rework: cornered enemies surrender, fight, fake-surrender with a grenade, cower, taunt, rarely
   suicide). Released prisoners may walk off and vanish; that's fine.
-- **Slow-mo in co-op is parked.** Focus is disabled in co-op ("NO FOCUS BRAIN CHIP IN CO-OP"); keep it so until the owner picks a
-  design. Research and options: `docs/research/coop-slowmo.md` (recommended "Team Focus").
+- **Slow-mo in co-op is the team's: one player slows everyone, and every screen says who** ("KESTREL used Focus", owner's decision,
+  2026-11-18). The Focus brain chip, the SLOWMO perk, a Time Warp capsule and a boss's death slow the host's world for all players;
+  each player keeps full speed (`playerDt`), as alone. **No slow-mo may start on any screen without that notice.** The team can hold
+  the world slow for 12 s in a row; a downed or dead player cannot. Hit-stop, the Judge's fan slow-mo and the death beat do nothing
+  in co-op. Rules and code: `docs/notes/coop.md`, "Time: the team's slow motion" (`src/net/world/slow.ts`, `clock.ts`).
 - Mods are bought and fitted in the shop, never swapped mid-fight. Same-slot mods exclude each other; different slots stack.
 - Original content only: no recreations of existing games, characters or levels; no real-world logos or brands. Real guns and
   other games are inspiration only.

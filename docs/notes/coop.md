@@ -51,7 +51,7 @@ If a friend cannot connect at all, set up TURN once (below).
 | `tools/scripts/coop-stage3.mjs`, `coop-modes.mjs`, `coop-mission.mjs`, `coop-robust.mjs` | The two-page proofs (below) |
 
 Small hooks outside `src/net`, each marked with a co-op comment: `Game.ts` (which systems run where, the shared slow-mo clock, the hidden
-tab's worker tick), `Player.ts` (`downed` and its crawl), `time.ts` (`keepScales`), `Hud.ts` (shops and loadout over the live world in
+tab's worker tick), `Player.ts` (`downed` and its crawl), `time.ts` (`gate`, `share`, `hostSteps`: see "Time: the team's slow motion"), `Hud.ts` (shops and loadout over the live world in
 co-op, `mount`, quitting to the lobby), `Screens.ts`/`pause.ts` (lobby return, labels), `progression/index.ts`, `contracts/shop/index.ts`,
 `contracts/defense/index.ts`, `Weapons.ts`, `runreport.ts` (a teammate's kill is not yours), `progression/score.ts` (no solo record from
 a co-op run), `EnemyManager.placeReplica` (posture), `allies/fire.ts` (garrison tracers), `campaign/index.ts`, `watch.ts`, `types.ts`.
@@ -81,7 +81,9 @@ the names the game used before).
 | `world/callins.ts` | A call-in's feed line, and the host's note that lets the caller's call-in damage pass | `callin` |
 | `world/sonar.ts` | The shared Sonar ping | `sonar` |
 | `world/chatter.ts` | The soldiers' lines on every screen | `chatter`, `chatcut` |
-| `world/clock.ts` | `clock()`: which slow-mo the host keeps; a guest's slow-mo perk asking the host | `slow` |
+| `world/slow.ts` | The team's slow-mo rules with no game in them: the kinds, their scales and caps, the host's list and the team's budget (`SlowBoard`), the notice's words | |
+| `world/clock.ts` | The clock's gate (`ctx.time.gate`): every slow-mo request the game makes, on host and guest; the host's answer; `clock()` applies the list to this screen's clock; the host's long-frame steps | `slow`, `slowstate`, `slowno` |
+| `world/slowNotice.ts` | The notice every screen shows while the world is slow (its own element in the HUD root, `ui/css/cooptime.css`) | |
 | `world/capture.ts` | A guest capturing a prisoner (hold E, the host cuffs, the bounty comes back); `capturable` | `capture`, `credit` |
 | `world/guns.ts` | Carries the news of dropped guns for `weapons/dropped.ts` | `gun` |
 | `world/vehicles.ts` | The host's ground vehicles drawn on guests, 5 Hz | `vehicles` |
@@ -144,7 +146,7 @@ must call it, add a method on `CoopWorld` that passes the call on.
   (`pick`), so a guest's untouched starter shows the gun `startMatch` will give it.
 - **Sonar is shared.** A player's `sonar:ping` goes out as `{ t: 'sonar', at }` (the host relays a guest's to the others); every other
   player runs the same ring and reveal from that point (`Sonar.share`, their own cooldown untouched) with "<callsign> used sonar" in the
-  feed. Thermal is never sent, and Focus does nothing in co-op (`clock()` keeps only the shared slow-mo scales).
+  feed. Thermal is never sent. Focus slows the world for everyone (below, "Time: the team's slow motion").
 - **Joining, in stages.** A guest's status line reads Contacting lobby servers… (no Nostr relay socket open yet), Looking for lobby…,
   Connecting to host… (an offer or answer came back: WebRTC/ICE under way), Checking version…, then Connected. No relay in 10 s stops
   with 'relays'; at 30 s the stage that stalled names the error ('connect' when a host was found but never connected, else 'no-host').
@@ -439,9 +441,7 @@ page), and the others are trials. Cloudflare's free tier is the free option, so 
 - **Loot and the shop.** Pickups, weapon caches and the supply pod are each player's own: every browser lays out its own pickups and
   drops its own kills' loot, and each player gets their own supply pod near them each break. Nobody can take another's loot.
   The pod's shop opens over the live world (the co-op "paused" state releases controls but never stops the clock).
-- **Slow motion.** The world is the host's, so slow-mo is everyone's or no one's. The host keeps SLOWMO, Time Warp and a boss death's
-  slow-down (`SHARED_SLOW`); a guest's SLOWMO or Time Warp perk is forwarded and the host slows the world for its duration (8 s cap).
-  Every player keeps full speed, as solo. Hit-stop, the Judge's fan slow-mo and Focus are dropped in co-op (Focus says so).
+- **Slow motion.** One player slows everyone, and every screen says who: see "Time: the team's slow motion" below.
 - **Call-ins.** Each player calls their own (earned from their own combo). A strike, the AA sentry, the mech, the door gunner or the
   AC-130 runs on the caller's screen; its damage reaches the host as call-in claims, accepted for 4 minutes after the caller's
   `callin:used` (sentries stand that long), rate-capped at 160 a second, no line-of-sight test. Every explosion anyone's game makes is
@@ -454,6 +454,84 @@ page), and the others are trials. Cloudflare's free tier is the free option, so 
 - **HUD.** Teammates strip at the top (health, DOWN/DEAD, ping); Tab board; Enter chat (Esc cancels; lines show in the feed); revive
   prompt over the downed friend; end-of-run board.
 - **Esc never pauses co-op** (stage 1). Leaving: the host's "End match (all to lobby)", a guest's "Leave match (to lobby)".
+
+## Time: the team's slow motion
+
+The owner's rule (decision 3 of the overhaul): **one player slows everyone, and every screen says who and with what. No slow-mo
+starts on any screen without that notice**, the causer's own screen included.
+
+**What slows the world, for everyone:** the Focus brain chip (0.35x), the SLOWMO perk and a Time Warp capsule (0.25x), and a
+boss's death (0.4x Juggernaut, 0.45x Titan). These are the scales and blend-ins of single player. **What does nothing in co-op:**
+hit-stop (every freeze-frame: gore, perks, call-ins, bosses, the Lance), the Judge's fan half speed, the solo death beat
+(`hud-death`) and the dev panel's world speed. A freeze-frame or the fan would put the whole team in and out of slow motion many
+times a minute.
+
+**How it feels.** The world clock slows on every screen: enemies, their projectiles, physics, ragdolls, gore, particles, the
+audio's pitch, and for SLOWMO and Time Warp the SLOWMO colour grade. Each player's own clock does not: body, aim, guns, reloads,
+stims and the Focus meter keep full speed, exactly as in single-player slow-mo. A guest's screen in a teammate's slow-mo runs the
+same code path as a solo screen in its own slow-mo (one shared request on `GameTime`, `dt` scaled, `playerDt` not), so whatever
+single player does with tracers, impacts and the viewmodel, a guest does too. Other players' bodies are drawn from their pose
+stream on real time, so they move at full speed through the slowed world, as the player does on their own screen. The world blends
+in over the cause's own time (0.05 to 0.18 s) and back over **0.5 s** (0.6 s after a boss), on every screen's own clock, so a late
+or lost message never makes a step.
+
+**The notice** (`world/slowNotice.ts`): top centre under the teammates strip. One line per cause in the causer's colour:
+"KESTREL used Focus", "KESTREL earned SLOWMO", "KESTREL took Time Warp", "KESTREL killed the JUGGERNAUT" ("The TITAN is dead"
+when no player did it); your own carries "(you)". Under them "WORLD AT 0.35x · YOU AT FULL SPEED", and a bar per line that
+drains to its end. When the last one ends it reads "WORLD BACK TO FULL SPEED" for 1.1 s, then goes. A teammate's slow-mo also
+plays `time_warp_in` and `time_warp_out`; the causer hears what single player plays.
+
+**Rules (the host's `SlowBoard`, `world/slow.ts`):**
+
+| Rule | Value |
+|---|---|
+| Two players at once | The deeper scale wins; both are named, each with its own bar. The world eases between scales |
+| Asking again while yours runs (a second Time Warp) | Its clock goes back to full. It never adds |
+| Longest one request can run | Focus 4.5 s, SLOWMO and Time Warp 5.5 s, a boss's death 9 s (real time). Focus asks for what its meter holds |
+| Each player's own limits | Unchanged: Focus's 4 s meter, 25% to start, 1.5 s rest, 18 s refill; a perk's 5 s; SLOWMO's rearm |
+| Down or dead | Refused ("NO SLOW-MO WHILE DOWN"); whatever they had running ends. The same when a player leaves |
+| The team's budget | Players can keep the world slow **12 s in a row**. The budget fills at 1 s per second of full speed. Run dry, the world returns to full speed and nothing a player asks for is granted until **3 s** are back ("TEAM SLOW-MO SPENT · 3 S"). So: at most 12 s at once, and half the time over a long fight |
+| A boss's death | The world's own: never refused, spends none of the budget |
+
+A lone player's Focus (4 s of every 23.5) and SLOWMO never meet the budget; it exists for three or four players chaining.
+
+**Wire** (reliable `action` lane):
+
+| Event | Direction | Fields |
+|---|---|---|
+| `slow` | Guest to host | `id` (`focus`, `slowmo`, `timeWarp`), `on`, `s` seconds it means to run |
+| `slowstate` | Host to guests | `list` of `{ k kind, s slot (-1 the world), sc scale, ms left, of ms granted, nm boss name }`, `lock` ms until the budget allows a new one |
+| `slowno` | Host to one guest | `id`, `why` (`down`, `spent`), `ms` to wait |
+
+`slowstate` goes out on every change, every 250 ms while the world is slow and every 2 s otherwise, so a lost message or a late
+joiner is put right within a quarter second. Every entry also carries its own end: a guest lets go of an entry 0.5 s after its
+deadline if the end never arrives. A guest's own request is applied on its own screen at once and confirmed by the next state
+(700 ms to arrive, or it comes off), so the key has no network lag. **The scale is not in the snapshot header**: the periodic
+`slowstate` does that job, and the snapshot lane stays the enemy-motion lane's alone.
+
+**Code path.** `ctx.time.gate` (`core/time.ts`) is set by `Clock` while a co-op world lives. With a gate, `pushScale`, `popScale`
+and `hitStop` from anywhere in the game go to the gate and not to the clock, so no system needed a co-op branch: Focus
+(`contracts/chips.ts`), the perks (`progression/index.ts`) and the bosses call what they call alone. The gate keeps the four team
+kinds and drops the rest. Each frame before the tick, `Clock.clock()` applies the current list with `ctx.time.share` /
+`unshare` (one request per entry, so the blends are the clock's own). Focus reads `world.slowHeld('focus')` and turns off when the
+host has refused or ended it. A teammate's SLOWMO look comes through `progression.shareGrade` (it ranks as the perk would).
+Single player has no gate: `pushScale` is the code it was.
+
+**Clocks, for every lane:** `ctx.time.dt` is the world clock and on a guest it now follows the team's slow-mo: everything
+cosmetic that should slow with the world (replica animation, enemy projectiles in flight, gore, ragdolls, particles) uses it.
+`ctx.time.playerDt` is the player's own and never slows. `ctx.time.realDt` is for UI and for other players' bodies. Enemy
+interpolation between snapshots runs on the host's wall clock (`performance.now()`), never on `ctx.time.elapsed`: a slowed enemy
+simply moves less between stamps. Team timers that belong to players run on real time and are not stretched by slow-mo: the
+30 s bleed-out, the revive hold, the end board (a slowed bleed-out would be a free extension, since the rescuer moves at full
+speed). Timers that belong to the world stretch with it: waves and breaks (the host's director on `dt`), and an enemy's blast on
+a remote player, which now burns on the world clock (`Later.after`, T2).
+
+**A slow host (T1).** `GameTime.tick` clamps a frame to 1/20 s. Alone that is right; a co-op host at 10 fps was running the world at
+half speed for everyone. Now a co-op host cuts a long frame into world steps of at most 1/20 s (`GameTime.split`, `Game.run`): two
+at 10 fps, up to five (4 fps), drawn once. The first step takes the frame's input; the later ones see only what is still held.
+If the steps themselves are what is slow (they would cost over half the frame), there are fewer and longer ones, up to 0.125 s,
+which still keeps real speed down to 8 fps. After a stall at most 0.25 s of world is played out. Guests and single player are
+unchanged.
 
 ## Stage 4: Endless Humans, Outpost Defense, any map
 

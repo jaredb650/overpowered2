@@ -440,7 +440,9 @@ hands it the press. Every number is in `THERMAL`, `FOCUS`, `CHIPS` and `CHIP_SLO
   studio get it back clean, and play puts it up again.
 - **Focus** (2,200, after wave 6): `time.pushScale('focus', 0.35)` while on; the player keeps full speed, as in SLOWMO. A 4 s
   meter on `playerDt`, refilled in 18 s after a 1.5 s rest; it needs a quarter of the meter to start and stops itself dry. In co-op
-  it does nothing (`NO FOCUS BRAIN CHIP IN CO-OP`): one player's clock may not slow another's (`coop.md`), and Game clears scales there anyway.
+  the same request goes to the host, who slows the world for the whole team and names the player on every screen ("KESTREL used
+  Focus"); the meter, the start share and the refill stay each player's own. The host can refuse or end it (the player is down, or
+  the team's 12 s slow-mo budget is spent), and the chip turns off with it (`coop.md`, "Time: the team's slow motion").
 - **Slots:** one; the second is 1,600 after wave 4. A brain chip fitted with every slot full takes the last slot's place.
 - **Shop:** Procurement's Implants page, under the implants (`chipOffers` in `shop/rules.ts`), with two brain chip boxes under the
   implant slots. Outpost Defense's Infirmary does not sell them yet. Purchases last one run; `reset` puts Sonar back alone.
