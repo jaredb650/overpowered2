@@ -87,8 +87,13 @@ export const GoreTuning = {
   freezeMinAge: MASS_PASS ? 0.6 : 0,
   freezeSpeed: MASS_PASS ? 1 : Infinity,
   overSeconds: MASS_PASS ? 1 : 0,
-  /** Bodies still holding themselves up. Past this a collapse is just a ragdoll. */
-  maxCollapses: 4,
+  /**
+   * Bodies still holding themselves up. Past this a collapse is just a ragdoll. 8 since the gore update's R4 (it was 4, and
+   * is with `?carry=0`): a burst that kills six had the fifth and sixth drop as plain ragdolls beside four that died on their
+   * feet. Each is a chain either way; what a collapse adds is its animator and its joint drives for about a second.
+   */
+  maxCollapses: 8,
+  maxCollapsesBefore: 4,
   /**
    * Living bodies on physics at once. Past this a knockdown is refused and the caller staggers it instead. Sized for a grenade in
    * a crowd of 12, which can leave 11 to throw: at 6, every survivor after the sixth stood still in the blast that threw his neighbours.
@@ -654,11 +659,55 @@ export class Gore implements GoreSystem {
   collapse(char: CharacterInstance, options?: CollapseOptions): void {
     const existing = this.owned.get(char);
     if (existing) {
-      if (existing.down) this.endDown(existing);
+      // Killed while it was on its feet on its muscles (R4): the same ragdoll goes on, dying on its feet.
+      if (existing.down && !(DevFlags.carry && this.dieStanding(existing, options))) this.endDown(existing);
       return;
     }
     const body = this.adopt(char);
     this.beginCollapse(body, options?.duration ?? MuscleTuning.collapseSeconds, options?.velocity, options?.twitch, options?.hit, options?.strength);
+  }
+
+  /** How many bodies may die on their feet at once. */
+  private collapseRoom(): number {
+    return DevFlags.carry ? GoreTuning.maxCollapses : GoreTuning.maxCollapsesBefore;
+  }
+
+  /**
+   * A kill on a living body that gore has on its feet (catching its balance, or losing it): the drive it was standing on
+   * becomes a death's (`MuscleState.dieOnFeet`), on the same chain at the same speeds, so the reaction it was in the middle
+   * of carries into the death with nothing rebuilt. The round that killed it lands as it does on any body dying on its feet.
+   * False, and nothing done, when it was not on its feet or there is no room: the caller drops it where it is, as before.
+   */
+  private dieStanding(body: DeadBody, options?: CollapseOptions): boolean {
+    const rag = body.rag;
+    const muscle = rag?.muscle;
+    const drive = muscle?.collapse;
+    if (!rag?.active || !muscle || !drive?.alive || this.collapsing() >= this.collapseRoom()) return false;
+    const { char, info } = body;
+    const seconds = clamp(options?.duration ?? MuscleTuning.collapseSeconds, 0.3, 5);
+    if (!muscle.dieOnFeet(seconds)) return false;
+    body.down = null;
+    body.freshAt = this.ctx.time.elapsed;
+    body.holding = true;
+    // Time it spent alive does not count against time to settle.
+    rag.age = Math.min(rag.age, 1);
+    const natural = char.anim.play('deathStumble');
+    if (natural > 0) char.anim.play('deathStumble', natural / seconds);
+    if (options?.strength) muscle.strengthen(options.strength);
+    const hit = options?.hit;
+    if (hit) {
+      const dv = (hit.force * DevFlags.force) / info.mass;
+      // Most of the round into where its feet are heading, as for any round on a body on its feet (`strikeDown`).
+      rag.applyImpulse(hit.bone, hit.point, _v.copy(hit.dir).multiplyScalar(hit.force * (1 - MuscleTuning.carryShare)));
+      drive.carry(hit.dir, dv);
+      drive.away.set(hit.dir.x, 0, hit.dir.z).normalize();
+      const region = info.rig.bones[hit.bone]!.region;
+      if (region.startsWith('leg') || region.startsWith('shin')) drive.shotLeg = drive.weakLeg = region.endsWith('L') ? 1 : -1;
+      muscle.jolt(hit.bone, hit.point, hit.dir, joltOf(hit.force, info.mass));
+      char.anim.holdWound?.(hit.bone, hit.point, seconds);
+    }
+    if ((options?.twitch ?? 0) > 0 && !isMachine(char)) muscle.startTwitch(options!.twitch!);
+    return true;
   }
 
   private beginCollapse(body: DeadBody, duration: number, velocity?: THREE.Vector3, twitch?: number, hit?: CollapseOptions['hit'], strength?: LimbStrength): void {
@@ -666,7 +715,7 @@ export class Gore implements GoreSystem {
     // Short of GoreTuning.maxSimTime, with time left over to land.
     const seconds = clamp(duration, 0.3, 5);
     let drive: CollapseDrive | null = null;
-    if (MuscleTuning.enabled && this.collapsing() < GoreTuning.maxCollapses) {
+    if (MuscleTuning.enabled && this.collapsing() < this.collapseRoom()) {
       // A first call only asks how long the action runs, so it can be stretched over the whole collapse.
       const natural = char.anim.play('deathStumble');
       if (natural > 0) char.anim.play('deathStumble', natural / seconds);

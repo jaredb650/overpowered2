@@ -515,6 +515,8 @@ export class CollapseDrive {
   toppled = false;
   /** How much the hips are still held, 0..1. */
   support = 1;
+  /** The most they may be held: what a living body's balance had left when its stumble became its death (`dieOnFeet`). */
+  cap = 1;
   readonly ghost = new THREE.Vector3();
   readonly drift = new THREE.Vector3();
   readonly facing = new THREE.Quaternion();
@@ -553,7 +555,8 @@ export class CollapseDrive {
     readonly anim: CharacterAnimation,
     readonly root: THREE.Object3D,
     readonly bones: readonly THREE.Bone[],
-    readonly duration: number,
+    /** Seconds it lasts. A living body's stumble that turns into its death takes the death's (`MuscleState.dieOnFeet`). */
+    public duration: number,
     velocity: THREE.Vector3 | null | undefined,
   ) {
     this.ghost.copy(root.position);
@@ -1321,6 +1324,31 @@ export class MuscleState {
     this.readPose(drive, 0);
   }
 
+  /**
+   * A living body on its feet on its muscles has been killed (the gore update's R4): the drive it stood on becomes a death's,
+   * over `seconds`. Nothing is built and nothing zeroed: the same chain, the same joint targets from the same animator. The
+   * hold under its hips is never stronger than its balance had left it (`CollapseDrive.cap`), so nothing grips harder for
+   * dying, and its clock starts half way to where a death's hold begins to go: the head is already going, the arms next, and
+   * it has most of `seconds` on its feet. Mapped to where a death's hold is as weak as the hold it had, a body with three
+   * quarters of its balance was on the floor 0.35 s after the kill, which is a drop. False for a body not on its feet.
+   */
+  dieOnFeet(seconds: number): boolean {
+    const drive = this.collapse;
+    if (!drive?.alive) return false;
+    const held = clamp(drive.support);
+    drive.alive = false;
+    drive.stand = null;
+    drive.pinned = false;
+    drive.pace = 1;
+    drive.duration = seconds;
+    drive.cap = held;
+    drive.time = seconds * MuscleTuning.supportFade[0] * 0.5;
+    // It was waiting to take a living body's fall. There is none now.
+    this.reflex = null;
+    this.sampleStrengths(drive);
+    return true;
+  }
+
   /** Something hit a body that was going down anyway. It stops trying. */
   dropNow(): void {
     if (this.collapse) this.collapse.pace = MuscleTuning.dropPace;
@@ -1729,7 +1757,7 @@ export class MuscleState {
     const stand = drive.alive ? t.standFade : null;
     // One that may catch itself fades on nothing: its hold is the balance it has left, and its upper body is loose from the hit.
     const catching = drive.stand;
-    drive.support = catching ? catching.support : fade(stand ? stand.support : t.supportFade, u, 0);
+    drive.support = catching ? catching.support : Math.min(drive.cap, fade(stand ? stand.support : t.supportFade, u, 0));
     const parts = this.rag.parts;
     const g = this.rag.gravity;
     let root: RagPart | null = null;

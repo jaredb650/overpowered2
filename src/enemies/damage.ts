@@ -1413,10 +1413,15 @@ export class DamageModel {
     }
   }
 
-  /** It needs its legs under it and a hit too light to knock them away. */
+  /**
+   * It needs its legs under it and a hit too light to knock them away. A body gore has on its feet on its muscles (catching
+   * its balance, or losing it) counts since the gore update's R4: its death carries on from the reaction it was in, where it
+   * used to drop on the frame (`?carry=0`).
+   */
   private diesOnFeet(e: Enemy, d: DamageInfo, force: number): boolean {
-    return DIES_ON_FEET.has(d.type) && force <= DIES_ON_FEET_FORCE && e.maim.legs === 2 && !e.downed && e.rising <= 0
-      && !e.airborne && !e.pinned && !e.def.machine;
+    const standing = e.downed && DevFlags.carry && this.w.ctx.gore.downed(e.char)?.standing === true;
+    return DIES_ON_FEET.has(d.type) && force <= DIES_ON_FEET_FORCE && e.maim.legs === 2 && (!e.downed || standing) && e.rising <= 0
+      && (!e.airborne || standing) && !e.pinned && !e.def.machine;
   }
 
   /** Shot dead standing up: it takes a moment to go, and goes on taking rounds on the way. */

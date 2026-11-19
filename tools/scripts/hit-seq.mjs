@@ -14,6 +14,9 @@
 // HIT_STILLS=4,10 also saves the whole screen at those frames. HIT_CROWD=<n> is the crowd case: n enemies with their AI on,
 // 8 to 16 m off, and the SMG swept across them for 2 s.
 //
+// HIT_VOLLEY=<n> is R4's case: n Troopers in a row at 10 m, each killed by three SMG rounds inside a third of a second: how
+// many die on their feet, how long each stays up, and the physics step.
+//
 // Sheets land next to --out as hit-<label>-<case>.png: tiles are the player's own view cropped round the enemy, at the true
 // size on a 1440x900 Retina screen for 12 m and 25 m, and at half size for 5 m (HIT_ZOOM=2 doubles every tile). Frames are world frames (60 a second), stepped
 // through the lab, so a loaded machine cannot change them; Math.random is seeded.
@@ -46,6 +49,7 @@ const zoom = Number(process.env.HIT_ZOOM ?? 1);
 const label = process.env.HIT_LABEL ?? 'now';
 const stills = (process.env.HIT_STILLS ?? '').split(',').filter(Boolean).map(Number);
 const crowd = Number(process.env.HIT_CROWD ?? 0);
+const volley = Number(process.env.HIT_VOLLEY ?? 0);
 
 export const before = async page => {
   await page.addInitScript(`Math.random = (${mulberry32})(${Number(process.env.HIT_SEED ?? 7)});`);
@@ -207,7 +211,7 @@ export default async function hitSeq(page, h) {
     return out;
   });
 
-  const list = (process.env.HIT_SET ? SETS[process.env.HIT_SET] : (process.env.HIT ?? SETS.short.join(',')).split(',')).filter(Boolean);
+  const list = (process.env.HIT_SET ? SETS[process.env.HIT_SET] : (process.env.HIT ?? ((crowd || volley) ? '' : SETS.short.join(','))).split(',')).filter(Boolean);
   const results = {};
   const size = page.viewportSize();
   for (const text of list) {
@@ -248,6 +252,7 @@ export default async function hitSeq(page, h) {
     await sheetOf(page, tiles, marks, `${h.outDir}/hit-${label}-${text.replaceAll(':', '-')}.png`);
   }
 
+  if (volley > 0) results.volley = await volleyCase(page, h, weapons.smg, size);
   if (crowd > 0) results.crowd = await crowdCase(page, h, weapons.smg, size);
   return results;
 }
@@ -340,4 +345,72 @@ async function crowdCase(page, h, smg, size) {
   await sheetOf(page, tiles, marks, `${h.outDir}/hit-${label}-crowd${crowd}.png`);
   const sorted = steps.map(s => s.ms).sort((a, b) => a - b);
   return { frames: steps.length, stepMs: { median: +sorted[sorted.length >> 1].toFixed(2), p90: +sorted[Math.floor(sorted.length * 0.9)].toFixed(2), max: +worst.toFixed(2) }, mostChains: Math.max(...steps.map(s => s.sways)), mostBodies: Math.max(...steps.map(s => s.owned)) };
+}
+
+/** A row of Troopers shot dead in a third of a second: who dies on its feet, and for how long. */
+async function volleyCase(page, h, smg, size) {
+  await page.evaluate(async ({ n }) => {
+    const r = window.__r;
+    const lab = window.__lab;
+    const { ctx } = window.__op2;
+    const V = r.V;
+    ctx.enemies.killAll('lab');
+    ctx.enemies.reset();
+    lab.spawner.clearBodies();
+    if (lab.paused) lab.togglePause();
+    ctx.player.teleport(new V(0, 0.1, 13), 0);
+    await new Promise(q => requestAnimationFrame(q));
+    r.others = [];
+    for (let i = 0; i < n; i++) {
+      const e = lab.spawner.place('trooper', new V((i - (n - 1) / 2) * 1.5, 0, 3), 'off');
+      if (e) r.others.push(e);
+    }
+    r.look(new V(0, 1, 3));
+    lab.togglePause();
+    await r.walk(20);
+    r.stood = r.others.map(e => e.char.bones[0].matrixWorld.elements[13]);
+  }, { n: volley });
+  const tiles = [];
+  const marks = [];
+  const trace = [];
+  const frames = [0, 6, 12, 18, 24, 30, 36, 44, 52, 60, 70, 80, 90, 105, 120, 140, 160, 180];
+  let at = -1;
+  for (const f of frames) {
+    while (at < f) {
+      at++;
+      trace.push(await page.evaluate(async ({ f, smg }) => {
+        const r = window.__r;
+        const { ctx } = window.__op2;
+        const V = r.V;
+        // Three rounds a body, a body every two frames: the whole row is dead inside a third of a second.
+        for (let i = 0; i < r.others.length; i++) {
+          const e = r.others[i];
+          const k = f - i * 2;
+          if (!e.alive || k < 0 || k % 5 !== 0 || k > 10) continue;
+          const at = new V().setFromMatrixPosition(e.char.bones[2].matrixWorld);
+          at.y += 0.1;
+          const dir = new V().subVectors(at, ctx.player.eye).normalize();
+          ctx.enemies.applyDamage(e, { amount: smg.damage, type: 'bullet', point: at, dir, force: smg.force, source: 'smg', region: 'chest', bone: 2 });
+        }
+        await r.walk(1);
+        const s = ctx.gore.stats();
+        return { ms: ctx.physics.stepMs, collapses: s.collapses, ragdolls: s.ragdolls, hips: r.others.map((e, i) => +(e.char.bones[0].matrixWorld.elements[13] / r.stood[i]).toFixed(2)) };
+      }, { f: at, smg }));
+    }
+    await h.sleep(40);
+    tiles.push((await page.screenshot({ type: 'jpeg', quality: 80, clip: { x: size.width * 0.1, y: size.height * 0.3, width: size.width * 0.8, height: size.width * 0.8 * (TILE_H / TILE_W) * 0.32 } })).toString('base64'));
+    marks.push(`${f} · ${(f / 60).toFixed(2)} s · on their feet ${trace[trace.length - 1].collapses}`);
+  }
+  const context = await page.context().browser().newContext();
+  const sheet = await context.newPage();
+  await sheet.setViewportSize({ width: 2304, height: Math.ceil(tiles.length / 2) * 300 });
+  await sheet.setContent(`<body style="margin:0;background:#000;display:grid;grid-template-columns:repeat(2,1152px);font:bold 17px sans-serif;color:#ff0">${tiles.map((t, i) =>
+    `<div style="position:relative;width:1152px;height:300px;overflow:hidden"><img src="data:image/jpeg;base64,${t}" style="width:100%;height:100%;object-fit:cover"><span style="position:absolute;left:8px;top:6px;text-shadow:0 0 4px #000">${marks[i]}</span></div>`).join('')}</body>`);
+  await sheet.waitForTimeout(150);
+  await sheet.screenshot({ path: `${h.outDir}/hit-${label}-volley${volley}.png` });
+  await context.close();
+  // Frames each body's hips stayed above 0.6 of standing after the first round that hit it.
+  const up = Array.from({ length: volley }, (_, i) => trace.filter((t, f) => f >= i * 2 && t.hips[i] > 0.6).length);
+  const ms = trace.map(t => t.ms).sort((a, b) => a - b);
+  return { mostOnFeet: Math.max(...trace.map(t => t.collapses)), framesUp: up, stepMs: { median: +ms[ms.length >> 1].toFixed(2), max: +ms[ms.length - 1].toFixed(2) } };
 }

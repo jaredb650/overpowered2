@@ -576,7 +576,7 @@ describe('the ragdoll budget', () => {
       }
       const dying = 3;
       for (let i = 0; i < GoreTuning.maxCollapses; i++) {
-        collapsing.push(living(-18 + i * 12, -2));
+        collapsing.push(living(-18 + i * (48 / GoreTuning.maxCollapses), -2));
         gore.collapse(collapsing.at(-1)!, { duration: dying });
       }
       run(12);
@@ -628,7 +628,7 @@ describe('the ragdoll budget', () => {
       };
       outlive();
       for (let i = 0; i < GoreTuning.maxCollapses; i++) {
-        collapsing.push(living(-18 + i * 12, -4));
+        collapsing.push(living(-18 + i * (48 / GoreTuning.maxCollapses), -4));
         gore.collapse(collapsing.at(-1)!);
       }
       outlive();
@@ -878,7 +878,7 @@ describe('the ragdoll budget, again', () => {
       for (let i = 0; i < GoreTuning.maxKnockdowns; i++) {
         gore.knockdown(living(-16 + (i % 6) * 6.4, 26 + Math.floor(i / 6) * 4), { topple: v(0, 0, 1.7), lie: 12, rise: 2, hurt: 0.6 });
       }
-      for (let i = 0; i < GoreTuning.maxCollapses; i++) gore.collapse(living(-18 + i * 12, -2), { duration: 5 });
+      for (let i = 0; i < GoreTuning.maxCollapses; i++) gore.collapse(living(-18 + i * (48 / GoreTuning.maxCollapses), -2), { duration: 5 });
       run(12);
       const crowd = Array.from({ length: 6 }, (_, i) => living(Math.cos(i * 1.05) * 1.4, 10 + Math.sin(i * 1.05) * 1.4));
       for (const c of crowd) gore.ragdoll(c);
