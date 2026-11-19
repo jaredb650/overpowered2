@@ -10,7 +10,7 @@
  * flames never did.
  */
 import * as THREE from 'three';
-import { CG, type Ctx } from '../core/contracts';
+import { CG, type Ctx, type PlayerSystem } from '../core/contracts';
 import type { EnemyInstance, ProjectileSpec, Team } from '../core/gameplay';
 import { clamp, lerp, rand } from '../core/math';
 import type { Combat } from './Combat';
@@ -439,7 +439,16 @@ export class Flames {
 
   private lickPlayer(f: Flame): void {
     if (f.damage <= 0) return;
-    const player = this.ctx.player;
+    // Co-op host: an enemy's flame burns whichever player it reaches, not only the host's own.
+    const everyone = this.ctx.coop?.world?.hostPlayers();
+    if (!everyone) {
+      this.lick(f, this.ctx.player);
+      return;
+    }
+    for (let i = 0; i < everyone.length && f.live; i++) this.lick(f, everyone[i]!);
+  }
+
+  private lick(f: Flame, player: PlayerSystem): void {
     if (!player.alive) return;
     const reach = this.radius(f) + PLAYER_RADIUS;
     const hit = closestSegmentPoints(f.position, this.end.copy(f.position), player.position, player.eye);

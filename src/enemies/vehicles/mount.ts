@@ -110,5 +110,6 @@ export class Mount {
     gun.recoil(0.05);
     _play.pitch = this.pitchShift;
     ctx.audio.play(this.sound, _play);
+    ctx.coop?.world?.enemySound(this.sound, _muzzle, 1, this.pitchShift);
   }
 }

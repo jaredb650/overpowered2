@@ -8,7 +8,7 @@
  * engine slows it and its loader, a jammed ring turns the turret into a slow thing the player can outrun.
  */
 import * as THREE from 'three';
-import type { EmitterHandle, LoopHandle } from '../../core/contracts';
+import type { EmitterHandle, LoopHandle, PlayerSystem } from '../../core/contracts';
 import type { EnemyId, ProjectileSpec } from '../../core/gameplay';
 import { clamp, damp, dampAngle, rand, wrapAngle } from '../../core/math';
 import { EngineSound } from '../../progression/callins/airframe';
@@ -355,6 +355,7 @@ export class GroundVehicle extends Vehicle {
     this.layLeft = c.lay;
     this.laser = sys.world.telegraphs.acquireLaser(LASER_COLOR, LASER_STRENGTH);
     sys.ctx.audio.play('tank_lay', { position: this.position });
+    sys.ctx.coop?.world?.enemySound('tank_lay', this.position);
   }
 
   private endLay(): void {
@@ -394,7 +395,8 @@ export class GroundVehicle extends Vehicle {
     SHELL.explosion!.radius = c.radius;
     SHELL.explosion!.damage = c.damage;
     combat.spawnProjectile(SHELL);
-    fx.muzzleFlash(_muzzle, _dir, 'autocannon');
+    // Through combat, so a co-op guest sees the flash too (it draws the same flash here).
+    combat.enemyMuzzle(_muzzle, _dir, 'autocannon');
     fx.smoke(_muzzle, '#8a8478', 2.6, 1.6);
     _p.set(this.position.x, this.y + 0.1, this.position.z);
     fx.dust(_p.addScaledVector(_dir, 3), _up, 4);
@@ -402,6 +404,7 @@ export class GroundVehicle extends Vehicle {
     // The whole machine rocks back on its springs: a gun this size moves forty tonnes.
     drive.shove(-Math.cos(this.turretYaw) * 0.55, Math.sin(this.turretYaw) * 0.4);
     audio.play('tank_cannon', { position: _muzzle });
+    sys.ctx.coop?.world?.enemySound('tank_cannon', _muzzle);
     const near = clamp(1 - _muzzle.distanceTo(player.position) / 70);
     if (near > 0) camera.addTrauma(SHELL_SHAKE * near * near);
   }
@@ -459,8 +462,21 @@ export class GroundVehicle extends Vehicle {
   /** The player and a moving box. Nothing else stops him walking through one, and it would be no fun if it did nothing. */
   private bump(dt: number): void {
     this.ramReady -= dt;
+    const world = this.sys.ctx.coop?.world;
+    const everyone = world?.hostPlayers();
+    if (!everyone || !world) {
+      this.bumpOne(this.sys.ctx.player, true, this.ramReady <= 0);
+      return;
+    }
+    // Co-op host: it runs over whoever is in its way. Only the host's own body is walked out of it here; a friend's is theirs to move.
+    const ready = this.ramReady <= 0;
+    for (let i = 0; i < everyone.length; i++) this.bumpOne(everyone[i]!, everyone[i] === world.me, ready);
+  }
+
+  /** One player against this box. `local` is the player at this screen; `ready` is whether it may ram this frame. */
+  private bumpOne(player: PlayerSystem, local: boolean, ready: boolean): void {
     const { def, drive, sys } = this;
-    const { player, audio, camera, fx } = sys.ctx;
+    const { audio, camera, fx } = sys.ctx;
     if (!player.alive || player.parked) return;
     const p = player.position;
     if (p.y > this.y + def.roof || p.y + 1.8 < this.y) return;
@@ -474,17 +490,19 @@ export class GroundVehicle extends Vehicle {
     const reachZ = def.halfLength + PLAYER_RADIUS;
     if (Math.abs(across) >= reachX || Math.abs(along) >= reachZ) return;
     const speed = Math.abs(drive.speed);
-    if (speed > RAM_FROM && this.ramReady <= 0 && Math.sign(along) === Math.sign(drive.speed)) {
+    if (speed > RAM_FROM && ready && Math.sign(along) === Math.sign(drive.speed)) {
       this.ramReady = RAM_COOLDOWN;
       const share = speed / def.drive.top;
       player.takeDamage({ amount: def.ram.damage * share, from: this.position, type: 'crush', source: 'vehicle_ram' });
       const side = across >= 0 ? 1 : -1;
       _vel.set(s * Math.sign(drive.speed) + c * side * 0.8, 0.5, c * Math.sign(drive.speed) - s * side * 0.8).normalize().multiplyScalar(def.ram.throw * (0.5 + share * 0.5));
       player.launch(_vel);
-      camera.addTrauma(0.5);
+      if (local) camera.addTrauma(0.5);
       audio.play('metal_clang', { position: p, pitch: 0.7 });
+      sys.ctx.coop?.world?.enemySound('metal_clang', p, 1, 0.7);
       fx.dust(p, _up, 2);
     }
+    if (!local) return;
     // Out by the shallower side, and never into the middle of it.
     if (reachX - Math.abs(across) < reachZ - Math.abs(along)) {
       const out = (reachX - Math.abs(across)) * (across >= 0 ? 1 : -1);

@@ -866,7 +866,7 @@ export class Combat implements CombatSystem {
     const limit = wall ? wall.distance : max;
     st.end.copy(st.origin).addScaledVector(st.dir, limit);
 
-    const remoteHit = c.coop?.world?.enemyRay(st.origin, st.end, spec.damage, spec.source);
+    const remoteHit = c.coop?.world?.enemyRay(st.origin, st.end, spec.damage, spec.source, true, spec.tracer, spec.whizz);
     if (remoteHit) {
       st.end.copy(remoteHit);
       r.hitEnemy = true;
@@ -937,15 +937,34 @@ export class Combat implements CombatSystem {
   enemyMuzzle(position: THREE.Vector3, dir: THREE.Vector3, kind: MuzzleKind): void {
     const c = this.ctx;
     c.fx.muzzleFlash(position, dir, kind);
+    // Co-op host: the flash on every screen (not sent for an attack the guests are playing themselves).
+    c.coop?.world?.enemyFlash(position, dir, kind);
   }
 
   spawnProjectile(spec: ProjectileSpec): void {
-    if (spec.team === 'enemy') this.ctx.coop?.world?.projectile(spec.origin, spec.velocity.clone().normalize());
+    // Co-op host: an enemy's projectile flies as a copy on every screen. A flame is drawn by each screen's own copy of the attack.
+    const netId = spec.team === 'enemy' && !spec.cosmetic ? this.ctx.coop?.world?.projectile(spec) ?? 0 : 0;
     if (spec.kind === 'flame') {
       this.flames.spawn(spec);
       return;
     }
-    this.projectiles.spawn(spec);
+    this.projectiles.spawn(spec, netId);
+  }
+
+  /** Co-op guest: a harmless copy of the host's enemy projectile `netId` (0: its end is never told). */
+  spawnCopy(spec: ProjectileSpec, netId: number): void {
+    this.projectiles.spawn(spec, netId);
+  }
+
+  /** Co-op guest: the host's projectile `netId` is gone, and its copy with it. */
+  dropProjectileCopy(netId: number): void {
+    this.projectiles.dropCopy(netId);
+  }
+
+  /** Co-op host: a guest shot the copy of enemy projectile `netId` out of the air, so the real one blows up. */
+  detonateProjectile(netId: number): void {
+    const p = this.projectiles.byNetId(netId);
+    if (p && !p.cosmetic) this.projectiles.detonate(p);
   }
 
   // -------------------------------------------------------------------------------------------

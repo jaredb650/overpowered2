@@ -400,6 +400,8 @@ export interface ProjectileSpec {
   killStop?: number;
   /** Flames only: the caller draws the fire with fx.flame itself. */
   silent?: boolean;
+  /** Co-op: a copy of a projectile another browser owns. It flies and draws; it hurts nothing and never explodes. */
+  cosmetic?: boolean;
   /** Penetration budget, as on ShotSpec. A round with any goes through walls and bodies until it is spent. */
   penetrate?: number;
   /** Budget one body costs, as on ShotSpec. */

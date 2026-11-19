@@ -12,7 +12,7 @@
  */
 import * as THREE from 'three';
 import type { AiWorld } from '../aiWorld';
-import { say } from '../attacks';
+import { shout } from '../attacks';
 import { FACTION, NAME_LIST, callName, speakerTag } from './chatter/names';
 import { ChatterMemory, RANK, SPEAK_RATE, TIER_OF, URGENT, airtime, lineText, priorityOf, type ChatterFacts, type Priority } from './chatter/rules';
 import { RULES } from './chatter/lines';
@@ -238,7 +238,7 @@ export class Comms {
     w.ctx.events.emit('comms:line', line);
     // A dying man's voice is audio's `vox_dying_human`, from the same moment's `enemy:condition`.
     // His recorded voice says it, when it can; the synth grunt only stands in where there is no take.
-    if (s && kind !== 'dying' && !clipFor(row, this.slots, s.voice)) say(s.e, w, rule.channel === 'scream' ? 'vox_scream' : s.e.def.voice.attack, 0.45);
+    if (s && kind !== 'dying' && !clipFor(row, this.slots, s.voice)) shout(s.e, w, rule.channel === 'scream' ? 'vox_scream' : s.e.def.voice.attack, 0.45);
     const answer = CHAIN[kind];
     const by = s && answer ? this.answerer(s) : null;
     if (by) this.queue(answer!, by, null, null, until + 0.1);

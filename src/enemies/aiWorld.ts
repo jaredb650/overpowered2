@@ -37,4 +37,9 @@ export interface AiWorld {
   readonly player: PlayerSense;
   /** ctx.time.elapsed, world clock. */
   now: number;
+  /**
+   * Co-op: this is a guest's copy of an attack (net/world/attacks.ts). It shows and sounds the attack and can hurt nothing:
+   * `ctx.player` and `ctx.combat` are stand-ins. Code that decides an outcome (a wall hit, a blast) must not run under it.
+   */
+  readonly cosmetic?: boolean;
 }

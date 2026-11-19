@@ -5,12 +5,12 @@
  */
 import * as THREE from 'three';
 import { HumanoidBone as B, type GoreRegion } from '../characters/rig';
-import type { DamageInfo } from '../core/contracts';
+import type { Ctx, DamageInfo, PlayerSystem } from '../core/contracts';
 import { clamp, pick, rand, randomUnit } from '../core/math';
 import type { AttackDef, Behaviour } from './brain';
 import type { Enemy } from './Enemy';
 import type { AiWorld } from './aiWorld';
-import { meleeConnect, muzzleOf, rocket, melee, say } from './attacks';
+import { everyPlayer, meleeConnect, muzzleOf, rocket, melee, say } from './attacks';
 import { crawl } from './behaviours';
 import { leapTo } from './movement';
 
@@ -39,30 +39,115 @@ const _up = new THREE.Vector3(0, 1, 0);
 /** No single hit may take more than this share of a boss. Instakill weapons still land hard, but they cannot delete it. */
 const MAX_HIT_SHARE = 0.05;
 
-/** Ground shock. Damage only reaches a grounded player: jumping it is the counterplay, and it is meant to feel great. */
-export function shockwave(w: AiWorld, at: THREE.Vector3, radius: number, damage: number, source: string, knock = 12, sound = 'juggernaut_slam'): void {
-  const { ctx } = w;
+/** A co-op guest's own enemy code: it shows what the host says happened, and never decides or draws a boss's moves itself. */
+const onGuest = (w: AiWorld): boolean => !!w.ctx.coop?.world && !w.ctx.coop.hosting;
+
+/**
+ * What a ground shock looks, sounds and shakes like. `dist` is how far the local player stands from it, on the flat.
+ * Co-op guests run this from the host's `shock` (net/world/warnings.ts).
+ */
+export function shockFx(ctx: Ctx, at: THREE.Vector3, radius: number, sound: string, dist: number): void {
   ctx.fx.ring(_p.copy(at).setY(at.y + 0.3), _up, 0xffa060, radius);
   ctx.fx.sparks(at, _up, 30, 0xffd0a0);
   ctx.fx.smoke(at, 0x8899aa, radius * 0.5, 0.9);
   ctx.render.decals.add('crack', at, _up, radius * 0.7, rand(0, 6.28));
   ctx.physics.radialImpulse(at, radius * 1.2, 30);
   ctx.audio.play(sound, { position: at });
-  const p = w.player;
-  const dist = Math.hypot(p.position.x - at.x, p.position.z - at.z);
   const trauma = clamp(1 - dist / (radius * 3)) * 0.7;
   ctx.camera.addTrauma(trauma);
+}
+
+/** What a ground shock does to one player standing `dist` from it. */
+function shockHit(
+  p: { readonly position: THREE.Vector3; readonly grounded: boolean; readonly alive: boolean }, target: PlayerSystem,
+  at: THREE.Vector3, dist: number, radius: number, damage: number, source: string, knock: number,
+): void {
   if (dist > radius || !p.grounded || Math.abs(p.position.y - at.y) > 3 || !p.alive) return;
   const falloff = 1 - (dist / radius) * 0.5;
-  ctx.player.takeDamage({ amount: damage * falloff, from: at, type: 'crush', source });
+  target.takeDamage({ amount: damage * falloff, from: at, type: 'crush', source });
   _dir.subVectors(p.position, at).setY(0).normalize();
   _q.set(_dir.x * knock, knock * 0.7, _dir.z * knock);
-  ctx.player.launch(_q);
+  target.launch(_q);
+}
+
+/**
+ * Ground shock. Damage only reaches a grounded player: jumping it is the counterplay, and it is meant to feel great.
+ * In co-op the host tests every player in the ring, each can jump it and each is thrown; guests draw it from the host's word
+ * (`mirror` false: the guests make this one themselves, as they play out a boss's death).
+ */
+export function shockwave(w: AiWorld, at: THREE.Vector3, radius: number, damage: number, source: string, knock = 12, sound = 'juggernaut_slam', mirror = true): void {
+  const { ctx } = w;
+  const world = ctx.coop?.world;
+  if (!world) {
+    const p = w.player;
+    const dist = Math.hypot(p.position.x - at.x, p.position.z - at.z);
+    shockFx(ctx, at, radius, sound, dist);
+    shockHit(p, ctx.player, at, dist, radius, damage, source, knock);
+    return;
+  }
+  // A guest's copy of the attack, or a guest's own enemy code: the host's `shock` draws it, unless the guest was left to.
+  if (w.cosmetic || onGuest(w)) {
+    if (!mirror && !w.cosmetic) shockFx(ctx, at, radius, sound, Math.hypot(world.me.position.x - at.x, world.me.position.z - at.z));
+    return;
+  }
+  shockFx(ctx, at, radius, sound, Math.hypot(world.me.position.x - at.x, world.me.position.z - at.z));
+  if (mirror) world.warnings.shock(at, radius, sound);
+  const everyone = world.hostPlayers();
+  if (!everyone) return;
+  for (let i = 0; i < everyone.length; i++) {
+    const p = everyone[i]!;
+    shockHit(p, p, at, Math.hypot(p.position.x - at.x, p.position.z - at.z), radius, damage, source, knock);
+  }
 }
 
 function roar(e: Enemy, w: AiWorld): void {
   e.char.anim.play('roar');
   say(e, w, e.def.voice.attack, 1);
+}
+
+/**
+ * What a boss's arrival or phase change looks and sounds like, apart from what it does. The host runs one as it happens and
+ * every co-op guest runs the same one on its copy of the boss (`bossfx`, net/world/attacks.ts).
+ */
+export const BOSS_FX = {
+  juggernautLand(_e: Enemy, w: AiWorld): void {
+    w.ctx.audio.play('boss_intro');
+  },
+  juggernautPlate(e: Enemy, w: AiWorld): void {
+    roar(e, w);
+    w.ctx.audio.play('juggernaut_armor_break', { position: e.center });
+    w.ctx.render.post.chromatic(0.25, 0.2);
+  },
+  juggernautLimb(e: Enemy, w: AiWorld): void {
+    roar(e, w);
+    w.ctx.camera.addTrauma(0.3);
+  },
+  titanLand(e: Enemy, w: AiWorld): void {
+    roar(e, w);
+    w.ctx.audio.play('boss_intro');
+  },
+  titanLimb(e: Enemy, w: AiWorld): void {
+    roar(e, w);
+    w.ctx.audio.play('titan_limb_break', { position: e.center });
+    w.ctx.camera.addTrauma(0.5);
+    w.ctx.render.post.chromatic(0.3, 0.25);
+    const bone = e.char.bones[B.chest];
+    if (bone) w.ctx.fx.explosion(bone.getWorldPosition(_p), { radius: 3.5, kind: 'shell' });
+  },
+  /** Both legs gone: it comes down. */
+  titanFall(e: Enemy): void {
+    e.char.anim.play('stagger', 0.4);
+  },
+  /** A charge ended against a wall. */
+  juggernautStun(e: Enemy): void {
+    e.char.anim.play('stagger', 0.5);
+  },
+} satisfies Record<string, (e: Enemy, w: AiWorld) => void>;
+export type BossFxKind = keyof typeof BOSS_FX;
+
+function bossFx(e: Enemy, w: AiWorld, kind: BossFxKind): void {
+  BOSS_FX[kind](e, w);
+  if (!w.cosmetic) w.ctx.coop?.world?.attacks.bossFx(e, kind);
 }
 
 function randomBonePoint(e: Enemy, out: THREE.Vector3): THREE.Vector3 {
@@ -116,6 +201,8 @@ const charge: AttackDef = {
     w.ctx.camera.addTrauma(0.15);
   },
   activeTick(e, w, dt) {
+    // Where a charge goes and what it meets is the host's to work out; a guest's copy only follows.
+    if (w.cosmetic) return;
     _dir.subVectors(w.player.position, e.position).setY(0).normalize();
     const turn = 0.5 * dt;
     e.aimDir.lerp(_dir, turn).normalize();
@@ -131,7 +218,7 @@ const charge: AttackDef = {
     if (w.ctx.physics.raycast(_p, e.aimDir, CHARGE_PROBE) === null && Math.hypot(e.velocity.x, e.velocity.z) > 5) return;
     if (e.attackClock < 0.2) return;
     e.stagger = 2.4;
-    e.char.anim.play('stagger', 0.5);
+    bossFx(e, w, 'juggernautStun');
     e.velocity.set(0, 0, 0);
     (e.boss as Juggernaut).stunnedUntil = w.now + 2.6;
     shockwave(w, e.position, 4, 0, 'juggernaut', 0);
@@ -217,25 +304,25 @@ export class Juggernaut implements BossController {
   }
 
   onLand(e: Enemy, w: AiWorld): void {
+    if (onGuest(w)) return;
     shockwave(w, e.position, 9, 10, 'juggernaut', 10);
-    w.ctx.audio.play('boss_intro');
+    bossFx(e, w, 'juggernautLand');
   }
 
   onPlateLost(e: Enemy, w: AiWorld): void {
+    if (onGuest(w)) return;
     const left = e.armor / this.fullArmor;
     const next = left > 0.66 ? 0 : left > 0.33 ? 1 : left > 0.02 ? 2 : 3;
     if (next <= this.phase) return;
     this.phase = next;
     e.speedMul *= 1.07;
-    roar(e, w);
-    w.ctx.audio.play('juggernaut_armor_break', { position: e.center });
+    bossFx(e, w, 'juggernautPlate');
     shockwave(w, e.position, 6, 8, 'juggernaut', 9);
-    w.ctx.render.post.chromatic(0.25, 0.2);
   }
 
   onLimbLost(e: Enemy, w: AiWorld): void {
-    roar(e, w);
-    w.ctx.camera.addTrauma(0.3);
+    if (onGuest(w)) return;
+    bossFx(e, w, 'juggernautLimb');
   }
 
   onDeath(e: Enemy, w: AiWorld): void {
@@ -260,7 +347,8 @@ export class Juggernaut implements BossController {
 
   finish(e: Enemy, w: AiWorld): void {
     w.ctx.time.popScale('bossDeath');
-    w.ctx.combat.explode(e.center, { radius: 9, damage: 60, kind: 'rocket', source: 'juggernaut', team: 'player', selfDamage: 0 });
+    // A guest draws the host's blast (`boom`); its own would be a second one.
+    if (!onGuest(w)) w.ctx.combat.explode(e.center, { radius: 9, damage: 60, kind: 'rocket', source: 'juggernaut', team: 'player', selfDamage: 0 });
     w.ctx.render.post.flash(0xffa060, 0.6, 0.3);
     w.ctx.camera.addTrauma(0.7);
     w.ctx.gore.gib(e.char, e.center, 900);
@@ -318,7 +406,7 @@ const sweep: AttackDef = {
   },
   fire(e, w) {
     // Sweeps at knee height. Jump it, or get inside it.
-    if (w.player.position.y - e.position.y < 2.5) meleeConnect(e, w, 15, 0.1, 28, 'titan', 18);
+    meleeConnect(e, w, 15, 0.1, 28, 'titan', 18, 2.5);
     w.ctx.camera.addTrauma(0.25);
   },
   end(e, w) {
@@ -410,8 +498,19 @@ const beam: AttackDef = {
       w.ctx.fx.sparks(hit.point, hit.normal, 7, 0xff8040);
       w.ctx.render.decals.add('scorch', hit.point, hit.normal, 1.3, rand(0, 6.28));
     }
-    if (Math.hypot(p.position.x - e.aimPoint.x, p.position.z - e.aimPoint.z) < 1.1 && p.position.y - e.aimPoint.y < 2.2) {
-      w.ctx.player.takeDamage({ amount: 7 * e.damageMul, from: e.center, type: 'fire', source: 'titan' });
+    // Co-op host: the beam burns whoever stands in it, not only the player it is sweeping after.
+    const everyone = everyPlayer(w);
+    if (!everyone) {
+      if (Math.hypot(p.position.x - e.aimPoint.x, p.position.z - e.aimPoint.z) < 1.1 && p.position.y - e.aimPoint.y < 2.2) {
+        w.ctx.player.takeDamage({ amount: 7 * e.damageMul, from: e.center, type: 'fire', source: 'titan' });
+      }
+      return;
+    }
+    for (let i = 0; i < everyone.length; i++) {
+      const q = everyone[i]!;
+      if (q.alive && Math.hypot(q.position.x - e.aimPoint.x, q.position.z - e.aimPoint.z) < 1.1 && q.position.y - e.aimPoint.y < 2.2) {
+        q.takeDamage({ amount: 7 * e.damageMul, from: e.center, type: 'fire', source: 'titan' });
+      }
     }
   },
   end(e, w) {
@@ -488,26 +587,22 @@ class Titan implements BossController {
   }
 
   onLand(e: Enemy, w: AiWorld): void {
+    if (onGuest(w)) return;
     shockwave(w, e.position, 16, 14, 'titan', 14, 'titan_stomp');
-    roar(e, w);
-    w.ctx.audio.play('boss_intro');
+    bossFx(e, w, 'titanLand');
   }
 
   onLimbLost(e: Enemy, w: AiWorld, region: GoreRegion): void {
+    if (onGuest(w)) return;
     this.phase++;
-    roar(e, w);
-    w.ctx.audio.play('titan_limb_break', { position: e.center });
-    w.ctx.camera.addTrauma(0.5);
-    w.ctx.render.post.chromatic(0.3, 0.25);
+    bossFx(e, w, 'titanLimb');
     w.ctx.time.hitStop(0.09, 0.05);
-    const bone = e.char.bones[B.chest];
-    if (bone) w.ctx.fx.explosion(bone.getWorldPosition(_p), { radius: 3.5, kind: 'shell' });
     w.enemies.reinforce(pick(['husk', 'trooper'] as const), 4);
     if (e.maim.legs === 0) {
       // Both legs gone: it comes down hard, and everything near it feels the landing.
       e.stagger = 3.2;
       shockwave(w, e.position, 12, 12, 'titan', 12, 'titan_fall');
-      e.char.anim.play('stagger', 0.4);
+      bossFx(e, w, 'titanFall');
       if (e.attack) e.attackClock = 99;
     } else if (region === 'legL' || region === 'legR' || region === 'shinL' || region === 'shinR') {
       e.speedMul *= 0.7;
@@ -527,6 +622,8 @@ class Titan implements BossController {
     this.time = 0;
     this.clock = 0;
     this.fallDir = Math.random() < 0.5 ? 1 : -1;
+    // On a guest the field dies by the host's word, one `kill` at a time.
+    if (onGuest(w)) return;
     w.enemies.fieldCleared = true;
     w.enemies.killAllExcept(e, 'titan_death');
   }
@@ -554,13 +651,14 @@ class Titan implements BossController {
   finish(e: Enemy, w: AiWorld): void {
     const { combat, render, camera, time, gore, fx, audio } = w.ctx;
     time.popScale('bossDeath');
-    combat.explode(e.center, { radius: 18, damage: 200, kind: 'hellfire', source: 'titan', team: 'player', selfDamage: 0, scale: 2.5 });
+    if (!onGuest(w)) combat.explode(e.center, { radius: 18, damage: 200, kind: 'hellfire', source: 'titan', team: 'player', selfDamage: 0, scale: 2.5 });
     render.post.flash(0xffffff, 1, 0.6);
     render.post.chromatic(0.6, 0.6);
     camera.addTrauma(1);
     audio.play('hellfirerocket_explode', { volume: 1, pitch: 0.7, unaffectedByTime: true });
     fx.ring(e.position, _up, 0xffffff, 26);
-    shockwave(w, e.position, 30, 0, 'titan', 0, 'titan_fall');
+    // Every screen plays this death out itself, so the last shock is each screen's own.
+    shockwave(w, e.position, 30, 0, 'titan', 0, 'titan_fall', false);
     gore.gib(e.char, e.center, 2400);
   }
 }

@@ -13,7 +13,7 @@ import { clamp, rand, TAU } from '../core/math';
 import { Pool } from '../core/pool';
 import { PlayerSense, type AiWorld } from './aiWorld';
 import { PlateDebris, plateGeometry, plateMaterial, type Plate, type PlateSpec } from './armor';
-import { say } from './attacks';
+import { shout } from './attacks';
 import { finishAttack, thinkAttacks, thinkBehaviours, tickAttack, type Behaviour } from './brain';
 import { updateContact } from './contact';
 import { archetypeById } from '../characters/archetypes';
@@ -222,6 +222,11 @@ export class EnemyManager implements EnemySystem {
     this.vehicles?.reset();
   }
 
+  /** The AI's view of the game, for co-op's copies of attacks and warnings (net/world/attacks.ts, warnings.ts). */
+  get aiWorld(): AiWorld {
+    return this.w;
+  }
+
   setWave(wave: number): void {
     this.wave = wave;
     this.director.setWave(wave);
@@ -385,8 +390,12 @@ export class EnemyManager implements EnemySystem {
     const dt = ctx.time.dt;
     w.now = ctx.time.elapsed;
     if (ctx.coop?.world && !ctx.coop.hosting) {
+      // A guest runs no AI, but it does show the host's attacks: the warnings tick, and being shot at tells (suppression).
+      this.sensePlayer();
       ctx.coop.world.updateGuests();
       this.updateDying(dt);
+      this.telegraphs.update(dt);
+      this.outpost?.suppression.update(dt);
       this.debris.update(dt);
       this.flushRecycle();
       return;
@@ -558,7 +567,7 @@ export class EnemyManager implements EnemySystem {
     const { w } = this;
     if (w.now < e.barkAt) return;
     e.barkAt = w.now + rand(4, 9);
-    if (e.dist < 42 && e.maim.head && w.director.spendBark()) say(e, w, e.def.voice.bark, 0.55);
+    if (e.dist < 42 && e.maim.head && w.director.spendBark()) shout(e, w, e.def.voice.bark, 0.55);
   }
 
   private perceive(e: Enemy, dt: number): void {
@@ -840,6 +849,7 @@ export class EnemyManager implements EnemySystem {
     s.damage = damage;
     s.source = source;
     this.telegraphs.zone(position, radius, delay);
+    this.ctx.coop?.world?.warnings.strike(position, delay);
   }
 
   // -------------------------------------------------------------------------------------------

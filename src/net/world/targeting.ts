@@ -16,8 +16,21 @@ import type { TeamLife } from '../team';
 import type { WorldContext, WorldModule } from './context';
 import { validVec, type Vec } from './wire';
 
-/** Host to one guest: an enemy hurt you. `life` is the life it was meant for (team.ts); damage for an earlier one is dropped. */
-export type HurtEvent = { t: 'hurt'; amount: number; from: Vec; type: string; source: string; life: number };
+export type HurtEvent =
+  /** Host to one guest: an enemy hurt you. `life` is the life it was meant for (team.ts); damage for an earlier one is dropped. */
+  | { t: 'hurt'; amount: number; from: Vec; type: string; source: string; life: number }
+  /** Host to one guest: an enemy threw you (a slam, a ram, a shield bash). `push` adds to your speed; without it, it is a launch. */
+  | { t: 'shove'; v: Vec; push?: 1; life: number }
+  /** Guest to host: my Ghost power-up went on or off. */
+  | { t: 'ghost'; on: boolean };
+
+/** A guest's latest pose spares them a melee hit when it is this fresh (ms) and this far (m) outside the swing's reach. */
+export const DODGE_FRESH_MS = 150;
+export const DODGE_MARGIN = 0.5;
+/** No shove is harder than this (m/s): the hardest in the game is a ram, far under it. */
+const MAX_SHOVE = 60;
+/** Poses in which a friend's feet are off the ground: a ground slam passes under them. */
+const OFF_GROUND: ReadonlySet<string> = new Set(['airborne', 'jet', 'wallrun', 'wallrunR', 'mantle']);
 
 export interface PlayerTarget { id: string; player: PlayerSystem; life: TeamLife; foe: Foe }
 
@@ -32,9 +45,23 @@ export class Targeting implements WorldModule {
   private readonly finder = new RouteFinder();
   private readonly routes = new Map<number, { route: Route; at: number; target: THREE.Vector3 }>();
   private searchFrame = -1;
+  /** Host: guests with the Ghost power-up on (lobby ids). */
+  private readonly ghosts = new Set<string>();
+  /** Guest: the Ghost state last told to the host. */
+  private ghostSent = false;
+  /** Host: every player as the game's player type, rebuilt once a frame (`hostPlayers`). */
+  private readonly everyone: PlayerSystem[] = [];
+  private everyoneStale = true;
+  /** Host: melee hits a guest was spared because their own screen had them clear (`dodged`). */
+  dodges = 0;
 
   constructor(private readonly w: WorldContext) {
     w.router.guest('hurt', value => this.hurtIn(value));
+    w.router.guest('shove', value => this.shoveIn(value));
+    w.router.host('ghost', (value, from) => {
+      if (value.on === true) this.ghosts.add(from);
+      else this.ghosts.delete(from);
+    });
     w.snapshotSent.push(alive => {
       for (const uid of this.selections.keys()) if (!alive.has(uid)) { this.selections.delete(uid); this.sight.delete(uid); this.routes.delete(uid); }
     });
@@ -60,9 +87,14 @@ export class Targeting implements WorldModule {
               case 'velocity': return velocity;
               case 'forward': return forward;
               case 'alive': return !life.down;
-              case 'grounded': return true;
+              // A friend in the air is in the air here too: a ground slam can be jumped by anyone.
+              case 'grounded': return !OFF_GROUND.has(session.remotes.get(roster.id)?.buffer.latest?.()?.pose.move ?? 'walk');
               case 'takeDamage': return (damage: PlayerDamage) => this.hurt(roster.id, damage);
-              case 'launch': case 'push': return () => {};
+              case 'launch': return (velocity: THREE.Vector3) => this.shove(roster.id, velocity, false);
+              case 'push': return (velocity: THREE.Vector3) => this.shove(roster.id, velocity, true);
+              // The host's own seat, speed and moves are not a friend's.
+              case 'parked': case 'sliding': case 'wallRunning': case 'dashing': return false;
+              case 'speed': return Math.hypot(velocity.x, velocity.z);
               default: return Reflect.get(target, key);
             }
           },
@@ -103,7 +135,9 @@ export class Targeting implements WorldModule {
     if (target) this.selections.set(enemy.uid, target.id);
     sense.position.copy(player.position); sense.eye.copy(player.eye); sense.chest.copy(player.position).y += 1;
     sense.velocity.copy(player.velocity); sense.forward.copy(player.forward); sense.speed = player.velocity.length();
-    sense.alive = !!target && player.alive; sense.grounded = player.grounded; sense.ghost = false;
+    sense.alive = !!target && player.alive; sense.grounded = player.grounded;
+    // The Ghost power-up hides whoever holds it: the host's own from its perks, a guest's from their word.
+    sense.ghost = !target ? false : target.id === session.lobby.you ? ctx.progression.isActive?.('ghost') ?? false : this.ghosts.has(target.id);
     sense.evasion = Math.max(0, Math.min(1, (sense.speed - 2) / 9.5));
     if (target) {
       let sight = this.sight.get(enemy.uid);
@@ -119,6 +153,45 @@ export class Targeting implements WorldModule {
 
   /** Every live player's eyes, for the host's fleeing men to run from (outpost/flight.ts). */
   playerEyes(): THREE.Vector3[] { return this.players().filter(target => target.player.alive).map(target => target.player.eye); }
+
+  /**
+   * Host: every player in the world as the game's own player type, the host's first: what an enemy's flame, slam, ram or
+   * fire must test. A guest's takes damage as `hurt` and a throw as `shove`. Null on a guest. Built once a frame.
+   */
+  hostPlayers(): readonly PlayerSystem[] | null {
+    if (!this.w.hosting) return null;
+    if (this.everyoneStale) {
+      this.everyoneStale = false;
+      this.everyone.length = 0;
+      for (const target of this.players()) this.everyone.push(target.player);
+    }
+    return this.everyone;
+  }
+
+  /** Host: the slot of the player this enemy is after (the host's own if it has picked none). */
+  slotFor(uid: number): number {
+    const { lobby } = this.w.session;
+    const id = this.selections.get(uid);
+    return (id ? lobby.players.find(player => player.id === id)?.slot : undefined) ?? lobby.me?.slot ?? 0;
+  }
+
+  /**
+   * Host: a melee swing from `from` with this `reach` is about to land on `player`. True if that player is a guest whose
+   * newest pose, no older than DODGE_FRESH_MS, puts them more than DODGE_MARGIN outside it: on their screen they got clear,
+   * and the host's copy of them is a little behind. The swing then misses them.
+   */
+  dodged(player: PlayerSystem, from: THREE.Vector3, reach: number): boolean {
+    if (!this.w.hosting || player === this.w.ctx.player) return false;
+    for (const [id, adapter] of this.adapters) {
+      if (adapter.player !== player) continue;
+      const newest = this.w.session.remotes.get(id)?.buffer.latest?.();
+      if (!newest || performance.now() - newest.at > DODGE_FRESH_MS) return false;
+      const clear = Math.hypot(newest.pose.position[0] - from.x, newest.pose.position[2] - from.z) > reach + DODGE_MARGIN;
+      if (clear) this.dodges++;
+      return clear;
+    }
+    return false;
+  }
   isRemoteTarget(): boolean { return !!this.targetPlayer && this.targetPlayer !== this.w.ctx.player; }
 
   /** Guest: may this damage reach the local player? Only the host's word, a hazard, or their own gun or grenade. */
@@ -163,19 +236,50 @@ export class Targeting implements WorldModule {
       type: damage.type, source: damage.source, life: life.life }, id);
   }
 
-  private hurtIn(value: HurtEvent): void {
+  /** Host: an enemy threw a remote player; their own browser moves them. */
+  private shove(id: string, velocity: THREE.Vector3, push: boolean): void {
+    const life = this.w.life(id);
+    if (life.down) return;
+    this.w.send({ t: 'shove', v: [Math.round(velocity.x * 100) / 100, Math.round(velocity.y * 100) / 100, Math.round(velocity.z * 100) / 100],
+      ...(push ? { push: 1 as const } : {}), life: life.life }, id);
+  }
+
+  private shoveIn(value: Extract<HurtEvent, { t: 'shove' }>): void {
+    const { ctx, session } = this.w;
+    if (!this.w.life(session.lobby.you).accepts(value.life) || !validVec(value.v) || !ctx.player.alive) return;
+    const velocity = new THREE.Vector3(...value.v);
+    if (velocity.length() > MAX_SHOVE) velocity.setLength(MAX_SHOVE);
+    if (value.push) ctx.player.push(velocity);
+    else ctx.player.launch(velocity);
+  }
+
+  private hurtIn(value: Extract<HurtEvent, { t: 'hurt' }>): void {
     const { ctx, session } = this.w;
     if (this.w.life(session.lobby.you).accepts(value.life) && Number.isFinite(value.amount) && value.amount > 0 && value.amount < 10000 && validVec(value.from)) {
+      const from = new THREE.Vector3(...value.from);
+      // A round the host says hit me is still mine to block or send back with the sword, as it is in single player.
+      if (value.type === 'bullet') {
+        const combat = ctx.combat as unknown as { guard?(incoming: THREE.Vector3): string; deflected?(point: THREE.Vector3, incoming: THREE.Vector3, damage: number, guard: string): void };
+        const incoming = ctx.player.eye.clone().sub(from).normalize();
+        const guard = combat.guard?.(incoming) ?? 'none';
+        if (guard !== 'none' && combat.deflected) { combat.deflected(ctx.player.eye.clone().addScaledVector(incoming, -0.6), incoming, value.amount, guard); return; }
+      }
       this.receivingDamage = true;
-      try { ctx.player.takeDamage({ amount: value.amount, from: new THREE.Vector3(...value.from), type: value.type as PlayerDamage['type'], source: value.source }); }
+      try { ctx.player.takeDamage({ amount: value.amount, from, type: value.type as PlayerDamage['type'], source: value.source }); }
       finally { this.receivingDamage = false; }
     }
   }
 
   /** A player who left takes their stand-in and their claim history with them. */
   update(): void {
+    this.everyoneStale = true;
     for (const id of this.adapters.keys()) if (!this.w.session.lobby.players.some(player => player.id === id)) {
-      this.adapters.delete(id); this.w.validator.forget(id);
+      this.adapters.delete(id); this.ghosts.delete(id); this.w.validator.forget(id);
+    }
+    // Guest: the host hides me from its enemies while my Ghost power-up runs.
+    if (!this.w.hosting) {
+      const ghost = this.w.ctx.progression.isActive?.('ghost') ?? false;
+      if (ghost !== this.ghostSent) { this.ghostSent = ghost; this.w.send({ t: 'ghost', on: ghost }); }
     }
   }
 }

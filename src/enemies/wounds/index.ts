@@ -23,7 +23,7 @@ import { ACTIVE } from '../../contracts/select';
 import { hitText } from '../../progression/data';
 import type { AiWorld } from '../aiWorld';
 import type { Plate } from '../armor';
-import { say } from '../attacks';
+import { shout } from '../attacks';
 import type { Enemy } from '../Enemy';
 import type { EnemyManager } from '../EnemyManager';
 import { FEAR } from '../outpost/morale';
@@ -296,7 +296,7 @@ export class WoundSystem {
   }
 
   private cry(s: Soldier, b: Injuries): void {
-    if (b.mute) say(s.e, this.w, 'vox_choke', 0.6);
+    if (b.mute) shout(s.e, this.w, 'vox_choke', 0.6);
     else this.o.comms.say('hit', s);
   }
 
@@ -639,7 +639,7 @@ export class WoundSystem {
       _n.set(0, -0.15, 1).transformDirection(head.matrixWorld);
       _v.addScaledVector(_n, 0.12);
       fx.bloodJet(_v, _n, 0.25);
-      say(e, this.w, 'vox_choke', 0.55);
+      shout(e, this.w, 'vox_choke', 0.55);
     }
   }
 
@@ -653,7 +653,7 @@ export class WoundSystem {
       this.o.comms.say('beg', s);
       return;
     }
-    say(e, this.w, 'vox_scream', 0.9);
+    shout(e, this.w, 'vox_scream', 0.9);
     this.o.comms.say('scream', s);
     s.calledAt = now;
     const r2 = T.screamRange * T.screamRange;

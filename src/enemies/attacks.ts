@@ -4,7 +4,7 @@
  */
 import * as THREE from 'three';
 import { HumanoidBone as B } from '../characters/rig';
-import type { MuzzleKind, TracerKind } from '../core/contracts';
+import type { MuzzleKind, PlayerSystem, TracerKind } from '../core/contracts';
 import { clamp, rand, randomUnit } from '../core/math';
 import type { AttackDef } from './brain';
 import type { Enemy } from './Enemy';
@@ -69,6 +69,24 @@ export function say(e: Enemy, w: AiWorld, line: string, volume = 0.7): void {
 }
 
 /**
+ * A line said outside an attack, by something only the host works out: a bark, a taunt, a choke. In co-op it is heard on
+ * every screen. A line inside an attack is `say` (each screen's own copy of the attack says it), and so is a cry of pain or
+ * death (each screen's own damage model makes it).
+ */
+export function shout(e: Enemy, w: AiWorld, line: string, volume = 0.7): void {
+  say(e, w, line, volume);
+  if (!w.cosmetic) w.ctx.coop?.world?.attacks.said(e, line, volume);
+}
+
+/**
+ * Co-op host: every player an enemy's swing, slam or beam must test, the host's own included. Null in single player, on a
+ * guest and for a guest's copy of an attack: there the one sensed player is tested, as always.
+ */
+export function everyPlayer(w: AiWorld): readonly PlayerSystem[] | null {
+  return w.cosmetic ? null : w.ctx.coop?.world?.hostPlayers() ?? null;
+}
+
+/**
  * Where a leap at the player should come down: at their feet by the time it lands, but short of them by a body width,
  * so it arrives in the face and not inside the camera.
  */
@@ -85,22 +103,42 @@ export function leadLanding(e: Enemy, w: AiWorld, lead: number, snap: number, ou
   return out;
 }
 
-export function meleeConnect(e: Enemy, w: AiWorld, reach: number, arc: number, damage: number, source: string, knock = 0): boolean {
-  const p = w.player;
+/**
+ * A swing lands on whoever is in reach and in the arc. `under`, if given, spares a player whose feet are that far above
+ * the enemy's (a sweep at knee height that was jumped). In co-op the host tests every player, and a guest whose latest pose
+ * was clearly out of reach is spared (the dodge they saw on their own screen counts).
+ */
+export function meleeConnect(e: Enemy, w: AiWorld, reach: number, arc: number, damage: number, source: string, knock = 0, under = Infinity): boolean {
+  const everyone = everyPlayer(w);
+  if (!everyone) return meleeOn(e, w, w.player, w.ctx.player, reach, arc, damage, source, knock, under);
+  let landed = false;
+  for (let i = 0; i < everyone.length; i++) {
+    const p = everyone[i]!;
+    if (meleeOn(e, w, p, p, reach, arc, damage, source, knock, under)) landed = true;
+  }
+  return landed;
+}
+
+function meleeOn(
+  e: Enemy, w: AiWorld, p: { readonly position: THREE.Vector3; readonly alive: boolean }, target: PlayerSystem,
+  reach: number, arc: number, damage: number, source: string, knock: number, under: number,
+): boolean {
   if (!p.alive) return false;
   const dx = p.position.x - e.position.x;
   const dz = p.position.z - e.position.z;
   const dy = p.position.y - e.position.y;
+  if (dy >= under) return false;
   const d = Math.hypot(dx, dz);
   if (d > reach || Math.abs(dy) > 2.4 + e.char.rig.height * 0.3) return false;
   if (d > 0.3) {
     const facing = (Math.sin(e.yaw) * dx + Math.cos(e.yaw) * dz) / d;
     if (facing < arc) return false;
   }
-  w.ctx.player.takeDamage({ amount: damage * e.damageMul, from: e.position, type: 'melee', source });
+  if (!w.cosmetic && w.ctx.coop?.world?.dodged(target, e.position, reach)) return false;
+  target.takeDamage({ amount: damage * e.damageMul, from: e.position, type: 'melee', source });
   if (knock > 0 && d > 0.01) {
     _vel.set((dx / d) * knock, knock * 0.35, (dz / d) * knock);
-    w.ctx.player.launch(_vel);
+    target.launch(_vel);
   }
   return true;
 }
@@ -536,6 +574,8 @@ export function flamer(t: FlameTuning): AttackDef {
     recover: 0.6,
     moveMul: 0.55,
     requires: hasGun,
+    // The stream is for show: what it burns is worked out from each glob on the host, for every player.
+    local: true,
     begin(e, w) {
       e.face = 'player';
       muzzleOf(e, _muzzle);

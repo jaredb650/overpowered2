@@ -4,7 +4,7 @@
  */
 import * as THREE from 'three';
 import { clamp, damp, dampAngle } from '../core/math';
-import { say } from './attacks';
+import { shout } from './attacks';
 import type { Enemy } from './Enemy';
 import type { AiWorld } from './aiWorld';
 
@@ -318,7 +318,7 @@ function takePad(e: Enemy, w: AiWorld): boolean {
     w.enemies.linksTaken++;
     fx.jumpPad(e.position, UP);
     audio.play('jump_pad', { position: e.position });
-    say(e, w, e.def.voice.bark, 0.5);
+    shout(e, w, e.def.voice.bark, 0.5);
     return true;
   }
   if (world.nav.linkAhead(e.position, _q, PAD_MISS_HOPS) !== 'pad') return false;

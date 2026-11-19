@@ -8,7 +8,7 @@ import type { EnemyInstance } from '../core/gameplay';
 import type { Behaviour } from './brain';
 import type { Enemy } from './Enemy';
 import type { AiWorld } from './aiWorld';
-import { say } from './attacks';
+import { shout } from './attacks';
 import { canWalk, leapTo } from './movement';
 
 /** Past this the Ghost powerup hides the player. */
@@ -231,7 +231,7 @@ export function dodge(impulse: number, cooldown: number, reactTime = 0.1): Behav
       e.push.z += -_dir.x * side * impulse;
       e.char.anim.play('stagger', 2.2);
       w.ctx.fx.smoke(e.center, 0x8060c0, 0.7, 0.35);
-      say(e, w, e.def.voice.attack, 0.5);
+      shout(e, w, e.def.voice.attack, 0.5);
     },
   };
 }
@@ -358,7 +358,7 @@ export function panic(): Behaviour {
       e.face = 'move';
       e.pace = 1.15;
       e.timerA = 0;
-      say(e, w, 'vox_scream');
+      shout(e, w, 'vox_scream');
     },
     think(e, w) {
       if (w.now < e.timerA) return;
@@ -387,7 +387,7 @@ export function bolted(): Behaviour {
       e.pace = 1.25;
       e.timerA = 0;
       e.moveTarget.copy(e.position);
-      say(e, w, 'vox_scream');
+      shout(e, w, 'vox_scream');
     },
     think(e, w) {
       if (w.now < e.timerA) return;

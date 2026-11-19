@@ -74,6 +74,11 @@ export class PoseBuffer {
     return !last || now - last.at > ms;
   }
 
+  /** The newest pose and when it arrived, untouched by the playback delay. Null before the first. */
+  latest(): { at: number; pose: Pose } | null {
+    return this.frames.at(-1) ?? null;
+  }
+
   sample(now: number): Pose | null {
     const target = now - INTERPOLATION_MS;
     while (this.frames.length > 2 && this.frames[1]!.at <= target) this.frames.shift();

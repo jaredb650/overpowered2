@@ -57,6 +57,17 @@ export interface AttackDef {
   activeTick?(e: Enemy, w: AiWorld, dt: number): void;
   /** Always runs when the attack stops, whether it finished or was interrupted. */
   end?(e: Enemy, w: AiWorld, interrupted: boolean): void;
+  /**
+   * Its shots are for show (a flame's globs: the damage is the host's to work out). In co-op only the first is sent; every
+   * screen makes the rest from the same timeline.
+   */
+  readonly local?: boolean;
+}
+
+/** Co-op host: the attack events for the guests (net/world/attacks.ts). Null in single player, on a guest, and for a guest's copy. */
+function net(w: AiWorld) {
+  const coop = w.cosmetic ? undefined : w.ctx.coop;
+  return coop?.hosting ? coop.world?.attacks ?? null : null;
 }
 
 export type AttackPhase = 'idle' | 'windup' | 'active' | 'recover';
@@ -120,11 +131,41 @@ export function startAttack(e: Enemy, w: AiWorld, a: AttackDef): void {
   e.attackStage = 0;
   // Attacks from outside the player's view wait longer, so a hit in the back always had a chance to be heard.
   e.attackWindup = a.windup * (e.inView ? 1 : w.director.offscreenWindup);
-  a.begin(e, w);
+  const guests = net(w);
+  if (!guests) {
+    a.begin(e, w);
+    return;
+  }
+  guests.enter();
+  try { a.begin(e, w); } finally { guests.leave(); }
+  guests.began(e, a);
 }
 
 /** Advances the attack timeline by one frame. */
 export function tickAttack(e: Enemy, w: AiWorld, dt: number): void {
+  if (!e.attack) return;
+  const guests = net(w);
+  if (!guests) {
+    tick(e, w, dt, null);
+    return;
+  }
+  guests.enter();
+  try { tick(e, w, dt, guests); } finally { guests.leave(); }
+}
+
+type Guests = NonNullable<ReturnType<typeof net>>;
+
+/** One shot. In co-op what it spawns is gathered and sent with it. */
+function shoot(e: Enemy, w: AiWorld, a: AttackDef, index: number, guests: Guests | null): void {
+  if (!guests) {
+    a.fire(e, w, index);
+    return;
+  }
+  guests.firing();
+  try { a.fire(e, w, index); } finally { guests.fired(e, a, index); }
+}
+
+function tick(e: Enemy, w: AiWorld, dt: number, guests: Guests | null): void {
   const a = e.attack;
   if (!a) return;
   e.attackClock += dt;
@@ -134,7 +175,7 @@ export function tickAttack(e: Enemy, w: AiWorld, dt: number): void {
     if (e.attackClock >= e.attackWindup) {
       e.attackPhase = 'active';
       e.attackClock = 0;
-      if (!a.shots) a.fire(e, w, 0);
+      if (!a.shots) shoot(e, w, a, 0, guests);
     }
     return;
   }
@@ -143,7 +184,7 @@ export function tickAttack(e: Enemy, w: AiWorld, dt: number): void {
     if (e.attack !== a) return;
     if (a.shots) {
       while (e.attackShots < a.shots && e.attackClock >= e.attackShots * a.active) {
-        a.fire(e, w, e.attackShots++);
+        shoot(e, w, a, e.attackShots++, guests);
         if (e.attack !== a) return;
       }
       if (e.attackShots >= a.shots) enterRecover(e);
@@ -167,7 +208,13 @@ export function finishAttack(e: Enemy, w: AiWorld, interrupted: boolean): void {
   e.attackPhase = 'idle';
   e.attackLoop?.stop(0.12);
   e.attackLoop = null;
-  a.end?.(e, w, interrupted);
+  const guests = net(w);
+  if (!guests) a.end?.(e, w, interrupted);
+  else {
+    guests.enter();
+    try { a.end?.(e, w, interrupted); } finally { guests.leave(); }
+    guests.ended(e, a, interrupted);
+  }
   if (a.token) w.director.release(e, a.token);
   const [lo, hi] = a.cooldown;
   e.attackCooldowns.set(a, w.now + lo + Math.random() * (hi - lo));

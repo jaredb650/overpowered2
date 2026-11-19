@@ -138,6 +138,10 @@ export interface Projectile {
   blastShake: number | undefined;
   /** An autocannon flak shell: a proximity fuze, and its blast is the flak's air burst and cone (flak.ts). */
   flak: boolean;
+  /** Co-op: a copy of a projectile another browser owns. It flies and draws, and hurts and blows up nothing. */
+  cosmetic: boolean;
+  /** Co-op: the host's number for this enemy projectile (0: none), so its end can be told to the other screens. */
+  netId: number;
 }
 
 function createProjectile(): Projectile {
@@ -152,7 +156,7 @@ function createProjectile(): Projectile {
     blastSelf: undefined, blastPush: undefined, pinned: false, lastHit: -1,
     budget: makeBudget(), baseDamage: 0, armorPiercing: false,
     target: null, turnRate: 0, line: new THREE.Vector3(), steerDelay: 0, weave: 0, weavePhase: 0, accel: 0, topSpeed: 0, age: 0, size: 1, wired: false,
-    blastScale: undefined, blastShake: undefined, flak: false,
+    blastScale: undefined, blastShake: undefined, flak: false, cosmetic: false, netId: 0,
     helix: null, helixTravel: 0, helixRight: new THREE.Vector3(), helixUp: new THREE.Vector3(), helixOffset: new THREE.Vector3(),
   };
 }
@@ -230,7 +234,8 @@ export class Projectiles {
     return this.live;
   }
 
-  spawn(spec: ProjectileSpec): void {
+  /** `netId` is co-op's number for an enemy projectile the other screens fly a copy of (net/world/enemyFire.ts). */
+  spawn(spec: ProjectileSpec, netId = 0): void {
     const kind = spec.kind as ProjectileKind;
     let p = this.free.pop();
     if (!p) {
@@ -287,6 +292,8 @@ export class Projectiles {
     p.size = spec.size ?? 1;
     p.wired = spec.wired ?? false;
     p.flak = spec.flak ?? false;
+    p.cosmetic = spec.cosmetic ?? false;
+    p.netId = netId;
     p.visualHold = 0;
     p.visualOffset.set(0, 0, 0);
     if (spec.visualFrom) {
@@ -312,6 +319,9 @@ export class Projectiles {
   private retire(index: number): void {
     const p = this.live[index]!;
     p.live = false;
+    // Co-op: the host's enemy projectile is gone, so its copies go too (a copy that ends says nothing).
+    if (p.netId && !p.cosmetic) this.ctx.coop?.world?.projectileGone(p.netId);
+    p.netId = 0;
     // A pooled missile must not keep a dead enemy reachable.
     p.target = null;
     p.stuckBone = null;
@@ -645,6 +655,11 @@ export class Projectiles {
     const hit = closestSegmentPoints(p.position, end, player.position, player.eye);
     if (hit.dist2 < PLAYER_RADIUS * PLAYER_RADIUS) {
       p.position.lerp(end, hit.s);
+      // A copy stops here and no more: whether it hurt is the host's to say (`hurt`).
+      if (p.cosmetic) {
+        p.live = false;
+        return true;
+      }
       const guard = this.combat.guard(dir);
       if (guard !== 'none') {
         this.combat.deflected(p.position, dir, p.damage, guard);
@@ -846,6 +861,8 @@ export class Projectiles {
   }
 
   explode(p: Projectile, normal: THREE.Vector3 | undefined): void {
+    // A copy never blows up: the real one's blast comes from its owner (`boom`).
+    if (p.cosmetic) return;
     if (p.flak) {
       flakBurst(this.ctx, this.combat, p.position, this.v.copy(p.velocity).normalize(), p.source);
       return;
@@ -990,9 +1007,31 @@ export class Projectiles {
     return this.shotResult;
   }
 
+  /** Co-op: the live projectile with this number, if any. */
+  byNetId(netId: number): Projectile | null {
+    for (let i = 0; i < this.live.length; i++) if (this.live[i]!.netId === netId) return this.live[i]!;
+    return null;
+  }
+
+  /** Co-op guest: the host's projectile is gone, so its copy goes with it, quietly. */
+  dropCopy(netId: number): void {
+    for (let i = this.live.length - 1; i >= 0; i--) {
+      const p = this.live[i]!;
+      if (p.cosmetic && p.netId === netId) this.retire(i);
+    }
+  }
+
   /** Blows a shootable up where it is. */
   detonate(p: Projectile): void {
     if (!p.live) return;
+    // Co-op guest: the shot hit a copy. The host is asked to blow the real one up; the copy just goes.
+    if (p.cosmetic) {
+      if (p.netId) this.ctx.coop?.world?.projectileShot(p.netId);
+      p.live = false;
+      const copy = this.live.indexOf(p);
+      if (copy >= 0) this.retire(copy);
+      return;
+    }
     p.team = 'player';
     this.explode(p, undefined);
     p.live = false;

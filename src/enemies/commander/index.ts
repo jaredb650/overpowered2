@@ -20,6 +20,7 @@
  * The Outpost owns this and calls it at a handful of points. Off the contract none of it exists.
  */
 import * as THREE from 'three';
+import type { PlayerSystem } from '../../core/contracts';
 import { DEV_TOOLS } from '../../core/devflags';
 import type { CallInId, EnemyId, KillEvent } from '../../core/gameplay';
 import { clamp, rand } from '../../core/math';
@@ -532,11 +533,10 @@ export class Commander {
     this.cause = null;
   }
 
-  /** Damage that is no blast, and still the Commander's fault. */
-  hurt(amount: number, from: THREE.Vector3, cause: string): void {
-    const { ctx } = this.w;
+  /** Damage that is no blast, and still the Commander's fault. `victim` is who it caught: in co-op any player (`hostPlayers`), not only the host's. */
+  hurt(amount: number, from: THREE.Vector3, cause: string, victim: PlayerSystem = this.w.ctx.player): void {
     this.cause = cause;
-    ctx.player.takeDamage({ amount, from, type: 'crush', source: cause });
+    victim.takeDamage({ amount, from, type: 'crush', source: cause });
     this.cause = null;
   }
 

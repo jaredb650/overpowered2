@@ -5,7 +5,7 @@ import { clamp, damp, dampAngle, rand } from '../core/math';
 import type { AttackDef, Behaviour } from './brain';
 import type { Enemy } from './Enemy';
 import type { AiWorld } from './aiWorld';
-import { leadLanding, meleeConnect, say } from './attacks';
+import { leadLanding, meleeConnect, say, shout } from './attacks';
 import { leapTo } from './movement';
 
 const _p = new THREE.Vector3();
@@ -61,7 +61,7 @@ export function wallCling(): Behaviour {
       e.timerB = w.now + CLING_LEAP_SECONDS;
       e.char.anim.play('leap', 1.2);
       leapTo(e, e.scratchPoint, CLING_LEAP_SECONDS, 1.2);
-      say(e, w, e.def.voice.attack, 0.5);
+      shout(e, w, e.def.voice.attack, 0.5);
     },
     frame(e, w) {
       if (e.stage === 1 && w.now >= e.timerB) {

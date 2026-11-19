@@ -4,8 +4,8 @@
  * frame and hands calls on. The layout and how to add an event are in docs/notes/coop.md, "Code layout".
  */
 import type * as THREE from 'three';
-import type { Ctx, DamageInfo, ExplosionKind, PlayerDamage, PlayerSystem } from '../core/contracts';
-import type { DamageResult, EnemyInstance, ExplosionSpec } from '../core/gameplay';
+import type { Ctx, DamageInfo, ExplosionKind, MuzzleKind, PlayerDamage, PlayerSystem, TracerKind } from '../core/contracts';
+import type { DamageResult, EnemyInstance, ExplosionSpec, ProjectileSpec } from '../core/gameplay';
 import type { Enemy } from '../enemies/Enemy';
 import type { PlayerSense } from '../enemies/aiWorld';
 import type { ClaimValidator } from './authority';
@@ -13,6 +13,7 @@ import type { CoopSession } from './index';
 import { CoopMission } from './mission';
 import { Team } from './team';
 import { Allies } from './world/allies';
+import { EnemyAttacks } from './world/attacks';
 import { Booms } from './world/booms';
 import { Callins } from './world/callins';
 import { Capture } from './world/capture';
@@ -29,12 +30,21 @@ import { Replicas } from './world/replicas';
 import { SharedSonar } from './world/sonar';
 import { Targeting } from './world/targeting';
 import { Vehicles } from './world/vehicles';
+import { Villain } from './world/villain';
+import { Warnings } from './world/warnings';
 
 export class CoopWorld {
   readonly stats: WorldContext['stats'];
   readonly team: Team;
   readonly mission: CoopMission;
   readonly validator: ClaimValidator;
+  /** Enemy attacks on every screen: the brain tells it what the host's enemies do (enemies/brain.ts). */
+  readonly attacks: EnemyAttacks;
+  /** Ground rings, shocks, shells and the lasers of things that are not an enemy's attack (enemies/telegraph.ts). */
+  readonly warnings: Warnings;
+  /** What enemies fire, for the browser proofs. */
+  readonly enemyFire: EnemyFire;
+  private readonly villain: Villain;
   private readonly w: WorldContext;
   private readonly enemies: Replicas;
   private readonly targeting: Targeting;
@@ -42,7 +52,6 @@ export class CoopWorld {
   private readonly claims: Claims;
   private readonly hits: Hits;
   private readonly credit: Credit;
-  private readonly enemyFire: EnemyFire;
   private readonly booms: Booms;
   private readonly guns: Guns;
   private readonly capture: Capture;
@@ -58,7 +67,7 @@ export class CoopWorld {
     this.validator = w.validator;
     this.team = w.team = new Team(ctx, session, (event, to) => w.send(event, to));
     // A mission's rides are everyone's: each guest's door gun counts through the host as a call-in.
-    this.team.onArrived = id => { this.mission.catchUp(id); this.guns.catchUp(id); };
+    this.team.onArrived = id => { this.mission.catchUp(id); this.guns.catchUp(id); this.villain.catchUp(id); };
     this.mission = new CoopMission(ctx, session, (event, to) => w.send(event, to), this.team,
       () => { for (const p of session.lobby.players) if (!p.host) this.validator.callIn(p.id, performance.now()); });
     this.team.plug(w.router);
@@ -80,11 +89,14 @@ export class CoopWorld {
     new Chatter(w, this.enemies);
     this.capture = new Capture(w, this.enemies);
     this.enemyFire = new EnemyFire(w, this.targeting);
+    this.attacks = new EnemyAttacks(w, this.enemies, this.targeting, this.enemyFire);
+    this.warnings = new Warnings(w, this.enemyFire);
+    this.villain = new Villain(w);
     this.booms = new Booms(w, this.targeting);
     this.guns = new Guns(w);
     this.vehicles = new Vehicles(w);
     this.garrison = new Allies(w);
-    this.modules = [this.capture, this.vehicles, this.garrison, this.targeting, this.claims, this.credit, w.later, this.enemies];
+    this.modules = [this.capture, this.vehicles, this.garrison, this.targeting, this.claims, this.credit, this.attacks, this.warnings, w.later, this.enemies];
   }
 
   /** Read by the two-page proofs (tools/scripts/coop-*.mjs): the guest's enemy copies, last snapshot and garrison bodies. */
@@ -131,6 +143,8 @@ export class CoopWorld {
     const now = performance.now();
     this.vehicles.animate(now);
     this.enemies.animate(now);
+    // After the copies are posed, so a muzzle is where its gun is.
+    this.attacks.animate(this.ctx.time.dt);
   }
   select(enemy: Enemy, sense: PlayerSense): void { this.targeting.select(enemy, sense); }
   /** Every live player's eyes, for the host's fleeing men to run from (outpost/flight.ts). */
@@ -138,10 +152,26 @@ export class CoopWorld {
   isRemoteTarget(): boolean { return this.targeting.isRemoteTarget(); }
   allowsLocalDamage(damage: PlayerDamage): boolean { return this.targeting.allowsLocalDamage(damage); }
   steer(enemy: Enemy, direction: THREE.Vector3): boolean { return this.targeting.steer(enemy, direction); }
-  enemyRay(from: THREE.Vector3, to: THREE.Vector3, damage: number, source: string, trace = true): THREE.Vector3 | null {
-    return this.enemyFire.enemyRay(from, to, damage, source, trace);
+  enemyRay(from: THREE.Vector3, to: THREE.Vector3, damage: number, source: string, trace = true, tracer?: TracerKind, whizz?: string): THREE.Vector3 | null {
+    return this.enemyFire.enemyRay(from, to, damage, source, trace, tracer, whizz);
   }
-  projectile(from: THREE.Vector3, dir: THREE.Vector3): void { this.enemyFire.projectile(from, dir); }
+  /** Host: an enemy launched a projectile; guests fly a copy. Returns its number if its end must be told, else 0. */
+  projectile(spec: ProjectileSpec): number { return this.enemyFire.projectile(spec); }
+  /** Host: enemy projectile `id` is gone. */
+  projectileGone(id: number): void { this.enemyFire.gone(id); }
+  /** Guest: the local player shot the copy of enemy projectile `id` out of the air. */
+  projectileShot(id: number): void { this.enemyFire.shot(id); }
+  /** Host: an enemy's muzzle flash, or a sound at a place, that is not part of an attack guests play themselves. */
+  enemyFlash(position: THREE.Vector3, dir: THREE.Vector3, kind: MuzzleKind): void { this.enemyFire.flash(position, dir, kind); }
+  enemySound(id: string, position: THREE.Vector3, volume?: number, pitch?: number): void { this.enemyFire.sound(id, position, volume, pitch); }
+  /** The local player, whoever an enemy is after (`ctx.player` inside the enemy system can be a stand-in for a friend). */
+  get me(): PlayerSystem { return this.ctx.player; }
+  /** Host: every player in the world, the host's first, for dangers that must test them all. Null on a guest. */
+  hostPlayers(): readonly PlayerSystem[] | null { return this.targeting.hostPlayers(); }
+  /** Host: true if this guest's own screen had them clear of a melee swing from `from` (targeting.ts). */
+  dodged(player: PlayerSystem, from: THREE.Vector3, reach: number): boolean { return this.targeting.dodged(player, from, reach); }
+  /** Host: melee hits spared by that rule, for the proofs. */
+  get dodges(): number { return this.targeting.dodges; }
   blast(center: THREE.Vector3, spec: ExplosionSpec): void { this.booms.blast(center, spec); }
   update(): void {
     if (!this.w.ready) return;

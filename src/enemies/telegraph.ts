@@ -182,6 +182,7 @@ export class Telegraphs {
       l.active = true;
       l.color.set(color);
       this.setLaserStrength(i, strength);
+      this.ctx.coop?.world?.warnings.laserOn(i);
       return i;
     }
     return -1;
@@ -208,6 +209,8 @@ export class Telegraphs {
     _mid.copy(from).addScaledVector(_dir, length * 0.5);
     const width = (LASER_BASE_WIDTH + _mid.distanceTo(this.ctx.render.camera.position) * LASER_WIDTH_PER_METER) * Math.sqrt(l.strength);
     m.scale.set(width, length, width);
+    // Co-op host: a laser that is not an enemy attack's own (a tank laying its gun) is told to the guests.
+    this.ctx.coop?.world?.warnings.laserAim(handle, from, to, l.color, l.strength);
   }
 
   releaseLaser(handle: number): void {
@@ -215,6 +218,7 @@ export class Telegraphs {
     if (!l) return;
     l.active = false;
     l.mesh.visible = false;
+    this.ctx.coop?.world?.warnings.laserOff(handle);
   }
 
   /** A star at a muzzle that swells until the shot. `follow` keeps it on a moving hand. */
@@ -227,6 +231,7 @@ export class Telegraphs {
     g.follow = follow;
     g.sprite.position.copy(position);
     g.sprite.visible = true;
+    this.ctx.coop?.world?.warnings.glint(position, color, size, seconds);
   }
 
   /** A ground circle that fills from the middle, landing exactly when the attack does. */
@@ -244,6 +249,8 @@ export class Telegraphs {
     z.ringMaterial.color.set(color).multiplyScalar(3);
     z.fillMaterial.color.set(color).multiplyScalar(1.5);
     z.ring.visible = z.fill.visible = true;
+    // Co-op host: every ground ring is drawn on every screen.
+    this.ctx.coop?.world?.warnings.zone(position, radius, seconds, color);
   }
 
   /** The strip a charge will run down. Returns a handle so it can turn with the attacker while it winds up. */

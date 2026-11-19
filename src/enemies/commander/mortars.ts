@@ -273,6 +273,7 @@ export class Mortars {
       if (!s.whistled && now >= s.at - WHISTLE_LEAD) {
         s.whistled = true;
         w.ctx.audio.play('mortar_whistle', { position: s.point, pitch: rand(0.92, 1.08) });
+        w.ctx.coop?.world?.enemySound('mortar_whistle', s.point);
       }
       if (now >= s.at) this.land(s);
     }
@@ -284,6 +285,8 @@ export class Mortars {
     _sky.copy(s.point);
     _sky.y += 34;
     ctx.fx.tracer(_sky, s.point, 'heavy');
+    // Co-op: the shell comes down on every screen (its blast is the usual `boom`).
+    ctx.coop?.world?.warnings.strike(s.point, 0);
     this.c.boom(s.point, SHELL_RADIUS, SHELL_DAMAGE, this.cause);
     ctx.render.decals.add('scorch', s.point, _up, SHELL_RADIUS * 0.5, rand(0, TAU));
   }

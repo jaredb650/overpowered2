@@ -6,6 +6,7 @@
 import type { MissionEvent } from './mission';
 import type { TeamEvent } from './team';
 import type { AlliesEvent } from './world/allies';
+import type { AttackEvent } from './world/attacks';
 import type { BoomEvent } from './world/booms';
 import type { CallinEvent } from './world/callins';
 import type { CaptureEvent } from './world/capture';
@@ -20,6 +21,8 @@ import type { SonarEvent } from './world/sonar';
 import type { AwardEvent } from './world/credit';
 import type { HurtEvent } from './world/targeting';
 import type { VehiclesEvent } from './world/vehicles';
+import type { VillainEvent } from './world/villain';
+import type { WarningEvent } from './world/warnings';
 
 export * from './world/wire';
 export * from './world/snapshot';
@@ -32,8 +35,11 @@ export type WorldEvent =
   | HitEvent        // world/hits.ts: hitfx, kill, sever
   | FireEvent       // world/remoteFire.ts: fire
   | KataEvent       // world/remoteFire.ts: kata
-  | HurtEvent       // world/targeting.ts: hurt
-  | EnemyFireEvent  // world/enemyFire.ts: ray
+  | HurtEvent       // world/targeting.ts: hurt, shove, ghost
+  | EnemyFireEvent  // world/enemyFire.ts: ray, proj, projx, projhit, efx
+  | AttackEvent     // world/attacks.ts: atk, atkf, atke, say, bossfx
+  | WarningEvent    // world/warnings.ts: zone, glint, laser, shock, strike, bang
+  | VillainEvent    // world/villain.ts: cmd
   | BoomEvent       // world/booms.ts: boom
   | CallinEvent     // world/callins.ts: callin
   | SonarEvent      // world/sonar.ts: sonar

@@ -5,7 +5,7 @@
  */
 import * as THREE from 'three';
 import type RAPIER from '@dimforge/rapier3d-compat';
-import type { EmitterHandle, LoopHandle } from '../../core/contracts';
+import type { EmitterHandle, LoopHandle, PlayerSystem } from '../../core/contracts';
 import { rand } from '../../core/math';
 import type { WreckDef } from './data';
 import type { VehicleSystem } from './index';
@@ -139,10 +139,22 @@ export class Wreck {
   }
 
   private hazard(dt: number): void {
-    const { player } = this.sys.ctx;
     this.fireTick -= dt;
-    if (this.fireTick > 0 || !player.alive || player.parked) return;
+    if (this.fireTick > 0) return;
+    // Co-op host: the fire burns whoever stands in it.
+    const everyone = this.sys.ctx.coop?.world?.hostPlayers();
+    if (!everyone) {
+      const { player } = this.sys.ctx;
+      if (!player.alive || player.parked) return;
+      this.fireTick = FIRE_TICK;
+      this.burn(player);
+      return;
+    }
     this.fireTick = FIRE_TICK;
+    for (let i = 0; i < everyone.length; i++) if (everyone[i]!.alive && !everyone[i]!.parked) this.burn(everyone[i]!);
+  }
+
+  private burn(player: PlayerSystem): void {
     const { root, def } = this;
     if (player.position.y > root.position.y + FIRE_RISE) return;
     const dx = player.position.x - root.position.x;

@@ -234,8 +234,10 @@ export class EnemyChopper extends Vehicle {
     randomInCone(_aim, rockets.spread, _dir);
     _vel.copy(_dir).multiplyScalar(rockets.speed);
     combat.spawnProjectile(ROCKET);
-    fx.muzzleFlash(_pos, _dir, 'rocket');
+    // Through combat, so a co-op guest sees the flash too (it draws the same flash here).
+    combat.enemyMuzzle(_pos, _dir, 'rocket');
     audio.play('enemy_rocket_fire', { position: _pos });
+    this.sys.ctx.coop?.world?.enemySound('enemy_rocket_fire', _pos);
   }
 
   /** Its gun on the player's aircraft. A burst that lands costs him time in the air. */

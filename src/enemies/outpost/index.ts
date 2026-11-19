@@ -1134,6 +1134,8 @@ export class Outpost {
     b.live = true;
     b.at = this.w.now + fuse;
     b.position.copy(at);
+    // Co-op host: it goes off on every screen, and each player's own eyes decide how blind they go.
+    this.w.ctx.coop?.world?.warnings.bang(at, fuse);
   }
 
   private updateBangs(now: number): void {

@@ -22,7 +22,7 @@ import { RULES } from './lines';
 import { NAME_LIST, NAME_POOLS, NameRoll, callName, poolOf, speakerTag } from './names';
 import { ChatterMemory, SPEAK_RATE, TIER_OF, rowsFor, type ChatterFacts, type Tier } from './rules';
 
-vi.mock('../../attacks', async original => ({ ...(await original<object>()), say: vi.fn() }));
+vi.mock('../../attacks', async original => ({ ...(await original<object>()), say: vi.fn(), shout: vi.fn() }));
 
 const TIERS: readonly Tier[] = ['high', 'medium', 'low', 'desperate'];
 const CONCEPTS = [...new Set(RULES.map(r => r.concept))];
