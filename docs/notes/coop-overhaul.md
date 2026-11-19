@@ -43,7 +43,7 @@ Read `CLAUDE.md` first; it still applies except where this section differs.
 - **Use the machine, within its limits** (32 cores, 62 GB, RTX 4090). The rules that spared the old 8 GB Mac are void: run the
   whole suite when landing, no 15 fps caps unless the test is about low frame rate, 3 and 4 player proofs are fine. But thirteen
   agents share the box, and 25 browser runs at once filled the memory and the swap (2026-11-18). So: `tools/shot.mjs` takes one
-  of 4 machine-wide browser slots and waits if none is free (never bypass it); keep **at most two** runs alive in your lane;
+  of 3 machine-wide browser slots and waits if none is free (never bypass it); keep **at most two** runs alive in your lane;
   after every run kill what you started and no longer need (hung `shot.mjs`, leftover headless Chrome, spare Vite servers, stray
   vitest or node watchers, extra worktrees), matching on your ports and your worktree path only. A timing or a failure measured
   while the box is overloaded (`uptime` load far above 32) proves nothing: measure again.
