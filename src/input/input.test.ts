@@ -238,6 +238,38 @@ describe('rebinding', () => {
     input.dispose();
   });
 
+  it('the co-op ping never lands on a key a saved map already uses', async () => {
+    // Saved before the ping existed, with quick melee on the middle button and reload on P.
+    storage.set('op2.bindings.v2', JSON.stringify({ melee: ['Mouse1'], reload: ['KeyP'] }));
+    const both = await make();
+    expect(both.input.bindingsFor('ping')).toEqual([]);
+    expect(both.input.conflicts('Mouse1')).toEqual(['melee']);
+    expect(both.input.conflicts('KeyP')).toEqual(['reload']);
+    both.input.dispose();
+
+    // One of its keys taken: it keeps the other.
+    storage.set('op2.bindings.v2', JSON.stringify({ melee: ['Mouse1'] }));
+    const one = await make();
+    expect(one.input.bindingsFor('ping')).toEqual(['KeyP']);
+    one.input.dispose();
+
+    // A saved map that touches neither, and no saved map at all: both defaults.
+    storage.set('op2.bindings.v2', JSON.stringify({ jump: ['KeyJ'] }));
+    const free = await make();
+    expect(free.input.bindingsFor('ping')).toEqual(['Mouse1', 'KeyP']);
+    free.input.dispose();
+    storage.clear();
+    const fresh = await make();
+    expect(fresh.input.bindingsFor('ping')).toEqual(['Mouse1', 'KeyP']);
+    fresh.input.dispose();
+
+    // Once the player has saved a ping key of their own, it is theirs, clash or not.
+    storage.set('op2.bindings.v2', JSON.stringify({ melee: ['Mouse1'], ping: ['Mouse1'] }));
+    const chosen = await make();
+    expect(chosen.input.bindingsFor('ping')).toEqual(['Mouse1']);
+    chosen.input.dispose();
+  });
+
   it('rebinds, persists, and restores defaults', async () => {
     const first = await make();
     first.input.rebind('jump', ['KeyJ']);

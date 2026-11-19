@@ -52,7 +52,7 @@ const WORLD_ACTIONS = ['spawn', 'vehicle', 'emplacement', 'wall', 'killAll', 'br
 const isField = (t: EventTarget | null): boolean => t instanceof HTMLElement && /^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName);
 
 interface Bindings {
-  conflicts?(code: string): readonly unknown[];
+  conflicts?(code: string, except?: string): readonly unknown[];
 }
 
 export class Lab {
@@ -352,8 +352,8 @@ export class Lab {
       return;
     }
     if (e.repeat || !this.armed || isField(e.target) || this.game.state !== 'playing' || this.ctx.coop) return;
-    // A key the player has bound to the game is the game's.
-    if ((this.ctx.input as unknown as Bindings).conflicts?.(e.code)?.length) return;
+    // A key the player has bound to the game is the game's. Not the ping's: it is co-op's alone, where these keys are off.
+    if ((this.ctx.input as unknown as Bindings).conflicts?.(e.code, 'ping')?.length) return;
     switch (e.code) {
       case 'KeyP': this.togglePause(); break;
       case 'Period': this.step(1); break;

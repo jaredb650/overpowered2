@@ -1143,6 +1143,9 @@ guest's are, so a guest's one hit minutes ago never takes the host's airstrike k
 - **Ping** (`marks.ts`, action `ping`: middle mouse or P, rebindable in Settings): a marker where the player is looking (300 m; a
   ping at nothing lands on the ground 40 m ahead), "PING · NAME" in their colour, on every screen and the minimap for 6 s. The
   pinger's own is instant; the host stamps whose it is and passes it on. Two markers a player at most, one every 350 ms.
+  For a player whose saved keys already use the middle button or P, the ping takes only the one that is free (neither: it starts
+  unbound, and they pick a key in Settings), so no saved map ends up with two actions on a key (`loadBindings`). In the dev
+  panel P still pauses the Test Range: the panel's keys are off in co-op and the ping does nothing alone.
 
 ### Proofs (`tools/scripts/coop-team-*.mjs`, helpers in `coop-team-kit.mjs`)
 

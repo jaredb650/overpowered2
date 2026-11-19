@@ -91,6 +91,11 @@ export function loadBindings(): Bindings {
       merged.stim = DEFAULT_BINDINGS.stim;
       merged.weaponLast = DEFAULT_BINDINGS.weaponLast;
     }
+    // Ping came with co-op, after players had saved their keys: it takes only the default keys nothing of theirs is on, so a
+    // saved map never ends up with two actions on one key. Once it is in the saved map it is the player's own choice.
+    if (!Array.isArray(stored.ping)) {
+      merged.ping = DEFAULT_BINDINGS.ping.filter(code => !ACTIONS.some(a => a !== 'ping' && merged[a].includes(code)));
+    }
   } catch {
     // Blocked storage or a corrupt entry falls back to defaults.
   }
