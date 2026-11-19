@@ -26,6 +26,7 @@ c.addWound(bone, worldPoint, 0.04);           // paint only: blood and bruising
 c.fracture(bone, 'hyper');                    // snaps the joint at the top of this bone. 'limp' for a shoulder or hip
 c.setBloodiness(0.4); c.hitFlash(1);
 c.setBurn(0.7); c.setFrost(1);
+c.setEmber(1);                                // how hot its char still is: the glow in its cracks. c.burn reads the char back
 
 const part = c.spawnSevered(bone);            // call before or after hideLimb, either works
 c.hideLimb(bone);
@@ -40,7 +41,8 @@ The animator measures velocity from `root.position`, so feet stay planted howeve
 
 | Member | Purpose |
 |---|---|
-| `Character.setBurn(0..1)`, `setFrost(0..1)` | Char with crawling embers, ice |
+| `Character.setBurn(0..1)`, `setFrost(0..1)` | Char with crawling embers, ice. `burn` reads the char back. Past 0.55 the kit it carries is burnt too |
+| `Character.setEmber(0..1)`, `SeveredLimb.setBurn/setEmber/burn` | How hot the char is: 1 alight, 0 cold. Gore's fire keeps it (`docs/notes/gore.md`, "Fire on bodies"). A limb leaves with its body's skin and burns on |
 | `Character.setLod(level)` | Picks LOD geometry and the far material |
 | `Character.muzzle` | Object3D on the weapon's muzzle, or null. More exact than hand position plus an offset |
 | `Character.props` | `{ bone, object }` for everything attached, including baked backpacks and tanks |
@@ -163,9 +165,11 @@ None of these exist on skitters and drones, which is how gore and the enemies kn
 
 - One `MeshStandardMaterial` per model plus a far variant. All instances share it. Four programs cover the whole cast.
 - Per-instance state rides in spare texels at the end of the instance's bone texture: 32 wounds, blood, burn,
-  frost, flash. No per-object uniforms and no extra draw state. The texture is 16 x 16 for every rig, which spares each
-  fetch an integer divide. 37 bones, 32 wounds and the three wear texels take 249 of its 256 texels (`EXTRA_*` in
-  `anatomy/glsl.ts`; a new block goes at the end, before `EXTRA_TEXELS`).
+  frost, flash, fire. No per-object uniforms and no extra draw state. The texture is 16 x 16 for every rig, which spares each
+  fetch an integer divide. 37 bones take 148 texels; after them come `EXTRA_PARAMS` (blood, flash, burn, frost), `EXTRA_INFO`
+  (wound count, seed, fractures, most worn region), two `EXTRA_FIRE` texels, 32 wounds of 3 and three wear texels: 251 of
+  256 (`EXTRA_*` in `anatomy/glsl.ts`). **Five are free.** A new block goes at the end, before `EXTRA_TEXELS`, which must
+  count it so a severed limb takes it along (`copySurfaceTo`).
 - Object-space normal atlas, rotated by the skin matrix in the vertex shader. No tangents, no tangent seams.
 - Atlas A is sRGB albedo with metalness (alpha below 0.5) or emissive (above) packed in alpha. Atlas B is normal plus
   roughness.
@@ -267,6 +271,21 @@ severing and what a maimed enemy does are untouched (`src/enemies/wear.test.ts` 
 - **Looking at it.** `tools/scripts/wear-gallery.mjs` (any types, regions, kinds and levels at 3, 10 and 20 m on a frozen
   clock) and `tools/scripts/wear-live.mjs` (the game's own damage: an arm round by round until it comes off, a blade, the
   chest, one blow). Tests: `anatomy/wear.test.ts`, `enemies/wear.test.ts`.
+
+### Burnt skin
+
+`material.ts`, `BURN_SURFACE`: one block of shader used by the body (per instance, from its texels) and by the kit it carries.
+`burn` 0..1 walks a threshold through the body's noise; `behind` is how long ago the fire's edge passed a pixel. Ahead of the
+edge the skin scalds red; at the edge a thin ember line; behind it burnt brown, then black with flecks of pale ash, split by
+`op2Crack`. Plate does not split: it is sooted black and keeps some shine. The splits are raw red while the fire is on the
+body and dark and dry once it is cold; they glow by `heat` (`setEmber`, the first value of the second fire texel), and as heat
+falls fewer of them glow, patch by patch, with a warm band either side (`op2CrackWide`). At the far level of detail there are
+no splits, only a faint flat glow. Past 1 the same number is still the Lance's vaporize.
+
+**The kit burns with the body.** A helmet, a rifle or a pack is a mesh of its own and never read the body's burn: a burnt man
+used to wear a clean white helmet. `charredVariant(material)` makes a burnt twin of any character material the first time one
+is needed (the same program with `OP2_CHARRED`: burn 1, cold), and `setBurn` past 0.55 swaps every prop still on its bone to
+its twin; `reset` swaps them back. A prop that has already left its bone stays as it was.
 
 **Fractures.** `fracture(bone, 'hyper')` bends a hinge past straight, the wrong way: `bone` is the forearm for an elbow, the shin for a knee. `'limp'` kills a ball joint, with the hinge below it hanging slack. A verlet point on the end of the limb swings by its own weight from wherever the joint is carried, after the animator has run, by wrapping `anim.update`, so it holds through every animator. In a ragdoll the joint opens instead: `Rag.breakJoint`, and `JointMuscle.broken` takes the muscles off it. Bone ends are parts of the interior that stay collapsed to a point until the bit for their joint is set.
 

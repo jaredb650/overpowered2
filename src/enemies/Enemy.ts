@@ -224,6 +224,8 @@ export class Enemy implements EnemyInstance {
   predead = 0;
   burnTick = 0;
   burnEmitter: EmitterHandle | null = null;
+  /** Its fire has caught and been heard to: the sizzle plays once a fire, not once a frame. */
+  alight = false;
   /** 0..1 how much of the skin has blackened. It stays after the fire goes out. */
   charred = 0;
   /** Warden shield hit points. */
@@ -317,6 +319,7 @@ export class Enemy implements EnemyInstance {
     this.owed = 0;
     this.predead = 0;
     this.burnEmitter = null;
+    this.alight = false;
     this.ward = 0;
     this.wardBy = null;
     this.wardVisual = -1;

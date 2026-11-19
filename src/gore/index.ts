@@ -17,6 +17,7 @@ import { clamp, rand, randomInCone, randomUnit } from '../core/math';
 import { WEAPONS } from '../weapons/data';
 import { BloodField, BloodTuning } from './blood';
 import { Tracks } from './tracks';
+import { FireField } from './fire';
 import { ChunkField, scatter, type ChunkKind } from './chunks';
 import { ImpactEvents, impactKind, ImpactTuning } from './impacts';
 import { CollapseDrive, impactStrength, MASS_PASS, MuscleTuning, STAND_PASS, STRENGTH_PASS, WEIGHT_PASS, type CollapseOptions, type DownedBody, type KnockdownOptions, type LimbStrength } from './muscles';
@@ -422,6 +423,8 @@ export class Gore implements GoreSystem {
   readonly spurts: SpurtField;
   /** The blood a flying piece trails (trail.ts): one budget for trunk pieces, limbs and loose pieces. */
   readonly trail: GibTrail;
+  /** Everything alight or smouldering: the living, corpses and limbs (fire.ts). */
+  readonly fire: FireField;
   /** Each archetype's trunk, cut once into the pieces it breaks into (torso.ts). */
   private readonly kits = new Map<string, TorsoKit>();
   /** Each archetype's skin material, for its kit's pieces thrown when no body of it is to hand. */
@@ -454,6 +457,18 @@ export class Gore implements GoreSystem {
     this.ropes = new RopeField(ctx, this.blood);
     this.ropes.ensure();
     this.spurts = new SpurtField(ctx, this.blood, this.trail);
+    this.fire = new FireField(ctx, char => {
+      const b = this.owned.get(char);
+      return b !== undefined && !b.down && b.vapor < 0;
+    });
+  }
+
+  alight(char: CharacterInstance, fireproof?: boolean): void {
+    this.fire.feed(char, fireproof);
+  }
+
+  burnOn(char: CharacterInstance, fireproof?: boolean): void {
+    this.fire.burnOn(char, fireproof);
   }
 
   init(): void {
@@ -1078,11 +1093,15 @@ export class Gore implements GoreSystem {
     if (!b.pooled && !isMachine(b.char)) {
       b.pooled = true;
       const at = b.rag ? b.rag.center : _v.setFromMatrixPosition(b.char.bones[0]!.matrixWorld);
-      // Lying in blood that was there before it, it soaks it up.
-      this.blood.soakBody(b.char, at);
-      // The patch it has soaked into the floor is there at once; the pool then spreads out of it.
-      this.blood.soak(at, rand(1.3, 1.8));
-      this.blood.pool(at, rand(1.2, 1.9), 4.5);
+      // A burnt body has nothing left to run out of it: soot and a scorch where it lies, not a red pool.
+      if (this.fire.sooted(b.char)) this.fire.rest(b.char, at, rand(1.2, 1.6) * b.char.rig.height / 1.85);
+      else {
+        // Lying in blood that was there before it, it soaks it up.
+        this.blood.soakBody(b.char, at);
+        // The patch it has soaked into the floor is there at once; the pool then spreads out of it.
+        this.blood.soak(at, rand(1.3, 1.8));
+        this.blood.pool(at, rand(1.2, 1.9), 4.5);
+      }
     }
   }
 
@@ -1095,7 +1114,9 @@ export class Gore implements GoreSystem {
   private freezeLimb(l: LooseLimb): void {
     l.rag.freeze();
     this.stopLimbEmitters(l);
-    if (!l.machine) this.blood.pool(l.rag.center, rand(0.32, 0.55), 2.5);
+    if (l.machine) return;
+    if (this.fire.sooted(l.piece)) this.fire.rest(l.piece, l.rag.center, rand(0.45, 0.7));
+    else this.blood.pool(l.rag.center, rand(0.32, 0.55), 2.5);
   }
 
   private stopLimbEmitters(l: LooseLimb): void {
@@ -1163,6 +1184,7 @@ export class Gore implements GoreSystem {
     // Cut from a chain in flight, the limb falls as that chain does: its seed is that chain's speed, already on the dial.
     const limb = this.addLimb(char, piece, bone, _mask, _seeds, body?.rag?.active ? body.rag.killedInAir : undefined);
     char.hideLimb(bone);
+    this.fire.split(char, piece, _mask);
     const torso = region === 'abdomen' && !body && canCrawl(char) ? this.startCrawl(limb) : undefined;
     if (region === 'abdomen' && canCrawl(char)) {
       // Guts out of both halves: the top half drags its own behind it as it crawls.
@@ -1594,6 +1616,7 @@ export class Gore implements GoreSystem {
         // Thrown by the gib, not killed in the air, whatever its seed: it takes the dial, and `fling` holds the throw.
         const limb = this.addLimb(char, piece, bone, _mask, seeds, false);
         char.hideLimb(bone);
+        this.fire.split(char, piece, _mask);
         const p = limb.rag.center;
         // A limb falls on the tempo dial and lands as far as it would at full gravity. Chunks keep world gravity and `launch`.
         const fling = launch * limb.rag.throwScale;
@@ -2041,6 +2064,8 @@ export class Gore implements GoreSystem {
       this.ashNow(char, body);
       return;
     }
+    // Its skin is the dissolve's from here: an ordinary fire on it would fight that for the same number.
+    this.fire.forget(char);
     body.vapor = this.ctx.time.elapsed;
     body.vaporFor = rand(v.seconds[0], v.seconds[1]);
     body.lifted = false;
@@ -2293,6 +2318,7 @@ export class Gore implements GoreSystem {
   private removeLimb(limb: LooseLimb): void {
     limb.rag.destroy();
     this.stopLimbEmitters(limb);
+    this.fire.forget(limb.piece);
     limb.piece.release();
     const at = this.limbs.indexOf(limb);
     if (at >= 0) this.limbs.splice(at, 1);
@@ -2468,7 +2494,7 @@ export class Gore implements GoreSystem {
       rag.measure(dt, t.calmSpeed, t.calmSpin);
       rag.muscle?.sampleReflex(dt);
       if (!isMachine(b.char)) this.hear(rag);
-      if (rag.speed > 1.2 && b.smearLeft > 0) {
+      if (rag.speed > 1.2 && b.smearLeft > 0 && !this.fire.sooted(b.char)) {
         const moved = _v.copy(rag.center).sub(b.smearAt);
         moved.y = 0;
         if (moved.lengthSq() > BloodTuning.smearSpacing * BloodTuning.smearSpacing) {
@@ -2500,6 +2526,7 @@ export class Gore implements GoreSystem {
       if (l.sinking >= 0) {
         const k = (now - l.sinking) / t.sinkSeconds;
         if (k >= 1) {
+          this.fire.forget(l.piece);
           l.piece.release();
           this.limbs.splice(i, 1);
           continue;
@@ -2513,6 +2540,7 @@ export class Gore implements GoreSystem {
 
     this.updateBodyLod();
     this.updateStumps();
+    this.fire.update(dt);
     this.ropes.update(dt);
     this.blood.update(dt);
     this.tracks.update(dt);
@@ -2615,6 +2643,7 @@ export class Gore implements GoreSystem {
     this.bodies = [];
     this.owned.clear();
     this.over = false;
+    this.fire.clear();
     for (const l of this.limbs) {
       l.rag.destroy();
       this.stopLimbEmitters(l);

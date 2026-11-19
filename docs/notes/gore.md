@@ -604,6 +604,56 @@ and nothing is sent.
 - **Soaked bodies.** A body that comes to rest in a wet spot that was there before it is as bloody as a body gets
   (`soakBody`, bloodiness 0.9), before it lays its own patch.
 - Tests: `tracks.test.ts`; `blood.test.ts`, "blood that reacts". Scenes: `decal-scenes.mjs` `prints` and `walk`.
+## Fire on bodies (`fire.ts`, the gore update's F1, 2026-11-19)
+
+`FireField` (`gore.fire`) is one list of everything alight or smouldering: the living, corpses, and limbs cut from either. It only
+draws; nothing in it hurts anything. Each screen runs its own from facts already sent (burning is a synced status, a death by
+fire arrives as its damage type), so nothing of it is on the wire.
+
+```ts
+ctx.gore.alight?.(char, fireproof);   // a living body is on fire this frame: call it every frame it burns (EnemyManager.burnLook)
+ctx.gore.burnOn?.(char, fireproof);   // it died burning or by fire: call before ragdoll/collapse/gib (DamageModel.kill)
+gore.fire.sooted(charOrLimb);         // burnt enough (char 0.5) that it leaves soot where it lies, not blood
+gore.fire.stats();                    // { alight, smouldering, licks } for checks
+```
+
+- **Flames come off the whole body.** Each lick is drawn at a random point on one of the rig's hit capsules still on the body,
+  weighted by skin (length times radius), so a trunk burns more than a hand and a body that lost an arm has no fire where the
+  arm was. 26 licks a second on a whole man (`rate`), sized by the capsule (20 cm on a wrist to 47 cm on a chest).
+- **Living:** fed every frame by its owner; 0.2 s without a feed and the fire is out (`hold`). A charred man whose fire goes
+  out smokes for 3 s (`putOut`).
+- **Corpse:** `burnOn` makes it burn 5 to 8 s more (`corpseBurn`, longer the less charred it was), its char rising to 1 over
+  that time, the flames dying down over the last 40% (`dieDown`). Then it smoulders for 30 s (`smoulder`): threads of smoke
+  (2.4 a second falling to 0.25) and the ember glow in the cracks of its skin, `0.6 x (1 - k)^3`, so most of the glow is gone
+  in the first 8 s. Then it is cold: black, with ash, for good. Only a body gore holds as a corpse burns on (`isCorpse`): one
+  gibbed, sliced, vaporized or taken back by the library is dropped that frame.
+- **Limbs:** `sever` and `gib` call `fire.split`: a limb off a burning or smoking body carries on as its own entry
+  (`limbBurn` 3 to 5 s, then the same smoulder), with the body's char on its skin.
+- **Soot for blood.** A sooted body or limb leaves a scorch and two smaller soot marks where it lies (`FireField.scorch`,
+  the `scorch` decal until the decal lane draws a soot shape), laid 0.7 s after death once it is within 45 cm of the floor, or
+  when it freezes. It gets no blood pool (`freezeBody`, `freezeLimb`) and smears no blood as it slides.
+- **Light and heat.** The nearest 3 flaming things (`lights`) throw a flickering orange light: a `lights.flash` of 2.6 to 4.6
+  cd, 6.5 m, every 0.11 to 0.2 s, each lasting 0.26 s, so about one and a half are alive per body. The nearest 3 also get a heat
+  shimmer every 0.45 s. A burning corpse among the nearest 6 has an additive glow on the floor under it.
+- **Caps.** 40 entries (`max`; a new fire past it takes the place of whatever is nearest cold, never of a living body's);
+  the nearest 6 flaming things burn at the full rate and the rest at 45% (`near`, `farRate`); 300 licks a second over
+  everything (`budget`), past which every fire thins alike.
+- **The switch:** `DevFlags.fire` (`?fire=0`, and "New fire" in the dev panel) turns all of it off and gives fire as it was:
+  a timer, one emitter on the chest, out at death, a blood pool. The skin's char is drawn by the new shader either way.
+
+Where the char comes from is the enemies' side: `docs/notes/enemies.md`, "Burning". How the skin draws it:
+`docs/notes/characters.md`, "Burnt skin".
+
+Measured, Test Range at Retina size on the RTX 4090, whole frames with a GPU sync (`tools/scripts/fire-bench.mjs`): ten men
+standing alight 4.97 to 5.54 ms a frame, ten corpses burning 5.44, the same ten not burning 5.02, fire as it was 4.78. The
+spread between two runs of the same case on this shared machine (4.7 to 8.1 ms) is larger than any difference between cases.
+Ten men alight are 203 licks a second, about 160 live particles (171 with the old emitters), 3 more draw calls (the light
+pool's and the shimmer's), and no allocation after the first frame.
+
+Looking at it: `tools/scripts/fire-look.mjs` is a trigger for `tools/sheet.mjs` (a man coated in napalm, the flamethrower's
+own bites, a corpse, a cut arm, a burning Husk with its brain on, ten at once; from the player's eye at any distance),
+`fire-probe.mjs` takes full-size stills at chosen times with the numbers behind them, `fire-bench.mjs` is the timing above.
+`FIRE_TUNE='{"shimmers":0}'` changes `FireTuning` for one run.
 
 ## Forces
 
@@ -929,8 +979,13 @@ Shared 8 GB M1 under load average around 18, so treat these as upper bounds.
 - Pools grow as stacked decals, since `DecalSystem` has no resize: 3 per corpse, each spreading over about four seconds in the shader.
 - **`Physics.radialImpulse` moves what it finds.** It collects bodies inside Rapier's query and applies the impulses afterwards. A chunk at rest has given back its body, so a blast only reaches chunks in flight.
 - **Get-ups assume flat ground.** Feet and hands are keyed relative to the root, and the root sits on the floor under the chest. On a ramp or stairs a foot will sink or float a little. Not tried. A body beside a wall can stand with the wall inside its stand point, and `trackProgress` walks it out.
-- **A burn emitter sits on the chest bone** (`EnemyManager`), so it goes down with the body. Only a rig with no chest carries
-  it on the root at chest height, and there the flames ride above a body that is down.
+- **With `?fire=0` a burn emitter sits on the chest bone** (`EnemyManager`), so it goes down with the body. Only a rig with no
+  chest carries it on the root at chest height, and there the flames ride above a body that is down. The new fire has no
+  emitter: its flames come off the capsules.
+- **A burnt corpse makes no sound.** The burning loop (`audio/reactions.ts`) follows living enemies only; a corpse burns and
+  smoulders silently. Sound was left out of the gore update on purpose.
+- **Fire on a sliced half is not drawn.** A body cut in two by a blade is world-space meshes with no bones; its halves keep the
+  skin they had and do not flame or smoulder.
 - **Knocked-down bodies have no collision with the player.** They are walked through, like crawlers.
 - **A body check needs to land near the middle.** Its strength is how fast the player closes on the body, so at a 12.5 m/s run
   it goes over only when the player meets it within about 0.43 m of its middle; further out it is a glancing blow, and it

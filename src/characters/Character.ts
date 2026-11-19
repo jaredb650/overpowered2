@@ -3,12 +3,33 @@ import * as THREE from 'three';
 import type { CharacterInstance, SeveredLimb, WoundHit } from '../core/contracts';
 import { HumanoidBone as H, type GoreRegion, type RigDef } from './rig';
 import type { LoadedModel } from './model';
-import { BONE_TEXTURE_SIZE, EXTRA_INFO, EXTRA_PARAMS, EXTRA_TEXELS, EXTRA_WEAR, EXTRA_WOUNDS } from './anatomy/glsl';
+import { BONE_TEXTURE_SIZE, EXTRA_FIRE, EXTRA_INFO, EXTRA_PARAMS, EXTRA_TEXELS, EXTRA_WEAR, EXTRA_WOUNDS } from './anatomy/glsl';
 import { WearBook, type WearKindId } from './anatomy/wear';
 import { FracturePose, type FractureStyle } from './anatomy/fracture';
 import { newWoundSpec, WoundBook, WoundKind, WoundRegion, type WoundKindId } from './anatomy/wounds';
 import { createAnimator, type PooledAnimation } from './animation/index';
 import type { ArchetypeDef } from './archetypes';
+import { charredVariant } from './material';
+
+/** Char past which the kit a body carries (helmet, gun, pack) is burnt black with it. */
+const KIT_CHARS_AT = 0.55;
+
+/** Swaps every mesh under `object` to its burnt material, or back. */
+function charKit(object: THREE.Object3D, on: boolean): void {
+  object.traverse(o => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh || Array.isArray(mesh.material)) return;
+    if (on) {
+      const twin = charredVariant(mesh.material);
+      if (twin === mesh.material) return;
+      mesh.userData.unburnt = mesh.material;
+      mesh.material = twin;
+    } else if (mesh.userData.unburnt) {
+      mesh.material = mesh.userData.unburnt as THREE.Material;
+      mesh.userData.unburnt = undefined;
+    }
+  });
+}
 
 /** Near-zero rather than zero, so decomposing a collapsed bone's matrix stays finite. */
 export const COLLAPSED = 1e-5;
@@ -411,9 +432,26 @@ export class Character implements CharacterInstance {
     this.data[this.extras + EXTRA_PARAMS * 4 + 1] = this.flash;
   }
 
-  /** 0..1 char from fire. Embers crawl across as it rises. */
+  /** 0..1 char from fire. Embers crawl across as it rises. Past `KIT_CHARS_AT` what it carries is burnt too. */
   setBurn(amount: number): void {
     this.data[this.extras + EXTRA_PARAMS * 4 + 2] = amount;
+    const kit = amount >= KIT_CHARS_AT;
+    if (kit === this.kitCharred) return;
+    this.kitCharred = kit;
+    // A prop that has left its bone (a helmet shot off) is not his any more.
+    for (const p of this.props) if (p.object.parent === this.bones[p.bone]) charKit(p.object, kit);
+  }
+
+  private kitCharred = false;
+
+  /** The char on it now, as `setBurn` left it. */
+  get burn(): number {
+    return this.data[this.extras + EXTRA_PARAMS * 4 + 2]!;
+  }
+
+  /** How hot its char still is: 1 alight, fading to 0 cold. It is the glow in the cracks (gore/fire.ts keeps it). */
+  setEmber(heat: number): void {
+    this.data[this.extras + EXTRA_FIRE * 4 + 4] = heat;
   }
 
   /** 0..1 ice coverage, for Frost Nova. */
@@ -565,8 +603,10 @@ export class Character implements CharacterInstance {
     if (this.inside) this.showInside(FAR_LOD);
     this.data.fill(0, this.extras, this.extras + EXTRA_TEXELS * 4);
     this.data[this.extras + EXTRA_INFO * 4 + 1] = Math.random() * 64;
+    this.kitCharred = false;
     for (let i = this.props.length - 1; i >= 0; i--) {
       const p = this.props[i]!;
+      charKit(p.object, false);
       p.object.visible = true;
       if (!p.untilReset) continue;
       p.object.removeFromParent();
@@ -658,6 +698,19 @@ export class SeveredPart implements SeveredLimb {
     this.backing!.visible = on;
     this.backing!.geometry = this.mesh.geometry;
     this.mesh.castShadow = !on;
+  }
+
+  /** As the body's: the limb goes on burning after it has left it. */
+  setBurn(amount: number): void {
+    this.data[this.extras + EXTRA_PARAMS * 4 + 2] = amount;
+  }
+
+  get burn(): number {
+    return this.data[this.extras + EXTRA_PARAMS * 4 + 2]!;
+  }
+
+  setEmber(heat: number): void {
+    this.data[this.extras + EXTRA_FIRE * 4 + 4] = heat;
   }
 
   /** Takes the pose of `src`'s chain from `boneIndex` down. */

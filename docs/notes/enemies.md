@@ -172,6 +172,25 @@ Bosses and machines have no profile and stagger by `poise`, the old way. For sca
 
 **Section 14's wound states** are in `src/enemies/wounds`, see `docs/notes/wounds.md`. Only soldiers reach them: `DamageModel.apply` asks `WoundSystem.take` whether a hit kills, and every other body dies when its health is gone, as before.
 
+## Burning
+
+`ignite`/`afflict('burn')` set `e.burning`, seconds left. Every 0.25 s it takes `3 + 3% of max health` and lights anyone within
+2.4 m (`EnemyManager.updateBurn`). What it looks like is gore's (`docs/notes/gore.md`, "Fire on bodies"): `burnLook` calls
+`gore.alight` every frame and plays the sizzle once a fire (`e.alight`).
+
+**Char** (`e.charred`, the skin's `setBurn`) rises two ways, never falls, and is the same rule on a co-op guest's copy:
+
+- by time alight, to full in 3.5 s (`CHAR_SECONDS`);
+- by fire damage taken, `0.7 x damage / max health` (`FIRE_CHAR`, in `DamageModel.run`), so the Kiln's 9 a bite blackens a
+  70-health Trooper by 9% a bite.
+
+**A death by fire** (`DamageModel.burnsOn`, in `kill` before the death is picked) leaves at least 0.85 char (`FIRE_DEATH_CHAR`),
+however fast it was, and a death by anything while burning or by fire calls `gore.burnOn`: the corpse burns on, then
+smoulders. Not a boss, and not a body the Lance vaporizes. A blast's `burn` outcome chars to 1 and burns on the same way. The
+fireproof (the Burner) flame and burn on but never char.
+
+`DevFlags.fire` off (`?fire=0`): time only, one emitter on the chest, out at death.
+
 ## Tuning knobs
 
 | Where | What |

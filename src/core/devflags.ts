@@ -57,6 +57,11 @@ export const DevFlags = {
    */
   bigBlood: on('bigblood'),
   hitBlood: on('hitblood'),
+  /**
+   * The gore update's fire (gore/fire.ts): char by fire damage, corpses that burn on and smoulder, flames off the whole
+   * body, soot for blood. Off (`?fire=0`) is fire as it was: a timer, one emitter on the chest, out at death.
+   */
+  fire: on('fire'),
 };
 
 /** The hit-reaction switches as the page's URL left them: the lab starts from these, not from what it last remembered. */

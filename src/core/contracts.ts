@@ -344,6 +344,11 @@ export interface CharacterInstance {
   addWear?(region: GoreRegion, share: number, kind: 0 | 1 | 2 | 3, most?: number): void;
   /** How worn a region is drawn, 0 to 1. */
   wearOf?(region: GoreRegion): number;
+  /** 0..1 char from fire (1 to 2 is the Lance's vaporize), and what it stands at. Optional so a stand-in need not burn. */
+  setBurn?(amount: number): void;
+  readonly burn?: number;
+  /** How hot its char still is, 1 alight to 0 cold: the glow in the cracks. Gore's fire keeps it (gore/fire.ts). */
+  setEmber?(heat: number): void;
   /** Emissive flash on hit. */
   hitFlash(intensity: number): void;
   /** Attaches a prop (gun, shield) to a bone. Falls with the bone when severed. */
@@ -369,6 +374,10 @@ export interface SeveredLimb {
   /** A loose limb keeps taking wounds. */
   wound(hit: WoundHit): void;
   isFractured(boneIndex: number): boolean;
+  /** As the body's: a limb cut from a burning body burns on. */
+  setBurn?(amount: number): void;
+  readonly burn?: number;
+  setEmber?(heat: number): void;
   release(): void;
 }
 
@@ -488,6 +497,14 @@ export interface GoreSystem extends GameSystem {
    * ownership like `ragdoll`. Past its cap the body is ash on the spot. Optional so a stand-in need not have it.
    */
   vaporize?(char: CharacterInstance, velocity?: THREE.Vector3): void;
+  /**
+   * Fire on a body (gore/fire.ts), the look of it only. `alight`: a living body is on fire this frame, called every frame
+   * it burns: flames off the whole of it, a light, heat shimmer. `burnOn`: it died burning or by fire, called before the
+   * body is handed over: the corpse burns on for seconds, blackening the rest of the way, then smoulders, and leaves soot
+   * for blood; a limb or a piece thrown off by that death burns too. Optional so a stand-in need not have them.
+   */
+  alight?(char: CharacterInstance, fireproof?: boolean): void;
+  burnOn?(char: CharacterInstance, fireproof?: boolean): void;
   clear(): void;
 }
 
@@ -620,6 +637,15 @@ export interface FxSystem extends GameSystem {
   napalm?(position: THREE.Vector3, normal: THREE.Vector3, radius: number, heat: number): void;
   /** A glob of napalm splashing on a surface. */
   napalmSplash?(position: THREE.Vector3, normal: THREE.Vector3): void;
+  /**
+   * Fire on a body, a piece at a time, paced by gore's fire (gore/fire.ts): one lick of flame `size` metres across at a
+   * point (`heat` 0..1, a dying fire is shorter and redder), a thread of smoke off what smoulders, the glow a fire throws
+   * on the floor under it, and a spark spat out of it.
+   */
+  flameLick?(position: THREE.Vector3, size: number, heat?: number): void;
+  smokeWisp?(position: THREE.Vector3, size: number, strength?: number): void;
+  fireGlow?(position: THREE.Vector3, radius: number, strength?: number): void;
+  fireSpit?(position: THREE.Vector3, floor?: number): void;
 }
 
 // ---------------------------------------------------------------------------------------------

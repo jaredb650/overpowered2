@@ -206,6 +206,15 @@ export class TestDummy implements CharacterInstance {
   }
   setBloodiness(): void {}
   hitFlash(): void {}
+  /** Char and the heat of it, as numbers a test can read. */
+  burn = 0;
+  ember = 0;
+  setBurn(amount: number): void {
+    this.burn = amount;
+  }
+  setEmber(heat: number): void {
+    this.ember = heat;
+  }
 
   attachProp(boneIndex: number, prop: THREE.Object3D): void {
     this.bones[boneIndex]!.add(prop);
@@ -244,17 +253,23 @@ export class TestDummy implements CharacterInstance {
     cap.scale.setScalar((this.rig.bones[boneIndex]!.hit?.radius ?? 0.06) * 0.95);
     bones[boneIndex]!.add(cap);
     root.updateMatrixWorld(true);
-    return {
+    const piece = {
       root,
       mesh,
       bones,
       wound: () => {},
       isFractured: () => false,
+      // A limb leaves with its body's skin, char and all.
+      burn: this.burn,
+      ember: this.ember,
+      setBurn: (amount: number) => { piece.burn = amount; },
+      setEmber: (heat: number) => { piece.ember = heat; },
       release: () => {
         root.removeFromParent();
         skeleton.dispose();
       },
     };
+    return piece;
   }
 
   bakePose(bind = false): THREE.BufferGeometry {

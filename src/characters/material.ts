@@ -9,7 +9,7 @@
 import * as THREE from 'three';
 import type { Ctx } from '../core/contracts';
 import { mulberry32 } from '../core/math';
-import { EXTRA_INFO, EXTRA_PARAMS, WEAR_VERTEX, WOUND_COMMON, WOUND_REGION, WOUND_VERTEX_LOOP } from './anatomy/glsl';
+import { EXTRA_FIRE, EXTRA_INFO, EXTRA_PARAMS, WEAR_VERTEX, WOUND_COMMON, WOUND_REGION, WOUND_VERTEX_LOOP } from './anatomy/glsl';
 
 const VERT_PARS = /* glsl */ `
 attribute vec4 aColor;
@@ -140,6 +140,14 @@ float op2Crack(vec4 macro, vec4 micro) {
   return 1.0 - smoothstep(0.006, 0.02, abs(macro.a - 0.5 + (micro.a - 0.5) * 0.05));
   #endif
 }
+// The same, wide: the warm skin either side of a split that is still hot.
+float op2CrackWide(vec4 macro, vec4 micro) {
+  #ifdef OP2_FAR
+  return 0.0;
+  #else
+  return 1.0 - smoothstep(0.012, 0.075, abs(macro.a - 0.5 + (micro.a - 0.5) * 0.05));
+  #endif
+}
 // Height in meters to a bent normal. Unnormalized screen derivatives keep the strength independent of distance.
 vec3 op2Bump(vec3 pos, vec3 n, float h, float face) {
   vec3 sx = dFdx(pos), sy = dFdy(pos);
@@ -211,6 +219,45 @@ const SKIN_GONE = /* glsl */ `
     }
 `;
 
+/**
+ * What fire does to a surface, for a body (per instance, from its texels) and for the kit it carries (`charred`, below).
+ * Reads `burn` 0..1, `heat` 0..1 and the noise `n`; `behind` is how long ago the fire's edge passed this pixel, in the
+ * noise's own units: under 0 not yet, 0 the glowing edge, 0.4 and up burnt the longest.
+ * Ahead of the edge the skin scalds red. Behind it: burnt brown, then black with flecks of pale ash, splitting as it
+ * shrinks. The splits glow while it is hot and go dark and dry as it cools. Plate does not split: it is sooted black and
+ * keeps a little of its shine.
+ */
+const BURN_SURFACE = /* glsl */ `
+    float edge = burn * 1.45 - 0.2;
+    float behind = edge - n;
+    float charred = smoothstep(-0.1, 0.08, behind);
+    float flesh = 1.0 - sMetal;
+    float ember = smoothstep(0.035, 0.0, abs(behind)) * step(burn, 0.995);
+    float crack = op2Crack(macro, micro) * charred * flesh;
+    float scald = smoothstep(-0.36, -0.1, behind) * (1.0 - charred) * flesh;
+    sAlb = mix(sAlb, vec3(0.2, 0.03, 0.018) + sAlb * vec3(0.4, 0.1, 0.06), scald * 0.75);
+    sRough = mix(sRough, 0.3, scald * 0.5);
+    vec3 coal = mix(vec3(0.05, 0.024, 0.012), vec3(0.011, 0.01, 0.01), smoothstep(0.04, 0.38, behind));
+    float ash = smoothstep(0.6, 0.76, micro.a * 0.55 + macro.r * 0.45) * smoothstep(0.25, 0.65, behind) * (1.0 - heat * 0.7);
+    coal = mix(coal, vec3(0.2, 0.195, 0.185), ash * 0.6);
+    // Soot on plate: black, but still plate under it.
+    coal = mix(sAlb * 0.07 + vec3(0.008), coal, flesh);
+    sAlb = mix(sAlb, coal, charred);
+    sRough = mix(sRough, mix(0.72, 0.95, flesh), charred);
+    sMetal *= 1.0 - charred * 0.6;
+    sEmis *= 1.0 - charred;
+    // The char splits as it shrinks. What shows in the splits is raw while the fire is on it, dry and dark once it is cold.
+    float live = max(heat, 1.0 - step(0.995, burn));
+    sAlb = mix(sAlb, mix(vec3(0.028, 0.007, 0.005), vec3(0.13, 0.01, 0.006), live), crack);
+    sRough = mix(sRough, mix(0.7, 0.34, live), crack);
+    // As it cools, fewer of the splits still glow: the light goes out patch by patch.
+    float lit = heat * smoothstep(1.0 - heat * 1.2, 1.25 - heat * 1.2, macro.r * 0.55 + micro.a * 0.45);
+    sGlow += vec3(1.0, 0.24, 0.03) * (ember * 3.5 + crack * (burn * (1.0 - burn) * 1.2 + lit * 2.6) + op2CrackWide(macro, micro) * charred * flesh * lit * 0.3);
+    #ifdef OP2_FAR
+    sGlow += vec3(1.0, 0.24, 0.03) * (charred * flesh * heat * 0.1);
+    #endif
+`;
+
 const FRAG_SURFACE = /* glsl */ `
 vec3 sAlb = vColorAO.rgb;
 float sRough = vMatV.x;
@@ -275,17 +322,9 @@ float sBare = 0.0;
       float hot = 1.0 - smoothstep(0.0, 0.5, vapor);
       sGlow += vec3(0.45, 0.8, 1.0) * hot * (1.4 + 1.2 * micro.g) + vec3(1.0, 0.42, 0.08) * rim * 9.0;
     }
-    float edge = burn * 1.45 - 0.2;
-    float charred = smoothstep(edge + 0.1, edge - 0.08, n);
-    float ember = smoothstep(0.035, 0.0, abs(n - edge)) * step(burn, 0.995);
-    float crack = op2Crack(macro, micro) * charred;
-    sAlb = mix(sAlb, vec3(0.012, 0.009, 0.008), charred);
-    sRough = mix(sRough, 0.92, charred);
-    sMetal *= 1.0 - charred;
-    // The char splits as it shrinks, and what shows in the splits is raw.
-    sAlb = mix(sAlb, vec3(0.13, 0.01, 0.006), crack);
-    sRough = mix(sRough, 0.34, crack);
-    sGlow += vec3(1.0, 0.24, 0.03) * (ember * 3.5 + crack * burn * (1.0 - burn) * 1.2);
+    // How hot the char still is: 1 alight, fading to 0 cold (Character.setEmber, kept by gore/fire.ts).
+    float heat = op2Extra(${EXTRA_FIRE + 1}).x;
+    ${BURN_SURFACE}
   }
 
   if (blood > 0.001) {
@@ -436,6 +475,15 @@ float sBare = 0.0;
   sGlow += vec3(0.5, 0.05, 0.03) * flash * 0.45;
 }
 #endif
+#ifdef OP2_CHARRED
+{
+  // Kit on a burnt body (a helmet, a rifle, a pack): burnt black with it, cold.
+  float grain = macro.r * 0.6 + macro.a * 0.4;
+  float n = grain * 0.7 + micro.b * 0.3;
+  float burn = 1.0, heat = 0.0;
+  ${BURN_SURFACE}
+}
+#endif
 #ifdef OP2_WOUNDS
 sN = normalize(sN + vWoundTilt);
 #endif
@@ -546,6 +594,26 @@ export interface SurfaceOptions {
   far?: boolean;
   /** For bodies with wounds: cut-outs, craters and torn edges. Skinned meshes only. */
   wounds?: boolean;
+  /** Burnt black all over: the kit on a burnt body (`charredVariant`). Not for skinned meshes, which burn by instance. */
+  charred?: boolean;
+}
+
+/** What each character material was made from, so its burnt twin can be made on the day it is first needed. */
+const made = new WeakMap<THREE.Material, { ctx: Ctx; o: SurfaceOptions }>();
+const burnt = new WeakMap<THREE.Material, THREE.Material>();
+
+/**
+ * The same material burnt black, for the kit a burnt body carries: its helmet, gun and pack are meshes of their own and
+ * do not read the body's burn. One per material, made on first use. Anything not made here is returned as it is.
+ */
+export function charredVariant(material: THREE.Material): THREE.Material {
+  let twin = burnt.get(material);
+  if (!twin) {
+    const from = made.get(material);
+    twin = from && !from.o.charred ? createCharacterMaterial(from.ctx, { ...from.o, charred: true }) : material;
+    burnt.set(material, twin);
+  }
+  return twin;
 }
 
 export function createCharacterMaterial(ctx: Ctx, o: SurfaceOptions): THREE.MeshStandardMaterial {
@@ -554,6 +622,7 @@ export function createCharacterMaterial(ctx: Ctx, o: SurfaceOptions): THREE.Mesh
   if (atlas) material.defines = { ...material.defines, OP2_ATLAS: 1 };
   if (o.far) material.defines = { ...material.defines, OP2_FAR: 1 };
   if (o.wounds) material.defines = { ...material.defines, OP2_WOUNDS: 1 };
+  if (o.charred) material.defines = { ...material.defines, OP2_CHARRED: 1 };
   material.onBeforeCompile = shader => {
     shader.uniforms.tDetail = { value: o.detail };
     shader.uniforms.uExtraBase = { value: o.extraBase };
@@ -580,8 +649,9 @@ export function createCharacterMaterial(ctx: Ctx, o: SurfaceOptions): THREE.Mesh
       .replace('#include <aomap_fragment>', FRAG_AO);
   };
   // The bone count is a uniform, so every archetype shares these few programs.
-  material.customProgramCacheKey = () => `op2char:${atlas ? 1 : 0}:${o.far ? 1 : 0}:${o.wounds ? 1 : 0}`;
+  material.customProgramCacheKey = () => `op2char:${atlas ? 1 : 0}:${o.far ? 1 : 0}:${o.wounds ? 1 : 0}:${o.charred ? 1 : 0}`;
   // A stub render system returns undefined here, and the sandbox then lights the material itself.
-  const patched = ctx.render.materials?.patch?.(material);
-  return patched ?? material;
+  const patched = ctx.render.materials?.patch?.(material) ?? material;
+  made.set(patched, { ctx, o });
+  return patched;
 }

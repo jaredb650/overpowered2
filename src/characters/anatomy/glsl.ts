@@ -9,11 +9,20 @@ import { HumanoidBone, humanoidRig } from '../rig';
 /** Extra texels after the bone matrices. */
 export const EXTRA_PARAMS = 0;
 export const EXTRA_INFO = 1;
-export const EXTRA_WOUNDS = 2;
+/**
+ * Fire, two texels (`Character.setEmber`, `setBurnOrigin`, `setBurnThrough`). The first: where on the body the fire
+ * caught, in bind space, and in w how much that point matters (0: the whole body burns at once, as a blast's burn does).
+ * The second: x how hot the char still is (1 alight, fading to 0 cold), y how far the skin has burnt through, 0..1.
+ */
+export const EXTRA_FIRE = 2;
+export const EXTRA_WOUNDS = 4;
 /** Wear, three texels after the wounds: how far through its skin each region is (wear.ts). */
 export const EXTRA_WEAR = EXTRA_WOUNDS + MAX_WOUNDS * WOUND_TEXELS;
 export const EXTRA_TEXELS = EXTRA_WEAR + WEAR_TEXELS;
-/** One size for every rig. 37 bones and all the wounds fit in it with nothing to spare to speak of. */
+/**
+ * One size for every rig. 37 bones, the two fire texels, all the wounds and the wear take 251 of its 256 texels. The last
+ * 5 are free: a new block goes after the wear (`EXTRA_TEXELS`), and `makeSkeleton` refuses a rig it does not fit.
+ */
 export const BONE_TEXTURE_SIZE = 16;
 
 const K = WoundKind;

@@ -40,6 +40,8 @@ export interface LabSettings {
   /** A kill's big stains, and a round's own mark (the gore update's decals). */
   bigBlood: boolean;
   hitBlood: boolean;
+  /** The gore update's fire (F1 to F3). Off is fire as it was. */
+  fire: boolean;
 }
 
 const KEY = `op2.lab.v1.${ON_RANGE ? 'range' : DEV_ASKED ? 'game' : 'dev'}`;
@@ -50,7 +52,7 @@ const CONVENIENCES: readonly (keyof LabSettings)[] = ['spawn', 'ai', 'row'];
 const DEFAULTS: LabSettings = {
   spawn: 'trooper', ai: 'off', row: 5, god: ON_RANGE, arsenal: false, reserves: false, speed: 1, overlay: ON_RANGE,
   gibbing: true, explosiveDeaths: true, progression: !ON_RANGE, muscles: true, gibThrow: true, force: 1,
-  flinch: true, clutch: true, carry: true, aimspoil: true, sway: true, vmBlood: true, wear: true, bigBlood: true, hitBlood: true,
+  flinch: true, clutch: true, carry: true, aimspoil: true, sway: true, vmBlood: true, fire: true, wear: true, bigBlood: true, hitBlood: true,
 };
 
 /** A page's reaction switches are its URL's: what the panel last had them at would make `?sway=0` mean nothing. */
@@ -97,6 +99,7 @@ export function applyFlags(s: LabSettings): void {
   DevFlags.wear = s.wear && !switchedOff('wear');
   DevFlags.bigBlood = s.bigBlood && !switchedOff('bigblood');
   DevFlags.hitBlood = s.hitBlood && !switchedOff('hitblood');
+  DevFlags.fire = s.fire && !switchedOff('fire');
 }
 
 /** Held every frame, as the arsenal is: every reserve back to its max after whatever the last reload took. */

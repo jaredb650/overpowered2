@@ -29,6 +29,7 @@ import { Telegraphs } from './telegraph';
 import { MAX_ALIVE } from './waves';
 import { HELMET } from './wounds/armour';
 import { isGuest } from '../core/coop';
+import { DevFlags } from '../core/devflags';
 
 /** The Crucible's helmeted types: the dangerous ones, so the armour says what to aim at. Troopers stay bare. */
 const CRUCIBLE_HELMETS: ReadonlySet<EnemyId> = new Set<EnemyId>(['gunner', 'rocketeer']);
@@ -679,8 +680,7 @@ export class EnemyManager implements EnemySystem {
     const { ctx } = this;
     e.burning -= dt;
     if (e.burning <= 0) {
-      e.burnEmitter?.stop();
-      e.burnEmitter = null;
+      this.burnOut(e);
       return;
     }
     this.burnLook(e, dt, skin);
@@ -699,19 +699,37 @@ export class EnemyManager implements EnemySystem {
     if (!e.def.fireproof) this.applyDamage(e, this.statusDamage(e, 'burn', 'fire', 3 + e.maxHealth * 0.03));
   }
 
-  /** What burning looks and sounds like: the flames on it, the sizzle as they catch, its skin charring. Hurts nothing. */
+  /**
+   * What burning looks and sounds like: the flames on it, the sizzle as they catch, its skin charring. Hurts nothing.
+   * The flames are gore's (gore/fire.ts): off the whole body, and the corpse's after it. The char rises with time here and
+   * with fire damage taken in the damage model (`FIRE_CHAR`), so a quick death by fire is as black as a slow one.
+   */
   private burnLook(e: Enemy, dt: number, skin: Skin): void {
     const { ctx } = this;
-    if (!e.burnEmitter) {
-      // On the chest and not over the root, which a body thrown by a blast leaves lying 1.2 m under the flames.
+    const fire = DevFlags.fire ? ctx.gore.alight : undefined;
+    if (!e.alight) {
+      e.alight = true;
+      ctx.audio.play('char_sizzle', { position: e.center });
+    }
+    if (fire) {
+      ctx.gore.alight!(e.char, e.def.fireproof);
+    } else if (!e.burnEmitter) {
+      // Fire as it was (`?fire=0`), and for a stand-in gore: one emitter, on the chest and not over the root, which a body
+      // thrown by a blast leaves lying 1.2 m under the flames.
       const chest = e.char.rig.bones[B.chest]?.name === 'chest';
       e.burnEmitter = chest ? ctx.fx.attachEmitter(e.char.bones[B.chest]!, 'burning') : ctx.fx.attachEmitter(e.char.root, 'burning', _a.set(0, e.def.chest, 0));
-      ctx.audio.play('char_sizzle', { position: e.center });
     }
     if (!e.def.fireproof) {
       e.charred = Math.min(1, e.charred + dt / CHAR_SECONDS);
       skin.setBurn(e.charred);
     }
+  }
+
+  /** Its fire is out, or it is dead and the fire is its corpse's (gore's) from here. */
+  private burnOut(e: Enemy): void {
+    e.alight = false;
+    e.burnEmitter?.stop();
+    e.burnEmitter = null;
   }
 
   /**
@@ -1110,10 +1128,7 @@ export class EnemyManager implements EnemySystem {
     skin.setFrost(Math.max(view.frost, clamp(e.frozen * 2)));
     e.burning = view.burning ? Math.max(e.burning, REPLICA_STATUS_HOLD) : Math.max(0, e.burning - dt);
     if (e.burning > 0) this.burnLook(e, dt, skin);
-    else if (e.burnEmitter) {
-      e.burnEmitter.stop();
-      e.burnEmitter = null;
-    }
+    else if (e.alight) this.burnOut(e);
     if (!e.def.machine) e.maim.legs = view.legs;
     if (e.stagger > 0) e.stagger -= dt;
     e.rising = view.rising ? Math.max(e.rising, 0.1) : 0;
@@ -1315,8 +1330,7 @@ export class EnemyManager implements EnemySystem {
     if (e.attack) finishAttack(e, this.w, true);
     this.director.releaseAll(e);
     this.dropWard(e);
-    e.burnEmitter?.stop();
-    e.burnEmitter = null;
+    this.burnOut(e);
     e.bodyLoop?.stop(0.2);
     e.bodyLoop = null;
     if (e.id === 'warden') {

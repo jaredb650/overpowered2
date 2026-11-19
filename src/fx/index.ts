@@ -24,6 +24,7 @@ import * as misc from './recipes/misc';
 import { listen } from './recipes/movement';
 import { muzzleFlash, tracer } from './recipes/muzzle';
 import { hose, napalm, napalmSplash } from './recipes/napalm';
+import { fireGlow, fireSpit, flameLick, smokeWisp } from './recipes/fire';
 
 const _c: Rgb = { r: 0, g: 0, b: 0 };
 const _eye = new THREE.Vector3();
@@ -273,6 +274,22 @@ class Fx implements FxSystem {
 
   napalmSplash(position: THREE.Vector3, normal: THREE.Vector3): void {
     napalmSplash(this.core, position, normal);
+  }
+
+  flameLick(position: THREE.Vector3, size: number, heat = 1): void {
+    flameLick(this.core, position.x, position.y, position.z, size, heat);
+  }
+
+  smokeWisp(position: THREE.Vector3, size: number, strength = 1): void {
+    smokeWisp(this.core, position.x, position.y, position.z, size, strength);
+  }
+
+  fireGlow(position: THREE.Vector3, radius: number, strength = 1): void {
+    fireGlow(this.core, position.x, position.y, position.z, radius, strength);
+  }
+
+  fireSpit(position: THREE.Vector3, floor = -1e6): void {
+    fireSpit(this.core, position.x, position.y, position.z, floor);
   }
 
   /** Debug counters for sandboxes and the debug overlay. Scans the rings: not for per-frame use. */

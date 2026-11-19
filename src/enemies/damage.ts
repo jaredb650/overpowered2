@@ -107,6 +107,12 @@ interface Knock {
   roll?: number;
 }
 const _stumble: { seconds: number; budget?: number } = { seconds: 0 };
+/**
+ * Char a body takes for losing all of its health to fire, and the least a death by fire leaves (`DevFlags.fire`). Less than
+ * all of it, so the corpse has something left to blacken as it burns on.
+ */
+const FIRE_CHAR = 0.7;
+const FIRE_DEATH_CHAR = 0.85;
 /** Weapons light enough that a body takes a moment to die of them, on its feet. Anything harder drops it. */
 const DIES_ON_FEET: ReadonlySet<DamageType> = new Set<DamageType>(['bullet', 'fire', 'shock', 'true']);
 const DIES_ON_FEET_FORCE = 30;
@@ -679,6 +685,9 @@ export class DamageModel {
       if (!e.isBoss && !e.def.machine) e.darts += dartBleed(d.load, amount);
       if (e.health > 0 && !e.def.fireproof && ignites(d.load, Math.random())) this.ignite(e, AMMO.api.burn);
     }
+    // Fire chars by what it takes as well as by the clock (EnemyManager.burnLook), on every screen: a man the flamethrower
+    // kills in a quarter of a second is as burnt as one who burned for four.
+    if (d.type === 'fire' && DevFlags.fire && !e.def.fireproof) this.char(e, e.charred + (amount / e.maxHealth) * FIRE_CHAR);
     // Before the death is picked, so a killing shot leaves its mark on the body too.
     if (this.w.ctx.gore.wound(e.char, d, blast?.outcome === 'flesh' ? 1 : amount / e.maxHealth)) this.updateMaim(e);
     this.wearTrunk(e, region, d, amount, area);
@@ -1249,6 +1258,7 @@ export class DamageModel {
     e.alive = false;
     e.health = 0;
     this.m.detach(e);
+    this.burnsOn(e, d);
     // Shown on a guest: every limb this death took came ahead of it, as a cut of its own.
     this.dying = !facts;
 
@@ -1360,7 +1370,29 @@ export class DamageModel {
     }
     this.tear(e, d, res, rule);
     if (blast.outcome === 'flesh') this.open(e, d);
-    if (rule.fire !== undefined) (e.char as unknown as { setBurn(amount: number): void }).setBurn(1);
+    if (rule.fire !== undefined) {
+      this.char(e, 1);
+      if (DevFlags.fire) this.w.ctx.gore.burnOn?.(e.char, e.def.fireproof);
+    }
+  }
+
+  /** Its skin chars to `amount`, never back. */
+  private char(e: Enemy, amount: number): void {
+    e.charred = Math.min(1, Math.max(e.charred, e.char.burn ?? 0, amount));
+    e.char.setBurn?.(e.charred);
+  }
+
+  /**
+   * Dead by fire, or dead while burning: charred however fast it went, and the corpse burns on, then smoulders
+   * (gore/fire.ts). Before the death is picked, so what that death throws off burns too. Not a boss, whose death is its own
+   * show, nor a body the Lance is about to take apart.
+   */
+  private burnsOn(e: Enemy, d: DamageInfo): void {
+    if (!DevFlags.fire || e.isBoss || d.vaporize) return;
+    const byFire = d.type === 'fire';
+    if (!byFire && e.burning <= 0) return;
+    if (byFire && !e.def.fireproof) this.char(e, FIRE_DEATH_CHAR);
+    this.w.ctx.gore.burnOn?.(e.char, e.def.fireproof);
   }
 
   /** With explosive deaths off, what would have been a gib leaves a thrown body short of a limb or two. */
