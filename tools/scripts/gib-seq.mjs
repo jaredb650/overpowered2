@@ -38,6 +38,9 @@ const shell = { radius: 5, damage: 400, kind: 'shell' };
 const CASES = {
   // A rocket at one man's feet; into three standing together; a grenade among three; a barrel; a tank shell.
   rocket1: { steps: BLAST_STEPS, act: r => r.explode(0.25, 0.25, r.spec.rocket) },
+  // The same rocket on a body with one point of health left: every archetype bursts, a Brute and a boss too (the volume
+  // audit across the whole cast: tools/scripts/gib-audit.mjs reads this case).
+  kill: { steps: BLAST_STEPS, act: r => { r.target.health = Math.min(r.target.health, 1); r.target.plates = []; r.explode(0.25, 0.25, r.spec.rocket); } },
   rocket3: { crowd: 3, steps: BLAST_STEPS, act: r => r.explode(0.2, 0.25, r.spec.rocket) },
   grenade: { crowd: 3, steps: BLAST_STEPS, act: r => r.explode(0.2, 0.15, r.spec.grenade) },
   barrel: { steps: BLAST_STEPS, act: r => r.explode(0.5, 0.6, r.spec.barrel) },
@@ -279,6 +282,16 @@ export default async function gibSeq(page, h) {
           out.kitCrack6 = +kit.crack6.reduce((a, p) => a + r.meshLitres(p.side.geometry), 0).toFixed(1);
           if (kit.slabs) out.kitSlabs = kit.slabs.map(s => +s.litres.toFixed(2));
         }
+        // A machine's hull, as the pieces it is cut into (torso.ts buildWreck).
+        const wreck = ctx.gore.wrecks?.get(e.char.archetype);
+        if (wreck?.length) out.kitWreck = +wreck.reduce((a, p) => a + r.meshLitres(p.side.geometry), 0).toFixed(1);
+        // The whole body as its own mesh, in bind: what there is to throw, whatever its capsules say.
+        try {
+          const g = e.char.bakePose(true);
+          out.mesh = +r.meshLitres(g).toFixed(1);
+          r.vol.delete(g);
+          g.dispose();
+        } catch { /* a body that cannot be baked */ }
         return out;
       },
       /** What is in the world now: counts, litres, how much of it is in the air, and how far it has got from the blast. */

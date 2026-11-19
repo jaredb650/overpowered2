@@ -1550,7 +1550,11 @@ export class DamageModel {
   /** The struck part goes onto physics, for a body near enough to see it on and while there is room (`SWAY`). */
   private swayPart(e: Enemy, region: GoreRegion, d: DamageInfo, bone: number, size: number): void {
     const anim = e.char.anim;
-    if (!DevFlags.sway || !anim.sway || e.lod !== 0 || !e.inView || e.dist > SWAY.range) return;
+    if (!DevFlags.sway || !anim.sway) return;
+    // By this screen's own eye: on a co-op host `e.dist` and `e.inView` are from the player the enemy is after, and one
+    // beside the host that hunts a far guest got only the animated flinch.
+    const seen = this.m.localView(e);
+    if (seen.lod !== 0 || !seen.inView || seen.dist > SWAY.range) return;
     if (this.swayCount >= SWAY.max && !this.swaying.includes(e)) return;
     if (!this.swaying.includes(e)) this.swaying.push(e);
     const arm = region.startsWith('arm') || region.startsWith('forearm');

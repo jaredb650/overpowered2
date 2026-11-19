@@ -32,13 +32,13 @@ import { WoundPlanner, WoundTuning } from './wounds';
 import { RopeField } from './rope';
 import { SpurtField } from './spurt';
 import { GibTrail, TrailTuning, type Ribbon } from './trail';
-import { blowsOut, buildKit, buildLimb, KIT_LIMBS, kitPieces, placeAt, placePiece, planGib, seedOf, spillsGuts, TorsoTuning, triangleSet, TRUNK_EXITS, type GibPlan, type TorsoKit } from './torso';
+import { blowsOut, buildKit, buildLimb, buildWreck, KIT_LIMBS, kitPieces, placeAt, placePiece, planGib, seedOf, spillsGuts, TorsoTuning, triangleSet, TRUNK_EXITS, type GibPlan, type TorsoKit, type TorsoPiece } from './torso';
 import { SlabTuning } from './slabs';
 import { mulberry32 } from '../core/math';
 import { WoundKind } from '../characters/anatomy/wounds';
 import type { OrganKind, RibKind } from './organs';
 import { MESS, messBudget, MessField, MessTuning } from './mess';
-import { FarBatch, type CorpseSnapshot, type FarSource } from './far';
+import { FarBatch, FarTuning, type CorpseSnapshot, type FarBakeable, type FarSource } from './far';
 
 /**
  * The baked stand-ins for the head on a partial head wound (docs/proposals/partial-head-wounds.md), by archetype: the side
@@ -392,6 +392,14 @@ class LooseLimb {
   /** Present on a top half that is still pulling itself along. */
   crawler: Crawler | null = null;
   machine = false;
+  /**
+   * Baked into the limbs' batch (far.ts): its slot there, and what its piece hung under, which it has left for as long
+   * as it is baked. -1: it is drawn as the piece it is.
+   */
+  slot = -1;
+  parent: THREE.Object3D | null = null;
+  /** World time it last came to rest. */
+  restedAt = 0;
   readonly stakes: Stake[] = [];
   health = GoreTuning.limbBurstHealth;
   readonly lastPos = new THREE.Vector3();
@@ -486,6 +494,8 @@ export class Gore implements GoreSystem {
   readonly fire: FireField;
   /** Each archetype's trunk, cut once into the pieces it breaks into (torso.ts). */
   private readonly kits = new Map<string, TorsoKit>();
+  /** Each machine's hull in the pieces it breaks into (torso.ts `buildWreck`), cut at load or on its first burst. */
+  private readonly wrecks = new Map<string, TorsoPiece[]>();
   /** Each archetype's skin material, for its kit's pieces thrown when no body of it is to hand. */
   private readonly kitSkin = new Map<string, THREE.Material>();
   private gibFrame = -1;
@@ -504,6 +514,8 @@ export class Gore implements GoreSystem {
   readonly mess: MessField;
   /** Old and distant bodies, baked into one mesh (far.ts), and what each needs to be stood up again. */
   readonly far: FarBatch;
+  /** Loose limbs at rest, baked: their own batch of small slots, one draw for all of them. */
+  readonly farLimbs: FarBatch;
   private farBodies: FarBody[] = [];
   /** World time the baked bodies began to sink with the rest of the floor (`sweep`), or -1. */
   private farSweep = -1;
@@ -528,6 +540,7 @@ export class Gore implements GoreSystem {
     this.spurts = new SpurtField(ctx, this.blood, this.trail);
     const gore = this;
     this.far = new FarBatch(ctx);
+    this.farLimbs = new FarBatch(ctx, FarTuning.limb.slots, FarTuning.limb, 'gore.farLimbs');
     this.mess = new MessField(ctx, {
       get bodies() { return gore.bodies; },
       get limbs() { return gore.limbs; },
@@ -560,6 +573,8 @@ export class Gore implements GoreSystem {
       sinkLimb: limb => this.sinkLimb(limb as LooseLimb),
       maxLimbs: () => GoreTuning.maxLimbs,
       // What lay on a body that has gone falls: loose pieces, trunk pieces and halves, strands of gut.
+      bakeLimb: limb => this.bakeLimb(limb as LooseLimb),
+      unbakeLimb: limb => this.unbakeLimb(limb as LooseLimb),
       unsettled: (lo, hi) => {
         this.chunks.unsettle(lo, hi);
         this.sliced.unsettle(lo, hi);
@@ -1426,7 +1441,37 @@ export class Gore implements GoreSystem {
     if (body) body.holdUntil = Math.max(body.holdUntil, this.ctx.time.elapsed + seconds);
   }
 
+  /**
+   * Bakes a loose limb at rest into the limbs' batch: its triangles as it lies, at the coarsest level of detail, in one
+   * shared mesh, and its own piece taken out of the scene. The piece is kept, with its chain and its fixed capsules: a
+   * round, a boot or a blast finds it exactly as before, and `unbakeLimb` is all it takes to have it back. False if it
+   * cannot be: it moves, burns or smokes, trails guts, is staked, or what it carries does not fit a slot.
+   */
+  private bakeLimb(l: LooseLimb): boolean {
+    if (l.slot >= 0 || l.rag.active || l.sinking >= 0 || l.stakes.length > 0 || this.farSweep >= 0) return false;
+    if (l.crawler?.alive || this.fire.has(l.piece) || this.ropes.hangingFrom(l.piece.root) > 0) return false;
+    const source = l.piece as unknown as Partial<FarBakeable>;
+    if (typeof source.bakeFar !== 'function' || !source.farMaterial) return false;
+    const slot = this.farLimbs.add(source as FarBakeable);
+    if (slot < 0) return false;
+    l.slot = slot;
+    l.parent = l.piece.root.parent;
+    l.piece.root.removeFromParent();
+    return true;
+  }
+
+  /** A baked limb is the piece it was again, where it lay. Nothing if it is not baked. */
+  private unbakeLimb(l: LooseLimb): boolean {
+    if (l.slot < 0) return false;
+    this.farLimbs.remove(l.slot);
+    l.slot = -1;
+    (l.parent ?? this.ctx.render.scene).add(l.piece.root);
+    l.parent = null;
+    return true;
+  }
+
   private freezeLimb(l: LooseLimb): void {
+    l.restedAt = this.ctx.time.elapsed;
     l.rag.freeze(MessTuning.rest && l.stakes.length === 0);
     this.mess.rested(l, l.piece as never);
     this.stopLimbEmitters(l);
@@ -1444,6 +1489,7 @@ export class Gore implements GoreSystem {
   }
 
   private sinkLimb(l: LooseLimb): void {
+    this.unbakeLimb(l);
     l.rag.freeze();
     l.rag.dropRest();
     this.mess.woke(l.piece as never);
@@ -1989,7 +2035,9 @@ export class Gore implements GoreSystem {
     }
 
     if (machine) {
-      this.scrapBurst(chest, blastDir, launch);
+      // Its limbs have left it: what is left is the hull, and that breaks into its own pieces.
+      const thrown = this.breakHull(char, hips, blastDir, launch);
+      this.scrapBurst(chest, blastDir, launch, thrown > 0 ? 7 : 12);
     } else {
       // Past `fullPerFrame` gibs this frame, the smallest version: the trunk's pieces are still there, little else is.
       const now = this.ctx.time.elapsed;
@@ -2092,6 +2140,10 @@ export class Gore implements GoreSystem {
           if (source.farMaterial && typeof source.bakeFar === 'function') this.far.warm(source as FarSource);
         }
         warmed = true;
+      } else if (isMachine(char)) {
+        // A machine's hull is cut here too, with its limbs folded away, so its first burst pays for no cut.
+        for (const bone of rigInfo(char.rig).severBone.values()) if (bone > 0) char.hideLimb(bone);
+        this.wreckFor(char);
       }
       char.release();
       if (kit) this.cutLimbs(id, kit);
@@ -2389,9 +2441,51 @@ export class Gore implements GoreSystem {
     audio.play('enemy_explode', { position: chest, volume: 0.6, pitchJitter: 0.06 });
   }
 
-  private scrapBurst(at: THREE.Vector3, blastDir: THREE.Vector3, launch: number): void {
+  /** The wreck kit for this machine: `char` with every limb that leaves on its own folded away. Empty if it cannot be cut. */
+  private wreckFor(char: CharacterInstance): TorsoPiece[] {
+    let wreck = this.wrecks.get(char.archetype);
+    if (!wreck) {
+      try {
+        wreck = buildWreck(char);
+      } catch {
+        // A stub's body, or a mesh the cut cannot close: it goes as scrap alone, as before.
+        wreck = [];
+      }
+      this.wrecks.set(char.archetype, wreck);
+    }
+    return wreck;
+  }
+
+  /**
+   * A machine's hull breaks into its kit's pieces where it is, and they fly: a drone or a skitter burst used to be its
+   * limbs and a dozen scraps, with the body itself nowhere (the volume audit). Returns how many pieces.
+   */
+  private breakHull(char: CharacterInstance, hips: THREE.Vector3, blastDir: THREE.Vector3, launch: number): number {
+    const info = rigInfo(char.rig);
+    for (const bone of info.severBone.values()) if (bone > 0) char.hideLimb(bone);
+    const wreck = this.wreckFor(char);
+    const floor = this.floorUnder(hips);
+    for (const piece of wreck) {
+      placePiece(char, piece, _v3, _q);
+      let low = Infinity;
+      for (let k = 0; k < 8; k++) {
+        _v5.set(k & 1 ? piece.side.max.x : piece.side.min.x, k & 2 ? piece.side.max.y : piece.side.min.y, k & 4 ? piece.side.max.z : piece.side.min.z);
+        low = Math.min(low, _v5.applyQuaternion(_q).y);
+      }
+      _v3.y = Math.max(_v3.y, floor + 0.01 - low);
+      _v2.copy(_v3).sub(hips);
+      if (_v2.lengthSq() < 1e-4) _v2.copy(blastDir);
+      _v2.normalize().multiplyScalar(Math.min(launch, TorsoTuning.pieceSpeed) * rand(0.4, 0.7)).addScaledVector(blastDir, launch * 0.3);
+      _v2.y += rand(2, 4.5);
+      if (thrownOut()) this.throwOf('trunk', _v3, _v2);
+      this.sliced.throwWreck(piece.side, char.skinMaterial, _v3, _q, _v2, GibThrow.spin);
+    }
+    return wreck.length;
+  }
+
+  private scrapBurst(at: THREE.Vector3, blastDir: THREE.Vector3, launch: number, scraps = 12): void {
     const { fx, audio } = this.ctx;
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < scraps; i++) {
       randomUnit(_v2);
       _v3.copy(at).addScaledVector(_v2, 0.12);
       _v2.addScaledVector(blastDir, 1).normalize().multiplyScalar(launch * rand(0.4, 1));
@@ -2543,7 +2637,7 @@ export class Gore implements GoreSystem {
     const { fx } = this.ctx;
     // A loose organ: it bursts, and that is all of it.
     if (this.chunks.burstHit(target, damage.dir)) return;
-    const machine = (target instanceof DeadBody && isMachine(target.char)) || (target instanceof LooseLimb && target.machine);
+    const machine = (target instanceof DeadBody && isMachine(target.char)) || (target instanceof LooseLimb && target.machine) || (target as { scrap?: boolean } | null)?.scrap === true;
     // Burnt past the soot line, the dead have no blood to give: a round knocks ash out of them.
     const dry = target instanceof DeadBody ? this.fire.sooted(target.char) : target instanceof LooseLimb ? this.fire.sooted(target.piece) : (target as { dry?: boolean } | null)?.dry === true;
     if (machine) {
@@ -2716,6 +2810,7 @@ export class Gore implements GoreSystem {
   }
 
   private removeLimb(limb: LooseLimb): void {
+    this.unbakeLimb(limb);
     limb.rag.destroy();
     this.stopLimbEmitters(limb);
     this.fire.forget(limb.piece);
@@ -2756,6 +2851,7 @@ export class Gore implements GoreSystem {
   private wake(target: PinTarget): void {
     const rag = target.rag;
     if (!rag || rag.active) return;
+    if (target instanceof LooseLimb) this.unbakeLimb(target);
     rag.wake();
     this.mess.woke((target instanceof DeadBody ? target.char : target.piece) as never);
     if (target instanceof DeadBody) target.freshAt = this.ctx.time.elapsed;
@@ -3077,7 +3173,9 @@ export class Gore implements GoreSystem {
     this.owned.clear();
     this.over = false;
     this.fire.clear();
+    this.farLimbs.clear();
     for (const l of this.limbs) {
+      l.slot = -1;
       l.rag.destroy();
       this.stopLimbEmitters(l);
       this.mess.woke(l.piece as never);
@@ -3115,7 +3213,7 @@ export class Gore implements GoreSystem {
   }
 
   /** Counts for the debug overlay and budget checks. */
-  stats(): { ragdolls: number; corpses: number; far: number; limbs: number; liveLimbs: number; limbSpeed: number; chunkBodies: number; rays: number; halves: number; jointGap: number; collapses: number; knockdowns: number; stumbles: number; standing: number; guts: number; spurts: number } {
+  stats(): { ragdolls: number; corpses: number; far: number; farLimbs: number; limbs: number; liveLimbs: number; limbSpeed: number; chunkBodies: number; rays: number; halves: number; jointGap: number; collapses: number; knockdowns: number; stumbles: number; standing: number; guts: number; spurts: number } {
     let ragdolls = 0;
     let corpses = 0;
     let jointGap = 0;
@@ -3135,7 +3233,7 @@ export class Gore implements GoreSystem {
       limbSpeed = Math.max(limbSpeed, l.rag.speed);
     }
     return {
-      ragdolls, corpses, far: this.farBodies.length, limbs: this.limbs.length, liveLimbs, limbSpeed, chunkBodies: this.chunks.bodies,
+      ragdolls, corpses, far: this.farBodies.length, farLimbs: this.farLimbs.count, limbs: this.limbs.length, liveLimbs, limbSpeed, chunkBodies: this.chunks.bodies,
       rays: this.blood.raysUsed, halves: this.sliced.count, jointGap, collapses: this.collapsing(), knockdowns: this.knockedDown(), stumbles: this.stumbling(), standing: this.standing(),
       guts: this.ropes.live, spurts: this.spurts.live,
     };

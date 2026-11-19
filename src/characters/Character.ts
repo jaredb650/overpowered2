@@ -207,6 +207,8 @@ const smooth = (a: number, b: number, x: number): number => {
 const FAR_COOKED = [37, 20, 19] as const;
 const FAR_COOKED_BONE = [50, 45, 40] as const;
 let farLive = new Uint8Array(4096);
+let farUsed = new Uint8Array(4096);
+let farSlot = new Int32Array(4096);
 const farE = new Float64Array(12);
 const farTables = new WeakMap<THREE.BufferGeometry, { verts: Uint32Array; index: Uint32Array }>();
 
@@ -280,6 +282,221 @@ function bakeProp(mesh: THREE.Mesh, out: FarBuffers, vertex: number, index: numb
   }
   for (let i = 0; i < count; i++) out.index[index + i] = vertex + (idx ? idx.getX(i) : i);
   return { verts: n, indices: count };
+}
+
+/** What `bakeSkin` needs of a skinned body, or of a piece cut from one. */
+interface FarSkin {
+  a: ArchetypeData;
+  /** The skeleton's matrices, worked out for the pose it lies in. */
+  bm: Float32Array;
+  /** Its texture's own array, and where the texels after the bones start. */
+  data: Float32Array;
+  extras: number;
+  /** Wounds in its book. */
+  wounds: number;
+  /** Drawn with the caps that close a cut. */
+  caps: boolean;
+  /** Is this bone folded away (a limb that has gone, a cap not in use)? */
+  gone(bone: number): boolean;
+}
+
+const NOTHING_BAKED = { verts: 0, indices: 0, burn: 0 } as const;
+
+/**
+ * A skinned body or piece as it lies, at its coarsest level of detail, written into the far batch's arrays (gore/far.ts):
+ * world positions and normals, and its colour with what the skin shader would have drawn from its texels painted into the
+ * vertices, since what is baked has no texels: blood, the stain and the dark of each wound, char, skin gone by wear and by
+ * fire. Only the vertices it still has are written. Returns how many of each, and its char for what hangs on it.
+ */
+function bakeSkin(s: FarSkin, out: FarBuffers, vertex: number, index: number, maxVerts: number, maxIndices: number): { verts: number; indices: number; burn: number } {
+  const model = s.a.model;
+  const set = s.caps ? model.lodsWithCaps : model.lods;
+  const far = farTable(set[Math.min(FAR_LOD, set.length - 1)]!);
+  const A = model.attributes;
+  const src = A.position.array as Float32Array;
+  const nrm = A.normal.array as Int8Array;
+  const col = A.aColor.array as Uint8Array;
+  const mat = A.aMat.array as Uint8Array;
+  const si = A.skinIndex!.array as Uint8Array;
+  const sw = A.skinWeight!.array as Uint8Array;
+  const bm = s.bm;
+  const d = s.data;
+  const params = s.extras + EXTRA_PARAMS * 4;
+  const wet = s.a.interior ? Math.min(1, d[params]!) : 0;
+  const burn = Math.min(1, Math.max(0, d[params + 2]!));
+  // Where the fire caught and how far it has burnt through the skin, and whether any limb is worn: all three are the
+  // skin shader's to draw from texels, and painted here as its far level draws them (material.ts, OP2_FAR).
+  const fire = s.extras + EXTRA_FIRE * 4;
+  const fx = d[fire]!, fy = d[fire + 1]!, fz = d[fire + 2]!;
+  const caught = d[fire + 3]! > 0.5;
+  const eaten = s.a.interior ? d[fire + 5]! : 0;
+  const worn = s.a.interior && d[s.extras + EXTRA_INFO * 4 + 3]! > 0;
+  const wearAt = s.extras + EXTRA_WEAR * 4;
+  const wounds = s.a.interior ? s.wounds : 0;
+  const w0 = s.extras + EXTRA_WOUNDS * 4;
+  const n = far.verts.length;
+  const live = farLive.length >= n ? farLive : (farLive = new Uint8Array(n));
+  const e = farE;
+  // Which vertices are on the body still (not folded away with a lost limb), which triangles those leave, and so which
+  // vertices are drawn at all: only those are written, packed, so a limb takes a limb's room and not a body's.
+  const tri = far.index;
+  const used = farUsed.length >= n ? farUsed : (farUsed = new Uint8Array(n));
+  const slot = farSlot.length >= n ? farSlot : (farSlot = new Int32Array(n));
+  for (let k = 0; k < n; k++) {
+    const i = far.verts[k]!;
+    let collapsed = 0;
+    for (let j = 0; j < 4; j++) {
+      const w = sw[i * 4 + j]!;
+      if (w !== 0 && s.gone(si[i * 4 + j]!)) collapsed += w / 255;
+    }
+    live[k] = collapsed < 0.5 ? 1 : 0;
+    used[k] = 0;
+  }
+  let indices = 0;
+  for (let t = 0; t < tri.length; t += 3) {
+    const a = tri[t]!, b = tri[t + 1]!, c = tri[t + 2]!;
+    if (!live[a] || !live[b] || !live[c]) continue;
+    used[a] = used[b] = used[c] = 1;
+    indices += 3;
+  }
+  let verts = 0;
+  for (let k = 0; k < n; k++) if (used[k]) slot[k] = verts++;
+  if (verts > maxVerts || indices > maxIndices) return NOTHING_BAKED;
+  for (let k = 0; k < n; k++) {
+    if (!used[k]) continue;
+    const i = far.verts[k]!;
+    e.fill(0);
+    for (let j = 0; j < 4; j++) {
+      const w = sw[i * 4 + j]! / 255;
+      if (w === 0) continue;
+      const b = si[i * 4 + j]!;
+      const o = b * 16;
+      e[0] += bm[o]! * w; e[1] += bm[o + 1]! * w; e[2] += bm[o + 2]! * w;
+      e[3] += bm[o + 4]! * w; e[4] += bm[o + 5]! * w; e[5] += bm[o + 6]! * w;
+      e[6] += bm[o + 8]! * w; e[7] += bm[o + 9]! * w; e[8] += bm[o + 10]! * w;
+      e[9] += bm[o + 12]! * w; e[10] += bm[o + 13]! * w; e[11] += bm[o + 14]! * w;
+    }
+    const x = src[i * 3]!, y = src[i * 3 + 1]!, z = src[i * 3 + 2]!;
+    const v = (vertex + slot[k]!) * 3;
+    out.position[v] = e[0]! * x + e[3]! * y + e[6]! * z + e[9]!;
+    out.position[v + 1] = e[1]! * x + e[4]! * y + e[7]! * z + e[10]!;
+    out.position[v + 2] = e[2]! * x + e[5]! * y + e[8]! * z + e[11]!;
+    const nx = nrm[i * 4]!, ny = nrm[i * 4 + 1]!, nz = nrm[i * 4 + 2]!;
+    const ox = e[0]! * nx + e[3]! * ny + e[6]! * nz;
+    const oy = e[1]! * nx + e[4]! * ny + e[7]! * nz;
+    const oz = e[2]! * nx + e[5]! * ny + e[8]! * nz;
+    const l = 127 / (Math.hypot(ox, oy, oz) || 1);
+    const c = (vertex + slot[k]!) * 4;
+    out.normal[c] = ox * l; out.normal[c + 1] = oy * l; out.normal[c + 2] = oz * l; out.normal[c + 3] = 0;
+
+    // Blood, in the vertex: how near the nearest wound is (its stain runs out to twice its size and a way down the
+    // body), and the body's overall wet in patches.
+    let stain = 0;
+    let hole = 0;
+    for (let q = 0; q < wounds; q++) {
+      const o = w0 + q * WOUND_TEXELS * 4;
+      const r = d[o + 7]!;
+      const dx = x - d[o]!, dy = y - d[o + 1]!, dz = z - d[o + 2]!;
+      // Below the wound counts for more: blood runs down.
+      const dist = Math.hypot(dx, dy > 0 ? dy : dy * 0.55, dz);
+      // The skin shader's own reach for a stain (`STAIN_RADII`, `STAIN_MARGIN`), and it runs further on a wetter body.
+      const reach = (r * STAIN_RADII + STAIN_MARGIN) * (1 + wet * 0.5);
+      if (dist < reach) stain = Math.max(stain, 1 - dist / reach);
+      if (dist < r) hole = Math.max(hole, 1 - dist / r);
+    }
+    // A stain is strong at the wound and thins out; a wet body is only a little darker and redder all over.
+    const blood = Math.min(0.9, stain * stain * 1.6 + wet * 0.06);
+    let r8 = col[i * 4]!, g8 = col[i * 4 + 1]!, b8 = col[i * 4 + 2]!;
+    r8 += (104 - r8) * blood; g8 += (7 - g8) * blood; b8 += (9 - b8) * blood;
+    // The wound itself is dark and deep.
+    r8 += (40 - r8) * hole; g8 += (2 - g8) * hole; b8 += (4 - b8) * hole;
+    // Char: all over at once, or walking out from where the fire caught, as the shader's far level has it (its noise
+    // there is its middle value, 0.5).
+    const from = caught ? Math.min(1, Math.hypot(x - fx, y - fy, z - fz) / FIRE_REACH) : 0.45;
+    const charred = burn <= 0.001 ? 0 : smooth(-0.1, 0.08, burn * 1.45 - 0.2 - (caught ? 0.21 + from * 0.72 : 0.5));
+    r8 += (16 - r8) * charred; g8 += (13 - g8) * charred; b8 += (12 - b8) * charred;
+    // Skin gone (material.ts, SKIN_GONE): how far through it this vertex is, by its limb's wear and by the fire, and
+    // whether what shows is raw or cooked.
+    let through = -1;
+    let cooked = 0;
+    if (worn) {
+      let amount = 0, kind = 0, own = -1, region = -1;
+      for (let j = 0; j < 4; j++) {
+        const b = si[i * 4 + j]!;
+        const w = sw[i * 4 + j]! / 255;
+        if (b >= REGION_OF.length || w <= 0) continue;
+        const reg = REGION_OF[b]!;
+        if (reg < 0) continue;
+        const v = d[wearAt + (reg >> 2) * 4 + (reg & 3)]!;
+        const kd = Math.floor(v * 0.5);
+        const a = (v - kd * 2) * smooth(0.04, 0.3, w);
+        if (a > amount) { amount = a; kind = kd; own = b; region = reg; }
+      }
+      if (amount > 0.01 && kind !== WearKind.burn) {
+        let parent = 0;
+        for (let j = 0; j < 4; j++) {
+          const b = si[i * 4 + j]!;
+          if (b < REGION_OF.length && b < own && REGION_OF[b] !== region) parent += sw[i * 4 + j]! / 255;
+        }
+        through = amount * 0.9 + smooth(0.08, 0.42, parent) * smooth(0.5, 1, amount) * 0.4 - 0.42;
+        cooked = kind === WearKind.strip ? 0.5 : 0;
+      }
+    }
+    if (eaten > 0.004 && mat[i * 4 + 1]! <= 127) {
+      const depth = (eaten * 0.8 - from * 0.4 - 0.35) * 1.3;
+      if (depth > through) { through = depth; cooked = 0.95; }
+    }
+    let gone = 0;
+    if (through > -0.1) {
+      const bruise = smooth(-0.1, 0, through) * 0.72;
+      r8 += (48 - r8) * bruise; g8 += (17 - g8) * bruise; b8 += (23 - b8) * bruise;
+      gone = smooth(0, 0.028, through);
+      const meat = smooth(0.12, 0.24, through) * 0.5;
+      const bone = smooth(0.5, 0.57, through);
+      // Raw muscle, darker deep in, then bone with blood on it; cooked, the same gone dark and dry.
+      let ur = 86 + (59 - 86) * meat, ug = 24 + (21 - 24) * meat, ub = 24 + (21 - 24) * meat;
+      ur += (133 - ur) * bone; ug += (123 - ug) * bone; ub += (111 - ub) * bone;
+      const dark = cooked * (1 - bone * 0.45);
+      ur += (FAR_COOKED[0] + (FAR_COOKED_BONE[0] - FAR_COOKED[0]) * bone - ur) * dark;
+      ug += (FAR_COOKED[1] + (FAR_COOKED_BONE[1] - FAR_COOKED[1]) * bone - ug) * dark;
+      ub += (FAR_COOKED[2] + (FAR_COOKED_BONE[2] - FAR_COOKED[2]) * bone - ub) * dark;
+      r8 += (ur - r8) * gone; g8 += (ug - g8) * gone; b8 += (ub - b8) * gone;
+    }
+    out.color[c] = r8; out.color[c + 1] = g8; out.color[c + 2] = b8; out.color[c + 3] = col[i * 4 + 3]!;
+    // Wet blood shines, char does not; bloodied metal is no longer bare metal; bared flesh is wet unless it is cooked.
+    const rough = mat[i * 4]!;
+    const dull = rough + (70 - rough) * blood * (1 - charred) + (235 - rough) * charred;
+    out.mat[c] = dull + ((cooked > 0.5 ? 150 : 80) - dull) * gone;
+    out.mat[c + 1] = mat[i * 4 + 1]! * (1 - Math.max(blood, charred, gone));
+    out.mat[c + 2] = mat[i * 4 + 2]! * (1 - Math.max(charred, gone));
+    out.mat[c + 3] = mat[i * 4 + 3]!;
+  }
+  let at = index;
+  for (let t = 0; t < tri.length; t += 3) {
+    const a = tri[t]!, b = tri[t + 1]!, c = tri[t + 2]!;
+    if (!live[a] || !live[b] || !live[c]) continue;
+    out.index[at] = vertex + slot[a]!;
+    out.index[at + 1] = vertex + slot[b]!;
+    out.index[at + 2] = vertex + slot[c]!;
+    at += 3;
+  }
+  return { verts, indices, burn };
+}
+
+/** What a body or a piece wears and carries, each a plain mesh hung on a bone, written after its skin. */
+function bakeHung(objects: Iterable<THREE.Object3D>, out: FarBuffers, vertex: number, index: number, maxVerts: number, maxIndices: number, burn: number): { verts: number; indices: number } {
+  let verts = 0;
+  let indices = 0;
+  for (const object of objects) {
+    object.traverse(o => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh || !mesh.visible || (mesh as unknown as THREE.SkinnedMesh).isSkinnedMesh) return;
+      const wrote = bakeProp(mesh, out, vertex + verts, index + indices, maxVerts - verts, maxIndices - indices, burn);
+      verts += wrote.verts;
+      indices += wrote.indices;
+    });
+  }
+  return { verts, indices };
 }
 
 export class Character implements CharacterInstance {
@@ -727,169 +944,17 @@ export class Character implements CharacterInstance {
   bakeFar(out: FarBuffers, vertex: number, index: number, maxVerts: number, maxIndices: number): { verts: number; indices: number } {
     this.root.updateMatrixWorld(true);
     this.skeleton.update();
-    const model = this.a.model;
-    const set = this.activeCaps.size ? model.lodsWithCaps : model.lods;
-    const far = farTable(set[Math.min(FAR_LOD, set.length - 1)]!);
-    if (far.verts.length > maxVerts || far.index.length > maxIndices) return NOTHING;
-    const A = model.attributes;
-    const src = A.position.array as Float32Array;
-    const nrm = A.normal.array as Int8Array;
-    const col = A.aColor.array as Uint8Array;
-    const mat = A.aMat.array as Uint8Array;
-    const si = A.skinIndex!.array as Uint8Array;
-    const sw = A.skinWeight!.array as Uint8Array;
-    const bm = this.skeleton.boneMatrices as Float32Array;
-    const d = this.data;
-    const params = this.extras + EXTRA_PARAMS * 4;
-    const wet = this.a.interior ? Math.min(1, d[params]!) : 0;
-    const burn = Math.min(1, Math.max(0, d[params + 2]!));
-    // Where the fire caught and how far it has burnt through the skin, and whether any limb is worn: all three are the
-    // skin shader's to draw from texels, and painted here as its far level draws them (material.ts, OP2_FAR).
-    const fire = this.extras + EXTRA_FIRE * 4;
-    const fx = d[fire]!, fy = d[fire + 1]!, fz = d[fire + 2]!;
-    const caught = d[fire + 3]! > 0.5;
-    const eaten = this.a.interior ? d[fire + 5]! : 0;
-    const worn = this.a.interior && d[this.extras + EXTRA_INFO * 4 + 3]! > 0;
-    const wearAt = this.extras + EXTRA_WEAR * 4;
-    const wounds = this.a.interior ? this.book.count : 0;
-    const w0 = this.extras + EXTRA_WOUNDS * 4;
-    const n = far.verts.length;
-    const live = farLive.length >= n ? farLive : (farLive = new Uint8Array(n));
-    const e = farE;
-    for (let k = 0; k < n; k++) {
-      const i = far.verts[k]!;
-      e.fill(0);
-      let collapsed = 0;
-      for (let j = 0; j < 4; j++) {
-        const w = sw[i * 4 + j]! / 255;
-        if (w === 0) continue;
-        const b = si[i * 4 + j]!;
-        const o = b * 16;
-        if (this.hidden[b] || (b >= this.bones.length && !this.activeCaps.has(this.allBones[b]!))) collapsed += w;
-        e[0] += bm[o]! * w; e[1] += bm[o + 1]! * w; e[2] += bm[o + 2]! * w;
-        e[3] += bm[o + 4]! * w; e[4] += bm[o + 5]! * w; e[5] += bm[o + 6]! * w;
-        e[6] += bm[o + 8]! * w; e[7] += bm[o + 9]! * w; e[8] += bm[o + 10]! * w;
-        e[9] += bm[o + 12]! * w; e[10] += bm[o + 13]! * w; e[11] += bm[o + 14]! * w;
-      }
-      live[k] = collapsed < 0.5 ? 1 : 0;
-      const x = src[i * 3]!, y = src[i * 3 + 1]!, z = src[i * 3 + 2]!;
-      const v = (vertex + k) * 3;
-      out.position[v] = e[0]! * x + e[3]! * y + e[6]! * z + e[9]!;
-      out.position[v + 1] = e[1]! * x + e[4]! * y + e[7]! * z + e[10]!;
-      out.position[v + 2] = e[2]! * x + e[5]! * y + e[8]! * z + e[11]!;
-      const nx = nrm[i * 4]!, ny = nrm[i * 4 + 1]!, nz = nrm[i * 4 + 2]!;
-      const ox = e[0]! * nx + e[3]! * ny + e[6]! * nz;
-      const oy = e[1]! * nx + e[4]! * ny + e[7]! * nz;
-      const oz = e[2]! * nx + e[5]! * ny + e[8]! * nz;
-      const l = 127 / (Math.hypot(ox, oy, oz) || 1);
-      const c = (vertex + k) * 4;
-      out.normal[c] = ox * l; out.normal[c + 1] = oy * l; out.normal[c + 2] = oz * l; out.normal[c + 3] = 0;
-
-      // Blood, in the vertex: how near the nearest wound is (its stain runs out to twice its size and a way down the
-      // body), and the body's overall wet in patches.
-      let stain = 0;
-      let hole = 0;
-      for (let q = 0; q < wounds; q++) {
-        const o = w0 + q * WOUND_TEXELS * 4;
-        const r = d[o + 7]!;
-        const dx = x - d[o]!, dy = y - d[o + 1]!, dz = z - d[o + 2]!;
-        // Below the wound counts for more: blood runs down.
-        const dist = Math.hypot(dx, dy > 0 ? dy : dy * 0.55, dz);
-        // The skin shader's own reach for a stain (`STAIN_RADII`, `STAIN_MARGIN`), and it runs further on a wetter body.
-        const reach = (r * STAIN_RADII + STAIN_MARGIN) * (1 + wet * 0.5);
-        if (dist < reach) stain = Math.max(stain, 1 - dist / reach);
-        if (dist < r) hole = Math.max(hole, 1 - dist / r);
-      }
-      // A stain is strong at the wound and thins out; a wet body is only a little darker and redder all over.
-      const blood = Math.min(0.9, stain * stain * 1.6 + wet * 0.06);
-      let r8 = col[i * 4]!, g8 = col[i * 4 + 1]!, b8 = col[i * 4 + 2]!;
-      r8 += (104 - r8) * blood; g8 += (7 - g8) * blood; b8 += (9 - b8) * blood;
-      // The wound itself is dark and deep.
-      r8 += (40 - r8) * hole; g8 += (2 - g8) * hole; b8 += (4 - b8) * hole;
-      // Char: all over at once, or walking out from where the fire caught, as the shader's far level has it (its noise
-      // there is its middle value, 0.5).
-      const from = caught ? Math.min(1, Math.hypot(x - fx, y - fy, z - fz) / FIRE_REACH) : 0.45;
-      const charred = burn <= 0.001 ? 0 : smooth(-0.1, 0.08, burn * 1.45 - 0.2 - (caught ? 0.21 + from * 0.72 : 0.5));
-      r8 += (16 - r8) * charred; g8 += (13 - g8) * charred; b8 += (12 - b8) * charred;
-      // Skin gone (material.ts, SKIN_GONE): how far through it this vertex is, by its limb's wear and by the fire, and
-      // whether what shows is raw or cooked.
-      let through = -1;
-      let cooked = 0;
-      if (worn) {
-        let amount = 0, kind = 0, own = -1, region = -1;
-        for (let j = 0; j < 4; j++) {
-          const b = si[i * 4 + j]!;
-          const w = sw[i * 4 + j]! / 255;
-          if (b >= REGION_OF.length || w <= 0) continue;
-          const reg = REGION_OF[b]!;
-          if (reg < 0) continue;
-          const v = d[wearAt + (reg >> 2) * 4 + (reg & 3)]!;
-          const kd = Math.floor(v * 0.5);
-          const a = (v - kd * 2) * smooth(0.04, 0.3, w);
-          if (a > amount) { amount = a; kind = kd; own = b; region = reg; }
-        }
-        if (amount > 0.01 && kind !== WearKind.burn) {
-          let parent = 0;
-          for (let j = 0; j < 4; j++) {
-            const b = si[i * 4 + j]!;
-            if (b < REGION_OF.length && b < own && REGION_OF[b] !== region) parent += sw[i * 4 + j]! / 255;
-          }
-          through = amount * 0.9 + smooth(0.08, 0.42, parent) * smooth(0.5, 1, amount) * 0.4 - 0.42;
-          cooked = kind === WearKind.strip ? 0.5 : 0;
-        }
-      }
-      if (eaten > 0.004 && mat[i * 4 + 1]! <= 127) {
-        const depth = (eaten * 0.8 - from * 0.4 - 0.35) * 1.3;
-        if (depth > through) { through = depth; cooked = 0.95; }
-      }
-      let gone = 0;
-      if (through > -0.1) {
-        const bruise = smooth(-0.1, 0, through) * 0.72;
-        r8 += (48 - r8) * bruise; g8 += (17 - g8) * bruise; b8 += (23 - b8) * bruise;
-        gone = smooth(0, 0.028, through);
-        const meat = smooth(0.12, 0.24, through) * 0.5;
-        const bone = smooth(0.5, 0.57, through);
-        // Raw muscle, darker deep in, then bone with blood on it; cooked, the same gone dark and dry.
-        let ur = 86 + (59 - 86) * meat, ug = 24 + (21 - 24) * meat, ub = 24 + (21 - 24) * meat;
-        ur += (133 - ur) * bone; ug += (123 - ug) * bone; ub += (111 - ub) * bone;
-        const dark = cooked * (1 - bone * 0.45);
-        ur += (FAR_COOKED[0] + (FAR_COOKED_BONE[0] - FAR_COOKED[0]) * bone - ur) * dark;
-        ug += (FAR_COOKED[1] + (FAR_COOKED_BONE[1] - FAR_COOKED[1]) * bone - ug) * dark;
-        ub += (FAR_COOKED[2] + (FAR_COOKED_BONE[2] - FAR_COOKED[2]) * bone - ub) * dark;
-        r8 += (ur - r8) * gone; g8 += (ug - g8) * gone; b8 += (ub - b8) * gone;
-      }
-      out.color[c] = r8; out.color[c + 1] = g8; out.color[c + 2] = b8; out.color[c + 3] = col[i * 4 + 3]!;
-      // Wet blood shines, char does not; bloodied metal is no longer bare metal; bared flesh is wet unless it is cooked.
-      const rough = mat[i * 4]!;
-      const dull = rough + (70 - rough) * blood * (1 - charred) + (235 - rough) * charred;
-      out.mat[c] = dull + ((cooked > 0.5 ? 150 : 80) - dull) * gone;
-      out.mat[c + 1] = mat[i * 4 + 1]! * (1 - Math.max(blood, charred, gone));
-      out.mat[c + 2] = mat[i * 4 + 2]! * (1 - Math.max(charred, gone));
-      out.mat[c + 3] = mat[i * 4 + 3]!;
-    }
-    let indices = 0;
-    const tri = far.index;
-    for (let t = 0; t < tri.length; t += 3) {
-      const a = tri[t]!, b = tri[t + 1]!, c = tri[t + 2]!;
-      if (!live[a] || !live[b] || !live[c]) continue;
-      out.index[index + indices] = vertex + a;
-      out.index[index + indices + 1] = vertex + b;
-      out.index[index + indices + 2] = vertex + c;
-      indices += 3;
-    }
-    let verts = n;
-    // What it wears and carries, each a plain mesh hung on a bone.
-    for (const p of this.props) {
-      if (p.object.parent !== this.bones[p.bone] || !p.object.visible || this.hidden[p.bone]) continue;
-      p.object.traverse(o => {
-        const mesh = o as THREE.Mesh;
-        if (!mesh.isMesh || !mesh.visible || (mesh as unknown as THREE.SkinnedMesh).isSkinnedMesh) return;
-        const wrote = bakeProp(mesh, out, vertex + verts, index + indices, maxVerts - verts, maxIndices - indices, burn);
-        verts += wrote.verts;
-        indices += wrote.indices;
-      });
-    }
-    return { verts, indices };
+    const rig = this.bones.length;
+    const skin = bakeSkin({
+      a: this.a, bm: this.skeleton.boneMatrices as Float32Array, data: this.data, extras: this.extras, wounds: this.book.count,
+      caps: this.activeCaps.size > 0,
+      gone: b => !!this.hidden[b] || (b >= rig && !this.activeCaps.has(this.allBones[b]!)),
+    }, out, vertex, index, maxVerts, maxIndices);
+    if (skin.indices === 0) return NOTHING;
+    // What has left the bone (a helmet shot off) or gone with a limb is not on the body any more.
+    const worn = this.props.filter(p => p.object.parent === this.bones[p.bone] && p.object.visible && !this.hidden[p.bone]).map(p => p.object);
+    const hung = bakeHung(worn, out, vertex + skin.verts, index + skin.indices, maxVerts - skin.verts, maxIndices - skin.indices, skin.burn);
+    return { verts: skin.verts + hung.verts, indices: skin.indices + hung.indices };
   }
 
   bakePose(bind = false): THREE.BufferGeometry {
@@ -1105,6 +1170,43 @@ export class SeveredPart implements SeveredLimb {
 
   get burnThrough(): number {
     return this.data[this.extras + EXTRA_FIRE * 4 + 5]!;
+  }
+
+  /** The material a baked copy of this piece is drawn with (gore/far.ts), as a body's. */
+  get farMaterial(): THREE.Material {
+    return this.a.farMaterial;
+  }
+
+  /**
+   * The piece as it lies, at its coarsest level of detail, written into a far batch's arrays, with what hangs on it: how a
+   * loose limb at rest is drawn once it is one of many (gore/far.ts, `Gore.bakeLimb`). A bone folded into the cut has no
+   * size, and its vertices are left out by that. Nothing written if it does not fit.
+   */
+  bakeFar(out: FarBuffers, vertex: number, index: number, maxVerts: number, maxIndices: number): { verts: number; indices: number } {
+    this.root.updateMatrixWorld(true);
+    this.skeleton.update();
+    const bm = this.skeleton.boneMatrices as Float32Array;
+    const skin = bakeSkin({
+      a: this.a, bm, data: this.data, extras: this.extras, wounds: this.book.count, caps: true,
+      gone: b => Math.abs(bm[b * 16]!) + Math.abs(bm[b * 16 + 1]!) + Math.abs(bm[b * 16 + 2]!) < 1e-3,
+    }, out, vertex, index, maxVerts, maxIndices);
+    if (skin.indices === 0) return NOTHING;
+    // All of what hangs on it, or it is not baked: a limb's slot is small, and a hand that lost its gun as it was baked
+    // would be seen to.
+    let needVerts = 0;
+    let needIndices = 0;
+    for (const clone of this.clones) {
+      clone.traverse(o => {
+        const g = (o as THREE.Mesh).isMesh && o.visible ? (o as THREE.Mesh).geometry : null;
+        const pos = g?.getAttribute('position');
+        if (!g || !pos) return;
+        needVerts += pos.count;
+        needIndices += g.getIndex()?.count ?? pos.count;
+      });
+    }
+    if (needVerts > maxVerts - skin.verts || needIndices > maxIndices - skin.indices) return NOTHING;
+    const hung = bakeHung(this.clones, out, vertex + skin.verts, index + skin.indices, maxVerts - skin.verts, maxIndices - skin.indices, skin.burn);
+    return { verts: skin.verts + hung.verts, indices: skin.indices + hung.indices };
   }
 
   /** Takes the pose of `src`'s chain from `boneIndex` down. */

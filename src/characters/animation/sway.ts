@@ -46,7 +46,27 @@ export const SwayTuning = {
   jump: 1,
   /** On the upper body, how loose its arms go with it, as a share of the trunk's own slack. */
   armsWithTrunk: 0.6,
+  /**
+   * A loose arm is simulated here and not in the physics world, so nothing stops it: it could swing through a wall the
+   * body stands beside for the third of a second it is loose. One ray an arm a frame (`SwayWorld.ray`, the world's own),
+   * from the shoulder the way the wrist is heading, the length of the arm: what it meets is a plane the arm's joints
+   * stay `wall` metres in front of, unless the animation itself has them through it. The stop only ever moves a joint
+   * out, and by no more than `outSpeed` metres a second, so it cannot pop.
+   *
+   * Its own trunk needs no stop. Measured on a Trooper, a Husk and a Brute, both arms, seven directions, at the hardest
+   * hit: the loose arm's wrist and elbow come within 2 mm of as near the trunk as the flinch's own animation takes
+   * them, and no nearer (the cone and the drive's floor hold it that close to its animation). An arm seen in a chest
+   * is the animated flinch's pose, not this.
+   */
+  wall: 0.05,
+  outSpeed: 3.5,
 };
+
+/**
+ * The world, for the one thing a loose arm asks of it: what is along this ray. Set by whoever has a physics world and
+ * animates bodies that sway (the enemies); left null (a test, the viewmodel sandbox), arms meet no walls, as before.
+ */
+export const SwayWorld: { ray: ((origin: THREE.Vector3, dir: THREE.Vector3, max: number, hit: { point: THREE.Vector3; normal: THREE.Vector3 }) => boolean) | null } = { ray: null };
 
 const smooth = (t: number) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
 const BONES = 17;
@@ -74,6 +94,10 @@ class Chain {
   readonly kick: THREE.Vector3[];
   readonly length: number[];
   count = 0;
+  /** A wall within the arm's reach this frame: its normal, and how far along it the arm must stay (`SwayTuning.wall`). */
+  walled = false;
+  readonly wallN = new THREE.Vector3();
+  wallD = 0;
 
   constructor(readonly part: SwayPart, readonly bones: number[], readonly tip: THREE.Vector3, readonly hungOn: number) {
     const n = bones.length + 1;
@@ -96,6 +120,8 @@ const _old = new THREE.Vector3();
 const _vt = new THREE.Vector3();
 const _shown = Array.from({ length: 6 }, () => new THREE.Vector3());
 const _axis = new THREE.Vector3();
+const _g = new THREE.Vector3();
+const _ray = { point: new THREE.Vector3(), normal: new THREE.Vector3() };
 
 /** The physical parts of one humanoid body. Made by its animator the first time a hit asks for one. */
 export class Sway {
@@ -280,6 +306,19 @@ export class Sway {
         return;
       }
     }
+    const arm = c.part === 'armL' || c.part === 'armR';
+    // The wall the arm is heading for, if one is in its reach: one ray, from the shoulder the way the wrist is going.
+    c.walled = false;
+    if (arm && n >= 2 && SwayWorld.ray && c.primed) {
+      _g.copy(c.x[2]!).addScaledVector(c.v[2]!, dt * 2).sub(c.a[0]!);
+      const reach = c.length[1]! + c.length[2]! + (n >= 3 ? c.length[3]! : 0);
+      const far = _g.length();
+      if (far > 1e-4 && SwayWorld.ray(c.a[0]!, _g.multiplyScalar(1 / far), reach + t.wall, _ray) && _ray.normal.dot(_g) < 0) {
+        c.walled = true;
+        c.wallN.copy(_ray.normal);
+        c.wallD = _ray.normal.dot(_ray.point) + t.wall;
+      }
+    }
     const steps = dt > 1 / 80 ? 2 : 1;
     const h = dt / steps;
     const rate = t.rate * Math.sqrt(c.drive);
@@ -320,6 +359,11 @@ export class Sway {
           if (_axis.lengthSq() > 1e-10) _d.copy(_e).applyAxisAngle(_axis.normalize(), cone).setLength(c.length[j]!);
         }
         x.copy(above).add(_d);
+        if (c.walled && this.keepOut(c, j, x, t.outSpeed * h)) {
+          // Pushed off a wall: back to the bone's length from the joint above, along the new line.
+          _d.copy(x).sub(above);
+          if (_d.lengthSq() > 1e-10) x.copy(above).add(_d.setLength(c.length[j]!));
+        }
         v.copy(x).sub(_old).divideScalar(h);
       }
     }
@@ -347,6 +391,18 @@ export class Sway {
     }
     // What is left of the chain below a lost limb rides rigidly on the last simulated bone: nothing to write.
     if (c.part === 'trunk') this.trunkJoint.copy(_shown[1]!);
+  }
+
+  /**
+   * Keeps joint `j` of a loose arm in front of the wall it is heading for (`SwayTuning.wall`), moving it at most `most`
+   * metres. True if it moved it.
+   */
+  private keepOut(c: Chain, j: number, x: THREE.Vector3, most: number): boolean {
+    const behind = c.wallD - c.wallN.dot(x);
+    // Only if the animation is on this side of it: a body stood half in a wall keeps its arm where its animation has it.
+    if (behind <= 0 || c.wallN.dot(c.a[j]!) < c.wallD - 0.02) return false;
+    x.addScaledVector(c.wallN, Math.min(behind, most));
+    return true;
   }
 
   private readonly rootAt = new THREE.Vector3(Infinity, 0, 0);

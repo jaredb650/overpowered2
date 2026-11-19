@@ -211,7 +211,19 @@ spine), each pulled toward where the animation has it by a spring whose strength
   out over 0.2 s and the animation has the part again. No simulated bone may point more than 1.15 rad from its animation
   (a hand 0.5).
 - **Who.** A body within 25 m, in view, at full detail, 8 at once (`SWAY` in `damage.ts`); everyone else keeps the flinch on
-  its springs. A crawling or maimed body gets it on the bones it has left; a get-up clip is never touched.
+  its springs. A crawling or maimed body gets it on the bones it has left; a get-up clip is never touched. **By this
+  screen's own eye** (`EnemyManager.localView`, which the level of detail a body is drawn at also goes by): on a co-op
+  host `e.dist` and `e.inView` are the AI's, measured from the player the enemy is after, and an enemy beside the host
+  that hunted a far guest got the animated flinch alone.
+- **Walls, and its own trunk.** A loose arm is not in the physics world. One ray an arm a frame (`SwayWorld.ray`, set by
+  the enemy manager: the world's own) runs from the shoulder the way the wrist is heading, the length of the arm, and
+  what it meets is a plane the arm's joints stay 5 cm in front of, unless the animation itself is through it. The stop
+  only moves a joint out, at 3.5 m/s at most, so it cannot pop (`sway.test.ts`: an arm let off its leash goes 31 cm
+  through a wall with no stop and is held at it with one, with no larger a jump). **How much it matters:** as tuned,
+  the loose arm ends at most 9 cm further out than the animated flinch (R1) throws the same arm, which has never
+  collided with anything; so most of an arm seen in a wall is the flinch's own pose. The trunk needs no stop: measured
+  on a Trooper, a Husk and a Brute, both arms, seven directions, at the hardest hit, the loose arm comes within 2 mm of
+  as near its own trunk as the flinch takes it, and no nearer.
 - **The hand-overs.** It runs inside the animator on the frame's own pose and makes no rigid bodies, so there is nothing to
   hand over. When a stagger takes the body onto its muscles, or it dies, gore reads the bones as they stand and their speed
   with the probe that reads any animation (`measureAnimVelocity` steps the animator, which steps this), then asks the part to

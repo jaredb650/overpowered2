@@ -52,7 +52,7 @@ function world() {
     for (const region of e.limbHp.keys()) e.limbHp.set(region, 1e6);
     return e;
   };
-  return { manager, spawn };
+  return { manager, spawn, ctx };
 }
 
 const anim = (e: Enemy) => e.char.anim as unknown as Anim;
@@ -129,5 +129,25 @@ describe('the struck part goes onto physics', () => {
     manager.applyDamage(off, round('chest', B.chest));
     expect(anim(off).flinch).toHaveBeenCalledTimes(1);
     expect(anim(off).sway).not.toHaveBeenCalled();
+  });
+
+  it('on a co-op host, by the host\'s own eye and not by the player the enemy is after', () => {
+    const { manager, spawn, ctx } = world();
+    (ctx as { coop: unknown }).coop = { hosting: true, world: { notMine: () => false } };
+    // Eight metres in front of the host, hunting a guest eighty metres off: its AI's own figures are the guest's.
+    const beside = spawn('gunner', 8);
+    beside.dist = 80;
+    beside.inView = false;
+    beside.lod = 2;
+    manager.applyDamage(beside, round('chest', B.chest));
+    expect(anim(beside).sway).toHaveBeenCalledTimes(1);
+    // And one far from the host that is close to the guest it hunts gets the flinch alone, as anything far off does.
+    const far = spawn('gunner', 60);
+    far.dist = 5;
+    far.inView = true;
+    far.lod = 0;
+    manager.applyDamage(far, round('chest', B.chest));
+    expect(anim(far).sway).not.toHaveBeenCalled();
+    expect(anim(far).flinch).toHaveBeenCalledTimes(1);
   });
 });

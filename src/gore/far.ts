@@ -47,6 +47,13 @@ export interface CorpseSnapshot {
   standIns: { bone: number; object: THREE.Object3D; folds: boolean }[];
 }
 
+/** What a batch needs of anything it is to draw: a body, or a loose limb (characters/Character.ts). */
+export interface FarBakeable {
+  /** The material every baked body is drawn with. Any archetype's will do: it shades from the vertices alone. */
+  readonly farMaterial: THREE.Material;
+  bakeFar(out: FarBuffers, vertex: number, index: number, maxVerts: number, maxIndices: number): { verts: number; indices: number };
+}
+
 /** What the batch needs of a character (characters/Character.ts). */
 export interface FarSource {
   readonly archetype: string;
@@ -74,7 +81,20 @@ export const FarTuning = {
    */
   slots: 160,
   step: 40,
+  /**
+   * The limbs' own batch (`Gore.farLimbs`): a loose limb at rest is a few hundred triangles at the coarsest level, so its
+   * slots are a third the size and the 64 limbs the highest "Mess" level keeps are 2.6 MB where body-sized slots would be
+   * 5.4. A top half with its arms, head and kit that does not fit stays a piece.
+   */
+  limb: { slotVerts: 900, slotIndices: 2400, slots: 72, step: 24 },
 };
+
+/** The size of a batch's slots and how it grows. */
+export interface FarShape {
+  slotVerts: number;
+  slotIndices: number;
+  step: number;
+}
 
 /**
  * One shared geometry cut into equal slots. A slot in use holds one body's triangles; a free one holds none (its indices
@@ -90,7 +110,7 @@ export class FarBatch {
   private attrs: { position: THREE.BufferAttribute; normal: THREE.BufferAttribute; color: THREE.BufferAttribute; mat: THREE.BufferAttribute; index: THREE.BufferAttribute } | null = null;
   /** Bytes the batch's arrays hold now, in the page and again on the GPU. */
   get bytes(): number {
-    return this.room * (FarTuning.slotVerts * 24 + FarTuning.slotIndices * 4);
+    return this.room * (this.shape.slotVerts * 24 + this.shape.slotIndices * 4);
   }
 
   /** The mesh every baked body is drawn in, once there is one: something in the scene for what belongs to them to hang on. */
@@ -103,7 +123,7 @@ export class FarBatch {
   triangles = 0;
   private readonly tris: Uint32Array;
 
-  constructor(private readonly ctx: Ctx, readonly slots = FarTuning.slots) {
+  constructor(private readonly ctx: Ctx, readonly slots = FarTuning.slots, private readonly shape: FarShape = FarTuning, private readonly name = 'gore.far') {
     this.used = new Uint8Array(slots);
     this.tris = new Uint32Array(slots);
   }
@@ -111,7 +131,7 @@ export class FarBatch {
   /** Built on the first bake (or at load, `warm`), with the first body's far material. */
   private ensure(material: THREE.Material, want = 1): FarBuffers {
     if (this.buffers && want <= this.room) return this.buffers;
-    const t = FarTuning;
+    const t = this.shape;
     const room = Math.min(this.slots, Math.ceil(Math.max(want, this.room + 1) / t.step) * t.step);
     const verts = room * t.slotVerts;
     const buffers: FarBuffers = {
@@ -153,7 +173,7 @@ export class FarBatch {
       this.mesh.geometry = geometry;
     } else {
       const mesh = new THREE.Mesh(geometry, material);
-      mesh.name = 'gore.far';
+      mesh.name = this.name;
       mesh.frustumCulled = false;
       // No shadow of their own: each lies in its own pool, and 150 of them in the shadow pass is what this is here to save.
       mesh.castShadow = false;
@@ -168,7 +188,7 @@ export class FarBatch {
   }
 
   /** Compiles the batch's program at load, so the first body baked in a fight does not stall its frame. */
-  warm(source: FarSource): void {
+  warm(source: FarBakeable): void {
     this.ensure(source.farMaterial);
     // One body, written and taken out again: an empty draw compiles nothing.
     const slot = this.add(source);
@@ -182,7 +202,7 @@ export class FarBatch {
   }
 
   /** Bakes `source` as it lies into a free slot. -1 with no slot free. */
-  add(source: FarSource): number {
+  add(source: FarBakeable): number {
     let slot = -1;
     for (let i = 0; i < this.slots; i++) {
       if (this.used[i] === 0) {
@@ -192,7 +212,7 @@ export class FarBatch {
     }
     if (slot < 0) return -1;
     const buffers = this.ensure(source.farMaterial, slot + 1);
-    const t = FarTuning;
+    const t = this.shape;
     const v0 = slot * t.slotVerts;
     const i0 = slot * t.slotIndices;
     const wrote = source.bakeFar(buffers, v0, i0, t.slotVerts, t.slotIndices);
@@ -213,7 +233,7 @@ export class FarBatch {
   /** Empties a slot: its body has been stood up again, or has gone. */
   remove(slot: number): void {
     if (slot < 0 || this.used[slot] === 0 || !this.buffers) return;
-    const t = FarTuning;
+    const t = this.shape;
     this.used[slot] = 0;
     this.count--;
     this.triangles -= this.tris[slot]!;
@@ -228,7 +248,7 @@ export class FarBatch {
   }
 
   private send(slot: number, verts: number): void {
-    const t = FarTuning;
+    const t = this.shape;
     const a = this.attrs!;
     const v0 = slot * t.slotVerts;
     a.position.addUpdateRange(v0 * 3, verts * 3);

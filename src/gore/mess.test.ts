@@ -54,6 +54,21 @@ class BakeDummy extends TestDummy {
     this.root.updateMatrixWorld(true);
   }
 }
+/** A dummy whose severed pieces the limbs' batch can take: each bakes to one triangle where it lies. */
+class LimbDummy extends TestDummy {
+  override spawnSevered(bone: number): ReturnType<TestDummy['spawnSevered']> {
+    const piece = super.spawnSevered(bone);
+    return Object.assign(piece, {
+      farMaterial: new THREE.MeshBasicMaterial(),
+      bakeFar(out: FarBuffers, vertex: number, index: number): { verts: number; indices: number } {
+        const at = new THREE.Vector3().setFromMatrixPosition(piece.bones[bone]!.matrixWorld);
+        for (let k = 0; k < 3; k++) out.position.set([at.x + k * 0.1, at.y, at.z + (k === 1 ? 0.1 : 0)], (vertex + k) * 3);
+        out.index.set([vertex, vertex + 1, vertex + 2], index);
+        return { verts: 3, indices: 3 };
+      },
+    });
+  }
+}
 const spawnBake = (x = 0, z = 0): BakeDummy => {
   const c = new BakeDummy(rig);
   c.root.position.set(x, 0, z);
@@ -649,6 +664,92 @@ describe('what lies on the dead (pieces, trunk pieces and guts on a heap)', () =
     expect(half.mesh.position.y).toBeGreaterThan(0.2);
     gore.blast(v(0, 0.2, 76), 4, 90);
     expect(half.body).not.toBeNull();
+  });
+});
+
+describe('loose limbs at rest are baked too', () => {
+  const looks = (n = 1): void => run(Math.ceil(MessTuning.policyEvery * 60 * n) + 2);
+  type Limb = { slot: number; piece: { root: THREE.Object3D }; rag: Rag; sinking: number };
+  const limbs = (): Limb[] => (gore as unknown as { limbs: Limb[] }).limbs;
+  const slash: DamageInfo = { amount: 80, type: 'slash', point: v(0.3, 1.4, 0), dir: v(1, 0, 0), force: 30, source: 'sword' };
+  /** `count` arms cut from as many standing dummies, in a row along z = `z0`, left to lie. */
+  function arms(count: number, z0: number): void {
+    for (let i = 0; i < count; i++) {
+      const c = new LimbDummy(rig);
+      c.root.position.set(i * 1.5, 0, z0);
+      scene.add(c.root);
+      c.root.updateMatrixWorld(true);
+      gore.sever(c, 'armL', { ...slash, point: v(i * 1.5 + 0.3, 1.4, z0) });
+    }
+    settle(900);
+    MessTuning.bakeAfter = 0;
+  }
+
+  it('past the number drawn as themselves, the oldest are baked: out of the scene, in the batch, and still limbs', () => {
+    const drawn = messBudget().limbsDrawn;
+    arms(drawn + 5, -40);
+    const shapes = gore.mess.stats().shapes;
+    looks(6);
+    expect(gore.stats().farLimbs).toBe(5);
+    expect(gore.farLimbs.triangles).toBe(5);
+    expect(gore.stats().limbs).toBe(drawn + 5);
+    limbs().forEach((l, i) => {
+      expect(l.slot >= 0, `limb ${i}`).toBe(i < 5);
+      expect(l.piece.root.parent === null, `limb ${i} out of the scene`).toBe(i < 5);
+    });
+    // Their fixed capsules are where they were: a baked limb is still something to land on.
+    expect(gore.mess.stats().shapes).toBe(shapes);
+  });
+
+  it('a round finds a baked limb where it lies, and it is the piece it was again', () => {
+    arms(messBudget().limbsDrawn + 2, -44);
+    looks(6);
+    const baked = limbs()[0]!;
+    expect(baked.slot).toBeGreaterThanOrEqual(0);
+    const at = baked.rag.center.clone();
+    const hit = gore.raycastCorpses(at.clone().add(v(0, 1.5, 0)), v(0, -1, 0), 4);
+    expect(hit).not.toBeNull();
+    gore.damageCorpse(hit!, pellet(hit!.point));
+    expect(baked.slot).toBe(-1);
+    expect(baked.piece.root.parent).toBe(scene);
+    expect(gore.stats().farLimbs).toBe(1);
+    expect(baked.rag.active).toBe(true);
+  });
+
+  it('walked into, a baked limb is kicked along like any other', () => {
+    arms(messBudget().limbsDrawn + 1, -48);
+    looks(6);
+    const baked = limbs()[0]!;
+    expect(baked.slot).toBeGreaterThanOrEqual(0);
+    const at = baked.rag.center.clone();
+    player.velocity.set(6, 0, 0);
+    for (let i = 0; i <= 20; i++) {
+      player.position.set(at.x - 1 + i * 0.1, 0, at.z);
+      frame();
+    }
+    player.velocity.set(0, 0, 0);
+    player.position.set(50, 0, 50);
+    expect(baked.slot).toBe(-1);
+    expect(baked.piece.root.parent).toBe(scene);
+    expect(baked.rag.center.distanceTo(at)).toBeGreaterThan(0.05);
+  });
+
+  it('bakes none with ?messfar=0, and gives every slot back when the floor is swept or cleared', () => {
+    MessTuning.far = false;
+    arms(messBudget().limbsDrawn + 3, -52);
+    looks(6);
+    expect(gore.stats().farLimbs).toBe(0);
+    MessTuning.far = true;
+    looks(6);
+    expect(gore.stats().farLimbs).toBe(3);
+    gore.sweep();
+    expect(gore.stats().farLimbs).toBe(0);
+    for (const l of limbs()) {
+      expect(l.sinking).toBeGreaterThanOrEqual(0);
+      expect(l.piece.root.parent).toBe(scene);
+    }
+    gore.clear();
+    expect(gore.farLimbs.count).toBe(0);
   });
 });
 

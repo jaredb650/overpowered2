@@ -78,6 +78,8 @@ export class Half implements BurningPiece {
   readonly v = new THREE.Vector3();
   /** 0..1 char: the body's when it was cut, and on from there if it is burning. */
   burn = 0;
+  /** A piece of a machine's hull: it sparks, and has no blood in it. */
+  scrap = false;
   constructor(readonly mesh: THREE.Mesh, readonly side: CutSide) {}
 
   get root(): THREE.Object3D {
@@ -164,6 +166,34 @@ export class SliceField {
     cookable(m);
     this.capMaterial = this.ctx.render.materials?.patch ? this.ctx.render.materials.patch(m) ?? m : m;
     return this.capMaterial;
+  }
+
+  private wreckMaterial: THREE.Material | null = null;
+
+  /**
+   * The broken face of a machine's hull: dark burnt metal, a little oily, with nothing red in it. The cut's own vertex
+   * colours (meat, fat and bone, for a body) are not read.
+   */
+  private wreckCap(): THREE.Material {
+    if (this.wreckMaterial) return this.wreckMaterial;
+    const m = new THREE.MeshStandardMaterial({ color: 0x0c0d10, roughness: 0.5, metalness: 0.85, emissive: new THREE.Color(0x120703) });
+    this.wreckMaterial = this.ctx.render.materials?.patch ? this.ctx.render.materials.patch(m) ?? m : m;
+    return this.wreckMaterial;
+  }
+
+  /**
+   * A piece of a machine's broken hull (torso.ts `buildWreck`), thrown from where it sits at `p`, `q`, as `throwPiece`
+   * throws a piece of a trunk: the same body, the same cap on moving pieces, a trail of sparks for blood, and nothing
+   * pools under it.
+   */
+  throwWreck(side: CutSide, skin: THREE.Material, p: THREE.Vector3, q: THREE.Quaternion, v: THREE.Vector3, spin: number): Half {
+    const half = this.throwPiece(side, skin, p, q, v, spin, 0, this.wreckCap());
+    half.scrap = true;
+    half.pooled = true;
+    half.emitter?.stop();
+    half.emitter = this.ctx.fx.attachEmitter(half.mesh, 'sparkTrail', side.capCenter, 1.6) ?? null;
+    half.ribbon = null;
+    return half;
   }
 
   /** The cut face's material: wet red meat by vertex colour. Slabs wear it on their underside (slabs.ts). */
@@ -319,9 +349,9 @@ export class SliceField {
    * A broken piece of a trunk (torso.ts), thrown from where it sits at `p`, `q`. Its geometry is the kit's and stays. `v`
    * is at full gravity: under the tempo dial it is slowed by its square root, as a limb's throw is, so it lands as far.
    */
-  throwPiece(side: CutSide, skin: THREE.Material, p: THREE.Vector3, q: THREE.Quaternion, v: THREE.Vector3, spin: number, burn = 0): Half {
+  throwPiece(side: CutSide, skin: THREE.Material, p: THREE.Vector3, q: THREE.Quaternion, v: THREE.Vector3, spin: number, burn = 0, cap: THREE.Material | null = null): Half {
     const { R, world } = this.ctx.physics;
-    const mesh = this.meshFor(side, skin, burn);
+    const mesh = cap ? new THREE.Mesh(side.geometry, [skin, cap]) : this.meshFor(side, skin, burn);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     mesh.position.copy(p);
@@ -350,8 +380,8 @@ export class SliceField {
     half.shared = true;
     half.body = body;
     half.burn = burn;
-    // A piece of a burnt body is cooked through: it sprays, trails and pools nothing.
-    if (half.dry) half.pooled = true;
+    // A piece of a burnt body is cooked through: it sprays, trails and pools nothing. Nor does a machine's (`throwWreck`).
+    if (half.dry || cap) half.pooled = true;
     else {
       half.emitter = this.ctx.fx.attachEmitter(mesh, 'stumpSpray', side.capCenter, 2.5) ?? null;
       half.ribbon = this.trail?.open(half) ?? null;
@@ -413,6 +443,9 @@ export class SliceField {
   private freeze(h: Half): void {
     if (h.body) this.ctx.physics.world.removeRigidBody(h.body);
     h.body = null;
+    // At rest it lies in its own pool and casts no shadow of its own, as a settled body and a limb at rest do not: with
+    // one, twenty-eight pieces were 110 draws.
+    h.mesh.castShadow = false;
     h.emitter?.stop();
     h.emitter = null;
     if (!h.pooled) {
@@ -561,6 +594,7 @@ export class SliceField {
     h.body = body;
     h.age = 0;
     h.calm = 0;
+    h.mesh.castShadow = true;
   }
 
   damage(handle: unknown, point: THREE.Vector3, impulse: THREE.Vector3): void {

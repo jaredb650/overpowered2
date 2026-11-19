@@ -413,12 +413,19 @@ His trunk is 48.5 litres, an arm 8.5 by capsule (5.8 by mesh), a leg 21.4 (14.2)
 | A top half (the crawler) destroyed | about 45 | **about 5**, six lumps | 31 as the chest's two pieces, and 17 more: ribs, lung and heart, the head's kit, both arms in their pieces; its guts drop free | |
 | A shotgun's or a big round's blow-out | a crater in a body that stays | 3.0: meat, 2 rib fragments, an organ | the same pieces, the organ half as big again (4 to 7) | |
 | The Lance, the energy blade's halves | everything | nothing, by design: it vaporizes | unchanged | |
-| A machine (drone, skitter) | its body | its limbs, and 12 scraps of 3 to 8 cm | **not done**: no kit is cut for a machine | |
+| A machine (drone, skitter) | its hull, and its limbs | its limbs, and 12 scraps of 3 to 8 cm: the hull itself was nowhere | **its limbs, its hull in four pieces that fit together** (`buildWreck`, below), and 7 scraps | |
 
 What is seen in the half second after is the launch's work (G2, above): before, most of it was on the floor inside the
 fireball by then. The checks are in `gibs.test.ts` (a rocket's kill on real Rapier) and `ragdoll.test.ts` (a gib throws 5
 to 7 limbs, never fewer than five). Brute, Husk, Gunner and the bosses go through the same code with their own kits; the
 table's numbers were measured on the Trooper only.
+
+**A machine's hull (`buildWreck` in `torso.ts`, `Gore.breakHull`).** The skitter and the drone have no trunk kit: no
+flesh, no ribs. Their hull is cut at load like any kit, with every limb that leaves on its own folded away: in two
+across its longest side and each half again across its next longest, the planes tilted and the breaks jagged, so four
+closed pieces that fit together (`gibs.test.ts`: their volume is the hull's within 15%). A burst throws them as trunk
+pieces are thrown (`SliceField.throwWreck`: the hull's own skin, a broken face of dark burnt metal and not of meat, a
+trail of sparks, nothing pooling under it), and a round into one sparks. They count as trunk pieces in the caps.
 
 **Limb parts (`buildLimb` in `torso.ts`, `Gore.cutLimbs`).** Each flesh humanoid's four limbs are cut at load into four
 capped pieces each, as the trunk's kit is: the limb is every triangle of "trunk and this limb" that is not in "trunk alone"
@@ -1020,6 +1027,7 @@ oldest stain the cell remembers, so the spot stays freshly wet and the ring stop
 | Bodies kept | 40 | 120 | 120 | 200 |
 | Drawn in full / drawn as characters at all (the rest are baked, see "Many more corpses") | 6 / 20 | 8 / 32 | 8 / 32 | 12 / 40 |
 | Loose limbs | 24 | 48 | 48 | 64 |
+| of them drawn as themselves at rest (the rest are baked, see "Loose limbs are baked too") | 6 | 12 | 12 | 20 |
 | Trunk pieces and halves | 14 | 28 | 28 | 40 |
 | Slots for pieces (meat) | 64 | 160 | 160 | 320 |
 | Pieces lie | 20 s | until needed | until needed | until needed |
@@ -1057,12 +1065,16 @@ down):
 That Standard row is why `bakeOver` is 4: it was measured with bodies in sight left as characters until twelve past
 their cap. With it at 4 the same fight still stops with 80 characters (4.87 M triangles in the frame, against 3.45 M for
 the game before): during a long fight on one spot bodies are disturbed again before they have lain the 3 s a bake waits
-for, and they are baked down to 36 only once the fighting stops.
+for, and they are baked down to 36 only once the fighting stops. **That worst case is closed since the fit pass**
+(467 draw calls and 2.71 M triangles after the same fight: "Loose limbs are baked too, and what a crowded heap costs",
+below); the table above is P1's and is kept as its record.
 
 **Why Standard is the default, and what is not known.** Once a floor has settled, Standard draws about what the game
 before drew for its 40 corpses (36 characters, of which 28 settled, and every other body in one draw), with three times
-the bodies and four times the blood. During a long fight on one spot it draws more than the game before did, by the
-figures above. Low draws about half of what the game before drew (1.86 M triangles after the same fight). On the
+the bodies and four times the blood. During a long fight on one spot it drew more than the game before did, by the
+figures above, until the fit pass baked the limbs and hurried a crowded heap; it now draws less (2.71 M triangles
+against 3.45 M). Low draws about half of what the game before drew (1.86 M triangles after the same fight, before the
+fit pass). On the
 development machine all three hold 60 Hz. **On the laptop nothing was measured**: if Standard drops frames there in a
 heap, Low is the level that is cheaper than the game was.
 
@@ -1143,7 +1155,47 @@ view: **381 draw calls and 1.49 M triangles as characters, 126 and 0.50 M baked*
 sixty are one draw of 110,180 triangles. The batch's arrays grow forty bodies at a time, 3.4 MB a step in the page and
 again on the GPU, to 13.6 MB at 160.
 
-**Switch:** `?messfar=0` (dev panel, "Far corpses baked"): nothing is baked, and every body kept stays a character, as in P1.
+**Switch:** `?messfar=0` (dev panel, "Far corpses baked"): nothing is baked, body or limb, and every body kept stays a character, as in P1.
+
+### Loose limbs are baked too, and what a crowded heap costs (the fit pass, 2026-11-19)
+
+After 150 kills on one spot at Standard the floor cost more than the game before the update did: 813 draw calls and
+4.41 M triangles against 640 and 3.45 M (`mess-fight.mjs`, the same seeded fight). Of that, 48 loose limbs were 158 draws
+and 0.61 M triangles, 28 trunk pieces 110 draws, the loose pieces 129 draws and 1.08 M, and 69 bodies were still
+characters (2.04 M) because a body in a fight is disturbed again before it has lain the 3 s a bake waits for.
+
+- **Limbs.** `Gore.farLimbs` is a second `FarBatch` with small slots (`FarTuning.limb`: 900 vertices and 800 triangles,
+  72 slots, 24 at a time: 0.75 MB a step). A limb at rest is written into it at the body's coarsest level of detail
+  (`SeveredPart.bakeFar`, the same `bakeSkin` a body uses, with its wounds, wear and char painted in, and what it holds:
+  a hand keeps its gun or it is not baked), and **its own piece is only taken out of the scene, not given back**: the
+  piece, its chain and its fixed capsules are kept, so a round, a boot or a blast finds it exactly as before and
+  `unbakeLimb` puts it back as itself, on the frame, with nothing to restore. Not baked: one that burns or smokes, a top
+  half trailing its guts or still crawling, one staked. The bake writes only the vertices a piece still has (`bakeSkin`
+  packs them), so a limb takes a limb's room.
+- **Which** (`MessField.limbBatch`, four times a second): one further than `swapFar` (11 m) is baked once it has lain
+  `bakeAfter`; nearer, the `limbsDrawn` newest-and-nearest stay themselves (6 / 12 / 12 / 20 by level) and the rest are
+  baked furthest first, out of sight before in it, and in it only `bakeOver` (4) past the number; a baked limb the player
+  has come within 7 m of is put back when it is out of view and there is room.
+- **Pieces and halves at rest cast no shadow** (`ChunkTuning.shadowFor`: a kind of piece casts one only while one of
+  its pieces is in the air, and 1.5 s after; a half or trunk piece until it freezes). Every kind was drawn twice for the
+  shadow of something a few centimetres high lying on the floor.
+- **A crowded heap** (`MessField.crowded`: more bodies drawn as characters than the setting means to draw): settled
+  bodies keep their finest level of detail and what is under their skin only within `nearCrowded` (4 m) where it is 7,
+  and past `bakeOver` three times over (12) bodies are baked after 0.4 of `bakeAfter` (1.2 s) and four a look.
+
+Measured, the same fight and the same chokepoint, before the fit pass and after (Standard, development machine):
+
+| | Before | After | The game before the update |
+|---|---|---|---|
+| A fight, 150 kills on one spot: draw calls / triangles / one frame drawn | 813 / 4.41 M / 5.55 ms | **467 / 2.71 M / 2.87 ms** | 640 / 3.45 M / 5.08 ms |
+| of which bodies as characters (how many) | 269 / 2.04 M (69) | 133 / 1.07 M (32) | |
+| of which loose limbs | 158 / 0.61 M | 40 / 0.17 M (12 as themselves, 36 baked) | |
+| of which trunk pieces and halves | 110 / 0.10 M | 56 / 0.05 M | |
+| of which loose pieces | 129 / 1.08 M | 77 / 0.71 M | |
+| A chokepoint, 80 kills: draw calls / triangles / one frame drawn | 583 / 2.98 M / 3.88 ms | 415 / 2.16 M / 2.95 ms | 576 / 3.31 M |
+| The same: highest hips, bodies with hips over 35 cm | 0.68 m, 9 | 0.65 m, 13 | 0.14 m, 0 |
+
+The heap is as high as it was: nothing here takes a capsule out of the world.
 
 ## The mess: measured budgets (M0, 2026-11-19)
 
@@ -1233,10 +1285,12 @@ The mess (2026-11-19):
 
 - **The laptop figures are an estimate.** Everything was measured on a desktop (i9-13900K, RTX 4090) and scaled from
   what `docs/notes/render.md` measured on the laptop. Whether Standard holds 60 there in a heap needs the laptop.
-- **Loose limbs and pieces now cost more than the bodies.** At Standard after 150 kills: 48 limbs are 153 draws and
-  0.63 M triangles, the pieces 107 draws and 1.03 M, against one draw and 0.11 M for 41 baked bodies. Limbs are still
-  full-detail skinned pieces with what is under their skin (they lost only their shadows); the pieces' triangles are
-  mostly the other lanes' new slabs and parts. Baking limbs at rest into the far batch is the next thing worth doing.
+- **Trunk pieces and halves are not baked.** At rest they cast no shadow now (28 of them were 110 draws, and are 56),
+  and they are 0.05 M triangles between them: one more batch for one more draw was not worth its code. A top half with
+  its arms, head and kit is too big for a limb's slot and stays a piece.
+- **A baked limb seen close is coarse.** It is the body's coarsest level of detail, a couple of hundred triangles: the
+  policy keeps the twelve nearest as themselves and bakes in plain sight only past sixteen, furthest first, so the
+  coarse ones are the far ones; one the player then walks up to is put back as soon as it is out of view.
 - **A body baked in plain sight softens.** Past 36 characters in front of a player who never looks away the oldest are
   baked where they lie: at 6 m that changes 6% of the pixels round them (the far level's flat colour for the skin's
   weave, a visor's light gone, an opened chest painted dark). Stood up again they are exactly what they were.

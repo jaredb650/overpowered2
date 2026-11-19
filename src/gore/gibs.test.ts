@@ -4,7 +4,7 @@
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import { humanoidRig, HumanoidBone as B } from '../characters/rig';
+import { droneRig, humanoidRig, HumanoidBone as B, skitterRig } from '../characters/rig';
 import type { Ctx, DamageInfo } from '../core/contracts';
 import { DevFlags } from '../core/devflags';
 import { BLAST } from '../enemies/blast';
@@ -368,5 +368,56 @@ describe('organs', () => {
     expect(organs().length).toBe(0);
     // A ray that misses it finds nothing.
     expect(gore.raycastCorpses(from, v(0, 1, 0), 20)).toBeNull();
+  });
+});
+
+describe('a machine bursts into its own hull (the volume audit, for machines)', () => {
+  /** Litres inside a closed mesh, by its signed volume. */
+  const litres = (g: THREE.BufferGeometry): number => {
+    const p = g.getAttribute('position').array as Float32Array;
+    const idx = g.getIndex()!.array;
+    let sum = 0;
+    for (let t = 0; t < idx.length; t += 3) {
+      const a = idx[t]! * 3, b = idx[t + 1]! * 3, c = idx[t + 2]! * 3;
+      sum += (p[a]! * (p[b + 1]! * p[c + 2]! - p[b + 2]! * p[c + 1]!) - p[a + 1]! * (p[b]! * p[c + 2]! - p[b + 2]! * p[c]!) + p[a + 2]! * (p[b]! * p[c + 1]! - p[b + 1]! * p[c]!)) / 6;
+    }
+    return Math.abs(sum) * 1000;
+  };
+  const machine = (id: string, x: number): TestDummy => {
+    const char = new TestDummy(id === 'drone' ? droneRig(id) : skitterRig(id));
+    char.root.position.set(x, id === 'drone' ? 1.6 : 0, 30);
+    scene.add(char.root);
+    char.root.updateMatrixWorld(true);
+    return char;
+  };
+  type Wreck = Half & { scrap: boolean; pooled: boolean; side: { geometry: THREE.BufferGeometry } };
+
+  it.each(['drone', 'skitter'])('%s: its hull is thrown in pieces that add up to it, with no blood', id => {
+    // The hull alone, as the wreck is cut from it: every limb that leaves on its own folded away.
+    const twin = machine(id, 8);
+    const sever = [...new Set(twin.rig.bones.map((b, i) => (b.severable ? i : -1)).filter(i => i > 0))];
+    for (const bone of sever) twin.hideLimb(bone);
+    const hull = litres(twin.bakePose(true));
+    twin.release();
+    expect(hull).toBeGreaterThan(0.5);
+
+    const char = machine(id, 0);
+    const at = v(0, 0, 0).setFromMatrixPosition(char.bones[0]!.matrixWorld);
+    gore.gib(char, at.clone().add(v(0.3, -0.2, 0.2)), 80, { amount: 200, type: 'explosive', point: at, dir: v(0, 0.3, 1).normalize(), force: 80, source: 'rocket' });
+    const pieces = halves() as Wreck[];
+    expect(pieces.length).toBeGreaterThanOrEqual(2);
+    expect(pieces.length).toBeLessThanOrEqual(4);
+    for (const piece of pieces) {
+      expect(piece.scrap).toBe(true);
+      // Nothing pools under a machine's piece.
+      expect(piece.pooled).toBe(true);
+    }
+    const thrown = pieces.reduce((sum, piece) => sum + litres(piece.side.geometry), 0);
+    expect(thrown).toBeGreaterThan(hull * 0.85);
+    expect(thrown).toBeLessThan(hull * 1.15);
+    // Scrap still flies with them, less of it than when scrap was all there was.
+    expect(chunks().filter(c => c.kind === 'scrap').length).toBe(7);
+    step(240);
+    for (const piece of halves()) expect(piece.mesh.position.y).toBeLessThan(1);
   });
 });

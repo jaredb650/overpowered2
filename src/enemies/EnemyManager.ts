@@ -6,7 +6,8 @@
  */
 import * as THREE from 'three';
 import { HumanoidBone as B, type GoreRegion } from '../characters/rig';
-import type { CharacterInstance, Ctx, DamageInfo, LocomotionInput, PlayerSystem, RagdollOptions } from '../core/contracts';
+import { CG, type CharacterInstance, type Ctx, type DamageInfo, type LocomotionInput, type PlayerSystem, type RagdollOptions, type RayHit } from '../core/contracts';
+import { SwayWorld } from '../characters/animation/sway';
 import type { CollapseOptions, KnockdownOptions } from '../gore/muscles';
 import type { DamageResult, EnemyId, EnemyInstance, EnemyRayHit, EnemySystem } from '../core/gameplay';
 import { clamp, rand, TAU } from '../core/math';
@@ -205,6 +206,15 @@ export class EnemyManager implements EnemySystem {
       enemies: this,
       player: this.player,
       now: 0,
+    };
+    // A loose arm asks the world one thing: what is along this ray (characters/animation/sway.ts, the wall's stop).
+    const wall: RayHit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, surface: 'concrete', collider: null };
+    SwayWorld.ray = (origin, dir, max, hit) => {
+      const physics = this.ctx.physics as Partial<Ctx['physics']> | undefined;
+      if (!physics?.raycastInto?.(origin, dir, max, CG.World, wall)) return false;
+      hit.point.copy(wall.point);
+      hit.normal.copy(wall.normal);
+      return true;
     };
     this.director = new Director(this.w);
     this.telegraphs = new Telegraphs(ctx);
@@ -872,8 +882,27 @@ export class EnemyManager implements EnemySystem {
    * far, skipped-frame rate. So the host draws by its own eye, and the AI keeps its own number.
    */
   private drawnLod(e: Enemy): number {
+    return e.isBoss ? e.lod : this.localView(e).lod;
+  }
+
+  private readonly seen = { dist: 0, inView: false, lod: 0 };
+
+  /**
+   * How this screen's own player sees `e`: how far, in view or not, and the level of detail that gives. Alone and on a
+   * guest that is what `e.dist`, `e.inView` and `e.lod` already are. On a co-op host those three are measured from the
+   * player the enemy is after, for its AI: anything that is only for the eye (the level of detail it is drawn at, a
+   * struck part on physics) goes by this, or an enemy beside the host that hunts a far guest is shown as a far one.
+   * The answer is one shared object: read it, do not keep it.
+   */
+  localView(e: Enemy): { readonly dist: number; readonly inView: boolean; readonly lod: number } {
+    const out = this.seen;
     const coop = this.ctx.coop;
-    if (!coop?.world || !coop.hosting || e.isBoss) return e.lod;
+    if (!coop?.world || !coop.hosting) {
+      out.dist = e.dist;
+      out.inView = e.inView;
+      out.lod = e.lod;
+      return out;
+    }
     const p = this.ctx.player;
     const dist = Math.hypot(e.position.x - p.position.x, (e.position.y - p.position.y) * 0.6, e.position.z - p.position.z);
     const dx = e.position.x - p.eye.x;
@@ -882,7 +911,10 @@ export class EnemyManager implements EnemySystem {
     const d = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
     const inView = (dx * p.forward.x + dy * p.forward.y + dz * p.forward.z) / d > 0.62;
     const near = dist < 26 ? 0 : dist < 60 ? 1 : 2;
-    return inView ? near : Math.min(near + 1, 3);
+    out.dist = dist;
+    out.inView = inView;
+    out.lod = e.isBoss ? 0 : inView ? near : Math.min(near + 1, 3);
+    return out;
   }
 
   private updateDying(dt: number): void {

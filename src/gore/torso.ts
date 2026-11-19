@@ -381,6 +381,48 @@ export function buildKit(char: CharacterInstance): TorsoKit {
  * The limbs a kit cuts up: the bone a limb hangs from, the next one down and the last, as the humanoid rig numbers them.
  * `LIMB_EXITS[i]` is the trunk exit it leaves by.
  */
+/**
+ * A machine's hull in the pieces it breaks into (the volume audit: a drone or a skitter burst into its limbs and twelve
+ * scraps of 3 to 8 cm, and the body itself was nowhere). `char` comes with every limb that leaves on its own already
+ * folded away: what is baked here is the hull alone, in bind, and it is cut in two across its longest side and each
+ * half again across its next longest, with the planes tilted and the breaks jagged, so four pieces that fit together
+ * are thrown where there was one body. A hull too thin to cut one way stays in fewer. They ride the rig's root bone.
+ */
+export function buildWreck(char: CharacterInstance): TorsoPiece[] {
+  const rnd = mulberry32([...char.archetype].reduce((h, c) => Math.imul(h ^ c.charCodeAt(0), 16777619) >>> 0, 2166136261));
+  const geometry = compact(char.bakePose(true));
+  if (geometry.getAttribute('position').count < 12) return [];
+  geometry.computeBoundingBox();
+  const box = geometry.boundingBox!;
+  const centre = box.getCenter(new THREE.Vector3());
+  const size = box.getSize(new THREE.Vector3());
+  const whole: CutSide = {
+    geometry, origin: new THREE.Vector3(), capCenter: new THREE.Vector3(), capNormal: new THREE.Vector3(0, 1, 0),
+    hull: new Float32Array(0), min: box.min.clone(), max: box.max.clone(), capArea: 0,
+  };
+  // The two longest of its three sides, longest first.
+  const axes = (['x', 'y', 'z'] as const).slice().sort((a, b) => size[b] - size[a]);
+  const tilt = (): number => (rnd() - 0.5) * 0.5;
+  const across = (axis: 'x' | 'y' | 'z', shift: number): Plane => {
+    const n = new THREE.Vector3(tilt(), tilt(), tilt());
+    n[axis] = 1;
+    const p = centre.clone();
+    p[axis] += size[axis] * shift;
+    return { p, n: n.normalize() };
+  };
+  const first = across(axes[0]!, (rnd() - 0.5) * 0.16);
+  const second = across(axes[1]!, (rnd() - 0.5) * 0.16);
+  const halves = split([whole], first, []);
+  const quarters = split([...halves.above, ...halves.below], second, []);
+  const sides = [...quarters.above, ...quarters.below];
+  const jag = Math.min(size.x, size.y, size.z) * 0.035;
+  return sides.map(side => {
+    roughen(side, [first, second], jag);
+    side.hull = hullPoints(side.geometry);
+    return { side, bone: 0 };
+  });
+}
+
 export const KIT_LIMBS: readonly (readonly [upper: number, lower: number, end: number])[] = [
   [B.upperArmL, B.foreArmL, B.handL], [B.upperArmR, B.foreArmR, B.handR], [B.thighL, B.shinL, B.footL], [B.thighR, B.shinR, B.footR],
 ];

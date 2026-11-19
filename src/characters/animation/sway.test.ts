@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { archetypeById, rigFor } from '../archetypes';
 import { HumanoidBone as H, type GoreRegion } from '../rig';
 import { HumanoidAnimator } from './HumanoidAnimator';
-import { SwayTuning } from './sway';
+import { SwayTuning, SwayWorld } from './sway';
 
 const DT = 1 / 60;
 const FRONT = new THREE.Vector3(0, 0, -1);
@@ -229,5 +229,90 @@ describe('the struck part on physics', () => {
     log({ plainMsPerFrame: plain, liveMsPerFrame: live });
     // Under a fifth of a millisecond a frame for all eight, on top of what animating them costs.
     expect(live - plain).toBeLessThan(0.5);
+  });
+});
+
+describe('a loose arm, its own body and the wall beside it', () => {
+  /** Metres from the line through the hips and the neck. */
+  const fromTrunk = (b: Body, bone: number): number => {
+    const hips = worldP(b, H.hips), neck = worldP(b, H.neck), p = worldP(b, bone);
+    const axis = neck.clone().sub(hips);
+    const u = THREE.MathUtils.clamp(p.clone().sub(hips).dot(axis) / axis.lengthSq(), 0, 1);
+    return hips.addScaledVector(axis, u).distanceTo(p);
+  };
+  /**
+   * The left arm struck hard on the forearm, the round going `dir`, with the part on physics or on the flinch's springs
+   * alone: the nearest its wrist comes to the trunk's line, the furthest it gets along +X, the most any bone moves in a frame.
+   */
+  function swing(dir: THREE.Vector3, loose = true, frames = 40) {
+    const b = body('trooper');
+    const at = worldP(b, H.foreArmL);
+    b.anim.flinch(H.foreArmL, dir, 1.4, at);
+    if (loose) b.anim.sway('armL', dir, 1.4, H.foreArmL);
+    let near = Infinity, far = -Infinity, jump = 0;
+    let last = pose(b);
+    for (let i = 0; i < frames; i++) {
+      b.step(1);
+      const now = pose(b);
+      jump = Math.max(jump, moved(last, now));
+      last = now;
+      near = Math.min(near, fromTrunk(b, H.handL));
+      far = Math.max(far, worldP(b, H.handL).x);
+    }
+    return { near, far, jump, b };
+  }
+  // As tuned, a loose arm stays within a few centimetres of where the flinch's own animation takes it (the cone and the
+  // drive's floor see to that), so the wall's stop has little to do. To see it work, the arm is let off the leash: no
+  // cone, the least drive, and five times the snap.
+  const tuned = { cone: SwayTuning.cone, hand: SwayTuning.handCone, floor: SwayTuning.floor.arm, snap: SwayTuning.snap.arm };
+  const unleash = (): void => {
+    SwayTuning.cone = SwayTuning.handCone = 3.1;
+    SwayTuning.floor.arm = 0;
+    SwayTuning.snap.arm = tuned.snap * 5;
+  };
+  afterEach(() => {
+    SwayWorld.ray = null;
+    SwayTuning.cone = tuned.cone;
+    SwayTuning.handCone = tuned.hand;
+    SwayTuning.floor.arm = tuned.floor;
+    SwayTuning.snap.arm = tuned.snap;
+  });
+
+  it('as tuned, it goes no nearer its own trunk than the animated flinch does (so that needs no stop), and at most a hand further out', () => {
+    for (const dir of [new THREE.Vector3(-1, 0, 0), new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 0, 1), new THREE.Vector3(-1, 0, 1).normalize()]) {
+      const flinch = swing(dir, false), loose = swing(dir, true);
+      log('as tuned', dir.toArray().join(','), 'near', flinch.near.toFixed(3), loose.near.toFixed(3), 'far', flinch.far.toFixed(3), loose.far.toFixed(3));
+      expect(loose.near).toBeGreaterThan(flinch.near - 0.02);
+      expect(loose.far).toBeLessThan(flinch.far + 0.12);
+    }
+  });
+
+  it('let off the leash and thrown out sideways, it stays in front of a wall beside the body, on one ray a frame', () => {
+    const out = new THREE.Vector3(1, 0.1, 0).normalize();
+    unleash();
+    const flinch = swing(out, false);
+    const free = swing(out);
+    // A wall the animation never reaches and the loose arm goes well past: a plane across +X, facing the body.
+    const wallX = flinch.far + 0.12;
+    expect(free.far).toBeGreaterThan(wallX + 0.1);
+    let asked = 0;
+    SwayWorld.ray = (origin, dir, max, hit) => {
+      asked++;
+      if (dir.x <= 1e-6) return false;
+      const along = (wallX - origin.x) / dir.x;
+      if (along < 0 || along > max) return false;
+      hit.point.copy(origin).addScaledVector(dir, along);
+      hit.normal.set(-1, 0, 0);
+      return true;
+    };
+    const kept = swing(out);
+    log('wall at', wallX.toFixed(3), 'flinch', flinch.far.toFixed(3), 'free', free.far.toFixed(3), 'kept', kept.far.toFixed(3), 'rays', asked, 'jump', free.jump.toFixed(3), kept.jump.toFixed(3));
+    // The wrist is held at the wall: this arm arrives at five times a real one's speed, and the stop only ever eases a
+    // joint out (`outSpeed`), so a few centimetres of it show where the free arm went 31 cm through.
+    expect(kept.far).toBeLessThan(wallX + 0.06);
+    // One ray a frame for the one arm that is loose, and none once the arm is the animation's again.
+    expect(asked).toBeGreaterThan(5);
+    expect(asked).toBeLessThanOrEqual(40);
+    expect(kept.jump).toBeLessThanOrEqual(free.jump + 0.01);
   });
 });

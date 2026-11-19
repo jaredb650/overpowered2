@@ -34,6 +34,12 @@ export const ChunkTuning = {
   share: 0.5,
   /** Bodies alive at once across all kinds. Past this, new pieces take the oldest body's place. */
   maxBodies: 72,
+  /**
+   * Seconds after the last of its pieces was in the air that a kind of piece still casts a shadow. A piece lying on the
+   * floor is a few centimetres high and its shadow is under it; drawing every kind twice for that was half of what loose
+   * pieces cost (129 draws and 1.08 M triangles after 150 kills at Standard).
+   */
+  shadowFor: 1.5,
   /** Seconds at rest before the body is dropped. */
   settle: 0.35,
   /**
@@ -686,10 +692,19 @@ export class ChunkField {
     mesh.instanceMatrix.needsUpdate = true;
   }
 
+  /** World time each kind last had a piece in the air: only those cast shadows (`ChunkTuning.shadowFor`). */
+  private readonly flewAt = new Map<ChunkKind, number>();
+
   update(dt: number): void {
     if (!this.ready) return;
     const now = this.ctx.time.elapsed;
     const t = ChunkTuning;
+    for (let i = 0; i < this.live.length; i++) this.flewAt.set(this.live[i]!.kind, now);
+    for (let i = 0; i < this.ghosts.length; i++) this.flewAt.set(this.ghosts[i]!.kind, now);
+    for (const [kind, mesh] of this.meshes) {
+      const cast = now - (this.flewAt.get(kind) ?? -Infinity) < t.shadowFor;
+      if (mesh.castShadow !== cast) mesh.castShadow = cast;
+    }
     for (let i = this.live.length - 1; i >= 0; i--) {
       const c = this.live[i]!;
       const body = c.body!;

@@ -29,6 +29,8 @@ export interface MessBudget {
   drawn: number;
   /** Loose limbs kept. */
   limbs: number;
+  /** Loose limbs at rest drawn as themselves. Past it the furthest are baked into the limbs' batch (far.ts). */
+  limbsDrawn: number;
   /** Trunk pieces and sword halves kept, and the count past which the oldest goes whatever. */
   halves: number;
   halvesHard: number;
@@ -58,10 +60,10 @@ export interface MessBudget {
  * `drawn` plus the 48 that may be alive stays under the 96 instances the library keeps of one archetype, at every level.
  */
 export const MESS: Readonly<Record<MessLevel, MessBudget>> = {
-  low: { clearAtBreak: false, corpses: 40, full: 6, drawn: 20, limbs: 24, halves: 14, halvesHard: 22, pieces: 0.2, pieceLinger: 20, blood: 2048, marks: 512, scorches: 96, big: 64, soak: 4 },
-  break: { clearAtBreak: true, corpses: 120, full: 8, drawn: 32, limbs: 48, halves: 28, halvesHard: 44, pieces: 0.5, pieceLinger: Infinity, blood: 8192, marks: 1536, scorches: 256, big: 192, soak: 6 },
-  standard: { clearAtBreak: false, corpses: 120, full: 8, drawn: 32, limbs: 48, halves: 28, halvesHard: 44, pieces: 0.5, pieceLinger: Infinity, blood: 8192, marks: 1536, scorches: 256, big: 192, soak: 6 },
-  everything: { clearAtBreak: false, corpses: 200, full: 12, drawn: 40, limbs: 64, halves: 40, halvesHard: 56, pieces: 1, pieceLinger: Infinity, blood: 12288, marks: 1536, scorches: 256, big: 256, soak: 10 },
+  low: { clearAtBreak: false, corpses: 40, full: 6, drawn: 20, limbs: 24, limbsDrawn: 6, halves: 14, halvesHard: 22, pieces: 0.2, pieceLinger: 20, blood: 2048, marks: 512, scorches: 96, big: 64, soak: 4 },
+  break: { clearAtBreak: true, corpses: 120, full: 8, drawn: 32, limbs: 48, limbsDrawn: 12, halves: 28, halvesHard: 44, pieces: 0.5, pieceLinger: Infinity, blood: 8192, marks: 1536, scorches: 256, big: 192, soak: 6 },
+  standard: { clearAtBreak: false, corpses: 120, full: 8, drawn: 32, limbs: 48, limbsDrawn: 12, halves: 28, halvesHard: 44, pieces: 0.5, pieceLinger: Infinity, blood: 8192, marks: 1536, scorches: 256, big: 192, soak: 6 },
+  everything: { clearAtBreak: false, corpses: 200, full: 12, drawn: 40, limbs: 64, limbsDrawn: 20, halves: 40, halvesHard: 56, pieces: 1, pieceLinger: Infinity, blood: 12288, marks: 1536, scorches: 256, big: 256, soak: 10 },
 };
 
 export const MessTuning = {
@@ -109,6 +111,17 @@ export const MessTuning = {
   supportWait: 4,
   /** Metres within which a settled body keeps its finest level of detail and what is under its skin. */
   nearDetail: 7,
+  /**
+   * The same while more bodies are drawn as characters than the setting means to draw (`crowded`): a long fight on one
+   * spot, where bodies are disturbed again before they have lain long enough to be baked. Measured at Standard after 150
+   * kills on one spot: 69 characters, 2.0 M triangles, nearly all of them inside 7 m of the player.
+   */
+  nearCrowded: 4,
+  /**
+   * Crowded by `bakeOver` three times over, bodies are baked after this share of `bakeAfter` at rest and twice as many a
+   * look: the heap is growing faster than it is being baked.
+   */
+  hurry: 0.4,
   /** Seconds between looks at who is in view and who is over the caps. */
   policyEvery: 0.25,
   /** Past the cap by this many, the oldest goes even in plain sight. */
@@ -152,6 +165,10 @@ export interface MessChain {
 /** A loose limb: a chain with something drawn of its own. */
 export interface MessLimb extends MessChain {
   readonly piece: { readonly root: THREE.Object3D };
+  /** Its slot in the limbs' batch while it is baked, or -1 (gore/index.ts `bakeLimb`). */
+  readonly slot?: number;
+  /** World time it last came to rest. */
+  readonly restedAt?: number;
 }
 export interface MessBody extends MessChain {
   readonly char: CharacterInstance;
@@ -198,6 +215,12 @@ export interface MessHost {
   removeLimb(limb: MessChain): void;
   sinkLimb(limb: MessChain): void;
   maxLimbs(): number;
+  /**
+   * Bakes a loose limb at rest into the limbs' batch, and puts one back as the piece it is. False if it cannot be (it
+   * burns, it trails guts, what it carries does not fit a slot).
+   */
+  bakeLimb?(limb: MessLimb): boolean;
+  unbakeLimb?(limb: MessLimb): boolean;
   /**
    * A chain's capsules have left the world (it woke, sank, burst), and they filled this box: loose pieces, halves and
    * strands of gut that lay on it have nothing under them now.
@@ -296,7 +319,7 @@ export class MessField {
   private enemyWakeAt = 0;
   private readonly onUnrest = (rag: Rag): void => this.unrested(rag);
   /** Counters since the last clear, for checks and the debug overlay. */
-  readonly count = { pushWakes: 0, landWakes: 0, slipWakes: 0, ghosted: 0, removed: 0, sunk: 0, baked: 0, stoodUp: 0 };
+  readonly count = { pushWakes: 0, landWakes: 0, slipWakes: 0, ghosted: 0, removed: 0, sunk: 0, baked: 0, stoodUp: 0, bakedLimbs: 0, unbakedLimbs: 0 };
 
   constructor(private readonly ctx: Ctx, private readonly host: MessHost) {}
 
@@ -576,6 +599,7 @@ export class MessField {
       if (want === 1 && (b.rag?.active || (seen && rank <= budget.full * 2 && this.inView(b)))) continue;
       this.setTier(b, want);
     }
+    this.crowd = MessTuning.far ? corpses - budget.drawn : 0;
     this.limbPolicy(seen);
     if (MessTuning.far) this.farPolicy(budget, corpses, seen);
     const far = this.host.far;
@@ -649,7 +673,7 @@ export class MessField {
     }
     if (corpses > budget.drawn) {
       // Over: the oldest that nobody can see change, a couple a look. Far past the cap, the oldest whoever is looking.
-      let left = t.bakesPerLook;
+      let left = this.hurried ? t.bakesPerLook * 2 : t.bakesPerLook;
       for (let pass = 0; pass < 2 && left > 0; pass++) {
         if (pass === 1 && corpses <= budget.drawn + t.bakeOver) break;
         for (let i = 0; i < bodies.length && left > 0 && corpses > budget.drawn; i++) {
@@ -679,7 +703,17 @@ export class MessField {
   /** May this body be baked now? Settled, at rest long enough, with nothing holding it. */
   private bakeable(b: MessBody, now: number): boolean {
     return b.tier > 0 && b.sinking < 0 && !b.down && b.vapor < 0 && b.stakes.length === 0 && b.rag !== null && !b.rag.active
-      && now - b.freshAt >= MessTuning.bakeAfter && now >= b.holdUntil;
+      && now - b.freshAt >= MessTuning.bakeAfter * (this.hurried ? MessTuning.hurry : 1) && now >= b.holdUntil;
+  }
+
+  /** Bodies drawn as characters past the number the setting means to draw, as of the last look. */
+  private crowd = 0;
+  /** More characters than the setting means to draw: settled ones keep their finest detail only close to. */
+  get crowded(): boolean {
+    return this.crowd > 0;
+  }
+  private get hurried(): boolean {
+    return this.crowd > MessTuning.bakeOver * 3;
   }
 
   /** A baked body is a character again: settled as it was, and its skeleton still. */
@@ -712,6 +746,7 @@ export class MessField {
         this.limbShade.set(l, shade);
       } else this.forgetLimb(l);
     }
+    this.limbBatch(seen);
     let over = n - this.host.maxLimbs();
     for (let i = 0; i < limbs.length && over > 0 && seen; i++) {
       const l = limbs[i]!;
@@ -726,6 +761,83 @@ export class MessField {
       this.host.sinkLimb(l);
       over--;
     }
+  }
+
+  /**
+   * Which loose limbs at rest are drawn as themselves and which are baked into the limbs' batch (far.ts): forty-eight
+   * limbs lying about were 158 draws and 0.6 M triangles, more than every baked body together. One further than
+   * `swapFar` is baked as soon as it has lain `bakeAfter`. Nearer, the newest `limbsDrawn` stay themselves and the rest
+   * are baked furthest first, out of sight before in it (and in it only `bakeOver` past the number). A baked limb the
+   * player has come near to is put back when nobody is looking and there is room. With no camera to ask (a test), the
+   * count alone decides.
+   */
+  private limbBatch(seen: boolean): void {
+    const host = this.host;
+    if (!MessTuning.far || !host.bakeLimb || !host.unbakeLimb) return;
+    const t = MessTuning;
+    const limbs = host.limbs;
+    const now = this.ctx.time.elapsed;
+    const eye = seen ? this.ctx.render.camera.position : null;
+    const far2 = t.swapFar * t.swapFar;
+    const budget = messBudget().limbsDrawn;
+    let drawn = 0;
+    for (let i = 0; i < limbs.length; i++) {
+      const l = limbs[i]!;
+      if (l.sinking < 0 && (l.slot ?? -1) < 0 && l.rag && !l.rag.active) drawn++;
+    }
+    let left = t.bakesPerLook * 2;
+    // Far off: any time.
+    for (let i = 0; i < limbs.length && left > 0 && eye; i++) {
+      const l = limbs[i]!;
+      if (!this.limbBakeable(l, now) || l.rag!.center.distanceToSquared(eye) < far2) continue;
+      if (!host.bakeLimb(l)) continue;
+      this.count.bakedLimbs++;
+      drawn--;
+      left--;
+    }
+    // Over the number drawn: the furthest that nobody can see change, then the furthest whoever is looking.
+    for (let pass = 0; pass < 2 && left > 0; pass++) {
+      const over = drawn - budget - (pass === 1 && eye ? t.bakeOver : 0);
+      for (let k = 0; k < over && left > 0; k++) {
+        let pick: MessLimb | null = null;
+        let pickD = -1;
+        for (let i = 0; i < limbs.length; i++) {
+          const l = limbs[i]!;
+          if (!this.limbBakeable(l, now) || this.limbRefused.has(l)) continue;
+          if (pass === 0 && eye && this.sees(l.rag!.center, 0.6)) continue;
+          // With no camera the oldest go first: the list is in the order they were cut.
+          const d = eye ? l.rag!.center.distanceToSquared(eye) : limbs.length - i;
+          if (d > pickD) {
+            pickD = d;
+            pick = l;
+          }
+        }
+        if (!pick) break;
+        if (host.bakeLimb(pick)) {
+          this.count.bakedLimbs++;
+          drawn--;
+        } else this.limbRefused.add(pick);
+        left--;
+      }
+    }
+    // Come near to, a baked limb is itself again: where the change cannot be seen, one a look.
+    if (!eye || drawn >= budget) return;
+    const near = (t.swapFar - t.swapGain) * (t.swapFar - t.swapGain);
+    for (let i = limbs.length - 1; i >= 0; i--) {
+      const l = limbs[i]!;
+      if ((l.slot ?? -1) < 0 || l.sinking >= 0 || !l.rag) continue;
+      if (l.rag.center.distanceToSquared(eye) > near || this.sees(l.rag.center, 0.6)) continue;
+      if (host.unbakeLimb(l)) this.count.unbakedLimbs++;
+      break;
+    }
+  }
+
+  /** Limbs the batch would not take (what they carry does not fit): not asked again. */
+  private readonly limbRefused = new WeakSet<MessLimb>();
+
+  private limbBakeable(l: MessLimb, now: number): boolean {
+    return l.sinking < 0 && (l.slot ?? -1) < 0 && l.rag !== null && !l.rag.active && l.stakes.length === 0
+      && now - (l.restedAt ?? now) >= MessTuning.bakeAfter;
   }
 
   /** Could the camera see a sphere there? Only as fresh as the last look (`policyEvery`). True with no camera to ask. */
@@ -786,7 +898,7 @@ export class MessField {
 
   /** The level of detail a dead body is drawn at, from how far off it is: a settled one steps down sooner. */
   lodFor(b: MessBody, distance: number, near: number, far: number): number {
-    if (b.tier > 0 && !b.rag?.active) return distance < MessTuning.nearDetail ? 0 : distance < far ? 1 : 2;
+    if (b.tier > 0 && !b.rag?.active) return distance < (this.crowd > 0 ? MessTuning.nearCrowded : MessTuning.nearDetail) ? 0 : distance < far ? 1 : 2;
     return distance < near ? 0 : distance < far ? 1 : 2;
   }
 
@@ -795,8 +907,9 @@ export class MessField {
     this.rests.length = 0;
     this.shapes = 0;
     this.enemyWakeAt = 0;
+    this.crowd = 0;
     for (const l of [...this.limbShade.keys()]) this.forgetLimb(l);
-    this.count.pushWakes = this.count.landWakes = this.count.slipWakes = this.count.ghosted = this.count.removed = this.count.sunk = this.count.baked = this.count.stoodUp = 0;
+    this.count.pushWakes = this.count.landWakes = this.count.slipWakes = this.count.ghosted = this.count.removed = this.count.sunk = this.count.baked = this.count.stoodUp = this.count.bakedLimbs = this.count.unbakedLimbs = 0;
   }
 
   stats(): { resting: number; shapes: number; waiting: number; settled: number } & MessField['count'] {
