@@ -318,3 +318,14 @@ Shared files and contracts between lanes:
   muscles, heading 0,1" fails about one run in four on `d9ecffb` too (a flaky test, not from any lane's change).
   The gore lane's open item is closed: a limb the state's sever bits have off now waits 800 ms for its `sever` event before it
   drops (`replicas.ts`, `SEVER_WAIT_MS`).
+- 2026-11-18, damage-research: docs only, no code. `docs/research/damage-response-research.md` (what a hit, a gib, blood, fire
+  and a corpse do today, read from the code and looked at in 26 frame sequences on the Test Range, with how other games do each)
+  and `docs/proposals/damage-response-update.md` (the plan the owner reads: a hit-response gradient, and steps ordered by feel
+  per unit of work). Found, with numbers: a hit short of a stagger is a 3 to 10 degree spring flinch along the player's line
+  of sight (1.5 degrees on a struck arm) and a Trooper is dead 0.15 s after the first SMG round; a rocket's force (84 at most)
+  can never reach the 420 that cracks a trunk, so every rocket gib is the two-piece version with no ribcage; the fireball hides
+  the gib for 13 frames; a flamethrower kill leaves an unburnt body and fire stops at death; the decal ring is full at the
+  28th kill; a body at rest has no collider, so bodies never stack (46 kills on one spot lay one body deep); a corpse costs
+  about 7 draw calls and 56,000 triangles. Nothing was timed (load 65 to 70). For the co-op lanes: every step in the plan is
+  drawn by each screen from the hit and kill events it already gets, except one optional rule (a hit spoils an enemy's aim),
+  which would be the host's to decide.
