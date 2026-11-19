@@ -332,8 +332,8 @@ right model. Limbs: the sever mask, plus `sever` events.
   - A `wave` event outruns the snapshot that carries its phase (A5).
   - A `hitfx` or `sever` for an enemy the guest hasn't spawned yet is dropped (`world.ts:318`, `342`).
   - A `kill` for an unseen enemy spawns it just to kill it (`world.ts:304-307`), which is fine.
-- **The host relays guest↔guest** (`fire`, `boom`, `sonar`, `callin`, poses): one extra hop of latency between guests.
-- **No congestion control or backpressure.** The `send()` result is ignored (`trystero.ts:78`). A slow guest's buffer grows
+- *(Measured 2026-11-19, wire lane: the relay costs the second link and about 1 ms; `coop.md`, "The wire", Guest to guest.)* **The host relays guest↔guest** (`fire`, `boom`, `sonar`, `callin`, poses): one extra hop of latency between guests.
+- *(Fixed 2026-11-19, wire lane: `coop.md`, "The wire", Backpressure.)* **No congestion control or backpressure.** The `send()` result is ignored (`trystero.ts:78`). A slow guest's buffer grows
   without limit while the host keeps queuing.
 
 ### C5. Encoding and allocations
@@ -453,12 +453,12 @@ Sizes: **S** is under half a day, **M** one to two days, **L** several days. Non
    - Open a second RTCDataChannel per peer with `ordered: false, maxRetransmits: 0` beside trystero's (trystero 0.27 doesn't expose
      channel options; it needs the `RTCPeerConnection` already wrapped in `trystero.ts:34-63`, or a trystero patch or upgrade).
    - Keep events on the reliable channel. Add backpressure: check `bufferedAmount` and skip a snapshot when a guest is behind.
-8. **E8 Compact event encoding (C5). M.**
+8. **E8 Compact event encoding (C5). M.** *Done 2026-11-19 (wire lane): batches, a match tag, every event packed, bytes counted at the encode. `coop.md`, "The wire".*
    - Make `hitfx`, `hit`, `kill` and `fire` binary, or at least drop the per-message match UUID (put it in the lane handshake),
      quantize vectors and use enum indexes.
    - Batch a frame's events into one message.
    - Remove the stats `JSON.stringify` in `broadcast` (`world.ts:188`); count bytes at the transport instead.
-9. **E9 Host per-frame cost (C5). S.**
+9. **E9 Host per-frame cost (C5). S.** *Done 2026-11-19 (wire lane): the player list once a frame, each pose read once, the target pick makes nothing. `coop.md`, "The wire", Host cost.*
    - Compute `players()` once per frame and reuse it in `select`, `enemyRay`, `blast` and `playerEyes`.
    - Sample each remote's pose once per frame.
    - Reuse vectors in `updateGuests`, `receiveSnapshot` and `frame()`.

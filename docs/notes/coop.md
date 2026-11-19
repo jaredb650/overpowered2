@@ -1680,8 +1680,8 @@ behave the same on both.
   `{ latest: true }` skips that peer by itself and counts the skip. The reliable event lane has its own rule ("The wire").
 - **On the wire**, an unreliable message is one frame: `[name length u8][lane name, ASCII][sequence u16 LE][payload]`, 7 bytes over
   the payload for `pose`. The sequence number is per lane and peer and exists for the loss count.
-- **Today:** only the 20 Hz player poses are on the unreliable lane (`{ unreliable: true, latest: true }`). Enemy snapshots (`world`)
-  and events (`action`) are reliable still; the enemy lane moves snapshots.
+- **Today:** the 20 Hz player poses and the enemy snapshots (`world`) are on the unreliable lane (`{ unreliable: true, latest: true }`).
+  Events (`action`) are reliable, batched and packed: see "The wire".
 
 **Real WebRTC** (`src/net/fast.ts`, `trystero.ts`): trystero 0.27 has one reliable, ordered data channel per peer and no option for
 another. Once a peer connection is connected, both ends open a second channel on it with the same number (`negotiated`, id 100,
@@ -1738,7 +1738,8 @@ host's setting. A guest adds `&netsim=...` to their own link.
 unreliable lanes, and the round trip to each peer once a second on both paths (lanes `net` and `netu`, 9 bytes each).
 `window.__op2.net.snapshot()` returns it all as plain JSON, with the simulator's settings, which peers have the fast path up, what is
 queued for each, and co-op's own frame cost (`CoopSession.cpuMs`, which is unchanged). `window.__op2.net.metrics.reset()` starts a
-measuring window. Object messages are sized by their JSON text, near enough to the wire.
+measuring window. Object messages (the lobby's) are sized by their JSON text, near enough to the wire; the event lane's batches are bytes and
+are counted exactly.
 
 Two more tables in the snapshot: `events` (the reliable lane by event type and direction: how many, their bytes as they
 travelled, bytes each; `out` counts one per recipient) and `costs` (`coop.update`, `coop.send`, `coop.receive`, `coop.flush`:
@@ -1754,6 +1755,224 @@ metrics.start('shot', id); /* ... */ metrics.stop('shot', id);   // a named time
 ```
 
 Each shows up under `series` in the snapshot as `{ n, mean, p50, p90, p99, max, last }`.
+
+## The wire: one message a frame, packed events, and a rule for a guest that is behind (overhaul lane "wire", 2026-11-19)
+
+The last pass on how co-op's messages travel. Nothing a lane sends changed its meaning: the modules build and read their
+events as before. Code: `src/net/batch.ts` (the batch), `tree.ts` (the packed form), `pressure.ts` (the rule),
+`world/pack.ts` (the world's word list), `lobby.ts` (`events`, `batching`, `flushEvents`, `stall`), `world/context.ts`
+(`send`, `relay`), `trystero.ts` (what trystero holds back and gives up on), `world/targeting.ts` (`players`, `pickTarget`).
+Tests: `batch.test.ts`, `batch.property.test.ts`, `tree.property.test.ts`, `pressure.test.ts`, `events.test.ts`,
+`world/targeting.property.test.ts`, `netsim.test.ts`. Browser: `tools/scripts/coop-wire-heavy.mjs` (the measurement),
+`coop-wire-stall.mjs` (the stalled guest), `coop-wire-relay.mjs` (guest to guest), with `coop-wire-kit.mjs` (the fight).
+
+### What it was
+
+Every reliable event was its own message: JSON `{ "match": "<36 characters>", "data": event }`, 56 bytes of wrapper on
+each, plus trystero's 36-byte frame header on real WebRTC. To count bytes the event was turned to text a second time, and
+the lane layer did it a third time per recipient, so an event for three guests was stringified seven times. In the heaviest
+fight the host sent 435 event messages a second for three guests. A guest whose link stalled was queued for without limit:
+trystero holds a message back while the data channel has more than 64 KB waiting and, after ten seconds of that, throws it
+away without a word, so a fact could be lost while the connection still looked up.
+
+### The batch (`batch.ts`)
+
+Everything a page sends on the reliable lane in one frame leaves as **one message per peer**, as bytes:
+
+```
+[0xB1][match tag, u32 LE]  then one record per event, in the order sent:  [kind u8][payload length, LEB128][payload]
+```
+
+- **The match tag** is a 32-bit hash of the match id, once per message. A page drops a batch whose tag is not its own
+  match's, as it dropped an event with another match's id.
+- **When it leaves.** `CoopSession` turns batching on with `lobby.batching(queueMicrotask)`: the queue is flushed when the
+  script that filled it ends. For a frame that is the end of the frame's own work, before the page draws; for an arriving
+  message (a guest's claims) it is the end of handling it, so the host's answers and relays go out at once, as one message
+  per peer, and wait for no frame. Nothing is marked urgent because nothing waits longer than the task it was sent in.
+  Anything the lobby itself says (`end`, a list, a ping) flushes the queue first, so it keeps its place after the events
+  sent before it, and a closing lobby flushes too. A `Lobby` nobody has called `batching` on (the unit tests) sends each
+  event as it is queued, a batch of one, through the same code.
+- **One encode per event**, whoever it is for: the record is copied into each recipient's batch. `w.relay` is one encode
+  for all the others. The record's length is the event's size, so the counters (`world.stats.eventBytes`, the per-type
+  table in `__op2.net.snapshot().events`) cost nothing, and the lane layer counts a batch by its `byteLength`.
+- **At most 15,000 bytes a batch**, so trystero sends it as one inline frame (16,348 is its limit; past it it negotiates
+  a transfer). A batch that would outgrow that leaves early, in order; one event larger than that travels alone, as before.
+- **Reading never throws.** Not a batch: dropped whole. Cut short: the whole records are read. A record that cannot be
+  read: skipped. A handler that throws loses that event only. An event that ends the match, or sends its sender away,
+  stops the rest of its batch.
+- **Old and new forms never meet.** Both ends are always the same build: the lobby's `hello` carries the build id and a
+  guest on another build stops with "your friend has a different version". So nothing reads the old form, and the word
+  list below may change with any build.
+
+### The packed form (`tree.ts`, `world/pack.ts`)
+
+Each record is the event as a **packed tree** (kind 1): the same objects, arrays, numbers and strings JSON would carry, in
+bytes, read back as exactly what `JSON.parse(JSON.stringify(event))` gives. It knows nothing of what an event means, so
+every event type gets it and a new one needs nothing. Why it is small: a key or common word is one or two bytes from a
+list both ends hold (`WORDS`, the first 64 one byte each); a whole number is one to five bytes (0 to 127 and -1 to -16 are
+one); a number with up to four decimals (a position in millimetres, a direction in ten-thousandths: what the lanes round
+to) is its digits and a scale; anything else is a 4- or 8-byte float, exactly. An event the tree declines (a class
+instance, a `toJSON`, a bigint: none today) goes as JSON text, kind 0. The byte layout is in the file's header.
+
+This is why no event type got a packed form of its own. After it, the two heaviest (`hitfx`, `kill`) are 1.5 KB a second
+per guest in the heaviest fight, the mark the plan set for hand-packing one, and the files those would live in
+(`hits.ts`, `claims.ts`, `remoteFire.ts`) were being changed by other lanes.
+
+### Backpressure (`pressure.ts`)
+
+The host judges each guest every time it flushes to it, from the bytes queued for that guest that the network has not
+taken: the data channel's `bufferedAmount`, plus what trystero is holding back, plus the simulator's slow link.
+
+| | When | What happens |
+|---|---|---|
+| ok | under 16 KB queued (`SLOW_BYTES`) | everything is sent |
+| slow | from 16 KB until back under 4 KB (`CLEAR_BYTES`) | events classed `cosmetic` or `latest` are not queued for that guest; facts are |
+| stalled | 128 KB queued (`STALLED_BYTES`), or slow for 10 s on end (`STALLED_MS`), or the transport lost a reliable message to it | the guest is cut: nothing more is queued, its seat is `lost` |
+
+- **Classes.** Each module declares its events' classes in a `…_WIRE` table at the foot of its file, and
+  `worldProtocol.ts` gathers them; a type with no class does not compile. Left out for a slow guest: the pictures and
+  sounds of one moment (`hitfx`, `fire`, `round`, `mfx`, `ray`, `efx`, `say`, `shock`, `boom`, `ashot`, `chatter`, `chatcut`,
+  `pfx`) and the whole states sent again and again (`card`, `team`, `allies`, `vehicles`). Everything else is a fact. The
+  test in `pressure.test.ts` lists them, so adding one is a decision.
+- **Stalled is the session's lost seat.** `Lobby.stall` marks the seat lost exactly as silence does (the body leaves the
+  world, no wipe waits on it, the seat is kept 60 s) with the line "NAME fell behind (a slow connection)." The guest's own
+  screen says "Your connection fell behind. Catching up…" once the host's list reaches it. While the queue is still over
+  4 KB the seat stays out whatever is heard from it; once it has drained, the guest's next word brings it back through
+  the session's own return path (`seatBack`, then `team.onArrived`: the kit, the wave, the pods, dropped guns, what is
+  broken, the mission), because facts were kept from it. A link that is gone for good ends as it always did (20 s of
+  silence, the seat's grace).
+- **A guest's own queue to the host** follows the slow rule (its `fire`, `round`, `boom` and `card` are left out) and is
+  never cut from its side: the session's own rules bound it (six seconds of silence is "Reconnecting", thirty more closes).
+- The unreliable lanes (`pose`, `world`) keep their own rule: a peer more than 8 KB behind is skipped.
+
+### Host cost
+
+`Targeting.players()` was built again for every enemy every frame: each friend's pose sampled twice, three arrays a
+player, then `selectTarget` over copies. It is now built once a frame (each pose read once) and shared by every caller
+(target picks, enemy rays, blasts, props, the fort, capture, the villain's devices); `pickTarget` picks without making
+anything and is checked against `selectTarget` by property. The snapshot sender builds no list of recipients per chunk.
+What is left on the host grows with players only where it must: a friend's body is animated (`RemotePlayer.update`, about
+0.06 ms each), a guest's claims are applied (the game's own damage model), and each guest gets its own snapshot chunks.
+
+### Guest to guest
+
+What one guest sees of another goes through the host. Measured (`coop-wire-relay.mjs`, three pages, loopback, 60 frames a
+second on each), milliseconds from guest A's send to the arrival, p50 / p90:
+
+| | A to the host | A to guest B |
+|---|---:|---:|
+| A shot (`fire`), clean network | 6.2 / 8.6 | 7.4 / 9.6 |
+| A pose, clean network | 1.2 / 3.7 | 1.9 / 4.4 |
+| A shot, 40 ms added to everything each page sends | 48 / 55 | 91 / 98 |
+| A pose, 40 ms added | 41 / 44 | 86 / 88 |
+
+The host's own handling adds about 1 ms: it passes a pose on as it arrives, and a relayed event leaves when the message
+that brought it has been handled. What the relay costs is the second link, whatever that link's delay is. (An event waits
+for the end of its sender's frame, which is the 5 ms a shot takes over a pose on a clean network.)
+
+**The mesh is up and unused.** On real WebRTC every page of a four-player match has three connected peer connections
+(the browser's own count), so guests are already linked to each other; the lobby only ever listens to the host. Not
+built, and what it would take: (1) **poses direct**, the small part: a guest sends its pose to every guest it has a
+live unreliable link to as well as to the host; the receiver takes it only from a peer id on the host's list and takes
+the slot from that list, never from the packet; the host keeps relaying, and `PoseBuffer.push` already drops a pose it
+has seen (`seq`), so a pair with no direct link (two strict routers) loses nothing. About 60 lines and a proof on real
+WebRTC with one pair blocked. (2) **Events direct** is not small: the host checks and rate-limits a guest's `fire`,
+`round`, `mfx` and `boom` before passing them on, so each guest would have to run those checks, and a direct event could
+overtake the host's `kill` for the same shot. Whether it is worth it: a friend's body is drawn from a pose buffer 100 ms
+in the past and nothing is hit-tested against it, so one link's delay less on a friend's tracers and body is hard to
+see in a co-op game against the world. Left for the owner to ask for.
+
+### Measured
+
+The scene (`tools/scripts/coop-wire-heavy.mjs`): Crucible, the host keeps 48 enemies alive (husks, stalkers, leapers,
+troopers, gunners, rocketeers, about 46 on average) within 26 m, and fires the rotary cannon (25 rounds a second); the
+guests fire a pump shotgun, rockets and a held Lance beam; the host's gunship is on station; kills earn nothing, so no
+slow-mo comes and goes. 30 s windows, pages at 60 frames a second, headless, fast mode. "Before" is the lanes' finished
+code with only the counters added (`fb0096f`). The machine was shared throughout (1-minute load 8 to 20 on 32 cores):
+bytes and message counts do not depend on that, times do.
+
+**The host's upload, three guests** (loopback counts payload bytes per lane; the WebRTC rows are the browser's own count
+on the host's two data channels, trystero's 36-byte frame header included):
+
+| | Before | After |
+|---|---:|---:|
+| Events (`action`), KB/s | 77.6 | 19.2 |
+| Event messages a second | 435 | 151 |
+| Events a second inside them | 435 | 391 |
+| Enemy snapshots (`world`, unreliable), KB/s | 76.1 | 71.0 |
+| Poses (unreliable), KB/s | 8.3 | 8.3 |
+| Lobby and pings, KB/s | 1.1 | 1.1 |
+| **All lanes, KB/s** | **163.1** | **99.6** |
+| WebRTC, reliable channel: KB/s / messages a second | 109.3 / 507 | 29.7 / 160 |
+| WebRTC, unreliable channel: KB/s / messages a second | 95.0 / 315 | 91.9 / 311 |
+| **WebRTC, both channels** | **204 KB/s (1.6 Mbit/s)** | **122 KB/s (1.0 Mbit/s)** |
+| WebRTC, reliable channel in from the three guests, KB/s | 17.7 | 5.7 |
+| One guest's upload, all lanes, KB/s | 5.6 | 2.3 |
+
+With one guest the host's events are 21.4 to 6.1 KB/s (132 to 47 messages a second), with two 47.1 to 13.8 (273 to 95).
+
+**By event type** (four players, loopback; bytes each as they travel: before, the JSON with its 56-byte wrapper):
+
+| Event | Per guest a second | Bytes each: before | after | KB/s per guest: before | after |
+|---|---:|---:|---:|---:|---:|
+| `hitfx` (host) | 30 to 38 | 170 | 53 | 6.21 | 1.54 |
+| `kill` | 18 to 20 | 263 | 86 | 5.19 | 1.50 |
+| `fire` (the host's cannon) | 28 | 157 | 34 | 4.27 | 0.91 |
+| `team` | 3.8 | 779 | 156 | 2.93 | 0.59 |
+| `move` | 15 to 18 | 143 | 37 | 2.46 | 0.55 |
+| `cnews` (the gunship) | 11 to 12 | 115 | 23 | 1.33 | 0.25 |
+| `sever` | 7 | 159 | 45 | 1.07 | 0.29 |
+| `ack` | 4 to 5 | 120 | 28 | 0.58 | 0.11 |
+| `say` | 4 to 5 | 105 | 29 | 0.48 | 0.11 |
+| `boom` | 2 | 165 | 43 | 0.35 | 0.08 |
+| `hit` (a guest's claim, up) | 5 to 6 | 461 | 154 | 2.5 | 0.8 |
+| `card` (up) | 3.9 | 250 | 43 | 0.95 | 0.16 |
+| `status` (up) | 2.5 to 2.9 | 111 | 20 | 0.31 | 0.05 |
+
+A batch adds 5 bytes a message and 2 an event. After the pass the enemy snapshots are 71% of the host's upload: 25 KB/s
+a guest when all 48 enemies are in the near tier (27 bytes each, 20 times a second), inside that lane's own limit of
+30 KB/s a guest. That is where the next saving would be (see "Not done").
+
+**Co-op's cost on the host, ms a frame** (V8's sampling profile of the host page, 200 µs samples, over the same 30 s;
+"co-op code and what it called" is every stack under a function in `src/net`, so it includes applying a guest's claims;
+"busy" is the whole page):
+
+| Guests | Before: co-op code and what it called | of which co-op code itself | page busy / load | After: and what it called | itself | page busy / load |
+|---|---:|---:|---:|---:|---:|---:|
+| 1 | 0.54 | 0.33 | 10.6 / 9 | 0.47 | 0.29 | 9.7 / 8 |
+| 2 | 1.06 | 0.57 | 15.8 / 20 | 0.50 | 0.25 | 8.4 / 8 |
+| 3 | 1.06 | 0.57 | 13.1 / 11 | 0.90 | 0.42 | 13.0 / 11 |
+| 3, WebRTC | 1.48 | not kept | 16.9 / 14 | 1.17 | 0.54 | 17.0 / 12 |
+
+- The per-enemy target pick (`select` and what it called) went from 0.32 to 0.13 ms a frame with three guests; sending
+  (`coop.send` plus `coop.flush`) from 0.099 to 0.068, though an event is now packed by the game's own code instead of
+  the browser's JSON.
+- What is left with three guests, by whole function: the friends' bodies animated 0.19 (`RemotePlayer.update`), guests'
+  claims applied 0.13 (`Claims.hitIn`, the game's damage model), target picks 0.13 (two thirds of it the line-of-sight
+  ray each enemy casts five times a second), the snapshot tick 0.06.
+- The two-guest "before" row was taken at load 20, so it reads high; the rows at equal load (one guest, three guests,
+  WebRTC) are the fair pairs. Co-op is 5 to 7% of the host's frame either way.
+
+### Proofs
+
+| Proof | Result |
+|---|---|
+| `coop-wire-stall.mjs` (four pages, the heavy fight, the host's link to one guest at 16 kbit/s) | @@STALL@@ |
+| `coop-wire-heavy.mjs` at 2, 3 and 4 players on loopback and at 4 on real WebRTC | every run: the fight stayed full, every guest got snapshots, guests' claims reached the host, none refused but for an enemy already dead, no page exceptions |
+| `coop-wire-relay.mjs` | 3 of 3 |
+| `coop-smoke` (Crucible), `coop-stage3` on loopback | 5 of 5, 12 of 12 |
+| @@REGRESS@@ |
+
+### Not done
+
+- **The enemy snapshots** are now most of the host's upload and were not touched (they are the enemy-motion lane's, and
+  inside its limit). The cheap levers, if a host on a thin uplink needs them: the near tier at 15 a second when more
+  than 32 enemies are near a guest, or a shorter motion record.
+- **A guest's own queue** to the host is never cut from the guest's side (it leaves its cosmetics out when behind); the
+  session's silence rules bound it.
+- **Poses direct between guests** (above): described, not built.
+- **A stall on real WebRTC** is proven only through the simulator and the unit tests (`events.test.ts`: a message the
+  transport lost cuts the guest). Chrome's own packet loss was not used to stall a real data channel.
 
 ## Testing
 
