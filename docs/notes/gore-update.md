@@ -316,3 +316,35 @@ Shared files and contracts:
   limbs and pieces are now the larger share of the floor's cost (limbs 153 draws, pieces 1.03 M triangles at Standard
   after 150 kills) and are not baked; nothing was measured on a laptop.
 - 2026-11-19, react: **R3 landed, on by default** (`docs/notes/enemies.md`, "The struck part goes physical"). The lane's steps are all done. Decisions: (1) **the part is simulated inside the animator, not as Rapier bodies.** A chain of point masses at the joints with fixed bone lengths, springs to the animation and a snap along the shot gives the hang, the lag and the whip the plan asked of a "powered ragdoll hung on the animated spine", and it removes the two things the plan called risky: there is no hand-over (gore reads the pose and speed off the bones as for any animation) and no physics cost (0.043 ms a frame for eight upper bodies; the step is unchanged). What it does not do: collide. A swinging arm passes through a wall or the body's own trunk for the third of a second it is loose, as the animated arm does. (2) **On by default**, because the sheets and the numbers show no pop: in, no sharper than the flinch's own kick; out, 0.0055 m a frame at most; onto its muscles 0.041 m; into death 0.007 m; a crowd of 24 under fire with eight parts live shows nothing wrong. (3) A loose part starts with 0.3 of the flinch's throw, not all of it: with all of it a struck hand travelled 0.82 m. (4) Eight at once within 25 m, in view; the animated flinch (R1) is what every other body gets. For whoever plays it: `SwayTuning` in `sway.ts` is every number (how loose, how long, how hard the snap).
+- 2026-11-19, fit, step 1: **fire meets the others, a thrown organ leaves its chest, the dead hold things up, a torn leg
+  limps, and the co-op "limb" flake.** (For "gore-verify": what changes cost or co-op is marked.)
+  - **A burnt body is dry and its pieces are burnt** (`docs/notes/gore.md`, "Fire on bodies"). Soot is the decal lane's
+    `soot` shape now (one along the body, a small burnt middle, one off to a side). Past char 0.5 nothing red comes out
+    of a body: its gib throws charred trunk pieces, cooked cut faces, dark slabs, parts and meat, no ribbons, stains,
+    jets or guts, ash and soot instead; a round knocks ash out of it; a limb off it does not spray. A trunk piece or a
+    blade's half of a body with char or flames on it is an instanced mesh of one whose colour is its char, and
+    **burns on** when its body was burning (`FireField.pieceOf`). Decided: dry by char alone, alive or dead (a man at
+    char 0.5 has seconds left), and the energy blade's cut is left as it is.
+  - **Baked burnt bodies** keep their char (walking out from where it caught), their burn-through and their limbs' wear,
+    painted into the vertices as the shader's far level draws them, and a smouldering one smokes on while baked and has
+    its fire back when stood up (`park`, `resume`). **Cost:** a parked fire is one of fire's 40 entries; the bake's inner
+    loop does a little more a vertex (not measured apart; a bake was 0.2 to 0.3 ms).
+  - **The clone hazard is fixed at the root:** a burnt twin knows the material it was made from (`unburntVariant`), so
+    nothing is kept in `userData` and any copy of burnt kit is safe; `cloneKit` is gone.
+  - **A thrown organ is gone from the chest** (`Character.takeOrgan`): a bit an organ in a spare channel of fire's second
+    texel. No texel spent; five are still free.
+  - **Pieces and guts lie on the dead** (`docs/notes/gore.md`, "What lies on the dead"): loose pieces meet resting
+    bodies' capsules, strands' floor rays do, and all of it falls when the body under it goes. **Cost/co-op:** up to 72
+    moving pieces now also meet the fixed capsules (M0 measured those as nearly free to 2,250); nothing on the wire.
+  - **The limp starts with the look** (`legLooks`): from a tenth of a leg's pool spent, where wear shows, not from 0.45.
+    The rules of a weak leg are untouched (`hurt.test.ts`). Decided on the movement side: wear's proportional tear is
+    what the owner asked to read, so the walk was brought to it and not the tear held back.
+  - **The co-op "limb" case:** ten full runs of the tip, three pages: nine clean (267 checks), one failed, and not on
+    legs: a watching screen counted two blood puffs too many. Cause: a round into the dead is each screen's own, the
+    earlier cases' corpses lie round the same spot on every screen in a different place, and the "limb" case aims low;
+    one screen's copy of the pellets met an old corpse. That is the game working as written and the proof miscounting:
+    the proof now tags blood knocked out of a corpse with that corpse. The leg count itself: mess's guard covers both
+    causes named (the stale snapshot, and react's fallback, which runs only on a copy that is up and is followed by the
+    guard in the same frame). One real hole next to it is closed: a limb dropped by the fallback never recounted the
+    copy's arms (`updateMaim` is called now; `replicas.test.ts`). **Co-op:** that one line is the only change to it.
+

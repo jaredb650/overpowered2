@@ -4,7 +4,7 @@
  */
 import * as THREE from 'three';
 import type { Ctx } from '../../core/contracts';
-import { WOUND_COMMON, WOUND_REGION } from './glsl';
+import { EXTRA_FIRE, WOUND_COMMON, WOUND_REGION } from './glsl';
 import { Part } from './build';
 
 const VERT_PARS = /* glsl */ `
@@ -36,6 +36,8 @@ const VERT_MAIN = /* glsl */ `
   vPart = code & 7;
   // Collapsed to one point until the joint it belongs to has gone.
   if (vPart == ${Part.shard} && ((int(op2Extra(OP2_INFO).z) >> (code >> 3)) & 1) == 0) transformed = vec3(0.0);
+  // An organ that has been thrown out of this body (Character.takeOrgan) is not also still in it.
+  if (vPart == ${Part.organ} && code > 7 && ((int(op2Extra(${EXTRA_FIRE + 1}).z + 0.5) >> (code >> 3)) & 1) == 1) transformed = vec3(0.0);
 }
 `;
 

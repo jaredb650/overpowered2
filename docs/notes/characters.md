@@ -169,7 +169,9 @@ None of these exist on skitters and drones, which is how gore and the enemies kn
   fetch an integer divide. 37 bones take 148 texels; after them come `EXTRA_PARAMS` (blood, flash, burn, frost), `EXTRA_INFO`
   (wound count, seed, fractures, most worn region), two `EXTRA_FIRE` texels, 32 wounds of 3 and three wear texels: 251 of
   256 (`EXTRA_*` in `anatomy/glsl.ts`). **Five are free.** A new block goes at the end, before `EXTRA_TEXELS`, which must
-  count it so a severed limb takes it along (`copySurfaceTo`).
+  count it so a severed limb takes it along (`copySurfaceTo`). Spare channels inside the used texels: the second fire
+  texel's `z` holds which organs have been thrown out of the body, a bit each (`takeOrgan`; what is under the skin leaves
+  those out), and its `w` is free.
 - Object-space normal atlas, rotated by the skin matrix in the vertex shader. No tangents, no tangent seams.
 - Atlas A is sRGB albedo with metalness (alpha below 0.5) or emissive (above) packed in alpha. Atlas B is normal plus
   roughness.
@@ -298,7 +300,22 @@ drives it: `docs/notes/gore.md`, "Fire on bodies".
 **The kit burns with the body.** A helmet, a rifle or a pack is a mesh of its own and never read the body's burn: a burnt man
 used to wear a clean white helmet. `charredVariant(material)` makes a burnt twin of any character material the first time one
 is needed (the same program with `OP2_CHARRED`: burn 1, cold), and `setBurn` past 0.55 swaps every prop still on its bone to
-its twin; `reset` swaps them back. A prop that has already left its bone stays as it was.
+its twin; `reset` swaps them back. A prop that has already left its bone stays as it was. Which material is whose twin is
+kept by the materials themselves (`unburntVariant` is the way back), and nothing is written on the mesh: the first build
+kept the unburnt material in the mesh's `userData`, which three's `clone()` puts through JSON, so a copy of burnt kit (a
+baked body's, a severed limb's) carried a plain object where a material should be and the frame could not be drawn.
+`charKit` is exported for `kit.test.ts`, which clones burnt kit the plain way and unburns the copy.
+
+**A rigid piece of a burnt body.** A slab, a part of a limb, a piece of a burst trunk and a blade's half are unskinned
+meshes with no texels. They are drawn as instances, and the unskinned material reads the piece's char back out of its
+instance colour (`burnTint` in `gore/fire.ts`: `burn = (1 - red) / 0.94`) and runs `BURN_SURFACE` on it, cold. No new
+program: it is the instanced variant the slabs already compiled at load.
+
+**Baked.** `bakeFar` paints into a baked body's vertices what this shader's far level draws from texels: blood and
+wounds as before, char by the burn and where it caught (`smooth(-0.1, 0.08, burn x 1.45 - 0.2 - n)` with the far
+level's flat noise), and skin gone by wear and by fire (`sThrough` as `WEAR_DRIVER` and `FIRE_DRIVER` have it under
+`OP2_FAR`, then raw, deep, bone, or cooked: the `FAR_COOKED` bytes in `Character.ts` are `SKIN_GONE` at `sChar` 0.95
+worked back through the albedo lift, to be kept in step with it).
 
 **Fractures.** `fracture(bone, 'hyper')` bends a hinge past straight, the wrong way: `bone` is the forearm for an elbow, the shin for a knee. `'limp'` kills a ball joint, with the hinge below it hanging slack. A verlet point on the end of the limb swings by its own weight from wherever the joint is carried, after the animator has run, by wrapping `anim.update`, so it holds through every animator. In a ragdoll the joint opens instead: `Rag.breakJoint`, and `JointMuscle.broken` takes the muscles off it. Bone ends are parts of the interior that stay collapsed to a point until the bit for their joint is set.
 

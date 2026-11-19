@@ -11,7 +11,7 @@ import { DevFlags } from '../core/devflags';
 import type { EnemyId } from '../core/gameplay';
 import { makeCtx } from '../sandbox/harness';
 import { WEAPONS } from '../weapons/data';
-import { CLUTCH } from './damage';
+import { CLUTCH, legLooks, poolStrengths } from './damage';
 import { EnemyManager } from './EnemyManager';
 import type { Enemy } from './Enemy';
 
@@ -186,5 +186,37 @@ describe('a hurt body carries itself hurt', () => {
     manager.applyDamage(e, round('rivet', 'chest', { amount: 4 }));
     const limp = anim(e).setHurt.mock.calls.at(-1)![1] as number;
     expect(limp).toBeGreaterThan(0.4);
+  });
+
+  it('limps as soon as the leg looks torn, though the leg is as strong as ever (what a weak leg does is not brought forward)', () => {
+    const { manager, spawn, at } = world();
+    const e = spawn('brute');
+    e.plates = [];
+    const whole = e.limbHp.get('shinR')!;
+    // A third of the right shin's pool spent: wear draws it torn open, and the pool's own rule says it is still whole.
+    e.limbHp.set('shinR', whole * 0.67);
+    expect(legLooks(e, 'legR', 'shinR')).toBeGreaterThan(0.1);
+    expect(poolStrengths(e, { legL: 1, legR: 1, armL: 1, armR: 1, trunk: 1, neck: 1 }).legR).toBe(1);
+    manager.applyDamage(e, round('rivet', 'chest', { amount: 4 }));
+    const early = anim(e).setHurt.mock.calls.at(-1)![1] as number;
+    // The right is -. A slight limp, not a lame leg.
+    expect(early).toBeLessThan(-0.1);
+    expect(early).toBeGreaterThan(-0.35);
+    // And it grows with the tear, never less than the weakness asks.
+    e.limbHp.set('shinR', whole * 0.3);
+    at(3);
+    e.shock = 0;
+    manager.applyDamage(e, round('rivet', 'chest', { amount: 4 }));
+    const late = anim(e).setHurt.mock.calls.at(-1)![1] as number;
+    expect(late).toBeLessThan(-0.6);
+    // With wear off nothing shows on the leg, and it limps by its weakness alone: not at all at a third spent.
+    DevFlags.wear = false;
+    e.limbHp.set('shinR', whole * 0.67);
+    expect(legLooks(e, 'legR', 'shinR')).toBe(0);
+    at(6);
+    e.shock = 0;
+    manager.applyDamage(e, round('rivet', 'chest', { amount: 4 }));
+    expect(anim(e).setHurt.mock.calls.at(-1)![1]).toBe(0);
+    DevFlags.wear = true;
   });
 });

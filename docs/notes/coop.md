@@ -1145,7 +1145,10 @@ the host and once by the guest: pistol, rifle, shotgun point-blank, rocket, swor
 from every page what its gore, effects, sound and HUD were asked to do and checks: the guest's first blood is on the frame its gun
 fired; the host answered; every screen wounds as often and as deep as the host decided, throws the puffs, cuts the same limbs off
 the living body, leaves the body in the same state or kills it the same kind of way; nobody but the shooter gets a marker or a
-hit sound; the shooter gets the same markers and sounds as host and as guest. `COOP_SIM=lag:120,jitter:40,loss:0.05` runs it on
+hit sound; the shooter gets the same markers and sounds as host and as guest. Blood knocked out of a corpse is counted
+apart from the body under test's (a round into the dead is each screen's own, and the earlier cases' dead lie round the
+same spot: the "limb" case aims low, and about one full run in nine a watching screen counted two puffs too many from an
+old corpse its copy of the pellets met, which was the last of that case's flakes). `COOP_SIM=lag:120,jitter:40,loss:0.05` runs it on
 a bad network. Results on 2026-11-18, loopback transport, the dev box under heavy load from the other lanes: 267 checks pass on
 a clean link (the host's answers took 55 ms on average, 114 at most) and 267 under lag 120, jitter 40, loss 5% (640 ms on
 average, 1,020 at most: two simulated legs, a resend stall and slow frames); the first blood was on the frame of the shot in

@@ -17,7 +17,7 @@ import { clamp, rand, randomInCone, randomUnit } from '../core/math';
 import { WEAPONS } from '../weapons/data';
 import { BloodField, BloodTuning } from './blood';
 import { Tracks } from './tracks';
-import { FireField } from './fire';
+import { FireField, FireTuning, type ParkedFire } from './fire';
 import { ChunkField, scatter, type ChunkKind } from './chunks';
 import { ImpactEvents, impactKind, ImpactTuning } from './impacts';
 import { CollapseDrive, impactStrength, MASS_PASS, MuscleTuning, STAND_PASS, STRENGTH_PASS, WEIGHT_PASS, type CollapseOptions, type DownedBody, type KnockdownOptions, type LimbStrength } from './muscles';
@@ -344,6 +344,8 @@ class DeadBody {
 class FarBody {
   sinking = -1;
   readonly stakes: readonly Stake[] = [];
+  /** It was smouldering when it was baked: its fire, smoking on where it lies until the body is stood up again. */
+  fire: ParkedFire | null = null;
   constructor(
     readonly rag: Rag, readonly snap: CorpseSnapshot, readonly slot: number, readonly info: RigInfo,
     readonly parent: THREE.Object3D | null, readonly was: DeadBody,
@@ -557,6 +559,12 @@ export class Gore implements GoreSystem {
       removeLimb: limb => this.removeLimb(limb as LooseLimb),
       sinkLimb: limb => this.sinkLimb(limb as LooseLimb),
       maxLimbs: () => GoreTuning.maxLimbs,
+      // What lay on a body that has gone falls: loose pieces, trunk pieces and halves, strands of gut.
+      unsettled: (lo, hi) => {
+        this.chunks.unsettle(lo, hi);
+        this.sliced.unsettle(lo, hi);
+        this.ropes.unsettle(lo, hi);
+      },
     });
     this.sliced.inView = (at, radius) => this.mess.sees(at, radius);
     this.fire = new FireField(ctx, char => {
@@ -1309,11 +1317,15 @@ export class Gore implements GoreSystem {
     const parent = b.char.root.parent;
     const at = this.bodies.indexOf(b);
     this.mess.forget(b);
+    // A body still smouldering goes on smoking where it lies, and takes its fire back when it is stood up.
+    const smoke = this.far.object && rag.restPoints.length >= 3 ? this.fire.park(b.char, this.far.object, Float32Array.from(rag.restPoints)) : null;
     this.fire.forget(b.char);
     this.owned.delete(b.char);
     if (at >= 0) this.bodies.splice(at, 1);
     b.char.release();
-    this.farBodies.push(new FarBody(rag, snap, slot, b.info, parent, b));
+    const far = new FarBody(rag, snap, slot, b.info, parent, b);
+    far.fire = smoke;
+    this.farBodies.push(far);
     return true;
   }
 
@@ -1351,6 +1363,9 @@ export class Gore implements GoreSystem {
     this.owned.set(char, body);
     // It is as old as it ever was: at the front, where the caps look for the oldest.
     this.bodies.unshift(body);
+    // Its fire is its own again where it had got to; gone cold meanwhile, the glow it was baked with is put out.
+    this.fire.resume(f.fire, char);
+    f.fire = null;
     this.mess.stoodUp(body, char as never);
     const d = _v.setFromMatrixPosition(char.bones[0]!.matrixWorld).distanceTo(this.ctx.player?.position?.isVector3 === true ? this.ctx.player.position : _v);
     (char as { setLod?(level: number, force?: boolean): void }).setLod?.(this.mess.lodFor(body, d, GoreTuning.bodyLodNear, GoreTuning.bodyLodFar), true);
@@ -1363,6 +1378,7 @@ export class Gore implements GoreSystem {
     if (at < 0) return;
     this.farBodies.splice(at, 1);
     this.far.remove(f.slot);
+    if (f.fire) this.fire.forget(f.fire);
     f.rag.destroy();
   }
 
@@ -1485,11 +1501,13 @@ export class Gore implements GoreSystem {
       body.rag.cut(_mask);
     }
     // Cut from a chain in flight, the limb falls as that chain does: its seed is that chain's speed, already on the dial.
-    const limb = this.addLimb(char, piece, bone, _mask, _seeds, body?.rag?.active ? body.rag.killedInAir : undefined);
+    // A body burnt past the soot line is cooked through: what is cut from it is dry, and nothing sprays from either end.
+    const dry = this.fire.sooted(char);
+    const limb = this.addLimb(char, piece, bone, _mask, _seeds, body?.rag?.active ? body.rag.killedInAir : undefined, dry);
     char.hideLimb(bone);
     this.fire.split(char, piece, _mask);
     const torso = region === 'abdomen' && !body && canCrawl(char) ? this.startCrawl(limb) : undefined;
-    if (region === 'abdomen' && canCrawl(char)) {
+    if (region === 'abdomen' && canCrawl(char) && !dry) {
       // Guts out of both halves: the top half drags its own behind it as it crawls.
       const scale = char.rig.height / 1.85;
       this.ropes.hang(piece.bones[bone]!, _v5.set(0, -0.02 * scale, 0.04 * scale), piece.root, scale);
@@ -1517,8 +1535,8 @@ export class Gore implements GoreSystem {
     else body?.rag?.muscle?.struck(Math.max(impact, GoreTuning.limbLossShock));
     body?.rag?.muscle?.kick(damage.dir, impact * MuscleTuning.corpseImpact);
 
-    this.startStump(char, bone, 1);
-    this.woundEffects(char, bone, stump, damage);
+    if (!dry) this.startStump(char, bone, 1);
+    this.woundEffects(char, bone, stump, damage, dry);
     this.enforceBudget();
     return torso ? { regions, stump, torso } : { regions, stump };
   }
@@ -1546,7 +1564,7 @@ export class Gore implements GoreSystem {
     return crawler;
   }
 
-  private addLimb(char: CharacterInstance, piece: SeveredLimb, bone: number, mask: Uint8Array, seeds: Float32Array, lofted?: boolean): LooseLimb {
+  private addLimb(char: CharacterInstance, piece: SeveredLimb, bone: number, mask: Uint8Array, seeds: Float32Array, lofted?: boolean, dry = false): LooseLimb {
     const info = rigInfo(char.rig);
     const rag = new Rag(this.ctx.physics, { rig: char.rig, root: piece.root, bones: piece.bones, isFractured: b => piece.isFractured(b) }, {
       chainRoot: bone,
@@ -1561,8 +1579,8 @@ export class Gore implements GoreSystem {
     });
     const limb = new LooseLimb(piece, rag, bone, info, this.ctx.time.elapsed, char.archetype);
     limb.machine = isMachine(char);
-    limb.emitter = this.ctx.fx.attachEmitter(piece.bones[bone]!, limb.machine ? 'sparkTrail' : 'bloodTrail', undefined, 3) ?? null;
-    if (!limb.machine) {
+    if (!dry) limb.emitter = this.ctx.fx.attachEmitter(piece.bones[bone]!, limb.machine ? 'sparkTrail' : 'bloodTrail', undefined, 3) ?? null;
+    if (!limb.machine && !dry) {
       // The limb's own cut end spits back the way it came, for a moment.
       const a = info.axis;
       _v4.set(-a[bone * 3]!, -a[bone * 3 + 1]!, -a[bone * 3 + 2]!).multiplyScalar(0.02);
@@ -1578,7 +1596,11 @@ export class Gore implements GoreSystem {
     this.gutShot(char, damage, severity);
     this.wounds.onBody(char, damage, severity);
     const broke = this.wounds.broke;
-    if (!isMachine(char)) this.blood.onHit(char, damage, severity);
+    // Burnt past the soot line, a body gives ash where it is struck: fire seals what it burns.
+    if (isMachine(char)) return broke;
+    if (this.fire.sooted(char)) {
+      if (damage.type !== 'fire' && damage.type !== 'shock' && damage.type !== 'true') this.ashPuff(damage.point, 1);
+    } else this.blood.onHit(char, damage, severity);
     return broke;
   }
 
@@ -1587,7 +1609,8 @@ export class Gore implements GoreSystem {
    * man on his feet, and dragged behind one crawling. One a body. Tells the damage (`spill`), so a co-op guest hangs it too.
    */
   private gutShot(char: CharacterInstance, damage: DamageInfo, severity: number): void {
-    if (WoundTuning.level === 0 || isMachine(char) || !canCrawl(char) || char.severed.has('abdomen')) return;
+    // Cooked guts do not spill.
+    if (WoundTuning.level === 0 || isMachine(char) || !canCrawl(char) || char.severed.has('abdomen') || this.fire.sooted(char)) return;
     char.root.updateMatrixWorld(true);
     const hips = char.bones[HumanoidBone.hips]!;
     const chest = char.bones[CHEST]!;
@@ -1619,7 +1642,7 @@ export class Gore implements GoreSystem {
     this.blood.spray(at, _down, 6, 2, 0.6, 0.08);
   }
 
-  private woundEffects(char: CharacterInstance, bone: number, at: THREE.Vector3, damage: DamageInfo): void {
+  private woundEffects(char: CharacterInstance, bone: number, at: THREE.Vector3, damage: DamageInfo, dry = false): void {
     const { fx, audio } = this.ctx;
     const def = char.rig.bones[bone]!;
     if (isMachine(char)) {
@@ -1628,14 +1651,37 @@ export class Gore implements GoreSystem {
       return;
     }
     _v.copy(damage.dir);
-    fx.bloodHit(at, _v, 1.4);
-    this.bleed(char, at, damage.dir, 6, 6, 0.42);
+    if (dry) this.ashPuff(at, 1);
+    else {
+      fx.bloodHit(at, _v, 1.4);
+      this.bleed(char, at, damage.dir, 6, 6, 0.42);
+    }
     const parent = char.bones[def.parent];
     if (parent) char.addWound(def.parent, at, (def.hit?.radius ?? 0.06) * 1.8);
-    char.setBloodiness(0.14);
+    if (!dry) char.setBloodiness(0.14);
     char.hitFlash(1);
     audio.play('enemy_hit', { position: at, volume: 0.6, pitchJitter: 0.08 });
     audio.playOneOf(['bullet_hit1', 'bullet_hit2'], { position: at, volume: 0.35, pitch: 0.7 });
+  }
+
+  /**
+   * What a burnt thing gives off where it is struck, cut or broken, in place of blood: a breath of ash and a few embers.
+   * `size` 1 is a round's worth; a body bursting is 4 or so.
+   */
+  private ashPuff(at: THREE.Vector3, size: number): void {
+    const { fx } = this.ctx;
+    fx.embers(at, Math.round(2 + size * 2), 0.25 + size * 0.08);
+    fx.smokeWisp?.(at, 0.12 + size * 0.07, 0.7);
+  }
+
+  /**
+   * The char on a body about to be cut or burst, 0..1, for the pieces it leaves (`burnTint`): they are as burnt as it was.
+   * A body with flames on it and no char yet counts as a little burnt, so that its pieces can go on burning. With
+   * `?fire=0` pieces are as they were before the gore update: never burnt.
+   */
+  private burnOf(char: CharacterInstance): number {
+    if (!DevFlags.fire) return 0;
+    return Math.max(clamp(char.burn ?? 0), this.fire.has(char) ? 0.03 : 0);
   }
 
   /** Starts an arterial stump on the parent side of a cut. `power` scales the whole show. */
@@ -1900,6 +1946,9 @@ export class Gore implements GoreSystem {
     // Every limb leaves whole, or in two at its lower joint when there is room for the extra piece. It used to be the lower
     // part alone a third of the time, and the upper arm or the thigh it left behind was nowhere: on a Trooper up to 40 of
     // his 83 litres of limb (the volume audit, docs/notes/gore.md).
+    // A burnt body bursts into burnt pieces, and one burnt past the soot line into dry ones: no red comes out of it.
+    const burn = this.burnOf(char);
+    const dry = burn >= FireTuning.sootFrom;
     let liveLimbs = 0;
     for (const l of this.limbs) if (l.rag.active) liveLimbs++;
     let spare = clamp(t.maxLiveLimbs - liveLimbs - GIB_REGIONS.length, 0, 2);
@@ -1917,7 +1966,7 @@ export class Gore implements GoreSystem {
         // What has already gone from under it (its own lower part, a moment ago) is not in this piece.
         for (let i = 0; i < info.count; i++) if (_skip[i] === 1 || body?.skip[i] === 1) _mask[i] = 0;
         // Thrown by the gib, not killed in the air, whatever its seed: it takes the dial, and `fling` holds the throw.
-        const limb = this.addLimb(char, piece, bone, _mask, seeds, false);
+        const limb = this.addLimb(char, piece, bone, _mask, seeds, false, dry);
         char.hideLimb(bone);
         this.fire.split(char, piece, _mask);
         const p = limb.rag.center;
@@ -1961,16 +2010,20 @@ export class Gore implements GoreSystem {
       const floor = this.floorUnder(hips);
       this.chunks.floor = floor;
       // A burnt body breaks into burnt pieces.
-      this.chunks.char = DevFlags.fire ? clamp(char.burn ?? 0) : 0;
-      const broke = this.breakTrunk(char, plan, chest, blastDir, launch, floor);
+      this.chunks.char = burn;
+      // Cooked guts do not string out: a burnt body throws none.
+      if (dry) plan.ropes = 0;
+      const broke = this.breakTrunk(char, plan, chest, blastDir, launch, floor, burn);
       this.spill(char, plan, chest, hips, blastDir, launch, floor);
-      this.fleshBurst(chest, hips, blastDir, launch, push, broke ? (full ? 6 : 3) : 13);
+      this.fleshBurst(chest, hips, blastDir, launch, push, broke ? (full ? 6 : 3) : 13, dry);
       this.chunks.floor = -Infinity;
       this.chunks.char = 0;
     }
 
     // Guts already out of him (a belly opened before this) are thrown clear with the rest, not taken with the body.
     if (!machine) this.ropes.drop(char.root, _v2.copy(blastDir).multiplyScalar(5 * this.gibPower).setY(6));
+    // Its limbs and the pieces of its trunk have its fire now.
+    this.fire.forget(char);
     if (body) this.dropBody(body);
     char.release();
     this.enforceBudget();
@@ -2135,7 +2188,7 @@ export class Gore implements GoreSystem {
     return this.ctx.physics.raycastInto(_v4, _down, 4, CG.World, _ground) ? _ground.point.y : -Infinity;
   }
 
-  private breakTrunk(char: CharacterInstance, plan: GibPlan, chest: THREE.Vector3, blastDir: THREE.Vector3, launch: number, floor: number): boolean {
+  private breakTrunk(char: CharacterInstance, plan: GibPlan, chest: THREE.Vector3, blastDir: THREE.Vector3, launch: number, floor: number, burn = 0): boolean {
     if (!canCrawl(char) || char.severed.has('chest')) return false;
     // Cut at the waist already, what is left of the trunk is the pelvis: it goes as the kit's pelvis, not as nothing.
     const legsOnly = char.severed.has('abdomen');
@@ -2165,9 +2218,11 @@ export class Gore implements GoreSystem {
       _v2.y += (waist ? 1 : 2) + rnd() * 2.5;
       // Thrown up and out of the fireball, tumbling (`GibThrow`).
       if (thrownOut()) this.throwOf(waist ? 'half' : 'trunk', _v3, _v2, rnd);
-      const half = this.sliced.throwPiece(piece.side, char.skinMaterial, _v3, _q, _v2, thrownOut() ? (waist ? 4 : GibThrow.spin) : waist ? 3 : 7);
+      const half = this.sliced.throwPiece(piece.side, char.skinMaterial, _v3, _q, _v2, thrownOut() ? (waist ? 4 : GibThrow.spin) : waist ? 3 : 7, burn);
+      // Burst while it burned, each piece of the trunk flies on alight, with its share of the fire.
+      if (burn > 0) this.fire.pieceOf(char, half, 0.35);
       // The guts hang out of the pelvis's broken face.
-      if (plan.hang && !hung && piece.bone === HumanoidBone.hips) {
+      if (plan.hang && !hung && !half.dry && piece.bone === HumanoidBone.hips) {
         hung = true;
         this.ropes.hang(half.mesh, piece.side.capCenter, half.mesh, scale);
       }
@@ -2245,7 +2300,9 @@ export class Gore implements GoreSystem {
       char.wound({ kind: WoundKind.exit, bone, point: exit, dir: into, radius: 0.15 * scale, depth: 0.08 * scale, ragged: 1 });
       char.wound({ kind: WoundKind.crater, bone, point: damage.point, dir, radius: 0.04 * scale, depth: 0.1 * scale, ragged: 0.8 });
     }
-    // What came out with it, along the round.
+    // What came out with it, along the round: as burnt as he is, and dry if he is burnt through.
+    const dry = this.fire.sooted(char);
+    this.chunks.char = this.burnOf(char);
     for (let i = 0; i < 5; i++) {
       randomInCone(dir, 0.45, _v4).multiplyScalar(rand(4, 8));
       _v4.y += rand(0.5, 2.5);
@@ -2263,6 +2320,13 @@ export class Gore implements GoreSystem {
     randomInCone(dir, 0.3, _v4).multiplyScalar(3 + rnd() * 2);
     _v4.y += 1.2;
     this.chunks.spawn(organ, exit.x, exit.y, exit.z, _v4.x, _v4.y, _v4.z, ORGAN_SIZE[organ] * scale, undefined, 9);
+    // And it is gone from the chest it came out of: the lung on the side the round left by.
+    char.takeOrgan?.(organ, side === 'L');
+    this.chunks.char = 0;
+    if (dry) {
+      this.ashPuff(exit, 3);
+      return;
+    }
     if (belly && this.ropes.hangingFrom(char.root) === 0) this.eviscerate(char, exit, _v3.copy(dir).negate());
     fx.bloodHit(exit, dir, 1.8);
     fx.bloodMist(exit, 0.35);
@@ -2274,7 +2338,7 @@ export class Gore implements GoreSystem {
   }
 
   /** Torn meat, gut and bone off a trunk, `meat` lumps of it, with the blood. The trunk's own pieces are `breakTrunk`'s. */
-  private fleshBurst(chest: THREE.Vector3, hips: THREE.Vector3, blastDir: THREE.Vector3, launch: number, push: number, meat: number): void {
+  private fleshBurst(chest: THREE.Vector3, hips: THREE.Vector3, blastDir: THREE.Vector3, launch: number, push: number, meat: number, dry = false): void {
     const { fx, audio } = this.ctx;
     const few = meat < 13;
     for (let i = 0; i < meat; i++) {
@@ -2304,17 +2368,24 @@ export class Gore implements GoreSystem {
       if (thrownOut()) this.throwOf('meat', _v3, _v2, Math.random, 2);
       this.chunks.spawn('bone', _v3.x, _v3.y, _v3.z, _v2.x, _v2.y, _v2.z, rand(0.03, 0.055));
     }
-    fx.gibBurst(chest, blastDir, clamp(push / 40, 6, 20));
-    // Three spurts away from the blast, each slightly off the others, as the first game fired them.
-    for (let i = 0; i < 3; i++) {
-      randomInCone(blastDir, 0.32, _v2);
-      fx.bloodJet(chest, _v2, 2);
+    if (dry) {
+      // Burnt through, there is no blood in it to throw: ash and embers where it burst, and soot on the floor under it.
+      this.ashPuff(chest, 4);
+      this.ashPuff(hips, 3);
+      this.fire.sootAt(hips, rand(1.5, 2));
+    } else {
+      fx.gibBurst(chest, blastDir, clamp(push / 40, 6, 20));
+      // Three spurts away from the blast, each slightly off the others, as the first game fired them.
+      for (let i = 0; i < 3; i++) {
+        randomInCone(blastDir, 0.32, _v2);
+        fx.bloodJet(chest, _v2, 2);
+      }
+      // The burst is the coverage; the rays are what lands past its edge.
+      this.blood.burst(chest, blastDir, clamp(1.5 + push / 400, 1.7, 3));
+      this.blood.splatterAround(chest, blastDir, 10, 7, 1.15);
+      this.blood.spray(chest, blastDir, 14, 12, 0.7, 0.14);
+      this.blood.pool(hips, rand(1.4, 2.1), 1.6);
     }
-    // The burst is the coverage; the rays are what lands past its edge.
-    this.blood.burst(chest, blastDir, clamp(1.5 + push / 400, 1.7, 3));
-    this.blood.splatterAround(chest, blastDir, 10, 7, 1.15);
-    this.blood.spray(chest, blastDir, 14, 12, 0.7, 0.14);
-    this.blood.pool(hips, rand(1.4, 2.1), 1.6);
     audio.play('enemy_explode', { position: chest, volume: 0.6, pitchJitter: 0.06 });
   }
 
@@ -2449,11 +2520,16 @@ export class Gore implements GoreSystem {
 
   slice(char: CharacterInstance, point: THREE.Vector3, normal: THREE.Vector3, damage: DamageInfo): void {
     const body = this.owned.get(char);
-    this.sliced.cut(char, point, normal, damage);
+    // A body with char on it is cut into halves as burnt, and one cut while it burns is two burning halves: the fire
+    // was on the skin, and the skin is on both of them.
+    const burn = damage.vaporize ? 0 : this.burnOf(char);
+    const halves = this.sliced.cut(char, point, normal, damage, burn);
+    if (burn > 0) for (const half of halves) this.fire.pieceOf(char, half, 0.6);
+    this.fire.forget(char);
     this.ctx.audio.play('sword_flesh', { position: point, pitchJitter: 0.04 });
-    // A cauterized cut does not spill: its halves hiss as they burn away.
+    // A cauterized cut does not spill: its halves hiss as they burn away. Nor does a body burnt through.
     if (damage.vaporize) this.ctx.audio.play('lance_vaporize', { position: point, pitchJitter: 0.08 });
-    else this.ctx.audio.play('blood_spill', { position: point, volume: 0.8 });
+    else if (burn < FireTuning.sootFrom) this.ctx.audio.play('blood_spill', { position: point, volume: 0.8 });
     if (body) this.dropBody(body);
     char.release();
   }
@@ -2468,8 +2544,12 @@ export class Gore implements GoreSystem {
     // A loose organ: it bursts, and that is all of it.
     if (this.chunks.burstHit(target, damage.dir)) return;
     const machine = (target instanceof DeadBody && isMachine(target.char)) || (target instanceof LooseLimb && target.machine);
+    // Burnt past the soot line, the dead have no blood to give: a round knocks ash out of them.
+    const dry = target instanceof DeadBody ? this.fire.sooted(target.char) : target instanceof LooseLimb ? this.fire.sooted(target.piece) : (target as { dry?: boolean } | null)?.dry === true;
     if (machine) {
       fx.sparks(hit.point, damage.dir, 8);
+    } else if (dry) {
+      this.ashPuff(hit.point, 1);
     } else {
       fx.bloodHit(hit.point, damage.dir, 0.8);
       this.blood.spray(hit.point, damage.dir, 3, 7, 0.4, 0.09);
@@ -2510,7 +2590,7 @@ export class Gore implements GoreSystem {
       // sizes a flinch by build itself (`HumanoidAnimator.flinch`), so this one is not scaled by mass again.
       muscle?.collapse?.flinch(hit.bone, damage.dir, MuscleTuning.collapseFlinch * joltOf(forceOf(damage), HUMAN_MASS));
       this.wounds.onBody(char, damage, damage.amount / CORPSE_HEALTH, hit.bone, hit.point);
-      if (!machine) this.blood.onHit(char, damage, damage.amount / CORPSE_HEALTH, hit.bone, hit.point);
+      if (!machine && !dry) this.blood.onHit(char, damage, damage.amount / CORPSE_HEALTH, hit.bone, hit.point);
       this.corpseSound(hit.point, damage, machine, false);
       target.damage[hit.bone] = target.damage[hit.bone]! + damage.amount * (damage.severMult ?? 1);
       // Damage on a bone counts toward the nearest severable joint at or above it.
@@ -2569,21 +2649,29 @@ export class Gore implements GoreSystem {
    */
   private burstLimb(limb: LooseLimb, damage: DamageInfo): void {
     const c = limb.rag.center;
-    this.ctx.fx.bloodMist(c, 0.25);
-    this.ctx.fx.bloodHit(c, damage.dir, 1.4);
-    const parts = limb.machine ? 0 : this.throwParts(limb, damage);
+    // A burnt limb comes apart into burnt pieces, dry.
+    const burn = limb.machine || !DevFlags.fire ? 0 : clamp(limb.piece.burn ?? 0);
+    const dry = burn >= FireTuning.sootFrom;
+    if (dry) this.ashPuff(c, 2);
+    else {
+      this.ctx.fx.bloodMist(c, 0.25);
+      this.ctx.fx.bloodHit(c, damage.dir, 1.4);
+    }
+    this.chunks.char = burn;
+    const parts = limb.machine ? 0 : this.throwParts(limb, damage, burn);
     for (let i = 0; i < (parts > 0 ? 4 : 6); i++) {
       scatter(damage.dir, 5, 4, 6, _v);
       this.chunks.spawn(i < 2 ? 'bone' : 'meat', c.x, c.y, c.z, _v.x, _v.y, _v.z, parts > 0 ? rand(0.03, 0.05) : rand(0.04, 0.08));
     }
-    this.blood.stainBelow(c, 0.8);
+    this.chunks.char = 0;
+    if (!dry) this.blood.stainBelow(c, 0.8);
     // A top half's guts stay in the world when it goes: they drop where they hang, free.
     this.ropes.drop(limb.piece.root, _v.copy(damage.dir).multiplyScalar(2.5).setY(3));
     this.removeLimb(limb);
   }
 
   /** Throws the kit's pieces of whatever `limb` still has, from where each lies. Returns how many. */
-  private throwParts(limb: LooseLimb, damage: DamageInfo): number {
+  private throwParts(limb: LooseLimb, damage: DamageInfo, burn = 0): number {
     const kit = this.kits.get(limb.archetype);
     if (!kit) return 0;
     const has = (b: number): boolean => limb.rag.mask[b] === 1 && limb.skip[b] !== 1;
@@ -2604,7 +2692,7 @@ export class Gore implements GoreSystem {
         if (piece.bone !== HumanoidBone.chest) continue;
         placeAt(src, piece.bone, piece.side.origin, _v3, _q);
         scatter(damage.dir, 2.5, 2, 4, _v);
-        this.sliced.throwPiece(piece.side, skin, _v3, _q, _v.setY(_v.y + 2), 6);
+        this.sliced.throwPiece(piece.side, skin, _v3, _q, _v.setY(_v.y + 2), 6, burn);
         n++;
       }
       const chest = limb.piece.bones[CHEST]!;
@@ -2915,7 +3003,8 @@ export class Gore implements GoreSystem {
 
     // A hard stop against anything means it just hit something: leave a splat there.
     if (l.prevSpeed - speed > 2.2) {
-      this.blood.stainBelow(rag.center, clamp(0.2 + l.prevSpeed * 0.04, 0.2, 0.55), 'blood', 1.4);
+      // A burnt limb is dry: it thuds and leaves nothing.
+      if (!this.fire.sooted(l.piece)) this.blood.stainBelow(rag.center, clamp(0.2 + l.prevSpeed * 0.04, 0.2, 0.55), 'blood', 1.4);
       this.ctx.audio.play('enemy_hit', { position: rag.center, volume: clamp(l.prevSpeed * 0.03, 0.05, 0.3), pitch: 0.6, pitchJitter: 0.1 });
     }
     l.prevSpeed = speed;

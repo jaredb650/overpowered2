@@ -71,8 +71,47 @@ export const FireTuning = {
 
 const enum Phase { Alive, Corpse, Smoulder }
 
-/** What can burn: a body or a limb cut from one. */
-type Burnable = CharacterInstance | SeveredLimb;
+/**
+ * The instance colour that says how burnt a rigid piece of a body is, 0..1: white is not at all. Plain materials (loose
+ * meat, a cut face) are simply darkened by it; the skin's own material reads the char back out of it and burns the piece
+ * as it burns a body (characters/material.ts, "a rigid piece of a burnt body"). `vary` breaks a heap of them up.
+ */
+export function burnTint(out: THREE.Color, burn: number, vary = 0): THREE.Color {
+  const k = clamp(burn) * (1 - vary * Math.random());
+  return out.setRGB(1 - k * 0.94, 1 - k * 0.95, 1 - k * 0.95);
+}
+
+/**
+ * A rigid piece of a body that burns: a blade's half, a piece of a burst trunk (sliced.ts). It has no bones, so its flames
+ * come off its own box, and its char is its own to draw (`setBurn`).
+ */
+export interface BurningPiece {
+  /** The mesh. Out of the scene, its fire is over. */
+  readonly root: THREE.Object3D;
+  /** 0..1 char, as a body's. */
+  readonly burn: number;
+  setBurn(amount: number): void;
+  /** Its box, in the mesh's own frame. */
+  readonly min: THREE.Vector3;
+  readonly max: THREE.Vector3;
+}
+
+/**
+ * What is left of a fire while its body is baked into the far batch (far.ts): a baked body has no skin to char or glow, so
+ * its entry only smokes, from the points it lies at, and is handed back to the body when it is stood up again.
+ */
+export class ParkedFire {
+  readonly root: THREE.Object3D;
+  burn = 1;
+  constructor(root: THREE.Object3D, readonly points: Float32Array) {
+    this.root = root;
+  }
+}
+
+/** What can burn: a body, a limb cut from one, a rigid piece of one, or a baked body's parked fire. */
+type Burnable = CharacterInstance | SeveredLimb | BurningPiece | ParkedFire;
+type Skinned = CharacterInstance | SeveredLimb;
+const isPiece = (s: Burnable): s is BurningPiece => (s as BurningPiece).min !== undefined;
 
 class Fire {
   live = false;
@@ -117,6 +156,10 @@ class Fire {
   /** 0..1, how far the heat has drawn this corpse up, and whether it is one of the few still doing so. */
   curl = 0;
   curling = false;
+  /** A rigid piece: flames come off its box, not off capsules. */
+  piece: BurningPiece | null = null;
+  /** A baked body: smoke comes off the points it lies at. */
+  parked: ParkedFire | null = null;
 }
 
 const _p = new THREE.Vector3();
@@ -144,6 +187,23 @@ function capSkin(info: RigInfo, c: number): number {
   const caps = info.caps;
   const r = caps[o + 6]!;
   return (Math.hypot(caps[o + 3]! - caps[o]!, caps[o + 4]! - caps[o + 1]!, caps[o + 5]! - caps[o + 2]!) + 2 * r) * r;
+}
+
+/**
+ * The way a body or a limb lies along the floor, as the turn about up that a decal's long axis takes (render/Decals.ts
+ * `lay`): from its first bone to its last. Anything with no bones lies no particular way.
+ */
+function lieOf(source: Burnable): number {
+  const bones = (source as Skinned).bones;
+  if (!bones || bones.length < 2) return rand(0, Math.PI * 2);
+  const a = bones[0]!.matrixWorld.elements;
+  // The head end of a body, the far end of a limb: bone 1 onward are its chain, and the first far enough off will do.
+  for (let i = bones.length - 1; i > 0; i--) {
+    const b = bones[i]!.matrixWorld.elements;
+    const dx = b[12]! - a[12]!, dz = b[14]! - a[14]!;
+    if (dx * dx + dz * dz > 0.04) return Math.atan2(dx, dz);
+  }
+  return rand(0, Math.PI * 2);
 }
 
 export class FireField {
@@ -255,10 +315,78 @@ export class FireField {
     }
   }
 
-  /** The body or limb is gone from the world, or is somebody else's now. */
+  /**
+   * A rigid piece has just been cut or broken from `char` (a blade's half, a piece of a burst trunk), drawn with the
+   * body's char. If the body is burning or smoking, the piece goes on doing so: a body cut in two while it burns is two
+   * burning halves. `share` is how much of the body's fire it takes, 0..1.
+   */
+  pieceOf(char: CharacterInstance, piece: BurningPiece, share = 1): void {
+    const from = this.by.get(char);
+    if (!from || !DevFlags.fire) return;
+    const f = this.take(piece, null, null, from.fireproof);
+    if (!f) return;
+    f.heat = from.heat;
+    f.amount *= share;
+    if (from.phase === Phase.Smoulder) {
+      f.phase = Phase.Smoulder;
+      f.dead = true;
+      f.since = from.since;
+      f.lasts = from.lasts;
+      f.charFrom = piece.burn;
+    } else {
+      this.toCorpse(f, FireTuning.limbBurn);
+    }
+  }
+
+  /**
+   * `char` is about to be baked into the far batch (gore/far.ts) while it smoulders: its fire is parked on the points it
+   * lies at (`points`, world, three floats each) and goes on smoking there. Null if it has no fire, or flames still on it
+   * (a baked copy cannot burn: gore does not bake those). Hand the result to `resume` when the body is stood up again.
+   */
+  park(char: CharacterInstance, root: THREE.Object3D, points: Float32Array): ParkedFire | null {
+    const f = this.by.get(char);
+    if (!f || f.phase !== Phase.Smoulder || points.length < 3) return null;
+    const parked = new ParkedFire(root, points);
+    parked.burn = char.burn ?? 1;
+    this.by.delete(char);
+    this.by.set(parked, f);
+    f.source = parked;
+    f.parked = parked;
+    f.body = null;
+    f.info = null;
+    f.capCount = 1;
+    return parked;
+  }
+
+  /**
+   * A baked body has been stood up again as `char`: its parked fire is its own again, where it had got to. With none left
+   * (it went cold while it was baked) the glow its skin was baked with is put out.
+   */
+  resume(parked: ParkedFire | null, char: CharacterInstance): void {
+    const f = parked ? this.by.get(parked) : undefined;
+    if (!f || !parked) {
+      char.setEmber?.(0);
+      return;
+    }
+    this.by.delete(parked);
+    this.by.set(char, f);
+    f.source = char;
+    f.parked = null;
+    f.body = char;
+    f.info = rigInfo(char.rig);
+    f.scale = char.rig.height / 1.85;
+    this.measure(f, null);
+  }
+
+  /** The body, limb or piece is gone from the world, or is somebody else's now. */
   forget(source: Burnable): void {
     const f = this.by.get(source);
     if (f) this.drop(f);
+  }
+
+  /** Whether anything is still burning or smoking on this. */
+  has(source: Burnable): boolean {
+    return this.by.has(source);
   }
 
   /** Burnt enough that what it leaves where it lies is soot. */
@@ -273,16 +401,21 @@ export class FireField {
   }
 
   /**
-   * A burnt body or limb has come to rest at `at`: the scorch under it, if its fire has not left one already. `size`
+   * A burnt body or limb has come to rest at `at`: the soot under it, if its fire has not left it already. `size`
    * is the mark's, metres.
    */
   rest(source: Burnable, at: THREE.Vector3, size: number): void {
     const f = this.by.get(source);
     if (f?.scorched) return;
-    if (this.scorch(at, size) && f) f.scorched = true;
+    if (this.scorch(at, size, lieOf(source)) && f) f.scorched = true;
   }
 
-  private take(source: Burnable, body: CharacterInstance | null, rig: RigDef, fireproof: boolean, only: Uint8Array | null = null): Fire | null {
+  /** Soot on the floor under `at` with no body to lie in it: where a burnt body burst. */
+  sootAt(at: THREE.Vector3, size: number): void {
+    if (DevFlags.fire) this.scorch(at, size);
+  }
+
+  private take(source: Burnable, body: CharacterInstance | null, rig: RigDef | null, fireproof: boolean, only: Uint8Array | null = null): Fire | null {
     let f: Fire | null = null;
     let coldest: Fire | null = null;
     for (const c of this.fires) {
@@ -303,8 +436,10 @@ export class FireField {
     f.live = true;
     f.source = source;
     f.body = body;
-    f.info = rigInfo(rig);
-    f.scale = rig.height / 1.85;
+    f.info = rig ? rigInfo(rig) : null;
+    f.scale = rig ? rig.height / 1.85 : 1;
+    f.piece = isPiece(source) ? source : null;
+    f.parked = null;
     f.phase = Phase.Alive;
     f.dead = false;
     f.near = true;
@@ -318,7 +453,7 @@ export class FireField {
     f.smokeAcc = 0;
     f.nextLight = f.nextShimmer = f.nextGlow = 0;
     f.nextSpit = now + rand(0.1, 0.5);
-    f.eaten = f.eatenFrom = source.burnThrough ?? 0;
+    f.eaten = f.eatenFrom = (source as Skinned).burnThrough ?? 0;
     f.curl = 0;
     f.curling = false;
     f.scorched = false;
@@ -331,7 +466,16 @@ export class FireField {
 
   /** Which capsules of the rig are still on it, weighted by their skin: a trunk burns more than a hand. */
   private measure(f: Fire, only: Uint8Array | null): void {
-    const info = f.info!;
+    if (f.piece) {
+      // By the skin of its box against a man's (about two square metres), and never much: it is a piece.
+      const p = f.piece;
+      const x = p.max.x - p.min.x, y = p.max.y - p.min.y, z = p.max.z - p.min.z;
+      f.capCount = 1;
+      f.amount = clamp((x * y + y * z + z * x) / 1.3, 0.08, 1);
+      return;
+    }
+    if (!f.info) return;
+    const info = f.info;
     const body = f.body as (CharacterInstance & { isHidden?(bone: number): boolean }) | null;
     let n = 0;
     let total = 0;
@@ -361,16 +505,29 @@ export class FireField {
 
   private drop(f: Fire, keepLook = false): void {
     // Taken for another fire while it smoked: its glow goes out with it, or it would sit lit for good.
-    if (keepLook && f.source) f.source.setEmber?.(0);
+    if (keepLook && f.source) (f.source as Skinned).setEmber?.(0);
     if (f.source) this.by.delete(f.source);
     f.live = false;
     f.source = null;
     f.body = null;
     f.info = null;
+    f.piece = null;
+    f.parked = null;
   }
 
   /** A point on its skin, in the world: somewhere along one of its capsules, pushed out toward the surface. */
   private pointOn(f: Fire, out: THREE.Vector3): number {
+    if (f.piece) {
+      const p = f.piece;
+      out.set(rand(p.min.x, p.max.x) * 0.8, rand(p.min.y, p.max.y) * 0.8, rand(p.min.z, p.max.z) * 0.8).applyMatrix4(p.root.matrixWorld);
+      return 0.11;
+    }
+    if (f.parked) {
+      const pts = f.parked.points;
+      const i = Math.floor(Math.random() * (pts.length / 3)) * 3;
+      out.set(pts[i]! + rand(-0.08, 0.08), pts[i + 1]! + rand(0, 0.08), pts[i + 2]! + rand(-0.08, 0.08));
+      return 0.1;
+    }
     const total = f.weights[f.capCount - 1]!;
     const pick = Math.random() * total;
     let i = 0;
@@ -387,23 +544,28 @@ export class FireField {
       caps[o + 1]! + (caps[o + 4]! - caps[o + 1]!) * t + rand(-r, r) * 0.7,
       caps[o + 2]! + (caps[o + 5]! - caps[o + 2]!) * t + rand(-r, r) * 0.7,
     );
-    out.applyMatrix4(f.source!.bones[info.capBone[c]!]!.matrixWorld);
+    out.applyMatrix4((f.source as Skinned).bones[info.capBone[c]!]!.matrixWorld);
     return r * f.scale;
   }
 
-  /** Soot and a scorch on the floor under `at`. False if there is no floor close under it. */
-  private scorch(at: THREE.Vector3, size: number): boolean {
+  /**
+   * What a fire leaves on the floor under what burned, at `at`: soot (the decal sheet's own shape for it: a soft-edged
+   * black stain with no blast in it), drawn out the way the body lies (`along`, radians about up), a small burnt middle
+   * where it lay longest and a smear of soot off to one side. A limb or a piece (under 0.9 m) leaves the soot alone.
+   * False if there is no floor close under it.
+   */
+  private scorch(at: THREE.Vector3, size: number, along = rand(0, Math.PI * 2)): boolean {
     const { physics, render } = this.ctx;
     if (!physics.raycastInto(_o.set(at.x, at.y + 0.3, at.z), _down, 1.5, CG.World, _hit)) return false;
     if (_hit.normal.y < 0.5) return false;
-    render.decals.add('scorch', _hit.point, _hit.normal, size);
-    // Soot thrown out past the burn itself, so the mark is not one stamped disc.
-    for (let i = 0; i < 2; i++) {
-      const a = rand(0, Math.PI * 2);
-      const d = size * rand(0.3, 0.5);
-      _p.set(_hit.point.x + Math.cos(a) * d, _hit.point.y, _hit.point.z + Math.sin(a) * d);
-      render.decals.add('scorch', _p, _hit.normal, size * rand(0.4, 0.6));
-    }
+    const decals = render.decals;
+    decals.add('soot', _hit.point, _hit.normal, size * 1.3, along + rand(-0.25, 0.25));
+    if (size < 0.9) return true;
+    decals.add('scorch', _hit.point, _hit.normal, size * 0.55);
+    const a = rand(0, Math.PI * 2);
+    const d = size * rand(0.3, 0.5);
+    _p.set(_hit.point.x + Math.cos(a) * d, _hit.point.y, _hit.point.z + Math.sin(a) * d);
+    decals.add('soot', _p, _hit.normal, size * rand(0.55, 0.8), a);
     return true;
   }
 
@@ -424,6 +586,7 @@ export class FireField {
         this.drop(f);
         continue;
       }
+      const skin = f.piece || f.parked ? null : source as Skinned;
       if (f.phase === Phase.Alive && now - f.fedAt > t.hold) {
         if (f.fireproof || (source.burn ?? 0) < 0.05 || f.body === null) {
           this.drop(f);
@@ -437,7 +600,7 @@ export class FireField {
       }
       if (f.phase === Phase.Alive && !f.fireproof && dt > 0 && f.eaten < t.eatAliveMax && (source.burn ?? 0) >= t.eatFrom) {
         f.eaten = Math.min(t.eatAliveMax, f.eaten + dt * t.eatAlive);
-        source.setBurnThrough?.(f.eaten);
+        skin?.setBurnThrough?.(f.eaten);
       }
       if (f.phase === Phase.Corpse) {
         const k = (now - f.since) / f.lasts;
@@ -447,15 +610,15 @@ export class FireField {
           f.lasts = t.smoulder;
           f.heat = 0;
           f.curling = false;
-          if (!f.fireproof) source.setBurn?.(1);
+          if (!f.fireproof && !f.parked) (source as Skinned | BurningPiece).setBurn?.(1);
         } else {
           f.heat = k < 1 - t.dieDown ? 1 : 1 - 0.8 * (k - (1 - t.dieDown)) / t.dieDown;
-          if (!f.fireproof) source.setBurn?.(f.charFrom + (1 - f.charFrom) * k * (2 - k));
+          if (!f.fireproof && !f.parked) (source as Skinned | BurningPiece).setBurn?.(f.charFrom + (1 - f.charFrom) * k * (2 - k));
           // And burns through it, most of the way by the time the flames die down.
           if (!f.fireproof) {
             const e = clamp((k - 0.1) / 0.75);
             f.eaten = Math.max(f.eaten, f.eatenFrom + (t.eatMax - f.eatenFrom) * e * e * (3 - 2 * e));
-            source.setBurnThrough?.(f.eaten);
+            skin?.setBurnThrough?.(f.eaten);
           }
           // The heat draws it up as it blackens. Flesh only: what is built to burn does not shrink in it.
           const u = clamp(k / t.curlBy);
@@ -466,19 +629,26 @@ export class FireField {
         const k = (now - f.since) / f.lasts;
         // A reset body has no char: the library took it back and gave it to someone new.
         if (k >= 1 || (!f.fireproof && (source.burn ?? 0) < 0.05)) {
-          source.setEmber?.(0);
+          skin?.setEmber?.(0);
           this.drop(f);
           continue;
         }
         // The glow in the cracks: bright as the flames leave, most of it gone in the first quarter.
-        source.setEmber?.(0.6 * (1 - k) ** 3);
+        skin?.setEmber?.(0.6 * (1 - k) ** 3);
         f.heat = 0;
       } else {
-        source.setEmber?.(1);
+        skin?.setEmber?.(1);
       }
       if (f.capCount === 0) continue;
-      const first = source.bones[f.info!.capBone[f.caps[0]!]!]!.matrixWorld.elements;
-      f.at.set(first[12]!, first[13]!, first[14]!);
+      if (f.piece) {
+        f.at.addVectors(f.piece.min, f.piece.max).multiplyScalar(0.5).applyMatrix4(f.piece.root.matrixWorld);
+      } else if (f.parked) {
+        const pts = f.parked.points;
+        f.at.set(pts[0]!, pts[1]!, pts[2]!);
+      } else {
+        const first = skin!.bones[f.info!.capBone[f.caps[0]!]!]!.matrixWorld.elements;
+        f.at.set(first[12]!, first[13]!, first[14]!);
+      }
       const dx = f.at.x - cam[12]!, dy = f.at.y - cam[13]!, dz = f.at.z - cam[14]!;
       f.dist2 = dx * dx + dy * dy + dz * dz;
     }
@@ -550,7 +720,7 @@ export class FireField {
       if (f.phase !== Phase.Alive && !f.scorched && f.scorchTries < 8 && now >= f.nextScorch && f.source!.burn !== undefined && this.sooted(f.source!)) {
         f.nextScorch = now + 0.6;
         f.scorchTries++;
-        if (f.at.y - this.floorUnder(f.at) < 0.45 * f.scale) f.scorched = this.scorch(f.at, rand(1.2, 1.6) * Math.sqrt(share));
+        if (f.at.y - this.floorUnder(f.at) < 0.45 * f.scale) f.scorched = this.scorch(f.at, rand(1.2, 1.6) * Math.sqrt(share), lieOf(f.source!));
       }
     }
   }

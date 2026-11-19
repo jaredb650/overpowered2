@@ -17,7 +17,7 @@ function side(hosting: boolean) {
     enemy.char = { root: new THREE.Group(), severed: new Set(), anim: { play: vi.fn() } } as unknown as Enemy['char'];
     alive.push(enemy); return enemy;
   });
-  const manager = { alive, spawn, withdraw: vi.fn((enemy: Enemy) => { enemy.alive = false; alive.splice(alive.indexOf(enemy), 1); }), placeReplica: vi.fn(), fitPlates: vi.fn() };
+  const manager = { alive, spawn, withdraw: vi.fn((enemy: Enemy) => { enemy.alive = false; alive.splice(alive.indexOf(enemy), 1); }), placeReplica: vi.fn(), fitPlates: vi.fn(), model: { updateMaim: vi.fn() } };
   const root = new THREE.Group();
   const players = [{ id: 'host', host: true, slot: 0, away: false }, { id: 'guest', host: false, slot: 1, away: false }];
   const sent: { to: string; data: ArrayBuffer }[] = [];
@@ -26,7 +26,7 @@ function side(hosting: boolean) {
   const w = { hosting, ready: true, onSnapshot: (_: ArrayBuffer) => {}, snapshotSent: [] as ((alive: Set<number>) => void)[], manager,
     stats: { snapshotBytes: 0, snapshotPackets: 0 }, session: { lobby, remotes: new Map([[hosting ? 'guest' : 'host', { char: { root } }]]) },
     ctx: { waves: { wave: 3, phase: 'clearing', nextWaveIn: 0 }, time: { dt: 1 / 60 },
-      gore: { sever: vi.fn((char: { severed: Set<string> }, region: string) => { char.severed.add(region); }) },
+      gore: { sever: vi.fn((char: { severed: Set<string> }, region: string) => { char.severed.add(region); return { regions: [region] }; }) },
       player: { position: new THREE.Vector3(), eye: new THREE.Vector3(0, 1.6, 0) } },
     sendSnapshot: (data: ArrayBuffer, to?: string) => { sent.push({ to: to ?? '*', data }); return 1; } };
   const targets = new Map<number, string>();
@@ -278,6 +278,8 @@ describe('a guest\'s replicas', () => {
     // ... and only drops, once, if that never comes.
     more(1716, 2600, 8);
     expect(guest.w.ctx.gore.sever).toHaveBeenCalledOnce();
+    // And the copy counts its limbs again, as it does when the event itself cuts one (it kept arms and legs it had lost).
+    expect(guest.manager.model.updateMaim).toHaveBeenCalledOnce();
     // A second limb whose event does come in time is cut by the event, not by the state.
     more(2616, 2900, 8 | 2);
     (enemy.char.severed as Set<string>).add('chest');

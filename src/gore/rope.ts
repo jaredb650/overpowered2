@@ -87,6 +87,11 @@ const _b = new THREE.Vector3();
 const _p = new THREE.Vector3();
 const _down = new THREE.Vector3(0, -1, 0);
 const _hit: RayHit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, surface: 'concrete', collider: null };
+/**
+ * What a loose strand of gut lies on: the world, and the dead (bodies at rest keep fixed capsules, mess.ts; a ragdoll
+ * still moving and a trunk piece count too). The owner asked for guts "draped over the environment... props, corpses".
+ */
+const DRAPE_ON = CG.World | CG.Ragdoll;
 
 export class RopeField {
   private readonly ropes: Rope[] = Array.from({ length: RopeTuning.max }, () => new Rope());
@@ -320,7 +325,9 @@ export class RopeField {
         const i = r.groundAt;
         r.groundAt = (r.groundAt + 1) % P;
         _p.set(x[i * 3]!, top + 0.4, x[i * 3 + 2]!);
-        if (this.ctx.physics.raycastInto(_p, _down, top + 4 - x[i * 3 + 1]!, CG.World, _hit)) r.floors[i] = _hit.point.y;
+        // A loose strand lies on whatever is under it: the world, and bodies (`DRAPE_ON`). One still hanging from a body
+        // finds only the world, or it would be held up by the body it hangs out of.
+        if (this.ctx.physics.raycastInto(_p, _down, top + 4 - x[i * 3 + 1]!, loose ? DRAPE_ON : CG.World, _hit)) r.floors[i] = _hit.point.y;
       }
       // In flight, a point or two a frame are tested along their own step: what a thrown strand hits, it slaps and stops at.
       if (loose) {
@@ -442,6 +449,36 @@ export class RopeField {
       }
     }
     this.draw(now);
+  }
+
+  /**
+   * A body at rest whose capsules filled the box `lo`..`hi` has gone from under whatever lay on it: a loose strand lying
+   * there is let go (a point caught on the body is no longer caught) and falls to what is under it now. Returns how many.
+   */
+  unsettle(lo: THREE.Vector3, hi: THREE.Vector3): number {
+    let n = 0;
+    const P = RopeTuning.points;
+    for (const r of this.ropes) {
+      if (!r.alive || r.target !== null) continue;
+      let on = false;
+      for (let i = 0; i < P && !on; i++) {
+        const x = r.x[i * 3]!, y = r.x[i * 3 + 1]!, z = r.x[i * 3 + 2]!;
+        on = x > lo.x - 0.1 && x < hi.x + 0.1 && z > lo.z - 0.1 && z < hi.z + 0.1 && y > lo.y - 0.05 && y < hi.y + 0.5;
+      }
+      if (!on) continue;
+      n++;
+      r.restAt = -1;
+      r.still = 0;
+      r.snags = 0;
+      r.held.fill(0);
+      // Every point looks again for its floor, at once: the old ones were the body's.
+      r.floors.fill(-1e4);
+      for (let i = 0; i < P; i++) {
+        _p.set(r.x[i * 3]!, r.x[i * 3 + 1]! + 0.3, r.x[i * 3 + 2]!);
+        if (this.ctx.physics.raycastInto(_p, _down, 6, DRAPE_ON, _hit)) r.floors[i] = _hit.point.y;
+      }
+    }
+    return n;
   }
 
   private draw(now: number): void {

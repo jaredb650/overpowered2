@@ -12,7 +12,9 @@ export const EXTRA_INFO = 1;
 /**
  * Fire, two texels (`Character.setEmber`, `setBurnOrigin`, `setBurnThrough`). The first: where on the body the fire
  * caught, in bind space, and in w how much that point matters (0: the whole body burns at once, as a blast's burn does).
- * The second: x how hot the char still is (1 alight, fading to 0 cold), y how far the skin has burnt through, 0..1.
+ * The second: x how hot the char still is (1 alight, fading to 0 cold), y how far the skin has burnt through, 0..1, and
+ * in z (not fire's, but the channel was spare and the texels are nearly spent) which organs have been thrown out of the
+ * body, a bit each (`Organ` in build.ts, `Character.takeOrgan`): what is under the skin leaves those out. w is free.
  */
 export const EXTRA_FIRE = 2;
 export const EXTRA_WOUNDS = 4;
@@ -138,7 +140,7 @@ export const WOUND_VERTEX_LOOP = /* glsl */ `
 `;
 
 /** Each humanoid bone's region as an index into `WEAR_REGIONS`, in the rig's bone order. */
-const REGION_OF: number[] = (() => {
+export const REGION_OF: number[] = (() => {
   const rig = humanoidRig('wear');
   const count = Object.keys(HumanoidBone).length;
   return rig.bones.slice(0, count).map(b => WEAR_REGIONS.indexOf(b.region));

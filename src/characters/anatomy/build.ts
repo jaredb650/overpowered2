@@ -17,6 +17,13 @@ import type { LoadedModel } from '../model';
 import { HumanoidBone as B, type RigDef } from '../rig';
 
 export const Part = { muscle: 1, bone: 2, organ: 3, gut: 4, shard: 5 } as const;
+/**
+ * The organs that can be thrown out of a body (gore's blow-out), each with a number: it rides above the part in a vertex's
+ * code as a broken joint's does for a shard, and the body's own texels say which have gone (`Character.takeOrgan`), so a
+ * lung lying on the floor is not also still in the chest it came from. 0 is an organ that never leaves (the brain).
+ */
+export const Organ = { lungL: 1, lungR: 2, heart: 3, liver: 4, stomach: 5 } as const;
+export type OrganName = keyof typeof Organ;
 
 /** Inside the skin, measured at the widest gear, with room left for what is on top of the ribs. */
 const CAGE_FIT = 0.8;
@@ -338,15 +345,16 @@ function addOrgans(g: Builder, slices: readonly Slice[], y0: number, y1: number,
   const chestBind: Bind = [B.chest, B.chest, 0];
   const lungRy = (neck[1] - chest[1]) * 0.46;
   for (const side of [1, -1]) {
-    g.blob([side * lung.rx * 0.52, lungY, lung.cz - lung.rz * 0.08], [lung.rx * 0.5, lungRy, lung.rz * 0.84], 8, 10, chestBind, Part.organ, LUNG, 0.06, rnd);
+    // His left is +X.
+    g.blob([side * lung.rx * 0.52, lungY, lung.cz - lung.rz * 0.08], [lung.rx * 0.5, lungRy, lung.rz * 0.84], 8, 10, chestBind, Part.organ + (side > 0 ? Organ.lungL : Organ.lungR) * 8, LUNG, 0.06, rnd);
   }
-  g.blob([lung.rx * 0.1, heartY, lung.cz + lung.rz * 0.44], [0.055 * scale, 0.07 * scale, 0.05 * scale], 7, 8, chestBind, Part.organ, HEART, 0.08, rnd);
+  g.blob([lung.rx * 0.1, heartY, lung.cz + lung.rz * 0.44], [0.055 * scale, 0.07 * scale, 0.05 * scale], 7, 8, chestBind, Part.organ + Organ.heart * 8, HEART, 0.08, rnd);
 
   const bellyY = mix(spine[1], chest[1], 0.5);
   const belly = inner(bellyY);
   const spineBind: Bind = [B.spine, B.chest, 0.3];
-  g.blob([-belly.rx * 0.34, bellyY, belly.cz + belly.rz * 0.1], [belly.rx * 0.62, 0.062 * scale, belly.rz * 0.62], 6, 9, spineBind, Part.organ, LIVER, 0.05, rnd);
-  g.blob([belly.rx * 0.42, bellyY - 0.008 * scale, belly.cz + belly.rz * 0.15], [belly.rx * 0.46, 0.056 * scale, belly.rz * 0.6], 6, 8, spineBind, Part.organ, STOMACH, 0.08, rnd);
+  g.blob([-belly.rx * 0.34, bellyY, belly.cz + belly.rz * 0.1], [belly.rx * 0.62, 0.062 * scale, belly.rz * 0.62], 6, 9, spineBind, Part.organ + Organ.liver * 8, LIVER, 0.05, rnd);
+  g.blob([belly.rx * 0.42, bellyY - 0.008 * scale, belly.cz + belly.rz * 0.15], [belly.rx * 0.46, 0.056 * scale, belly.rz * 0.6], 6, 8, spineBind, Part.organ + Organ.stomach * 8, STOMACH, 0.08, rnd);
 
   // A serpentine packed into the belly. Rows run across, and each row wanders front and back.
   const low = hips[1] - 0.005 * scale;

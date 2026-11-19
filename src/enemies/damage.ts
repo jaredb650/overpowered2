@@ -168,8 +168,26 @@ const DEATH_CARRY = 0.6;
  * it, held `seconds` plus `perShare` per share of health, and not again for `gap` seconds, or an SMG would restart it with
  * every round. And a body carries itself hurt: bent over and lower from `hurtFrom` of its health down to `hurtFull`, limping
  * on a leg by what its wounds have taken off it. Only for a body that feels (`ReactionProfile.pain`); the limp is for any.
+ *
+ * The limp goes with what the leg looks like. Wear (W1) tears a leg's skin from the first round, in proportion to how
+ * much of its pool is spent, while a leg only weakens from `POOL_WEAK_FROM` (0.45) of it: at a third spent a leg was
+ * visibly torn open and walked like a whole one. So the limp, which is only how he walks, starts where the tear can be
+ * seen (`limpFrom` of the pool spent) and is whole at `limpFull`, and is never less than the leg's weakness asks. What a
+ * leg's weakness DOES (when it gives way, how a body catches its balance, what a ragdoll's leg can hold) is still the
+ * pool's own rule and is not touched. With `?wear=0` nothing shows on the leg, and the limp is by its weakness alone.
  */
-export const CLUTCH = { share: 0.06, delay: 0.2, seconds: 1.1, perShare: 2, most: 2.2, gap: 1.1, guard: 0.45, hurtFrom: 0.5, hurtFull: 0.25 };
+export const CLUTCH = { share: 0.06, delay: 0.2, seconds: 1.1, perShare: 2, most: 2.2, gap: 1.1, guard: 0.45, hurtFrom: 0.5, hurtFull: 0.25, limpFrom: 0.1, limpFull: 0.9 };
+
+/** How lame a leg looks, 0..1, by the more spent of its two pools: what wear draws on it, as a limp (`CLUTCH`). */
+export function legLooks(e: Pick<Enemy, 'limbHp' | 'maxHealth' | 'def'>, upper: GoreRegion, lower: GoreRegion): number {
+  if (!DevFlags.wear) return 0;
+  let spent = 0;
+  for (const region of [upper, lower]) {
+    const left = e.limbHp.get(region);
+    if (left !== undefined && Number.isFinite(left)) spent = Math.max(spent, 1 - left / wholePool(e, region));
+  }
+  return smoothstep(CLUTCH.limpFrom, CLUTCH.limpFull, spent);
+}
 
 /**
  * The gore update's R3 (`DevFlags.sway`, `?sway=0`): the struck part goes onto physics (`characters/animation/sway.ts`) for
@@ -1566,7 +1584,10 @@ export class DamageModel {
     const left = e.health / e.maxHealth;
     const hurt = profile.pain > 0 ? clamp((CLUTCH.hurtFrom - left) / (CLUTCH.hurtFrom - CLUTCH.hurtFull)) * profile.pain : 0;
     const s = this.strengthOf(e);
-    anim.setHurt(hurt, e.maim.legs < 2 ? 0 : s.legL < s.legR ? 1 - s.legL : s.legR < s.legL ? s.legR - 1 : 0);
+    // By what each leg has lost, and by what it looks like it has lost, whichever is more: + is the left.
+    const l = Math.max(1 - s.legL, legLooks(e, 'legL', 'shinL'));
+    const r = Math.max(1 - s.legR, legLooks(e, 'legR', 'shinR'));
+    anim.setHurt(hurt, e.maim.legs < 2 ? 0 : l > r ? l : r > l ? -r : 0);
   }
 
   private cryOut(e: Enemy): void {

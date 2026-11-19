@@ -13,6 +13,8 @@ import type { BloodField } from './blood';
 import { ImpactTuning, type ImpactEvents } from './impacts';
 import { buildFlesh, buildOrgans, buildRibcage, ORGANS, RIB_KINDS, type OrganKind, type RibKind } from './organs';
 import { TrailTuning, type GibTrail, type Ribbon } from './trail';
+import { burnTint, FireTuning } from './fire';
+import { cookable } from './cooked';
 
 /** A piece cut from one archetype's own body at load and registered here (`ChunkField.register`): a slab of its trunk (slabs.ts), a part of a limb (`buildLimb` in torso.ts). */
 export type CutKind = `slab:${string}` | `part:${string}`;
@@ -104,6 +106,14 @@ interface Chunk {
   /** World time it may next leave a strand of blood in its path, and the ribbon a big piece trails (trail.ts). */
   trailAt: number;
   ribbon: Ribbon | null;
+  /** Off a burnt body (`ChunkField.char` past the soot line): cooked through, so it trails, drips and stains nothing. */
+  dry: boolean;
+  /** Half extents of its collider, kept so that it can be given a body again (`rouse`). */
+  hx: number; hy: number; hz: number;
+  /** At rest on something that is not the world: a body, a heap. It falls again when that goes (`unsettle`). */
+  perched: boolean;
+  /** Put back on physics after it had come to rest: it has done its dripping and trailing. */
+  roused: boolean;
   alive: boolean;
   readonly p: THREE.Vector3;
   readonly q: THREE.Quaternion;
@@ -321,6 +331,8 @@ export class ChunkField {
         // A breath of its own colour: in a dark, blue-lit map, dark red and bone on dark floor read as nothing.
         emissive: glow ? new THREE.Color(glow) : undefined,
       });
+      // A burnt body's pieces are cooked: dry and dark, with none of that glow (cooked.ts).
+      cookable(m);
       return render.materials?.patch ? render.materials.patch(m) ?? m : m;
     };
     const make = (kind: Exclude<ChunkKind, CutKind>, geometry: THREE.BufferGeometry, material: THREE.Material) => this.make(kind, geometry, material, ChunkTuning.capacity[kind]);
@@ -375,7 +387,7 @@ export class ChunkField {
     this.meshes.set(kind, mesh);
     this.ring.set(kind, 0);
     const slots: Chunk[] = Array.from({ length: cap }, (_, slot) => ({
-      kind, slot, body: null, size: 0, bulk: 0, sx: 1, sy: 1, sz: 1, born: 0, still: 0, restedAt: -1, speed: 0, splats: 0, nextThud: 0, wob: 0, wobV: 0, sag: 0, kickAt: 0, floorY: 0, trailAt: 0, ribbon: null, alive: false,
+      kind, slot, body: null, size: 0, bulk: 0, sx: 1, sy: 1, sz: 1, born: 0, still: 0, restedAt: -1, speed: 0, splats: 0, nextThud: 0, wob: 0, wobV: 0, sag: 0, kickAt: 0, floorY: 0, trailAt: 0, ribbon: null, dry: false, hx: 0, hy: 0, hz: 0, perched: false, roused: false, alive: false,
       p: new THREE.Vector3(), q: new THREE.Quaternion(), v: new THREE.Vector3(),
     }));
     this.slots.set(kind, slots);
@@ -479,9 +491,9 @@ export class ChunkField {
     else if (c.alive) this.retire(c);
     // Burnt (`char`): toward black, unevenly, so a heap of them is not one flat colour.
     const tinted = this.meshes.get(kind)!;
-    const k = this.char * (0.82 + Math.random() * 0.18);
-    tinted.setColorAt(c.slot, _tint.setRGB(1 - k * 0.94, 1 - k * 0.95, 1 - k * 0.95));
+    tinted.setColorAt(c.slot, burnTint(_tint, this.char, 0.18));
     tinted.instanceColor!.needsUpdate = true;
+    c.dry = this.char >= FireTuning.sootFrom;
 
     if (this.live.length >= ChunkTuning.maxBodies) this.ghost(this.live[0]!);
 
@@ -501,29 +513,20 @@ export class ChunkField {
     // ribcage on its side, and a piece started half in a thin floor is pushed out of either face of it.
     const reach = extent ? Math.max(extent.x * c.sx, extent.y * c.sy, extent.z * c.sz) * size : hx;
     y = Math.max(y, this.floor + reach + 0.01);
-    const body = world.createRigidBody(
-      R.RigidBodyDesc.dynamic()
-        .setTranslation(x, y, z)
-        .setRotation(rotation ?? _none)
-        .setLinvel(vx, vy, vz)
-        .setAngvel({ x: (Math.random() - 0.5) * spin, y: (Math.random() - 0.5) * spin, z: (Math.random() - 0.5) * spin })
-        .setLinearDamping(0.1)
-        .setAngularDamping(0.9)
-        // Small and thrown at up to 15 m/s: without it a piece crosses a thin floor between two steps and is gone.
-        .setCcdEnabled(true),
-    );
     // Thin plates and long bones need a box. A sphere would roll forever.
-    world.createCollider(
-      (extent
-        ? R.ColliderDesc.cuboid(extent.x * size * c.sx, extent.y * size * c.sy, extent.z * size * c.sz)
-        : R.ColliderDesc.cuboid(hx, kind === 'cranium' ? hx * 0.5 : hx, hx))
-        .setDensity(1100)
-        .setFriction(ChunkTuning.friction)
-        .setRestitution(ChunkTuning.restitution)
-        .setCollisionGroups(groups(CG.Debris, CG.World)),
-      body,
-    );
-    c.body = body;
+    if (extent) {
+      c.hx = extent.x * size * c.sx;
+      c.hy = extent.y * size * c.sy;
+      c.hz = extent.z * size * c.sz;
+    } else {
+      c.hx = c.hz = hx;
+      c.hy = kind === 'cranium' ? hx * 0.5 : hx;
+    }
+    c.p.set(x, y, z);
+    c.q.copy(rotation ?? _none);
+    c.perched = false;
+    c.roused = false;
+    this.embody(c, vx, vy, vz, spin);
     c.size = size;
     c.bulk = own !== undefined && extent ? Math.max(extent.x, extent.y, extent.z) * 0.6 : box === undefined ? size : hx;
     c.born = this.ctx.time.elapsed;
@@ -538,9 +541,72 @@ export class ChunkField {
     c.kickAt = 0;
     c.trailAt = 0;
     // An organ or a slab draws a ribbon behind it; a lump of meat or a rib fragment leaves strands.
-    c.ribbon = this.trail && RIBBONED.has(kind) ? this.trail.open(c) : null;
+    c.ribbon = this.trail && RIBBONED.has(kind) && !c.dry ? this.trail.open(c) : null;
     c.alive = true;
     this.live.push(c);
+  }
+
+  /** Gives `c` a body where it is (`p`, `q`), at this speed and spin. */
+  private embody(c: Chunk, vx: number, vy: number, vz: number, spin: number): void {
+    const { R, world } = this.ctx.physics;
+    const body = world.createRigidBody(
+      R.RigidBodyDesc.dynamic()
+        .setTranslation(c.p.x, c.p.y, c.p.z)
+        .setRotation(c.q)
+        .setLinvel(vx, vy, vz)
+        .setAngvel({ x: (Math.random() - 0.5) * spin, y: (Math.random() - 0.5) * spin, z: (Math.random() - 0.5) * spin })
+        .setLinearDamping(0.1)
+        .setAngularDamping(0.9)
+        // Small and thrown at up to 15 m/s: without it a piece crosses a thin floor between two steps and is gone.
+        .setCcdEnabled(true),
+    );
+    world.createCollider(
+      R.ColliderDesc.cuboid(c.hx, c.hy, c.hz)
+        .setDensity(1100)
+        .setFriction(ChunkTuning.friction)
+        .setRestitution(ChunkTuning.restitution)
+        // The world, and bodies at rest (rag.ts REST_GROUPS, the only `Ragdoll` shapes that will meet `Debris`): a piece
+        // lies on a heap, where it used to fall through every body on the floor.
+        .setCollisionGroups(groups(CG.Debris, CG.World | CG.Ragdoll)),
+      body,
+    );
+    c.body = body;
+  }
+
+  /**
+   * A body at rest whose capsules filled the box `lo`..`hi` has gone from under whatever lay on it (it woke, sank or
+   * burst): each piece at rest on it is put back on physics where it lies, and falls. A few a call; with no room for
+   * another body a piece flies down to the floor by itself (`ghost`). Returns how many.
+   */
+  unsettle(lo: THREE.Vector3, hi: THREE.Vector3): number {
+    let n = 0;
+    const all = this.all;
+    for (let i = 0; i < all.length && n < 12; i++) {
+      const c = all[i]!;
+      if (!c.alive || c.restedAt < 0 || !c.perched || c.body) continue;
+      const p = c.p;
+      if (p.x < lo.x - 0.15 || p.x > hi.x + 0.15 || p.z < lo.z - 0.15 || p.z > hi.z + 0.15 || p.y < lo.y - 0.1 || p.y > hi.y + 0.6) continue;
+      n++;
+      c.restedAt = -1;
+      c.perched = false;
+      c.roused = true;
+      c.born = this.ctx.time.elapsed;
+      c.still = 0;
+      c.speed = 0;
+      c.v.set(0, 0, 0);
+      if (this.live.length >= ChunkTuning.maxBodies) {
+        // No room for another body: it drops straight to the world's floor by itself, or stays where it is over none.
+        _o.set(p.x, p.y + 0.1, p.z);
+        if (this.ctx.physics.raycastInto(_o, _downward, 40, CG.World, _floor) && p.y > _floor.point.y + 0.1) {
+          c.floorY = _floor.point.y + Math.min(0.08, c.bulk * 0.6);
+          this.ghosts.push(c);
+        } else c.restedAt = c.born;
+        continue;
+      }
+      this.embody(c, 0, 0, 0, 0);
+      this.live.push(c);
+    }
+    return n;
   }
 
   private dropBody(c: Chunk): void {
@@ -549,6 +615,9 @@ export class ChunkField {
       c.body.rotation(c.q);
       this.ctx.physics.world.removeRigidBody(c.body);
       c.body = null;
+      // On the world's own floor, or on something else: a ray from its middle as long as the piece could reach lying any
+      // way up, and a few centimetres more.
+      c.perched = !this.ctx.physics.raycastInto(c.p, _downward, Math.max(c.hx, c.hy, c.hz) + 0.06, CG.World, _floor);
     }
     c.restedAt = this.ctx.time.elapsed;
     const at = this.live.indexOf(c);
@@ -636,18 +705,18 @@ export class ChunkField {
       if (organ) this.spring(c, dt);
       if (lost > t.impactSpeed && c.splats < 3 && c.kind !== 'scrap') {
         c.splats++;
-        this.blood.stainBelow(c.p, 0.14 + c.bulk * 2.2, 'blood', 0.8);
+        if (!c.dry) this.blood.stainBelow(c.p, 0.14 + c.bulk * 2.2, 'blood', 0.8);
         // And what lies near shakes with it.
         this.quiver(c.p, Math.min(1, lost / 8), c);
       }
       // Meat drips as it flies and for a moment after, inside the blood budget's drops a frame.
-      if (c.kind !== 'scrap' && c.kind !== 'bone' && now - c.born < GIB_DRIP_FOR && Math.random() < dt * GIB_DRIPS) {
+      if (c.kind !== 'scrap' && c.kind !== 'bone' && !c.dry && !c.roused && now - c.born < GIB_DRIP_FOR && Math.random() < dt * GIB_DRIPS) {
         this.blood.drip(c.p, _o.copy(c.v).multiplyScalar(0.3), 0.8 + c.bulk * 8);
       }
       // The bigger pieces draw their arc in blood (trail.ts): what the eye follows out of a fireball.
-      if (this.trail && speed > TrailTuning.minSpeed && now - c.born < TrailTuning.seconds) {
+      if (this.trail && !c.roused && speed > TrailTuning.minSpeed && now - c.born < TrailTuning.seconds) {
         if (c.ribbon) this.trail.feed(c.ribbon, c, c.p, c.v);
-        else if (c.bulk >= TRAIL_BULK && c.kind !== 'scrap' && c.kind !== 'bone' && now >= c.trailAt && this.trail.leave(c.p, c.v, clamp(c.bulk * 9, 0.4, 1))) {
+        else if (c.bulk >= TRAIL_BULK && c.kind !== 'scrap' && c.kind !== 'bone' && !c.dry && now >= c.trailAt && this.trail.leave(c.p, c.v, clamp(c.bulk * 9, 0.4, 1))) {
           c.trailAt = now + TrailTuning.strandEvery;
         }
       }
@@ -670,7 +739,7 @@ export class ChunkField {
         c.p.y = c.floorY;
         c.restedAt = now;
         this.ghosts.splice(i, 1);
-        if (c.kind !== 'scrap') this.blood.stainBelow(c.p, 0.14 + c.bulk * 2.2, 'blood', 0.8);
+        if (c.kind !== 'scrap' && !c.dry) this.blood.stainBelow(c.p, 0.14 + c.bulk * 2.2, 'blood', 0.8);
       }
       this.write(c, 1);
     }
@@ -790,9 +859,16 @@ export class ChunkField {
     _o.copy(c.p);
     this.bursts++;
     this.retire(c);
-    fx.bloodMist(_o, 0.5 + size * 4);
-    fx.bloodHit(_o, _up, 1 + size * 6);
-    this.blood.stainBelow(_o, 0.45 + size * 4.5, 'blood', 1.3);
+    // A cooked one crumbles: scraps as dark as it was, a little ash, and nothing wet.
+    const was = this.char;
+    if (c.dry) {
+      this.char = 1;
+      fx.embers(_o, 3, 0.25);
+    } else {
+      fx.bloodMist(_o, 0.5 + size * 4);
+      fx.bloodHit(_o, _up, 1 + size * 6);
+      this.blood.stainBelow(_o, 0.45 + size * 4.5, 'blood', 1.3);
+    }
     audio.play('gib_squelch', { position: _o, volume: 0.45, pitch: 1.25, pitchJitter: 0.15 });
     for (let i = 0; i < 4; i++) {
       this.spawn(
@@ -800,6 +876,7 @@ export class ChunkField {
         dir.x * 1.5 + (Math.random() - 0.5) * 4, 1.5 + Math.random() * 2.5, dir.z * 1.5 + (Math.random() - 0.5) * 4, 0.018 + Math.random() * 0.016,
       );
     }
+    this.char = was;
     this.quiver(_o, 0.6);
   }
 

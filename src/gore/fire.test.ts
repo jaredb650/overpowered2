@@ -147,7 +147,9 @@ describe('a corpse', () => {
     gore.burnOn(c);
     gore.ragdoll(c);
     run(9);
-    expect(seen.decals.filter(k => k === 'scorch').length).toBeGreaterThanOrEqual(1);
+    // The decal sheet's own soot shape under what burned, a small burnt middle, and soot off to one side.
+    expect(seen.decals.filter(k => k === 'soot').length).toBe(2);
+    expect(seen.decals.filter(k => k === 'scorch').length).toBe(1);
     expect(gore.stats().ragdolls).toBe(0);
     expect(pooled).toBe(0);
     // An unburnt one still pools.
@@ -165,11 +167,127 @@ describe('a corpse', () => {
     gore.gib(c, new THREE.Vector3(0, 1, 0.5), 300);
     seen.licks = 0;
     run(0.5);
-    // Only what the gib threw off as limbs may still burn (a head, and each arm and leg whole or in two): nothing where
-    // the body stood.
-    expect(gore.fire.stats().alight).toBeLessThanOrEqual(9);
-    expect(gore.fire.stats().alight).toBe(gore.stats().limbs);
+    // Only what the gib threw off may still burn: its limbs (a head, and each arm and leg whole or in two) and the
+    // pieces of its trunk. Nothing where the body stood, and the body's own fire is gone.
+    expect(gore.fire.stats().alight).toBeLessThanOrEqual(9 + 6);
+    expect(gore.fire.stats().alight).toBe(gore.stats().limbs + gore.stats().halves);
+    expect(gore.fire.has(c)).toBe(false);
     expect(c.root.parent).toBe(null);
+  });
+});
+
+describe('a burnt body that comes apart (the seams between fire and the rest)', () => {
+  type Piece = { burn: number; dry: boolean; mesh: THREE.Mesh; emitter: unknown; ribbon: unknown; pooled: boolean };
+  const halves = () => (gore.sliced as unknown as { halves: Piece[] }).halves;
+  /** Every call that puts red on the world, counted. */
+  function bloodCalls(): { n: number; names: string[]; restore(): void } {
+    const blood = gore.blood as unknown as Record<string, (...args: unknown[]) => unknown>;
+    const out = { n: 0, names: [] as string[], restore() {} };
+    const names = ['burst', 'fan', 'pool', 'splatterAround', 'splatterAlong', 'spray', 'stainBelow', 'soak', 'castOff', 'drip'];
+    const real = names.map(name => blood[name]!);
+    names.forEach((name, i) => { blood[name] = (...args: unknown[]) => { out.n++; out.names.push(name); return real[i]!.apply(gore.blood, args); }; });
+    out.restore = () => names.forEach((name, i) => { blood[name] = real[i]!; });
+    return out;
+  }
+
+  it('burst, it throws charred pieces of trunk that burn on, and no blood: no stain, no pool, no ribbon', () => {
+    const blood = bloodCalls();
+    const opened = gore.trail.opened;
+    const c = spawn();
+    c.setBurn(0.9);
+    gore.burnOn(c);
+    gore.gib(c, new THREE.Vector3(0, 1, 0.5), 300);
+    const pieces = halves();
+    expect(pieces.length).toBeGreaterThanOrEqual(2);
+    for (const p of pieces) {
+      // Drawn as an instance of one, whose colour is its char.
+      expect((p.mesh as THREE.InstancedMesh).isInstancedMesh).toBe(true);
+      expect((p.mesh as THREE.InstancedMesh).instanceColor!.getX(0)).toBeLessThan(0.2);
+      expect(p.burn).toBeCloseTo(0.9, 5);
+      expect(p.dry).toBe(true);
+      expect(p.emitter).toBe(null);
+      expect(p.ribbon).toBe(null);
+    }
+    run(3);
+    expect(blood.names).toEqual([]);
+    expect(gore.trail.opened).toBe(opened);
+    // Soot where it burst.
+    expect(seen.decals).toContain('soot');
+    // Its fire went with the pieces, and chars them the rest of the way.
+    expect(gore.fire.stats().alight + gore.fire.stats().smouldering).toBeGreaterThan(pieces.length);
+    run(FireTuning.limbBurn[1] + 2);
+    for (const p of halves()) expect(p.burn).toBe(1);
+    blood.restore();
+  });
+
+  it('an unburnt body bursts as red as ever, in plain meshes', () => {
+    const blood = bloodCalls();
+    const opened = gore.trail.opened;
+    gore.gib(spawn(), new THREE.Vector3(0, 1, 0.5), 300);
+    for (const p of halves()) {
+      expect((p.mesh as THREE.InstancedMesh).isInstancedMesh).not.toBe(true);
+      expect(p.dry).toBe(false);
+    }
+    run(1);
+    expect(blood.n).toBeGreaterThan(3);
+    expect(gore.trail.opened).toBeGreaterThan(opened);
+    blood.restore();
+  });
+
+  it('cut in two by a blade while it burns, both halves burn on and char, and then smoulder', () => {
+    const c = spawn();
+    c.setBurn(0.3);
+    run(0.3, [c]);
+    expect(gore.fire.stats().alight).toBe(1);
+    gore.slice(c, new THREE.Vector3(0, 1.1, 0), new THREE.Vector3(0, 1, 0), cut);
+    const pieces = halves();
+    expect(pieces.length).toBeGreaterThanOrEqual(2);
+    expect(gore.fire.has(c)).toBe(false);
+    expect(gore.fire.stats().alight).toBe(pieces.length);
+    for (const p of pieces) expect(p.burn).toBeCloseTo(c.burn, 1);
+    seen.licks = 0;
+    seen.lickAt.length = 0;
+    run(1);
+    // Flames off both halves, where they are: from the floor to about the height the body stood.
+    expect(seen.licks).toBeGreaterThan(10);
+    expect(Math.max(...seen.lickAt)).toBeLessThan(2.2);
+    run(FireTuning.limbBurn[1] + 1.5);
+    for (const p of pieces) expect(p.burn).toBe(1);
+    expect(gore.fire.stats()).toMatchObject({ alight: 0, smouldering: pieces.length });
+    seen.wisps = 0;
+    run(2);
+    expect(seen.wisps).toBeGreaterThan(0);
+    run(FireTuning.smoulder);
+    expect(gore.fire.stats()).toMatchObject({ alight: 0, smouldering: 0 });
+  });
+
+  it('a cold burnt corpse cut in two is two burnt halves with no blood and no fire', () => {
+    const blood = bloodCalls();
+    const c = spawn();
+    c.setBurn(1);
+    gore.slice(c, new THREE.Vector3(0, 1.1, 0), new THREE.Vector3(0, 1, 0), cut);
+    for (const p of halves()) {
+      expect(p.burn).toBe(1);
+      expect(p.dry).toBe(true);
+      expect(p.emitter).toBe(null);
+    }
+    run(6);
+    expect(blood.n).toBe(0);
+    expect(gore.fire.stats()).toMatchObject({ alight: 0, smouldering: 0 });
+    blood.restore();
+  });
+
+  it('a limb cut from a burnt body sprays nothing, and neither end spurts', () => {
+    const blood = bloodCalls();
+    const c = spawn();
+    c.setBurn(0.9);
+    gore.ragdoll(c);
+    const before = gore.stats().spurts;
+    gore.sever(c, 'armL', cut);
+    expect(gore.stats().spurts).toBe(before);
+    run(2);
+    expect(blood.names).toEqual([]);
+    blood.restore();
   });
 });
 

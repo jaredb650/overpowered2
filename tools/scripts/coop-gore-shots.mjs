@@ -66,7 +66,18 @@ function record() {
   wrap(gore, 'sever', { before: char => [uidOf(char), !gore.owns(char) || !!gore.downed(char)], after: (cut, [uid, living], _char, region) => { if (cut) note(living ? 'sever' : 'corpseCut', { uid, region }); } });
   wrap(gore, 'knockdown', { before: char => [uidOf(char), !!gore.downed(char)], after: (ok, [uid, was]) => { if (ok && !was) note('knockdown', { uid }); } });
   for (const death of ['ragdoll', 'collapse', 'headshot', 'gib', 'slice', 'vaporize']) wrap(gore, death, { before: char => note('death', { uid: uidOf(char), how: death }) });
-  for (const fx of ['bloodPuff', 'bloodHit', 'bloodSpray', 'bloodMist']) wrap(ctx.fx, fx, { before: () => note(fx) });
+  // A round into the dead is each screen's own (corpses lie where that screen's gore left them), and the blood it knocks
+  // out is that corpse's: tagged with the body it came from, so a stray pellet of the shot under test that meets an older
+  // case's corpse on one screen is not counted as blood from the body under test. (It was: the "limb" case aims low, the
+  // earlier cases' dead lie round the same spot, and about one full run in nine a watcher counted two puffs too many.)
+  let corpse;
+  const hitCorpse = gore.damageCorpse;
+  gore.damageCorpse = function (hit, damage) {
+    const was = corpse;
+    corpse = hit?.handle?.char ? uidOf(hit.handle.char) : undefined;
+    try { return hitCorpse.call(this, hit, damage); } finally { corpse = was; }
+  };
+  for (const fx of ['bloodPuff', 'bloodHit', 'bloodSpray', 'bloodMist']) wrap(ctx.fx, fx, { before: () => note(fx, corpse === undefined ? undefined : { uid: corpse }) });
   wrap(ctx.fx, 'impact', { before: (_p, _n, surface) => { if (surface === 'armor') note('armourSparks'); } });
   const HEARD = /^(bullet_body|machine_hit|impact_armor|ricochet|limb_sever|limb_rip|headshot|headshot_crack|headshot_puff|hit_marker|hit_marker_head|hit_marker_kill|hit_confirm|hit_punch|gib_squelch|vox_scream|armour_stopped|armour_through|armour_broken|plate_destroyed)$/;
   wrap(ctx.audio, 'play', { before: id => { if (HEARD.test(id)) note('sound', { id }); } });

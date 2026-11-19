@@ -93,6 +93,11 @@ export class FarBatch {
     return this.room * (FarTuning.slotVerts * 24 + FarTuning.slotIndices * 4);
   }
 
+  /** The mesh every baked body is drawn in, once there is one: something in the scene for what belongs to them to hang on. */
+  get object(): THREE.Object3D | null {
+    return this.mesh;
+  }
+
   /** Bodies in the batch, and its triangles, for the overlay and checks. */
   count = 0;
   triangles = 0;

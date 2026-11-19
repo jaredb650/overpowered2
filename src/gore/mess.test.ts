@@ -24,7 +24,7 @@ let gore: Gore;
 const scene = new THREE.Scene();
 const player = { alive: true, position: v(50, 0, 50), velocity: v(0, 0, 0), eye: v(50, 1.7, 50) };
 const camera = new THREE.PerspectiveCamera(80, 16 / 9, 0.1, 500);
-const render = { scene, camera: null as THREE.PerspectiveCamera | null, decals: { add() {}, splat() {}, clear() {} } };
+const render = { scene, camera: null as THREE.PerspectiveCamera | null, decals: { add() {}, splat() {}, clear() {} }, lights: { flash() {} } };
 
 /** A dummy the far batch can take: it bakes to one triangle at its hips, and stands up again from its pose. */
 class BakeDummy extends TestDummy {
@@ -559,6 +559,99 @@ describe('loose pieces', () => {
   });
 });
 
+describe('what lies on the dead (pieces, trunk pieces and guts on a heap)', () => {
+  type Piece = { alive: boolean; kind: string; perched: boolean; restedAt: number; p: THREE.Vector3 };
+  const pieces = (): Piece[] => (gore.chunks as unknown as { all: Piece[] }).all.filter(c => c.alive);
+  type Strand = { alive: boolean; restAt: number; x: Float32Array };
+  const strands = (): Strand[] => (gore.ropes as unknown as { ropes: Strand[] }).ropes.filter(r => r.alive);
+  const top = (r: Strand): number => Math.max(...Array.from({ length: r.x.length / 3 }, (_, i) => r.x[i * 3 + 1]!));
+  /** A body at rest at (x, z), and the top of the capsule over its hips. */
+  function corpse(x: number, z: number): { c: TestDummy; at: THREE.Vector3 } {
+    const c = spawn(x, z);
+    gore.ragdoll(c);
+    settle();
+    return { c, at: hips(c) };
+  }
+  const shoot = (at: THREE.Vector3): void => {
+    const hit = gore.raycastCorpses(at.clone().add(v(0, 1.5, 0)), v(0, -1, 0), 4);
+    gore.damageCorpse(hit!, { ...pellet(hit!.point), force: 60, dir: v(1, 0.2, 0).normalize() });
+  };
+
+  /** Twelve lumps dropped over the middle of whatever is at (x, z), left to come to rest. Returns the highest of them. */
+  function drop(x: number, z: number): number {
+    for (let i = 0; i < 12; i++) gore.chunks.spawn('meat', x + ((i % 4) - 1.5) * 0.14, 1.3 + i * 0.05, z + (Math.floor(i / 4) - 1) * 0.14, 0, 0, 0, 0.06, undefined, 0);
+    run(300);
+    expect(gore.chunks.bodies).toBe(0);
+    return Math.max(...pieces().map(c => c.p.y));
+  }
+
+  it('loose pieces that come down on a heap lie on it, where they fell through every body to the floor', () => {
+    heap(8, 0, 60);
+    const high = drop(0, 60);
+    // The floor is at 0 and a lump this size lies about 4 cm up on it. One body is round and most of what lands on it
+    // rolls off; a heap holds some of it up.
+    expect(high).toBeGreaterThan(0.2);
+    const up = pieces().filter(c => c.p.y > 0.12);
+    expect(up.length).toBeGreaterThanOrEqual(3);
+    for (const piece of up) expect(piece.perched).toBe(true);
+    for (const piece of pieces().filter(c => c.p.y < 0.07)) expect(piece.perched).toBe(false);
+  });
+
+  it('and fall when the heap under them is blown apart', () => {
+    heap(8, 0, 64);
+    drop(0, 64);
+    const up = pieces().filter(c => c.p.y > 0.12).length;
+    expect(up).toBeGreaterThanOrEqual(3);
+    gore.blast(v(0, 0.2, 64), 4, 90);
+    // Each piece that lay on a body has a body of its own again, on this frame.
+    expect(gore.chunks.bodies).toBeGreaterThanOrEqual(up);
+    run(600);
+    settle(600);
+    run(300);
+    expect(gore.chunks.bodies).toBe(0);
+    // None is left in the air: whatever is still up lies on a body that is there now.
+    for (const piece of pieces().filter(c => c.p.y > 0.12)) expect(piece.perched).toBe(true);
+  });
+
+  it('without bodies that keep their capsules (?messrest=0) pieces fall through the dead, as before', () => {
+    MessTuning.rest = false;
+    heap(8, 0, 68);
+    expect(drop(0, 68)).toBeLessThan(0.08);
+  });
+
+  it('a strand of gut thrown onto a body at rest lies draped over it, and drops when the body goes', () => {
+    const { at } = corpse(0, 72);
+    gore.ropes.spill(v(at.x, at.y + 0.8, at.z), v(0.4, 0, 0), 1, 7);
+    run(300);
+    const [strand] = strands();
+    expect(strand!.restAt).toBeGreaterThanOrEqual(0);
+    // Some of it is up on the body: over a bare floor the whole strand lies under 6 cm.
+    expect(top(strand!)).toBeGreaterThan(at.y);
+    shoot(at);
+    expect(strand!.restAt).toBe(-1);
+    // The body is thrown clear of it by the round, and the strand comes down to the floor.
+    run(400);
+    const lying = hips((gore as unknown as { bodies: { char: TestDummy }[] }).bodies[0]!.char);
+    if (Math.hypot(lying.x - at.x, lying.z - at.z) > 0.8) expect(top(strand!)).toBeLessThan(0.1);
+  });
+
+  it('a trunk piece that comes to rest on a heap is woken when the heap goes from under it', () => {
+    heap(8, 0, 76);
+    const kit = new THREE.BoxGeometry(0.3, 0.2, 0.3);
+    const side = {
+      geometry: kit, origin: v(0, 0, 0), min: v(-0.15, -0.1, -0.15), max: v(0.15, 0.1, 0.15), capCenter: v(0, 0, 0),
+      hull: new Float32Array([-0.15, -0.1, -0.15, 0.15, -0.1, -0.15, -0.15, 0.1, -0.15, 0.15, 0.1, -0.15, -0.15, -0.1, 0.15, 0.15, -0.1, 0.15, -0.15, 0.1, 0.15, 0.15, 0.1, 0.15]),
+    };
+    const half = gore.sliced.throwPiece(side as never, new THREE.MeshBasicMaterial(), v(0, 1.4, 76), new THREE.Quaternion(), v(0, 0, 0), 0);
+    run(400);
+    expect(half.body).toBeNull();
+    // Its middle is 10 cm up when it lies on the floor.
+    expect(half.mesh.position.y).toBeGreaterThan(0.2);
+    gore.blast(v(0, 0.2, 76), 4, 90);
+    expect(half.body).not.toBeNull();
+  });
+});
+
 describe('the far batch', () => {
   const looks = (n = 1): void => run(Math.ceil(MessTuning.policyEvery * 60 * n) + 2);
   /** `count` bakeable bodies killed in rows and left until every one that is going to be baked has been. */
@@ -627,6 +720,67 @@ describe('the far batch', () => {
     expect(gore.stats().ragdolls).toBe(0);
     gore.damageCorpse(hit!, pellet(hit!.point));
     expect(gore.stats().ragdolls).toBe(1);
+  });
+
+  /** One body past the number drawn, the oldest of them burnt and burning, every other held: the burnt one is the one to bake. */
+  function burntField(): BakeDummy {
+    const drawn = messBudget().drawn;
+    const list = Array.from({ length: drawn + 1 }, (_, i) => spawnBake((i % 8) * 1.6, Math.floor(i / 8) * 2.2));
+    // Fire asks the camera how near each fire is: one far off, looking away.
+    camera.position.set(-40, 2, -40);
+    camera.updateMatrixWorld(true);
+    render.camera = camera;
+    const burnt = list[0]!;
+    burnt.setBurn(0.9);
+    gore.burnOn(burnt);
+    for (const c of list) gore.ragdoll(c);
+    for (const c of list.slice(1)) gore.hold(c, 1e6);
+    MessTuning.bakeAfter = 0;
+    return burnt;
+  }
+
+  it('a smouldering body goes on smoking while it is baked, and has its fire back when it is stood up', () => {
+    const burnt = burntField();
+    // While its flames are on it, it is not baked, whatever the cap says.
+    run(4 * 60);
+    expect(gore.fire.flaming(burnt)).toBe(true);
+    expect(gore.owns(burnt)).toBe(true);
+    // They die, it smoulders, and then it may be.
+    run(8 * 60);
+    settle(900);
+    looks(4);
+    expect(gore.owns(burnt)).toBe(false);
+    expect(gore.stats().far).toBe(1);
+    // Baked, it still smoulders: its fire is parked on where it lies.
+    expect(gore.fire.has(burnt)).toBe(false);
+    expect(gore.fire.stats()).toMatchObject({ alight: 0, smouldering: 1 });
+    const at = bonesOf(burnt)[0]!;
+    const hit = gore.raycastCorpses(at.clone().add(v(0, 1.5, 0)), v(0, -1, 0), 4);
+    const body = (hit!.handle as { char: BakeDummy }).char;
+    expect(body).not.toBe(burnt);
+    expect(gore.fire.has(body)).toBe(true);
+    expect(gore.fire.stats().smouldering).toBe(1);
+    // And it goes cold on the clock it was on: half a minute from when its flames went out, not from now.
+    run(31 * 60);
+    expect(gore.fire.stats().smouldering).toBe(0);
+    expect(body.ember).toBe(0);
+  });
+
+  it('a body that went cold while it was baked is stood up cold', () => {
+    const burnt = burntField();
+    run(12 * 60);
+    settle(900);
+    looks(4);
+    expect(gore.stats().far).toBe(1);
+    run(31 * 60);
+    expect(gore.fire.stats().smouldering).toBe(0);
+    const hit = gore.raycastCorpses(bonesOf(burnt)[0]!.clone().add(v(0, 1.5, 0)), v(0, -1, 0), 4);
+    const body = (hit!.handle as { char: BakeDummy }).char;
+    expect(gore.fire.has(body)).toBe(false);
+    // The snapshot's texels were taken while it glowed: a stood-up body with no fire left has its glow put out.
+    body.setEmber(0.4);
+    gore.fire.resume(null, body);
+    expect(body.ember).toBe(0);
   });
 
   it('is walked into like any other body: the baked one stands up and is shoved', () => {

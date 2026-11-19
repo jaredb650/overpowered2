@@ -198,6 +198,11 @@ export interface MessHost {
   removeLimb(limb: MessChain): void;
   sinkLimb(limb: MessChain): void;
   maxLimbs(): number;
+  /**
+   * A chain's capsules have left the world (it woke, sank, burst), and they filled this box: loose pieces, halves and
+   * strands of gut that lay on it have nothing under them now.
+   */
+  unsettled?(lo: THREE.Vector3, hi: THREE.Vector3): void;
 }
 
 interface Pending {
@@ -325,6 +330,7 @@ export class MessField {
     const t = MessTuning;
     const lo = rag.restMin;
     const hi = rag.restMax;
+    this.host.unsettled?.(lo, hi);
     const all = this.host.bodies as readonly MessChain[];
     for (let pass = 0; pass < 3; pass++) {
       const list = pass === 0 ? all : pass === 1 ? this.host.limbs : this.host.far;

@@ -16,6 +16,9 @@
 //              tencold the same ten men, not on fire (the bench's baseline)
 //              blast   a rocket's burn outcome
 //              burntgib a man burnt black on his feet, then blown apart by a rocket: his pieces
+//              burntslice a man alight, cut in two by a blade as he burns: both halves burn on (FIRE_CHAR: his char when cut, default 0.35)
+//              coldslice a man burnt black and cold, cut in two: burnt halves, no blood
+//              burntlimb a man burnt black, an arm shot off him, then the loose arm destroyed
 //   FIRE_DIST  metres from the eye (default 5)
 //   FIRE_TYPE  archetype (default trooper; husk for `zombie`)
 //   FIRE_SIDE  1: the camera stands off to the side instead of at the player's eye
@@ -27,6 +30,7 @@ const TYPE = process.env.FIRE_TYPE ?? (CASE === 'zombie' ? 'husk' : 'trooper');
 const SIDE = process.env.FIRE_SIDE === '1';
 const GUN = process.env.FIRE_GUN === '1';
 const YAW = Number(process.env.FIRE_YAW ?? 2.2);
+const CHAR = Number(process.env.FIRE_CHAR ?? 0.35);
 
 export default async function fireLook(page, h) {
   await page.waitForFunction(() => window.__op2?.ctx && window.__lab, null, { timeout: 120000 });
@@ -35,7 +39,7 @@ export default async function fireLook(page, h) {
   if (process.env.FIRE_TUNE) {
     await page.evaluate(async tune => Object.assign((await import('/src/gore/fire.ts')).FireTuning, JSON.parse(tune)), process.env.FIRE_TUNE);
   }
-  const out = await page.evaluate(([CASE, DIST, TYPE, SIDE, GUN, YAW]) => {
+  const out = await page.evaluate(([CASE, DIST, TYPE, SIDE, GUN, YAW, CHAR]) => {
     const { ctx } = window.__op2;
     const lab = window.__lab;
     const r = ctx.render;
@@ -82,7 +86,16 @@ export default async function fireLook(page, h) {
       const e = place(TYPE, at, ai);
       made.push(e);
       if (!e) return { error: 'no body' };
-      if (CASE === 'slow' || CASE === 'zombie' || CASE === 'panic' || CASE === 'limb' || CASE === 'burntgib') ctx.enemies.afflict(e, 'burn', CASE === 'zombie' ? 60 : 8);
+      if (CASE === 'slow' || CASE === 'zombie' || CASE === 'panic' || CASE === 'limb' || CASE === 'burntgib' || CASE === 'burntslice') ctx.enemies.afflict(e, 'burn', CASE === 'zombie' ? 60 : 8);
+      if (CASE === 'burntslice') {
+        e.health = e.maxHealth = 1e5;
+        e.charred = CHAR;
+      }
+      if (CASE === 'coldslice' || CASE === 'burntlimb') {
+        e.health = e.maxHealth = 1e5;
+        e.charred = 1;
+        e.char.setBurn(1);
+      }
       if (CASE === 'burntgib') {
         // Burnt black on his feet, then a rocket at his feet: what comes off him is burnt too.
         e.health = e.maxHealth = 1e5;
@@ -100,7 +113,7 @@ export default async function fireLook(page, h) {
     }
     p.pitch = -0.08 - 0.5 / Math.max(DIST, 2);
     return { type: made[0]?.def.id, at: [at.x, at.z], fire: ctx.gore.fire ? 'new' : 'old' };
-  }, [CASE, DIST, TYPE, SIDE, GUN, YAW]);
+  }, [CASE, DIST, TYPE, SIDE, GUN, YAW, CHAR]);
 
   // What happens after the first frame rides on the page's own frames, so the sheet's stepping drives it.
   await page.evaluate(([CASE]) => {
@@ -130,6 +143,27 @@ export default async function fireLook(page, h) {
         const V = ctx.player.position.constructor;
         const c = e.char.bones[2].getWorldPosition(new V());
         ctx.combat.explode(c.clone().setY(0.2), { radius: 5, damage: 400, kind: 'rocket', source: 'rocket', team: 'player' });
+      }
+      if ((CASE === 'burntslice' || CASE === 'coldslice') && !cut && t > 0.8) {
+        cut = true;
+        e.health = 1;
+        const V = ctx.player.position.constructor;
+        const point = e.char.bones[1].getWorldPosition(new V());
+        const dir = new V(1, 0, 0);
+        ctx.enemies.applyDamage(e, { amount: 1e4, type: 'slash', point, dir, force: 40, source: 'sword', slicePlaneNormal: new V(0.25, 1, 0.1).normalize() });
+      }
+      if (CASE === 'burntlimb' && !cut && t > 0.6) {
+        cut = true;
+        const V = ctx.player.position.constructor;
+        const point = e.char.bones[5].getWorldPosition(new V());
+        ctx.gore.sever(e.char, 'armL', { amount: 60, type: 'bullet', point, dir: new V(0.4, 0.3, -0.2).normalize(), force: 40, source: 'shotgun' });
+        state.limbAt = t;
+      }
+      if (CASE === 'burntlimb' && cut && !state.burst && t > state.limbAt + 1.6) {
+        state.burst = true;
+        const V = ctx.player.position.constructor;
+        const limb = ctx.gore.limbs[ctx.gore.limbs.length - 1];
+        if (limb) ctx.gore.burstLimb(limb, { amount: 500, type: 'bullet', point: limb.rag.center.clone(), dir: new V(0, 0, 1), force: 40, source: 'shotgun' });
       }
       if (CASE === 'limb' && !cut && t > 1.2) {
         cut = true;

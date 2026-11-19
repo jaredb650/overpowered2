@@ -14,6 +14,8 @@ import { RagTuning } from './rag';
 import { rigInfo } from './rigInfo';
 import { sear, type Sear } from './sear';
 import { TrailTuning, type GibTrail, type Ribbon } from './trail';
+import { burnTint, FireTuning, type BurningPiece } from './fire';
+import { cookable } from './cooked';
 
 export const SliceTuning = {
   /**
@@ -44,8 +46,11 @@ export const SliceTuning = {
   vapor: { seconds: [1.1, 1.4] as const, lift: 0.3, gravity: -0.03, drag: 1.3, rise: 0.6, ashEvery: 0.09 },
 };
 const _up = new THREE.Vector3(0, 1, 0);
+const _tint = new THREE.Color();
+const IDENTITY = new THREE.Matrix4();
 
-export class Half {
+/** A half or a trunk piece. It can burn (`BurningPiece`: gore/fire.ts), drawn charred by its instance colour. */
+export class Half implements BurningPiece {
   body: RAPIER.RigidBody | null = null;
   emitter: EmitterHandle | null = null;
   calm = 0;
@@ -71,7 +76,32 @@ export class Half {
   readonly p = new THREE.Vector3();
   readonly q = new THREE.Quaternion();
   readonly v = new THREE.Vector3();
+  /** 0..1 char: the body's when it was cut, and on from there if it is burning. */
+  burn = 0;
   constructor(readonly mesh: THREE.Mesh, readonly side: CutSide) {}
+
+  get root(): THREE.Object3D {
+    return this.mesh;
+  }
+  get min(): THREE.Vector3 {
+    return this.side.min;
+  }
+  get max(): THREE.Vector3 {
+    return this.side.max;
+  }
+  /** Burnt past the soot line: it has no blood left to spray, trail or pool. */
+  get dry(): boolean {
+    return this.burn >= FireTuning.sootFrom;
+  }
+
+  /** Only a piece made to burn (`SliceField.meshFor`) has a colour to write it in. */
+  setBurn(amount: number): void {
+    const mesh = this.mesh as THREE.InstancedMesh;
+    if (!mesh.isInstancedMesh) return;
+    this.burn = amount;
+    mesh.setColorAt(0, burnTint(_tint, amount));
+    mesh.instanceColor!.needsUpdate = true;
+  }
 }
 
 const _v = new THREE.Vector3();
@@ -130,6 +160,8 @@ export class SliceField {
       // matt dark red face on a dark floor read as nothing (the gore update's G2).
       emissive: new THREE.Color(0x2c0406),
     });
+    // The cut face of a burnt piece is cooked, not wet (cooked.ts).
+    cookable(m);
     this.capMaterial = this.ctx.render.materials?.patch ? this.ctx.render.materials.patch(m) ?? m : m;
     return this.capMaterial;
   }
@@ -163,8 +195,26 @@ export class SliceField {
     return out;
   }
 
-  cut(char: CharacterInstance, point: THREE.Vector3, normal: THREE.Vector3, damage: DamageInfo): void {
+  /**
+   * The mesh a piece is drawn as. One of a body with any char on it (`burn`), or with flames on it, is an instanced mesh
+   * of one: an instance has a colour of its own, which is where a rigid piece's char is kept (`burnTint`), so a burnt
+   * body's halves are burnt and can burn on. Anything else is the plain mesh it always was.
+   */
+  private meshFor(side: CutSide, skin: THREE.Material, burn: number): THREE.Mesh {
+    if (burn <= 0) return new THREE.Mesh(side.geometry, [skin, this.cap()]);
+    const mesh = new THREE.InstancedMesh(side.geometry, [skin, this.cap()], 1);
+    mesh.setMatrixAt(0, IDENTITY);
+    mesh.setColorAt(0, burnTint(_tint, burn));
+    return mesh;
+  }
+
+  /**
+   * Cuts `char` in two (or more) along the plane and returns the pieces. `burn` is the char on the body, 0..1: its
+   * halves are as burnt, and one burnt past the soot line spills no blood.
+   */
+  cut(char: CharacterInstance, point: THREE.Vector3, normal: THREE.Vector3, damage: DamageInfo, burn = 0): Half[] {
     const { fx } = this.ctx;
+    const made = this.halves.length;
     const geometry = char.bakePose();
     const n = _v.copy(normal).normalize().clone();
     let weld = this.welds.get(char.rig);
@@ -182,7 +232,7 @@ export class SliceField {
     }
     this.lastCutMs = performance.now() - started;
     geometry.dispose();
-    if (result.above.length === 0 || result.below.length === 0) return;
+    if (result.above.length === 0 || result.below.length === 0) return [];
 
     // Which way the upper piece slides: downhill along the plane, or with the blade on a flat cut.
     const slide = _v2.set(0, -1, 0).addScaledVector(n, n.y);
@@ -192,11 +242,15 @@ export class SliceField {
     const aboveIsUpper = result.above[0]!.origin.y >= result.below[0]!.origin.y;
 
     const skin = char.skinMaterial;
-    result.above.forEach((side, i) => this.spawn(side, skin, slide, n, 1, damage, aboveIsUpper && i === 0));
-    result.below.forEach((side, i) => this.spawn(side, skin, slide, n, -1, damage, !aboveIsUpper && i === 0));
+    result.above.forEach((side, i) => this.spawn(side, skin, slide, n, 1, damage, aboveIsUpper && i === 0, burn));
+    result.below.forEach((side, i) => this.spawn(side, skin, slide, n, -1, damage, !aboveIsUpper && i === 0, burn));
+    const pieces = this.halves.slice(made);
 
     const at = _o.copy(point);
-    if (damage.vaporize) {
+    if (burn >= FireTuning.sootFrom && !damage.vaporize) {
+      // Cooked through: the blade opens dry, dark meat. A breath of ash where it passed, and nothing runs.
+      fx.embers(at, 4, 0.3);
+    } else if (damage.vaporize) {
       // Cauterized: no blood, a spit of molten sparks along the cut and a flash.
       fx.sparks(at, n, 14, 0xffb060);
       fx.sparks(at, _d.copy(n).negate(), 14, 0xffb060);
@@ -210,13 +264,14 @@ export class SliceField {
       this.blood.spray(at, damage.dir, 10, 9, 0.5, 0.12);
     }
     this.enforce();
+    return pieces;
   }
 
-  private spawn(side: CutSide, skin: THREE.Material, slide: THREE.Vector3, n: THREE.Vector3, sign: number, damage: DamageInfo, upper: boolean): void {
+  private spawn(side: CutSide, skin: THREE.Material, slide: THREE.Vector3, n: THREE.Vector3, sign: number, damage: DamageInfo, upper: boolean, char = 0): void {
     const { R, world } = this.ctx.physics;
     // A half is placed unturned at its origin, so the cut lies through its cap's centre along `n` in its own frame too.
     const burn = damage.vaporize ? sear(skin, this.cap(), n, side.capCenter) : null;
-    const mesh = new THREE.Mesh(side.geometry, burn ? burn.materials : [skin, this.cap()]);
+    const mesh = burn ? new THREE.Mesh(side.geometry, burn.materials) : this.meshFor(side, skin, char);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     mesh.position.copy(side.origin);
@@ -244,6 +299,7 @@ export class SliceField {
     const half = new Half(mesh, side);
     half.born = this.ctx.time.elapsed;
     half.body = body;
+    half.burn = burn ? 0 : char;
     half.releaseAt = this.ctx.time.elapsed + SliceTuning.holdSeconds;
     if (upper) half.slide.copy(slide).multiplyScalar(SliceTuning.slideSpeed);
     half.slide.addScaledVector(n, sign * SliceTuning.partSpeed);
@@ -254,7 +310,8 @@ export class SliceField {
       half.vaporFor = rand(SliceTuning.vapor.seconds[0], SliceTuning.vapor.seconds[1]);
       // It burns away before it would bleed or pool.
       half.pooled = true;
-    } else half.emitter = this.ctx.fx.attachEmitter(mesh, 'stumpSpray', side.capCenter, 3.5) ?? null;
+    } else if (half.dry) half.pooled = true;
+    else half.emitter = this.ctx.fx.attachEmitter(mesh, 'stumpSpray', side.capCenter, 3.5) ?? null;
     this.halves.push(half);
   }
 
@@ -262,9 +319,9 @@ export class SliceField {
    * A broken piece of a trunk (torso.ts), thrown from where it sits at `p`, `q`. Its geometry is the kit's and stays. `v`
    * is at full gravity: under the tempo dial it is slowed by its square root, as a limb's throw is, so it lands as far.
    */
-  throwPiece(side: CutSide, skin: THREE.Material, p: THREE.Vector3, q: THREE.Quaternion, v: THREE.Vector3, spin: number): Half {
+  throwPiece(side: CutSide, skin: THREE.Material, p: THREE.Vector3, q: THREE.Quaternion, v: THREE.Vector3, spin: number, burn = 0): Half {
     const { R, world } = this.ctx.physics;
-    const mesh = new THREE.Mesh(side.geometry, [skin, this.cap()]);
+    const mesh = this.meshFor(side, skin, burn);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     mesh.position.copy(p);
@@ -292,8 +349,13 @@ export class SliceField {
     half.born = this.ctx.time.elapsed;
     half.shared = true;
     half.body = body;
-    half.emitter = this.ctx.fx.attachEmitter(mesh, 'stumpSpray', side.capCenter, 2.5) ?? null;
-    half.ribbon = this.trail?.open(half) ?? null;
+    half.burn = burn;
+    // A piece of a burnt body is cooked through: it sprays, trails and pools nothing.
+    if (half.dry) half.pooled = true;
+    else {
+      half.emitter = this.ctx.fx.attachEmitter(mesh, 'stumpSpray', side.capCenter, 2.5) ?? null;
+      half.ribbon = this.trail?.open(half) ?? null;
+    }
     this.halves.push(half);
     this.enforce();
     return half;
@@ -548,6 +610,23 @@ export class SliceField {
       if (have >= want) continue;
       const j = (want - have) * body.mass();
       body.applyImpulse(_v.set(ux * j, j * 0.2, uz * j), true);
+    }
+    return n;
+  }
+
+  /**
+   * A body at rest whose capsules filled the box `lo`..`hi` has gone from under whatever lay on it: each piece at rest
+   * there that is not on the floor's own level is woken, and falls. Returns how many.
+   */
+  unsettle(lo: THREE.Vector3, hi: THREE.Vector3): number {
+    let n = 0;
+    for (let i = 0; i < this.halves.length && n < 3; i++) {
+      const h = this.halves[i]!;
+      if (h.body || h.sinking >= 0 || h.vapor >= 0) continue;
+      const p = h.mesh.position;
+      if (p.x < lo.x - 0.3 || p.x > hi.x + 0.3 || p.z < lo.z - 0.3 || p.z > hi.z + 0.3 || p.y < lo.y || p.y > hi.y + 0.8) continue;
+      this.wake(h);
+      n++;
     }
     return n;
   }

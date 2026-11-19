@@ -323,7 +323,9 @@ export class Replicas implements WorldModule {
         owed = true;
         if (replica.severAt === 0 || now - replica.severAt < SEVER_WAIT_MS) continue;
         const damage: DamageInfo = { amount: 1, type: 'slash', point: enemy.center.clone(), dir: new THREE.Vector3(0, 1, 0), force: 1, source: 'coop' };
-        ctx.gore.sever(enemy.char, REGIONS[index]!, damage);
+        // And what is left of the body is read again, as the event's own path does (DamageModel.sever): a limb that only
+        // dropped left the copy counting arms and legs it no longer had.
+        if (ctx.gore.sever(enemy.char, REGIONS[index]!, damage)) (manager as { model?: { updateMaim?(e: Enemy): void } }).model?.updateMaim?.(enemy);
       }
       replica.severAt = owed ? replica.severAt || now : 0;
       const frozen = (flags & FROZEN) !== 0;

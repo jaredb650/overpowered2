@@ -354,6 +354,8 @@ export interface CharacterInstance {
   /** How far the fire has burnt through the skin, 0 to 1: charred muscle, then bone, where it has burnt longest. */
   setBurnThrough?(amount: number): void;
   readonly burnThrough?: number;
+  /** An organ has been thrown out of this body: it is no longer drawn inside it. `left` chooses the lung. */
+  takeOrgan?(organ: 'lung' | 'heart' | 'liver' | 'stomach', left?: boolean): void;
   /** Emissive flash on hit. */
   hitFlash(intensity: number): void;
   /** Attaches a prop (gun, shield) to a bone. Falls with the bone when severed. */

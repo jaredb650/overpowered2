@@ -58,7 +58,12 @@ export interface RagBuild {
 }
 
 /** What a chain at rest is to the bodies that land on it: the ragdolls' own group, and nothing else ever meets it. */
-const REST_GROUPS = groups(CG.Ragdoll, CG.Ragdoll | CG.Gib);
+/**
+ * A body at rest meets other bodies, limbs and halves (which are `Ragdoll` and `Gib`), and loose pieces (`Debris`:
+ * chunks.ts gives them `Ragdoll` to meet in return), so meat, organs and ribs lie on a heap and not under it. Nothing
+ * living, no bullet and no player: none of those has `Ragdoll` in what it meets.
+ */
+const REST_GROUPS = groups(CG.Ragdoll, CG.Ragdoll | CG.Gib | CG.Debris);
 
 const tempoFlag = typeof location === 'undefined' ? null : new URLSearchParams(location.search).get('raggrav');
 /** `?raggrav=0.75` sets the tempo dial at load, held to 0.5..1. Left out, or not a number, it is 1. */

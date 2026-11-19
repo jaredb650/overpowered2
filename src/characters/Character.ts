@@ -3,32 +3,29 @@ import * as THREE from 'three';
 import type { CharacterInstance, SeveredLimb, WoundHit } from '../core/contracts';
 import { HumanoidBone as H, type GoreRegion, type RigDef } from './rig';
 import type { LoadedModel } from './model';
-import { BONE_TEXTURE_SIZE, EXTRA_FIRE, EXTRA_INFO, EXTRA_PARAMS, EXTRA_TEXELS, EXTRA_WEAR, EXTRA_WOUNDS } from './anatomy/glsl';
-import { WearBook, type WearKindId } from './anatomy/wear';
+import { BONE_TEXTURE_SIZE, EXTRA_FIRE, EXTRA_INFO, EXTRA_PARAMS, EXTRA_TEXELS, EXTRA_WEAR, EXTRA_WOUNDS, REGION_OF } from './anatomy/glsl';
+import { WearBook, WearKind, type WearKindId } from './anatomy/wear';
+import { Organ } from './anatomy/build';
 import { FracturePose, type FractureStyle } from './anatomy/fracture';
 import { newWoundSpec, STAIN_MARGIN, STAIN_RADII, WOUND_TEXELS, WoundBook, WoundKind, WoundRegion, type WoundKindId } from './anatomy/wounds';
 import type { CorpseSnapshot, FarBuffers } from '../gore/far';
 import { createAnimator, type PooledAnimation } from './animation/index';
 import type { ArchetypeDef } from './archetypes';
-import { charredVariant } from './material';
+import { charredVariant, FIRE_REACH, unburntVariant } from './material';
 
 /** Char past which the kit a body carries (helmet, gun, pack) is burnt black with it. */
 const KIT_CHARS_AT = 0.55;
 
-/** Swaps every mesh under `object` to its burnt material, or back. */
-function charKit(object: THREE.Object3D, on: boolean): void {
+/**
+ * Swaps every mesh under `object` to its burnt material, or back. Which is which is the material's own business
+ * (`charredVariant`, `unburntVariant`): nothing is written on the mesh, so a clone of burnt kit is burnt kit that can be
+ * unburnt like any other, however it was cloned.
+ */
+export function charKit(object: THREE.Object3D, on: boolean): void {
   object.traverse(o => {
     const mesh = o as THREE.Mesh;
     if (!mesh.isMesh || Array.isArray(mesh.material)) return;
-    if (on) {
-      const twin = charredVariant(mesh.material);
-      if (twin === mesh.material) return;
-      mesh.userData.unburnt = mesh.material;
-      mesh.material = twin;
-    } else if (mesh.userData.unburnt) {
-      mesh.material = mesh.userData.unburnt as THREE.Material;
-      mesh.userData.unburnt = undefined;
-    }
+    mesh.material = on ? charredVariant(mesh.material) : unburntVariant(mesh.material);
   });
 }
 
@@ -193,29 +190,22 @@ function makeBacking(a: ArchetypeData, geometry: THREE.BufferGeometry, skeleton:
 
 const NOTHING = { verts: 0, indices: 0 } as const;
 
-/**
- * A copy of something a body wears, for a body that will outlive this instance. three's `clone` copies `userData` through
- * JSON, and a burnt kit keeps the material it had in there (`charKit`): put back from a JSON copy, that is not a material
- * and the next frame cannot be drawn. So each copy is given its original's `userData` as it is, references and all.
- */
-function cloneKit(object: THREE.Object3D): THREE.Object3D {
-  const copy = object.clone();
-  const from: THREE.Object3D[] = [];
-  object.traverse(o => from.push(o));
-  let i = 0;
-  copy.traverse(o => {
-    const src = from[i++];
-    if (src) o.userData = { ...src.userData };
-  });
-  return copy;
-}
-
 /** A wear book's own count, set aside: the texels it describes are kept with the rest of the surface. */
 function copyWear(from: WearBook): WearBook {
   const keep = new WearBook(new Float32Array(0), 0, () => {});
   keep.adopt(from);
   return keep;
 }
+const smooth = (a: number, b: number, x: number): number => {
+  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+};
+/**
+ * What fire leaves of the flesh and bone it bares, as a baked body's vertex colour (bytes, before the shader's lift):
+ * the skin shader's SKIN_GONE at `sChar` 0.95, worked back through its curve. Keep in step with it.
+ */
+const FAR_COOKED = [37, 20, 19] as const;
+const FAR_COOKED_BONE = [50, 45, 40] as const;
 let farLive = new Uint8Array(4096);
 const farE = new Float64Array(12);
 const farTables = new WeakMap<THREE.BufferGeometry, { verts: Uint32Array; index: Uint32Array }>();
@@ -588,6 +578,21 @@ export class Character implements CharacterInstance {
     this.data[this.extras + EXTRA_FIRE * 4 + 4] = heat;
   }
 
+  /**
+   * An organ has been thrown out of this body (a blow-out): it is no longer drawn inside it. `left` chooses the lung.
+   * Kept in the body's texels, so it goes with a baked body's snapshot and with a top half cut from it, and ends at reset.
+   */
+  takeOrgan(organ: 'lung' | 'heart' | 'liver' | 'stomach', left = false): void {
+    const id = organ === 'lung' ? (left ? Organ.lungL : Organ.lungR) : Organ[organ];
+    const at = this.extras + EXTRA_FIRE * 4 + 6;
+    this.data[at] = (this.data[at]! | 0) | (1 << id);
+  }
+
+  /** The organs thrown out of it so far, a bit each (`Organ`). */
+  get organsGone(): number {
+    return this.data[this.extras + EXTRA_FIRE * 4 + 6]! | 0;
+  }
+
   /** 0..1 ice coverage, for Frost Nova. */
   setFrost(amount: number): void {
     this.data[this.extras + EXTRA_PARAMS * 4 + 3] = amount;
@@ -670,7 +675,7 @@ export class Character implements CharacterInstance {
       // A stand-in is this body's alone and leaves the instance at its reset, so it is carried as it is. Gear is the
       // instance's for good: a copy is carried, as a severed limb carries one.
       if (p.untilReset) standIns.push({ bone: p.bone, object: p.object, folds: this.skeleton.boneInverses[p.bone] !== this.a.bindInverses[p.bone] });
-      else gear.push({ bone: p.bone, object: cloneKit(p.object) });
+      else gear.push({ bone: p.bone, object: p.object.clone() });
     }
     const q = this.root.quaternion;
     const at = this.root.position;
@@ -738,6 +743,14 @@ export class Character implements CharacterInstance {
     const params = this.extras + EXTRA_PARAMS * 4;
     const wet = this.a.interior ? Math.min(1, d[params]!) : 0;
     const burn = Math.min(1, Math.max(0, d[params + 2]!));
+    // Where the fire caught and how far it has burnt through the skin, and whether any limb is worn: all three are the
+    // skin shader's to draw from texels, and painted here as its far level draws them (material.ts, OP2_FAR).
+    const fire = this.extras + EXTRA_FIRE * 4;
+    const fx = d[fire]!, fy = d[fire + 1]!, fz = d[fire + 2]!;
+    const caught = d[fire + 3]! > 0.5;
+    const eaten = this.a.interior ? d[fire + 5]! : 0;
+    const worn = this.a.interior && d[this.extras + EXTRA_INFO * 4 + 3]! > 0;
+    const wearAt = this.extras + EXTRA_WEAR * 4;
     const wounds = this.a.interior ? this.book.count : 0;
     const w0 = this.extras + EXTRA_WOUNDS * 4;
     const n = far.verts.length;
@@ -793,13 +806,65 @@ export class Character implements CharacterInstance {
       r8 += (104 - r8) * blood; g8 += (7 - g8) * blood; b8 += (9 - b8) * blood;
       // The wound itself is dark and deep.
       r8 += (40 - r8) * hole; g8 += (2 - g8) * hole; b8 += (4 - b8) * hole;
-      r8 += (16 - r8) * burn; g8 += (13 - g8) * burn; b8 += (12 - b8) * burn;
+      // Char: all over at once, or walking out from where the fire caught, as the shader's far level has it (its noise
+      // there is its middle value, 0.5).
+      const from = caught ? Math.min(1, Math.hypot(x - fx, y - fy, z - fz) / FIRE_REACH) : 0.45;
+      const charred = burn <= 0.001 ? 0 : smooth(-0.1, 0.08, burn * 1.45 - 0.2 - (caught ? 0.21 + from * 0.72 : 0.5));
+      r8 += (16 - r8) * charred; g8 += (13 - g8) * charred; b8 += (12 - b8) * charred;
+      // Skin gone (material.ts, SKIN_GONE): how far through it this vertex is, by its limb's wear and by the fire, and
+      // whether what shows is raw or cooked.
+      let through = -1;
+      let cooked = 0;
+      if (worn) {
+        let amount = 0, kind = 0, own = -1, region = -1;
+        for (let j = 0; j < 4; j++) {
+          const b = si[i * 4 + j]!;
+          const w = sw[i * 4 + j]! / 255;
+          if (b >= REGION_OF.length || w <= 0) continue;
+          const reg = REGION_OF[b]!;
+          if (reg < 0) continue;
+          const v = d[wearAt + (reg >> 2) * 4 + (reg & 3)]!;
+          const kd = Math.floor(v * 0.5);
+          const a = (v - kd * 2) * smooth(0.04, 0.3, w);
+          if (a > amount) { amount = a; kind = kd; own = b; region = reg; }
+        }
+        if (amount > 0.01 && kind !== WearKind.burn) {
+          let parent = 0;
+          for (let j = 0; j < 4; j++) {
+            const b = si[i * 4 + j]!;
+            if (b < REGION_OF.length && b < own && REGION_OF[b] !== region) parent += sw[i * 4 + j]! / 255;
+          }
+          through = amount * 0.9 + smooth(0.08, 0.42, parent) * smooth(0.5, 1, amount) * 0.4 - 0.42;
+          cooked = kind === WearKind.strip ? 0.5 : 0;
+        }
+      }
+      if (eaten > 0.004 && mat[i * 4 + 1]! <= 127) {
+        const depth = (eaten * 0.8 - from * 0.4 - 0.35) * 1.3;
+        if (depth > through) { through = depth; cooked = 0.95; }
+      }
+      let gone = 0;
+      if (through > -0.1) {
+        const bruise = smooth(-0.1, 0, through) * 0.72;
+        r8 += (48 - r8) * bruise; g8 += (17 - g8) * bruise; b8 += (23 - b8) * bruise;
+        gone = smooth(0, 0.028, through);
+        const meat = smooth(0.12, 0.24, through) * 0.5;
+        const bone = smooth(0.5, 0.57, through);
+        // Raw muscle, darker deep in, then bone with blood on it; cooked, the same gone dark and dry.
+        let ur = 86 + (59 - 86) * meat, ug = 24 + (21 - 24) * meat, ub = 24 + (21 - 24) * meat;
+        ur += (133 - ur) * bone; ug += (123 - ug) * bone; ub += (111 - ub) * bone;
+        const dark = cooked * (1 - bone * 0.45);
+        ur += (FAR_COOKED[0] + (FAR_COOKED_BONE[0] - FAR_COOKED[0]) * bone - ur) * dark;
+        ug += (FAR_COOKED[1] + (FAR_COOKED_BONE[1] - FAR_COOKED[1]) * bone - ug) * dark;
+        ub += (FAR_COOKED[2] + (FAR_COOKED_BONE[2] - FAR_COOKED[2]) * bone - ub) * dark;
+        r8 += (ur - r8) * gone; g8 += (ug - g8) * gone; b8 += (ub - b8) * gone;
+      }
       out.color[c] = r8; out.color[c + 1] = g8; out.color[c + 2] = b8; out.color[c + 3] = col[i * 4 + 3]!;
-      // Wet blood shines, char does not; bloodied metal is no longer bare metal.
+      // Wet blood shines, char does not; bloodied metal is no longer bare metal; bared flesh is wet unless it is cooked.
       const rough = mat[i * 4]!;
-      out.mat[c] = rough + (70 - rough) * blood * (1 - burn) + (235 - rough) * burn;
-      out.mat[c + 1] = mat[i * 4 + 1]! * (1 - Math.max(blood, burn));
-      out.mat[c + 2] = mat[i * 4 + 2]! * (1 - burn);
+      const dull = rough + (70 - rough) * blood * (1 - charred) + (235 - rough) * charred;
+      out.mat[c] = dull + ((cooked > 0.5 ? 150 : 80) - dull) * gone;
+      out.mat[c + 1] = mat[i * 4 + 1]! * (1 - Math.max(blood, charred, gone));
+      out.mat[c + 2] = mat[i * 4 + 2]! * (1 - Math.max(charred, gone));
       out.mat[c + 3] = mat[i * 4 + 3]!;
     }
     let indices = 0;

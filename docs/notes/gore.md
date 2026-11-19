@@ -437,9 +437,11 @@ flight and comes down laid across what is there; as a coil it landed in a heap, 
 strand **drapes**: each point rides the top of whatever is under it, as before, and
 now a point that comes down on something standing `snagStep` (0.3 m) or more over the floor beside it (a ledge, a rail, a
 crate, a parapet) is **caught** there, two points a strand at most, and the rest hangs off it; in flight two points a frame
-are tested along their own step, so a strand thrown at a wall slaps it, wets it (`bleedAt`) and slides down. Not done:
-strands do not rest on corpses (a body at rest has no collider yet: agent "mess" is adding them, and the strands' rays
-would then only need `CG.Ragdoll` added to their mask). Guts spilling from a living or dying man are unchanged.
+are tested along their own step, so a strand thrown at a wall slaps it, wets it (`bleedAt`) and slides down. **A loose
+strand lies on the dead as on anything else** (`DRAPE_ON` in `rope.ts`: its floor rays meet the world and `CG.Ragdoll`,
+which is every body at rest by its fixed capsules, and a ragdoll or a trunk piece still moving); a heap 0.3 m or more
+over the floor beside it catches a strand as a ledge does. A strand still hanging out of a body finds only the world.
+Guts spilling from a living or dying man are unchanged.
 
 **Organs you notice (`OrganTuning` in `chunks.ts`).** Half as big again (lung 15 cm, liver 14, stomach 11.7, heart 9),
 brighter and wetter (roughness 0.1, a stronger glow, redder liver and heart). Each is soft: what it loses in speed on
@@ -448,9 +450,12 @@ along the world's up and spreads it, whichever way it lies; at rest it sags a fi
 when a piece lands within 1.3 m; a player who walks into it kicks it along (within 0.5 m, at 0.9 of his speed and a little
 aside, once every half second); and one **stepped on** (the feet within 20 cm of it and moving) or **shot** (it is in
 `raycastCorpses`, so every gun that can hit a corpse can hit it) **bursts**: a splat on the floor, a puff, four scraps, a
-squelch. Bursting is how an organ leaves the world: one whose slot is wanted bursts where it lies too. Not done: an organ
-thrown out of a blow-out is still drawn inside the opened chest (the interior is one mesh an archetype, with no switch an
-organ; it needs a bit in the body's data texture, which the fire and wear lanes are spending now).
+squelch. Bursting is how an organ leaves the world: one whose slot is wanted bursts where it lies too. **The organ a
+blow-out throws is gone from the chest it came out of** (`Character.takeOrgan`): the lung on the side the round left by,
+the heart, the liver or the stomach. Each has a number in what is under the skin (`Organ` in `anatomy/build.ts`, above
+the part in the vertex's code, as a shard has its joint), and the body's texels say which have gone, a bit each, in a
+spare channel of fire's second texel (no texel spent: 5 are still free). It goes with a baked body's snapshot and with
+a top half cut from the body, and ends at reset.
 
 **Over the cap on moving pieces** (`ChunkTuning.maxBodies`, 72: three full gibs are exactly that), the oldest piece in
 flight used to give its body up and stop where it was, which with pieces thrown high for a second was in mid-air, for good.
@@ -645,9 +650,15 @@ gore.fire.stats();                    // { alight, smouldering, licks } for chec
   gibbed, sliced, vaporized or taken back by the library is dropped that frame.
 - **Limbs:** `sever` and `gib` call `fire.split`: a limb off a burning or smoking body carries on as its own entry
   (`limbBurn` 3 to 5 s, then the same smoulder), with the body's char on its skin.
-- **Soot for blood.** A sooted body or limb leaves a scorch and two smaller soot marks where it lies (`FireField.scorch`,
-  the `scorch` decal until the decal lane draws a soot shape), laid 0.7 s after death once it is within 45 cm of the floor, or
-  when it freezes. It gets no blood pool (`freezeBody`, `freezeLimb`) and smears no blood as it slides.
+- **Soot for blood.** A sooted body leaves the decal sheet's own soot shape where it lies (`FireField.scorch`): one
+  `soot` stain 1.3 times the mark's size, turned the way the body lies, a small `scorch` (0.55) for the burnt middle and a
+  second `soot` off to one side; a limb or a piece (a mark under 0.9 m) leaves one `soot`. Laid 0.7 s after death once it
+  is within 45 cm of the floor, or when it freezes. It gets no blood pool (`freezeBody`, `freezeLimb`) and smears no
+  blood as it slides.
+- **A burnt body is dry (`FireTuning.sootFrom`, char 0.5).** Past the soot line nothing red comes out of it, alive or
+  dead: a round knocks ash and an ember or two out of it (`Gore.ashPuff`) where it would have thrown a puff and a spray;
+  a limb cut from it has no blood trail, no ribbon and no spurt from either end, and thuds without a stain; a gut shot
+  spills nothing and a blow-out throws dark meat; its organs crumble instead of splashing.
 - **Light and heat.** The nearest 3 flaming things (`lights`) throw a flickering orange light: a `lights.flash` of 2.6 to 4.6
   cd, 6.5 m, every 0.11 to 0.2 s, each lasting 0.26 s, so about one and a half are alive per body. The nearest 3 also get a heat
   shimmer every 0.45 s. A burning corpse among the nearest 6 has an additive glow on the floor under it.
@@ -668,11 +679,30 @@ gore.fire.stats();                    // { alight, smouldering, licks } for chec
   Gore does not freeze a body while `fire.curling(char)` (`freezable`, and the settle check in `update`); 20% of the burn
   later (`curlHold`) it is let go and freezes as any body does, which is what holds the pose. Flesh humanoids only. A limb
   pinned under the body stays where it is.
-- **A burnt body's pieces are dark (F3).** `Gore.gib` sets `chunks.char` to the body's char round its spawns, and
-  `ChunkField.spawn` tints each piece toward black by it through the instance colour (every chunk mesh has one from the
-  start, white). Limbs thrown off carry the body's skin and burn on. Not tinted: the slabs' skin side and the trunk's big
-  pieces (they draw with the body's own skin material, which does not read an instance colour), and the blood a gib
-  throws is as red as ever.
+- **A burnt body's pieces are burnt (F3, and the fit pass).** Every rigid piece of a body is drawn as an instance, and
+  its instance colour says how burnt it is (`burnTint` in `fire.ts`: white is not at all). `Gore.gib`, `burstLimb` and
+  `blowOut` set `chunks.char` to the body's char round their spawns. Three things read that colour: the skin's own
+  material burns the piece as it burns a body, through the same noise, cold (`characters/material.ts`, "a rigid piece of
+  a burnt body": the slabs' skin side, a limb's parts, the trunk's pieces, a blade's halves); the wet materials of loose
+  meat, organs and every cut face cook to dry brown-black with no shine and no glow of their own (`cooked.ts`,
+  `cookable`); and anything else is simply darkened. A piece off a body burnt past the soot line is **dry**
+  (`Chunk.dry`, `Half.dry`): no ribbon, no strands, no drips, no stain where it lands. A dry body's burst throws no blood
+  at all (no burst stain, jets, rays or pool, and no strands of gut): ash and embers where it burst and soot on the floor
+  under it (`FireField.sootAt`). Limbs thrown off carry the body's skin and burn on, as before.
+- **Burst or cut while it burns, the pieces burn on.** A trunk piece or a blade's half is a `BurningPiece` (`sliced.ts`
+  `Half`): an instanced mesh of one when its body had any char or flames (`SliceField.meshFor`; a plain mesh otherwise,
+  as before). `FireField.pieceOf(char, piece, share)` gives it its body's fire: flames off its own box for `limbBurn`
+  (3 to 5 s) with its char rising to 1, then the same smoulder, and soot where it comes to rest. A blade through a
+  burning man leaves two burning halves (0.6 of a body's fire each); a rocket through one throws his trunk's pieces out
+  alight (0.35 each). A cold burnt corpse cut in two is two burnt, dry halves with no fire. The energy blade's
+  vaporizing cut is unchanged.
+- **Baked, a burnt body keeps what it had.** The far batch (below) paints into a baked body's vertices what the skin
+  shader's far level would have drawn from its texels: char walking out from where the fire caught, the skin burnt
+  through to cooked muscle and bone, and each limb's wear (`Character.bakeFar`). A body still smouldering when it is
+  baked goes on smoking where it lies (`FireField.park`: threads of smoke off the points its capsules rest at), and has
+  its fire back where it had got to when it is stood up again (`resume`); gone cold meanwhile, the glow its skin was
+  baked with is put out. Its curl is its pose, which a bake keeps. What a baked body does not have is the glow in its
+  cracks: a baked body has no texels to glow from, and most of that glow is gone 8 s into the smoulder.
 - **The switch:** `DevFlags.fire` (`?fire=0`, and "New fire" in the dev panel) turns all of it off and gives fire as it was:
   a timer, one emitter on the chest, out at death, a blood pool. The skin's char is drawn by the new shader either way.
 
@@ -929,9 +959,9 @@ Shared 8 GB M1 under load average around 18, so treat these as upper bounds.
 
 **A body at rest is not a ghost.** When a chain freezes (`freezeBody`, `freezeLimb`), its rigid bodies leave the world as
 before, and a **fixed capsule is left where each of its capsules lay**: the same shapes in the same places, in the
-ragdolls' own collision group (`CG.Ragdoll` against `CG.Ragdoll | CG.Gib`). So the next body lands on it and a heap is as
-high as its bodies. They meet nothing else: not the player (whose capsule only sees `CG.World`), not the living, not a
-bullet, not the nav. A Trooper leaves 15. `Rag.resting`, `restCount`, `restMin`/`restMax` (a tight box round them),
+ragdolls' own collision group (`CG.Ragdoll` against `CG.Ragdoll | CG.Gib | CG.Debris`). So the next body lands on it
+and a heap is as high as its bodies, and loose pieces lie on it (below). They meet nothing else: not the player (whose
+capsule only sees `CG.World`), not the living, not a bullet, not the nav. A Trooper leaves 15. `Rag.resting`, `restCount`, `restMin`/`restMax` (a tight box round them),
 `dropRest()`, `rest()`. `MessTuning.maxShapes` (2,600) is the most there may be; past it the oldest body at rest gives
 its capsules up and is a ghost again.
 
@@ -958,6 +988,16 @@ the body is pushed: the shapes are the same. What wakes a body at rest:
 - Loose **limbs** rest, heap and are pushed the same way. Loose **pieces** (meat, bone, ribs; not organs, which are
   theirs to burst) are kicked by the player (`ChunkField.kick`), and **trunk pieces and sword halves** shoved
   (`SliceField.shove`), a few a frame.
+
+**What lies on the dead.** Loose pieces (meat, organs, ribs, slabs, a limb's parts) meet the world and bodies at rest
+(`ChunkField.embody`: `CG.Debris` against `CG.World | CG.Ragdoll`, and of everything that is `Ragdoll` only a resting
+body's fixed capsules will meet `Debris`), so what a gib throws over a heap lies on the heap. Trunk pieces and blade
+halves always met them. A piece notes when it comes to rest on something that is not the world (`Chunk.perched`: a ray
+from its middle as long as the piece, and 6 cm). When a resting body's capsules leave the world (`MessHost.unsettled`,
+from the same `unrested` that lets a body fall off a heap), what lay in their box falls: each perched piece is put back
+on physics where it lies (`ChunkField.unsettle`, 12 a call; over the cap on moving pieces it drops to the floor by
+itself), a trunk piece or half there is woken (`SliceField.unsettle`), and a strand of gut is let go and finds its floor
+again (`RopeField.unsettle`). With `?messrest=0` there is nothing to lie on, and everything falls to the floor as before.
 
 **What a body at rest costs.** Its skeleton is not worked out again and its texture is sent only when something writes to
 the texels after the bones (a wound, a burn: `stillSkeleton`, a checksum a frame). All but the newest `full` (8) are
@@ -1207,15 +1247,13 @@ The mess (2026-11-19):
   P2, and `Decals.onRetire` is its hook.
 - **Heaps are as high as round, slim capsules stack**: about a metre at a chokepoint after 80 kills. A body's capsules
   are slimmer than the body drawn (`RagTuning.colliderScale`), so stacked bodies sink into each other a little.
-- **Pieces and guts fall through heaps.** They collide with the world only. Trunk pieces and sword halves rest on
-  nothing but the floor either, and are shoved, not heaped.
+- **One body holds little up.** A piece that comes down on a single body mostly rolls off it: capsules are round. A
+  heap holds pieces in the gaps between its bodies. A trunk piece or a half at rest keeps no shape of its own, so
+  nothing lies on one of those.
 - **The living still walk through a heap.** Enemies are points on the nav graph: they shove bodies a little and wake one
   now and then, and are never slowed by them. Nor is the player, by the owner's rule.
 - **Bodies woken by a walk run past the ragdoll budget for a moment**: up to 18 chains awake running through a heap of
   80, physics 3.4 ms at the 95th percentile on this machine.
-- **A burnt body's kit.** three's `clone()` copies `userData` through JSON, and `charKit` keeps a material in there:
-  the copies a baked body carries are made with `cloneKit` for that. The copies a severed limb carries
-  (`SeveredPart.pose`) are still plain clones, harmless only because nothing un-chars them.
 
 
 - **A body that falls from a stagger leans more than it steps.** On stage 6's drive (`stumble` with no budget) its physical feet get 0.15 to 0.3 m of a catch step the animation swings 0.56 m in 8 frames, so reeling backward it leans over its feet from about frame 8 and goes over. Leg gain did not change it. A body catching its balance has pins on its ankles and covers 0.87 to 1.03 of each step. The same pins on the fall cover 0.69 to 1.05, but then it ends by hip gap, not momentum, which two of stage 6's tests read otherwise; left off until the owner has seen both.
@@ -1314,8 +1352,6 @@ The mess (2026-11-19):
   emitter: its flames come off the capsules.
 - **A burnt corpse makes no sound.** The burning loop (`audio/reactions.ts`) follows living enemies only; a corpse burns and
   smoulders silently. Sound was left out of the gore update on purpose.
-- **Fire on a sliced half is not drawn.** A body cut in two by a blade is world-space meshes with no bones; its halves keep the
-  skin they had and do not flame or smoulder.
 - **Knocked-down bodies have no collision with the player.** They are walked through, like crawlers.
 - **A body check needs to land near the middle.** Its strength is how fast the player closes on the body, so at a 12.5 m/s run
   it goes over only when the player meets it within about 0.43 m of its middle; further out it is a glancing blow, and it

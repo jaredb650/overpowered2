@@ -88,7 +88,7 @@ vWear = op2Wear();
 `;
 
 /** Metres, in the bind pose, over which a fire walks out from where it caught: a hand to the far foot. */
-const FIRE_REACH = 1.9;
+export const FIRE_REACH = 1.9;
 /** How cooked the flesh a fire bares is drawn (`sChar`): dark and dry, but still meat against the black of the skin. */
 const FIRE_COOKED = 0.95;
 
@@ -542,6 +542,20 @@ float sBare = 0.0;
   ${BURN_SURFACE}
 }
 #endif
+#if defined(USE_COLOR) && !defined(OP2_SKINNED) && !defined(OP2_CHARRED)
+{
+  // A rigid piece of a burnt body (a slab, a part of a limb, a blade's half, a piece of a burst trunk): it is drawn as
+  // an instance, and its instance colour says how burnt it is (gore/fire.ts, burnTint: white is not at all). It burns
+  // as the body did, through the same noise, cold: a piece has no texels to keep an ember in.
+  float burn = clamp((1.0 - vColor.r) / 0.94, 0.0, 1.0);
+  if (burn > 0.02) {
+    float grain = macro.r * 0.6 + macro.a * 0.4;
+    float n = grain * 0.7 + micro.b * 0.3;
+    float heat = 0.0;
+    ${BURN_SURFACE}
+  }
+}
+#endif
 #ifdef OP2_WOUNDS
 sN = normalize(sN + vWoundTilt);
 #endif
@@ -659,6 +673,8 @@ export interface SurfaceOptions {
 /** What each character material was made from, so its burnt twin can be made on the day it is first needed. */
 const made = new WeakMap<THREE.Material, { ctx: Ctx; o: SurfaceOptions }>();
 const burnt = new WeakMap<THREE.Material, THREE.Material>();
+/** The other way: the material each burnt twin was made from. */
+const unburnt = new WeakMap<THREE.Material, THREE.Material>();
 
 /**
  * The same material burnt black, for the kit a burnt body carries: its helmet, gun and pack are meshes of their own and
@@ -670,8 +686,18 @@ export function charredVariant(material: THREE.Material): THREE.Material {
     const from = made.get(material);
     twin = from && !from.o.charred ? createCharacterMaterial(from.ctx, { ...from.o, charred: true }) : material;
     burnt.set(material, twin);
+    if (twin !== material) unburnt.set(twin, material);
   }
   return twin;
+}
+
+/**
+ * The material a burnt twin was made from, or the material itself if it is not one. The twin knows where it came from, so
+ * nothing has to be kept on the mesh that wears it: a mesh's `userData` goes through JSON when three clones it, and a
+ * material kept there came out as a plain object that could not be drawn (a baked burnt Gunner's minigun, 2026-11-19).
+ */
+export function unburntVariant(material: THREE.Material): THREE.Material {
+  return unburnt.get(material) ?? material;
 }
 
 export function createCharacterMaterial(ctx: Ctx, o: SurfaceOptions): THREE.MeshStandardMaterial {

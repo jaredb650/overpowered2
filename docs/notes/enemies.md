@@ -165,9 +165,14 @@ gun in the right hand the left leaves the foregrip.
 A body without the campaign's wounds also carries itself hurt (`DamageModel.carryHurt` after every hit, `setHurt(hurt, limp)`
 on the animator, `HurtShape`): from half its health down to a quarter it bends over (0.36 rad at full), hangs its head and
 stands 0.045 of its height lower, eased in at 2.5/s, and from 0.4 hurt a hand goes back to its last wound for 1.5 s every 2
-to 4.5 s. A leg limps by what its wounds have taken off it (`strengthOf`: nothing until 0.45 of a pool is gone): the hips dip
+to 4.5 s. A leg limps by what its wounds have taken off it, or by what it looks like, whichever is more: the hips dip
 0.04 of the body's height while the weak leg carries it and the trunk lurches 0.14 rad over it; standing, the weight rests on
-the good leg. The limp is for any body with legs, a Husk included; the hurt posture only for one that feels. A man with
+the good leg. **The limp goes with the look** (`legLooks`, `CLUTCH.limpFrom` 0.1 and `limpFull` 0.9 of the more spent of
+the leg's two pools): wear tears a leg's skin from the first round, while a leg only weakens from 0.45 of its pool
+(`POOL_WEAK_FROM`), so at a third spent a leg was torn open and walked like a whole one. Now it limps a little there
+(0.16 of a full limp at 30% spent, 0.39 at 45%, 0.84 at 70%; before: none, none, 0.42). Only the walk moved: when a leg
+gives way, how a body catches its balance and what a ragdoll's leg can hold are still `poolStrength`'s, from 0.45
+(`hurt.test.ts` holds both). With `?wear=0` the limp is by weakness alone, as it was. The limp is for any body with legs, a Husk included; the hurt posture only for one that feels. A man with
 anatomy (the Campaign, Endless Humans) keeps his own: his wounds already hunch him, hold his worst wound and beat his limp
 (`wounds/index.ts`), so `carryHurt` leaves him alone and only the flinch's hand is new for him.
 
