@@ -29,6 +29,9 @@ import type { Nav, NavItem } from './nav';
 import { menuButton } from './parts';
 import type { Screen } from './Screens';
 
+/** Co-op: seconds a wave must have been running under the open shop before the shop shuts itself. */
+const SHUT_AFTER = 0.75;
+
 type Page = 'weapons' | 'mods' | 'implants';
 const PAGES: readonly Page[] = ['weapons', 'mods', 'implants'];
 
@@ -144,12 +147,14 @@ export class ProcurementScreen implements Screen {
     });
   }
 
-  /** Co-op: the wave started under the open shop and it has been told to shut. */
+  /** Co-op: the wave started under the open shop and it has been told to shut; and how long a wave has been seen running. */
   private shut = false;
+  private waveFor = 0;
 
   open(nav: Nav): void {
     this.nav = nav;
     this.shut = false;
+    this.waveFor = 0;
     this.note.set('');
     nav.back = () => this.leave();
     const step = (by: number) => () => this.turn(PAGES[(PAGES.indexOf(this.page) + by + PAGES.length) % PAGES.length]!);
@@ -189,9 +194,12 @@ export class ProcurementScreen implements Screen {
     const key = this.ctx.input.labelFor?.('nextWave') ?? 'L';
     const mine = this.ctx.coop?.lobby.me?.slot ?? -1;
     if (waves.phase === 'intermission') {
+      this.waveFor = 0;
       this.phase.set(`Break. Wave ${waves.wave + 1} in ${left} s. The clock is running: ${rest.ready.length}/${rest.need} ready`
         + `${rest.ready.includes(mine) ? ', you among them.' : `. ${key}: ready up.`}`);
-    } else if (!this.shut) {
+    } else if (!this.shut && (this.waveFor += dt) >= SHUT_AFTER) {
+      // A guest reads the waves from two places (the wave's own event and the snapshots), which can disagree for a moment:
+      // only a wave that has plainly been running shuts the shop.
       // The wave is in: the pod is gone, and nobody should be standing in a shop. Once: a browser that wants a click gets told.
       this.shut = true;
       this.phase.set(`Wave ${waves.wave} has started. The shop is shut.`);

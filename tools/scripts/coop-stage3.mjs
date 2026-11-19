@@ -85,9 +85,12 @@ export default async function (host, { sleep, outDir }) {
     await guest.evaluate(() => { window.__op2.ctx.player.modifiers.invulnerable = true; });
 
     progress('the shop over a live world');
+    // The made-up `wave:start` above left the guest believing a wave is running until the host's next snapshot says otherwise,
+    // and a shop open during a wave shuts itself (the team's break rules): the shop is opened in the break, as in play.
+    await guest.waitForFunction(() => window.__op2.ctx.waves.phase === 'intermission', null, { timeout: 10000, polling: 100 });
     const shopBefore = await host.evaluate(() => window.__op2.ctx.time.elapsed);
     await guest.evaluate(() => window.__op2.ctx.events.emit('shop:open', {}));
-    await guest.locator('.scr-procurement, .scr-shop, [class*=procure]').first().waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
+    await guest.locator('.scr-proc').first().waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
     await sleep(1500);
     const shopping = { guest: await state(guest), hostTime: await host.evaluate(() => window.__op2.ctx.time.elapsed),
       guestPaused: await guest.evaluate(() => window.__op2.ctx.time.paused) };

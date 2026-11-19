@@ -1076,8 +1076,9 @@ puts up the team board. No page ever shows the solo "Run over" or "Mission compl
   READY · [L] READY UP` (or `YOU ARE READY`), teammates who are ready carry READY on the strip, and the feed says who ("GUEST-TWO is
   ready (1/2)", then "EVERYONE READY · next wave in 3").
 - **The shop screen tells the truth** in co-op: "Break. Wave 6 in 12 s. The clock is running: 1/2 ready. L: ready up." It counts
-  down live, and when the wave starts it says so and shuts itself. Single player still reads "when you leave", because there the
-  run does wait.
+  down live, and when the wave starts it says so and shuts itself, once a wave has been running under it for 0.75 s (`SHUT_AFTER`:
+  a guest hears of the waves from the wave's own event and from snapshots, and the two may disagree for a moment). Single player
+  still reads "when you leave", because there the run does wait.
 - In co-op the solo shortcuts that ended a break for everyone are off: the Crucible shop's and Outpost Defense's L, and skipping
   the Commander's briefing (which now only shuts him up).
 
