@@ -13,6 +13,7 @@ import type { RemotePlayer } from '../remote';
 import type { Team, TeamLife } from '../team';
 import { droppable, type WorldEvent } from '../worldProtocol';
 import type { EventLane } from '../lobby';
+import { worldPacker } from './pack';
 import { Router } from './router';
 import type { Vec } from './wire';
 
@@ -90,7 +91,7 @@ export class WorldContext {
     this.later = new Later(() => ctx.time.dt);
     // Latest-wins bytes: unreliable and unordered, so a lost chunk never holds up the next, and none for a guest that is behind.
     this.sendSnapshot = session.lobby.gameplay<ArrayBuffer>('world', data => this.worldIn(data), { unreliable: true, latest: true });
-    this.action = session.lobby.events<WorldEvent>('action', (data, from, bytes) => this.receive(data, from, bytes));
+    this.action = session.lobby.events<WorldEvent>('action', (data, from, bytes) => this.receive(data, from, bytes), worldPacker);
   }
 
   get hosting(): boolean { return this.session.hosting; }

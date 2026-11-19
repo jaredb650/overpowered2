@@ -19,7 +19,7 @@ import { Lobby } from './lobby';
 import type { NetRoom } from './room';
 import { CoopWorld } from './world';
 import type { WorldEvent } from './worldProtocol';
-import { eventOf, batchOf } from './batch';
+import { eventOf, batchOf } from './world/pack';
 
 class Relay {
   readonly rooms: Room[] = [];

@@ -10,7 +10,7 @@ import { CoopWorld } from '../world';
 import type { WorldEvent } from '../worldProtocol';
 import { goreDoubles } from './goreDoubles';
 import { SLOW, TEAM_SLOW } from './slow';
-import { eventOf, batchOf } from '../batch';
+import { eventOf, batchOf } from './pack';
 
 /** The mocked transport of world.test.ts: every message is copied and queued until `flush`, or thrown away with `lose`. */
 class Relay {

@@ -10,7 +10,7 @@ import { party, stubGame, type Seat } from '../net/world/sharedkit';
 import { DroppedGuns, LIFE, type Arsenal } from './dropped';
 import type { GunKit } from './handover';
 import { makeRange } from './testkit';
-import { batchOf } from '../net/batch';
+import { batchOf } from '../net/world/pack';
 
 /** An arsenal: what a player owns, and the kit their held gun leaves as. */
 class Arms implements Arsenal {

@@ -24,7 +24,7 @@ import { goreDoubles } from './goreDoubles';
 import { HostTime } from './hostTime';
 import { DODGE_FRESH_MS } from './targeting';
 import { cleanBriefing } from './villain';
-import { eventOf } from '../batch';
+import { eventOf } from './pack';
 
 class Relay {
   readonly rooms: Room[] = [];

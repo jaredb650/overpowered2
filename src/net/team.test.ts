@@ -22,7 +22,7 @@ import { BOSS_BREAK, CUT_TO, TEAM_BREAK, teamBreakSeconds } from './teamBreak';
 import { CoopWorld } from './world';
 import { LINGER_MS } from './world/credit';
 import type { WorldEvent } from './worldProtocol';
-import { eventOf, batchOf } from './batch';
+import { eventOf, batchOf } from './world/pack';
 
 class Relay {
   readonly rooms: Room[] = [];

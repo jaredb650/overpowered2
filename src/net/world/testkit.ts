@@ -12,7 +12,7 @@ import { Lobby } from '../lobby';
 import { SeatHooks } from '../seats';
 import type { NetRoom } from '../room';
 import { CoopWorld } from '../world';
-import { eventOf } from '../batch';
+import { eventOf } from './pack';
 
 export class Relay {
   readonly rooms: Room[] = [];

@@ -6,8 +6,9 @@
  *
  * - **The match tag** stands in for the 36-character match id that used to ride on every event: a 32-bit hash of it, once
  *   per message. A page drops a batch whose tag is not its own match's (a page of the last match, still closing).
- * - **Kind 0** is one event as JSON text (UTF-8). Kinds 1 to 255 are packed forms a lane's `Packer` gives its hot events
- *   (world/pack.ts); an event with no packed form goes as JSON, so adding an event type needs nothing here.
+ * - **Kind 0** is one event as JSON text (UTF-8). Kinds 1 to 255 are packed forms a lane's `Packer` gives its events
+ *   (world/pack.ts packs every event as a tree of bytes, tree.ts); an event the packer declines goes as JSON, so adding
+ *   an event type needs nothing here.
  * - **One encode per event**, whoever it is for: the record's bytes are copied into each recipient's batch. Its length is
  *   the event's size on the wire, so nothing is turned to text a second time to be counted.
  * - **A batch is at most `BATCH_MAX_BYTES`**, so the transport sends it as one frame (trystero's inline frame holds 16,348
@@ -38,8 +39,8 @@ export interface Packer<T> {
   /** The event a packed payload stands for, or null if the bytes are not one. */
   unpack(kind: number, payload: Uint8Array): T | null;
 }
-/** Room a packer may count on. A packed form is tens of bytes; the scratch buffer keeps this much free. */
-export const PACKED_ROOM = 1024;
+/** Room a packer may count on. An event that packs to more than this goes as JSON. */
+export const PACKED_ROOM = 60_000;
 
 /** The 32-bit tag a match id travels as (FNV-1a). */
 export function matchTag(id: string): number {
@@ -59,7 +60,7 @@ export interface Encoded { bytes: Uint8Array; start: number; end: number; kind: 
 
 /** Encodes records into one reused buffer. */
 export class RecordWriter<T> {
-  private scratch = new Uint8Array(8192);
+  private scratch = new Uint8Array(RECORD_HEAD_MAX + PACKED_ROOM);
   private readonly out: Encoded = { bytes: this.scratch, start: 0, end: 0, kind: KIND_JSON };
 
   constructor(private readonly packer?: Packer<T>) {}
@@ -73,10 +74,12 @@ export class RecordWriter<T> {
       kind = packed[0];
       end = packed[1];
     } else {
-      const text = JSON.stringify(event);
+      let text: string | undefined;
+      // A value JSON refuses (a bigint, a loop) is not sent, as one it has no text for is not.
+      try { text = JSON.stringify(event); } catch { return null; }
       if (typeof text !== 'string') return null;
       // UTF-8 is at most three bytes for each UTF-16 unit.
-      const need = at + text.length * 3 + PACKED_ROOM;
+      const need = at + text.length * 3;
       if (need > this.scratch.length) this.scratch = new Uint8Array(Math.max(need, this.scratch.length * 2));
       end = at + encoder.encodeInto(text, this.scratch.subarray(at)).written;
     }

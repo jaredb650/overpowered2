@@ -17,7 +17,7 @@ import { decodeChunk, encodeChunk, type WorldEvent } from './worldProtocol';
 import { RULES } from '../enemies/outpost/chatter/lines';
 import { TUNING } from '../weapons/data';
 import type { CommsLine } from '../enemies/outpost/events';
-import { eventOf, batchOf } from './batch';
+import { eventOf, batchOf } from './world/pack';
 
 class Relay {
   readonly rooms: Room[] = [];

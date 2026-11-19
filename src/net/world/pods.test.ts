@@ -12,7 +12,7 @@ import { ModelMaterials } from '../../progression/modelkit';
 import { DropPods } from '../../progression/pickups/pods';
 import { makeRange } from '../../weapons/testkit';
 import { party } from './sharedkit';
-import { batchOf } from '../batch';
+import { batchOf } from './pack';
 
 const SPOT = new THREE.Vector3(0, 0, -60);
 const LANDS = DROP_POD.warnSeconds + DROP_POD.height / DROP_POD.speed;

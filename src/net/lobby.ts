@@ -17,6 +17,7 @@ import { decodePose, encodePose, type Pose } from './pose';
 import { BEHIND_BYTES, type Channel, type ChannelOptions, type LobbyRooms, type NetError, type NetRoom } from './room';
 import { Batcher, KIND_JSON, RecordWriter, batchTag, matchTag, readBatch, readJson, type Packer } from './batch';
 import { Pressure } from './pressure';
+import { metrics } from './metrics';
 import { LOOPBACK } from './mode';
 import { iceAdvice } from './ice';
 
@@ -906,7 +907,9 @@ export class Lobby {
     this.flushDue = false;
     if (this.batchers.length === 0) return;
     const now = performance.now();
-    for (const batcher of this.batchers) if (batcher.waiting) batcher.flush(to => this.mayFlush(to, now));
+    let sent = false;
+    for (const batcher of this.batchers) if (batcher.waiting) { batcher.flush(to => this.mayFlush(to, now)); sent = true; }
+    if (sent) metrics.spend('coop.flush', performance.now() - now);
   }
 
   private matchTag(): number {

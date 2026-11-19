@@ -12,7 +12,7 @@ import type { NetRoom } from '../room';
 import { CoopWorld } from '../world';
 import type { WorldEvent } from '../worldProtocol';
 import { goreDoubles } from './goreDoubles';
-import { eventOf } from '../batch';
+import { eventOf } from './pack';
 
 export class Relay {
   readonly rooms: Room[] = [];

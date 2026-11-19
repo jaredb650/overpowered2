@@ -10,7 +10,7 @@ import type { Kit } from '../../world/kit/kit';
 import { MapSpec } from '../../world/map/spec';
 import { Objects } from '../../world/objects';
 import { party, type Seat } from './sharedkit';
-import { batchOf } from '../batch';
+import { batchOf } from './pack';
 
 const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
 /** Numbers on the wire: explosives 0 and 1 stand 4 m apart (a chain), 2 is far off. Props: 0 pane, 1 copier, 2 chair, 3 monitor. */
