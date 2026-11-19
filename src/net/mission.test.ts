@@ -277,6 +277,21 @@ describe('a mission run by the host and played on every screen', () => {
     game.hw.dispose(); game.gw.dispose();
   });
 
+  it('drops a regroup that is still counting down when the mission itself places the team', () => {
+    const game = pair();
+    game.start();
+    game.guest.player.position.set(0, 0, 50);
+    game.frame();
+    expect(game.host.ctx.hud.callout).toHaveBeenCalledWith(expect.stringContaining('REGROUP'));
+    // The mission puts everyone on a mark before the five seconds are up: nobody is then moved off it.
+    (game.hc.host as unknown as { place(at: { at: number[] }): void }).place({ at: [5, 0, 5] });
+    game.relay.flush();
+    for (let i = 0; i < 8; i++) { vi.advanceTimersByTime(1000); game.frame(1); }
+    expect(game.host.player.teleport).not.toHaveBeenCalled();
+    expect(game.guest.player.teleport).not.toHaveBeenCalled();
+    game.hw.dispose(); game.gw.dispose();
+  });
+
   it('plays a film for everyone, skips it only when every player votes, and ends a ride for all with the host\'s', () => {
     const game = pair();
     game.start();

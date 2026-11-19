@@ -169,7 +169,12 @@ export class CoopMission {
     // The plain ones: said, shown or handed to every player as they are to the host's.
     for (const op of ['speak', 'hush', 'hint', 'banner', 'place'] as const) {
       const run = real(op);
-      parts[op] = (...args: unknown[]) => { tell(op, op === 'speak' ? [args[0]] : args); return run(...args); };
+      parts[op] = (...args: unknown[]) => {
+        // The mission has put everyone on a mark: a regroup still counting down would take this player off it again.
+        if (op === 'place') this.regroup = null;
+        tell(op, op === 'speak' ? [args[0]] : args);
+        return run(...args);
+      };
     }
     for (const op of ['objectives', 'music', 'callins'] as const) {
       const run = real(op);
@@ -190,6 +195,7 @@ export class CoopMission {
       const kit = wire[1] as { weapons?: unknown; grenades?: unknown } | null;
       this.kit = { weapons: Array.isArray(kit?.weapons) ? kit.weapons.map(String) : [], grenades: Number(kit?.grenades) || 0 };
       this.drops = [];
+      if (args[0]) this.regroup = null;
       return deploy(...args);
     };
     const give = real('give');
@@ -670,12 +676,17 @@ export class CoopMission {
       case 'music': host.music(args[0] as Parameters<GameHost['music']>[0]); return;
       case 'callins': host.callins(args[0] === true); return;
       case 'door': host.door(String(args[0]), args[1] as Parameters<GameHost['door']>[1], Number(args[2]), Number(args[3]) || 0, noop); return;
-      case 'place': host.place(marked(args[0]) as Parameters<GameHost['place']>[0]); return;
+      case 'place':
+        // The mission has put everyone on a mark: a regroup still counting down would take this player off it again.
+        this.regroup = null;
+        host.place(marked(args[0]) as Parameters<GameHost['place']>[0]);
+        return;
       case 'deploy': {
         // Each player keeps the starter gun they picked in the lobby: the host's stands where theirs goes.
         const kit = args[1] as { weapons?: unknown; grenades?: unknown } | null;
         const weapons = (Array.isArray(kit?.weapons) ? kit.weapons : []).filter((w): w is WeaponId => typeof w === 'string' && Object.hasOwn(WEAPONS, w));
         if (weapons.length === 0) return;
+        if (args[0]) this.regroup = null;
         const mine = starterLoadout(weapons, selectedStarter(this.session.match.mode));
         host.deploy(args[0] ? marked(args[0]) as Parameters<GameHost['deploy']>[0] : null, { weapons: [...new Set(mine)], grenades: Math.max(0, Math.min(99, Number(kit?.grenades) || 0)) });
         return;

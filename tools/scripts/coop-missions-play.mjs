@@ -15,10 +15,11 @@
 //   COOP_EXTRAS=skip,restart:softskins,rejoin:barracks   COOP_TAG=<name for the evidence and screenshots>
 //   Pages run in the kit's fast mode (no picture between screenshots, no sound mixed) with the loop on a 30 Hz timer
 //   (COOP_CLOCK), so a busy machine's GPU cannot hold a guest's window back. COOP_LOOK=1 is the page as a player has it.
+//   COOP_STOP=<section id>   ends the proof as that section opens (a short run for one extra)
 //   COOP_BEAT=<section id>   starts the host's mission there (dev servers only), to prove a late section without the early ones
 import { writeFileSync } from 'node:fs';
 import { loadavg } from 'node:os';
-import { inMatch, kit, openGuest, startParty } from './coop-kit.mjs';
+import { button, inMatch, kit, openGuest, startParty } from './coop-kit.mjs';
 
 const MISSION = process.env.COOP_MISSION ?? 'campaign';
 const ACTOR = process.env.COOP_ACTOR ?? 'host';
@@ -26,6 +27,7 @@ const PLAYERS = Number(process.env.COOP_PLAYERS ?? 2);
 const SIM = process.env.COOP_SIM || undefined;
 const EXTRAS = Object.fromEntries((process.env.COOP_EXTRAS ?? '').split(',').filter(Boolean).map(e => { const [k, v] = e.split(':'); return [k, v ?? true]; }));
 const BEAT = process.env.COOP_BEAT || null;
+const STOP = process.env.COOP_STOP || null;
 const TAG = process.env.COOP_TAG ?? `${MISSION}-${ACTOR}-${PLAYERS}p${SIM ? '-sim' : ''}`;
 /** Seconds an enemy lives before the dev kill, and a section runs before the actor walks to its zones. */
 const KILL_AFTER = 4;
@@ -150,8 +152,11 @@ function plan() {
     }
     for (const z of arrivals(beat.until)) zones.push(z);
     const steps = [...(beat.start ?? []), ...(beat.cues ?? []).flatMap(c => c.run)];
+    // Lines that wait on a player's shot: the actor fires for them before walking on.
+    const waitsOnShot = t => !!t && ('event' in t ? t.event === 'weapon:fired' : 'all' in t ? t.all.some(waitsOnShot) : 'any' in t ? t.any.some(waitsOnShot) : false);
+    const shotLines = (beat.cues ?? []).filter(c => waitsOnShot(c.when)).flatMap(c => c.run.filter(s => s.do === 'say').map(s => s.line));
     out.beats.push({ id: beat.id, title: beat.title, checkpoint: beat.checkpoint ?? null, zones: [...new Set(zones)], arrival: arrivals(beat.until),
-      film: steps.some(s => s.do === 'cutscene'), ride: steps.some(s => s.do === 'ride' || s.do === 'sortie'), boss: steps.filter(s => s.do === 'boss').map(s => s.tag) });
+      shotLines, film: steps.some(s => s.do === 'cutscene'), ride: steps.some(s => s.do === 'ride' || s.do === 'sortie'), boss: steps.filter(s => s.do === 'boss').map(s => s.tag) });
   }
   for (const [id, z] of Object.entries(mission.zones)) out.zones[id] = z;
   out.marks = mission.marks;
@@ -250,7 +255,13 @@ export default async function (host, { sleep, outDir }) {
   const write = () => writeFileSync(`${outDir}/${TAG}-evidence.json`, JSON.stringify(out, null, 2));
   try {
     if (BEAT) await host.addInitScript(beat => { try { sessionStorage.setItem('op2.dev.beat', beat); } catch { /* no storage: from the top */ } }, BEAT);
-    party = await startParty(host, { mode: MISSION, players: PLAYERS, net: SIM, clock: process.env.COOP_LOOK === '1' ? 0 : Number(process.env.COOP_CLOCK ?? 30), out, progress, sleep });
+    party = await startParty(host, { mode: MISSION, players: PLAYERS, net: SIM, clock: process.env.COOP_LOOK === '1' ? 0 : Number(process.env.COOP_CLOCK ?? 30), startNow: false, out, progress, sleep });
+    // Start only once the host has every guest's "ready": under a simulated lag it arrives late, and the host refuses a Start before it.
+    await host.waitForFunction(n => document.querySelectorAll('.co-player').length >= n && /Everyone is ready/.test(document.body.textContent ?? ''), PLAYERS, { timeout: 60000 });
+    await button(host, party.mode.label).click();
+    await sleep(300);
+    await button(host, 'Start').click();
+    progress(`countdown to ${party.mode.label}`);
     await inMatch(party.pages, party.mode.contract, true);
     for (const page of party.pages) await page.evaluate(install);
     // What each screen's console says about co-op, and every error.
@@ -284,10 +295,20 @@ export default async function (host, { sleep, outDir }) {
     };
     /** The lines each guest has heard against the host's: the same ids in the same order, each within a second and a half. */
     const linesInStep = (h, g, where, name) => {
+      // The same ids in the same order on both screens. In a proof that starts mid-mission either screen may hold a line or two
+      // at the head that was said as the watching began (the other's watch started a moment later), and the host may be one ahead
+      // at the tail (still crossing).
+      const hAll = h.lines.map(l => l[0]), gAll = g.lines.map(l => l[0]);
+      let lead = null;
+      for (let ho = 0; ho <= 2 && !lead; ho++) for (let go = 0; go <= 2 && !lead; go++) {
+        const a = hAll.slice(ho), b = gAll.slice(go);
+        if (a.length - b.length >= 0 && a.length - b.length <= 1 && JSON.stringify(a.slice(0, b.length)) === JSON.stringify(b)) lead = [ho, go];
+      }
+      check(!!lead, `${where}: ${name} heard the host's ${hAll.length} lines in order`, [hAll, gAll]);
+      h = { ...h, lines: h.lines.slice(lead[0]) };
+      g = { ...g, lines: g.lines.slice(lead[1]) };
       const hi = h.lines.map(l => l[0]), gi = g.lines.map(l => l[0]);
-      // A line just started on the host may not have crossed yet.
       const upTo = Math.min(hi.length, gi.length);
-      check(gi.length >= hi.length - 1 && JSON.stringify(gi.slice(0, upTo)) === JSON.stringify(hi.slice(0, upTo)), `${where}: ${name} heard the host's ${hi.length} lines in order`, [hi.slice(-6), gi.slice(-6)]);
       // In step: the typical line starts within half a second of the host's. A screenshot stalls a page for a second or two, so
       // the odd line that crossed one is late on that screen alone: those are counted and written down, never hidden.
       const lags = [];
@@ -309,7 +330,8 @@ export default async function (host, { sleep, outDir }) {
     };
 
     let beat = null, beatAt = 0, zoneIndex = 0, zoneAt = 0, lastFire = 0, lastReap = 0, restarted = false, rejoined = false, votes = 0, row = null;
-    let filmSeen = 0, rideSeen = 0, lineLag = 0, unread = 0, arrived = null, won = null;
+    let filmSeen = 0, rideSeen = 0, lineLag = 0, unread = 0, arrived = null, won = null, stopped = false;
+    let rejoinCounts = { saved: 0, hints: 0, banners: 0 }, rejoinIndex = -1;
     const deadline = Date.now() + (Number(process.env.COOP_LIMIT ?? 1400)) * 1000;
     for (;;) {
       if (Date.now() > deadline) throw new Error(`the mission did not end in time: ${JSON.stringify(row)}`);
@@ -344,11 +366,16 @@ export default async function (host, { sleep, outDir }) {
           row.load = Math.round(loadavg()[0]);
           out.beats.push(row);
           write();
+          for (const line of data.beats.find(b => b.id === row.id)?.shotLines ?? []) {
+            const heard = [h, ...gs].map(p => p.lines.some(l => l[0] === line));
+            check(heard.every(Boolean), `${row.id}: "${line}" waits on a shot, and the ${ACTOR}'s shot brought it on every screen`, heard);
+          }
           for (const [i, g] of gs.entries()) {
             lineLag = Math.max(lineLag, linesInStep(h, g, row.id, `guest ${i + 1}`));
           }
         }
         if (h.runner === 'won' || h.beat === null && beat !== null) break;
+        if (STOP && h.beat === STOP) { stopped = true; break; }
         // The section ended with the actor in the zone that ends it: the others are due beside them.
         if (row?.arrivedAt) arrived = { from: row.id, at: now };
         beat = h.beat; beatAt = now; zoneIndex = 0; zoneAt = 0;
@@ -425,7 +452,8 @@ export default async function (host, { sleep, outDir }) {
           const { ctx } = window.__op2;
           window.__bot.god = false;
           ctx.player.modifiers.invulnerable = false;
-          ctx.player.takeDamage({ amount: 1e6, type: 'true', source: 'test' });
+          // A hazard: the one kind of damage a guest's own screen may deal itself (the rest is the host's word).
+          ctx.player.takeDamage({ amount: 1e6, type: 'hazard', source: 'test' });
         });
         // Down, not dead: the wipe is at once when nobody is up.
         await sleep(2500);
@@ -441,7 +469,8 @@ export default async function (host, { sleep, outDir }) {
           if (mark) check(Math.hypot(g.pos[0] - mark[0], g.pos[2] - mark[2]) < 8, `restart: ${name} stands at the checkpoint`, [g.pos, mark]);
           compare(h2, g, 'restart', name);
           check(g.grenades === h2.grenades, `restart: ${name} has the checkpoint's grenades`, [h2.grenades, g.grenades]);
-          check(g.corpses === null || g.corpses === 0, `restart: ${name}'s screen has no corpses from before`, g.corpses);
+          // The run was rebuilt six seconds ago: what lies there now fell since (a war goes on beside the team), as on the host's.
+          check(g.corpses === null || g.corpses <= (h2.corpses ?? 0) + 2, `restart: ${name}'s screen has no corpses from before (${before[i + 1].corpses} before, ${g.corpses} now, the host ${h2.corpses})`, [before[i + 1].corpses, g.corpses, h2.corpses]);
           check(g.score <= before[i + 1].score, `restart: the Council took its cut of ${name}'s score too`, [before[i + 1].score, g.score]);
           check(g.enemies.every(uid => h2.enemies.includes(uid)) , `restart: ${name} has no enemies the host does not`, [h2.enemies.length, g.enemies.length]);
         }
@@ -459,7 +488,8 @@ export default async function (host, { sleep, outDir }) {
         await gone.close();
         party.guests.splice(party.guests.indexOf(gone), 1); party.pages.splice(party.pages.indexOf(gone), 1);
         await sleep(2500);
-        const back = await openGuest(party, { name: 'GUEST-ONE' });
+        // The same player comes back (their callsign is their seat), into a match that is running.
+        const back = await openGuest(party, { name: 'GUEST-TWO', late: true });
         await inMatch([back], party.mode.contract, true);
         await back.evaluate(install);
 
@@ -472,6 +502,8 @@ export default async function (host, { sleep, outDir }) {
         check(g.grenades >= 0 && g.weapons.length >= 2, 'rejoin: the returning guest has the mission\'s kit', g.weapons);
         await shot(back, 'rejoin-guest', true);
         out.rejoin = { beat, host: { pos: h2.pos, weapons: h2.weapons, doors: h2.doors, sky: h2.sky }, guest: { pos: g.pos, weapons: g.weapons, doors: g.doors, sky: g.sky } };
+        rejoinCounts = { saved: h2.saved, hints: h2.hints, banners: h2.banners.length };
+        rejoinIndex = guests.indexOf(back);
         // The lines said before they came back are not theirs to have heard.
         await host.evaluate(() => { window.__bot.lines.length = 0; });
         for (const page of guests) await page.evaluate(() => { window.__bot.lines.length = 0; });
@@ -493,9 +525,9 @@ export default async function (host, { sleep, outDir }) {
           }
         }
         // A shot now and then: some lines wait on one.
-        if (now - lastFire > 6000) { lastFire = now; await tapKey(a, 'fire', 250); }
+        if (now - lastFire > (info.shotLines.length ? 2500 : 6000)) { lastFire = now; await tapKey(a, 'fire', 250); }
         // The section's zones, in the script's order, a few seconds in each.
-        if (info.zones.length > 0 && age > ZONE_AFTER && now - zoneAt > ZONE_DWELL * 1000) {
+        if (info.zones.length > 0 && age > (info.shotLines.length ? 30 : ZONE_AFTER) && now - zoneAt > ZONE_DWELL * 1000) {
           const zone = info.zones[zoneIndex % info.zones.length];
           if (await a.evaluate(goTo, data.zones[zone])) {
             zoneAt = now; zoneIndex++;
@@ -518,6 +550,12 @@ export default async function (host, { sleep, outDir }) {
       await sleep(400);
     }
 
+    if (stopped) {
+      out.seconds = Math.round((Date.now() - started) / 1000);
+      check(out.errors.length === 0, 'no page exceptions on any screen', out.errors);
+      progress(`stopped at ${STOP} after ${out.seconds}s: ${out.checks.length} checks, ${out.soft.length} notes`);
+      return { tag: TAG, checks: out.checks.length, soft: out.soft, seconds: out.seconds };
+    }
     // ---- The end: the board on every screen, with the mission's numbers.
     await sleep(1500);
     const [h, ...gs] = await all();
@@ -527,9 +565,11 @@ export default async function (host, { sleep, outDir }) {
     for (const [i, g] of gs.entries()) {
       check(g.board, `the end: guest ${i + 1} has the team board`, [g.board, g.complete]);
       check(!!g.result && g.result.title === h.result?.title, `the end: guest ${i + 1} has the mission's result for the board`, [h.result, g.result]);
-      check(g.saved === h.saved && g.saved > 0, `guest ${i + 1} saw every checkpoint notice (${h.saved})`, [h.saved, g.saved]);
-      note(g.banners.length === h.banners.length, `guest ${i + 1} saw the host's ${h.banners.length} banners`, [h.banners, g.banners]);
-      check(g.hints >= h.hints - 1, `guest ${i + 1} saw the host's ${h.hints} hints`, [h.hints, g.hints]);
+      // A page that joined part way (the rejoin) has only what was shown since: counted from then on both screens.
+      const since = rejoined && i === rejoinIndex ? rejoinCounts : { saved: 0, hints: 0, banners: 0 };
+      check(g.saved === h.saved - since.saved && g.saved > 0, `guest ${i + 1} saw every checkpoint notice (${h.saved - since.saved})`, [h.saved, since.saved, g.saved]);
+      note(g.banners.length === h.banners.length - since.banners, `guest ${i + 1} saw the host's ${h.banners.length - since.banners} banners`, [h.banners, g.banners]);
+      check(g.hints >= h.hints - since.hints - 1, `guest ${i + 1} saw the host's ${h.hints - since.hints} hints`, [h.hints, since.hints, g.hints]);
       if (MISSION === 'foreclosure') note(g.comms > 0, `guest ${i + 1}'s comms feed had the war's call-outs`, [h.comms, g.comms]);
     }
     note(h.board && !h.complete, 'the end: the host has the team board, not the solo screen (the team lane\'s D2)', [h.board, h.complete]);
