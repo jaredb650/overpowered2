@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EventBus } from '../core/events';
 import type { Ctx, GameEvents, PlayerDamage } from '../core/contracts';
+import { goreDoubles } from './world/goreDoubles';
 import { Enemy } from '../enemies/Enemy';
 import { ChipRack } from '../contracts/chips';
 import { Loadout } from '../progression/implants';
@@ -98,7 +99,7 @@ function context() {
       if (player.health <= 0) { player.alive = false; events.emit('player:died', { source: damage.source }); }
     }),
   };
-  const manager = { alive, spawn, withdraw: vi.fn(), applyDamage: vi.fn(), replayDeath: vi.fn((enemy: Enemy) => { enemy.alive = false; alive.splice(alive.indexOf(enemy), 1); }), placeReplica: vi.fn() };
+  const manager = { alive, spawn, withdraw: vi.fn(), applyDamage: vi.fn(), replayDeath: vi.fn((enemy: Enemy) => { enemy.alive = false; alive.splice(alive.indexOf(enemy), 1); }), placeReplica: vi.fn(), ...goreDoubles() };
   const keys = new Set<string>();
   const weapons = arsenal();
   const stims = { count: 1, max: 5, give: vi.fn((n: number) => { stims.count += n; return n; }), spend: vi.fn(() => { stims.count--; return true; }) };

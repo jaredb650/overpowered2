@@ -20,6 +20,7 @@ import type { Pose } from '../pose';
 import type { NetRoom } from '../room';
 import { CoopWorld } from '../world';
 import type { WorldEvent } from '../worldProtocol';
+import { goreDoubles } from './goreDoubles';
 import { HostTime } from './hostTime';
 import { DODGE_FRESH_MS } from './targeting';
 import { cleanBriefing } from './villain';
@@ -91,7 +92,7 @@ function context() {
     render: { decals: { add: vi.fn() }, lights: { flash: vi.fn() } }, gore: { wound: vi.fn(), sever: vi.fn() },
     audio: { play: vi.fn() }, combat } as unknown as Ctx;
   const manager = { alive, spawn, withdraw: vi.fn((enemy: Enemy) => { enemy.alive = false; alive.splice(alive.indexOf(enemy), 1); }),
-    applyDamage: vi.fn(), afflict: vi.fn(), replayDeath: vi.fn(), placeReplica: vi.fn(), strike: vi.fn(), selfDestruct: vi.fn(), outpost: null,
+    applyDamage: vi.fn(), afflict: vi.fn(), replayDeath: vi.fn(), placeReplica: vi.fn(), strike: vi.fn(), selfDestruct: vi.fn(), outpost: null, ...goreDoubles(),
     aiWorld: null as unknown as AiWorld };
   (ctx as { enemies: unknown }).enemies = manager;
   // The AI's own view of the game, as EnemyManager builds it.

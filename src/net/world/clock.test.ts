@@ -8,6 +8,7 @@ import { Lobby } from '../lobby';
 import type { NetRoom } from '../room';
 import { CoopWorld } from '../world';
 import type { WorldEvent } from '../worldProtocol';
+import { goreDoubles } from './goreDoubles';
 import { SLOW, TEAM_SLOW } from './slow';
 
 /** The mocked transport of world.test.ts: every message is copied and queued until `flush`, or thrown away with `lose`. */
@@ -54,7 +55,7 @@ function context() {
   const player = { position: new THREE.Vector3(), eye: new THREE.Vector3(0, 1.6, 0), forward: new THREE.Vector3(0, 0, -1), velocity: new THREE.Vector3(),
     alive: true, downed: false, health: 100, maxHealth: 100, armor: 0, grounded: true, parked: false, reset: vi.fn(), teleport: vi.fn(), takeDamage: vi.fn() };
   const chips = { meter: 1 };
-  const ctx = { events, player, enemies: { alive: [], spawn: vi.fn(), withdraw: vi.fn(), applyDamage: vi.fn(), replayDeath: vi.fn(), placeReplica: vi.fn() },
+  const ctx = { events, player, enemies: { alive: [], spawn: vi.fn(), withdraw: vi.fn(), applyDamage: vi.fn(), replayDeath: vi.fn(), placeReplica: vi.fn(), ...goreDoubles() },
     weapons: { current: 'smg', owned: [], ammo: () => ({ mag: 0, reserve: 0 }) }, waves: { wave: 1 }, physics: { raycast: vi.fn(() => null) },
     world: { playerSpawns: [{ position: new THREE.Vector3(4, 0, 4), yaw: 0 }] }, hud: { feed: vi.fn(), follow: vi.fn(() => () => {}), callout: vi.fn() },
     time: new GameTime(), progression: { kills: 0, score: 0, headshots: 0, resume: vi.fn(), shareGrade: vi.fn() }, contracts: { wallet: { credits: 0 }, chips },

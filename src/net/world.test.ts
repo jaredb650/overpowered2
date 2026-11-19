@@ -2,6 +2,9 @@ import * as THREE from 'three';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EventBus } from '../core/events';
 import type { Ctx, DamageInfo, GameEvents, PlayerDamage } from '../core/contracts';
+import type { DamageResult } from '../core/gameplay';
+import type { GoreRegion } from '../characters/rig';
+import { newFacts, type HitFacts, type KillFacts } from '../enemies/damage';
 import { Enemy } from '../enemies/Enemy';
 import { PlayerSense } from '../enemies/aiWorld';
 import type { EnemyManager } from '../enemies/EnemyManager';
@@ -68,15 +71,21 @@ function context() {
       if (player.health <= 0) { player.alive = false; events.emit('player:died', { source: damage.source }); }
     }),
   };
-  const manager = { alive, spawn, withdraw: vi.fn((enemy: Enemy) => { enemy.alive = false; alive.splice(alive.indexOf(enemy), 1); }),
-    applyDamage: vi.fn(), afflict: vi.fn(), replayDeath: vi.fn((enemy: Enemy) => { enemy.alive = false; alive.splice(alive.indexOf(enemy), 1); }),
-    placeReplica: vi.fn() };
+  // The damage model's part is src/enemies/damage.coop.test.ts: here it is counted, and says what it is told to have found.
+  const model = { found: newFacts(), foundKill: { blast: null, shatter: false, heavyHead: false } as KillFacts };
+  const guess = { dealt: 0, killed: false, headshot: false, severed: [], blocked: false } as DamageResult;
+  const manager = { alive, spawn, model, guess, withdraw: vi.fn((enemy: Enemy) => { enemy.alive = false; alive.splice(alive.indexOf(enemy), 1); }),
+    applyDamage: vi.fn(), afflict: vi.fn(), replayDeath: vi.fn((enemy: Enemy, _damage: DamageInfo, _gib: boolean, _told?: KillFacts, _eye?: THREE.Vector3 | null) => { enemy.alive = false; alive.splice(alive.indexOf(enemy), 1); }),
+    predictDamage: vi.fn((_enemy: Enemy, damage: DamageInfo) => ({ ...guess, dealt: guess.blocked ? 0 : damage.amount })),
+    showDamage: vi.fn((_enemy: Enemy, _damage: DamageInfo, told: HitFacts, _eye: THREE.Vector3 | null) => ({ dealt: told.amount, killed: false, headshot: told.headshot, severed: [], blocked: told.stop !== 'none' }) as DamageResult),
+    showSever: vi.fn((enemy: Enemy, region: GoreRegion, _damage: DamageInfo, _eye: THREE.Vector3 | null, _mine: boolean) => { (enemy.char.severed as Set<GoreRegion>).add(region); }),
+    showReaction: vi.fn(), rouseReplica: vi.fn(), placeReplica: vi.fn() };
   const ctx = { events, player, enemies: manager, weapons: { current: 'smg' }, waves: { wave: 1 }, physics: { raycast: vi.fn(() => null) },
     world: { playerSpawns: [{ position: new THREE.Vector3(4, 0, 4), yaw: 0 }] }, hud: { feed: vi.fn(), follow: vi.fn(() => () => {}), callout: vi.fn() },
     time: { dt: 0.016, realDt: 0.016, frame: 0 }, progression: { kills: 0, score: 0, headshots: 0, resume: vi.fn() }, contracts: { wallet: { credits: 0 } },
     camera: { setSeat: vi.fn(), addTrauma: vi.fn() }, input: { pressed: vi.fn(() => false), isDown: vi.fn(() => false) },
     fx: { tracer: vi.fn(), muzzleFlash: vi.fn(), bloodHit: vi.fn(), impact: vi.fn() }, gore: { wound: vi.fn(), sever: vi.fn() },
-    audio: { play: vi.fn() }, combat: { fireRay: vi.fn(), explode: vi.fn() } } as unknown as Ctx;
+    audio: { play: vi.fn() }, combat: { fireRay: vi.fn(), explode: vi.fn(), remoteHit: vi.fn(), killConfirm: vi.fn(), severConfirm: vi.fn() } } as unknown as Ctx;
   return { ctx, manager, player };
 }
 
@@ -296,16 +305,36 @@ describe('host-authoritative world over the mocked lobby transport', () => {
       .toEqual([[true, TUNING.autocannon.bossDamage], [true, TUNING.autocannon.bossDamage], [false, 99999]]);
     game.hw.dispose(); game.gw.dispose();
   });
-  it('replicates wounds, severing and deaths once and never resurrects a killed id', () => {
+  it('shows a hit, a cut and a death once each on a guest and never resurrects a killed id', () => {
     const game = pair(); const enemy = game.host.manager.spawn('husk', new THREE.Vector3(0, 0, -10));
     game.hw.update(); game.relay.flush();
+    const replica = game.guest.ctx.enemies.alive[0]!;
     const damage: DamageInfo = { amount: 500, type: 'bullet', point: enemy.center.clone(), dir: new THREE.Vector3(0, 0, -1), force: 20, source: 'smg', region: 'head' };
-    game.host.ctx.events.emit('enemy:hit', { enemy, damage, result: { dealt: 1, killed: false, headshot: false, severed: [], blocked: false } }); game.relay.flush();
-    expect(game.guest.ctx.gore.wound).toHaveBeenCalledOnce();
+    // The host's damage model found this much; the guest shows the hit from that, not from a guess of its own.
+    Object.assign(game.host.manager.model.found, { amount: 37.5, headshot: true, level: 'stagger', strength: 0.4 });
+    enemy.health = 62.5;
+    game.host.ctx.events.emit('enemy:hit', { enemy, damage, result: { dealt: 37.5, killed: false, headshot: true, severed: [], blocked: false } }); game.relay.flush();
+    expect(game.guest.manager.showDamage).toHaveBeenCalledOnce();
+    const [shown, round, told, eye] = game.guest.manager.showDamage.mock.calls[0]!;
+    expect(shown).toBe(replica);
+    expect(round).toMatchObject({ amount: 500, type: 'bullet', source: 'smg', region: 'head', force: 20 });
+    expect(told).toMatchObject({ amount: 37.5, headshot: true, level: 'stagger', strength: 0.4, stop: 'none' });
+    // The host fired it: gore sizes by range from the host's body, which this guest has no copy of in this test.
+    expect(eye).toBeNull();
+    expect(replica.health).toBe(62.5);
+    // The round lands on the guest's screen as it did on the shooter's: blood or sparks where it struck.
+    expect(game.guest.ctx.combat.remoteHit).toHaveBeenCalledOnce();
+    // A cut is one event, at the region it was made; the events for the other regions it took send nothing.
+    game.host.ctx.events.emit('enemy:severed', { enemy, region: 'forearmL', damage, cut: 'armL' });
     game.host.ctx.events.emit('enemy:severed', { enemy, region: 'armL', damage }); game.relay.flush();
-    expect(game.guest.ctx.gore.sever).toHaveBeenCalledOnce();
-    game.hostRoom.channel('action').send({ match: 'world-test', data: { t: 'kill', uid: enemy.uid, id: enemy.id, at: enemy.position.toArray(), yaw: 0, damage: { ...damage, point: damage.point.toArray(), dir: damage.dir.toArray() }, gib: true } });
-    game.relay.flush(); expect(game.guest.manager.replayDeath).toHaveBeenCalledOnce();
+    expect(game.guest.manager.showSever).toHaveBeenCalledOnce();
+    expect(game.guest.manager.showSever.mock.calls[0]![1]).toBe('armL');
+    expect(game.guest.manager.showSever.mock.calls[0]![4]).toBe(false);
+    Object.assign(game.host.manager.model.foundKill, { blast: 'waist', shatter: true, heavyHead: true });
+    game.host.ctx.events.emit('enemy:killed', { enemy, damage, gibbed: true, headshot: false } as never); game.relay.flush();
+    expect(game.guest.manager.replayDeath).toHaveBeenCalledOnce();
+    // What the host found about the death that this screen could not work out.
+    expect(game.guest.manager.replayDeath.mock.calls[0]![3]).toEqual({ blast: 'waist', shatter: true, heavyHead: true, wound: 0 });
     vi.advanceTimersByTime(101); game.hw.update(); game.relay.flush();
     expect(game.guest.manager.spawn).toHaveBeenCalledOnce();
     game.hw.dispose(); game.gw.dispose();
@@ -316,7 +345,7 @@ describe('host-authoritative world over the mocked lobby transport', () => {
     // The host's gore writes what it chose on the damage before the events go out (Gore.wound, Gore.gib).
     const pellet: DamageInfo = { amount: 30, type: 'pellet', point: new THREE.Vector3(0.1, 1.05, -9.85), dir: new THREE.Vector3(0, 0, -1), force: 0, source: 'shotgun', region: 'abdomen', spill: true };
     game.host.ctx.events.emit('enemy:hit', { enemy, damage: pellet, result: { dealt: 30, killed: false, headshot: false, severed: [], blocked: false } }); game.relay.flush();
-    const wounded = vi.mocked(game.guest.ctx.gore.wound).mock.calls[0]![1];
+    const wounded = game.guest.manager.showDamage.mock.calls[0]![1];
     expect(wounded.spill).toBe(true);
     game.hw.dispose(); game.gw.dispose();
     for (const force of [300, 900, 1700]) {
@@ -332,6 +361,119 @@ describe('host-authoritative world over the mocked lobby transport', () => {
       expect(planGib(replayed, replayed.force)).toEqual(host);
       game.hw.dispose(); game.gw.dispose();
     }
+  });
+  it('draws a guest\'s own hit at once and sends it no picture back: the host\'s answer only puts right what was guessed wrong', () => {
+    const game = pair();
+    const enemy = game.host.manager.spawn('husk', new THREE.Vector3(0, 0, -10));
+    game.hw.update(); game.relay.flush();
+    game.guest.player.eye.set(0, 1.6, -5);
+    const replica = game.guest.ctx.enemies.alive[0] as Enemy;
+    const hostEvents: GameEvents['enemy:hit'][] = [];
+    // The host's damage model: it takes 40 off, and says what it found.
+    const answer = { level: 'stagger', stop: 'none' as HitFacts['stop'] };
+    game.host.manager.applyDamage.mockImplementation((target: Enemy, damage: DamageInfo) => {
+      const stopped = answer.stop !== 'none';
+      if (!stopped) target.health -= 40;
+      Object.assign(game.host.manager.model.found, newFacts(), { amount: 40, level: answer.level, stop: answer.stop, armour: stopped ? 'stopped' : undefined });
+      const result = { dealt: 40, killed: false, headshot: false, severed: [], blocked: stopped } as DamageResult;
+      hostEvents.push({ enemy: target, damage, result });
+      game.host.ctx.events.emit('enemy:hit', { enemy: target, damage, result });
+    });
+    const shot = (): DamageInfo => ({ amount: 40, type: 'bullet', point: enemy.center.clone(), dir: new THREE.Vector3(0, 0, -1), force: 12, source: 'smg', region: 'chest' });
+    const packets = () => game.relay.packets.filter(p => p.lane === 'action').map(p => (p.data as { data: WorldEvent }).data);
+
+    // On the frame of the shot, before anything has crossed the wire: the guest's own model has drawn it.
+    game.gw.claim(replica, shot());
+    expect(game.guest.manager.predictDamage).toHaveBeenCalledOnce();
+    expect(game.host.manager.applyDamage).not.toHaveBeenCalled();
+    expect(replica.owed).toBe(40);
+    game.relay.flush();
+    // The host applied the claim with the guest's number on it, and answered the shooter with an `ack`, not a `hitfx`.
+    expect(game.host.manager.applyDamage).toHaveBeenCalledOnce();
+    expect(hostEvents[0]!.damage.claim).toBe(1);
+    expect(packets().filter(e => e.t === 'ack')).toHaveLength(1);
+    expect(packets().filter(e => e.t === 'hitfx')).toHaveLength(0);
+    // Nothing is drawn twice: the answer settles the health and what the hit still owed.
+    expect(game.guest.manager.showDamage).not.toHaveBeenCalled();
+    expect(game.guest.manager.showReaction).not.toHaveBeenCalled();
+    expect(replica.health).toBe(60);
+    expect(replica.owed).toBe(0);
+    expect(game.gw.hitsSeen).toMatchObject({ predicted: 1, acks: 1, corrected: 0 });
+    // The host's own screen shows where the guest's round landed, and its own hit sounds stay out of it (`notMine`).
+    expect(game.host.ctx.combat.remoteHit).toHaveBeenCalledOnce();
+
+    // The host's body went down and the guest's did not: it goes down now, from the host's findings, with no second wound.
+    answer.level = 'felled';
+    game.gw.claim(replica, shot()); game.relay.flush();
+    expect(game.guest.manager.showReaction).toHaveBeenCalledOnce();
+    expect(game.guest.manager.showReaction.mock.calls[0]![2]).toMatchObject({ level: 'felled' });
+    expect(game.guest.manager.showDamage).not.toHaveBeenCalled();
+    // The guest's went down and the host's only flinched: it gets up.
+    answer.level = 'flinch';
+    game.guest.manager.model.found.level = 'felled';
+    game.gw.claim(replica, shot()); game.relay.flush();
+    expect(game.guest.manager.rouseReplica).toHaveBeenCalledOnce();
+    game.guest.manager.model.found.level = 'flinch';
+    // Drawn as blood, and the host's armour stopped it: the sparks of it, late.
+    answer.stop = 'plate';
+    game.gw.claim(replica, shot()); game.relay.flush();
+    expect(game.guest.ctx.combat.remoteHit).toHaveBeenCalledOnce();
+    expect(vi.mocked(game.guest.ctx.combat.remoteHit!).mock.calls[0]![2]).toMatchObject({ blocked: true });
+    // Drawn as stopped, and it went in: the whole hit, now.
+    answer.stop = 'none';
+    game.guest.manager.guess.blocked = true;
+    game.gw.claim(replica, shot()); game.relay.flush();
+    expect(game.guest.manager.showDamage).toHaveBeenCalledOnce();
+    expect(game.gw.hitsSeen.corrected).toBe(4);
+    game.hw.dispose(); game.gw.dispose();
+  });
+  it('forgets a hit the host never answered, so a dropped claim does not go on counting against the enemy\'s health', () => {
+    const game = pair();
+    game.host.manager.spawn('husk', new THREE.Vector3(0, 0, -10));
+    game.hw.update(); game.relay.flush();
+    const replica = game.guest.ctx.enemies.alive[0] as Enemy;
+    // Shot from where the host cannot credit it: no answer comes.
+    game.host.ctx.physics.raycast = vi.fn(() => ({}) as never);
+    game.guest.player.eye.set(0, 1.6, -5);
+    game.gw.claim(replica, { amount: 40, type: 'bullet', point: replica.center.clone(), dir: new THREE.Vector3(0, 0, -1), force: 12, source: 'smg', region: 'chest' });
+    game.relay.flush();
+    expect(replica.owed).toBe(40);
+    vi.advanceTimersByTime(3000); game.gw.update();
+    expect(replica.owed).toBe(0);
+    game.hw.dispose(); game.gw.dispose();
+  });
+  it('tells the shooter of a kill its gun did not announce, and runs what was waiting on the body', () => {
+    const game = pair();
+    const enemy = game.host.manager.spawn('husk', new THREE.Vector3(0, 0, -10));
+    game.hw.update(); game.relay.flush();
+    game.guest.player.eye.set(0, 1.6, -5);
+    const replica = game.guest.ctx.enemies.alive[0]!;
+    game.host.manager.applyDamage.mockImplementation((target: Enemy, damage: DamageInfo) => {
+      target.alive = false;
+      game.host.ctx.events.emit('enemy:killed', { enemy: target, damage, headshot: true, gibbed: false } as never);
+    });
+    const pinned = vi.fn();
+    game.gw.whenKilled(replica, pinned);
+    game.gw.claim(replica, { amount: 40, type: 'bullet', point: enemy.center.clone(), dir: new THREE.Vector3(0, 0, -1), force: 12, source: 'smg', region: 'head' });
+    expect(pinned).not.toHaveBeenCalled();
+    game.relay.flush();
+    // The guest's model had not guessed the kill: the marker, the headshot's sound and its mist come with the host's word.
+    expect(game.guest.ctx.combat.killConfirm).toHaveBeenCalledOnce();
+    expect(vi.mocked(game.guest.ctx.combat.killConfirm!).mock.calls[0]![1]).toBe(true);
+    expect(pinned).toHaveBeenCalledOnce();
+    expect(game.gw.hitsSeen.lateKills).toBe(1);
+
+    // A kill the guest's gun did announce (`killSoon`) is not announced twice.
+    const second = game.host.manager.spawn('husk', new THREE.Vector3(1, 0, -10));
+    vi.advanceTimersByTime(101); game.hw.update(); game.relay.flush();
+    const copy = game.guest.ctx.enemies.alive.find(e => e.uid === second.uid)!;
+    game.guest.manager.guess.killSoon = true;
+    vi.advanceTimersByTime(200);
+    game.guest.ctx.events.emit('weapon:fired', { weapon: 'smg', origin: new THREE.Vector3(0, 1.6, -5), dir: new THREE.Vector3(0, 0, -1) } as never);
+    game.gw.claim(copy, { amount: 40, type: 'bullet', point: second.center.clone(), dir: new THREE.Vector3(0, 0, -1), force: 12, source: 'smg', region: 'head' });
+    game.relay.flush();
+    expect(game.guest.ctx.combat.killConfirm).toHaveBeenCalledOnce();
+    game.hw.dispose(); game.gw.dispose();
   });
   it('sends the host\'s chatter as ids, so every guest sees the same man say the same words', () => {
     const game = pair(); const enemy = game.host.manager.spawn('trooper', new THREE.Vector3(0, 0, -10));

@@ -18,7 +18,7 @@ import { finishAttack, thinkAttacks, thinkBehaviours, tickAttack, type Behaviour
 import { updateContact } from './contact';
 import { archetypeById } from '../characters/archetypes';
 import { ENEMIES, LIMB_SIZE, waveScale, type Footfall } from './data';
-import { DamageModel, STRAY_TANK_DAMAGE, STRAY_TANK_RADIUS, drainDarts } from './damage';
+import { DamageModel, STRAY_TANK_DAMAGE, STRAY_TANK_RADIUS, drainDarts, type HitFacts, type KillFacts } from './damage';
 import { Director } from './director';
 import { Enemy } from './Enemy';
 import { updateMovement } from './movement';
@@ -65,6 +65,9 @@ const EVASION_SPAN = 8.5;
 const CRASH_FLOOR = -40;
 /** Seconds before a body that caught its balance on its muscles acts again, once gore hands it back standing. */
 const STOOD_STAGGER = 0.2;
+/** Co-op: how far a teammate's eye is taken to be above their feet. */
+const SHOOTER_EYE = 1.6;
+const NO_KILL_FACTS: KillFacts = { blast: null, shatter: false, heavyHead: false };
 /** A player outrunning the tide strands a lot of it at once. It comes back in a trickle, not all on one frame. */
 const RESCUE_GAP = 0.3;
 
@@ -895,8 +898,11 @@ export class EnemyManager implements EnemySystem {
   }
 
   applyDamage(enemy: EnemyInstance, damage: DamageInfo): DamageResult {
-    if (this.ctx.coop?.world && !this.ctx.coop.hosting) return this.ctx.coop.world.claim(enemy, damage);
-    if (this.ctx.coop?.world) this.sensePlayer();
+    const world = this.ctx.coop?.world;
+    if (world && !this.ctx.coop!.hosting) return world.claim(enemy, damage);
+    if (world) this.sensePlayer();
+    // A guest's claim: the damage model's player is that guest (the proxy above), and gore sizes by range from their eye.
+    this.model.shooter = world?.notMine() ? this.player.eye : null;
     return this.model.apply(enemy as Enemy, damage);
   }
 
@@ -914,12 +920,75 @@ export class EnemyManager implements EnemySystem {
   }
 
   /**
+   * Co-op guest: the local player's own hit on a copy of the host's enemy, shown now and decided by the host later
+   * (`DamageModel.predict`). The result is this machine's guess.
+   */
+  predictDamage(enemy: Enemy, damage: DamageInfo): DamageResult {
+    this.sensePlayer();
+    this.model.shooter = null;
+    return this.model.predict(enemy, damage);
+  }
+
+  /** The damage model's player is whoever fired: the local player, or a teammate standing at `eye`. */
+  private senseShooter(eye: THREE.Vector3 | null): void {
+    this.sensePlayer();
+    this.model.shooter = eye;
+    if (!eye) return;
+    const p = this.player;
+    p.eye.copy(eye);
+    p.position.copy(eye);
+    p.position.y -= SHOOTER_EYE;
+    p.chest.copy(p.position);
+    p.chest.y += 1;
+  }
+
+  /** Co-op guest: a hit the host decided, shown from its findings. `eye` is the shooter's when it was a teammate. */
+  showDamage(enemy: Enemy, damage: DamageInfo, told: HitFacts, eye: THREE.Vector3 | null): DamageResult {
+    this.senseShooter(eye);
+    const result = this.model.show(enemy, damage, told);
+    this.model.shooter = null;
+    return result;
+  }
+
+  /** Co-op guest: what the host's body did about a hit already drawn here, and nothing else of it (`DamageModel.reactShown`). */
+  showReaction(enemy: Enemy, damage: DamageInfo, told: HitFacts, reaction = true): void {
+    this.senseShooter(null);
+    this.model.reactShown(enemy, damage, told, reaction);
+  }
+
+  /** Co-op guest: a cut the host decided, through the damage model's own path. `mine`: the local player's shot made it. */
+  showSever(enemy: Enemy, region: GoreRegion, damage: DamageInfo, eye: THREE.Vector3 | null, mine: boolean): void {
+    this.senseShooter(eye);
+    this.model.severShown(enemy, region, damage, mine);
+    this.model.shooter = null;
+  }
+
+  /** Co-op guest: the host's word that this copy should not be on the floor (its answer to a hit this machine guessed wrong). */
+  rouseReplica(enemy: Enemy): void {
+    if (enemy.downed && !this.ctx.gore.downed(enemy.char)?.standing) this.ctx.gore.rouse?.(enemy.char);
+  }
+
+  /**
    * A co-op guest's copy of a host enemy, where net/world/replicas.ts has just put it, in the posture the host says. With a
    * `view` it also carries the host's word on its body: frozen and burning become its own state (so a shatter is a shatter,
    * and it burns and chars as the host's does, hurting nothing), and it aims at the player it is after.
    */
   placeReplica(enemy: Enemy, dt: number, posture: string, view?: ReplicaView): void {
     if (view) this.replicaStatus(enemy, dt, view);
+    // The reactions this page's gore started on it from a hit (lane "gore"): its shock fades as the host's does, a fall it
+    // staggered into comes due, and what its hits pushed it by is dropped, because the host's position is where it stands.
+    // (Its own ragdoll, once it is down, is replicas.ts's to wait out.)
+    enemy.shock *= Math.exp(-SHOCK_FADE * dt);
+    if (enemy.fallIn > 0) {
+      enemy.fallIn -= dt;
+      if (enemy.fallIn <= 0) {
+        this.model.fallShown(enemy);
+        // Gore has the bones from here: posed on top, it would read as an instance the library took back.
+        if (this.ctx.gore.downed(enemy.char)) return;
+      }
+    }
+    enemy.reel.set(0, 0, 0);
+    enemy.push.set(0, 0, 0);
     this.place(enemy);
     enemy.dist = enemy.position.distanceTo(this.ctx.player.position);
     enemy.inView = true;
@@ -947,9 +1016,12 @@ export class EnemyManager implements EnemySystem {
     e.rising = view.rising ? Math.max(e.rising, 0.1) : 0;
   }
 
-  replayDeath(enemy: Enemy, damage: DamageInfo, gib: boolean): void {
+  /** Co-op guest: the death the host decided, shown through the one kill flow with the host's findings (`KillFacts`). */
+  replayDeath(enemy: Enemy, damage: DamageInfo, gib: boolean, told: KillFacts = NO_KILL_FACTS, eye: THREE.Vector3 | null = null): void {
     if (gib) damage.gib = true;
-    this.model.kill(enemy, damage, damage.region ?? 'chest', null);
+    this.senseShooter(eye);
+    this.model.killShown(enemy, damage, told);
+    this.model.shooter = null;
   }
 
   emitHit(e: Enemy, d: DamageInfo, res: DamageResult): void {

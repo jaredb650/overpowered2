@@ -7,6 +7,7 @@ import { CG, type AmmoLoad, type CorpseHit, type Ctx, type DamageInfo, type Dama
 import type {
   CombatSystem, DamageResult, EnemyInstance, ExplosionSpec, ProjectileSpec, ShotResult, ShotSpec, StruckList,
 } from '../core/gameplay';
+import { toldKill } from '../core/gameplay';
 import type { GoreRegion } from '../characters/rig';
 import type { MuzzleKind } from '../core/contracts';
 import { clamp, rand } from '../core/math';
@@ -165,6 +166,7 @@ export class Combat implements CombatSystem {
   private readonly vC = new THREE.Vector3();
   private readonly vD = new THREE.Vector3();
   private readonly vE = new THREE.Vector3();
+  private readonly vRemote = new THREE.Vector3();
   private readonly vF = new THREE.Vector3();
   private readonly blastCenter = new THREE.Vector3();
   private readonly playPosition = { position: undefined as THREE.Vector3 | undefined, volume: 1, pitch: 1, pitchJitter: 0 };
@@ -339,9 +341,10 @@ export class Combat implements CombatSystem {
       if (enemy.armor > 0) d.pierces = true;
     }
     const killStop = o.killStop;
-    const quiet = o.quiet;
     const result = c.enemies.applyDamage(enemy, d);
     if (!result) return NO_DAMAGE;
+    // A co-op guest's round into a body it has already been told it killed: a round into a corpse, which says nothing.
+    const quiet = o.quiet || result.doomed === true;
 
     if (result.blocked) {
       if (!quiet) {
@@ -363,28 +366,78 @@ export class Combat implements CombatSystem {
       // A dart through a plate flashes white off it; an incendiary round spits fire where it goes in.
       if (d.load === 'flechette' && armour) c.fx.sparks(point, normal, 2, 0xf2f8ff);
       else if (d.load === 'api') c.fx.sparks(point, normal, 3, 0xff5a1e);
+      // A co-op guest's enemy dies on the host's word; what tells the shooter of the kill goes by its own guess, at once.
+      const killed = toldKill(result);
       if (result.headshot) {
         // You can hear whether it killed: the old headshot and a 2D puff over a little red mist, or a dry crack and nothing to see.
-        if (result.killed) {
+        if (killed) {
           c.fx.bloodMist(point, HEADSHOT_MIST);
           this.play('headshot');
           this.play('headshot_puff');
         } else this.play('headshot_crack');
-        c.hud.hitMarker(result.killed ? 'kill' : armour ?? 'head');
-        this.feel.stop(result.killed ? HIT_STOP.headshotKill : HIT_STOP.headshot);
+        c.hud.hitMarker(killed ? 'kill' : armour ?? 'head');
+        this.feel.stop(killed ? HIT_STOP.headshotKill : HIT_STOP.headshot);
       } else {
         c.fx.bloodHit(point, dir, d.load === 'flechette' ? 0.35 : 1);
         // The material of the hit. Its weight by round, and the 2D confirmation, are layered by audio from the same enemy:hit.
         this.play(enemy.machine ? 'machine_hit' : 'bullet_body', point, 1, 0.06);
-        c.hud.hitMarker(result.killed ? 'kill' : armour ?? 'body');
+        c.hud.hitMarker(killed ? 'kill' : armour ?? 'body');
       }
-      if (result.killed && killStop > 0) this.feel.stop(killStop);
+      if (killed && killStop > 0) this.feel.stop(killStop);
       else if (result.severed.length > 0) {
         this.play('limb_sever', point, 1, 0.06);
         this.feel.stop(HIT_STOP.sever);
       }
     }
     return result;
+  }
+
+  /**
+   * Co-op: a round somebody else's gun landed, as the world shows it, by the same lines `strike` draws the local player's
+   * with: sparks and the ring of armour, or blood and the thud of a body, where it struck. A killing headshot is its mist.
+   * Nothing of the shooter's own (marker, 2D sounds, hit-stop). Blasts, blades and fire are quiet here as they are there.
+   */
+  remoteHit(enemy: EnemyInstance, d: DamageInfo, result: DamageResult): void {
+    const c = this.ctx;
+    const point = d.point;
+    if (result.killed && result.headshot) {
+      c.fx.bloodMist(point, HEADSHOT_MIST);
+      return;
+    }
+    if (d.type !== 'bullet' && d.type !== 'pellet') return;
+    const normal = this.vRemote.copy(d.dir).negate();
+    if (result.blocked) {
+      c.fx.impact(point, normal, 'armor');
+      this.play('impact_armor', point, 0.9, 0.05);
+      if (d.type === 'pellet' && result.armour === 'stopped') {
+        c.fx.sparks(point, normal, 8, 0xffd9a0);
+        this.play('ricochet', point, 0.8, 0.1);
+      }
+      return;
+    }
+    if (d.load === 'flechette' && result.armour) c.fx.sparks(point, normal, 2, 0xf2f8ff);
+    else if (d.load === 'api') c.fx.sparks(point, normal, 3, 0xff5a1e);
+    if (result.headshot) return;
+    c.fx.bloodHit(point, d.dir, d.load === 'flechette' ? 0.35 : 1);
+    this.play(enemy.machine ? 'machine_hit' : 'bullet_body', point, 1, 0.06);
+  }
+
+  /** Co-op guest: the host says the local player's hit killed and the gun did not say so when it fired. The kill's marker and, for a head, its sound and mist. */
+  killConfirm(point: THREE.Vector3, headshot: boolean): void {
+    const c = this.ctx;
+    if (headshot) {
+      c.fx.bloodMist(point, HEADSHOT_MIST);
+      this.play('headshot');
+      this.play('headshot_puff');
+      this.feel.stop(HIT_STOP.headshotKill);
+    }
+    c.hud.hitMarker('kill');
+  }
+
+  /** Co-op guest: the host says the local player's hit took a limb. The sound and the stop `strike` gives one. */
+  severConfirm(point: THREE.Vector3): void {
+    this.play('limb_sever', point, 1, 0.06);
+    this.feel.stop(HIT_STOP.sever);
   }
 
   // -------------------------------------------------------------------------------------------
@@ -1110,11 +1163,13 @@ export class Combat implements CombatSystem {
       o.explosionId = id;
       o.quiet = true;
       const res = this.strike(e, e.center, UP, dir, undefined, undefined, amount, o);
+      // A co-op guest's blast on a body its own contact already killed: in single player that body was gone by now.
+      if (res.doomed) continue;
       tally.count++;
       if (res.blocked) continue;
       if (e.machine) c.fx.sparks(e.center, dir, 24);
       else c.fx.bloodHit(e.center, dir, 0.8);
-      if (res.killed) {
+      if (toldKill(res)) {
         tally.kills++;
         if (Math.random() < 0.5) this.play('enemy_explode', e.center);
       } else {

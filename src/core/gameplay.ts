@@ -444,6 +444,15 @@ export interface CombatSystem extends GameSystem {
   explode(position: THREE.Vector3, spec: ExplosionSpec): void;
   /** Muzzle helper for enemy guns. */
   enemyMuzzle(position: THREE.Vector3, dir: THREE.Vector3, kind: MuzzleKind): void;
+  /**
+   * Co-op: a round somebody else's gun landed on `enemy`, as the world shows it: blood or sparks where it struck and the
+   * sound of it there. Nothing for the shooter alone (no marker, no 2D sound, no hit-stop).
+   */
+  remoteHit?(enemy: EnemyInstance, damage: DamageInfo, result: DamageResult): void;
+  /** Co-op guest: the host says the local player's hit killed, and the gun did not announce it when it fired. */
+  killConfirm?(point: THREE.Vector3, headshot: boolean): void;
+  /** Co-op guest: the host says the local player's hit took a limb. */
+  severConfirm?(point: THREE.Vector3): void;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -499,7 +508,21 @@ export interface DamageResult {
   blocked: boolean;
   /** What a plate, helmet, shield or ward made of the round. Unset when no armour was in the way. */
   armour?: ArmourOutcome;
+  /**
+   * Co-op guest only: this hit should kill by the guest's own reckoning. The body dies on the host's word, so `killed` stays
+   * false; what tells the shooter of a kill (the marker, the headshot's sound, hit-stop) goes by this, at once.
+   */
+  killSoon?: boolean;
+  /**
+   * Co-op guest only: the body was already reckoned dead by an earlier hit of this player's (the rest of a blast's pellets,
+   * a rocket's splash after its own contact). In single player this round met a corpse: it marks the body and tells the
+   * shooter nothing.
+   */
+  doomed?: boolean;
 }
+
+/** A kill as the shooter is told of one: decided here, or a co-op guest's own guess that the host will decide it. */
+export const toldKill = (result: DamageResult): boolean => result.killed || result.killSoon === true;
 
 /** Stopped: the armour took it all. Through: some reached the body. Broken: the piece was destroyed (with or without the rest getting in). */
 export type ArmourOutcome = 'stopped' | 'through' | 'broken';
@@ -753,7 +776,8 @@ declare module './contracts' {
     'enemy:spawned': { enemy: EnemyInstance };
     'enemy:hit': { enemy: EnemyInstance; damage: DamageInfo; result: DamageResult };
     'enemy:killed': KillEvent;
-    'enemy:severed': { enemy: EnemyInstance; region: GoreRegion; damage: DamageInfo };
+    /** One event a region lost. `cut` is on the first of a cut's events only: the region the cut was made at (co-op sends that one). */
+    'enemy:severed': { enemy: EnemyInstance; region: GoreRegion; damage: DamageInfo; cut?: GoreRegion };
 
     'wave:start': { wave: number; total: number; boss: boolean };
     'wave:clear': { wave: number; bonus: number };

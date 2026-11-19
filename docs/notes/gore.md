@@ -241,6 +241,21 @@ whichever body had died that frame: a grenade into a crowd left bodies frozen st
   ends. 'a body thrown or shot again starts its time over', last in the file, fails with the clock left at death (hips 1.4
   to 2.6 m up) and with a round not restarting it (the shot corpse asleep 12 frames of 90).
 
+## Co-op: every screen makes its own (2026-11-18)
+
+Nothing of gore crosses the wire. Each screen runs the damage model on its own copy of the body and calls this system as solo does
+(`docs/notes/coop.md`, "Gore on every screen"). What that asks of gore:
+
+- **`wound`, `headPellets`, `sever`, `knockdown`, the deaths** are called on a guest exactly as on the host, with the host's
+  severity. Ragdolls, limbs, gibs, corpses, stains and pools are each machine's own and differ in where they land.
+- **`DamageInfo.from`:** the shooter's eye when the shooter is not the local player. `gutShot` and the pellet wound's size
+  (`WoundField.pellet`) measure range from it; without it they read `ctx.player.eye`, as before.
+- **`damage.torso` and `damage.spill`** still carry the host's choice to the other screens (in the hit's `bits`), and `planGib`
+  is seeded from the point, which is sent to the millimetre.
+- **`rouse(char)`:** a living body on the floor gets up now (its `Reflex.lie` is over). A guest's copy lies for as long as the
+  host's does, not by its own clock (`REPLICA_LIE`, 20 s, is only the backstop), and is roused when the host's is up.
+- **Budgets** are the local machine's settings only. Nothing here reads whether it hosts.
+
 ## Contract additions
 
 Muscles add `collapse`, `knockdown` (whose options carry `knockout`, `strength` and `roll`), `downed`, `handedBack`, `setStrength` and `LimbStrength`, and `impact`, `twitch`, `muscles` and `limp` on `RagdollOptions`, from `muscles.ts` by module augmentation. `getUp.ts` adds the optional reaction members to `CharacterAnimation`, `poseGetUpAt`, `blendFrom`, `buckleLeg` and `getUp`'s `startU` among them. `MuscleState.onLift` is a hook for tests.

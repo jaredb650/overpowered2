@@ -262,3 +262,17 @@ Shared files and contracts between lanes:
   (`coopRegroup`, the played match to `adopt`), `tools/scripts/coop-kit.mjs` (`deploy`, `inMatch`), `src/net/trystero.ts` (the
   cap). Open for the owner: see the lane's report.
 - 2026-11-18, late: usage cap about to hit (owner has reset tokens). State for whoever resumes: landed so far = rig (done, reported), split (done), enemy-motion main (`970157c`; its 12-case measurement table is still to run on a quiet machine with `coop-motion-*.mjs`), enemy-attacks (two steps), time, claims (core + vehicles), team (endings, respawn), pod race, blood puff. Not yet landed, work sits in each lane's worktree and branch `coop/<lane>` (see `git worktree list`, `git log coop-overhaul..coop/<lane>`, `git -C <worktree> status`): session, gore (client-side model), weapons-fx (all written, 48-case proof running), call-ins, world-a (pods, drops, destructibles written), world-b (Defense in progress), missions, team follow-ups, devtools (dev-only tools), proof-speed (fast proof mode). No lane except rig and split has sent its final report. To resume a lane: a fresh agent in the SAME worktree (or a new worktree on that branch), told to read the lane's row here, its branch's commits and uncommitted diff, then finish, prove and land. After the lanes: phase 2 (wire, verify). Known flaky tests under load, not from this work: `gore/knockdown.test.ts`, `gore/strength.test.ts`, `weapons/viewmodels/hands.test.ts`.
+- 2026-11-18, gore: the blood puff landed first (`421ecce`), then the gore itself. `DamageModel` runs with the facts on (solo, host)
+  or off (a guest): `predict` draws a guest's own hit on the frame of the shot, `show`/`severShown`/`killShown` draw what the host
+  decided, all through the same lines, so the screens cannot drift. Hits cross the wire as `hitfx` (about 108 bytes, was 330) and
+  the shooter gets an `ack` (66 bytes) instead of its own picture; `sever` is one event a cut, `kill` carries the blast's roll, the
+  frozen bit and the killing round's wound. Decisions: the body dies on the host's word, never on a guess, and the shooter's kill
+  feedback goes by the guess (`killSoon`); a guest's own hit is matched to the host's answer by a number of its own on the damage
+  (`DamageInfo.claim`), finer than the shot id (six pellets are six answers); knockdowns are guessed too and put right by the
+  answer; a copy on the floor lies until the host's body is up. Edits outside the lane, all small: `EnemyManager` (the guest entry
+  points and the top of `placeReplica`), `Enemy.ts` (four fields), `Projectiles.ts` and `Melee.ts` (the late pin and fling, and
+  `toldKill`), `Flames.ts` (one marker), `ui/runreport.ts` (two `notMine` guards), `outpost/index.ts` (its hit rules stay off a
+  guest's own events), and every mocked manager in the co-op tests (`goreDoubles()`). With enemy-motion's landing: a copy's own
+  ragdoll is waited out by their `replicas.ts`, and their `down` move skips a copy gore already knocked down. Open for
+  enemy-motion: a state's sever bits still cut at once (they should wait for the `sever` event). Details: `docs/notes/coop.md`,
+  "Gore on every screen".

@@ -31,6 +31,8 @@ const PROXIMITY = 0.75;
 const ON_COURSE = PROXIMITY + 1;
 /** Rings and puffs hold this spacing during a hit-stop, when the clock runs but the shell barely moves. */
 const MIN_TRAIL_SPACING = 0.5;
+/** Co-op guest: seconds after a stake stops in a body the host's word of the kill may still nail it up. */
+const LATE_PIN = 1.5;
 const MAX_PENDING_PINS = 8;
 /** Metres an exploding bolt's centre stands back out of what it stuck in: its nose in, the shaft and its light out. */
 const BOLT_SINK = 0.28;
@@ -603,6 +605,36 @@ export class Projectiles {
     }
     // Nothing came loose, so a live body stops the stake.
     if (!res.killed) p.live = false;
+    // A co-op guest's enemy dies on the host's word: the body is nailed up when that comes, if it comes soon.
+    const c = this.ctx;
+    if (!res.killed && !res.blocked && c.coop?.world && !c.coop.hosting) {
+      const from = point.clone();
+      const along = dir.clone();
+      const head = res.headshot;
+      const until = c.time.realElapsed + LATE_PIN;
+      c.coop.world.whenKilled(enemy, body => { if (c.time.realElapsed < until) this.nailLate(body, from, along, head); });
+    }
+  }
+
+  /** The stake that killed it has stopped in it: the body goes to the wall behind as it would have with the stake. */
+  private nailLate(enemy: EnemyInstance, point: THREE.Vector3, dir: THREE.Vector3, headshot: boolean): void {
+    const c = this.ctx;
+    const back = this.w.copy(point).addScaledVector(dir, -1.2);
+    const line = headshot ? this.v.setFromMatrixPosition(enemy.char.bones[0]!.matrixWorld).sub(back).normalize() : dir;
+    const corpse = c.gore.raycastCorpses(back, line, 2.6);
+    const wall = corpse ? c.physics.raycast(point, dir, TUNING.stake.pinReach, CG.World) : null;
+    if (!corpse || !wall || this.pendingCount >= MAX_PENDING_PINS) return;
+    c.audio.play('stake_hit_flesh', { position: point });
+    c.audio.play('stake_twang', { position: wall.point });
+    this.visuals.stick(wall.point, dir, TUNING.stake.stuckSeconds);
+    const pin = this.pendingPins[this.pendingCount++]!;
+    pin.hit.distance = corpse.distance;
+    pin.hit.point.copy(corpse.point);
+    pin.hit.normal.copy(corpse.normal);
+    pin.hit.handle = corpse.handle;
+    pin.hit.bone = corpse.bone;
+    pin.hit.region = corpse.region;
+    pin.anchor.copy(wall.point);
   }
 
   private sweepCorpses(p: Projectile, dir: THREE.Vector3, limit: number): void {

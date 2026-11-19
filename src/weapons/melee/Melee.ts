@@ -14,7 +14,7 @@
  */
 import * as THREE from 'three';
 import { CG, type Ctx, type DamageType, type LoopHandle, type SlashKind } from '../../core/contracts';
-import type { EnemyInstance, WeaponId, WeaponModifiers } from '../../core/gameplay';
+import { toldKill, type EnemyInstance, type WeaponId, type WeaponModifiers } from '../../core/gameplay';
 import type { GoreRegion } from '../../characters/rig';
 import { clamp, rand } from '../../core/math';
 import { rigInfo } from '../../gore/rigInfo';
@@ -57,6 +57,8 @@ const WAVE_GLOW = 0x66e0ff;
 const MAX_SLICES_PER_FRAME = 3;
 /** Meters inside its reach a step or a dash leaves a body, so the swing still live on arrival lands. */
 const ARRIVE_INSIDE = 0.3;
+/** Co-op guest: seconds after the blow the host's word of the kill may still throw the body. */
+const LATE_FLING = 1.5;
 /** Where a fling's push comes from, behind the struck body along the swing, and how far it reaches. */
 const FLING_BACK = 0.8;
 const FLING_RADIUS = 1.8;
@@ -654,12 +656,12 @@ export class Melee {
       c.audio.play('flesh_slice', { position: at });
       if (o.vaporize) this.sear(at, dir);
       else {
-        c.fx.bloodHit(at, dir, res.killed ? 1.6 : 1.1);
-        if (res.killed) c.fx.bloodJet(at, dir, 1);
+        c.fx.bloodHit(at, dir, toldKill(res) ? 1.6 : 1.1);
+        if (toldKill(res)) c.fx.bloodJet(at, dir, 1);
       }
     }
-    c.hud.hitMarker(res.killed ? 'kill' : 'body');
-    this.combat.feel.stop(res.killed ? 0.045 : 0.025, true);
+    c.hud.hitMarker(toldKill(res) ? 'kill' : 'body');
+    this.combat.feel.stop(toldKill(res) ? 0.045 : 0.025, true);
   }
 
   /** The flying slash meets a wall: it goes off there, and cuts the wall. */
@@ -1087,6 +1089,13 @@ export class Melee {
       if (o.slicePlaneNormal) this.slicesLeft--;
       // The flurry throws only on its last stab.
       if (swing.fling && (this.special !== 'flurry' || this.jab === KATANA.flurryStabs - 1)) this.fling(e, push, swing.fling);
+    } else if (res.killSoon) this.killCount++;
+    if (!res.killed && swing.fling && c.coop?.world && !c.coop.hosting && (this.special !== 'flurry' || this.jab === KATANA.flurryStabs - 1)) {
+      // A co-op guest's enemy dies on the host's word: the body is thrown when that comes, if it comes soon.
+      const way = push.clone();
+      const strength = swing.fling;
+      const until = c.time.realElapsed + LATE_FLING;
+      c.coop.world.whenKilled(e, body => { if (c.time.realElapsed < until) this.fling(body, way, strength); });
     }
     if (e.machine) {
       c.fx.sparks(point, this.vD, d.sparks, 0xfff2cc);

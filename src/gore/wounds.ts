@@ -170,9 +170,10 @@ export class WoundPlanner {
     if (!machine) this.ctx.fx.bloodHit(_q, dir, exit > 0.05 ? 1.2 : 0.7);
   }
 
-  private pellet(on: Flesh, bone: number, point: THREE.Vector3, dir: THREE.Vector3, size: number): number {
+  /** `from`: the shooter's eye when that is not the local player (co-op, `DamageInfo.from`). */
+  private pellet(on: Flesh, bone: number, point: THREE.Vector3, dir: THREE.Vector3, size: number, from?: THREE.Vector3): number {
     const t = WoundTuning;
-    const range = clamp((point.distanceTo(this.ctx.player.eye) - t.pelletNear) / (t.pelletFar - t.pelletNear), 0, 1);
+    const range = clamp((point.distanceTo(from ?? this.ctx.player.eye) - t.pelletNear) / (t.pelletFar - t.pelletNear), 0, 1);
     const radius = lerp(0.047, 0.0115, Math.sqrt(range)) * size;
     _hit.reach = lerp(t.pelletMerge, 0, Math.min(1, range * 2));
     this.cut(on, radius > 0.024 ? WoundKind.crater : WoundKind.hole, bone, point, dir, radius, lerp(0.09, 0.04, range), lerp(1, 0.35, range));
@@ -308,7 +309,7 @@ export class WoundPlanner {
       this.cut(char, WoundKind.graze, bone, point, this.inward(info, char.bones, bone, point, _n), lerp(0.05, 0.12, clamp(severity, 0, 1)) * size, 0.03, 0.4);
       if (!machine) this.strain(char, info, bone, d.amount * (d.type === 'crush' ? 2 : 1), size);
     } else if (d.type === 'pellet' || d.source === 'shotgun') {
-      const load = this.pellet(char, bone, point, d.dir, size);
+      const load = this.pellet(char, bone, point, d.dir, size, d.from);
       if (!machine) this.strain(char, info, bone, d.amount * load, size);
     } else {
       const bite = BITES[d.source] ?? SMALL;
@@ -324,7 +325,7 @@ export class WoundPlanner {
     limb.bones[bone]!.updateWorldMatrix(true, false);
     if (d.type === 'slash') this.gash(limb, info, d, bone, point, 0.4, size);
     else if (d.type === 'melee' || d.type === 'crush') return;
-    else if (d.type === 'pellet' || d.source === 'shotgun') this.pellet(limb, bone, point, d.dir, size);
+    else if (d.type === 'pellet' || d.source === 'shotgun') this.pellet(limb, bone, point, d.dir, size, d.from);
     else this.bullet(limb, info, BITES[d.source] ?? SMALL, bone, point, d.dir, size, false);
   }
 }

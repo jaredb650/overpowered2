@@ -42,6 +42,21 @@ interface FireSlot {
 
 const isMachine = (e: EnemyInstance) => e.id === 'skitter' || e.id === 'drone';
 
+/**
+ * What a gib or a killing headshot sounds like where it happened: heard by everyone near, whoever's kill it was. A co-op
+ * guest plays it for a teammate's kill, which is never its own `enemy:killed` (net/world/hits.ts).
+ */
+export function killSounds(audio: AudioSystem, at: Vector3, gibbed: boolean): void {
+  if (gibbed) {
+    audio.play('blood_splatter', { position: at, delay: 0.03 });
+    // What went up coming down.
+    audio.play('gib_rain', { position: at, delay: 0.15 });
+  } else {
+    audio.play('head_pop', { position: at });
+    audio.play('vox_gurgle', { position: at, volume: 0.8, pitch: rand(0.9, 1.1), delay: 0.18 });
+  }
+}
+
 /** Landings past this range are never worth a voice. */
 const LANDING_RANGE = 55;
 /**
@@ -234,12 +249,15 @@ export class Reactions {
     const now = this.ctx.time.realElapsed;
     // Fire ticks on its own. Confirming every tick would drown out the shots that took aim.
     if (damage.type === 'fire' || notPlayers(damage.source)) return;
+    // Co-op host: a teammate's round is confirmed on the teammate's screen, not this one.
+    if (this.ctx.coop?.world?.notMine()) return;
     this.bodyHit(enemy, damage, result, now);
     const armour = result.armour ?? (result.blocked ? 'stopped' : undefined);
     // A piece coming off is news even on a kill and inside the gap, so a Sabot headshot through a helmet is both sounds.
     // Only a helmet covers the head, so a broken piece on a head hit is a helmet, and gets the signature.
     if (armour === 'broken') this.play(damage.region === 'head' ? 'armour_broken' : 'plate_destroyed');
-    if (result.killed || now - this.lastMarker < MARKER_GAP) return;
+    // `killSoon`: a co-op guest's own guess at the kill, which its marker goes by until the host says.
+    if (result.killed || result.killSoon || now - this.lastMarker < MARKER_GAP) return;
     this.lastMarker = now;
     if (armour === 'broken') return;
     this.play(armour === 'stopped' ? 'armour_stopped' : armour === 'through' ? 'armour_through' : result.headshot ? 'hit_marker_head' : 'hit_marker');
@@ -259,14 +277,15 @@ export class Reactions {
       this.lastBodyHit = now;
       return;
     }
-    if (this.held && result.killed) this.heldKill = true;
+    const killed = result.killed || result.killSoon === true;
+    if (this.held && killed) this.heldKill = true;
     const levels = bodyHitLevels(hitWeight(damage.amount, damage.type, damage.force));
     // Same frame counts too: the rest of a shotgun's pellets, or a pierce through a line, are the same hit.
     if (now - this.lastBodyHit < levels.gap) return;
     this.lastBodyHit = now;
     this.held = true;
     this.heldMachine = isMachine(enemy);
-    this.heldKill = result.killed;
+    this.heldKill = killed;
     this.heldLevels = levels;
     this.heldAt.copy(damage.point);
   }
@@ -328,19 +347,14 @@ export class Reactions {
   }
 
   private onKilled({ enemy, damage, gibbed, headshot }: GameEvents['enemy:killed']): void {
-    if (!notPlayers(damage.source)) this.play('hit_marker_kill');
+    // Co-op host: a teammate's kill is confirmed on the teammate's screen. What the death sounds like where it happened is
+    // everybody's.
+    const mine = !this.ctx.coop?.world?.notMine(enemy);
+    if (mine && !notPlayers(damage.source)) this.play('hit_marker_kill');
     if (isMachine(enemy)) return;
-    if (gibbed) {
-      this.play('blood_splatter', enemy.center, 1, 1, 0.03);
-      // What went up coming down.
-      this.play('gib_rain', enemy.center, 1, 1, 0.15);
-    }
-    else if (headshot) {
-      this.play('head_pop', enemy.center);
-      this.play('vox_gurgle', enemy.center, 0.8, rand(0.9, 1.1), 0.18);
-    }
+    if (gibbed || headshot) killSounds(this.audio, enemy.center, gibbed);
     // The body shot's partner to `headshot_puff`: a round from the player's gun that killed.
-    else if (BODY_HIT_TYPES.has(damage.type) && Object.hasOwn(WEAPONS, damage.source)) this.play('kill_body');
+    else if (mine && BODY_HIT_TYPES.has(damage.type) && Object.hasOwn(WEAPONS, damage.source)) this.play('kill_body');
   }
 
   /** What a body, limb, head or chunk sounds like landing. The payload is reused, so nothing here keeps it. */

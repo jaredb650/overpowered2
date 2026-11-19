@@ -11,7 +11,7 @@ import * as THREE from 'three';
 import { DroneBone, HumanoidBone as B, type GoreRegion } from '../characters/rig';
 import { DEFAULT_FORCE, HEAD_VOLLEY, type AmmoLoad, type DamageInfo, type DamageType, type HeadOutcome } from '../core/contracts';
 import { DevFlags } from '../core/devflags';
-import type { DamageResult, KillEvent } from '../core/gameplay';
+import type { ArmourOutcome, DamageResult, KillEvent } from '../core/gameplay';
 import { chance, clamp, lerp, pick, rand, smoothstep } from '../core/math';
 import { FACTIONS, type FactionRules } from '../contracts/data';
 import { ACTIVE } from '../contracts/select';
@@ -20,14 +20,14 @@ import { standBudget, StandTuning } from '../gore/stand';
 import { STRUGGLE_PASS } from '../gore/reflex';
 import { bursts, HEAVY_ROUND } from './wounds/rules';
 import { blowsOut } from '../gore/torso';
-import { BLAST, OUTCOME_COUNT, OUTCOMES, rollBlast, tearsWaist, type BlastBody, type BlastRoll, type OutcomeRule } from './blast';
+import { BLAST, OUTCOME_COUNT, OUTCOMES, rollBlast, tearsWaist, type BlastBody, type BlastOutcome, type BlastRoll, type OutcomeRule } from './blast';
 import { CHECK_CARRY, CHECK_MIN, CHECK_TOPPLE_MAX, CHECK_TOPPLE_MIN, checkStrength, SLIDE_KICK, SLIDE_TOPPLE } from './contact';
 import { ENEMIES, LIMB_SIZE, REGION_DAMAGE } from './data';
 import { AMMO, WEAPONS, type ArmourClass } from '../weapons/data';
 import type { WeaponId } from '../core/gameplay';
 import { say } from './attacks';
 import { finishAttack } from './brain';
-import { chooseReaction, mustFall, profileOf, type ReactionProfile } from './reactions';
+import { chooseReaction, mustFall, profileOf, type ReactionLevel, type ReactionProfile } from './reactions';
 import { dropOff } from './roles';
 import type { Enemy } from './Enemy';
 import type { Plate } from './armor';
@@ -76,6 +76,8 @@ const FRACTURED = 0.15;
 /** Metres per second tipping the upper body over the feet, at no strength and at full. Less is a body that folds up. */
 const TOPPLE_MIN = 1.2;
 const TOPPLE_MAX = 2.2;
+/** Seconds a co-op guest's copy would lie if nothing ever told it to get up: the host's body getting up is what does. */
+export const REPLICA_LIE = 20;
 /** Share of a body's shock left after each kind of reaction, so one burst does not fell it twice. */
 const SHOCK_AFTER_STAGGER = 0.5;
 /** Knocked cold by a head hit, it lies this much longer, and gets up dazed for its whole `daze`. */
@@ -320,11 +322,60 @@ function newResult(): DamageResult {
   return { dealt: 0, killed: false, headshot: false, severed: [], blocked: false };
 }
 
+/** What stopped a hit short of the body, if anything did. */
+export type HitStop = 'none' | 'plate' | 'shield' | 'ward' | 'entrance';
+
+/**
+ * What the model found a hit did, beyond its `DamageResult`. On the machine that decides (solo, or a co-op host) it is
+ * written by every `apply` (`DamageModel.found`) and sent to the other screens; there it comes back in as what a hit they
+ * did not decide is shown by (`DamageModel.show`). Everything a screen needs to draw the same hit and nothing it could work
+ * out for itself.
+ */
+export interface HitFacts {
+  /** Health the hit took, after every multiplier and whatever armour let through: the wound's severity and the reaction's size. For a stopped round, what it would have taken. */
+  amount: number;
+  stop: HitStop;
+  armour: ArmourOutcome | undefined;
+  /** The plate it met, as an index into the body's plates, or -1; and whether that broke it. */
+  plate: number;
+  broke: boolean;
+  headshot: boolean;
+  /** What the body did about it (reactions.ts), after wounds and blasts had their say. */
+  level: ReactionLevel;
+  strength: number;
+  knockout: boolean;
+  tripped: boolean;
+  /** What a blast's ring rolled for this body, or null. */
+  blast: BlastOutcome | null;
+}
+
+export function newFacts(): HitFacts {
+  return { amount: 0, stop: 'none', armour: undefined, plate: -1, broke: false, headshot: false, level: 'flinch', strength: 0, knockout: false, tripped: false, blast: null };
+}
+
+/** What the deciding machine found about a kill that the others cannot work out: see `DamageModel.killShown`. */
+export interface KillFacts {
+  /** Health the killing hit took, for the wound it leaves on the way (0: it left none). Left out, none. */
+  wound?: number;
+  blast: BlastOutcome | null;
+  /** It was frozen: it shatters. */
+  shatter: boolean;
+  /** A very damaging round to the head (`heavyHead`): it bursts. */
+  heavyHead: boolean;
+}
+
+/** A level that puts the body on the floor. */
+export const floors = (level: ReactionLevel): boolean => level === 'fall' || level === 'felled' || level === 'thrown';
+
 export class DamageModel {
   private readonly results: DamageResult[] = Array.from({ length: RESULT_RING }, newResult);
   private head = 0;
   private readonly blastBody: BlastBody = { health: 0, maxHealth: 0, machine: false, fireproof: false };
   private readonly blastRoll: BlastRoll = { outcome: 'thrown', amount: 0, fatal: false };
+  /** A guest is showing a death (`killShown`): nothing is cut on the way. */
+  private dying = false;
+  /** A guest is showing a cut its own player's shot made (`severShown`). */
+  private mine = false;
   /** What has come up so far in the blast `seenIn`, so that one crowd does not all go the same way. */
   private readonly seen = new Uint8Array(OUTCOME_COUNT);
   private seenIn = -1;
@@ -336,6 +387,25 @@ export class DamageModel {
   /** Limbs the blast `seenIn` has taken so far. */
   private cuts = 0;
   private readonly seam: DamageInfo = { amount: 0, type: 'explosive', point: new THREE.Vector3(), dir: new THREE.Vector3(), force: 0, source: '' };
+  /**
+   * False while a hit is only being shown (a co-op guest: `predict`, `show`, `severShown`, `killShown`): nothing the host
+   * owns is touched then, no health, armour, limb pool, status or death, and nothing is cut or killed that the host has not
+   * said. Everything that is seen and heard runs the same lines either way, which is what keeps the screens from drifting.
+   */
+  private facts = true;
+  /** The deciding machine's findings about the hit being shown, or null when this machine works them out (`apply`, `predict`). */
+  private told: HitFacts | null = null;
+  /** As `told`, for a death being shown. */
+  private toldKill: KillFacts | null = null;
+  /** What the last `apply` or `predict` found: read at once, before the next hit. */
+  readonly found: HitFacts = newFacts();
+  /** What the last kill decided here found (`KillFacts`). */
+  readonly foundKill: KillFacts = { blast: null, shatter: false, heavyHead: false, wound: 0 };
+  /**
+   * Co-op: the eye of whoever fired, when that is not the local player (the host applying a guest's claim, a guest shown a
+   * teammate's hit). Null for the local player's own. Gore's choices by range go by it (`DamageInfo.from`).
+   */
+  shooter: THREE.Vector3 | null = null;
 
   constructor(private readonly w: AiWorld, private readonly m: EnemyManager) {}
 
@@ -368,27 +438,102 @@ export class DamageModel {
     r.dealt = 0;
     r.killed = r.headshot = r.blocked = false;
     r.armour = undefined;
+    r.killSoon = r.doomed = undefined;
     r.severed.length = 0;
     return r;
   }
 
   apply(e: Enemy, d: DamageInfo): DamageResult {
+    return this.run(e, d);
+  }
+
+  /**
+   * Co-op guest: the local player's own hit on a copy of the host's enemy, shown at once. The same lines as `apply` with the
+   * facts left alone: the wound at its real size, blood, plate wear, the flinch, stagger or fall, the voice. No health,
+   * armour or limb comes off and nothing dies: those are the host's, and its answer corrects what this guessed wrong.
+   * `killSoon` on the result is the guess that the host will call it a kill.
+   */
+  predict(e: Enemy, d: DamageInfo): DamageResult {
+    this.facts = false;
+    try {
+      return this.run(e, d);
+    } finally {
+      this.facts = true;
+    }
+  }
+
+  /** Co-op guest: a hit the host decided (a teammate's, the host's own, the world's), shown from its findings. */
+  show(e: Enemy, d: DamageInfo, told: HitFacts): DamageResult {
+    this.facts = false;
+    this.told = told;
+    try {
+      return this.run(e, d);
+    } finally {
+      this.facts = true;
+      this.told = null;
+    }
+  }
+
+  /**
+   * Co-op guest: what the host's body did about a hit this machine has already drawn (its own, guessed otherwise): the
+   * reaction alone, and what a blast's ring did that only the host could roll. No second wound.
+   */
+  reactShown(e: Enemy, d: DamageInfo, told: HitFacts, reaction = true): void {
+    if (!e.alive) return;
+    this.facts = false;
+    this.told = told;
+    try {
+      let region: GoreRegion = d.region ?? 'chest';
+      if (e.def.wholeLimbs) region = WHOLE_LIMB[region] ?? region;
+      const blast = this.blastTold(told);
+      if (blast) this.blastShown(e, d, blast);
+      if (reaction) this.react(e, d, region, told.amount, this.result(), blast !== null && !OUTCOMES[blast.outcome].stands);
+    } finally {
+      this.facts = true;
+      this.told = null;
+    }
+  }
+
+  private run(e: Enemy, d: DamageInfo): DamageResult {
     const res = this.result();
     if (!e.alive) return res;
+    const facts = this.facts;
+    const told = this.told;
+    const found = this.found;
+    found.amount = 0;
+    found.stop = 'none';
+    found.armour = undefined;
+    found.plate = -1;
+    found.broke = found.headshot = found.knockout = found.tripped = false;
+    found.level = 'flinch';
+    found.strength = 0;
+    found.blast = null;
+    d.from = this.shooter ?? undefined;
 
-    if (e.entrance === 'boss') return this.blocked(e, d, res);
+    if (told ? told.stop === 'entrance' : e.entrance === 'boss') {
+      found.stop = 'entrance';
+      return this.blocked(e, d, res);
+    }
 
     const area = AREA_TYPES.has(d.type);
-    if (e.ward > 0 && d.type !== 'true' && d.type !== 'fire') {
+    if (told ? told.stop === 'ward' : e.ward > 0 && d.type !== 'true' && d.type !== 'fire') {
+      found.stop = 'ward';
+      found.armour = 'stopped';
       this.hitWard(e, d, res);
       return res;
     }
-    if (e.shield && this.shieldStops(e, d, res)) return res;
+    if (told ? told.stop === 'shield' : e.shield && this.shieldStops(e, d, res)) {
+      found.stop = 'shield';
+      found.armour = 'stopped';
+      this.shieldHit(e, d, res);
+      return res;
+    }
 
     let region: GoreRegion = d.region ?? 'chest';
     if (e.def.wholeLimbs) region = WHOLE_LIMB[region] ?? region;
 
-    if (e.def.tank && !e.tankBlown && this.tankStruck(e, d, region)) {
+    // A tank going up is the host's blast: a guest hears of it as the kill and the explosion.
+    if (facts && e.def.tank && !e.tankBlown && this.tankStruck(e, d, region)) {
       this.blowTank(e, d);
       // The tank going up is the kill. Fall through with enough damage to finish it.
       return this.lethal(e, d, res, region, false);
@@ -402,20 +547,27 @@ export class DamageModel {
     const kneeling = body !== null && wounds!.kneeling(e);
     if (body) amount = wounds!.priced(placed, d, amount, region, kneeling);
     res.headshot = region === 'head' && !area && (placed === null || (placed.zone === 'head' && !placed.glancing));
+    if (told) {
+      amount = told.amount;
+      res.headshot = told.headshot;
+    }
     this.headVolley = region === 'head' && !area ? this.w.ctx.gore.headPellets(e.char, d) : 0;
 
     // A plate does nothing about a fire, or about blood that is already leaving.
     const reaches = (!body || d.type === 'explosive' || !area) && !kneeling;
     // A round that goes through armour takes the armour with it: the Sabot's dart deletes the piece it passes, a shaped
     // charge on the body strips every plate he wears (only the one it hit on a boss, so one rocket cannot skip his phases).
-    if (reaches && d.pierces && e.armor > 0) this.tearOff(e, region, d, res);
-    const plate = !reaches || d.pierces ? null : area ? this.blastPlate(e) : this.plateFor(e, region, d);
+    if (reaches && d.pierces && (told ? told.armour === 'broken' : e.armor > 0)) this.tearOff(e, region, d, res);
+    const plate = !reaches || d.pierces ? null : told ? e.plates[told.plate] ?? null : area ? this.blastPlate(e) : this.plateFor(e, region, d);
     if (plate) {
       const shred = d.source === 'piledriver' ? PILEDRIVER_SHRED : 1;
       // What the plate loses, and what of the round gets past it.
       let wear: number;
       let through: number;
-      if (e.isBoss || area) {
+      if (told) {
+        wear = told.broke ? plate.hp : 0;
+        through = told.stop === 'plate' ? 0 : amount;
+      } else if (e.isBoss || area) {
         // Bosses keep the soak their phases were tuned on, and a blast chips whatever plate is left. What breaks through
         // only half lands; the rest went into tearing the plate off.
         const absorbed = Math.min(plate.hp / shred, amount);
@@ -425,36 +577,67 @@ export class DamageModel {
         // One rule in every mode, by the class of the round (docs/proposals/armour-and-headshots-plan.md, section 2).
         ({ wear, through } = armourHit(this.armourClass(plate, d), plate.hp, d.amount, amount, shred, d.load));
       }
-      e.armor = Math.max(0, e.armor - Math.min(wear, plate.hp));
+      if (facts) e.armor = Math.max(0, e.armor - Math.min(wear, plate.hp));
+      // A guest wears its own copy of the plate, as its best guess at the host's.
       plate.hp -= wear;
-      const broken = plate.hp <= 0;
+      const broken = told ? told.broke : plate.hp <= 0;
       if (broken) this.shootOff(e, plate, d);
-      if (body) wounds!.onPlate(e, plate, d, region);
+      if (body && facts) wounds!.onPlate(e, plate, d, region);
       res.armour = broken ? 'broken' : through <= 0 ? 'stopped' : 'through';
+      found.plate = e.plates.indexOf(plate);
+      found.broke = broken;
+      found.armour = res.armour;
       if (through <= 0) {
         res.blocked = true;
         res.headshot = false;
         res.dealt = amount;
+        found.stop = 'plate';
+        found.amount = amount;
         this.react(e, d, region, amount, res);
-        this.m.emitHit(e, d, res);
+        this.emitHit(e, d, res);
         return res;
       }
       amount = through;
     }
+    if (res.armour) found.armour = res.armour;
 
-    if (e.frozen > 0 && amount >= 4) amount *= 3;
-    if (e.boss) amount = e.boss.filter(e, this.w, amount, d, region);
+    if (!told) {
+      if (e.frozen > 0 && amount >= 4) amount *= 3;
+      // A boss's phases are the host's to move: a guest shows the hit at its plain size.
+      if (e.boss && facts) amount = e.boss.filter(e, this.w, amount, d, region);
+    }
 
-    const blast = this.rolled(e, d, amount);
-    if (blast) amount = blast.amount;
+    // A blast's ring is rolled once, by whoever decides: a guest's own blast shows as a plain hit until the host says.
+    const blast = told ? this.blastTold(told) : facts ? this.rolled(e, d, amount) : null;
+    if (blast && !told) amount = blast.amount;
 
-    e.health -= amount;
-    // A dart's hole bleeds on (EnemyManager drains it); an incendiary round sometimes lights him. Not a boss or a machine.
-    if (!e.isBoss && !e.def.machine) e.darts += dartBleed(d.load, amount);
-    if (e.health > 0 && !e.def.fireproof && ignites(d.load, Math.random())) this.ignite(e, AMMO.api.burn);
+    if (facts) {
+      e.health -= amount;
+      // A dart's hole bleeds on (EnemyManager drains it); an incendiary round sometimes lights him. Not a boss or a machine.
+      if (!e.isBoss && !e.def.machine) e.darts += dartBleed(d.load, amount);
+      if (e.health > 0 && !e.def.fireproof && ignites(d.load, Math.random())) this.ignite(e, AMMO.api.burn);
+    }
     // Before the death is picked, so a killing shot leaves its mark on the body too.
     if (this.w.ctx.gore.wound(e.char, d, blast?.outcome === 'flesh' ? 1 : amount / e.maxHealth)) this.updateMaim(e);
     res.dealt = amount;
+    found.amount = amount;
+    found.headshot = res.headshot;
+    found.blast = blast?.outcome ?? null;
+
+    if (!facts) {
+      // Health, the pools' cuts and the death are the host's. A guest keeps its own count of the pools, for how the body
+      // carries itself, and guesses the kill for the shooter's ears and eyes alone.
+      if (!told) {
+        // Already reckoned dead by an earlier hit of this player's: this one met a corpse, as far as the shooter is told.
+        if (!body && !e.isBoss && e.health - e.owed <= 0) res.doomed = true;
+        else res.killSoon = this.wouldKill(e, body !== null, region, amount);
+      }
+      if (blast) this.blastShown(e, d, blast);
+      else if (!area && region !== 'head') this.spendLimb(e, region, d, res);
+      this.react(e, d, region, amount, res, blast !== null && !OUTCOMES[blast.outcome].stands);
+      this.emitHit(e, d, res);
+      return res;
+    }
 
     const headPool = region === 'head' ? this.spendPool(e, 'head', amount) : Infinity;
     const spent = e.health <= 0 || headPool <= 0;
@@ -466,8 +649,44 @@ export class DamageModel {
 
     if (!e.alive) return res;
     this.react(e, d, region, amount, res, blast !== null && !OUTCOMES[blast.outcome].stands);
-    this.m.emitHit(e, d, res);
+    this.emitHit(e, d, res);
     return res;
+  }
+
+  /** `enemy:hit`, for a hit decided or guessed here. A hit only shown (a teammate's) is not this player's news. */
+  private emitHit(e: Enemy, d: DamageInfo, res: DamageResult): void {
+    if (!this.told && !res.doomed) this.m.emitHit(e, d, res);
+  }
+
+  /**
+   * A guest's guess that the host will call this hit a kill: its health as last heard, less what the guest's own hits still
+   * unanswered should take (`Enemy.owed`), will not outlast it. Never for a body with anatomy (his wounds decide that, on
+   * the host), a boss, or a body the host may be about to blow up.
+   */
+  private wouldKill(e: Enemy, anatomy: boolean, region: GoreRegion, amount: number): boolean {
+    if (anatomy || e.isBoss || amount <= 0) return false;
+    if (region === 'head' && (e.limbHp.get('head') ?? Infinity) - amount <= 0) return true;
+    return e.health - e.owed - amount <= 0;
+  }
+
+  /** The ring's roll as the host made it, for a hit being shown. */
+  private blastTold(told: HitFacts): BlastRoll | null {
+    if (told.blast === null) return null;
+    const roll = this.blastRoll;
+    roll.outcome = told.blast;
+    roll.amount = told.amount;
+    roll.fatal = false;
+    return roll;
+  }
+
+  /** What the ring did to a body that lives, as far as it shows: the limbs it took come as cuts of their own. */
+  private blastShown(e: Enemy, d: DamageInfo, blast: BlastRoll): void {
+    const rule = OUTCOMES[blast.outcome];
+    if (blast.outcome === 'flesh') this.open(e, d);
+    if (rule.stands) {
+      e.char.anim.daze?.(BLAST.dazed);
+      this.stagger(e, BLAST.dazed);
+    }
   }
 
   /** The ring this body stood in has its say, or null for anything but a blast's splash. Bosses only take the damage. */
@@ -539,7 +758,7 @@ export class DamageModel {
 
   private blocked(e: Enemy, d: DamageInfo, res: DamageResult): DamageResult {
     res.blocked = true;
-    this.m.emitHit(e, d, res);
+    this.emitHit(e, d, res);
     return res;
   }
 
@@ -553,7 +772,8 @@ export class DamageModel {
     if (!e.limbHp.has(region) || region === 'head' || e.char.severed.has(region)) return;
     const hit = d.amount * (d.severMult ?? 1) * SEVER_FACTOR[d.type] * this.rules(e).limbWear;
     if (hit <= 0) return;
-    if (this.spendPool(e, region, hit) <= 0) this.sever(e, region, d, res);
+    // A guest keeps count and cuts nothing: the limb comes off when the host says it did.
+    if (this.spendPool(e, region, hit) <= 0 && this.facts) this.sever(e, region, d, res);
   }
 
   /** An explosive hit with no ring to answer to, a rocket's own contact or a boss in a blast, works the limb pools. */
@@ -568,21 +788,70 @@ export class DamageModel {
   }
 
   sever(e: Enemy, region: GoreRegion, d: DamageInfo, res: DamageResult | null): void {
+    // Showing a death the host decided: the limbs it took with it came as cuts of their own, ahead of it.
+    if (this.dying) return;
     const { ctx } = this.w;
     // The limb leaves at the speed the body was going, the same as the body it leaves when this is a death.
-    const cut = ctx.gore.sever(e.char, e.def.severAt?.[region] ?? region, d, deathVelocity(e, _dying, this.w.now));
+    const at = e.def.severAt?.[region] ?? region;
+    const cut = ctx.gore.sever(e.char, at, d, deathVelocity(e, _dying, this.w.now));
     if (!cut) return;
     ctx.audio.play('limb_sever', { position: cut.stump, pitchJitter: 0.08 });
     if (!e.def.machine) say(e, this.w, 'vox_scream', 0.8);
-    for (const r of cut.regions) {
+    for (let i = 0; i < cut.regions.length; i++) {
+      const r = cut.regions[i]!;
       e.limbHp.delete(r);
       res?.severed.push(r);
-      ctx.events.emit('enemy:severed', { enemy: e, region: r, damage: d });
+      // Decided here, or the shooter's own cut on a guest. A cut a teammate made is not this player's news.
+      if (this.facts || this.mine) ctx.events.emit('enemy:severed', i === 0 ? { enemy: e, region: r, damage: d, cut: at } : { enemy: e, region: r, damage: d });
     }
     this.updateMaim(e);
+    if (!this.facts) return;
     this.m.outpost?.wounds.onSevered(e, region);
     e.def.onLimbLost?.(e, this.w, region);
     e.boss?.onLimbLost(e, this.w, region);
+  }
+
+  /**
+   * Co-op guest: a cut the host decided, made through the same path as the host's: the limb, its sound, the scream, and
+   * what is left of the body read again (`updateMaim`: a body without legs crawls). `region` is where the cut was made.
+   * `mine`: the local player's shot took it, so it is their `enemy:severed` (score, the run report, the sound).
+   */
+  severShown(e: Enemy, region: GoreRegion, d: DamageInfo, mine: boolean): void {
+    if (e.char.severed.has(region)) return;
+    this.facts = false;
+    this.mine = mine;
+    d.from = this.shooter ?? undefined;
+    try {
+      this.sever(e, region, d, null);
+    } finally {
+      this.facts = true;
+      this.mine = false;
+    }
+  }
+
+  /**
+   * Co-op guest: the death the host decided, through the one kill flow, with what the host found that this machine cannot
+   * (`KillFacts`): the ring's roll, so a body torn at the waist is torn here; that it was frozen, so it shatters; and
+   * whether the round bursts a head. The ragdoll, the gibs and where they land are this machine's own.
+   */
+  killShown(e: Enemy, d: DamageInfo, told: KillFacts): void {
+    this.facts = false;
+    this.toldKill = told;
+    d.from = this.shooter ?? undefined;
+    const roll = told.blast === null ? null : this.blastRoll;
+    if (roll) {
+      roll.outcome = told.blast!;
+      roll.amount = d.amount;
+      roll.fatal = true;
+    }
+    try {
+      // The killing round leaves its mark first, as it does where the kill was decided.
+      if (told.wound && e.alive && this.w.ctx.gore.wound(e.char, d, told.blast === 'flesh' ? 1 : told.wound / e.maxHealth)) this.updateMaim(e);
+      this.kill(e, d, d.region ?? 'chest', null, roll);
+    } finally {
+      this.facts = true;
+      this.toldKill = null;
+    }
   }
 
   /** Re-reads what is left of the body. The AI layers react through `requires` and scores; nothing else is needed. */
@@ -646,7 +915,7 @@ export class DamageModel {
     for (let i = 0; i < e.plates.length; i++) {
       const p = e.plates[i]!;
       if (p.hp <= 0 || (only && p !== only)) continue;
-      e.armor = Math.max(0, e.armor - p.hp);
+      if (this.facts) e.armor = Math.max(0, e.armor - p.hp);
       this.shootOff(e, p, d);
       torn++;
     }
@@ -715,22 +984,22 @@ export class DamageModel {
     ctx.fx.sparks(_v, _n, 18, 0xffe0a0);
     ctx.fx.ring(_v, _n, 0xffd0a0, 1.1);
     ctx.audio.play('armor_plate_off', { position: _v, pitchJitter: 0.08 });
-    e.boss?.onPlateLost?.(e, this.w);
+    if (this.facts) e.boss?.onPlateLost?.(e, this.w);
   }
 
   private hitWard(e: Enemy, d: DamageInfo, res: DamageResult): void {
     const { ctx } = this.w;
-    e.ward -= d.amount;
+    if (this.facts) e.ward -= d.amount;
     res.blocked = true;
     res.armour = 'stopped';
     this.w.telegraphs.flashWard(e.wardVisual);
     e.char.hitFlash(0.25);
-    if (e.ward <= 0) {
+    if (this.facts && e.ward <= 0) {
       this.m.dropWard(e);
       ctx.fx.ring(e.center, _n.set(0, 1, 0), 0xffe9a0, 1.8);
       ctx.fx.sparks(e.center, _n, 14, 0xffe9a0);
     }
-    this.m.emitHit(e, d, res);
+    this.emitHit(e, d, res);
   }
 
   private shieldStops(e: Enemy, d: DamageInfo, res: DamageResult): boolean {
@@ -746,6 +1015,11 @@ export class DamageModel {
       res.armour = 'broken';
       return false;
     }
+    return true;
+  }
+
+  /** The shield took it: its ring, the arm behind it jolted, and that arm worn a little further. */
+  private shieldHit(e: Enemy, d: DamageInfo, res: DamageResult): void {
     res.blocked = true;
     res.armour = 'stopped';
     const { ctx } = this.w;
@@ -754,9 +1028,8 @@ export class DamageModel {
     if (d.type === 'explosive' || d.amount >= 40) e.char.anim.play('block', 1.4);
     // Sustained fire batters the arm behind the shield: enough of it and the arm goes, shield and all.
     const left = this.spendPool(e, 'armL', d.amount * (d.type === 'explosive' ? 0.35 : 0.22));
-    if (left <= 0) this.sever(e, 'armL', d, res);
-    this.m.emitHit(e, d, res);
-    return true;
+    if (left <= 0 && this.facts) this.sever(e, 'armL', d, res);
+    this.emitHit(e, d, res);
   }
 
   private tankStruck(e: Enemy, d: DamageInfo, region: GoreRegion): boolean {
@@ -789,7 +1062,7 @@ export class DamageModel {
       if (left <= 0) this.sever(e, region, d, res);
     }
     this.kill(e, d, region, res, blast);
-    this.m.emitHit(e, d, res);
+    this.emitHit(e, d, res);
     return res;
   }
 
@@ -797,18 +1070,30 @@ export class DamageModel {
   kill(e: Enemy, d: DamageInfo, region: GoreRegion, res: DamageResult | null, blast: BlastRoll | null = null): void {
     if (!e.alive) return;
     const { ctx, player } = this.w;
+    const facts = this.facts;
+    const told = this.toldKill;
     e.alive = false;
     e.health = 0;
     this.m.detach(e);
+    // Shown on a guest: every limb this death took came ahead of it, as a cut of its own.
+    this.dying = !facts;
 
-    if (e.def.tank && !e.tankBlown && chance(e.def.tank.onDeath)) this.blowTank(e, d);
+    // The blast is the host's: a guest hears of it as an explosion.
+    if (facts && e.def.tank && !e.tankBlown && chance(e.def.tank.onDeath)) this.blowTank(e, d);
 
     const force = d.force || DEFAULT_FORCE[d.type];
     const wounds = this.m.outpost?.wounds ?? null;
     const body = wounds?.bodyOf(e) ?? null;
     const slowly = wounds?.isBleedOut(d) ?? false;
     const headshot = region === 'head' && !AREA_TYPES.has(d.type);
-    const shatter = e.frozen > 0;
+    const shatter = told ? told.shatter : e.frozen > 0;
+    const heavyHead = told ? told.heavyHead : headshot && this.heavyHead(e, d);
+    const found = this.foundKill;
+    found.blast = blast?.outcome ?? null;
+    found.shatter = shatter;
+    found.heavyHead = heavyHead;
+    // The hit that is killing it, if a hit is (`run` wounds before the death is picked): the other screens wound for it too.
+    found.wound = res ? this.found.amount : 0;
     const blownUp = e.tankBlown || blast?.outcome === 'gib' || bursts(d);
     let gibbed = false;
     let sliced = false;
@@ -837,7 +1122,7 @@ export class DamageModel {
       this.ragdoll(e, d, force, body ? HEADSHOT_TWITCH : undefined, true);
     } else if (headshot && !e.def.machine) {
       // A bullet never takes a head off whole. Gore bursts a 'partial' on an enemy whose partial wound is not built yet.
-      const outcome = headOutcome(d.amount, this.heavyHead(e, d), e.def.id);
+      const outcome = headOutcome(d.amount, heavyHead, e.def.id);
       const burst = outcome !== 'hole';
       const down = e.rising > 0 || body?.floored === true;
       if (burst) this.throwHelmet(e, d);
@@ -853,9 +1138,9 @@ export class DamageModel {
       ctx.gore.headshot(e.char, d, deathVelocity(e, _dying, this.w.now));
     } else {
       if (blownUp && !DevFlags.explosiveDeaths) this.blastMaim(e, d);
-      // A big round through the trunk opens its far side (src/gore/torso.ts). A co-op guest does what the host did.
-      const guest = ctx.coop?.world && !ctx.coop.hosting;
-      if (!e.def.machine && !blast && DevFlags.gibbing && (guest ? d.torso === 'blowout' : blowsOut(d, e.position.distanceTo(player.position)))) {
+      // A big round through the trunk opens its far side (src/gore/torso.ts), by how far off the shooter stood. A co-op
+      // guest shown the death does what the host did.
+      if (!e.def.machine && !blast && DevFlags.gibbing && (facts ? blowsOut(d, e.position.distanceTo(player.position)) : d.torso === 'blowout')) {
         this.platesOff(e, d.dir);
         ctx.gore.blowOut?.(e.char, d);
       }
@@ -885,7 +1170,9 @@ export class DamageModel {
     };
     // A man who went mortal or down on an earlier frame has had his dying line (audio's `sayDying`): one voice per man.
     if (!headshot && !((body?.dyingFrom ?? Infinity) < this.w.now)) say(e, this.w, e.def.voice.die, 0.7);
-    if (!ctx.coop?.world || ctx.coop.hosting) ctx.events.emit('enemy:killed', ev);
+    this.dying = false;
+    // A guest's own kills are told to its own game by the co-op world, once it knows whose they were (net/world/hits.ts).
+    if (facts) ctx.events.emit('enemy:killed', ev);
     if (e.dyingKind === 'none') this.m.retire(e);
     else this.m.holdForDeath(e);
   }
@@ -1013,6 +1300,19 @@ export class DamageModel {
     const early = r.level === 'felled' && (this.w.now < e.reactAt || e.rising > 0);
     const must = this.m.outpost?.wounds.mustFall(e) || (throws && e.maim.legs > 0);
     if (must) mustFall(r, d);
+    const told = this.told;
+    if (told) {
+      // The host's body did this, so this one does: its own dice above only kept its shock in step.
+      r.level = told.level;
+      r.strength = told.strength;
+      r.knockout = told.knockout;
+      r.tripped = told.tripped;
+    }
+    const found = this.found;
+    found.level = r.level;
+    found.strength = r.strength;
+    found.knockout = r.knockout;
+    found.tripped = r.tripped;
     // Ice cannot stumble, and a body still arriving is on somebody else's clock.
     const held = e.frozen > 0 || e.entrance !== 'none';
     // Floored by a head hit, the fall is the whole reaction. A flinch and a guard on the animator first would be read into the
@@ -1132,6 +1432,16 @@ export class DamageModel {
     e.char.anim.daze?.(e.stagger);
   }
 
+  /** Co-op guest: a copy's stagger turned into the fall it was heading for (`fall`), with the facts left alone. */
+  fallShown(e: Enemy): void {
+    this.facts = false;
+    try {
+      this.fall(e);
+    } finally {
+      this.facts = true;
+    }
+  }
+
   /** Staggering did not save it. */
   fall(e: Enemy): void {
     const profile = profileOf(e);
@@ -1205,6 +1515,8 @@ export class DamageModel {
     if (floored) wounds!.stayDown(e);
     o.hurt = floored ? 1 : profile.pain * (0.5 + strength * 0.5);
     o.lie = floored ? wounds!.lieSeconds(wounds!.bodyOf(e)!) : rand(profile.lie[0], profile.lie[1]) * (0.7 + strength * 0.6) * (cold ? KNOCKOUT_LIE : 1);
+    // A guest's copy lies until the host's own gets up (net/world/replicas.ts rouses it), not by a clock of its own.
+    if (!this.facts) o.lie = REPLICA_LIE;
     // With all four limbs it pushes itself part of the way up on the floor, and the clip plays the rest in the rest of the time.
     const pushes = STRUGGLE_PASS && pushesUp(e);
     e.riseSeconds = floored ? 0 : profile.rise * (0.85 + strength * 0.4) * (pushes ? 1 - RISE_PUSHED : 1);

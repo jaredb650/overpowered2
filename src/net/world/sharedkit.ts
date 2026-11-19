@@ -11,6 +11,7 @@ import { Lobby } from '../lobby';
 import type { NetRoom } from '../room';
 import { CoopWorld } from '../world';
 import type { WorldEvent } from '../worldProtocol';
+import { goreDoubles } from './goreDoubles';
 
 export class Relay {
   readonly rooms: Room[] = [];
@@ -58,7 +59,7 @@ export function stubGame() {
     velocity: new THREE.Vector3(), alive: true, health: 100, maxHealth: 100, armor: 0, grounded: true, downed: false, parked: false,
     reset: vi.fn(), teleport: vi.fn(), takeDamage: vi.fn(), launch: vi.fn(), heal: vi.fn(), addArmor: vi.fn() };
   const alive: unknown[] = [];
-  const ctx = { events, player, enemies: { alive, spawn: vi.fn(), withdraw: vi.fn(), applyDamage: vi.fn(), replayDeath: vi.fn(), placeReplica: vi.fn() },
+  const ctx = { events, player, enemies: { alive, spawn: vi.fn(), withdraw: vi.fn(), applyDamage: vi.fn(), replayDeath: vi.fn(), placeReplica: vi.fn(), ...goreDoubles() },
     weapons: { current: 'smg', owned: new Set(['smg']) }, waves: { wave: 1, phase: 'spawning', nextWaveIn: 0 },
     physics: { raycast: vi.fn(() => null), radialImpulse: vi.fn() },
     world: { playerSpawns: [{ position: new THREE.Vector3(4, 0, 4), yaw: 0 }] },

@@ -1026,6 +1026,9 @@ export class Outpost {
   }
 
   private onHit(enemy: EnemyInstance, d: DamageInfo, res: DamageResult): void {
+    // A co-op guest's `enemy:hit` is its own guess at a hit on a copy: fear, the squad's alarm and the back shot's bonus are
+    // the host's to decide, when it applies the claim.
+    if (this.guest()) return;
     const s = soldierOf(enemy);
     if (!s || res.killed) return;
     const { w } = this;
@@ -1044,7 +1047,14 @@ export class Outpost {
     }
   }
 
+  /** A co-op guest: these men are copies of the host's, and nothing here decides for them. */
+  private guest(): boolean {
+    const coop = this.w.ctx.coop;
+    return !!coop?.world && !coop.hosting;
+  }
+
   private onSevered(enemy: EnemyInstance): void {
+    if (this.guest()) return;
     const s = soldierOf(enemy);
     if (s?.fighting) this.scare(s, FEAR.limbLost);
   }

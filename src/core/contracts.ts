@@ -78,6 +78,13 @@ export interface DamageInfo {
   torso?: 'crack' | 'waist' | 'blowout';
   /** Set by gore on the hit that opened the belly and left the guts hanging out, so a co-op guest's replay hangs them too. */
   spill?: boolean;
+  /**
+   * Co-op: where the round was fired from when that is not the local player (a teammate's eye). What gore sizes by range
+   * (a point-blank blowout, a gut shot, a pellet's wound) reads this in place of the local eye. Set by the damage model.
+   */
+  from?: THREE.Vector3;
+  /** Co-op: a guest's own number for this hit, 1..65535, wrapping. The host's answer carries it back (net/world/hits.ts). */
+  claim?: number;
 }
 
 /** A gun's ammo mod: armour-piercing, hollow-point or +P (ball rules, more damage). Unset is standard ball. */
@@ -447,6 +454,8 @@ export interface GoreSystem extends GameSystem {
    * body's health this hit took. Call it for lethal hits too, before the body is handed over. True if a limb broke.
    */
   wound(char: CharacterInstance, damage: DamageInfo, severity: number): boolean;
+  /** A living body gore has on the floor gets up now, whatever it had left to lie (co-op: the host's copy already has). */
+  rouse?(char: CharacterInstance): void;
   /** Pins a corpse or limb to the world at a point, for the Stakegun. */
   pin(hit: CorpseHit, anchor: THREE.Vector3): void;
   /**

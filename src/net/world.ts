@@ -95,7 +95,7 @@ export class CoopWorld {
     // Sonar is shared; Thermal is each player's own and never sent. Focus slows the world for everyone (world/clock.ts).
     new SharedSonar(w);
     this.credit = new Credit(w, this.claims);
-    this.hits = new Hits(w, this.enemies, this.credit);
+    this.hits = new Hits(w, this.enemies, this.credit, this.claims);
     // After Credit: a boss's death names its killer, which Credit works out on the same `enemy:killed`.
     this.time = new Clock(w, uid => this.credit.slot(uid));
     new Chatter(w, this.enemies);
@@ -114,7 +114,7 @@ export class CoopWorld {
     w.router.host('worldsync', (_, from) => this.catchUp(from));
     // Moves and identities ride the reliable lane beside the enemies' unreliable states (replicas.ts).
     const moves = new Moves(w, this.enemies), identity = new Identity(w, this.enemies);
-    this.modules = [this.capture, this.vehicles, this.garrison, this.targeting, this.claims, this.credit, this.props, this.attacks, this.warnings, w.later, this.time, moves, identity, this.enemies];
+    this.modules = [this.capture, this.vehicles, this.garrison, this.targeting, this.claims, this.credit, this.hits, this.props, this.attacks, this.warnings, w.later, this.time, moves, identity, this.enemies];
   }
 
   /** Read by the two-page proofs (tools/scripts/coop-*.mjs): the guest's enemy copies, last snapshot and garrison bodies. */
@@ -164,7 +164,19 @@ export class CoopWorld {
       try { part.catchUp(id); } catch (error) { console.warn('[coop] A catch-up for an arriving guest failed', error); }
     }
   }
-  claim(enemy: EnemyInstance, damage: DamageInfo): DamageResult { return this.claims.claim(enemy, damage); }
+  /**
+   * Guest: the local player's damage on an enemy. It is sent to the host as a claim (claims.ts) and drawn here at once
+   * (hits.ts `predict`); the result is this machine's guess at the host's. The world's own damage is neither.
+   */
+  claim(enemy: EnemyInstance, damage: DamageInfo): DamageResult {
+    const own = this.hits.stamp(damage);
+    const guess = this.claims.claim(enemy, damage);
+    return own ? this.hits.predict(enemy as Enemy, damage) : guess;
+  }
+  /** Guest: runs `then` on the enemy's body once the host says this player killed it (a stake's pin, a blade's fling). */
+  whenKilled(enemy: EnemyInstance, then: (enemy: EnemyInstance) => void): void { this.hits.whenKilled(enemy, then); }
+  /** For the proofs: what this screen has drawn of its own and of others' hits, and the host's answer times. */
+  get hitsSeen(): Hits['seen'] { return this.hits.seen; }
   /** Guest: my weapon, call-in or perk set this enemy alight, froze it or left a live bolt in it (EnemyManager.afflict). */
   status(enemy: EnemyInstance, kind: StatusKind, seconds: number): void { this.claims.status(enemy, kind, seconds); }
   /**

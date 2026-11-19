@@ -80,7 +80,8 @@ the names the game used before).
 | `world/identity.ts` | Each soldier's names, rank, seat, voice and squad, told once per guest | `who` |
 | `world/targeting.ts` | Host: every player as a target (`players()`, and `hostPlayers()` as the game's own player type for dangers that test them all), `select`, line of sight, `steer` and its routes, `targetPlayer`, sending `hurt` and `shove`, a guest's dodge grace (`dodged`), who holds Ghost. Guest: taking `hurt` (a sword block still works) and `shove`, `allowsLocalDamage`, telling the host about Ghost | `hurt`, `shove`, `ghost` |
 | `world/claims.ts` | Guest's `claim` (its damage as a `hit` event, and the guess at the result); the host's check and apply (`hitIn`); whose claim is being applied (`applying`) and who last hit an enemy (`lastHit`), read by hits.ts for kill credit | `hit` |
-| `world/hits.ts` | Kill credit (`killedBy`, `notMine`, the guest's own kill replay); what the host's damage did, sent out; wounds, severs and deaths on guests; `selfDestruct` | `hitfx`, `kill`, `sever` |
+| `world/hits.ts` | What the host's damage did, as every other screen shows it: the host's `hitfx`, `ack`, `sever` and `kill`; a guest drawing its own hit at once (`stamp`, `predict`), putting right what it guessed wrong (`ackIn`) and showing the hits, cuts and deaths the host decided; `whenKilled`; `selfDestruct`. See "Gore on every screen" | `hitfx`, `ack`, `kill`, `sever` |
+| `world/hitWire.ts` | The round and the host's findings as ids and whole numbers: `packHit`/`unpackHit`, `packFacts`/`unpackFacts`, `packKill`/`unpackKill` | |
 | `world/remoteFire.ts` | A player's shots on other screens: the local `fire`, the host's check and relay, drawing it. The shot counter claims carry. Gun Kata's notice | `fire`, `kata` |
 | `world/enemyFire.ts` | Host: enemy rays against remote players (`enemyRay`), every enemy projectile described once as it leaves (`projectile`), flashes and sounds of things that are not an enemy's attack, the scope and shot recorder attacks.ts uses. Guest: tracers with the near-miss crack, harmless projectile copies, removing one at the host's word, asking the host to blow up one it shot | `ray`, `proj`, `projx`, `projhit`, `efx` |
 | `world/attacks.ts` | Enemy attacks on every screen: the host's three events per attack, and the guest running the same `AttackDef` on its copy against a world that cannot hurt. Also a line said outside an attack and a boss's phase effects | `atk`, `atkf`, `atke`, `say`, `bossfx` |
@@ -542,6 +543,121 @@ Unit tests: `src/net/lobbyLife.test.ts` (30: each timer rule and each case above
   kept its kit, and cards and snapshots heal state, but a wave banner or pod call sent while it was away is not replayed).
 - Hidden-tab and "in a menu" tags on teammates (M7, M8), a note in the one-tab takeover (H2), a rejoin after a reload on the
   lobby page, and a host page reload after its guests have already regrouped (two hosts on one code; they do not merge).
+## Gore on every screen
+
+The owner's rule: the gore is computed on each client, never streamed from the host, and a guest's own hits are instant. Bodies are
+this game's toy, so a guest must get all of it. How it works since the overhaul (lane "gore"):
+
+**One damage model, with the facts on or off.** `DamageModel` (`src/enemies/damage.ts`) is the only code that marks, moves or
+kills an enemy. It runs the same lines in four ways:
+
+| Call | Who | What it does |
+|---|---|---|
+| `apply` | Solo, and the host (its own hits, a guest's claims) | Everything: decides and draws. Writes what it found to `found` (`HitFacts`) and, for a death, `foundKill` |
+| `predict` | A guest, for its own hit, on the frame of the shot | Draws all of it and decides nothing: the wound at its real size (`amount / maxHealth`), exit wound, gut spill, head pellets, blood puff, spray, wet skin and drips, plate wear and a plate shot off, flinch, stagger, fall or knockdown, the pain voice, `updateMaim`. No health, armour, limb, status or death. `killSoon` on the result is its guess at the kill |
+| `show` | A guest, for a hit the host decided (a teammate's, the host's own, the world's) | The same drawing from the host's findings instead of its own sums: the host's amount, what stopped the round, the plate and whether it broke, the headshot verdict, what the body did (reaction level and strength), the blast's roll |
+| `severShown`, `killShown` | A guest, for a cut or a death the host decided | The model's own `sever` (limb, `limb_sever`, the scream, `updateMaim`: a body short of its legs crawls) and its one kill flow, with what only the host knows: the blast's roll (a waist cut is a waist cut), that it was frozen (it shatters), a bursting head, the killing round's wound |
+
+While the facts are off (`facts === false`) nothing the host owns is touched, and nothing is cut or killed that the host has not
+said. A guest keeps its own count of limb pools and plate wear on its copy, as a guess; the snapshot's plate mask and the host's
+events are the truth. Ragdolls, gibs, severed limbs and corpses are each machine's own simulation and may land differently.
+
+**The shooter's eye.** What gore sizes by range (a point-blank blowout, a gut shot, a pellet's wound) goes by where the shooter
+stood, not the watcher: `DamageInfo.from`, set by the model from `DamageModel.shooter` (the host applying a guest's claim, a guest
+shown a teammate's hit: the teammate's body plus 1.6 m). The local player's own hits carry none and read the local eye, as solo.
+
+**A guest's own hit** (`CoopWorld.claim`): `Hits.stamp` numbers it (`DamageInfo.claim`, 1 to 65535), claims.ts sends the claim
+with that number in its damage, and `Hits.predict` draws it now and keeps it in a ring of 256 (`Pending`: the enemy, what the guest
+reckoned it took, whether armour stopped it, what the body did). `Enemy.owed` adds up the health its unanswered hits should take,
+so the guess at a kill is "health last heard, less what I still have in the air". Unanswered after 2.5 s (the host dropped the
+claim), a hit is forgotten.
+
+**The host's answer.** For a guest's claim the host sends the shooter an `ack` and **no picture** (`hitOut`): the claim's number,
+the enemy's health and armour after, and the host's findings. `ackIn` then puts right only what was drawn wrong:
+
+| The guest drew | The host found | Then |
+|---|---|---|
+| blood | armour stopped it | the sparks and the ring of armour, late; the blood stays |
+| sparks | it went in | the whole hit is shown now (`show`) |
+| the body stayed up | it went down | it goes down now, with no second wound (`reactShown`) |
+| the body went down | it only flinched | it is roused and gets up (`rouseReplica`; enemy-motion's wait would rouse it a moment later anyway) |
+| a plain blast | the ring laid the body open | it is opened now |
+
+Everyone else gets `hitfx` (host's own hits: every guest; a guest's claim: the other guests) and runs `show`. The host's own
+screen, which a guest's gun never drew on, gets the round's landing from `Combat.remoteHit`: blood or sparks and its sound there.
+
+**Kills.** The body dies on the host's word (`kill`), never on a guess. What tells the shooter of a kill goes by `killSoon`, at
+once: the kill marker, `headshot` and not `headshot_crack`, the red mist, hit-stop (`toldKill()` in `core/gameplay.ts`, read by
+Combat, Melee, the Kiln and explosions). A later round into a body already told dead is `doomed`: it marks the body and tells
+the shooter nothing, as a round into a corpse does in single player. A kill the guess missed (a man's wounds decide it on the
+host, or the host knew better) is announced when `kill` arrives (`Combat.killConfirm`). What needs the corpse waits for the
+host's word through `CoopWorld.whenKilled`: a stake nails the body to the wall (`Projectiles.nailLate`), a blade flings it; both
+within 1.5 s or not at all. The guest's own `enemy:killed` is emitted then, as before.
+
+**Whose news it is.** A guest emits `enemy:hit` and `enemy:severed` for its own hits only (its own guess), so its hit-confirm
+audio, headshot-hit score, Butcher, BACK SHOT and run report work as solo. On the host, audio's and the run report's listeners
+skip a teammate's hit, cut or kill (`notMine`): the host no longer hears a guest's hit markers. What a death or a cut sounds like
+where it happened (`limb_rip`, a gib's splatter, a head's pop) plays on every screen.
+
+**Knockdowns on a copy.** A guest's gore knocks its copy down from its own hit, at once, or from a hit it is shown. From there
+the body is enemy-motion's to wait out (`replicas.ts` `ragdoll`, `moves.ts`): gore has it, nothing places or poses it, it lies
+until the host's body is up (the `getUp` move, or the host seen standing for a moment) and is then roused (`gore.rouse`) and
+eased back under the host's position. The host also sends every knockdown of its own as a `down` move; a copy that began one
+of its own in the last 400 ms ignores it. In its own model a guest's copy lies for `REPLICA_LIE` (20 s) at most, as a backstop.
+`placeReplica` begins with gore's small part: a copy's shock fades as the host's does, a stagger that turns into a fall comes
+due (`fallIn`), and what its hits pushed it by is dropped each frame, because the host's position is where it stands.
+
+**Budgets.** Corpses, ragdolls, limbs, decals and blood are capped by `GoreTuning`, `BloodTuning` and the decal and particle
+rings, set from the local quality setting alone. Nothing in `src/gore`, `src/fx` or `src/render` reads whether this machine hosts.
+
+### The events
+
+| `t` | Fields | From, to |
+|---|---|---|
+| `hitfx` | `u` uid, `by` shooter's slot, `h` `a` health and armour after (tenths), `f` findings, `d` the round | Host to every guest but the shooter |
+| `ack` | `c` the claim's number, `u`, `h`, `a`, `f`, `k` it killed | Host to the shooter |
+| `sever` | `uid`, `region` where the cut was made (one event a cut), `by`, `d` | Host to guests |
+| `kill` | `uid`, `id`, `at`, `yaw`, `gib`, `by`, `head`, `k` the death's findings, `d` | Host to guests |
+
+`d` (`packHit`): `[type, bone, region, x, y, z (mm), dx, dy, dz (127ths), amount (tenths), force (tenths), bits, source, load]`
+plus a cut's plane. `bits`: gib, pierces, armour-piercing, vaporize, spill, the trunk's break (2 bits), slice. Millimetres because
+gore seeds a broken trunk's pieces from the point (`planGib`), so every screen breaks it the same way. `f` (`packFacts`): `[amount
+(tenths), bits, plate index, strength (hundredths)]`; bits: what stopped it (3), the armour outcome (2), broke, headshot, reaction
+level (3), knockout, tripped, blast roll (4). `k` (`packKill`): blast roll, frozen, heavy head, and the killing hit's amount.
+
+Sizes as JSON, before the match wrapper (58 bytes a message today, the wire lane's to remove): `hitfx` about 108 bytes, `ack`
+about 66; the old `hitfx` was about 330 and went to the shooter too (`hitWire.test.ts` holds them under 120 and 70). By
+arithmetic, every round landing: the Buzzsaw at 50 rounds a second is 5.4 KB/s to each watching guest and 3.3 KB/s of answers to
+the shooter (8.3 and 6.2 with the wrapper); a pump shotgun, six pellets every 0.55 s, is 1.2 KB/s to each watcher and 0.7 KB/s
+to the shooter (1.8 and 1.4). Measured in the browser: see the lane's report. The wire lane will make these binary and batch a
+frame's worth.
+
+### Contracts with the other lanes
+
+- **claims:** the claim's damage carries `claim`; the validator must keep it (it copies the whole damage). The host reads it back
+  off the damage in `enemy:hit`. `Hits.stamp` and claims.ts's `claim` must agree on what is the world's own and never claimed
+  (an enemy's blast, `bleed`, `hazard`, `trample`, `coop`).
+- **enemy-motion:** gore starts flinch, stagger and knockdown on a copy from its hits; a move never restarts one of the same
+  kind begun in the last 400 ms (`SAME_KIND_MS`), and a copy's own ragdoll is waited out in `replicas.ts`. `placeReplica` begins
+  with gore's part (shock, `fallIn`, the dropped push). The states' sever bits still cut at once with a made-up hit
+  (`replicas.ts`): they should wait about 300 ms for the `sever` event, which carries the real round; when a state wins the race
+  the limb drops without its sound, its scream or its flight. `hitfx` and `sever` for an enemy not drawn yet wait for it
+  (`Replicas.whenSeen`).
+- **wire:** keep `claim` in the claim's damage, and millimetre points in `kill`.
+- **Mocked managers in tests** need the gore entry points: spread `goreDoubles()` (`src/net/world/goreDoubles.ts`) into them.
+
+### Proofs
+
+`src/enemies/damage.coop.test.ts` (the real manager and model, facts off), `src/net/world/hitWire.test.ts`, `src/net/world.test.ts`
+(a hit, a cut and a death shown once; a guest's own hit drawn at once and answered without a picture; the four corrections; a
+dropped claim forgotten; a late kill announced once and what waited on the body run).
+
+`tools/scripts/coop-gore-shots.mjs`: three pages (host, a guest who shoots, a guest who watches). Seven shots, each fired once by
+the host and once by the guest: pistol, rifle, shotgun point-blank, rocket, sword, a shotgun to the leg, a headshot kill. It reads
+from every page what its gore, effects, sound and HUD were asked to do and checks: the guest's first blood is on the frame its gun
+fired; the host answered; every screen wounds as often and as deep as the host decided, throws the puffs, cuts the same limbs,
+leaves the body in the same state or kills it the same kind of way; nobody but the shooter gets a marker or a hit sound; the
+shooter gets the same markers and sounds as host and as guest. `COOP_SIM=lag:120,jitter:40,loss:0.05` runs it on a bad network.
 
 ## How it works
 

@@ -1185,7 +1185,8 @@ export class Gore implements GoreSystem {
     // A blast has no bone of its own: it counts as the belly when it arrives at belly height.
     const belly = damage.bone === HumanoidBone.spine || damage.bone === HumanoidBone.hips
       || (damage.type === 'explosive' && damage.point.y > low && damage.point.y < high);
-    const eye = this.ctx.player?.eye;
+    // By how far off the shooter stood: in co-op that is not always the local player (`DamageInfo.from`).
+    const eye = damage.from ?? this.ctx.player?.eye;
     const dist = eye?.isVector3 === true ? damage.point.distanceTo(eye) : Infinity;
     if (!spillsGuts(damage, belly, severity, dist) || this.ropes.hangingFrom(char.root) > 0) return;
     damage.spill = true;

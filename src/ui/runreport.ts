@@ -36,7 +36,7 @@ export class RunReport {
     on.on('weapon:fired', () => { this.shots++; });
     on.on('enemy:hit', e => {
       // Accuracy is shots that landed. Six pellets are one shot, and a call-in was never a shot at all.
-      if (!WEAPONS[e.damage.source as WeaponId] || this.hitFrame === this.ctx.time.frame) return;
+      if (!WEAPONS[e.damage.source as WeaponId] || this.hitFrame === this.ctx.time.frame || ctx.coop?.world?.notMine()) return;
       this.hitFrame = this.ctx.time.frame;
       this.hits++;
     });
@@ -48,7 +48,7 @@ export class RunReport {
       if (e.gibbed) this.gibs++;
       if (e.sliced) this.slices++;
     });
-    on.on('enemy:severed', () => { this.limbs++; });
+    on.on('enemy:severed', () => { if (!ctx.coop?.world?.notMine()) this.limbs++; });
     on.on('perk:start', e => { this.perks.set(e.id, (this.perks.get(e.id) ?? 0) + 1); });
     on.on('callin:used', () => { this.callIns++; });
     on.on('combo:changed', e => { if (e.combo > this.bestCombo) this.bestCombo = e.combo; });
