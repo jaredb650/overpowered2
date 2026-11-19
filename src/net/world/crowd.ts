@@ -119,6 +119,15 @@ export class Crowd implements WorldModule {
     return list;
   }
 
+  /**
+   * Guest: a flashbang blinded this player (warnings.ts runs the bang on this screen, and this player's own eyes decide).
+   * The host's men take the opening on whoever was blinded, where they went by the host's eyes alone: a guest blind in a
+   * room was left be, and the host blinded sent every squad in, the ones fighting a guest across the map too.
+   */
+  blinded(): void {
+    if (!this.w.hosting) this.tell('blind', 1, '', this.w.ctx.player.position);
+  }
+
   private tell(kind: NoteKind, n: number, what: string, at: THREE.Vector3, left?: number): void {
     if (!this.w.ready) return;
     this.counts[kind] = (this.counts[kind] ?? 0) + 1;

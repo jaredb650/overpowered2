@@ -89,6 +89,20 @@ describe('every player, for the enemy side', () => {
     expect(g.host.heard.find(h => h.kind === 'hurt')).toMatchObject({ n: 45, left: 0.2 });
   });
 
+  it('a guest blinded by a flashbang says so, and the host hands it to the enemy side as that guest\'s', () => {
+    const g = game(2);
+    const blind = g.guests[1]!;
+    blind.player.position.set(4, 0, 2);
+    // The bang goes off on that guest's screen and its own eyes are caught (warnings.ts): the note is the world's to send.
+    (blind.seat.world as unknown as { crowd: { blinded(): void } }).crowd.blinded();
+    g.step();
+    expect(g.host.heard).toEqual([expect.objectContaining({ who: blind.lobby.you, kind: 'blind' })]);
+    // The host's own eyes are its own Outpost's business: nothing is sent.
+    (g.host.seat.world as unknown as { crowd: { blinded(): void } }).crowd.blinded();
+    g.step();
+    expect(g.relay.sent('note')).toHaveLength(1);
+  });
+
   it('the host\'s own doings are not notes: it hears itself by its own events', () => {
     const g = game(1);
     g.host.ctx.events.emit('weapon:fired', { weapon: 'smg', origin: new THREE.Vector3(), dir: new THREE.Vector3(0, 0, -1) } as never);

@@ -302,6 +302,10 @@ export class Outpost {
       case 'hurt':
         if (note.left < HURT_AT) this.seizeOpening('wounded', HURT_OPENING, undefined, who.player);
         break;
+      case 'blind':
+        // A flashbang went off in that guest's eyes (each player's own screen decides): the men fighting them go in.
+        this.seizeOpening('opening', BLIND_OPENING, { blind: true }, who.player);
+        break;
       default:
         break;
     }
@@ -1298,7 +1302,8 @@ export class Outpost {
       for (const s of this.soldiers) {
         if (s.fighting && s.e.position.distanceToSquared(_b) < FLASH_FRIENDLY * FLASH_FRIENDLY) s.injuries.concussedUntil = Math.max(s.injuries.concussedUntil, now + 1.5);
       }
-      if (this.suppression.flash(_b)) this.seizeOpening('opening', BLIND_OPENING, { blind: true });
+      // Co-op: the opening is the blinded player's. The host's own eyes here; a guest says when it was theirs (`told`, 'blind').
+      if (this.suppression.flash(_b)) this.seizeOpening('opening', BLIND_OPENING, { blind: true }, this.own());
     }
   }
 }

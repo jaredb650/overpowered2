@@ -45,6 +45,8 @@ interface GuestLaser { handle: number; from: THREE.Vector3; to: THREE.Vector3; f
 interface Timed { at: number; kind: 'strike' | 'bang'; position: THREE.Vector3 }
 
 export class Warnings implements WorldModule {
+  /** Guest: a bang blinded this player. world.ts points it at the note the host's men hear (crowd.ts). */
+  onBlinded: () => void = () => {};
   /** Guest: what has been drawn, for the browser proofs. */
   readonly seen = { zones: 0, glints: 0, lasers: 0, shocks: 0, strikes: 0, bangs: 0 };
   private readonly clock = new HostTime();
@@ -209,7 +211,7 @@ export class Warnings implements WorldModule {
         ctx.audio.play('grenade_explode', { position: timed.position, pitch: 1.6, volume: 0.8 });
         ctx.render.lights.flash(timed.position, 0xffffff, 18, 12, 0.25);
         this.b.copy(timed.position).y += 0.6;
-        this.w.manager.outpost?.suppression.flash(this.b);
+        if (this.w.manager.outpost?.suppression.flash(this.b)) this.onBlinded();
       }
     }
   }

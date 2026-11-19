@@ -45,8 +45,8 @@ export interface CrowdLink {
 }
 
 /** What a guest tells the host of itself that the host cannot see or hear from its pose. */
-export type NoteKind = 'shots' | 'land' | 'slam' | 'pickup' | 'ping' | 'hurt' | 'reload';
-export const NOTE_KINDS: readonly NoteKind[] = ['shots', 'land', 'slam', 'pickup', 'ping', 'hurt', 'reload'];
+export type NoteKind = 'shots' | 'land' | 'slam' | 'pickup' | 'ping' | 'hurt' | 'reload' | 'blind';
+export const NOTE_KINDS: readonly NoteKind[] = ['shots', 'land', 'slam', 'pickup', 'ping', 'hurt', 'reload', 'blind'];
 
 export interface Note {
   kind: NoteKind;

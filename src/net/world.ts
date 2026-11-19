@@ -135,6 +135,7 @@ export class CoopWorld {
     this.villainProps = new VillainProps(w, this.targeting);
     // Every player, for the host's soldiers and their Commander; what a guest tells the host of itself.
     this.crowd = new Crowd(w, this.targeting, () => this.claims.applying);
+    this.warnings.onBlinded = () => this.crowd.blinded();
     this.pods = new Pods(w);
     this.props = new Props(w, this.credit, this.targeting);
     // A guest says so as its world comes up, and again once a second until the host has settled its seat (team.ts): the
