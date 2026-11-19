@@ -23,10 +23,11 @@ playwright-core (screenshots). No other runtime deps without a strong reason. De
 - Dev server: `npm run dev` (Vite, 127.0.0.1, port 5173, `strictPort: false`). Agents use their own port, see Safety.
 - Build: `npm run build` (= `tsc --noEmit && vite build`). Typecheck alone: `npx tsc --noEmit`.
 - Tests: run the **whole suite** (`npx vitest run --testTimeout=60000`; it runs at low priority on 8 workers, set in
-  `vite.config.ts`, because the machine is shared: about a minute), or one file while
-  iterating (`npx vitest run src/weapons/flail.test.ts`). Known failure at `42ab12d`: `src/core/devflags.test.ts` expects the Range
-  to start with `arsenal` on, but `src/lab/settings.ts` defaults it off (stale test). Judge a failure in a clean worktree
-  (`git worktree add <scratch>/wt-x HEAD`, symlink `node_modules`, apply your diff) before blaming your change.
+  `vite.config.ts`, because the machine is shared: about half a minute), or one file while
+  iterating (`npx vitest run src/weapons/flail.test.ts`). No test is known to fail. `Math.random` is seeded per test
+  (`tools/test-setup.ts`), so a run is the same every time; `OP2_TEST_SEED=<n>` draws other numbers (six gore tests have bounds
+  tighter than the game's real spread and fail for some seeds: `docs/notes/devtools.md`, "The test suite"). Judge a failure in
+  a clean worktree (`git worktree add <scratch>/wt-x HEAD`, `npm ci`, apply your diff) before blaming your change.
 - Screenshots: `npx playwright-core install chromium` once, then `tools/shot.mjs` (see Tools).
 - **Music:** `public/audio/music/` (the owner's placeholder songs, commercial releases, ~360 MB) is git-ignored and absent in a
   clone. Only its `manifest.json` is tracked. The game runs fine without it. **Never commit or ship those files.** The game's own
@@ -227,6 +228,9 @@ audio report if the catalog changes, run `src/audio/audio.test.ts`.
     freezes the page clock and seeds `Math.random`; two runs are pixel-identical (on the gun: within 7 levels on 0.05 % of pixels,
     0 at the default threshold). Single player only. A `shot.mjs` script may
     export `before(page)`, run before the page loads.
+  - **`node tools/solo-parity.mjs --old <port> --new <port>`: did this branch change single player?** Every mode, weapon,
+    brain chip, call-in and menu played by a bot on two builds (the old one is a second worktree with its own Vite) and
+    compared frame by frame; one line a scenario. Run it before merging anything that should leave single player alone.
   - `tools/scripts/soak-memory.mjs` (leak soak over Crucible waves; `SOAK_MODE=fixed` tells a leak from a pool filling) and
     `tools/scripts/perf-trace.mjs` (slowest frames and the functions in them).
   - `fast-check` for property tests (`src/net/pose.property.test.ts` is the pattern).

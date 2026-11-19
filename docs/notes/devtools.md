@@ -191,6 +191,128 @@ spent 342 of its 353 ms in `getProgramInfoLog` (a shader program linking in the 
 had a 48 ms garbage collection in it. Both are worth a look on a quiet machine. One lesson built into the script: it waits for
 the game to be in play before recording, because on a busy machine a fixed `--wait` records the loading screen.
 
+## 7. Comparing two builds of the game: `tools/scripts/solo-trace.mjs`, `tools/solo-compare.mjs`
+
+For "did this branch change single player?". One scripted run is recorded frame by frame on each build, and the two records are
+compared exactly. Built for the co-op overhaul's last pass (2026-11-19), where it compared `dev` with the branch tip.
+
+```sh
+git worktree add <scratch>/dev-ref dev && (cd <scratch>/dev-ref && npm ci && OP2_NO_HMR=1 npx vite --port <port B> --strictPort &)
+OP2_NO_HMR=1 npx vite --port <port A> --strictPort &
+for build in "tip <port A>" "dev <port B>"; do set -- $build
+  SOLO_SCENARIO=crucible SOLO_LABEL=$1 node tools/shot.mjs --port $2 --url "/" --wait 0 --timeout 900 --quiet \
+    --script tools/scripts/solo-trace.mjs --out tools/out/<you>/crucible-$1.png
+done
+node tools/solo-compare.mjs tools/out/<you>/crucible.dev.trace.json tools/out/<you>/crucible.tip.trace.json
+```
+
+The tools are always the newer checkout's; only the server differs. `solo-compare` prints `SAME: every frame, every event`, or
+the first frame that differs with the numbers and events that differ there, and exits 1.
+
+**All of it in one command:** `node tools/solo-parity.mjs --old <port B> --new <port A> --out tools/out/<you>/parity` plays
+every scenario (36) on both builds, six to a browser run, and prints one line each (`same`, or the first difference). It knows the
+differences that are meant to be there (`EXPECTED` at its top) and exits 1 on any other. `--long` adds the three runs to the
+round-10 ending. About 25 minutes without the queue, 55 with `--long`. **Run it before merging anything that should not
+change single player.**
+
+**What makes two builds comparable.**
+
+- **The frozen clock** (section 3): every frame is 16 ms of page time on both.
+- **Randomness by caller** (`lib/solotrace.mjs`, `keyedRandom`): `Math.random` is replaced, before the page loads, by one seeded
+  stream **per calling function** (source file and function name, read from the call stack; `core/math.ts`'s helpers are looked
+  through). A build that adds a random call in one function changes only that function's later numbers. So the blood puff, which
+  draws 2 numbers a puff in `fx/recipes/blood.ts#bloodPuff`, moves no enemy's dodge roll. The calls each caller made are counted
+  per frame, and the comparison prints the first frame where a caller's count differs: that names the function that changed.
+  Dev server only (it reads source paths from the stack).
+- **Level ground at the start.** Which archetype's model finishes loading first differs from load to load (the downloads race),
+  and with it which archetype lent its spare body to the wound warm-up (`CharacterLibrary.warmWounds`), so which bodies sit in
+  the pool with which idle phases. The trace runs 8 frames, drops every spare body and restarts every stream, then records.
+- **The recorder** (`recorder`): every game event with a short form of its payload; every call to the HUD that carries words
+  (`hud.feed`, `hud.follow`, `hud.banner`, `hud.showScreen`, the hold ring...), once per change; and each frame the game state and
+  screen, the clocks and time scale, the player (place, speed, view, health, armour, move state), the gun (id, magazine, reserve,
+  grenades, reloading), the run (wave, phase, score, kills, head shots, combo, multiplier, credits, call-ins held, effects,
+  pickups), every living enemy (uid, kind, place, health, armour), the gore system's counts, and the scenario's own probe.
+- A payload field only one build has (`weapon:fired.note`, `enemy:hit.damage.from`) is listed and set aside, not counted.
+  An event only one build has is a difference: `--skip-events <name>` sets one aside once it is understood.
+- **A function that moved keeps its stream.** `fillShot` went from `weapons/Weapons.ts` to `weapons/shot.ts` on the co-op
+  branch, so its one draw (does this heavy round burst what it kills?) came from another stream and the Piledriver's hits
+  parted ways. `ALIAS` in `keyedRandom` maps a new name to its old one; `PASS` lists files whose functions only hand
+  `Math.random` on (`core/math.ts`, `progression/callins/shared.ts`). Add a line when a run parts at a caller that only
+  changed its name: the comparison prints the two callers side by side on the frame it happens.
+- **A body's idle phase goes by its turn, not by the pool.** From the start of a run every body handed out gets its
+  animation phase from its archetype and its turn (the first trooper, the second...). Which bodies sit in the pool differs
+  between builds and loads (the warm-up borrows some), and a phase moves limbs: on one build a round grazed an arm that it
+  missed on the other, before the trace had begun (a mission section that opens on a fight).
+- **A pretend pointer lock** (the co-op kit's): a menu's Resume waits for the lock, which a browser grants in its own time.
+- **Recorded voices are not served** (`audio/voice/`, `audio/chatter/`): they play through real `<audio>` elements in real
+  time, and a page of the Commander's words stays up until its recording ends, which fell 14 to 250 frames apart between two
+  runs. Every line is text on the game's own reading clock. `SOLO_VOICES=1` serves them.
+- Several scenarios in one browser run: `SOLO_SCENARIO=a,b,c`. Each starts from a clean browser storage and writes its own
+  trace. Use it on a shared machine: a run takes one browser slot however many scenarios it plays.
+
+**Proved first:** the same build twice gives the same trace, frame for frame (600 frames of a Crucible fight; the only caller
+whose counts differed was `audio/AudioEngine.ts#pickBuffer`: sound is not frozen, so the comparison leaves `audio/` out).
+
+**Scenarios** (`lib/solo-scenarios.mjs`; a bot is a function run in the page before every frame, using only what both builds
+have: `window.__op2`, `ctx`, `input.simulate`): `crucible`, `humans`, `office` (a fight with the starting kit: aimbot, a fixed
+walk, dashes, jumps, grenades, melee, E); `crucible-waves`, `humans-waves`, `office-waves` (cannot be hurt, kills four of the
+living every 12 frames through `applyDamage`: many waves fast, to the boss wave and to round 10); `crucible-shop`, `humans-shop`
+(the same, reading every shop row at each break and then buying everything open); `defense`; `campaign`, `foreclosure`,
+`retraining` and their `?beat=` sections, two with a death and a checkpoint restart; `defense-walls` (a wall knocked down,
+bought back, boarded up by hand); `menus` and `menu-tree` (the words on every menu screen); `capture` (question, release, a hold short of 0.4 s, a
+hold past it); `death` (a run that ends and starts again); `drops`; `tanks` (enemies that carry a tank, shot dead); `weapons`
+(every weapon id in turn at standing targets); `adszoom` (the focus zoom to its limit); `movement`; `chips`; `callins`.
+
+**Exit codes of `solo-compare`:** 0 the same; 3 the same play in every frame and event with only the gore system's counts
+different (how bodies and limbs came to rest: listed, not failed); 1 different. `music:track` is never compared (a track
+ends in real time).
+
+**What it cannot compare.** Anything whose random source really changed (not just its name) parts ways at the first draw and
+is then compared by totals. Sound, and anything timed by sound. CSS animations in the DOM (the end-of-run screenshots differ
+in a pulsing HUD bar). The menus' 3D backdrop shifts by a frame from load to load.
+
+`tools/scripts/solo-perf.mjs` is the frame-time half: a real-time fight with every frame drawn, giving frame interval and the
+game's own work time per frame (median, 95th, 99th, worst), draw calls, triangles, heap, GPU memory, and each hitch over 40 ms
+with the shader programs that were linked on it.
+
+## 8. Other probes from the same pass
+
+- `tools/scripts/gates-public.mjs`: on a production build, that the test-only switches cannot be reached from a public address
+  and that `?netsim=` and `?dev=1` behave as documented. The game takes a page for "ours" by host name (`localhost`,
+  `127.0.0.1`, `[::1]`), so `dist/` served on `127.0.0.2` is a public site as far as it can tell, with no hosts file; the same
+  `dist/` on `127.0.0.1` is the control where the switches are allowed (its header has the commands). Checks: `?net=loop` (the
+  one-tab rule still holds, and an opened lobby says `rtc`), proof mode (`window.__op2Proof` set, every frame still drawn), the
+  pretend pointer lock and the silenced audio (the kit's page scripts: not in the bundle), `?netsim=`, `?dev=1`, `?dev=0`.
+- `tools/scripts/first-launch.mjs`: an empty browser on the bare address, the splash, Play, and where that goes (real time).
+- `tools/scripts/first-use.mjs`: the first gib, head shot, sever and shotgun kill against the four after it (the game's work
+  on the frame, the worst frame interval, programs linked).
+- `tools/scripts/audio-thread.mjs`: the CPU of Chrome's audio thread on an empty page, with a bare `AudioContext`, and with the
+  game idle, fighting and suspended, read from `/proc`. Tells the browser's cost from the game's.
+
+## 9. The test suite: seeded randomness
+
+`tools/test-setup.ts` (Vitest `setupFiles`) replaces `Math.random` with a seeded generator, restarted before every test from
+the test's full name and before each file's top-level code from the file's path. Game code draws from `Math.random` on purpose
+(a body's idle phase, a stumble's side), so a test on real ragdolls used to check a different case every run. `OP2_TEST_SEED=<n>`
+draws other numbers; `OP2_TEST_SEED=random` leaves `Math.random` alone. Hooks have 60 s (`hookTimeout`), as tests do with
+`--testTimeout=60000`: `weapons/viewmodels/hands.test.ts` builds every gun model in `beforeAll`, a second alone, and overran
+the default 10 s on a busy machine at the suite's low priority.
+
+**Tests whose bounds are tighter than the game's real spread** (the whole suite under seeds 2 to 21; the default seed 1 passes
+all). These are not machine load: they fail alone, on an idle machine, for the same seeds.
+
+| Test | Fails in 20 seeds | What overruns |
+|---|---:|---|
+| `gore/knockdown` "goes down on its muscles, heading 0,1" | 3 | bone shake across the switch 0.0601 to 0.064 m against 0.06 (over 150 seeds of this test alone: 19 fail, median 0.034, worst 0.070) |
+| `gore/stand` "loses it, on the same ragdoll, and gets up" | 3 | pop on getting up 0.142 to 0.144 m against 0.14 |
+| `gore/strength` "a gut wound, lying: both hands on it within 0.7 s" | 2 | 0.72 and 0.78 s |
+| `gore/knockdown` "killed on its way up, it drops under its own weight" | 1 | |
+| `gore/knockdown` "dies on the way: the death carries on from where the body is" | 1 | |
+| `gore/wounds` "a blast opens the side that faced it, and scorches it" | 1 | a count of 2 where more than 2 is expected |
+
+Whoever next works on the ragdolls should either widen those bounds to what the game really does or make the game meet them
+for every phase; the damage response update is the natural place.
+
 ## Decisions left to the owner (nothing installed)
 
 - **Rapier's SIMD build** (`@dimforge/rapier3d-simd-compat` 0.21.0): the same physics library, same version and API, built to
