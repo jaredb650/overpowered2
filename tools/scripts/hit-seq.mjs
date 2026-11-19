@@ -16,6 +16,8 @@
 //
 // HIT_VOLLEY=<n> is R4's case: n Troopers in a row at 10 m, each killed by three SMG rounds inside a third of a second: how
 // many die on their feet, how long each stays up, and the physics step.
+// HIT_SPOIL=1 is R3b's: a Gunner and a soldier with their AI on, 12 m off, firing at a player who stands still, for 25 s left
+// alone and 25 s with a pistol round in the gun arm every 0.15 s: how far their rounds pass from him, and how many.
 //
 // Sheets land next to --out as hit-<label>-<case>.png: tiles are the player's own view cropped round the enemy, at the true
 // size on a 1440x900 Retina screen for 12 m and 25 m, and at half size for 5 m (HIT_ZOOM=2 doubles every tile). Frames are world frames (60 a second), stepped
@@ -50,6 +52,7 @@ const label = process.env.HIT_LABEL ?? 'now';
 const stills = (process.env.HIT_STILLS ?? '').split(',').filter(Boolean).map(Number);
 const crowd = Number(process.env.HIT_CROWD ?? 0);
 const volley = Number(process.env.HIT_VOLLEY ?? 0);
+const spoil = !!process.env.HIT_SPOIL;
 
 export const before = async page => {
   await page.addInitScript(`Math.random = (${mulberry32})(${Number(process.env.HIT_SEED ?? 7)});`);
@@ -211,7 +214,7 @@ export default async function hitSeq(page, h) {
     return out;
   });
 
-  const list = (process.env.HIT_SET ? SETS[process.env.HIT_SET] : (process.env.HIT ?? ((crowd || volley) ? '' : SETS.short.join(','))).split(',')).filter(Boolean);
+  const list = (process.env.HIT_SET ? SETS[process.env.HIT_SET] : (process.env.HIT ?? ((crowd || volley || spoil) ? '' : SETS.short.join(','))).split(',')).filter(Boolean);
   const results = {};
   const size = page.viewportSize();
   for (const text of list) {
@@ -253,6 +256,7 @@ export default async function hitSeq(page, h) {
   }
 
   if (volley > 0) results.volley = await volleyCase(page, h, weapons.smg, size);
+  if (spoil) results.spoil = await spoilCase(page, weapons.rivet);
   if (crowd > 0) results.crowd = await crowdCase(page, h, weapons.smg, size);
   return results;
 }
@@ -413,4 +417,62 @@ async function volleyCase(page, h, smg, size) {
   const up = Array.from({ length: volley }, (_, i) => trace.filter((t, f) => f >= i * 2 && t.hips[i] > 0.6).length);
   const ms = trace.map(t => t.ms).sort((a, b) => a - b);
   return { mostOnFeet: Math.max(...trace.map(t => t.collapses)), framesUp: up, stepMs: { median: +ms[ms.length >> 1].toFixed(2), max: +ms[ms.length - 1].toFixed(2) } };
+}
+
+/** How wide an enemy fires while it is being hit, against left alone: metres its rounds pass from the player's chest. */
+async function spoilCase(page, rivet) {
+  return page.evaluate(async ({ rivet }) => {
+    const r = window.__r;
+    const lab = window.__lab;
+    const { ctx } = window.__op2;
+    const V = r.V;
+    const out = {};
+    const spawn = ctx.combat.spawnProjectile.bind(ctx.combat);
+    let misses = [];
+    let shaken = [];
+    ctx.combat.spawnProjectile = p => {
+      if (p.team === 'enemy' && p.kind === 'bullet') {
+        const to = new V().subVectors(ctx.enemies.aiWorld.player.chest, p.origin);
+        const along = to.dot(new V().copy(p.velocity).normalize());
+        misses.push(Math.sqrt(Math.max(0, to.lengthSq() - along * along)));
+        shaken.push(+(ctx.enemies.alive[0]?.shaken ?? -1).toFixed(2));
+      }
+      return spawn(p);
+    };
+    for (const id of ['gunner', 'trooper']) {
+      for (const hit of [false, true]) {
+        ctx.enemies.killAll('lab');
+        ctx.enemies.reset();
+        lab.spawner.clearBodies();
+        if (lab.paused) lab.togglePause();
+        ctx.player.teleport(new V(0, 0.1, 14), 0);
+        await new Promise(q => requestAnimationFrame(q));
+        const e = lab.spawner.place(id, new V(0, 0, 2), 'on');
+        e.health = e.maxHealth = 1e6;
+        r.look(new V(0, 1, 2));
+        lab.togglePause();
+        await r.walk(60);
+        misses = [];
+        shaken = [];
+        for (let f = 0; f < 1500; f++) {
+          // Held where it is, so range is the same for both halves.
+          e.position.set(0, e.position.y, 2);
+          // A round in the gun arm every 0.15 s: he is kept shaken, as under held fire.
+          if (hit && f % 9 === 0) {
+            const at = new V().setFromMatrixPosition(e.char.bones[9].matrixWorld);
+            ctx.enemies.applyDamage(e, { amount: 1, type: 'bullet', point: at, dir: new V().subVectors(at, ctx.player.eye).normalize(), force: rivet.force, source: 'rivet', region: 'forearmR', bone: 9 });
+            e.limbHp.set('forearmR', 1e6);
+            e.limbHp.set('armR', 1e6);
+            e.stagger = 0;
+            e.shock = 0;
+          }
+          await r.walk(1);
+        }
+        const sorted = misses.slice().sort((a, b) => a - b);
+        out[`${id}${hit ? ' hit' : ' alone'}`] = { shots: misses.length, mean: +(misses.reduce((a, b) => a + b, 0) / Math.max(1, misses.length)).toFixed(2), median: +(sorted[sorted.length >> 1] ?? 0).toFixed(2), shaken: +(shaken.reduce((a, b) => a + b, 0) / Math.max(1, shaken.length)).toFixed(2) };
+      }
+    }
+    ctx.combat.spawnProjectile = spawn;
+    return out;
+  }, { rivet });
 }

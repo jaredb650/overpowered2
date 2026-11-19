@@ -72,6 +72,28 @@ const TRIP_SPEED = 2.2;
 /** Share of a leg's pool gone before it starts to give way under a body that is only standing on it. */
 const LEG_FAILS_FROM = 0.45;
 
+/**
+ * The gore update's R3b (`DevFlags.aimspoil`, `?aimspoil=0`): a hit spoils his aim. A round leaves a body that feels
+ * `shaken`, 0..1, which is gone again in `seconds` at most. A round in the gun arm shakes it fully; any other by its flinch's
+ * size over `from` (`perSize` each) and by the share of health it took (`perShare`), half of that when a plate stopped it.
+ * Shaken fully, what he fires in that time misses by `wide` times his usual radius plus `angle` radians, and a wind-up he was
+ * in is put back by up to `late` seconds, once an attack. Only the machine that decides hits sets it (solo, a co-op host):
+ * the shots it spoils and the attack it delays reach the other screens as every shot and attack does. Zombies, bosses and
+ * machines are not shaken: the first feel nothing and the others answer hits by `poise`.
+ */
+export const SPOIL = { seconds: 0.35, from: 0.9, perSize: 1, perShare: 1.2, wide: 3, angle: 0.05, late: 0.2 };
+
+/** What a round adds to `Enemy.shaken`: see `SPOIL`. `size` is its flinch's (`flinchSize`), `share` the health it took. */
+export function shakenBy(gunArm: boolean, size: number, share: number, stopped: boolean): number {
+  if (gunArm) return 1;
+  return (Math.max(0, size - SPOIL.from) * SPOIL.perSize + share * SPOIL.perShare) * (stopped ? 0.5 : 1);
+}
+
+/** The miss radius in metres at `range` metres, as a body this shaken makes it. */
+export function spoiled(e: { shaken: number }, miss: number, range: number): number {
+  return e.shaken <= 0 ? miss : miss * (1 + (SPOIL.wide - 1) * e.shaken) + range * SPOIL.angle * e.shaken;
+}
+
 /** `felled` goes over on this frame with no steps to catch itself, where `fall` staggers first. */
 export type ReactionLevel = 'flinch' | 'stagger' | 'fall' | 'felled' | 'thrown';
 

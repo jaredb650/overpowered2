@@ -3,6 +3,7 @@
  * able to hit a player who runs. See aim.ts. Telegraphs stay: a muzzle glint on a burst, a pump before a shotgun, a laser before a rocket or
  * a sniper round, a ring under a grenade. What changed is that the warning is now worth heeding.
  */
+import { SPOIL } from '../reactions';
 import * as THREE from 'three';
 import type { MuzzleKind } from '../../core/contracts';
 import type { EnemyId } from '../../core/gameplay';
@@ -82,7 +83,8 @@ const heldBack = (s: Soldier): boolean => s.squad.outpost.captives.stopsFire(s);
 
 /** Everything a shot needs that does not depend on the gun. */
 function nerveOf(s: Soldier, w: AiWorld): number {
-  return AIM_BY_STATE[s.state] * s.injuries.aimNow(w.now);
+  // A hit a moment ago has his aim off as well (`SPOIL` in reactions.ts): up to three times as wide for a third of a second.
+  return AIM_BY_STATE[s.state] * s.injuries.aimNow(w.now) * (1 + (SPOIL.wide - 1) * s.e.shaken);
 }
 
 interface GunSpec {

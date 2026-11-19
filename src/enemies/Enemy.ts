@@ -193,6 +193,10 @@ export class Enemy implements EnemyInstance {
   shock = 0;
   /** World time it may next be staggered. */
   reactAt = 0;
+  /** How far a hit has put its aim off, 0..1, gone in a third of a second (`SPOIL` in reactions.ts). The deciding machine's alone. */
+  shaken = 0;
+  /** Seconds hits have put back the wind-up of the attack it is in. */
+  attackLate = 0;
   /** Catch steps: where the hit is carrying the body, in m/s. Fades faster than a walk and slower than knockback. */
   readonly reel = new THREE.Vector3();
   /**
@@ -313,6 +317,7 @@ export class Enemy implements EnemyInstance {
     this.maim.gunArm = this.maim.offArm = this.maim.head = true;
     this.poise = this.stagger = this.blood = this.bleed = this.darts = this.burnTick = this.charred = 0;
     this.shock = this.reactAt = this.fallIn = this.fallStrength = this.fallBone = 0;
+    this.shaken = this.attackLate = 0;
     this.reel.set(0, 0, 0);
     this.unmoved.set(0, 0, 0);
     this.unmovedAt = -1;

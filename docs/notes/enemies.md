@@ -171,6 +171,22 @@ the good leg. The limp is for any body with legs, a Husk included; the hurt post
 anatomy (the Campaign, Endless Humans) keeps his own: his wounds already hunch him, hold his worst wound and beat his limp
 (`wounds/index.ts`), so `carryHurt` leaves him alone and only the flinch's hand is new for him.
 
+**A hit spoils his aim (gore update R3b, the owner's yes; `?aimspoil=0` or the dev panel's "Hits: spoil his aim").** Before,
+nothing short of a stagger touched an attack: a man hit in the gun arm kept aiming. Now a round leaves a body that feels
+`Enemy.shaken`, 0..1, gone again in 0.35 s at most (`SPOIL` and `shakenBy` in `reactions.ts`, set in `DamageModel.spoilAim`,
+faded in `EnemyManager`). A round in the gun arm (his right, while he has it) shakes him fully; any other by its flinch's
+size over 0.9 plus 1.2 times the share of health it took, halved when a plate stopped it: one SMG round in a Trooper's chest
+0.61, in a Brute's 0.14 behind its plate. While shaken, what he fires misses by up to 3 times his usual radius plus 0.05 rad
+(`spoiled`: `aimAtPlayer` for the swarm's guns and shotguns, `nerveOf` for every soldier's gun, and a rocket or a sniper's
+ray goes off its line by the same angle), and a wind-up he was in is put back by up to 0.2 s, once an attack
+(`Enemy.attackLate`). Not zombies (they feel nothing), bosses or machines (no profile), and not fire, shock or bleeding.
+**Co-op:** it changes how an enemy fights, so only the machine that decides the hit sets it (`this.facts`: solo and the host;
+a guest's own predicted hit shakes nothing). Nothing new is sent: a spoiled shot is the host's projectile like any other, and
+a guest's copy of the attack already waits up to 1.2 s past its wind-up for the host's shot (`FIRE_WAIT`).
+Measured on the Test Range (`HIT_SPOIL=1 tools/scripts/hit-seq.mjs`: 25 s each, the enemy 12 m from a player standing
+still): a Trooper's rounds pass 0.18 m from the chest left alone and 0.71 m with a pistol round in his gun arm every 0.15 s
+(0.17 m with the switch off); a Gunner's shell, whose pattern is 0.55 m wide by itself, 0.54 against 0.61.
+
 A shot leg at 2.2 m/s or more trips a body by `profile.trip`: it keeps its speed and falls forward. So does a leg more than 45% gone, at a stand.
 
 **A head hit that does not kill puts it on the floor** if it came from a real gun: a shotgun pellet, a heavy round (60 raw damage or more, the Judge), or anything that pushes with `HEAD_KNOCK_FORCE` (15 N·s) or more, which takes in the SMG (20). That is the owner's rule; raise `HEAD_KNOCK_FORCE` past 20 to leave the SMG out again. One SMG round to a Trooper's head is 50 of its 59.5 head pool, so the first floors it and the second kills. A pellet or a heavy round knocks it cold (`KnockdownOptions.knockout`, strength 0.7): the head snaps back on its neck, the neck and arms go slack, it lies half as long again and gets up dazed for its whole `daze`. Anything else tips it over at 1.7 m/s (strength 0.5). It goes down with no flinch and no guard on the animator first, since the ragdoll would start with their speed (an SMG round's flinch had the head spinning 15.5 rad/s against its parent; now about 1). A head hit goes down through the cooldown and a get-up only when gore takes the body: with no room (twelve down, or `?muscles=0`) it staggers, or inside the cooldown or a get-up flinches, so an SMG cannot hold a body in a stagger round after round. The Kiln (1) staggers as before, and so did the Buzzsaw at 6 N·s; reworked into the Trommel it pushes with 34 and floors a body like any real gun, by that number alone (`docs/notes/weapons.md`, "Key 8"; the comment in `reactions.ts` still names the Buzzsaw), a body with no legs only flinches, and bosses and machines keep `poise`. In the Campaign a clean head hit always kills, so this only meets glances and helmets there. `?knock=0` puts back the old rule: only a pellet or a heavy round floors a body, and nothing knocks it cold.

@@ -129,6 +129,7 @@ export function startAttack(e: Enemy, w: AiWorld, a: AttackDef): void {
   e.attackClock = 0;
   e.attackShots = 0;
   e.attackStage = 0;
+  e.attackLate = 0;
   // Attacks from outside the player's view wait longer, so a hit in the back always had a chance to be heard.
   e.attackWindup = a.windup * (e.inView ? 1 : w.director.offscreenWindup);
   const guests = net(w);

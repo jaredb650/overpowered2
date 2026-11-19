@@ -12,6 +12,7 @@ import type { DamageResult, EnemyId, EnemyInstance, EnemyRayHit, EnemySystem } f
 import { clamp, rand, TAU } from '../core/math';
 import { Pool } from '../core/pool';
 import { PlayerSense, type AiWorld } from './aiWorld';
+import { SPOIL } from './reactions';
 import { PlateDebris, plateGeometry, plateMaterial, type Plate, type PlateSpec } from './armor';
 import { shout } from './attacks';
 import { finishAttack, thinkAttacks, thinkBehaviours, tickAttack, type Behaviour } from './brain';
@@ -518,6 +519,7 @@ export class EnemyManager implements EnemySystem {
     if (!e.alive) return;
     e.bodyLoop?.setPosition(e.center);
     e.shock *= Math.exp(-SHOCK_FADE * dt);
+    if (e.shaken > 0) e.shaken = Math.max(0, e.shaken - dt / SPOIL.seconds);
     if (e.downed) {
       this.updateDowned(e);
       if (e.downed || !e.alive) return;

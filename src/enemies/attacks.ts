@@ -7,6 +7,7 @@ import { HumanoidBone as B } from '../characters/rig';
 import type { MuzzleKind, PlayerSystem, TracerKind } from '../core/contracts';
 import { clamp, rand, randomUnit } from '../core/math';
 import type { AttackDef } from './brain';
+import { spoiled } from './reactions';
 import type { Enemy } from './Enemy';
 import type { AiWorld } from './aiWorld';
 import { leapTo } from './movement';
@@ -49,15 +50,26 @@ export function muzzleOf(e: Enemy, out: THREE.Vector3): THREE.Vector3 {
  * `lead` is how much of the player's flight-time motion the shooter accounts for.
  */
 export function aimAtPlayer(
-  w: AiWorld, from: THREE.Vector3, out: THREE.Vector3, projectileSpeed: number, lead: number, missStill: number, missFast: number,
+  w: AiWorld, from: THREE.Vector3, out: THREE.Vector3, projectileSpeed: number, lead: number, missStill: number, missFast: number, shooter?: Enemy,
 ): THREE.Vector3 {
   const p = w.player;
-  const flight = from.distanceTo(p.chest) / projectileSpeed;
+  const range = from.distanceTo(p.chest);
+  const flight = range / projectileSpeed;
   _target.copy(p.chest).addScaledVector(p.velocity, flight * lead);
-  const miss = (missStill + (missFast * SPEED_MISS - missStill) * p.evasion) * Math.sqrt(Math.random());
+  let miss = missStill + (missFast * SPEED_MISS - missStill) * p.evasion;
+  // A shooter a hit has just shaken fires wide (`SPOIL`).
+  if (shooter) miss = spoiled(shooter, miss, range);
+  miss *= Math.sqrt(Math.random());
   randomUnit(_rand);
   _target.addScaledVector(_rand, miss);
   return out.subVectors(_target, from).normalize();
+}
+
+/** A shot with no miss radius of its own (a rocket, a sniper's ray), from a shooter a hit has just shaken: off its line (`SPOIL`). */
+function shake(e: Enemy, dir: THREE.Vector3): void {
+  if (e.shaken <= 0) return;
+  randomUnit(_rand);
+  dir.addScaledVector(_rand, spoiled(e, 0, 1) * Math.sqrt(Math.random())).normalize();
 }
 
 /** A fast player gets grazed: what does land, lands lighter. */
@@ -294,7 +306,7 @@ export function gun(t: GunTuning): AttackDef {
     },
     fire(e, w) {
       muzzleOf(e, _muzzle);
-      aimAtPlayer(w, _muzzle, _dir, t.speed, t.lead, t.missStill, t.missFast);
+      aimAtPlayer(w, _muzzle, _dir, t.speed, t.lead, t.missStill, t.missFast, e);
       _vel.copy(_dir).multiplyScalar(t.speed);
       w.ctx.combat.spawnProjectile({
         origin: _muzzle, velocity: _vel, kind: 'bullet', team: 'enemy',
@@ -347,7 +359,7 @@ export function shotgun(t: ShotgunTuning): AttackDef {
     fire(e, w) {
       muzzleOf(e, _muzzle);
       // Barely led and wide at speed: the pump is the warning, so anyone already moving should catch only the edge.
-      aimAtPlayer(w, _muzzle, _a, t.speed, 0.15, 0.2, 4.2);
+      aimAtPlayer(w, _muzzle, _a, t.speed, 0.15, 0.2, 4.2, e);
       for (let i = 0; i < t.pellets; i++) {
         _dir.copy(_a);
         _dir.x += rand(-0.07, 0.07);
@@ -410,6 +422,7 @@ export function rocket(t: RocketTuning): AttackDef {
       // Rockets aim at the feet, so a miss still splashes near a player on the ground.
       _target.copy(w.player.position).addScaledVector(w.player.velocity, (e.dist / t.speed) * 0.5);
       _dir.subVectors(_target, _muzzle).normalize();
+      shake(e, _dir);
       _vel.copy(_dir).multiplyScalar(t.speed);
       w.ctx.combat.spawnProjectile({
         origin: _muzzle, velocity: _vel, kind: 'rocket', team: 'enemy', damage: t.damage * e.damageMul, source: e.id,
@@ -476,6 +489,7 @@ export function sniperShot(t: SniperTuning): AttackDef {
     fire(e, w) {
       muzzleOf(e, _muzzle);
       _dir.subVectors(e.aimPoint, _muzzle).normalize();
+      shake(e, _dir);
       w.ctx.combat.fireRay(_muzzle, _dir, {
         damage: t.damage * e.damageMul, source: e.id, team: 'enemy', maxDistance: 240, tracer: 'snipe', whizz: 'sniper_crack',
       });

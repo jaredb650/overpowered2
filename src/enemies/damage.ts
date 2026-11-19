@@ -29,7 +29,7 @@ import { AMMO, WEAPONS, type ArmourClass } from '../weapons/data';
 import type { WeaponId } from '../core/gameplay';
 import { say } from './attacks';
 import { finishAttack } from './brain';
-import { chooseReaction, mustFall, profileOf, reactionSeed, type ReactionLevel, type ReactionProfile } from './reactions';
+import { chooseReaction, mustFall, profileOf, reactionSeed, shakenBy, SPOIL, type ReactionLevel, type ReactionProfile } from './reactions';
 import { dropOff } from './roles';
 import type { Enemy } from './Enemy';
 import type { Plate } from './armor';
@@ -1500,6 +1500,8 @@ export class DamageModel {
     if (e.pinned) dropOff(e);
 
     if (profile) {
+      // A hit spoils his aim (R3b): decided here alone, by the machine that decides the hit.
+      if (this.facts && DevFlags.aimspoil && profile.pain > 0 && ROUNDS.has(d.type)) this.spoilAim(e, region, flinch, frac, armoured);
       this.carryHurt(e, profile);
       this.respond(e, d, profile, region, amount, pushForce, bone, armoured, throws, flinch);
       return;
@@ -1509,6 +1511,16 @@ export class DamageModel {
       e.poise = 0;
       this.stagger(e, d.type === 'explosive' ? 0.75 : 0.5);
     } else if (!armoured) this.cryOut(e);
+  }
+
+  /** A round shakes his aim, and puts back the wind-up of an attack he is in the middle of (`SPOIL` in reactions.ts). */
+  private spoilAim(e: Enemy, region: GoreRegion, size: number, share: number, stopped: boolean): void {
+    const add = shakenBy((region === 'armR' || region === 'forearmR') && e.maim.gunArm, size, share, stopped);
+    e.shaken = Math.min(1, e.shaken + add);
+    if (e.attackPhase !== 'windup' || e.attackLate >= SPOIL.late) return;
+    const late = Math.min(SPOIL.late - e.attackLate, SPOIL.late * Math.min(1, add));
+    e.attackLate += late;
+    e.attackWindup += late;
   }
 
   /**
