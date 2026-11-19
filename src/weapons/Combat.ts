@@ -54,6 +54,7 @@ function copyBlast(to: ExplosionSpec, from: ExplosionSpec): void {
   to.scale = from.scale;
   to.shake = from.shake;
   to.worldObject = from.worldObject;
+  to.playerOnly = from.playerOnly;
   to.vaporize = from.vaporize;
 }
 
@@ -1040,13 +1041,14 @@ export class Combat implements CombatSystem {
       c.fx.explosion(center, look);
       for (let i = 0; i < def.sounds.length; i++) this.sound(def.sounds[i]!, center);
     }
-    const hit = this.blastEnemies(center, spec, id);
-    c.enemies.vehicles?.blast(center, spec);
+    // Co-op guest, a blast the host already counted (`playerOnly`): no enemy is hurt from here, or it would be hurt twice.
+    const hit = spec.playerOnly ? this.noHits : this.blastEnemies(center, spec, id);
+    if (!spec.playerOnly) c.enemies.vehicles?.blast(center, spec);
     // After the damage, so a body this blast kills is thrown by it like any other, and not only the bodies already dead.
     c.physics.radialImpulse(center, radius * 1.35, def.impulse * radius);
     this.blastPlayer(center, spec);
     this.projectiles.caughtInBlast(center, radius);
-    if (!spec.worldObject) c.world.objects?.damageExplosivesInRadius(center, radius, spec.damage, spec.source);
+    if (!spec.worldObject && !spec.playerOnly) c.world.objects?.damageExplosivesInRadius(center, radius, spec.damage, spec.source);
 
     // A parked body feels nothing, and the player's eyes are up in a seat, not beside it.
     const eyeDist = c.player.parked ? Infinity : c.player.eye.distanceTo(center);
@@ -1063,6 +1065,7 @@ export class Combat implements CombatSystem {
   }
 
   private readonly blastTally = { count: 0, kills: 0 };
+  private readonly noHits = { count: 0, kills: 0 };
   private readonly fxBlast: ExplosionOptions = { radius: 0 };
 
   private blastEnemies(center: THREE.Vector3, spec: ExplosionSpec, id: number): { count: number; kills: number } {

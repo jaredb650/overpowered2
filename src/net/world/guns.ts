@@ -7,10 +7,16 @@ import type { DroppedGuns } from '../../weapons/dropped';
 import type { WorldContext } from './context';
 
 /**
- * A gun on the ground (weapons/dropped.ts). Guest to host: `drop` (my gun, as a kit) or `take` (that one, by id). Host to all:
- * `add` and `gone`; to the one who took it first: `give`.
+ * A gun on the ground (weapons/dropped.ts).
+ * Guest to host: `drop` (my gun, as a kit, with my request number `q` and how far it fell), `take` (that one, by id), `void`
+ * (the drop you numbered late: I have that gun back in hand, remove it).
+ * Host to all: `add` (with the dropper's `slot` and that guest's request number `q`, the `fall`, and its `age` for a late guest) and
+ * `gone` (`to`: the name of who took it). Host to one: `give` (you took it first), `back` (your drop `q` is refused, keep it).
  */
-export type GunEvent = { t: 'gun'; op: 'drop' | 'take' | 'add' | 'gone' | 'give'; id?: number; gun?: WireGun };
+export type GunEvent = {
+  t: 'gun'; op: 'drop' | 'take' | 'add' | 'gone' | 'give' | 'back' | 'void';
+  id?: number; gun?: WireGun; q?: number; slot?: number; fall?: number; age?: number; to?: string;
+};
 
 export class Guns {
   constructor(private readonly w: WorldContext) {
@@ -35,6 +41,6 @@ export class Guns {
     // The lobby lets a guest hear only the host (lobby.ts `gameplay`).
     if (!this.w.hosting) return this.dropped?.guestIn(value);
     const remote = this.w.session.remotes.get(from);
-    if (remote) this.dropped?.hostIn(value, from, remote.char.root.position, remote.player.name);
+    if (remote) this.dropped?.hostIn(value, from, remote.char.root.position, remote.player.name, this.w.session.lobby.players.find(p => p.id === from)?.slot ?? -1);
   }
 }

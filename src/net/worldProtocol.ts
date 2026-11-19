@@ -16,6 +16,8 @@ import type { SlowEvent } from './world/clock';
 import type { EnemyFireEvent } from './world/enemyFire';
 import type { GunEvent } from './world/guns';
 import type { HitEvent } from './world/hits';
+import type { PodEvent } from './world/pods';
+import type { PropEvent } from './world/props';
 import type { FireEvent, KataEvent } from './world/remoteFire';
 import type { SonarEvent } from './world/sonar';
 import type { AwardEvent } from './world/credit';
@@ -52,6 +54,10 @@ export type WorldEvent =
   | GunEvent        // world/guns.ts: gun
   | MoveEvent       // world/moves.ts: move
   | WhoEvent        // world/identity.ts: who
+  | PodEvent        // world/pods.ts: pod
+  | PropEvent       // world/props.ts: prop
+  /** Guest to host: my world is up, send me what lies in the shared world (world.ts `catchUp`). */
+  | { t: 'worldsync' }
   | VehiclesEvent   // world/vehicles.ts: vehicles
   | AlliesEvent     // world/allies.ts: allies, ashot
   | TeamEvent       // team.ts: life, card, team, revive, up, wave, over, restore, kit, ready, vote, sync, mark

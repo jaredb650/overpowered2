@@ -67,17 +67,19 @@ export function stubGame() {
     contracts: { wallet: { credits: 0 } }, camera: { setSeat: vi.fn(), addTrauma: vi.fn() },
     input: { pressed: vi.fn(() => false), isDown: vi.fn(() => false) },
     fx: { tracer: vi.fn(), muzzleFlash: vi.fn(), bloodHit: vi.fn(), impact: vi.fn(), explosion: vi.fn(), pickupSparkle: vi.fn(), ring: vi.fn() },
-    gore: { wound: vi.fn(), sever: vi.fn() }, audio: { play: vi.fn() }, combat: { fireRay: vi.fn(), explode: vi.fn() } } as unknown as Ctx;
+    gore: { wound: vi.fn(), sever: vi.fn() }, audio: { play: vi.fn() }, combat: { fireRay: vi.fn(), explode: vi.fn() }, viewmodel: {} } as unknown as Ctx;
   return { ctx, player };
 }
 
-export interface Seat { ctx: Ctx; player: ReturnType<typeof stubGame>['player']; lobby: Lobby; room: Room; world: CoopWorld; session: CoopSession }
+export interface Seat { ctx: Ctx; player: { position: THREE.Vector3 }; lobby: Lobby; room: Room; world: CoopWorld; session: CoopSession }
 
 /**
- * A host and `guests` guests in one match, their worlds built. `begin` false leaves the guests' worlds not yet begun (still
- * loading the map): call `seat.world.begin()` when they should arrive.
+ * A host and `guests` guests in one match. `build()` makes their worlds. `begin` false leaves the guests' worlds not yet begun
+ * (still loading the map): call `seat.world.begin()` when they should arrive. `games` are the games to run on, host first
+ * (a test that needs real physics or weapons passes `makeRange()` contexts); a stub game stands in for any not given.
  */
-export function party(guests = 1, begin = true) {
+export function party(guests = 1, begin = true, games: Ctx[] = []) {
+  const game = (i: number) => (games[i] ? { ctx: games[i]!, player: games[i]!.player as unknown as { position: THREE.Vector3 } } : stubGame());
   const relay = new Relay();
   const door = () => new Room('door', new Relay());
   const hostRoom = relay.open('host-peer');
@@ -89,27 +91,30 @@ export function party(guests = 1, begin = true) {
     relay.flush();
   }
   hostLobby.startMatch('crucible', 'shared-test'); relay.flush();
-  const hostGame = stubGame();
+  const hostGame = game(0);
   const hostRemotes = new Map<string, unknown>();
   const hostSession = { lobby: hostLobby, hosting: true, match: hostLobby.match, remotes: hostRemotes } as unknown as CoopSession;
   const seats: Seat[] = [];
-  for (const { room, lobby } of joined) {
-    const game = stubGame();
+  joined.forEach(({ room, lobby }, i) => {
+    const g = game(i + 1);
     // The host sees each guest's body where that guest's own game has its player.
     const root = new THREE.Group();
-    Object.defineProperty(root, 'position', { get: () => game.player.position });
+    Object.defineProperty(root, 'position', { get: () => g.player.position });
     hostRemotes.set(lobby.you, { player: lobby.me, char: { root, anim: { play: vi.fn() } }, buffer: { sample: () => ({ velocity: [0, 0, 0], yaw: 0 }) },
-      setTag: vi.fn(), muzzle: (v: THREE.Vector3) => v.copy(game.player.position) });
+      setTag: vi.fn(), muzzle: (v: THREE.Vector3) => v.copy(g.player.position) });
     const session = { lobby, hosting: false, match: lobby.match, remotes: new Map() } as unknown as CoopSession;
-    seats.push({ ...game, lobby, room, session, world: null as unknown as CoopWorld });
-  }
+    seats.push({ ...g, lobby, room, session, world: null as unknown as CoopWorld });
+  });
   const host: Seat = { ...hostGame, lobby: hostLobby, room: hostRoom, session: hostSession, world: null as unknown as CoopWorld };
   return {
     relay, host, guests: seats,
     /** Builds every world (after the test has put its own systems on each `ctx`), and begins them. */
     build(): void {
-      host.world = new CoopWorld(host.ctx, host.session);
-      for (const seat of seats) seat.world = new CoopWorld(seat.ctx, seat.session);
+      for (const seat of [host, ...seats]) {
+        seat.world = new CoopWorld(seat.ctx, seat.session);
+        (seat.session as { world: CoopWorld | null }).world = seat.world;
+        seat.ctx.coop = seat.session;
+      }
       host.world.begin();
       if (begin) for (const seat of seats) seat.world.begin();
       relay.flush();

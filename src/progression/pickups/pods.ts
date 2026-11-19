@@ -5,6 +5,11 @@
  * Supply pods (`supply`, where the Crucible sells its guns: contracts/shop): the same pod at the start of every break, but it is
  * not a pickup. It carries no gun and lands nearer (`SUPPLY`), with a beacon of light over its spot from the call; once open, E within reach opens
  * the shop (`shop:open`), and it is gone when the break ends, whoever reached it.
+ *
+ * Co-op: one pod for everyone. The host calls it (the spot, the turn it lands with, a number) and tells every guest (`pod`,
+ * net/world/pods.ts); a guest never calls its own and flies the host's from the same spot on the same clock. A supply pod's shop
+ * is each player's own purse at the shared pod. A weapon cache gives each player their own share once (the gun their own
+ * arsenal is due), and stays for the others until all have taken or it times out: the host says when it goes (`gone`).
  */
 import * as THREE from 'three';
 import type { Ctx, EmitterHandle } from '../../core/contracts';
@@ -15,12 +20,17 @@ import { aboveFloor } from '../callins/shared';
 import { SHOP_ANYTIME } from '../../contracts/shop/data';
 import { CACHE_ORDER, DROP_POD as D, PICKUP, PICKUP_LOOK } from '../data';
 import { ModelBuilder, type ModelMaterials } from '../modelkit';
+import type { PodEvent } from '../../net/world/pods';
 
 const COLOR = '#39e0ff';
 const COLLECT_RADIUS = 3;
 const REFILL_FRACTION = 0.5;
 const DOOR_OPEN = 1.5;
 const MIN_SPOT_DISTANCE = 30;
+/** Seconds from touch-down to doors down. */
+const OPENING = 1.3;
+/** Co-op guest: seconds a pod outlives what the host should have ended (a lost `gone` must not leave it standing for ever). */
+const GUEST_GRACE = 10;
 
 /** The supply pod: its colour, and the spots it prefers, near enough to run to in a break (12.5 m/s on foot). */
 export const SUPPLY = {
@@ -83,6 +93,16 @@ interface Pod {
   timer: number;
   trail: EmitterHandle | null;
   marker: (() => void) | null;
+  /** Co-op: the host's number for this pod (0 solo), the turn it lands with, seconds since it was called. */
+  id: number;
+  yaw: number;
+  age: number;
+  /** Co-op cache: this player has had their share; the pod stays for the others. */
+  taken: boolean;
+  /** Co-op host, a cache: the lobby ids of who has had their share. */
+  takers: Set<string>;
+  /** Co-op guest: seconds the break has been over with this supply pod still standing. */
+  stale: number;
 }
 
 export class DropPods {
@@ -95,6 +115,11 @@ export class DropPods {
   private near: Pod | null = null;
   private unprompt: (() => void) | null = null;
   private readonly beacons: THREE.Mesh[] = [];
+  private serial = 0;
+  private readonly center = new THREE.Vector3();
+  /** Co-op: `performance.now()` at the last update (0 before the first), and the seconds the pods' clock is behind the wall's. */
+  private wall = 0;
+  private behind = 0;
 
   constructor(private readonly ctx: Ctx, materials: ModelMaterials, readonly supply = false) {
     this.probe = new GroundProbe(ctx);
@@ -130,13 +155,31 @@ export class DropPods {
       const entry = { kind: 'weaponCache' as const, position: new THREE.Vector3(), active: false };
       this.pods.push({
         phase: 'spent', weapon: null, entry, group, doors, ring: new GroundRing(ctx), timer: 0, trail: null, marker: null,
+        id: 0, yaw: 0, age: 0, taken: false, takers: new Set(), stale: 0,
       });
       this.entries.push(entry);
     }
   }
 
-  /** Every second wave clear sends one. A supply pod comes every break. */
+  /** The co-op session with a world, or null solo and in free roam. */
+  private get session() {
+    const s = this.ctx.coop;
+    return s?.world ? s : null;
+  }
+
+  /** Co-op: a guest, whose pods are the host's. */
+  private get guest(): boolean {
+    const s = this.session;
+    return !!s && !s.hosting;
+  }
+
+  private tell(event: Omit<PodEvent, 't' | 'supply'>, to?: string): void {
+    this.session?.world?.sendPod({ t: 'pod', supply: this.supply, ...event }, to);
+  }
+
+  /** Every second wave clear sends one. A supply pod comes every break. In co-op the host's is everyone's. */
   onWaveClear(wave: number): void {
+    if (this.guest) return;
     if (this.supply || wave % D.everyWaves === 0) this.call();
   }
 
@@ -159,7 +202,7 @@ export class DropPods {
   private landingSpot(): THREE.Vector3 | null {
     const spots = this.ctx.world.pickupSpots;
     if (!spots || spots.length === 0) return null;
-    const me = this.ctx.player.position;
+    const me = this.middle();
     let fallback: THREE.Vector3 | null = null;
     for (let i = 0; i < 16; i++) {
       const spot = pick(spots);
@@ -175,30 +218,147 @@ export class DropPods {
     return fallback;
   }
 
+  /** Where the pod is measured from: the player, or in co-op the middle of everyone in the world, so it is a fair run for all. */
+  private middle(): THREE.Vector3 {
+    const s = this.session;
+    const c = this.center.copy(this.ctx.player.position);
+    if (!s) return c;
+    let n = 1;
+    for (const remote of s.remotes.values()) {
+      if (!remote.char.root.visible) continue;
+      c.add(remote.char.root.position);
+      n++;
+    }
+    return c.divideScalar(n);
+  }
+
+  /** Calls a pod down at `at`, or at a spot of its own choosing. A co-op guest calls none: the host's reaches it as `pod`. */
   call(at?: THREE.Vector3): void {
+    if (this.guest) return;
     const pod = this.pods.find(p => p.phase === 'spent');
     const spot = at ?? this.landingSpot();
     if (!pod || !spot) return;
+    const floor = this.probe.heightAt(spot.x, spot.y + 2, spot.z, 40);
+    pod.entry.position.copy(spot);
+    if (!Number.isNaN(floor)) pod.entry.position.y = floor;
+    pod.id = this.session ? ++this.serial : 0;
+    pod.yaw = rand(0, TAU);
+    this.begin(pod, 0);
+    if (pod.id) this.tell({ op: 'call', id: pod.id, at: pod.entry.position.toArray() as [number, number, number], yaw: pod.yaw, age: 0 });
+  }
+
+  /**
+   * The pod is on its way to `pod.entry.position`: the marker, the beacon, the ring and the call. `age` is how long ago it was
+   * called (co-op: a guest who arrives in a break gets the pod where it is in its fall, or standing open, not from the top).
+   */
+  private begin(pod: Pod, age: number): void {
     const { audio, hud } = this.ctx;
     pod.weapon = this.nextWeapon();
     pod.phase = 'warning';
     pod.timer = 0;
-    const floor = this.probe.heightAt(spot.x, spot.y + 2, spot.z, 40);
-    pod.entry.position.copy(spot);
-    if (!Number.isNaN(floor)) pod.entry.position.y = floor;
+    pod.age = 0;
+    pod.taken = false;
+    pod.stale = 0;
+    pod.takers.clear();
     pod.entry.active = true;
     this.beacons[this.pods.indexOf(pod)]?.position.copy(pod.entry.position).setY(pod.entry.position.y + SUPPLY.beaconHeight / 2 + 1);
     this.beaconOf(pod, true);
     const color = this.supply ? SUPPLY.color : COLOR;
     pod.ring.setColor(color, 2);
     pod.marker = hud.marker(_p.copy(pod.entry.position).setY(pod.entry.position.y + 3), this.supply ? SUPPLY.label : PICKUP_LOOK.weaponCache.label, color);
-    audio.play('cache_incoming');
+    if (age < 1) audio.play('cache_incoming');
     hud.feed(this.supply ? 'SUPPLY POD INBOUND: THE SHOP IS IN IT UNTIL THE BREAK ENDS' : 'WEAPON CACHE INBOUND', color);
+    if (age > 0) this.skipTo(pod, age);
+  }
+
+  /** Puts a pod just called where it would be `age` seconds on, without the landing: what a late guest missed has happened. */
+  private skipTo(pod: Pod, age: number): void {
+    const fall = D.height / D.speed;
+    pod.age = age;
+    if (age < D.warnSeconds) {
+      pod.timer = age;
+      return;
+    }
+    this.startFall(pod, age < D.warnSeconds + 0.5);
+    pod.timer = age - D.warnSeconds;
+    if (pod.timer < fall) return;
+    // Down already: stood there, no blast, the doors as far open as they would be.
+    pod.trail?.stop();
+    pod.trail = null;
+    pod.ring.hide();
+    pod.group.position.copy(pod.entry.position);
+    pod.phase = 'landed';
+    pod.timer -= fall;
+    if (pod.timer < OPENING) return;
+    for (const d of pod.doors) d.rotation.x = DOOR_OPEN;
+    pod.phase = 'open';
+    pod.timer -= OPENING;
+  }
+
+  /** Co-op: the host's word on a pod (a guest), or a guest's on its share of a cache (the host). */
+  netIn(value: PodEvent, from: string): void {
+    const s = this.session;
+    if (!s || value.supply !== this.supply || !Number.isInteger(value.id) || value.id <= 0) return;
+    if (s.hosting) {
+      if (value.op !== 'took' || this.supply) return;
+      const pod = this.pods.find(p => p.id === value.id && p.phase === 'open');
+      if (pod) { pod.takers.add(from); this.settle(pod); }
+      return;
+    }
+    if (value.op === 'gone') {
+      const pod = this.pods.find(p => p.id === value.id && p.phase !== 'spent');
+      if (pod) this.retire(pod);
+      return;
+    }
+    if (value.op !== 'call' || this.pods.some(p => p.id === value.id && p.phase !== 'spent')) return;
+    const at = value.at;
+    if (!Array.isArray(at) || at.length !== 3 || !at.every(n => typeof n === 'number' && Number.isFinite(n) && Math.abs(n) < 1e5)) return;
+    const pod = this.pods.find(p => p.phase === 'spent');
+    if (!pod) return;
+    pod.entry.position.set(at[0], at[1], at[2]);
+    pod.id = value.id;
+    pod.yaw = typeof value.yaw === 'number' && Number.isFinite(value.yaw) ? value.yaw : 0;
+    this.begin(pod, typeof value.age === 'number' && Number.isFinite(value.age) ? Math.min(Math.max(0, value.age), 3600) : 0);
+  }
+
+  /** Co-op host: every pod out now, for a guest whose world has just come up (joined late, loaded slowly, came back). */
+  catchUp(to: string): void {
+    for (const pod of this.pods) {
+      if (pod.phase === 'spent' || !pod.id) continue;
+      this.tell({ op: 'call', id: pod.id, at: pod.entry.position.toArray() as [number, number, number], yaw: pod.yaw, age: pod.age }, to);
+    }
+  }
+
+  /** Co-op host, a cache: gone once every player in the match has had their share. */
+  private settle(pod: Pod): void {
+    const s = this.session;
+    if (!s?.hosting || !pod.taken) return;
+    for (const p of s.lobby.players) if (!p.host && !pod.takers.has(p.id)) return;
+    this.retire(pod);
   }
 
   update(dt: number): void {
-    // A supply pod lasts the break it came in. Retraining's stays (SHOP_ANYTIME).
-    if (this.supply && !SHOP_ANYTIME && this.ctx.waves.phase !== 'intermission') for (const pod of this.pods) if (pod.phase !== 'spent') this.retire(pod);
+    // Co-op: the pod is one clock on every screen, so it runs on the wall clock. The game's `realDt` is capped at 50 ms a frame,
+    // and a page that hitched (a slow frame as the banner and the pod first draw) would fly its pod that much behind the others for good.
+    if (this.session) {
+      const now = performance.now();
+      // What the frames' own `dt` has fallen short of the wall clock is paid back; being a little ahead is only frame jitter.
+      if (this.wall > 0) this.behind = Math.max(-0.1, this.behind + Math.min(2, (now - this.wall) / 1000) - dt);
+      this.wall = now;
+      if (this.behind > 0.03) {
+        dt += this.behind;
+        this.behind = 0;
+      }
+    }
+    // A supply pod lasts the break it came in. Retraining's stays (SHOP_ANYTIME). In co-op the host ends it for everyone: a guest's
+    // own copy of the waves can lag the break by a snapshot, and only stands in if the host's word never comes.
+    if (this.supply && !SHOP_ANYTIME && this.ctx.waves.phase !== 'intermission') {
+      for (const pod of this.pods) {
+        if (pod.phase === 'spent') continue;
+        if (this.guest && (pod.stale += dt) < GUEST_GRACE) continue;
+        this.retire(pod);
+      }
+    } else if (this.guest) for (const pod of this.pods) pod.stale = 0;
     for (const pod of this.pods) if (pod.phase !== 'spent') this.step(pod, dt);
     if (this.supply) this.readSupply();
   }
@@ -226,6 +386,7 @@ export class DropPods {
 
   private step(pod: Pod, dt: number): void {
     pod.timer += dt;
+    pod.age += dt;
     const target = pod.entry.position;
     switch (pod.phase) {
       case 'warning':
@@ -245,12 +406,12 @@ export class DropPods {
         break;
       }
       case 'landed': {
-        const open = smoothstep(0.7, 1.3, pod.timer);
+        const open = smoothstep(0.7, OPENING, pod.timer);
         // Peak on the first frame of the fall, then a small bounce: heavy doors dropping onto concrete.
         const swing = open * DOOR_OPEN + Math.sin(open * Math.PI) * 0.12;
         for (const d of pod.doors) d.rotation.x = swing;
         if (pod.timer >= 0.7 && pod.timer - dt < 0.7) this.ctx.audio.play('cache_open', { position: target });
-        if (pod.timer >= 1.3) {
+        if (pod.timer >= OPENING) {
           pod.phase = 'open';
           pod.timer = 0;
         }
@@ -260,23 +421,24 @@ export class DropPods {
         this.ctx.render.lights.flash(_p.copy(target).setY(target.y + 2), this.supply ? SUPPLY.color : COLOR, 6, 12, 0.09);
         // A supply pod waits for E (readSupply) and the break's end, not for the player to walk in.
         if (this.supply) break;
-        if (this.ctx.player.position.distanceTo(_p.copy(target).setY(target.y + 0.5)) < COLLECT_RADIUS + 1) this.collect(pod);
-        else if (pod.timer >= D.life) this.retire(pod);
+        if (!pod.taken && this.ctx.player.alive && this.ctx.player.position.distanceTo(_p.copy(target).setY(target.y + 0.5)) < COLLECT_RADIUS + 1) this.collect(pod);
+        // A guest's cache goes on the host's word; its own clock only stands in for a word that never came.
+        else if (pod.timer >= D.life + (this.guest ? GUEST_GRACE : 0)) this.retire(pod);
         break;
       }
     }
   }
 
-  private startFall(pod: Pod): void {
+  private startFall(pod: Pod, loud = true): void {
     const { audio, fx } = this.ctx;
     pod.phase = 'falling';
     pod.timer = 0;
     pod.group.visible = true;
     for (const d of pod.doors) d.rotation.x = 0;
-    pod.group.rotation.y = rand(0, TAU);
+    pod.group.rotation.y = pod.yaw;
     pod.group.position.copy(pod.entry.position).setY(pod.entry.position.y + D.height);
     pod.trail = fx.attachEmitter(pod.group, 'hellfireTrail', new THREE.Vector3(0, 0.2, 0), D.height / D.speed + 0.2);
-    audio.play('missile_incoming', { position: pod.entry.position });
+    if (loud) audio.play('missile_incoming', { position: pod.entry.position });
   }
 
   private land(pod: Pod): void {
@@ -288,9 +450,13 @@ export class DropPods {
     pod.ring.hide();
     pod.trail?.stop();
     pod.trail = null;
-    combat.explode(aboveFloor(p), {
-      radius: D.impactRadius, damage: D.impactDamage, kind: 'rocket', source: 'drop_pod', team: 'player', selfDamage: 0, playerPush: 10,
-    });
+    // Co-op: the pod lands once, on the host. Its blast is the host's to count, and reaches a guest's screen as that explosion
+    // (net/world/booms.ts) at the moment its own copy touches down; a second blast here would hit the enemies again.
+    if (!this.guest) {
+      combat.explode(aboveFloor(p), {
+        radius: D.impactRadius, damage: D.impactDamage, kind: 'rocket', source: 'drop_pod', team: 'player', selfDamage: 0, playerPush: 10,
+      });
+    }
     audio.play('cache_land', { position: p });
     fx.dust(p, _up, 4);
     fx.ring(p, _up, this.supply ? SUPPLY.color : COLOR, D.impactRadius * 2);
@@ -320,10 +486,20 @@ export class DropPods {
       hud.feed('FULL RESUPPLY', COLOR);
     }
     events.emit('pickup:collected', { kind: 'weaponCache', position: p });
-    this.retire(pod);
+    const s = this.session;
+    if (!s || !pod.id) return this.retire(pod);
+    // Co-op: that was this player's share. The pod stands for the others, unmarked here, until the host says it is gone.
+    pod.taken = true;
+    pod.entry.active = false;
+    pod.marker?.();
+    pod.marker = null;
+    if (s.hosting) this.settle(pod);
+    else this.tell({ op: 'took', id: pod.id });
   }
 
   private retire(pod: Pod): void {
+    if (pod.id && pod.phase !== 'spent' && this.session?.hosting) this.tell({ op: 'gone', id: pod.id });
+    pod.id = 0;
     pod.phase = 'spent';
     pod.weapon = null;
     pod.entry.active = false;

@@ -29,6 +29,8 @@ import { Guns, type GunEvent } from './world/guns';
 import { Hits } from './world/hits';
 import { Identity } from './world/identity';
 import { Moves } from './world/moves';
+import { Pods, type PodEvent } from './world/pods';
+import { Props } from './world/props';
 import { RemoteFire } from './world/remoteFire';
 import { Replicas } from './world/replicas';
 import { SharedSonar } from './world/sonar';
@@ -59,6 +61,8 @@ export class CoopWorld {
   private readonly credit: Credit;
   private readonly booms: Booms;
   private readonly guns: Guns;
+  private readonly pods: Pods;
+  private readonly props: Props;
   private readonly capture: Capture;
   private readonly vehicles: Vehicles;
   private readonly garrison: Allies;
@@ -72,7 +76,7 @@ export class CoopWorld {
     this.validator = w.validator;
     this.team = w.team = new Team(ctx, session, (event, to) => w.send(event, to));
     // A mission's rides are everyone's: each guest's door gun counts through the host as a call-in.
-    this.team.onArrived = id => { this.mission.catchUp(id); this.guns.catchUp(id); this.villain.catchUp(id); };
+    this.team.onArrived = id => { this.mission.catchUp(id); this.catchUp(id); this.villain.catchUp(id); };
     this.mission = new CoopMission(ctx, session, (event, to) => w.send(event, to), this.team,
       () => { for (const p of session.lobby.players) if (!p.host) this.validator.callIn(p.id, performance.now()); });
     this.team.plug(w.router);
@@ -103,9 +107,14 @@ export class CoopWorld {
     this.booms = new Booms(w, this.targeting);
     this.guns = new Guns(w);
     this.garrison = new Allies(w, this.enemies);
+    this.pods = new Pods(w);
+    this.props = new Props(w, this.credit, this.targeting);
+    // A guest whose world has just come up asks for what lies in the shared world; the host also sends it on that guest's
+    // first card (`onArrived`). Both, because either can be the one that is missed, and every item is taken once, by id.
+    w.router.host('worldsync', (_, from) => this.catchUp(from));
     // Moves and identities ride the reliable lane beside the enemies' unreliable states (replicas.ts).
     const moves = new Moves(w, this.enemies), identity = new Identity(w, this.enemies);
-    this.modules = [this.capture, this.vehicles, this.garrison, this.targeting, this.claims, this.credit, this.attacks, this.warnings, w.later, this.time, moves, identity, this.enemies];
+    this.modules = [this.capture, this.vehicles, this.garrison, this.targeting, this.claims, this.credit, this.props, this.attacks, this.warnings, w.later, this.time, moves, identity, this.enemies];
   }
 
   /** Read by the two-page proofs (tools/scripts/coop-*.mjs): the guest's enemy copies, last snapshot and garrison bodies. */
@@ -145,6 +154,15 @@ export class CoopWorld {
     this.w.ready = true;
     this.mission.begin();
     this.enemies.begin();
+    this.props.begin();
+    if (!this.session.hosting) this.w.send({ t: 'worldsync' });
+  }
+  /** Host: what lies in the shared world now, for a guest who was loading, joined late or came back: pods, dropped guns, what is broken. */
+  private catchUp(id: string): void {
+    // Each on its own: one that fails must not cost the guest the others.
+    for (const part of [this.pods, this.guns, this.props]) {
+      try { part.catchUp(id); } catch (error) { console.warn('[coop] A catch-up for an arriving guest failed', error); }
+    }
   }
   claim(enemy: EnemyInstance, damage: DamageInfo): DamageResult { return this.claims.claim(enemy, damage); }
   /** Guest: my weapon, call-in or perk set this enemy alight, froze it or left a live bolt in it (EnemyManager.afflict). */
@@ -177,7 +195,7 @@ export class CoopWorld {
   /** Every live player's eyes, for the host's fleeing men to run from (outpost/flight.ts). */
   playerEyes(): THREE.Vector3[] { return this.targeting.playerEyes(); }
   isRemoteTarget(): boolean { return this.targeting.isRemoteTarget(); }
-  allowsLocalDamage(damage: PlayerDamage): boolean { return this.targeting.allowsLocalDamage(damage); }
+  allowsLocalDamage(damage: PlayerDamage): boolean { return this.props.feeling || this.targeting.allowsLocalDamage(damage); }
   steer(enemy: Enemy, direction: THREE.Vector3): boolean { return this.targeting.steer(enemy, direction); }
   enemyRay(from: THREE.Vector3, to: THREE.Vector3, damage: number, source: string, trace = true, tracer?: TracerKind, whizz?: string): THREE.Vector3 | null {
     return this.enemyFire.enemyRay(from, to, damage, source, trace, tracer, whizz);
@@ -209,6 +227,10 @@ export class CoopWorld {
   }
   /** A dropped gun's news (weapons/dropped.ts): a guest's drop or take goes to the host, the host's word to everyone. */
   sendGun(event: GunEvent, to?: string): void { this.guns.send(event, to); }
+  /** The shared barrels and props: counters for the proofs (world/props.ts). */
+  get propStats(): Props['stats'] { return this.props.stats; }
+  /** A drop pod's news (progression/pickups/pods.ts): the host's call and its end to everyone, a guest's share to the host. */
+  sendPod(event: PodEvent, to?: string): void { this.pods.send(event, to); }
   /** Host: an ally fired. Guests draw the tracer; it hurts nothing there. */
   allyShot(from: THREE.Vector3, to: THREE.Vector3): void { this.garrison.allyShot(from, to); }
   selfDestruct(enemy: Enemy): void { this.hits.selfDestruct(enemy); }

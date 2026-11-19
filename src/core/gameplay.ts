@@ -361,6 +361,11 @@ export interface ExplosionSpec {
   shake?: number;
   /** A map explosive went off. The world drew it, sounded it and chains its own neighbours, so combat only resolves it. */
   worldObject?: boolean;
+  /**
+   * Co-op guest: a blast the host has already counted against the enemies and the world (a barrel the host set off). Here it is
+   * only felt by this player: the damage, the push, the shake, and the bodies and debris it throws.
+   */
+  playerOnly?: boolean;
   /** Its kills are vaporized (DamageInfo.vaporize). */
   vaporize?: boolean;
 }

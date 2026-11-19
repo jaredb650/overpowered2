@@ -9,7 +9,7 @@ import { clamp, lerp, smoothstep, TAU } from '../core/math';
 import type { Ctx, HazardKind, HazardState, ReactorState, Structure, WorldObjects } from '../core/contracts';
 import { FACE, Geo, type Mat } from './kit/geo';
 import type { Kit } from './kit/kit';
-import { Breakables } from './breakables';
+import { Breakables, type PropLink } from './breakables';
 import { Structures } from './structures';
 import { ballistic, type CrusherSpec, type ElectricSpec, type GantrySpec, type LaunchRampSpec, type MapSpec, type PadSpec, type ReactorSpec } from './map/spec';
 
@@ -81,10 +81,12 @@ interface Explosive {
   alive: boolean;
   respawnIn: number;
   index: number;
+  /** Its place in `explosives`: its number on the wire in co-op. */
+  id: number;
   collider: RAPIER.Collider | null;
 }
 
-interface ChainEntry { e: Explosive; at: number; source: string }
+interface ChainEntry { e: Explosive; at: number; source: string; owner: string | null }
 
 interface Crusher extends CrusherSpec {
   collider: RAPIER.Collider;
@@ -138,6 +140,12 @@ export class Objects implements WorldObjects {
   readonly walls: Structures;
   /** Props that break and explode (MapSpec.breakables). Attached after the nav sample, as the walls are. */
   readonly props: Breakables;
+  private link: PropLink | null = null;
+  /**
+   * Co-op guest: seconds added to this game's clock for the machinery that runs on it (crushers, live plates, gantries, pads),
+   * so every screen has them in the host's phase: a friend riding a gantry is on it on every screen. 0 solo and on the host.
+   */
+  clockSkew = 0;
 
   constructor(private readonly ctx: Ctx, spec: MapSpec, private readonly kit: Kit, private readonly material: (m: Mat) => THREE.Material) {
     this.root.name = 'world-objects';
@@ -156,6 +164,19 @@ export class Objects implements WorldObjects {
 
   get structures(): readonly Structure[] {
     return this.walls.all;
+  }
+
+  /**
+   * Co-op: the wire for the barrels, the tanks and the props (net/world/props.ts). The host decides what goes off, by number; a
+   * guest reports its own hits, guesses at them, and draws the rest on the host's word (see world/breakables.ts).
+   */
+  get net(): PropLink | null {
+    return this.link;
+  }
+
+  set net(link: PropLink | null) {
+    this.link = link;
+    this.props.net = link;
   }
 
   // ---- jump pads ---------------------------------------------------------------------------------------------
@@ -298,7 +319,7 @@ export class Objects implements WorldObjects {
     let bi = 0, ti = 0;
     for (const s of specs) {
       const e: Explosive = {
-        kind: s.kind, pos: s.pos, hp: 0, alive: false, respawnIn: 0, index: s.kind === 'barrel' ? bi++ : ti++, collider: null,
+        kind: s.kind, pos: s.pos, hp: 0, alive: false, respawnIn: 0, index: s.kind === 'barrel' ? bi++ : ti++, id: this.explosives.length, collider: null,
       };
       this.explosives.push(e);
       this.restore(e);
@@ -341,12 +362,21 @@ export class Objects implements WorldObjects {
       if (!this.props.hit(collider, amount, source)) this.walls.hit(collider, amount);
       return false;
     }
+    // Co-op guest: the host is told, and decides. If this hit sets it off here, that is a guess the host confirms.
+    if (this.link?.guest) this.link.hit('x', e.id, amount, source);
     this.hurt(e, amount, source);
     return true;
   }
 
   damageExplosivesInRadius(center: THREE.Vector3, radius: number, amount: number, source: string): void {
     this.walls.blast(center, radius, amount, source);
+    // Co-op guest: the host runs this blast against its own barrels and props; here it is the same guess as a hit.
+    if (this.link?.guest) this.link.blast(center, radius, amount, source);
+    this.blastOwn(center, radius, amount, source);
+  }
+
+  /** A blast on the props and the explosives (not the walls). */
+  private blastOwn(center: THREE.Vector3, radius: number, amount: number, source: string): void {
     this.props.blast(center, radius, amount, source);
     for (const e of this.explosives) {
       if (!e.alive) continue;
@@ -358,7 +388,49 @@ export class Objects implements WorldObjects {
   private hurt(e: Explosive, amount: number, source: string): void {
     if (!e.alive) return;
     e.hp -= amount;
-    if (e.hp <= 0) this.detonate(e, source);
+    if (e.hp > 0) return;
+    if (this.link?.guest) this.link.guessed('x', e.id);
+    this.detonate(e, source);
+  }
+
+  // ---- co-op: a guest's hits on the host, and the host's word on a guest (net/world/props.ts) -------------------
+
+  /** Host: a guest's round, blade or flame on explosive or prop `id`, from where that guest stands. */
+  hostHit(set: 'x' | 'b', id: number, amount: number, source: string, from: THREE.Vector3): void {
+    if (set === 'b') return this.props.hitById(id, amount, source, from);
+    const e = this.explosives[id];
+    if (e) this.hurt(e, amount, source);
+  }
+
+  /** Host: a guest's blast on the barrels and the props. The walls are not this lane's (world/structures.ts). */
+  hostBlast(center: THREE.Vector3, radius: number, amount: number, source: string): void {
+    this.blastOwn(center, radius, amount, source);
+  }
+
+  /** Guest: the host says explosive `id` went off. Drawn and felt here, unless this game's own hit already set it off. */
+  detonateById(id: number, source: string): void {
+    const e = this.explosives[id];
+    if (e?.alive) this.detonate(e, source);
+  }
+
+  /** Guest: the host says explosive `id` is back. */
+  restoreById(id: number): void {
+    const e = this.explosives[id];
+    if (e && !e.alive) this.restore(e);
+  }
+
+  /** Host: the explosives that are gone now, for a guest who arrives late. */
+  deadExplosives(): number[] {
+    return this.explosives.filter(e => !e.alive).map(e => e.id);
+  }
+
+  /** Guest: the explosives as the host has them, without a sound (a late guest, or a guess the host never confirmed). */
+  adoptExplosives(dead: readonly number[]): void {
+    const gone = new Set(dead);
+    for (const e of this.explosives) {
+      if (gone.has(e.id) && e.alive) this.retire(e);
+      else if (!gone.has(e.id) && !e.alive) this.restore(e);
+    }
   }
 
   private detonate(e: Explosive, source: string): void {
@@ -375,6 +447,10 @@ export class Objects implements WorldObjects {
       const d = player.position.distanceTo(c);
       camera.addTrauma(clamp(1 - d / (spec.radius * 4)) * (barrel ? 0.5 : 0.9));
     }
+    // Co-op guest: the host's copy of this barrel hurt the enemies, wore the walls and set off its neighbours. Here it is drawn,
+    // and this player feels it.
+    if (this.link?.guest) return this.link.feel(c, spec.radius, spec.damage, e.kind, source);
+    this.link?.broke('x', e.id, source);
     events.emit('world:explosion', { position: c, radius: spec.radius, damage: spec.damage, kind: e.kind, source });
     // Combat skips the world for a blast the world set off, so a barrel against a wall wears it here.
     this.walls.blast(c, spec.radius, spec.damage, source);
@@ -387,23 +463,29 @@ export class Objects implements WorldObjects {
       const d = o.pos.distanceTo(e.pos);
       if (d > spec.radius) continue;
       if (this.chain.length >= MAX_CHAIN) this.chain.shift();
-      this.chain.push({ e: o, at: now + 0.09 + d * 0.025, source });
+      this.chain.push({ e: o, at: now + 0.09 + d * 0.025, source, owner: this.link?.owner() ?? null });
     }
   }
 
   private tickExplosives(dt: number, now: number): void {
+    // Co-op guest: the chain and the respawns are the host's, and reach here as its word.
+    if (this.link?.guest) return;
     for (let i = this.chain.length - 1; i >= 0; i--) {
       const c = this.chain[i]!;
       if (now < c.at) continue;
       this.chain.splice(i, 1);
-      this.hurt(c.e, 1e6, c.source);
+      // Co-op host: the chain is still the doing of whoever set off the first one.
+      if (this.link) this.link.as(c.owner, () => this.hurt(c.e, 1e6, c.source));
+      else this.hurt(c.e, 1e6, c.source);
     }
     for (const e of this.explosives) {
       if (e.alive) continue;
       e.respawnIn -= dt;
       if (e.respawnIn > 0) continue;
-      if (this.playerReal && this.ctx.player.position.distanceTo(e.pos) < 20) { e.respawnIn = 4; continue; }
+      // Never back in a player's face: the host's own, or in co-op anyone's.
+      if (this.playerReal && (this.ctx.player.position.distanceTo(e.pos) < 20 || this.link?.anyoneNear(e.pos, 20))) { e.respawnIn = 4; continue; }
       this.restore(e);
+      this.link?.restored(e.id);
     }
   }
 
@@ -667,7 +749,13 @@ export class Objects implements WorldObjects {
     this.reactor = { u, gyroA: gyro(9.8, 0.34, 'steel'), gyroB: gyro(8.6, 0.26, 'steel') };
   }
 
+  /** The reactor's state now (the host tells a guest who arrives late). */
+  get reactorNow(): ReactorState {
+    return this.reactorState;
+  }
+
   setReactorState(state: ReactorState): void {
+    if (this.link && !this.link.guest && state !== this.reactorState) this.link.reactor(state);
     this.reactorState = state;
     this.reactorTarget = state === 'critical' ? 1 : state === 'unstable' ? 0.35 : 0;
   }
@@ -731,12 +819,14 @@ export class Objects implements WorldObjects {
     const { dt, elapsed } = this.ctx.time;
     // The world is built before the player exists, and sandboxes may run it with a stub, so ask every frame.
     this.playerReal = this.ctx.player?.position instanceof THREE.Vector3;
-    this.animatePads(elapsed, dt);
+    // The machinery's clock: this game's own, or in co-op the host's (`clockSkew`).
+    const machine = elapsed + this.clockSkew;
+    this.animatePads(machine, dt);
     this.tickExplosives(dt, elapsed);
-    this.tickCrushers(elapsed);
-    this.tickElectric(elapsed);
-    this.tickGantries(elapsed, dt);
-    this.tickReactor(dt, elapsed);
+    this.tickCrushers(machine);
+    this.tickElectric(machine);
+    this.tickGantries(machine, dt);
+    this.tickReactor(dt, machine);
     this.walls.update(dt);
     this.props.update(dt);
     if (this.playerReal && this.ctx.player.alive) {

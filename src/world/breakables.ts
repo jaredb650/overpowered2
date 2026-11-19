@@ -8,6 +8,11 @@
  * nav nodes and clears them when it goes. Explosions raise 'world:explosion' like a barrel, so Combat hurts enemies and the player and
  * throws bodies; a beat later they hurt the world objects in reach, which is the chain.
  *
+ * Co-op (`net`, set by net/world/props.ts): the host decides what breaks, by the prop's number (its place in `props`). A guest
+ * tells the host what its own shots and blasts hit, breaks what its own hit breaks at once (a guess the host confirms), and
+ * draws every other break when the host says so, with the same pieces. On a guest a prop that explodes is only drawn and felt
+ * (`PropLink.feel`): the host's copy hurt the enemies and set off the chain. Chairs move on the host's word alone.
+ *
  * Caps for an 8 GB machine: CHAIRS chairs tumbling at once (the oldest settles where it is), CHAIN queued blasts, one burning-wreck
  * spark every SPARK_EVERY seconds, and the flying pieces share a capped debris pool. Wrecks stay for the run.
  */
@@ -242,7 +247,41 @@ interface Prop {
   thrownAt: number;
 }
 
-interface Pending { at: number; c: THREE.Vector3; radius: number; damage: number; source: string }
+interface Pending { at: number; c: THREE.Vector3; radius: number; damage: number; source: string; owner: string | null }
+
+/**
+ * Co-op: the wire, as the props and the barrels (world/objects.ts) see it. `set` is 'x' for an explosive (a barrel, a tank) and
+ * 'b' for a breakable prop; `id` is its place in the map's list, the same on every screen (the map is built from one seed).
+ */
+export interface PropLink {
+  /** A guest: the host decides. This game guesses at its own hits and draws what the host says. */
+  readonly guest: boolean;
+  /** Guest: my round, blade or flame hit that one. */
+  hit(set: 'x' | 'b', id: number, amount: number, source: string): void;
+  /** Guest: my blast reached the world here. */
+  blast(center: THREE.Vector3, radius: number, amount: number, source: string): void;
+  /** Guest: my own hit broke that one here, ahead of the host's word. */
+  guessed(set: 'x' | 'b', id: number): void;
+  /** Guest: a world object's blast, drawn here: this player feels it (damage, push, shake), and loose bodies are thrown. */
+  feel(center: THREE.Vector3, radius: number, damage: number, kind: 'barrel' | 'tank', source: string): void;
+  /** Host: that one broke, or went off. */
+  broke(set: 'x' | 'b', id: number, source: string): void;
+  /** Host: that explosive is back. */
+  restored(id: number): void;
+  /** Host: that chair was thrown, and later came to rest. */
+  knocked(id: number, velocity: THREE.Vector3): void;
+  rested(id: number, p: THREE.Vector3, q: THREE.Quaternion): void;
+  /** Host: whose doing the damage being applied now is (kill credit, net/world/credit.ts), and running later work as theirs. */
+  owner(): string | null;
+  as<T>(owner: string | null, run: () => T): T;
+  /** Host: any player within `radius` of a point. */
+  anyoneNear(at: THREE.Vector3, radius: number): boolean;
+  /** Host: the waves set the reactor's state (world/objects.ts): guests have no waves of their own to set theirs. */
+  reactor(state: string): void;
+}
+
+/** What a guest who arrives late is told of the props: the broken ones, and the chairs that are not where the map put them. */
+export interface PropState { dead: number[]; chairs: [number, number[], number[]][] }
 
 const _m = new THREE.Matrix4();
 const _v = new THREE.Vector3();
@@ -323,6 +362,8 @@ export class Breakables {
   private attached = false;
   private time = 0;
   private nextSpark = 0;
+  /** Co-op: the wire (net/world/props.ts). Null solo. */
+  net: PropLink | null = null;
   /** Counts for tests and the readout. */
   readonly stats = { broken: 0, booms: 0, chained: 0, dropped: 0 };
 
@@ -421,15 +462,28 @@ export class Breakables {
   hit(collider: RAPIER.Collider | null, amount: number, source: string): boolean {
     const p = collider ? this.byCollider.get(collider.handle) : undefined;
     if (!p) return false;
-    if (p.kind === 'chair') {
+    // Co-op guest: the host is told, and decides. What this hit breaks here is broken at once, as a guess.
+    if (this.net?.guest) this.net.hit('b', this.props.indexOf(p), amount, source);
+    this.strike(p, amount, source, this.ctx.player?.position);
+    return true;
+  }
+
+  /** Co-op host: a guest's hit on prop `id`, from where that guest stands. */
+  hitById(id: number, amount: number, source: string, from: THREE.Vector3): void {
+    const p = this.props[id];
+    if (p?.alive) this.strike(p, amount, source, from);
+  }
+
+  private strike(p: Prop, amount: number, source: string, from: THREE.Vector3 | undefined): void {
+    // A chair is thrown by the host alone in co-op: a guest sees it fly when the host says so (`knockById`).
+    if (p.kind === 'chair' && !this.net?.guest) {
       // Away from whoever is shooting: the player, near enough for anyone else.
-      _w.subVectors(p.p, this.ctx.player?.position ?? p.p).setY(0);
+      _w.subVectors(p.p, from ?? p.p).setY(0);
       if (_w.lengthSq() < 1e-4) _w.set(0, 0, 1);
       _w.normalize().multiplyScalar(Math.min(9, 2 + amount * 0.18)).setY(1.5 + Math.min(4, amount * 0.06));
       this.knock(p, _w);
     }
     this.hurt(p, amount, source);
-    return true;
   }
 
   /**
@@ -462,7 +516,7 @@ export class Breakables {
 
   /** Physics.radialImpulse's listener: chairs at rest in a blast are thrown out of it. */
   private shove(center: THREE.Vector3, radius: number, strength: number): void {
-    if (strength <= 0) return;
+    if (strength <= 0 || this.net?.guest) return;
     for (const p of this.props) {
       if (p.kind !== 'chair' || !p.alive || p.body) continue;
       const d = p.p.distanceTo(center);
@@ -489,6 +543,7 @@ export class Breakables {
       }
       return;
     }
+    if (this.net?.guest) this.net.guessed('b', this.props.indexOf(p));
     this.breakProp(p, source);
   }
 
@@ -496,6 +551,7 @@ export class Breakables {
     const { ctx } = this;
     const d = p.def;
     p.alive = false;
+    p.hp = 0;
     this.stats.broken++;
     if (p.body) this.settle(p);
     if (!d.keep) this.unstand(p, true);
@@ -508,6 +564,73 @@ export class Breakables {
       p.burnUntil = this.time + (p.kind === 'rack' ? BreakTuning.burn : p.kind === 'monitor' ? 3 : 8);
       if (!this.burning.includes(p)) this.burning.push(p);
     }
+    if (this.net && !this.net.guest) this.net.broke('b', this.props.indexOf(p), source);
+  }
+
+  // ---- co-op: the host's word, applied on a guest (net/world/props.ts) ------------------------------------------
+
+  /** Guest: the host says prop `id` broke. It breaks here with the same pieces, unless this game's own hit already broke it. */
+  breakById(id: number, source: string): void {
+    const p = this.props[id];
+    if (p?.alive) this.breakProp(p, source);
+  }
+
+  /** Guest: the host threw chair `id`. */
+  knockById(id: number, velocity: THREE.Vector3): void {
+    const p = this.props[id];
+    if (p?.alive && p.kind === 'chair') this.knock(p, velocity);
+  }
+
+  /** Guest: the host's chair `id` came to rest here. */
+  restById(id: number, at: THREE.Vector3, q: THREE.Quaternion): void {
+    const p = this.props[id];
+    if (!p || p.kind !== 'chair') return;
+    if (p.body) {
+      this.ctx.physics.world.removeRigidBody(p.body);
+      p.body = null;
+      const i = this.moving.indexOf(p);
+      if (i >= 0) this.moving.splice(i, 1);
+    } else this.unstand(p, false);
+    p.p.copy(at);
+    p.q.copy(q);
+    this.show(p);
+    if (p.alive && this.attached) this.stand(p);
+  }
+
+  /** Host: what a guest arriving now must be told: which props are broken, and where the moved chairs lie. */
+  state(): PropState {
+    const out: PropState = { dead: [], chairs: [] };
+    this.props.forEach((p, id) => {
+      if (!p.alive) out.dead.push(id);
+      else if (p.kind === 'chair' && !p.body && (Math.abs(p.p.x - p.spec.x) > 0.01 || Math.abs(p.p.y - p.spec.y) > 0.01 || Math.abs(p.p.z - p.spec.z) > 0.01)) {
+        out.chairs.push([id, p.p.toArray().map(n => Math.round(n * 1000) / 1000), p.q.toArray().map(n => Math.round(n * 10000) / 10000)]);
+      }
+    });
+    return out;
+  }
+
+  /**
+   * Guest: the props as the host has them, without a sound: a late guest walks into a room already wrecked, and a guess the host
+   * never confirmed is put right (a prop this game broke that still stands on the host stands again).
+   */
+  adopt(state: PropState): void {
+    const dead = new Set(state.dead);
+    this.props.forEach((p, id) => {
+      if (dead.has(id) === !p.alive) return;
+      if (p.alive) {
+        p.alive = false;
+        p.hp = 0;
+        if (p.body) this.settle(p);
+        if (!p.def.keep) this.unstand(p, true);
+      } else {
+        p.alive = true;
+        p.hp = p.def.hp;
+        p.sparking = false;
+        if (!p.collider && this.attached) this.stand(p);
+      }
+      this.show(p);
+    });
+    for (const [id, at, q] of state.chairs) this.restById(id, _v.fromArray(at), _q.fromArray(q));
   }
 
   /** What each kind throws when it goes. */
@@ -602,11 +725,14 @@ export class Breakables {
       const d = player.position.distanceTo(c);
       camera.addTrauma(Math.max(0, 1 - d / (b.radius * 4)) * Math.min(0.9, 0.2 + b.scale * 0.4));
     }
+    const kind = b.scale > 1.8 ? 'tank' : 'barrel';
+    // Co-op guest: the host's copy of this prop hurt the enemies and sets off its neighbours. Here it is drawn, and felt.
+    if (this.net?.guest) return this.net.feel(c, b.radius, b.damage, kind, source);
     // Combat hurts the enemies and the player and throws bodies, chairs and debris from this.
-    events.emit('world:explosion', { position: c, radius: b.radius, damage: b.damage, kind: b.scale > 1.8 ? 'tank' : 'barrel', source });
+    events.emit('world:explosion', { position: c, radius: b.radius, damage: b.damage, kind, source });
     // The other world objects in reach go a beat later, so a row ripples.
     if (this.pending.length >= BreakTuning.chain) { this.pending.shift(); this.stats.dropped++; }
-    this.pending.push({ at: this.time + BreakTuning.chainDelay, c, radius: b.radius, damage: b.damage, source });
+    this.pending.push({ at: this.time + BreakTuning.chainDelay, c, radius: b.radius, damage: b.damage, source, owner: this.net?.owner() ?? null });
   }
 
   private sparks(p: Prop, count: number): void {
@@ -652,6 +778,7 @@ export class Breakables {
     p.body.setLinvel({ x: vel.x, y: vel.y, z: vel.z }, true);
     p.body.setAngvel({ x: (Math.random() - 0.5) * 8, y: (Math.random() - 0.5) * 8, z: (Math.random() - 0.5) * 8 }, true);
     this.ctx.audio.play('body_thud', { position: p.p, pitch: 1.5, volume: 0.6, pitchJitter: 0.1 });
+    if (this.net && !this.net.guest) this.net.knocked(this.props.indexOf(p), vel);
   }
 
   /** A tumbling chair stops where it is: its body goes, a static collider stands in its place. */
@@ -666,6 +793,7 @@ export class Breakables {
     if (at >= 0) this.moving.splice(at, 1);
     this.show(p);
     if (p.alive) this.stand(p);
+    if (p.alive && this.net && !this.net.guest) this.net.rested(this.props.indexOf(p), p.p, p.q);
   }
 
   update(dt: number): void {
@@ -677,7 +805,9 @@ export class Breakables {
       if (this.time < b.at) continue;
       this.pending.splice(i, 1);
       this.stats.chained++;
-      this.onBlast(b.c, b.radius, b.damage, b.source);
+      // Co-op host: the chain is still the doing of whoever set off the first one.
+      if (this.net) this.net.as(b.owner, () => this.onBlast(b.c, b.radius, b.damage, b.source));
+      else this.onBlast(b.c, b.radius, b.damage, b.source);
     }
     for (let i = this.moving.length - 1; i >= 0; i--) {
       const p = this.moving[i]!;
