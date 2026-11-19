@@ -444,7 +444,20 @@ export default async function (host, { sleep, outDir }) {
         }
       }, near);
       await guest.waitForFunction(() => window.__op2.ctx.enemies.alive.length >= 10, null, { timeout: 20000 });
+      // After the whole matrix the guest may still sit in what it called last (the Frame, the gunship's seat) and may hold an
+      // airstrike it was handed, not one it earned: from a seat no call-in key is read, so the key "did nothing", and the
+      // earning below was true before a shot was fired. The guest starts this part on foot, holding nothing.
+      const start = await guest.evaluate(() => {
+        const { ctx } = window.__op2, link = ctx.progression.callinLink;
+        const was = { seated: link.seats?.occupied === true, steering: !!link.steering, targeting: ctx.progression.targeting, held: [...ctx.progression.callIns] };
+        ctx.progression.leaveSeat?.();
+        link.steering?.release?.();
+        ctx.progression.callIns.delete?.('airstrike');
+        return was;
+      });
+      await sleep(600);
       const had = await guest.evaluate(() => ({ kills: window.__op2.ctx.progression.kills, held: [...window.__op2.ctx.progression.callIns] }));
+      had.start = start;
       await give(guest, 'smg');
       await shootLoop(guest, { range: 40 });
       const earned = await guest.waitForFunction(() => window.__op2.ctx.progression.callIns.has('airstrike'), null, { timeout: 90000 }).then(() => true, () => false);

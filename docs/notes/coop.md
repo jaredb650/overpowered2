@@ -2248,7 +2248,7 @@ node tools/scripts/coop-all.mjs --port <your port> --lane team,session         #
 - **Suites:** `clean` (every proof, loopback), `bad` (the same under `lag:120,jitter:40,loss:0.05`, for proofs that take a
   network), `rtc` (each lane's main proof over real WebRTC and the public relays: never two at once, 45 s apart), `four` (each
   lane's main proof with four pages), `guest` (every mode from a guest's seat, `coop-guest-seat.mjs`, with pictures at 1440x900
-  dpr 2), `legacy` (the four oldest proofs as they were written, their own pages over the relays), `all`.
+  dpr 2), `legacy` (the oldest proofs as they were written, their own pages over the relays: the starter picker and the non-gamer's path), `all`.
 - **When the tip moves:** the table names the commit of every row. Do not run everything again: `--any-commit` keeps the
   passes there are, and `--force --lane <lanes>` (or `--only`) runs again what the new commit touched. `--ledger` prints the
   table for a document; `docs/notes/coop.md` "What is proven" is that printout. Two runners may write one results folder at
@@ -3927,7 +3927,7 @@ progression ticks pickups and pods; guests cannot generate their own economy. Ex
 armour/headshot/blast/contact tests guard the solo damage and contact paths. Run each file separately with
 `nice npx vitest run <file> --testTimeout=60000`.
 
-The two-page real WebRTC proof is `tools/scripts/coop-stage2.mjs`. Use your own server on 5268 with HMR disabled and a private Vite
+(`tools/scripts/coop-stage2.mjs`, the proof this section describes, was retired in the last pass: see "What is proven". What follows is how it was run.) The two-page real WebRTC proof was `tools/scripts/coop-stage2.mjs`. Use your own server on 5268 with HMR disabled and a private Vite
 `cacheDir` (concurrent dev servers otherwise invalidate each other's optimized dependencies); wait for any other
 `node tools/shot.mjs` process first. Run one Chrome with two pages, 1440×900 CSS pixels and DPR 2:
 

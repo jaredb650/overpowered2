@@ -4,7 +4,7 @@
 //   GUEST=desktop|phone node tools/shot.mjs --port 5191 --dpr 2 --w 1440 --h 900 --wait 500 --timeout 600 \
 //     --script tools/scripts/coop-picker.mjs --out tools/out/coop-picker/picker.png
 import { writeFileSync } from 'node:fs';
-import { button, harness, joinFromSplash, kit, quiet, readyUp } from './coop-kit.mjs';
+import { button, deploy, harness, joinFromSplash, kit, quiet, readyUp } from './coop-kit.mjs';
 
 export default async function (host, { sleep, outDir }) {
   const which = process.env.GUEST ?? 'desktop';
@@ -87,6 +87,8 @@ export default async function (host, { sleep, outDir }) {
     await shot(guest, 'guest-countdown', true).catch(() => {});
     progress('countdown ran out while the guest picked');
     for (const page of [host, guest]) await page.waitForURL(/contract=crucible/, { timeout: 90000 });
+    // The match's map page stops at "Click to deploy" (the session's load barrier): both go through it, as players do.
+    await Promise.all([host, guest].map(page => deploy(page)));
     await guest.waitForFunction(() => window.__op2?.ctx.coop?.world && window.__op2.ctx.coop.remotes.size >= 1, null, { timeout: 150000 });
     const landed = await guest.evaluate(() => ({ url: location.search, coop: !!window.__op2.ctx.coop, screen: document.querySelector('.scr.live, .scr[style=""]')?.className ?? null,
       gun: window.__op2.ctx.weapons.current, slots: window.__op2.ctx.weapons.owned ? [...window.__op2.ctx.weapons.owned] : null }));

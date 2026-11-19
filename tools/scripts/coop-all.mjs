@@ -15,7 +15,7 @@
 //                     rtc     each lane's main proof over real WebRTC and the public relays (spaced out, one at a time)
 //                     four    each lane's main proof with four pages
 //                     guest   every mode from a guest's seat (coop-guest-seat.mjs), at 1440x900 dpr 2 with pictures
-//                     legacy  the five oldest proofs (their own pages over the real relays)
+//                     legacy  the oldest proofs as they were written (their own pages over the real relays)
 //                     all     everything
 //   --only <text>     runs whose id contains the text, or matches /regex/
 //   --lane <names>    only these lanes (session, team, gore, weapons-fx, call-ins, world-a, world-b, time, enemy-attacks,
@@ -111,7 +111,7 @@ export const PROOFS = [
   P('worldb-vehicles', 'world-b', 'coop-worldb-vehicles', { mode: 'defense', count: 'COOP_PLAYERS', t: 900 }),
 
   // time: the team's slow motion
-  P('time-team', 'time', 'coop-time-team', { count: 'COOP_PLAYERS', rtc: true, four: true, t: 700 }),
+  P('time-team', 'time', 'coop-time-team', { count: 'COOP_PLAYERS', rtc: true, four: true, fourEnv: { COOP_ONLY: 'guest-focus,host-focus,both,perk,boss,dropped,budget,down' }, t: 700 }),
   P('time-slowhost', 'time', 'coop-time-slowhost', { sim: null, t: 400, slow: true }),
   P('time-solo', 'time', 'coop-time-solo', { players: 1, transport: 'none', url: '/?contract=crucible&autostart=1', wait: 3000, sim: null, t: 300 }),
 
@@ -167,9 +167,8 @@ export const PROOFS = [
   P('baseline', 'old', 'coop-baseline', { sim: null, t: 400 }),
   P('lobby', 'old', 'coop-lobby', { rtc: true, t: 300 }),
 
-  // legacy: the four oldest proofs still as they were written, each its own two pages over the real relays, before the kit
-  P('stage1', 'old', 'coop-stage1', { suites: ['legacy'], transport: 'rtc', sim: null, ...look, t: 450 }),
-  P('stage2', 'old', 'coop-stage2', { suites: ['legacy'], transport: 'rtc', sim: null, ...look, t: 700 }),
+  // legacy: the oldest proofs still as they were written, each its own two pages over the real relays (the starter picker and
+  // the non-gamer's path). coop-stage1 and coop-stage2 were retired in the last pass: see docs/notes/coop.md, "What is proven".
   P('picker/desktop', 'old', 'coop-picker', { suites: ['legacy'], transport: 'rtc', sim: null, env: { GUEST: 'desktop' }, ...look, t: 600 }),
   P('picker/phone', 'old', 'coop-picker', { suites: ['legacy'], transport: 'rtc', sim: null, env: { GUEST: 'phone' }, ...look, t: 600 }),
   P('dad/ready', 'old', 'coop-dad', { suites: ['legacy'], transport: 'rtc', sim: null, env: { FLOW: 'ready' }, ...look, t: 600 }),
@@ -188,6 +187,8 @@ export function runs(suites) {
     if (transport !== 'none') env.COOP_NET = transport;
     if (net && p.sim) Object.assign(env, p.sim(net));
     if (p.count && players !== p.players) env[p.count] = String(players);
+    // What a proof must leave out with four pages (a part that adds a fifth player has no seat to give).
+    if (suite === 'four' && p.fourEnv) Object.assign(env, p.fourEnv);
     const id = `${p.id} ${players}p ${transport === 'none' ? 'solo' : transport} ${net ? 'bad' : 'clean'}`;
     if (p.tag) env[p.tag] = id.replace(/[^a-z0-9]+/gi, '-');
     out.push({ ...p, id, proof: p.id, suite, players, transport, net, env });
