@@ -5,16 +5,20 @@
  * man simply vanish.
  *
  *   airlift   host to guests: `uid`, where the hook takes him (`at`), the heading of the pass (`dir`, on the ground), and the
- *             seconds until it does (`in`). With no `at`: he came off the line, or left the round, and the pass is off
+ *             seconds until it does (`in`). With no `at`: he came off the line, or left the round, and the pass is off.
+ *             `in` is negative for a player who arrives after the hook has him (he hangs from it for `AFTER` seconds more):
+ *             they see him on the line where he is, not a man who is simply gone
  */
 import * as THREE from 'three';
-import { AirliftCopy, type Airlift } from '../../enemies/outpost/airlift';
+import { AFTER, AirliftCopy, type Airlift } from '../../enemies/outpost/airlift';
 import type { WorldContext, WorldModule } from './context';
 import { validVec, type Vec } from './wire';
 
 export type AirliftEvent = { t: 'airlift'; uid: number; at?: Vec; dir?: [number, number]; in?: number };
 
 const mm = (value: number): number => Math.round(value * 1000) / 1000;
+/** A pass with under this long left of its carry is not worth telling a newcomer. */
+const LAST = 0.5;
 
 export class Skyhook implements WorldModule {
   /** Guest: the drones flown here. Built on the first pass. */
@@ -22,7 +26,7 @@ export class Skyhook implements WorldModule {
   private plugged = false;
   private readonly at = new THREE.Vector3();
   private readonly dir = new THREE.Vector3();
-  /** Host: the passes on their way to a man now, for a player who arrives before the hook does. */
+  /** Host: the passes in the air now, on their way to a man or carrying him off, for a player who arrives meanwhile. */
   private readonly passes = new Map<number, { at: Vec; dir: [number, number]; until: number }>();
 
   constructor(private readonly w: WorldContext) {
@@ -48,13 +52,16 @@ export class Skyhook implements WorldModule {
     };
   }
 
-  /** Host: a player's world is up. A drone still on its way to a man is flown on their screen too, with the seconds it has left. */
+  /**
+   * Host: a player's world is up. A drone still on its way to a man is flown on their screen too, with the seconds it has
+   * left; one that has him already, with the seconds since (negative `in`), until he is out of sight (`AFTER`).
+   */
   catchUp(id: string): void {
     if (!this.w.hosting) return;
     const now = performance.now();
     for (const [uid, pass] of this.passes) {
       const left = (pass.until - now) / 1000;
-      if (left <= 0.2) { this.passes.delete(uid); continue; }
+      if (left <= -(AFTER - LAST)) { this.passes.delete(uid); continue; }
       this.w.send({ t: 'airlift', uid, at: pass.at, dir: pass.dir, in: mm(left) }, id);
     }
   }
@@ -66,7 +73,7 @@ export class Skyhook implements WorldModule {
       return;
     }
     const dir = value.dir;
-    if (!validVec(value.at) || !Array.isArray(dir) || dir.length !== 2 || !dir.every(Number.isFinite) || !Number.isFinite(value.in) || value.in! < 0 || value.in! > 60) return;
+    if (!validVec(value.at) || !Array.isArray(dir) || dir.length !== 2 || !dir.every(Number.isFinite) || !Number.isFinite(value.in) || value.in! < -AFTER || value.in! > 60) return;
     if (Math.hypot(dir[0], dir[1]) < 0.5) return;
     this.copy ??= new AirliftCopy(this.w.ctx);
     this.copy.begin(value.uid, this.at.set(...value.at), this.dir.set(dir[0], 0, dir[1]), value.in!);

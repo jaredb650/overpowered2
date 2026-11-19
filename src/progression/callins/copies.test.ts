@@ -531,4 +531,30 @@ describe('the skyhook on a guest', () => {
     expect(copy.flying).toBe(0);
     expect(man.carried).toBe(false);
   });
+
+  it('a player who arrives after the hook has him sees him on the line where he is, and hears no snatch', () => {
+    const man = r.enemies.add(4, -20, 100) as ReturnType<typeof r.enemies.add> & { carried?: boolean };
+    const whole = new AirliftCopy(r.ctx), late = new AirliftCopy(r.ctx);
+    const at = new THREE.Vector3(4, 0.9, -20);
+    // A player who was there: the pass from a second before the hook to two seconds after it.
+    whole.begin(man.uid, at, new THREE.Vector3(1, 0, 0), 1);
+    // (One frame more, as the newcomer's first frame is: two seconds on he is climbing at 90 m/s.)
+    for (let i = 0; i < 181; i++) whole.update(1 / 60);
+    const there = man.position.clone(), drone = whole.positions[0]!.clone();
+    whole.cancel(man.uid);
+    man.position.set(4, 0, -20);
+    const sounds = r.record.sounds.length;
+    // The newcomer is told the hook took him two seconds ago.
+    late.begin(man.uid, at, new THREE.Vector3(1, 0, 0), -2);
+    late.update(1 / 60);
+    expect(man.carried).toBe(true);
+    expect(man.position.distanceTo(there)).toBeLessThan(0.1);
+    expect(late.positions[0]!.distanceTo(drone)).toBeLessThan(0.1);
+    expect(man.position.y).toBeGreaterThan(60);
+    expect(r.record.sounds.slice(sounds).some(s => String(s).includes('snatch'))).toBe(false);
+    // And the pass ends when it would have: he is let go of after the two and a half seconds that are left.
+    for (let i = 0; i < 60 * 3; i++) late.update(1 / 60);
+    expect(late.flying).toBe(0);
+    expect(man.carried).toBe(false);
+  });
 });

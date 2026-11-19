@@ -40,7 +40,7 @@ const SWOOP = 18;
 const CLIMB = 4;
 /** Seconds before the snatch it comes into the picture, and after it, that it is gone. */
 const LEAD = 1.2;
-const AFTER = 4.5;
+export const AFTER = 4.5;
 const GONE_RANGE = 140;
 /** Where the hook trails: this far behind the drone and this far under it. The line is the hypotenuse. */
 const TRAIL = 4;
@@ -263,13 +263,18 @@ export class AirliftCopy {
     return this.passes.map(p => p.drone.pos);
   }
 
+  /**
+   * `lead`: seconds until the hook takes him. Negative for a player who arrives after it has (the host's catch-up): the
+   * pass is joined that long past the hook, with the man already on the line (and no snatch heard: it happened before
+   * this player was here).
+   */
   begin(uid: number, at: THREE.Vector3, dir: THREE.Vector3, lead: number): void {
     this.cancel(uid);
     if (this.passes.length >= MAX_DRONES) return;
     let drone = this.drones.find(d => !d.busy);
     if (!drone) this.drones.push(drone = makeDrone(this.ctx, this.parts ??= makeParts(this.ctx)));
     drone.busy = true;
-    const pass: Pass = { uid, at: at.clone(), dir: dir.clone().setY(0).normalize(), s: -Math.max(0, Math.min(lead, 30)), drone, hooked: false };
+    const pass: Pass = { uid, at: at.clone(), dir: dir.clone().setY(0).normalize(), s: lead >= 0 ? -Math.min(lead, 30) : Math.min(-lead, AFTER), drone, hooked: lead < 0 };
     this.passes.push(pass);
   }
 

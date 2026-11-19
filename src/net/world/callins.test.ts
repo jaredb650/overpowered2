@@ -356,8 +356,14 @@ describe('call-ins over the mocked lobby transport', () => {
       expect(begin).toHaveBeenCalledOnce();
       expect(begin.mock.calls[0]![0]).toBe(11);
       expect(begin.mock.calls[0]![3]).toBeCloseTo(2, 1);
-      // Once the hook has taken him there is nothing left to tell.
+      // The hook has had him for half a second: a player arriving now is told so (a negative lead), and sees him on the line.
       vi.advanceTimersByTime(2500);
+      begin.mockClear();
+      hook.catchUp(p.lobbies[2]!.you); p.relay.flush();
+      expect(begin).toHaveBeenCalledOnce();
+      expect(begin.mock.calls[0]![3]).toBeCloseTo(-0.5, 1);
+      // Once he is nearly out of sight there is nothing left to tell.
+      vi.advanceTimersByTime(3800);
       begin.mockClear();
       hook.catchUp(p.lobbies[2]!.you); p.relay.flush();
       expect(begin).not.toHaveBeenCalled();
@@ -366,6 +372,8 @@ describe('call-ins over the mocked lobby transport', () => {
     const fromHost = (event: unknown) => hostLane.send(event);
     fromHost({ t: 'airlift', uid: 9, at: [0, NaN, 0], dir: [1, 0], in: 1 });
     fromHost({ t: 'airlift', uid: 9, at: [0, 0, 0], dir: [0, 0], in: 1 });
+    // A pass that took its man longer ago than a man hangs is no pass.
+    fromHost({ t: 'airlift', uid: 9, at: [0, 0, 0], dir: [1, 0], in: -60 });
     p.relay.flush();
     expect(begin).not.toHaveBeenCalled();
     begin.mockRestore(); cancel.mockRestore();
