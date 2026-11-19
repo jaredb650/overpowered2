@@ -230,7 +230,18 @@ describe('a guest\'s replicas', () => {
     expect(posture).toBe('handsUp');
     expect(view).toMatchObject({ frozen: true, burning: true });
     expect(view.frost).toBeGreaterThan(0.5);
-    // The limb the host has off and this copy still had: cut, once.
+    // The limb the host has off and this copy still has waits for its `sever` event (the real cut, on the reliable lane)...
+    expect(guest.w.ctx.gore.sever).not.toHaveBeenCalled();
+    const more = (from: number, to: number, severed: number) => {
+      for (let now = from; now <= to; now += 16) { at(now); if (now % 50 < 16) guest.take(chunk(now, [frame(7, 0, { flags: FROZEN | BURNING, health: 12, posture: 'handsUp', severed })])); guest.replicas.animate(now); }
+    };
+    // ... and only drops, once, if that never comes.
+    more(1716, 2600, 8);
+    expect(guest.w.ctx.gore.sever).toHaveBeenCalledOnce();
+    // A second limb whose event does come in time is cut by the event, not by the state.
+    more(2616, 2900, 8 | 2);
+    (enemy.char.severed as Set<string>).add('chest');
+    more(2916, 4200, 8 | 2);
     expect(guest.w.ctx.gore.sever).toHaveBeenCalledOnce();
   });
 

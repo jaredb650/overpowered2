@@ -186,8 +186,10 @@ of 27-byte records. Budgets from the unit test (`replicas.test.ts`): 20 near and
   than 4 m/s): no snap. The same easing takes in a state that arrives late and fills a hole.
 - **A real teleport** (the host re-entering a stranded enemy through a spawn point: over 6 m in a step no speed explains) is drawn
   as a cut at its own moment, not a slide across the map. A tab that slept is put on the present, not played through.
-- **The body's state takes effect when the playhead reaches it:** airborne, posture, frozen, burning, a severed limb whose
-  `sever` event never came. Health, armour and plates apply the moment a newer state arrives.
+- **The body's state takes effect when the playhead reaches it:** airborne, posture, frozen, burning. Health, armour and
+  plates apply the moment a newer state arrives. A limb the state has off and the copy still has waits 800 ms for its `sever`
+  event (the real cut: the round, the way the limb flew), which a lost packet can hold up on the reliable lane; only if the
+  event never comes does the limb simply drop.
 - **Frozen and burning are the copy's own state** (`EnemyManager.placeReplica`, `replicaStatus`): `enemy.frozen` and
   `enemy.burning` are held above zero while the host's flag is on, so a kill on a frozen copy is a shatter on the guest too, and a
   burning copy carries the same flames, sizzle and charring skin as the host's (`burnLook`, shared with single player's

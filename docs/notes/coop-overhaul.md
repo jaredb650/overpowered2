@@ -316,3 +316,5 @@ Shared files and contracts between lanes:
   run at a time through `shot.mjs`, throws away any run whose pages got under 40 fps and writes that case as not measured, saves
   `motion-results.json` and `motion-table.md`, exit 3 if a case is missing). Also seen: `gore/knockdown.test.ts` "goes down on its
   muscles, heading 0,1" fails about one run in four on `d9ecffb` too (a flaky test, not from any lane's change).
+  The gore lane's open item is closed: a limb the state's sever bits have off now waits 800 ms for its `sever` event before it
+  drops (`replicas.ts`, `SEVER_WAIT_MS`).

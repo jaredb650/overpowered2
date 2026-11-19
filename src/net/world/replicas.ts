@@ -42,6 +42,8 @@ export interface Replica {
   missing: number;
   /** The frost drawn on its skin, 0..1. */
   frost: number;
+  /** When a limb the host has off was first seen still on this copy (0: none owed). */
+  severAt: number;
   /** Its own ragdoll has it (a living knockdown, moves.ts): since when, and when the host's was first seen up again. */
   down: boolean;
   downAt: number;
@@ -80,6 +82,8 @@ const DOWN_POSTURE_MS = 300;
 const GOT_UP_MS = 2500;
 /** A copy still in its ragdoll this long after the host's is up is told to rise, ms. */
 const HOST_UP_MS = 600;
+/** A limb the host's state has off waits this long for its `sever` event before it simply drops, ms. */
+const SEVER_WAIT_MS = 800;
 /** A missing enemy waits this long for its `kill` before it is simply withdrawn, ms. */
 const GONE_MS = 500;
 /** Something for an enemy not yet seen waits this long for it, ms; and at most this many wait at once. */
@@ -206,7 +210,7 @@ export class Replicas implements WorldModule {
       enemy.uid = e.uid;
       enemy.yaw = e.yaw;
       replica = { enemy, to: { flags: e.flags, posture: POSTURES[e.posture]!, target: e.target }, motion: new MotionBuffer(), newest: -Infinity, first: t,
-        missing: 0, frost: 0, down: false, downAt: 0, hostUpAt: 0, hostDownAt: (e.flags & DOWNED) !== 0 ? -Infinity : 0, gotUpAt: -Infinity };
+        missing: 0, frost: 0, severAt: 0, down: false, downAt: 0, hostUpAt: 0, hostDownAt: (e.flags & DOWNED) !== 0 ? -Infinity : 0, gotUpAt: -Infinity };
       this.map.set(e.uid, replica);
       this.seen(enemy);
     }
@@ -289,11 +293,17 @@ export class Replicas implements WorldModule {
       enemy.velocity.set(s.vx, s.vy, s.vz);
       enemy.groundY = s.y;
       enemy.airborne = (flags & AIRBORNE) !== 0;
-      // A limb the host has off and this copy still has: its `sever` event never came (it would have, by now). It drops.
+      // A limb the host has off and this copy still has. Its `sever` event carries the cut as it really was (the round, the
+      // way the limb flew) and is on its way on the reliable lane, which a lost packet can hold up for a while: the limb waits
+      // for it. Only if the event never comes does it simply drop.
+      let owed = false;
       if (severed > 0) for (let index = 0; index < REGIONS.length; index++) if ((severed & 1 << index) && !enemy.char.severed.has(REGIONS[index]!)) {
+        owed = true;
+        if (replica.severAt === 0 || now - replica.severAt < SEVER_WAIT_MS) continue;
         const damage: DamageInfo = { amount: 1, type: 'slash', point: enemy.center.clone(), dir: new THREE.Vector3(0, 1, 0), force: 1, source: 'coop' };
         ctx.gore.sever(enemy.char, REGIONS[index]!, damage);
       }
+      replica.severAt = owed ? replica.severAt || now : 0;
       const frozen = (flags & FROZEN) !== 0;
       replica.frost += ((frozen ? 1 : 0) - replica.frost) * Math.min(1, dt / 200);
       view.frost = frozen ? Math.max(replica.frost, 0.5) : replica.frost < 0.02 ? 0 : replica.frost;
