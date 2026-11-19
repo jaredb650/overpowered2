@@ -678,14 +678,19 @@ describe('the life of a co-op session', () => {
     const [a, b] = gs as unknown as [Lobby, Lobby];
     a.setReady(true); hub.flush();
     const before = h.players.map(p => [p.name, p.slot, p.seat]);
-    const seats = h.seatRecords().seats;
+    const { seats, slots } = h.seatRecords();
     // The page goes without a goodbye, as a reload does.
     roomOf(h).leave(); hub.flush();
     expect(a.phase).toBe('open'); expect(a.reconnecting?.reason).toBe('host-left');
     expect(b.reconnecting?.reason).toBe('host-left');
     tick(4000);
-    const h2 = page(true, 'HOST', 'bh', { seats }); hub.flush();
+    // BEN's page reaches the host's new page before ANNA's does: he must not take her slot for it.
+    hub.mute('p3', peer(a));
+    const h2 = page(true, 'HOST', 'bh', { seats, slots }); hub.flush();
+    expect(h2.players.map(p => p.name)).toEqual(['HOST', 'BEN']);
+    hub.mend(peer(h2), peer(a)); hub.flush();
     tick(PING_MS + 200);
+    for (const [name, slot] of before) expect(h2.players.find(p => p.name === name)?.slot).toBe(slot);
     expect(a.reconnecting).toBeNull(); expect(b.reconnecting).toBeNull();
     expect(a.phase).toBe('open'); expect(b.phase).toBe('open');
     // Everyone is listed again, each in the seat they had; who was ready still is.

@@ -393,7 +393,7 @@ export class CoopScreen implements Screen {
   }
 
   /** Opens the lobby on `this.code`, as host or guest. One at a time (`busy`), with the buttons greyed meanwhile. */
-  private async openRoom(hosting: boolean, password: string, hostWait?: number, seats?: RoomNote['seats']): Promise<void> {
+  private async openRoom(hosting: boolean, password: string, hostWait?: number, kept?: Pick<RoomNote, 'seats' | 'slots'>): Promise<void> {
     if (this.lobby || this.busy) return;
     this.busy = true;
     this.joinButton.disabled = true;
@@ -414,7 +414,7 @@ export class CoopScreen implements Screen {
         this.regrouping = null;
         return this.fail('Could not start the connection. Check you are online, then try again.');
       }
-      this.attach(new Lobby(rooms, hosting, name, undefined, { ...(hostWait ? { hostWait } : {}), ...(hosting && seats ? { seats } : {}) }), password);
+      this.attach(new Lobby(rooms, hosting, name, undefined, { ...(hostWait ? { hostWait } : {}), ...(hosting && kept?.seats ? { seats: kept.seats, slots: kept.slots } : {}) }), password);
     } finally {
       this.busy = false;
       this.joinButton.disabled = false;
@@ -466,7 +466,7 @@ export class CoopScreen implements Screen {
     this.lobbyNote = note.hosting ? 'This page was reloaded. Your lobby is open again on the same code; the others reconnect by themselves.'
       : 'This page was reloaded. You are back in the lobby.';
     console.info(`[coop] This page was reloaded in a lobby: ${note.hosting ? 'hosting it again on the same code' : 'joining it again'}.`);
-    void this.openRoom(note.hosting, note.password, undefined, note.seats);
+    void this.openRoom(note.hosting, note.password, undefined, note);
   }
 
   private attach(lobby: Lobby, password: string): void {

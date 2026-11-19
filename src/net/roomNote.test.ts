@@ -10,7 +10,7 @@ function storage() {
   return { getItem: (k: string) => kept.get(k) ?? null, setItem: vi.fn((k: string, v: string) => { kept.set(k, v); }), removeItem: (k: string) => { kept.delete(k); }, kept };
 }
 const lobbyOf = (hosting: boolean, name: string, seats: [string, string][] = []) =>
-  ({ hosting, me: { name }, seatRecords: () => ({ roster: [], seats }) }) as unknown as Lobby;
+  ({ hosting, me: { name }, seatRecords: () => ({ roster: [], seats, slots: seats.map(([, seat], i) => [seat, i + 1]) }) }) as unknown as Lobby;
 
 describe('the room a tab is in', () => {
   let store: ReturnType<typeof storage>;
@@ -23,7 +23,7 @@ describe('the room a tab is in', () => {
     rememberRoom('ABC234', 'secret', lobbyOf(false, 'VIPER-27'));
     expect(roomToRejoin()).toEqual({ code: 'ABC234', password: 'secret', name: 'VIPER-27', hosting: false });
     rememberRoom('ABC234', 'secret', lobbyOf(true, 'HOST', [['browser-a', 's1'], ['browser-b', 's2']]));
-    expect(roomToRejoin()).toEqual({ code: 'ABC234', password: 'secret', name: 'HOST', hosting: true, seats: [['browser-a', 's1'], ['browser-b', 's2']] });
+    expect(roomToRejoin()).toEqual({ code: 'ABC234', password: 'secret', name: 'HOST', hosting: true, seats: [['browser-a', 's1'], ['browser-b', 's2']], slots: [['s1', 1], ['s2', 2]] });
     forgetRoom();
     expect(roomToRejoin()).toBeNull();
   });

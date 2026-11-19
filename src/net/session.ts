@@ -32,7 +32,12 @@ const KEY = 'op2_coop_match';
  * waiting on "Reconnecting to host".
  */
 const ROOM_KEY = 'op2_coop_room';
-export interface RoomNote { code: string; password: string; name: string; hosting: boolean; /** Host: every seat given out (browser id, seat id). */ seats?: [string, string][] }
+export interface RoomNote {
+  code: string; password: string; name: string; hosting: boolean;
+  /** Host: every seat given out (browser id, seat id), and the slot each seat had (seat id, slot). */
+  seats?: [string, string][];
+  slots?: [string, number][];
+}
 export let resumedLobby: Lobby | null = null;
 export let resumedMatch: Match | null = null;
 /** The room the match was played in, so leaving the match lands back in its lobby rather than the main menu. */
@@ -153,7 +158,8 @@ export function clearSession(): void {
 
 /** The lobby page is in this room now. Written again whenever the host's seat table grows. */
 export function rememberRoom(code: string, password: string, lobby: Lobby): void {
-  const note: RoomNote = { code, password, name: lobby.me?.name ?? '', hosting: lobby.hosting, ...(lobby.hosting ? { seats: lobby.seatRecords().seats } : {}) };
+  const records = lobby.hosting ? lobby.seatRecords() : null;
+  const note: RoomNote = { code, password, name: lobby.me?.name ?? '', hosting: lobby.hosting, ...(records ? { seats: records.seats, slots: records.slots } : {}) };
   try {
     const text = JSON.stringify(note);
     if (sessionStorage.getItem(ROOM_KEY) !== text) sessionStorage.setItem(ROOM_KEY, text);
@@ -174,6 +180,7 @@ export function roomToRejoin(): RoomNote | null {
     if (typeof note.code !== 'string' || !/^[A-Z2-9]{6}$/.test(note.code) || typeof note.password !== 'string' || !note.password
       || typeof note.name !== 'string' || typeof note.hosting !== 'boolean') { forgetRoom(); return null; }
     const seats = Array.isArray(note.seats) ? note.seats.filter(s => Array.isArray(s) && typeof s[0] === 'string' && typeof s[1] === 'string').slice(0, 64) : undefined;
-    return { code: note.code, password: note.password, name: note.name.slice(0, 16), hosting: note.hosting, ...(seats ? { seats } : {}) };
+    const slots = Array.isArray(note.slots) ? note.slots.filter(s => Array.isArray(s) && typeof s[0] === 'string' && Number.isInteger(s[1])).slice(0, 64) : undefined;
+    return { code: note.code, password: note.password, name: note.name.slice(0, 16), hosting: note.hosting, ...(seats ? { seats } : {}), ...(slots ? { slots } : {}) };
   } catch { return null; }
 }

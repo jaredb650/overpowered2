@@ -68,6 +68,11 @@ export interface LobbyOptions {
   roster?: readonly SeatRecord[];
   /** Host: every browser this room has seated so far, so a seat id means the same player for the room's whole life. */
   seats?: readonly (readonly [string, string])[];
+  /**
+   * Host: the slot each seat had (seat id, slot), from the lobby this one takes over from after its page was reloaded. A seat
+   * that comes back gets its slot again if it is free, so nobody changes colour or spawn because of who said hello first.
+   */
+  slots?: readonly (readonly [string, number])[];
   /** Guest: how long to wait for a host before giving up (HOST_WAIT_MS, longer on a map page that is busy loading). */
   hostWait?: number;
 }
@@ -257,6 +262,8 @@ export class Lobby {
   /** Host: browser id to seat, for the room's whole life (carried across the host's own page loads). */
   private readonly seatOf = new Map<string, string>();
   private seatCount = 0;
+  /** Host: the slot each seat last had in this room. */
+  private readonly slotWanted = new Map<string, number>();
   /** Host, by seat: when it was lost (or last had a connection, for a seat still loading), and when its page booted. */
   private readonly lostAt = new Map<string, number>();
   private readonly readyAt = new Map<string, number>();
@@ -345,6 +352,7 @@ export class Lobby {
         this.seatOf.set(browser, seat);
         this.seatCount = Math.max(this.seatCount, Number(seat.slice(1)) || 0);
       }
+      for (const [seat, slot] of options.slots ?? []) if (typeof seat === 'string' && Number.isInteger(slot) && slot >= 1 && slot < MAX_PLAYERS) this.slotWanted.set(seat, slot);
       this.players = [{ id: HOST_ID, name, ready: false, host: true, slot: 0, seat: 's0', starter, ...(this.page ? { away: true, state: 'loading' as const } : {}) }];
       // The players the lobby sent into this match: seated before they connect, so the barrier can wait for them by name.
       const now = performance.now();
@@ -844,7 +852,7 @@ export class Lobby {
   }
 
   /** Host: what the map page needs to know about who is coming, and every seat this room has given out (session.ts). */
-  seatRecords(): { roster: SeatRecord[]; seats: [string, string][] } {
+  seatRecords(): { roster: SeatRecord[]; seats: [string, string][]; slots: [string, number][] } {
     const browserOf = new Map([...this.seatOf].map(([browser, seat]) => [seat, browser]));
     const roster: SeatRecord[] = [];
     for (const p of this.players) {
@@ -853,7 +861,8 @@ export class Lobby {
       if (p.host || !browser || (p.away && !p.state)) continue;
       roster.push({ browser, seat: p.seat!, name: p.name, slot: p.slot, ...(p.starter ? { starter: p.starter } : {}) });
     }
-    return { roster, seats: [...this.seatOf] };
+    for (const p of this.players) if (!p.host && p.seat) this.slotWanted.set(p.seat, p.slot);
+    return { roster, seats: [...this.seatOf], slots: [...this.slotWanted] };
   }
 
   /**
@@ -1043,8 +1052,14 @@ export class Lobby {
       this.ch.send({ t: 'full' }, from);
       return this.post(null, `${wanted} could not join: the lobby is full.`);
     }
-    const slot = [1, 2, 3].find(s => !this.players.some(p => p.slot === s))!;
     const seat = known ?? `s${++this.seatCount}`;
+    const free = (s: number) => !this.players.some(p => p.slot === s);
+    // The slot this seat had before (the host's page was reloaded, or they left and came back), when nobody has it now, and
+    // otherwise the first one no seat still to come back is waiting for.
+    const had = this.slotWanted.get(seat);
+    const kept = new Set([...this.slotWanted].filter(([other]) => other !== seat && !this.players.some(p => p.seat === other)).map(([, s]) => s));
+    const slot = (had !== undefined && free(had) ? had : undefined) ?? [1, 2, 3].find(s => free(s) && !kept.has(s)) ?? [1, 2, 3].find(free)!;
+    this.slotWanted.set(seat, slot);
     if (browser) this.seatOf.set(browser, seat);
     const name = this.uniqueName(wanted);
     report('COOP_CONNECTED', { stage: 'guest-joined' });
@@ -1274,6 +1289,9 @@ export class Lobby {
     this.lostAt.delete(player.seat!);
     this.readyAt.delete(player.seat!);
     this.out.delete(player.seat!);
+    // Their slot is free for whoever comes next; it is held only for seats still to come back to a reopened lobby.
+    this.slotWanted.delete(player.seat!);
+    this.pings.delete(player.id);
     this.players = this.players.filter(p => p !== player);
     if (line) this.post(null, line);
     else this.broadcast();
