@@ -384,7 +384,10 @@ export async function startParty(host, options) {
   for (let i = 1; i < players; i++) await openGuest(party, { name: callsign(i), page: loading[i - 1] });
   if (!startNow) return party;
   await sleep(transport === 'loop' ? 150 : 600);
-  await button(host, picked.label).click(); await button(host, 'Start').click();
+  // The host's Start is refused until it has every guest's "ready", and on a slow or lossy network that arrives late: a
+  // Start pressed too soon left the whole party in the lobby (a proof then failed at its first wait, having checked nothing).
+  await host.waitForFunction(n => document.querySelectorAll('.co-player').length >= n && /Everyone is ready/.test(document.querySelector('.co-guide')?.textContent ?? ''), players, { timeout: 45000, polling: 100 }).catch(() => {});
+  await button(host, picked.label).click(); await sleep(net ? 300 : 0); await button(host, 'Start').click();
   progress(`countdown to ${picked.label}`);
   return party;
 }
