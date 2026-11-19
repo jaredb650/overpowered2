@@ -61,16 +61,17 @@ const noop = (): void => {};
 
 /** Passes everything on to `target`, except the named members. Methods run on the real object, never on the stand-in. */
 function standIn<T extends object>(target: T, swap: (key: string) => unknown): T {
-  const bound = new Map<PropertyKey, unknown>();
+  const bound = new Map<PropertyKey, { of: unknown; fn: unknown }>();
   return new Proxy(target, {
     get(real, key) {
       const swapped = typeof key === 'string' ? swap(key) : undefined;
       if (swapped !== undefined) return swapped;
       const value = Reflect.get(real, key);
       if (typeof value !== 'function') return value;
-      let fn = bound.get(key);
-      if (!fn) { fn = (value as (...args: unknown[]) => unknown).bind(real); bound.set(key, fn); }
-      return fn;
+      let entry = bound.get(key);
+      // Bound once per method, and again if the method itself was replaced (a test's recorder).
+      if (!entry || entry.of !== value) { entry = { of: value, fn: (value as (...args: unknown[]) => unknown).bind(real) }; bound.set(key, entry); }
+      return entry.fn;
     },
   });
 }

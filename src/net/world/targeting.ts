@@ -27,6 +27,8 @@ export type HurtEvent =
 /** A guest's latest pose spares them a melee hit when it is this fresh (ms) and this far (m) outside the swing's reach. */
 export const DODGE_FRESH_MS = 150;
 export const DODGE_MARGIN = 0.5;
+/** Speed of a soldier's round at a friend (m/s): between the rifle's 88 and the pistol's 70. */
+const FOE_ROUND_SPEED = 85;
 /** No shove is harder than this (m/s): the hardest in the game is a ram, far under it. */
 const MAX_SHOVE = 60;
 /** Poses in which a friend's feet are off the ground: a ground slam passes under them. */
@@ -104,14 +106,17 @@ export class Targeting implements WorldModule {
         });
         const foe: Foe = {
           get alive() { return player.alive; }, get center() { return eye; },
+          // A round at a friend is the slow round the host's own player gets, half led, so it can be seen coming and dodged
+          // the same way (it used to be an instant ray, as a round at an allied soldier is).
           shotAt: (from, damage, miss, source) => {
-            const end = eye.clone().add(new THREE.Vector3((Math.random() - 0.5) * miss, (Math.random() - 0.5) * miss, 0));
-            const dir = end.sub(from).normalize();
-            ctx.combat.fireRay(from, dir, { damage, source, team: 'enemy', tracer: 'enemy' });
+            const flight = from.distanceTo(eye) / FOE_ROUND_SPEED;
+            const end = position.clone().addScaledVector(velocity, flight * 0.5)
+              .add(new THREE.Vector3((Math.random() - 0.5) * miss, 1 + (Math.random() - 0.5) * miss, (Math.random() - 0.5) * miss));
+            ctx.combat.spawnProjectile({ origin: from, velocity: end.sub(from).normalize().multiplyScalar(FOE_ROUND_SPEED), kind: 'bullet', team: 'enemy',
+              damage, source, tracer: 'enemy', lifetime: 1.6 });
           },
-          // The fuse burns on the world clock: under shared slow-mo the grenade the players watch is slowed, and so is its blast.
-          blast: (at, radius, damage, delay, source) => this.w.later.after(delay,
-            () => ctx.combat.explode(at, { radius, damage, source, team: 'enemy', kind: 'enemy' })),
+          // The real rocket's own blast reaches every player (booms.ts); a second one here would hit a friend twice.
+          blast: () => {},
         };
         adapter = { id: roster.id, player, life, foe };
         this.adapters.set(roster.id, adapter);

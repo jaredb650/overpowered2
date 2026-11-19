@@ -75,11 +75,15 @@ the names the game used before).
 | `world/replicas.ts` | Host: the 20-a-second tick, tiers and chunks per guest, backpressure, the roster. Guest: the enemy copies, their buffers and playheads (`animate`), their own ragdolls, the bounded `dead` set, `whenSeen` (something for an enemy not drawn yet waits for it) | (the `world` lane, unreliable) |
 | `world/moves.ts` | Enemy moves no hit explains: stagger, stumble, daze, roar, land, leap, block, a living knockdown (`down`) and `getUp`. The host listens at the animator and at gore; a guest plays each when the copy's playhead reaches it | `move` |
 | `world/identity.ts` | Each soldier's names, rank, seat, voice and squad, told once per guest | `who` |
-| `world/targeting.ts` | Host: every player as a target (`players()`), `select`, line of sight, `steer` and its routes, `targetPlayer`, sending `hurt`. Guest: taking `hurt`, `allowsLocalDamage` | `hurt` |
+| `world/targeting.ts` | Host: every player as a target (`players()`, and `hostPlayers()` as the game's own player type for dangers that test them all), `select`, line of sight, `steer` and its routes, `targetPlayer`, sending `hurt` and `shove`, a guest's dodge grace (`dodged`), who holds Ghost. Guest: taking `hurt` (a sword block still works) and `shove`, `allowsLocalDamage`, telling the host about Ghost | `hurt`, `shove`, `ghost` |
 | `world/claims.ts` | Guest's `claim` (its damage as a `hit` event, and the guess at the result); the host's check and apply (`hitIn`); whose claim is being applied (`applying`) and who last hit an enemy (`lastHit`), read by hits.ts for kill credit | `hit` |
 | `world/hits.ts` | Kill credit (`killedBy`, `notMine`, the guest's own kill replay); what the host's damage did, sent out; wounds, severs and deaths on guests; `selfDestruct` | `hitfx`, `kill`, `sever` |
 | `world/remoteFire.ts` | A player's shots on other screens: the local `fire`, the host's check and relay, drawing it. The shot counter claims carry. Gun Kata's notice | `fire`, `kata` |
-| `world/enemyFire.ts` | `enemyRay` (the host's enemy rays against remote players) and `projectile`; the guest's tracer | `ray` |
+| `world/enemyFire.ts` | Host: enemy rays against remote players (`enemyRay`), every enemy projectile described once as it leaves (`projectile`), flashes and sounds of things that are not an enemy's attack, the scope and shot recorder attacks.ts uses. Guest: tracers with the near-miss crack, harmless projectile copies, removing one at the host's word, asking the host to blow up one it shot | `ray`, `proj`, `projx`, `projhit`, `efx` |
+| `world/attacks.ts` | Enemy attacks on every screen: the host's three events per attack, and the guest running the same `AttackDef` on its copy against a world that cannot hurt. Also a line said outside an attack and a boss's phase effects | `atk`, `atkf`, `atke`, `say`, `bossfx` |
+| `world/warnings.ts` | Ground rings, falling shells, ground shocks, flashbangs, and the stars and lasers of things that are not an enemy's attack | `zone`, `strike`, `shock`, `bang`, `glint`, `laser` |
+| `world/villain.ts` | The Commander's briefing, barks, warning chips, arrival and last words raised on guests as the same game events | `cmd` |
+| `world/hostTime.ts` | `HostTime`: how much later than usual a host-stamped event arrived, so a late wind-up starts that far in | |
 | `world/booms.ts` | `blast`: explosions sent to other screens (24 a second), an enemy blast's damage on remote players, a guest's blast on the host's vehicles | `boom` |
 | `world/callins.ts` | A call-in's feed line, and the host's note that lets the caller's call-in damage pass | `callin` |
 | `world/sonar.ts` | The shared Sonar ping | `sonar` |
@@ -274,6 +278,108 @@ The same bytes buy twice the update rate for near enemies and remove almost ever
 `lag:150,jitter:60,loss:0.08`; old and new) is not in yet: on the day this landed thirteen agents shared the machine, the load
 average stood near 100 on 32 cores, and a test page starved of frames measures the machine, not the netcode. Run it on a quiet
 box with `node tools/scripts/coop-motion-matrix.mjs --ports <old>,<new> --tags baseline,after` and paste its tables here.
+
+## Enemy attacks on guests (overhaul lane "enemy-attacks")
+
+Before this, everything an enemy did existed only on the host: a guest fought silent enemies with no wind-up, flash, laser or
+sound, and several dangers hurt only the host. Now an enemy attacks the same way on every screen and every player is in the same danger.
+
+**How an attack reaches a guest.** An attack is data the enemy's brain runs (`AttackDef`, `src/enemies/brain.ts`): `begin` (pose,
+voice, muzzle star, laser), `windupTick` (the laser following its target), `fire` (swing, flash, shot, sound), `activeTick`, `end`.
+The host runs it for real and sends three small events on the reliable lane (`src/net/world/attacks.ts`):
+
+| Event | Fields | When |
+|---|---|---|
+| `atk` | enemy `uid`, attack name `a`, wind-up seconds `w`, target player slot `to`, host time `ht`, and the point (`ap`) and direction (`ad`) the attack locked, if any | `a.begin` has run |
+| `atkf` | `uid`, `a`, shot number `n`, `to`, the shots it made (`sh`), `ap`, `ad` | each `a.fire` |
+| `atke` | `uid`, `i` if it was cut short | the attack stopped |
+
+A guest runs **the very same `AttackDef`** on its copy of the enemy, on the same timeline, against a world marked `cosmetic`
+(`AiWorld.cosmetic`): the player it senses is the one the host named (the local player or a friend's body), `ctx.player.takeDamage`,
+`launch` and `push` do nothing, `ctx.combat.spawnProjectile` becomes a harmless copy of the host's projectile, `fireRay` a tracer to
+the host's end point, and every call only the host may make (`strike`, `selfDestruct`, `trample`, `reinforce`, a ground ring) is a
+no-op. So the wind-up clip, voice, star, laser, flash and sounds are made by the code single player uses, and a new attack needs
+nothing extra. No random seed is sent: every outcome that matters (each projectile's velocity, each ray's end, each grenade's fuse,
+each locked aim point) is sent as the outcome.
+
+- **Timing.** A wind-up starts when its event arrives, never delayed by the enemies' interpolation buffer. `HostTime` measures how
+  much later than usual an event came (against the smallest delay seen lately, so the two clocks need not agree) and the wind-up
+  starts that far in (at most 0.4 s), so the shot lands when the host's `hurt` does. The shot itself is the host's call: a copy
+  whose wind-up is over waits for `atkf` (laser still tracking), and gives the attack up after 1.2 s of silence.
+- **An enemy not drawn yet.** A start that arrives before its enemy's first snapshot is kept for 0.6 s and begun that far in. A
+  shot whose start was lost joins the attack at that shot.
+- **Streams for show.** A Burner's flame (`AttackDef.local`) sends only its first shot; every screen makes the rest of the globs
+  from the timeline. This replaced one `ray` event and one physics raycast on the host per glob (about 12 a second per Burner).
+- **What is recorded per shot.** While `a.fire` runs on the host, `enemyFire.ts` gathers what it spawns (at most 16 a shot, a
+  shotgun's pellets) instead of sending each: a projectile as `{ o, v, k, id?, tr?, g?, l?, fu?, tl?, sz?, x? }` (origin, velocity,
+  kind, number if it explodes, tracer, gravity, lifetime, fuse, trail, size, carries a blast), a ray as `{ o, e, tr?, wz? }`.
+- **Soldiers.** A guest's copy of a soldier has no squad mind behind it, so before a shot the copy's magazine is topped up and
+  its line of sight to the local player is checked once (for the suppression a near miss causes). The guest's `Suppression` ticks,
+  so rounds cracking past a guest blur and jolt the view as they do in single player.
+- **A soldier's round at a guest** is the same slow bullet the host's own player gets (85 m/s, half led, scattered by the gun's
+  miss), so a guest sees it coming and can dodge it. Until now a soldier shot a guest with an instant ray, the stand-in meant
+  for allied soldiers (`Foe.shotAt` in `targeting.ts`), and a rocket at a guest exploded twice (`Foe.blast`, now nothing: the
+  real rocket's blast already reaches every player).
+- **The old animation byte.** The snapshot's coarse `animation` byte no longer plays `attackMelee` or `shoot` on a copy
+  (`replicas.ts`): attack clips come from the attack itself. Its value 3 (stagger) is still played until lane "enemy-motion"
+  replaces it.
+
+**Projectiles.** Every enemy bullet, rocket, grenade and shell flies as a harmless copy on every guest
+(`ProjectileSpec.cosmetic`, `Projectiles.spawn(spec, netId)`, `Combat.spawnCopy`): it draws and collides with the world, stops at
+the local player without hurting, and never explodes. It leaves the guest's own copy of the gun and slides onto the host's line
+(`visualFrom`). One that explodes carries a number: when the host's ends (`projx`) the copy goes too, and a guest who shoots the
+copy out of the air (`Projectiles.detonate`) sends `projhit` and the host blows the real one up. The blast is still the host's
+`boom`. A projectile that no attack event carries (a tank's shell, a helicopter's rocket, a grenade a dying man dropped, the
+Commander's smoke) goes out alone as `proj`, 60 a second at most.
+
+**Dangers that test every player** (host: `CoopWorld.hostPlayers()`, the host's own first, then a stand-in per guest whose
+`takeDamage` is `hurt` and whose `launch` and `push` are `shove`):
+
+| Danger | Where | Before |
+|---|---|---|
+| A boss's ground slam, stomp and landing (`shockwave`) | `enemies/bosses.ts` | Only its target, who could not jump it and was never thrown |
+| The Titan's beam | `enemies/bosses.ts` | Only its target |
+| Melee swings, lunges, the Titan's sweep, the Juggernaut's charge (`meleeConnect`) | `enemies/attacks.ts` | Only its target |
+| Burner flames (`Flames.lickPlayer`) | `weapons/Flames.ts` | Only the host |
+| Vehicle rams | `enemies/vehicles/ground.ts` | Only the host |
+| Wreck fire | `enemies/vehicles/wreck.ts` | Only the host |
+
+A guest's stand-in reads `grounded` from their newest pose (`airborne`, `jet`, `wallrun`, `wallrunR`, `mantle` are off the
+ground), so a guest can jump a slam. Enemy vehicles look for the nearest living player on foot (`VehicleSystem.quarry`), not only
+the host's. `Commander.hurt` takes the victim as a fourth argument, for lane "world-b"'s devices.
+
+**Dodge grace.** The host draws a guest 100 ms behind their poses. A melee swing spares a guest whose newest pose, no older than
+150 ms (`DODGE_FRESH_MS`), is more than 0.5 m (`DODGE_MARGIN`) outside its reach (`Targeting.dodged`, counted in `dodges`).
+
+**Warnings** (`src/net/world/warnings.ts`). A ground ring is always the host's word: `Telegraphs.zone` sends `zone` with the host
+time and a guest draws it with the seconds it has left. `strike` is the shell that comes down in a ring (the Titan's barrage, the
+Commander's mortars), `shock` a ground shock's ring, dust, crack and sound (`shockFx`), `bang` a flashbang: it goes off on every
+screen and each player's own eyes decide how blind they go. Stars and lasers inside an attack are that attack's own on every
+screen; outside one (a tank laying its gun, a mortar spotter, a fumbling fake surrender) they are sent, a laser's two ends at 10 Hz
+and glided between.
+
+**Voices.** A line inside an attack is said by each screen's copy of the attack. A line only the host works out (a bark, a taunt
+on a dodge, a burning man's scream, a choke) goes through `shout()` (`enemies/attacks.ts`) and is heard everywhere (`say`, 20 a
+second at most). Pain, sever and death cries stay with each screen's own damage model (lane "gore").
+
+**Bosses.** What a phase change looks and sounds like is separate from what it does (`BOSS_FX` in `bosses.ts`: landing, armour
+break, limb lost, the Titan's fall, the Juggernaut's wall stun). The host runs one as it happens and every guest runs the same one
+(`bossfx`). A guest's own copy of a boss never decides anything: its controller's callbacks return at once on a guest, and a
+Titan's death no longer clears the field locally (the host's `kill`s do).
+
+**The Commander** (`src/net/world/villain.ts`). `commander:briefing`, `bark`, `status`, `person`, `fulfilled` and `quiet` go to
+guests as `cmd` and are raised there as the same game events, so the guest's own box and chips (`ui/commander`) show them. A late
+guest is told which chips are up. A briefing is checked field by field (`cleanBriefing`).
+
+**Ghost.** A guest tells the host when its Ghost power-up goes on or off (`ghost`); `Targeting.select` sets `sense.ghost` for the
+host's own from its perks and for a guest from that word (it used to force it off for everyone).
+
+**A guest's sword.** A bullet the host says hit a guest is still theirs to block or send back (`hurtIn` asks `Combat.guard`).
+
+**Proofs** (`tools/scripts/`, each through `shot.mjs`, evidence JSON beside the screenshots): `coop-attacks-crucible.mjs` (one row
+per Crucible attack, 29 of them, each staged alone at the guest), `coop-attacks-humans.mjs` (a real Endless Humans wave, each
+soldier weapon forced once, a tank, a ram, a wreck, the Commander), `coop-attacks-kit.mjs` (the recorder both use). `COOP_SIM`,
+`COOP_PLAYERS` and `ATTACKS`/`PARTS` narrow or stress a run. Unit tests: `src/net/world/attacks.test.ts`.
 
 ## How it works
 

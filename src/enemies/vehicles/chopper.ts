@@ -165,8 +165,8 @@ export class EnemyChopper extends Vehicle {
     this.lookIn -= dt;
     if (this.lookIn > 0) return;
     this.lookIn = LOOK_EVERY;
-    const { player } = this.sys.ctx;
     this.rig.frame.mount('chin', _pivot);
+    const player = this.sys.quarry(_pivot);
     _aim.copy(player.position);
     _aim.y += 1;
     this.sees = player.alive && !player.parked && _pivot.distanceTo(_aim) < CHOPPER.gun.range * 1.4 && this.sys.lineClear(_pivot, _aim);
@@ -188,7 +188,7 @@ export class EnemyChopper extends Vehicle {
     }
     const friendly = sys.friendly;
     if (friendly) this.focus.copy(friendly.position);
-    else if (this.pressing) this.focus.copy(sys.ctx.player.position);
+    else if (this.pressing) this.focus.copy(sys.quarry(this.position).position);
     else if (this.marks.length > 0) this.focus.copy(this.marks[this.leg]!);
   }
 

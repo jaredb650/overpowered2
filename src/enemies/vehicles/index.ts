@@ -20,7 +20,7 @@ import type { Mark, VehicleKind, VehicleOrder } from '../../campaign/types';
 import { ON_RANGE } from '../../core/devflags';
 import { MISSION_ID } from '../../campaign/select';
 import type { ExplosionKind, RayHit } from '../../core/contracts';
-import { CG, type Ctx } from '../../core/contracts';
+import { CG, type Ctx, type PlayerSystem } from '../../core/contracts';
 import type { EnemyId, ExplosionSpec, FriendlyAircraft, MissileTarget, VehicleTargets } from '../../core/gameplay';
 import { rand } from '../../core/math';
 import { Airframe } from '../../progression/callins/airframe';
@@ -189,6 +189,21 @@ export class VehicleSystem implements VehicleTargets {
       route: route.map(m => ({ x: m.at[0], z: m.at[2], hold: m.hold ?? 0 })),
       tag: order.tag, crew: order.crew ?? [], crewTag, holds: !!order.holds, holdYaw: hold?.yaw ?? NaN, parked: order.state === 'parked',
     });
+  }
+
+  /** Who a machine at `from` looks for: the player. In co-op, whichever living player on foot is nearest it. */
+  quarry(from: THREE.Vector3): PlayerSystem {
+    const everyone = this.ctx.coop?.world?.hostPlayers();
+    let best = this.ctx.player;
+    if (!everyone) return best;
+    let nearest = Infinity;
+    for (let i = 0; i < everyone.length; i++) {
+      const p = everyone[i]!;
+      if (!p.alive || p.parked) continue;
+      const d = p.position.distanceToSquared(from);
+      if (d < nearest) { nearest = d; best = p; }
+    }
+    return best;
   }
 
   spawnGround(kind: Exclude<VehicleKind, 'chopper'>, order: GroundOrder): GroundVehicle {

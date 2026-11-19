@@ -103,6 +103,8 @@ export class GroundVehicle extends Vehicle {
   private lookIn = 0;
   private groundIn = 0;
   private sees = false;
+  /** Who it last looked for (`VehicleSystem.quarry`). */
+  private quarry: PlayerSystem | null = null;
   private seenAt = -99;
   private readonly lastSeen = new THREE.Vector3();
   private clear = Infinity;
@@ -237,9 +239,9 @@ export class GroundVehicle extends Vehicle {
     this.lookIn -= dt;
     if (this.lookIn > 0) return;
     this.lookIn = LOOK_EVERY;
-    const { ctx, now } = this.sys;
-    const { player } = ctx;
+    const { now } = this.sys;
     this.pivot(_pivot);
+    const player = this.quarry = this.sys.quarry(_pivot);
     _aim.copy(player.position);
     _aim.y += 1.1;
     const range = this.def.cannon?.range ?? this.def.mount.range;
@@ -286,7 +288,7 @@ export class GroundVehicle extends Vehicle {
 
   /** The target, with as much lead as this crew can manage. */
   private leadOn(c: CannonDef, from: THREE.Vector3, out: THREE.Vector3): THREE.Vector3 {
-    const { player } = this.sys.ctx;
+    const player = this.quarry ?? this.sys.ctx.player;
     const t = from.distanceTo(this.lastSeen) / c.speed;
     return out.copy(this.lastSeen).addScaledVector(player.velocity, t * c.lead * (this.sees ? 1 : 0));
   }

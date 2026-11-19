@@ -48,7 +48,8 @@ export class CoopWorld {
   readonly warnings: Warnings;
   /** What enemies fire, for the browser proofs. */
   readonly enemyFire: EnemyFire;
-  private readonly villain: Villain;
+  /** The Commander's words on guests, for the browser proofs. */
+  readonly villain: Villain;
   private readonly w: WorldContext;
   private readonly enemies: Replicas;
   private readonly targeting: Targeting;

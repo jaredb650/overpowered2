@@ -129,6 +129,22 @@ Shared files and contracts between lanes:
 - Reactions on replicas: **gore** starts stagger, flinch and knockdown locally from the cosmetic damage model (own hits and
   `hitfx`). **enemy-motion**'s move events cover clips with no hit behind them and must not restart a clip of the same kind that
   began in the last 400 ms. Attack clips, telegraphs and sounds belong to **enemy-attacks**.
+- **Enemy attacks** (enemy-attacks, landed): attack clips, telegraphs and sounds on a guest's copy come from the attack's own
+  code run there (`net/world/attacks.ts`), never from a move event or the snapshot. Code that runs inside an `AttackDef` must not
+  decide an outcome when `w.cosmetic` is set (a guest's copy), and anything only the host may do belongs behind `w.enemies` /
+  `ctx.combat` / `ctx.player`, which are stand-ins there.
+- **Every player as a target** (enemy-attacks, landed): `ctx.coop.world.hostPlayers()` is every player as the game's own player
+  type, the host's first (null on a guest and in single player). A danger that used to read `ctx.player` loops over it; a
+  guest's `takeDamage` becomes `hurt` and its `launch`/`push` a `shove`. **world-b**: test device trips against it, and pass
+  the victim to `Commander.hurt(amount, from, cause, victim)`.
+- **Harmless projectile copies** (enemy-attacks, landed): `ProjectileSpec.cosmetic` flies and draws and hurts nothing;
+  `Combat.spawnCopy(spec, netId)` and `dropProjectileCopy(netId)` add and remove one. **weapons-fx** can use the same for players'
+  rockets and grenades on other screens.
+- **Enemy flashes, sounds and warnings outside an attack** (enemy-attacks, landed): `Combat.enemyMuzzle` and
+  `ctx.coop.world.enemySound(id, at, volume, pitch)` reach every guest, as do `Telegraphs.zone/glint` and its lasers. A new
+  vehicle gun or device needs only those calls. Vehicle turret poses are **world-b**'s.
+- **A line only the host works out** goes through `shout()` (`enemies/attacks.ts`), not `say()`. Pain, sever and death cries
+  stay `say()`: **gore**'s local damage model makes them on each screen.
 - `src/net/world/booms.ts` is **call-ins**'; other lanes that need a visible blast call its API.
 - **Clocks (from the time lane, landed).** `ctx.time.dt` is the world clock on every screen, and on a guest it now follows the
   team's slow-mo: use it for everything cosmetic that must slow with the world (replica animation, enemy projectiles in flight,
@@ -219,3 +235,16 @@ Shared files and contracts between lanes:
   (`rouse`), `world/hits.ts` (`whenSeen` in `hitfxIn`/`severIn`), `world/targeting.ts` (`targetOf`), `world/context.ts` (the lane's
   options), `world.ts` (construction), `world/vehicles.ts` and `allies.ts` (the buffer). Not done: the full 12-case measurement
   table (the box was overloaded; one clean paired run is in the note).
+- 2026-11-18, enemy-attacks: landed (`4614d64` and the commits after it). A guest plays every enemy attack with the attack's own
+  code against a world that cannot hurt, from three host events (`atk`, `atkf`, `atke`); enemy projectiles fly as harmless
+  copies; slams, beams, swings, Burner flames, rams and wreck fire test every player (`hostPlayers()`), a guest can jump a slam
+  and is thrown, and a guest clearly out of reach on their own screen is spared a swing; rings, shells, shocks, flashbangs and
+  the lasers of tanks and spotters show everywhere; the Commander's words reach guests; Ghost works; soldiers fire real bullets
+  at guests (they fired instant rays) and a rocket at a guest no longer explodes twice; enemy vehicles go for the nearest
+  player. Details, the wire and the proofs: `docs/notes/coop.md`, "Enemy attacks on guests". Decisions: no seed is sent (each
+  random outcome is sent as the outcome); a ground ring is always the host's word; a wind-up starts on arrival and is shortened
+  by how late its event was, never delayed by the interpolation buffer. Touched outside the lane, small: `enemies/brain.ts`
+  (the host hooks), `aiWorld.ts` (`cosmetic`), `EnemyManager.ts` (guest path ticks warnings and suppression, `aiWorld`, bark and
+  strike), `telegraph.ts`, `weapons/Projectiles.ts`, `Combat.ts`, `Flames.ts` (`lickPlayer`), `enemies/vehicles/*` (rams, wreck
+  fire, gun flashes and sounds, `quarry`), `commander/index.ts` (`hurt`), `commander/mortars.ts`, `outpost/index.ts` (flashbang),
+  `net/pose.ts` (`latest`), and `shout()` at nine voice call sites. Not proven in the browser yet: see the lane's report.

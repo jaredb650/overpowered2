@@ -464,6 +464,28 @@ describe('every player is in the same danger', () => {
     game.hw.dispose(); game.gw.dispose();
   });
 
+  it('fires a soldier\'s round at a guest as the same slow bullet the host\'s player gets, and never a second rocket blast', () => {
+    const game = pair();
+    const enemy = game.host.manager.spawn('trooper', new THREE.Vector3(0, 0, -30));
+    game.hw.select(enemy, new PlayerSense());
+    const foe = (game.hw as unknown as { targeting: { players(): { id: string; foe: { shotAt(from: THREE.Vector3, damage: number, miss: number, source: string): void;
+      blast(at: THREE.Vector3, radius: number, damage: number, delay: number, source: string): void } }[] } }).targeting.players().find(p => p.id === game.guestLobby.you)!.foe;
+    foe.shotAt(new THREE.Vector3(0, 1.4, -30), 7, 0, 'trooper');
+    expect(game.host.combat.fireRay).not.toHaveBeenCalled();
+    expect(game.host.combat.spawnProjectile).toHaveBeenCalledOnce();
+    const spec = game.host.combat.spawnProjectile.mock.calls[0]![0] as ProjectileSpec;
+    expect(spec).toMatchObject({ kind: 'bullet', team: 'enemy', damage: 7, source: 'trooper' });
+    expect(spec.velocity.length()).toBeCloseTo(85, 3);
+    // Straight at the friend's chest (they stand at 0, 0, -5).
+    expect(spec.velocity.z).toBeGreaterThan(84);
+    game.relay.flush();
+    expect(game.guest.combat.spawnCopy).toHaveBeenCalledOnce();
+    foe.blast(new THREE.Vector3(0, 0, -5), 5, 44, 0, 'rocketeer');
+    vi.advanceTimersByTime(500); game.hw.update();
+    expect(game.host.combat.explode).not.toHaveBeenCalled();
+    game.hw.dispose(); game.gw.dispose();
+  });
+
   it('gives the host every player as a target for flames, rams and fires, and none to a guest', () => {
     const game = pair();
     const everyone = game.hw.hostPlayers()!;
