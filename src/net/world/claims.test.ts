@@ -53,7 +53,7 @@ describe('a claim from a guest whose body the host does not have yet', () => {
     g.bodied(false);
     g.gws[0]!.status(g.copy, 'burn', 4);
     g.relay.flush();
-    expect(g.host.manager.afflict).toHaveBeenCalledWith(g.enemy, 'burn', 4);
+    expect((g.host.manager as unknown as { afflict: unknown }).afflict).toHaveBeenCalledWith(g.enemy, 'burn', 4);
     expect(g.hw.claimBooks.received.status).toBe(1);
     g.dispose();
   });
