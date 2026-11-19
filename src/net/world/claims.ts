@@ -42,8 +42,11 @@ export type ClaimEvent = HitClaim | StatusClaim | VehicleClaim;
 
 /** A shot id is stale once nothing has fired for this long: the next claim (a round landing, a beam still on) starts a new one. */
 const STALE_MS = 100;
-/** Host: each enemy's centre is noted this often, this many times back (two seconds), for a hit on where he was (authority.ts `near`). */
-const TRAIL_MS = 100, TRAIL = 20;
+/**
+ * Host: each enemy's centre and root are noted this often, for six seconds back, for a hit on where he was (authority.ts `near`).
+ * Six, not one: on a bad link a guest's picture of a man being thrown about by blast after blast runs seconds behind.
+ */
+const TRAIL_MS = 100, TRAIL = 120;
 /** A status that is renewed every tick (standing in napalm) is sent this often at most, and once more when it stops. */
 const STATUS_MS = 250;
 /** Past this angle between the round's own direction and the line from the eye, the hit did not come straight from the eye. */
@@ -73,7 +76,7 @@ export class Claims implements WorldModule {
   /** Host: the guest whose claim is being applied right now (lobby id), and its shot. */
   private current: string | null = null;
   private currentShot = 0;
-  /** Host: where each enemy's centre has been lately, as x, y, z triples in a ring. */
+  /** Host: where each enemy's centre and root have been lately, as x, y, z triples in a ring. */
   private readonly trails = new Map<number, { at: Float32Array; count: number; next: number }>();
   private trailAt = -Infinity;
   /** Guest: when the shot id last moved, and the frame's clock when it was last used. */
@@ -204,7 +207,9 @@ export class Claims implements WorldModule {
     const verdict = this.w.validator.check(from, value, now, {
       eye: [root.x, root.y + 1.6, root.z], target: enemy.center.toArray() as Vec, size: enemy.char.rig.height, speed: enemy.velocity.length(),
       ping: session.lobby.pingOf(from), down: this.w.life(from).down, visible: (origin, target) => this.w.visible(origin, target),
-      near: point => this.nearTrail(enemy.uid, point),
+      // Down on the host, he is a ragdoll; on the guest he is the guest's own ragdoll, fallen its own way (gore is each
+      // screen's own): the two lie metres apart by design, and the guest shot the one it can see.
+      near: point => enemy.downed ? 0 : Math.min(this.nearTrail(enemy.uid, point), this.nearRoot(enemy, point)),
     });
     if (!verdict.ok) { stats.rejected++; return; }
     stats.accepted++;
@@ -253,7 +258,18 @@ export class Claims implements WorldModule {
     else this.refuse('gone');
   }
 
-  /** Host: metres from `point` to the nearest place this enemy's centre has been in the last two seconds. */
+  /**
+   * Host: metres from `point` to the body a guest draws for this enemy: upright over its root, which is what the snapshot sends.
+   * A man knocked down on the host is a ragdoll wherever the blast threw him (`center` goes with it); on a guest he still
+   * stands where his root is, and that is the man the guest shot.
+   */
+  private nearRoot(enemy: Enemy, point: Vec): number {
+    const p = enemy.position;
+    const y = Math.min(Math.max(point[1], p.y), p.y + (enemy.char.rig.height || 1.85));
+    return Math.hypot(p.x - point[0], y - point[1], p.z - point[2]);
+  }
+
+  /** Host: metres from `point` to the nearest place this enemy's centre or root has been in the last six seconds. */
   private nearTrail(uid: number, point: Vec): number {
     const trail = this.trails.get(uid);
     let best = Infinity;
@@ -270,10 +286,13 @@ export class Claims implements WorldModule {
       for (const enemy of this.w.ctx.enemies.alive) {
         let trail = this.trails.get(enemy.uid);
         if (!trail) this.trails.set(enemy.uid, trail = { at: new Float32Array(TRAIL * 3), count: 0, next: 0 });
-        const center = (enemy as Enemy).center;
+        const center = (enemy as Enemy).center, root = enemy.position;
         trail.at[trail.next * 3] = center.x; trail.at[trail.next * 3 + 1] = center.y; trail.at[trail.next * 3 + 2] = center.z;
         trail.next = (trail.next + 1) % TRAIL;
-        trail.count = Math.min(TRAIL, trail.count + 1);
+        // His root too, at chest height: where a guest draws him while the host has him down as a ragdoll.
+        trail.at[trail.next * 3] = root.x; trail.at[trail.next * 3 + 1] = root.y + 1; trail.at[trail.next * 3 + 2] = root.z;
+        trail.next = (trail.next + 1) % TRAIL;
+        trail.count = Math.min(TRAIL, trail.count + 2);
       }
       return;
     }

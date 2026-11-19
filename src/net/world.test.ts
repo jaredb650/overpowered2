@@ -249,11 +249,25 @@ describe('host-authoritative world over the mocked lobby transport', () => {
     vi.advanceTimersByTime(150); game.hw.update();
     game.gw.claim(replica, damage); game.relay.flush();
     expect(game.host.manager.applyDamage).toHaveBeenCalledOnce();
-    // Three seconds on, the place he left is no longer his.
+    // Still his three seconds later, on a link that runs that far behind.
     for (let i = 0; i < 30; i++) { vi.advanceTimersByTime(100); game.hw.update(); }
+    game.gw.claim(replica, damage); game.relay.flush();
+    expect(game.host.manager.applyDamage).toHaveBeenCalledTimes(2);
+    game.host.manager.applyDamage.mockClear(); game.gw.claim(replica, damage); game.relay.flush();
+    // Eight seconds on, the place he left is no longer his.
+    for (let i = 0; i < 80; i++) { vi.advanceTimersByTime(100); game.hw.update(); }
     game.gw.claim(replica, damage); game.relay.flush();
     expect(game.host.manager.applyDamage).toHaveBeenCalledOnce();
     expect(game.hw.validator.refused.point).toBe(1);
+    // Knocked down on the host: the ragdoll (his centre) lies 30 m off, but his root, which is where a guest draws him standing, has not moved.
+    enemy.position.set(0, 0, -10);
+    game.gw.claim(replica, damage); game.relay.flush();
+    expect(game.host.manager.applyDamage).toHaveBeenCalledTimes(2);
+    // Down on the host, he lies wherever each screen's own ragdoll fell: a hit on the guest's is a hit.
+    enemy.position.set(0, 0, -40); enemy.downed = true;
+    for (let i = 0; i < 80; i++) { vi.advanceTimersByTime(100); game.hw.update(); }
+    game.gw.claim(replica, damage); game.relay.flush();
+    expect(game.host.manager.applyDamage).toHaveBeenCalledTimes(3);
     game.hw.dispose(); game.gw.dispose();
   });
   it('takes a guest\'s round and blast to the host\'s vehicles, as claims and not as part of the drawing', () => {

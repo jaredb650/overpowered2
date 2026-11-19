@@ -86,6 +86,18 @@ const prepare = host => host.evaluate(() => {
     }
   }
   window.__claims = { yaw: best.yaw, run: best.run, from: best.from, mine: {}, theirs: {}, burn: 0, freeze: 0, bolt: 0, dealt: 0, hits: 0, blocked: 0, vehicle: 0, sources: {} };
+  // What a refused claim looked like, for the evidence: the first twenty.
+  const validator = ctx.coop.world.validator, check = validator.check.bind(validator);
+  window.__refusedClaims = [];
+  validator.check = (id, value, now, scene) => {
+    const verdict = check(id, value, now, scene);
+    if (!verdict.ok && window.__refusedClaims.length < 20) {
+      const target = ctx.enemies.alive.find(e => e.uid === value?.target);
+      window.__refusedClaims.push({ why: verdict.why, uid: value?.target, source: value?.damage?.source, region: value?.damage?.region, point: value?.damage?.point, origin: value?.origin,
+        hop: value?.hop, target: scene.target, eye: scene.eye, near: scene.near?.(value?.damage?.point ?? [0, 0, 0]), speed: scene.speed, posture: target?.char?.anim?.posture, downed: target?.downed });
+    }
+    return verdict;
+  };
   // Fire, frost and bolts set on the host, by the host's own weapon or a guest's claim.
   const afflict = ctx.enemies.afflict.bind(ctx.enemies);
   ctx.enemies.afflict = (enemy, kind, seconds) => { const c = window.__claims; c[kind] = (c[kind] ?? 0) + 1; return afflict(enemy, kind, seconds); };
@@ -340,6 +352,7 @@ await guest.waitForFunction(([uids, last, truck]) => {
       }
       out.rows.push(result);
     }
+    out.refusedClaims = await host.evaluate(() => window.__refusedClaims);
     out.states = await Promise.all(party.pages.map(state));
     await shot(host, 'host'); await shot(guest, 'guest');
     check(failures === 0, 'Every row: the guest lost nothing and dealt what the host\'s own shots deal', out.rows.filter(r => r.problems?.length).map(r => [r.name, r.problems]));

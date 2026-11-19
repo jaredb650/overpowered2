@@ -191,8 +191,8 @@ export interface ClaimScene {
   /** How fast the enemy is moving on the host, m/s: where the guest saw it is behind by the link's delay. */
   speed?: number;
   /**
-   * Metres from a point to the nearest place the enemy's centre has been on the host in the last two seconds. A man thrown
-   * across the room by the last shot is still where he stood on the shooter's screen when the next one lands.
+   * Metres from a point to the nearest place the enemy has been on the host in the last few seconds, or stands as a guest
+   * draws him. A man thrown across the room by the last shot is still where he stood on the shooter's screen when the next lands.
    */
   near?: (point: Vec) => number;
   /** The shooter's round trip to the host, ms, if measured. */
