@@ -406,10 +406,17 @@ describe('kill prediction: a guest starts a death it is sure of on the frame of 
     // The model leaves the body standing for the caller's kill flow: no knockdown, no flinch of a living body.
     expect(gore.knockdown).not.toHaveBeenCalled();
     expect(e.char.anim.flinch).not.toHaveBeenCalled();
-    // The same numbers as a blast: the ring is the host's to roll, so the body only drops.
+    // A rocket's own contact (area damage with no ring to roll): the death's kind is still not this machine's to pick, so
+    // the body only drops.
     const f = spawn('husk', -8);
     f.health = 4;
-    expect(manager.predictDamage(f, { ...big, type: 'explosive', region: undefined, bone: undefined, source: 'launcher' }).sure).toBe('fall');
+    expect(manager.predictDamage(f, { ...big, type: 'explosive', region: undefined, bone: undefined, source: 'rocket' }).sure).toBe('fall');
+    // A blast: the host rolls its ring, and the roll sets the damage. Nothing is started ahead of that.
+    const g = spawn('husk', -10);
+    g.health = 4;
+    const blast = { ...manager.predictDamage(g, { ...big, type: 'explosive', region: undefined, bone: undefined, source: 'rocket', reach: 0.3, blastKind: 'rocket' }) };
+    expect(blast.killSoon).toBe(true);
+    expect(blast.sure).toBeUndefined();
   });
 
   it('is never sure of a death that is not plain arithmetic: a boss, a man with anatomy, armour in the way, a ward, frost, a tank, a drone', () => {

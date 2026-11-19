@@ -720,7 +720,8 @@ export class DamageModel {
   /**
    * A guest's own hit that it has just guessed is a kill: is this machine sure enough to start the death now? Only for a
    * body whose death is plain arithmetic on the host: no anatomy (a man's wounds decide his death), no boss, nothing that
-   * dies its own way (a drone's crash, a tank that may blow, a machine), and no armour, shield, ward or frost in the sum.
+   * dies its own way (a drone's crash, a tank that may blow, a machine), no armour, shield, ward or frost in the sum, and
+   * not a blast (the host rolls its ring).
    * `fall`: what is left of it, by the host's own answers less this player's hits still in the air, is under the hit by
    * `SURE_MARGIN` of its whole health. `kill`: by three times and half its health to spare, and nothing in the death is
    * the host's to roll (a blast's ring is).
@@ -728,6 +729,10 @@ export class DamageModel {
   private sureKill(e: Enemy, d: DamageInfo, region: GoreRegion, amount: number, res: DamageResult, anatomy: boolean, area: boolean): DamageResult['sure'] {
     if (anatomy || e.isBoss || !profileOf(e) || e.def.tank || e.def.id === 'drone') return undefined;
     if (res.blocked || res.armour !== undefined || e.ward > 0 || e.entrance !== 'none' || e.shield || e.frozen > 0 || e.pinned) return undefined;
+    // A blast's ring is the host's to roll, and the roll sets what the blast does to this body, its damage with it
+    // (`rolled`): this machine's sum is not the host's. In the noisy proof every body that got up again had been dropped
+    // by a rocket's blast.
+    if (d.reach !== undefined && d.blastKind !== undefined) return undefined;
     const head = region === 'head' && !area;
     const rest = Math.min(e.health - e.owed, head ? e.limbHp.get('head') ?? Infinity : Infinity);
     if (!(rest > 0)) return undefined;
