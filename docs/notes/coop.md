@@ -639,7 +639,7 @@ machine. Re-measure on a quiet machine before quoting the tail figures.
 
 Not proven: four players; real WebRTC (`COOP_NET=rtc`); the full Crucible table under bad network at speed; Outpost Defense and the
 two missions (they use the same enemies and the same code, and were not run); the helicopter's rockets; the Commander's mortars
-on a guest in a real round; a flashbang's blinding on a guest.
+on a guest in a real round. (A flashbang's blinding on a guest is proven since: `coop-fixtail-small`, humans.)
 
 ## The life of a session (overhaul lane "session", 2026-11-18)
 
@@ -841,13 +841,13 @@ and what proves it. "Arrive" is `team.arrive` and the catch-ups it runs.
 | Fact | Who catches them up | Proven by |
 |---|---|---|
 | The seat: credits, score, kills, kit, life (`restore`) | Arrive, for a new connection; sent again if the page asks (`worldsync`) | `team.test.ts` (seats, "asks again"), `coop-team-rejoin`, `coop-fixsession-reload` defense |
-| Where the waves stand: wave, phase, break clock, vote, custom rules (`sync`) | Arrive, every time | `team.test.ts` (late joiner, same page back), `coop-fixsession-return` |
+| Where the waves stand: wave, phase, break clock, vote, and **the host's Crucible rules** (`sync { custom, rules }`: "The rules of the run are the host's") | Arrive, every time | `team.test.ts` (late joiner, same page back, the rules), `coop-fixsession-return`, `coop-fixtail-rules` |
 | A wave event sent while their line was down (`wave`) | Arrive, same page: the last one, replayed with the clock of now (its pay, shop and banner follow) | `team.test.ts`, `coop-fixsession-return` part 1 |
 | The run is over (`over`) | Arrive | `team.test.ts`, `coop-fixsession-return` part 3 |
 | A respawn or revive that happened while away (`up`) | `team.update` (`rose`), as they come back; and a guest whose host has moved on to a later life stands up by itself after 2 s (`insist`) | `team.test.ts` |
 | Lives, bleed, cards | Repeat 4 times a second | `team.test.ts` |
 | The team's slow-mo (`slowstate`) | Repeats (4 a second while slow, every 2 s otherwise) | `clock.test.ts` (late joiner), `coop-time-team` |
-| Enemies: place, health, plates, limbs, status | The full record once a second on the snapshot lane; `who` is told again after an absence | `replicas.test.ts`, `coop-session-late` |
+| Enemies: place, health, plates, limbs, status | The full record once a second on the snapshot lane; `who` (names, rank, **what each man wears**) is told again after an absence and whenever a man's gear changes | `replicas.test.ts`, `moves.test.ts`, `coop-session-late`, `coop-fixtail-rules` (humans) |
 | Vehicles, garrison, wrecks | Repeat 5 times a second; wrecks in `vehicles.catchUp` | `vehicleParts.test.ts`, `coop-worldb-vehicles` |
 | Supply pods and caches | `pods.catchUp`, with their age | `pods.test.ts`, `coop-world-pods` |
 | Dropped guns | `guns.catchUp`, with their age | `coop-drops` |
@@ -871,6 +871,8 @@ And the other way, what a **guest** says once to the host, which the host drops 
 | The kit (`kit`) | Sent again on `sync`, whatever was sent before | `team.test.ts`, `coop-fixsession-return` |
 | The gun in hand (`held`) | Said again on `sync` | `seatHooks.test.ts`, `coop-fixsession-return` |
 | A cache share taken (`pod took`), a mission's round counts (`rounds`) | Said again on `sync` | by reading; no proof of their own |
+| A gun taken off a mission's rack (`mission took`) | Kept until the host says it is taken (`taken`), and said again on `sync` (`CoopMission.resay`). Before: the guest had the gun, the rack still stood for everyone else, and what the mission hung on the take waited for somebody else | `mission.test.ts` |
+| Blinded by a flashbang (`note blind`) | Not said again: an opening lasts 5 s | `crowd.test.ts`, `openings.test.ts`, `coop-fixtail-small` (humans) |
 | Call-ins still running (`cin`) | Said again on `sync` with their age (`Callins.resay`) | `callins.test.ts` |
 | A slow-mo let go (`slow` off) | Said again while the host still lists it (`clock.ts`) | `clock.test.ts` |
 | A vote, a revive, a prisoner key, a mission's skip | Press again: every one shows the host's word, not the guest's guess | |
@@ -1021,7 +1023,22 @@ never dropped ahead of the host's word.
 stop, the blood on the wall behind) goes by the same guess on a guest (`toldKill`), where it read the host-only `killed` and
 was always 0.
 
-**Kill prediction** (`?predictKills=1` or `0`, stored by `setPredictKills`, `net/feel.ts`; `world.feel`). One round trip is
+**Kill prediction: ON by default.** (Three commit messages on the way say "off by default": they are the history of the
+switch, not its state. The last word is `f16721f`.) In plain terms:
+
+- **The switch:** `?predictKills=0` turns it off for a page and `?predictKills=1` on; `setPredictKills(on)` stores the choice
+  for that browser (`net/feel.ts`; read through `world.feel`). With nothing set it is on.
+- **What it does:** a guest's own hit that its numbers call clearly a kill drops the body on the frame of the shot, instead
+  of one round trip later.
+- **Never predicted:** a boss, a man with anatomy (Endless Humans, the missions: his wounds decide on the host), a machine, a
+  drone, anything with a tank that may blow, an enemy with armour, a shield, a ward or frost in the sum, a pinned body, an
+  enemy whose newest state is over 400 ms old, and **any blast** (the host rolls a blast's ring and the roll sets its damage).
+  A kill it does not call waits for the host, as before. The score, the pay, the streak and whose kill it was always wait.
+- **Measured** (three pages, `lag:150,jitter:60,loss:0.08`, 180 enemies, six guns): 64 bodies dropped for dead, 0 got up
+  again; 9 whole deaths played at once, 0 wrong; no enemy seen alive after dying; the body leaves its feet at a median of
+  0 ms after the shot that killed it, against 479 ms without. Table below.
+
+The detail (`?predictKills=1` or `0`, stored by `setPredictKills`, `net/feel.ts`; `world.feel`). One round trip is
 55 ms on a clean link and 640 ms on a bad one, and for that long a guest's enemy stood, flinching, after the round that killed
 it. With prediction on, a guest's own hit that its numbers call clearly a kill starts the death on the frame of the shot:
 
@@ -1268,7 +1285,7 @@ exploding bolt; a thrown grenade; a reload; a stim. Added by fix-hits (2026-11-1
 checks, none failed): the knife, crowbar, shovel and baton; the Judge's fan, the Autoraffica's smart aim and Gun Kata (every
 locked round arrives and ends where the shooter's ended); the Quiver's painted salvo; a stake that stops in a living body (as
 many stand in the wall on a watcher's screen as on the shooter's); the rotary cannon's spin-up and run-down; a perk's tracer.
-Rounds into a corpse are unit-tested only (`watch.test.ts`).
+Rounds into a corpse: `watch.test.ts`, and in the browser `tools/scripts/coop-fixtail-small.mjs` (a body on the floor of every screen; one player puts an SMG burst through the spot where it lies on the *watcher's* screen, and the watcher's own `damageCorpse` is counted: 17 rounds into it with a guest shooting and the host watching, 17 with the host shooting and a guest watching, none before the trigger).
 
 Run on 2026-11-18 (loopback transport, three pages; the machine was overloaded by other lanes' runs, so the pages made 1 to 12
 frames a second: these runs prove what is drawn and where, not how smooth it is). Clean network: 90 of the 92 case-rounds passed
@@ -1509,6 +1526,57 @@ The host keeps, for every guest, under the lobby's **seat** (one per browser, th
   ("WAVE 4 · in progress · you joined late", or the break's "WAVE 4 CLEAR · wave 5 in 31 s"), the break's clock and the vote as
   they stand, and the custom-rules line. The break's pod reaches them through the shared world's own catch-up (`world/pods.ts`).
 
+### The rules of the run are the host's (lane "fix-tail", 2026-11-19)
+
+The world is the host's, so everything a page reads off "the rules of the run" must be the host's. A guest's page used to
+work several of them out for itself, from its own wave number (its manager never left wave 1), its own saved Crucible rules
+and its own Commander (who fields nothing). fix-hits found the first symptom (a copy's limb pools); this is the whole list.
+
+| What a guest read from its own page | What showed | Now |
+|---|---|---|
+| **Its own saved Crucible rules** (`contracts/crucible.ts`: health, damage, helmets, start wave, sizes, types, bosses) | A guest with custom rules of its own built its copies with them and its HUD said "unranked" in a standard run; the host's custom rules reached a guest only as a feed line | The host's rules cross in `sync` (`rules`: what differs from the standard game, `diffRules`; every field put on its grid and in range by `sanitizeRules`). A guest plays the standard game from the moment its team is built (`adoptRules(DEFAULT_RULES)`), then the host's; never stored, and its own are untouched for its next run alone. `EnemyManager.tune` sets the numbers every copy is made with, `Waves.adopt` the run's rules, and both are set again when the guest's own run starts (`run:start`: its click to deploy can come after the host's word). In every other mode a guest's manager is left alone, as the host's is (only the Crucible's game sets it from the rules) |
+| **The wave enemies are scaled for** (`EnemyManager.wave`, +8.5 % health and +5 % damage a wave) | Every copy was made at wave 1: health came right from the host's state, the rest did not | A guest's manager follows the wave in every snapshot chunk's header (`Replicas`, before the chunk's records are read), in the survival modes. In a mission the host scales by a threat level that is not a wave: left, because every number of a copy that shows comes from the host's records there |
+| **How many enemies are left** (`EnemyManager.remaining`: alive, plus the wave's queue, less the prisoners) | A guest has no queue and no prisoners: its HUD counted only the copies alive (8 where the host said 31), and its minimap "revealed the last few" with dozens still to come | The host's count beyond its enemies alive goes with the cards four times a second (`team { more }`); a guest adds it to the copies alive on its own screen (`hostMore`) |
+| **A copy's armour plates** (a plate is a share of the body's health when it is fitted) | Cut from the guest's idea of his health: a helmet came off under fewer or more rounds than the host's | Scaled with the limb pools when the copy is fitted to the host's health (`fitReplicaHealth`) |
+| **A soldier's rank** (rolled on each page; toughness multiplies health *after* the limb pools are cut) | Limb pools 15 to 35 % too strong or too weak on a copy whose rank the guest rolled differently | Put right when the host says his rank (`who`, `rerankReplica`) |
+| **What each man wears** (`commander/props.ts`: the jammer's whip antenna, the radio man's mast, the spotter's designator, a hider's foil, a rigged casualty's vest, a raised grenade, a dead man's switch, the elite's visor, the Commander's cap; and the "helmets" answer's heavy helmet, three times the plate) | A guest dressed its copies by its own roll of their rank and its own Commander: no tell was on the right man, and most were on nobody. These are the tells the design promises for every one of the villain's answers | The host says each man's gear in his `who` row (a tenth number: `Commander.gearOf`, the props as bits and `GEAR_HEAVY`), and says it again when it changes; a guest dresses the copy by it (`Commander.wear`, `Props.dress`) and fits nothing of its own |
+| The wave number, the phase, the break clock | Already the host's (every chunk, and the wave's own events) | Unchanged |
+| What the shop has released (`lockWave`, `cleared`) | Already the host's wave; the contract is the match's | Unchanged; proven below |
+| Prices, kill pay, wave pay, streak thresholds, score | Fixed tables, and paid on the host's events (`wave`, `kill`) | Unchanged |
+| The damage a guest takes | The host's (`hurt`) | Unchanged; a copy's own multiplier now agrees with it |
+| Kill prediction's sums | A copy's health and limb pools are the host's; armour, a shield, a ward, frost and a man with anatomy are never predicted | Unchanged; the plates and ranks above make the copy's numbers the host's where it is |
+| Outpost Defense | The fort, its prices and its purchases are the host's (`fort.ts`); the loadout is each player's | Unchanged |
+| "Titan inbound" on the wave banner | Already the host's (`wave { titan }`) | Unchanged |
+
+Not done: a mission's threat level on a guest (above); a copy made part-way through a fight has whole plates where the host's
+are worn (the state says which plates are on, not how worn each is).
+
+**Proof:** `tools/scripts/coop-fixtail-rules.mjs`. The Crucible: the host's saved rules are custom (enemy health 200 %,
+damage 150 %, helmets from wave 1, Gunners from wave 1) and the guest's own saved rules are different again (health 50 %,
+damage 400 %, no helmets, start on wave 7, triple size). On wave 1 and on wave 21 the same eight enemies stand in front of
+both, with 23 more "to come" on the host, and every number is read on both pages; then a third player joins on wave 21.
+
+| | Host | Guest | Late joiner |
+|---|---|---|---|
+| Wave 1: a Husk's health, what it hits for | 100, x1.50 | 100, x1.50 | |
+| Wave 1: a Gunner's helmet (health 180) | 54 | 54, worn | |
+| Wave 1: a Brute's six plates | 78, 72.8, 57.2, 36.4, 36.4, 41.6 | the same | |
+| Wave 21: a Husk's health, what it hits for | 270, x3.00 | 270, x3.00 | 270, x3.00 |
+| Wave 21: a Brute's health and armour | 1,404 and 870.48 | the same | the same |
+| Enemies left, on the HUD | 31 | 31 | 31 |
+| The shop: last wave cleared, rows locked (wave 1; wave 21) | 0, 82; 20, 0 | the same | 20, 0 |
+| Rules in play, the unranked tag | 200 / 150 / 1, unranked | the same, and none of its own | the same |
+
+75 of 75 checks on a clean link and 75 of 75 under `lag:120,jitter:40,loss:0.05`. Endless Humans (`RULES_PART=humans`):
+with the Commander fielding heavy helmets and one man made the sonar jammer after he was in the field, every man's gear,
+helmet plate, armour, health, limb pools and rank are the host's on the guest: 36 of 36, clean and under the same bad
+network. The first runs of this proof failed three ways, each a real mistake in the first version of the fix and each
+fixed: the guest's enemy numbers were put back to the standard game's by its own run starting after the host's word; a
+guest's waves are never set up, so setting the numbers through them threw; and the limb pools of a copy whose rank the
+guest had rolled differently. Unit: `team.test.ts` (the rules cross, are cleaned, are set again at run start; the count),
+`crucible.test.ts`, `damage.coop.test.ts` (plates, ranks, the wave, the count), `replicas.test.ts`, `moves.test.ts` and
+`commander/gear.test.ts` (gear).
+
 ### Kill credit and rewards (`world/credit.ts`)
 
 The host decides who did each piece of damage. A kill belongs to, in order: the guest whose claim is being applied; the player
@@ -1567,6 +1635,17 @@ Which rule a death falls under is read off its damage source by one table, `cred
   For a player whose saved keys already use the middle button or P, the ping takes only the one that is free (neither: it starts
   unbound, and they pick a key in Settings), so no saved map ends up with two actions on a key (`loadBindings`). In the dev
   panel P still pauses the Test Range: the panel's keys are off in co-op and the ping does nothing alone.
+
+- **Name tags** (`ui/hud/worldlayer.ts` `stackTags`, the fourth argument of `hud.follow`): two friends in the same direction
+  (one behind the other, or both pinned to the same point of the ring when they are off screen) had one tag printed over the
+  other ("HOST-ONE 38m" over "GUEST-THREE"). Friends' tags that would touch are now set on lines of their own: the first
+  keeps its place, the next goes on the line under it (`--row` on the marker, 1.45 rem a line), a third under that. They are
+  taken lowest on the screen first, so the tag that keeps its line is right under its own pin and no pin sits on another
+  friend's text; a tag that has its line keeps it while two are level, so friends side by side do not swap every frame. Only
+  markers placed as a friend's tag are stacked; pods, caches, prompts and every marker of the solo game are drawn as before.
+- **The now-playing tag** (`ui/css/nowplaying.css`) was drawn over the top edge of the teammates strip for the seven seconds
+  it shows. In a match with a strip it keeps to the screen's edge above it (top 0, 0.9 rem tall; the strip starts at 1 rem).
+  Alone it is where it was.
 
 ### Proofs (`tools/scripts/coop-team-*.mjs`, helpers in `coop-team-kit.mjs`)
 
@@ -2917,14 +2996,28 @@ The `wire` lane will pack these (the poses are thirteen numbers as text).
   dropped on every other screen with the seat; when the same page is back it says again what it still has up, with ages
   (`Callins.resay`; the host passes those on under their own budget of 16 a second and does not wake the Commander again).
   The same number told twice is still one copy.
-- **Copies keep the wall clock.** A copy is born at "now minus age" and each frame is run up to the wall clock since then, not
-  to the sum of that screen's frames (`CallinMirror.update`). More than `BEHIND_S` = 0.25 s behind, it is run forward in steps
-  of 1/30 s, at most 20 s of strike time a frame, with the context quiet (`GhostStats.quiet`: no blast, round, tracer, sound or
-  shake), its rounds in flight advanced with it. So a late joiner's gunship is on the host's place of the circle one frame after
-  it is told, a short strike that is already over is never shown, one in its last moments shows only what is left, and a screen
-  that dropped frames or a tab that was hidden catches up instead of flying late for the rest of the strike. This is the same
-  for every call-in; the gunship's own `clock` news still works and agrees with it. A strike that cannot be run forward blind
-  (it throws) is dropped for that screen, as before the fix: the next one is seen whole.
+- **Copies keep the wall clock, and lose nothing to a hitch** (the second half: lane "fix-tail"). A copy is born at "now
+  minus age" and each frame is run up to the wall clock since then, not to the sum of that screen's frames
+  (`CallinMirror.update`). How it catches up depends on how far behind it is:
+  - **In step** (under `BEHIND_S` = 0.02 s): the frame's own step, nothing more.
+  - **A little behind** (a hitch, a frame rate under 20, a screenshot; under `QUIET_S` = 4 s): the same strike **faster, with
+    everything drawn and heard**: up to `FAST_STEPS` = 2 more steps of the frame's own length a frame, so at most three times
+    speed (four seconds are made up in two). No round, blast or sound of it is left out.
+  - **Far behind** (4 s or more: a tab that was hidden, a long freeze), and **the stretch before a late or returning player
+    was told** (`Copy.late`, the order's `age`): run forward in steps of 1/30 s, at most 20 s of strike time a frame, with the
+    context quiet (`GhostStats.quiet`: no blast, round, tracer, sound or shake), its rounds in flight advanced with it.
+  So a late joiner's gunship is on the host's place of the circle one frame after it is told, a short strike that is already
+  over is never shown, one in its last moments shows only what is left, and a screen that dropped frames catches up instead
+  of flying late for the rest of the strike. The gunship's own `clock` news still works and agrees with it. A strike that
+  cannot be run forward blind (it throws) is dropped for that screen: the next one is seen whole.
+  **The bug this replaced (2026-11-19):** the quiet path began at 0.25 s behind, so any ordinary hitch on a watcher's screen
+  during an airstrike's volley cost that screen its rockets and their blasts, and one near the end cost the finale. The
+  call-ins matrix showed it as "the host's copy of a guest's airstrike fires 10, then 8, of 15 rockets": the watcher that
+  lost them was always the one the proof took its picture on (a 1440x900 dpr 2 screenshot freezes a page for 0.6 to 2.9 s),
+  the other watcher always had 15. A unit test holds it (`copies.test.ts`: 0.7 s of hitch in the volley, 8 of 15 on the old
+  code, 15 of 15 now; the same test on the code before the wall clock: 15). `mirror.stats.fast` and `.skipped` count the
+  seconds made up drawn and run unseen; the matrix prints them per watcher and counts each watcher's rounds and blasts
+  against the caller's own.
 - **The uplink jammer holds every player.** A guest has no radio men of its own, so its game goes by the host's word
   (`commander:status`, flag `uplink`, already mirrored and told to an arriving player by `villain.ts`): `uplinkJammed()` in
   `callins/link.ts`. A guest's call under the jammer reads "HELD: UPLINK JAMMED" and goes when the jammer stops or after the
@@ -2932,11 +3025,17 @@ The `wire` lane will pack these (the poses are thirteen numbers as text).
 - **The missile an enemy fires at an aircraft** is told by the aircraft's own game as news of that call-in: `aa` (it left from
   here) and `aax` (it burst there: on the aircraft, on a flare, or spent). Every screen flying a copy flies a missile of its own
   from the same spot at its copy (the same speed, climb and turn as `antiAir.ts`), and ends it where the caller's ended.
-- **The skyhook** tells a player who arrives of a drone still on its way, with the seconds it has left (`Skyhook.catchUp`).
+- **The skyhook** tells a player who arrives of a drone still on its way, with the seconds it has left (`Skyhook.catchUp`),
+  and of one that already has its man, with the seconds since (a negative `in`, down to `-AFTER` = -4.5 s: he hangs from the
+  hook that long before he is out of sight). The copy joins the pass that far past the hook with the man on the line, and
+  plays no snatch (`AirliftCopy.begin` with a negative lead). Before this a player arriving in those seconds saw a cuffed
+  man rise into the air with no drone and no line.
 
 **Not mirrored:** enemy helicopters fighting a guest's helicopter (vehicles are the host's); a mission's rides, where every
-player mans their own copy. A late joiner does not see rounds that were already in flight when they arrived, nor a prisoner
-already on the hook (he is simply gone).
+player mans their own copy. A late joiner does not see rounds that were already in flight when they arrived: decided, not
+forgotten. A round is in the air for under two seconds and a page takes eight or more to arrive, its blast and its damage
+reach the newcomer anyway (`boom`, the enemies' states), and telling them would mean a list of every round in flight kept
+on the host for a picture nobody is there to miss.
 
 Files: `src/progression/callins/link.ts` (the plain-number types both sides share), `ghost.ts`, `mirror.ts`, each strike's
 `news`/`tell` (`shared.ts` `StrikeNet`), `src/frame/puppet.ts`, `src/enemies/outpost/airlift.ts` (`AirliftCopy`),
@@ -3165,7 +3264,14 @@ player who gave it; an ally told to follow by a guest stops following the host.
 
 **Not done:** the squads still share one picture of where "the player" is (`Outpost.intel`): it is now fed by every soldier's
 sight of his own quarry and every player's noise, so it moves between players rather than tracking each. A guest's time in a
-room (`lastRoom`) and high ground are read only from their notebook. Flashbang openings are still the host's own eyes.
+room (`lastRoom`) and high ground are read only from their notebook.
+
+**A flashbang's opening is the blinded player's** (lane "fix-tail"). The bang goes off on every screen and each player's own
+eyes decide (`Suppression.flash`). The men used to take the opening by the host's eyes alone: a guest blind in a room was
+left be, and the host blinded sent every squad in, the ones fighting a guest across the map too. Now the host's own eyes are
+the host's opening (`seizeOpening(..., own())`), and a guest whose eyes were caught says so (`note` kind `blind`, sent by
+`Crowd.blinded()` from `warnings.ts`), which the host hands to the Outpost as that guest's (`Outpost.told`): only the squads
+fighting the blinded player go in. Alone nothing changed (no "whose": every squad in contact, as always).
 
 **Tests:** `src/enemies/commander/books.test.ts` (8), `crowd.test.ts` (12, the real Commander), `src/enemies/focus.coop.test.ts`
 (3), `src/net/world/crowd.test.ts` (7), `allyOrders.test.ts` (6). **Proof:** `tools/scripts/coop-fixgame-villain.mjs`
@@ -3722,7 +3828,7 @@ Damage vectors are arrays. Other inputs retain the existing `DamageInfo` names: 
 sever/headshot multipliers, penetration flags, blast reach/kind, explosion ID and optional slice plane. No second AP/HP or Raufoss
 damage implementation exists: accepted claims call the host's normal `applyDamage`. Guests return a local predicted plate stop to
 their firing code, so Raufoss's existing behind-the-plate pellet path also submits its component hits. The host is the only side
-that spends armour/health. Prediction does not kill a guest's replica before the host confirms it.
+that spends armour/health. (When this stage was written prediction did not kill a guest's replica before the host confirmed it. It does now, by default, within the limits in "Gore on every screen", "Kill prediction".)
 
 The loose friends-only validator requires a known weapon, admitted living sender, monotonically increasing/rate-limited fire,
 the matching recent shot, bounded finite inputs, a plausible hit point and origin, a 350 m maximum range, world line of sight

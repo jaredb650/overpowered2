@@ -143,6 +143,12 @@ export const PROOFS = [
   P('fixhits-predict', 'fixes', 'coop-fixhits-predict', { players: 3, env: { PREDICT_SIM: 'off' }, sim: sim('PREDICT_SIM'), tag: 'PREDICT_TAG', t: 1500 }),
   P('fixgame-villain', 'fixes', 'coop-fixgame-villain', { mode: 'outpost', count: 'COOP_PLAYERS', t: 700 }),
   P('fixgame-notice', 'fixes', 'coop-fixgame-notice', { sim: null, ...look, t: 400 }),
+  // fix-tail: the rules of the run on a guest (the Crucible's custom rules, wave scaling, the count, the shop; what each
+  // man wears in Endless Humans), and the small leftovers (name tags, the now-playing tag, a corpse, a flashbang, the skyhook)
+  P('fixtail-rules', 'fixes', 'coop-fixtail-rules', { players: 3, ...look, t: 600 }),
+  P('fixtail-rules/humans', 'fixes', 'coop-fixtail-rules', { mode: 'outpost', env: { RULES_PART: 'humans' }, ...look, t: 600 }),
+  P('fixtail-small', 'fixes', 'coop-fixtail-small', { players: 3, ...look, t: 600 }),
+  P('fixtail-small/humans', 'fixes', 'coop-fixtail-small', { mode: 'outpost', players: 3, env: { SMALL_PART: 'humans' }, ...look, t: 600 }),
   P('motion-vehicles', 'enemy-motion', 'coop-motion-vehicles', { mode: 'defense', t: 500 }),
   P('wire-stall', 'wire', 'coop-wire-stall', { players: 4, sim: null, w: 960, h: 540, t: 700, slow: true }),
   P('wire-heavy', 'wire', 'coop-wire-heavy', { players: 4, sim: sim('WIRE_SIM'), env: { WIRE_PROFILE: '0' }, tag: 'WIRE_TAG', w: 960, h: 540, t: 500 }),

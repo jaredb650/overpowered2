@@ -757,7 +757,7 @@ Each: what fails, where, how many players, which network, the evidence, the caus
    stays until the world is at full speed" could not fail. It now notes it whenever it goes, and adds "no screen was slow at
    any moment with no notice up" (the notice counts as up while it says WORLD BACK TO FULL SPEED, which it does through the
    0.45 s blend back; the words are a little early, the notice is there).
-4. Seen in a picture, small: two teammates in the same direction overlap their name tags on the HUD (Office, guest's view:
+4. **FIXED (fix-tail, see its log entry).** Seen in a picture, small: two teammates in the same direction overlap their name tags on the HUD (Office, guest's view:
    "HOST-ONE 38m" printed over "GUEST-THREE"). Not fixed.
 - 2026-11-19, 03:20: with fast mode and the pretend pointer lock a proof costs a fraction of what it did (three runs: load 5, 37 GB free), and the queue was the bottleneck (6 runs waiting). Browser slots raised from 3 to 6; the memory floor in `tools/shot.mjs` (no run starts under 10 GB available, the owner's figure; it was 20) still protects the other person. Every agent: rebase to pick it up.
 - 2026-11-19, fix-session, the browser proofs on the landed code (`tools/scripts/coop-fixsession-return.mjs`, `-reload.mjs`,
@@ -980,3 +980,53 @@ Each: what fails, where, how many players, which network, the evidence, the caus
    `Cannot read properties of undefined (reading '0')` 62 times in the 30 s window (the proof's "No page exceptions" check);
    three more runs of the same scene had none. The kit now keeps the stack of each distinct page exception in the evidence
    (`out.stacks`), so the next time it happens it can be placed.
+- 2026-11-19, fix-tail (the leftovers of the fix agents: the airstrike copy, the host's rules on a guest, the small things,
+  the late joiner's gaps). Landed in steps; the full account is in `docs/notes/coop.md` ("Call-ins on every screen", "The
+  rules of the run are the host's", "Co-op HUD", "The enemy side and every player", "Kill prediction").
+  - **1. The airstrike copy that fired 10, then 8, of 15 rockets: found and fixed.** The cause was fix-session's change that
+    makes a copy keep the wall clock (`c54226e`), not the budgets and not the wire: a copy more than 0.25 s behind its
+    caller's was run forward **without picture or sound**, so any hitch on a watcher's screen during the volley cost that
+    screen its rockets and blasts. The watcher that lost them was always the one the proof took its picture on (a 1440x900
+    dpr 2 screenshot freezes a page 0.6 to 2.9 s); the other watcher always had 15. Bisected with a unit test in place of
+    the browser (0.7 s of hitch in the volley: 8 of 15 on the tip, 15 on the code before `c54226e`, 15 now). **Fix:** a copy
+    under 4 s behind makes the time up drawn and heard, at up to three times speed; only a copy 4 s or more behind, and the
+    stretch a late or returning player was never there for, is run unseen. **Every other call-in checked for the same
+    loss:** the matrix now counts each watcher's rounds and blasts against the caller's own, and prints the seconds each
+    copy made up or skipped. Three pages, loopback, clean: 333 of 333 checks; airstrike 15 of 15 rockets and 16 of 16
+    blasts on every watcher, both callers; Warthog 50 of 50; gunship 167 of 167 and 129 of 129 blasts; nothing skipped
+    anywhere. Bad network and real WebRTC: LAG3_AND_RTC.
+  - **2. A guest's page and the host's agree on the rules of the run: audited, six gaps found, all fixed.** The table is in
+    the note. In short: the host's Crucible rules now cross in `sync` and a guest plays them, never its own saved ones; a
+    guest's manager is on the host's wave; a guest's "enemies left" is the host's count (it showed 8 where the host said
+    31); a copy's plates are sized to the host's health; a copy's limb pools are put right for the host's rank; and each
+    man's gear (the jammer's whip, the spotter's designator, the rigged man's vest, the visor, the heavy helmet) is the
+    host's word, where a guest dressed its copies by its own dice and its own Commander, so **none of the villain's tells
+    was on the right man on a guest's screen**. Already the host's, checked and left: the wave, the shop's locks, prices
+    and pay, the damage a guest takes, Outpost Defense. Proof `coop-fixtail-rules.mjs`: a host on custom rules (health
+    200 %, damage 150 %, helmets from wave 1), a guest whose own saved rules are different, wave 1 and wave 21, and a late
+    joiner: 75 of 75 clean and 75 of 75 under `lag:120,jitter:40,loss:0.05`; Endless Humans (gear): 36 of 36 both ways.
+    The proof's first runs failed three ways, each a real mistake in my first version (see the note).
+  - **3. The small things.** Name tags of two friends in the same direction are two lines (`stackTags`; the lower pin
+    first, so no pin sits on a tag). A flashbang's opening is the blinded player's (a guest says `note blind`; only the
+    squads fighting that player go in). A rack a guest took behind a dropped line is said again on `sync`. A friend's
+    rounds into a corpse are proven in the browser (17 rounds marked on the watcher's own body, both ways round). The
+    now-playing tag keeps to the edge above the teammates strip. `coop.md` says plainly that kill prediction is **on by
+    default**, with the switch, what is never predicted and the measured numbers. Proof `coop-fixtail-small.mjs`, three
+    players: the Crucible half 18 of 18 clean and 17 of 17 under the bad network (run before the last tag check was
+    added), the Endless Humans half 19 of 19 both ways.
+  - **4. A late joiner's gaps: one done, one decided against.** A prisoner already on the skyhook is shown on the line
+    (the drone, the line, the man going up) for the 4.5 s he hangs there: the host's catch-up tells the pass with a negative
+    lead. Proven in the browser by having one guest forget the pass and the host's catch-up run for it half a second after
+    the hook: its drone is within 0.1 m of the other guest's. **Rounds in flight are not caught up, on purpose:** a round
+    is in the air under two seconds, a page takes eight or more to arrive, and its blast and damage reach the newcomer
+    anyway.
+  - **Decisions the lead may overrule:** 4 s as the line between "make it up drawn" and "skip it unseen" (a look call: a
+    3 s freeze now ends in 1.5 s of a strike at triple speed); the now-playing tag is made smaller in co-op rather than the
+    strip moved (the strip's stack under it was measured by fix-game's proof and is untouched); a mission's threat level
+    is not sent to guests (nothing a guest shows depends on it).
+  - **Not done or not proven:** a copy made part-way through a fight has whole plates where the host's are worn; the
+    flashbang and name-tag checks were not run over WebRTC or with four players; `coop-all.mjs` lists the four new runs
+    but I did not run them through the runner (each was run by hand through `shot.mjs`). Single player: every change is
+    behind "in a co-op match" or a guest-only path, read line by line (`Commander.onSpawn`, `Outpost.updateBangs`,
+    `EnemyManager.remaining`, `WorldLayer.update`), and the whole suite is green; I did not re-run verify-solo's browser
+    comparison.
