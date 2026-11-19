@@ -343,3 +343,148 @@ describe('big stains', () => {
     expect(blood.bigLaid).toBe(0);
   });
 });
+
+describe('blood that reacts', () => {
+  /** A floor at y 0 that ends at x = `edge`, and a ceiling at y 3 if asked. Drips and what is laid are counted. */
+  function stage(edge = Infinity, ceiling = false) {
+    const calls = { drips: [] as THREE.Vector3[], trails: 0, splats: 0, hits: 0, big: [] as string[] };
+    const time = { elapsed: 0 };
+    const ctx = makeCtx({
+      time: time as unknown as ReturnType<typeof makeCtx>['time'],
+      fx: {
+        bloodSpray() {}, bloodPuff() {},
+        bloodDrip: (p: THREE.Vector3) => calls.drips.push(p.clone()),
+        bloodHit: () => calls.hits++,
+      } as unknown as ReturnType<typeof makeCtx>['fx'],
+      physics: {
+        raycastInto(o: THREE.Vector3, d: THREE.Vector3, max: number, _g: number, hit: { point: THREE.Vector3; normal: THREE.Vector3; distance: number }) {
+          let t = Infinity;
+          let ny = 1;
+          if (d.y < 0 && o.y > 0) {
+            const k = -o.y / d.y;
+            if (o.x + d.x * k < edge) t = k;
+          }
+          if (ceiling && d.y > 0 && o.y < 3 && (3 - o.y) / d.y < t) {
+            t = (3 - o.y) / d.y;
+            ny = -1;
+          }
+          if (!(t <= max)) return false;
+          hit.point.copy(o).addScaledVector(d, t);
+          hit.normal.set(0, ny, 0);
+          hit.distance = t;
+          return true;
+        },
+      } as unknown as ReturnType<typeof makeCtx>['physics'],
+      render: {
+        decals: {
+          add() {}, clear() {}, big: (kind: string) => calls.big.push(kind),
+          splat: (_p: THREE.Vector3, _n: THREE.Vector3, _s: number, _v: THREE.Vector3, how = 'drop') => (how === 'trail' ? calls.trails++ : calls.splats++),
+        },
+      } as unknown as ReturnType<typeof makeCtx>['render'],
+    });
+    const blood = new BloodField(ctx);
+    const run = (seconds: number, each?: () => void) => {
+      for (let t = 0; t < seconds; t += 1 / 60) {
+        time.elapsed += 1 / 60;
+        each?.();
+        blood.update(1 / 60);
+      }
+    };
+    return { blood, calls, run, time };
+  }
+
+  it('a wounded man who walks leaves a trail of drops, a line a stride, and one who stands only drips', () => {
+    const still = stage();
+    const man = body();
+    still.blood.bleed(man.bones[1]!, new THREE.Vector3(0, 1.2, 0), 20, 0.4, man.root);
+    still.run(3);
+    expect(still.calls.trails).toBe(0);
+    expect(still.calls.drips.length).toBeGreaterThan(2);
+
+    const walking = stage();
+    const walker = body();
+    walking.blood.bleed(walker.bones[1]!, new THREE.Vector3(0, 1.2, 0), 20, 0.4, walker.root);
+    walking.run(4, () => {
+      walker.root.position.x += 3 / 60;
+      walker.root.updateMatrixWorld(true);
+    });
+    // 12 m at a line every 0.9 m, less the first stride before the wound's first drop.
+    expect(walking.calls.trails).toBeGreaterThanOrEqual(10);
+    expect(walking.calls.trails).toBeLessThanOrEqual(13);
+  });
+
+  it('two wounds on one man are one trail, not two side by side', () => {
+    const { blood, calls, run } = stage();
+    const man = body();
+    blood.bleed(man.bones[1]!, new THREE.Vector3(0, 1.2, 0), 20, 0.4, man.root);
+    blood.bleed(man.bones[1]!, new THREE.Vector3(0.1, 1.0, 0), 20, 0.4, man.root);
+    run(4, () => {
+      man.root.position.x += 3 / 60;
+      man.root.updateMatrixWorld(true);
+    });
+    expect(calls.trails).toBeLessThanOrEqual(14);
+  });
+
+  it('blood thrown onto a ceiling drips back down for a while, then stops', () => {
+    const { blood, calls, run } = stage(Infinity, true);
+    blood.bigRay('burst', new THREE.Vector3(0, 1.5, 0), new THREE.Vector3(0, 1, 0), 3, 2);
+    run(0.1);
+    // On a ceiling it is a burst, not a wall's sheet with runs.
+    expect(calls.big).toEqual(['burst']);
+    expect(blood.dripping).toBe(1);
+    run(8);
+    expect(calls.drips.length).toBeGreaterThan(4);
+    // From the ceiling, under where it hit.
+    for (const p of calls.drips) expect(p.y).toBeGreaterThan(2.9);
+    run(30);
+    expect(blood.dripping).toBe(0);
+  });
+
+  it('a pool at a ledge runs over it and drips to the floor below; one in the open does not', () => {
+    const open = stage();
+    open.blood.pool(new THREE.Vector3(0, 0.1, 0), 2, 3);
+    open.run(6);
+    expect(open.blood.dripping).toBe(0);
+    const ledge = stage(0.5);
+    ledge.blood.pool(new THREE.Vector3(0, 0.1, 0), 2, 3);
+    ledge.run(1);
+    // Not before the pool has spread to the edge.
+    expect(ledge.calls.drips).toHaveLength(0);
+    expect(ledge.blood.dripping).toBe(1);
+    ledge.run(10);
+    expect(ledge.calls.drips.length).toBeGreaterThan(3);
+    // Just past the lip, just under the floor.
+    for (const p of ledge.calls.drips) {
+      expect(p.x).toBeGreaterThan(0.5);
+      expect(p.y).toBeLessThan(0);
+    }
+  });
+
+  it('what lands in a pool throws a splash; on a dry floor it only stains; and two a frame is the most', () => {
+    const { blood, calls, run } = stage();
+    const at = new THREE.Vector3(0.2, 0.15, 0);
+    blood.stainBelow(at, 0.3);
+    expect(blood.splashed).toBe(0);
+    blood.pool(new THREE.Vector3(0, 0.1, 0), 2, 3);
+    run(0.1);
+    for (let i = 0; i < 5; i++) blood.stainBelow(at, 0.3);
+    expect(blood.splashed).toBe(BloodTuning.splashesPerFrame);
+    expect(calls.hits).toBe(BloodTuning.splashesPerFrame);
+    run(0.5);
+    // The drops it threw came down round it.
+    expect(calls.splats).toBeGreaterThan(4);
+    expect(blood.splash(new THREE.Vector3(8, 0.1, 0), 1)).toBe(false);
+  });
+
+  it('a body that comes to rest in another\'s blood is soaked in it', () => {
+    const { blood, run } = stage();
+    let wet = 0;
+    const char = { ...body(), setBloodiness: (v: number) => { wet = v; } } as unknown as CharacterInstance;
+    expect(blood.soakBody(char, new THREE.Vector3(0, 0.1, 0))).toBe(false);
+    blood.burst(new THREE.Vector3(0, 1.2, 0), new THREE.Vector3(1, 0, 0), 2.4);
+    run(0.1);
+    expect(blood.soakBody(char, new THREE.Vector3(0.2, 0.1, 0))).toBe(true);
+    expect(wet).toBeGreaterThanOrEqual(0.9);
+  });
+});
+

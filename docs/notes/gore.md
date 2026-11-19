@@ -577,6 +577,34 @@ blood.bigRay(kind, origin, dir, maxDist, size, along?, delay?, minor?);   // wha
   mark from every round") takes the per-hit fan away.
 - Tests: `blood.test.ts`, "big stains". Scenes: `tools/scripts/decal-scenes.mjs` (the same seeded kills on any build).
 
+### Blood that reacts (2026-11-19, the gore update's B1, B2, B4)
+
+All of it is `BloodField` and `Tracks` (`blood.ts`, `tracks.ts`), from events the game already has; every screen makes its own
+and nothing is sent.
+
+- **A wounded man who walks leaves a trail.** Each dripping wound (`bleed`) remembers where its last drop fell. Once the
+  wound is `trailFrom` (0.9 m) from there, a `trail` pattern is laid along the way he came (a line of five or six drops, one
+  decal), whatever the wound's timer says; standing still he only drips, as before. Two wounds on one body are one trail.
+  Inside the drip budget (6 a frame). `?hitblood=0` turns it off with the per-hit fan.
+- **Wet spots.** A pool, and a kill's big stain on a floor (burst, soak, ring, fan), is remembered as wet for 75 s
+  (`wetFor`; 32 spots, `wetAt(x, y, z)`): what a foot can step in and a falling piece can splash in.
+- **Footprints** (`Tracks`). A foot that comes down in a wet spot is wet for 12 steps (`TrackTuning.steps`); each step
+  after it leaves a boot print (`decals.print`, 0.38 m, left and right, toe the way he faces), each fainter than the last
+  (`printThin`: the lugs thin out and drop away), then none. The player's steps are the stride his footstep sounds use
+  (`stridePhase`); an enemy's are its animator's foot plants (`Gore.footfall`, from `CharacterLibrary.wireGround`; boots
+  only, not machines, creatures or a crawler's hands). Enemy prints are rationed to 14 a second, within 30 m of the player;
+  a foot too far or over the ration dries all the same. One ray and one decal a print.
+- **A slide** through a wet spot picks blood up and lays it back as long smears, one every 0.7 m, each fainter
+  (`decals.wipe`), two steps of blood a smear.
+- **Drips from above.** Blood thrown onto a ceiling (a big stain, or a ray stain of 0.3 m and up) drips back down from
+  there for 6 to 22 s, slower as it runs out (`dripFrom`, 16 at once). A pool laid within reach of a drop (four rays round
+  it) runs over the edge: drops fall from the lip for 25 to 40 s, starting when the pool has spread that far.
+- **Splashes.** Whatever stains the floor under it as it lands (a limb, a piece: `stainBelow`) throws a splash if that
+  floor is a wet spot: a crown of strands (`fx.bloodHit` upward) and 4 to 8 drops that stain round it. Two a frame.
+- **Soaked bodies.** A body that comes to rest in a wet spot that was there before it is as bloody as a body gets
+  (`soakBody`, bloodiness 0.9), before it lays its own patch.
+- Tests: `tracks.test.ts`; `blood.test.ts`, "blood that reacts". Scenes: `decal-scenes.mjs` `prints` and `walk`.
+
 ## Forces
 
 Measured throws per weapon are in `docs/notes/lab.md`. A body is 85 kg, and gravity is 19, twice the real thing, which is the fact everything below comes back to.

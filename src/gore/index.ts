@@ -16,6 +16,7 @@ import { DevFlags } from '../core/devflags';
 import { clamp, rand, randomInCone, randomUnit } from '../core/math';
 import { WEAPONS } from '../weapons/data';
 import { BloodField, BloodTuning } from './blood';
+import { Tracks } from './tracks';
 import { ChunkField, scatter, type ChunkKind } from './chunks';
 import { ImpactEvents, impactKind, ImpactTuning } from './impacts';
 import { CollapseDrive, impactStrength, MASS_PASS, MuscleTuning, STAND_PASS, STRENGTH_PASS, WEIGHT_PASS, type CollapseOptions, type DownedBody, type KnockdownOptions, type LimbStrength } from './muscles';
@@ -411,6 +412,8 @@ export class Gore implements GoreSystem {
   private stumpAt = 0;
   private pins: PendingPin[] = [];
   readonly blood: BloodField;
+  /** Blood carried on feet: prints and slide smears. */
+  readonly tracks: Tracks;
   readonly chunks: ChunkField;
   readonly sliced: SliceField;
   /** Guts: loose strands from a gib, and strands hanging from opened bellies (rope.ts). */
@@ -441,6 +444,7 @@ export class Gore implements GoreSystem {
 
   constructor(private readonly ctx: Ctx) {
     this.blood = new BloodField(ctx);
+    this.tracks = new Tracks(ctx, this.blood);
     this.impacts = new ImpactEvents(ctx);
     this.trail = new GibTrail(ctx);
     this.chunks = new ChunkField(ctx, this.blood, this.impacts, this.trail);
@@ -1074,6 +1078,8 @@ export class Gore implements GoreSystem {
     if (!b.pooled && !isMachine(b.char)) {
       b.pooled = true;
       const at = b.rag ? b.rag.center : _v.setFromMatrixPosition(b.char.bones[0]!.matrixWorld);
+      // Lying in blood that was there before it, it soaks it up.
+      this.blood.soakBody(b.char, at);
       // The patch it has soaked into the floor is there at once; the pool then spreads out of it.
       this.blood.soak(at, rand(1.3, 1.8));
       this.blood.pool(at, rand(1.2, 1.9), 4.5);
@@ -1871,6 +1877,15 @@ export class Gore implements GoreSystem {
     }
   }
 
+  /** A character's foot came down: if it is wet with blood it leaves a print. Enemies face +Z turned by their root. */
+  footfall(char: CharacterInstance, x: number, y: number, z: number, strength: number): void {
+    // Boots only: not a machine's feet, not a creature's many legs, not a crawling man's hands (the animator's lightest plants).
+    if (strength <= 0.25 || !canCrawl(char)) return;
+    const q = char.root.quaternion;
+    // The root's +Z in the world, flat.
+    this.tracks.footfall(char, x, y, z, 2 * (q.x * q.z + q.w * q.y), 1 - 2 * (q.x * q.x + q.y * q.y));
+  }
+
   /**
    * A big round through the trunk (`blowsOut`): the body stays, and the far side opens on the ribs and the spine, with
    * pieces, two of the ribcage's fragments, an organ and blood thrown out of it. An opened belly is left with its guts out.
@@ -2500,6 +2515,7 @@ export class Gore implements GoreSystem {
     this.updateStumps();
     this.ropes.update(dt);
     this.blood.update(dt);
+    this.tracks.update(dt);
     this.chunks.update(dt);
     this.sliced.update(dt);
     // After everything that flies has said where it is: the ribbons move on, and the spurts' layer draws them with its own.
@@ -2612,6 +2628,7 @@ export class Gore implements GoreSystem {
       s.emitter = null;
     }
     this.blood.clear();
+    this.tracks.clear();
     this.chunks.clear();
     this.sliced.clear();
     this.ropes.clear();

@@ -3,7 +3,7 @@ import type { DecalKind, DecalSystem } from '../core/contracts';
 import type { MaterialPatcher, ShaderHook } from './materials/patch';
 import type { BakedSet } from './materials/TextureBaker';
 import {
-  BIG_CELLS, BIG_ROOT, CELL, CELL_COUNT, DRAG_ASPECT, Flag, KIND_CELLS, chooseSplat, flagOf, flipsOf, isBloodCell, lipOf, type BigKind, type SplatHow,
+  BIG_CELLS, BIG_ROOT, CELL, CELL_COUNT, DRAG_ASPECT, Flag, KIND_CELLS, chooseSplat, flagOf, flipsOf, isBloodCell, lipOf, printThin, type BigKind, type SplatHow,
 } from './decalSheet';
 import {
   DECAL_FRAG_MAIN, DECAL_FRAG_PARS, DECAL_LIGHT, DECAL_METALNESS, DECAL_NORMAL, DECAL_ROUGHNESS, DECAL_VERT_MAIN, DECAL_VERT_PARS,
@@ -101,6 +101,13 @@ declare module '../core/contracts' {
      * second) puts it with the small stains instead.
      */
     big(kind: BigKind, position: THREE.Vector3, normal: THREE.Vector3, size: number, dir?: THREE.Vector3, minor?: boolean): void;
+    /**
+     * A boot print `size` metres long, toe along `dir`, the left foot's or the right's. `fade` 0..1 is how much of the
+     * blood had gone from the sole: the lugs thin out and drop away.
+     */
+    print(position: THREE.Vector3, normal: THREE.Vector3, size: number, dir: THREE.Vector3, left: boolean, fade: number): void;
+    /** A smear (`bloodSmear`) with less blood in it: `thin` 0.5 is as drawn, 1 the faintest. */
+    wipe(position: THREE.Vector3, normal: THREE.Vector3, size: number, rotation: number, thin: number): void;
   }
 }
 
@@ -343,6 +350,31 @@ export class Decals implements DecalSystem {
       (ny * tz - nz * ty) * wide, (nz * tx - nx * tz) * wide, (nx * ty - ny * tx) * wide,
       lipOf(cell, wide),
     );
+  }
+
+  print(position: THREE.Vector3, normal: THREE.Vector3, size: number, dir: THREE.Vector3, left: boolean, fade: number): void {
+    const inv = 1 / Math.hypot(normal.x, normal.y, normal.z);
+    const nx = normal.x * inv, ny = normal.y * inv, nz = normal.z * inv;
+    const into = dir.x * nx + dir.y * ny + dir.z * nz;
+    let tx = dir.x - nx * into, ty = dir.y - ny * into, tz = dir.z - nz * into;
+    const tl = Math.hypot(tx, ty, tz);
+    if (tl < 1e-3) return;
+    tx /= tl;
+    ty /= tl;
+    tz /= tl;
+    // Now and then the foot slid as it came down. The sole is a third as wide as it is long; the cell is square.
+    const cell = CELL.print + (Math.random() < 0.2 ? 1 : 0);
+    this.write(
+      this.ringOf.blood, cell, Flag.Blood, position, nx, ny, nz,
+      tx * size, ty * size, tz * size,
+      (ny * tz - nz * ty) * size, (nz * tx - nx * tz) * size, (nx * ty - ny * tx) * size,
+      lipOf(cell, size), printThin(fade), left ? 2 : 0,
+    );
+  }
+
+  wipe(position: THREE.Vector3, normal: THREE.Vector3, size: number, rotation: number, thin: number): void {
+    const [first, variants] = KIND_CELLS.bloodSmear;
+    this.lay(this.ringOf.blood, first + Math.floor(Math.random() * variants), Flag.Blood, position, normal, size, size, rotation, thin);
   }
 
   /** A big enough stain on a wall runs. Bigger stains feed more runs. */

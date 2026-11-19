@@ -146,6 +146,15 @@ export function flipsOf(cell: number): number {
   return along ? 2 : 3;
 }
 
+/**
+ * How thin a boot print is drawn (the `thin` of a decal) for a sole that has lost `fade` of its blood, 0..1. A print's
+ * lugs are narrow, so a small step in the threshold drops a row of them: the first print is whole, the twelfth a few
+ * broken bars.
+ */
+export function printThin(fade: number): number {
+  return 0.3 + 0.52 * Math.min(Math.max(fade, 0), 1);
+}
+
 /** What made a stain, for the choice of its shape. */
 export type SplatHow = 'drop' | 'mist' | 'cast' | 'arc' | 'trail';
 

@@ -389,12 +389,12 @@ void cellPrint(vec2 p, uint seed, int v, inout Blood b) {
   float sole = max(fore, heel);
   // Inside: bars, broken down the middle. At the edge: a row of blocks.
   float inner = q.x > -0.3
-    ? min((cos((q.x + 0.4 * abs(q.y)) * 40.0) - 0.15) * 0.018, (abs(q.y) - 0.022) * 0.7)
-    : (cos(q.x * 46.0) - 0.1) * 0.016;
+    ? min((cos((q.x + 0.4 * abs(q.y)) * 40.0) - 0.05) * 0.034, (abs(q.y) - 0.022) * 0.7)
+    : (cos(q.x * 46.0) - 0.02) * 0.03;
   inner = min(inner, sole - 0.07);
-  float blocks = min(0.026 - abs(sole - 0.03), (cos(atan(q.y, q.x - (q.x > -0.3 ? 0.36 : -0.6)) * (q.x > -0.3 ? 15.0 : 11.0)) - 0.2) * 0.03);
+  float blocks = min(0.026 - abs(sole - 0.03), (cos(atan(q.y, q.x - (q.x > -0.3 ? 0.36 : -0.6)) * (q.x > -0.3 ? 15.0 : 11.0)) - 0.1) * 0.045);
   float press = fbm(q * 0.5 + 0.5, ivec2(4), 3, seed);
-  float d = max(inner, blocks) - (0.55 - press) * (v == 1 ? 0.22 : 0.1);
+  float d = max(inner, blocks) - (0.55 - press) * (v == 1 ? 0.2 : 0.07);
   if (v == 1) d = max(d, (fbm(vec2(q.x * 0.2 + 0.5, q.y * 0.5 + 0.5), ivec2(2, 24), 2, seed + 4u) - 0.72) * 0.1 + min(sole, 0.0));
   b.t = max(b.t, 0.4 * clamp(d / 0.02, 0.0, 1.0));
   b.d = max(b.d, d);

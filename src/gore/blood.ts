@@ -53,8 +53,16 @@ export const BloodTuning = {
   /** Bursts this close together in time (s) and space (m) are one blast: the second lays a ring round them all. */
   ringWindow: 0.25,
   ringReach: 4.5,
-  /** A wounded man who has walked this far since his wound's last drop leaves a trail of them, not one. */
-  trailFrom: 0.45,
+  /** A wounded man who has walked this far (m) since his wound's last drop leaves a trail of them, not one. */
+  trailFrom: 0.9,
+  /** Places remembered as wet: what a foot can step in and a falling piece can splash in. The oldest is forgotten. */
+  maxWet: 32,
+  /** Seconds a big stain or a pool stays wet enough to step in or splash. */
+  wetFor: 75,
+  /** Points that drip at once: blood on a ceiling, a pool at a ledge. */
+  maxDrippers: 16,
+  /** Splashes a frame. */
+  splashesPerFrame: 2,
 };
 
 /**
@@ -85,6 +93,26 @@ interface Bleeder {
   /** Seconds between drops at the start. It slows as the wound clots. */
   every: number;
   start: number;
+  /** Where its last drop fell from, to tell a man who is walking. `far`: none yet. */
+  lx: number;
+  lz: number;
+  far: boolean;
+}
+
+/** Blood somewhere it can only fall from: a ceiling, the lip of a ledge. Drips until it has run out. */
+interface Dripper {
+  x: number; y: number; z: number;
+  start: number;
+  until: number;
+  next: number;
+  every: number;
+}
+
+/** Somewhere wet: `r` metres round (x, y, z), until `until`. */
+interface WetSpot {
+  x: number; y: number; z: number;
+  r: number;
+  until: number;
 }
 
 interface Pool {
@@ -112,13 +140,16 @@ interface BigRay {
   dx: number; dy: number; dz: number;
   maxDist: number;
   size: number;
-  kind: BigKind | SplatHow;
+  kind: BigKind | SplatHow | 'print';
   /** The way it was thrown: what the stain is turned along. */
   ax: number; ay: number; az: number;
   /** World time it is laid at. */
   at: number;
   /** One round's mark, not a kill's: it goes with the small stains (`decals.big`). */
   minor: boolean;
+  /** A footprint: how faint, 0..1, and whether it is the left foot's. */
+  fade: number;
+  left: boolean;
 }
 
 const BIG_KINDS: ReadonlySet<string> = new Set<BigKind>(['burst', 'fan', 'soak', 'sheet', 'drag', 'ring']);
@@ -150,7 +181,7 @@ export class BloodField {
   private queueHead = 0;
   private queueLen = 0;
   private readonly bigs: BigRay[] = Array.from({ length: BloodTuning.maxBig }, () => ({
-    ox: 0, oy: 0, oz: 0, dx: 0, dy: -1, dz: 0, maxDist: 0, size: 0, kind: 'burst' as BigKind | SplatHow, ax: 0, ay: 0, az: 0, at: 0, minor: false,
+    ox: 0, oy: 0, oz: 0, dx: 0, dy: -1, dz: 0, maxDist: 0, size: 0, kind: 'burst' as BigKind | SplatHow | 'print', ax: 0, ay: 0, az: 0, at: 0, minor: false, fade: 0, left: false,
   }));
   private bigLen = 0;
   /** Big stains laid since the last `clear`. For checks. */
@@ -166,8 +197,16 @@ export class BloodField {
   private rays = 0;
   raysUsed = 0;
   private readonly bleeders: Bleeder[] = Array.from({ length: BloodTuning.maxBleeders }, () => ({
-    target: null, owner: null, local: new THREE.Vector3(), until: 0, next: 0, every: 1, start: 0,
+    target: null, owner: null, local: new THREE.Vector3(), until: 0, next: 0, every: 1, start: 0, lx: 0, lz: 0, far: true,
   }));
+  private readonly drippers: Dripper[] = Array.from({ length: BloodTuning.maxDrippers }, () => ({ x: 0, y: 0, z: 0, start: 0, until: -1, next: 0, every: 1 }));
+  private dripperAt = 0;
+  private readonly wetSpots: WetSpot[] = Array.from({ length: BloodTuning.maxWet }, () => ({ x: 0, y: 0, z: 0, r: 0, until: -1 }));
+  private wetSpotAt = 0;
+  private splashes = 0;
+  /** Splashes thrown and footprints laid since the last `clear`. For checks. */
+  splashed = 0;
+  printed = 0;
   private bleederAt = 0;
   private drips = 0;
   private sprays = 0;
@@ -243,6 +282,8 @@ export class BloodField {
 
   /** Stains the first surface below a point. */
   stainBelow(point: THREE.Vector3, size: number, kind: DecalKind = 'blood', reach = 3): void {
+    // What stains the floor under it has just landed on it: in a pool, that is a splash.
+    this.splash(point, size * 2);
     this.o.copy(point);
     this.splatRay(this.o, this.t.set(0, -1, 0), reach, size, kind);
   }
@@ -271,7 +312,7 @@ export class BloodField {
    * distance the blood flew to reach it. A big stain on a floor that reaches a wall is carried up the wall as a sheet,
    * since a decal is flat and is cut off at the corner.
    */
-  bigRay(kind: BigKind | SplatHow, origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number, size: number, along: THREE.Vector3 = dir, delay = 0, minor = false): void {
+  bigRay(kind: BigKind | SplatHow | 'print', origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number, size: number, along: THREE.Vector3 = dir, delay = 0, minor = false): void {
     if (this.bigLen >= BloodTuning.maxBig || (!DevFlags.bigBlood && !minor && BIG_KINDS.has(kind))) return;
     const q = this.bigs[this.bigLen++]!;
     q.ox = origin.x;
@@ -288,6 +329,91 @@ export class BloodField {
     q.az = along.z;
     q.at = this.ctx.time.elapsed + delay;
     q.minor = minor;
+    q.fade = 0;
+    q.left = false;
+  }
+
+  /**
+   * A boot print on the floor under `at`, toe along `dir`, `fade` 0 (straight out of the pool) to 1 (the last of the
+   * blood). One ray from the budget; dropped when the queue is full.
+   */
+  printAt(at: THREE.Vector3, dir: THREE.Vector3, size: number, left: boolean, fade: number): void {
+    const n = this.bigLen;
+    this.bigRay('print', at, DOWN, 0.6, size, dir);
+    if (this.bigLen === n) return;
+    const q = this.bigs[n]!;
+    q.fade = fade;
+    q.left = left;
+  }
+
+  /** True where a foot would come down in wet blood: inside a pool, a soaked patch or a fresh burst. */
+  wetAt(x: number, y: number, z: number): boolean {
+    const now = this.ctx.time.elapsed;
+    for (const w of this.wetSpots) {
+      if (now >= w.until) continue;
+      const dx = x - w.x, dz = z - w.z;
+      if (dx * dx + dz * dz < w.r * w.r && Math.abs(y - w.y) < 0.6) return true;
+    }
+    return false;
+  }
+
+  /** Remembers that the floor is wet `r` metres round a point, for `wetFor` seconds. */
+  private wetSpot(x: number, y: number, z: number, r: number): void {
+    const w = this.wetSpots[this.wetSpotAt]!;
+    this.wetSpotAt = (this.wetSpotAt + 1) % BloodTuning.maxWet;
+    w.x = x;
+    w.y = y;
+    w.z = z;
+    w.r = r;
+    w.until = this.ctx.time.elapsed + BloodTuning.wetFor;
+  }
+
+  /**
+   * Blood at `point` that can only fall: it drips from there for `seconds`, a drop every `every` seconds at first and
+   * slower as it runs out. Capped at `maxDrippers`, oldest first.
+   */
+  dripFrom(point: THREE.Vector3, seconds: number, every = 0.6, delay = 0): void {
+    const d = this.drippers[this.dripperAt]!;
+    this.dripperAt = (this.dripperAt + 1) % BloodTuning.maxDrippers;
+    const now = this.ctx.time.elapsed;
+    d.x = point.x;
+    d.y = point.y;
+    d.z = point.z;
+    d.start = now + delay;
+    d.until = now + delay + seconds;
+    d.every = every;
+    d.next = now + delay + every * Math.random();
+  }
+
+  /** Points dripping now. For checks. */
+  get dripping(): number {
+    const now = this.ctx.time.elapsed;
+    let n = 0;
+    for (const d of this.drippers) if (now < d.until) n++;
+    return n;
+  }
+
+  /**
+   * Something landed at `point`. If that is in wet blood it throws a splash: a crown of strands, and drops that stain
+   * the floor round it. `size` is how big the thing is, 0..1 or so. True when it splashed.
+   */
+  splash(point: THREE.Vector3, size: number): boolean {
+    if (this.splashes >= BloodTuning.splashesPerFrame || !this.wetAt(point.x, point.y, point.z)) return false;
+    this.splashes++;
+    this.splashed++;
+    const s = clamp(size, 0.2, 1.2);
+    this.ctx.fx.bloodHit?.(point, this.t.set(0, 1, 0), 0.5 + s);
+    this.spray(point, this.t, 4 + Math.round(4 * s), 2.6 + 1.6 * s, 1.1, 0.04 + 0.03 * s);
+    return true;
+  }
+
+  /** A body that has come to rest in blood that is not its own soaks it up: it is as bloody as a body gets. */
+  soakBody(char: CharacterInstance, at: THREE.Vector3): boolean {
+    if (!this.wetAt(at.x, at.y, at.z)) return false;
+    const wet = Math.max(this.wet.get(char) ?? 0, 0.9);
+    this.wet.set(char, wet);
+    char.setBloodiness(wet);
+    return true;
   }
 
   /**
@@ -374,6 +500,23 @@ export class BloodField {
     p.interval = seconds / POOL_STAGES;
     p.nextAt = this.ctx.time.elapsed;
     p.rotation = Math.random() * TAU;
+    this.wetSpot(p.x, p.y, p.z, size * 0.36);
+    this.overLedge(p.x, p.y, p.z, size * 0.4, seconds);
+  }
+
+  /**
+   * A pool that reaches a drop runs over it: from the first edge found within `r` (four rays), blood drips to
+   * whatever is below for half a minute, once the pool has had `after` seconds to get there.
+   */
+  private overLedge(x: number, y: number, z: number, r: number, after: number): void {
+    for (let i = 0; i < 4 && this.rays < BloodTuning.raysPerFrame * 2; i++) {
+      const dx = i === 0 ? 1 : i === 1 ? -1 : 0, dz = i === 2 ? 1 : i === 3 ? -1 : 0;
+      if (this.cast(x + dx * r, y + 0.2, z + dz * r, 0, -1, 0, 0.7)) continue;
+      // Just past the lip, a hand under the floor: the drops start where the eye expects them.
+      _at.set(x + dx * (r + 0.03), y - 0.04, z + dz * (r + 0.03));
+      this.dripFrom(_at, 25 + 15 * Math.random(), 0.5, after * 0.6);
+      return;
+    }
   }
 
   /**
@@ -413,6 +556,7 @@ export class BloodField {
     b.until = now + seconds;
     b.every = every;
     b.next = now + every * (0.3 + Math.random() * 0.7);
+    b.far = true;
   }
 
   /** Wounds dripping now. For checks. */
@@ -474,10 +618,13 @@ export class BloodField {
   }
 
   /** Marks the floor under a dragged body. The caller spaces these out by distance. */
-  smear(point: THREE.Vector3, moveX: number, moveZ: number, size: number): void {
+  smear(point: THREE.Vector3, moveX: number, moveZ: number, size: number, fade = 0): void {
     if (!this.budgetLeft) return;
     if (!this.cast(point.x, point.y + 0.15, point.z, 0, -1, 0, 0.75)) return;
-    this.ctx.render.decals.add('bloodSmear', this.hit.point, this.hit.normal, size, Math.atan2(moveX, moveZ));
+    const decals = this.ctx.render.decals;
+    // `fade`: how much of the blood was already gone from what dragged it (a slide on wet boots), 0..1.
+    if (fade > 0 && decals.wipe) decals.wipe(this.hit.point, this.hit.normal, size, Math.atan2(moveX, moveZ), 0.5 + 0.4 * fade);
+    else decals.add('bloodSmear', this.hit.point, this.hit.normal, size, Math.atan2(moveX, moveZ));
   }
 
   update(dt: number): void {
@@ -494,6 +641,8 @@ export class BloodField {
         const v = BloodTuning.queuedSpeed;
         // Blood flew down the ray to get here, so it stretches along it and can run down a wall.
         if (q.kind === 'blood') this.ctx.render.decals.splat(this.hit.point, this.hit.normal, q.size * fall, _splat.set(q.dx * v, q.dy * v, q.dz * v));
+        // Enough of it on a ceiling comes back down, a drop at a time.
+        if (this.hit.normal.y < -0.6 && q.size * fall > 0.3) this.dripFrom(_at.copy(this.hit.point).addScaledVector(this.hit.normal, 0.02), 6 + 8 * Math.random(), 0.7);
         else this.ctx.render.decals.add(q.kind, this.hit.point, this.hit.normal, q.size * fall, Math.random() * TAU);
       }
     }
@@ -515,7 +664,9 @@ export class BloodField {
     this.drips = 0;
     this.sprays = 0;
     this.sheets = 0;
+    this.splashes = 0;
     this.updateBleeders(now);
+    this.updateDrippers(now);
     for (let i = 0; i < BloodTuning.maxPools; i++) {
       const p = this.pools[i]!;
       if (p.stage >= POOL_STAGES || now < p.nextAt) continue;
@@ -533,6 +684,12 @@ export class BloodField {
     const decals = this.ctx.render.decals;
     const hit = this.hit;
     const along = this.t.set(q.ax, q.ay, q.az);
+    if (q.kind === 'print') {
+      if (hit.normal.y < 0.5) return;
+      decals.print?.(hit.point, hit.normal, q.size, along, q.left, q.fade);
+      this.printed++;
+      return;
+    }
     if (!BIG_KINDS.has(q.kind)) {
       // A pattern: laid along the throw, whatever the ray's own direction.
       const into = along.dot(hit.normal);
@@ -553,6 +710,9 @@ export class BloodField {
     }
     decals.big?.(kind, hit.point, hit.normal, size, along, q.minor);
     this.bigLaid++;
+    // A kill's stain on a floor is wet to step in; on a ceiling it can only drip.
+    if (floor && !q.minor && kind !== 'drag') this.wetSpot(hit.point.x, hit.point.y, hit.point.z, size * (kind === 'soak' ? 0.34 : 0.22));
+    else if (hit.normal.y < -0.6) this.dripFrom(_at.copy(hit.point).addScaledVector(hit.normal, 0.02), 10 + 12 * Math.random(), 0.45);
     if (floor && kind !== 'drag' && kind !== 'sheet') this.carryUpWalls(kind, size, along, q.minor);
   }
 
@@ -586,18 +746,61 @@ export class BloodField {
   }
 
   private updateBleeders(now: number): void {
-    for (let i = 0; i < BloodTuning.maxBleeders; i++) {
+    const t = BloodTuning;
+    for (let i = 0; i < t.maxBleeders; i++) {
       const b = this.bleeders[i]!;
-      if (!b.target || now < b.next) continue;
+      if (!b.target) continue;
       if (now >= b.until || (b.owner && (!b.owner.parent || !b.owner.visible))) {
         b.target = null;
         continue;
       }
+      _at.copy(b.local).applyMatrix4(b.target.matrixWorld);
+      // A wounded man who walks leaves a trail: once his wound is a stride from where it last dripped, a line of drops
+      // is laid along the way he came, whatever its timer says.
+      const mx = _at.x - b.lx, mz = _at.z - b.lz;
+      const moved = b.far ? 0 : Math.hypot(mx, mz);
+      if (moved > 4) b.far = true;
+      else if (moved >= t.trailFrom && this.drips < t.dripsPerFrame && DevFlags.hitBlood) {
+        this.drips++;
+        this.dripped++;
+        this.o.set((b.lx + _at.x) * 0.5, _at.y, (b.lz + _at.z) * 0.5);
+        this.bigRay('trail', this.o, DOWN, 2.6, Math.min(moved, 1.3) * 1.15, this.n.set(mx, 0, mz));
+        this.markDrop(b.owner, b, _at);
+        b.next = now + b.every;
+        continue;
+      }
+      if (now < b.next) continue;
       // Clotting: drops come slower as the wound ages, and smaller.
       const age = (now - b.start) / Math.max(b.until - b.start, 0.01);
-      _at.copy(b.local).applyMatrix4(b.target.matrixWorld);
       if (!this.drip(_at, undefined, 1.2 - 0.5 * age)) continue;
+      if (b.far || moved < t.trailFrom * 0.5) {
+        b.lx = _at.x;
+        b.lz = _at.z;
+        b.far = false;
+      }
       b.next = now + b.every * (1 + 2 * age) * (0.6 + Math.random() * 0.8);
+    }
+  }
+
+  /** One wound's trail stands for the body's: its other wounds start their stride again from where they are now. */
+  private markDrop(owner: THREE.Object3D | null, from: Bleeder, at: THREE.Vector3): void {
+    from.lx = at.x;
+    from.lz = at.z;
+    if (!owner) return;
+    for (const b of this.bleeders) {
+      if (b === from || b.owner !== owner || !b.target || b.far) continue;
+      _splat.copy(b.local).applyMatrix4(b.target.matrixWorld);
+      b.lx = _splat.x;
+      b.lz = _splat.z;
+    }
+  }
+
+  private updateDrippers(now: number): void {
+    for (const d of this.drippers) {
+      if (now >= d.until || now < d.next) continue;
+      const age = (now - d.start) / Math.max(d.until - d.start, 0.01);
+      if (!this.drip(_at.set(d.x, d.y, d.z), undefined, 1.3 - 0.6 * age)) continue;
+      d.next = now + d.every * (1 + 3 * age) * (0.6 + Math.random() * 0.8);
     }
   }
 
@@ -642,6 +845,10 @@ export class BloodField {
     this.dripped = 0;
     this.bigLen = 0;
     this.bigLaid = 0;
+    this.splashed = 0;
+    this.printed = 0;
+    for (const d of this.drippers) d.until = -1;
+    for (const w of this.wetSpots) w.until = -1;
     this.burstAt = -1;
     for (const p of this.pools) p.stage = POOL_STAGES;
   }

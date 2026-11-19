@@ -84,7 +84,7 @@ Each lane owns a vertical through the plan's batches and goes on to its next ste
 | gibs | 5610-5619 | G1 rockets and grenades crack the trunk; G2 show the break: pieces thrown hard out of the fireball, bright wet torn faces, mid-size slabs, so the pieces add up to the body destroyed (every destruction: torso, head, limbs, whole-body gib); free guts that detach, fly and drape; O1 organs you notice (bigger, squash, roll, burst when stepped on or shot) | `gore/torso.ts`, `gore/chunks.ts`, `gore/index.ts` (gib paths), the gut rope, `weapons/Combat.ts` blast force only where G1 needs it | done: G1, G2, the volume audit, free guts, O1 |
 | fire | 5620-5629 | F1 fire finishes the job (char by fire damage, the corpse burns on then smoulders, soot not a blood pool, flames on the whole body and on severed burning limbs); F3 fire meets the other systems (curled burnt corpses, dark pieces, morale chips faster, burning zombies keep attacking); F2 fire spreads from where it touched and eats the skin to muscle and bone | `enemies/EnemyManager.ts` burn, `characters/material.ts`, `fx/recipes`, `enemies/outpost/morale.ts`, `enemies/behaviours.ts` | todo |
 | mess | 5630-5639 | M0 measure the budgets; P1 the mess stays (decal rings by kind and about four times the room, pieces that do not expire, corpses sink only out of view, resting bodies that stack and are **pushed aside as ragdolls** when walked into, the "Mess" setting); P3 many more corpses (tiers, baked far bodies that can wake) | `render/Decals.ts` (the rings and budgets), `gore/chunks.ts` lifetimes, `gore/rag.ts`, `gore/sliced.ts`, `gore/index.ts` corpse caps, settings UI | todo |
-| decals | 5640-5649 | D1 realistic decal designs and BIG decals for coverage (the sheet, the choice of shape by speed, angle, amount and weapon, wet and dry surface response); B1 more blood from one hit; B4 drips from ceilings and ledges, splashes, soaked bodies; B2 footprints and slide smears; P2 blood that never has to go (the floor texture) | `render/materials/decalAtlas.glsl.ts`, the shape choice in `render/Decals.ts` and `gore/blood.ts`, `fx/layers/blood.ts` | doing: D1 (the sheet, big stains, marks) and B1 landed; B4, B2, P2 next |
+| decals | 5640-5649 | D1 realistic decal designs and BIG decals for coverage (the sheet, the choice of shape by speed, angle, amount and weapon, wet and dry surface response); B1 more blood from one hit; B4 drips from ceilings and ledges, splashes, soaked bodies; B2 footprints and slide smears; P2 blood that never has to go (the floor texture) | `render/materials/decalAtlas.glsl.ts`, the shape choice in `render/Decals.ts` and `gore/blood.ts`, `fx/layers/blood.ts` | doing: D1 (the sheet, big stains, marks), B1, B4, B2 landed; P2 next |
 | wear | 5650-5659 | B3 blood on the weapon and hands; W1 wear you can see: readable limb damage (skin torn to muscle, then bone, as a region's pool is spent), without changing what shooting a limb does | `weapons/viewmodels/` materials, `characters/material.ts`, `characters/anatomy/interior.ts`, the body's data texture | B3 done (aaaa677), W1 done |
 
 Shared files and contracts:
@@ -206,3 +206,13 @@ Shared files and contracts:
   12 scraps; guts do not rest on corpses until resting bodies have colliders (mess); the audit's litres are the Trooper's
   only. **For "mess":** organs now burst when their slot is reclaimed (`ChunkField.spawn`), so raising the organ slots
   only delays that; limb parts are 4 a shape (`PARTS_PER_SHAPE` in `gore/index.ts`).
+- 2026-11-19, decals: **B1's trail, B4 and B2 landed** (`docs/notes/gore.md`, "Blood that reacts"): a wounded man who walks
+  leaves a line of drops a stride; blood on a ceiling and a pool at a ledge drip; what lands in a pool splashes; a body at
+  rest in another's blood is soaked; the player and enemies leave a dozen fading boot prints after stepping in a pool, and
+  a slide leaves smears. Decisions: "a pool" for all of these is any big wet stain on a floor (pool, burst, soak, ring, a
+  kill's fan) for 75 s, not the pool decal alone, so a fresh massacre is wet wherever it looks wet; enemy prints are for
+  booted humanoids only and rationed (14 a second, within 30 m); the player's steps are read from his stride (no new
+  event); the hook for enemies is one line in `CharacterLibrary.wireGround` and an optional `GoreSystem.footfall`. No new
+  switch: the trail goes with `?hitblood=0`, and prints need blood on the floor. Pictures: `after/scenes/new-prints-*`,
+  `new-walk-*`.
+

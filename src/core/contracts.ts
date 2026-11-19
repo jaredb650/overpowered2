@@ -456,6 +456,8 @@ export interface GoreSystem extends GameSystem {
   blowOut?(char: CharacterInstance, damage: DamageInfo): void;
   /** Prepares what gibs need for every loaded archetype, at load, so the first one in a fight costs no more than the rest. */
   warm?(): void;
+  /** A character's foot came down at this point, `strength` as the animator gives it: wet feet leave prints (`gore/tracks.ts`). */
+  footfall?(char: CharacterInstance, x: number, y: number, z: number, strength: number): void;
   /** Bisects the character along a world plane into two physics halves. Releases the instance. */
   slice(char: CharacterInstance, point: THREE.Vector3, normal: THREE.Vector3, damage: DamageInfo): void;
   /**

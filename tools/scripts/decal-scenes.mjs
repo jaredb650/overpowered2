@@ -5,7 +5,7 @@
 //   DS_DIR=tools/out/<you>/scenes DS_TAG=new node tools/shot.mjs --port <yours> --url "/?autostart=1" --dpr 2 --w 1440 --h 900 \
 //     --wait 500 --timeout 600 --quiet --script tools/scripts/decal-scenes.mjs --out tools/out/<you>/scenes/x.png
 //
-// Env: DS_SCENES (pistol,smg,shotgun,rocket,head,ten,sword,walk; default all but walk), DS_DIR, DS_TAG (a prefix for the
+// Env: DS_SCENES (pistol,smg,shotgun,rocket,head,ten,sword,walk,prints; default the first seven), DS_DIR, DS_TAG (a prefix for the
 // files: "old", "new"), DS_SPOT (a view preset of the map), DS_SEED.
 // The scenes only use what both the old and the new sheet have, so the script runs unchanged on the build before the redraw.
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -230,13 +230,43 @@ function install({ spot, seed }) {
         men,
       };
     },
-    walk(s) {
-      const e = stand('husk', s.foot.clone().addScaledVector(s.side, -2.5).addScaledVector(s.n, 1), s.yaw);
-      e.health = 1e6;
+    // Someone walks out of a pool: a dozen prints, each fainter. The steps are given to the tracker as a walker's would be.
+    prints(s) {
+      const at = s.foot.clone().addScaledVector(s.n, 1.2).addScaledVector(s.side, -1.6);
+      const walker = { left: 0, leftFoot: false };
+      let n = 0;
       return {
-        fire: () => { shoot(e, s.into, 30, 'rivet'); shoot(e, s.into, 30, 'rivet', 'bullet', 0, { region: 'abdomen' }); e.health = 1e6; },
-        each: () => { e.char.root.position.addScaledVector(s.side, 2.4 / 60); },
+        fire: () => { ctx.gore.blood.pool(at.clone().add(new V(0, 0.1, 0)), 1.6, 1.5); },
+        each: f => {
+          if (!ctx.gore.tracks || f < 30 || (f - 30) % 6 !== 0 || n >= 16) return;
+          const along = 0.1 + n * 0.62;
+          const foot = at.clone().addScaledVector(s.side, along).addScaledVector(s.n, n % 2 ? 0.11 : -0.11);
+          ctx.gore.tracks.step(walker, foot.x, foot.y, foot.z, s.side.x, s.side.z);
+          n++;
+        },
+        men: [],
+        // Looking back down the track toward the pool, and from above the middle of it.
+        eye: () => look(at.clone().addScaledVector(s.side, 6.2).addScaledVector(s.n, 0.9).add(new V(0, 1.7, 0)), at.clone().addScaledVector(s.side, 2.6)),
+        top: () => look(at.clone().addScaledVector(s.side, 3.2).add(new V(0, 4.2, 0)), at.clone().addScaledVector(s.side, 3.2).addScaledVector(s.n, 0.001)),
+      };
+    },
+    // A wounded man who keeps coming: his own legs carry him toward the player, and his wound leaves a trail.
+    walk(s) {
+      const from = s.foot.clone().addScaledVector(s.side, -5).addScaledVector(s.n, 2.5);
+      const e = ctx.enemies.spawn('husk', from);
+      e.attacks = [];
+      e.health = 1e6;
+      const toEye = new V();
+      return {
+        fire: () => {
+          toEye.copy(ctx.player.position).sub(e.center).setY(0).normalize();
+          shoot(e, toEye.clone().negate(), 30, 'rivet');
+          shoot(e, toEye.clone().negate(), 30, 'rivet', 'bullet', 0, { region: 'abdomen' });
+          e.health = 1e6;
+        },
+        each: () => { e.health = 1e6; },
         men: [e],
+        top: () => look(from.clone().addScaledVector(s.side, 2.5).add(new V(0, 6.5, 0)), from.clone().addScaledVector(s.side, 2.5).addScaledVector(s.n, 0.001)),
       };
     },
   };
@@ -259,7 +289,7 @@ function install({ spot, seed }) {
       const s = stage(name === 'rocket' ? 2.2 : 1.4, name === 'rocket' || name === 'ten' ? 5 : 3.3, name === 'rocket' || name === 'ten' ? 2.4 : 1.7);
       live = { ...scenes[name](s), stage: s };
       frame = 0;
-      s.eye();
+      (live.eye ?? s.eye)();
       await step(3);
       live.fire();
       const cellH = Math.round(cellW * 0.625);
@@ -278,7 +308,7 @@ function install({ spot, seed }) {
     },
     async view(which, hide = false) {
       for (const e of live.men) if (e.char?.root) e.char.root.visible = !hide;
-      live.stage[which]();
+      (live[which] ?? live.stage[which])();
       await step(1);
       return { decals: ctx.render.decals.total ?? ctx.render.decals.mesh.count, big: ctx.gore.blood?.bigLaid };
     },
@@ -288,7 +318,8 @@ function install({ spot, seed }) {
 const save = (url, file) => writeFileSync(file, Buffer.from(url.split(',')[1], 'base64'));
 const FRAMES = {
   pistol: [3, 9, 15, 30, 60, 150], smg: [6, 15, 30, 45, 90, 240], shotgun: [3, 9, 15, 30, 90, 300], rocket: [3, 12, 24, 45, 90, 300],
-  head: [3, 9, 15, 30, 90, 300], ten: [40, 80, 120, 160, 220, 480], sword: [6, 20, 34, 50, 120, 300], walk: [6, 30, 60, 90, 120, 150],
+  head: [3, 9, 15, 30, 90, 300], ten: [40, 80, 120, 160, 220, 480], sword: [6, 20, 34, 50, 120, 300], walk: [6, 40, 80, 120, 160, 210],
+  prints: [30, 50, 70, 90, 110, 140],
 };
 
 export default async function run(page, h) {

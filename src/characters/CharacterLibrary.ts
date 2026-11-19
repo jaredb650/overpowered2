@@ -254,10 +254,13 @@ export class CharacterLibraryImpl implements CharacterLibrary {
   private wireGround(e: Entry, c: Character): void {
     const { ctx } = this;
     c.anim.groundAt = (x, y, z) => ctx.world.nav?.groundHeight?.(x, y, z) ?? Number.NaN;
+    // Every foot plant goes to gore: a foot that has stepped in blood leaves prints.
+    c.anim.onFootstep = (x, y, z, strength) => ctx.gore.footfall?.(c, x, y, z, strength);
     if (e.def.weight < 0.7) return;
     const reach = e.rig.height * 6;
     const dust = new THREE.Vector3();
     c.anim.onFootstep = (x, y, z, strength) => {
+      ctx.gore.footfall?.(c, x, y, z, strength);
       dust.set(x, y + 0.05, z);
       ctx.fx.smoke?.(dust, 0x8894a4, 0.5 * e.def.proportions.scale, 0.5);
       const p = ctx.player.position;
