@@ -87,7 +87,9 @@ export default async function (host, { sleep, outDir }) {
         anim.play = (action, speed) => { (window.__plays[enemy.uid] ??= []).push(action); return play(action, speed); };
       });
     });
-    await sleep(700);
+    // A copy the roster leaves out waits 500 ms for a late kill, and the roster comes every 250 ms when nothing is alive:
+    // up to 750 ms, so the proof waits for it rather than for a fixed 700.
+    await guest.waitForFunction(() => window.__op2.ctx.enemies.alive.length === 0, null, { timeout: 2500 }).catch(() => {});
     check(await guest.evaluate(() => window.__op2.ctx.enemies.alive.length) === 0, 'The guest\'s copies went when the host cleared its wave (no kills)');
 
     const lane = (await netStats(host)).lanes?.world;
