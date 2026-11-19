@@ -14,7 +14,9 @@
 //   --w/--h <px>       Viewport size (default 1280x720)
 //   --dpr <n>          Device pixel ratio (default 1). Use 2 to test a Retina screen
 //   --eval <js>        Evaluate a JS expression in the page after --wait and print the JSON result
-//   --script <file>    ES module whose default export is async (page, helpers) => any
+//   --script <file>    ES module whose default export is async (page, helpers) => any. It may also export
+//                      before(page, { sleep, outDir }): run before the page loads (fake clock, injected scripts;
+//                      see tools/scripts/lib/steady.mjs)
 //   --shots <n>        Take n screenshots spaced by --every ms (out-1.png, out-2.png, ...)
 //   --every <ms>       Spacing for --shots (default 500)
 //   --quiet            Only print the final JSON
@@ -148,6 +150,14 @@ page.on('pageerror', e => errors.push(`[pageerror] ${e.message}\n${(e.stack ?? '
 page.on('requestfailed', r => errors.push(`[requestfailed] ${r.url()} ${r.failure()?.errorText ?? ''}`));
 
 const report = { url, screenshots: [], errors, logs: [] };
+const script = opt.script ? await import(pathToFileURL(resolve(String(opt.script))).href) : null;
+if (script?.before) {
+  try {
+    await script.before(page, { sleep, outDir: dirname(out) });
+  } catch (e) {
+    errors.push(`[script before] ${e.stack ?? e}`);
+  }
+}
 let loaded = true;
 try {
   await page.goto(url, { waitUntil: 'load', timeout: 60000 });
@@ -179,10 +189,9 @@ if (loaded) {
     click: async (ms = 60) => { await page.mouse.down(); await sleep(ms); await page.mouse.up(); },
   };
 
-  if (opt.script) {
-    const mod = await import(pathToFileURL(resolve(String(opt.script))).href);
+  if (script) {
     try {
-      report.scriptResult = await mod.default(page, helpers);
+      report.scriptResult = await script.default(page, helpers);
     } catch (e) {
       errors.push(`[script] ${e.stack ?? e}`);
     }
