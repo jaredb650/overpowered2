@@ -198,7 +198,7 @@ Shared files and contracts between lanes:
 
 | Lane | What | Status |
 |---|---|---|
-| wire | Compact binary events, per-frame batching, no per-message UUID, backpressure on slow guests, host per-frame cost flat in players (E8, E9, C5, C7, P2 mesh) | todo |
+| wire | Compact binary events, per-frame batching, no per-message UUID, backpressure on slow guests, host per-frame cost flat in players (E8, E9, C5, C7, P2 mesh) | done (2026-11-19, see the log) |
 | verify | Whole-diff review by fresh agents; soak proofs at 2, 3 and 4 players under bad network in every mode; edge-case hunt; fixes; docs; push the branch | todo |
 
 ## Decisions the lead made (owner may overrule; none changes single player)
@@ -861,3 +861,30 @@ Each: what fails, where, how many players, which network, the evidence, the caus
     and 15), so the call-ins matrix fails "the blasts arrive on host" there. The strike itself was whole on the caller's
     screen and killed 6 of 6. The copy ends when its finale lands (`Airstrike.update` returns `landed`), so a copy whose
     rockets are behind its finale loses the rest. Call-ins, checklist 16.
+- 2026-11-19, wire (checklist C20: **done**, measured and proven; the mesh for poses described, not built). **What changed for
+  every lane, with nothing to do but rebase:** every reliable event a page sends in a frame leaves as one message per peer
+  (`src/net/batch.ts`: a 4-byte match tag, then each event as a record), flushed when that frame's script ends
+  (`lobby.batching(queueMicrotask)`, turned on by `CoopSession`), and every event is a packed tree (`tree.ts`,
+  `world/pack.ts`) that reads back as exactly what JSON would have carried, so no module's events changed. `w.send` and
+  `w.relay` are as they were. **New duty when you add an event:** class it in your module's `…_WIRE` table (`fact`,
+  `cosmetic` or `latest`); the build fails without it. **In a test,** read the action lane with `eventOf` / `unbatch` and
+  inject with `batchOf` (`src/net/world/pack.ts`); a test `Lobby` sends each event at once, a batch of one.
+  **Backpressure** (`pressure.ts`): a guest with 16 KB queued gets facts only; at 128 KB, or slow for 10 s, or when the
+  transport loses a message to it, it is cut as a lost seat and comes back with the whole catch-up once its queue has
+  drained. **Host cost:** the player list once a frame, the target pick with no allocation. Numbers, heaviest fight, three
+  guests: host events 77.6 to 19.2 KB/s and 435 to 151 messages a second on loopback; on real WebRTC the reliable channel
+  109 to 30 KB/s and 507 to 160 messages a second by the browser's own count, both channels 204 to 122 KB/s; a guest's
+  upload 5.6 to 2.3 KB/s; co-op on the host 1.06 to 0.90 ms a frame (1.48 to 1.17 on WebRTC at the same load). Tables,
+  the rule and the proofs: `docs/notes/coop.md`, "The wire". Decisions: (1) a 32-bit hash of the match id per message
+  rather than a handshake per connection (nothing to get wrong on a reconnect); (2) flush by microtask, so nothing waits
+  longer than the task that sent it and nothing needs an urgent path; (3) one packed form for every event rather than a
+  hand-packed form for the hot ones: after it no type is over about 1.5 KB/s a guest, and `hits.ts`, `claims.ts` and
+  `remoteFire.ts` were being changed by other lanes; (4) old and new forms never meet, because the lobby refuses another
+  build; (5) a guest is never cut from its own side. Found on the way: trystero drops a reliable message after ten seconds
+  of a data channel that will not drain, silently (now counted, and it cuts the guest so it is resynchronised); the
+  simulator let a message sent after it was switched off overtake the ones it had delayed (fixed in `netsim.ts`);
+  `coop-motion-moves` looked for the guest's copies to be gone 700 ms after a clear that takes up to 750 by design (it
+  waits now). Touched outside the lane, small: every module's file (its class table, appended), the test kits and tests
+  that read or injected the old envelope, `tools/scripts/coop-motion-moves.mjs`. Not done: the enemy snapshots are now
+  71% of the host's upload and were not touched; poses direct between guests; a stall on a real data channel (simulator
+  and unit tests only). Proofs and what they showed: the same section.

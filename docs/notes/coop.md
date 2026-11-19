@@ -1957,11 +1957,14 @@ a guest when all 48 enemies are in the near tier (27 bytes each, 20 times a seco
 
 | Proof | Result |
 |---|---|
-| `coop-wire-stall.mjs` (four pages, the heavy fight, the host's link to one guest at 16 kbit/s) | @@STALL@@ |
+| `coop-wire-stall.mjs` (four pages, the heavy fight, the host's link to one guest at 16 kbit/s) | 23 of 23. Judged slow 2 s in, at 16 KB queued; 869 cosmetic events left out for it over the next 10 s while its queue stayed under 28 KB (the peak); cut at 12 s, once; nothing of the game queued for it while out; back 14 s later, when the 28 KB had drained at the squeezed speed, with 45 enemies on its screen and on the host's. The other two guests: 60 frames a second throughout, event gap p90 39 to 46 ms, 42 to 45 batches a second before and 40 to 42 during |
 | `coop-wire-heavy.mjs` at 2, 3 and 4 players on loopback and at 4 on real WebRTC | every run: the fight stayed full, every guest got snapshots, guests' claims reached the host, none refused but for an enemy already dead, no page exceptions |
 | `coop-wire-relay.mjs` | 3 of 3 |
 | `coop-smoke` (Crucible), `coop-stage3` on loopback | 5 of 5, 12 of 12 |
-| @@REGRESS@@ |
+`coop-session-start` (3 pages), `coop-gore-shots` (3 pages), `coop-motion-moves` on loopback | 18, 267 and 19 checks, all passed |
+| `coop-fx-matrix`, the Lance, SMG, shotgun and rocket cases (3 pages, loopback) | 500 checks, none failed |
+| The same on **real WebRTC**: `coop-smoke`, `coop-stage3`, `coop-session-start`, `coop-gore-shots`, `coop-motion-moves` | 5, 12, 18, 267 and 19 checks, all passed |
+| `coop-smoke` and `coop-stage3` again on the rebased tip (`7384a34`) | 5 of 5, 12 of 12 |
 
 ### Not done
 
