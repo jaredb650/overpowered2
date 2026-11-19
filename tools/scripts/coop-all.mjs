@@ -362,9 +362,15 @@ async function main() {
   // The game is read again before every run: a rebase or an edit under a running sweep must not be written down as the old game.
   let commit = commitId(), game = gameId();
   const say = text => console.error(`[coop-all ${new Date().toTimeString().slice(0, 8)}] ${text}`);
+  // Two runners may share one results file (a real-WebRTC sweep beside a loopback one): each save reads the file again and
+  // puts in only the rows this runner made, so neither wipes the other's.
+  const mine = new Set();
   const save = () => {
-    writeFileSync(file, JSON.stringify({ commit, written: new Date().toISOString(), results }, null, 2));
-    writeFileSync(join(outRoot, 'results.md'), table(results, { commit, suites }));
+    const disk = readJson(file)?.results ?? {};
+    for (const id of mine) disk[id] = results[id];
+    Object.assign(results, disk);
+    writeFileSync(file, JSON.stringify({ commit, written: new Date().toISOString(), results: disk }, null, 2));
+    writeFileSync(join(outRoot, 'results.md'), table(disk, { commit, suites }));
   };
 
   // The server: this checkout's own, started here so it cannot be serving modules from before an edit.
@@ -416,6 +422,7 @@ async function main() {
       if (!v.failed || retry === 'none' || (retry === 'harness' && !v.reason)) break;
     }
     results[run.id] = record;
+    mine.add(run.id);
     save();
   };
   // rtc runs never overlap each other (one set of relays); everything else takes `jobs` at once.
@@ -433,10 +440,10 @@ async function main() {
   await Promise.all(Array.from({ length: jobs }, worker));
   save();
   stop();
-  const mine = list.map(r => results[r.id]).filter(Boolean);
-  const failed = mine.filter(r => r.verdict === 'FAIL');
-  say(`${mine.length - failed.length} of ${list.length} passed${failed.length ? `; failed: ${failed.map(r => r.id).join(', ')}` : ''}. Table: ${join(outRoot, 'results.md')}`);
-  return failed.length || mine.length < list.length ? 1 : 0;
+  const ran = list.map(r => results[r.id]).filter(Boolean);
+  const failed = ran.filter(r => r.verdict === 'FAIL');
+  say(`${ran.length - failed.length} of ${list.length} passed${failed.length ? `; failed: ${failed.map(r => r.id).join(', ')}` : ''}. Table: ${join(outRoot, 'results.md')}`);
+  return failed.length || ran.length < list.length ? 1 : 0;
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) process.exit(await main());
