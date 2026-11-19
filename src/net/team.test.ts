@@ -898,6 +898,21 @@ describe('the host\'s rules are the run\'s rules on every screen', () => {
     game.dispose();
   });
 
+  it('in any other mode the manager\'s numbers are left alone: only the Crucible\'s game sets them from the rules', () => {
+    const game = party(1, 'outpost', ['b1'], [0]);
+    const guest = game.guests[0]!;
+    const adopt = vi.fn(), tune = vi.fn();
+    Object.assign(guest.waves, { adopt });
+    Object.assign(guest.manager, { tune });
+    guest.world.begin();
+    game.tick();
+    guest.ctx.events.emit('run:start', {});
+    expect(tune).not.toHaveBeenCalled();
+    expect(adopt).not.toHaveBeenCalled();
+    expect(crucibleRules()).toBe(DEFAULT_RULES);
+    game.dispose();
+  });
+
   it('rules that are not rules are put on their grid and inside their range before a guest plays by them', () => {
     const game = party(1);
     game.tick();

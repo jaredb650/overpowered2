@@ -727,6 +727,9 @@ export class Team {
 
   private applyRules(rules: CrucibleRules): void {
     adoptRules(rules);
+    // Only the Crucible's own game sets the manager's numbers from the rules (`Waves.start`): in every other mode the host's
+    // manager is on its own (no helmets by wave, for one), and so must a guest's be.
+    if (this.session.match.mode !== 'crucible') return;
     (this.ctx.enemies as { tune?(rules: CrucibleRules): void }).tune?.(rules);
     (this.ctx.waves as { adopt?(rules: CrucibleRules): void }).adopt?.(rules);
   }
