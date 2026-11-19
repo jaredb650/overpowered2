@@ -75,7 +75,8 @@ wave break, wall pins for heavy rounds, throwable heads, more gore.
 - Remove plain AP ammo from the Flail.
 - FPS counter / frame limit setting (the main loop is uncapped `requestAnimationFrame`, `src/core/Game.ts` ~line 194; the menu
   renders every 2nd/4th frame).
-- "Team Focus" = co-op slow-mo option A (`docs/research/coop-slowmo.md`).
+- "Team Focus" = co-op slow-mo option A (`docs/research/coop-slowmo.md`): **decided and built on `coop-overhaul`** (one player
+  slows everyone, with a notice; `docs/notes/coop.md`, "Time: the team's slow motion"). Not on `dev` until the owner merges.
 
 ### 4. Owner's own to-dos
 - Deploy the Cloudflare Worker in `tools/turn-worker/` (TURN relay + error log in D1) and give its URL; until then

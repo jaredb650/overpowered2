@@ -2,6 +2,11 @@
 
 Research note, 2026-11-17. No game code was changed. Code references are to the repo at the time of writing.
 
+**Decided and built, 2026-11-18** (on branch `coop-overhaul`): the owner chose "one player slows everyone, and every screen says
+who", which is Option A here with a notice. What was built, the rules and the numbers are in `docs/notes/coop.md`, "Time: the
+team's slow motion"; where that note and this one differ (file names, the 12 s team budget in place of a per-player cool-down),
+that note is current.
+
 ## The short answer
 
 Our co-op **already has shared slow-mo**. What is missing is Focus (the T-key brain chip) and a few cues on the guests' screens. The cheapest good answer is to let Focus use the shared-slow-mo path that SLOWMO already uses. Nobody pays a speed penalty, because every player keeps full speed and only the host's enemies slow down. That removes the main problem other games had (one player slowing the others), and the netcode cost is about one new message.

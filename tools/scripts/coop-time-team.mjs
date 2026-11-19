@@ -115,7 +115,8 @@ export default async function (host, { sleep, outDir }) {
   const out = { errors: [], checks: [], screenshots: [], scenarios: {} };
   const players = Number(process.env.COOP_PLAYERS ?? 2);
   const net = process.env.COOP_SIM || undefined;
-  const tag = `time-team-${players}p${net ? '-badnet' : ''}`;
+  // A partial run (COOP_ONLY) and a screenshot run keep their own evidence files: they never overwrite a full run's.
+  const tag = `time-team-${players}p${net ? '-badnet' : ''}${process.env.COOP_ONLY ? '-part' : ''}${process.env.COOP_SHOTS ? '-shots' : ''}`;
   const { check, progress, shot } = kit(outDir, tag, out, sleep);
   const shots = !!process.env.COOP_SHOTS;
   // How soon after the cause every screen must show the notice, and how soon after the end it must be at full speed.
@@ -410,7 +411,8 @@ export default async function (host, { sleep, outDir }) {
       await fillBudget(host); for (const page of all) await fillFocus(page);
       await quiet(all);
       await guest.evaluate(() => { const { ctx } = window.__op2; ctx.player.modifiers.invulnerable = false; (w => { w.receivingDamage = true; ctx.player.takeDamage({ amount: 500, type: 'bullet', source: 'trooper' }); w.receivingDamage = false; })(ctx.coop.world); });
-      await host.waitForFunction(() => [...window.__op2.ctx.coop.world.team.cards.values()].some(c => c.slot === 1 && c.state === 'down'), null, { timeout: 10000 });
+      const seat = (await read(guest)).me;
+      await host.waitForFunction(seat => window.__op2.ctx.coop.world.team.life([...window.__op2.ctx.coop.lobby.players].find(p => p.slot === seat).id).state !== 'up', seat, { timeout: 15000 });
       for (const page of all) await watch(page);
       // Straight to the clock, past the chip's own "alive" check: the request a downed player's game could still make.
       await guest.evaluate(() => window.__op2.ctx.time.pushScale('focus', 0.35, 0.12, 0.25));
@@ -419,6 +421,12 @@ export default async function (host, { sleep, outDir }) {
       out.scenarios.down = { callout: down[1].callout, min: downSeen.map(s => s.min) };
       check(down.every(s => s.slows.length === 0) && downSeen.every(s => s.min === 1), 'Downed: a downed player cannot slow the world: no screen slowed', out.scenarios.down);
       check(down[1].callout === 'NO SLOW-MO WHILE DOWN', 'Downed: the player is told why', down[1].callout);
+      // And the host says no to a request that reaches it anyway (a guest whose own screen has not caught up with being down).
+      const hostNo = await host.evaluate(seat => {
+        const w = window.__op2.ctx.coop.world;
+        return { refused: w.slowBoard.request(performance.now(), seat, 'focus', w.team.life([...window.__op2.ctx.coop.lobby.players].find(p => p.slot === seat).id).state === 'up'), list: w.slowBoard.list.length };
+      }, seat);
+      check(hostNo.refused === 'down' && hostNo.list === 0, "Downed: the host's own rule refuses it too", hostNo);
     }
 
     check(out.errors.length === 0, 'No page exceptions', out.errors);
