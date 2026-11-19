@@ -1,54 +1,49 @@
-// Shared steps for the team-rules proofs (coop-team-*.mjs): a party of 2 to 4 pages in one browser over real WebRTC, each
-// page its own browser context (its own localStorage, so its own stable player id), the bad-network switch, and the small
-// things every proof does (go down, bleed out, wait for the board).
+// Shared steps for the team-rules proofs (coop-team-*.mjs), on top of the co-op kit (coop-kit.mjs `startParty`).
 //
-//   TEAM_PLAYERS=2|3|4   pages in the party (default 2)
-//   TEAM_NET=bad         every page sends under lag 120 ms, jitter 40 ms, 5% loss (as resend stalls)
-import { button, harness, joinFromSplash, quiet, readyUp, returning, startPair, DEFAULT_FPS } from './coop-kit.mjs';
+//   TEAM_PLAYERS=2|3|4   pages in the party (each proof has its own default; 4 only where the proof is about four)
+//   TEAM_NET=bad         every page under the game's network simulator: lag 120 ms, jitter 40 ms, 5% loss
+//   COOP_NET=rtc|loop    the transport (the kit's own switch): loopback by default, real WebRTC with rtc
+//
+// One run at a time per lane (the machine is shared): `pgrep -fa "shot.mjs --port <your port>"` before starting one.
+import { startParty } from './coop-kit.mjs';
 
-export const PLAYERS = Math.max(2, Math.min(4, Number(process.env.TEAM_PLAYERS ?? 2)));
 export const BAD_NET = process.env.TEAM_NET === 'bad';
-/** lag:120, jitter:40, loss:0.05. The channels are reliable, so a lost packet arrives as a 400 ms resend stall. */
-export const BAD = { lag: 120, jitter: 40, stall: 0.05 };
-export const NAMES = ['HOST-ONE', 'GUEST-TWO', 'GUEST-THREE', 'GUEST-FOUR'];
+export const NET = 'lag:120,jitter:40,loss:0.05';
+export const players = fallback => Math.max(2, Math.min(4, Number(process.env.TEAM_PLAYERS ?? fallback)));
+export const netName = () => (BAD_NET ? NET : 'clean');
 
-/** One more guest on its own browser context, joined by the invite link, named and ready. */
-export async function addGuest(host, invite, password, name, out, fps = Number(process.env.COOP_FPS ?? DEFAULT_FPS)) {
-  const page = await host.context().browser().newPage({ viewport: host.viewportSize(), deviceScaleFactor: 2 });
-  page.on('pageerror', error => out.errors.push(`${name}: ${error.message}`));
-  await page.addInitScript(harness, fps); await page.addInitScript(quiet); await page.addInitScript(returning);
-  await page.goto(invite);
-  await joinFromSplash(page, password);
-  await page.locator('.co-field input').first().fill(name); await page.locator('.co-field input').first().press('Enter');
-  await readyUp(page);
-  return page;
+/** A party in a match of `mode`, every world up and every guest's seat settled, feeds recorded. */
+export async function teamParty(host, { mode, count = 2, out, progress, sleep, password = 'team-rules' }) {
+  const party = await startParty(host, { players: count, mode, net: BAD_NET ? NET : undefined, password, out, progress, sleep });
+  await allIn(party.pages, party.mode.contract);
+  return party;
 }
 
-/** A lobby of `players` pages on `mode`, started. Returns every page, host first, and the invite link. */
-export async function startParty(host, { mode, password, out, progress, sleep, players = PLAYERS }) {
-  const { guest, invite } = await startPair(host, { mode, password, out, progress, sleep, startNow: false });
-  const pages = [host, guest];
-  for (let i = 2; i < players; i++) pages.push(await addGuest(host, invite, password, NAMES[i], out));
-  await host.waitForFunction(n => document.querySelectorAll('.co-player').length >= n, players, { timeout: 60000 });
-  await sleep(800);
-  await button(host, mode).click(); await button(host, 'Start').click();
-  progress(`countdown to ${mode} with ${players} players`);
-  return { pages, invite };
-}
-
-/** Every page in the match, its world up, every other player's body in it. */
-export async function allIn(pages, contract) {
+/** Every page in the match, its world up, every other player's body in it, every guest's seat settled, the feed recorded. */
+export async function allIn(pages, contract, others = pages.length - 1) {
   for (const page of pages) {
     await page.waitForURL(new RegExp(`contract=${contract}`), { timeout: 120000 });
-    await page.waitForFunction(n => window.__op2?.ctx.coop?.world && window.__op2.ctx.coop.remotes.size >= n - 1
-      && [...window.__op2.ctx.coop.remotes.values()].every(r => r.char.root.visible), pages.length, { timeout: 180000 });
+    await page.waitForFunction(n => window.__op2?.ctx?.coop?.world && window.__op2.game.state !== 'menu' && window.__op2.ctx.coop.remotes.size >= n
+      && [...window.__op2.ctx.coop.remotes.values()].every(r => r.char.root.visible), others, { timeout: 180000 });
     await page.evaluate(() => { window.__op2.game.setState('playing'); });
+    await record(page);
   }
-  // Every guest's seat is settled (the host's `restore` came back): cards and kits count from here.
-  for (const page of pages.slice(1)) await page.waitForFunction(() => window.__op2.ctx.coop.world.team.settled === true, null, { timeout: 30000 });
+  // A guest's seat is settled once the host's `restore` has come back: cards and kits count from here.
+  for (const page of pages) await page.waitForFunction(() => window.__op2.ctx.coop.world.team.settled === true, null, { timeout: 30000 });
 }
 
-export const badNet = (pages, on = BAD_NET) => Promise.all(pages.map(page => page.evaluate(net => { Object.assign(window.__coopNet, net); }, on ? BAD : { lag: 0, jitter: 0, stall: 0 })));
+/** Keeps every feed line, banner and callout a page shows from now on, in `window.__said`. */
+export const record = page => page.evaluate(() => {
+  if (window.__said) return;
+  const said = (window.__said = []);
+  const hud = window.__op2.ctx.hud;
+  for (const name of ['feed', 'banner', 'callout']) {
+    const real = hud[name].bind(hud);
+    hud[name] = (...args) => { said.push(`${name}: ${args.filter(a => typeof a === 'string' && !a.startsWith('#')).join(' | ')}`); return real(...args); };
+  }
+});
+export const said = (page, pattern) => page.evaluate(source => (window.__said ?? []).filter(line => new RegExp(source).test(line)), pattern.source);
+export const waitSaid = (page, pattern, timeout = 15000) => page.waitForFunction(source => (window.__said ?? []).some(line => new RegExp(source).test(line)), pattern.source, { timeout });
 
 /** Takes a page's player to 0 health through the same door the host's damage comes in by. */
 export const down = page => page.evaluate(() => {
@@ -60,7 +55,24 @@ export const down = page => page.evaluate(() => {
   world.receivingDamage = false;
 });
 
+/** Host: the downed player in `slot` bleeds out now. */
+export const bleedOut = (host, slot) => host.evaluate(slot => {
+  const { lobby, world } = window.__op2.ctx.coop;
+  const id = lobby.players.find(p => p.slot === slot).id;
+  world.team.life(id).bleedUntil = 0;
+}, slot);
+
 export const invulnerable = (pages, on = true) => Promise.all(pages.map(page => page.evaluate(v => { window.__op2.ctx.player.modifiers.invulnerable = v; }, on)));
+
+/** Host: the wave is cleared, the game's own way: nothing left to feed and nobody left alive, so the director says so. */
+export const clearWave = host => host.evaluate(() => {
+  const { ctx } = window.__op2;
+  const waves = ctx.waves;
+  for (const enemy of [...ctx.enemies.alive]) ctx.enemies.withdraw(enemy);
+  if (Array.isArray(waves.queue)) { if ('queueCursor' in waves) waves.queueCursor = waves.queue.length; if ('cursor' in waves) waves.cursor = waves.queue.length; }
+  if (Array.isArray(waves.bossIds)) waves.bossIds.length = 0;
+  ctx.enemies.queued = 0;
+});
 
 /** What a page shows of the run's end: the board, the solo screens (which must never show), the game's state. */
 export const ending = page => page.evaluate(() => {
@@ -81,11 +93,23 @@ export const ending = page => page.evaluate(() => {
 export async function backInLobby(pages, n = pages.length) {
   for (const page of pages) {
     await page.waitForFunction(count => window.__op2.game.state === 'menu' && document.querySelectorAll('.scr-coop .co-player').length === count
-      && getComputedStyle(document.querySelector('.scr-coop')).display !== 'none', n, { timeout: 30000 });
+      && getComputedStyle(document.querySelector('.scr-coop')).display !== 'none', n, { timeout: 40000 });
   }
 }
 
 export const world = page => page.evaluate(() => {
   const { ctx } = window.__op2;
-  return { time: ctx.time.elapsed, wave: ctx.waves.wave, phase: ctx.waves.phase, left: ctx.waves.nextWaveIn, enemies: ctx.enemies.alive.length };
+  const team = ctx.coop?.world?.team;
+  return { time: ctx.time.elapsed, wave: ctx.waves.wave, phase: ctx.waves.phase, left: ctx.waves.nextWaveIn, enemies: ctx.enemies.alive.length,
+    alive: ctx.player.alive, downed: ctx.player.downed === true, health: ctx.player.health,
+    rest: team ? { on: team.rest.on, ready: [...team.rest.ready], need: team.rest.need } : null,
+    cards: team ? [...team.cards.values()].map(c => ({ slot: c.slot, state: c.state, menu: c.menu, cheats: c.cheats })) : [] };
+});
+
+/** The co-op HUD as the page draws it: the break chip, the strip, the kill feed, the world markers. */
+export const hudText = page => page.evaluate(() => {
+  const shown = el => !!el && getComputedStyle(el).display !== 'none';
+  const text = sel => [...document.querySelectorAll(sel)].filter(shown).map(el => el.textContent);
+  return { rest: shown(document.querySelector('.cq-rest')) ? document.querySelector('.cq-rest').textContent : '', strip: text('.cq-mate'), kills: text('.cq-kill'),
+    marks: text('.wl .mk').filter(Boolean), shop: shown(document.querySelector('.scr-procurement')) ? document.querySelector('.pc-phase')?.textContent ?? '' : null };
 });

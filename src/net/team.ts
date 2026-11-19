@@ -314,6 +314,25 @@ export class Team {
     return seat;
   }
 
+  /**
+   * Host: credits owed to the player who had lobby id `id` when they earned them (a prisoner's bounty, paid when the drone
+   * secures him, perhaps a minute later). Returns the id to send them to now: their own, or their seat's new one if they
+   * reloaded meanwhile. Null: they are out of the match, and the credits wait in their seat's purse for the rejoin.
+   * Undefined: nobody to pay (never seated), so the caller keeps the money where it is.
+   */
+  payee(id: string, amount: number): string | null | undefined {
+    if (!this.session.hosting) return undefined;
+    const lobby = this.session.lobby;
+    const key = this.left.get(id) ?? (lobby.players.some(p => p.id === id) ? this.seatKey(id) : '');
+    if (!key) return undefined;
+    const now = lobby.players.find(p => !p.away && this.arrived.has(p.id) && this.seatKey(p.id) === key);
+    if (now) return now.id;
+    const seat = this.seatOf(key);
+    if (!seat.purse) return undefined;
+    seat.purse = { ...seat.purse, credits: Math.min(1e9, seat.purse.credits + Math.max(0, Math.round(amount))) };
+    return null;
+  }
+
   /** Someone hit 0 health. Locally first (the crawl starts at once), then the host makes it so. */
   fell(id: string): void {
     if (this.final) return;
@@ -662,7 +681,8 @@ export class Team {
         if (key) this.seatOf(key).dead = life.state !== 'up';
       }
       for (const id of this.arrived) if (!this.left.has(id)) this.left.set(id, this.seatKey(id));
-      for (const id of [...this.left.keys()]) if (!lobby.players.some(p => p.id === id) && !this.lives.has(id)) this.left.delete(id);
+      // Kept after they go (a bounty may still be owed to that id, `payee`), but never without bound.
+      if (this.left.size > 64) for (const id of [...this.left.keys()]) if (!lobby.players.some(p => p.id === id)) { this.left.delete(id); if (this.left.size <= 32) break; }
       if (this.fulfilledAt && now >= this.fulfilledAt) return this.finish('fulfilled');
       if (wiped(lives) && this.checkpoint()) return;
       if (wiped(lives)) return this.finish('wipe');

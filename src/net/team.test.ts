@@ -33,6 +33,7 @@ class Relay {
   }
   /** A browser closes: every other room hears it leave. */
   close(room: Room): void {
+    if (!this.rooms.includes(room)) return;
     this.rooms.splice(this.rooms.indexOf(room), 1);
     for (const peer of this.rooms) this.queue.push(() => peer.left(room.id));
   }
@@ -453,6 +454,25 @@ describe('seats: a rejoin gives the kit back and is not a free revive', () => {
     // The wave is cleared: now they get up.
     game.host.ctx.events.emit('wave:clear', { wave: 2, bonus: 0 }); game.relay.flush();
     expect(back.player.alive).toBe(true);
+    game.dispose();
+  });
+  it('money owed to a player follows their seat: to their new page, or kept in the purse until they are back', () => {
+    const game = party(1);
+    game.tick();
+    const first = game.guests[0]!;
+    const old = first.lobby.you;
+    arm(first); game.tick(KIT_MS + 100); game.tick();
+    const team = game.host.world.team;
+    expect(team.payee(old, 300)).toBe(old);
+    expect(team.payee('nobody', 300)).toBeUndefined();
+    // They drop: the bounty waits in the purse.
+    first.world.dispose(); game.relay.close(first.room); game.relay.flush(); game.tick();
+    expect(team.payee(old, 300)).toBeNull();
+    const back = game.rejoin(0, 'guest-1b');
+    game.tick();
+    expect(back.ctx.contracts.wallet).toMatchObject({ credits: 1450 + 300 });
+    // Owed to the id they had before the reload: paid to the page they are on now.
+    expect(team.payee(old, 50)).toBe(back.lobby.you);
     game.dispose();
   });
   it('a brand-new player gets no purse, no kit and no line about rejoining', () => {

@@ -5,22 +5,24 @@
 //                       Back to lobby, the host's Back to lobby (everyone).
 //   TEAM_CASE=humans    Endless Humans: jump to wave 10 with the dev hooks, a guest kills the Commander, CONTRACT FULFILLED.
 //   TEAM_CASE=mission   Mission 1: the mission is won (`campaign:complete` on the host), MISSION COMPLETE.
-//   TEAM_PLAYERS=2|3|4, TEAM_NET=bad (lag 120, jitter 40, 5% loss): see coop-team-kit.mjs.
+//                       Before it: the pause menu (a guest has no checkpoint item; the host's End match asks first).
+//   TEAM_PLAYERS=2|3|4, TEAM_NET=bad (lag 120, jitter 40, 5% loss), COOP_NET=rtc for real WebRTC: see coop-team-kit.mjs.
 //
 //   TEAM_CASE=wipe node tools/shot.mjs --port 5310 --dpr 2 --w 1440 --h 900 --wait 500 --timeout 900 \
 //     --script tools/scripts/coop-team-endings.mjs --out tools/out/team/endings-final.png
 import { writeFileSync } from 'node:fs';
-import { aimAt, kit } from './coop-kit.mjs';
-import { BAD_NET, PLAYERS, allIn, backInLobby, badNet, down, ending, invulnerable, startParty, world } from './coop-team-kit.mjs';
+import { aimAt, button, kit } from './coop-kit.mjs';
+import { BAD_NET, allIn, backInLobby, down, ending, invulnerable, netName, players, teamParty, world } from './coop-team-kit.mjs';
 
 const CASE = process.env.TEAM_CASE ?? 'wipe';
-const MODES = { wipe: ['Crucible mode', 'crucible'], humans: ['Endless Humans mode', 'outpost'], mission: ['Mission 1: The Outpost', 'campaign'] };
+const PLAYERS = players(2);
+const MODES = { wipe: 'crucible', humans: 'outpost', mission: 'campaign' };
 
 export default async function (host, { sleep, outDir }) {
-  const out = { case: CASE, players: PLAYERS, net: BAD_NET ? 'lag120 jitter40 loss5%' : 'clean', errors: [], checks: [], screenshots: [] };
+  const out = { case: CASE, players: PLAYERS, net: netName(), transport: process.env.COOP_NET ?? 'loop', errors: [], checks: [], screenshots: [] };
   const tag = `endings-${CASE}-${PLAYERS}p${BAD_NET ? '-bad' : ''}`;
   const { check, progress, shot } = kit(outDir, tag, out, sleep);
-  const [mode, contract] = MODES[CASE];
+  const contract = MODES[CASE];
   let pages = [host];
   // The board on every page, and nothing solo: the heart of every case.
   const boardEverywhere = async (big, label, buttons = true) => {
@@ -46,9 +48,7 @@ export default async function (host, { sleep, outDir }) {
     seq.forEach((s, i) => check(seq2[i] > s, `${label}: guest ${i + 1} keeps getting the host's snapshots under the board`, { before: s, after: seq2[i] }));
   };
   try {
-    ({ pages } = await startParty(host, { mode, password: `team-${CASE}`, out, progress, sleep }));
-    await allIn(pages, contract);
-    await badNet(pages);
+    ({ pages } = await teamParty(host, { mode: contract, count: PLAYERS, out, progress, sleep }));
     progress(`in ${contract} with ${pages.length} players${BAD_NET ? ' on a bad network' : ''}`);
 
     if (CASE === 'wipe') {
@@ -70,7 +70,6 @@ export default async function (host, { sleep, outDir }) {
       for (const page of pages) await page.waitForFunction(id => window.__op2?.ctx?.coop?.world && window.__op2.ctx.coop.match.id !== id
         && window.__op2.ctx.coop.remotes.size >= 1 && window.__op2.game.state !== 'menu', matchBefore, { timeout: 180000 });
       await allIn(pages, contract);
-      await badNet(pages);
       const again = await Promise.all(pages.map(p => p.evaluate(() => ({ id: window.__op2.ctx.coop.match.id, mode: window.__op2.ctx.coop.match.mode, wave: window.__op2.ctx.waves.wave,
         board: !!document.querySelector('.cq-over .cq-big')?.textContent, players: window.__op2.ctx.coop.lobby.players.length }))));
       out.again = again;
@@ -156,7 +155,32 @@ export default async function (host, { sleep, outDir }) {
 
     if (CASE === 'mission') {
       await invulnerable(pages, true);
-      await sleep(3000);
+      await sleep(2500);
+      progress('the pause menu in a mission');
+      const menu = page => page.evaluate(() => {
+        const shown = el => getComputedStyle(el).display !== 'none';
+        return { open: shown(document.querySelector('.scr-pause')), items: [...document.querySelectorAll('.scr-pause .mi')].filter(shown).map(el => el.textContent),
+          hint: shown(document.querySelector('.pz-hint')) ? document.querySelector('.pz-hint').textContent : '', inMatch: !!window.__op2.ctx.coop?.lobby.match };
+      });
+      const guest = pages[1];
+      await guest.evaluate(() => window.__op2.ctx.hud.pause());
+      const guestMenu = await menu(guest);
+      check(guestMenu.open && !guestMenu.items.some(i => /checkpoint/i.test(i)) && guestMenu.items.includes('Leave match (to lobby)'),
+        'A guest\'s pause menu in a mission has no checkpoint item, and leaves to the lobby', guestMenu);
+      await shot(guest, 'pause-guest', true);
+      await guest.evaluate(() => window.__op2.game.setState('playing'));
+      await host.evaluate(() => window.__op2.ctx.hud.pause());
+      const hostMenu = await menu(host);
+      check(hostMenu.items.includes('Checkpoint (whole team)') && hostMenu.items.includes('End match (all to lobby)'), 'The host\'s pause menu says the checkpoint is the whole team\'s', hostMenu);
+      await button(host, 'End match (all to lobby)').click();
+      await sleep(400);
+      const asked = await menu(host);
+      check(asked.inMatch && asked.items.includes('End it for everyone? Press again') && /whole team/.test(asked.hint), 'End match asks first: one press does not end it', asked);
+      await shot(host, 'pause-host-asks', true);
+      await sleep(4300);
+      const lapsed = await menu(host);
+      check(lapsed.inMatch && lapsed.items.includes('End match (all to lobby)'), 'The question lapses after four seconds, the match still on', lapsed);
+      await host.evaluate(() => window.__op2.game.setState('playing'));
       progress('the host\'s mission is won');
       await host.evaluate(() => window.__op2.ctx.events.emit('campaign:complete', {}));
       await boardEverywhere('MISSION COMPLETE', 'mission');

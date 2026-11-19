@@ -36,9 +36,12 @@ export class Capture implements WorldModule {
         const captor = this.captors.get(e.enemy.uid);
         this.captors.delete(e.enemy.uid);
         if (!captor || captor === session.lobby.you || !(e.bounty > 0)) return;
+        // The captor may have dropped or reloaded since the cuff: the team pays their seat (team.ts `payee`), or nobody.
+        const to = w.team.payee(captor, e.bounty);
+        if (to === undefined) return;
         const wallet = ctx.contracts?.wallet as { credits?: number; earned?: number } | null | undefined;
         if (wallet && typeof wallet.credits === 'number') { wallet.credits -= e.bounty; if (typeof wallet.earned === 'number') wallet.earned -= e.bounty; }
-        w.send({ t: 'credit', amount: e.bounty, why: 'PRISONER BOUNTY' }, captor);
+        if (to) w.send({ t: 'credit', amount: e.bounty, why: 'PRISONER BOUNTY' }, to);
       });
     }
     w.router.host('capture', (value, from, now) => {
