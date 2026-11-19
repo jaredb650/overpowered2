@@ -297,3 +297,13 @@ Shared files and contracts between lanes:
   (how to add one for the lanes' files: `docs/notes/coop.md`, "Property tests"), `tools/scripts/soak-memory.mjs` (GPU memory per
   wave: no leak found, real-wave growth is pools and per-kind caches) and `tools/scripts/perf-trace.mjs`. `tools/shot.mjs` changed
   in one way: a script may export `before(page)`, run before the page loads. Everything in `docs/notes/devtools.md`.
+- 2026-11-18, world-b, steps 1 and 2 landed: **Outpost Defense is one fort** (`src/net/world/fort.ts`: walls, gates and shacks by
+  index with exact health, a guest's blasts and rounds forwarded, gates for any player, guests board up by hand and are paid by the
+  host's answer, the Barracks' hires, crews, mortar teams, gun upgrades and rebuilds paid by the buyer and carried out on the host
+  with a refund on refusal, shop health, the wave preview, carriers, jump pads, sandbags, mortar rounds, the garrison's callouts,
+  late join) and **the villain's props** (`src/net/world/villainProps.ts`: devices numbered by the host, tripped and shot by any player,
+  shutters as real colliders, smoke, late join). Decisions: a guest's blast reaches the host's walls, sandbags, shutters and
+  devices through one message (`wallblast`, then the host's `coop:blast` game event), so no other lane should feed a guest's `boom`
+  into the host's blast listeners; the attackers go for the deepest defender and each squad fights the nearest player it can reach;
+  the Defense radio's box lines ride the enemy-attacks lane's `cmd` bark, only the garrison's squad-feed callouts are the fort's.
+  Still to do in this lane: prisoners for guests, vehicle puppets, mounted-gun seats, flyable vehicles and allies from a guest's seat.

@@ -58,6 +58,8 @@ export class Shells {
   }));
   private geometry: THREE.SphereGeometry | null = null;
   private material: THREE.MeshBasicMaterial | null = null;
+  /** Co-op host: told of every round fired, so guests can draw it (index.ts). */
+  onFire: ((from: THREE.Vector3, to: THREE.Vector3, order: ShellOrder, delay: number) => void) | null = null;
 
   /** `zone` draws a ring on the floor; `burst` is what a landing does to whoever is there. */
   constructor(
@@ -85,6 +87,7 @@ export class Shells {
     s.smokeAt = s.launchAt;
     if (delay <= 0) this.thump(from);
     else s.smokeAt = -s.launchAt;
+    this.onFire?.(from, to, order, delay);
     return true;
   }
 

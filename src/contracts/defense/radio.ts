@@ -186,6 +186,7 @@ export class SquadCalls {
     line.speaker = who.def.label;
     line.position.copy(who.center);
     this.ctx.events.emit('comms:line', line);
+    this.ctx.contracts?.defense?.link?.squad(line.text, who.def.label, line.position);
     return true;
   }
 
@@ -244,6 +245,7 @@ export class DefenseRadio {
   private reinforceAt = 0;
 
   constructor(private readonly ctx: Ctx, private readonly roll: () => number = Math.random) {
+    // Co-op: the host's lines on the box reach every guest as any bark does (net/world/villain.ts), the garrison's through the fort's link.
     this.air = new Airwaves((id, vars, hold) => ctx.events.emit('commander:bark', { id, vars, hold }));
     this.squad = new SquadCalls(ctx, roll);
   }
@@ -284,7 +286,14 @@ export class DefenseRadio {
     }
   }
 
+  /** Co-op guest: the director, the siege and the garrison this listens to run on the host, whose lines arrive instead. */
+  private get guest(): boolean {
+    const coop = this.ctx.coop;
+    return !!coop?.world && !coop.hosting;
+  }
+
   update(): void {
+    if (this.guest) return;
     this.now += this.ctx.time.realDt;
     this.air.update(this.ctx.time.realDt);
     if (this.now < this.pollAt) return;
@@ -307,6 +316,7 @@ export class DefenseRadio {
   }
 
   private threat(ev: DefenseEvent, force = false): void {
+    if (this.guest) return;
     if (!force && (this.now - this.lastCmd < COMMANDER_GAP || this.roll() > THREAT[ev])) return;
     const line = this.pick(ev);
     if (!line) return;
@@ -315,6 +325,7 @@ export class DefenseRadio {
   }
 
   private warn(key: string, vars?: Record<string, string>): void {
+    if (this.guest) return;
     const list = councilDefense(key);
     if (list.length) this.air.push(list[Math.floor(this.roll() * list.length)]!.id, vars, true);
   }

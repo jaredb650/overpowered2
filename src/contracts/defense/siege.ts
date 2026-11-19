@@ -88,6 +88,13 @@ const _up = new THREE.Vector3(0, 1, 0);
 
 export type JobKind = 'assault' | 'sapper' | 'engineer' | 'crew';
 
+/** The attackers' works as the co-op host sends them: jump pads by their wall's index, sandbag walls and mortar pits by where they stand. */
+export interface SiegeWire {
+  pads: number[];
+  covers: number[][];
+  marks: number[][];
+}
+
 type Piece = Structure & { readonly spec: StructureSpec };
 
 interface Job {
@@ -211,6 +218,61 @@ export class Siege {
     ctx.physics.radialListeners.add((center, radius, strength) => {
       if (strength >= 18) this.onBlast(center, radius);
     });
+    // Co-op host: a guest's blast knocks the sandbags and pads down as the host's own does (net/world/fort.ts).
+    ctx.events?.on('coop:blast', e => this.onBlast(e.center, e.radius));
+  }
+
+  /** Co-op: this browser is a guest. The works it shows are the host's (`mirror`), and nothing here knocks them down. */
+  private get guest(): boolean {
+    const coop = this.ctx.coop;
+    return !!coop?.world && !coop.hosting;
+  }
+
+  /** Co-op host: the works standing now, for the guests. */
+  wire(): SiegeWire {
+    const r = (n: number) => Math.round(n * 100) / 100;
+    return {
+      pads: this.pads.map(p => p.piece.id),
+      covers: this.covers.map(c => [r(c.at.x), r(c.at.y), r(c.at.z)]),
+      marks: this.teams.filter(t => t.live && t.unmark).map(t => [r(t.pos.x), r(t.pos.y), r(t.pos.z)]),
+    };
+  }
+
+  private readonly marks = new Map<string, () => void>();
+
+  /** Co-op guest: makes the works here match the host's: pads and sandbags go up and come down with their dust and sparks. */
+  mirror(wire: SiegeWire): void {
+    if (!this.guest) return;
+    const pieces = (this.walls?.all ?? []) as readonly Piece[];
+    for (let i = this.pads.length - 1; i >= 0; i--) {
+      const q = this.pads[i]!;
+      if (wire.pads.includes(q.piece.id)) continue;
+      this.ctx.fx.sparks(q.out, _up, 18, 0xffb060);
+      q.mesh.removeFromParent();
+      this.pads.splice(i, 1);
+    }
+    for (const id of wire.pads) {
+      const piece = pieces[id];
+      if (piece && !this.pads.some(q => q.piece === piece)) this.buildPad(piece, true);
+    }
+    const key = (x: number, z: number) => `${Math.round(x * 10)},${Math.round(z * 10)}`;
+    const want = new Set(wire.covers.map(c => key(c[0]!, c[2]!)));
+    for (let i = this.covers.length - 1; i >= 0; i--) {
+      const c = this.covers[i]!;
+      if (want.has(key(c.at.x, c.at.z))) continue;
+      this.ctx.fx.dust(c.at, _up, 3);
+      this.ctx.fx.chips(_a.copy(c.at).setY(0.8), 0x6b6248, 16);
+      this.removeCover(c);
+      this.covers.splice(i, 1);
+    }
+    const have = new Set(this.covers.map(c => key(c.at.x, c.at.z)));
+    for (const c of wire.covers) if (!have.has(key(c[0]!, c[2]!))) this.buildCover(new THREE.Vector3(c[0], c[1], c[2]));
+    const marks = new Set(wire.marks.map(m => key(m[0]!, m[2]!)));
+    for (const [k, off] of this.marks) if (!marks.has(k)) { off(); this.marks.delete(k); }
+    for (const m of wire.marks) {
+      const k = key(m[0]!, m[2]!);
+      if (!this.marks.has(k)) this.marks.set(k, this.ctx.hud.follow(new THREE.Vector3(m[0], m[1]! + 2.2, m[2]), 'MORTAR', MARK));
+    }
   }
 
   private get walls(): Structures | null {
@@ -228,6 +290,8 @@ export class Siege {
     this.satchels.length = 0;
     for (const t of this.teams) t.unmark?.();
     this.teams.length = 0;
+    for (const off of this.marks.values()) off();
+    this.marks.clear();
     this.siegers.length = 0;
     this.shells.reset();
     for (const k in this.counts) this.counts[k as keyof typeof this.counts] = 0;
@@ -305,9 +369,39 @@ export class Siege {
     this.prunePads();
   }
 
+  /** How deep in the fort the defenders stand. Co-op: the deepest of them, so the attack goes on to whoever holds the inner ring. */
   private get playerDepth(): number {
     const p = this.ctx.player.position;
-    return depthAt(p.x, p.z);
+    let depth = depthAt(p.x, p.z);
+    if (this.ctx.coop?.world) for (const q of this.defenders()) depth = Math.max(depth, depthAt(q.x, q.z));
+    return depth;
+  }
+
+  /** Every living player's feet (co-op: all of them, through the contract's link). */
+  private defenders(): readonly THREE.Vector3[] {
+    return this.ctx.contracts.defense?.players() ?? [this.ctx.player.position];
+  }
+
+  /**
+   * The living player nearest `p`: the host's own when it plays alone. With `depth`, only a player no deeper in the fort than that
+   * counts (one a squad standing there can walk to), and null means every player is further in.
+   */
+  private nearestPlayer(p: THREE.Vector3): THREE.Vector3;
+  private nearestPlayer(p: THREE.Vector3, depth: number): THREE.Vector3 | null;
+  private nearestPlayer(p: THREE.Vector3, depth = Infinity): THREE.Vector3 | null {
+    const own = this.ctx.player.position;
+    if (!this.ctx.coop?.world) return depthAt(own.x, own.z) <= depth ? own : null;
+    let best: THREE.Vector3 | null = null;
+    let bestD = Infinity;
+    for (const q of this.defenders()) {
+      if (depthAt(q.x, q.z) > depth) continue;
+      const d = Math.hypot(q.x - p.x, q.z - p.z);
+      if (d < bestD) {
+        bestD = d;
+        best = q;
+      }
+    }
+    return best ?? (depth === Infinity ? own : null);
   }
 
   /** Men who arrived any other way, out of a truck or off a gun, join the assault. */
@@ -418,17 +512,19 @@ export class Siege {
       men.forEach((job, i) => this.send(job, this.shopSpot(shop, i, _a), `raid:${shop.id}`, 2, now));
       return;
     }
-    if (depth >= pd) {
+    // Co-op: the squad fights the nearest player it can reach from the ring it is in, and goes on in after the rest with nobody there.
+    const foe = this.nearestPlayer(p, depth);
+    if (foe) {
       // Close to the player: the squad's own brain fights him, unless a man with a job would be pulled off it. Further off its routes
       // fall short, so the siege walks them into range first.
-      const near = Math.hypot(p.x - this.ctx.player.position.x, p.z - this.ctx.player.position.z) < RELEASE_RANGE * (st.released ? 1.5 : 1);
+      const near = Math.hypot(p.x - foe.x, p.z - foe.z) < RELEASE_RANGE * (st.released ? 1.5 : 1);
       if (!special && near) {
         this.hold(q, st, true);
         return;
       }
       this.hold(q, st, false);
       for (const job of men) {
-        this.query.anchor.copy(this.ctx.player.position);
+        this.query.anchor.copy(foe);
         this.query.near = 6;
         this.query.far = 26;
         this.cover(job, `hunt:${Math.round(now / 8)}`, now, true);
@@ -497,7 +593,7 @@ export class Siege {
         return;
       }
     }
-    q.threat.copy(this.ctx.player.position);
+    q.threat.copy(this.nearestPlayer(s.e.position));
     q.threat.y += 1.5;
     q.needShot = needShot;
     q.uid = s.e.uid;
@@ -793,8 +889,8 @@ export class Siege {
     return g;
   }
 
-  private buildPad(piece: Piece): void {
-    if (piece.stage !== 'damaged') return;
+  private buildPad(piece: Piece, mirrored = false): void {
+    if (piece.stage !== 'damaged' && !mirrored) return;
     const out = new THREE.Vector3(), land = new THREE.Vector3();
     padSpots(piece.spec, out, land);
     outward(piece.spec.x, piece.spec.z, _n);
@@ -842,6 +938,7 @@ export class Siege {
 
   /** Blasts knock down sandbags and wreck pads. */
   private onBlast(center: THREE.Vector3, radius: number): void {
+    if (this.guest) return;
     for (let i = this.covers.length - 1; i >= 0; i--) {
       const c = this.covers[i]!;
       if (c.at.distanceTo(center) > radius + 1.6 || --c.hp > 0) continue;
@@ -888,7 +985,6 @@ export class Siege {
   }
 
   private mortarTeams(): void {
-    const { player } = this.ctx;
     const devices = this.o.commander.devices;
     for (const t of this.teams) {
       if (!t.live) continue;
@@ -912,9 +1008,11 @@ export class Siege {
       }
       if (!fire) continue;
       this.counts.salvos++;
-      const inside = depthAt(player.position.x, player.position.z) > 0;
+      // Co-op: any player inside the walls may be the one shelled.
+      const inWalls = this.defenders().filter(q => depthAt(q.x, q.z) > 0);
+      const inside = inWalls.length > 0;
       for (let k = 0; k < FIELD_MORTAR.salvo; k++) {
-        if (inside && Math.random() < 0.6) _a.copy(player.position);
+        if (inside && Math.random() < 0.6) _a.copy(inWalls[Math.floor(Math.random() * inWalls.length)]!);
         else this.wallTarget(t, _a);
         const a = rand(0, Math.PI * 2), r = rand(0, FIELD_MORTAR.scatter);
         _a.x += Math.sin(a) * r;

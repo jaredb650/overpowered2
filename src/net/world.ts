@@ -25,11 +25,13 @@ import { Credit } from './world/credit';
 import type { SlowKind } from './world/slow';
 import { WorldContext, type WorldModule } from './world/context';
 import { EnemyFire } from './world/enemyFire';
+import { Fort } from './world/fort';
 import { Guns, type GunEvent } from './world/guns';
 import { Hits } from './world/hits';
 import { Identity } from './world/identity';
 import { Moves } from './world/moves';
 import { Pods, type PodEvent } from './world/pods';
+import { VillainProps } from './world/villainProps';
 import { Props } from './world/props';
 import { RemoteFire } from './world/remoteFire';
 import { WATCHED } from '../weapons/watch';
@@ -67,6 +69,8 @@ export class CoopWorld {
   private readonly capture: Capture;
   private readonly vehicles: Vehicles;
   private readonly garrison: Allies;
+  private readonly fort: Fort;
+  private readonly villainProps: VillainProps;
   private readonly time: Clock;
   /** Run every frame in this order (`update`), and disposed in it. The snapshot goes out last. */
   private readonly modules: WorldModule[];
@@ -108,6 +112,8 @@ export class CoopWorld {
     this.booms = new Booms(w, this.targeting);
     this.guns = new Guns(w);
     this.garrison = new Allies(w, this.enemies);
+    this.fort = new Fort(w, this.targeting);
+    this.villainProps = new VillainProps(w, this.targeting);
     this.pods = new Pods(w);
     this.props = new Props(w, this.credit, this.targeting);
     // A guest whose world has just come up asks for what lies in the shared world; the host also sends it on that guest's
@@ -115,7 +121,7 @@ export class CoopWorld {
     w.router.host('worldsync', (_, from) => this.catchUp(from));
     // Moves and identities ride the reliable lane beside the enemies' unreliable states (replicas.ts).
     const moves = new Moves(w, this.enemies), identity = new Identity(w, this.enemies);
-    this.modules = [this.capture, this.vehicles, this.garrison, this.targeting, this.claims, this.credit, this.hits, this.shots, this.props, this.attacks, this.warnings, w.later, this.time, moves, identity, this.enemies];
+    this.modules = [this.capture, this.vehicles, this.garrison, this.fort, this.villainProps, this.targeting, this.claims, this.credit, this.hits, this.shots, this.props, this.attacks, this.warnings, w.later, this.time, moves, identity, this.enemies];
   }
 
   /** Read by the two-page proofs (tools/scripts/coop-*.mjs): the guest's enemy copies, last snapshot and garrison bodies. */
@@ -161,7 +167,7 @@ export class CoopWorld {
   /** Host: what lies in the shared world now, for a guest who was loading, joined late or came back: pods, dropped guns, what is broken. */
   private catchUp(id: string): void {
     // Each on its own: one that fails must not cost the guest the others.
-    for (const part of [this.pods, this.guns, this.props]) {
+    for (const part of [this.pods, this.guns, this.props, this.fort, this.villainProps]) {
       try { part.catchUp(id); } catch (error) { console.warn('[coop] A catch-up for an arriving guest failed', error); }
     }
   }

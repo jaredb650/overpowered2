@@ -45,8 +45,12 @@ export class HandRepair {
   private blowIn = 0;
   private unprompt: (() => void) | null = null;
   private prompted = '';
+  /** Co-op guest: seconds until the host is asked again for the stage under the hammer. */
+  private askIn = 0;
 
-  constructor(private readonly ctx: Ctx, private readonly pay: (credits: number) => void) {}
+  /** `link` is the co-op link (index.ts `DefenseLink`): on a guest the host puts the stage up and says what it paid. */
+  constructor(private readonly ctx: Ctx, private readonly pay: (credits: number) => void,
+    private readonly link: () => { readonly guest: boolean; repair(index: number, from: number): void } | null = () => null) {}
 
   init(): void {
     this.ctx.events.on('player:damaged', () => this.interrupt());
@@ -98,6 +102,7 @@ export class HandRepair {
       this.working = true;
       this.progress = Math.min(1, this.progress + dt / handSeconds(piece));
       if (!this.blocked) this.hammer(dt, piece);
+      this.askIn -= dt;
       if (this.progress >= 1) this.finish(walls, piece);
     } else this.stop();
     const key = input.labelFor?.('interact') ?? 'E';
@@ -108,6 +113,14 @@ export class HandRepair {
   /** The stage goes up and is paid for, unless someone is standing in the gap a breach is about to close. */
   private finish(walls: Structures, piece: Piece): void {
     const index = stageIndex(piece);
+    const link = this.link();
+    if (link?.guest) {
+      // The wall is the host's: it puts the stage up, checks the gap and answers (`answered`). Asked again while E is held.
+      if (this.askIn > 0) return;
+      this.askIn = 0.35;
+      link.repair(piece.id, index);
+      return;
+    }
     this.blocked = index === (piece.kind === 'wall' ? 2 : 1) && walls.occupied(piece);
     if (this.blocked) return;
     const credits = handPay(piece);
@@ -116,6 +129,41 @@ export class HandRepair {
     this.stages++;
     this.progress = 0;
     this.ctx.hud.floatText(this.label, `+${credits}`, REPAIR_COLOR);
+  }
+
+  /**
+   * Co-op guest: the host's answer to a stage this player boarded up. Paid, the money is theirs whatever they are doing by the time
+   * the answer lands (the wall's own news may arrive first and end the work); blocked, the gap is not clear; refused, the stage starts over.
+   */
+  answered(index: number, credits: number, blocked: boolean): void {
+    const mine = this.working && this.piece?.id === index;
+    if (credits > 0) {
+      this.pay(credits);
+      this.stages++;
+      this.ctx.hud.floatText(this.label, `+${credits}`, REPAIR_COLOR);
+      if (mine) {
+        this.progress = 0;
+        this.blocked = false;
+      }
+    } else if (!mine) return;
+    else if (blocked) this.blocked = true;
+    else this.stop();
+  }
+
+  /**
+   * Co-op host: a guest boarded up `piece`, which they saw at stage `from`. The stage goes up here if it still stands there and
+   * no crew has it. Returns the credits it pays them, 'blocked' while someone stands in the gap a breach would close, or null.
+   */
+  finishFor(piece: Structure, from: number): number | 'blocked' | null {
+    const walls = this.walls;
+    const q = piece as Piece;
+    if (!walls || q.kind === 'shack' || q.repairing >= 0 || (q.stage === 'intact' && q.health >= q.maxHealth)) return null;
+    const index = stageIndex(q);
+    if (index !== from) return null;
+    if (index === (q.kind === 'wall' ? 2 : 1) && walls.occupied(q)) return 'blocked';
+    const credits = handPay(q);
+    walls.setStage(q, Math.max(0, index - 1), true);
+    return credits;
   }
 
   /** The nearest wall or gate in reach that is not whole and has no crew on it. */

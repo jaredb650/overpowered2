@@ -195,6 +195,7 @@ export class DefenseDirector implements DefenseWaves {
     if (plan.boss) {
       ctx.audio.play('boss_alarm');
       ctx.hud.banner(bossLine(plan), `WAVE ${wave}`, '#ff5a3a');
+      ctx.contracts?.defense?.link?.say('banner', bossLine(plan), `WAVE ${wave}`, '#ff5a3a');
     }
   }
 

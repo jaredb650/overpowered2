@@ -136,6 +136,14 @@ overhaul; `FortShop.keeper` is new.
 Zones: `fort-core`, `fort-middle`, `fort-outer`, `fort-field` (THE CORE, MIDDLE RING, OUTER RING, THE FIELD). Walls and gates:
 `ctx.world.objects.structures`; `ctx.world.objects.walls.setOpen(gate, open)` and `isOpen(gate)` drive a lift gate by hand.
 
+## Co-op
+
+One fort for the whole team (`docs/notes/coop.md`, "Outpost Defense: one fort"). The walls, gates and shacks are the host's:
+`Structures.link` reports every change on the host and makes a guest's copy a mirror (`Structures.apply`), by the piece's index in
+`structures.all`, which is the map's order on every browser. Gates rise for any player. A guest boards up a wall by hand and is
+paid by the host's answer; the Barracks' hires, work crews, mortar teams, gun upgrades and rebuilds are paid for by whoever buys
+and carried out on the host. The attackers' jump pads and sandbag walls stand on every screen, and a guest's blast knocks them down.
+
 ## Proving it
 
 ```

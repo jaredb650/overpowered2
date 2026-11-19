@@ -14,6 +14,8 @@ import type { ChatterEvent } from './world/chatter';
 import type { ClaimEvent } from './world/claims';
 import type { SlowEvent } from './world/clock';
 import type { EnemyFireEvent } from './world/enemyFire';
+import type { FortEvent } from './world/fort';
+import type { VillainPropsEvent } from './world/villainProps';
 import type { GunEvent } from './world/guns';
 import type { HitEvent } from './world/hits';
 import type { PodEvent } from './world/pods';
@@ -63,6 +65,8 @@ export type WorldEvent =
   /** Guest to host: my world is up, send me what lies in the shared world (world.ts `catchUp`). */
   | { t: 'worldsync' }
   | VehiclesEvent   // world/vehicles.ts: vehicles
+  | FortEvent       // world/fort.ts: fort, fortstate, wallblast, wallhit, repair, repaired, fortbuy, fortsold, shell, fortsay, fortradio
+  | VillainPropsEvent // world/villainProps.ts: dev, devshot, snared, shutter, smoke
   | AlliesEvent     // world/allies.ts: allies, ashot
   | TeamEvent       // team.ts: life, card, team, revive, up, wave, over, restore, kit, ready, vote, sync, mark
   | MissionEvent    // mission.ts: mission, gather

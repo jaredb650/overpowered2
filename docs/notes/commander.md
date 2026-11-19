@@ -226,3 +226,9 @@ Live cases: `box campBot mortar sniper jammer mines surrender bodies tricks rest
 - **Spotters often settle closer than the band.** The Kill House kills sightlines by design, so `CLOSEST_LINE` of 10 m is common, and that is well inside rifle range.
 - **Possums are found by aiming at them.** The crosshair goes red over a living man, which is a tell nobody designed.
 - **The dev hint** `Click for the mouse` sits on the box with `?dev=1`. It is the lab's, and absent otherwise.
+
+## Co-op
+
+His props are the host's and are drawn on every guest, tripped by any player and shot by any player: `docs/notes/coop.md`, "The
+villain's props on every screen" (`Devices.link`, `Barricades.link`, `Smoke.link`, set by `src/net/world/villainProps.ts`). His words and
+warning chips reach guests through `src/net/world/villain.ts`.

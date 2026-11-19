@@ -98,6 +98,8 @@ the names the game used before).
 | `world/capture.ts` | A guest capturing a prisoner (hold E, the host cuffs, the bounty comes back); `capturable` | `capture`, `credit` |
 | `world/guns.ts` | Carries the news of dropped guns for `weapons/dropped.ts` | `gun` |
 | `world/vehicles.ts` | The host's ground vehicles drawn on guests, 5 Hz, stamped with the host's clock and drawn through a `MotionBuffer` | `vehicles` |
+| `world/villainProps.ts` | The villain's devices, shutters and smoke on every screen; a guest's round on a device; a snare on a guest. See "The villain's props on every screen" | `dev`, `devshot`, `snared`, `shutter`, `smoke` |
+| `world/fort.ts` | Outpost Defense's fort for the whole team: walls, gates and shacks by index, the fort's facts, a guest's blasts, boarding up and Barracks purchases, mortar rounds, the Defense radio. See "Outpost Defense: one fort" | `fort`, `fortstate`, `wallblast`, `wallhit`, `repair`, `repaired`, `fortbuy`, `fortsold`, `shell`, `fortsay`, `fortradio` |
 | `world/allies.ts` | The host's garrison drawn on guests, 5 Hz, the same way, and its tracers (30 a second) | `allies`, `ashot` |
 | `team.ts` | As before; registers its own events with the router (`plug`) | `life`, `card`, `team`, `revive`, `up`, `wave`, `over`, `restore` |
 | `mission.ts` | As before; registers its own events with the router (`plug`) | `mission`, `gather` |
@@ -1229,8 +1231,87 @@ The host runs the world for all three survival modes, on whichever map the lobby
   on the guests at 5 Hz; a guest's explosion is applied to them on the host (bullets from guests do not hurt vehicles). Squad chatter
   and voices replicate (stage 2). The Commander's box on guests shows only what reaches them.
 - **Outpost Defense.** Every player deploys from their own loadout screen and spends their own credits at the Armoury and Infirmary,
-  over the live world. The fort is the host's: the Barracks (troops, work crews) is the host's counter, and wall repairs are the host's.
+  over the live world. The fort is one fort for the team since the overhaul: see "Outpost Defense: one fort" below.
   The garrison runs on the host and is drawn on guests at 5 Hz with posture and tracers. Kill pay goes to the killer, wave pay to all.
+
+## Outpost Defense: one fort (overhaul, lane world-b)
+
+The fort is the host's and every guest sees and uses the same one. `src/net/world/fort.ts` carries it; `world/structures.ts` and
+`contracts/defense/` each have a small `link` the module sets once the world is up (null in a solo run, where nothing changed).
+
+- **Walls, gates and shacks** (`Structures.link`, a `StructureLink`). On the host every change of a piece is reported and goes out as
+  `fort { pieces: [[index, stage, health, gate up, repair 0..1 or -1, repair seconds]] }`: a stage change in the frame it happens,
+  with the indexes that changed loudly and the blast behind them (`loud`, `at`, `power`) so the guest's dust, sound and debris fly
+  the same way; health alone every 150 ms. Health is sent exact, so every page reads the same number. On a guest
+  `Structures.damage`, `blast` and `hit` change nothing: the guest's own blast goes to the host as `wallblast` (bounded: radius 60,
+  3000 a blast, 24 a second, never the tank shell's x4) and its rounds on a shack as `wallhit`; the host's word comes back through
+  `Structures.apply`, which swaps the mesh stage and the colliders, so what a guest sees is what stops it and its shots.
+- **Lift gates** rise on the host for any player (`link.others`, every living player's feet from `Targeting.players()`), and never
+  drop on one. A guest's own gate also rises as that guest comes within 4.5 m, without waiting for the host, and drops on the
+  host's word once the guest is 6 m away.
+- **A late or returning player** gets `fort { full: true }` (every piece that is not whole and shut) and `fortstate` from
+  `Fort.catchUp`, called by `team.onArrived`.
+- **Boarding up by hand.** A guest's `HandRepair` runs as solo (prompt, ring, hammering). When a stage is done it sends
+  `repair { i, from }` (again every 0.35 s while E is held); the host checks the guest stands within 6 m of the piece, the piece is
+  still at stage `from`, no crew has it, nobody is in the gap, and 0.9 s have passed since that guest's last one, puts the stage up
+  with its own `setStage`, and answers that guest `repaired { pay }` (or `blocked`: CLEAR THE GAP). The guest's own purse is
+  paid; the host's is not. Two players on one stage: the first is paid, the second is refused and starts the next stage.
+- **The Barracks and the fort's other purchases** (`fortAct`: a hire, a work crew, a mortar team, a mounted gun's upgrade, a shop
+  rebuilt). A guest's `Defense.buy` checks its own shop view, takes the price from its own credits, and sends
+  `fortbuy { n, shop, act }`. The host checks every rule but the price where the fort is (`Defense.buyFor`: squad full, nothing to
+  repair, posts manned, only in a break) and carries it out; `fortsold { n, why }` answers, and a refusal (or 6 s of silence) puts
+  the price back with a feed line. Everyone's feed says who hired or bought what. Weapons, ammunition, stims, call-ins and
+  implants stay each player's own, as before.
+- **The fort's facts** go out as `fortstate` when they change (checked 4 times a second): hired men, each gun's level, mortar
+  teams, the three shops' health, the next wave's line in a break, the uids of the men carrying charges, and the attackers'
+  works (jump pads by wall index, sandbag walls and mortar pits by place). A guest's shop view, HUD chips, shop signs, gun
+  models, mortar tubes, red carrier outlines, pads and sandbags (with their colliders) are made to match.
+- **Mortar rounds** of both sides fly on every screen (`shell`): the team's own burst as a drawn rocket blast, the attackers'
+  land as the host's `boom` and `hurt`.
+- **The attackers** read every player: the siege goes on in toward the deepest defender, a squad fights the nearest player it can
+  reach from its ring, and the enemy mortars shell any player inside the walls (`Defense.players()`, solo unchanged).
+- **A guest's blast** also reaches what stands only on the host: sandbags, pads (and, in the villain's lane, shutters and devices)
+  hear `coop:blast`, a game event raised on the host by `wallblast`. **Contract:** a cosmetic copy of somebody else's explosion
+  must not go through `combat.explode` with damage on a guest, or it would be sent to the host as that guest's own.
+- **The radio.** A guest's `DefenseRadio` is silent (its director, siege and garrison run on the host). The host's lines on the box
+  (the Council's and the villain's) reach guests as every bark does (`world/villain.ts`, `cmd`); the garrison's callouts on the
+  squad feed go out as `fortradio` and are said on guests through the same `comms:line` event. The wave-start sounds, the boss
+  banner and the shop LOST and REBUILT banners reach guests too.
+- **The break** is the team's (`net/teamBreak.ts`, the ready vote); the guest's Defense never times or skips it.
+
+Proof: `tools/scripts/coop-worldb-defense.mjs` (a host, a guest and a late joiner; `COOP_PLAYERS=3` is a host and two guests),
+57 checks; unit tests `src/net/world/fort.test.ts` (12, real Rapier walls on every side).
+
+## The villain's props on every screen (overhaul, lane world-b)
+
+His words and warning chips are `world/villain.ts`; what he leaves lying around is `src/net/world/villainProps.ts`. All of it is the
+host's: laid, lit, tripped and blown there. `Devices`, `Barricades` and `Smoke` (enemies/commander/) each have a `link` the module
+sets (null alone, where nothing changed).
+
+- **Devices** (mines, tripwires, claymores, snares, beacons, charges, mortar tubes; Outpost Defense's satchels and tubes are the
+  same class). The host numbers each one as it is laid and sends `dev { add: [[id, kind, place, far post, facing, model yaw, fuse]] }`,
+  `dev { lit: [id, fuse] }` when a fuse lights and `dev { gone: [id, how] }` (0 taken away, 1 shot apart with sparks, 2 gone off).
+  A guest draws the same model in the same place with the same blink, and hears the tick quicken as its own player closes
+  (`Devices.animate`, run from the module because a guest's Commander never runs). Nothing trips or blows on a guest.
+- **Any player sets one off.** On the host `Devices.update` reads every living player (`link.walkers()`, from
+  `Targeting.players()`): a mine under any feet, a wire any shin crosses, a claymore's fan, a snare. The blast is the host's
+  `combat.explode`, which already reaches every player (`boom` and `hurt`). A snare on a running guest sends that guest `snared`
+  (the stop and the jolt are felt on its own screen) and the 8 damage as `hurt`.
+- **Any player shoots one.** A guest's own shot is tested against its own copies (`Devices.onShot`, as solo); a hit sends
+  `devshot { id }`; the host checks the device is live, within 400 m of the guest's body and not behind the world, then does
+  what a round does (`Devices.shoot`): a mine, wire, claymore or charge goes off, a beacon or a cable dies with sparks. 30 a second.
+- **Blasts.** A guest's blast reaches the host's devices and shutters through `coop:blast` (raised by `fort.ts` on `wallblast`).
+- **Shutters** are real colliders on every screen: `shutter { put: [x, z, dx, dz, width, floor] }` drops one (it falls, with the
+  dust and the slam), `shutter { take, blown }` removes it. The host never drops one on any player standing in a doorway.
+- **Smoke:** `smoke { at, left }`; a guest's cloud is drawn for the seconds it has left. The canister is thrown at whichever
+  player is up high.
+- **A late or returning player** gets every device (`dev { full }`, which also clears anything stale), every shutter already
+  down (`settled`) and every cloud with its seconds left (`Props.catchUp`, from `team.onArrived`).
+- Not built: the sonar jammer's false men (`jam.ts`) are still only on the host's sonar; the tracker still learns from the
+  host's shots, pickups, sonar and call-ins (and everyone's kills).
+
+Proof: `tools/scripts/coop-worldb-props.mjs` (a host and two guests in Endless Humans: 40 checks), unit tests
+`src/net/world/villainProps.test.ts` (9, his real `Devices`, `Barricades` and `Smoke` on every side).
 
 ## Stage 5: the campaign together
 
@@ -1601,8 +1682,8 @@ guest's tab dying mid-wave, rejoining by link with credits back, and leaving to 
 - **Host migration:** see Failure cases.
 - **Four-player and multi-machine testing:** only two pages fit on the 8 GB machine; the 4-player numbers above are budgets, not runs.
 - **Aircraft drawn for the others:** a call-in's jet, gunship or helicopter is only on the caller's screen (its explosions are on all).
-- **Guest bullets on vehicles**, **grabbing a prisoner as a shield or questioning him** as a guest, **guest repairs and Barracks hires**
-  in Outpost Defense: the host's only.
+- **Guest bullets on vehicles**, **grabbing a prisoner as a shield or questioning him** as a guest: the host's only. (Guest repairs
+  and Barracks hires in Outpost Defense are built: "Outpost Defense: one fort".)
 - **Per-muscle wound animation** on guests (a stage 2 limit) is unchanged. Living knockdowns and get-ups are done: "Enemy motion", Moves.
 - **Implant parts** on friends' bodies.
 - **Campaign:** mission 1's opening (briefing, cutscene, door-gunner ride) is proven in the browser; the rest of both missions has only

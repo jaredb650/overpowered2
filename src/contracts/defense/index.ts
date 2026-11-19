@@ -24,12 +24,14 @@ import {
   ECONOMY, LOADOUT_MELEE, SHOPS, SHOP_ORDER, WEAPON_PRICES, killPay, paysFor, placeholderPreview, wavePay, type ShopId,
 } from './data';
 import { ShopState, checkLoadout, offers, sameAct, startPosts, type Act, type Offer, type ShopView } from './economy';
+import type { EnemyManager } from '../../enemies/EnemyManager';
 import type { Loadout } from '../../progression/implants';
 import { outward } from './field';
 import { Garrison } from './garrison';
 import { Keepers, type KeeperPoint } from './keepers';
 import { HandRepair, REPAIR_COLOR } from './repair';
-import type { Siege } from './siege';
+import { Shells } from './shells';
+import type { Siege, SiegeWire } from './siege';
 import { MortarTeams } from './teams';
 
 /**
@@ -48,6 +50,49 @@ export interface DefenseWaves extends WaveSystem {
   /** The attackers' orders, for the men running charges (the director's). */
   readonly siege?: Siege;
 }
+
+/**
+ * Co-op (net/world/fort.ts): the fort is the host's. A guest asks the host for what changes it; the host tells every guest what
+ * it should see and hear. Null in a solo run.
+ */
+export interface DefenseLink {
+  readonly guest: boolean;
+  /** Guest: asks the host to carry out a purchase that is the fort's (`fortAct`), numbered `n`. Answered through `Defense.sold`. */
+  buy(n: number, shop: ShopId, act: Act): void;
+  /** Guest: asks the host to put up the stage this player has boarded up. Answered through `HandRepair.answered`. */
+  repair(index: number, from: number): void;
+  /** Host: a mortar round left a tube, the team's own (`mine`) or the attackers'. */
+  shell(from: THREE.Vector3, to: THREE.Vector3, radius: number, flight: number, delay: number, ring: number | null, mine: boolean): void;
+  /** Host: a banner, a feed line or a floating label that every guest gets too. */
+  say(kind: 'banner' | 'feed' | 'float', text: string, sub: string, color: string, at?: THREE.Vector3): void;
+  /** Host: the feet of every living player, this browser's first. */
+  feet(out: THREE.Vector3[]): THREE.Vector3[];
+  /** Host: one of the garrison's callouts on the squad feed (radio.ts). A no-op on a guest. */
+  squad(text: string, speaker: string, at: THREE.Vector3): void;
+}
+
+/** The fort's facts a guest cannot see for itself, as the host sends them. */
+export interface FortState extends SiegeWire {
+  /** Hired men alive, up or down. */
+  squad: number;
+  /** Each mounted gun's level. */
+  mounts: number[];
+  /** The team's mortar teams posted. */
+  mortars: number;
+  /** Health of the barracks, the armoury and the infirmary (`SHOP_ORDER`). */
+  shops: number[];
+  /** The line about the wave that is coming, in a break. */
+  preview: string;
+  /** The uids of the men running a charge to a wall. */
+  carriers: number[];
+}
+
+/** Purchases that change the fort itself: in co-op the host carries them out for whoever paid. */
+const FORT_ACTS: ReadonlySet<Act['kind']> = new Set<Act['kind']>(['ally', 'mortar', 'mount', 'repair', 'rebuild']);
+export const fortAct = (act: Act): boolean => FORT_ACTS.has(act.kind);
+/** Seconds a guest waits for the host's word on a purchase before the price comes back. */
+const ASK_SECONDS = 6;
+const FEED_COLOR = '#ffc14a';
 
 /** Where a shop stands. The fort map exports these; until it does, the Test Range's stand in. */
 export interface ShopAnchor {
@@ -158,6 +203,14 @@ export class Defense {
   readonly garrison: Garrison;
   /** The uids of every enemy carrying a charge now: sappers on their way to a wall and bombers. The minimap marks them. */
   readonly carriers = new Set<number>();
+  /** Co-op: set by net/world/fort.ts once the world is up. Null alone. */
+  link: DefenseLink | null = null;
+  /** Co-op guest: the host's latest word on the fort, purchases waiting on the host, and the host's mortar rounds as drawn here. */
+  private remote: FortState | null = null;
+  private readonly pending = new Map<number, { price: number; label: string; at: number }>();
+  private asks = 0;
+  private shells: Shells | null = null;
+  private readonly feet: THREE.Vector3[] = [];
 
   private kiosks: Kiosk[] = [];
   private prompted: Kiosk | null = null;
@@ -177,7 +230,7 @@ export class Defense {
 
   constructor(private readonly ctx: Ctx) {
     this.mortars = new MortarTeams(ctx, ON_FORT);
-    this.repair = new HandRepair(ctx, n => this.earn(n));
+    this.repair = new HandRepair(ctx, n => this.earn(n), () => this.link);
     this.garrison = new Garrison((p, r, out) => ctx.world.nav.nearest(p, r, out));
   }
 
@@ -192,10 +245,20 @@ export class Defense {
       this.ctx.hud.feed(`+${pay} CREDITS: WAVE ${e.wave} HELD`, '#ffc14a');
       this.garrison.stand(this.ctx.allies?.allies ?? []);
     });
-    events.on('wave:start', () => {
+    events.on('wave:start', e => {
       this.garrison.fronts = [...(this.waves.fronts ?? [])];
       this.garrison.plan(this.ctx.allies?.allies ?? []);
+      // Co-op guest: the director that sounds a wave in runs on the host.
+      if (this.guest && ON_FORT) {
+        const { audio } = this.ctx;
+        if (e.wave >= 10) audio.music('hard');
+        audio.play(e.wave >= 10 || e.boss ? 'wave_start_hard' : 'wave_start');
+        if (e.boss) audio.play('boss_alarm');
+      }
     });
+    // The host's rounds leave their tubes on every screen.
+    this.mortars.shells.onFire = (from, to, o, delay) => this.link?.shell(from, to, o.radius, o.flight, delay, o.ring, true);
+    if (this.waves.siege) this.waves.siege.shells.onFire = (from, to, o, delay) => this.link?.shell(from, to, o.radius, o.flight, delay, o.ring, false);
     this.repair.init();
     if (this.ctx.allies) this.ctx.allies.keyTaken = () => this.repair.piece !== null;
     // The garrison and the shopkeepers wear the Bailiffs: load them while the player picks a loadout.
@@ -221,6 +284,20 @@ export class Defense {
 
   private watching = false;
 
+  /** Co-op: this browser is a guest, so the fort it sees is the host's. */
+  get guest(): boolean {
+    const coop = this.ctx.coop;
+    return !!coop?.world && !coop.hosting;
+  }
+
+  /** Every living player's feet: this browser's, and in co-op on the host the others' too. */
+  players(): readonly THREE.Vector3[] {
+    if (this.link && !this.link.guest) return this.link.feet(this.feet);
+    this.feet.length = 0;
+    if (this.ctx.player.alive) this.feet.push(this.ctx.player.position);
+    return this.feet;
+  }
+
   /** Once a run, as the first wall or gate wears: how to board it up. */
   private hint(): void {
     if (this.hinted) return;
@@ -232,7 +309,8 @@ export class Defense {
   private markBreach(piece: Structure | null): void {
     const allies = this.ctx.allies;
     this.breach = piece;
-    if (!allies) return;
+    // Co-op guest: the riot line is the host's to send.
+    if (!allies || this.guest) return;
     if (!piece) {
       allies.clearBreach();
       this.garrison.breach = null;
@@ -260,6 +338,9 @@ export class Defense {
     this.repair.reset();
     this.garrison.reset();
     this.carriers.clear();
+    this.remote = null;
+    this.pending.clear();
+    this.shells?.reset();
     this.watchBreaches();
     // Each gun starts the run as a heavy machine gun (proposal: Mounted guns).
     for (const gun of this.mounts()) gun.upgrade(1);
@@ -275,14 +356,21 @@ export class Defense {
     }
     const { ctx } = this;
     const dt = ctx.time.dt;
-    this.hookBreak();
+    const guest = this.guest;
+    // Co-op guest: the break is the host's to time (the snapshot carries its clock).
+    if (!guest) this.hookBreak();
     this.readCounter();
     // E goes to a counter, a man in front of the player or a mounted gun before a wall.
-    // Co-op: the walls are the host's to mend; a guest's repair would only mend their own copy.
-    if (!ctx.coop?.world || ctx.coop.hosting) this.repair.update(dt, this.prompted !== null || Number.isFinite(ctx.allies?.focusDistance ?? Infinity) || this.gunNear());
+    // Co-op: a guest boards up too; the host puts the stage up and the guest is paid (repair.ts).
+    this.repair.update(dt, this.prompted !== null || Number.isFinite(ctx.allies?.focusDistance ?? Infinity) || this.gunNear());
     // Co-op: the key is the team's ready vote (net/teamBreak.ts), never one player's skip.
     if (this.inBreak && !ctx.coop?.world && ctx.input.pressed('nextWave')) this.startNow();
-    this.mortars.update(!this.inBreak);
+    if (guest) {
+      // The host's teams fire; here their rounds are only drawn.
+      this.mortars.shells.update();
+      this.shells?.update();
+      this.refunds();
+    } else this.mortars.update(!this.inBreak);
     if (ON_FORT && ctx.allies) {
       if (!this.inBreak) this.garrison.watch(ctx.enemies.alive);
       this.garrison.update(ctx.time.elapsed, ctx.allies.allies);
@@ -303,8 +391,10 @@ export class Defense {
     const { ctx } = this;
     const list = this.carrierList;
     list.length = 0;
-    this.waves.siege?.sappers(list);
-    for (const e of ctx.enemies.alive) if (e.id === 'bomber' && e.alive) list.push(e);
+    // Co-op guest: who runs a charge is the host's to say.
+    const told = this.guest ? this.remote?.carriers : null;
+    if (!this.guest) this.waves.siege?.sappers(list);
+    for (const e of ctx.enemies.alive) if (e.alive && (e.id === 'bomber' || told?.includes(e.uid))) list.push(e);
     this.carriers.clear();
     const meshes = this.carrierMeshes;
     meshes.length = 0;
@@ -350,6 +440,7 @@ export class Defense {
   /** The line under the break's countdown. */
   get preview(): string {
     const next = this.waves.wave + 1;
+    if (this.guest) return this.remote?.preview || placeholderPreview(next);
     return this.waves.preview?.(next) ?? placeholderPreview(next);
   }
 
@@ -399,7 +490,8 @@ export class Defense {
    */
   private postGarrison(): void {
     const allies = this.ctx.allies;
-    if (!allies) return;
+    // Co-op: the garrison is the host's, posted once by the host's own deployment.
+    if (!allies || this.guest) return;
     const { nav } = this.ctx.world;
     const n = ECONOMY.startRiflemen;
     const posts = ON_FORT ? startPosts(n) : Array.from({ length: n }, (_, i) => {
@@ -431,7 +523,7 @@ export class Defense {
       grenadesMax: TUNING.grenade.max,
       stims: progression.stims.count,
       stimsMax: progression.stims.max,
-      squad: this.ctx.allies?.allies.length ?? 0,
+      squad: this.guest ? this.remote?.squad ?? 0 : this.ctx.allies?.allies.length ?? 0,
       held: progression.callIns,
       cooldown: id => progression.callInCooldown(id),
       mounts: this.mounts().map(g => ({ level: g.levelNumber, names: MOUNT_LEVELS.map(l => l.name.split(' //')[0]!) })),
@@ -459,11 +551,120 @@ export class Defense {
     const offer = this.offers(shop).find(o => sameAct(o.act, act));
     if (!offer) return 'Not sold here';
     if (offer.why) return offer.why;
+    if (this.link?.guest && FORT_ACTS.has(act.kind)) {
+      // The fort is the host's: this player pays now, the host carries it out, and a refusal sends the price back (`sold`).
+      const n = ++this.asks;
+      this.pending.set(n, { price: offer.price, label: offer.label, at: this.ctx.time.elapsed });
+      this.credits -= offer.price;
+      this.link.buy(n, shop, act);
+      this.keepers?.nod(shop);
+      return null;
+    }
     const failed = this.carryOut(act);
     if (failed) return failed;
     this.credits -= offer.price;
     this.keepers?.nod(shop);
+    if (this.link && FORT_ACTS.has(act.kind)) this.link.say('feed', `HOST: ${this.what(act, offer.label)}`, '', FEED_COLOR);
     return null;
+  }
+
+  /** A fort purchase as the team's feed words it. */
+  private what(act: Act, label: string): string {
+    const name = label.toUpperCase();
+    return act.kind === 'ally' || act.kind === 'mortar' ? `HIRED ${name}` : act.kind === 'repair' ? `WORK CREW TO ${name}` : act.kind === 'mount' ? `UPGRADED ${name}` : name;
+  }
+
+  /**
+   * Co-op host: a guest's purchase that is the fort's, already paid for on their side. Every rule but the price is checked here,
+   * where the fort is. Returns why not, or null once it is done.
+   */
+  buyFor(shop: ShopId, act: Act, name: string): string | null {
+    if (!FORT_ACTS.has(act.kind)) return 'Not sold here';
+    const offer = offers(shop, { ...this.view(), credits: Number.MAX_SAFE_INTEGER }).find(o => sameAct(o.act, act));
+    if (!offer) return 'Not sold here';
+    if (offer.why) return offer.why;
+    const failed = this.carryOut(act);
+    if (failed) return failed;
+    this.keepers?.nod(shop);
+    const line = `${name.toUpperCase()}: ${this.what(act, offer.label)}`;
+    this.ctx.hud.feed(line, FEED_COLOR);
+    this.link?.say('feed', line, '', FEED_COLOR);
+    return null;
+  }
+
+  /** Co-op guest: the host's word on purchase `n`. Refused, the price comes back. */
+  sold(n: number, why: string | null): void {
+    const ask = this.pending.get(n);
+    if (!ask) return;
+    this.pending.delete(n);
+    if (why === null) return;
+    this.credits += ask.price;
+    this.ctx.hud.feed(`${ask.label.toUpperCase()}: ${why.toUpperCase()}. ${ask.price} BACK`, LOST_COLOR);
+  }
+
+  /** Co-op guest: a purchase the host never answered (it left, or the message was refused) is refunded. */
+  private refunds(): void {
+    if (this.pending.size === 0) return;
+    const now = this.ctx.time.elapsed;
+    for (const [n, ask] of this.pending) if (now - ask.at > ASK_SECONDS) this.sold(n, 'No answer from the host');
+  }
+
+  /** Co-op host: the fort's facts for the guests (`FortState`). */
+  state(): FortState {
+    const siege = this.waves.siege?.wire() ?? { pads: [], covers: [], marks: [] };
+    return {
+      squad: this.ctx.allies?.allies.length ?? 0,
+      mounts: this.mounts().map(g => g.levelNumber),
+      mortars: this.mortars.count,
+      shops: SHOP_ORDER.map(id => Math.round(this.shops[id].health)),
+      // Only in a break: the director rolls a wave's plan when it is first asked for.
+      preview: this.inBreak ? this.preview : '',
+      carriers: [...this.carriers],
+      ...siege,
+    };
+  }
+
+  /** Co-op guest: the host's word on the fort. Guns, mortar tubes, shop signs and the attackers' works are made to match. */
+  applyState(state: FortState): void {
+    if (!this.guest) return;
+    const nums = (v: unknown, max: number): number[] => (Array.isArray(v) ? v.slice(0, max).filter((x): x is number => typeof x === 'number' && Number.isFinite(x)) : []);
+    const rows = (v: unknown, max: number, width: number): number[][] => (Array.isArray(v) ? v.slice(0, max).map(r => nums(r, width)).filter(r => r.length === width) : []);
+    const clean: FortState = {
+      squad: Number.isFinite(state.squad) ? Math.max(0, Math.min(64, Math.round(state.squad))) : 0,
+      mounts: nums(state.mounts, 16), mortars: Number.isFinite(state.mortars) ? Math.max(0, Math.min(16, Math.round(state.mortars))) : 0,
+      shops: nums(state.shops, 3), preview: typeof state.preview === 'string' ? state.preview.slice(0, 160) : '', carriers: nums(state.carriers, 48),
+      pads: nums(state.pads, 16), covers: rows(state.covers, 24, 3), marks: rows(state.marks, 16, 3),
+    };
+    this.remote = clean;
+    const guns = this.mounts();
+    clean.mounts.forEach((level, i) => {
+      const gun = guns[i];
+      if (gun && gun.levelNumber !== level && level >= 1 && level <= MOUNT_LEVELS.length) gun.upgrade(level);
+    });
+    this.mortars.mirror(clean.mortars);
+    let repaint = false;
+    SHOP_ORDER.forEach((id, i) => {
+      const health = clean.shops[i];
+      if (health === undefined) return;
+      const shop = this.shops[id];
+      const was = shop.lost;
+      shop.health = Math.max(0, Math.min(shop.max, health));
+      if (shop.lost !== was) repaint = true;
+      if (shop.lost && this.prompted?.id === id) this.prompt(null);
+    });
+    if (repaint) this.paint();
+    this.waves.siege?.mirror(clean);
+  }
+
+  /** Co-op guest: one of the host's mortar rounds, drawn here. The team's own burst like a rocket; the attackers' land as the host's blast. */
+  shellIn(from: THREE.Vector3, to: THREE.Vector3, radius: number, flight: number, delay: number, ring: number | null, mine: boolean): void {
+    if (!this.guest) return;
+    if (mine) {
+      this.mortars.shells.fire(from, to, { radius, damage: 0, source: 'coop', ring: null, flight }, delay);
+      return;
+    }
+    this.shells ??= new Shells(this.ctx, () => {}, (at, r, t, c) => (this.ctx.enemies as unknown as { telegraphs?: EnemyManager['telegraphs'] }).telegraphs?.zone(at, r, t, c));
+    this.shells.fire(from, to, { radius, damage: 0, source: 'coop', ring, flight }, delay);
   }
 
   /** Does it. Returns why it could not, before anything is paid. */
@@ -516,6 +717,7 @@ export class Defense {
         this.shops[act.shop].restore();
         this.paint();
         ctx.hud.banner(`${SHOPS[act.shop].name.toUpperCase()} REBUILT`, '', SHOPS[act.shop].color);
+        this.link?.say('banner', `${SHOPS[act.shop].name.toUpperCase()} REBUILT`, '', SHOPS[act.shop].color);
         return null;
       case 'mortar':
         return this.mortars.add();
@@ -577,6 +779,7 @@ export class Defense {
     this.paint();
     if (this.prompted?.id === id) this.prompt(null);
     this.ctx.hud.banner(`${SHOPS[id].name.toUpperCase()} LOST`, 'rebuild it in a break', LOST_COLOR);
+    this.link?.say('banner', `${SHOPS[id].name.toUpperCase()} LOST`, 'rebuild it in a break', LOST_COLOR);
   }
 
   /** The guns on the walls. They hang off the call-in manager, which has no public way to them; the lab reads them the same way. */
@@ -633,8 +836,6 @@ export class Defense {
     if (player.alive && !player.parked && !ally) {
       let best = REACH;
       for (const k of this.kiosks) {
-        // Co-op: troops and work crews serve the host's fort, so only the host hires them.
-        if (k.id === 'barracks' && this.ctx.coop?.world && !this.ctx.coop.hosting) continue;
         const p = k.root.position;
         const d = Math.hypot(player.position.x - p.x, player.position.z - p.z);
         if (d < best && Math.abs(player.position.y - p.y) < 1.5) {

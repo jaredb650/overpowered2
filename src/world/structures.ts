@@ -75,6 +75,23 @@ export interface StructureSpec {
 /** A lift gate rises for a friend within this many metres of its middle, and drops when none is within `GATE_SHUT`. */
 export const GATE_OPEN = 4.5;
 export const GATE_SHUT = 6;
+
+/**
+ * Co-op (net/world/fort.ts): the pieces are the host's. There every change is reported through `changed`, and gates and repairs
+ * mind every player (`others`). On a guest (`guest`) nothing here wears or mends a piece: the player's own blasts and rounds go
+ * to the host (`blast`, `hit`), and the host's word comes back through `Structures.apply`.
+ */
+export interface StructureLink {
+  readonly guest: boolean;
+  /** Host: a piece's stage, health, gate or repair changed. `blast` and `power` are the blast behind a stage that fell, if one. */
+  changed(piece: Structure, loud: boolean, blast: THREE.Vector3 | null, power: number): void;
+  /** Guest: a blast of this player's reached the pieces. */
+  blast(center: THREE.Vector3, radius: number, amount: number, source: string): void;
+  /** Guest: a round of this player's hit a shack. */
+  hit(piece: Structure, amount: number): void;
+  /** Host: the feet of every other living player, written into `out`. */
+  others(out: THREE.Vector3[]): THREE.Vector3[];
+}
 /**
  * Pieces are drawn in squares, one mesh per material each, so a fort of two hundred is a few dozen draw calls. The squares are the
  * static map's (Geo cuts concrete and steel 5 across from -180), so no square's meshes are cut again.
@@ -302,6 +319,11 @@ class Piece implements Structure {
   colliders: RAPIER.Collider[] = [];
   /** A lift gate that is up. Only ever true at the first stage. */
   open = false;
+  /** Co-op guest: the host has the gate up, and this player is close enough that it rises for them before the host says so. */
+  hostOpen = false;
+  nearOpen = false;
+  /** Co-op host: tells the manager a repair began. */
+  notify: (() => void) | null = null;
   /** Whether its nav block is on: standing and shut. */
   blocking = false;
   chunk: Chunk | null = null;
@@ -346,6 +368,7 @@ class Piece implements Structure {
     this.repairing = 0;
     this.repairSeconds = Math.max(0.01, seconds);
     this.repairTick = 0;
+    this.notify?.();
     return true;
   }
 
@@ -377,6 +400,9 @@ export class Structures {
   /** The blast being dealt out now, if any: debris flies away from it. */
   private blastAt: THREE.Vector3 | null = null;
   private blastPower = 0;
+  /** Co-op: who the pieces answer to (net/world/fort.ts). Null alone. */
+  link: StructureLink | null = null;
+  private readonly others: THREE.Vector3[] = [];
 
   constructor(private readonly ctx: Ctx, private readonly specs: readonly StructureSpec[], private readonly material: (m: Mat) => THREE.Material) {
     this.root.name = 'structures';
@@ -416,6 +442,7 @@ export class Structures {
     const gate = s.kind === 'gate' ? gateStages(s.length, s.opens === true, s.style) : null;
     const parts = s.kind === 'wall' ? wallStages(s.length, rng, s.style) : gate ? gate.stages : shackStages(s.look ?? 'planks', rng);
     const piece = new Piece(this.all.length, s.kind, s, parts, s.opens && gate ? gate.open : null);
+    piece.notify = () => this.link?.changed(piece, false, null, 0);
     this.all.push(piece);
     if (piece.openParts) this.gates.push(piece);
     piece.chunk = this.chunkAt(s.x, s.z);
@@ -502,11 +529,17 @@ export class Structures {
   /** A round or a blade on a collider. Only a shack feels it. */
   hit(collider: RAPIER.Collider | null, amount: number): void {
     const piece = collider ? this.byCollider.get(collider.handle) : undefined;
-    if (piece?.kind === 'shack') this.damage(piece, amount * SHACK_BULLET);
+    if (piece?.kind !== 'shack') return;
+    if (this.link?.guest) this.link.hit(piece, amount);
+    else this.damage(piece, amount * SHACK_BULLET);
   }
 
   /** A blast. Each piece takes `amount` by its distance to the nearest point of it, down to EDGE at `radius`. */
   blast(center: THREE.Vector3, radius: number, amount: number, source: string): void {
+    if (this.link?.guest) {
+      if (amount > 0) this.link.blast(center, radius, amount, source);
+      return;
+    }
     this.blastAt = center;
     this.blastPower = amount * (SOURCE_MULT[source] ?? 1);
     try {
@@ -538,10 +571,13 @@ export class Structures {
   damage(piece: Structure, amount: number): void {
     const q = piece as Piece;
     const last = q.stages.length - 1;
-    if (amount <= 0 || q.index === last) return;
+    if (amount <= 0 || q.index === last || this.link?.guest) return;
     q.repairing = -1;
     q.health -= amount;
-    if (q.health > 0) return;
+    if (q.health > 0) {
+      this.link?.changed(q, false, null, 0);
+      return;
+    }
     let index = q.index;
     while (q.health <= 0 && index < last) {
       const carry = -q.health;
@@ -554,20 +590,50 @@ export class Structures {
     q.health = health;
   }
 
+  /**
+   * Co-op guest: the host's word on a piece. A new stage goes up or comes down here as it did there (`loud`: with the dust, the
+   * sound and the debris, thrown from `blast` if a blast did it); health, a gate's lift and a repair under way are taken as told.
+   */
+  apply(index: number, stage: number, health: number, open: boolean, repairing: number, repairSeconds: number, loud: boolean, blast: THREE.Vector3 | null, power: number): void {
+    const q = this.all[index];
+    if (!q) return;
+    const to = Math.max(0, Math.min(q.stages.length - 1, Math.round(stage)));
+    if (to !== q.index) {
+      this.blastAt = blast;
+      this.blastPower = power;
+      try {
+        this.setStage(q, to, loud);
+      } finally {
+        this.blastAt = null;
+      }
+    }
+    q.health = Math.max(0, Math.min(q.maxHealth, health));
+    q.hostOpen = open && q.index === 0;
+    if (repairing >= 0) {
+      if (q.repairing < 0) q.repairTick = 0;
+      q.repairing = Math.min(0.999, repairing);
+      q.repairSeconds = Math.max(0.01, repairSeconds);
+    } else q.repairing = -1;
+  }
+
   /** Puts a piece in a stage at once, with full health for it. `loud` plays the dust and the sound. */
   setStage(piece: Structure, index: number, loud = false): void {
     const q = piece as Piece;
     const from = q.index;
     if (index === from) {
-      q.health = q.maxHealth;
+      if (q.health !== q.maxHealth) {
+        q.health = q.maxHealth;
+        this.link?.changed(q, false, null, 0);
+      }
       return;
     }
     const was = q.stage;
     q.index = index;
     q.health = q.maxHealth;
-    if (index > 0) q.open = false;
+    if (index > 0) q.open = q.hostOpen = q.nearOpen = false;
     this.refit(q);
     if (loud) this.effects(q, index > from);
+    this.link?.changed(q, loud, this.blastAt, this.blastPower);
     for (const fn of q.listeners) fn(q.stage, was);
   }
 
@@ -691,6 +757,7 @@ export class Structures {
     this.refit(q);
     const mid = q.toWorld(0, GATE.height, 0, _p);
     this.ctx.audio.play('metal_clang', { position: mid, volume: 0.5, pitch: open ? 1.2 : 0.8 });
+    this.link?.changed(q, false, null, 0);
     return true;
   }
 
@@ -703,6 +770,9 @@ export class Structures {
     if (this.gates.length === 0) return;
     const player = this.ctx.player?.position instanceof THREE.Vector3 && this.ctx.player.alive ? this.ctx.player.position : null;
     const allies = (this.ctx as { allies?: { allies: readonly { state: string; body: { position: THREE.Vector3 } }[] } }).allies?.allies ?? [];
+    const guest = this.link?.guest === true;
+    // Co-op host: a gate rises for any player.
+    const others = this.link && !guest ? this.link.others(this.others) : null;
     for (const q of this.gates) {
       if (q.index > 0) continue;
       let near = Infinity;
@@ -710,7 +780,20 @@ export class Structures {
         if (Math.abs(p.y - q.spec.y) < 3) near = Math.min(near, Math.hypot(p.x - q.spec.x, p.z - q.spec.z));
       };
       if (player) at(player);
+      if (guest) {
+        // The gate is the host's. It rises here as this player reaches it, without waiting to be told, and drops on the host's word.
+        if (near < GATE_OPEN) q.nearOpen = true;
+        else if (near > GATE_SHUT) q.nearOpen = false;
+        const open = q.hostOpen || q.nearOpen;
+        if (open !== q.open) {
+          q.open = open;
+          this.refit(q);
+          this.ctx.audio.play('metal_clang', { position: q.toWorld(0, GATE.height, 0, _p), volume: 0.5, pitch: open ? 1.2 : 0.8 });
+        }
+        continue;
+      }
       for (const a of allies) if (a.state === 'up') at(a.body.position);
+      if (others) for (const p of others) at(p);
       if (!q.open && near < GATE_OPEN) this.setOpen(q, true);
       else if (q.open && near > GATE_SHUT) this.setOpen(q, false);
     }
@@ -727,6 +810,7 @@ export class Structures {
     };
     const { player, enemies } = this.ctx;
     if (player?.position instanceof THREE.Vector3 && player.alive && inside(player.position)) return true;
+    if (this.link && !this.link.guest) for (const p of this.link.others(this.others)) if (inside(p)) return true;
     const n = enemies?.query?.(q.toWorld(0, 0, 0, _c), q.halfLength + 2, this.near) ?? 0;
     for (let i = 0; i < n; i++) if (this.near[i]!.alive && inside(this.near[i]!.position)) return true;
     return false;
@@ -751,12 +835,17 @@ export class Structures {
         this.ctx.fx.dust(_p, UP, 0.6);
         this.ctx.audio.play('impact_concrete', { position: _p, volume: 0.35, pitchJitter: 0.15 });
       }
+      // Co-op guest: the crew is seen and heard at work here; the wall goes up when the host's does.
+      if (this.link?.guest) q.repairing = Math.min(0.999, q.repairing);
       if (q.repairing < 1) continue;
       // Nobody gets walled in: the last moment waits until the gap is clear.
       if (q.index === q.stages.length - 1 && this.occupied(q)) continue;
       q.repairing = -1;
       if (q.index > 0) this.setStage(q, q.index - 1, true);
-      else q.health = q.maxHealth;
+      else {
+        q.health = q.maxHealth;
+        this.link?.changed(q, false, null, 0);
+      }
     }
   }
 
@@ -764,9 +853,11 @@ export class Structures {
   reset(): void {
     for (const q of this.all) {
       q.repairing = -1;
+      q.hostOpen = q.nearOpen = false;
       this.setStage(q, 0);
       if (q.open) this.setOpen(q, false);
       q.health = q.maxHealth;
+      this.link?.changed(q, false, null, 0);
     }
     this.debris.clear();
     this.redraw();

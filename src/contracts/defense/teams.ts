@@ -70,6 +70,16 @@ export class MortarTeams {
     return null;
   }
 
+  /** Co-op guest: the host's teams, as tubes at their posts. They fire nothing here; the host's rounds are drawn through `shells`. */
+  mirror(count: number): void {
+    while (this.teams.length < Math.min(count, this.posts.length)) this.add();
+    while (this.teams.length > Math.max(0, count)) {
+      const t = this.teams.pop()!;
+      t.root.visible = false;
+      this.spare.push(t.root);
+    }
+  }
+
   reset(): void {
     for (const t of this.teams) {
       t.root.visible = false;
@@ -121,6 +131,8 @@ export class MortarTeams {
     fx.explosion(p, { radius: s.radius, kind: 'rocket' });
     audio.play('rocket_explosion', { position: p, pitch: 0.8, pitchJitter: 0.05 });
     ctx.camera.addTrauma(Math.max(0, 0.35 - ctx.player.position.distanceTo(p) / 200));
+    // Co-op guest: the host's round, drawn. What it hit, the host has counted.
+    if (ctx.coop?.world && !ctx.coop.hosting) return;
     const n = ctx.enemies.query(p, s.radius + 1.5, this.hits);
     for (let i = 0; i < n; i++) {
       const e = this.hits[i]!;

@@ -66,7 +66,34 @@ const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
 const _hit: RayHit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, surface: 'concrete', collider: null };
 
+/** Someone a device can go off under: a player, as the device reads them. The solo game has one, the host's own. */
+export interface Walker {
+  readonly position: THREE.Vector3;
+  readonly velocity: THREE.Vector3;
+  readonly alive: boolean;
+  /** A cable took their legs: the stop and the hurt, wherever their game runs. */
+  snared(at: THREE.Vector3, damage: number, cause: string): void;
+}
+
+/**
+ * Co-op (net/world/villainProps.ts): devices are the host's, numbered, and drawn on every screen. On the host every device laid, lit and
+ * gone is reported and every player can set one off (`walkers`). On a guest (`guest`) the list is the host's (`Devices.put`, `light`,
+ * `take`): nothing trips or blows here, and this player's round on one is sent to the host (`shot`).
+ */
+export interface DeviceLink {
+  readonly guest: boolean;
+  added(d: Device): void;
+  lit(d: Device): void;
+  /** `how`: 0 taken away quietly, 1 shot apart (sparks), 2 gone off. */
+  gone(d: Device, how: 0 | 1 | 2): void;
+  shot(d: Device): void;
+  /** Host: every living player. */
+  walkers(): readonly Walker[];
+}
+
 export class Device {
+  /** Numbered by the host as it is laid: the same on every screen. */
+  id = 0;
   kind: DeviceKind = 'mine';
   live = false;
   readonly position = new THREE.Vector3();
@@ -118,6 +145,13 @@ export class Devices {
   private readonly ghostMaterial = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false });
   private readonly ghostGeometry = ghostFigure();
   private nextGroup = 1;
+  /** Co-op: set by net/world/villainProps.ts. Null alone. */
+  link: DeviceLink | null = null;
+  private serial = 0;
+  /** The one player of a solo game, as a device reads them. */
+  private readonly solo: Walker[] = [];
+  /** Who the device being looked at now might go off under. */
+  private walker: Walker | null = null;
 
   constructor(private readonly c: Commander) {
     const { ctx } = c.w;
@@ -128,6 +162,24 @@ export class Devices {
     this.ledGreen = glow(LED_GREEN);
     this.wireRed = new THREE.MeshBasicMaterial({ color: new THREE.Color(RED).multiplyScalar(2.4), toneMapped: false, fog: false, transparent: true, opacity: 0.8, depthWrite: false });
     this.wireCable = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xfff0c0).multiplyScalar(1.6), toneMapped: false, fog: false });
+    const self = this;
+    this.solo.push({
+      get position() { return c.w.player.position; },
+      get velocity() { return c.w.ctx.player.velocity; },
+      get alive() { return c.w.player.alive; },
+      snared(at, damage, cause) { self.stop(at, damage, cause); },
+    });
+    // Co-op host: a guest's blast sets devices off as the host's own does (net/world/fort.ts raises it).
+    ctx.events?.on('coop:blast', e => this.onBlast(e.center, e.radius));
+  }
+
+  /** The cable's work on this browser's own player: most of their speed gone, a jolt, and the hurt. */
+  stop(at: THREE.Vector3, damage: number, cause: string): void {
+    const { ctx } = this.c.w;
+    ctx.camera.addTrauma(0.6);
+    _a.copy(ctx.player.velocity).multiplyScalar(-SNARE_STOP);
+    ctx.player.push(_a);
+    this.c.hurt(damage, at, cause);
   }
 
   private stock(kind: DeviceKind): Stock {
@@ -192,10 +244,14 @@ export class Devices {
   private add(kind: DeviceKind, at: THREE.Vector3, cause: string, reach: number): Device {
     if (this.live.length >= MAX_DEVICES) {
       const i = this.live.findIndex(d => d.kind !== 'tube');
-      if (i >= 0) this.remove(i);
+      if (i >= 0) {
+        this.link?.gone(this.live[i]!, 0);
+        this.remove(i);
+      }
     }
     const d = this.free.pop() ?? new Device();
     const stock = this.stock(kind);
+    d.id = ++this.serial;
     d.kind = kind;
     d.live = true;
     d.position.copy(at);
@@ -217,8 +273,14 @@ export class Devices {
     return d;
   }
 
+  /** Co-op host: a device is told to the guests once it is whole (its far post, its facing). */
+  private laid(d: Device): Device {
+    this.link?.added(d);
+    return d;
+  }
+
   mine(at: THREE.Vector3): Device {
-    return this.add('mine', at, 'mine', MINE_REACH);
+    return this.laid(this.add('mine', at, 'mine', MINE_REACH));
   }
 
   private wired(kind: 'tripwire' | 'snare', a: THREE.Vector3, b: THREE.Vector3, cause: string, material: THREE.Material): Device {
@@ -244,11 +306,11 @@ export class Devices {
   }
 
   tripwire(a: THREE.Vector3, b: THREE.Vector3): Device {
-    return this.wired('tripwire', a, b, 'tripwire', this.wireRed);
+    return this.laid(this.wired('tripwire', a, b, 'tripwire', this.wireRed));
   }
 
   snare(a: THREE.Vector3, b: THREE.Vector3): Device {
-    return this.wired('snare', a, b, 'snare', this.wireCable);
+    return this.laid(this.wired('snare', a, b, 'snare', this.wireCable));
   }
 
   /** `facing` is where it will spray: toward the ground the player comes from. */
@@ -256,7 +318,7 @@ export class Devices {
     const d = this.add('claymore', at, 'claymore', CLAYMORE_REACH);
     d.facing.copy(facing).setY(0).normalize();
     d.model!.rotation.set(0, Math.atan2(d.facing.x, d.facing.z), 0);
-    return d;
+    return this.laid(d);
   }
 
   beacon(at: THREE.Vector3): Device {
@@ -268,18 +330,69 @@ export class Devices {
     ghost.rotation.y = rand(0, 6.28);
     this.c.w.ctx.render.scene.add(ghost);
     d.ghost = ghost;
-    return d;
+    return this.laid(d);
   }
 
   /** A block of explosive. `reach` 0 leaves it to whoever placed it. */
   charge(at: THREE.Vector3, cause: string, reach: number): Device {
-    return this.add('charge', at, cause, reach);
+    return this.laid(this.add('charge', at, cause, reach));
   }
 
   tube(at: THREE.Vector3, facing: number): Device {
     const d = this.add('tube', at, 'tube', 0);
     d.model!.rotation.set(0, facing, 0);
-    return d;
+    return this.laid(d);
+  }
+
+  // ---- Co-op guest: the host's devices, drawn here -------------------------------------------------------------------
+
+  /** The host laid device `id`: the same model in the same place, with its far post or its facing, lit if its fuse is. */
+  put(id: number, kind: DeviceKind, at: THREE.Vector3, end: THREE.Vector3, facing: THREE.Vector3, yaw: number, fuse: number): void {
+    if (this.live.some(d => d.id === id)) return;
+    const d = kind === 'tripwire' ? this.wired('tripwire', at, end, 'tripwire', this.wireRed)
+      : kind === 'snare' ? this.wired('snare', at, end, 'snare', this.wireCable)
+        : this.add(kind, at, kind, 0);
+    d.id = id;
+    d.facing.copy(facing);
+    d.model!.rotation.set(0, yaw, 0);
+    if (kind === 'tube') d.led!.scale.setScalar(0);
+    if (fuse >= 0) {
+      d.lit = true;
+      d.fuse = fuse;
+    }
+  }
+
+  /** The host lit device `id`'s fuse: it blinks fast here too. */
+  light(id: number, fuse: number): void {
+    const d = this.live.find(x => x.id === id);
+    if (!d || d.lit) return;
+    d.lit = true;
+    d.fuse = fuse;
+    this.c.w.ctx.audio.play('grenade_pin', { position: d.position, pitch: 1.5, volume: 0.9 });
+  }
+
+  /** The host's device `id` is gone: quietly, shot apart, or gone off (the blast itself arrives as the host's explosion). */
+  take(id: number, how: number): void {
+    const i = this.live.findIndex(x => x.id === id);
+    if (i < 0) return;
+    const d = this.live[i]!;
+    if (how === 1) {
+      this.c.w.ctx.fx.sparks(d.position, _b.set(0, 1, 0), 12, 0xffd0a0);
+      this.c.w.ctx.audio.play('metal_clang', { position: d.position, volume: 0.7, pitch: 1.6 });
+    }
+    this.remove(i);
+  }
+
+  /** Once a frame on a guest: the lamps blink and the nearest tick, as the host's do. Nothing trips here. */
+  animate(): void {
+    const { w } = this.c;
+    const now = w.ctx.time.elapsed;
+    const p = w.ctx.player;
+    for (const d of this.live) {
+      this.blink(d, now);
+      if (d.lit || d.kind === 'tube' || d.kind === 'beacon' || !p.alive) continue;
+      this.listen(d, now, p.position);
+    }
   }
 
   newGroup(): number {
@@ -311,12 +424,15 @@ export class Devices {
     d.fuse = fuse;
     const { audio } = this.c.w.ctx;
     audio.play('grenade_pin', { position: d.position, pitch: 1.5, volume: 0.9 });
+    this.link?.lit(d);
   }
 
-  /** Removes it with no blast: shot apart, or a run ending. */
-  disarm(d: Device): void {
+  /** Removes it with no blast: shot apart, or a run ending. `shot`: with sparks, for the other screens. */
+  disarm(d: Device, shot = false): void {
     const i = this.live.indexOf(d);
-    if (i >= 0) this.remove(i);
+    if (i < 0) return;
+    this.link?.gone(d, shot ? 1 : 0);
+    this.remove(i);
   }
 
   /** It goes off now. */
@@ -328,6 +444,7 @@ export class Devices {
     const kind = d.kind;
     const cause = d.cause;
     if (kind === 'claymore') _a.addScaledVector(d.facing, 1.5);
+    this.link?.gone(d, 2);
     this.remove(i);
     switch (kind) {
       case 'mine': c.boom(_a, MINE_BLAST, MINE_DAMAGE, cause); break;
@@ -342,7 +459,9 @@ export class Devices {
     const { w } = this.c;
     const now = w.now;
     const dt = w.ctx.time.dt;
-    const p = w.player;
+    // Co-op host: any player sets a device off. Alone there is one.
+    const walkers = this.link && !this.link.guest ? this.link.walkers() : this.solo;
+    const own = w.ctx.player;
     for (let i = this.live.length - 1; i >= 0; i--) {
       const d = this.live[i]!;
       this.blink(d, now);
@@ -351,26 +470,32 @@ export class Devices {
         if (d.fuse <= 0) this.detonate(d);
         continue;
       }
-      if (d.kind === 'tube' || d.kind === 'beacon' || !p.alive) continue;
-      this.listen(d, now);
-      switch (d.kind) {
-        case 'mine':
-          if (near(d.position, p.position, d.reach, STEP_HEIGHT)) this.trigger(d, MINE_FUSE);
-          break;
-        case 'charge':
-          if (d.reach > 0 && near(d.position, p.position, d.reach, STEP_HEIGHT * 2)) this.trigger(d, CHARGE_FUSE);
-          break;
-        case 'tripwire':
-          if (this.crossing(d)) this.trigger(d, WIRE_FUSE);
-          break;
-        case 'snare':
-          if (this.crossing(d)) this.spring(d);
-          break;
-        case 'claymore':
-          if (this.inFan(d)) this.trigger(d, CLAYMORE_FUSE);
-          break;
+      if (d.kind === 'tube' || d.kind === 'beacon') continue;
+      // The tick is for this screen's own ears.
+      if (this.solo[0]!.alive) this.listen(d, now, this.link ? own.position : w.player.position);
+      for (const p of walkers) {
+        if (!p.alive || !d.live || d.lit) continue;
+        this.walker = p;
+        switch (d.kind) {
+          case 'mine':
+            if (near(d.position, p.position, d.reach, STEP_HEIGHT)) this.trigger(d, MINE_FUSE);
+            break;
+          case 'charge':
+            if (d.reach > 0 && near(d.position, p.position, d.reach, STEP_HEIGHT * 2)) this.trigger(d, CHARGE_FUSE);
+            break;
+          case 'tripwire':
+            if (this.crossing(d)) this.trigger(d, WIRE_FUSE);
+            break;
+          case 'snare':
+            if (this.crossing(d)) this.spring(d);
+            break;
+          case 'claymore':
+            if (this.inFan(d)) this.trigger(d, CLAYMORE_FUSE);
+            break;
+        }
       }
     }
+    this.walker = null;
   }
 
   private blink(d: Device, now: number): void {
@@ -386,8 +511,8 @@ export class Devices {
   }
 
   /** Ticks faster as the player closes, so a trap can be found with the eyes shut. */
-  private listen(d: Device, now: number): void {
-    const dist = d.position.distanceTo(this.c.w.player.position);
+  private listen(d: Device, now: number, ear: THREE.Vector3): void {
+    const dist = d.position.distanceTo(ear);
     if (dist > EAR_RANGE || now < d.tickAt) return;
     d.tickAt = now + 0.25 + 0.9 * clamp(dist / EAR_RANGE);
     this.c.w.ctx.audio.play('bomber_beep', { position: d.position, volume: 0.25, pitch: d.kind === 'charge' ? 1.2 : 1.7 });
@@ -395,7 +520,7 @@ export class Devices {
 
   /** Feet near the line between the posts, and not over it. */
   private crossing(d: Device): boolean {
-    const p = this.c.w.player.position;
+    const p = this.walker!.position;
     if (p.y - d.position.y > WIRE_CLEAR || p.y - d.position.y < -1) return false;
     const ax = d.end.x - d.position.x, az = d.end.z - d.position.z;
     const t = clamp(((p.x - d.position.x) * ax + (p.z - d.position.z) * az) / (ax * ax + az * az));
@@ -403,23 +528,23 @@ export class Devices {
   }
 
   private spring(d: Device): void {
-    const { ctx, player } = this.c.w;
+    const { ctx } = this.c.w;
     const c = this.c;
-    if (player.speed < SNARE_SPEED) {
+    const p = this.walker!;
+    // Alone this is the sensed speed (enemies' `PlayerSense`: half the vertical counted); a co-op walker's is the same sum.
+    const speed = this.link ? Math.hypot(p.velocity.x, p.velocity.y * 0.5, p.velocity.z) : c.w.player.speed;
+    if (speed < SNARE_SPEED) {
       ctx.audio.play('metal_clang', { position: d.position, volume: 0.8 });
       c.o.noise(d.position, SNARE_ALARM);
     } else {
       ctx.audio.play('metal_clang', { position: d.position, pitch: 0.7 });
-      ctx.camera.addTrauma(0.6);
-      _a.copy(ctx.player.velocity).multiplyScalar(-SNARE_STOP);
-      ctx.player.push(_a);
-      c.hurt(SNARE_DAMAGE, d.position, d.cause);
+      p.snared(d.position, SNARE_DAMAGE, d.cause);
     }
-    this.disarm(d);
+    this.disarm(d, true);
   }
 
   private inFan(d: Device): boolean {
-    const p = this.c.w.player;
+    const p = this.walker!;
     _a.subVectors(p.position, d.position).setY(0);
     const dist = _a.length();
     if (dist > d.reach || dist < 0.01 || Math.abs(p.position.y - d.position.y) > 2) return false;
@@ -442,13 +567,21 @@ export class Devices {
       }
     }
     if (!best || bestD === Infinity) return;
-    const { physics, fx } = this.c.w.ctx;
+    const { physics } = this.c.w.ctx;
     if (physics.raycastInto(origin, dir, bestD, CG.World, _hit)) return;
-    if (best.kind === 'beacon' || best.kind === 'snare') {
-      fx.sparks(best.position, dir, 12, 0xffd0a0);
-      this.c.w.ctx.audio.play('metal_clang', { position: best.position, volume: 0.7, pitch: 1.6 });
-      this.disarm(best);
-    } else this.detonate(best);
+    // Co-op guest: the device is the host's, and so is what a round does to it.
+    if (this.link?.guest) this.link.shot(best);
+    else this.shoot(best, dir);
+  }
+
+  /** A round found it: a mine or a charge goes off, a beacon or a cable dies with a clang. */
+  shoot(d: Device, dir: THREE.Vector3): void {
+    if (!d.live || d.kind === 'tube') return;
+    if (d.kind === 'beacon' || d.kind === 'snare') {
+      this.c.w.ctx.fx.sparks(d.position, dir, 12, 0xffd0a0);
+      this.c.w.ctx.audio.play('metal_clang', { position: d.position, volume: 0.7, pitch: 1.6 });
+      this.disarm(d, true);
+    } else this.detonate(d);
   }
 
   /** Distance along the shot to the point nearest `p`, or Infinity if the shot misses it. */
@@ -463,6 +596,8 @@ export class Devices {
 
   /** Any blast in the world. A live charge next to it goes too, a beat later, and a beacon or a tube is scrap. */
   onBlast(center: THREE.Vector3, radius: number): void {
+    // Co-op guest: the host hears this player's blast (`coop:blast`) and says what it did.
+    if (this.link?.guest) return;
     for (let i = this.live.length - 1; i >= 0; i--) {
       const d = this.live[i]!;
       if (d.lit || d.position.distanceTo(center) > radius) continue;
@@ -475,7 +610,10 @@ export class Devices {
   }
 
   clear(): void {
-    for (let i = this.live.length - 1; i >= 0; i--) this.remove(i);
+    for (let i = this.live.length - 1; i >= 0; i--) {
+      this.link?.gone(this.live[i]!, 0);
+      this.remove(i);
+    }
   }
 
   count(kind: DeviceKind): number {
