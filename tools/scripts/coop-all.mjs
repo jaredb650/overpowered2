@@ -21,6 +21,7 @@
 //   --lane <names>    only these lanes (session, team, gore, weapons-fx, call-ins, world-a, world-b, time, enemy-attacks,
 //                     enemy-motion, claims, missions, old, guest)
 //   --list            print the list and stop
+//   --ledger          print the results so far as a table for a document (no folders), and stop
 //   --jobs <1|2>      runs at once (default 1; never more than 2: the machine is shared, the queue allows 3 in all)
 //   --retry <mode>    harness (default): a failed run is run once more if it failed for a harness reason: it hit its time
 //                     limit, a page was starved (the kit's frame figures in the evidence, or the machine's load), the
@@ -284,6 +285,20 @@ async function calm(maxLoad, say) {
   }
 }
 
+/** The table for a document: by lane, without the runs' folders (tools/out does not persist). `--ledger` prints it. */
+export function ledger(results) {
+  const rows = Object.values(results).sort((a, b) => a.lane.localeCompare(b.lane) || a.id.localeCompare(b.id));
+  const cell = text => String(text ?? '').replace(/\|/g, '\\|').replace(/\n/g, ' ');
+  const lines = ['| Lane | Proof | Players | Mode | Transport | Network | Result | Checks passed / failed | Commit | First failing check |', '|---|---|---:|---|---|---|---|---:|---|---|'];
+  for (const r of rows) {
+    lines.push(`| ${r.lane} | \`${r.proof}\` | ${r.players} | ${cell(r.mode)}${r.map ? ` (${r.map})` : ''} | ${r.transport === 'none' ? 'one page' : r.transport} | ${r.net ? 'bad' : 'clean'} | ${r.verdict}${r.note ? ` (${cell(r.note).slice(0, 120)})` : ''} | ${r.passed} / ${r.failed} | \`${r.commit}\` | ${cell(r.first).slice(0, 200)} |`);
+  }
+  const by = {};
+  for (const r of rows) { const k = `${r.transport === 'none' ? 'one page' : r.transport}, ${r.net ? 'bad' : 'clean'} network, ${r.players} players`; (by[k] ??= [0, 0])[r.verdict === 'FAIL' ? 1 : 0]++; }
+  const sums = Object.entries(by).sort().map(([k, [pass, fail]]) => `- ${k}: ${pass} passed${fail ? `, ${fail} failed` : ''}`);
+  return `${rows.filter(r => r.verdict !== 'FAIL').length} of ${rows.length} runs passed.\n\n${sums.join('\n')}\n\n${lines.join('\n')}\n`;
+}
+
 export function table(results, { commit, suites } = {}) {
   const rows = Object.values(results).sort((a, b) => a.lane.localeCompare(b.lane) || a.id.localeCompare(b.id));
   const cell = text => String(text ?? '').replace(/\|/g, '\\|').replace(/\n/g, ' ');
@@ -314,6 +329,10 @@ async function main() {
   if (opt.list) {
     for (const r of list) console.log(`${r.id.padEnd(48)} ${r.lane.padEnd(14)} ${String(r.t).padStart(5)} s  ${Object.entries(r.env).map(([k, v]) => `${k}=${v}`).join(' ')}`);
     console.log(`${list.length} runs`);
+    return 0;
+  }
+  if (opt.ledger) {
+    process.stdout.write(ledger(readJson(join(resolve(ROOT, String(opt.out ?? 'tools/out/coop/all')), 'results.json'))?.results ?? {}));
     return 0;
   }
   const port = Number(opt.port);
