@@ -9,8 +9,14 @@ Update this file when the state below changes.
   overhaul, pushed after a final check (single player matches the game before it in 36 scripted scenarios apart from the blood
   puff, the dropped gun resting on the ground and two Guide lines; suite 2,844 green three times; real-WebRTC smoke 5 of 5).
   What co-op is now, what is proven and what is not: `docs/notes/coop.md` ("What is proven") and `docs/notes/coop-overhaul.md`.
-- **In progress on branch `gore-update`** (cut from that commit, not on the site): the damage response update, six lanes; rules
-  and log in `docs/notes/gore-update.md`, plan in `docs/proposals/damage-response-update.md`.
+- **Finished on branch `gore-update`, waiting for the owner to play it** (cut from that commit, pushed to `origin` as a branch,
+  NOT on the site and not merged): the damage response update. Every hit shows and the struck part swings, gibs add up to the
+  body destroyed, free guts and organs that burst, fire that chars and eats skin, bodies and blood that stay and heap (a "Mess"
+  setting), a redrawn decal sheet with big stains, readable limb wear, blood on the weapon. Rules, switches and log:
+  `docs/notes/gore-update.md`; what it costs and what is proven: `docs/notes/gore.md`; the owner's pictures and videos:
+  `tools/out/gore-update/LOOK.md` on the dev machine (not in git). Open for the owner: "a hit spoils his aim" has almost no
+  effect as tuned (0.35 s against a 0.8 s burst gap); the one-step physics change is off by default (`?onestep=1`); a tie-break
+  fix in `src/player/collide.ts` (the Office start no longer hangs in the desk); GPU memory is up about 150 MB.
 - **Only on the owner's Mac, not in any clone:**
   - Uncommitted leftovers (19 lines, owner hasn't decided): `docs/notes/viewmodels.md` (a rewritten Ultramag description and an
     exposed-action reload write-up), `docs/notes/weapons.md` (Harrow 50/100 → 60/120 in the text), `src/core/gameplay.ts` and
