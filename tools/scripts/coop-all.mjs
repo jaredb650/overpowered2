@@ -19,16 +19,16 @@
 //                     all     everything
 //   --only <text>     runs whose id contains the text, or matches /regex/
 //   --lane <names>    only these lanes (session, team, gore, weapons-fx, call-ins, world-a, world-b, time, enemy-attacks,
-//                     enemy-motion, claims, missions, old, guest)
+//                     enemy-motion, claims, missions, fixes, wire, old, guest)
 //   --list            print the list and stop
 //   --ledger          print the results so far as a table for a document (no folders), and stop
-//   --jobs <1|2>      runs at once (default 1; never more than 2: the machine is shared, the queue allows 3 in all)
+//   --jobs <1..4>     runs at once (default 1; never more than 4: the machine is shared, the queue allows 6 in all)
 //   --retry <mode>    harness (default): a failed run is run once more if it failed for a harness reason: it hit its time
 //                     limit, a page was starved (the kit's frame figures in the evidence, or the machine's load), the
 //                     browser died, or on rtc the lobby never formed (relays). all: any failure once more. none.
 //   --force           run again what already passed
 //   --any-commit      a pass on an older game or proof counts as done (the table still says which commit)
-//   --max-load <n>    wait while the 1-minute load is above this before starting a run (default 16)
+//   --max-load <n>    wait while the 1-minute load is above this before starting a run (default 20)
 //   --out <dir>       results folder
 //
 // Resumable: a run that already passed on the same game and the same proof is skipped, so stopping and starting again
@@ -133,6 +133,20 @@ export const PROOFS = [
   P('missions-play/campaign', 'missions', 'coop-missions-play', { mode: 'campaign', env: { COOP_MISSION: 'campaign', COOP_ACTOR: 'guest', COOP_EXTRAS: 'skip', COOP_SHOTS: '0' }, count: 'COOP_PLAYERS', tag: 'COOP_TAG', rtc: true, t: 1700, slow: true }),
   P('missions-play/foreclosure', 'missions', 'coop-missions-play', { mode: 'foreclosure', env: { COOP_MISSION: 'foreclosure', COOP_ACTOR: 'guest', COOP_EXTRAS: 'skip', COOP_SHOTS: '0' }, count: 'COOP_PLAYERS', tag: 'COOP_TAG', t: 1700, slow: true }),
 
+  // fixes: the proofs the last pass's fix agents added (sessions and returns, hits, the villain, the notice) and the wire's
+  P('fixsession-return', 'fixes', 'coop-fixsession-return', { players: 3, sim: teamNet, count: 'TEAM_PLAYERS', t: 900, slow: true }),
+  P('fixsession-reload/lobby', 'fixes', 'coop-fixsession-reload', { players: 3, env: { FIX_CASE: 'lobby' }, t: 900 }),
+  P('fixsession-reload/defense', 'fixes', 'coop-fixsession-reload', { mode: 'defense', env: { FIX_CASE: 'defense' }, t: 900 }),
+  P('fixsession-reload/hostlate', 'fixes', 'coop-fixsession-reload', { players: 3, env: { FIX_CASE: 'hostlate' }, t: 900 }),
+  P('fixsession-callins', 'fixes', 'coop-fixsession-callins', { mode: 'outpost', players: 3, t: 1200, slow: true }),
+  P('fixhits-pins', 'fixes', 'coop-fixhits-pins', { sim: sim('PINS_SIM'), t: 900 }),
+  P('fixhits-predict', 'fixes', 'coop-fixhits-predict', { players: 3, env: { PREDICT_SIM: 'off' }, sim: sim('PREDICT_SIM'), tag: 'PREDICT_TAG', t: 1500 }),
+  P('fixgame-villain', 'fixes', 'coop-fixgame-villain', { mode: 'outpost', count: 'COOP_PLAYERS', t: 700 }),
+  P('fixgame-notice', 'fixes', 'coop-fixgame-notice', { sim: null, ...look, t: 400 }),
+  P('motion-vehicles', 'enemy-motion', 'coop-motion-vehicles', { mode: 'defense', t: 500 }),
+  P('wire-stall', 'wire', 'coop-wire-stall', { players: 4, sim: null, w: 960, h: 540, t: 700, slow: true }),
+  P('wire-heavy', 'wire', 'coop-wire-heavy', { players: 4, sim: sim('WIRE_SIM'), env: { WIRE_PROFILE: '0' }, tag: 'WIRE_TAG', w: 960, h: 540, t: 500 }),
+
   // old: the proofs from before the overhaul, kept as regression tests
   ...smokeModes.map(([mode, map]) => P(`smoke/${mode}${map ? `@${map}` : ''}`, 'old', 'coop-smoke', { mode, map: map ?? '', env: { COOP_MODE: mode, ...(map ? { COOP_MAP: map } : {}) }, count: 'COOP_PLAYERS', t: 400,
     ...(mode === 'crucible' && !map ? { rtc: true, four: true } : {}) })),
@@ -188,7 +202,7 @@ const readJson = file => { try { return JSON.parse(readFileSync(file, 'utf8')); 
 const firstLine = text => String(text ?? '').split('\n')[0].replace(/^\[script\]\s*/, '').replace(/^Error:\s*/, '').slice(0, 400);
 
 /** What the run's folder says: checks passed, what failed first, the pages' frame figures. Pure, so it can be tested. */
-export function verdict({ exit, report, evidence = [], cost, log = '', run, maxLoad = 16 }) {
+export function verdict({ exit, report, evidence = [], cost, log = '', run, maxLoad = 20 }) {
   const result = report?.scriptResult;
   const all = [result, ...evidence].filter(v => v && typeof v === 'object');
   const count = v => Array.isArray(v?.checks) ? v.checks.length : typeof v?.checks === 'number' ? v.checks : 0;
@@ -337,9 +351,9 @@ async function main() {
   }
   const port = Number(opt.port);
   if (!port || port === 5173) { console.error('--port <your own Vite port> is needed (never 5173)'); return 64; }
-  const jobs = Math.max(1, Math.min(2, Number(opt.jobs ?? 1)));
+  const jobs = Math.max(1, Math.min(4, Number(opt.jobs ?? 1)));
   const retry = String(opt.retry ?? 'harness');
-  const maxLoad = Number(opt['max-load'] ?? 16);
+  const maxLoad = Number(opt['max-load'] ?? 20);
   const outRoot = resolve(ROOT, String(opt.out ?? 'tools/out/coop/all'));
   mkdirSync(outRoot, { recursive: true });
   const file = join(outRoot, 'results.json');

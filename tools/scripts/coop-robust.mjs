@@ -67,7 +67,8 @@ export default async function (host, { sleep, outDir }) {
     const credits = after.credits;
     await host.evaluate(() => { window.__op2.ctx.waves.start?.(); });
     await guest.close(); guest = null;
-    await host.waitForFunction(() => window.__op2.ctx.coop.lobby.players.length === 1, null, { timeout: 40000 });
+    // A dropped guest keeps its seat for 60 s (the session's grace): the host is alone as soon as the seat reads lost.
+    await host.waitForFunction(() => window.__op2.ctx.coop.lobby.players.filter(p => !p.away).length === 1, null, { timeout: 40000 });
     await host.waitForFunction(() => window.__op2.ctx.enemies.alive.length > 0, null, { timeout: 60000 });
     check(true, 'The host plays on when a guest drops');
     // The same player again: a new page by the invite link, under the same callsign (their purse comes back by it).

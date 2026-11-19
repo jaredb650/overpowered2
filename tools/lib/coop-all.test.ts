@@ -61,7 +61,7 @@ describe('coop-all: a run\'s verdict', () => {
     expect(verdict({ exit: 0, report: { errors: ['[script] Error: x'] }, evidence: [starved], run: { ...run, slow: true } }).reason).toBe('');
     const relays = verdict({ exit: 0, report: { errors: ['[script] TimeoutError: locator.waitFor: Timeout 90000ms exceeded.\n    at joinFromSplash (coop-kit.mjs:1)\n    at openGuest'] }, run: { ...run, transport: 'rtc' } });
     expect(relays.reason).toMatch(/^relays/);
-    expect(verdict({ exit: 0, report: { errors: ['[script] Error: real failure'] }, evidence: [{ checks: ['a'] }], cost: { load: [40, 44] }, run }).reason).toBe('machine load 44');
+    expect(verdict({ exit: 0, report: { errors: ['[script] Error: real failure'] }, evidence: [{ checks: ['a'] }], cost: { load: [40, 54] }, run }).reason).toBe('machine load 54');
   });
 
   it('writes the table with one row a run', () => {

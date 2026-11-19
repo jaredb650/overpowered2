@@ -2146,7 +2146,7 @@ Unit tests: `src/net/lanes.test.ts`, `fast.test.ts` (the fallback), `loopback.te
 ### Every proof, one command (`tools/scripts/coop-all.mjs`)
 
 The regression suite for co-op. It knows every browser proof with its parameters (players, mode, map, transport, network), runs
-them through `tools/shot.mjs` (so the machine's browser slots are honoured), one at a time unless `--jobs 2`, each under its own
+them through `tools/shot.mjs` (so the machine's browser slots are honoured), one at a time unless `--jobs 2` (up to 4), each under its own
 time limit, and writes one table. **Run this, not the proofs one by one, after any change to co-op.**
 
 ```sh
@@ -2171,7 +2171,7 @@ node tools/scripts/coop-all.mjs --port <your port> --lane team,session         #
   proof text is skipped, so stop it and start it again at will. `--force` runs everything again; `--any-commit` accepts an old
   pass. A commit that touches only docs or tools does not make the game new.
 - **Retries:** a failed run is run once more only when it failed for a harness reason: it hit its time limit, a page was
-  starved, the browser died, the machine's load was over 1.5 times `--max-load` (default 16: it also waits for the load to be
+  starved, the browser died, the machine's load was over 1.5 times `--max-load` (default 20: it also waits for the load to be
   under that before each run), or on `rtc` the lobby or the match never formed (the relays). A run that passes the second
   time reads `pass (2nd try)` with the first try's reason. `--retry all` retries any failure once; `--retry none` none.
 - **Starved or broken:** the kit samples every page's loop rate every 3 s while it plays into `out.frames` (`{ n, mean, min,

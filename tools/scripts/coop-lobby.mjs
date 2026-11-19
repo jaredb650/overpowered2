@@ -41,12 +41,12 @@ export default async (host, { sleep, outDir }) => {
     progress('ready off and on');
     await guest.locator('.co-readybtn.on').click();
     const waiting = await until(host, s => s.players.some(p => !p.host && !p.ready), 'the host sees the guest not ready', 20000);
-    const guide = await host.evaluate(() => document.querySelector('.scr-coop .nt-ref')?.textContent ?? '');
+    const guide = await host.evaluate(() => document.querySelector('.co-guide')?.textContent ?? '');
     check(/Waiting for GUEST-7 to ready up/.test(guide), 'The host is told who it is waiting for', guide);
     check(waiting.phase === 'open' && waiting.match === null, 'Nothing has started');
     await guest.locator('.co-readybtn:not(.on)').click();
     await until(host, s => s.players.every(p => p.host || p.ready), 'the host sees the guest ready again', 20000);
-    check(/Everyone is ready/.test(await host.evaluate(() => document.querySelector('.scr-coop .nt-ref')?.textContent ?? '')), 'With the guest ready the host reads "Everyone is ready"');
+    check(/Everyone is ready/.test(await host.evaluate(() => document.querySelector('.co-guide')?.textContent ?? '')), 'With the guest ready the host reads "Everyone is ready"');
     await shot(guest, 'guest-lobby', true);
 
     progress('the host leaves');
