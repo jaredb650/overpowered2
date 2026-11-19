@@ -2,6 +2,7 @@
 // the host's garrison drawn on the guest) or the Crucible on the Office map. Pick with COOP_MODE:
 //   COOP_MODE=humans|defense|office node tools/shot.mjs --port 5294 --dpr 2 --w 1440 --h 900 --wait 500 --timeout 700 \
 //     --script tools/scripts/coop-modes.mjs --out tools/out/coop3/modes-final.png
+// Runs on the loopback transport by default (fast, offline); COOP_NET=rtc runs it over real WebRTC. See coop-kit.mjs.
 import { writeFileSync } from 'node:fs';
 import { button, calm, inMatch, kit, startPair, state } from './coop-kit.mjs';
 

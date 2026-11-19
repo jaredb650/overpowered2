@@ -3,6 +3,7 @@
 // prompt, takes it, and holds it with the host's mods and rounds. Then the guest drops it and the host sees that drop.
 //   node tools/shot.mjs --port 5204 --dpr 2 --w 1440 --h 900 --wait 500 --timeout 600 \
 //     --script tools/scripts/coop-drops.mjs --out tools/out/drops/x.png
+// Runs on the loopback transport by default (fast, offline); COOP_NET=rtc runs it over real WebRTC. See coop-kit.mjs.
 import { writeFileSync } from 'node:fs';
 import { calm, inMatch, kit, startPair } from './coop-kit.mjs';
 

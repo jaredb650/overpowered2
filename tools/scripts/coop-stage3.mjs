@@ -3,8 +3,9 @@
 // explosion on the other screen, the host's tab hidden, and the team wipe back to the lobby.
 //   node tools/shot.mjs --port 5294 --dpr 2 --w 1440 --h 900 --wait 500 --timeout 900 \
 //     --script tools/scripts/coop-stage3.mjs --out tools/out/coop3/stage3-final.png
+// Runs on the loopback transport by default (fast, offline); COOP_NET=rtc runs it over real WebRTC. See coop-kit.mjs.
 import { writeFileSync } from 'node:fs';
-import { aimAt, button, calm, dummy, inMatch, kit, startPair, state } from './coop-kit.mjs';
+import { aimAt, button, calm, dummy, fireAt, inMatch, kit, startPair, state } from './coop-kit.mjs';
 
 export default async function (host, { sleep, outDir }) {
   const out = { errors: [], checks: [], screenshots: [] };
@@ -39,7 +40,8 @@ export default async function (host, { sleep, outDir }) {
     await sleep(700);
     await aimAt(guest, target); await sleep(300);
     await shot(guest, 'guest-aims'); await shot(host, 'host-sees-guest-gun');
-    await guest.mouse.down(); await sleep(1100); await guest.mouse.up();
+    // Scripted fire, not the mouse: under pointer lock a mouse press in a loopback page's pop-up window also turns the view.
+    await fireAt(guest, target, 1100, sleep);
     await host.waitForFunction(uid => !window.__op2.ctx.enemies.alive.some(e => e.uid === uid), target, { timeout: 15000 });
     await sleep(800);
     const after = { host: await state(host), guest: await state(guest) };

@@ -2,6 +2,7 @@
 // lines, gets the same objectives, and rides in on the door gun with the host.
 //   node tools/shot.mjs --port 5294 --dpr 2 --w 1440 --h 900 --wait 500 --timeout 800 \
 //     --script tools/scripts/coop-mission.mjs --out tools/out/coop3/mission-final.png
+// Runs on the loopback transport by default (fast, offline); COOP_NET=rtc runs it over real WebRTC. See coop-kit.mjs.
 import { writeFileSync } from 'node:fs';
 import { inMatch, kit, startPair, state } from './coop-kit.mjs';
 

@@ -21,7 +21,8 @@
 //     startNow   false stops in the lobby with everyone ready.
 //   Returns { host, guests, pages, guest (the first), invite, password, mode: { label, contract, map }, transport }.
 //   startPair(host, opts) is startParty with two players.
-//   openGuest(party, { name }) adds one more page later (a late joiner, a rejoin); closeGuest by page.close().
+//   openGuest(party, { name, late }) adds one more page (a fourth player, or with late: true a join or rejoin into a
+//   running match, then inMatch([guest], ...)). A guest leaves by page.close().
 //
 // GETTING TO A FIGHT
 //   await inMatch(party.pages, party.mode.contract)    every page in the match, world up, the other bodies drawn
@@ -41,7 +42,8 @@
 //   await state(page)        game state, wave, health, credits, kills, enemies, team cards, world.stats
 //   await netStats(page)     window.__op2.net.snapshot(): per-lane bytes and packets, gaps, loss, round trips, fps, sim
 //   await resetNet(pages)    starts a measuring window on each page
-//   await measure(party, seconds)   reset, wait, and return { host, guests: [...] } snapshots with frame rates
+//   await measure(party, seconds)   reset, wait, and return { host, guests: [...] } snapshots with frame rates and enemy counts
+//   await rtcChannels(page)  rtc only: the browser's own per-data-channel counts (`data` reliable, `op2-fast` unreliable)
 //   await traffic(page)      the older meter: world.stats and, on rtc, the browser's own data-channel byte counts
 //   kit(outDir, prefix, out, sleep) gives { check, progress, shot } writing into `out` ({ errors, checks, screenshots }).
 
@@ -140,6 +142,16 @@ const simText = net => !net ? '' : typeof net === 'string' ? net : Object.entrie
 /** The init scripts every test page gets, before its first load. */
 async function prepare(page, { fps, out, tag }) {
   page.on('pageerror', error => out?.errors.push(`${tag}: ${error.message}`));
+  // For the evidence file: each page's warnings, errors and co-op lines, and every address it loads (a page that reloads
+  // out of a match shows here).
+  if (out) {
+    const log = (out.console ??= []);
+    page.on('console', message => {
+      const text = message.text();
+      if (log.length < 400 && (message.type() === 'error' || message.type() === 'warning' || /\[coop\]|\[netsim\]/.test(text)) && !/THREE\.|wss:\/\//.test(text)) log.push(`${tag}: ${text.slice(0, 300)}`);
+    });
+    page.on('framenavigated', frame => { if (frame === page.mainFrame() && log.length < 400) log.push(`${tag}: -> ${frame.url()}`); });
+  }
   await page.addInitScript(harness, fps);
   await page.addInitScript(quiet);
   await page.addInitScript(returning);
@@ -200,7 +212,7 @@ export const startPair = (host, options) => startParty(host, { ...options, playe
  * One more page into the party's lobby by the invite link, named and ready: a guest at the start, a late joiner or a rejoin
  * later. On loopback it is another window of the host's profile; on rtc it has a profile of its own.
  */
-export async function openGuest(party, { name = callsign(party.guests.length + 1), ready = true } = {}) {
+export async function openGuest(party, { name = callsign(party.guests.length + 1), ready = true, late = false } = {}) {
   const { host, transport, fps, out, password } = party;
   const guest = transport === 'loop' ? await ownWindow(host)
     : await host.context().browser().newPage({ viewport: host.viewportSize(), deviceScaleFactor: await host.evaluate(() => window.devicePixelRatio) });
@@ -208,13 +220,15 @@ export async function openGuest(party, { name = callsign(party.guests.length + 1
   // The same player's browser keeps their callsign; a test page has none stored yet.
   await guest.addInitScript(name => { if (!sessionStorage.getItem('coopKitNamed')) { localStorage.setItem('op2_coop_name', name); sessionStorage.setItem('coopKitNamed', '1'); } }, name);
   await guest.goto(party.invite);
-  await joinFromSplash(guest, password);
-  await guest.locator('.co-field input').first().fill(name); await guest.locator('.co-field input').first().press('Enter');
-  if (ready) await readyUp(guest);
+  // `late`: a match is running, so the host sends the newcomer straight into it and the lobby list may never be seen.
+  await joinFromSplash(guest, password, !late);
+  if (!late) {
+    await guest.locator('.co-field input').first().fill(name); await guest.locator('.co-field input').first().press('Enter');
+    if (ready) await readyUp(guest);
+  }
   party.guests.push(guest);
   party.pages.push(guest);
   party.guest ??= guest;
-  // A match already running takes the newcomer straight in; the caller waits with inMatch([guest], ...).
   return guest;
 }
 
@@ -235,11 +249,11 @@ export async function ownWindow(page) {
 /** The host's Start waits for every guest to be ready. */
 export const readyUp = page => page.locator('.co-readybtn:not(.on)').click();
 
-/** An invite link opens straight on its password page, with no splash. */
-export async function joinFromSplash(page, password) {
+/** An invite link opens straight on its password page, with no splash. `listed` waits for the lobby's player list. */
+export async function joinFromSplash(page, password, listed = true) {
   await page.locator('input[type=password]').waitFor({ state: 'visible', timeout: 300000 });
   await page.locator('input[type=password]').fill(password); await button(page, 'Join lobby').click();
-  await page.locator('.co-player').nth(1).waitFor({ state: 'visible', timeout: 90000 });
+  if (listed) await page.locator('.co-player').nth(1).waitFor({ state: 'visible', timeout: 90000 });
 }
 
 /** Every page in the match with the world and the other players' bodies up. */
@@ -304,21 +318,44 @@ export const resetNet = async pages => { for (const page of [pages].flat()) awai
 /** Sets the game's network simulator on one page, as text or an object; 'off' clears it. Returns the settings in force. */
 export const setNet = (page, net) => page.evaluate(net => window.__op2.net.sim.set(net), typeof net === 'string' ? net : { ...net });
 
-/** A measuring window over the whole party: reset, wait, read. Frame rates are sampled every second and averaged. */
-export async function measure(party, seconds, sleep = party.sleep) {
+/**
+ * A measuring window over the whole party: reset the counters, wait `seconds`, read. Frame rate and enemy count are sampled
+ * every second on every page; `everySecond(i)` runs then too (keep a wave going, fire a call-in).
+ */
+export async function measure(party, seconds, { sleep = party.sleep, everySecond } = {}) {
   const { pages, host, guests } = party;
   await resetNet(pages);
-  const fps = pages.map(() => []);
+  const fps = pages.map(() => []), enemies = pages.map(() => []);
   for (let i = 0; i < seconds; i++) {
     await sleep(1000);
-    await Promise.all(pages.map(async (page, p) => fps[p].push(await page.evaluate(() => window.__op2.stats().fps))));
+    await Promise.all(pages.map(async (page, p) => {
+      const now = await page.evaluate(() => [window.__op2.stats().fps, window.__op2.ctx.enemies.alive.length]);
+      fps[p].push(now[0]); enemies[p].push(now[1]);
+    }));
+    await everySecond?.(i);
   }
-  const read = async (page, p) => {
-    const sorted = [...fps[p]].sort((a, b) => a - b);
-    return { ...await netStats(page), fps: { mean: Math.round(sorted.reduce((a, b) => a + b, 0) / sorted.length), min: sorted[0], max: sorted.at(-1) }, enemies: await page.evaluate(() => window.__op2.ctx.enemies.alive.length) };
-  };
+  const spread = values => ({ mean: Math.round(10 * values.reduce((a, b) => a + b, 0) / values.length) / 10, min: Math.min(...values), max: Math.max(...values) });
+  const read = async (page, p) => ({ ...await netStats(page), fps: { ...spread(fps[p]), each: fps[p] }, enemies: spread(enemies[p]) });
   return { seconds, host: await read(host, 0), guests: await Promise.all(guests.map((page, i) => read(page, i + 1))) };
 }
+
+/**
+ * rtc only: what the browser itself says each WebRTC data channel of this page carried, by label. `data` is trystero's
+ * reliable channel, `op2-fast` the game's unreliable one (src/net/fast.ts). Empty on loopback.
+ */
+export const rtcChannels = page => page.evaluate(async () => {
+  const out = {};
+  for (const peer of window.__coopPeers ?? []) {
+    if (peer.connectionState !== 'connected') continue;
+    (await peer.getStats()).forEach(stat => {
+      if (stat.type !== 'data-channel') return;
+      const sum = (out[stat.label] ??= { channels: 0, state: stat.state, messagesSent: 0, messagesReceived: 0, bytesSent: 0, bytesReceived: 0 });
+      sum.channels++;
+      for (const key of ['messagesSent', 'messagesReceived', 'bytesSent', 'bytesReceived']) sum[key] += stat[key] ?? 0;
+    });
+  }
+  return out;
+});
 
 /** The older meter: the host world's own counters and, on rtc, what the browser says its data channels carried. */
 export async function traffic(page) {
