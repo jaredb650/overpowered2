@@ -95,7 +95,9 @@ export default async function (host, { sleep, outDir }) {
       check(lost.away && !lost.body, 'the host keeps the seat and takes the body out of the world', lost);
       check(!lost.slows.includes(slot), 'the lost guest\'s slow-mo is let go at once', lost.slows);
       for (const other of others) {
-        const row = await other.evaluate(slot => { const { lobby, remotes } = window.__op2.ctx.coop; const p = lobby.players.find(q => q.slot === slot); return { state: p?.state ?? '', body: !!p && remotes.has(p.id) }; }, slot);
+        // The host's list reaches the other guest a network delay later.
+        const row = await waitFor(() => other.evaluate(slot => { const { lobby, remotes } = window.__op2.ctx.coop; const p = lobby.players.find(q => q.slot === slot); return { state: p?.state ?? '', body: !!p && remotes.has(p.id) }; }, slot),
+          r => r.state === 'lost' && !r.body, 'the other guest seeing the seat lost and no body', 10000, sleep);
         check(row.state === 'lost' && !row.body, 'the other guest sees the seat lost and no body', row);
       }
       const line = await guest.evaluate(() => { const el = document.querySelector('.cs-line'); return el && el.style.display !== 'none' ? el.textContent : ''; });
