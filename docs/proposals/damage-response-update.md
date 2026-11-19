@@ -529,6 +529,29 @@ that.
 
 ---
 
+## 10a. The owner's answers (2026-11-18)
+
+These are decisions. Where they differ from a step above, the answer wins.
+
+1. **Flinch strength:** yes, a strong flinch on the struck limb for **every round**, not only heavy guns (R1 as written, at the top of its range).
+2. **A hit spoils his aim:** **yes** (R3b is on). The host decides it in co-op.
+3. **Bodies and blood staying:** a **setting** (stay all match / clear at wave break), not one fixed behaviour.
+4. **Heaps of bodies:** walking through corpses should **push them aside as ragdolls**. Bodies neither block nor lift the player,
+   and they are not walked through untouched either. This changes P1 and P3: a resting body must be able to wake when the player
+   (or an enemy) pushes into it.
+5. **Fire:** burning **chips away at morale faster** for those who watch it; **zombies are not unnerved by fire and keep
+   attacking** while burning; fire **eats skin down to muscle and bone** (F2 goes all the way, not just char).
+6. **Slower, floatier gib pieces for about a second:** undecided. Build it switchable and show a contact sheet and a clip of both
+   before choosing.
+7. **Organs that burst when stepped on:** **yes**, and use the burst as the way organs leave the world (an excuse to despawn them).
+8. **Limbs:** keep them targetable **as they are now, to change what an enemy can do**: legs shot off means he crawls, an arm
+   blown off means the sidearm or fleeing or surrender. Never weaken that. ("Readable" in the question meant visible wear on a
+   limb before it comes off, W1; that is optional polish on top and must not change the rules.)
+9. **Fireballs: keep them exactly as they are, they are perfect.** G2 must show the break **without** thinning or shortening the
+   fireball: throw the pieces out past it, hang them, brighten the torn faces, add mid-size pieces.
+
+Status: not started. It is queued behind the co-op overhaul (the co-op gore lane is editing the same files); the owner says when.
+
 ## 11. Considered and rejected
 
 | Idea | Why not |
