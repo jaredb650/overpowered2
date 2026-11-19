@@ -736,3 +736,48 @@ Each: what fails, where, how many players, which network, the evidence, the caus
 4. Seen in a picture, small: two teammates in the same direction overlap their name tags on the HUD (Office, guest's view:
    "HOST-ONE 38m" printed over "GUEST-THREE"). Not fixed.
 - 2026-11-19, 03:20: with fast mode and the pretend pointer lock a proof costs a fraction of what it did (three runs: load 5, 37 GB free), and the queue was the bottleneck (6 runs waiting). Browser slots raised from 3 to 6; the memory floor in `tools/shot.mjs` (no run starts under 10 GB available, the owner's figure; it was 20) still protects the other person. Every agent: rebase to pick it up.
+- 2026-11-19, fix-game (the game-side review `tools/out/coop/review-game.md`; checklist C17 and the game half of C18): landed.
+  - **Review 1, the single-player blocker:** fixed (`Combat.strike` reads `quiet` before the damage again; `strikefeedback.test.ts`).
+    A round that sets off a tank keeps its body sound, blood, marker, headshot sounds and hit-stop. The same mistake once more,
+    co-op only: a tank going up inside a hit overwrote the damage model's `found` facts, so a host sent the bystander's findings
+    for the Bomber's own hit and kill; `blowTank` now keeps and restores them. Seen and left (older than the branch): a blast
+    that catches more than 16 bodies can wrap the damage model's ring of results under the round that set it off.
+  - **Review 2, the key list:** "Next wave now (Defense, Crucible shop; co-op: ready up)", "Co-op only: mark a spot for the
+    team"; the ping takes only the default keys a saved map does not already use; P pauses the Test Range again.
+  - **Review 3, draws and allocations alone:** a pod's facing is drawn as it starts to fall and a call-in's scatter comes from
+    `Math.random` with no seed drawn (the seed is drawn only with other players to tell); the mortar aim, kill sounds, the
+    mission's crowd checks and the prisoner check allocate nothing alone. **Decision:** the seeded path is kept for co-op only.
+  - **Review 5, the host's animation level:** confirmed (it went by the distance to the enemy's quarry) and fixed: the host
+    draws and animates by its own eye (`EnemyManager.drawnLod`), the AI keeps its number; a guest already used its own.
+  - **Review 6 / C17, every player is a player:** done, with the table in `docs/notes/coop.md`, "The enemy side and every
+    player". `EnemyManager.focus` runs each mechanic about the player it concerns; a notebook a player
+    (`commander/books.ts`); a guest's `note` to the host for what the host cannot see; the jammer's word to guests (`jam`);
+    a guest's E key on the squad allies and its stim into a downed one (`aorder`, `arefund`).
+    **Decisions:** a habit is one player's and never a sum; routes are everyone's and are summed; the box quotes the round
+    of the player whose habit he answers, unnamed (its lines say "you"); the fix on a hidden team picks a living player at
+    random; an opening (a reload, low health) is taken only by the squads fighting that player; a man told to follow a
+    guest stops following the host. **Not done:** one shared picture of where "the player" is (`Outpost.intel`) is now fed by
+    every player and moves between them rather than tracking each; flashbang openings are the host's eyes.
+  - **Review 7:** Focus is refused in a lobby walk ("NO FOCUS BRAIN CHIP IN THE LOBBY").
+  - **Review 8 / C18, pods and dropped guns under slow-mo: checked, and left on the wall clock, on purpose.** Alone they are
+    stepped on the real clock (`pods.update(realDt)`, `dropped.update(realDt)`, as on `dev` before the overhaul), so a pod has
+    never fallen slowly in slow-mo. The wall clock is that same real time. Making them follow the world clock would make co-op
+    the one place they slow down (owner decision 5). Pinned by a test. **The lead or the owner may overrule: it is a look call.**
+  - **Review 9, 10:** the `[coop gun]` and `[coop pod]` logs only on a dev page; `isGuest` (`core/coop.ts`) for the six copies
+    and their inline twins; one `parkDrone`; `callAt` exists only on a page the proofs may drive (`proofPage`); the indent.
+  - **C18:** pressing through the Commander's briefing is that player's ready vote (`TeamBreak.readyUp`; a guest's too). The
+    slow-mo notice did sit on the wave banner (28 px at 1440x900): top centre is now stacked (strip, ready chip, notice,
+    banner), each making room for the one above.
+  - **Proofs.** `coop-fixgame-villain.mjs` (Endless Humans): 2 players clean 29 of 29, 2 players under
+    `lag:120,jitter:40,loss:0.05` 29 of 29, 3 players clean 30 of 30. `coop-fixgame-notice.mjs` (dpr 2, 1440x900): 37 box
+    checks on both screens. **Single player, in the browser:**
+    `tools/scripts/solo-fixgame.mjs` (frozen clock, seeded `Math.random`, sound silenced so only the game throws the dice)
+    run on `dev` as it was before the overhaul (`a5e0d38`), on the tip before this lane (`b6ddad8`) and on this branch, and
+    compared with `solo-fixgame-compare.mjs`. This branch is **the same as the old `dev` in every part**: 38 s of Endless
+    Humans with the player running and never firing (12 samples: 14,784 random draws, every enemy's place and health, the
+    noises heard, the notebook, the stillness clock, the intel), the supply pod's facing and the frame it is drawn on, every
+    Airstrike rocket and Warthog shell, the Sentry's facing, and the sounds and markers of a Bomber shot dead beside a
+    bystander. Two runs of this branch are identical. The tip before this lane differed from the old `dev` in the pod, the
+    three call-ins and the Bomber's feedback (the review's findings 1 and 3) and in nothing else recorded.
+  - Seen in passing, not mine: with music on (localhost), the "now playing" tag is drawn over the co-op teammates strip
+    for the few seconds it shows.

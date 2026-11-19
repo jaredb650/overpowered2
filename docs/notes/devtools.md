@@ -74,6 +74,15 @@ shows how.) It uses Playwright's Clock, already inside `playwright-core`: `Date`
 seeded generator before any page code runs. `tools/shot.mjs` scripts may now export `before(page)`, which runs before the page
 loads: that is the only change to `shot.mjs`.
 
+**The same single-player run on two builds** (`tools/scripts/solo-fixgame.mjs`, then `solo-fixgame-compare.mjs`): with the
+clock frozen and the dice seeded, a scripted player's run can be recorded as numbers (how many random draws, where every
+enemy is, what was heard) on a reference build and on a branch, and the two records compared field by field. It is how the
+co-op overhaul's "single player is unchanged" was checked for the enemy side: 38 s of Endless Humans came out identical
+(14,784 draws). Two things it needs: every run starts with `game.newRun()` after a fresh seed (loading is not part of the
+record), and **sound is silenced for the record** (`ctx.audio.play` and its siblings counted and dropped): audio is not
+frozen and throws the same dice as the game, so two runs of one build differed by a draw until it was. Each build needs
+its own Vite on its own port; the script runs from one checkout against both.
+
 Three things had to be solved to get the same picture twice, and are worth knowing:
 
 - **Loading takes a different amount of real time each run** (downloads, and three.js polling its shader compiles every 10 ms
