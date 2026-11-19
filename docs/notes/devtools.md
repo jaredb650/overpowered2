@@ -312,6 +312,22 @@ All three run on the Test Range through `shot.mjs` (headers have the commands an
 - `tools/scripts/gib-cost.mjs`: a row of bodies each burst by its own rocket; the call, the slowest frame after it, and any
   shader program that first appears (the first-gib stall).
 
+### Decal probes (the gore update, 2026-11-19)
+
+- **`/?sandbox=decals`** (`src/sandbox/decals.ts`): every cell of the decal sheet laid on a concrete floor or a wall through
+  the real decal shader, under a plain light. `&from=<cell>&count=<n>&cols=<n>&size=<m>` picks a part of the sheet,
+  `&age=<s>` draws the stains that old (0 wet, 120 dry; the page's clock stands still unless `&run=1`), `&view=top|eye|wall`,
+  `&floor=<material>`, `&lum=<x>` dims the lights (0.35 is about the game's night). It also works on a build from before
+  the redraw, so the old sheet can be shot the same way. `window.__decals.stamp(cell, x, z, size, rotation)` for scripts.
+- **`tools/scripts/decal-scenes.mjs`**: the same seeded kills in the real game on a fixed 1/60 clock, for any build
+  (`DS_SCENES=pistol,smg,shotgun,rocket,head,ten,sword,walk`, `DS_TAG`, `DS_DIR`, `DS_SEED`): one hit, an SMG burst, a
+  point-blank shotgun kill, a rocket into three men, a head burst against a wall, ten kills in one spot, three sword cuts. For
+  each: a contact sheet over time from the player's eye, a full still from the eye and one from straight above. It uses only
+  what every build has (`enemies.applyDamage`, `combat.explode`, `combat.strike`), so "before" is the same script against a
+  second worktree's Vite.
+- **`?bakeTime`** on any page logs what the decal sheet cost to compile and to draw; `?bakeTime=cold` changes the shaders'
+  text first so the browser's shader cache cannot answer.
+
 Two Vite servers must not share one `node_modules` (a second worktree with it symlinked): they invalidate each other's
 bundled dependencies and co-op pages fail with "504 Outdated Optimize Dep". And `kill` on an `npx vite` kills the wrapper,
 not the server: stop a server by the pid that holds its port (`ss -ltnp`).

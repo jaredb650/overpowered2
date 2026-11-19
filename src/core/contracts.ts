@@ -157,7 +157,11 @@ export interface DynamicLights {
 }
 
 /** `exit` is where a round came out of a wall: a pale spall crater, the one light mark among dark ones. */
-export type DecalKind = 'bullet' | 'scorch' | 'blood' | 'bloodPool' | 'bloodSmear' | 'slash' | 'crack' | 'exit';
+/**
+ * `bullet` is a round into stone (the default); `bulletMetal` a dent in plate, `bulletGlass` a star in glass. `soot` is what a
+ * fire leaves under what burned: a scorch with no blast in it.
+ */
+export type DecalKind = 'bullet' | 'bulletMetal' | 'bulletGlass' | 'scorch' | 'soot' | 'blood' | 'bloodPool' | 'bloodSmear' | 'slash' | 'crack' | 'exit';
 
 export interface DecalSystem {
   add(kind: DecalKind, position: THREE.Vector3, normal: THREE.Vector3, size: number, rotation?: number): void;

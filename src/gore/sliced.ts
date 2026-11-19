@@ -203,7 +203,10 @@ export class SliceField {
       this.ctx.render.lights?.flash(at, 0xffa860, 4, 5, 0.25);
     } else {
       fx.bloodJet(at, _d.copy(damage.dir), 0.5);
-      this.blood.splatterAlong(at, damage.dir, 8, 7, 0.6);
+      // What the blade carried off: a fan the way it cut, and a line of drops flung off it.
+      this.blood.fan(at, damage.dir, 1.25);
+      this.blood.castOff(at, damage.dir, 0.9 + Math.random() * 0.6);
+      this.blood.splatterAlong(at, damage.dir, 5, 7, 0.6);
       this.blood.spray(at, damage.dir, 10, 9, 0.5, 0.12);
     }
     this.enforce();

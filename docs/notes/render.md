@@ -50,18 +50,65 @@ render.render();                      // once per frame, after the camera is pla
 
 **Shadows.** `castShadow = true` is all a mesh needs. Everything casting at the time of `bakeLightVolume()` goes in the static map, except skinned meshes and meshes with `userData.dynamicShadow = true`. **Set that flag on anything built before the bake that later moves**, such as crushers and doors, or its shadow stays behind. Anything added later is dynamic. Dynamic shadows reach 34 m from the camera. Call `refreshStaticShadows()` after changing static geometry.
 
-**Decals.** `decals.add(kind, point, normal, size, rotation)`. `size` is the full quad edge in meters. For `bloodSmear` and `slash`, rotation sets the drag direction along local +X. Pools grow over about a second. Decals test depth in the shader, so nothing z-fights or overhangs a ledge. They do not wrap around corners: the part past a corner is cut off. For the same reason a decal must be given the normal of the face it lies on: one laid along a slanted shot stands off the wall and is cut down to a sliver.
+**Decals.** `decals.add(kind, point, normal, size, rotation)`. `size` is the full quad edge in meters. For `bloodSmear` and `slash`, rotation sets the drag direction along local +X. Pools spread from their middle over a few seconds. Decals test depth in the shader, so nothing z-fights or overhangs a ledge. They do not wrap around corners: the part past a corner is cut off. For the same reason a decal must be given the normal of the face it lies on: one laid along a slanted shot stands off the wall and is cut down to a sliver.
 
 **Rings (2026-11-19).** The decal buffer is one instanced mesh and one draw call, cut into four rings by kind
 (`DECAL_RINGS`, `RING_OF`, `RING_CAPACITY` in `Decals.ts`), drawn in this order, bottom first: `scorch` 256 (burns),
-`big` 256 (large coverage stains; no kind uses it yet), `blood` 8,192 (stains, smears, runs, pools), `mark` 1,536 (holes,
+`big` 256 (a kill's large coverage stains, `decals.big`), `blood` 8,192 (stains, smears, runs, pools), `mark` 1,536 (holes,
 exit craters, cracks, cuts). Each ring overwrites only its own oldest, so bullet holes cannot erase blood. An empty slot
 is a quad of no size, and `mesh.count` is how far the draw runs, not how many decals there are: use `decals.total`,
 `live(ring)`, `limit(ring)`, `retired(ring)` (overwritten since the last clear). `setLimit(ring, n)` uses less of a
 ring (the "Mess" setting). `onRetire(ring, matrices, data, slot)` is called for a decal about to be overwritten, before
-its slot is rewritten: the hook for drawing old blood into a floor texture. A new kind needs a row in `RING_OF` and in `CELLS`.
+its slot is rewritten: the hook for drawing old blood into a floor texture. A new kind needs a row in `RING_OF` and in
+`KIND_CELLS` (`decalSheet.ts`).
 
-The atlas is 4 by 4 cells and all sixteen are taken. Every mark in it is dark but one: `exit`, the pale spall crater where a round came out of a wall (`exitHole` in `materials/decalAtlas.glsl.ts`), which is pale so that it shows on a wall in shadow. It took the second `bullet` cell, so bullet holes have one variant and their random rotation.
+**The decal sheet (2026-11-19, the gore update's D1).** One texture pair, 2048 x 4096, drawn at load: 48 small cells (8
+across, 6 down, 256 px) over 20 big ones (4 across, 5 down, 512 px). `decalSheet.ts` is the layout (`CELL`, `KIND_CELLS`,
+`BIG_CELLS`) and the choice of shape; `materials/decalAtlas.glsl.ts` draws the cells; `decalShader.glsl.ts` is what the
+decal material adds to the lit shader. It was 4 by 4 cells at 2048 x 2048, and every blood stain in the game was one of
+four blots.
+
+- **Marks are pictures** (bullet holes, exit craters, scorches, cuts, cracks): albedo, coverage and a height that
+  becomes the normal, as before. Every mark is dark but `exit`, the pale spall crater, so it shows on a wall in shadow.
+- **Blood is not a picture.** A blood cell stores fields and the decal shader draws liquid from them: the **outline**
+  as distance to the stain's edge (albedo alpha; 0.5 is the edge), its **thickness** (albedo red), a **haze** of mist
+  round it (albedo green), and the direction out of the stain everywhere (the normal map, baked from the distance). The
+  shader thresholds the outline, so an edge is crisp however big the decal is drawn (a 512 px burst laid at 3 m has the
+  edge of a 5 cm drop), a pool spreads by moving the threshold from its middle to its outline, and each decal has its
+  own threshold and its own small warp, so no two match. Thin blood is bright and lets the floor show through; thick
+  blood is deep red, glossy, and dries last. A wet edge has a lip a few millimetres wide that catches the light
+  (`lipOf`: its width is kept in metres, whatever the stain's size). The haze is drawn as specks at real size from a
+  detail tile (cell 47, repeated every 20 cm) whose density follows the haze, so mist never looks airbrushed.
+- **Drying** is by thickness: specks and thin smears go matt in about 5 s, a pool's middle stays wet for a minute and
+  a half. Dry blood is flat, darker at the rim, a paler cracked middle (the detail tile's cracks).
+- **Shapes** (blood cells 8 to 31 and 48 to 64): four round drops (a drop that fell, scalloped, crowned with spines, a
+  gout), four that arrived at an angle with the tail pointing along their travel (short oval, tadpole, long streak, a
+  cluster of streaks), two mists, two cast-off lines, two arterial arcs, two drip trails, three wipes, three pools, two
+  boot prints; big: three bursts, three fans, three soaked patches, three wall sheets with their runs, two drags,
+  three blast rings. Cells may be laid mirrored (`flipsOf`: what points along +X only across it, a wall sheet never top
+  to bottom), which makes each drawing up to four stains.
+- **The choice** (`chooseSplat`, called by `decals.splat(position, normal, size, velocity, how?)`): square on and slow, a
+  clean drop; harder, scalloped, then the crown; a stain's length over its width is one over the sine of the angle it
+  came in at, so a glancing drop takes the oval nearest that and the quad makes up the rest; a stain of 0.34 m and up
+  is a splash and gets a whole composition (a burst square on, a fan thrown on from where it hit). `how` is what made
+  it where that changes the shape: `mist`, or a pattern laid along the travel (`cast`, `arc`, `trail`).
+- **Big stains:** `decals.big(kind, position, normal, size, dir?, minor?)`, kinds `burst`, `fan`, `soak`, `sheet`,
+  `drag`, `ring`. A fan and a drag start at `position` and run along `dir`; a sheet on a wall always hangs runs down.
+  They go in the `big` ring; `minor` (one round's own mark) puts one with the small stains. Who lays them and when is
+  in `docs/notes/gore.md`, "Big stains".
+- **Corners and edges.** A decal is a flat quad that tests depth itself: where the surface leaves its plane by more
+  than about 3 cm the decal is not drawn. So a big floor stain is cut off cleanly at a wall's foot and at a ledge, and
+  never wraps. `BloodField` makes up for it: a big floor stain that reaches a wall is carried up it as a sheet.
+- **Cost.** 89 MB of texture with mipmaps (it was 44). The sheet is drawn by five shaders, not one (`DECAL_PARTS`,
+  `TextureBaker.bakeParts`): one shader with every shape took 2.7 s to compile and held the page; the five compile side
+  by side in the background in 1.2 s cold (0.1 s from the browser's shader cache) and are then drawn in 60 to 77 ms,
+  which is what the old sheet's whole bake cost (79 ms). `?bakeTime` logs it, `?bakeTime=cold` without the cache. The
+  material sets no longer carry the decal code in their shaders.
+- **A bug that went with the old shader:** the cell number reached the fragment shader as an interpolated varying, and
+  for the first cell of each row (4, 8, 12) a rounding error picked the row above on some pixels: horizontal stripes
+  through one blot, one pool and one cut. It is `flat` now, and the cell's rectangle is worked out per vertex.
+- **Looking at it:** `/?sandbox=decals` lays every cell on a floor or a wall through the real shader (its header lists
+  the switches: `from`, `count`, `size`, `age`, `view`, `floor`, `lum`).
 
 **Post.** All `PostFx` methods run on real time, so effects decay through hit-stop and pause. `chromatic()` saturates, so anything from 0.01 to over 1 is safe.
 
@@ -168,7 +215,7 @@ Live frame intervals in the same fight, dynamic resolution off, measured at low 
 
 Light bake on the real map, measured at 200 x 40 x 200 cells with 272 lights: about 5 s in a worker while nav builds on the main thread, plus 0.6 s of sliced `isSolid` sampling. The cap has since gone to 48 cells high, which should add about 20%. That larger size has not been timed separately.
 
-GPU memory at the default is about 350 MB. That is calculated, not measured: full-res targets 32 MB, half-res targets and bloom 12 MB, material sets 140 MB, decal atlas 44 MB, light volume 60 MB, shadows 60 MB. It was about 430 MB at 1080p with MSAA.
+GPU memory at the default is about 395 MB. That is calculated, not measured: full-res targets 32 MB, half-res targets and bloom 12 MB, material sets 140 MB, decal atlas 89 MB (44 before the gore update), light volume 60 MB, shadows 60 MB. It was about 430 MB at 1080p with MSAA.
 
 ## Known limitations
 

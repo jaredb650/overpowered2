@@ -121,12 +121,12 @@ interface LookOwner {
 const FULL = {
   corpses: GoreTuning.maxCorpses, limbs: GoreTuning.maxLimbs, liveLimbs: GoreTuning.maxLiveLimbs, stump: GoreTuning.stumpSeconds,
   corpseLimb: GoreTuning.corpseLimbHealth, limbBurst: GoreTuning.limbBurstHealth,
-  rays: BloodTuning.raysPerFrame, chunks: ChunkTuning.maxBodies, linger: ChunkTuning.linger,
+  rays: BloodTuning.raysPerFrame, chunks: ChunkTuning.maxBodies, linger: ChunkTuning.linger, blood: BloodTuning.amount,
 };
 const GORE_TABLE: readonly (typeof FULL)[] = [
-  { ...FULL, corpses: 12, limbs: 12, liveLimbs: 8, stump: 1.5, rays: 6, chunks: 20, linger: 4 },
+  { ...FULL, corpses: 12, limbs: 12, liveLimbs: 8, stump: 1.5, rays: 6, chunks: 20, linger: 4, blood: 0.65 },
   FULL,
-  { ...FULL, stump: 9, corpseLimb: 30, limbBurst: 45, rays: 48, linger: 45 },
+  { ...FULL, stump: 9, corpseLimb: 30, limbBurst: 45, rays: 48, linger: 45, blood: 1.3 },
 ];
 
 function applyGore(level: number): void {
@@ -139,6 +139,7 @@ function applyGore(level: number): void {
   GoreTuning.corpseLimbHealth = g.corpseLimb;
   GoreTuning.limbBurstHealth = g.limbBurst;
   BloodTuning.raysPerFrame = g.rays;
+  BloodTuning.amount = g.blood;
   ChunkTuning.maxBodies = g.chunks;
   ChunkTuning.linger = g.linger;
 }

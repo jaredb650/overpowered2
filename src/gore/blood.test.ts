@@ -197,3 +197,149 @@ describe('impact puffs', () => {
     expect(calls.puffs).toHaveLength(2 + BloodTuning.puffPellets);
   });
 });
+
+describe('big stains', () => {
+  /** A floor at y 0 and, if asked, a wall at x = `wallAt` facing back down -x. Every big stain laid is recorded. */
+  function stage(wallAt = Infinity) {
+    const laid: { kind: string; at: THREE.Vector3; normal: THREE.Vector3; size: number; minor: boolean }[] = [];
+    const time = { elapsed: 0 };
+    const ctx = makeCtx({
+      time: time as unknown as ReturnType<typeof makeCtx>['time'],
+      fx: { bloodSpray() {}, bloodDrip() {}, bloodPuff() {} } as unknown as ReturnType<typeof makeCtx>['fx'],
+      physics: {
+        raycastInto(o: THREE.Vector3, d: THREE.Vector3, max: number, _g: number, hit: { point: THREE.Vector3; normal: THREE.Vector3; distance: number }) {
+          let best = Infinity;
+          if (d.y < 0 && o.y > 0) best = -o.y / d.y;
+          let wall = false;
+          if (d.x > 0 && o.x < wallAt && (wallAt - o.x) / d.x < best) {
+            best = (wallAt - o.x) / d.x;
+            wall = true;
+          }
+          if (!(best <= max)) return false;
+          hit.point.copy(o).addScaledVector(d, best);
+          hit.normal.set(wall ? -1 : 0, wall ? 0 : 1, 0);
+          hit.distance = best;
+          return true;
+        },
+      } as unknown as ReturnType<typeof makeCtx>['physics'],
+      render: {
+        decals: {
+          add() {}, splat() {}, clear() {},
+          big: (kind: string, at: THREE.Vector3, normal: THREE.Vector3, size: number, _dir?: THREE.Vector3, minor = false) =>
+            laid.push({ kind, at: at.clone(), normal: normal.clone(), size, minor }),
+        },
+      } as unknown as ReturnType<typeof makeCtx>['render'],
+    });
+    const blood = new BloodField(ctx);
+    const run = (seconds: number) => {
+      for (let t = 0; t < seconds; t += 1 / 60) {
+        time.elapsed += 1 / 60;
+        blood.update(1 / 60);
+      }
+    };
+    return { blood, laid, run };
+  }
+  const chest = (x = 0, z = 0) => new THREE.Vector3(x, 1.2, z);
+  const along = new THREE.Vector3(1, 0, 0);
+
+  it('a body coming apart leaves one burst under it, in place of a dozen rays', () => {
+    const { blood, laid, run } = stage();
+    blood.burst(chest(), along, 2.4);
+    run(0.1);
+    expect(laid.map(l => l.kind)).toEqual(['burst']);
+    expect(laid[0]!.at.y).toBeCloseTo(0);
+    expect(laid[0]!.size).toBeCloseTo(2.4);
+    expect(laid[0]!.minor).toBe(false);
+    expect(blood.bigLaid).toBe(1);
+  });
+
+  it('several in one blast are one event: the second lays a ring round them all, and the rest are smaller', () => {
+    const { blood, laid, run } = stage();
+    blood.burst(chest(0), along, 2.4);
+    blood.burst(chest(1.5), along, 2.4);
+    blood.burst(chest(-1.2), along, 2.4);
+    run(0.1);
+    expect(laid.filter(l => l.kind === 'ring')).toHaveLength(1);
+    const ring = laid.find(l => l.kind === 'ring')!;
+    expect(ring.at.x).toBeCloseTo(0.75);
+    expect(ring.size).toBeGreaterThan(3);
+    expect(laid.filter(l => l.kind === 'burst').map(l => +l.size.toFixed(2))).toEqual([2.4, 1.8, 1.8]);
+    // Later, or far away, it is a new blast.
+    run(1);
+    blood.burst(chest(0.5), along, 2.4);
+    blood.burst(chest(30), along, 2.4);
+    run(0.1);
+    expect(laid.filter(l => l.kind === 'ring')).toHaveLength(1);
+  });
+
+  it('a shot through a body throws a fan on the floor past it, and a sheet on the wall behind if one is near', () => {
+    const open = stage();
+    open.blood.fan(chest(), along, 2);
+    open.run(0.1);
+    expect(open.laid.map(l => l.kind)).toEqual(['fan']);
+    const walled = stage(1.5);
+    walled.blood.fan(chest(), along, 2);
+    walled.run(0.1);
+    expect(walled.laid.map(l => l.kind).sort()).toEqual(['fan', 'sheet', 'sheet']);
+    const sheet = walled.laid.find(l => l.kind === 'sheet' && Math.abs(l.at.y - 1.2) < 0.01)!;
+    expect(sheet.normal.x).toBe(-1);
+    // Thinner for the flight, never bigger than the fan.
+    expect(sheet.size).toBeLessThan(2);
+    expect(sheet.size).toBeGreaterThan(1);
+  });
+
+  it('a big floor stain that reaches a wall goes up it, since a flat decal is cut off at the corner', () => {
+    const far = stage(4);
+    far.blood.burst(chest(), along, 2.4);
+    far.run(0.1);
+    expect(far.laid.map(l => l.kind)).toEqual(['burst']);
+    const near = stage(0.5);
+    near.blood.burst(chest(), along, 2.4);
+    near.run(0.1);
+    expect(near.laid.map(l => l.kind)).toEqual(['burst', 'sheet']);
+    const up = near.laid[1]!;
+    expect(up.normal.x).toBe(-1);
+    expect(up.at.x).toBeCloseTo(0.5);
+    // Low on the wall, where the floor's blood met it, and no bigger than what was cut off.
+    expect(up.at.y).toBeLessThan(0.8);
+    expect(up.size).toBeLessThan(2.4);
+  });
+
+  it('every round leaves its own mark on the floor past the body, a quarter second on, with the small stains', () => {
+    const { blood, laid, run } = stage();
+    const char = body();
+    blood.onHit(char, damage('bullet', WEAPONS.smg.damage), 0.2);
+    run(0.05);
+    expect(laid).toHaveLength(0);
+    run(0.2);
+    expect(laid.map(l => l.kind)).toEqual(['fan']);
+    expect(laid[0]!.minor).toBe(true);
+    const smg = laid[0]!.size;
+    expect(smg).toBeGreaterThan(0.4);
+    expect(smg).toBeLessThan(1.2);
+    // A heavy round's is bigger; a shotgun's pellets on one body are one mark; a blast leaves its burst to the gib.
+    blood.onHit(body(), damage('bullet', WEAPONS.judge.damage, WEAPONS.judge.force), 1);
+    run(0.25);
+    expect(laid[1]!.size).toBeGreaterThan(smg);
+    const one = body();
+    for (let i = 0; i < 8; i++) blood.onHit(one, damage('pellet', WEAPONS.shotgun.damage, WEAPONS.shotgun.force), 0.3);
+    blood.onHit(body(), damage('explosive', 150), 1);
+    run(0.25);
+    expect(laid).toHaveLength(3);
+  });
+
+  it('scale with the gore setting, and wait in a queue that has an end', () => {
+    const { blood, laid, run } = stage();
+    const full = BloodTuning.amount;
+    BloodTuning.amount = 0.5;
+    blood.burst(chest(), along, 2.4);
+    run(0.1);
+    BloodTuning.amount = full;
+    expect(laid[0]!.size).toBeCloseTo(1.2);
+    for (let i = 0; i < BloodTuning.maxBig * 3; i++) blood.soak(chest(i * 10), 1.5);
+    run(1);
+    expect(laid.length - 1).toBe(BloodTuning.maxBig);
+    blood.clear();
+    expect(blood.bigLaid).toBe(0);
+  });
+});

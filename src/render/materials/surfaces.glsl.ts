@@ -1,17 +1,21 @@
 import { NOISE_GLSL } from './noise.glsl';
-import { DECAL_GLSL } from './decalAtlas.glsl';
 
 /**
  * Procedural PBR surfaces, evaluated once at load into textures. Each `surface_*` writes albedo
  * (linear), a height in 0..1, roughness, metalness and `extra`. For a masked material, extra is coverage.
  * For lava it is the emissive heat. Physical size of one tile is in SET_TILE in MaterialLibrary.
  */
-export const SURFACES_GLSL = /* glsl */ `
+/** What every surface shader starts with: the noise, the `Surf` it returns and a box's distance. */
+export const SURFACE_HEAD = /* glsl */ `
 ${NOISE_GLSL}
 
 struct Surf { vec3 albedo; float height; float rough; float metal; float extra; };
 
 float boxDist(vec2 p, vec2 half_) { vec2 d = abs(p) - half_; return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0); }
+`;
+
+export const SURFACES_GLSL = /* glsl */ `
+${SURFACE_HEAD}
 
 // Poured concrete. Tile is 4 m: board-formed panels, tie holes with rust drips, aggregate, pits, water marks.
 Surf concreteBase(vec2 uv, vec3 tintA, vec3 tintB, float dirt) {
@@ -374,5 +378,4 @@ Surf surface_lava(vec2 uv) {
   return s;
 }
 
-${DECAL_GLSL}
 `;

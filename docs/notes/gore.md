@@ -480,6 +480,47 @@ frame of the hit and before anything else it does: one for a round; for a shotgu
 the dying and corpses all give one, on every co-op screen, and a round a plate stopped gives none. The look and the numbers are
 in `docs/notes/fx.md`, "The impact puff".
 
+### Big stains (2026-11-19, the gore update)
+
+The owner: the blood "is composed of a ton of small little decals... kind of detailed but lacks coverage". So a violent event
+now lays **one or a few big stains at once** (`decals.big`, the compositions in `docs/notes/render.md`, "The decal sheet") and
+the small traced drops are the detail on top of them and past their edge. All of it is in `BloodField` (`blood.ts`):
+
+```ts
+blood.burst(at, dir, size);        // a body came apart: one burst on the floor under `at`, thrown along `dir`
+blood.fan(at, dir, size, delay?);  // a shot through a body: a fan on the floor past it, and a sheet on the wall behind
+blood.sheetBehind(at, dir, size);  // the wall behind a killing shot, if one is within 3.2 m
+blood.soak(at, size, along?);      // the patch a body soaks into the floor where it lies; the pool spreads from it
+blood.drag(at, moveX, moveZ, len); // the long smear of a body sliding
+blood.castOff(at, dir, len);       // a line of drops flung off a blade, on the floor below
+blood.bigRay(kind, origin, dir, maxDist, size, along?, delay?, minor?);   // what they are all made of
+```
+
+| Event | What it lays | Where |
+|---|---|---|
+| A gib, an explosion kill (`fleshBurst`) | a `burst` 1.7 to 3 m under the body (by the push), 10 rays round it where there were 18 | `gore/index.ts` |
+| Several die in one blast (within 0.25 s and 4.5 m) | the second lays a `ring` round them all (3 m and up); the later bursts are three quarters the size | `BloodField.burst` |
+| A heavy round's blow-out, a point-blank shotgun kill (`blowOut`) | a `fan` 2.1 m along the shot and a `sheet` on the wall behind; 7 rays where there were 12 | `gore/index.ts` |
+| A head bursting | a `fan` 1.5 m and a `sheet`; 5 rays where there were 9 | `gore/index.ts` |
+| Any killing shot (`bleed`) | a `sheet` on the wall behind, within 3.2 m, two a frame | `gore/index.ts` |
+| A body comes to rest | a `soak` 1.3 to 1.8 m, then the pool spreads out of it as before | `freezeBody` |
+| A body thrown at over 3.2 m/s sliding | one `drag` 1.4 to 3.2 m in place of the next three small smears | the smear loop |
+| A blade cuts a body in two | a `fan` 1.25 m along the cut and a cast-off line of drops | `gore/sliced.ts` |
+| **Every bullet or pellet hit** (B1, more blood from one hit) | a `fan` 0.5 to 1.6 m by the round's weight on the floor past the body, 0.14 s after the hit, with the small stains (`minor`) | `BloodField.onHit` |
+
+- **Rules.** Each is one ray in a queue of 16 (`BloodTuning.maxBig`), taken from the same per-frame budget as every other
+  stain; a full queue drops the big stain and the drops still land. A sheet shrinks with the distance the blood flew (half at
+  its full reach). Sizes scale with the gore setting (`BloodTuning.amount`: 0.65 Low, 1 Full, 1.3 Excessive).
+- **Corners.** A decal is flat and is cut off where the surface leaves its plane (a wall's foot, a ledge). So a big floor
+  stain probes ahead and to both sides (three rays), and where a wall stands inside its reach it lays a `sheet` low on that
+  wall for what would have gone past the corner (`carryUpWalls`).
+- **Budget.** A kill's big stains go in the `big` ring (256, kept longest); a single round's fan goes with the small stains
+  (`minor`), or a magazine would push every burst out of that ring.
+- **Co-op:** each screen lays its own from the events it already gets (`gore.wound`, the kill); nothing is sent.
+- **Switches:** `?bigblood=0` (dev panel "Blood: big stains on a kill") leaves only the small drops; `?hitblood=0` ("Blood: a
+  mark from every round") takes the per-hit fan away.
+- Tests: `blood.test.ts`, "big stains". Scenes: `tools/scripts/decal-scenes.mjs` (the same seeded kills on any build).
+
 ## Forces
 
 Measured throws per weapon are in `docs/notes/lab.md`. A body is 85 kg, and gravity is 19, twice the real thing, which is the fact everything below comes back to.

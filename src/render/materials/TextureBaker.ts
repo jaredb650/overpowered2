@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { FullscreenPass } from '../fullscreen';
-import { SURFACES_GLSL } from './surfaces.glsl';
+import { SURFACE_HEAD, SURFACES_GLSL } from './surfaces.glsl';
 import { NOISE_GLSL } from './noise.glsl';
 
 export interface BakedSet {
@@ -55,11 +55,11 @@ export class TextureBaker {
 
   constructor(private readonly renderer: THREE.WebGLRenderer, private readonly anisotropy: number) {}
 
-  private scratchFor(size: number): THREE.WebGLRenderTarget {
-    if (this.scratch?.width !== size) {
+  private scratchFor(size: number, height = size): THREE.WebGLRenderTarget {
+    if (this.scratch?.width !== size || this.scratch.height !== height) {
       this.scratch?.dispose();
       // Heights need more than 8 bits or the derived normals stair-step.
-      this.scratch = new THREE.WebGLRenderTarget(size, size, {
+      this.scratch = new THREE.WebGLRenderTarget(size, height, {
         count: 2, type: THREE.HalfFloatType, format: THREE.RGBAFormat, depthBuffer: false, generateMipmaps: false,
         minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter,
       });
@@ -70,14 +70,20 @@ export class TextureBaker {
 
   /**
    * `extraMode`: 0 puts height in albedo alpha, 1 puts extra (coverage) there, 2 puts extra in the
-   * metal channel for surfaces that use it as a separate signal. Normals always come from height.
+   * metal channel for surfaces that use it as a separate signal. Normals always come from height. `height` is for a
+   * sheet that is not square (the decal atlas); texels stay square.
    */
-  bake(name: string, size: number, normalStrength: number, extraMode: 0 | 1 | 2 = 0): BakedSet {
-    const scratch = this.scratchFor(size);
+  bake(name: string, size: number, normalStrength: number, extraMode: 0 | 1 | 2 = 0, height = size): BakedSet {
+    const scratch = this.scratchFor(size, height);
     const pass = surfacePass(name);
     pass.render(this.renderer, scratch);
     pass.dispose();
-    const out = new THREE.WebGLRenderTarget(size, size, {
+    return this.finish(scratch, size, height, normalStrength, extraMode);
+  }
+
+  /** Heights to normals, and the two finished textures. */
+  private finish(scratch: THREE.WebGLRenderTarget, size: number, height: number, normalStrength: number, extraMode: 0 | 1 | 2): BakedSet {
+    const out = new THREE.WebGLRenderTarget(size, height, {
       count: 2, type: THREE.UnsignedByteType, format: THREE.RGBAFormat, depthBuffer: false, generateMipmaps: true,
       minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter, anisotropy: this.anisotropy,
     });
@@ -86,11 +92,52 @@ export class TextureBaker {
     const u = this.normalPass.uniforms;
     u.tA!.value = scratch.textures[0];
     u.tB!.value = scratch.textures[1];
-    (u.uTexel!.value as THREE.Vector2).set(1 / size, 1 / size);
+    (u.uTexel!.value as THREE.Vector2).set(1 / size, 1 / height);
     u.uStrength!.value = normalStrength;
     u.uMetalFromExtra!.value = extraMode;
     this.normalPass.render(this.renderer, out);
     return { albedo: out.textures[0]!, surface: out.textures[1]! };
+  }
+
+  /**
+   * A sheet drawn in parts: each `parts[i]` is a whole surface shader but for the prelude, with a `surface_decals` that
+   * returns `extra` below zero for the pixels that are another part's, which are left as they are. Each part is
+   * compiled in the background and drawn when it is ready, so a sheet too big to compile in one go holds nothing up.
+   * `timed`: wait for the GPU and log what each part cost.
+   */
+  async bakeParts(parts: readonly string[], size: number, normalStrength: number, extraMode: 0 | 1 | 2, height: number, timed = false): Promise<BakedSet> {
+    const scratch = this.scratchFor(size, height);
+    const gl = this.renderer.getContext();
+    const wait = (): void => gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
+    // `?bakeTime=cold`: a line that changes every load, so the browser's shader cache cannot answer and the compile is timed.
+    const cold = timed && location.search.includes('bakeTime=cold') ? `#define OP_COLD ${Math.random()}` : '';
+    const passes = parts.map(part => new FullscreenPass(/* glsl */ `
+${cold}
+${SURFACE_HEAD}
+${part}
+in vec2 vUv;
+layout(location = 0) out vec4 outA;
+layout(location = 1) out vec4 outB;
+void main() {
+  Surf s = surface_decals(vUv);
+  if (s.extra < -0.5) discard;
+  outA = vec4(s.albedo, s.height);
+  outB = vec4(s.rough, s.metal, s.extra, 1.0);
+}`, {}));
+    const t0 = performance.now();
+    // All at once: the browser compiles them side by side, so the wait is the slowest one's and not their sum.
+    await Promise.all(passes.map(pass => pass.compile(this.renderer, scratch)));
+    const t1 = performance.now();
+    passes.forEach((pass, i) => {
+      // The first part clears what the scratch target last held; the rest draw over it.
+      pass.render(this.renderer, scratch, i > 0);
+      pass.dispose();
+    });
+    if (timed) {
+      wait();
+      console.log(`[bake] sheet: ${parts.length} parts compiled in ${(t1 - t0).toFixed(0)} ms (in the background), drawn in ${(performance.now() - t1).toFixed(0)} ms`);
+    }
+    return this.finish(scratch, size, height, normalStrength, extraMode);
   }
 
   /** R, G, B: fBm at three scales. A: white noise. Tiles at 256 px. Used for macro variation and clouds. */

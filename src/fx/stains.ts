@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { DecalSystem } from '../core/contracts';
 import type { Landing } from './layers/blood';
+import type { SplatHow } from '../render/decalSheet';
 
 const CAP = 192;
 
@@ -14,6 +15,7 @@ interface Stain {
   normal: THREE.Vector3;
   velocity: THREE.Vector3;
   size: number;
+  how: SplatHow;
 }
 
 /**
@@ -28,12 +30,12 @@ export class StainQueue {
 
   constructor() {
     for (let i = 0; i < CAP; i++) {
-      this.stains.push({ at: 0, live: false, position: new THREE.Vector3(), normal: new THREE.Vector3(), velocity: new THREE.Vector3(), size: 0 });
+      this.stains.push({ at: 0, live: false, position: new THREE.Vector3(), normal: new THREE.Vector3(), velocity: new THREE.Vector3(), size: 0, how: 'drop' });
     }
   }
 
-  /** Oldest-out. A strand that ran out of life in the air leaves nothing. */
-  book(at: number, l: Landing, size: number): void {
+  /** Oldest-out. A strand that ran out of life in the air leaves nothing. `how`: what made the stain (`decals.splat`). */
+  book(at: number, l: Landing, size: number, how: SplatHow = 'drop'): void {
     if (l.nx === 0 && l.ny === 0 && l.nz === 0) return;
     const s = this.stains[this.head]!;
     this.head = (this.head + 1) % CAP;
@@ -44,6 +46,7 @@ export class StainQueue {
     s.normal.set(l.nx, l.ny, l.nz);
     s.velocity.set(l.vx, l.vy, l.vz);
     s.size = size;
+    s.how = how;
   }
 
   run(now: number, decals: DecalSystem): void {
@@ -53,7 +56,7 @@ export class StainQueue {
       if (!s.live || now < s.at) continue;
       s.live = false;
       this.booked--;
-      decals.splat(s.position, s.normal, s.size, s.velocity);
+      decals.splat(s.position, s.normal, s.size, s.velocity, s.how);
     }
   }
 

@@ -9,7 +9,9 @@
 import * as THREE from 'three';
 import { hitWeight } from '../audio/reactions';
 import { CG, type CharacterInstance, type Ctx, type DamageInfo, type DecalKind, type RayHit } from '../core/contracts';
+import { DevFlags } from '../core/devflags';
 import { clamp, TAU, randomInCone } from '../core/math';
+import type { BigKind, SplatHow } from '../render/decalSheet';
 
 export const BloodTuning = {
   /** Raycasts per frame across droplets, queued splats and smears. */
@@ -39,6 +41,20 @@ export const BloodTuning = {
   puffPelletScale: 0.62,
   /** A blast's first puff on a body, against a single round of the same weight: it stands for all the pellets. */
   puffBlastScale: 1.15,
+  /** How much blood the gore setting asks for: 1 at Full. Scales the big stains' sizes and a round's own mark. */
+  amount: 1,
+  /** Big stains waiting for their ray at once. One more is dropped: the small drops still land. */
+  maxBig: 16,
+  /** A round's fan on the floor past the body, m: the lightest round's, and what a full-weight one adds. */
+  hitFan: 0.5,
+  hitFanHeavy: 1.1,
+  /** Seconds after the hit that fan is laid: the time the spray takes to reach the floor. */
+  hitFanDelay: 0.14,
+  /** Bursts this close together in time (s) and space (m) are one blast: the second lays a ring round them all. */
+  ringWindow: 0.25,
+  ringReach: 4.5,
+  /** A wounded man who has walked this far since his wound's last drop leaves a trail of them, not one. */
+  trailFrom: 0.45,
 };
 
 /**
@@ -90,6 +106,24 @@ interface QueuedRay {
   kind: DecalKind;
 }
 
+/** A big stain, or a pattern laid along a direction, waiting for its ray. */
+interface BigRay {
+  ox: number; oy: number; oz: number;
+  dx: number; dy: number; dz: number;
+  maxDist: number;
+  size: number;
+  kind: BigKind | SplatHow;
+  /** The way it was thrown: what the stain is turned along. */
+  ax: number; ay: number; az: number;
+  /** World time it is laid at. */
+  at: number;
+  /** One round's mark, not a kill's: it goes with the small stains (`decals.big`). */
+  minor: boolean;
+}
+
+const BIG_KINDS: ReadonlySet<string> = new Set<BigKind>(['burst', 'fan', 'soak', 'sheet', 'drag', 'ring']);
+const DOWN = new THREE.Vector3(0, -1, 0);
+
 const POOL_STAGES = 3;
 
 const _splat = new THREE.Vector3();
@@ -115,6 +149,16 @@ export class BloodField {
   }));
   private queueHead = 0;
   private queueLen = 0;
+  private readonly bigs: BigRay[] = Array.from({ length: BloodTuning.maxBig }, () => ({
+    ox: 0, oy: 0, oz: 0, dx: 0, dy: -1, dz: 0, maxDist: 0, size: 0, kind: 'burst' as BigKind | SplatHow, ax: 0, ay: 0, az: 0, at: 0, minor: false,
+  }));
+  private bigLen = 0;
+  /** Big stains laid since the last `clear`. For checks. */
+  bigLaid = 0;
+  /** The last burst: where and when, and how many have gone off beside it since. */
+  private readonly burstPoint = new THREE.Vector3();
+  private burstAt = -1;
+  private burstCount = 0;
   private readonly pools: Pool[] = Array.from({ length: BloodTuning.maxPools }, () => ({
     x: 0, y: 0, z: 0, nx: 0, ny: 1, nz: 0, size: 0, stage: POOL_STAGES, nextAt: 0, interval: 0, rotation: 0,
   }));
@@ -127,6 +171,7 @@ export class BloodField {
   private bleederAt = 0;
   private drips = 0;
   private sprays = 0;
+  private sheets = 0;
   /** Drops let fall since the last `clear`. For checks. */
   dripped = 0;
   /** How wet each body is, 0..1, as `setBloodiness` has it. */
@@ -217,6 +262,95 @@ export class BloodField {
       this.n.addScaledVector(away, 0.7).normalize();
       this.splatRay(point, this.n, reach, size * (0.5 + Math.random()));
     }
+  }
+
+  /**
+   * A big stain (`decals.big`) or a pattern (`cast`, `arc`, `trail`: `decals.splat`) where a ray from `origin` along
+   * `dir` first meets the world, turned along `along` (the way the blood was thrown; `dir` if not given), `delay`
+   * seconds from now. Queued like `splatRay`: it costs ray budget, not frame time. A wall sheet shrinks with the
+   * distance the blood flew to reach it. A big stain on a floor that reaches a wall is carried up the wall as a sheet,
+   * since a decal is flat and is cut off at the corner.
+   */
+  bigRay(kind: BigKind | SplatHow, origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number, size: number, along: THREE.Vector3 = dir, delay = 0, minor = false): void {
+    if (this.bigLen >= BloodTuning.maxBig || (!DevFlags.bigBlood && !minor && BIG_KINDS.has(kind))) return;
+    const q = this.bigs[this.bigLen++]!;
+    q.ox = origin.x;
+    q.oy = origin.y;
+    q.oz = origin.z;
+    q.dx = dir.x;
+    q.dy = dir.y;
+    q.dz = dir.z;
+    q.maxDist = maxDist;
+    q.size = size;
+    q.kind = kind;
+    q.ax = along.x;
+    q.ay = along.y;
+    q.az = along.z;
+    q.at = this.ctx.time.elapsed + delay;
+    q.minor = minor;
+  }
+
+  /**
+   * What a body coming apart leaves under it: one burst `size` metres across on the floor below `at`, thrown along
+   * `dir`. Several in one blast (`ringWindow`, `ringReach`) are one event: the second lays a ring round them all and
+   * the rest are smaller.
+   */
+  burst(at: THREE.Vector3, dir: THREE.Vector3, size: number): void {
+    const t = BloodTuning;
+    const now = this.ctx.time.elapsed;
+    let s = size * t.amount;
+    if (now - this.burstAt < t.ringWindow && at.distanceTo(this.burstPoint) < t.ringReach) {
+      if (++this.burstCount === 2) {
+        this.o.copy(at).add(this.burstPoint).multiplyScalar(0.5);
+        this.o.y = Math.max(at.y, this.burstPoint.y);
+        this.bigRay('ring', this.o, DOWN, 3.5, Math.max(s * 1.6, at.distanceTo(this.burstPoint) + 2.4));
+      }
+      s *= 0.75;
+    } else {
+      this.burstCount = 1;
+      this.burstPoint.copy(at);
+      this.burstAt = now;
+    }
+    this.bigRay('burst', at, DOWN, 3.5, s, dir);
+  }
+
+  /**
+   * What a shot throws out of the far side of a body: a fan `size` metres long on the floor past `at`, along `dir`,
+   * and a sheet on the wall behind if there is one within reach. `delay`: seconds until it lands.
+   */
+  fan(at: THREE.Vector3, dir: THREE.Vector3, size: number, delay = 0): void {
+    const s = size * BloodTuning.amount;
+    this.bigRay('fan', at, DOWN, 3.5, s, dir, delay);
+    this.bigRay('sheet', at, dir, 1.2 + s * 2, s, dir, delay);
+  }
+
+  /** The wall behind a killing shot: one sheet on it, if it is within `reach`. Two a frame; a shotgun's pellets are one kill. */
+  sheetBehind(at: THREE.Vector3, dir: THREE.Vector3, size: number, reach = 3.2): void {
+    if (this.sheets >= 2) return;
+    this.sheets++;
+    this.bigRay('sheet', at, dir, reach, size * BloodTuning.amount);
+  }
+
+  /** The patch a body soaks into the floor where it lies, `size` metres long, along `along` if given. The pool grows from it. */
+  soak(at: THREE.Vector3, size: number, along?: THREE.Vector3): void {
+    this.o.copy(at);
+    this.o.y += 0.25;
+    this.bigRay('soak', this.o, DOWN, 1.8, size * BloodTuning.amount, along ?? DOWN);
+  }
+
+  /** The long smear of a body sliding `length` metres along (moveX, moveZ), from under `at`. */
+  drag(at: THREE.Vector3, moveX: number, moveZ: number, length: number): void {
+    this.o.copy(at);
+    this.o.y += 0.15;
+    this.bigRay('drag', this.o, DOWN, 0.9, length, this.t.set(moveX, 0, moveZ).normalize());
+  }
+
+  /**
+   * Drops thrown off something swung or flung along `dir` at `at`: a line of them, `length` metres, on the surface
+   * `reach` metres along `toward` (straight down if not given).
+   */
+  castOff(at: THREE.Vector3, dir: THREE.Vector3, length: number, toward: THREE.Vector3 = DOWN, reach = 3): void {
+    this.bigRay('cast', at, toward, reach, length * BloodTuning.amount, dir);
   }
 
   /**
@@ -325,6 +459,13 @@ export class BloodField {
     if (spray && this.sprays < BloodTuning.spraysPerFrame) {
       this.sprays++;
       this.ctx.fx.bloodSpray?.(point, d.dir, spray.weight, spray.radial);
+      // The round's own mark: what it carried out of the far side, laid on the floor past the body as the spray lands.
+      // A blast's burst is the gib's to leave.
+      if (!spray.radial && DevFlags.hitBlood) {
+        const t = BloodTuning;
+        this.o.copy(point).addScaledVector(d.dir, 0.3);
+        this.bigRay('fan', this.o, DOWN, 3, (t.hitFan + t.hitFanHeavy * spray.weight) * (0.85 + 0.3 * Math.random()) * t.amount, d.dir, t.hitFanDelay, true);
+      }
     }
     if (bone < 0) return;
     const target = char.bones[bone];
@@ -357,11 +498,23 @@ export class BloodField {
       }
     }
 
+    const now = this.ctx.time.elapsed;
+    for (let i = 0; i < this.bigLen && this.rays < budget; i++) {
+      const q = this.bigs[i]!;
+      if (now < q.at) continue;
+      // Out of the list: the last one takes its place.
+      const last = this.bigs[--this.bigLen]!;
+      this.bigs[i] = last;
+      this.bigs[this.bigLen] = q;
+      i--;
+      this.layBig(q);
+    }
+
     this.updateDroplets(dt);
 
-    const now = this.ctx.time.elapsed;
     this.drips = 0;
     this.sprays = 0;
+    this.sheets = 0;
     this.updateBleeders(now);
     for (let i = 0; i < BloodTuning.maxPools; i++) {
       const p = this.pools[i]!;
@@ -373,6 +526,63 @@ export class BloodField {
       this.ctx.render.decals.add('bloodPool', this.t, this.n, (p.size * p.stage) / POOL_STAGES, p.rotation + p.stage * 0.9);
     }
     this.raysUsed = this.rays;
+  }
+
+  private layBig(q: BigRay): void {
+    if (!this.cast(q.ox, q.oy, q.oz, q.dx, q.dy, q.dz, q.maxDist)) return;
+    const decals = this.ctx.render.decals;
+    const hit = this.hit;
+    const along = this.t.set(q.ax, q.ay, q.az);
+    if (!BIG_KINDS.has(q.kind)) {
+      // A pattern: laid along the throw, whatever the ray's own direction.
+      const into = along.dot(hit.normal);
+      along.addScaledVector(hit.normal, -into);
+      if (along.lengthSq() < 1e-6) along.set(q.dx, q.dy, q.dz);
+      decals.splat(hit.point, hit.normal, q.size, _splat.copy(along).normalize().multiplyScalar(5).addScaledVector(hit.normal, -0.5), q.kind as SplatHow);
+      return;
+    }
+    let kind = q.kind as BigKind;
+    let size = q.size;
+    const floor = hit.normal.y > 0.6;
+    if (kind === 'sheet') {
+      // Thinner the further it flew. What a shot fired downward throws on the floor is a fan, and it is already there.
+      if (floor) return;
+      size *= 1 - 0.5 * Math.min(1, hit.distance / q.maxDist);
+    } else if (!floor && hit.normal.y > -0.6 && kind !== 'drag') {
+      kind = 'sheet';
+    }
+    decals.big?.(kind, hit.point, hit.normal, size, along, q.minor);
+    this.bigLaid++;
+    if (floor && kind !== 'drag' && kind !== 'sheet') this.carryUpWalls(kind, size, along, q.minor);
+  }
+
+  /**
+   * A decal is flat: the part of a big floor stain that would lie past a wall is cut off there. So where one reaches
+   * a wall, what it would have thrown past the corner goes up the wall as a sheet. Reads `this.hit` (the floor point)
+   * and may use up to three more rays.
+   */
+  private carryUpWalls(kind: BigKind, size: number, along: THREE.Vector3, minor: boolean): void {
+    const fx = along.x, fz = along.z;
+    const fl = Math.hypot(fx, fz);
+    const ax = fl > 1e-3 ? fx / fl : 1, az = fl > 1e-3 ? fz / fl : 0;
+    const reach = size * 0.45;
+    // A fan lies ahead of its root; the rest are centred.
+    const lead = kind === 'fan' ? size * 0.4 : 0;
+    const cx = this.hit.point.x + ax * lead, cy = this.hit.point.y + 0.14, cz = this.hit.point.z + az * lead;
+    for (let i = 0; i < 3 && this.rays < BloodTuning.raysPerFrame * 2; i++) {
+      // Ahead, then to either side.
+      const dx = i === 0 ? ax : i === 1 ? -az : az;
+      const dz = i === 0 ? az : i === 1 ? ax : -ax;
+      if (!this.cast(cx, cy, cz, dx, 0, dz, reach) || Math.abs(this.hit.normal.y) > 0.5) continue;
+      const past = reach - this.hit.distance;
+      if (past < 0.2) continue;
+      const s = Math.min(Math.max(past * 2.4, 0.6), size * 0.85);
+      // The sheet's impact sits above its middle: low on the wall, where the floor's blood met it.
+      _at.copy(this.hit.point);
+      _at.y += s * 0.22;
+      this.ctx.render.decals.big?.('sheet', _at, this.hit.normal, s, undefined, minor);
+      this.bigLaid++;
+    }
   }
 
   private updateBleeders(now: number): void {
@@ -430,6 +640,9 @@ export class BloodField {
     this.queueLen = 0;
     for (const b of this.bleeders) b.target = null;
     this.dripped = 0;
+    this.bigLen = 0;
+    this.bigLaid = 0;
+    this.burstAt = -1;
     for (const p of this.pools) p.stage = POOL_STAGES;
   }
 }

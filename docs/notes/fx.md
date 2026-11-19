@@ -53,7 +53,7 @@ Faceted chips stay for explosions. The 20 yellow headshot chips and their flash 
 - **Landing is exact.** `BloodLayer.add` solves when a strand reaches the floor or the wall ahead (one `floorAt` and one `wallAlong` ray per burst) and `StainQueue` books a `decals.splat` for that moment, with the real velocity. What you see land is what leaves the mark. The head sticks and the rest of the strand runs into it.
 - **Its own clock.** `core.bloodNow` is world time without hit-stop. See Measured.
 - **Mist** is a mode of the same layer: a short puff of fine grain, thinning over 0.2-0.5 s, gone inside 0.7 m of the camera, and growing with distance so a hit still reads at 15 m where the strands fall under a pixel.
-- **Decals.** `decals.splat(position, normal, size, velocity)` is added by module augmentation in `render/Decals.ts`. Length over width is one over the sine of the impact angle, capped at 4.5. The blot sits back, a tail draws out ahead and side spatter bends forward. All blood cells get a per-decal warp so the few atlas shapes never match, the regrade to deep red, and dry over about a minute. The old emissive floor is gone: blood must not glow.
+- **Decals.** `decals.splat(position, normal, size, velocity, how?)` is added by module augmentation in `render/Decals.ts`. Length over width is one over the sine of the impact angle, capped at 4.5, and the shape is chosen by how the drop arrived (`chooseSplat`, `render/decalSheet.ts`): round and clean if it fell, scalloped or crowned with spines if it hit hard, an oval with its tail along the travel if it glanced, a whole burst or fan if it is a splash. Blood is drawn from fields the sheet stores (outline, thickness, haze), not from pictures: `docs/notes/render.md`, "The decal sheet". Thin blood dries in seconds and a pool's middle in a minute and a half. `StainQueue.book(at, landing, size, how?)` passes `how` on. The old emissive floor is gone: blood must not glow.
 - Gore's `meat`, `viscera`, `bone`, `skull` and `brain` are real bodies, so `gibBurst` and `headBurst` no longer throw FX giblets or chunks.
 
 ### The impact puff (2026-11-18)
@@ -91,11 +91,11 @@ geometry or a draw call.
   paints what is behind it. `weight` is the body-hit sounds' `hitWeight` (0..1), so a round sounds and sprays as heavy as it is. Under
   `SPRAY_HEAVY` (0.45; the SMG and Rivet) it is two mist puffs, a fat strand and two or three fine ones: a mark a hand across. Over it
   (pellets as a blast, the Judge, the Trommel, a stake) a fan of up to ten strands that widens with weight, and a splash: the fat strand's
-  stain is `sprayMark(weight)` (0.25 to 1.35 m of quad, the blot about a third of it), stretched along the shot by the angle it lands at. A
+  stain is `sprayMark(weight)` (0.25 to 1.35 m of quad; from 0.34 m it is drawn as a splash, a burst or a fan of its own), stretched along the shot by the angle it lands at. A
   blast (`radial`) is `SPRAY_RADIAL` (6) fans in a dome leaning along the blast, one wall ray each. Every mark is a booked stain, so it lands
   where and when its strand does, and the spray is seen to cross to the wall. Gore fires it (`BloodField.onHit`); see `docs/notes/gore.md`.
 - **Drips** (`bloodDrip(position, velocity?, size?)`). One short bead with a 3.5 cm trail, falling at gravity with light drag, and a spot of
-  `0.75 x` a strand's stain where it lands: 3 to 6 cm. One floor ray. Gore drips wounds, the dead and flying meat through it, inside its
+  `0.75 x` a strand's stain where it lands: a round drop of 3 to 6 cm. One floor ray. Gore drips wounds, the dead and flying meat through it, inside its
   own budget.
 - **Runs** (`decals.run(position, normal, size)`, `render/Decals.ts`). Blood running down a wall from a stain: one decal, a long thin quad
   hung from the stain (0.18 to 1.4 m long, 1.4 to 8 cm wide), drawn in the shader (flag 2 in `aDecal.z`). Its front creeps down over one

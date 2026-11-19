@@ -963,6 +963,7 @@ export class Gore implements GoreSystem {
     }
     this.blood.splatterAlong(at, dir, count, reach, size);
     this.blood.spray(at, dir, count, 8, 0.5, size * 0.26);
+    this.blood.sheetBehind(at, dir, 0.55 + size);
   }
 
   /** `keep` has just been woken and is about to be used, so it is the one chain that may not freeze here. */
@@ -1056,7 +1057,10 @@ export class Gore implements GoreSystem {
     b.rag?.freeze();
     if (!b.pooled && !isMachine(b.char)) {
       b.pooled = true;
-      this.blood.pool(b.rag ? b.rag.center : _v.setFromMatrixPosition(b.char.bones[0]!.matrixWorld), rand(1.2, 1.9), 4.5);
+      const at = b.rag ? b.rag.center : _v.setFromMatrixPosition(b.char.bones[0]!.matrixWorld);
+      // The patch it has soaked into the floor is there at once; the pool then spreads out of it.
+      this.blood.soak(at, rand(1.3, 1.8));
+      this.blood.pool(at, rand(1.2, 1.9), 4.5);
     }
   }
 
@@ -1448,7 +1452,9 @@ export class Gore implements GoreSystem {
     char.hideLimb(neck);
     this.startStump(char, neck, 1.7);
     fx.bloodMist(at, 0.3);
-    this.blood.splatterAlong(at, damage.dir, 9, 8, 0.6);
+    // One fan past the body and a sheet on the wall behind stand for most of what was nine separate stains.
+    this.blood.fan(at, damage.dir, 1.5);
+    this.blood.splatterAlong(at, damage.dir, 5, 8, 0.6);
     this.blood.spray(at, _up, 10, 11, 0.32, 0.12);
   }
 
@@ -1830,7 +1836,8 @@ export class Gore implements GoreSystem {
     fx.bloodHit(exit, dir, 1.8);
     fx.bloodMist(exit, 0.35);
     fx.bloodSpray?.(exit, dir, 1);
-    this.blood.splatterAlong(exit, dir, 12, 9, 0.75);
+    this.blood.fan(exit, dir, 2.1);
+    this.blood.splatterAlong(exit, dir, 7, 9, 0.75);
     this.blood.spray(exit, dir, 12, 9, 0.35, 0.14);
     char.setBloodiness(0.6);
   }
@@ -1872,7 +1879,9 @@ export class Gore implements GoreSystem {
       randomInCone(blastDir, 0.32, _v2);
       fx.bloodJet(chest, _v2, 2);
     }
-    this.blood.splatterAround(chest, blastDir, 18, 7, 1.15);
+    // The burst is the coverage; the rays are what lands past its edge.
+    this.blood.burst(chest, blastDir, clamp(1.5 + push / 400, 1.7, 3));
+    this.blood.splatterAround(chest, blastDir, 10, 7, 1.15);
     this.blood.spray(chest, blastDir, 14, 12, 0.7, 0.14);
     this.blood.pool(hips, rand(1.4, 2.1), 1.6);
     audio.play('enemy_explode', { position: chest, volume: 0.6, pitchJitter: 0.06 });
@@ -2312,7 +2321,11 @@ export class Gore implements GoreSystem {
         if (moved.lengthSq() > BloodTuning.smearSpacing * BloodTuning.smearSpacing) {
           b.smearAt.copy(rag.center);
           b.smearLeft--;
-          this.blood.smear(rag.center, moved.x, moved.z, rand(0.5, 0.8));
+          // Thrown hard, it leaves one long drag ahead of it in place of the next few marks.
+          if (rag.speed > 3.2 && b.smearLeft > 3) {
+            b.smearLeft -= 3;
+            this.blood.drag(rag.center, moved.x, moved.z, clamp(rag.speed * 0.45, 1.4, 3.2));
+          } else this.blood.smear(rag.center, moved.x, moved.z, rand(0.5, 0.8));
         }
       }
       if (b.down) {

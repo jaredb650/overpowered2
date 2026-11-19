@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { rand } from '../../core/math';
-import type { SurfaceKind } from '../../core/contracts';
+import type { DecalKind, SurfaceKind } from '../../core/contracts';
 import type { FxCore } from '../core';
 import { SmokeMode } from '../layers/smoke';
 import type { ChipShape } from '../layers/chips';
@@ -22,7 +22,9 @@ interface SurfaceFx {
   spark: Rgb;
   /** Small star for one or two frames at the hit: the crack of the envelope. */
   pop: Rgb | null;
-  decal: boolean;
+  /** The mark it leaves, and the edge of its quad in metres for a round of ordinary size. */
+  decal: DecalKind | null;
+  decalSize: number;
 }
 
 const BASE: SurfaceFx = {
@@ -37,7 +39,8 @@ const BASE: SurfaceFx = {
   sparks: 0,
   spark: SPARK.yellow,
   pop: null,
-  decal: true,
+  decal: 'bullet',
+  decalSize: 0.13,
 };
 
 const POP_HOT = hot(0xffdd88, 9);
@@ -45,14 +48,14 @@ const POP_COLD = hot(0xbfeaff, 7);
 
 const SURFACES: Record<SurfaceKind, SurfaceFx> = {
   concrete: { ...BASE, chips: 9, shape: 'shard', dustSize: 0.32, sparks: 2, pop: hot(0xcfd8e0, 4) },
-  metal: { ...BASE, chips: 3, chip: CHIP.steel, shape: 'plate', chipSize: 0.5, dust: null, sparks: 16, pop: POP_HOT },
-  grate: { ...BASE, chips: 2, chip: CHIP.steel, shape: 'plate', chipSize: 0.45, dust: null, sparks: 10, spark: SPARK.amber, pop: POP_HOT, decal: false },
+  metal: { ...BASE, chips: 3, chip: CHIP.steel, shape: 'plate', chipSize: 0.5, dust: null, sparks: 16, pop: POP_HOT, decal: 'bulletMetal', decalSize: 0.14 },
+  grate: { ...BASE, chips: 2, chip: CHIP.steel, shape: 'plate', chipSize: 0.45, dust: null, sparks: 10, spark: SPARK.amber, pop: POP_HOT, decal: null },
   dirt: { ...BASE, chips: 12, chip: CHIP.dirt, shape: 'gem', chipSpeed: 0.85, chipSize: 1.1, dust: hot(0x4a4238, 0.6), dustSize: 0.42 },
-  glass: { ...BASE, chips: 14, chip: CHIP.glass, shape: 'shard', chipSpeed: 1, chipSize: 0.9, dust: null, sparks: 3, spark: SPARK.white, pop: POP_COLD },
+  glass: { ...BASE, chips: 14, chip: CHIP.glass, shape: 'shard', chipSpeed: 1, chipSize: 0.9, dust: null, sparks: 3, spark: SPARK.white, pop: POP_COLD, decal: 'bulletGlass', decalSize: 0.3 },
   flesh: { ...BASE },
-  armor: { ...BASE, chips: 4, chip: CHIP.steel, shape: 'plate', chipSize: 0.6, dust: null, sparks: 12, spark: SPARK.white, pop: hot(0xffffff, 9), decal: false },
-  energy: { ...BASE, chips: 6, chip: CHIP.cyan, shape: 'shard', dust: null, sparks: 10, spark: SPARK.cyan, pop: POP_COLD, decal: false },
-  lava: { ...BASE, chips: 14, chip: CHIP.orange, shape: 'gem', chipSpeed: 0.8, dust: null, sparks: 6, spark: SPARK.orange, pop: hot(0xffa030, 8), decal: false },
+  armor: { ...BASE, chips: 4, chip: CHIP.steel, shape: 'plate', chipSize: 0.6, dust: null, sparks: 12, spark: SPARK.white, pop: hot(0xffffff, 9), decal: null },
+  energy: { ...BASE, chips: 6, chip: CHIP.cyan, shape: 'shard', dust: null, sparks: 10, spark: SPARK.cyan, pop: POP_COLD, decal: null },
+  lava: { ...BASE, chips: 14, chip: CHIP.orange, shape: 'gem', chipSpeed: 0.8, dust: null, sparks: 6, spark: SPARK.orange, pop: hot(0xffa030, 8), decal: null },
 };
 
 export function impact(core: FxCore, position: THREE.Vector3, normal: THREE.Vector3, surface: SurfaceKind, scale = 1): void {
@@ -80,5 +83,5 @@ export function impact(core: FxCore, position: THREE.Vector3, normal: THREE.Vect
     sparkCone(core, x, y, z, normal.x, normal.y, normal.z, f.spark, Math.ceil(f.sparks * scale), floor, 15, 0.42, 0.016);
   }
   if (f.pop) core.flashes.star(x, y, z, f.pop, 0.2 * scale, core.now, 0.034, 6, 0.28, 0.7, 0.5, 8);
-  if (f.decal) core.ctx.render.decals.add('bullet', position, normal, 0.12 * Math.sqrt(scale), rand(0, 6.2832));
+  if (f.decal) core.ctx.render.decals.add(f.decal, position, normal, f.decalSize * Math.sqrt(scale), rand(0, 6.2832));
 }

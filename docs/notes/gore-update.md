@@ -84,7 +84,7 @@ Each lane owns a vertical through the plan's batches and goes on to its next ste
 | gibs | 5610-5619 | G1 rockets and grenades crack the trunk; G2 show the break: pieces thrown hard out of the fireball, bright wet torn faces, mid-size slabs, so the pieces add up to the body destroyed (every destruction: torso, head, limbs, whole-body gib); free guts that detach, fly and drape; O1 organs you notice (bigger, squash, roll, burst when stepped on or shot) | `gore/torso.ts`, `gore/chunks.ts`, `gore/index.ts` (gib paths), the gut rope, `weapons/Combat.ts` blast force only where G1 needs it | doing: G1, G2 landed |
 | fire | 5620-5629 | F1 fire finishes the job (char by fire damage, the corpse burns on then smoulders, soot not a blood pool, flames on the whole body and on severed burning limbs); F3 fire meets the other systems (curled burnt corpses, dark pieces, morale chips faster, burning zombies keep attacking); F2 fire spreads from where it touched and eats the skin to muscle and bone | `enemies/EnemyManager.ts` burn, `characters/material.ts`, `fx/recipes`, `enemies/outpost/morale.ts`, `enemies/behaviours.ts` | todo |
 | mess | 5630-5639 | M0 measure the budgets; P1 the mess stays (decal rings by kind and about four times the room, pieces that do not expire, corpses sink only out of view, resting bodies that stack and are **pushed aside as ragdolls** when walked into, the "Mess" setting); P3 many more corpses (tiers, baked far bodies that can wake) | `render/Decals.ts` (the rings and budgets), `gore/chunks.ts` lifetimes, `gore/rag.ts`, `gore/sliced.ts`, `gore/index.ts` corpse caps, settings UI | todo |
-| decals | 5640-5649 | D1 realistic decal designs and BIG decals for coverage (the sheet, the choice of shape by speed, angle, amount and weapon, wet and dry surface response); B1 more blood from one hit; B4 drips from ceilings and ledges, splashes, soaked bodies; B2 footprints and slide smears; P2 blood that never has to go (the floor texture) | `render/materials/decalAtlas.glsl.ts`, the shape choice in `render/Decals.ts` and `gore/blood.ts`, `fx/layers/blood.ts` | todo |
+| decals | 5640-5649 | D1 realistic decal designs and BIG decals for coverage (the sheet, the choice of shape by speed, angle, amount and weapon, wet and dry surface response); B1 more blood from one hit; B4 drips from ceilings and ledges, splashes, soaked bodies; B2 footprints and slide smears; P2 blood that never has to go (the floor texture) | `render/materials/decalAtlas.glsl.ts`, the shape choice in `render/Decals.ts` and `gore/blood.ts`, `fx/layers/blood.ts` | doing: D1 (the sheet, big stains, marks) and B1 landed; B4, B2, P2 next |
 | wear | 5650-5659 | B3 blood on the weapon and hands; W1 wear you can see: readable limb damage (skin torn to muscle, then bone, as a region's pool is spent), without changing what shooting a limb does | `weapons/viewmodels/` materials, `characters/material.ts`, `characters/anatomy/interior.ts`, the body's data texture | B3 done (aaaa677), W1 done |
 
 Shared files and contracts:
@@ -107,6 +107,8 @@ Shared files and contracts:
 | `?flinch=0`, dev panel "Hits: every hit shows" | on | R1: the hit flinch's new shape and size (twist, dropped shoulder, struck arm 20 to 40 degrees, knee dip, a floor by weapon) against the 3 to 10 degree nod from before | react |
 | `?vmblood=0`, lab row "Blood on the weapon" | on | Guns and gloves stay clean whatever is killed (B3) | wear |
 | `?wear=0`, lab row "Wear on limbs" | on | W1: skin torn to muscle and bone as a limb's pool is spent, against bodies that show only their wounds | wear |
+| `?bigblood=0`, lab row "Blood: big stains on a kill" | on | D1: the big stains a kill lays for coverage (burst, fan, wall sheet, soaked patch, drag, ring) against the small traced drops alone | decals |
+| `?hitblood=0`, lab row "Blood: a mark from every round" | on | B1: every round's own fan on the floor past the body against none | decals |
 
 ## Log
 
@@ -160,3 +162,34 @@ Shared files and contracts:
   `POOL_WEAK_FROM`; I did not edit your files.
   Pictures: `tools/out/gore-update/wear/w1/`. Not done: real holes onto the interior, wear from a corpse's own limb health,
   machines.
+- 2026-11-19, decals: **D1 landed: the decal sheet redrawn, big stains, a mark from every round (B1), marks by surface.**
+  What is built and its numbers: `docs/notes/render.md`, "The decal sheet"; `docs/notes/gore.md`, "Big stains". Decisions:
+  - **Blood cells are fields, not pictures** (outline as distance to the edge, thickness, haze), and the decal shader draws
+    the liquid: this is what makes a 512 px burst hold a sharp edge at 3 m, lets a pool spread from its middle, dries thin
+    blood before thick, and gives the wet lip. The old sheet could not be kept beside it, so **there is no switch back to
+    the old shapes**; the before pictures are from a second worktree at `66a33f1`.
+  - **The sheet is 2048 x 4096 (89 MB with mipmaps, 44 before).** I did not pack two stains into one texel's channels to
+    stay at 44: possible, but it would have made every cell harder to draw and check. If memory matters on a small GPU,
+    that is the lever (or `sizeScale`).
+  - **The sheet is baked by five shaders in the background** (one shader with everything compiled in 2.7 s and held the
+    page; now 1.2 s cold off the main thread, 60 to 77 ms of drawing).
+  - **A stain of 0.34 m and up is a splash** and gets a whole composition, so the big marks on a wall are bursts and fans
+    with fingers, not round blobs.
+  - **Big stains replace rays, not add to them:** a gib's 18 rays are 10, a blow-out's 12 are 7, a head burst's 9 are 5.
+    A kill's big stains go in ring `big`; a single round's fan goes with the small stains (`minor`), or one magazine
+    would empty that ring.
+  - **Saturated red over physically pale:** blood's brightness levels off under a hard light (it went pink in the
+    flashlight) and it keeps 40% of the sky's mirror sheen (a wet floor at a low angle went pale).
+  - **A bug of the old sheet is gone with it:** stripes through the first cell of each row (the first blot, the first
+    pool, the first cut): the research's "stripes where pools stack".
+  - **For agent "fire":** `decals.add('soot', point, normal, size, rotation)` is the soot shape (two cells: a blotch, and
+    one drawn out along +X), in ring `scorch`, under the blood. Scorches now have three variants (plain, a burnt-out pale
+    middle, thrown one way) with soot streaks. **For anyone laying bullet holes:** `bulletMetal` and `bulletGlass` are new
+    kinds; `fx.impact` already picks by surface.
+  - **For agent "mess":** `onRetire`'s `data` layout changed (cell + how full, time, kind + mirror bits + seed, lip
+    width: the top of `render/decalShader.glsl.ts`). `decals.big(..., minor)` chooses the ring.
+  - Co-op: `coop-gore-shots.mjs` ran, 3 pages: six cases passed, `limb` failed once on the watcher's count of legs left
+    and passed when run alone (it counts wounds, puffs and sprays, none of which this changes): nothing to update in its
+    expectations. Tests: `decalSheet.test.ts`, `blood.test.ts` "big stains"; the whole suite passes.
+  - Pictures: `tools/out/gore-update/decals/` and its `LOOK.md` (the sheet cell by cell, seven seeded scenes before and
+    after). Weakest shape: the drags. Not done yet: B4, B2, P2.

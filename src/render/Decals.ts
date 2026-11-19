@@ -2,6 +2,12 @@ import * as THREE from 'three';
 import type { DecalKind, DecalSystem } from '../core/contracts';
 import type { MaterialPatcher, ShaderHook } from './materials/patch';
 import type { BakedSet } from './materials/TextureBaker';
+import {
+  BIG_CELLS, BIG_ROOT, CELL, CELL_COUNT, DRAG_ASPECT, Flag, KIND_CELLS, chooseSplat, flagOf, flipsOf, isBloodCell, lipOf, type BigKind, type SplatHow,
+} from './decalSheet';
+import {
+  DECAL_FRAG_MAIN, DECAL_FRAG_PARS, DECAL_LIGHT, DECAL_METALNESS, DECAL_NORMAL, DECAL_ROUGHNESS, DECAL_VERT_MAIN, DECAL_VERT_PARS,
+} from './decalShader.glsl';
 
 /**
  * The decal buffer is one instanced mesh and one draw call, cut into rings by kind. Each ring is a stretch of the buffer
@@ -19,13 +25,16 @@ import type { BakedSet } from './materials/TextureBaker';
 export type DecalRing = 'scorch' | 'big' | 'blood' | 'mark';
 export const DECAL_RINGS: readonly DecalRing[] = ['scorch', 'big', 'blood', 'mark'];
 export const RING_CAPACITY: Readonly<Record<DecalRing, number>> = { scorch: 256, big: 256, blood: 8192, mark: 1536 };
-/** Which ring a kind lives in. A new kind needs a row here and in `CELLS`. */
+/** Which ring a kind lives in. A new kind needs a row here and in `KIND_CELLS` (`decalSheet.ts`). */
 export const RING_OF: Readonly<Record<DecalKind, DecalRing>> = {
   bullet: 'mark',
+  bulletMetal: 'mark',
+  bulletGlass: 'mark',
   exit: 'mark',
   slash: 'mark',
   crack: 'mark',
   scorch: 'scorch',
+  soot: 'scorch',
   blood: 'blood',
   bloodPool: 'blood',
   bloodSmear: 'blood',
@@ -36,7 +45,7 @@ export const MAX_DECALS = DECAL_RINGS.reduce((n, r) => n + RING_CAPACITY[r], 0);
 /**
  * One decal that is about to be overwritten by a newer one of its ring (never called by `clear`). `matrices` holds 16
  * floats a slot from `slot * 16` (the quad's two edges, its normal and its place, as columns) and `data` 4 from
- * `slot * 4` (atlas cell, the world time it landed, flag plus seed, stretch). Read them now: the slot is rewritten as
+ * `slot * 4` (what each of the four is: the top of `decalShader.glsl.ts`). Read them now: the slot is rewritten as
  * soon as this returns. This is where old blood can be drawn into a floor texture before it goes.
  */
 export type DecalRetire = (ring: DecalRing, matrices: Float32Array, data: Float32Array, slot: number) => void;
@@ -61,24 +70,7 @@ interface RingState {
 }
 
 const _at = new THREE.Vector3();
-
-/** First atlas cell and variant count per kind. Matches surface_decals. */
-const CELLS: Record<DecalKind, readonly [number, number]> = {
-  // One hole, not two: the second cell went to the exit crater. At 12 cm and any rotation the two could not be told apart.
-  bullet: [0, 1],
-  exit: [1, 1],
-  scorch: [2, 2],
-  blood: [4, 4],
-  bloodPool: [8, 2],
-  bloodSmear: [10, 2],
-  slash: [12, 2],
-  crack: [14, 2],
-};
-const GROW_POOL = 1;
-/** Pool flag 2: a run of blood down a wall, drawn in the shader and grown from its top over a second or two. */
-const GROW_RUN = 2;
-/** Length over width of the most glancing stain. Past this a drop has skimmed off, not landed. */
-const MAX_STRETCH = 4.5;
+const _dir = new THREE.Vector3();
 /** A wall stain this big (quad edge, m) or bigger can start a run down the wall, and is sure to from `RUN_SURE`. */
 const RUN_FROM = 0.16;
 const RUN_SURE = 0.6;
@@ -89,136 +81,28 @@ declare module '../core/contracts' {
   interface DecalSystem {
     /**
      * A drop of blood arriving at `velocity`: elongated along its travel, by as much as the angle of
-     * impact says, with its spatter thrown ahead of it. `size` is the edge of the quad before stretching.
+     * impact says, with its tail pointing the way it was going. `size` is the edge of the quad a round stain of that
+     * much blood gets. `how` is what made it, where that changes the shape: a `mist` of fine specks, or a pattern laid
+     * along the travel (`cast`: a line of drops off a swung blade; `arc`: an arterial wave; `trail`: drips under a
+     * walking man), which is `size` long.
      */
-    splat(position: THREE.Vector3, normal: THREE.Vector3, size: number, velocity: THREE.Vector3): void;
+    splat(position: THREE.Vector3, normal: THREE.Vector3, size: number, velocity: THREE.Vector3, how?: SplatHow): void;
     /**
      * Blood running down a wall from `position`, as wide as a stain of `size` would feed. Grows downward over a second
      * or two. Does nothing on a floor or ceiling. `splat` calls it by itself for big enough wall stains.
      */
     run(position: THREE.Vector3, normal: THREE.Vector3, size: number): void;
+    /**
+     * One big composition, `size` metres across (a `drag` is that long and two fifths as wide): the coverage a violent
+     * event leaves at once, in one decal where dozens of small stains used to stand. `dir` turns it: a `fan` and a
+     * `drag` start at `position` and run along it, a lopsided `burst` or `ring` throws most that way. A `sheet` on a
+     * wall always hangs with its runs down. The small traced drops still land on top of it and past its edge.
+     * It goes in the `big` ring, which is small and kept longest; `minor` (a single round's mark, laid many times a
+     * second) puts it with the small stains instead.
+     */
+    big(kind: BigKind, position: THREE.Vector3, normal: THREE.Vector3, size: number, dir?: THREE.Vector3, minor?: boolean): void;
   }
 }
-
-const VERT_PARS = /* glsl */ `
-attribute vec4 aDecal;
-varying vec2 vOpUv;
-varying vec4 vOpDecal;
-varying vec3 vOpT;
-varying vec3 vOpB;
-`;
-
-const VERT_MAIN = /* glsl */ `
-vOpUv = uv;
-vOpDecal = aDecal;
-vOpT = mat3(viewMatrix) * instanceMatrix[0].xyz;
-vOpB = mat3(viewMatrix) * instanceMatrix[1].xyz;
-`;
-
-const FRAG_PARS = /* glsl */ `
-uniform sampler2D opDecalA;
-uniform sampler2D opDecalS;
-uniform highp sampler2D opDepth;
-uniform vec2 opProj;
-uniform float opWorldTime;
-varying vec2 vOpUv;
-varying vec4 vOpDecal;
-varying vec3 vOpT;
-varying vec3 vOpB;
-`;
-
-/**
- * Decals test depth themselves against this frame's depth texture instead of using the hardware
- * test. A fragment survives only if the surface there lies within a few millimetres of the decal
- * plane, so nothing can z-fight, nothing hangs off a ledge, and anything in front hides it.
- */
-const FRAG_MAIN = /* glsl */ `
-float opZ = opProj.y / (texelFetch(opDepth, ivec2(gl_FragCoord.xy), 0).r * 2.0 - 1.0 + opProj.x);
-if (abs(opZ - vViewPosition.z) > 0.03 + vViewPosition.z * 0.0025) discard;
-vec2 opP = vOpUv;
-float opAge = max(opWorldTime - vOpDecal.y, 0.0);
-if (vOpDecal.z >= 1.0 && vOpDecal.z < 2.0) {
-  // Pools spread slowly: most of the way in about four seconds, then keep creeping a little.
-  float grow = 0.16 + 0.76 * (1.0 - exp(-opAge * 0.6)) + min(opAge * 0.004, 0.08);
-  opP = (opP - 0.5) / grow + 0.5;
-}
-float opCell = vOpDecal.x;
-bool opBlood = opCell > 3.5 && opCell < 11.5;
-vec4 opA;
-vec4 opS;
-if (vOpDecal.z >= 2.0) {
-  // A run down a wall. +X is down: the top sits in the stain that feeds it. The front creeps down over a second or
-  // two and slows, with a bead of blood at its head, and the run thins and wanders on the way.
-  float seed = fract(vOpDecal.z) * 57.0;
-  float aspect = vOpDecal.w;
-  float reach = 0.55 + 0.45 * fract(seed * 0.37);
-  float front = reach * (1.0 - exp(-opAge * (1.3 + fract(seed * 0.71) * 1.2)));
-  float x = opP.x;
-  float across = (opP.y - 0.5) * 2.0 + (sin(x * 9.0 + seed) * 0.5 + sin(x * 23.0 - seed * 1.7) * 0.25) * 0.3;
-  float halfW = mix(0.78, 0.32, x) * (0.85 + 0.15 * sin(x * 31.0 + seed * 3.0));
-  float bead = 0.9 - length(vec2((x - front) * aspect * 2.0, across * 0.85));
-  float body = x < front ? halfW - abs(across) : -1.0;
-  float f = max(body, bead * 0.75);
-  float aa = max(fwidth(f), 0.002);
-  float cover = clamp(f / aa + 0.5, 0.0, 1.0) * smoothstep(0.0, 0.04, x);
-  if (cover < 0.004) discard;
-  float thick = clamp(1.0 - abs(across) / max(halfW, 0.05), 0.0, 1.0);
-  opA = vec4(mix(vec3(0.6, 0.007, 0.015), vec3(0.27, 0.0, 0.006), thick), cover);
-  // A rounded bead of liquid: the normal rolls across it.
-  opS = vec4(0.5, 0.5 + clamp(across / max(halfW, 0.05), -1.0, 1.0) * 0.3 * thick, 0.1, 0.0);
-} else {
-if (opBlood) {
-  vec2 q = opP * 2.0 - 1.0;
-  float stretch = vOpDecal.w;
-  if (stretch > 1.01) {
-    // Travel runs along +X. The body sits back, the far side draws out into a tail, and spatter off to
-    // the sides bends forward: a chevron pointing where the drop was going.
-    float lean = 1.0 - 1.0 / stretch;
-    q.x += lean * 0.42;
-    q.x -= lean * 0.7 * q.y * q.y;
-    if (q.x > 0.0) q.x *= 1.0 - 0.45 * lean;
-  }
-  // There are only a few blots in the atlas. Warping each one its own way keeps any two from matching.
-  float seed = fract(vOpDecal.z) * 57.0;
-  q += vec2(
-    sin(q.y * 7.0 + seed) + 0.5 * sin(q.y * 17.0 - seed * 1.7) + 0.5 * sin(q.x * 5.0 + seed * 2.3),
-    sin(q.x * 8.0 - seed * 0.7) + 0.5 * sin(q.x * 19.0 + seed * 1.3) + 0.5 * sin(q.y * 6.0 - seed)
-  ) * 0.03;
-  opP = q * 0.5 + 0.5;
-}
-if (opP.x < 0.0 || opP.y < 0.0 || opP.x > 1.0 || opP.y > 1.0) discard;
-vec2 opAtlas = (vec2(mod(opCell, 4.0), floor(opCell / 4.0)) + opP) * 0.25;
-opA = texture2D(opDecalA, opAtlas);
-if (opA.a < 0.004) discard;
-opS = texture2D(opDecalS, opAtlas);
-}
-// Fresh blood is dark and wet. Over a minute it goes darker still and loses its shine.
-float opDry = opBlood ? smoothstep(5.0, 70.0, opAge) : 0.0;
-vec3 opTint = opA.rgb * vec3(0.42, 0.5, 0.5) * (1.0 - 0.45 * opDry);
-diffuseColor = vec4(opBlood ? vec3(1.0) : opA.rgb, opA.a);
-`;
-
-/**
- * Red reflects nothing under cyan light, and this map is lit cyan, so blood would dry to black the moment
- * it landed. It takes its brightness from the light and keeps its own hue. It adds no light of its own.
- */
-const LIGHT = /* glsl */ `
-#include <lights_fragment_end>
-if (opBlood) {
-  float opLight = dot(reflectedLight.directDiffuse + reflectedLight.indirectDiffuse, vec3(0.2126, 0.7152, 0.0722));
-  reflectedLight.directDiffuse = vec3(0.0);
-  reflectedLight.indirectDiffuse = opTint * opLight * 2.0;
-}
-`;
-
-const NORMAL = /* glsl */ `
-{
-  vec2 t = opS.xy * 2.0 - 1.0;
-  vec3 T = normalize(vOpT);
-  vec3 B = normalize(vOpB);
-  normal = normalize(T * t.x + B * t.y + normal * sqrt(max(1.0 - dot(t, t), 0.0)));
-}
-`;
 
 /**
  * Surface-aligned quads in one instanced draw, lit by the same patched PBR as the world.
@@ -253,15 +137,15 @@ export class Decals implements DecalSystem {
     const hook: ShaderHook = shader => {
       Object.assign(shader.uniforms, own);
       shader.vertexShader = shader.vertexShader
-        .replace('#include <common>', `#include <common>\n${VERT_PARS}`)
-        .replace('#include <uv_vertex>', `#include <uv_vertex>\n${VERT_MAIN}`);
+        .replace('#include <common>', `#include <common>\n${DECAL_VERT_PARS}`)
+        .replace('#include <uv_vertex>', `#include <uv_vertex>\n${DECAL_VERT_MAIN}`);
       shader.fragmentShader = shader.fragmentShader
-        .replace('#include <map_pars_fragment>', `#include <map_pars_fragment>\n${FRAG_PARS}`)
-        .replace('#include <map_fragment>', FRAG_MAIN)
-        .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = opS.z + opDry * 0.3;')
-        .replace('#include <metalnessmap_fragment>', 'float metalnessFactor = opS.w;')
-        .replace('#include <normal_fragment_maps>', NORMAL)
-        .replace('#include <lights_fragment_end>', LIGHT);
+        .replace('#include <map_pars_fragment>', `#include <map_pars_fragment>\n${DECAL_FRAG_PARS}`)
+        .replace('#include <map_fragment>', DECAL_FRAG_MAIN)
+        .replace('#include <roughnessmap_fragment>', DECAL_ROUGHNESS)
+        .replace('#include <metalnessmap_fragment>', DECAL_METALNESS)
+        .replace('#include <normal_fragment_maps>', DECAL_NORMAL)
+        .replace('#include <lights_fragment_end>', DECAL_LIGHT);
     };
     patcher.apply(material, hook, 'decals');
     this.mesh = new THREE.InstancedMesh(geometry, material, MAX_DECALS);
@@ -347,6 +231,28 @@ export class Decals implements DecalSystem {
   }
 
   add(kind: DecalKind, position: THREE.Vector3, normal: THREE.Vector3, size: number, rotation = Math.random() * Math.PI * 2): void {
+    const [first, variants] = KIND_CELLS[kind];
+    this.lay(this.ringOf[kind], first + Math.floor(Math.random() * variants), flagOf(kind), position, normal, size, size, rotation);
+  }
+
+  /** How many cells the sheet has. */
+  readonly cellCount = CELL_COUNT;
+
+  /** One named cell of the sheet, `age` seconds old. For the sheet's own pictures and tests. */
+  stamp(cell: number, position: THREE.Vector3, normal: THREE.Vector3, size: number, rotation = 0, age = 0, thin = 0.5): void {
+    const flag = isBloodCell(cell) ? Flag.Blood : Flag.Mark;
+    const now = this.now;
+    this.now = now - age;
+    const ring = cell >= CELL.scorch ? 'scorch' : flag === Flag.Mark ? 'mark' : cell >= CELL.burst ? 'big' : 'blood';
+    this.lay(this.ring(ring), cell, flag, position, normal, size, size, rotation, thin, 0);
+    this.now = now;
+  }
+
+  /** A quad of `wide` by `long` lying on the surface, its +X turned `rotation` from the surface's own tangent. */
+  private lay(
+    r: RingState, cell: number, flag: Flag, position: THREE.Vector3, normal: THREE.Vector3, long: number, wide: number, rotation: number,
+    thin = 0.42 + Math.random() * 0.16, flips = -1,
+  ): void {
     const inv = 1 / Math.hypot(normal.x, normal.y, normal.z);
     const nx = normal.x * inv, ny = normal.y * inv, nz = normal.z * inv;
     // Tangent from whichever world axis is least aligned with the normal.
@@ -363,39 +269,79 @@ export class Decals implements DecalSystem {
       tz = ny * l;
     }
     const bx = ny * tz - nz * ty, by = nz * tx - nx * tz, bz = nx * ty - ny * tx;
-    const c = Math.cos(rotation) * size, s = Math.sin(rotation) * size;
+    const c = Math.cos(rotation), s = Math.sin(rotation);
     this.write(
-      kind, position, nx, ny, nz,
-      tx * c + bx * s, ty * c + by * s, tz * c + bz * s,
-      -tx * s + bx * c, -ty * s + by * c, -tz * s + bz * c,
-      0,
+      r, cell, flag, position, nx, ny, nz,
+      (tx * c + bx * s) * long, (ty * c + by * s) * long, (tz * c + bz * s) * long,
+      (-tx * s + bx * c) * wide, (-ty * s + by * c) * wide, (-tz * s + bz * c) * wide,
+      lipOf(cell, Math.min(long, wide)), thin, flips,
     );
   }
 
-  splat(position: THREE.Vector3, normal: THREE.Vector3, size: number, velocity: THREE.Vector3): void {
+  splat(position: THREE.Vector3, normal: THREE.Vector3, size: number, velocity: THREE.Vector3, how: SplatHow = 'drop'): void {
     const inv = 1 / Math.hypot(normal.x, normal.y, normal.z);
     const nx = normal.x * inv, ny = normal.y * inv, nz = normal.z * inv;
     const speed = Math.hypot(velocity.x, velocity.y, velocity.z);
     const into = -(velocity.x * nx + velocity.y * ny + velocity.z * nz);
     let tx = velocity.x + nx * into, ty = velocity.y + ny * into, tz = velocity.z + nz * into;
     const skim = Math.hypot(tx, ty, tz);
-    this.feedRun(position, normal, ny, size);
+    if (how === 'drop') this.feedRun(position, normal, ny, size);
+    const pick = chooseSplat(size, skim < 0.01 ? 0 : speed, into, Math.random(), how);
     if (speed < 0.01 || skim < 0.01) {
-      this.add('blood', position, normal, size);
+      this.lay(this.ringOf.blood, pick.cell, Flag.Blood, position, normal, pick.long, pick.wide, Math.random() * Math.PI * 2);
       return;
     }
     tx /= skim;
     ty /= skim;
     tz /= skim;
-    // A stain's width over its length is the sine of the angle it arrived at.
-    const stretch = Math.min(speed / Math.max(into, 1e-3), MAX_STRETCH);
-    const wide = size * (1 + Math.min(speed * 0.025, 0.5));
-    const long = wide * stretch;
+    const { long, wide, cell } = pick;
+    const off = pick.lead * long;
+    _at.set(position.x + tx * off, position.y + ty * off, position.z + tz * off);
     this.write(
-      'blood', position, nx, ny, nz,
+      this.ringOf.blood, cell, Flag.Blood, _at, nx, ny, nz,
       tx * long, ty * long, tz * long,
       (ny * tz - nz * ty) * wide, (nz * tx - nx * tz) * wide, (nx * ty - ny * tx) * wide,
-      stretch,
+      lipOf(cell, Math.min(long, wide)),
+    );
+  }
+
+  big(kind: BigKind, position: THREE.Vector3, normal: THREE.Vector3, size: number, dir?: THREE.Vector3, minor = false): void {
+    const r = this.ring(minor ? 'blood' : 'big');
+    const [first, variants] = BIG_CELLS[kind];
+    const cell = first + Math.floor(Math.random() * variants);
+    const inv = 1 / Math.hypot(normal.x, normal.y, normal.z);
+    const nx = normal.x * inv, ny = normal.y * inv, nz = normal.z * inv;
+    const long = size;
+    const wide = kind === 'drag' ? size / DRAG_ASPECT : size;
+    let tx = 0, ty = 0, tz = 0;
+    const wall = Math.abs(ny) < 0.6;
+    if (kind === 'sheet' && wall) {
+      // Across the wall, so the cell's own up is the world's and its runs hang down.
+      const l = 1 / Math.hypot(nz, nx);
+      tx = nz * l;
+      tz = -nx * l;
+    } else if (dir) {
+      const into = dir.x * nx + dir.y * ny + dir.z * nz;
+      tx = dir.x - nx * into;
+      ty = dir.y - ny * into;
+      tz = dir.z - nz * into;
+    }
+    const tl = Math.hypot(tx, ty, tz);
+    if (tl < 1e-3) {
+      this.lay(r, cell, Flag.Blood, position, normal, long, wide, Math.random() * Math.PI * 2);
+      return;
+    }
+    tx /= tl;
+    ty /= tl;
+    tz /= tl;
+    // A fan and a drag are drawn from their left edge: the caller's point is where they start.
+    const off = BIG_ROOT[kind] * long;
+    _at.set(position.x + tx * off, position.y + ty * off, position.z + tz * off);
+    this.write(
+      r, cell, Flag.Blood, _at, nx, ny, nz,
+      tx * long, ty * long, tz * long,
+      (ny * tz - nz * ty) * wide, (nz * tx - nx * tz) * wide, (nx * ty - ny * tx) * wide,
+      lipOf(cell, wide),
     );
   }
 
@@ -435,20 +381,23 @@ export class Decals implements DecalSystem {
       position.z + dz * start + sz * side,
     );
     this.write(
-      'bloodSmear', _at, nx, ny, nz,
+      this.ringOf.blood, 0, Flag.Run, _at, nx, ny, nz,
       dx * long, dy * long, dz * long,
       sx * wide, sy * wide, sz * wide,
-      long / wide, GROW_RUN,
+      long / wide, 0.5, 0,
     );
   }
 
-  /** Writes one instance. `a` and `b` are the quad's edges, already scaled. */
+  /**
+   * Writes one instance. `a` and `b` are the quad's edges, already scaled. `w` is the wet lip's width for blood
+   * (`lipOf`) or a run's length over its width. `thin`: 0.5 is the outline as drawn, less is fuller, more is thinner.
+   * `flips`: 1 mirrors the cell in X, 2 in Y; -1 picks from what the cell allows.
+   */
   private write(
-    kind: DecalKind, position: THREE.Vector3, nx: number, ny: number, nz: number,
-    ax: number, ay: number, az: number, bx: number, by: number, bz: number, stretch: number,
-    flag = kind === 'bloodPool' ? GROW_POOL : 0,
+    r: RingState, cell: number, flag: Flag, position: THREE.Vector3, nx: number, ny: number, nz: number,
+    ax: number, ay: number, az: number, bx: number, by: number, bz: number, w: number,
+    thin = 0.42 + Math.random() * 0.16, flips = -1,
   ): void {
-    const r = this.ringOf[kind];
     const i = r.base + r.cursor;
     if (r.live === r.limit) {
       r.retired++;
@@ -476,13 +425,13 @@ export class Decals implements DecalSystem {
     m[o + 13] = position.y + ny * 0.002;
     m[o + 14] = position.z + nz * 0.002;
     m[o + 15] = 1;
-    const [first, variants] = CELLS[kind];
+    if (flips < 0) flips = flipsOf(cell) & Math.floor(Math.random() * 4);
     const d = i * 4;
-    this.data[d] = first + Math.floor(Math.random() * variants);
+    this.data[d] = cell + Math.min(Math.max(thin, 0), 1) * 0.9;
     this.data[d + 1] = this.now;
-    // Whole part: pool or run flag. Fraction: this decal's own seed for the shader.
-    this.data[d + 2] = flag + Math.random() * 0.99;
-    this.data[d + 3] = stretch;
+    // Whole part: what it is and how it is mirrored. Fraction: this decal's own seed for the shader.
+    this.data[d + 2] = flag + flips * 4 + Math.random() * 0.99;
+    this.data[d + 3] = w;
 
     if (r.dirtyStart < 0) r.dirtyStart = r.cursor;
     r.dirtyCount = Math.min(r.dirtyCount + 1, r.limit);

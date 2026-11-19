@@ -67,6 +67,15 @@ export class FullscreenPass {
     renderer.render(this.scene, dummyCamera);
   }
 
+  /**
+   * Compiles the shader without holding the page up for it, where the browser can (KHR_parallel_shader_compile; else it
+   * compiles at once). `target` must be what `render` will draw into: the program is keyed on it.
+   */
+  async compile(renderer: THREE.WebGLRenderer, target: THREE.WebGLRenderTarget | null): Promise<void> {
+    renderer.setRenderTarget(target);
+    await renderer.compileAsync(this.scene, dummyCamera);
+  }
+
   dispose(): void {
     this.material.dispose();
   }

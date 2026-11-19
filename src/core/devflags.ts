@@ -50,6 +50,13 @@ export const DevFlags = {
   vmBlood: on('vmblood'),
   /** Off: a body's skin does not show how far its limbs' pools are spent (characters/anatomy/wear.ts). `?wear=0` starts it off. */
   wear: on('wear'),
+  /**
+   * The gore update's stains (lane "decals"). `bigBlood` (`?bigblood=0`): a kill lays its big stains (the burst under a
+   * gib, the fan past a shot, the sheet on the wall, the soaked patch under a body); off, only the small traced drops
+   * land, as before the update. `hitBlood` (`?hitblood=0`): every round leaves its own mark on the floor past the body.
+   */
+  bigBlood: on('bigblood'),
+  hitBlood: on('hitblood'),
 };
 
 /** The hit-reaction switches as the page's URL left them: the lab starts from these, not from what it last remembered. */

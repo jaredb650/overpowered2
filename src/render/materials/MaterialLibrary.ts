@@ -3,6 +3,8 @@ import type { MaterialLibrary, WorldMaterialName } from '../../core/contracts';
 import type { MaterialPatcher } from './patch';
 import { TextureBaker, type BakedSet } from './TextureBaker';
 import { worldSurfaceHook } from './worldSurface';
+import { SHEET } from '../decalSheet';
+import { DECAL_PARTS } from './decalAtlas.glsl';
 
 type SetName = 'concrete' | 'concreteDark' | 'asphalt' | 'steel' | 'steelDark' | 'rust' | 'grate' | 'hazard' | 'panel' | 'tile' | 'dirt' | 'rubber' | 'paint' | 'lava';
 
@@ -100,7 +102,11 @@ export class WorldMaterials implements MaterialLibrary {
       this.set(name);
       await new Promise(resolve => setTimeout(resolve, 0));
     }
-    const decals = this.baker.bake('decals', Math.round(2048 * this.sizeScale), 9 * this.sizeScale, 1);
+    // `?bakeTime` logs what each part of the sheet cost to compile and to draw.
+    const timed = typeof location !== 'undefined' && location.search.includes('bakeTime');
+    const t0 = performance.now();
+    const decals = await this.baker.bakeParts(DECAL_PARTS, Math.round(SHEET.width * this.sizeScale), 9 * this.sizeScale, 1, Math.round(SHEET.height * this.sizeScale), timed);
+    if (timed) console.log(`[bake] decal sheet ${(performance.now() - t0).toFixed(0)} ms in all`);
     this.baker.dispose();
     return decals;
   }
