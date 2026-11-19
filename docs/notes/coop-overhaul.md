@@ -736,6 +736,16 @@ Each: what fails, where, how many players, which network, the evidence, the caus
 4. Seen in a picture, small: two teammates in the same direction overlap their name tags on the HUD (Office, guest's view:
    "HOST-ONE 38m" printed over "GUEST-THREE"). Not fixed.
 - 2026-11-19, 03:20: with fast mode and the pretend pointer lock a proof costs a fraction of what it did (three runs: load 5, 37 GB free), and the queue was the bottleneck (6 runs waiting). Browser slots raised from 3 to 6; the memory floor in `tools/shot.mjs` (no run starts under 10 GB available, the owner's figure; it was 20) still protects the other person. Every agent: rebase to pick it up.
+- 2026-11-19, fix-session, the browser proofs on the landed code (`tools/scripts/coop-fixsession-return.mjs`, `-reload.mjs`,
+  `-callins.mjs`; evidence in `tools/out/coop/fix-session/`, not kept in the repo). Loopback, clean: return 26 of 26 (3
+  players) and 28 of 28 (4 players); reload lobby 19, defense 6, host late 8; call-ins 24; `coop-worldb-vehicles` 27 on the
+  new lane. Loopback under `lag:120,jitter:40,loss:0.05`: return 26, reload lobby 19, call-ins 24. **Real WebRTC:** return 23
+  of 23 (2 players; lost after 20.6 s, back 1.6 s, wipe 10.04 s after the loss) and host late 8 of 8. The first WebRTC run of
+  host late failed: the host that gave way connected to both teammates as a guest and never heard the new host's hello, so
+  it ended on "lobby not found". Fixed in `69792f0` (a host answers a guest's hello with its own) and passed on the re-run;
+  there the old host was in its team's lobby 227 s after its page went away (regroup at 41 s; the rest is its own page
+  loading and connecting on a loaded machine, not measured apart). Not run: host late and the reload cases under the bad
+  network over WebRTC, the call-ins proof over WebRTC, the Defense rejoin at 3 players.
 - 2026-11-19, fix-game (the game-side review `tools/out/coop/review-game.md`; checklist C17 and the game half of C18): landed.
   - **Review 1, the single-player blocker:** fixed (`Combat.strike` reads `quiet` before the damage again; `strikefeedback.test.ts`).
     A round that sets off a tank keeps its body sound, blood, marker, headshot sounds and hit-stop. The same mistake once more,
