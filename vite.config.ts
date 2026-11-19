@@ -28,5 +28,11 @@ export default defineConfig({
   build: { target: 'es2022', chunkSizeWarningLimit: 4000, sourcemap: true },
   optimizeDeps: { exclude: ['@dimforge/rapier3d-compat'] },
   // tools/out is scratch: bots and probes leave test files and whole copies of src there.
-  test: { exclude: ['**/node_modules/**', 'tools/out/**'], maxWorkers: Number(process.env.OP2_TEST_WORKERS ?? 8) },
+  // setupFiles: Math.random is seeded per test (tools/test-setup.ts), so a test of real ragdolls checks the same case every
+  // run. hookTimeout: a `beforeAll` that builds every gun model or a physics world takes a second alone and has taken over
+  // the default 10 s on a busy machine at this priority ("failed to load"); it now has what `--testTimeout=60000` gives a test.
+  test: {
+    exclude: ['**/node_modules/**', 'tools/out/**'], maxWorkers: Number(process.env.OP2_TEST_WORKERS ?? 8),
+    setupFiles: ['tools/test-setup.ts'], hookTimeout: 60000,
+  },
 });

@@ -61,7 +61,9 @@ describe('the dev panel', () => {
     // The spawn picks are only a convenience, so they are kept.
     expect(plain.settings).toMatchObject({ spawn: 'brute', ai: 'on', row: 9 });
 
+    // The Test Range starts with god mode and the overlay on and progression off; the arsenal stays off there too, so the
+    // guns reload as they do in play (lab/settings.ts, and lab/settings.test.ts holds the same line).
     const range = await page('?map=range', true);
-    expect(range.settings).toMatchObject({ god: true, arsenal: true, overlay: true, progression: false });
+    expect(range.settings).toMatchObject({ god: true, arsenal: false, overlay: true, progression: false });
   });
 });
