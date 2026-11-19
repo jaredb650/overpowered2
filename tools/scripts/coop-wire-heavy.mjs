@@ -13,6 +13,7 @@
 import { writeFileSync } from 'node:fs';
 import { cpus, loadavg } from 'node:os';
 import { kit, live, measure, rtcChannels, setNet, skipBreak, startParty, stopShooting } from './coop-kit.mjs';
+import { gunship, heavyFight, stopFill } from './coop-wire-kit.mjs';
 
 const PLAYERS = Number(process.env.WIRE_PLAYERS ?? 4);
 const SECONDS = Number(process.env.WIRE_SECONDS ?? 30);
@@ -21,81 +22,11 @@ const TAG = process.env.WIRE_TAG ?? 'run';
 const SIM = process.env.WIRE_SIM ?? '';
 const PROFILE = process.env.WIRE_PROFILE !== '0';
 const QUIET = process.env.WIRE_QUIET === '1';
-/** The host's gun, then each guest's. */
-const GUNS = [['buzzsaw', 'hold'], ['shotgun', 'tap'], ['rocket', 'tap'], ['lance', 'lance']];
-
-/** Host: keeps `count` enemies alive, in a ring round the players' spawn, a mix of what the mode can spawn. */
-const fill = host => host.evaluate(count => {
-  const { ctx } = window.__op2, V = ctx.player.position.constructor;
-  const spawnAt = ctx.world.playerSpawns[0].position;
-  const kinds = [];
-  // Whatever this mode has the bodies for: the swarm, and a few that shoot.
-  for (const kind of ['husk', 'stalker', 'leaper', 'trooper', 'gunner', 'rocketeer']) {
-    try {
-      const probe = ctx.enemies.spawn(kind, spawnAt.clone().add(new V(18, 0, 0)));
-      if (probe) { kinds.push(kind); ctx.enemies.withdraw(probe); }
-    } catch { /* this mode has no such body */ }
-  }
-  window.__wireKinds = kinds;
-  let n = 0;
-  clearInterval(window.__wireFill);
-  window.__wireFill = setInterval(() => {
-    for (let tries = 0; tries < 12 && ctx.enemies.alive.length < count; tries++) {
-      const a = Math.random() * Math.PI * 2, r = 12 + Math.random() * 14;
-      const p = new V(spawnAt.x + Math.cos(a) * r, spawnAt.y, spawnAt.z + Math.sin(a) * r);
-      const snapped = p.clone();
-      if (ctx.world.nav.nearest?.(p, 6, snapped)) p.copy(snapped);
-      // Three of the swarm to each one that shoots.
-      const kind = n++ % 4 === 3 && kinds.length > 1 ? kinds[1 + (n >> 2) % (kinds.length - 1)] : kinds[0];
-      try { ctx.enemies.spawn(kind, p); } catch { /* skip */ }
-    }
-  }, 250);
-  return kinds;
-}, ENEMIES);
-
-/**
- * A scripted shooter for any gun: keeps the nearest enemy in the sight and works the trigger as the gun wants it. `hold`
- * keeps it down (an automatic), `tap` presses it again and again (a pump shotgun, a rocket), `lance` charges to full, lets
- * go and lets the beam pour before charging again.
- */
-const gunLoop = (page, weapon, how) => page.evaluate(([weapon, how]) => {
-  const { ctx, game } = window.__op2;
-  ctx.weapons.give(weapon); ctx.weapons.switchTo(weapon); ctx.weapons.refillMagazines();
-  clearInterval(window.__coopShooter);
-  let tick = 0;
-  window.__coopShooter = setInterval(() => {
-    if (game.state !== 'playing') game.setState('playing');
-    let best = null, bestD = 3600;
-    for (const enemy of ctx.enemies.alive) {
-      const d = enemy.center.distanceToSquared(ctx.player.eye);
-      if (d < bestD) { best = enemy; bestD = d; }
-    }
-    if (best) {
-      const delta = best.center.clone().sub(ctx.player.eye);
-      ctx.player.yaw = Math.atan2(-delta.x, -delta.z); ctx.player.pitch = Math.atan2(delta.y, Math.hypot(delta.x, delta.z));
-    }
-    ctx.weapons.refillMagazines();
-    tick++;
-    // A trigger already down while the gun is still coming up is not a press: wait for the draw.
-    const down = ctx.weapons.drawLeft > 0 ? false : how === 'hold' ? true : how === 'tap' ? tick % 2 === 0 : !ctx.weapons.lance.beaming && ctx.weapons.charge < 1;
-    ctx.input.simulate('fire', !!best && down);
-  }, 50);
-}, [weapon, how]);
-
-/** Every page: no combo, perk or drop from kills, so no slow-mo comes and goes under the measurement. */
-const steady = page => page.evaluate(async () => { (await import('/src/core/devflags.ts')).DevFlags.progression = false; });
 
 /** What a page's shooter has done, to show the scene was the one asked for. */
 const shooter = page => page.evaluate(() => {
   const { ctx } = window.__op2, fx = ctx.coop.world.weaponFx;
   return { weapon: ctx.weapons.current, kills: ctx.progression.kills, sent: { ...fx.sent }, drawn: { ...fx.drawn }, state: window.__op2.game.state };
-});
-
-/** Host: a gunship over the fight, flown by itself. */
-const gunship = host => host.evaluate(() => {
-  const { ctx } = window.__op2, V = ctx.player.position.constructor;
-  const s = ctx.world.playerSpawns[0].position;
-  ctx.progression.callinLink.callAt('ac130', new V(s.x + 8, s.y, s.z + 6), new V(1, 0, 0.35), true);
 });
 
 /** V8's sampling profile, boiled down: self time by file and function, and the time under co-op's own code (`src/net`). */
@@ -207,6 +138,12 @@ function markdown(out) {
   lines.push('| Co-op cost a frame, ms | Host | Guests |');
   lines.push('|---|---:|---:|');
   for (const key of ['update', 'send', 'receive', 'flush']) lines.push(`| ${key} | ${host.costMsPerFrame[key]} | ${guests.map(g => g.costMsPerFrame[key]).join(' / ')} |`);
+  if (out.rtcWindow) {
+    lines.push('');
+    lines.push('The browser\'s own count on the host\'s data channels, same window (`data` is trystero\'s reliable channel, every lane on it with its 36-byte frame header; `op2-fast` the unreliable one):');
+    for (const [label, c] of Object.entries(out.rtcWindow)) lines.push(`- \`${label}\`: ${kb(c.outBytesPerSecond)} KB/s out, ${c.outPerSecond} messages a second, ${c.bytesEach} bytes each.`);
+    lines.push(`Connected peer connections per page (host first): ${out.rtcPeers.join(', ')}.`);
+  }
   if (out.profile) {
     lines.push(`| host profile: all work | ${out.profile.busyMsPerFrame} | |`);
     lines.push(`| host profile: co-op code and what it called | ${out.profile.coopInclusiveMsPerFrame} | |`);
@@ -226,10 +163,8 @@ export default async function (host, { sleep, outDir }) {
   try {
     party = await startParty(host, { mode: 'crucible', players: PLAYERS, out, progress, sleep });
     await live(party, { enemies: 6 });
-    out.kinds = await fill(host);
+    out.kinds = await heavyFight(party, { enemies: ENEMIES, fire: !QUIET });
     progress(`the host keeps ${ENEMIES} alive: ${out.kinds.join(', ')}`);
-    for (const page of party.pages) await steady(page);
-    if (!QUIET) for (const [i, page] of party.pages.entries()) await gunLoop(page, ...GUNS[i]);
     const everySecond = async i => {
       await skipBreak(host);
       if (!QUIET && i % 40 === 0) await gunship(host).catch(() => {});
@@ -247,7 +182,20 @@ export default async function (host, { sleep, outDir }) {
       await cdp.send('Profiler.start');
     }
     progress(`measuring ${SECONDS} s`);
+    // On real WebRTC: what the browser itself counts on each data channel over the same window (trystero's frame header included).
+    const channelsBefore = transport === 'rtc' ? await rtcChannels(host) : null;
     const window = await measure(party, SECONDS, { everySecond: i => everySecond(i + 1) });
+    if (channelsBefore) {
+      const after = await rtcChannels(host);
+      out.rtcWindow = Object.fromEntries(Object.entries(after).map(([label, now]) => {
+        const was = channelsBefore[label] ?? { messagesSent: 0, bytesSent: 0, messagesReceived: 0, bytesReceived: 0 };
+        const messages = now.messagesSent - was.messagesSent, bytes = now.bytesSent - was.bytesSent;
+        return [label, { outBytesPerSecond: Math.round(bytes / SECONDS), outPerSecond: Math.round(messages / SECONDS * 10) / 10, bytesEach: messages ? Math.round(bytes / messages) : 0,
+          inBytesPerSecond: Math.round((now.bytesReceived - was.bytesReceived) / SECONDS) }];
+      }));
+      // Is the mesh up between guests? Each page's count of connected peer connections (the host's is the guests').
+      out.rtcPeers = await Promise.all(party.pages.map(page => page.evaluate(() => (window.__coopPeers ?? []).filter(p => p.connectionState === 'connected').length)));
+    }
     let profile = null;
     if (cdp) {
       profile = (await cdp.send('Profiler.stop')).profile;
@@ -263,7 +211,7 @@ export default async function (host, { sleep, outDir }) {
     await shot(host, 'host');
     await shot(party.guests[0], 'guest');
     for (const page of party.pages) await stopShooting(page).catch(() => {});
-    await host.evaluate(() => clearInterval(window.__wireFill));
+    await stopFill(host);
 
     check(out.host.enemies.mean >= ENEMIES * 0.6, `The host kept the fight full (about ${ENEMIES} alive)`, out.host.enemies);
     check(out.guests.every(g => g.lanes.world?.in.perSecond > 5), 'Every guest got snapshots', out.guests.map(g => g.lanes.world?.in));

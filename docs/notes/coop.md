@@ -35,7 +35,8 @@ If a friend cannot connect at all, set up TURN once (below).
 | `src/net/lanes.ts` | `LaneRoom`: the `NetRoom` both transports share. Reliable and unreliable lanes, the fallback, the simulator and the counters hooked in, a malformed message never throws into the game |
 | `src/net/trystero.ts`, `src/net/fast.ts` | The real transport: trystero (8 Nostr relays, TURN when configured) for the reliable path, and a second, unreliable data channel per peer (`fast.ts`). `openLobby` is the one way in |
 | `src/net/loopback.ts`, `src/net/mode.ts` | The loopback test transport (`?net=loop`, dev pages only) and the switch that picks it |
-| `src/net/netsim.ts` | The network simulator: lag, jitter, loss, resend stalls, a slow link (`?netsim=`) |
+| `src/net/netsim.ts` | The network simulator: lag, jitter, loss, resend stalls, a slow link (`?netsim=`), one peer's link squeezed (`throttle`) |
+| `src/net/batch.ts`, `tree.ts`, `pressure.ts` | The reliable lane's envelope: a frame's events as one message per peer; the packed form every event travels in; the rule for a peer that is behind. See "The wire" |
 | `src/net/metrics.ts`, `src/net/debug.ts` | Counters per lane and peer, round trips, named series and timers; `window.__op2.net` for scripts |
 | `src/net/turn.ts` | **The TURN config slot** (`WORKER_URL`), fetching and cleaning the Worker's credentials, never hanging (4 s cap) |
 | `tools/turn-worker/worker.js` | The Cloudflare Worker that mints TURN credentials. Setup below |
@@ -79,7 +80,8 @@ the names the game used before).
 
 | File | Owns | Events on the wire |
 |---|---|---|
-| `world/context.ts` | `WorldContext`, handed to every module: the game `ctx`, the session, `send` (the reliable `action` lane), the snapshot lane, the router, `listen` (game events), the stats, the claim validator, `ready`, and the shared lookups `sender`, `playerOf`, `relay`, `visible`, `life`. Also `Later` (the host's delayed work) and `unpackDamage` | |
+| `world/context.ts` | `WorldContext`, handed to every module: the game `ctx`, the session, `send` (the reliable `action` lane, batched: see "The wire"), the snapshot lane, the router, `listen` (game events), the stats, the claim validator, `ready`, and the shared lookups `sender`, `playerOf`, `relay`, `visible`, `life`. Also `Later` (the host's delayed work) and `unpackDamage` | |
+| `world/pack.ts` | The world's events as packed trees inside a batch (`worldPacker`), the word list both ends hold (`WORDS`), and `batchOf` / `unbatch` / `eventOf` for tests | |
 | `world/router.ts` | `Router`: which handler gets an arriving event, by type and by side (host or guest) | |
 | `world/wire.ts` | `Vec`, `validVec`, `WireDamage`, `packDamage`, `ENEMY_IDS`, `REGIONS` | |
 | `world/snapshot.ts` | The enemy snapshot's bytes, version 4: chunks (`ChunkWriter`, `ChunkReader`), the rate tiers (`tierOf`, `dueOn`), `POSTURES`, the flag bits. See "Enemy motion" | (the `world` lane, unreliable) |
@@ -135,14 +137,19 @@ Rules that keep it working:
 
 **To add an event:**
 
-1. Declare its shape in your module's file, as an exported type with a `t` name no other event uses.
-2. Add that type to the `WorldEvent` union in `src/net/worldProtocol.ts` (one line).
+1. Declare its shape in your module's file, as an exported type with a `t` name no other event uses, and class it in the
+   module's `…_WIRE` table at the foot of the file: `fact` (never left out), `cosmetic` (a picture or sound of one moment) or
+   `latest` (a whole state sent again and again). The last two are not sent to a peer that is behind ("The wire",
+   Backpressure). When unsure, `fact`. A type with no class does not compile (`worldProtocol.ts` `gather`).
+2. Add that type to the `WorldEvent` union in `src/net/worldProtocol.ts` (one line). Nothing is needed for its bytes: every
+   event is packed the same way (`world/pack.ts`); a key or word it uses often can be added to `WORDS` there.
 3. In your module's constructor register who hears it: `w.router.host('name', handler)` for what a guest sends the host,
    `w.router.guest('name', handler)` for what the host sends guests, `w.router.both(...)` for either. A handler gets
    `(event, from, now)`: the sender's lobby id and `performance.now()`. Check every field: it came from another browser. A second
    handler for the same event and side throws when the world is built.
 4. Send it with `w.send(event)` (a guest's goes to the host, the host's to every guest) or `w.send(event, id)` (the host, to one
-   guest). The host passes a guest's event on to the others with `w.relay(event, from)`.
+   guest). The host passes a guest's event on to the others with `w.relay(event, from)`. It leaves at the end of the frame's
+   script with everything else sent in that frame, in order, as one message per peer.
 
 **To add a module:** a class in `src/net/world/` that takes `WorldContext` (and the modules it needs), built in `CoopWorld`'s
 constructor. If it needs a frame tick or cleanup, give it `update(now)` / `dispose()` and add it to the `modules` list. If the game
@@ -1668,8 +1675,9 @@ behave the same on both.
   of about 1,200 bytes, and with no resend one lost packet loses the whole message, so a 2-packet message is lost about twice as
   often. A snapshot of 48 enemies is 2,172 bytes today: the enemy lane should send it in chunks under the safe size.
 - **Backpressure:** `room.buffered(peerId, unreliable)` is the bytes handed over that the network has not taken yet
-  (`RTCDataChannel.bufferedAmount`, plus the simulator's slow link). Over 8,192 (`BEHIND_BYTES`) the peer is behind:
-  `lobby.behind(playerId)` says so, and a channel opened with `{ latest: true }` skips that peer by itself and counts the skip.
+  (`RTCDataChannel.bufferedAmount`, plus what trystero itself is holding back on the reliable path, plus the simulator's slow
+  link). Over 8,192 (`BEHIND_BYTES`) the peer is behind: `lobby.behind(playerId)` says so, and a channel opened with
+  `{ latest: true }` skips that peer by itself and counts the skip. The reliable event lane has its own rule ("The wire").
 - **On the wire**, an unreliable message is one frame: `[name length u8][lane name, ASCII][sequence u16 LE][payload]`, 7 bytes over
   the payload for `pose`. The sequence number is per lane and peer and exists for the loss count.
 - **Today:** only the 20 Hz player poses are on the unreliable lane (`{ unreliable: true, latest: true }`). Enemy snapshots (`world`)
@@ -1716,6 +1724,9 @@ window.__op2.net.sim.set('off')                                 back to normal
 | `stall` | ms a reliable lane takes to resend a lost packet (default 300) |
 | `kbps` | this page's upload speed to each peer; what does not fit queues, and the peer reads as behind |
 
+`window.__op2.net.sim.throttle(peerId, kbps)` squeezes this page's link to **one** peer (0 lifts it; what is already queued
+still leaves at the old speed): one slow or stalled guest among healthy ones, as `tools/scripts/coop-wire-stall.mjs` uses it.
+
 The two lane kinds suffer differently, as for real. On a **reliable** lane nothing is lost or reordered: a lost packet costs `stall`
 more ms and every later reliable message to that peer waits behind it. On an **unreliable** lane a lost message is really gone, and
 jitter lets a later one overtake an earlier one. Off unless asked for; a friend joining by the invite link is not affected by the
@@ -1728,6 +1739,10 @@ unreliable lanes, and the round trip to each peer once a second on both paths (l
 `window.__op2.net.snapshot()` returns it all as plain JSON, with the simulator's settings, which peers have the fast path up, what is
 queued for each, and co-op's own frame cost (`CoopSession.cpuMs`, which is unchanged). `window.__op2.net.metrics.reset()` starts a
 measuring window. Object messages are sized by their JSON text, near enough to the wire.
+
+Two more tables in the snapshot: `events` (the reliable lane by event type and direction: how many, their bytes as they
+travelled, bytes each; `out` counts one per recipient) and `costs` (`coop.update`, `coop.send`, `coop.receive`, `coop.flush`:
+ms spent, how many times, ms a second; `coop.update`'s count is the frames in the window).
 
 Later lanes can feed their own numbers, all allocation-free once a name exists:
 
@@ -1862,8 +1877,11 @@ export default async function (host, { sleep, outDir }) {
 ### Property tests (fast-check)
 
 `fast-check` (dev-only) states a rule once and tries it on thousands of random cases, then shrinks a failure to the smallest
-one. In place today: `src/net/pose.property.test.ts` (pose codec and buffer) and `src/net/world/wire.property.test.ts` (event
-router, `validVec`, `packDamage`). **Not yet covered, on purpose:** `world/snapshot.ts`, `replicas.ts`, `hits.ts`, `claims.ts`
+one. In place today: `src/net/pose.property.test.ts` (pose codec and buffer), `src/net/world/wire.property.test.ts` (event
+router, `validVec`, `packDamage`), `src/net/batch.property.test.ts` (the event batch: round trip, order per peer at any batch
+size, cut short, junk), `src/net/tree.property.test.ts` (the packed tree against JSON itself, junk and damage, the world's
+packer through a batch), `src/net/world/targeting.property.test.ts` (the host's allocation-free target pick against the rule
+it replaced) and the backpressure rule in `src/net/pressure.test.ts`. **Not yet covered, on purpose:** `world/snapshot.ts`, `replicas.ts`, `hits.ts`, `claims.ts`
 were being rewritten when these were written. Whoever finishes them, or the verification pass, adds theirs like this:
 
 ```ts
