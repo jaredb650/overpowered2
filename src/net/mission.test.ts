@@ -245,6 +245,29 @@ describe('a mission run by the host and played on every screen', () => {
     other.hw.dispose(); other.gw.dispose();
   });
 
+  it('a rack a guest took while its line was down is said again when the host has it back, and the mission moves on', () => {
+    const game = pair();
+    game.start();
+    // The line drops; the guest walks over their copy of the rack behind it. Its word never reaches the host.
+    game.gc.host.taken('shotgun'); game.gw.update();
+    game.relay.queue.length = 0;
+    game.frame();
+    expect(game.sent('taken')).toHaveLength(0);
+    expect(game.hc.host.rackGuns).toEqual(['shotgun']);
+    expect(game.gc.host.log).not.toContain('give rocket');
+    // Back: the host's `sync` is the moment everything said once is said again.
+    (game.gw as unknown as { mission: { resay(): void } }).mission.resay(); game.relay.flush(); game.frame();
+    expect(game.sent('taken')).toHaveLength(1);
+    expect(game.hc.host.rackGuns).toEqual([]);
+    // What the mission hung on the take happens now, for everyone.
+    expect(game.gc.host.log).toContain('give rocket');
+    // Said once more (another `sync`): the host has said it is taken, so nothing is sent.
+    const before = game.relay.packets.length;
+    (game.gw as unknown as { mission: { resay(): void } }).mission.resay(); game.relay.flush();
+    expect(game.relay.packets.slice(before).map(p => eventOf<WorldEvent>(p.data)).filter(d => d.t === 'mission' && d.op === 'took')).toHaveLength(0);
+    game.hw.dispose(); game.gw.dispose();
+  });
+
   it('is short of rockets when the worst-off player who carries the launcher is', () => {
     const game = pair();
     game.start();

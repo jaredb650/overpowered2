@@ -130,6 +130,8 @@ export class CoopMission {
   private counted: WeaponId[] = [];
   /** Guest: the racks standing on this screen, by gun. */
   private readonly standing = new Set<string>();
+  /** Guest: racks this player took that the host has not yet said are taken. Its `took` is said again when the host has this player back (`resay`). */
+  private readonly taking = new Set<string>();
   private nextRounds = 0;
   /** Everyone: the regroup this player is being counted down to. */
   private regroup: Regroup | null = null;
@@ -664,6 +666,7 @@ export class CoopMission {
         this.deployed = false;
         this.told.clear();
         this.standing.clear();
+        this.taking.clear();
         this.onRebuild();
         campaign.follow();
         this.retag();
@@ -673,6 +676,7 @@ export class CoopMission {
         const weapon = String(args[0]);
         const by = this.session.lobby.players.find(p => p.slot === args[1]);
         this.standing.delete(weapon);
+        this.taking.delete(weapon);
         if (Object.hasOwn(WEAPONS, weapon) && by?.id !== this.session.lobby.you) host.issue(weapon as WeaponId, by?.name ?? 'A teammate');
         return;
       }
@@ -718,7 +722,7 @@ export class CoopMission {
         if (!Object.hasOwn(WEAPONS, weapon) || this.ctx.weapons.owned.has(weapon as WeaponId) || this.standing.has(weapon)) return;
         this.standing.add(weapon);
         // This player's own copy of the rack. Walking over it takes it for the team.
-        host.rack(weapon as WeaponId, args[1] as Parameters<GameHost['rack']>[1], () => this.send({ t: 'mission', op: 'took', args: [weapon] }));
+        host.rack(weapon as WeaponId, args[1] as Parameters<GameHost['rack']>[1], () => { this.taking.add(weapon); this.send({ t: 'mission', op: 'took', args: [weapon] }); });
         return;
       }
       case 'cutscene':
@@ -786,11 +790,17 @@ export class CoopMission {
     for (const id of this.reported.keys()) if (!this.session.lobby.players.some(p => p.id === id)) this.reported.delete(id);
   }
 
-  /** Guest: the host has this player back in the world: the round counts it reports on a change are reported again. */
+  /**
+   * Guest: the host has this player back in the world: the round counts it reports on a change are reported again, and so
+   * is a rack this player took that the host never said was taken (its `took` went while the line was down and the host
+   * dropped it: this player had the gun, the rack still stood for everyone else, and whatever the mission hung on the take
+   * waited for somebody else to walk over it). A take the host did hear is ignored there: the rack is gone.
+   */
   resay(): void {
     if (this.session.hosting) return;
     for (const key of [...this.told.keys()]) if (key.startsWith('rounds:')) this.told.delete(key);
     this.nextRounds = 0;
+    for (const weapon of this.taking) this.send({ t: 'mission', op: 'took', args: [weapon] });
   }
 
   private updateGuest(campaign: Campaign): void {
