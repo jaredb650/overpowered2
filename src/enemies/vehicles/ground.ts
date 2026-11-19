@@ -89,6 +89,20 @@ const SHELL: ProjectileSpec = {
 
 type GunStage = 'loading' | 'laying';
 
+/** Flags in `GroundVehicle.wire`: what has broken or caught, whether there is a roof gun and whether it is firing. */
+export const WIRE = { trackLeft: 1, trackRight: 2, engineFire: 4, fuelFire: 8, roofGun: 16, firing: 32 } as const;
+
+/** Where a machine's roof gun swings from, for a model standing at `root` with its turret `turretYaw` off the hull. */
+export function pintleOf(kind: 'humvee' | 'truck' | 'tank', root: THREE.Object3D, turretYaw: number, out: THREE.Vector3): THREE.Vector3 {
+  const at = PINTLE[kind];
+  if (kind === 'tank') {
+    // The tank's gun rides on the turret, so it swings with it.
+    return out.set(at[0], at[1] - TURRET_RING[1], at[2] - TURRET_RING[2]).applyAxisAngle(_up, turretYaw)
+      .add(_p.set(TURRET_RING[0], TURRET_RING[1], TURRET_RING[2])).applyQuaternion(root.quaternion).add(root.position);
+  }
+  return out.set(at[0], at[1], at[2]).applyQuaternion(root.quaternion).add(root.position);
+}
+
 export class GroundVehicle extends Vehicle {
   readonly drive: Driver;
   private readonly mount: Mount | null;
@@ -174,14 +188,27 @@ export class GroundVehicle extends Vehicle {
   }
 
   private pivot(out: THREE.Vector3): THREE.Vector3 {
-    const { def, model } = this;
-    const at = PINTLE[def.kind as 'humvee' | 'truck' | 'tank'];
-    if (def.kind === 'tank') {
-      // The tank's gun rides on the turret, so it swings with it.
-      return out.set(at[0], at[1] - TURRET_RING[1], at[2] - TURRET_RING[2]).applyAxisAngle(_up, this.turretYaw)
-        .add(_p.set(TURRET_RING[0], TURRET_RING[1], TURRET_RING[2])).applyQuaternion(model.root.quaternion).add(model.root.position);
-    }
-    return out.set(at[0], at[1], at[2]).applyQuaternion(model.root.quaternion).add(model.root.position);
+    return pintleOf(this.def.kind as 'humvee' | 'truck' | 'tank', this.model.root, this.turretYaw, out);
+  }
+
+  /** The model's root: the wreck is made of it, so the co-op host can tell which vehicle a wreck was. */
+  get modelRoot(): THREE.Object3D {
+    return this.model.root;
+  }
+
+  /**
+   * Co-op host: what a guest's copy is drawn from beyond where it stands and its turret (net/world/vehicles.ts), written into
+   * `out`: speed along the road, the front wheels' angle, the body's pitch and roll on its springs, the main gun's lift, the roof
+   * gun's world yaw and pitch, and `WIRE` flags.
+   */
+  wire(out: number[]): number[] {
+    const { drive, model, mount } = this;
+    out.length = 0;
+    const off = (i: number): boolean => model.tracks[i]?.belt.visible === false;
+    out.push(drive.speed, drive.wheel * this.def.drive.steer, drive.pitch, drive.roll, this.gunPitch, mount?.yaw ?? 0, mount?.pitch ?? 0,
+      (off(0) ? WIRE.trackLeft : 0) | (off(1) ? WIRE.trackRight : 0) | (this.engineFire ? WIRE.engineFire : 0) | (this.fireLeft >= 0 ? WIRE.fuelFire : 0)
+        | (mount ? WIRE.roofGun : 0) | (mount?.firing ? WIRE.firing : 0));
+    return out;
   }
 
   private placeRider(): void {

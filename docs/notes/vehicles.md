@@ -75,6 +75,13 @@ the pintle; parked and unmanned, it needed a stand.
 - **Wrecks are shut doors to the soldiers.** `closeGround` takes the ground off the route graph. They are not in the cover map, which is built at load, so men do not choose to use one.
 - **Men have no bodies.** `shoveFrom` moves them out of vehicles and wrecks.
 
+## Co-op
+
+Vehicles live on the host. A guest draws each one as a working copy (wheels, tracks, springs, turret, barrel, roof gun, thrown
+tracks, fires, engine sound) from `GroundVehicle.wire()`, cannot walk or shoot through it, and gets the same wreck when it dies
+(`Wreck` with `ghost`, on its own colliders, the tank's turret thrown the same way). `docs/notes/coop.md`, "Enemy vehicles on a
+guest are working machines". The attack helicopter is not drawn on guests yet.
+
 ## Not done
 
 - No vehicle shows on the minimap, apart from a roof gunner.
@@ -126,6 +133,11 @@ An AI mans a gun with `occupy(who)` (false if taken), points it with `aimAt(poin
 gets off with `vacate(who)`. It stands at `standAt`. The gun swings toward the point at 2.5 rad/s inside its arc, and heat, the
 arc and the rounds are the same code the player goes through. Its rounds are `team: 'player'`, source `emplacement`, so kills
 by an ally on a gun count as the player's for now; the ally piece decides that. Nothing about the AI itself lives here.
+
+## Co-op
+
+One gun, one gunner on every screen: `docs/notes/coop.md`, "Mounted guns: one gun, one gunner". `Emplacement.remote` marks a gun
+whose gunner is on another screen: it moves, fires and sounds here, and its rounds are only drawn.
 
 ## Not done
 

@@ -58,6 +58,11 @@ export class Wreck {
     readonly halfWidth: number, readonly halfLength: number, readonly tag: string | null,
     /** Dead before the beat began: no blast, no flames. */
     private readonly cold = false,
+    /**
+     * Co-op guest: a copy of the host's wreck. It falls, burns and smokes here as there, but hurts nobody and sets nothing off:
+     * the fire's damage and the cook-off blasts are the host's (net/world/vehicles.ts).
+     */
+    private readonly ghost = false,
   ) {
     this.root = root;
     this.burnLeft = cold ? 0 : def.burnSeconds;
@@ -78,6 +83,20 @@ export class Wreck {
   /** Throws a piece clear. It carries its own collider once it has come to rest. */
   fling(piece: Flung): void {
     this.flung.push(piece);
+  }
+
+  /**
+   * Co-op host: how it left the ground and what was thrown clear, so a guest's copy does the same (net/world/vehicles.ts):
+   * the hop still to come, the tumble, and the flung piece's velocity, spin and floor, or where it lies once it has landed.
+   */
+  motion(): { hop: number; tumble: THREE.Vector3; flung: Flung | null; burnLeft: number } {
+    return { hop: this.velocityY, tumble: this.tumble, flung: this.flung[0] ?? null, burnLeft: this.burnLeft };
+  }
+
+  /** Co-op guest: takes the host's hop and tumble in place of its own roll of the dice. */
+  follow(hop: number, tumble: THREE.Vector3): void {
+    this.velocityY = hop;
+    this.tumble.copy(tumble);
   }
 
   /** The part of the update that only a wreck in the air needs. */
@@ -135,10 +154,12 @@ export class Wreck {
     const { def } = this;
     if (this.cookOff >= def.cookOffs.length || this.clock < def.cookOffs[this.cookOff]!) return;
     this.cookOff++;
+    if (this.ghost) return;
     this.sys.detonate(this.root.position, def.blastRadius * 0.6, def.blastDamage * 0.35, 0.8, 'vehicle_cookoff');
   }
 
   private hazard(dt: number): void {
+    if (this.ghost) return;
     this.fireTick -= dt;
     if (this.fireTick > 0) return;
     // Co-op host: the fire burns whoever stands in it.

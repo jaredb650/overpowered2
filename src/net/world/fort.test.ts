@@ -32,13 +32,25 @@ async function fort() {
   const allies = { allies: [] as ReturnType<typeof ally>[], preload: async () => {}, keyTaken: null as unknown,
     spawn: vi.fn((type: string) => { hired.push(type); const a = ally(hired.length); allies.allies.push(a); return a; }),
     markBreach: vi.fn(), clearBreach: vi.fn(), focusDistance: Infinity };
+  /** A mounted gun, as much of it as the seats read: who is on it, where it points, and what it was told to do. */
+  const mount = () => {
+    const gun = { occupant: null as unknown, remote: false, aimYaw: 0.4, aimPitch: 0.1, shooting: false, levelNumber: 1, pivot: V(0, 1, 0), standAt: V(0, 0, 1),
+      aimed: null as THREE.Vector3 | null, held: false,
+      occupy(who: unknown) { if (gun.occupant) return false; gun.occupant = who; return true; },
+      vacate(who: unknown) { if (gun.occupant !== who) return; gun.occupant = null; gun.remote = false; gun.held = false; },
+      aimAt(p: THREE.Vector3) { gun.aimed = p.clone(); }, trigger(held: boolean) { gun.held = held; },
+      clear() { gun.occupant = null; gun.remote = false; }, upgrade: vi.fn() };
+    return gun;
+  };
+  const guns = [mount(), mount()];
   const extra = {
     physics, fx: noop('fx'), audio: noop('audio'), allies,
     weapons: { current: 'smg', owned: new Set<WeaponId>(['harrow']), grenades: 0, ammo: () => ({ reserve: 0, maxReserve: 100 }), give: vi.fn(), setLoadout: vi.fn(), addGrenades: vi.fn() },
-    progression: { stims: { count: 1, max: 5, give: () => 1 }, callIns: new Set<CallInId>(), callInCooldown: () => 0, grantCallIn: vi.fn(), kills: 0, score: 0, headshots: 0, resume: vi.fn() },
+    progression: { stims: { count: 1, max: 5, give: () => 1 }, callIns: new Set<CallInId>(), callInCooldown: () => 0, grantCallIn: vi.fn(), kills: 0, score: 0, headshots: 0, resume: vi.fn(),
+      callInsManager: { emplacements: { all: guns } } },
     waves: { wave: 2, phase: 'intermission', nextWaveIn: 20 },
   };
-  return { physics, spec, extra, hired, allies };
+  return { physics, spec, extra, hired, allies, guns };
 }
 
 /** Finishes a side's fake `Ctx`: the walls and the contract need the `Ctx` they live in. */
@@ -268,6 +280,45 @@ describe('one fort for the whole team', () => {
     g.sendFrom(0, { t: 'fortbuy', n: 99, shop: 'armoury', act: { kind: 'weapon', id: 'sabot' } });
     tick(g, 300);
     expect(g.host.ctx.weapons.give).not.toHaveBeenCalled();
+    g.dispose();
+  });
+
+  it('one mounted gun, one gunner: a guest\'s seat is kept on the host and shown on every screen, and a second taker steps off', async () => {
+    const g = await game(2);
+    const [a, b] = g.guests as [typeof g.host, typeof g.host];
+    const seats = (s: typeof g.host) => (s.defense as unknown as { seats(): void }).seats();
+    const frame = (ms = 300) => { for (const s of g.sides) { (s.ctx.time as { elapsed: number }).elapsed += ms / 1000; seats(s); } tick(g, ms); for (const s of g.sides) seats(s); };
+    // Guest 1 steps onto gun 0 on its own screen, pointing it and firing.
+    a.guns[0]!.occupant = 'player';
+    a.guns[0]!.aimYaw = 1.1; a.guns[0]!.shooting = true;
+    frame(); frame();
+    expect(g.host.guns[0]!.occupant).not.toBeNull();
+    expect(g.host.guns[0]!.remote).toBe(true);
+    expect(g.host.guns[0]!.held).toBe(true);
+    // The other guest sees it manned, swung the same way and firing, as somebody else's gun.
+    expect(b.guns[0]!.occupant).not.toBeNull();
+    expect(b.guns[0]!.remote).toBe(true);
+    expect(b.guns[0]!.held).toBe(true);
+    expect(Math.atan2(-b.guns[0]!.aimed!.x, -(b.guns[0]!.aimed!.z))).toBeCloseTo(1.1, 1);
+    expect(a.guns[0]!.occupant).toBe('player');
+    // A garrison gunner cannot take it on the host; nor can the second guest, whose own screen let it try.
+    expect(g.host.guns[0]!.occupy({})).toBe(false);
+    b.guns[0]!.occupant = 'player'; b.guns[0]!.remote = false;
+    frame(); frame();
+    expect(b.guns[0]!.occupant).not.toBe('player');
+    expect(b.ctx.hud.feed).toHaveBeenCalledWith('THAT GUN IS TAKEN', expect.any(String));
+    // Guest 1 steps off: the gun is free everywhere.
+    a.guns[0]!.occupant = null;
+    frame(); frame(); frame();
+    for (const s of g.sides) expect(s.guns[0]!.occupant).toBeNull();
+    // One of the host's garrison on gun 1 shows as manned on the guests.
+    const soldier = {};
+    g.host.guns[1]!.occupy(soldier);
+    frame(); frame();
+    for (const guest of g.guests) expect(guest.guns[1]!.remote).toBe(true);
+    g.host.guns[1]!.vacate(soldier);
+    frame(); frame();
+    for (const guest of g.guests) expect(guest.guns[1]!.occupant).toBeNull();
     g.dispose();
   });
 

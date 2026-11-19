@@ -15,7 +15,7 @@
  */
 import * as THREE from 'three';
 import type RAPIER from '@dimforge/rapier3d-compat';
-import type { Ctx, LoopHandle, MuzzleKind, PlayOptions } from '../core/contracts';
+import { CG, type Ctx, type LoopHandle, type MuzzleKind, type PlayOptions } from '../core/contracts';
 import type { ShotSpec } from '../core/gameplay';
 import { clamp, rand, randomInCone, wrapAngle } from '../core/math';
 import { ModelBuilder, type ModelMaterials } from '../progression/modelkit';
@@ -273,6 +273,13 @@ export class Emplacement {
   private fired = 0;
   private aimPoint: THREE.Vector3 | null = null;
   private held = false;
+  /**
+   * Co-op: whoever is on it is on another screen (contracts/defense `seats`). It swings, kicks, flashes and sounds here as theirs
+   * does, but its rounds are drawn only: the damage is done where its gunner is.
+   */
+  remote = false;
+  /** The trigger was down and the gun was firing on the last frame. */
+  shooting = false;
   private spinLoop: LoopHandle | null = null;
   private fireLoop: LoopHandle | null = null;
   private readonly shotSpec: ShotSpec;
@@ -356,10 +363,15 @@ export class Emplacement {
     if (this.occupant !== who) return;
     this.occupant = null;
     this.hostile = false;
+    this.remote = false;
     this.aimPoint = null;
     this.held = false;
     this.silence();
   }
+
+  /** Where it points now, as world yaw and pitch. */
+  get aimYaw(): number { return this.yaw; }
+  get aimPitch(): number { return this.pitch; }
 
   /** Where the AI wants the gun. It swings there at the gun's own rate, inside its arc. */
   aimAt(point: THREE.Vector3): void {
@@ -392,6 +404,7 @@ export class Emplacement {
     this.seat = null;
     this.occupant = null;
     this.hostile = false;
+    this.remote = false;
     this.aimPoint = null;
     this.held = false;
     this.heat.value = 0;
@@ -428,6 +441,7 @@ export class Emplacement {
     }
     this.gun.point(this.pivot, this.yaw, this.pitch, dt);
     this.placeShield();
+    this.shooting = firing && !this.heat.overheated;
     this.fire(dt, firing, target);
     if (this.seat) {
       this.seat.heat = this.heat.value;
@@ -508,7 +522,13 @@ export class Emplacement {
     shotSpec.impactScale = L.impactScale;
     shotSpec.tracer = this.fired % L.tracerEvery === 0 ? 'heavy' : undefined;
     shotSpec.source = hostile ? HOSTILE_GUN.source : gunSource(this.occupant);
-    combat.fireRay(_muzzle, _dir, shotSpec);
+    if (this.remote) {
+      // Someone else's gun, seen from here: the tracer is drawn to whatever the world puts in its way, and hurts nothing.
+      if (shotSpec.tracer) {
+        const hit = this.ctx.physics.raycast(_muzzle, _dir, 260, CG.World);
+        fx.tracer(_muzzle, _to.copy(_muzzle).addScaledVector(_dir, hit ? hit.distance : 260), shotSpec.tracer);
+      }
+    } else combat.fireRay(_muzzle, _dir, shotSpec);
     if (this.fired % L.flashEvery === 0) fx.muzzleFlash(_muzzle, _bore, L.flash);
     if (this.fired % 2 === 0) {
       _casing.set(-_bore.z, 0, _bore.x).multiplyScalar(1.6);

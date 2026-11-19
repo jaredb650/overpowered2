@@ -44,6 +44,9 @@ interface Rocket {
   started: number;
 }
 
+/** Co-op: the garrison's shots a guest sees flash and hears, a second. The rest are the tracers alone. */
+const MIRRORED_SHOTS = 10;
+
 export class AllyGuns {
   private readonly hits: EnemyInstance[] = [];
   private readonly rockets: Rocket[] = Array.from({ length: MAX_ROCKETS }, () => ({
@@ -52,6 +55,18 @@ export class AllyGuns {
   private readonly damage: DamageInfo = { amount: 0, type: 'bullet', point: new THREE.Vector3(), dir: new THREE.Vector3(), force: 0, source: '' };
 
   constructor(private readonly ctx: Ctx, private readonly onHostileBlast: (point: THREE.Vector3, radius: number, damage: number, source: string) => void) {}
+
+  /** Co-op host: shots sent to the guests this second (`MIRRORED_SHOTS` at most). */
+  private mirrorSecond = -1;
+  private mirrorCount = 0;
+  private mirrored(now: number): boolean {
+    const second = Math.floor(now);
+    if (second !== this.mirrorSecond) {
+      this.mirrorSecond = second;
+      this.mirrorCount = 0;
+    }
+    return ++this.mirrorCount <= MIRRORED_SHOTS;
+  }
 
   private get enemies(): EnemyManager {
     return this.ctx.enemies as unknown as EnemyManager;
@@ -106,6 +121,12 @@ export class AllyGuns {
     _dir.subVectors(target, _muzzle).normalize();
     fx.muzzleFlash(_muzzle, _dir, g.muzzle);
     audio.play(g.sound, { position: _muzzle, pitch: g.pitch, pitchJitter: 0.06, volume: 0.85 });
+    // Co-op host: a guest hears and sees the garrison fire, a few shots a second at most so the enemy's own keep their share of the wire.
+    const world = this.ctx.coop?.world;
+    if (world && this.mirrored(this.ctx.time.elapsed)) {
+      world.enemyFlash(_muzzle, _dir, g.muzzle);
+      world.enemySound(g.sound, _muzzle, 0.85, g.pitch);
+    }
     e.char.anim.play('shoot', g.pellets > 1 || g.rocket ? 0.8 : 1.3);
     return true;
   }

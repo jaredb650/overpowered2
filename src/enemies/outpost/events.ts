@@ -80,8 +80,11 @@ declare module '../../core/contracts' {
     'squad:drill': { squad: string; drill: string; done: boolean; seconds: number };
     /** The player took a prisoner by the collar. */
     'prisoner:grabbed': { enemy: EnemyInstance };
-    /** He talked. `truthful` is false when what he said was a lie. */
-    'prisoner:questioned': { enemy: EnemyInstance; truthful: boolean };
+    /**
+     * He talked. `truthful` is false when what he said was a lie. `marks` is what his word put on the map (shared and reused: copy
+     * it to keep it) and `seconds` how long it stays: the co-op host passes them on, so the whole team sees what he gave up.
+     */
+    'prisoner:questioned': { enemy: EnemyInstance; truthful: boolean; marks?: readonly { at: THREE.Vector3; label: string }[]; seconds?: number };
     /** The player let him go. */
     'prisoner:freed': { enemy: EnemyInstance };
     /** He was shot on his knees and lived, so he has stopped being a prisoner. */

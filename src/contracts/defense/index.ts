@@ -69,6 +69,10 @@ export interface DefenseLink {
   feet(out: THREE.Vector3[]): THREE.Vector3[];
   /** Host: one of the garrison's callouts on the squad feed (radio.ts). A no-op on a guest. */
   squad(text: string, speaker: string, at: THREE.Vector3): void;
+  /** This browser's seat in the lobby. */
+  readonly slot: number;
+  /** Guest: I am on mounted gun `gun` (or off it), pointing it so, firing or not. Sent while seated. */
+  seat(gun: number, on: boolean, yaw: number, pitch: number, firing: boolean): void;
 }
 
 /** The fort's facts a guest cannot see for itself, as the host sends them. */
@@ -85,7 +89,15 @@ export interface FortState extends SiegeWire {
   preview: string;
   /** The uids of the men running a charge to a wall. */
   carriers: number[];
+  /** Each mounted gun: [who is on it (-1 nobody, -2 one of the garrison, else a player's slot), world yaw, pitch, firing 0 or 1]. */
+  guns: number[][];
 }
+
+/** Someone on another screen, on a mounted gun here (`Emplacement.remote`). */
+const RIDER = { remote: true } as unknown as NonNullable<Exclude<Emplacement['occupant'], 'player'>>;
+/** Seconds between a seated guest's reports of where its gun points, and how long the host keeps a seat with none. */
+const SEAT_EVERY = 0.15;
+const SEAT_KEEP = 2.5;
 
 /** Purchases that change the fort itself: in co-op the host carries them out for whoever paid. */
 const FORT_ACTS: ReadonlySet<Act['kind']> = new Set<Act['kind']>(['ally', 'mortar', 'mount', 'repair', 'rebuild']);
@@ -211,6 +223,11 @@ export class Defense {
   private asks = 0;
   private shells: Shells | null = null;
   private readonly feet: THREE.Vector3[] = [];
+  /** Co-op host: the guests on mounted guns, by gun. Guest: the gun this player is on, and when it last said so. */
+  private readonly riders = new Map<number, { slot: number; yaw: number; pitch: number; firing: boolean; at: number }>();
+  private seated = -1;
+  private seatAt = 0;
+  private readonly aim = new THREE.Vector3();
 
   private kiosks: Kiosk[] = [];
   private prompted: Kiosk | null = null;
@@ -339,6 +356,8 @@ export class Defense {
     this.garrison.reset();
     this.carriers.clear();
     this.remote = null;
+    this.riders.clear();
+    this.seated = -1;
     this.pending.clear();
     this.shells?.reset();
     this.watchBreaches();
@@ -377,6 +396,88 @@ export class Defense {
     }
     this.markCarriers();
     this.keepers?.update(dt);
+    if (this.link) this.seats();
+  }
+
+  // --- Co-op: the mounted guns' seats -----------------------------------------------------------
+
+  /** A gun someone on another screen is on: taken here too, swung where theirs points, firing when theirs does. */
+  private ride(gun: Emplacement, yaw: number, pitch: number, firing: boolean): void {
+    if (!gun.occupant) gun.occupy(RIDER);
+    if (gun.occupant !== RIDER) return;
+    gun.remote = true;
+    const flat = Math.cos(pitch);
+    gun.aimAt(this.aim.set(-Math.sin(yaw) * flat, Math.sin(pitch), -Math.cos(yaw) * flat).multiplyScalar(60).add(gun.pivot));
+    gun.trigger(firing);
+  }
+
+  /**
+   * Co-op: one gun, one gunner, on every screen. A guest on a gun tells the host where it points; the host keeps the seat for
+   * them (so neither the host nor a garrison gunner takes it) and tells everyone; every other screen shows the gun manned.
+   */
+  private seats(): void {
+    const { link, ctx } = this;
+    if (!link) return;
+    const guns = this.mounts();
+    const now = ctx.time.elapsed;
+    if (!link.guest) {
+      for (const [i, rider] of this.riders) {
+        const gun = guns[i];
+        if (!gun || now - rider.at > SEAT_KEEP) {
+          gun?.vacate(RIDER);
+          this.riders.delete(i);
+        } else this.ride(gun, rider.yaw, rider.pitch, rider.firing);
+      }
+      return;
+    }
+    // This player's own seat, reported while they sit and once as they leave.
+    const mine = guns.findIndex(g => g.occupant === 'player');
+    if (mine !== this.seated || (mine >= 0 && now >= this.seatAt)) {
+      if (this.seated >= 0 && mine !== this.seated) link.seat(this.seated, false, 0, 0, false);
+      this.seated = mine;
+      this.seatAt = now + SEAT_EVERY;
+      if (mine >= 0) link.seat(mine, true, guns[mine]!.aimYaw, guns[mine]!.aimPitch, guns[mine]!.shooting);
+    }
+    // Everyone else's, as the host has them.
+    const told = this.remote?.guns;
+    if (!told) return;
+    guns.forEach((gun, i) => {
+      const row = told[i];
+      const seat = row ? row[0]! : -1;
+      if (gun.occupant === 'player') return;
+      if (seat === -1 || seat === link.slot) gun.vacate(RIDER);
+      else this.ride(gun, row![1]!, row![2]!, row![3] === 1);
+    });
+  }
+
+  /**
+   * Co-op host: a guest (in `slot`) says it is on gun `gun`, or off it. False when the gun is someone else's: the guest steps
+   * off (`unseat`). The seat is kept while the guest goes on saying so.
+   */
+  seatFor(slot: number, gun: number, on: boolean, yaw: number, pitch: number, firing: boolean): boolean {
+    const g = this.mounts()[gun];
+    if (!g) return false;
+    const rider = this.riders.get(gun);
+    if (!on) {
+      if (rider?.slot === slot) {
+        g.vacate(RIDER);
+        this.riders.delete(gun);
+      }
+      return true;
+    }
+    if (rider ? rider.slot !== slot : g.occupant !== null) return false;
+    this.riders.set(gun, { slot, yaw, pitch, firing, at: this.ctx.time.elapsed });
+    this.ride(g, yaw, pitch, firing);
+    return true;
+  }
+
+  /** Co-op guest: the host says the gun this player stepped onto is taken. */
+  unseat(gun: number): void {
+    const g = this.mounts()[gun];
+    if (g?.occupant !== 'player') return;
+    g.clear();
+    this.seated = -1;
+    this.ctx.hud.feed('THAT GUN IS TAKEN', LOST_COLOR);
   }
 
   /** A mounted gun within a step: E is the gun's. */
@@ -620,6 +721,13 @@ export class Defense {
       // Only in a break: the director rolls a wave's plan when it is first asked for.
       preview: this.inBreak ? this.preview : '',
       carriers: [...this.carriers],
+      guns: this.mounts().map((g, i) => {
+        const r = (n: number) => Math.round(n * 100) / 100;
+        const rider = this.riders.get(i);
+        if (rider) return [rider.slot, r(rider.yaw), r(rider.pitch), rider.firing ? 1 : 0];
+        if (!g.occupant) return [-1, 0, 0, 0];
+        return [g.occupant === 'player' ? this.link?.slot ?? 0 : -2, r(g.aimYaw), r(g.aimPitch), g.shooting ? 1 : 0];
+      }),
       ...siege,
     };
   }
@@ -633,7 +741,7 @@ export class Defense {
       squad: Number.isFinite(state.squad) ? Math.max(0, Math.min(64, Math.round(state.squad))) : 0,
       mounts: nums(state.mounts, 16), mortars: Number.isFinite(state.mortars) ? Math.max(0, Math.min(16, Math.round(state.mortars))) : 0,
       shops: nums(state.shops, 3), preview: typeof state.preview === 'string' ? state.preview.slice(0, 160) : '', carriers: nums(state.carriers, 48),
-      pads: nums(state.pads, 16), covers: rows(state.covers, 24, 3), marks: rows(state.marks, 16, 3),
+      pads: nums(state.pads, 16), covers: rows(state.covers, 24, 3), marks: rows(state.marks, 16, 3), guns: rows(state.guns, 16, 4),
     };
     this.remote = clean;
     const guns = this.mounts();

@@ -102,13 +102,13 @@ the names the game used before).
 | `world/slow.ts` | The team's slow-mo rules with no game in them: the kinds, their scales and caps, the host's list and the team's budget (`SlowBoard`), the notice's words | |
 | `world/clock.ts` | The clock's gate (`ctx.time.gate`): every slow-mo request the game makes, on host and guest; the host's answer; `clock()` applies the list to this screen's clock; the host's long-frame steps | `slow`, `slowstate`, `slowno` |
 | `world/slowNotice.ts` | The notice every screen shows while the world is slow (its own element in the HUD root, `ui/css/cooptime.css`) | |
-| `world/capture.ts` | A guest capturing a prisoner (hold E, the host cuffs, the bounty comes back); `capturable` | `capture`, `credit` |
+| `world/capture.ts` | Prisoners for every player: a guest's tap (question, release) and 0.4 s hold (capture) carried out by the host, the reveal for the team, the bounty to the captor, the shield (off in the game). See "Prisoners for every player" | `capture`, `credit`, `prisoner` |
 | `world/guns.ts` | Carries the news of dropped guns for `weapons/dropped.ts` | `gun` |
 | `world/pods.ts` | Carries the news of the drop pods for `progression/pickups/pods.ts` | `pod` |
 | `world/props.ts` | Barrels, tanks and props: a guest's hits, the host's breaks, chairs, the late guest's state, the machinery clock | `prop` |
-| `world/vehicles.ts` | The host's ground vehicles drawn on guests, 5 Hz, stamped with the host's clock and drawn through a `MotionBuffer` | `vehicles` |
+| `world/vehicles.ts` | The host's ground vehicles drawn on guests, 5 Hz, stamped with the host's clock and drawn through a `MotionBuffer`; their working parts (wheels, tracks, springs, guns, fires, engine) and their wrecks. See "Enemy vehicles on a guest are working machines" | `vehicles`, `wreck` |
 | `world/villainProps.ts` | The villain's devices, shutters and smoke on every screen; a guest's round on a device; a snare on a guest. See "The villain's props on every screen" | `dev`, `devshot`, `snared`, `shutter`, `smoke` |
-| `world/fort.ts` | Outpost Defense's fort for the whole team: walls, gates and shacks by index, the fort's facts, a guest's blasts, boarding up and Barracks purchases, mortar rounds, the Defense radio. See "Outpost Defense: one fort" | `fort`, `fortstate`, `wallblast`, `wallhit`, `repair`, `repaired`, `fortbuy`, `fortsold`, `shell`, `fortsay`, `fortradio` |
+| `world/fort.ts` | Outpost Defense's fort for the whole team: walls, gates and shacks by index, the fort's facts, a guest's blasts, boarding up and Barracks purchases, mortar rounds, the Defense radio. See "Outpost Defense: one fort" | `fort`, `fortstate`, `wallblast`, `wallhit`, `repair`, `repaired`, `fortbuy`, `fortsold`, `shell`, `fortsay`, `fortradio`, `gunseat` |
 | `world/allies.ts` | The host's garrison drawn on guests, 5 Hz, the same way, and its tracers (30 a second) | `allies`, `ashot` |
 | `team.ts` | The team's rules ("The team's rules" below); registers its own events with the router (`plug`) | `life`, `card`, `team`, `revive`, `up`, `wave`, `over`, `restore`, `kit`, `ready`, `vote`, `sync`, `mark` |
 | `mission.ts` | As before; registers its own events with the router (`plug`) | `mission`, `gather` |
@@ -1923,6 +1923,79 @@ sets (null alone, where nothing changed).
 Proof: `tools/scripts/coop-worldb-props.mjs` (a host and two guests in Endless Humans: 40 checks), unit tests
 `src/net/world/villainProps.test.ts` (9, his real `Devices`, `Barricades` and `Smoke` on every side).
 
+## Prisoners for every player (overhaul, lane world-b)
+
+`src/net/world/capture.ts`. A guest's E on a kneeling man is the designed key, read by the same `gesture()` and `holdFill()` the
+host's own key uses (`enemies/outpost/capture.ts`): **tap to question, tap again to release, hold 0.4 s to capture**, the prompt
+"Tap [E] to question · Hold [E] to capture" (then "Tap [E] to release · ..."), the fill ring. Reach 3.1 m and the 0.55 cone, as solo.
+
+- The guest sends `capture { uid, act: question | release | cuff }`. The host checks the sender is up and within 4.5 m of the man
+  (bodies, as the host sees them) and does it through `Prisoners.questionFor`, `releaseFor`, `cuffFor`: the same code the host's key
+  runs. Two players on one man are settled by arrival: a man already cuffed, questioned or gone refuses the second key. 20 keys a second.
+- **What he gives up is the team's.** `prisoner:questioned` now carries the marks his word put on the map; the host sends
+  `prisoner { op: 'questioned', marks, seconds, reveal }` and every guest gets the markers for 9 s and, when he told the truth,
+  every fighting man lit through the walls, exactly as the host's screen does. A lie puts "SQUAD?" on everyone's map.
+- Every screen's feed says who questioned, released or cuffed him; the captor's own reads PRISONER CUFFED as solo.
+- **The bounty** (250 to 450 by rank, about 300) goes to the captor when the drone lifts him: the host's purse is paid by the
+  drone and passes it on (`credit`), to the captor's seat if they reloaded (team.ts `payee`).
+- **A late or returning player** gets `prisoner { op: 'state' }`: who is already questioned and who holds whom.
+- **The skyhook drone** is the call-ins lane's (`world/airlift.ts` there hooks the host's `Airlift` directly). What this module
+  gives it: the host's `prisoner:cuffed` and `prisoner:secured` game events fire for a guest's capture as for the host's, and the
+  `prisoner` event names the captor's slot.
+- **The human shield is off in the game** (`HOSTAGES.on = false` in prisoners.ts, the owner's decision of 2026-11-15: hold E cuffs
+  at once). It is built for co-op for the day it returns, and proven with the switch on: `act: grab` puts the man in the guest's
+  hands (`Prisoners.grabFor`; the host keeps him in front of that guest's body, so every screen sees it), `drop` lets him go,
+  hold E 0.6 s cuffs him; on the holder's own screen rounds from the front stop on him (`shield`, applied to him on the host)
+  and the holder walks at his pace; his friends hold their fire for whoever they are after (`stopsFire`).
+
+Proof: `tools/scripts/coop-worldb-prisoners.mjs` (a host and two guests: prompt, question and reveal on every screen, release,
+capture with the ring, the bounty of 300 to the captor alone, two guests holding E on one man, the shield with its switch on:
+34 checks, clean and under `lag:120,jitter:40,loss:0.05`); unit tests `src/net/world/capture.test.ts` (7).
+
+## Enemy vehicles on a guest are working machines (overhaul, lane world-b)
+
+`src/net/world/vehicles.ts` (the copy and its parts; the interpolation in it is the enemy-motion lane's, the hit boxes are
+`vehicleHits.ts`, the claims lane's, and the guns' flashes, shots and sounds are the enemy-attacks lane's `enemyMuzzle` and
+`enemySound`, which arrive at the muzzle in the world).
+
+- **Parts.** Each 5 Hz state carries `x`, from `GroundVehicle.wire()`: speed along the road, the front wheels' angle, the body's
+  pitch and roll on its springs, the main gun's lift, the roof gun's world yaw and pitch, and flags (left and right track thrown,
+  engine fire, fuel fire, a roof gun fitted, the roof gun firing). The guest eases each toward the host's last word and poses the
+  model as `GroundVehicle.pose` does: wheels turn by the distance run, the front pair steer, the tracks' links swap, the body rides
+  its springs, the barrel lifts. The roof gun is the same `Gun` model off the same rack, swung at the pintle (`pintleOf`), and it
+  kicks at its own rate while the host's fires. A thrown track is gone; an engine fire and a fuel fire burn with the same
+  emitters; the engine is heard (`EngineSound`, pitched by speed).
+- **It is solid.** The claims lane's hit boxes are the host's part boxes moved with the copy: a guest cannot walk or shoot through
+  one (proven: a round stops on the hull, a guest walking at it is stopped).
+- **Wrecks.** When a vehicle dies the host sends `wreck { op: 'add', wid, id, p, r, body, hop, tumble, flung }` once (found by
+  watching `VehicleSystem.wrecks`). The guest's copy becomes the same `Wreck` class run as a `ghost`: scorched, hopping and
+  tumbling with the host's own numbers, burning and smoking for as long, the tank's turret thrown with the host's velocity and
+  spin; it sets off no cook-off blast and burns nobody (both are the host's, and reach guests as `boom` and `hurt`). It stands on
+  colliders of its own (one per part), so it is cover on every screen. `wreck { op: 'gone' }` clears one the host cleared.
+- **A late or returning player** gets every wreck standing (`Vehicles.catchUp`), lying where it lies with its seconds of fire left.
+- **Not built:** the enemy attack helicopter is still not drawn on guests at all (its rockets and gun are heard and hurt; a
+  copy of the aircraft, its rotors, its crash and its wreck are the missing piece). A wreck's cook-off blasts are seen as the
+  host's explosions but the copy's own turret recoil on a cannon shot is not played.
+
+Proof: `tools/scripts/coop-worldb-vehicles.mjs` (Outpost Defense's open field); unit tests `src/net/world/vehicleParts.test.ts` (4,
+the real models and wreck class on both sides).
+
+## Mounted guns: one gun, one gunner (overhaul, lane world-b)
+
+Each browser builds its own `Emplacement` for every mounted gun, so before this two players could man the same gun, a guest could
+sit on a gun the host's garrison was firing, and nobody saw anyone else's gun move.
+
+- A guest who steps onto a gun says so (`gunseat { gun, on, yaw, pitch, firing }`, about 7 a second while seated). The host keeps
+  the seat for them (`Defense.seatFor`): its own copy of the gun is occupied by a stand-in, so neither the host's player nor a
+  garrison gunner can take it. A gun that is already someone's is refused: the guest steps off with "THAT GUN IS TAKEN".
+- `fortstate.guns` tells every screen who is on each gun (a player's slot, the garrison, nobody) with where it points and whether
+  it fires. On every other screen that gun is occupied too (no prompt to man it) and is `remote`: it swings there, spins, kicks,
+  flashes, sounds and throws casings as the gunner's does, with tracers drawn to whatever the world puts in the way, and its
+  rounds hurt nothing (the damage is done on the gunner's own screen, through the claims lane's mounted-gun kind).
+- A seat with no word from its guest for 2.5 s is free again (they left, dropped or died).
+
+Unit test: `src/net/world/fort.test.ts`, "one mounted gun, one gunner". Not proven in a browser yet (see the plan's log).
+
 ## Stage 5: the campaign together
 
 The lobby offers **Mission 1: The Outpost** and **Mission 2: Foreclosure**. The host runs the mission. Each guest's campaign host runs
@@ -2292,8 +2365,9 @@ guest's tab dying mid-wave, rejoining by link with credits back, and leaving to 
 - **Host migration:** see Failure cases.
 - **Four-player and multi-machine testing:** only two pages fit on the 8 GB machine; the 4-player numbers above are budgets, not runs.
 - **Aircraft drawn for the others:** a call-in's jet, gunship or helicopter is only on the caller's screen (its explosions are on all).
-- **Guest bullets on vehicles**, **grabbing a prisoner as a shield or questioning him** as a guest: the host's only. (Guest repairs
-  and Barracks hires in Outpost Defense are built: "Outpost Defense: one fort".)
+- Guest repairs and Barracks hires in Outpost Defense, questioning and releasing a prisoner as a guest, and the shield for a
+  guest (switched off in the game, as in single player) are built: "Outpost Defense: one fort", "Prisoners for every player".
+  Guest bullets on vehicles are the claims lane's, and built.
 - **Per-muscle wound animation** on guests (a stage 2 limit) is unchanged. Living knockdowns and get-ups are done: "Enemy motion", Moves.
 - **Implant parts** on friends' bodies.
 - **The shared world** (lane world-a): walls, gates and shacks are not in it (lane world-b's). A prop two players have each

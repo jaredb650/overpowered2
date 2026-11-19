@@ -436,3 +436,16 @@ Shared files and contracts between lanes:
   rules' lane should look. Also written down: what a co-op
   test without a browser would take (`docs/notes/coop.md`, "Co-op tests without a browser"). Touched outside my files, small:
   `src/core/Game.ts` (the draw gate), `src/core/contracts.ts` (`settle?()`), `src/render/Renderer.ts` (`settle()`).
+- 2026-11-18, world-b, step 3 landed: **prisoners for guests as designed** (`src/net/world/capture.ts`): tap questions, a second tap
+  releases, a 0.4 s hold captures, the exact prompt and the ring, the reveal for the whole team, the bounty to the captor, two
+  players on one man settled by the host, late join. Decision: the human shield is off in the single-player game
+  (`HOSTAGES.on = false`, owner 2026-11-15), so it is off in co-op too; the guest's side of it is built and proven with the switch
+  on, so turning it back on needs no co-op work. The skyhook stays the call-ins lane's (it hooks the host's `Airlift`).
+- 2026-11-18, world-b, step 4 landed: **enemy vehicles are working machines on a guest** (`src/net/world/vehicles.ts`: wheels,
+  steering, tracks, springs, barrel, roof gun, thrown tracks, engine and fuel fires, engine sound, from `GroundVehicle.wire()`;
+  the same wreck on its own colliders with the tank's turret thrown the same way; late join), **mounted guns have one gunner
+  on every screen** (`gunseat`, `fortstate.guns`, `Emplacement.remote`), and guests see and hear the garrison fire (10 shots a
+  second at most, through the enemy-attacks lane's flash and sound relays). Decisions: a guest's copy of a wreck is the real
+  `Wreck` class as a `ghost` (no damage, no cook-off blast of its own); vehicle guns' flashes and sounds stay the enemy-attacks
+  lane's. Not done: the enemy attack helicopter is still not drawn on guests; the mounted-gun seats have a unit test and no
+  browser proof yet.

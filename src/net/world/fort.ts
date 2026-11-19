@@ -43,6 +43,11 @@ export type FortEvent =
   | { t: 'shell'; from: Vec; to: Vec; radius: number; flight: number; delay: number; ring: number | null; mine: boolean }
   /** Host: a line for everyone's feed or banner about the fort. */
   | { t: 'fortsay'; kind: 'banner' | 'feed' | 'float'; text: string; sub?: string; color: string; at?: Vec }
+  /**
+   * Guest to host: I am on mounted gun `gun` (or off it: `on` false), and where it points. Sent while seated, about 7 a second.
+   * Host to that guest, with `on` false: the gun is someone else's, step off.
+   */
+  | { t: 'gunseat'; gun: number; on: boolean; yaw?: number; pitch?: number; firing?: boolean }
   /** Host: one of the garrison's callouts on the squad feed (contracts/defense/radio.ts). The box's own lines travel as barks (villain.ts). */
   | { t: 'fortradio'; text: string; speaker: string; at: Vec };
 
@@ -107,6 +112,15 @@ export class Fort implements WorldModule {
         Math.min(20, Math.max(0.2, value.flight)), Math.min(20, Math.max(0, value.delay)), Number.isFinite(value.ring) ? value.ring : null, value.mine === true);
     });
     router.guest('fortsay', value => this.sayIn(value));
+    router.both('gunseat', (value, from) => {
+      const defense = this.find().defense;
+      if (!defense || !Number.isInteger(value.gun)) return;
+      if (!this.w.hosting) { if (value.on === false) defense.unseat(value.gun); return; }
+      const slot = this.w.session.lobby.players.find(p => p.id === from)?.slot;
+      const num = (n: unknown) => (typeof n === 'number' && Number.isFinite(n) ? Math.max(-7, Math.min(7, n)) : 0);
+      if (slot === undefined || this.w.life(from).down && value.on) return;
+      if (!defense.seatFor(slot, value.gun, value.on === true, num(value.yaw), num(value.pitch), value.firing === true)) this.w.send({ t: 'gunseat', gun: value.gun, on: false }, from);
+    });
     router.guest('fortradio', value => this.radioIn(value));
   }
 
@@ -118,6 +132,7 @@ export class Fort implements WorldModule {
     if (this.linked || !this.walls) return this;
     this.linked = true;
     const guest = !this.w.hosting;
+    const { session } = this.w;
     this.walls.link = {
       guest,
       changed: (piece, loud, blast, power) => {
@@ -146,6 +161,8 @@ export class Fort implements WorldModule {
       },
       feet: out => this.everyone(out),
       squad: (text, speaker, at) => { if (!guest && this.w.ready) this.w.send({ t: 'fortradio', text, speaker, at: at.toArray() as Vec }); },
+      get slot() { return session.lobby.me?.slot ?? 0; },
+      seat: (gun, on, yaw, pitch, firing) => { if (guest && this.w.ready) this.w.send({ t: 'gunseat', gun, on, yaw, pitch, firing }); },
     };
     return this;
   }
