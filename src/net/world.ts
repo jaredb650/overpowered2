@@ -362,6 +362,8 @@ export class CoopWorld {
   sendGun(event: GunEvent, to?: string): void { this.guns.send(event, to); }
   /** The shared barrels and props: counters for the proofs (world/props.ts). */
   get propStats(): Props['stats'] { return this.props.stats; }
+  /** Guest: when the host's world data last arrived (context.ts `fedAt`). */
+  get fedAt(): number { return this.w.fedAt; }
   /** A drop pod's news (progression/pickups/pods.ts): the host's call and its end to everyone, a guest's share to the host. */
   sendPod(event: PodEvent, to?: string): void { this.pods.send(event, to); }
   /** Host: an ally fired. Guests draw the tracer; it hurts nothing there. */

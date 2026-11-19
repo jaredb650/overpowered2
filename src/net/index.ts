@@ -14,11 +14,14 @@ import { pageSim } from './netsim';
 import { Hook, SeatHooks, type Arrival } from './seats';
 export { Hook, type Arrival };
 import { metrics } from './metrics';
+import { Starved } from './starved';
 
 /** The modes whose world the host runs. The others are free roam: everyone walks the map, nothing else. */
 export const WORLD_MODES: readonly Match['mode'][] = ['crucible', 'outpost', 'defense', 'campaign', 'foreclosure'];
 /** How long the team board stays up after the host is gone for good, before everyone regroups in a new lobby. */
 export const LOST_BOARD_MS = 10_000;
+/** The status line of a guest the host has stopped feeding: in the place and style of "Reconnecting to host…". */
+export const TOO_SLOW = 'Connection too slow. Catching up…';
 
 /** Where a player lands after the match: the same room, on its lobby page. `match`: what was just played, so the host's picker stays on it. */
 export interface Room { lobby: Lobby; code: string; password: string; match?: Match }
@@ -51,6 +54,10 @@ export class CoopSession implements GameSystem {
   private endedEarly = false;
   /** Guest, the host gone for good: the board is up until then, and then everyone regroups. */
   private lostUntil = 0;
+  /** Guest: the host has stopped feeding this page (`feed`), and when its own pose last arrived. */
+  private readonly starved = new Starved();
+  private starving = false;
+  private poseAt = 0;
   private regroup: Regroup | null = null;
   private idle: 'menu' | 'hidden' | undefined;
   /**
@@ -81,7 +88,13 @@ export class CoopSession implements GameSystem {
     lobby.batching(run => queueMicrotask(run));
     this.endedEarly = whileLoading.ended;
     lobby.onChange = () => this.changed();
-    lobby.onPose = (id, pose) => this.remotes.get(id)?.push(pose, performance.now());
+    lobby.onPose = (id, pose) => {
+      const now = performance.now();
+      const remote = this.remotes.get(id);
+      // The host's own pose is the steadiest thing it sends (20 a second, whatever the wave is doing): see `feed`.
+      if (remote?.player.host) this.poseAt = now;
+      remote?.push(pose, now);
+    };
     lobby.onLine = line => this.chatLine(line);
     // The host took everyone back to the lobby page. While this page is still loading, that waits for the boot to end.
     lobby.onEnd = () => {
@@ -277,11 +290,33 @@ export class CoopSession implements GameSystem {
     if (this.gateStart) return this.paintGate();
     if (this.lostUntil || !this.begun) return;
     if (lobby.reconnecting) return view.setLine(`Reconnecting to host… ${lobby.reconnectIn}`, true);
-    // The host has stopped sending to this page because its queue for it grew too long (lobby.ts `stall`).
-    if (!this.hosting && lobby.me?.state === 'lost') return view.setLine('Your connection fell behind. Catching up…', true);
+    // The host has stopped feeding this page: it is behind, or cut for it until its queue has drained (lobby.ts `stall`).
+    // The host's list would say so (`lost`), but it is queued behind the very backlog and arrives as the cut ends: for the
+    // seconds that matter the page reads it off the feed having stopped (`feed`). The world stands still meanwhile, and a
+    // player is never left in a still world without being told why.
+    if (!this.hosting && (this.starving || lobby.me?.state === 'lost')) return view.setLine(TOO_SLOW, true);
     const waiting = lobby.match && !lobby.live ? lobby.waitingFor : [];
     if (!waiting.length) return view.setLine('');
     view.setLine(`Waiting for ${waiting.map(p => p.name).join(', ')}${lobby.holdLeft ? ` · starting without them in ${lobby.holdLeft} s` : ''}`);
+  }
+
+  /**
+   * Guest: is the host still feeding this page its world? Its latest-wins data (snapshots, its own pose) stops when this
+   * page is behind and when the host has cut it (starved.ts). Not counted: the host's tab hidden (its own line says so and
+   * the world runs coarser), the host's page loading its map (that is "Waiting for HOST"), the run over, and a line that
+   * is down (that is "Reconnecting").
+   */
+  private feed(now: number): void {
+    const { lobby, world } = this;
+    if (this.hosting || !this.begun || !world) { this.starving = false; return; }
+    let resting = false;
+    for (const player of lobby.players) if (player.host && (player.idle === 'hidden' || player.state)) resting = true;
+    if (resting || lobby.reconnecting || world.team.final) {
+      this.starved.reset();
+      this.starving = false;
+      return;
+    }
+    this.starving = this.starved.update(now, Math.max(this.poseAt, world.fedAt ?? 0));
   }
 
   update(): void {
@@ -291,6 +326,7 @@ export class CoopSession implements GameSystem {
     // The network simulator's delayed sends leave on the frame too: a hidden tab's timers run once a second.
     pageSim().pump();
     if (this.closed) return;
+    this.feed(now);
     this.status();
     if (this.lostUntil) {
       const left = Math.max(0, Math.ceil((this.lostUntil - now) / 1000));

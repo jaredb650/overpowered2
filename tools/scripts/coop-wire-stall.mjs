@@ -27,7 +27,7 @@ const read = page => page.evaluate(() => {
     worldIn: world ? { perSecond: world.in.packetsPerSecond, gapP90: world.gap.p90 } : null,
     // Its own hit claims sent in the window: it is still fighting.
     hits: net.events.hit?.out.n ?? 0, shots: net.events.fire?.out.n ?? 0, state: ctx.coop.lobby.me?.state ?? 'in',
-    line: document.querySelector('.cs-line')?.textContent ?? '', saidBehind: !!window.__saidBehind, lines: window.__lines ?? [] };
+    line: (el => (el && el.style.display !== 'none' ? el.textContent ?? '' : ''))(document.querySelector('.cs-line')), saidBehind: !!window.__saidBehind, saidAt: window.__saidAt ?? null, clock: performance.now(), lines: window.__lines ?? [] };
 });
 /** The host's view of one guest: what is queued for it, what the rule says, and the seat. */
 const hostView = (host, id) => host.evaluate(id => {
@@ -55,7 +55,7 @@ export default async function (host, { sleep, outDir }) {
       window.__lines = [];
       setInterval(() => {
         const el = document.querySelector('.cs-line'), text = el && el.style.display !== 'none' ? (el.textContent ?? '').replace(/\d+/g, 'N') : '';
-        if (/fell behind/i.test(text)) window.__saidBehind = true;
+        if (/too slow|fell behind/i.test(text)) { window.__saidBehind = true; window.__saidAt ??= performance.now(); }
         if (window.__lines.at(-1)?.[1] !== text && window.__lines.length < 60) window.__lines.push([Math.round(performance.now()), text]);
       }, 30);
     });
@@ -129,6 +129,13 @@ export default async function (host, { sleep, outDir }) {
     check(out.after.host.verdict === 'ok' && out.after.host.stalls === 1 && out.after.host.saidBehind === 1 && out.after.host.seat === 'in', 'It is judged healthy and was cut once, not again', out.after.host);
     check(out.after.host.chat.some(text => /is back|reconnected/.test(text)), 'The lobby says it is back', out.after.host.chat);
     check(out.after.slow.saidBehind, 'While held out, its own screen said its connection had fallen behind', out.after.slow);
+    // And said it for as long as it was out: from before the cut (the host skips a guest that is behind for snapshots and
+    // poses well before it cuts it) to the moment the catch-up landed, when the line went.
+    const shown = out.after.slow.lines.filter(([, text]) => /too slow|fell behind/i.test(text)).map(([at]) => at);
+    const cleared = out.after.slow.lines.filter(([at, text]) => text === '' && shown.length && at > shown.at(-1)).map(([at]) => at);
+    out.notice = { firstShown: shown[0] ?? null, lastShown: shown.at(-1) ?? null, cleared: cleared[0] ?? null, seconds: shown.length && cleared.length ? +((cleared[0] - shown[0]) / 1000).toFixed(1) : null, now: out.after.slow.line };
+    check(out.notice.seconds !== null && out.notice.seconds >= Math.max(3, (out.held.back.at - out.cutAt.at) / 1000 - 3), `The notice stood for the time it was held out (${out.notice.seconds} s; the host had it out ${((out.held.back.at - out.cutAt.at) / 1000).toFixed(1)} s)`, out.notice);
+    check(out.after.slow.line === '', 'Back in the match, the notice is gone', out.after.slow.line);
     await shot(slow, 'back');
     out.machine = { load1m: Math.round(loadavg()[0] * 10) / 10, cores: cpus().length };
     for (const page of party.pages) await stopShooting(page).catch(() => {});

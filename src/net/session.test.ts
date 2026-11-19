@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const made = vi.hoisted(() => vi.fn());
 vi.mock('./remote', () => ({ PROPS: ['smg'], friendTorches: () => [], RemotePlayer: class {
   dispose = vi.fn(); push = vi.fn(); update = vi.fn();
@@ -15,7 +15,7 @@ const view = vi.hoisted(() => ({ showLost: vi.fn(), setLostFoot: vi.fn(), setLin
 vi.mock('./sessionHud', () => ({ SessionHud: class { showLost = view.showLost; setLostFoot = view.setLostFoot; setLine = view.setLine; showGate = view.showGate; hideGate = view.hideGate; paintGate = view.paintGate; dispose = view.dispose; } }));
 vi.mock('./coopHud', () => ({ CoopHud: class { update = vi.fn(); dispose = vi.fn(); showEnd = vi.fn(); } }));
 import type { Ctx } from '../core/contracts';
-import { CoopSession, LOST_BOARD_MS } from './index';
+import { CoopSession, LOST_BOARD_MS, TOO_SLOW } from './index';
 import type { Lobby, LobbyPlayer } from './lobby';
 
 const host: LobbyPlayer = { id: 'host', name: 'HOST', host: true, ready: true, slot: 0 };
@@ -65,6 +65,102 @@ describe('remote match lifecycle', () => {
     expect(lobby.sendPose).toHaveBeenLastCalledWith(expect.objectContaining({ move: 'walk', velocity: [0, 0, 0], weapon: 'smg' }));
     session.leave(); now.mockReturnValue(11000); session.update();
     expect(lobby.sendPose).toHaveBeenCalledTimes(22);
+  });
+});
+describe('a guest the host has stopped feeding is told so on its own screen', () => {
+  /** A guest in a running match, with the host's body in the world and its world data arriving (`fed`). */
+  afterEach(() => vi.unstubAllGlobals());
+  /** A page (the status line is DOM, and only a page has one), through the gate as a player goes. */
+  const page = () => vi.stubGlobal('document', { hidden: false, addEventListener: vi.fn(), removeEventListener: vi.fn() });
+  const playing = async () => {
+    page();
+    const made = setup();
+    Object.assign(made.lobby, { hosting: false, you: 'guest', me: guest });
+    await made.session.init(); made.session.gate(vi.fn()); made.session.deploy();
+    const world = made.session.world as unknown as { fedAt: number; team: { final: unknown } };
+    world.fedAt = 0;
+    const now = vi.spyOn(performance, 'now');
+    /** Frames from `from` to `to`, 60 a second; while `fed` the host's pose and a snapshot arrive on each. */
+    const frames = (from: number, to: number, fed: boolean) => {
+      for (let ms = from; ms < to; ms += 1000 / 60) {
+        now.mockReturnValue(ms);
+        if (fed) { world.fedAt = ms; made.lobby.onPose('host', {} as never); }
+        made.session.update();
+      }
+    };
+    view.setLine.mockClear();
+    const lines = () => view.setLine.mock.calls.map(c => c[0] as string);
+    return { ...made, world, frames, lines, now };
+  };
+
+  it('fed, it says nothing; a second after the feed stops it says its connection is too slow; the first packet back clears it', async () => {
+    const g = await playing();
+    g.frames(1000, 4000, true);
+    expect(g.lines().every(text => text === '')).toBe(true);
+    // The host cuts it (or it is merely behind): snapshots and poses stop, the line itself still trickles.
+    g.frames(4000, 4900, false);
+    expect(g.lines()).not.toContain(TOO_SLOW);
+    g.frames(4900, 17_000, false);
+    expect(view.setLine).toHaveBeenLastCalledWith(TOO_SLOW, true);
+    // The catch-up lands: the very next frame the line is gone.
+    g.frames(17_000, 17_020, true);
+    expect(view.setLine).toHaveBeenLastCalledWith('');
+  });
+
+  it('the host\'s list saying it is cut shows the same line (it arrives late, as the cut ends)', async () => {
+    const g = await playing();
+    g.lobby.me!.state = 'lost';
+    g.frames(1000, 1100, true);
+    expect(view.setLine).toHaveBeenLastCalledWith(TOO_SLOW, true);
+    delete g.lobby.me!.state;
+    g.frames(1100, 1200, true);
+    expect(view.setLine).toHaveBeenLastCalledWith('');
+  });
+
+  it('a line that is down says Reconnecting, and silence that is no drought says nothing', async () => {
+    const g = await playing();
+    g.frames(1000, 2000, true);
+    // The line is down: that is its own notice, with its countdown.
+    Object.assign(g.lobby, { reconnecting: { until: 0 }, reconnectIn: 30 });
+    g.frames(2000, 5000, false);
+    expect(g.lines()).not.toContain(TOO_SLOW);
+    expect(view.setLine).toHaveBeenLastCalledWith('Reconnecting to host… 30', true);
+    Object.assign(g.lobby, { reconnecting: null });
+    // The host's tab is hidden (the lobby says so in its own line, and the world runs coarser).
+    g.frames(5000, 5100, true);
+    host.idle = 'hidden';
+    g.frames(5100, 9000, false);
+    expect(g.lines()).not.toContain(TOO_SLOW);
+    delete host.idle;
+    // The host's page is loading its map (a reload): that is "Waiting for HOST", not this page's link.
+    g.frames(9000, 9050, true);
+    host.state = 'loading';
+    g.frames(9050, 9060, false);
+    g.frames(9060, 12_000, false);
+    expect(g.lines()).not.toContain(TOO_SLOW);
+    delete host.state;
+    // The run is over: the board is up and the world may rest.
+    g.frames(12_000, 12_100, true);
+    g.world.team.final = [];
+    g.frames(12_100, 16_000, false);
+    expect(g.lines()).not.toContain(TOO_SLOW);
+    g.world.team.final = null;
+  });
+
+  it('the host never says it of itself, and a guest whose own page stood still does not say it as it wakes', async () => {
+    page();
+    const h = setup(); await h.session.init(); h.session.gate(vi.fn()); h.session.deploy();
+    const now = vi.spyOn(performance, 'now');
+    view.setLine.mockClear();
+    for (let ms = 1000; ms < 6000; ms += 16) { now.mockReturnValue(ms); h.session.update(); }
+    expect(view.setLine.mock.calls.map(c => c[0])).not.toContain(TOO_SLOW);
+    const g = await playing();
+    g.frames(1000, 2000, true);
+    // A minute with no frame at all (a hidden tab, a sleeping laptop), then one frame before anything new is read.
+    g.now.mockReturnValue(62_000); g.session.update();
+    expect(g.lines()).not.toContain(TOO_SLOW);
+    g.frames(62_016, 62_200, true);
+    expect(g.lines()).not.toContain(TOO_SLOW);
   });
 });
 describe('the deploy gate, real reasons and host loss', () => {

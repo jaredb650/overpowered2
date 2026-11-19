@@ -77,6 +77,8 @@ export class WorldContext {
   team!: Team;
   /** False until the map is up (`CoopWorld.begin`): events that arrive earlier are dropped, the latest snapshot is kept. */
   ready = false;
+  /** Guest: when anything last arrived on the `world` lane (snapshots, side lists), on `performance.now()`. 0: nothing yet. The session reads it to tell a world that has stopped being fed (net/starved.ts). */
+  fedAt = 0;
   /** The snapshot lane's receiver (replicas.ts sets it). */
   onSnapshot: (data: ArrayBuffer) => void = () => {};
   /** Host: called after each snapshot goes out, with the uids alive in it, for per-enemy state to be forgotten. */
@@ -119,6 +121,7 @@ export class WorldContext {
 
   /** The `world` lane: an enemy snapshot chunk, or a side packet. */
   private worldIn(data: ArrayBuffer): void {
+    this.fedAt = performance.now();
     if (data.byteLength >= 3) {
       const head = new Uint8Array(data, 0, 3);
       if (head[0] === SIDE_HEAD[0] && head[1] === SIDE_HEAD[1]) {
