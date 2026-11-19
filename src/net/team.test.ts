@@ -295,12 +295,12 @@ describe('lives: back at wave clear, and a stall costs nobody their seconds', ()
     expect(life.state).toBe('dead');
     game.dispose();
   });
-  it('says "back at the next checkpoint" nowhere but a mission', () => {
+  it('says "back at the checkpoint" nowhere but a mission', () => {
     const game = party(1);
     game.tick();
     die(game.guests[0]!); game.relay.flush(); game.tick(100);
     for (let i = 0; i < 160; i++) { vi.advanceTimersByTime(200); game.host.world.update(); }
-    expect(feeds(game.host).some(f => /BLED OUT · back when the wave is cleared/.test(f))).toBe(true);
+    expect(feeds(game.host).some(f => /BLED OUT · back at wave clear/.test(f))).toBe(true);
     game.dispose();
   });
 });
@@ -345,8 +345,8 @@ describe('the team break and its ready vote', () => {
     expect(game.host.waves.nextWaveIn).toBe(TEAM_BREAK);
     expect(game.host.world.team.rest.ready).toEqual([0]);
     expect(a.world.team.rest).toMatchObject({ ready: [0], need: 3, on: true });
-    expect(feeds(a).some(f => /HOST is ready for the next wave \(1\/3\)/.test(f))).toBe(true);
-    expect(feeds(game.host).some(f => /You are ready for the next wave \(1\/3\)/.test(f))).toBe(true);
+    expect(feeds(a).some(f => /HOST is ready \(1\/3\)/.test(f))).toBe(true);
+    expect(feeds(game.host).some(f => /You are ready \(1\/3\)/.test(f))).toBe(true);
     // A guest's key is a message to the host: it never writes its own clock, and a second press counts once.
     press(a, 'nextWave'); press(a, 'nextWave'); game.relay.flush();
     expect(a.waves.nextWaveIn).toBe(8);
@@ -415,7 +415,7 @@ describe('seats: a rejoin gives the kit back and is not a free revive', () => {
     expect(after.chipsFitted).toEqual(before.chipsFitted);
     expect(back.ctx.contracts.wallet).toMatchObject({ credits: 1450 });
     expect(back.progression.resume).toHaveBeenCalledWith(9000, 40, 7);
-    expect(feeds(back).some(f => /your kit, credits and score are back/.test(f))).toBe(true);
+    expect(feeds(back).some(f => /your kit and credits are back/.test(f))).toBe(true);
     // The other guest, with another browser, got nobody's kit.
     expect(kitOf(game.guests[1]!).guns.map(g => g.weapon)).toEqual(['smg']);
     game.dispose();
@@ -448,7 +448,7 @@ describe('seats: a rejoin gives the kit back and is not a free revive', () => {
     game.tick();
     expect(game.host.world.team.life(back.lobby.you).state).toBe('dead');
     expect(back.player.alive).toBe(false);
-    expect(feeds(back).some(f => /you were down when you left/.test(f))).toBe(true);
+    expect(feeds(back).some(f => /YOU LEFT DOWN/.test(f))).toBe(true);
     // The kit still came back.
     expect(kitOf(back).guns.map(g => g.weapon).sort()).toEqual(['shotgun', 'smg']);
     // The wave is cleared: now they get up.
@@ -475,11 +475,28 @@ describe('seats: a rejoin gives the kit back and is not a free revive', () => {
     expect(team.payee(old, 50)).toBe(back.lobby.you);
     game.dispose();
   });
+  it('someone who left dead and sat out the team\'s respawn while away comes back alive', () => {
+    const game = party(2);
+    game.tick();
+    const a = game.guests[0]!;
+    arm(a); game.tick(KIT_MS + 100); game.tick();
+    die(a); game.relay.flush(); game.tick(100);
+    // Their page dies; while they are away the wave is cleared and everyone else respawns.
+    a.world.dispose(); game.relay.close(a.room); game.relay.flush(); game.tick();
+    game.host.ctx.events.emit('wave:clear', { wave: 2, bonus: 0 }); game.relay.flush();
+    const back = game.rejoin(0, 'guest-1b');
+    game.tick();
+    expect(game.host.world.team.life(back.lobby.you).state).toBe('up');
+    expect(back.player.alive).toBe(true);
+    expect(feeds(back).some(f => /YOU LEFT DOWN/.test(f))).toBe(false);
+    expect(kitOf(back).guns.map(g => g.weapon).sort()).toEqual(['shotgun', 'smg']);
+    game.dispose();
+  });
   it('a brand-new player gets no purse, no kit and no line about rejoining', () => {
     const game = party(1);
     game.tick();
     const g = game.guests[0]!;
-    expect(feeds(g).some(f => /Rejoined/.test(f))).toBe(false);
+    expect(feeds(g).some(f => /REJOINED/.test(f))).toBe(false);
     expect(g.progression.resume).not.toHaveBeenCalled();
     expect(g.weapons.setLoadout).not.toHaveBeenCalled();
     game.dispose();
@@ -547,13 +564,13 @@ describe('pings', () => {
     for (const other of [game.host, b]) {
       expect(other.hud.marker).toHaveBeenCalledOnce();
       expect((other.hud.marker.mock.calls[0]![0] as THREE.Vector3).toArray()).toEqual([3, 0, -20]);
-      expect(other.hud.marker.mock.calls[0]![1]).toBe('GUEST1');
+      expect(other.hud.marker.mock.calls[0]![1]).toBe('PING · GUEST1');
     }
     // Not echoed back to the pinger.
     expect(a.hud.marker).toHaveBeenCalledOnce();
     // The host's own ping goes to everyone; with nothing in front it lands ahead.
     press(game.host, 'ping'); game.relay.flush();
-    expect(b.hud.marker.mock.calls[1]![1]).toBe('HOST');
+    expect(b.hud.marker.mock.calls[1]![1]).toBe('PING · HOST');
     expect((b.hud.marker.mock.calls[1]![0] as THREE.Vector3).z).toBeLessThan(-30);
     const off = b.hud.marker.mock.results[0]!.value as ReturnType<typeof vi.fn>;
     vi.advanceTimersByTime(MARK_SECONDS * 1000 + 100); b.world.update();

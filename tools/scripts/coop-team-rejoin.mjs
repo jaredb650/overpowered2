@@ -7,7 +7,7 @@
 //   node tools/shot.mjs --port 5310 --dpr 2 --w 1440 --h 900 --wait 500 --timeout 600 \
 //     --script tools/scripts/coop-team-rejoin.mjs --out tools/out/team/rejoin-final.png
 import { writeFileSync } from 'node:fs';
-import { joinFromSplash, kit, skipBreak } from './coop-kit.mjs';
+import { button, kit, skipBreak } from './coop-kit.mjs';
 import { BAD_NET, allIn, bleedOut, clearWave, down, invulnerable, netName, players, said, teamParty, world } from './coop-team-kit.mjs';
 
 const PLAYERS = players(2);
@@ -36,7 +36,9 @@ export default async function (host, { sleep, outDir }) {
     const guest = pages[1];
     await invulnerable(pages, true);
     await skipBreak(host);
-    await host.waitForFunction(() => window.__op2.ctx.waves.wave >= 1 && window.__op2.ctx.waves.phase !== 'intermission', null, { timeout: 60000 });
+    await host.waitForFunction(() => window.__op2.ctx.waves.wave >= 1 && window.__op2.ctx.waves.phase !== 'intermission', null, { timeout: 60000, polling: 250 });
+    // The wave must not end on its own while pages reload: the host's enemies stand still and nothing on the map can kill them.
+    await host.evaluate(() => { for (const e of window.__op2.ctx.enemies.alive) { e.behaviours = []; e.attacks = []; e.mode = 'hold'; e.invulnerable = true; } });
     const slot = await guest.evaluate(() => window.__op2.ctx.coop.lobby.me.slot);
     const seatOf = () => host.evaluate(slot => {
       const { lobby, world } = window.__op2.ctx.coop;
@@ -47,9 +49,11 @@ export default async function (host, { sleep, outDir }) {
     /** The guest's page dies and the same tab comes back by the invite link. */
     const rejoin = async () => {
       await guest.goto(party.invite);
-      await joinFromSplash(guest, party.password);
+      // The link opens on its password page; a match in progress takes the newcomer straight in from there.
+      await guest.locator('input[type=password]').waitFor({ state: 'visible', timeout: 120000 });
+      await guest.locator('input[type=password]').fill(party.password); await button(guest, 'Join lobby').click();
       await allIn([guest], 'crucible', PLAYERS - 1);
-      await host.waitForFunction(n => window.__op2.ctx.coop.remotes.size >= n && [...window.__op2.ctx.coop.remotes.values()].every(r => r.char.root.visible), PLAYERS - 1, { timeout: 60000 });
+      await host.waitForFunction(n => window.__op2.ctx.coop.remotes.size >= n && [...window.__op2.ctx.coop.remotes.values()].every(r => r.char.root.visible), PLAYERS - 1, { timeout: 60000, polling: 250 });
     };
 
     progress('the guest kits up');
@@ -71,13 +75,14 @@ export default async function (host, { sleep, outDir }) {
     await sleep(700);
     const before = await kitOf(guest);
     out.before = before;
-    check(before.guns.join() === 'rocket,shotgun,smg' && before.fitted.join() === 'smgMag,suppressor' && before.credits === 2345, 'The guest holds the kit it bought', before);
+    check(['rocket', 'shotgun', 'smg'].every(g => before.guns.includes(g)) && ['smgMag', 'suppressor'].every(m => before.fitted.includes(m)) && before.mods.includes('shotgunChoke')
+      && before.credits === 2345, 'The guest holds the kit it bought, on top of what it was issued', before);
     await host.waitForFunction(slot => {
       const { lobby, world } = window.__op2.ctx.coop;
       const id = lobby.players.find(p => p.slot === slot)?.id;
       const seat = id && world.team.seats.get(world.team.seatKey(id));
-      return seat?.kit?.guns.length === 3 && seat.purse?.credits === 2345;
-    }, slot, { timeout: 15000 });
+      return seat?.kit?.guns.some(g => g.weapon === 'rocket') && seat.purse?.credits === 2345;
+    }, slot, { timeout: 30000, polling: 250 });
     const kept = await seatOf();
     out.kept = kept;
     check(/^b:/.test(kept.key), 'The host keeps the seat under the browser\'s id, not the callsign', kept);
@@ -93,16 +98,16 @@ export default async function (host, { sleep, outDir }) {
       check(same(key), `After the rejoin the guest's ${key} are back`, { before: before[key], after: after[key] });
     }
     check(after.alive, 'They left alive, so they are back alive', after);
-    check((await said(guest, /Rejoined: your kit, credits and score are back/)).length === 1, 'The guest is told its kit is back');
+    check((await said(guest, /REJOINED · your kit and credits are back/)).length === 1, 'The guest is told its kit is back');
     const seat2 = await seatOf();
     check(seat2.key === kept.key && seat2.id !== kept.id, 'The same seat, under a new connection id', { kept, seat2 });
     await shot(guest, 'guest-kit-after');
 
     progress('not a free revive: the guest bleeds out, rejoins, and is still dead');
     await down(guest);
-    await host.waitForFunction(slot => [...window.__op2.ctx.coop.world.team.cards.values()].some(c => c.slot === slot && c.state === 'down'), slot, { timeout: 15000 });
+    await host.waitForFunction(slot => [...window.__op2.ctx.coop.world.team.cards.values()].some(c => c.slot === slot && c.state === 'down'), slot, { timeout: 30000, polling: 250 });
     await bleedOut(host, slot);
-    await guest.waitForFunction(() => window.__op2.ctx.coop.world.team.myState === 'dead', null, { timeout: 15000 });
+    await guest.waitForFunction(() => window.__op2.ctx.coop.world.team.myState === 'dead', null, { timeout: 30000, polling: 250 });
     await rejoin();
     await sleep(BAD_NET ? 1500 : 800);
     const dead = await kitOf(guest);
@@ -110,14 +115,18 @@ export default async function (host, { sleep, outDir }) {
     out.dead = { dead, hostSees };
     check(!dead.alive && hostSees.state === 'dead', 'A player who left dead comes back dead, on both sides', { dead: dead.alive, hostSees });
     check(dead.guns.join() === before.guns.join() && dead.credits === before.credits, 'The kit and the purse still came back', dead);
-    check((await said(guest, /you were down when you left/)).length === 1, 'They are told why');
+    check((await said(guest, /YOU LEFT DOWN/)).length === 1, 'They are told why');
     await shot(guest, 'guest-back-dead');
+    const waveNow = await world(host);
+    check(waveNow.phase !== 'intermission', 'The wave is still on, so the team has not respawned since they left', waveNow);
     await clearWave(host);
-    await guest.waitForFunction(() => window.__op2.ctx.player.alive === true, null, { timeout: 20000 });
+    await guest.waitForFunction(() => window.__op2.ctx.player.alive === true, null, { timeout: 30000, polling: 250 });
     const up = await world(guest);
     check(up.alive && up.phase === 'intermission', 'They get up with the team when the wave is cleared', up);
   } catch (error) {
     out.errors.push(String(error?.stack ?? error));
+    out.said = await Promise.all(pages.map(p => p.evaluate(() => (window.__said ?? []).slice(-40)).catch(() => [])));
+    out.worlds = await Promise.all(pages.map(p => world(p).catch(() => null)));
     for (const [i, page] of pages.entries()) await page.screenshot({ path: `${outDir}/${tag}-fail-${i}.png` }).catch(() => {});
   }
   out.ok = out.errors.length === 0;

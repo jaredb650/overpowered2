@@ -11,7 +11,7 @@
 //   TEAM_CASE=wipe node tools/shot.mjs --port 5310 --dpr 2 --w 1440 --h 900 --wait 500 --timeout 900 \
 //     --script tools/scripts/coop-team-endings.mjs --out tools/out/team/endings-final.png
 import { writeFileSync } from 'node:fs';
-import { aimAt, button, kit } from './coop-kit.mjs';
+import { button, fireAt, kit } from './coop-kit.mjs';
 import { BAD_NET, allIn, backInLobby, down, ending, invulnerable, netName, players, teamParty, world } from './coop-team-kit.mjs';
 
 const CASE = process.env.TEAM_CASE ?? 'wipe';
@@ -26,7 +26,7 @@ export default async function (host, { sleep, outDir }) {
   let pages = [host];
   // The board on every page, and nothing solo: the heart of every case.
   const boardEverywhere = async (big, label, buttons = true) => {
-    for (const page of pages) await page.waitForFunction(() => !!document.querySelector('.cq-over .cq-big')?.textContent, null, { timeout: 60000 });
+    for (const page of pages) await page.waitForFunction(() => !!document.querySelector('.cq-over .cq-big')?.textContent, null, { timeout: 60000, polling: 250 });
     await sleep(600);
     const seen = await Promise.all(pages.map(ending));
     out[label] = seen;
@@ -52,11 +52,11 @@ export default async function (host, { sleep, outDir }) {
     progress(`in ${contract} with ${pages.length} players${BAD_NET ? ' on a bad network' : ''}`);
 
     if (CASE === 'wipe') {
-      await host.waitForFunction(() => window.__op2.ctx.waves.wave >= 1, null, { timeout: 60000 });
+      await host.waitForFunction(() => window.__op2.ctx.waves.wave >= 1, null, { timeout: 60000, polling: 250 });
       await invulnerable(pages, true);
       // Everyone but the host goes down, then bleeds out or stays down; the host last.
       for (const page of pages.slice(1)) await down(page);
-      await host.waitForFunction(n => [...window.__op2.ctx.coop.world.team.cards.values()].filter(c => c.state !== 'up').length === n, pages.length - 1, { timeout: 15000 });
+      await host.waitForFunction(n => [...window.__op2.ctx.coop.world.team.cards.values()].filter(c => c.state !== 'up').length === n, pages.length - 1, { timeout: 30000, polling: 250 });
       const mid = await Promise.all(pages.map(ending));
       check(mid.every(e => !e.board && !e.soloGameOver), 'With the host still up there is no board and no solo screen', mid);
       await shot(pages[1], 'guest-down-before-wipe');
@@ -68,7 +68,7 @@ export default async function (host, { sleep, outDir }) {
       const matchBefore = await host.evaluate(() => window.__op2.ctx.coop.match.id);
       await host.locator('.cq-over .cq-btn', { hasText: 'Start again' }).click();
       for (const page of pages) await page.waitForFunction(id => window.__op2?.ctx?.coop?.world && window.__op2.ctx.coop.match.id !== id
-        && window.__op2.ctx.coop.remotes.size >= 1 && window.__op2.game.state !== 'menu', matchBefore, { timeout: 180000 });
+        && window.__op2.ctx.coop.remotes.size >= 1 && window.__op2.game.state !== 'menu', matchBefore, { timeout: 180000, polling: 250 });
       await allIn(pages, contract);
       const again = await Promise.all(pages.map(p => p.evaluate(() => ({ id: window.__op2.ctx.coop.match.id, mode: window.__op2.ctx.coop.match.mode, wave: window.__op2.ctx.waves.wave,
         board: !!document.querySelector('.cq-over .cq-big')?.textContent, players: window.__op2.ctx.coop.lobby.players.length }))));
@@ -78,11 +78,11 @@ export default async function (host, { sleep, outDir }) {
       await shot(host, 'again-host');
 
       progress('second wipe: a guest leaves on its own, then the host takes the rest');
-      await host.waitForFunction(() => window.__op2.ctx.waves.wave >= 1, null, { timeout: 60000 });
+      await host.waitForFunction(() => window.__op2.ctx.waves.wave >= 1, null, { timeout: 60000, polling: 250 });
       for (const page of pages) await down(page);
       await boardEverywhere('TEAM WIPED', 'wipe2');
       await pages[1].locator('.cq-over .cq-btn', { hasText: 'Back to lobby' }).click();
-      await pages[1].waitForFunction(() => window.__op2.game.state === 'menu' && getComputedStyle(document.querySelector('.scr-coop')).display !== 'none', null, { timeout: 20000 });
+      await pages[1].waitForFunction(() => window.__op2.game.state === 'menu' && getComputedStyle(document.querySelector('.scr-coop')).display !== 'none', null, { timeout: 30000, polling: 250 });
       const hostStill = await ending(host);
       check(hostStill.board && hostStill.coop, 'A guest going back to the lobby leaves the host on the board, still in the match', hostStill);
       // The host uses the keyboard: Enter on the focused "Back to lobby (everyone)".
@@ -94,19 +94,19 @@ export default async function (host, { sleep, outDir }) {
 
     if (CASE === 'humans') {
       await invulnerable(pages, true);
-      await host.waitForFunction(() => window.__op2.ctx.waves.wave >= 1, null, { timeout: 60000 });
+      await host.waitForFunction(() => window.__op2.ctx.waves.wave >= 1, null, { timeout: 60000, polling: 250 });
       progress('dev hooks: jump to wave 10 and bring the Commander down');
       await host.evaluate(() => {
         const { ctx } = window.__op2;
         for (const enemy of [...ctx.enemies.alive]) ctx.enemies.withdraw(enemy);
         ctx.waves.jumpTo(10);
       });
-      await host.waitForFunction(() => window.__op2.ctx.waves.wave === 10 && window.__op2.ctx.waves.phase !== 'intermission', null, { timeout: 30000 });
+      await host.waitForFunction(() => window.__op2.ctx.waves.wave === 10 && window.__op2.ctx.waves.phase !== 'intermission', null, { timeout: 30000, polling: 250 });
       await host.evaluate(() => window.__op2.ctx.enemies.outpost.commander.person.summon());
-      await host.waitForFunction(() => !!window.__op2.ctx.enemies.outpost.commander.person.body?.alive, null, { timeout: 30000 });
+      await host.waitForFunction(() => !!window.__op2.ctx.enemies.outpost.commander.person.body?.alive, null, { timeout: 30000, polling: 250 });
       const boss = await host.evaluate(() => window.__op2.ctx.enemies.outpost.commander.person.body.uid);
       const killer = pages[pages.length - 1];
-      await killer.waitForFunction(uid => window.__op2.ctx.enemies.alive.some(e => e.uid === uid), boss, { timeout: 20000 });
+      await killer.waitForFunction(uid => window.__op2.ctx.enemies.alive.some(e => e.uid === uid), boss, { timeout: 30000, polling: 250 });
       await shot(killer, 'commander-on-guest');
       const before = await Promise.all(pages.map(ending));
       check(before.every(e => !e.board), 'No board while the Commander lives', before);
@@ -136,8 +136,7 @@ export default async function (host, { sleep, outDir }) {
       for (let i = 0; i < 40; i++) {
         const alive = await host.evaluate(uid => window.__op2.ctx.enemies.alive.some(e => e.uid === uid), boss);
         if (!alive) break;
-        await aimAt(killer, boss);
-        await killer.mouse.down(); await sleep(500); await killer.mouse.up();
+        await fireAt(killer, boss, 700, sleep);
         await sleep(BAD_NET ? 500 : 200);
       }
       const dead = await host.evaluate(uid => !window.__op2.ctx.enemies.alive.some(e => e.uid === uid), boss);

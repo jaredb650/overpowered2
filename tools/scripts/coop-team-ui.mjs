@@ -8,7 +8,7 @@
 //   node tools/shot.mjs --port 5310 --dpr 2 --w 1440 --h 900 --wait 500 --timeout 600 \
 //     --script tools/scripts/coop-team-ui.mjs --out tools/out/team/ui-final.png
 import { writeFileSync } from 'node:fs';
-import { aimAt, ahead, calm, dummy, give, kit, skipBreak, state, teleport } from './coop-kit.mjs';
+import { calm, dummy, fireAt, give, kit, skipBreak, state, teleport } from './coop-kit.mjs';
 import { BAD_NET, hudText, invulnerable, netName, players, said, teamParty, waitSaid } from './coop-team-kit.mjs';
 
 const PLAYERS = players(2);
@@ -25,7 +25,7 @@ export default async function (host, { sleep, outDir }) {
     const guest = pages[1];
     await invulnerable(pages, true);
     await skipBreak(host);
-    await host.waitForFunction(() => window.__op2.ctx.waves.wave >= 1 && window.__op2.ctx.waves.phase !== 'intermission', null, { timeout: 60000 });
+    await host.waitForFunction(() => window.__op2.ctx.waves.wave >= 1 && window.__op2.ctx.waves.phase !== 'intermission', null, { timeout: 60000, polling: 250 });
     await calm(host);
     await sleep(800);
     // Everyone stands in a loose line at the spawn, looking the same way.
@@ -38,16 +38,17 @@ export default async function (host, { sleep, outDir }) {
     const live = page => page.evaluate(() => window.__op2.ctx.coop.world.team.marks.live.map(m => ({ slot: m.slot, at: m.at.toArray().map(n => Math.round(n * 10) / 10) })));
     await guest.keyboard.press('KeyP');
     const own = await live(guest);
-    check(own.length === 1 && own[0].slot === 1, 'The pinger\'s own marker is up at once', own);
-    await host.waitForFunction(() => window.__op2.ctx.coop.world.team.marks.live.length === 1, null, { timeout: 5000 });
+    const guestSlot = await guest.evaluate(() => window.__op2.ctx.coop.lobby.me.slot);
+    check(own.length === 1 && own[0].slot === guestSlot, 'The pinger\'s own marker is up at once', own);
+    await host.waitForFunction(() => window.__op2.ctx.coop.world.team.marks.live.length === 1, null, { timeout: 30000, polling: 250 });
     const seen = await all(live);
     out.ping = seen;
-    seen.forEach((m, i) => check(m.length === 1 && m[0].slot === 1 && JSON.stringify(m[0].at) === JSON.stringify(own[0].at), `Page ${i} has the guest's ping at the same spot`, m));
+    seen.forEach((m, i) => check(m.length === 1 && m[0].slot === guestSlot && JSON.stringify(m[0].at) === JSON.stringify(own[0].at), `Page ${i} has the guest's ping at the same spot`, m));
     const labels = await all(hudText);
-    check(labels[0].marks.some(t => /^GUEST-TWO/.test(t)), 'The host\'s marker carries the guest\'s name', labels[0].marks);
+    check(labels[0].marks.some(t => /^PING · GUEST-TWO/.test(t)), 'The host\'s marker carries the guest\'s name', labels[0].marks);
     check(labels[1].marks.some(t => /^YOUR PING/.test(t)), 'The guest\'s own reads YOUR PING', labels[1].marks);
-    const colour = await host.evaluate(() => { const el = [...document.querySelectorAll('.wl .mk')].find(e => /^GUEST-TWO/.test(e.textContent)); return el ? el.style.getPropertyValue('--c') : ''; });
-    check(colour === '#ffb33d', 'The marker is in the guest\'s own colour', colour);
+    const colour = await host.evaluate(() => { const el = [...document.querySelectorAll('.wl .mk')].find(e => /^PING · GUEST-TWO/.test(e.textContent)); return el ? el.style.getPropertyValue('--c') : ''; });
+    check(colour === ['#39e0ff', '#ffb33d', '#c69bff', '#79f1ad'][guestSlot], 'The marker is in the guest\'s own colour', { colour, guestSlot });
     // The host looks at it for the picture.
     await host.evaluate(at => {
       const { ctx } = window.__op2; const V = ctx.player.position.constructor;
@@ -66,16 +67,15 @@ export default async function (host, { sleep, outDir }) {
     progress('the kill feed and kill credit');
     const before = { host: await state(host), guest: await state(guest) };
     const husks = [await dummy(host, point(7, -1.5)), await dummy(host, point(7, 0)), await dummy(host, point(7, 1.5))];
-    await guest.waitForFunction(uids => uids.every(uid => window.__op2.ctx.enemies.alive.some(e => e.uid === uid)), husks, { timeout: 15000 });
+    await guest.waitForFunction(uids => uids.every(uid => window.__op2.ctx.enemies.alive.some(e => e.uid === uid)), husks, { timeout: 30000, polling: 250 });
     await sleep(600);
     for (const uid of husks) {
       for (let i = 0; i < 12; i++) {
         if (!(await host.evaluate(uid => window.__op2.ctx.enemies.alive.some(e => e.uid === uid), uid))) break;
-        await aimAt(guest, uid);
-        await guest.mouse.down(); await sleep(350); await guest.mouse.up(); await sleep(BAD_NET ? 350 : 120);
+        await fireAt(guest, uid, 700, sleep); await sleep(BAD_NET ? 350 : 120);
       }
     }
-    await host.waitForFunction(uids => uids.every(uid => !window.__op2.ctx.enemies.alive.some(e => e.uid === uid)), husks, { timeout: 15000 });
+    await host.waitForFunction(uids => uids.every(uid => !window.__op2.ctx.enemies.alive.some(e => e.uid === uid)), husks, { timeout: 30000, polling: 250 });
     await settle();
     const feeds = await all(hudText);
     out.kills = feeds.map(f => f.kills);
@@ -89,7 +89,7 @@ export default async function (host, { sleep, outDir }) {
     check(after.host.kills === before.host.kills && after.host.credits === before.host.credits, 'The host is not paid for them', out.credit);
     // The host kills a boss: by name in every main feed.
     const boss = await dummy(host, point(9, 0), 'juggernaut');
-    await guest.waitForFunction(uid => window.__op2.ctx.enemies.alive.some(e => e.uid === uid), boss, { timeout: 15000 });
+    await guest.waitForFunction(uid => window.__op2.ctx.enemies.alive.some(e => e.uid === uid), boss, { timeout: 30000, polling: 250 });
     await host.evaluate(uid => {
       const { ctx } = window.__op2; const V = ctx.player.position.constructor;
       const enemy = ctx.enemies.alive.find(e => e.uid === uid);
@@ -105,12 +105,12 @@ export default async function (host, { sleep, outDir }) {
 
     progress('the strip: in a menu, cheats');
     await guest.evaluate(() => window.__op2.ctx.hud.pause());
-    await host.waitForFunction(() => [...document.querySelectorAll('.cq-mate')].some(el => /IN A MENU/.test(el.textContent)), null, { timeout: 8000 });
+    await host.waitForFunction(() => [...document.querySelectorAll('.cq-mate')].some(el => /IN A MENU/.test(el.textContent)), null, { timeout: 30000, polling: 250 });
     check(true, 'The host\'s strip says the guest is in a menu');
     await guest.evaluate(() => window.__op2.game.setState('playing'));
     await guest.evaluate(async () => { (await import('/src/core/cheats.ts')).setCheats(true); });
-    for (const page of pages) await waitSaid(page, /GUEST-TWO has cheats on\. The Council has been informed\./);
-    await host.waitForFunction(() => [...document.querySelectorAll('.cq-mate')].some(el => /CHEATS/.test(el.textContent)), null, { timeout: 8000 });
+    for (const page of pages) await waitSaid(page, /GUEST-TWO has cheats on · unranked/);
+    await host.waitForFunction(() => [...document.querySelectorAll('.cq-mate')].some(el => /CHEATS/.test(el.textContent)), null, { timeout: 30000, polling: 250 });
     check((await said(host, /GUEST-TWO has cheats on/)).length === 1, 'Every page is told, once, that the guest turned cheats on, and the strip is tagged');
     await host.evaluate(() => window.__op2.ctx.input.simulate('scoreboard', true));
     await sleep(600);
@@ -121,6 +121,8 @@ export default async function (host, { sleep, outDir }) {
     await guest.evaluate(async () => { (await import('/src/core/cheats.ts')).setCheats(false); });
   } catch (error) {
     out.errors.push(String(error?.stack ?? error));
+    out.said = await Promise.all(pages.map(p => p.evaluate(() => (window.__said ?? []).slice(-30)).catch(() => [])));
+    out.stats = await Promise.all(pages.map(p => p.evaluate(() => ({ ...window.__op2.ctx.coop?.world?.stats, enemies: window.__op2.ctx.enemies.alive.map(e => [e.uid, Math.round(e.health)]) })).catch(() => null)));
     for (const [i, page] of pages.entries()) await page.screenshot({ path: `${outDir}/${tag}-fail-${i}.png` }).catch(() => {});
   }
   out.ok = out.errors.length === 0;

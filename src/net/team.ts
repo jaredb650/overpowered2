@@ -110,7 +110,7 @@ const STALL_MS = 250;
 const FULFILLED_WAIT_MS = 25_000;
 const DOWN_COLOR = '#ff3b3b';
 /** The host's custom Crucible rules run the shared world: every player is told, once. */
-const CUSTOM_LINE = 'CUSTOM RULES APPLY · the host\'s, for everyone · unranked';
+const CUSTOM_LINE = 'HOST\'S CUSTOM RULES APPLY · unranked';
 const GOOD = '#79f1ad';
 
 /** One player's life, as the host keeps it. `life` counts lives, so damage meant for an earlier one is dropped. */
@@ -252,8 +252,8 @@ export class Team {
 
   private get me(): number { return this.session.lobby.me?.slot ?? 0; }
   private get mission(): boolean { return MISSION_ID !== null; }
-  /** "back next wave", or in a mission, where there are no waves, the checkpoint. */
-  private get backWhen(): string { return this.mission ? 'back at the next checkpoint' : 'back when the wave is cleared'; }
+  /** "back at wave clear", or in a mission, where there are no waves, the checkpoint. */
+  private get backWhen(): string { return this.mission ? 'back at the checkpoint' : 'back at wave clear'; }
 
   /** Host: the waves' phase and clock as a wave event goes out. A guest's only other source is the next snapshot, which is later. */
   private wavePhase(): { phase: string; next: number } {
@@ -362,11 +362,18 @@ export class Team {
     if (!this.session.hosting) return;
     const at = this.ctx.player.position;
     for (const [id, life] of this.lives) if (life.respawn()) this.up(id, 'respawn', undefined, [at.x, at.y, at.z], this.ctx.player.yaw);
+    this.forgiveSeats();
+  }
+
+  /** Host: the team has respawned. Someone who left dead and is not back yet has sat that out: they return alive. */
+  private forgiveSeats(): void {
+    for (const seat of this.seats.values()) seat.dead = false;
   }
 
   /** Host: the wave is cleared (or the next begins): the dead and the downed come back at the spawn, so everyone shops. */
   private respawnFallen(): void {
     for (const [id, life] of this.lives) if (life.respawn()) this.up(id, 'respawn');
+    this.forgiveSeats();
   }
 
   /** Host: a revive or a respawn. The player's own browser puts them back on their feet: at the map's spawn, or beside `at`. */
@@ -452,7 +459,7 @@ export class Team {
           const seat = this.seatOf(this.seatKey(from));
           // Only a settled guest's numbers are kept: a card that left before the purse came back would wipe the purse.
           if (card.ok) seat.purse = card;
-          if (card.cheats && !seat.cheats) lobby.notice(`${player.name} has cheats on. The Council has been informed.`);
+          if (card.cheats && !seat.cheats) lobby.notice(`${player.name} has cheats on · unranked`);
           seat.cheats = card.cheats;
           return true;
         }
@@ -555,12 +562,13 @@ export class Team {
         p.alive = false; p.downed = false; p.health = 0;
         this.myState = 'dead';
         this.life(this.session.lobby.you).state = 'dead';
-        ctx.hud.feed(`Rejoined: you were down when you left · ${this.backWhen}`, DOWN_COLOR);
+        ctx.hud.feed(`YOU LEFT DOWN · ${this.backWhen}`, DOWN_COLOR);
       } else {
         if (Number.isFinite(value.hp) && value.hp! > 0) p.health = Math.min(p.maxHealth, Math.max(1, int(value.hp, 1000)));
         if (Number.isFinite(value.armor)) p.armor = int(value.armor, 1000);
       }
-      ctx.hud.feed(kit ? 'Rejoined: your kit, credits and score are back' : 'Rejoined: your credits and score are back', GOOD);
+      // The feed's lines are about forty characters wide: every line here fits.
+      ctx.hud.feed(kit ? 'REJOINED · your kit and credits are back' : 'REJOINED · credits and score are back', GOOD);
     }
     this.settled = true;
     // The kit as it stands now is what the host has: nothing to send until it changes.
@@ -619,7 +627,7 @@ export class Team {
     if (!this.session.hosting) return;
     const lobby = this.session.lobby;
     const mine = this.card();
-    if (mine.cheats && !this.toldCheats) lobby.notice(`${lobby.me?.name ?? 'The host'} has cheats on. The Council has been informed.`);
+    if (mine.cheats && !this.toldCheats) lobby.notice(`${lobby.me?.name ?? 'The host'} has cheats on · unranked`);
     this.toldCheats = mine.cheats;
     this.cards.set(this.me, mine);
     for (const player of lobby.players) {

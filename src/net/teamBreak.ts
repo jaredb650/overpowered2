@@ -122,7 +122,7 @@ export class TeamBreak {
     const who = lobby.players.find(p => p.slot === value.by);
     const name = who?.id === lobby.you ? 'You are' : `${who?.name ?? 'A player'} is`;
     const all = need > 0 && ready.length >= need;
-    this.ctx.hud.feed(all ? `EVERYONE READY · next wave in ${CUT_TO}` : `${name} ready for the next wave (${ready.length}/${need})`, VOTE_COLOR);
+    this.ctx.hud.feed(all ? `EVERYONE READY · next wave in ${CUT_TO}` : `${name} ready (${ready.length}/${need})`, VOTE_COLOR);
   }
 
   update(): void {

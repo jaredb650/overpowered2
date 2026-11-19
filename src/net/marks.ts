@@ -20,6 +20,8 @@ export const MARK_GAP_MS = 350;
 /** Metres a ping reaches; past it, or into the sky, it lands this far along the look. */
 const MARK_RANGE = 300;
 const MARK_AIR = 40;
+const MARK_DROP = 120;
+const DOWN = new THREE.Vector3(0, -1, 0);
 
 interface Mark { slot: number; until: number; at: THREE.Vector3; off: () => void }
 
@@ -48,7 +50,12 @@ export class Marks {
     this.nextOwn = now + MARK_GAP_MS;
     const hit = this.ctx.physics.raycast(player.eye, player.forward, MARK_RANGE, CG.World);
     if (hit) this.at.copy(hit.point);
-    else this.at.copy(player.eye).addScaledVector(player.forward, MARK_AIR);
+    else {
+      // Nothing in the way (the sky, an open yard): a point ahead, put down on whatever floor is under it.
+      this.at.copy(player.eye).addScaledVector(player.forward, MARK_AIR);
+      const floor = this.ctx.physics.raycast(this.at, DOWN, MARK_DROP, CG.World);
+      if (floor) this.at.copy(floor.point);
+    }
     const at = this.at.toArray() as Vec;
     const slot = this.session.lobby.me?.slot ?? 0;
     this.show(slot, at);
@@ -64,7 +71,8 @@ export class Marks {
     if (mine.length >= MARK_KEEP) this.drop(mine[0]!);
     const color = `#${(COLORS[slot] ?? COLORS[0]!).toString(16).padStart(6, '0')}`;
     const position = new THREE.Vector3(...at);
-    const off = this.ctx.hud.marker(position, player.id === lobby.you ? 'YOUR PING' : player.name, color);
+    // Not the bare name: that is the tag over the player's own head.
+    const off = this.ctx.hud.marker(position, player.id === lobby.you ? 'YOUR PING' : `PING · ${player.name}`, color);
     this.live.push({ slot, until: performance.now() + MARK_SECONDS * 1000, at: position, off });
     this.ctx.audio.play?.('ui_hover');
   }

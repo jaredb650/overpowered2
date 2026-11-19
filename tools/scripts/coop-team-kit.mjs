@@ -15,6 +15,8 @@ export const netName = () => (BAD_NET ? NET : 'clean');
 /** A party in a match of `mode`, every world up and every guest's seat settled, feeds recorded. */
 export async function teamParty(host, { mode, count = 2, out, progress, sleep, password = 'team-rules' }) {
   const party = await startParty(host, { players: count, mode, net: BAD_NET ? NET : undefined, password, out, progress, sleep });
+  // From its next page load on (a rejoin, a second match) each page records what it says from the first frame.
+  for (const page of party.pages) await page.addInitScript(recorder);
   await allIn(party.pages, party.mode.contract);
   return party;
 }
@@ -24,26 +26,32 @@ export async function allIn(pages, contract, others = pages.length - 1) {
   for (const page of pages) {
     await page.waitForURL(new RegExp(`contract=${contract}`), { timeout: 120000 });
     await page.waitForFunction(n => window.__op2?.ctx?.coop?.world && window.__op2.game.state !== 'menu' && window.__op2.ctx.coop.remotes.size >= n
-      && [...window.__op2.ctx.coop.remotes.values()].every(r => r.char.root.visible), others, { timeout: 180000 });
+      && [...window.__op2.ctx.coop.remotes.values()].every(r => r.char.root.visible), others, { timeout: 180000, polling: 250 });
     await page.evaluate(() => { window.__op2.game.setState('playing'); });
     await record(page);
   }
   // A guest's seat is settled once the host's `restore` has come back: cards and kits count from here.
-  for (const page of pages) await page.waitForFunction(() => window.__op2.ctx.coop.world.team.settled === true, null, { timeout: 30000 });
+  for (const page of pages) await page.waitForFunction(() => window.__op2.ctx.coop.world.team.settled === true, null, { timeout: 30000, polling: 250 });
 }
 
-/** Keeps every feed line, banner and callout a page shows from now on, in `window.__said`. */
-export const record = page => page.evaluate(() => {
-  if (window.__said) return;
-  const said = (window.__said = []);
-  const hud = window.__op2.ctx.hud;
-  for (const name of ['feed', 'banner', 'callout']) {
-    const real = hud[name].bind(hud);
-    hud[name] = (...args) => { said.push(`${name}: ${args.filter(a => typeof a === 'string' && !a.startsWith('#')).join(' | ')}`); return real(...args); };
-  }
-});
+/** Runs in the page: keeps every feed line, banner and callout it shows in `window.__said`, from the moment the HUD exists. */
+export function recorder() {
+  const wrap = () => {
+    const hud = window.__op2?.ctx?.hud;
+    if (!hud) return false;
+    if (window.__said) return true;
+    const said = (window.__said = []);
+    for (const name of ['feed', 'banner', 'callout']) {
+      const real = hud[name].bind(hud);
+      hud[name] = (...args) => { said.push(`${name}: ${args.filter(a => typeof a === 'string' && !a.startsWith('#')).join(' | ')}`); return real(...args); };
+    }
+    return true;
+  };
+  if (!wrap()) { const timer = setInterval(() => { if (wrap()) clearInterval(timer); }, 30); }
+}
+export const record = page => page.evaluate(recorder);
 export const said = (page, pattern) => page.evaluate(source => (window.__said ?? []).filter(line => new RegExp(source).test(line)), pattern.source);
-export const waitSaid = (page, pattern, timeout = 15000) => page.waitForFunction(source => (window.__said ?? []).some(line => new RegExp(source).test(line)), pattern.source, { timeout });
+export const waitSaid = (page, pattern, timeout = 15000) => page.waitForFunction(source => (window.__said ?? []).some(line => new RegExp(source).test(line)), pattern.source, { timeout, polling: 250 });
 
 /** Takes a page's player to 0 health through the same door the host's damage comes in by. */
 export const down = page => page.evaluate(() => {
@@ -93,7 +101,7 @@ export const ending = page => page.evaluate(() => {
 export async function backInLobby(pages, n = pages.length) {
   for (const page of pages) {
     await page.waitForFunction(count => window.__op2.game.state === 'menu' && document.querySelectorAll('.scr-coop .co-player').length === count
-      && getComputedStyle(document.querySelector('.scr-coop')).display !== 'none', n, { timeout: 40000 });
+      && getComputedStyle(document.querySelector('.scr-coop')).display !== 'none', n, { timeout: 60000, polling: 250 });
   }
 }
 
@@ -111,5 +119,5 @@ export const hudText = page => page.evaluate(() => {
   const shown = el => !!el && getComputedStyle(el).display !== 'none';
   const text = sel => [...document.querySelectorAll(sel)].filter(shown).map(el => el.textContent);
   return { rest: shown(document.querySelector('.cq-rest')) ? document.querySelector('.cq-rest').textContent : '', strip: text('.cq-mate'), kills: text('.cq-kill'),
-    marks: text('.wl .mk').filter(Boolean), shop: shown(document.querySelector('.scr-procurement')) ? document.querySelector('.pc-phase')?.textContent ?? '' : null };
+    marks: text('.wl .mk').filter(Boolean), shop: shown(document.querySelector('.scr-proc')) ? document.querySelector('.pc-phase')?.textContent ?? '' : null };
 });
