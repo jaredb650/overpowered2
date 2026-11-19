@@ -4,9 +4,11 @@
  *
  *   aDecal.x  cell, plus (fraction / 0.9) how full the stain is: 0.5 is the outline as drawn
  *   aDecal.y  world time it was laid
- *   aDecal.z  kind (0 mark, 1 blood, 2 run, 3 growing blood) + 4 if mirrored in X + 8 if mirrored in Y, plus (fraction) its own seed
+ *   aDecal.z  kind (0 mark, 1 blood, 2 run, 3 growing blood, 4 a floor tile of old blood) + 8 if mirrored in X + 16 if mirrored
+ *             in Y, plus (fraction) its own seed
  *   aDecal.w  blood: the wet lip's width in field units. A run: its length over its width.
  */
+import { MapTuning } from './BloodMap';
 import { CELL, SHEET, SMALL_CELLS } from './decalSheet';
 
 const rows = SHEET.smallRows + SHEET.bigRows * 2;
@@ -32,9 +34,16 @@ vOpRect = opCell < ${f(SMALL_CELLS)}
       (${f(SHEET.smallRows)} + floor((opCell - ${f(SMALL_CELLS)}) / ${f(SHEET.bigCols)}) * 2.0) / ${f(rows)},
       1.0 / ${f(SHEET.bigCols)}, 2.0 / ${f(rows)});
 // A stain may be laid mirrored, so the few shapes on the sheet go further. The tangents turn with it.
-float opBits = floor(aDecal.z / 4.0);
+float opBits = floor(aDecal.z / 8.0);
 vec2 opFlip = vec2(mod(opBits, 2.0) > 0.5 ? -1.0 : 1.0, opBits > 1.5 ? -1.0 : 1.0);
 vOpUv = (uv - 0.5) * opFlip + 0.5;
+if (mod(floor(aDecal.z), 8.0) > 3.5) {
+  // A floor tile: its "cell" is its place in the blood map, inside the guard band.
+  vOpRect = vec4(
+    (mod(opCell, ${f(MapTuning.side)}) * ${f(MapTuning.tilePx)} + ${f(MapTuning.guard)}) / ${f(MapTuning.side * MapTuning.tilePx)},
+    (floor(opCell / ${f(MapTuning.side)}) * ${f(MapTuning.tilePx)} + ${f(MapTuning.guard)}) / ${f(MapTuning.side * MapTuning.tilePx)},
+    vec2(${f(MapTuning.tilePx - 2 * MapTuning.guard)} / ${f(MapTuning.side * MapTuning.tilePx)}));
+}
 vOpSize = vec2(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz));
 vOpT = mat3(viewMatrix) * instanceMatrix[0].xyz * opFlip.x;
 vOpB = mat3(viewMatrix) * instanceMatrix[1].xyz * opFlip.y;
@@ -45,6 +54,7 @@ const detail = [(CELL.detail % SHEET.smallCols) / SHEET.smallCols, Math.floor(CE
 export const DECAL_FRAG_PARS = /* glsl */ `
 uniform sampler2D opDecalA;
 uniform sampler2D opDecalS;
+uniform sampler2D opBloodMap;
 uniform highp sampler2D opDepth;
 uniform vec2 opProj;
 uniform float opWorldTime;
@@ -80,7 +90,7 @@ if (abs(opZ - vViewPosition.z) > 0.03 + vViewPosition.z * 0.0025) discard;
 vec2 opP = vOpUv;
 float opAge = max(opWorldTime - vOpDecal.y, 0.0);
 float opSeed = fract(vOpDecal.z);
-float opKind = mod(floor(vOpDecal.z), 4.0);
+float opKind = mod(floor(vOpDecal.z), 8.0);
 bool opBlood = opKind > 0.5;
 vec4 opA;
 vec4 opS = vec4(0.5, 0.5, 1.0, 0.0);
@@ -114,6 +124,20 @@ if (opKind > 1.5 && opKind < 2.5) {
   opA = vec4(1.0, 1.0, 1.0, cover * mix(0.8, 0.98, opThick));
   // A rounded bead of liquid: the normal rolls across it.
   opTilt = vec2(0.0, clamp(across / max(halfW, 0.05), -1.0, 1.0) * 0.3 * round_);
+} else if (opKind > 3.5) {
+  // A floor tile: every stain that dried on this floor, as one outline field. Drawn dry, under the fresh ones.
+  float field = texture2D(opBloodMap, vOpRect.xy + opP * vOpRect.zw).r;
+  vec2 m = opP * vOpSize * 5.0;
+  vec3 det = opDetail(m);
+  float near = 1.0 - smoothstep(0.08, 0.3, max(fwidth(m.x), fwidth(m.y)));
+  float th = 0.5 + (det.g - 0.5) * 0.1 * near;
+  float aa = max(fwidth(field) * 0.75, 0.003);
+  float cover = clamp((field - th) / aa + 0.5, 0.0, 1.0);
+  if (cover < 0.004) discard;
+  opThick = 0.3 + 0.45 * smoothstep(0.55, 0.95, field);
+  opRim = 1.0 - smoothstep(0.0, 0.2, field - th);
+  opCrack = det.r * near;
+  opA = vec4(1.0, 1.0, 1.0, cover * 0.94);
 } else if (opBlood) {
   vec2 q = opP * 2.0 - 1.0;
   // No two stains quite match: each is pulled a little out of shape its own way.

@@ -25,8 +25,8 @@ function slot(d: Decals, ring: 'blood' | 'big' | 'mark' | 'scorch', n = 0) {
   return {
     cell: Math.floor(data[i * 4]!),
     thin: (data[i * 4]! % 1) / 0.9,
-    kind: whole % 4,
-    flips: Math.floor(whole / 4),
+    kind: whole % 8,
+    flips: Math.floor(whole / 8),
     w: data[i * 4 + 3]!,
     x: new THREE.Vector3(m[i * 16]!, m[i * 16 + 1]!, m[i * 16 + 2]!),
     y: new THREE.Vector3(m[i * 16 + 4]!, m[i * 16 + 5]!, m[i * 16 + 6]!),

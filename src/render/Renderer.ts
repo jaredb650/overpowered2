@@ -572,6 +572,8 @@ export class Renderer implements RenderSystem {
 
     renderer.copyTextureToTexture(this.sceneTarget.depthTexture!, this.depthCopy.depthTexture!, this.depthRegion);
 
+    // Dried stains go into the floor tiles before the decals are drawn, so one overwritten this frame is already there.
+    this.decalSystem.floor.flush(renderer);
     this.decalSystem.update(this.ctx ? this.ctx.time.elapsed : time, this.depthCopy.depthTexture!, camera);
     if (this.passes.decals && this.decalSystem.mesh.count > 0) {
       renderer.setRenderTarget(this.decalTarget);

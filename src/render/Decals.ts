@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { DecalKind, DecalSystem } from '../core/contracts';
 import type { MaterialPatcher, ShaderHook } from './materials/patch';
 import type { BakedSet } from './materials/TextureBaker';
+import { BloodMap, TILES } from './BloodMap';
 import {
   BIG_CELLS, BIG_ROOT, CELL, CELL_COUNT, DRAG_ASPECT, Flag, KIND_CELLS, chooseSplat, flagOf, flipsOf, isBloodCell, lipOf, printThin, type BigKind, type SplatHow,
 } from './decalSheet';
@@ -14,7 +15,8 @@ import {
  * with its own cursor, so a kind only ever overwrites its own oldest: bullet holes cannot erase blood, and a few big
  * stains cannot be pushed out by a thousand small ones. The order here is the order they are drawn in, bottom first:
  *
- * - `scorch`: burns. Under everything, so the blood of the man a rocket killed lands on the burn and not beneath it.
+ * - `floor`: the tiles of old dried blood (`BloodMap`, sixteen quads). Not a ring to write to: the map moves them.
+ * - `scorch`: burns. Under everything but those, so the blood of the man a rocket killed lands on the burn and not beneath it.
  * - `big`: large stains laid for coverage (a burst under a gib, a fan along a shot). Few, and kept longest.
  * - `blood`: every small stain, smear, run and pool. The detail on top of the big ones.
  * - `mark`: holes, exit craters, cracks and cuts. On top: a round into a bloody wall still leaves its hole.
@@ -22,9 +24,9 @@ import {
  * `capacity` is the room each ring has in the buffer and never changes. `limit` (`setLimit`, the "Mess" setting) is how
  * much of it is in use.
  */
-export type DecalRing = 'scorch' | 'big' | 'blood' | 'mark';
-export const DECAL_RINGS: readonly DecalRing[] = ['scorch', 'big', 'blood', 'mark'];
-export const RING_CAPACITY: Readonly<Record<DecalRing, number>> = { scorch: 256, big: 256, blood: 8192, mark: 1536 };
+export type DecalRing = 'floor' | 'scorch' | 'big' | 'blood' | 'mark';
+export const DECAL_RINGS: readonly DecalRing[] = ['floor', 'scorch', 'big', 'blood', 'mark'];
+export const RING_CAPACITY: Readonly<Record<DecalRing, number>> = { floor: TILES, scorch: 256, big: 256, blood: 8192, mark: 1536 };
 /** Which ring a kind lives in. A new kind needs a row here and in `KIND_CELLS` (`decalSheet.ts`). */
 export const RING_OF: Readonly<Record<DecalKind, DecalRing>> = {
   bullet: 'mark',
@@ -158,6 +160,8 @@ export class Decals implements DecalSystem {
   /** Slots rewritten out of turn since the last upload (a soaked spot's), each sent as a range of its own. */
   private readonly loose = new Int32Array(48);
   private looseCount = 0;
+  /** Old blood kept in floor tiles once its decal is gone. */
+  readonly floor: BloodMap;
   private now = 0;
   private readonly fade = { value: 1 };
   /** Seconds a fade to nothing takes, 0 when none is running, and the world time it started. */
@@ -178,7 +182,11 @@ export class Decals implements DecalSystem {
       blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
       blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
     });
-    const own = { opDecalA: { value: atlas.albedo }, opDecalS: { value: atlas.surface }, opDepth: this.depth, opProj: this.proj, opWorldTime: this.time, opFade: this.fade };
+    const bloodMap: THREE.IUniform<THREE.Texture | null> = { value: null };
+    const own = {
+      opDecalA: { value: atlas.albedo }, opDecalS: { value: atlas.surface }, opBloodMap: bloodMap, opDepth: this.depth, opProj: this.proj,
+      opWorldTime: this.time, opFade: this.fade,
+    };
     const hook: ShaderHook = shader => {
       Object.assign(shader.uniforms, own);
       shader.vertexShader = shader.vertexShader
@@ -216,6 +224,53 @@ export class Decals implements DecalSystem {
     this.bloodRing = this.ring('blood');
     this.slotCell = new Float64Array(RING_CAPACITY.blood);
     this.slotLayers = new Float32Array(RING_CAPACITY.blood);
+    const blood = [this.ring('big'), this.ring('blood')];
+    const ranges: [number, number][] = [[0, 0], [0, 0]];
+    this.floor = new BloodMap({
+      matrices: this.matrices,
+      data: this.data,
+      now: () => this.now,
+      ranges: () => {
+        blood.forEach((r, i) => {
+          ranges[i]![0] = r.base;
+          ranges[i]![1] = r.live;
+        });
+        return ranges;
+      },
+      tile: (i, x, y, z, span) => this.tile(i, x, y, z, span),
+    }, atlas.albedo, MAX_DECALS);
+    bloodMap.value = this.floor.texture;
+  }
+
+  /**
+   * Shows floor tile `i` as a quad of `span` metres centred on (x, y, z), or hides it (`span` 0). Its edges run along
+   * world +X and -Z, so it faces up; mirrored in Y, so the tile's rows run along +Z as the map draws them.
+   */
+  private tile(i: number, x: number, y: number, z: number, span: number): void {
+    const r = this.ring('floor');
+    const slot = r.base + i;
+    const o = slot * 16;
+    const m = this.matrices;
+    m.fill(0, o, o + 16);
+    if (span > 0) {
+      m[o] = span;
+      m[o + 6] = -span;
+      m[o + 9] = 1;
+      m[o + 12] = x;
+      m[o + 13] = y + 0.001;
+      m[o + 14] = z;
+      m[o + 15] = 1;
+    }
+    const d = slot * 4;
+    this.data[d] = i;
+    // Dry for as long as anyone can remember.
+    this.data[d + 1] = -1e6;
+    this.data[d + 2] = Flag.Floor + 16;
+    this.data[d + 3] = 0;
+    r.live = r.limit;
+    r.flush = r.limit;
+    const end = r.base + r.live;
+    if (end > this.mesh.count) this.mesh.count = end;
   }
 
   /** A cell's key from a point in the world: half-metre cells, a metre high, so a floor above is its own. Never 0. */
@@ -519,9 +574,12 @@ export class Decals implements DecalSystem {
     const i = r.base + at;
     const reuse = at !== r.cursor;
     if (reuse) {
-      // Its place in the ring is an older one's: it goes when that one would have.
+      // Its place in the ring is an older one's: it goes when that one would have. What it replaces goes into a floor
+      // tile first, if it can, so a soaked spot keeps every layer it ever had.
+      this.floor.retire(i);
     } else if (r.live === r.limit) {
       r.retired++;
+      this.floor.retire(i);
       if (this.onRetire) this.onRetire(r.name, this.matrices, this.data, i);
     } else {
       r.live++;
@@ -566,7 +624,7 @@ export class Decals implements DecalSystem {
     this.data[d] = cell + Math.min(Math.max(thin, 0), 1) * 0.9;
     this.data[d + 1] = this.now;
     // Whole part: what it is and how it is mirrored. Fraction: this decal's own seed for the shader.
-    this.data[d + 2] = flag + flips * 4 + Math.random() * 0.99;
+    this.data[d + 2] = flag + flips * 8 + Math.random() * 0.99;
     this.data[d + 3] = w;
 
     if (reuse) {
@@ -590,6 +648,7 @@ export class Decals implements DecalSystem {
   clear(): void {
     this.fading = 0;
     this.fade.value = 1;
+    this.floor.clear();
     for (const r of this.rings) {
       if (r.live > 0) {
         this.matrices.fill(0, r.base * 16, (r.base + r.live) * 16);

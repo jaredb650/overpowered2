@@ -62,6 +62,8 @@ export const DevFlags = {
    * body, soot for blood. Off (`?fire=0`) is fire as it was: a timer, one emitter on the chest, out at death.
    */
   fire: on('fire'),
+  /** Off (`?bloodmap=0`): dried blood on a floor is not kept in the floor tiles, and goes when its decal is overwritten. */
+  bloodMap: on('bloodmap'),
 };
 
 /** The hit-reaction switches as the page's URL left them: the lab starts from these, not from what it last remembered. */

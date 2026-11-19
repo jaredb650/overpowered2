@@ -166,7 +166,7 @@ export class LabPanel {
     return b;
   }
 
-  private check(parent: HTMLElement, label: string, key: 'god' | 'arsenal' | 'reserves' | 'overlay' | 'gibbing' | 'explosiveDeaths' | 'progression' | 'muscles' | 'messPush' | 'messRest' | 'gibThrow' | 'vmBlood' | 'fire' | 'wear' | 'bigBlood' | 'hitBlood' | ReactSwitch): void {
+  private check(parent: HTMLElement, label: string, key: 'god' | 'arsenal' | 'reserves' | 'overlay' | 'gibbing' | 'explosiveDeaths' | 'progression' | 'muscles' | 'messPush' | 'messRest' | 'gibThrow' | 'vmBlood' | 'fire' | 'wear' | 'bigBlood' | 'hitBlood' | 'bloodMap' | ReactSwitch): void {
     const row = el('label', 'lab-check');
     const box = el('input');
     box.type = 'checkbox';
@@ -383,6 +383,7 @@ export class LabPanel {
     this.check(this.el, 'New fire', 'fire');
     this.check(this.el, 'Corpses heap', 'messRest');
     this.check(this.el, 'Corpses are pushed aside', 'messPush');
+    this.check(this.el, 'Blood: old stains kept on floors', 'bloodMap');
     this.check(this.el, 'Aim readout', 'overlay');
     const force = el('input');
     const value = el('span');

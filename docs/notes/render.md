@@ -53,7 +53,8 @@ render.render();                      // once per frame, after the camera is pla
 **Decals.** `decals.add(kind, point, normal, size, rotation)`. `size` is the full quad edge in meters. For `bloodSmear` and `slash`, rotation sets the drag direction along local +X. Pools spread from their middle over a few seconds. Decals test depth in the shader, so nothing z-fights or overhangs a ledge. They do not wrap around corners: the part past a corner is cut off. For the same reason a decal must be given the normal of the face it lies on: one laid along a slanted shot stands off the wall and is cut down to a sliver.
 
 **Rings (2026-11-19).** The decal buffer is one instanced mesh and one draw call, cut into four rings by kind
-(`DECAL_RINGS`, `RING_OF`, `RING_CAPACITY` in `Decals.ts`), drawn in this order, bottom first: `scorch` 256 (burns),
+(`DECAL_RINGS`, `RING_OF`, `RING_CAPACITY` in `Decals.ts`; a fifth, `floor`, is under them all and holds the sixteen
+floor tiles of old blood, below), drawn in this order, bottom first: `scorch` 256 (burns),
 `big` 256 (a kill's large coverage stains, `decals.big`), `blood` 8,192 (stains, smears, runs, pools), `mark` 1,536 (holes,
 exit craters, cracks, cuts). Each ring overwrites only its own oldest, so bullet holes cannot erase blood. An empty slot
 is a quad of no size, and `mesh.count` is how far the draw runs, not how many decals there are: use `decals.total`,
@@ -107,6 +108,20 @@ four blots.
 - **A bug that went with the old shader:** the cell number reached the fragment shader as an interpolated varying, and
   for the first cell of each row (4, 8, 12) a rounding error picked the row above on some pixels: horizontal stripes
   through one blot, one pool and one cut. It is `flat` now, and the cell's rectangle is worked out per vertex.
+- **Blood that never has to go (P2): the floor tiles** (`BloodMap.ts`, `decals.floor`). The rings are finite, so a long
+  fight overwrites its oldest stains. Once a stain lying flat on a floor is 100 s old (dry: baking it changes nothing you
+  can see), it is drawn once into a **floor tile**: 15.9 m of one floor level, 496 px at 3.2 cm a texel, holding the
+  stains' outline field. Sixteen tiles share one 2048 x 2048 single-channel texture (5.6 MB with mipmaps) and each is
+  shown by one quad in the decal draw (ring `floor`, kind 4 in the shader), as dried blood, lit like every stain. When
+  the stain's own decal is overwritten the tile still holds it; one overwritten before it had dried is baked on its
+  way out. A batch of up to 40 stains goes in every 0.4 s, one small scissored draw each.
+  - **The rule for levels, stairs and ramps:** a tile is one floor height (to 2 cm) and its quad passes the decals' own
+    depth test, so it shows on that floor and not on the one above or below. Only flat stains are baked. Blood on a
+    ramp, a stair or a wall stays a decal and is overwritten in its turn, as before.
+  - **What is lost:** shapes under about 10 cm (fine spatter), the wet look, and, when a seventeenth tile is needed,
+    the tile least lately added to (about 65 m by 65 m of floor is kept in all).
+  - `?bloodmap=0` (dev panel "Blood: old stains kept on floors") stops stains going in. `decals.clear()` empties the
+    tiles. Tests: `BloodMap.test.ts`. To see it: `DS_LIMIT=120` on `decal-scenes.mjs` cuts the blood ring to 120 decals.
 - **Looking at it:** `/?sandbox=decals` lays every cell on a floor or a wall through the real shader (its header lists
   the switches: `from`, `count`, `size`, `age`, `view`, `floor`, `lum`).
 
@@ -223,7 +238,7 @@ Live frame intervals in the same fight, dynamic resolution off, measured at low 
 
 Light bake on the real map, measured at 200 x 40 x 200 cells with 272 lights: about 5 s in a worker while nav builds on the main thread, plus 0.6 s of sliced `isSolid` sampling. The cap has since gone to 48 cells high, which should add about 20%. That larger size has not been timed separately.
 
-GPU memory at the default is about 395 MB. That is calculated, not measured: full-res targets 32 MB, half-res targets and bloom 12 MB, material sets 140 MB, decal atlas 89 MB (44 before the gore update), light volume 60 MB, shadows 60 MB. It was about 430 MB at 1080p with MSAA.
+GPU memory at the default is about 395 MB. That is calculated, not measured: full-res targets 32 MB, half-res targets and bloom 12 MB, material sets 140 MB, decal atlas 89 MB (44 before the gore update), floor tiles of old blood 6 MB, light volume 60 MB, shadows 60 MB. It was about 430 MB at 1080p with MSAA.
 
 ## Known limitations
 

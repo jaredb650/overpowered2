@@ -46,6 +46,8 @@ export interface LabSettings {
   /** The gore update's mess (gore/mess.ts): bodies at rest are shoved aside by whoever walks into them, and bodies heap. */
   messPush: boolean;
   messRest: boolean;
+  /** Old blood kept in the floor tiles (the gore update's P2). */
+  bloodMap: boolean;
 }
 
 const KEY = `op2.lab.v1.${ON_RANGE ? 'range' : DEV_ASKED ? 'game' : 'dev'}`;
@@ -58,7 +60,7 @@ const DEFAULTS: LabSettings = {
   gibbing: true, explosiveDeaths: true, progression: !ON_RANGE, muscles: true, gibThrow: true, force: 1,
   flinch: true, clutch: true, carry: true, aimspoil: true, sway: true, vmBlood: true, fire: true, wear: true, bigBlood: true, hitBlood: true,
   // `?messpush=0` and `?messrest=0` are these two, off.
-  messPush: MessTuning.push, messRest: MessTuning.rest,
+  messPush: MessTuning.push, messRest: MessTuning.rest, bloodMap: true,
 };
 
 /** A page's reaction switches are its URL's: what the panel last had them at would make `?sway=0` mean nothing. */
@@ -108,6 +110,7 @@ export function applyFlags(s: LabSettings): void {
   DevFlags.fire = s.fire && !switchedOff('fire');
   MessTuning.push = s.messPush;
   MessTuning.rest = s.messRest;
+  DevFlags.bloodMap = s.bloodMap && !switchedOff('bloodmap');
 }
 
 /** Held every frame, as the arsenal is: every reserve back to its max after whatever the last reload took. */

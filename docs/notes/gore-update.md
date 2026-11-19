@@ -85,6 +85,9 @@ Each lane owns a vertical through the plan's batches and goes on to its next ste
 | fire | 5620-5629 | F1 fire finishes the job (char by fire damage, the corpse burns on then smoulders, soot not a blood pool, flames on the whole body and on severed burning limbs); F3 fire meets the other systems (curled burnt corpses, dark pieces, morale chips faster, burning zombies keep attacking); F2 fire spreads from where it touched and eats the skin to muscle and bone | `enemies/EnemyManager.ts` burn, `characters/material.ts`, `fx/recipes`, `enemies/outpost/morale.ts`, `enemies/behaviours.ts` | doing: F1 done, F3 in hand |
 | mess | 5630-5639 | M0 measure the budgets; P1 the mess stays (decal rings by kind and about four times the room, pieces that do not expire, corpses sink only out of view, resting bodies that stack and are **pushed aside as ragdolls** when walked into, the "Mess" setting); P3 many more corpses (tiers, baked far bodies that can wake) | `render/Decals.ts` (the rings and budgets), `gore/chunks.ts` lifetimes, `gore/rag.ts`, `gore/sliced.ts`, `gore/index.ts` corpse caps, settings UI | doing: M0 done, P1 done (heaps, pushed aside, the setting); P3 (the far batch) next |
 | decals | 5640-5649 | D1 realistic decal designs and BIG decals for coverage (the sheet, the choice of shape by speed, angle, amount and weapon, wet and dry surface response); B1 more blood from one hit; B4 drips from ceilings and ledges, splashes, soaked bodies; B2 footprints and slide smears; P2 blood that never has to go (the floor texture) | `render/materials/decalAtlas.glsl.ts`, the shape choice in `render/Decals.ts` and `gore/blood.ts`, `fx/layers/blood.ts` | doing: D1 (the sheet, big stains, marks), B1, B4, B2 landed; P2 next |
+| fire | 5620-5629 | F1 fire finishes the job (char by fire damage, the corpse burns on then smoulders, soot not a blood pool, flames on the whole body and on severed burning limbs); F3 fire meets the other systems (curled burnt corpses, dark pieces, morale chips faster, burning zombies keep attacking); F2 fire spreads from where it touched and eats the skin to muscle and bone | `enemies/EnemyManager.ts` burn, `characters/material.ts`, `fx/recipes`, `enemies/outpost/morale.ts`, `enemies/behaviours.ts` | todo |
+| mess | 5630-5639 | M0 measure the budgets; P1 the mess stays (decal rings by kind and about four times the room, pieces that do not expire, corpses sink only out of view, resting bodies that stack and are **pushed aside as ragdolls** when walked into, the "Mess" setting); P3 many more corpses (tiers, baked far bodies that can wake) | `render/Decals.ts` (the rings and budgets), `gore/chunks.ts` lifetimes, `gore/rag.ts`, `gore/sliced.ts`, `gore/index.ts` corpse caps, settings UI | todo |
+| decals | 5640-5649 | D1 realistic decal designs and BIG decals for coverage (the sheet, the choice of shape by speed, angle, amount and weapon, wet and dry surface response); B1 more blood from one hit; B4 drips from ceilings and ledges, splashes, soaked bodies; B2 footprints and slide smears; P2 blood that never has to go (the floor texture) | `render/materials/decalAtlas.glsl.ts`, the shape choice in `render/Decals.ts` and `gore/blood.ts`, `fx/layers/blood.ts` | done: D1 (the sheet, big stains, marks), B1, B4, B2, P2 |
 | wear | 5650-5659 | B3 blood on the weapon and hands; W1 wear you can see: readable limb damage (skin torn to muscle, then bone, as a region's pool is spent), without changing what shooting a limb does | `weapons/viewmodels/` materials, `characters/material.ts`, `characters/anatomy/interior.ts`, the body's data texture | B3 done (aaaa677), W1 done |
 
 Shared files and contracts:
@@ -114,6 +117,7 @@ Shared files and contracts:
 | `?messrest=0` (dev panel: "Corpses heap") | on | Off: a body at rest keeps no capsules, so the next one falls through it and bodies lie one deep, as before | mess |
 | `?messpush=0` (dev panel: "Corpses are pushed aside") | on | Off: nothing at rest is woken by the player or an enemy walking into it, or by a body landing on it: corpses are walked through untouched, as before | mess |
 | Settings, Video, "Mess" | Standard | Low / Clear at wave break / Standard / Everything: how many bodies, limbs, pieces and how much blood stay (`MESS` in `src/gore/mess.ts`) | mess |
+| `?bloodmap=0`, lab row "Blood: old stains kept on floors" | on | P2: dried floor stains kept in floor tiles after their decals are overwritten, against stains that go when the ring comes round | decals |
 
 ## Log
 
@@ -263,3 +267,22 @@ Shared files and contracts:
   build, where a body's still skeleton had to be undone on every path that gives an instance back; it is now one that ends
   by itself the moment a bone moves, and the proof has passed three full runs since.
 - 2026-11-19, react: **R2 landed.** A plain flinch sends a hand to the wound 0.2 s later, with a 1.1 s gap; a body under half its health bends over and goes back to its wound; a weakened leg limps (`docs/notes/enemies.md`). Decisions: zombies get no hand and no hurt posture (they feel nothing) but do limp, since a ruined leg is mechanical; men with anatomy keep their own wound postures, so only the flinch's hand is new for them; the hurt posture is refreshed on a hit (health only changes then), not every frame. Co-op: `coop-gore-shots.mjs` passes; its `limb` case fails about one full run in seven on the watcher's count of legs **on the build before this lane too** (seven runs of the untouched branch, one failure, the same message): the watcher's copy drops the limb through the fallback in `net/world/replicas.ts` (no `sever` event within 0.8 s), which calls `gore.sever` and never `updateMaim`, so its `maim` stays whole. Not this lane's; for the lead's sweep.
+- 2026-11-19, decals: **P2 landed: blood that never has to go** (`docs/notes/render.md`, "the floor tiles";
+  `src/render/BloodMap.ts`). Decisions, where the plan left room:
+  - **The floor's own shader is not touched.** The plan had the floor material read a blood texture. Instead the texture is
+    shown by sixteen quads in the decal draw: the same lit shader as every stain (so old blood keeps its red under cyan
+    light and does not jump when it changes hands), no recompile of the world's materials, no cost at all until the
+    first stain is baked, and one switch turns it off.
+  - **The rule for upper floors, stairs and ramps:** a tile is one floor height and passes the decals' depth test, so
+    floors over each other never share blood; only flat stains are baked; ramps, stairs and walls keep decals.
+  - **Baked when dry (100 s), not when overwritten:** the decal and the tile then show the same stain for a while, so
+    nothing blinks when the decal goes. A stain overwritten earlier is baked on its way out.
+  - **Fixed memory: sixteen tiles of 15.9 m (6 MB).** Past that the least lately used tile is wiped and moved. If a
+    map's fights spread wider than about 65 m by 65 m, raise `MapTuning.side`.
+  - **For agent "mess":** ring `floor` (16 slots, first in the draw) is the map's; `decals.clear()` empties the tiles, so
+    "clear at wave break" clears old blood too; `setLimit('blood', n)` works as before and what it pushes out is baked.
+    `decals.total` counts the tiles in use.
+  - Not measured: the tiles' cost on a laptop GPU (each is one big quad through the decal shader; it discards where
+    there is no blood). Not done: walls and slopes, and a setting for the tiles' resolution.
+  - Pictures: `tools/out/gore-update/decals/after/kept/` (ten kills with the blood ring cut to 120 decals, tiles on and off).
+

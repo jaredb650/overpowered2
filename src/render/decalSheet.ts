@@ -60,9 +60,10 @@ export const CELL = {
 
 /**
  * How the decal shader treats a cell. `Mark`: a picture, albedo and coverage as stored. `Blood`: liquid. `Run`: a run
- * down a wall, drawn in the shader. `Grow`: blood that spreads to its outline over a few seconds (a pool).
+ * down a wall, drawn in the shader. `Grow`: blood that spreads to its outline over a few seconds (a pool). `Floor`: a tile of
+ * old dried blood (`BloodMap`), its "cell" the tile's number.
  */
-export const Flag = { Mark: 0, Blood: 1, Run: 2, Grow: 3 } as const;
+export const Flag = { Mark: 0, Blood: 1, Run: 2, Grow: 3, Floor: 4 } as const;
 export type Flag = (typeof Flag)[keyof typeof Flag];
 
 /**

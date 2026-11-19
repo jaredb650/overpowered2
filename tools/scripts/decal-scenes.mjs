@@ -6,7 +6,8 @@
 //     --wait 500 --timeout 600 --quiet --script tools/scripts/decal-scenes.mjs --out tools/out/<you>/scenes/x.png
 //
 // Env: DS_SCENES (pistol,smg,shotgun,rocket,head,ten,sword,walk,prints; default the first seven), DS_DIR, DS_TAG (a prefix for the
-// files: "old", "new"), DS_SPOT (a view preset of the map), DS_SEED.
+// files: "old", "new"), DS_SPOT (a view preset of the map), DS_SEED, DS_LIMIT (the blood ring cut to this many decals, to see
+// what the floor tiles keep: run it with and without ?bloodmap=0 in the URL).
 // The scenes only use what both the old and the new sheet have, so the script runs unchanged on the build before the redraw.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -17,7 +18,7 @@ const DIR = process.env.DS_DIR ?? 'tools/out/decal-scenes';
 const TAG = process.env.DS_TAG ?? 'ds';
 const SEED = Number(process.env.DS_SEED ?? 7);
 
-function install({ spot, seed }) {
+function install({ spot, seed, limit }) {
   const { ctx, game } = window.__op2;
   const glCanvas = ctx.render.renderer.domElement;
   ctx.waves.update = () => {};
@@ -95,6 +96,11 @@ function install({ spot, seed }) {
     game.newRun();
     ctx.player.modifiers.invulnerable = true;
     ctx.render.decals.clear();
+    // A tiny budget, to see what is left when stains are overwritten (the floor tiles keep the dried ones).
+    if (limit > 0 && ctx.render.decals.setLimit) {
+      ctx.render.decals.setLimit('blood', limit);
+      ctx.render.decals.setLimit('big', Math.max(2, Math.round(limit / 20)));
+    }
     dice(s);
     await step(2);
   };
@@ -310,7 +316,7 @@ function install({ spot, seed }) {
       for (const e of live.men) if (e.char?.root) e.char.root.visible = !hide;
       (live[which] ?? live.stage[which])();
       await step(1);
-      return { decals: ctx.render.decals.total ?? ctx.render.decals.mesh.count, big: ctx.gore.blood?.bigLaid };
+      return { decals: ctx.render.decals.total ?? ctx.render.decals.mesh.count, big: ctx.gore.blood?.bigLaid, baked: ctx.render.decals.floor?.bakedCount, tiles: ctx.render.decals.floor?.liveTiles };
     },
   };
 }
@@ -327,7 +333,7 @@ export default async function run(page, h) {
     if (await page.evaluate(() => window.__op2?.game?.state === 'playing')) break;
     await h.sleep(1000);
   }
-  await page.evaluate(install, { spot: SPOT, seed: SEED });
+  await page.evaluate(install, { spot: SPOT, seed: SEED, limit: Number(process.env.DS_LIMIT ?? 0) });
   mkdirSync(DIR, { recursive: true });
   const out = {};
   for (const scene of SCENES) {
