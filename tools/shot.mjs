@@ -52,10 +52,10 @@ mkdirSync(dirname(out), { recursive: true });
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // Browser slots, shared by every checkout and worktree on the machine. Many agents test at once, and each run holds
-// two to four game pages (about 2 GB): without a limit, 25 runs at once filled 62 GB and the swap. A run waits here for a
-// free slot. OP2_SHOT_SLOTS sets the number (default 8 on Linux, 1 elsewhere: the owner's 8 GB Mac). Never bypass it.
+// two to four game pages (4 to 5 GB measured): without a limit, 25 runs at once filled 62 GB and the swap. A run waits here for a
+// free slot. OP2_SHOT_SLOTS sets the number (default 6 on Linux, 1 elsewhere: the owner's 8 GB Mac). Never bypass it.
 setPriority(0, 19);
-const SLOTS = Math.max(1, Number(process.env.OP2_SHOT_SLOTS ?? (process.platform === 'linux' ? 8 : 1)));
+const SLOTS = Math.max(1, Number(process.env.OP2_SHOT_SLOTS ?? (process.platform === 'linux' ? 6 : 1)));
 const SLOT_DIR = process.env.OP2_SHOT_DIR ?? '/tmp/op2-shot-slots';
 const maxRunMs = Number(opt.timeout ?? 150) * 1000;
 let LOCK = '';
