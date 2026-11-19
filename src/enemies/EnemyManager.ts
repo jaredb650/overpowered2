@@ -797,8 +797,29 @@ export class EnemyManager implements EnemySystem {
     l.aimPitch = aiming ? clamp(Math.atan2(eye.y - (e.position.y + e.def.eyeHeight), flat), -0.8, 0.8) : 0;
     l.grounded = !e.airborne;
     e.char.anim.setLocomotion(l);
-    e.char.anim.update(dt, e.lod);
-    (e.char as unknown as Skin).setLod(e.lod);
+    const drawn = this.drawnLod(e);
+    e.char.anim.update(dt, drawn);
+    (e.char as unknown as Skin).setLod(drawn);
+  }
+
+  /**
+   * The level of detail an enemy is drawn and animated at on this screen. Alone, and on a co-op guest, it is `e.lod`. On a
+   * co-op host `e.lod` is the AI's: `e.dist` and `e.inView` are measured from the player the enemy is after (`perceive`),
+   * who may be a guest at the far end of the map, and an enemy beside the host that hunts that guest would move at the
+   * far, skipped-frame rate. So the host draws by its own eye, and the AI keeps its own number.
+   */
+  private drawnLod(e: Enemy): number {
+    const coop = this.ctx.coop;
+    if (!coop?.world || !coop.hosting || e.isBoss) return e.lod;
+    const p = this.ctx.player;
+    const dist = Math.hypot(e.position.x - p.position.x, (e.position.y - p.position.y) * 0.6, e.position.z - p.position.z);
+    const dx = e.position.x - p.eye.x;
+    const dy = e.position.y + e.def.chest - p.eye.y;
+    const dz = e.position.z - p.eye.z;
+    const d = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
+    const inView = (dx * p.forward.x + dy * p.forward.y + dz * p.forward.z) / d > 0.62;
+    const near = dist < 26 ? 0 : dist < 60 ? 1 : 2;
+    return inView ? near : Math.min(near + 1, 3);
   }
 
   private updateDying(dt: number): void {
