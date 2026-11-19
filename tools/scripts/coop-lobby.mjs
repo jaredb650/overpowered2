@@ -1,6 +1,6 @@
 // Co-op lobby proof: what two players do in the lobby before any match. One hosts, one joins by the invite link; both are
 // in the same room by its code; a rename, a chat line each way and the ready flag reach the other screen; the host is told who
-// it is waiting for when the guest is not ready; and when the host leaves, the guest is told so and is out of the room.
+// it is waiting for when the guest is not ready; and when the host leaves, the guest is told so and hosts the lobby itself.
 // (A wrong password, a double join and a guest leaving are coop-session-password.mjs.)
 //
 // Rewritten on the kit in the last pass: the first version was two hand-made pages over the real relays that waited for a
@@ -51,13 +51,16 @@ export default async (host, { sleep, outDir }) => {
 
     progress('the host leaves');
     await button(host, 'Leave').click();
-    const left = await until(guest, s => s.phase !== 'open' || s.players.length < 2, 'the guest out of the room', 30000);
+    // The lobby outlives its host (the session's host-loss rule, in the lobby as in a match): the next player hosts it, on
+    // the same code, and is told so. Nobody is thrown out to the menu.
+    const left = await until(guest, s => s.players.length === 1 && s.hosting === true, 'the guest alone and hosting', 60000);
     await sleep(600);
     const told = await snap(guest);
-    out.hostLeft = { phase: told.phase, error: told.error, err: told.err, note: told.note, status: told.status };
-    check(told.phase !== 'open', 'When the host leaves the guest is out of the room at once (a deliberate leave has no grace)', out.hostLeft);
-    check(/host/i.test(`${told.err} ${told.note} ${told.status} ${told.error}`), 'and is told the host left', out.hostLeft);
-    check(told.state === 'menu' && told.lobbyScreen, 'They are on the multiplayer screen, not in a match or a blank page', [told.state, told.lobbyScreen]);
+    out.hostLeft = { phase: told.phase, hosting: told.hosting, code: told.code, note: told.note, status: told.status, players: told.players };
+    check(told.phase === 'open' && told.hosting === true && told.players.length === 1 && told.players[0].me, 'When the host leaves, the guest is alone in the lobby and hosts it', out.hostLeft);
+    check(/host left/i.test(told.note) && /hosting/i.test(`${told.note} ${told.status}`), 'and is told so: the host left, you are hosting now', out.hostLeft);
+    check(told.code === h.code, 'The room keeps its code', [h.code, told.code]);
+    check(told.state === 'menu' && told.lobbyScreen, 'They are on the lobby screen, not in a match or a blank page', [told.state, told.lobbyScreen]);
     await shot(guest, 'guest-host-left', true);
     void left;
   }, () => party);

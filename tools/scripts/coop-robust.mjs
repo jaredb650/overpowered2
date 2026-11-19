@@ -76,14 +76,17 @@ export default async function (host, { sleep, outDir }) {
     guest = await openGuest(party, { name: 'GUEST-TWO', late: true });
     await inMatch([guest], 'crucible');
     await guest.waitForFunction(() => window.__op2.ctx.enemies.alive.length > 0, null, { timeout: 30000 });
-    await guest.waitForFunction(c => (window.__op2.ctx.contracts.wallet?.credits ?? 0) >= c, credits, { timeout: 20000 }).catch(() => {});
+    await sleep(1500);
     const rejoined = { guest: await state(guest), host: await state(host),
-      purses: await host.evaluate(() => [...window.__op2.ctx.coop.world.team.purses.entries()].map(([n, c]) => [n, c.credits])),
+      seats: await host.evaluate(() => [...window.__op2.ctx.coop.world.team.seats.entries()].map(([key, seat]) => [key.slice(0, 12), seat.purse?.credits ?? null])),
       names: await host.evaluate(() => window.__op2.ctx.coop.lobby.players.map(p => p.name)),
       feed: await guest.evaluate(() => [...document.querySelectorAll('.feed-ln')].map(e => e.textContent).slice(-8)) };
     out.rejoin = rejoined;
     check(rejoined.guest.enemies > 0 && rejoined.guest.wave === rejoined.host.wave, 'A late joiner lands in the wave in progress, with the full enemy state', rejoined);
-    check(rejoined.guest.credits >= credits, "The rejoining guest's credits come back", { credits, now: rejoined.guest.credits });
+    // The purse is kept under the browser's own seat, not the callsign (the team's rules): a new window is a new browser to
+    // the host, so this page is a new player and starts with a new purse. The same browser coming back with its kit and
+    // credits is coop-team-rejoin.mjs (a reload). Here: the lost seat is still held for its owner, and nobody got its money.
+    check(rejoined.guest.credits < credits && rejoined.seats.some(([, c]) => c === credits), "A new page under the same callsign does not get the lost seat's purse, which the host still holds", { credits, now: rejoined.guest.credits, seats: rejoined.seats });
     await shot(guest, 'rejoined-guest');
 
     progress('the guest steps out to the lobby and back in');
