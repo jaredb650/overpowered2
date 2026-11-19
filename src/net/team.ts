@@ -246,6 +246,8 @@ export class Team {
   private fulfilledAt = 0;
   private toldCheats = false;
   private toldRules = false;
+  /** Guest: the rules the host said the run is on (`sync`). null until it has. */
+  private told: CrucibleRules | null = null;
   /** Host: each arrived guest's seat key, kept while they are in, because the lobby forgets a player the moment they leave. */
   private readonly left = new Map<string, string>();
   /** Host: arrived players who are out of the world right now, and those of them the team respawned meanwhile. */
@@ -273,7 +275,12 @@ export class Team {
     this.marks = new Marks(ctx, session, send);
     // A guest plays the host's rules, never its own saved ones: the standard game from the first frame (before the run
     // starts and reads them), then whatever the host's `sync` says.
-    if (!session.hosting) adoptRules(DEFAULT_RULES);
+    if (!session.hosting) {
+      adoptRules(DEFAULT_RULES);
+      // A guest's own run starts at its click to deploy, which may come after the host's word: a new run puts every
+      // system back to its start (the manager's numbers to the standard game's), so the host's rules are set again after it.
+      this.off.push(ctx.events.on('run:start', () => { if (this.told) this.applyRules(this.told); }));
+    }
     this.off.push(ctx.events.on('player:died', () => this.fell(session.lobby.you)));
     if (session.hosting) {
       this.off.push(ctx.events.on('wave:start', e => {
@@ -714,7 +721,11 @@ export class Team {
    * host's. Every field is put on its grid and inside its range (`sanitizeRules`), whatever arrived.
    */
   private takeRules(custom: boolean, raw: unknown): void {
-    const rules: CrucibleRules = custom ? sanitizeRules(raw) : DEFAULT_RULES;
+    this.told = custom ? sanitizeRules(raw) : DEFAULT_RULES;
+    this.applyRules(this.told);
+  }
+
+  private applyRules(rules: CrucibleRules): void {
     adoptRules(rules);
     (this.ctx.waves as { adopt?(rules: CrucibleRules): void }).adopt?.(rules);
   }

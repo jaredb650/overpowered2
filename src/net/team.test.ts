@@ -870,6 +870,11 @@ describe('the host\'s rules are the run\'s rules on every screen', () => {
     expect(rulesEqual(crucibleRules(), hosts)).toBe(true);
     expect(guest.world.team.customRules).toBe(true);
     expect(guest.hud.feed.mock.calls.filter(c => /HOST'S CUSTOM RULES APPLY/.test(String(c[0])))).toHaveLength(1);
+    // The guest's own run starts after that (its click to deploy): every system is put back to its start, and the host's
+    // rules are set again. (The browser proof found the manager on the standard game's numbers without this.)
+    guest.ctx.events.emit('run:start', {});
+    expect(adopt).toHaveBeenCalledTimes(2);
+    expect(rulesEqual(adopt.mock.calls[1]![0] as CrucibleRules, hosts)).toBe(true);
     game.dispose();
   });
 
