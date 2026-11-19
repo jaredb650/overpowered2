@@ -127,8 +127,13 @@ class Progression implements ProgressionSystem {
     events.on('enemy:hit', e => { if (DevFlags.progression && !ALLY_SOURCE.test(e.damage.source) && !ctx.coop?.world?.notMine()) this.onHit(e.enemy, e.damage, e.result); });
     events.on('enemy:severed', e => { if (DevFlags.progression && !ALLY_SOURCE.test(e.damage.source) && !ctx.coop?.world?.notMine()) this.onSevered(e.enemy, e.damage); });
     // A prisoner caught in a strike's splash is not the player's choice, so it earns nothing.
-    events.on('enemy:executed', e => { if (DevFlags.progression && !ASSIST_SOURCES.test(e.kill.damage.source)) this.onExecuted(e.kill.enemy); });
+    // Co-op: a teammate's execution or wound is theirs; the host's world sends them the reward (net/world/credit.ts `award`).
+    events.on('enemy:executed', e => {
+      if (DevFlags.progression && !ASSIST_SOURCES.test(e.kill.damage.source) && !ctx.coop?.world?.notMine(e.kill.enemy)) this.onExecuted(e.kill.enemy);
+    });
     events.on('enemy:wounded', e => {
+      // A guest's own wound bonus comes from the host as an award, never from its own copy of the enemy.
+      if (ctx.coop?.world && (!ctx.coop.hosting || ctx.coop.world.notMine())) return;
       if (DevFlags.progression && !ASSIST_SOURCES.test(e.damage.source) && !ALLY_SOURCE.test(e.damage.source)) this.scoreKeeper.add(e.bonus, e.label, e.enemy.center);
     });
     events.on('wave:clear', e => {

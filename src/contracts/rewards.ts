@@ -39,6 +39,8 @@ export class BackShots {
     if (enemies.applyDamage(enemy, this.extra).killed) result.killed = true;
     if (time.realElapsed - this.labelAt >= LABEL_GAP) {
       this.labelAt = time.realElapsed;
+      // Co-op: a guest's back shot is labelled on the guest's screen (net/world/credit.ts), not the host's.
+      if (this.ctx.coop?.world?.labelFor(enemy.center, 'BACK SHOT', LABEL_COLOR)) return;
       const text = hitText('BACK SHOT');
       if (text) hud.floatText(enemy.center, text, LABEL_COLOR);
     }

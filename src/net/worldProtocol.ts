@@ -17,13 +17,14 @@ import type { GunEvent } from './world/guns';
 import type { HitEvent } from './world/hits';
 import type { FireEvent, KataEvent } from './world/remoteFire';
 import type { SonarEvent } from './world/sonar';
+import type { AwardEvent } from './world/credit';
 import type { HurtEvent } from './world/targeting';
 import type { VehiclesEvent } from './world/vehicles';
 
 export * from './world/wire';
 export * from './world/snapshot';
 export type { HitClaim, StatusClaim, VehicleClaim } from './world/claims';
-export type { Card, LifeState } from './team';
+export type { Card, Ending, LifeState } from './team';
 
 /** Everything that crosses the reliable `action` lane (world/context.ts `send`, world/router.ts). */
 export type WorldEvent =
@@ -39,10 +40,11 @@ export type WorldEvent =
   | ChatterEvent    // world/chatter.ts: chatter, chatcut
   | SlowEvent       // world/clock.ts: slow
   | CaptureEvent    // world/capture.ts: capture, credit
+  | AwardEvent      // world/credit.ts: award
   | GunEvent        // world/guns.ts: gun
   | VehiclesEvent   // world/vehicles.ts: vehicles
   | AlliesEvent     // world/allies.ts: allies, ashot
-  | TeamEvent       // team.ts: life, card, team, revive, up, wave, over, restore
+  | TeamEvent       // team.ts: life, card, team, revive, up, wave, over, restore, kit, ready, vote, sync, mark
   | MissionEvent    // mission.ts: mission, gather
   /** Host to guests: the host's tab went to the background (`on`) or came back. Declared, never sent or handled. */
   | { t: 'hidden'; on: boolean };

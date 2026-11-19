@@ -77,6 +77,8 @@ export class CrucibleShop {
       this.stretch = false;
       waves.nextWaveIn = Math.max(waves.nextWaveIn, SUPPLY_BREAK);
     }
+    // Co-op: the break is the team's (net/teamBreak.ts): 45 s, and the key is a ready vote, never one player's skip.
+    if (this.ctx.coop?.world) return;
     if (this.inBreak && waves.nextWaveIn > 3 && this.ctx.input.pressed('nextWave')) {
       waves.nextWaveIn = 3;
       this.ctx.hud.feed('NEXT WAVE CALLED IN', '#ff8a3a');

@@ -20,7 +20,8 @@ describe('the break reaches a guest with the wave event, not a snapshot later', 
     Object.assign(game.host.ctx.waves, { wave: 3, phase: 'intermission', nextWaveIn: 8 });
     game.host.ctx.events.emit('wave:clear', { wave: 3, bonus: 950 });
     game.relay.flush();
-    expect(heard).toEqual([{ phase: 'intermission', next: 8, wave: 3 }]);
+    // The clock is the team's break (net/teamBreak.ts: 45 s, set before the wave's news goes out), not the director's own 8 s.
+    expect(heard).toEqual([{ phase: 'intermission', next: 45, wave: 3 }]);
     game.dispose();
   });
 

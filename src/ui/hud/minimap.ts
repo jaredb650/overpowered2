@@ -36,6 +36,8 @@ const NORTH = '#eef4f7';
 const ALLY = ALLY_TEXT;
 const ALLY_DOWN = `#${ALLY_DOWN_COLOR.toString(16)}`;
 const SHOP_LOST = '#6b737c';
+/** A co-op teammate who is down: the red of their tag (net/team.ts). */
+const MATE_DOWN = '#ff3b3b';
 
 export interface MinimapPoint {
   x: number;
@@ -258,6 +260,49 @@ export class Minimap {
         g.stroke();
       }
       g.globalAlpha = 1;
+    }
+
+    // Co-op: teammates, round like the friendlies, in the colour of their tag, with a tick the way they face. Held on the rim
+    // when off the map, so a friend can always be found. The dead are not drawn; the downed pulse red.
+    const coop = this.ctx.coop;
+    if (coop?.world) {
+      const lives = coop.world.team.lives;
+      for (const [id, remote] of coop.remotes) {
+        const root = remote.char.root;
+        const state = lives.get(id)?.state ?? 'up';
+        if (!root.visible || state === 'dead') continue;
+        const p = root.position;
+        const x = clamp(sx(p.x, p.z), 7 * u, size - 7 * u);
+        const y = clamp(sy(p.x, p.z), 7 * u, size - 7 * u);
+        const down = state === 'down';
+        if (down) {
+          g.strokeStyle = MATE_DOWN;
+          g.globalAlpha = 1 - this.ping;
+          g.lineWidth = 2 * u;
+          g.beginPath();
+          g.arc(x, y, (6 + this.ping * 9) * u, 0, Math.PI * 2);
+          g.stroke();
+          g.globalAlpha = 1;
+        } else {
+          // The body faces +Z (net/remote.ts): its heading on the map, turned with the map.
+          const fx = Math.sin(root.rotation.y), fz = Math.cos(root.rotation.y);
+          const dx = fx * cos - fz * sin, dy = fx * sin + fz * cos;
+          g.fillStyle = remote.color;
+          g.beginPath();
+          g.moveTo(x + dx * 10 * u, y + dy * 10 * u);
+          g.lineTo(x - dy * 4 * u, y + dx * 4 * u);
+          g.lineTo(x + dy * 4 * u, y - dx * 4 * u);
+          g.closePath();
+          g.fill();
+        }
+        g.fillStyle = down ? MATE_DOWN : remote.color;
+        g.strokeStyle = '#000000';
+        g.lineWidth = 1.5 * u;
+        g.beginPath();
+        g.arc(x, y, 5 * u, 0, Math.PI * 2);
+        g.fill();
+        g.stroke();
+      }
     }
 
     // North rides the rim, so a player-up map still gives a fixed bearing to call out.

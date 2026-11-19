@@ -356,7 +356,9 @@ export class Hud implements HudSystem {
 
   private onWaveStart(wave: number, total: number, boss: boolean): void {
     const hard = wave >= 10;
-    const sub = boss ? `${isTitanWave(wave, crucibleRules()) ? 'titan' : 'juggernaut'} inbound` : `${total} hostile`;
+    // Co-op: the wave is the host's, and so is the boss the host's rules send (a guest's own saved rules may differ).
+    const team = this.ctx.coop?.world?.team;
+    const sub = boss ? `${(team ? team.titanWave : isTitanWave(wave, crucibleRules())) ? 'titan' : 'juggernaut'} inbound` : `${total} hostile`;
     this.bannerLanes.showBand(boss ? 'boss' : hard ? 'hard' : 'wave', `WAVE ${wave}`, sub);
   }
 
@@ -374,6 +376,13 @@ export class Hud implements HudSystem {
 
   /** The Commander is dead and the Council has signed it off. The run ends the way a death does, with a better headline. */
   private fulfilled(): void {
+    // Co-op: a run only ever ends on the team's board (net/team.ts `finish`), never on the solo screens, and the world stays
+    // live. The host says the contract is fulfilled; a mission's win reaches the team from `campaign:complete` itself.
+    const coop = this.ctx.coop;
+    if (coop?.world) {
+      if (coop.hosting && !MISSION_ID) coop.world.team.finish('fulfilled');
+      return;
+    }
     if (this.deathClock > 0) return;
     this.contractDone = true;
     // A mission has already faded out on its own ending, and has a screen of its own to say so.
@@ -406,7 +415,10 @@ export class Hud implements HudSystem {
     this.ctx.audio.unlock?.();
     this.ctx.input.endFrame?.();
     this.requestLock('run');
-    this.ctx.campaign.restart();
+    // Co-op: the host's alone, and the whole team goes back with it and is told (net/team.ts).
+    const team = this.ctx.coop?.world?.team;
+    if (team) team.restartCheckpoint();
+    else this.ctx.campaign.restart();
     this.pauseGuard = 2;
   }
 
@@ -467,6 +479,25 @@ export class Hud implements HudSystem {
   /** Co-op's own HUD (net/coopHud.ts) goes in with the rest, and hides with it. */
   mount(el: HTMLElement): void {
     this.hud.append(el);
+  }
+
+  /**
+   * Co-op: the run is over and the team's board is up (net/coopHud.ts). It goes over everything, the mouse is let go for its
+   * buttons, and the world stays live under it: the co-op "paused" state releases controls and never stops the clock. No solo
+   * ending can follow it.
+   */
+  teamBoard(el: HTMLElement): void {
+    const game = this.game;
+    this.root.append(el);
+    this.deathClock = 0;
+    this.contractDone = false;
+    this.ctx.time.popScale('hud-death');
+    this.lockAfter = null;
+    this.lockHeld = false;
+    if (game?.state === 'playing') game.setState('paused');
+    this.ctx.input.releaseLock?.();
+    this.scoreboard.setHeld(false);
+    this.screens.show('none');
   }
 
   private requestLock(after: 'run' | 'resume'): void {

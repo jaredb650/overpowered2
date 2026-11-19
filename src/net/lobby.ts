@@ -441,6 +441,11 @@ export class Lobby {
     return this.players.find(p => p.id === id)?.ping;
   }
 
+  /** Host: the stable id of a guest's browser (hello carries it), '' when unknown. What the team keeps a returning player's seat under. */
+  browserOf(id: string): string {
+    return this.browsers.get(id) ?? '';
+  }
+
   /** Sends this player's own name and ready, kept here: the list from the host can lag a change still on its way. */
   private change(): void {
     const me = this.me;

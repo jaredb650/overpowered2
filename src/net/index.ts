@@ -66,9 +66,10 @@ export class CoopSession implements GameSystem {
     if (!this.hud && typeof document !== 'undefined') {
       this.hud = new CoopHud(this.ctx, this);
       this.hud.onEndDone = () => this.backToLobby();
+      this.hud.onPlayAgain = () => this.playAgain();
     }
-    if (this.world) this.world.team.onOver = (cards, wave, won) => this.hud?.showEnd(this.world!.team.roster().filter(r => cards.some(c => c.slot === r.card.slot))
-      .map(r => ({ ...r, card: cards.find(c => c.slot === r.card.slot)! })), wave, performance.now(), won);
+    if (this.world) this.world.team.onOver = (cards, wave, ending) => this.hud?.showEnd(this.world!.team.roster().filter(r => cards.some(c => c.slot === r.card.slot))
+      .map(r => ({ ...r, card: cards.find(c => c.slot === r.card.slot)! })), wave, performance.now(), ending);
     this.roster();
     if (!this.closed) this.world?.begin();
   }
@@ -136,6 +137,18 @@ export class CoopSession implements GameSystem {
   backToLobby(): void {
     if (this.closed) return;
     this.end(this.hosting ? 'Match over. Everyone is back in the lobby.' : 'You left the match. The others play on; Rejoin match takes you back.', true);
+  }
+
+  /**
+   * Host, from the end board: the same mode again for everyone. The match ends, every player lands on the lobby page (which is
+   * what takes a `start`), and the next match starts at once, each on the gun they had picked.
+   */
+  playAgain(): void {
+    if (this.closed || !this.hosting) return;
+    const { mode, map } = this.match;
+    const lobby = this.lobby;
+    this.end('Starting again: the same contract, for everyone.', true);
+    if (lobby.phase === 'open' && !lobby.match) lobby.startMatch(mode, undefined, map);
   }
 
   private end(message: string, keepRoom: boolean): void {

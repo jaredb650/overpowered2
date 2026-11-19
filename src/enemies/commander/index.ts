@@ -165,6 +165,8 @@ export class Commander {
     });
     events.on('comms:line', l => this.onHeard(l.position, l.speaker !== null));
     events.on('commander:skipped', () => {
+      // Co-op: the break is the team's to end, by its ready vote (net/teamBreak.ts); skipping his briefing only shuts him up.
+      if (ctx.coop?.world) return;
       const { waves } = this.o;
       if (waves.phase === 'intermission') waves.nextWaveIn = Math.min(waves.nextWaveIn, AFTER_SKIP);
     });

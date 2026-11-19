@@ -73,7 +73,8 @@ export class RemotePlayer {
     this.removeTag = ctx.hud.follow(this.tag, player.name, this.color);
   }
 
-  private readonly color: string;
+  /** The tag's colour, by slot: the minimap and the pings use it too. */
+  readonly color: string;
   private tagText = '';
   /** One tag per friend: their name, or (team.ts) their name with DOWN and the seconds they have left, in red. */
   setTag(text: string, color: string): void {

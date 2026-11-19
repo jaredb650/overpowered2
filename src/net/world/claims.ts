@@ -82,6 +82,8 @@ export class Claims implements WorldModule {
     });
   }
 
+  /** Host: a guest set this enemy burning or freezing (no hit event says so): credit.ts keeps who, for the kill it may cause. */
+  onStatus: (uid: number, from: string) => void = () => {};
   /** Host: the guest whose claim is being applied right now (lobby id), or null. */
   get applying(): string | null { return this.current; }
   /** Host: the shot id of the claim being applied right now (that guest's own count), 0 when none is. */
@@ -212,6 +214,7 @@ export class Claims implements WorldModule {
     if (seconds === null) { this.w.stats.rejected++; return; }
     this.w.stats.accepted++;
     this.lastHitter.set(enemy.uid, from);
+    this.onStatus(enemy.uid, from);
     this.w.manager.afflict(enemy, value.kind, seconds);
   }
 

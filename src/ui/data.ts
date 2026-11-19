@@ -373,7 +373,8 @@ export const KEY_GROUPS: readonly { title: string; rows: readonly [Action, strin
       ['streak', 'Airstrike'], ['callinWarthog', 'Warthog'], ['callinDoorGunner', 'Door Gunner'], ['callinChopper', 'Attack Chopper'], ['callinOrbital', 'Orbital Lance'],
       ['callinAc130', 'AC-130'], ['callinBlackSun', 'Black Sun'], ['callinNuke', 'Tactical Nuke'],
       ['callinSentry', 'AA Sentry'], ['callinFrame', 'Distraint Frame'], ['scoreboard', 'Run stats'],
-      ['nextWave', 'Next wave now (Defense, Crucible shop)'],
+      ['nextWave', 'Next wave now (co-op: ready up)'],
+      ['ping', 'Ping a spot for the team (co-op)'],
     ],
   },
 ];

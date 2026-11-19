@@ -80,11 +80,35 @@
   font: 600 1rem/1.3 var(--mono); font-variant-numeric: tabular-nums; text-align: right; }
 .cq-row > :first-child { text-align: left; }
 .cq-headrow { color: var(--steel); font-size: 0.85rem; }
-.cq-end { position: absolute; top: 50%; left: 50%; width: 50rem; margin-left: -25rem; transform: translateY(-50%); padding: 1.4rem 1.8rem; background: rgba(7, 10, 14, 0.94); pointer-events: auto; }
-.cq-end .cq-table { margin: 0.8rem 0; }
-.cq-big { font: 3.4rem/1 var(--display); color: #ff3b3b; }
+/* The end-of-run board sits over everything (Hud.teamBoard): the HUD is hidden once the mouse is free for its buttons. */
+.cq-over { position: absolute; inset: 0; background: rgba(6, 10, 15, 0.62); pointer-events: auto; }
+.cq-end { position: absolute; top: 50%; left: 50%; width: 54rem; margin-left: -27rem; transform: translateY(-50%); padding: 1.6rem 2rem 1.4rem; background: rgba(7, 10, 14, 0.94);
+  border-left: 0.3rem solid #ff3b3b; pointer-events: auto; }
+.cq-end:has(.cq-big.won) { border-left-color: var(--friend); }
+.cq-end .cq-table { margin: 1rem 0 0.8rem; }
+.cq-big { font: 4.2rem/1 var(--display); color: #ff3b3b; }
+.cq-big.won { color: var(--friend); }
 .cq-sub, .cq-foot { color: var(--steel); font-size: 1.1rem; }
-.cq-foot { color: var(--amber); }
+.cq-sub { margin-top: 0.4rem; }
+.cq-foot { color: var(--amber); margin-top: 0.5rem; }
+.cq-btns { display: flex; gap: 0.6rem; margin-top: 0.4rem; }
+.mi.mi-small.cq-btn { padding: 0.1rem 1.2rem; font-size: 2.3rem; cursor: pointer; }
+.cq-cheat { color: var(--amber); font-size: 0.75rem; letter-spacing: 0.06em; }
+.cq-ready { color: var(--friend); font-size: 0.75rem; letter-spacing: 0.06em; }
+.cq-mate .cq-state { font-size: 0.8rem; }
+/* The break's clock and the ready vote, under the strip. */
+.cq-rest { position: absolute; top: 4.3rem; left: 50%; transform: translateX(-50%); display: flex; align-items: baseline; gap: 1.1rem; padding: 0.3rem 0.9rem;
+  background: rgba(7, 10, 14, 0.72); border-bottom: 0.125rem solid var(--amber); font: 600 1rem/1.3 var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cq-rest-t { font: 1.5rem/1.1 var(--display); color: var(--ink); }
+.cq-rest-n { color: var(--amber); }
+.cq-rest-k { color: var(--steel); }
+.cq-rest-k.on { color: var(--friend); }
+/* The kill feed: who killed what, newest last. */
+.cq-kills { position: absolute; left: 2rem; top: 42%; display: flex; flex-direction: column; gap: 0.15rem; }
+.cq-kill { display: flex; align-items: baseline; gap: 0.5rem; padding: 0.1rem 0.5rem; background: rgba(7, 10, 14, 0.55); font: 600 0.9rem/1.3 var(--mono); white-space: nowrap; align-self: flex-start; }
+.cq-kill-who { font: 1.05rem/1.1 var(--display); }
+.cq-kill-what { color: var(--ink); }
+.cq-kill.boss .cq-kill-what { color: var(--amber); }
 .cq-chat { position: absolute; left: 2rem; bottom: 22rem; width: 30rem; padding: 0.35rem 0.6rem; pointer-events: auto;
   border: 0.0625rem solid var(--amber); background: rgba(0, 0, 0, 0.75); color: var(--ink); font: 600 1.05rem/1.3 var(--mono); outline: none; }
 

@@ -407,6 +407,8 @@ describe('stage 3: the team, the economy and what else crosses the wire', () => 
     const game = pair();
     const overs: number[] = [];
     game.gw.team.onOver = (_cards, wave) => overs.push(wave);
+    // The guest's world is up (its first card is in): only then does it count for the wipe.
+    game.gw.update(); game.relay.flush();
     game.host.ctx.events.emit('player:died', { source: 'husk' });
     game.hw.update(); game.relay.flush();
     expect(overs).toEqual([]);
@@ -548,7 +550,8 @@ describe('a rejoining player', () => {
   afterEach(() => vi.useRealTimers());
   it('gets their purse back once their world is up and talking', () => {
     const game = pair();
-    const card = (credits: number) => ({ slot: 1, state: 'up', bleed: 0, life: 0, hp: 100, max: 100, armor: 0, kills: 3, score: 300, credits, downs: 0, revives: 0, ping: 0 });
+    // `ok`: the guest's seat is settled (the host's `restore` was applied), so the host keeps its purse.
+    const card = (credits: number) => ({ slot: 1, state: 'up', bleed: 0, life: 0, hp: 100, max: 100, armor: 0, kills: 3, score: 300, credits, downs: 0, revives: 0, ping: 0, ok: true });
     game.guestRoom.channel('action').send({ match: 'world-test', data: { t: 'card', card: card(250) } }); game.relay.flush();
     // The same callsign comes back on a new page: its first card is an empty purse.
     (game.hw.team as unknown as { arrived: Set<string> }).arrived.clear();

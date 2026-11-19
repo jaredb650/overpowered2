@@ -110,6 +110,8 @@ export interface StrikeOptions {
 }
 
 interface QueuedBlast {
+  /** Co-op host: whose hit set this off (net/world/credit.ts), so a chain's kills stay that player's. */
+  owner: string | null;
   at: number;
   position: THREE.Vector3;
   normal: THREE.Vector3;
@@ -191,7 +193,7 @@ export class Combat implements CombatSystem {
     }
     for (let i = 0; i < MAX_QUEUED_BLASTS; i++) {
       this.queue.push({
-        at: 0, position: new THREE.Vector3(), normal: new THREE.Vector3(), hasNormal: false,
+        owner: null, at: 0, position: new THREE.Vector3(), normal: new THREE.Vector3(), hasNormal: false,
         spec: { radius: 0, damage: 0, kind: 'rocket', source: '', team: 'player' },
       });
     }
@@ -970,6 +972,7 @@ export class Combat implements CombatSystem {
     if (this.queueLen >= MAX_QUEUED_BLASTS) return;
     const q = this.queue[this.queueLen++]!;
     q.at = this.ctx.time.elapsed + delay;
+    q.owner = this.ctx.coop?.world?.crediting ?? null;
     q.position.copy(position);
     q.hasNormal = !!spec.normal;
     if (spec.normal) q.normal.copy(spec.normal);
@@ -993,7 +996,10 @@ export class Combat implements CombatSystem {
       this.queueLen--;
       this.queue[i] = this.queue[this.queueLen]!;
       this.queue[this.queueLen] = q;
+      const world = q.owner ? this.ctx.coop?.world : undefined;
+      const before = world?.creditAs(q.owner);
       this.explode(position, spec);
+      world?.creditAs(before ?? null);
     }
   }
 

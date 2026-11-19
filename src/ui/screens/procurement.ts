@@ -144,8 +144,12 @@ export class ProcurementScreen implements Screen {
     });
   }
 
+  /** Co-op: the wave started under the open shop and it has been told to shut. */
+  private shut = false;
+
   open(nav: Nav): void {
     this.nav = nav;
+    this.shut = false;
     this.note.set('');
     nav.back = () => this.leave();
     const step = (by: number) => () => this.turn(PAGES[(PAGES.indexOf(this.page) + by + PAGES.length) % PAGES.length]!);
@@ -175,7 +179,25 @@ export class ProcurementScreen implements Screen {
     this.stage.update(dt);
     this.body.update(dt);
     const waves = this.ctx.waves;
-    this.phase.set(`Break. Wave ${waves.wave + 1} in ${Math.max(0, Math.ceil(waves.nextWaveIn))} s, when you leave.`);
+    const left = Math.max(0, Math.ceil(waves.nextWaveIn));
+    const rest = this.ctx.coop?.world?.team.rest;
+    if (!rest) {
+      this.phase.set(`Break. Wave ${waves.wave + 1} in ${left} s, when you leave.`);
+      return;
+    }
+    // Co-op: nothing waits under the shop. The clock is the team's and it is running; the key readies up from here too.
+    const key = this.ctx.input.labelFor?.('nextWave') ?? 'L';
+    const mine = this.ctx.coop?.lobby.me?.slot ?? -1;
+    if (waves.phase === 'intermission') {
+      this.phase.set(`Break. Wave ${waves.wave + 1} in ${left} s. The clock is running: ${rest.ready.length}/${rest.need} ready`
+        + `${rest.ready.includes(mine) ? ', you among them.' : `. ${key}: ready up.`}`);
+    } else if (!this.shut) {
+      // The wave is in: the pod is gone, and nobody should be standing in a shop. Once: a browser that wants a click gets told.
+      this.shut = true;
+      this.phase.set(`Wave ${waves.wave} has started. The shop is shut.`);
+      this.ctx.hud.callout?.(`WAVE ${waves.wave} · the shop is shut`);
+      this.leave();
+    }
   }
 
   private get shop() {

@@ -56,6 +56,8 @@ export const DEFAULT_BINDINGS: Readonly<Bindings> = {
   stim: ['KeyQ'],
   // Outpost Defense: call the next wave in before the break runs out. L is free and away from the movement keys.
   nextWave: ['KeyL'],
+  // Co-op: a marker where you are looking, for the team. The middle button, as in other shooters, and P for a mouse without one.
+  ping: [MOUSE_MIDDLE, 'KeyP'],
   pause: ['Escape'],
   scoreboard: ['Tab'],
   debugFps: ['F3'],

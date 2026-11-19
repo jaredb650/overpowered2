@@ -19,6 +19,7 @@ import { Capture } from './world/capture';
 import { Chatter } from './world/chatter';
 import { Claims, type StatusKind } from './world/claims';
 import { Clock } from './world/clock';
+import { Credit } from './world/credit';
 import { WorldContext, type WorldModule } from './world/context';
 import { EnemyFire } from './world/enemyFire';
 import { Guns, type GunEvent } from './world/guns';
@@ -40,6 +41,7 @@ export class CoopWorld {
   private readonly shots: RemoteFire;
   private readonly claims: Claims;
   private readonly hits: Hits;
+  private readonly credit: Credit;
   private readonly enemyFire: EnemyFire;
   private readonly booms: Booms;
   private readonly guns: Guns;
@@ -62,7 +64,8 @@ export class CoopWorld {
     this.team.plug(w.router);
     this.mission.plug(w.router);
     // Each module adds its own game listeners and event handlers as it is built. Listeners on one game event run in the order
-    // added: Hits must hear `enemy:killed` before any system does, which holds because the world is built before systems init.
+    // added: Credit must hear `enemy:killed` before Hits and before any system does (who killed it is known first), which holds
+    // because it is built before Hits and the world is built before systems init.
     this.enemies = new Replicas(w);
     this.targeting = new Targeting(w);
     // Before RemoteFire: a shot's id moves on `weapon:fired`, and claims.ts must hear that first.
@@ -72,7 +75,8 @@ export class CoopWorld {
     // Sonar is shared; Thermal and Focus are each player's own and never sent.
     new SharedSonar(w);
     this.time = new Clock(w);
-    this.hits = new Hits(w, this.enemies, this.claims);
+    this.credit = new Credit(w, this.claims);
+    this.hits = new Hits(w, this.enemies, this.credit);
     new Chatter(w, this.enemies);
     this.capture = new Capture(w, this.enemies);
     this.enemyFire = new EnemyFire(w, this.targeting);
@@ -80,7 +84,7 @@ export class CoopWorld {
     this.guns = new Guns(w);
     this.vehicles = new Vehicles(w);
     this.garrison = new Allies(w);
-    this.modules = [this.capture, this.vehicles, this.garrison, this.targeting, this.claims, this.hits, w.later, this.enemies];
+    this.modules = [this.capture, this.vehicles, this.garrison, this.targeting, this.claims, this.credit, w.later, this.enemies];
   }
 
   /** Read by the two-page proofs (tools/scripts/coop-*.mjs): the guest's enemy copies, last snapshot and garrison bodies. */
@@ -98,7 +102,13 @@ export class CoopWorld {
    * Not this player's: a kill (by uid) or a hit landed by a teammate. Score, combo, perks, kill pay and the run report skip it,
    * so each player's own browser pays and scores only what they did. Solo and guests' own replays read false.
    */
-  notMine(enemy?: { uid: number }): boolean { return this.hits.notMine(enemy); }
+  notMine(enemy?: { uid: number }): boolean { return this.credit.notMine(enemy); }
+  /** Host: whose damage is being applied right now (a lobby id), for work put off to a later frame (Combat's queued blasts). */
+  get crediting(): string | null { return this.credit.crediting; }
+  /** Host: runs what follows as `owner`'s doing; returns what to pass back when it is done (credit.ts `as`). */
+  creditAs(owner: string | null): string | null { return this.credit.as(owner); }
+  /** Host: floating text for the hit being applied. True when it went to the guest whose hit it was instead. */
+  labelFor(at: THREE.Vector3, text: string, color?: string): boolean { return this.credit.label(at, text, color); }
   /** Before the clock ticks: the host keeps the slow-mo everyone shares, a guest keeps none (its world is the host's). */
   clock(): void { this.time.clock(); }
   begin(): void {

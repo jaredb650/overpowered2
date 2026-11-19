@@ -280,7 +280,8 @@ export class Defense {
     // E goes to a counter, a man in front of the player or a mounted gun before a wall.
     // Co-op: the walls are the host's to mend; a guest's repair would only mend their own copy.
     if (!ctx.coop?.world || ctx.coop.hosting) this.repair.update(dt, this.prompted !== null || Number.isFinite(ctx.allies?.focusDistance ?? Infinity) || this.gunNear());
-    if (this.inBreak && ctx.input.pressed('nextWave')) this.startNow();
+    // Co-op: the key is the team's ready vote (net/teamBreak.ts), never one player's skip.
+    if (this.inBreak && !ctx.coop?.world && ctx.input.pressed('nextWave')) this.startNow();
     this.mortars.update(!this.inBreak);
     if (ON_FORT && ctx.allies) {
       if (!this.inBreak) this.garrison.watch(ctx.enemies.alive);

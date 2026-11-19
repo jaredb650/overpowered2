@@ -26,7 +26,8 @@ export class ShopHud {
     this.credits.set(shop.credits.toLocaleString('en-US'));
     this.hintShown.set(shop.inBreak);
     if (shop.inBreak) {
-      const early = this.ctx.waves.nextWaveIn > 3 ? `  ·  ${this.ctx.input.labelFor?.('nextWave') ?? 'L'}: START NOW` : '';
+      // Co-op: the key is a vote, and the co-op HUD shows the count (net/coopHud.ts).
+      const early = this.ctx.coop?.world ? '' : this.ctx.waves.nextWaveIn > 3 ? `  ·  ${this.ctx.input.labelFor?.('nextWave') ?? 'L'}: START NOW` : '';
       this.hint.set(`Shop: the supply pod, ${this.ctx.input.labelFor?.('interact') ?? 'E'} at it${early}`);
     }
   }

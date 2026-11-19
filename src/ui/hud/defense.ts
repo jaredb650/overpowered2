@@ -52,7 +52,8 @@ export class DefenseHud {
     if (between) {
       // The early start only means something once there is a wave to bring forward and more than its last seconds to save.
       const key = this.ctx.input.labelFor?.('nextWave') ?? 'L';
-      const early = this.ctx.waves.nextWaveIn > 3 ? `  ·  ${key}: START NOW` : '';
+      // Co-op: the key is a vote, and the co-op HUD shows the count (net/coopHud.ts).
+      const early = this.ctx.coop?.world ? '' : this.ctx.waves.nextWaveIn > 3 ? `  ·  ${key}: START NOW` : '';
       this.next.set(`Next: ${d.preview}${early}`);
     }
     for (const s of this.shops) {

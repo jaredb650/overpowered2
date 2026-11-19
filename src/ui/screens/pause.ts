@@ -7,6 +7,9 @@ import { menuButton } from './parts';
 import { statRows } from './stats';
 import type { Screen } from './Screens';
 
+/** How long "End match" stays armed after its first press. */
+const CONFIRM_MS = 4000;
+
 export class PauseScreen implements Screen {
   readonly el: HTMLElement;
   private stats: HTMLElement;
@@ -16,7 +19,11 @@ export class PauseScreen implements Screen {
   private restart;
   private title = span('pz-title', 'Paused');
 
-  private quit = menuButton('Quit to menu', () => this.hud.quitToMenu());
+  /** Co-op host: "End match" takes everyone out, so it asks first: the second press within `CONFIRM_MS` does it. */
+  private armedAt = -Infinity;
+  private checkpoint: ReturnType<typeof menuButton> | null = null;
+
+  private quit = menuButton('Quit to menu', () => this.leave());
 
   constructor(private readonly hud: Hud, private readonly isCoop: () => boolean = () => false, private readonly isCoopHost: () => boolean = () => false) {
     this.restart = menuButton(MISSION_ID ? 'Restart mission' : 'Restart run', () => this.hud.startRun());
@@ -24,7 +31,7 @@ export class PauseScreen implements Screen {
       menuButton('Resume', () => this.hud.resume()),
       menuButton('Guide', () => this.hud.screens.show('guide')),
       menuButton('Settings', () => this.hud.screens.show('settings')),
-      ...(MISSION_ID ? [menuButton('Restart from checkpoint', () => this.hud.restartCheckpoint())] : []),
+      ...(MISSION_ID ? [this.checkpoint = menuButton('Restart from checkpoint', () => this.hud.restartCheckpoint())] : []),
       this.restart,
       this.quit,
     ];
@@ -47,13 +54,45 @@ export class PauseScreen implements Screen {
     const coop = this.isCoop();
     this.title.textContent = coop ? 'Co-op menu · world live' : 'Paused';
     this.restart.el.style.display = coop ? 'none' : '';
-    // Co-op leaves for the lobby page, never the main menu.
-    this.quit.el.querySelector('.mi-t')!.textContent = !coop ? 'Quit to menu' : this.isCoopHost() ? 'End match (all to lobby)' : 'Leave match (to lobby)';
-    nav.set(this.items.filter(i => !coop || i !== this.restart));
+    // A guest has no checkpoint to restart: the mission is the host's. The host's sends the whole team back.
+    const guest = coop && !this.isCoopHost();
+    if (this.checkpoint) {
+      this.checkpoint.el.style.display = guest ? 'none' : '';
+      this.checkpoint.el.querySelector('.mi-t')!.textContent = coop ? 'Checkpoint (whole team)' : 'Restart from checkpoint';
+    }
+    this.armedAt = -Infinity;
+    this.label();
+    nav.set(this.items.filter(i => (!coop || i !== this.restart) && !(guest && i === this.checkpoint)));
     nav.back = () => this.hud.resume();
     nav.left = nav.right = null;
     this.hintShown.set(false);
     this.stats.replaceChildren(...statRows(this.hud.report));
+  }
+
+  /** Co-op leaves for the lobby page, never the main menu. */
+  private label(armed = false): void {
+    const coop = this.isCoop();
+    this.quit.el.querySelector('.mi-t')!.textContent = !coop ? 'Quit to menu' : !this.isCoopHost() ? 'Leave match (to lobby)'
+      : armed ? 'End it for everyone? Press again' : 'End match (all to lobby)';
+  }
+
+  private leave(): void {
+    if (this.isCoop() && this.isCoopHost() && performance.now() - this.armedAt > CONFIRM_MS) {
+      this.armedAt = performance.now();
+      this.label(true);
+      this.hint('That ends the match for the whole team. Press End match again to confirm.');
+      return;
+    }
+    this.hud.quitToMenu();
+  }
+
+  update(): void {
+    // The question lapses on its own.
+    if (this.armedAt > 0 && performance.now() - this.armedAt > CONFIRM_MS) {
+      this.armedAt = -Infinity;
+      this.label();
+      this.hintShown.set(false);
+    }
   }
 
   hint(text: string): void {
