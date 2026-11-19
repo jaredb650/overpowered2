@@ -22,6 +22,7 @@ import { spoken, TYPE_RATE } from '../../ui/commander/pick';
 import { RINGS, type RingId } from '../../world/map/fort/plan';
 import { SHOP_ORDER, SHOPS, type ShopId } from './data';
 import type { DefenseDirector } from './director';
+import { isGuest } from '../../core/coop';
 
 /** Seconds a line stays up once typed, and the quiet between two. */
 export const HOLD = 2.6;
@@ -288,8 +289,7 @@ export class DefenseRadio {
 
   /** Co-op guest: the director, the siege and the garrison this listens to run on the host, whose lines arrive instead. */
   private get guest(): boolean {
-    const coop = this.ctx.coop;
-    return !!coop?.world && !coop.hosting;
+    return isGuest(this.ctx);
   }
 
   update(): void {

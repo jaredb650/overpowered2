@@ -26,6 +26,7 @@ import { readCombo, type KatanaMove } from './combo';
 import { BLADE_OLD, BODY_RADIUS, DOWNED_HEIGHT, ENERGY, KATANA, MELEE, REACH_DOWN, isMelee, type MeleeDef, type MeleeId, type MeleeSwing } from './data';
 import { MeleeShow } from './show';
 import { swingTouches, sweepDirection, type BodyShape, type SwingFrame, type SwingShape } from './sweep';
+import { isGuest } from '../../core/coop';
 
 type State = 'idle' | 'swing' | 'guard';
 /** What the katana's swing in progress is, past a plain slash. */
@@ -710,7 +711,7 @@ export class Melee {
       const c = this.ctx;
       c.camera.fovPunch(L.fov, 0.18);
       c.audio.play('blade_dash', { pitchJitter: 0.04 });
-    this.show.sound('blade_dash');
+      this.show.sound('blade_dash');
       this.show.dashStreaks(c.player.eye, c.player.forward);
       return;
     }
@@ -1110,7 +1111,7 @@ export class Melee {
       // The flurry throws only on its last stab.
       if (swing.fling && (this.special !== 'flurry' || this.jab === KATANA.flurryStabs - 1)) this.fling(e, push, swing.fling);
     } else if (res.killSoon) this.killCount++;
-    if (!res.killed && swing.fling && c.coop?.world && !c.coop.hosting && (this.special !== 'flurry' || this.jab === KATANA.flurryStabs - 1)) {
+    if (!res.killed && swing.fling && isGuest(c) && (this.special !== 'flurry' || this.jab === KATANA.flurryStabs - 1)) {
       // A co-op guest's enemy dies on the host's word: the body is thrown when that comes, if it comes soon.
       const way = push.clone();
       const strength = swing.fling;

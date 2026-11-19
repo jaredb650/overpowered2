@@ -33,6 +33,7 @@ import { HandRepair, REPAIR_COLOR } from './repair';
 import { Shells } from './shells';
 import type { Siege, SiegeWire } from './siege';
 import { MortarTeams } from './teams';
+import { isGuest } from '../../core/coop';
 
 /**
  * What Outpost Defense needs from whatever runs its waves. Endless Humans' `OutpostWaves` is all of this but the optional
@@ -303,8 +304,7 @@ export class Defense {
 
   /** Co-op: this browser is a guest, so the fort it sees is the host's. */
   get guest(): boolean {
-    const coop = this.ctx.coop;
-    return !!coop?.world && !coop.hosting;
+    return isGuest(this.ctx);
   }
 
   /** Every living player's feet: this browser's, and in co-op on the host the others' too. */

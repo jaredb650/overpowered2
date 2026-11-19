@@ -16,6 +16,7 @@ import { helixOffset, type HelixSpec } from './helix';
 import { ROCKET_LASER } from './laser';
 import { ProjectileVisuals } from './ProjectileVisuals';
 import { flakBurst, flakFuze, nearestAhead } from './flak';
+import { isGuest } from '../core/coop';
 
 const MAX_PROJECTILES = 256;
 const UP = new THREE.Vector3(0, 1, 0);
@@ -660,7 +661,7 @@ export class Projectiles {
     }
     // A co-op guest's enemy dies on the host's word: the body is nailed up when that comes, if it comes soon.
     const c = this.ctx;
-    if (!res.killed && !res.blocked && c.coop?.world && !c.coop.hosting) {
+    if (!res.killed && !res.blocked && isGuest(c)) {
       const from = point.clone();
       const along = dir.clone();
       const head = res.headshot;

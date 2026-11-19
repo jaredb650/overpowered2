@@ -4,6 +4,7 @@
  * goes (`gone`); a guest flies the same pod at the same spot, shops at it with its own purse, and tells the host when it has
  * had its share of a cache (`took`).
  */
+import { DEV_TOOLS } from '../../core/devflags';
 import type { DropPods } from '../../progression/pickups/pods';
 import type { WorldContext } from './context';
 import type { Vec } from './wire';
@@ -25,7 +26,7 @@ export class Pods {
   }
 
   send(event: PodEvent, to?: string): void {
-    console.info(`[coop pod] send ${event.op} #${event.id}${to ? ` to ${to}` : ''}`, event.at ?? '');
+    if (DEV_TOOLS) console.info(`[coop pod] send ${event.op} #${event.id}${to ? ` to ${to}` : ''}`, event.at ?? '');
     this.w.send(event, to);
   }
 
@@ -41,7 +42,7 @@ export class Pods {
 
   private podIn(value: PodEvent, from: string): void {
     if (typeof value.op !== 'string' || typeof value.supply !== 'boolean') return;
-    console.info(`[coop pod] got ${value.op} #${value.id} from ${from}`, value.at ?? '');
+    if (DEV_TOOLS) console.info(`[coop pod] got ${value.op} #${value.id} from ${from}`, value.at ?? '');
     this.pods?.netIn(value, from);
   }
 }

@@ -28,6 +28,7 @@ import { MissionRunner } from './runner';
 import { MISSION_ID, START_BEAT } from './select';
 import type { MissionHost } from './types';
 import { validateMission } from './validate';
+import { isGuest } from '../core/coop';
 
 export type { CampaignSystem } from './events';
 
@@ -187,7 +188,7 @@ class Campaign implements CampaignSystem {
     this.retraining?.clear();
     this.ui.reset();
     // A co-op guest's mission is the host's (net/mission.ts): its own runner never starts.
-    if (this.ctx.coop?.world && !this.ctx.coop.hosting) {
+    if (isGuest(this.ctx)) {
       if (redeploying && this.banked) this.ctx.progression.resume(this.banked.score, this.banked.kills, this.banked.headshots);
       return;
     }

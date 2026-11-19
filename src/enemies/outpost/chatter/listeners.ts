@@ -15,6 +15,7 @@ import type { AiWorld } from '../../aiWorld';
 import type { Outpost } from '../index';
 import { FEAR } from '../morale';
 import { soldierOf, type Soldier } from '../soldier';
+import { isGuest } from '../../../core/coop';
 
 /** How close to a frag's landing spot a man must be to move, and where he goes. */
 const FRAG_CLEAR = 6.5;
@@ -30,8 +31,7 @@ const _dest = new THREE.Vector3();
 
 export function listenToEachOther(w: AiWorld, o: Outpost): void {
   w.ctx.events.on('comms:line', line => {
-    const coop = w.ctx.coop;
-    if ((coop?.world && !coop.hosting) || !line.enemy) return;
+    if (isGuest(w.ctx) || !line.enemy) return;
     const s = soldierOf(line.enemy);
     if (!s) return;
     switch (line.kind) {

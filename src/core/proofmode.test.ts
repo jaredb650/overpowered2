@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { DrawGate, clockDue, drawGate, proofSwitches } from './proofmode';
+import { DrawGate, clockDue, drawGate, proofPage, proofSwitches } from './proofmode';
 
 describe('proof mode', () => {
+  it('a page the proofs may drive is a dev build or this computer, never the public site', () => {
+    expect(proofPage('jaredb650.github.io', false)).toBe(false);
+    expect(proofPage('example.com', false)).toBe(false);
+    for (const host of ['localhost', '127.0.0.1', '[::1]']) expect(proofPage(host, false)).toBe(true);
+    expect(proofPage('jaredb650.github.io', true)).toBe(true);
+  });
+
   it('is off unless the harness asked, and off on the public site whatever is asked', () => {
     expect(proofSwitches(undefined, '127.0.0.1', true)).toBeNull();
     expect(proofSwitches({ draw: 4 }, 'jaredb650.github.io', false)).toBeNull();

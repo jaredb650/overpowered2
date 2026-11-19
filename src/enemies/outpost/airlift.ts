@@ -416,13 +416,13 @@ export class Airlift {
     this.held.splice(i, 1);
     h.cuffs.removeFromParent();
     if (h.drone && h.c.phase !== 'hooked' && h.c.phase !== 'gone') this.onPass?.(s.e.uid, null, h.dir, 0);
-    if (h.drone) this.park(h.drone);
+    if (h.drone) parkDrone(h.drone);
   }
 
   reset(): void {
     for (const h of this.held) h.cuffs.removeFromParent();
     this.held.length = 0;
-    for (const d of this.drones) this.park(d);
+    for (const d of this.drones) parkDrone(d);
   }
 
   // -------------------------------------------------------------------------------------------
@@ -701,27 +701,19 @@ export class Airlift {
     h.limp = false;
     h.planned = false;
     h.drone = null;
-    this.park(d);
+    parkDrone(d);
     return false;
   }
 
   /** Out of sight. The man is gone from the round: no kill, and the bounty was paid as he left the floor. */
   private finish(h: Held, d: Drone): boolean {
     const s = h.c.s;
-    this.park(d);
+    parkDrone(d);
     h.drone = null;
     if (!h.c.leave()) return false;
     if (s.e.alive) this.w.enemies.withdraw(s.e);
     else this.gone(s);
     return true;
-  }
-
-  private park(d: Drone): void {
-    d.busy = false;
-    d.frame.hide();
-    d.rope.visible = d.hook.visible = false;
-    d.hum?.stop(0.3);
-    d.hum = null;
   }
 
   /** Leaning hard into a pass this fast, nose down in the dive and up into the climb. */

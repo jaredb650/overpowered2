@@ -13,6 +13,7 @@ import type { AiWorld } from './aiWorld';
 import { everyPlayer, meleeConnect, muzzleOf, rocket, melee, say } from './attacks';
 import { crawl } from './behaviours';
 import { leapTo } from './movement';
+import { isGuest } from '../core/coop';
 
 export interface BossController {
   /** Phase index for this boss, for attacks to gate on. */
@@ -40,7 +41,7 @@ const _up = new THREE.Vector3(0, 1, 0);
 const MAX_HIT_SHARE = 0.05;
 
 /** A co-op guest's own enemy code: it shows what the host says happened, and never decides or draws a boss's moves itself. */
-const onGuest = (w: AiWorld): boolean => !!w.ctx.coop?.world && !w.ctx.coop.hosting;
+const onGuest = (w: AiWorld): boolean => isGuest(w.ctx);
 
 /**
  * What a ground shock looks, sounds and shakes like. `dist` is how far the local player stands from it, on the flat.

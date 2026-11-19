@@ -32,6 +32,7 @@ import { FORT_MORTARS, FORT_SHOPS, LEVEL, RAMPART, ring, type FortShop, type Rin
 import type { StructureSpec, Structures } from '../../world/structures';
 import { DEPTH_RING, depthAt, FIELD_MORTAR, MortarCrew, nextRing, onRing, outward, SATCHEL, satchelBlast, shelled } from './field';
 import { Shells } from './shells';
+import { isGuest } from '../../core/coop';
 
 const TICK = 0.4;
 /** Metres from the destination that count as there. */
@@ -226,8 +227,7 @@ export class Siege {
 
   /** Co-op: this browser is a guest. The works it shows are the host's (`mirror`), and nothing here knocks them down. */
   private get guest(): boolean {
-    const coop = this.ctx.coop;
-    return !!coop?.world && !coop.hosting;
+    return isGuest(this.ctx);
   }
 
   /** Co-op host: the works standing now, for the guests. */

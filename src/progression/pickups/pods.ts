@@ -21,6 +21,7 @@ import { SHOP_ANYTIME } from '../../contracts/shop/data';
 import { CACHE_ORDER, DROP_POD as D, PICKUP, PICKUP_LOOK } from '../data';
 import { ModelBuilder, type ModelMaterials } from '../modelkit';
 import type { PodEvent } from '../../net/world/pods';
+import { isGuest } from '../../core/coop';
 
 const COLOR = '#39e0ff';
 const COLLECT_RADIUS = 3;
@@ -168,8 +169,7 @@ export class DropPods {
 
   /** Co-op: a guest, whose pods are the host's. */
   private get guest(): boolean {
-    const s = this.session;
-    return !!s && !s.hosting;
+    return isGuest(this.ctx);
   }
 
   private tell(event: Omit<PodEvent, 't' | 'supply'>, to?: string): void {

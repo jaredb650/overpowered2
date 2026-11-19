@@ -21,6 +21,7 @@ import type { OutpostSquad } from './squad';
 import { listener } from './chatter/radio';
 import { clipFor } from './chatter/voices';
 import type { Soldier } from './soldier';
+import { isGuest } from '../../core/coop';
 
 /** Seconds before the same kind of line can come again. */
 const KIND_GAP: Partial<Record<CommsKind, number>> = {
@@ -121,8 +122,7 @@ export class Comms {
 
   /** A guest's men only move their lips to the host's words. */
   private get deaf(): boolean {
-    const coop = this.w.ctx.coop;
-    return !!coop?.world && !coop.hosting;
+    return isGuest(this.w.ctx);
   }
 
   /** Whoever is saying something with this body stops, mid-word. */

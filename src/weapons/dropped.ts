@@ -12,10 +12,12 @@
  *  - Taking is always a press of E: nobody hoovers up a friend's gift by walking over it.
  *  - A light column and a ring mark every drop, and the feed says who dropped what.
  *  - A guest whose world comes up late (loading, a late join, a rejoin) is sent every gun lying out, with its age.
- * Every message is logged at info level (`[coop gun]`).
+ * On a dev page every message is logged at info level (`[coop gun]`), which the drops proof keeps as evidence. The built
+ * site logs none of it.
  */
 import * as THREE from 'three';
 import { CG, type Ctx } from '../core/contracts';
+import { DEV_TOOLS } from '../core/devflags';
 import type { WeaponId } from '../core/gameplay';
 import type { GunEvent } from '../net/world/guns';
 import { WEAPONS } from './data';
@@ -85,7 +87,8 @@ const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
 const DOWN = new THREE.Vector3(0, -1, 0);
 
-const log = (...parts: unknown[]): void => console.info('[coop gun]', ...parts);
+/** Dev pages only (`log?.(...)`: off, not even the line's words are put together). */
+const log = DEV_TOOLS ? (...parts: unknown[]): void => console.info('[coop gun]', ...parts) : null;
 const brief = (gun?: WireGun | GunKit): string => (gun ? `${gun.weapon} mods[${gun.fitted.join(',')}] ${gun.mag}+${gun.reserve}` : '');
 
 export class DroppedGuns {
@@ -115,7 +118,7 @@ export class DroppedGuns {
   }
 
   private tell(event: Omit<GunEvent, 't'>, to?: string): void {
-    log('send', event.op, event.id ?? '', event.q ? `q${event.q}` : '', brief(event.gun), to ? `to ${to}` : '');
+    log?.('send', event.op, event.id ?? '', event.q ? `q${event.q}` : '', brief(event.gun), to ? `to ${to}` : '');
     this.session?.world?.sendGun({ t: 'gun', ...event }, to);
   }
 
@@ -228,7 +231,7 @@ export class DroppedGuns {
 
   /** A guest's drop that the host refused or never numbered: off the ground here and back in the hands. */
   private giveBack(d: Drop, why: string): void {
-    log('returned to the hands', brief(d), why);
+    log?.('returned to the hands', brief(d), why);
     const kit: GunKit = { weapon: d.weapon, mods: d.mods, fitted: d.fitted, mag: d.mag, reserve: d.reserve };
     this.remove(d.id);
     this.arms.receive(kit);
@@ -258,7 +261,7 @@ export class DroppedGuns {
 
   /** Host: a guest's drop, take or withdrawal. `at` is where the host sees that guest stand, `slot` and `name` who they are. */
   hostIn(value: GunEvent, from: string, at: THREE.Vector3, name: string, slot = -1): void {
-    log('host got', value.op, value.id ?? '', value.q ? `q${value.q}` : '', brief(value.gun), `from ${name}`);
+    log?.('host got', value.op, value.id ?? '', value.q ? `q${value.q}` : '', brief(value.gun), `from ${name}`);
     if (value.op === 'drop') {
       const q = Number.isInteger(value.q) && value.q! > 0 ? value.q! : 0;
       const kit = cleanKit(value.gun);
@@ -281,7 +284,7 @@ export class DroppedGuns {
     } else if (value.op === 'take') {
       const d = this.drops.find(x => x.id === value.id);
       // Gone already (another player was first): the asker hears nothing more than the `gone` everyone got.
-      if (!d || Math.hypot(d.at[0] - at.x, d.at[2] - at.z) > REACH + HOST_SLACK) return log('host refused the take', value.id ?? '', d ? 'too far' : 'not there');
+      if (!d || Math.hypot(d.at[0] - at.x, d.at[2] - at.z) > REACH + HOST_SLACK) return void log?.('host refused the take', value.id ?? '', d ? 'too far' : 'not there');
       this.remove(d.id);
       this.tell({ op: 'gone', id: d.id, to: name });
       this.tell({ op: 'give', gun: this.wire(d) }, from);
@@ -297,7 +300,7 @@ export class DroppedGuns {
 
   /** Guest: the host's word on a drop. */
   guestIn(value: GunEvent): void {
-    log('guest got', value.op, value.id ?? '', value.q ? `q${value.q}` : '', brief(value.gun), value.to ? `taken by ${value.to}` : '');
+    log?.('guest got', value.op, value.id ?? '', value.q ? `q${value.q}` : '', brief(value.gun), value.to ? `taken by ${value.to}` : '');
     if (value.op === 'add') {
       const gun = cleanWire(value.gun);
       if (!gun || gun.id <= 0) return;

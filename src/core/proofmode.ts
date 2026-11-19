@@ -23,6 +23,17 @@ export interface ProofSwitches {
   clock?: number;
 }
 
+/**
+ * True on a page a proof may drive: a dev build, or one served from this computer. Never the public site. What exists only
+ * for the proofs and the dev panel (a call-in with no key pressed, for one) asks this before it is there at all.
+ */
+export function proofPage(
+  host: string = typeof location === 'undefined' ? '' : location.hostname,
+  dev: boolean = import.meta.env?.DEV === true,
+): boolean {
+  return dev || host === 'localhost' || host === '127.0.0.1' || host === '[::1]';
+}
+
 /** The switches the harness asked for, or null on a page where they are not allowed or not asked for. */
 export function proofSwitches(
   given: unknown = (globalThis as { __op2Proof?: unknown }).__op2Proof,
@@ -30,7 +41,7 @@ export function proofSwitches(
   dev: boolean = import.meta.env?.DEV === true,
 ): ProofSwitches | null {
   if (!given || typeof given !== 'object') return null;
-  if (!(dev || host === 'localhost' || host === '127.0.0.1' || host === '[::1]')) return null;
+  if (!proofPage(host, dev)) return null;
   const { draw, clock } = given as ProofSwitches;
   const out: ProofSwitches = {};
   if (typeof draw === 'number' && draw >= 0) out.draw = draw;

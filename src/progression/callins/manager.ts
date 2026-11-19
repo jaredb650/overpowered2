@@ -4,6 +4,7 @@
  * Reward rule from the first game: a call-in is offered on any kill where the combo is high enough, it is not already
  * held, and its cooldown is over. The combo is not consumed, so 12 and 15 stay reachable.
  */
+import { proofPage } from '../../core/proofmode';
 import * as THREE from 'three';
 import type { Action, Ctx, GradeName } from '../../core/contracts';
 import type { CallInId } from '../../core/gameplay';
@@ -76,6 +77,9 @@ interface HeldCall {
   readonly point: THREE.Vector3;
   readonly heading: THREE.Vector3;
 }
+/** A page the proofs may drive (a dev build, or this computer): what exists only for them is made only there. */
+const PROOF_PAGE = proofPage();
+const NO_STRIKES: readonly Strike[] = [];
 /** Seconds between the device leaving and the gun being drawn. */
 const GUN_BACK_DELAY = 0.16;
 
@@ -464,20 +468,21 @@ export class CallInManager implements CallinLink {
   }
 
   /**
-   * This call-in now, on `point`, with no key pressed, nothing spent and no jammer asked: for the dev panel and the co-op
-   * proofs (tools/scripts/coop-callins-matrix.mjs). `heading` is the Warthog's run on the ground; `ai` sends an aircraft in
-   * with its crew instead of seating the player.
+   * For the co-op proofs (tools/scripts/coop-callins-matrix.mjs) and the dev panel, and absent from the public site
+   * (`proofPage`): this call-in now, on `point`, with no key pressed, nothing spent and no jammer asked. `heading` is the
+   * Warthog's run on the ground; `ai` sends an aircraft in with its crew instead of seating the player.
    */
-  callAt(id: CallInId, point: THREE.Vector3, heading?: THREE.Vector3, ai = true): void {
-    this.mark.point.copy(point);
-    if (heading) this.mark.heading.copy(heading).setY(0).normalize();
-    if (SEATED.has(id) || id === 'frame') this.takeOff(id, ai);
-    else this.fly(id);
-  }
+  readonly callAt: ((id: CallInId, point: THREE.Vector3, heading?: THREE.Vector3, ai?: boolean) => void) | undefined = !PROOF_PAGE ? undefined
+    : (id, point, heading, ai = true) => {
+      this.mark.point.copy(point);
+      if (heading) this.mark.heading.copy(heading).setY(0).normalize();
+      if (SEATED.has(id) || id === 'frame') this.takeOff(id, ai);
+      else this.fly(id);
+    };
 
-  /** The player's own running strikes, newest last, for the proofs. */
+  /** The player's own running strikes, newest last, for the proofs: nothing on the public site. */
   get running(): readonly Strike[] {
-    return this.strikes;
+    return PROOF_PAGE ? this.strikes : NO_STRIKES;
   }
 
   /** Onto a mission's ride in the Packmule: a fixed flight, or its circle first (`Flight.loiter`). Nothing on the ground can hold this one up. */

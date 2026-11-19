@@ -15,6 +15,7 @@ import { ModelBuilder, ModelMaterials } from '../../progression/modelkit';
 import { FORT_POSTS, type FortPost } from '../../world/map/fort/plan';
 import { pickMortarTarget, TEAM_MORTAR, type MortarCandidate } from './field';
 import { Shells, type Shell } from './shells';
+import { isGuest } from '../../core/coop';
 
 export const TEAM_SOURCE = 'ally_mortar';
 const BLAST_IMPULSE = 12;
@@ -132,7 +133,7 @@ export class MortarTeams {
     audio.play('rocket_explosion', { position: p, pitch: 0.8, pitchJitter: 0.05 });
     ctx.camera.addTrauma(Math.max(0, 0.35 - ctx.player.position.distanceTo(p) / 200));
     // Co-op guest: the host's round, drawn. What it hit, the host has counted.
-    if (ctx.coop?.world && !ctx.coop.hosting) return;
+    if (isGuest(ctx)) return;
     const n = ctx.enemies.query(p, s.radius + 1.5, this.hits);
     for (let i = 0; i < n; i++) {
       const e = this.hits[i]!;
