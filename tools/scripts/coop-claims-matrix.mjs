@@ -302,13 +302,15 @@ await guest.waitForFunction(([uids, last, truck]) => {
           await sleep(settle + (row.mode === 'grenade' || row.weapon === 'kiln' ? 2500 : 0));
           // Every claim the guest sent is in the host's books (applied, refused, or on a man already dead) before they are read:
           // on a slow link and a starved page the last of them are still on their way.
+          // The guest's count is fixed first (burning ground goes on sending fire claims), then the host is given time to have them all.
+          const sentAfter = await sentBy(guest), sentNow = sum(delta(sentAfter, sentBefore));
           const allIn = async () => {
-            const now = await read(host), sent = sum(delta(await sentBy(guest), sentBefore));
-            return now.accepted - before.accepted + now.rejected - before.rejected + (now.refused.gone ?? 0) - (before.refused.gone ?? 0) >= sent;
+            const now = await read(host);
+            return now.accepted - before.accepted + now.rejected - before.rejected + (now.refused.gone ?? 0) - (before.refused.gone ?? 0) >= sentNow;
           };
           for (let waited = 0; who === 'guest' && waited < 20000 && !await allIn(); waited += 400) await sleep(400);
           await hitch(host, false);
-          const after = await read(host), sentAfter = await sentBy(guest);
+          const after = await read(host);
           const perf = await page.evaluate(() => { const st = window.__op2.stats(), { ctx } = window.__op2; return { fps: st.fps, cpuMs: st.cpuMs, draws: st.drawCalls, tris: st.triangles, enemies: ctx.enemies.alive.length, dying: ctx.enemies.dying?.length, scene: ctx.render.scene.children.length }; });
           const d = delta(after, before), sent = delta(sentAfter, sentBefore);
           const dealt = row.target === 'truck' ? d.vehicle : d.dealt;
@@ -325,7 +327,7 @@ await guest.waitForFunction(([uids, last, truck]) => {
           delete g.refused.gone;
           g.gone = gone;
           if (claims === 0 && h.dealt > 0) problems.push('the guest sent no claims');
-          if (g.accepted + gone !== claims) problems.push(`${claims} claims sent, ${g.accepted} applied, ${gone} on men already dead`);
+          if (g.accepted + gone < claims) problems.push(`${claims} claims sent, ${g.accepted} applied, ${gone} on men already dead`);
           if (g.rejected) problems.push(`${g.rejected} rejected`);
           if (sum(g.refused)) problems.push(`refused ${JSON.stringify(g.refused)}`);
           if (g.clamped) problems.push(`${g.clamped} cut to the cap`);
