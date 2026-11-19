@@ -897,6 +897,88 @@ Shared 8 GB M1 under load average around 18, so treat these as upper bounds.
 | A body knocked down on its way up, `react-seq` `riseshot`: a shell's four pellets in the chest half way through the face-down clip | The head 0.64 to 0.20 m within 10 frames; the hips stay on its knees, 0.5 m, until frame 34, lying by 50. With `?struggle=0` it stays up and the clip plays on. Headless, felled half way up the face-down clip: hips under 0.25 m 41 to 56 frames on; with the arms and legs slack, or a 0.8 to 1.2 m/s topple, 31 to 89 |
 | `react-chaos`, fighting up against `?struggle=0`, alternating, six each, load 2.9 to 5.5 | Physics step peak 9.6 to 15.4 ms, mean 11.5 and median 11.0, against 9.8 to 14.2, 11.35 and 11.2. Four more pairs on another run: 8.6 to 10.9 ms, mean 9.75, against 6.7 to 14.8, 10.05. Both inside the run-to-run spread. The script's CPU figure (3.8 to 7.2 ms against 3.7 to 6.4) is the last frame's, read once every body is up, so it says nothing of the struggle. At most 14 chains against 15. Every survivor back up, no console errors |
 
+## The mess: measured budgets (M0, 2026-11-19)
+
+Measured for the gore update on the development machine (i9-13900K, RTX 4090, load 7 to 9, game at its default quality,
+which draws 1440x900 at dpr 2), with `tools/scripts/mess-m0.mjs` (the game stopped, the frame rendered between GPU syncs,
+best of 8 rounds of 10 frames, variants round-robin) and `tools/scripts/mess-physics.probe.ts` (headless Rapier).
+**There is no laptop here.** The laptop column is an estimate, and how it is made is under the tables. Every cap in "The
+mess" below cites a row here.
+
+**Corpses in view** (Troopers, Husks and Gunners lying in rows 4 to 25 m ahead, half of them opened by a shotgun round;
+`ms` is the whole frame, `cpu` the script's share of it):
+
+| Corpses | Frame ms | cpu ms | Draw calls | Triangles |
+|---|---|---|---|---|
+| 0 | 1.07 | 0.93 | 140 | 0.45 M |
+| 20 | 2.21 | 2.10 | 264 | 1.34 M |
+| 40 | 2.56 | 2.41 | 383 | 2.23 M |
+| 80 | 3.95 | 3.66 | 596 | 3.82 M |
+| 150 | 5.92 | 5.97 | 887 | 5.97 M |
+
+The same 150 with one thing changed:
+
+| Change | Frame ms | Draw calls | Triangles |
+|---|---|---|---|
+| as they are | 5.92 | 887 | 5.97 M |
+| no body casts a shadow | 5.31 | 578 | 3.91 M |
+| nothing under the skin drawn | 6.04 | 827 | 5.40 M |
+| next level of detail (LOD 1) | 6.00 | 827 | 3.11 M |
+| far level of detail (LOD 2) | 5.53 | 767 | 1.88 M |
+| skeleton not worked out or sent again | 4.12 | 887 | 5.97 M |
+| all of: LOD 1, no shadow, no interior, still skeleton ("tier 1") | 3.72 | 518 | 1.96 M |
+| bodies hidden | 1.54 | 146 | 0.49 M |
+
+- **A corpse costs 4.9 draw calls and 36,600 triangles** on average (5 and 44,000 for an opened one near, with its shadow),
+  and **0.030 ms** of frame on this machine, **all of it the script's own work**, not the GPU's: three.js walks, sorts and
+  submits each one, and every skeleton is worked out and its texture sent again every frame though the body lies still.
+- **A still skeleton saves a third** (0.012 ms a body). Shadows are 2 draws and 13,700 triangles a body. Detail levels
+  save triangles and no script time. Tier 1 as a whole is **0.0145 ms, 2.5 draws and 9,900 triangles a body**.
+- `bakePose` (level 0, 10,700 to 12,600 vertices): best 1.1 to 1.3 ms, median 1.2 to 1.8, on a Husk, Trooper and Brute.
+  The three levels of detail share one vertex buffer: 12,950 / 5,460 / 1,790 triangles on a Trooper.
+
+**Decals** (the blood ring filled, all in view down a 40 m hall, then with the player standing on a 3 m spot where
+they are all stacked, looking at their feet, so the stack fills the screen):
+
+| Decals | Where | Frame ms | Without decals |
+|---|---|---|---|
+| 2,048 | spread over 40 m of floor | 1.04 | 1.09 |
+| 8,192 | spread over 40 m of floor | 1.46 | 1.13 |
+| 250 | stacked, filling the screen | 1.13 | 0.95 |
+| 1,000 | stacked, filling the screen | 1.57 | 1.01 |
+| 4,000 | stacked, filling the screen | 3.34 | 0.92 |
+| 8,192 | stacked, filling the screen | 5.67 | 1.00 |
+
+- Spread out, 8,192 decals cost 0.3 ms: the count is not what costs. **Stacked on screen they cost the GPU 0.57 ms a
+  thousand** (the test's mix is about 0.7 m² a decal on 7 m² of floor, so a thousand is about a hundred layers: **0.006 ms
+  a layer of a full screen**). Overdraw is the limit, so the rule that stops a soaked spot taking more is what holds it.
+
+**Physics** (headless; fourteen ragdolls, the budget, dropped on a heap of fixed capsules in the ragdolls' own group; the
+step over the two seconds of the landing):
+
+| Fixed capsules | Median ms | 90th | Worst |
+|---|---|---|---|
+| 0 | 1.00 | 1.48 | 2.38 |
+| 100 (3 a body) | 1.04 | 1.47 | 2.32 |
+| 200 | 0.89 | 1.41 | 2.59 |
+| 450 | 1.02 | 1.53 | 2.67 |
+| 600 (15 a body) | 1.12 | 1.82 | 2.38 |
+| 1,500 | 1.38 | 3.65 | 4.57 |
+| 2,250 (150 bodies, every bone) | 1.30 | 2.04 | 2.90 |
+| 4,500 | 4.10 | 4.88 | 8.11 |
+
+- Fixed capsules are nearly free up to about 2,250: **a resting body can keep every bone's capsule**, not only its trunk
+  and thighs, which is what lets it wake as a ragdoll in exactly the shape it lay in. Past 4,000 the step triples.
+
+**The laptop estimate.** `docs/notes/render.md` timed the laptop (the 8 GB M1) at 7.5 to 9.9 ms for the map with eight
+enemies and 12.3 to 15.6 ms with eighteen, both drawn stopped as here: about **0.5 ms a living body in view, at about
+150,000 triangles each with its shadow and gear, so about 3.5 ms a million triangles**. The same eight Husks cost this
+machine 0.32 ms, 0.04 each. So the laptop's GPU is what a body costs there, by triangles, and its script time is taken as
+1.5 times this machine's. By that: a full corpse is about **0.18 ms** on the laptop (36,600 triangles and 0.03 ms of
+script), a tier 1 corpse **0.06 ms**, and a baked far body in a shared draw (1,800 triangles, no script) **0.007 ms**.
+Today's 40 full corpses all in view are about 7 ms there. A full-screen layer of decals is taken as 12 times this
+machine's, 0.07 ms, so twenty layers under the player's feet are 1.4 ms.
+
 ## Known limitations
 
 - **A body that falls from a stagger leans more than it steps.** On stage 6's drive (`stumble` with no budget) its physical feet get 0.15 to 0.3 m of a catch step the animation swings 0.56 m in 8 frames, so reeling backward it leans over its feet from about frame 8 and goes over. Leg gain did not change it. A body catching its balance has pins on its ankles and covers 0.87 to 1.03 of each step. The same pins on the fall cover 0.69 to 1.05, but then it ends by hip gap, not momentum, which two of stage 6's tests read otherwise; left off until the owner has seen both.
