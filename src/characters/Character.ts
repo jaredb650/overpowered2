@@ -3,7 +3,8 @@ import * as THREE from 'three';
 import type { CharacterInstance, SeveredLimb, WoundHit } from '../core/contracts';
 import { HumanoidBone as H, type GoreRegion, type RigDef } from './rig';
 import type { LoadedModel } from './model';
-import { BONE_TEXTURE_SIZE, EXTRA_INFO, EXTRA_PARAMS, EXTRA_TEXELS, EXTRA_WOUNDS } from './anatomy/glsl';
+import { BONE_TEXTURE_SIZE, EXTRA_INFO, EXTRA_PARAMS, EXTRA_TEXELS, EXTRA_WEAR, EXTRA_WOUNDS } from './anatomy/glsl';
+import { WearBook, type WearKindId } from './anatomy/wear';
 import { FracturePose, type FractureStyle } from './anatomy/fracture';
 import { newWoundSpec, WoundBook, WoundKind, WoundRegion, type WoundKindId } from './anatomy/wounds';
 import { createAnimator, type PooledAnimation } from './animation/index';
@@ -195,6 +196,8 @@ export class Character implements CharacterInstance {
   private flash = 0;
   private flashAt = 0;
   private readonly book: WoundBook;
+  /** How far through its skin each region is (anatomy/wear.ts). Only a humanoid with flesh under its skin wears. */
+  private readonly worn: WearBook;
   private readonly breaks: FracturePose;
   /** Null until a wound opens this body. */
   inside: THREE.SkinnedMesh | null = null;
@@ -251,6 +254,9 @@ export class Character implements CharacterInstance {
     this.data[this.extras + EXTRA_INFO * 4 + 1] = Math.random() * 64;
     this.book = new WoundBook(this.data, this.extras + EXTRA_WOUNDS * 4, count => {
       this.data[this.extras + EXTRA_INFO * 4] = count;
+    });
+    this.worn = new WearBook(this.data, this.extras + EXTRA_WEAR * 4, most => {
+      this.data[this.extras + EXTRA_INFO * 4 + 3] = most;
     });
     this.anim = createAnimator(a.def, this);
     this.breaks = new FracturePose(a.rig, this.bones);
@@ -322,9 +328,36 @@ export class Character implements CharacterInstance {
     this.showWounds();
   }
 
+  /**
+   * A region of this body stands at `spent` of its health pool, 0 to 1, after a hit of `kind`: its skin is torn that far
+   * through, to muscle and then to bone (anatomy/wear.ts; drawn by the skin shader). Only what is seen: nothing reads it back.
+   */
+  setWear(region: GoreRegion, spent: number, kind: WearKindId): void {
+    if (this.a.def.rig !== 'humanoid' || !this.a.interior) return;
+    this.worn.set(region, spent, kind);
+    this.showWounds();
+  }
+
+  /** The same for a region with no pool of its own (the trunk): `share` more of it is worn. */
+  addWear(region: GoreRegion, share: number, kind: WearKindId, most = 1): void {
+    if (this.a.def.rig !== 'humanoid' || !this.a.interior) return;
+    this.worn.set(region, Math.min(this.worn.amount(region) + share, Math.max(most, this.worn.amount(region))), kind);
+    this.showWounds();
+  }
+
+  /** How worn a region is drawn, 0 to 1. */
+  wearOf(region: GoreRegion): number {
+    return this.worn.amount(region);
+  }
+
+  /** Whether anything on this body needs the wounded program: a wound, or worn skin. */
+  private get marked(): boolean {
+    return this.book.count > 0 || this.worn.most > 0;
+  }
+
   /** Puts the body on the wounded program, with its inside if it has been opened. */
   private showWounds(): void {
-    if (this.book.count === 0) return;
+    if (!this.marked) return;
     if (this.mesh.material === this.a.material) this.mesh.material = this.a.woundMaterial;
     if (this.book.open === 0 || !this.a.interior) return;
     if (!this.inside) {
@@ -419,7 +452,7 @@ export class Character implements CharacterInstance {
     const i = Math.min(level, set.length - 1);
     this.mesh.geometry = set[i]!;
     // The last LOD indexes welded vertices, so its UVs are meaningless and it paints from vertex colour.
-    this.mesh.material = i >= FAR_LOD ? this.a.farMaterial : this.book.count > 0 ? this.a.woundMaterial : this.a.material;
+    this.mesh.material = i >= FAR_LOD ? this.a.farMaterial : this.marked ? this.a.woundMaterial : this.a.material;
     if (this.inside) this.showInside(this.book.open > 0 ? i : FAR_LOD);
   }
 
@@ -431,9 +464,10 @@ export class Character implements CharacterInstance {
   }
 
   /** Copies this instance's surface state onto a severed part, so wounds and burn follow the limb. */
-  copySurfaceTo(dst: Float32Array, dstOffset: number, book: WoundBook): void {
+  copySurfaceTo(dst: Float32Array, dstOffset: number, book: WoundBook, worn: WearBook): void {
     dst.set(this.data.subarray(this.extras, this.extras + EXTRA_TEXELS * 4), dstOffset);
     book.adopt(this.book);
+    worn.adopt(this.worn);
   }
 
   bakePose(bind = false): THREE.BufferGeometry {
@@ -525,6 +559,7 @@ export class Character implements CharacterInstance {
     this.severed.clear();
     this.flash = 0;
     this.book.clear();
+    this.worn.clear();
     this.breaks.reset();
     this.stress.fill(0);
     if (this.inside) this.showInside(FAR_LOD);
@@ -567,6 +602,7 @@ export class SeveredPart implements SeveredLimb {
   private readonly extras: number;
   private readonly data: Float32Array;
   private readonly book: WoundBook;
+  private readonly worn: WearBook;
   private inside: THREE.SkinnedMesh | null = null;
   private backing: THREE.SkinnedMesh | null = null;
   private clones: THREE.Object3D[] = [];
@@ -587,6 +623,9 @@ export class SeveredPart implements SeveredLimb {
     this.book = new WoundBook(this.data, this.extras + EXTRA_WOUNDS * 4, count => {
       this.data[this.extras + EXTRA_INFO * 4] = count;
     });
+    this.worn = new WearBook(this.data, this.extras + EXTRA_WEAR * 4, most => {
+      this.data[this.extras + EXTRA_INFO * 4 + 3] = most;
+    });
   }
 
   wound(hit: WoundHit): void {
@@ -601,7 +640,7 @@ export class SeveredPart implements SeveredLimb {
   }
 
   private showWounds(): void {
-    if (this.book.count === 0) return;
+    if (this.book.count === 0 && this.worn.most <= 0) return;
     this.mesh.material = this.a.woundMaterial;
     if (this.book.open === 0 || !this.a.interior) return;
     if (!this.inside) {
@@ -680,7 +719,7 @@ export class SeveredPart implements SeveredLimb {
       this.mesh.geometry = a.model.lods[0]!;
     }
 
-    src.copySurfaceTo(this.data, this.extras, this.book);
+    src.copySurfaceTo(this.data, this.extras, this.book, this.worn);
     // A limb has nothing fading its flash, so a value copied mid-hit would stay lit for good.
     this.data[this.extras + EXTRA_PARAMS * 4 + 1] = 0;
     this.showWounds();
@@ -704,6 +743,7 @@ export class SeveredPart implements SeveredLimb {
     for (const c of this.clones) c.removeFromParent();
     this.clones.length = 0;
     this.book.clear();
+    this.worn.clear();
     this.mesh.material = this.a.material;
     if (this.inside) this.showInside(false);
     this.root.removeFromParent();

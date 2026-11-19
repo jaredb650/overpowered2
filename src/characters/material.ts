@@ -9,7 +9,7 @@
 import * as THREE from 'three';
 import type { Ctx } from '../core/contracts';
 import { mulberry32 } from '../core/math';
-import { EXTRA_INFO, EXTRA_PARAMS, WOUND_COMMON, WOUND_REGION, WOUND_VERTEX_LOOP } from './anatomy/glsl';
+import { EXTRA_INFO, EXTRA_PARAMS, WEAR_VERTEX, WOUND_COMMON, WOUND_REGION, WOUND_VERTEX_LOOP } from './anatomy/glsl';
 
 const VERT_PARS = /* glsl */ `
 attribute vec4 aColor;
@@ -31,13 +31,21 @@ varying vec3 vWoundTilt;
 varying float vWoundNear;
 flat varying int vRegion;
 #endif
+// Wear (anatomy/glsl.ts WEAR_VERTEX): on a body with wounds or worn skin, and on any skinned body far off.
+#if defined(OP2_WOUNDS) || (defined(OP2_FAR) && defined(USE_SKINNING))
+#define OP2_WEARS
+varying vec4 vWear;
+#endif
 `;
 
 /** Goes after three's skinning declarations, which it reads. */
 const VERT_WOUND_PARS = /* glsl */ `
-#ifdef OP2_WOUNDS
+#ifdef OP2_WEARS
 uniform int uExtraBase;
 ${WOUND_COMMON}
+${WEAR_VERTEX}
+#endif
+#ifdef OP2_WOUNDS
 ${WOUND_REGION}
 #endif
 `;
@@ -53,6 +61,9 @@ const VERT_MAIN = /* glsl */ `
   vRegion = op2Region();
   transformed += op2Push;
 }
+#endif
+#ifdef OP2_WEARS
+vWear = op2Wear();
 #endif
 {
   vColorAO = vec4(pow(aColor.rgb, vec3(2.2)), aColor.a);
@@ -100,6 +111,10 @@ uniform highp sampler2D boneTexture;
 uniform int uExtraBase;
 ${WOUND_COMMON}
 #endif
+#if defined(OP2_WOUNDS) || (defined(OP2_FAR) && defined(OP2_SKINNED))
+#define OP2_WEARS
+varying vec4 vWear;
+#endif
 #ifdef OP2_WOUNDS
 varying vec3 vWoundTilt;
 varying float vWoundNear;
@@ -133,6 +148,67 @@ vec3 op2Bump(vec3 pos, vec3 n, float h, float face) {
   vec3 g = sign(det) * (dFdx(h) * r1 + dFdy(h) * r2);
   return normalize(abs(det) * n - g);
 }
+`;
+
+/**
+ * Wear you can see: how far through its skin a pixel is, from how much of its region's health pool is spent (`vWear`,
+ * anatomy/glsl.ts). The skin goes by a threshold walking through noise, so it tears in patches, and the noise is the kind
+ * of damage: rounds and blows leave ragged patches with pits, a blade opens long cuts across the limb, a blast strips it in
+ * sheets and scorches what it leaves. At the joint the region comes off at, the last of the pool takes the skin all the way
+ * round. Far off there is no noise to read: the vertex's own wear is the depth.
+ */
+const WEAR_DRIVER = /* glsl */ `
+    if (vWear.x > 0.01) {
+      #ifdef OP2_FAR
+      sThrough = vWear.x * 0.9 + vWear.y * 0.4 - 0.42;
+      #else
+      float wide = texture2D(tDetail, vBind.xy * 0.31 + vBind.z * 0.23 + 0.11).a;
+      // Spread out to fill 0..1, so about the share of the skin that is torn is the share of the pool that is spent.
+      float patches = clamp((wide * 0.7 + macro.a * 0.22 + micro.r * 0.08 - 0.5) * 3.0 + 0.5, 0.0, 1.0);
+      // Long thin lines slanting across the body: noise read slowly one way and fast the other, taken where it crosses its middle.
+      vec2 across = vec2(vBind.x * 0.8 + vBind.y * 0.6 + vBind.z * 0.55, vBind.y * 0.8 - vBind.x * 0.6 + vBind.z * 0.3);
+      float cuts = clamp(abs(texture2D(tDetail, vec2(across.x * 0.16, across.y * 1.1)).a - 0.5) * 6.5 + (micro.r - 0.5) * 0.04, 0.0, 1.0);
+      float sheets = clamp((wide * 0.8 + macro.a * 0.2 - 0.5) * 3.4 + 0.5, 0.0, 1.0);
+      float field = mix(mix(patches, cuts, vWear.z), sheets, vWear.w);
+      sThrough = pow(vWear.x, 1.15) * 0.97 + vWear.y * 0.8 - field;
+      #endif
+      sChar = vWear.w * 0.5;
+    }
+`;
+
+/**
+ * What a pixel looks like with its skin gone to `sThrough`, whatever took it (the comment where it is used has the scale):
+ * bruised just outside the tear, a raw edge, then muscle with its fibres running the length of the body and fat near the
+ * edge, then bone with blood standing on it. Painted on the skin and sunk by the bump, at every level of detail, with no
+ * extra draw. `sChar` burns it: black meat, grey bone.
+ */
+const SKIN_GONE = /* glsl */ `
+    if (sThrough > -0.1) {
+      float bruise = smoothstep(-0.1, 0.0, sThrough);
+      float raw = smoothstep(0.0, 0.028, sThrough);
+      float meat = smoothstep(0.12, 0.24, sThrough);
+      // Bone shows as long slivers down the length of the body, where the meat is thinnest over it, not as blots.
+      float shaft = texture2D(tDetail, vec2(vBind.x * 2.6 + vBind.z * 2.1, vBind.y * 0.42)).a;
+      float bone = smoothstep(0.5, 0.57, sThrough - abs(shaft - 0.5) * 1.5);
+      float streak = texture2D(tDetail, vec2(vBind.x * 13.0 + vBind.z * 9.0, vBind.y * 2.4)).a * 0.65 + micro.r * 0.35;
+      vec3 under = mix(vec3(0.3, 0.032, 0.03), vec3(0.1, 0.007, 0.011), smoothstep(0.3, 0.7, streak));
+      // Fat under the skin, in clumps, where the tear is shallow.
+      under = mix(under, vec3(0.42, 0.27, 0.13), smoothstep(0.66, 0.76, macro.a * 0.7 + micro.a * 0.3) * 0.22 * (1.0 - meat));
+      under = mix(under, under * 0.55, meat * 0.5);
+      // Bone is never clean: blood sits on it in a film and it shows through where that has run off.
+      float film = smoothstep(0.36, 0.64, macro.a * 0.55 + micro.a * 0.45);
+      under = mix(under, mix(vec3(0.66, 0.6, 0.48) * (0.72 + micro.r * 0.36), vec3(0.13, 0.012, 0.01), film * 0.6), bone);
+      under = mix(under, under * vec3(0.16, 0.15, 0.14) + vec3(0.01, 0.008, 0.007), sChar * (1.0 - bone * 0.45));
+      sAlb = mix(sAlb, vec3(0.04, 0.005, 0.009), bruise * 0.72 * (1.0 - sMetal * 0.5));
+      sAlb = mix(sAlb, under, raw);
+      sRough = mix(sRough, mix(mix(0.24, 0.4, streak), 0.46, bone), raw);
+      sMetal *= 1.0 - raw;
+      sEmis *= 1.0 - raw;
+      sH *= 1.0 - raw * 0.8;
+      // Sunk below the skin's torn edge, deeper in the meat, the bone standing back up out of it.
+      sWoundH -= raw * 0.003 + meat * 0.0045 - bone * 0.0025 + (streak - 0.5) * 0.0012 * raw;
+      sBare = raw * (1.0 - sChar);
+    }
 `;
 
 const FRAG_SURFACE = /* glsl */ `
@@ -176,6 +252,8 @@ sRough = clamp(sRough + sH * 0.26, 0.05, 1.0);
 float sBumpScale = dot(vDetailW, vec4(0.00035, 0.0005, 0.00011, 0.0004));
 vec3 sGlow = vec3(0.0);
 float sWoundH = 0.0;
+// How much of this pixel is raw flesh laid bare (SKIN_GONE): it is lit warm from the eye, or red would be black here.
+float sBare = 0.0;
 
 #ifdef OP2_SKINNED
 {
@@ -334,6 +412,18 @@ float sWoundH = 0.0;
   }
   #endif
 
+  #ifdef OP2_WEARS
+  {
+    // Skin gone: one look for everything that takes the skin off a body without cutting a hole in it. A driver says how far
+    // through the skin a pixel is, sThrough (under 0 whole; from 0 torn and raw, 0.12 to 0.24 down to muscle, 0.44 and up
+    // bone), and how burnt what shows is, sChar (0 raw and wet, 1 black). SKIN_GONE draws it. Wear is the driver below;
+    // fire's burn-through sets the same two (docs/notes/characters.md, "Skin gone").
+    float sThrough = -1.0, sChar = 0.0;
+    ${WEAR_DRIVER}
+    ${SKIN_GONE}
+  }
+  #endif
+
   if (frost > 0.001) {
     float f = smoothstep(1.0 - frost * 1.1, 1.05 - frost * 0.9, grain + 0.25);
     sAlb = mix(sAlb, vec3(0.62, 0.8, 0.95), f * 0.85);
@@ -378,6 +468,12 @@ const FRAG_AO = /* glsl */ `
   reflectedLight.indirectSpecular *= op2Ao;
   // A floor under the baked light. Enemies must stay legible where the map itself goes black.
   reflectedLight.indirectDiffuse += material.diffuseColor * vec3(0.5, 0.62, 0.8) * (uFill * RECIPROCAL_PI * op2Ao);
+  // Bare flesh takes a warm light from the viewer's side, as the inside of a wound does (anatomy/interior.ts): this map is
+  // lit blue, which turns red to black, and a torn limb has to read as red from across a room.
+  if (sBare > 0.0) {
+    float op2Facing = saturate(dot(normal, normalize(vViewPosition)));
+    reflectedLight.indirectDiffuse += material.diffuseColor * vec3(1.0, 0.8, 0.78) * (uFill * sBare * (0.22 + op2Facing * 0.5));
+  }
 }
 `;
 

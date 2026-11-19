@@ -419,6 +419,8 @@ against 6 to 8, first gib of a run 42 to 72 ms against 43 to 50 (after the polis
 | Melee, crush | Bruising, and a strain on the limb |
 | Anything on a machine | Dents. No interior exists, and a Titan counts |
 
+**Wear you can see (2026-11-19).** Beside the wounds a hit leaves, a limb's skin is torn through to muscle and then bone as its health pool is spent, so a player can see which limb is about to come off: `docs/notes/characters.md`, "Wear you can see". The damage model writes it (`enemies/damage.ts` `showWear`); gore neither reads nor writes it.
+
 Breaking: each hit on a limb adds `damage x breaks` to `char.stress` for that joint, and past `breakAt` (60, times size squared) it goes. One Judge round breaks a forearm, a shotgun takes three close pellets, and an SMG about seven rounds. A forearm or shin hit snaps the elbow or knee the wrong way. An upper arm or thigh hit kills the shoulder or hip. Either way a hole opens and a bone end comes out through it. A blast strains whichever limbs its shrapnel found. `updateMaim` counts a broken limb as lost for the AI, except that a broken leg never takes `legs` to 0, because crawling needs a body the animator can see has lost them.
 
 **Gore setting.** Low paints and opens nothing and breaks nothing. Full is as tuned. Excessive cuts 25% wider and limbs go 1.5 times sooner. Written from `applyGore` in `ui/settings.ts`.

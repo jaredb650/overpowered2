@@ -48,6 +48,8 @@ export const DevFlags = {
   sway: on('sway'),
   /** Off: no blood lands on the weapon in the hands or on the gloves (weapons/viewmodels/blood.ts). `?vmblood=0` starts it off. */
   vmBlood: on('vmblood'),
+  /** Off: a body's skin does not show how far its limbs' pools are spent (characters/anatomy/wear.ts). `?wear=0` starts it off. */
+  wear: on('wear'),
 };
 
 /** The hit-reaction switches as the page's URL left them: the lab starts from these, not from what it last remembered. */

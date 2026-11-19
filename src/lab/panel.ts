@@ -166,7 +166,7 @@ export class LabPanel {
     return b;
   }
 
-  private check(parent: HTMLElement, label: string, key: 'god' | 'arsenal' | 'reserves' | 'overlay' | 'gibbing' | 'explosiveDeaths' | 'progression' | 'muscles' | 'gibThrow' | 'vmBlood' | ReactSwitch): void {
+  private check(parent: HTMLElement, label: string, key: 'god' | 'arsenal' | 'reserves' | 'overlay' | 'gibbing' | 'explosiveDeaths' | 'progression' | 'muscles' | 'gibThrow' | 'vmBlood' | 'wear' | ReactSwitch): void {
     const row = el('label', 'lab-check');
     const box = el('input');
     box.type = 'checkbox';
@@ -376,6 +376,7 @@ export class LabPanel {
     // And its gibs: off, a burst body's pieces leave it as they did before (`?gibthrow=0` too).
     this.check(this.el, 'Gibs thrown out of the blast', 'gibThrow');
     this.check(this.el, 'Blood on the weapon', 'vmBlood');
+    this.check(this.el, 'Wear on limbs', 'wear');
     this.check(this.el, 'Aim readout', 'overlay');
     const force = el('input');
     const value = el('span');

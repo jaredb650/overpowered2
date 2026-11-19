@@ -85,7 +85,7 @@ Each lane owns a vertical through the plan's batches and goes on to its next ste
 | fire | 5620-5629 | F1 fire finishes the job (char by fire damage, the corpse burns on then smoulders, soot not a blood pool, flames on the whole body and on severed burning limbs); F3 fire meets the other systems (curled burnt corpses, dark pieces, morale chips faster, burning zombies keep attacking); F2 fire spreads from where it touched and eats the skin to muscle and bone | `enemies/EnemyManager.ts` burn, `characters/material.ts`, `fx/recipes`, `enemies/outpost/morale.ts`, `enemies/behaviours.ts` | todo |
 | mess | 5630-5639 | M0 measure the budgets; P1 the mess stays (decal rings by kind and about four times the room, pieces that do not expire, corpses sink only out of view, resting bodies that stack and are **pushed aside as ragdolls** when walked into, the "Mess" setting); P3 many more corpses (tiers, baked far bodies that can wake) | `render/Decals.ts` (the rings and budgets), `gore/chunks.ts` lifetimes, `gore/rag.ts`, `gore/sliced.ts`, `gore/index.ts` corpse caps, settings UI | todo |
 | decals | 5640-5649 | D1 realistic decal designs and BIG decals for coverage (the sheet, the choice of shape by speed, angle, amount and weapon, wet and dry surface response); B1 more blood from one hit; B4 drips from ceilings and ledges, splashes, soaked bodies; B2 footprints and slide smears; P2 blood that never has to go (the floor texture) | `render/materials/decalAtlas.glsl.ts`, the shape choice in `render/Decals.ts` and `gore/blood.ts`, `fx/layers/blood.ts` | todo |
-| wear | 5650-5659 | B3 blood on the weapon and hands; W1 wear you can see: readable limb damage (skin torn to muscle, then bone, as a region's pool is spent), without changing what shooting a limb does | `weapons/viewmodels/` materials, `characters/material.ts`, `characters/anatomy/interior.ts`, the body's data texture | todo |
+| wear | 5650-5659 | B3 blood on the weapon and hands; W1 wear you can see: readable limb damage (skin torn to muscle, then bone, as a region's pool is spent), without changing what shooting a limb does | `weapons/viewmodels/` materials, `characters/material.ts`, `characters/anatomy/interior.ts`, the body's data texture | B3 done (aaaa677), W1 done |
 
 Shared files and contracts:
 - `render/Decals.ts`: **mess** owns the rings, counts, ageing and budgets and lands the split into rings FIRST (within its first
@@ -106,6 +106,7 @@ Shared files and contracts:
 | `?gibthrow=0`, dev panel "Gibs thrown out of the blast" | on | G2: a burst body's pieces thrown up and out of the fireball (7 to 10 m/s up, all round) against the old launch (3 to 7 m/s, down inside the fireball by 0.5 s). The ribbons, the slabs and the crack itself stay either way | gibs |
 | `?flinch=0`, dev panel "Hits: every hit shows" | on | R1: the hit flinch's new shape and size (twist, dropped shoulder, struck arm 20 to 40 degrees, knee dip, a floor by weapon) against the 3 to 10 degree nod from before | react |
 | `?vmblood=0`, lab row "Blood on the weapon" | on | Guns and gloves stay clean whatever is killed (B3) | wear |
+| `?wear=0`, lab row "Wear on limbs" | on | W1: skin torn to muscle and bone as a limb's pool is spent, against bodies that show only their wounds | wear |
 
 ## Log
 
@@ -140,3 +141,22 @@ Shared files and contracts:
   leaves a few drops and a gib at arm's length a lot (amounts in the note). Pictures: `tools/out/gore-update/wear/b3/`.
   Not done: drips off the gun, a clean magazine on reload, a friend's kill spattering a co-op guest.
 - 2026-11-19: the finished co-op (`d2e2f8a`) is on `dev` and the public site, after agent final-check's CLEAN TO MERGE. Seen twice and not run down: the end board shows guests' ping near 1 s in proofs (4 ms mid-match); probably the test pages in the background, for the owner to watch in a real game.
+- 2026-11-19, wear, **W1 landed** (wear you can see; `docs/notes/characters.md`, "Wear you can see"). Each region's pool is
+  written to the skin (three texels after the wounds: 249 of 256 used, 7 free before fire's two) and the skin is torn to
+  muscle, then bone, as it is spent; at the joint the last of the pool takes it all the way round. Decisions: it is
+  **painted on the skin, not cut out of it** (no extra draw at any level of detail, reads at 20 m, works on severed limbs
+  and far bodies; the modelled interior stays for wounds); rounds tear in patches, a blade opens long cuts, a blast strips
+  and scorches, fire draws nothing of its own; one hit shows at most half a pool; the trunk, which has no pool, wears by
+  the health a hit on it took and stops at 0.7; a co-op guest wears its own copy from its own counts, nothing sent; the
+  rules are untouched (a test runs the same rounds with it on and off).
+  **For "fire" (the shared path):** the look of skin gone is `SKIN_GONE` in `characters/material.ts`, driven by two numbers,
+  `sThrough` (how deep: 0 a raw edge, 0.24 muscle, 0.5 bone) and `sChar` (0 raw, 1 burnt black). For F2's burn-through,
+  work your depth out from the burn and its origin and write `sThrough = max(sThrough, yours)` and `sChar` next to
+  `WEAR_DRIVER`; the block is under `OP2_WEARS` (the wounded skin, and any skinned body far off). I did not touch your burn
+  code; my texels are appended after the wounds as your comment asks, so `EXTRA_FIRE = 2` slots in ahead of them.
+  **For "react":** a limb that looks nearly gone and how it moves use the same pools (`poolStrength` weakens a limb from
+  `POOL_WEAK_FROM` of its pool; the skin starts tearing from the first round), so the look leads the limp: at 30% spent a
+  leg is visibly torn and still at full strength. Not a fault, but if the limp should start with the look, lower
+  `POOL_WEAK_FROM`; I did not edit your files.
+  Pictures: `tools/out/gore-update/wear/w1/`. Not done: real holes onto the interior, wear from a corpse's own limb health,
+  machines.

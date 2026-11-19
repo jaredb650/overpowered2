@@ -164,7 +164,8 @@ None of these exist on skitters and drones, which is how gore and the enemies kn
 - One `MeshStandardMaterial` per model plus a far variant. All instances share it. Four programs cover the whole cast.
 - Per-instance state rides in spare texels at the end of the instance's bone texture: 32 wounds, blood, burn,
   frost, flash. No per-object uniforms and no extra draw state. The texture is 16 x 16 for every rig, which spares each
-  fetch an integer divide. 37 bones and 32 wounds take 246 of its 256 texels.
+  fetch an integer divide. 37 bones, 32 wounds and the three wear texels take 249 of its 256 texels (`EXTRA_*` in
+  `anatomy/glsl.ts`; a new block goes at the end, before `EXTRA_TEXELS`).
 - Object-space normal atlas, rotated by the skin matrix in the vertex shader. No tangents, no tangent seams.
 - Atlas A is sRGB albedo with metalness (alpha below 0.5) or emissive (above) packed in alpha. Atlas B is normal plus
   roughness.
@@ -225,6 +226,47 @@ Corpses keep their LOD up to date through `Gore.updateBodyLod`, one body a frame
 (`op2RunWet`, used by the skin and by the vertex test of which wounds are near), broken into rivulets by a stripe of the detail noise that
 hangs down the bind pose. A man shot again and again (gore's `BloodField.onHit` raises bloodiness with each round) streams blood down
 from every hole. `tools/scripts/gore-b-wet.mjs` shows the same holes at 0, 0.35, 0.7 and 1.
+
+**Wear you can see** (`anatomy/wear.ts`, the gore update's step W1, 2026-11-19). A limb shows how near it is to coming off:
+its skin is torn through to red muscle as its health pool is spent, bone shows near the end, and the last of the pool takes
+the skin all the way round the joint it comes off at. **Only what is seen**: nothing reads it back, and the pools, the
+severing and what a maimed enemy does are untouched (`src/enemies/wear.test.ts` runs the same rounds with it on and off).
+
+- **Data.** `Character.setWear(region, spent, kind)`, `addWear(region, share, kind, most)` and `wearOf(region)`. One float a
+  region (the 11 `GoreRegion`s, `WEAR_REGIONS`) in three texels after the wounds (`EXTRA_WEAR`): the amount under 1, and in
+  the twos what did most of the damage (`WearKind`: `tear` rounds and blows, `cut` a blade, `strip` a blast, `burn` fire,
+  which draws nothing here: the char is fire's). `EXTRA_INFO.w` holds the most worn region, so a whole body skips all of it
+  on one fetch. Wear never heals. It goes with a severed limb (`copySurfaceTo`) and is cleared when a body is reused. Only a
+  humanoid with flesh under its skin wears: a machine's `setWear` does nothing.
+- **Who writes it.** The damage model (`enemies/damage.ts`): `spendPool` calls `showWear` with `1 - left / whole`, so a limb
+  or a head is drawn exactly as spent as its pool; one hit moves it by at most `WearTuning.step` (0.5), so a limb one blow
+  takes off whole does not arrive flayed. The trunk has no pool: a hit on the chest or abdomen adds `trunk` (0.55) of the
+  share of health it took, a blast 0.6 of that to both, to `trunkMost` (0.7). A co-op guest's copy is worn from its own count
+  of the limb pools (which it already keeps, scaled to the host's health), and its head from a count kept on the skin alone,
+  because the head's pool is the host's to spend. Nothing is sent.
+- **In the shader** (`material.ts`). `WEAR_VERTEX` gives each vertex `vWear`: the most worn region with a real hold on it
+  (so the wear reaches a little across a joint), how near it is to the joint that region hangs by times how nearly spent it
+  is, and the shares a blade and a blast did. `WEAR_DRIVER` turns that into how far through the skin a pixel is, by a
+  threshold walking through noise: ragged patches for rounds, long slanting cuts for a blade, sheets with a scorched look
+  for a blast. About the share of the skin that is torn is the share of the pool that is spent.
+- **Skin gone: the one path** (`SKIN_GONE`, shared with fire). Whatever takes skin off a body without cutting a hole in it
+  sets two numbers and the same code draws it: `sThrough` (under 0 whole; from 0 a raw edge with a bruise outside it; 0.12
+  to 0.24 down to muscle, fibres along the body, fat near the edge; from 0.5 bone, as long slivers with blood on them) and
+  `sChar` (0 raw and wet, 1 burnt black). It is painted on the skin and sunk by the bump, so it costs no draw, works at
+  every level of detail and on a severed limb, and reads from across a room (bare flesh takes the warm light from the eye
+  that the inside of a wound takes: `sBare`). **For fire's burn-through:** compute your depth from the burn and its origin
+  and write `sThrough = max(sThrough, yours); sChar = ...` beside the wear driver; do not add a second look. Far off
+  (`OP2_FAR`) there is no noise, and the vertex's wear is the depth: a worn limb is a red limb at 60 m.
+- **What it is not.** The skin is not removed: there is no hole to see into, and the modelled interior is not shown (that
+  stays for wounds). A worn limb is as thick as a whole one. Corpses keep the wear they died with but a corpse's own limb
+  health (`GoreTuning.corpseLimbHealth`) does not add to it. Titans and other machines do not wear.
+- **Switch:** `?wear=0`, or the lab's "Wear on limbs" row (`DevFlags.wear`): nothing is told to the skin.
+- **Cost.** No extra draw and no new program. 20 Troopers at 5 to 13 m, dpr 2, a GPU sync a frame, best of 8 rounds of 30
+  (`tools/scripts/wear-cost.mjs`): 1.33 to 1.46 ms with one graze each and no wear, 1.27 to 1.35 ms with every region worn to
+  0.8, three runs: no cost that can be measured on the RTX 4090.
+- **Looking at it.** `tools/scripts/wear-gallery.mjs` (any types, regions, kinds and levels at 3, 10 and 20 m on a frozen
+  clock) and `tools/scripts/wear-live.mjs` (the game's own damage: an arm round by round until it comes off, a blade, the
+  chest, one blow). Tests: `anatomy/wear.test.ts`, `enemies/wear.test.ts`.
 
 **Fractures.** `fracture(bone, 'hyper')` bends a hinge past straight, the wrong way: `bone` is the forearm for an elbow, the shin for a knee. `'limp'` kills a ball joint, with the hinge below it hanging slack. A verlet point on the end of the limb swings by its own weight from wherever the joint is carried, after the animator has run, by wrapping `anim.update`, so it holds through every animator. In a ragdoll the joint opens instead: `Rag.breakJoint`, and `JointMuscle.broken` takes the muscles off it. Bone ends are parts of the interior that stay collapsed to a point until the bit for their joint is set.
 

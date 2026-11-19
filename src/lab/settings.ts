@@ -35,6 +35,8 @@ export interface LabSettings {
   sway: boolean;
   /** Blood on the weapon and the gloves (the gore update's B3). */
   vmBlood: boolean;
+  /** Wear you can see: skin torn as a limb's pool is spent (the gore update's W1). */
+  wear: boolean;
 }
 
 const KEY = `op2.lab.v1.${ON_RANGE ? 'range' : DEV_ASKED ? 'game' : 'dev'}`;
@@ -45,7 +47,7 @@ const CONVENIENCES: readonly (keyof LabSettings)[] = ['spawn', 'ai', 'row'];
 const DEFAULTS: LabSettings = {
   spawn: 'trooper', ai: 'off', row: 5, god: ON_RANGE, arsenal: false, reserves: false, speed: 1, overlay: ON_RANGE,
   gibbing: true, explosiveDeaths: true, progression: !ON_RANGE, muscles: true, gibThrow: true, force: 1,
-  flinch: true, clutch: true, carry: true, aimspoil: true, sway: true, vmBlood: true,
+  flinch: true, clutch: true, carry: true, aimspoil: true, sway: true, vmBlood: true, wear: true,
 };
 
 /** A page's reaction switches are its URL's: what the panel last had them at would make `?sway=0` mean nothing. */
@@ -89,6 +91,7 @@ export function applyFlags(s: LabSettings): void {
   DevFlags.force = s.force;
   for (const k of REACT_SWITCHES) DevFlags[k] = s[k];
   DevFlags.vmBlood = s.vmBlood && !switchedOff('vmblood');
+  DevFlags.wear = s.wear && !switchedOff('wear');
 }
 
 /** Held every frame, as the arsenal is: every reserve back to its max after whatever the last reload took. */

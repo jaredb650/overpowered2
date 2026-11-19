@@ -331,6 +331,15 @@ export interface CharacterInstance {
   readonly stress: Float32Array;
   /** 0..1 overall blood coverage on the skin. */
   setBloodiness(amount: number): void;
+  /**
+   * Wear you can see: `region` stands at `spent` of its health pool, 0 to 1, after a hit that wears as `kind`
+   * (characters/anatomy/wear.ts `wearKindOf`): its skin is drawn torn that far through. `addWear` is for a region with no
+   * pool of its own. Only what is seen. Optional so a stand-in need not wear.
+   */
+  setWear?(region: GoreRegion, spent: number, kind: 0 | 1 | 2 | 3): void;
+  addWear?(region: GoreRegion, share: number, kind: 0 | 1 | 2 | 3, most?: number): void;
+  /** How worn a region is drawn, 0 to 1. */
+  wearOf?(region: GoreRegion): number;
   /** Emissive flash on hit. */
   hitFlash(intensity: number): void;
   /** Attaches a prop (gun, shield) to a bone. Falls with the bone when severed. */

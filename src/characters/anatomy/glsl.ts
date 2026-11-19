@@ -3,12 +3,16 @@
  * dark it is, and which layer shows.
  */
 import { MAX_WOUNDS, STAIN_MARGIN, STAIN_RADII, WOUND_TEXELS, WoundKind } from './wounds';
+import { WEAR_REGIONS, WEAR_TEXELS, WearKind } from './wear';
+import { HumanoidBone, humanoidRig } from '../rig';
 
 /** Extra texels after the bone matrices. */
 export const EXTRA_PARAMS = 0;
 export const EXTRA_INFO = 1;
 export const EXTRA_WOUNDS = 2;
-export const EXTRA_TEXELS = EXTRA_WOUNDS + MAX_WOUNDS * WOUND_TEXELS;
+/** Wear, three texels after the wounds: how far through its skin each region is (wear.ts). */
+export const EXTRA_WEAR = EXTRA_WOUNDS + MAX_WOUNDS * WOUND_TEXELS;
+export const EXTRA_TEXELS = EXTRA_WEAR + WEAR_TEXELS;
 /** One size for every rig. 37 bones and all the wounds fit in it with nothing to spare to speak of. */
 export const BONE_TEXTURE_SIZE = 16;
 
@@ -121,5 +125,50 @@ export const WOUND_VERTEX_LOOP = /* glsl */ `
       op2Tilt += (off / max(dist, 1e-4)) * (6.0 * k * (1.0 - k) * sink / span);
     }
   }
+}
+`;
+
+/** Each humanoid bone's region as an index into `WEAR_REGIONS`, in the rig's bone order. */
+const REGION_OF: number[] = (() => {
+  const rig = humanoidRig('wear');
+  const count = Object.keys(HumanoidBone).length;
+  return rig.bones.slice(0, count).map(b => WEAR_REGIONS.indexOf(b.region));
+})();
+
+/**
+ * Wear, for the vertex stage of a skinned humanoid: what the skin shader needs to tear a region's skin by how much of its
+ * pool is spent. Needs `WOUND_COMMON` and three's skinning attributes. Fills `vWear`:
+ *   x  how worn this vertex is, 0..1: the most worn region that has a real hold on it, so the wear reaches a little
+ *      across a joint onto the body the limb will leave;
+ *   y  how near it is to the joint that region comes off at (its parent's side), times how nearly spent the region is:
+ *      the skin goes there last and all the way round, so a limb comes off where it was worn through;
+ *   z  the share of that wear a blade did; w the share a blast did. The rest is rounds and blows.
+ * Stump caps and everything on a rig that is not a humanoid's read no wear.
+ */
+export const WEAR_VERTEX = /* glsl */ `
+#define OP2_WEAR ${EXTRA_WEAR}
+const int OP2_REGION_OF[${REGION_OF.length}] = int[${REGION_OF.length}](${REGION_OF.join(', ')});
+vec4 op2Wear() {
+  if (op2Extra(OP2_INFO).w <= 0.0) return vec4(0.0);
+  float amount = 0.0, kind = 0.0, own = -1.0;
+  int region = -1;
+  for (int k = 0; k < 4; k++) {
+    int b = int(skinIndex[k] + 0.5);
+    if (b >= ${REGION_OF.length} || skinWeight[k] <= 0.0) continue;
+    int r = OP2_REGION_OF[b];
+    float v = op2Extra(OP2_WEAR + (r >> 2))[r & 3];
+    float kd = floor(v * 0.5);
+    float a = (v - kd * 2.0) * smoothstep(0.04, 0.3, skinWeight[k]);
+    if (a > amount) { amount = a; kind = kd; own = skinIndex[k]; region = r; }
+  }
+  if (amount <= 0.0) return vec4(0.0);
+  // The weight of bones nearer the trunk that belong to some other region: high only across the joint this one hangs by.
+  float parent = 0.0;
+  for (int k = 0; k < 4; k++) {
+    int b = int(skinIndex[k] + 0.5);
+    if (b < ${REGION_OF.length} && skinIndex[k] < own - 0.5 && OP2_REGION_OF[b] != region) parent += skinWeight[k];
+  }
+  float joint = smoothstep(0.08, 0.42, parent) * smoothstep(0.5, 1.0, amount);
+  return vec4(amount, joint, float(kind == ${WearKind.cut}.0), float(kind == ${WearKind.strip}.0)) * float(kind != ${WearKind.burn}.0);
 }
 `;
