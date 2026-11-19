@@ -91,7 +91,7 @@ system by system) and `docs/notes/coop-audit-life.md` (the life of a session and
 | Lane | What | Status |
 |---|---|---|
 | rig | Kit fixed for a fresh profile, headless GPU, offline loopback transport, network simulator, unreliable lane in the transport, metrics, kit API, baseline | doing (first step landed `6ea699b`) |
-| split | `src/net/world.ts` split into `src/net/world/*` modules behind an event router, no behaviour change | doing (`coop/split` `154a1e1`, landing) |
+| split | `src/net/world.ts` split into `src/net/world/*` modules behind an event router, no behaviour change | done (`729bb74`) |
 | audits | `coop-audit-play.md`, `coop-audit-life.md` | done |
 
 ### Phase 1 (parallel lanes)
@@ -145,3 +145,11 @@ Shared files and contracts between lanes:
 
 - 2026-11-18: plan written; branch `coop-overhaul` cut from `dev` at `a5e0d38`.
 - 2026-11-18: both audits in (`coop-audit-play.md`, `coop-audit-life.md`); phase 1 split into 12 lanes with their findings; lead's default decisions recorded.
+- 2026-11-18, split: landed (`729bb74`). `CoopWorld` is now a 139-line facade over 14 feature modules in `src/net/world/`, with an
+  event router (`router.ts`) and a shared context (`context.ts`). Same messages, same order, same timing; `world.test.ts` passes
+  unedited; `coop-stage3.mjs` and `coop-drops.mjs` pass in the browser at 60 fps. Each module and how to add an event:
+  `docs/notes/coop.md`, "Code layout". Line numbers in `coop-audit.md` that point into `world.ts` are from before the split: find the
+  code by function name under `src/net/world/`. Decisions: `kata` went with `remoteFire.ts` (it opens the host's fire-rate check);
+  the feed lines are three small modules (`callins.ts`, `sonar.ts`, `chatter.ts`) because different lanes will grow them; the binary
+  snapshot codec moved to `world/snapshot.ts` and `worldProtocol.ts` re-exports it; the host's delayed work (`Later`) sits on the
+  context, not in `booms.ts`, because targeting queues it and booms depends on targeting.
