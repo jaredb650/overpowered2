@@ -69,8 +69,11 @@ export default async function (host, { sleep, outDir }) {
       if (part('tags')) {
         progress('tags: two friends one behind the other, from the host\'s eyes');
         await teleport(host, await spot(0), yaw);
-        await teleport(a, await spot(9), yaw); await teleport(b, await spot(20), yaw);
-        await face(host, [...(await spot(14)).slice(0, 1), (await spot(14))[1] + 1.2, (await spot(14))[2]]);
+        // One a step and a half behind the other, so the ground under them is the same height (20 m on it is not).
+        await teleport(a, await spot(9), yaw); await teleport(b, await spot(10.5), yaw);
+        await face(host, [(await spot(10))[0], (await spot(10))[1] + 1.4, (await spot(10))[2]]);
+        // Both have landed where they were put, and the host draws them there.
+        await sleep(SIM ? 2500 : 1500);
         const tags = () => host.evaluate(() => [...document.querySelectorAll('.mk')].filter(el => el.style.display !== 'none' && /GUEST/.test(el.querySelector('.mk-label')?.textContent ?? ''))
           .map(el => { const r = el.querySelector('.mk-text').getBoundingClientRect(); return { label: el.querySelector('.mk-label').textContent, row: el.style.getPropertyValue('--row') || '0', top: r.top, bottom: r.bottom, left: r.left, right: r.right }; }));
         // Both bodies are drawn where their players stand, and a frame has laid the tags out.
@@ -83,6 +86,9 @@ export default async function (host, { sleep, outDir }) {
         check(seen.length === 2 && !overlap(seen[0], seen[1]), 'tags: neither tag is printed over the other', out.tags);
         check(seen.some(t => t.row !== '0') && seen.some(t => t.row === '0'), 'tags: one keeps its place and the other is set on the line under it', out.tags);
         await picture(host, 'tags');
+        // The picture is of that: read again after it.
+        const after = await tags();
+        check(after.length === 2 && !overlap(after[0], after[1]) && after.some(t => t.row !== '0'), 'tags: and so they are in the picture', after.map(t => ({ label: t.label, row: t.row, ...box(t) })));
         // Apart again: both back on their own line.
         await teleport(b, [(await spot(12))[0] + Math.cos(yaw) * 9, (await spot(12))[1], (await spot(12))[2] - Math.sin(yaw) * 9], yaw);
         const back = await until(tags, t => t.length === 2 && t.every(tag => tag.row === '0'), sleep, 15000);
