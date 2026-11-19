@@ -11,6 +11,7 @@ import { report, reportLobby, reportSolo } from '../../core/report';
 import { STARTERS, defaultStarter, saveStarter, starterPreference } from '../../contracts/starter';
 import { starterCards } from './starter';
 import type { Ctx } from '../../core/contracts';
+import { cheatsOn, onCheats } from '../../core/cheats';
 import {
   type CoopMap, type CoopMode, type JoinStage, type Match, CODE_LENGTH, Lobby, MAX_PLAYERS, NAME_MAX, CHAT_MAX, cleanCode, inviteLink, loadCallsign, newCode, saveCallsign,
 } from '../../net/lobby';
@@ -105,6 +106,7 @@ export class CoopScreen implements Screen {
   private tookOver = false;
   /** Walking back into a room after this page was reloaded on its lobby page: the room as the tab kept it. */
   private rejoining: RoomNote | null = null;
+  private offCheats: (() => void) | null = null;
   /** On the join page from an invite link: the code is known, so the page asks only for the password. */
   private invited = false;
   private joinButton = h('button', 'co-copy co-join', 'Join lobby');
@@ -354,6 +356,7 @@ export class CoopScreen implements Screen {
           span('co-pname', pl.name),
           pl.host ? span('co-tag host', 'Host') : null,
           pl.id === lobby.you ? span('co-tag', 'You') : null,
+          pl.cheats ? span('co-tag co-cheats', 'Cheats on · unranked') : null,
           span('co-tag', (pl.starter ?? defaultStarter(lobby.pick.mode)).toUpperCase()),
           pl.state === 'lost' ? span('co-tag', 'Reconnecting') : pl.state ? span('co-tag', 'Loading') : pl.away ? span('co-tag', 'In lobby') : null,
           span('co-ping', pl.host || pl.state === 'lost' ? '' : pl.ping === undefined ? '… ms' : `${pl.ping} ms`),
@@ -494,6 +497,10 @@ export class CoopScreen implements Screen {
         this.go('start', 'Co-op needs tab storage to load the map. Allow site data for this page and join again.');
       }
     };
+    // A player with cheats on is tagged in everyone's list, here as on the team's cards in a match.
+    lobby.setCheats(cheatsOn());
+    this.offCheats?.();
+    this.offCheats = onCheats(on => this.lobby?.setCheats(on));
     // The tab remembers the room, so a reload on this page walks back into it (`rejoin`).
     rememberRoom(this.code, password, lobby);
     lobby.onChange = () => {

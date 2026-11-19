@@ -51,6 +51,8 @@ export interface LobbyPlayer {
   state?: SeatState;
   /** In the world but not at the controls: a menu, the shop or the loadout is open ('menu'), or their tab is hidden ('hidden'). */
   idle?: Idle;
+  /** This player has the cheat panel unlocked: the lobby's list says so before a match, as the team's cards do in one. */
+  cheats?: boolean;
 }
 export type Idle = 'menu' | 'hidden';
 const idleOf = (value: unknown): Idle | undefined => (value === 'menu' || value === 'hidden' ? value : undefined);
@@ -102,7 +104,7 @@ type Msg =
    * `n` (host): how many guests are connected to it now, for two hosts that meet on one code (`otherHost`).
    */
   | { t: 'hello'; v: string; name: string; host: boolean; page?: string | null; match?: string | null; starter?: StarterGun; born?: number; browser?: string; n?: number }
-  | { t: 'set'; name: string; ready: boolean; starter?: StarterGun; idle?: Idle }
+  | { t: 'set'; name: string; ready: boolean; starter?: StarterGun; idle?: Idle; cheats?: boolean }
   /**
    * `live`: the match's world has started (the load barrier is over). `holdLeft`: seconds until it starts regardless.
    * `on`: the match the host is running or starting, null for none, so a page that missed an `end` (it was loading, or
@@ -281,6 +283,7 @@ export class Lobby {
   /** Host: the callsign of the host this lobby gave way to (`error` is then 'code-taken'). */
   yieldedTo = '';
   private ready = false;
+  private cheats = false;
   private idle: Idle | undefined;
   private wait: ReturnType<typeof setTimeout> | null = null;
   private relayWait: ReturnType<typeof setTimeout> | null = null;
@@ -537,6 +540,13 @@ export class Lobby {
   setIdle(idle: Idle | undefined): void {
     if (idle === this.idle) return;
     this.idle = idle;
+    this.change();
+  }
+
+  /** This player's cheats are on (core/cheats.ts; the page tells the lobby): everyone's list tags them. */
+  setCheats(on: boolean): void {
+    if (on === this.cheats) return;
+    this.cheats = on;
     this.change();
   }
 
@@ -864,10 +874,11 @@ export class Lobby {
       me.name = this.uniqueName(this.name, me);
       me.ready = this.ready;
       me.idle = this.idle;
+      me.cheats = this.cheats || undefined;
       if (!this.match) me.starter = this.starter;
       this.broadcast();
     } else if (this.hostId) {
-      this.ch.send({ t: 'set', name: this.name, ready: this.ready, starter: this.starter, idle: this.idle }, this.hostId);
+      this.ch.send({ t: 'set', name: this.name, ready: this.ready, starter: this.starter, idle: this.idle, ...(this.cheats ? { cheats: true } : {}) }, this.hostId);
     }
   }
 
@@ -931,7 +942,7 @@ export class Lobby {
       this.shutDoor();
     } else {
       // The host's new connection knows nothing this page said to the old one.
-      this.ch.send({ t: 'set', name: this.name, ready: this.ready, starter: this.starter, idle: this.idle }, from);
+      this.ch.send({ t: 'set', name: this.name, ready: this.ready, starter: this.starter, idle: this.idle, ...(this.cheats ? { cheats: true } : {}) }, from);
       this.nextLoaded = 0;
     }
     this.onChange();
@@ -1068,6 +1079,7 @@ export class Lobby {
       player.name = this.uniqueName(clean(msg.name, NAME_MAX) || player.name, player);
       player.ready = msg.ready === true;
       player.idle = idleOf(msg.idle);
+      player.cheats = msg.cheats === true || undefined;
       if (!this.match) player.starter = isStarter(msg.starter) ? msg.starter : undefined;
       this.broadcast();
       this.holdCount();
@@ -1163,6 +1175,7 @@ export class Lobby {
         seat: clean(p?.seat, 16) || undefined,
         state: SEAT_STATES.includes(p?.state as SeatState) ? p.state : undefined,
         idle: idleOf(p?.idle),
+        cheats: p?.cheats === true || undefined,
       }));
       this.holdLeft = Number.isFinite(msg.holdLeft) ? Math.max(0, Math.min(999, Math.round(msg.holdLeft!))) : 0;
       const live = msg.live === true;

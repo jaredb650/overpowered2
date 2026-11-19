@@ -45,6 +45,7 @@
 .co-pname { font: 1.9rem/1.15 var(--display); }
 .co-tag { padding: 0 0.4rem; background: rgba(157, 176, 189, 0.22); font-size: 0.9rem; }
 .co-tag.host { background: var(--amber); color: #000; }
+.co-tag.co-cheats { background: rgba(255, 91, 59, 0.3); color: #ffc2b3; }
 .co-ready { margin-left: auto; color: var(--dim); font-size: 1rem; }
 .co-player.ready .co-ready { color: var(--friend); }
 

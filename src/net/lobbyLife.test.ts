@@ -701,6 +701,21 @@ describe('the life of a co-op session', () => {
     expect(started).toHaveBeenCalledWith({ id: 'm9', mode: 'crucible' });
   });
 
+  it('a player with cheats on is tagged in everyone\'s list, the host and a guest alike, and untagged when they go off', () => {
+    const { h, gs } = lobbyOf('ANNA', 'BEN');
+    const [a, b] = gs as unknown as [Lobby, Lobby];
+    const tagged = (lobby: Lobby) => lobby.players.filter(p => p.cheats).map(p => p.name);
+    a.setCheats(true); hub.flush();
+    expect(tagged(h)).toEqual(['ANNA']); expect(tagged(b)).toEqual(['ANNA']); expect(tagged(a)).toEqual(['ANNA']);
+    h.setCheats(true); hub.flush();
+    expect(tagged(b)).toEqual(['HOST', 'ANNA']);
+    a.setCheats(false); hub.flush();
+    expect(tagged(b)).toEqual(['HOST']);
+    // Junk from another browser is not a tag.
+    hub.deliver(roomOf(b), 'lobby', { t: 'set', name: 'BEN', ready: false, cheats: 'yes' }, peer(h)); hub.flush();
+    expect(tagged(a)).toEqual(['HOST']);
+  });
+
   it('a guest that reloads on the lobby page takes its own seat back, and nobody else is disturbed', () => {
     const { h, gs } = lobbyOf('ANNA', 'BEN');
     const [a, b] = gs as unknown as [Lobby, Lobby];
