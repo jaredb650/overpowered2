@@ -28,12 +28,15 @@ export type WireClass = 'fact' | 'cosmetic' | 'latest';
 /** A module's table: every event type it declares, classed. */
 export type WireClasses<E extends { t: string }> = { readonly [K in E['t']]: WireClass };
 
-/** Queued bytes from which a peer is slow: about a second and a half of the heaviest fight's events for one guest. */
-export const SLOW_BYTES = 32 * 1024;
+/**
+ * Queued bytes from which a peer is slow: about two seconds of the heaviest fight's events for one guest (9 KB a second,
+ * measured), and more than any healthy link holds for longer than a moment (a late joiner's catch-up is a few KB).
+ */
+export const SLOW_BYTES = 16 * 1024;
 /** A slow peer is fine again under this, and a stalled seat may come back. */
-export const CLEAR_BYTES = 8 * 1024;
+export const CLEAR_BYTES = 4 * 1024;
 /** Queued bytes at which a peer is stalled, whatever the clock says. */
-export const STALLED_BYTES = 256 * 1024;
+export const STALLED_BYTES = 128 * 1024;
 /** A peer slow for this long without a break is stalled. */
 export const STALLED_MS = 10_000;
 

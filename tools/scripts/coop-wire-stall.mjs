@@ -15,7 +15,7 @@ import { heavyFight, stopFill } from './coop-wire-kit.mjs';
 const KBPS = Number(process.env.STALL_KBPS ?? 16);
 const PLAYERS = Number(process.env.STALL_PLAYERS ?? 4);
 // src/net/pressure.ts
-const SLOW_BYTES = 32 * 1024, STALLED_BYTES = 256 * 1024;
+const SLOW_BYTES = 16 * 1024, STALLED_BYTES = 128 * 1024;
 
 /** One page's reading over a window: its frame rate, the events it got, the gaps between them, its kills. */
 const begin = page => page.evaluate(() => { window.__op2.net.metrics.reset(); window.__stallKills = window.__op2.ctx.progression.kills; });

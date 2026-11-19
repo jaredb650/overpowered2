@@ -64,6 +64,13 @@ function profileSummary(profile, frames) {
     for (const child of node.children ?? []) walk(nodes.get(child));
   };
   walk(root);
+  // Every co-op function with all it called (a function under another co-op function is counted in both).
+  const byWhole = new Map();
+  for (const node of profile.nodes) {
+    if (!isNet(node)) continue;
+    const key = `${node.callFrame.functionName || '(anonymous)'} (${fileOf(node)}:${node.callFrame.lineNumber + 1})`;
+    byWhole.set(key, (byWhole.get(key) ?? 0) + (inclusive.get(node.id) ?? 0));
+  }
   const byFile = new Map(), byFn = new Map();
   let netSelf = 0;
   for (const node of profile.nodes) {
@@ -80,7 +87,7 @@ function profileSummary(profile, frames) {
   return { frames, busyMs: r(busy), idleMs: r(idle), busyMsPerFrame: Math.round((busy / frames) * 100) / 100,
     coopSelfMs: r(netSelf), coopSelfMsPerFrame: Math.round((netSelf / frames) * 1000) / 1000,
     coopInclusiveMs: r(under), coopInclusiveMsPerFrame: Math.round((under / frames) * 1000) / 1000,
-    files: top(byFile, 14), functions: top(byFn, 24), entries: top(byEntry, 14) };
+    files: top(byFile, 14), functions: top(byFn, 24), entries: top(byEntry, 14), whole: top(byWhole, 30) };
 }
 
 const kb = n => (n / 1024).toFixed(2);
