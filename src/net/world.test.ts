@@ -560,6 +560,230 @@ describe('host-authoritative world over the mocked lobby transport', () => {
   });
 });
 
+describe('a hit the host refuses, and a death started ahead of the host\'s word', () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
+
+  /** A host and a guest with one husk between them, the guest standing where the host has its body. */
+  function fight(health = 100) {
+    const game = pair();
+    const enemy = game.host.manager.spawn('husk', new THREE.Vector3(0, 0, -10));
+    enemy.health = enemy.maxHealth = health;
+    game.hw.update(); game.relay.flush();
+    game.guest.player.eye.set(0, 1.6, -5);
+    const replica = game.guest.ctx.enemies.alive[0] as Enemy;
+    const shot = (amount = 40): DamageInfo => ({ amount, type: 'bullet', point: enemy.center.clone(), dir: new THREE.Vector3(0, 0, -1), force: 12, source: 'smg', region: 'armL' });
+    /** The host's damage model: takes the amount off, answers, and kills at zero. */
+    const decide = () => game.host.manager.applyDamage.mockImplementation((target: Enemy, damage: DamageInfo) => {
+      target.health -= damage.amount;
+      const killed = target.health <= 0;
+      Object.assign(game.host.manager.model.found, newFacts(), { amount: damage.amount });
+      const result = { dealt: damage.amount, killed, headshot: false, severed: [], blocked: false } as DamageResult;
+      if (killed) { target.alive = false; game.host.ctx.events.emit('enemy:killed', { enemy: target, damage, headshot: false, gibbed: false } as never); }
+      else game.host.ctx.events.emit('enemy:hit', { enemy: target, damage, result });
+    });
+    const events = () => game.relay.packets.filter(p => p.lane === 'action').map(p => (p.data as { data: WorldEvent }).data);
+    const fire = () => { vi.advanceTimersByTime(120); game.guest.ctx.events.emit('weapon:fired', { weapon: 'smg', origin: new THREE.Vector3(0, 1.6, -5), dir: new THREE.Vector3(0, 0, -1) } as never); };
+    return { ...game, enemy, replica, shot, decide, events, fire };
+  }
+
+  it('a refused hit stops counting against the enemy at once: the health base, the limb pool, the kill it was told, the body it floored', () => {
+    const game = fight();
+    const { replica } = game;
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    replica.limbHp.set('armL', 50);
+    // The guest's model wears the limb's pool, floors the body and guesses a kill.
+    game.guest.manager.predictDamage.mockImplementation((target: Enemy, damage: DamageInfo) => {
+      target.limbHp.set('armL', target.limbHp.get('armL')! - 30);
+      game.guest.manager.model.found.level = 'felled';
+      return { dealt: damage.amount, killed: false, headshot: false, severed: [], blocked: false, killSoon: true } as DamageResult;
+    });
+    // Fired from where the host cannot credit it (300 m from the guest's body): refused for `eye`.
+    game.guest.player.eye.set(300, 1.6, -5);
+    game.fire();
+    game.gw.claim(replica, game.shot(120));
+    // On the guest's screen, before the answer: the hit counts.
+    expect(replica.owed).toBe(120);
+    expect(replica.limbHp.get('armL')).toBe(20);
+    game.relay.flush();
+    expect(game.host.manager.applyDamage).not.toHaveBeenCalled();
+    const nack = game.events().find(e => e.t === 'nack') as { n: number[] };
+    expect(nack.n).toEqual([1, game.enemy.uid, 3]);
+    // After it: the enemy's health is what the host says, nothing is owed, the pool is back, the body gets up.
+    expect(replica.health).toBe(100);
+    expect(replica.owed).toBe(0);
+    expect(replica.limbHp.get('armL')).toBe(50);
+    expect(game.guest.manager.rouseReplica).toHaveBeenCalledOnce();
+    expect(game.gw.hitsSeen).toMatchObject({ predicted: 1, nacks: 1, gone: 0, acks: 0 });
+    // And the next, honest, round is drawn as a hit on a living enemy (the guess starts from the truth again).
+    game.guest.player.eye.set(0, 1.6, -5);
+    game.decide();
+    game.guest.manager.predictDamage.mockImplementation((_t: Enemy, damage: DamageInfo) => ({ dealt: damage.amount, killed: false, headshot: false, severed: [], blocked: false }) as DamageResult);
+    game.fire();
+    game.gw.claim(replica, game.shot(40)); game.relay.flush();
+    expect(replica.health).toBe(60);
+    expect(replica.owed).toBe(0);
+    game.hw.dispose(); game.gw.dispose();
+  });
+
+  it('a hit on an enemy already dead on the host is answered `gone`, settled at once, and is no refusal', () => {
+    const game = fight();
+    game.host.manager.withdraw(game.enemy);
+    game.fire();
+    game.gw.claim(game.replica, game.shot(40));
+    expect(game.replica.owed).toBe(40);
+    game.relay.flush();
+    expect((game.events().find(e => e.t === 'nack') as { n: number[] }).n[2]).toBe(0);
+    expect(game.replica.owed).toBe(0);
+    expect(game.gw.hitsSeen).toMatchObject({ nacks: 0, gone: 1 });
+    expect(game.hw.claimBooks.refusedTotal).toBe(0);
+    game.hw.dispose(); game.gw.dispose();
+  });
+
+  it('a claim the host cuts to its cap is answered with the health it really left', () => {
+    const game = fight(5000);
+    game.decide();
+    game.fire();
+    // No SMG round does 50,000: the host cuts it to the gun's cap and applies that.
+    game.gw.claim(game.replica, game.shot(50000)); game.relay.flush();
+    expect(game.hw.validator.clamped).toBe(1);
+    const applied = (game.host.manager.applyDamage.mock.calls[0]![1] as DamageInfo).amount;
+    expect(applied).toBeLessThan(50000);
+    expect(game.replica.health).toBe(5000 - applied);
+    expect(game.replica.owed).toBe(0);
+    game.hw.dispose(); game.gw.dispose();
+  });
+
+  it('while its own hits are unanswered, a guest takes an enemy\'s health from the answers, never from a state that may count a hit twice', () => {
+    const game = fight();
+    const { replica, enemy } = game;
+    // The host never answers (its damage model is a stub here), but its enemy's health moves and a new state goes out.
+    game.fire();
+    game.gw.claim(replica, game.shot(40));
+    game.relay.flush();
+    enemy.health = 60;
+    vi.advanceTimersByTime(120); game.hw.update(); game.relay.flush();
+    expect(replica.health).toBe(100);
+    expect(replica.health - replica.owed).toBe(60);
+    // Once nothing of its own is in the air, the states are the word again.
+    vi.advanceTimersByTime(3000); game.gw.update();
+    expect(replica.owed).toBe(0);
+    enemy.health = 55;
+    vi.advanceTimersByTime(1200); game.hw.update(); game.relay.flush();
+    expect(replica.health).toBe(55);
+    game.hw.dispose(); game.gw.dispose();
+  });
+
+  it('a body dropped for dead lies until the host answers: the kill makes it the corpse where it lies, without a second kick', () => {
+    const game = fight(50);
+    const { replica } = game;
+    game.decide();
+    game.guest.manager.predictDamage.mockImplementation((target: Enemy, damage: DamageInfo) => {
+      target.downed = true;
+      return { dealt: damage.amount, killed: false, headshot: false, severed: [], blocked: false, killSoon: true, sure: 'fall' } as DamageResult;
+    });
+    const kills = vi.fn(); game.guest.ctx.events.on('enemy:killed', kills);
+    game.fire();
+    game.gw.claim(replica, game.shot(80));
+    // On the frame of the shot: down, alive, waiting.
+    expect(replica.predead).toBeGreaterThan(0);
+    expect(replica.alive).toBe(true);
+    expect(game.guest.manager.replayDeath).not.toHaveBeenCalled();
+    expect(game.gw.hitsSeen).toMatchObject({ falls: 1, deaths: 0 });
+    game.relay.flush();
+    // The host's `kill`: the one death, on the body already down, with the killing round's force taken out.
+    expect(game.guest.manager.replayDeath).toHaveBeenCalledOnce();
+    const [, round, , told] = game.guest.manager.replayDeath.mock.calls[0]!;
+    expect((round as DamageInfo).force).toBeLessThan(0.1);
+    expect((told as KillFacts).wound).toBe(0);
+    expect(kills).toHaveBeenCalledOnce();
+    expect(game.guest.manager.rouseReplica).not.toHaveBeenCalled();
+    expect(game.guest.ctx.combat.killConfirm).not.toHaveBeenCalled();
+    expect(game.gw.hitsSeen).toMatchObject({ falls: 1, fallsRight: 1, fallsWrong: 0, lateKills: 0 });
+    game.hw.dispose(); game.gw.dispose();
+  });
+
+  it('a body dropped for dead that the host says lives gets up: a knockdown, never a corpse that stands', () => {
+    const game = fight(500);
+    const { replica } = game;
+    game.decide();
+    game.guest.manager.predictDamage.mockImplementation((target: Enemy, damage: DamageInfo) => {
+      target.downed = true;
+      return { dealt: damage.amount, killed: false, headshot: false, severed: [], blocked: false, killSoon: true, sure: 'fall' } as DamageResult;
+    });
+    // Two rounds in the air, both guessed as the kill.
+    game.fire(); game.gw.claim(replica, game.shot(80));
+    game.fire(); game.gw.claim(replica, game.shot(80));
+    expect(game.gw.hitsSeen.falls).toBe(1);
+    game.relay.flush();
+    // Both answered, the enemy has 340 left: up it gets, once, and it was never a corpse.
+    expect(replica.health).toBe(340);
+    expect(replica.predead).toBe(0);
+    expect(replica.alive).toBe(true);
+    expect(game.guest.manager.rouseReplica).toHaveBeenCalledOnce();
+    expect(game.guest.manager.replayDeath).not.toHaveBeenCalled();
+    expect(game.gw.hitsSeen).toMatchObject({ fallsWrong: 1, fallsRight: 0 });
+    game.hw.dispose(); game.gw.dispose();
+  });
+
+  it('a dropped body whose hit was never answered is judged when the wait runs out', () => {
+    const game = fight(500);
+    const { replica } = game;
+    game.guest.manager.predictDamage.mockImplementation((target: Enemy, damage: DamageInfo) => {
+      target.downed = true;
+      return { dealt: damage.amount, killed: false, headshot: false, severed: [], blocked: false, killSoon: true, sure: 'fall' } as DamageResult;
+    });
+    game.fire(); game.gw.claim(replica, game.shot(80)); game.relay.flush();
+    expect(replica.predead).toBeGreaterThan(0);
+    vi.advanceTimersByTime(3000); game.gw.update();
+    expect(replica.predead).toBe(0);
+    expect(game.guest.manager.rouseReplica).toHaveBeenCalledOnce();
+    game.hw.dispose(); game.gw.dispose();
+  });
+
+  it('a whole death played ahead of the host: the body dies on the frame of the shot, and the kill is this player\'s when the host says so', () => {
+    const game = fight(20);
+    const { replica, enemy } = game;
+    game.decide();
+    Object.assign(game.guest.manager, { model: { ...game.guest.manager.model, guessKill: vi.fn((_e: Enemy, _d: DamageInfo, out: KillFacts) => out) } });
+    game.guest.manager.predictDamage.mockImplementation((_t: Enemy, damage: DamageInfo) => ({ dealt: damage.amount, killed: false, headshot: false, severed: [], blocked: false, killSoon: true, sure: 'kill' }) as DamageResult);
+    const kills: GameEvents['enemy:killed'][] = []; game.guest.ctx.events.on('enemy:killed', k => kills.push(k));
+    const feed = vi.fn(); game.guest.ctx.events.on('coop:kill', feed);
+    game.fire();
+    game.gw.claim(replica, game.shot(200));
+    // Now, with nothing yet across the wire.
+    expect(game.guest.manager.replayDeath).toHaveBeenCalledOnce();
+    expect(replica.alive).toBe(false);
+    expect(kills).toHaveLength(0);
+    expect(game.gw.hitsSeen).toMatchObject({ deaths: 1 });
+    // A state that still lists it (the host has not heard yet) does not bring it back.
+    vi.advanceTimersByTime(60); game.hw.update(); game.relay.flush();
+    expect(game.guest.ctx.enemies.alive).toHaveLength(0);
+    // The host's word: nothing more is drawn, and the score, the pay and the feed happen once.
+    expect(game.guest.manager.replayDeath).toHaveBeenCalledOnce();
+    expect(kills).toHaveLength(1);
+    expect(kills[0]!.enemy.uid).toBe(enemy.uid);
+    expect(feed).toHaveBeenCalledOnce();
+    expect(game.gw.hitsSeen).toMatchObject({ deaths: 1, deathsRight: 1, deathsWrong: 0, lateKills: 0 });
+    game.hw.dispose(); game.gw.dispose();
+  });
+
+  it('a whole death the host denies is counted as wrong and the enemy is let back from its next state', () => {
+    const game = fight(900);
+    const { replica, enemy } = game;
+    game.decide();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    Object.assign(game.guest.manager, { model: { ...game.guest.manager.model, guessKill: vi.fn((_e: Enemy, _d: DamageInfo, out: KillFacts) => out) } });
+    game.guest.manager.predictDamage.mockImplementation((_t: Enemy, damage: DamageInfo) => ({ dealt: damage.amount, killed: false, headshot: false, severed: [], blocked: false, killSoon: true, sure: 'kill' }) as DamageResult);
+    game.fire();
+    game.gw.claim(replica, game.shot(200)); game.relay.flush();
+    expect(game.gw.hitsSeen).toMatchObject({ deaths: 1, deathsWrong: 1, deathsRight: 0 });
+    vi.advanceTimersByTime(1200); game.hw.update(); game.relay.flush();
+    expect(game.guest.ctx.enemies.alive.map(e => e.uid)).toEqual([enemy.uid]);
+    game.hw.dispose(); game.gw.dispose();
+  });
+});
+
 describe('stage 3: the team, the economy and what else crosses the wire', () => {
   beforeEach(() => vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] }));
   afterEach(() => vi.useRealTimers());

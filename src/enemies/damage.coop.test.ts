@@ -335,3 +335,133 @@ describe('a tank that goes up inside a hit does not take the hit\'s own findings
     expect(hit).toMatchObject({ stop: 'none', plate: -1, armour: undefined });
   });
 });
+
+describe('kill prediction: a guest starts a death it is sure of on the frame of the shot', () => {
+  const sure = (manager: EnemyManager, on = true) => { (manager.model as unknown as { predictKills: boolean }).predictKills = on; };
+
+  it('is off unless asked for: the result never says `sure`, and the body reacts as a living one', () => {
+    const { manager, gore, spawn } = world();
+    const e = spawn('husk');
+    e.health = 5;
+    const res = manager.predictDamage(e, round('judge'));
+    expect(res.killSoon).toBe(true);
+    expect(res.sure).toBeUndefined();
+    expect(gore.knockdown.mock.calls.every(call => (call as unknown[])[1] === undefined || (call as unknown as [unknown, { knockout?: boolean }])[1].knockout !== true)).toBe(true);
+  });
+
+  it('drops the body for dead when the hit is clearly over what it has left, and only then', () => {
+    const { manager, gore, events, spawn } = world();
+    sure(manager);
+    const e = spawn('husk');
+    const smg = WEAPONS.smg.damage;
+    // Gore is handed one reused options object: whether a knockdown was a knock-out is read as it comes.
+    const colds: boolean[] = [];
+    (gore.knockdown as unknown as { mockImplementation(run: (char: unknown, o?: { knockout?: boolean }) => boolean): void })
+      .mockImplementation((_char, o) => { colds.push(o?.knockout === true); return true; });
+    // Plenty left: a hit, not a kill.
+    e.health = e.maxHealth;
+    expect(manager.predictDamage(e, round('smg')).sure).toBeUndefined();
+    // A kill by the numbers, but by a hair: the marker says kill, the body waits for the host.
+    e.health = smg - 1;
+    const close = { ...manager.predictDamage(e, round('smg')) };
+    expect(close.killSoon).toBe(true);
+    expect(close.sure).toBeUndefined();
+    // (Whatever a living body does about such a round, it is not knocked cold.)
+    const cold = () => colds.filter(Boolean).length;
+    expect(cold()).toBe(0);
+    // Clearly dead: what is left is under the round by more than the margin. It goes down limp, now, and is not a corpse.
+    const f = spawn('husk', -8);
+    f.health = 2;
+    const clear = { ...manager.predictDamage(f, round('smg')) };
+    expect(clear.sure).toBe('fall');
+    expect(cold()).toBe(1);
+    expect(f.alive).toBe(true);
+    expect(f.downed).toBe(true);
+    expect(f.health).toBe(2);
+    expect(events.kills).toBe(0);
+    for (const death of [gore.ragdoll, gore.collapse, gore.headshot, gore.gib, gore.slice]) expect(death).not.toHaveBeenCalled();
+  });
+
+  it('counts its own hits still in the air: the round that takes the last of it is the one that drops it', () => {
+    const { manager, spawn } = world();
+    sure(manager);
+    const e = spawn('husk');
+    const smg = WEAPONS.smg.damage;
+    e.health = smg * 2 + 2;
+    expect(manager.predictDamage(e, round('smg')).sure).toBeUndefined();
+    e.owed = smg;
+    expect(manager.predictDamage(e, round('smg')).sure).toBeUndefined();
+    e.owed = smg * 2;
+    expect(manager.predictDamage(e, round('smg')).sure).toBe('fall');
+  });
+
+  it('plays the whole death itself only beyond doubt: three times what is left and half its health to spare, and never a blast', () => {
+    const { manager, gore, spawn } = world();
+    sure(manager);
+    const e = spawn('husk');
+    e.health = 4;
+    const big = round('judge', 'chest', { amount: e.maxHealth });
+    const res = { ...manager.predictDamage(e, big) };
+    expect(res.sure).toBe('kill');
+    // The model leaves the body standing for the caller's kill flow: no knockdown, no flinch of a living body.
+    expect(gore.knockdown).not.toHaveBeenCalled();
+    expect(e.char.anim.flinch).not.toHaveBeenCalled();
+    // The same numbers as a blast: the ring is the host's to roll, so the body only drops.
+    const f = spawn('husk', -8);
+    f.health = 4;
+    expect(manager.predictDamage(f, { ...big, type: 'explosive', region: undefined, bone: undefined, source: 'launcher' }).sure).toBe('fall');
+  });
+
+  it('is never sure of a death that is not plain arithmetic: a boss, a man with anatomy, armour in the way, a ward, frost, a tank, a drone', () => {
+    const { manager, spawn } = world();
+    sure(manager);
+    const big = (e: { maxHealth: number }) => round('judge', 'chest', { amount: e.maxHealth * 2 });
+    const boss = spawn('husk'); boss.health = 3; boss.isBoss = true;
+    expect(manager.predictDamage(boss, big(boss)).sure).toBeUndefined();
+    const warded = spawn('husk', -7); warded.health = 3; warded.ward = 50;
+    expect(manager.predictDamage(warded, big(warded)).sure).toBeUndefined();
+    const frozen = spawn('husk', -8); frozen.health = 3; frozen.frozen = 2;
+    expect(manager.predictDamage(frozen, big(frozen)).sure).toBeUndefined();
+    const shielded = spawn('husk', -9); shielded.health = 3; shielded.shield = true;
+    expect(manager.predictDamage(shielded, big(shielded)).sure).toBeUndefined();
+    const drone = spawn('drone', -10); drone.health = 1;
+    expect(manager.predictDamage(drone, { ...big(drone), bone: 0 }).sure).toBeUndefined();
+    const burner = spawn('burner', -11); burner.health = 1;
+    expect(manager.predictDamage(burner, big(burner)).sure).toBeUndefined();
+  });
+
+  it('a head it is sure of bursts the way the host would burst it', () => {
+    const host = world(), guest = world();
+    sure(guest.manager);
+    const there = host.spawn('husk'), here = guest.spawn('husk');
+    there.health = here.health = 3;
+    const shot = () => round('judge', 'head', { amount: there.maxHealth * 2 });
+    host.manager.applyDamage(there, shot());
+    const heavy = host.manager.model.foundKill.heavyHead;
+    const res = { ...guest.manager.predictDamage(here, shot()) };
+    expect(res.sure).toBe('kill');
+    const told = guest.manager.model.guessKill(here, shot(), { blast: null, shatter: false, heavyHead: false, wound: 0 });
+    expect(told).toMatchObject({ blast: null, shatter: false, heavyHead: heavy, wound: 0 });
+    // The whole death, through the one kill flow: the same death the host picked.
+    guest.manager.replayDeath(here, shot(), false, told, null);
+    expect(here.alive).toBe(false);
+    expect(guest.gore.headshot).toHaveBeenCalledTimes(host.gore.headshot.mock.calls.length);
+    expect(guest.gore.ragdoll).toHaveBeenCalledTimes(host.gore.ragdoll.mock.calls.length);
+    // Decided nothing: no kill event of this machine's own.
+    expect(guest.events.kills).toBe(0);
+  });
+
+  it('the host\'s kill turns a body dropped for dead into the corpse where it lies', () => {
+    const { manager, gore, events, spawn } = world();
+    sure(manager);
+    const e = spawn('husk');
+    e.health = 2;
+    expect(manager.predictDamage(e, round('smg')).sure).toBe('fall');
+    expect(e.downed).toBe(true);
+    manager.replayDeath(e, round('smg', 'chest', { force: 0.01 }), false, { blast: null, shatter: false, heavyHead: false, wound: 0 }, null);
+    expect(e.alive).toBe(false);
+    expect(gore.ragdoll).toHaveBeenCalledTimes(1);
+    expect(gore.collapse).not.toHaveBeenCalled();
+    expect(events.kills).toBe(0);
+  });
+});

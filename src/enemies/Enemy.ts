@@ -217,6 +217,11 @@ export class Enemy implements EnemyInstance {
   darts = 0;
   /** Co-op guest: health its own player's hits should take once the host has answered them (net/world/hits.ts). */
   owed = 0;
+  /**
+   * Co-op guest: when (`performance.now()`) this player's own hit dropped this copy for dead ahead of the host's word
+   * (net/world/hits.ts, kill prediction), 0 when it has not. It lies until the host answers that hit.
+   */
+  predead = 0;
   burnTick = 0;
   burnEmitter: EmitterHandle | null = null;
   /** 0..1 how much of the skin has blackened. It stays after the fire goes out. */
@@ -304,6 +309,7 @@ export class Enemy implements EnemyInstance {
     this.downed = false;
     this.rising = this.riseSeconds = this.dazeSeconds = 0;
     this.owed = 0;
+    this.predead = 0;
     this.burnEmitter = null;
     this.ward = 0;
     this.wardBy = null;

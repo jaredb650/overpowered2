@@ -19,14 +19,15 @@ import * as THREE from 'three';
 import type { DamageInfo } from '../../core/contracts';
 import type { DamageResult, EnemyId, EnemyInstance, KillEvent } from '../../core/gameplay';
 import type { GoreRegion } from '../../characters/rig';
-import { floors, newFacts, type HitFacts } from '../../enemies/damage';
+import { floors, newFacts, type HitFacts, type KillFacts } from '../../enemies/damage';
 import type { Enemy } from '../../enemies/Enemy';
 import type { ReactionLevel } from '../../enemies/reactions';
 import { killSounds } from '../../audio/reactions';
-import type { Claims } from './claims';
+import { COOP_FEEL } from '../feel';
+import type { Claims, NackEvent } from './claims';
 import type { Credit } from './credit';
 import type { WorldContext, WorldModule } from './context';
-import { packFacts, packHit, packKill, unpackFacts, unpackHit, unpackKill, type WireFacts, type WireHit } from './hitWire';
+import { packFacts, packHit, packKill, unpackFacts, unpackHit, unpackKill, unpackNack, type WireFacts, type WireHit } from './hitWire';
 import type { Replicas } from './replicas';
 import { ENEMY_IDS, REGIONS, type Vec } from './wire';
 
@@ -50,6 +51,12 @@ export type HitEvent =
 const PENDING = 256;
 /** An unanswered hit is forgotten after this long: the host dropped the claim. */
 const PENDING_MS = 2500;
+/** A death is only started ahead of the host's word on an enemy whose state is no older than this, ms. */
+const SURE_FRESH_MS = 400;
+/** A whole death played ahead of the host's word waits this long for its `kill` before it is called wrong, ms. */
+const FORETOLD_MS = 4000;
+/** A body already dropped for dead is not kicked again by the round that is confirmed to have killed it. */
+const CONFIRM_FORCE = 0.01;
 /** How far a teammate's eye is taken to be above their feet. */
 const EYE = 1.6;
 /** Sources that are the world's own and never a player's claim (claims.ts answers these with nothing). */
@@ -67,10 +74,18 @@ interface Pending {
   level: ReactionLevel;
   /** The round, kept for putting right what was drawn wrong. */
   damage: DamageInfo;
+  /** What this hit took off the guest's own count of a limb's pool (a guess the host's "no" gives back). */
+  region: GoreRegion | undefined;
+  spent: number;
+  /** The death this hit started ahead of the host's word, if any (kill prediction). */
+  sure: DamageResult['sure'];
 }
 
+/** A whole death played ahead of the host's word (`sure: 'kill'`): what its `kill` will need once the body is long gone. */
+interface Foretold { at: number; claim: number; def: Enemy['def']; maxHealth: number }
+
 const newPending = (): Pending => ({
-  live: false, claim: 0, enemy: null, at: 0, owed: 0, blocked: false, level: 'flinch',
+  live: false, claim: 0, enemy: null, at: 0, owed: 0, blocked: false, level: 'flinch', region: undefined, spent: 0, sure: undefined,
   damage: { amount: 0, type: 'bullet', point: new THREE.Vector3(), dir: new THREE.Vector3(), force: 0, source: '' },
 });
 
@@ -84,8 +99,17 @@ export class Hits implements WorldModule {
   private readonly onKill = new Map<number, ((enemy: EnemyInstance) => void)[]>();
   private readonly facts: HitFacts = newFacts();
   private readonly eye = new THREE.Vector3();
-  /** For the proofs: what this screen has drawn, and how long the host took to answer. */
-  readonly seen = { predicted: 0, shown: 0, acks: 0, corrected: 0, lateKills: 0, severs: 0, kills: 0, ackMs: 0, ackMsMax: 0 };
+  /** Guest: whole deaths played ahead of the host's word, by enemy, until its `kill` comes. */
+  private readonly foretold = new Map<number, Foretold>();
+  private readonly killGuess: KillFacts = { blast: null, shatter: false, heavyHead: false, wound: 0 };
+  /**
+   * For the proofs: what this screen has drawn, and how long the host took to answer. `nacks`: hits the host refused
+   * (`gone`: the enemy was already dead there, which is no refusal). Kill prediction: `falls` and `deaths` started ahead of
+   * the host's word, `fallsRight` and `deathsRight` the host then confirmed, `fallsWrong` (the body got up again: a
+   * knockdown) and `deathsWrong` (a body that had to be brought back: must stay 0).
+   */
+  readonly seen = { predicted: 0, shown: 0, acks: 0, corrected: 0, lateKills: 0, severs: 0, kills: 0, ackMs: 0, ackMsMax: 0,
+    nacks: 0, gone: 0, falls: 0, deaths: 0, fallsRight: 0, deathsRight: 0, fallsWrong: 0, deathsWrong: 0 };
 
   /** `credit` is built first: its `enemy:killed` listener has named the killer before this one sends the death. */
   constructor(private readonly w: WorldContext, private readonly replicas: Replicas, private readonly credit: Credit, private readonly claims: Claims) {
@@ -104,6 +128,7 @@ export class Hits implements WorldModule {
     w.router.guest('kill', value => this.killIn(value));
     w.router.guest('hitfx', value => this.hitfxIn(value));
     w.router.guest('ack', (value, _from, now) => this.ackIn(value, now));
+    w.router.guest('nack', (value, _from, now) => this.nackIn(value, now));
     w.router.guest('sever', value => this.severIn(value));
   }
 
@@ -157,7 +182,14 @@ export class Hits implements WorldModule {
   /** Guest: draws the local player's own hit now (`stamp` came first). The result is this machine's guess at the host's. */
   predict(enemy: Enemy, damage: DamageInfo): DamageResult {
     const { manager } = this.w;
+    const now = performance.now();
     this.mirror(enemy);
+    // A death is started ahead of the host's word only on what this page knows well: the player's setting, and a state of
+    // the enemy that is fresh.
+    const model = manager.model as { predictKills?: boolean };
+    model.predictKills = COOP_FEEL.predictKills && now - (this.replicas.map.get(enemy.uid)?.heard ?? -Infinity) <= SURE_FRESH_MS;
+    const region = damage.region;
+    const pool = region ? enemy.limbHp.get(region) : undefined;
     const result = manager.predictDamage(enemy, damage);
     const found = manager.model.found;
     const slot = this.pending[damage.claim! % PENDING]!;
@@ -165,15 +197,67 @@ export class Hits implements WorldModule {
     slot.live = true;
     slot.claim = damage.claim!;
     slot.enemy = enemy;
-    slot.at = performance.now();
+    slot.at = now;
     slot.owed = result.blocked ? 0 : result.dealt;
     slot.blocked = result.blocked;
     slot.level = found.level;
+    slot.region = region;
+    slot.spent = pool !== undefined && region ? Math.max(0, pool - (enemy.limbHp.get(region) ?? pool)) : 0;
+    slot.sure = result.sure;
     copyDamage(slot.damage, damage);
     enemy.owed += slot.owed;
     if (result.killSoon) this.toldKill.set(enemy.uid, slot.at);
     this.seen.predicted++;
+    if (result.sure === 'fall') {
+      // It went down limp inside the damage model (`fellForDead`). It lies until the host answers this hit.
+      if (enemy.predead === 0) this.seen.falls++;
+      enemy.predead = now;
+    } else if (result.sure === 'kill') this.foretell(enemy, damage, slot);
     return result;
+  }
+
+  /**
+   * Guest: the whole death, now, for a kill that is beyond doubt (`sure: 'kill'`): the one kill flow, with this machine's
+   * own reading of what the host will find. The enemy is gone from this screen from here on; whose kill it was, the score
+   * and the pay still wait for the host's `kill`.
+   */
+  private foretell(enemy: Enemy, damage: DamageInfo, slot: Pending): void {
+    const { manager } = this.w;
+    const uid = enemy.uid;
+    const told = manager.model.guessKill(enemy, damage, this.killGuess);
+    this.foretold.set(uid, { at: slot.at, claim: slot.claim, def: enemy.def, maxHealth: enemy.maxHealth });
+    this.replicas.dead.add(uid);
+    this.seen.deaths++;
+    enemy.predead = 0;
+    try { manager.replayDeath(enemy, damage, damage.gib === true, told, null); }
+    finally { this.replicas.map.delete(uid); }
+  }
+
+  /** Guest: a copy this player's hit dropped for dead is not dead on the host: it gets up, as from any knockdown. */
+  private undoFall(enemy: Enemy): void {
+    if (enemy.predead === 0) return;
+    enemy.predead = 0;
+    this.toldKill.delete(enemy.uid);
+    if (!enemy.alive) return;
+    this.seen.fallsWrong++;
+    this.w.manager.rouseReplica(enemy);
+  }
+
+  /**
+   * Guest: a whole death was played for an enemy the host says lives. It should not happen (the margin is wide), and it
+   * is counted: the enemy is let back onto this screen from its next state, which is the one thing prediction must not do.
+   */
+  private undoDeath(uid: number): void {
+    if (!this.foretold.delete(uid)) return;
+    this.seen.deathsWrong++;
+    this.toldKill.delete(uid);
+    this.replicas.dead.delete(uid);
+    console.warn(`[coop] A predicted death was wrong: enemy #${uid} lives on the host and is brought back (kill prediction; ${this.seen.deathsWrong} so far)`);
+  }
+
+  /** Guest: with every answer in, is a copy that was dropped for dead still alive on the host? Then it gets up. */
+  private judgeFall(enemy: Enemy): void {
+    if (enemy.predead !== 0 && enemy.alive && enemy.owed <= 1e-6 && enemy.health > 0) this.undoFall(enemy);
   }
 
   /** What the snapshot says of the host's body that the damage model reads off the enemy itself. */
@@ -205,11 +289,19 @@ export class Hits implements WorldModule {
     this.seen.acks++;
     this.seen.ackMs += took;
     this.seen.ackMsMax = Math.max(this.seen.ackMsMax, took);
+    const sure = slot.sure;
     this.settle(slot);
+    // A whole death played ahead for this hit, and the host says the enemy lives: brought back (and counted).
+    if (sure === 'kill' && value.k !== 1 && Number.isFinite(value.h) && value.h > 0 && this.foretold.get(value.u)?.claim === value.c) this.undoDeath(value.u);
     const facts = unpackFacts(value.f, this.facts);
     if (!facts || !enemy.alive || this.replicas.enemy(value.u) !== enemy) return;
     if (Number.isFinite(value.h)) enemy.health = value.h / 10;
     if (Number.isFinite(value.a)) enemy.armor = value.a / 10;
+    // Dropped for dead by this player's hit: it lies there until every answer is in. If it then lives, it gets up.
+    if (enemy.predead !== 0) {
+      if (value.k !== 1) this.judgeFall(enemy);
+      return;
+    }
     const stopped = facts.stop !== 'none';
     if (stopped && !slot.blocked) {
       // Drawn as flesh, and armour had it: the sparks and the ring of it, late. The blood stays where it was thrown.
@@ -229,6 +321,34 @@ export class Hits implements WorldModule {
       // A blast's ring is the host's roll: a body it laid open is opened now.
       else if (facts.blast === 'flesh') manager.showReaction(enemy, slot.damage, facts, false);
     }
+  }
+
+  /**
+   * Guest: the host did not apply one of this player's hits (`nack`). The blood already drawn stays; what is put right is
+   * the arithmetic: the hit stops counting against the enemy's health (so the next guess starts from the truth), the
+   * limb pool it wore is given back, a kill this player was told of on its strength is taken back (the next round into
+   * the enemy is a hit again, not a round into a corpse), and a body it floored gets up.
+   */
+  private nackIn(value: NackEvent, _now: number): void {
+    const told = unpackNack(value?.n);
+    if (!told) return;
+    const slot = this.pending[told.claim % PENDING]!;
+    if (!slot.live || slot.claim !== told.claim) return;
+    const enemy = slot.enemy!;
+    const { region, spent, level, sure } = slot;
+    this.settle(slot);
+    if (told.why === 'gone') {
+      // Dead on the host before the hit arrived: its `kill` has come or is coming, and says whose it was.
+      this.seen.gone++;
+      return;
+    }
+    this.seen.nacks++;
+    if (sure === 'kill' && this.foretold.get(told.uid)?.claim === told.claim) { this.undoDeath(told.uid); return; }
+    if (!enemy.alive || this.replicas.enemy(told.uid) !== enemy) return;
+    if (region && spent > 0 && enemy.limbHp.has(region)) enemy.limbHp.set(region, enemy.limbHp.get(region)! + spent);
+    if (enemy.health - enemy.owed > 0) this.toldKill.delete(enemy.uid);
+    if (enemy.predead !== 0) this.judgeFall(enemy);
+    else if (floors(level)) this.w.manager.rouseReplica(enemy);
   }
 
   /**
@@ -292,6 +412,8 @@ export class Hits implements WorldModule {
 
   private killIn(value: Extract<HitEvent, { t: 'kill' }>): void {
     const { manager, session, ctx } = this.w;
+    const foretold = this.foretold.get(value.uid);
+    if (foretold) { this.confirm(foretold, value); return; }
     if (this.replicas.dead.has(value.uid)) return;
     this.replicas.dead.add(value.uid);
     let enemy = this.replicas.enemy(value.uid);
@@ -313,6 +435,28 @@ export class Hits implements WorldModule {
     }
   }
 
+  /**
+   * Guest: the host's `kill` for a death this screen played ahead of it. Nothing is left to draw: whose kill it was is
+   * said, and if it was this player's, what waited on the host's word happens now (the score, the pay, the streak).
+   */
+  private confirm(foretold: Foretold, value: Extract<HitEvent, { t: 'kill' }>): void {
+    const { session, ctx } = this.w;
+    this.foretold.delete(value.uid);
+    this.seen.deathsRight++;
+    this.seen.kills++;
+    try {
+      const damage = unpackHit(value.d, 256);
+      if (damage && value.by !== undefined && value.by === session.lobby.me?.slot) {
+        // The enemy's own object may be another enemy by now (the pool): a stand-in carries what a kill's listeners read.
+        this.ownKill(standIn(foretold, value), damage, value.gib === true, value.head === true);
+      }
+    } finally {
+      ctx.events.emit('coop:kill', { by: Number.isInteger(value.by) ? value.by! : -1, id: value.id, boss: false, head: value.head === true });
+      this.toldKill.delete(value.uid);
+      this.onKill.delete(value.uid);
+    }
+  }
+
   /** Guest: the host's death of this copy, drawn, and told to whoever's it was. */
   private die(enemy: Enemy, damage: DamageInfo, value: Extract<HitEvent, { t: 'kill' }>): void {
     const { manager, session, ctx } = this.w;
@@ -321,6 +465,13 @@ export class Hits implements WorldModule {
       const told = unpackKill(value.k);
       // The shooter drew the killing round itself, when it fired.
       if (mine && this.toldKill.has(value.uid)) told.wound = 0;
+      // Dropped for dead ahead of this word: it is the corpse where it lies, and the round does not kick it a second time.
+      if (enemy.predead !== 0) {
+        this.seen.fallsRight++;
+        enemy.predead = 0;
+        told.wound = 0;
+        if (value.gib !== true) damage.force = CONFIRM_FORCE;
+      }
       manager.replayDeath(enemy, damage, value.gib, told, this.eyeOf(value.by));
       this.seen.kills++;
       if (mine) {
@@ -361,10 +512,28 @@ export class Hits implements WorldModule {
 
   update(now: number): void {
     if (this.w.hosting) return;
-    for (const slot of this.pending) if (slot.live && now - slot.at > PENDING_MS) this.settle(slot);
+    for (const slot of this.pending) {
+      if (!slot.live || now - slot.at <= PENDING_MS) continue;
+      // Never answered (the claim was lost with a dropped link): what it started ahead of the host's word is judged now.
+      const enemy = slot.enemy;
+      this.settle(slot);
+      if (enemy && enemy.predead !== 0) this.judgeFall(enemy);
+    }
+    for (const [uid, death] of this.foretold) if (now - death.at > FORETOLD_MS) this.undoDeath(uid);
     for (const [uid, at] of this.toldKill) if (now - at > PENDING_MS) this.toldKill.delete(uid);
     for (const uid of this.onKill.keys()) if (!this.replicas.map.has(uid)) this.onKill.delete(uid);
   }
+}
+
+/**
+ * What a kill's listeners read of an enemy (score, pay, the run report, the floating text), for a death played so long ago
+ * that the enemy's own object may have been given to another.
+ */
+function standIn(was: Foretold, value: Extract<HitEvent, { t: 'kill' }>): Enemy {
+  const at = new THREE.Vector3(value.at[0], value.at[1], value.at[2]);
+  return { uid: value.uid, id: value.id, def: was.def, isBoss: false, alive: false, health: 0, maxHealth: was.maxHealth, yaw: value.yaw,
+    position: at, center: at.clone().setY(at.y + 1), velocity: new THREE.Vector3(), machine: was.def?.machine === true,
+    char: { severed: new Set<GoreRegion>() } } as unknown as Enemy;
 }
 
 const UP = new THREE.Vector3(0, 1, 0);

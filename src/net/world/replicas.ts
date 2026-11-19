@@ -40,6 +40,8 @@ export interface Replica {
   first: number;
   /** Local time the roster first left it out; 0 while it is named. */
   missing: number;
+  /** Local time (`performance.now()`) its newest state arrived: how old this page's knowledge of it is. */
+  heard: number;
   /** The frost drawn on its skin, 0..1. */
   frost: number;
   /** When a limb the host has off was first seen still on this copy (0: none owed). */
@@ -70,6 +72,8 @@ export class RecentSet {
     this.set.add(value);
     if (this.set.size > this.cap) this.set.delete(this.set.values().next().value!);
   }
+  /** Lets an id back in: for a death this page played ahead of the host's word and the host then denied (hits.ts). */
+  delete(value: number): boolean { return this.set.delete(value); }
 }
 
 /** The far tier's spacing for a guest, from the snapshot bytes a second they are being sent: thinned over the ceiling. */
@@ -210,7 +214,7 @@ export class Replicas implements WorldModule {
       enemy.uid = e.uid;
       enemy.yaw = e.yaw;
       replica = { enemy, to: { flags: e.flags, posture: POSTURES[e.posture]!, target: e.target }, motion: new MotionBuffer(), newest: -Infinity, first: t,
-        missing: 0, frost: 0, severAt: 0, down: false, downAt: 0, hostUpAt: 0, hostDownAt: (e.flags & DOWNED) !== 0 ? -Infinity : 0, gotUpAt: -Infinity };
+        missing: 0, heard: 0, frost: 0, severAt: 0, down: false, downAt: 0, hostUpAt: 0, hostDownAt: (e.flags & DOWNED) !== 0 ? -Infinity : 0, gotUpAt: -Infinity };
       this.map.set(e.uid, replica);
       this.seen(enemy);
     }
@@ -218,6 +222,7 @@ export class Replicas implements WorldModule {
     const newest = t >= replica.newest;
     if (newest) {
       replica.newest = t;
+      replica.heard = performance.now();
       replica.missing = 0;
       replica.to.flags = e.flags;
       replica.to.target = e.target;
@@ -225,7 +230,11 @@ export class Replicas implements WorldModule {
       enemy.shield = (e.flags & SHIELD) !== 0;
       if (e.full) {
         replica.to.posture = POSTURES[e.posture]!;
-        enemy.health = e.health; enemy.maxHealth = e.maxHealth;
+        // While this player's own hits on it are unanswered, its health is what the host's answers say (`ack`, `hitfx`: in
+        // order, each with the health after it). A state's health may or may not have those hits in it yet, and taking it
+        // would count a hit twice against the enemy (`Enemy.owed`): the guess at a kill would run ahead of the truth.
+        if (enemy.owed <= 0) enemy.health = e.health;
+        enemy.maxHealth = e.maxHealth;
         if (e.plates && enemy.plates.length === 0) manager.fitPlates(enemy, [HELMET]);
         enemy.armor = e.armor;
         for (let index = 0; index < enemy.plates.length; index++) {
@@ -344,7 +353,9 @@ export class Replicas implements WorldModule {
       // The host's is on its feet and this one still lies (its `getUp` came while it was in the air, or never): up it gets.
       if (hostDown) replica.hostUpAt = 0;
       else if (!replica.hostUpAt) replica.hostUpAt = now;
-      else if (now - replica.hostUpAt > HOST_UP_MS && now - replica.downAt > HOST_UP_MS) gore.rouse?.(enemy.char);
+      // (One this player's own hit dropped for dead is waiting on the host's answer to that hit, which is what the host's
+      // body standing would otherwise be mistaken for: hits.ts gets it up if the answer is that it lives.)
+      else if (enemy.predead === 0 && now - replica.hostUpAt > HOST_UP_MS && now - replica.downAt > HOST_UP_MS) gore.rouse?.(enemy.char);
       return true;
     }
     if (replica.down) {

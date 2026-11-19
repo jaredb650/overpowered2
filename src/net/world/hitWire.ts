@@ -134,3 +134,21 @@ export function unpackKill(wire: unknown): KillFacts {
   const bits = all % 64;
   return { blast: BLASTS[bits & 15] ?? null, shatter: (bits & 16) !== 0, heavyHead: (bits & 32) !== 0, wound: Math.floor(all / 64) / 10 };
 }
+
+/**
+ * Why the host did not apply a claim, by number on the wire (add at the end only): `gone` (the enemy was already dead on the
+ * host: the death is on its way or has come), then the validator's reasons (authority.ts `RejectReason`).
+ */
+export const NACK_REASONS = ['gone', 'shape', 'down', 'eye', 'range', 'point', 'rate', 'hits', 'flood', 'sight'] as const;
+export type NackReason = typeof NACK_REASONS[number];
+/** The host's "no" to a guest's hit: [the hit's number (`DamageInfo.claim`), the enemy, why]. */
+export type WireNack = [number, number, number];
+
+export const packNack = (claim: number, uid: number, why: NackReason): WireNack => [claim, uid, Math.max(0, NACK_REASONS.indexOf(why))];
+
+export function unpackNack(wire: unknown): { claim: number; uid: number; why: NackReason } | null {
+  if (!Array.isArray(wire) || wire.length !== 3) return null;
+  const [claim, uid, why] = wire as unknown[];
+  if (!whole(claim, 1, 0xffff) || !whole(uid, 0, Number.MAX_SAFE_INTEGER) || !whole(why, 0, NACK_REASONS.length - 1)) return null;
+  return { claim, uid, why: NACK_REASONS[why]! };
+}

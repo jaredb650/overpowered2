@@ -588,6 +588,12 @@ export interface DamageResult {
    * shooter nothing.
    */
   doomed?: boolean;
+  /**
+   * Co-op guest only, with kill prediction on: this machine is sure enough of the kill to start the death now, on the frame
+   * of the shot. `fall`: the body drops limp, as a knockdown the host's `kill` turns into the corpse (and a wrong guess into a
+   * get-up). `kill`: beyond doubt, so the whole death is played here at once (a head burst, a cut in two, a gib).
+   */
+  sure?: 'fall' | 'kill';
 }
 
 /** A kill as the shooter is told of one: decided here, or a co-op guest's own guess that the host will decide it. */

@@ -12,7 +12,7 @@ import type { BoomEvent } from './world/booms';
 import type { CallinsEvent } from './world/callins';
 import type { CaptureEvent } from './world/capture';
 import type { ChatterEvent } from './world/chatter';
-import type { ClaimEvent } from './world/claims';
+import type { ClaimEvent, NackEvent } from './world/claims';
 import type { SlowEvent } from './world/clock';
 import type { EnemyFireEvent } from './world/enemyFire';
 import type { FortEvent } from './world/fort';
@@ -39,6 +39,7 @@ export type { Card, Ending, LifeState } from './team';
 /** Everything that crosses the reliable `action` lane (world/context.ts `send`, world/router.ts). */
 export type WorldEvent =
   | ClaimEvent      // world/claims.ts: hit, status, vhit
+  | NackEvent       // world/claims.ts: nack (the host's "no" to a hit; hits.ts puts the guest's guess right)
   | HitEvent        // world/hits.ts: hitfx, kill, sever
   | FireEvent       // world/remoteFire.ts: fire
   | LoopEvent       // world/remoteFire.ts: loop

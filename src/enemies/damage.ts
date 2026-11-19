@@ -181,6 +181,14 @@ export function headOutcome(round: number, heavy: boolean, enemy: string): HeadO
   if (round < HEAD_BURST_DAMAGE) return 'hole';
   return PARTIAL_HEADS.has(enemy) ? 'partial' : 'burst';
 }
+/**
+ * Co-op kill prediction (`sureKill`). A guest drops a body for dead when its hit is over what the body has left by this
+ * share of its whole health (and at least `SURE_MARGIN_MIN`), and plays the whole death itself when the hit is this many
+ * times what is left with this share of its whole health to spare.
+ */
+export const SURE_MARGIN = 0.15, SURE_MARGIN_MIN = 6, SURE_KILL_TIMES = 3, SURE_KILL_OVER = 0.5;
+/** The force of a round that drops a body for dead at full strength; a light one still drops it at `FELL_MIN`. */
+const FELL_FORCE = 60, FELL_MIN = 0.35;
 const RESULT_RING = 16;
 /** Seconds between cries of pain. Under an SMG every hit would otherwise be one. */
 const PAIN_GAP = 0.7;
@@ -408,6 +416,11 @@ export class DamageModel {
    * said. Everything that is seen and heard runs the same lines either way, which is what keeps the screens from drifting.
    */
   private facts = true;
+  /**
+   * Co-op guest: start a death this machine is sure of on the frame of the shot (net/world/hits.ts sets it from the player's
+   * setting). Off, the body waits for the host's word as before, and `DamageResult.sure` is never set.
+   */
+  predictKills = false;
   /** The deciding machine's findings about the hit being shown, or null when this machine works them out (`apply`, `predict`). */
   private told: HitFacts | null = null;
   /** As `told`, for a death being shown. */
@@ -457,6 +470,7 @@ export class DamageModel {
     r.killed = r.headshot = r.blocked = false;
     r.armour = undefined;
     r.killSoon = r.doomed = undefined;
+    r.sure = undefined;
     r.severed.length = 0;
     return r;
   }
@@ -649,10 +663,14 @@ export class DamageModel {
         // Already reckoned dead by an earlier hit of this player's: this one met a corpse, as far as the shooter is told.
         if (!body && !e.isBoss && e.health - e.owed <= 0) res.doomed = true;
         else res.killSoon = this.wouldKill(e, body !== null, region, amount);
+        if (res.killSoon && this.predictKills) res.sure = this.sureKill(e, d, region, amount, res, body !== null, area);
       }
       if (blast) this.blastShown(e, d, blast);
       else if (!area && region !== 'head') this.spendLimb(e, region, d, res);
-      this.react(e, d, region, amount, res, blast !== null && !OUTCOMES[blast.outcome].stands);
+      // Sure of the kill: it goes down limp now, in place of the flinch a living body would give (the whole death, when it is
+      // beyond doubt, is the caller's to start: `predictKill`). With no room on the floor it reacts as it would have.
+      if (res.sure === 'fall' && !this.fellForDead(e, d, region, amount)) res.sure = undefined;
+      if (!res.sure) this.react(e, d, region, amount, res, blast !== null && !OUTCOMES[blast.outcome].stands);
       this.emitHit(e, d, res);
       return res;
     }
@@ -685,6 +703,66 @@ export class DamageModel {
     if (anatomy || e.isBoss || amount <= 0) return false;
     if (region === 'head' && (e.limbHp.get('head') ?? Infinity) - amount <= 0) return true;
     return e.health - e.owed - amount <= 0;
+  }
+
+  /**
+   * A guest's own hit that it has just guessed is a kill: is this machine sure enough to start the death now? Only for a
+   * body whose death is plain arithmetic on the host: no anatomy (a man's wounds decide his death), no boss, nothing that
+   * dies its own way (a drone's crash, a tank that may blow, a machine), and no armour, shield, ward or frost in the sum.
+   * `fall`: what is left of it, by the host's own answers less this player's hits still in the air, is under the hit by
+   * `SURE_MARGIN` of its whole health. `kill`: by three times and half its health to spare, and nothing in the death is
+   * the host's to roll (a blast's ring is).
+   */
+  private sureKill(e: Enemy, d: DamageInfo, region: GoreRegion, amount: number, res: DamageResult, anatomy: boolean, area: boolean): DamageResult['sure'] {
+    if (anatomy || e.isBoss || !profileOf(e) || e.def.tank || e.def.id === 'drone') return undefined;
+    if (res.blocked || res.armour !== undefined || e.ward > 0 || e.entrance !== 'none' || e.shield || e.frozen > 0 || e.pinned) return undefined;
+    const head = region === 'head' && !area;
+    const rest = Math.min(e.health - e.owed, head ? e.limbHp.get('head') ?? Infinity : Infinity);
+    if (!(rest > 0)) return undefined;
+    const over = amount - rest;
+    if (over < Math.max(SURE_MARGIN_MIN, e.maxHealth * SURE_MARGIN)) return undefined;
+    return !area && amount >= rest * SURE_KILL_TIMES && over >= e.maxHealth * SURE_KILL_OVER ? 'kill' : 'fall';
+  }
+
+  /**
+   * A guest's copy drops for dead: off its feet at once and limp, by the hit that this machine is sure killed it. It is a
+   * knockdown and not a corpse, because the death is still the host's word: `kill` turns it into the corpse where it lies,
+   * and if the host says it lives it gets up from the floor (net/world/hits.ts, replicas.ts), as from any knockdown.
+   * False when it could not go down (already down is true: it lies where it is).
+   */
+  private fellForDead(e: Enemy, d: DamageInfo, region: GoreRegion, amount: number): boolean {
+    const profile = profileOf(e);
+    if (!profile || !e.alive) return false;
+    const char = e.char;
+    const frac = clamp(amount / e.maxHealth, 0, 1);
+    char.hitFlash(clamp(0.55 + frac * 2, 0.55, 1));
+    if (d.type !== 'fire' && d.type !== 'shock') {
+      e.blood = Math.min(1, e.blood + 0.08 + frac * 1.1);
+      char.setBloodiness(e.blood);
+    }
+    if (e.downed) return true;
+    const bone = d.bone ?? REGION_BONE[region] ?? 0;
+    _fall.copy(d.dir).setY(0);
+    if (_fall.lengthSq() < 1e-6) _fall.set(Math.sin(e.yaw), 0, Math.cos(e.yaw)).negate();
+    const force = d.force || DEFAULT_FORCE[d.type];
+    const strength = clamp(force / FELL_FORCE, FELL_MIN, 1);
+    e.fallIn = 0;
+    return this.knockDown(e, _fall.normalize(), strength, bone, profile, AREA_TYPES.has(d.type), knockAs(undefined, undefined, true, d.point));
+  }
+
+  /**
+   * A guest's guess at what only the host finds about a death, for one this machine plays itself beyond doubt
+   * (`sure: 'kill'`): no blast (never predicted), not frozen (never predicted), the head by the same rule the host uses.
+   * Marks the round as the host would for a trunk it opens (`torso`).
+   */
+  guessKill(e: Enemy, d: DamageInfo, out: KillFacts): KillFacts {
+    const region: GoreRegion = d.region ?? 'chest';
+    out.blast = null;
+    out.shatter = false;
+    out.heavyHead = region === 'head' && !AREA_TYPES.has(d.type) && this.heavyHead(e, d);
+    out.wound = 0;
+    if (d.torso === undefined && !e.def.machine && blowsOut(d, e.position.distanceTo(this.w.player.position))) d.torso = 'blowout';
+    return out;
   }
 
   /** The ring's roll as the host made it, for a hit being shown. */

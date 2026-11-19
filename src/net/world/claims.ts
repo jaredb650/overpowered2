@@ -21,6 +21,7 @@ import type { Replicas } from './replicas';
 import type { Targeting } from './targeting';
 import { VehicleHits } from './vehicleHits';
 import type { Vehicles } from './vehicles';
+import { packNack, type NackReason, type WireNack } from './hitWire';
 import { ENEMY_IDS, packDamage, validVec, type Vec, type WireDamage } from './wire';
 
 /**
@@ -39,6 +40,11 @@ export type StatusKind = 'burn' | 'freeze' | 'bolt';
  */
 export interface VehicleClaim { t: 'vhit'; id: number; part?: string; point: Vec; amount: number; source: string; at?: number; kind?: string; radius?: number; inst?: 1 }
 export type ClaimEvent = HitClaim | StatusClaim | VehicleClaim;
+/**
+ * Host to the shooter: your hit was not applied (hitWire.ts `packNack`: its number, the enemy, why). The guest drew it when
+ * it fired; this is what lets it stop counting that hit against the enemy's health (hits.ts `nackIn`).
+ */
+export interface NackEvent { t: 'nack'; n: WireNack }
 
 /** A shot id is stale once nothing has fired for this long: the next claim (a round landing, a beam still on) starts a new one. */
 const STALE_MS = 100;
@@ -209,6 +215,14 @@ export class Claims implements WorldModule {
     this.refused[why] = (this.refused[why] ?? 0) + 1;
   }
 
+  /** Host: tells the shooter its hit was not applied, so its own count of that enemy's health is put right at once. */
+  private nack(from: string, value: HitClaim, why: NackReason): void {
+    const claim = (value?.damage as { claim?: unknown } | undefined)?.claim;
+    if (typeof claim !== 'number' || !Number.isInteger(claim) || claim <= 0 || claim > 0xffff) return;
+    const uid = Number.isSafeInteger(value.target) && value.target > 0 ? value.target : 0;
+    this.w.send({ t: 'nack', n: packNack(claim, uid, why) }, from);
+  }
+
   /**
    * Host: a claim was refused. Counted, kept, and said in the console with its reason: a refused claim is a player's hit that
    * did nothing, and in an honest game there are none. (The validator has already counted it by reason in `refused`.)
@@ -235,7 +249,7 @@ export class Claims implements WorldModule {
     this.received.hit++;
     const enemy = Number.isSafeInteger(value?.target) ? ctx.enemies.alive.find(enemy => enemy.uid === value.target) as Enemy | undefined : undefined;
     // Dead on the host before the claim got here: nobody lost a hit, the man was already down.
-    if (!enemy) { this.refuse('gone'); return; }
+    if (!enemy) { this.refuse('gone'); this.nack(from, value, 'gone'); return; }
     // The host's copy of the shooter's body. None yet (their first pose is still on its way, or their body is being built):
     // the claim is not dropped for that. It is checked against the eye it names itself, which is all the eye test bounds anyway.
     const root = this.w.sender(from, now)?.char.root.position;
@@ -247,7 +261,7 @@ export class Claims implements WorldModule {
       // screen's own): the two lie metres apart by design, and the guest shot the one it can see.
       near: point => enemy.downed ? 0 : Math.min(this.nearTrail(enemy.uid, point), this.nearRoot(enemy, point)),
     });
-    if (!verdict.ok) { this.refusal(from, value, verdict.why); return; }
+    if (!verdict.ok) { this.refusal(from, value, verdict.why); this.nack(from, value, verdict.why); return; }
     stats.accepted++;
     const damage = unpackDamage(value.damage);
     if (damage.bone !== undefined && damage.bone >= enemy.char.rig.bones.length) damage.bone = undefined;
