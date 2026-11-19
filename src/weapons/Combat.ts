@@ -560,7 +560,9 @@ export class Combat implements CombatSystem {
         return;
       }
 
-      if (!spec.skipCorpses && !watching) this.hitCorpses(st, firstStop, damage * damageKept(budget), spec);
+      // A friend's round (co-op, `watching`) marks the corpses on this screen as the player's own does: bodies on the floor
+      // are each screen's own, and nothing of it is a fact (gore/index.ts `damageCorpse` decides and raises nothing).
+      if (!spec.skipCorpses) this.hitCorpses(st, firstStop, damage * damageKept(budget), spec);
 
       let stopped = false;
       let hopFrom: HitSlot | null = null;
@@ -591,13 +593,16 @@ export class Combat implements CombatSystem {
           list.enemies[list.count++] = h.enemy;
         }
         if (res.headshot) r.headshot = true;
-        if (res.killed) {
+        // A co-op guest's enemy dies on the host's word: what a shot counts as its kills (the Lance's cleave and its stop,
+        // a round's blood on the wall behind) goes by the guest's own guess, as the marker does. Alone it is `killed`.
+        const killed = toldKill(res);
+        if (killed) {
           r.killed = true;
           r.kills++;
           if (splits) cleave--;
         }
         if (!res.blocked && !watching && wall && wall.distance - h.distance < WALL_BLOOD_REACH) {
-          c.render.decals.add('blood', wall.point, wall.normal, rand(0.5, 1.1) * (res.killed ? 1.5 : 1), rand(0, 6.28));
+          c.render.decals.add('blood', wall.point, wall.normal, rand(0.5, 1.1) * (killed ? 1.5 : 1), rand(0, 6.28));
         }
         if (spec.shock && !res.blocked) this.arc(h.point, h.enemy, dealt * SHOCK.damage, spec);
         if (pierce > 0) {

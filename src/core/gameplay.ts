@@ -102,6 +102,11 @@ export interface FireNote {
    * whether the blade is the energy blade. Unset on a gun's note.
    */
   swing?: { sound: string; pitch: number; heavy: boolean; energy: boolean };
+  /**
+   * Co-op, on a watcher's screen only: the tracer a perk of the shooter's gives their rounds (Hellfire, Bloodthirst,
+   * Berserk), as the shooter said it. Unset or null: the gun's own tracer.
+   */
+  tracer?: TracerKind | null;
 }
 
 /**
@@ -849,8 +854,9 @@ declare module './contracts' {
     /**
      * A weapon effect that lasts ended, for the other players' screens in co-op: the Lance's sustained beam, its giant ball
      * (`at` and `normal`: where it went off), the Kiln's stream, the rotary cannon's barrage (`spin`). Each begins with a `weapon:fired` of that kind.
+     * `whine` is the rotary cannon's barrels alone: `on` as they begin to turn (its spin-up), off as they run down.
      */
-    'weapon:loop': { weapon: WeaponId; kind: 'beam' | 'giant' | 'hose' | 'spin'; on: boolean; at: THREE.Vector3; normal: THREE.Vector3 | null };
+    'weapon:loop': { weapon: WeaponId; kind: 'beam' | 'giant' | 'hose' | 'spin' | 'whine'; on: boolean; at: THREE.Vector3; normal: THREE.Vector3 | null };
     'weapon:switched': { from: WeaponId; to: WeaponId };
     'weapon:reload': { weapon: WeaponId; phase: 'start' | 'end' };
     'weapon:empty': { weapon: WeaponId };

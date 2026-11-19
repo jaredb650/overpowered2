@@ -193,7 +193,7 @@ export const FRIEND_TORCH = { color: 0xfff1dc, candela: 140, decay: 1, range: 30
 /** What a watcher counted, by kind, since the page loaded: for the browser proofs (tools/scripts/coop-fx-matrix.mjs). */
 export const WATCHED = {
   shots: 0, rays: 0, flashes: 0, casings: 0, sounds: 0, projectiles: 0, rails: 0, beams: 0, balls: 0, giants: 0, beamStops: 0, giantLands: 0,
-  raufoss: 0, hose: 0, globs: 0, swings: 0, slashes: 0, meleeFx: 0, reloads: 0, stims: 0, lasers: 0, lights: 0, last: '' as string,
+  raufoss: 0, hose: 0, globs: 0, swings: 0, slashes: 0, meleeFx: 0, reloads: 0, stims: 0, lasers: 0, lights: 0, whines: 0, perkTracers: 0, last: '' as string,
 };
 
 export class Watcher {
@@ -301,6 +301,8 @@ export class Watcher {
     const combat = this.combat;
     const shot = fillShot(this.shot, def, def.damage, PLAIN, this.muzzleAt);
     shot.gib = false;
+    // A perk's tracer is the shooter's to say (their perks are not known here): Hellfire, Bloodthirst, Berserk.
+    if (note.tracer) { shot.tracer = note.tracer; WATCHED.perkTracers++; }
     // A scatter of barrels together (the Deuce): each barrel past the first is heard an echo late, as the shooter hears it.
     const two = def.altBoth;
     if (two && def.pellets > 0) {
@@ -677,7 +679,14 @@ export class Watcher {
   }
 
   /** Something of theirs that lasts ended: the beam, the giant ball (where it went off), the Kiln's stream. */
-  loop(kind: 'beam' | 'giant' | 'hose' | 'spin', at: THREE.Vector3 | null, normal: THREE.Vector3 | null): void {
+  loop(kind: 'beam' | 'giant' | 'hose' | 'spin' | 'whine', at: THREE.Vector3 | null, normal: THREE.Vector3 | null, on = false): void {
+    if (kind === 'whine') {
+      // The rotary cannon's barrels: their spin-up as they begin to turn, their run-down as they stop, from the gun.
+      WATCHED.whines++;
+      this.shooter.muzzle(this.muzzleAt);
+      this.say(on ? 'minigun_spinup' : 'minigun_spindown', REPORT);
+      return;
+    }
     if (kind === 'hose') this.stopPour();
     else if (kind === 'spin') this.barrageLeft = Math.min(this.barrageLeft, 0.001);
     else if (kind === 'beam') {

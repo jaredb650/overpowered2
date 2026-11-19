@@ -50,6 +50,9 @@ function friend(at = v(0, 1, 0)): Shooter & { gestures: string[] } {
   };
 }
 
+/** One plain round down the aim, as a friend's `fire` hands it to the watcher. */
+const plain = (): FireNote => ({ kind: 'gun', left: false, barrel: 0, rays: 1, cone: 0, seed: 0, alt: false, aimed: false, to: v(0, 0, 0) });
+
 /** Counts every fx call by name on top of the range's own recorder. */
 function count(r: Range): Record<string, number> {
   const calls: Record<string, number> = {};
@@ -345,6 +348,54 @@ describe('a friend\'s shots, drawn here', () => {
     expect(man.hits).toHaveLength(0);
     expect(r.combat.projectiles.count).toBe(0);
     expect(r.combat.watching).toBe(0);
+  });
+
+  it('a friend\'s stake flies on through a body and ends where the shooter says theirs stopped', () => {
+    r.wall(-30, 1);
+    const man = r.enemies.add(0, -10) as Dummy;
+    const watcher = new Watcher(r.ctx, friend());
+    const stake = (): ProjectileSpec => ({ origin: v(0, 1.2, -0.25), velocity: v(0, 0, -TUNING.stake.speed), kind: 'stake', team: 'player', damage: 1, source: 'stakegun', trail: 'none', tag: 9 });
+    // Nobody has said it stopped: it goes through the man (who may stand elsewhere on the shooter's screen) to the wall.
+    const stick = vi.spyOn(r.combat.projectiles.visuals, 'stick');
+    watcher.launch(stake());
+    r.run(1.5);
+    expect(man.hits).toHaveLength(0);
+    expect(stick).toHaveBeenCalledOnce();
+    // The shooter's stopped in a body 10 m out: the copy ends there, wherever it had got to.
+    watcher.launch(stake());
+    r.run(0.02);
+    expect(r.combat.projectiles.active.some(p => p.kind === 'stake' && p.cosmetic && !p.resting)).toBe(true);
+    watcher.landed(9, v(0, 1.2, -10));
+    expect(r.combat.projectiles.active.some(p => p.kind === 'stake' && p.cosmetic && !p.resting)).toBe(false);
+    expect(man.hits).toHaveLength(0);
+    expect(r.combat.watching).toBe(0);
+  });
+
+  it('a friend\'s rounds mark the corpses on this screen, and decide nothing', () => {
+    r.wall(-20, 1);
+    const corpse = { distance: 6, point: v(0, 1, -6), normal: v(0, 0, 1), handle: 1, bone: 0, region: 'chest' };
+    const struck = vi.fn();
+    const gore = r.ctx.gore;
+    r.ctx.gore = new Proxy(gore, { get: (t, k) => k === 'raycastCorpses' ? () => corpse : k === 'damageCorpse' ? struck : Reflect.get(t, k) });
+    const watcher = new Watcher(r.ctx, friend());
+    watcher.hold('smg', []);
+    watcher.fire('smg', v(0, 1, 0), v(0, 0, -1), plain());
+    expect(struck).toHaveBeenCalledOnce();
+    expect(r.combat.watching).toBe(0);
+  });
+
+  it('a perk\'s tracer, told by the shooter, colours the round; the barrels\' whine is heard from their gun', () => {
+    r.wall(-20, 1);
+    const watcher = new Watcher(r.ctx, friend());
+    watcher.hold('smg', []);
+    r.record.tracers.length = 0;
+    watcher.fire('smg', v(0, 1, 0), v(0, 0, -1), { ...plain(), tracer: 'hellfire' });
+    watcher.fire('smg', v(0, 1, 0), v(0, 0, -1), plain());
+    expect(r.record.tracers.map(t => t.kind)).toEqual(['hellfire', WEAPONS.smg.tracer]);
+    r.record.sounds.length = 0;
+    watcher.loop('whine', null, null, true);
+    watcher.loop('whine', null, null, false);
+    expect(r.record.sounds).toEqual(['minigun_spinup', 'minigun_spindown']);
   });
 
   it('the Kiln: their napalm pours from their nozzle down their aim, pools and scorches, and burns nobody', () => {

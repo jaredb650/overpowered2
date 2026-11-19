@@ -614,6 +614,12 @@ export class Projectiles {
     p: Projectile, enemy: EnemyInstance, point: THREE.Vector3, normal: THREE.Vector3, dir: THREE.Vector3,
     bone: number | undefined, region: GoreRegion | undefined,
   ): void {
+    // A friend's stake (co-op): whether it stopped in this body or went on through it is the shooter's to say, since the
+    // body may stand somewhere else on their screen. The copy flies on, and ends where they say theirs did (`land`).
+    if (p.cosmetic && p.kind === 'stake' && p.fuse <= 0 && !p.explosive) {
+      p.lastHit = enemy.uid;
+      return;
+    }
     const res = this.strikeDirect(p, enemy, point, normal, dir, bone, region);
 
     if (p.kind === 'stake') {
@@ -647,7 +653,11 @@ export class Projectiles {
       }
     }
     // Nothing came loose, so a live body stops the stake.
-    if (!res.killed) p.live = false;
+    if (!res.killed) {
+      p.live = false;
+      // Co-op: the others' copies of it stop here too (an exploding stake has already said where it went off).
+      if (p.tag !== 0 && !p.cosmetic && !p.explosive) this.ctx.coop?.world?.landed(p.tag, point);
+    }
     // A co-op guest's enemy dies on the host's word: the body is nailed up when that comes, if it comes soon.
     const c = this.ctx;
     if (!res.killed && !res.blocked && c.coop?.world && !c.coop.hosting) {

@@ -41,6 +41,8 @@ import { validVec, type Vec } from './wire';
 export type FireEvent = {
   t: 'fire'; weapon: string; origin: Vec; dir: Vec; slot?: number;
   k?: FireKind; f?: number; n?: number; c?: number; s?: number;
+  /** The tracer a perk of the shooter's gives the round: 1 + its index in `PERK_TRACERS`. Unset: the gun's own. */
+  tc?: number;
   /** A melee swing: its sound and pitch. Its `f`: bit 1 a heavy swing, bit 2 the energy blade. */
   snd?: string; p?: number;
 };
@@ -48,9 +50,10 @@ export type FireEvent = {
 export type MeleeFxEvent = { t: 'mfx'; k: MeleeFx['kind']; a: Vec; b?: Vec; c?: Vec; x?: number; y?: number; l?: string; slot?: number };
 /**
  * Something that lasts ended (`weapon:loop`). `at` and `n`: where a giant ball went off, and the wall's normal there. `proj`:
- * the sender's own projectile `i` went off at `at`, so its copies end there.
+ * the sender's own projectile `i` went off at `at` (or, a stake, stopped in a body there), so its copies end there. `whine`:
+ * the rotary cannon's barrels began to turn (`on`) or ran down.
  */
-export type LoopEvent = { t: 'loop'; k: 'beam' | 'giant' | 'hose' | 'spin' | 'proj'; slot?: number; at?: Vec; n?: Vec; i?: number };
+export type LoopEvent = { t: 'loop'; k: 'beam' | 'giant' | 'hose' | 'spin' | 'whine' | 'proj'; slot?: number; at?: Vec; n?: Vec; i?: number; on?: 1 };
 /**
  * A projectile left a player's gun: every other screen flies its own copy, which hurts nothing. `k` its kind, `src` the
  * weapon (or `grenade`), `o` and `v` where it starts and how fast, `i` its number if it explodes (a `loop` of kind `proj` ends
@@ -70,8 +73,19 @@ export type KataEvent = { t: 'kata' };
 
 const PROJECTILES: readonly ProjectileSpec['kind'][] = ['rocket', 'shell', 'grenade', 'bullet', 'plasma', 'stake'];
 const TRAILS: readonly ProjectileTrail[] = ['none', 'smoke', 'big', 'hellfire', 'rings', 'sparks', 'swarm', 'plasma'];
-/** Projectiles and loop ends a guest may send in a second: a Quiver salvo and a held Thresher of launcher rounds, not a flood. */
-const SIDE_PER_SECOND = 40;
+/**
+ * What a guest may send in a second, by kind, each with its own count (they shared one of 40 once: a fast explosive gun's
+ * launches and landings together ran it out, and copies went untold where they ended). `end` is a round's landing: one for
+ * each launch and more, so the word that ends a copy is the last thing ever dropped.
+ */
+const PER_SECOND = { round: 80, end: 240, loop: 30, mfx: 60 } as const;
+/** The tracers a perk gives a gun's rounds (progression/data.ts TRACER_ORDER), by number on the wire. Add at the end only. */
+export const PERK_TRACERS: readonly TracerKind[] = ['hellfire', 'bloodthirst', 'berserk'];
+/**
+ * How far a shot's origin may be from where the host has that guest's body: the body is drawn a tenth of a second back and
+ * its pose is a moment old, and a dash covers 26 m a second. The same allowance the host gives a hit claim (authority.ts).
+ */
+export const originSlack = (pingMs: number | undefined): number => 7 + 26 * (0.35 + Math.min(1500, pingMs ?? 250) / 1000);
 /** Milliseconds between the `fire` events of a held Kiln. */
 const HOSE_MS = 120;
 /** Seconds between looks at what the local player holds, for `held`. */
@@ -109,14 +123,17 @@ export class RemoteFire implements WorldModule {
   private readonly kits = new Map<string, KitEvent>();
   /** Each friend's latest kit by slot, kept for a body that is built after the word came. */
   private readonly held = new Map<number, KitEvent>();
-  /** Host: side events (`proj`, `loop`) each guest has sent this second. */
-  private readonly side = new Map<string, { second: number; count: number }>();
+  /** Host: side events each guest has sent this second, by kind (`PER_SECOND`). */
+  private readonly side = new Map<string, { second: number; round: number; end: number; loop: number; mfx: number }>();
+  /** Host: side events left out because a guest sent more of a kind than `PER_SECOND` allows. */
+  dropped = 0;
 
   /** `late` (host): keeps a guest's event for a moment when it arrives before that guest's body does. */
   constructor(private readonly w: WorldContext, private readonly late?: Late) {
     w.listen('weapon:fired', event => this.shoot(event.weapon, event.origin, event.dir, event.note ?? null));
     w.listen('weapon:loop', event => {
-      if (!event.on) this.send({ t: 'loop', k: event.kind, ...(event.kind === 'giant' ? { at: point(event.at), ...(event.normal ? { n: point(event.normal) } : {}) } : {}) });
+      if (event.kind === 'whine') this.send(event.on ? { t: 'loop', k: 'whine', on: 1 } : { t: 'loop', k: 'whine' });
+      else if (!event.on) this.send({ t: 'loop', k: event.kind, ...(event.kind === 'giant' ? { at: point(event.at), ...(event.normal ? { n: point(event.normal) } : {}) } : {}) });
     });
     w.listen('melee:fx', e => this.send({
       t: 'mfx', k: e.kind, a: point(e.a), ...(e.kind === 'slam' || e.kind === 'sound' ? {} : { b: [unit(e.b.x), unit(e.b.y), unit(e.b.z)] as Vec }),
@@ -189,6 +206,12 @@ export class RemoteFire implements WorldModule {
       if (note.rays !== 1 && note.kind === 'gun') event.n = note.rays;
     }
     event.dir = [unit(way.x), unit(way.y), unit(way.z)];
+    // A perk's tracer (Hellfire, Bloodthirst, Berserk) is this player's to say: the others do not know their perks.
+    if (note?.kind !== 'swing') {
+      const perk = (ctx.weapons as { modifiers?: { tracer?: TracerKind | null } }).modifiers?.tracer;
+      const tracer = perk ? PERK_TRACERS.indexOf(perk) + 1 : 0;
+      if (tracer > 0) event.tc = tracer;
+    }
     this.send(event);
   }
 
@@ -202,7 +225,9 @@ export class RemoteFire implements WorldModule {
     if (spec.source !== 'grenade' && !Object.hasOwn(WEAPONS, spec.source)) return 0;
     const event: ProjEvent = { t: 'round', k: spec.kind, src: spec.source, o: point(spec.origin), v: point(spec.velocity) };
     let tag = 0;
-    if (spec.explosion || spec.flak) {
+    // A round whose end the others must be told: one that goes off, and a stake, which stops in a body or flies on through
+    // it by what it did to that body on this screen.
+    if (spec.explosion || spec.flak || spec.kind === 'stake') {
       tag = this.nextTag = this.nextTag % 0xffff + 1;
       event.i = tag;
     }
@@ -273,7 +298,7 @@ export class RemoteFire implements WorldModule {
   }
 
   private fireNow(value: FireEvent, from: string, now: number, remote: RemotePlayer): void {
-    if (!validVec(value.origin) || !validVec(value.dir) || this.far(remote, value.origin)
+    if (!validVec(value.origin) || !validVec(value.dir) || this.far(remote, value.origin, from)
       || this.w.life(from).down || !this.w.validator.acceptFire(from, 0, value.weapon, now)) return;
     const event = { ...value, slot: remote.player.slot };
     this.draw(event);
@@ -289,11 +314,12 @@ export class RemoteFire implements WorldModule {
   private sideNow(value: LoopEvent | ProjEvent | MeleeFxEvent, from: string, now: number, remote: RemotePlayer): void {
     if (this.w.life(from).down) return;
     const second = Math.floor(now / 1000);
-    const side = this.side.get(from) ?? { second, count: 0 };
-    if (side.second !== second) { side.second = second; side.count = 0; }
-    this.side.set(from, side);
-    if (++side.count > SIDE_PER_SECOND) return;
-    if (value.t === 'round' && (!validVec(value.o) || this.far(remote, value.o))) return;
+    let side = this.side.get(from);
+    if (!side) this.side.set(from, side = { second, round: 0, end: 0, loop: 0, mfx: 0 });
+    if (side.second !== second) { side.second = second; side.round = side.end = side.loop = side.mfx = 0; }
+    const kind = value.t === 'round' ? 'round' : value.t === 'mfx' ? 'mfx' : value.k === 'proj' ? 'end' : 'loop';
+    if (++side[kind] > PER_SECOND[kind]) { this.dropped++; return; }
+    if (value.t === 'round' && (!validVec(value.o) || this.far(remote, value.o, from))) return;
     // A swing's effects are round the swinger: a flying slash's rings may be a long way off, never across the map.
     if (value.t === 'mfx' && (!validVec(value.a) || Math.hypot(value.a[0] - remote.char.root.position.x, value.a[2] - remote.char.root.position.z) > 80)) return;
     const event = { ...value, slot: remote.player.slot };
@@ -317,10 +343,10 @@ export class RemoteFire implements WorldModule {
       && value.mods.length <= 32 && value.mods.every(id => typeof id === 'string' && id.length <= 32);
   }
 
-  /** True when `origin` is not where the host has that guest's body: 7 m of slack for lag and a dash. */
-  private far(remote: RemotePlayer, origin: Vec): boolean {
+  /** True when `origin` is not where the host has that guest's body, by more than lag and a dash explain (`originSlack`). */
+  private far(remote: RemotePlayer, origin: Vec, from: string): boolean {
     const p = remote.char.root.position;
-    return Math.hypot(origin[0] - p.x, origin[1] - (p.y + 1.6), origin[2] - p.z) >= 7;
+    return Math.hypot(origin[0] - p.x, origin[1] - (p.y + 1.6), origin[2] - p.z) >= originSlack(this.w.session.lobby.pingOf?.(from));
   }
 
   // -------------------------------------------------------------------------------------------
@@ -352,6 +378,7 @@ export class RemoteFire implements WorldModule {
     note.cone = finite(event.c, 0, 1.2) ? event.c : 0;
     note.seed = finite(event.s, 0, 0xffffffff) ? event.s >>> 0 : 0;
     note.aimed = false;
+    note.tracer = finite(event.tc, 1, PERK_TRACERS.length) ? PERK_TRACERS[Math.floor(event.tc) - 1]! : null;
     if (note.kind === 'swing') {
       const told = note.swing!;
       told.heavy = (flags & 1) !== 0;
@@ -365,7 +392,7 @@ export class RemoteFire implements WorldModule {
   }
 
   private drawLoop(event: LoopEvent): void {
-    if (event.k !== 'beam' && event.k !== 'giant' && event.k !== 'hose' && event.k !== 'spin' && event.k !== 'proj') return;
+    if (event.k !== 'beam' && event.k !== 'giant' && event.k !== 'hose' && event.k !== 'spin' && event.k !== 'whine' && event.k !== 'proj') return;
     const remote = this.remote(event.slot);
     if (!remote) return;
     this.drawn.loop++;
@@ -375,7 +402,7 @@ export class RemoteFire implements WorldModule {
       return;
     }
     const normal = validVec(event.n) ? this.normal.set(event.n[0], event.n[1], event.n[2]).normalize() : null;
-    remote.watcher.loop(event.k, at, normal);
+    remote.watcher.loop(event.k, at, normal, event.on === 1);
   }
 
   private drawProjectile(event: ProjEvent): void {

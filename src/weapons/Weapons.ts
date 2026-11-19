@@ -69,6 +69,8 @@ const FAN_KICK = 0.6;
 const FIRE_LOOP_STEP = 0.04;
 /** Reused: what the others' screens are told when the Kiln's stream stops (co-op). */
 const BARRAGE_OFF = { weapon: 'buzzsaw' as WeaponId, kind: 'spin' as const, on: false, at: new THREE.Vector3(), normal: null as THREE.Vector3 | null };
+/** Co-op: the rotary cannon's barrels begin to turn, or run down: the others hear its whine from the gun (weapons/watch.ts). */
+const WHINE = { weapon: 'buzzsaw' as WeaponId, kind: 'whine' as const, on: false, at: new THREE.Vector3(), normal: null as THREE.Vector3 | null };
 const HOSE_OFF = { weapon: 'kiln' as WeaponId, kind: 'hose' as const, on: false, at: new THREE.Vector3(), normal: null as THREE.Vector3 | null };
 
 const STARTING_LOADOUT = survivalLoadout(ACTIVE.def.id);
@@ -1375,6 +1377,9 @@ export class Weapons implements WeaponSystem, Guard {
       this.endContinuous();
       // The run-down is written from full spin over SPIN_RUNDOWN seconds. A gun let go part way up starts it part way down.
       this.ctx.audio.play('minigun_spindown', { volume: lerp(0.5, 1, this.spin), offset: (1 - this.spin) * SPIN_RUNDOWN });
+      WHINE.weapon = this.current;
+      WHINE.on = false;
+      this.ctx.events.emit('weapon:loop', WHINE);
     }
   }
 
@@ -1396,6 +1401,9 @@ export class Weapons implements WeaponSystem, Guard {
     if (!this.spinning) {
       this.spinning = true;
       audio.play('minigun_spinup');
+      WHINE.weapon = this.current;
+      WHINE.on = true;
+      this.ctx.events.emit('weapon:loop', WHINE);
     }
     this.setLoop('minigun_spin_loop');
     this.spin = Math.min(1, this.spin + dt / t.spinUp);

@@ -11,7 +11,7 @@ import { SeededRandom, randomInCone } from '../../core/math';
 import { DOING } from '../pose';
 import type { WorldEvent } from '../worldProtocol';
 import type { WorldContext } from './context';
-import { RemoteFire, type FireEvent, type ProjEvent } from './remoteFire';
+import { PERK_TRACERS, RemoteFire, originSlack, type FireEvent, type LoopEvent, type ProjEvent } from './remoteFire';
 import { Router } from './router';
 
 const v = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
@@ -256,5 +256,90 @@ describe('projectiles, loops, swings in the air and kits on the wire', () => {
     host.weapons.current = 'lance';
     host.weapons.charge = 0.4;
     expect(host.fire.doing() & DOING.charge).toBe(DOING.charge);
+  });
+});
+
+describe('what a watcher was missing (fix-hits)', () => {
+  it('a perk\'s tracer is the shooter\'s to say: Hellfire, Bloodthirst and Berserk rounds are drawn in their colour', () => {
+    const host = side(true, 0), guest = side(false, 1);
+    const perks = host.weapons as unknown as { modifiers: { tracer: string | null } };
+    perks.modifiers = { tracer: null };
+    host.emit('weapon:fired', { weapon: 'smg', origin: v(0, 1.6, 0), dir: v(0, 0, -1), note: note() });
+    expect((host.sent[0] as FireEvent).tc).toBeUndefined();
+    const seen: (string | null | undefined)[] = [];
+    guest.watcher.fire.mockImplementation((_w: unknown, _o: unknown, _d: unknown, told: FireNote) => { seen.push(told.tracer); });
+    guest.hear(host.sent[0]!);
+    for (const perk of PERK_TRACERS) {
+      perks.modifiers.tracer = perk;
+      host.emit('weapon:fired', { weapon: 'smg', origin: v(0, 1.6, 0), dir: v(0, 0, -1), note: note() });
+      guest.hear(host.sent.at(-1)!);
+    }
+    expect(seen).toEqual([null, ...PERK_TRACERS]);
+    // A number that names no perk's tracer is the gun's own.
+    guest.hear({ ...(host.sent.at(-1) as FireEvent), tc: 99 });
+    expect(seen.at(-1)).toBeNull();
+    // A swing has no tracer to send.
+    host.emit('weapon:fired', { weapon: 'sword', origin: v(0, 1.6, 0), dir: v(0, 0, -1), note: note({ kind: 'swing', swing: { sound: 'sword_swing', pitch: 1, heavy: false, energy: false } }) });
+    expect((host.sent.at(-1) as FireEvent).tc).toBeUndefined();
+  });
+
+  it('the rotary cannon\'s barrels are heard to spin up and to run down', () => {
+    const host = side(true, 0), guest = side(false, 1);
+    host.emit('weapon:loop', { weapon: 'buzzsaw', kind: 'whine', on: true, at: v(0, 0, 0), normal: null });
+    host.emit('weapon:loop', { weapon: 'buzzsaw', kind: 'whine', on: false, at: v(0, 0, 0), normal: null });
+    expect(host.sent).toMatchObject([{ t: 'loop', k: 'whine', on: 1 }, { t: 'loop', k: 'whine' }]);
+    expect((host.sent[1] as LoopEvent).on).toBeUndefined();
+    for (const event of host.sent) guest.hear(event);
+    expect(guest.watcher.loop.mock.calls.map(call => [call[0], call[3]])).toEqual([['whine', true], ['whine', false]]);
+  });
+
+  it('a stake is numbered, so the others\' copies can be ended where the shooter\'s stopped in a body', () => {
+    const host = side(true, 0), guest = side(false, 1);
+    const spec: ProjectileSpec = { origin: v(0, 1.6, 0), velocity: v(0, 0, -120), kind: 'stake', team: 'player', damage: 90, source: 'stakegun' };
+    const tag = host.fire.projectile(spec);
+    expect(tag).toBeGreaterThan(0);
+    expect((host.sent[0] as ProjEvent).i).toBe(tag);
+    host.fire.landed(tag, v(0, 1.2, -14));
+    guest.hear(host.sent[0]!); guest.hear(host.sent[1]!);
+    expect(guest.watcher.launch).toHaveBeenCalledOnce();
+    expect(guest.watcher.landed).toHaveBeenCalledOnce();
+    expect(guest.watcher.landed.mock.calls[0]![0]).toBe(tag);
+    expect((guest.watcher.landed.mock.calls[0]![1] as THREE.Vector3).z).toBe(-14);
+  });
+
+  it('launches and landings have their own counts: forty explosive rounds a second all fly and all end', () => {
+    const host = side(true, 0);
+    host.root.position.set(0, 0, 0);
+    for (let i = 1; i <= 40; i++) {
+      host.hear({ t: 'round', k: 'shell', src: 'autocannon', o: [0, 1.6, 0], v: [0, 0, -200], i, x: 1 });
+      host.hear({ t: 'loop', k: 'proj', i, at: [0, 1, -30] });
+    }
+    expect(host.watcher.launch).toHaveBeenCalledTimes(40);
+    expect(host.watcher.landed).toHaveBeenCalledTimes(40);
+    expect(host.relayed).toHaveLength(80);
+    expect(host.fire.dropped).toBe(0);
+    // A flood is still a flood: past its own count a kind is left out, and counted. A landing is the last thing dropped.
+    for (let i = 41; i <= 200; i++) host.hear({ t: 'round', k: 'shell', src: 'autocannon', o: [0, 1.6, 0], v: [0, 0, -200], i, x: 1 });
+    expect(host.watcher.launch).toHaveBeenCalledTimes(80);
+    expect(host.fire.dropped).toBe(120);
+    for (let i = 41; i <= 200; i++) host.hear({ t: 'loop', k: 'proj', i, at: [0, 1, -30] });
+    expect(host.watcher.landed).toHaveBeenCalledTimes(200);
+  });
+
+  it('a friend dashing on a slow link still has their shots drawn: the origin is allowed what a hit claim is', () => {
+    expect(originSlack(0)).toBeCloseTo(16.1, 1);
+    expect(originSlack(300)).toBeCloseTo(23.9, 1);
+    expect(originSlack(undefined)).toBeCloseTo(22.6, 1);
+    expect(originSlack(99999)).toBeCloseTo(originSlack(1500), 5);
+    const host = side(true, 0);
+    host.root.position.set(0, 0, 0);
+    // 12 m from where the host has their body: a dash and a tenth of a second of lag. It was dropped at 7 m.
+    host.hear({ t: 'fire', weapon: 'smg', origin: [12, 1.6, 0], dir: [0, 0, -1] });
+    host.hear({ t: 'round', k: 'rocket', src: 'rocket', o: [12, 1.6, 0], v: [0, 0, -60], x: 1, i: 3 });
+    expect(host.watcher.fire).toHaveBeenCalledOnce();
+    expect(host.watcher.launch).toHaveBeenCalledOnce();
+    // The other side of the map is still nowhere near them.
+    host.hear({ t: 'fire', weapon: 'smg', origin: [120, 1.6, 0], dir: [0, 0, -1] });
+    expect(host.watcher.fire).toHaveBeenCalledOnce();
   });
 });
