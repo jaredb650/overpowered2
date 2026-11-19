@@ -255,6 +255,12 @@ export default async function (host, { sleep, outDir }) {
 
         // Timed on the caller's own game clock, the one strikes run on, so a slow machine stretches the proof and does not break it.
         const clock = () => caller.evaluate(() => window.__op2.ctx.time.realElapsed);
+        // A steered beam goes where its caller is looking from its first frame. Everyone was faced a metre over the mark, and
+        // that line meets the ground some 30 m behind it: the caller's first word of its aim was that far spot, and under a
+        // bad network (the next word 300 ms late) a copy ran 27 to 38 m after it before turning back, off the caller's path.
+        // That is the protocol working as written (a copy steers by the caller's aim, at the beam's own speed) on an aim no
+        // player has: a real call's mark *is* the caller's aim. So the caller looks at the mark itself.
+        if (plan.steer) { await face(caller, mark); await sleep(120); }
         const started = await clock();
         await caller.evaluate(([id, at, seat]) => {
           const { ctx } = window.__op2, V = ctx.player.position.constructor;

@@ -957,7 +957,7 @@ Each: what fails, where, how many players, which network, the evidence, the caus
    stand-in is a whole enemy: it stands on the pooled object the body was (every field is there, whoever it is by now) with
    what the kill is about set over it as it stood at its death (id, definition, health, where, frozen, burning, the limbs
    off). Test: `world.test.ts`, "a whole death played ahead of the host" reads the enemy the kill is told about.
-6. **OPEN, for the wire lane's owner. A guest the host has cut for falling behind sees nothing on its own screen while it is
+6. **FIXED (fix-tail, 2026-11-19: see its log entry, "The cut guest's own screen").** Was open, for the wire lane's owner. A guest the host has cut for falling behind sees nothing on its own screen while it is
    held out.** Four players, loopback, the heavy fight, the host's link to one guest squeezed to 16 kbit/s
    (`coop-wire-stall.mjs`): 3 runs of 3 on `e0334ec`, `6445d5d` and `38e80e1` fail the one check "While held out, its own
    screen said its connection had fallen behind"; the other 21 pass (the host cuts it once, queues nothing more, the others

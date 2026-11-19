@@ -2074,8 +2074,17 @@ taken: the data channel's `bufferedAmount`, plus what trystero is holding back, 
   `pfx`) and the whole states sent again and again (`card`, `team`, `allies`, `vehicles`). Everything else is a fact. The
   test in `pressure.test.ts` lists them, so adding one is a decision.
 - **Stalled is the session's lost seat.** `Lobby.stall` marks the seat lost exactly as silence does (the body leaves the
-  world, no wipe waits on it, the seat is kept 60 s) with the line "NAME fell behind (a slow connection)." The guest's own
-  screen says "Your connection fell behind. Catching up…" once the host's list reaches it. While the queue is still over
+  world, no wipe waits on it, the seat is kept 60 s) with the line "NAME fell behind (a slow connection)." **The guest's own
+  screen says "Connection too slow. Catching up…"** in the session's status line (the place and the red of "Reconnecting
+  to host…"), from a second after the host stops feeding it until the first packet of the catch-up. The host cannot tell
+  it: the list that says `lost`, and any other word, reliable or not, is behind the very backlog the guest was cut for
+  and arrives as the cut ends (the first version waited for that list, so for the 13 s it was out the guest saw a world
+  that had stopped and no word why). So the guest reads it off the feed: `net/starved.ts` counts the time since the
+  host's latest-wins data last arrived (its own pose, 20 a second whatever the wave is doing, and anything on the `world`
+  lane), in frames of at most 100 ms each so a page that stood still itself is not "starved", and `CoopSession.feed`
+  sets the line. It shows a little before the cut too (a guest that is merely behind is already skipped for snapshots
+  and poses), which is the same truth. Not counted as a drought: a line that is down (that is "Reconnecting"), the
+  host's tab hidden or its page loading (each has its own line), and a run that is over. While the queue is still over
   4 KB the seat stays out whatever is heard from it; once it has drained, the guest's next word brings it back through
   the session's own return path (`seatBack`, then `team.onArrived`: the kit, the wave, the pods, dropped guns, what is
   broken, the mission), because facts were kept from it. A link that is gone for good ends as it always did (20 s of
