@@ -203,21 +203,28 @@ const SCENES = {
     const { ctx, along, stand, V } = f;
     const e = stand('trooper', along(2.4, 0));
     f.made.push(e);
-    e.char.root.updateMatrixWorld(true);
-    // Through the chest from his right to his left: the far side opens toward +side of him.
-    const chest = e.char.bones[2].getWorldPosition(new V());
-    const q = e.char.root.quaternion;
-    const hisLeft = new V(1, 0, 0).applyQuaternion(q);
-    const dir = hisLeft.clone().addScaledVector(f.fwd, 0.15).normalize();
-    const point = chest.clone().addScaledVector(dir, -0.18);
-    point.y += 0.08;
-    ctx.gore.blowOut(e.char, { amount: 200, type: 'bullet', point, dir, force: 60, source: 'sabot', bone: 2, region: 'chest' });
-    f.state.organs = e.char.organsGone ?? null;
-    // The player steps round to the side the round left by and looks into the hole.
-    const eye = chest.clone().addScaledVector(dir, 1.25).addScaledVector(f.fwd, -0.35);
-    f.P.teleport(new V(eye.x, f.home.y, eye.z), 0);
-    f.look(chest.clone().setY(chest.y + 0.05));
-    return { organs: f.state.organs };
+    let frame = 0;
+    const tick = () => {
+      requestAnimationFrame(tick);
+      frame++;
+      // Once he stands as the game has turned him: through the chest from his right to his left, so the far side opens
+      // on his left, and the player steps round to that side at once and looks into the hole before he can turn.
+      if (frame !== 12) return;
+      e.char.root.updateMatrixWorld(true);
+      const chest = e.char.bones[2].getWorldPosition(new V());
+      const hisLeft = new V(1, 0, 0).applyQuaternion(e.char.root.quaternion).setY(0).normalize();
+      const dir = hisLeft.clone();
+      const point = chest.clone().addScaledVector(dir, -0.18);
+      point.y += 0.08;
+      ctx.gore.blowOut(e.char, { amount: 200, type: 'bullet', point, dir, force: 60, source: 'sabot', bone: 2, region: 'chest' });
+      f.state.organs = e.char.organsGone ?? null;
+      const eye = chest.clone().addScaledVector(dir, 1.05);
+      f.P.teleport(new V(eye.x, f.home.y, eye.z), 0);
+      f.look(chest.clone().setY(chest.y + 0.1));
+      f.light(true);
+    };
+    requestAnimationFrame(tick);
+    return {};
   },
   heap() {
     const f = window.__fit;
@@ -331,10 +338,12 @@ export default async function fitLook(page, h0) {
     await still('rims-drying');
     await withLight('rims-drying');
   } else if (CASE === 'organ') {
-    await run(0.05);
-    await still('organ-0s');
-    await run(0.6);
-    await still('organ-1s');
+    // Frame 12 is the blow-out: the pieces are still in the way two frames on, and clear of the hole by ten.
+    await steady.frames(page, 15);
+    await still('organ-hole-early');
+    await steady.frames(page, 9);
+    await still('organ-hole');
+    console.error('[fit-look] organs gone (a bit each: 2 the left lung, 4 the right, 8 the heart)', await page.evaluate(() => window.__fit.state.organs));
   } else if (CASE === 'heap') {
     await run((8 * 40 + 206) * steady.FRAME_MS / 1000 + 0.4);
     await still('heap-burst');

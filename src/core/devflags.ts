@@ -57,6 +57,11 @@ export const DevFlags = {
    */
   dryFlesh: on('dryflesh'),
   /**
+   * A frame up to 6% over 1/60 s is one physics step, where every frame a hair over it was two (physics/Physics.ts,
+   * `STEP_SLACK`). `?onestep=0` starts it off.
+   */
+  oneStep: on('onestep'),
+  /**
    * The gore update's stains (lane "decals"). `bigBlood` (`?bigblood=0`): a kill lays its big stains (the burst under a
    * gib, the fan past a shot, the sheet on the wall, the soaked patch under a body); off, only the small traced drops
    * land, as before the update. `hitBlood` (`?hitblood=0`): every round leaves its own mark on the floor past the body.

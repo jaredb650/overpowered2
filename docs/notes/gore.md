@@ -1269,6 +1269,38 @@ Measured, the same fight and the same chokepoint, before the fit pass and after 
 
 The heap is as high as it was: nothing here takes a capsule out of the world.
 
+### What a heap costs the physics step (the fit pass, 2026-11-19)
+
+The verify lane's cost scene (`tools/scripts/gore-cost.mjs`: up to 48 alive in the Crucible, fought from one spot, real
+time at 60 Hz) found the physics step at 5.0 ms a frame where the game before the update took 1.55. Measured here on a
+45 s fight (a quarter fewer kills, so every number is lower), with Rapier's own profiler on (`world.profilerEnabled`):
+
+- **It is not how many capsules lie in the world, and it is not the loose pieces.** A resting body keeping only its
+  big shapes (4 or 5 of about 18: 2,820 colliders in the world where there were 3,890) took 3.4 ms against 3.4 to 3.5.
+  A body landing on a heap waking nothing, 3.4. Loose pieces falling through the dead as they used to, 3.2 to 3.3, inside
+  the run-to-run spread (3.1 to 3.5 on the same build). None of the three was kept.
+- **How many chains are simulated is set by the ragdoll budget, with or without heaps**: 14.8 a frame (154 parts) with
+  heaps and 13.6 (143) with `?messrest=0`. Bodies that lie on bodies are woken (120 to 170 times in 45 s: walked into,
+  or what they lay on moved), and the budget freezes as many again.
+- **What a heap adds is contacts**: one world step is 1.59 ms with heaps and 1.17 without, the solver 0.64 against 0.43
+  and the narrow phase 0.39 against 0.31. A part lying on three capsules is three contacts where the floor was one.
+- **And every step was being taken 1.57 times a frame.** `Physics.step` cut any frame longer than 1/60 s into two steps,
+  and on a 60 Hz screen frames read 16.6 to 16.8 ms: more than half of them were a hair over and ran two steps of 8.4 ms,
+  each costing as much as one whole one. This was so before the update too. A frame up to 6% over 1/60 s is one step now
+  (`STEP_SLACK` in `src/physics/Physics.ts`, `physics/Physics.test.ts`; `?onestep=0` and the dev panel row "Physics: one
+  step a 60 Hz frame" put it back). Every test, every seeded proof and every frozen-clock picture has always fed exactly
+  1/60 s and taken one step, and so has a 120 or 144 Hz screen: this is the physics everything was tuned on.
+
+| The 45 s fight, Standard, ms a frame | Physics step, mean (95th) | World steps a frame |
+|---|---|---|
+| Two steps (`?onestep=0`), five runs | 3.1 to 4.4, mean 3.6 (5.3 to 6.8) | 1.57 |
+| One step, two runs | **2.1 and 2.5** (3.6) | 0.98 |
+| Two steps, no capsules at rest (`?messrest=0`) | 2.2 and 2.3 (3.6 to 3.8) | 1.57 |
+
+So the heap at one step a frame costs what no heap cost at two. It is still more than the old game, which gains the
+same third. The spread between runs is wide (the machine is shared and the fight is played in real time); the verify
+lane's 90 s scene is the one to quote for the whole update.
+
 ## The mess: measured budgets (M0, 2026-11-19)
 
 Measured for the gore update on the development machine (i9-13900K, RTX 4090, load 7 to 9, game at its default quality,

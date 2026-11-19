@@ -122,6 +122,7 @@ Shared files and contracts:
 | Settings, Video, "Mess" | Standard | Low / Clear at wave break / Standard / Everything: how many bodies, limbs, pieces and how much blood stay (`MESS` in `src/gore/mess.ts`) | mess |
 | `?bloodmap=0`, lab row "Blood: old stains kept on floors" | on | P2: dried floor stains kept in floor tiles after their decals are overwritten, against stains that go when the ring comes round | decals |
 | `?dryflesh=0`, dev panel "Flesh dries" | on | Torn faces, loose meat, and the blood and bared flesh on the dead dull over a minute and a half as the blood on the floor does, against flesh that stays as wet and bright as when it was made | fit |
+| `?onestep=0`, dev panel "Physics: one step a 60 Hz frame" | on | A frame up to 6% over 1/60 s is one physics step. Off: every frame a hair over 1/60 s is cut in two steps, as it always was (1.57 world steps a frame at 60 Hz, each the cost of one). **Not gore's alone: it is the whole game's physics step** | fit |
 
 Not switches of their own, by design: loose limbs baked into their own batch go with `?messfar=0`; pieces and guts lying
 on the dead go with `?messrest=0`; a burnt body's dry, charred pieces, burning halves and soot go with `?fire=0`; the
@@ -388,3 +389,65 @@ red under the weapon light) have no switch: each replaces a fault, and the befor
     0.8 ms over the old game (84 more draws, 0.8 M more triangles).
   - What I am doing with it: Mess at Low will not leave capsules, and the automatic step-down (dynamic resolution's)
     will stop leaving them when frames are missed and resolution is not the cause.
+- 2026-11-19, fit, step 2: **limbs are baked, the long fight costs less than the old game, machines break into their
+  hulls, and two fixes to the struck part.** (For "verify": every line here changes cost or co-op.)
+  - **Loose limbs at rest are baked** into a batch of their own (`docs/notes/gore.md`, "Loose limbs are baked too, and
+    what a crowded heap costs"), pieces and trunk halves at rest cast no shadow, and a crowded heap is baked sooner and
+    drawn coarser past 4 m. **Measured, the same seeded fights (`mess-fight.mjs`), Standard:** 150 kills on one spot
+    813 draws / 4.41 M triangles / 5.55 ms a frame drawn before, **467 / 2.71 M / 2.87 ms** after (the game before the
+    update: 640 / 3.45 M / 5.08 ms). A chokepoint at 80 kills 583 / 2.98 M before, 415 / 2.16 M after, with the heap as
+    high (hips to 0.65 m, 13 bodies over 35 cm, against 0.68 m and 9). Decided: the piece is kept and only taken out
+    of the scene while it is baked, so there is nothing to restore and a round finds it as before; trunk halves are
+    not baked (0.05 M triangles between them: not worth a third batch); no new switch (`?messfar=0` covers it).
+  - **A machine bursts into its own hull** (`buildWreck`): the drone, the skitter and the Titan were their limbs and a
+    dozen scraps, with the body itself nowhere. Four pieces that fit together, the hull's volume within 15%.
+  - **The struck part goes by the host's own eye** (`EnemyManager.localView`): a co-op host's AI figures are from the
+    player an enemy is after, and one beside the host that hunted a far guest got the animated flinch alone. **A loose
+    arm stays in front of a wall** (one ray an arm a frame, a push out at 3.5 m/s at most). Decided against a stop for
+    its own trunk: measured, the loose arm comes no nearer the trunk than the animated flinch takes it (within 2 mm,
+    three archetypes, both arms, seven directions), so there was nothing for it to do; and the loose arm ends at most
+    9 cm further out than the flinch throws it, so most of an arm seen in a wall is the flinch's own pose, which has
+    never collided with anything. That is R1's shape, and not changed here.
+  - **Not done: the settle of a body that dies on its feet.** Four of six SMG collapses and six of six plain drops end
+    with both knees folded right up; the two knobs there are (topple speed, the weak leg's lead) leave it at four of
+    six. It needs a real change judged by eye (a leg that slides out), which was not cheap.
+- 2026-11-19, fit, step 3: **one look, and the audit for every archetype** (`docs/notes/gore.md`, "One look" and "The
+  audit, every archetype"; night stills from `tools/scripts/fit-look.mjs`).
+  - **Limb wear did glow, and it was the effect, not a lamp**: a fixed warm fill on bared flesh made a torn limb the
+    brightest thing in a dark corner at 20 m. It is lit by the light that reaches it now. Still reads at 20 m.
+  - **The burnt-through body did read raw under a light**: under the weapon light at two metres even char turned tan,
+    with the cooked muscle a wet red. Burnt pixels now level off: black char, dark brown-red cooked muscle (matt), sooty
+    bone, under any light.
+  - **Blood on the floor washed out under the weapon light** (the "pale rims", and more: a dried stain nearly
+    vanished): a stain's opacity now rises with the light on it and the lip's glint levels off.
+  - **Flesh dries** with the floor's blood: pieces and cut faces by the time they were made, the dead where they lie
+    in six steps. New switch `?dryflesh=0`. Decided: tacky, not matt, and a round into a dried corpse wets it again.
+    **Cost:** six texture uploads a body over a minute and a half; one uniform a frame.
+  - **The audit:** every flesh archetype adds up (trunk pieces equal each kit, every limb thrown). Found: the
+    machines' hulls deleted (fixed in step 2), a skitter losing two of six legs two bursts in three (fixed: a machine's
+    limbs are thrown by bone), the Sniper's slabs are scraps (not fixed: a slab is one island of trunk skin and its
+    trunk is many small ones).
+  - **A bug of step 1, found in the night stills and fixed:** a gut strand could be caught in mid-air on a trunk piece
+    flying over it (its floor rays met anything of the ragdolls' group) and hang there from nothing. Strands lie only
+    on what is at rest.
+  - **Left as they are:** the inside of a wound's hole keeps its old fixed light; a baked burnt body can go pale under
+    the weapon light (it has no rule for char); the colours themselves, which already agreed.
+- 2026-11-19, fit, step 4, **an answer to "verify" on the physics step: it was being taken 1.57 times a frame, and the
+  three things you suggested do nothing.** (`docs/notes/gore.md`, "What a heap costs the physics step"; the runs are
+  your own scene for 45 s with Rapier's profiler on, `fit/cost/`.)
+  - Tried and **measured as nothing, so not kept**: a resting body keeping only its big shapes (a quarter of them:
+    3.4 ms against 3.4 to 3.5); a landing that wakes nothing (3.4); loose pieces falling through the dead as before my
+    step 1 (3.2 to 3.3, inside the spread between runs of one build, which is 3.1 to 3.5). **So "pieces meet resting
+    capsules" is not on the costly side**, and capping or thinning capsules will not help at Standard.
+  - The number of chains simulated is the ragdoll budget's, heaps or none (14.8 a frame against 13.6). What a heap adds
+    is contacts: one world step 1.59 ms against 1.17.
+  - **The find: `Physics.step` ran two steps on every frame a hair over 1/60 s**, which on a 60 Hz screen is more than
+    half of them (16.6 to 16.8 ms). 1.57 world steps a frame, in the old game as well. **Fixed** (a frame up to 6% over
+    is one step): the same fight goes from 3.6 ms (3.1 to 4.4, five runs) to **2.1 and 2.5**, which is what no heap at
+    all cost at two steps. **Cost and feel, for you to re-measure:** it is the whole game's physics, single player and
+    co-op host alike; every test and frozen picture already took one step, and so does a 120 Hz screen, so nothing
+    seeded can show a difference. Switch `?onestep=0` (dev panel, "Physics: one step a 60 Hz frame").
+    Decided: it lives in `src/physics/Physics.ts`, which is no lane's file, because that is where the fault was.
+  - Still true: a heap's step is about a third dearer than a flat floor's, and the old game gains from the same fix.
+    Your step-down for Low and for missed frames is still worth having.
+

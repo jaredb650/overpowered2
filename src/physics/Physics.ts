@@ -18,6 +18,13 @@ const queryGroups = (mask: number): number => groups(mask & CG.Air ? CG.Air : 0x
 export const OWN_BLAST = { ownBlast: true };
 
 const MAX_STEP = 1 / 60;
+/**
+ * How far over `MAX_STEP` a frame may run and still be one step (`DevFlags.oneStep`, `?onestep=0`: none). A 60 Hz screen's
+ * frames read 16.6 to 16.8 ms, and every one a hair over 1/60 s was cut in two steps of 8.4 ms: measured in a heavy fight
+ * (tools/scripts/gore-cost.mjs), 1.57 world steps a frame, each costing as much as one whole one. Every test and every
+ * frozen-clock picture feeds exactly 1/60 s and has always taken one step; so does a 120 or 144 Hz screen.
+ */
+const STEP_SLACK = 1.06;
 const MIN_STEP = 1 / 240;
 const MAX_SUBSTEPS = 4;
 export const GRAVITY = -19;
@@ -75,8 +82,9 @@ export class Physics implements PhysicsSystem {
     this.accumulator += dt;
     if (this.accumulator < MIN_STEP) return;
     const started = performance.now();
-    const substeps = Math.min(MAX_SUBSTEPS, Math.ceil(this.accumulator / MAX_STEP));
-    const h = Math.min(this.accumulator / substeps, MAX_STEP);
+    const longest = DevFlags.oneStep ? MAX_STEP * STEP_SLACK : MAX_STEP;
+    const substeps = Math.min(MAX_SUBSTEPS, Math.ceil(this.accumulator / longest));
+    const h = Math.min(this.accumulator / substeps, longest);
     this.world.timestep = h;
     for (let i = 0; i < substeps; i++) {
       for (const hook of this.preStep) hook(h);
