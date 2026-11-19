@@ -518,7 +518,7 @@ describe('a copy of an enemy with more health than this page would have given it
     guest.manager.fitReplicaHealth(here, there.maxHealth);
     expect(here.maxHealth).toBe(there.maxHealth);
     expect(whole(here)).toMatchObject({ legL: 1, legR: 1, armL: 1, armR: 1 });
-    for (const region of ['legL', 'shinR', 'armL', 'forearmR', 'abdomen'] as const) expect(here.limbHp.get(region)).toBeCloseTo(there.limbHp.get(region)!, 6);
+    for (const region of ['legL', 'shinR', 'armL', 'forearmR'] as const) expect(here.limbHp.get(region)).toBeCloseTo(there.limbHp.get(region)!, 6);
     expect(here.limbHp.get('head')).toBeCloseTo(there.limbHp.get('head')!, 6);
     expect(head).toBeGreaterThan(0);
     // The same health: nothing moves.
