@@ -11,7 +11,7 @@ import { BLAST } from '../enemies/blast';
 import { Physics } from '../physics/Physics';
 import { makeCtx } from '../sandbox/harness';
 import { EXPLOSIONS, TUNING } from '../weapons/data';
-import { ChunkTuning } from './chunks';
+import { ChunkTuning, OrganTuning } from './chunks';
 import { createGoreSystem, GibThrow, type Gore } from './index';
 import { RIB_KINDS } from './organs';
 import { SlabTuning } from './slabs';
@@ -227,5 +227,142 @@ describe('slabs', () => {
       const c = g.getAttribute('color');
       expect(c.count).toBe(g.getAttribute('position').count);
     }
+  });
+});
+
+describe('guts', () => {
+  it('leave a burst body as their own strands, thrown clear, hanging from nothing', () => {
+    const char = spawn();
+    const { d, force, centre } = rocket(char);
+    d.torso = 'crack';
+    gore.gib(char, centre, force, d);
+    expect(gore.ropes.loose).toBeGreaterThanOrEqual(2);
+    expect(gore.stats().guts).toBe(gore.ropes.loose);
+    step(30);
+    // In the air and on their way out at half a second.
+    const high = gore.ropes.loosePoints().filter(x => x[1]! > 1.2).length;
+    expect(high).toBeGreaterThanOrEqual(1);
+    step(150);
+    for (const x of gore.ropes.loosePoints()) for (let i = 1; i < x.length; i += 3) expect(x[i]!).toBeGreaterThan(-0.01);
+  });
+
+  it('a belly opened before the burst lets go of its guts instead of taking them with the body', () => {
+    const char = spawn();
+    const belly = v(0, 0, 0).setFromMatrixPosition(char.bones[B.spine]!.matrixWorld);
+    gore.wound(char, { amount: 30, type: 'pellet', point: belly, dir: v(0, 0, -1), force: 0, source: 'shotgun', bone: B.spine, region: 'abdomen', spill: true }, 0.3);
+    expect(gore.ropes.hangingFrom(char.root)).toBe(1);
+    const { d, force, centre } = rocket(char);
+    d.torso = 'crack';
+    const before = gore.ropes.loose;
+    gore.gib(char, centre, force, d);
+    expect(gore.ropes.hangingFrom(char.root)).toBe(0);
+    expect(gore.ropes.loose).toBeGreaterThanOrEqual(before + 3);
+  });
+
+  it('drape over what they land on: caught on a ledge, with the rest hanging off it', () => {
+    // A rail, thinner than a strand's coil is wide.
+    const wall = physics.addStaticBox(v(20, 0.35, 0), v(0.03, 0.35, 2), null, 'concrete');
+    physics.flushQueries();
+    void wall;
+    for (let k = 0; k < 4; k++) gore.ropes.spill(v(19.0 + k * 0.1, 1.5, -0.6 + k * 0.4), v(2.6, 1.5, 0), 1, 3 + k);
+    step(240);
+    expect(gore.ropes.snagged).toBeGreaterThanOrEqual(1);
+    let draped = 0;
+    for (const x of gore.ropes.loosePoints()) {
+      let top = -Infinity;
+      let low = Infinity;
+      for (let i = 1; i < x.length; i += 3) {
+        top = Math.max(top, x[i]!);
+        low = Math.min(low, x[i]!);
+      }
+      // On the wall's top (0.7 m) and down to the floor beside it.
+      if (top > 0.68 && low < 0.2) draped++;
+    }
+    expect(draped).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe('organs', () => {
+  type Soft = { alive: boolean; kind: string; p: THREE.Vector3; wob: number; sag: number; restedAt: number };
+  const organs = (): Soft[] => (gore.chunks as unknown as { all: Soft[] }).all.filter(c => c.alive && ['lung', 'liver', 'heart', 'stomach'].includes(c.kind));
+  const feet = v(50, 0, 50);
+  const walk = v(0, 0, 0);
+  beforeAll(() => {
+    (ctx as unknown as { player: unknown }).player = { position: feet, velocity: walk, eye: v(50, 1.6, 50) };
+  });
+  beforeEach(() => {
+    feet.set(50, 0, 50);
+    walk.set(0, 0, 0);
+  });
+  /** One liver dropped at x from a metre and a half, and left to lie. */
+  const drop = (x: number): Soft => {
+    gore.chunks.spawn('liver', x, 1.5, 30, 0, 0, 0, 0.14);
+    const o = organs()[0]!;
+    let most = 0;
+    for (let i = 0; i < 150; i++) {
+      step(1);
+      most = Math.max(most, Math.abs(o.wob));
+    }
+    // It squashed when it landed, by a share of its height and not past the most it may.
+    expect(most).toBeGreaterThan(0.03);
+    expect(most).toBeLessThanOrEqual(OrganTuning.most);
+    return o;
+  };
+
+  it('squash when they land, spring back, and sag where they lie', () => {
+    const o = drop(10);
+    expect(o.restedAt).toBeGreaterThanOrEqual(0);
+    expect(Math.abs(o.wob)).toBeLessThan(0.02);
+    expect(o.sag).toBe(1);
+    // Something landing beside it sets it quivering again.
+    gore.chunks.quiver(o.p.clone().add(v(0.4, 0, 0)), 1);
+    step(2);
+    expect(Math.abs(o.wob)).toBeGreaterThan(0.004);
+  });
+
+  it('burst under a foot, and that is how they leave', () => {
+    const o = drop(12);
+    const before = gore.chunks.bursts;
+    // Stood beside it, nothing.
+    feet.set(o.p.x + 1.5, 0, o.p.z);
+    walk.set(-4, 0, 0);
+    step(2);
+    expect(o.alive).toBe(true);
+    // Walked onto it.
+    feet.set(o.p.x + 0.05, 0, o.p.z);
+    step(1);
+    expect(o.alive).toBe(false);
+    expect(gore.chunks.bursts).toBe(before + 1);
+    // Scraps of it are left, not an organ.
+    expect(gore.chunks.aliveOf('liver')).toBe(0);
+    expect(gore.chunks.aliveOf('meat')).toBeGreaterThanOrEqual(3);
+  });
+
+  it('roll off when walked into', () => {
+    const o = drop(14);
+    const from = o.p.clone();
+    feet.set(o.p.x - 0.45, 0, o.p.z + 0.25);
+    walk.set(3, 0, 0);
+    step(1);
+    feet.set(60, 0, 60);
+    step(40);
+    const now = organs()[0]!;
+    expect(now.alive).toBe(true);
+    expect(now.p.distanceTo(from)).toBeGreaterThan(0.3);
+  });
+
+  it('burst when shot', () => {
+    const o = drop(16);
+    const from = o.p.clone().add(v(0, 1.4, 2));
+    const dir = o.p.clone().sub(from).normalize();
+    const hit = gore.raycastCorpses(from, dir, 20);
+    expect(hit).not.toBeNull();
+    expect(hit!.distance).toBeGreaterThan(1.5);
+    const before = gore.chunks.bursts;
+    gore.damageCorpse(hit!, { amount: 25, type: 'bullet', point: hit!.point.clone(), dir, force: 20, source: 'smg' });
+    expect(gore.chunks.bursts).toBe(before + 1);
+    expect(organs().length).toBe(0);
+    // A ray that misses it finds nothing.
+    expect(gore.raycastCorpses(from, v(0, 1, 0), 20)).toBeNull();
   });
 });

@@ -30,7 +30,7 @@ import { WoundPlanner, WoundTuning } from './wounds';
 import { RopeField } from './rope';
 import { SpurtField } from './spurt';
 import { GibTrail, TrailTuning, type Ribbon } from './trail';
-import { blowsOut, buildKit, kitPieces, placeAt, placePiece, planGib, seedOf, spillsGuts, TorsoTuning, TRUNK_EXITS, type GibPlan, type TorsoKit } from './torso';
+import { blowsOut, buildKit, buildLimb, KIT_LIMBS, kitPieces, placeAt, placePiece, planGib, seedOf, spillsGuts, TorsoTuning, triangleSet, TRUNK_EXITS, type GibPlan, type TorsoKit } from './torso';
 import { SlabTuning } from './slabs';
 import { mulberry32 } from '../core/math';
 import { WoundKind } from '../characters/anatomy/wounds';
@@ -253,8 +253,11 @@ const GIB_LOWER: Partial<Record<GoreRegion, GoreRegion>> = {
   armL: 'forearmL', armR: 'forearmR', legL: 'shinL', legR: 'shinR',
 };
 /** An organ's size, metres across on a 1.85 m body, and where in the trunk it starts: 0 the hips, 1 the chest. */
-const ORGAN_SIZE: Record<OrganKind, number> = { lung: 0.1, liver: 0.095, heart: 0.06, stomach: 0.078 };
+/** Half as big again as they were (the gore update's O1): at 6 to 10 cm an organ was a dot at 8 m. */
+const ORGAN_SIZE: Record<OrganKind, number> = { lung: 0.15, liver: 0.14, heart: 0.09, stomach: 0.117 };
 const ORGAN_AT: Record<OrganKind, number> = { lung: 1.1, liver: 0.6, heart: 1, stomach: 0.55 };
+/** Pieces of one shape of one archetype's limb in the world at once (`Gore.cutLimbs`): four destroyed limbs' worth. */
+const PARTS_PER_SHAPE = 4;
 /** The two ribcage fragments a blow-out throws, by the side the round came out of (his left is +X). */
 const BLOWN_RIBS: Record<string, readonly RibKind[]> = { L: ['ribsLL', 'ribsUL'], R: ['ribsLR', 'ribsUR'] };
 
@@ -418,6 +421,8 @@ export class Gore implements GoreSystem {
   readonly trail: GibTrail;
   /** Each archetype's trunk, cut once into the pieces it breaks into (torso.ts). */
   private readonly kits = new Map<string, TorsoKit>();
+  /** Each archetype's skin material, for its kit's pieces thrown when no body of it is to hand. */
+  private readonly kitSkin = new Map<string, THREE.Material>();
   private gibFrame = -1;
   private gibsThisFrame = 0;
   private readonly impacts: ImpactEvents;
@@ -524,6 +529,17 @@ export class Gore implements GoreSystem {
         bestBone = boneRay.bone;
         boneRayContact(ox, oy, oz, dx, dy, dz, out.point, out.normal);
       }
+    }
+    // An organ on the floor is shot before what lies behind it: it bursts (`damageCorpse`).
+    const organ = this.chunks.raycastOrgan(origin, dir, best);
+    if (organ >= 0 && !this.sliced.raycast(origin, dir, organ, out.point, out.normal)) {
+      out.distance = organ;
+      out.point.copy(origin).addScaledVector(dir, organ);
+      out.normal.copy(dir).negate();
+      out.handle = this.chunks.organHit;
+      out.bone = -1;
+      out.region = 'chest';
+      return out;
     }
     const slice = this.sliced.raycast(origin, dir, best, out.point, out.normal);
     if (slice) {
@@ -1550,34 +1566,45 @@ export class Gore implements GoreSystem {
     else measureAnimVelocity(char, char.anim, null, _seeds);
     const seeds = _seeds.slice();
 
+    // Every limb leaves whole, or in two at its lower joint when there is room for the extra piece. It used to be the lower
+    // part alone a third of the time, and the upper arm or the thigh it left behind was nowhere: on a Trooper up to 40 of
+    // his 83 litres of limb (the volume audit, docs/notes/gore.md).
+    let liveLimbs = 0;
+    for (const l of this.limbs) if (l.rag.active) liveLimbs++;
+    let spare = clamp(t.maxLiveLimbs - liveLimbs - GIB_REGIONS.length, 0, 2);
     for (const region of GIB_REGIONS) {
       const lower = GIB_LOWER[region];
-      const use = lower && Math.random() < 0.35 ? lower : region;
-      const bone = info.severBone.get(use);
-      if (bone === undefined) continue;
-      markSevered(info, char.severed, _skip);
-      if (_skip[bone] === 1 || body?.skip[bone] === 1) continue;
-      const piece = this.takePiece(char, bone);
-      markSubtree(info, bone, _mask);
-      // Thrown by the gib, not killed in the air, whatever its seed: it takes the dial, and `fling` holds the throw.
-      const limb = this.addLimb(char, piece, bone, _mask, seeds, false);
-      char.hideLimb(bone);
-      const p = limb.rag.center;
-      // A limb falls on the tempo dial and lands as far as it would at full gravity. Chunks keep world gravity and `launch`.
-      const fling = launch * limb.rag.throwScale;
-      if (thrownOut()) this.throwOf('limb', p, _v2).multiplyScalar(limb.rag.throwScale);
-      else {
-        _v2.copy(p).sub(center);
-        if (_v2.lengthSq() < 1e-4) randomUnit(_v2);
-        _v2.normalize().multiplyScalar(fling * rand(0.65, 1.15));
-        _v2.y += fling * rand(0.25, 0.6);
+      const inTwo = lower !== undefined && spare > 0 && Math.random() < 0.35;
+      if (inTwo) spare--;
+      for (const use of inTwo ? [lower, region] : [region]) {
+        const bone = info.severBone.get(use);
+        if (bone === undefined) continue;
+        markSevered(info, char.severed, _skip);
+        if (_skip[bone] === 1 || body?.skip[bone] === 1) continue;
+        const piece = this.takePiece(char, bone);
+        markSubtree(info, bone, _mask);
+        // What has already gone from under it (its own lower part, a moment ago) is not in this piece.
+        for (let i = 0; i < info.count; i++) if (_skip[i] === 1 || body?.skip[i] === 1) _mask[i] = 0;
+        // Thrown by the gib, not killed in the air, whatever its seed: it takes the dial, and `fling` holds the throw.
+        const limb = this.addLimb(char, piece, bone, _mask, seeds, false);
+        char.hideLimb(bone);
+        const p = limb.rag.center;
+        // A limb falls on the tempo dial and lands as far as it would at full gravity. Chunks keep world gravity and `launch`.
+        const fling = launch * limb.rag.throwScale;
+        if (thrownOut()) this.throwOf('limb', p, _v2).multiplyScalar(limb.rag.throwScale);
+        else {
+          _v2.copy(p).sub(center);
+          if (_v2.lengthSq() < 1e-4) randomUnit(_v2);
+          _v2.normalize().multiplyScalar(fling * rand(0.65, 1.15));
+          _v2.y += fling * rand(0.25, 0.6);
+        }
+        for (const part of limb.rag.parts) {
+          part.body.setLinvel(_v2, true);
+          randomUnit(_v3).multiplyScalar(rand(8, 18));
+          part.body.setAngvel(_v3, true);
+        }
+        limb.rag.muscle?.kick(_v2, 1);
       }
-      for (const part of limb.rag.parts) {
-        part.body.setLinvel(_v2, true);
-        randomUnit(_v3).multiplyScalar(rand(8, 18));
-        part.body.setAngvel(_v3, true);
-      }
-      limb.rag.muscle?.kick(_v2, 1);
     }
 
     if (machine) {
@@ -1593,6 +1620,11 @@ export class Gore implements GoreSystem {
       const plan = planGib(killing ?? damage, push, full);
       // Told, so a co-op guest replaying this kill breaks the trunk the same way.
       if (killing) killing.torso = plan.mode;
+      // A pair of legs has no chest to throw a ribcage or a lung out of.
+      if (char.severed.has('abdomen')) {
+        plan.ribs = [];
+        plan.organs = plan.organs.filter(o => o === 'liver' || o === 'stomach').slice(0, 1);
+      }
       // Nothing out of this trunk starts under the floor it stood or lay on.
       const floor = this.floorUnder(hips);
       this.chunks.floor = floor;
@@ -1602,6 +1634,8 @@ export class Gore implements GoreSystem {
       this.chunks.floor = -Infinity;
     }
 
+    // Guts already out of him (a belly opened before this) are thrown clear with the rest, not taken with the body.
+    if (!machine) this.ropes.drop(char.root, _v2.copy(blastDir).multiplyScalar(5 * this.gibPower).setY(6));
     if (body) this.dropBody(body);
     char.release();
     this.enforceBudget();
@@ -1659,13 +1693,58 @@ export class Gore implements GoreSystem {
       } catch {
         continue;
       }
-      if (canCrawl(char)) {
-        const kit = this.kitFor(char);
+      const flesh = canCrawl(char);
+      let kit: TorsoKit | null = null;
+      if (flesh) {
+        kit = this.kitFor(char);
         if (!warmed) this.sliced.warm(kit.waist[0]!.side, char.skinMaterial);
         warmed = true;
       }
       char.release();
+      if (kit) this.cutLimbs(id, kit);
     }
+  }
+
+  /** What cutting every archetype's limbs took at load, ms, for the notes. */
+  limbMs = 0;
+
+  /**
+   * Cuts each limb of an archetype into the pieces it breaks into when it is destroyed outright (`buildLimb`), and
+   * registers them to be drawn as instances. One borrowed body a limb: its bind copy has to be the trunk and that limb.
+   */
+  private cutLimbs(id: string, kit: TorsoKit): void {
+    if (kit.limbs.length > 0) return;
+    const library = this.ctx.characters;
+    const started = performance.now();
+    let trunk: Set<number> | null = null;
+    try {
+      const bare = library.spawn(id);
+      for (const b of TRUNK_EXITS) bare.hideLimb(b);
+      const g = bare.bakePose(true);
+      trunk = triangleSet(g);
+      g.dispose();
+      bare.release();
+    } catch {
+      // A stub library: no limbs are cut, and one destroyed bursts into meat, as before.
+    }
+    KIT_LIMBS.forEach((bones, li) => {
+      let parts: TorsoKit['limbs'][number] = [];
+      try {
+        if (!trunk) throw new Error('no trunk');
+        const char = library.spawn(id);
+        for (const b of TRUNK_EXITS) if (b !== bones[0]) char.hideLimb(b);
+        parts = buildLimb(char, bones, trunk);
+        parts.forEach((part, k) => this.chunks.register(
+          `part:${id}:${li}:${k}`, part.side.geometry, [char.skinMaterial, this.sliced.flesh],
+          _v.copy(part.side.max).sub(part.side.min).multiplyScalar(0.5), PARTS_PER_SHAPE,
+        ));
+        char.release();
+      } catch {
+        // A stub library, or a body it cannot lend: that limb bursts into meat, as before.
+      }
+      kit.limbs.push(parts);
+    });
+    this.limbMs += performance.now() - started;
   }
 
   /** The kit for this archetype, cut on its first gib if `warm` did not (torso.ts). Hides the trunk's exits. */
@@ -1675,6 +1754,7 @@ export class Gore implements GoreSystem {
       for (const b of TRUNK_EXITS) char.hideLimb(b);
       kit = buildKit(char);
       this.kits.set(char.archetype, kit);
+      this.kitSkin.set(char.archetype, char.skinMaterial);
       // Its slabs are drawn as instances, in his skin on one face and the cut face's meat on the other.
       kit.slabs.forEach((slab, i) => this.chunks.register(`slab:${char.archetype}:${i}`, slab.geometry, [char.skinMaterial, this.sliced.flesh], slab.half, SlabTuning.perShape));
     }
@@ -1716,14 +1796,16 @@ export class Gore implements GoreSystem {
   }
 
   private breakTrunk(char: CharacterInstance, plan: GibPlan, chest: THREE.Vector3, blastDir: THREE.Vector3, launch: number, floor: number): boolean {
-    if (!canCrawl(char) || char.severed.has('abdomen') || char.severed.has('chest')) return false;
+    if (!canCrawl(char) || char.severed.has('chest')) return false;
+    // Cut at the waist already, what is left of the trunk is the pelvis: it goes as the kit's pelvis, not as nothing.
+    const legsOnly = char.severed.has('abdomen');
     for (const b of TRUNK_EXITS) char.hideLimb(b);
     const kit = this.kitFor(char);
     const rnd = mulberry32(plan.seed);
     const scale = char.rig.height / 1.85;
     const waist = plan.mode === 'waist';
     let hung = false;
-    for (const piece of kitPieces(kit, plan)) {
+    for (const piece of legsOnly ? kit.waist.filter(p => p.bone === HumanoidBone.hips) : kitPieces(kit, plan)) {
       placePiece(char, piece, _v3, _q);
       // A body lying down has its pieces half in the floor: lift each until its lowest corner clears it.
       let low = Infinity;
@@ -1750,8 +1832,8 @@ export class Gore implements GoreSystem {
         this.ropes.hang(half.mesh, piece.side.capCenter, half.mesh, scale);
       }
     }
-    this.throwSlabs(char, kit, plan, blastDir, launch);
-    return true;
+    if (!legsOnly) this.throwSlabs(char, kit, plan, blastDir, launch);
+    return !legsOnly;
   }
 
   /** What was inside: the ribcage bursting where it was, organs, and loose strands of gut, as the plan says. */
@@ -2031,6 +2113,8 @@ export class Gore implements GoreSystem {
   damageCorpse(hit: CorpseHit, damage: DamageInfo): void {
     const target = hit.handle;
     const { fx } = this.ctx;
+    // A loose organ: it bursts, and that is all of it.
+    if (this.chunks.burstHit(target, damage.dir)) return;
     const machine = (target instanceof DeadBody && isMachine(target.char)) || (target instanceof LooseLimb && target.machine);
     if (machine) {
       fx.sparks(hit.point, damage.dir, 8);
@@ -2125,16 +2209,70 @@ export class Gore implements GoreSystem {
     else audio.play('corpse_punch', { position: at, volume: limb ? 0.4 : 0.5, pitch: limb ? 1.5 : 1.3, pitchJitter: 0.08 });
   }
 
+  /**
+   * A loose limb destroyed outright: it comes apart into the pieces it is cut into at load (`cutLimbs`: two of the arm or
+   * thigh, the forearm, the hand with its wrist or the boot with a shin in it), each from where that part of it lies, so
+   * what flies adds up to the limb that was there. A top half goes as its chest's two pieces, its ribs, its head's kit and
+   * its arms. Before, any of them became six lumps: a leg's 21 litres left 4.5 (the volume audit, docs/notes/gore.md).
+   */
   private burstLimb(limb: LooseLimb, damage: DamageInfo): void {
     const c = limb.rag.center;
     this.ctx.fx.bloodMist(c, 0.25);
     this.ctx.fx.bloodHit(c, damage.dir, 1.4);
-    for (let i = 0; i < 6; i++) {
+    const parts = limb.machine ? 0 : this.throwParts(limb, damage);
+    for (let i = 0; i < (parts > 0 ? 4 : 6); i++) {
       scatter(damage.dir, 5, 4, 6, _v);
-      this.chunks.spawn(i < 2 ? 'bone' : 'meat', c.x, c.y, c.z, _v.x, _v.y, _v.z, rand(0.04, 0.08));
+      this.chunks.spawn(i < 2 ? 'bone' : 'meat', c.x, c.y, c.z, _v.x, _v.y, _v.z, parts > 0 ? rand(0.03, 0.05) : rand(0.04, 0.08));
     }
     this.blood.stainBelow(c, 0.8);
+    // A top half's guts stay in the world when it goes: they drop where they hang, free.
+    this.ropes.drop(limb.piece.root, _v.copy(damage.dir).multiplyScalar(2.5).setY(3));
     this.removeLimb(limb);
+  }
+
+  /** Throws the kit's pieces of whatever `limb` still has, from where each lies. Returns how many. */
+  private throwParts(limb: LooseLimb, damage: DamageInfo): number {
+    const kit = this.kits.get(limb.archetype);
+    if (!kit) return 0;
+    const has = (b: number): boolean => limb.rag.mask[b] === 1 && limb.skip[b] !== 1;
+    const src = { bones: limb.piece.bones, rig: limb.info.rig };
+    limb.piece.root.updateMatrixWorld(true);
+    let n = 0;
+    kit.limbs.forEach((parts, li) => parts.forEach((part, k) => {
+      if (!has(part.bone)) return;
+      placeAt(src, part.bone, part.side.origin, _v3, _q);
+      scatter(damage.dir, 3, 2.5, 5, _v);
+      this.chunks.spawn(`part:${limb.archetype}:${li}:${k}`, _v3.x, _v3.y, _v3.z, _v.x, _v.y + 1.5, _v.z, 1, _q, 12);
+      n++;
+    }));
+    // A top half: the chest in its two pieces, the ribcage, two organs, and the head in the pieces a burst head is.
+    const skin = this.kitSkin.get(limb.archetype);
+    if (has(CHEST) && skin) {
+      for (const piece of kit.crack3) {
+        if (piece.bone !== HumanoidBone.chest) continue;
+        placeAt(src, piece.bone, piece.side.origin, _v3, _q);
+        scatter(damage.dir, 2.5, 2, 4, _v);
+        this.sliced.throwPiece(piece.side, skin, _v3, _q, _v.setY(_v.y + 2), 6);
+        n++;
+      }
+      const chest = limb.piece.bones[CHEST]!;
+      chest.getWorldQuaternion(_q);
+      _v3.setFromMatrixPosition(chest.matrixWorld);
+      const scale = limb.info.rig.height / 1.85;
+      this.chunks.burstRibs(_v3, _q, scale, damage.dir, ['ribsUL', 'ribsUR', 'sternum', 'spine'], 2);
+      for (const organ of ['lung', 'heart'] as const) {
+        scatter(damage.dir, 3, 2.5, 5, _v);
+        this.chunks.spawn(organ, _v3.x, _v3.y + 0.05, _v3.z, _v.x, _v.y + 1.5, _v.z, ORGAN_SIZE[organ] * scale, undefined, 9);
+      }
+      const neck = limb.info.severBone.get('head');
+      const head = neck === undefined ? undefined : limb.info.children[neck]![0] ?? neck;
+      if (head !== undefined && has(head)) {
+        _v4.setFromMatrixPosition(limb.piece.bones[head]!.matrixWorld);
+        limb.piece.root.getWorldQuaternion(_q2);
+        this.chunks.burstHead(_v4, _q2, (limb.info.rig.bones[head]!.hit?.radius ?? 0.1) * 1.15, damage.dir);
+      }
+    }
+    return n;
   }
 
   private removeLimb(limb: LooseLimb): void {

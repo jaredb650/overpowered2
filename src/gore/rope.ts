@@ -34,6 +34,16 @@ export const RopeTuning = {
   /** A hanging loop's length against a strand's, and how far it sways, in metres a second squared at its bottom. */
   loopSlack: 1.25,
   sway: 0.6,
+  /**
+   * Draping (the gore update, free guts). A loose strand that comes down across something that stands `snagStep` metres
+   * or more over the floor beside it (a ledge, a railing, a crate, a parapet) catches there: that point is held, at most
+   * `snags` of them a strand, and the rest of it hangs off the edge. In flight, `wallRays` of its points a frame are
+   * tested along their own step, so a strand thrown at a wall slaps it, leaves blood, and slides down it.
+   */
+  snagStep: 0.3,
+  snags: 2,
+  wallRays: 2,
+  wallSpeed: 2.5,
 };
 
 const RADIAL = 7;
@@ -63,6 +73,10 @@ class Rope {
   thick = 1;
   trail = 0;
   still = 0;
+  /** 1 for each point caught on an edge: it holds where it is, and the strand hangs from it. */
+  readonly held = new Uint8Array(RopeTuning.points);
+  snags = 0;
+  wallAt = 0;
   readonly last = new THREE.Vector3();
 }
 
@@ -154,6 +168,9 @@ export class RopeField {
     r.thick = scale;
     r.trail = 0;
     r.still = 0;
+    r.held.fill(0);
+    r.snags = 0;
+    r.wallAt = 0;
     return r;
   }
 
@@ -217,14 +234,48 @@ export class RopeField {
     return n;
   }
 
-  /** Lets go of every strand hanging from this body: they fall where they are. */
-  drop(owner: THREE.Object3D): void {
+  /**
+   * Lets go of every strand hanging from this body: they fall where they are, or leave at `v` m/s (a body burst with its
+   * guts out throws them, it does not take them with it). Returns how many.
+   */
+  drop(owner: THREE.Object3D, v?: THREE.Vector3): number {
+    let n = 0;
     for (const r of this.ropes) {
       if (!r.alive || r.owner !== owner) continue;
       r.owner = null;
       r.target = null;
+      r.looped = false;
+      r.restAt = -1;
       r.born = this.ctx.time.elapsed;
+      n++;
+      if (!v) continue;
+      for (let i = 0; i < RopeTuning.points; i++) {
+        // Each point a little differently, so it whips and unrolls as it goes.
+        const k = (0.7 + 0.6 * ((i * 7 + r.serial * 3) % 10) / 10) / 60;
+        r.px[i * 3] = r.x[i * 3]! - v.x * k;
+        r.px[i * 3 + 1] = r.x[i * 3 + 1]! - v.y * k;
+        r.px[i * 3 + 2] = r.x[i * 3 + 2]! - v.z * k;
+      }
     }
+    return n;
+  }
+
+  /** Loose strands in the world, and how many points of them are caught on an edge. For checks. */
+  get loose(): number {
+    let n = 0;
+    for (const r of this.ropes) if (r.alive && r.target === null) n++;
+    return n;
+  }
+
+  get snagged(): number {
+    let n = 0;
+    for (const r of this.ropes) if (r.alive) n += r.snags;
+    return n;
+  }
+
+  /** Every point of every loose strand, for checks: x y z, eleven a strand. */
+  loosePoints(): Float32Array[] {
+    return this.ropes.filter(r => r.alive && r.target === null).map(r => r.x);
   }
 
   get live(): number {
@@ -269,6 +320,25 @@ export class RopeField {
         _p.set(x[i * 3]!, top + 0.4, x[i * 3 + 2]!);
         if (this.ctx.physics.raycastInto(_p, _down, top + 4 - x[i * 3 + 1]!, CG.World, _hit)) r.floors[i] = _hit.point.y;
       }
+      // In flight, a point or two a frame are tested along their own step: what a thrown strand hits, it slaps and stops at.
+      if (loose) {
+        for (let k = 0; k < t.wallRays; k++) {
+          const i = r.wallAt;
+          r.wallAt = (r.wallAt + 1) % P;
+          const o = i * 3;
+          _t.set(x[o]! - px[o]!, x[o + 1]! - px[o + 1]!, x[o + 2]! - px[o + 2]!);
+          const step = _t.length();
+          if (step < t.wallSpeed * h) continue;
+          _p.set(px[o]!, px[o + 1]!, px[o + 2]!);
+          if (!this.ctx.physics.raycastInto(_p, _t.multiplyScalar(1 / step), step + t.radius, CG.World, _hit) || Math.abs(_hit.normal.y) > 0.6) continue;
+          // Off the wall by its own thickness, with no speed into it left; and the wall is wet where it landed.
+          x[o] = px[o] = _hit.point.x + _hit.normal.x * t.radius * r.thick;
+          x[o + 2] = px[o + 2] = _hit.point.z + _hit.normal.z * t.radius * r.thick;
+          x[o + 1] = _hit.point.y;
+          px[o + 1] = x[o + 1]! + 0.01;
+          if (age < t.trailFor) this.blood.bleedAt(_hit.point, _hit.normal, 0.35 * r.thick);
+        }
+      }
       const g = t.gravity * h * h;
       // Something hanging off a body never hangs dead still: a slow sway, strongest at the bottom of the loop.
       const swayX = r.target ? Math.sin(now * 1.3 + r.serial * 1.7) * t.sway * h * h : 0;
@@ -282,6 +352,7 @@ export class RopeField {
         px[o] = x[o]!;
         px[o + 1] = x[o + 1]!;
         px[o + 2] = x[o + 2]!;
+        if (r.held[i] === 1) continue;
         const reach = r.looped ? Math.sin((i / (P - 1)) * Math.PI) : i / (P - 1);
         x[o] = x[o]! + vx + swayX * reach;
         x[o + 1] = x[o + 1]! + vy - g;
@@ -311,8 +382,17 @@ export class RopeField {
           const diff = (d - r.segment) / d;
           // The anchored end does not move: all of the correction goes on the next point.
           const held = r.target !== null;
-          const wa = i === 0 && held ? 0 : i === P - 2 && held && r.looped ? 1 : 0.5;
-          const wb = i === 0 && held ? 1 : i === P - 2 && held && r.looped ? 0 : 0.5;
+          let wa = i === 0 && held ? 0 : i === P - 2 && held && r.looped ? 1 : 0.5;
+          let wb = i === 0 && held ? 1 : i === P - 2 && held && r.looped ? 0 : 0.5;
+          // A point caught on an edge does not give: its neighbour takes all of the correction.
+          if (r.held[i] === 1 && r.held[i + 1] === 1) continue;
+          if (r.held[i] === 1) {
+            wa = 0;
+            wb = 1;
+          } else if (r.held[i + 1] === 1) {
+            wa = 1;
+            wb = 0;
+          }
           x[a] = x[a]! + dx * diff * wa;
           x[a + 1] = x[a + 1]! + dy * diff * wa;
           x[a + 2] = x[a + 2]! + dz * diff * wa;
@@ -323,7 +403,19 @@ export class RopeField {
         for (let i = 0; i < P; i++) {
           const o = i * 3;
           const floor = r.floors[i]! + lift;
-          if (x[o + 1]! >= floor) continue;
+          if (x[o + 1]! >= floor || r.held[i] === 1) continue;
+          // Come down on something that stands over the floor beside it: caught there, and the rest hangs off it.
+          if (loose && it === 0 && r.snags < t.snags && i > 0 && i < P - 1 && r.floors[i]! > -1e3) {
+            const low = Math.min(r.floors[i - 1]! > -1e3 ? r.floors[i - 1]! : Infinity, r.floors[i + 1]! > -1e3 ? r.floors[i + 1]! : Infinity);
+            if (r.floors[i]! - low >= t.snagStep && r.held[i - 1] !== 1 && r.held[i + 1] !== 1) {
+              r.held[i] = 1;
+              r.snags++;
+              x[o + 1] = px[o + 1] = floor;
+              px[o] = x[o]!;
+              px[o + 2] = x[o + 2]!;
+              continue;
+            }
+          }
           x[o + 1] = floor;
           // On the floor it slides and drags, it does not skate.
           px[o + 1] = Math.min(px[o + 1]!, floor);

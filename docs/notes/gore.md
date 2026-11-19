@@ -276,8 +276,8 @@ The rest are additive, in `contracts.ts`. `PhysicsSystem`: `preStep`, `radialLis
 
 | Kill | What the trunk does |
 |---|---|
-| Any gib: a rocket, a grenade, a barrel, a shell, a round that obliterates, a frozen body, a boss's death. Four in five | **Crack**: capped pieces flying out from the trunk, **5 or 6** from a blast of force `TorsoTuning.bigFrom` (60) or more (every rocket and hand grenade; 6 for `sixShare` 0.4 of them, and always over `six` 1500), **3** from a smaller blast or anything that is not one. The whole ribcage (six fragments) bursts from where it sat, 4 organs, 5 slabs (below), 1 or 2 loose strands of gut, a strand hanging off the pelvis |
-| The other fifth of gibs (`waistShare` 0.2) | **Waist tear**: chest and pelvis apart, gut hanging from the pelvis, liver and stomach, 3 slabs, one loose strand |
+| Any gib: a rocket, a grenade, a barrel, a shell, a round that obliterates, a frozen body, a boss's death. Four in five | **Crack**: capped pieces flying out from the trunk, **5 or 6** from a blast of force `TorsoTuning.bigFrom` (60) or more (every rocket and hand grenade; 6 for `sixShare` 0.4 of them, and always over `six` 1500), **3** from a smaller blast or anything that is not one. The whole ribcage (six fragments) bursts from where it sat, 4 organs, 5 slabs (below), 2 or 3 free strands of gut |
+| The other fifth of gibs (`waistShare` 0.2) | **Waist tear**: chest and pelvis apart, liver and stomach, 3 slabs, 2 free strands of gut |
 | A killing Sabot, Awl, Ultramag or Piledriver round in the chest or belly, or a shotgun from 3 m | **Blow-out**: the body stays and drops; its far side opened (two stacked craters, the interior shows ribs and spine), meat, two rib fragments and an organ thrown out along the round, gut left hanging from an opened belly |
 | A head burst, a limb or head cut off, a partial head | **Spurt** from the stump (or the head's wound): a beating jet of blood, the Kiln's hose in blood |
 | A shotgun in the belly from 4.5 m, a big round through it, a blast at belly height of 45% of health or more, alive or dead | A **loop of gut** hangs from the wound for as long as the body lasts, dragged behind when he crawls |
@@ -384,6 +384,62 @@ an archetype to the kit at load.
 this work (first use of the limb pool and the code paths, not a shader). The slab meshes and the blood rope compile at load:
 no program is compiled in the frame after the first gib (two were, the slabs' instanced skin and cut face, until
 `ChunkField.register` waited for its own materials' draw and not a depth pass's). Probe: `tools/scripts/gib-cost.mjs`.
+
+**The volume audit (the gore update, 2026-11-19).** The owner's rule: "the amount of gibs spawned by a destruction should
+more or less match in size the destroyed part". Every way a body or a part of one is destroyed, on a Trooper on the Test
+Range, litres removed against litres of pieces thrown (`tools/scripts/gib-seq.mjs` reports them: trunk pieces, slabs,
+limb parts and loose pieces by their meshes' volume, whole limbs by their hit capsules, which run about 1.5 times the mesh).
+His trunk is 48.5 litres, an arm 8.5 by capsule (5.8 by mesh), a leg 21.4 (14.2), the head and neck 11.3.
+
+| Destruction | Removed | Thrown before | Thrown now | In the air at 0.6 s, before and now |
+|---|---|---|---|---|
+| Whole body burst: rocket, grenade, barrel, shell, a rocket's direct hit | trunk 48.5, limbs and head 82.6 | trunk 48.5 in 2 pieces, no ribs, 2 organs; **limbs 41 to 71**: a third of the limbs went as the forearm or shin alone and the upper arm or thigh was deleted | trunk 41 to 46 in 3 to 6 pieces, and 9 to 26 more in the ribcage, 4 organs, 5 slabs and meat; **limbs 71.1 every time** (whole, or in two real pieces at the lower joint when the limb budget has room) | 1 trunk piece of 2, 3 limbs of 5, 3 loose of 11; all 5 trunk pieces, 7 limbs of 7, 22 loose of 24 |
+| A round that obliterates (the Trommel), a frozen body shattering | the same | the same, limbs 41 to 54 | trunk 46 in 3 pieces, ribs, organs, slabs; limbs 71.1 | as above |
+| A body already cut at the waist, burst (the legs) | pelvis 14.7, legs | the legs, and **nothing of the pelvis** but 13 lumps | the kit's pelvis piece, the legs, one belly organ, no ribcage | |
+| Head burst | head about 8.5 (its hit sphere) | 3.6: cranium in 3 shells, jaw in 2, brain in 2, 2 eyes, meat. The shells are thin, and together they are the size of the head | unchanged: it already tiles the head it came from | 4 of 12; unchanged |
+| Partial head wound | part of the head | a baked partial head stays on the neck; 2 shells, half a brain, meat | unchanged | |
+| Head off whole, a limb cut off, a waist cut, a blade's slice | the part | the part itself, real and whole (the slice: 129 litres in, 129 out in 4 halves) | unchanged | |
+| A loose arm destroyed outright | 5.8 (mesh) | 5.2 as six lumps of meat and bone: the volume was there, the arm was not | **6.0: the arm in its four pieces** (two of the upper arm, the forearm, the hand with its wrist), cut from his own arm at load, and scraps | |
+| A loose leg destroyed outright | 14.2 (mesh) | **4.5**, six lumps | **13.6: two pieces of thigh, the shin, the boot with a shin in it**, and scraps | |
+| A top half (the crawler) destroyed | about 45 | **about 5**, six lumps | 31 as the chest's two pieces, and 17 more: ribs, lung and heart, the head's kit, both arms in their pieces; its guts drop free | |
+| A shotgun's or a big round's blow-out | a crater in a body that stays | 3.0: meat, 2 rib fragments, an organ | the same pieces, the organ half as big again (4 to 7) | |
+| The Lance, the energy blade's halves | everything | nothing, by design: it vaporizes | unchanged | |
+| A machine (drone, skitter) | its body | its limbs, and 12 scraps of 3 to 8 cm | **not done**: no kit is cut for a machine | |
+
+What is seen in the half second after is the launch's work (G2, above): before, most of it was on the floor inside the
+fireball by then. The checks are in `gibs.test.ts` (a rocket's kill on real Rapier) and `ragdoll.test.ts` (a gib throws 5
+to 7 limbs, never fewer than five). Brute, Husk, Gunner and the bosses go through the same code with their own kits; the
+table's numbers were measured on the Trooper only.
+
+**Limb parts (`buildLimb` in `torso.ts`, `Gore.cutLimbs`).** Each flesh humanoid's four limbs are cut at load into four
+capped pieces each, as the trunk's kit is: the limb is every triangle of "trunk and this limb" that is not in "trunk alone"
+(the armpit's skin joins an arm to the chest, so it cannot be found as an island), closed 6 cm below its joint (10 for a
+leg), then cut at the middle of its upper part, just past the elbow or knee, and the middle of its lower part. They are
+`ChunkField` kinds like the slabs (`part:<archetype>:<limb>:<n>`, 4 of each in the world), thrown from where each part of
+the loose limb lies when it is destroyed (`burstLimb`). **Cost: 270 ms at load for all thirteen archetypes** on the Linux
+machine (five bakes and three cuts a limb), on top of the kits' 160 and the slabs' 150 to 250.
+
+**Free guts (`rope.ts`).** The owner: "on obliteration the guts should detach from the body and drape over the environment
+or be thrown from explosions". Every burst now throws its strands free (2 or 3 for a crack, 2 for a waist tear; none hangs
+off the pelvis's piece any more), at 2.5 to 6 m/s out and 6 to 9.5 up like the rest; guts already hanging out of a man when
+he bursts, or out of a top half when it is destroyed, are let go and thrown too (`RopeField.drop(owner, velocity)`), where
+they used to go with the body. A loose strand **drapes**: each point rides the top of whatever is under it, as before, and
+now a point that comes down on something standing `snagStep` (0.3 m) or more over the floor beside it (a ledge, a rail, a
+crate, a parapet) is **caught** there, two points a strand at most, and the rest hangs off it; in flight two points a frame
+are tested along their own step, so a strand thrown at a wall slaps it, wets it (`bleedAt`) and slides down. Not done:
+strands do not rest on corpses (a body at rest has no collider yet: agent "mess" is adding them, and the strands' rays
+would then only need `CG.Ragdoll` added to their mask). Guts spilling from a living or dying man are unchanged.
+
+**Organs you notice (`OrganTuning` in `chunks.ts`).** Half as big again (lung 15 cm, liver 14, stomach 11.7, heart 9),
+brighter and wetter (roughness 0.1, a stronger glow, redder liver and heart). Each is soft: what it loses in speed on
+landing goes into a spring (`stiff` 620, `damp` 11: about four beats a second, three or four of them) that squashes it
+along the world's up and spreads it, whichever way it lies; at rest it sags a fifth flatter over half a second; it quivers
+when a piece lands within 1.3 m; a player who walks into it kicks it along (within 0.5 m, at 0.9 of his speed and a little
+aside, once every half second); and one **stepped on** (the feet within 20 cm of it and moving) or **shot** (it is in
+`raycastCorpses`, so every gun that can hit a corpse can hit it) **bursts**: a splat on the floor, a puff, four scraps, a
+squelch. Bursting is how an organ leaves the world: one whose slot is wanted bursts where it lies too. Not done: an organ
+thrown out of a blow-out is still drawn inside the opened chest (the interior is one mesh an archetype, with no switch an
+organ; it needs a bit in the body's data texture, which the fire and wear lanes are spending now).
 
 **Caps.** Organs: lung 16, liver, heart and stomach 10 each; ribcage fragments 12 of each kind, all inside `ChunkTuning.maxBodies`
 (72 live bodies), oldest first. Trunk pieces count as halves (`SliceTuning.maxHalves`, 20 live, now shared with the sword).

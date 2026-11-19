@@ -261,11 +261,11 @@ function blob(seed: number, rough: number, shape: (p: THREE.Vector3) => void, pi
 }
 
 const LUNG_A = new THREE.Color(0xc4727c);
-const LUNG_B = new THREE.Color(0x6e2632);
-const LIVER_A = new THREE.Color(0x4a0a10);
-const LIVER_B = new THREE.Color(0x7e1a1e);
-const HEART_A = new THREE.Color(0x5e0a12);
-const HEART_B = new THREE.Color(0x9c2030);
+const LUNG_B = new THREE.Color(0x8e2c3a);
+const LIVER_A = new THREE.Color(0x6e1018);
+const LIVER_B = new THREE.Color(0xa8242a);
+const HEART_A = new THREE.Color(0x8c1019);
+const HEART_B = new THREE.Color(0xc92c3c);
 const FAT = new THREE.Color(0xc9a25e);
 const STOMACH_A = new THREE.Color(0xc08a82);
 const STOMACH_B = new THREE.Color(0x8c3a3a);

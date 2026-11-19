@@ -63,6 +63,8 @@ const CASES = {
   shinR: { steps: BLAST_STEPS, act: r => r.cut('shinR') },
   limbburst: { steps: BLAST_STEPS, act: async r => { r.cut('armL'); await r.walk(50); r.burstLimbs(); } },
   legburst: { steps: BLAST_STEPS, act: async r => { r.cut('legL'); await r.walk(50); r.burstLimbs(); } },
+  // A top half cut off at the waist and then destroyed.
+  tophalf: { steps: BLAST_STEPS, act: async r => { r.gore(g => g.sever(r.target.char, 'abdomen', r.damage('abdomen', 60, 60, { type: 'slash' }))); await r.walk(50); r.burstLimbs(); } },
   // The blade: a slice through the chest; and the waist cut that leaves a top half crawling.
   slice: { steps: BLAST_STEPS, act: r => r.hit('chest', 400, 60, { type: 'slash', source: 'katana', slicePlaneNormal: new r.V(0.25, 1, 0.1).normalize() }) },
   waist: { steps: BLAST_STEPS, act: r => r.gore(g => g.sever(r.target.char, 'abdomen', r.damage('abdomen', 60, 60, { type: 'slash' }))) },
@@ -117,7 +119,7 @@ export default async function gibSeq(page, h) {
     };
     const AT = new V(0, 0, 3);
     const r = {
-      V, spec: { rocket, grenade, barrel, shell }, target: null, crowd: [], centre: AT.clone(), log: [],
+      V, vol: new Map(), spec: { rocket, grenade, barrel, shell }, target: null, crowd: [], centre: AT.clone(), log: [],
       async walk(frames) {
         lab.step(frames);
         while (lab.steps > 0) await frame();
@@ -201,20 +203,61 @@ export default async function gibSeq(page, h) {
       aim(c) {
         look(new V(AT.x, c.lookY ?? 1.0, AT.z));
       },
-      /** What is in the world now: counts, how much of it is in the air, and how far it has got from the blast. */
+      /** Litres inside a closed mesh, by its signed volume. Kept by geometry. */
+      meshLitres(g) {
+        if (r.vol.has(g)) return r.vol.get(g);
+        const p = g.getAttribute('position').array;
+        const idx = g.getIndex()?.array;
+        const n = idx ? idx.length : p.length / 3;
+        let v = 0;
+        for (let t = 0; t < n; t += 3) {
+          const a = (idx ? idx[t] : t) * 3, b = (idx ? idx[t + 1] : t + 1) * 3, c = (idx ? idx[t + 2] : t + 2) * 3;
+          v += (p[a] * (p[b + 1] * p[c + 2] - p[b + 2] * p[c + 1]) - p[a + 1] * (p[b] * p[c + 2] - p[b + 2] * p[c]) + p[a + 2] * (p[b] * p[c + 1] - p[b + 1] * p[c])) / 6;
+        }
+        r.vol.set(g, Math.abs(v) * 1000);
+        return r.vol.get(g);
+      },
+      /** Litres of one bone of a rig, as its hit capsule. */
+      boneLitres(rig, b) {
+        const hit = rig.bones[b]?.hit;
+        if (!hit) return 0;
+        const f = hit.from, t = hit.to;
+        const at = v => (Array.isArray(v) ? v : [v.x, v.y, v.z]);
+        const [ax, ay, az] = at(f), [bx, by, bz] = at(t);
+        const len = Math.hypot(bx - ax, by - ay, bz - az);
+        return (Math.PI * hit.radius ** 2 * len + (4 / 3) * Math.PI * hit.radius ** 3) * 1000;
+      },
+      /** The body as litres by region, from its hit capsules; the trunk also as the kit's own meshes. */
+      body() {
+        const e = r.target;
+        const rig = e.char.rig;
+        const out = {};
+        rig.bones.forEach((b, i) => { out[b.region] = +((out[b.region] ?? 0) + r.boneLitres(rig, i)).toFixed(2); });
+        const kit = ctx.gore.kitFor ? ctx.gore.kits.get(e.char.archetype) : null;
+        if (kit) {
+          out.kitWaist = +kit.waist.reduce((a, p) => a + r.meshLitres(p.side.geometry), 0).toFixed(1);
+          out.kitCrack6 = +kit.crack6.reduce((a, p) => a + r.meshLitres(p.side.geometry), 0).toFixed(1);
+          if (kit.slabs) out.kitSlabs = kit.slabs.map(s => +s.litres.toFixed(2));
+        }
+        return out;
+      },
+      /** What is in the world now: counts, litres, how much of it is in the air, and how far it has got from the blast. */
       stats() {
         const gore = ctx.gore;
         const c = r.centre;
-        const out = { halves: 0, halvesAir: 0, limbs: 0, limbsAir: 0, chunks: 0, chunksAir: 0, kinds: {}, guts: 0, gutsLoose: 0, far: 0, bodies: 0 };
+        const out = { halves: 0, halvesAir: 0, limbs: 0, limbsAir: 0, chunks: 0, chunksAir: 0, kinds: {}, guts: 0, gutsLoose: 0, far: 0, bodies: 0, litres: { trunk: 0, limbs: 0, chunks: 0, guts: 0 }, by: {} };
         const reach = [];
         for (const half of gore.sliced.halves) {
           if (half.sinking >= 0) continue;
           out.halves++;
+          out.litres.trunk += r.meshLitres(half.mesh.geometry);
           if (half.body && half.mesh.position.y > 0.45) out.halvesAir++;
           reach.push(Math.hypot(half.mesh.position.x - c.x, half.mesh.position.z - c.z));
         }
         for (const limb of gore.limbs) {
           out.limbs++;
+          const rig = limb.info.rig;
+          for (let b = 0; b < rig.bones.length; b++) if (limb.rag.mask[b] === 1 && limb.skip[b] !== 1) out.litres.limbs += r.boneLitres(rig, b);
           if (limb.rag.active && limb.rag.center.y > 0.45) out.limbsAir++;
           reach.push(Math.hypot(limb.rag.center.x - c.x, limb.rag.center.z - c.z));
         }
@@ -222,6 +265,10 @@ export default async function gibSeq(page, h) {
           if (!chunk.alive) continue;
           out.chunks++;
           out.kinds[chunk.kind] = (out.kinds[chunk.kind] ?? 0) + 1;
+          const l = r.meshLitres(gore.chunks.meshes.get(chunk.kind).geometry) * chunk.size ** 3 * chunk.sx * chunk.sy * chunk.sz;
+          out.litres.chunks += l;
+          const group = chunk.kind.split(':')[0];
+          out.by[group] = +((out.by[group] ?? 0) + l).toFixed(2);
           if (chunk.body) {
             chunk.body.translation(chunk.p);
             if (chunk.p.y > 0.45) out.chunksAir++;
@@ -231,8 +278,10 @@ export default async function gibSeq(page, h) {
         for (const rope of gore.ropes.ropes) {
           if (!rope.alive) continue;
           out.guts++;
+          out.litres.guts += Math.PI * (0.04 * rope.thick * 0.85) ** 2 * rope.segment * 10 * 1000;
           if (rope.target === null) out.gutsLoose++;
         }
+        for (const k of Object.keys(out.litres)) out.litres[k] = +out.litres[k].toFixed(1);
         for (const b of gore.bodies) if (b.sinking < 0) out.bodies++;
         reach.sort((a, b) => a - b);
         out.far = reach.length ? +reach[reach.length - 1].toFixed(1) : 0;
@@ -253,6 +302,7 @@ export default async function gibSeq(page, h) {
     const conf = { id: c.id ?? ID, crowd: c.crowd ?? 1, near: c.near, dist: DIST, seed: SEED, settle: c.settle, lookY: c.lookY };
     await page.evaluate(async conf => { await window.__r.start(conf); }, conf);
     const before = await page.evaluate(() => window.__r.stats());
+    const body = await page.evaluate(() => window.__r.body());
     const callMs = await page.evaluate(`(async () => { const t0 = performance.now(); await (${c.act.toString()})(window.__r); return +(performance.now() - t0).toFixed(1); })()`);
     const tiles = [];
     const notes = [];
@@ -269,7 +319,7 @@ export default async function gibSeq(page, h) {
       notes.push({ f, t: +(f / 60).toFixed(2), ...note });
       if (STILLS.includes(f)) await page.screenshot({ path: `${h.outDir}/${name}-${DIST}m${TAG}-f${f}.png` });
     }
-    results[name] = { callMs, before, notes };
+    results[name] = { callMs, body, before, notes };
     const context = await page.context().browser().newContext({ deviceScaleFactor: 2 });
     const sheet = await context.newPage();
     const rows = Math.ceil(tiles.length / COLUMNS);

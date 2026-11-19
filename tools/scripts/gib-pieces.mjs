@@ -4,7 +4,7 @@
 //   GIB_SET=slabs node tools/shot.mjs --port <yours> --url "/?map=range" --script tools/scripts/gib-pieces.mjs \
 //     --dpr 2 --w 1440 --h 900 --wait 500 --timeout 240 --quiet --out tools/out/<you>/pieces-slabs.png
 //
-//   GIB_SET   slabs (each slab twice: skin up, meat up) | trunk (the six-piece crack) | loose (organs, ribs, meat, head kit,
+//   GIB_SET   slabs (each slab twice: skin up, meat up) | trunk (the six-piece crack) | limbs (each limb's four parts) | loose (organs, ribs, meat, head kit,
 //             and the parts of a destroyed limb) | all
 //   GIB_ID    the archetype (default trooper)
 //   GIB_TURN  radians every piece is turned about the vertical (default 0), for a second angle
@@ -67,6 +67,9 @@ export default async function gibPieces(page, h) {
       kit.crack6.forEach((p, i) => add(`trunk ${i}`, p.side.geometry, [skin, flesh], false));
       kit.crack6.forEach((p, i) => add(`trunk ${i} back`, p.side.geometry, [skin, flesh], true));
     }
+    if (SET === 'limbs' || SET === 'all') {
+      (kit.limbs ?? []).forEach((parts, li) => parts.forEach((p, k) => add(`limb ${li} part ${k}`, p.side.geometry, [skin, flesh], k % 2 === 1)));
+    }
     if (SET === 'loose' || SET === 'all') {
       for (const [kind, mesh] of gore.chunks.meshes) {
         if (kind.startsWith('slab:') || kind === 'scrap') continue;
@@ -100,7 +103,7 @@ export default async function gibPieces(page, h) {
     for (let i = 0; i < 30; i++) await frame();
     lab.togglePause();
     await frame();
-    return { archetype: ID, kitMs: +kit.ms.toFixed(1), slabs: kit.slabs.map(s => ({ litres: +s.litres.toFixed(2), half: s.half.toArray().map(v => +v.toFixed(3)) })), pieces: out };
+    return { archetype: ID, kitMs: +kit.ms.toFixed(1), limbMs: +(gore.limbMs ?? 0).toFixed(1), slabs: kit.slabs.map(s => ({ litres: +s.litres.toFixed(2), half: s.half.toArray().map(v => +v.toFixed(3)) })), pieces: out };
   }, { SET, ID, TURN });
   await h.sleep(300);
   return report;

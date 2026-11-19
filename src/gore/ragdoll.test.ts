@@ -314,7 +314,10 @@ describe('deaths', () => {
     };
     gore.gib(c, v(0.2, 0.8, 0.4), 600);
     expect(released).toBe(true);
-    expect(gore.stats().limbs).toBe(5);
+    // Five limbs, each whole, or one or two of them in two at the lower joint: never fewer (the lower part alone used to go
+    // and leave the upper arm or the thigh nowhere).
+    expect(gore.stats().limbs).toBeGreaterThanOrEqual(5);
+    expect(gore.stats().limbs).toBeLessThanOrEqual(7);
     expect(gore.stats().chunkBodies).toBeGreaterThan(10);
     expect(gore.owns(c)).toBe(false);
   });
@@ -337,8 +340,13 @@ describe('corpses', () => {
     expect(hit).not.toBeNull();
     gore.damageCorpse(hit, { ...damage(hit.point), dir, amount: 40 });
     expect(gore.stats().ragdolls).toBe(1);
-    const again = gore.raycastCorpses(from, dir, 10);
-    if (again) gore.damageCorpse(again, { ...damage(again.point), dir, amount: 40 });
+    // The first round moved the body: the same ray may now find the other leg, or the trunk lying over it. Under fire, a
+    // few rounds on, a limb is off, whichever it is.
+    for (let shot = 0; shot < 6 && gore.stats().limbs === 0; shot++) {
+      const again = gore.raycastCorpses(from, dir, 10);
+      if (again) gore.damageCorpse(again, { ...damage(again.point), dir, amount: 40 });
+      run(2);
+    }
     expect(gore.stats().limbs).toBeGreaterThan(0);
   });
 

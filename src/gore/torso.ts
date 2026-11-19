@@ -51,7 +51,11 @@ export interface GibPlan {
   mode: TorsoBreak;
   pieces: 2 | 3 | 5 | 6;
   organs: OrganKind[];
-  /** Free strands of gut thrown out, and whether one hangs off a piece. */
+  /**
+   * Free strands of gut thrown out: every strand of a burst body's, on its own, to land and drape where it will (the
+   * owner, 2026-11-18: "on obliteration the guts should detach from the body"). `hang` was a strand left hanging off the
+   * pelvis's piece, and is false for every burst now; guts hang only from a man opened and still in one piece.
+   */
   ropes: number;
   hang: boolean;
   /** Ribcage fragments thrown, in place. */
@@ -91,14 +95,14 @@ export function planGib(d: Pick<DamageInfo, 'point' | 'source' | 'type'> & { tor
   const roll = rnd();
   const waist = d.torso === 'waist' || (d.torso === undefined && roll < t.waistShare);
   if (waist) {
-    return { mode: 'waist', pieces: 2, organs: full ? pickOrgans(rnd, ['liver', 'stomach'], 2) : ['liver'], ropes: full ? 1 : 0, hang: true, ribs: [], slabs: full ? SlabTuning.waist : SlabTuning.lite, seed };
+    return { mode: 'waist', pieces: 2, organs: full ? pickOrgans(rnd, ['liver', 'stomach'], 2) : ['liver'], ropes: full ? 2 : 1, hang: false, ribs: [], slabs: full ? SlabTuning.waist : SlabTuning.lite, seed };
   }
   // The wire carries a force in tenths: compared as the guest will see it.
   const f = Math.round(force * 10) / 10;
   const six = rnd() < t.sixShare;
   const pieces = !full ? 3 : f > t.six ? 6 : d.type === 'explosive' && f >= t.bigFrom ? (six ? 6 : 5) : 3;
   const organs = full ? pickOrgans(rnd, ['lung', 'lung', 'liver', 'heart', 'stomach'], 4) : pickOrgans(rnd, ['lung', 'liver'], 2);
-  return { mode: 'crack', pieces, organs, ropes: full ? 1 + Math.floor(rnd() * 2) : 1, hang: full, ribs: full ? [...ALL_RIBS] : [], slabs: full ? SlabTuning.full : SlabTuning.lite, seed };
+  return { mode: 'crack', pieces, organs, ropes: full ? 2 + Math.floor(rnd() * 2) : 1, hang: false, ribs: full ? [...ALL_RIBS] : [], slabs: full ? SlabTuning.full : SlabTuning.lite, seed };
 }
 
 /** `n` of `from`, in a seeded order. */
@@ -155,6 +159,8 @@ export interface TorsoKit {
   crack6: TorsoPiece[];
   /** The mid-size pieces lifted off this trunk's skin (slabs.ts). */
   slabs: Slab[];
+  /** Each limb in the pieces it breaks into (`buildLimb`), by `KIT_LIMBS`. Filled by whoever can borrow the bodies to cut. */
+  limbs: TorsoPiece[][];
   /** What building it cost, for the notes. */
   ms: number;
 }
@@ -165,7 +171,7 @@ export const TRUNK_EXITS: readonly number[] = [B.neck, B.upperArmL, B.upperArmR,
 interface Plane { p: THREE.Vector3; n: THREE.Vector3 }
 
 /** Where bone `b` sits in bind: its rig offsets, summed (bind rotations are the identity). */
-function bindPos(char: CharacterInstance, b: number, out: THREE.Vector3): THREE.Vector3 {
+function bindPos(char: Pick<CharacterInstance, 'rig'>, b: number, out: THREE.Vector3): THREE.Vector3 {
   out.set(0, 0, 0);
   for (let i = b; i >= 0; i = char.rig.bones[i]!.parent) {
     const o = char.rig.bones[i]!.offset;
@@ -364,10 +370,92 @@ export function buildKit(char: CharacterInstance): TorsoKit {
     crack5: [...pieces(leftRibs.above), ...pieces(leftRibs.below), ...pieces(rightRibs.above), ...pieces(rightRibs.below), ...L],
     crack6: [...pieces(leftRibs.above), ...pieces(leftRibs.below), ...pieces(rightRibs.above), ...pieces(rightRibs.below), ...pieces(pelvisHalves.above), ...pieces(pelvisHalves.below)],
     slabs,
+    limbs: [],
     ms: 0,
   };
   kit.ms = performance.now() - started;
   return kit;
+}
+
+/**
+ * The limbs a kit cuts up: the bone a limb hangs from, the next one down and the last, as the humanoid rig numbers them.
+ * `LIMB_EXITS[i]` is the trunk exit it leaves by.
+ */
+export const KIT_LIMBS: readonly (readonly [upper: number, lower: number, end: number])[] = [
+  [B.upperArmL, B.foreArmL, B.handL], [B.upperArmR, B.foreArmR, B.handR], [B.thighL, B.shinL, B.footL], [B.thighR, B.shinR, B.footR],
+];
+
+/** Every triangle of a bake, as one number each, for telling two bakes of one model apart (`buildLimb`). */
+export function triangleSet(g: THREE.BufferGeometry): Set<number> {
+  const index = g.getIndex()!.array as ArrayLike<number>;
+  const n = g.getAttribute('position').count;
+  const out = new Set<number>();
+  for (let t = 0; t < index.length; t += 3) out.add(index[t]! + index[t + 1]! * n + index[t + 2]! * n * n);
+  return out;
+}
+
+/**
+ * One limb cut into the pieces it breaks into when it is destroyed outright (a loose arm or leg shot to bits, a top half
+ * burst): four, each capped with torn flesh and bone as a trunk piece is. Two of the upper part (the arm or the thigh)
+ * and two of the lower, the last of them the hand with its wrist or the boot with a shin in it. `char` must have every
+ * trunk exit hidden but this limb's, and `trunk` is `triangleSet` of the same model's bake with all of them hidden: the
+ * limb is every triangle here that is not there (the armpit's skin joins an arm to the chest, so it cannot be found as an
+ * island). It is closed a little below its joint. Each piece rides the upper or the lower bone. Empty when there is none.
+ */
+export function buildLimb(char: CharacterInstance, bones: readonly [number, number, number], trunk: ReadonlySet<number>): TorsoPiece[] {
+  const s = char.rig.height / 1.85;
+  const [upper, lower, end] = bones;
+  const a = bindPos(char, upper, new THREE.Vector3());
+  const b = bindPos(char, lower, new THREE.Vector3());
+  const c = bindPos(char, end, new THREE.Vector3());
+  const along1 = b.clone().sub(a).normalize();
+  const along2 = c.clone().sub(b).normalize();
+  const rnd = mulberry32(upper * 7919 + [...char.archetype].reduce((h, ch) => Math.imul(h ^ ch.charCodeAt(0), 16777619) >>> 0, 2166136261));
+  const tilt = (n: THREE.Vector3, k: number): THREE.Vector3 => n.clone().add(new THREE.Vector3(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5).multiplyScalar(k)).normalize();
+  const r1 = (char.rig.bones[upper]!.hit?.radius ?? 0.06 * s) * 0.34;
+  const r2 = (char.rig.bones[lower]!.hit?.radius ?? 0.05 * s) * 0.34;
+  const disc = (p: THREE.Vector3, radius: number): BoneCrossing[] => [{ x: p.x, y: p.y, z: p.z, radius }];
+
+  const whole = char.bakePose(true);
+  const index = whole.getIndex()!.array as ArrayLike<number>;
+  const n = whole.getAttribute('position').count;
+  const own: number[] = [];
+  for (let t = 0; t < index.length; t += 3) {
+    if (!trunk.has(index[t]! + index[t + 1]! * n + index[t + 2]! * n * n)) own.push(index[t]!, index[t + 1]!, index[t + 2]!);
+  }
+  if (own.length < 60) {
+    whole.dispose();
+    return [];
+  }
+  whole.setIndex(own);
+  const geometry = compact(whole);
+  // Closed a little below its joint, where it is a whole tube of its own skin.
+  const root = a.clone().addScaledVector(along1, (upper === B.thighL || upper === B.thighR ? 0.1 : 0.06) * s);
+  const off = cutMesh(geometry, root, along1, disc(root, r1), null, 1);
+  geometry.dispose();
+  for (const piece of off.below) piece.geometry.dispose();
+  const limb = off.above[0];
+  if (!limb) return [];
+  const mid1 = a.clone().lerp(b, 0.56);
+  const mid2 = b.clone().lerp(c, 0.5);
+  const planes: Plane[] = [
+    { p: root, n: along1 },
+    { p: mid1, n: tilt(along1, 0.5) },
+    { p: b.clone().addScaledVector(along2, 0.02 * s), n: tilt(along1.clone().add(along2), 0.35) },
+    { p: mid2, n: tilt(along2, 0.5) },
+  ];
+  const elbow = split([limb], planes[2]!, disc(planes[2]!.p, r2));
+  const up = split(elbow.below, planes[1]!, disc(mid1, r1));
+  const down = split(elbow.above, planes[3]!, disc(mid2, r2));
+  const out: TorsoPiece[] = [];
+  for (const [sides, bone] of [[[...up.below, ...up.above], upper], [[...down.below, ...down.above], lower]] as const) {
+    for (const side of sides) {
+      roughen(side, planes, TorsoTuning.jag * s * 0.8);
+      side.hull = hullPoints(side.geometry);
+      out.push({ side, bone });
+    }
+  }
+  return out;
 }
 
 /** The kit's pieces for a plan. */
@@ -390,7 +478,7 @@ export function placePiece(char: CharacterInstance, piece: TorsoPiece, p: THREE.
 }
 
 /** The same for anything that sits at `at` in the model's bind space and rides bone `b`: a slab. */
-export function placeAt(char: CharacterInstance, b: number, at: THREE.Vector3, p: THREE.Vector3, q: THREE.Quaternion): void {
+export function placeAt(char: Pick<CharacterInstance, 'bones' | 'rig'>, b: number, at: THREE.Vector3, p: THREE.Vector3, q: THREE.Quaternion): void {
   const bone = char.bones[b]!;
   bone.updateWorldMatrix(true, false);
   bindPos(char, b, _b);

@@ -14,8 +14,8 @@ import { ImpactTuning, type ImpactEvents } from './impacts';
 import { buildFlesh, buildOrgans, buildRibcage, ORGANS, RIB_KINDS, type OrganKind, type RibKind } from './organs';
 import { TrailTuning, type GibTrail, type Ribbon } from './trail';
 
-/** A piece cut from one archetype's own body at load and registered here (`ChunkField.register`): a slab of its trunk (slabs.ts). */
-export type CutKind = `slab:${string}`;
+/** A piece cut from one archetype's own body at load and registered here (`ChunkField.register`): a slab of its trunk (slabs.ts), a part of a limb (`buildLimb` in torso.ts). */
+export type CutKind = `slab:${string}` | `part:${string}`;
 export type ChunkKind = 'meat' | 'viscera' | 'bone' | 'cranium' | 'jaw' | 'brain' | 'eye' | 'scrap' | OrganKind | RibKind | CutKind;
 
 export const ChunkTuning = {
@@ -36,6 +36,30 @@ export const ChunkTuning = {
   friction: 0.75,
   /** Speed lost in one step that counts as a wet impact. */
   impactSpeed: 3.5,
+};
+
+/**
+ * Organs you notice (the gore update's O1). An organ is soft: it squashes on what it lands on and wobbles back on a spring
+ * (`stiff`, `damp`: about four beats a second, three or four of them), sags a fifth flatter once it lies still, quivers
+ * when something lands within `quiverReach` of it, is kicked along by a player who walks into it (`kickReach`), and
+ * **bursts** when it is stepped on (`stepReach`, with the feet near its height) or shot: a splat on the floor, a puff of
+ * blood and a few scraps. Bursting is how an organ leaves the world.
+ */
+export const OrganTuning = {
+  stiff: 620,
+  damp: 11,
+  /** Squash a landing gives, as a share of height a m/s of speed lost; and the most it can be squashed or stretched. */
+  perSpeed: 0.016,
+  most: 0.5,
+  sag: 0.2,
+  sagSeconds: 0.5,
+  quiverReach: 1.3,
+  quiver: 2.2,
+  kickReach: 0.5,
+  stepReach: 0.2,
+  /** Seconds before an organ can be kicked again, and a kick's speed against the player's. */
+  kickEvery: 0.5,
+  kick: 0.9,
 };
 
 /** A piece at least this big across, metres, trails blood as it flies: an organ, a rib fragment, a slab, a big lump of meat. */
@@ -61,8 +85,12 @@ interface Chunk {
   splats: number;
   /** World time this piece may next be heard landing. */
   nextThud: number;
-  /** An organ's wobble after a landing, 1 down to 0. */
+  /** An organ's squash along the world's up, as a share of its height (negative: stretched), how fast that is changing, and how far it has sagged at rest, 0..1. */
   wob: number;
+  wobV: number;
+  sag: number;
+  /** World time an organ may next be kicked. */
+  kickAt: number;
   /** World time it may next leave a strand of blood in its path, and the ribbon a big piece trails (trail.ts). */
   trailAt: number;
   ribbon: Ribbon | null;
@@ -234,6 +262,7 @@ const _none = new THREE.Quaternion();
 const _rot = new THREE.Quaternion();
 const _p = new THREE.Vector3();
 const _o = new THREE.Vector3();
+const _up = new THREE.Vector3(0, 1, 0);
 
 export class ChunkField {
   private readonly meshes = new Map<ChunkKind, THREE.InstancedMesh>();
@@ -297,7 +326,7 @@ export class ChunkField {
     make('eye', kit.geometry.get('eye')!, wet(0.15, 1));
     make('scrap', shard(41), wet(0.4, 0));
     // Organs shade smooth: swollen and wet, not faceted like torn meat.
-    const organ = wet(0.16, 1, 0x240607);
+    const organ = wet(0.1, 1, 0x3c0c0f);
     (organ as THREE.MeshPhysicalMaterial).flatShading = false;
     for (const [kind, g] of buildOrgans()) make(kind, g, organ);
     const ribs = wet(0.42, 0.35, 0x1e1a14);
@@ -320,7 +349,7 @@ export class ChunkField {
     this.meshes.set(kind, mesh);
     this.ring.set(kind, 0);
     const slots: Chunk[] = Array.from({ length: cap }, (_, slot) => ({
-      kind, slot, body: null, size: 0, bulk: 0, sx: 1, sy: 1, sz: 1, born: 0, still: 0, restedAt: -1, speed: 0, splats: 0, nextThud: 0, wob: 0, trailAt: 0, ribbon: null, alive: false,
+      kind, slot, body: null, size: 0, bulk: 0, sx: 1, sy: 1, sz: 1, born: 0, still: 0, restedAt: -1, speed: 0, splats: 0, nextThud: 0, wob: 0, wobV: 0, sag: 0, kickAt: 0, trailAt: 0, ribbon: null, alive: false,
       p: new THREE.Vector3(), q: new THREE.Quaternion(), v: new THREE.Vector3(),
     }));
     this.slots.set(kind, slots);
@@ -412,7 +441,9 @@ export class ChunkField {
     const slots = this.slots.get(kind)!;
     const c = slots[ring]!;
     this.ring.set(kind, (ring + 1) % slots.length);
-    if (c.alive) this.retire(c);
+    // An organ whose slot is wanted does not just go: it bursts where it lies.
+    if (c.alive && ORGAN_SET.has(kind) && c.restedAt >= 0) this.burst(c, _up);
+    else if (c.alive) this.retire(c);
 
     if (this.live.length >= ChunkTuning.maxBodies) this.dropBody(this.live[0]!);
 
@@ -464,6 +495,9 @@ export class ChunkField {
     c.splats = 0;
     c.nextThud = 0;
     c.wob = 0;
+    c.wobV = 0;
+    c.sag = 0;
+    c.kickAt = 0;
     c.trailAt = 0;
     // An organ or a slab draws a ribbon behind it; a lump of meat or a rib fragment leaves strands.
     c.ribbon = this.trail && RIBBONED.has(kind) ? this.trail.open(c) : null;
@@ -479,7 +513,6 @@ export class ChunkField {
       c.body = null;
     }
     c.restedAt = this.ctx.time.elapsed;
-    c.wob = 0;
     const at = this.live.indexOf(c);
     if (at >= 0) {
       this.live[at] = this.live[this.live.length - 1]!;
@@ -503,9 +536,19 @@ export class ChunkField {
 
   private write(c: Chunk, scale: number): void {
     const s = c.size * scale;
-    // A landed organ wobbles: squashed and spread, then back, a few times over.
-    const w = c.wob > 0 ? Math.sin(c.wob * 26) * c.wob * 0.28 : 0;
-    _m.compose(c.p, c.q, _s.set(s * c.sx * (1 + w * 0.6), s * c.sy * (1 - w), s * c.sz * (1 + w * 0.6)));
+    _m.compose(c.p, c.q, _s.set(s * c.sx, s * c.sy, s * c.sz));
+    // A soft organ is squashed along the world's up, whichever way it lies, and spreads as much as it loses in height.
+    const w = c.wob + c.sag * OrganTuning.sag;
+    if (w !== 0) {
+      const flat = 1 - w;
+      const wide = 1 / Math.sqrt(Math.max(0.3, flat));
+      const e = _m.elements;
+      // Rows of the turn-and-size part: x and z spread, y flattens, about the piece's own middle less its sink to the floor.
+      e[0] = e[0]! * wide; e[4] = e[4]! * wide; e[8] = e[8]! * wide;
+      e[1] = e[1]! * flat; e[5] = e[5]! * flat; e[9] = e[9]! * flat;
+      e[2] = e[2]! * wide; e[6] = e[6]! * wide; e[10] = e[10]! * wide;
+      e[13] = e[13]! - Math.max(0, w) * c.bulk * 0.5;
+    }
     const mesh = this.meshes.get(c.kind)!;
     mesh.setMatrixAt(c.slot, _m);
     mesh.instanceMatrix.needsUpdate = true;
@@ -524,11 +567,15 @@ export class ChunkField {
       const speed = c.v.length();
       const lost = c.speed - speed;
       // A sharp loss of speed is a bounce. Stain where it hit, a few times at most per piece.
-      if (lost > t.impactSpeed * 0.5 && ORGAN_SET.has(c.kind)) c.wob = 1;
-      if (c.wob > 0) c.wob = Math.max(0, c.wob - dt * 1.6);
+      const organ = ORGAN_SET.has(c.kind);
+      // What it loses in speed on landing goes into its squash, and it springs back.
+      if (organ && lost > 0.8) c.wobV += lost * OrganTuning.perSpeed * 60;
+      if (organ) this.spring(c, dt);
       if (lost > t.impactSpeed && c.splats < 3 && c.kind !== 'scrap') {
         c.splats++;
         this.blood.stainBelow(c.p, 0.14 + c.bulk * 2.2, 'blood', 0.8);
+        // And what lies near shakes with it.
+        this.quiver(c.p, Math.min(1, lost / 8), c);
       }
       // Meat drips as it flies and for a moment after, inside the blood budget's drops a frame.
       if (c.kind !== 'scrap' && c.kind !== 'bone' && now - c.born < GIB_DRIP_FOR && Math.random() < dt * GIB_DRIPS) {
@@ -551,6 +598,7 @@ export class ChunkField {
       else c.still = 0;
       if (c.still > t.settle || now - c.born > 7) this.dropBody(c);
     }
+    this.updateOrgans(dt, now);
     const all = this.all;
     for (let i = 0; i < all.length; i++) {
       const c = all[i]!;
@@ -561,6 +609,169 @@ export class ChunkField {
       if (age >= t.shrink) this.retire(c);
       else this.write(c, 1 - age / t.shrink);
     }
+  }
+
+  /** One step of an organ's squash: a damped spring about rest. */
+  private spring(c: Chunk, dt: number): void {
+    const o = OrganTuning;
+    const h = Math.min(dt, 1 / 30);
+    c.wobV += (-o.stiff * c.wob - o.damp * c.wobV) * h;
+    c.wob = clamp(c.wob + c.wobV * h, -o.most * 0.6, o.most);
+  }
+
+  /**
+   * Organs lying still: they sag, go on wobbling until their spring is spent, are kicked along by a player who walks into
+   * them, and burst under one who steps on them. A few dozen distance checks a frame.
+   */
+  private updateOrgans(dt: number, now: number): void {
+    const o = OrganTuning;
+    const player = this.ctx.player;
+    const feet = player?.position?.isVector3 === true ? player.position : null;
+    for (const kind of ORGANS) {
+      const slots = this.slots.get(kind);
+      if (!slots) continue;
+      for (let i = 0; i < slots.length; i++) {
+        const c = slots[i]!;
+        if (!c.alive) continue;
+        const resting = c.restedAt >= 0;
+        if (resting) {
+          const moving = Math.abs(c.wob) > 0.002 || Math.abs(c.wobV) > 0.02 || c.sag < 1;
+          if (moving) {
+            c.sag = Math.min(1, c.sag + dt / o.sagSeconds);
+            this.spring(c, dt);
+            this.write(c, 1);
+          }
+        }
+        if (!feet) continue;
+        const dx = c.p.x - feet.x;
+        const dz = c.p.z - feet.z;
+        const reach = o.kickReach + c.bulk;
+        if (Math.abs(dx) > reach || Math.abs(dz) > reach || Math.abs(c.p.y - feet.y) > 0.45) continue;
+        const d = Math.hypot(dx, dz);
+        const v = player.velocity?.isVector3 === true ? player.velocity : null;
+        const speed = v ? Math.hypot(v.x, v.z) : 0;
+        if (d < o.stepReach + c.bulk * 0.5 && speed > 0.5 && (resting || c.v.lengthSq() < 4)) {
+          // Underfoot.
+          this.burst(c, _up);
+          continue;
+        }
+        if (d < reach && speed > 0.8 && now >= c.kickAt && v) {
+          // Walked into: it rolls off ahead and to the side, and bursts if the walker catches it up.
+          c.kickAt = now + o.kickEvery;
+          this.kick(c, v.x * o.kick + (dx / (d || 1)) * 1.2, 0.9 + speed * 0.12, v.z * o.kick + (dz / (d || 1)) * 1.2);
+        }
+      }
+    }
+  }
+
+  /** Sets a piece moving again from where it lies, with a body of its own. */
+  private kick(c: Chunk, vx: number, vy: number, vz: number): void {
+    if (c.body) {
+      c.body.setLinvel({ x: vx, y: vy, z: vz }, true);
+      return;
+    }
+    const kind = c.kind;
+    const size = c.size;
+    const sx = c.sx, sy = c.sy, sz = c.sz;
+    c.alive = false;
+    const ring = this.ring.get(kind)!;
+    // The same slot, thrown again: its shape and size are kept.
+    this.ring.set(kind, c.slot);
+    this.spawn(kind, c.p.x, c.p.y + 0.03, c.p.z, vx, vy, vz, size, c.q, 14);
+    this.ring.set(kind, ring);
+    c.sx = sx;
+    c.sy = sy;
+    c.sz = sz;
+    c.ribbon = null;
+    c.born = this.ctx.time.elapsed - TrailTuning.seconds;
+    c.wobV = 6;
+  }
+
+  /** Shakes every organ within reach of `at`, by `strength` 0..1: something landed there. */
+  quiver(at: THREE.Vector3, strength: number, but: Chunk | null = null): void {
+    const o = OrganTuning;
+    for (const kind of ORGANS) {
+      const slots = this.slots.get(kind);
+      if (!slots) continue;
+      for (let i = 0; i < slots.length; i++) {
+        const c = slots[i]!;
+        if (!c.alive || c === but) continue;
+        const d2 = c.p.distanceToSquared(at);
+        if (d2 > o.quiverReach * o.quiverReach) continue;
+        c.wobV += o.quiver * strength * (1 - Math.sqrt(d2) / o.quiverReach) * (Math.random() < 0.5 ? 1 : -1);
+        if (c.restedAt >= 0) c.sag = Math.min(c.sag, 0.999);
+      }
+    }
+  }
+
+  /**
+   * An organ bursts: stepped on, shot, or its slot wanted. A splat where it lay, a puff, a few scraps, and it is gone.
+   * `dir` is the way whatever burst it was going.
+   */
+  private burst(c: Chunk, dir: THREE.Vector3): void {
+    const { fx, audio } = this.ctx;
+    const size = c.bulk;
+    _o.copy(c.p);
+    this.bursts++;
+    this.retire(c);
+    fx.bloodMist(_o, 0.5 + size * 4);
+    fx.bloodHit(_o, _up, 1 + size * 6);
+    this.blood.stainBelow(_o, 0.45 + size * 4.5, 'blood', 1.3);
+    audio.play('gib_squelch', { position: _o, volume: 0.45, pitch: 1.25, pitchJitter: 0.15 });
+    for (let i = 0; i < 4; i++) {
+      this.spawn(
+        i === 0 ? 'viscera' : 'meat', _o.x, _o.y + 0.04, _o.z,
+        dir.x * 1.5 + (Math.random() - 0.5) * 4, 1.5 + Math.random() * 2.5, dir.z * 1.5 + (Math.random() - 0.5) * 4, 0.018 + Math.random() * 0.016,
+      );
+    }
+    this.quiver(_o, 0.6);
+  }
+
+  /** Organs burst since the start, for checks. */
+  bursts = 0;
+
+  /**
+   * The nearest organ a ray meets within `maxDist`, as its distance, or -1. `hit` then holds it for `burstHit`. Organs
+   * are a few dozen spheres at most.
+   */
+  raycastOrgan(origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number): number {
+    let best = maxDist;
+    this.hit = null;
+    for (const kind of ORGANS) {
+      const slots = this.slots.get(kind);
+      if (!slots) continue;
+      for (let i = 0; i < slots.length; i++) {
+        const c = slots[i]!;
+        if (!c.alive) continue;
+        const r = c.bulk * 1.1;
+        const mx = c.p.x - origin.x, my = c.p.y - origin.y, mz = c.p.z - origin.z;
+        const along = mx * dir.x + my * dir.y + mz * dir.z;
+        if (along < 0 || along - r > best) continue;
+        const off2 = mx * mx + my * my + mz * mz - along * along;
+        if (off2 > r * r) continue;
+        const t = along - Math.sqrt(r * r - off2);
+        if (t < best) {
+          best = Math.max(0, t);
+          this.hit = c;
+        }
+      }
+    }
+    return this.hit ? best : -1;
+  }
+
+  private hit: Chunk | null = null;
+
+  /** The organ the last `raycastOrgan` found, as a thing to hand back to `burstHit`. */
+  get organHit(): object | null {
+    return this.hit;
+  }
+
+  /** True if `handle` was an organ of this field, which is now burst along `dir`. */
+  burstHit(handle: unknown, dir: THREE.Vector3): boolean {
+    const c = handle as Chunk | null;
+    if (!c || !ORGAN_SET.has(c.kind) || this.slots.get(c.kind)?.[c.slot] !== c) return false;
+    if (c.alive) this.burst(c, dir);
+    return true;
   }
 
   get bodies(): number {
