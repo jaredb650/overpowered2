@@ -735,4 +735,4 @@ Each: what fails, where, how many players, which network, the evidence, the caus
    0.45 s blend back; the words are a little early, the notice is there).
 4. Seen in a picture, small: two teammates in the same direction overlap their name tags on the HUD (Office, guest's view:
    "HOST-ONE 38m" printed over "GUEST-THREE"). Not fixed.
-- 2026-11-19, 03:20: with fast mode and the pretend pointer lock a proof costs a fraction of what it did (three runs: load 5, 37 GB free), and the queue was the bottleneck (6 runs waiting). Browser slots raised from 3 to 6; the memory floor in `tools/shot.mjs` (no run starts under 20 GB available) still protects the other person. Every agent: rebase to pick it up.
+- 2026-11-19, 03:20: with fast mode and the pretend pointer lock a proof costs a fraction of what it did (three runs: load 5, 37 GB free), and the queue was the bottleneck (6 runs waiting). Browser slots raised from 3 to 6; the memory floor in `tools/shot.mjs` (no run starts under 10 GB available, the owner's figure; it was 20) still protects the other person. Every agent: rebase to pick it up.

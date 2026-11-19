@@ -69,14 +69,14 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 // The kit's fast mode cuts a run's CPU by a fifth to a quarter and not its memory, so it does not buy another slot.
 //
 // Two more rules keep that safe and fair:
-// - Memory floor: a run does not start while the machine has less than OP2_SHOT_FREE_GB (default 20: the other person's 16
+// - Memory floor: a run does not start while the machine has less than OP2_SHOT_FREE_GB (default 10, the owner's figure of 2026-11-19; it was 20: the other person's 16
 //   and this run's own) of memory available, whatever the slots say. It waits, at most 10 minutes, then goes ahead and says so.
 // - First come, first served: waiting runs queue by arrival (a ticket file each), and only the one at the head may take a free
 //   slot. Before this a run could wait 12 minutes while later ones went in (the wait was a random poll).
 setPriority(0, 19);
 const SLOTS = Math.max(1, Number(process.env.OP2_SHOT_SLOTS ?? (process.platform === 'linux' ? 6 : 1)));
 const SLOT_DIR = process.env.OP2_SHOT_DIR ?? '/tmp/op2-shot-slots';
-const FREE_GB = Number(process.env.OP2_SHOT_FREE_GB ?? 20);
+const FREE_GB = Number(process.env.OP2_SHOT_FREE_GB ?? 10);
 const maxRunMs = Number(opt.timeout ?? 150) * 1000;
 let LOCK = '';
 const holderAlive = dir => {
