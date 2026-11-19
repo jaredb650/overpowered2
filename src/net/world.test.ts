@@ -762,6 +762,10 @@ describe('a hit the host refuses, and a death started ahead of the host\'s word'
     expect(replica.alive).toBe(false);
     expect(kills).toHaveLength(0);
     expect(game.gw.hitsSeen).toMatchObject({ deaths: 1 });
+    // What needs the corpse (a stake's pin, a blade's fling) has it now, and does not wait.
+    const pinned = vi.fn();
+    game.gw.whenKilled(replica, pinned);
+    expect(pinned).toHaveBeenCalledOnce();
     // A state that still lists it (the host has not heard yet) does not bring it back.
     vi.advanceTimersByTime(60); game.hw.update(); game.relay.flush();
     expect(game.guest.ctx.enemies.alive).toHaveLength(0);

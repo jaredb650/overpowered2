@@ -4,7 +4,7 @@
  */
 import * as THREE from 'three';
 import { CG, type Ctx, type CorpseHit, type ExplosionKind, type RayHit } from '../core/contracts';
-import type { DamageResult, EnemyInstance, MissileTarget, ProjectileSpec, ProjectileTrail, Team } from '../core/gameplay';
+import { toldKill, type DamageResult, type EnemyInstance, type MissileTarget, type ProjectileSpec, type ProjectileTrail, type Team } from '../core/gameplay';
 import { clamp, rand } from '../core/math';
 import type { GoreRegion } from '../characters/rig';
 import type { Combat } from './Combat';
@@ -642,7 +642,8 @@ export class Projectiles {
    * gore.pin drags the bone there itself, so the body arrives with the stake.
    */
   private stakeThrough(p: Projectile, enemy: EnemyInstance, res: DamageResult, point: THREE.Vector3, dir: THREE.Vector3): void {
-    if (res.killed || res.severed.length > 0) {
+    // (`toldKill`: a co-op guest whose kill was played at once, ahead of the host's word, has the corpse on the line too.)
+    if (toldKill(res) || res.severed.length > 0) {
       const back = this.w.copy(point).addScaledVector(dir, -1.2);
       // A burst skull leaves nothing on the stake's line, so a head kill takes the body by the hips. Aimed at the bone
       // itself, because gore tests last frame's pose and enemy.center has already moved on.

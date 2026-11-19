@@ -363,6 +363,8 @@ export class Hits implements WorldModule {
    * The body dies on the host's word, so what needs the corpse waits for that. Forgotten if the host never says so.
    */
   whenKilled(enemy: EnemyInstance, then: (enemy: EnemyInstance) => void): void {
+    // Its whole death was played a moment ago, ahead of the host's word (kill prediction): the corpse is here now.
+    if (this.foretold.has(enemy.uid)) { then(enemy); return; }
     const list = this.onKill.get(enemy.uid);
     if (list) list.push(then);
     else this.onKill.set(enemy.uid, [then]);
