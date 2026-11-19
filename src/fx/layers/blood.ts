@@ -20,12 +20,21 @@ import { ORDER, type FxUniforms } from './shared';
  * time worked out at emission: the head sticks there and the rest of the strand runs into it.
  *
  *   aP  origin xyz, birth          aV  velocity xyz, life
- *   aC  tone 0 venous 1 arterial, half width, trail seconds, opacity (negative is a mist puff)
+ *   aC  tone 0 venous 1 arterial, half width, trail seconds (negative: an impact puff), opacity (negative is mist or a puff)
  *   aF  gravity, drag, stop time, seed
+ *
+ * The impact puff (`puff`) is the third kind of record: the cloud a round knocks out of flesh, facing the camera. It is
+ * there whole on its first frame and leaves by being eaten from its outline inward, never by fading (DESIGN.md, pillar 2).
  */
 const ATTRS = ['aP', 'aV', 'aC', 'aF'] as const;
 
 const SEGMENTS = 7;
+/** An impact puff grows with distance from the eye past this many metres, by this much a metre, to this much more at most. */
+const PUFF_FAR_FROM = 6;
+const PUFF_FAR_GAIN = 0.05;
+const PUFF_FAR_MOST = 1.2;
+/** Never smaller than this many pixels, half across. */
+const PUFF_MIN_PX = 7;
 /** Room around the strand for the antialiased edge. */
 const PAD = 1.4;
 
@@ -45,6 +54,7 @@ const VERT_NORMAL = /* glsl */ `
 float bAge = uTime - aP.w;
 bool bDead = bAge < 0.0 || bAge >= aV.w;
 bool bMist = aC.w < 0.0;
+bool bPuff = aC.z < 0.0;
 vec3 bGravity = vec3(0.0, aF.x, 0.0);
 float bU = position.y;
 float bTime = bMist ? min(bAge, aF.z) : clamp(bAge - bU * aC.z, 0.0, aF.z);
@@ -63,24 +73,35 @@ float bFloor = uPixelWorld * bDepth * uMinPx;
 float bHalf = aC.y;
 float bK = bAge / aV.w;
 float bOpacity = abs(aC.w);
-if (bMist) {
+if (bPuff) {
+  // Whole on its first frame: it opens the last tenth in a few frames and never fades. Bigger with distance, so a hit
+  // reads at 30 m as it does at 3, and never under a few pixels. Gone before it can sit on the player's face.
+  bHalf *= (0.9 + 0.1 * min(bK * 5.0, 1.0)) * (1.0 + clamp((bDepth - ${PUFF_FAR_FROM.toFixed(1)}) * ${PUFF_FAR_GAIN.toFixed(3)}, 0.0, ${PUFF_FAR_MOST.toFixed(2)}));
+  bOpacity *= clamp((bDepth - 0.5) / 0.8, 0.0, 1.0);
+} else if (bMist) {
   // Spreads as it thins. Gone before it can sit on the player's face, where it would cost a full screen.
   // At range the strands fall under a pixel, so the puff grows to carry the hit on its own.
   bHalf *= (1.0 + 1.6 * bK) * (1.0 + clamp((bDepth - 5.0) * 0.14, 0.0, 2.0));
   bOpacity *= (1.0 - bK) * (1.0 - bK) * clamp((bDepth - 0.7) / 1.3, 0.0, 1.0);
 }
 // Thinner than the pixel floor it gets paler, not fatter: a far spurt stays fine instead of turning to confetti.
-float bWidth = max(bHalf, bFloor);
-bOpacity *= sqrt(bHalf / bWidth);
+float bWidth = max(bHalf, bPuff ? uPixelWorld * bDepth * ${PUFF_MIN_PX.toFixed(1)} : bFloor);
+if (!bPuff) bOpacity *= sqrt(bHalf / bWidth);
 
 vec3 objectNormal = bToEye;
 `;
 
 const VERT_POSITION = /* glsl */ `
 vec3 transformed = bPos + bSide * (position.x * bWidth * ${PAD.toFixed(2)});
-if (bMist) transformed += bAlong * (bU * 2.0 - 1.0) * bWidth * (1.0 + min(bSpeed * 0.16, 1.6));
-vStrand = vec4(position.x * ${PAD.toFixed(2)}, bU, bMist ? -1.0 : aC.z * length(aV.xyz) / max(aC.y * 7.0, 0.01), aF.w);
-vLook = vec4(aC.x, bOpacity, 0.0, 0.0);
+if (bPuff) {
+  // A square that faces the eye whichever way the puff drifts: along its own velocity, mist seen from the gun is edge on.
+  vec3 pRight = cross(vec3(0.0, 1.0, 0.0), bToEye);
+  float pLen = length(pRight);
+  pRight = pLen > 0.001 ? pRight / pLen : vec3(1.0, 0.0, 0.0);
+  transformed = bPos + (pRight * position.x + cross(bToEye, pRight) * (bU * 2.0 - 1.0)) * bWidth;
+} else if (bMist) transformed += bAlong * (bU * 2.0 - 1.0) * bWidth * (1.0 + min(bSpeed * 0.16, 1.6));
+vStrand = vec4(bPuff ? position.x : position.x * ${PAD.toFixed(2)}, bU, bPuff ? -2.0 : bMist ? -1.0 : aC.z * length(aV.xyz) / max(aC.y * 7.0, 0.01), aF.w);
+vLook = vec4(aC.x, bOpacity, bK, 0.0);
 vSide = mat3(viewMatrix) * bSide;
 `;
 
@@ -97,8 +118,23 @@ varying vec3 vSide;
 uniform vec3 uVenous;
 uniform vec3 uArterial;
 uniform float uLift;
+uniform float uPuffRim;
+uniform float uPuffEdge;
+uniform float uPuffCore;
+uniform float uPuffFloor;
 
 float bloodSpeck(vec2 p) { return fract(sin(dot(floor(p), vec2(127.1, 311.7))) * 43758.5453); }
+/** Smooth value noise, 0..1: the ragged edge of a puff, and what eats it. */
+float bloodCloud(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  float a = bloodSpeck(i);
+  float b = bloodSpeck(i + vec2(1.0, 0.0));
+  float c = bloodSpeck(i + vec2(0.0, 1.0));
+  float d = bloodSpeck(i + vec2(1.0, 1.0));
+  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
 `;
 
 const FRAG_COVER = /* glsl */ `
@@ -107,7 +143,37 @@ float bU = vStrand.y;
 float bSeed = vStrand.w;
 float bHalf = 1.0;
 float bAlpha;
-if (vStrand.z < 0.0) {
+float bCore = 0.0;
+if (vStrand.z < -1.5) {
+  // The impact puff: a lobed cloud with a hard, torn edge. It starts whole and is eaten from the outline inward as it
+  // ages, breaking into islands on the way, while a ring of flung drops runs out ahead of it.
+  vec2 q = vec2(bAcross, bU * 2.0 - 1.0);
+  float k = vLook.z;
+  float r = length(q);
+  float th = atan(q.y, q.x);
+  float lobes = 0.5 + 0.5 * sin(th * 3.0 + bSeed * 40.0);
+  // Tongues thrown out along its radii, so it reads as something struck and not as a ball of fog.
+  float tongue = bloodCloud(vec2(th * 2.4 + bSeed * 9.0, r * 0.9 + bSeed * 3.0));
+  float reach = 0.4 + 0.16 * lobes + 0.36 * tongue * tongue;
+  float cloud = bloodCloud(q * 3.3 + bSeed * 31.0);
+  float fine = bloodCloud(q * 9.0 + bSeed * 73.0);
+  float eaten = pow(k, 0.85);
+  float body = reach * (1.0 - 0.72 * eaten) - r - (cloud - 0.5) * 0.3 - (fine - 0.5) * 0.1 - eaten * cloud * 0.55;
+  float edge = max(fwidth(body), 0.004);
+  bAlpha = clamp(body / edge + 0.5, 0.0, 1.0);
+  // Three flat bands, as the fire's are: a dark torn rim, the bright spray inside it, and the thick heart.
+  bCore = step(0.055, body) + step(0.2, body);
+  float flung = bAlpha;
+  // Drops thrown clear of it: a band that runs outward and thins.
+  float front = 0.42 + 0.56 * sqrt(k);
+  float band = step(front - 0.3, r) * step(r, front) * step(r, 0.98);
+  vec2 cell = q * 13.0 + bSeed * 57.0;
+  // Round drops, each a little off the middle of its cell so they do not line up.
+  float drop = step(0.8 + 0.17 * k, bloodSpeck(cell)) * step(length(fract(cell) - 0.5 - (vec2(bloodSpeck(cell + 7.0), bloodSpeck(cell + 19.0)) - 0.5) * 0.3), 0.36);
+  bAlpha = max(bAlpha, band * drop * (1.0 - k * k));
+  // A drop is the bright spray, not rim.
+  if (flung < 0.5 && bAlpha > 0.0) bCore = 1.0;
+} else if (vStrand.z < 0.0) {
   // Mist is a spray of very fine drops, so a soft body with grain in it, never a smooth gel.
   vec2 q = vec2(bAcross / ${PAD.toFixed(2)}, bU * 2.0 - 1.0);
   float body = 1.0 - smoothstep(0.1, 1.0, length(q));
@@ -129,8 +195,10 @@ if (vStrand.z < 0.0) {
 bAlpha *= vLook.y;
 if (bAlpha < 0.006) discard;
 vec3 bTint = mix(uVenous, uArterial, vLook.x);
-// A fine spray scatters what a solid drop absorbs, so it reads paler than the blood it came from.
-if (vStrand.z < 0.0) bTint *= 4.0;
+// A fine spray scatters what a solid drop absorbs, so it reads paler than the blood it came from. A puff is thick at its
+// heart and thin at its torn edge: two flat bands, as the fire's are.
+if (vStrand.z < -1.5) bTint *= bCore < 0.5 ? uPuffRim : bCore < 1.5 ? uPuffEdge : uPuffCore;
+else if (vStrand.z < 0.0) bTint *= 4.0;
 diffuseColor = vec4(vec3(1.0), bAlpha);
 `;
 
@@ -143,6 +211,8 @@ const FRAG_LIGHT = /* glsl */ `
 #include <lights_fragment_end>
 {
   float bLight = dot(reflectedLight.directDiffuse + reflectedLight.indirectDiffuse, vec3(0.2126, 0.7152, 0.0722));
+  // Hit feedback has to be seen: a puff keeps a little of its red in a dark corner, where a strand goes black.
+  if (vStrand.z < -1.5) bLight = max(bLight, uPuffFloor);
   reflectedLight.directDiffuse = vec3(0.0);
   reflectedLight.indirectDiffuse = bTint * bLight * uLift;
 }
@@ -161,6 +231,13 @@ const FRAG_LIMIT = /* glsl */ `
 gl_FragColor.rgb = min(gl_FragColor.rgb, vec3(0.5));
 #include <tonemapping_fragment>
 `;
+
+/**
+ * How an impact puff is shaded, in flat bands from the outside in, as multiples of the blood's own albedo (mist is 4): a
+ * dark `rim` that parts it from whatever is behind (a body flashing red from the same hit included), the bright spray
+ * (`edge`) and the thick `core`. `floor` is the least light it is drawn under, as a share of full daylight.
+ */
+export const PUFF_LOOK = { rim: 0.7, edge: 4.6, core: 2.9, floor: 0.16 };
 
 function strip(): THREE.BufferGeometry {
   const position: number[] = [];
@@ -243,6 +320,10 @@ export class BloodLayer {
     const own = {
       uMinPx: { value: 1.3 },
       uLift: { value: 3.2 },
+      uPuffRim: { value: PUFF_LOOK.rim },
+      uPuffEdge: { value: PUFF_LOOK.edge },
+      uPuffCore: { value: PUFF_LOOK.core },
+      uPuffFloor: { value: PUFF_LOOK.floor },
       uVenous: { value: new THREE.Vector3(BLOOD.venous.r, BLOOD.venous.g, BLOOD.venous.b) },
       uArterial: { value: new THREE.Vector3(BLOOD.arterial.r, BLOOD.arterial.g, BLOOD.arterial.b) },
     };
@@ -364,6 +445,33 @@ export class BloodLayer {
     d[o + 10] = 0;
     d[o + 11] = -opacity;
     d[o + 12] = this.gravity * 0.1;
+    d[o + 13] = drag;
+    d[o + 14] = life;
+    d[o + 15] = Math.random();
+  }
+
+  /**
+   * An impact puff: the cloud a round knocks out of flesh, `half` metres to its edge, whole on the frame it is added and
+   * eaten away over `life` seconds. It drifts with the velocity given and stops within a hand's width. One record.
+   */
+  puff(x: number, y: number, z: number, vx: number, vy: number, vz: number, half: number, life: number, drag: number, opacity = 1, delay = 0): void {
+    const ring = this.ring;
+    const d = ring.data;
+    const birth = this.birth + delay;
+    const o = ring.alloc(birth + life);
+    d[o] = x;
+    d[o + 1] = y;
+    d[o + 2] = z;
+    d[o + 3] = birth;
+    d[o + 4] = vx;
+    d[o + 5] = vy;
+    d[o + 6] = vz;
+    d[o + 7] = life;
+    d[o + 8] = this.tone;
+    d[o + 9] = half;
+    d[o + 10] = -1;
+    d[o + 11] = -opacity;
+    d[o + 12] = this.gravity * 0.12;
     d[o + 13] = drag;
     d[o + 14] = life;
     d[o + 15] = Math.random();

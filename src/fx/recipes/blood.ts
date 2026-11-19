@@ -80,6 +80,42 @@ export function bloodHit(core: FxCore, position: THREE.Vector3, dir: THREE.Vecto
   b.mist(x, y, z, -dir.x * 2.2, 0.4 - dir.y * 2.2, -dir.z * 2.2, 0.13 * p, 0.2, 8, 0.55);
 }
 
+/**
+ * The impact puff: what a round knocks out of flesh on the frame it lands, on the side it came from. Hit feedback first
+ * and blood second, so it is there whole at once (no attack), saturated, and gone in a fifth of a second by being eaten
+ * away, never by fading. `weight` is the round on the body-hit scale (`hitWeight`, 0..1): an SMG round is a puff a hand
+ * and a half across, a shotgun's blast or a heavy round one as wide as a chest. `scale` is for a caller's own reasons: the
+ * later pellets of a blast on a body it has already puffed are smaller. It grows with distance from the eye in the shader
+ * (`layers/blood.ts`), so it reads at range. One record; at most `PUFF.perFrame` a frame, the rest are dropped.
+ */
+export function bloodPuff(core: FxCore, position: THREE.Vector3, dir: THREE.Vector3, weight = 0.3, scale = 1): void {
+  if (puffFrame !== core.bloodNow) {
+    puffFrame = core.bloodNow;
+    puffs = 0;
+  }
+  if (puffs >= PUFF.perFrame) return;
+  puffs++;
+  const w = clamp(weight, 0, 1);
+  const half = (PUFF.half + PUFF.heavy * w) * scale;
+  // Just off the skin, toward the gun, so the body it came out of does not hide half of it.
+  const off = PUFF.off + half * 0.25;
+  const x = position.x - dir.x * off;
+  const y = position.y - dir.y * off;
+  const z = position.z - dir.z * off;
+  const v = PUFF.drift * (0.7 + 0.6 * w);
+  const b = core.blood.begin(core.bloodNow, -1e6, null, BLOOD_TONE.arterial);
+  b.puff(x, y, z, -dir.x * v + rand(-0.3, 0.3), 0.35 - dir.y * v, -dir.z * v + rand(-0.3, 0.3), half, PUFF.life + PUFF.lifeHeavy * w, PUFF.drag);
+}
+
+/**
+ * The puff's numbers. `half`: metres from its middle to its edge for the lightest round, `heavy` what a full-weight round
+ * adds. `life`, `lifeHeavy`: seconds. `off`: metres it stands off the skin. `drift`, `drag`: how fast it leaves the wound
+ * back toward the gun, and how soon the air stops it. `perFrame`: the hard cap.
+ */
+export const PUFF = { half: 0.12, heavy: 0.22, life: 0.17, lifeHeavy: 0.1, off: 0.05, drift: 1.6, drag: 9, perFrame: 12 };
+let puffFrame = -1;
+let puffs = 0;
+
 /** A faint breath of fine drops. It is gone in half a second: blood mist that hangs is a video game effect. */
 export function bloodMist(core: FxCore, position: THREE.Vector3, size = 1): void {
   const { x, y, z } = position;

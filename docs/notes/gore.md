@@ -399,6 +399,12 @@ blood.onHit(char, damage, severity, bone?, point?);      // what a round leaves 
 Tests: `blood.test.ts` (spray classes, one spray a shotgun blast, the spray, bleeder and drop budgets, decal cap and runs). Renders:
 `tools/scripts/gore-b.mjs` (scenes `spray runs pool wet drips bench`, header has the command) and `tools/scripts/gore-b-wet.mjs`.
 
+**The impact puff (2026-11-18).** `BloodField.onHit` also fires `fx.bloodPuff` for every bullet and pellet (`puffOf`), on the
+frame of the hit and before anything else it does: one for a round; for a shotgun's blast on one body one big one and up to
+`BloodTuning.puffPellets` (3) small ones at its other pellets. It goes through `gore.wound` and `damageCorpse`, so the living,
+the dying and corpses all give one, on every co-op screen, and a round a plate stopped gives none. The look and the numbers are
+in `docs/notes/fx.md`, "The impact puff".
+
 ## Forces
 
 Measured throws per weapon are in `docs/notes/lab.md`. A body is 85 kg, and gravity is 19, twice the real thing, which is the fact everything below comes back to.

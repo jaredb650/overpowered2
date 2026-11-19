@@ -15,7 +15,7 @@ import { FxCore } from './core';
 import { EmitterPool } from './emitters';
 import { hotInto, type Rgb } from './layers/shared';
 import { CHIP } from './palette';
-import { bloodDrip, bloodHit, bloodJet, bloodMist, bloodSpray, gibBurst, headBurst } from './recipes/blood';
+import { bloodDrip, bloodHit, bloodJet, bloodMist, bloodPuff, bloodSpray, gibBurst, headBurst } from './recipes/blood';
 import { chipBurst, hellfireBurst } from './recipes/bursts';
 import { burst as cannonBurst } from './recipes/cannon';
 import { embers, explosion } from './recipes/explosions';
@@ -146,6 +146,10 @@ class Fx implements FxSystem {
 
   bloodMist(position: THREE.Vector3, size?: number): void {
     bloodMist(this.core, position, size);
+  }
+
+  bloodPuff(position: THREE.Vector3, dir: THREE.Vector3, weight?: number, scale?: number): void {
+    bloodPuff(this.core, position, dir, weight, scale);
   }
 
   headBurst(position: THREE.Vector3, dir: THREE.Vector3): void {

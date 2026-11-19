@@ -34,7 +34,20 @@ export const BloodTuning = {
   dripsPerFrame: 6,
   /** How much wetter a body gets per hit, plus its share of health that hit took. */
   wetPerHit: 0.1,
+  /** Impact puffs from the later pellets of one blast on one body, after the blast's own, and their size against it. */
+  puffPellets: 3,
+  puffPelletScale: 0.62,
+  /** A blast's first puff on a body, against a single round of the same weight: it stands for all the pellets. */
+  puffBlastScale: 1.15,
 };
+
+/**
+ * The weight of a round's impact puff on the body-hit scale (`hitWeight`), or -1 for a hit that knocks none out: only a
+ * bullet or a pellet does (a blade opens, a blast bursts, fire and shock draw no blood). Pure, for its test.
+ */
+export function puffOf(d: Pick<DamageInfo, 'amount' | 'type' | 'force'>): number {
+  return d.type === 'bullet' || d.type === 'pellet' ? hitWeight(d.amount, d.type, d.force) : -1;
+}
 
 /**
  * A round's spray: its weight on the body-hit scale (`hitWeight`), and whether it is a blast's burst. Pure, so the
@@ -121,6 +134,8 @@ export class BloodField {
   /** The last body a spray came off, and when: a shotgun's pellets on one body are one spray. */
   private sprayChar: CharacterInstance | null = null;
   private sprayAt = -1;
+  /** Pellet puffs the body `sprayChar` has had from the blast at `sprayAt`. */
+  private pelletPuffs = 0;
 
   private readonly hit: RayHit = {
     point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, surface: 'concrete', collider: null,
@@ -287,6 +302,18 @@ export class BloodField {
     const wet = Math.min(1, (this.wet.get(char) ?? 0) + (again ? s * 0.5 : BloodTuning.wetPerHit + s * 1.1));
     this.wet.set(char, wet);
     char.setBloodiness(wet);
+    // The impact puff, on the frame of the hit: one for a round, and for a blast one for the body and a few for its pellets.
+    const puff = puffOf(d);
+    if (puff >= 0) {
+      const t = BloodTuning;
+      if (!again) {
+        this.pelletPuffs = 0;
+        this.ctx.fx.bloodPuff?.(point, d.dir, puff, d.type === 'pellet' ? t.puffBlastScale : 1);
+      } else if (this.pelletPuffs < t.puffPellets) {
+        this.pelletPuffs++;
+        this.ctx.fx.bloodPuff?.(point, d.dir, puff, t.puffPelletScale);
+      }
+    }
     // A flechette's darts are each their own small hole, dripping on its own: one spray for the blast, a wound a dart.
     const dart = d.load === 'flechette';
     if (again && !dart) return;

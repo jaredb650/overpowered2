@@ -7,7 +7,7 @@ import type { MaterialPatcher } from '../render/materials/patch';
 import type { BakedSet } from '../render/materials/TextureBaker';
 import { makeCtx } from '../sandbox/harness';
 import { WEAPONS } from '../weapons/data';
-import { BloodField, BloodTuning, sprayOf } from './blood';
+import { BloodField, BloodTuning, puffOf, sprayOf } from './blood';
 
 const damage = (type: DamageType, amount: number, force = 0): DamageInfo => ({
   type, amount, force, source: 'test', point: new THREE.Vector3(0, 1.2, 0), dir: new THREE.Vector3(0, 0, -1), bone: 1,
@@ -15,11 +15,12 @@ const damage = (type: DamageType, amount: number, force = 0): DamageInfo => ({
 
 /** A BloodField whose effects are counted rather than drawn. */
 function field() {
-  const calls = { sprays: [] as { weight: number; radial: boolean }[], drips: 0, splats: 0 };
+  const calls = { sprays: [] as { weight: number; radial: boolean }[], drips: 0, splats: 0, puffs: [] as { weight: number; scale: number }[] };
   const ctx = makeCtx({
     fx: {
       bloodSpray: (_p: THREE.Vector3, _d: THREE.Vector3, weight: number, radial = false) => calls.sprays.push({ weight, radial }),
       bloodDrip: () => calls.drips++,
+      bloodPuff: (_p: THREE.Vector3, _d: THREE.Vector3, weight = 0.3, scale = 1) => calls.puffs.push({ weight, scale }),
     } as unknown as ReturnType<typeof makeCtx>['fx'],
     render: { decals: { add() {}, splat: () => calls.splats++, clear() {} } } as unknown as ReturnType<typeof makeCtx>['render'],
   });
@@ -154,5 +155,45 @@ describe('decals', () => {
     const before = d.mesh.count;
     d.splat(new THREE.Vector3(0, 0, 0), floor, 1, new THREE.Vector3(1, -6, 0));
     expect(d.mesh.count).toBe(before + 1);
+  });
+});
+
+describe('impact puffs', () => {
+  it('come off a bullet or a pellet and nothing else, heavier for a heavier round', () => {
+    const smg = puffOf(damage('bullet', WEAPONS.smg.damage));
+    const pistol = puffOf(damage('bullet', WEAPONS.rivet.damage, WEAPONS.rivet.force));
+    const rifle = puffOf(damage('bullet', WEAPONS.harrow.damage, WEAPONS.harrow.force));
+    const pellet = puffOf(damage('pellet', WEAPONS.shotgun.damage, WEAPONS.shotgun.force));
+    const sabot = puffOf(damage('bullet', WEAPONS.sabot.damage, WEAPONS.sabot.force));
+    expect(smg).toBeGreaterThan(0);
+    expect(pistol).toBeGreaterThan(smg);
+    expect(rifle).toBeGreaterThan(pistol);
+    expect(pellet).toBeGreaterThan(rifle);
+    expect(sabot).toBe(1);
+    for (const t of ['explosive', 'fire', 'shock', 'slash', 'melee', 'crush', 'true'] as DamageType[]) expect(puffOf(damage(t, 50)), t).toBe(-1);
+  });
+
+  it('are one a round, on the frame of the hit', () => {
+    const { blood, calls } = field();
+    blood.onHit(body(), damage('bullet', 25), 0.1);
+    expect(calls.puffs).toHaveLength(1);
+    expect(calls.puffs[0]!.scale).toBe(1);
+    // The next round on the same body, the same frame (a second gun), is its own hit.
+    blood.onHit(body(), damage('bullet', 25), 0.1);
+    expect(calls.puffs).toHaveLength(2);
+    for (const t of ['explosive', 'fire', 'slash', 'melee'] as DamageType[]) blood.onHit(body(), damage(t, 50), 0.3);
+    expect(calls.puffs).toHaveLength(2);
+  });
+
+  it('are one big one for a shotgun blast on a body, and a few small ones for its pellets', () => {
+    const { blood, calls } = field();
+    const man = body();
+    for (let i = 0; i < 8; i++) blood.onHit(man, damage('pellet', 26, 20), 0.2);
+    expect(calls.puffs).toHaveLength(1 + BloodTuning.puffPellets);
+    expect(calls.puffs[0]!.scale).toBe(BloodTuning.puffBlastScale);
+    for (const p of calls.puffs.slice(1)) expect(p.scale).toBe(BloodTuning.puffPelletScale);
+    // A second body in the same blast has its own.
+    blood.onHit(body(), damage('pellet', 26, 20), 0.2);
+    expect(calls.puffs).toHaveLength(2 + BloodTuning.puffPellets);
   });
 });
