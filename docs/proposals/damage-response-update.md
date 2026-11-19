@@ -586,6 +586,24 @@ Additions from the owner, same day:
     world. This is visual work: Fable only.
   - **Cost to check:** sheet size and memory (a larger atlas, still one texture and one draw), and that the shader that draws
     the sheet at load does not add a stall.
+- **Big decals for coverage, small ones for detail (the owner's idea, part of D1).** The owner: blood spilling feels
+  satisfying but is built from a great many small decals; it has some detail but **lacks coverage**. So a violent event
+  should lay down **one or a few BIG decals** that give the coverage at once, and the small stacking decals become the
+  detail on top.
+  - **Big shapes to draw:** a wide burst splat (1 to 3 m) for a gib, an explosion kill, a point-blank shotgun kill or a head
+    burst; a long directional fan thrown along the shot or away from the blast centre, on floor and wall; a large soaked
+    patch under a body that the pool then grows from; a broad wall sheet behind a kill with its runs; a long drag or slide
+    smear; a ring or star around a blast where several die. Each is designed as a whole composition (dense centre, breaking
+    up into fingers, droplets and satellites at the edge), not a scaled-up blot, with 3 or more variants each.
+  - **Rules:** size and choice by the violence of the event (damage, weapon, how the body died); oriented by the shot or
+    blast direction; one big decal replaces dozens of small ones in the budget, so coverage goes up while the count goes
+    down, and the small traced drops still land on top and beyond its edge so the outline never looks stamped. A big decal
+    must wrap or clip sensibly at wall corners and floor edges (check what the decal projection does at an edge; split into
+    floor and wall parts if needed), and must not hide the surface detail under it completely.
+  - **Budget:** big decals get their own small ring (they are few), and they are what the "mess stays" steps keep longest.
+    Watch overdraw: a few large decals overlapping is cheaper than hundreds of small ones, but measure it (M0 item 4).
+  - **Judged by eye:** the same scenes before and after (a rocket into three men, a point-blank shotgun kill, ten kills in one
+    spot), showing coverage and detail together.
 - **Sound is not a focus for now:** the game has plenty of gore sounds. This update is about what is seen.
 
 Status: not started. It is queued behind the co-op overhaul (the co-op gore lane is editing the same files); the owner says when.
