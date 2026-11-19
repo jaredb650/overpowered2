@@ -90,7 +90,7 @@ const PENDING_MAX = 64;
 const DEAD_MAX = 1024;
 
 /** Host: what was last sent in an enemy's full record, to know when it changed. */
-interface Sent { first: number; fullUntil: number; health: number; maxHealth: number; armor: number; rest: number }
+interface Sent { first: number; fullUntil: number; health: number; maxHealth: number; armor: number; rest: number; target: number }
 /** Host: one guest's lane. */
 interface Guest { windowAt: number; bytes: number; farEvery: number }
 
@@ -390,11 +390,16 @@ export class Replicas implements WorldModule {
   private note(enemy: Enemy, tick: number): void {
     let sent = this.sent.get(enemy.uid);
     const rest = this.restOf(enemy);
-    if (!sent) this.sent.set(enemy.uid, sent = { first: tick, fullUntil: tick + FULL_TICKS, health: enemy.health, maxHealth: enemy.maxHealth, armor: enemy.armor, rest });
+    const target = this.targeting.targetOf(enemy.uid);
+    let slot = 0;
+    if (target !== undefined) for (const player of this.w.session.lobby.players) if (player.id === target) { slot = player.slot; break; }
+    if (!sent) this.sent.set(enemy.uid, sent = { first: tick, fullUntil: tick + FULL_TICKS, health: enemy.health, maxHealth: enemy.maxHealth, armor: enemy.armor, rest, target: 0 });
     else if (sent.health !== enemy.health || sent.maxHealth !== enemy.maxHealth || sent.armor !== enemy.armor || sent.rest !== rest) {
       sent.health = enemy.health; sent.maxHealth = enemy.maxHealth; sent.armor = enemy.armor; sent.rest = rest;
       sent.fullUntil = tick + FULL_TICKS;
     }
+    // The slot of the player it is after, worked out once a tick for every guest's record.
+    sent.target = slot;
   }
 
   /** Plates, posture and severed regions as one number. */
@@ -431,7 +436,7 @@ export class Replicas implements WorldModule {
       const sentTier = tier === 0 ? 0 : guest.farEvery === FAR_EVERY ? 1 : 2;
       // A new enemy goes to everyone on its first two ticks, wherever it is, so it appears on time.
       if (!dueOn(enemy.uid, tick, tier, guest.farEvery) && tick > sent.first + 1) continue;
-      this.fill(e, enemy, sentTier, tick <= sent.fullUntil || keyOn(enemy.uid, tick));
+      this.fill(e, enemy, sentTier, tick <= sent.fullUntil || keyOn(enemy.uid, tick), sent.target);
       if (open && !writer.fits(e.full)) { this.flush(id, guest); open = false; }
       if (!open) { writer.begin(0, now, tick, waves.wave, waves.phase, waves.nextWaveIn, alive.length, tickMs); open = true; }
       writer.add(e);
@@ -451,16 +456,14 @@ export class Replicas implements WorldModule {
     guest.bytes += bytes.byteLength;
   }
 
-  private fill(e: WireEnemy, enemy: Enemy, tier: number, full: boolean): void {
-    const { session } = this.w;
+  private fill(e: WireEnemy, enemy: Enemy, tier: number, full: boolean, target: number): void {
     e.uid = enemy.uid; e.full = full; e.tier = tier;
     e.legs = enemy.maim.legs; e.rising = enemy.rising > 0;
     e.aiming = enemy.attack !== null || enemy.face === 'player';
     e.flags = (enemy.airborne ? AIRBORNE : 0) | (enemy.downed ? DOWNED : 0) | (enemy.frozen > 0 ? FROZEN : 0) | (enemy.burning > 0 ? BURNING : 0)
       | (enemy.shield ? SHIELD : 0) | (enemy.ward > 0 ? WARD : 0) | (enemy.entrance === 'boss' ? BOSS_ENTRY : 0) | (capturable(enemy) ? CAPTURABLE : 0);
     e.animation = enemy.attack ? enemy.attackPhase === 'windup' ? 1 : 2 : enemy.stagger > 0 ? 3 : 0;
-    const target = this.targeting.targetOf(enemy.uid);
-    e.target = target === undefined ? 0 : session.lobby.players.find(player => player.id === target)?.slot ?? 0;
+    e.target = target;
     e.x = enemy.position.x; e.y = enemy.position.y; e.z = enemy.position.z; e.yaw = enemy.yaw;
     e.vx = enemy.velocity.x; e.vy = enemy.velocity.y; e.vz = enemy.velocity.z;
     if (!full) return;

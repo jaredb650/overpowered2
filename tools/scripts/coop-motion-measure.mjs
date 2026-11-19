@@ -20,7 +20,7 @@
 //   error       metres between where an enemy is drawn and where the host had it that long ago: p50, p95, max
 //   declared    the same against the moment the guest itself says it is drawing (its playhead), where it has one
 //   yaw         the same for facing, degrees
-//   stalls      frames an enemy stood still on the guest while its host twin moved (over 0.5 m/s), and how many times
+//   stalls      frames an enemy stood still on the guest (under 0.03 m/s) while its host twin moved (over 0.5 m/s), and how many times
 //               a minute that began, for the whole crowd and per enemy
 //   step        how far a frame's movement on the guest is from the host's over the same moment, metres: stepping and darts
 //   bytes       what the host sent this guest a second: snapshots, and everything
@@ -179,7 +179,8 @@ export function analyse(hostRec, guestRec) {
         const d = where(uid, hostRec.origin + s.playhead);
         if (d) { declared.push(Math.hypot(s.x - d.x, s.y - d.y, s.z - d.z)); declaredYaw.push(turn(s.yaw, d.yaw) * 180 / Math.PI); behind.push(s.t - (hostRec.origin + s.playhead)); }
       }
-      if (previous && s.t - previous.t < 120) {
+      // Two frames a few milliseconds apart (a page catching up after a hitch) say nothing about standing still.
+      if (previous && s.t - previous.t < 120 && s.t - previous.t >= 4) {
         const dt = (s.t - previous.t) / 1000;
         enemySeconds += dt;
         const guestMove = Math.hypot(s.x - previous.x, s.y - previous.y, s.z - previous.z);
@@ -187,7 +188,7 @@ export function analyse(hostRec, guestRec) {
         step.push(Math.abs(guestMove - hostMove));
         if (hostMove / dt > 0.5) {
           moving++;
-          const still = guestMove < 0.0005;
+          const still = guestMove / dt < 0.03;
           if (still) { stallFrames++; if (!stalled) stalls++; }
           stalled = still;
         } else stalled = false;
