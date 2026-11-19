@@ -279,7 +279,11 @@ describe('host-authoritative world over the mocked lobby transport', () => {
     (game.host.ctx.enemies as unknown as { vehicles: unknown }).vehicles = { live: [truck], claimed, blast };
     game.hw.update(); game.relay.flush();
     const sent = () => game.relay.packets.filter(packet => packet.lane === 'action').map(packet => (packet.data as { data: WorldEvent }).data);
-    const id = (sent().find(event => event.t === 'vehicles') as Extract<WorldEvent, { t: 'vehicles' }>).list[0]!.id;
+    // The vehicles' state rides the unreliable lane as a side packet (world/sideList.ts): two bytes of head, the kind, then JSON.
+    const side = game.relay.packets.filter(packet => packet.lane === 'world' && packet.data instanceof ArrayBuffer).map(packet => new Uint8Array(packet.data as ArrayBuffer))
+      .filter(bytes => bytes[0] === 0x05 && bytes[1] === 0xc2 && bytes[2] === 1).map(bytes => JSON.parse(new TextDecoder().decode(bytes.subarray(3))) as { list: { id: number }[] });
+    expect(sent().some(event => event.t === 'vehicles')).toBe(false);
+    const id = side[0]!.list[0]!.id;
     // Straight to the claim: the guest's hit boxes need the real physics world (the browser proof covers them).
     const guestClaims = (game.gw as unknown as { claims: { vehicleHit(...args: unknown[]): void; vehicleBlast(...args: unknown[]): void } }).claims;
     guestClaims.vehicleHit(id, 'engine', new THREE.Vector3(0.2, 1, 1.5), 60, 'harrow');

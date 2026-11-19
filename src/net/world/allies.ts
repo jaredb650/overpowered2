@@ -8,6 +8,7 @@ import type { CharacterInstance, Ctx } from '../../core/contracts';
 import { ALLY_TYPES, type AllyType } from '../../allies/data';
 import type { Enemy } from '../../enemies/Enemy';
 import type { WorldContext, WorldModule } from './context';
+import { ListParts, SIDE, sendList } from './sideList';
 import { HostClock, MotionBuffer, motionSample } from './motion';
 import { postureOf, type Replicas } from './replicas';
 import { POSTURES } from './snapshot';
@@ -34,11 +35,17 @@ export class Allies implements WorldModule {
   private readonly ids = new WeakMap<object, number>();
   private serial = 0;
   private next = 0;
+  private readonly parts = new ListParts();
   private sent = false;
   private ashots = 0;
   private ashotSecond = 0;
 
   constructor(private readonly w: WorldContext, private readonly replicas: Replicas) {
+    // The state rides the unreliable lane in parts (sideList.ts); a whole list is drawn as it always was.
+    w.side(SIDE.allies, (value, now) => {
+      const whole = this.parts.take(value);
+      if (whole) this.draw({ t: 'allies', at: whole.at, list: whole.list as number[][] }, now);
+    });
     w.router.guest('allies', (value, _from, now) => this.draw(value, now));
     w.router.guest('ashot', value => {
       if (validVec(value.from) && validVec(value.to)) w.ctx.fx.tracer(new THREE.Vector3(...value.from), new THREE.Vector3(...value.to), 'bullet');
@@ -70,7 +77,7 @@ export class Allies implements WorldModule {
       const p = a.body.position;
       return [id, ALLY_KINDS.indexOf(a.type), round(p.x), round(p.y), round(p.z), round(a.body.yaw), a.state === 'down' ? 1 : 0, POSTURES.indexOf(postureOf(a.body))];
     });
-    this.w.send({ t: 'allies', at: Math.round(performance.now()), list });
+    sendList(this.w, SIDE.allies, Math.round(performance.now()), list);
   }
 
   /** Guest: the host's garrison as bodies only: no AI, no colliders, moved toward each update. */

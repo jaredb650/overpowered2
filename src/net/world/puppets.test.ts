@@ -13,7 +13,7 @@ const at = (t: number): void => { if (t > performance.now()) vi.advanceTimersByT
 function drive(fps: number): { t: number; x: number; z: number; turn: number; turret: number }[] {
   const router = new Router();
   const model = { root: new THREE.Object3D(), turret: new THREE.Object3D() };
-  const w = { hosting: false, ready: true, router, ctx: { enemies: { vehicles: { fleet: { ground: () => model } } } }, send: () => {} };
+  const w = { hosting: false, ready: true, router, ctx: { enemies: { vehicles: { fleet: { ground: () => model } } } }, send: () => {}, side: () => {} };
   const vehicles = new Vehicles(w as unknown as WorldContext, { clock: new HostClock() } as unknown as Replicas);
   const out: { t: number; x: number; z: number; turn: number; turret: number }[] = [];
   const q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), forward = new THREE.Vector3();

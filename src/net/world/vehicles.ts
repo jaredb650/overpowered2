@@ -27,6 +27,7 @@ import { CHOPPER_ENGINE, GROUND_ENGINES } from '../../enemies/vehicles/sounds';
 import type { Vehicle } from '../../enemies/vehicles/vehicle';
 import { Wreck, type Flung } from '../../enemies/vehicles/wreck';
 import type { WorldContext, WorldModule } from './context';
+import { ListParts, SIDE, sendList } from './sideList';
 import { HostClock, MotionBuffer, motionSample } from './motion';
 import type { Replicas } from './replicas';
 import { validVec, type Vec } from './wire';
@@ -116,9 +117,15 @@ export class Vehicles implements WorldModule {
   /** Guest: the host's clock from these events alone, used until the enemies' lane (many more packets) has a better one. */
   private readonly clock = new HostClock();
   private readonly sample = motionSample();
+  private readonly parts_ = new ListParts();
   private lastFrame = 0;
 
   constructor(private readonly w: WorldContext, private readonly replicas: Replicas) {
+    // The state rides the unreliable lane in parts (sideList.ts); a whole list is drawn as it always was.
+    w.side(SIDE.vehicles, (value, now) => {
+      const whole = this.parts_.take(value);
+      if (whole) this.draw({ t: 'vehicles', at: whole.at, list: whole.list as Extract<VehiclesEvent, { t: 'vehicles' }>['list'] }, now);
+    });
     w.router.guest('vehicles', (value, _from, now) => this.draw(value, now));
     w.router.guest('wreck', value => { if (value.op === 'add') this.wreckIn(value); else this.wreckGone(value.wid); });
   }
@@ -173,7 +180,7 @@ export class Vehicles implements WorldModule {
       return { id, kind: v.def.kind, p: v.position.toArray() as Vec, q: v.quaternion.toArray() as [number, number, number, number],
         turret: (v as unknown as { turretYaw?: number }).turretYaw ?? 0, ...(x ? { x } : {}) };
     });
-    this.w.send({ t: 'vehicles', at: Math.round(performance.now()), list });
+    sendList(this.w, SIDE.vehicles, Math.round(performance.now()), list);
   }
 
   /** Guest: the host's vehicles as models only; each state goes into its vehicle's buffer. */

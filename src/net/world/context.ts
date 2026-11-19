@@ -61,6 +61,10 @@ export class Later implements WorldModule {
   dispose(): void { this.queue = []; this.fuses = []; }
 }
 
+/** The first two bytes of a packet on the `world` lane that is not an enemy snapshot (snapshot.ts has its own). */
+const SIDE_HEAD = [0x05, 0xc2] as const;
+const encoder = new TextEncoder(), decoder = new TextDecoder();
+
 export class WorldContext {
   readonly stats = { snapshotBytes: 0, eventBytes: 0, snapshotPackets: 0, eventPackets: 0, accepted: 0, rejected: 0, since: performance.now() };
   readonly validator = new ClaimValidator();
@@ -82,13 +86,47 @@ export class WorldContext {
   constructor(readonly ctx: Ctx, readonly session: CoopSession) {
     this.later = new Later(() => ctx.time.dt);
     // Latest-wins bytes: unreliable and unordered, so a lost chunk never holds up the next, and none for a guest that is behind.
-    this.sendSnapshot = session.lobby.gameplay<ArrayBuffer>('world', data => this.onSnapshot(data), { unreliable: true, latest: true });
+    this.sendSnapshot = session.lobby.gameplay<ArrayBuffer>('world', data => this.worldIn(data), { unreliable: true, latest: true });
     this.sendAction = session.lobby.gameplay<WorldEvent>('action', (data, from) => this.receive(data, from));
   }
 
   get hosting(): boolean { return this.session.hosting; }
   get manager(): EnemyManager { return this.ctx.enemies as EnemyManager; }
   life(id: string): TeamLife { return this.team.life(id); }
+
+  private readonly sides = new Map<number, (value: unknown, now: number) => void>();
+
+  /** Guest: hears one kind of side packet (sideList.ts `SIDE`). */
+  side(kind: number, handler: (value: unknown, now: number) => void): void { this.sides.set(kind, handler); }
+
+  /**
+   * Host: latest-wins state as JSON on the unreliable `world` lane, beside the enemies' snapshots: never resent, never in the
+   * way of a real event, and none for a guest that is behind. Keep it under the safe unreliable size (sideList.ts cuts lists).
+   */
+  sendSide(kind: number, value: unknown, to?: string): void {
+    const text = encoder.encode(JSON.stringify(value));
+    const frame = new Uint8Array(3 + text.byteLength);
+    frame[0] = SIDE_HEAD[0]; frame[1] = SIDE_HEAD[1]; frame[2] = kind & 0xff;
+    frame.set(text, 3);
+    const recipients = this.sendSnapshot(frame.buffer, to);
+    this.stats.snapshotBytes += frame.byteLength * recipients;
+    this.stats.snapshotPackets += recipients;
+  }
+
+  /** The `world` lane: an enemy snapshot chunk, or a side packet. */
+  private worldIn(data: ArrayBuffer): void {
+    if (data.byteLength >= 3) {
+      const head = new Uint8Array(data, 0, 3);
+      if (head[0] === SIDE_HEAD[0] && head[1] === SIDE_HEAD[1]) {
+        const handler = this.sides.get(head[2]!);
+        if (!handler || !this.ready || this.hosting) return;
+        try { handler(JSON.parse(decoder.decode(new Uint8Array(data, 3))), performance.now()); }
+        catch (error) { console.warn('[coop] Dropped a side packet that could not be read', error); }
+        return;
+      }
+    }
+    this.onSnapshot(data);
+  }
 
   /** An event on the reliable lane: from a guest to the host; from the host to every guest, or to the one named. */
   send(event: WorldEvent, to?: string): void {
