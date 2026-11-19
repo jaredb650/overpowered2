@@ -160,8 +160,26 @@ export default async function (host, { sleep, outDir }) {
         await calm(host);
         const here = await spot(0);
         // The host far from the guest, each with a squad of their own in front of them.
-        const guestAt = [(await spot(26))[0], here[1], (await spot(26))[2]];
-        await teleport(host, here, yaw); await teleport(a, guestAt, yaw + Math.PI); await teleport(b, await spot(3), yaw);
+        // An open spot for the guest: level with the spawn, 16 to 26 m from it, with clear air for 4 m back toward it.
+        const guestAt = await host.evaluate(([from, yaw]) => {
+          const { ctx } = window.__op2, V = ctx.player.position.constructor;
+          let best = null, bestScore = Infinity;
+          for (let d = 16; d <= 26; d += 2) for (let a = -1.3; a <= 1.3; a += 0.1) {
+            const p = new V(from[0] - Math.sin(yaw + a) * d, from[1], from[2] - Math.cos(yaw + a) * d);
+            const snapped = p.clone();
+            if (!ctx.world.nav.nearest?.(p, 3, snapped) || Math.abs(snapped.y - from[1]) > 0.5) continue;
+            const eye = new V(snapped.x, snapped.y + 1.6, snapped.z);
+            const back = new V(from[0] - snapped.x, 0, from[2] - snapped.z).normalize();
+            if (ctx.physics.raycast(eye, back, 9, 1) || ctx.physics.raycast(eye, back.clone().negate(), 10, 1)) continue;
+            const score = Math.abs(a) * 10 + Math.abs(d - 20);
+            if (score < bestScore) { bestScore = score; best = snapped.toArray(); }
+          }
+          return best;
+        }, [here, yaw]);
+        if (!guestAt) throw new Error('No open ground 16 to 26 m from the spawn for the flashbang');
+        // The third player well out of both bangs.
+        const aside = [here[0] + Math.sin(yaw) * 16, here[1], here[2] + Math.cos(yaw) * 16];
+        await teleport(host, here, yaw); await teleport(a, guestAt, yaw + Math.PI); await teleport(b, aside, yaw);
         await sleep(SIM ? 1200 : 600);
         // Two squads of three, one in sight of each player; every squad's `opening` is counted, with whom it is after.
         const staged = await host.evaluate(([hostAt, guestAt, yaw]) => {
@@ -172,7 +190,9 @@ export default async function (host, { sleep, outDir }) {
           for (const [who, at, sign] of [[host, hostAt, -1], [guest, guestAt, 1]]) {
             o.formSquad(3);
             for (let i = 0; i < 3; i++) {
-              const p = new V(at[0] - Math.sin(yaw) * 8 * -sign + (i - 1) * 1.6 * Math.cos(yaw), at[1], at[2] - Math.cos(yaw) * 8 * -sign - (i - 1) * 1.6 * Math.sin(yaw));
+              // Eight metres from its player, toward the other one.
+              const to = new V(guestAt[0] - hostAt[0], 0, guestAt[2] - hostAt[2]).normalize().multiplyScalar(-sign);
+              const p = new V(at[0] + to.x * 8 + to.z * (i - 1) * 1.6, at[1], at[2] + to.z * 8 - to.x * (i - 1) * 1.6);
               ctx.world.nav.nearest?.(p, 4, p);
               const e = ctx.enemies.spawn('trooper', p);
               e.quarry = who.own ? null : who.player;
@@ -197,7 +217,8 @@ export default async function (host, { sleep, outDir }) {
         };
         const blind = page => page.evaluate(() => window.__op2.ctx.enemies.outpost.suppression.blinded === true);
         // In the guest's eyes.
-        await face(a, [guestAt[0] + Math.sin(yaw) * 5, guestAt[1] + 1.6, guestAt[2] + Math.cos(yaw) * 5]);
+        await face(a, [here[0], here[1] + 1.6, here[2]]);
+        await face(host, [here[0] - Math.sin(yaw) * 5, here[1] + 1.6, here[2] - Math.cos(yaw) * 5]);
         await sleep(300);
         await bangAt(a);
         const guestBlind = await until(() => blind(a), v => v === true, sleep, 8000);
@@ -206,7 +227,7 @@ export default async function (host, { sleep, outDir }) {
         const first = await host.evaluate(() => ({ openings: [...window.__openings], hostBlind: window.__op2.ctx.enemies.outpost.suppression.blinded === true }));
         out.bangGuest = { guestBlind, noted, ...first };
         check(guestBlind === true, 'bang: the flashbang blinds the guest on the guest\'s own screen', out.bangGuest);
-        check(first.hostBlind === false, 'bang: the host, 26 m away, is not blinded', out.bangGuest);
+        check(first.hostBlind === false, 'bang: the host, over 13 m away, is not blinded', out.bangGuest);
         check(noted >= 1, 'bang: the guest says so, and the host takes the word', out.bangGuest);
         check(first.openings.includes('guest'), 'bang: the squad fighting the guest takes the opening', out.bangGuest);
         check(!first.openings.includes('host'), 'bang: the squad fighting the host does not', out.bangGuest);
@@ -220,7 +241,7 @@ export default async function (host, { sleep, outDir }) {
         out.bangHost = { hostBlind, ...second };
         check(hostBlind === true, 'bang: a flashbang in the host\'s eyes blinds the host', out.bangHost);
         check(second.openings.includes('host') && !second.openings.includes('guest'), 'bang: then the squad fighting the host goes in and the one fighting the guest does not', out.bangHost);
-        check(second.notes === noted, 'bang: and no guest sent word of it', out.bangHost);
+        check(second.notes === noted, 'bang: and no guest sent word of it (each is out of its reach)', out.bangHost);
       }
       // ---- the skyhook, for a player told after the hook has its man ---------------------------------------------------
       if (part('hook')) {
