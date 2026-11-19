@@ -67,6 +67,8 @@ interface Pending {
   live: boolean;
   claim: number;
   enemy: Enemy | null;
+  /** The enemy's uid when the hit was drawn: its object is pooled, and may be another enemy by the time the answer comes. */
+  uid: number;
   at: number;
   /** Health the guest reckoned it took, counted in `Enemy.owed` until it is answered. */
   owed: number;
@@ -85,7 +87,7 @@ interface Pending {
 interface Foretold { at: number; claim: number; def: Enemy['def']; maxHealth: number }
 
 const newPending = (): Pending => ({
-  live: false, claim: 0, enemy: null, at: 0, owed: 0, blocked: false, level: 'flinch', region: undefined, spent: 0, sure: undefined,
+  live: false, claim: 0, enemy: null, uid: 0, at: 0, owed: 0, blocked: false, level: 'flinch', region: undefined, spent: 0, sure: undefined,
   damage: { amount: 0, type: 'bullet', point: new THREE.Vector3(), dir: new THREE.Vector3(), force: 0, source: '' },
 });
 
@@ -198,6 +200,7 @@ export class Hits implements WorldModule {
     slot.live = true;
     slot.claim = damage.claim!;
     slot.enemy = enemy;
+    slot.uid = enemy.uid;
     slot.at = now;
     slot.owed = result.blocked ? 0 : result.dealt;
     slot.blocked = result.blocked;
@@ -274,7 +277,7 @@ export class Hits implements WorldModule {
 
   /** An unanswered hit stops counting against its enemy's health. */
   private settle(slot: Pending): void {
-    if (slot.enemy) slot.enemy.owed = Math.max(0, slot.enemy.owed - slot.owed);
+    if (slot.enemy && slot.enemy.uid === slot.uid) slot.enemy.owed = Math.max(0, slot.enemy.owed - slot.owed);
     slot.live = false;
     slot.enemy = null;
   }
