@@ -150,6 +150,19 @@ export class Waves implements WaveSystem {
     this.ctx.audio.music('easy');
   }
 
+  /**
+   * Co-op guest: the host's rules, told after this page's run began (net/team.ts `sync`). They become the run's rules and
+   * the manager's numbers, so a copy of the host's enemy is built as the host built it. Nothing of the run is reset: the
+   * wave, the phase and the clock are the host's already.
+   */
+  adopt(rules: CrucibleRules): void {
+    this.rules = rules;
+    this.roster = rosterFor(rules);
+    this.manager.tuning.health = rules.healthPct / 100;
+    this.manager.tuning.damage = rules.damagePct / 100;
+    this.manager.tuning.helmetsFrom = rules.helmetsFrom;
+  }
+
   /** For tests and the arena: jump straight to a wave. */
   jumpTo(wave: number): void {
     this.running = true;

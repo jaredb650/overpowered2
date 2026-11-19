@@ -1,10 +1,11 @@
 import * as THREE from 'three';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Enemy } from '../../enemies/Enemy';
+import { GEAR_HEAVY } from '../../enemies/commander/props';
 import { enlist, Soldier } from '../../enemies/outpost/soldier';
 import type { WorldEvent } from '../worldProtocol';
 import type { WorldContext } from './context';
-import { Identity } from './identity';
+import { Identity, type WhoEvent } from './identity';
 import { MotionBuffer } from './motion';
 import { MOVES_PER_SECOND, Moves, SAME_KIND_MS, type MoveEvent } from './moves';
 import type { Replicas } from './replicas';
@@ -305,7 +306,7 @@ describe('soldier identity', () => {
     identity.update(5000);
     const who = () => host.sent.filter(packet => packet.event.t === 'who');
     expect(who()).toHaveLength(1);
-    expect(who()[0]).toMatchObject({ to: 'guest', event: { list: [[a.uid, 0, 21, -1, 2, 2, 3, 3, 'Alpha'], [b.uid, 1, 21, -1, 2, 2, 3, 1, 'Alpha']] } });
+    expect(who()[0]).toMatchObject({ to: 'guest', event: { list: [[a.uid, 0, 21, -1, 2, 2, 3, 3, 'Alpha', 0], [b.uid, 1, 21, -1, 2, 2, 3, 1, 'Alpha', 0]] } });
     identity.update(5100); identity.update(5300);
     expect(who()).toHaveLength(1);
     void husk;
@@ -319,17 +320,52 @@ describe('soldier identity', () => {
   it('a guest gives its copy the host\'s names, rank and squad, even when the word comes before the man', () => {
     const guest = side(false);
     const identity = new Identity(guest.w as unknown as WorldContext, guest.replicas as unknown as Replicas);
-    guest.take({ t: 'who', list: [[7, 4, 22, 45, 3, 1, 5, 7, 'Bravo'], [8, 999, 0, 0, 0, 0, 0, 0, 'X'], [9, 1, 2, 3, 9, 0, 0, 0, 'X']] });
+    guest.take({ t: 'who', list: [[7, 4, 22, 45, 3, 1, 5, 7, 'Bravo', 0], [8, 999, 0, 0, 0, 0, 0, 0, 'X', 0], [9, 1, 2, 3, 9, 0, 0, 0, 'X', 0]] });
     expect(identity.applied).toBe(0);
     const e = guest.copy(7, 0);
     // The copy enlisted with names of its own, as the guest's outpost code dealt them.
     const s = soldier(e, 11, 'Zulu', false);
-    guest.take({ t: 'who', list: [[7, 4, 22, 45, 3, 1, 5, 7, 'Bravo']] });
+    guest.take({ t: 'who', list: [[7, 4, 22, 45, 3, 1, 5, 7, 'Bravo', 0]] });
     expect(identity.applied).toBe(1);
     expect([s.name, s.desig, s.nick, s.rank, s.seat, s.voice, s.known, s.bravado]).toEqual([4, 22, 45, 'elite', 1, 5, true, true]);
     expect(s.rankDef.label).toBe('Lt');
     expect(s.squad.name).toBe('Bravo');
     expect(s.isLeader).toBe(true);
     expect(s.titled).toBe('Lt Bravo-1');
+  });
+
+  it('the host says what each man wears, says it again when that changes, and a guest dresses its copy by the host\'s word', () => {
+    const host = side(true);
+    const worn = new Map<Soldier, number>();
+    (host.w.manager as unknown as { outpost: unknown }).outpost = { commander: { gearOf: (s: Soldier) => worn.get(s) ?? 0 } };
+    const identity = new Identity(host.w as unknown as WorldContext, host.replicas as unknown as Replicas);
+    const a = host.enemy(), b = host.enemy();
+    const jammer = soldier(a, 0, 'Alpha', true), plain = soldier(b, 1, 'Alpha', false);
+    // A whip antenna (bit 0) and the heavy helmet with its visor (bit 3 and GEAR_HEAVY).
+    worn.set(jammer, 1 | 8 | GEAR_HEAVY);
+    identity.update(5000);
+    const rows = () => host.sent.filter(packet => packet.event.t === 'who').flatMap(packet => (packet.event as WhoEvent).list);
+    expect(rows().map(row => [row[0], row[9]])).toEqual([[a.uid, 1 | 8 | GEAR_HEAVY], [b.uid, 0]]);
+    identity.update(5200);
+    expect(rows()).toHaveLength(2);
+    // The plain man raises a hand with a live grenade in it: he alone is told again.
+    worn.set(plain, 32);
+    identity.update(5400);
+    expect(rows().slice(2).map(row => [row[0], row[9]])).toEqual([[b.uid, 32]]);
+    identity.update(5600);
+    expect(rows()).toHaveLength(3);
+
+    const guest = side(false);
+    const wear = vi.fn();
+    (guest.w.manager as unknown as { outpost: unknown }).outpost = { commander: { wear } };
+    void new Identity(guest.w as unknown as WorldContext, guest.replicas as unknown as Replicas);
+    const copy = soldier(guest.copy(7, 0), 11, 'Zulu', false);
+    guest.take({ t: 'who', list: [[7, 4, 22, 45, 3, 1, 5, 7, 'Bravo', 1 | 8 | GEAR_HEAVY]] });
+    expect(wear).toHaveBeenLastCalledWith(copy, 1 | 8 | GEAR_HEAVY);
+    // Gear no man can have is no gear; the rest of the row still counts.
+    guest.take({ t: 'who', list: [[7, 4, 22, 45, 3, 1, 5, 7, 'Bravo', -4]] });
+    expect(wear).toHaveBeenLastCalledWith(copy, 0);
+    guest.take({ t: 'who', list: [[7, 4, 22, 45, 3, 1, 5, 7, 'Bravo', 1e9]] });
+    expect(wear).toHaveBeenLastCalledWith(copy, 0);
   });
 });

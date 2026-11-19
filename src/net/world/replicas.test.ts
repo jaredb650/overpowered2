@@ -385,6 +385,27 @@ describe('a guest\'s replicas', () => {
     expect(guest.w.ctx.waves.wave).toBe(5);
   });
 
+  it('puts this page\'s manager on the host\'s wave before a copy is made, so the copy is built with that wave\'s numbers', () => {
+    const guest = side(false);
+    const manager = guest.manager as typeof guest.manager & { level: number; setWave(wave: number): void };
+    manager.level = 1;
+    const built: number[] = [];
+    manager.setWave = vi.fn((wave: number) => { manager.level = wave; });
+    guest.spawn.mockImplementationOnce(() => { built.push(manager.level); return null as never; });
+    at(1000);
+    guest.take(encodeChunk({ time: 1000, tick: 20, wave: 14, phase: 'spawning', enemies: [frame(8, 0)] }));
+    expect(manager.setWave).toHaveBeenCalledWith(14);
+    expect(built).toEqual([14]);
+    // The same wave again says nothing; a break before the first wave (wave 0) leaves the manager be.
+    guest.take(encodeChunk({ time: 1050, tick: 21, wave: 14, phase: 'spawning', enemies: [] }));
+    expect(manager.setWave).toHaveBeenCalledTimes(1);
+    const early = side(false);
+    const first = early.manager as typeof early.manager & { level: number; setWave(wave: number): void };
+    first.level = 1; first.setWave = vi.fn();
+    early.take(encodeChunk({ time: 1100, tick: 22, wave: 0, phase: 'intermission', enemies: [] }));
+    expect(first.setWave).not.toHaveBeenCalled();
+  });
+
   it('keeps the chunks that come while the map loads and takes them when it is up', () => {
     const guest = side(false);
     guest.w.ready = false;

@@ -28,8 +28,8 @@ import type { WavePhase } from '../core/gameplay';
 import { cheatsOn } from '../core/cheats';
 import { OrderKey } from '../allies/rules';
 import { MISSION_ID } from '../campaign/select';
-import { crucibleRules } from '../contracts/crucible';
-import { DEFAULT_RULES } from '../enemies/rules';
+import { adoptRules, crucibleRules } from '../contracts/crucible';
+import { DEFAULT_RULES, diffRules, sanitizeRules, type CrucibleRules } from '../enemies/rules';
 import { isTitanWave } from '../enemies/waves';
 import { COLORS } from './remote';
 import type { CoopSession } from './index';
@@ -62,7 +62,8 @@ export type TeamEvent =
   | { t: 'life'; slot: number; alive: boolean; life: number }
   /** Guest to host: my card, 4 Hz. Host to guests: everyone's, 4 Hz, with the host's word on life, bleed and ping. */
   | { t: 'card'; card: Card }
-  | { t: 'team'; list: Card[] }
+  /** `more`: what the host counts as left beyond the enemies alive (its queue, less its prisoners), for a guest's count of them. */
+  | { t: 'team'; list: Card[]; more?: number }
   /** Guest to host: I held E over this downed player. */
   | { t: 'revive'; slot: number }
   /** Host: this player is up again, revived (`by` the reviver's slot) or respawned at a wave's end or start. */
@@ -89,9 +90,10 @@ export type TeamEvent =
   /**
    * Host to a guest whose world has come up, or whose connection is back: where the waves stand. A new page gets the banner
    * the others had and, in a break, the clock and the vote. `back`: the same page returning after a drop, which has seen the
-   * banner (or is sent the wave's own event it missed), so only the clock and the vote are put right.
+   * banner (or is sent the wave's own event it missed), so only the clock and the vote are put right. `rules`: the host's
+   * Crucible rules where they differ from the standard game (`diffRules`), which are the run's rules on every screen.
    */
-  | { t: 'sync'; wave: number; phase: WavePhase; left: number; rest: boolean; custom: boolean; ready: number[]; need: number; back?: boolean }
+  | { t: 'sync'; wave: number; phase: WavePhase; left: number; rest: boolean; custom: boolean; rules?: Record<string, unknown>; ready: number[]; need: number; back?: boolean }
   /** A ping: a marker in the world, for everyone. A guest's goes to the host, who stamps the slot and passes it on. */
   | { t: 'mark'; at: Vec; slot?: number };
 /** The events `receive` takes on each side, for the world's router. */
@@ -269,6 +271,9 @@ export class Team {
     this.settled = session.hosting;
     this.rest = new TeamBreak(ctx, session, send, () => this.voters());
     this.marks = new Marks(ctx, session, send);
+    // A guest plays the host's rules, never its own saved ones: the standard game from the first frame (before the run
+    // starts and reads them), then whatever the host's `sync` says.
+    if (!session.hosting) adoptRules(DEFAULT_RULES);
     this.off.push(ctx.events.on('player:died', () => this.fell(session.lobby.you)));
     if (session.hosting) {
       this.off.push(ctx.events.on('wave:start', e => {
@@ -564,6 +569,7 @@ export class Team {
     switch (value.t) {
       case 'team':
         if (!Array.isArray(value.list)) return true;
+        if (typeof value.more === 'number' && Number.isInteger(value.more) && Math.abs(value.more) <= 100000) (this.ctx.enemies as { hostMore?: number | null }).hostMore = value.more;
         for (const raw of value.list.slice(0, 4)) {
           const card = cleanCard(raw);
           if (!card) continue;
@@ -641,8 +647,9 @@ export class Team {
     this.missed.delete(id);
     const back = same && !fresh;
     if (back && missed && !this.final) this.send({ ...missed, ...this.wavePhase() }, id);
+    const rules = this.hostRules();
     this.send({ t: 'sync', wave: this.ctx.waves.wave, phase: this.ctx.waves.phase, left: Math.max(0, Math.ceil(this.ctx.waves.nextWaveIn)),
-      rest: this.rest.on, custom: this.customRules, ...this.rest.tally(), ...(back ? { back: true } : {}) }, id);
+      rest: this.rest.on, custom: this.customRules || rules !== null, ...(rules ? { rules } : {}), ...this.rest.tally(), ...(back ? { back: true } : {}) }, id);
     // The run ended while they loaded (or while their line was down): they get the board, not a finished world.
     if (this.final) this.send({ t: 'over', wave: this.overWave, cards: this.final, won: this.ending !== 'wipe', how: this.ending ?? 'wipe' }, id);
     this.onArrived(id);
@@ -696,6 +703,22 @@ export class Team {
     this.sentKit = JSON.stringify(readKit(ctx));
   }
 
+  /** Host: the run's Crucible rules where they are not the standard game's, for a guest to play by. null: the standard game. */
+  private hostRules(): Record<string, unknown> | null {
+    return this.session.match.mode === 'crucible' ? diffRules(crucibleRules()) : null;
+  }
+
+  /**
+   * Guest: the host's rules are this run's rules here too. A copy of an enemy is then built as the host built it (health,
+   * damage, helmets), and everything this page reads off the rules (the unranked tag, the wave it expects a Titan on) is the
+   * host's. Every field is put on its grid and inside its range (`sanitizeRules`), whatever arrived.
+   */
+  private takeRules(custom: boolean, raw: unknown): void {
+    const rules: CrucibleRules = custom ? sanitizeRules(raw) : DEFAULT_RULES;
+    adoptRules(rules);
+    (this.ctx.waves as { adopt?(rules: CrucibleRules): void }).adopt?.(rules);
+  }
+
   /** Guest: arrived mid-run. The banner the others got, and in a break the clock and the vote as they stand. */
   private synced(value: Extract<WorldEvent, { t: 'sync' }>): void {
     const { ctx } = this;
@@ -709,6 +732,7 @@ export class Team {
     const custom = value.custom === true;
     if (custom && !(back && this.customRules)) ctx.hud.feed(CUSTOM_LINE, '#ffb33d');
     this.customRules = custom;
+    this.takeRules(custom, value.rules);
     if (this.mission || wave < 1) return;
     if (value.rest === true) {
       // A break this page already knows of keeps its own state (the vote's feed lines are not said again).
@@ -790,7 +814,8 @@ export class Team {
       if (card) Object.assign(card, { state: life.state, life: life.life, bleed: this.bleedLeft(life), ping: player.host ? 0 : lobby.pingOf(player.id) ?? 0 });
     }
     for (const slot of [...this.cards.keys()]) if (!lobby.players.some(p => p.slot === slot)) this.cards.delete(slot);
-    this.send({ t: 'team', list: [...this.cards.values()] });
+    const foes = this.ctx.enemies as { remaining?: number; alive: readonly unknown[] };
+    this.send({ t: 'team', list: [...this.cards.values()], ...(typeof foes.remaining === 'number' ? { more: foes.remaining - foes.alive.length } : {}) });
   }
 
   update(now: number, dt: number): void {
@@ -1040,6 +1065,8 @@ export class Team {
     this.setPrompt('');
     this.stopWatching();
     this.marks.dispose();
+    // The page's own rules again, should it play alone after this.
+    if (!this.session.hosting) adoptRules(null);
   }
 }
 

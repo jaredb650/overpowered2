@@ -11,6 +11,10 @@ import type { CharacterInstance, Ctx } from '../../core/contracts';
 import { ModelBuilder, ModelMaterials } from '../../progression/modelkit';
 
 export type PropKind = 'whip' | 'mast' | 'designator' | 'visor' | 'foil' | 'grenade' | 'vest' | 'detonator' | 'cap';
+/** By bit, for co-op: the host tells its guests what each man wears (`mask`, `dress`). Add at the end only. */
+export const PROP_KINDS: readonly PropKind[] = ['whip', 'mast', 'designator', 'visor', 'foil', 'grenade', 'vest', 'detonator', 'cap'];
+/** In a man's gear bits (`Commander.gearOf`): his helmet is the heavy one. Above every bit of `PROP_KINDS`. */
+export const GEAR_HEAVY = 1 << 12;
 
 const STEEL = 0x3a4048;
 const DARK = 0x14171c;
@@ -109,6 +113,21 @@ export class Props {
     if (i < 0) return;
     this.shelve(worn[i]!.kind, worn[i]!.model);
     worn.splice(i, 1);
+  }
+
+  /** What this body wears, as bits in `PROP_KINDS` order. */
+  mask(char: CharacterInstance): number {
+    const worn = this.worn.get(char);
+    let bits = 0;
+    if (worn) for (let i = 0; i < worn.length; i++) bits |= 1 << PROP_KINDS.indexOf(worn[i]!.kind);
+    return bits;
+  }
+
+  /** Co-op guest: this body wears exactly these, the host's word. */
+  dress(char: CharacterInstance, bits: number): void {
+    if (bits === this.mask(char)) return;
+    this.strip(char);
+    for (let i = 0; i < PROP_KINDS.length; i++) if (bits & (1 << i)) this.fit(char, PROP_KINDS[i]!);
   }
 
   /** A pooled body comes back to the gate with nothing on it. */

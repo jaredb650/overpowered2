@@ -16,6 +16,7 @@
  * brings it back, and something meant for an enemy not yet seen can wait for it (`whenSeen`).
  */
 import * as THREE from 'three';
+import { MISSION_ID } from '../../campaign/select';
 import type { DamageInfo } from '../../core/contracts';
 import type { Enemy } from '../../enemies/Enemy';
 import type { ReplicaView } from '../../enemies/EnemyManager';
@@ -106,6 +107,8 @@ interface Guest { windowAt: number; bytes: number; farEvery: number; near: Map<n
 const _eye = new THREE.Vector3();
 
 export class Replicas implements WorldModule {
+  /** A mission scales its enemies by a threat level of its own, not by a wave. */
+  private readonly inMission = MISSION_ID !== null;
   /** Guest: the host's enemies as drawn here, by uid. */
   readonly map = new Map<number, Replica>();
   /** Guest: uids the host has said are dead. */
@@ -197,6 +200,11 @@ export class Replicas implements WorldModule {
       this.receivedSeq = unwrap(h.tick, this.receivedSeq ?? h.tick, 16);
       const waves = this.w.ctx.waves as { wave: number; phase?: unknown; nextWaveIn?: number };
       waves.wave = h.wave; waves.phase = WAVE_PHASES[h.phase]; waves.nextWaveIn = h.nextWaveIn;
+      // The wave a copy is built for is the host's: this page's own manager never left wave 1, so every copy was made with
+      // wave 1's numbers (what it hits for, its helmet by the Crucible's rules) whatever wave the host was on. Not in a
+      // mission, where the host's enemies are scaled by a threat level that is not a wave.
+      const manager = this.w.manager as Partial<Pick<typeof this.w.manager, 'level' | 'setWave'>>;
+      if (h.wave >= 1 && !this.inMission && manager.setWave && manager.level !== h.wave) manager.setWave(h.wave);
     }
     if (h.kind === 1) this.rosterIn(t, now);
     else for (let e = this.reader.next(); e; e = this.reader.next()) this.stateIn(e, t, h.tickMs);

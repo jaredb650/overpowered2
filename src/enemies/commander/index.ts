@@ -21,6 +21,7 @@
  */
 import * as THREE from 'three';
 import type { PlayerSystem } from '../../core/contracts';
+import { isGuest } from '../../core/coop';
 import { DEV_TOOLS } from '../../core/devflags';
 import type { CallInId, EnemyId, KillEvent } from '../../core/gameplay';
 import { clamp, rand } from '../../core/math';
@@ -47,7 +48,7 @@ import { Mortars } from './mortars';
 import { RadioOrders } from './orders';
 import { Person } from './person';
 import { Posts } from './posts';
-import { Props } from './props';
+import { GEAR_HEAVY, Props } from './props';
 import { Smoke } from './smoke';
 import type { StyleTracker } from './tracker';
 import { Traps } from './traps';
@@ -124,6 +125,8 @@ export class Commander {
   private nameAt = 0;
   private readonly names = new WeakMap<Soldier, string>();
   private readonly backedOffAt = new WeakMap<Soldier, number>();
+  /** Men whose helmet is the heavy one (`thicken`). By body: a pooled body loses it at the gate (`onSpawn`). */
+  private readonly heavy = new WeakSet<object>();
   /** Where the last voice on the radio was. If the player then walks there, they are listening. */
   private readonly heardAt = new THREE.Vector3();
   private heardFrom = 0;
@@ -380,11 +383,15 @@ export class Commander {
 
   onSpawn(s: Soldier): void {
     this.props.strip(s.e.char);
+    this.heavy.delete(s.e);
     this.units.onSpawn(s);
     this.backedOffAt.delete(s);
     this.names.delete(s);
     // Every squad's first man has a name, so that the box has someone to mourn.
     if (s.seat === 1 && !s.squad.directed) this.names.set(s, NAMES[this.nameAt++ % NAMES.length]!);
+    // Co-op guest: this is a copy of the host's man. What he wears is the host's word (`wear`): this page's own roll of his
+    // rank, and its own Commander, who fields nothing, would dress him wrongly.
+    if (isGuest(this.w.ctx)) return;
     if (this.has('helmets')) this.heavyHelmet(s);
     // Rank has to read at 30 m, and all a man has at 30 m is a silhouette. A visor is a man to take seriously.
     else if (s.rank === 'elite') this.props.fit(s.e.char, 'visor');
@@ -392,6 +399,11 @@ export class Commander {
   }
 
   private heavyHelmet(s: Soldier): void {
+    if (this.thicken(s)) this.props.fit(s.e.char, 'visor');
+  }
+
+  /** His helmet becomes the heavy one: three times the plate, and a size up. False if he has none. */
+  private thicken(s: Soldier): boolean {
     const e = s.e;
     for (const p of e.plates) {
       if (!p.spec.regions.includes('head')) continue;
@@ -399,9 +411,26 @@ export class Commander {
       p.hp *= HELMET_MULT;
       // His own helmet, a size up, so the order reads before the first shot. fitPlates puts it back to size on respawn.
       if (p.worn) p.mesh.scale.multiplyScalar(HEAVY_HELMET_SCALE);
-      this.props.fit(e.char, 'visor');
-      return;
+      this.heavy.add(e);
+      return true;
     }
+    return false;
+  }
+
+  /**
+   * What this man wears that says what he is: his props as bits in `PROP_KINDS` order, and `GEAR_HEAVY` for the heavy helmet.
+   * Co-op: the host tells its guests (net/world/identity.ts), because a guest's own Commander fields nothing and its own
+   * roll of a man's rank is not the host's, so every tell (the jammer's whip, the spotter's designator, the rigged man's
+   * vest, the visor, the thick helmet) was missing or on the wrong man on a guest's screen.
+   */
+  gearOf(s: Soldier): number {
+    return this.props.mask(s.e.char) | (this.heavy.has(s.e) ? GEAR_HEAVY : 0);
+  }
+
+  /** Co-op guest: the host's word on what this copy wears. */
+  wear(s: Soldier, gear: number): void {
+    this.props.dress(s.e.char, gear & (GEAR_HEAVY - 1));
+    if ((gear & GEAR_HEAVY) !== 0 && !this.heavy.has(s.e)) this.thicken(s);
   }
 
   onDetach(s: Soldier): void {

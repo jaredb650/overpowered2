@@ -126,12 +126,17 @@ export class EnemyManager implements EnemySystem {
   readonly alive: Enemy[] = [];
   /** Enemies waiting in the wave queue. */
   queued = 0;
+  /** Co-op guest: the host's `remaining` less its enemies alive, as last told (net/team.ts, 4 times a second). null: this page counts for itself. */
+  hostMore: number | null = null;
   /**
    * The Crucible's health and damage rules, over the wave scale, and the wave its helmets start (0: never). Only its wave
    * director sets them, at the start of a run, and every reset puts them back, so Endless Humans and the Campaign never see them.
    */
   readonly tuning = { health: 1, damage: 1, helmetsFrom: 0 };
   get remaining(): number {
+    // Co-op guest: the men still to come are in the host's queue, not this page's. What the host counts beyond the enemies
+    // alive (its queue, less its prisoners) is added to the copies alive here, so the HUD's count is the host's.
+    if (this.hostMore !== null) return Math.max(0, this.alive.length + this.hostMore);
     return this.alive.length + this.queued - (this.outpost?.prisoners ?? 0);
   }
 
@@ -233,6 +238,7 @@ export class EnemyManager implements EnemySystem {
     this.flushRecycle();
     for (const s of this.strikes) s.live = false;
     this.queued = 0;
+    this.hostMore = null;
     this.wave = 1;
     this.tuning.health = this.tuning.damage = 1;
     this.tuning.helmetsFrom = 0;
@@ -249,6 +255,11 @@ export class EnemyManager implements EnemySystem {
   /** The AI's view of the game, for co-op's copies of attacks and warnings (net/world/attacks.ts, warnings.ts). */
   get aiWorld(): AiWorld {
     return this.w;
+  }
+
+  /** The wave the next spawn is scaled for (`waveScale`). */
+  get level(): number {
+    return this.wave;
   }
 
   setWave(wave: number): void {
@@ -1017,7 +1028,8 @@ export class EnemyManager implements EnemySystem {
    * its own rules); the host's enemy has `maxHealth`. The pools are scaled to that, so each limb is as whole on the copy as
    * on the host. A limb's strength is its pool over the body's whole health (`poolStrength`): left alone, a copy of an enemy
    * with twice the health read as a body with every limb half gone, could not catch its balance and could not push itself
-   * up off the floor (it lay about 2 s longer than the host's body, out of the line of fire). Sets `maxHealth` too.
+   * up off the floor (it lay about 2 s longer than the host's body, out of the line of fire). Sets `maxHealth` too, and
+   * scales his armour plates with it.
    */
   fitReplicaHealth(e: Enemy, maxHealth: number): void {
     const built = e.maxHealth;
@@ -1025,6 +1037,10 @@ export class EnemyManager implements EnemySystem {
     if (!(built > 0) || !(maxHealth > 0) || built === maxHealth) return;
     const ratio = maxHealth / built;
     for (const [region, hp] of e.limbHp) if (region !== 'head' || !e.def.headPoolFixed) e.limbHp.set(region, hp * ratio);
+    // His plates were cut from the same wrong health (a plate's strength is a share of the body's, `fitPlates`): a copy's
+    // helmet came off under fewer rounds than the host's, or more, and this screen's guess at the hit behind it was wrong.
+    for (const plate of e.plates) plate.hp *= ratio;
+    e.armor *= ratio;
   }
 
   /** Co-op guest: the host's word that this copy should not be on the floor (its answer to a hit this machine guessed wrong). */

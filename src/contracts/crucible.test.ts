@@ -5,7 +5,7 @@ import { DEFAULT_RULES, cloneRules, rulesEqual, type CrucibleRules } from '../en
 import { ScoreKeeper } from '../progression/score';
 import { RunReport } from '../ui/runreport';
 import {
-  RULES_APPLY, RULES_KEY, crucibleRules, loadRules, refreshRules, resetRules, rulesCustom, saveRules, storedRulesCustom,
+  RULES_APPLY, RULES_KEY, adoptRules, crucibleRules, loadRules, refreshRules, resetRules, rulesCustom, saveRules, storedRulesCustom,
 } from './crucible';
 import { DEFAULT_CONTRACT } from './data';
 
@@ -42,6 +42,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  adoptRules(null);
   vi.unstubAllGlobals();
 });
 
@@ -234,5 +235,36 @@ describe('a run on custom rules', () => {
     report.begin(1000);
     report.score = 5000;
     expect(report.isHighScore).toBe(true);
+  });
+});
+
+describe('a co-op guest plays the host\'s rules, never its own', () => {
+  it('its own saved rules do not apply from the moment it is a guest, whatever a new run reads', () => {
+    saveRules(custom(r => { r.healthPct = 400; r.helmetsFrom = 1; }));
+    refreshRules(true);
+    expect(crucibleRules().healthPct).toBe(400);
+    // The guest's team is built: the standard game, until the host says otherwise.
+    adoptRules(DEFAULT_RULES);
+    expect(crucibleRules()).toBe(DEFAULT_RULES);
+    expect(rulesCustom()).toBe(false);
+    // The run starts and reads the rules (Hud.startRun): still the host's.
+    expect(refreshRules(true)).toBe(DEFAULT_RULES);
+    // Nothing of the guest's own was touched: they are there for its next run alone.
+    expect(loadRules().healthPct).toBe(400);
+    expect(storedRulesCustom()).toBe(true);
+  });
+
+  it('the host\'s custom rules are the run\'s, the run is unranked, and they are never stored on the guest', () => {
+    const hosts = custom(r => { r.healthPct = 200; r.startWave = 12; r.titan.first = 12; });
+    adoptRules(hosts);
+    expect(crucibleRules()).toBe(hosts);
+    expect(rulesCustom()).toBe(true);
+    expect(refreshRules(true)).toBe(hosts);
+    expect(store.map.has(RULES_KEY)).toBe(false);
+    expect(loadRules()).toBe(DEFAULT_RULES);
+    // Out of the match: the page's own again.
+    adoptRules(null);
+    saveRules(custom(r => { r.sizePct = 50; }));
+    expect(refreshRules(true).sizePct).toBe(50);
   });
 });

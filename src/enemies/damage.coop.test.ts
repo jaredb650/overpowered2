@@ -533,4 +533,49 @@ describe('a copy of an enemy with more health than this page would have given it
     guest.manager.fitReplicaHealth(here, there.maxHealth);
     expect([...here.limbHp.values()]).toEqual(before);
   });
+
+  it('has plates as strong as the host\'s: a plate is a share of the body\'s health, and is fitted with the limbs', () => {
+    const host = world(), guest = world();
+    (host.manager as unknown as { tuning: { health: number } }).tuning.health = 2;
+    const there = host.spawn('brute'), here = guest.spawn('brute');
+    expect(there.plates.length).toBeGreaterThan(0);
+    // As it was: the copy's plates were cut from this page's idea of his health, half the host's.
+    expect(here.plates[0]!.hp).toBeCloseTo(there.plates[0]!.hp / 2, 6);
+    guest.manager.fitReplicaHealth(here, there.maxHealth);
+    for (let i = 0; i < there.plates.length; i++) expect(here.plates[i]!.hp).toBeCloseTo(there.plates[i]!.hp, 6);
+    expect(here.armor).toBeCloseTo(there.armor, 6);
+  });
+});
+
+describe('a guest is on the host\'s wave and counts what is left as the host does', () => {
+  it('a copy made on a late wave is made with that wave\'s numbers once the manager is on the host\'s wave', () => {
+    const host = world(), guest = world();
+    host.manager.setWave(21); guest.manager.setWave(21);
+    expect(guest.manager.level).toBe(21);
+    const there = host.spawn('trooper'), here = guest.spawn('trooper');
+    expect(here.maxHealth).toBe(there.maxHealth);
+    expect(here.damageMul).toBe(there.damageMul);
+    expect(here.damageMul).toBeCloseTo(2, 6);
+    // As it was: the guest's manager never left wave 1.
+    const stale = world();
+    expect(stale.manager.level).toBe(1);
+    expect(stale.spawn('trooper').damageMul).toBe(1);
+  });
+
+  it('counts the host\'s queue and prisoners on top of the copies alive here, and for itself when alone', () => {
+    const w = world();
+    w.spawn('husk'); w.spawn('husk');
+    w.manager.queued = 5;
+    expect(w.manager.remaining).toBe(7);
+    // A guest: nothing is ever queued on its page; the host has 30 more to come.
+    w.manager.queued = 0;
+    w.manager.hostMore = 30;
+    expect(w.manager.remaining).toBe(32);
+    w.manager.hostMore = -5;
+    expect(w.manager.remaining).toBe(0);
+    // A new run counts for itself until it is told again.
+    w.manager.reset();
+    expect(w.manager.hostMore).toBeNull();
+    expect(w.manager.remaining).toBe(0);
+  });
 });

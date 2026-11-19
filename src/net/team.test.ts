@@ -9,6 +9,8 @@ import type { Ctx, GameEvents, PlayerDamage } from '../core/contracts';
 import { goreDoubles } from './world/goreDoubles';
 import { Enemy } from '../enemies/Enemy';
 import { ChipRack } from '../contracts/chips';
+import { adoptRules, crucibleRules } from '../contracts/crucible';
+import { DEFAULT_RULES, cloneRules, rulesEqual, type CrucibleRules } from '../enemies/rules';
 import { Loadout } from '../progression/implants';
 import type { CoopSession } from './index';
 import { endCopy } from './coopHud';
@@ -840,6 +842,85 @@ describe('the team is told', () => {
     expect(lines.filter(l => /GUEST1 has cheats on/.test(l))).toHaveLength(1);
     expect(game.guests[0]!.world.team.cards.get(0)).toMatchObject({ cheats: true });
     cheats.resetCheatsForTest(false);
+    game.dispose();
+  });
+});
+
+describe('the host\'s rules are the run\'s rules on every screen', () => {
+  const events = (game: ReturnType<typeof party>, type: string, to: string) => game.relay.events(type).filter(e => e.to === to);
+  afterEach(() => adoptRules(null));
+
+  it('a guest is told the host\'s custom Crucible rules as it arrives, plays by them, and says so once', () => {
+    const game = party(1, 'crucible', ['b1'], [0]);
+    const guest = game.guests[0]!, id = guest.lobby.you;
+    const adopt = vi.fn();
+    Object.assign(guest.waves, { adopt });
+    // The host's page plays these (one process stands for both pages here: the rules are set as the host's world reads them).
+    const hosts = cloneRules(DEFAULT_RULES);
+    hosts.healthPct = 200; hosts.damagePct = 150; hosts.helmetsFrom = 1; hosts.startWave = 12; hosts.titan.first = 12; hosts.types.brute.on = false;
+    adoptRules(hosts);
+    guest.world.begin();
+    game.tick();
+    const sync = events(game, 'sync', id).at(-1)!.data as { custom: boolean; rules: Record<string, unknown> };
+    expect(sync.custom).toBe(true);
+    // Only what differs from the standard game crosses.
+    expect(sync.rules).toEqual({ healthPct: 200, damagePct: 150, helmetsFrom: 1, startWave: 12, titan: { first: 12 }, types: { brute: { on: false } } });
+    expect(adopt).toHaveBeenCalledTimes(1);
+    expect(rulesEqual(adopt.mock.calls[0]![0] as CrucibleRules, hosts)).toBe(true);
+    expect(rulesEqual(crucibleRules(), hosts)).toBe(true);
+    expect(guest.world.team.customRules).toBe(true);
+    expect(guest.hud.feed.mock.calls.filter(c => /HOST'S CUSTOM RULES APPLY/.test(String(c[0])))).toHaveLength(1);
+    game.dispose();
+  });
+
+  it('a host on the standard game says so, and a guest with rules of its own saved plays the standard game', () => {
+    const game = party(1, 'crucible', ['b1'], [0]);
+    const guest = game.guests[0]!, id = guest.lobby.you;
+    const adopt = vi.fn();
+    Object.assign(guest.waves, { adopt });
+    adoptRules(DEFAULT_RULES);
+    guest.world.begin();
+    game.tick();
+    const sync = events(game, 'sync', id).at(-1)!.data as { custom: boolean; rules?: unknown };
+    expect(sync.custom).toBe(false);
+    expect(sync.rules).toBeUndefined();
+    expect(adopt).toHaveBeenLastCalledWith(DEFAULT_RULES);
+    expect(crucibleRules()).toBe(DEFAULT_RULES);
+    game.dispose();
+  });
+
+  it('rules that are not rules are put on their grid and inside their range before a guest plays by them', () => {
+    const game = party(1);
+    game.tick();
+    const guest = game.guests[0]!;
+    const adopt = vi.fn();
+    Object.assign(guest.waves, { adopt });
+    const say = (rules: unknown) => { (game.host.world as unknown as { w: { send(event: WorldEvent, to?: string): void } }).w.send({ t: 'sync', wave: 1, phase: 'spawning', left: 0, rest: false, custom: true, rules, ready: [], need: 1, back: true } as unknown as WorldEvent, guest.lobby.you); game.relay.flush(); game.tick(50); };
+    say({ healthPct: 1e9, damagePct: 'lots', startWave: -5, types: { husk: { on: false }, nobody: { on: true } }, extra: { deep: [1, 2, 3] } });
+    const got = adopt.mock.calls.at(-1)![0] as CrucibleRules;
+    expect(got.healthPct).toBe(400);
+    expect(got.damagePct).toBe(100);
+    expect(got.startWave).toBe(1);
+    expect(Object.keys(got.types)).toEqual(Object.keys(DEFAULT_RULES.types));
+    expect('extra' in got).toBe(false);
+    say('nonsense');
+    expect(adopt).toHaveBeenLastCalledWith(DEFAULT_RULES);
+    game.dispose();
+  });
+
+  it('a guest counts the enemies left as the host does: the host\'s queue and prisoners, on top of the copies alive here', () => {
+    const game = party(1);
+    const host = game.host.manager as unknown as { remaining: number }, guest = game.guests[0]!.manager as unknown as { hostMore?: number | null };
+    // Thirty-one still to come on the host, two alive.
+    game.host.manager.spawn('husk', new THREE.Vector3()); game.host.manager.spawn('husk', new THREE.Vector3());
+    host.remaining = 33;
+    game.tick();
+    expect((game.relay.events('team').at(-1)!.data as { more: number }).more).toBe(31);
+    expect(guest.hostMore).toBe(31);
+    // Prisoners on the host with nothing queued: fewer left than alive.
+    host.remaining = 1;
+    game.tick();
+    expect(guest.hostMore).toBe(-1);
     game.dispose();
   });
 });

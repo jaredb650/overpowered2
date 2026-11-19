@@ -62,9 +62,22 @@ export const storedRulesCustom = (): boolean => !RULES_SKIPPED && isCustom(loadR
 
 let current: CrucibleRules = RULES_APPLY ? loadRules() : DEFAULT_RULES;
 
+/**
+ * Co-op guest: the rules of the host's run, which are this page's rules for as long as it is in that run. The world is the
+ * host's, so a guest's own saved rules never apply there, and the host's custom ones do. Never stored. null: this page's own.
+ */
+let adopted: CrucibleRules | null = null;
+
+/** Co-op guest: play the host's rules from now on (net/team.ts: at once the standard set, then what the host says). null gives the page its own back. */
+export function adoptRules(rules: CrucibleRules | null): CrucibleRules {
+  adopted = rules;
+  current = rules ?? (RULES_APPLY ? loadRules() : DEFAULT_RULES);
+  return current;
+}
+
 /** Before each run. `apply` is for the tests; a page always passes its own answer. */
 export function refreshRules(apply: boolean = RULES_APPLY): CrucibleRules {
-  current = apply ? loadRules() : DEFAULT_RULES;
+  current = adopted ?? (apply ? loadRules() : DEFAULT_RULES);
   return current;
 }
 

@@ -4,6 +4,7 @@
  * him by a different name. The host says it once per man per guest, on the reliable lane, in small batches: a guest who joins
  * late is told about everyone alive.
  */
+import type { Commander } from '../../enemies/commander';
 import type { Enemy } from '../../enemies/Enemy';
 import { NAME_LIST } from '../../enemies/outpost/chatter/names';
 import { RANKS, RANK_ORDER } from '../../enemies/outpost/rank';
@@ -11,16 +12,21 @@ import { soldierOf } from '../../enemies/outpost/soldier';
 import type { WorldContext, WorldModule } from './context';
 import type { Replicas } from './replicas';
 
-/** Host: who these men are. Each row: uid, surname, designation, nickname (ids into `NAME_LIST`, -1 none), rank, seat, voice, bits (1 known by name, 2 leads his squad, 4 talks big), squad. */
-export type WhoEvent = { t: 'who'; list: [number, number, number, number, number, number, number, number, string][] };
+/**
+ * Host: who these men are. Each row: uid, surname, designation, nickname (ids into `NAME_LIST`, -1 none), rank, seat, voice,
+ * bits (1 known by name, 2 leads his squad, 4 talks big), squad, and what he wears (`Commander.gearOf`: his props and the
+ * heavy helmet). A man whose gear changes afterwards (a detonator in his fist, a grenade in a raised hand, a pack dropped)
+ * is told again.
+ */
+export type WhoEvent = { t: 'who'; list: [number, number, number, number, number, number, number, number, string, number][] };
 
 /** Ms between batches, and men in one. */
 const EVERY_MS = 200;
 const BATCH = 16;
 
 export class Identity implements WorldModule {
-  /** Host: the uids each guest has been told about. */
-  private readonly told = new Map<string, Set<number>>();
+  /** Host: the men each guest has been told about, by uid, with the gear it was told. */
+  private readonly told = new Map<string, Map<number, number>>();
   private next = 0;
   /** Guest: men whose identity has been applied. */
   applied = 0;
@@ -28,7 +34,7 @@ export class Identity implements WorldModule {
   constructor(private readonly w: WorldContext, private readonly replicas: Replicas) {
     w.router.guest('who', value => this.whoIn(value));
     w.snapshotSent.push(alive => {
-      for (const set of this.told.values()) for (const uid of set) if (!alive.has(uid)) set.delete(uid);
+      for (const set of this.told.values()) for (const uid of set.keys()) if (!alive.has(uid)) set.delete(uid);
     });
   }
 
@@ -39,12 +45,13 @@ export class Identity implements WorldModule {
     for (const player of session.lobby.players) {
       if (player.host || player.away) continue;
       let told = this.told.get(player.id);
-      if (!told) this.told.set(player.id, told = new Set());
+      if (!told) this.told.set(player.id, told = new Map());
       let list: WhoEvent['list'] | null = null;
       for (const enemy of manager.alive) {
-        if (told.has(enemy.uid)) continue;
-        const row = this.rowOf(enemy);
-        told.add(enemy.uid);
+        const gear = this.gearOf(enemy);
+        if (told.get(enemy.uid) === gear) continue;
+        const row = this.rowOf(enemy, gear);
+        told.set(enemy.uid, gear);
         if (!row) continue;
         (list ??= []).push(row);
         if (list.length >= BATCH) break;
@@ -54,17 +61,29 @@ export class Identity implements WorldModule {
     for (const id of this.told.keys()) if (!session.lobby.players.some(player => player.id === id && !player.away)) this.told.delete(id);
   }
 
-  private rowOf(enemy: Enemy): WhoEvent['list'][number] | null {
+  /** What he wears, by the Commander's count; 0 for anything that is no soldier. */
+  private gearOf(enemy: Enemy): number {
+    const s = soldierOf(enemy);
+    return s ? this.commander?.gearOf?.(s) ?? 0 : 0;
+  }
+
+  /** The villain, who knows what his men wear. None in a game with no outpost (and none in a test's stand-in for one). */
+  private get commander(): Partial<Pick<Commander, 'gearOf' | 'wear'>> | undefined {
+    return (this.w.manager.outpost as { commander?: Commander } | null)?.commander;
+  }
+
+  private rowOf(enemy: Enemy, gear: number): WhoEvent['list'][number] | null {
     const s = soldierOf(enemy);
     if (!s?.squad) return null;
-    return [enemy.uid, s.name, s.desig, s.nick, RANK_ORDER.indexOf(s.rank), s.seat, s.voice, (s.known ? 1 : 0) | (s.isLeader ? 2 : 0) | (s.bravado ? 4 : 0), s.squad.name];
+    return [enemy.uid, s.name, s.desig, s.nick, RANK_ORDER.indexOf(s.rank), s.seat, s.voice, (s.known ? 1 : 0) | (s.isLeader ? 2 : 0) | (s.bravado ? 4 : 0), s.squad.name, gear];
   }
 
   private whoIn(value: WhoEvent): void {
     if (!Array.isArray(value.list)) return;
     for (const row of value.list.slice(0, 64)) {
-      if (!Array.isArray(row) || row.length !== 9 || !row.slice(0, 8).every(n => Number.isInteger(n)) || typeof row[8] !== 'string') continue;
+      if (!Array.isArray(row) || row.length !== 10 || !row.slice(0, 8).every(n => Number.isInteger(n)) || typeof row[8] !== 'string') continue;
       const [uid, name, desig, nick, rank, seat, voice, bits, squad] = row;
+      const gear = Number.isInteger(row[9]) && row[9] >= 0 && row[9] < 1 << 13 ? row[9] : 0;
       if (uid <= 0 || [name, desig, nick].some(id => id < -1 || id >= NAME_LIST.length) || !RANK_ORDER[rank] || seat < 0 || seat > 99 || voice < -1 || voice > 255) continue;
       const squadName = squad.replace(/[^\w .'-]/g, '').slice(0, 24);
       // He may not be drawn here yet: his first state is on the unreliable lane, this is not.
@@ -78,6 +97,7 @@ export class Identity implements WorldModule {
         s.rankDef = RANKS[s.rank];
         s.seat = seat;
         s.voice = voice;
+        this.commander?.wear?.(s, gear);
         // A copy stands in a squad of its own, made when it was: that squad takes the host's name, and he leads it or not.
         if (s.squad) {
           (s.squad as { name: string }).name = squadName || s.squad.name;
