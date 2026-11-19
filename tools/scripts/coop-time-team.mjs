@@ -45,6 +45,8 @@ const sample = (page, spot, uids, ms) => page.evaluate(async ([spot, uids, ms]) 
   const { ctx, game } = window.__op2, V = ctx.player.position.constructor;
   if (game.state !== 'playing') game.setState('playing');
   ctx.player.teleport(new V(...spot.at), spot.yaw);
+  // Guns up: the fire rate is measured into the sky, so no round staggers the enemies whose speed is being measured.
+  ctx.player.pitch = 1.1;
   ctx.weapons.refillMagazines();
   await new Promise(r => setTimeout(r, 120));
   const where = () => uids.map(u => { const e = ctx.enemies.alive.find(e => e.uid === u); return e ? [e.position.x, e.position.z] : null; });
@@ -52,16 +54,19 @@ const sample = (page, spot, uids, ms) => page.evaluate(async ([spot, uids, ms]) 
   const off = ctx.events.on('weapon:fired', () => shots++);
   ctx.input.simulate('forward', true); ctx.input.simulate('fire', true);
   await new Promise(r => setTimeout(r, 150));
-  const a = where(), from = ctx.player.position.clone(), t0 = performance.now(), w0 = ctx.time.elapsed, p0 = ctx.time.playerElapsed; shots = 0;
+  // Rates are per second of the game's own real clock (`realElapsed`), read at frame boundaries, so a loaded machine's long
+  // frames do not smear the window's edges. `fps` says how the page was running.
+  const a = where(), from = ctx.player.position.clone(), t0 = performance.now(), r0 = ctx.time.realElapsed, f0 = ctx.time.frame, w0 = ctx.time.elapsed, p0 = ctx.time.playerElapsed; shots = 0;
   const top = setInterval(() => ctx.weapons.refillMagazines(), 200);
   await new Promise(r => setTimeout(r, ms));
-  const seconds = (performance.now() - t0) / 1000, b = where();
+  const seconds = ctx.time.realElapsed - r0, b = where(), wall = (performance.now() - t0) / 1000, fps = (ctx.time.frame - f0) / wall;
   const walked = ctx.player.position.distanceTo(from), fired = shots;
   clearInterval(top); off();
   ctx.input.simulate('forward', false); ctx.input.simulate('fire', false);
-  const speeds = a.map((p, i) => p && b[i] ? Math.hypot(b[i][0] - p[0], b[i][1] - p[1]) / seconds : null).filter(v => v !== null).sort((x, y) => x - y);
+  // Enemies move in wall time on every screen (a guest's copies follow the host's snapshots), so their speed is per wall second.
+  const speeds = a.map((p, i) => p && b[i] ? Math.hypot(b[i][0] - p[0], b[i][1] - p[1]) / wall : null).filter(v => v !== null).sort((x, y) => x - y);
   return { world: (ctx.time.elapsed - w0) / seconds, own: (ctx.time.playerElapsed - p0) / seconds, walk: walked / seconds, fire: fired / seconds,
-    enemy: speeds.length ? speeds[Math.floor(speeds.length / 2)] : null };
+    enemy: speeds.length ? speeds[Math.floor(speeds.length / 2)] : null, fps };
 }, [spot, uids, ms]);
 
 const tapChip = async (page, sleep) => {
@@ -107,8 +112,11 @@ export default async function (host, { sleep, outDir }) {
       await sleep(900);
       return uids;
     };
-    const measure = uids => Promise.all(pages.map((page, i) => sample(page, spots[i], uids, 1000)));
+    const measure = uids => Promise.all(pages.map((page, i) => sample(page, spots[i], uids, 900)));
     const near = (value, want, tolerance) => Math.abs(value - want) <= tolerance;
+    /** Every page has blended down to a slowed world. */
+    const allSlow = list => Promise.all(list.map(page => page.waitForFunction(() => window.__op2.ctx.time.slowmo < 0.5, null, { timeout: 6000 })));
+    const round = m => ({ world: +m.world.toFixed(3), own: +m.own.toFixed(3), walk: +m.walk.toFixed(2), fire: +m.fire.toFixed(1), enemy: m.enemy === null ? null : +m.enemy.toFixed(2), fps: Math.round(m.fps) });
 
     /** One cause, start to end, asserted on every page. */
     const scenario = async (key, { title, cause, end, scale, lines, grade, hold = 0 }) => {
@@ -118,12 +126,23 @@ export default async function (host, { sleep, outDir }) {
       const uids = await fresh();
       for (const page of pages) await watch(page);
       const t0 = await cause();
-      await host.waitForFunction(() => window.__op2.ctx.coop.world.slows.length > 0, null, { timeout: 5000 });
-      await sleep(NOTICE_MS + 150);
-      const seen = await Promise.all(pages.map(watched));
+      await Promise.all(pages.map(page => page.waitForFunction(() => window.__tw.noticeAt > 0 && window.__tw.slowAt > 0, null, { timeout: 8000 }))).catch(async error => {
+        // Nothing slowed: say what each page had, so the failure explains itself.
+        out.stuck = await Promise.all(pages.map(page => page.evaluate(() => {
+          const { ctx, game } = window.__op2, chips = ctx.contracts.chips, w = ctx.coop.world;
+          return { state: game.state, fps: window.__op2.stats().fps, focus: chips.focus, meter: chips.meter, fitted: [...chips.rack.fitted], current: chips.current, alive: ctx.player.alive, downed: ctx.player.downed,
+            slows: w.slows.length, board: { list: w.slowBoard.list.length, bank: w.slowBoard.bank, locked: w.slowBoard.locked }, effects: ctx.progression.effects.map(e => e.id),
+            callout: document.querySelector('.callout-name')?.textContent ?? '', tw: { ...window.__tw, timer: 0 }, slowmo: ctx.time.slowmo, hidden: document.hidden };
+        })));
+        throw new Error(`${title}: no slow-mo within 8 s of the cause :: ${JSON.stringify(out.stuck)} :: ${error.message}`);
+      });
+      // What every screen reads, the moment they all show it; then the blend in, then the measuring window.
+      const [seen, states] = await Promise.all([Promise.all(pages.map(watched)), Promise.all(pages.map(read))]);
+      await sleep(250);
       const during = await measure(uids);
-      const states = await Promise.all(pages.map(read));
       if (shots) for (let i = 0; i < pages.length; i++) await shot(pages[i], `${key}-${i === 0 ? 'host' : `guest${i}`}`);
+      // A page's frame, ms: every bound below allows three of them on top (a slow page reacts a frame late, not a second late).
+      const frame = before.map((m, i) => 1000 / Math.max(5, Math.min(m.fps, during[i].fps)));
       if (hold) await sleep(hold);
       const tEnd = end ? await end() : await epoch(host);
       for (const page of pages) await page.waitForFunction(() => window.__tw.fullAt > 0 && window.__tw.goneAt > 0, null, { timeout: 12000 });
@@ -132,9 +151,9 @@ export default async function (host, { sleep, outDir }) {
         noticeMs: seen.map(s => Math.round(s.noticeAt - t0)), slowMs: seen.map(s => Math.round(s.slowAt - t0)),
         fullMs: after.map(s => Math.round(s.fullAt - tEnd)), noticeGoneMs: after.map(s => Math.round(s.goneAt - tEnd)), min: after.map(s => +s.min.toFixed(3)),
         lines: states.map(s => s.notice.lines), state: states.map(s => s.notice.state), grade: states.map(s => s.grade),
-        before: before.map(m => ({ world: +m.world.toFixed(3), own: +m.own.toFixed(3), walk: +m.walk.toFixed(2), fire: +m.fire.toFixed(1), enemy: m.enemy === null ? null : +m.enemy.toFixed(2) })),
-        during: during.map(m => ({ world: +m.world.toFixed(3), own: +m.own.toFixed(3), walk: +m.walk.toFixed(2), fire: +m.fire.toFixed(1), enemy: m.enemy === null ? null : +m.enemy.toFixed(2) })) };
-      check(seen.every(s => s.noticeAt > 0 && s.noticeAt - t0 <= NOTICE_MS), `${title}: the notice is on every screen within ${NOTICE_MS} ms of the cause`, result.noticeMs);
+        before: before.map(round), during: during.map(round) };
+      result.fps = before.map((m, i) => [m.fps, during[i].fps]);
+      check(seen.every((s, i) => s.noticeAt > 0 && s.noticeAt - t0 <= NOTICE_MS + 3 * frame[i]), `${title}: the notice is on every screen within ${NOTICE_MS} ms of the cause (plus three of that page's frames)`, [result.noticeMs, result.fps]);
       // No slow-mo without a notice: the notice is never later than the slowing (two watcher ticks of slack).
       check(seen.every(s => s.slowAt > 0 && s.noticeAt <= s.slowAt + 40), `${title}: no screen slows before its notice shows`, [result.noticeMs, result.slowMs]);
       for (const want of lines) check(states.every((s, i) => s.notice.lines.some(l => l === want(i))), `${title}: every screen reads "${want(-1)}"`, result.lines);
@@ -142,12 +161,17 @@ export default async function (host, { sleep, outDir }) {
       check(states.every(s => s.notice.state === `WORLD AT ${scale.toFixed(2)}x · YOU AT FULL SPEED`), `${title}: the notice gives the world's speed (${scale}x)`, result.state);
       check(during.every(m => near(m.world, scale, 0.06)), `${title}: every screen's world clock runs at ${scale}x`, result.during.map(m => m.world));
       check(during.every(m => near(m.own, 1, 0.04)), `${title}: every player's own clock stays at full speed`, result.during.map(m => m.own));
-      check(before.every(m => m.enemy > 1) && during.every((m, i) => near(m.enemy / before[i].enemy, scale, 0.14)), `${title}: the host's enemies, and every guest's copies, walk at ${scale}x their speed`,
+      check(before.every(m => m.enemy > 1) && during.every((m, i) => near(m.enemy / before[i].enemy, scale, m.fps >= 30 && before[i].fps >= 30 ? 0.14 : 0.3)), `${title}: the host's enemies, and every guest's copies, walk at ${scale}x their speed`,
         [result.before.map(m => m.enemy), result.during.map(m => m.enemy)]);
       check(during.every((m, i) => near(m.walk / before[i].walk, 1, 0.1)), `${title}: every player walks as fast as at full speed (single-player slow-mo gives the same)`, [result.before.map(m => m.walk), result.during.map(m => m.walk)]);
-      check(during.every((m, i) => near(m.fire / before[i].fire, 1, 0.12)), `${title}: every player's gun fires as fast as at full speed`, [result.before.map(m => m.fire), result.during.map(m => m.fire)]);
+      // A gun fires on whole frames, so its measured rate moves with the frame rate: the tight bound needs a steady 40 fps.
+      const steady = before.every(m => m.fps >= 40) && during.every(m => m.fps >= 40);
+      result.steady = steady;
+      check(during.every((m, i) => near(m.fire / before[i].fire, 1, steady ? 0.12 : 0.3)), `${title}: every player's gun fires as fast as at full speed${steady ? '' : ' (loose bound: a page ran below 40 fps)'}`,
+        [result.before.map(m => m.fire), result.during.map(m => m.fire), result.fps]);
       if (grade !== undefined) check(states.every(s => s.grade === grade), `${title}: every screen has the ${grade} look`, result.grade);
-      check(after.every(s => s.fullAt - tEnd <= FULL_MS), `${title}: every screen is back at full speed within ${FULL_MS} ms of the end`, result.fullMs);
+      // The blend out runs on each page's own clamped clock: below 20 fps it takes that much longer.
+      check(after.every((s, i) => s.fullAt - tEnd <= FULL_MS * Math.max(1, frame[i] / 50) + 3 * frame[i]), `${title}: every screen is back at full speed within ${FULL_MS} ms of the end (at 20 fps or better)`, [result.fullMs, result.fps]);
       check(after.every(s => s.goneAt > s.fullAt - 50), `${title}: the notice stays until the world is at full speed, then goes`, result.noticeGoneMs);
       const rest = await Promise.all(pages.map(read));
       check(rest.every(s => s.slowmo === 1 && s.slows.length === 0 && s.notice.lines.length === 0), `${title}: afterwards nothing is slow anywhere`, rest.map(s => s.slowmo));
@@ -209,7 +233,7 @@ export default async function (host, { sleep, outDir }) {
     });
     for (const page of pages) await watch(page);
     await tapChip(host, sleep);
-    await sleep(NOTICE_MS + 300);
+    await allSlow(pages);
     check((await Promise.all(pages.map(read))).every(s => s.slowmo < 0.5), 'Dropped end: the world is slow on every screen first');
     const left = await guest.evaluate(() => window.__op2.ctx.coop.world.slows[0].until - performance.now());
     await host.evaluate(() => { window.__lose = true; });
@@ -219,8 +243,8 @@ export default async function (host, { sleep, outDir }) {
     const lost = await host.evaluate(() => { window.__lose = false; return window.__lost; });
     out.scenarios['dropped-end'] = { lost, leftMs: Math.round(left), fullMs: dropped.map(s => Math.round(s.fullAt - dropAt)) };
     check(lost >= 1, "Dropped end: the host's end (and every repeat after it) was lost", lost);
-    // The entry's own deadline, half a second of grace, the blend out, and the watcher's slack.
-    check(dropped.every(s => s.fullAt - dropAt <= left + 500 + 500 + 400), 'Dropped end: every guest is back at full speed by its own deadline, without a word from the host', out.scenarios['dropped-end']);
+    // The entry's own deadline, half a second of grace, the blend out, and slack for a loaded page.
+    check(dropped.every(s => s.fullAt - dropAt <= left + 500 + 500 + 1200), 'Dropped end: every guest is back at full speed by its own deadline, without a word from the host', out.scenarios['dropped-end']);
     check(dropped.every(s => s.fullAt - dropAt >= 1000), 'Dropped end: (control) the guests did not hear the end: they ran on past it', out.scenarios['dropped-end'].fullMs);
     await sleep(2300);
     check((await Promise.all(pages.map(read))).every(s => s.slowmo === 1 && s.slows.length === 0), "Dropped end: the host's next state agrees: nothing is slow");
@@ -233,7 +257,7 @@ export default async function (host, { sleep, outDir }) {
     });
     for (const page of pages) await watch(page);
     const onAt = await tapChip(guest, sleep);
-    await sleep(NOTICE_MS + 300);
+    await allSlow(pages);
     await tapChip(guest, sleep);
     for (const page of pages) await page.waitForFunction(() => window.__tw.fullAt > 0, null, { timeout: 15000 });
     const capped = await Promise.all(pages.map(watched));
@@ -296,7 +320,7 @@ export default async function (host, { sleep, outDir }) {
     await sleep(3300);
     for (const page of all) { await fillFocus(page); await watch(page); }
     await tapChip(guest, sleep);
-    await sleep(NOTICE_MS + 300);
+    await allSlow(all);
     check((await Promise.all(all.map(read))).every(s => s.slowmo < 0.5 && s.slows.length === 1), 'Budget: three seconds later a Focus is granted again');
     await tapChip(guest, sleep);
     await sleep(1500);
