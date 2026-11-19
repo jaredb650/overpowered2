@@ -461,7 +461,8 @@ export async function joinFromSplash(page, password, listed = true) {
  */
 export const deploy = (page, timeout = 150000) => page.waitForFunction(() => {
   const coop = window.__op2?.ctx?.coop;
-  return !!coop && (coop.begun === true || coop.deploy() === true);
+  // A build from before the load barrier (a baseline, coop-motion-matrix.mjs) has no gate to press.
+  return !!coop && (coop.begun === true || typeof coop.deploy !== 'function' || coop.deploy() === true);
 }, null, { timeout });
 
 /** Every page in the match with the world and the other players' bodies up. */

@@ -214,7 +214,10 @@ describe('the playhead', () => {
     for (let t = 0; t <= 3000; t += 50) buffer.push(t, 5, 0, 5, 0, 0, 0, 0);
     buffer.advance(16, 500, 0, s);
     buffer.advance(16, 516, 0, s);
-    buffer.drawnAt(6.5, 0, 5, 0.4);
+    // The frame it is handed back on is drawn where the body is, not at the buffer's place.
+    buffer.drawnAt(6.5, 0, 5, 0.4, s);
+    expect(s.x).toBeCloseTo(6.5, 6);
+    expect(s.yaw).toBeCloseTo(0.4, 6);
     buffer.advance(16, 532, 0, s);
     expect(s.x).toBeGreaterThan(6.1);
     expect(s.yaw).toBeGreaterThan(0.3);

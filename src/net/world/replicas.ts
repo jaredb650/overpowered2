@@ -21,7 +21,7 @@ import type { ReplicaView } from '../../enemies/EnemyManager';
 import { HELMET } from '../../enemies/wounds/armour';
 import { capturable } from './capture';
 import type { WorldContext, WorldModule } from './context';
-import { HostClock, MotionBuffer, SendClock, motionSample } from './motion';
+import { HostClock, MotionBuffer, SendClock, motionSample, type MotionSample } from './motion';
 import { AIRBORNE, BOSS_ENTRY, BURNING, CAPTURABLE, CEILING_BYTES, ChunkReader, ChunkWriter, DOWNED, FAR_EVERY, FAR_EVERY_TIGHT, FROZEN, FULL_TICKS,
   POSTURES, ROSTER_EVERY, SHIELD, TICK_MS, WARD, WAVE_PHASES, dueOn, intervalOf, keyOn, tierOf, unwrap, wireEnemy, type PostureId, type WireEnemy } from './snapshot';
 import type { Targeting } from './targeting';
@@ -299,7 +299,7 @@ export class Replicas implements WorldModule {
       const flags = motion.tag(s.at, 0), state = motion.tag(s.at, 1), severed = motion.tag(s.at, 3);
       const posture = POSTURES[motion.tag(s.at, 2)] ?? 'stand';
       const hostDown = (flags & DOWNED) !== 0;
-      if (this.ragdoll(replica, hostDown, s.y, now)) continue;
+      if (this.ragdoll(replica, hostDown, s, now)) continue;
       if (hostDown) { if (replica.hostDownAt === 0) replica.hostDownAt = now; } else replica.hostDownAt = 0;
       enemy.position.set(s.x, s.y, s.z);
       enemy.yaw = s.yaw;
@@ -340,10 +340,13 @@ export class Replicas implements WorldModule {
   /**
    * A copy knocked off its feet is its own ragdoll (moves.ts `down`, or this page's gore from a hit): gore has the body and
    * nothing here may place or animate it. True while that lasts. When gore hands it back it is getting up where it landed,
-   * which is not quite where the host's lies: the motion buffer eases it from there to the host's place.
+   * which is not quite where the host's lies: the motion buffer eases it from there to the host's place, starting on this
+   * very frame (`s`, this frame's sample, is put where the body is: one frame at the buffer's place was a pop of a metre
+   * or two there and back).
    */
-  private ragdoll(replica: Replica, hostDown: boolean, groundY: number, now: number): boolean {
+  private ragdoll(replica: Replica, hostDown: boolean, s: MotionSample, now: number): boolean {
     const { enemy } = replica;
+    const groundY = s.y;
     const gore = this.w.ctx.gore as { downed?(char: Enemy['char']): { center: THREE.Vector3 } | null; rouse?(char: Enemy['char']): void };
     const body = gore.downed?.(enemy.char) ?? null;
     if (body) {
@@ -364,7 +367,7 @@ export class Replicas implements WorldModule {
       replica.down = enemy.downed = enemy.airborne = false;
       replica.gotUpAt = now;
       const root = enemy.char.root;
-      replica.motion.drawnAt(root.position.x, root.position.y, root.position.z, root.rotation.y);
+      replica.motion.drawnAt(root.position.x, root.position.y, root.position.z, root.rotation.y, s);
     }
     return false;
   }

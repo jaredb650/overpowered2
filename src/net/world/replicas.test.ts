@@ -245,6 +245,31 @@ describe('a guest\'s replicas', () => {
     expect(guest.w.ctx.gore.sever).toHaveBeenCalledOnce();
   });
 
+  it('a copy handed back by its own ragdoll is drawn where it lay on that very frame, then walks to the host\'s place: no pop', () => {
+    const guest = side(false);
+    // Gore has the body from 2 s to 3 s, lying 1.5 m from where the host's stands.
+    const body = { center: new THREE.Vector3(1.5, 0.9, 0) };
+    let down = false;
+    (guest.w.ctx.gore as unknown as { downed: (char: unknown) => typeof body | null }).downed = () => (down ? body : null);
+    const xs: number[] = [];
+    for (let now = 1000; now <= 4500; now += 10) {
+      at(now);
+      if (now % 50 === 0) guest.take(chunk(now, [frame(7, 0, { full: now === 1000, velocity: [0, 0, 0] })]));
+      const enemy = guest.replicas.enemy(7);
+      if (enemy && !enemy.def) (enemy as unknown as { def: { chest: number } }).def = { chest: 0.9 };
+      down = now >= 2000 && now < 3000;
+      // The enemy system draws the copy where the replica put it (EnemyManager.placeReplica); gore draws it while it is down.
+      if (enemy && down) enemy.char.root.position.set(1.5, 0, 0);
+      guest.replicas.animate(now);
+      if (enemy && !down) enemy.char.root.position.copy(enemy.position);
+      if (enemy && now >= 2900) xs.push(enemy.position.x);
+    }
+    // Never a step of more than a run's worth between two frames, on the frame it gets up or after.
+    for (let index = 1; index < xs.length; index++) expect(Math.abs(xs[index]! - xs[index - 1]!)).toBeLessThan(0.05);
+    expect(xs[10]).toBeCloseTo(1.5, 1);
+    expect(xs.at(-1)).toBeCloseTo(0, 2);
+  });
+
   it('withdraws an enemy the roster no longer names, after a moment for its death to arrive, and never one that is newer than the roster', () => {
     const guest = side(false);
     at(1000);

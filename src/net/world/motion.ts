@@ -226,13 +226,18 @@ export class MotionBuffer {
     return out;
   }
 
-  /** It is drawn at this place now, wherever the buffer has it (a body that got up where its own ragdoll left it): eased back. */
-  drawnAt(x: number, y: number, z: number, yaw: number): void {
+  /**
+   * It is drawn at this place now, wherever the buffer has it (a body that got up where its own ragdoll left it): eased back.
+   * `out` is this frame's sample, already taken by `advance`: it is put at that place too, so the frame the body is handed
+   * back on is not drawn at the buffer's place and the next back where it lay.
+   */
+  drawnAt(x: number, y: number, z: number, yaw: number, out?: MotionSample): void {
     const b = this.before;
     if (b.mode === 2) return;
     this.ox = x - b.x; this.oy = y - b.y; this.oz = z - b.z;
     this.oyaw = wrap(yaw - b.yaw);
     if (Math.hypot(this.ox, this.oy, this.oz) > TELEPORT_M * 2) this.ox = this.oy = this.oz = this.oyaw = 0;
+    if (out) { out.x = b.x + this.ox; out.y = b.y + this.oy; out.z = b.z + this.oz; out.yaw = b.yaw + this.oyaw; }
   }
 
   /** Where the states alone put it at host time `t`, with no easing. */
