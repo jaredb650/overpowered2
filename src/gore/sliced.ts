@@ -321,10 +321,23 @@ export class SliceField {
     }
   }
 
+  /** Asked whether a piece could be seen from the camera (mess.ts). Left unset, every piece counts as in sight. */
+  inView: ((at: THREE.Vector3, radius: number) => boolean) | null = null;
+
   private enforce(): void {
     let live = 0;
     for (const h of this.halves) if (h.sinking < 0) live++;
     const now = this.ctx.time.elapsed;
+    // Out of sight first, and those go at once: there is nothing to watch.
+    if (this.inView) {
+      for (let i = 0; i < this.halves.length && live > SliceTuning.maxHalves; i++) {
+        const h = this.halves[i]!;
+        if (h.sinking >= 0 || h.body || this.inView(h.mesh.position, 1)) continue;
+        this.remove(h);
+        this.halves.splice(i--, 1);
+        live--;
+      }
+    }
     for (let i = 0; i < this.halves.length && live > SliceTuning.maxHalves; i++) {
       const h = this.halves[i]!;
       if (h.sinking >= 0) continue;
@@ -492,6 +505,51 @@ export class SliceField {
     if (!(handle instanceof Half)) return;
     this.wake(handle);
     handle.body?.applyImpulseAtPoint(impulse, point, true);
+  }
+
+  /** Every piece sinks away now: the floor is being cleared. */
+  dismiss(): void {
+    for (const h of this.halves) {
+      if (h.sinking >= 0 || h.vapor >= 0) continue;
+      this.freeze(h);
+      h.sinking = this.ctx.time.elapsed;
+    }
+  }
+
+  /**
+   * Someone walked into the pieces lying at `at`: each still one within `radius` wakes and is shoved along `vx, vz`, away
+   * from whoever it was, a couple a call. Returns how many.
+   */
+  shove(at: THREE.Vector3, radius: number, vx: number, vz: number): number {
+    let n = 0;
+    const speed = Math.hypot(vx, vz);
+    for (let i = 0; i < this.halves.length && n < 2; i++) {
+      const h = this.halves[i]!;
+      if (h.sinking >= 0 || h.vapor >= 0) continue;
+      const p = h.mesh.position;
+      const dx = p.x - at.x;
+      const dz = p.z - at.z;
+      const d = Math.hypot(dx, dz);
+      if (d > radius + 0.25 || p.y < at.y - 0.4 || p.y > at.y + 1.6) continue;
+      const closing = d > 1e-3 ? (vx * dx + vz * dz) / d : speed;
+      if (closing <= 0.3) continue;
+      if (!h.body) {
+        this.wake(h);
+        n++;
+      }
+      const body = h.body;
+      if (!body) continue;
+      // One way only, as for a body: speed away from the walker up to a ceiling, never taken off.
+      const want = Math.min(4.5, 0.8 + closing * 0.5);
+      const v = body.linvel();
+      const ux = d > 1e-3 ? dx / d : vx / speed;
+      const uz = d > 1e-3 ? dz / d : vz / speed;
+      const have = v.x * ux + v.z * uz;
+      if (have >= want) continue;
+      const j = (want - have) * body.mass();
+      body.applyImpulse(_v.set(ux * j, j * 0.2, uz * j), true);
+    }
+    return n;
   }
 
   pin(handle: unknown, point: THREE.Vector3, anchor: THREE.Vector3): void {

@@ -1,0 +1,649 @@
+/**
+ * The mess that stays: what the dead cost once they lie still, and what moves them again.
+ *
+ * A body at rest is cheap and is not a ghost. It keeps a fixed capsule where each of its own lay (`Rag.freeze(true)`), so
+ * the next body lands on it and a heap is as high as its bodies; its skeleton is no longer worked out or sent to the GPU;
+ * and past the newest few it casts no shadow of its own and drops a level of detail beyond arm's reach. It never blocks or
+ * lifts the player, whose capsule only sees the world, and it is not walked through untouched either: whoever pushes
+ * into it (the player, an enemy, a body falling on it, a blast) wakes it as a ragdoll, shoves it, and it settles again.
+ *
+ * Every number here is a budget, set by the "Mess" setting, and cites `docs/notes/gore.md`, "The mess: measured budgets".
+ * Each screen keeps its own mess: nothing here is sent in co-op, and nothing here changes what a bullet or a player meets.
+ */
+import * as THREE from 'three';
+import type { CharacterInstance, Ctx } from '../core/contracts';
+import type { Rag } from './rag';
+import type { RigInfo } from './rigInfo';
+
+export type MessLevel = 'low' | 'break' | 'standard' | 'everything';
+export const MESS_LEVELS: readonly MessLevel[] = ['low', 'break', 'standard', 'everything'];
+
+export interface MessBudget {
+  /** Bodies and blood are cleared when a wave ends. */
+  clearAtBreak: boolean;
+  /** Bodies kept, at rest and moving together. Past it the oldest out of sight goes first. */
+  corpses: number;
+  /** The newest bodies drawn as in life: their own shadow, every level of detail. The rest are "settled". */
+  full: number;
+  /** Bodies drawn as characters at all. Past it the oldest and furthest are baked into the far batch (far.ts). */
+  drawn: number;
+  /** Loose limbs kept. */
+  limbs: number;
+  /** Trunk pieces and sword halves kept, and the count past which the oldest goes whatever. */
+  halves: number;
+  halvesHard: number;
+  /** Slots for loose pieces (meat, bone, organs, ribs) in use, as a share of `ChunkTuning.capacity` (`ChunkTuning.share`). */
+  pieces: number;
+  /** Seconds a still piece lies before it shrinks away. Infinity: until its slot is needed. */
+  pieceLinger: number;
+  /** Slots of each decal ring in use (`Decals.setLimit`). */
+  blood: number;
+  marks: number;
+  scorches: number;
+  big: number;
+  /** Layers of blood a spot of floor takes before a new small stain there is skipped (`Decals.soak`). */
+  soak: number;
+}
+
+/**
+ * The caps, from the measurements (`docs/notes/gore.md`, "The mess: measured budgets"). On the laptop a full corpse in
+ * view is about 0.18 ms, a settled one 0.06, a baked far one 0.007, and twenty layers of blood under the player's feet
+ * 1.4 ms. So, every body in view at once, which is the worst a heap can be:
+ *
+ * - `low`: 6 full + 14 settled + 20 far = 2.1 ms. A thousand stains.
+ * - `standard` (and `break`, the same until the wave ends): 8 + 24 + 88 = 3.5 ms for 120 bodies, against 7.2 ms for the
+ *   40 full ones the game drew before; fixed capsules for all of them are 1,800, inside the 2,250 that cost nothing.
+ * - `everything`: 12 + 36 + 152 = 5.4 ms for 200 bodies. For a desktop card: on the laptop it will not hold 60 in a heap.
+ */
+export const MESS: Readonly<Record<MessLevel, MessBudget>> = {
+  low: { clearAtBreak: false, corpses: 40, full: 6, drawn: 20, limbs: 24, halves: 14, halvesHard: 22, pieces: 0.2, pieceLinger: 20, blood: 2048, marks: 512, scorches: 96, big: 64, soak: 4 },
+  break: { clearAtBreak: true, corpses: 120, full: 8, drawn: 32, limbs: 48, halves: 28, halvesHard: 44, pieces: 0.5, pieceLinger: Infinity, blood: 6144, marks: 1536, scorches: 256, big: 192, soak: 6 },
+  standard: { clearAtBreak: false, corpses: 120, full: 8, drawn: 32, limbs: 48, halves: 28, halvesHard: 44, pieces: 0.5, pieceLinger: Infinity, blood: 6144, marks: 1536, scorches: 256, big: 192, soak: 6 },
+  everything: { clearAtBreak: false, corpses: 200, full: 12, drawn: 48, limbs: 64, halves: 40, halvesHard: 56, pieces: 1, pieceLinger: Infinity, blood: 8192, marks: 1536, scorches: 256, big: 256, soak: 10 },
+};
+
+export const MessTuning = {
+  level: 'standard' as MessLevel,
+  /**
+   * Fixed capsules in the world for bodies and limbs at rest, all together. Fourteen ragdolls landing on 2,250 cost the
+   * step 1.3 ms against 1.0 on none, and on 4,500 4.1 (M0). Past this the oldest body at rest gives its capsules up and is
+   * a ghost again, as every body was before.
+   */
+  maxShapes: 2600,
+  /** Resting bodies woken in one frame by being walked into, by a body landing on them, or by losing what they lay on. */
+  wakesPerFrame: 2,
+  /**
+   * Chains that may be simulating before a push by the living wakes another, counted from `GoreTuning.maxRagdolls`: the
+   * player's push may run this many over the budget for a moment, an enemy's or a landing must leave this many free for
+   * the next death.
+   */
+  playerOver: 4,
+  othersUnder: 4,
+  /** How wide and tall whoever pushes is, in metres, past their own radius. */
+  reach: 0.12,
+  /** What a push gives a part: metres a second for standing in it, more for each m/s of closing on it, up to a ceiling. */
+  pushBase: 0.7,
+  pushPerSpeed: 0.5,
+  pushMax: 5,
+  /** Upward share of a push, so a part rides over what it is shoved against. */
+  pushLift: 0.22,
+  /**
+   * An enemy's push against the player's, and the seconds between bodies at rest that the enemies, all of them together,
+   * may wake. A horde running down one lane at the player would otherwise plough every heap in it flat: measured, 150
+   * kills on one spot left hips a hand's width off the floor, as before there were heaps at all. So the living jostle the
+   * dead and stir a body now and then; it is the player who ploughs.
+   */
+  enemyPush: 0.4,
+  enemyWakeEvery: 0.6,
+  /** Enemies further than this from the player push nothing. */
+  enemyRange: 30,
+  /** A falling chain wakes the body it lands on when it hits at this speed, m/s. */
+  landSpeed: 2.2,
+  /** A body lies on another when its hips, or its highest point, are this far above the other's, m. */
+  onTop: 0.06,
+  /** What it lay on has moved this far, m: it is woken to fall. */
+  slipped: 0.14,
+  /** Seconds a body waits to hear what the one under it did. */
+  supportWait: 4,
+  /** Metres within which a settled body keeps its finest level of detail and what is under its skin. */
+  nearDetail: 7,
+  /** Seconds between looks at who is in view and who is over the caps. */
+  policyEvery: 0.25,
+  /** Past the cap by this many, the oldest goes even in plain sight. */
+  hardOver: 12,
+  /** Beyond this a body is out of sight whatever the camera says, m. */
+  farAway: 70,
+  /** `?messpush=0`: bodies at rest are never woken by being walked into (they still heap). */
+  push: typeof location === 'undefined' || new URLSearchParams(location.search).get('messpush') !== '0',
+  /** `?messrest=0`: bodies at rest keep no capsules, so nothing lands on them: the flat carpet from before. */
+  rest: typeof location === 'undefined' || new URLSearchParams(location.search).get('messrest') !== '0',
+};
+
+/** The caps in force. */
+export const messBudget = (): MessBudget => MESS[MessTuning.level];
+
+/** What mess needs to know of a body or a limb in gore's care. Gore's own classes fit it. */
+export interface MessChain {
+  rag: Rag | null;
+  sinking: number;
+  readonly stakes: readonly unknown[];
+}
+export interface MessBody extends MessChain {
+  readonly char: CharacterInstance;
+  readonly info: RigInfo;
+  down: unknown;
+  vapor: number;
+  freshAt: number;
+  /** 0 drawn as in life, 1 settled. Mess's to write. */
+  tier: number;
+  /** Shadows it cast before it was settled, to give back. */
+  shade: THREE.Object3D[] | null;
+}
+
+/** What gore does for mess. */
+export interface MessHost {
+  readonly bodies: readonly MessBody[];
+  readonly limbs: readonly MessChain[];
+  /** Thaws a chain and keeps the ragdoll budget, as a round into a corpse does. */
+  wake(target: MessChain): void;
+  /** Chains simulating now. */
+  simulating(): number;
+  maxRagdolls(): number;
+  /** Bodies kept: `GoreTuning.maxCorpses`, which the setting writes and a mission may lower. */
+  maxCorpses(): number;
+  /** Takes a body out of the world at once: it is out of sight. */
+  remove(body: MessBody): void;
+  /** Sinks a body through the floor, in sight. */
+  sink(body: MessBody): void;
+  /** A push landed on this chain: it is not to be frozen for its age. */
+  pushed(target: MessChain): void;
+  /** Loose pieces and trunk halves lying at `at` are knocked away along `vx, vz`. */
+  kick(at: THREE.Vector3, radius: number, vx: number, vz: number): void;
+  /** Takes a loose limb out of the world at once (out of sight), or sinks it (in sight). */
+  removeLimb(limb: MessChain): void;
+  sinkLimb(limb: MessChain): void;
+  maxLimbs(): number;
+}
+
+interface Pending {
+  /** The chain that lay on `under`. */
+  on: MessChain;
+  under: Rag;
+  x: number;
+  y: number;
+  z: number;
+  until: number;
+}
+
+/** What a still skeleton needs, read off a character or a severed part without asking the library for anything. */
+interface Skinned {
+  skeleton?: THREE.Skeleton;
+  bones: readonly THREE.Bone[];
+}
+
+const _v = new THREE.Vector3();
+const _t = { x: 0, y: 0, z: 0 };
+const _lv = { x: 0, y: 0, z: 0 };
+const _frustum = new THREE.Frustum();
+const _m = new THREE.Matrix4();
+const _sphere = new THREE.Sphere();
+const STILL = Symbol('mess.still');
+type StillSkeleton = THREE.Skeleton & { [STILL]?: true };
+
+/** Where a skeleton's bones are, as one number: any bone moving changes it. */
+function poseSum(bones: readonly THREE.Bone[]): number {
+  let sum = 0;
+  for (let i = 0; i < bones.length; i++) {
+    const e = bones[i]!.matrixWorld.elements;
+    sum += (e[12]! + e[13]! * 1.7 + e[14]! * 2.9 + e[0]! * 0.31 + e[5]! * 0.53 + e[10]! * 0.71) * (i + 1);
+  }
+  return sum;
+}
+
+/**
+ * A skeleton that lies still is not worked out again, and its texture is sent only when something has written to the
+ * rest of it (a wound, a burn, a flash: the texels after the bones). A third of what a corpse costs the frame (M0).
+ *
+ * It ends by itself. Each frame it looks at where its bones are, and the moment any has moved (the body woke, is sinking,
+ * or the library has given the instance to a living enemy) it is an ordinary skeleton again, on that frame. So nobody
+ * who takes a body away has to remember to say so; `still: false` only does it a frame sooner.
+ */
+export function stillSkeleton(source: Skinned, still: boolean): void {
+  const skeleton = source.skeleton as StillSkeleton | undefined;
+  if (!skeleton?.boneTexture || !skeleton.boneMatrices) return;
+  if (!still) {
+    if (skeleton[STILL]) {
+      delete skeleton[STILL];
+      delete (skeleton as { update?: unknown }).update;
+    }
+    return;
+  }
+  if (skeleton[STILL]) return;
+  // Once more as it lies, so what is sent is the pose it stopped in.
+  source.bones[0]?.parent?.updateMatrixWorld(true);
+  skeleton.update();
+  const data = skeleton.boneMatrices;
+  const bones = skeleton.bones;
+  const from = bones.length * 16;
+  const pose = poseSum(bones);
+  let wrote = NaN;
+  skeleton[STILL] = true;
+  skeleton.update = () => {
+    if (poseSum(bones) !== pose) {
+      delete skeleton[STILL];
+      delete (skeleton as { update?: unknown }).update;
+      skeleton.update();
+      return;
+    }
+    let sum = 0;
+    for (let i = from; i < data.length; i++) sum += data[i]! * ((i & 7) + 1);
+    if (sum === wrote) return;
+    wrote = sum;
+    skeleton.boneTexture!.needsUpdate = true;
+  };
+}
+
+export class MessField {
+  private readonly pending: Pending[] = [];
+  /** Chains at rest with their capsules, oldest first. */
+  private readonly rests: Rag[] = [];
+  private shapes = 0;
+  private wakes = 0;
+  private policyAt = 0;
+  /** World time the enemies may next wake a body at rest. */
+  private enemyWakeAt = 0;
+  private readonly onUnrest = (rag: Rag): void => this.unrested(rag);
+  /** Counters since the last clear, for checks and the debug overlay. */
+  readonly count = { pushWakes: 0, landWakes: 0, slipWakes: 0, ghosted: 0, removed: 0, sunk: 0 };
+
+  constructor(private readonly ctx: Ctx, private readonly host: MessHost) {}
+
+  /** A chain has just frozen: its capsules are in the world. */
+  rested(target: MessChain, source: Skinned): void {
+    const rag = target.rag;
+    stillSkeleton(source, true);
+    if (!rag?.resting) return;
+    rag.onUnrest = this.onUnrest;
+    this.rests.push(rag);
+    this.shapes += rag.restCount;
+    // Over the budget for capsules, the oldest at rest is a ghost again. What lay on it is woken by `unrested`.
+    while (this.shapes > MessTuning.maxShapes && this.rests.length > 1) {
+      this.count.ghosted++;
+      this.rests[0]!.dropRest();
+    }
+  }
+
+  /** A chain is simulating again: its skeleton is live. */
+  woke(source: Skinned): void {
+    stillSkeleton(source, false);
+  }
+
+  /** A chain's capsules have left the world, however that came about. Whatever lay on it will want to fall. */
+  private unrested(rag: Rag): void {
+    const at = this.rests.indexOf(rag);
+    if (at < 0) return;
+    this.rests.splice(at, 1);
+    this.shapes -= rag.restCount;
+    const now = this.ctx.time.elapsed;
+    const t = MessTuning;
+    const lo = rag.restMin;
+    const hi = rag.restMax;
+    const all = this.host.bodies as readonly MessChain[];
+    for (let pass = 0; pass < 2; pass++) {
+      const list = pass === 0 ? all : this.host.limbs;
+      for (let i = 0; i < list.length; i++) {
+        const other = list[i]!;
+        const o = other.rag;
+        if (!o || o === rag || !o.resting || other.sinking >= 0) continue;
+        if (o.restMin.x > hi.x || o.restMax.x < lo.x || o.restMin.z > hi.z || o.restMax.z < lo.z) continue;
+        // On it, not beside it. A body draped over another still has a hand or a foot on the floor, so its lowest point
+        // says nothing: it lies on this one if its hips are higher, or if some part of it reaches higher than this one does.
+        if (o.restMin.y > hi.y + 0.1) continue;
+        if (o.center.y < rag.center.y + t.onTop && o.restMax.y < hi.y + t.onTop) continue;
+        if (this.pending.length >= 64) return;
+        this.pending.push({ on: other, under: rag, x: rag.center.x, y: rag.center.y, z: rag.center.z, until: now + t.supportWait });
+      }
+    }
+  }
+
+  /** May one more chain be woken this frame? `over` is how far past the ragdoll budget it may take the count. */
+  private room(over: number): boolean {
+    return this.wakes < MessTuning.wakesPerFrame && this.host.simulating() < this.host.maxRagdolls() + over;
+  }
+
+  private wake(target: MessChain): void {
+    this.wakes++;
+    this.host.wake(target);
+  }
+
+  update(): void {
+    this.wakes = 0;
+    this.settleSupports();
+    if (MessTuning.push) {
+      this.landings();
+      this.pushers();
+    }
+    const now = this.ctx.time.elapsed;
+    if (now >= this.policyAt) {
+      this.policyAt = now + MessTuning.policyEvery;
+      this.policy();
+    }
+  }
+
+  /** Bodies waiting on the one they lay on: woken once it has gone or moved away, forgotten once it lies still again. */
+  private settleSupports(): void {
+    const now = this.ctx.time.elapsed;
+    const t = MessTuning;
+    for (let i = this.pending.length - 1; i >= 0; i--) {
+      const p = this.pending[i]!;
+      const on = p.on.rag;
+      let drop = !on || !on.resting || p.on.sinking >= 0;
+      if (!drop) {
+        const u = p.under;
+        const gone = !u.active && !u.resting;
+        const moved = gone || Math.hypot(u.center.x - p.x, u.center.y - p.y, u.center.z - p.z) > t.slipped;
+        if (moved) {
+          // Falling is not optional: it may run over the budget as far as the player's own push may.
+          if (!this.room(t.playerOver)) continue;
+          this.count.slipWakes++;
+          this.wake(p.on);
+          drop = true;
+        } else if (u.resting || now > p.until) drop = true;
+      }
+      if (drop) {
+        this.pending[i] = this.pending[this.pending.length - 1]!;
+        this.pending.pop();
+      }
+    }
+  }
+
+  /** A chain that comes down hard on a body at rest wakes it, so the heap gives under what lands on it. */
+  private landings(): void {
+    const t = MessTuning;
+    const bodies = this.host.bodies;
+    for (let i = 0; i < bodies.length; i++) {
+      const b = bodies[i]!;
+      const rag = b.rag;
+      if (!rag?.active || b.down || !rag.thudPart || rag.thudSpeed < t.landSpeed * rag.throwScale) continue;
+      if (!this.room(-t.othersUnder)) return;
+      const p = rag.thudPart.p;
+      let best: MessChain | null = null;
+      let bestD = Infinity;
+      for (let k = 0; k < bodies.length; k++) {
+        const o = bodies[k]!;
+        const r = o.rag;
+        if (o === b || !r?.resting || o.sinking >= 0) continue;
+        if (p.x < r.restMin.x - 0.1 || p.x > r.restMax.x + 0.1 || p.z < r.restMin.z - 0.1 || p.z > r.restMax.z + 0.1) continue;
+        if (p.y < r.restMin.y - 0.1 || p.y > r.restMax.y + 0.3) continue;
+        const d = r.center.distanceToSquared(p);
+        if (d < bestD) {
+          bestD = d;
+          best = o;
+        }
+      }
+      if (best) {
+        this.count.landWakes++;
+        this.wake(best);
+      }
+    }
+  }
+
+  /** The player, and the living near the player, shove what they walk into. */
+  private pushers(): void {
+    const { player, enemies } = this.ctx;
+    const t = MessTuning;
+    if (player?.alive === true && player.position?.isVector3 === true) {
+      this.pushFrom(player.position, player.velocity, 0.45 + t.reach, 1.8, 1, t.playerOver);
+      // What is small enough to kick is kicked by the player alone: an enemy's feet are not watched that closely.
+      const v = player.velocity;
+      if (v.x * v.x + v.z * v.z > 1) this.host.kick(player.position, 0.45 + t.reach, v.x, v.z);
+    }
+    const alive = enemies?.alive;
+    if (!Array.isArray(alive) || player?.position?.isVector3 !== true) return;
+    const range2 = t.enemyRange * t.enemyRange;
+    for (let i = 0; i < alive.length; i++) {
+      const e = alive[i]! as unknown as { position: THREE.Vector3; velocity: THREE.Vector3; def?: { radius?: number }; char?: CharacterInstance };
+      if (!e.position || !e.velocity) continue;
+      if (e.position.distanceToSquared(player.position) > range2) continue;
+      // One that stands still shoves nothing, and one that is down is a body itself.
+      if (e.velocity.x * e.velocity.x + e.velocity.z * e.velocity.z < 0.36) continue;
+      if (e.char && this.ctx.gore.downed?.(e.char)) continue;
+      this.pushFrom(e.position, e.velocity, (e.def?.radius ?? 0.45) + t.reach, 1.7, t.enemyPush, -t.othersUnder, true);
+    }
+  }
+
+  /**
+   * One pusher: a standing cylinder at `at` (feet), `radius` wide and `height` tall, moving at `vel`. Chains at rest that it
+   * has walked into are woken (if the budgets allow), and every part of a simulating chain inside it is given speed away
+   * from its axis, one way only: a push can add speed up to a ceiling and never take any, so nothing can be squeezed into
+   * flying.
+   */
+  private pushFrom(at: THREE.Vector3, vel: THREE.Vector3, radius: number, height: number, strength: number, over: number, enemy = false): void {
+    const t = MessTuning;
+    const speed = Math.hypot(vel.x, vel.z);
+    const bodies = this.host.bodies as readonly MessChain[];
+    for (let pass = 0; pass < 2; pass++) {
+      const list = pass === 0 ? bodies : this.host.limbs;
+      for (let i = 0; i < list.length; i++) {
+        const target = list[i]!;
+        const rag = target.rag;
+        if (!rag || target.sinking >= 0) continue;
+        if (pass === 0 && ((target as MessBody).down || (target as MessBody).vapor >= 0)) continue;
+        const c = rag.center;
+        const reach = rag.info.reach[rag.build.chainRoot]! + radius;
+        const dx = c.x - at.x;
+        const dz = c.z - at.z;
+        if (dx * dx + dz * dz > reach * reach || c.y < at.y - 2.5 || c.y > at.y + height + 2.5) continue;
+        if (!rag.active) {
+          // At rest it takes someone moving to wake it: standing on a heap does not stir it.
+          if (speed < 0.5 || target.stakes.length > 0 || !rag.resting) continue;
+          const lo = rag.restMin;
+          const hi = rag.restMax;
+          if (hi.y < at.y - 0.05 || lo.y > at.y + height) continue;
+          const nx = Math.max(lo.x, Math.min(at.x, hi.x)) - at.x;
+          const nz = Math.max(lo.z, Math.min(at.z, hi.z)) - at.z;
+          if (nx * nx + nz * nz > radius * radius) continue;
+          if (enemy && this.ctx.time.elapsed < this.enemyWakeAt) continue;
+          if (!this.touches(rag, at, radius, height) || !this.room(over)) continue;
+          if (enemy) this.enemyWakeAt = this.ctx.time.elapsed + t.enemyWakeEvery;
+          this.count.pushWakes++;
+          this.wake(target);
+          if (!rag.active) continue;
+        }
+        this.shove(target, rag, at, vel, speed, radius, height, strength);
+      }
+    }
+  }
+
+  /** Does the pusher's cylinder reach any bone of this chain at rest? The box said maybe. */
+  private touches(rag: Rag, at: THREE.Vector3, radius: number, height: number): boolean {
+    const bones = rag.source.bones;
+    const mask = rag.mask;
+    const r = radius + 0.1;
+    for (let i = rag.build.chainRoot; i < rag.info.count; i++) {
+      if (mask[i] !== 1) continue;
+      const e = bones[i]!.matrixWorld.elements;
+      const dx = e[12]! - at.x;
+      const dz = e[14]! - at.z;
+      if (dx * dx + dz * dz < r * r && e[13]! > at.y - 0.15 && e[13]! < at.y + height) return true;
+    }
+    return false;
+  }
+
+  private shove(target: MessChain, rag: Rag, at: THREE.Vector3, vel: THREE.Vector3, speed: number, radius: number, height: number, strength: number): void {
+    const t = MessTuning;
+    let any = false;
+    const scale = rag.throwScale;
+    for (let k = 0; k < rag.parts.length; k++) {
+      const part = rag.parts[k]!;
+      const p = part.body.translation(_t as never) as unknown as { x: number; y: number; z: number };
+      if (p.y < at.y - 0.2 || p.y > at.y + height) continue;
+      let dx = p.x - at.x;
+      let dz = p.z - at.z;
+      const d = Math.hypot(dx, dz);
+      const r = radius + 0.1;
+      if (d > r) continue;
+      if (d > 1e-3) {
+        dx /= d;
+        dz /= d;
+      } else if (speed > 0.1) {
+        dx = vel.x / speed;
+        dz = vel.z / speed;
+      } else continue;
+      // How fast the pusher is closing on the part. Walking away from it pushes nothing.
+      const closing = vel.x * dx + vel.z * dz;
+      const depth = 1 - d / r;
+      if (closing <= 0 && depth < 0.35) continue;
+      const want = Math.min(t.pushMax, (t.pushBase * depth + t.pushPerSpeed * Math.max(closing, 0)) * strength) * scale;
+      const lv = part.body.linvel(_lv as never) as unknown as { x: number; y: number; z: number };
+      const have = lv.x * dx + lv.z * dz;
+      if (have >= want) continue;
+      const j = (want - have) * part.mass;
+      _v.set(dx * j, j * t.pushLift, dz * j);
+      part.body.applyImpulse(_v, true);
+      any = true;
+    }
+    if (any) {
+      rag.pushed = true;
+      this.host.pushed(target);
+    }
+  }
+
+  /** Who is settled, and who is over the cap: the oldest out of sight goes first, and one in sight only far past it. */
+  private policy(): void {
+    const budget = messBudget();
+    const bodies = this.host.bodies;
+    const cam = this.ctx.render?.camera;
+    const seen = cam?.isPerspectiveCamera === true;
+    if (seen) _frustum.setFromProjectionMatrix(_m.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse));
+    let corpses = 0;
+    for (let i = 0; i < bodies.length; i++) {
+      const b = bodies[i]!;
+      if (b.sinking < 0 && !b.down) corpses++;
+    }
+    // Newest first: the last `full` of them are drawn as in life.
+    let rank = 0;
+    for (let i = bodies.length - 1; i >= 0; i--) {
+      const b = bodies[i]!;
+      if (b.sinking >= 0 || b.down || b.vapor >= 0) continue;
+      rank++;
+      const want = rank <= budget.full ? 0 : 1;
+      if (want === b.tier) continue;
+      // Settling a body in plain sight takes its shadow from under it: it waits until nobody is looking, or until twice
+      // as many are full as should be.
+      if (want === 1 && (b.rag?.active || (seen && rank <= budget.full * 2 && this.inView(b)))) continue;
+      this.setTier(b, want);
+    }
+    this.limbPolicy(seen);
+    let over = corpses - this.host.maxCorpses();
+    if (over <= 0) return;
+    for (let i = 0; i < bodies.length && over > 0; i++) {
+      const b = bodies[i]!;
+      if (b.sinking >= 0 || b.down || b.vapor >= 0) continue;
+      if (!seen || this.inView(b)) continue;
+      this.count.removed++;
+      this.host.remove(b);
+      // `remove` took it out of the list.
+      i--;
+      over--;
+    }
+    // In sight, the oldest sink only far past the cap (or always, where there is no camera to ask: a test).
+    over -= seen ? MessTuning.hardOver : 0;
+    for (let i = 0; i < bodies.length && over > 0; i++) {
+      const b = bodies[i]!;
+      if (b.sinking >= 0 || b.down || b.vapor >= 0) continue;
+      this.count.sunk++;
+      this.host.sink(b);
+      over--;
+    }
+  }
+
+  /** Loose limbs past their cap: out of sight first and at once, in sight they sink, oldest first. */
+  private limbPolicy(seen: boolean): void {
+    const limbs = this.host.limbs;
+    let n = 0;
+    for (let i = 0; i < limbs.length; i++) if (limbs[i]!.sinking < 0) n++;
+    let over = n - this.host.maxLimbs();
+    for (let i = 0; i < limbs.length && over > 0 && seen; i++) {
+      const l = limbs[i]!;
+      if (l.sinking >= 0 || !l.rag || l.rag.active || this.sees(l.rag.center, 1)) continue;
+      this.host.removeLimb(l);
+      i--;
+      over--;
+    }
+    for (let i = 0; i < limbs.length && over > 0; i++) {
+      const l = limbs[i]!;
+      if (l.sinking >= 0) continue;
+      this.host.sinkLimb(l);
+      over--;
+    }
+  }
+
+  /** Could the camera see a sphere there? Only as fresh as the last look (`policyEvery`). True with no camera to ask. */
+  sees(at: THREE.Vector3, radius: number): boolean {
+    const cam = this.ctx.render?.camera;
+    if (cam?.isPerspectiveCamera !== true) return true;
+    if (at.distanceToSquared(cam.position) > MessTuning.farAway * MessTuning.farAway) return false;
+    _sphere.center.copy(at);
+    _sphere.radius = radius;
+    return _frustum.intersectsSphere(_sphere);
+  }
+
+  /** Could the camera see this body? Its hips, and a sphere that holds it in any pose. */
+  inView(b: MessBody): boolean {
+    const e = b.char.bones[0]!.matrixWorld.elements;
+    _sphere.center.set(e[12]!, e[13]!, e[14]!);
+    _sphere.radius = b.info.reach[0]! + 0.2;
+    const cam = this.ctx.render.camera;
+    if (_sphere.center.distanceToSquared(cam.position) > MessTuning.farAway * MessTuning.farAway) return false;
+    return _frustum.intersectsSphere(_sphere);
+  }
+
+  /** Tier 1, settled: no shadow of its own. Its level of detail is `lodFor`. */
+  private setTier(b: MessBody, tier: number): void {
+    b.tier = tier;
+    if (tier > 0) {
+      if (b.shade) return;
+      const shade: THREE.Object3D[] = [];
+      b.char.root.traverse(o => {
+        if (!o.castShadow) return;
+        o.castShadow = false;
+        shade.push(o);
+      });
+      b.shade = shade;
+    } else this.unshade(b);
+  }
+
+  private unshade(b: MessBody): void {
+    if (!b.shade) return;
+    for (const o of b.shade) o.castShadow = true;
+    b.shade = null;
+  }
+
+  /** A body is leaving gore's care: it is given back as it was lent. */
+  forget(b: MessBody): void {
+    this.unshade(b);
+    b.tier = 0;
+    stillSkeleton(b.char as unknown as Skinned, false);
+  }
+
+  /** The level of detail a dead body is drawn at, from how far off it is: a settled one steps down sooner. */
+  lodFor(b: MessBody, distance: number, near: number, far: number): number {
+    if (b.tier > 0 && !b.rag?.active) return distance < MessTuning.nearDetail ? 0 : distance < far ? 1 : 2;
+    return distance < near ? 0 : distance < far ? 1 : 2;
+  }
+
+  clear(): void {
+    this.pending.length = 0;
+    this.rests.length = 0;
+    this.shapes = 0;
+    this.enemyWakeAt = 0;
+    this.count.pushWakes = this.count.landWakes = this.count.slipWakes = this.count.ghosted = this.count.removed = this.count.sunk = 0;
+  }
+
+  stats(): { resting: number; shapes: number; waiting: number; settled: number } & MessField['count'] {
+    let settled = 0;
+    for (const b of this.host.bodies) if (b.tier > 0) settled++;
+    return { resting: this.rests.length, shapes: this.shapes, waiting: this.pending.length, settled, ...this.count };
+  }
+}

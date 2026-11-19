@@ -37,6 +37,7 @@ import { SlabTuning } from './slabs';
 import { mulberry32 } from '../core/math';
 import { WoundKind } from '../characters/anatomy/wounds';
 import type { OrganKind, RibKind } from './organs';
+import { MESS, messBudget, MessField, MessTuning } from './mess';
 
 /**
  * The baked stand-ins for the head on a partial head wound (docs/proposals/partial-head-wounds.md), by archetype: the side
@@ -107,8 +108,11 @@ export const GoreTuning = {
   /** Seconds on the floor and seconds to rise, for a knockdown that does not say. */
   knockdownLie: 1.2,
   knockdownRise: 2.4,
-  /** Frozen and simulated bodies together. Past this the oldest sinks away. */
-  maxCorpses: 40,
+  /**
+   * Frozen and simulated bodies together. Past this the oldest out of sight goes, and one in sight only well past it
+   * (`MessField.policy`). The "Mess" setting writes it (`applyMess`, 120 at Standard); a mission may lower it.
+   */
+  maxCorpses: MESS.standard.corpses,
   /** Loose limbs in the world, and how many of them may be simulating. */
   maxLimbs: 48,
   maxLiveLimbs: 22,
@@ -290,6 +294,9 @@ class DeadBody {
   freshAt = 0;
   /** A collapse was holding it up when last looked at. The end of one is where its fall starts. */
   holding = false;
+  /** 0 drawn as in life, 1 settled: mess.ts decides, and holds the shadows it took (`shade`). */
+  tier = 0;
+  shade: THREE.Object3D[] | null = null;
   constructor(readonly char: CharacterInstance, readonly info: RigInfo) {}
 }
 
@@ -441,6 +448,8 @@ export class Gore implements GoreSystem {
   private ready = false;
   /** How each character was last given back (`handedBack`). */
   private readonly back = new WeakMap<CharacterInstance, 'clip' | 'stand' | 'crawl'>();
+  /** The dead at rest: heaps, pushing them aside, and the caps (mess.ts). */
+  readonly mess: MessField;
   private readonly onPreStep = (dt: number): void => this.preStep(dt);
   private readonly onRadial = (center: THREE.Vector3, radius: number, strength: number): void =>
     this.blast(center, radius, strength);
@@ -457,6 +466,32 @@ export class Gore implements GoreSystem {
     this.ropes = new RopeField(ctx, this.blood);
     this.ropes.ensure();
     this.spurts = new SpurtField(ctx, this.blood, this.trail);
+    const gore = this;
+    this.mess = new MessField(ctx, {
+      get bodies() { return gore.bodies; },
+      get limbs() { return gore.limbs; },
+      wake: target => this.wake(target as PinTarget),
+      simulating: () => {
+        let live = 0;
+        for (const b of this.bodies) if (b.rag?.active && b.sinking < 0) live++;
+        return live;
+      },
+      maxRagdolls: () => GoreTuning.maxRagdolls,
+      maxCorpses: () => GoreTuning.maxCorpses,
+      remove: body => this.removeBody(body as DeadBody),
+      sink: body => this.sinkBody(body as DeadBody),
+      pushed: target => {
+        if (target instanceof DeadBody) target.freshAt = this.ctx.time.elapsed;
+      },
+      kick: (at, radius, vx, vz) => {
+        this.chunks.shove(at, radius, vx, vz);
+        this.sliced.shove(at, radius, vx, vz);
+      },
+      removeLimb: limb => this.removeLimb(limb as LooseLimb),
+      sinkLimb: limb => this.sinkLimb(limb as LooseLimb),
+      maxLimbs: () => GoreTuning.maxLimbs,
+    });
+    this.sliced.inView = (at, radius) => this.mess.sees(at, radius);
     this.fire = new FireField(ctx, char => {
       const b = this.owned.get(char);
       return b !== undefined && !b.down && b.vapor < 0;
@@ -481,6 +516,23 @@ export class Gore implements GoreSystem {
     }
     this.ctx.physics.preStep.add(this.onPreStep);
     this.ctx.physics.radialListeners.add(this.onRadial);
+    // "Clear at wave break": the floor is swept when the wave ends. Each screen sweeps its own.
+    this.ctx.events.on?.('wave:clear', () => {
+      if (messBudget().clearAtBreak) this.sweep();
+    });
+  }
+
+  /**
+   * Clears the floor in plain sight without a pop: the dead and their limbs sink, pieces shrink, blood fades, all over a
+   * couple of seconds. The living, down or up, are left alone.
+   */
+  sweep(): void {
+    for (const b of this.bodies) if (b.sinking < 0 && !b.down && b.vapor < 0) this.sinkBody(b);
+    for (const l of this.limbs) if (l.sinking < 0) this.sinkLimb(l);
+    this.chunks.dismiss();
+    this.sliced.dismiss();
+    this.ropes.clear();
+    (this.ctx.render.decals as { fadeOut?(seconds: number): void }).fadeOut?.(GoreTuning.sinkSeconds);
   }
 
   // -------------------------------------------------------------------------------------------
@@ -887,6 +939,7 @@ export class Gore implements GoreSystem {
 
   /** Out of this system, with the instance left as it is. */
   private release(b: DeadBody): void {
+    this.mess.forget(b);
     this.owned.delete(b.char);
     const at = this.bodies.indexOf(b);
     if (at >= 0) this.bodies.splice(at, 1);
@@ -1004,14 +1057,7 @@ export class Gore implements GoreSystem {
   /** `keep` has just been woken and is about to be used, so it is the one chain that may not freeze here. */
   private enforceBudget(keep?: PinTarget): void {
     this.budgetRagdolls(keep);
-    let corpses = 0;
-    for (const b of this.bodies) if (b.sinking < 0) corpses++;
-    for (let i = 0; i < this.bodies.length && corpses > GoreTuning.maxCorpses; i++) {
-      const b = this.bodies[i]!;
-      if (b.sinking >= 0 || b.down) continue;
-      this.sinkBody(b);
-      corpses--;
-    }
+    // How many bodies stay, and which go first, is the mess's (`MessField.policy`): the oldest out of sight.
     let limbs = 0;
     let liveLimbs = 0;
     for (const l of this.limbs) {
@@ -1019,19 +1065,12 @@ export class Gore implements GoreSystem {
       limbs++;
       if (l.rag.active) liveLimbs++;
     }
-    for (let i = 0; i < this.limbs.length && (limbs > GoreTuning.maxLimbs || liveLimbs > GoreTuning.maxLiveLimbs); i++) {
+    // How many limbs stay is the mess's as well: here only how many may simulate.
+    for (let i = 0; i < this.limbs.length && liveLimbs > GoreTuning.maxLiveLimbs; i++) {
       const l = this.limbs[i]!;
-      if (l.sinking >= 0) continue;
-      if (l.rag.active) {
-        if (liveLimbs > GoreTuning.maxLiveLimbs && l !== keep) {
-          this.freezeLimb(l);
-          liveLimbs--;
-        }
-      }
-      if (limbs > GoreTuning.maxLimbs) {
-        this.sinkLimb(l);
-        limbs--;
-      }
+      if (l.sinking >= 0 || !l.rag.active || l === keep) continue;
+      this.freezeLimb(l);
+      liveLimbs--;
     }
   }
 
@@ -1091,7 +1130,8 @@ export class Gore implements GoreSystem {
   }
 
   private freezeBody(b: DeadBody): void {
-    b.rag?.freeze();
+    b.rag?.freeze(MessTuning.rest && b.stakes.length === 0);
+    this.mess.rested(b, b.char as never);
     if (!b.pooled && !isMachine(b.char)) {
       b.pooled = true;
       const at = b.rag ? b.rag.center : _v.setFromMatrixPosition(b.char.bones[0]!.matrixWorld);
@@ -1109,12 +1149,28 @@ export class Gore implements GoreSystem {
 
   private sinkBody(b: DeadBody): void {
     b.rag?.freeze();
+    b.rag?.dropRest();
+    // It moves again, if only down: a still skeleton would leave it drawn where it lay.
+    this.mess.woke(b.char as never);
     b.sinking = this.ctx.time.elapsed;
     b.sinkFrom = b.char.root.position.y;
   }
 
+  /** Out of sight and over the cap: gone at once, with nothing to watch. */
+  private removeBody(b: DeadBody): void {
+    const at = this.bodies.indexOf(b);
+    if (at < 0) return;
+    b.rag?.destroy();
+    this.mess.forget(b);
+    this.fire.forget(b.char);
+    this.owned.delete(b.char);
+    this.bodies.splice(at, 1);
+    b.char.release();
+  }
+
   private freezeLimb(l: LooseLimb): void {
-    l.rag.freeze();
+    l.rag.freeze(MessTuning.rest && l.stakes.length === 0);
+    this.mess.rested(l, l.piece as never);
     this.stopLimbEmitters(l);
     if (l.machine) return;
     if (this.fire.sooted(l.piece)) this.fire.rest(l.piece, l.rag.center, rand(0.45, 0.7));
@@ -1131,6 +1187,8 @@ export class Gore implements GoreSystem {
 
   private sinkLimb(l: LooseLimb): void {
     l.rag.freeze();
+    l.rag.dropRest();
+    this.mess.woke(l.piece as never);
     this.stopLimbEmitters(l);
     l.sinking = this.ctx.time.elapsed;
     l.sinkFrom = l.piece.root.position.y;
@@ -2033,6 +2091,7 @@ export class Gore implements GoreSystem {
 
   private dropBody(b: DeadBody): void {
     b.rag?.destroy();
+    this.mess.forget(b);
     this.owned.delete(b.char);
     const at = this.bodies.indexOf(b);
     if (at >= 0) this.bodies.splice(at, 1);
@@ -2324,6 +2383,7 @@ export class Gore implements GoreSystem {
     limb.rag.destroy();
     this.stopLimbEmitters(limb);
     this.fire.forget(limb.piece);
+    this.mess.woke(limb.piece as never);
     limb.piece.release();
     const at = this.limbs.indexOf(limb);
     if (at >= 0) this.limbs.splice(at, 1);
@@ -2360,6 +2420,7 @@ export class Gore implements GoreSystem {
     const rag = target.rag;
     if (!rag || rag.active) return;
     rag.wake();
+    this.mess.woke((target instanceof DeadBody ? target.char : target.piece) as never);
     if (target instanceof DeadBody) target.freshAt = this.ctx.time.elapsed;
     for (const stake of target.stakes) this.nail(rag, stake);
     this.enforceBudget(target);
@@ -2463,8 +2524,9 @@ export class Gore implements GoreSystem {
     for (let i = this.bodies.length - 1; i >= 0; i--) {
       const b = this.bodies[i]!;
       if (reclaimed(b)) {
-        // Never release it: the instance may already be somebody else's enemy.
+        // Never release it: the instance may already be somebody else's enemy. It must not keep a corpse's still skeleton.
         b.rag?.destroy();
+        this.mess.forget(b);
         this.owned.delete(b.char);
         this.bodies.splice(i, 1);
         continue;
@@ -2472,6 +2534,7 @@ export class Gore implements GoreSystem {
       if (b.sinking >= 0) {
         const k = (now - b.sinking) / t.sinkSeconds;
         if (k >= 1) {
+          this.mess.forget(b);
           this.owned.delete(b.char);
           this.bodies.splice(i, 1);
           b.char.release();
@@ -2532,6 +2595,7 @@ export class Gore implements GoreSystem {
         const k = (now - l.sinking) / t.sinkSeconds;
         if (k >= 1) {
           this.fire.forget(l.piece);
+          this.mess.woke(l.piece as never);
           l.piece.release();
           this.limbs.splice(i, 1);
           continue;
@@ -2543,6 +2607,7 @@ export class Gore implements GoreSystem {
       this.updateLimb(l, dt);
     }
 
+    this.mess.update();
     this.updateBodyLod();
     this.updateStumps();
     this.fire.update(dt);
@@ -2561,9 +2626,11 @@ export class Gore implements GoreSystem {
     const n = this.bodies.length;
     if (n === 0) return;
     this.lodAt = (this.lodAt + 1) % n;
-    const { char } = this.bodies[this.lodAt]!;
-    const d = char.bones[0]!.getWorldPosition(_v).distanceTo(this.ctx.player.position);
-    char.setLod?.(d < GoreTuning.bodyLodNear ? 0 : d < GoreTuning.bodyLodFar ? 1 : 2);
+    const body = this.bodies[this.lodAt]!;
+    const { char } = body;
+    const d = _v.setFromMatrixPosition(char.bones[0]!.matrixWorld).distanceTo(this.ctx.player.position);
+    // A settled body steps down sooner (mess.ts).
+    char.setLod?.(this.mess.lodFor(body, d, GoreTuning.bodyLodNear, GoreTuning.bodyLodFar));
   }
 
   private updateLimb(l: LooseLimb, dt: number): void {
@@ -2638,6 +2705,7 @@ export class Gore implements GoreSystem {
     for (const b of this.bodies) {
       const ground = b.rag?.muscle?.reflex?.groundY ?? 0;
       b.rag?.destroy();
+      this.mess.forget(b);
       if (!b.down) b.char.release();
       else if (b.char.root.parent) {
         // The living are not ours to release. Whoever owns it finds it getting up.
@@ -2652,9 +2720,11 @@ export class Gore implements GoreSystem {
     for (const l of this.limbs) {
       l.rag.destroy();
       this.stopLimbEmitters(l);
+      this.mess.woke(l.piece as never);
       l.piece.release();
     }
     this.limbs = [];
+    this.mess.clear();
     this.pins = [];
     for (const s of this.stumps) {
       s.target = null;

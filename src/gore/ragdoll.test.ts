@@ -177,10 +177,15 @@ describe('ragdoll', () => {
     expect(gore.stats().corpses).toBe(20);
     run(patience);
     expect(gore.stats().ragdolls).toBeLessThanOrEqual(GoreTuning.maxRagdolls);
+    // The corpse cap is the mess's, looked at a few times a second (mess.ts): past it the oldest go.
+    const cap = GoreTuning.maxCorpses;
+    GoreTuning.maxCorpses = 40;
     for (let i = 0; i < 30; i++) gore.ragdoll(spawn((i % 6) * 2 - 5, 10 + Math.floor(i / 6) * 2));
-    expect(gore.stats().corpses).toBe(GoreTuning.maxCorpses);
+    expect(gore.stats().corpses).toBe(50);
     run(patience);
+    expect(gore.stats().corpses).toBe(40);
     expect(gore.stats().ragdolls).toBeLessThanOrEqual(GoreTuning.maxRagdolls);
+    GoreTuning.maxCorpses = cap;
     gore.clear();
   });
 });
@@ -395,12 +400,17 @@ describe('corpses', () => {
       release();
     };
     gore.ragdoll(first);
+    const cap = GoreTuning.maxCorpses;
+    GoreTuning.maxCorpses = 40;
     for (let i = 0; i < GoreTuning.maxCorpses; i++) gore.ragdoll(spawn((i % 6) * 2 - 5, 3 + Math.floor(i / 6) * 2));
+    // Looked at a few times a second, and with no camera to ask the oldest sinks where it lies.
+    run(20);
     expect(gore.stats().corpses).toBe(GoreTuning.maxCorpses);
     expect(released).toBe(0);
     run(Math.ceil(60 * GoreTuning.sinkSeconds) + 5);
     expect(released).toBe(1);
     expect(gore.owns(first)).toBe(false);
+    GoreTuning.maxCorpses = cap;
   });
 
   it('a stump stops bleeding when its character goes back to the pool', () => {

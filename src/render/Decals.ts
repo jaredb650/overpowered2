@@ -50,6 +50,28 @@ export const MAX_DECALS = DECAL_RINGS.reduce((n, r) => n + RING_CAPACITY[r], 0);
  */
 export type DecalRetire = (ring: DecalRing, matrices: Float32Array, data: Float32Array, slot: number) => void;
 
+/**
+ * A soaked spot stops spending slots. The floor is cut into cells of `SOAK_CELL` metres, and each remembers how much blood
+ * lies in it, in layers (the area of its stains over its own area, at about half a quad's area of ink each). Once a cell
+ * holds `Decals.soak` layers, a new small stain there takes the place of the oldest stain it remembers in that cell
+ * instead of a new slot: the spot stays freshly wet, the ring stops filling from one place, and the layers drawn over any
+ * one spot stop growing. That last is what stacked decals cost: 0.006 ms a full-screen layer on the development machine,
+ * about 0.07 on a laptop (docs/notes/gore.md, "The mess: measured budgets").
+ */
+export const SOAK_CELL = 0.5;
+const SOAK_INK = 0.5;
+/** The most a stain may add to its cell, in layers, and still count as small: a quad half a metre on a side. */
+const SOAK_SMALL = 0.5;
+/** Slots a cell remembers, to give back when it is soaked. */
+const SOAK_MEMORY = 6;
+interface SoakCell {
+  layers: number;
+  /** The last slots written in this cell, a small ring. */
+  readonly slots: Int32Array;
+  at: number;
+  n: number;
+}
+
 interface RingState {
   readonly name: DecalRing;
   /** First slot in the buffer. */
@@ -124,7 +146,23 @@ export class Decals implements DecalSystem {
   private readonly ringOf = {} as Record<DecalKind, RingState>;
   /** Called for a decal about to be overwritten. See `DecalRetire`. */
   onRetire: DecalRetire | null = null;
+  /** Layers of blood a cell of floor holds before a new small stain there replaces an old one. 0: no limit. See `SoakCell`. */
+  soak = 14;
+  /** Small stains that took an old one's place on a soaked spot, since the last clear. */
+  soaked = 0;
+  private readonly cells = new Map<number, SoakCell>();
+  /** Per slot of the blood ring: the cell it was counted in (0: none) and the layers it added there. */
+  private readonly slotCell: Float64Array;
+  private readonly slotLayers: Float32Array;
+  private readonly bloodRing: RingState;
+  /** Slots rewritten out of turn since the last upload (a soaked spot's), each sent as a range of its own. */
+  private readonly loose = new Int32Array(48);
+  private looseCount = 0;
   private now = 0;
+  private readonly fade = { value: 1 };
+  /** Seconds a fade to nothing takes, 0 when none is running, and the world time it started. */
+  private fading = 0;
+  private fadeFrom = 0;
   private readonly time = { value: 0 };
   private readonly proj = { value: new THREE.Vector2() };
   private readonly depth: THREE.IUniform<THREE.Texture | null> = { value: null };
@@ -140,14 +178,16 @@ export class Decals implements DecalSystem {
       blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
       blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
     });
-    const own = { opDecalA: { value: atlas.albedo }, opDecalS: { value: atlas.surface }, opDepth: this.depth, opProj: this.proj, opWorldTime: this.time };
+    const own = { opDecalA: { value: atlas.albedo }, opDecalS: { value: atlas.surface }, opDepth: this.depth, opProj: this.proj, opWorldTime: this.time, opFade: this.fade };
     const hook: ShaderHook = shader => {
       Object.assign(shader.uniforms, own);
       shader.vertexShader = shader.vertexShader
         .replace('#include <common>', `#include <common>\n${DECAL_VERT_PARS}`)
         .replace('#include <uv_vertex>', `#include <uv_vertex>\n${DECAL_VERT_MAIN}`);
       shader.fragmentShader = shader.fragmentShader
-        .replace('#include <map_pars_fragment>', `#include <map_pars_fragment>\n${DECAL_FRAG_PARS}`)
+        .replace('#include <map_pars_fragment>', `#include <map_pars_fragment>\n${DECAL_FRAG_PARS}\nuniform float opFade;`)
+        // The whole layer fades as one when the floor is being cleared (`fadeOut`).
+        .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.a *= opFade;')
         .replace('#include <map_fragment>', DECAL_FRAG_MAIN)
         .replace('#include <roughnessmap_fragment>', DECAL_ROUGHNESS)
         .replace('#include <metalnessmap_fragment>', DECAL_METALNESS)
@@ -173,6 +213,33 @@ export class Decals implements DecalSystem {
       base += capacity;
     }
     for (const kind of Object.keys(RING_OF) as DecalKind[]) this.ringOf[kind] = this.rings[DECAL_RINGS.indexOf(RING_OF[kind])]!;
+    this.bloodRing = this.ring('blood');
+    this.slotCell = new Float64Array(RING_CAPACITY.blood);
+    this.slotLayers = new Float32Array(RING_CAPACITY.blood);
+  }
+
+  /** A cell's key from a point in the world: half-metre cells, a metre high, so a floor above is its own. Never 0. */
+  private cellKey(position: THREE.Vector3): number {
+    const x = Math.floor(position.x / SOAK_CELL) + 4096;
+    const z = Math.floor(position.z / SOAK_CELL) + 4096;
+    const y = Math.floor(position.y) + 512;
+    return (y * 8192 + x) * 8192 + z + 1;
+  }
+
+  /** Layers of blood counted at a point. For checks. */
+  layersAt(position: THREE.Vector3): number {
+    return this.cells.get(this.cellKey(position))?.layers ?? 0;
+  }
+
+  /** Takes a slot's blood back out of its cell's count: it is being overwritten or dropped. */
+  private unsoak(slot: number): void {
+    const key = this.slotCell[slot]!;
+    if (key === 0) return;
+    this.slotCell[slot] = 0;
+    const cell = this.cells.get(key);
+    if (!cell) return;
+    cell.layers -= this.slotLayers[slot]!;
+    if (cell.layers <= 1e-4) this.cells.delete(key);
   }
 
   /** How many decals a ring holds now. */
@@ -211,6 +278,7 @@ export class Decals implements DecalSystem {
     const next = Math.max(1, Math.min(r.capacity, Math.floor(limit)));
     if (next === r.limit) return;
     if (r.live > next) {
+      if (r === this.bloodRing) for (let i = next; i < r.live; i++) this.unsoak(i);
       this.matrices.fill(0, (r.base + next) * 16, (r.base + r.live) * 16);
       r.flush = Math.max(r.flush, r.live);
       r.live = next;
@@ -430,14 +498,50 @@ export class Decals implements DecalSystem {
     ax: number, ay: number, az: number, bx: number, by: number, bz: number, w: number,
     thin = 0.42 + Math.random() * 0.16, flips = -1,
   ): void {
-    const i = r.base + r.cursor;
-    if (r.live === r.limit) {
+    let at = r.cursor;
+    let spot: SoakCell | undefined;
+    let key = 0;
+    let layers = 0;
+    if (r === this.bloodRing) {
+      key = this.cellKey(position);
+      spot = this.cells.get(key);
+      layers = (Math.hypot(ax, ay, az) * Math.hypot(bx, by, bz) * SOAK_INK) / (SOAK_CELL * SOAK_CELL);
+      // A soaked spot: a small stain (half a metre across or less) takes the place of the oldest this cell remembers, if
+      // that slot is still its own. A pool, a run, a smear or a splash always lands: they are few, and they are the cover.
+      if (spot && this.soak > 0 && flag === Flag.Blood && layers <= SOAK_SMALL && spot.layers >= this.soak && spot.n > 0) {
+        const old = spot.slots[spot.at]!;
+        if (old < r.live && this.slotCell[old] === key) {
+          at = old;
+          this.soaked++;
+        }
+      }
+    }
+    const i = r.base + at;
+    const reuse = at !== r.cursor;
+    if (reuse) {
+      // Its place in the ring is an older one's: it goes when that one would have.
+    } else if (r.live === r.limit) {
       r.retired++;
       if (this.onRetire) this.onRetire(r.name, this.matrices, this.data, i);
     } else {
       r.live++;
       const end = r.base + r.live;
       if (end > this.mesh.count) this.mesh.count = end;
+    }
+    if (key !== 0) {
+      this.unsoak(at);
+      // The count may have emptied and dropped the cell.
+      spot = this.cells.get(key);
+      if (!spot) this.cells.set(key, (spot = { layers: 0, slots: new Int32Array(SOAK_MEMORY), at: 0, n: 0 }));
+      spot.layers += layers;
+      this.slotCell[at] = key;
+      this.slotLayers[at] = layers;
+      if (reuse) spot.at = (spot.at + 1) % spot.n;
+      else if (spot.n < SOAK_MEMORY) spot.slots[spot.n++] = at;
+      else {
+        spot.slots[spot.at] = at;
+        spot.at = (spot.at + 1) % SOAK_MEMORY;
+      }
     }
     const m = this.matrices;
     const o = i * 16;
@@ -465,12 +569,27 @@ export class Decals implements DecalSystem {
     this.data[d + 2] = flag + flips * 4 + Math.random() * 0.99;
     this.data[d + 3] = w;
 
+    if (reuse) {
+      // Out of the run of slots the cursor is writing: sent on its own, or with the whole ring if there are too many.
+      if (this.looseCount < this.loose.length) this.loose[this.looseCount++] = i;
+      else r.flush = Math.max(r.flush, r.live);
+      return;
+    }
     if (r.dirtyStart < 0) r.dirtyStart = r.cursor;
     r.dirtyCount = Math.min(r.dirtyCount + 1, r.limit);
     r.cursor = (r.cursor + 1) % r.limit;
   }
 
+  /** Every decal fades away over `seconds` and the buffer is then cleared: the floor at a wave break, with nothing popping. */
+  fadeOut(seconds: number): void {
+    if (this.total === 0) return;
+    this.fading = Math.max(seconds, 0.01);
+    this.fadeFrom = this.now;
+  }
+
   clear(): void {
+    this.fading = 0;
+    this.fade.value = 1;
     for (const r of this.rings) {
       if (r.live > 0) {
         this.matrices.fill(0, r.base * 16, (r.base + r.live) * 16);
@@ -482,6 +601,10 @@ export class Decals implements DecalSystem {
       r.live = 0;
       r.retired = 0;
     }
+    this.cells.clear();
+    this.slotCell.fill(0);
+    this.soaked = 0;
+    this.looseCount = 0;
     // The zeroed slots still have to reach the GPU, so the draw keeps its length until `update` has sent them.
   }
 
@@ -489,10 +612,25 @@ export class Decals implements DecalSystem {
   update(worldTime: number, depth: THREE.Texture, camera: THREE.PerspectiveCamera): void {
     this.now = worldTime;
     this.time.value = worldTime;
+    if (this.fading > 0) {
+      const left = 1 - (worldTime - this.fadeFrom) / this.fading;
+      if (left <= 0) this.clear();
+      else this.fade.value = left;
+    }
     this.depth.value = depth;
     const e = camera.projectionMatrix.elements;
     this.proj.value.set(e[10]!, e[14]!);
     let any = false;
+    if (this.looseCount > 0) {
+      this.mesh.instanceMatrix.clearUpdateRanges();
+      this.extra.clearUpdateRanges();
+      any = true;
+      for (let k = 0; k < this.looseCount; k++) {
+        this.mesh.instanceMatrix.addUpdateRange(this.loose[k]! * 16, 16);
+        this.extra.addUpdateRange(this.loose[k]! * 4, 4);
+      }
+      this.looseCount = 0;
+    }
     for (const r of this.rings) {
       if (r.dirtyCount === 0 && r.flush === 0) continue;
       if (!any) {

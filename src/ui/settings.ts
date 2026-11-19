@@ -3,6 +3,8 @@ import type { Ctx } from '../core/contracts';
 import { GoreTuning } from '../gore';
 import { BloodTuning } from '../gore/blood';
 import { ChunkTuning } from '../gore/chunks';
+import { MESS, MESS_LEVELS, MessTuning } from '../gore/mess';
+import { SliceTuning } from '../gore/sliced';
 import { WoundTuning } from '../gore/wounds';
 import { clamp } from '../core/math';
 import { HIT_TEXT_LEVELS, HitText } from '../progression/data';
@@ -13,6 +15,13 @@ const STORAGE_KEY = 'op2.settings.v1';
 const BASE_SENSITIVITY = 0.002;
 
 export const GORE_LEVELS = ['Low', 'Full', 'Excessive'] as const;
+/**
+ * How much of a fight stays on the floor (`MESS` in gore/mess.ts, in the same order as `MESS_LEVELS`): bodies, blood, limbs
+ * and pieces. Standard keeps 120 bodies and three times the blood for the whole match; "Clear at wave break" is Standard
+ * until the wave ends, then the floor is cleared; Low is about what the game kept before; Everything is for a desktop card.
+ */
+export const MESS_NAMES = ['Low', 'Clear at wave break', 'Standard', 'Everything'] as const;
+export const MESS_DEFAULT = MESS_LEVELS.indexOf('standard');
 export const QUALITY_LEVELS = ['Low', 'Medium', 'High', 'Ultra'] as const;
 /** Enemy chatter (docs/proposals/squad-chatter.md, 6.3). Off stops the text only: no tactic depends on a line being shown. */
 export const CHATTER_LEVELS = ['Bubbles and feed', 'Feed only', 'Off'] as const;
@@ -29,6 +38,8 @@ export interface Settings {
   music: number;
   quality: number;
   gore: number;
+  /** What stays on the floor: an index into MESS_NAMES. */
+  mess: number;
   /** Holding jump hops on every landing. */
   holdToHop: boolean;
   /** Aim down sights while the button is held. Off, a click toggles it, which is kinder to a trackpad. */
@@ -44,7 +55,7 @@ export interface Settings {
 }
 
 export const DEFAULTS: Readonly<Settings> = {
-  sensitivity: 1, fov: 90, invertY: false, master: 0.8, sfx: 1, music: 0.7, quality: 2, gore: 1, holdToHop: false,
+  sensitivity: 1, fov: 90, invertY: false, master: 0.8, sfx: 1, music: 0.7, quality: 2, gore: 1, mess: MESS_DEFAULT, holdToHop: false,
   aimHold: false, aimSensitivity: TUNING.ads.sensitivity, hitText: 0, chatter: CHATTER_BUBBLES, voices: 1,
 };
 
@@ -67,6 +78,7 @@ function sanitize(s: Settings): void {
   s.music = clamp(s.music);
   s.quality = clamp(Math.round(s.quality), 0, QUALITY_LEVELS.length - 1);
   s.gore = clamp(Math.round(s.gore), 0, GORE_LEVELS.length - 1);
+  s.mess = clamp(Math.round(s.mess), 0, MESS_NAMES.length - 1);
   s.hitText = clamp(Math.round(s.hitText), 0, HIT_TEXT_LEVELS.length - 1);
   s.chatter = clamp(Math.round(s.chatter), 0, CHATTER_LEVELS.length - 1);
   s.voices = clamp(s.voices);
@@ -113,27 +125,25 @@ interface LookOwner {
 }
 
 /**
- * What a gore level changes: how much stays on the map and for how long. Damage, severing and the blood sprayed by
- * a hit are the same at every level, because gameplay must not change with this setting and a spray is one recipe in fx.
- * Full is the game as tuned, and the design's hard caps (40 corpses) are its ceiling, so Excessive buys time rather than
- * more bodies: longer stump spray, chunks that stay, more blood reaching the floor, and corpses that come apart sooner.
+ * What a gore level changes: how violently a body comes apart. Damage, severing and the blood sprayed by a hit are the
+ * same at every level, because gameplay must not change with this setting and a spray is one recipe in fx. Full is the
+ * game as tuned. Excessive: longer stump spray, more blood reaching the floor, corpses that come apart sooner. How much of
+ * it then stays on the floor (bodies, limbs, pieces, blood) is the "Mess" setting's, below.
  */
 const FULL = {
-  corpses: GoreTuning.maxCorpses, limbs: GoreTuning.maxLimbs, liveLimbs: GoreTuning.maxLiveLimbs, stump: GoreTuning.stumpSeconds,
+  liveLimbs: GoreTuning.maxLiveLimbs, stump: GoreTuning.stumpSeconds,
   corpseLimb: GoreTuning.corpseLimbHealth, limbBurst: GoreTuning.limbBurstHealth,
-  rays: BloodTuning.raysPerFrame, chunks: ChunkTuning.maxBodies, linger: ChunkTuning.linger, blood: BloodTuning.amount,
+  rays: BloodTuning.raysPerFrame, chunks: ChunkTuning.maxBodies, blood: BloodTuning.amount,
 };
 const GORE_TABLE: readonly (typeof FULL)[] = [
-  { ...FULL, corpses: 12, limbs: 12, liveLimbs: 8, stump: 1.5, rays: 6, chunks: 20, linger: 4, blood: 0.65 },
+  { ...FULL, liveLimbs: 8, stump: 1.5, rays: 6, chunks: 20, blood: 0.65 },
   FULL,
-  { ...FULL, stump: 9, corpseLimb: 30, limbBurst: 45, rays: 48, linger: 45, blood: 1.3 },
+  { ...FULL, stump: 9, corpseLimb: 30, limbBurst: 45, rays: 48, blood: 1.3 },
 ];
 
 function applyGore(level: number): void {
   const g = GORE_TABLE[level] ?? FULL;
   WoundTuning.level = level;
-  GoreTuning.maxCorpses = g.corpses;
-  GoreTuning.maxLimbs = g.limbs;
   GoreTuning.maxLiveLimbs = g.liveLimbs;
   GoreTuning.stumpSeconds = g.stump;
   GoreTuning.corpseLimbHealth = g.corpseLimb;
@@ -141,7 +151,36 @@ function applyGore(level: number): void {
   BloodTuning.raysPerFrame = g.rays;
   BloodTuning.amount = g.blood;
   ChunkTuning.maxBodies = g.chunks;
-  ChunkTuning.linger = g.linger;
+}
+
+interface MessOwner {
+  setLimit?(ring: 'scorch' | 'big' | 'blood' | 'mark', limit: number): void;
+  soak?: number;
+}
+
+/**
+ * The "Mess" setting: writes each cap to the system that keeps it. The caps and where their numbers come from are `MESS`
+ * in gore/mess.ts. Lowering it trims what is over the new caps; raising it gives the room back from here on.
+ */
+export function applyMess(ctx: Ctx, level: number): void {
+  const name = MESS_LEVELS[clamp(Math.round(level), 0, MESS_LEVELS.length - 1)]!;
+  const b = MESS[name];
+  MessTuning.level = name;
+  GoreTuning.maxCorpses = b.corpses;
+  GoreTuning.maxLimbs = b.limbs;
+  SliceTuning.maxHalves = b.halves;
+  SliceTuning.hardCap = b.halvesHard;
+  ChunkTuning.share = b.pieces;
+  ChunkTuning.linger = b.pieceLinger;
+  const decals = ctx.render?.decals as MessOwner | undefined;
+  if (decals?.setLimit) {
+    decals.setLimit('blood', b.blood);
+    decals.setLimit('mark', b.marks);
+    decals.setLimit('scorch', b.scorches);
+    decals.setLimit('big', b.big);
+    decals.soak = b.soak;
+  }
+  (ctx.gore as { chunks?: { trim?(): void } } | undefined)?.chunks?.trim?.();
 }
 
 /** Sends every value to its owner. `quality` is separate because changing it recompiles shaders. */
@@ -156,6 +195,7 @@ export function applySettings(ctx: Ctx, s: Settings): void {
   (ctx.camera as unknown as FovRig).setBaseFov?.(s.fov);
   ctx.audio.setVolumes?.(s.master, s.sfx, s.music);
   applyGore(s.gore);
+  applyMess(ctx, s.mess);
   HitText.level = s.hitText;
 }
 

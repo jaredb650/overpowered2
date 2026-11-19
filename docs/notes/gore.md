@@ -897,6 +897,97 @@ Shared 8 GB M1 under load average around 18, so treat these as upper bounds.
 | A body knocked down on its way up, `react-seq` `riseshot`: a shell's four pellets in the chest half way through the face-down clip | The head 0.64 to 0.20 m within 10 frames; the hips stay on its knees, 0.5 m, until frame 34, lying by 50. With `?struggle=0` it stays up and the clip plays on. Headless, felled half way up the face-down clip: hips under 0.25 m 41 to 56 frames on; with the arms and legs slack, or a 0.8 to 1.2 m/s topple, 31 to 89 |
 | `react-chaos`, fighting up against `?struggle=0`, alternating, six each, load 2.9 to 5.5 | Physics step peak 9.6 to 15.4 ms, mean 11.5 and median 11.0, against 9.8 to 14.2, 11.35 and 11.2. Four more pairs on another run: 8.6 to 10.9 ms, mean 9.75, against 6.7 to 14.8, 10.05. Both inside the run-to-run spread. The script's CPU figure (3.8 to 7.2 ms against 3.7 to 6.4) is the last frame's, read once every body is up, so it says nothing of the struggle. At most 14 chains against 15. Every survivor back up, no console errors |
 
+## The mess that stays (2026-11-19)
+
+`mess.ts` (`MessField`, which `Gore` holds as `this.mess`), `Rag.freeze(true)` in `rag.ts`, the rings and the soak rule in
+`render/Decals.ts`, `applyMess` in `ui/settings.ts`. Tests: `mess.test.ts`, `render/Decals.test.ts`. Judged with
+`tools/scripts/mess-fight.mjs` (below). Every cap cites the next section.
+
+**A body at rest is not a ghost.** When a chain freezes (`freezeBody`, `freezeLimb`), its rigid bodies leave the world as
+before, and a **fixed capsule is left where each of its capsules lay**: the same shapes in the same places, in the
+ragdolls' own collision group (`CG.Ragdoll` against `CG.Ragdoll | CG.Gib`). So the next body lands on it and a heap is as
+high as its bodies. They meet nothing else: not the player (whose capsule only sees `CG.World`), not the living, not a
+bullet, not the nav. A Trooper leaves 15. `Rag.resting`, `restCount`, `restMin`/`restMax` (a tight box round them),
+`dropRest()`, `rest()`. `MessTuning.maxShapes` (2,600) is the most there may be; past it the oldest body at rest gives
+its capsules up and is a ghost again.
+
+**Waking.** `Rag.wake()` takes the fixed capsules away and puts dynamic bodies back at the same pose, so nothing lying on
+the body is pushed: the shapes are the same. What wakes a body at rest:
+
+- **A round or a blast**, as before (`damageCorpse`, `Gore.blast`).
+- **The player walking into it** (`MessField.pushers`): the player is a standing cylinder 0.57 m wide and 1.8 m tall at
+  their feet. A resting chain whose box and then whose bones it reaches is woken, at most `wakesPerFrame` (2), and may
+  take the count of simulating chains `playerOver` (4) past the ragdoll budget for a moment. Every part of a simulating
+  chain inside the cylinder is given speed away from its axis: `pushBase` (0.7 m/s) by how deep it is, plus `pushPerSpeed`
+  (0.5) for each m/s the player closes on it, at most `pushMax` (5 m/s), with a fifth of it upward. **One way only**: a
+  push adds speed up to that and never takes any, so nothing can be squeezed into flying. Standing on a body does nothing.
+  The player is never moved, slowed or lifted: bodies are not in the player's collision world at all.
+- **An enemy walking into it**, the same at `enemyPush` (0.4) of the strength, within 30 m of the player, and all the
+  enemies together may wake one body at rest every `enemyWakeEvery` (0.6 s). At full strength with no limit a horde running
+  down one lane ploughed every heap in it flat (150 kills on one spot: hips a hand's width off the floor, as before there
+  were heaps).
+- **A body landing on it** at `landSpeed` (2.2 m/s) or more: the heap gives under what falls on it.
+- **Losing what it lay on** (`unrested`, `settleSupports`): when a chain's capsules leave the world (woken, sunk, gibbed,
+  vaporized), each resting chain over it (boxes overlap, and its hips or its highest point are higher) waits to hear what
+  became of it, and is woken to fall once that one has gone or moved `slipped` (0.14 m). So a body pulled from under a
+  pile brings down what was on it, a few a frame, and one that only stirs brings down nothing.
+- Loose **limbs** rest, heap and are pushed the same way. Loose **pieces** (meat, bone, ribs; not organs, which are
+  theirs to burst) are kicked by the player (`ChunkField.kick`), and **trunk pieces and sword halves** shoved
+  (`SliceField.shove`), a few a frame.
+
+**What a body at rest costs.** Its skeleton is not worked out again and its texture is sent only when something writes to
+the texels after the bones (a wound, a burn: `stillSkeleton`, a checksum a frame). All but the newest `full` (8) are
+**settled**: no shadow of their own, and beyond `nearDetail` (7 m) the next level of detail with nothing drawn under the
+skin. A body is settled when nobody is looking, or once twice as many are full as should be.
+
+**The caps** (`MessField.policy`, four times a second). Past `GoreTuning.maxCorpses` the oldest body the camera cannot
+see goes first, at once. One in sight sinks only `hardOver` (12) past the cap. Loose limbs the same; trunk pieces and
+halves go out of sight first (`SliceField.inView`). Loose pieces **no longer shrink away after 14 and 28 s**: a piece
+lies until its slot is needed (`ChunkTuning.linger` Infinity), in `ChunkTuning.capacity` times `share` slots of its kind.
+
+**Blood.** The rings are in `docs/notes/render.md`. A soaked spot stops spending slots (`Decals.soak`): the floor is cut
+into half-metre cells, each counting its blood in layers; at `soak` layers a new small stain there takes the place of the
+oldest stain the cell remembers, so the spot stays freshly wet and the ring stops filling from one place.
+
+**The "Mess" setting** (Settings, Video; `MESS` in `mess.ts`; default **Standard**):
+
+| | Low | Clear at wave break | Standard | Everything |
+|---|---|---|---|---|
+| Bodies kept | 40 | 120 | 120 | 200 |
+| Drawn in full / drawn at all | 6 / 20 | 8 / 32 | 8 / 32 | 12 / 48 |
+| Loose limbs | 24 | 48 | 48 | 64 |
+| Trunk pieces and halves | 14 | 28 | 28 | 40 |
+| Slots for pieces (meat) | 64 | 160 | 160 | 320 |
+| Pieces lie | 20 s | until needed | until needed | until needed |
+| Blood decals | 2,048 | 6,144 | 6,144 | 8,192 |
+| Layers of blood on one spot | 4 | 6 | 6 | 10 |
+| At the wave break | nothing | **the floor is swept** | nothing | nothing |
+
+"Clear at wave break" is Standard until `wave:clear`, then `Gore.sweep()`: the dead and their limbs sink, pieces shrink,
+blood fades (`Decals.fadeOut`), over 2.2 s, with nothing popping. The old "Gore" setting no longer sets how many bodies,
+limbs or pieces stay; it is how violently a body comes apart.
+
+**Switches:** `?messrest=0` (bodies at rest keep no capsules: the flat carpet from before) and `?messpush=0` (nothing at
+rest is woken by being walked into), both also in the dev panel under BODIES.
+
+**Co-op.** Each screen keeps its own mess and runs all of this on its own bodies, from positions it already has. Nothing
+is sent. A pushed corpse is not in the same place on two screens, and never was: corpses do not block players or bullets
+on any of them.
+
+**How it is judged.** `tools/scripts/mess-fight.mjs` (header has the commands): a seeded bot on a frozen clock kills 30,
+60 and 150 with the real guns, photographs the floor at each from three fixed cameras, then walks the player through
+it and lays that out as two contact sheets (the player's eye, and from above). `MESS_CHOKE=1` is a chokepoint: one line,
+no rockets, how high a heap gets. The same script runs on an old build for the "before".
+
+| | Before | After (Standard) |
+|---|---|---|
+| A fight, 150 kills: bodies kept | 40 | 132 |
+| The same: blood decals on the floor (and erased by then) | 2,048 of 2,048 shared with every hole | 6,144 of 6,144, holes apart |
+| A chokepoint, 20 / 46 / 80 kills: highest hips | 0.19 / 0.19 / 0.14 m | 0.32 / 0.70 / 0.88 m |
+| The same at 80: bodies with hips over 0.35 m | 0 | 9 |
+| The same: bodies kept | 20 / 40 / 40 | 20 / 46 / 80 |
+| Running through the heap: ragdolls awake at once | 0 (walked through untouched) | up to 18 |
+
 ## The mess: measured budgets (M0, 2026-11-19)
 
 Measured for the gore update on the development machine (i9-13900K, RTX 4090, load 7 to 9, game at its default quality,

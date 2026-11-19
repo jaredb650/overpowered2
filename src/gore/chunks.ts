@@ -19,18 +19,26 @@ export type CutKind = `slab:${string}` | `part:${string}`;
 export type ChunkKind = 'meat' | 'viscera' | 'bone' | 'cranium' | 'jaw' | 'brain' | 'eye' | 'scrap' | OrganKind | RibKind | CutKind;
 
 export const ChunkTuning = {
-  /** Slots per kind. A new piece reclaims the oldest in that kind. */
+  /**
+   * Slots per kind: the room each kind is given at load. A new piece reclaims the oldest in that kind. `share` is how
+   * much of the room is in use, which the "Mess" setting writes: at Standard, half of it (meat 160, where it was 96).
+   */
   capacity: {
-    meat: 96, viscera: 40, bone: 48, cranium: 24, jaw: 16, brain: 16, eye: 16, scrap: 48,
-    // Organs and the ribcage's six fragments: eight trunks' worth, the oldest given back first.
-    lung: 16, liver: 10, heart: 10, stomach: 10, ribsUL: 12, ribsLL: 12, ribsUR: 12, ribsLR: 12, sternum: 12, spine: 12,
+    meat: 320, viscera: 96, bone: 128, cranium: 48, jaw: 32, brain: 32, eye: 32, scrap: 96,
+    // Organs and the ribcage's six fragments: at Standard eight trunks' worth, the oldest given back first.
+    lung: 32, liver: 20, heart: 20, stomach: 20, ribsUL: 24, ribsLL: 24, ribsUR: 24, ribsLR: 24, sternum: 24, spine: 24,
   } as Record<Exclude<ChunkKind, CutKind>, number>,
+  /** Share of each kind's slots in use, 0..1 (`applyMess`): Low a fifth, Standard half, Everything all. */
+  share: 0.5,
   /** Bodies alive at once across all kinds. Past this, new pieces take the oldest body's place. */
   maxBodies: 72,
   /** Seconds at rest before the body is dropped. */
   settle: 0.35,
-  /** How long a still piece lies around before shrinking away. */
-  linger: 14,
+  /**
+   * How long a still piece lies around before shrinking away. Infinity: it lies until its slot is needed, which is what
+   * the "Mess" setting asks for at Standard and up. A still piece is one instance in a draw that happens anyway.
+   */
+  linger: Infinity,
   shrink: 0.8,
   restitution: 0.32,
   friction: 0.75,
@@ -289,6 +297,10 @@ export class ChunkField {
    * is tinted toward char by that much, by its instance colour. A burnt man's pieces are dark, not fresh red.
    */
   char = 0;
+  /** World time the floor was last cleared of them (`dismiss`): a piece that came to rest before it shrinks away. */
+  private dismissed = -Infinity;
+  /** The share the draws were last cut to (`share`). */
+  private shared = -1;
 
   constructor(private readonly ctx: Ctx, private readonly blood: BloodField, private readonly impacts: ImpactEvents, private readonly trail: GibTrail | null = null) {}
 
@@ -447,8 +459,11 @@ export class ChunkField {
     const { R, world } = this.ctx.physics;
     const ring = this.ring.get(kind)!;
     const slots = this.slots.get(kind)!;
-    const c = slots[ring]!;
-    this.ring.set(kind, (ring + 1) % slots.length);
+    if (this.shared !== ChunkTuning.share) this.share();
+    // A kind cut from one archetype's own body keeps all of its own small room: the share is for the common kinds.
+    const limit = kind in ChunkTuning.capacity ? Math.max(1, Math.round(slots.length * ChunkTuning.share)) : slots.length;
+    const c = slots[ring < limit ? ring : 0]!;
+    this.ring.set(kind, (c.slot + 1) % limit);
     // An organ whose slot is wanted does not just go: it bursts where it lies.
     if (c.alive && ORGAN_SET.has(kind) && c.restedAt >= 0) this.burst(c, _up);
     else if (c.alive) this.retire(c);
@@ -617,7 +632,7 @@ export class ChunkField {
       const c = all[i]!;
       if (!c.alive || c.restedAt < 0) continue;
       // The organs and the ribcage are what a gib is read by: they lie twice as long as torn meat.
-      const age = now - c.restedAt - t.linger * (LASTING.has(c.kind) ? 2 : 1);
+      const age = c.restedAt <= this.dismissed ? now - this.dismissed : now - c.restedAt - t.linger * (LASTING.has(c.kind) ? 2 : 1);
       if (age <= 0) continue;
       if (age >= t.shrink) this.retire(c);
       else this.write(c, 1 - age / t.shrink);
@@ -808,6 +823,59 @@ export class ChunkField {
   clear(): void {
     if (!this.ready) return;
     for (const c of this.all) if (c.alive) this.retire(c);
+    for (const kind of this.meshes.keys()) this.ring.set(kind, 0);
+    this.dismissed = -Infinity;
+  }
+
+  /** Every piece lying still shrinks away now: the floor is being cleared, in sight, with nothing popping. */
+  dismiss(): void {
+    this.dismissed = this.ctx.time.elapsed;
+  }
+
+  /** The "Mess" setting lowered the share: what lies past the new end of each kind's room goes. */
+  trim(): void {
+    if (!this.ready) return;
+    const room = ChunkTuning.capacity as Partial<Record<ChunkKind, number>>;
+    for (const c of this.all) {
+      const cap = room[c.kind];
+      if (c.alive && cap !== undefined && c.slot >= Math.max(1, Math.round(cap * ChunkTuning.share))) this.retire(c);
+    }
+    this.share();
+  }
+
+  /** The draw of each common kind runs over the slots in use and no further: the rest of its room costs nothing. */
+  private share(): void {
+    this.shared = ChunkTuning.share;
+    const room = ChunkTuning.capacity as Partial<Record<ChunkKind, number>>;
+    for (const [kind, mesh] of this.meshes) {
+      const cap = room[kind];
+      if (cap !== undefined) mesh.count = Math.max(1, Math.round(cap * ChunkTuning.share));
+    }
+  }
+
+  /**
+   * Someone walked into the pieces lying at `at`: each still one within `radius` is given its body back and knocked away
+   * along `vx, vz`, a few a call. Organs are left alone: they answer a foot themselves (they roll, and burst underfoot).
+   */
+  shove(at: THREE.Vector3, radius: number, vx: number, vz: number): number {
+    if (!this.ready) return 0;
+    let kicked = 0;
+    const all = this.all;
+    const speed = Math.hypot(vx, vz);
+    for (let i = 0; i < all.length && kicked < 3; i++) {
+      const c = all[i]!;
+      if (!c.alive || c.body || c.restedAt < 0 || ORGAN_SET.has(c.kind)) continue;
+      const dx = c.p.x - at.x;
+      const dz = c.p.z - at.z;
+      if (dx * dx + dz * dz > radius * radius || c.p.y < at.y - 0.3 || c.p.y > at.y + 1.2) continue;
+      if (this.live.length >= ChunkTuning.maxBodies) break;
+      const d = Math.hypot(dx, dz) || 1;
+      // Away from the foot and along the stride, and up a little: a kick, at most a few metres a second.
+      const k = Math.min(4.5, 1 + speed * 0.45);
+      this.kick(c, (dx / d) * k * 0.5 + (vx / (speed || 1)) * k * 0.6, 1 + Math.random() * 1.2, (dz / d) * k * 0.5 + (vz / (speed || 1)) * k * 0.6);
+      kicked++;
+    }
+    return kicked;
   }
 }
 

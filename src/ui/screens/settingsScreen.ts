@@ -9,7 +9,7 @@ import { KEY_GROUPS } from '../data';
 import { Label, Meter, div, h, span } from '../dom';
 import type { Hud } from '../Hud';
 import {
-  AIM_SENSITIVITY_RANGE, CHATTER_LEVELS, DEFAULTS, FOV_RANGE, GORE_LEVELS, QUALITY_LEVELS, SENSITIVITY_CURVE, SENSITIVITY_RANGE, applyQuality, applySettings,
+  AIM_SENSITIVITY_RANGE, CHATTER_LEVELS, DEFAULTS, FOV_RANGE, GORE_LEVELS, MESS_NAMES, QUALITY_LEVELS, SENSITIVITY_CURVE, SENSITIVITY_RANGE, applyQuality, applySettings,
   saveSettings, sliderToValue, valueToSlider,
   type Settings,
 } from '../settings';
@@ -239,12 +239,13 @@ export class SettingsScreen implements Screen {
     const music = new Slider('Music volume', 0, 1, 0.05, () => s.music, v => { s.music = v; }, pct, tick);
     const quality = new Stepper('Graphics quality', QUALITY_LEVELS, () => s.quality, v => { s.quality = v; }, qualityTick);
     const gore = new Stepper('Gore', GORE_LEVELS, () => s.gore, v => { s.gore = v; }, tick);
+    const mess = new Stepper('Mess', MESS_NAMES, () => s.mess, v => { s.mess = v; }, tick);
     const hitText = new Stepper('Hit text', HIT_TEXT_LEVELS, () => s.hitText, v => { s.hitText = v; }, tick);
     const chatter = new Stepper('Enemy chatter', CHATTER_LEVELS, () => s.chatter, v => { s.chatter = v; }, tick);
     const voices = new Slider('Enemy voices', 0, 1, 0.05, () => s.voices, v => { s.voices = v; }, pct, tick);
     const reports = new Stepper('Anonymous error reports', ['Off', 'On'], () => reporter.enabled() ? 1 : 0, v => reporter.setEnabled(v === 1), () => {});
     this.cheatRow = new CheatRow(text => this.note.set(text), id => this.ctx.audio.play?.(id));
-    const general = [sensitivity, fov, invert, hop, aimMode, aimSens, master, sfx, music, voices, quality, gore, hitText, chatter];
+    const general = [sensitivity, fov, invert, hop, aimMode, aimSens, master, sfx, music, voices, quality, gore, mess, hitText, chatter];
     this.refreshers = [...general, reports].map(r => () => r.refresh());
     const keys = this.keyRows();
     const resetKeys = menuButton('Reset keys', () => this.resetKeys());
@@ -255,7 +256,7 @@ export class SettingsScreen implements Screen {
         el: div('gd-panel', div('set-list',
           span('gd-h', 'Controls and view'), sensitivity.el, fov.el, invert.el, hop.el, aimMode.el, aimSens.el,
           span('gd-h', 'Audio'), master.el, sfx.el, music.el, voices.el,
-          span('gd-h', 'Video'), quality.el, gore.el, hitText.el, chatter.el,
+          span('gd-h', 'Video'), quality.el, gore.el, mess.el, hitText.el, chatter.el,
           span('gd-h', 'Cheats'), this.cheatRow.el,
         )),
         rows: [...general, this.cheatRow],

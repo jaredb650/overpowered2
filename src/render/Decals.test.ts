@@ -150,4 +150,51 @@ describe('decal rings', () => {
     expect(d.retired('blood')).toBe(retired);
     expect(xAt(d, baseOf('blood') + 40)).toBeCloseTo(999);
   });
+
+  it('stop spending slots on a soaked spot: a new small stain takes an old one\'s place there', () => {
+    const d = new Decals(patcher, atlas);
+    d.soak = 6;
+    const spot = new THREE.Vector3(0.2, 0, 0.2);
+    // Each 0.4 m stain is 0.4 x 0.4 x half ink over a quarter square metre: 0.32 of a layer. Nineteen make six layers.
+    for (let i = 0; i < 400; i++) d.add('blood', spot, up, 0.4);
+    expect(d.layersAt(spot)).toBeGreaterThanOrEqual(6);
+    expect(d.layersAt(spot)).toBeLessThan(6.5);
+    expect(d.live('blood')).toBe(19);
+    expect(d.soaked).toBe(400 - 19);
+    expect(d.retired('blood')).toBe(0);
+    // The next cell over is its own count.
+    const beside = new THREE.Vector3(0.2, 0, 0.9);
+    d.add('blood', beside, up, 0.4);
+    expect(d.live('blood')).toBe(20);
+    expect(d.layersAt(beside)).toBeCloseTo(0.32, 2);
+    // A pool, a smear or a run always lands: they are few, and they are the coverage.
+    d.add('bloodPool', spot, up, 1.5);
+    d.add('bloodSmear', spot, up, 0.6);
+    expect(d.live('blood')).toBe(22);
+    // The floor above is not this floor.
+    d.add('blood', new THREE.Vector3(0.2, 3.2, 0.2), up, 0.4);
+    expect(d.live('blood')).toBe(23);
+  });
+
+  it('send a soaked spot\'s rewritten slots on their own, and count a spot down as its stains are overwritten', () => {
+    const d = new Decals(patcher, atlas);
+    d.soak = 2;
+    const spot = new THREE.Vector3(5.1, 0, 5.1);
+    for (let i = 0; i < 7; i++) d.add('blood', spot, up, 0.4);
+    uploaded(d);
+    d.add('blood', spot, up, 0.4);
+    // The cell remembers its last six: the seventh pushed slot 0 out of its memory, so slot 1 is the oldest it has.
+    expect(uploaded(d)).toEqual([[baseOf('blood') + 1, 1]]);
+    expect(d.live('blood')).toBe(7);
+    // With no limit it is a ring like any other.
+    d.soak = 0;
+    d.add('blood', spot, up, 0.4);
+    expect(d.live('blood')).toBe(8);
+    // Overwritten from elsewhere, the spot dries out of the count.
+    d.setLimit('blood', 8);
+    for (let i = 0; i < 8; i++) d.add('blood', at(100 + i), up, 0.4);
+    expect(d.layersAt(spot)).toBe(0);
+    d.clear();
+    expect(d.soaked).toBe(0);
+  });
 });

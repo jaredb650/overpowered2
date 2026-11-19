@@ -110,6 +110,14 @@ four blots.
 - **Looking at it:** `/?sandbox=decals` lays every cell on a floor or a wall through the real shader (its header lists
   the switches: `from`, `count`, `size`, `age`, `view`, `floor`, `lum`).
 
+**A soaked spot** (`Decals.soak`, layers; `SOAK_CELL` 0.5 m; `layersAt`, `soaked`). Each blood decal is counted into the
+half-metre cell its centre is in, as layers (its quad's area at half ink over the cell's area). Once a cell holds `soak`
+layers, a new small stain there (`blood`, not a pool, smear or run) is written into the slot of the oldest stain that cell
+remembers (its last six), not a new one. Stacked decals are what cost: 0.006 ms a full-screen layer on the development
+machine (`docs/notes/gore.md`, "The mess: measured budgets"). `fadeOut(seconds)` fades the whole layer and then clears it
+(the "Clear at wave break" setting).
+
+
 **Post.** All `PostFx` methods run on real time, so effects decay through hit-stop and pause. `chromatic()` saturates, so anything from 0.01 to over 1 is safe.
 
 **Reset.** The renderer listens for `run:start` and clears decals, flashes, post state and the x-ray itself.

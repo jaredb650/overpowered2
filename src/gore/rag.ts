@@ -50,7 +50,15 @@ export interface RagBuild {
    * chain root's seed. A limb cut from a chain already falling takes that chain's, because its seed is that chain's speed.
    */
   lofted?: boolean;
+  /**
+   * Built at rest, with no bodies: a body put back from the far batch (mess.ts) lies as it lay until something wakes it.
+   * `rest()` then gives it its fixed capsules.
+   */
+  asleep?: boolean;
 }
+
+/** What a chain at rest is to the bodies that land on it: the ragdolls' own group, and nothing else ever meets it. */
+const REST_GROUPS = groups(CG.Ragdoll, CG.Ragdoll | CG.Gib);
 
 const tempoFlag = typeof location === 'undefined' ? null : new URLSearchParams(location.search).get('raggrav');
 /** `?raggrav=0.75` sets the tempo dial at load, held to 0.5..1. Left out, or not a number, it is 1. */
@@ -336,6 +344,16 @@ export class Rag {
   active = false;
   readonly mask: Uint8Array;
   readonly muscle: MuscleState | null;
+  /**
+   * The chain at rest: one fixed capsule where each of its capsules lay, so the next body lands on it and a heap is as
+   * high as its bodies. Empty while it simulates, and for a chain frozen without them.
+   */
+  private readonly restShapes: RAPIER.Collider[] = [];
+  /** The box round those capsules, for whoever looks for what lies where (mess.ts). Meaningless unless `resting`. */
+  readonly restMin = new THREE.Vector3();
+  readonly restMax = new THREE.Vector3();
+  /** Told as the chain's fixed capsules are about to leave the world, by any road: woken, destroyed, or given up. */
+  onUnrest: ((rag: Rag) => void) | null = null;
 
   constructor(
     readonly physics: PhysicsSystem,
@@ -346,7 +364,21 @@ export class Rag {
     this.mask = build.mask.slice();
     this.partOf = new Array<RagPart | null>(this.info.count).fill(null);
     this.muscle = build.muscles ? new MuscleState(this) : null;
-    this.create(build.seeds, build.lofted);
+    if (build.asleep) {
+      this.source.root.updateMatrixWorld(true);
+      this.center.setFromMatrixPosition(this.source.bones[build.chainRoot]!.matrixWorld);
+      this.muscle?.spend();
+    } else this.create(build.seeds, build.lofted);
+  }
+
+  /** At rest with its fixed capsules in the world. */
+  get resting(): boolean {
+    return this.restShapes.length > 0;
+  }
+
+  /** How many fixed capsules it has in the world. */
+  get restCount(): number {
+    return this.restShapes.length;
   }
 
   /** Killed in the air and not down yet, so still falling at full gravity. */
@@ -923,18 +955,73 @@ export class Rag {
     if (this.active && parts.length > 0) this.muscle?.bind();
   }
 
-  /** Takes every body out of the world. The pose stays on the bones. */
-  freeze(): void {
+  /**
+   * Takes every body out of the world. The pose stays on the bones. With `rest`, a fixed capsule is left where each of
+   * the chain's capsules lay, the same shapes in the same places, so what lands on it later rests on it, and waking it
+   * puts back exactly what was there: nothing lying on it is pushed. They meet ragdolls, limbs and nothing else: not the
+   * player, the living, bullets or the nav.
+   */
+  freeze(rest = false): void {
     if (!this.active) return;
     this.muscle?.stop();
+    if (rest) this.leaveShapes();
     for (const part of this.parts) this.physics.world.removeRigidBody(part.body);
     this.parts.length = 0;
     this.active = false;
   }
 
+  private leaveShapes(): void {
+    const { R, world } = this.physics;
+    const lo = this.restMin.set(Infinity, Infinity, Infinity);
+    const hi = this.restMax.set(-Infinity, -Infinity, -Infinity);
+    for (const part of this.parts) {
+      const body = part.body;
+      for (let i = 0, n = body.numColliders(); i < n; i++) {
+        const c = body.collider(i);
+        const t = c.translation();
+        const radius = c.radius();
+        // A ball has no half height.
+        const half = c.shapeType() === R.ShapeType.Capsule ? c.halfHeight() : 0;
+        const desc = (half > 0 ? R.ColliderDesc.capsule(half, radius) : R.ColliderDesc.ball(radius))
+          .setTranslation(t.x, t.y, t.z)
+          .setRotation(c.rotation())
+          .setFriction(this.build.friction)
+          .setRestitution(this.build.restitution)
+          .setCollisionGroups(REST_GROUPS);
+        this.restShapes.push(world.createCollider(desc));
+        // The box is tight: a capsule lying down is only its radius high, and what lies on what is read from it.
+        const r = c.rotation();
+        _a.set(0, half, 0).applyQuaternion(_q.set(r.x, r.y, r.z, r.w));
+        const ex = Math.abs(_a.x) + radius, ey = Math.abs(_a.y) + radius, ez = Math.abs(_a.z) + radius;
+        lo.set(Math.min(lo.x, t.x - ex), Math.min(lo.y, t.y - ey), Math.min(lo.z, t.z - ez));
+        hi.set(Math.max(hi.x, t.x + ex), Math.max(hi.y, t.y + ey), Math.max(hi.z, t.z + ez));
+      }
+    }
+  }
+
+  /**
+   * A chain frozen without its capsules (built asleep, or dropped over the budget for them) is given them where it
+   * lies: it simulates for no time at all, only long enough to read where its capsules are.
+   */
+  rest(): void {
+    if (this.active || this.resting) return;
+    this.create(null);
+    this.freeze(true);
+  }
+
+  /** Takes the fixed capsules away and leaves the chain as it was before there were any: something bodies fall through. */
+  dropRest(): void {
+    if (this.restShapes.length === 0) return;
+    this.onUnrest?.(this);
+    const world = this.physics.world;
+    for (const c of this.restShapes) world.removeCollider(c, false);
+    this.restShapes.length = 0;
+  }
+
   /** Puts bodies back at the current pose, at rest. */
   wake(seeds: Float32Array | null = null): void {
     if (this.active) return;
+    this.dropRest();
     this.create(seeds);
     this.muscle?.spend();
   }
@@ -942,6 +1029,7 @@ export class Rag {
   /** Removes everything. The source's own lifetime is the caller's business. */
   destroy(): void {
     this.freeze();
+    this.dropRest();
   }
 }
 
