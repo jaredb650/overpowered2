@@ -25,6 +25,18 @@ export class Vehicles implements WorldModule {
     w.router.guest('vehicles', value => this.draw(value));
   }
 
+  /** Guest: each drawn vehicle with the host's id for it (vehicleHits.ts gives them hit boxes). */
+  each(visit: (id: number, kind: string, root: THREE.Object3D, turret: number) => void): void {
+    for (const [id, puppet] of this.puppets) visit(id, puppet.kind, puppet.model.root, puppet.turret);
+  }
+  /** Guest: the host has sent no vehicle. */
+  get none(): boolean { return this.puppets.size === 0; }
+  /** Host: the live vehicle the guests know as `id` (claims.ts applies a guest's round to it). */
+  find(id: number): Vehicle | undefined {
+    const live = (this.w.ctx.enemies.vehicles as unknown as { live?: Vehicle[] } | undefined)?.live;
+    return live?.find(vehicle => this.ids.get(vehicle) === id);
+  }
+
   update(now: number): void {
     if (this.w.hosting && now >= this.next) { this.next = now + SEND_MS; this.send(); }
   }

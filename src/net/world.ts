@@ -3,6 +3,7 @@
  * under `world/` with its own state, its own events on the wire and its own handlers; this class builds them, runs them each
  * frame and hands calls on. The layout and how to add an event are in docs/notes/coop.md, "Code layout".
  */
+import type RAPIER from '@dimforge/rapier3d-compat';
 import type * as THREE from 'three';
 import type { Ctx, DamageInfo, ExplosionKind, MuzzleKind, PlayerDamage, PlayerSystem, TracerKind } from '../core/contracts';
 import type { DamageResult, EnemyInstance, ExplosionSpec, ProjectileSpec } from '../core/gameplay';
@@ -78,8 +79,9 @@ export class CoopWorld {
     // because it is built before Hits and the world is built before systems init.
     this.enemies = new Replicas(w);
     this.targeting = new Targeting(w);
+    this.vehicles = new Vehicles(w);
     // Before RemoteFire: a shot's id moves on `weapon:fired`, and claims.ts must hear that first.
-    this.claims = new Claims(w, this.enemies, this.targeting);
+    this.claims = new Claims(w, this.enemies, this.targeting, this.vehicles);
     this.shots = new RemoteFire(w);
     new Callins(w);
     // Sonar is shared; Thermal is each player's own and never sent. Focus slows the world for everyone (world/clock.ts).
@@ -96,7 +98,6 @@ export class CoopWorld {
     this.villain = new Villain(w);
     this.booms = new Booms(w, this.targeting);
     this.guns = new Guns(w);
-    this.vehicles = new Vehicles(w);
     this.garrison = new Allies(w);
     this.modules = [this.capture, this.vehicles, this.garrison, this.targeting, this.claims, this.credit, this.attacks, this.warnings, w.later, this.time, this.enemies];
   }
@@ -142,9 +143,18 @@ export class CoopWorld {
   claim(enemy: EnemyInstance, damage: DamageInfo): DamageResult { return this.claims.claim(enemy, damage); }
   /** Guest: my weapon, call-in or perk set this enemy alight, froze it or left a live bolt in it (EnemyManager.afflict). */
   status(enemy: EnemyInstance, kind: StatusKind, seconds: number): void { this.claims.status(enemy, kind, seconds); }
-  /** Guest: my round struck the shape of one of the host's vehicles (world/vehicles.ts `shapeOf`), on this part. */
-  vehicleHit(id: number, part: string, point: THREE.Vector3, amount: number, source: string, kind?: ExplosionKind): void {
-    this.claims.vehicleHit(id, part, point, amount, source, kind);
+  /**
+   * Guest: my round landed on this collider (enemies/vehicles asks). True if it is the hit box of one of the host's vehicles:
+   * the host is told. `kind`: a rocket or shell landing on it. False on the host and alone.
+   */
+  vehicleShot(collider: RAPIER.Collider | null, point: THREE.Vector3, amount: number, source: string, kind?: ExplosionKind): boolean {
+    return !this.session.hosting && this.claims.vehicleHits.shot(collider, point, amount, source, kind);
+  }
+  /** Guest: my explosion, for the host's vehicles in it. True on a guest (nothing here to hurt), false on the host and alone. */
+  vehicleBlast(center: THREE.Vector3, spec: ExplosionSpec): boolean {
+    if (this.session.hosting) return false;
+    this.claims.vehicleHits.blast(center, spec);
+    return true;
   }
   /** The shot id the local player's claims carry now (claims.ts), and on the host the claim being applied: whose, and its shot id. */
   get shot(): number { return this.claims.shot; }

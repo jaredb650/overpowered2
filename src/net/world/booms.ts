@@ -1,7 +1,7 @@
 /**
  * Explosions on other screens. Every explosion a game makes goes out as `boom` (a guest's through the host), capped per second,
  * and is drawn and heard elsewhere without damage. The host also works out what an enemy's blast does to each remote player
- * (`hurt`, targeting.ts), and applies a guest's blast to vehicles, which live only on the host.
+ * (`hurt`, targeting.ts). A guest's blast on the host's vehicles is a claim (claims.ts `vhit`), never this event.
  */
 import * as THREE from 'three';
 import type { ExplosionKind } from '../../core/contracts';
@@ -30,8 +30,7 @@ export class Booms {
     const { session } = this.w;
     // Every explosion this game makes is drawn on the others': the host's for everyone, a guest's through the host.
     if (!spec.worldObject && this.w.ready && this.spend()) {
-      this.w.send({ t: 'boom', at: center.toArray() as Vec, kind: spec.kind, radius: spec.radius, slot: session.lobby.me?.slot,
-        ...(spec.team === 'player' && !session.hosting ? { damage: spec.damage, source: spec.source } : {}) });
+      this.w.send({ t: 'boom', at: center.toArray() as Vec, kind: spec.kind, radius: spec.radius, slot: session.lobby.me?.slot });
     }
     if (!session.hosting || spec.team !== 'enemy') return;
     const def = EXPLOSIONS[spec.kind];
@@ -54,10 +53,7 @@ export class Booms {
     }
     const at = new THREE.Vector3(...value.at);
     const kind = value.kind as ExplosionKind;
-    // A guest's rocket on a truck: vehicles live only on the host, so its blast is applied to them here.
-    if (session.hosting && Number.isFinite(value.damage) && value.damage! > 0 && typeof value.source === 'string') {
-      ctx.enemies.vehicles?.blast(at, { radius: value.radius, damage: Math.min(3000, value.damage!), kind, source: value.source.slice(0, 32), team: 'player' });
-    }
+    // What a guest's blast does to the host's vehicles is a claim of its own now (claims.ts `vhit`), not this drawing.
     ctx.fx.explosion(at, { radius: value.radius, kind });
     for (const sound of EXPLOSIONS[kind as keyof typeof EXPLOSIONS].sounds) ctx.audio.play(sound.id, { ...sound, position: at });
     const near = ctx.player.eye.distanceTo(at);

@@ -78,6 +78,7 @@ const LOS_STEPS = 3;
 const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
 const _dir = new THREE.Vector3();
+const _claimed = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
 const _hit: RayHit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, surface: 'concrete', collider: null };
 const _near: { distance: number; part: PartState | null } = { distance: 0, part: null };
@@ -320,7 +321,10 @@ export class VehicleSystem implements VehicleTargets {
     return Math.max(dealt, share * v.def.health);
   }
 
-  shot(collider: RAPIER.Collider | null, point: THREE.Vector3, amount: number, source: string): boolean {
+  /** `quiet`: no hit marker or marker sound on this screen (a co-op guest's round, applied by the host: `claimed`). */
+  shot(collider: RAPIER.Collider | null, point: THREE.Vector3, amount: number, source: string, quiet = false): boolean {
+    // A co-op guest has only the shapes of the host's vehicles: its round is a claim (net/world/vehicleHits.ts).
+    if (this.ctx.coop?.world?.vehicleShot(collider, point, amount, source)) return true;
     const part = this.part(collider);
     if (!part) return false;
     const v = part.owner;
@@ -331,11 +335,12 @@ export class VehicleSystem implements VehicleTargets {
     if (weak) dealt = this.weakHit(v, weak, weak.sabot, dealt, point);
     if (pierced) this.ctx.audio.play('sabot_on_vehicle', { position: point, pitchJitter: 0.04 });
     v.take(dealt, part, source, point);
-    this.marker(dealt > 0, !v.alive, pierced, weak !== null);
+    if (!quiet) this.marker(dealt > 0, !v.alive, pierced, weak !== null);
     return true;
   }
 
-  direct(collider: RAPIER.Collider | null, point: THREE.Vector3, amount: number, kind: ExplosionKind, source: string): boolean {
+  direct(collider: RAPIER.Collider | null, point: THREE.Vector3, amount: number, kind: ExplosionKind, source: string, quiet = false): boolean {
+    if (this.ctx.coop?.world?.vehicleShot(collider, point, amount, source, kind)) return true;
     const part = this.part(collider);
     if (!part) return false;
     const v = part.owner;
@@ -343,13 +348,32 @@ export class VehicleSystem implements VehicleTargets {
     const weak = SHAPED_CHARGE[kind] ? v.weakAt(part, point) : null;
     if (weak) dealt = this.weakHit(v, weak, weak.charge, dealt, point);
     v.take(dealt, part, source, point);
-    this.marker(dealt > 0, !v.alive, false, weak !== null);
+    if (!quiet) this.marker(dealt > 0, !v.alive, false, weak !== null);
     return true;
+  }
+
+  /**
+   * Co-op host: a guest's round landed on `v` (net/world/claims.ts), on the part it names, at `local` in the vehicle's own frame:
+   * the two machines draw the vehicle a little apart, and a hit on the hatch on the shooter's screen is a hit on the hatch.
+   * Applied as the host's own round would be (`shot`, or `direct` for a rocket or shell of `kind`), without the host's marker.
+   */
+  claimed(v: Vehicle, part: string | undefined, local: THREE.Vector3, amount: number, source: string, kind?: ExplosionKind): boolean {
+    if (!v.alive) return false;
+    const point = _claimed.copy(local).applyQuaternion(v.quaternion).add(v.position);
+    let struck = v.parts.find(p => p.def.id === part) ?? null;
+    if (!struck) {
+      v.nearest(point, _near);
+      struck = _near.part;
+    }
+    if (!struck) return false;
+    return kind ? this.direct(struck.collider, point, amount, kind, source, true) : this.shot(struck.collider, point, amount, source, true);
   }
 
   /** Only the player's blasts count: a shell of theirs landing beside a truck of theirs is not what this fight is about. */
   blast(center: THREE.Vector3, spec: ExplosionSpec): number {
     if (spec.team !== 'player') return 0;
+    // A co-op guest's blast: the vehicles are the host's, so the host is told and works out which it reaches.
+    if (this.ctx.coop?.world?.vehicleBlast(center, spec)) return 0;
     const def = EXPLOSIONS[spec.kind];
     let caught = 0;
     for (let i = this.live.length - 1; i >= 0; i--) {

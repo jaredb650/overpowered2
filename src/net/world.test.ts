@@ -223,6 +223,35 @@ describe('host-authoritative world over the mocked lobby transport', () => {
     expect(game.hw.applying).toBeNull();
     game.hw.dispose(); game.gw.dispose();
   });
+  it('takes a guest\'s round and blast to the host\'s vehicles, as claims and not as part of the drawing', () => {
+    const game = pair();
+    const truck = { alive: true, def: { kind: 'truck' }, position: new THREE.Vector3(0, 0, -20), quaternion: new THREE.Quaternion() };
+    const claimed = vi.fn(() => true), blast = vi.fn(() => 1);
+    (game.host.ctx.enemies as unknown as { vehicles: unknown }).vehicles = { live: [truck], claimed, blast };
+    game.hw.update(); game.relay.flush();
+    const sent = () => game.relay.packets.filter(packet => packet.lane === 'action').map(packet => (packet.data as { data: WorldEvent }).data);
+    const id = (sent().find(event => event.t === 'vehicles') as Extract<WorldEvent, { t: 'vehicles' }>).list[0]!.id;
+    // Straight to the claim: the guest's hit boxes need the real physics world (the browser proof covers them).
+    const guestClaims = (game.gw as unknown as { claims: { vehicleHit(...args: unknown[]): void; vehicleBlast(...args: unknown[]): void } }).claims;
+    guestClaims.vehicleHit(id, 'engine', new THREE.Vector3(0.2, 1, 1.5), 60, 'harrow');
+    guestClaims.vehicleHit(id, 'cab', new THREE.Vector3(0, 1.4, 0.5), 300, 'rocket', 'rocket');
+    guestClaims.vehicleHit(999, 'cab', new THREE.Vector3(), 300, 'rocket');
+    guestClaims.vehicleBlast(new THREE.Vector3(1, 0, -20), { radius: 6, damage: 500, kind: 'rocket', source: 'rocket', team: 'player' });
+    guestClaims.vehicleBlast(new THREE.Vector3(1, 0, -20), { radius: 5, damage: 99999, kind: 'shell', source: 'autocannon', team: 'player', instakill: true });
+    guestClaims.vehicleBlast(new THREE.Vector3(1, 0, -20), { radius: 5, damage: 99, kind: 'rocket', source: 'trooper', team: 'enemy' });
+    game.relay.flush();
+    expect(claimed.mock.calls.map(call => (call as unknown[]).slice(1, 2).concat((call as unknown[]).slice(3)))).toEqual([['engine', 60, 'harrow', undefined], ['cab', 300, 'rocket', 'rocket']]);
+    expect((claimed.mock.calls[0] as unknown[])[0]).toBe(truck);
+    expect(blast.mock.calls.map(call => (call as unknown[])[1])).toEqual([
+      { radius: 6, damage: 500, kind: 'rocket', source: 'rocket', team: 'player', instakill: undefined },
+      { radius: 5, damage: 20000, kind: 'shell', source: 'autocannon', team: 'player', instakill: true }]);
+    expect(game.hw.stats.rejected).toBe(0);
+    expect(game.hw.validator.refused).toMatchObject({ gone: 1 });
+    // The drawing of an explosion carries no damage any more.
+    game.gw.blast(new THREE.Vector3(0, 0, -20), { radius: 6, damage: 500, kind: 'rocket', source: 'rocket', team: 'player' });
+    expect(sent().filter(event => event.t === 'boom').every(event => !('damage' in event))).toBe(true);
+    game.hw.dispose(); game.gw.dispose();
+  });
   it('takes a guest\'s fire, frost and live bolt to the host, a renewed one four times a second and once more at the end', () => {
     const game = pair();
     game.host.manager.spawn('husk', new THREE.Vector3(0, 0, -10));

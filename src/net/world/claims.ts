@@ -13,11 +13,14 @@ import * as THREE from 'three';
 import { CG, type DamageInfo, type ExplosionKind } from '../../core/contracts';
 import type { DamageResult, EnemyInstance, ExplosionSpec } from '../../core/gameplay';
 import type { Enemy } from '../../enemies/Enemy';
+import type { Vehicle } from '../../enemies/vehicles/vehicle';
 import { EXPLOSIONS, bossHit } from '../../weapons/data';
 import { claimClass, limitsOf, type RejectReason } from '../authority';
 import { unpackDamage, type WorldContext, type WorldModule } from './context';
 import type { Replicas } from './replicas';
 import type { Targeting } from './targeting';
+import { VehicleHits } from './vehicleHits';
+import type { Vehicles } from './vehicles';
 import { ENEMY_IDS, packDamage, type Vec, type WireDamage } from './wire';
 
 /**
@@ -47,10 +50,11 @@ const STRAIGHT_COS = Math.cos(12 * Math.PI / 180);
 const NOTHING: DamageResult = { dealt: 0, blocked: false, killed: false, headshot: false, severed: [] };
 const _from = new THREE.Vector3(), _dir = new THREE.Vector3();
 
-/** What the host can do to a vehicle for a guest, and a guest can ask about its shapes (enemies/vehicles, world/vehicles.ts). */
-export interface VehicleBridge {
-  /** Host: the vehicle the snapshot calls `id`, struck as the host's own round would strike it, without the host's hit marker. */
-  struck(id: number, part: string | undefined, point: THREE.Vector3, amount: number, source: string, kind?: ExplosionKind): boolean;
+/** What the host's vehicles do for a guest's claim (enemies/vehicles/index.ts). */
+interface VehicleBridge {
+  /** A guest's round on this vehicle, as the host's own would land, without the host's hit marker. `point` is in the vehicle's frame. */
+  claimed(vehicle: Vehicle, part: string | undefined, point: THREE.Vector3, amount: number, source: string, kind?: ExplosionKind): boolean;
+  blast(center: THREE.Vector3, spec: ExplosionSpec): number;
 }
 
 export class Claims implements WorldModule {
@@ -58,6 +62,8 @@ export class Claims implements WorldModule {
   shot = 0;
   /** Every refused claim by reason, as the validator counted it, plus `gone` (the enemy was already dead on the host). */
   readonly refused: Partial<Record<RejectReason | 'gone', number>>;
+  /** Guest: the hit boxes of the host's vehicles, and what lands on them (vehicleHits.ts). Run and cleared with this module. */
+  readonly vehicleHits: VehicleHits;
   /** Guest: claims sent, by kind, for the proofs. */
   readonly sent = { hit: 0, status: 0, vhit: 0 };
   /** Host: the last player to land a claim on each enemy, for a kill by bleeding or fire after the hit. */
@@ -70,8 +76,9 @@ export class Claims implements WorldModule {
   /** Guest: statuses lately sent, by enemy and kind, with what is still owed (`pending` seconds, 0 for none). */
   private readonly statuses = new Map<string, { sentAt: number; uid: number; kind: StatusKind; pending: number }>();
 
-  constructor(private readonly w: WorldContext, private readonly replicas: Replicas, private readonly targeting: Targeting) {
+  constructor(private readonly w: WorldContext, private readonly replicas: Replicas, private readonly targeting: Targeting, private readonly vehicles: Vehicles) {
     this.refused = w.validator.refused;
+    this.vehicleHits = new VehicleHits(w, vehicles, this);
     // Every real shot and swing is a new shot id. Heard before remoteFire.ts hears it (this module is built first).
     w.listen('weapon:fired', () => this.next(performance.now()));
     w.router.host('hit', (value, from, now) => this.hitIn(value, from, now));
@@ -156,7 +163,7 @@ export class Claims implements WorldModule {
     this.sent.status++;
   }
 
-  /** Guest: my round struck one of the host's vehicles (its shape on my screen), on this part. */
+  /** Guest: my round struck one of the host's vehicles (its shape on my screen), on this part, at `point` in the vehicle's own frame. */
   vehicleHit(id: number, part: string, point: THREE.Vector3, amount: number, source: string, kind?: ExplosionKind): void {
     if (this.w.hosting || !(amount > 0)) return;
     this.w.send({ t: 'vhit', id, part, point: point.toArray() as Vec, amount: Math.min(amount, 1e9), source, at: Math.round(performance.now()), ...(kind ? { kind } : {}) });
@@ -223,7 +230,7 @@ export class Claims implements WorldModule {
     const { ctx, stats } = this.w;
     if (!this.w.sender(from, now)) return;
     if (!this.w.validator.vehicle(from, value, now)) { stats.rejected++; return; }
-    const vehicles = ctx.enemies.vehicles as (VehicleBridge & { blast(center: THREE.Vector3, spec: ExplosionSpec): number }) | null | undefined;
+    const vehicles = ctx.enemies.vehicles as unknown as VehicleBridge | null | undefined;
     if (!vehicles) { this.refuse('gone'); return; }
     const point = new THREE.Vector3(...value.point);
     const kind = value.kind !== undefined && Object.hasOwn(EXPLOSIONS, value.kind) ? value.kind as ExplosionKind : undefined;
@@ -233,12 +240,15 @@ export class Claims implements WorldModule {
       vehicles.blast(point, { radius: value.radius, damage: Math.min(value.amount, 20000), kind, source: value.source, team: 'player', instakill: value.inst === 1 || undefined });
       return;
     }
-    if (vehicles.struck?.(value.id, value.part, point, value.amount, value.source, kind)) stats.accepted++;
+    const vehicle = this.vehicles.find(value.id);
+    // Wrecked on the host before the claim got here.
+    if (vehicle && vehicles.claimed(vehicle, value.part, point, value.amount, value.source, kind)) stats.accepted++;
     else this.refuse('gone');
   }
 
   update(now: number): void {
     if (this.w.hosting) return;
+    this.vehicleHits.update();
     // What a throttled status still owes: the last word on how long it burns.
     for (const [key, entry] of this.statuses) {
       if (now - entry.sentAt < STATUS_MS) continue;
@@ -249,5 +259,9 @@ export class Claims implements WorldModule {
         entry.pending = 0;
       } else if (now - entry.sentAt > 5000) this.statuses.delete(key);
     }
+  }
+
+  dispose(): void {
+    this.vehicleHits.dispose();
   }
 }
