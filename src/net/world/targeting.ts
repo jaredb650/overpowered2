@@ -11,7 +11,6 @@ import type { Foe } from '../../enemies/outpost/soldier';
 import { soldierOf } from '../../enemies/outpost/soldier';
 import { Route, RouteFinder, type NavGrid } from '../../enemies/outpost/routes';
 import { WEAPONS } from '../../weapons/data';
-import { selectTarget } from '../authority';
 import type { TeamLife } from '../team';
 import type { WorldContext, WorldModule } from './context';
 import { validVec, type Vec } from './wire';
@@ -36,6 +35,36 @@ const OFF_GROUND: ReadonlySet<string> = new Set(['airborne', 'jet', 'wallrun', '
 
 export interface PlayerTarget { id: string; player: PlayerSystem; life: TeamLife; foe: Foe }
 
+/** How long a list of players built outside a ticking world is good for, ms. */
+const LIST_MS = 100;
+
+/** The distance as `selectTarget` works it out, to the last bit, so the two never part on a tie. */
+const apart = (a: THREE.Vector3, b: THREE.Vector3): number => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+
+/**
+ * The player an enemy at `from` goes for: the nearest one alive, and the one it already had unless another is closer than
+ * four fifths of the way (authority.ts `selectTarget`, which this must agree with). Run per enemy per frame on the host,
+ * so it makes nothing: no arrays, no copies of positions.
+ */
+export function pickTarget<T extends { id: string; player: { alive: boolean; position: THREE.Vector3 } }>(from: THREE.Vector3, players: readonly T[], previous?: string): T | undefined {
+  let best: T | undefined;
+  let range = Infinity;
+  if (previous !== undefined) for (let i = 0; i < players.length; i++) {
+    const candidate = players[i]!;
+    if (candidate.id !== previous || !candidate.player.alive) continue;
+    best = candidate;
+    range = apart(from, candidate.player.position) * 0.8;
+    break;
+  }
+  for (let i = 0; i < players.length; i++) {
+    const candidate = players[i]!;
+    if (!candidate.player.alive) continue;
+    const next = apart(from, candidate.player.position);
+    if (next < range) { best = candidate; range = next; }
+  }
+  return best;
+}
+
 export class Targeting implements WorldModule {
   /** Host: the player the enemy being updated is after (EnemyManager reads and clears it). */
   targetPlayer: PlayerSystem | null = null;
@@ -51,6 +80,12 @@ export class Targeting implements WorldModule {
   private readonly ghosts = new Set<string>();
   /** Guest: the Ghost state last told to the host. */
   private ghostSent = false;
+  /** Every player in the world, built once a frame and handed to every caller (`players`). */
+  private readonly list: PlayerTarget[] = [];
+  /** The body each entry of `list` was read from (undefined for the local player). */
+  private readonly listFrom: (import('../remote').RemotePlayer | undefined)[] = [];
+  private listStale = true;
+  private listAt = -Infinity;
   /** Host: every player as the game's player type, rebuilt once a frame (`hostPlayers`). */
   private readonly everyone: PlayerSystem[] = [];
   private everyoneStale = true;
@@ -72,14 +107,29 @@ export class Targeting implements WorldModule {
   /** Host: the lobby id of the player this enemy is after, once it has picked one. */
   targetOf(uid: number): string | undefined { return this.selections.get(uid); }
 
-  /** Every player whose body is in the world, the local one included. */
-  players(): PlayerTarget[] {
+  /**
+   * Every player whose body is in the world, the local one included. The list is worked out once a frame, with each
+   * friend's pose read once, and shared by every caller (an enemy's target pick asks for it per enemy): read it, never
+   * keep or change it. A world that is not being ticked rebuilds it after `LIST_MS`.
+   */
+  players(): readonly PlayerTarget[] {
+    const now = performance.now();
     const { ctx, session } = this.w;
+    if (!this.listStale && now - this.listAt < LIST_MS) {
+      // A friend's body replaced since (a new name, a new page) is a new list at once: its place is read from that body.
+      let same = true;
+      for (let i = 0; i < this.list.length && same; i++) same = session.remotes.get(this.list[i]!.id) === this.listFrom[i];
+      if (same) return this.list;
+    }
+    this.listStale = false;
+    this.listAt = now;
     const localId = session.lobby.you;
-    const result: PlayerTarget[] = [];
+    const result = this.list;
+    result.length = this.listFrom.length = 0;
     for (const roster of session.lobby.players) {
       const remote = session.remotes.get(roster.id);
-      if (roster.id !== localId && (!remote || !remote.buffer.sample(performance.now()))) continue;
+      const pose = remote ? remote.buffer.sample(now) : null;
+      if (roster.id !== localId && !pose) continue;
       let adapter = this.adapters.get(roster.id);
       if (!adapter) {
         const position = new THREE.Vector3(), eye = new THREE.Vector3(), velocity = new THREE.Vector3(), forward = new THREE.Vector3();
@@ -121,14 +171,14 @@ export class Targeting implements WorldModule {
         adapter = { id: roster.id, player, life, foe };
         this.adapters.set(roster.id, adapter);
       }
-      if (remote) {
+      if (remote && pose) {
         adapter.player.position.copy(remote.char.root.position);
         adapter.player.eye.copy(remote.char.root.position).y += 1.6;
-        const pose = remote.buffer.sample(performance.now())!;
         adapter.player.velocity.fromArray(pose.velocity);
         adapter.player.forward.set(-Math.sin(pose.yaw), 0, -Math.cos(pose.yaw));
       }
       result.push(adapter);
+      this.listFrom.push(remote);
     }
     return result;
   }
@@ -136,9 +186,7 @@ export class Targeting implements WorldModule {
   /** Host: picks this enemy's target and fills in what it senses of them. */
   select(enemy: Enemy, sense: PlayerSense): void {
     const { ctx, session } = this.w;
-    const players = this.players();
-    const selected = selectTarget(enemy.position.toArray(), players.map(target => ({ id: target.id, alive: target.player.alive, position: target.player.position.toArray() })), this.selections.get(enemy.uid));
-    const target = players.find(player => player.id === selected?.id);
+    const target = pickTarget(enemy.position, this.players(), this.selections.get(enemy.uid));
     this.targetPlayer = target?.player ?? ctx.player;
     const player = this.targetPlayer;
     if (target) this.selections.set(enemy.uid, target.id);
@@ -308,6 +356,7 @@ export class Targeting implements WorldModule {
   /** A player who left takes their stand-in and their claim history with them. */
   update(): void {
     this.everyoneStale = true;
+    this.listStale = true;
     for (const id of this.adapters.keys()) if (!this.w.session.lobby.players.some(player => player.id === id)) {
       this.adapters.delete(id); this.ghosts.delete(id); this.w.validator.forget(id);
     }
@@ -318,3 +367,6 @@ export class Targeting implements WorldModule {
     }
   }
 }
+
+/** For a peer that is behind: which of this module's events may be left out (net/pressure.ts). A fact never is. */
+export const TARGETING_WIRE: import('../pressure').WireClasses<HurtEvent> = { hurt: 'fact', shove: 'fact', ghost: 'fact' };
