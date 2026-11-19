@@ -562,6 +562,9 @@ Additions from the owner, same day:
   rope is anchored in `src/gore/` and add a free, unanchored rope (or one anchored only where it snags) to the trunk-crack and
   obliterate paths. This belongs with O1 (organs you notice) and G1/G2.
 
+- **6, floaty gib pieces: no.** No reduced gravity on pieces. They are thrown hard and fall at the game's normal weight.
+- **Sound is not a focus for now:** the game has plenty of gore sounds. This update is about what is seen.
+
 Status: not started. It is queued behind the co-op overhaul (the co-op gore lane is editing the same files); the owner says when.
 
 ## 11. Considered and rejected

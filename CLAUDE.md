@@ -104,7 +104,7 @@ https://jaredb650.github.io/overpowered2/ (GitHub Pages, `.github/workflows/page
   will see render at **dpr 2, 1440x900** (the owner's Retina screen); functional proofs may use any size that is fast.
 - **Compute (owner, 2026-11-18):** development is on a 32-core, 62 GB, RTX 4090 Linux machine. Every rule that existed to spare the
   old 8 GB Mac is lifted: run the whole test suite, run several browsers and Vite servers at once (each agent on its own port),
-  no frame-rate caps unless a test is about low frame rate. The one limit: `tools/shot.mjs` queues runs on 6 machine-wide
+  no frame-rate caps unless a test is about low frame rate. The one limit: `tools/shot.mjs` queues runs on 4 machine-wide
   browser slots (`OP2_SHOT_SLOTS`), because 25 runs at once filled the memory. Kill what you started when you are done with it.
 - Screenshots and probe output go to `tools/out/<your-folder>/` (git-ignored, not linkable from the repo).
 
