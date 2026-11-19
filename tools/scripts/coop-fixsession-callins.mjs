@@ -109,7 +109,15 @@ export default async (host, { sleep, outDir }) => {
 
     if (part('jammer')) {
       progress('jammer: the host\'s uplink goes down');
-      const jam = on => host.evaluate(on => { window.__op2.ctx.enemies.outpost.commander.status('uplink', on); }, on);
+      // The host's own truth is set (its count of radio men, through `callInDelay`), not just the flag: the Commander works the
+      // flag out again from that on every look round, so a flag set by hand lasts a moment, which a clean link carries to a
+      // guest's next poll and a slow one does not (on and off arrive together).
+      const jam = on => host.evaluate(on => {
+        const commander = window.__op2.ctx.enemies.outpost.commander;
+        if (on) Object.defineProperty(commander, 'callInDelay', { configurable: true, get: () => 1 });
+        else delete commander.callInDelay;
+        commander.status('uplink', on);
+      }, on);
       check(!(await callins(a)).jammed, 'before: a guest\'s uplink is clear', null);
       await jam(true);
       for (const page of party.guests) await waitFor(() => callins(page), c => c.jammed, 'the guest\'s uplink jammed by the host\'s word', 10000, sleep);

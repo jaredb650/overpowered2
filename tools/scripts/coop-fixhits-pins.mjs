@@ -11,6 +11,7 @@
 //   node tools/shot.mjs --port 5500 --w 640 --h 400 --wait 500 --timeout 900 --quiet \
 //     --script tools/scripts/coop-fixhits-pins.mjs --out tools/out/coop/fix-hits/pins.png
 //   PINS_SIM=lag:120,jitter:40,loss:0.05   the network simulator on both pages
+//   PINS_MODES=on|off                      only with kill prediction on (the game's default), or only with it off
 import { writeFileSync } from 'node:fs';
 import { calm, give, kit, live, startParty, state } from './coop-kit.mjs';
 
@@ -97,7 +98,8 @@ export default async function (host, { sleep, outDir }) {
     const ready = weapon => guest.waitForFunction(w => { const s = window.__op2.ctx.weapons; return s.current === w && s.drawLeft <= 0 && !s.reloading; }, weapon, { timeout: 15000 });
     const predict = on => guest.evaluate(on => { window.__op2.ctx.coop.world.feel.predictKills = on; }, on);
 
-    for (const predicting of [false, true]) {
+    // PINS_MODES=on|off runs one of the two (kill prediction is on in the game; off is the switch's other side).
+    for (const predicting of [false, true].filter(on => !process.env.PINS_MODES || process.env.PINS_MODES === (on ? 'on' : 'off'))) {
       await predict(predicting);
       const mode = predicting ? 'prediction on' : 'prediction off';
 

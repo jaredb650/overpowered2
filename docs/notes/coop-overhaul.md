@@ -1208,3 +1208,15 @@ same build twice gives the same record, so a difference is the build's.
 - Six gore tests have bounds tighter than the game's spread (seeded now, so they pass): for whoever does the ragdolls.
 - Not covered by a bot: the later sections of both missions past the ones listed, Retraining past its third lesson (its
   lessons want real play), flyable vehicles, the Frame's own weapons beyond boarding it, and how anything feels.
+12. **OPEN, small, not the default path. With kill prediction switched off, a guest's stake does not nail the body to the
+   wall under the bad network.** `coop-fixhits-pins.mjs`, two players, `lag:120,jitter:40,loss:0.05`, 2 runs of 2: "prediction
+   off: the body is nailed to the wall behind it on the guest's screen (0 pin)" with the host's answer 300 ms after the shot;
+   clean network passes both ways. Cause, as read: the late pin (`Projectiles.nailLate`, when the host's `kill` comes)
+   looks for the corpse along the stake's line within 2.6 m, and after 300 ms of the guest's own reaction to the hit the body
+   is no longer on it. Prediction is on in the game (the death is played at once and the stake takes the corpse with it), and
+   that path under the bad network is its own run in the ledger (`fixhits-pins/prediction-on`).
+13. Proofs, not the game, found by the bad-network and four-player sweeps and fixed: `coop-fixsession-callins` (its jammer part
+   set the Commander's flag by hand; the Commander works the flag out again from his radio men on every look round, so on
+   a slow link the on and the off reached a guest together: the proof now sets the host's own truth), `coop-lobby` (finding
+   7), `coop-guest-seat` (its call-in step judged credit by the players' totals: a man the host had wounded bled out, and in
+   Foreclosure the Bailiffs shot two of the targets, which is nobody's kill, rightly; it now goes by each target's number).

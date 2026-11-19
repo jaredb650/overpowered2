@@ -140,6 +140,7 @@ export const PROOFS = [
   P('fixsession-reload/hostlate', 'fixes', 'coop-fixsession-reload', { players: 3, env: { FIX_CASE: 'hostlate' }, t: 900 }),
   P('fixsession-callins', 'fixes', 'coop-fixsession-callins', { mode: 'outpost', players: 3, t: 1200, slow: true }),
   P('fixhits-pins', 'fixes', 'coop-fixhits-pins', { sim: sim('PINS_SIM'), t: 900 }),
+  P('fixhits-pins/prediction-on', 'fixes', 'coop-fixhits-pins', { env: { PINS_MODES: 'on' }, sim: sim('PINS_SIM'), t: 900 }),
   P('fixhits-predict', 'fixes', 'coop-fixhits-predict', { players: 3, env: { PREDICT_SIM: 'off' }, sim: sim('PREDICT_SIM'), tag: 'PREDICT_TAG', t: 1500 }),
   P('fixgame-villain', 'fixes', 'coop-fixgame-villain', { mode: 'outpost', count: 'COOP_PLAYERS', t: 700 }),
   P('fixgame-notice', 'fixes', 'coop-fixgame-notice', { sim: null, ...look, t: 400 }),
