@@ -326,7 +326,7 @@ export default async function (host, { sleep, outDir }) {
     await step('callin', async () => {
       const held = await A.evaluate(() => { const p = window.__op2.ctx.progression; return { held: !!(p.callinLink.held ?? p.callinsHeld), running: p.callinLink.running.length }; });
       // The mark: open sky over level ground, in plain sight of the guest, 22 to 40 m off.
-      const mark = await A.evaluate(() => {
+      const findMark = () => A.evaluate(() => {
         const { ctx } = window.__op2, V = ctx.player.position.constructor;
         const from = ctx.player.position, up = new V(0, 1, 0), eye = ctx.player.eye.clone();
         let best = null, bestScore = Infinity;
@@ -344,6 +344,13 @@ export default async function (host, { sleep, outDir }) {
         }
         return best;
       });
+      // From where the guest stands; if nothing is in sight there (a corridor, under a roof), from the first spawn.
+      let mark = await findMark();
+      if (!mark) {
+        const spawn = await host.evaluate(() => window.__op2.ctx.world.playerSpawns[0].position.toArray());
+        await teleport(A, spawn, 0); await sleep(400);
+        mark = await findMark();
+      }
       if (!check(!!mark, 'There is open ground in sight of the guest for the mark', mark)) return { held };
       await face(A, [mark[0], mark[1] + 1, mark[2]]);
       // The host looks at the mark too, from beside the guest, to be the one who watches.
@@ -370,11 +377,15 @@ export default async function (host, { sleep, outDir }) {
       check(gone, "The guest's strike kills the men on the mark (three of five or more), on the host", { targets, left: await host.evaluate(() => window.__op2.ctx.enemies.alive.filter(e => e.dummy).length) });
       check(mirror.blasts > mirrorBefore.blasts, "The host's copy draws its blasts", { before: mirrorBefore, after: mirror });
       check(seen[0].booms > 0 && seen[1].booms > 0, 'Explosions are drawn on the guest and on the host', seen.map(s => s.booms));
-      check(after[1].kills - before[1].kills >= 1, "The kills are the guest's", after.map((a, i) => a.kills - before[i].kills));
-      check(after[0].kills === before[0].kills, 'The host, who only watched, is credited with none', after.map((a, i) => a.kills - before[i].kills));
+      // Whose each target's kill was, by the enemy's number (a man the host wounded earlier may bleed out meanwhile, and in a
+      // mission an ally may shoot a target: those are not the strike's, so the players' totals alone do not say).
+      const credit = seen.map(s => s.killed.filter(k => targets.includes(k[0])));
+      check(credit[1].filter(k => k[1]).length >= 1, "Kills of the men on the mark are the guest's own on the guest's screen", { credit, totals: after.map((a, i) => a.kills - before[i].kills) });
+      check(credit[0].every(k => !k[1]), "The host, who only watched, is credited with none of them", { credit, totals: after.map((a, i) => a.kills - before[i].kills) });
+      check(credit[1].every(k => /airstrike|hellfire/.test(String(k[2]))) , "They died by the airstrike", credit[1]);
       // Anything left of the targets is cleared so the next steps are not about them.
       await host.evaluate(uids => { const { ctx } = window.__op2; for (const e of [...ctx.enemies.alive]) if (uids.includes(e.uid)) ctx.enemies.withdraw(e); }, targets);
-      return { held, mark, kills: after.map((a, i) => a.kills - before[i].kills), mirror, booms: seen.map(s => s.booms) };
+      return { held, mark, kills: after.map((a, i) => a.kills - before[i].kills), credit, mirror, booms: seen.map(s => s.booms) };
     });
 
     // ---- a dropped gun, shared ---------------------------------------------------------------------------------------
