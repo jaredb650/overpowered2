@@ -709,6 +709,16 @@ export class Gore implements GoreSystem {
     if (reflex) reflex.lie = 0;
   }
 
+  /**
+   * True once a body that is down has begun to get itself up (pushing up off the floor, or gathering for the clip), and until
+   * it is handed back. Co-op: the host tells the others at this moment, so their copies start up with it (net/world/moves.ts).
+   */
+  rising(char: CharacterInstance): boolean {
+    const body = this.owned.get(char);
+    const phase = body?.down ? body.rag?.muscle?.reflex?.phase : undefined;
+    return phase === 'struggle' || phase === 'gather';
+  }
+
   handedBack(char: CharacterInstance): 'clip' | 'stand' | 'crawl' | null {
     return this.back.get(char) ?? null;
   }

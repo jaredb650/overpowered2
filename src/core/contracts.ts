@@ -461,6 +461,8 @@ export interface GoreSystem extends GameSystem {
   wound(char: CharacterInstance, damage: DamageInfo, severity: number): boolean;
   /** A living body gore has on the floor gets up now, whatever it had left to lie (co-op: the host's copy already has). */
   rouse?(char: CharacterInstance): void;
+  /** A downed body has begun to get itself up and is not yet handed back (gore/index.ts). */
+  rising?(char: CharacterInstance): boolean;
   /** Pins a corpse or limb to the world at a point, for the Stakegun. */
   pin(hit: CorpseHit, anchor: THREE.Vector3): void;
   /**

@@ -196,6 +196,44 @@ describe('enemy moves', () => {
     expect(inner(lying).getUp).toHaveBeenCalledWith('supine', 1.4, 0.6, 0.2);
   });
 
+  it('the host says when a downed body begins to get itself up, or is back on its feet without lying; a copy starts up then', () => {
+    const host = side(true);
+    const rising = new Set<object>();
+    Object.assign(host.w.ctx.gore, { rising: (char: object) => rising.has(char) });
+    const a = host.enemy(), b = host.enemy();
+    const rises = () => host.moved().filter(m => m.m === 'rise').map(m => m.uid);
+    // On the floor, lying: nothing to say yet.
+    a.downed = true; host.downed.add(a.char);
+    host.moves.update(performance.now());
+    expect(rises()).toEqual([]);
+    // It begins to push itself up: said once, however many frames it takes.
+    rising.add(a.char);
+    for (let i = 0; i < 5; i++) { at(5000 + 200 * (i + 1)); host.moves.update(performance.now()); }
+    expect(rises()).toEqual([a.uid]);
+    // Handed back: nothing more. The next fall is a new one.
+    a.downed = false; rising.delete(a.char);
+    host.moves.update(performance.now());
+    expect(rises()).toEqual([a.uid]);
+    // A body that stumbled on its muscles and caught its balance never lay down to get up: it says so as it is handed back.
+    b.downed = true;
+    host.moves.update(performance.now());
+    b.downed = false;
+    host.moves.update(performance.now());
+    expect(rises()).toEqual([a.uid, b.uid]);
+
+    const guest = side(false);
+    const copy = guest.copy(7, 9999), dropped = guest.copy(8, 9999), standing = guest.copy(9, 9999);
+    guest.downed.add(copy.char); guest.downed.add(dropped.char);
+    // One this player's own hit dropped for dead waits for the host's answer to that hit, not for this.
+    dropped.predead = 1234;
+    for (const uid of [7, 8, 9]) guest.take({ t: 'move', uid, at: 5000, m: 'rise', a: [] });
+    guest.moves.update(performance.now());
+    expect(guest.gore.rouse).toHaveBeenCalledTimes(1);
+    expect(guest.gore.rouse).toHaveBeenCalledWith(copy.char);
+    // A copy that never fell has nothing to do about it.
+    expect(inner(standing).getUp).not.toHaveBeenCalled();
+  });
+
   it('throws the copy the way the host\'s body went when a blast carried it', () => {
     const guest = side(false);
     const e = guest.copy(7, 9999);

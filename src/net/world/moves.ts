@@ -30,7 +30,7 @@ import type { Replicas } from './replicas';
 /** What an enemy did. `a` is the move's own numbers (see `Moves.play`). `at` is the host's clock, ms. */
 export type MoveEvent = { t: 'move'; uid: number; at: number; m: MoveName; a: number[] };
 
-export const MOVES = ['stagger', 'stumble', 'daze', 'roar', 'land', 'leap', 'block', 'getUp', 'down'] as const;
+export const MOVES = ['stagger', 'stumble', 'daze', 'roar', 'land', 'leap', 'block', 'getUp', 'down', 'rise'] as const;
 export type MoveName = typeof MOVES[number];
 /** The animator's actions that are moves, by name. The attack clips are not. */
 const PLAYED: readonly AnimAction[] = ['stagger', 'roar', 'land', 'leap', 'block'];
@@ -58,7 +58,7 @@ interface Tappable extends CharacterAnimation {
   getUp?(kind: GetUpKind, seconds: number, hurt: number, startU?: number): number;
 }
 interface Began { stagger: number; down: number; sent: Map<MoveName, number> }
-type Gore = WorldContext['ctx']['gore'] & { rouse?(char: CharacterInstance): void };
+type Gore = WorldContext['ctx']['gore'] & { rouse?(char: CharacterInstance): void; rising?(char: CharacterInstance): boolean };
 
 const round = (value: number): number => Math.round(value * 1000) / 1000;
 const _dir = new THREE.Vector3();
@@ -85,6 +85,9 @@ export class Moves implements WorldModule {
     w.router.guest('move', (value, _from, now) => this.moveIn(value, now));
     this.tapGore();
   }
+
+  /** Host: bodies gore has off their feet (1), and those of them that have said they are getting up (2). */
+  private readonly falls = new WeakMap<Enemy, 1 | 2>();
 
   private stateOf(enemy: Enemy): Began {
     let state = this.began.get(enemy);
@@ -202,9 +205,33 @@ export class Moves implements WorldModule {
     this.queue.push({ event: value, came: now });
   }
 
+  /**
+   * Host, each frame: a body on the floor that has just begun to get itself up says so (`rise`). Its `getUp` comes only when
+   * the clip takes over, after it has pushed itself up and gathered (0.55 to 1.3 s): a copy that waited for that word began
+   * its own push-up as the host's body was already on its feet, and stood up about a second behind it, every time. For that
+   * second it was out of the line of fire on a guest's screen and in it on the host's. A body that is handed back without
+   * getting up at all (it caught its balance) says so too: a copy whose own physics dropped it gets up at once.
+   */
+  private risings(now: number): void {
+    const gore = this.w.ctx.gore as Gore;
+    if (!gore.rising) return;
+    for (const enemy of this.w.manager.alive) {
+      const was = this.falls.get(enemy) ?? 0;
+      if (enemy.downed) {
+        if (was === 0) this.falls.set(enemy, 1);
+        if (was !== 2 && gore.rising(enemy.char)) { this.falls.set(enemy, 2); this.send(enemy, 'rise', [], now); }
+      } else if (was !== 0) {
+        // Back on its feet without ever lying to get up (it caught its balance on its muscles): a copy that fell is told.
+        if (was === 1) this.send(enemy, 'rise', [], now);
+        this.falls.delete(enemy);
+      }
+    }
+  }
+
   /** Guest, each frame: the moves whose moment has come. */
   update(now: number): void {
-    if (this.w.hosting || this.queue.length === 0) return;
+    if (this.w.hosting) { this.risings(now); return; }
+    if (this.queue.length === 0) return;
     const queue = this.queue;
     for (let index = 0; index < queue.length; index++) {
       const { event, came } = queue[index]!;
@@ -230,7 +257,11 @@ export class Moves implements WorldModule {
     const down = gore.downed?.(enemy.char) ?? null;
     this.playing = true;
     try {
-      if (move === 'getUp') {
+      if (move === 'rise') {
+        // The host's body has begun to get itself up: this copy, lying in its own ragdoll, begins too. (Not one this
+        // player's own hit dropped for dead: that waits for the host's answer to the hit, hits.ts.)
+        if (down && enemy.predead === 0) gore.rouse?.(enemy.char);
+      } else if (move === 'getUp') {
         // Lying in its own ragdoll: that gets up by itself now. Never fell here: the clip, from wherever it lies.
         // (Not one this player's own hit dropped for dead a moment ago: that waits for the host's answer to the hit, hits.ts.)
         if (down) { if (enemy.predead === 0) gore.rouse?.(enemy.char); }
