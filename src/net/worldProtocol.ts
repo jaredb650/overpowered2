@@ -59,6 +59,7 @@ import { VILLAIN_WIRE } from './world/villain';
 import { WARNINGS_WIRE } from './world/warnings';
 import { TEAM_WIRE } from './team';
 import { MISSION_WIRE } from './mission';
+import { CROWD_WIRE } from './world/crowd';
 import type { WireClass } from './pressure';
 
 export * from './world/wire';
@@ -140,6 +141,7 @@ const gather = (): { readonly [K in WorldEvent['t']]: WireClass } => ({
   ...WARNINGS_WIRE,
   ...TEAM_WIRE,
   ...MISSION_WIRE,
+  ...CROWD_WIRE,
   worldsync: 'fact',
   hidden: 'fact',
 });

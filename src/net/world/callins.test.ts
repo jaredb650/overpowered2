@@ -308,7 +308,8 @@ describe('call-ins over the mocked lobby transport', () => {
     // Said again is not called again: the Commander does not answer it a second time.
     expect(teammate).not.toHaveBeenCalled();
     // An age from another browser is bounded, and junk is no age at all.
-    const send = p.lobbies[1]!.gameplay<unknown>('action', () => {});
+    const lane = p.lobbies[1]!.events<unknown>('action', () => {});
+    const send = (event: unknown) => lane.send(event);
     hostLog.orders.length = 0;
     send({ t: 'cin', id: 'nuke', n: 7, at: [0, 0, 0], yaw: 0, seed: 1, age: 1e9 });
     send({ t: 'cin', id: 'nuke', n: 8, at: [0, 0, 0], yaw: 0, seed: 1, age: 'old' });

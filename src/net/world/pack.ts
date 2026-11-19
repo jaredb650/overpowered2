@@ -33,7 +33,7 @@ export const WORDS = new Words([
   'laser', 'shock', 'strike', 'bang', 'cmd', 'callin', 'cin', 'mech', 'aadown', 'pfx', 'airlift', 'sonar', 'chatter', 'chatcut', 'slow', 'slowstate',
   'slowno', 'capture', 'credit', 'prisoner', 'award', 'who', 'pod', 'prop', 'worldsync', 'vehicles', 'wreck', 'fort', 'fortstate', 'wallblast', 'wallhit',
   'repair', 'repaired', 'fortbuy', 'fortsold', 'shell', 'fortsay', 'fortradio', 'gunseat', 'dev', 'devshot', 'snared', 'shutter', 'smoke', 'allies',
-  'ashot', 'revive', 'up', 'over', 'restore', 'vote', 'sync', 'mark', 'mission', 'gather',
+  'ashot', 'aorder', 'arefund', 'note', 'jam', 'revive', 'up', 'over', 'restore', 'vote', 'sync', 'mark', 'mission', 'gather',
   // Values: guns, enemies, kinds of damage, places on a body, states.
   'smg', 'shotgun', 'rocket', 'autocannon', 'sword', 'judge', 'lance', 'buzzsaw', 'kiln', 'stakegun', 'harrow', 'rivet', 'sabot', 'quiver', 'thresher',
   'knife', 'crowbar', 'shovel', 'baton', 'piledriver', 'deuce', 'ultramag', 'autoraffica', 'gimlet', 'awl', 'flail', 'grenade',

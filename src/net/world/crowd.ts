@@ -169,3 +169,6 @@ export class Crowd implements WorldModule {
     this.outpost = null;
   }
 }
+
+/** For a peer that is behind: which of this module's events may be left out (net/pressure.ts). A fact never is. */
+export const CROWD_WIRE: import('../pressure').WireClasses<CrowdEvent> = { note: 'fact', jam: 'fact' };
