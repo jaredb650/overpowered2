@@ -637,3 +637,49 @@ Work through all of it; write the outcome beside each item in the log (fixed wit
   (my proof waits for "Everyone is ready" first).
 - 2026-11-19: the owner said push, to demo co-op from the public site. `dev` and the site are at `1aee89b` (typecheck clean, production build boots with no errors, dist audit clean, `coop-smoke` over real WebRTC 5 of 5; the suite's two failures were the stale `devflags` test and `gore/stand.test.ts`, which passes 3 of 3 alone). The last pass was still running, so later fixes on `coop-overhaul` are NOT on the site: push again, with the owner's word, when the last pass is green.
 - 2026-11-19: the owner got 'The lobby servers could not be reached' on the public site. From the dev machine all but one of the 8 relays answered and a lobby opened on the live site, so it was his link (slow or mobile). Hardened anyway and pushed: `RELAY_WAIT_MS` 10 s to 25 s, relays 8 to 12 (the first 8 unchanged; one was dead). `dev` and the site are at `e62bd0e` (the demo build `1aee89b` plus that one commit); merged into this branch.
+- 2026-11-19, fix-session (the session, team, call-in and mission fixes of the network review; checklist C10, C11, C16, the lobby
+  part of C18). Landed in steps up to `a47cff6`; the full account is in `docs/notes/coop.md` ("Hooks for the other lanes", "What a
+  late or returning player is caught up on", "Host loss", "Reloads", "Call-ins on every screen", "Vehicles and the garrison").
+  **For verify-motion:** the vehicles' and the garrison's 5 Hz state now rides the **unreliable `world` lane** as side packets
+  (`world/sideList.ts`, `context.ts` `sendSide`); only the sending and the gathering of parts changed, the drawing and its
+  buffer are untouched, but a lost packet now costs that list (200 ms) instead of arriving late in a burst. **For fix-hits:**
+  nothing in how a caller's own call-in is told from a watcher's copy was changed (`mirror.ts` still builds copies on the ghost
+  context only; `callins.ts` gained an `age` on `cin` and two news kinds). **For wire:** `lobby.ts` `hello` gained `n`, `set`
+  gained `cheats`; `context.ts` routes the `world` lane through `worldIn`.
+  - **Review major 3 (the seat hooks had no listener):** `CoopWorld` is the one listener (`src/net/seats.ts`). Arrived: any way
+    in gets the team's word and every catch-up; the same page back after a drop gets the wave event it missed, with the clock of
+    now, and a quiet `sync`. Lost: slow-mo, Ghost, mounted gun, held man and call-in copies are let go at once, on every
+    screen. Forget: every map kept by connection id is pruned (review minor 8 with it). The catch-up table is in the note.
+  - **Review major 2 (a guest's one-shot words dropped while away):** "I am down" is said again every second until the host's
+    card agrees (and a guest the host has moved on from stands up); Ghost, the kit, the gun in hand, a cache share, a mission's
+    round counts and running call-ins are said again on the host's `sync` (`WorldModule.resay`). Left as they are, with why, in
+    the note's second table: a vote, a revive and a prisoner key (the player sees the host's word and presses again), a fort
+    purchase (refunded after its own timeout), hit claims (C9, C12: fix-hits).
+  - **Review minor 5 (`worldsync`):** sent after `loaded`, and again every second until the seat is settled; the host arrives an
+    unknown page on it and sends a lost seat again. It is now a real spare.
+  - **Review major 4 (the last one standing losing their link):** a lost seat that was up counts as up for 10 s
+    (`LOST_UP_MS`), and gets at least 5 s more once its line answers again. A deliberate leave is not a lost seat.
+  - **C10, C11:** Outpost Defense opens no loadout for a returning player and the restored kit wins; a reload on the lobby page
+    walks back into the room (guest and host; seats and slots kept); two hosts on one code are settled by one rule
+    (`Lobby.otherHost`: the one with nobody connected gives way to the one with players, of two with nobody the newer goes, each
+    says its count again every heartbeat), so a host back after its guests regrouped joins their lobby as a guest and nobody is
+    stranded; the unit test of the host-lost board is back (`session.test.ts`). A reconnecting guest takes back only the host it
+    knew, by browser id (review minor 9, second half).
+  - **C16:** the jammer holds a guest's call-ins as the host's; a call-in already running is shown to a late or returning
+    player from where it is; every copy keeps the wall clock (a slow watcher catches up, the skipped stretch silent); an
+    enemy's missile at an aircraft is flown on the watchers' screens; the skyhook tells an arriving player of a drone on its way.
+  - **A mission won in co-op** is recorded on each guest's own save. **Decision:** a co-op run still writes nobody's solo high
+    score, host or guest (the rule from before the overhaul, `progression/score.ts`); lead or owner to say if co-op should
+    keep high scores of its own.
+  - **C18 (lobby):** a player with cheats on is tagged in the lobby list.
+  - **Review minor 7:** vehicles and garrison off the reliable lane (above).
+  - Found by the browser proofs and fixed: the wipe grace ended as a returning seat passed through `loading` (bad network
+    only); two guests swapped slots when a host reloaded on the lobby page (slots are now kept by seat).
+  - Decisions the lead may overrule: the same page back is replayed only the **last** wave event it missed (a player away for
+    a whole wave misses that wave's pay, as before); a returning host **always** joins a regrouped lobby that has players, and
+    takes its guests back only while they are still waiting on it or their new lobby is still empty and newer; a call-in that
+    cannot be run forward blind is not shown part-way to a late joiner at all.
+  - New for proofs: `window.__op2.net.sim.cut(true)` is a dead line (nothing leaves or arrives, reliable lanes included) on
+    either transport: the way to make a guest act behind a dropped connection while both pages run.
+  - Proofs and their results: see the table under this entry's last line in `docs/notes/coop.md`, "The life of a session",
+    Proofs, and the lane's report. Unit: 2,713 tests pass (the one known `devflags` failure aside).
