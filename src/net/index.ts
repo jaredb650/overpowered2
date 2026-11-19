@@ -13,6 +13,7 @@ import { publishNet, watchCost } from './debug';
 import { pageSim } from './netsim';
 import { Hook, SeatHooks, type Arrival } from './seats';
 export { Hook, type Arrival };
+import { metrics } from './metrics';
 
 /** The modes whose world the host runs. The others are free roam: everyone walks the map, nothing else. */
 export const WORLD_MODES: readonly Match['mode'][] = ['crucible', 'outpost', 'defense', 'campaign', 'foreclosure'];
@@ -299,7 +300,9 @@ export class CoopSession implements GameSystem {
     for (const remote of this.remotes.values()) remote.update(now, this.ctx.time.realDt);
     this.world?.update();
     // What co-op itself costs a frame (bodies, snapshots, events), averaged, for the measurements in docs/notes/coop.md.
-    this.cpuMs += (performance.now() - now - this.cpuMs) * 0.05;
+    const spent = performance.now() - now;
+    this.cpuMs += (spent - this.cpuMs) * 0.05;
+    metrics.spend('coop.update', spent);
     if (this.world && this.hud) this.hud.update(this.world.team.roster(), now);
     if (now < this.nextPose || !this.lobby.match) return;
     this.nextPose = now >= this.nextPose + POSE_MS ? now + POSE_MS : this.nextPose + POSE_MS; // Never catch up by bursting a backlog after a stalled/background tab.

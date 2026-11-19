@@ -8,6 +8,7 @@ import { CG, type Ctx, type GameEvents } from '../../core/contracts';
 import type { EnemyManager } from '../../enemies/EnemyManager';
 import { ClaimValidator } from '../authority';
 import type { CoopSession } from '../index';
+import { metrics } from '../metrics';
 import type { RemotePlayer } from '../remote';
 import type { Team, TeamLife } from '../team';
 import type { WorldEvent } from '../worldProtocol';
@@ -130,9 +131,13 @@ export class WorldContext {
 
   /** An event on the reliable lane: from a guest to the host; from the host to every guest, or to the one named. */
   send(event: WorldEvent, to?: string): void {
+    const started = performance.now();
     const recipients = this.sendAction(event, to);
-    this.stats.eventBytes += new TextEncoder().encode(JSON.stringify({ match: this.session.match.id, data: event })).byteLength * recipients;
+    const bytes = new TextEncoder().encode(JSON.stringify({ match: this.session.match.id, data: event })).byteLength;
+    this.stats.eventBytes += bytes * recipients;
     this.stats.eventPackets += recipients;
+    metrics.event(event.t, bytes, recipients);
+    metrics.spend('coop.send', performance.now() - started);
   }
 
   /** Host: passes a guest's event on to every other guest. */
@@ -142,8 +147,11 @@ export class WorldContext {
 
   private receive(value: WorldEvent, from: string): void {
     if (!this.ready || !value || typeof value !== 'object' || typeof value.t !== 'string') return;
-    try { this.router.dispatch(value, from, this.session.hosting, performance.now()); }
+    const started = performance.now();
+    metrics.heard(value.t);
+    try { this.router.dispatch(value, from, this.session.hosting, started); }
     catch (error) { console.warn('[coop] Dropped an event that could not be applied', value.t, error); }
+    metrics.spend('coop.receive', performance.now() - started);
   }
 
   /** A game event listened to for as long as the world lives. Listeners run in the order they were added, per event. */

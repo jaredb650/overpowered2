@@ -145,9 +145,29 @@ export interface LaneRead {
   gap: SeriesRead;
 }
 
+/** One event type on the reliable lane (`metrics.event`, `metrics.heard`): how many, and their bytes on the wire. */
+export interface EventRead { n: number; bytes: number; perSecond: number; bytesPerSecond: number; bytesEach: number }
+
+class EventCount {
+  out = 0;
+  outBytes = 0;
+  in = 0;
+  inBytes = 0;
+  reset(): void { this.out = this.outBytes = this.in = this.inBytes = 0; }
+}
+
+class Cost {
+  ms = 0;
+  n = 0;
+}
+
 export interface MetricsSnapshot {
   /** Length of the measuring window: since the page's first use or the last `reset()`. */
   seconds: number;
+  /** The reliable lane's events by type: `out` counts one per recipient, `in` what arrived. */
+  events: Record<string, { out: EventRead; in: EventRead }>;
+  /** Named stretches of work (`metrics.spend`): total ms, how many times, and ms a second. */
+  costs: Record<string, { ms: number; n: number; msPerSecond: number; msEach: number }>;
   lanes: Record<string, LaneRead & { peers: Record<string, LaneRead> }>;
   /** Round trip to each peer in ms, by the unreliable path (`fast`, when it is up) and the reliable one. */
   rtt: Record<string, { fast: SeriesRead; reliable: SeriesRead }>;
@@ -165,6 +185,8 @@ export class NetMetrics {
   private readonly named = new Map<string, Series>();
   private readonly lastGap = new Map<string, number>();
   private readonly timers = new Map<string, Map<string | number, number>>();
+  private readonly events = new Map<string, EventCount>();
+  private readonly costs = new Map<string, Cost>();
   private since: number;
 
   constructor(private readonly clock: () => number = () => performance.now()) {
@@ -220,6 +242,34 @@ export class NetMetrics {
     return now - started;
   }
 
+  private eventOf(type: string): EventCount {
+    let count = this.events.get(type);
+    if (!count) this.events.set(type, (count = new EventCount()));
+    return count;
+  }
+
+  /** An event of this type left on the reliable lane: `bytes` each, to `copies` peers. */
+  event(type: string, bytes: number, copies = 1): void {
+    const count = this.eventOf(type);
+    count.out += copies;
+    count.outBytes += bytes * copies;
+  }
+
+  /** An event of this type arrived. */
+  heard(type: string, bytes = 0): void {
+    const count = this.eventOf(type);
+    count.in++;
+    count.inBytes += bytes;
+  }
+
+  /** `ms` of work under `name` (co-op's own cost: `coop.update`, `coop.send`, `coop.receive`, `coop.flush`). */
+  spend(name: string, ms: number): void {
+    let cost = this.costs.get(name);
+    if (!cost) this.costs.set(name, (cost = new Cost()));
+    cost.ms += ms;
+    cost.n++;
+  }
+
   /** A new measuring window: every count back to zero. Lanes, peers and series stay. */
   reset(): void {
     this.since = this.clock();
@@ -232,6 +282,8 @@ export class NetMetrics {
     for (const series of this.named.values()) series.reset();
     this.lastGap.clear();
     for (const pending of this.timers.values()) pending.clear();
+    for (const count of this.events.values()) count.reset();
+    for (const cost of this.costs.values()) cost.ms = cost.n = 0;
   }
 
   snapshot(): MetricsSnapshot {
@@ -266,7 +318,12 @@ export class NetMetrics {
     }
     const series: MetricsSnapshot['series'] = {};
     for (const [name, s] of this.named) series[name] = s.read();
-    return { seconds: round(seconds), lanes, rtt, series, totals: { outBytesPerSecond: rate(outBytes), inBytesPerSecond: rate(inBytes) } };
+    const events: MetricsSnapshot['events'] = {};
+    const eventRead = (n: number, bytes: number): EventRead => ({ n, bytes, perSecond: round(n / seconds), bytesPerSecond: rate(bytes), bytesEach: n ? round(bytes / n) : 0 });
+    for (const [type, count] of this.events) if (count.out || count.in) events[type] = { out: eventRead(count.out, count.outBytes), in: eventRead(count.in, count.inBytes) };
+    const costs: MetricsSnapshot['costs'] = {};
+    for (const [name, cost] of this.costs) if (cost.n) costs[name] = { ms: round(cost.ms), n: cost.n, msPerSecond: round(cost.ms / seconds), msEach: Math.round((cost.ms / cost.n) * 10000) / 10000 };
+    return { seconds: round(seconds), lanes, rtt, series, events, costs, totals: { outBytesPerSecond: rate(outBytes), inBytesPerSecond: rate(inBytes) } };
   }
 }
 
