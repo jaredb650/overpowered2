@@ -889,7 +889,9 @@ Each: what fails, where, how many players, which network, the evidence, the caus
   waits now). Touched outside the lane, small: every module's file (its class table, appended), the test kits and tests
   that read or injected the old envelope, `tools/scripts/coop-motion-moves.mjs`. Not done: the enemy snapshots are now
   71% of the host's upload and were not touched; poses direct between guests; a stall on a real data channel (simulator
-  and unit tests only). Proofs and what they showed: the same section.
+  and unit tests only). Proofs and what they showed: the same section. One proof did not come out clean: the call-ins
+  subset passed 85 checks and failed one ("host-airstrike: the blasts arrive on guest1", 12 of 16), a check that also
+  failed in six of eleven runs other lanes made before this pass; it wants the call-ins proof's owner or the verify pass.
 - 2026-11-19, verify-motion (checklist B8): **the smoothness table is made.** 12 cases on the old lane (`d9ecffb`) and the
   new, 30 s each, pages drawn: all 24 counted on the first try (guest 60 fps in every run, host 56.5 to 58.7 or 20 with its
   cap, machine load 4.6 to 11.7). Both lanes are now measured on **one yardstick taken from the recordings alone** (how old

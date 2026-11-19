@@ -2124,7 +2124,8 @@ a guest when all 48 enemies are in the near tier (27 bytes each, 20 times a seco
 `coop-session-start` (3 pages), `coop-gore-shots` (3 pages), `coop-motion-moves` on loopback | 18, 267 and 19 checks, all passed |
 | `coop-fx-matrix`, the Lance, SMG, shotgun and rocket cases (3 pages, loopback) | 500 checks, none failed |
 | The same on **real WebRTC**: `coop-smoke`, `coop-stage3`, `coop-session-start`, `coop-gore-shots`, `coop-motion-moves` | 5, 12, 18, 267 and 19 checks, all passed |
-| `coop-smoke` and `coop-stage3` again on the rebased tip (`7384a34`) | 5 of 5, 12 of 12 |
+| `coop-smoke` (Crucible and Endless Humans), `coop-stage3` and the heavy scene again on the rebased code (`7384a34`) | 5 of 5, 5 of 5, 12 of 12; the heavy scene as in the table (host events 20.0 KB/s, 154 messages a second) |
+| `coop-callins-matrix`, the airstrike, gunship and Orbital Lance called by the host and by a guest, and a guest's earned airstrike (3 pages, loopback) | 85 checks passed, 1 failed: "host-airstrike: the blasts arrive on guest1 (12 of 16 within 3 m)". The same check gave 10 or 12 of 16 in six of eleven runs other lanes made before this pass (their evidence files), so it is that proof's, not the wire's; every strike killed its six on every screen |
 
 ### Not done
 
