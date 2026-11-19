@@ -207,10 +207,15 @@ export default async function (host, { sleep, outDir }) {
           // Whom a squad is after is the AI's to change as the fight goes: it is set again before each bang (`__setQuarries`)
           // and read at the moment an opening is taken.
           window.__setQuarries = () => { for (const { q, after } of squads) for (const s of q.members) s.e.quarry = after === 'guest' ? guest.player : null; };
-          for (const { q, after } of squads) {
-            const opening = q.opening.bind(q);
-            q.opening = seconds => { window.__openings.push(`${after}${(o.quarryOf(q) ? 'guest' : 'host') === after ? '' : ' (now after the other)'}`); return opening(seconds); };
-          }
+          // The Outpost's own word that an opening is there to take (`seizeOpening`), with whose it is and which of the two
+          // squads it lets in. (A squad also calls `opening` on itself by its own tactics: that is not this.)
+          const seize = o.seizeOpening.bind(o);
+          const me = ctx.coop.world.me;
+          o.seizeOpening = (kind, seconds, flags, whose) => {
+            if (flags?.blind) window.__openings.push({ whose: whose === guest.player ? 'guest' : whose === me ? 'host' : whose ? 'another player' : 'nobody (everyone)',
+              took: squads.filter(({ q }) => !whose || (o.quarryOf(q) ?? me) === whose).map(x => x.after) });
+            return seize(kind, seconds, flags, whose);
+          };
           return { squads: squads.map(s => ({ after: s.after, men: s.q.members.length, quarry: o.quarryOf(s.q) ? 'guest' : 'host' })), notes: { ...ctx.coop.world.notes } };
         }, [here, guestAt, yaw]);
         out.bangStaged = staged;
@@ -237,8 +242,9 @@ export default async function (host, { sleep, outDir }) {
         check(guestBlind === true, 'bang: the flashbang blinds the guest on the guest\'s own screen', out.bangGuest);
         check(first.hostBlind === false, 'bang: the host, over 13 m away, is not blinded', out.bangGuest);
         check(noted >= 1, 'bang: the guest says so, and the host takes the word', out.bangGuest);
-        check(first.openings.includes('guest'), 'bang: the squad fighting the guest takes the opening', out.bangGuest);
-        check(!first.openings.includes('host'), 'bang: the squad fighting the host does not', out.bangGuest);
+        check(first.openings.length === 1 && first.openings[0].whose === 'guest', 'bang: the opening is the guest\'s', out.bangGuest);
+        check(first.openings[0]?.took.includes('guest'), 'bang: the squad fighting the guest takes it', out.bangGuest);
+        check(first.openings[0] && !first.openings[0].took.includes('host'), 'bang: the squad fighting the host does not', out.bangGuest);
         await picture(a, 'bang-guest');
         // In the host's eyes: the host's squad goes in, the guest's does not, and the guest sends nothing.
         await sleep(6500);
@@ -248,7 +254,8 @@ export default async function (host, { sleep, outDir }) {
         const second = await host.evaluate(() => ({ openings: [...window.__openings], notes: window.__op2.ctx.coop.world.notes.blind ?? 0 }));
         out.bangHost = { hostBlind, ...second };
         check(hostBlind === true, 'bang: a flashbang in the host\'s eyes blinds the host', out.bangHost);
-        check(second.openings.includes('host') && !second.openings.includes('guest'), 'bang: then the squad fighting the host goes in and the one fighting the guest does not', out.bangHost);
+        check(second.openings.length === 1 && second.openings[0].whose === 'host', 'bang: then the opening is the host\'s', out.bangHost);
+        check(second.openings[0]?.took.includes('host') && !second.openings[0].took.includes('guest'), 'bang: the squad fighting the host goes in and the one fighting the guest does not', out.bangHost);
         check(second.notes === noted, 'bang: and no guest sent word of it (each is out of its reach)', out.bangHost);
       }
       // ---- the skyhook, for a player told after the hook has its man ---------------------------------------------------
