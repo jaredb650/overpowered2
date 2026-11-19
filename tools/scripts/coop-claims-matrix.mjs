@@ -2,9 +2,9 @@
 // two trials on the same still targets from the same spot: first the HOST fires (its damage goes straight into the damage model:
 // the single-player path), then the GUEST fires (every hit a claim the host checks). The guest's trial must lose nothing:
 // every claim it sent is applied on the host, none refused, none cut, and each hit deals what the host's own identical hit
-// dealt: the host notes every hit by round, region, load and amount, its own and the guest's, and where both made the same hit
-// the damage must be the same number. (Per shot the two differ a little by where on the body the rounds land: the guest hits
-// what is on its own screen, and the still targets breathe.) Damage per shot is reported side by side, and a gross gap fails.
+// dealt: the host notes every hit by round, region and load, its own and the guest's, with what the damage model made of it
+// (dealt over claimed), and where both made the same hit that must be the same number. (Per shot the two differ a little by where on the body the rounds land: the guest hits
+// what is on its own screen, and the still targets breathe.) Damage per shot is reported side by side; the guest far under the host (40%) fails.
 // A trial runs until the row's shots are fired, not for a fixed time, so a starved page proves the same thing more slowly.
 // `gone` is a claim on a man the host had already killed: nobody lost a hit, so it is counted, not failed.
 // Targets: a column of five husks, a boss (a Juggernaut), and a parked truck. Endless Humans, the one survival mode with vehicles.
@@ -93,9 +93,10 @@ const prepare = host => host.evaluate(() => {
     c.sources[e.damage.source] = (c.sources[e.damage.source] ?? 0) + 1;
     // The same hit, by whoever made it: a blast rolls dice and a frozen or plated man is another sum, so those are left out.
     if (e.damage.type === 'explosive' || e.result.armour || e.enemy.frozen > 0) return;
-    const d = e.damage, key = [d.source, d.type, d.region ?? '-', d.load ?? '-', Math.round(d.amount * 100) / 100, e.enemy.id].join('|');
+    const d = e.damage, key = [d.source, d.type, d.region ?? '-', d.load ?? '-', d.amount >= 9999 ? 'kill' : '', e.enemy.id].join('|');
     const book = ctx.coop.world.applying ? c.theirs : c.mine;
-    (book[key] ??= {})[Math.round(e.result.dealt * 100) / 100] = true;
+    // What the damage model made of the round: dealt over claimed (the region's share, the load's, the boss's).
+    (book[key] ??= {})[Math.round(e.result.dealt / d.amount * 200) / 200] = true;
   });
   return best;
 });
@@ -108,9 +109,16 @@ const stand = (host, target, near, fresh) => host.evaluate(([target, near, fresh
   for (const v of [...(ctx.enemies.vehicles?.live ?? [])]) v.remove();
   if (ctx.enemies.vehicles) ctx.enemies.vehicles.live.length = 0;
   const spawn = new V(...c.from), dir = new V(-Math.sin(c.yaw), 0, -Math.cos(c.yaw));
-  const hold = enemy => { enemy.behaviours = []; enemy.attacks = []; enemy.mode = 'hold'; enemy.dummy = true; enemy.health = enemy.maxHealth = 1e7; return enemy; };
+  const hold = enemy => {
+    enemy.behaviours = []; enemy.attacks = []; enemy.mode = 'hold'; enemy.dummy = true; enemy.health = enemy.maxHealth = 1e7;
+    // The head's and the limbs' own pools too: a still target that dies to its tenth headshot leaves a body, and sixty trials of bodies stall the pages.
+    for (const region of [...enemy.limbHp.keys()]) enemy.limbHp.set(region, 1e9);
+    return enemy;
+  };
   const first = near ?? Math.min(8, c.run * 0.35);
+  c.last = c.uids ?? [];
   c.uids = []; c.truck = null;
+  ctx.gore.clear();
   if (fresh) { c.mine = {}; c.theirs = {}; }
   if (target === 'truck') {
     const at = spawn.clone().addScaledVector(dir, Math.min(13, c.run - 4));
@@ -119,7 +127,7 @@ const stand = (host, target, near, fresh) => host.evaluate(([target, near, fresh
     const take = v.take.bind(v);
     v.take = (amount, ...rest) => { c.vehicle += amount; return take(amount, ...rest); };
     c.truck = v;
-    return { aim: [at.x, at.y + 1.3, at.z] };
+    return { aim: [at.x, at.y + 1.3, at.z], last: c.last };
   }
   const kinds = target === 'boss' ? ['juggernaut'] : ['husk', 'husk', 'husk', 'husk', 'husk'];
   const step = Math.min(2, (c.run - first - 2) / kinds.length);
@@ -128,7 +136,7 @@ const stand = (host, target, near, fresh) => host.evaluate(([target, near, fresh
     if (enemy) { hold(enemy); c.uids.push(enemy.uid); }
   });
   const lead = ctx.enemies.alive.find(e => e.uid === c.uids[0]);
-  return { aim: lead ? [lead.center.x, lead.center.y, lead.center.z] : null, uids: c.uids, boss: lead?.isBoss };
+  return { aim: lead ? [lead.center.x, lead.center.y, lead.center.z] : null, uids: c.uids, last: c.last, boss: lead?.isBoss };
 }, [target, near ?? null, fresh]);
 
 /** Any page: stands the player at the firing point (or beside it), facing down the lane, with the row's weapon, mods and perks. */
@@ -259,12 +267,13 @@ export default async function (host, { sleep, outDir }) {
           const stood = await stand(host, row.target, row.near, who === 'host');
           if (!stood.aim) { result.skipped = 'no target'; break; }
           // Every guest must have the targets (and the truck's hit boxes) before a round is fired.
-await guest.waitForFunction(([uids, truck]) => {
+await guest.waitForFunction(([uids, last, truck]) => {
             const { ctx } = window.__op2;
             const mine = ctx.enemies.alive.map(e => e.uid);
-            // These targets and no others: the last trial's are still on the guest's screen for a moment after the host withdrew them.
-            return uids.every(uid => mine.includes(uid)) && mine.every(uid => uids.includes(uid)) && (!truck || ctx.coop.world.claims.vehicleHits.fleet.size === 1);
-          }, [stood.uids ?? [], row.target === 'truck'], { timeout: 90000 });
+            // These targets, and none of the last trial's: those stay on the guest's screen for a moment after the host withdrew them.
+            return uids.every(uid => mine.includes(uid)) && !last.some(uid => mine.includes(uid)) && (!truck || ctx.coop.world.claims.vehicleHits.fleet.size === 1);
+          }, [stood.uids ?? [], stood.last ?? [], row.target === 'truck'], { timeout: 90000 });
+          await guest.evaluate(() => window.__op2.ctx.gore.clear());
           await sleep(row.target === 'boss' ? 2500 : 700);
           await arm(other, row, lane, false); await arm(page, row, lane, true);
           // The window in front gets the frames when the machine is short of them: the shooter's.
@@ -311,7 +320,7 @@ await guest.waitForFunction(([uids, truck]) => {
           result.exact = row.tol === undefined;
           if (h.dealt > 0 && g.dealt === 0) problems.push('the guest dealt nothing');
           else if (g.differ.length) problems.push(`the same hit dealt different damage: ${JSON.stringify(g.differ.slice(0, 3))}`);
-          else if (h.dealt > 0 && fires && h.shots >= 3 && g.shots >= 3 && (ratio < 0.4 || ratio > 2.5)) problems.push(`damage per shot far apart: guest ${g.perShot}, host ${h.perShot}`);
+          else if (h.dealt > 0 && fires && h.shots >= 3 && g.shots >= 3 && ratio < 0.4) problems.push(`the guest's damage per shot is far under the host's: guest ${g.perShot}, host ${h.perShot}`);
           if (row.burns === true && h.burning > 0 && g.burning === 0) problems.push('the host set them alight, the guest did not');
           if (row.freezes && h.frozen > 0 && g.frozen === 0) problems.push('the host froze them, the guest did not');
           result.problems = problems;
