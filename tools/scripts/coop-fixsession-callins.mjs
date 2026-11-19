@@ -12,7 +12,7 @@
 //   FIX_ONLY=skyhook,jammer,running,return   COOP_SIM='lag:120,jitter:40,loss:0.05'   COOP_NET=rtc
 //   node tools/shot.mjs --port 5510 --w 1280 --h 720 --wait 500 --timeout 1200 \
 //     --script tools/scripts/coop-fixsession-callins.mjs --out tools/out/coop/fix-session/callins.png
-import { lateGuest, live, startParty, teleport } from './coop-kit.mjs';
+import { inMatch, lateGuest, live, startParty, teleport } from './coop-kit.mjs';
 import { SIM, immortal, proof, stall } from './coop-session-kit.mjs';
 
 const ONLY = (process.env.FIX_ONLY ?? '').split(',').filter(Boolean);
@@ -22,7 +22,7 @@ const waitFor = async (read, test, what, timeout, sleep) => {
   const end = Date.now() + timeout * (SIM ? 2 : 1);
   let last;
   for (;;) {
-    last = await read();
+    last = await read().catch(error => ({ unread: String(error.message ?? error).slice(0, 120) }));
     let ok = false; try { ok = test(last); } catch { ok = false; }
     if (ok) return last;
     if (Date.now() > end) throw new Error(`Timed out waiting for: ${what} :: ${JSON.stringify(last)?.slice(0, 900)}`);
@@ -144,6 +144,8 @@ export default async (host, { sleep, outDir }) => {
     if (part('running')) {
       progress('running: a fourth player joins while both are up');
       late = await lateGuest(party, 'GUEST-FOUR');
+      // Through the deploy gate and into the world: only then is there a screen to look at.
+      await inMatch([late], party.mode.contract);
       await immortal([late]);
       const seen = await waitFor(() => callins(late), c => c.copies[slots.host].some(o => o.id === 'ac130') && c.copies[slots.a].some(o => o.id === 'sentry'),
         'the late joiner having the gunship and the sentry on its screen', 30000, sleep);
