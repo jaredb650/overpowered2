@@ -147,6 +147,38 @@ describe('a claim the host refuses', () => {
     g.dispose();
   });
 
+  it('the very same hit delivered twice is applied once, counted, and the answer to the first stands', () => {
+    const g = game();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    g.guests[0]!.player.eye.set(3, 1.6, -5);
+    g.shoot();
+    expect(g.host.manager.applyDamage).toHaveBeenCalledTimes(1);
+    const sent = g.relay.sent('hit').at(-1)!;
+    g.sendFrom(0, sent);
+    g.relay.flush();
+    expect(g.host.manager.applyDamage).toHaveBeenCalledTimes(1);
+    expect(g.hw.claimBooks).toMatchObject({ received: { hit: 2 }, refusedTotal: 1, accepted: 1 });
+    expect(g.hw.claimBooks.refused.replay).toBe(1);
+    expect(g.relay.sent('nack')).toHaveLength(0);
+    g.dispose();
+  });
+
+  it('nothing a guest adds to a claim rides into the damage model with it', () => {
+    const g = game();
+    g.guests[0]!.player.eye.set(3, 1.6, -5);
+    g.shoot();
+    const sent = structuredClone(g.relay.sent<{ t: 'hit'; at: number; damage: Record<string, unknown> }>('hit').at(-1)!);
+    sent.at += 50;
+    Object.assign(sent.damage, { claim: 9, from: [0, 0, 0], torso: 'blowout', spill: true, killed: true, vaporize: 'yes', gib: 1 });
+    g.sendFrom(0, sent);
+    g.relay.flush();
+    expect(g.host.manager.applyDamage).toHaveBeenCalledTimes(2);
+    const applied = g.host.manager.applyDamage.mock.calls[1]![1] as Record<string, unknown>;
+    for (const never of ['from', 'torso', 'spill', 'killed', 'vaporize', 'gib']) expect(never in applied, never).toBe(false);
+    expect(applied).toMatchObject({ amount: 20, type: 'bullet', source: 'smg', region: 'chest', claim: 9 });
+    g.dispose();
+  });
+
   it('a long honest fight refuses nothing', () => {
     const g = game();
     g.guests[0]!.player.eye.set(3, 1.6, -5);

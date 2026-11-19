@@ -139,7 +139,7 @@ export function unpackKill(wire: unknown): KillFacts {
  * Why the host did not apply a claim, by number on the wire (add at the end only): `gone` (the enemy was already dead on the
  * host: the death is on its way or has come), then the validator's reasons (authority.ts `RejectReason`).
  */
-export const NACK_REASONS = ['gone', 'shape', 'down', 'eye', 'range', 'point', 'rate', 'hits', 'flood', 'sight'] as const;
+export const NACK_REASONS = ['gone', 'shape', 'down', 'eye', 'range', 'point', 'rate', 'hits', 'flood', 'sight', 'replay'] as const;
 export type NackReason = typeof NACK_REASONS[number];
 /** The host's "no" to a guest's hit: [the hit's number (`DamageInfo.claim`), the enemy, why]. */
 export type WireNack = [number, number, number];

@@ -12,17 +12,18 @@
 import * as THREE from 'three';
 import { CG, type DamageInfo, type ExplosionKind } from '../../core/contracts';
 import type { DamageResult, EnemyInstance, ExplosionSpec } from '../../core/gameplay';
+import type { GoreRegion } from '../../characters/rig';
 import type { Enemy } from '../../enemies/Enemy';
 import type { Vehicle } from '../../enemies/vehicles/vehicle';
 import { EXPLOSIONS, bossHit } from '../../weapons/data';
 import { claimClass, limitsOf, type RejectReason } from '../authority';
-import { unpackDamage, type WorldContext, type WorldModule } from './context';
+import type { WorldContext, WorldModule } from './context';
 import type { Replicas } from './replicas';
 import type { Targeting } from './targeting';
 import { VehicleHits } from './vehicleHits';
 import type { Vehicles } from './vehicles';
 import { packNack, type NackReason, type WireNack } from './hitWire';
-import { ENEMY_IDS, packDamage, validVec, type Vec, type WireDamage } from './wire';
+import { ENEMY_IDS, packDamage, REGIONS, validVec, type Vec, type WireDamage } from './wire';
 
 /**
  * Guest to host: my shot `shot` hit enemy `target` like this. `at` is my clock (ms) when I claimed it, `origin` my eye then.
@@ -68,6 +69,44 @@ const REFUSALS_KEPT = 64, REFUSALS_LOGGED = 40;
 /** The furthest from a bone's origin a hit on that bone can be, metres in the bone's axes (a Titan's trunk is big). */
 const LOCAL_REACH = 12;
 const _local = new THREE.Vector3();
+
+const DAMAGE_TYPES: readonly DamageInfo['type'][] = ['bullet', 'pellet', 'explosive', 'slash', 'melee', 'fire', 'shock', 'crush', 'true'];
+const LOADS: readonly NonNullable<DamageInfo['load']>[] = ['ap', 'hp', 'plusP', 'flechette', 'api'];
+const ARMOURS: readonly NonNullable<DamageInfo['armour']>[] = ['light', 'medium', 'heavy'];
+const within = (n: unknown, least: number, most: number): n is number => typeof n === 'number' && Number.isFinite(n) && n >= least && n <= most;
+
+/**
+ * Host: the damage a claim carries, as a new object holding only what a claim may say, each field checked, or null if what
+ * a hit cannot do without (an amount, a type, a point, a direction, a source) is not there. The claim's own object never
+ * reaches the damage model: a field nobody checked (or one that is the host's alone to set: where the shooter stood, how a
+ * trunk broke, whether the guts spilled) would otherwise ride in on it. A flag is taken only as `true`; an optional number
+ * out of its range is left out, as if it had not been sent.
+ */
+export function claimedDamage(wire: unknown): DamageInfo | null {
+  const w = wire as Partial<Record<keyof WireDamage, unknown>> | null;
+  if (!w || typeof w !== 'object' || !within(w.amount, 0, 1e12) || !(w.amount > 0) || !DAMAGE_TYPES.includes(w.type as DamageInfo['type'])
+    || !validVec(w.point) || !validVec(w.dir) || !within(w.force, 0, 100000) || typeof w.source !== 'string' || w.source.length > 64) return null;
+  const d: DamageInfo = { amount: w.amount, type: w.type as DamageInfo['type'], point: new THREE.Vector3(w.point[0], w.point[1], w.point[2]),
+    dir: new THREE.Vector3(w.dir[0], w.dir[1], w.dir[2]), force: w.force, source: w.source };
+  if (REGIONS.includes(w.region as GoreRegion)) d.region = w.region as GoreRegion;
+  if (within(w.bone, 0, 255) && Number.isInteger(w.bone)) d.bone = w.bone;
+  if (validVec(w.slicePlaneNormal) && Math.hypot(w.slicePlaneNormal[0], w.slicePlaneNormal[1], w.slicePlaneNormal[2]) > 1e-3) {
+    d.slicePlaneNormal = new THREE.Vector3(w.slicePlaneNormal[0], w.slicePlaneNormal[1], w.slicePlaneNormal[2]).normalize();
+  }
+  if (w.gib === true) d.gib = true;
+  if (w.pierces === true) d.pierces = true;
+  if (w.armorPiercing === true) d.armorPiercing = true;
+  if (w.vaporize === true) d.vaporize = true;
+  if (within(w.severMult, 0, 1000)) d.severMult = w.severMult;
+  if (within(w.headshotMult, 0, 1000)) d.headshotMult = w.headshotMult;
+  if (within(w.reach, 0, 1000)) d.reach = w.reach;
+  if (typeof w.blastKind === 'string' && Object.hasOwn(EXPLOSIONS, w.blastKind)) d.blastKind = w.blastKind as ExplosionKind;
+  if (LOADS.includes(w.load as NonNullable<DamageInfo['load']>)) d.load = w.load as DamageInfo['load'];
+  if (ARMOURS.includes(w.armour as NonNullable<DamageInfo['armour']>)) d.armour = w.armour as DamageInfo['armour'];
+  if (within(w.explosionId, 0, 0x7fffffff) && Number.isInteger(w.explosionId)) d.explosionId = w.explosionId;
+  if (within(w.claim, 1, 0xffff) && Number.isInteger(w.claim)) d.claim = w.claim;
+  return d;
+}
 
 const NOTHING: DamageResult = { dealt: 0, blocked: false, killed: false, headshot: false, severed: [] };
 const _from = new THREE.Vector3(), _dir = new THREE.Vector3();
@@ -272,9 +311,12 @@ export class Claims implements WorldModule {
       // screen's own): the two lie metres apart by design, and the guest shot the one it can see.
       near: point => enemy.downed ? 0 : Math.min(this.nearTrail(enemy.uid, point), this.nearRoot(enemy, point)),
     });
-    if (!verdict.ok) { this.refusal(from, value, verdict.why); this.nack(from, value, verdict.why); return; }
+    // (A repeat of a hit already taken is counted and gets no answer: the answer to the first one stands.)
+    if (!verdict.ok) { this.refusal(from, value, verdict.why); if (verdict.why !== 'replay') this.nack(from, value, verdict.why); return; }
     stats.accepted++;
-    const damage = unpackDamage(value.damage);
+    // Built field by field from what a claim may say: nothing else a guest put in the object reaches the damage model.
+    const damage = claimedDamage(value.damage);
+    if (!damage) { this.refusal(from, value, 'shape'); this.nack(from, value, 'shape'); return; }
     if (damage.bone !== undefined && damage.bone >= enemy.char.rig.bones.length) damage.bone = undefined;
     this.place(enemy, damage, value.local);
     damage.amount = bossHit(enemy.isBoss, damage.amount);

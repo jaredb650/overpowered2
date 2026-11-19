@@ -142,6 +142,54 @@ describe('friends-only hit sanity checks', () => {
   });
 });
 
+describe('the same hit twice', () => {
+  /** A hit as the game sends it: with the shooter's own number for it (`DamageInfo.claim`) and their clock. */
+  const numbered = (n: number, at: number, shot = n): HitClaim => { const value = claim(shot, at); (value.damage as { claim?: number }).claim = n; return value; };
+  const why = (validator: ClaimValidator, value: HitClaim, now: number) => { const verdict = validator.check('guest', value, now, scene()); return verdict.ok ? 'ok' : verdict.why; };
+
+  it('is applied once: an exact repeat is refused as a replay, and counted', () => {
+    const validator = new ClaimValidator();
+    expect(why(validator, numbered(7, 5000), 100)).toBe('ok');
+    expect(why(validator, numbered(7, 5000), 110)).toBe('replay');
+    expect(why(validator, numbered(7, 5000), 9000)).toBe('replay');
+    expect(validator.refused.replay).toBe(2);
+    // Another guest's hit with the same number and clock is their own.
+    expect(validator.check('other', numbered(7, 5000), 120, scene()).ok).toBe(true);
+  });
+
+  it('never refuses an honest shot: six pellets of one pull, a held trigger for a minute, the count going round, a reloaded page', () => {
+    const validator = new ClaimValidator();
+    // One pull, six pellets: one shot id, six hit numbers, one millisecond.
+    for (let pellet = 1; pellet <= 6; pellet++) expect(why(validator, numbered(pellet, 1000, 1), 100)).toBe('ok');
+    // A minute of the fastest gun in the table, one hit a round, each numbered on.
+    const gap = Math.ceil(limitsOf('smg')!.fastest * 1000) + 5;
+    let n = 6, at = 2000, refused = 0;
+    for (let i = 0; i < 60000 / gap; i++) { n++; at += gap; if (why(validator, numbered(n, at), 100 + at) !== 'ok') refused++; }
+    expect(refused).toBe(0);
+    // The hit number goes round at 65535: the same numbers again, at another time.
+    for (const again of [1, 2, 3, 4, 5, 6]) { at += gap; expect(why(validator, numbered(again, at, 70000 + again), 100 + at)).toBe('ok'); }
+    // A reloaded page counts from 1 and its clock starts again.
+    for (let fresh = 1; fresh <= 6; fresh++) expect(why(validator, numbered(fresh, 40 + fresh * gap, 80000 + fresh), 200000 + fresh * gap)).toBe('ok');
+    expect(validator.refused.replay).toBeUndefined();
+  });
+
+  it('forgets only what is far behind: a repeat of any of the last thousand hits is still caught', () => {
+    const validator = new ClaimValidator();
+    const gap = 60;
+    for (let n = 1; n <= 1500; n++) validator.check('guest', numbered(n, n * gap), n * gap, scene());
+    expect(why(validator, numbered(1500, 1500 * gap), 1500 * gap + 5)).toBe('replay');
+    expect(why(validator, numbered(600, 600 * gap), 1500 * gap + 10)).toBe('replay');
+    // Past the thousand remembered it is a hit like any other: the rate and the caps are what bound it.
+    expect(why(validator, numbered(100, 100 * gap), 1500 * gap + 20)).not.toBe('replay');
+  });
+
+  it('a claim that does not say which hit it is, is not guessed at', () => {
+    const validator = new ClaimValidator();
+    expect(why(validator, claim(1, 100), 100)).toBe('ok');
+    expect(why(validator, claim(1, 100), 100)).toBe('ok');
+  });
+});
+
 describe('all-player enemy target selection', () => {
   const players = [{ id: 'host', alive: true, position: [10, 0, 0] }, { id: 'guest', alive: true, position: [3, 0, 0] }];
   it('chooses a nearer guest, retains close calls, switches and excludes dead players', () => {

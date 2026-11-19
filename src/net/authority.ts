@@ -207,9 +207,9 @@ export type Verdict = { ok: true; kind: ClaimClass } | { ok: false; why: RejectR
 /**
  * Why a claim was refused: `shape` (not a claim at all), `down` (the shooter is down), `eye` (fired from where the shooter is
  * not), `range`, `point` (the hit is nowhere near the enemy), `rate` (more shots than the gun can fire), `hits` (more hits than a
- * shot can land), `flood`, `sight` (a wall, after every second look).
+ * shot can land), `flood`, `sight` (a wall, after every second look), `replay` (the very same hit a second time).
  */
-export type RejectReason = 'shape' | 'down' | 'eye' | 'range' | 'point' | 'rate' | 'hits' | 'flood' | 'sight';
+export type RejectReason = 'shape' | 'down' | 'eye' | 'range' | 'point' | 'rate' | 'hits' | 'flood' | 'sight' | 'replay';
 
 interface Peer {
   /** The shooter's clock minus the host's when first heard, ms. */
@@ -219,6 +219,24 @@ interface Peer {
   shots: Map<string, number>;
   order: string[];
   called: number;
+  /** Hits seen lately, each as one number (`hitKey`), and the ring that forgets the oldest. */
+  seen: Set<number>;
+  ring: Float64Array;
+  next: number;
+}
+
+/** Hits remembered per guest for the replay check: the last few seconds of the fastest gun. */
+const HITS_KEPT = 1024;
+
+/**
+ * One number for one hit: the shooter's own number for it (`damage.claim`, 1 to 65535, a new one every hit) with the
+ * shooter's clock when it was claimed (`at`, ms). A page counts its hits from 1 again after a reload, but never at the same
+ * millisecond of its clock, so two different hits never share a key. 0: the claim does not say enough to be told apart.
+ */
+function hitKey(claim: HitClaim): number {
+  const n = (claim.damage as { claim?: unknown }).claim;
+  if (typeof n !== 'number' || !Number.isInteger(n) || n <= 0 || n > 0xffff || typeof claim.at !== 'number' || !Number.isFinite(claim.at)) return 0;
+  return n * 0x100000000 + (Math.round(claim.at) >>> 0);
 }
 
 export class ClaimValidator {
@@ -233,7 +251,7 @@ export class ClaimValidator {
 
   private peer(id: string): Peer {
     let peer = this.peers.get(id);
-    if (!peer) this.peers.set(id, peer = { anchor: null, buckets: new Map(), shots: new Map(), order: [], called: -Infinity });
+    if (!peer) this.peers.set(id, peer = { anchor: null, buckets: new Map(), shots: new Map(), order: [], called: -Infinity, seen: new Set(), ring: new Float64Array(HITS_KEPT), next: 0 });
     return peer;
   }
 
@@ -278,6 +296,9 @@ export class ClaimValidator {
     if (!this.shaped(claim)) return this.no('shape');
     const peer = this.peer(id);
     const damage = claim.damage;
+    // The very same hit a second time (its number, its clock): applied once. An honest game never sends one twice, and two
+    // different hits never look the same (`hitKey`), so this cannot cost anyone a shot.
+    if (this.replayed(peer, claim)) return this.no('replay');
     const kind = claimClass(damage.source, damage.type);
     const gun = kind === 'gun' || kind === 'melee' ? limitsOf(gunOf(damage.source)) : null;
     const own = kind === 'gun' || kind === 'melee' || kind === 'body' || kind === 'mounted';
@@ -328,6 +349,19 @@ export class ClaimValidator {
       this.doubted++;
     }
     return { ok: true, kind };
+  }
+
+  /** True for a hit this guest has already claimed. Otherwise it is remembered, the oldest of `HITS_KEPT` forgotten. */
+  private replayed(peer: Peer, claim: HitClaim): boolean {
+    const key = hitKey(claim);
+    if (key === 0) return false;
+    if (peer.seen.has(key)) return true;
+    const old = peer.ring[peer.next]!;
+    if (old !== 0) peer.seen.delete(old);
+    peer.ring[peer.next] = key;
+    peer.next = (peer.next + 1) % HITS_KEPT;
+    peer.seen.add(key);
+    return false;
   }
 
   /** From the claim's eye to its hit point; failing that, from the host's copy of the eye, and to the enemy as the host has it. */

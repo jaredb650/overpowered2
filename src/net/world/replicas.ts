@@ -492,7 +492,8 @@ export class Replicas implements WorldModule {
     if (!full) return;
     e.id = Math.max(0, ENEMY_IDS.indexOf(enemy.id));
     e.posture = POSTURES.indexOf(postureOf(enemy));
-    e.health = Math.max(0, enemy.health); e.maxHealth = Math.max(0, enemy.maxHealth); e.armor = Math.max(0, enemy.armor);
+    // (`Math.max(0, NaN)` is `NaN`: the writer makes each of these a number a reader will take, snapshot.ts `sane`.)
+    e.health = enemy.health; e.maxHealth = enemy.maxHealth; e.armor = enemy.armor;
     let plates = 0, severed = 0;
     for (let index = 0; index < enemy.plates.length; index++) if (enemy.plates[index]!.hp > 0) plates |= 1 << index;
     for (let index = 0; index < REGIONS.length; index++) if (enemy.char.severed.has(REGIONS[index]!)) severed |= 1 << index;

@@ -54,9 +54,12 @@ describe('enemy snapshot chunks', () => {
     expect(decodeChunk(offset.subarray(4, -4))?.enemies).toHaveLength(2);
     const bad = (edit: (view: DataView) => void) => { const copy = packet.slice(0); edit(new DataView(copy)); return decodeChunk(copy); };
     expect(bad(v => v.setUint16(0, 0xc203, true))).toBeNull();             // the old format
-    expect(bad(v => v.setFloat32(HEADER_BYTES + 7, NaN, true))).toBeNull();  // a position
-    expect(bad(v => v.setFloat32(HEADER_BYTES + 32, -1, true))).toBeNull();  // health
-    expect(bad(v => v.setUint8(HEADER_BYTES + 27, 200))).toBeNull();         // an archetype nobody has
+    // A record of the right shape with a number no enemy can have is passed over alone: the other enemy in the chunk is
+    // still read (one bad number once cost a whole chunk of up to 40 enemies their state; hardening.property.test.ts).
+    const others = (edit: (view: DataView) => void) => bad(edit)?.enemies.map(e => e.uid);
+    expect(others(v => v.setFloat32(HEADER_BYTES + 7, NaN, true))).toEqual([2]);  // a position
+    expect(others(v => v.setFloat32(HEADER_BYTES + 32, -1, true))).toEqual([2]);  // health
+    expect(others(v => v.setUint8(HEADER_BYTES + 27, 200))).toEqual([2]);         // an archetype nobody has
     expect(bad(v => v.setUint8(12, 9))).toBeNull();                          // a phase nobody has
     expect(bad(v => v.setUint8(3, 3))).toBeNull();                           // more records than bytes
     expect(bad(v => v.setUint32(HEADER_BYTES + FULL_BYTES, 1, true))).toBeNull(); // the same uid twice

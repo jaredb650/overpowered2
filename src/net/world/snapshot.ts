@@ -164,7 +164,9 @@ export class ChunkWriter {
     v.setUint8(o + 4, (e.full ? 1 : 0) | (e.tier & 3) << 1 | (e.legs & 3) << 3 | (e.rising ? 32 : 0) | (e.aiming ? 64 : 0));
     v.setUint8(o + 5, e.flags & 255);
     v.setUint8(o + 6, (e.animation & 3) | (e.target & 3) << 2);
-    v.setFloat32(o + 7, e.x, true); v.setFloat32(o + 11, e.y, true); v.setFloat32(o + 15, e.z, true);
+    // Whatever the game holds, what goes out can be read: one enemy with a broken number (a `NaN` health, a fall past the
+    // edge of the world) must not cost every enemy that shares its chunk their state on every guest.
+    v.setFloat32(o + 7, sane(e.x, -PLACE_MOST, PLACE_MOST), true); v.setFloat32(o + 11, sane(e.y, -PLACE_MOST, PLACE_MOST), true); v.setFloat32(o + 15, sane(e.z, -PLACE_MOST, PLACE_MOST), true);
     v.setInt16(o + 19, Math.round(wrapAngle(e.yaw) * 10000), true);
     v.setInt16(o + 21, Math.round(clamp(e.vx, -327, 327) * 100), true);
     v.setInt16(o + 23, Math.round(clamp(e.vy, -327, 327) * 100), true);
@@ -174,7 +176,7 @@ export class ChunkWriter {
       v.setUint8(o + 28, e.plates & 255);
       v.setUint8(o + 29, e.posture);
       v.setUint16(o + 30, e.severed & 0xffff, true);
-      v.setFloat32(o + 32, e.health, true); v.setFloat32(o + 36, e.maxHealth, true); v.setFloat32(o + 40, e.armor, true);
+      v.setFloat32(o + 32, sane(e.health, 0, HEALTH_MOST), true); v.setFloat32(o + 36, sane(e.maxHealth, 0, HEALTH_MOST), true); v.setFloat32(o + 40, sane(e.armor, 0, HEALTH_MOST), true);
     }
     this.at = o + (e.full ? FULL_BYTES : MOTION_BYTES);
     this.records++;
@@ -193,6 +195,11 @@ export class ChunkWriter {
   }
 }
 
+/** The furthest from the origin an enemy's place may be, metres, and the most health or armour a record carries. */
+export const PLACE_MOST = 100000, HEALTH_MOST = 1e9;
+/** A number made fit to send: not-a-number is 0 (as is an infinity), and the rest is held to the range. */
+export const sane = (n: number, least: number, most: number): number => Number.isFinite(n) ? n < least ? least : n > most ? most : n : 0;
+
 /**
  * Either end: reads a chunk. `open` checks every byte of it first (it came from another browser, possibly not whole) and
  * says null for anything malformed; then `next` hands out the records one at a time in the same scratch object.
@@ -204,6 +211,11 @@ export class ChunkReader {
   private at = 0;
   private left = 0;
   private readonly seen: number[] = [];
+  /** Records of the open chunk whose numbers cannot be used (by index): `next` passes over them. */
+  private readonly bad: boolean[] = [];
+  private index = 0;
+  /** Records passed over since this reader was made: a number in one that no enemy can have. For the proofs and the log. */
+  skipped = 0;
 
   open(data: unknown): ChunkHeader | null {
     const bytes = data instanceof ArrayBuffer ? new Uint8Array(data) : data instanceof Uint8Array ? data : null;
@@ -214,9 +226,13 @@ export class ChunkReader {
     if (v.getUint16(0, true) !== SNAPSHOT_MAGIC) return null;
     const kind = v.getUint8(2), count = v.getUint8(3), phase = v.getUint8(12);
     if (kind > 1 || phase >= WAVE_PHASES.length) return null;
-    const seen = this.seen;
+    const seen = this.seen, bad = this.bad;
     seen.length = 0;
+    bad.length = 0;
     let at = HEADER_BYTES;
+    // The chunk's shape is checked whole: a record that runs off the end, or a uid given twice, is a chunk that cannot be
+    // trusted at all. A record of the right shape with a number no enemy can have is one bad record: it alone is passed
+    // over, and the enemies that share its chunk (up to 40 of them) keep their state.
     for (let index = 0; index < count; index++) {
       if (at + 4 > bytes.byteLength) return null;
       const uid = v.getUint32(at, true);
@@ -226,20 +242,23 @@ export class ChunkReader {
       if (at + MOTION_BYTES > bytes.byteLength) return null;
       const full = (v.getUint8(at + 4) & 1) !== 0;
       if (full && at + FULL_BYTES > bytes.byteLength) return null;
+      let usable = true;
       for (let axis = 0; axis < 3; axis++) {
         const p = v.getFloat32(at + 7 + axis * 4, true);
-        if (!Number.isFinite(p) || Math.abs(p) > 100000) return null;
+        if (!Number.isFinite(p) || Math.abs(p) > PLACE_MOST) usable = false;
       }
       if (full) {
-        if (v.getUint8(at + 27) >= ENEMY_IDS.length) return null;
+        if (v.getUint8(at + 27) >= ENEMY_IDS.length) usable = false;
         for (let field = 0; field < 3; field++) {
           const n = v.getFloat32(at + 32 + field * 4, true);
-          if (!Number.isFinite(n) || n < 0) return null;
+          if (!Number.isFinite(n) || n < 0) usable = false;
         }
       }
+      if (!usable) bad[index] = true;
       at += full ? FULL_BYTES : MOTION_BYTES;
     }
     if (at !== bytes.byteLength) return null;
+    this.index = 0;
     const h = this.header;
     h.kind = kind as 0 | 1; h.count = count;
     h.time = v.getUint32(4, true); h.tick = v.getUint16(8, true); h.wave = v.getUint16(10, true);
@@ -253,8 +272,17 @@ export class ChunkReader {
   /** The next record of a states chunk, or null when there are no more. */
   next(): WireEnemy | null {
     const v = this.view;
-    if (!v || this.left <= 0 || this.header.kind !== 0) return null;
+    if (!v || this.header.kind !== 0) return null;
+    // Past any record `open` found unusable.
+    while (this.left > 0 && this.bad[this.index] === true) {
+      this.at += (v.getUint8(this.at + 4) & 1) !== 0 ? FULL_BYTES : MOTION_BYTES;
+      this.left--;
+      this.index++;
+      this.skipped++;
+    }
+    if (this.left <= 0) return null;
     this.left--;
+    this.index++;
     const e = this.enemy, o = this.at;
     e.uid = v.getUint32(o, true);
     const bits = v.getUint8(o + 4);

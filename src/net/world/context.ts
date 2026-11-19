@@ -4,7 +4,7 @@
  * in world.ts), never through this object.
  */
 import * as THREE from 'three';
-import { CG, type Ctx, type DamageInfo, type GameEvents } from '../../core/contracts';
+import { CG, type Ctx, type GameEvents } from '../../core/contracts';
 import type { EnemyManager } from '../../enemies/EnemyManager';
 import { ClaimValidator } from '../authority';
 import type { CoopSession } from '../index';
@@ -12,19 +12,13 @@ import type { RemotePlayer } from '../remote';
 import type { Team, TeamLife } from '../team';
 import type { WorldEvent } from '../worldProtocol';
 import { Router } from './router';
-import type { Vec, WireDamage } from './wire';
+import type { Vec } from './wire';
 
 /** A feature of the co-op world. world.ts runs `update` on each, in its list's order, once the world has begun. */
 export interface WorldModule {
   /** Every frame, host and guest alike. `now` is `performance.now()`, read once for the frame. */
   update?(now: number): void;
   dispose?(): void;
-}
-
-/** Damage as it came over the wire, with its vectors back. */
-export function unpackDamage(damage: WireDamage): DamageInfo {
-  return { ...damage, point: new THREE.Vector3(...damage.point), dir: new THREE.Vector3(...damage.dir),
-    slicePlaneNormal: damage.slicePlaneNormal ? new THREE.Vector3(...damage.slicePlaneNormal) : undefined };
 }
 
 /** Host: work for a little later (an enemy's blast on a remote player, after its fuse), run from the world's update. */
