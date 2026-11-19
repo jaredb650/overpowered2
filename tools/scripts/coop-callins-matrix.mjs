@@ -179,7 +179,7 @@ export default async function (host, { sleep, outDir }) {
       const { ctx } = window.__op2, V = ctx.player.position.constructor;
       const WORLD = 1, up = new V(0, 1, 0), eye = new V(from[0], from[1] + 1.6, from[2]);
       let best = null, bestScore = Infinity;
-      for (let d = 26; d <= 46; d += 4) for (let a = -1.4; a <= 1.4; a += 0.1) {
+      for (let d = 18; d <= 58; d += 4) for (let a = -1.5; a <= 1.5; a += 0.1) {
         const p = new V(from[0] - Math.sin(yaw + a) * d, from[1], from[2] - Math.cos(yaw + a) * d);
         const snapped = p.clone();
         if (!ctx.world.nav.nearest?.(p, 3, snapped) || Math.abs(snapped.y - from[1]) > 0.6) continue;
@@ -188,6 +188,17 @@ export default async function (host, { sleep, outDir }) {
           if (ctx.physics.raycast(new V(snapped.x + dx, snapped.y + 0.5, snapped.z + dz), up, 140, WORLD)) { open = false; break; }
         }
         if (!open) continue;
+        // Level ground all round, 7 m out. The targets stand in a ring on the mark and a strike's rounds land on the real
+        // ground: on a walkway over a drop (where this mark once fell) the men float over the pit, the Warthog's shells land
+        // 6 to 8 m under them, and whether it kills anyone is the luck of its scatter. That was the "Warthog that dealt no
+        // damage": no claim was lost, nothing was in reach of a blast on any screen.
+        let level = true;
+        const down = new V(0, -1, 0);
+        for (let dx = -7; dx <= 7 && level; dx += 3.5) for (let dz = -7; dz <= 7; dz += 3.5) {
+          const floor = ctx.physics.raycast(new V(snapped.x + dx, snapped.y + 12, snapped.z + dz), down, 40, WORLD);
+          if (!floor || Math.abs(snapped.y + 12 - floor.distance - snapped.y) > 0.7) { level = false; break; }
+        }
+        if (!level) continue;
         const to = new V(snapped.x, snapped.y + 1.2, snapped.z).sub(eye); const far = to.length();
         if (ctx.physics.raycast(eye, to.divideScalar(far), far - 0.5, WORLD)) continue;
         const score = Math.abs(a) * 10 + Math.abs(d - 34);
@@ -195,7 +206,7 @@ export default async function (host, { sleep, outDir }) {
       }
       return best;
     }, [spawnAt, yaw]);
-    if (!mark) throw new Error('No open ground in sight of the spawn to put the mark on');
+    if (!mark) throw new Error('No open, level ground in sight of the spawn to put the mark on');
     out.mark = mark;
     const side = [Math.cos(yaw), 0, -Math.sin(yaw)];
     // Everyone stands in a row at the spawn, two metres apart, looking at the mark.
