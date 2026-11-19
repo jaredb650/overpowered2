@@ -238,17 +238,28 @@ export class Game {
  * Chosen over silent keep-alive audio (unreliable once the audio context suspends, and the game suspends it when hidden)
  * and over pausing everyone (the friends would sit frozen whenever the host alt-tabs).
  */
+const HIDDEN_TICK_MS = 33;
 function keepTickingWhenHidden(active: () => boolean, step: () => void): void {
   if (typeof document === 'undefined' || typeof Worker === 'undefined') return;
   let worker: Worker | null = null;
+  /** When the last step ended. */
+  let stepped = 0;
   const sync = () => {
     const want = document.hidden && active();
     if (want && !worker) {
       try {
-        const url = URL.createObjectURL(new Blob(['setInterval(() => postMessage(0), 33);'], { type: 'text/javascript' }));
+        const url = URL.createObjectURL(new Blob([`setInterval(() => postMessage(0), ${HIDDEN_TICK_MS});`], { type: 'text/javascript' }));
         worker = new Worker(url);
         URL.revokeObjectURL(url);
-        worker.onmessage = () => { if (document.hidden && active()) step(); else sync(); };
+        worker.onmessage = () => {
+          if (!(document.hidden && active())) { sync(); return; }
+          // A step that took longer than a tick leaves ticks queued behind it. Taking them all would run steps back to back
+          // with no end, and the page would never reach its timers or its network (the match then drops as "lost"). The ones
+          // that queued are skipped: the world's clock is the real one, so nothing is lost but the frames.
+          if (performance.now() - stepped < HIDDEN_TICK_MS * 0.6) return;
+          step();
+          stepped = performance.now();
+        };
       } catch { worker = null; }
     } else if (!want && worker) {
       worker.terminate();
